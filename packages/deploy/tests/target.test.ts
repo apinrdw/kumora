@@ -4,8 +4,10 @@ import {
   APPS,
   deployTarget,
   devStage,
+  isPreview,
   parseStage,
   stageTarget,
+  type Preview,
 } from "@workspace/deploy"
 
 // Hashes are SHA-256 prefixes computed outside this code (Python hashlib).
@@ -123,4 +125,26 @@ describe("parseStage", () => {
       expect(parseStage(stage)).toBe(stage)
     }
   )
+})
+
+describe("isPreview", () => {
+  test.each(["production", "staging", "test", "dev_jarvis"])(
+    "refuses %j",
+    (raw) => {
+      expect(isPreview(parseStage(raw))).toBe(false)
+    }
+  )
+
+  test("accepts a branch preview and narrows it to Preview", () => {
+    const stage = deployTarget("web", "feature/login").stage
+    if (!isPreview(stage)) throw new Error("expected a preview")
+    const preview: Preview = stage
+    expect(preview).toBe("feature-login-df7c7a")
+  })
+
+  test("a Stage is not a Preview until isPreview narrows it", () => {
+    // @ts-expect-error a production Stage cannot stand where a Preview is required
+    const preview: Preview = parseStage("production")
+    expect(preview).toBe("production")
+  })
 })
