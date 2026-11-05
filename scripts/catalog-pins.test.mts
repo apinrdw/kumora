@@ -1,6 +1,4 @@
-// Two copies of Effect break Context.Service and Schema.TaggedError identity,
-// and repos/effect and repos/alchemy track the same versions, so the Effect and
-// Alchemy pins live once, in the pnpm-workspace.yaml catalog.
+// Enforces the catalog Decision in pnpm-workspace.yaml.
 import { spawnSync } from "node:child_process"
 import { readFileSync } from "node:fs"
 import { join, relative, resolve } from "node:path"

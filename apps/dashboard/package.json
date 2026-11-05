@@ -13,7 +13,7 @@
     "test": "vitest run --passWithNoTests"
   },
   "dependencies": {
-    "@alchemy.run/cloudflare": "2.0.0-beta.85",
+    "@alchemy.run/cloudflare": "catalog:",
     "@tabler/icons-react": "^3.49.0",
     "@tailwindcss/vite": "^4",
     "@tanstack/react-router": "latest",
@@ -21,8 +21,8 @@
     "@tanstack/react-start": "latest",
     "@workspace/deploy": "workspace:*",
     "@workspace/ui": "workspace:*",
-    "alchemy": "2.0.0-beta.85",
-    "effect": "4.1.2",
+    "alchemy": "catalog:",
+    "effect": "catalog:",
     "react": "^19.2.8",
     "react-dom": "^19.2.8",
     "recharts": "3.8.0",

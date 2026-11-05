@@ -13,7 +13,7 @@
     "test": "vitest run"
   },
   "dependencies": {
-    "@alchemy.run/cloudflare": "2.0.0-beta.85",
+    "@alchemy.run/cloudflare": "catalog:",
     "@tailwindcss/vite": "^4",
     "@tanstack/react-router": "latest",
     "@tanstack/react-router-devtools": "latest",
@@ -21,15 +21,15 @@
     "@workspace/deploy": "workspace:*",
     "@workspace/server": "workspace:*",
     "@workspace/ui": "workspace:*",
-    "alchemy": "2.0.0-beta.85",
-    "effect": "4.1.2",
+    "alchemy": "catalog:",
+    "effect": "catalog:",
     "react": "^19.2.8",
     "react-dom": "^19.2.8",
     "tailwindcss": "^4"
   },
   "devDependencies": {
     "@cloudflare/workers-types": "^5.20261104.1",
-    "@effect/vitest": "4.1.2",
+    "@effect/vitest": "catalog:",
     "@tanstack/devtools-vite": "latest",
     "@tanstack/router-cli": "^1.167.41",
     "@types/node": "^22",

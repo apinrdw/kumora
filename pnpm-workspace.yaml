@@ -14,3 +14,18 @@ minimumReleaseAgeExclude:
   - '@oxlint/*'
   - oxfmt
   - '@oxfmt/*'
+
+# Decision: the Effect and Alchemy pins live here once. Two Effect copies break
+# Context.Service and Schema.TaggedError identity, and repos/effect and
+# repos/alchemy are subtrees of these exact versions, so a bump here also runs
+# the subtree pull in AGENTS.md. scripts/catalog-pins.test.mts rejects a
+# non-catalog specifier for them; catalogMode only governs pnpm add.
+catalog:
+  effect: &effect 4.1.2
+  "@effect/platform-bun": *effect
+  "@effect/platform-node": *effect
+  "@effect/vitest": *effect
+  alchemy: &alchemy 2.0.0-beta.85
+  "@alchemy.run/cloudflare": *alchemy
+  "@alchemy.run/frontend-frameworks": *alchemy
+  "@alchemy.run/infisical": *alchemy

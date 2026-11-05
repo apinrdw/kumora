@@ -4,7 +4,8 @@
   // runtime; without them `alchemy dev` fails with "could not load the required
   // peer dependency @effect/platform-bun". pnpm never auto-installs optional
   // peers, so the root declares them and every workspace resolves them from
-  // there. Bump them with the alchemy pin. See apinrdw/kumora#16.
+  // there. Their versions are the effect and alchemy entries of the
+  // pnpm-workspace.yaml catalog. See apinrdw/kumora#16.
   "ignoreDependencies": [
     "@alchemy.run/frontend-frameworks",
     "@effect/platform-bun",
