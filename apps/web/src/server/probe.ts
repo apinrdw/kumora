@@ -4,7 +4,8 @@
 import { WorkerEnv } from "@workspace/server"
 import { Effect } from "effect"
 
-// docs/runbooks/deploy.md, "Checking a stage", compares this many hex digits.
+// docs/runbooks/deploy.md, "Checking a stage", compares this many hex digits,
+// and scripts/deploy-setup.sh reads this line with sed: keep its shape.
 const SHA256_PREFIX_LENGTH = 12
 
 const sha256Prefix = Effect.fnUntraced(function* (value: string) {

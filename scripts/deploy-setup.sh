@@ -197,6 +197,14 @@ INFISICAL="https://app.infisical.com"
 BUN_VERSION="$(tr -d '[:space:]' < .bun-version)"
 BRANCH="$(git branch --show-current)"
 sha256() { if command -v sha256sum >/dev/null 2>&1; then sha256sum; else shasum -a 256; fi; }
+# worker_name APP STAGE asks packages/deploy, which owns the naming rule.
+worker_name() {
+  bun -e 'import { parseStage, stageTarget } from "./packages/deploy/src/target.ts"
+console.log(stageTarget(process.argv[1], parseStage(process.argv[2])).workerName)' "$1" "$2"
+}
+# Root files every app's install or build reads: a lockfile or catalog change
+# alone must still deploy.
+ROOT_WATCH_PATHS="pnpm-lock.yaml, pnpm-workspace.yaml, package.json, .bun-version"
 
 banner "kumora deploy setup (docs/runbooks/deploy.md)"
 
@@ -204,26 +212,33 @@ banner "kumora deploy setup (docs/runbooks/deploy.md)"
 stage "Workers Builds: point kumora-web-builds at the deploy script"
 say "The web connection still runs the throwaway deploy's script. Give it the real one."
 open_url "$CF/workers/services/view/kumora-web-builds/production/settings"
-note "This settings URL is unverified; if it 404s, open Workers & Pages → kumora-web-builds → Settings → Build."
+note "This settings URL is unverified; if it 404s, try Workers & Pages → kumora-web-builds → Settings → Build (also unverified)."
+note "Deploy command, Version command and Build command are field names observed 2026-11-05."
 step "Deploy command:  bun ../../packages/deploy/src/deploy.ts web"
 step "Version command (runs for non-production branches):  the same line, replacing anything there."
-step "Build command: leave empty (Workers Builds already runs pnpm install)."
-step "Build variables: add BUN_VERSION = $BUN_VERSION (keep INFISICAL_CLIENT_ID and INFISICAL_CLIENT_SECRET)."
+step "Build command: leave empty (as observed 2026-11-05, Workers Builds already runs pnpm install)."
+step "Build variables (field name unverified): add BUN_VERSION = $BUN_VERSION (keep INFISICAL_CLIENT_ID and INFISICAL_CLIENT_SECRET)."
+step "Watch paths (field name unverified): keep apps/web/**, packages/** and add $ROOT_WATCH_PATHS."
+note "Whether the field takes a bare root file name, and how it separates entries, is unverified."
 pause "Saved? Press Enter."
 
 # ── 2 ─────────────────────────────────────────────────────────────────────
 stage "Workers Builds: create and connect kumora-dashboard-builds"
 say "An anchor Worker that Alchemy never deploys; it only hosts the dashboard's connection."
 open_url "$CF/workers-and-pages/create"
-note "This create URL is unverified; otherwise Workers & Pages → Create → Import a repository."
+note "This create URL is unverified; otherwise try Workers & Pages → Create → Import a repository (also unverified)."
+note "Root directory, Deploy command, Version command and Build command are field names observed 2026-11-05;"
+note "the other field names below are unverified."
 step "Repository: apinrdw/kumora. Worker name: kumora-dashboard-builds."
-step "Root directory: apps/dashboard. Watch paths: apps/dashboard/**, packages/**."
+step "Root directory: apps/dashboard."
+step "Watch paths: apps/dashboard/**, packages/**, $ROOT_WATCH_PATHS."
+note "Whether the field takes a bare root file name, and how it separates entries, is unverified."
 step "Production branch: main. Non-production branch builds: on."
 step "Deploy command and Version command:  bun ../../packages/deploy/src/deploy.ts dashboard"
 step "Build command: empty. Build variables: BUN_VERSION = $BUN_VERSION."
 step "Build variables: INFISICAL_CLIENT_ID and INFISICAL_CLIENT_SECRET (as secrets) of kumora-workers-builds."
-note "Infisical shows a client secret only when it is created. If you no longer have it, create a new one"
-note "for kumora-workers-builds and paste it into both kumora-web-builds and kumora-dashboard-builds."
+note "Infisical may show a client secret only when it is created (unverified). If you no longer have it,"
+note "create a new one for kumora-workers-builds and paste it into both kumora-web-builds and kumora-dashboard-builds."
 pause "Connected? Press Enter."
 
 # ── 3 ─────────────────────────────────────────────────────────────────────
@@ -231,12 +246,15 @@ stage "Infisical: create the teardown identity kumora-github-teardown"
 say "The GitHub teardown job logs in with GitHub's OIDC token, so GitHub stores no secret."
 open_url "$INFISICAL"
 note "Organization → Access Control → Identities is the likely path (unverified)."
+note "The form and field names below were observed 2026-11-05, except where marked unverified."
 step "Create identity kumora-github-teardown, then Add Auth Method → OIDC Auth → Custom Configuration:"
-step "  OIDC Discovery URL and Issuer (type it; the placeholder is not a value):"
+step "  OIDC Discovery URL and Issuer (type it; a placeholder there, if any, is not a value):"
 step "    https://token.actions.githubusercontent.com"
 step "  Subject: repo:apinrdw/kumora:*    Audiences: https://github.com/apinrdw"
-step "  Access Token TTL and Max TTL: 1800. Leave Max Number of Uses empty."
+note "  Whether Subject accepts the * wildcard is unverified."
+step "  Access Token TTL and Max TTL: 1800. Leave Max Number of Uses (unverified field) empty."
 step "Add it to project kumora with read access to the staging environment only."
+note "Whether Infisical can scope an identity to one environment is unverified."
 ask INFISICAL_TEARDOWN_IDENTITY_ID "Paste the identity's ID (not a secret):"
 
 # ── 4 ─────────────────────────────────────────────────────────────────────
@@ -255,18 +273,18 @@ stage "Cloudflare: replace the user API tokens with account tokens"
 say "Both tokens in Infisical are user tokens with no expiry. Replace each with a 1-year account token."
 open_url "$CF/api-tokens"
 note "This path is unverified; the runbook expects Manage Account → Account API Tokens → Create Token."
-step "Permissions: Workers Scripts, KV, R2, D1, Queues, Pages, Account Settings, Secrets Store Write"
-step "(all Edit/Write) plus Workers Tail Read. TTL: one year."
+step "Permissions (as observed 2026-11-05, deploy and destroy work with these): Workers Scripts, KV, R2, D1,"
+step "Queues, Pages, Account Settings, Secrets Store Write (all Edit/Write) plus Workers Tail Read. TTL: one year."
 step "Create one token for prod and one for staging."
 open_url "$INFISICAL"
 step "In project kumora, paste each over CLOUDFLARE_API_TOKEN at / of its environment (prod, staging)."
-step "Then delete the two old user tokens in Cloudflare (My Profile → API Tokens)."
+step "Then delete the two old user tokens in Cloudflare (My Profile → API Tokens, an unverified path)."
 if confirm "Did you replace both tokens?"; then :; else SKIPPED+=("Cloudflare account tokens (runbook step 2)"); fi
 
 # ── 6 ─────────────────────────────────────────────────────────────────────
 stage "Infisical: delete the unused dev environment"
 open_url "$INFISICAL"
-step "Project kumora → Settings → Environments: delete dev. Keep prod and staging."
+step "Project kumora → Settings → Environments (an unverified path): delete dev. Keep prod and staging."
 warn "Deleting an environment deletes its secrets and cannot be undone."
 if confirm "Deleted dev (or it was already gone)?"; then :; else SKIPPED+=("Infisical dev environment (runbook step 1)"); fi
 
@@ -284,10 +302,11 @@ pause
 # ── 8 ─────────────────────────────────────────────────────────────────────
 stage "Destroy the throwaway deploy's preview"
 SCRATCH="scratch-alchemy-throwaway-depl-28dcd6"
-say "The throwaway deploy (apinrdw/kumora#20) left kumora-web-$SCRATCH on the account."
+SCRATCH_WORKER="$(worker_name web "$SCRATCH")"
+say "The throwaway deploy (apinrdw/kumora#20) left $SCRATCH_WORKER on the account."
 say "This runs: bun alchemy destroy --stage $SCRATCH --yes  (in apps/web, with your profile)"
 note "Already destroyed? Alchemy finds nothing and exits cleanly."
-if confirm "Destroy kumora-web-$SCRATCH now? It cannot be undone."; then
+if confirm "Destroy $SCRATCH_WORKER now? It cannot be undone."; then
   (cd apps/web && bun alchemy destroy --stage "$SCRATCH" --yes) || SKIPPED+=("destroy stage $SCRATCH")
 else
   SKIPPED+=("destroy stage $SCRATCH")
@@ -304,17 +323,23 @@ else
   say "Branch $BRANCH deploys to the Preview stage $PREVIEW."
   open_url "$CF/workers-and-pages"
   step "Open each connection's latest build for $BRANCH and retry it (kumora-web-builds, kumora-dashboard-builds)."
+  note "Where the build list and its retry action sit in the dashboard is unverified."
   pause "When both builds show Success, press Enter."
   gh pr checks "$BRANCH" 2>/dev/null || true
 
   say ""
-  say "Checking https://kumora-web-$PREVIEW.kumora.workers.dev/probe"
+  PROBE="https://$(worker_name web "$PREVIEW").kumora.workers.dev/probe"
+  # The probe's own constant, so the wizard compares as many digits as it answers.
+  PREFIX_LENGTH="$(sed -n 's/^const SHA256_PREFIX_LENGTH = \([0-9][0-9]*\)$/\1/p' apps/web/src/server/probe.ts)"
+  [[ -n "$PREFIX_LENGTH" ]] || { warn "SHA256_PREFIX_LENGTH not found in apps/web/src/server/probe.ts"; exit 1; }
+  say "Checking $PROBE"
   open_url "$INFISICAL"
-  step "Copy DEPLOY_PROBE_SECRET from project kumora → staging → /web. It is hashed here and never stored."
+  step "Copy DEPLOY_PROBE_SECRET from folder /web of the staging environment in project kumora."
+  note "It is hashed here and never stored. The dashboard path to that folder is unverified."
   ask_secret PROBE_SECRET "Paste it:"
-  EXPECTED="$(printf '%s' "$PROBE_SECRET" | sha256 | cut -c1-12)"
+  EXPECTED="$(printf '%s' "$PROBE_SECRET" | sha256 | cut -c1-"$PREFIX_LENGTH")"
   unset PROBE_SECRET
-  BODY="$(curl -fsS "https://kumora-web-$PREVIEW.kumora.workers.dev/probe" || true)"
+  BODY="$(curl -fsS "$PROBE" || true)"
   if [[ "$BODY" == *'"secretPresent":true'* && "$BODY" == *"\"secretSha256Prefix\":\"$EXPECTED\""* ]]; then
     printf '  %s✓ web preview has the staging secret (prefix %s)%s\n' "$GREEN" "$EXPECTED" "$RESET"
   else
@@ -322,7 +347,7 @@ else
     SKIPPED+=("web preview /probe check")
   fi
 
-  DASH="https://kumora-dashboard-$PREVIEW.kumora.workers.dev/"
+  DASH="https://$(worker_name dashboard "$PREVIEW").kumora.workers.dev/"
   say "Checking $DASH"
   # The dashboard has no pages yet, so / renders its shell with a 404 status.
   if curl -sS "$DASH" | grep -q '<title>KUMORA Terminal</title>'; then
