@@ -5,7 +5,9 @@ export default defineConfig({
   forbidOnly: Boolean(process.env.CI),
   reporter: "list",
   use: { browserName: "chromium" },
-  // A .dev.vars, when present, takes precedence over this dummy value.
+  // Both apps run on alchemy's local `test` stage: local state, no Infisical,
+  // so the dummy value below comes from the process environment and no
+  // Cloudflare or Infisical credential is needed.
   // Never reuse a server: a leftover one would hide a startup failure.
   webServer: [
     {
@@ -13,6 +15,7 @@ export default defineConfig({
         "pnpm exec turbo run dev --only --ui=stream --filter=web --filter=dashboard",
       cwd: "../..",
       env: {
+        ALCHEMY_STAGE: "test",
         DEPLOY_PROBE_SECRET: "e2e-dummy-not-a-secret",
       },
       url: "http://localhost:3000/probe",

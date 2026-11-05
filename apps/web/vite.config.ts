@@ -1,4 +1,3 @@
-import { cloudflare } from "@cloudflare/vite-plugin"
 import { defineConfig } from "vite"
 import { devtools } from "@tanstack/devtools-vite"
 import { tanstackStart } from "@tanstack/react-start/plugin/vite"
@@ -8,12 +7,14 @@ import tailwindcss from "@tailwindcss/vite"
 const config = defineConfig({
   resolve: { tsconfigPaths: true },
   plugins: [
-    // The OS picks the port. The default probes 9229 and binds it later, so apps
-    // started together race for it and one dies with EADDRINUSE.
-    cloudflare({ viteEnvironment: { name: "ssr" }, inspectorPort: 0 }),
     devtools(),
     tailwindcss(),
     tanstackStart({
+      // Decision: keep prerendering `/` under alchemy, whose prerender server
+      // runs the SSR bundle in Bun without bindings. So no module prerender
+      // reaches may import `cloudflare:workers` at top level; the bridge in
+      // packages/server reaches it per request. Fallback: alchemy's runtime
+      // plugin in this file, for preview only. See apinrdw/kumora#23.
       prerender: {
         enabled: true,
         crawlLinks: true,

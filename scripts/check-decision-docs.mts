@@ -7,7 +7,15 @@ import { resolve } from "node:path"
 const root = resolve(import.meta.dirname, "..")
 const files = execFileSync(
   "git",
-  ["ls-files", "--cached", "--others", "--exclude-standard"],
+  // repos/ is vendored upstream source, which may keep ADRs of its own.
+  [
+    "ls-files",
+    "--cached",
+    "--others",
+    "--exclude-standard",
+    "--",
+    ":(exclude)repos",
+  ],
   { cwd: root, encoding: "utf8" }
 )
   .split("\n")

@@ -1,4 +1,4 @@
-import { env } from "cloudflare:workers"
+import { env } from "../support/cloudflare-workers"
 import { afterEach, describe, expect, test } from "vitest"
 
 import { Route } from "@/routes/probe"

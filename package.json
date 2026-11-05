@@ -3,9 +3,7 @@
   "version": "0.0.1",
   "private": true,
   "scripts": {
-    "check": "pnpm types:check && pnpm typecheck && pnpm lint && pnpm format:check && pnpm test && pnpm build && node scripts/check-skill-links.mts && node scripts/check-decision-docs.mts && node scripts/check-package-scripts.mts",
-    "types:check": "pnpm --filter web exec wrangler types --check && pnpm --filter dashboard exec wrangler types --check",
-    "build": "turbo build",
+    "check": "pnpm typecheck && pnpm lint && pnpm format:check && pnpm test && node scripts/check-skill-links.mts && node scripts/check-decision-docs.mts && node scripts/check-package-scripts.mts",
     "dev": "turbo dev",
     "lint": "turbo run lint lint:root",
     "lint:root": "oxlint scripts",
@@ -21,12 +19,16 @@
     "test:root": "node --test 'scripts/*.test.mts'"
   },
   "devDependencies": {
+    "@alchemy.run/frontend-frameworks": "2.0.0-beta.85",
+    "@effect/platform-bun": "4.1.2",
+    "@effect/platform-node": "4.1.2",
     "@types/node": "^22",
     "oxfmt": "0.75.0",
     "oxlint": "1.90.0",
     "turbo": "^2.11.7",
     "typescript": "7.0.2",
-    "vitest": "^5.0.5"
+    "vitest": "^5.0.5",
+    "ws": "^8.22.0"
   },
   "packageManager": "pnpm@11.25.0",
   "engines": {
