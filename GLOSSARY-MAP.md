@@ -7,4 +7,6 @@ This repo is multi-context. Each pnpm workspace owns its own `GLOSSARY.md`. Deci
 | Dashboard | `apps/dashboard` | The market terminal. Only its shell today, with no pages.     | `apps/dashboard/GLOSSARY.md` |
 | Web       | `apps/web`       | Public site. Starter landing page today.                                                          | `apps/web/GLOSSARY.md`       |
 | E2E       | `apps/e2e`       | Playwright smoke tests for both apps. No domain terms of its own.                                 | none                         |
+| Deploy    | `packages/deploy` | Branch to Stage, Worker names, the stack options and the deploy and teardown scripts. Deploy-time only. | `packages/deploy/GLOSSARY.md` |
+| Server    | `packages/server` | The Effect bridge for server functions: `runServerEffect`, `WorkerEnv`, the HTTP errors. Server-only. | `packages/server/GLOSSARY.md` |
 | UI        | `packages/ui`    | Shared shadcn/ui components, hooks, and styles. Design-system vocabulary, no market domain terms. | `packages/ui/GLOSSARY.md`    |

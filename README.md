@@ -11,6 +11,8 @@ A market terminal for the Indonesian stock exchange, built as a pnpm + Turborepo
 | `apps/dashboard` | `dashboard`     | The terminal. Only its shell today, with no pages. Port 3001 in dev. |
 | `apps/web`       | `web`           | Public site. Still the starter landing page. Port 3000 in dev.                                                                      |
 | `apps/e2e`       | `e2e`           | Playwright smoke tests. Starts both apps with dummy values, so no secret is needed.                                                 |
+| `packages/deploy` | `@workspace/deploy` | Branch to stage, Worker names, the Alchemy stack options, and the deploy and teardown scripts. |
+| `packages/server` | `@workspace/server` | The Effect bridge server functions run through: `runServerEffect`, `WorkerEnv`, the HTTP errors. |
 | `packages/ui`    | `@workspace/ui` | Shared shadcn/ui components, hooks, and Tailwind styles consumed by both apps.                                                      |
 
 ## Commands
@@ -18,15 +20,14 @@ A market terminal for the Indonesian stock exchange, built as a pnpm + Turborepo
 Run from the repo root. Each fans out through Turborepo to every workspace.
 
 ```bash
-pnpm dev        # start both apps
+pnpm dev        # start both apps with `bun alchemy dev` (needs Bun, see .bun-version)
 pnpm typecheck
 pnpm lint
 pnpm test
-pnpm build
 pnpm test:e2e  # first run: pnpm --filter e2e exec playwright install chromium
 ```
 
-CI runs typecheck, lint, test, and the E2E suite on every pull request and push to `main`.
+CI runs typecheck, lint, test, and the E2E suite on every pull request and push to `main`. Workers Builds deploys each push: `main` to production, `staging` to staging, any other branch to a preview. See `docs/runbooks/deploy.md`.
 
 ## Adding UI components
 

@@ -12,11 +12,11 @@ What every implementer or reviewer brief in this repo carries. Copy the shape; f
 
 ## Worktree guard
 
-An isolated subagent's shell refuses any compound command it cannot prove stays inside its worktree. Tell it: run `git`, `pnpm`, `node`, `infisical` and `wrangler` as plain separate commands from the worktree root. No `&&` chains, `$(...)`, shell variables, `timeout`, or `HOME=` around them. One refusal costs a round trip and a rewrite; the three implementers of spec #59 hit 22 across 367 calls.
+An isolated subagent's shell refuses any compound command it cannot prove stays inside its worktree. Tell it: run `git`, `pnpm`, `node`, `bun` and `infisical` as plain separate commands from the worktree root. No `&&` chains, `$(...)`, shell variables, `timeout`, or `HOME=` around them. One refusal costs a round trip and a rewrite; the three implementers of spec #59 hit 22 across 367 calls.
 
 ## Secrets
 
-Never print a secret value; hash prefixes only. Never run `secrets:previews`, `wrangler deploy`, push a branch, or change a Cloudflare setting unless the brief says so.
+Never print a secret value; hash prefixes only. Never run `alchemy deploy` or `alchemy destroy` on a cloud stage, push a branch, or change a Cloudflare setting unless the brief says so.
 
 ## Done means
 
