@@ -2,7 +2,7 @@ import { IconChevronDown } from "@tabler/icons-react"
 import { Link } from "@tanstack/react-router"
 import { cn } from "@workspace/ui/lib/utils"
 
-import { matchesExactly, NAV } from "@/lib/nav"
+import { NAV } from "@/lib/nav"
 import type { NavItem } from "@/lib/nav"
 
 /** 244px at ≥1280, 64px icon rail at 768–1279, hidden below (mobile uses the bottom nav). */
@@ -12,8 +12,9 @@ export function AppSidebar() {
       aria-label="Navigasi utama"
       className="sticky top-0 hidden h-svh w-16 shrink-0 flex-col border-r border-sidebar-border bg-sidebar md:flex xl:w-[244px]"
     >
-      <Link
-        to="/radar"
+      {/* An <a>, not a Link: with no routes yet, `/` is not a typed target. */}
+      <a
+        href="/"
         className="flex h-14 items-center justify-center gap-2.5 border-b border-sidebar-border px-0 xl:justify-start xl:px-4"
       >
         <img
@@ -26,10 +27,10 @@ export function AppSidebar() {
             KUMORA<i className="text-primary not-italic">Terminal</i>
           </b>
           <span className="num text-[9px] tracking-[0.18em] text-muted-foreground uppercase">
-            IDX · Whale Radar
+            IDX
           </span>
         </span>
-      </Link>
+      </a>
 
       <div className="flex-1 overflow-y-auto px-1.5 py-3 xl:px-2.5">
         {NAV.map((group) => (
@@ -83,10 +84,7 @@ function SidebarLink({ item }: { item: NavItem }) {
   return (
     <Link
       {...item.link}
-      activeOptions={{
-        exact: matchesExactly(item),
-        includeHash: Boolean(item.link.hash),
-      }}
+      activeOptions={{ includeHash: Boolean(item.link.hash) }}
       title={item.label}
       className={cn(
         "group/nav text-secondary-text relative flex h-9 items-center justify-center gap-2.5 rounded-sm px-0 text-[13.5px] leading-[18px] font-medium whitespace-nowrap xl:justify-start xl:px-2.5",

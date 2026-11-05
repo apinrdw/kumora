@@ -2,13 +2,14 @@ import { Badge } from "@workspace/ui/components/badge"
 import { cn } from "@workspace/ui/lib/utils"
 
 import type { Freshness } from "@/domain/freshness"
-import type { TradeSource } from "@/domain/trade"
 import { asOf as formatAsOf } from "@/lib/format"
+
+type TradeSource = "upstream" | "extension" | "none"
 
 export const FRESHNESS = {
   live: {
     label: "LIVE",
-    def: "Data real-time dari sesi Stockbit operator; bukan feed berlisensi.",
+    def: "Data real-time.",
     className: "text-up",
   },
   delayed: {

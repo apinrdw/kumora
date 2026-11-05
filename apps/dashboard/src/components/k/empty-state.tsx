@@ -31,8 +31,7 @@ export const EMPTY = {
   "no-watchlist": {
     Icon: IconPlus,
     title: "Watchlist masih kosong",
-    description:
-      "Tambahkan ticker dari pencarian atau Whale Radar untuk mulai memantau.",
+    description: "Tambahkan ticker untuk mulai memantau.",
     iconClass: "text-muted-foreground",
   },
   "no-result": {

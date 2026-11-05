@@ -3,7 +3,6 @@ import { Toaster } from "@workspace/ui/components/sonner"
 import { TooltipProvider } from "@workspace/ui/components/tooltip"
 
 import { AppShell } from "@/components/shell/app-shell"
-import { shellQuery } from "@/features/shell/query"
 import appCss from "@/styles.css?url"
 import "@/lib/crumbs"
 
@@ -22,13 +21,10 @@ export const Route = createRootRoute({
       { rel: "manifest", href: "/manifest.json" },
     ],
   }),
-  loader: () => shellQuery(),
   notFoundComponent: () => (
     <div className="flex flex-col gap-2 pt-16">
       <h1 className="text-2xl font-bold">Halaman tidak ditemukan</h1>
-      <p className="text-muted-foreground">
-        Periksa alamatnya atau kembali ke Whale Radar.
-      </p>
+      <p className="text-muted-foreground">Periksa alamatnya.</p>
     </div>
   ),
   shellComponent: RootDocument,

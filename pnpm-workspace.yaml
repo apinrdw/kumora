@@ -14,5 +14,3 @@ minimumReleaseAgeExclude:
   - '@oxlint/*'
   - oxfmt
   - '@oxfmt/*'
-  - effect@4.0.7
-  - '@effect/vitest@4.0.7'
