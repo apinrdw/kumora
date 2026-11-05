@@ -20,6 +20,7 @@
   },
   "devDependencies": {
     "@alchemy.run/frontend-frameworks": "catalog:",
+    "@alchemy.run/infisical": "catalog:",
     "@effect/platform-bun": "catalog:",
     "@effect/platform-node": "catalog:",
     "@types/node": "^22",

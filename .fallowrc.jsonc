@@ -7,11 +7,14 @@
   // runtime; without them `alchemy dev` fails with "could not load the required
   // peer dependency @effect/platform-bun". pnpm never auto-installs optional
   // peers, so the root declares them and every workspace resolves them from
-  // there. All but ws take their versions from the effect and alchemy entries
+  // there. @alchemy.run/infisical is here for the CLI: `alchemy profile` finds
+  // auth providers in the manifests above the app folder, and only
+  // packages/deploy imports it. All but ws take their versions from the effect and alchemy entries
   // of the pnpm-workspace.yaml catalog; ws has its own range in the root
   // package.json, inside alchemy's ^8.21.0 peer range. See apinrdw/kumora#16.
   "ignoreDependencies": [
     "@alchemy.run/frontend-frameworks",
+    "@alchemy.run/infisical",
     "@effect/platform-bun",
     "@effect/platform-node",
     "ws"

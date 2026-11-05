@@ -1,6 +1,7 @@
 import * as Cloudflare from "@alchemy.run/cloudflare"
 import * as Infisical from "@alchemy.run/infisical"
 import * as Alchemy from "alchemy"
+import { PLACEHOLDER_STAGE } from "alchemy/Alchemist/Operations"
 import * as Effect from "effect/Effect"
 import * as Layer from "effect/Layer"
 
@@ -9,9 +10,21 @@ import {
   parseStage,
   stageTarget,
   type App,
+  type DeployTarget,
 } from "./target.ts"
 
 const INFISICAL_PROJECT = "kumora"
+
+// Alchemy evaluates the stack with PLACEHOLDER_STAGE when it addresses no
+// deployment: auth discovery for `alchemy profile edit`, and `alchemy state`.
+// Read it as Staging, so discovery sees Cloudflare state and Infisical but the
+// stack never reaches for production's secrets.
+function stackTarget(app: App, stage: string): DeployTarget {
+  return stageTarget(
+    app,
+    parseStage(stage === PLACEHOLDER_STAGE ? "staging" : stage)
+  )
+}
 
 // Decision: Cloudflare Workers with static assets, deployed by Workers Builds
 // running alchemy. Pages lost because Cloudflare steers new projects to Workers;
@@ -23,7 +36,7 @@ export function stackOptions(app: App) {
     state: Layer.unwrap(
       Effect.gen(function* () {
         const stage = yield* Alchemy.Stage
-        return stageTarget(app, parseStage(stage)).stateStore === "local"
+        return stackTarget(app, stage).stateStore === "local"
           ? Alchemy.localState()
           : Cloudflare.state()
       })
@@ -33,10 +46,7 @@ export function stackOptions(app: App) {
     // syncing Infisical into Cloudflare; Secrets Store waits until a secret
     // must rotate without a deploy. See apinrdw/kumora#18.
     secrets: ({ stage }: { readonly stage: string }) => {
-      const environment = stageTarget(
-        app,
-        parseStage(stage)
-      ).infisicalEnvironment
+      const environment = stackTarget(app, stage).infisicalEnvironment
       if (environment === undefined) return []
       return ["/", `/${app}`].map((path) =>
         Infisical.Secrets({ project: INFISICAL_PROJECT, environment, path })
@@ -47,7 +57,7 @@ export function stackOptions(app: App) {
 
 export function websiteProps(app: App, stage: string) {
   return {
-    name: stageTarget(app, parseStage(stage)).workerName,
+    name: stackTarget(app, stage).workerName,
     compatibility: { date: COMPATIBILITY_DATE, flags: ["nodejs_compat"] },
     observability: { enabled: true },
   }
