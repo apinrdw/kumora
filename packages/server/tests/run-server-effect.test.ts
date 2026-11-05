@@ -1,5 +1,5 @@
 import { assert, describe, it } from "@effect/vitest"
-import { Context, Effect, Layer, Logger } from "effect"
+import { Cause, Context, Effect, Layer, Logger } from "effect"
 
 import {
   BadRequest,
@@ -83,6 +83,27 @@ describe("runServerEffect", () => {
       assert.notInclude(body, "database password")
       assert.deepStrictEqual(logged, [{ level: "Error", hasCause: true }])
     })
+  )
+
+  it.effect(
+    "logs and answers a bare 500 when an HTTP error fails beside another failure",
+    () =>
+      Effect.gen(function* () {
+        const { run, logged } = capturingBridge()
+        const response = yield* thrown(
+          run(
+            Effect.failCause(
+              Cause.combine(
+                Cause.fail(new NotFound({ message: "no quote" })),
+                Cause.fail({ secret: "database password in an error" })
+              )
+            )
+          )
+        )
+        assert.instanceOf(response, Response)
+        assert.strictEqual(response.status, 500)
+        assert.deepStrictEqual(logged, [{ level: "Error", hasCause: true }])
+      })
   )
 
   it.effect("logs a defect and answers a bare 500", () =>
