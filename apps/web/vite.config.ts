@@ -11,7 +11,8 @@ const config = defineConfig({
     tailwindcss(),
     tanstackStart({
       prerender: {
-        enabled: true,
+        // SCRATCH: TanStack prerender runs the SSR bundle outside workerd under Alchemy (#20).
+        enabled: false,
         crawlLinks: true,
         filter: (page) => !page.path.startsWith("/probe"),
       },
