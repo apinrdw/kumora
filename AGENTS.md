@@ -14,7 +14,7 @@ Multi-context: root `GLOSSARY-MAP.md` indexes one `GLOSSARY.md` and `docs/adr/` 
 
 ### Deploys
 
-Nothing deploys yet. `kumora` started as a fresh-history copy of `apinrdw/kumora-monorepo` with no Workers, Infisical project or Workers Builds connected. ADR 0003 describes the deploy model to follow when one is wired.
+Nothing deploys yet. `kumora` started as a fresh-history copy of `apinrdw/kumora-monorepo` with no Workers, Infisical project or Workers Builds connected.
 
 ### Briefing a subagent
 
