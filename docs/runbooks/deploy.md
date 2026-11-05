@@ -11,7 +11,7 @@ Steps marked ✅ were done during the throwaway deploy, observed 2026-11-05 ([ap
 - Project slug `kumora`, environments `prod` and `staging`. ⬜ Delete the unused `dev` environment.
 - `/` in each environment holds `CLOUDFLARE_API_TOKEN` and `CLOUDFLARE_ACCOUNT_ID`, with a separate token per environment.
 - `/web` holds `DEPLOY_PROBE_SECRET`. `/dashboard` holds the dashboard's secrets, none today.
-- Machine identity `kumora-workers-builds`: viewer role, Universal Auth, client secret with a 1-year TTL.
+- Machine identity `kumora-workers-builds`: Universal Auth only, client secret with a 1-year TTL, project `kumora` role Viewer. ⬜ Set its organization role to **No Access**: as observed 2026-11-05 it is Admin, which lets every branch build manage the whole Infisical organization.
 
 ## 2. Cloudflare API tokens ✅
 
@@ -46,8 +46,8 @@ As observed 2026-11-05, every push to `main` fails the `kumora-web-builds` check
 
 ## 5. GitHub teardown identity ✅
 
-1. In Infisical, create machine identity `kumora-github-teardown` and add the **OIDC Auth** method. As observed 2026-11-05 in its Add Auth Method form (Configuration: Custom Configuration), set OIDC Discovery URL and Issuer both to `https://token.actions.githubusercontent.com`, Subject to `repo:apinrdw/kumora:*`, Audiences to `https://github.com/apinrdw` (GitHub's default, since the job requests none), and Access Token TTL and Max TTL to `1800` (the job times out at 15 minutes). Whether Subject accepts the `*` wildcard is unverified.
-2. Give it read access to the `staging` environment only, then check its project role grants nothing on `prod`. Whether Infisical can scope an identity to one environment is unverified, so the check is what confirms it.
+1. In Infisical, create machine identity `kumora-github-teardown`, separate from `kumora-workers-builds`, with organization role **No Access** (as observed 2026-11-05, the roles offered are Admin, Member and No Access). Add the **OIDC Auth** method. As observed 2026-11-05 in its Add Auth Method form (Configuration: Custom Configuration), set OIDC Discovery URL and Issuer both to `https://token.actions.githubusercontent.com`, Audiences to `https://github.com/apinrdw` (GitHub's default, since the job requests none), and Access Token TTL and Max TTL to `1800` (the job times out at 15 minutes). Leave Subject empty and use **Add Claims** for `repository` = `apinrdw/kumora`: a closed PR's token has subject `repo:apinrdw/kumora:pull_request` and a deleted branch's has `repo:apinrdw/kumora:ref:refs/heads/main`, and as observed 2026-11-05 Infisical rejected the subject `repo:apinrdw/kumora:*` with "OIDC subject not allowed". The Add Claims form itself is unverified.
+2. Add it to project `kumora` as **Viewer**. As observed 2026-11-05, this setup destroyed PR #33's two Preview Workers when the PR closed. As observed 2026-11-05, roles limited to one environment need custom roles, which are a paid Infisical feature, so it can read `prod` too. This is an accepted risk, like the Workers Builds identity's; revisit with a paid plan or outside contributors.
 3. In GitHub, Settings → Secrets and variables → Actions → **Variables** (an unverified path), add `INFISICAL_TEARDOWN_IDENTITY_ID` with the identity's ID. It is a variable, not a secret: the ID alone grants nothing.
 
 ## 6. Developer profiles
