@@ -23,6 +23,7 @@
     "@effect/platform-bun": "catalog:",
     "@effect/platform-node": "catalog:",
     "@types/node": "^22",
+    "fallow": "3.39.0",
     "oxfmt": "0.75.0",
     "oxlint": "1.90.0",
     "turbo": "^2.11.7",
