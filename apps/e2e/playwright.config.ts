@@ -8,6 +8,7 @@ export default defineConfig({
   // Both apps run on alchemy's local `test` stage: local state, no Infisical,
   // so the dummy value below comes from the process environment and no
   // Cloudflare or Infisical credential is needed.
+  // The ports are each app's `dev.port` in its alchemy.run.ts.
   // Never reuse a server: a leftover one would hide a startup failure.
   webServer: [
     {

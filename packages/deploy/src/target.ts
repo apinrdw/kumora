@@ -16,21 +16,23 @@ export interface DeployTarget {
   readonly stateStore: StateStore
 }
 
-export const PRODUCTION = "production" as Stage
-export const STAGING = "staging" as Stage
-export const TEST_STAGE = "test" as Stage
+const PRODUCTION = "production" as Stage
+const STAGING = "staging" as Stage
 
 const MAX_WORKER_NAME = 54
 // The longest app prefix, `kumora-dashboard-`, plus `-` and the hash, leaves 30.
 const MAX_SLUG = 30
 const HASH_LENGTH = 6
-const PREVIEW = /^(?:[a-z0-9](?:[-a-z0-9]*[a-z0-9])?-)?[0-9a-f]{6}$/
+const PREVIEW = new RegExp(
+  `^(?:[a-z0-9](?:[-a-z0-9]*[a-z0-9])?-)?[0-9a-f]{${HASH_LENGTH}}$`
+)
 const DEV = /^dev_[-_a-z0-9]+$/i
 
-// Decision: the newest date the workerd bundled with alchemy accepts, not today's.
-// Re-check it on every `alchemy` bump: local dev and the deployed Worker must agree.
-// It replaces the date limit that wrangler.jsonc recorded. See apinrdw/kumora#19.
-export const COMPATIBILITY_DATE = "2026-10-26"
+// Decision: the newest date the workerd bundled with alchemy accepts, not today's,
+// so local dev and the deployed Worker agree. Re-check on every `alchemy` bump:
+// set a far-future date, run `bun alchemy dev`, and read "the newest date
+// supported by this server binary". See apinrdw/kumora#19.
+export const COMPATIBILITY_DATE = "2026-11-02"
 
 export function stageForBranch(branch: string): Stage {
   if (branch === "main") return PRODUCTION
@@ -52,28 +54,39 @@ export function devStage(user: string): Stage {
   return parseStage(`dev_${user}`)
 }
 
-export function stageKind(stage: Stage): StageKind {
-  if (stage === PRODUCTION) return "production"
-  if (stage === STAGING) return "staging"
-  if (stage === TEST_STAGE) return "test"
-  if (DEV.test(stage)) return "dev"
-  return "preview"
+const KINDS: Record<
+  StageKind,
+  Pick<DeployTarget, "infisicalEnvironment" | "stateStore">
+> = {
+  production: { infisicalEnvironment: "prod", stateStore: "cloudflare" },
+  staging: { infisicalEnvironment: "staging", stateStore: "cloudflare" },
+  preview: { infisicalEnvironment: "staging", stateStore: "cloudflare" },
+  dev: { infisicalEnvironment: "staging", stateStore: "local" },
+  test: { infisicalEnvironment: undefined, stateStore: "local" },
+}
+
+function classify(raw: string): StageKind | undefined {
+  if (raw === PRODUCTION) return "production"
+  if (raw === STAGING) return "staging"
+  if (raw === "test") return "test"
+  if (DEV.test(raw)) return "dev"
+  if (PREVIEW.test(raw)) return "preview"
+  return undefined
 }
 
 // Alchemy hands a stack any stage name. Anything that no branch, dev or test
 // stage could produce (alchemy's `live_$USER` default) is refused here.
 export function parseStage(raw: string): Stage {
-  if (
-    raw === PRODUCTION ||
-    raw === STAGING ||
-    raw === TEST_STAGE ||
-    DEV.test(raw) ||
-    PREVIEW.test(raw)
-  )
-    return raw as Stage
-  throw new Error(
-    `Unknown stage "${raw}". Deploy through packages/deploy (production, staging, a branch preview, dev_$USER or test).`
-  )
+  if (classify(raw) === undefined)
+    throw new Error(
+      `Unknown stage "${raw}". Deploy through packages/deploy (production, staging, a branch preview, dev_$USER or test).`
+    )
+  return raw as Stage
+}
+
+export function stageKind(stage: Stage): StageKind {
+  // Every Stage was parsed or built by stageForBranch, so it classifies.
+  return classify(stage) as StageKind
 }
 
 export function stageTarget(app: App, stage: Stage): DeployTarget {
@@ -85,9 +98,7 @@ export function stageTarget(app: App, stage: Stage): DeployTarget {
       kind === "production"
         ? `kumora-${app}`
         : `kumora-${app}-${suffix}`.slice(0, MAX_WORKER_NAME),
-    infisicalEnvironment:
-      kind === "production" ? "prod" : kind === "test" ? undefined : "staging",
-    stateStore: kind === "dev" || kind === "test" ? "local" : "cloudflare",
+    ...KINDS[kind],
   }
 }
 

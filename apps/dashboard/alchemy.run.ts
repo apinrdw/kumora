@@ -11,6 +11,7 @@ export const Website = Cloudflare.Website.Vite(
     return {
       ...websiteProps("dashboard", stage),
       rootDir: import.meta.dirname,
+      // apps/e2e's playwright.config.ts waits on this port.
       dev: { port: 3001, strictPort: true },
     }
   })

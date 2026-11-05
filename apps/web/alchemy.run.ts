@@ -12,7 +12,8 @@ export const Website = Cloudflare.Website.Vite(
     return {
       ...websiteProps("web", stage),
       rootDir: import.meta.dirname,
-      // Strict: falling back to the next port would take the dashboard's 3001.
+      // Strict: falling back would take the dashboard's 3001. apps/e2e's
+      // playwright.config.ts waits on both ports.
       dev: { port: 3000, strictPort: true },
       env: { DEPLOY_PROBE_SECRET: Config.Redacted("DEPLOY_PROBE_SECRET") },
     }

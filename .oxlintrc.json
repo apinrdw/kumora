@@ -64,7 +64,7 @@
   "overrides": [
     {
       // The bridge is the one module that may reach cloudflare:workers.
-      "files": ["packages/server/src/bridge.ts", "src/bridge.ts"],
+      "files": ["packages/server/src/bridge.ts"],
       "rules": {
         "no-restricted-imports": ["error", {"paths": [{"name": "zod", "message": "Use Effect Schema (`import { Schema } from \"effect\"`); it is the only schema library."}, {"name": "@effect/schema", "message": "Effect v3 package. Use `Schema` from `effect` (v4)."}, {"name": "@effect/platform", "message": "Effect v3 package. Use the `effect/*` platform modules (v4), e.g. `effect/http/HttpClient`."}, {"name": "@effect/rpc", "message": "Effect v3 package. Use `effect/unstable/rpc` (v4)."}], "patterns": [{"group": ["**/repos/**", "repos/**"], "message": "repos/ is a read-only reference. Import the installed package instead."}, {"group": ["@effect/schema/*", "@effect/platform/*", "@effect/rpc/*"], "message": "Effect v3 package. Use the matching `effect/*` module (v4)."}]}]
       }
