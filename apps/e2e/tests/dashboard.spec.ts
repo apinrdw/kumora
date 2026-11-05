@@ -1,22 +1,27 @@
 import { expect, test } from "@playwright/test"
 
-test("/ lands on Whale Radar with no console errors", async ({ page }) => {
+const DASHBOARD = "http://localhost:3001"
+
+test("/ renders the shell around the not-found page with no console errors", async ({
+  page,
+}) => {
   const errors: string[] = []
   page.on("console", (message) => {
+    // With no routes yet, `/` itself answers 404, which the browser logs.
+    if (message.location().url === `${DASHBOARD}/`) return
     if (message.type() === "error") errors.push(message.text())
   })
   page.on("pageerror", (error) => errors.push(error.message))
 
-  const response = await page.goto("http://localhost:3001/", {
+  const response = await page.goto(`${DASHBOARD}/`, {
     waitUntil: "networkidle",
   })
 
-  expect(response?.status()).toBe(200)
-  expect(new URL(page.url()).pathname).toBe("/radar")
-  expect(response?.request().redirectedFrom()?.url()).toBe(
-    "http://localhost:3001/"
-  )
+  expect(response?.status()).toBe(404)
   await expect(page).toHaveTitle("KUMORA Terminal")
-  await expect(page.getByText("KUMORA", { exact: false }).first()).toBeVisible()
+  await expect(
+    page.getByRole("heading", { name: "Halaman tidak ditemukan" })
+  ).toBeVisible()
+  await expect(page.getByText("WIB", { exact: true })).toBeVisible()
   expect(errors).toEqual([])
 })

@@ -39,9 +39,7 @@
       "cache": false,
       "persistent": true,
       "passThroughEnv": [
-        "DEPLOY_PROBE_SECRET",
-        "RELAY_INGEST_SECRET",
-        "RELAY_TICKET_SECRET"
+        "DEPLOY_PROBE_SECRET"
       ]
     },
     "test": {
