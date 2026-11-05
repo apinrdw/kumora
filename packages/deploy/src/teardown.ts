@@ -4,16 +4,24 @@
 import { runAlchemy } from "./alchemy-cli.ts"
 import {
   APPS,
+  isPreview,
   parseStage,
   stageForBranch,
-  stageKind,
+  type Preview,
   type Stage,
 } from "./target.ts"
 
-function preview(stage: Stage): Stage {
-  if (stageKind(stage) !== "preview")
+function preview(stage: Stage): Preview {
+  if (!isPreview(stage))
     throw new Error(`Refusing to tear down stage "${stage}": not a preview.`)
   return stage
+}
+
+async function destroy(stage: Preview): Promise<void> {
+  for (const app of APPS) {
+    const code = await runAlchemy(app, ["destroy", "--stage", stage])
+    if (code !== 0) process.exit(code)
+  }
 }
 
 const [command, arg = ""] = process.argv.slice(2)
@@ -21,11 +29,7 @@ const [command, arg = ""] = process.argv.slice(2)
 if (command === "stage") {
   console.log(`stage=${preview(stageForBranch(arg))}`)
 } else if (command === "destroy") {
-  const stage = preview(parseStage(arg))
-  for (const app of APPS) {
-    const code = await runAlchemy(app, ["destroy", "--stage", stage])
-    if (code !== 0) process.exit(code)
-  }
+  await destroy(preview(parseStage(arg)))
 } else {
   throw new Error(`Expected "stage <branch>" or "destroy <stage>".`)
 }

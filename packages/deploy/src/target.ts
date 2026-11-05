@@ -4,6 +4,7 @@ export const APPS = ["web", "dashboard"] as const
 export type App = (typeof APPS)[number]
 
 export type Stage = string & { readonly __brand: "Stage" }
+export type Preview = Stage & { readonly __preview: true }
 export type StageKind = "production" | "staging" | "preview" | "dev" | "test"
 export type InfisicalEnvironment = "prod" | "staging"
 export type StateStore = "cloudflare" | "local"
@@ -89,6 +90,10 @@ export function parseStage(raw: string): Stage {
 export function stageKind(stage: Stage): StageKind {
   // Every Stage was parsed or built by stageForBranch, so it classifies.
   return classify(stage) as StageKind
+}
+
+export function isPreview(stage: Stage): stage is Preview {
+  return stageKind(stage) === "preview"
 }
 
 export function stageTarget(app: App, stage: Stage): DeployTarget {
