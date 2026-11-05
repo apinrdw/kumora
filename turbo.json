@@ -32,7 +32,16 @@
         "ALCHEMY_PROFILE"
       ]
     },
-    "test": {},
+    "test": {
+      "dependsOn": [
+        "transit"
+      ]
+    },
+    "transit": {
+      "dependsOn": [
+        "^transit"
+      ]
+    },
     "//#lint:root": {
       "inputs": [
         "scripts/**"
