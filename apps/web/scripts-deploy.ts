@@ -2,6 +2,7 @@
 // Usage (Workers Builds, root apps/web): cd ../.. && pnpm install --frozen-lockfile && cd apps/web && bun scripts-deploy.ts
 import { mintAccessToken } from "@alchemy.run/infisical"
 import * as Effect from "effect/Effect"
+import * as FetchHttpClient from "effect/http/FetchHttpClient"
 import * as Redacted from "effect/Redacted"
 
 const branch = process.env.WORKERS_CI_BRANCH ?? ""
@@ -24,7 +25,7 @@ const creds = await Effect.runPromise(
   mintAccessToken({
     clientId: process.env.INFISICAL_CLIENT_ID!,
     clientSecret: process.env.INFISICAL_CLIENT_SECRET!,
-  })
+  }).pipe(Effect.provide(FetchHttpClient.layer))
 )
 
 // Drop the build's own Cloudflare token so Infisical's scoped one wins.
