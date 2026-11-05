@@ -23,6 +23,24 @@ jobs:
       - run: pnpm install --frozen-lockfile
       - run: pnpm check
 
+  fallow:
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@v5
+        with:
+          # The audit diffs against the base ref, so it needs the full history.
+          fetch-depth: 0
+      - uses: pnpm/action-setup@v6
+      - uses: actions/setup-node@v5
+        with:
+          node-version: 24
+          cache: pnpm
+      - run: pnpm install --frozen-lockfile
+      - uses: fallow-rs/fallow@v3
+        with:
+          command: audit
+
   e2e:
     runs-on: ubuntu-latest
     timeout-minutes: 15
