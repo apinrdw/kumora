@@ -285,11 +285,10 @@ step "Then delete the two old user tokens in Cloudflare (My Profile → API Toke
 if confirm "Did you replace both tokens?"; then :; else SKIPPED+=("Cloudflare account tokens (runbook step 2)"); fi
 
 # ── 6 ─────────────────────────────────────────────────────────────────────
-stage "Infisical: delete the unused dev environment"
-open_url "$INFISICAL"
-step "Project kumora → Settings → Environments (an unverified path): delete dev. Keep prod and staging."
-warn "Deleting an environment deletes its secrets and cannot be undone."
-if confirm "Deleted dev (or it was already gone)?"; then :; else SKIPPED+=("Infisical dev environment (runbook step 1)"); fi
+stage "Infisical: leave the dev environment empty"
+say "Project kumora's dev environment is unused and stays (runbook step 1)."
+say "Local dev, the Dev stage, reads staging: never put secrets in dev, or pnpm dev won't see them."
+pause
 
 # ── 7 ─────────────────────────────────────────────────────────────────────
 stage "Your Alchemy profile: Cloudflare and Infisical"

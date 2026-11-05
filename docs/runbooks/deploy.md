@@ -8,16 +8,16 @@ Steps marked ✅ were done during the throwaway deploy, observed 2026-11-05 ([ap
 
 ## 1. Infisical project ✅
 
-- Project slug `kumora`, environments `prod` and `staging`. ⬜ Delete the unused `dev` environment.
+- Project slug `kumora`, environments `prod` and `staging`. A `dev` environment also exists; it is unused and stays empty. Local dev (the Dev stage) reads `staging`, so don't put secrets in `dev`.
 - `/` in each environment holds `CLOUDFLARE_API_TOKEN` and `CLOUDFLARE_ACCOUNT_ID`, with a separate token per environment.
 - `/web` holds `DEPLOY_PROBE_SECRET`. `/dashboard` holds the dashboard's secrets, none today.
-- Machine identity `kumora-workers-builds`: Universal Auth only, client secret with a 1-year TTL, project `kumora` role Viewer. ⬜ Set its organization role to **No Access**: as observed 2026-11-05 it is Admin, which lets every branch build manage the whole Infisical organization.
+- Machine identity `kumora-workers-builds`: Universal Auth only, client secret with a 1-year TTL, project `kumora` role Viewer. Organization role **No Access**, set 2026-11-05 (it was Admin, which let every branch build manage the whole Infisical organization); the owner reported the next build succeeding.
 
 ## 2. Cloudflare API tokens ✅
 
 One token per Infisical environment, stored at `/` of that environment. As observed 2026-11-05, deploy and destroy work with Alchemy's 9-permission CI policy: Workers Scripts, KV, R2, D1, Queues, Pages, Account Settings and Secrets Store Write, plus Workers Tail Read.
 
-As observed 2026-11-05, both tokens are **user** tokens with no expiry. ⬜ Replace each with an **account** token with the same permissions and a 1-year TTL. The dashboard path Manage Account → Account API Tokens → Create Token is unverified. Paste it over `CLOUDFLARE_API_TOKEN` at `/` of its environment. Record the minimal scope here once it is measured.
+As of 2026-11-05, both are **account** tokens (prefix `cfat_`) under Manage Account → Account API Tokens, and the earlier user tokens are deleted. Whether they carry a 1-year TTL is unconfirmed; give the next pair one. Each sits in `CLOUDFLARE_API_TOKEN` at `/` of its environment. Record the minimal scope here once it is measured.
 
 ## 3. State store ✅
 
@@ -31,7 +31,7 @@ One connection per app, each on a hand-made anchor Worker that Alchemy never dep
 | --- | --- | --- |
 | Status | ✅ created and connected | ✅ created and connected |
 | Root directory | `apps/web` | `apps/dashboard` |
-| Watch paths | ⬜ `apps/web/**`, `packages/**`, `pnpm-lock.yaml`, `pnpm-workspace.yaml`, `package.json`, `.bun-version` | ⬜ `apps/dashboard/**`, `packages/**`, and the same four root files |
+| Watch paths | `apps/web/**`, `packages/**`, `pnpm-lock.yaml`, `pnpm-workspace.yaml`, `package.json`, `.bun-version` | `apps/dashboard/**`, `packages/**`, and the same four root files |
 | Production branch | `main` | `main` |
 | Non-production branch builds | on | on |
 | Deploy command | ✅ `bun ../../packages/deploy/src/deploy.ts web` | ✅ `bun ../../packages/deploy/src/deploy.ts dashboard` |
@@ -40,7 +40,7 @@ One connection per app, each on a hand-made anchor Worker that Alchemy never dep
 
 As observed 2026-11-05 in the dashboard's Build configuration panel, the preview command is the field named **Version command**, beside Build command, Deploy command and Root directory. Leave the build command empty: as observed 2026-11-05, Workers Builds already runs `pnpm install --frozen-lockfile` at the repo root before the deploy command. `BUN_VERSION` must match `.bun-version`; change both together.
 
-The four root files in Watch paths are every app's dependency inputs, so a lockfile or catalog change alone still deploys; `ROOT_WATCH_PATHS` in `scripts/deploy-setup.sh` lists the same files. ⬜ Where a connection's Watch paths hold only its app and `packages/**`, add the root files. Whether the field takes a bare root file name, and how it separates entries, is unverified.
+The four root files in Watch paths are every app's dependency inputs, so a lockfile or catalog change alone still deploys; `ROOT_WATCH_PATHS` in `scripts/deploy-setup.sh` lists the same files. The owner set them on both connections on 2026-11-05 as a comma-separated list; the first dependency-only commit is what confirms the field took them.
 
 As observed 2026-11-05, every push to `main` fails the `kumora-web-builds` check until this spec merges, because `main` has no deploy script. Pause that connection's builds or ignore the check.
 
