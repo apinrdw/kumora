@@ -4,8 +4,9 @@
   // runtime; without them `alchemy dev` fails with "could not load the required
   // peer dependency @effect/platform-bun". pnpm never auto-installs optional
   // peers, so the root declares them and every workspace resolves them from
-  // there. Their versions are the effect and alchemy entries of the
-  // pnpm-workspace.yaml catalog. See apinrdw/kumora#16.
+  // there. All but ws take their versions from the effect and alchemy entries
+  // of the pnpm-workspace.yaml catalog; ws has its own range in the root
+  // package.json, inside alchemy's ^8.21.0 peer range. See apinrdw/kumora#16.
   "ignoreDependencies": [
     "@alchemy.run/frontend-frameworks",
     "@effect/platform-bun",
