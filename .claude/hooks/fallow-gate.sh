@@ -54,10 +54,12 @@ set +f
 ROOT="$(git -C "${CWD:-.}" rev-parse --show-toplevel 2>/dev/null)" || ROOT="${CWD:-.}"
 cd "$ROOT" || exit 0
 
-if command -v fallow >/dev/null 2>&1; then
-  FALLOW=fallow
-elif [ -x node_modules/.bin/fallow ]; then
+# The repo's pinned fallow first: CI's fallow job runs that version, and an
+# older one on PATH can miss what it reports.
+if [ -x node_modules/.bin/fallow ]; then
   FALLOW=node_modules/.bin/fallow
+elif command -v fallow >/dev/null 2>&1; then
+  FALLOW=fallow
 else
   echo "fallow gate: the fallow binary is not installed, skipping the audit." >&2
   exit 0
