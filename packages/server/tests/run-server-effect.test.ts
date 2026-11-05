@@ -11,7 +11,7 @@ import {
   makeRunServerEffect,
 } from "@workspace/server"
 
-const fakeEnv = Layer.succeed(WorkerEnv, { DEPLOY_PROBE_SECRET: "abc" })
+const fakeWorkerEnv = Layer.succeed(WorkerEnv, { DEPLOY_PROBE_SECRET: "abc" })
 
 function capturingBridge() {
   const logged: Array<{ level: string; hasCause: boolean }> = []
@@ -20,7 +20,7 @@ function capturingBridge() {
   })
   const run = makeRunServerEffect({
     isolate: Logger.layer([capture]),
-    workerEnv: fakeEnv,
+    workerEnv: fakeWorkerEnv,
   })
   return { run, logged }
 }
@@ -34,7 +34,11 @@ describe("runServerEffect", () => {
     Effect.gen(function* () {
       const { run } = capturingBridge()
       const value = yield* Effect.promise(() =>
-        run(WorkerEnv.use((env) => Effect.succeed(env.DEPLOY_PROBE_SECRET)))
+        run(
+          WorkerEnv.use((workerEnv) =>
+            Effect.succeed(workerEnv.DEPLOY_PROBE_SECRET)
+          )
+        )
       )
       assert.strictEqual(value, "abc")
     })
@@ -124,7 +128,7 @@ describe("runServerEffect", () => {
       let built = 0
       const run = makeRunServerEffect({
         isolate: Layer.sync(Builds, () => ({ n: ++built })),
-        workerEnv: fakeEnv,
+        workerEnv: fakeWorkerEnv,
       })
       const program = Builds.use((b) => Effect.succeed(b.n))
       assert.strictEqual(yield* Effect.promise(() => run(program)), 1)
