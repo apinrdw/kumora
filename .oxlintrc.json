@@ -1,4 +1,9 @@
 {
+  // Decision: Oxlint and Oxfmt replace ESLint and Prettier: the same rule set
+  // lints the whole repo in 1.4 s against about 4 s per workspace. Vite Plus was
+  // deferred because it re-aliases `vite` and adds a second task runner.
+  // Type-aware rules (tsgolint) are off and `tsc --noEmit` stays the type gate:
+  // tsgolint's type-check mode is experimental. See apinrdw/kumora-monorepo#3.
   "$schema": "./node_modules/oxlint/configuration_schema.json",
   "plugins": ["eslint", "typescript", "unicorn", "oxc", "import", "react", "jsx-a11y", "vitest"],
   "categories": { "correctness": "error" },

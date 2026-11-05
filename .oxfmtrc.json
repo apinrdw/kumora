@@ -7,6 +7,10 @@
   "trailingComma": "es5",
   "printWidth": 80,
   "sortPackageJson": false,
+  // Decision: Oxfmt sorts Tailwind classes natively, with output identical to
+  // prettier-plugin-tailwindcss. Sorting turns off silently if `stylesheet` is
+  // missing. No guard: the file is the `@workspace/ui/globals.css` export, so
+  // moving it already fails every app build.
   "sortTailwindcss": {
     "stylesheet": "packages/ui/src/styles/globals.css",
     "functions": ["cn", "cva"]
