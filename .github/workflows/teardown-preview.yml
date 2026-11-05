@@ -1,0 +1,59 @@
+# Destroys a branch's preview stage of every app when its PR closes or the
+# branch is deleted. Workers Builds deploys; this job only tears down.
+name: Tear down preview
+
+on:
+  pull_request:
+    types: [closed]
+  delete:
+
+permissions:
+  contents: read
+
+jobs:
+  stage:
+    if: github.event_name == 'pull_request' || github.event.ref_type == 'branch'
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    outputs:
+      stage: ${{ steps.stage.outputs.stage }}
+    steps:
+      - uses: actions/checkout@v5
+      - uses: oven-sh/setup-bun@v2
+        with:
+          bun-version-file: .bun-version
+      # Refuses production and staging, so this job can never reach them.
+      - id: stage
+        run: bun packages/deploy/src/teardown.ts stage "$BRANCH" >> "$GITHUB_OUTPUT"
+        env:
+          BRANCH: ${{ github.event_name == 'pull_request' && github.head_ref || github.event.ref }}
+
+  destroy:
+    needs: stage
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    # A merged PR fires both triggers; the second destroy waits, then finds nothing.
+    concurrency:
+      group: preview-${{ needs.stage.outputs.stage }}
+    permissions:
+      contents: read
+      id-token: write
+    steps:
+      - uses: actions/checkout@v5
+      - uses: pnpm/action-setup@v6
+      - uses: actions/setup-node@v5
+        with:
+          node-version: 24
+          cache: pnpm
+      - uses: oven-sh/setup-bun@v2
+        with:
+          bun-version-file: .bun-version
+      - run: pnpm install --frozen-lockfile
+      # Decision: alchemy logs into Infisical with GitHub's OIDC token as
+      # kumora-github-teardown, granted `staging` only (runbook step 5), so
+      # GitHub stores no secret. The identity ID is an Actions variable.
+      # See apinrdw/kumora#18.
+      - run: bun packages/deploy/src/teardown.ts destroy "$STAGE"
+        env:
+          STAGE: ${{ needs.stage.outputs.stage }}
+          INFISICAL_IDENTITY_ID: ${{ vars.INFISICAL_TEARDOWN_IDENTITY_ID }}

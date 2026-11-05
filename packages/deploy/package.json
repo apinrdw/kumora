@@ -1,0 +1,28 @@
+{
+  "name": "@workspace/deploy",
+  "version": "0.0.0",
+  "type": "module",
+  "private": true,
+  "scripts": {
+    "lint": "oxlint --deny-warnings",
+    "format": "oxfmt --write \"**/*.{ts,tsx}\"",
+    "format:check": "oxfmt --check \"**/*.{ts,tsx}\"",
+    "typecheck": "tsc --noEmit",
+    "test": "vitest run"
+  },
+  "exports": {
+    ".": "./src/target.ts",
+    "./stack": "./src/stack.ts"
+  },
+  "devDependencies": {
+    "@types/node": "^22",
+    "typescript": "7.0.2",
+    "vitest": "^5.0.5"
+  },
+  "dependencies": {
+    "@alchemy.run/cloudflare": "catalog:",
+    "@alchemy.run/infisical": "catalog:",
+    "alchemy": "catalog:",
+    "effect": "catalog:"
+  }
+}

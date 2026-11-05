@@ -1,6 +1,7 @@
 {
   // Root scripts only; each workspace has its own tsconfig.
   "include": ["scripts"],
+  "exclude": ["repos"],
   "compilerOptions": {
     "target": "ES2022",
     "module": "ESNext",

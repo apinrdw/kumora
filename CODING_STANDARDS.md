@@ -21,3 +21,11 @@ Code that handles an uploaded file or a whole table on a Worker has a bound that
 ## Claims about third-party dashboards
 
 A handoff doc or spec that states what a dashboard shows, offers, or lacks names the date it was observed, in the same sentence or the section's heading. A claim with no date is a guess and is reviewed as one. Prefer a line that can be re-derived (an API call, a CLI command) over one that must be re-observed by hand.
+
+## Server code in Effect
+
+Server functions run as Effect programs through `runServerEffect` in `packages/server`. Three rules lint cannot check:
+
+- **The per-isolate layer does no I/O and cannot fail.** It is built once per isolate, before any request, and workerd pins I/O objects to the request that created them. Pure and config services only; anything that needs I/O is a per-request effect.
+- **Only the closed error set crosses to HTTP.** A server function fails with `NotFound`, `BadRequest`, `Forbidden` or `Conflict` to send that status, or with `Unauthorized` to redirect. Every other failure and every defect is logged and answered as a bare 500, so a domain error reaches HTTP only when the code maps it to one of the five.
+- **Cloudflare env only through `WorkerEnv`.** Read bindings and secrets from the per-request `WorkerEnv` service, never from a module-level copy. Lint bans `cloudflare:workers` outside the bridge, but not a value passed around from it.

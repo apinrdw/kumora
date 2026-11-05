@@ -17,12 +17,13 @@
   },
   "ignorePatterns": [
     "**/routeTree.gen.ts",
-    "**/worker-configuration.d.ts",
     "dist/",
     ".turbo/",
     ".output/",
     ".nitro/",
     ".tanstack/",
-    "coverage/"
+    "coverage/",
+    "repos/",
+    ".alchemy/"
   ]
 }

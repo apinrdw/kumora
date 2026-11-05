@@ -18,7 +18,15 @@ No ADRs. A decision lives as a `Decision:` comment on the line that enacts it, a
 
 ### Deploys
 
-Nothing deploys yet. `kumora` started as a fresh-history copy of `apinrdw/kumora-monorepo` with no Workers, Infisical project or Workers Builds connected.
+Alchemy deploys `apps/web` and `apps/dashboard` through Workers Builds: `main` to production, `staging` to staging, every other branch to its own preview stage. Each app's stack is its `alchemy.run.ts`; the stage logic, Worker names and deploy script live in `packages/deploy` (see its `GLOSSARY.md`). `.github/workflows/teardown-preview.yml` destroys a preview when its PR closes or its branch is deleted. Secrets come from the Infisical project `kumora`. `pnpm dev` runs both apps fully locally with `bun alchemy dev`. The human steps are in `docs/runbooks/deploy.md`.
+
+### Vendored references
+
+`repos/effect` and `repos/alchemy` are read-only `git subtree --squash` copies of the installed Effect and Alchemy versions.
+
+- Read `repos/effect/LLMS.md` before writing Effect code. Consult `repos/alchemy` for Alchemy resources and props.
+- Never edit `repos/`, and never import from it. Lint rejects the import.
+- The `effect` and `alchemy` versions live once, in the `pnpm-workspace.yaml` catalog. A PR that bumps either also runs `git subtree pull --prefix repos/<name> <url> <tag> --squash` to the matching tag. Alchemy's subtree brings back its `submodules/*` entries, which break the Workers Builds clone: drop them with `git rm --cached`; `scripts/check-no-gitlinks.mts` fails until you do.
 
 ### Briefing a subagent
 
@@ -49,9 +57,9 @@ Before writing a PR body (opening a PR or rewriting one), invoke the `/mattpococ
 
 Oxlint and Oxfmt, configured once at the repo root (`.oxlintrc.json`, `.oxfmtrc.json`). Run from the repo root.
 
-- After making code changes, run `pnpm exec oxlint --fix`, then `pnpm exec oxfmt 'apps/**/*.{ts,tsx}' 'packages/**/*.{ts,tsx}' 'scripts/**/*.mts'`. `--fix` applies only safe fixes; do not add `--fix-suggestions` or `--fix-dangerously`.
-- Before finishing, run `pnpm exec oxlint --deny-warnings --format=agent` and `pnpm exec oxfmt --check 'apps/**/*.{ts,tsx}' 'packages/**/*.{ts,tsx}' 'scripts/**/*.mts'`. Both must exit 0; warnings count as failures.
-- Generated files (`routeTree.gen.ts`) are ignored by both tools. Do not add inline ignore comments to silence a rule; fix the code or raise it.
+- After making code changes, run `pnpm exec oxlint --disable-nested-config --fix`, then `pnpm exec oxfmt 'apps/**/*.{ts,tsx}' 'packages/**/*.{ts,tsx}' 'scripts/**/*.mts'`. `--fix` applies only safe fixes; do not add `--fix-suggestions` or `--fix-dangerously`.
+- Before finishing, run `pnpm exec oxlint --disable-nested-config --deny-warnings --format=agent` and `pnpm exec oxfmt --check 'apps/**/*.{ts,tsx}' 'packages/**/*.{ts,tsx}' 'scripts/**/*.mts'`. Both must exit 0; warnings count as failures.
+- `--disable-nested-config` keeps oxlint from loading the vendored configs under `repos/`, which it ignores. Generated files (`routeTree.gen.ts`) are ignored by both tools. Do not add inline ignore comments to silence a rule; fix the code or raise it.
 - `scripts/check-skill-links.mts` fails on a relative link in `AGENTS.md` or any `SKILL.md` under `.claude/skills/` whose target is missing. CI runs it.
 
 ---

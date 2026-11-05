@@ -22,6 +22,10 @@ This is a **multi-context** repo. Contexts are the pnpm workspaces under `apps/*
 │   └── web/
 │       └── GLOSSARY.md
 └── packages/
+    ├── deploy/
+    │   └── GLOSSARY.md
+    ├── server/
+    │   └── GLOSSARY.md
     └── ui/
         └── GLOSSARY.md
 ```
@@ -32,7 +36,7 @@ A term shared by more than one context belongs in the system-wide section of `GL
 
 This repo keeps no ADRs. A decision is recorded as a comment at the line that enacts it, and `scripts/check-decision-docs.mts` fails CI if an ADR directory or a link to one comes back.
 
-- **Where.** On the code or config line that would change if the decision were reversed. A decision with no single code site (a platform or tool choice) goes in the config file that enacts it: `wrangler.jsonc`, `.oxlintrc.json`, `.github/dependabot.yml`.
+- **Where.** On the code or config line that would change if the decision were reversed. A decision with no single code site (a platform or tool choice) goes in the config file that enacts it: `.oxlintrc.json`, `.fallowrc.jsonc`, `pnpm-workspace.yaml`.
 - **Tag.** Start the comment with `Decision:` in the file's comment syntax (`// Decision:`, `# Decision:`). The tag tells `/no-comments`, `/deslop` and reviewers to keep it, and makes every decision greppable.
 - **Content.** The choice, the constraint it puts on the code, and in one clause the main option it beat and why. Link the wayfinder ticket or PR for the full trade-off. Keep it to five lines at most; the tracker holds the rest.
 - **When.** Only for a choice that is hard to reverse, surprising without context, and the result of a real trade-off. Anything else needs no comment.

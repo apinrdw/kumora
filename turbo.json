@@ -7,18 +7,6 @@
     ".oxfmtrc.json"
   ],
   "tasks": {
-    "build": {
-      "dependsOn": [
-        "^build"
-      ],
-      "inputs": [
-        "$TURBO_DEFAULT$",
-        ".env*"
-      ],
-      "outputs": [
-        "dist/**"
-      ]
-    },
     "lint": {
       "dependsOn": [
         "^lint"
@@ -39,12 +27,19 @@
       "cache": false,
       "persistent": true,
       "passThroughEnv": [
-        "DEPLOY_PROBE_SECRET"
+        "DEPLOY_PROBE_SECRET",
+        "ALCHEMY_STAGE",
+        "ALCHEMY_PROFILE"
       ]
     },
     "test": {
       "dependsOn": [
-        "^build"
+        "transit"
+      ]
+    },
+    "transit": {
+      "dependsOn": [
+        "^transit"
       ]
     },
     "//#lint:root": {
@@ -70,7 +65,12 @@
     },
     "//#test:root": {
       "inputs": [
-        "scripts/**"
+        "scripts/**",
+        "turbo.json",
+        "package.json",
+        "apps/*/package.json",
+        "packages/*/package.json",
+        "pnpm-workspace.yaml"
       ]
     }
   }
