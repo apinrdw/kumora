@@ -40,14 +40,14 @@ One connection per app, each on a hand-made anchor Worker that Alchemy never dep
 
 As observed 2026-11-05 in the dashboard's Build configuration panel, the preview command is the field named **Version command**, beside Build command, Deploy command and Root directory. Leave the build command empty: as observed 2026-11-05, Workers Builds already runs `pnpm install --frozen-lockfile` at the repo root before the deploy command. `BUN_VERSION` must match `.bun-version`; change both together.
 
-The four root files in Watch paths are every app's dependency inputs, so a lockfile or catalog change alone still deploys; `ROOT_WATCH_PATHS` in `scripts/deploy-setup.sh` lists the same files. ⬜ Both connections were created with only the app and `packages/**` paths; add the root files to each. Whether the field takes a bare root file name, and how it separates entries, is unverified.
+The four root files in Watch paths are every app's dependency inputs, so a lockfile or catalog change alone still deploys; `ROOT_WATCH_PATHS` in `scripts/deploy-setup.sh` lists the same files. ⬜ Where a connection's Watch paths hold only its app and `packages/**`, add the root files. Whether the field takes a bare root file name, and how it separates entries, is unverified.
 
 As observed 2026-11-05, every push to `main` fails the `kumora-web-builds` check until this spec merges, because `main` has no deploy script. Pause that connection's builds or ignore the check.
 
 ## 5. GitHub teardown identity ✅
 
 1. In Infisical, create machine identity `kumora-github-teardown` and add the **OIDC Auth** method. As observed 2026-11-05 in its Add Auth Method form (Configuration: Custom Configuration), set OIDC Discovery URL and Issuer both to `https://token.actions.githubusercontent.com`, Subject to `repo:apinrdw/kumora:*`, Audiences to `https://github.com/apinrdw` (GitHub's default, since the job requests none), and Access Token TTL and Max TTL to `1800` (the job times out at 15 minutes). Whether Subject accepts the `*` wildcard is unverified.
-2. Give it read access to the `staging` environment only. Whether Infisical can scope an identity to one environment is unverified.
+2. Give it read access to the `staging` environment only, then check its project role grants nothing on `prod`. Whether Infisical can scope an identity to one environment is unverified, so the check is what confirms it.
 3. In GitHub, Settings → Secrets and variables → Actions → **Variables** (an unverified path), add `INFISICAL_TEARDOWN_IDENTITY_ID` with the identity's ID. It is a variable, not a secret: the ID alone grants nothing.
 
 ## 6. Developer profiles

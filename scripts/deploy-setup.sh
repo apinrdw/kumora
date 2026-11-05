@@ -255,7 +255,7 @@ step "  Subject: repo:apinrdw/kumora:*    Audiences: https://github.com/apinrdw"
 note "  Whether Subject accepts the * wildcard is unverified."
 step "  Access Token TTL and Max TTL: 1800. Leave Max Number of Uses (unverified field) empty."
 step "Add it to project kumora with read access to the staging environment only."
-note "Whether Infisical can scope an identity to one environment is unverified."
+note "Whether Infisical can scope an identity to one environment is unverified: check its role grants nothing on prod."
 ask INFISICAL_TEARDOWN_IDENTITY_ID "Paste the identity's ID (not a secret):"
 
 # ── 4 ─────────────────────────────────────────────────────────────────────

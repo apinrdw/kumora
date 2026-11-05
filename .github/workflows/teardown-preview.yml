@@ -50,8 +50,9 @@ jobs:
           bun-version-file: .bun-version
       - run: pnpm install --frozen-lockfile
       # Decision: alchemy logs into Infisical with GitHub's OIDC token as
-      # kumora-github-teardown, which reads `staging` only, so GitHub stores no
-      # secret. The identity ID is an Actions variable. See apinrdw/kumora#18.
+      # kumora-github-teardown, granted `staging` only (runbook step 5), so
+      # GitHub stores no secret. The identity ID is an Actions variable.
+      # See apinrdw/kumora#18.
       - run: bun packages/deploy/src/teardown.ts destroy "$STAGE"
         env:
           STAGE: ${{ needs.stage.outputs.stage }}
