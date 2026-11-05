@@ -1,5 +1,12 @@
 import { spawnSync } from "node:child_process"
-import { chmodSync, mkdtempSync, readFileSync, writeFileSync } from "node:fs"
+import {
+  chmodSync,
+  existsSync,
+  mkdirSync,
+  mkdtempSync,
+  readFileSync,
+  writeFileSync,
+} from "node:fs"
 import { tmpdir } from "node:os"
 import { join, resolve } from "node:path"
 import { test } from "node:test"
@@ -76,4 +83,33 @@ test("an audit that gives no verdict allows the command with a notice", () => {
   const { status, stderr } = runGate('git commit -m "x"', "not json", 2)
   assert.equal(status, 0)
   assert.match(stderr, /exited 2 without a verdict/)
+})
+
+test("the repo's pinned fallow wins over one on PATH", () => {
+  const dir = mkdtempSync(join(tmpdir(), "fallow-gate-test-"))
+  const fake = (file: string, marker: string) => {
+    writeFileSync(
+      file,
+      `#!/bin/sh\ntouch "${join(dir, marker)}"\necho '{"verdict":"pass"}'\n`
+    )
+    chmodSync(file, 0o755)
+  }
+  const bin = join(dir, "node_modules", ".bin")
+  mkdirSync(bin, { recursive: true })
+  fake(join(bin, "fallow"), "pinned-ran")
+  const global = join(dir, "global")
+  mkdirSync(global)
+  fake(join(global, "fallow"), "global-ran")
+  const { status } = spawnSync("bash", [gate], {
+    input: JSON.stringify({ cwd: dir, tool_input: { command: "git commit" } }),
+    encoding: "utf8",
+    env: { ...process.env, PATH: `${global}:${process.env.PATH}`, TMPDIR: dir },
+  })
+  assert.equal(status, 0)
+  assert.ok(existsSync(join(dir, "pinned-ran")), "the pinned fallow ran")
+  assert.equal(
+    existsSync(join(dir, "global-ran")),
+    false,
+    "the PATH fallow ran"
+  )
 })
