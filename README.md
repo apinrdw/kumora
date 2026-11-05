@@ -27,7 +27,7 @@ pnpm test
 pnpm test:e2e  # first run: pnpm --filter e2e exec playwright install chromium
 ```
 
-CI runs typecheck, lint, test, and the E2E suite on every pull request and push to `main`. Workers Builds deploys each push: `main` to production, `staging` to staging, any other branch to a preview. See `docs/runbooks/deploy.md`.
+CI runs typecheck, lint, test, and the E2E suite on every pull request and push to `main`. Workers Builds deploys each push: `main` to production, `staging` to staging, any other branch to a preview. See `docs/runbooks/deploy.md`; `scripts/deploy-setup.sh` walks through its one-time steps.
 
 ## Adding UI components
 

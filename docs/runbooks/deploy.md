@@ -2,6 +2,8 @@
 
 The one-time and yearly steps a human does for the Alchemy deploys. Agents skip this file. The code side is in `packages/deploy` and `.github/workflows/teardown-preview.yml`; the stage names are defined in `packages/deploy/GLOSSARY.md`.
 
+Run `scripts/deploy-setup.sh` from a PR branch to be walked through every ⬜ step below, then the stage check (step 8) against that branch's Preview. It writes no secret to a file.
+
 Steps marked ✅ were done during the throwaway deploy, observed 2026-11-05 ([apinrdw/kumora#20](https://github.com/apinrdw/kumora/issues/20)). Steps marked ⬜ are still to do.
 
 ## 1. Infisical project ✅
