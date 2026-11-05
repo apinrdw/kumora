@@ -1,0 +1,40 @@
+{
+  "name": "web",
+  "version": "0.0.1",
+  "type": "module",
+  "private": true,
+  "scripts": {
+    "cf-typegen": "wrangler types",
+    "dev": "vite dev --port 3000",
+    "generate-routes": "tsr generate",
+    "build": "vite build",
+    "preview": "vite preview",
+    "lint": "oxlint --deny-warnings",
+    "format": "oxfmt --write \"**/*.{ts,tsx}\"",
+    "format:check": "oxfmt --check \"**/*.{ts,tsx}\"",
+    "typecheck": "tsc --noEmit",
+    "test": "vitest run"
+  },
+  "dependencies": {
+    "@tailwindcss/vite": "^4",
+    "@tanstack/react-router": "latest",
+    "@tanstack/react-router-devtools": "latest",
+    "@tanstack/react-start": "latest",
+    "@workspace/ui": "workspace:*",
+    "react": "^19.2.8",
+    "react-dom": "^19.2.8",
+    "tailwindcss": "^4"
+  },
+  "devDependencies": {
+    "@cloudflare/vite-plugin": "^1.65.0",
+    "@tanstack/devtools-vite": "latest",
+    "@tanstack/router-cli": "^1.167.41",
+    "@types/node": "^22",
+    "@types/react": "^19",
+    "@types/react-dom": "^19",
+    "@vitejs/plugin-react": "^6",
+    "typescript": "7.0.2",
+    "vite": "^8",
+    "wrangler": "^4.154.0"
+  }
+}

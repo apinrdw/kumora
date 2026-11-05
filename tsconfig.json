@@ -1,0 +1,18 @@
+{
+  // Root scripts only; each workspace has its own tsconfig.
+  "include": ["scripts"],
+  "compilerOptions": {
+    "target": "ES2022",
+    "module": "ESNext",
+    "moduleResolution": "bundler",
+    "types": ["node"],
+    // Node runs scripts/*.mts by stripping types: erasable syntax only.
+    "erasableSyntaxOnly": true,
+    // Node resolves ./x.mts as written; tsc needs permission to see it.
+    "allowImportingTsExtensions": true,
+    "verbatimModuleSyntax": true,
+    "noEmit": true,
+    "skipLibCheck": true,
+    "strict": true
+  }
+}

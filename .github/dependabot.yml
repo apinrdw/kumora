@@ -1,0 +1,15 @@
+version: 2
+updates:
+  - package-ecosystem: "npm"
+    directory: "/"
+    schedule:
+      interval: "weekly"
+    # `allow` limits version updates to these two packages; no other dependency gets PRs.
+    allow:
+      - dependency-name: "oxlint"
+      - dependency-name: "oxfmt"
+    groups:
+      oxc:
+        patterns:
+          - "oxlint"
+          - "oxfmt"

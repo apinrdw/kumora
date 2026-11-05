@@ -1,0 +1,131 @@
+@import "@workspace/ui/globals.css";
+
+/* KUMORA AI design tokens. Dark is the only theme; shadcn's variables alias them. */
+:root {
+  --bg-canvas: #0b1421;
+  --bg-sidebar: #0e1a29;
+  --bg-surface: #142234;
+  --bg-elevated: #1b2c40;
+  --bg-selected: #173a43;
+  --border-subtle: #26394e;
+  --border-strong: #3e566b;
+  --text-primary: #edf4fb;
+  --text-secondary: #b0c2d2;
+  --text-muted: #839aae;
+  --accent-primary: #55d9c7;
+  --accent-hover: #7be6d8;
+  --accent-on-primary: #09242a;
+  --semantic-up: #51dda2;
+  --semantic-down: #ff7987;
+  --semantic-warning: #f4c36e;
+  --semantic-info: #7dbcf5;
+  --semantic-neutral: #a8b8c8;
+  --chart-vwap: #b3a0ff;
+  --chart-volume: #627f9b;
+  --chart-grid: #26384b;
+
+  --shadow-popover: 0 4px 16px rgba(4, 10, 18, 0.45);
+  --shadow-modal: 0 16px 48px rgba(4, 10, 18, 0.6);
+
+  --background: var(--bg-canvas);
+  --foreground: var(--text-primary);
+  --card: var(--bg-surface);
+  --card-foreground: var(--text-primary);
+  --popover: var(--bg-elevated);
+  --popover-foreground: var(--text-primary);
+  --primary: var(--accent-primary);
+  --primary-foreground: var(--accent-on-primary);
+  --secondary: var(--bg-elevated);
+  --secondary-foreground: var(--text-primary);
+  --muted: var(--bg-elevated);
+  --muted-foreground: var(--text-muted);
+  --accent: var(--bg-selected);
+  --accent-foreground: var(--text-primary);
+  --destructive: var(--semantic-down);
+  --destructive-foreground: var(--bg-canvas);
+  --border: var(--border-subtle);
+  --input: var(--border-strong);
+  --ring: var(--accent-primary);
+  --chart-1: var(--accent-primary);
+  --chart-2: var(--semantic-up);
+  --chart-3: var(--semantic-down);
+  --chart-4: var(--chart-vwap);
+  --chart-5: var(--chart-volume);
+  --radius: 6px;
+  --sidebar: var(--bg-sidebar);
+  --sidebar-foreground: var(--text-secondary);
+  --sidebar-primary: var(--accent-primary);
+  --sidebar-primary-foreground: var(--accent-on-primary);
+  --sidebar-accent: var(--bg-selected);
+  --sidebar-accent-foreground: var(--text-primary);
+  --sidebar-border: var(--border-subtle);
+  --sidebar-ring: var(--accent-primary);
+
+  color-scheme: dark;
+}
+
+@theme inline {
+  --font-sans: "Manrope Variable", Arial, sans-serif;
+  --font-heading: "Manrope Variable", Arial, sans-serif;
+  --font-mono: "Manrope Variable", Arial, sans-serif;
+
+  --color-destructive-foreground: var(--destructive-foreground);
+  --color-up: var(--semantic-up);
+  --color-down: var(--semantic-down);
+  --color-warning: var(--semantic-warning);
+  --color-info: var(--semantic-info);
+  --color-neutral: var(--semantic-neutral);
+  --color-canvas: var(--bg-canvas);
+  --color-surface: var(--bg-surface);
+  --color-elevated: var(--bg-elevated);
+  --color-selected: var(--bg-selected);
+  --color-strong: var(--border-strong);
+  --color-secondary-text: var(--text-secondary);
+  --color-accent-hover: var(--accent-hover);
+  --color-vwap: var(--chart-vwap);
+  --color-volume: var(--chart-volume);
+  --color-grid: var(--chart-grid);
+
+  /* Fixed scale; shadcn's calc() radii are overridden on purpose. */
+  --radius-xs: 4px;
+  --radius-sm: 6px;
+  --radius-md: 10px;
+  --radius-lg: 14px;
+  --radius-xl: 18px;
+
+  --shadow-popover: var(--shadow-popover);
+  --shadow-modal: var(--shadow-modal);
+
+  --animate-marquee: marquee 42s linear infinite;
+  @keyframes marquee {
+    from {
+      transform: translateX(0);
+    }
+    to {
+      transform: translateX(-50%);
+    }
+  }
+}
+
+@layer base {
+  body {
+    @apply font-sans text-[14px] leading-[22px];
+  }
+  :focus-visible {
+    outline: 2px solid var(--ring);
+    outline-offset: 2px;
+  }
+}
+
+@utility num {
+  font-family: var(--font-mono);
+  font-variant-numeric: tabular-nums;
+}
+
+@utility micro {
+  font-size: 11px;
+  line-height: 16px;
+  font-weight: 500;
+  letter-spacing: 0.04em;
+  text-transform: uppercase;
+}

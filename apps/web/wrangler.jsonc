@@ -1,0 +1,25 @@
+// Top level is production (kumora-web); env.staging is the Staging Worker and
+// its Previews. Workers Builds picks the env at build time via CLOUDFLARE_ENV.
+// See docs/specs/cloudflare-infisical-deploy.md.
+{
+  "$schema": "node_modules/wrangler/config-schema.json",
+  "name": "kumora-web",
+  "main": "@tanstack/react-start/server-entry",
+  // Newest date both installed workerd binaries accept: the Vite plugin's
+  // (vite dev, prerender) stops at 2026-10-26, wrangler's at 2026-10-30. Move it
+  // when either is bumped. The binary's limit is not the workerd package's
+  // `compatibilityDate` export, which is older.
+  "compatibility_date": "2026-10-26",
+  "compatibility_flags": ["nodejs_compat"],
+  "observability": { "enabled": true },
+  "secrets": { "required": ["DEPLOY_PROBE_SECRET"] },
+  "env": {
+    "staging": {
+      "name": "kumora-web-staging",
+      // Not inherited from the top level.
+      "secrets": { "required": ["DEPLOY_PROBE_SECRET"] },
+      // Required by `wrangler preview`, even when empty.
+      "previews": {},
+    },
+  },
+}

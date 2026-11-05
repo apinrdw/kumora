@@ -1,0 +1,21 @@
+# dashboard
+
+Driving the relay and its pages in a real browser, with no operator.
+
+- **Write `apps/dashboard/.dev.vars` before `vite build`.** The build copies it into `dist/server`. A preview built without it has no secrets: status answers `forbidden`, tickets fail, and no page socket opens, with no error on the page.
+- **Stop servers by port with `fuser -k 3001/tcp`.** A `pkill -f` pattern that also appears later in the same shell command kills that shell, with exit 144.
+- **Watch a replay by its task, not `pgrep -f replay-stockbit-frames`.** A watch loop whose own command line holds that pattern matches itself, so the loop never sees the replay end.
+- **Delete `apps/dashboard/.wrangler/state` before each replay.** Deduped trades are not heard again, so a second replay adds nothing.
+- **Find the page's socket by its URL.** The first socket `Network.webSocketCreated` reports under `vite dev` is the hot-reload one, and a page's own opens seconds later. Preview has only the page's.
+- **Drop a socket by restarting the server.** `Network.emulateNetworkConditions` with `offline` does not close an open WebSocket.
+- **Watch growth with a `MutationObserver`.** Polling `innerText` misses a sweep that grows between two batches. PTBA's sweep at 13:42:40 grows from 1.043 to 1.688 lots at `--speed 1 --from 2026-10-29T06:41:46Z`. It is the capture's only sweep that spans two batches.
+- **Walls need `--liveprice --from 2026-10-29T06:30:00Z`.** A replay has no prior, so it gives 455 sweeps, not the fixture test's 167.
+- **Walls count only for covered symbols.** With no page open, `wallCoverage` is `[]`. Opening `/radar/live` covers BBCA, which yields 2 walls over the replay from 06:30: an offer at 5.050 and a bid at 5.025. Under `vite preview`, a page opened before the replay's first trade never connects: `clients` stays at 1, the replay's socket alone. Reload the page once trades flow, and check that `clients` reads 2.
+- **Read a symbol's events on `/radar/live?s=<SYMBOL>`.** Every symbol link and the header search open it. `/` is a 307 to `/radar`, so `curl -I localhost:3001/` shows the redirect rather than a page.
+- **Pages render without Infisical.** A `.dev.vars` with dummy `RELAY_TICKET_SECRET`, `RELAY_INGEST_SECRET` and `DEPLOY_PROBE_SECRET` is enough to drive `/radar` and `/radar/live` with no console errors under `vite dev` and `vite preview`.
+- **Apply ownership migrations before driving its routes.** After deleting `.wrangler/state`, run `pnpm exec wrangler d1 migrations apply kumora-ownership --local` from `apps/dashboard`. Workflows run for real under both `vite dev` and `vite preview`, against local D1 and R2.
+- **Read the relay status without Infisical.** Put a throwaway `RELAY_INGEST_SECRET=<any>` in `.dev.vars`, then `curl -H 'Authorization: Bearer <any>' localhost:3001/api/relay/status`. Delete `.dev.vars` and `dist/server/.dev.vars` afterwards.
+- **A calendar phase shows only at its hour.** The relay reads `Date.now()` inside workerd, and the machine has no `faketime`. Outside the phase's WIB window, the `phaseAt` tests are the evidence, and the live status only confirms the current phase.
+- **A replay's day reads as one source gap on Live's chart.** The relay records each source change at the real time of the replay, not the capture's 2026-10-29, so nothing covers the replayed session and the chart shades all of it. The `chart-slots` tests are the evidence for gap shading; a replay only confirms that the status carries `coverage` (`curl` the status as below).
+- **Open the page before the replay to see the live path.** A page loaded after the replay takes everything from its first paint. One open before it fits, folds, and draws from socket frames, which is where a page and a reload can differ.
+- **Off-board trades in the capture are three symbols, all NG, all after 06:40.** MKNT has 2 (13:42:13 and 13:42:58 WIB) and DNET 1, with no regular-board trades, so their Live page shows the empty state with its off-board note. AMMN has 1 at 13:43:35 among 119 regular-board trades. `--from 2026-10-29T06:40:00Z` covers all of them. No symbol's off-board trades fall outside the newest 200, so the session-wide list is evidenced by `relay.backfill` and reducer tests, not a replay.

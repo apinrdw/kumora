@@ -1,0 +1,5 @@
+{
+  // The spec's reference generator (docs/specs/whale-trades.md, Fixtures): run by hand
+  // to produce expected.json, kept as the prototype wrote it. Nothing imports it.
+  "ignorePatterns": ["apps/dashboard/tests/fixtures/whale/**"]
+}

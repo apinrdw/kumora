@@ -1,0 +1,35 @@
+{
+  "name": "kumora",
+  "version": "0.0.1",
+  "private": true,
+  "scripts": {
+    "check": "pnpm types:check && pnpm typecheck && pnpm lint && pnpm format:check && pnpm test && pnpm build && node scripts/check-skill-links.mts && node scripts/check-package-scripts.mts",
+    "types:check": "pnpm --filter web exec wrangler types --check && pnpm --filter dashboard exec wrangler types --check",
+    "build": "turbo build",
+    "dev": "turbo dev",
+    "lint": "turbo run lint lint:root",
+    "lint:root": "oxlint scripts",
+    "format": "turbo run format format:root",
+    "format:root": "oxfmt --write \"scripts/**/*.mts\"",
+    "format:check": "turbo run format:check format:check:root",
+    "format:check:root": "oxfmt --check \"scripts/**/*.mts\"",
+    "typecheck": "turbo run typecheck typecheck:root",
+    "typecheck:root": "tsc --noEmit",
+    "test": "turbo run test test:root",
+    "test:e2e": "pnpm --filter e2e e2e",
+    "prepare": "git config core.hooksPath .githooks",
+    "test:root": "node --test 'scripts/*.test.mts'"
+  },
+  "devDependencies": {
+    "@types/node": "^22",
+    "oxfmt": "0.75.0",
+    "oxlint": "1.90.0",
+    "turbo": "^2.11.7",
+    "typescript": "7.0.2",
+    "vitest": "^5.0.5"
+  },
+  "packageManager": "pnpm@11.25.0",
+  "engines": {
+    "node": ">=22.18.0"
+  }
+}

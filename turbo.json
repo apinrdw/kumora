@@ -1,0 +1,79 @@
+{
+  "$schema": "https://turbo.build/schema.json",
+  "ui": "tui",
+  "agentGuidance": false,
+  "globalDependencies": [
+    ".oxlintrc.json",
+    ".oxfmtrc.json"
+  ],
+  "tasks": {
+    "build": {
+      "dependsOn": [
+        "^build"
+      ],
+      "inputs": [
+        "$TURBO_DEFAULT$",
+        ".env*"
+      ],
+      "outputs": [
+        "dist/**"
+      ]
+    },
+    "lint": {
+      "dependsOn": [
+        "^lint"
+      ]
+    },
+    "format": {
+      "dependsOn": [
+        "^format"
+      ]
+    },
+    "format:check": {},
+    "typecheck": {
+      "dependsOn": [
+        "^typecheck"
+      ]
+    },
+    "dev": {
+      "cache": false,
+      "persistent": true,
+      "passThroughEnv": [
+        "DEPLOY_PROBE_SECRET",
+        "RELAY_INGEST_SECRET",
+        "RELAY_TICKET_SECRET"
+      ]
+    },
+    "test": {
+      "dependsOn": [
+        "^build"
+      ]
+    },
+    "//#lint:root": {
+      "inputs": [
+        "scripts/**"
+      ]
+    },
+    "//#format:root": {
+      "inputs": [
+        "scripts/**"
+      ]
+    },
+    "//#format:check:root": {
+      "inputs": [
+        "scripts/**"
+      ]
+    },
+    "//#typecheck:root": {
+      "inputs": [
+        "scripts/**",
+        "tsconfig.json"
+      ]
+    },
+    "//#test:root": {
+      "inputs": [
+        "scripts/**"
+      ]
+    }
+  }
+}

@@ -1,0 +1,47 @@
+{
+  "name": "dashboard",
+  "version": "0.0.1",
+  "type": "module",
+  "private": true,
+  "scripts": {
+    "cf-typegen": "wrangler types",
+    "dev": "vite dev --port 3001",
+    "generate-routes": "tsr generate",
+    "build": "vite build",
+    "preview": "vite preview",
+    "lint": "oxlint --deny-warnings",
+    "format": "oxfmt --write \"**/*.{ts,tsx}\"",
+    "format:check": "oxfmt --check \"**/*.{ts,tsx}\"",
+    "typecheck": "effect-tsgo tsc --noEmit",
+    "test": "vitest run --passWithNoTests"
+  },
+  "dependencies": {
+    "@tabler/icons-react": "^3.49.0",
+    "@tailwindcss/vite": "^4",
+    "@tanstack/react-router": "latest",
+    "@tanstack/react-router-devtools": "latest",
+    "@tanstack/react-start": "latest",
+    "@workspace/ui": "workspace:*",
+    "effect": "4.0.7",
+    "lightweight-charts": "5.2.1",
+    "react": "^19.2.8",
+    "react-dom": "^19.2.8",
+    "recharts": "3.8.0",
+    "sonner": "^2.0.8",
+    "tailwindcss": "^4"
+  },
+  "devDependencies": {
+    "@cloudflare/vite-plugin": "^1.65.0",
+    "@effect/tsgo": "0.62.0",
+    "@effect/vitest": "4.0.7",
+    "@tanstack/devtools-vite": "latest",
+    "@tanstack/router-cli": "^1.167.41",
+    "@types/node": "^22",
+    "@types/react": "^19",
+    "@types/react-dom": "^19",
+    "@vitejs/plugin-react": "^6",
+    "typescript": "7.0.2",
+    "vite": "^8",
+    "wrangler": "^4.154.0"
+  }
+}

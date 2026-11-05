@@ -1,0 +1,27 @@
+node_modules
+.DS_Store
+dist
+dist-ssr
+*.local
+.env*
+.nitro
+.tanstack
+.wrangler
+.dev.vars*
+.output
+.vinxi
+__unconfig*
+todos.json
+
+# turbo
+.turbo
+
+# typescript
+*.tsbuildinfo
+
+# agent worktrees
+.claude/worktrees/
+
+# playwright
+test-results
+playwright-report
