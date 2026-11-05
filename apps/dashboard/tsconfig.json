@@ -27,17 +27,6 @@
     "noUnusedLocals": true,
     "noUnusedParameters": true,
     "noFallthroughCasesInSwitch": true,
-    "noUncheckedSideEffectImports": true,
-
-    /* Effect language service (run by effect-tsgo) */
-    "plugins": [
-      {
-        "name": "@effect/language-service",
-        "diagnosticSeverity": {
-          "strictEffectProvide": "warning",
-          "unstableApiUsage": "suggestion"
-        }
-      }
-    ]
+    "noUncheckedSideEffectImports": true
   }
 }

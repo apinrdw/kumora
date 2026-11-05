@@ -36,7 +36,7 @@ export type KSelectProps<TValue extends string> = {
   hint?: string
   error?: string
   disabled?: boolean
-  /** sm 36 · md 40; `xs` 32 is for sentence layouts (KAlertRule). */
+  /** sm 36 · md 40; `xs` 32 is for sentence layouts. */
   size?: KFieldSize | "xs"
   className?: string
   triggerClassName?: string

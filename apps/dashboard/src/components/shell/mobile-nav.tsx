@@ -1,11 +1,12 @@
 import { Link } from "@tanstack/react-router"
 
-import { matchesExactly, NAV } from "@/lib/nav"
+import { NAV } from "@/lib/nav"
 
 const ITEMS = NAV.flatMap((g) => g.items).filter((i) => i.mobile)
 
 /** Below 768px the sidebar gives way to a bottom bar: monitoring and alerts first. */
 export function MobileNav() {
+  if (ITEMS.length === 0) return null
   return (
     <nav
       aria-label="Navigasi utama"
@@ -18,10 +19,7 @@ export function MobileNav() {
           <Link
             key={item.label}
             {...item.link}
-            activeOptions={{
-              exact: matchesExactly(item),
-              includeHash: Boolean(item.link.hash),
-            }}
+            activeOptions={{ includeHash: Boolean(item.link.hash) }}
             className="flex flex-col items-center justify-center gap-1 text-[11px] font-medium text-muted-foreground data-[status=active]:text-primary"
           >
             <Icon aria-hidden className="size-5" />

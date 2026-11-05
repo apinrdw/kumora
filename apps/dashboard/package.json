@@ -12,7 +12,7 @@
     "lint": "oxlint --deny-warnings",
     "format": "oxfmt --write \"**/*.{ts,tsx}\"",
     "format:check": "oxfmt --check \"**/*.{ts,tsx}\"",
-    "typecheck": "effect-tsgo tsc --noEmit",
+    "typecheck": "tsc --noEmit",
     "test": "vitest run --passWithNoTests"
   },
   "dependencies": {
@@ -22,8 +22,6 @@
     "@tanstack/react-router-devtools": "latest",
     "@tanstack/react-start": "latest",
     "@workspace/ui": "workspace:*",
-    "effect": "4.0.7",
-    "lightweight-charts": "5.2.1",
     "react": "^19.2.8",
     "react-dom": "^19.2.8",
     "recharts": "3.8.0",
@@ -32,8 +30,6 @@
   },
   "devDependencies": {
     "@cloudflare/vite-plugin": "^1.65.0",
-    "@effect/tsgo": "0.62.0",
-    "@effect/vitest": "4.0.7",
     "@tanstack/devtools-vite": "latest",
     "@tanstack/router-cli": "^1.167.41",
     "@types/node": "^22",

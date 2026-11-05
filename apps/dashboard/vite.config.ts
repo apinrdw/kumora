@@ -5,13 +5,6 @@ import { tanstackStart } from "@tanstack/react-start/plugin/vite"
 import viteReact from "@vitejs/plugin-react"
 import tailwindcss from "@tailwindcss/vite"
 
-/**
- * A whole calendar for the relay, which only scripts/drive-extension.mts sets (ADR 0003):
- * see `calendarFrom`. The Worker reads it under this name, typed in src/relay-env.d.ts;
- * .github/workflows/extension-driver.yml sets it for its build.
- */
-const relayCalendar = process.env.RELAY_CALENDAR
-
 const config = defineConfig({
   resolve: { tsconfigPaths: true },
   // Crawl every route up front: deps reached only from lazily loaded routes are
@@ -23,10 +16,6 @@ const config = defineConfig({
     cloudflare({
       viteEnvironment: { name: "ssr" },
       inspectorPort: 0,
-      // A var, not a .dev.vars line: with `secrets.required` set, local dev drops undeclared keys.
-      ...(relayCalendar
-        ? { config: { vars: { RELAY_CALENDAR: relayCalendar } } }
-        : {}),
     }),
     devtools(),
     tailwindcss(),

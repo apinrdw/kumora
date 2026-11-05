@@ -1,10 +1,9 @@
-// Top level is production (kumora-dashboard); env.staging is the Staging Worker
-// and its Previews. Workers Builds picks the env at build time via
-// CLOUDFLARE_ENV. See docs/specs/cloudflare-infisical-deploy.md.
+// Local only: nothing deploys this Worker yet (AGENTS.md, Deploys). Wrangler
+// serves `vite dev` and writes worker-configuration.d.ts.
 {
   "$schema": "node_modules/wrangler/config-schema.json",
   "name": "kumora-dashboard",
-  "main": "src/server.ts",
+  "main": "@tanstack/react-start/server-entry",
   // Newest date both installed workerd binaries accept: the Vite plugin's
   // (vite dev, prerender) stops at 2026-10-26, wrangler's at 2026-10-30. Move it
   // when either is bumped. The binary's limit is not the workerd package's
@@ -12,102 +11,4 @@
   "compatibility_date": "2026-10-26",
   "compatibility_flags": ["nodejs_compat"],
   "observability": { "enabled": true },
-  // .github/workflows/extension-driver.yml writes throwaway values for these keys.
-  "secrets": {
-    "required": [
-      "MARKET_DATA_API_KEY",
-      "RELAY_TICKET_SECRET",
-      "RELAY_INGEST_SECRET",
-      "OWNERSHIP_INGEST_SECRET",
-    ],
-  },
-  "durable_objects": {
-    "bindings": [{ "name": "TRADE_RELAY", "class_name": "TradeRelay" }],
-  },
-  // Inheritable: written once. One-way after the first deploy.
-  "exports": { "TradeRelay": { "type": "durable-object", "storage": "sqlite" } },
-  "d1_databases": [
-    {
-      "binding": "OWNERSHIP_DB",
-      "database_name": "kumora-ownership",
-      "database_id": "dfd677b1-642d-4fc0-93ee-ab224fac1b38",
-      "migrations_dir": "migrations",
-    },
-  ],
-  "r2_buckets": [
-    { "binding": "OWNERSHIP_FILES", "bucket_name": "kumora-ownership" },
-  ],
-  "workflows": [
-    {
-      "binding": "OWNERSHIP_LOAD",
-      "name": "kumora-ownership-load",
-      "class_name": "OwnershipLoad",
-    },
-  ],
-  "env": {
-    "staging": {
-      "name": "kumora-dashboard-staging",
-      // Not inherited from the top level.
-      "secrets": {
-        "required": [
-          "MARKET_DATA_API_KEY",
-          "RELAY_TICKET_SECRET",
-          "RELAY_INGEST_SECRET",
-          "OWNERSHIP_INGEST_SECRET",
-        ],
-      },
-      "durable_objects": {
-        "bindings": [{ "name": "TRADE_RELAY", "class_name": "TradeRelay" }],
-      },
-      "d1_databases": [
-        {
-          "binding": "OWNERSHIP_DB",
-          "database_name": "kumora-ownership-staging",
-          "database_id": "9cd5dc1a-1cde-43c2-9ca1-1d6178dbae64",
-          "migrations_dir": "migrations",
-        },
-      ],
-      "r2_buckets": [
-        {
-          "binding": "OWNERSHIP_FILES",
-          "bucket_name": "kumora-ownership-staging",
-        },
-      ],
-      "workflows": [
-        {
-          "binding": "OWNERSHIP_LOAD",
-          "name": "kumora-ownership-load-staging",
-          "class_name": "OwnershipLoad",
-        },
-      ],
-      // Required by `wrangler preview`, even when empty.
-      "previews": {
-        "durable_objects": {
-          "bindings": [{ "name": "TRADE_RELAY", "class_name": "TradeRelay" }],
-        },
-        // Previews share staging's database and bucket.
-        "d1_databases": [
-          {
-            "binding": "OWNERSHIP_DB",
-            "database_name": "kumora-ownership-staging",
-            "database_id": "9cd5dc1a-1cde-43c2-9ca1-1d6178dbae64",
-            "migrations_dir": "migrations",
-          },
-        ],
-        "r2_buckets": [
-          {
-            "binding": "OWNERSHIP_FILES",
-            "bucket_name": "kumora-ownership-staging",
-          },
-        ],
-        "workflows": [
-          {
-            "binding": "OWNERSHIP_LOAD",
-            "name": "kumora-ownership-load-staging",
-            "class_name": "OwnershipLoad",
-          },
-        ],
-      },
-    },
-  },
 }

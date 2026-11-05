@@ -1,6 +1,6 @@
 // Top level is production (kumora-web); env.staging is the Staging Worker and
 // its Previews. Workers Builds picks the env at build time via CLOUDFLARE_ENV.
-// See docs/specs/cloudflare-infisical-deploy.md.
+// See docs/adr/0003-cloudflare-workers-with-infisical-owned-configuration.md.
 {
   "$schema": "node_modules/wrangler/config-schema.json",
   "name": "kumora-web",
