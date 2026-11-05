@@ -35,10 +35,10 @@ One connection per app, each on a hand-made anchor Worker that Alchemy never dep
 | Production branch | `main` | `main` |
 | Non-production branch builds | on | on |
 | Deploy command | ⬜ `bun ../../packages/deploy/src/deploy.ts web` | ⬜ `bun ../../packages/deploy/src/deploy.ts dashboard` |
-| Preview command | ⬜ same as the deploy command | ⬜ same as the deploy command |
+| Version command (non-production branches) | ⬜ same as the deploy command | ⬜ same as the deploy command |
 | Build variables | `INFISICAL_CLIENT_ID`, `INFISICAL_CLIENT_SECRET` (secret), ⬜ `BUN_VERSION=1.4.4` | the same |
 
-Leave the build command empty: as observed 2026-11-05, Workers Builds already runs `pnpm install --frozen-lockfile` at the repo root before the deploy command. `BUN_VERSION` must match `.bun-version`; change both together.
+As observed 2026-11-05 in the dashboard's Build configuration panel, the preview command is the field named **Version command**, beside Build command, Deploy command and Root directory. Leave the build command empty: as observed 2026-11-05, Workers Builds already runs `pnpm install --frozen-lockfile` at the repo root before the deploy command. `BUN_VERSION` must match `.bun-version`; change both together.
 
 As observed 2026-11-05, every push to `main` fails the `kumora-web-builds` check until this spec merges, because `main` has no deploy script. Pause that connection's builds or ignore the check.
 
