@@ -203,7 +203,8 @@ worker_name() {
 console.log(stageTarget(process.argv[1], parseStage(process.argv[2])).workerName)' "$1" "$2"
 }
 # Root files every app's install or build reads: a lockfile or catalog change
-# alone must still deploy.
+# alone must still deploy. The Watch paths row in docs/runbooks/deploy.md lists
+# the same files.
 ROOT_WATCH_PATHS="pnpm-lock.yaml, pnpm-workspace.yaml, package.json, .bun-version"
 
 banner "kumora deploy setup (docs/runbooks/deploy.md)"

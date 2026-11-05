@@ -40,7 +40,7 @@ One connection per app, each on a hand-made anchor Worker that Alchemy never dep
 
 As observed 2026-11-05 in the dashboard's Build configuration panel, the preview command is the field named **Version command**, beside Build command, Deploy command and Root directory. Leave the build command empty: as observed 2026-11-05, Workers Builds already runs `pnpm install --frozen-lockfile` at the repo root before the deploy command. `BUN_VERSION` must match `.bun-version`; change both together.
 
-The four root files in Watch paths are every app's dependency inputs, so a lockfile or catalog change alone still deploys. ⬜ Both connections were created with only the app and `packages/**` paths; add the root files to each. Whether the field takes a bare root file name, and how it separates entries, is unverified.
+The four root files in Watch paths are every app's dependency inputs, so a lockfile or catalog change alone still deploys; `ROOT_WATCH_PATHS` in `scripts/deploy-setup.sh` lists the same files. ⬜ Both connections were created with only the app and `packages/**` paths; add the root files to each. Whether the field takes a bare root file name, and how it separates entries, is unverified.
 
 As observed 2026-11-05, every push to `main` fails the `kumora-web-builds` check until this spec merges, because `main` has no deploy script. Pause that connection's builds or ignore the check.
 
