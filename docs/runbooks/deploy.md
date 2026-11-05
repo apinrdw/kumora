@@ -25,30 +25,30 @@ Bootstrapped once from a personal profile with `bun alchemy state bootstrap --ba
 
 ## 4. Workers Builds connections
 
-One connection per app, each on a hand-made anchor Worker that Alchemy never deploys.
+One connection per app, each on a hand-made anchor Worker that Alchemy never deploys. As observed 2026-11-05, both deployed this spec's PR (#33) to its Preview, and `/probe` answered the `staging` hash prefix.
 
 | Setting | `kumora-web-builds` | `kumora-dashboard-builds` |
 | --- | --- | --- |
-| Status | ✅ created and connected | ⬜ create and connect the same way |
+| Status | ✅ created and connected | ✅ created and connected |
 | Root directory | `apps/web` | `apps/dashboard` |
 | Watch paths | `apps/web/**`, `packages/**` | `apps/dashboard/**`, `packages/**` |
 | Production branch | `main` | `main` |
 | Non-production branch builds | on | on |
-| Deploy command | ⬜ `bun ../../packages/deploy/src/deploy.ts web` | ⬜ `bun ../../packages/deploy/src/deploy.ts dashboard` |
-| Version command (non-production branches) | ⬜ same as the deploy command | ⬜ same as the deploy command |
-| Build variables | `INFISICAL_CLIENT_ID`, `INFISICAL_CLIENT_SECRET` (secret), ⬜ `BUN_VERSION=1.4.4` | the same |
+| Deploy command | ✅ `bun ../../packages/deploy/src/deploy.ts web` | ✅ `bun ../../packages/deploy/src/deploy.ts dashboard` |
+| Version command (non-production branches) | ✅ same as the deploy command | ✅ same as the deploy command |
+| Build variables | `INFISICAL_CLIENT_ID`, `INFISICAL_CLIENT_SECRET` (secret), `BUN_VERSION=1.4.4` | the same |
 
 As observed 2026-11-05 in the dashboard's Build configuration panel, the preview command is the field named **Version command**, beside Build command, Deploy command and Root directory. Leave the build command empty: as observed 2026-11-05, Workers Builds already runs `pnpm install --frozen-lockfile` at the repo root before the deploy command. `BUN_VERSION` must match `.bun-version`; change both together.
 
 As observed 2026-11-05, every push to `main` fails the `kumora-web-builds` check until this spec merges, because `main` has no deploy script. Pause that connection's builds or ignore the check.
 
-## 5. GitHub teardown identity ⬜
+## 5. GitHub teardown identity ✅
 
 1. In Infisical, create machine identity `kumora-github-teardown` and add the **OIDC Auth** method. As observed 2026-11-05 in its Add Auth Method form (Configuration: Custom Configuration), set OIDC Discovery URL and Issuer both to `https://token.actions.githubusercontent.com`, Subject to `repo:apinrdw/kumora:*`, Audiences to `https://github.com/apinrdw` (GitHub's default, since the job requests none), and Access Token TTL and Max TTL to `1800` (the job times out at 15 minutes). Whether Subject accepts the `*` wildcard is unverified.
 2. Give it read access to the `staging` environment only. Whether Infisical can scope an identity to one environment is unverified.
 3. In GitHub, Settings → Secrets and variables → Actions → **Variables** (an unverified path), add `INFISICAL_TEARDOWN_IDENTITY_ID` with the identity's ID. It is a variable, not a secret: the ID alone grants nothing.
 
-## 6. Developer profiles ⬜
+## 6. Developer profiles
 
 Each developer runs, from either app's folder:
 
