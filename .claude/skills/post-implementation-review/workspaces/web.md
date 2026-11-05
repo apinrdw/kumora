@@ -7,10 +7,10 @@ Running the site and its probe locally, and checking prerender without a deploy.
 - **Prerender without a deploy.** `alchemy deploy` needs credentials, but alchemy's build child runs alone. From `apps/web`, pipe a Bun-serialized config into it (Node's `v8.serialize` output fails in Bun with "Unable to deserialize data"):
 
   ```sh
-  printf '%s\n' 'import { serialize } from "node:v8"; process.stdout.write(serialize({ rootDir: process.argv[2], env: {}, main: undefined, compatibilityDate: "2026-11-02", compatibilityFlags: ["nodejs_compat"], viteEnvironments: undefined, outputPath: "/tmp/web-build.bin" }))' > /tmp/web-build-config.mjs
+  printf '%s\n' 'import { serialize } from "node:v8"; const { COMPATIBILITY_DATE } = await import(`${process.argv[2]}/../../packages/deploy/src/target.ts`); process.stdout.write(serialize({ rootDir: process.argv[2], env: {}, main: undefined, compatibilityDate: COMPATIBILITY_DATE, compatibilityFlags: ["nodejs_compat"], viteEnvironments: undefined, outputPath: "/tmp/web-build.bin" }))' > /tmp/web-build-config.mjs
   bun /tmp/web-build-config.mjs "$PWD" | bun ../../node_modules/.pnpm/@alchemy.run+cloudflare@2.0.0-beta.85*/node_modules/@alchemy.run/cloudflare/src/Workers/ViteBuildChildRunner.ts
   ```
 
-  Pass: `[prerender] Prerendered 1 pages: /`. Delete `dist/` afterwards. Use the date in `COMPATIBILITY_DATE` (`packages/deploy/src/target.ts`).
+  Pass: `[prerender] Prerendered 1 pages:` followed by `[prerender] - /`. Delete `dist/` afterwards. The config reads `COMPATIBILITY_DATE` from `packages/deploy/src/target.ts`.
 - **Newest compatibility date the bundled workerd accepts.** Set `COMPATIBILITY_DATE` to a far-future date, run `bun alchemy dev`, and read "the newest date supported by this server binary" in the error. Put the date back.
 - **A branch's Preview stage.** `bun packages/deploy/src/teardown.ts stage <branch>` from the root prints `stage=<stage>`; the Worker is `kumora-web-<stage>`.
