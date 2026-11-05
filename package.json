@@ -3,7 +3,7 @@
   "version": "0.0.1",
   "private": true,
   "scripts": {
-    "check": "pnpm types:check && pnpm typecheck && pnpm lint && pnpm format:check && pnpm test && pnpm build && node scripts/check-skill-links.mts && node scripts/check-package-scripts.mts",
+    "check": "pnpm types:check && pnpm typecheck && pnpm lint && pnpm format:check && pnpm test && pnpm build && node scripts/check-skill-links.mts && node scripts/check-decision-docs.mts && node scripts/check-package-scripts.mts",
     "types:check": "pnpm --filter web exec wrangler types --check && pnpm --filter dashboard exec wrangler types --check",
     "build": "turbo build",
     "dev": "turbo dev",
