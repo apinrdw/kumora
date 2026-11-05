@@ -1,0 +1,27 @@
+{
+  "name": "@workspace/server",
+  "version": "0.0.0",
+  "type": "module",
+  "private": true,
+  "scripts": {
+    "lint": "oxlint --deny-warnings",
+    "format": "oxfmt --write \"**/*.{ts,tsx}\"",
+    "format:check": "oxfmt --check \"**/*.{ts,tsx}\"",
+    "typecheck": "tsc --noEmit",
+    "test": "vitest run"
+  },
+  "exports": {
+    ".": "./src/index.ts"
+  },
+  "dependencies": {
+    "@tanstack/react-router": "latest",
+    "effect": "4.1.2"
+  },
+  "devDependencies": {
+    "@cloudflare/workers-types": "^5.20261104.1",
+    "@effect/vitest": "4.1.2",
+    "@types/node": "^22",
+    "typescript": "7.0.2",
+    "vitest": "^5.0.5"
+  }
+}
