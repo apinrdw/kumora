@@ -4,7 +4,7 @@ import { Cause, Context, Effect, Layer, ManagedRuntime, Schema } from "effect"
 import { HttpError } from "./errors.ts"
 
 // An app types its bindings by augmenting this interface with
-// `env: Cloudflare.InferEnv<typeof Website>` (see apps/web/src/server/env.ts).
+// `env: Cloudflare.InferEnv<typeof Website>` (see apps/web/alchemy.run.ts).
 export interface Register {}
 
 export type WorkerEnvShape = Register extends { readonly env: infer E }

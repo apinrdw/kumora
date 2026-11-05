@@ -22,6 +22,12 @@ export const Website = Cloudflare.Website.Vite(
 
 export type WebEnv = Cloudflare.InferEnv<typeof Website>
 
+declare module "@workspace/server" {
+  interface Register {
+    readonly env: WebEnv
+  }
+}
+
 export default Alchemy.Stack(
   "kumora-web",
   stackOptions("web"),
