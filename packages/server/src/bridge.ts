@@ -1,13 +1,5 @@
 import { redirect } from "@tanstack/react-router"
-import {
-  Cause,
-  Context,
-  Effect,
-  Layer,
-  ManagedRuntime,
-  Option,
-  Schema,
-} from "effect"
+import { Cause, Context, Effect, Layer, ManagedRuntime, Schema } from "effect"
 
 import { HttpError } from "./errors.ts"
 
@@ -70,15 +62,17 @@ export function makeRunServerEffect<R>({ isolate, workerEnv }: Bridge<R>) {
         Effect.matchCauseEffect({
           onSuccess: (value) => Effect.succeed({ ok: true as const, value }),
           onFailure: (cause) => {
-            const error = Cause.findErrorOption(cause)
+            const errors = cause.reasons
+              .filter(Cause.isFailReason)
+              .map((reason) => reason.error)
             if (
               !Cause.hasDies(cause) &&
-              Option.isSome(error) &&
-              isHttpError(error.value)
+              errors.every(isHttpError) &&
+              errors[0] !== undefined
             )
               return Effect.succeed({
                 ok: false as const,
-                response: toResponse(error.value),
+                response: toResponse(errors[0]),
               })
             return Effect.logError("Server effect failed", cause).pipe(
               Effect.as({
