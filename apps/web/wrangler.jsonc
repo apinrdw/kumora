@@ -1,16 +1,25 @@
 // Top level is production (kumora-web); env.staging is the Staging Worker and
 // its Previews. Workers Builds picks the env at build time via CLOUDFLARE_ENV.
+// Decision: Cloudflare Workers with static assets, deployed by Workers Builds.
+// Pages lost because Cloudflare steers new projects to Workers and the Vite
+// plugin targets Workers only. GitHub Actions deploys lost because they need
+// Cloudflare and Infisical credentials in CI. See apinrdw/kumora-monorepo#18.
 {
   "$schema": "node_modules/wrangler/config-schema.json",
   "name": "kumora-web",
   "main": "@tanstack/react-start/server-entry",
-  // Newest date both installed workerd binaries accept: the Vite plugin's
-  // (vite dev, prerender) stops at 2026-10-26, wrangler's at 2026-10-30. Move it
-  // when either is bumped. The binary's limit is not the workerd package's
-  // `compatibilityDate` export, which is older.
+  // Decision: the newest date both installed workerd binaries accept, not
+  // today's date. The Vite plugin's (vite dev, prerender) stops at 2026-10-26,
+  // wrangler's at 2026-10-30. Move it when either is bumped. The binary's limit
+  // is not the workerd package's `compatibilityDate` export, which is older.
   "compatibility_date": "2026-10-26",
   "compatibility_flags": ["nodejs_compat"],
   "observability": { "enabled": true },
+  // Decision: Infisical Cloud owns every value an app reads; Cloudflare holds
+  // only copies synced from it, so a rotation goes live without a deploy.
+  // Reading Infisical at runtime lost: it puts a third-party call and a
+  // long-lived credential on the request path. A deploy missing a synced secret
+  // fails here.
   "secrets": { "required": ["DEPLOY_PROBE_SECRET"] },
   "env": {
     "staging": {

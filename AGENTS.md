@@ -10,7 +10,11 @@ Default vocabulary: `needs-triage`, `needs-info`, `ready-for-agent`, `ready-for-
 
 ### Domain docs
 
-Multi-context: root `GLOSSARY-MAP.md` indexes one `GLOSSARY.md` and `docs/adr/` per pnpm workspace (`apps/*`, `packages/*`); system-wide ADRs in `docs/adr/`. See `docs/agents/domain.md`.
+Multi-context: root `GLOSSARY-MAP.md` indexes one `GLOSSARY.md` per pnpm workspace (`apps/*`, `packages/*`). See `docs/agents/domain.md`.
+
+### Decisions
+
+No ADRs. A decision lives as a `Decision:` comment on the line that enacts it, and a decision with no code site goes in the config file that enacts it. Read `Decision:` comments in a file before changing it, and keep them through `/no-comments` and `/deslop`. See **Decisions live in code, not ADRs** in `docs/agents/domain.md`.
 
 ### Deploys
 

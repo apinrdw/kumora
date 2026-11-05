@@ -4,10 +4,10 @@
   "$schema": "node_modules/wrangler/config-schema.json",
   "name": "kumora-dashboard",
   "main": "@tanstack/react-start/server-entry",
-  // Newest date both installed workerd binaries accept: the Vite plugin's
-  // (vite dev, prerender) stops at 2026-10-26, wrangler's at 2026-10-30. Move it
-  // when either is bumped. The binary's limit is not the workerd package's
-  // `compatibilityDate` export, which is older.
+  // Decision: the newest date both installed workerd binaries accept, not
+  // today's date. The Vite plugin's (vite dev, prerender) stops at 2026-10-26,
+  // wrangler's at 2026-10-30. Move it when either is bumped. The binary's limit
+  // is not the workerd package's `compatibilityDate` export, which is older.
   "compatibility_date": "2026-10-26",
   "compatibility_flags": ["nodejs_compat"],
   "observability": { "enabled": true },

@@ -55,4 +55,5 @@ The script needs Pillow built with libimagequant (`python3-pil` on Debian and Ub
 ## Agent and contributor docs
 
 - `AGENTS.md` points agents at the issue tracker, triage labels, and domain docs under `docs/agents/`.
-- `GLOSSARY-MAP.md` indexes per-workspace glossaries and ADRs. System-wide ADRs live in `docs/adr/`.
+- `GLOSSARY-MAP.md` indexes per-workspace glossaries.
+- Decisions are `Decision:` comments next to the code they constrain (`rg 'Decision:'`). The repo keeps no ADRs.
