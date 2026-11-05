@@ -18,6 +18,8 @@ export interface DeployTarget {
 
 const PRODUCTION = "production" as Stage
 const STAGING = "staging" as Stage
+// apps/e2e/playwright.config.ts sets ALCHEMY_STAGE to this name.
+const TEST = "test" as Stage
 
 const MAX_WORKER_NAME = 54
 // The longest app prefix, `kumora-dashboard-`, plus `-` and the hash, leaves 30.
@@ -68,7 +70,7 @@ const KINDS: Record<
 function classify(raw: string): StageKind | undefined {
   if (raw === PRODUCTION) return "production"
   if (raw === STAGING) return "staging"
-  if (raw === "test") return "test"
+  if (raw === TEST) return "test"
   if (DEV.test(raw)) return "dev"
   if (PREVIEW.test(raw)) return "preview"
   return undefined

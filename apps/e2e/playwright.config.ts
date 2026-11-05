@@ -16,6 +16,7 @@ export default defineConfig({
         "pnpm exec turbo run dev --only --ui=stream --filter=web --filter=dashboard",
       cwd: "../..",
       env: {
+        // The Test stage name, defined as TEST in packages/deploy/src/target.ts.
         ALCHEMY_STAGE: "test",
         DEPLOY_PROBE_SECRET: "e2e-dummy-not-a-secret",
       },

@@ -7,11 +7,11 @@ import { HttpError } from "./errors.ts"
 // `env: Cloudflare.InferEnv<typeof Website>` (see apps/web/src/server/env.ts).
 export interface Register {}
 
-export type Env = Register extends { readonly env: infer E }
+export type WorkerEnvShape = Register extends { readonly env: infer E }
   ? E
   : Record<string, unknown>
 
-export class WorkerEnv extends Context.Service<WorkerEnv, Env>()(
+export class WorkerEnv extends Context.Service<WorkerEnv, WorkerEnvShape>()(
   "@workspace/server/WorkerEnv"
 ) {}
 
@@ -21,7 +21,7 @@ export class WorkerEnv extends Context.Service<WorkerEnv, Env>()(
 const workerEnvLive = Layer.effect(
   WorkerEnv,
   Effect.promise(() => import("cloudflare:workers")).pipe(
-    Effect.map(({ env }) => env as Env)
+    Effect.map(({ env }) => env as WorkerEnvShape)
   )
 )
 
