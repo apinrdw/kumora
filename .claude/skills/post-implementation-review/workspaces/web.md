@@ -8,7 +8,8 @@ Running the site and its probe locally, and checking prerender without a deploy.
 
   ```sh
   printf '%s\n' 'import { serialize } from "node:v8"; const { COMPATIBILITY_DATE } = await import(`${process.argv[2]}/../../packages/deploy/src/target.ts`); process.stdout.write(serialize({ rootDir: process.argv[2], env: {}, main: undefined, compatibilityDate: COMPATIBILITY_DATE, compatibilityFlags: ["nodejs_compat"], viteEnvironments: undefined, outputPath: "/tmp/web-build.bin" }))' > /tmp/web-build-config.mjs
-  bun /tmp/web-build-config.mjs "$PWD" | bun ../../node_modules/.pnpm/@alchemy.run+cloudflare@2.0.0-beta.85*/node_modules/@alchemy.run/cloudflare/src/Workers/ViteBuildChildRunner.ts
+  runner=$(bun -p 'Bun.resolveSync("@alchemy.run/cloudflare/Workers/ViteBuildChildRunner", process.cwd())')
+  bun /tmp/web-build-config.mjs "$PWD" | bun "$runner"
   ```
 
   Pass: `[prerender] Prerendered 1 pages:` followed by `[prerender] - /`. Delete `dist/` afterwards. The config reads `COMPATIBILITY_DATE` from `packages/deploy/src/target.ts`.

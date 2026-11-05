@@ -36,7 +36,7 @@ One connection per app, each on a hand-made anchor Worker that Alchemy never dep
 | Non-production branch builds | on | on |
 | Deploy command | ✅ `bun ../../packages/deploy/src/deploy.ts web` | ✅ `bun ../../packages/deploy/src/deploy.ts dashboard` |
 | Version command (non-production branches) | ✅ same as the deploy command | ✅ same as the deploy command |
-| Build variables | `INFISICAL_CLIENT_ID`, `INFISICAL_CLIENT_SECRET` (secret), `BUN_VERSION=1.4.4` | the same |
+| Build variables | `INFISICAL_CLIENT_ID`, `INFISICAL_CLIENT_SECRET` (secret), `BUN_VERSION` set to the version in `.bun-version` | the same |
 
 As observed 2026-11-05 in the dashboard's Build configuration panel, the preview command is the field named **Version command**, beside Build command, Deploy command and Root directory. Leave the build command empty: as observed 2026-11-05, Workers Builds already runs `pnpm install --frozen-lockfile` at the repo root before the deploy command. `BUN_VERSION` must match `.bun-version`; change both together.
 
