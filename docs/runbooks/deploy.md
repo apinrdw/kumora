@@ -44,7 +44,7 @@ As observed 2026-11-05, every push to `main` fails the `kumora-web-builds` check
 
 ## 5. GitHub teardown identity ⬜
 
-1. In Infisical, create machine identity `kumora-github-teardown` with **OIDC Auth**: discovery URL `https://token.actions.githubusercontent.com`, issuer `https://token.actions.githubusercontent.com`, subject `repo:apinrdw/kumora:*`, audience `https://github.com/apinrdw` (GitHub's default, since the job requests none). These Infisical field names are unverified.
+1. In Infisical, create machine identity `kumora-github-teardown` and add the **OIDC Auth** method. As observed 2026-11-05 in its Add Auth Method form (Configuration: Custom Configuration), set OIDC Discovery URL and Issuer both to `https://token.actions.githubusercontent.com`, Subject to `repo:apinrdw/kumora:*`, Audiences to `https://github.com/apinrdw` (GitHub's default, since the job requests none), and Access Token TTL and Max TTL to `1800` (the job times out at 15 minutes). Whether Subject accepts the `*` wildcard is unverified.
 2. Give it read access to the `staging` environment only. Whether Infisical can scope an identity to one environment is unverified.
 3. In GitHub, Settings → Secrets and variables → Actions → **Variables** (an unverified path), add `INFISICAL_TEARDOWN_IDENTITY_ID` with the identity's ID. It is a variable, not a secret: the ID alone grants nothing.
 
