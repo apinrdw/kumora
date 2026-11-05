@@ -68,7 +68,7 @@ bun alchemy profile edit --add Infisical
 curl https://<worker-name>.kumora.workers.dev/probe
 ```
 
-The Worker name is `kumora-<app>` for Production and `kumora-<app>-<stage>` otherwise; `bun packages/deploy/src/teardown.ts stage <branch>` prints a branch's Preview stage. The answer must show `"secretPresent": true`, and `secretSha256Prefix` must equal the first 12 hex digits (`SHA256_PREFIX_LENGTH` in `apps/web/src/routes/probe.ts`) of the SHA-256 of that environment's `DEPLOY_PROBE_SECRET`:
+The Worker name is `kumora-<app>` for Production and `kumora-<app>-<stage>` otherwise; `bun packages/deploy/src/teardown.ts stage <branch>` prints a branch's Preview stage. The answer must show `"secretPresent": true`, and `secretSha256Prefix` must equal the first 12 hex digits (`SHA256_PREFIX_LENGTH` in `apps/web/src/server/probe.ts`) of the SHA-256 of that environment's `DEPLOY_PROBE_SECRET`:
 
 ```sh
 printf '%s' "$value" | sha256sum | cut -c1-12

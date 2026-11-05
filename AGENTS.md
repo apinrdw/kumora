@@ -26,7 +26,7 @@ Alchemy deploys `apps/web` and `apps/dashboard` through Workers Builds: `main` t
 
 - Read `repos/effect/LLMS.md` before writing Effect code. Consult `repos/alchemy` for Alchemy resources and props.
 - Never edit `repos/`, and never import from it. Lint rejects the import.
-- A PR that bumps `effect` or `alchemy` also runs `git subtree pull --prefix repos/<name> <url> <tag> --squash` to the matching tag.
+- A PR that bumps the `effect`, `@effect/vitest` or `alchemy` pin also runs `git subtree pull --prefix repos/<name> <url> <tag> --squash` to the matching tag.
 
 ### Briefing a subagent
 
