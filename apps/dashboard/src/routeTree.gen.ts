@@ -9,27 +9,51 @@
 // Additionally, you should also exclude this file from your linter and/or formatter to prevent it from being checked or modified.
 
 import { Route as rootRouteImport } from './routes/__root'
+import { Route as PrototypeMarketLiveRouteImport } from './routes/prototype.market-live'
 
-export interface FileRoutesByFullPath {}
-export interface FileRoutesByTo {}
+const PrototypeMarketLiveRoute = PrototypeMarketLiveRouteImport.update({
+  id: '/prototype/market-live',
+  path: '/prototype/market-live',
+  getParentRoute: () => rootRouteImport,
+} as any)
+
+export interface FileRoutesByFullPath {
+  '/prototype/market-live': typeof PrototypeMarketLiveRoute
+}
+export interface FileRoutesByTo {
+  '/prototype/market-live': typeof PrototypeMarketLiveRoute
+}
 export interface FileRoutesById {
   __root__: typeof rootRouteImport
+  '/prototype/market-live': typeof PrototypeMarketLiveRoute
 }
 export interface FileRouteTypes {
   fileRoutesByFullPath: FileRoutesByFullPath
-  fullPaths: never
+  fullPaths: '/prototype/market-live'
   fileRoutesByTo: FileRoutesByTo
-  to: never
-  id: '__root__'
+  to: '/prototype/market-live'
+  id: '__root__' | '/prototype/market-live'
   fileRoutesById: FileRoutesById
 }
-export interface RootRouteChildren {}
-
-declare module '@tanstack/react-router' {
-  interface FileRoutesByPath {}
+export interface RootRouteChildren {
+  PrototypeMarketLiveRoute: typeof PrototypeMarketLiveRoute
 }
 
-const rootRouteChildren: RootRouteChildren = {}
+declare module '@tanstack/react-router' {
+  interface FileRoutesByPath {
+    '/prototype/market-live': {
+      id: '/prototype/market-live'
+      path: '/prototype/market-live'
+      fullPath: '/prototype/market-live'
+      preLoaderRoute: typeof PrototypeMarketLiveRouteImport
+      parentRoute: typeof rootRouteImport
+    }
+  }
+}
+
+const rootRouteChildren: RootRouteChildren = {
+  PrototypeMarketLiveRoute: PrototypeMarketLiveRoute,
+}
 export const routeTree = rootRouteImport
   ._addFileChildren(rootRouteChildren)
   ._addFileTypes<FileRouteTypes>()
