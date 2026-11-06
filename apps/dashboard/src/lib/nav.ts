@@ -1,3 +1,4 @@
+import { IconChartCandle } from "@tabler/icons-react"
 import type { Icon } from "@tabler/icons-react"
 import type { LinkProps } from "@tanstack/react-router"
 
@@ -17,5 +18,21 @@ export type NavItem = {
 
 export type NavGroup = { label: string; items: ReadonlyArray<NavItem> }
 
-/** Empty until the first page lands. */
-export const NAV: ReadonlyArray<NavGroup> = []
+// PROTOTYPE: points at the throwaway route; the real page lives at /market-live.
+export const NAV: ReadonlyArray<NavGroup> = [
+  {
+    label: "Market",
+    items: [
+      {
+        label: "Market Live",
+        shortLabel: "Live",
+        icon: IconChartCandle,
+        link: {
+          to: "/prototype/market-live",
+          search: { variant: "E", code: "BBCA" },
+        },
+        mobile: true,
+      },
+    ],
+  },
+]
