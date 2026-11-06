@@ -15,7 +15,7 @@ The IDX ticker that names one listed instrument, such as `BBCA`.
 _Avoid_: Symbol, ticker
 
 **Watchlist**:
-The stock codes a user chooses to keep an eye on, with each one's last price, change, value, volume and frequency for the day. Each browser keeps its own.
+The stock codes and indices a user chooses to keep an eye on, each with its day state. Each browser keeps its own.
 _Avoid_: Favourites, portfolio
 
 **Big trade**:
@@ -41,6 +41,14 @@ _Avoid_: Market type
 **Indicative price**:
 The price, and the volume with it, that an auction would match at if it closed now. Published only during pre-opening and pre-closing.
 _Avoid_: IEP, projected price
+
+**Day state**:
+A stock code's or index's figures for the trading day so far: last price, previous close, change, open, high, low, volume, value and frequency.
+_Avoid_: Quote, summary
+
+**Order book**:
+The resting buy orders (bid) and sell orders (offer) for one stock code, as price levels with their lots and number of orders.
+_Avoid_: Depth, market depth
 
 **Net flow**:
 Net broker buying minus selling for an instrument over a period, in rupiah, from end-of-day data. Absent when the feed has no coverage.
