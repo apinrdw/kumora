@@ -34,6 +34,14 @@ _Avoid_: Done trade, tick
 The exchange's number for a running trade: one sequence across the whole market, restarting each trading day. Every feed that reports the same trade gives it the same trade number.
 _Avoid_: Trade ID, sequence
 
+**Board**:
+The exchange market a running trade happens on: regular, cash, or negotiated. Candles count only regular-board trades.
+_Avoid_: Market type
+
+**Indicative price**:
+The price, and the volume with it, that an auction would match at if it closed now. Published only during pre-opening and pre-closing.
+_Avoid_: IEP, projected price
+
 **Net flow**:
 Net broker buying minus selling for an instrument over a period, in rupiah, from end-of-day data. Absent when the feed has no coverage.
 _Avoid_: Broker flow (for the figure), flow
@@ -54,6 +62,10 @@ The instant a figure was last true at its source.
 
 **Freshness**:
 How current a figure is relative to its feed: live, delayed, end-of-day, stale, unavailable, or demo. Live means arriving now; it does not mean the feed is licensed.
+
+**Market phase**:
+The part of the trading day the exchange is in: pre-opening, session 1, break, session 2, pre-closing, post-trading, closed, or holiday. A quiet feed in a phase where no trades are expected is still live.
+_Avoid_: Market status, session (for the whole day)
 
 ### Shell
 
