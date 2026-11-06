@@ -222,12 +222,17 @@ function TapeTable({
         {trades.map((t) => {
           const mine = t.code === code
           const sideTone = t.side === "B" ? "text-up" : "text-down"
+          const big = t.price * t.lots * 100 >= BIG_TRADE
           return (
             <tr
               key={t.tradeNumber}
               className={cn(
                 "h-6 text-right",
                 mine && "bg-selected",
+                big &&
+                  (t.side === "B"
+                    ? "bg-up/15 font-bold shadow-[inset_3px_0_0_var(--semantic-up)]"
+                    : "bg-down/15 font-bold shadow-[inset_3px_0_0_var(--semantic-down)]"),
                 !mine && dimOthers && "text-muted-foreground"
               )}
             >
@@ -276,6 +281,9 @@ function TapeTable({
     </table>
   )
 }
+
+/** A running trade worth at least Rp1 B is a big trade. */
+const BIG_TRADE = 1e9
 
 function compact(n: number): string {
   if (n >= 1e12) return (n / 1e12).toFixed(1).replace(".", ",") + " T"

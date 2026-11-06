@@ -213,7 +213,11 @@ function createFeed(): FakeFeed {
         time: simNow(),
         code,
         price,
-        lots: Math.ceil(rand() ** 4 * 300),
+        // About 1 in 80 is a block trade, so some cross the 1 B big-trade line.
+        lots:
+          rand() < 0.0125
+            ? Math.ceil(1_000 + rand() * 20_000)
+            : Math.ceil(rand() ** 4 * 300),
         side: rand() < 0.5 ? "B" : "S",
         feeds: live.length === 2 && rand() < 0.04 ? [live[0]!] : live,
       }
