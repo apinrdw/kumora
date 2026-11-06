@@ -30,6 +30,10 @@ _Avoid_: Trade count, ticks
 One executed trade on the exchange's tape: its time, stock code, price and lots, and the buyer and seller brokers when the feed carries them. The running trades of every stock code together make the tape.
 _Avoid_: Done trade, tick
 
+**Trade number**:
+The exchange's number for a running trade: one sequence across the whole market, restarting each trading day. Every feed that reports the same trade gives it the same trade number.
+_Avoid_: Trade ID, sequence
+
 **Net flow**:
 Net broker buying minus selling for an instrument over a period, in rupiah, from end-of-day data. Absent when the feed has no coverage.
 _Avoid_: Broker flow (for the figure), flow
@@ -40,7 +44,7 @@ _Avoid_: Broker flow (for the figure), flow
 A source the terminal draws figures from, such as a price feed or a broker end-of-day feed.
 
 **Relay**:
-The browser extension's path that captures a broker site's live data from the user's own signed-in session and forwards it to the terminal in the same browser. Each broker site it relays from is its own feed.
+The browser extension's path that captures a broker site's live data from the owner's signed-in session and forwards it to the terminal, which keeps each trading day and serves it to signed-in viewers. Each broker site it relays from is its own feed.
 
 **Provenance**:
 Which feed a figure came from and its as-of.
