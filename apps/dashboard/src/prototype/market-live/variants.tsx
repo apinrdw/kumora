@@ -211,7 +211,11 @@ function TapeTable({
           <th className="font-medium">Price</th>
           <th className="font-medium">Lot</th>
           {wide && <th className="font-medium">Value</th>}
-          {wide && <th className="pr-3 font-medium">Source</th>}
+          {wide && (
+            <th className="w-8 pr-3">
+              <span className="sr-only">Source</span>
+            </th>
+          )}
         </tr>
       </thead>
       <tbody>
