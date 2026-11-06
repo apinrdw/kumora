@@ -227,11 +227,14 @@ const open = (day: string) => at(day, 9, 0)
 function PastChart({
   bars,
   cursor,
+  dimAfter,
   onPick,
   className,
 }: {
   bars: ReadonlyArray<Bar>
   cursor?: number
+  /** Candles after this minute are drawn muted: the day is known, the replay hasn't reached them. */
+  dimAfter?: number
   onPick?: (minute: number) => void
   className?: string
 }) {
@@ -243,6 +246,7 @@ function PastChart({
     markers: ISeriesMarkersPluginApi<Time>
     up: string
     down: string
+    muted: string
   } | null>(null)
   const pick = useRef(onPick)
   useEffect(() => {
@@ -299,7 +303,15 @@ function PastChart({
     chart.subscribeClick((p) => {
       if (p.time !== undefined) pick.current?.(p.time as number)
     })
-    api.current = { chart, candles, volume, markers, up, down }
+    api.current = {
+      chart,
+      candles,
+      volume,
+      markers,
+      up,
+      down,
+      muted: v("--text-muted"),
+    }
     return () => {
       api.current = null
       chart.remove()
@@ -309,15 +321,29 @@ function PastChart({
   useEffect(() => {
     const a = api.current
     if (!a) return
-    a.candles.setData(bars.map((b) => ({ ...b, time: b.time as Time })))
+    const ahead = (b: Bar) => dimAfter !== undefined && b.time > dimAfter
+    a.candles.setData(
+      bars.map((b) =>
+        ahead(b)
+          ? {
+              ...b,
+              time: b.time as Time,
+              color: a.muted + "55",
+              wickColor: a.muted + "55",
+            }
+          : { ...b, time: b.time as Time }
+      )
+    )
     a.volume.setData(
       bars.map((b) => ({
         time: b.time as Time,
         value: b.lots,
-        color: (b.close >= b.open ? a.up : a.down) + "66",
+        color: ahead(b)
+          ? a.muted + "22"
+          : (b.close >= b.open ? a.up : a.down) + "66",
       }))
     )
-  }, [bars])
+  }, [bars, dimAfter])
 
   useEffect(() => {
     api.current?.markers.setMarkers(
@@ -674,13 +700,11 @@ function VariantIDay({ code, onCode, day, onDay }: PastProps) {
 
 const SPEEDS = [1, 10, 60, 300] as const
 
-export function VariantJ(props: VariantProps) {
-  const p = usePastProps(props)
-  return <VariantJDay key={p.day} {...p} />
-}
+type Replay = ReturnType<typeof useReplay>
 
-function VariantJDay({ code, onCode, day, onDay }: PastProps) {
-  const [t, setT] = useState(() => open(day) + 30 * 60)
+/** The replay clock: plays at `speed`× real time, skips the lunch break, stops at the close; Space toggles. */
+function useReplay(day: string, start: number) {
+  const [t, setT] = useState(start)
   const [playing, setPlaying] = useState(false)
   const [speed, setSpeed] = useState<(typeof SPEEDS)[number]>(60)
   useEffect(() => {
@@ -716,13 +740,87 @@ function VariantJDay({ code, onCode, day, onDay }: PastProps) {
     window.addEventListener("keydown", onKey)
     return () => window.removeEventListener("keydown", onKey)
   }, [])
+  return { t, setT, playing, setPlaying, speed, setSpeed }
+}
+
+function Transport({ day, r }: { day: string; r: Replay }) {
+  const { t, setT, playing, setPlaying, speed, setSpeed } = r
+  const from = at(day, 8, 45)
+  const to = at(day, 16, 15)
+  const pct = (x: number) => ((x - from) / (to - from)) * 100
+  return (
+    <div className="flex items-center gap-3 border-t border-border px-3 py-2">
+      <button
+        type="button"
+        onClick={() => setPlaying((p) => !p)}
+        className="h-8 w-16 rounded-md bg-primary text-sm font-semibold text-primary-foreground"
+        title="Play / pause (Space)"
+      >
+        {playing ? "Pause" : "Play"}
+      </button>
+      <div className="flex overflow-hidden rounded-md border border-border text-xs">
+        {SPEEDS.map((s) => (
+          <button
+            key={s}
+            type="button"
+            onClick={() => setSpeed(s)}
+            className={cn(
+              "px-2 py-1",
+              s === speed ? "bg-selected font-bold" : "text-muted-foreground"
+            )}
+          >
+            {s}×
+          </button>
+        ))}
+      </div>
+      <div className="relative flex-1">
+        {/* Session bands behind the scrubber. */}
+        <div className="pointer-events-none absolute inset-x-0 top-1/2 h-2 -translate-y-1/2 rounded bg-border/40">
+          {sessions(day).map(([a, b]) => (
+            <i
+              key={a}
+              className="bg-info/40 absolute inset-y-0"
+              style={{ left: `${pct(a)}%`, width: `${pct(b) - pct(a)}%` }}
+            />
+          ))}
+        </div>
+        <input
+          type="range"
+          min={from}
+          max={to}
+          step={1}
+          value={t}
+          onChange={(e) => setT(Number(e.target.value))}
+          className="relative w-full accent-[var(--accent-primary)]"
+          aria-label="Replay time"
+        />
+        <div className="num flex justify-between text-[10px] text-muted-foreground">
+          <span>08:45</span>
+          <span>12:00</span>
+          <span>16:15</span>
+        </div>
+      </div>
+      <span className="num w-20 text-right text-sm font-semibold">
+        {hms(t)}
+      </span>
+    </div>
+  )
+}
+
+export function VariantJ(props: VariantProps) {
+  const p = usePastProps(props)
+  return <VariantJDay key={p.day} {...p} />
+}
+
+function VariantJDay({ code, onCode, day, onDay }: PastProps) {
+  const { t, setT, playing, setPlaying, speed, setSpeed } = useReplay(
+    day,
+    open(day) + 30 * 60
+  )
   const minute = Math.floor(t / 60) * 60
   const bars = useMemo(() => barsUpTo(day, code, minute), [day, code, minute])
   const tSec = Math.floor(t)
   const trades = useMemo(() => tapeUpTo(day, tSec), [day, tSec])
-  const from = at(day, 8, 45)
-  const to = at(day, 16, 15)
-  const pct = (x: number) => ((x - from) / (to - from)) * 100
   return (
     <div className={GRID}>
       <section className={CARD}>
@@ -735,63 +833,10 @@ function VariantJDay({ code, onCode, day, onDay }: PastProps) {
           </span>
         </header>
         <PastChart bars={bars} className="h-[380px] min-h-0 flex-1 p-2" />
-        <div className="flex items-center gap-3 border-t border-border px-3 py-2">
-          <button
-            type="button"
-            onClick={() => setPlaying((p) => !p)}
-            className="h-8 w-16 rounded-md bg-primary text-sm font-semibold text-primary-foreground"
-            title="Play / pause (Space)"
-          >
-            {playing ? "Pause" : "Play"}
-          </button>
-          <div className="flex overflow-hidden rounded-md border border-border text-xs">
-            {SPEEDS.map((s) => (
-              <button
-                key={s}
-                type="button"
-                onClick={() => setSpeed(s)}
-                className={cn(
-                  "px-2 py-1",
-                  s === speed
-                    ? "bg-selected font-bold"
-                    : "text-muted-foreground"
-                )}
-              >
-                {s}×
-              </button>
-            ))}
-          </div>
-          <div className="relative flex-1">
-            {/* Session bands behind the scrubber. */}
-            <div className="pointer-events-none absolute inset-x-0 top-1/2 h-2 -translate-y-1/2 rounded bg-border/40">
-              {sessions(day).map(([a, b]) => (
-                <i
-                  key={a}
-                  className="bg-info/40 absolute inset-y-0"
-                  style={{ left: `${pct(a)}%`, width: `${pct(b) - pct(a)}%` }}
-                />
-              ))}
-            </div>
-            <input
-              type="range"
-              min={from}
-              max={to}
-              step={1}
-              value={t}
-              onChange={(e) => setT(Number(e.target.value))}
-              className="relative w-full accent-[var(--accent-primary)]"
-              aria-label="Replay time"
-            />
-            <div className="num flex justify-between text-[10px] text-muted-foreground">
-              <span>08:45</span>
-              <span>12:00</span>
-              <span>16:15</span>
-            </div>
-          </div>
-          <span className="num w-20 text-right text-sm font-semibold">
-            {hms(t)}
-          </span>
-        </div>
+        <Transport
+          day={day}
+          r={{ t, setT, playing, setPlaying, speed, setSpeed }}
+        />
         <footer className="border-t border-border px-3 py-1.5">
           <LwNotice />
         </footer>
@@ -827,6 +872,47 @@ function VariantJDay({ code, onCode, day, onDay }: PastProps) {
   )
 }
 
+function DayStrip({ day, onDay }: { day: string; onDay: (d: string) => void }) {
+  return (
+    <nav aria-label="Trading day" className="flex gap-1.5 overflow-x-auto pb-1">
+      <button
+        type="button"
+        onClick={() => onDay("live")}
+        className="bg-surface hover:bg-elevated text-up flex shrink-0 items-center gap-1 rounded-md border border-border px-3 text-xs font-semibold"
+      >
+        <i className="size-1.5 rounded-full bg-current" /> Today · live
+      </button>
+      {KEPT_DAYS.map((d) => {
+        const chg = (seeded(d + "ihsg")() - 0.5) * 3
+        return (
+          <button
+            key={d}
+            type="button"
+            onClick={() => onDay(d)}
+            className={cn(
+              "bg-surface flex shrink-0 flex-col items-start rounded-md border px-2.5 py-1 text-left",
+              d === day
+                ? "border-primary shadow-[inset_0_-2px_0_var(--accent-primary)]"
+                : "hover:bg-elevated border-border"
+            )}
+          >
+            <span className="text-xs font-semibold">{dayShort(d)}</span>
+            <span
+              className={cn(
+                "num text-[10px]",
+                chg >= 0 ? "text-up" : "text-down"
+              )}
+            >
+              IHSG {chg >= 0 ? "+" : ""}
+              {chg.toFixed(2)}%
+            </span>
+          </button>
+        )
+      })}
+    </nav>
+  )
+}
+
 // ---------- K: day strip across the top, click a candle to pin the minute ----------
 
 export function VariantK(props: VariantProps) {
@@ -845,45 +931,7 @@ function VariantKDay({ code, onCode, day, onDay }: PastProps) {
     setPinned(all[Math.max(0, Math.min(all.length - 1, i + d))]!)
   return (
     <div className="flex flex-col gap-3">
-      <nav
-        aria-label="Trading day"
-        className="flex gap-1.5 overflow-x-auto pb-1"
-      >
-        <button
-          type="button"
-          onClick={() => onDay("live")}
-          className="bg-surface hover:bg-elevated text-up flex shrink-0 items-center gap-1 rounded-md border border-border px-3 text-xs font-semibold"
-        >
-          <i className="size-1.5 rounded-full bg-current" /> Today · live
-        </button>
-        {KEPT_DAYS.map((d) => {
-          const chg = (seeded(d + "ihsg")() - 0.5) * 3
-          return (
-            <button
-              key={d}
-              type="button"
-              onClick={() => onDay(d)}
-              className={cn(
-                "bg-surface flex shrink-0 flex-col items-start rounded-md border px-2.5 py-1 text-left",
-                d === day
-                  ? "border-primary shadow-[inset_0_-2px_0_var(--accent-primary)]"
-                  : "hover:bg-elevated border-border"
-              )}
-            >
-              <span className="text-xs font-semibold">{dayShort(d)}</span>
-              <span
-                className={cn(
-                  "num text-[10px]",
-                  chg >= 0 ? "text-up" : "text-down"
-                )}
-              >
-                IHSG {chg >= 0 ? "+" : ""}
-                {chg.toFixed(2)}%
-              </span>
-            </button>
-          )
-        })}
-      </nav>
+      <DayStrip day={day} onDay={onDay} />
       <div className={cn(GRID, "lg:h-[calc(100svh-12rem)]")}>
         <section className={CARD}>
           <header className="flex flex-wrap items-center gap-x-4 gap-y-2 border-b border-border p-3">
@@ -946,6 +994,84 @@ function VariantKDay({ code, onCode, day, onDay }: PastProps) {
                   ›
                 </button>
               </>
+            }
+          />
+        </div>
+      </div>
+    </div>
+  )
+}
+
+// ---------- L: J + K. Day strip, full-day chart with the replay cursor, transport bar ----------
+
+export function VariantL(props: VariantProps) {
+  const p = usePastProps(props)
+  return <VariantLDay key={p.day} {...p} />
+}
+
+function VariantLDay({ code, onCode, day, onDay }: PastProps) {
+  // Opens at the close, so the page reads as K's static day until you press Play or click a candle.
+  const r = useReplay(day, close(day))
+  const { t, setT, setPlaying } = r
+  const minute = Math.floor(t / 60) * 60
+  const bars = useMemo(() => dayBars(day, code), [day, code])
+  const tSec = Math.floor(t)
+  const trades = useMemo(() => tapeUpTo(day, tSec), [day, tSec])
+  const all = minutes(day)
+  const seek = (m: number) => {
+    if (!all.includes(m)) return
+    setPlaying(false)
+    setT(m + 59)
+  }
+  return (
+    <div className="flex flex-col gap-3">
+      <DayStrip day={day} onDay={onDay} />
+      <div className={cn(GRID, "lg:h-[calc(100svh-12rem)]")}>
+        <section className={CARD}>
+          <header className="flex flex-wrap items-center gap-x-4 gap-y-2 border-b border-border p-3">
+            <CodeSearch onPick={onCode} className="w-48" />
+            <Quote day={day} code={code} t={t} />
+            <span className="ml-auto flex items-center gap-2 text-xs text-muted-foreground">
+              Click a candle to jump there
+              <RecordedPill label={dayLabel(day).toUpperCase()} />
+            </span>
+          </header>
+          <PastChart
+            bars={bars}
+            cursor={t}
+            dimAfter={minute}
+            onPick={seek}
+            className="h-[360px] min-h-0 flex-1 p-2"
+          />
+          <Transport day={day} r={r} />
+          <footer className="border-t border-border px-3 py-1.5">
+            <LwNotice />
+          </footer>
+        </section>
+        <div className="flex min-h-0 flex-col gap-3">
+          <PastWatchlist
+            day={day}
+            t={t}
+            code={code}
+            onPick={onCode}
+            title={`as of ${hms(t)}`}
+            className="max-h-60 shrink-0 lg:max-h-[26%]"
+          />
+          <LadderView
+            key={code}
+            book={bookAt(day, code, t)}
+            className="shrink-0"
+          />
+          <PastTape
+            code={code}
+            trades={trades}
+            onCode={onCode}
+            title="Running trades · whole market"
+            className="min-h-40 flex-1"
+            tools={
+              <span className="num text-[11px] text-muted-foreground">
+                up to {hms(t)}
+              </span>
             }
           />
         </div>

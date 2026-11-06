@@ -13,7 +13,12 @@ import {
   VariantG,
   VariantH,
 } from "@/prototype/market-live/variants"
-import { VariantI, VariantJ, VariantK } from "@/prototype/market-live/past-day"
+import {
+  VariantI,
+  VariantJ,
+  VariantK,
+  VariantL,
+} from "@/prototype/market-live/past-day"
 
 const VARIANTS = [
   { key: "A", name: "Terminal split", View: VariantA },
@@ -27,6 +32,7 @@ const VARIANTS = [
   { key: "I", name: "Past day: static close + stepper", View: VariantI },
   { key: "J", name: "Past day: replay", View: VariantJ },
   { key: "K", name: "Past day: day strip + candle cursor", View: VariantK },
+  { key: "L", name: "Past day: J + K", View: VariantL },
 ] as const
 
 export const Route = createFileRoute("/prototype/market-live")({
