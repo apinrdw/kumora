@@ -211,12 +211,13 @@ function TapeTable({
           <th className="font-medium">Price</th>
           <th className="font-medium">Lot</th>
           {wide && <th className="font-medium">Value</th>}
-          <th className="pr-3 font-medium">{wide ? "Side · Source" : "B/S"}</th>
+          {wide && <th className="pr-3 font-medium">Source</th>}
         </tr>
       </thead>
       <tbody>
         {trades.map((t) => {
           const mine = t.code === code
+          const sideTone = t.side === "B" ? "text-up" : "text-down"
           return (
             <tr
               key={t.tradeNumber}
@@ -247,21 +248,23 @@ function TapeTable({
                   t.code
                 )}
               </td>
-              <td>{plain(t.price)}</td>
-              <td>{plain(t.lots)}</td>
-              {wide && (
-                <td className="text-muted-foreground">
-                  {compact(t.price * t.lots * 100)}
-                </td>
-              )}
-              <td className="pr-3">
-                <span className="inline-flex items-center justify-end gap-2">
-                  <b className={t.side === "B" ? "text-up" : "text-down"}>
-                    {t.side}
-                  </b>
-                  {wide && <ProvenanceDots trade={t} />}
+              <td className={sideTone}>
+                {plain(t.price)}
+                <span className="sr-only">
+                  {t.side === "B" ? " buy" : " sell"}
                 </span>
               </td>
+              <td className={cn(sideTone, !wide && "pr-3")}>{plain(t.lots)}</td>
+              {wide && (
+                <td className={sideTone}>{compact(t.price * t.lots * 100)}</td>
+              )}
+              {wide && (
+                <td className="pr-3">
+                  <span className="inline-flex justify-end">
+                    <ProvenanceDots trade={t} />
+                  </span>
+                </td>
+              )}
             </tr>
           )
         })}
