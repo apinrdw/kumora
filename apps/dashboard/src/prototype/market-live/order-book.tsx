@@ -223,12 +223,12 @@ export function BookLadder({
         <table className="num w-full text-[12px]">
           <thead className="text-[10px] tracking-[0.08em] text-muted-foreground uppercase">
             <tr className="h-6 text-right">
-              <th className="pl-3 font-medium">Ord</th>
+              <th className="pl-3 font-medium">Freq</th>
               <th className="font-medium">Lot</th>
               <th className="pr-2 font-medium">Bid</th>
               <th className="pl-2 text-left font-medium">Offer</th>
               <th className="text-left font-medium">Lot</th>
-              <th className="pr-3 text-left font-medium">Ord</th>
+              <th className="pr-3 text-left font-medium">Freq</th>
             </tr>
           </thead>
           <tbody>
@@ -364,7 +364,7 @@ export function BookVertical({
           <table className="num w-full text-[12px]">
             <thead className="bg-surface sticky top-0 z-10 text-[10px] tracking-[0.08em] text-muted-foreground uppercase">
               <tr className="h-6 text-right">
-                <th className="pl-3 font-medium">Ord</th>
+                <th className="pl-3 font-medium">Freq</th>
                 <th className="font-medium">Lot</th>
                 <th className="pr-2 font-medium">Price</th>
                 <th className="pr-3 font-medium">Cum lot</th>
