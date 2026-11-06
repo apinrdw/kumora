@@ -8,6 +8,9 @@ import {
   VariantC,
   VariantD,
   VariantE,
+  VariantF,
+  VariantG,
+  VariantH,
 } from "@/prototype/market-live/variants"
 
 const VARIANTS = [
@@ -16,6 +19,9 @@ const VARIANTS = [
   { key: "C", name: "Chart-first + palette", View: VariantC },
   { key: "D", name: "A + watchlist column", View: VariantD },
   { key: "E", name: "A + watchlist over tape", View: VariantE },
+  { key: "F", name: "E + book: IDX ladder", View: VariantF },
+  { key: "G", name: "E + book: vertical full depth", View: VariantG },
+  { key: "H", name: "E + book: summary + depth curve", View: VariantH },
 ] as const
 
 export const Route = createFileRoute("/prototype/market-live")({

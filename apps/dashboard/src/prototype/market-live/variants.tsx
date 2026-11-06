@@ -15,6 +15,7 @@ import { plain } from "@/lib/format"
 import { FEED, STOCKS, hms, useTape } from "./fake-feed"
 import type { Trade } from "./fake-feed"
 import { LwChart, LwNotice } from "./lw-chart"
+import { BookDepth, BookLadder, BookVertical } from "./order-book"
 
 export type VariantProps = { code: string; onCode: (code: string) => void }
 
@@ -831,3 +832,29 @@ export function VariantE(props: VariantProps) {
     </div>
   )
 }
+
+// ---------- F, G, H: E with the selected code's order book between the watchlist and the tape ----------
+
+function withBook(Book: typeof BookLadder, bookClass: string) {
+  return function VariantWithBook(props: VariantProps) {
+    return (
+      <div className="grid gap-3 lg:h-[calc(100svh-7.5rem)] lg:grid-cols-[minmax(0,1fr)_400px]">
+        <ChartCard {...props} />
+        <div className="flex min-h-0 flex-col gap-3">
+          <Watchlist
+            code={props.code}
+            onPick={props.onCode}
+            className="max-h-60 shrink-0 lg:max-h-[26%]"
+          />
+          <Book key={props.code} code={props.code} className={bookClass} />
+          <TapeCard {...props} className="min-h-40 flex-1" />
+        </div>
+        <CodePalette onPick={props.onCode} />
+      </div>
+    )
+  }
+}
+
+export const VariantF = withBook(BookLadder, "shrink-0")
+export const VariantG = withBook(BookVertical, "h-80 shrink-0 lg:h-[34%]")
+export const VariantH = withBook(BookDepth, "shrink-0")
