@@ -2,12 +2,20 @@
 import { createFileRoute, useNavigate } from "@tanstack/react-router"
 
 import { PrototypeSwitcher } from "@/prototype/prototype-switcher"
-import { VariantA, VariantB, VariantC } from "@/prototype/market-live/variants"
+import {
+  VariantA,
+  VariantB,
+  VariantC,
+  VariantD,
+  VariantE,
+} from "@/prototype/market-live/variants"
 
 const VARIANTS = [
   { key: "A", name: "Terminal split", View: VariantA },
   { key: "B", name: "Tape-first + watchlist", View: VariantB },
   { key: "C", name: "Chart-first + palette", View: VariantC },
+  { key: "D", name: "A + watchlist column", View: VariantD },
+  { key: "E", name: "A + watchlist over tape", View: VariantE },
 ] as const
 
 export const Route = createFileRoute("/prototype/market-live")({

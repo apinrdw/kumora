@@ -138,11 +138,14 @@ function TapeTable({
   trades,
   wide,
   dimOthers,
+  onPick,
 }: {
   code: string
   trades: ReadonlyArray<Trade>
   wide?: boolean
   dimOthers?: boolean
+  /** Clicking a row's stock code selects it. */
+  onPick?: (code: string) => void
 }) {
   return (
     <table className="num w-full text-[12px]">
@@ -177,7 +180,17 @@ function TapeTable({
                   mine ? "font-bold text-primary" : "font-semibold"
                 )}
               >
-                {t.code}
+                {onPick ? (
+                  <button
+                    type="button"
+                    onClick={() => onPick(t.code)}
+                    className="hover:underline"
+                  >
+                    {t.code}
+                  </button>
+                ) : (
+                  t.code
+                )}
               </td>
               <td>{plain(t.price)}</td>
               <td>{plain(t.lots)}</td>
@@ -465,6 +478,187 @@ function TapeStrip({
           </span>
         ))}
       </div>
+    </div>
+  )
+}
+
+// ---------- shared by D and E: watchlist + palette ----------
+
+const DEFAULT_WATCHLIST = [
+  "BBCA",
+  "BBRI",
+  "BMRI",
+  "TLKM",
+  "ASII",
+  "GOTO",
+  "ANTM",
+  "BREN",
+]
+
+function Watchlist({
+  code,
+  onPick,
+  className,
+}: {
+  code: string
+  onPick: (code: string) => void
+  className?: string
+}) {
+  const [list, setList] = useState<ReadonlyArray<string>>(DEFAULT_WATCHLIST)
+  const inList = list.includes(code)
+  return (
+    <section
+      className={cn(
+        "bg-surface flex min-h-0 flex-col rounded-lg border border-border",
+        className
+      )}
+    >
+      <header className="flex h-10 shrink-0 items-center justify-between border-b border-border px-3">
+        <h2 className="text-sm font-semibold">Watchlist</h2>
+        <button
+          type="button"
+          onClick={() =>
+            setList((l) =>
+              inList ? l.filter((c) => c !== code) : [...l, code]
+            )
+          }
+          className="hover:bg-elevated rounded px-1.5 py-0.5 text-[11px] text-primary"
+        >
+          {inList ? `− ${code}` : `+ ${code}`}
+        </button>
+      </header>
+      <ul className="min-h-0 flex-1 overflow-y-auto">
+        {list.map((c) => (
+          <WatchRow key={c} code={c} selected={c === code} onPick={onPick} />
+        ))}
+      </ul>
+    </section>
+  )
+}
+
+function CodePalette({ onPick }: { onPick: (code: string) => void }) {
+  const [open, setOpen] = useState(false)
+  useEffect(() => {
+    const onKey = (e: KeyboardEvent) => {
+      if ((e.target as HTMLElement).closest("input,textarea,[contenteditable]"))
+        return
+      if (e.key === "/" || (e.key === "k" && (e.metaKey || e.ctrlKey))) {
+        e.preventDefault()
+        setOpen(true)
+      }
+      if (e.key === "Escape") setOpen(false)
+    }
+    window.addEventListener("keydown", onKey)
+    return () => window.removeEventListener("keydown", onKey)
+  }, [])
+  if (!open) return null
+  return (
+    <div className="fixed inset-0 z-40 flex items-start justify-center pt-[15vh]">
+      <button
+        type="button"
+        aria-label="Tutup"
+        onClick={() => setOpen(false)}
+        className="absolute inset-0 bg-black/50"
+      />
+      <div className="bg-elevated relative w-full max-w-md rounded-lg border border-border p-3 shadow-[var(--shadow-modal)]">
+        <CodeSearch
+          focusOnMount
+          onPick={(c) => {
+            onPick(c)
+            setOpen(false)
+          }}
+        />
+        <p className="mt-2 text-[11px] text-muted-foreground">
+          Enter memilih hasil pertama · Esc menutup
+        </p>
+      </div>
+    </div>
+  )
+}
+
+function ChartCard({ code, onCode }: VariantProps) {
+  const q = useQuote(code)
+  return (
+    <section className="bg-surface flex min-h-0 flex-col rounded-lg border border-border">
+      <header className="flex flex-wrap items-center gap-x-4 gap-y-2 border-b border-border p-3">
+        <CodeSearch onPick={onCode} className="w-48" />
+        <div className="flex items-baseline gap-2">
+          <b className="text-xl">{code}</b>
+          <span className="num text-xl font-semibold">{plain(q.last)}</span>
+          <Delta value={q.changePct} />
+        </div>
+        <kbd className="hidden rounded border border-border px-1 text-[10px] text-muted-foreground xl:inline">
+          /
+        </kbd>
+        <FeedPills className="ml-auto" />
+      </header>
+      <LwChart code={code} className="h-[420px] min-h-0 flex-1 p-2" />
+      <footer className="border-t border-border px-3 py-1.5">
+        <LwNotice />
+      </footer>
+    </section>
+  )
+}
+
+function TapeCard({
+  code,
+  onCode,
+  className,
+}: VariantProps & { className?: string }) {
+  const trades = useTape(5)
+  return (
+    <section
+      className={cn(
+        "bg-surface flex min-h-0 flex-col rounded-lg border border-border",
+        className
+      )}
+    >
+      <header className="flex h-10 shrink-0 items-center justify-between border-b border-border px-3">
+        <h2 className="text-sm font-semibold">Running trade · seluruh pasar</h2>
+        <span className="flex items-center gap-1 text-[11px] text-muted-foreground">
+          <i className="bg-info size-1.5 rounded-full" /> Stockbit
+          <i className="bg-warning ml-2 size-1.5 rounded-full" /> Ajaib
+        </span>
+      </header>
+      <div className="h-[420px] min-h-0 flex-1 overflow-y-auto lg:h-auto">
+        <TapeTable code={code} trades={trades} wide onPick={onCode} />
+      </div>
+    </section>
+  )
+}
+
+// ---------- D: A + watchlist column on the left ----------
+
+export function VariantD(props: VariantProps) {
+  return (
+    <div className="grid gap-3 lg:h-[calc(100svh-7.5rem)] lg:grid-cols-[190px_minmax(0,1fr)_400px]">
+      <Watchlist
+        code={props.code}
+        onPick={props.onCode}
+        className="max-h-60 lg:max-h-none"
+      />
+      <ChartCard {...props} />
+      <TapeCard {...props} />
+      <CodePalette onPick={props.onCode} />
+    </div>
+  )
+}
+
+// ---------- E: A with watchlist stacked over the tape ----------
+
+export function VariantE(props: VariantProps) {
+  return (
+    <div className="grid gap-3 lg:h-[calc(100svh-7.5rem)] lg:grid-cols-[minmax(0,1fr)_400px]">
+      <ChartCard {...props} />
+      <div className="flex min-h-0 flex-col gap-3">
+        <Watchlist
+          code={props.code}
+          onPick={props.onCode}
+          className="max-h-60 shrink-0 lg:max-h-[38%]"
+        />
+        <TapeCard {...props} className="flex-1" />
+      </div>
+      <CodePalette onPick={props.onCode} />
     </div>
   )
 }
