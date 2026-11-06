@@ -23,7 +23,7 @@ A running trade worth at least Rp1 miliar.
 _Avoid_: Whale trade
 
 **Frequency**:
-How many running trades a stock code has had in the day so far.
+A count: of the running trades a stock code has had in the day so far, or of the resting orders at one order book price level.
 _Avoid_: Trade count, ticks
 
 **Running trade**:
