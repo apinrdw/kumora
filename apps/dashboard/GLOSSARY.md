@@ -60,7 +60,7 @@ _Avoid_: Broker flow (for the figure), flow
 A source the terminal draws figures from, such as a price feed or a broker end-of-day feed.
 
 **Relay**:
-The browser extension's path that captures a broker site's live data from the owner's signed-in session and forwards it to the terminal, which keeps each trading day and serves it to signed-in viewers. Each broker site it relays from is its own feed.
+The browser extension's path that captures a broker site's live data from the owner's signed-in session and forwards it to the terminal, which keeps each trading day and serves it to viewers. Each broker site it relays from is its own feed.
 
 **Provenance**:
 Which feed a figure came from and its as-of.
@@ -74,6 +74,14 @@ How current a figure is relative to its feed: live, delayed, end-of-day, stale, 
 **Market phase**:
 The part of the trading day the exchange is in: pre-opening, session 1, break, session 2, pre-closing, post-trading, closed, or holiday. A quiet feed in a phase where no trades are expected is still live.
 _Avoid_: Market status, session (for the whole day)
+
+**Recorded day**:
+A past trading day the terminal kept, fixed after the day closes, that a viewer can replay.
+_Avoid_: History, archive day
+
+**Replay cursor**:
+The moment of a recorded day the page shows: the chart, watchlist, order book and tape all read as of it.
+_Avoid_: Playhead, timestamp
 
 ### Shell
 
