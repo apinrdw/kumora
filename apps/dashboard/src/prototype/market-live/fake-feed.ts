@@ -60,7 +60,7 @@ export const STOCKS: ReadonlyArray<StockInfo> = [
 ]
 
 /** IDX price fractions. */
-function tick(price: number): number {
+export function tick(price: number): number {
   if (price < 200) return 1
   if (price < 500) return 2
   if (price < 2000) return 5
@@ -68,7 +68,7 @@ function tick(price: number): number {
   return 25
 }
 
-function seeded(seed: string) {
+export function seeded(seed: string) {
   let h = 2166136261
   for (const c of seed) h = Math.imul(h ^ c.charCodeAt(0), 16777619)
   return () => {

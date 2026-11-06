@@ -17,7 +17,13 @@ import type { Trade } from "./fake-feed"
 import { LwChart, LwNotice } from "./lw-chart"
 import { BookDepth, BookLadder, BookVertical } from "./order-book"
 
-export type VariantProps = { code: string; onCode: (code: string) => void }
+export type VariantProps = {
+  code: string
+  onCode: (code: string) => void
+  /** Past-day variants only: the trading day shown, `YYYY-MM-DD`. */
+  day?: string
+  onDay?: (day: string) => void
+}
 
 // ---------- shared bits (small on purpose; layouts stay independent) ----------
 
@@ -117,7 +123,7 @@ function ProvenanceDots({ trade }: { trade: Trade }) {
   )
 }
 
-function CodeSearch({
+export function CodeSearch({
   onPick,
   focusOnMount,
   className,
@@ -189,7 +195,7 @@ function CodeSearch({
   )
 }
 
-function TapeTable({
+export function TapeTable({
   code,
   trades,
   wide,
@@ -286,7 +292,7 @@ function TapeTable({
 /** A running trade worth at least Rp1 B is a big trade. */
 const BIG_TRADE = 1e9
 
-function compact(n: number): string {
+export function compact(n: number): string {
   if (n >= 1e12) return (n / 1e12).toFixed(1).replace(".", ",") + " T"
   if (n >= 1e9) return (n / 1e9).toFixed(1).replace(".", ",") + " B"
   if (n >= 1e6) return (n / 1e6).toFixed(1).replace(".", ",") + " M"
@@ -634,7 +640,7 @@ const DEFAULT_JSON = JSON.stringify(DEFAULT_WATCHLIST)
 const watchListeners = new Set<() => void>()
 
 /** Kept in localStorage; the server snapshot is the default list. */
-function useWatchlist() {
+export function useWatchlist() {
   const json = useSyncExternalStore(
     (fn) => {
       watchListeners.add(fn)

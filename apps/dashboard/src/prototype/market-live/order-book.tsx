@@ -4,15 +4,15 @@ import { cn } from "@workspace/ui/lib/utils"
 import { useEffect, useState } from "react"
 
 import { plain } from "@/lib/format"
-import { FEED, STOCKS } from "./fake-feed"
+import { FEED, STOCKS, hms } from "./fake-feed"
 
-type Level = { price: number; lots: number; orders: number }
-type Book = {
+export type Level = { price: number; lots: number; orders: number }
+export type Book = {
   code: string
   bid: ReadonlyArray<Level>
   offer: ReadonlyArray<Level>
-  /** Where the book came from: Stockbit v1, or Ajaib when Stockbit is stale. */
-  source: "stockbit" | "ajaib" | "stale"
+  /** Where the book came from: Stockbit v1, Ajaib when Stockbit is stale, or a stored frame of a past day. */
+  source: "stockbit" | "ajaib" | "stale" | "recorded"
   asOf: number
   ara: number
   arb: number
@@ -30,7 +30,7 @@ function tick(price: number): number {
 }
 
 /** Auto-reject limits off the previous close (symmetric bands, approximate). */
-function limits(prev: number): { ara: number; arb: number } {
+export function limits(prev: number): { ara: number; arb: number } {
   const pct = prev <= 200 ? 0.35 : prev <= 5000 ? 0.25 : 0.2
   const t = tick(prev)
   return {
@@ -117,6 +117,12 @@ function SourceTag({ book }: { book: Book }) {
     const id = setInterval(() => setNow(Date.now()), 1000)
     return () => clearInterval(id)
   }, [])
+  if (book.source === "recorded")
+    return (
+      <span className="num text-[11px] text-muted-foreground">
+        Recorded frame · {hms(book.asOf / 1000)}
+      </span>
+    )
   if (book.source === "stale")
     return (
       <span
@@ -249,7 +255,16 @@ export function BookLadder({
   code: string
   className?: string
 }) {
-  const book = useBook(code)
+  return <LadderView book={useBook(code)} className={className} />
+}
+
+export function LadderView({
+  book,
+  className,
+}: {
+  book: Book
+  className?: string
+}) {
   const rows = Array.from(
     { length: 10 },
     (_, i) => [book.bid[i], book.offer[i]] as const
