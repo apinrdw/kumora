@@ -104,6 +104,10 @@ function step(price: number, r: number, anchor: number): number {
   return Math.max(t, price + move)
 }
 
+/** A stock code's totals since the open: value in rupiah, volume in lots, frequency in trades. */
+export type DayStats = { value: number; lots: number; freq: number }
+const dayStats = new Map<string, DayStats>()
+
 const historyCache = new Map<string, ReadonlyArray<Bar>>()
 
 /** 1-minute bars from the open to the minute before now, as the relayed history would arrive. */
@@ -130,10 +134,15 @@ export function history(code: string): ReadonlyArray<Bar> {
       high,
       low,
       close: price,
-      lots: Math.round(40_000 + rand() * 120_000),
+      lots: Math.round(3_000 + rand() * 12_000),
     })
   }
   historyCache.set(code, bars)
+  dayStats.set(code, {
+    value: bars.reduce((sum, b) => sum + b.lots * b.close * 100, 0),
+    lots: bars.reduce((sum, b) => sum + b.lots, 0),
+    freq: bars.reduce((sum, b) => sum + Math.round(b.lots / 60), 0),
+  })
   lastPrice.set(code, price)
   return bars
 }
@@ -156,6 +165,7 @@ export type FakeFeed = {
   subscribe: (fn: Listener) => () => void
   toggle: (feed: FeedName) => void
   last: (code: string) => number
+  stats: (code: string) => DayStats
 }
 
 function createFeed(): FakeFeed {
@@ -174,6 +184,10 @@ function createFeed(): FakeFeed {
       feed.state[name] = feed.state[name] === "live" ? "stale" : "live"
     },
     last: priceOf,
+    stats(code) {
+      if (!dayStats.has(code)) history(code)
+      return dayStats.get(code)!
+    },
   }
   if (typeof window === "undefined") return feed
   setInterval(() => {
@@ -199,10 +213,14 @@ function createFeed(): FakeFeed {
         time: simNow(),
         code,
         price,
-        lots: Math.ceil(rand() ** 3 * 2000),
+        lots: Math.ceil(rand() ** 4 * 300),
         side: rand() < 0.5 ? "B" : "S",
         feeds: live.length === 2 && rand() < 0.04 ? [live[0]!] : live,
       }
+      const st = feed.stats(code)
+      st.value += trade.price * trade.lots * 100
+      st.lots += trade.lots
+      st.freq += 1
       feed.tape.unshift(trade)
       if (feed.tape.length > 400) feed.tape.length = 400
       for (const fn of listeners) fn(trade)

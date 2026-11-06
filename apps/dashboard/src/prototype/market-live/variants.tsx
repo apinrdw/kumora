@@ -1,7 +1,13 @@
 // PROTOTYPE, throwaway: three structurally different Market Live layouts on one fake relay.
 import { IconSearch } from "@tabler/icons-react"
 import { cn } from "@workspace/ui/lib/utils"
-import { useEffect, useMemo, useRef, useState } from "react"
+import {
+  useEffect,
+  useMemo,
+  useRef,
+  useState,
+  useSyncExternalStore,
+} from "react"
 
 import { Delta } from "@/components/k"
 import type { Freshness } from "@/domain/freshness"
@@ -114,10 +120,12 @@ function CodeSearch({
   onPick,
   focusOnMount,
   className,
+  placeholder = "Search stock code…",
 }: {
   onPick: (code: string) => void
   focusOnMount?: boolean
   className?: string
+  placeholder?: string
 }) {
   const [q, setQ] = useState("")
   const [open, setOpen] = useState(false)
@@ -151,7 +159,7 @@ function CodeSearch({
               setOpen(false)
             }
           }}
-          placeholder="Search stock code…"
+          placeholder={placeholder}
           className="w-full bg-transparent text-sm outline-none placeholder:text-muted-foreground"
         />
       </label>
@@ -263,6 +271,7 @@ function TapeTable({
 }
 
 function compact(n: number): string {
+  if (n >= 1e12) return (n / 1e12).toFixed(1).replace(".", ",") + " T"
   if (n >= 1e9) return (n / 1e9).toFixed(1).replace(".", ",") + " B"
   if (n >= 1e6) return (n / 1e6).toFixed(1).replace(".", ",") + " M"
   return plain(n)
@@ -550,8 +559,9 @@ function Watchlist({
   onPick: (code: string) => void
   className?: string
 }) {
-  const [list, setList] = useState<ReadonlyArray<string>>(DEFAULT_WATCHLIST)
-  const inList = list.includes(code)
+  const [list, setList] = useWatchlist()
+  const add = (c: string) => setList((l) => (l.includes(c) ? l : [...l, c]))
+  const remove = (c: string) => setList((l) => l.filter((x) => x !== c))
   return (
     <section
       className={cn(
@@ -559,26 +569,124 @@ function Watchlist({
         className
       )}
     >
-      <header className="flex h-10 shrink-0 items-center justify-between border-b border-border px-3">
+      <header className="flex shrink-0 items-center gap-3 border-b border-border px-3 py-2">
         <h2 className="text-sm font-semibold">Watchlist</h2>
+        <CodeSearch
+          onPick={add}
+          placeholder="Add code…"
+          className="ml-auto w-44"
+        />
+      </header>
+      <div className="min-h-0 flex-1 overflow-y-auto">
+        <table className="num w-full text-[12px]">
+          <thead className="bg-surface sticky top-0 text-[10px] tracking-[0.08em] text-muted-foreground uppercase">
+            <tr className="h-7 text-right">
+              <th className="pl-3 text-left font-medium">Code</th>
+              <th className="font-medium">Last</th>
+              <th className="font-medium">Chg</th>
+              <th className="font-medium">Value</th>
+              <th className="font-medium">Vol (lot)</th>
+              <th className="font-medium">Freq</th>
+              <th className="w-7 pr-2" aria-label="Remove" />
+            </tr>
+          </thead>
+          <tbody>
+            {list.map((c) => (
+              <WatchlistRow
+                key={c}
+                code={c}
+                selected={c === code}
+                onPick={onPick}
+                onRemove={remove}
+              />
+            ))}
+          </tbody>
+        </table>
+        {list.length === 0 && (
+          <p className="px-3 py-4 text-xs text-muted-foreground">
+            No codes yet. Add one above.
+          </p>
+        )}
+      </div>
+    </section>
+  )
+}
+
+const WATCHLIST_KEY = "prototype.market-live.watchlist"
+
+const DEFAULT_JSON = JSON.stringify(DEFAULT_WATCHLIST)
+const watchListeners = new Set<() => void>()
+
+/** Kept in localStorage; the server snapshot is the default list. */
+function useWatchlist() {
+  const json = useSyncExternalStore(
+    (fn) => {
+      watchListeners.add(fn)
+      return () => watchListeners.delete(fn)
+    },
+    () => localStorage.getItem(WATCHLIST_KEY) ?? DEFAULT_JSON,
+    () => DEFAULT_JSON
+  )
+  const list = useMemo(() => JSON.parse(json) as ReadonlyArray<string>, [json])
+  const setList = (
+    next: (l: ReadonlyArray<string>) => ReadonlyArray<string>
+  ) => {
+    localStorage.setItem(WATCHLIST_KEY, JSON.stringify(next(list)))
+    for (const fn of watchListeners) fn()
+  }
+  return [list, setList] as const
+}
+
+function WatchlistRow({
+  code,
+  selected,
+  onPick,
+  onRemove,
+}: {
+  code: string
+  selected: boolean
+  onPick: (code: string) => void
+  onRemove: (code: string) => void
+}) {
+  const q = useQuote(code)
+  const st = FEED.stats(code)
+  return (
+    <tr
+      className={cn(
+        "hover:bg-elevated h-8 text-right",
+        selected && "bg-selected shadow-[inset_2px_0_0_var(--accent-primary)]"
+      )}
+    >
+      <td className="pl-3 text-left">
         <button
           type="button"
-          onClick={() =>
-            setList((l) =>
-              inList ? l.filter((c) => c !== code) : [...l, code]
-            )
-          }
-          className="hover:bg-elevated rounded px-1.5 py-0.5 text-[11px] text-primary"
+          onClick={() => onPick(code)}
+          className="font-bold hover:underline"
         >
-          {inList ? `− ${code}` : `+ ${code}`}
+          {code}
         </button>
-      </header>
-      <ul className="min-h-0 flex-1 overflow-y-auto">
-        {list.map((c) => (
-          <WatchRow key={c} code={c} selected={c === code} onPick={onPick} />
-        ))}
-      </ul>
-    </section>
+      </td>
+      <td>{plain(q.last)}</td>
+      <td>
+        <Delta
+          value={q.changePct}
+          className="justify-end text-[11px] [&_svg]:hidden"
+        />
+      </td>
+      <td className="text-muted-foreground">{compact(st.value)}</td>
+      <td className="text-muted-foreground">{compact(st.lots)}</td>
+      <td className="text-muted-foreground">{compact(st.freq)}</td>
+      <td className="pr-2">
+        <button
+          type="button"
+          aria-label={`Remove ${code}`}
+          onClick={() => onRemove(code)}
+          className="hover:text-down rounded px-1 text-muted-foreground"
+        >
+          ×
+        </button>
+      </td>
+    </tr>
   )
 }
 
