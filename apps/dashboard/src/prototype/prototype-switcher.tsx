@@ -36,7 +36,7 @@ export function PrototypeSwitcher({
       onClick={() => FEED.toggle(f)}
       className="rounded-full px-2 py-1 hover:bg-white/15"
     >
-      putus/sambung {f}
+      drop/restore {f}
     </button>
   )
   return (

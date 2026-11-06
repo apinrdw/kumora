@@ -3,7 +3,8 @@ import { IconSearch } from "@tabler/icons-react"
 import { cn } from "@workspace/ui/lib/utils"
 import { useEffect, useMemo, useRef, useState } from "react"
 
-import { Delta, KStatusPill } from "@/components/k"
+import { Delta } from "@/components/k"
+import type { Freshness } from "@/domain/freshness"
 import { plain } from "@/lib/format"
 import { FEED, STOCKS, hms, useTape } from "./fake-feed"
 import type { Trade } from "./fake-feed"
@@ -22,10 +23,56 @@ function FeedPills({ className }: { className?: string }) {
   return (
     <div className={cn("flex flex-wrap items-center gap-1.5", className)}>
       <span className="text-[11px] text-muted-foreground">Stockbit</span>
-      <KStatusPill status={FEED.state.stockbit} />
+      <FeedPill status={FEED.state.stockbit} />
       <span className="ml-1 text-[11px] text-muted-foreground">Ajaib</span>
-      <KStatusPill status={FEED.state.ajaib} />
+      <FeedPill status={FEED.state.ajaib} />
     </div>
+  )
+}
+
+const PILL: Record<Freshness, { label: string; def: string; tone: string }> = {
+  live: { label: "LIVE", def: "Arriving now from this feed.", tone: "text-up" },
+  delayed: {
+    label: "DELAYED",
+    def: "Behind the source; see the last update.",
+    tone: "text-warning",
+  },
+  eod: {
+    label: "EOD",
+    def: "End-of-day figure, not intraday.",
+    tone: "text-info",
+  },
+  stale: {
+    label: "STALE",
+    def: "Updates stopped; the last good value is shown.",
+    tone: "border-warning text-warning",
+  },
+  unavailable: {
+    label: "UNAVAILABLE",
+    def: "No data from this feed yet.",
+    tone: "text-down",
+  },
+  demo: {
+    label: "DEMO",
+    def: "Synthetic data, not market data.",
+    tone: "border-dashed text-neutral",
+  },
+}
+
+function FeedPill({ status }: { status: Freshness }) {
+  const p = PILL[status]
+  return (
+    <span
+      title={p.def}
+      className={cn(
+        "bg-elevated inline-flex h-[22px] cursor-help items-center gap-1 rounded-full border border-border px-2 text-[11px] font-medium tracking-[0.04em]",
+        p.tone
+      )}
+    >
+      <i aria-hidden className="size-1.5 rounded-full bg-current" />
+      {p.label}
+      <span className="sr-only">. {p.def}</span>
+    </span>
   )
 }
 
@@ -46,7 +93,7 @@ function useQuote(code: string) {
 
 function ProvenanceDots({ trade }: { trade: Trade }) {
   return (
-    <span className="flex gap-0.5" title={`Dari: ${trade.feeds.join(" + ")}`}>
+    <span className="flex gap-0.5" title={`From: ${trade.feeds.join(" + ")}`}>
       <i
         className={cn(
           "size-1.5 rounded-full",
@@ -104,7 +151,7 @@ function CodeSearch({
               setOpen(false)
             }
           }}
-          placeholder="Cari kode saham…"
+          placeholder="Search stock code…"
           className="w-full bg-transparent text-sm outline-none placeholder:text-muted-foreground"
         />
       </label>
@@ -151,12 +198,12 @@ function TapeTable({
     <table className="num w-full text-[12px]">
       <thead className="bg-surface sticky top-0 text-[10px] tracking-[0.08em] text-muted-foreground uppercase">
         <tr className="h-7 text-right">
-          <th className="pl-3 text-left font-medium">Waktu</th>
-          <th className="text-left font-medium">Kode</th>
-          <th className="font-medium">Harga</th>
+          <th className="pl-3 text-left font-medium">Time</th>
+          <th className="text-left font-medium">Code</th>
+          <th className="font-medium">Price</th>
           <th className="font-medium">Lot</th>
-          {wide && <th className="font-medium">Nilai</th>}
-          <th className="pr-3 font-medium">{wide ? "Sisi · Sumber" : "B/S"}</th>
+          {wide && <th className="font-medium">Value</th>}
+          <th className="pr-3 font-medium">{wide ? "Side · Source" : "B/S"}</th>
         </tr>
       </thead>
       <tbody>
@@ -216,8 +263,8 @@ function TapeTable({
 }
 
 function compact(n: number): string {
-  if (n >= 1e9) return (n / 1e9).toFixed(1).replace(".", ",") + " M"
-  if (n >= 1e6) return (n / 1e6).toFixed(1).replace(".", ",") + " jt"
+  if (n >= 1e9) return (n / 1e9).toFixed(1).replace(".", ",") + " B"
+  if (n >= 1e6) return (n / 1e6).toFixed(1).replace(".", ",") + " M"
   return plain(n)
 }
 
@@ -249,10 +296,10 @@ export function VariantA({ code, onCode }: VariantProps) {
       <section className="bg-surface flex min-h-0 flex-col rounded-lg border border-border">
         <header className="flex h-10 items-center justify-between border-b border-border px-3">
           <h2 className="text-sm font-semibold">
-            Running trade · seluruh pasar
+            Running trades · whole market
           </h2>
           <span className="text-[11px] text-muted-foreground">
-            {code} disorot
+            {code} highlighted
           </span>
         </header>
         <div className="h-[420px] min-h-0 flex-1 overflow-y-auto lg:h-auto">
@@ -277,7 +324,7 @@ export function VariantB({ code, onCode }: VariantProps) {
           <input
             value={filter}
             onChange={(e) => setFilter(e.target.value)}
-            placeholder="Saring kode…"
+            placeholder="Filter codes…"
             className="bg-canvas h-8 w-full rounded-md border border-input px-2 text-sm outline-none"
           />
         </div>
@@ -298,7 +345,7 @@ export function VariantB({ code, onCode }: VariantProps) {
             <b>{code}</b>
             <span className="num font-semibold">{plain(q.last)}</span>
             <Delta value={q.changePct} />
-            <span className="text-[11px] text-muted-foreground">1 menit</span>
+            <span className="text-[11px] text-muted-foreground">1 min</span>
             <FeedPills className="ml-auto" />
           </header>
           <LwChart code={code} className="h-[240px]" />
@@ -309,7 +356,7 @@ export function VariantB({ code, onCode }: VariantProps) {
         <section className="bg-surface flex min-h-0 flex-1 flex-col rounded-lg border border-border">
           <header className="flex h-10 items-center gap-3 border-b border-border px-3">
             <h2 className="text-sm font-semibold">
-              Running trade · seluruh pasar
+              Running trades · whole market
             </h2>
             <span className="flex items-center gap-1 text-[11px] text-muted-foreground">
               <i className="bg-info size-1.5 rounded-full" /> Stockbit
@@ -388,9 +435,8 @@ export function VariantC({ code, onCode }: VariantProps) {
             <Delta value={q.changePct} />
           </div>
           <div className="text-[11px] text-muted-foreground">
-            {q.stock.name} · 1 menit · tekan{" "}
-            <kbd className="rounded border border-border px-1">/</kbd> untuk
-            ganti
+            {q.stock.name} · 1 min · press{" "}
+            <kbd className="rounded border border-border px-1">/</kbd> to change
           </div>
         </button>
         <FeedPills className="bg-canvas/80 absolute top-3 right-20 z-10 rounded-md px-2 py-1 backdrop-blur" />
@@ -413,7 +459,7 @@ export function VariantC({ code, onCode }: VariantProps) {
         <div className="fixed inset-0 z-40 flex items-start justify-center pt-[15vh]">
           <button
             type="button"
-            aria-label="Tutup"
+            aria-label="Close"
             onClick={() => setPalette(false)}
             className="absolute inset-0 bg-black/50"
           />
@@ -426,7 +472,7 @@ export function VariantC({ code, onCode }: VariantProps) {
               }}
             />
             <p className="mt-2 text-[11px] text-muted-foreground">
-              Enter memilih hasil pertama · Esc menutup
+              Enter picks the first result · Esc closes
             </p>
           </div>
         </div>
@@ -454,7 +500,7 @@ function TapeStrip({
         onClick={onToggle}
         className="hover:bg-elevated h-full shrink-0 border-r border-border px-3 text-[11px] font-semibold tracking-[0.08em] uppercase"
       >
-        Running trade {open ? "▾" : "▴"}
+        Running trades {open ? "▾" : "▴"}
       </button>
       <div
         ref={ref}
@@ -556,7 +602,7 @@ function CodePalette({ onPick }: { onPick: (code: string) => void }) {
     <div className="fixed inset-0 z-40 flex items-start justify-center pt-[15vh]">
       <button
         type="button"
-        aria-label="Tutup"
+        aria-label="Close"
         onClick={() => setOpen(false)}
         className="absolute inset-0 bg-black/50"
       />
@@ -569,7 +615,7 @@ function CodePalette({ onPick }: { onPick: (code: string) => void }) {
           }}
         />
         <p className="mt-2 text-[11px] text-muted-foreground">
-          Enter memilih hasil pertama · Esc menutup
+          Enter picks the first result · Esc closes
         </p>
       </div>
     </div>
@@ -614,7 +660,7 @@ function TapeCard({
       )}
     >
       <header className="flex h-10 shrink-0 items-center justify-between border-b border-border px-3">
-        <h2 className="text-sm font-semibold">Running trade · seluruh pasar</h2>
+        <h2 className="text-sm font-semibold">Running trades · whole market</h2>
         <span className="flex items-center gap-1 text-[11px] text-muted-foreground">
           <i className="bg-info size-1.5 rounded-full" /> Stockbit
           <i className="bg-warning ml-2 size-1.5 rounded-full" /> Ajaib

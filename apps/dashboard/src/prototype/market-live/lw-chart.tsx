@@ -126,7 +126,7 @@ export function LwChart({
 export function LwNotice() {
   return (
     <p className="text-[10px] text-muted-foreground">
-      Grafik oleh{" "}
+      Chart by{" "}
       <a
         href="https://www.tradingview.com/"
         className="underline"
