@@ -200,6 +200,46 @@ function BidBar({ book }: { book: Book }) {
   )
 }
 
+/** Cumulative lots over price, 20 levels a side: bids green from the left, offers red to the right. */
+function DepthCurve({ book, className }: { book: Book; className?: string }) {
+  const w = 360
+  const h = 70
+  const curve = (levels: ReadonlyArray<Level>) => {
+    let c = 0
+    return levels.slice(0, 20).map((l) => ({ p: l.price, c: (c += l.lots) }))
+  }
+  const bc = curve(book.bid)
+  const oc = curve(book.offer)
+  const lo = bc.at(-1)?.p ?? book.last
+  const hi = oc.at(-1)?.p ?? book.last
+  const cmax = Math.max(bc.at(-1)?.c ?? 1, oc.at(-1)?.c ?? 1)
+  const x = (p: number) => ((p - lo) / (hi - lo || 1)) * w
+  const y = (c: number) => h - (c / cmax) * (h - 4)
+  const path = (pts: Array<{ p: number; c: number }>) =>
+    `M${x(pts[0]?.p ?? 0)},${h} ` +
+    pts.map((q) => `L${x(q.p)},${y(q.c)}`).join(" ") +
+    ` L${x(pts.at(-1)?.p ?? 0)},${h} Z`
+  return (
+    <svg
+      viewBox={`0 0 ${w} ${h}`}
+      className={cn("h-[70px]", className)}
+      preserveAspectRatio="none"
+      aria-label="Cumulative depth, 20 levels a side"
+    >
+      <path
+        d={path(bc)}
+        fill="color-mix(in oklab, var(--semantic-up) 25%, transparent)"
+        stroke="var(--semantic-up)"
+      />
+      <path
+        d={path(oc)}
+        fill="color-mix(in oklab, var(--semantic-down) 25%, transparent)"
+        stroke="var(--semantic-down)"
+      />
+    </svg>
+  )
+}
+
 // ---------- F: classic IDX ladder (bid and offer side by side, 10 levels) ----------
 
 export function BookLadder({
@@ -286,6 +326,7 @@ export function BookLadder({
           </tbody>
         </table>
         <div className="mt-auto border-t border-border">
+          <DepthCurve book={book} className="mx-3 mt-2" />
           <BidBar book={book} />
           <div className="flex justify-between px-3 pb-1.5 text-[11px] text-muted-foreground">
             <span>
@@ -426,23 +467,6 @@ export function BookDepth({
   const book = useBook(code)
   const [full, setFull] = useState(false)
   const n = full ? 20 : 5
-  const w = 360
-  const h = 70
-  const curve = (levels: ReadonlyArray<Level>) => {
-    let c = 0
-    return levels.slice(0, 20).map((l) => ({ p: l.price, c: (c += l.lots) }))
-  }
-  const bc = curve(book.bid)
-  const oc = curve(book.offer)
-  const lo = bc.at(-1)?.p ?? book.last
-  const hi = oc.at(-1)?.p ?? book.last
-  const cmax = Math.max(bc.at(-1)?.c ?? 1, oc.at(-1)?.c ?? 1)
-  const x = (p: number) => ((p - lo) / (hi - lo || 1)) * w
-  const y = (c: number) => h - (c / cmax) * (h - 4)
-  const path = (pts: Array<{ p: number; c: number }>) =>
-    `M${x(pts[0]?.p ?? 0)},${h} ` +
-    pts.map((q) => `L${x(q.p)},${y(q.c)}`).join(" ") +
-    ` L${x(pts.at(-1)?.p ?? 0)},${h} Z`
   const bestBid = book.bid[0]
   const bestOffer = book.offer[0]
   return (
@@ -477,23 +501,7 @@ export function BookDepth({
             </div>
           </div>
         </div>
-        <svg
-          viewBox={`0 0 ${w} ${h}`}
-          className="mx-3 mt-2 h-[70px]"
-          preserveAspectRatio="none"
-          aria-label="Cumulative depth, 20 levels a side"
-        >
-          <path
-            d={path(bc)}
-            fill="color-mix(in oklab, var(--semantic-up) 25%, transparent)"
-            stroke="var(--semantic-up)"
-          />
-          <path
-            d={path(oc)}
-            fill="color-mix(in oklab, var(--semantic-down) 25%, transparent)"
-            stroke="var(--semantic-down)"
-          />
-        </svg>
+        <DepthCurve book={book} className="mx-3 mt-2" />
         <BidBar book={book} />
         <div className="min-h-0 flex-1 overflow-y-auto border-t border-border">
           <table className="num w-full text-[12px]">
