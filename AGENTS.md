@@ -46,11 +46,10 @@ Before writing a PR body (opening a PR or rewriting one), invoke the `/mattpococ
 
 ## Asking the user
 
-- When a question has enumerable answers, present the options as a selection prompt if your harness has one.
+- Always ask through the harness's selection prompt (such as `AskUserQuestion`) when it has one. This overrides any skill's own question format: a skill like `grilling` that prescribes numbered rounds in chat still asks each round through the selection prompt.
 - When you have a preference, mark that option as recommended and list it first.
 - Batch every question that can be answered now into one prompt, up to the tool's limit. Use multi-select when choices are not exclusive. A question that depends on an open answer waits for the next round.
 - Without a selection tool, ask as a numbered list, recommended option first and marked, ending with "or reply with your own answer".
-- A skill that prescribes its own question format keeps it.
 - In an unattended run, do not ask. Take the recommended option, keep working, and state the assumption in the final message.
 
 ## Linting and formatting
