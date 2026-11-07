@@ -19,9 +19,15 @@ jobs:
       stage: ${{ steps.stage.outputs.stage }}
     steps:
       - uses: actions/checkout@v5
+      - uses: pnpm/action-setup@v6
+      - uses: actions/setup-node@v5
+        with:
+          node-version: 24
+          cache: pnpm
       - uses: oven-sh/setup-bun@v2
         with:
           bun-version-file: .bun-version
+      - run: pnpm install --frozen-lockfile
       # Refuses production and staging, so this job can never reach them.
       - id: stage
         run: bun packages/deploy/src/teardown.ts stage "$BRANCH" >> "$GITHUB_OUTPUT"
