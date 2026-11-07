@@ -48,12 +48,14 @@ export const makeDayStateStore = Effect.fnUntraced(function* <A, R>(options: {
     for (const listener of listeners) listener()
   })
 
-  const frame = Effect.ensuring(
-    nextFrame,
-    Effect.sync(() => {
-      frameScheduled = false
-    })
-  ).pipe(Effect.andThen(notify))
+  const frame = nextFrame.pipe(
+    Effect.andThen(
+      Effect.sync(() => {
+        frameScheduled = false
+      })
+    ),
+    Effect.andThen(notify)
+  )
 
   // The snapshot changes as each update arrives; only notifying waits for the
   // frame. A new Map per update, so useSyncExternalStore sees the change.
@@ -69,11 +71,19 @@ export const makeDayStateStore = Effect.fnUntraced(function* <A, R>(options: {
     })
 
   // A finite source waits for its last frame, so its final update notifies.
+  // Stopping the source resets the frame state here rather than in the frame:
+  // a frame interrupted before it starts runs none of its own finalizers.
   const runSource = Stream.runForEach(options.source, apply).pipe(
     Effect.andThen(
       Effect.suspend(() =>
         lastFrame === undefined ? Effect.void : Fiber.await(lastFrame)
       )
+    ),
+    Effect.ensuring(
+      Effect.sync(() => {
+        frameScheduled = false
+        lastFrame = undefined
+      })
     ),
     Effect.asVoid
   )
