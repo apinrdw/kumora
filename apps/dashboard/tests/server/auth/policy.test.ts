@@ -20,6 +20,8 @@ const member: Account = {
 const admin: Account = { ...member, role: "admin" }
 const configAdmin: Account = { ...admin, configAdmin: true }
 const impersonated: Account = { ...member, impersonating: true }
+// The member was made an admin while an admin was viewing as it.
+const impersonatedAdmin: Account = { ...admin, impersonating: true }
 
 const allow = { _tag: "Allow" } as const
 const deny = (reason: Reason) => ({ _tag: "Deny", reason }) as const
@@ -99,6 +101,12 @@ describe("decide", () => {
         feature: "admin",
         decision: deny("not-found"),
       },
+      {
+        who: "an impersonated member made admin",
+        account: impersonatedAdmin,
+        feature: "admin",
+        decision: deny("not-found"),
+      },
     ] as const)(
       "$who viewing a $feature page: $decision",
       ({ account, feature, decision }) => {
@@ -162,6 +170,13 @@ describe("decide on admin actions", () => {
     )
     assert.deepStrictEqual(
       decide(member, "admin.list-accounts", { feature: "admin" }),
+      deny("not-found")
+    )
+  })
+
+  it("tells an impersonated member made admin that accounts are not found", () => {
+    assert.deepStrictEqual(
+      decide(impersonatedAdmin, "admin.list-accounts", { feature: "admin" }),
       deny("not-found")
     )
   })
@@ -305,6 +320,24 @@ describe("decide on admin actions", () => {
       deny("not-found")
     )
   })
+
+  // An impersonation session views as a member, whatever role the member
+  // gained meanwhile: the admin's own session is the one that acts.
+  it.each([
+    "admin.ban",
+    "admin.unban",
+    "admin.set-role",
+    "admin.end-sessions",
+    "admin.impersonate",
+  ] as const)(
+    "%s is not found for an impersonated member made admin",
+    (action) => {
+      assert.deepStrictEqual(
+        decide(impersonatedAdmin, action, otherMember),
+        deny("not-found")
+      )
+    }
+  )
 
   it("applies the sign-in gate before the admin rules", () => {
     assert.deepStrictEqual(

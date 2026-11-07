@@ -223,6 +223,37 @@ describe("while impersonating", () => {
     }).pipe(Effect.provide(layer))
   })
 
+  it.effect(
+    "the admin routes stay not found once the member is made admin",
+    () => {
+      const { layer, mails } = seam()
+      return Effect.gen(function* () {
+        const { admin, member, viewing } = yield* viewingAsMember(mails)
+        const promoted = yield* post(
+          "/admin/set-role",
+          { userId: member.id, role: "admin" },
+          { cookie: admin.cookie }
+        )
+        assert.strictEqual(promoted.status, 200)
+        assert.strictEqual((yield* sessionOf(viewing))?.user.role, "admin")
+        const ended = yield* post(
+          "/admin/revoke-user-sessions",
+          { userId: member.id },
+          { cookie: viewing }
+        )
+        assert.strictEqual(ended.status, 404)
+        assert.strictEqual(
+          (yield* sessionOf(member.cookie))?.user.email,
+          MEMBER
+        )
+        const listed = yield* send("/admin/list-users?limit=10", {
+          headers: { cookie: viewing },
+        })
+        assert.strictEqual(listed.status, 404)
+      }).pipe(Effect.provide(layer))
+    }
+  )
+
   it.effect("changes nothing about the member", () => {
     const { layer, mails } = seam()
     return Effect.gen(function* () {
