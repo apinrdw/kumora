@@ -49,6 +49,21 @@ layer(NodeServices.layer)("runScript", (it) => {
     })
   )
 
+  // The finalizer's line proves the runtime interrupted the program, rather
+  // than the signal killing node.
+  it.effect("a SIGINT interrupts the program and exits 130", () =>
+    Effect.gen(function* () {
+      const result = yield* runScriptWith(
+        'Effect.andThen(Effect.sync(() => process.kill(process.pid, "SIGINT")), Effect.never).pipe(Effect.ensuring(Console.log("interrupted")))'
+      )
+      assert.deepStrictEqual(result, {
+        exitCode: 130,
+        stdout: "interrupted\n",
+        stderr: "",
+      })
+    })
+  )
+
   it.effect("a defect prints the full cause to stderr and exits 1", () =>
     Effect.gen(function* () {
       const result = yield* runScriptWith('Effect.die(new Error("boom"))')

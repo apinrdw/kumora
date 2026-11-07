@@ -15,6 +15,7 @@
     "./stack": "./src/stack.ts"
   },
   "devDependencies": {
+    "@effect/platform-node": "catalog:",
     "@effect/vitest": "catalog:",
     "@types/node": "^22",
     "typescript": "7.0.2",
