@@ -33,7 +33,7 @@ import {
 } from "@/lib/account-query"
 import { dateTime } from "@/lib/format"
 import { SIGN_IN_METHOD_LABEL } from "@/lib/sign-in-method"
-import type { Role } from "@/server/auth/policy"
+import { ROLE_LABEL } from "@/lib/role"
 
 import { AccountActions, ConfirmAction, type Asked } from "./account-actions"
 
@@ -43,8 +43,6 @@ const STATUS: Record<Status, { label: string; tone: KBadgeTone }> = {
   suspended: { label: "Suspended", tone: "down" },
 }
 
-const ROLE: Record<Role, string> = { admin: "Admin", member: "Member" }
-
 const ALL = "all"
 
 const COLUMNS: ReadonlyArray<KColumn<AccountRow>> = [
@@ -53,7 +51,7 @@ const COLUMNS: ReadonlyArray<KColumn<AccountRow>> = [
   {
     key: "role",
     label: "Role",
-    cell: (row) => ROLE[row.role],
+    cell: (row) => ROLE_LABEL[row.role],
   },
   {
     key: "status",
@@ -166,7 +164,7 @@ function Filters({
         label="Role"
         options={[
           { value: ALL, label: "All roles" },
-          ...ROLES.map((role) => ({ value: role, label: ROLE[role] })),
+          ...ROLES.map((role) => ({ value: role, label: ROLE_LABEL[role] })),
         ]}
         value={search.role ?? ALL}
         onValueChange={(role) =>

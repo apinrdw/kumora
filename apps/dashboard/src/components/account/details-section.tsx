@@ -3,20 +3,15 @@ import type { FormEvent } from "react"
 
 import { KButton, KInput } from "@/components/k"
 import { authClient } from "@/lib/auth-client"
+import { ROLE_LABEL } from "@/lib/role"
 import { SIGN_IN_METHOD_LABEL } from "@/lib/sign-in-method"
 import type { AccountPage } from "@/server/auth/account-page"
-import type { Role } from "@/server/auth/policy"
 
 import {
   AccountSection,
   OutcomeLine,
   useAccountAction,
 } from "./account-section"
-
-const ROLE = { admin: "Admin", member: "Member" } as const satisfies Record<
-  Role,
-  string
->
 
 /** Email, role and sign-in methods, read-only; the display name, editable. */
 export function DetailsSection({
@@ -44,7 +39,7 @@ export function DetailsSection({
         <dt className="text-muted-foreground">Email</dt>
         <dd className="min-w-0 truncate">{page.email}</dd>
         <dt className="text-muted-foreground">Role</dt>
-        <dd>{ROLE[page.role]}</dd>
+        <dd>{ROLE_LABEL[page.role]}</dd>
         <dt className="text-muted-foreground">Sign-in methods</dt>
         <dd>
           {page.signInMethods

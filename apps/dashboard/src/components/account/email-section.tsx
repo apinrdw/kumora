@@ -3,6 +3,7 @@ import type { FormEvent } from "react"
 
 import { KButton, KInput } from "@/components/k"
 import { authClient } from "@/lib/auth-client"
+import type { FileRoutesByFullPath } from "@/routeTree.gen"
 
 import {
   AccountSection,
@@ -13,7 +14,7 @@ import {
 
 // Where both change-email links land, as Better Auth's callbackURL. A link
 // that fails comes back with `?error=<code>`.
-const ACCOUNT_PATH = "/account"
+const ACCOUNT_PATH = "/account" satisfies keyof FileRoutesByFullPath
 
 const LINK_FAILED: Outcome = {
   _tag: "Failed",
