@@ -92,11 +92,11 @@ describe("sign-up", () => {
   })
 
   it.effect.each([
-    ["seven", "1234567", 400],
-    ["eight", "12345678", 200],
+    ["seven", 400, "1234567"],
+    ["eight", 200, "12345678"],
   ] as const)(
     "with a %s-character password answers %s",
-    ([, password, status]) => {
+    ([, status, password]) => {
       const { layer } = seam()
       return Effect.gen(function* () {
         const response = yield* signUp("ayu@example.com", password)
