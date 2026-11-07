@@ -194,6 +194,16 @@ export const authorizeOwnAction = Effect.fn("authorizeOwnAction")(function* (
   yield* hookVerdict(decide(accountOf(session), action, OWN_ACCOUNT))
 })
 
+export const authorizeListAccounts = Effect.fn("authorizeListAccounts")(
+  function* (found: BetterAuthSession | null) {
+    const adminEmails = yield* AdminEmails
+    const session = found && authSessionOf(found, adminEmails)
+    yield* hookVerdict(
+      decide(accountOf(session), "admin.list-accounts", { feature: "admin" })
+    )
+  }
+)
+
 // The config-admin and self protections are the policy's admin rules. The
 // admin plugin's own role check runs after this hook.
 export const authorizeAdminAction = Effect.fn("authorizeAdminAction")(

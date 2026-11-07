@@ -47,6 +47,11 @@ export interface AuthOptionsInput {
     readonly action: OwnAction
     readonly session: BetterAuthSession | null
   }) => Promise<void>
+  // Throws Better Auth's APIError when the access policy refuses to list
+  // accounts.
+  readonly authorizeListAccounts: (request: {
+    readonly session: BetterAuthSession | null
+  }) => Promise<void>
   // Throws Better Auth's APIError when the access policy refuses the action.
   readonly authorizeAdminAction: (request: {
     readonly action: TargetAction
@@ -124,6 +129,25 @@ const ADMIN_ROUTES: Readonly<
   },
 }
 
+// The admin plugin's routes that read accounts, as admin.list-accounts.
+// stop-impersonating is not here: it acts only on an impersonation session,
+// which Better Auth checks itself.
+const ADMIN_READ_ROUTES: ReadonlySet<string> = new Set([
+  "/admin/list-users",
+  "/admin/get-user",
+  "/admin/list-user-sessions",
+])
+
+// The admin plugin's routes the dashboard offers no admin, so no policy rule
+// covers them: Better Auth answers 404 to every caller.
+const DISABLED_ROUTES = [
+  "/admin/create-user",
+  "/admin/update-user",
+  "/admin/remove-user",
+  "/admin/set-user-password",
+  "/admin/has-permission",
+]
+
 const targetUser = async (
   ctx: HookContext,
   by: "userId" | "sessionToken"
@@ -144,12 +168,14 @@ const before = (input: AuthOptionsInput) =>
     if (ctx.path === "/sign-up/email") return hideTakenEmail(ctx)
     const own = lookup(OWN_ACCOUNT_ROUTES, ctx.path)
     const onAccount = lookup(ADMIN_ROUTES, ctx.path)
-    if (own === undefined && onAccount === undefined) return
+    const read = ADMIN_READ_ROUTES.has(ctx.path)
+    if (own === undefined && onAccount === undefined && !read) return
     // Past the cookie cache, so a session ended elsewhere acts on nothing and
     // admin power always sees the current role.
     const session = await getAuthoritativeSessionFromCtx(ctx)
     if (own !== undefined)
       return input.authorizeOwnAction({ action: own, session })
+    if (read) return input.authorizeListAccounts({ session })
     if (onAccount === undefined) return
     const target = await targetUser(ctx, onAccount.by)
     // No such account: Better Auth answers for it, and there is nothing to
@@ -188,6 +214,7 @@ export function authOptions(input: AuthOptionsInput) {
     appName: "KUMORA",
     baseURL: input.baseURL,
     trustedOrigins: [input.baseURL],
+    disabledPaths: DISABLED_ROUTES,
     secret: input.secret,
     database: input.database,
     emailAndPassword: {

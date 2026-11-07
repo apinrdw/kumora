@@ -251,6 +251,68 @@ describe("an admin acting on a member", () => {
   })
 })
 
+// The admin plugin's routes that read accounts ask the policy too.
+const READS = [
+  [
+    "list accounts",
+    (_: string, cookie: string) =>
+      send("/admin/list-users", { headers: { cookie } }),
+  ],
+  [
+    "read an account",
+    (id: string, cookie: string) =>
+      send(`/admin/get-user?id=${id}`, { headers: { cookie } }),
+  ],
+  [
+    "list an account's sessions",
+    (id: string, cookie: string) =>
+      post("/admin/list-user-sessions", { userId: id }, { cookie }),
+  ],
+] as const
+
+describe("admin reads", () => {
+  it.effect.each(READS)("let an admin %s", ([, read]) => {
+    const { layer, setup } = accounts()
+    return Effect.gen(function* () {
+      const { cookies, id } = yield* setup
+      const response = yield* read(id(MEMBER), cookies.plain)
+      assert.strictEqual(response.status, 200)
+    }).pipe(Effect.provide(layer))
+  })
+
+  it.effect.each(READS)(
+    "answer not found to a member who asks to %s",
+    ([, read]) => {
+      const { layer, setup } = accounts()
+      return Effect.gen(function* () {
+        const { cookies, id } = yield* setup
+        const response = yield* read(id(PLAIN_ADMIN), cookies.member)
+        assert.strictEqual(response.status, 404)
+      }).pipe(Effect.provide(layer))
+    }
+  )
+})
+
+describe("admin plugin routes the dashboard doesn't offer", () => {
+  it.effect.each([
+    [
+      "/admin/create-user",
+      { email: "x@example.com", password: PASSWORD, name: "X" },
+    ],
+    ["/admin/update-user", { userId: "x", data: { name: "X" } }],
+    ["/admin/remove-user", { userId: "x" }],
+    ["/admin/set-user-password", { userId: "x", newPassword: PASSWORD }],
+    ["/admin/has-permission", { permissions: { user: ["list"] } }],
+  ] as const)("answer not found even to a config admin: %s", ([path, body]) => {
+    const { layer, setup } = accounts()
+    return Effect.gen(function* () {
+      const { cookies } = yield* setup
+      const response = yield* post(path, body, { cookie: cookies.owner })
+      assert.strictEqual(response.status, 404)
+    }).pipe(Effect.provide(layer))
+  })
+})
+
 describe("admin actions by anyone but an admin", () => {
   it.effect("answer not found to a member", () => {
     const { layer, setup } = accounts()
