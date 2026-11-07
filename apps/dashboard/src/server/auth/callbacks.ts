@@ -64,6 +64,25 @@ export const sendVerificationEmail = Effect.fn("sendVerificationEmail")(
   }
 )
 
+export const sendResetPassword = Effect.fn("sendResetPassword")(function* (
+  email: string,
+  url: string
+) {
+  const mailer = yield* Mailer
+  yield* mailer.send({
+    to: email,
+    subject: "Reset your KUMORA password",
+    text: [
+      "Open this link to choose a new password for your KUMORA account:",
+      "",
+      url,
+      "",
+      "The link works for 1 hour. Setting a new password signs you out everywhere else.",
+      "If you didn't ask for this, ignore this email; your password stays as it is.",
+    ].join("\r\n"),
+  })
+})
+
 // A Better Auth route asks the access policy before an account acts on
 // itself. Each reason maps as the spec's before-hook column says: 401, 404 or
 // 403 (apinrdw/kumora#80, "Access policy").

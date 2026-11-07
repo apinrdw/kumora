@@ -6,15 +6,17 @@ import type { UnknownError } from "effect/Cause"
 import {
   authorizeOwnAction,
   makeCallbackRunner,
+  sendResetPassword,
   sendVerificationEmail,
 } from "./callbacks.ts"
+import { googleClient } from "./google.ts"
 import { Mailer } from "./mailer.ts"
 import { authOptions, type AuthOptionsInput } from "./options.ts"
 import type { AuthSession } from "./session-account.ts"
 
-type AuthConfig = Omit<
+export type AuthConfig = Omit<
   AuthOptionsInput,
-  "sendVerificationEmail" | "authorizeOwnAction"
+  "sendVerificationEmail" | "sendResetPassword" | "authorizeOwnAction"
 >
 
 export class Auth extends Context.Service<
@@ -51,6 +53,8 @@ export class Auth extends Context.Service<
             ...config,
             sendVerificationEmail: ({ email, url }) =>
               run(sendVerificationEmail(email, url)),
+            sendResetPassword: ({ email, url }) =>
+              run(sendResetPassword(email, url)),
             authorizeOwnAction: ({ action, session }) =>
               run(authorizeOwnAction(action, session)),
           })
@@ -94,6 +98,7 @@ export class Auth extends Context.Service<
         // every request, since Auth is built per request; the migration drift
         // check in CI and the handler test seam cover the schema.
         validateSchema: false,
+        google: googleClient(env),
       })
     })
   ).pipe(Layer.provide(Mailer.layer), Layer.provide(waitUntilLive))

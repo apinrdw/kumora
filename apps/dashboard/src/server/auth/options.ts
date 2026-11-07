@@ -9,6 +9,7 @@ import {
 import { tanstackStartCookies } from "better-auth/tanstack-start"
 
 import { MIN_PASSWORD_LENGTH } from "../../lib/password.ts"
+import type { GoogleClient } from "./google.ts"
 import type { OwnAction } from "./policy.ts"
 import type { AuthSession } from "./session-account.ts"
 
@@ -20,15 +21,20 @@ export interface AuthOptionsInput {
   readonly secret: string
   // Introspects the database on every request, so the Worker passes false.
   readonly validateSchema: boolean
-  readonly sendVerificationEmail: (mail: {
-    readonly email: string
-    readonly url: string
-  }) => Promise<void>
+  // Only Production and Staging have one; see google.ts.
+  readonly google?: GoogleClient
+  readonly sendVerificationEmail: (mail: LinkMail) => Promise<void>
+  readonly sendResetPassword: (mail: LinkMail) => Promise<void>
   // Throws Better Auth's APIError when the access policy refuses the action.
   readonly authorizeOwnAction: (request: {
     readonly action: OwnAction
     readonly session: AuthSession | null
   }) => Promise<void>
+}
+
+interface LinkMail {
+  readonly email: string
+  readonly url: string
 }
 
 type HookContext = Parameters<Parameters<typeof createAuthMiddleware>[0]>[0]
@@ -88,6 +94,11 @@ export function authOptions(input: AuthOptionsInput) {
       // shows it the verify screen instead of any page.
       requireEmailVerification: false,
       autoSignIn: true,
+      // Also creates the password of an account that has none (Google only).
+      sendResetPassword: ({ user, url }) =>
+        input.sendResetPassword({ email: user.email, url }),
+      resetPasswordTokenExpiresIn: 60 * 60,
+      revokeSessionsOnPasswordReset: true,
     },
     emailVerification: {
       sendOnSignUp: true,
@@ -96,6 +107,13 @@ export function authOptions(input: AuthOptionsInput) {
       sendVerificationEmail: ({ user, url }) =>
         input.sendVerificationEmail({ email: user.email, url }),
     },
+    // Account linking keeps Better Auth's defaults: Google is not a trusted
+    // provider and the password account must be verified, so Google on the
+    // email of an unverified one redirects with "account not linked".
+    // A Google sign-up creates its user already verified, so
+    // afterEmailVerification never runs for it: the admin grant (#86) also
+    // needs databaseHooks.user.create.after when user.emailVerified is true.
+    socialProviders: input.google ? { google: input.google } : {},
     session: {
       expiresIn: 30 * DAY,
       updateAge: DAY,

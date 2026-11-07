@@ -33,6 +33,7 @@ const { compileMigrations, unsafeChanges, schemaProblems } =
       secret: "auth-migrations-placeholder-secret-0123456789",
       validateSchema: false,
       sendVerificationEmail: async () => {},
+      sendResetPassword: async () => {},
       authorizeOwnAction: async () => {},
     }),
     { throwOnUnsafe: false }
