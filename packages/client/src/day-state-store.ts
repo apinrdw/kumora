@@ -1,14 +1,15 @@
 import { Effect, Stream } from "effect"
 
+import type { DayStateCode } from "./day-state-code.ts"
 import { FrameScheduler } from "./frame-scheduler.ts"
 
 // One stock code's (or index's) new Day state, as a source emits it.
 export type DayStateUpdate<A> = {
-  readonly code: string
+  readonly code: DayStateCode
   readonly dayState: A
 }
 
-export type DayStateSnapshot<A> = ReadonlyMap<string, A>
+export type DayStateSnapshot<A> = ReadonlyMap<DayStateCode, A>
 
 // The shape useSyncExternalStore takes. React calls these, so they are plain
 // functions.
@@ -21,7 +22,7 @@ export type DayStateStore<A> = {
 // The per-row selector. A row's value keeps its identity until its own stock
 // code updates, so Object.is skips every other row.
 export const selectDayState =
-  (code: string) =>
+  (code: DayStateCode) =>
   <A>(snapshot: DayStateSnapshot<A>): A | undefined =>
     snapshot.get(code)
 
@@ -38,7 +39,7 @@ export const makeDayStateStore = Effect.fnUntraced(function* <A, R>(options: {
   const listeners = new Set<() => void>()
   let snapshot = options.initial
   // Updates since the last frame. Defined while a frame is scheduled.
-  let pending: Map<string, A> | undefined
+  let pending: Map<DayStateCode, A> | undefined
   let stop: (() => void) | undefined
 
   const fold = Effect.sync(() => {

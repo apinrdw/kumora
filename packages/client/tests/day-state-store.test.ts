@@ -5,17 +5,21 @@ import {
   FrameScheduler,
   makeDayStateStore,
   selectDayState,
+  StockCode,
 } from "@workspace/client"
-import type { DayStateUpdate } from "@workspace/client"
+import type { DayStateCode, DayStateUpdate } from "@workspace/client"
 import { manualFrames } from "@workspace/client/testing"
 
 type TestDayState = { readonly last: number }
 
+const BBCA = StockCode.make("BBCA")
+const TLKM = StockCode.make("TLKM")
+
 const bbca: TestDayState = { last: 9_800 }
 const tlkm: TestDayState = { last: 3_100 }
-const initial = new Map([
-  ["BBCA", bbca],
-  ["TLKM", tlkm],
+const initial = new Map<DayStateCode, TestDayState>([
+  [BBCA, bbca],
+  [TLKM, tlkm],
 ])
 
 // A store over a test source the test pushes updates into, with frames
@@ -27,7 +31,7 @@ const harness = Effect.gen(function* () {
     source: Stream.fromQueue(updates),
     initial,
   }).pipe(Effect.provideService(FrameScheduler, frames.scheduler))
-  const push = (code: string, dayState: TestDayState) =>
+  const push = (code: DayStateCode, dayState: TestDayState) =>
     Queue.offer(updates, { code, dayState })
   return { store, frames, push }
 })
@@ -43,12 +47,12 @@ describe("Day state store", () => {
         const { store, frames, push } = yield* harness
         const unsubscribe = store.subscribe(() => {})
         const next = { last: 9_825 }
-        yield* push("BBCA", next)
+        yield* push(BBCA, next)
         yield* settle
         yield* frames.step
-        assert.strictEqual(selectDayState("BBCA")(store.getSnapshot()), next)
+        assert.strictEqual(selectDayState(BBCA)(store.getSnapshot()), next)
         assert.isTrue(
-          Object.is(selectDayState("TLKM")(store.getSnapshot()), tlkm)
+          Object.is(selectDayState(TLKM)(store.getSnapshot()), tlkm)
         )
         unsubscribe()
       })
@@ -59,15 +63,15 @@ describe("Day state store", () => {
       const { store, frames, push } = yield* harness
       let notified = 0
       const unsubscribe = store.subscribe(() => notified++)
-      yield* push("BBCA", { last: 9_825 })
-      yield* push("TLKM", { last: 3_110 })
-      yield* push("BBCA", { last: 9_850 })
+      yield* push(BBCA, { last: 9_825 })
+      yield* push(TLKM, { last: 3_110 })
+      yield* push(BBCA, { last: 9_850 })
       yield* settle
       assert.strictEqual(notified, 0)
       yield* frames.step
       assert.strictEqual(notified, 1)
-      assert.deepStrictEqual(store.getSnapshot().get("BBCA"), { last: 9_850 })
-      assert.deepStrictEqual(store.getSnapshot().get("TLKM"), { last: 3_110 })
+      assert.deepStrictEqual(store.getSnapshot().get(BBCA), { last: 9_850 })
+      assert.deepStrictEqual(store.getSnapshot().get(TLKM), { last: 3_110 })
       yield* frames.step
       assert.strictEqual(notified, 1)
       unsubscribe()
@@ -118,7 +122,7 @@ describe("Day state store", () => {
         initial,
       }).pipe(Effect.provideService(FrameScheduler, frames.scheduler))
 
-      const select = selectDayState("BBCA")
+      const select = selectDayState(BBCA)
       assert.strictEqual(select(store.getServerSnapshot()), bbca)
       assert.strictEqual(select(store.getSnapshot()), bbca)
       yield* settle
@@ -133,7 +137,7 @@ describe("Day state store", () => {
       Effect.gen(function* () {
         const { store, frames, push } = yield* harness
         const unsubscribe = store.subscribe(() => {})
-        yield* push("BBCA", { last: 9_825 })
+        yield* push(BBCA, { last: 9_825 })
         yield* settle
         yield* frames.step
         assert.strictEqual(store.getServerSnapshot(), initial)
@@ -146,15 +150,15 @@ describe("Day state store", () => {
       const { store, frames, push } = yield* harness
       const first = store.subscribe(() => {})
       const next = { last: 9_825 }
-      yield* push("BBCA", next)
+      yield* push(BBCA, next)
       yield* settle
       first()
       yield* settle
 
       let notified = 0
       const again = store.subscribe(() => notified++)
-      assert.strictEqual(store.getSnapshot().get("BBCA"), next)
-      yield* push("TLKM", { last: 3_110 })
+      assert.strictEqual(store.getSnapshot().get(BBCA), next)
+      yield* push(TLKM, { last: 3_110 })
       yield* settle
       yield* frames.step
       assert.strictEqual(notified, 1)
