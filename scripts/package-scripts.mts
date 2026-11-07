@@ -5,7 +5,9 @@
 // redirections >& <& >|. Heredocs, ${...} expansions and case patterns are out
 // of scope.
 
-import { Effect } from "effect"
+import { Console, Effect, FileSystem, Path, Schema } from "effect"
+
+import { CheckFailed } from "./lib/check.mts"
 
 // The one definition of the allowlist; CODING_STANDARDS.md ("Shell in package scripts") points here.
 export const safeCommands = ["printf", "echo"]
@@ -77,3 +79,65 @@ export const unguardedPipes: (command: string) => Effect.Effect<Array<string>> =
         .map((stages) => unmask(stages.join(" | "))),
     ]
   })
+
+const Scripts = Schema.fromJsonString(
+  Schema.Struct({
+    scripts: Schema.optional(Schema.Record(Schema.String, Schema.String)),
+  })
+)
+
+// Each "dir/*" glob in pnpm-workspace.yaml names a parent of workspaces.
+const workspaceDirs = Effect.fnUntraced(function* (root: string) {
+  const fs = yield* FileSystem.FileSystem
+  const path = yield* Path.Path
+  const yaml = yield* fs.readFileString(path.join(root, "pnpm-workspace.yaml"))
+  const parents = [...yaml.matchAll(/^\s+-\s+"?([\w./-]+)\/\*"?\s*$/gm)].map(
+    ([, parent]) => path.join(root, parent as string)
+  )
+  const dirs = yield* Effect.forEach(parents, (parent) =>
+    Effect.map(
+      Effect.orElseSucceed(fs.readDirectory(parent), () => []),
+      (names) => names.map((name) => path.join(parent, name))
+    )
+  )
+  return dirs.flat()
+})
+
+export const checkPackageScripts = Effect.fn("checkPackageScripts")(function* (
+  root: string
+) {
+  const fs = yield* FileSystem.FileSystem
+  const path = yield* Path.Path
+  const manifests = yield* Effect.filter(
+    [root, ...(yield* workspaceDirs(root))].map((dir) =>
+      path.join(dir, "package.json")
+    ),
+    (file) => fs.exists(file)
+  )
+  const offenders = yield* Effect.forEach(manifests, (file) =>
+    Effect.gen(function* () {
+      const { scripts = {} } = yield* Schema.decodeEffect(Scripts)(
+        yield* fs.readFileString(file)
+      )
+      const found = yield* Effect.forEach(
+        Object.entries(scripts),
+        ([name, command]) =>
+          Effect.map(unguardedPipes(command), (pipelines) =>
+            pipelines.map(
+              (pipeline) =>
+                `${path.relative(root, file)} "${name}": ${pipeline}`
+            )
+          )
+      )
+      return found.flat()
+    })
+  )
+  if (offenders.flat().length > 0)
+    return yield* new CheckFailed({
+      summary: `Pipes hide the producer's failure in npm scripts (sh has no pipefail). Only ${safeCommands.join(" or ")} may feed a pipe; capture anything else first:\n  out=$(producer) && printf '%s\\n' "$out" | consumer`,
+      findings: offenders.flat(),
+    })
+  yield* Console.log(
+    `Checked ${manifests.length} package.json files, no unguarded pipes.`
+  )
+})

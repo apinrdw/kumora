@@ -1,7 +1,58 @@
-import { assert, it } from "@effect/vitest"
-import { Effect } from "effect"
+import { assert, describe, it } from "@effect/vitest"
+import { Effect, Layer, Path } from "effect"
+import { TestConsole } from "effect/testing"
 
-import { unguardedPipes } from "./package-scripts.mts"
+import { CheckFailed } from "./lib/check.mts"
+import { memoryFileSystem } from "./lib/testing.mts"
+import { checkPackageScripts, unguardedPipes } from "./package-scripts.mts"
+
+const workspace = 'packages:\n  - "apps/*"\n  - "packages/*"\n'
+const manifest = (scripts: Record<string, string>) =>
+  JSON.stringify({ name: "x", scripts })
+
+const repo = (files: Record<string, string>) =>
+  Layer.merge(
+    memoryFileSystem({ "/repo/pnpm-workspace.yaml": workspace, ...files }),
+    Path.layer
+  )
+
+describe("checkPackageScripts", () => {
+  it.effect("passes when no script pipes a command that can fail", () =>
+    Effect.gen(function* () {
+      yield* checkPackageScripts("/repo")
+      assert.deepStrictEqual(yield* TestConsole.logLines, [
+        "Checked 2 package.json files, no unguarded pipes.",
+      ])
+    }).pipe(
+      Effect.provide(
+        repo({
+          "/repo/package.json": manifest({ check: "a && b" }),
+          "/repo/apps/web/package.json": manifest({ dev: "echo x | cat" }),
+          "/repo/apps/notes/README.md": "no manifest here",
+        })
+      )
+    )
+  )
+
+  it.effect("fails with CheckFailed naming each unguarded pipe", () =>
+    Effect.gen(function* () {
+      const error = yield* Effect.flip(checkPackageScripts("/repo"))
+      assert.instanceOf(error, CheckFailed)
+      assert.deepStrictEqual(error.findings, [
+        'packages/deploy/package.json "secrets": infisical export | wrangler x',
+      ])
+    }).pipe(
+      Effect.provide(
+        repo({
+          "/repo/package.json": manifest({}),
+          "/repo/packages/deploy/package.json": manifest({
+            secrets: "infisical export | wrangler x",
+          }),
+        })
+      )
+    )
+  )
+})
 
 it.effect("a pipe whose producer can fail is reported", () =>
   Effect.gen(function* () {
