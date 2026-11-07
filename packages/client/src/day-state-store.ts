@@ -40,53 +40,51 @@ export const makeDayStateStore = Effect.fnUntraced(function* <A, R>(options: {
 
   const listeners = new Set<() => void>()
   let snapshot = options.initial
-  let frameScheduled = false
-  let lastFrame: Fiber.Fiber<void> | undefined
   let stop: (() => void) | undefined
 
   const notify = Effect.sync(() => {
     for (const listener of listeners) listener()
   })
 
-  const frame = nextFrame.pipe(
-    Effect.andThen(
-      Effect.sync(() => {
-        frameScheduled = false
-      })
-    ),
-    Effect.andThen(notify)
-  )
+  // Each run of the source owns its frame state. A stopped run's interruption
+  // can still be finishing when the next subscription starts the next run, so
+  // a run that shared this state could cancel a frame the new run relies on.
+  const runSource = Effect.suspend(() => {
+    let frameScheduled = false
+    let lastFrame: Fiber.Fiber<void> | undefined
 
-  // The snapshot changes as each update arrives; only notifying waits for the
-  // frame. A new Map per update, so useSyncExternalStore sees the change.
-  const apply = ({ code, dayState }: DayStateUpdate<A>) =>
-    Effect.suspend(() => {
-      snapshot = new Map(snapshot).set(code, dayState)
-      if (frameScheduled) return Effect.void
-      frameScheduled = true
-      // A child of the source fiber, so stopping the source cancels the frame.
-      return Effect.map(Effect.forkChild(frame), (fiber) => {
-        lastFrame = fiber
-      })
-    })
+    const frame = nextFrame.pipe(
+      Effect.andThen(
+        Effect.sync(() => {
+          frameScheduled = false
+        })
+      ),
+      Effect.andThen(notify)
+    )
 
-  // A finite source waits for its last frame, so its final update notifies.
-  // Stopping the source resets the frame state here rather than in the frame:
-  // a frame interrupted before it starts runs none of its own finalizers.
-  const runSource = Stream.runForEach(options.source, apply).pipe(
-    Effect.andThen(
-      Effect.suspend(() =>
-        lastFrame === undefined ? Effect.void : Fiber.await(lastFrame)
-      )
-    ),
-    Effect.ensuring(
-      Effect.sync(() => {
-        frameScheduled = false
-        lastFrame = undefined
+    // The snapshot changes as each update arrives; only notifying waits for
+    // the frame. A new Map per update, so useSyncExternalStore sees the change.
+    const apply = ({ code, dayState }: DayStateUpdate<A>) =>
+      Effect.suspend(() => {
+        snapshot = new Map(snapshot).set(code, dayState)
+        if (frameScheduled) return Effect.void
+        frameScheduled = true
+        // A child of the source fiber, so stopping the source cancels the frame.
+        return Effect.map(Effect.forkChild(frame), (fiber) => {
+          lastFrame = fiber
+        })
       })
-    ),
-    Effect.asVoid
-  )
+
+    // A finite source waits for its last frame, so its final update notifies.
+    return Stream.runForEach(options.source, apply).pipe(
+      Effect.andThen(
+        Effect.suspend(() =>
+          lastFrame === undefined ? Effect.void : Fiber.await(lastFrame)
+        )
+      ),
+      Effect.asVoid
+    )
+  })
 
   const subscribe = (listener: () => void) => {
     // A fresh entry per subscription, so subscribing one listener twice counts twice.
