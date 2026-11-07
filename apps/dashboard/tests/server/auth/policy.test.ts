@@ -2,6 +2,7 @@ import { assert, describe, it } from "@effect/vitest"
 
 import {
   type Account,
+  type Action,
   type Reason,
   type Target,
   decide,
@@ -357,4 +358,42 @@ describe("decide on own-account actions", () => {
       )
     }
   )
+})
+
+// An action or feature the policy has no rule for can still arrive at run
+// time, from a string a gate failed to narrow. The casts stand in for that.
+describe("deny by default", () => {
+  it("denies an action with no rule, with no access", () => {
+    const unlisted = "market-live.export" as Action
+    assert.deepStrictEqual(
+      decide(admin, unlisted, { feature: "market-live" } as never),
+      deny("no-access")
+    )
+  })
+
+  it("denies an action named like an object built-in, with no access", () => {
+    const builtIn = "constructor" as Action
+    assert.deepStrictEqual(
+      decide(admin, builtIn, { feature: "market-live" } as never),
+      deny("no-access")
+    )
+  })
+
+  it("denies a page of a feature with no rule, with no access", () => {
+    const unlisted = { feature: "screener" } as unknown as {
+      feature: "market-live"
+    }
+    assert.deepStrictEqual(
+      decide(admin, "page.view", unlisted),
+      deny("no-access")
+    )
+  })
+
+  it("still asks an unlisted action's account to sign in first", () => {
+    const unlisted = "market-live.export" as Action
+    assert.deepStrictEqual(
+      decide(signedOut, unlisted, { feature: "market-live" } as never),
+      deny("sign-in")
+    )
+  })
 })
