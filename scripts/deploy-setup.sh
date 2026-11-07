@@ -233,6 +233,37 @@ check_dashboard_values() {
   done
 }
 
+# turnstile_domains ENV: every hostname the account's Turnstile widgets cover,
+# one per line, read with ENV's Cloudflare token from Infisical. Cloudflare's
+# API: GET /accounts/{account_id}/challenges/widgets. Prints no token.
+turnstile_domains() {
+  local token
+  token="$(infisical secrets get CLOUDFLARE_API_TOKEN --env "$1" --path / \
+    --projectId "$INFISICAL_PROJECT_ID" --plain 2>/dev/null)" || return 1
+  curl -sS -H "Authorization: Bearer $token" \
+    "https://api.cloudflare.com/client/v4/accounts/$ACCOUNT/challenges/widgets?per_page=50" \
+    | node -e 'let s="";process.stdin.on("data",d=>s+=d).on("end",()=>{
+        const r=JSON.parse(s);if(!r.success)process.exit(1);
+        for(const w of r.result)for(const d of w.domains)console.log(d)})'
+}
+
+# check_turnstile_widget ENV HOSTNAME: a widget of the account must cover
+# HOSTNAME (the stage's own, created by its deploy).
+check_turnstile_widget() {
+  local env="$1" host="$2" domains
+  if ! command -v infisical >/dev/null 2>&1 || [[ -z "${INFISICAL_PROJECT_ID:-}" ]]; then
+    note "Skipping the Turnstile check: needs the infisical CLI, \`infisical login\` and the project ID."
+    SKIPPED+=("Turnstile widget for $host: list them with GET /accounts/{account_id}/challenges/widgets")
+    return
+  fi
+  if domains="$(turnstile_domains "$env")" && grep -qxF "$host" <<<"$domains"; then
+    printf '  %s✓ a Turnstile widget covers %s%s\n' "$GREEN" "$host" "$RESET"
+  else
+    warn "no Turnstile widget of the account covers $host"
+    SKIPPED+=("Turnstile widget for $host")
+  fi
+}
+
 # check_gate URL: a signed-out visit to URL/ must land on sign-in, and the
 # sign-in page must offer Google (release stages only).
 check_gate() {
@@ -272,13 +303,13 @@ pause "Saved both redirect URIs? Press Enter."
 stage "Infisical prod: the dashboard's three values"
 say "Production reads /dashboard of prod. Its deploy fails until all three exist."
 open_url "$INFISICAL"
-step "Project kumora → environment prod → folder /dashboard (create the folder if it's missing)."
+step "Project kumora → environment prod → folder /dashboard (create the folder if it's missing; this path is unverified, not yet observed)."
 step "GOOGLE_CLIENT_ID      = the client ID from stage 1"
 step "GOOGLE_CLIENT_SECRET  = the client secret from stage 1"
 step "ADMIN_EMAILS          = comma-separated emails that become admins once verified, e.g. you@pusat.ai"
 note "Only those addresses become admins, and only after they verify. Changing the list later needs a redeploy."
 pause "Added all three? Press Enter to check them."
-note "The check uses the infisical CLI. The project ID is in Infisical → project kumora → Settings (not a secret)."
+note "The check uses the infisical CLI. The project ID is on the project's Settings page in Infisical (path unverified, not yet observed; the ID is not a secret)."
 ask INFISICAL_PROJECT_ID "Infisical project ID for kumora (Enter to skip the check):"
 [[ -n "$INFISICAL_PROJECT_ID" ]] && write_env INFISICAL_PROJECT_ID "$INFISICAL_PROJECT_ID"
 check_dashboard_values prod
@@ -288,7 +319,7 @@ pause
 stage "Infisical staging: the same three values"
 say "Staging reads /dashboard of staging, and so do every Preview and your pnpm dev."
 open_url "$INFISICAL"
-step "Project kumora → environment staging → folder /dashboard."
+step "Project kumora → environment staging → folder /dashboard (path unverified, not yet observed)."
 step "GOOGLE_CLIENT_ID and GOOGLE_CLIENT_SECRET: the same client as prod."
 step "ADMIN_EMAILS: the admins for Staging, Previews and Dev stages (may differ from prod)."
 note "Never put them in the dev environment: nothing reads it."
@@ -323,7 +354,7 @@ if confirm "Does the staging token have Turnstile Sites Write now?"; then :; els
 stage "Cloudflare: make sure mailer.pusat.ai is free"
 say "Alchemy refuses a sending subdomain it didn't create (runbook 9.4)."
 open_url "$CF/pusat.ai/email/sending"
-note "This URL is unverified; otherwise open zone pusat.ai → Email → Email Sending."
+note "This URL and the menu path zone pusat.ai → Email → Email Sending are both unverified, not yet observed."
 step "Look for mailer.pusat.ai in the list of sending subdomains."
 if confirm "Is mailer.pusat.ai already listed?"; then
   warn "Workers Builds can't pass --adopt, so the Production build would fail on it."
@@ -351,6 +382,7 @@ fi
 open_url "$SIGN_IN_PR"
 step "Merge the PR yourself once it's ready for review. Then open the kumora-dashboard-builds build for main."
 open_url "$CF/workers-and-pages"
+note "The build list's wording is unverified, not yet observed; check_gate below is the check that counts."
 pause "When the Production build shows Success, press Enter."
 
 # ── 8 ─────────────────────────────────────────────────────────────────────
@@ -361,8 +393,7 @@ open_url "$PROD_URL/sign-up"
 step "Create an account with one of prod's ADMIN_EMAILS (Turnstile shows here: it's a real widget)."
 step "The mail must come from no-reply@mailer.pusat.ai. Open its link: you land signed in."
 step "The sidebar must show the Admin group, and /admin/users must list your account."
-open_url "$CF/turnstile"
-step "Under Turnstile, a widget for $(worker_name dashboard production).kumora.workers.dev must exist."
+check_turnstile_widget prod "$(worker_name dashboard production).kumora.workers.dev"
 if confirm "Did the mail arrive, verify you, and make you an admin?"; then :; else SKIPPED+=("Production sign-up, mail and admin check"); fi
 
 # ── 9 ─────────────────────────────────────────────────────────────────────
@@ -381,6 +412,7 @@ else
   fi
 fi
 open_url "$CF/workers-and-pages"
+note "The build list's wording is unverified, not yet observed; check_gate below is the check that counts."
 pause "When the kumora-dashboard-builds build for staging shows Success, press Enter."
 
 # ── 10 ────────────────────────────────────────────────────────────────────
