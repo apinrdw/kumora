@@ -1,4 +1,4 @@
-import { expect, test } from "@playwright/test"
+import { expect, test } from "../support/test"
 
 import { DASHBOARD, MEMBER } from "../support/accounts"
 import { accountMenu, signIn, signInUrl, signUp } from "../support/flows"

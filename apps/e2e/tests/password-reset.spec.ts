@@ -1,4 +1,4 @@
-import { expect, test } from "@playwright/test"
+import { asOwnClient, expect, test } from "../support/test"
 
 import { DASHBOARD } from "../support/accounts"
 import { accountMenu, signIn, signInUrl, signUp } from "../support/flows"
@@ -17,6 +17,7 @@ test("a reset link sets a new password, ends other sessions and returns to the p
     password: "first passphrase",
   }
   const elsewhere = await browser.newContext()
+  await asOwnClient(elsewhere)
   const other = await elsewhere.newPage()
   await other.goto(`${DASHBOARD}/sign-up?redirect=${encodeURIComponent(PAGE)}`)
   const signedUp = Date.now()
@@ -25,6 +26,7 @@ test("a reset link sets a new password, ends other sessions and returns to the p
   await expect(accountMenu(other, account.name)).toBeVisible()
 
   const here = await browser.newContext()
+  await asOwnClient(here)
   const page = await here.newPage()
   await page.goto(signInUrl(PAGE))
   await page.getByRole("link", { name: "Forgot password?" }).click()
