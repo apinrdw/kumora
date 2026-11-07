@@ -3,8 +3,11 @@ import { betterAuth, type Session } from "better-auth"
 import { Context, Effect, Layer } from "effect"
 import type { UnknownError } from "effect/Cause"
 
+import { Accounts } from "./accounts.ts"
+import { AdminEmails } from "./admin-emails.ts"
 import {
   authorizeOwnAction,
+  grantAdmin,
   makeCallbackRunner,
   sendResetPassword,
   sendVerificationEmail,
@@ -12,11 +15,18 @@ import {
 import { googleClient } from "./google.ts"
 import { Mailer } from "./mailer.ts"
 import { authOptions, type AuthOptionsInput } from "./options.ts"
-import type { AuthSession } from "./session-account.ts"
+import {
+  authSessionOf,
+  type AuthSession,
+  type BetterAuthSession,
+} from "./session-account.ts"
 
 export type AuthConfig = Omit<
   AuthOptionsInput,
-  "sendVerificationEmail" | "sendResetPassword" | "authorizeOwnAction"
+  | "sendVerificationEmail"
+  | "sendResetPassword"
+  | "authorizeOwnAction"
+  | "grantAdmin"
 >
 
 export class Auth extends Context.Service<
@@ -47,7 +57,9 @@ export class Auth extends Context.Service<
     Layer.effect(
       Auth,
       Effect.gen(function* () {
-        const run = makeCallbackRunner(yield* Effect.context<Mailer>())
+        const context = yield* Effect.context<Mailer | AdminEmails | Accounts>()
+        const run = makeCallbackRunner(context)
+        const adminEmails = Context.get(context, AdminEmails)
         const auth = betterAuth(
           authOptions({
             ...config,
@@ -55,6 +67,7 @@ export class Auth extends Context.Service<
               run(sendVerificationEmail(email, url)),
             sendResetPassword: ({ email, url }) =>
               run(sendResetPassword(email, url)),
+            grantAdmin: (user) => run(grantAdmin(user)),
             authorizeOwnAction: ({ action, session }) =>
               run(authorizeOwnAction(action, session)),
           })
@@ -67,6 +80,15 @@ export class Auth extends Context.Service<
                 headers,
                 query: { disableCookieCache: options?.fresh ?? false },
               })
+            ).pipe(
+              Effect.map((found) =>
+                found === null
+                  ? null
+                  : authSessionOf(
+                      found satisfies BetterAuthSession,
+                      adminEmails.includes
+                    )
+              )
             ),
           sessionsOf: (userId) =>
             Effect.tryPromise(async () => {
@@ -99,7 +121,11 @@ export class Auth extends Context.Service<
         // check in CI and the handler test seam cover the schema.
         validateSchema: false,
         google: googleClient(env),
-      })
+      }).pipe(Layer.provideMerge(Accounts.make(env.AUTH_DB)))
     })
-  ).pipe(Layer.provide(Mailer.layer), Layer.provide(waitUntilLive))
+  ).pipe(
+    Layer.provideMerge(AdminEmails.layer),
+    Layer.provide(Mailer.layer),
+    Layer.provide(waitUntilLive)
+  )
 }

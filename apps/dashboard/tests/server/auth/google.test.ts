@@ -6,6 +6,7 @@ import { googleClient, googleSignInOn } from "@/server/auth/google"
 import type { Mail } from "@/server/auth/mailer"
 
 import {
+  ADMIN_EMAIL,
   BASE_URL,
   cookiesFrom,
   linkIn,
@@ -148,6 +149,27 @@ describe("Google on the email of a password account", () => {
         accounts.map((account) => account.providerId).sort(),
         ["credential", "google"]
       )
+    }).pipe(Effect.provide(layer))
+  })
+})
+
+describe("a Google sign-up", () => {
+  // Google vouches for the email, so the account is created verified.
+  it.effect("on the admin list is admin at once", () => {
+    const { layer } = seam(undefined, { google: GOOGLE })
+    return Effect.gen(function* () {
+      const response = yield* googleReturns(ADMIN_EMAIL)
+      const session = yield* sessionOf(cookiesFrom(response))
+      assert.strictEqual(session?.user.role, "admin")
+    }).pipe(Effect.provide(layer))
+  })
+
+  it.effect("off the list is a member", () => {
+    const { layer } = seam(undefined, { google: GOOGLE })
+    return Effect.gen(function* () {
+      const response = yield* googleReturns("ayu@example.com")
+      const session = yield* sessionOf(cookiesFrom(response))
+      assert.strictEqual(session?.user.role, "member")
     }).pipe(Effect.provide(layer))
   })
 })

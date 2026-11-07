@@ -18,6 +18,11 @@ export const Route = createFileRoute("/_app")({
     })
     return { access }
   },
+  // Thrown here rather than in beforeLoad, so the not-found page still gets
+  // the shell and the viewer.
+  loader: ({ context }) => {
+    if (context.access._tag === "NotFound") throw notFound()
+  },
   component: () => <Shell page={<Outlet />} />,
   // Rendered in place of this layout's component, so it brings the shell.
   notFoundComponent: () => <Shell page={<NotFound />} />,

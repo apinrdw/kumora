@@ -6,9 +6,17 @@ import { Forbidden, HttpError, NotFound, Unauthorized } from "@workspace/server"
 import { APIError } from "better-auth/api"
 import { Cause, Effect, Exit, Schema, type Context } from "effect"
 
+import { Accounts } from "./accounts.ts"
+import { AdminEmails } from "./admin-emails.ts"
 import { Mailer } from "./mailer.ts"
+import type { WrittenUser } from "./options.ts"
 import { OWN_ACCOUNT, decide, type OwnAction } from "./policy.ts"
-import { accountOf, type AuthSession } from "./session-account.ts"
+import {
+  accountOf,
+  authSessionOf,
+  roleOf,
+  type BetterAuthSession,
+} from "./session-account.ts"
 
 const isHttpError = Schema.is(HttpError)
 
@@ -88,8 +96,10 @@ export const sendResetPassword = Effect.fn("sendResetPassword")(function* (
 // 403 (apinrdw/kumora#80, "Access policy").
 export const authorizeOwnAction = Effect.fn("authorizeOwnAction")(function* (
   action: OwnAction,
-  session: AuthSession | null
+  found: BetterAuthSession | null
 ) {
+  const adminEmails = yield* AdminEmails
+  const session = found && authSessionOf(found, adminEmails.includes)
   const decision = decide(accountOf(session), action, OWN_ACCOUNT)
   if (decision._tag === "Allow") return
   switch (decision.reason) {
@@ -103,4 +113,23 @@ export const authorizeOwnAction = Effect.fn("authorizeOwnAction")(function* (
     case "forbidden":
       return yield* new Forbidden({ message: "" })
   }
+})
+
+// Decision: an email on ADMIN_EMAILS becomes admin once it is verified, not
+// when the account is created, so nobody can squat an admin email before its
+// owner signs up. It runs after every write of an account, which covers the
+// verification link, a sign-up through a provider that already verified the
+// email (Google), and a change to an email on the list. From then on the role
+// lives in the database. See apinrdw/kumora#70.
+export const grantAdmin = Effect.fn("grantAdmin")(function* (
+  user: WrittenUser
+) {
+  const adminEmails = yield* AdminEmails
+  if (
+    !user.emailVerified ||
+    roleOf(user.role) === "admin" ||
+    !adminEmails.includes(user.email)
+  )
+    return
+  yield* (yield* Accounts).makeAdmin(user.id)
 })

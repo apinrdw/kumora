@@ -10,9 +10,20 @@ const viewer = {
 } as const
 
 describe("AppSidebar", () => {
-  test("lists no entries while NAV is empty", async () => {
+  test("hides the Admin group from a member", async () => {
     const html = await renderAt("/", () => <AppSidebar viewer={viewer} />)
     expect(html.match(/<a title="/g)).toBeNull()
+    expect(html).not.toContain(">Admin<")
+  })
+
+  test("shows an admin the Admin group", async () => {
+    const admin = {
+      ...viewer,
+      features: [...viewer.features, "admin"],
+    } as const
+    const html = await renderAt("/", () => <AppSidebar viewer={admin} />)
+    expect(html).toContain(">Admin<")
+    expect(html).toMatch(/<a title="Users"[^>]*href="\/admin\/users"/)
   })
 
   test("the brand links home", async () => {

@@ -10,7 +10,8 @@ Steps marked ✅ were done during the throwaway deploy, observed 2026-11-05 ([ap
 
 - Project slug `kumora`, environments `prod` and `staging`. A `dev` environment also exists; it is unused and stays empty. Local dev (the Dev stage) reads `staging`, so don't put secrets in `dev`.
 - `/` in each environment holds `CLOUDFLARE_API_TOKEN` and `CLOUDFLARE_ACCOUNT_ID`, with a separate token per environment.
-- `/web` holds `DEPLOY_PROBE_SECRET`. `/dashboard` holds the dashboard's secrets: the Google client of step 10.
+- `/web` holds `DEPLOY_PROBE_SECRET`. `/dashboard` holds the dashboard's secrets: the Google client of step 10, and:
+  - ⬜ `ADMIN_EMAILS` in both `prod` and `staging`: the comma-separated emails that become admins once verified. The dashboard deploy, and `pnpm dev` (which reads `staging`), fail without it. The Test stage reads it from the process environment instead (`apps/e2e/playwright.config.ts`).
 - Machine identity `kumora-workers-builds`: Universal Auth only, client secret with a 1-year TTL, project `kumora` role Viewer. Organization role **No Access**, set 2026-11-05 (it was Admin, which let every branch build manage the whole Infisical organization); the owner reported the next build succeeding.
 
 ## 2. Cloudflare API tokens ✅

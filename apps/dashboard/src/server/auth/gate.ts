@@ -17,8 +17,11 @@ export interface Viewer {
   readonly features: ReadonlyArray<Feature>
 }
 
+// NotFound is a value here, not the HttpError: the layout shows the normal
+// not-found page inside the shell, which needs the viewer.
 type PageAccess =
   | { readonly _tag: "Allowed"; readonly viewer: Viewer }
+  | { readonly _tag: "NotFound"; readonly viewer: Viewer }
   | {
       readonly _tag: "NoAccess"
       readonly viewer: Viewer
@@ -52,10 +55,18 @@ export const gatePage = Effect.fn("gatePage")(function* (
   { href, feature }: Page
 ) {
   const auth = yield* Auth
-  const session = yield* auth.getSession(headers)
+  // Admin pages read past the cookie cache, so admin power always sees the
+  // current role and ban state.
+  const session = yield* auth.getSession(headers, {
+    fresh: feature === "admin",
+  })
   const account = accountOf(session)
   const decision = decide(account, "page.view", { feature })
-  if (decision._tag === "Deny" && decision.reason !== "no-access")
+  if (
+    decision._tag === "Deny" &&
+    decision.reason !== "no-access" &&
+    decision.reason !== "not-found"
+  )
     return yield* refusal(decision.reason, href)
   // Unreachable: the policy sends every visitor without a session to sign-in.
   if (session === null) return yield* refusal("sign-in", href)
@@ -66,8 +77,10 @@ export const gatePage = Effect.fn("gatePage")(function* (
       (each) => decide(account, "page.view", { feature: each })._tag === "Allow"
     ),
   }
-  return decision._tag === "Allow"
-    ? ({ _tag: "Allowed", viewer } satisfies PageAccess)
+  if (decision._tag === "Allow")
+    return { _tag: "Allowed", viewer } satisfies PageAccess
+  return decision.reason === "not-found"
+    ? ({ _tag: "NotFound", viewer } satisfies PageAccess)
     : ({ _tag: "NoAccess", viewer, feature } satisfies PageAccess)
 })
 

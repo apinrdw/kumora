@@ -6,12 +6,14 @@ import {
   createAuthMiddleware,
   getAuthoritativeSessionFromCtx,
 } from "better-auth/api"
+import { admin } from "better-auth/plugins/admin"
 import { tanstackStartCookies } from "better-auth/tanstack-start"
 
 import { MIN_PASSWORD_LENGTH } from "../../lib/password.ts"
+import { ac, roles } from "./access.ts"
 import type { GoogleClient } from "./google.ts"
 import type { OwnAction } from "./policy.ts"
-import type { AuthSession } from "./session-account.ts"
+import type { BetterAuthSession } from "./session-account.ts"
 
 const DAY = 24 * 60 * 60
 
@@ -25,16 +27,25 @@ export interface AuthOptionsInput {
   readonly google?: GoogleClient
   readonly sendVerificationEmail: (mail: LinkMail) => Promise<void>
   readonly sendResetPassword: (mail: LinkMail) => Promise<void>
+  // Runs after every write of an account.
+  readonly grantAdmin: (user: WrittenUser) => Promise<void>
   // Throws Better Auth's APIError when the access policy refuses the action.
   readonly authorizeOwnAction: (request: {
     readonly action: OwnAction
-    readonly session: AuthSession | null
+    readonly session: BetterAuthSession | null
   }) => Promise<void>
 }
 
 interface LinkMail {
   readonly email: string
   readonly url: string
+}
+
+export interface WrittenUser {
+  readonly id: string
+  readonly email: string
+  readonly emailVerified: boolean
+  readonly role?: unknown
 }
 
 type HookContext = Parameters<Parameters<typeof createAuthMiddleware>[0]>[0]
@@ -81,6 +92,9 @@ const before = (input: AuthOptionsInput) =>
   })
 
 export function authOptions(input: AuthOptionsInput) {
+  const grantAdmin = async (user: WrittenUser | null) => {
+    if (user !== null) await input.grantAdmin(user)
+  }
   return {
     appName: "KUMORA",
     baseURL: input.baseURL,
@@ -110,9 +124,6 @@ export function authOptions(input: AuthOptionsInput) {
     // Account linking keeps Better Auth's defaults: Google is not a trusted
     // provider and the password account must be verified, so Google on the
     // email of an unverified one redirects with "account not linked".
-    // A Google sign-up creates its user already verified, so
-    // afterEmailVerification never runs for it: the admin grant (#86) also
-    // needs databaseHooks.user.create.after when user.emailVerified is true.
     socialProviders: input.google ? { google: input.google } : {},
     session: {
       expiresIn: 30 * DAY,
@@ -120,8 +131,25 @@ export function authOptions(input: AuthOptionsInput) {
       cookieCache: { enabled: true, maxAge: 300 },
     },
     hooks: { before: before(input) },
+    // Every account write passes here, so a sign-up with a provider that
+    // already verified the email (Google) is covered as well as the link.
+    databaseHooks: {
+      user: {
+        create: { after: grantAdmin },
+        update: { after: grantAdmin },
+      },
+    },
     advanced: { database: { validateSchema: input.validateSchema } },
     // Must stay last.
-    plugins: [tanstackStartCookies()],
+    plugins: [
+      admin({
+        ac,
+        roles,
+        defaultRole: "member",
+        adminRoles: ["admin"],
+        impersonationSessionDuration: 60 * 60,
+      }),
+      tanstackStartCookies(),
+    ],
   } satisfies BetterAuthOptions
 }
