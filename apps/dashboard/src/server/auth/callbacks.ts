@@ -10,12 +10,20 @@ import { Accounts } from "./accounts.ts"
 import { AdminEmails } from "./admin-emails.ts"
 import { Mailer } from "./mailer.ts"
 import type { WrittenUser } from "./options.ts"
-import { OWN_ACCOUNT, decide, type OwnAction } from "./policy.ts"
+import {
+  OWN_ACCOUNT,
+  decide,
+  type OwnAction,
+  type Reason,
+  type TargetAction,
+} from "./policy.ts"
 import {
   accountOf,
   authSessionOf,
   roleOf,
+  targetOf,
   type BetterAuthSession,
+  type TargetUser,
 } from "./session-account.ts"
 
 const isHttpError = Schema.is(HttpError)
@@ -91,9 +99,23 @@ export const sendResetPassword = Effect.fn("sendResetPassword")(function* (
   })
 })
 
-// A Better Auth route asks the access policy before an account acts on
-// itself. Each reason maps as the spec's before-hook column says: 401, 404 or
-// 403 (apinrdw/kumora#80, "Access policy").
+// A Better Auth before-hook maps each reason as the spec's before-hook column
+// says: 401, 404 or 403 (apinrdw/kumora#80, "Access policy").
+const refusal = (reason: Reason) => {
+  switch (reason) {
+    case "sign-in":
+    case "verify":
+    case "suspended":
+      return new Unauthorized({ redirectTo: "/sign-in" })
+    case "not-found":
+      return new NotFound({ message: "" })
+    case "no-access":
+    case "forbidden":
+      return new Forbidden({ message: "" })
+  }
+}
+
+// A Better Auth route asks the access policy before an account acts on itself.
 export const authorizeOwnAction = Effect.fn("authorizeOwnAction")(function* (
   action: OwnAction,
   found: BetterAuthSession | null
@@ -101,19 +123,34 @@ export const authorizeOwnAction = Effect.fn("authorizeOwnAction")(function* (
   const adminEmails = yield* AdminEmails
   const session = found && authSessionOf(found, adminEmails.includes)
   const decision = decide(accountOf(session), action, OWN_ACCOUNT)
-  if (decision._tag === "Allow") return
-  switch (decision.reason) {
-    case "sign-in":
-    case "verify":
-    case "suspended":
-      return yield* new Unauthorized({ redirectTo: "/sign-in" })
-    case "not-found":
-      return yield* new NotFound({ message: "" })
-    case "no-access":
-    case "forbidden":
-      return yield* new Forbidden({ message: "" })
-  }
+  if (decision._tag === "Deny") return yield* refusal(decision.reason)
 })
+
+// A Better Auth admin route asks the access policy before an admin acts on
+// another account.
+export const authorizeAdminAction = Effect.fn("authorizeAdminAction")(
+  function* (
+    action: TargetAction,
+    found: BetterAuthSession | null,
+    target: TargetUser | null
+  ) {
+    const adminEmails = yield* AdminEmails
+    const session = found && authSessionOf(found, adminEmails.includes)
+    const account = accountOf(session)
+    // Who may act at all comes first, so a member learns nothing of which
+    // accounts exist.
+    const access = decide(account, "admin.list-accounts", { feature: "admin" })
+    if (access._tag === "Deny") return yield* refusal(access.reason)
+    if (target === null || session === null)
+      return yield* new NotFound({ message: "" })
+    const decision = decide(
+      account,
+      action,
+      targetOf(target, session.user.id, adminEmails.includes)
+    )
+    if (decision._tag === "Deny") return yield* refusal(decision.reason)
+  }
+)
 
 // Decision: an email on ADMIN_EMAILS becomes admin once it is verified, not
 // when the account is created, so nobody can squat an admin email before its

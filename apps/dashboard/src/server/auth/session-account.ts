@@ -1,7 +1,13 @@
 // What the gates read of a Better Auth session, and the access policy's
 // Account built from it. Pure, so the Better Auth hooks and the page gates
 // build the same Account.
-import { signedOut, type Account, type Role, type SignedOut } from "./policy.ts"
+import {
+  signedOut,
+  type Account,
+  type Role,
+  type SignedOut,
+  type Target,
+} from "./policy.ts"
 
 export interface AuthSession {
   readonly user: {
@@ -41,6 +47,12 @@ export interface BetterAuthSession {
 export const roleOf = (stored: unknown): Role =>
   stored === "admin" ? "admin" : "member"
 
+const isConfigAdmin = (
+  role: Role,
+  email: string,
+  onAdminList: (email: string) => boolean
+) => role === "admin" && onAdminList(email)
+
 export const authSessionOf = (
   { user, session }: BetterAuthSession,
   onAdminList: (email: string) => boolean
@@ -54,7 +66,7 @@ export const authSessionOf = (
       emailVerified: user.emailVerified,
       role,
       banned: user.banned === true,
-      configAdmin: role === "admin" && onAdminList(user.email),
+      configAdmin: isConfigAdmin(role, user.email, onAdminList),
     },
     session: { id: session.id, impersonated: Boolean(session.impersonatedBy) },
   }
@@ -71,3 +83,25 @@ export const accountOf = (session: AuthSession | null): Account | SignedOut =>
         configAdmin: session.user.configAdmin,
         impersonating: session.session.impersonated,
       }
+
+// The account an admin action names, as Better Auth stores it.
+export interface TargetUser {
+  readonly id: string
+  readonly email: string
+  readonly role?: unknown
+  readonly banned?: unknown
+}
+
+export const targetOf = (
+  user: TargetUser,
+  actorId: string,
+  onAdminList: (email: string) => boolean
+): Target => {
+  const role = roleOf(user.role)
+  return {
+    role,
+    configAdmin: isConfigAdmin(role, user.email, onAdminList),
+    isSelf: user.id === actorId,
+    suspended: user.banned === true,
+  }
+}

@@ -12,8 +12,8 @@ import { tanstackStartCookies } from "better-auth/tanstack-start"
 import { MIN_PASSWORD_LENGTH } from "../../lib/password.ts"
 import { ac, roles } from "./access.ts"
 import type { GoogleClient } from "./google.ts"
-import type { OwnAction } from "./policy.ts"
-import type { BetterAuthSession } from "./session-account.ts"
+import type { OwnAction, TargetAction } from "./policy.ts"
+import type { BetterAuthSession, TargetUser } from "./session-account.ts"
 
 const DAY = 24 * 60 * 60
 
@@ -33,6 +33,13 @@ export interface AuthOptionsInput {
   readonly authorizeOwnAction: (request: {
     readonly action: OwnAction
     readonly session: BetterAuthSession | null
+  }) => Promise<void>
+  // Throws Better Auth's APIError when the access policy refuses the action
+  // on the target, or the target doesn't exist.
+  readonly authorizeAdminAction: (request: {
+    readonly action: TargetAction
+    readonly session: BetterAuthSession | null
+    readonly target: TargetUser | null
   }) => Promise<void>
 }
 
@@ -79,16 +86,35 @@ const OWN_ACCOUNT_ROUTES: Readonly<Partial<Record<string, OwnAction>>> = {
   "/delete-user/callback": "own.delete",
 }
 
+// The admin routes that act on another account, named by `userId` in the
+// body. Each asks the access policy with that account first.
+const ADMIN_TARGET_ROUTES: Readonly<Partial<Record<string, TargetAction>>> = {
+  "/admin/impersonate-user": "admin.impersonate",
+}
+
+const actionOf = <A>(
+  routes: Readonly<Partial<Record<string, A>>>,
+  path: string
+) => (Object.hasOwn(routes, path) ? routes[path] : undefined)
+
 const before = (input: AuthOptionsInput) =>
   createAuthMiddleware(async (ctx) => {
     if (ctx.path === "/sign-up/email") return hideTakenEmail(ctx)
-    const action = Object.hasOwn(OWN_ACCOUNT_ROUTES, ctx.path)
-      ? OWN_ACCOUNT_ROUTES[ctx.path]
-      : undefined
-    if (action === undefined) return
-    // Past the cookie cache, so a session ended elsewhere acts on nothing.
+    const own = actionOf(OWN_ACCOUNT_ROUTES, ctx.path)
+    const onTarget = actionOf(ADMIN_TARGET_ROUTES, ctx.path)
+    if (own === undefined && onTarget === undefined) return
+    // Past the cookie cache, so a session ended elsewhere acts on nothing,
+    // and admin power sees the current role and ban state.
     const session = await getAuthoritativeSessionFromCtx(ctx)
-    await input.authorizeOwnAction({ action, session })
+    if (own !== undefined)
+      return input.authorizeOwnAction({ action: own, session })
+    if (onTarget === undefined) return
+    const userId: unknown = ctx.body?.userId
+    const target =
+      typeof userId === "string"
+        ? await ctx.context.internalAdapter.findUserById(userId)
+        : null
+    await input.authorizeAdminAction({ action: onTarget, session, target })
   })
 
 export function authOptions(input: AuthOptionsInput) {
