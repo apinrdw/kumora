@@ -67,6 +67,7 @@
     "//#test:root": {
       "inputs": [
         "scripts/**",
+        "vitest.config.*",
         "turbo.json",
         "package.json",
         "apps/*/package.json",
