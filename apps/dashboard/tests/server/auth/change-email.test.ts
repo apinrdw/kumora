@@ -158,8 +158,8 @@ describe("change email", () => {
     }).pipe(Effect.provide(layer))
   })
 
-  // A repeated query key parses as an array; the hook refuses it instead of
-  // leaving it for Better Auth to coerce.
+  // A repeated query key parses as an array; the hook refuses it itself, so
+  // the gate doesn't rest on Better Auth's own schema refusing it.
   it.effect(
     "refuses a verify link whose token isn't one string, with 400",
     () => {
