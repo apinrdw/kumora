@@ -83,6 +83,48 @@ _Avoid_: History, archive day
 The moment of a recorded day the page shows: the chart, watchlist, order book and tape all read as of it.
 _Avoid_: Playhead, timestamp
 
+### Access
+
+**Account**:
+A person's identity on one stage of the dashboard: an email, a name, a role and its sign-in methods. Accounts don't carry from one stage to another.
+_Avoid_: Profile, login
+
+**Sign-in method**:
+A way an account proves who it is: a password, or Google. One account can have both.
+_Avoid_: Provider, linked account
+
+**Verified account**:
+An account whose email has been proven, by a link sent to it or by Google. Only a verified account sees market data.
+_Avoid_: Confirmed account, activated account
+
+**Session**:
+One signed-in browser of an account, from sign-in until sign-out, expiry, revoke or ban.
+_Avoid_: Login, token
+
+**Sign-in gate**:
+The check every page, the Market Live socket and every recorded day load must pass: a session of a verified account that isn't suspended.
+_Avoid_: Auth wall, login wall
+
+**Member**:
+The role every account starts with. A member sees every page except the admin pages.
+_Avoid_: User (for the role), viewer (for the role)
+
+**Admin**:
+The role that manages other accounts: ban and unban, change role, end sessions, and impersonate members.
+_Avoid_: Moderator, owner
+
+**Config admin**:
+An admin whose email is on the configured admin list. It can't be banned or demoted, have its sessions ended by another admin, change its email, or delete itself.
+_Avoid_: Super admin, root
+
+**Suspended account**:
+An account an admin has banned. It can't sign in until an admin unbans it.
+_Avoid_: Blocked account, disabled account
+
+**Impersonation**:
+An admin viewing the dashboard as one member, for a limited time, without being able to change that member's account.
+_Avoid_: Act as, sudo
+
 ### Shell
 
 **Shell**:
