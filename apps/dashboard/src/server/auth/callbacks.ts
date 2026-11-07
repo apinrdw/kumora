@@ -6,7 +6,10 @@ import { HttpError } from "@workspace/server"
 import { APIError } from "better-auth/api"
 import { Cause, Effect, Exit, Schema, type Context } from "effect"
 
+import { Accounts, roleOf } from "./accounts.ts"
+import { AdminEmails } from "./admin-emails.ts"
 import { Mailer } from "./mailer.ts"
+import type { WrittenUser } from "./options.ts"
 
 const isHttpError = Schema.is(HttpError)
 
@@ -61,3 +64,22 @@ export const sendVerificationEmail = Effect.fn("sendVerificationEmail")(
     })
   }
 )
+
+// Decision: an email on ADMIN_EMAILS becomes admin once it is verified, not
+// when the account is created, so nobody can squat an admin email before its
+// owner signs up. It runs after every write of an account, which covers the
+// verification link, a sign-up through a provider that already verified the
+// email (Google), and a change to an email on the list. From then on the role
+// lives in the database. See apinrdw/kumora#70.
+export const grantAdmin = Effect.fn("grantAdmin")(function* (
+  user: WrittenUser
+) {
+  const adminEmails = yield* AdminEmails
+  if (
+    !user.emailVerified ||
+    roleOf(user.role) === "admin" ||
+    !adminEmails.includes(user.email)
+  )
+    return
+  yield* (yield* Accounts).makeAdmin(user.id)
+})

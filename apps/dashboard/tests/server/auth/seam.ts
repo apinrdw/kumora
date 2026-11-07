@@ -1,6 +1,8 @@
 import { Effect, Layer } from "effect"
 import { DatabaseSync } from "node:sqlite"
 
+import { Accounts } from "@/server/auth/accounts"
+import { AdminEmails } from "@/server/auth/admin-emails"
 import { Auth } from "@/server/auth/auth"
 import { Mailer, type Mail } from "@/server/auth/mailer"
 
@@ -8,9 +10,14 @@ import { replayMigrations } from "../../../scripts/auth-schema.ts"
 
 export const BASE_URL = "http://localhost:3001"
 
+export const ADMIN_EMAIL = "owner@example.com"
+
 // Seam 3 of spec apinrdw/kumora#80: the real Better Auth config over SQLite
 // with the checked-in migrations, driven through its HTTP handler.
-export function seam(send?: (mail: Mail) => Effect.Effect<void>) {
+// ADMIN_EMAILS holds ADMIN_EMAIL.
+export function seam({
+  send,
+}: { readonly send?: (mail: Mail) => Effect.Effect<void> } = {}) {
   const database = new DatabaseSync(":memory:")
   replayMigrations(database)
   const mails: Array<Mail> = []
@@ -22,8 +29,17 @@ export function seam(send?: (mail: Mail) => Effect.Effect<void>) {
     baseURL: BASE_URL,
     secret: "handler-test-secret-0123456789abcdef0123456789",
     validateSchema: true,
-  }).pipe(Layer.provide(mailer))
-  return { layer, mails }
+  }).pipe(
+    Layer.provideMerge(Accounts.make(database)),
+    Layer.provideMerge(
+      Layer.succeed(
+        AdminEmails,
+        AdminEmails.from(` ${ADMIN_EMAIL.toUpperCase()}, other@example.com`)
+      )
+    ),
+    Layer.provide(mailer)
+  )
+  return { layer, mails, database }
 }
 
 export const send = Effect.fnUntraced(function* (
@@ -57,7 +73,7 @@ export const sessionOf = (cookie: string) =>
       Effect.promise(
         () =>
           response.json() as Promise<{
-            user: { email: string; emailVerified: boolean }
+            user: { email: string; emailVerified: boolean; role: string }
           } | null>
       )
     )

@@ -7,6 +7,7 @@ import {
 } from "@workspace/deploy/stack"
 import * as Alchemy from "alchemy"
 import { Stack } from "alchemy/Stack"
+import * as Config from "effect/Config"
 import * as Effect from "effect/Effect"
 
 import { SENDER, SENDING_SUBDOMAIN } from "./src/server/auth/sender.ts"
@@ -54,6 +55,9 @@ export const Website = Cloudflare.Website.Vite(
         EMAIL: Cloudflare.Email.SendEmail("Email", {
           allowedSenderAddresses: [SENDER],
         }),
+        // Infisical /dashboard on deployed and Dev stages; the process
+        // environment on the Test stage (apps/e2e/playwright.config.ts).
+        ADMIN_EMAILS: Config.String("ADMIN_EMAILS"),
       },
     }
   })

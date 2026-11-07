@@ -3,9 +3,11 @@
 // plain Node, so this module imports only packages, never `@/` paths or Effect.
 import type { BetterAuthOptions } from "better-auth"
 import { createAuthMiddleware } from "better-auth/api"
+import { admin } from "better-auth/plugins/admin"
 import { tanstackStartCookies } from "better-auth/tanstack-start"
 
 import { MIN_PASSWORD_LENGTH } from "../../lib/password.ts"
+import { ac, roles } from "./access.ts"
 
 const DAY = 24 * 60 * 60
 
@@ -19,6 +21,15 @@ export interface AuthOptionsInput {
     readonly email: string
     readonly url: string
   }) => Promise<void>
+  // Runs after every write of an account.
+  readonly grantAdmin: (user: WrittenUser) => Promise<void>
+}
+
+export interface WrittenUser {
+  readonly id: string
+  readonly email: string
+  readonly emailVerified: boolean
+  readonly role?: unknown
 }
 
 // With auto sign-in on, Better Auth answers a sign-up for a taken email with
@@ -38,6 +49,9 @@ const hideTakenEmail = createAuthMiddleware(async (ctx) => {
 })
 
 export function authOptions(input: AuthOptionsInput) {
+  const grantAdmin = async (user: WrittenUser | null) => {
+    if (user !== null) await input.grantAdmin(user)
+  }
   return {
     appName: "KUMORA",
     baseURL: input.baseURL,
@@ -65,8 +79,25 @@ export function authOptions(input: AuthOptionsInput) {
       cookieCache: { enabled: true, maxAge: 300 },
     },
     hooks: { before: hideTakenEmail },
+    // Every account write passes here, so a sign-up with a provider that
+    // already verified the email (Google) is covered as well as the link.
+    databaseHooks: {
+      user: {
+        create: { after: grantAdmin },
+        update: { after: grantAdmin },
+      },
+    },
     advanced: { database: { validateSchema: input.validateSchema } },
     // Must stay last.
-    plugins: [tanstackStartCookies()],
+    plugins: [
+      admin({
+        ac,
+        roles,
+        defaultRole: "member",
+        adminRoles: ["admin"],
+        impersonationSessionDuration: 60 * 60,
+      }),
+      tanstackStartCookies(),
+    ],
   } satisfies BetterAuthOptions
 }

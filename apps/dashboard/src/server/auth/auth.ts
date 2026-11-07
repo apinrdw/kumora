@@ -3,18 +3,34 @@ import { betterAuth } from "better-auth"
 import { Context, Effect, Layer } from "effect"
 import type { UnknownError } from "effect/Cause"
 
-import { makeCallbackRunner, sendVerificationEmail } from "./callbacks.ts"
+import { Accounts, roleOf } from "./accounts.ts"
+import { AdminEmails } from "./admin-emails.ts"
+import {
+  grantAdmin,
+  makeCallbackRunner,
+  sendVerificationEmail,
+} from "./callbacks.ts"
 import { Mailer } from "./mailer.ts"
 import { authOptions, type AuthOptionsInput } from "./options.ts"
+import type { Role } from "./policy.ts"
 
-type AuthConfig = Omit<AuthOptionsInput, "sendVerificationEmail">
+type AuthConfig = Omit<AuthOptionsInput, "sendVerificationEmail" | "grantAdmin">
 
-// What the gates read of a session. Later plugins widen it (role, banned).
+// What the gates read of a session.
 export interface AuthSession {
   readonly user: {
+    readonly id: string
     readonly name: string
     readonly email: string
     readonly emailVerified: boolean
+    readonly role: Role
+    readonly banned: boolean
+    // An admin whose email is on ADMIN_EMAILS.
+    readonly configAdmin: boolean
+  }
+  readonly session: {
+    // An admin is viewing as this account.
+    readonly impersonated: boolean
   }
 }
 
@@ -37,12 +53,15 @@ export class Auth extends Context.Service<
     Layer.effect(
       Auth,
       Effect.gen(function* () {
-        const run = makeCallbackRunner(yield* Effect.context<Mailer>())
+        const context = yield* Effect.context<Mailer | AdminEmails | Accounts>()
+        const run = makeCallbackRunner(context)
+        const adminEmails = Context.get(context, AdminEmails)
         const auth = betterAuth(
           authOptions({
             ...config,
             sendVerificationEmail: ({ email, url }) =>
               run(sendVerificationEmail(email, url)),
+            grantAdmin: (user) => run(grantAdmin(user)),
           })
         )
         return Auth.of({
@@ -52,6 +71,25 @@ export class Auth extends Context.Service<
               auth.api.getSession({
                 headers,
                 query: { disableCookieCache: options?.fresh ?? false },
+              })
+            ).pipe(
+              Effect.map((found) => {
+                if (found === null) return null
+                const { user, session } = found
+                const role = roleOf(user.role)
+                return {
+                  user: {
+                    id: user.id,
+                    name: user.name,
+                    email: user.email,
+                    emailVerified: user.emailVerified,
+                    role,
+                    banned: user.banned === true,
+                    configAdmin:
+                      role === "admin" && adminEmails.includes(user.email),
+                  },
+                  session: { impersonated: Boolean(session.impersonatedBy) },
+                }
               })
             ),
         })
@@ -69,7 +107,11 @@ export class Auth extends Context.Service<
         // every request, since Auth is built per request; the migration drift
         // check in CI and the handler test seam cover the schema.
         validateSchema: false,
-      })
+      }).pipe(Layer.provideMerge(Accounts.make(env.AUTH_DB)))
     })
-  ).pipe(Layer.provide(Mailer.layer), Layer.provide(waitUntilLive))
+  ).pipe(
+    Layer.provideMerge(AdminEmails.layer),
+    Layer.provide(Mailer.layer),
+    Layer.provide(waitUntilLive)
+  )
 }

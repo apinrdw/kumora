@@ -3,6 +3,7 @@ import { vi } from "vitest"
 import { Effect } from "effect"
 
 import {
+  ADMIN_EMAIL,
   BASE_URL,
   cookiesFrom,
   linkIn,
@@ -106,9 +107,42 @@ describe("the verification link", () => {
   })
 })
 
+describe("the admin grant", () => {
+  it.effect("leaves a new account on the admin list a member", () => {
+    const { layer } = seam()
+    return Effect.gen(function* () {
+      const response = yield* signUp(ADMIN_EMAIL)
+      const session = yield* sessionOf(cookiesFrom(response))
+      assert.strictEqual(session?.user.role, "member")
+    }).pipe(Effect.provide(layer))
+  })
+
+  it.effect("makes an account on the admin list admin once verified", () => {
+    const { layer, mails } = seam()
+    return Effect.gen(function* () {
+      yield* signUp(ADMIN_EMAIL.toUpperCase())
+      const response = yield* send(linkIn(mails[0]))
+      const session = yield* sessionOf(cookiesFrom(response))
+      assert.strictEqual(session?.user.role, "admin")
+    }).pipe(Effect.provide(layer))
+  })
+
+  it.effect("leaves a verified account off the list a member", () => {
+    const { layer, mails } = seam()
+    return Effect.gen(function* () {
+      yield* signUp("ayu@example.com")
+      const response = yield* send(linkIn(mails[0]))
+      const session = yield* sessionOf(cookiesFrom(response))
+      assert.strictEqual(session?.user.role, "member")
+    }).pipe(Effect.provide(layer))
+  })
+})
+
 describe("a callback that dies", () => {
   it.effect("answers Better Auth's 500 without the cause", () => {
-    const { layer } = seam(() => Effect.die(new Error("binding down")))
+    const { layer } = seam({
+      send: () => Effect.die(new Error("binding down")),
+    })
     return Effect.gen(function* () {
       yield* signUp("ayu@example.com")
       const response = yield* post("/send-verification-email", {
