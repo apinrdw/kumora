@@ -1,7 +1,7 @@
 import { PLACEHOLDER_STAGE } from "alchemy/Alchemist/Operations"
 import { describe, expect, test } from "vitest"
 
-import { stackOptions } from "@workspace/deploy/stack"
+import { stackOptions, stackStageKind, stageUrl } from "@workspace/deploy/stack"
 
 // Alchemy evaluates a stack with PLACEHOLDER_STAGE to discover its auth
 // providers (`alchemy profile edit`) and for `alchemy state`.
@@ -18,5 +18,24 @@ describe("stackOptions on alchemy's placeholder stage", () => {
     expect(() => stackOptions("web").secrets({ stage: "live_jarvis" })).toThrow(
       /Unknown stage/
     )
+  })
+
+  test("reads it as Staging", () => {
+    expect(stackStageKind(PLACEHOLDER_STAGE)).toBe("staging")
+  })
+})
+
+describe("stageUrl", () => {
+  test.each([
+    ["production", "https://kumora-dashboard.kumora.workers.dev"],
+    ["staging", "https://kumora-dashboard-staging.kumora.workers.dev"],
+    [
+      "feat-sign-in-a1b2c3",
+      "https://kumora-dashboard-feat-sign-in-a1b2c3.kumora.workers.dev",
+    ],
+    ["dev_jarvis", "http://localhost:3001"],
+    ["test", "http://localhost:3001"],
+  ])("serves the dashboard on %s from %s", (stage, url) => {
+    expect(stageUrl("dashboard", stage, 3001)).toBe(url)
   })
 })
