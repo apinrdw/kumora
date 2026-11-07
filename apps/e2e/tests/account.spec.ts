@@ -43,10 +43,10 @@ test("an account renames itself, changes its password, ends a session, moves to 
     }).toPass()
     await item.click()
     await expect(first).toHaveURL(ACCOUNT)
-    const profile = section(first, "Profile")
-    await expect(profile.getByText(owner.email)).toBeVisible()
-    await expect(profile.getByText("Member")).toBeVisible()
-    await expect(profile.getByText("Password", { exact: true })).toBeVisible()
+    const details = section(first, "Details")
+    await expect(details.getByText(owner.email)).toBeVisible()
+    await expect(details.getByText("Member")).toBeVisible()
+    await expect(details.getByText("Password", { exact: true })).toBeVisible()
   })
 
   await test.step("rename", async () => {
@@ -104,11 +104,11 @@ test("an account renames itself, changes its password, ends a session, moves to 
 
     await first.goto(await verificationLink(owner.email, since))
     await expect(first).toHaveURL(ACCOUNT)
-    await expect(section(first, "Profile").getByText(owner.email)).toBeVisible()
+    await expect(section(first, "Details").getByText(owner.email)).toBeVisible()
 
     await first.goto(await verificationLink(newEmail, since))
     await expect(first).toHaveURL(ACCOUNT)
-    await expect(section(first, "Profile").getByText(newEmail)).toBeVisible()
+    await expect(section(first, "Details").getByText(newEmail)).toBeVisible()
   })
 
   await test.step("delete the account by the emailed link, which ends every session", async () => {
