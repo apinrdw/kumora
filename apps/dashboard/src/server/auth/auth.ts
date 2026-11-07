@@ -1,9 +1,10 @@
 import { WorkerEnv, waitUntilLive } from "@workspace/server"
-import { betterAuth } from "better-auth"
+import { betterAuth, type Session } from "better-auth"
 import { Context, Effect, Layer } from "effect"
 import type { UnknownError } from "effect/Cause"
 
 import {
+  authorizeOwnAction,
   makeCallbackRunner,
   sendResetPassword,
   sendVerificationEmail,
@@ -11,20 +12,12 @@ import {
 import { googleClient } from "./google.ts"
 import { Mailer } from "./mailer.ts"
 import { authOptions, type AuthOptionsInput } from "./options.ts"
+import type { AuthSession } from "./session-account.ts"
 
 export type AuthConfig = Omit<
   AuthOptionsInput,
-  "sendVerificationEmail" | "sendResetPassword"
+  "sendVerificationEmail" | "sendResetPassword" | "authorizeOwnAction"
 >
-
-// What the gates read of a session. Later plugins widen it (role, banned).
-export interface AuthSession {
-  readonly user: {
-    readonly name: string
-    readonly email: string
-    readonly emailVerified: boolean
-  }
-}
 
 export class Auth extends Context.Service<
   Auth,
@@ -38,6 +31,15 @@ export class Auth extends Context.Service<
       headers: Headers,
       options?: { readonly fresh?: boolean }
     ) => Effect.Effect<AuthSession | null, UnknownError>
+    // The account's sessions that haven't expired. Read past Better Auth's
+    // list-sessions route, which refuses a session older than a day.
+    readonly sessionsOf: (
+      userId: string
+    ) => Effect.Effect<ReadonlyArray<Session>, UnknownError>
+    // Better Auth's provider ids: `credential` for a password, `google`.
+    readonly providersOf: (
+      userId: string
+    ) => Effect.Effect<ReadonlyArray<string>, UnknownError>
   }
 >()("dashboard/server/auth/Auth") {
   // Built per request: the database and secret are request-scoped bindings.
@@ -53,6 +55,8 @@ export class Auth extends Context.Service<
               run(sendVerificationEmail(email, url)),
             sendResetPassword: ({ email, url }) =>
               run(sendResetPassword(email, url)),
+            authorizeOwnAction: ({ action, session }) =>
+              run(authorizeOwnAction(action, session)),
           })
         )
         return Auth.of({
@@ -64,6 +68,21 @@ export class Auth extends Context.Service<
                 query: { disableCookieCache: options?.fresh ?? false },
               })
             ),
+          sessionsOf: (userId) =>
+            Effect.tryPromise(async () => {
+              const { internalAdapter } = await auth.$context
+              const sessions = await internalAdapter.listSessions(userId, {
+                onlyActiveSessions: true,
+              })
+              const now = new Date()
+              return sessions.filter((session) => session.expiresAt > now)
+            }),
+          providersOf: (userId) =>
+            Effect.tryPromise(async () => {
+              const { internalAdapter } = await auth.$context
+              const accounts = await internalAdapter.findAccounts(userId)
+              return accounts.map((account) => account.providerId)
+            }),
         })
       })
     )
