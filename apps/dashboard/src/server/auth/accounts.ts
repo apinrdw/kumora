@@ -10,14 +10,14 @@ import {
   PAGE_SIZE,
   type AccountPage,
   type AccountSearch,
-  type SignInMethod,
   type StoredAccount,
   type Status,
 } from "@/lib/account-query"
+import { signInMethodsOf } from "@/lib/sign-in-method"
 
 import type { AuthOptionsInput } from "./options.ts"
 import type { Role } from "./policy.ts"
-import { roleOf } from "./session-account.ts"
+import { storedRoleOf } from "./session-account.ts"
 
 // The columns read here, as Better Auth's Kysely adapter stores them on
 // SQLite: booleans as 0/1, dates as ISO strings. migrations/ holds the schema.
@@ -37,14 +37,10 @@ interface Tables {
     readonly userId: string
     readonly expiresAt: string
     readonly updatedAt: string
+    // Set while an admin views as the account; not the account's own.
+    readonly impersonatedBy: string | null
   }
   readonly account: { readonly userId: string; readonly providerId: string }
-}
-
-// Better Auth's provider ids; any other provider isn't a sign-in method here.
-const METHOD: Record<string, SignInMethod> = {
-  credential: "password",
-  google: "google",
 }
 
 const STATUS_SQL = {
@@ -75,7 +71,7 @@ const listAccounts = async (
     .$if(query.status !== undefined, (q) => q.where(STATUS_SQL[query.status!]))
   const lastActiveAt = sql<
     string | null
-  >`(select max("updatedAt") from "session" where "session"."userId" = "user"."id")`
+  >`(select max("updatedAt") from "session" where "session"."userId" = "user"."id" and "session"."impersonatedBy" is null)`
   const key = query.sort ?? "createdAt"
   const dir = query.dir ?? "desc"
   const [rows, count] = await Promise.all([
@@ -90,7 +86,7 @@ const listAccounts = async (
         "emailVerified",
         "createdAt",
         lastActiveAt.as("lastActiveAt"),
-        sql<number>`(select count(*) from "session" where "session"."userId" = "user"."id" and "session"."expiresAt" > ${now})`.as(
+        sql<number>`(select count(*) from "session" where "session"."userId" = "user"."id" and "session"."impersonatedBy" is null and "session"."expiresAt" > ${now})`.as(
           "sessions"
         ),
         sql<
@@ -118,20 +114,15 @@ const listAccounts = async (
       id: row.id,
       email: row.email,
       name: row.name,
-      role: roleOf(row.role),
+      role: storedRoleOf(row.role),
       banReason: row.banned ? row.banReason : null,
+      emailVerified: row.emailVerified === 1,
       status: row.banned
         ? "suspended"
         : row.emailVerified
           ? "active"
           : "unverified",
-      methods: [
-        ...new Set(
-          (row.providers ?? "")
-            .split(",")
-            .flatMap((id) => (id in METHOD ? [METHOD[id]!] : []))
-        ),
-      ].sort(),
+      methods: signInMethodsOf((row.providers ?? "").split(",")),
       createdAt: row.createdAt,
       lastActiveAt: row.lastActiveAt,
       sessions: Number(row.sessions),

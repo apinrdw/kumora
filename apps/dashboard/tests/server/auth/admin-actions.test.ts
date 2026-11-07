@@ -74,6 +74,12 @@ const accounts = () => {
       cookies: { owner, other, plain, member },
       id: (email: string) => idOf(database, email),
       token: (email: string) => tokenOf(database, email),
+      // As if the email went on ADMIN_EMAILS after it was verified: the
+      // stored role is still member.
+      storeAsMember: (email: string) =>
+        void database
+          .prepare(`update "user" set "role" = 'member' where "email" = ?`)
+          .run(email),
     }
   })
   return { layer, setup }
@@ -119,6 +125,34 @@ describe("admin actions on a config admin", () => {
       )
       assert.strictEqual(response.status, 403)
       assert.isNotNull(yield* sessionOf(cookies.owner))
+    }).pipe(Effect.provide(layer))
+  })
+})
+
+describe("an email put on ADMIN_EMAILS after it was verified", () => {
+  it.effect("is a config admin at once: another admin can't ban it", () => {
+    const { layer, setup } = accounts()
+    return Effect.gen(function* () {
+      const { cookies, id, storeAsMember } = yield* setup
+      storeAsMember(OTHER_CONFIG_ADMIN)
+      const response = yield* post(
+        "/admin/ban-user",
+        { userId: id(OTHER_CONFIG_ADMIN) },
+        { cookie: cookies.plain }
+      )
+      assert.strictEqual(response.status, 403)
+      assert.strictEqual((yield* signIn(OTHER_CONFIG_ADMIN)).status, 200)
+    }).pipe(Effect.provide(layer))
+  })
+
+  it.effect("is stored as admin from its next sign-in", () => {
+    const { layer, setup } = accounts()
+    return Effect.gen(function* () {
+      const { storeAsMember } = yield* setup
+      storeAsMember(OTHER_CONFIG_ADMIN)
+      const signedIn = cookiesFrom(yield* signIn(OTHER_CONFIG_ADMIN))
+      const session = yield* sessionOf(signedIn)
+      assert.strictEqual(session?.user.role, "admin")
     }).pipe(Effect.provide(layer))
   })
 })
@@ -213,6 +247,68 @@ describe("an admin acting on a member", () => {
       )
       assert.strictEqual(response.status, 200)
       assert.isNull(yield* sessionOf(cookies.member))
+    }).pipe(Effect.provide(layer))
+  })
+})
+
+// The admin plugin's routes that read accounts ask the policy too.
+const READS = [
+  [
+    "list accounts",
+    (_: string, cookie: string) =>
+      send("/admin/list-users", { headers: { cookie } }),
+  ],
+  [
+    "read an account",
+    (id: string, cookie: string) =>
+      send(`/admin/get-user?id=${id}`, { headers: { cookie } }),
+  ],
+  [
+    "list an account's sessions",
+    (id: string, cookie: string) =>
+      post("/admin/list-user-sessions", { userId: id }, { cookie }),
+  ],
+] as const
+
+describe("admin reads", () => {
+  it.effect.each(READS)("let an admin %s", ([, read]) => {
+    const { layer, setup } = accounts()
+    return Effect.gen(function* () {
+      const { cookies, id } = yield* setup
+      const response = yield* read(id(MEMBER), cookies.plain)
+      assert.strictEqual(response.status, 200)
+    }).pipe(Effect.provide(layer))
+  })
+
+  it.effect.each(READS)(
+    "answer not found to a member who asks to %s",
+    ([, read]) => {
+      const { layer, setup } = accounts()
+      return Effect.gen(function* () {
+        const { cookies, id } = yield* setup
+        const response = yield* read(id(PLAIN_ADMIN), cookies.member)
+        assert.strictEqual(response.status, 404)
+      }).pipe(Effect.provide(layer))
+    }
+  )
+})
+
+describe("admin plugin routes the dashboard doesn't offer", () => {
+  it.effect.each([
+    [
+      "/admin/create-user",
+      { email: "x@example.com", password: PASSWORD, name: "X" },
+    ],
+    ["/admin/update-user", { userId: "x", data: { name: "X" } }],
+    ["/admin/remove-user", { userId: "x" }],
+    ["/admin/set-user-password", { userId: "x", newPassword: PASSWORD }],
+    ["/admin/has-permission", { permissions: { user: ["list"] } }],
+  ] as const)("answer not found even to a config admin: %s", ([path, body]) => {
+    const { layer, setup } = accounts()
+    return Effect.gen(function* () {
+      const { cookies } = yield* setup
+      const response = yield* post(path, body, { cookie: cookies.owner })
+      assert.strictEqual(response.status, 404)
     }).pipe(Effect.provide(layer))
   })
 })

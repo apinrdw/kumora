@@ -64,9 +64,10 @@ export function SignInForm({
       setError(
         refused.status === 401
           ? "Wrong email or password."
-          : refused.status === 429
-            ? retry.message()
-            : "Couldn't sign in. Try again in a minute."
+          : retry.messageFor(
+              refused,
+              "Couldn't sign in. Try again in a minute."
+            )
       )
       return
     }

@@ -35,10 +35,10 @@ function ResendButton({
     // A 429 is the per-IP limit or this address's daily mail cap.
     setState({
       _tag: "Failed",
-      error:
-        error.status === 429
-          ? retry.message()
-          : "Couldn't send the link. Try again in a minute.",
+      error: retry.messageFor(
+        error,
+        "Couldn't send the link. Try again in a minute."
+      ),
     })
   }
   return (

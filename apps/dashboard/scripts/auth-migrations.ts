@@ -40,6 +40,7 @@ const { compileMigrations, unsafeChanges, schemaProblems } =
       sendDeleteAccountLink: async () => {},
       grantAdmin: async () => {},
       authorizeOwnAction: async () => {},
+      authorizeListAccounts: async () => {},
       authorizeAdminAction: async () => {},
     }),
     { throwOnUnsafe: false }

@@ -11,6 +11,7 @@ const MAIL_DIR = fileURLToPath(
 
 const VERIFY_LINK = /^(https?:\/\/\S+\/api\/auth\/verify-email\?\S+)$/m
 const RESET_LINK = /^(https?:\/\/\S+\/api\/auth\/reset-password\/\S+)$/m
+// The page is DELETE_ACCOUNT_PATH in apps/dashboard/src/server/auth/options.ts.
 const DELETE_LINK = /^(https?:\/\/\S+\/delete-account\?token=\S+)$/m
 
 async function newestLink(to: string, since: number, pattern: RegExp) {

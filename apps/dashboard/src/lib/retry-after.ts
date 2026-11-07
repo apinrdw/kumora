@@ -12,8 +12,9 @@ export function tooManyAttempts(seconds: number): string {
 }
 
 /**
- * Pass `onError` in an auth client call's fetch options; when the call is
- * refused with 429, `message()` says how long to wait.
+ * Pass `onError` in an auth client call's fetch options. `messageFor(error,
+ * fallback)` then says how long to wait when the call was refused with 429,
+ * and `fallback` for any other refusal.
  */
 export function retryAfter() {
   let seconds = Number.NaN
@@ -21,6 +22,7 @@ export function retryAfter() {
     onError: ({ response }: { response: Response }) => {
       seconds = Number(response.headers.get(RETRY_AFTER_HEADER))
     },
-    message: () => tooManyAttempts(seconds),
+    messageFor: (error: { readonly status: number }, fallback: string) =>
+      error.status === 429 ? tooManyAttempts(seconds) : fallback,
   }
 }

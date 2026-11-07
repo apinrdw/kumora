@@ -7,6 +7,7 @@ import { Accounts } from "./accounts.ts"
 import { AdminEmails } from "./admin-emails.ts"
 import {
   authorizeAdminAction,
+  authorizeListAccounts,
   authorizeOwnAction,
   grantAdmin,
   makeCallbackRunner,
@@ -35,9 +36,16 @@ export type AuthConfig = Omit<
   | "sendNewEmailVerification"
   | "sendDeleteAccountLink"
   | "authorizeOwnAction"
+  | "authorizeListAccounts"
   | "authorizeAdminAction"
   | "grantAdmin"
 >
+
+// An admin viewing as the account: Better Auth's own session list leaves it
+// out, and so do ours.
+const impersonation = (
+  session: Session & { readonly impersonatedBy?: unknown }
+) => Boolean(session.impersonatedBy)
 
 export class Auth extends Context.Service<
   Auth,
@@ -51,8 +59,9 @@ export class Auth extends Context.Service<
       headers: Headers,
       options?: { readonly fresh?: boolean }
     ) => Effect.Effect<AuthSession | null, UnknownError>
-    // The account's sessions that haven't expired. Read past Better Auth's
-    // list-sessions route, which refuses a session older than a day.
+    // The account's own sessions that haven't expired, without an admin
+    // viewing as it. Read past Better Auth's list-sessions route, which
+    // refuses a session older than a day.
     readonly sessionsOf: (
       userId: string
     ) => Effect.Effect<ReadonlyArray<Session>, UnknownError>
@@ -98,6 +107,8 @@ export class Auth extends Context.Service<
             grantAdmin: (user) => run(grantAdmin(user)),
             authorizeOwnAction: ({ action, session }) =>
               run(authorizeOwnAction(action, session)),
+            authorizeListAccounts: ({ session }) =>
+              run(authorizeListAccounts(session)),
             authorizeAdminAction: ({ action, session, target }) =>
               run(authorizeAdminAction(action, session, target)),
           })
@@ -116,7 +127,7 @@ export class Auth extends Context.Service<
                   ? null
                   : authSessionOf(
                       found satisfies BetterAuthSession,
-                      adminEmails.includes
+                      adminEmails
                     )
               )
             ),
@@ -127,7 +138,9 @@ export class Auth extends Context.Service<
                 onlyActiveSessions: true,
               })
               const now = new Date()
-              return sessions.filter((session) => session.expiresAt > now)
+              return sessions.filter(
+                (session) => session.expiresAt > now && !impersonation(session)
+              )
             }),
           providersOf: (userId) =>
             Effect.tryPromise(async () => {

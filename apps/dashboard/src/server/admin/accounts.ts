@@ -2,14 +2,15 @@
 import { Effect } from "effect"
 
 import type { AccountRow, AccountSearch } from "@/lib/account-query"
+import type { FileRoutesByFullPath } from "@/routeTree.gen"
 import { Accounts } from "@/server/auth/accounts"
 import { AdminEmails } from "@/server/auth/admin-emails"
 import { Auth } from "@/server/auth/auth"
-import { refusal } from "@/server/auth/gate"
 import { decide, type TargetAction } from "@/server/auth/policy"
+import { refusal } from "@/server/auth/refusal"
 import { accountOf, targetOf } from "@/server/auth/session-account"
 
-const USERS_PATH = "/admin/users"
+const USERS_PATH = "/admin/users" satisfies keyof FileRoutesByFullPath
 
 // Every action an admin takes on one account; the table offers only those
 // the policy allows.
@@ -32,12 +33,8 @@ export const listAccounts = Effect.fn("listAccounts")(function* (
   const decision = decide(account, "admin.list-accounts", {
     feature: "admin",
   })
-  // A server function has no page to show "no access" on.
   if (decision._tag === "Deny")
-    return yield* refusal(
-      decision.reason === "no-access" ? "forbidden" : decision.reason,
-      USERS_PATH
-    )
+    return yield* refusal(decision.reason, USERS_PATH)
   const adminEmails = yield* AdminEmails
   const page = yield* (yield* Accounts).list(search)
   return {
@@ -46,10 +43,12 @@ export const listAccounts = Effect.fn("listAccounts")(function* (
       const target = targetOf(
         { ...row, banned: row.status === "suspended" },
         session,
-        adminEmails.includes
+        adminEmails
       )
       return {
         ...row,
+        // A config admin is an admin before its next sign-in stores it.
+        role: target.role,
         allowed: Object.fromEntries(
           TARGET_ACTIONS.map((action) => [
             action,

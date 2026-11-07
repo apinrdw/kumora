@@ -41,9 +41,10 @@ export function PasswordSection({ canChange }: { canChange: boolean }) {
           message:
             error.code === "INVALID_PASSWORD"
               ? "The current password is wrong."
-              : error.status === 429
-                ? retry.message()
-                : "Couldn't change the password. Try again.",
+              : retry.messageFor(
+                  error,
+                  "Couldn't change the password. Try again."
+                ),
         }
       form.reset()
       return { _tag: "Done", message: "Password changed." }

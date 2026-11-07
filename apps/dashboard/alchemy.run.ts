@@ -1,7 +1,8 @@
 import * as Cloudflare from "@alchemy.run/cloudflare"
+import { isReleaseStage, stageKind, type Stage } from "@workspace/deploy"
 import {
   stackOptions,
-  stackStageKind,
+  stackStage,
   stageUrl,
   websiteProps,
 } from "@workspace/deploy/stack"
@@ -11,7 +12,6 @@ import * as Config from "effect/Config"
 import * as Effect from "effect/Effect"
 import * as Redacted from "effect/Redacted"
 
-import { googleSignInOn } from "./src/server/auth/google.ts"
 import { SENDER, SENDING_SUBDOMAIN } from "./src/server/auth/sender.ts"
 
 // apps/e2e's playwright.config.ts waits on this port.
@@ -50,10 +50,9 @@ const TURNSTILE_TEST_KEYS = {
 }
 
 // Production and Staging each own a widget for their own hostname.
-const turnstileKeys = (stage: string) =>
+const turnstileKeys = (stage: Stage) =>
   Effect.gen(function* () {
-    const kind = stackStageKind(stage)
-    if (kind !== "production" && kind !== "staging") return TURNSTILE_TEST_KEYS
+    if (!isReleaseStage(stage)) return TURNSTILE_TEST_KEYS
     const widget = yield* Cloudflare.Turnstile.Widget("Turnstile", {
       domains: [new URL(stageUrl("dashboard", stage, DEV_PORT)).hostname],
       mode: "managed",
@@ -64,15 +63,21 @@ const turnstileKeys = (stage: string) =>
 export const Website = Cloudflare.Website.Vite(
   "Dashboard",
   Effect.gen(function* () {
-    const { stage } = yield* Stack
+    const stage = stackStage((yield* Stack).stage)
     const turnstile = yield* turnstileKeys(stage)
-    // From Infisical `/dashboard`; see googleSignInOn.
+    // Decision: Google sign-in is enabled by stage, on Production and Staging,
+    // never by whether its client secret is present. Previews and Dev stages
+    // read Infisical `staging`, which holds the Google client too, and their
+    // URLs are not redirect URIs of the OAuth client. The client is bound (from
+    // Infisical `/dashboard`) only there, so a missing secret on Production or
+    // Staging fails the deploy instead of hiding the button. See
+    // apinrdw/kumora#89.
     const google: Partial<
       Record<
         "GOOGLE_CLIENT_ID" | "GOOGLE_CLIENT_SECRET",
         Config.Config<Redacted.Redacted<string>>
       >
-    > = googleSignInOn(stackStageKind(stage))
+    > = isReleaseStage(stage)
       ? {
           GOOGLE_CLIENT_ID: Config.Redacted("GOOGLE_CLIENT_ID"),
           GOOGLE_CLIENT_SECRET: Config.Redacted("GOOGLE_CLIENT_SECRET"),
@@ -113,8 +118,8 @@ export default Alchemy.Stack(
   "kumora-dashboard",
   stackOptions("dashboard"),
   Effect.gen(function* () {
-    const { stage } = yield* Stack
-    if (stackStageKind(stage) === "production") yield* SendingSubdomain
+    const stage = stackStage((yield* Stack).stage)
+    if (stageKind(stage) === "production") yield* SendingSubdomain
     const website = yield* Website
     return { url: website.url.as<string>() }
   })

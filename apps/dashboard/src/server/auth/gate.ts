@@ -1,13 +1,13 @@
 // The sign-in gate for pages and server functions: read the session through
 // Auth, ask the access policy, and map a denial to the closed HttpError set
-// (spec apinrdw/kumora#80, "The gate in pages and server functions").
-import { Forbidden, NotFound, Unauthorized } from "@workspace/server"
+// (spec apinrdw/kumora#80, "The gate in pages and server functions") through
+// refusal.ts.
+import { Unauthorized } from "@workspace/server"
 import { Effect } from "effect"
 
-import { withRedirect } from "@/lib/redirect"
-
 import { Auth } from "./auth.ts"
-import { FEATURES, decide, type Feature, type Reason } from "./policy.ts"
+import { FEATURES, decide, type Feature } from "./policy.ts"
+import { refusal } from "./refusal.ts"
 import { accountOf } from "./session-account.ts"
 
 export interface Viewer {
@@ -34,22 +34,6 @@ export interface Page {
   // Path and search of the page asked for; the visitor returns to it.
   readonly href: string
   readonly feature: Feature
-}
-
-export const refusal = (reason: Exclude<Reason, "no-access">, href: string) => {
-  switch (reason) {
-    // A suspended account holds no session, so it lands on sign-in, which
-    // shows the suspended screen when Better Auth refuses it.
-    case "sign-in":
-    case "suspended":
-      return new Unauthorized({ redirectTo: withRedirect("/sign-in", href) })
-    case "verify":
-      return new Unauthorized({ redirectTo: withRedirect("/verify", href) })
-    case "not-found":
-      return new NotFound({ message: "" })
-    case "forbidden":
-      return new Forbidden({ message: "" })
-  }
 }
 
 export const gatePage = Effect.fn("gatePage")(function* (

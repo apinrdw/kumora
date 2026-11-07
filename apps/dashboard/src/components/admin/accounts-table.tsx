@@ -29,10 +29,10 @@ import {
   type AccountPage,
   type AccountRow,
   type AccountSearch,
-  type SignInMethod,
   type Status,
 } from "@/lib/account-query"
 import { dateTime } from "@/lib/format"
+import { SIGN_IN_METHOD_LABEL } from "@/lib/sign-in-method"
 import type { Role } from "@/server/auth/policy"
 
 import { AccountActions, ConfirmAction, type Asked } from "./account-actions"
@@ -44,11 +44,6 @@ const STATUS: Record<Status, { label: string; tone: KBadgeTone }> = {
 }
 
 const ROLE: Record<Role, string> = { admin: "Admin", member: "Member" }
-
-const METHOD: Record<SignInMethod, string> = {
-  password: "Password",
-  google: "Google",
-}
 
 const ALL = "all"
 
@@ -82,7 +77,7 @@ const COLUMNS: ReadonlyArray<KColumn<AccountRow>> = [
     cell: (row) =>
       row.methods.length === 0
         ? "—"
-        : row.methods.map((method) => METHOD[method]).join(", "),
+        : row.methods.map((method) => SIGN_IN_METHOD_LABEL[method]).join(", "),
   },
   {
     key: "createdAt",

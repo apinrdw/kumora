@@ -2,7 +2,7 @@
 // known failure becomes Better Auth's own APIError, so its handler answers
 // with that status. Never runServerEffect: its thrown Response would bypass
 // Better Auth.
-import { Forbidden, HttpError, NotFound, Unauthorized } from "@workspace/server"
+import { HttpError } from "@workspace/server"
 import { APIError } from "better-auth/api"
 import { Cause, Effect, Exit, Schema, type Context } from "effect"
 
@@ -19,10 +19,11 @@ import {
   type OwnAction,
   type TargetAction,
 } from "./policy.ts"
+import { refusal } from "./refusal.ts"
 import {
   accountOf,
   authSessionOf,
-  roleOf,
+  storedRoleOf,
   targetOf,
   type BetterAuthSession,
 } from "./session-account.ts"
@@ -70,20 +71,35 @@ export function makeCallbackRunner<R>(
   }
 }
 
+// One mail to one address. A capped mail counts toward the address's daily
+// cap first (mail-cap.ts); over it, the send fails with TooManyMails.
+const sendMail = Effect.fnUntraced(function* (mail: {
+  readonly to: string
+  readonly subject: string
+  readonly lines: ReadonlyArray<string>
+  readonly capped: boolean
+}) {
+  if (mail.capped) yield* (yield* MailCap).take(mail.to)
+  yield* (yield* Mailer).send({
+    to: mail.to,
+    subject: mail.subject,
+    text: mail.lines.join("\r\n"),
+  })
+})
+
 export const sendVerificationEmail = Effect.fn("sendVerificationEmail")(
   function* (email: string, url: string) {
-    yield* (yield* MailCap).take(email)
-    const mailer = yield* Mailer
-    yield* mailer.send({
+    yield* sendMail({
       to: email,
       subject: "Verify your email for KUMORA",
-      text: [
+      capped: true,
+      lines: [
         "Open this link to verify your email and finish creating your KUMORA account:",
         "",
         url,
         "",
         "The link works for 24 hours. If you didn't create an account, ignore this email.",
-      ].join("\r\n"),
+      ],
     })
   }
 )
@@ -94,30 +110,29 @@ export const sendResetPassword = Effect.fn("sendResetPassword")(function* (
   email: string,
   url: string
 ) {
-  yield* (yield* MailCap).take(email)
-  const mailer = yield* Mailer
-  yield* mailer.send({
+  yield* sendMail({
     to: email,
     subject: "Reset your KUMORA password",
-    text: [
+    capped: true,
+    lines: [
       "Open this link to choose a new password for your KUMORA account:",
       "",
       url,
       "",
       "The link works for 1 hour. Setting a new password signs you out everywhere else.",
       "If you didn't ask for this, ignore this email; your password stays as it is.",
-    ].join("\r\n"),
+    ],
   })
 })
 
 export const sendChangeEmailConfirmation = Effect.fn(
   "sendChangeEmailConfirmation"
 )(function* (email: string, newEmail: string, url: string) {
-  const mailer = yield* Mailer
-  yield* mailer.send({
+  yield* sendMail({
     to: email,
     subject: "Confirm your new KUMORA email",
-    text: [
+    capped: false,
+    lines: [
       `Someone asked to move your KUMORA account to ${newEmail}.`,
       "Open this link to confirm, and we'll send a link to the new address to verify it:",
       "",
@@ -125,74 +140,74 @@ export const sendChangeEmailConfirmation = Effect.fn(
       "",
       "The link works for 24 hours. Your email changes only once the new address is verified.",
       "If you didn't ask for this, ignore this email and change your password.",
-    ].join("\r\n"),
+    ],
   })
 })
 
 export const sendNewEmailVerification = Effect.fn("sendNewEmailVerification")(
   function* (email: string, url: string) {
-    // A verification mail, so it counts toward the new address's cap. Better
-    // Auth sends it in the background, so over the cap it is only logged.
-    yield* (yield* MailCap).take(email)
-    const mailer = yield* Mailer
-    yield* mailer.send({
+    yield* sendMail({
       to: email,
       subject: "Verify your new KUMORA email",
-      text: [
+      // A verification mail, so it counts toward the new address's cap.
+      // Better Auth sends it in the background, so over the cap it is only
+      // logged.
+      capped: true,
+      lines: [
         "Open this link to verify this address and make it your KUMORA account's email:",
         "",
         url,
         "",
         "The link works for 24 hours. If you didn't ask for this, ignore this email.",
-      ].join("\r\n"),
+      ],
     })
   }
 )
 
 export const sendDeleteAccountLink = Effect.fn("sendDeleteAccountLink")(
   function* (email: string, url: string) {
-    const mailer = yield* Mailer
-    yield* mailer.send({
+    yield* sendMail({
       to: email,
       subject: "Delete your KUMORA account",
-      text: [
+      capped: false,
+      lines: [
         "Open this link to delete your KUMORA account, its sessions and its sign-in methods:",
         "",
         url,
         "",
         "The link works for 1 hour, in a browser signed in to the account. It asks once more before deleting.",
         "If you didn't ask for this, ignore this email and change your password.",
-      ].join("\r\n"),
+      ],
     })
   }
 )
 
 // A Better Auth route asks the access policy first. Each reason maps as the
 // spec's before-hook column says: 401, 404 or 403 (apinrdw/kumora#80,
-// "Access policy").
-const hookVerdict = (decision: Decision) => {
-  if (decision._tag === "Allow") return Effect.void
-  switch (decision.reason) {
-    case "sign-in":
-    case "verify":
-    case "suspended":
-      return Effect.fail(new Unauthorized({ redirectTo: "/sign-in" }))
-    case "not-found":
-      return Effect.fail(new NotFound({ message: "" }))
-    case "no-access":
-    case "forbidden":
-      return Effect.fail(new Forbidden({ message: "" }))
-  }
-}
+// "Access policy"). A route has no page to return to.
+const hookVerdict = (decision: Decision) =>
+  decision._tag === "Allow"
+    ? Effect.void
+    : Effect.fail(refusal(decision.reason, "/"))
 
 export const authorizeOwnAction = Effect.fn("authorizeOwnAction")(function* (
   action: OwnAction,
   found: BetterAuthSession | null
 ) {
   const adminEmails = yield* AdminEmails
-  const session = found && authSessionOf(found, adminEmails.includes)
+  const session = found && authSessionOf(found, adminEmails)
   yield* hookVerdict(decide(accountOf(session), action, OWN_ACCOUNT))
 })
+
+export const authorizeListAccounts = Effect.fn("authorizeListAccounts")(
+  function* (found: BetterAuthSession | null) {
+    const adminEmails = yield* AdminEmails
+    const session = found && authSessionOf(found, adminEmails)
+    yield* hookVerdict(
+      decide(accountOf(session), "admin.list-accounts", { feature: "admin" })
+    )
+  }
+)
 
 // The config-admin and self protections are the policy's admin rules. The
 // admin plugin's own role check runs after this hook.
@@ -203,13 +218,9 @@ export const authorizeAdminAction = Effect.fn("authorizeAdminAction")(
     target: TargetUser
   ) {
     const adminEmails = yield* AdminEmails
-    const session = found && authSessionOf(found, adminEmails.includes)
+    const session = found && authSessionOf(found, adminEmails)
     yield* hookVerdict(
-      decide(
-        accountOf(session),
-        action,
-        targetOf(target, session, adminEmails.includes)
-      )
+      decide(accountOf(session), action, targetOf(target, session, adminEmails))
     )
   }
 )
@@ -219,14 +230,16 @@ export const authorizeAdminAction = Effect.fn("authorizeAdminAction")(
 // owner signs up. It runs after every write of an account, which covers the
 // verification link, a sign-up through a provider that already verified the
 // email (Google), and a change to an email on the list. From then on the role
-// lives in the database. See apinrdw/kumora#70.
+// lives in the database. An email put on the list after it was verified is a
+// config admin at once (session-account.ts) and is stored as admin here at its
+// next sign-in. See apinrdw/kumora#70.
 export const grantAdmin = Effect.fn("grantAdmin")(function* (
   user: WrittenUser
 ) {
   const adminEmails = yield* AdminEmails
   if (
     !user.emailVerified ||
-    roleOf(user.role) === "admin" ||
+    storedRoleOf(user.role) === "admin" ||
     !adminEmails.includes(user.email)
   )
     return

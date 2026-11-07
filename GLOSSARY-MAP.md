@@ -4,7 +4,7 @@ This repo is multi-context. Each pnpm workspace owns its own `GLOSSARY.md`. Deci
 
 | Context   | Workspace        | Purpose                                                                                           | Glossary                     |
 | --------- | ---------------- | ------------------------------------------------------------------------------------------------- | ---------------------------- |
-| Dashboard | `apps/dashboard` | The market terminal. Only its shell today, with no pages.     | `apps/dashboard/GLOSSARY.md` |
+| Dashboard | `apps/dashboard` | The market terminal: the shell, sign-in and accounts, /account and the admin pages. | `apps/dashboard/GLOSSARY.md` |
 | Web       | `apps/web`       | Public site. Starter landing page today.                                                          | `apps/web/GLOSSARY.md`       |
 | E2E       | `apps/e2e`       | Playwright smoke tests for both apps. No domain terms of its own.                                 | none                         |
 | Deploy    | `packages/deploy` | Branch to Stage, Worker names, the stack options and the deploy and teardown scripts. Deploy-time only. | `packages/deploy/GLOSSARY.md` |

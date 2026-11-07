@@ -2,7 +2,7 @@ import { assert, describe, it } from "@effect/vitest"
 import { Effect } from "effect"
 import { vi } from "vitest"
 
-import { googleClient, googleSignInOn } from "@/server/auth/google"
+import { googleClient } from "@/server/auth/google"
 import type { Mail } from "@/server/auth/mailer"
 
 import {
@@ -25,18 +25,6 @@ const startGoogle = post("/sign-in/social", {
   provider: "google",
   callbackURL: RETURN_TO,
   errorCallbackURL: ERROR_URL,
-})
-
-describe("googleSignInOn", () => {
-  it.each([
-    ["production", true],
-    ["staging", true],
-    ["preview", false],
-    ["dev", false],
-    ["test", false],
-  ] as const)("on a %s stage is %s", (kind, on) => {
-    assert.strictEqual(googleSignInOn(kind), on)
-  })
 })
 
 describe("googleClient", () => {

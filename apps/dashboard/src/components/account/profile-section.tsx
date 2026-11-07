@@ -3,7 +3,8 @@ import type { FormEvent } from "react"
 
 import { KButton, KInput } from "@/components/k"
 import { authClient } from "@/lib/auth-client"
-import type { AccountPage, SignInMethod } from "@/server/auth/account-page"
+import { SIGN_IN_METHOD_LABEL } from "@/lib/sign-in-method"
+import type { AccountPage } from "@/server/auth/account-page"
 import type { Role } from "@/server/auth/policy"
 
 import {
@@ -16,11 +17,6 @@ const ROLE = { admin: "Admin", member: "Member" } as const satisfies Record<
   Role,
   string
 >
-
-const METHOD = {
-  password: "Password",
-  google: "Google",
-} as const satisfies Record<SignInMethod, string>
 
 /** Email, role and sign-in methods, read-only; the display name, editable. */
 export function ProfileSection({
@@ -51,8 +47,9 @@ export function ProfileSection({
         <dd>{ROLE[page.role]}</dd>
         <dt className="text-muted-foreground">Sign-in methods</dt>
         <dd>
-          {page.signInMethods.map((method) => METHOD[method]).join(", ") ||
-            "None"}
+          {page.signInMethods
+            .map((method) => SIGN_IN_METHOD_LABEL[method])
+            .join(", ") || "None"}
         </dd>
       </dl>
       <form

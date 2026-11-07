@@ -92,6 +92,13 @@ export function stageKind(stage: Stage): StageKind {
   return classify(stage) as StageKind
 }
 
+// Production and Staging: the stages with a fixed URL that outside services
+// (an OAuth client, a Turnstile widget) are set up for.
+export function isReleaseStage(stage: Stage): boolean {
+  const kind = stageKind(stage)
+  return kind === "production" || kind === "staging"
+}
+
 export function isPreview(stage: Stage): stage is Preview {
   return stageKind(stage) === "preview"
 }

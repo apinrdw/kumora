@@ -5,12 +5,14 @@ import { Duration, Effect } from "effect"
 import { TestClock } from "effect/testing"
 import { vi } from "vitest"
 
+import { CLIENT_IP_HEADER } from "@/server/auth/options"
+
 import { cookiesFrom, linkIn, post, seam, send, signUp } from "./seam.ts"
 
 const HOUR = 60 * 60
 const DAY = 24 * HOUR
 
-const ip = (n: number) => ({ "cf-connecting-ip": `198.51.100.${n}` })
+const ip = (n: number) => ({ [CLIENT_IP_HEADER]: `198.51.100.${n}` })
 
 const body = (response: Response) =>
   Effect.promise(

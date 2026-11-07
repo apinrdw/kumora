@@ -5,6 +5,7 @@ import {
   deployTarget,
   devStage,
   isPreview,
+  isReleaseStage,
   parseStage,
   stageTarget,
   type Preview,
@@ -125,6 +126,18 @@ describe("parseStage", () => {
       expect(parseStage(stage)).toBe(stage)
     }
   )
+})
+
+describe("isReleaseStage", () => {
+  test.each([
+    ["production", true],
+    ["staging", true],
+    ["feature-login-df7c7a", false],
+    ["dev_jarvis", false],
+    ["test", false],
+  ] as const)("%s is %s", (raw, release) => {
+    expect(isReleaseStage(parseStage(raw))).toBe(release)
+  })
 })
 
 describe("isPreview", () => {

@@ -11,7 +11,7 @@ Steps marked ✅ were done during the throwaway deploy, observed 2026-11-05 ([ap
 - Project slug `kumora`, environments `prod` and `staging`. A `dev` environment also exists; it is unused and stays empty. Local dev (the Dev stage) reads `staging`, so don't put secrets in `dev`.
 - `/` in each environment holds `CLOUDFLARE_API_TOKEN` and `CLOUDFLARE_ACCOUNT_ID`, with a separate token per environment.
 - `/web` holds `DEPLOY_PROBE_SECRET`. `/dashboard` holds the dashboard's secrets: the Google client of step 10, and:
-  - ⬜ `ADMIN_EMAILS` in both `prod` and `staging`: the comma-separated emails that become admins once verified. The dashboard deploy, and `pnpm dev` (which reads `staging`), fail without it. The Test stage reads it from the process environment instead (`apps/e2e/playwright.config.ts`).
+  - ⬜ `ADMIN_EMAILS` in both `prod` and `staging`: the comma-separated emails that become admins once verified. The dashboard deploy, and `pnpm dev` (which reads `staging`), fail without it. The Test stage reads it from the process environment instead (`apps/e2e/playwright.config.ts`). To change the list later, edit the value and redeploy the dashboard (values are read at deploy). An email added after its account was verified is a config admin from the deploy on, and its admin role is stored at its next sign-in. An email removed keeps its stored admin role, without the config-admin protections; demote it on `/admin/users` if it should be a member.
 - Machine identity `kumora-workers-builds`: Universal Auth only, client secret with a 1-year TTL, project `kumora` role Viewer. Organization role **No Access**, set 2026-11-05 (it was Admin, which let every branch build manage the whole Infisical organization); the owner reported the next build succeeding.
 
 ## 2. Cloudflare API tokens ✅
@@ -84,13 +84,14 @@ printf '%s' "$value" | sha256sum | cut -c1-12
 The dashboard sends verification mail from `no-reply@mailer.pusat.ai` through Cloudflare Email Sending. Production alone owns the `mailer.pusat.ai` sending subdomain (`apps/dashboard/alchemy.run.ts`); every other stage only binds to it.
 
 1. **Deploy Production with auth first.** Until Production has deployed the subdomain, mail from Staging and every Preview fails (the sign-up still succeeds; the send is logged as failed). Dev and Test stages never send: they write `.eml` files under `apps/dashboard/.alchemy/local/email`.
-2. Before that deploy, give the `prod` Cloudflare token (step 2) Zone Read and Email Sending Edit on the `pusat.ai` zone. The stack looks the zone up by name and fails the deploy if it is missing.
-3. If `mailer.pusat.ai` already exists under Email Sending, Alchemy reports it as not owned and refuses it. Delete it first, or run that one Production deploy with `--adopt`.
-4. Check by hand on a Preview: sign up with an address you can read through `POST https://<worker-name>.kumora.workers.dev/api/auth/sign-up/email` with body `{"email":"…","password":"…","name":"…"}`, an `Origin` header of the same `https://<worker-name>.kumora.workers.dev`, and an `x-captcha-response: XXXX.DUMMY.TOKEN.XXXX` header (a Preview uses Turnstile's always-pass test keys, which accept any token), receive the mail, and open its link. It must redirect to `/`.
+2. **Merge the gate to `main` after 16:35 WIB or on a non-trading day.** Once Market Live runs on Production, the deploy restarts it, which drops every open viewer socket and moves open tabs to sign-in; outside IDX hours that cuts no live viewer or tape (spec apinrdw/kumora#80, "Rollout").
+3. Before the first Production deploy with auth, give the `prod` Cloudflare token (step 2) Zone Read and Email Sending Edit on the `pusat.ai` zone. The stack looks the zone up by name and fails the deploy if it is missing.
+4. If `mailer.pusat.ai` already exists under Email Sending, Alchemy reports it as not owned and refuses it. Delete it first, or run that one Production deploy with `--adopt`.
+5. Check by hand on a Preview: sign up with an address you can read through `POST https://<worker-name>.kumora.workers.dev/api/auth/sign-up/email` with body `{"email":"…","password":"…","name":"…"}`, an `Origin` header of the same `https://<worker-name>.kumora.workers.dev`, and an `x-captcha-response: XXXX.DUMMY.TOKEN.XXXX` header (a Preview uses Turnstile's always-pass test keys, which accept any token), receive the mail, and open its link. It must redirect to `/`.
 
 ## 10. Google sign-in ⬜
 
-Production and Staging offer Continue with Google; Previews, Dev and Test stages never do (`googleSignInOn` in `apps/dashboard/src/server/auth/google.ts`). On those two stages `apps/dashboard/alchemy.run.ts` reads the client from Infisical, so their deploys fail until the values exist.
+Production and Staging offer Continue with Google; Previews, Dev and Test stages never do (`isReleaseStage` in `packages/deploy/src/target.ts`, used by `apps/dashboard/alchemy.run.ts`). On those two stages `apps/dashboard/alchemy.run.ts` reads the client from Infisical, so their deploys fail until the values exist.
 
 1. In Google Cloud Console, create one OAuth client of type Web application (or reuse the existing one). Under Authorized redirect URIs, add both:
    - `https://kumora-dashboard.kumora.workers.dev/api/auth/callback/google` (Production)

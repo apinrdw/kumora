@@ -1,12 +1,13 @@
 import { WorkerEnv } from "@workspace/server"
 import { Context, Effect, Layer } from "effect"
 
+import type { AdminList } from "./session-account.ts"
+
 // The configured admin list, ADMIN_EMAILS: a comma-separated list of emails.
 // An account whose verified email is on it is a config admin.
-export class AdminEmails extends Context.Service<
-  AdminEmails,
-  { readonly includes: (email: string) => boolean }
->()("dashboard/server/auth/AdminEmails") {
+export class AdminEmails extends Context.Service<AdminEmails, AdminList>()(
+  "dashboard/server/auth/AdminEmails"
+) {
   static readonly from = (raw: string) => {
     const emails = new Set(
       raw

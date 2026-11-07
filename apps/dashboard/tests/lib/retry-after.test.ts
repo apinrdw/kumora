@@ -23,6 +23,14 @@ describe("retryAfter", () => {
         headers: { "X-Retry-After": "540" },
       }),
     })
-    expect(retry.message()).toBe("Too many attempts. Try again in 9 minutes.")
+    expect(retry.messageFor({ status: 429 }, "Couldn't.")).toBe(
+      "Too many attempts. Try again in 9 minutes."
+    )
+  })
+
+  it("says the fallback for any other refusal", () => {
+    const retry = retryAfter()
+    retry.onError({ response: new Response(null, { status: 500 }) })
+    expect(retry.messageFor({ status: 500 }, "Couldn't.")).toBe("Couldn't.")
   })
 })

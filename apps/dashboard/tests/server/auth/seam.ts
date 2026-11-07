@@ -6,6 +6,7 @@ import { Accounts } from "@/server/auth/accounts"
 import { AdminEmails } from "@/server/auth/admin-emails"
 import { Auth, type AuthConfig } from "@/server/auth/auth"
 import { Mailer, type Mail } from "@/server/auth/mailer"
+import { CLIENT_IP_HEADER } from "@/server/auth/options"
 
 import { replayMigrations } from "../../../scripts/auth-schema.ts"
 
@@ -75,7 +76,7 @@ export const send = Effect.fnUntraced(function* (
 ) {
   const auth = yield* Auth
   const headers = new Headers({
-    "cf-connecting-ip": CLIENT_IP,
+    [CLIENT_IP_HEADER]: CLIENT_IP,
     "x-captcha-response": SOLVED_TURNSTILE,
   })
   new Headers(init?.headers).forEach((value, name) => headers.set(name, value))
