@@ -29,7 +29,8 @@ test.describe("an admin", () => {
       table.getByRole("cell", { name: MEMBER.email, exact: true })
     ).toBeVisible()
 
-    await page.getByRole("searchbox", { name: "Search" }).fill("mira")
+    const search = page.getByRole("searchbox", { name: "Search" })
+    await search.fill("mira")
     await expect(page).toHaveURL(/q=mira/)
     await expect(
       table.getByRole("cell", { name: ADMIN.email, exact: true })
@@ -39,5 +40,14 @@ test.describe("an admin", () => {
     await expect(member).toContainText("Member")
     await expect(member).toContainText("Active")
     await expect(member).toContainText("Password")
+
+    // The Users link clears the search; the box follows the URL and doesn't
+    // write the old search back.
+    await page.getByRole("link", { name: "Users" }).click()
+    await expect(search).toHaveValue("")
+    await expect(page).toHaveURL(USERS)
+    await expect(
+      table.getByRole("cell", { name: ADMIN.email, exact: true })
+    ).toBeVisible()
   })
 })
