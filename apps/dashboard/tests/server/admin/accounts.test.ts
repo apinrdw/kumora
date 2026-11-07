@@ -193,6 +193,37 @@ describe("listAccounts", () => {
       )
     )
 
+    it.effect(
+      "by role as the policy reads it: a verified email put on ADMIN_EMAILS is an admin",
+      () => {
+        const { layer, mails, database } = seam()
+        return Effect.gen(function* () {
+          const admin = yield* verified(mails)(ADMIN_EMAIL, "Owner")
+          yield* verified(mails)("other@example.com", "Other")
+          yield* verified(mails)("ayu@example.com", "Ayu")
+          // As if other@ went on the list after it verified: the stored role
+          // is still member.
+          database
+            .prepare(
+              `update "user" set "role" = 'member' where "email" = 'other@example.com'`
+            )
+            .run()
+          const admins = yield* listAccounts(headers(admin), { role: "admin" })
+          assert.deepStrictEqual(emails(admins), [
+            "other@example.com",
+            ADMIN_EMAIL,
+          ])
+          assert.strictEqual(admins.total, 2)
+          assert.strictEqual(admins.rows[0]?.role, "admin")
+          const members = yield* listAccounts(headers(admin), {
+            role: "member",
+          })
+          assert.deepStrictEqual(emails(members), ["ayu@example.com"])
+          assert.strictEqual(members.total, 1)
+        }).pipe(Effect.provide(layer))
+      }
+    )
+
     it.effect("by last active, accounts with no session last", () => {
       const { layer, mails } = seam()
       return Effect.gen(function* () {
