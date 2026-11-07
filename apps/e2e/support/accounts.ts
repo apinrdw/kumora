@@ -1,6 +1,7 @@
+import { TEST, stageUrl } from "@workspace/deploy"
 import { fileURLToPath } from "node:url"
 
-export const DASHBOARD = "http://localhost:3001"
+export const DASHBOARD = stageUrl("dashboard", TEST)
 
 export interface SharedAccount {
   readonly name: string

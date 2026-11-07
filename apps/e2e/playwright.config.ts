@@ -1,4 +1,5 @@
 import { defineConfig } from "@playwright/test"
+import { TEST, stageUrl } from "@workspace/deploy"
 
 import { ADMIN } from "./support/accounts"
 
@@ -26,7 +27,6 @@ export default defineConfig({
   // Both apps run on alchemy's local `test` stage: local state, no Infisical,
   // so the dummy value below comes from the process environment and no
   // Cloudflare or Infisical credential is needed.
-  // The ports are each app's `dev.port` in its alchemy.run.ts.
   // Never reuse a server: a leftover one would hide a startup failure.
   webServer: [
     {
@@ -35,13 +35,12 @@ export default defineConfig({
         "node apps/e2e/reset-test-stage.ts && pnpm exec turbo run dev --only --ui=stream --filter=web --filter=dashboard",
       cwd: "../..",
       env: {
-        // The Test stage name, defined as TEST in packages/deploy/src/target.ts.
-        ALCHEMY_STAGE: "test",
+        ALCHEMY_STAGE: TEST,
         DEPLOY_PROBE_SECRET: "e2e-dummy-not-a-secret",
         // The Test stage reads ADMIN_EMAILS from here (apinrdw/kumora#86).
         ADMIN_EMAILS: ADMIN.email,
       },
-      url: "http://localhost:3000/probe",
+      url: `${stageUrl("web", TEST)}/probe`,
       stdout: "pipe",
       // The default SIGKILL stops turbo before it can stop the apps.
       gracefulShutdown: { signal: "SIGTERM", timeout: 10_000 },
@@ -53,7 +52,7 @@ export default defineConfig({
       // it running is success here. It waits on a static file: `/` answers a
       // redirect to sign-in or a 404, neither of which Playwright counts as up.
       command: 'node -e "setInterval(() => {}, 1 << 30)"',
-      url: "http://localhost:3001/robots.txt",
+      url: `${stageUrl("dashboard", TEST)}/robots.txt`,
       reuseExistingServer: true,
     },
   ],

@@ -2,13 +2,15 @@
 // an empty local D1: without the Test stage's Alchemy state, `alchemy dev`
 // creates a new local database (and signing secret) and applies the
 // migrations to it. The Dev stage's state is left alone.
+import { TEST, stackName } from "@workspace/deploy"
 import { createHash, createHmac } from "node:crypto"
 import { readFileSync, rmSync } from "node:fs"
 
 const ALCHEMY = new URL("../dashboard/.alchemy/", import.meta.url)
-const STATE = new URL("state/kumora-dashboard/test/", ALCHEMY)
+const STATE = new URL(`state/${stackName("dashboard")}/${TEST}/`, ALCHEMY)
 
-// The previous run's database id, from the state about to be deleted.
+// The previous run's database id, from the state about to be deleted. The
+// file is named by the D1 resource's id in apps/dashboard/alchemy.run.ts.
 function previousDatabaseId(): string | undefined {
   try {
     const state = JSON.parse(

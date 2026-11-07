@@ -1,11 +1,13 @@
 import * as Cloudflare from "@alchemy.run/cloudflare"
-import { isReleaseStage, stageKind, type Stage } from "@workspace/deploy"
 import {
-  stackOptions,
-  stackStage,
+  DEV_PORTS,
+  isReleaseStage,
+  stackName,
+  stageKind,
   stageUrl,
-  websiteProps,
-} from "@workspace/deploy/stack"
+  type Stage,
+} from "@workspace/deploy"
+import { stackOptions, stackStage, websiteProps } from "@workspace/deploy/stack"
 import * as Alchemy from "alchemy"
 import { Stack } from "alchemy/Stack"
 import * as Config from "effect/Config"
@@ -14,11 +16,9 @@ import * as Redacted from "effect/Redacted"
 
 import { SENDER, SENDING_SUBDOMAIN } from "./src/server/auth/sender.ts"
 
-// apps/e2e's playwright.config.ts waits on this port.
-const DEV_PORT = 3001
-
 // scripts/auth-schema.ts replays the same directory for the drift check and
-// the handler test seam.
+// the handler test seam. apps/e2e/reset-test-stage.ts reads this resource's
+// state file, AuthDb.json, by this id.
 const AuthDb = Cloudflare.D1.Database("AuthDb", { migrations: "./migrations" })
 
 // Decision: Production alone owns the mailer.pusat.ai sending subdomain; every
@@ -54,7 +54,7 @@ const turnstileKeys = (stage: Stage) =>
   Effect.gen(function* () {
     if (!isReleaseStage(stage)) return TURNSTILE_TEST_KEYS
     const widget = yield* Cloudflare.Turnstile.Widget("Turnstile", {
-      domains: [new URL(stageUrl("dashboard", stage, DEV_PORT)).hostname],
+      domains: [new URL(stageUrl("dashboard", stage)).hostname],
       mode: "managed",
     })
     return { siteKey: widget.sitekey, secretKey: widget.secret }
@@ -86,10 +86,10 @@ export const Website = Cloudflare.Website.Vite(
     return {
       ...websiteProps("dashboard", stage),
       rootDir: import.meta.dirname,
-      dev: { port: DEV_PORT, strictPort: true },
+      dev: { port: DEV_PORTS.dashboard, strictPort: true },
       env: {
         AUTH_DB: AuthDb,
-        AUTH_BASE_URL: stageUrl("dashboard", stage, DEV_PORT),
+        AUTH_BASE_URL: stageUrl("dashboard", stage),
         BETTER_AUTH_SECRET: Alchemy.makeRandom("BetterAuthSecret"),
         EMAIL: Cloudflare.Email.SendEmail("Email", {
           allowedSenderAddresses: [SENDER],
@@ -115,7 +115,7 @@ declare module "@workspace/server" {
 }
 
 export default Alchemy.Stack(
-  "kumora-dashboard",
+  stackName("dashboard"),
   stackOptions("dashboard"),
   Effect.gen(function* () {
     const stage = stackStage((yield* Stack).stage)

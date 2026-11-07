@@ -19,8 +19,25 @@ export interface DeployTarget {
 
 const PRODUCTION = "production" as Stage
 const STAGING = "staging" as Stage
-// apps/e2e/playwright.config.ts sets ALCHEMY_STAGE to this name.
-const TEST = "test" as Stage
+// The Stage e2e runs on: apps/e2e/playwright.config.ts sets ALCHEMY_STAGE to it.
+export const TEST = "test" as Stage
+
+// Each app's dev server port under `alchemy dev`, strict so one app never
+// takes the other's. e2e waits on both.
+export const DEV_PORTS = {
+  web: 3000,
+  dashboard: 3001,
+} as const satisfies Record<App, number>
+
+// An app's Alchemy stack, also its Production Worker. Local state lives under
+// `.alchemy/state/<stack>/<stage>/`.
+export function stackName(app: App): string {
+  return `kumora-${app}`
+}
+
+// The account's workers.dev subdomain. docs/runbooks/deploy.md, "Checking a
+// stage", curls the same host.
+const WORKERS_DEV_SUBDOMAIN = "kumora"
 
 const MAX_WORKER_NAME = 54
 // The longest app prefix, `kumora-dashboard-`, plus `-` and the hash, leaves 30.
@@ -110,10 +127,20 @@ export function stageTarget(app: App, stage: Stage): DeployTarget {
     stage,
     workerName:
       kind === "production"
-        ? `kumora-${app}`
-        : `kumora-${app}-${suffix}`.slice(0, MAX_WORKER_NAME),
+        ? stackName(app)
+        : `${stackName(app)}-${suffix}`.slice(0, MAX_WORKER_NAME),
     ...KINDS[kind],
   }
+}
+
+// Where a stage's Worker serves: its workers.dev URL, or the app's dev server
+// on Dev and Test stages, which run only under `alchemy dev`.
+export function stageUrl(app: App, stage: Stage): string {
+  const kind = stageKind(stage)
+  if (kind === "dev" || kind === "test")
+    return `http://localhost:${DEV_PORTS[app]}`
+  const { workerName } = stageTarget(app, stage)
+  return `https://${workerName}.${WORKERS_DEV_SUBDOMAIN}.workers.dev`
 }
 
 export function deployTarget(app: App, branch: string): DeployTarget {

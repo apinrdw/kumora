@@ -1,8 +1,8 @@
 import { PLACEHOLDER_STAGE } from "alchemy/Alchemist/Operations"
 import { describe, expect, test } from "vitest"
 
-import { stageKind } from "@workspace/deploy"
-import { stackOptions, stackStage, stageUrl } from "@workspace/deploy/stack"
+import { stageKind, stageUrl } from "@workspace/deploy"
+import { stackOptions, stackStage } from "@workspace/deploy/stack"
 
 // Alchemy evaluates a stack with PLACEHOLDER_STAGE to discover its auth
 // providers (`alchemy profile edit`) and for `alchemy state`.
@@ -37,6 +37,6 @@ describe("stageUrl", () => {
     ["dev_jarvis", "http://localhost:3001"],
     ["test", "http://localhost:3001"],
   ])("serves the dashboard on %s from %s", (stage, url) => {
-    expect(stageUrl("dashboard", stackStage(stage), 3001)).toBe(url)
+    expect(stageUrl("dashboard", stackStage(stage))).toBe(url)
   })
 })

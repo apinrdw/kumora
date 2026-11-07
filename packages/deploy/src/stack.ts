@@ -8,7 +8,6 @@ import * as Layer from "effect/Layer"
 import {
   COMPATIBILITY_DATE,
   parseStage,
-  stageKind,
   stageTarget,
   type App,
   type DeployTarget,
@@ -57,19 +56,6 @@ export function stackOptions(app: App) {
       )
     },
   }
-}
-
-// The account's workers.dev subdomain. docs/runbooks/deploy.md, "Checking a
-// stage", curls the same host.
-const WORKERS_DEV_SUBDOMAIN = "kumora"
-
-// Where a stage's Worker serves: its workers.dev URL, or the app's dev server
-// on Dev and Test stages, which run only under `alchemy dev`.
-export function stageUrl(app: App, stage: Stage, devPort: number): string {
-  const kind = stageKind(stage)
-  if (kind === "dev" || kind === "test") return `http://localhost:${devPort}`
-  const { workerName } = stageTarget(app, stage)
-  return `https://${workerName}.${WORKERS_DEV_SUBDOMAIN}.workers.dev`
 }
 
 export function websiteProps(app: App, stage: Stage) {
