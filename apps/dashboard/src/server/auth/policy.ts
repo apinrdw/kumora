@@ -19,11 +19,29 @@ type Resources = {
   readonly "page.view": { readonly feature: Feature }
   readonly "market-live.view-live": { readonly feature: "market-live" }
   readonly "market-live.view-recorded-day": { readonly feature: "market-live" }
+  readonly "admin.list-accounts": { readonly feature: "admin" }
+  readonly "admin.ban": Target
+  readonly "admin.unban": Target
+  readonly "admin.set-role": Target
+  readonly "admin.end-sessions": Target
+  readonly "admin.impersonate": Target
 }
 
 export type Action = keyof Resources
 
-export type Reason = "sign-in" | "verify" | "suspended" | "not-found"
+export type Target = {
+  readonly role: Role
+  readonly configAdmin: boolean
+  readonly isSelf: boolean
+  readonly suspended: boolean
+}
+
+export type Reason =
+  | "sign-in"
+  | "verify"
+  | "suspended"
+  | "not-found"
+  | "forbidden"
 
 export type Decision =
   | { readonly _tag: "Allow" }
@@ -42,6 +60,14 @@ const featureAccess = (account: Account, feature: Feature): Decision => {
   }
 }
 
+const adminOn =
+  (protectedTarget: (target: Target) => boolean) =>
+  (account: Account, target: Target): Decision => {
+    const access = featureAccess(account, "admin")
+    if (access._tag === "Deny") return access
+    return protectedTarget(target) ? deny("forbidden") : allow
+  }
+
 type Rules = {
   readonly [A in Action]: (account: Account, resource: Resources[A]) => Decision
 }
@@ -52,6 +78,18 @@ const rules: Rules = {
     featureAccess(account, feature),
   "market-live.view-recorded-day": (account, { feature }) =>
     featureAccess(account, feature),
+  "admin.list-accounts": (account, { feature }) =>
+    featureAccess(account, feature),
+  "admin.ban": adminOn((target) => target.configAdmin || target.isSelf),
+  "admin.unban": adminOn(() => false),
+  "admin.set-role": adminOn((target) => target.configAdmin || target.isSelf),
+  // A config admin may still end their own sessions; only other admins may not.
+  "admin.end-sessions": adminOn(
+    (target) => target.configAdmin && !target.isSelf
+  ),
+  "admin.impersonate": adminOn(
+    (target) => target.role !== "member" || target.suspended
+  ),
 }
 
 export const decide = <A extends Action>(

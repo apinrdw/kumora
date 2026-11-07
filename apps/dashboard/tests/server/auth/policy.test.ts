@@ -3,6 +3,7 @@ import { assert, describe, it } from "@effect/vitest"
 import {
   type Account,
   type Reason,
+  type Target,
   decide,
   signedOut,
 } from "@/server/auth/policy"
@@ -136,6 +137,186 @@ describe("decide", () => {
           deny("suspended")
         )
       }
+    )
+  })
+})
+
+const otherMember: Target = {
+  role: "member",
+  configAdmin: false,
+  isSelf: false,
+  suspended: false,
+}
+const otherAdmin: Target = { ...otherMember, role: "admin" }
+const otherConfigAdmin: Target = { ...otherAdmin, configAdmin: true }
+const suspendedMember: Target = { ...otherMember, suspended: true }
+const self: Target = { ...otherAdmin, isSelf: true }
+const configSelf: Target = { ...self, configAdmin: true }
+
+describe("decide on admin actions", () => {
+  it("lets an admin list accounts and tells a member it is not found", () => {
+    assert.deepStrictEqual(
+      decide(admin, "admin.list-accounts", { feature: "admin" }),
+      allow
+    )
+    assert.deepStrictEqual(
+      decide(member, "admin.list-accounts", { feature: "admin" }),
+      deny("not-found")
+    )
+  })
+
+  it.each([
+    {
+      action: "admin.ban",
+      target: "another member",
+      resource: otherMember,
+      decision: allow,
+    },
+    {
+      action: "admin.ban",
+      target: "another admin",
+      resource: otherAdmin,
+      decision: allow,
+    },
+    {
+      action: "admin.ban",
+      target: "a config admin",
+      resource: otherConfigAdmin,
+      decision: deny("forbidden"),
+    },
+    {
+      action: "admin.ban",
+      target: "themselves",
+      resource: self,
+      decision: deny("forbidden"),
+    },
+    {
+      action: "admin.unban",
+      target: "a suspended member",
+      resource: suspendedMember,
+      decision: allow,
+    },
+    {
+      action: "admin.unban",
+      target: "a config admin",
+      resource: otherConfigAdmin,
+      decision: allow,
+    },
+    {
+      action: "admin.set-role",
+      target: "another member",
+      resource: otherMember,
+      decision: allow,
+    },
+    {
+      action: "admin.set-role",
+      target: "another admin",
+      resource: otherAdmin,
+      decision: allow,
+    },
+    {
+      action: "admin.set-role",
+      target: "a config admin",
+      resource: otherConfigAdmin,
+      decision: deny("forbidden"),
+    },
+    {
+      action: "admin.set-role",
+      target: "themselves",
+      resource: self,
+      decision: deny("forbidden"),
+    },
+    {
+      action: "admin.end-sessions",
+      target: "another member",
+      resource: otherMember,
+      decision: allow,
+    },
+    {
+      action: "admin.end-sessions",
+      target: "a config admin",
+      resource: otherConfigAdmin,
+      decision: deny("forbidden"),
+    },
+    {
+      action: "admin.end-sessions",
+      target: "themselves",
+      resource: self,
+      decision: allow,
+    },
+    {
+      action: "admin.end-sessions",
+      target: "themselves as config admin",
+      resource: configSelf,
+      decision: allow,
+    },
+    {
+      action: "admin.impersonate",
+      target: "another member",
+      resource: otherMember,
+      decision: allow,
+    },
+    {
+      action: "admin.impersonate",
+      target: "a suspended member",
+      resource: suspendedMember,
+      decision: deny("forbidden"),
+    },
+    {
+      action: "admin.impersonate",
+      target: "another admin",
+      resource: otherAdmin,
+      decision: deny("forbidden"),
+    },
+    {
+      action: "admin.impersonate",
+      target: "a config admin",
+      resource: otherConfigAdmin,
+      decision: deny("forbidden"),
+    },
+    {
+      action: "admin.impersonate",
+      target: "themselves",
+      resource: self,
+      decision: deny("forbidden"),
+    },
+  ] as const)(
+    "$action on $target by an admin: $decision",
+    ({ action, resource, decision }) => {
+      assert.deepStrictEqual(decide(admin, action, resource), decision)
+      assert.deepStrictEqual(decide(configAdmin, action, resource), decision)
+    }
+  )
+
+  it.each([
+    "admin.ban",
+    "admin.unban",
+    "admin.set-role",
+    "admin.end-sessions",
+    "admin.impersonate",
+  ] as const)("%s is not found for a member, impersonated or not", (action) => {
+    assert.deepStrictEqual(
+      decide(member, action, otherMember),
+      deny("not-found")
+    )
+    assert.deepStrictEqual(
+      decide(impersonated, action, otherMember),
+      deny("not-found")
+    )
+  })
+
+  it("applies the sign-in gate before the admin rules", () => {
+    assert.deepStrictEqual(
+      decide(signedOut, "admin.ban", otherMember),
+      deny("sign-in")
+    )
+    assert.deepStrictEqual(
+      decide({ ...admin, verified: false }, "admin.ban", otherMember),
+      deny("verify")
+    )
+    assert.deepStrictEqual(
+      decide({ ...admin, suspended: true }, "admin.ban", otherMember),
+      deny("suspended")
     )
   })
 })
