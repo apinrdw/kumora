@@ -132,6 +132,27 @@ export const sendResetPassword = Effect.fn("sendResetPassword")(function* (
   })
 })
 
+// To the address of an unverified account someone signed up on again. Sent as
+// the sign-up mail is, so over the cap it is only logged.
+export const sendSetPassword = Effect.fn("sendSetPassword")(function* (
+  email: string,
+  url: string
+) {
+  yield* sendMail({
+    to: email,
+    subject: "Set your KUMORA password",
+    capped: true,
+    lines: [
+      "A KUMORA account with this email exists but isn't verified yet. Open this link to set its password and verify your email:",
+      "",
+      url,
+      "",
+      "The link works for 1 hour. Setting the password signs out every other session of the account.",
+      "If you didn't try to create an account, ignore this email.",
+    ],
+  })
+})
+
 export const sendChangeEmailConfirmation = Effect.fn(
   "sendChangeEmailConfirmation"
 )(function* (email: string, newEmail: string, url: string) {
@@ -247,6 +268,16 @@ export const grantAdmin = Effect.fn("grantAdmin")(function* (
     return
   yield* (yield* Accounts).makeAdmin(user.id)
 })
+
+// A password set through a mailed link proves the inbox, which is what the
+// verification link proves. The grant follows, as it does after that link.
+export const verifyByPasswordReset = Effect.fn("verifyByPasswordReset")(
+  function* (user: WrittenUser) {
+    if (user.emailVerified) return
+    yield* (yield* Accounts).verifyEmail(user.id)
+    yield* grantAdmin({ ...user, emailVerified: true })
+  }
+)
 
 // The policy allowed an admin action on the effective role; the admin plugin
 // checks the stored role next, so a config admin's grant is stored now rather

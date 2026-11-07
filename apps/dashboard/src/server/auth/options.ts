@@ -5,13 +5,14 @@ import type { BetterAuthOptions, BetterAuthPlugin } from "better-auth"
 import {
   createAuthMiddleware,
   getAuthoritativeSessionFromCtx,
+  getSessionFromCtx,
 } from "better-auth/api"
 import { verifyJWT } from "better-auth/crypto"
 import { admin } from "better-auth/plugins/admin"
 import { captcha } from "better-auth/plugins/captcha"
 import { tanstackStartCookies } from "better-auth/tanstack-start"
 
-import { MIN_PASSWORD_LENGTH } from "../../lib/password.ts"
+import { MIN_PASSWORD_LENGTH, resetPasswordPage } from "../../lib/password.ts"
 import type { FileRoutesByFullPath } from "../../routeTree.gen.ts"
 import { ac, roles } from "./access.ts"
 import type { GoogleClient } from "./google.ts"
@@ -20,6 +21,8 @@ import type { BetterAuthSession } from "./session-account.ts"
 
 const HOUR = 60 * 60
 const DAY = 24 * HOUR
+
+const RESET_TOKEN_SECONDS = HOUR
 
 // An admin views as a member for at most this long (apinrdw/kumora#80).
 const IMPERSONATION_SESSION = HOUR
@@ -46,6 +49,12 @@ export interface AuthOptionsInput {
   readonly google?: GoogleClient
   readonly sendVerificationEmail: (mail: LinkMail) => Promise<void>
   readonly sendResetPassword: (mail: LinkMail) => Promise<void>
+  // To an unverified account's address when someone signs up on it again, or
+  // asks for its verification mail with no session: a reset link that hands
+  // the account to whoever reads the inbox.
+  readonly sendSetPassword: (mail: LinkMail) => Promise<void>
+  // Runs after a password is set through a reset link: the inbox is proven.
+  readonly verifyByPasswordReset: (user: WrittenUser) => Promise<void>
   readonly turnstileSecretKey: string
   // Change email, step one: the old address confirms the move.
   readonly sendChangeEmailConfirmation: (
@@ -99,19 +108,74 @@ export interface WrittenUser {
 
 type HookContext = Parameters<Parameters<typeof createAuthMiddleware>[0]>[0]
 
+// Minted as Better Auth's /request-password-reset mints one, so its
+// /reset-password/:token and /reset-password routes spend it, and setting the
+// password ends every session (revokeSessionsOnPasswordReset).
+const setPasswordLink = async (
+  ctx: HookContext,
+  userId: string,
+  redirect: unknown
+) => {
+  const token = crypto.randomUUID().replaceAll("-", "")
+  await ctx.context.internalAdapter.createVerificationValue({
+    value: userId,
+    identifier: `reset-password:${token}`,
+    expiresAt: new Date(Date.now() + RESET_TOKEN_SECONDS * 1000),
+  })
+  const page = resetPasswordPage(typeof redirect === "string" ? redirect : "/")
+  return `${ctx.context.baseURL}/reset-password/${token}?callbackURL=${encodeURIComponent(page)}`
+}
+
 // With auto sign-in on, Better Auth answers a sign-up for a taken email with
 // 422, and an after-hook can't change that status. Answer it here as a
 // success with no session, after hashing the password as a new sign-up
-// would, so the form reveals nothing.
-const hideTakenEmail = async (ctx: HookContext) => {
-  const { email, password } = ctx.body ?? {}
+// would, so the form reveals nothing. An unverified account is nobody's yet:
+// its address gets a set-password link, so whoever reads the inbox takes the
+// account and the first password dies with it. The send runs as Better
+// Auth's sign-up mail does, so over the mail cap the answer stays the same.
+const hideTakenEmail = async (ctx: HookContext, input: AuthOptionsInput) => {
+  const { email, password, callbackURL } = ctx.body ?? {}
   if (typeof email !== "string" || typeof password !== "string") return
   const taken = await ctx.context.internalAdapter.findUserByEmail(
     email.toLowerCase()
   )
   if (!taken) return
   await ctx.context.password.hash(password)
+  if (!taken.user.emailVerified)
+    await ctx.context.runInBackgroundOrAwait(
+      input.sendSetPassword({
+        email: taken.user.email,
+        url: await setPasswordLink(ctx, taken.user.id, callbackURL),
+      })
+    )
   return ctx.json({ token: null, user: null })
+}
+
+// Better Auth takes at least this long to answer a signed-out resend, so the
+// reply's timing says nothing about the address.
+const RESEND_MINIMUM_MS = 500
+
+// The inbox screen's Resend, with no session: the browser that signed up on
+// a taken email holds none, so it gets the set-password link again, never a
+// verify link that would verify the first password. A session, the new
+// account's own, is left to Better Auth and keeps its verify link.
+const resendSetPassword = async (ctx: HookContext, input: AuthOptionsInput) => {
+  const { email, callbackURL } = ctx.body ?? {}
+  if (typeof email !== "string" || (await getSessionFromCtx(ctx)) !== null)
+    return
+  const found = await ctx.context.internalAdapter.findUserByEmail(
+    email.toLowerCase()
+  )
+  if (!found || found.user.emailVerified) return
+  const start = Date.now()
+  await input.sendSetPassword({
+    email: found.user.email,
+    url: await setPasswordLink(ctx, found.user.id, callbackURL),
+  })
+  const remaining = RESEND_MINIMUM_MS - (Date.now() - start)
+  if (remaining > 0)
+    await new Promise((resolve) => setTimeout(resolve, remaining))
+  return ctx.json({ status: true })
 }
 
 // The routes where an account acts on itself. Each asks the access policy
@@ -226,7 +290,9 @@ const authorizeEmailChangeLink = async (
 
 const before = (input: AuthOptionsInput) =>
   createAuthMiddleware(async (ctx) => {
-    if (ctx.path === "/sign-up/email") return hideTakenEmail(ctx)
+    if (ctx.path === "/sign-up/email") return hideTakenEmail(ctx, input)
+    if (ctx.path === "/send-verification-email")
+      return resendSetPassword(ctx, input)
     if (ctx.path === "/verify-email")
       return authorizeEmailChangeLink(ctx, input)
     const own = lookup(OWN_ACCOUNT_ROUTES, ctx.path)
@@ -290,8 +356,11 @@ export function authOptions(input: AuthOptionsInput) {
       // Also creates the password of an account that has none (Google only).
       sendResetPassword: ({ user, url }) =>
         input.sendResetPassword({ email: user.email, url }),
-      resetPasswordTokenExpiresIn: 60 * 60,
+      resetPasswordTokenExpiresIn: RESET_TOKEN_SECONDS,
       revokeSessionsOnPasswordReset: true,
+      // A password set from a mailed link proves the inbox, so the account
+      // is verified, whichever link it was (setPasswordLink or a reset).
+      onPasswordReset: ({ user }) => input.verifyByPasswordReset(user),
     },
     emailVerification: {
       sendOnSignUp: true,

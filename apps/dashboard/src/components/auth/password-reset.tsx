@@ -8,7 +8,7 @@ import { useState, type FormEvent } from "react"
 
 import { KButton, KInput } from "@/components/k"
 import { authClient } from "@/lib/auth-client"
-import { MIN_PASSWORD_LENGTH } from "@/lib/password"
+import { MIN_PASSWORD_LENGTH, resetPasswordPage } from "@/lib/password"
 import { retryAfter } from "@/lib/retry-after"
 
 import { FormError, Notice, formFields, linkClass } from "./auth-page"
@@ -60,8 +60,7 @@ export function ForgotPasswordForm({
     const { error } = await authClient.requestPasswordReset(
       {
         email,
-        // The link opens the set-password page, which returns to `redirect`.
-        redirectTo: `/reset-password?redirect=${encodeURIComponent(redirect)}`,
+        redirectTo: resetPasswordPage(redirect),
       },
       {
         headers: { [CAPTCHA_HEADER]: turnstileToken },

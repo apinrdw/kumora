@@ -16,7 +16,9 @@ import {
   sendDeleteAccountLink,
   sendNewEmailVerification,
   sendResetPassword,
+  sendSetPassword,
   sendVerificationEmail,
+  verifyByPasswordReset,
   type CallbackRunner,
 } from "./callbacks.ts"
 import { googleClient } from "./google.ts"
@@ -33,6 +35,8 @@ export type AuthConfig = Omit<
   AuthOptionsInput,
   | "sendVerificationEmail"
   | "sendResetPassword"
+  | "sendSetPassword"
+  | "verifyByPasswordReset"
   | "sendChangeEmailConfirmation"
   | "sendNewEmailVerification"
   | "sendDeleteAccountLink"
@@ -100,6 +104,9 @@ export class Auth extends Context.Service<
               run(sendVerificationEmail(email, url)),
             sendResetPassword: ({ email, url }) =>
               run(sendResetPassword(email, url)),
+            sendSetPassword: ({ email, url }) =>
+              run(sendSetPassword(email, url)),
+            verifyByPasswordReset: (user) => run(verifyByPasswordReset(user)),
             sendChangeEmailConfirmation: ({ email, newEmail, url }) =>
               run(sendChangeEmailConfirmation(email, newEmail, url)),
             sendNewEmailVerification: ({ email, url }) =>

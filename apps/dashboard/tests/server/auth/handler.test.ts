@@ -27,17 +27,6 @@ describe("sign-up", () => {
     }).pipe(Effect.provide(layer))
   })
 
-  it.effect("answers a taken email like a new one, and mails nothing", () => {
-    const { layer, mails } = seam()
-    return Effect.gen(function* () {
-      yield* signUp("ayu@example.com")
-      const again = yield* signUp("ayu@example.com", "another passphrase")
-      assert.strictEqual(again.status, 200)
-      assert.notInclude(yield* Effect.promise(() => again.text()), "exists")
-      assert.strictEqual(mails.length, 1)
-    }).pipe(Effect.provide(layer))
-  })
-
   it.effect.each([
     ["seven", 400, "1234567"],
     ["eight", 200, "12345678"],

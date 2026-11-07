@@ -146,6 +146,7 @@ export class Accounts extends Context.Service<
       adminList: AdminList
     ) => Effect.Effect<AccountPage<StoredAccount>, UnknownError>
     readonly makeAdmin: (userId: string) => Effect.Effect<void, UnknownError>
+    readonly verifyEmail: (userId: string) => Effect.Effect<void, UnknownError>
   }
 >()("dashboard/server/auth/Accounts") {
   static readonly make = (database: AuthOptionsInput["database"]) =>
@@ -158,17 +159,22 @@ export class Accounts extends Context.Service<
         if (kysely === null)
           return yield* Effect.die(new Error("No auth database"))
         const db = kysely as Kysely<Tables>
+        const update = (
+          userId: string,
+          fields: Partial<Pick<Tables["user"], "role" | "emailVerified">>
+        ) =>
+          Effect.tryPromise(() =>
+            db
+              .updateTable("user")
+              .set({ ...fields, updatedAt: new Date().toISOString() })
+              .where("id", "=", userId)
+              .execute()
+          ).pipe(Effect.asVoid)
         return Accounts.of({
           list: (query, adminList) =>
             Effect.tryPromise(() => listAccounts(db, query, adminList)),
-          makeAdmin: (userId) =>
-            Effect.tryPromise(() =>
-              db
-                .updateTable("user")
-                .set({ role: "admin", updatedAt: new Date().toISOString() })
-                .where("id", "=", userId)
-                .execute()
-            ).pipe(Effect.asVoid),
+          makeAdmin: (userId) => update(userId, { role: "admin" }),
+          verifyEmail: (userId) => update(userId, { emailVerified: 1 }),
         })
       })
     )

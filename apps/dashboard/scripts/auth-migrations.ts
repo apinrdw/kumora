@@ -34,6 +34,8 @@ const { compileMigrations, unsafeChanges, schemaProblems } =
       validateSchema: false,
       sendVerificationEmail: async () => {},
       sendResetPassword: async () => {},
+      sendSetPassword: async () => {},
+      verifyByPasswordReset: async () => {},
       turnstileSecretKey: "auth-migrations-placeholder",
       sendChangeEmailConfirmation: async () => {},
       sendNewEmailVerification: async () => {},
