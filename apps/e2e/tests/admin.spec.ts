@@ -25,11 +25,15 @@ test.describe("an admin", () => {
     await expect(page.getByRole("heading", { name: "Users" })).toBeVisible()
     await expect(page.getByRole("link", { name: "Users" })).toBeVisible()
     const table = page.getByRole("table", { name: "Accounts" })
-    await expect(table.getByRole("cell", { name: MEMBER.email })).toBeVisible()
+    await expect(
+      table.getByRole("cell", { name: MEMBER.email, exact: true })
+    ).toBeVisible()
 
     await page.getByRole("searchbox", { name: "Search" }).fill("mira")
     await expect(page).toHaveURL(/q=mira/)
-    await expect(table.getByRole("cell", { name: ADMIN.email })).toHaveCount(0)
+    await expect(
+      table.getByRole("cell", { name: ADMIN.email, exact: true })
+    ).toHaveCount(0)
     const member = table.getByRole("row").filter({ hasText: MEMBER.email })
     await expect(member).toContainText(MEMBER.name)
     await expect(member).toContainText("Member")
