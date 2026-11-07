@@ -57,7 +57,7 @@ export interface AuthOptionsInput {
 
 export type TargetUser = Pick<
   BetterAuthSession["user"],
-  "id" | "email" | "role" | "banned"
+  "id" | "email" | "emailVerified" | "role" | "banned"
 >
 
 interface LinkMail {
@@ -251,10 +251,19 @@ export function authOptions(input: AuthOptionsInput) {
     hooks: { before: before(input) },
     // Every account write passes here, so a sign-up with a provider that
     // already verified the email (Google) is covered as well as the link.
+    // Every sign-in too, for an email put on ADMIN_EMAILS after it verified.
     databaseHooks: {
       user: {
         create: { after: grantAdmin },
         update: { after: grantAdmin },
+      },
+      session: {
+        create: {
+          after: async ({ userId }, ctx) =>
+            grantAdmin(
+              (await ctx?.context.internalAdapter.findUserById(userId)) ?? null
+            ),
+        },
       },
     },
     // Per IP, counted in D1 so every isolate shares the count. Set explicitly:

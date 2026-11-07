@@ -17,7 +17,7 @@ import {
 
 import type { AuthOptionsInput } from "./options.ts"
 import type { Role } from "./policy.ts"
-import { roleOf } from "./session-account.ts"
+import { storedRoleOf } from "./session-account.ts"
 
 // The columns read here, as Better Auth's Kysely adapter stores them on
 // SQLite: booleans as 0/1, dates as ISO strings. migrations/ holds the schema.
@@ -118,8 +118,9 @@ const listAccounts = async (
       id: row.id,
       email: row.email,
       name: row.name,
-      role: roleOf(row.role),
+      role: storedRoleOf(row.role),
       banReason: row.banned ? row.banReason : null,
+      emailVerified: row.emailVerified === 1,
       status: row.banned
         ? "suspended"
         : row.emailVerified

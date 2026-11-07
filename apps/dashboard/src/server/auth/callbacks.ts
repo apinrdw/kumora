@@ -22,7 +22,7 @@ import {
 import {
   accountOf,
   authSessionOf,
-  roleOf,
+  storedRoleOf,
   targetOf,
   type BetterAuthSession,
 } from "./session-account.ts"
@@ -190,7 +190,7 @@ export const authorizeOwnAction = Effect.fn("authorizeOwnAction")(function* (
   found: BetterAuthSession | null
 ) {
   const adminEmails = yield* AdminEmails
-  const session = found && authSessionOf(found, adminEmails.includes)
+  const session = found && authSessionOf(found, adminEmails)
   yield* hookVerdict(decide(accountOf(session), action, OWN_ACCOUNT))
 })
 
@@ -203,13 +203,9 @@ export const authorizeAdminAction = Effect.fn("authorizeAdminAction")(
     target: TargetUser
   ) {
     const adminEmails = yield* AdminEmails
-    const session = found && authSessionOf(found, adminEmails.includes)
+    const session = found && authSessionOf(found, adminEmails)
     yield* hookVerdict(
-      decide(
-        accountOf(session),
-        action,
-        targetOf(target, session, adminEmails.includes)
-      )
+      decide(accountOf(session), action, targetOf(target, session, adminEmails))
     )
   }
 )
@@ -219,14 +215,16 @@ export const authorizeAdminAction = Effect.fn("authorizeAdminAction")(
 // owner signs up. It runs after every write of an account, which covers the
 // verification link, a sign-up through a provider that already verified the
 // email (Google), and a change to an email on the list. From then on the role
-// lives in the database. See apinrdw/kumora#70.
+// lives in the database. An email put on the list after it was verified is a
+// config admin at once (session-account.ts) and is stored as admin here at its
+// next sign-in. See apinrdw/kumora#70.
 export const grantAdmin = Effect.fn("grantAdmin")(function* (
   user: WrittenUser
 ) {
   const adminEmails = yield* AdminEmails
   if (
     !user.emailVerified ||
-    roleOf(user.role) === "admin" ||
+    storedRoleOf(user.role) === "admin" ||
     !adminEmails.includes(user.email)
   )
     return

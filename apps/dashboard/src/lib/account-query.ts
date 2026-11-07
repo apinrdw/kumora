@@ -56,6 +56,7 @@ export interface StoredAccount {
   readonly name: string
   readonly role: Role
   readonly status: Status
+  readonly emailVerified: boolean
   /** Why an admin banned it; admins only, never shown to the account. */
   readonly banReason: string | null
   readonly methods: ReadonlyArray<SignInMethod>

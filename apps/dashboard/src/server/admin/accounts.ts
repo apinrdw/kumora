@@ -46,10 +46,12 @@ export const listAccounts = Effect.fn("listAccounts")(function* (
       const target = targetOf(
         { ...row, banned: row.status === "suspended" },
         session,
-        adminEmails.includes
+        adminEmails
       )
       return {
         ...row,
+        // A config admin is an admin before its next sign-in stores it.
+        role: target.role,
         allowed: Object.fromEntries(
           TARGET_ACTIONS.map((action) => [
             action,

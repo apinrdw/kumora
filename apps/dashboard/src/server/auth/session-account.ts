@@ -17,7 +17,7 @@ export interface AuthSession {
     readonly emailVerified: boolean
     readonly role: Role
     readonly banned: boolean
-    // An admin whose email is on ADMIN_EMAILS.
+    // A verified account whose email is on ADMIN_EMAILS; always an admin.
     readonly configAdmin: boolean
   }
   readonly session: {
@@ -44,30 +44,40 @@ export interface BetterAuthSession {
 }
 
 // Fails closed: any stored role but admin reads as a member.
-export const roleOf = (stored: unknown): Role =>
+export const storedRoleOf = (stored: unknown): Role =>
   stored === "admin" ? "admin" : "member"
 
-// An admin whose email is on ADMIN_EMAILS.
+// The configured admin list, ADMIN_EMAILS (admin-emails.ts).
+export interface AdminList {
+  readonly includes: (email: string) => boolean
+}
+
+// A verified account whose email is on ADMIN_EMAILS. Not the stored role: an
+// email put on the list after it was verified is a config admin at once.
 const isConfigAdmin = (
-  role: Role,
-  email: string,
-  onAdminList: (email: string) => boolean
-) => role === "admin" && onAdminList(email)
+  user: { readonly email: string; readonly emailVerified: boolean },
+  adminList: AdminList
+) => user.emailVerified && adminList.includes(user.email)
+
+// A config admin is an admin whatever role is stored; the grant stores it at
+// its next sign-in (callbacks.ts).
+const roleOf = (stored: unknown, configAdmin: boolean): Role =>
+  configAdmin ? "admin" : storedRoleOf(stored)
 
 export const authSessionOf = (
   { user, session }: BetterAuthSession,
-  onAdminList: (email: string) => boolean
+  adminList: AdminList
 ): AuthSession => {
-  const role = roleOf(user.role)
+  const configAdmin = isConfigAdmin(user, adminList)
   return {
     user: {
       id: user.id,
       name: user.name,
       email: user.email,
       emailVerified: user.emailVerified,
-      role,
+      role: roleOf(user.role, configAdmin),
       banned: user.banned === true,
-      configAdmin: isConfigAdmin(role, user.email, onAdminList),
+      configAdmin,
     },
     session: { id: session.id, impersonated: Boolean(session.impersonatedBy) },
   }
@@ -75,14 +85,17 @@ export const authSessionOf = (
 
 // The account an admin action acts on, as the access policy reads it.
 export const targetOf = (
-  user: Pick<BetterAuthSession["user"], "id" | "email" | "role" | "banned">,
+  user: Pick<
+    BetterAuthSession["user"],
+    "id" | "email" | "emailVerified" | "role" | "banned"
+  >,
   actor: AuthSession | null,
-  onAdminList: (email: string) => boolean
+  adminList: AdminList
 ): Target => {
-  const role = roleOf(user.role)
+  const configAdmin = isConfigAdmin(user, adminList)
   return {
-    role,
-    configAdmin: isConfigAdmin(role, user.email, onAdminList),
+    role: roleOf(user.role, configAdmin),
+    configAdmin,
     isSelf: user.id === actor?.user.id,
     suspended: user.banned === true,
   }

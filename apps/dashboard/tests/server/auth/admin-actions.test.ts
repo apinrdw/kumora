@@ -74,6 +74,12 @@ const accounts = () => {
       cookies: { owner, other, plain, member },
       id: (email: string) => idOf(database, email),
       token: (email: string) => tokenOf(database, email),
+      // As if the email went on ADMIN_EMAILS after it was verified: the
+      // stored role is still member.
+      storeAsMember: (email: string) =>
+        void database
+          .prepare(`update "user" set "role" = 'member' where "email" = ?`)
+          .run(email),
     }
   })
   return { layer, setup }
@@ -119,6 +125,34 @@ describe("admin actions on a config admin", () => {
       )
       assert.strictEqual(response.status, 403)
       assert.isNotNull(yield* sessionOf(cookies.owner))
+    }).pipe(Effect.provide(layer))
+  })
+})
+
+describe("an email put on ADMIN_EMAILS after it was verified", () => {
+  it.effect("is a config admin at once: another admin can't ban it", () => {
+    const { layer, setup } = accounts()
+    return Effect.gen(function* () {
+      const { cookies, id, storeAsMember } = yield* setup
+      storeAsMember(OTHER_CONFIG_ADMIN)
+      const response = yield* post(
+        "/admin/ban-user",
+        { userId: id(OTHER_CONFIG_ADMIN) },
+        { cookie: cookies.plain }
+      )
+      assert.strictEqual(response.status, 403)
+      assert.strictEqual((yield* signIn(OTHER_CONFIG_ADMIN)).status, 200)
+    }).pipe(Effect.provide(layer))
+  })
+
+  it.effect("is stored as admin from its next sign-in", () => {
+    const { layer, setup } = accounts()
+    return Effect.gen(function* () {
+      const { storeAsMember } = yield* setup
+      storeAsMember(OTHER_CONFIG_ADMIN)
+      const signedIn = cookiesFrom(yield* signIn(OTHER_CONFIG_ADMIN))
+      const session = yield* sessionOf(signedIn)
+      assert.strictEqual(session?.user.role, "admin")
     }).pipe(Effect.provide(layer))
   })
 })

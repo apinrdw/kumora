@@ -116,7 +116,7 @@ export class Auth extends Context.Service<
                   ? null
                   : authSessionOf(
                       found satisfies BetterAuthSession,
-                      adminEmails.includes
+                      adminEmails
                     )
               )
             ),
