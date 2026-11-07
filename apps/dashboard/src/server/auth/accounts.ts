@@ -9,6 +9,7 @@ import { sql, type Kysely, type SqlBool } from "kysely"
 import {
   PAGE_SIZE,
   type AccountPage,
+  type AccountRow,
   type AccountSearch,
   type SignInMethod,
   type Status,
@@ -59,7 +60,7 @@ const ROLE_SQL = {
 const listAccounts = async (
   db: Kysely<Tables>,
   query: AccountSearch
-): Promise<AccountPage> => {
+): Promise<AccountPage<AccountRow>> => {
   const now = new Date().toISOString()
   const needle = (query.q ?? "").trim().toLowerCase()
   const matching = db
@@ -140,7 +141,7 @@ export class Accounts extends Context.Service<
   {
     readonly list: (
       query: AccountSearch
-    ) => Effect.Effect<AccountPage, UnknownError>
+    ) => Effect.Effect<AccountPage<AccountRow>, UnknownError>
     readonly makeAdmin: (userId: string) => Effect.Effect<void, UnknownError>
   }
 >()("dashboard/server/auth/Accounts") {

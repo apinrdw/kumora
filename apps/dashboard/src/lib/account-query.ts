@@ -2,7 +2,7 @@
 // server, so it holds no server code.
 import { Option, Schema } from "effect"
 
-import type { Role } from "@/server/auth/policy"
+import type { Role, TargetAction } from "@/server/auth/policy"
 
 export const ROLES = ["admin", "member"] as const satisfies ReadonlyArray<Role>
 
@@ -64,7 +64,12 @@ export interface AccountRow {
   readonly sessions: number
 }
 
-export interface AccountPage {
-  readonly rows: ReadonlyArray<AccountRow>
+/** A row as the page shows it, with what the access policy lets the viewing admin do to it. */
+export interface ListedAccount extends AccountRow {
+  readonly allowed: Readonly<Record<TargetAction, boolean>>
+}
+
+export interface AccountPage<Row = ListedAccount> {
+  readonly rows: ReadonlyArray<Row>
   readonly total: number
 }

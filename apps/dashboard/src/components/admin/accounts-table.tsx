@@ -22,12 +22,14 @@ import {
   SORT_KEYS,
   STATUSES,
   type AccountPage,
-  type AccountRow,
   type AccountSearch,
+  type ListedAccount,
   type SignInMethod,
   type Status,
 } from "@/lib/account-query"
 import { dateTime } from "@/lib/format"
+
+import { ImpersonateButton } from "./impersonate-button"
 import type { Role } from "@/server/auth/policy"
 
 const STATUS: Record<Status, { label: string; tone: KBadgeTone }> = {
@@ -45,7 +47,7 @@ const METHOD: Record<SignInMethod, string> = {
 
 const ALL = "all"
 
-const COLUMNS: ReadonlyArray<KColumn<AccountRow>> = [
+const COLUMNS: ReadonlyArray<KColumn<ListedAccount>> = [
   { key: "email", label: "Email" },
   { key: "name", label: "Name" },
   {
@@ -83,6 +85,11 @@ const COLUMNS: ReadonlyArray<KColumn<AccountRow>> = [
     cell: (row) => (row.lastActiveAt ? dateTime(row.lastActiveAt) : "—"),
   },
   { key: "sessions", label: "Sessions", align: "right" },
+  {
+    key: "allowed",
+    label: "Actions",
+    cell: (row) => <ImpersonateButton row={row} />,
+  },
 ]
 
 const isSortKey = Schema.is(Schema.Literals(SORT_KEYS))

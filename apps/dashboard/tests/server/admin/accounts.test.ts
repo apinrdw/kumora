@@ -192,6 +192,40 @@ describe("listAccounts", () => {
     }).pipe(Effect.provide(layer))
   })
 
+  it.effect(
+    "offers impersonation of a member only, never an admin or a suspended account",
+    () => {
+      const { layer, mails } = seam()
+      return Effect.gen(function* () {
+        const admin = yield* verified(mails)(ADMIN_EMAIL, "Owner")
+        yield* verified(mails)("other@example.com", "Other Admin")
+        yield* verified(mails)("ayu@example.com", "Ayu")
+        yield* verified(mails)("budi@example.com", "Budi")
+        const before = yield* listAccounts(headers(admin), {})
+        yield* send("/admin/ban-user", {
+          method: "POST",
+          headers: { cookie: admin, "content-type": "application/json" },
+          body: JSON.stringify({
+            userId: before.rows.find((row) => row.email === "budi@example.com")
+              ?.id,
+          }),
+        })
+        const { rows } = yield* listAccounts(headers(admin), {})
+        assert.deepStrictEqual(
+          Object.fromEntries(
+            rows.map((row) => [row.email, row.allowed["admin.impersonate"]])
+          ),
+          {
+            [ADMIN_EMAIL]: false,
+            "other@example.com": false,
+            "ayu@example.com": true,
+            "budi@example.com": false,
+          }
+        )
+      }).pipe(Effect.provide(layer))
+    }
+  )
+
   it.effect("lists 50 accounts a page", () => {
     const { layer, mails, database } = seam()
     return Effect.gen(function* () {
