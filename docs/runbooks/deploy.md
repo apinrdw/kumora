@@ -10,7 +10,8 @@ Steps marked ✅ were done during the throwaway deploy, observed 2026-11-05 ([ap
 
 - Project slug `kumora`, environments `prod` and `staging`. A `dev` environment also exists; it is unused and stays empty. Local dev (the Dev stage) reads `staging`, so don't put secrets in `dev`.
 - `/` in each environment holds `CLOUDFLARE_API_TOKEN` and `CLOUDFLARE_ACCOUNT_ID`, with a separate token per environment.
-- `/web` holds `DEPLOY_PROBE_SECRET`. `/dashboard` holds the dashboard's secrets, none today.
+- `/web` holds `DEPLOY_PROBE_SECRET`. `/dashboard` holds the dashboard's secrets: the Google client of step 10, and:
+  - ⬜ `ADMIN_EMAILS` in both `prod` and `staging`: the comma-separated emails that become admins once verified. The dashboard deploy, and `pnpm dev` (which reads `staging`), fail without it. The Test stage reads it from the process environment instead (`apps/e2e/playwright.config.ts`).
 - Machine identity `kumora-workers-builds`: Universal Auth only, client secret with a 1-year TTL, project `kumora` role Viewer. Organization role **No Access**, set 2026-11-05 (it was Admin, which let every branch build manage the whole Infisical organization); the owner reported the next build succeeding.
 
 ## 2. Cloudflare API tokens ✅
@@ -87,7 +88,17 @@ The dashboard sends verification mail from `no-reply@mailer.pusat.ai` through Cl
 3. If `mailer.pusat.ai` already exists under Email Sending, Alchemy reports it as not owned and refuses it. Delete it first, or run that one Production deploy with `--adopt`.
 4. Check by hand on a Preview: sign up with an address you can read through `POST https://<worker-name>.kumora.workers.dev/api/auth/sign-up/email` with body `{"email":"…","password":"…","name":"…"}`, an `Origin` header of the same `https://<worker-name>.kumora.workers.dev`, and an `x-captcha-response: XXXX.DUMMY.TOKEN.XXXX` header (a Preview uses Turnstile's always-pass test keys, which accept any token), receive the mail, and open its link. It must redirect to `/`.
 
-## 10. Dashboard Turnstile ⬜
+## 10. Google sign-in ⬜
+
+Production and Staging offer Continue with Google; Previews, Dev and Test stages never do (`googleSignInOn` in `apps/dashboard/src/server/auth/google.ts`). On those two stages `apps/dashboard/alchemy.run.ts` reads the client from Infisical, so their deploys fail until the values exist.
+
+1. In Google Cloud Console, create one OAuth client of type Web application (or reuse the existing one). Under Authorized redirect URIs, add both:
+   - `https://kumora-dashboard.kumora.workers.dev/api/auth/callback/google` (Production)
+   - `https://kumora-dashboard-staging.kumora.workers.dev/api/auth/callback/google` (Staging)
+2. In Infisical project `kumora`, add `GOOGLE_CLIENT_ID` and `GOOGLE_CLIENT_SECRET` from that client at `/dashboard` of **both** `prod` and `staging`. Do this before the first deploy of either stage with Google.
+3. Check by hand on Staging: sign in with Google on a new Google address (it lands signed in and verified), then on the email of a verified password account (it links, and both sign-ins work), then on the email of an unverified password account (it returns to sign-in with "Sign in with your password and verify your email first."). Check that a Preview's sign-in page shows no Google button.
+
+## 11. Dashboard Turnstile ⬜
 
 Create account and Send reset link carry a Turnstile widget. Production and Staging each own one, a `Cloudflare.Turnstile.Widget` for their own workers.dev hostname in `apps/dashboard/alchemy.run.ts`; Previews, Dev and Test stages use Cloudflare's always-pass test keys and own none.
 

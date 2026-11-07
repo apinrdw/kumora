@@ -20,10 +20,10 @@ const body = (response: Response) =>
 const retryAfter = (response: Response) =>
   Number(response.headers.get("X-Retry-After"))
 
-const requestReset = (email: string, headers?: HeadersInit) =>
+const requestReset = (email: string, headers?: Record<string, string>) =>
   post("/request-password-reset", { email, redirectTo: "/" }, headers)
 
-const resend = (email: string, headers?: HeadersInit) =>
+const resend = (email: string, headers?: Record<string, string>) =>
   post("/send-verification-email", { email }, headers)
 
 // Time passes for Better Auth (Date) and for our Effect callbacks, which run
@@ -41,11 +41,13 @@ describe("Turnstile", () => {
   it.effect.each([
     [
       "sign-up",
-      (headers: HeadersInit) => signUp("ayu@example.com", undefined, headers),
+      (headers: Record<string, string>) =>
+        signUp("ayu@example.com", undefined, headers),
     ],
     [
       "reset request",
-      (headers: HeadersInit) => requestReset("ayu@example.com", headers),
+      (headers: Record<string, string>) =>
+        requestReset("ayu@example.com", headers),
     ],
   ] as const)("refuses a %s with no token or a failed one", ([, submit]) => {
     const { layer, mails } = seam()
@@ -75,7 +77,7 @@ describe("Turnstile", () => {
 })
 
 describe("per-IP rate limits", () => {
-  const signIn = (n: number, headers?: HeadersInit) =>
+  const signIn = (n: number, headers?: Record<string, string>) =>
     post(
       "/sign-in/email",
       { email: `nobody-${n}@example.com`, password: "a wrong guess" },
@@ -89,20 +91,22 @@ describe("per-IP rate limits", () => {
       "sign-up",
       5,
       HOUR,
-      (n: number, h?: HeadersInit) =>
+      (n: number, h?: Record<string, string>) =>
         signUp(`ayu-${n}@example.com`, undefined, h),
     ],
     [
       "resend verification",
       3,
       HOUR,
-      (n: number, h?: HeadersInit) => resend(`ayu-${n}@example.com`, h),
+      (n: number, h?: Record<string, string>) =>
+        resend(`ayu-${n}@example.com`, h),
     ],
     [
       "reset request",
       3,
       HOUR,
-      (n: number, h?: HeadersInit) => requestReset(`ayu-${n}@example.com`, h),
+      (n: number, h?: Record<string, string>) =>
+        requestReset(`ayu-${n}@example.com`, h),
     ],
   ] as const)(
     "lets one IP %s %s times per %s s, then answers 429 until the window passes",

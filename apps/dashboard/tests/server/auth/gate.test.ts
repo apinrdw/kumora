@@ -5,7 +5,7 @@ import { Effect } from "effect"
 import { gatePage, verifyScreen } from "@/server/auth/gate"
 import type { Mail } from "@/server/auth/mailer"
 
-import { cookiesFrom, linkIn, seam, send, signUp } from "./seam.ts"
+import { ADMIN_EMAIL, cookiesFrom, linkIn, seam, send, signUp } from "./seam.ts"
 
 const page = {
   href: "/market-live?day=2026-11-06",
@@ -76,12 +76,43 @@ describe("gatePage", () => {
     const { layer, mails } = seam()
     return Effect.gen(function* () {
       const cookie = yield* verified(mails)("ayu@example.com")
-      const error = yield* Effect.flip(
-        gatePage(headers(cookie), { href: "/admin/users", feature: "admin" })
-      )
-      assert.strictEqual(error._tag, "NotFound")
+      const access = yield* gatePage(headers(cookie), {
+        href: "/admin/users",
+        feature: "admin",
+      })
+      assert.deepStrictEqual(access, {
+        _tag: "NotFound",
+        viewer: {
+          name: "Ayu",
+          email: "ayu@example.com",
+          features: ["market-live", "account"],
+        },
+      })
     }).pipe(Effect.provide(layer))
   })
+
+  it.effect(
+    "lets an admin in to an admin page as soon as it is verified",
+    () => {
+      const { layer, mails } = seam()
+      return Effect.gen(function* () {
+        // The cookies from the link still cache the account as a member.
+        const cookie = yield* verified(mails)(ADMIN_EMAIL)
+        const access = yield* gatePage(headers(cookie), {
+          href: "/admin/users",
+          feature: "admin",
+        })
+        assert.deepStrictEqual(access, {
+          _tag: "Allowed",
+          viewer: {
+            name: "Ayu",
+            email: ADMIN_EMAIL,
+            features: ["market-live", "account", "admin"],
+          },
+        })
+      }).pipe(Effect.provide(layer))
+    }
+  )
 })
 
 describe("verifyScreen", () => {

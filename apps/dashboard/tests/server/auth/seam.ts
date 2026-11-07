@@ -2,12 +2,16 @@ import { Effect, Layer } from "effect"
 import { DatabaseSync } from "node:sqlite"
 import { vi } from "vitest"
 
-import { Auth } from "@/server/auth/auth"
+import { Accounts } from "@/server/auth/accounts"
+import { AdminEmails } from "@/server/auth/admin-emails"
+import { Auth, type AuthConfig } from "@/server/auth/auth"
 import { Mailer, type Mail } from "@/server/auth/mailer"
 
 import { replayMigrations } from "../../../scripts/auth-schema.ts"
 
 export const BASE_URL = "http://localhost:3001"
+
+export const ADMIN_EMAIL = "owner@example.com"
 
 const SITEVERIFY = "https://challenges.cloudflare.com/turnstile/v0/siteverify"
 const TURNSTILE_SECRET = "handler-test-turnstile-secret"
@@ -29,7 +33,11 @@ const siteverify = async (input: RequestInfo | URL, init?: RequestInit) => {
 
 // Seam 3 of spec apinrdw/kumora#80: the real Better Auth config over SQLite
 // with the checked-in migrations, driven through its HTTP handler.
-export function seam(send?: (mail: Mail) => Effect.Effect<void>) {
+// ADMIN_EMAILS holds ADMIN_EMAIL.
+export function seam(
+  send?: (mail: Mail) => Effect.Effect<void>,
+  config: Partial<AuthConfig> = {}
+) {
   vi.stubGlobal("fetch", siteverify)
   const database = new DatabaseSync(":memory:")
   replayMigrations(database)
@@ -43,7 +51,17 @@ export function seam(send?: (mail: Mail) => Effect.Effect<void>) {
     secret: "handler-test-secret-0123456789abcdef0123456789",
     validateSchema: true,
     turnstileSecretKey: TURNSTILE_SECRET,
-  }).pipe(Layer.provide(mailer))
+    ...config,
+  }).pipe(
+    Layer.provideMerge(Accounts.make(database)),
+    Layer.provideMerge(
+      Layer.succeed(
+        AdminEmails,
+        AdminEmails.from(` ${ADMIN_EMAIL.toUpperCase()}, other@example.com`)
+      )
+    ),
+    Layer.provide(mailer)
+  )
   return { layer, mails, database }
 }
 
@@ -66,7 +84,11 @@ export const send = Effect.fnUntraced(function* (
   )
 })
 
-export const post = (path: string, body: unknown, headers?: HeadersInit) =>
+export const post = (
+  path: string,
+  body: unknown,
+  headers?: Record<string, string>
+) =>
   send(path, {
     method: "POST",
     headers: { "content-type": "application/json", ...headers },
@@ -76,7 +98,7 @@ export const post = (path: string, body: unknown, headers?: HeadersInit) =>
 export const signUp = (
   email: string,
   password = "correct horse",
-  headers?: HeadersInit
+  headers?: Record<string, string>
 ) =>
   post(
     "/sign-up/email",
@@ -97,7 +119,12 @@ export const sessionOf = (cookie: string) =>
       Effect.promise(
         () =>
           response.json() as Promise<{
-            user: { email: string; emailVerified: boolean }
+            user: {
+              name: string
+              email: string
+              emailVerified: boolean
+              role: string
+            }
           } | null>
       )
     )

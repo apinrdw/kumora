@@ -17,6 +17,8 @@ test("an anonymous visit goes to sign-in, keeping the page asked for", async ({
   await expect(
     page.getByRole("link", { name: "Create an account" })
   ).toBeVisible()
+  // Google is on only on Production and Staging.
+  await expect(page.getByText("Google")).toHaveCount(0)
 })
 
 test("a new account signs up, verifies, and returns to the page asked for", async ({

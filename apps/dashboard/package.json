@@ -15,6 +15,7 @@
   },
   "dependencies": {
     "@alchemy.run/cloudflare": "catalog:",
+    "@better-auth/kysely-adapter": "1.7.18",
     "@tabler/icons-react": "^3.49.0",
     "@tailwindcss/vite": "^4",
     "@tanstack/react-router": "latest",
@@ -26,6 +27,7 @@
     "alchemy": "catalog:",
     "better-auth": "1.7.18",
     "effect": "catalog:",
+    "kysely": "0.29.8",
     "react": "^19.2.8",
     "react-dom": "^19.2.8",
     "recharts": "3.8.0",

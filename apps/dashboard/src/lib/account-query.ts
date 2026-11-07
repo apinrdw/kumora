@@ -1,0 +1,70 @@
+// What /admin/users asks for and gets back. Shared by the page and the
+// server, so it holds no server code.
+import { Option, Schema } from "effect"
+
+import type { Role } from "@/server/auth/policy"
+
+export const ROLES = ["admin", "member"] as const satisfies ReadonlyArray<Role>
+
+export const STATUSES = ["active", "unverified", "suspended"] as const
+export type Status = (typeof STATUSES)[number]
+
+export const SORT_KEYS = ["createdAt", "lastActiveAt"] as const
+
+const DIRECTIONS = ["asc", "desc"] as const
+
+export type SignInMethod = "password" | "google"
+
+export const PAGE_SIZE = 50
+
+const fields = {
+  q: Schema.String,
+  role: Schema.Literals(ROLES),
+  status: Schema.Literals(STATUSES),
+  sort: Schema.Literals(SORT_KEYS),
+  dir: Schema.Literals(DIRECTIONS),
+  page: Schema.Int.check(Schema.isGreaterThanOrEqualTo(1)),
+}
+
+/** The page's search params; every one is optional. */
+export const AccountSearch = Schema.Struct({
+  q: Schema.optionalKey(fields.q),
+  role: Schema.optionalKey(fields.role),
+  status: Schema.optionalKey(fields.status),
+  sort: Schema.optionalKey(fields.sort),
+  dir: Schema.optionalKey(fields.dir),
+  page: Schema.optionalKey(fields.page),
+})
+export type AccountSearch = typeof AccountSearch.Type
+
+/** Keeps each search param that parses and drops the rest, so a stale link still opens the page. */
+export function parseAccountSearch(
+  raw: Record<string, unknown>
+): AccountSearch {
+  const search: Record<string, unknown> = {}
+  for (const [key, field] of Object.entries(fields)) {
+    const value = Schema.decodeUnknownOption(field)(raw[key])
+    if (Option.isSome(value)) search[key] = value.value
+  }
+  return Schema.decodeUnknownSync(AccountSearch)(search)
+}
+
+export interface AccountRow {
+  readonly id: string
+  readonly email: string
+  readonly name: string
+  readonly role: Role
+  readonly status: Status
+  readonly methods: ReadonlyArray<SignInMethod>
+  /** ISO timestamp. */
+  readonly createdAt: string
+  /** When a session of the account was last used; null with no session left. */
+  readonly lastActiveAt: string | null
+  /** Sessions that haven't expired. */
+  readonly sessions: number
+}
+
+export interface AccountPage {
+  readonly rows: ReadonlyArray<AccountRow>
+  readonly total: number
+}

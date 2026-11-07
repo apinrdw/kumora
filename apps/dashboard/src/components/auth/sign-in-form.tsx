@@ -6,13 +6,28 @@ import { authClient } from "@/lib/auth-client"
 import { retryAfter } from "@/lib/retry-after"
 
 import { FormError, formFields, linkClass } from "./auth-page"
+import { GoogleSignIn, googleErrorMessage } from "./google-sign-in"
 
-/** Returns to `redirect` once signed in; the gate sends an unverified account on to the verify screen. */
-export function SignInForm({ redirect }: { redirect: string }) {
+/**
+ * Returns to `redirect` once signed in; the gate sends an unverified account
+ * on to the verify screen. `google` is whether the stage offers Google, and
+ * `error` is the code Google's sign-in came back with.
+ */
+export function SignInForm({
+  redirect,
+  google,
+  error: googleError,
+}: {
+  redirect: string
+  google: boolean
+  error?: string
+}) {
   const router = useRouter()
   const hydrated = useHydrated()
   const [pending, setPending] = useState(false)
-  const [error, setError] = useState<string | null>(null)
+  const [error, setError] = useState<string | null>(
+    googleError === undefined ? null : googleErrorMessage(googleError)
+  )
 
   const submit = async (event: FormEvent<HTMLFormElement>) => {
     event.preventDefault()
@@ -41,6 +56,7 @@ export function SignInForm({ redirect }: { redirect: string }) {
   return (
     <form className="flex flex-col gap-4" onSubmit={(e) => void submit(e)}>
       <h1 className="text-xl font-semibold">Sign in to KUMORA</h1>
+      {google && <GoogleSignIn redirect={redirect} />}
       <KInput
         label="Email"
         name="email"
