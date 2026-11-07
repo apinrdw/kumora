@@ -15,6 +15,8 @@ export interface Viewer {
   readonly email: string
   // The features whose pages this account may view; the nav shows only these.
   readonly features: ReadonlyArray<Feature>
+  // An admin is viewing as this account; every page shows the banner.
+  readonly impersonating: boolean
 }
 
 // NotFound is a value here, not the HttpError: the layout shows the normal
@@ -76,6 +78,7 @@ export const gatePage = Effect.fn("gatePage")(function* (
     features: FEATURES.filter(
       (each) => decide(account, "page.view", { feature: each })._tag === "Allow"
     ),
+    impersonating: session.session.impersonated,
   }
   if (decision._tag === "Allow")
     return { _tag: "Allowed", viewer } satisfies PageAccess

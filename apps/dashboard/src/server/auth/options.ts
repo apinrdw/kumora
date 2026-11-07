@@ -115,6 +115,7 @@ const ADMIN_ROUTES: Readonly<
 > = {
   "/admin/ban-user": { action: "admin.ban", by: "userId" },
   "/admin/unban-user": { action: "admin.unban", by: "userId" },
+  "/admin/impersonate-user": { action: "admin.impersonate", by: "userId" },
   "/admin/set-role": { action: "admin.set-role", by: "userId" },
   "/admin/revoke-user-sessions": { action: "admin.end-sessions", by: "userId" },
   "/admin/revoke-user-session": {

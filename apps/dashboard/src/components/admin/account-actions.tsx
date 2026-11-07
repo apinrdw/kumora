@@ -1,12 +1,13 @@
 import {
   IconBan,
   IconDotsVertical,
+  IconEye,
   IconLogout,
   IconShieldCheck,
   IconUser,
   IconUserCheck,
 } from "@tabler/icons-react"
-import { useHydrated } from "@tanstack/react-router"
+import { useHydrated, useRouter } from "@tanstack/react-router"
 import {
   DropdownMenu,
   DropdownMenuContent,
@@ -45,8 +46,24 @@ export function AccountActions({
   run: RunAction
 }) {
   const hydrated = useHydrated()
+  const router = useRouter()
   const suspended = row.status === "suspended"
+  // Runs at once and leaves the page; only a refusal stays to be told.
+  const impersonate = async () => {
+    const { error } = await authClient.admin.impersonateUser({ userId: row.id })
+    if (error)
+      return run(async () =>
+        outcome(error, "", `Couldn't impersonate ${row.email}. Try again.`)
+      )
+    await router.navigate({ to: "/" })
+  }
   const items = [
+    row.allowed["admin.impersonate"] && (
+      <DropdownMenuItem key="impersonate" onClick={() => void impersonate()}>
+        <IconEye aria-hidden />
+        Impersonate
+      </DropdownMenuItem>
+    ),
     !suspended && row.allowed["admin.ban"] && (
       <DropdownMenuItem
         key="ban"
