@@ -31,6 +31,7 @@ export const NAV: ReadonlyArray<NavGroup> = [
         icon: IconUsers,
         link: { to: "/admin/users" },
         feature: "admin",
+        mobile: true,
       },
     ],
   },
