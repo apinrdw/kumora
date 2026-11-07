@@ -10,6 +10,7 @@
 
 import { Route as rootRouteImport } from './routes/__root'
 import { Route as AppRouteImport } from './routes/_app'
+import { Route as AccountDeletedRouteImport } from './routes/account-deleted'
 import { Route as ForgotPasswordRouteImport } from './routes/forgot-password'
 import { Route as ResetPasswordRouteImport } from './routes/reset-password'
 import { Route as SignInRouteImport } from './routes/sign-in'
@@ -18,11 +19,17 @@ import { Route as VerifyRouteImport } from './routes/verify'
 import { Route as AppIndexRouteImport } from './routes/_app/index'
 import { Route as AppSplatRouteImport } from './routes/_app/$'
 import { Route as AppAccountRouteImport } from './routes/_app/account'
+import { Route as AppDeleteAccountRouteImport } from './routes/_app/delete-account'
 import { Route as AppAdminUsersRouteImport } from './routes/_app/admin/users'
 import { Route as ApiAuthSplatRouteImport } from './routes/api/auth/$'
 
 const AppRoute = AppRouteImport.update({
   id: '/_app',
+  getParentRoute: () => rootRouteImport,
+} as any)
+const AccountDeletedRoute = AccountDeletedRouteImport.update({
+  id: '/account-deleted',
+  path: '/account-deleted',
   getParentRoute: () => rootRouteImport,
 } as any)
 const ForgotPasswordRoute = ForgotPasswordRouteImport.update({
@@ -65,6 +72,11 @@ const AppAccountRoute = AppAccountRouteImport.update({
   path: '/account',
   getParentRoute: () => AppRoute,
 } as any)
+const AppDeleteAccountRoute = AppDeleteAccountRouteImport.update({
+  id: '/delete-account',
+  path: '/delete-account',
+  getParentRoute: () => AppRoute,
+} as any)
 const AppAdminUsersRoute = AppAdminUsersRouteImport.update({
   id: '/admin/users',
   path: '/admin/users',
@@ -78,6 +90,7 @@ const ApiAuthSplatRoute = ApiAuthSplatRouteImport.update({
 
 export interface FileRoutesByFullPath {
   '/': typeof AppIndexRoute
+  '/account-deleted': typeof AccountDeletedRoute
   '/forgot-password': typeof ForgotPasswordRoute
   '/reset-password': typeof ResetPasswordRoute
   '/sign-in': typeof SignInRoute
@@ -85,10 +98,12 @@ export interface FileRoutesByFullPath {
   '/verify': typeof VerifyRoute
   '/$': typeof AppSplatRoute
   '/account': typeof AppAccountRoute
+  '/delete-account': typeof AppDeleteAccountRoute
   '/admin/users': typeof AppAdminUsersRoute
   '/api/auth/$': typeof ApiAuthSplatRoute
 }
 export interface FileRoutesByTo {
+  '/account-deleted': typeof AccountDeletedRoute
   '/forgot-password': typeof ForgotPasswordRoute
   '/reset-password': typeof ResetPasswordRoute
   '/sign-in': typeof SignInRoute
@@ -96,6 +111,7 @@ export interface FileRoutesByTo {
   '/verify': typeof VerifyRoute
   '/$': typeof AppSplatRoute
   '/account': typeof AppAccountRoute
+  '/delete-account': typeof AppDeleteAccountRoute
   '/': typeof AppIndexRoute
   '/admin/users': typeof AppAdminUsersRoute
   '/api/auth/$': typeof ApiAuthSplatRoute
@@ -103,6 +119,7 @@ export interface FileRoutesByTo {
 export interface FileRoutesById {
   __root__: typeof rootRouteImport
   '/_app': typeof AppRouteWithChildren
+  '/account-deleted': typeof AccountDeletedRoute
   '/forgot-password': typeof ForgotPasswordRoute
   '/reset-password': typeof ResetPasswordRoute
   '/sign-in': typeof SignInRoute
@@ -110,6 +127,7 @@ export interface FileRoutesById {
   '/verify': typeof VerifyRoute
   '/_app/$': typeof AppSplatRoute
   '/_app/account': typeof AppAccountRoute
+  '/_app/delete-account': typeof AppDeleteAccountRoute
   '/_app/': typeof AppIndexRoute
   '/_app/admin/users': typeof AppAdminUsersRoute
   '/api/auth/$': typeof ApiAuthSplatRoute
@@ -118,6 +136,7 @@ export interface FileRouteTypes {
   fileRoutesByFullPath: FileRoutesByFullPath
   fullPaths:
     | '/'
+    | '/account-deleted'
     | '/forgot-password'
     | '/reset-password'
     | '/sign-in'
@@ -125,10 +144,12 @@ export interface FileRouteTypes {
     | '/verify'
     | '/$'
     | '/account'
+    | '/delete-account'
     | '/admin/users'
     | '/api/auth/$'
   fileRoutesByTo: FileRoutesByTo
   to:
+    | '/account-deleted'
     | '/forgot-password'
     | '/reset-password'
     | '/sign-in'
@@ -136,12 +157,14 @@ export interface FileRouteTypes {
     | '/verify'
     | '/$'
     | '/account'
+    | '/delete-account'
     | '/'
     | '/admin/users'
     | '/api/auth/$'
   id:
     | '__root__'
     | '/_app'
+    | '/account-deleted'
     | '/forgot-password'
     | '/reset-password'
     | '/sign-in'
@@ -149,6 +172,7 @@ export interface FileRouteTypes {
     | '/verify'
     | '/_app/$'
     | '/_app/account'
+    | '/_app/delete-account'
     | '/_app/'
     | '/_app/admin/users'
     | '/api/auth/$'
@@ -156,6 +180,7 @@ export interface FileRouteTypes {
 }
 export interface RootRouteChildren {
   AppRoute: typeof AppRouteWithChildren
+  AccountDeletedRoute: typeof AccountDeletedRoute
   ForgotPasswordRoute: typeof ForgotPasswordRoute
   ResetPasswordRoute: typeof ResetPasswordRoute
   SignInRoute: typeof SignInRoute
@@ -171,6 +196,13 @@ declare module '@tanstack/react-router' {
       path: ''
       fullPath: '/'
       preLoaderRoute: typeof AppRouteImport
+      parentRoute: typeof rootRouteImport
+    }
+    '/account-deleted': {
+      id: '/account-deleted'
+      path: '/account-deleted'
+      fullPath: '/account-deleted'
+      preLoaderRoute: typeof AccountDeletedRouteImport
       parentRoute: typeof rootRouteImport
     }
     '/forgot-password': {
@@ -229,6 +261,13 @@ declare module '@tanstack/react-router' {
       preLoaderRoute: typeof AppAccountRouteImport
       parentRoute: typeof AppRoute
     }
+    '/_app/delete-account': {
+      id: '/_app/delete-account'
+      path: '/delete-account'
+      fullPath: '/delete-account'
+      preLoaderRoute: typeof AppDeleteAccountRouteImport
+      parentRoute: typeof AppRoute
+    }
     '/_app/admin/users': {
       id: '/_app/admin/users'
       path: '/admin/users'
@@ -249,6 +288,7 @@ declare module '@tanstack/react-router' {
 interface AppRouteChildren {
   AppSplatRoute: typeof AppSplatRoute
   AppAccountRoute: typeof AppAccountRoute
+  AppDeleteAccountRoute: typeof AppDeleteAccountRoute
   AppIndexRoute: typeof AppIndexRoute
   AppAdminUsersRoute: typeof AppAdminUsersRoute
 }
@@ -256,6 +296,7 @@ interface AppRouteChildren {
 const AppRouteChildren: AppRouteChildren = {
   AppSplatRoute: AppSplatRoute,
   AppAccountRoute: AppAccountRoute,
+  AppDeleteAccountRoute: AppDeleteAccountRoute,
   AppIndexRoute: AppIndexRoute,
   AppAdminUsersRoute: AppAdminUsersRoute,
 }
@@ -264,6 +305,7 @@ const AppRouteWithChildren = AppRoute._addFileChildren(AppRouteChildren)
 
 const rootRouteChildren: RootRouteChildren = {
   AppRoute: AppRouteWithChildren,
+  AccountDeletedRoute: AccountDeletedRoute,
   ForgotPasswordRoute: ForgotPasswordRoute,
   ResetPasswordRoute: ResetPasswordRoute,
   SignInRoute: SignInRoute,
