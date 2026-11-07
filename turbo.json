@@ -4,6 +4,7 @@
   "agentGuidance": false,
   "globalDependencies": [
     ".oxlintrc.json",
+    "scripts/oxlint-plugin.mts",
     ".oxfmtrc.json"
   ],
   "tasks": {
