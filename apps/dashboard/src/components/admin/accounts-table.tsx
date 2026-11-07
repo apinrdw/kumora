@@ -231,10 +231,19 @@ function Pager({
   )
 }
 
+/** The search box's text, the search it last sent, and the URL's search it last saw. */
+type SearchBox = {
+  readonly draft: string
+  readonly sent: string
+  readonly seen: string
+}
+
 /**
  * Searches once typing pauses. It starts from the URL and then owns its text,
- * so a slow page load never undoes what is typed. Disabled until hydrated,
- * as typing before then would be lost.
+ * so a slow page load never undoes what is typed. When the URL changes under
+ * it (a navigation link, the browser's back), it follows the URL unless
+ * something is being typed. Disabled until hydrated, as typing before then
+ * would be lost.
  */
 function SearchInput({
   value,
@@ -244,21 +253,40 @@ function SearchInput({
   onChange: (value: string) => void
 }) {
   const hydrated = useHydrated()
-  const [draft, setDraft] = useState(value)
+  const [box, setBox] = useState<SearchBox>({
+    draft: value,
+    sent: value,
+    seen: value,
+  })
+  if (box.seen !== value) {
+    const ours = value === box.sent
+    const idle = box.draft.trim() === box.sent
+    setBox({
+      draft: !ours && idle ? value : box.draft,
+      sent: value,
+      seen: value,
+    })
+  }
   useEffect(() => {
-    if (draft.trim() === value) return
-    const timer = setTimeout(() => onChange(draft.trim()), 300)
+    if (box.draft.trim() === value) return
+    const timer = setTimeout(() => {
+      const q = box.draft.trim()
+      setBox((current) => ({ ...current, sent: q }))
+      onChange(q)
+    }, 300)
     return () => clearTimeout(timer)
-  }, [draft, value, onChange])
+  }, [box.draft, value, onChange])
   return (
     <KInput
       label="Search"
       icon={IconSearch}
       type="search"
       placeholder="Email or name"
-      value={draft}
+      value={box.draft}
       disabled={!hydrated}
-      onChange={(event) => setDraft(event.target.value)}
+      onChange={(event) =>
+        setBox((current) => ({ ...current, draft: event.target.value }))
+      }
       className="w-72 max-w-full"
     />
   )
