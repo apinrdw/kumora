@@ -3,9 +3,7 @@
 import { Option, Schema } from "effect"
 
 import type { SignInMethod } from "@/lib/sign-in-method"
-import type { Role, TargetAction } from "@/server/auth/policy"
-
-export const ROLES = ["admin", "member"] as const satisfies ReadonlyArray<Role>
+import { ROLES, type Role, type TargetAction } from "@/server/auth/policy"
 
 export const STATUSES = ["active", "unverified", "suspended"] as const
 export type Status = (typeof STATUSES)[number]

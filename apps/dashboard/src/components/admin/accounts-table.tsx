@@ -23,7 +23,6 @@ import {
 } from "@/components/k"
 import {
   PAGE_SIZE,
-  ROLES,
   SORT_KEYS,
   STATUSES,
   type AccountPage,
@@ -34,6 +33,7 @@ import {
 import { dateTime } from "@/lib/format"
 import { SIGN_IN_METHOD_LABEL } from "@/lib/sign-in-method"
 import { ROLE_LABEL } from "@/lib/role"
+import { ROLES } from "@/server/auth/policy"
 
 import { AccountActions, ConfirmAction, type Asked } from "./account-actions"
 

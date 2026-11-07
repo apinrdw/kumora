@@ -6,7 +6,9 @@
 // response; feature access per account later adds an attribute and a rule, not
 // gate edits. See apinrdw/kumora#95.
 
-export type Role = "admin" | "member"
+export const ROLES = ["admin", "member"] as const
+
+export type Role = (typeof ROLES)[number]
 
 export type Account = {
   readonly _tag: "Account"

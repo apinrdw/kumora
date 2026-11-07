@@ -3,6 +3,7 @@
 // plain Node, so this module imports only packages, never `@/` paths or Effect.
 import type { BetterAuthOptions, BetterAuthPlugin } from "better-auth"
 import {
+  APIError,
   createAuthMiddleware,
   getAuthoritativeSessionFromCtx,
   getSessionFromCtx,
@@ -79,11 +80,12 @@ export interface AuthOptionsInput {
     readonly user: TargetUser
     readonly session: BetterAuthSession | null
   }) => Promise<void>
-  // Throws Better Auth's APIError when the access policy refuses the action.
+  // Throws Better Auth's APIError when the access policy refuses the action,
+  // and when `target` is null: the userId names no account.
   readonly authorizeAdminAction: (request: {
     readonly action: TargetAction
     readonly session: BetterAuthSession | null
-    readonly target: TargetUser
+    readonly target: TargetUser | null
   }) => Promise<void>
 }
 
@@ -267,22 +269,30 @@ const DISABLED_ROUTES = [
   "/ok",
 ]
 
+const badRequest = (message: string) => new APIError("BAD_REQUEST", { message })
+
+// The account an admin route acts on. Better Auth's admin schemas take the
+// userId through String(), so an array of one id would name that account
+// once past this hook: every shape but a non-empty string is refused here.
 const targetUser = async (ctx: HookContext): Promise<TargetUser | null> => {
   const userId: unknown = ctx.body?.userId
-  if (typeof userId !== "string" && typeof userId !== "number") return null
-  return ctx.context.internalAdapter.findUserById(String(userId))
+  if (typeof userId !== "string" || userId === "")
+    throw badRequest("userId must be a non-empty string")
+  return ctx.context.internalAdapter.findUserById(userId)
 }
 
 const lookup = <A>(table: Readonly<Partial<Record<string, A>>>, path: string) =>
   Object.hasOwn(table, path) ? table[path] : undefined
 
 // The account a change-email link's token is bound to, or null for any other
-// link. Better Auth checks the token itself; an invalid one is left to it.
+// link. A repeated query key parses as an array and is refused; an invalid or
+// expired token is left to Better Auth, which answers with the error code the
+// page shows.
 const emailChangeTarget = async (
   ctx: HookContext
 ): Promise<TargetUser | null> => {
   const token: unknown = ctx.query?.token
-  if (typeof token !== "string") return null
+  if (typeof token !== "string") throw badRequest("token must be a string")
   const payload = await verifyJWT(token, ctx.context.secret)
   if (
     payload === null ||
@@ -323,11 +333,11 @@ const before = (input: AuthOptionsInput) =>
     if (own !== undefined)
       return input.authorizeOwnAction({ action: own, session })
     if (onAccount === undefined) return
-    const target = await targetUser(ctx)
-    // No such account: Better Auth answers for it, and there is nothing to
-    // protect.
-    if (target === null) return
-    await input.authorizeAdminAction({ action: onAccount, session, target })
+    await input.authorizeAdminAction({
+      action: onAccount,
+      session,
+      target: await targetUser(ctx),
+    })
   })
 
 const after = (input: AuthOptionsInput) =>

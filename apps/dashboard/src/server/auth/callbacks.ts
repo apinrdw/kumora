@@ -287,17 +287,25 @@ const storeGrant = (found: BetterAuthSession | null) =>
   found === null ? Effect.void : grantAdmin(found.user)
 
 // The config-admin and self protections are the policy's admin rules. The
-// admin plugin's own role check runs after this hook.
+// admin plugin's own role check runs after this hook. A userId that names no
+// account (`target` null) still asks the policy about the actor, through the
+// admin feature's own gate, so a member or a visitor gets the same answer for
+// any id; only then is it not found.
 export const authorizeAdminAction = Effect.fn("authorizeAdminAction")(
   function* (
     action: TargetAction,
     found: BetterAuthSession | null,
-    target: TargetUser
+    target: TargetUser | null
   ) {
     const adminEmails = yield* AdminEmails
     const session = found && authSessionOf(found, adminEmails)
+    const account = accountOf(session)
+    if (target === null) {
+      yield* hookVerdict(decide(account, "page.view", { feature: "admin" }))
+      return yield* Effect.fail(refusal("not-found", "/"))
+    }
     yield* hookVerdict(
-      decide(accountOf(session), action, targetOf(target, session, adminEmails))
+      decide(account, action, targetOf(target, session, adminEmails))
     )
     yield* storeGrant(found)
   }
