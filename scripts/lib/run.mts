@@ -1,6 +1,8 @@
 // The one entry point for root scripts. A typed failure prints its message
 // only, like a plain console.error line; a defect prints the full Cause with
 // its stack. Both go to stderr and exit 1, and an interrupt exits 130.
+// packages/deploy/src/report.ts reports the same way for deploy and teardown;
+// the workspaces share no module, so a change here belongs there too.
 import { NodeRuntime, NodeServices } from "@effect/platform-node"
 import { Cause, Console, Effect, References } from "effect"
 

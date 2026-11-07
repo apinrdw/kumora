@@ -1,5 +1,7 @@
 // How an entry point's failures reach the operator: all on stderr, so the
 // teardown job's stdout (its $GITHUB_OUTPUT) only ever holds the Stage.
+// scripts/lib/run.mts reports root-script failures the same way; the
+// workspaces share no module, so a change here belongs there too.
 import * as Cause from "effect/Cause"
 import { CliError, CliOutput } from "effect/cli"
 import * as Console from "effect/Console"
