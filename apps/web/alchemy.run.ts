@@ -1,5 +1,5 @@
 import * as Cloudflare from "@alchemy.run/cloudflare"
-import { stackOptions, websiteProps } from "@workspace/deploy/stack"
+import { stackOptions, stackStage, websiteProps } from "@workspace/deploy/stack"
 import * as Alchemy from "alchemy"
 import { Stack } from "alchemy/Stack"
 import * as Config from "effect/Config"
@@ -10,7 +10,7 @@ export const Website = Cloudflare.Website.Vite(
   Effect.gen(function* () {
     const { stage } = yield* Stack
     return {
-      ...websiteProps("web", stage),
+      ...websiteProps("web", stackStage(stage)),
       rootDir: import.meta.dirname,
       // Strict: falling back would take the dashboard's 3001. apps/e2e's
       // playwright.config.ts waits on both ports.

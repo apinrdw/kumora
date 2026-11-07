@@ -90,7 +90,7 @@ The dashboard sends verification mail from `no-reply@mailer.pusat.ai` through Cl
 
 ## 10. Google sign-in ⬜
 
-Production and Staging offer Continue with Google; Previews, Dev and Test stages never do (`googleSignInOn` in `apps/dashboard/src/server/auth/google.ts`). On those two stages `apps/dashboard/alchemy.run.ts` reads the client from Infisical, so their deploys fail until the values exist.
+Production and Staging offer Continue with Google; Previews, Dev and Test stages never do (`isReleaseStage` in `packages/deploy/src/target.ts`, used by `apps/dashboard/alchemy.run.ts`). On those two stages `apps/dashboard/alchemy.run.ts` reads the client from Infisical, so their deploys fail until the values exist.
 
 1. In Google Cloud Console, create one OAuth client of type Web application (or reuse the existing one). Under Authorized redirect URIs, add both:
    - `https://kumora-dashboard.kumora.workers.dev/api/auth/callback/google` (Production)
