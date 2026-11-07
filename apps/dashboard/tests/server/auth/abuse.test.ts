@@ -5,7 +5,7 @@ import { Duration, Effect } from "effect"
 import { TestClock } from "effect/testing"
 import { vi } from "vitest"
 
-import { cookiesFrom, post, seam, send, signUp } from "./seam.ts"
+import { cookiesFrom, linkIn, post, seam, send, signUp } from "./seam.ts"
 
 const HOUR = 60 * 60
 const DAY = 24 * HOUR
@@ -218,6 +218,30 @@ describe("per-address mail cap", () => {
         )
         assert.strictEqual(mails.at(-1)?.to, "ayu@example.com")
       }).pipe(realTimers, Effect.provide(layer))
+    },
+    { timeout: 15_000 }
+  )
+
+  it.effect(
+    "counts the verification mail a change of email sends to the new address",
+    () => {
+      const { layer, mails } = seam()
+      const NEW = "ayu.lestari@example.com"
+      return Effect.gen(function* () {
+        yield* signUp("ayu@example.com")
+        const cookie = cookiesFrom(yield* send(linkIn(mails.at(-1))))
+        const toNew = () => mails.filter((mail) => mail.to === NEW).length
+        // Each confirmed request mails the new address a verification link.
+        for (let n = 1; n <= 6; n++) {
+          yield* post(
+            "/change-email",
+            { newEmail: NEW, callbackURL: "/account" },
+            { cookie, ...ip(n) }
+          )
+          yield* send(linkIn(mails.at(-1)), { headers: { cookie } })
+          assert.strictEqual(toNew(), Math.min(n, 5))
+        }
+      }).pipe(Effect.provide(layer))
     },
     { timeout: 15_000 }
   )

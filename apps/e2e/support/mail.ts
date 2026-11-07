@@ -11,6 +11,7 @@ const MAIL_DIR = fileURLToPath(
 
 const VERIFY_LINK = /^(https?:\/\/\S+\/api\/auth\/verify-email\?\S+)$/m
 const RESET_LINK = /^(https?:\/\/\S+\/api\/auth\/reset-password\/\S+)$/m
+const DELETE_LINK = /^(https?:\/\/\S+\/delete-account\?token=\S+)$/m
 
 async function newestLink(to: string, since: number, pattern: RegExp) {
   const names = await readdir(MAIL_DIR).catch(() => [])
@@ -45,6 +46,10 @@ export const verificationLink = (to: string, since: number) =>
 /** The password reset link, found the same way as `verificationLink`. */
 export const resetLink = (to: string, since: number) =>
   pollLink(to, since, RESET_LINK, "reset")
+
+/** The delete-account link, found the same way as `verificationLink`. */
+export const deleteLink = (to: string, since: number) =>
+  pollLink(to, since, DELETE_LINK, "delete-account")
 
 async function pollLink(
   to: string,
