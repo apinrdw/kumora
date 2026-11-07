@@ -62,6 +62,7 @@ describe("sign-in method routes the dashboard doesn't offer", () => {
     ["POST", "/get-access-token", { providerId: "google" }],
     ["GET", "/account-info?accountId=x", undefined],
     ["POST", "/update-session", {}],
+    ["POST", "/verify-password", { password: PASSWORD }],
   ] as const)(
     "answer not found even to the account itself: %s %s",
     ([method, path, body]) => {

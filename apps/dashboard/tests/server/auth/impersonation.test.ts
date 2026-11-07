@@ -201,6 +201,24 @@ describe("while impersonating", () => {
     }).pipe(Effect.provide(layer))
   })
 
+  // Better Auth's own password check would answer 200 or 400 to the admin
+  // viewing as the member, at the default 100 tries per 10 seconds.
+  it.effect.each([
+    ["the member's password", PASSWORD],
+    ["a guess", "battery staple"],
+  ] as const)("/verify-password is not found, with %s", ([, password]) => {
+    const { layer, mails } = seam()
+    return Effect.gen(function* () {
+      const { viewing } = yield* viewingAsMember(mails)
+      const response = yield* post(
+        "/verify-password",
+        { password },
+        { cookie: viewing }
+      )
+      assert.strictEqual(response.status, 404)
+    }).pipe(Effect.provide(layer))
+  })
+
   it.effect("can't remove one of the member's sign-in methods", () => {
     const { layer, mails, database } = seam()
     return Effect.gen(function* () {
