@@ -1,5 +1,5 @@
 import { assert, describe, it } from "@effect/vitest"
-import { Effect, Queue, Stream } from "effect"
+import { Deferred, Effect, Queue, Stream } from "effect"
 
 import {
   FrameScheduler,
@@ -159,6 +159,32 @@ describe("Day state store", () => {
         yield* settle
         yield* frames.step
         assert.strictEqual(store.getServerSnapshot(), initial)
+        unsubscribe()
+      })
+  )
+
+  it.effect(
+    "notifies the last update of a source that completes before its frame",
+    () =>
+      Effect.gen(function* () {
+        const last = yield* Deferred.make<void>()
+        const frames = yield* manualFrames
+        const next = { last: 9_825 }
+        const store = yield* makeDayStateStore<TestDayState, never>({
+          source: Stream.fromEffect(
+            Effect.as(Deferred.await(last), { code: BBCA, dayState: next })
+          ),
+          initial,
+        }).pipe(Effect.provideService(FrameScheduler, frames.scheduler))
+
+        let notified = 0
+        const unsubscribe = store.subscribe(() => notified++)
+        yield* settle
+        yield* Deferred.succeed(last, undefined)
+        yield* settle
+        yield* frames.step
+        assert.strictEqual(store.getSnapshot().get(BBCA), next)
+        assert.strictEqual(notified, 1)
         unsubscribe()
       })
   )
