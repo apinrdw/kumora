@@ -9,27 +9,51 @@
 // Additionally, you should also exclude this file from your linter and/or formatter to prevent it from being checked or modified.
 
 import { Route as rootRouteImport } from './routes/__root'
+import { Route as PrototypeSignInRouteImport } from './routes/prototype.sign-in'
 
-export interface FileRoutesByFullPath {}
-export interface FileRoutesByTo {}
+const PrototypeSignInRoute = PrototypeSignInRouteImport.update({
+  id: '/prototype/sign-in',
+  path: '/prototype/sign-in',
+  getParentRoute: () => rootRouteImport,
+} as any)
+
+export interface FileRoutesByFullPath {
+  '/prototype/sign-in': typeof PrototypeSignInRoute
+}
+export interface FileRoutesByTo {
+  '/prototype/sign-in': typeof PrototypeSignInRoute
+}
 export interface FileRoutesById {
   __root__: typeof rootRouteImport
+  '/prototype/sign-in': typeof PrototypeSignInRoute
 }
 export interface FileRouteTypes {
   fileRoutesByFullPath: FileRoutesByFullPath
-  fullPaths: never
+  fullPaths: '/prototype/sign-in'
   fileRoutesByTo: FileRoutesByTo
-  to: never
-  id: '__root__'
+  to: '/prototype/sign-in'
+  id: '__root__' | '/prototype/sign-in'
   fileRoutesById: FileRoutesById
 }
-export interface RootRouteChildren {}
-
-declare module '@tanstack/react-router' {
-  interface FileRoutesByPath {}
+export interface RootRouteChildren {
+  PrototypeSignInRoute: typeof PrototypeSignInRoute
 }
 
-const rootRouteChildren: RootRouteChildren = {}
+declare module '@tanstack/react-router' {
+  interface FileRoutesByPath {
+    '/prototype/sign-in': {
+      id: '/prototype/sign-in'
+      path: '/prototype/sign-in'
+      fullPath: '/prototype/sign-in'
+      preLoaderRoute: typeof PrototypeSignInRouteImport
+      parentRoute: typeof rootRouteImport
+    }
+  }
+}
+
+const rootRouteChildren: RootRouteChildren = {
+  PrototypeSignInRoute: PrototypeSignInRoute,
+}
 export const routeTree = rootRouteImport
   ._addFileChildren(rootRouteChildren)
   ._addFileTypes<FileRouteTypes>()
