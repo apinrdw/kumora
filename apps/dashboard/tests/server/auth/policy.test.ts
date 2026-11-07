@@ -320,3 +320,41 @@ describe("decide on admin actions", () => {
     )
   })
 })
+
+describe("decide on own-account actions", () => {
+  const ownAccount = { feature: "account" } as const
+
+  it.each([
+    { action: "own.change-password", member: allow, configAdmin: allow },
+    {
+      action: "own.change-email",
+      member: allow,
+      configAdmin: deny("forbidden"),
+    },
+    { action: "own.update-profile", member: allow, configAdmin: allow },
+    { action: "own.end-sessions", member: allow, configAdmin: allow },
+    { action: "own.delete", member: allow, configAdmin: deny("forbidden") },
+  ] as const)(
+    "$action",
+    ({ action, member: forMember, configAdmin: forConfigAdmin }) => {
+      assert.deepStrictEqual(decide(member, action, ownAccount), forMember)
+      assert.deepStrictEqual(decide(admin, action, ownAccount), forMember)
+      assert.deepStrictEqual(
+        decide(configAdmin, action, ownAccount),
+        forConfigAdmin
+      )
+      assert.deepStrictEqual(
+        decide(impersonated, action, ownAccount),
+        deny("forbidden")
+      )
+      assert.deepStrictEqual(
+        decide(signedOut, action, ownAccount),
+        deny("sign-in")
+      )
+      assert.deepStrictEqual(
+        decide({ ...member, verified: false }, action, ownAccount),
+        deny("verify")
+      )
+    }
+  )
+})

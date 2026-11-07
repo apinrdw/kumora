@@ -25,7 +25,14 @@ type Resources = {
   readonly "admin.set-role": Target
   readonly "admin.end-sessions": Target
   readonly "admin.impersonate": Target
+  readonly "own.change-password": OwnAccount
+  readonly "own.change-email": OwnAccount
+  readonly "own.update-profile": OwnAccount
+  readonly "own.end-sessions": OwnAccount
+  readonly "own.delete": OwnAccount
 }
+
+type OwnAccount = { readonly feature: "account" }
 
 export type Action = keyof Resources
 
@@ -68,6 +75,17 @@ const adminOn =
     return protectedTarget(target) ? deny("forbidden") : allow
   }
 
+const own =
+  ({ refusedToConfigAdmin }: { readonly refusedToConfigAdmin: boolean }) =>
+  (account: Account, { feature }: OwnAccount): Decision => {
+    const access = featureAccess(account, feature)
+    if (access._tag === "Deny") return access
+    if (account.impersonating) return deny("forbidden")
+    return refusedToConfigAdmin && account.configAdmin
+      ? deny("forbidden")
+      : allow
+  }
+
 type Rules = {
   readonly [A in Action]: (account: Account, resource: Resources[A]) => Decision
 }
@@ -90,6 +108,11 @@ const rules: Rules = {
   "admin.impersonate": adminOn(
     (target) => target.role !== "member" || target.suspended
   ),
+  "own.change-password": own({ refusedToConfigAdmin: false }),
+  "own.change-email": own({ refusedToConfigAdmin: true }),
+  "own.update-profile": own({ refusedToConfigAdmin: false }),
+  "own.end-sessions": own({ refusedToConfigAdmin: false }),
+  "own.delete": own({ refusedToConfigAdmin: true }),
 }
 
 export const decide = <A extends Action>(
