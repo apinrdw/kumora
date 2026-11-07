@@ -19,8 +19,10 @@ type Step =
   | { readonly _tag: "CheckInbox"; readonly email: string }
 
 /**
- * A taken email gets the same "Check your inbox" as a new one, and no mail,
- * so the form never says whether an address has an account.
+ * A taken email gets the same "Check your inbox" as a new one, so the form
+ * never says whether an address has an account. What the inbox gets is the
+ * server's call (hideTakenEmail in server/auth/options.ts): a set-password
+ * link when the account is unverified, nothing when it is verified.
  */
 export function SignUpForm({
   redirect,
