@@ -194,6 +194,34 @@ describe("Day state store", () => {
       })
   )
 
+  it.effect(
+    "notifies after resubscribing when the last unsubscribe follows a synchronous update",
+    () =>
+      Effect.gen(function* () {
+        const updates = yield* Queue.unbounded<DayStateUpdate<TestDayState>>()
+        const frames = yield* manualFrames
+        const store = yield* makeDayStateStore({
+          source: Stream.concat(
+            Stream.make({ code: BBCA, dayState: { last: 9_825 } }),
+            Stream.fromQueue(updates)
+          ),
+          initial,
+        }).pipe(Effect.provideService(FrameScheduler, frames.scheduler))
+
+        store.subscribe(() => {})()
+        yield* settle
+
+        let notified = 0
+        const again = store.subscribe(() => notified++)
+        yield* settle
+        yield* Queue.offer(updates, { code: TLKM, dayState: { last: 3_110 } })
+        yield* settle
+        yield* frames.step
+        assert.strictEqual(notified, 1)
+        again()
+      })
+  )
+
   it.effect("keeps an update whose frame the last unsubscribe cancelled", () =>
     Effect.gen(function* () {
       const { store, frames, push } = yield* harness
