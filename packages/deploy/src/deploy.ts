@@ -9,7 +9,9 @@ import { parseApp, requireEnv, runAlchemy } from "./alchemy-cli.ts"
 import { deployTarget } from "./target.ts"
 
 const app = parseApp(process.argv[2])
-const { stage } = deployTarget(app, requireEnv("WORKERS_CI_BRANCH"))
+const { stage } = await Effect.runPromise(
+  deployTarget(app, requireEnv("WORKERS_CI_BRANCH"))
+)
 
 const { token } = await Effect.runPromise(
   mintAccessToken({
