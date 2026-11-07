@@ -204,3 +204,66 @@ layer(NodeServices.layer)("packages/ui/src is exempt", (it) => {
     })
   )
 })
+
+layer(NodeServices.layer)("packages/server is under the full ban set", (it) => {
+  it.effect.each([
+    ["packages/server/src/thing.ts"],
+    ["packages/server/tests/thing.test.ts"],
+  ])("throw and async in %s are rejected", ([file]) =>
+    Effect.gen(function* () {
+      const diagnostics = yield* lint(
+        file,
+        'export const f = async () => {\n  throw new Error("boom")\n}\n'
+      )
+      assertBanned(diagnostics, "kumora(restricted-syntax)", "Effect.fail")
+      assertBanned(diagnostics, "oxc(no-async-await)", "async")
+    })
+  )
+
+  it.effect("the bridge may import cloudflare:workers", () =>
+    Effect.gen(function* () {
+      const diagnostics = yield* lint(
+        "packages/server/src/bridge.ts",
+        'import { env } from "cloudflare:workers"\n\nexport { env }\n'
+      )
+      assert.deepStrictEqual(diagnostics, [])
+    })
+  )
+
+  it.effect("the bridge keeps the other bans", () =>
+    Effect.gen(function* () {
+      const diagnostics = yield* lint(
+        "packages/server/src/bridge.ts",
+        [
+          'import { readFileSync } from "node:fs"',
+          'import { z } from "zod"',
+          "",
+          "export { readFileSync, z }",
+          "export const f = () => {",
+          '  throw new Error("boom")',
+          "}",
+          "",
+        ].join("\n")
+      )
+      assertBanned(diagnostics, "eslint(no-restricted-imports)", "FileSystem")
+      assertBanned(
+        diagnostics,
+        "eslint(no-restricted-imports)",
+        "Effect Schema"
+      )
+      assertBanned(diagnostics, "kumora(restricted-syntax)", "Effect.fail")
+    })
+  )
+
+  it.effect(
+    "the rest of packages/server may not import cloudflare:workers",
+    () =>
+      Effect.gen(function* () {
+        const diagnostics = yield* lint(
+          "packages/server/src/errors.ts",
+          'import { env } from "cloudflare:workers"\n\nexport { env }\n'
+        )
+        assertBanned(diagnostics, "eslint(no-restricted-imports)", "WorkerEnv")
+      })
+  )
+})
