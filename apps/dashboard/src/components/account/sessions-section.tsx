@@ -1,4 +1,5 @@
 import { useHydrated } from "@tanstack/react-router"
+import type { ReactNode } from "react"
 
 import { KBadge, KButton } from "@/components/k"
 import { authClient } from "@/lib/auth-client"
@@ -50,24 +51,7 @@ export function SessionsSection({
     >
       <ul className="flex flex-col divide-y divide-border">
         {sessions.map((session) => (
-          <li
-            key={session.id}
-            className="flex flex-wrap items-center gap-x-4 gap-y-1 py-3 first:pt-0 last:pb-0"
-          >
-            <div className="flex min-w-0 flex-1 flex-col gap-0.5">
-              <span className="flex items-center gap-2 text-[13px] font-semibold">
-                {session.device}
-                {session.current && (
-                  <KBadge tone="accent" icon={false}>
-                    This device
-                  </KBadge>
-                )}
-              </span>
-              <span className="num text-xs text-muted-foreground">
-                {session.ipAddress ?? "Unknown IP"} · Last active{" "}
-                {dateTime(session.lastActive)}
-              </span>
-            </div>
+          <SessionItem key={session.id} session={session}>
             {canEnd && !session.current && (
               <KButton
                 variant="secondary"
@@ -78,7 +62,7 @@ export function SessionsSection({
                 End
               </KButton>
             )}
-          </li>
+          </SessionItem>
         ))}
       </ul>
       {canEnd && others > 0 && (
@@ -94,5 +78,33 @@ export function SessionsSection({
       )}
       <OutcomeLine outcome={outcome} />
     </AccountSection>
+  )
+}
+
+function SessionItem({
+  session,
+  children,
+}: {
+  session: SessionRow
+  children: ReactNode
+}) {
+  return (
+    <li className="flex flex-wrap items-center gap-x-4 gap-y-1 py-3 first:pt-0 last:pb-0">
+      <div className="flex min-w-0 flex-1 flex-col gap-0.5">
+        <span className="flex items-center gap-2 text-[13px] font-semibold">
+          {session.device}
+          {session.current && (
+            <KBadge tone="accent" icon={false}>
+              This device
+            </KBadge>
+          )}
+        </span>
+        <span className="num text-xs text-muted-foreground">
+          {session.ipAddress ?? "Unknown IP"} · Last active{" "}
+          {dateTime(session.lastActive)}
+        </span>
+      </div>
+      {children}
+    </li>
   )
 }
