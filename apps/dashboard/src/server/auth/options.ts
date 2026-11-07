@@ -20,6 +20,12 @@ import type { BetterAuthSession } from "./session-account.ts"
 const HOUR = 60 * 60
 const DAY = 24 * HOUR
 
+// An admin views as a member for at most this long (apinrdw/kumora#80).
+const IMPERSONATION_SESSION = HOUR
+
+const impersonatedBy = (session: object): unknown =>
+  "impersonatedBy" in session ? session.impersonatedBy : undefined
+
 // The page the delete link opens: src/routes/_app/delete-account.tsx. e2e
 // finds the link by it in apps/e2e/support/mail.ts.
 const DELETE_ACCOUNT_PATH =
@@ -307,6 +313,26 @@ export function authOptions(input: AuthOptionsInput) {
               (await ctx?.context.internalAdapter.findUserById(userId)) ?? null
             ),
         },
+        // get-session renews a session within updateAge of its renewal at the
+        // full expiresIn, and an impersonation session, made an hour from its
+        // end, always is. Only the dont_remember cookie keeps it off that
+        // path, so the hour is held here, where the browser's cookies can't
+        // reach.
+        update: {
+          before: async (data, ctx) => {
+            const current = ctx?.context.session?.session
+            if (!data.expiresAt || !current || !impersonatedBy(current)) return
+            const deadline = new Date(
+              current.createdAt.getTime() + IMPERSONATION_SESSION * 1000
+            )
+            return {
+              data: {
+                expiresAt:
+                  data.expiresAt < deadline ? data.expiresAt : deadline,
+              },
+            }
+          },
+        },
       },
     },
     // Per IP, counted in D1 so every isolate shares the count. Set explicitly:
@@ -335,7 +361,7 @@ export function authOptions(input: AuthOptionsInput) {
         roles,
         defaultRole: "member",
         adminRoles: ["admin"],
-        impersonationSessionDuration: 60 * 60,
+        impersonationSessionDuration: IMPERSONATION_SESSION,
       }),
       // Only the two forms that send mail; sign-in never shows a challenge.
       captcha({
