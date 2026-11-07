@@ -30,20 +30,28 @@ const isHttpError = Schema.is(HttpError)
 const respond: {
   readonly [K in HttpError["_tag"]]: (
     error: Extract<HttpError, { readonly _tag: K }>
-  ) => Response
+  ) => Effect.Effect<Response>
 } = {
   NotFound: (e) => json(e._tag, e.message, 404),
   BadRequest: (e) => json(e._tag, e.message, 400),
   Forbidden: (e) => json(e._tag, e.message, 403),
   Conflict: (e) => json(e._tag, e.message, 409),
-  Unauthorized: (e) => redirect({ href: e.redirectTo }),
+  Unauthorized: (e) => Effect.sync(() => redirect({ href: e.redirectTo })),
 }
 
-const json = (error: string, message: string, status: number) =>
-  Response.json(ErrorBody.make({ error, message }), { status })
+const json = Effect.fnUntraced(function* (
+  error: string,
+  message: string,
+  status: number
+) {
+  return Response.json(ErrorBody.make({ error, message }), { status })
+})
 
-const toResponse = (error: HttpError): Response =>
-  (respond[error._tag] as (e: HttpError) => Response)(error)
+const toResponse = Effect.fnUntraced(function* (error: HttpError) {
+  return yield* (
+    respond[error._tag] as (e: HttpError) => Effect.Effect<Response>
+  )(error)
+})
 
 export interface Bridge<R> {
   // Per-isolate services. The layer does no I/O and cannot fail.
@@ -70,9 +78,10 @@ export function makeRunServerEffect<R>({ isolate, workerEnv }: Bridge<R>) {
             errors.every(isHttpError) &&
             errors[0] !== undefined
           )
-            return Effect.fail(toResponse(errors[0]))
+            return Effect.flatMap(toResponse(errors[0]), Effect.fail)
           return Effect.logError("Server effect failed", cause).pipe(
-            Effect.andThen(Effect.fail(json("InternalServerError", "", 500)))
+            Effect.andThen(json("InternalServerError", "", 500)),
+            Effect.flatMap(Effect.fail)
           )
         })
       )
