@@ -9,27 +9,51 @@
 // Additionally, you should also exclude this file from your linter and/or formatter to prevent it from being checked or modified.
 
 import { Route as rootRouteImport } from './routes/__root'
+import { Route as PrototypeAtomSeamRouteImport } from './routes/prototype-atom-seam'
 
-export interface FileRoutesByFullPath {}
-export interface FileRoutesByTo {}
+const PrototypeAtomSeamRoute = PrototypeAtomSeamRouteImport.update({
+  id: '/prototype-atom-seam',
+  path: '/prototype-atom-seam',
+  getParentRoute: () => rootRouteImport,
+} as any)
+
+export interface FileRoutesByFullPath {
+  '/prototype-atom-seam': typeof PrototypeAtomSeamRoute
+}
+export interface FileRoutesByTo {
+  '/prototype-atom-seam': typeof PrototypeAtomSeamRoute
+}
 export interface FileRoutesById {
   __root__: typeof rootRouteImport
+  '/prototype-atom-seam': typeof PrototypeAtomSeamRoute
 }
 export interface FileRouteTypes {
   fileRoutesByFullPath: FileRoutesByFullPath
-  fullPaths: never
+  fullPaths: '/prototype-atom-seam'
   fileRoutesByTo: FileRoutesByTo
-  to: never
-  id: '__root__'
+  to: '/prototype-atom-seam'
+  id: '__root__' | '/prototype-atom-seam'
   fileRoutesById: FileRoutesById
 }
-export interface RootRouteChildren {}
-
-declare module '@tanstack/react-router' {
-  interface FileRoutesByPath {}
+export interface RootRouteChildren {
+  PrototypeAtomSeamRoute: typeof PrototypeAtomSeamRoute
 }
 
-const rootRouteChildren: RootRouteChildren = {}
+declare module '@tanstack/react-router' {
+  interface FileRoutesByPath {
+    '/prototype-atom-seam': {
+      id: '/prototype-atom-seam'
+      path: '/prototype-atom-seam'
+      fullPath: '/prototype-atom-seam'
+      preLoaderRoute: typeof PrototypeAtomSeamRouteImport
+      parentRoute: typeof rootRouteImport
+    }
+  }
+}
+
+const rootRouteChildren: RootRouteChildren = {
+  PrototypeAtomSeamRoute: PrototypeAtomSeamRoute,
+}
 export const routeTree = rootRouteImport
   ._addFileChildren(rootRouteChildren)
   ._addFileTypes<FileRouteTypes>()

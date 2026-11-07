@@ -25,6 +25,7 @@ catalog:
   "@effect/platform-bun": *effect
   "@effect/platform-node": *effect
   "@effect/vitest": *effect
+  "@effect/atom-react": *effect
   alchemy: &alchemy 2.0.0-beta.85
   "@alchemy.run/cloudflare": *alchemy
   "@alchemy.run/frontend-frameworks": *alchemy
