@@ -1,19 +1,21 @@
 import { Link } from "@tanstack/react-router"
 
-import { NAV } from "@/lib/nav"
-
-const ITEMS = NAV.flatMap((g) => g.items).filter((i) => i.mobile)
+import { NAV, visibleNav } from "@/lib/nav"
+import type { Feature } from "@/server/auth/policy"
 
 /** Below 768px the sidebar gives way to a bottom bar: monitoring and alerts first. */
-export function MobileNav() {
-  if (ITEMS.length === 0) return null
+export function MobileNav({ features }: { features: ReadonlyArray<Feature> }) {
+  const items = visibleNav(NAV, features)
+    .flatMap((g) => g.items)
+    .filter((i) => i.mobile)
+  if (items.length === 0) return null
   return (
     <nav
       aria-label="Navigasi utama"
       className="fixed inset-x-0 bottom-0 z-30 grid h-16 border-t border-border bg-sidebar pb-[env(safe-area-inset-bottom)] md:hidden"
-      style={{ gridTemplateColumns: `repeat(${ITEMS.length}, 1fr)` }}
+      style={{ gridTemplateColumns: `repeat(${items.length}, 1fr)` }}
     >
-      {ITEMS.map((item) => {
+      {items.map((item) => {
         const Icon = item.icon
         return (
           <Link

@@ -1,4 +1,4 @@
-import { WorkerEnv } from "@workspace/server"
+import { WorkerEnv, waitUntilLive } from "@workspace/server"
 import { betterAuth } from "better-auth"
 import { Context, Effect, Layer } from "effect"
 import type { UnknownError } from "effect/Cause"
@@ -9,12 +9,27 @@ import { authOptions, type AuthOptionsInput } from "./options.ts"
 
 type AuthConfig = Omit<AuthOptionsInput, "sendVerificationEmail">
 
+// What the gates read of a session. Later plugins widen it (role, banned).
+export interface AuthSession {
+  readonly user: {
+    readonly name: string
+    readonly email: string
+    readonly emailVerified: boolean
+  }
+}
+
 export class Auth extends Context.Service<
   Auth,
   {
     readonly handler: (
       request: Request
     ) => Effect.Effect<Response, UnknownError>
+    // `fresh` skips the 5-minute cookie cache and reads the database, which
+    // also rewrites the cache cookie.
+    readonly getSession: (
+      headers: Headers,
+      options?: { readonly fresh?: boolean }
+    ) => Effect.Effect<AuthSession | null, UnknownError>
   }
 >()("dashboard/server/auth/Auth") {
   // Built per request: the database and secret are request-scoped bindings.
@@ -32,6 +47,13 @@ export class Auth extends Context.Service<
         )
         return Auth.of({
           handler: (request) => Effect.tryPromise(() => auth.handler(request)),
+          getSession: (headers, options) =>
+            Effect.tryPromise(() =>
+              auth.api.getSession({
+                headers,
+                query: { disableCookieCache: options?.fresh ?? false },
+              })
+            ),
         })
       })
     )
@@ -49,5 +71,5 @@ export class Auth extends Context.Service<
         validateSchema: false,
       })
     })
-  ).pipe(Layer.provide(Mailer.layer))
+  ).pipe(Layer.provide(Mailer.layer), Layer.provide(waitUntilLive))
 }

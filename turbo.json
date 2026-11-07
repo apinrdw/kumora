@@ -28,6 +28,7 @@
       "persistent": true,
       "passThroughEnv": [
         "DEPLOY_PROBE_SECRET",
+        "ADMIN_EMAILS",
         "ALCHEMY_STAGE",
         "ALCHEMY_PROFILE"
       ]

@@ -1,12 +1,14 @@
-import { IconChevronDown } from "@tabler/icons-react"
 import { Link } from "@tanstack/react-router"
 import { cn } from "@workspace/ui/lib/utils"
 
-import { NAV } from "@/lib/nav"
+import { NAV, visibleNav } from "@/lib/nav"
 import type { NavItem } from "@/lib/nav"
+import type { Viewer } from "@/server/auth/gate"
+
+import { UserMenu } from "./user-menu"
 
 /** 244px at ≥1280, 64px icon rail at 768–1279, hidden below (mobile uses the bottom nav). */
-export function AppSidebar() {
+export function AppSidebar({ viewer }: { viewer: Viewer }) {
   return (
     <nav
       aria-label="Navigasi utama"
@@ -33,7 +35,7 @@ export function AppSidebar() {
       </a>
 
       <div className="flex-1 overflow-y-auto px-1.5 py-3 xl:px-2.5">
-        {NAV.map((group) => (
+        {visibleNav(NAV, viewer.features).map((group) => (
           <div key={group.label} className="mb-3 flex flex-col gap-0.5">
             <span className="num hidden px-2.5 pb-1.5 text-[10px] font-medium tracking-[0.16em] text-muted-foreground uppercase xl:block">
               {group.label}
@@ -55,22 +57,8 @@ export function AppSidebar() {
         </span>
       </div>
 
-      <div className="flex items-center justify-center gap-2.5 border-t border-sidebar-border p-3 xl:justify-start">
-        <span
-          aria-hidden
-          className="num bg-elevated grid size-8 shrink-0 place-items-center rounded-full border border-border text-xs font-semibold"
-        >
-          AR
-        </span>
-        <span className="hidden min-w-0 flex-1 flex-col leading-[1.2] xl:flex">
-          <b className="truncate text-[13px] font-semibold text-foreground">
-            Apin Ridwan
-          </b>
-          <span className="num text-[10px] tracking-[0.1em] text-primary uppercase">
-            Pro · Sonar
-          </span>
-        </span>
-        <IconChevronDown className="hidden size-4 text-muted-foreground xl:block" />
+      <div className="border-t border-sidebar-border">
+        <UserMenu viewer={viewer} variant="rail" />
       </div>
       <p className="hidden px-3 pb-3 text-[11px] leading-4 text-muted-foreground xl:block">
         Analisis AI adalah dukungan keputusan, bukan saran investasi individual.
