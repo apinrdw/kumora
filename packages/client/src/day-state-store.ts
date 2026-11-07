@@ -1,4 +1,4 @@
-import { Effect, Stream } from "effect"
+import { Effect, Fiber, Stream } from "effect"
 
 import type { DayStateCode } from "./day-state-code.ts"
 import { FrameScheduler } from "./frame-scheduler.ts"
@@ -39,6 +39,7 @@ export const makeDayStateStore = Effect.fnUntraced(function* <A, R>(options: {
   const listeners = new Set<() => void>()
   let snapshot = options.initial
   let frameScheduled = false
+  let lastFrame: Fiber.Fiber<void> | undefined
   let stop: (() => void) | undefined
 
   const notify = Effect.sync(() => {
@@ -60,16 +61,26 @@ export const makeDayStateStore = Effect.fnUntraced(function* <A, R>(options: {
       if (frameScheduled) return Effect.void
       frameScheduled = true
       // A child of the source fiber, so stopping the source cancels the frame.
-      return Effect.asVoid(Effect.forkChild(frame))
+      return Effect.map(Effect.forkChild(frame), (fiber) => {
+        lastFrame = fiber
+      })
     })
 
-  const feed = Stream.runForEach(options.source, apply)
+  // A finite source waits for its last frame, so its final update notifies.
+  const runSource = Stream.runForEach(options.source, apply).pipe(
+    Effect.andThen(
+      Effect.suspend(() =>
+        lastFrame === undefined ? Effect.void : Fiber.await(lastFrame)
+      )
+    ),
+    Effect.asVoid
+  )
 
   const subscribe = (listener: () => void) => {
     // A fresh entry per subscription, so subscribing one listener twice counts twice.
     const entry = () => listener()
     listeners.add(entry)
-    if (stop === undefined) stop = run(feed)
+    if (stop === undefined) stop = run(runSource)
     return () => {
       listeners.delete(entry)
       if (listeners.size === 0 && stop !== undefined) {
