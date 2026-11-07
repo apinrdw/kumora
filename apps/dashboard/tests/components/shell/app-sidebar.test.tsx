@@ -24,7 +24,7 @@ describe("AppSidebar", () => {
     } as const
     const html = await renderAt("/", () => <AppSidebar viewer={admin} />)
     expect(html).toContain(">Admin<")
-    expect(html).toMatch(/<a title="Users"[^>]*href="\/admin\/users"/)
+    expect(html).toMatch(/<a title="Accounts"[^>]*href="\/admin\/users"/)
   })
 
   test("the brand links home", async () => {

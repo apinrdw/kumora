@@ -35,7 +35,7 @@ test("an admin views the dashboard as a member, read-only, and stops", async ({
   await test.step("Stop returns to the admin's own session", async () => {
     await banner.getByRole("button", { name: "Stop" }).click()
     await expect(page).toHaveURL(USERS)
-    await expect(page.getByRole("heading", { name: "Users" })).toBeVisible()
+    await expect(page.getByRole("heading", { name: "Accounts" })).toBeVisible()
     await expect(banner).toHaveCount(0)
   })
 })

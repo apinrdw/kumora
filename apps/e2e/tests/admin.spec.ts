@@ -13,7 +13,7 @@ test.describe("a member", () => {
     await expect(
       page.getByRole("heading", { name: "Halaman tidak ditemukan" })
     ).toBeVisible()
-    await expect(page.getByRole("link", { name: "Users" })).toHaveCount(0)
+    await expect(page.getByRole("link", { name: "Accounts" })).toHaveCount(0)
   })
 })
 
@@ -22,8 +22,8 @@ test.describe("an admin", () => {
 
   test("finds accounts on /admin/users", async ({ page }) => {
     await page.goto(USERS)
-    await expect(page.getByRole("heading", { name: "Users" })).toBeVisible()
-    await expect(page.getByRole("link", { name: "Users" })).toBeVisible()
+    await expect(page.getByRole("heading", { name: "Accounts" })).toBeVisible()
+    await expect(page.getByRole("link", { name: "Accounts" })).toBeVisible()
     const table = page.getByRole("table", { name: "Accounts" })
     await expect(
       table.getByRole("cell", { name: MEMBER.email, exact: true })
@@ -41,9 +41,9 @@ test.describe("an admin", () => {
     await expect(member).toContainText("Active")
     await expect(member).toContainText("Password")
 
-    // The Users link clears the search; the box follows the URL and doesn't
+    // The Accounts link clears the search; the box follows the URL and doesn't
     // write the old search back.
-    await page.getByRole("link", { name: "Users" }).click()
+    await page.getByRole("link", { name: "Accounts" }).click()
     await expect(search).toHaveValue("")
     await expect(page).toHaveURL(USERS)
     await expect(
