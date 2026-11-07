@@ -5,6 +5,7 @@ import { Effect } from "effect"
 import {
   ADMIN_EMAIL,
   BASE_URL,
+  cookiesAfter,
   cookiesFrom,
   linkIn,
   post,
@@ -331,6 +332,39 @@ describe("a sign-up on an unverified email", () => {
         assert.strictEqual(mails.length, 3)
         assert.strictEqual(mails[2]?.subject, "Set your KUMORA password")
         assert.include(mails[2]?.text, `${BASE_URL}/api/auth/reset-password/`)
+      }).pipe(Effect.provide(layer))
+    }
+  )
+
+  // The repeat sign-up voided the browser's session; its 5-minute cookie
+  // cache must go with it, or Resend takes the session path and mails a
+  // verify link for an account with no password.
+  it.effect(
+    "in the first browser clears its session cookies, so its Resend mails a set-password link",
+    () => {
+      const { layer, mails } = seam()
+      return Effect.gen(function* () {
+        const squatter = cookiesFrom(yield* signUp(EMAIL, SQUATTED))
+        const again = yield* signUp(EMAIL, OWN, { cookie: squatter })
+        assert.strictEqual(again.status, 200)
+        const cookie = cookiesAfter(squatter, again)
+        const resent = yield* post(
+          "/send-verification-email",
+          { email: EMAIL, callbackURL: "/" },
+          { cookie }
+        )
+        assert.strictEqual(resent.status, 200)
+        assert.strictEqual(mails.length, 3)
+        assert.strictEqual(mails[2]?.subject, "Set your KUMORA password")
+        assert.notInclude(mails[2]?.text, "/verify-email?")
+        assert.notInclude(cookie, "better-auth.session_token=")
+        assert.notInclude(cookie, "better-auth.session_data=")
+        assert.strictEqual((yield* resetWith(mails[2], OWN)).status, 200)
+        const owner = yield* signIn(EMAIL, OWN)
+        assert.strictEqual(owner.status, 200)
+        assert.isTrue(
+          (yield* sessionOf(cookiesFrom(owner)))?.user.emailVerified
+        )
       }).pipe(Effect.provide(layer))
     }
   )
