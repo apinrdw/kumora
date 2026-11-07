@@ -1,12 +1,14 @@
-import { expect, test } from "@playwright/test"
-
 import { ADMIN, DASHBOARD } from "../support/accounts"
 import { signIn, signInUrl, signUp } from "../support/flows"
+import { expect, newClientContext, test } from "../support/test"
 
 const REASON = "Shared the account"
 
+test.use({ storageState: ADMIN.storageState })
+
 test("an admin bans a member, and the member sees the suspended screen", async ({
   browser,
+  page: admin,
 }) => {
   // Its own account: banning a shared one would end the sessions the other
   // specs share.
@@ -15,15 +17,11 @@ test("an admin bans a member, and the member sees the suspended screen", async (
     email: `banned-${Date.now()}@example.com`,
     password: "banned passphrase",
   }
-  const memberContext = await browser.newContext()
+  const memberContext = await newClientContext(browser)
   const memberPage = await memberContext.newPage()
   await memberPage.goto(`${DASHBOARD}/sign-up`)
   await signUp(memberPage, member)
 
-  const adminContext = await browser.newContext({
-    storageState: ADMIN.storageState,
-  })
-  const admin = await adminContext.newPage()
   await admin.goto(
     `${DASHBOARD}/admin/users?q=${encodeURIComponent(member.email)}`
   )
@@ -52,6 +50,5 @@ test("an admin bans a member, and the member sees the suspended screen", async (
   await expect(memberPage.getByText(REASON)).toHaveCount(0)
   await expect(memberPage.getByLabel("Password")).toHaveCount(0)
 
-  await adminContext.close()
   await memberContext.close()
 })
