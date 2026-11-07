@@ -19,7 +19,7 @@ const ROLE = { admin: "Admin", member: "Member" } as const satisfies Record<
 >
 
 /** Email, role and sign-in methods, read-only; the display name, editable. */
-export function ProfileSection({
+export function DetailsSection({
   page,
   canEdit,
 }: {
@@ -39,7 +39,7 @@ export function ProfileSection({
     })
   }
   return (
-    <AccountSection title="Profile">
+    <AccountSection title="Details">
       <dl className="grid grid-cols-[max-content_1fr] gap-x-6 gap-y-2 text-[13px]">
         <dt className="text-muted-foreground">Email</dt>
         <dd className="min-w-0 truncate">{page.email}</dd>

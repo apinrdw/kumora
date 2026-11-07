@@ -3,7 +3,7 @@ import { createFileRoute } from "@tanstack/react-router"
 import { DeleteSection } from "@/components/account/delete-section"
 import { EmailSection } from "@/components/account/email-section"
 import { PasswordSection } from "@/components/account/password-section"
-import { ProfileSection } from "@/components/account/profile-section"
+import { DetailsSection } from "@/components/account/details-section"
 import { SessionsSection } from "@/components/account/sessions-section"
 import { accountPageFn } from "@/server/auth/account-page.functions"
 
@@ -33,7 +33,7 @@ function AccountPage() {
           </p>
         )}
       </header>
-      <ProfileSection
+      <DetailsSection
         page={page}
         canEdit={page.allowed["own.update-profile"]}
       />
