@@ -6,8 +6,10 @@ import { Forbidden, HttpError, NotFound, Unauthorized } from "@workspace/server"
 import { APIError } from "better-auth/api"
 import { Cause, Effect, Exit, Schema, type Context } from "effect"
 
+import { RETRY_AFTER_HEADER } from "../../lib/retry-after.ts"
 import { Accounts } from "./accounts.ts"
 import { AdminEmails } from "./admin-emails.ts"
+import { MailCap, TooManyMails } from "./mail-cap.ts"
 import { Mailer } from "./mailer.ts"
 import type { TargetUser, WrittenUser } from "./options.ts"
 import {
@@ -25,7 +27,7 @@ import {
   type BetterAuthSession,
 } from "./session-account.ts"
 
-const isHttpError = Schema.is(HttpError)
+const isKnown = Schema.is(Schema.Union([HttpError, TooManyMails]))
 
 const STATUS = {
   NotFound: "NOT_FOUND",
@@ -35,11 +37,17 @@ const STATUS = {
   Unauthorized: "UNAUTHORIZED",
 } as const satisfies Record<HttpError["_tag"], string>
 
-const toAPIError = (error: HttpError) =>
-  new APIError(STATUS[error._tag], {
-    code: error._tag,
-    message: "message" in error ? error.message : undefined,
-  })
+const toAPIError = (error: HttpError | TooManyMails) =>
+  error._tag === "TooManyMails"
+    ? new APIError(
+        "TOO_MANY_REQUESTS",
+        { code: error._tag, message: "Too many requests. Try again later." },
+        { [RETRY_AFTER_HEADER]: String(error.retryAfter) }
+      )
+    : new APIError(STATUS[error._tag], {
+        code: error._tag,
+        message: "message" in error ? error.message : undefined,
+      })
 
 export type CallbackRunner<R> = <A, E>(
   effect: Effect.Effect<A, E, R>
@@ -55,7 +63,7 @@ export function makeCallbackRunner<R>(
     const errors = exit.cause.reasons
       .filter(Cause.isFailReason)
       .map((reason) => reason.error)
-    if (!Cause.hasDies(exit.cause) && errors.every(isHttpError) && errors[0])
+    if (!Cause.hasDies(exit.cause) && errors.every(isKnown) && errors[0])
       throw toAPIError(errors[0])
     await run(Effect.logError("Auth callback failed", exit.cause))
     throw new APIError("INTERNAL_SERVER_ERROR")
@@ -64,6 +72,7 @@ export function makeCallbackRunner<R>(
 
 export const sendVerificationEmail = Effect.fn("sendVerificationEmail")(
   function* (email: string, url: string) {
+    yield* (yield* MailCap).take(email)
     const mailer = yield* Mailer
     yield* mailer.send({
       to: email,
@@ -79,10 +88,13 @@ export const sendVerificationEmail = Effect.fn("sendVerificationEmail")(
   }
 )
 
+// Better Auth runs this send in the background and only logs its failure, so
+// a capped address still sees the neutral "Reset link sent".
 export const sendResetPassword = Effect.fn("sendResetPassword")(function* (
   email: string,
   url: string
 ) {
+  yield* (yield* MailCap).take(email)
   const mailer = yield* Mailer
   yield* mailer.send({
     to: email,
@@ -119,6 +131,9 @@ export const sendChangeEmailConfirmation = Effect.fn(
 
 export const sendNewEmailVerification = Effect.fn("sendNewEmailVerification")(
   function* (email: string, url: string) {
+    // A verification mail, so it counts toward the new address's cap. Better
+    // Auth sends it in the background, so over the cap it is only logged.
+    yield* (yield* MailCap).take(email)
     const mailer = yield* Mailer
     yield* mailer.send({
       to: email,

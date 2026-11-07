@@ -4,6 +4,7 @@ import type { FormEvent } from "react"
 import { KButton, KInput } from "@/components/k"
 import { authClient } from "@/lib/auth-client"
 import { MIN_PASSWORD_LENGTH } from "@/lib/password"
+import { retryAfter } from "@/lib/retry-after"
 
 import {
   AccountSection,
@@ -25,18 +26,24 @@ export function PasswordSection({ canChange }: { canChange: boolean }) {
     const form = event.currentTarget
     const data = new FormData(form)
     void run(async () => {
-      const { error } = await authClient.changePassword({
-        currentPassword: String(data.get("currentPassword")),
-        newPassword: String(data.get("newPassword")),
-        revokeOtherSessions: data.get("revokeOtherSessions") === "on",
-      })
+      const retry = retryAfter()
+      const { error } = await authClient.changePassword(
+        {
+          currentPassword: String(data.get("currentPassword")),
+          newPassword: String(data.get("newPassword")),
+          revokeOtherSessions: data.get("revokeOtherSessions") === "on",
+        },
+        { onError: retry.onError }
+      )
       if (error)
         return {
           _tag: "Failed",
           message:
             error.code === "INVALID_PASSWORD"
               ? "The current password is wrong."
-              : "Couldn't change the password. Try again.",
+              : error.status === 429
+                ? retry.message()
+                : "Couldn't change the password. Try again.",
         }
       form.reset()
       return { _tag: "Done", message: "Password changed." }
