@@ -222,6 +222,39 @@ describe("Day state store", () => {
       })
   )
 
+  it.effect(
+    "notifies after resubscribing while the stopped source still cleans up",
+    () =>
+      Effect.gen(function* () {
+        const updates = yield* Queue.unbounded<DayStateUpdate<TestDayState>>()
+        const cleanedUp = yield* Deferred.make<void>()
+        const frames = yield* manualFrames
+        const store = yield* makeDayStateStore({
+          source: Stream.fromQueue(updates).pipe(
+            Stream.ensuring(Deferred.await(cleanedUp))
+          ),
+          initial,
+        }).pipe(Effect.provideService(FrameScheduler, frames.scheduler))
+
+        const first = store.subscribe(() => {})
+        yield* Queue.offer(updates, { code: BBCA, dayState: { last: 9_825 } })
+        yield* settle
+        first()
+        yield* settle
+
+        let notified = 0
+        const again = store.subscribe(() => notified++)
+        yield* settle
+        yield* Queue.offer(updates, { code: TLKM, dayState: { last: 3_110 } })
+        yield* settle
+        yield* Deferred.succeed(cleanedUp, undefined)
+        yield* settle
+        yield* frames.step
+        assert.strictEqual(notified, 1)
+        again()
+      })
+  )
+
   it.effect("keeps an update whose frame the last unsubscribe cancelled", () =>
     Effect.gen(function* () {
       const { store, frames, push } = yield* harness
