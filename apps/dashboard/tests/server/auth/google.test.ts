@@ -2,6 +2,7 @@ import { assert, describe, it } from "@effect/vitest"
 import { Effect } from "effect"
 import { vi } from "vitest"
 
+import { Auth } from "@/server/auth/auth"
 import { googleClient } from "@/server/auth/google"
 import type { Mail } from "@/server/auth/mailer"
 
@@ -119,7 +120,7 @@ describe("Google on the email of a password account", () => {
   )
 
   it.effect("links to it once it is verified, and signs in", () => {
-    const { layer, mails } = seam(undefined, { google: GOOGLE })
+    const { layer, mails, database } = seam(undefined, { google: GOOGLE })
     return Effect.gen(function* () {
       yield* verified(mails, "ayu@example.com")
       const response = yield* googleReturns("ayu@example.com")
@@ -130,13 +131,11 @@ describe("Google on the email of a password account", () => {
         (yield* sessionOf(cookie))?.user.email,
         "ayu@example.com"
       )
-      const accounts = yield* json<ReadonlyArray<{ providerId: string }>>(
-        yield* send("/list-accounts", { headers: { cookie } })
-      )
-      assert.deepStrictEqual(
-        accounts.map((account) => account.providerId).sort(),
-        ["credential", "google"]
-      )
+      const { id } = database
+        .prepare(`select "id" from "user" where "email" = ?`)
+        .get("ayu@example.com") as { id: string }
+      const providers = yield* (yield* Auth).providersOf(id)
+      assert.deepStrictEqual([...providers].sort(), ["credential", "google"])
     }).pipe(Effect.provide(layer))
   })
 })

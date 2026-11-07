@@ -2,6 +2,7 @@ import { assert, describe, it } from "@effect/vitest"
 import { Effect } from "effect"
 import type { DatabaseSync } from "node:sqlite"
 
+import { listAccounts } from "@/server/admin/accounts"
 import type { Mail } from "@/server/auth/mailer"
 
 import {
@@ -37,18 +38,6 @@ const idOf = (database: DatabaseSync, email: string) =>
     )?.id
   )
 
-// The newest session's token: the one the account's cookies hold.
-const tokenOf = (database: DatabaseSync, email: string) =>
-  String(
-    (
-      database
-        .prepare(
-          `select "token" from "session" join "user" on "user"."id" = "session"."userId" where "email" = ? order by "session"."createdAt" desc`
-        )
-        .get(email) as { token: string } | undefined
-    )?.token
-  )
-
 const signIn = (email: string) =>
   post("/sign-in/email", { email, password: PASSWORD })
 
@@ -73,7 +62,6 @@ const accounts = () => {
     return {
       cookies: { configAdmin, other, plain, member },
       id: (email: string) => idOf(database, email),
-      token: (email: string) => tokenOf(database, email),
       // As if the email went on ADMIN_EMAILS after it was verified: the
       // stored role is still member.
       storeAsMember: (email: string) =>
@@ -111,20 +99,6 @@ describe("admin actions on a config admin", () => {
       const session = yield* sessionOf(cookies.configAdmin)
       assert.strictEqual(session?.user.role, "admin")
       assert.strictEqual((yield* signIn(ADMIN_EMAIL)).status, 200)
-    }).pipe(Effect.provide(layer))
-  })
-
-  it.effect("refuse to end one of its sessions, with 403", () => {
-    const { layer, setup } = accounts()
-    return Effect.gen(function* () {
-      const { cookies, token } = yield* setup
-      const response = yield* post(
-        "/admin/revoke-user-session",
-        { sessionToken: token(ADMIN_EMAIL) },
-        { cookie: cookies.plain }
-      )
-      assert.strictEqual(response.status, 403)
-      assert.isNotNull(yield* sessionOf(cookies.configAdmin))
     }).pipe(Effect.provide(layer))
   })
 })
@@ -165,10 +139,10 @@ describe("an email put on ADMIN_EMAILS after it was verified", () => {
     return Effect.gen(function* () {
       const { cookies, storeAsMember } = yield* setup
       storeAsMember(OTHER_CONFIG_ADMIN)
-      const response = yield* send("/admin/list-users", {
-        headers: { cookie: cookies.other },
+      const page = yield* listAccounts(new Headers({ cookie: cookies.other }), {
+        q: MEMBER,
       })
-      assert.strictEqual(response.status, 200)
+      assert.strictEqual(page.total, 1)
     }).pipe(Effect.provide(layer))
   })
 
@@ -262,62 +236,6 @@ describe("an admin acting on a member", () => {
       assert.strictEqual((yield* signIn(MEMBER)).status, 200)
     }).pipe(Effect.provide(layer))
   })
-
-  it.effect("ends one of its sessions", () => {
-    const { layer, setup } = accounts()
-    return Effect.gen(function* () {
-      const { cookies, token } = yield* setup
-      const response = yield* post(
-        "/admin/revoke-user-session",
-        { sessionToken: token(MEMBER) },
-        { cookie: cookies.plain }
-      )
-      assert.strictEqual(response.status, 200)
-      assert.isNull(yield* sessionOf(cookies.member))
-    }).pipe(Effect.provide(layer))
-  })
-})
-
-// The admin plugin's routes that read accounts ask the policy too.
-const READS = [
-  [
-    "list accounts",
-    (_: string, cookie: string) =>
-      send("/admin/list-users", { headers: { cookie } }),
-  ],
-  [
-    "read an account",
-    (id: string, cookie: string) =>
-      send(`/admin/get-user?id=${id}`, { headers: { cookie } }),
-  ],
-  [
-    "list an account's sessions",
-    (id: string, cookie: string) =>
-      post("/admin/list-user-sessions", { userId: id }, { cookie }),
-  ],
-] as const
-
-describe("admin reads", () => {
-  it.effect.each(READS)("let an admin %s", ([, read]) => {
-    const { layer, setup } = accounts()
-    return Effect.gen(function* () {
-      const { cookies, id } = yield* setup
-      const response = yield* read(id(MEMBER), cookies.plain)
-      assert.strictEqual(response.status, 200)
-    }).pipe(Effect.provide(layer))
-  })
-
-  it.effect.each(READS)(
-    "answer not found to a member who asks to %s",
-    ([, read]) => {
-      const { layer, setup } = accounts()
-      return Effect.gen(function* () {
-        const { cookies, id } = yield* setup
-        const response = yield* read(id(PLAIN_ADMIN), cookies.member)
-        assert.strictEqual(response.status, 404)
-      }).pipe(Effect.provide(layer))
-    }
-  )
 })
 
 describe("admin plugin routes the dashboard doesn't offer", () => {
@@ -330,6 +248,10 @@ describe("admin plugin routes the dashboard doesn't offer", () => {
     ["/admin/remove-user", { userId: "x" }],
     ["/admin/set-user-password", { userId: "x", newPassword: PASSWORD }],
     ["/admin/has-permission", { permissions: { user: ["list"] } }],
+    ["/admin/list-users", {}],
+    ["/admin/get-user", { id: "x" }],
+    ["/admin/list-user-sessions", { userId: "x" }],
+    ["/admin/revoke-user-session", { sessionToken: "x" }],
   ] as const)("answer not found even to a config admin: %s", ([path, body]) => {
     const { layer, setup } = accounts()
     return Effect.gen(function* () {

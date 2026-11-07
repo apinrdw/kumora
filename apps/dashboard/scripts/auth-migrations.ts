@@ -43,7 +43,6 @@ const { compileMigrations, unsafeChanges, schemaProblems } =
       grantAdmin: async () => {},
       authorizeOwnAction: async () => {},
       authorizeEmailChange: async () => {},
-      authorizeListAccounts: async () => {},
       authorizeAdminAction: async () => {},
     }),
     { throwOnUnsafe: false }

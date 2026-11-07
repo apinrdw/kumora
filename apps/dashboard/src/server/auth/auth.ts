@@ -8,7 +8,6 @@ import { AdminEmails } from "./admin-emails.ts"
 import {
   authorizeAdminAction,
   authorizeEmailChange,
-  authorizeListAccounts,
   authorizeOwnAction,
   grantAdmin,
   makeCallbackRunner,
@@ -42,7 +41,6 @@ export type AuthConfig = Omit<
   | "sendDeleteAccountLink"
   | "authorizeOwnAction"
   | "authorizeEmailChange"
-  | "authorizeListAccounts"
   | "authorizeAdminAction"
   | "grantAdmin"
 >
@@ -118,8 +116,6 @@ export class Auth extends Context.Service<
               run(authorizeOwnAction(action, session)),
             authorizeEmailChange: ({ user, session }) =>
               run(authorizeEmailChange(user, session)),
-            authorizeListAccounts: ({ session }) =>
-              run(authorizeListAccounts(session)),
             authorizeAdminAction: ({ action, session, target }) =>
               run(authorizeAdminAction(action, session, target)),
           })

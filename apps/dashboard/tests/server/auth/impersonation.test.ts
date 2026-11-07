@@ -188,7 +188,6 @@ describe("while impersonating", () => {
     ["/change-email", { newEmail: "elsewhere@example.com" }],
     ["/delete-user", {}],
     ["/revoke-session", { token: "any" }],
-    ["/revoke-sessions", {}],
     ["/revoke-other-sessions", {}],
   ] as const)("%s is refused with 403", ([path, body]) => {
     const { layer, mails } = seam()
@@ -264,10 +263,6 @@ describe("while impersonating", () => {
           (yield* sessionOf(member.cookie))?.user.email,
           MEMBER
         )
-        const listed = yield* send("/admin/list-users?limit=10", {
-          headers: { cookie: viewing },
-        })
-        assert.strictEqual(listed.status, 404)
       }).pipe(Effect.provide(layer))
     }
   )
@@ -277,7 +272,7 @@ describe("while impersonating", () => {
     return Effect.gen(function* () {
       const { member, viewing } = yield* viewingAsMember(mails)
       yield* post("/update-user", { name: "Someone Else" }, { cookie: viewing })
-      yield* post("/revoke-sessions", {}, { cookie: viewing })
+      yield* post("/revoke-other-sessions", {}, { cookie: viewing })
       const own = yield* sessionOf(member.cookie)
       assert.strictEqual(own?.user.name, "ayu")
     }).pipe(Effect.provide(layer))

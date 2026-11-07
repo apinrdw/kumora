@@ -1,6 +1,7 @@
 import { assert, describe, it } from "@effect/vitest"
 import { Effect } from "effect"
 
+import { Auth } from "@/server/auth/auth"
 import type { Mail } from "@/server/auth/mailer"
 
 import {
@@ -81,13 +82,8 @@ describe("change email", () => {
       yield* send(linkIn(mails.at(-1)), { headers: { cookie } })
       yield* send(linkIn(mails.at(-1)), { headers: { cookie } })
 
-      const accounts = yield* send("/list-accounts", { headers: { cookie } })
-      const providers = (
-        (yield* Effect.promise(() => accounts.json())) as Array<{
-          providerId: string
-        }>
-      ).map((account) => account.providerId)
-      assert.sameMembers(providers, ["credential", "google"])
+      const providers = yield* (yield* Auth).providersOf(id)
+      assert.sameMembers([...providers], ["credential", "google"])
       assert.strictEqual((yield* sessionOf(cookie))?.user.email, NEW)
     }).pipe(Effect.provide(layer))
   })

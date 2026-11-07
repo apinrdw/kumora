@@ -78,11 +78,6 @@ export interface AuthOptionsInput {
     readonly user: TargetUser
     readonly session: BetterAuthSession | null
   }) => Promise<void>
-  // Throws Better Auth's APIError when the access policy refuses to list
-  // accounts.
-  readonly authorizeListAccounts: (request: {
-    readonly session: BetterAuthSession | null
-  }) => Promise<void>
   // Throws Better Auth's APIError when the access policy refuses the action.
   readonly authorizeAdminAction: (request: {
     readonly action: TargetAction
@@ -217,72 +212,59 @@ const OWN_ACCOUNT_ROUTES: Readonly<Partial<Record<string, OwnAction>>> = {
   "/update-user": "own.update-details",
   "/change-password": "own.change-password",
   "/revoke-session": "own.end-sessions",
-  "/revoke-sessions": "own.end-sessions",
   "/revoke-other-sessions": "own.end-sessions",
   "/change-email": "own.change-email",
   "/delete-user": "own.delete",
   "/delete-user/callback": "own.delete",
 }
 
-// The admin plugin's routes that act on one account, and the body field that
-// names it: a user id, or the token of one of its sessions.
-const ADMIN_ROUTES: Readonly<
-  Partial<
-    Record<
-      string,
-      { readonly action: TargetAction; readonly by: "userId" | "sessionToken" }
-    >
-  >
-> = {
-  "/admin/ban-user": { action: "admin.ban", by: "userId" },
-  "/admin/unban-user": { action: "admin.unban", by: "userId" },
-  "/admin/impersonate-user": { action: "admin.impersonate", by: "userId" },
-  "/admin/set-role": { action: "admin.set-role", by: "userId" },
-  "/admin/revoke-user-sessions": { action: "admin.end-sessions", by: "userId" },
-  "/admin/revoke-user-session": {
-    action: "admin.end-sessions",
-    by: "sessionToken",
-  },
+// The admin plugin's routes that act on one account, named by the userId in
+// the body. stop-impersonating is not here: it acts only on an impersonation
+// session, which Better Auth checks itself.
+const ADMIN_ROUTES: Readonly<Partial<Record<string, TargetAction>>> = {
+  "/admin/ban-user": "admin.ban",
+  "/admin/unban-user": "admin.unban",
+  "/admin/impersonate-user": "admin.impersonate",
+  "/admin/set-role": "admin.set-role",
+  "/admin/revoke-user-sessions": "admin.end-sessions",
 }
 
-// The admin plugin's routes that read accounts, as admin.list-accounts.
-// stop-impersonating is not here: it acts only on an impersonation session,
-// which Better Auth checks itself.
-const ADMIN_READ_ROUTES: ReadonlySet<string> = new Set([
-  "/admin/list-users",
-  "/admin/get-user",
-  "/admin/list-user-sessions",
-])
-
-// The routes the dashboard offers nobody, so no policy rule covers them:
-// Better Auth answers 404 to every caller. The sign-in method routes would
-// otherwise let an admin viewing as a member unlink or link the member's
-// Google, or read its tokens; the spec has no unlinking (apinrdw/kumora#80,
-// "User settings").
+// Every route Better Auth mounts that the dashboard offers nobody, so no
+// policy rule covers it: Better Auth answers 404 to every caller. The set is
+// held against the router's own endpoints in tests/server/auth/routes.test.ts.
+// Each would otherwise reach an account, or an admin viewing as a member,
+// past the policy: the sign-in method routes unlink or link the member's
+// Google or read its tokens, and the spec has no unlinking (apinrdw/kumora#80,
+// "User settings"); /verify-password checks the member's password, 100 tries
+// per 10 seconds, though Better Auth marks it server-scoped; the admin reads
+// list what the admin pages read through the policy already.
 const DISABLED_ROUTES = [
   "/admin/create-user",
   "/admin/update-user",
   "/admin/remove-user",
   "/admin/set-user-password",
   "/admin/has-permission",
+  "/admin/list-users",
+  "/admin/get-user",
+  "/admin/list-user-sessions",
+  "/admin/revoke-user-session",
   "/unlink-account",
   "/link-social",
   "/refresh-token",
   "/get-access-token",
   "/account-info",
+  "/list-accounts",
+  "/list-sessions",
+  "/revoke-sessions",
   "/update-session",
+  "/verify-password",
+  "/ok",
 ]
 
-const targetUser = async (
-  ctx: HookContext,
-  by: "userId" | "sessionToken"
-): Promise<TargetUser | null> => {
-  const key: unknown = ctx.body?.[by]
-  if (typeof key !== "string" && typeof key !== "number") return null
-  const { internalAdapter } = ctx.context
-  return by === "userId"
-    ? internalAdapter.findUserById(String(key))
-    : ((await internalAdapter.findSession(String(key)))?.user ?? null)
+const targetUser = async (ctx: HookContext): Promise<TargetUser | null> => {
+  const userId: unknown = ctx.body?.userId
+  if (typeof userId !== "string" && typeof userId !== "number") return null
+  return ctx.context.internalAdapter.findUserById(String(userId))
 }
 
 const lookup = <A>(table: Readonly<Partial<Record<string, A>>>, path: string) =>
@@ -328,24 +310,18 @@ const before = (input: AuthOptionsInput) =>
       return authorizeEmailChangeLink(ctx, input)
     const own = lookup(OWN_ACCOUNT_ROUTES, ctx.path)
     const onAccount = lookup(ADMIN_ROUTES, ctx.path)
-    const read = ADMIN_READ_ROUTES.has(ctx.path)
-    if (own === undefined && onAccount === undefined && !read) return
+    if (own === undefined && onAccount === undefined) return
     // Past the cookie cache, so a session ended elsewhere acts on nothing and
     // admin power always sees the current role.
     const session = await getAuthoritativeSessionFromCtx(ctx)
     if (own !== undefined)
       return input.authorizeOwnAction({ action: own, session })
-    if (read) return input.authorizeListAccounts({ session })
     if (onAccount === undefined) return
-    const target = await targetUser(ctx, onAccount.by)
+    const target = await targetUser(ctx)
     // No such account: Better Auth answers for it, and there is nothing to
     // protect.
     if (target === null) return
-    await input.authorizeAdminAction({
-      action: onAccount.action,
-      session,
-      target,
-    })
+    await input.authorizeAdminAction({ action: onAccount, session, target })
   })
 
 const after = (input: AuthOptionsInput) =>

@@ -286,17 +286,6 @@ export const verifyByPasswordReset = Effect.fn("verifyByPasswordReset")(
 const storeGrant = (found: BetterAuthSession | null) =>
   found === null ? Effect.void : grantAdmin(found.user)
 
-export const authorizeListAccounts = Effect.fn("authorizeListAccounts")(
-  function* (found: BetterAuthSession | null) {
-    const adminEmails = yield* AdminEmails
-    const session = found && authSessionOf(found, adminEmails)
-    yield* hookVerdict(
-      decide(accountOf(session), "admin.list-accounts", { feature: "admin" })
-    )
-    yield* storeGrant(found)
-  }
-)
-
 // The config-admin and self protections are the policy's admin rules. The
 // admin plugin's own role check runs after this hook.
 export const authorizeAdminAction = Effect.fn("authorizeAdminAction")(

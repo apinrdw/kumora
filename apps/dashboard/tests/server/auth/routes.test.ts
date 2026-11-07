@@ -46,7 +46,10 @@ interface Endpoint {
   readonly path?: string
   readonly options?: {
     readonly method?: string | ReadonlyArray<string>
-    readonly metadata?: { readonly SERVER_ONLY?: boolean }
+    readonly metadata?: {
+      readonly SERVER_ONLY?: boolean
+      readonly [key: string]: unknown
+    }
   }
 }
 
@@ -71,7 +74,6 @@ const mountedRoutes = () => {
     grantAdmin: noop,
     authorizeOwnAction: noop,
     authorizeEmailChange: noop,
-    authorizeListAccounts: noop,
     authorizeAdminAction: noop,
   })
   const api: Record<string, Endpoint> = betterAuth(options).api
