@@ -5,7 +5,16 @@ import { Effect } from "effect"
 import { gatePage, verifyScreen } from "@/server/auth/gate"
 import type { Mail } from "@/server/auth/mailer"
 
-import { ADMIN_EMAIL, cookiesFrom, linkIn, seam, send, signUp } from "./seam.ts"
+import {
+  ADMIN_EMAIL,
+  cookiesAfter,
+  cookiesFrom,
+  linkIn,
+  post,
+  seam,
+  send,
+  signUp,
+} from "./seam.ts"
 
 const page = {
   href: "/market-live?day=2026-11-06",
@@ -141,6 +150,35 @@ describe("verifyScreen", () => {
       })
     }).pipe(Effect.provide(layer))
   })
+
+  it.effect(
+    "shows an admin viewing as an unverified member the screen, marked as viewed by an admin",
+    () => {
+      const { layer, mails } = seam()
+      return Effect.gen(function* () {
+        const admin = yield* verified(mails)(ADMIN_EMAIL)
+        const created = yield* signUp("ayu@example.com")
+        const { user } = yield* Effect.promise(
+          () => created.json() as Promise<{ user: { id: string } }>
+        )
+        const response = yield* post(
+          "/admin/impersonate-user",
+          { userId: user.id },
+          { cookie: admin }
+        )
+        assert.strictEqual(response.status, 200)
+        const screen = yield* verifyScreen(
+          headers(cookiesAfter(admin, response)),
+          "/market-live"
+        )
+        assert.deepStrictEqual(screen, {
+          _tag: "Unverified",
+          email: "ayu@example.com",
+          impersonating: true,
+        })
+      }).pipe(Effect.provide(layer))
+    }
+  )
 
   it.effect("sends a session verified elsewhere on to the page", () => {
     const { layer, mails } = seam()

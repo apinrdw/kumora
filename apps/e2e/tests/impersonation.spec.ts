@@ -1,6 +1,7 @@
-import { expect, test } from "../support/test"
+import { expect, newClientContext, test } from "../support/test"
 
 import { ADMIN, DASHBOARD, MEMBER } from "../support/accounts"
+import { signUp } from "../support/flows"
 
 const USERS = `${DASHBOARD}/admin/users`
 
@@ -37,4 +38,37 @@ test("an admin views the dashboard as a member, read-only, and stops", async ({
     await expect(page.getByRole("heading", { name: "Users" })).toBeVisible()
     await expect(banner).toHaveCount(0)
   })
+})
+
+test("an admin viewing as an unverified member keeps Stop on the verify screen", async ({
+  browser,
+  page,
+}) => {
+  const banner = page.getByRole("status").filter({ hasText: "Viewing as" })
+  // Its own account, which never verifies.
+  const member = {
+    name: "Uni Unverified",
+    email: `unverified-${Date.now()}@example.com`,
+    password: "unverified passphrase",
+  }
+  const memberContext = await newClientContext(browser)
+  const memberPage = await memberContext.newPage()
+  await memberPage.goto(`${DASHBOARD}/sign-up`)
+  await signUp(memberPage, member)
+  await memberContext.close()
+
+  await page.goto(`${USERS}?q=${encodeURIComponent(member.email)}`)
+  await page
+    .getByRole("button", { name: `Actions for ${member.email}` })
+    .click()
+  await page.getByRole("menuitem", { name: "Impersonate" }).click()
+  await expect(page).toHaveURL(/\/verify\?/)
+  await expect(
+    page.getByRole("heading", { name: "Verify your email to continue" })
+  ).toBeVisible()
+  await expect(banner).toHaveText(`Viewing as ${member.email}·Stop`)
+
+  await banner.getByRole("button", { name: "Stop" }).click()
+  await expect(page).toHaveURL(USERS)
+  await expect(banner).toHaveCount(0)
 })
