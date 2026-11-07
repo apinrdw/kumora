@@ -99,8 +99,9 @@ export const Website = Cloudflare.Website.Vite(
         TURNSTILE_SECRET_KEY: turnstile.secretKey,
         // Infisical /dashboard on deployed and Dev stages; the process
         // environment on the Test stage (apps/e2e/playwright.config.ts sets
-        // it, turbo.json passes it through).
-        ADMIN_EMAILS: Config.String("ADMIN_EMAILS"),
+        // it, turbo.json passes it through). Redacted, so it binds as
+        // secret_text like the other Infisical values (packages/deploy/src/stack.ts).
+        ADMIN_EMAILS: Config.Redacted("ADMIN_EMAILS"),
         ...google,
       },
     }
