@@ -3,7 +3,7 @@
   "version": "0.0.1",
   "private": true,
   "scripts": {
-    "check": "pnpm typecheck && pnpm lint && pnpm format:check && pnpm test && node scripts/check-skill-links.mts && node scripts/check-decision-docs.mts && node scripts/check-no-gitlinks.mts && node scripts/check-package-scripts.mts",
+    "check": "pnpm typecheck && pnpm lint && pnpm format:check && pnpm test && node scripts/check-skill-links.mts && node scripts/check-decision-docs.mts && node scripts/check-no-gitlinks.mts && node scripts/check-package-scripts.mts && node scripts/check-oxlint-overrides.mts",
     "dev": "turbo dev",
     "lint": "turbo run lint lint:root",
     "lint:root": "oxlint scripts",
