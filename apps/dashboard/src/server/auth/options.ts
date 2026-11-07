@@ -145,14 +145,23 @@ const ADMIN_READ_ROUTES: ReadonlySet<string> = new Set([
   "/admin/list-user-sessions",
 ])
 
-// The admin plugin's routes the dashboard offers no admin, so no policy rule
-// covers them: Better Auth answers 404 to every caller.
+// The routes the dashboard offers nobody, so no policy rule covers them:
+// Better Auth answers 404 to every caller. The sign-in method routes would
+// otherwise let an admin viewing as a member unlink or link the member's
+// Google, or read its tokens; the spec has no unlinking (apinrdw/kumora#80,
+// "User settings").
 const DISABLED_ROUTES = [
   "/admin/create-user",
   "/admin/update-user",
   "/admin/remove-user",
   "/admin/set-user-password",
   "/admin/has-permission",
+  "/unlink-account",
+  "/link-social",
+  "/refresh-token",
+  "/get-access-token",
+  "/account-info",
+  "/update-session",
 ]
 
 const targetUser = async (
