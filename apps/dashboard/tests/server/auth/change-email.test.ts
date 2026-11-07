@@ -157,4 +157,17 @@ describe("change email", () => {
       assert.strictEqual(mails.length, sent)
     }).pipe(Effect.provide(layer))
   })
+
+  // A repeated query key parses as an array; the hook refuses it instead of
+  // leaving it for Better Auth to coerce.
+  it.effect(
+    "refuses a verify link whose token isn't one string, with 400",
+    () => {
+      const { layer } = seam()
+      return Effect.gen(function* () {
+        const response = yield* send("/verify-email?token=a&token=b")
+        assert.strictEqual(response.status, 400)
+      }).pipe(Effect.provide(layer))
+    }
+  )
 })

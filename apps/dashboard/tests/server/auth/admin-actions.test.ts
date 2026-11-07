@@ -285,3 +285,67 @@ describe("admin actions by anyone but an admin", () => {
     }).pipe(Effect.provide(layer))
   })
 })
+
+// Better Auth's admin routes take the userId through String(), so an array
+// of one id names that account. The hook refuses every shape but a non-empty
+// string before Better Auth sees it.
+const USER_ID_SHAPES: ReadonlyArray<
+  readonly [string, (id: string) => unknown]
+> = [
+  ["an array of the id", (id) => [id]],
+  ["a number", () => 1],
+  ["an object", (id) => ({ id })],
+  ["an empty string", () => ""],
+  ["missing", () => undefined],
+]
+
+describe("an admin route's userId that isn't a non-empty string", () => {
+  it.effect.each(USER_ID_SHAPES)(
+    "is refused with 400 as %s, and the config admin stays unbanned",
+    ([, shape]) => {
+      const { layer, setup } = accounts()
+      return Effect.gen(function* () {
+        const { cookies, id } = yield* setup
+        const response = yield* post(
+          "/admin/ban-user",
+          { userId: shape(id(ADMIN_EMAIL)) },
+          { cookie: cookies.plain }
+        )
+        assert.strictEqual(response.status, 400)
+        assert.strictEqual((yield* signIn(ADMIN_EMAIL)).status, 200)
+      }).pipe(Effect.provide(layer))
+    }
+  )
+})
+
+describe("an admin route on an id that names no account", () => {
+  it.effect.each([
+    ["/admin/ban-user", { userId: "nobody" }],
+    ["/admin/unban-user", { userId: "nobody" }],
+    ["/admin/impersonate-user", { userId: "nobody" }],
+    ["/admin/set-role", { userId: "nobody", role: "member" }],
+    ["/admin/revoke-user-sessions", { userId: "nobody" }],
+  ] as const)("answers not found to an admin: %s", ([path, body]) => {
+    const { layer, setup } = accounts()
+    return Effect.gen(function* () {
+      const { cookies } = yield* setup
+      const response = yield* post(path, body, { cookie: cookies.plain })
+      assert.strictEqual(response.status, 404)
+    }).pipe(Effect.provide(layer))
+  })
+
+  // The policy answers for the actor first, so a member learns nothing about
+  // an id from the status: not found, as for an account that exists.
+  it.effect("answers not found to a member, as for any account", () => {
+    const { layer, setup } = accounts()
+    return Effect.gen(function* () {
+      const { cookies } = yield* setup
+      const response = yield* post(
+        "/admin/ban-user",
+        { userId: "nobody" },
+        { cookie: cookies.member }
+      )
+      assert.strictEqual(response.status, 404)
+    }).pipe(Effect.provide(layer))
+  })
+})
