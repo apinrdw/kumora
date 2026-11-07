@@ -1,14 +1,25 @@
 // The account listing behind /admin/users.
 import { Effect } from "effect"
 
-import type { AccountSearch } from "@/lib/account-query"
+import type { AccountRow, AccountSearch } from "@/lib/account-query"
 import { Accounts } from "@/server/auth/accounts"
+import { AdminEmails } from "@/server/auth/admin-emails"
 import { Auth } from "@/server/auth/auth"
 import { refusal } from "@/server/auth/gate"
-import { accountOf } from "@/server/auth/session-account"
-import { decide } from "@/server/auth/policy"
+import { decide, type TargetAction } from "@/server/auth/policy"
+import { accountOf, targetOf } from "@/server/auth/session-account"
 
 const USERS_PATH = "/admin/users"
+
+// Every action an admin takes on one account; the table offers only those
+// the policy allows.
+const TARGET_ACTIONS = Object.keys({
+  "admin.ban": true,
+  "admin.unban": true,
+  "admin.set-role": true,
+  "admin.end-sessions": true,
+  "admin.impersonate": true,
+} satisfies Record<TargetAction, true>) as ReadonlyArray<TargetAction>
 
 export const listAccounts = Effect.fn("listAccounts")(function* (
   headers: Headers,
@@ -17,7 +28,8 @@ export const listAccounts = Effect.fn("listAccounts")(function* (
   const auth = yield* Auth
   // Admin server functions read past the cookie cache.
   const session = yield* auth.getSession(headers, { fresh: true })
-  const decision = decide(accountOf(session), "admin.list-accounts", {
+  const account = accountOf(session)
+  const decision = decide(account, "admin.list-accounts", {
     feature: "admin",
   })
   // A server function has no page to show "no access" on.
@@ -26,5 +38,25 @@ export const listAccounts = Effect.fn("listAccounts")(function* (
       decision.reason === "no-access" ? "forbidden" : decision.reason,
       USERS_PATH
     )
-  return yield* (yield* Accounts).list(search)
+  const adminEmails = yield* AdminEmails
+  const page = yield* (yield* Accounts).list(search)
+  return {
+    total: page.total,
+    rows: page.rows.map((row): AccountRow => {
+      const target = targetOf(
+        { ...row, banned: row.status === "suspended" },
+        session,
+        adminEmails.includes
+      )
+      return {
+        ...row,
+        allowed: Object.fromEntries(
+          TARGET_ACTIONS.map((action) => [
+            action,
+            decide(account, action, target)._tag === "Allow",
+          ])
+        ) as Record<TargetAction, boolean>,
+      }
+    }),
+  }
 })

@@ -174,6 +174,35 @@ describe("a Google sign-up", () => {
   })
 })
 
+describe("Google sign-in of a banned account", () => {
+  it.effect("is refused, back on sign-in with BANNED_USER", () => {
+    const { layer, mails, database } = seam(undefined, { google: GOOGLE })
+    return Effect.gen(function* () {
+      yield* signUp(ADMIN_EMAIL)
+      const admin = cookiesFrom(yield* send(linkIn(mails.at(-1))))
+      yield* googleReturns("ayu@example.com")
+      const { id } = database
+        .prepare(`select "id" from "user" where "email" = ?`)
+        .get("ayu@example.com") as { id: string }
+      const banned = yield* post(
+        "/admin/ban-user",
+        { userId: id },
+        { cookie: admin }
+      )
+      assert.strictEqual(banned.status, 200)
+      const response = yield* googleReturns("ayu@example.com")
+      assert.strictEqual(response.status, 302)
+      const location = new URL(response.headers.get("location") ?? "", BASE_URL)
+      assert.strictEqual(
+        `${location.pathname}${location.search}`.split("&error=")[0],
+        ERROR_URL
+      )
+      assert.strictEqual(location.searchParams.get("error"), "BANNED_USER")
+      assert.isNull(yield* sessionOf(cookiesFrom(response)))
+    }).pipe(Effect.provide(layer))
+  })
+})
+
 const verified = Effect.fnUntraced(function* (
   mails: ReadonlyArray<Mail>,
   email: string

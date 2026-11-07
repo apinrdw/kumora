@@ -2,7 +2,7 @@
 // server, so it holds no server code.
 import { Option, Schema } from "effect"
 
-import type { Role } from "@/server/auth/policy"
+import type { Role, TargetAction } from "@/server/auth/policy"
 
 export const ROLES = ["admin", "member"] as const satisfies ReadonlyArray<Role>
 
@@ -49,12 +49,15 @@ export function parseAccountSearch(
   return Schema.decodeUnknownSync(AccountSearch)(search)
 }
 
-export interface AccountRow {
+/** An account as the database holds it. */
+export interface StoredAccount {
   readonly id: string
   readonly email: string
   readonly name: string
   readonly role: Role
   readonly status: Status
+  /** Why an admin banned it; admins only, never shown to the account. */
+  readonly banReason: string | null
   readonly methods: ReadonlyArray<SignInMethod>
   /** ISO timestamp. */
   readonly createdAt: string
@@ -64,7 +67,12 @@ export interface AccountRow {
   readonly sessions: number
 }
 
-export interface AccountPage {
-  readonly rows: ReadonlyArray<AccountRow>
+export interface AccountRow extends StoredAccount {
+  /** What the access policy lets the viewing admin do to this account. */
+  readonly allowed: Readonly<Record<TargetAction, boolean>>
+}
+
+export interface AccountPage<Row = AccountRow> {
+  readonly rows: ReadonlyArray<Row>
   readonly total: number
 }

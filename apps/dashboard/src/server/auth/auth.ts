@@ -6,6 +6,7 @@ import type { UnknownError } from "effect/Cause"
 import { Accounts } from "./accounts.ts"
 import { AdminEmails } from "./admin-emails.ts"
 import {
+  authorizeAdminAction,
   authorizeOwnAction,
   grantAdmin,
   makeCallbackRunner,
@@ -34,6 +35,7 @@ export type AuthConfig = Omit<
   | "sendNewEmailVerification"
   | "sendDeleteAccountLink"
   | "authorizeOwnAction"
+  | "authorizeAdminAction"
   | "grantAdmin"
 >
 
@@ -96,6 +98,8 @@ export class Auth extends Context.Service<
             grantAdmin: (user) => run(grantAdmin(user)),
             authorizeOwnAction: ({ action, session }) =>
               run(authorizeOwnAction(action, session)),
+            authorizeAdminAction: ({ action, session, target }) =>
+              run(authorizeAdminAction(action, session, target)),
           })
         )
         return Auth.of({

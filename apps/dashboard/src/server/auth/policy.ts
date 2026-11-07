@@ -54,6 +54,11 @@ type Resources = {
 
 export type Action = keyof Resources
 
+/** What an admin does to an account, on `/admin/users`. */
+export type TargetAction = {
+  readonly [A in Action]: Resources[A] extends Target ? A : never
+}[Action]
+
 /** What an account does to itself, on `/account`. */
 export type OwnAction = Extract<Action, `own.${string}`>
 
