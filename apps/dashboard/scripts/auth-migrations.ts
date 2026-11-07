@@ -35,6 +35,7 @@ const { compileMigrations, unsafeChanges, schemaProblems } =
       sendVerificationEmail: async () => {},
       sendResetPassword: async () => {},
       grantAdmin: async () => {},
+      authorizeOwnAction: async () => {},
     }),
     { throwOnUnsafe: false }
   )

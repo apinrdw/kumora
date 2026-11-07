@@ -6,16 +6,9 @@ import { Effect } from "effect"
 
 import { withRedirect } from "@/lib/redirect"
 
-import { Auth, type AuthSession } from "./auth.ts"
-import {
-  FEATURES,
-  decide,
-  signedOut,
-  type Account,
-  type Feature,
-  type Reason,
-  type SignedOut,
-} from "./policy.ts"
+import { Auth } from "./auth.ts"
+import { FEATURES, decide, type Feature, type Reason } from "./policy.ts"
+import { accountOf } from "./session-account.ts"
 
 export interface Viewer {
   readonly name: string
@@ -40,18 +33,6 @@ export interface Page {
   readonly href: string
   readonly feature: Feature
 }
-
-export const accountOf = (session: AuthSession | null): Account | SignedOut =>
-  session === null
-    ? signedOut
-    : {
-        _tag: "Account",
-        role: session.user.role,
-        verified: session.user.emailVerified,
-        suspended: session.user.banned,
-        configAdmin: session.user.configAdmin,
-        impersonating: session.session.impersonated,
-      }
 
 export const refusal = (reason: Exclude<Reason, "no-access">, href: string) => {
   switch (reason) {

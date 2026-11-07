@@ -16,6 +16,7 @@ import {
 
 import type { AuthOptionsInput } from "./options.ts"
 import type { Role } from "./policy.ts"
+import { roleOf } from "./session-account.ts"
 
 // The columns read here, as Better Auth's Kysely adapter stores them on
 // SQLite: booleans as 0/1, dates as ISO strings. migrations/ holds the schema.
@@ -43,10 +44,6 @@ const METHOD: Record<string, SignInMethod> = {
   credential: "password",
   google: "google",
 }
-
-// Fails closed: any stored role but admin reads as a member.
-export const roleOf = (stored: unknown): Role =>
-  stored === "admin" ? "admin" : "member"
 
 const STATUS_SQL = {
   suspended: sql<SqlBool>`coalesce("banned", 0) = 1`,

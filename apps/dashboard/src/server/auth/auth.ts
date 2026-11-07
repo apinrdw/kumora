@@ -1,11 +1,12 @@
 import { WorkerEnv, waitUntilLive } from "@workspace/server"
-import { betterAuth } from "better-auth"
+import { betterAuth, type Session } from "better-auth"
 import { Context, Effect, Layer } from "effect"
 import type { UnknownError } from "effect/Cause"
 
-import { Accounts, roleOf } from "./accounts.ts"
+import { Accounts } from "./accounts.ts"
 import { AdminEmails } from "./admin-emails.ts"
 import {
+  authorizeOwnAction,
   grantAdmin,
   makeCallbackRunner,
   sendResetPassword,
@@ -14,30 +15,19 @@ import {
 import { googleClient } from "./google.ts"
 import { Mailer } from "./mailer.ts"
 import { authOptions, type AuthOptionsInput } from "./options.ts"
-import type { Role } from "./policy.ts"
+import {
+  authSessionOf,
+  type AuthSession,
+  type BetterAuthSession,
+} from "./session-account.ts"
 
 export type AuthConfig = Omit<
   AuthOptionsInput,
-  "sendVerificationEmail" | "sendResetPassword" | "grantAdmin"
+  | "sendVerificationEmail"
+  | "sendResetPassword"
+  | "authorizeOwnAction"
+  | "grantAdmin"
 >
-
-// What the gates read of a session.
-export interface AuthSession {
-  readonly user: {
-    readonly id: string
-    readonly name: string
-    readonly email: string
-    readonly emailVerified: boolean
-    readonly role: Role
-    readonly banned: boolean
-    // An admin whose email is on ADMIN_EMAILS.
-    readonly configAdmin: boolean
-  }
-  readonly session: {
-    // An admin is viewing as this account.
-    readonly impersonated: boolean
-  }
-}
 
 export class Auth extends Context.Service<
   Auth,
@@ -51,6 +41,15 @@ export class Auth extends Context.Service<
       headers: Headers,
       options?: { readonly fresh?: boolean }
     ) => Effect.Effect<AuthSession | null, UnknownError>
+    // The account's sessions that haven't expired. Read past Better Auth's
+    // list-sessions route, which refuses a session older than a day.
+    readonly sessionsOf: (
+      userId: string
+    ) => Effect.Effect<ReadonlyArray<Session>, UnknownError>
+    // Better Auth's provider ids: `credential` for a password, `google`.
+    readonly providersOf: (
+      userId: string
+    ) => Effect.Effect<ReadonlyArray<string>, UnknownError>
   }
 >()("dashboard/server/auth/Auth") {
   // Built per request: the database and secret are request-scoped bindings.
@@ -69,6 +68,8 @@ export class Auth extends Context.Service<
             sendResetPassword: ({ email, url }) =>
               run(sendResetPassword(email, url)),
             grantAdmin: (user) => run(grantAdmin(user)),
+            authorizeOwnAction: ({ action, session }) =>
+              run(authorizeOwnAction(action, session)),
           })
         )
         return Auth.of({
@@ -80,25 +81,30 @@ export class Auth extends Context.Service<
                 query: { disableCookieCache: options?.fresh ?? false },
               })
             ).pipe(
-              Effect.map((found) => {
-                if (found === null) return null
-                const { user, session } = found
-                const role = roleOf(user.role)
-                return {
-                  user: {
-                    id: user.id,
-                    name: user.name,
-                    email: user.email,
-                    emailVerified: user.emailVerified,
-                    role,
-                    banned: user.banned === true,
-                    configAdmin:
-                      role === "admin" && adminEmails.includes(user.email),
-                  },
-                  session: { impersonated: Boolean(session.impersonatedBy) },
-                }
-              })
+              Effect.map((found) =>
+                found === null
+                  ? null
+                  : authSessionOf(
+                      found satisfies BetterAuthSession,
+                      adminEmails.includes
+                    )
+              )
             ),
+          sessionsOf: (userId) =>
+            Effect.tryPromise(async () => {
+              const { internalAdapter } = await auth.$context
+              const sessions = await internalAdapter.listSessions(userId, {
+                onlyActiveSessions: true,
+              })
+              const now = new Date()
+              return sessions.filter((session) => session.expiresAt > now)
+            }),
+          providersOf: (userId) =>
+            Effect.tryPromise(async () => {
+              const { internalAdapter } = await auth.$context
+              const accounts = await internalAdapter.findAccounts(userId)
+              return accounts.map((account) => account.providerId)
+            }),
         })
       })
     )

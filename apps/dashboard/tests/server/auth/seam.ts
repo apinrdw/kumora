@@ -52,10 +52,14 @@ export const send = Effect.fnUntraced(function* (
   return yield* auth.handler(new Request(`${BASE_URL}/api/auth${path}`, init))
 })
 
-export const post = (path: string, body: unknown) =>
+export const post = (
+  path: string,
+  body: unknown,
+  headers?: Record<string, string>
+) =>
   send(path, {
     method: "POST",
-    headers: { "content-type": "application/json" },
+    headers: { "content-type": "application/json", ...headers },
     body: JSON.stringify(body),
   })
 
@@ -75,7 +79,12 @@ export const sessionOf = (cookie: string) =>
       Effect.promise(
         () =>
           response.json() as Promise<{
-            user: { email: string; emailVerified: boolean; role: string }
+            user: {
+              name: string
+              email: string
+              emailVerified: boolean
+              role: string
+            }
           } | null>
       )
     )

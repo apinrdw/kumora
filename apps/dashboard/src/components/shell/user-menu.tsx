@@ -1,5 +1,5 @@
-import { IconChevronDown, IconLogout } from "@tabler/icons-react"
-import { useLocation, useRouter } from "@tanstack/react-router"
+import { IconChevronDown, IconLogout, IconUser } from "@tabler/icons-react"
+import { Link, useLocation, useRouter } from "@tanstack/react-router"
 import {
   DropdownMenu,
   DropdownMenuContent,
@@ -80,6 +80,10 @@ export function UserMenu({
           </span>
         </div>
         <DropdownMenuSeparator />
+        <DropdownMenuItem render={<Link to="/account" />}>
+          <IconUser aria-hidden />
+          Account
+        </DropdownMenuItem>
         <DropdownMenuItem onClick={() => void signOut()}>
           <IconLogout aria-hidden />
           Sign out

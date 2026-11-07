@@ -2,14 +2,21 @@
 // known failure becomes Better Auth's own APIError, so its handler answers
 // with that status. Never runServerEffect: its thrown Response would bypass
 // Better Auth.
-import { HttpError } from "@workspace/server"
+import { Forbidden, HttpError, NotFound, Unauthorized } from "@workspace/server"
 import { APIError } from "better-auth/api"
 import { Cause, Effect, Exit, Schema, type Context } from "effect"
 
-import { Accounts, roleOf } from "./accounts.ts"
+import { Accounts } from "./accounts.ts"
 import { AdminEmails } from "./admin-emails.ts"
 import { Mailer } from "./mailer.ts"
 import type { WrittenUser } from "./options.ts"
+import { OWN_ACCOUNT, decide, type OwnAction } from "./policy.ts"
+import {
+  accountOf,
+  authSessionOf,
+  roleOf,
+  type BetterAuthSession,
+} from "./session-account.ts"
 
 const isHttpError = Schema.is(HttpError)
 
@@ -82,6 +89,30 @@ export const sendResetPassword = Effect.fn("sendResetPassword")(function* (
       "If you didn't ask for this, ignore this email; your password stays as it is.",
     ].join("\r\n"),
   })
+})
+
+// A Better Auth route asks the access policy before an account acts on
+// itself. Each reason maps as the spec's before-hook column says: 401, 404 or
+// 403 (apinrdw/kumora#80, "Access policy").
+export const authorizeOwnAction = Effect.fn("authorizeOwnAction")(function* (
+  action: OwnAction,
+  found: BetterAuthSession | null
+) {
+  const adminEmails = yield* AdminEmails
+  const session = found && authSessionOf(found, adminEmails.includes)
+  const decision = decide(accountOf(session), action, OWN_ACCOUNT)
+  if (decision._tag === "Allow") return
+  switch (decision.reason) {
+    case "sign-in":
+    case "verify":
+    case "suspended":
+      return yield* new Unauthorized({ redirectTo: "/sign-in" })
+    case "not-found":
+      return yield* new NotFound({ message: "" })
+    case "no-access":
+    case "forbidden":
+      return yield* new Forbidden({ message: "" })
+  }
 })
 
 // Decision: an email on ADMIN_EMAILS becomes admin once it is verified, not

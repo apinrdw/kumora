@@ -128,6 +128,20 @@ describe("the admin grant", () => {
     }).pipe(Effect.provide(layer))
   })
 
+  it.effect("makes it a config admin, which can't change its email", () => {
+    const { layer, mails } = seam()
+    return Effect.gen(function* () {
+      yield* signUp(ADMIN_EMAIL)
+      const cookie = cookiesFrom(yield* send(linkIn(mails[0])))
+      const response = yield* post(
+        "/change-email",
+        { newEmail: "elsewhere@example.com" },
+        { cookie }
+      )
+      assert.strictEqual(response.status, 403)
+    }).pipe(Effect.provide(layer))
+  })
+
   it.effect("leaves a verified account off the list a member", () => {
     const { layer, mails } = seam()
     return Effect.gen(function* () {
