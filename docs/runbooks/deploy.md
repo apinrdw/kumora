@@ -38,6 +38,8 @@ One connection per app, each on a hand-made anchor Worker that Alchemy never dep
 | Version command (non-production branches) | ✅ same as the deploy command | ✅ same as the deploy command |
 | Build variables | `INFISICAL_CLIENT_ID`, `INFISICAL_CLIENT_SECRET` (secret), `BUN_VERSION` set to the version in `.bun-version` | the same |
 
+The deploy command runs alchemy in-process, in the same `bun` process, and prints the same progress lines the alchemy CLI did. It reads `WORKERS_CI_BRANCH` (set by Workers Builds) and the two Infisical build variables; a missing or empty one fails the build with a `ConfigError` naming it. Every failure prints to stderr and exits 1.
+
 As observed 2026-11-05 in the dashboard's Build configuration panel, the preview command is the field named **Version command**, beside Build command, Deploy command and Root directory. Leave the build command empty: as observed 2026-11-05, Workers Builds already runs `pnpm install --frozen-lockfile` at the repo root before the deploy command. `BUN_VERSION` must match `.bun-version`; change both together.
 
 The four root files in Watch paths are every app's dependency inputs, so a lockfile or catalog change alone still deploys; `ROOT_WATCH_PATHS` in `scripts/deploy-setup.sh` lists the same files. The owner set them on both connections on 2026-11-05 as a comma-separated list; the first dependency-only commit is what confirms the field took them.

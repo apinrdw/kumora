@@ -267,3 +267,43 @@ layer(NodeServices.layer)("packages/server is under the full ban set", (it) => {
       })
   )
 })
+
+layer(NodeServices.layer)("packages/deploy is under the full ban set", (it) => {
+  const envAndExit = [
+    "export const swap = () => {",
+    "  delete process.env.CLOUDFLARE_API_TOKEN",
+    "  process.exit(1)",
+    "}",
+    "",
+  ].join("\n")
+
+  it.effect("deploy code may not touch process.env or child_process", () =>
+    Effect.gen(function* () {
+      const diagnostics = yield* lint(
+        "packages/deploy/tests/deploy.test.ts",
+        [
+          'import { spawn } from "node:child_process"',
+          "",
+          "export { spawn }",
+          envAndExit,
+        ].join("\n")
+      )
+      assertBanned(diagnostics, "eslint(no-restricted-properties)", "Config")
+      assertBanned(diagnostics, "eslint(no-restricted-imports)", "ChildProcess")
+    })
+  )
+
+  it.effect.each([
+    "packages/deploy/src/token-swap.ts",
+    "packages/deploy/tests/token-swap.test.ts",
+  ])("%s may write process.env but not exit", (file) =>
+    Effect.gen(function* () {
+      const diagnostics = yield* lint(file, envAndExit)
+      assert.isFalse(
+        diagnostics.some((line) => line.includes("Config")),
+        diagnostics.join("\n")
+      )
+      assertBanned(diagnostics, "eslint(no-restricted-properties)", "runMain")
+    })
+  )
+})
