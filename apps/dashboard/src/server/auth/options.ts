@@ -65,6 +65,9 @@ export function authOptions(input: AuthOptionsInput) {
     // Account linking keeps Better Auth's defaults: Google is not a trusted
     // provider and the password account must be verified, so Google on the
     // email of an unverified one redirects with "account not linked".
+    // A Google sign-up creates its user already verified, so
+    // afterEmailVerification never runs for it: the admin grant (#86) also
+    // needs databaseHooks.user.create.after when user.emailVerified is true.
     socialProviders: input.google ? { google: input.google } : {},
     session: {
       expiresIn: 30 * DAY,
