@@ -1,4 +1,4 @@
-import type { Icon } from "@tabler/icons-react"
+import { IconUsers, type Icon } from "@tabler/icons-react"
 import type { LinkProps } from "@tanstack/react-router"
 
 import type { Feature } from "@/server/auth/policy"
@@ -21,8 +21,20 @@ export type NavItem = {
 
 export type NavGroup = { label: string; items: ReadonlyArray<NavItem> }
 
-/** Empty until the first page lands. */
-export const NAV: ReadonlyArray<NavGroup> = []
+export const NAV: ReadonlyArray<NavGroup> = [
+  {
+    label: "Admin",
+    items: [
+      {
+        label: "Users",
+        shortLabel: "Users",
+        icon: IconUsers,
+        link: { to: "/admin/users" },
+        feature: "admin",
+      },
+    ],
+  },
+]
 
 /** The nav an account sees: items of the features the access policy lets it view. */
 export function visibleNav(

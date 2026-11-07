@@ -24,8 +24,11 @@ export interface Viewer {
   readonly features: ReadonlyArray<Feature>
 }
 
+// NotFound is a value here, not the HttpError: the layout shows the normal
+// not-found page inside the shell, which needs the viewer.
 type PageAccess =
   | { readonly _tag: "Allowed"; readonly viewer: Viewer }
+  | { readonly _tag: "NotFound"; readonly viewer: Viewer }
   | {
       readonly _tag: "NoAccess"
       readonly viewer: Viewer
@@ -38,21 +41,19 @@ export interface Page {
   readonly feature: Feature
 }
 
-// Until the admin plugin (apinrdw/kumora#86) puts role and ban state on the
-// session, every account is a member that isn't suspended.
-const accountOf = (session: AuthSession | null): Account | SignedOut =>
+export const accountOf = (session: AuthSession | null): Account | SignedOut =>
   session === null
     ? signedOut
     : {
         _tag: "Account",
-        role: "member",
+        role: session.user.role,
         verified: session.user.emailVerified,
-        suspended: false,
-        configAdmin: false,
-        impersonating: false,
+        suspended: session.user.banned,
+        configAdmin: session.user.configAdmin,
+        impersonating: session.session.impersonated,
       }
 
-const refusal = (reason: Exclude<Reason, "no-access">, href: string) => {
+export const refusal = (reason: Exclude<Reason, "no-access">, href: string) => {
   switch (reason) {
     // A suspended account holds no session, so it lands on sign-in, which
     // shows the suspended screen when Better Auth refuses it.
@@ -73,10 +74,18 @@ export const gatePage = Effect.fn("gatePage")(function* (
   { href, feature }: Page
 ) {
   const auth = yield* Auth
-  const session = yield* auth.getSession(headers)
+  // Admin pages read past the cookie cache, so admin power always sees the
+  // current role and ban state.
+  const session = yield* auth.getSession(headers, {
+    fresh: feature === "admin",
+  })
   const account = accountOf(session)
   const decision = decide(account, "page.view", { feature })
-  if (decision._tag === "Deny" && decision.reason !== "no-access")
+  if (
+    decision._tag === "Deny" &&
+    decision.reason !== "no-access" &&
+    decision.reason !== "not-found"
+  )
     return yield* refusal(decision.reason, href)
   // Unreachable: the policy sends every visitor without a session to sign-in.
   if (session === null) return yield* refusal("sign-in", href)
@@ -87,8 +96,10 @@ export const gatePage = Effect.fn("gatePage")(function* (
       (each) => decide(account, "page.view", { feature: each })._tag === "Allow"
     ),
   }
-  return decision._tag === "Allow"
-    ? ({ _tag: "Allowed", viewer } satisfies PageAccess)
+  if (decision._tag === "Allow")
+    return { _tag: "Allowed", viewer } satisfies PageAccess
+  return decision.reason === "not-found"
+    ? ({ _tag: "NotFound", viewer } satisfies PageAccess)
     : ({ _tag: "NoAccess", viewer, feature } satisfies PageAccess)
 })
 
