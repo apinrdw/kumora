@@ -5,6 +5,7 @@ import * as Layer from "effect/Layer"
 import { TestConsole } from "effect/testing"
 
 import { report, stderrPresenter } from "../src/report.ts"
+import { Stage } from "../src/target.ts"
 import { NotAPreview, teardownCommand } from "../src/teardown-command.ts"
 import { cliTestLayer, fakeStacks } from "./support.ts"
 
@@ -21,9 +22,11 @@ const teardown = (args: ReadonlyArray<string>) =>
 describe("report", () => {
   it.effect("prints a typed failure's message to stderr only", () =>
     Effect.gen(function* () {
-      yield* Effect.exit(report(Effect.fail(new NotAPreview({ stage: "x" }))))
+      yield* Effect.exit(
+        report(Effect.fail(new NotAPreview({ stage: Stage.make("staging") })))
+      )
       assert.deepStrictEqual(yield* TestConsole.errorLines, [
-        'Refusing to tear down stage "x": not a preview.',
+        'Refusing to tear down stage "staging": not a preview.',
       ])
       assert.deepStrictEqual(yield* TestConsole.logLines, [])
     })

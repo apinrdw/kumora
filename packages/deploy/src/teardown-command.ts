@@ -10,17 +10,11 @@ import * as Schema from "effect/Schema"
 
 import { errorMessage } from "./report.ts"
 import { Stacks } from "./stacks.ts"
-import {
-  APPS,
-  Preview,
-  parseStage,
-  stageForBranch,
-  type Stage,
-} from "./target.ts"
+import { APPS, Preview, parseStage, Stage, stageForBranch } from "./target.ts"
 
 export class NotAPreview extends Schema.TaggedError<NotAPreview>()(
   "NotAPreview",
-  { stage: Schema.String }
+  { stage: Stage }
 ) {
   override get message() {
     return `Refusing to tear down stage "${this.stage}": not a preview.`
@@ -32,7 +26,7 @@ export class NotAPreview extends Schema.TaggedError<NotAPreview>()(
 class TeardownFailed extends Schema.TaggedError<TeardownFailed>()(
   "TeardownFailed",
   {
-    stage: Schema.String,
+    stage: Preview,
     failures: Schema.Array(
       Schema.Struct({ app: Schema.Literals(APPS), error: Schema.Defect() })
     ),
