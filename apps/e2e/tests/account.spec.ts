@@ -8,13 +8,15 @@ import { deleteLink, verificationLink } from "../support/mail"
 
 const ACCOUNT = `${DASHBOARD}/account`
 
-// Its own account, because it changes the password and ends sessions, which
-// would sign the shared accounts out of every other spec.
-const owner = {
+// Each test gets its own account, because they change the password, the
+// email and end sessions, which would sign the shared accounts out of every
+// other spec. One account per test also keeps each under Playwright's 30 s on
+// the CI runner, which the whole journey in one test did not.
+const newOwner = (label: string) => ({
   name: "Owen Owner",
-  email: `owner-${Date.now()}@example.com`,
+  email: `owner-${label}-${Date.now()}@example.com`,
   password: "owner passphrase",
-}
+})
 
 const section = (page: Page, name: string) => page.getByRole("region", { name })
 
@@ -23,31 +25,34 @@ const otherSessions = (page: Page) =>
     .getByRole("listitem")
     .filter({ hasNotText: "This device" })
 
-test("an account renames itself, changes its password, ends a session, moves to a new email and deletes itself", async ({
-  browser,
-}) => {
-  const first = await (await newClientContext(browser)).newPage()
-  const second = await (await newClientContext(browser)).newPage()
-
-  await test.step("sign up, verify, and open /account from the user menu", async () => {
+const signUpToAccount = (page: Page, owner: ReturnType<typeof newOwner>) =>
+  test.step("sign up, verify, and open /account from the user menu", async () => {
     const since = Date.now()
-    await first.goto(`${DASHBOARD}/sign-up`)
-    await signUp(first, owner)
-    await first.goto(await verificationLink(owner.email, since))
-    await expect(first).toHaveURL(`${DASHBOARD}/`)
+    await page.goto(`${DASHBOARD}/sign-up`)
+    await signUp(page, owner)
+    await page.goto(await verificationLink(owner.email, since))
+    await expect(page).toHaveURL(`${DASHBOARD}/`)
     // The page has just loaded: retry until hydration lets the menu open.
-    const item = first.getByRole("menuitem", { name: "Account" })
+    const item = page.getByRole("menuitem", { name: "Account" })
     await expect(async () => {
-      await accountMenu(first, owner.name).click()
+      await accountMenu(page, owner.name).click()
       await expect(item).toBeVisible({ timeout: 1000 })
     }).toPass()
     await item.click()
-    await expect(first).toHaveURL(ACCOUNT)
-    const details = section(first, "Details")
+    await expect(page).toHaveURL(ACCOUNT)
+    const details = section(page, "Details")
     await expect(details.getByText(owner.email)).toBeVisible()
     await expect(details.getByText("Member")).toBeVisible()
     await expect(details.getByText("Password", { exact: true })).toBeVisible()
   })
+
+test("an account renames itself, changes its password and ends a session", async ({
+  browser,
+}) => {
+  const owner = newOwner("sessions")
+  const first = await (await newClientContext(browser)).newPage()
+  const second = await (await newClientContext(browser)).newPage()
+  await signUpToAccount(first, owner)
 
   await test.step("rename", async () => {
     await first.getByLabel("Display name").fill("Owen Renamed")
@@ -90,6 +95,15 @@ test("an account renames itself, changes its password, ends a session, moves to 
     await second.reload()
     await expect(second).toHaveURL(signInUrl("/account"))
   })
+})
+
+test("an account moves to a new email and deletes itself", async ({
+  browser,
+}) => {
+  const owner = newOwner("email")
+  const first = await (await newClientContext(browser)).newPage()
+  const second = await (await newClientContext(browser)).newPage()
+  await signUpToAccount(first, owner)
 
   const newEmail = `moved-${Date.now()}@example.com`
 
@@ -112,10 +126,10 @@ test("an account renames itself, changes its password, ends a session, moves to 
   })
 
   await test.step("delete the account by the emailed link, which ends every session", async () => {
+    await second.goto(signInUrl("/account"))
     await signIn(second, {
       ...owner,
       email: newEmail,
-      password: "a new passphrase",
     })
     await expect(second).toHaveURL(ACCOUNT)
 
