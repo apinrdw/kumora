@@ -53,39 +53,30 @@ export interface Bridge<R> {
 
 export function makeRunServerEffect<R>({ isolate, workerEnv }: Bridge<R>) {
   const runtime = ManagedRuntime.make(isolate)
-  return async function runServerEffect<A, E>(
+  // runPromise rejects with the first failure's error as is, so failing with
+  // the Response is how TanStack Start receives it thrown.
+  return function runServerEffect<A, E>(
     effect: Effect.Effect<A, E, R | WorkerEnv>
   ): Promise<A> {
-    const outcome = await runtime.runPromise(
+    return runtime.runPromise(
       effect.pipe(
         Effect.provide(workerEnv),
-        Effect.matchCauseEffect({
-          onSuccess: (value) => Effect.succeed({ ok: true as const, value }),
-          onFailure: (cause) => {
-            const errors = cause.reasons
-              .filter(Cause.isFailReason)
-              .map((reason) => reason.error)
-            if (
-              !Cause.hasDies(cause) &&
-              errors.every(isHttpError) &&
-              errors[0] !== undefined
-            )
-              return Effect.succeed({
-                ok: false as const,
-                response: toResponse(errors[0]),
-              })
-            return Effect.logError("Server effect failed", cause).pipe(
-              Effect.as({
-                ok: false as const,
-                response: json("InternalServerError", "", 500),
-              })
-            )
-          },
+        Effect.catchCause((cause) => {
+          const errors = cause.reasons
+            .filter(Cause.isFailReason)
+            .map((reason) => reason.error)
+          if (
+            !Cause.hasDies(cause) &&
+            errors.every(isHttpError) &&
+            errors[0] !== undefined
+          )
+            return Effect.fail(toResponse(errors[0]))
+          return Effect.logError("Server effect failed", cause).pipe(
+            Effect.andThen(Effect.fail(json("InternalServerError", "", 500)))
+          )
         })
       )
     )
-    if (outcome.ok) return outcome.value
-    throw outcome.response
   }
 }
 
