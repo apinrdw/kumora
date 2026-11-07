@@ -185,14 +185,23 @@ describe("password reset", () => {
     }).pipe(Effect.provide(layer))
   })
 
-  it.effect("refuses a link used twice", () => {
+  it.effect("refuses a token used twice", () => {
     const { layer, mails } = seam()
     return Effect.gen(function* () {
       yield* signUp("ayu@example.com")
       yield* requestReset("ayu@example.com")
-      yield* resetWith(mails[1], "a new passphrase")
-      const again = yield* resetWith(mails[1], "a third passphrase")
+      const token = yield* tokenIn(mails[1])
+      yield* post("/reset-password", { newPassword: "a new passphrase", token })
+      const again = yield* post("/reset-password", {
+        newPassword: "a third passphrase",
+        token,
+      })
       assert.strictEqual(again.status, 400)
+      // The set-password page shows "expired" on this code.
+      const body = yield* Effect.promise(
+        () => again.json() as Promise<{ code: string }>
+      )
+      assert.strictEqual(body.code, "INVALID_TOKEN")
     }).pipe(Effect.provide(layer))
   })
 
@@ -215,14 +224,18 @@ describe("password reset", () => {
 })
 
 // The token the reset link carries to the set-password page.
-const resetWith = (mail: Mail | undefined, newPassword: string) =>
-  Effect.gen(function* () {
-    const link = yield* send(linkIn(mail))
-    const token = new URL(link.headers.get("location") ?? "").searchParams.get(
-      "token"
+const tokenIn = (mail: Mail | undefined) =>
+  send(linkIn(mail)).pipe(
+    Effect.map((link) =>
+      new URL(link.headers.get("location") ?? "").searchParams.get("token")
     )
-    return yield* post("/reset-password", { newPassword, token })
-  })
+  )
+
+// Opens the reset link and sets the password, as the set-password page does.
+const resetWith = (mail: Mail | undefined, newPassword: string) =>
+  tokenIn(mail).pipe(
+    Effect.flatMap((token) => post("/reset-password", { newPassword, token }))
+  )
 
 const signIn = (email: string, password: string) =>
   post("/sign-in/email", { email, password })
