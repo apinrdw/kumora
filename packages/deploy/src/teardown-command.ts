@@ -8,6 +8,7 @@ import * as Effect from "effect/Effect"
 import * as Exit from "effect/Exit"
 import * as Schema from "effect/Schema"
 
+import { errorMessage } from "./report.ts"
 import { Stacks } from "./stacks.ts"
 import {
   APPS,
@@ -26,9 +27,6 @@ export class NotAPreview extends Schema.TaggedError<NotAPreview>()(
   }
 }
 
-const errorMessage = (error: unknown) =>
-  error instanceof Error ? error.message : String(error)
-
 // Every app's destroy has run before this fails, so one failing app never
 // leaves another app's Preview running.
 export class TeardownFailed extends Schema.TaggedError<TeardownFailed>()(
@@ -44,16 +42,18 @@ export class TeardownFailed extends Schema.TaggedError<TeardownFailed>()(
     return [
       `Tearing down stage "${this.stage}" failed:`,
       ...this.failures.map(
-        ({ app, error }) => `  ${app}: ${errorMessage(error)}`
+        // Error calls this getter synchronously, and errorMessage is pure.
+        ({ app, error }) => `  ${app}: ${Effect.runSync(errorMessage(error))}`
       ),
     ].join("\n")
   }
 }
 
-const preview = (stage: Stage) =>
-  Schema.decodeEffect(Preview)(stage).pipe(
+const preview = Effect.fnUntraced(function* (stage: Stage) {
+  return yield* Schema.decodeEffect(Preview)(stage).pipe(
     Effect.mapError(() => new NotAPreview({ stage }))
   )
+})
 
 const stage = Command.make(
   "stage",

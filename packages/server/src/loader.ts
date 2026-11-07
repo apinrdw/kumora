@@ -48,13 +48,15 @@ const decodeFailure = Effect.fnUntraced(function* (thrown: unknown) {
 })
 
 // Calls a server function from a route loader. A closed-set HTTP error comes
-// back as a typed failure, for the route's errorComponent.
-export const loadServerFn = <A>(
+// back as a typed failure, which runLoader hands to the router.
+export const loadServerFn = Effect.fnUntraced(function* <A>(
   call: () => Promise<A>
-): Effect.Effect<A, LoaderError> =>
-  Effect.tryPromise({ try: call, catch: (thrown) => thrown }).pipe(
-    Effect.catch(decodeFailure)
-  )
+): Effect.fn.Return<A, LoaderError> {
+  return yield* Effect.tryPromise({
+    try: call,
+    catch: (thrown) => thrown,
+  }).pipe(Effect.catch(decodeFailure))
+})
 
 // Runs a route loader's Effect for the router. It needs no services, so it runs
 // without the client runtime, which loaders could not use during SSR. A

@@ -5,28 +5,32 @@ import { CliError, CliOutput } from "effect/cli"
 import * as Console from "effect/Console"
 import * as Effect from "effect/Effect"
 
-const errorMessage = (error: unknown) =>
-  error instanceof Error ? error.message : String(error)
+export const errorMessage = Effect.fnUntraced(function* (error: unknown) {
+  return error instanceof Error ? error.message : String(error)
+})
 
 // A typed failure prints its message only, like a plain console.error line;
 // a defect prints the full Cause with its stack. effect/cli has already
 // presented its own parse errors, so they print nothing more.
-const reportCause = <E>(cause: Cause.Cause<E>) => {
-  if (Cause.hasInterruptsOnly(cause)) return Effect.void
+const reportCause = Effect.fnUntraced(function* <E>(cause: Cause.Cause<E>) {
+  if (Cause.hasInterruptsOnly(cause)) return
   if (Cause.hasDies(cause) || !Cause.hasFails(cause))
-    return Effect.logError(cause)
-  return Effect.forEach(
+    return yield* Effect.logError(cause)
+  yield* Effect.forEach(
     cause.reasons.filter(Cause.isFailReason),
     (reason) =>
       CliError.isCliError(reason.error)
         ? Effect.void
-        : Console.error(errorMessage(reason.error)),
+        : Effect.flatMap(errorMessage(reason.error), Console.error),
     { discard: true }
   )
-}
+})
 
-export const report = <A, E, R>(program: Effect.Effect<A, E, R>) =>
-  Effect.tapCause(program, reportCause)
+export const report = Effect.fnUntraced(function* <A, E, R>(
+  program: Effect.Effect<A, E, R>
+) {
+  return yield* Effect.tapCause(program, reportCause)
+})
 
 // effect/cli prints a bad invocation's usage to stdout by default.
 export const stderrPresenter = CliOutput.layerPresenter({

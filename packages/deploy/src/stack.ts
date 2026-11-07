@@ -20,14 +20,15 @@ const INFISICAL_PROJECT = "kumora"
 // deployment: auth discovery for `alchemy profile edit`, and `alchemy state`.
 // Read it as Staging, so discovery sees Cloudflare state and Infisical but the
 // stack never reaches for production's secrets.
-const stackTarget = (
+const stackTarget = Effect.fnUntraced(function* (
   app: App,
   stage: string
-): Effect.Effect<DeployTarget, UnknownStage> =>
-  Effect.flatMap(
-    parseStage(stage === PLACEHOLDER_STAGE ? "staging" : stage),
-    (parsed) => stageTarget(app, parsed)
+): Effect.fn.Return<DeployTarget, UnknownStage> {
+  return yield* stageTarget(
+    app,
+    yield* parseStage(stage === PLACEHOLDER_STAGE ? "staging" : stage)
   )
+})
 
 // Decision: Cloudflare Workers with static assets, deployed by Workers Builds
 // running alchemy. Pages lost because Cloudflare steers new projects to Workers;
@@ -50,10 +51,11 @@ export function stackOptions(app: App) {
     // secret_text, so a rotation goes live on the next deploy. This supersedes
     // syncing Infisical into Cloudflare; Secrets Store waits until a secret
     // must rotate without a deploy. See apinrdw/kumora#18.
-    // Alchemy calls this synchronously, so an unknown Stage throws from runSync.
+    // Alchemy calls this synchronously, so an unknown Stage is a defect that
+    // runSync throws.
     secrets: ({ stage }: { readonly stage: string }) => {
       const environment = Effect.runSync(
-        stackTarget(app, stage)
+        Effect.orDie(stackTarget(app, stage))
       ).infisicalEnvironment
       if (environment === undefined) return []
       return ["/", `/${app}`].map((path) =>
@@ -64,12 +66,14 @@ export function stackOptions(app: App) {
 }
 
 // Read inside a stack's Effect, where an unknown Stage is a defect alchemy prints.
-export const websiteProps = (app: App, stage: string) =>
-  stackTarget(app, stage).pipe(
-    Effect.map(({ workerName }) => ({
-      name: workerName,
-      compatibility: { date: COMPATIBILITY_DATE, flags: ["nodejs_compat"] },
-      observability: { enabled: true },
-    })),
-    Effect.orDie
-  )
+export const websiteProps = Effect.fnUntraced(function* (
+  app: App,
+  stage: string
+) {
+  const { workerName } = yield* Effect.orDie(stackTarget(app, stage))
+  return {
+    name: workerName,
+    compatibility: { date: COMPATIBILITY_DATE, flags: ["nodejs_compat"] },
+    observability: { enabled: true },
+  }
+})

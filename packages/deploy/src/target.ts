@@ -24,24 +24,29 @@ const PREVIEW = new RegExp(
 )
 const DEV = /^dev_[-_a-z0-9]+$/i
 
-function classify(raw: string): StageKind | undefined {
+const classify = Effect.fnUntraced(function* (
+  raw: string
+): Effect.fn.Return<StageKind | undefined> {
   if (raw === PRODUCTION) return "production"
   if (raw === STAGING) return "staging"
   if (raw === TEST) return "test"
   if (DEV.test(raw)) return "dev"
   if (PREVIEW.test(raw)) return "preview"
   return undefined
-}
+})
+
+// Schema calls a filter synchronously, and classify is pure.
+const classifySync = (raw: string) => Effect.runSync(classify(raw))
 
 // Alchemy hands a stack any stage name. Anything that no branch, dev or test
 // stage could produce (alchemy's `live_$USER` default) is not a Stage.
 export const Stage = Schema.String.check(
-  Schema.makeFilter((raw) => classify(raw) !== undefined)
+  Schema.makeFilter((raw) => classifySync(raw) !== undefined)
 ).pipe(Schema.brand("Stage"))
 export type Stage = typeof Stage.Type
 
 export const Preview = Stage.check(
-  Schema.makeFilter((stage) => classify(stage) === "preview")
+  Schema.makeFilter((stage) => classifySync(stage) === "preview")
 ).pipe(Schema.brand("Preview"))
 export type Preview = typeof Preview.Type
 
@@ -70,15 +75,20 @@ export interface DeployTarget {
 // supported by this server binary". See apinrdw/kumora#19.
 export const COMPATIBILITY_DATE = "2026-11-02"
 
-export const parseStage = (raw: string): Effect.Effect<Stage, UnknownStage> =>
-  Schema.decodeEffect(Stage)(raw).pipe(
+export const parseStage = Effect.fnUntraced(function* (
+  raw: string
+): Effect.fn.Return<Stage, UnknownStage> {
+  return yield* Schema.decodeEffect(Stage)(raw).pipe(
     Effect.mapError(() => new UnknownStage({ stage: raw }))
   )
+})
 
 // Every branch name maps to a Stage, so a refusal here is a bug.
-export const stageForBranch = (branch: string): Effect.Effect<Stage> => {
-  if (branch === "main") return parseStage(PRODUCTION).pipe(Effect.orDie)
-  if (branch === "staging") return parseStage(STAGING).pipe(Effect.orDie)
+export const stageForBranch = Effect.fnUntraced(function* (
+  branch: string
+): Effect.fn.Return<Stage> {
+  if (branch === "main") return yield* Effect.orDie(parseStage(PRODUCTION))
+  if (branch === "staging") return yield* Effect.orDie(parseStage(STAGING))
   const hash = createHash("sha256")
     .update(branch)
     .digest("hex")
@@ -89,11 +99,14 @@ export const stageForBranch = (branch: string): Effect.Effect<Stage> => {
     .replace(/^-+/, "")
     .slice(0, MAX_SLUG)
     .replace(/-+$/, "")
-  return parseStage(slug ? `${slug}-${hash}` : hash).pipe(Effect.orDie)
-}
+  return yield* Effect.orDie(parseStage(slug ? `${slug}-${hash}` : hash))
+})
 
-export const devStage = (user: string): Effect.Effect<Stage, UnknownStage> =>
-  parseStage(`dev_${user}`)
+export const devStage = Effect.fnUntraced(function* (
+  user: string
+): Effect.fn.Return<Stage, UnknownStage> {
+  return yield* parseStage(`dev_${user}`)
+})
 
 const KINDS: Record<
   StageKind,
@@ -107,14 +120,18 @@ const KINDS: Record<
 }
 
 // The Stage schema admits only names that classify, so a miss is a bug.
-export const stageKind = (stage: Stage): Effect.Effect<StageKind> =>
-  Effect.fromNullishOr(classify(stage)).pipe(Effect.orDie)
+export const stageKind = Effect.fnUntraced(function* (
+  stage: Stage
+): Effect.fn.Return<StageKind> {
+  return yield* Effect.orDie(Effect.fromNullishOr(yield* classify(stage)))
+})
 
-export const stageTarget = (
+export const stageTarget = Effect.fnUntraced(function* (
   app: App,
   stage: Stage
-): Effect.Effect<DeployTarget> =>
-  Effect.map(stageKind(stage), (kind) => ({
+): Effect.fn.Return<DeployTarget> {
+  const kind = yield* stageKind(stage)
+  return {
     stage,
     workerName:
       kind === "production"
@@ -124,10 +141,12 @@ export const stageTarget = (
             MAX_WORKER_NAME
           ),
     ...KINDS[kind],
-  }))
+  }
+})
 
-export const deployTarget = (
+export const deployTarget = Effect.fnUntraced(function* (
   app: App,
   branch: string
-): Effect.Effect<DeployTarget> =>
-  Effect.flatMap(stageForBranch(branch), (stage) => stageTarget(app, stage))
+): Effect.fn.Return<DeployTarget> {
+  return yield* stageTarget(app, yield* stageForBranch(branch))
+})

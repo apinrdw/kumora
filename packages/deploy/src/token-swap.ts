@@ -4,16 +4,20 @@
 import * as Effect from "effect/Effect"
 import * as Redacted from "effect/Redacted"
 
-const restore = (name: string, value: string | undefined) =>
-  Effect.sync(() => {
-    if (value === undefined) delete process.env[name]
-    else process.env[name] = value
-  })
+const restore = Effect.fnUntraced(function* (
+  name: string,
+  value: string | undefined
+) {
+  if (value === undefined) delete process.env[name]
+  else process.env[name] = value
+})
 
 // Swaps the deploy tokens until the scope closes, then restores both. The
 // scope must cover `apply`: the Vite build child inherits the live env.
-export const tokenSwap = (token: Redacted.Redacted<string>) =>
-  Effect.acquireRelease(
+export const tokenSwap = Effect.fnUntraced(function* (
+  token: Redacted.Redacted<string>
+) {
+  yield* Effect.acquireRelease(
     Effect.sync(() => {
       const before = {
         cloudflare: process.env.CLOUDFLARE_API_TOKEN,
@@ -32,4 +36,5 @@ export const tokenSwap = (token: Redacted.Redacted<string>) =>
         restore("CLOUDFLARE_API_TOKEN", before.cloudflare),
         restore("INFISICAL_TOKEN", before.infisical)
       )
-  ).pipe(Effect.asVoid)
+  )
+})
