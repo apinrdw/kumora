@@ -2,12 +2,15 @@ import { createFileRoute } from "@tanstack/react-router"
 import type { ErrorComponentProps } from "@tanstack/react-router"
 import { runServerEffect } from "@workspace/server"
 import { LoaderError, loadServerFn, runLoader } from "@workspace/server/loader"
-import { Schema } from "effect"
+import { Effect, Option, Schema } from "effect"
 
 import { getProbeReport } from "@/server/get-probe-report"
 import { probe } from "@/server/probe"
 
-const isLoaderError = Schema.is(LoaderError)
+// Pure, so ProbeError runs it with runSync in render.
+const loaderErrorOf = Effect.fnUntraced(function* (error: unknown) {
+  return yield* Effect.option(Schema.decodeUnknownEffect(LoaderError)(error))
+})
 
 export const Route = createFileRoute("/probe")({
   loader: () => runLoader(loadServerFn(() => getProbeReport())),
@@ -50,12 +53,13 @@ function ProbeNotFound() {
 }
 
 function ProbeError({ error }: ErrorComponentProps) {
+  const loaderError = Effect.runSync(loaderErrorOf(error))
   return (
     <main className="container mx-auto p-4 pt-16">
-      {isLoaderError(error) ? (
+      {Option.isSome(loaderError) ? (
         <>
-          <h1>{error._tag}</h1>
-          <p>{error.message}</p>
+          <h1>{loaderError.value._tag}</h1>
+          <p>{loaderError.value.message}</p>
         </>
       ) : (
         <h1>Unexpected error</h1>

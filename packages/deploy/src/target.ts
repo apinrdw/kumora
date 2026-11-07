@@ -49,8 +49,6 @@ export const Preview = Stage.check(
 ).pipe(Schema.brand("Preview"))
 export type Preview = typeof Preview.Type
 
-export const isPreview = Schema.is(Preview)
-
 export class UnknownStage extends Schema.TaggedError<UnknownStage>()(
   "UnknownStage",
   { stage: Schema.String }

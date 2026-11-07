@@ -1,14 +1,15 @@
 import { assert, describe, it } from "@effect/vitest"
 import * as Effect from "effect/Effect"
+import * as Result from "effect/Result"
+import * as Schema from "effect/Schema"
 
 import {
   APPS,
   deployTarget,
   devStage,
-  isPreview,
   parseStage,
+  Preview,
   stageTarget,
-  type Preview,
 } from "@workspace/deploy"
 
 // Hashes are SHA-256 prefixes computed outside this code (Python hashlib).
@@ -172,23 +173,24 @@ describe("parseStage", () => {
   )
 })
 
-describe("isPreview", () => {
+describe("Preview", () => {
   it.effect.each(["production", "staging", "test", "dev_jarvis"])(
     "refuses %j",
     (raw) =>
       Effect.gen(function* () {
-        assert.isFalse(isPreview(yield* parseStage(raw)))
+        const stage = yield* parseStage(raw)
+        const decoded = yield* Effect.result(
+          Schema.decodeEffect(Preview)(stage)
+        )
+        assert.isTrue(Result.isFailure(decoded))
       })
   )
 
-  it.effect("accepts a branch preview and narrows it to Preview", () =>
+  it.effect("accepts a branch preview as a Preview", () =>
     Effect.gen(function* () {
       const stage = yield* stageOf("feature/login")
-      assert.isTrue(isPreview(stage))
-      if (isPreview(stage)) {
-        const preview: Preview = stage
-        assert.strictEqual(preview, "feature-login-df7c7a")
-      }
+      const preview: Preview = yield* Schema.decodeEffect(Preview)(stage)
+      assert.strictEqual(preview, "feature-login-df7c7a")
     })
   )
 
