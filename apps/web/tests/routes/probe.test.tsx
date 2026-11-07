@@ -7,6 +7,7 @@ import {
 import {
   Conflict,
   Forbidden,
+  NotFound,
   WorkerEnv,
   makeRunServerEffect,
 } from "@workspace/server"
@@ -68,6 +69,13 @@ describe("/probe page", () => {
     const html = await firstPaint()
     expect(html).toContain(error._tag)
     expect(html).toContain(error.message)
+  })
+
+  it("sends a NotFound to the route's not-found UI", async () => {
+    answer(Effect.fail(new NotFound({ message: "no probe here" })))
+    const html = await firstPaint()
+    expect(html).toContain("Probe not found")
+    expect(html).not.toContain("Unexpected error")
   })
 
   it("shows anything else as an unexpected error", async () => {

@@ -1,8 +1,7 @@
 import { createFileRoute } from "@tanstack/react-router"
 import type { ErrorComponentProps } from "@tanstack/react-router"
-import { clientRuntime } from "@workspace/client"
 import { runServerEffect } from "@workspace/server"
-import { LoaderError, loadServerFn } from "@workspace/server/loader"
+import { LoaderError, loadServerFn, runLoader } from "@workspace/server/loader"
 import { Schema } from "effect"
 
 import { getProbeReport } from "@/server/get-probe-report"
@@ -11,9 +10,10 @@ import { probe } from "@/server/probe"
 const isLoaderError = Schema.is(LoaderError)
 
 export const Route = createFileRoute("/probe")({
-  loader: () => clientRuntime.runPromise(loadServerFn(() => getProbeReport())),
+  loader: () => runLoader(loadServerFn(() => getProbeReport())),
   component: ProbePage,
   errorComponent: ProbeError,
+  notFoundComponent: ProbeNotFound,
   server: {
     handlers: {
       // curl, the runbook's stage check and the e2e smoke read JSON. A browser
@@ -37,6 +37,14 @@ function ProbePage() {
         <dt>Secret SHA-256 prefix</dt>
         <dd>{report.secretSha256Prefix ?? "absent"}</dd>
       </dl>
+    </main>
+  )
+}
+
+function ProbeNotFound() {
+  return (
+    <main className="container mx-auto p-4 pt-16">
+      <h1>Probe not found</h1>
     </main>
   )
 }

@@ -1,6 +1,10 @@
 // The route-loader side of the bridge. It runs in the browser and during SSR,
 // so it never imports bridge.ts or reaches cloudflare:workers.
-import { createSerializationAdapter, isRedirect } from "@tanstack/react-router"
+import {
+  createSerializationAdapter,
+  isRedirect,
+  notFound,
+} from "@tanstack/react-router"
 import { Effect, Option, Schema } from "effect"
 
 import {
@@ -50,6 +54,17 @@ export const loadServerFn = <A>(
 ): Effect.Effect<A, LoaderError> =>
   Effect.tryPromise({ try: call, catch: (thrown) => thrown }).pipe(
     Effect.catch(decodeFailure)
+  )
+
+// Runs a route loader's Effect for the router. It needs no services, so it runs
+// without the client runtime, which loaders could not use during SSR. A
+// NotFound dies as the router's notFound(), for the route's notFoundComponent;
+// the other closed-set errors reject as themselves, for its errorComponent.
+export const runLoader = <A>(
+  effect: Effect.Effect<A, LoaderError>
+): Promise<A> =>
+  Effect.runPromise(
+    Effect.catchTag(effect, "NotFound", () => Effect.die(notFound()))
   )
 
 // The router dehydrates any other Error to a bare `new Error(message)`. Register
