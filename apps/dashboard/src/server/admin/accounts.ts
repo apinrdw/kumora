@@ -2,6 +2,7 @@
 import { Effect } from "effect"
 
 import type { AccountRow, AccountSearch } from "@/lib/account-query"
+import type { FileRoutesByFullPath } from "@/routeTree.gen"
 import { Accounts } from "@/server/auth/accounts"
 import { AdminEmails } from "@/server/auth/admin-emails"
 import { Auth } from "@/server/auth/auth"
@@ -9,7 +10,7 @@ import { refusal } from "@/server/auth/gate"
 import { decide, type TargetAction } from "@/server/auth/policy"
 import { accountOf, targetOf } from "@/server/auth/session-account"
 
-const USERS_PATH = "/admin/users"
+const USERS_PATH = "/admin/users" satisfies keyof FileRoutesByFullPath
 
 // Every action an admin takes on one account; the table offers only those
 // the policy allows.

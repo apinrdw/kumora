@@ -13,11 +13,15 @@ import { DASHBOARD } from "./accounts"
 // `alchemy dev` passes through to Better Auth as Cloudflare would set it. Only
 // requests to the dashboard carry it, never Turnstile's on Cloudflare.
 // Addresses come from 198.18.0.0/15, the range set aside for tests.
+// Better Auth reads the header as CLIENT_IP_HEADER in
+// apps/dashboard/src/server/auth/options.ts.
+const CLIENT_IP_HEADER = "cf-connecting-ip"
+
 async function asOwnClient(context: BrowserContext) {
   const ip = `198.${randomInt(18, 20)}.${randomInt(256)}.${randomInt(1, 255)}`
   await context.route(`${DASHBOARD}/**`, (route) =>
     route.continue({
-      headers: { ...route.request().headers(), "cf-connecting-ip": ip },
+      headers: { ...route.request().headers(), [CLIENT_IP_HEADER]: ip },
     })
   )
   return context

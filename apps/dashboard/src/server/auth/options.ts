@@ -11,6 +11,7 @@ import { captcha } from "better-auth/plugins/captcha"
 import { tanstackStartCookies } from "better-auth/tanstack-start"
 
 import { MIN_PASSWORD_LENGTH } from "../../lib/password.ts"
+import type { FileRoutesByFullPath } from "../../routeTree.gen.ts"
 import { ac, roles } from "./access.ts"
 import type { GoogleClient } from "./google.ts"
 import type { OwnAction, TargetAction } from "./policy.ts"
@@ -19,8 +20,14 @@ import type { BetterAuthSession } from "./session-account.ts"
 const HOUR = 60 * 60
 const DAY = 24 * HOUR
 
-// The page the delete link opens: src/routes/_app/delete-account.tsx.
-const DELETE_ACCOUNT_PATH = "/delete-account"
+// The page the delete link opens: src/routes/_app/delete-account.tsx. e2e
+// finds the link by it in apps/e2e/support/mail.ts.
+const DELETE_ACCOUNT_PATH =
+  "/delete-account" satisfies keyof FileRoutesByFullPath
+
+// Cloudflare sets it to the client's address on every request. e2e sends
+// its own per browser context: apps/e2e/support/test.ts.
+export const CLIENT_IP_HEADER = "cf-connecting-ip"
 
 export interface AuthOptionsInput {
   readonly database: BetterAuthOptions["database"]
@@ -311,8 +318,7 @@ export function authOptions(input: AuthOptionsInput) {
     },
     advanced: {
       database: { validateSchema: input.validateSchema },
-      // Cloudflare sets it to the client's address on every request.
-      ipAddress: { ipAddressHeaders: ["cf-connecting-ip"] },
+      ipAddress: { ipAddressHeaders: [CLIENT_IP_HEADER] },
     },
     plugins: [
       admin({
