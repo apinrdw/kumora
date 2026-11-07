@@ -1,3 +1,5 @@
+import type { FileRoutesByFullPath } from "../routeTree.gen.ts"
+
 const ORIGIN = "http://kumora.invalid"
 // An encoded slash or backslash in the path. Better Auth refuses a
 // callbackURL holding one (INVALID_CALLBACK_URL), so it goes home here too.
@@ -18,6 +20,12 @@ export function safeRedirect(raw: unknown): string {
   return `${url.pathname}${url.search}${url.hash}`
 }
 
+// The gate screens: src/routes/sign-in.tsx and src/routes/verify.tsx.
+const SIGN_IN_PATH = "/sign-in" satisfies keyof FileRoutesByFullPath
+const VERIFY_PATH = "/verify" satisfies keyof FileRoutesByFullPath
+
 /** A gate screen that sends the visitor back to `href` when it's done. */
-export const withRedirect = (screen: "/sign-in" | "/verify", href: string) =>
-  `${screen}?redirect=${encodeURIComponent(href)}`
+export const withRedirect = (
+  screen: typeof SIGN_IN_PATH | typeof VERIFY_PATH,
+  href: string
+) => `${screen}?redirect=${encodeURIComponent(href)}`
