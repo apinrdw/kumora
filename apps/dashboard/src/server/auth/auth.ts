@@ -8,13 +8,18 @@ import { AdminEmails } from "./admin-emails.ts"
 import {
   grantAdmin,
   makeCallbackRunner,
+  sendResetPassword,
   sendVerificationEmail,
 } from "./callbacks.ts"
+import { googleClient } from "./google.ts"
 import { Mailer } from "./mailer.ts"
 import { authOptions, type AuthOptionsInput } from "./options.ts"
 import type { Role } from "./policy.ts"
 
-type AuthConfig = Omit<AuthOptionsInput, "sendVerificationEmail" | "grantAdmin">
+export type AuthConfig = Omit<
+  AuthOptionsInput,
+  "sendVerificationEmail" | "sendResetPassword" | "grantAdmin"
+>
 
 // What the gates read of a session.
 export interface AuthSession {
@@ -61,6 +66,8 @@ export class Auth extends Context.Service<
             ...config,
             sendVerificationEmail: ({ email, url }) =>
               run(sendVerificationEmail(email, url)),
+            sendResetPassword: ({ email, url }) =>
+              run(sendResetPassword(email, url)),
             grantAdmin: (user) => run(grantAdmin(user)),
           })
         )
@@ -107,6 +114,7 @@ export class Auth extends Context.Service<
         // every request, since Auth is built per request; the migration drift
         // check in CI and the handler test seam cover the schema.
         validateSchema: false,
+        google: googleClient(env),
       }).pipe(Layer.provideMerge(Accounts.make(env.AUTH_DB)))
     })
   ).pipe(

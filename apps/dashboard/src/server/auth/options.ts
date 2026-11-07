@@ -8,6 +8,7 @@ import { tanstackStartCookies } from "better-auth/tanstack-start"
 
 import { MIN_PASSWORD_LENGTH } from "../../lib/password.ts"
 import { ac, roles } from "./access.ts"
+import type { GoogleClient } from "./google.ts"
 
 const DAY = 24 * 60 * 60
 
@@ -17,12 +18,17 @@ export interface AuthOptionsInput {
   readonly secret: string
   // Introspects the database on every request, so the Worker passes false.
   readonly validateSchema: boolean
-  readonly sendVerificationEmail: (mail: {
-    readonly email: string
-    readonly url: string
-  }) => Promise<void>
+  // Only Production and Staging have one; see google.ts.
+  readonly google?: GoogleClient
+  readonly sendVerificationEmail: (mail: LinkMail) => Promise<void>
+  readonly sendResetPassword: (mail: LinkMail) => Promise<void>
   // Runs after every write of an account.
   readonly grantAdmin: (user: WrittenUser) => Promise<void>
+}
+
+interface LinkMail {
+  readonly email: string
+  readonly url: string
 }
 
 export interface WrittenUser {
@@ -65,6 +71,11 @@ export function authOptions(input: AuthOptionsInput) {
       // shows it the verify screen instead of any page.
       requireEmailVerification: false,
       autoSignIn: true,
+      // Also creates the password of an account that has none (Google only).
+      sendResetPassword: ({ user, url }) =>
+        input.sendResetPassword({ email: user.email, url }),
+      resetPasswordTokenExpiresIn: 60 * 60,
+      revokeSessionsOnPasswordReset: true,
     },
     emailVerification: {
       sendOnSignUp: true,
@@ -73,6 +84,10 @@ export function authOptions(input: AuthOptionsInput) {
       sendVerificationEmail: ({ user, url }) =>
         input.sendVerificationEmail({ email: user.email, url }),
     },
+    // Account linking keeps Better Auth's defaults: Google is not a trusted
+    // provider and the password account must be verified, so Google on the
+    // email of an unverified one redirects with "account not linked".
+    socialProviders: input.google ? { google: input.google } : {},
     session: {
       expiresIn: 30 * DAY,
       updateAge: DAY,

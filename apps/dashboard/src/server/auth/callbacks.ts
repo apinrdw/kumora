@@ -65,6 +65,25 @@ export const sendVerificationEmail = Effect.fn("sendVerificationEmail")(
   }
 )
 
+export const sendResetPassword = Effect.fn("sendResetPassword")(function* (
+  email: string,
+  url: string
+) {
+  const mailer = yield* Mailer
+  yield* mailer.send({
+    to: email,
+    subject: "Reset your KUMORA password",
+    text: [
+      "Open this link to choose a new password for your KUMORA account:",
+      "",
+      url,
+      "",
+      "The link works for 1 hour. Setting a new password signs you out everywhere else.",
+      "If you didn't ask for this, ignore this email; your password stays as it is.",
+    ].join("\r\n"),
+  })
+})
+
 // Decision: an email on ADMIN_EMAILS becomes admin once it is verified, not
 // when the account is created, so nobody can squat an admin email before its
 // owner signs up. It runs after every write of an account, which covers the

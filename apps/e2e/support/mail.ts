@@ -9,9 +9,10 @@ const MAIL_DIR = fileURLToPath(
   new URL("../../dashboard/.alchemy/local/email/", import.meta.url)
 )
 
-const LINK = /^(https?:\/\/\S+\/api\/auth\/verify-email\?\S+)$/m
+const VERIFY_LINK = /^(https?:\/\/\S+\/api\/auth\/verify-email\?\S+)$/m
+const RESET_LINK = /^(https?:\/\/\S+\/api\/auth\/reset-password\/\S+)$/m
 
-async function newestLink(to: string, since: number) {
+async function newestLink(to: string, since: number, pattern: RegExp) {
   const names = await readdir(MAIL_DIR).catch(() => [])
   const mails = await Promise.all(
     names
@@ -27,7 +28,7 @@ async function newestLink(to: string, since: number) {
   for (const { path } of recent) {
     const raw = await readFile(path, "utf8")
     if (raw.match(/^To: (.+)$/m)?.[1]?.trim() !== to) continue
-    const link = raw.match(LINK)?.[1]
+    const link = raw.match(pattern)?.[1]
     if (link) return link
   }
   return undefined
@@ -38,11 +39,23 @@ async function newestLink(to: string, since: number) {
  * `since` (a `Date.now()` taken before the action that sends it). The send
  * runs after the response, so this waits for the file.
  */
-export async function verificationLink(to: string, since: number) {
+export const verificationLink = (to: string, since: number) =>
+  pollLink(to, since, VERIFY_LINK, "verification")
+
+/** The password reset link, found the same way as `verificationLink`. */
+export const resetLink = (to: string, since: number) =>
+  pollLink(to, since, RESET_LINK, "reset")
+
+async function pollLink(
+  to: string,
+  since: number,
+  pattern: RegExp,
+  kind: string
+) {
   let link: string | undefined
   await expect
-    .poll(async () => (link = await newestLink(to, since)), {
-      message: `a verification mail to ${to}`,
+    .poll(async () => (link = await newestLink(to, since, pattern)), {
+      message: `a ${kind} mail to ${to}`,
       timeout: 15_000,
     })
     .toBeDefined()
