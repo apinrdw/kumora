@@ -72,7 +72,7 @@
     {
       // The full Effect ban set, tests included. A workspace that moves to
       // Effect adds its globs here; an exception is a later override.
-      "files": ["scripts/**", "packages/server/src/**", "packages/server/tests/**", "packages/client/src/**", "packages/client/tests/**"],
+      "files": ["scripts/**", "packages/server/src/**", "packages/server/tests/**", "packages/client/src/**", "packages/client/tests/**", "packages/deploy/src/**", "packages/deploy/tests/**"],
       "jsPlugins": ["./scripts/oxlint-plugin.mts"],
       "rules": {
         "no-restricted-imports": ["error", {"paths": [{"name": "cloudflare:workers", "message": "Use the WorkerEnv service from @workspace/server; only its bridge reaches cloudflare:workers."}, {"name": "zod", "message": "Use Effect Schema (`import { Schema } from \"effect\"`); it is the only schema library."}, {"name": "@effect/schema", "message": "Effect v3 package. Use `Schema` from `effect` (v4)."}, {"name": "@effect/platform", "message": "Effect v3 package. Use the `effect/*` platform modules (v4), e.g. `effect/http/HttpClient`."}, {"name": "@effect/rpc", "message": "Effect v3 package. Use `effect/unstable/rpc` (v4)."}], "patterns": [{"group": ["**/repos/**", "repos/**"], "message": "repos/ is a read-only reference. Import the installed package instead."}, {"group": ["@effect/schema/*", "@effect/platform/*", "@effect/rpc/*"], "message": "Effect v3 package. Use the matching `effect/*` module (v4)."}, {"regex": "^(node:)?fs(/.*)?$", "message": "Use the FileSystem and Path services from `effect` (the platform services layer provides them)."}, {"regex": "^(node:)?child_process$", "message": "Use ChildProcess from `effect/process`. spawner.lines and spawner.string ignore the exit code, so await handle.exitCode."}]}],
@@ -89,6 +89,16 @@
       "files": ["packages/server/src/bridge.ts"],
       "rules": {
         "no-restricted-imports": ["error", {"paths": [{"name": "zod", "message": "Use Effect Schema (`import { Schema } from \"effect\"`); it is the only schema library."}, {"name": "@effect/schema", "message": "Effect v3 package. Use `Schema` from `effect` (v4)."}, {"name": "@effect/platform", "message": "Effect v3 package. Use the `effect/*` platform modules (v4), e.g. `effect/http/HttpClient`."}, {"name": "@effect/rpc", "message": "Effect v3 package. Use `effect/unstable/rpc` (v4)."}], "patterns": [{"group": ["**/repos/**", "repos/**"], "message": "repos/ is a read-only reference. Import the installed package instead."}, {"group": ["@effect/schema/*", "@effect/platform/*", "@effect/rpc/*"], "message": "Effect v3 package. Use the matching `effect/*` module (v4)."}, {"regex": "^(node:)?fs(/.*)?$", "message": "Use the FileSystem and Path services from `effect` (the platform services layer provides them)."}, {"regex": "^(node:)?child_process$", "message": "Use ChildProcess from `effect/process`. spawner.lines and spawner.string ignore the exit code, so await handle.exitCode."}]}]
+      }
+    },
+    {
+      // The deploy token swap is the one place that writes process.env:
+      // alchemy's plan and Infisical read it there, not through Config. It
+      // must stay after the Effect override, which it narrows. See
+      // apinrdw/kumora#107.
+      "files": ["packages/deploy/src/token-swap.ts", "packages/deploy/tests/token-swap.test.ts"],
+      "rules": {
+        "no-restricted-properties": ["error", {"object": "process", "property": "exit", "message": "Fail with a tagged error instead (return yield* new SomeError(...)); runMain exits 1 on a failure."}]
       }
     }
   ]
