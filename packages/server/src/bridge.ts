@@ -33,6 +33,20 @@ const workerEnvLive = Layer.effect(
   )
 )
 
+// Keeps the isolate alive for a promise the response doesn't wait on, such as
+// a mail send.
+export class WaitUntil extends Context.Service<
+  WaitUntil,
+  { readonly waitUntil: (promise: Promise<unknown>) => void }
+>()("@workspace/server/WaitUntil") {}
+
+export const waitUntilLive = Layer.effect(
+  WaitUntil,
+  Effect.promise(() => import("cloudflare:workers")).pipe(
+    Effect.map(({ waitUntil }) => WaitUntil.of({ waitUntil }))
+  )
+)
+
 const isHttpError = Schema.is(HttpError)
 
 const respond: {
