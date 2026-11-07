@@ -18,13 +18,18 @@ const LABELS: Record<Operation, string> = {
 }
 
 // Absolute, because importStack resolves a relative path against the cwd.
-const entrypoint = (app: App) =>
-  Effect.map(Path.Path, (path) =>
-    path.resolve(import.meta.dirname, "../../../apps", app, "alchemy.run.ts")
+const entrypoint = Effect.fnUntraced(function* (app: App) {
+  const path = yield* Path.Path
+  return path.resolve(
+    import.meta.dirname,
+    "../../../apps",
+    app,
+    "alchemy.run.ts"
   )
+})
 
-const operate = (operation: Operation, app: App, stage: Stage) =>
-  Effect.gen(function* () {
+const operate = Effect.fnUntraced(
+  function* (operation: Operation, app: App, stage: Stage) {
     const plan = yield* entrypoint(app).pipe(
       Effect.flatMap(Alchemist.importStack),
       Effect.flatMap((stack) =>
@@ -37,12 +42,12 @@ const operate = (operation: Operation, app: App, stage: Stage) =>
       SigilRenderer.apply(plan, { stage })
     )
     if (output !== undefined) yield* SigilRenderer.outputs(output)
-  }).pipe(
-    // The plan's build closes with it. The state store takes no lease; see the
-    // Decision in deploy-command.ts.
-    Effect.scoped,
-    Effect.provide(Layer.mergeAll(Alchemist.layer(), SigilRenderer.layer()))
-  )
+  },
+  // The plan's build closes with it. The state store takes no lease; see the
+  // Decision in deploy-command.ts.
+  Effect.scoped,
+  Effect.provide(Layer.mergeAll(Alchemist.layer(), SigilRenderer.layer()))
+)
 
 type StackError = Effect.Error<ReturnType<typeof operate>>
 
