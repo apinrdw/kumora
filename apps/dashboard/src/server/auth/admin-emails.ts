@@ -17,6 +17,7 @@ export class AdminEmails extends Context.Service<AdminEmails, AdminList>()(
     )
     return AdminEmails.of({
       includes: (email) => emails.has(email.toLowerCase()),
+      emails: [...emails],
     })
   }
 

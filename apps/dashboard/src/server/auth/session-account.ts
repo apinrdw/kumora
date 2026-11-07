@@ -50,6 +50,8 @@ export const storedRoleOf = (stored: unknown): Role =>
 // The configured admin list, ADMIN_EMAILS (admin-emails.ts).
 export interface AdminList {
   readonly includes: (email: string) => boolean
+  // Lower-cased, for a query that filters by the effective role.
+  readonly emails: ReadonlyArray<string>
 }
 
 // A verified account whose email is on ADMIN_EMAILS. Not the stored role: an

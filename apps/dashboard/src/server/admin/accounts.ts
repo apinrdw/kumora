@@ -36,7 +36,7 @@ export const listAccounts = Effect.fn("listAccounts")(function* (
   if (decision._tag === "Deny")
     return yield* refusal(decision.reason, USERS_PATH)
   const adminEmails = yield* AdminEmails
-  const page = yield* (yield* Accounts).list(search)
+  const page = yield* (yield* Accounts).list(search, adminEmails)
   return {
     total: page.total,
     rows: page.rows.map((row): AccountRow => {
@@ -47,8 +47,6 @@ export const listAccounts = Effect.fn("listAccounts")(function* (
       )
       return {
         ...row,
-        // A config admin is an admin before its next sign-in stores it.
-        role: target.role,
         allowed: Object.fromEntries(
           TARGET_ACTIONS.map((action) => [
             action,

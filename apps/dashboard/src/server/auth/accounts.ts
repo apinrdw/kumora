@@ -17,7 +17,7 @@ import { signInMethodsOf } from "@/lib/sign-in-method"
 
 import type { AuthOptionsInput } from "./options.ts"
 import type { Role } from "./policy.ts"
-import { storedRoleOf } from "./session-account.ts"
+import type { AdminList } from "./session-account.ts"
 
 // The columns read here, as Better Auth's Kysely adapter stores them on
 // SQLite: booleans as 0/1, dates as ISO strings. migrations/ holds the schema.
@@ -49,17 +49,25 @@ const STATUS_SQL = {
   active: sql<SqlBool>`coalesce("banned", 0) = 0 and "emailVerified" = 1`,
 } as const satisfies Record<Status, unknown>
 
-const ROLE_SQL = {
-  admin: sql<SqlBool>`"role" = 'admin'`,
-  member: sql<SqlBool>`coalesce("role", '') <> 'admin'`,
-} as const satisfies Record<Role, unknown>
+// The role as the access policy reads it (session-account.ts): a stored
+// admin, or a verified email on the admin list before its grant is stored.
+const isAdminSql = (adminList: AdminList) =>
+  adminList.emails.length === 0
+    ? sql<SqlBool>`"role" = 'admin'`
+    : sql<SqlBool>`("role" = 'admin' or ("emailVerified" = 1 and lower("email") in (${sql.join(adminList.emails)})))`
 
 const listAccounts = async (
   db: Kysely<Tables>,
-  query: AccountSearch
+  query: AccountSearch,
+  adminList: AdminList
 ): Promise<AccountPage<StoredAccount>> => {
   const now = new Date().toISOString()
   const needle = (query.q ?? "").trim().toLowerCase()
+  const isAdmin = isAdminSql(adminList)
+  const roleSql = {
+    admin: isAdmin,
+    member: sql<SqlBool>`not ${isAdmin}`,
+  } as const satisfies Record<Role, unknown>
   const matching = db
     .selectFrom("user")
     .$if(needle !== "", (q) =>
@@ -67,7 +75,7 @@ const listAccounts = async (
         sql<SqlBool>`(instr(lower("email"), ${needle}) > 0 or instr(lower("name"), ${needle}) > 0)`
       )
     )
-    .$if(query.role !== undefined, (q) => q.where(ROLE_SQL[query.role!]))
+    .$if(query.role !== undefined, (q) => q.where(roleSql[query.role!]))
     .$if(query.status !== undefined, (q) => q.where(STATUS_SQL[query.status!]))
   const lastActiveAt = sql<
     string | null
@@ -80,7 +88,7 @@ const listAccounts = async (
         "id",
         "email",
         "name",
-        "role",
+        sql<number>`case when ${isAdmin} then 1 else 0 end`.as("isAdmin"),
         "banned",
         "banReason",
         "emailVerified",
@@ -114,7 +122,7 @@ const listAccounts = async (
       id: row.id,
       email: row.email,
       name: row.name,
-      role: storedRoleOf(row.role),
+      role: row.isAdmin ? "admin" : "member",
       banReason: row.banned ? row.banReason : null,
       emailVerified: row.emailVerified === 1,
       status: row.banned
@@ -134,7 +142,8 @@ export class Accounts extends Context.Service<
   Accounts,
   {
     readonly list: (
-      query: AccountSearch
+      query: AccountSearch,
+      adminList: AdminList
     ) => Effect.Effect<AccountPage<StoredAccount>, UnknownError>
     readonly makeAdmin: (userId: string) => Effect.Effect<void, UnknownError>
   }
@@ -150,7 +159,8 @@ export class Accounts extends Context.Service<
           return yield* Effect.die(new Error("No auth database"))
         const db = kysely as Kysely<Tables>
         return Accounts.of({
-          list: (query) => Effect.tryPromise(() => listAccounts(db, query)),
+          list: (query, adminList) =>
+            Effect.tryPromise(() => listAccounts(db, query, adminList)),
           makeAdmin: (userId) =>
             Effect.tryPromise(() =>
               db
