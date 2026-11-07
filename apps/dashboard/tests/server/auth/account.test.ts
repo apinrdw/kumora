@@ -54,6 +54,30 @@ describe("own-account routes", () => {
   )
 })
 
+describe("sign-in method routes the dashboard doesn't offer", () => {
+  it.effect.each([
+    ["POST", "/unlink-account", { accountId: "x" }],
+    ["POST", "/link-social", { provider: "google", callbackURL: "/" }],
+    ["POST", "/refresh-token", { providerId: "google" }],
+    ["POST", "/get-access-token", { providerId: "google" }],
+    ["GET", "/account-info?accountId=x", undefined],
+    ["POST", "/update-session", {}],
+  ] as const)(
+    "answer not found even to the account itself: %s %s",
+    ([method, path, body]) => {
+      const { layer, mails } = seam()
+      return Effect.gen(function* () {
+        const { first } = yield* twoBrowsers(mails)
+        const response =
+          method === "GET"
+            ? yield* send(path, { headers: { cookie: first } })
+            : yield* postAs(first, path, body)
+        assert.strictEqual(response.status, 404)
+      }).pipe(Effect.provide(layer))
+    }
+  )
+})
+
 describe("the display name", () => {
   it.effect("is changed by a verified account", () => {
     const { layer, mails } = seam()

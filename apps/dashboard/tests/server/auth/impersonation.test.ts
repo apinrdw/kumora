@@ -3,6 +3,7 @@ import { Effect } from "effect"
 
 import { listAccounts } from "@/server/admin/accounts"
 import { accountPage } from "@/server/auth/account-page"
+import { Auth } from "@/server/auth/auth"
 import { gatePage } from "@/server/auth/gate"
 import type { Mail } from "@/server/auth/mailer"
 
@@ -165,6 +166,28 @@ describe("while impersonating", () => {
       assert.strictEqual(response.status, 403)
       // The impersonation session itself is untouched.
       assert.strictEqual((yield* sessionOf(viewing))?.user.email, MEMBER)
+    }).pipe(Effect.provide(layer))
+  })
+
+  it.effect("can't remove one of the member's sign-in methods", () => {
+    const { layer, mails, database } = seam()
+    return Effect.gen(function* () {
+      const { member, viewing } = yield* viewingAsMember(mails)
+      // As if the member had also signed in with Google.
+      const now = new Date().toISOString()
+      database
+        .prepare(
+          `insert into "account" ("id", "accountId", "providerId", "userId", "createdAt", "updatedAt") values ('google-row', 'google-user-1', 'google', ?, ?, ?)`
+        )
+        .run(member.id, now, now)
+      const response = yield* post(
+        "/unlink-account",
+        { accountId: "google-row" },
+        { cookie: viewing }
+      )
+      assert.strictEqual(response.status, 404)
+      const providers = yield* (yield* Auth).providersOf(member.id)
+      assert.deepStrictEqual([...providers].sort(), ["credential", "google"])
     }).pipe(Effect.provide(layer))
   })
 
