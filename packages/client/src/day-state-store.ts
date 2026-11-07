@@ -29,7 +29,7 @@ export const selectDayState =
 export const makeDayStateStore = Effect.fnUntraced(function* <A, R>(options: {
   readonly source: Stream.Stream<DayStateUpdate<A>, never, R>
   // The route loader's Day state: the server snapshot, and the client's
-  // snapshot until the first frame.
+  // snapshot until the first update.
   readonly initial: DayStateSnapshot<A>
 }) {
   const context = yield* Effect.context<FrameScheduler | R>()
@@ -38,39 +38,32 @@ export const makeDayStateStore = Effect.fnUntraced(function* <A, R>(options: {
 
   const listeners = new Set<() => void>()
   let snapshot = options.initial
-  // Updates since the last frame. Defined while a frame is scheduled.
-  let pending: Map<DayStateCode, A> | undefined
+  let frameScheduled = false
   let stop: (() => void) | undefined
 
-  const fold = Effect.sync(() => {
-    if (pending === undefined) return false
-    const next = new Map(snapshot)
-    for (const [code, dayState] of pending) next.set(code, dayState)
-    snapshot = next
-    pending = undefined
-    return true
+  const notify = Effect.sync(() => {
+    for (const listener of listeners) listener()
   })
 
-  const publish = Effect.andThen(fold, (changed) =>
+  const frame = Effect.ensuring(
+    nextFrame,
     Effect.sync(() => {
-      if (changed) for (const listener of listeners) listener()
+      frameScheduled = false
     })
-  )
+  ).pipe(Effect.andThen(notify))
 
+  // The snapshot changes as each update arrives; only notifying waits for the
+  // frame. A new Map per update, so useSyncExternalStore sees the change.
   const apply = ({ code, dayState }: DayStateUpdate<A>) =>
     Effect.suspend(() => {
-      if (pending !== undefined) {
-        pending.set(code, dayState)
-        return Effect.void
-      }
-      pending = new Map([[code, dayState]])
+      snapshot = new Map(snapshot).set(code, dayState)
+      if (frameScheduled) return Effect.void
+      frameScheduled = true
       // A child of the source fiber, so stopping the source cancels the frame.
-      return Effect.asVoid(Effect.forkChild(Effect.andThen(nextFrame, publish)))
+      return Effect.asVoid(Effect.forkChild(frame))
     })
 
-  // Folds in updates whose frame was cancelled, so a later subscriber's first
-  // snapshot holds them.
-  const feed = Effect.ensuring(Stream.runForEach(options.source, apply), fold)
+  const feed = Stream.runForEach(options.source, apply)
 
   const subscribe = (listener: () => void) => {
     // A fresh entry per subscription, so subscribing one listener twice counts twice.

@@ -58,6 +58,24 @@ describe("Day state store", () => {
       })
   )
 
+  it.effect("getSnapshot reflects an update before its frame runs", () =>
+    Effect.gen(function* () {
+      const { store, push } = yield* harness
+      let notified = 0
+      const unsubscribe = store.subscribe(() => notified++)
+      const before = store.getSnapshot()
+      const next = { last: 9_825 }
+      yield* push(BBCA, next)
+      yield* settle
+      const after = store.getSnapshot()
+      assert.notStrictEqual(after, before)
+      assert.strictEqual(after.get(BBCA), next)
+      assert.strictEqual(after.get(TLKM), tlkm)
+      assert.strictEqual(notified, 0)
+      unsubscribe()
+    })
+  )
+
   it.effect("many updates within one frame notify listeners once", () =>
     Effect.gen(function* () {
       const { store, frames, push } = yield* harness
