@@ -21,7 +21,8 @@ export type DashboardEnv = Cloudflare.InferEnv<typeof Website>
 
 export default Alchemy.Stack(
   "kumora-dashboard",
-  stackOptions("dashboard"),
+  // Alchemy.Stack takes the options as a value, and stackOptions is pure.
+  Effect.runSync(stackOptions("dashboard")),
   Effect.gen(function* () {
     const website = yield* Website
     return { url: website.url.as<string>() }

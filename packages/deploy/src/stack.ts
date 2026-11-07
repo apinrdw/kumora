@@ -34,7 +34,7 @@ const stackTarget = Effect.fnUntraced(function* (
 // running alchemy. Pages lost because Cloudflare steers new projects to Workers;
 // GitHub Actions deploys lost because they need Cloudflare and Infisical
 // credentials in CI. See apinrdw/kumora-monorepo#18 and apinrdw/kumora#17.
-export function stackOptions(app: App) {
+export const stackOptions = Effect.fnUntraced(function* (app: App) {
   return {
     providers: Cloudflare.providers(),
     state: Layer.unwrap(
@@ -63,7 +63,7 @@ export function stackOptions(app: App) {
       )
     },
   }
-}
+})
 
 // Read inside a stack's Effect, where an unknown Stage is a defect alchemy prints.
 export const websiteProps = Effect.fnUntraced(function* (

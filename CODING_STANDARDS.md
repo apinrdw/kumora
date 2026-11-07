@@ -34,7 +34,7 @@ Server functions run as Effect programs through `runServerEffect` in `packages/s
 
 Lint bans `async`, `Promise`, `throw`, `process.exit`, `process.env` and `node:fs`/`node:child_process` in each directory under an Effect override in `.oxlintrc.json`. These rules are the part lint can't check:
 
-- **Every non-component function returns an Effect**, pure helpers included. The exceptions are React components, callbacks a third-party library calls (Base UI, recharts, an oxlint plugin's `create`), and `packages/ui`, which stays shadcn CLI output.
+- **Every non-component function returns an Effect**, pure helpers included. The exceptions are React components, callbacks a third-party library calls (Base UI, recharts, an oxlint plugin's `create`), and `packages/ui`, which stays shadcn CLI output. Test fixtures that build a Layer, Stream or literal data may be plain functions.
 - **Write `Effect.gen` where `oxc/no-async-await` fires.** Its message is fixed text and can't name the fix. A reusable function is `Effect.fn("name")` or `Effect.fnUntraced`.
 - **`Effect.runSync` only for pure synchronous helpers**, such as a formatter called in render or an alchemy callback that must return a value. Anything that does I/O or can fail runs through a runtime: `runScript` in `scripts/`, the client runtime in the browser, `runServerEffect` on the server.
 - **Domain-data props use Schema-derived types and are never decoded.** A prop that carries rows, Day state or freshness is typed with `Schema.Type` of the domain Schema; decode at the boundary that received the data, not in the component.

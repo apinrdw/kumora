@@ -30,7 +30,8 @@ declare module "@workspace/server" {
 
 export default Alchemy.Stack(
   "kumora-web",
-  stackOptions("web"),
+  // Alchemy.Stack takes the options as a value, and stackOptions is pure.
+  Effect.runSync(stackOptions("web")),
   Effect.gen(function* () {
     const website = yield* Website
     return { url: website.url.as<string>() }

@@ -50,9 +50,12 @@ describe("Day state store", () => {
         yield* push(BBCA, next)
         yield* settle
         yield* frames.step
-        assert.strictEqual(selectDayState(BBCA)(store.getSnapshot()), next)
+        assert.strictEqual(
+          yield* selectDayState(store.getSnapshot(), BBCA),
+          next
+        )
         assert.isTrue(
-          Object.is(selectDayState(TLKM)(store.getSnapshot()), tlkm)
+          Object.is(yield* selectDayState(store.getSnapshot(), TLKM), tlkm)
         )
         unsubscribe()
       })
@@ -140,9 +143,11 @@ describe("Day state store", () => {
         initial,
       }).pipe(Effect.provideService(FrameScheduler, frames.scheduler))
 
-      const select = selectDayState(BBCA)
-      assert.strictEqual(select(store.getServerSnapshot()), bbca)
-      assert.strictEqual(select(store.getSnapshot()), bbca)
+      assert.strictEqual(
+        yield* selectDayState(store.getServerSnapshot(), BBCA),
+        bbca
+      )
+      assert.strictEqual(yield* selectDayState(store.getSnapshot(), BBCA), bbca)
       yield* settle
       yield* frames.step
       assert.strictEqual(started, 0)

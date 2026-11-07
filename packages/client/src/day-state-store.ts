@@ -19,12 +19,14 @@ export type DayStateStore<A> = {
   readonly getServerSnapshot: () => DayStateSnapshot<A>
 }
 
-// The per-row selector. A row's value keeps its identity until its own stock
-// code updates, so Object.is skips every other row.
-export const selectDayState =
-  (code: DayStateCode) =>
-  <A>(snapshot: DayStateSnapshot<A>): A | undefined =>
-    snapshot.get(code)
+// The per-row selector, pure, so render may runSync it. A row's value keeps its
+// identity until its own stock code updates, so Object.is skips every other row.
+export const selectDayState = Effect.fnUntraced(function* <A>(
+  snapshot: DayStateSnapshot<A>,
+  code: DayStateCode
+): Effect.fn.Return<A | undefined> {
+  return snapshot.get(code)
+})
 
 export const makeDayStateStore = Effect.fnUntraced(function* <A, R>(options: {
   readonly source: Stream.Stream<DayStateUpdate<A>, never, R>

@@ -21,8 +21,8 @@ describe("stackOptions on alchemy's placeholder stage", () => {
   it.each(["web", "dashboard"] as const)(
     "%s lists Infisical secrets, so profile edit can offer Infisical",
     (app) => {
-      const secrets = stackOptions(app).secrets({ stage: PLACEHOLDER_STAGE })
-      assert.lengthOf(secrets, 2)
+      const options = Effect.runSync(stackOptions(app))
+      assert.lengthOf(options.secrets({ stage: PLACEHOLDER_STAGE }), 2)
     }
   )
 })
@@ -30,7 +30,8 @@ describe("stackOptions on alchemy's placeholder stage", () => {
 describe("an unknown Stage inside a stack is a defect", () => {
   it("the secrets callback throws UnknownStage", () => {
     assert.throws(
-      () => stackOptions("web").secrets({ stage: "live_jarvis" }),
+      () =>
+        Effect.runSync(stackOptions("web")).secrets({ stage: "live_jarvis" }),
       UnknownStage,
       /Unknown stage "live_jarvis"/
     )
@@ -40,7 +41,8 @@ describe("an unknown Stage inside a stack is a defect", () => {
     Effect.gen(function* () {
       // The layer reads the Stage before it picks a store, so an unknown
       // Stage dies without reaching the other stack services.
-      const build = Layer.build(stackOptions("web").state).pipe(
+      const { state } = yield* stackOptions("web")
+      const build = Layer.build(state).pipe(
         Effect.provideService(Alchemy.Stage, "live_jarvis"),
         Effect.scoped
       ) as Effect.Effect<unknown>

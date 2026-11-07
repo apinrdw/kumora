@@ -35,18 +35,17 @@ const classify = Effect.fnUntraced(function* (
   return undefined
 })
 
-// Schema calls a filter synchronously, and classify is pure.
-const classifySync = (raw: string) => Effect.runSync(classify(raw))
-
 // Alchemy hands a stack any stage name. Anything that no branch, dev or test
 // stage could produce (alchemy's `live_$USER` default) is not a Stage.
+// Schema calls a filter synchronously, and classify is pure, so the filters
+// runSync it.
 export const Stage = Schema.String.check(
-  Schema.makeFilter((raw) => classifySync(raw) !== undefined)
+  Schema.makeFilter((raw) => Effect.runSync(classify(raw)) !== undefined)
 ).pipe(Schema.brand("Stage"))
 export type Stage = typeof Stage.Type
 
 export const Preview = Stage.check(
-  Schema.makeFilter((stage) => classifySync(stage) === "preview")
+  Schema.makeFilter((stage) => Effect.runSync(classify(stage)) === "preview")
 ).pipe(Schema.brand("Preview"))
 export type Preview = typeof Preview.Type
 
