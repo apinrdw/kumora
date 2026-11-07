@@ -198,13 +198,14 @@ ACCOUNT="8ecc24065089e01c57d5470fa0848f9a"
 CF="https://dash.cloudflare.com/$ACCOUNT"
 INFISICAL="https://app.infisical.com"
 SIGN_IN_PR="https://github.com/apinrdw/kumora/pull/94"
-# worker_name APP STAGE asks packages/deploy, which owns the naming rule.
-worker_name() {
-  bun -e 'import { parseStage, stageTarget } from "./packages/deploy/src/target.ts"
-console.log(stageTarget(process.argv[1], parseStage(process.argv[2])).workerName)' "$1" "$2"
+# stage_url APP STAGE asks packages/deploy, which owns the Worker name and
+# the workers.dev subdomain.
+stage_url() {
+  bun -e 'import { parseStage, stageUrl } from "./packages/deploy/src/target.ts"
+console.log(stageUrl(process.argv[1], parseStage(process.argv[2])))' "$1" "$2"
 }
-PROD_URL="https://$(worker_name dashboard production).kumora.workers.dev"
-STAGING_URL="https://$(worker_name dashboard staging).kumora.workers.dev"
+PROD_URL="$(stage_url dashboard production)"
+STAGING_URL="$(stage_url dashboard staging)"
 
 # infisical_has ENV NAME: does /dashboard of ENV hold a non-empty NAME? Prints
 # nothing of the value. Needs `infisical login` and the project ID.
@@ -393,7 +394,7 @@ open_url "$PROD_URL/sign-up"
 step "Create an account with one of prod's ADMIN_EMAILS (Turnstile shows here: it's a real widget)."
 step "The mail must come from no-reply@mailer.pusat.ai. Open its link: you land signed in."
 step "The sidebar must show the Admin group, and /admin/users must list your account."
-check_turnstile_widget prod "$(worker_name dashboard production).kumora.workers.dev"
+check_turnstile_widget prod "${PROD_URL#https://}"
 if confirm "Did the mail arrive, verify you, and make you an admin?"; then :; else SKIPPED+=("Production sign-up, mail and admin check"); fi
 
 # ── 9 ─────────────────────────────────────────────────────────────────────
