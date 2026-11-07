@@ -7,6 +7,7 @@ const viewer = {
   name: "Ayu Lestari",
   email: "ayu@example.com",
   features: ["market-live", "account"],
+  impersonating: false,
 } as const
 
 describe("AppHeader", () => {

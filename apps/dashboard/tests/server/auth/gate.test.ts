@@ -67,6 +67,7 @@ describe("gatePage", () => {
           name: "Ayu",
           email: "ayu@example.com",
           features: ["market-live", "account"],
+          impersonating: false,
         },
       })
     }).pipe(Effect.provide(layer))
@@ -86,6 +87,7 @@ describe("gatePage", () => {
           name: "Ayu",
           email: "ayu@example.com",
           features: ["market-live", "account"],
+          impersonating: false,
         },
       })
     }).pipe(Effect.provide(layer))
@@ -108,6 +110,7 @@ describe("gatePage", () => {
             name: "Ayu",
             email: ADMIN_EMAIL,
             features: ["market-live", "account", "admin"],
+            impersonating: false,
           },
         })
       }).pipe(Effect.provide(layer))

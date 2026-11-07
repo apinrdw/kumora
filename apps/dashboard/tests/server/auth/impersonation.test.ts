@@ -1,6 +1,8 @@
 import { assert, describe, it } from "@effect/vitest"
 import { Effect } from "effect"
 
+import { accountPage } from "@/server/auth/account-page"
+import { gatePage } from "@/server/auth/gate"
 import type { Mail } from "@/server/auth/mailer"
 
 import {
@@ -211,6 +213,47 @@ describe("while impersonating", () => {
       assert.strictEqual((yield* sessionOf(back))?.user.email, ADMIN_EMAIL)
       // The impersonation session is gone.
       assert.isNull(yield* sessionOf(viewing))
+    }).pipe(Effect.provide(layer))
+  })
+})
+
+describe("pages while impersonating", () => {
+  it.effect("show the member's account, marked as viewed by an admin", () => {
+    const { layer, mails } = seam()
+    return Effect.gen(function* () {
+      const { viewing } = yield* viewingAsMember(mails)
+      const access = yield* gatePage(new Headers({ cookie: viewing }), {
+        href: "/account",
+        feature: "account",
+      })
+      assert.deepStrictEqual(access, {
+        _tag: "Allowed",
+        viewer: {
+          name: "ayu",
+          email: MEMBER,
+          features: ["market-live", "account"],
+          impersonating: true,
+        },
+      })
+    }).pipe(Effect.provide(layer))
+  })
+
+  it.effect("make /account read-only", () => {
+    const { layer, mails } = seam()
+    return Effect.gen(function* () {
+      const { viewing } = yield* viewingAsMember(mails)
+      const page = yield* accountPage(
+        new Headers({ cookie: viewing }),
+        "/account"
+      )
+      assert.strictEqual(page.email, MEMBER)
+      assert.deepStrictEqual(page.allowed, {
+        "own.update-profile": false,
+        "own.change-password": false,
+        "own.end-sessions": false,
+        "own.change-email": false,
+        "own.delete": false,
+      })
     }).pipe(Effect.provide(layer))
   })
 })
