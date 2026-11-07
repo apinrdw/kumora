@@ -300,18 +300,22 @@ stage "Cloudflare: give the prod token mail and Turnstile permissions"
 say "Production owns the mailer.pusat.ai sender and its Turnstile widget (runbook 9.3, 11.1)."
 open_url "$CF/api-tokens"
 note "Manage Account → Account API Tokens is the runbook's path; this URL to it is unverified."
-step "Edit the prod token (the one in Infisical prod at / as CLOUDFLARE_API_TOKEN). Keep its permissions, and add:"
-step "  Zone · Zone · Read            on zone pusat.ai"
-step "  Zone · Email Sending · Edit   on zone pusat.ai   (permission name unverified)"
-step "  Account · Turnstile Sites · Write"
-note "If the token can't be edited, create one with the old permissions plus these and paste it over CLOUDFLARE_API_TOKEN in prod."
+step "Edit the prod token (the one in Infisical prod at / as CLOUDFLARE_API_TOKEN)."
+step "In its existing Entire Account policy: search 'Turnstile' and set it to Edit."
+step "Then + Add policy, scope it to the zone pusat.ai, and add:"
+step "  Zone (DNS & Zones) · Read"
+step "  Email Sending (Email & Messaging) · Edit"
+note "Group names are from the edit-policy screen seen 2026-11-07; the exact permission row names are unverified."
+note "If the scope can't name one zone, add both to the Entire Account policy instead (broader, still works)."
+note "No DNS permission is needed: Cloudflare adds the sending subdomain's DNS records itself."
+note "If saving shows a new token value, paste it over CLOUDFLARE_API_TOKEN at / of Infisical prod."
 if confirm "Does the prod token have all three now?"; then :; else SKIPPED+=("prod Cloudflare token: Zone Read, Email Sending Edit, Turnstile Sites Write"); fi
 
 # ── 5 ─────────────────────────────────────────────────────────────────────
 stage "Cloudflare: give the staging token Turnstile"
 say "Staging owns its own Turnstile widget but only binds to Production's sender (runbook 11.1)."
 open_url "$CF/api-tokens"
-step "Edit the staging token and add  Account · Turnstile Sites · Write."
+step "Edit the staging token. In its Entire Account policy, search 'Turnstile' and set it to Edit."
 note "Previews need nothing new: they use Cloudflare's always-pass test keys."
 if confirm "Does the staging token have Turnstile Sites Write now?"; then :; else SKIPPED+=("staging Cloudflare token: Turnstile Sites Write"); fi
 
