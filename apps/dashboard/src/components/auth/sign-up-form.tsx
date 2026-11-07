@@ -4,8 +4,10 @@ import { useState, type FormEvent } from "react"
 import { KButton, KInput } from "@/components/k"
 import { authClient } from "@/lib/auth-client"
 import { MIN_PASSWORD_LENGTH } from "@/lib/password"
+import { retryAfter } from "@/lib/retry-after"
 
 import { FormError, formFields, linkClass } from "./auth-page"
+import { CAPTCHA_HEADER, useTurnstile } from "./turnstile"
 import { CheckInbox } from "./verify-notices"
 
 type Step =
@@ -20,31 +22,48 @@ type Step =
  * A taken email gets the same "Check your inbox" as a new one, and no mail,
  * so the form never says whether an address has an account.
  */
-export function SignUpForm({ redirect }: { redirect: string }) {
+export function SignUpForm({
+  redirect,
+  turnstileSiteKey,
+}: {
+  redirect: string
+  turnstileSiteKey: string
+}) {
   const hydrated = useHydrated()
+  const {
+    ref: turnstileRef,
+    token: turnstileToken,
+    reset: resetTurnstile,
+  } = useTurnstile(turnstileSiteKey)
   const [step, setStep] = useState<Step>({ _tag: "Form", pending: false })
 
   const submit = async (event: FormEvent<HTMLFormElement>) => {
     event.preventDefault()
+    if (!turnstileToken) return
     const fields = formFields(event.currentTarget, [
       "name",
       "email",
       "password",
     ])
     setStep({ _tag: "Form", pending: true })
-    const { error } = await authClient.signUp.email({
-      ...fields,
-      callbackURL: redirect,
-    })
-    setStep(
-      error
-        ? {
-            _tag: "Form",
-            pending: false,
-            error: "Couldn't create the account. Try again in a minute.",
-          }
-        : { _tag: "CheckInbox", email: fields.email }
+    const retry = retryAfter()
+    const { error } = await authClient.signUp.email(
+      { ...fields, callbackURL: redirect },
+      {
+        headers: { [CAPTCHA_HEADER]: turnstileToken },
+        onError: retry.onError,
+      }
     )
+    if (!error) return setStep({ _tag: "CheckInbox", email: fields.email })
+    resetTurnstile()
+    setStep({
+      _tag: "Form",
+      pending: false,
+      error:
+        error.status === 429
+          ? retry.message()
+          : "Couldn't create the account. Try again in a minute.",
+    })
   }
 
   // The new account holds an unverified session; end it before another try.
@@ -84,6 +103,7 @@ export function SignUpForm({ redirect }: { redirect: string }) {
         hint={`At least ${MIN_PASSWORD_LENGTH} characters.`}
         size="md"
       />
+      <div ref={turnstileRef} />
       {step.error && <FormError>{step.error}</FormError>}
       {/* Before hydration the browser would submit the form itself, as a GET
           with the password in the URL. */}
@@ -91,7 +111,7 @@ export function SignUpForm({ redirect }: { redirect: string }) {
         type="submit"
         size="lg"
         loading={step.pending}
-        disabled={!hydrated}
+        disabled={!hydrated || !turnstileToken}
       >
         Create account
       </KButton>

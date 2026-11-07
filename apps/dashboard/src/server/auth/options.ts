@@ -1,12 +1,13 @@
 // The Better Auth config, shared by the Worker (auth.ts), the handler test seam
 // and the migration script (scripts/auth-migrations.ts). The script runs under
 // plain Node, so this module imports only packages, never `@/` paths or Effect.
-import type { BetterAuthOptions } from "better-auth"
+import type { BetterAuthOptions, BetterAuthPlugin } from "better-auth"
 import {
   createAuthMiddleware,
   getAuthoritativeSessionFromCtx,
 } from "better-auth/api"
 import { admin } from "better-auth/plugins/admin"
+import { captcha } from "better-auth/plugins/captcha"
 import { tanstackStartCookies } from "better-auth/tanstack-start"
 
 import { MIN_PASSWORD_LENGTH } from "../../lib/password.ts"
@@ -15,7 +16,8 @@ import type { GoogleClient } from "./google.ts"
 import type { OwnAction } from "./policy.ts"
 import type { BetterAuthSession } from "./session-account.ts"
 
-const DAY = 24 * 60 * 60
+const HOUR = 60 * 60
+const DAY = 24 * HOUR
 
 // The page the delete link opens: src/routes/_app/delete-account.tsx.
 const DELETE_ACCOUNT_PATH = "/delete-account"
@@ -30,6 +32,7 @@ export interface AuthOptionsInput {
   readonly google?: GoogleClient
   readonly sendVerificationEmail: (mail: LinkMail) => Promise<void>
   readonly sendResetPassword: (mail: LinkMail) => Promise<void>
+  readonly turnstileSecretKey: string
   // Change email, step one: the old address confirms the move.
   readonly sendChangeEmailConfirmation: (
     mail: LinkMail & { readonly newEmail: string }
@@ -100,6 +103,24 @@ const before = (input: AuthOptionsInput) =>
     const session = await getAuthoritativeSessionFromCtx(ctx)
     await input.authorizeOwnAction({ action, session })
   })
+
+// The per-address mail cap's table (mail-cap.ts). A plugin schema, so the
+// migration script generates it and Better Auth's adapter reaches it on D1 and
+// SQLite alike.
+export const MAIL_CAP_MODEL = "mailCap"
+
+const mailCapTable = {
+  id: "mail-cap",
+  schema: {
+    [MAIL_CAP_MODEL]: {
+      fields: {
+        address: { type: "string", unique: true, required: true },
+        count: { type: "number", required: true },
+        windowStart: { type: "number", bigint: true, required: true },
+      },
+    },
+  },
+} satisfies BetterAuthPlugin
 
 export function authOptions(input: AuthOptionsInput) {
   const grantAdmin = async (user: WrittenUser | null) => {
@@ -178,8 +199,27 @@ export function authOptions(input: AuthOptionsInput) {
         update: { after: grantAdmin },
       },
     },
-    advanced: { database: { validateSchema: input.validateSchema } },
-    // Must stay last.
+    // Per IP, counted in D1 so every isolate shares the count. Set explicitly:
+    // Better Auth turns the limiter on only when NODE_ENV is production. Paths
+    // not named here keep Better Auth's defaults, which include 3 per 10 s on
+    // change-password and change-email.
+    rateLimit: {
+      enabled: true,
+      storage: "database",
+      window: 10,
+      max: 100,
+      customRules: {
+        "/sign-in/*": { window: 60, max: 10 },
+        "/sign-up/*": { window: HOUR, max: 5 },
+        "/send-verification-email": { window: HOUR, max: 3 },
+        "/request-password-reset": { window: HOUR, max: 3 },
+      },
+    },
+    advanced: {
+      database: { validateSchema: input.validateSchema },
+      // Cloudflare sets it to the client's address on every request.
+      ipAddress: { ipAddressHeaders: ["cf-connecting-ip"] },
+    },
     plugins: [
       admin({
         ac,
@@ -188,6 +228,14 @@ export function authOptions(input: AuthOptionsInput) {
         adminRoles: ["admin"],
         impersonationSessionDuration: 60 * 60,
       }),
+      // Only the two forms that send mail; sign-in never shows a challenge.
+      captcha({
+        provider: "cloudflare-turnstile",
+        secretKey: input.turnstileSecretKey,
+        endpoints: ["/sign-up/email", "/request-password-reset"],
+      }),
+      mailCapTable,
+      // Must stay last.
       tanstackStartCookies(),
     ],
   } satisfies BetterAuthOptions

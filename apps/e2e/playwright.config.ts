@@ -11,7 +11,17 @@ export default defineConfig({
     // Signs up and verifies the shared accounts through the UI and saves
     // their signed-in state (support/accounts.ts) for the specs.
     { name: "setup", testMatch: /\.setup\.ts$/ },
-    { name: "chromium", dependencies: ["setup"] },
+    {
+      name: "chromium",
+      dependencies: ["setup"],
+      testIgnore: /too-many-attempts\.spec\.ts$/,
+    },
+    // Spends a per-IP limit on purpose, so it runs after every other spec.
+    {
+      name: "limits",
+      dependencies: ["chromium"],
+      testMatch: /too-many-attempts\.spec\.ts$/,
+    },
   ],
   // Both apps run on alchemy's local `test` stage: local state, no Infisical,
   // so the dummy value below comes from the process environment and no

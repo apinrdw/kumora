@@ -1,4 +1,6 @@
-import { expect, test, type Page } from "@playwright/test"
+import type { Page } from "@playwright/test"
+
+import { expect, newClientContext, test } from "../support/test"
 
 import { ADMIN, DASHBOARD } from "../support/accounts"
 import { accountMenu, signIn, signInUrl, signUp } from "../support/flows"
@@ -24,8 +26,8 @@ const otherSessions = (page: Page) =>
 test("an account renames itself, changes its password, ends a session, moves to a new email and deletes itself", async ({
   browser,
 }) => {
-  const first = await (await browser.newContext()).newPage()
-  const second = await (await browser.newContext()).newPage()
+  const first = await (await newClientContext(browser)).newPage()
+  const second = await (await newClientContext(browser)).newPage()
 
   await test.step("sign up, verify, and open /account from the user menu", async () => {
     const since = Date.now()
