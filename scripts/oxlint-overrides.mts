@@ -38,16 +38,23 @@ const Config = Schema.Struct({
 })
 
 // .oxlintrc.json is JSONC: drop comments and trailing commas outside strings.
-const jsonc = (text: string) =>
-  text
+const jsonc = Effect.fnUntraced(function* (text: string) {
+  return text
     .replace(
       /("(?:\\.|[^"\\])*")|\/\/[^\n]*|\/\*[\s\S]*?\*\//g,
       (_, s) => s ?? ""
     )
     .replace(/("(?:\\.|[^"\\])*")|,(\s*[}\]])/g, (_, s, close) => s ?? close)
+})
 
-const describePattern = ({ group, regex }: typeof Pattern.Type) =>
-  group === undefined ? `regex ${regex}` : `group ${JSON.stringify(group)}`
+const describePattern = Effect.fnUntraced(function* ({
+  group,
+  regex,
+}: typeof Pattern.Type) {
+  return group === undefined
+    ? `regex ${regex}`
+    : `group ${JSON.stringify(group)}`
+})
 
 export const checkOxlintOverrides = Effect.fn("checkOxlintOverrides")(
   function* (root: string) {
@@ -56,34 +63,43 @@ export const checkOxlintOverrides = Effect.fn("checkOxlintOverrides")(
     const text = yield* fs.readFileString(path.join(root, ".oxlintrc.json"))
     const config = yield* Schema.decodeUnknownEffect(
       Schema.fromJsonString(Config)
-    )(jsonc(text))
+    )(yield* jsonc(text))
     const [, rootBans] = yield* Schema.decodeUnknownEffect(ImportBans)(
       config.rules?.[rule]
     )
     const overrides = config.overrides ?? []
-    const findings = overrides.flatMap(({ files, rules }, index) => {
-      if (rules === undefined || !(rule in rules)) return []
-      const where = `overrides[${index}] (${files.join(", ")})`
-      const bans = Schema.decodeUnknownOption(ImportBans)(rules[rule])
-      if (Option.isNone(bans))
-        return [`${where}: sets ${rule} without the root paths and patterns`]
-      const [, { paths = [], patterns = [] }] = bans.value
-      const names = new Set(paths.map(({ name }) => name))
-      const restated = new Set(patterns.map(describePattern))
-      const missingPaths = (rootBans.paths ?? [])
-        .map(({ name }) => name)
-        .filter((name) => !names.has(name))
-        .filter(
-          (name) =>
-            !files.every((file) => allowedOmissions[name]?.includes(file))
+    const rootPatterns = yield* Effect.forEach(
+      rootBans.patterns ?? [],
+      describePattern
+    )
+    const perOverride = yield* Effect.forEach(
+      overrides,
+      Effect.fnUntraced(function* ({ files, rules }, index) {
+        if (rules === undefined || !(rule in rules)) return []
+        const where = `overrides[${index}] (${files.join(", ")})`
+        const bans = Schema.decodeUnknownOption(ImportBans)(rules[rule])
+        if (Option.isNone(bans))
+          return [`${where}: sets ${rule} without the root paths and patterns`]
+        const [, { paths = [], patterns = [] }] = bans.value
+        const names = new Set(paths.map(({ name }) => name))
+        const restated = new Set(
+          yield* Effect.forEach(patterns, describePattern)
         )
-        .map((name) => `${where}: missing path "${name}"`)
-      const missingPatterns = (rootBans.patterns ?? [])
-        .map(describePattern)
-        .filter((pattern) => !restated.has(pattern))
-        .map((pattern) => `${where}: missing pattern ${pattern}`)
-      return [...missingPaths, ...missingPatterns]
-    })
+        const missingPaths = (rootBans.paths ?? [])
+          .map(({ name }) => name)
+          .filter((name) => !names.has(name))
+          .filter(
+            (name) =>
+              !files.every((file) => allowedOmissions[name]?.includes(file))
+          )
+          .map((name) => `${where}: missing path "${name}"`)
+        const missingPatterns = rootPatterns
+          .filter((pattern) => !restated.has(pattern))
+          .map((pattern) => `${where}: missing pattern ${pattern}`)
+        return [...missingPaths, ...missingPatterns]
+      })
+    )
+    const findings = perOverride.flat()
     if (findings.length > 0)
       return yield* new CheckFailed({
         summary: `An override's ${rule} replaces the root options, so it must restate every root path and pattern (.oxlintrc.json):`,

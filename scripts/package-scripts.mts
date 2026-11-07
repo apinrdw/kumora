@@ -34,16 +34,22 @@ const listSeparator = /&&|\|\||[;&\n]/
 
 // Operator characters inside quotes, escapes, substitutions and redirections are text.
 const masked = { "|": "\uE000", "&": "\uE001", ";": "\uE002", "\n": "\uE003" }
-const mask = (token: string) =>
-  token.replace(/[|&;\n]/g, (ch) => masked[ch as keyof typeof masked])
-const unmask = (text: string) =>
-  text.replace(/[\uE000-\uE003]/g, (ch) => "|&;\n"[ch.charCodeAt(0) - 0xe000])
+const mask = Effect.fnUntraced(function* (token: string) {
+  return token.replace(/[|&;\n]/g, (ch) => masked[ch as keyof typeof masked])
+})
+const unmask = Effect.fnUntraced(function* (text: string) {
+  return text.replace(
+    /[\uE000-\uE003]/g,
+    (ch) => "|&;\n"[ch.charCodeAt(0) - 0xe000]
+  )
+})
 
-const isSyntax = (token: string) =>
-  /^[^'"\\$`]/.test(token) && !/^([<>]&|>\|)/.test(token)
+const isSyntax = Effect.fnUntraced(function* (token: string) {
+  return /^[^'"\\$`]/.test(token) && !/^([<>]&|>\|)/.test(token)
+})
 
 // Command lists that run inside a token: a bare $(...) or `...`, or those inside double quotes.
-function nestedCommands(token: string): string[] {
+const nestedCommands = Effect.fnUntraced(function* (token: string) {
   if (token.startsWith("$(")) return [token.slice(2, -1)]
   if (token.startsWith("`")) return [token.slice(1, -1)]
   if (token.startsWith('"')) {
@@ -53,31 +59,35 @@ function nestedCommands(token: string): string[] {
     )
   }
   return []
-}
+})
 
-const hidesFailure = (stages: string[]) =>
-  stages.length > 1 &&
-  !stages.slice(0, -1).every((stage) => safeStage.test(stage))
+const hidesFailure = Effect.fnUntraced(function* (stages: Array<string>) {
+  return (
+    stages.length > 1 &&
+    !stages.slice(0, -1).every((stage) => safeStage.test(stage))
+  )
+})
 
 export const unguardedPipes: (command: string) => Effect.Effect<Array<string>> =
   Effect.fnUntraced(function* (command) {
     const tokens = [...command.matchAll(shellToken)].map(([token]) => token)
-    const nested = yield* Effect.forEach(
-      tokens.flatMap(nestedCommands),
-      unguardedPipes
+    const commands = yield* Effect.forEach(tokens, nestedCommands)
+    const nested = yield* Effect.forEach(commands.flat(), unguardedPipes)
+    const shown = yield* Effect.forEach(
+      tokens,
+      Effect.fnUntraced(function* (token) {
+        return (yield* isSyntax(token)) ? token : yield* mask(token)
+      })
     )
-    const flat = tokens
-      .map((token) => (isSyntax(token) ? token : mask(token)))
+    const pipelines = shown
       .join("")
-    const pipelines = flat
       .split(listSeparator)
       .map((list) => list.split("|").map((s) => s.trim()))
-    return [
-      ...nested.flat(),
-      ...pipelines
-        .filter(hidesFailure)
-        .map((stages) => unmask(stages.join(" | "))),
-    ]
+    const hiding = yield* Effect.filter(pipelines, hidesFailure)
+    const found = yield* Effect.forEach(hiding, (stages) =>
+      unmask(stages.join(" | "))
+    )
+    return [...nested.flat(), ...found]
   })
 
 const Scripts = Schema.fromJsonString(
