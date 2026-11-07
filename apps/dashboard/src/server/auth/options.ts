@@ -339,8 +339,8 @@ export function authOptions(input: AuthOptionsInput) {
       cookieCache: { enabled: true, maxAge: 300 },
     },
     hooks: { before: before(input) },
-    // Every account write passes here, so a sign-up with a provider that
-    // already verified the email (Google) is covered as well as the link.
+    // Every account write passes here, so a sign-up with a sign-in method
+    // that already verified the email (Google) is covered as well as the link.
     // Every sign-in too, for an email put on ADMIN_EMAILS after it verified.
     databaseHooks: {
       user: {

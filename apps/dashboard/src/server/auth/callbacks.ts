@@ -229,11 +229,12 @@ export const authorizeEmailChange = Effect.fn("authorizeEmailChange")(
 // Decision: an email on ADMIN_EMAILS becomes admin once it is verified, not
 // when the account is created, so nobody can squat an admin email before its
 // owner signs up. It runs after every write of an account, which covers the
-// verification link, a sign-up through a provider that already verified the
-// email (Google), and a change to an email on the list. From then on the role
-// lives in the database. An email put on the list after it was verified is a
-// config admin at once (session-account.ts) and is stored as admin here at its
-// next sign-in or admin action, whichever comes first. See apinrdw/kumora#70.
+// verification link, a sign-up with a sign-in method that already verified
+// the email (Google), and a change to an email on the list. From then on the
+// role lives in the database. An email put on the list after it was verified
+// is a config admin at once (session-account.ts) and is stored as admin here
+// at its next sign-in or admin action, whichever comes first. See
+// apinrdw/kumora#70.
 export const grantAdmin = Effect.fn("grantAdmin")(function* (
   user: WrittenUser
 ) {
