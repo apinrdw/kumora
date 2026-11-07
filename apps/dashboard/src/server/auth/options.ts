@@ -5,6 +5,8 @@ import type { BetterAuthOptions } from "better-auth"
 import { createAuthMiddleware } from "better-auth/api"
 import { tanstackStartCookies } from "better-auth/tanstack-start"
 
+import { MIN_PASSWORD_LENGTH } from "../../lib/password.ts"
+
 const DAY = 24 * 60 * 60
 
 export interface AuthOptionsInput {
@@ -44,7 +46,7 @@ export function authOptions(input: AuthOptionsInput) {
     database: input.database,
     emailAndPassword: {
       enabled: true,
-      minPasswordLength: 8,
+      minPasswordLength: MIN_PASSWORD_LENGTH,
       // An unverified account signs in and holds a session; the sign-in gate
       // shows it the verify screen instead of any page.
       requireEmailVerification: false,

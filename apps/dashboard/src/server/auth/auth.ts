@@ -1,4 +1,4 @@
-import { WorkerEnv } from "@workspace/server"
+import { WorkerEnv, waitUntilLive } from "@workspace/server"
 import { betterAuth } from "better-auth"
 import { Context, Effect, Layer } from "effect"
 import type { UnknownError } from "effect/Cause"
@@ -71,5 +71,5 @@ export class Auth extends Context.Service<
         validateSchema: false,
       })
     })
-  ).pipe(Layer.provide(Mailer.layer))
+  ).pipe(Layer.provide(Mailer.layer), Layer.provide(waitUntilLive))
 }

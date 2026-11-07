@@ -4,6 +4,8 @@
 import { Forbidden, NotFound, Unauthorized } from "@workspace/server"
 import { Effect } from "effect"
 
+import { withRedirect } from "@/lib/redirect"
+
 import { Auth, type AuthSession } from "./auth.ts"
 import {
   FEATURES,
@@ -12,9 +14,10 @@ import {
   type Account,
   type Feature,
   type Reason,
+  type SignedOut,
 } from "./policy.ts"
 
-interface Viewer {
+export interface Viewer {
   readonly name: string
   readonly email: string
   // The features whose pages this account may view; the nav shows only these.
@@ -37,7 +40,7 @@ export interface Page {
 
 // Until the admin plugin (apinrdw/kumora#86) puts role and ban state on the
 // session, every account is a member that isn't suspended.
-const accountOf = (session: AuthSession | null): Account | typeof signedOut =>
+const accountOf = (session: AuthSession | null): Account | SignedOut =>
   session === null
     ? signedOut
     : {
@@ -48,9 +51,6 @@ const accountOf = (session: AuthSession | null): Account | typeof signedOut =>
         configAdmin: false,
         impersonating: false,
       }
-
-const withRedirect = (path: string, href: string) =>
-  `${path}?redirect=${encodeURIComponent(href)}`
 
 const refusal = (reason: Exclude<Reason, "no-access">, href: string) => {
   switch (reason) {

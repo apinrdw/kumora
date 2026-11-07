@@ -4,8 +4,11 @@ import { Link, useMatches } from "@tanstack/react-router"
 import type { AnyRouteMatch } from "@tanstack/react-router"
 
 import type { Crumb } from "@/lib/crumbs"
+import type { Viewer } from "@/server/auth/gate"
 
-export function AppHeader() {
+import { UserMenu } from "./user-menu"
+
+export function AppHeader({ viewer }: { viewer: Viewer }) {
   return (
     <header className="bg-canvas/82 sticky top-0 z-20 flex h-14 items-center gap-3 border-b border-border px-4 backdrop-blur-[16px]">
       <a href="/" className="shrink-0 md:hidden">
@@ -14,6 +17,10 @@ export function AppHeader() {
       <Breadcrumbs />
       <span className="flex-1" />
       <WibClock />
+      {/* The sidebar holds the menu from 768px up. */}
+      <span className="md:hidden">
+        <UserMenu viewer={viewer} variant="avatar" />
+      </span>
     </header>
   )
 }

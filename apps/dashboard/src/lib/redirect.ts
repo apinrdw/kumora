@@ -10,3 +10,7 @@ export function safeRedirect(raw: unknown): string {
   if (url === null || url.origin !== ORIGIN) return "/"
   return `${url.pathname}${url.search}${url.hash}`
 }
+
+/** A gate screen that sends the visitor back to `href` when it's done. */
+export const withRedirect = (screen: "/sign-in" | "/verify", href: string) =>
+  `${screen}?redirect=${encodeURIComponent(href)}`

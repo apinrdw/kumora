@@ -3,14 +3,27 @@ import { describe, expect, test } from "vitest"
 import { renderAt } from "../../support/render-at"
 import { AppSidebar } from "@/components/shell/app-sidebar"
 
+const viewer = {
+  name: "Ayu Lestari",
+  email: "ayu@example.com",
+  features: ["market-live", "account"],
+} as const
+
 describe("AppSidebar", () => {
   test("lists no entries while NAV is empty", async () => {
-    const html = await renderAt("/", () => <AppSidebar />)
+    const html = await renderAt("/", () => <AppSidebar viewer={viewer} />)
     expect(html.match(/<a title="/g)).toBeNull()
   })
 
   test("the brand links home", async () => {
-    const html = await renderAt("/", () => <AppSidebar />)
+    const html = await renderAt("/", () => <AppSidebar viewer={viewer} />)
     expect(html).toMatch(/<a[^>]*href="\/"[^>]*><img/)
+  })
+
+  test("the user menu shows the signed-in account", async () => {
+    const html = await renderAt("/", () => <AppSidebar viewer={viewer} />)
+    expect(html).toContain("Ayu Lestari")
+    expect(html).toContain("ayu@example.com")
+    expect(html).toContain(">AL<")
   })
 })
