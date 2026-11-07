@@ -8,6 +8,7 @@ import type { Mail } from "@/server/auth/mailer"
 
 import {
   ADMIN_EMAIL,
+  cookiesAfter,
   cookiesFrom,
   linkIn,
   post,
@@ -40,26 +41,6 @@ const verified = (mails: ReadonlyArray<Mail>) =>
     const cookie = cookiesFrom(yield* send(linkIn(mails.at(-1))))
     return { id: created.user.id, cookie }
   })
-
-// The Cookie header after a response: a cookie set twice keeps its last
-// value, and a cookie the response clears is dropped.
-const cookiesAfter = (cookie: string, response: Response) => {
-  const jar = new Map(
-    cookie
-      .split("; ")
-      .filter((pair) => pair !== "")
-      .map((pair) => pair.split("=", 2) as [string, string])
-  )
-  for (const set of response.headers.getSetCookie()) {
-    const pair = set.split(";")[0] ?? ""
-    const at = pair.indexOf("=")
-    const name = pair.slice(0, at)
-    const value = pair.slice(at + 1)
-    if (value === "" || /max-age=0/i.test(set)) jar.delete(name)
-    else jar.set(name, value)
-  }
-  return [...jar].map(([name, value]) => `${name}=${value}`).join("; ")
-}
 
 const impersonate = (cookie: string, userId: string) =>
   post("/admin/impersonate-user", { userId }, { cookie })

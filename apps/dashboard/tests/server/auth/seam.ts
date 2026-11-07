@@ -114,6 +114,26 @@ export const cookiesFrom = (response: Response) =>
     .map((cookie) => cookie.split(";")[0])
     .join("; ")
 
+// The Cookie header after a response: a cookie set twice keeps its last
+// value, and a cookie the response clears is dropped.
+export const cookiesAfter = (cookie: string, response: Response) => {
+  const jar = new Map(
+    cookie
+      .split("; ")
+      .filter((pair) => pair !== "")
+      .map((pair) => pair.split("=", 2) as [string, string])
+  )
+  for (const set of response.headers.getSetCookie()) {
+    const pair = set.split(";")[0] ?? ""
+    const at = pair.indexOf("=")
+    const name = pair.slice(0, at)
+    const value = pair.slice(at + 1)
+    if (value === "" || /max-age=0/i.test(set)) jar.delete(name)
+    else jar.set(name, value)
+  }
+  return [...jar].map(([name, value]) => `${name}=${value}`).join("; ")
+}
+
 export const sessionOf = (cookie: string) =>
   send("/get-session?disableCookieCache=true", { headers: { cookie } }).pipe(
     Effect.flatMap((response) =>
