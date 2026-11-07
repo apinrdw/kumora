@@ -105,6 +105,53 @@ describe("listAccounts", () => {
     }).pipe(Effect.provide(layer))
   })
 
+  it.effect("shows an admin the ban's reason", () => {
+    const { layer, mails } = seam()
+    return Effect.gen(function* () {
+      const admin = yield* verified(mails)(ADMIN_EMAIL, "Owner")
+      yield* signUp("budi@example.com", "Budi")
+      const { rows } = yield* listAccounts(headers(admin), {})
+      yield* post(
+        "/admin/ban-user",
+        { userId: rows[0]?.id, banReason: "Shared the account" },
+        { cookie: admin }
+      )
+      const page = yield* listAccounts(headers(admin), { status: "suspended" })
+      assert.strictEqual(page.rows[0]?.banReason, "Shared the account")
+    }).pipe(Effect.provide(layer))
+  })
+
+  it.effect(
+    "says which actions the access policy allows on each account",
+    () => {
+      const { layer, mails } = seam()
+      return Effect.gen(function* () {
+        const admin = yield* verified(mails)(ADMIN_EMAIL, "Owner")
+        yield* verified(mails)("budi@example.com", "Budi")
+        const { rows } = yield* listAccounts(headers(admin), {})
+        const allowed = Object.fromEntries(
+          rows.map((row) => [row.email, row.allowed])
+        )
+        assert.deepStrictEqual(allowed, {
+          [ADMIN_EMAIL]: {
+            "admin.ban": false,
+            "admin.unban": true,
+            "admin.set-role": false,
+            "admin.end-sessions": true,
+            "admin.impersonate": false,
+          },
+          "budi@example.com": {
+            "admin.ban": true,
+            "admin.unban": true,
+            "admin.set-role": true,
+            "admin.end-sessions": true,
+            "admin.impersonate": true,
+          },
+        })
+      }).pipe(Effect.provide(layer))
+    }
+  )
+
   describe("finding accounts", () => {
     const people = [
       ["ayu@example.com", "Ayu Lestari"],
