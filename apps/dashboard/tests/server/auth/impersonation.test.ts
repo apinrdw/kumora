@@ -86,6 +86,38 @@ describe("impersonation targets", () => {
     }
   )
 
+  it.effect(
+    "the hour holds in the database, whatever cookies the browser sends",
+    () => {
+      const { layer, mails, database } = seam()
+      return Effect.gen(function* () {
+        const { member, viewing } = yield* viewingAsMember(mails)
+        // Without the dont_remember cookie, Better Auth would apply the
+        // ordinary refresh policy: 30 days, as any session a day from
+        // its renewal.
+        const cookie = viewing
+          .split("; ")
+          .filter((pair) => !pair.startsWith("better-auth.dont_remember="))
+          .join("; ")
+        const current = yield* json<{
+          session: { impersonatedBy: string | null; expiresAt: string }
+        } | null>(
+          yield* send("/get-session?disableCookieCache=true", {
+            headers: { cookie },
+          })
+        )
+        const deadline = Date.now() + HOUR
+        assert.isAtMost(Date.parse(current?.session.expiresAt ?? ""), deadline)
+        const stored = database
+          .prepare(
+            `select "expiresAt" from "session" where "userId" = ? and "impersonatedBy" is not null`
+          )
+          .get(member.id) as { expiresAt: string }
+        assert.isAtMost(Date.parse(stored.expiresAt), deadline)
+      }).pipe(Effect.provide(layer))
+    }
+  )
+
   it.effect("refuses another admin, with 403", () => {
     const { layer, mails } = seam()
     return Effect.gen(function* () {
