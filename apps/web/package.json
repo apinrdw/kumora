@@ -18,6 +18,7 @@
     "@tanstack/react-router": "latest",
     "@tanstack/react-router-devtools": "latest",
     "@tanstack/react-start": "latest",
+    "@workspace/client": "workspace:*",
     "@workspace/deploy": "workspace:*",
     "@workspace/server": "workspace:*",
     "@workspace/ui": "workspace:*",

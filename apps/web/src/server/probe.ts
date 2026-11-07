@@ -19,14 +19,27 @@ const sha256Prefix = Effect.fnUntraced(function* (value: string) {
     .slice(0, SHA256_PREFIX_LENGTH)
 })
 
-export const probe = Effect.fn("probe")(function* (request: Request) {
+export interface ProbeReport {
+  readonly origin: string
+  readonly secretPresent: boolean
+  readonly secretSha256Prefix: string | null
+}
+
+// The probe page's data, loaded through getProbeReport.
+export const probeReport = Effect.fn("probeReport")(function* (
+  request: Request
+): Effect.fn.Return<ProbeReport, never, WorkerEnv> {
   const secret = (yield* WorkerEnv).DEPLOY_PROBE_SECRET
-  return Response.json(
-    {
-      origin: new URL(request.url).origin,
-      secretPresent: Boolean(secret),
-      secretSha256Prefix: secret ? yield* sha256Prefix(secret) : null,
-    },
-    { headers: { "cache-control": "no-store" } }
-  )
+  return {
+    origin: new URL(request.url).origin,
+    secretPresent: Boolean(secret),
+    secretSha256Prefix: secret ? yield* sha256Prefix(secret) : null,
+  }
+})
+
+// The same report as JSON, for curl and the e2e smoke.
+export const probe = Effect.fn("probe")(function* (request: Request) {
+  return Response.json(yield* probeReport(request), {
+    headers: { "cache-control": "no-store" },
+  })
 })
