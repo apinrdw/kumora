@@ -6,6 +6,7 @@ import {
   createAuthMiddleware,
   getAuthoritativeSessionFromCtx,
   getSessionFromCtx,
+  isAPIError,
 } from "better-auth/api"
 import { verifyJWT } from "better-auth/crypto"
 import { admin } from "better-auth/plugins/admin"
@@ -139,10 +140,11 @@ const voidAccess = async (ctx: HookContext, userId: string) => {
     await internalAdapter.updateAccount(credential.id, { password: null })
 }
 
-// With auto sign-in on, Better Auth answers a sign-up for a taken email with
-// 422, and an after-hook can't change that status. Answer it here as a
-// success with no session, after hashing the password as a new sign-up
-// would, so the form reveals nothing.
+// With auto sign-in on, Better Auth refuses a sign-up for a taken email with
+// 422, after checking the input exactly as it does for a new email. Replace
+// that refusal with a success and no session, after hashing the password as a
+// new sign-up would, so the form reveals nothing. A Response, not ctx.json:
+// the 422 would stay on a plain body.
 // Decision: an unverified account is nobody's yet, so this sign-up voids its
 // password and sessions at once and mails its address a set-password link, so
 // whoever reads the inbox takes the account. Voiding now, not when the link
@@ -156,7 +158,14 @@ const voidAccess = async (ctx: HookContext, userId: string) => {
 // the answer stays the same.
 const hideTakenEmail = async (ctx: HookContext, input: AuthOptionsInput) => {
   const { email, password, callbackURL } = ctx.body ?? {}
-  if (typeof email !== "string" || typeof password !== "string") return
+  const refused = ctx.context.returned
+  if (
+    typeof email !== "string" ||
+    typeof password !== "string" ||
+    !isAPIError(refused) ||
+    refused.statusCode !== 422
+  )
+    return
   const taken = await ctx.context.internalAdapter.findUserByEmail(
     email.toLowerCase()
   )
@@ -171,7 +180,7 @@ const hideTakenEmail = async (ctx: HookContext, input: AuthOptionsInput) => {
       })
     )
   }
-  return ctx.json({ token: null, user: null })
+  return Response.json({ token: null, user: null })
 }
 
 // Better Auth takes at least this long to answer a signed-out resend, so the
@@ -313,7 +322,6 @@ const authorizeEmailChangeLink = async (
 
 const before = (input: AuthOptionsInput) =>
   createAuthMiddleware(async (ctx) => {
-    if (ctx.path === "/sign-up/email") return hideTakenEmail(ctx, input)
     if (ctx.path === "/send-verification-email")
       return resendSetPassword(ctx, input)
     if (ctx.path === "/verify-email")
@@ -338,6 +346,11 @@ const before = (input: AuthOptionsInput) =>
       session,
       target,
     })
+  })
+
+const after = (input: AuthOptionsInput) =>
+  createAuthMiddleware(async (ctx) => {
+    if (ctx.path === "/sign-up/email") return hideTakenEmail(ctx, input)
   })
 
 // The per-address mail cap's table (mail-cap.ts). A plugin schema, so the
@@ -430,7 +443,7 @@ export function authOptions(input: AuthOptionsInput) {
       updateAge: DAY,
       cookieCache: { enabled: true, maxAge: 300 },
     },
-    hooks: { before: before(input) },
+    hooks: { before: before(input), after: after(input) },
     // Every account write passes here, so a sign-up with a sign-in method
     // that already verified the email (Google) is covered as well as the link.
     // Every sign-in too, for an email put on ADMIN_EMAILS after it verified.
