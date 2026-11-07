@@ -71,7 +71,10 @@
         "package.json",
         "apps/*/package.json",
         "packages/*/package.json",
-        "pnpm-workspace.yaml"
+        "pnpm-workspace.yaml",
+        "pnpm-lock.yaml",
+        ".github/workflows/**",
+        ".claude/hooks/fallow-gate.sh"
       ]
     }
   }
