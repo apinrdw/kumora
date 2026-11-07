@@ -37,6 +37,8 @@ export interface AccountPage {
   // The current session first, then the most recently active.
   readonly sessions: ReadonlyArray<SessionRow>
   readonly allowed: Readonly<Record<OwnAction, boolean>>
+  // Why the policy refuses change email and delete: the reason line names it.
+  readonly configAdmin: boolean
 }
 
 // Reads past the cookie cache: the page lists sessions, so a session ended
@@ -90,5 +92,6 @@ export const accountPage = Effect.fn("accountPage")(function* (
       "own.change-email": allowed("own.change-email"),
       "own.delete": allowed("own.delete"),
     },
+    configAdmin: account.configAdmin,
   } satisfies AccountPage
 })
