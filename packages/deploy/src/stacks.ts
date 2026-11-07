@@ -38,7 +38,8 @@ const operate = (operation: Operation, app: App, stage: Stage) =>
     )
     if (output !== undefined) yield* SigilRenderer.outputs(output)
   }).pipe(
-    // The plan's build and the stage's state-store lease close with it.
+    // The plan's build closes with it. The state store takes no lease; see the
+    // Decision in deploy-command.ts.
     Effect.scoped,
     Effect.provide(Layer.mergeAll(Alchemist.layer(), SigilRenderer.layer()))
   )
