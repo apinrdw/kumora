@@ -145,6 +145,33 @@ describe("an email put on ADMIN_EMAILS after it was verified", () => {
     }).pipe(Effect.provide(layer))
   })
 
+  it.effect("acts as an admin at once: it bans a member", () => {
+    const { layer, setup } = accounts()
+    return Effect.gen(function* () {
+      const { cookies, id, storeAsMember } = yield* setup
+      storeAsMember(OTHER_CONFIG_ADMIN)
+      const response = yield* post(
+        "/admin/ban-user",
+        { userId: id(MEMBER) },
+        { cookie: cookies.other }
+      )
+      assert.strictEqual(response.status, 200)
+      assert.strictEqual((yield* signIn(MEMBER)).status, 403)
+    }).pipe(Effect.provide(layer))
+  })
+
+  it.effect("lists accounts at once", () => {
+    const { layer, setup } = accounts()
+    return Effect.gen(function* () {
+      const { cookies, storeAsMember } = yield* setup
+      storeAsMember(OTHER_CONFIG_ADMIN)
+      const response = yield* send("/admin/list-users", {
+        headers: { cookie: cookies.other },
+      })
+      assert.strictEqual(response.status, 200)
+    }).pipe(Effect.provide(layer))
+  })
+
   it.effect("is stored as admin from its next sign-in", () => {
     const { layer, setup } = accounts()
     return Effect.gen(function* () {
