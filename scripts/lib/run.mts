@@ -4,19 +4,20 @@
 import { NodeRuntime, NodeServices } from "@effect/platform-node"
 import { Cause, Console, Effect, References } from "effect"
 
-const report = <E,>(cause: Cause.Cause<E>) => {
-  if (Cause.hasInterruptsOnly(cause)) return Effect.void
+const errorMessage = Effect.fnUntraced(function* (error: unknown) {
+  return error instanceof Error ? error.message : String(error)
+})
+
+const report = Effect.fnUntraced(function* <E>(cause: Cause.Cause<E>) {
+  if (Cause.hasInterruptsOnly(cause)) return
   if (Cause.hasDies(cause) || !Cause.hasFails(cause))
-    return Effect.logError(cause)
-  return Effect.forEach(
+    return yield* Effect.logError(cause)
+  yield* Effect.forEach(
     cause.reasons.filter(Cause.isFailReason),
-    (reason) => Console.error(errorMessage(reason.error)),
+    (reason) => Effect.flatMap(errorMessage(reason.error), Console.error),
     { discard: true }
   )
-}
-
-const errorMessage = (error: unknown) =>
-  error instanceof Error ? error.message : String(error)
+})
 
 export const runScript = <A, E>(
   program: Effect.Effect<A, E, NodeServices.NodeServices>
