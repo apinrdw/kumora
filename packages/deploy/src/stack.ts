@@ -8,9 +8,12 @@ import * as Layer from "effect/Layer"
 import {
   COMPATIBILITY_DATE,
   parseStage,
+  stageKind,
   stageTarget,
   type App,
   type DeployTarget,
+  type Stage,
+  type StageKind,
 } from "./target.ts"
 
 const INFISICAL_PROJECT = "kumora"
@@ -19,11 +22,12 @@ const INFISICAL_PROJECT = "kumora"
 // deployment: auth discovery for `alchemy profile edit`, and `alchemy state`.
 // Read it as Staging, so discovery sees Cloudflare state and Infisical but the
 // stack never reaches for production's secrets.
+function stackStage(stage: string): Stage {
+  return parseStage(stage === PLACEHOLDER_STAGE ? "staging" : stage)
+}
+
 function stackTarget(app: App, stage: string): DeployTarget {
-  return stageTarget(
-    app,
-    parseStage(stage === PLACEHOLDER_STAGE ? "staging" : stage)
-  )
+  return stageTarget(app, stackStage(stage))
 }
 
 // Decision: Cloudflare Workers with static assets, deployed by Workers Builds
@@ -53,6 +57,23 @@ export function stackOptions(app: App) {
       )
     },
   }
+}
+
+export function stackStageKind(stage: string): StageKind {
+  return stageKind(stackStage(stage))
+}
+
+// The account's workers.dev subdomain. docs/runbooks/deploy.md, "Checking a
+// stage", curls the same host.
+const WORKERS_DEV_SUBDOMAIN = "kumora"
+
+// Where a stage's Worker serves: its workers.dev URL, or the app's dev server
+// on Dev and Test stages, which run only under `alchemy dev`.
+export function stageUrl(app: App, stage: string, devPort: number): string {
+  const kind = stackStageKind(stage)
+  if (kind === "dev" || kind === "test") return `http://localhost:${devPort}`
+  const { workerName } = stackTarget(app, stage)
+  return `https://${workerName}.${WORKERS_DEV_SUBDOMAIN}.workers.dev`
 }
 
 export function websiteProps(app: App, stage: string) {

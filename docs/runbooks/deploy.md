@@ -77,3 +77,12 @@ The Worker name is `kumora-<app>` for Production and `kumora-<app>-<stage>` othe
 ```sh
 printf '%s' "$value" | sha256sum | cut -c1-12
 ```
+
+## 9. Dashboard auth mail ⬜
+
+The dashboard sends verification mail from `no-reply@mailer.pusat.ai` through Cloudflare Email Sending. Production alone owns the `mailer.pusat.ai` sending subdomain (`apps/dashboard/alchemy.run.ts`); every other stage only binds to it.
+
+1. **Deploy Production with auth first.** Until Production has deployed the subdomain, mail from Staging and every Preview fails (the sign-up still succeeds; the send is logged as failed). Dev and Test stages never send: they write `.eml` files under `apps/dashboard/.alchemy/local/email`.
+2. Before that deploy, give the `prod` Cloudflare token (step 2) Zone Read and Email Sending Edit on the `pusat.ai` zone. The stack looks the zone up by name and fails the deploy if it is missing.
+3. If `mailer.pusat.ai` already exists under Email Sending, Alchemy reports it as not owned and refuses it. Delete it first, or run that one Production deploy with `--adopt`.
+4. Check by hand on a Preview: sign up with an address you can read through `POST https://<worker-name>.kumora.workers.dev/api/auth/sign-up/email` with body `{"email":"…","password":"…","name":"…"}` and an `Origin` header of the same `https://<worker-name>.kumora.workers.dev`, receive the mail, and open its link. It must redirect to `/`.
