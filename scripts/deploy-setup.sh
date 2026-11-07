@@ -184,181 +184,212 @@ finish() {
 # Replace the example below. Set TOTAL_STAGES to match the stages you write.
 # ──────────────────────────────────────────────────────────────────────────
 
-# The human steps of docs/runbooks/deploy.md, in dependency order. Secrets are
-# never written to a file: values you paste go to Cloudflare or Infisical by
-# hand, and the one value kept is a GitHub Actions variable.
+# The ⬜ human steps of docs/runbooks/deploy.md that put dashboard sign-in on
+# Production and Staging (runbook sections 1, 9, 10 and 11), in dependency
+# order. Secrets are never written to a file: you paste them into Google,
+# Cloudflare and Infisical yourself, and the wizard only checks they exist.
+# The earlier one-time setup this script walked through is all done (✅ in the
+# runbook); it lives in this file's git history.
 
-TOTAL_STAGES=9
+TOTAL_STAGES=10
 
 cd "$(git rev-parse --show-toplevel)"
 ACCOUNT="8ecc24065089e01c57d5470fa0848f9a"
 CF="https://dash.cloudflare.com/$ACCOUNT"
 INFISICAL="https://app.infisical.com"
-BUN_VERSION="$(tr -d '[:space:]' < .bun-version)"
-BRANCH="$(git branch --show-current)"
-sha256() { if command -v sha256sum >/dev/null 2>&1; then sha256sum; else shasum -a 256; fi; }
+SIGN_IN_PR="https://github.com/apinrdw/kumora/pull/94"
 # worker_name APP STAGE asks packages/deploy, which owns the naming rule.
 worker_name() {
   bun -e 'import { parseStage, stageTarget } from "./packages/deploy/src/target.ts"
 console.log(stageTarget(process.argv[1], parseStage(process.argv[2])).workerName)' "$1" "$2"
 }
-# Root files every app's install or build reads: a lockfile or catalog change
-# alone must still deploy. The Watch paths row in docs/runbooks/deploy.md lists
-# the same files.
-ROOT_WATCH_PATHS="pnpm-lock.yaml, pnpm-workspace.yaml, package.json, .bun-version"
+PROD_URL="https://$(worker_name dashboard production).kumora.workers.dev"
+STAGING_URL="https://$(worker_name dashboard staging).kumora.workers.dev"
 
-banner "kumora deploy setup (docs/runbooks/deploy.md)"
+# infisical_has ENV NAME: does /dashboard of ENV hold a non-empty NAME? Prints
+# nothing of the value. Needs `infisical login` and the project ID.
+infisical_has() {
+  infisical secrets get "$2" --env "$1" --path /dashboard \
+    --projectId "$INFISICAL_PROJECT_ID" --silent -o json 2>/dev/null \
+    | node -e 'let s="";process.stdin.on("data",d=>s+=d).on("end",()=>{
+        try{const e=JSON.parse(s)[0]??{};process.exit(e.secretValue??e.value?0:1)}catch{process.exit(1)}})'
+}
+
+# check_dashboard_values ENV: report each of the three values, by name only.
+check_dashboard_values() {
+  local env="$1" name
+  if ! command -v infisical >/dev/null 2>&1 || [[ -z "${INFISICAL_PROJECT_ID:-}" ]]; then
+    note "Skipping the check: needs the infisical CLI, \`infisical login\` and the project ID."
+    SKIPPED+=("check /dashboard values in Infisical $env by eye")
+    return
+  fi
+  for name in GOOGLE_CLIENT_ID GOOGLE_CLIENT_SECRET ADMIN_EMAILS; do
+    if infisical_has "$env" "$name"; then
+      printf '  %s✓%s %s is set in %s /dashboard\n' "$GREEN" "$RESET" "$name" "$env"
+    else
+      warn "$name is missing or empty in $env /dashboard"
+      SKIPPED+=("Infisical $env /dashboard: $name")
+    fi
+  done
+}
+
+# check_gate URL: a signed-out visit to URL/ must land on sign-in, and the
+# sign-in page must offer Google (release stages only).
+check_gate() {
+  local base="$1" location page
+  location="$(curl -sS -o /dev/null -w '%{redirect_url}' "$base/" || true)"
+  if [[ "$location" == *"/sign-in"* ]]; then
+    printf '  %s✓ a signed-out visit to / goes to sign-in%s\n' "$GREEN" "$RESET"
+  else
+    warn "a signed-out visit to $base/ redirected to '${location:-nothing}', not /sign-in"
+    SKIPPED+=("gate check on $base")
+  fi
+  page="$(curl -sS "$base/sign-in" || true)"
+  if [[ "$page" == *"Continue with Google"* ]]; then
+    printf '  %s✓ sign-in offers Continue with Google%s\n' "$GREEN" "$RESET"
+  else
+    warn "$base/sign-in shows no Continue with Google button"
+    SKIPPED+=("Google button on $base/sign-in")
+  fi
+}
+
+banner "kumora dashboard sign-in rollout (docs/runbooks/deploy.md 9-11)"
 
 # ── 1 ─────────────────────────────────────────────────────────────────────
-stage "Workers Builds: point kumora-web-builds at the deploy script"
-say "The web connection still runs the throwaway deploy's script. Give it the real one."
-open_url "$CF/workers/services/view/kumora-web-builds/production/settings"
-note "This settings URL is unverified; if it 404s, try Workers & Pages → kumora-web-builds → Settings → Build (also unverified)."
-note "Deploy command, Version command and Build command are field names observed 2026-11-05."
-step "Deploy command:  bun ../../packages/deploy/src/deploy.ts web"
-step "Version command (runs for non-production branches):  the same line, replacing anything there."
-step "Build command: leave empty (as observed 2026-11-05, Workers Builds already runs pnpm install)."
-step "Build variables (field name unverified): add BUN_VERSION = $BUN_VERSION (keep INFISICAL_CLIENT_ID and INFISICAL_CLIENT_SECRET)."
-step "Watch paths (field name unverified): keep apps/web/**, packages/** and add $ROOT_WATCH_PATHS."
-note "Whether the field takes a bare root file name, and how it separates entries, is unverified."
-pause "Saved? Press Enter."
+stage "Google: one OAuth client with both redirect URIs"
+say "Production and Staging share one Google OAuth client (runbook step 10.1)."
+open_url "https://console.cloud.google.com/apis/credentials"
+step "Pick the project for kumora. Create credentials → OAuth client ID → Web application,"
+step "or open the existing kumora client. Under Authorized redirect URIs, add both:"
+step "  $PROD_URL/api/auth/callback/google"
+step "  $STAGING_URL/api/auth/callback/google"
+note "If Google asks for an OAuth consent screen first, set it up as External with your email as support contact."
+step "Save, then keep the Client ID and Client secret open for the next two stages."
+pause "Saved both redirect URIs? Press Enter."
 
 # ── 2 ─────────────────────────────────────────────────────────────────────
-stage "Workers Builds: create and connect kumora-dashboard-builds"
-say "An anchor Worker that Alchemy never deploys; it only hosts the dashboard's connection."
-open_url "$CF/workers-and-pages/create"
-note "This create URL is unverified; otherwise try Workers & Pages → Create → Import a repository (also unverified)."
-note "Root directory, Deploy command, Version command and Build command are field names observed 2026-11-05;"
-note "the other field names below are unverified."
-step "Repository: apinrdw/kumora. Worker name: kumora-dashboard-builds."
-step "Root directory: apps/dashboard."
-step "Watch paths: apps/dashboard/**, packages/**, $ROOT_WATCH_PATHS."
-note "Whether the field takes a bare root file name, and how it separates entries, is unverified."
-step "Production branch: main. Non-production branch builds: on."
-step "Deploy command and Version command:  bun ../../packages/deploy/src/deploy.ts dashboard"
-step "Build command: empty. Build variables: BUN_VERSION = $BUN_VERSION."
-step "Build variables: INFISICAL_CLIENT_ID and INFISICAL_CLIENT_SECRET (as secrets) of kumora-workers-builds."
-note "Infisical may show a client secret only when it is created (unverified). If you no longer have it,"
-note "create a new one for kumora-workers-builds and paste it into both kumora-web-builds and kumora-dashboard-builds."
-pause "Connected? Press Enter."
+stage "Infisical prod: the dashboard's three values"
+say "Production reads /dashboard of prod. Its deploy fails until all three exist."
+open_url "$INFISICAL"
+step "Project kumora → environment prod → folder /dashboard (create the folder if it's missing)."
+step "GOOGLE_CLIENT_ID      = the client ID from stage 1"
+step "GOOGLE_CLIENT_SECRET  = the client secret from stage 1"
+step "ADMIN_EMAILS          = comma-separated emails that become admins once verified, e.g. you@pusat.ai"
+note "Only those addresses become admins, and only after they verify. Changing the list later needs a redeploy."
+pause "Added all three? Press Enter to check them."
+note "The check uses the infisical CLI. The project ID is in Infisical → project kumora → Settings (not a secret)."
+ask INFISICAL_PROJECT_ID "Infisical project ID for kumora (Enter to skip the check):"
+[[ -n "$INFISICAL_PROJECT_ID" ]] && write_env INFISICAL_PROJECT_ID "$INFISICAL_PROJECT_ID"
+check_dashboard_values prod
+pause
 
 # ── 3 ─────────────────────────────────────────────────────────────────────
-stage "Infisical: create the teardown identity kumora-github-teardown"
-say "The GitHub teardown job logs in with GitHub's OIDC token, so GitHub stores no secret."
+stage "Infisical staging: the same three values"
+say "Staging reads /dashboard of staging, and so do every Preview and your pnpm dev."
 open_url "$INFISICAL"
-note "Organization → Access Control → Identities is the likely path (unverified)."
-note "The form and field names below were observed 2026-11-05, except where marked unverified."
-step "Create identity kumora-github-teardown (not on kumora-workers-builds), organization role: No Access."
-step "Add Auth Method → OIDC Auth → Custom Configuration:"
-step "  OIDC Discovery URL and Issuer (type it; a placeholder there, if any, is not a value):"
-step "    https://token.actions.githubusercontent.com"
-step "  Subject: empty. Audiences: https://github.com/apinrdw"
-step "  Add Claims: repository = apinrdw/kumora   (the Add Claims form is unverified)"
-note "  A wildcard Subject like repo:apinrdw/kumora:* was rejected as observed 2026-11-05."
-step "  Access Token TTL and Max TTL: 1800. Leave Max Number of Uses (unverified field) empty."
-step "Add it to project kumora as Viewer."
-note "Viewer reads prod too: per-environment roles are paid (observed 2026-11-05), an accepted risk."
-ask INFISICAL_TEARDOWN_IDENTITY_ID "Paste the identity's ID (not a secret):"
+step "Project kumora → environment staging → folder /dashboard."
+step "GOOGLE_CLIENT_ID and GOOGLE_CLIENT_SECRET: the same client as prod."
+step "ADMIN_EMAILS: the admins for Staging, Previews and Dev stages (may differ from prod)."
+note "Never put them in the dev environment: nothing reads it."
+pause "Added all three? Press Enter to check them."
+check_dashboard_values staging
+pause
 
 # ── 4 ─────────────────────────────────────────────────────────────────────
-stage "GitHub: store the teardown identity ID"
-say ".github/workflows/teardown-preview.yml reads vars.INFISICAL_TEARDOWN_IDENTITY_ID."
-if [[ -n "${INFISICAL_TEARDOWN_IDENTITY_ID:-}" ]]; then
-  set_var INFISICAL_TEARDOWN_IDENTITY_ID "$INFISICAL_TEARDOWN_IDENTITY_ID"
-else
-  SKIPPED+=("GitHub variable INFISICAL_TEARDOWN_IDENTITY_ID (no ID entered in stage 3)")
-  warn "no identity ID entered; set it later with gh variable set INFISICAL_TEARDOWN_IDENTITY_ID"
-fi
-pause
+stage "Cloudflare: give the prod token mail and Turnstile permissions"
+say "Production owns the mailer.pusat.ai sender and its Turnstile widget (runbook 9.3, 11.1)."
+open_url "$CF/api-tokens"
+note "Manage Account → Account API Tokens is the runbook's path; this URL to it is unverified."
+step "Edit the prod token (the one in Infisical prod at / as CLOUDFLARE_API_TOKEN). Keep its permissions, and add:"
+step "  Zone · Zone · Read            on zone pusat.ai"
+step "  Zone · Email Sending · Edit   on zone pusat.ai   (permission name unverified)"
+step "  Account · Turnstile Sites · Write"
+note "If the token can't be edited, create one with the old permissions plus these and paste it over CLOUDFLARE_API_TOKEN in prod."
+if confirm "Does the prod token have all three now?"; then :; else SKIPPED+=("prod Cloudflare token: Zone Read, Email Sending Edit, Turnstile Sites Write"); fi
 
 # ── 5 ─────────────────────────────────────────────────────────────────────
-stage "Cloudflare: replace the user API tokens with account tokens"
-say "Both tokens in Infisical are user tokens with no expiry. Replace each with a 1-year account token."
+stage "Cloudflare: give the staging token Turnstile"
+say "Staging owns its own Turnstile widget but only binds to Production's sender (runbook 11.1)."
 open_url "$CF/api-tokens"
-note "This path is unverified; the runbook expects Manage Account → Account API Tokens → Create Token."
-step "Permissions (as observed 2026-11-05, deploy and destroy work with these): Workers Scripts, KV, R2, D1,"
-step "Queues, Pages, Account Settings, Secrets Store Write (all Edit/Write) plus Workers Tail Read. TTL: one year."
-step "Create one token for prod and one for staging."
-open_url "$INFISICAL"
-step "In project kumora, paste each over CLOUDFLARE_API_TOKEN at / of its environment (prod, staging)."
-step "Then delete the two old user tokens in Cloudflare (My Profile → API Tokens, an unverified path)."
-if confirm "Did you replace both tokens?"; then :; else SKIPPED+=("Cloudflare account tokens (runbook step 2)"); fi
+step "Edit the staging token and add  Account · Turnstile Sites · Write."
+note "Previews need nothing new: they use Cloudflare's always-pass test keys."
+if confirm "Does the staging token have Turnstile Sites Write now?"; then :; else SKIPPED+=("staging Cloudflare token: Turnstile Sites Write"); fi
 
 # ── 6 ─────────────────────────────────────────────────────────────────────
-stage "Infisical: leave the dev environment empty"
-say "Project kumora's dev environment is unused and stays (runbook step 1)."
-say "Local dev, the Dev stage, reads staging: never put secrets in dev, or pnpm dev won't see them."
-pause
+stage "Cloudflare: make sure mailer.pusat.ai is free"
+say "Alchemy refuses a sending subdomain it didn't create (runbook 9.4)."
+open_url "$CF/pusat.ai/email/sending"
+note "This URL is unverified; otherwise open zone pusat.ai → Email → Email Sending."
+step "Look for mailer.pusat.ai in the list of sending subdomains."
+if confirm "Is mailer.pusat.ai already listed?"; then
+  warn "Workers Builds can't pass --adopt, so the Production build would fail on it."
+  step "If nothing else sends from it, delete mailer.pusat.ai there; Production recreates it on deploy."
+  step "If something else does send from it, stop here and plan a one-off local deploy with --adopt."
+  if confirm "Did you delete it?"; then :; else SKIPPED+=("mailer.pusat.ai exists: delete it or deploy Production once with --adopt"); fi
+fi
 
 # ── 7 ─────────────────────────────────────────────────────────────────────
-stage "Your Alchemy profile: Cloudflare and Infisical"
-say "pnpm dev and the next stage use your personal profile. Each command prompts you."
-if confirm "Run bun alchemy profile edit --add Cloudflare now?"; then
-  (cd apps/web && bun alchemy profile edit --add Cloudflare) || SKIPPED+=("alchemy profile: Cloudflare")
+stage "Deploy Production: merge the sign-in PR outside IDX hours"
+say "Merging to main deploys Production first, which creates the sender every other stage needs (runbook 9.1)."
+say "Merge after 16:35 WIB or on a non-trading day (runbook 9.2): the deploy drops every open viewer socket."
+NOW_WIB="$(TZ=Asia/Jakarta date '+%u %H%M')"
+DAY="${NOW_WIB% *}"; HHMM="${NOW_WIB#* }"
+if (( DAY <= 5 && 10#$HHMM >= 845 && 10#$HHMM < 1635 )); then
+  warn "It's $(TZ=Asia/Jakarta date '+%a %H:%M') WIB, inside IDX hours on a weekday."
+  if ! confirm "Is today an IDX holiday, so merging now is safe?"; then
+    SKIPPED+=("Production deploy: merge after 16:35 WIB")
+    finish
+    exit 0
+  fi
+else
+  note "It's $(TZ=Asia/Jakarta date '+%a %H:%M') WIB: outside IDX hours. Public holidays aren't checked."
 fi
-if confirm "Run bun alchemy profile edit --add Infisical now?"; then
-  (cd apps/web && bun alchemy profile edit --add Infisical) || SKIPPED+=("alchemy profile: Infisical")
-fi
-pause
+open_url "$SIGN_IN_PR"
+step "Merge the PR yourself once it's ready for review. Then open the kumora-dashboard-builds build for main."
+open_url "$CF/workers-and-pages"
+pause "When the Production build shows Success, press Enter."
 
 # ── 8 ─────────────────────────────────────────────────────────────────────
-stage "Destroy the throwaway deploy's preview"
-SCRATCH="scratch-alchemy-throwaway-depl-28dcd6"
-SCRATCH_WORKER="$(worker_name web "$SCRATCH")"
-say "The throwaway deploy (apinrdw/kumora#20) left $SCRATCH_WORKER on the account."
-say "This runs: bun alchemy destroy --stage $SCRATCH --yes  (in apps/web, with your profile)"
-note "Already destroyed? Alchemy finds nothing and exits cleanly."
-if confirm "Destroy $SCRATCH_WORKER now? It cannot be undone."; then
-  (cd apps/web && bun alchemy destroy --stage "$SCRATCH" --yes) || SKIPPED+=("destroy stage $SCRATCH")
-else
-  SKIPPED+=("destroy stage $SCRATCH")
-fi
-pause
+stage "Check Production"
+say "Checking $PROD_URL"
+check_gate "$PROD_URL"
+open_url "$PROD_URL/sign-up"
+step "Create an account with one of prod's ADMIN_EMAILS (Turnstile shows here: it's a real widget)."
+step "The mail must come from no-reply@mailer.pusat.ai. Open its link: you land signed in."
+step "The sidebar must show the Admin group, and /admin/users must list your account."
+open_url "$CF/turnstile"
+step "Under Turnstile, a widget for $(worker_name dashboard production).kumora.workers.dev must exist."
+if confirm "Did the mail arrive, verify you, and make you an admin?"; then :; else SKIPPED+=("Production sign-up, mail and admin check"); fi
 
 # ── 9 ─────────────────────────────────────────────────────────────────────
-stage "Re-run the Workers Builds checks and verify both previews"
-PREVIEW="$(bun packages/deploy/src/teardown.ts stage "$BRANCH" 2>/dev/null | sed -n 's/^stage=//p' || true)"
-if [[ -z "$PREVIEW" ]]; then
-  warn "branch $BRANCH has no Preview stage (main and staging deploy to their own stages)."
-  SKIPPED+=("preview check: run this stage from a PR branch")
+stage "Deploy Staging"
+say "Staging deploys from the staging branch, which doesn't exist on origin yet."
+if git ls-remote --exit-code --heads origin staging >/dev/null 2>&1; then
+  step "Merge main into staging the way you usually do, and push it."
+  pause "Pushed? Press Enter."
 else
-  say "Branch $BRANCH deploys to the Preview stage $PREVIEW."
-  open_url "$CF/workers-and-pages"
-  step "Open each connection's latest build for $BRANCH and retry it (kumora-web-builds, kumora-dashboard-builds)."
-  note "Where the build list and its retry action sit in the dashboard is unverified."
-  pause "When both builds show Success, press Enter."
-  gh pr checks "$BRANCH" 2>/dev/null || true
-
-  say ""
-  PROBE="https://$(worker_name web "$PREVIEW").kumora.workers.dev/probe"
-  # The probe's own constant, so the wizard compares as many digits as it answers.
-  PREFIX_LENGTH="$(sed -n 's/^const SHA256_PREFIX_LENGTH = \([0-9][0-9]*\)$/\1/p' apps/web/src/server/probe.ts)"
-  [[ -n "$PREFIX_LENGTH" ]] || { warn "SHA256_PREFIX_LENGTH not found in apps/web/src/server/probe.ts"; exit 1; }
-  say "Checking $PROBE"
-  open_url "$INFISICAL"
-  step "Copy DEPLOY_PROBE_SECRET from folder /web of the staging environment in project kumora."
-  note "It is hashed here and never stored. The dashboard path to that folder is unverified."
-  ask_secret PROBE_SECRET "Paste it:"
-  EXPECTED="$(printf '%s' "$PROBE_SECRET" | sha256 | cut -c1-"$PREFIX_LENGTH")"
-  unset PROBE_SECRET
-  BODY="$(curl -fsS "$PROBE" || true)"
-  if [[ "$BODY" == *'"secretPresent":true'* && "$BODY" == *"\"secretSha256Prefix\":\"$EXPECTED\""* ]]; then
-    printf '  %s✓ web preview has the staging secret (prefix %s)%s\n' "$GREEN" "$EXPECTED" "$RESET"
+  say "This runs: git push origin origin/main:refs/heads/staging"
+  git fetch -q origin main
+  if confirm "Create the staging branch from origin/main now? Workers Builds deploys it to Staging."; then
+    git push origin origin/main:refs/heads/staging || SKIPPED+=("create the staging branch")
   else
-    warn "web probe answered: ${BODY:-nothing}; expected prefix $EXPECTED"
-    SKIPPED+=("web preview /probe check")
-  fi
-
-  DASH="https://$(worker_name dashboard "$PREVIEW").kumora.workers.dev/"
-  say "Checking $DASH"
-  # The dashboard has no pages yet, so / renders its shell with a 404 status.
-  if curl -sS "$DASH" | grep -q '<title>KUMORA Terminal</title>'; then
-    printf '  %s✓ dashboard preview serves its shell%s\n' "$GREEN" "$RESET"
-  else
-    warn "dashboard preview did not serve the KUMORA Terminal shell"
-    SKIPPED+=("dashboard preview check")
+    SKIPPED+=("create the staging branch from main")
   fi
 fi
-pause
+open_url "$CF/workers-and-pages"
+pause "When the kumora-dashboard-builds build for staging shows Success, press Enter."
+
+# ── 10 ────────────────────────────────────────────────────────────────────
+stage "Check Staging, including Google"
+say "Checking $STAGING_URL"
+check_gate "$STAGING_URL"
+open_url "$STAGING_URL/sign-in"
+step "Continue with Google on a Google address that has no account: you land signed in and verified."
+step "Sign out. Create a password account on an address you read, verify it, sign out,"
+step "then Continue with Google on that address: it links, and both sign-ins now work."
+step "Create a password account on another Google address and don't verify it. Continue with Google on it:"
+step "you return to sign-in with \"Sign in with your password and verify your email first.\""
+step "Open any Preview's /sign-in: there must be no Google button."
+if confirm "Did all four Google checks pass?"; then :; else SKIPPED+=("Staging Google checks (runbook 10.3)"); fi
 
 finish
