@@ -2,6 +2,7 @@
 // server, so it holds no server code.
 import { Option, Schema } from "effect"
 
+import type { SignInMethod } from "@/lib/sign-in-method"
 import type { Role, TargetAction } from "@/server/auth/policy"
 
 export const ROLES = ["admin", "member"] as const satisfies ReadonlyArray<Role>
@@ -12,8 +13,6 @@ export type Status = (typeof STATUSES)[number]
 export const SORT_KEYS = ["createdAt", "lastActiveAt"] as const
 
 const DIRECTIONS = ["asc", "desc"] as const
-
-export type SignInMethod = "password" | "google"
 
 export const PAGE_SIZE = 50
 

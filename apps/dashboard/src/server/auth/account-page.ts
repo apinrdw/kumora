@@ -5,18 +5,12 @@ import { Forbidden } from "@workspace/server"
 import { Effect } from "effect"
 
 import { device } from "@/lib/device"
+import { signInMethodsOf, type SignInMethod } from "@/lib/sign-in-method"
 
 import { Auth } from "./auth.ts"
 import { refusal } from "./gate.ts"
 import { OWN_ACCOUNT, decide, type OwnAction, type Role } from "./policy.ts"
 import { accountOf } from "./session-account.ts"
-
-export type SignInMethod = "password" | "google"
-
-const METHOD: Readonly<Partial<Record<string, SignInMethod>>> = {
-  credential: "password",
-  google: "google",
-}
 
 export interface SessionRow {
   readonly id: string
@@ -83,7 +77,7 @@ export const accountPage = Effect.fn("accountPage")(function* (
     email: session.user.email,
     name: session.user.name,
     role: account.role,
-    signInMethods: providers.flatMap((provider) => METHOD[provider] ?? []),
+    signInMethods: signInMethodsOf(providers),
     sessions,
     allowed: {
       "own.update-profile": allowed("own.update-profile"),

@@ -10,10 +10,10 @@ import {
   PAGE_SIZE,
   type AccountPage,
   type AccountSearch,
-  type SignInMethod,
   type StoredAccount,
   type Status,
 } from "@/lib/account-query"
+import { signInMethodsOf } from "@/lib/sign-in-method"
 
 import type { AuthOptionsInput } from "./options.ts"
 import type { Role } from "./policy.ts"
@@ -41,12 +41,6 @@ interface Tables {
     readonly impersonatedBy: string | null
   }
   readonly account: { readonly userId: string; readonly providerId: string }
-}
-
-// Better Auth's provider ids; any other provider isn't a sign-in method here.
-const METHOD: Record<string, SignInMethod> = {
-  credential: "password",
-  google: "google",
 }
 
 const STATUS_SQL = {
@@ -128,13 +122,7 @@ const listAccounts = async (
         : row.emailVerified
           ? "active"
           : "unverified",
-      methods: [
-        ...new Set(
-          (row.providers ?? "")
-            .split(",")
-            .flatMap((id) => (id in METHOD ? [METHOD[id]!] : []))
-        ),
-      ].sort(),
+      methods: signInMethodsOf((row.providers ?? "").split(",")),
       createdAt: row.createdAt,
       lastActiveAt: row.lastActiveAt,
       sessions: Number(row.sessions),
