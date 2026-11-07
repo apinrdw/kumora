@@ -105,6 +105,14 @@ _Avoid_: Login, token
 The check every page, the Market Live socket and every recorded day load must pass: a session of a verified account that isn't suspended.
 _Avoid_: Auth wall, login wall
 
+**Feature**:
+A part of the dashboard that access is decided for as a whole, such as Market Live or the admin pages.
+_Avoid_: Module, permission
+
+**Access policy**:
+The one set of rules that decides whether an account may take an action on a feature or on another account. Every check of access asks it.
+_Avoid_: Permissions, ACL
+
 **Member**:
 The role every account starts with. A member sees every page except the admin pages.
 _Avoid_: User (for the role), viewer (for the role)
