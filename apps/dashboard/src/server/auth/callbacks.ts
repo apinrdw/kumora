@@ -2,11 +2,13 @@
 // known failure becomes Better Auth's own APIError, so its handler answers
 // with that status. Never runServerEffect: its thrown Response would bypass
 // Better Auth.
-import { HttpError } from "@workspace/server"
+import { Forbidden, HttpError, NotFound, Unauthorized } from "@workspace/server"
 import { APIError } from "better-auth/api"
 import { Cause, Effect, Exit, Schema, type Context } from "effect"
 
 import { Mailer } from "./mailer.ts"
+import { OWN_ACCOUNT, decide, type OwnAction } from "./policy.ts"
+import { accountOf, type AuthSession } from "./session-account.ts"
 
 const isHttpError = Schema.is(HttpError)
 
@@ -61,3 +63,25 @@ export const sendVerificationEmail = Effect.fn("sendVerificationEmail")(
     })
   }
 )
+
+// A Better Auth route asks the access policy before an account acts on
+// itself. Each reason maps as the spec's before-hook column says: 401, 404 or
+// 403 (apinrdw/kumora#80, "Access policy").
+export const authorizeOwnAction = Effect.fn("authorizeOwnAction")(function* (
+  action: OwnAction,
+  session: AuthSession | null
+) {
+  const decision = decide(accountOf(session), action, OWN_ACCOUNT)
+  if (decision._tag === "Allow") return
+  switch (decision.reason) {
+    case "sign-in":
+    case "verify":
+    case "suspended":
+      return yield* new Unauthorized({ redirectTo: "/sign-in" })
+    case "not-found":
+      return yield* new NotFound({ message: "" })
+    case "no-access":
+    case "forbidden":
+      return yield* new Forbidden({ message: "" })
+  }
+})

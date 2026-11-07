@@ -54,6 +54,11 @@ type Resources = {
 
 export type Action = keyof Resources
 
+/** What an account does to itself, on `/account`. */
+export type OwnAction = Extract<Action, `own.${string}`>
+
+export const OWN_ACCOUNT = { feature: "account" } as const satisfies OwnAccount
+
 export type Reason =
   | "sign-in"
   | "verify"
