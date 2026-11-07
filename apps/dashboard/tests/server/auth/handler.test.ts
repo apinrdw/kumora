@@ -402,7 +402,40 @@ describe("a sign-up on an unverified email", () => {
       assert.strictEqual((yield* signIn(EMAIL, SQUATTED)).status, 200)
     }).pipe(Effect.provide(layer))
   })
+
+  // Better Auth refuses an invalid sign-up on a new email with 400. The same
+  // answer on a taken one keeps the address unreadable, and voids nothing.
+  it.effect.each([
+    ["a seven-character password", { name: "Ayu", password: "1234567" }],
+    ["no name", { password: OWN }],
+  ] as const)(
+    "with %s is refused as on a new email, and voids nothing",
+    ([, fields]) => {
+      const { layer, mails } = seam()
+      return Effect.gen(function* () {
+        const squatter = cookiesFrom(yield* signUp(EMAIL, SQUATTED))
+        const onTaken = yield* post("/sign-up/email", {
+          email: EMAIL,
+          callbackURL: "/",
+          ...fields,
+        })
+        const onNew = yield* post("/sign-up/email", {
+          email: "new@example.com",
+          callbackURL: "/",
+          ...fields,
+        })
+        assert.strictEqual(onNew.status, 400)
+        assert.strictEqual(onTaken.status, onNew.status)
+        assert.strictEqual(yield* text(onTaken), yield* text(onNew))
+        assert.strictEqual(mails.length, 1)
+        assert.isNotNull(yield* sessionOf(squatter))
+        assert.strictEqual((yield* signIn(EMAIL, SQUATTED)).status, 200)
+      }).pipe(Effect.provide(layer))
+    }
+  )
 })
+
+const text = (response: Response) => Effect.promise(() => response.text())
 
 // The token the reset link carries to the set-password page.
 const tokenIn = (mail: Mail | undefined) =>
