@@ -55,23 +55,23 @@ const signIn = (email: string) =>
 const json = <A>(response: Response) =>
   Effect.promise(() => response.json() as Promise<A>)
 
-// A config admin (owner), a second config admin, an admin promoted by the
-// owner (not on the list) and a member, each verified and signed in.
+// A config admin, a second config admin, an admin promoted by the first
+// (not on the list) and a member, each verified and signed in.
 const accounts = () => {
   const { layer, mails, database } = seam()
   const setup = Effect.gen(function* () {
-    const owner = yield* verified(mails)(ADMIN_EMAIL)
+    const configAdmin = yield* verified(mails)(ADMIN_EMAIL)
     const other = yield* verified(mails)(OTHER_CONFIG_ADMIN)
     const plain = yield* verified(mails)(PLAIN_ADMIN)
     const member = yield* verified(mails)(MEMBER)
     const promoted = yield* post(
       "/admin/set-role",
       { userId: idOf(database, PLAIN_ADMIN), role: "admin" },
-      { cookie: owner }
+      { cookie: configAdmin }
     )
     assert.strictEqual(promoted.status, 200)
     return {
-      cookies: { owner, other, plain, member },
+      cookies: { configAdmin, other, plain, member },
       id: (email: string) => idOf(database, email),
       token: (email: string) => tokenOf(database, email),
       // As if the email went on ADMIN_EMAILS after it was verified: the
@@ -108,7 +108,7 @@ describe("admin actions on a config admin", () => {
         })
         assert.strictEqual(response.status, 403)
       }
-      const session = yield* sessionOf(cookies.owner)
+      const session = yield* sessionOf(cookies.configAdmin)
       assert.strictEqual(session?.user.role, "admin")
       assert.strictEqual((yield* signIn(ADMIN_EMAIL)).status, 200)
     }).pipe(Effect.provide(layer))
@@ -124,7 +124,7 @@ describe("admin actions on a config admin", () => {
         { cookie: cookies.plain }
       )
       assert.strictEqual(response.status, 403)
-      assert.isNotNull(yield* sessionOf(cookies.owner))
+      assert.isNotNull(yield* sessionOf(cookies.configAdmin))
     }).pipe(Effect.provide(layer))
   })
 })
@@ -213,7 +213,7 @@ describe("an admin acting on themselves", () => {
       const response = yield* post(
         "/admin/revoke-user-sessions",
         { userId: id(ADMIN_EMAIL) },
-        { cookie: cookies.owner }
+        { cookie: cookies.configAdmin }
       )
       assert.strictEqual(response.status, 200)
       assert.isNull(yield* sessionOf(elsewhere))
@@ -334,7 +334,7 @@ describe("admin plugin routes the dashboard doesn't offer", () => {
     const { layer, setup } = accounts()
     return Effect.gen(function* () {
       const { cookies } = yield* setup
-      const response = yield* post(path, body, { cookie: cookies.owner })
+      const response = yield* post(path, body, { cookie: cookies.configAdmin })
       assert.strictEqual(response.status, 404)
     }).pipe(Effect.provide(layer))
   })

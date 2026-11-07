@@ -12,7 +12,7 @@ import { replayMigrations } from "../../../scripts/auth-schema.ts"
 
 export const BASE_URL = "http://localhost:3001"
 
-export const ADMIN_EMAIL = "owner@example.com"
+export const ADMIN_EMAIL = "admin@example.com"
 
 const SITEVERIFY = "https://challenges.cloudflare.com/turnstile/v0/siteverify"
 const TURNSTILE_SECRET = "handler-test-turnstile-secret"

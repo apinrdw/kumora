@@ -62,11 +62,11 @@ describe("listAccounts", () => {
   it.effect("shows an admin each account's columns", () => {
     const { layer, mails } = seam()
     return Effect.gen(function* () {
-      const admin = yield* verified(mails)(ADMIN_EMAIL, "Owner")
+      const admin = yield* verified(mails)(ADMIN_EMAIL, "Adi")
       yield* signUp("budi@example.com", "Budi")
       const page = yield* listAccounts(headers(admin), {})
       assert.strictEqual(page.total, 2)
-      const [budi, owner] = page.rows
+      const [budi, configAdmin] = page.rows
       assert.deepInclude(budi, {
         email: "budi@example.com",
         name: "Budi",
@@ -75,22 +75,25 @@ describe("listAccounts", () => {
         methods: ["password"],
         sessions: 1,
       })
-      assert.deepInclude(owner, {
+      assert.deepInclude(configAdmin, {
         email: ADMIN_EMAIL,
-        name: "Owner",
+        name: "Adi",
         role: "admin",
         status: "active",
         sessions: 2,
       })
-      assert.isNotNull(owner?.lastActiveAt)
-      assert.isAtLeast(Date.parse(owner?.createdAt ?? ""), Date.now() - 60_000)
+      assert.isNotNull(configAdmin?.lastActiveAt)
+      assert.isAtLeast(
+        Date.parse(configAdmin?.createdAt ?? ""),
+        Date.now() - 60_000
+      )
     }).pipe(Effect.provide(layer))
   })
 
   it.effect("shows a banned account as suspended, with no session", () => {
     const { layer, mails } = seam()
     return Effect.gen(function* () {
-      const admin = yield* verified(mails)(ADMIN_EMAIL, "Owner")
+      const admin = yield* verified(mails)(ADMIN_EMAIL, "Adi")
       yield* signUp("budi@example.com", "Budi")
       const { rows } = yield* listAccounts(headers(admin), {})
       yield* send("/admin/ban-user", {
@@ -108,7 +111,7 @@ describe("listAccounts", () => {
   it.effect("shows an admin the ban's reason", () => {
     const { layer, mails } = seam()
     return Effect.gen(function* () {
-      const admin = yield* verified(mails)(ADMIN_EMAIL, "Owner")
+      const admin = yield* verified(mails)(ADMIN_EMAIL, "Adi")
       yield* signUp("budi@example.com", "Budi")
       const { rows } = yield* listAccounts(headers(admin), {})
       yield* post(
@@ -126,7 +129,7 @@ describe("listAccounts", () => {
     () => {
       const { layer, mails } = seam()
       return Effect.gen(function* () {
-        const admin = yield* verified(mails)(ADMIN_EMAIL, "Owner")
+        const admin = yield* verified(mails)(ADMIN_EMAIL, "Adi")
         yield* verified(mails)("budi@example.com", "Budi")
         const { rows } = yield* listAccounts(headers(admin), {})
         const allowed = Object.fromEntries(
@@ -162,7 +165,7 @@ describe("listAccounts", () => {
     const listed = (search: AccountSearch) => {
       const { layer, mails } = seam()
       return Effect.gen(function* () {
-        const admin = yield* verified(mails)(ADMIN_EMAIL, "Owner")
+        const admin = yield* verified(mails)(ADMIN_EMAIL, "Adi")
         for (const [email, name] of people) yield* signUp(email, name)
         yield* send(linkIn(mails.at(-1)))
         return emails(yield* listAccounts(headers(admin), search))
@@ -198,7 +201,7 @@ describe("listAccounts", () => {
       () => {
         const { layer, mails, database } = seam()
         return Effect.gen(function* () {
-          const admin = yield* verified(mails)(ADMIN_EMAIL, "Owner")
+          const admin = yield* verified(mails)(ADMIN_EMAIL, "Adi")
           yield* verified(mails)("other@example.com", "Other")
           yield* verified(mails)("ayu@example.com", "Ayu")
           // As if other@ went on the list after it verified: the stored role
@@ -227,7 +230,7 @@ describe("listAccounts", () => {
     it.effect("by last active, accounts with no session last", () => {
       const { layer, mails } = seam()
       return Effect.gen(function* () {
-        const admin = yield* verified(mails)(ADMIN_EMAIL, "Owner")
+        const admin = yield* verified(mails)(ADMIN_EMAIL, "Adi")
         yield* signUp("ayu@example.com", "Ayu")
         yield* signUp("budi@example.com", "Budi")
         const { rows } = yield* listAccounts(headers(admin), {})
@@ -252,7 +255,7 @@ describe("listAccounts", () => {
   it.effect("counts only sessions that haven't expired", () => {
     const { layer, mails, database } = seam()
     return Effect.gen(function* () {
-      const admin = yield* verified(mails)(ADMIN_EMAIL, "Owner")
+      const admin = yield* verified(mails)(ADMIN_EMAIL, "Adi")
       insertAccounts(database, 1)
       const session = database.prepare(
         `insert into "session" ("id", "token", "userId", "expiresAt", "createdAt", "updatedAt") values (?, ?, 'seed-0', ?, ?, ?)`
@@ -275,7 +278,7 @@ describe("listAccounts", () => {
     () => {
       const { layer, mails } = seam()
       return Effect.gen(function* () {
-        const admin = yield* verified(mails)(ADMIN_EMAIL, "Owner")
+        const admin = yield* verified(mails)(ADMIN_EMAIL, "Adi")
         yield* verified(mails)("other@example.com", "Other Admin")
         yield* verified(mails)("ayu@example.com", "Ayu")
         yield* verified(mails)("budi@example.com", "Budi")
@@ -307,7 +310,7 @@ describe("listAccounts", () => {
   it.effect("lists 50 accounts a page", () => {
     const { layer, mails, database } = seam()
     return Effect.gen(function* () {
-      const admin = yield* verified(mails)(ADMIN_EMAIL, "Owner")
+      const admin = yield* verified(mails)(ADMIN_EMAIL, "Adi")
       insertAccounts(database, 60)
       const first = yield* listAccounts(headers(admin), {})
       const second = yield* listAccounts(headers(admin), { page: 2 })
