@@ -118,7 +118,7 @@ const hideTakenEmail = async (ctx: HookContext) => {
 // first, which refuses them while impersonating, and refuses change email and
 // delete to a config admin.
 const OWN_ACCOUNT_ROUTES: Readonly<Partial<Record<string, OwnAction>>> = {
-  "/update-user": "own.update-profile",
+  "/update-user": "own.update-details",
   "/change-password": "own.change-password",
   "/revoke-session": "own.end-sessions",
   "/revoke-sessions": "own.end-sessions",

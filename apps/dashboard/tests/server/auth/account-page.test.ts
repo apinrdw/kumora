@@ -52,7 +52,7 @@ describe("accountPage", () => {
         assert.strictEqual(page.role, "member")
         assert.deepStrictEqual(page.signInMethods, ["password"])
         assert.deepStrictEqual(page.allowed, {
-          "own.update-profile": true,
+          "own.update-details": true,
           "own.change-password": true,
           "own.end-sessions": true,
           "own.change-email": true,

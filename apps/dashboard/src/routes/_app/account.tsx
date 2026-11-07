@@ -35,7 +35,7 @@ function AccountPage() {
       </header>
       <DetailsSection
         page={page}
-        canEdit={page.allowed["own.update-profile"]}
+        canEdit={page.allowed["own.update-details"]}
       />
       {page.signInMethods.includes("password") && (
         <PasswordSection canChange={page.allowed["own.change-password"]} />

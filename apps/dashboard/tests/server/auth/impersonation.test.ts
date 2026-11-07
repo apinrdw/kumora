@@ -309,7 +309,7 @@ describe("pages while impersonating", () => {
       )
       assert.strictEqual(page.email, MEMBER)
       assert.deepStrictEqual(page.allowed, {
-        "own.update-profile": false,
+        "own.update-details": false,
         "own.change-password": false,
         "own.end-sessions": false,
         "own.change-email": false,

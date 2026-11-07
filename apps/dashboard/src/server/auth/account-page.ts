@@ -76,7 +76,7 @@ export const accountPage = Effect.fn("accountPage")(function* (
     signInMethods: signInMethodsOf(providers),
     sessions,
     allowed: {
-      "own.update-profile": allowed("own.update-profile"),
+      "own.update-details": allowed("own.update-details"),
       "own.change-password": allowed("own.change-password"),
       "own.end-sessions": allowed("own.end-sessions"),
       "own.change-email": allowed("own.change-email"),

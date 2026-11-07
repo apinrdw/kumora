@@ -332,7 +332,7 @@ describe("decide on own-account actions", () => {
       member: allow,
       configAdmin: deny("forbidden"),
     },
-    { action: "own.update-profile", member: allow, configAdmin: allow },
+    { action: "own.update-details", member: allow, configAdmin: allow },
     { action: "own.end-sessions", member: allow, configAdmin: allow },
     { action: "own.delete", member: allow, configAdmin: deny("forbidden") },
   ] as const)(

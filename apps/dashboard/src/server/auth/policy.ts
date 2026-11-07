@@ -47,7 +47,7 @@ type Resources = {
   readonly "admin.impersonate": Target
   readonly "own.change-password": OwnAccount
   readonly "own.change-email": OwnAccount
-  readonly "own.update-profile": OwnAccount
+  readonly "own.update-details": OwnAccount
   readonly "own.end-sessions": OwnAccount
   readonly "own.delete": OwnAccount
 }
@@ -135,7 +135,7 @@ const rules: Rules = {
   ),
   "own.change-password": own({ refusedToConfigAdmin: false }),
   "own.change-email": own({ refusedToConfigAdmin: true }),
-  "own.update-profile": own({ refusedToConfigAdmin: false }),
+  "own.update-details": own({ refusedToConfigAdmin: false }),
   "own.end-sessions": own({ refusedToConfigAdmin: false }),
   "own.delete": own({ refusedToConfigAdmin: true }),
 }
