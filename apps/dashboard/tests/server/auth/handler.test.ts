@@ -355,14 +355,51 @@ describe("a sign-up on an unverified email", () => {
     }
   )
 
-  it.effect("on a verified email still mails nothing", () => {
+  // The squatter's Resend put a plain verify link in the owner's inbox. Were
+  // the first password still live, that link would verify it.
+  it.effect(
+    "voids the first password and sessions at once, so an older verify link verifies nothing of the squatter's",
+    () => {
+      const { layer, mails } = seam()
+      return Effect.gen(function* () {
+        const squatter = cookiesFrom(yield* signUp(EMAIL, SQUATTED))
+        yield* post(
+          "/send-verification-email",
+          { email: EMAIL, callbackURL: "/" },
+          { cookie: squatter }
+        )
+        assert.include(
+          mails[1]?.text,
+          `${BASE_URL}/api/auth/verify-email?token=`
+        )
+        yield* signUp(EMAIL, OWN)
+        assert.strictEqual((yield* signIn(EMAIL, SQUATTED)).status, 401)
+        assert.isNull(yield* sessionOf(squatter))
+
+        const verified = yield* send(linkIn(mails[1]))
+        assert.strictEqual(verified.status, 302)
+        assert.strictEqual((yield* signIn(EMAIL, SQUATTED)).status, 401)
+        // Verified with no password now: the set-password link gives it one.
+        assert.strictEqual((yield* resetWith(mails[2], OWN)).status, 200)
+        const owner = yield* signIn(EMAIL, OWN)
+        assert.strictEqual(owner.status, 200)
+        assert.isTrue(
+          (yield* sessionOf(cookiesFrom(owner)))?.user.emailVerified
+        )
+      }).pipe(Effect.provide(layer))
+    }
+  )
+
+  it.effect("on a verified email mails nothing and voids nothing", () => {
     const { layer, mails } = seam()
     return Effect.gen(function* () {
       yield* signUp(EMAIL, SQUATTED)
-      yield* send(linkIn(mails[0]))
+      const cookie = cookiesFrom(yield* send(linkIn(mails[0])))
       const again = yield* signUp(EMAIL, OWN)
       assert.strictEqual(again.status, 200)
       assert.strictEqual(mails.length, 1)
+      assert.isNotNull(yield* sessionOf(cookie))
+      assert.strictEqual((yield* signIn(EMAIL, SQUATTED)).status, 200)
     }).pipe(Effect.provide(layer))
   })
 })
