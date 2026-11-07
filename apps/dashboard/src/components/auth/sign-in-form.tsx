@@ -1,11 +1,16 @@
+import { IconBan } from "@tabler/icons-react"
 import { Link, useHydrated, useRouter } from "@tanstack/react-router"
 import { useState, type FormEvent } from "react"
 
 import { KButton, KInput } from "@/components/k"
 import { authClient } from "@/lib/auth-client"
 
-import { FormError, formFields, linkClass } from "./auth-page"
+import { FormError, Notice, formFields, linkClass } from "./auth-page"
 import { GoogleSignIn, googleErrorMessage } from "./google-sign-in"
+
+// Better Auth's code for a sign-in refused because an admin banned the
+// account: a 403 to the password form, `?error=` back from Google.
+const BANNED = "BANNED_USER"
 
 /**
  * Returns to `redirect` once signed in; the gate sends an unverified account
@@ -25,8 +30,19 @@ export function SignInForm({
   const hydrated = useHydrated()
   const [pending, setPending] = useState(false)
   const [error, setError] = useState<string | null>(
-    googleError === undefined ? null : googleErrorMessage(googleError)
+    googleError === undefined || googleError === BANNED
+      ? null
+      : googleErrorMessage(googleError)
   )
+  const [bannedByPassword, setBannedByPassword] = useState(false)
+
+  if (bannedByPassword || googleError === BANNED)
+    return (
+      <Suspended
+        redirect={redirect}
+        onBack={() => setBannedByPassword(false)}
+      />
+    )
 
   const submit = async (event: FormEvent<HTMLFormElement>) => {
     event.preventDefault()
@@ -37,6 +53,10 @@ export function SignInForm({
     )
     if (refused) {
       setPending(false)
+      if (refused.code === BANNED) {
+        setBannedByPassword(true)
+        return
+      }
       // One message for an unknown email and a wrong password alike.
       setError(
         refused.status === 401
@@ -86,5 +106,37 @@ export function SignInForm({
         </Link>
       </p>
     </form>
+  )
+}
+
+/** Full page in place of the form. Never shows the ban's reason: that is for admins only. */
+function Suspended({
+  redirect,
+  onBack,
+}: {
+  redirect: string
+  onBack: () => void
+}) {
+  return (
+    <Notice
+      icon={IconBan}
+      tone="down"
+      title="This account is suspended"
+      actions={
+        <Link
+          to="/sign-in"
+          search={{ redirect }}
+          className={linkClass}
+          onClick={onBack}
+        >
+          Back to sign in
+        </Link>
+      }
+    >
+      <p>
+        An admin suspended this account, so it can't sign in. Ask a KUMORA admin
+        if you think this is a mistake.
+      </p>
+    </Notice>
   )
 }
