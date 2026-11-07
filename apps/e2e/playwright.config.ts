@@ -37,7 +37,8 @@ export default defineConfig({
       env: {
         ALCHEMY_STAGE: TEST,
         DEPLOY_PROBE_SECRET: "e2e-dummy-not-a-secret",
-        // The Test stage reads ADMIN_EMAILS from here (apinrdw/kumora#86).
+        // The Test stage reads ADMIN_EMAILS from here (apinrdw/kumora#86):
+        // turbo.json passes it through to apps/dashboard/alchemy.run.ts.
         ADMIN_EMAILS: ADMIN.email,
       },
       url: `${stageUrl("web", TEST)}/probe`,

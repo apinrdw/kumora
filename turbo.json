@@ -28,6 +28,8 @@
       "persistent": true,
       "passThroughEnv": [
         "DEPLOY_PROBE_SECRET",
+        // Read by apps/dashboard/alchemy.run.ts; apps/e2e/playwright.config.ts
+        // sets it for the Test stage.
         "ADMIN_EMAILS",
         "ALCHEMY_STAGE",
         "ALCHEMY_PROFILE"
