@@ -5,7 +5,7 @@ The browser side of the apps' Effect code: one runtime, and the stores live data
 ## Language
 
 **Client runtime**:
-The `ManagedRuntime` over the client layer, `clientRuntime`. Event handlers and stores run their Effects through it.
+The `ManagedRuntime` over the client layer, `clientRuntime`. Event handlers and stores run their Effects through it. A store is built by running `makeDayStateStore` in it, and later runs its source with the services it captured there.
 
 **Client layer**:
 The services the client runtime provides, `clientLayer`. It does no I/O when built, so importing it during SSR is safe. Today it holds the frame scheduler.

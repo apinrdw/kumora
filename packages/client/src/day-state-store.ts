@@ -34,6 +34,8 @@ export const makeDayStateStore = Effect.fnUntraced(function* <A, R>(options: {
   // snapshot until the first update.
   readonly initial: DayStateSnapshot<A>
 }) {
+  // Built inside the client runtime, so the source later runs with that
+  // runtime's services; React's subscribe is a plain callback that cannot yield.
   const context = yield* Effect.context<FrameScheduler | R>()
   const { nextFrame } = yield* FrameScheduler
   const run = Effect.runCallbackWith(context)
