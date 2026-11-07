@@ -34,6 +34,7 @@ const { compileMigrations, unsafeChanges, schemaProblems } =
       validateSchema: false,
       sendVerificationEmail: async () => {},
       sendResetPassword: async () => {},
+      turnstileSecretKey: "auth-migrations-placeholder",
     }),
     { throwOnUnsafe: false }
   )

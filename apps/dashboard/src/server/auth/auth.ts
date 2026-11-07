@@ -1,13 +1,15 @@
 import { WorkerEnv, waitUntilLive } from "@workspace/server"
-import { betterAuth } from "better-auth"
+import { betterAuth, getCurrentAdapter } from "better-auth"
 import { Context, Effect, Layer } from "effect"
 import type { UnknownError } from "effect/Cause"
 
 import {
+  type CallbackRunner,
   makeCallbackRunner,
   sendResetPassword,
   sendVerificationEmail,
 } from "./callbacks.ts"
+import { MailCap } from "./mail-cap.ts"
 import { Mailer } from "./mailer.ts"
 import { authOptions, type AuthOptionsInput } from "./options.ts"
 
@@ -44,7 +46,18 @@ export class Auth extends Context.Service<
     Layer.effect(
       Auth,
       Effect.gen(function* () {
-        const run = makeCallbackRunner(yield* Effect.context<Mailer>())
+        // The cap counts through Better Auth's adapter, joining the request's
+        // transaction when there is one (a second connection would wait on
+        // it forever). Callbacks run only once `auth` exists.
+        const run: CallbackRunner<Mailer | MailCap> = makeCallbackRunner(
+          Context.add(
+            yield* Effect.context<Mailer>(),
+            MailCap,
+            MailCap.make(() =>
+              auth.$context.then((ctx) => getCurrentAdapter(ctx.adapter))
+            )
+          )
+        )
         const auth = betterAuth(
           authOptions({
             ...config,
@@ -78,6 +91,7 @@ export class Auth extends Context.Service<
         // every request, since Auth is built per request; the migration drift
         // check in CI and the handler test seam cover the schema.
         validateSchema: false,
+        turnstileSecretKey: env.TURNSTILE_SECRET_KEY,
       })
     })
   ).pipe(Layer.provide(Mailer.layer), Layer.provide(waitUntilLive))

@@ -1,5 +1,6 @@
 import { Effect, Layer } from "effect"
 import { DatabaseSync } from "node:sqlite"
+import { vi } from "vitest"
 
 import { Auth } from "@/server/auth/auth"
 import { Mailer, type Mail } from "@/server/auth/mailer"
@@ -8,9 +9,28 @@ import { replayMigrations } from "../../../scripts/auth-schema.ts"
 
 export const BASE_URL = "http://localhost:3001"
 
+const SITEVERIFY = "https://challenges.cloudflare.com/turnstile/v0/siteverify"
+const TURNSTILE_SECRET = "handler-test-turnstile-secret"
+// The token a solved widget would hand the form; any other is rejected.
+const SOLVED_TURNSTILE = "solved-turnstile-token"
+
+// Cloudflare's siteverify, faked: the captcha plugin calls the global fetch.
+const siteverify = async (input: RequestInfo | URL, init?: RequestInit) => {
+  const url = input instanceof Request ? input.url : String(input)
+  if (url !== SITEVERIFY) throw new Error(`Unexpected fetch to ${url}`)
+  const { secret, response } = JSON.parse(String(init?.body)) as {
+    secret: string
+    response: string
+  }
+  return Response.json({
+    success: secret === TURNSTILE_SECRET && response === SOLVED_TURNSTILE,
+  })
+}
+
 // Seam 3 of spec apinrdw/kumora#80: the real Better Auth config over SQLite
 // with the checked-in migrations, driven through its HTTP handler.
 export function seam(send?: (mail: Mail) => Effect.Effect<void>) {
+  vi.stubGlobal("fetch", siteverify)
   const database = new DatabaseSync(":memory:")
   replayMigrations(database)
   const mails: Array<Mail> = []
@@ -22,27 +42,47 @@ export function seam(send?: (mail: Mail) => Effect.Effect<void>) {
     baseURL: BASE_URL,
     secret: "handler-test-secret-0123456789abcdef0123456789",
     validateSchema: true,
+    turnstileSecretKey: TURNSTILE_SECRET,
   }).pipe(Layer.provide(mailer))
   return { layer, mails, database }
 }
+
+// Every request comes from one client IP with a solved Turnstile, unless the
+// test's own headers say otherwise.
+const CLIENT_IP = "203.0.113.7"
 
 export const send = Effect.fnUntraced(function* (
   path: string,
   init?: RequestInit
 ) {
   const auth = yield* Auth
-  return yield* auth.handler(new Request(`${BASE_URL}/api/auth${path}`, init))
+  const headers = new Headers({
+    "cf-connecting-ip": CLIENT_IP,
+    "x-captcha-response": SOLVED_TURNSTILE,
+  })
+  new Headers(init?.headers).forEach((value, name) => headers.set(name, value))
+  return yield* auth.handler(
+    new Request(`${BASE_URL}/api/auth${path}`, { ...init, headers })
+  )
 })
 
-export const post = (path: string, body: unknown) =>
+export const post = (path: string, body: unknown, headers?: HeadersInit) =>
   send(path, {
     method: "POST",
-    headers: { "content-type": "application/json" },
+    headers: { "content-type": "application/json", ...headers },
     body: JSON.stringify(body),
   })
 
-export const signUp = (email: string, password = "correct horse") =>
-  post("/sign-up/email", { email, password, name: "Ayu", callbackURL: "/" })
+export const signUp = (
+  email: string,
+  password = "correct horse",
+  headers?: HeadersInit
+) =>
+  post(
+    "/sign-up/email",
+    { email, password, name: "Ayu", callbackURL: "/" },
+    headers
+  )
 
 // The Cookie header a browser would send back after this response.
 export const cookiesFrom = (response: Response) =>
