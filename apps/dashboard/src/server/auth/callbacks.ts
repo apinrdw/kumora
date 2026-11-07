@@ -2,7 +2,7 @@
 // known failure becomes Better Auth's own APIError, so its handler answers
 // with that status. Never runServerEffect: its thrown Response would bypass
 // Better Auth.
-import { Forbidden, HttpError, NotFound, Unauthorized } from "@workspace/server"
+import { HttpError } from "@workspace/server"
 import { APIError } from "better-auth/api"
 import { Cause, Effect, Exit, Schema, type Context } from "effect"
 
@@ -19,6 +19,7 @@ import {
   type OwnAction,
   type TargetAction,
 } from "./policy.ts"
+import { refusal } from "./refusal.ts"
 import {
   accountOf,
   authSessionOf,
@@ -169,21 +170,11 @@ export const sendDeleteAccountLink = Effect.fn("sendDeleteAccountLink")(
 
 // A Better Auth route asks the access policy first. Each reason maps as the
 // spec's before-hook column says: 401, 404 or 403 (apinrdw/kumora#80,
-// "Access policy").
-const hookVerdict = (decision: Decision) => {
-  if (decision._tag === "Allow") return Effect.void
-  switch (decision.reason) {
-    case "sign-in":
-    case "verify":
-    case "suspended":
-      return Effect.fail(new Unauthorized({ redirectTo: "/sign-in" }))
-    case "not-found":
-      return Effect.fail(new NotFound({ message: "" }))
-    case "no-access":
-    case "forbidden":
-      return Effect.fail(new Forbidden({ message: "" }))
-  }
-}
+// "Access policy"). A route has no page to return to.
+const hookVerdict = (decision: Decision) =>
+  decision._tag === "Allow"
+    ? Effect.void
+    : Effect.fail(refusal(decision.reason, "/"))
 
 export const authorizeOwnAction = Effect.fn("authorizeOwnAction")(function* (
   action: OwnAction,

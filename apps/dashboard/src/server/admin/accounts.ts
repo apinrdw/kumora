@@ -6,8 +6,8 @@ import type { FileRoutesByFullPath } from "@/routeTree.gen"
 import { Accounts } from "@/server/auth/accounts"
 import { AdminEmails } from "@/server/auth/admin-emails"
 import { Auth } from "@/server/auth/auth"
-import { refusal } from "@/server/auth/gate"
 import { decide, type TargetAction } from "@/server/auth/policy"
+import { refusal } from "@/server/auth/refusal"
 import { accountOf, targetOf } from "@/server/auth/session-account"
 
 const USERS_PATH = "/admin/users" satisfies keyof FileRoutesByFullPath
@@ -33,12 +33,8 @@ export const listAccounts = Effect.fn("listAccounts")(function* (
   const decision = decide(account, "admin.list-accounts", {
     feature: "admin",
   })
-  // A server function has no page to show "no access" on.
   if (decision._tag === "Deny")
-    return yield* refusal(
-      decision.reason === "no-access" ? "forbidden" : decision.reason,
-      USERS_PATH
-    )
+    return yield* refusal(decision.reason, USERS_PATH)
   const adminEmails = yield* AdminEmails
   const page = yield* (yield* Accounts).list(search)
   return {

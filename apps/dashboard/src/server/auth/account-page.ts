@@ -1,15 +1,14 @@
 // What `/account` shows: the account, its sign-in methods and sessions, and
 // which own-account actions the access policy allows it now. While
 // impersonating, the policy allows none, so the page is read-only.
-import { Forbidden } from "@workspace/server"
 import { Effect } from "effect"
 
 import { device } from "@/lib/device"
 import { signInMethodsOf, type SignInMethod } from "@/lib/sign-in-method"
 
 import { Auth } from "./auth.ts"
-import { refusal } from "./gate.ts"
 import { OWN_ACCOUNT, decide, type OwnAction, type Role } from "./policy.ts"
+import { refusal } from "./refusal.ts"
 import { accountOf } from "./session-account.ts"
 
 export interface SessionRow {
@@ -45,10 +44,7 @@ export const accountPage = Effect.fn("accountPage")(function* (
   const session = yield* auth.getSession(headers, { fresh: true })
   const account = accountOf(session)
   const decision = decide(account, "page.view", OWN_ACCOUNT)
-  if (decision._tag === "Deny")
-    return yield* decision.reason === "no-access"
-      ? new Forbidden({ message: "" })
-      : refusal(decision.reason, href)
+  if (decision._tag === "Deny") return yield* refusal(decision.reason, href)
   // Unreachable: the policy sends every visitor without a session to sign-in.
   if (session === null || account._tag === "SignedOut")
     return yield* refusal("sign-in", href)
