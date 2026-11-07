@@ -29,7 +29,7 @@ export class NotAPreview extends Schema.TaggedError<NotAPreview>()(
 
 // Every app's destroy has run before this fails, so one failing app never
 // leaves another app's Preview running.
-export class TeardownFailed extends Schema.TaggedError<TeardownFailed>()(
+class TeardownFailed extends Schema.TaggedError<TeardownFailed>()(
   "TeardownFailed",
   {
     stage: Schema.String,

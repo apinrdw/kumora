@@ -43,7 +43,7 @@ const operate = (operation: Operation, app: App, stage: Stage) =>
     Effect.provide(Layer.mergeAll(Alchemist.layer(), SigilRenderer.layer()))
   )
 
-export type StackError = Effect.Error<ReturnType<typeof operate>>
+type StackError = Effect.Error<ReturnType<typeof operate>>
 
 export class Stacks extends Context.Service<
   Stacks,

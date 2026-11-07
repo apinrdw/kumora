@@ -18,6 +18,9 @@
     "prepare": "git config core.hooksPath .githooks",
     "test:root": "vitest run --dir scripts"
   },
+  "dependencies": {
+    "effect": "catalog:"
+  },
   "devDependencies": {
     "@alchemy.run/frontend-frameworks": "catalog:",
     "@alchemy.run/infisical": "catalog:",
@@ -25,7 +28,6 @@
     "@effect/platform-node": "catalog:",
     "@effect/vitest": "catalog:",
     "@types/node": "^22",
-    "effect": "catalog:",
     "fallow": "3.39.0",
     "oxfmt": "0.75.0",
     "oxlint": "1.90.0",
