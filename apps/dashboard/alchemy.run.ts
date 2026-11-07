@@ -9,7 +9,7 @@ import * as Alchemy from "alchemy"
 import { Stack } from "alchemy/Stack"
 import * as Config from "effect/Config"
 import * as Effect from "effect/Effect"
-import type { Redacted } from "effect/Redacted"
+import * as Redacted from "effect/Redacted"
 
 import { googleSignInOn } from "./src/server/auth/google.ts"
 import { SENDER, SENDING_SUBDOMAIN } from "./src/server/auth/sender.ts"
@@ -42,15 +42,35 @@ const SendingSubdomain = Effect.gen(function* () {
   })
 })
 
+// Cloudflare's always-pass Turnstile keys, for every stage without its own
+// widget: Previews, Dev and Test never show a real challenge.
+const TURNSTILE_TEST_KEYS = {
+  siteKey: "1x00000000000000000000AA",
+  secretKey: Redacted.make("1x0000000000000000000000000000000AA"),
+}
+
+// Production and Staging each own a widget for their own hostname.
+const turnstileKeys = (stage: string) =>
+  Effect.gen(function* () {
+    const kind = stackStageKind(stage)
+    if (kind !== "production" && kind !== "staging") return TURNSTILE_TEST_KEYS
+    const widget = yield* Cloudflare.Turnstile.Widget("Turnstile", {
+      domains: [new URL(stageUrl("dashboard", stage, DEV_PORT)).hostname],
+      mode: "managed",
+    })
+    return { siteKey: widget.sitekey, secretKey: widget.secret }
+  })
+
 export const Website = Cloudflare.Website.Vite(
   "Dashboard",
   Effect.gen(function* () {
     const { stage } = yield* Stack
+    const turnstile = yield* turnstileKeys(stage)
     // From Infisical `/dashboard`; see googleSignInOn.
     const google: Partial<
       Record<
         "GOOGLE_CLIENT_ID" | "GOOGLE_CLIENT_SECRET",
-        Config.Config<Redacted<string>>
+        Config.Config<Redacted.Redacted<string>>
       >
     > = googleSignInOn(stackStageKind(stage))
       ? {
@@ -69,6 +89,9 @@ export const Website = Cloudflare.Website.Vite(
         EMAIL: Cloudflare.Email.SendEmail("Email", {
           allowedSenderAddresses: [SENDER],
         }),
+        // Public: the sign-up and reset pages render the widget with it.
+        TURNSTILE_SITE_KEY: turnstile.siteKey,
+        TURNSTILE_SECRET_KEY: turnstile.secretKey,
         // Infisical /dashboard on deployed and Dev stages; the process
         // environment on the Test stage (apps/e2e/playwright.config.ts).
         ADMIN_EMAILS: Config.String("ADMIN_EMAILS"),

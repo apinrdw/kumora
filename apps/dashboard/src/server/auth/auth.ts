@@ -1,5 +1,5 @@
 import { WorkerEnv, waitUntilLive } from "@workspace/server"
-import { betterAuth, type Session } from "better-auth"
+import { betterAuth, getCurrentAdapter, type Session } from "better-auth"
 import { Context, Effect, Layer } from "effect"
 import type { UnknownError } from "effect/Cause"
 
@@ -15,8 +15,10 @@ import {
   sendNewEmailVerification,
   sendResetPassword,
   sendVerificationEmail,
+  type CallbackRunner,
 } from "./callbacks.ts"
 import { googleClient } from "./google.ts"
+import { MailCap } from "./mail-cap.ts"
 import { Mailer } from "./mailer.ts"
 import { authOptions, type AuthOptionsInput } from "./options.ts"
 import {
@@ -66,7 +68,19 @@ export class Auth extends Context.Service<
       Auth,
       Effect.gen(function* () {
         const context = yield* Effect.context<Mailer | AdminEmails | Accounts>()
-        const run = makeCallbackRunner(context)
+        // The cap counts through Better Auth's adapter, joining the request's
+        // transaction when there is one (a second connection would wait on
+        // it forever). Callbacks run only once `auth` exists.
+        const run: CallbackRunner<Mailer | AdminEmails | Accounts | MailCap> =
+          makeCallbackRunner(
+            Context.add(
+              context,
+              MailCap,
+              MailCap.make(() =>
+                auth.$context.then((ctx) => getCurrentAdapter(ctx.adapter))
+              )
+            )
+          )
         const adminEmails = Context.get(context, AdminEmails)
         const auth = betterAuth(
           authOptions({
@@ -137,6 +151,7 @@ export class Auth extends Context.Service<
         // check in CI and the handler test seam cover the schema.
         validateSchema: false,
         google: googleClient(env),
+        turnstileSecretKey: env.TURNSTILE_SECRET_KEY,
       }).pipe(Layer.provideMerge(Accounts.make(env.AUTH_DB)))
     })
   ).pipe(

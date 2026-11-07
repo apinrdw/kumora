@@ -5,10 +5,13 @@ import { useState } from "react"
 import { KButton } from "@/components/k"
 import { authClient } from "@/lib/auth-client"
 import { withRedirect } from "@/lib/redirect"
+import { retryAfter } from "@/lib/retry-after"
 
 import { FormError, Notice } from "./auth-page"
 
-type Resend = "idle" | "sending" | "sent" | "failed"
+type Resend =
+  | { readonly _tag: "Idle" | "Sending" | "Sent" }
+  | { readonly _tag: "Failed"; readonly error: string }
 
 // The verification link returns to `redirect`, the page first asked for.
 function ResendButton({
@@ -20,27 +23,34 @@ function ResendButton({
   redirect: string
   variant: "primary" | "secondary"
 }) {
-  const [state, setState] = useState<Resend>("idle")
+  const [state, setState] = useState<Resend>({ _tag: "Idle" })
   const resend = async () => {
-    setState("sending")
-    const { error } = await authClient.sendVerificationEmail({
-      email,
-      callbackURL: redirect,
+    setState({ _tag: "Sending" })
+    const retry = retryAfter()
+    const { error } = await authClient.sendVerificationEmail(
+      { email, callbackURL: redirect },
+      { onError: retry.onError }
+    )
+    if (!error) return setState({ _tag: "Sent" })
+    // A 429 is the per-IP limit or this address's daily mail cap.
+    setState({
+      _tag: "Failed",
+      error:
+        error.status === 429
+          ? retry.message()
+          : "Couldn't send the link. Try again in a minute.",
     })
-    setState(error ? "failed" : "sent")
   }
   return (
     <>
       <KButton
         variant={variant}
-        loading={state === "sending"}
+        loading={state._tag === "Sending"}
         onClick={() => void resend()}
       >
-        {state === "sent" ? "Link sent again" : "Resend link"}
+        {state._tag === "Sent" ? "Link sent again" : "Resend link"}
       </KButton>
-      {state === "failed" && (
-        <FormError>Couldn't send the link. Try again in a minute.</FormError>
-      )}
+      {state._tag === "Failed" && <FormError>{state.error}</FormError>}
     </>
   )
 }
