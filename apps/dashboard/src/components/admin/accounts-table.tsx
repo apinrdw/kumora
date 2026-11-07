@@ -8,6 +8,11 @@ import { Schema } from "effect"
 import { useEffect, useState } from "react"
 
 import {
+  OutcomeLine,
+  useAccountAction,
+} from "@/components/account/account-section"
+
+import {
   KBadge,
   KButton,
   KDataTable,
@@ -22,15 +27,15 @@ import {
   SORT_KEYS,
   STATUSES,
   type AccountPage,
+  type AccountRow,
   type AccountSearch,
-  type ListedAccount,
   type SignInMethod,
   type Status,
 } from "@/lib/account-query"
 import { dateTime } from "@/lib/format"
-
-import { ImpersonateButton } from "./impersonate-button"
 import type { Role } from "@/server/auth/policy"
+
+import { AccountActions, ConfirmAction, type Asked } from "./account-actions"
 
 const STATUS: Record<Status, { label: string; tone: KBadgeTone }> = {
   active: { label: "Active", tone: "up" },
@@ -47,7 +52,7 @@ const METHOD: Record<SignInMethod, string> = {
 
 const ALL = "all"
 
-const COLUMNS: ReadonlyArray<KColumn<ListedAccount>> = [
+const COLUMNS: ReadonlyArray<KColumn<AccountRow>> = [
   { key: "email", label: "Email" },
   { key: "name", label: "Name" },
   {
@@ -59,9 +64,16 @@ const COLUMNS: ReadonlyArray<KColumn<ListedAccount>> = [
     key: "status",
     label: "Status",
     cell: (row) => (
-      <KBadge tone={STATUS[row.status].tone} icon={false}>
-        {STATUS[row.status].label}
-      </KBadge>
+      <span className="flex flex-col items-start gap-0.5">
+        <KBadge tone={STATUS[row.status].tone} icon={false}>
+          {STATUS[row.status].label}
+        </KBadge>
+        {row.banReason && (
+          <span className="max-w-48 truncate text-xs text-muted-foreground">
+            {row.banReason}
+          </span>
+        )}
+      </span>
     ),
   },
   {
@@ -85,11 +97,6 @@ const COLUMNS: ReadonlyArray<KColumn<ListedAccount>> = [
     cell: (row) => (row.lastActiveAt ? dateTime(row.lastActiveAt) : "—"),
   },
   { key: "sessions", label: "Sessions", align: "right" },
-  {
-    key: "allowed",
-    label: "Actions",
-    cell: (row) => <ImpersonateButton row={row} />,
-  },
 ]
 
 const isSortKey = Schema.is(Schema.Literals(SORT_KEYS))
@@ -107,12 +114,24 @@ export function AccountsTable({
   /** Applies a change to the search params; any change but paging returns to page 1. */
   onSearch: OnSearch
 }) {
+  const [asked, setAsked] = useState<Asked | null>(null)
+  const { pending, outcome, run } = useAccountAction()
+  const columns: ReadonlyArray<KColumn<AccountRow>> = [
+    ...COLUMNS,
+    {
+      key: "allowed",
+      label: "Actions",
+      align: "right",
+      cell: (row) => <AccountActions row={row} onAsk={setAsked} run={run} />,
+    },
+  ]
   return (
     <div className="flex flex-col gap-4">
       <Filters search={search} onSearch={onSearch} />
+      <OutcomeLine outcome={outcome} />
       <KDataTable
         label="Accounts"
-        columns={COLUMNS}
+        columns={columns}
         rows={page.rows}
         getRowId={(row) => row.id}
         sort={{ key: search.sort ?? "createdAt", dir: search.dir ?? "desc" }}
@@ -124,6 +143,12 @@ export function AccountsTable({
         current={search.page ?? 1}
         total={page.total}
         onPage={(to) => onSearch({ page: to })}
+      />
+      <ConfirmAction
+        asked={asked}
+        onClose={() => setAsked(null)}
+        run={run}
+        pending={pending}
       />
     </div>
   )

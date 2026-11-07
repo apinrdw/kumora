@@ -32,6 +32,13 @@ describe("SignInForm", () => {
     )
   })
 
+  test("shows the suspended screen when Google comes back banned", async () => {
+    const html = await signIn({ google: true, error: "BANNED_USER" })
+    expect(html).toContain("This account is suspended")
+    expect(html).not.toContain('name="password"')
+    expect(html).not.toContain("Couldn&#x27;t sign in with Google")
+  })
+
   test("says Google sign-in failed on any other Google error", async () => {
     const html = await signIn({ google: true, error: "invalid_code" })
     expect(html).toMatch(/role="alert"[^>]*>Couldn&#x27;t sign in with Google/)

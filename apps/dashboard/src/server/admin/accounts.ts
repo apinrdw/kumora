@@ -1,47 +1,25 @@
 // The account listing behind /admin/users.
 import { Effect } from "effect"
 
-import type {
-  AccountPage,
-  AccountRow,
-  AccountSearch,
-  ListedAccount,
-} from "@/lib/account-query"
+import type { AccountRow, AccountSearch } from "@/lib/account-query"
 import { Accounts } from "@/server/auth/accounts"
 import { AdminEmails } from "@/server/auth/admin-emails"
 import { Auth } from "@/server/auth/auth"
 import { refusal } from "@/server/auth/gate"
-import { decide, type Account, type TargetAction } from "@/server/auth/policy"
+import { decide, type TargetAction } from "@/server/auth/policy"
 import { accountOf, targetOf } from "@/server/auth/session-account"
 
 const USERS_PATH = "/admin/users"
 
-// What the access policy lets the admin do to each listed account, so the
-// page offers only those actions. Better Auth's before-hooks ask again.
-const withAllowed = (
-  admin: Account,
-  adminId: string,
-  onAdminList: (email: string) => boolean
-) =>
-  function (row: AccountRow): ListedAccount {
-    const target = targetOf(
-      { ...row, banned: row.status === "suspended" },
-      adminId,
-      onAdminList
-    )
-    const allows = (action: TargetAction) =>
-      decide(admin, action, target)._tag === "Allow"
-    return {
-      ...row,
-      allowed: {
-        "admin.ban": allows("admin.ban"),
-        "admin.unban": allows("admin.unban"),
-        "admin.set-role": allows("admin.set-role"),
-        "admin.end-sessions": allows("admin.end-sessions"),
-        "admin.impersonate": allows("admin.impersonate"),
-      },
-    }
-  }
+// Every action an admin takes on one account; the table offers only those
+// the policy allows.
+const TARGET_ACTIONS = Object.keys({
+  "admin.ban": true,
+  "admin.unban": true,
+  "admin.set-role": true,
+  "admin.end-sessions": true,
+  "admin.impersonate": true,
+} satisfies Record<TargetAction, true>) as ReadonlyArray<TargetAction>
 
 export const listAccounts = Effect.fn("listAccounts")(function* (
   headers: Headers,
@@ -60,15 +38,25 @@ export const listAccounts = Effect.fn("listAccounts")(function* (
       decision.reason === "no-access" ? "forbidden" : decision.reason,
       USERS_PATH
     )
-  // Unreachable: the policy sends every visitor without a session to sign-in.
-  if (session === null || account._tag === "SignedOut")
-    return yield* refusal("sign-in", USERS_PATH)
-  const page = yield* (yield* Accounts).list(search)
   const adminEmails = yield* AdminEmails
+  const page = yield* (yield* Accounts).list(search)
   return {
     total: page.total,
-    rows: page.rows.map(
-      withAllowed(account, session.user.id, adminEmails.includes)
-    ),
-  } satisfies AccountPage
+    rows: page.rows.map((row): AccountRow => {
+      const target = targetOf(
+        { ...row, banned: row.status === "suspended" },
+        session,
+        adminEmails.includes
+      )
+      return {
+        ...row,
+        allowed: Object.fromEntries(
+          TARGET_ACTIONS.map((action) => [
+            action,
+            decide(account, action, target)._tag === "Allow",
+          ])
+        ) as Record<TargetAction, boolean>,
+      }
+    }),
+  }
 })

@@ -9,9 +9,9 @@ import { sql, type Kysely, type SqlBool } from "kysely"
 import {
   PAGE_SIZE,
   type AccountPage,
-  type AccountRow,
   type AccountSearch,
   type SignInMethod,
+  type StoredAccount,
   type Status,
 } from "@/lib/account-query"
 
@@ -29,6 +29,7 @@ interface Tables {
     readonly emailVerified: number
     readonly role: string | null
     readonly banned: number | null
+    readonly banReason: string | null
     readonly createdAt: string
     readonly updatedAt: string
   }
@@ -60,7 +61,7 @@ const ROLE_SQL = {
 const listAccounts = async (
   db: Kysely<Tables>,
   query: AccountSearch
-): Promise<AccountPage<AccountRow>> => {
+): Promise<AccountPage<StoredAccount>> => {
   const now = new Date().toISOString()
   const needle = (query.q ?? "").trim().toLowerCase()
   const matching = db
@@ -85,6 +86,7 @@ const listAccounts = async (
         "name",
         "role",
         "banned",
+        "banReason",
         "emailVerified",
         "createdAt",
         lastActiveAt.as("lastActiveAt"),
@@ -117,6 +119,7 @@ const listAccounts = async (
       email: row.email,
       name: row.name,
       role: roleOf(row.role),
+      banReason: row.banned ? row.banReason : null,
       status: row.banned
         ? "suspended"
         : row.emailVerified
@@ -141,7 +144,7 @@ export class Accounts extends Context.Service<
   {
     readonly list: (
       query: AccountSearch
-    ) => Effect.Effect<AccountPage<AccountRow>, UnknownError>
+    ) => Effect.Effect<AccountPage<StoredAccount>, UnknownError>
     readonly makeAdmin: (userId: string) => Effect.Effect<void, UnknownError>
   }
 >()("dashboard/server/auth/Accounts") {

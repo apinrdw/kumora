@@ -14,7 +14,7 @@ import { MIN_PASSWORD_LENGTH } from "../../lib/password.ts"
 import { ac, roles } from "./access.ts"
 import type { GoogleClient } from "./google.ts"
 import type { OwnAction, TargetAction } from "./policy.ts"
-import type { BetterAuthSession, TargetUser } from "./session-account.ts"
+import type { BetterAuthSession } from "./session-account.ts"
 
 const HOUR = 60 * 60
 const DAY = 24 * HOUR
@@ -47,14 +47,18 @@ export interface AuthOptionsInput {
     readonly action: OwnAction
     readonly session: BetterAuthSession | null
   }) => Promise<void>
-  // Throws Better Auth's APIError when the access policy refuses the action
-  // on the target, or the target doesn't exist.
+  // Throws Better Auth's APIError when the access policy refuses the action.
   readonly authorizeAdminAction: (request: {
     readonly action: TargetAction
     readonly session: BetterAuthSession | null
-    readonly target: TargetUser | null
+    readonly target: TargetUser
   }) => Promise<void>
 }
+
+export type TargetUser = Pick<
+  BetterAuthSession["user"],
+  "id" | "email" | "role" | "banned"
+>
 
 interface LinkMail {
   readonly email: string
@@ -99,35 +103,63 @@ const OWN_ACCOUNT_ROUTES: Readonly<Partial<Record<string, OwnAction>>> = {
   "/delete-user/callback": "own.delete",
 }
 
-// The admin routes that act on another account, named by `userId` in the
-// body. Each asks the access policy with that account first.
-const ADMIN_TARGET_ROUTES: Readonly<Partial<Record<string, TargetAction>>> = {
-  "/admin/impersonate-user": "admin.impersonate",
+// The admin plugin's routes that act on one account, and the body field that
+// names it: a user id, or the token of one of its sessions.
+const ADMIN_ROUTES: Readonly<
+  Partial<
+    Record<
+      string,
+      { readonly action: TargetAction; readonly by: "userId" | "sessionToken" }
+    >
+  >
+> = {
+  "/admin/ban-user": { action: "admin.ban", by: "userId" },
+  "/admin/unban-user": { action: "admin.unban", by: "userId" },
+  "/admin/impersonate-user": { action: "admin.impersonate", by: "userId" },
+  "/admin/set-role": { action: "admin.set-role", by: "userId" },
+  "/admin/revoke-user-sessions": { action: "admin.end-sessions", by: "userId" },
+  "/admin/revoke-user-session": {
+    action: "admin.end-sessions",
+    by: "sessionToken",
+  },
 }
 
-const actionOf = <A>(
-  routes: Readonly<Partial<Record<string, A>>>,
-  path: string
-) => (Object.hasOwn(routes, path) ? routes[path] : undefined)
+const targetUser = async (
+  ctx: HookContext,
+  by: "userId" | "sessionToken"
+): Promise<TargetUser | null> => {
+  const key: unknown = ctx.body?.[by]
+  if (typeof key !== "string" && typeof key !== "number") return null
+  const { internalAdapter } = ctx.context
+  return by === "userId"
+    ? internalAdapter.findUserById(String(key))
+    : ((await internalAdapter.findSession(String(key)))?.user ?? null)
+}
+
+const lookup = <A>(table: Readonly<Partial<Record<string, A>>>, path: string) =>
+  Object.hasOwn(table, path) ? table[path] : undefined
 
 const before = (input: AuthOptionsInput) =>
   createAuthMiddleware(async (ctx) => {
     if (ctx.path === "/sign-up/email") return hideTakenEmail(ctx)
-    const own = actionOf(OWN_ACCOUNT_ROUTES, ctx.path)
-    const onTarget = actionOf(ADMIN_TARGET_ROUTES, ctx.path)
-    if (own === undefined && onTarget === undefined) return
-    // Past the cookie cache, so a session ended elsewhere acts on nothing,
-    // and admin power sees the current role and ban state.
+    const own = lookup(OWN_ACCOUNT_ROUTES, ctx.path)
+    const onAccount = lookup(ADMIN_ROUTES, ctx.path)
+    if (own === undefined && onAccount === undefined) return
+    // Past the cookie cache, so a session ended elsewhere acts on nothing and
+    // admin power always sees the current role.
     const session = await getAuthoritativeSessionFromCtx(ctx)
     if (own !== undefined)
       return input.authorizeOwnAction({ action: own, session })
-    if (onTarget === undefined) return
-    const userId: unknown = ctx.body?.userId
-    const target =
-      typeof userId === "string"
-        ? await ctx.context.internalAdapter.findUserById(userId)
-        : null
-    await input.authorizeAdminAction({ action: onTarget, session, target })
+    if (onAccount === undefined) return
+    const target = await targetUser(ctx, onAccount.by)
+    // No such account: Better Auth answers for it, and there is nothing to
+    // protect.
+    if (target === null) return
+    await input.authorizeAdminAction({
+      action: onAccount.action,
+      session,
+      target,
+    })
   })
 
 // The per-address mail cap's table (mail-cap.ts). A plugin schema, so the

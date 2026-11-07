@@ -13,15 +13,10 @@ test("an admin views the dashboard as a member, read-only, and stops", async ({
 
   await test.step("impersonate the member from /admin/users", async () => {
     await page.goto(USERS)
-    const row = (email: string) =>
-      page
-        .getByRole("table", { name: "Accounts" })
-        .getByRole("row")
-        .filter({ hasText: email })
-    await expect(
-      row(ADMIN.email).getByRole("button", { name: "Impersonate" })
-    ).toHaveCount(0)
-    await row(MEMBER.email).getByRole("button", { name: "Impersonate" }).click()
+    await page
+      .getByRole("button", { name: `Actions for ${MEMBER.email}` })
+      .click()
+    await page.getByRole("menuitem", { name: "Impersonate" }).click()
     await expect(page).toHaveURL(`${DASHBOARD}/`)
     await expect(banner).toHaveText(`Viewing as ${MEMBER.email}·Stop`)
   })

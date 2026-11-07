@@ -47,6 +47,7 @@ export interface BetterAuthSession {
 export const roleOf = (stored: unknown): Role =>
   stored === "admin" ? "admin" : "member"
 
+// An admin whose email is on ADMIN_EMAILS.
 const isConfigAdmin = (
   role: Role,
   email: string,
@@ -72,6 +73,21 @@ export const authSessionOf = (
   }
 }
 
+// The account an admin action acts on, as the access policy reads it.
+export const targetOf = (
+  user: Pick<BetterAuthSession["user"], "id" | "email" | "role" | "banned">,
+  actor: AuthSession | null,
+  onAdminList: (email: string) => boolean
+): Target => {
+  const role = roleOf(user.role)
+  return {
+    role,
+    configAdmin: isConfigAdmin(role, user.email, onAdminList),
+    isSelf: user.id === actor?.user.id,
+    suspended: user.banned === true,
+  }
+}
+
 export const accountOf = (session: AuthSession | null): Account | SignedOut =>
   session === null
     ? signedOut
@@ -83,25 +99,3 @@ export const accountOf = (session: AuthSession | null): Account | SignedOut =>
         configAdmin: session.user.configAdmin,
         impersonating: session.session.impersonated,
       }
-
-// The account an admin action names, as Better Auth stores it.
-export interface TargetUser {
-  readonly id: string
-  readonly email: string
-  readonly role?: unknown
-  readonly banned?: unknown
-}
-
-export const targetOf = (
-  user: TargetUser,
-  actorId: string,
-  onAdminList: (email: string) => boolean
-): Target => {
-  const role = roleOf(user.role)
-  return {
-    role,
-    configAdmin: isConfigAdmin(role, user.email, onAdminList),
-    isSelf: user.id === actorId,
-    suspended: user.banned === true,
-  }
-}

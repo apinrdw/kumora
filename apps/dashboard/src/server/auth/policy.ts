@@ -54,13 +54,13 @@ type Resources = {
 
 export type Action = keyof Resources
 
-/** What an account does to itself, on `/account`. */
-export type OwnAction = Extract<Action, `own.${string}`>
-
-/** What an admin does to another account, named by its Target. */
+/** What an admin does to an account, on `/admin/users`. */
 export type TargetAction = {
   readonly [A in Action]: Resources[A] extends Target ? A : never
 }[Action]
+
+/** What an account does to itself, on `/account`. */
+export type OwnAction = Extract<Action, `own.${string}`>
 
 export const OWN_ACCOUNT = { feature: "account" } as const satisfies OwnAccount
 
