@@ -36,7 +36,8 @@ export function stackName(app: App): string {
 }
 
 // The account's workers.dev subdomain. docs/runbooks/deploy.md, "Checking a
-// stage", curls the same host.
+// stage", curls the same host, and its sections 9.5 and 10.1 send the auth
+// mail check and Google's redirect URIs to the URL built from it.
 const WORKERS_DEV_SUBDOMAIN = "kumora"
 
 const MAX_WORKER_NAME = 54
