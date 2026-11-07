@@ -110,6 +110,47 @@ describe("change email", () => {
     }
   )
 
+  it.effect(
+    "is refused by a link sent before the account was put on the admin list",
+    () => {
+      const before = seam()
+      // The stage redeployed with the account on ADMIN_EMAILS while its
+      // verification link, sent by the earlier deploy, is still valid.
+      const after = seam(
+        undefined,
+        {},
+        {
+          database: before.database,
+          adminEmails: OLD,
+        }
+      )
+      const storedEmail = () =>
+        (
+          before.database.prepare(`select email from "user"`).get() as {
+            email: string
+          }
+        ).email
+      return Effect.gen(function* () {
+        const { cookie, link } = yield* Effect.gen(function* () {
+          const jar = yield* verified(before.mails)
+          yield* changeEmail(jar, NEW)
+          yield* send(linkIn(before.mails.at(-1)), { headers: { cookie: jar } })
+          assert.strictEqual(before.mails.at(-1)?.to, NEW)
+          return { cookie: jar, link: linkIn(before.mails.at(-1)) }
+        }).pipe(Effect.provide(before.layer))
+
+        const signedOut = yield* send(link).pipe(Effect.provide(after.layer))
+        assert.strictEqual(signedOut.status, 403)
+        assert.strictEqual(storedEmail(), OLD)
+        const signedIn = yield* send(link, { headers: { cookie } }).pipe(
+          Effect.provide(after.layer)
+        )
+        assert.strictEqual(signedIn.status, 403)
+        assert.strictEqual(storedEmail(), OLD)
+      })
+    }
+  )
+
   it.effect("is refused to a config admin, with 403 and no mail", () => {
     const { layer, mails } = seam()
     return Effect.gen(function* () {

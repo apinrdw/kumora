@@ -32,16 +32,24 @@ const siteverify = async (input: RequestInfo | URL, init?: RequestInit) => {
   })
 }
 
+// The seam's ADMIN_EMAILS: ADMIN_EMAIL and other@example.com.
+const ADMIN_EMAILS = ` ${ADMIN_EMAIL.toUpperCase()}, other@example.com`
+
 // Seam 3 of spec apinrdw/kumora#80: the real Better Auth config over SQLite
-// with the checked-in migrations, driven through its HTTP handler.
-// ADMIN_EMAILS holds ADMIN_EMAIL.
+// with the checked-in migrations, driven through its HTTP handler. `deployed`
+// makes it a later deploy of an earlier seam's stage: the same database, with
+// ADMIN_EMAILS changed.
 export function seam(
   send?: (mail: Mail) => Effect.Effect<void>,
-  config: Partial<AuthConfig> = {}
+  config: Partial<AuthConfig> = {},
+  deployed: {
+    readonly database?: DatabaseSync
+    readonly adminEmails?: string
+  } = {}
 ) {
   vi.stubGlobal("fetch", siteverify)
-  const database = new DatabaseSync(":memory:")
-  replayMigrations(database)
+  const database = deployed.database ?? new DatabaseSync(":memory:")
+  if (deployed.database === undefined) replayMigrations(database)
   const mails: Array<Mail> = []
   const mailer = Layer.succeed(Mailer, {
     send: send ?? ((mail) => Effect.sync(() => void mails.push(mail))),
@@ -58,7 +66,7 @@ export function seam(
     Layer.provideMerge(
       Layer.succeed(
         AdminEmails,
-        AdminEmails.from(` ${ADMIN_EMAIL.toUpperCase()}, other@example.com`)
+        AdminEmails.from(deployed.adminEmails ?? ADMIN_EMAILS)
       )
     ),
     Layer.provide(mailer)
