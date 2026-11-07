@@ -14,7 +14,7 @@ export class CommandFailed extends Schema.TaggedError<CommandFailed>()(
   }
 }
 
-export interface Collected {
+interface Collected {
   readonly exitCode: number
   readonly stdout: string
   readonly stderr: string
@@ -38,18 +38,28 @@ export const collect = Effect.fn("collect")(function* (
   return { exitCode, stdout, stderr } satisfies Collected
 }, Effect.scoped)
 
-// spawner.lines ignores the exit code, so a failed git would read as an empty,
-// passing result. This awaits the code and fails on anything but 0.
+// spawner.lines and spawner.string ignore the exit code, so a failed command
+// would read as empty, passing output. This awaits the code and fails with
+// CommandFailed on anything but 0.
+export const stdoutOf = Effect.fn("stdoutOf")(function* (
+  command: string,
+  args: ReadonlyArray<string>,
+  options: { readonly cwd: string }
+) {
+  const result = yield* collect(ChildProcess.make(command, args, options))
+  if (result.exitCode !== 0)
+    return yield* new CommandFailed({
+      command: [command, ...args].join(" "),
+      exitCode: result.exitCode,
+      stderr: result.stderr,
+    })
+  return result.stdout
+})
+
 export const gitLines = Effect.fn("gitLines")(function* (
   cwd: string,
   args: ReadonlyArray<string>
 ) {
-  const result = yield* collect(ChildProcess.make("git", args, { cwd }))
-  if (result.exitCode !== 0)
-    return yield* new CommandFailed({
-      command: ["git", ...args].join(" "),
-      exitCode: result.exitCode,
-      stderr: result.stderr,
-    })
-  return result.stdout.split("\n").filter((line) => line !== "")
+  const stdout = yield* stdoutOf("git", args, { cwd })
+  return stdout.split("\n").filter((line) => line !== "")
 })

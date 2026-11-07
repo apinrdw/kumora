@@ -2,9 +2,8 @@
 import { NodeServices } from "@effect/platform-node"
 import { assert, layer } from "@effect/vitest"
 import { Effect, FileSystem, Path, Schema } from "effect"
-import { ChildProcess } from "effect/process"
 
-import { CommandFailed, collect } from "./lib/command.mts"
+import { stdoutOf } from "./lib/command.mts"
 
 const pinned = /^(effect|@effect\/.+|alchemy|@alchemy\.run\/.+)$/
 const dependencyFields = [
@@ -32,15 +31,12 @@ const Projects = Schema.fromJsonString(
 const workspaceProjects = Effect.gen(function* () {
   const path = yield* Path.Path
   const root = path.resolve(import.meta.dirname, "..")
-  const args = ["ls", "-r", "--depth", "-1", "--json"]
-  const listed = yield* collect(ChildProcess.make("pnpm", args, { cwd: root }))
-  if (listed.exitCode !== 0)
-    return yield* new CommandFailed({
-      command: ["pnpm", ...args].join(" "),
-      exitCode: listed.exitCode,
-      stderr: listed.stderr,
-    })
-  const projects = yield* Schema.decodeEffect(Projects)(listed.stdout)
+  const listed = yield* stdoutOf(
+    "pnpm",
+    ["ls", "-r", "--depth", "-1", "--json"],
+    { cwd: root }
+  )
+  const projects = yield* Schema.decodeEffect(Projects)(listed)
   return { root, dirs: projects.map((project) => project.path) }
 })
 

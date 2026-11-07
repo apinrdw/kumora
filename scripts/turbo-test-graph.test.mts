@@ -3,9 +3,8 @@
 import { NodeServices } from "@effect/platform-node"
 import { assert, layer } from "@effect/vitest"
 import { Effect, FileSystem, Path, Schema } from "effect"
-import { ChildProcess } from "effect/process"
 
-import { CommandFailed, collect } from "./lib/command.mts"
+import { stdoutOf } from "./lib/command.mts"
 
 const DryTask = Schema.Struct({
   taskId: Schema.String,
@@ -31,15 +30,12 @@ const Manifest = Schema.fromJsonString(
 const planTests = Effect.gen(function* () {
   const path = yield* Path.Path
   const root = path.resolve(import.meta.dirname, "..")
-  const args = ["exec", "turbo", "run", "test", "--dry=json"]
-  const dryRun = yield* collect(ChildProcess.make("pnpm", args, { cwd: root }))
-  if (dryRun.exitCode !== 0)
-    return yield* new CommandFailed({
-      command: ["pnpm", ...args].join(" "),
-      exitCode: dryRun.exitCode,
-      stderr: dryRun.stderr,
-    })
-  const { tasks } = yield* Schema.decodeEffect(DryRun)(dryRun.stdout)
+  const dryRun = yield* stdoutOf(
+    "pnpm",
+    ["exec", "turbo", "run", "test", "--dry=json"],
+    { cwd: root }
+  )
+  const { tasks } = yield* Schema.decodeEffect(DryRun)(dryRun)
   return { root, tasks }
 })
 

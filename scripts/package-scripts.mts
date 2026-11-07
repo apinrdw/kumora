@@ -10,7 +10,7 @@ import { Console, Effect, FileSystem, Path, Schema } from "effect"
 import { CheckFailed } from "./lib/check.mts"
 
 // The one definition of the allowlist; CODING_STANDARDS.md ("Shell in package scripts") points here.
-export const safeCommands = ["printf", "echo"]
+const safeCommands = ["printf", "echo"]
 const safeStage = new RegExp(String.raw`^(${safeCommands.join("|")})(\s|$)`)
 
 const singleQuoted = String.raw`'[^']*'`
