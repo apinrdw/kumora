@@ -40,6 +40,7 @@ const { compileMigrations, unsafeChanges, schemaProblems } =
       sendDeleteAccountLink: async () => {},
       grantAdmin: async () => {},
       authorizeOwnAction: async () => {},
+      authorizeEmailChange: async () => {},
       authorizeListAccounts: async () => {},
       authorizeAdminAction: async () => {},
     }),

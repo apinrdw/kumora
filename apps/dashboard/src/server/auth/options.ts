@@ -6,6 +6,7 @@ import {
   createAuthMiddleware,
   getAuthoritativeSessionFromCtx,
 } from "better-auth/api"
+import { verifyJWT } from "better-auth/crypto"
 import { admin } from "better-auth/plugins/admin"
 import { captcha } from "better-auth/plugins/captcha"
 import { tanstackStartCookies } from "better-auth/tanstack-start"
@@ -58,6 +59,12 @@ export interface AuthOptionsInput {
   // Throws Better Auth's APIError when the access policy refuses the action.
   readonly authorizeOwnAction: (request: {
     readonly action: OwnAction
+    readonly session: BetterAuthSession | null
+  }) => Promise<void>
+  // Throws Better Auth's APIError when the access policy refuses `user`, the
+  // account a change-email link is bound to, its change of email now.
+  readonly authorizeEmailChange: (request: {
+    readonly user: TargetUser
     readonly session: BetterAuthSession | null
   }) => Promise<void>
   // Throws Better Auth's APIError when the access policy refuses to list
@@ -185,9 +192,43 @@ const targetUser = async (
 const lookup = <A>(table: Readonly<Partial<Record<string, A>>>, path: string) =>
   Object.hasOwn(table, path) ? table[path] : undefined
 
+// The account a change-email link's token is bound to, or null for any other
+// link. Better Auth checks the token itself; an invalid one is left to it.
+const emailChangeTarget = async (
+  ctx: HookContext
+): Promise<TargetUser | null> => {
+  const token: unknown = ctx.query?.token
+  if (typeof token !== "string") return null
+  const payload = await verifyJWT(token, ctx.context.secret)
+  if (
+    payload === null ||
+    typeof payload.updateTo !== "string" ||
+    typeof payload.userId !== "string"
+  )
+    return null
+  return ctx.context.internalAdapter.findUserById(payload.userId)
+}
+
+// /verify-email finishes a change of email, from any browser, signed in or
+// not. Only the request asked the policy, so a link sent before the account
+// became a config admin would still move its email: ask again now.
+const authorizeEmailChangeLink = async (
+  ctx: HookContext,
+  input: AuthOptionsInput
+) => {
+  const user = await emailChangeTarget(ctx)
+  if (user === null) return
+  await input.authorizeEmailChange({
+    user,
+    session: await getAuthoritativeSessionFromCtx(ctx),
+  })
+}
+
 const before = (input: AuthOptionsInput) =>
   createAuthMiddleware(async (ctx) => {
     if (ctx.path === "/sign-up/email") return hideTakenEmail(ctx)
+    if (ctx.path === "/verify-email")
+      return authorizeEmailChangeLink(ctx, input)
     const own = lookup(OWN_ACCOUNT_ROUTES, ctx.path)
     const onAccount = lookup(ADMIN_ROUTES, ctx.path)
     const read = ADMIN_READ_ROUTES.has(ctx.path)

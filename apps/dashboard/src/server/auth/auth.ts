@@ -7,6 +7,7 @@ import { Accounts } from "./accounts.ts"
 import { AdminEmails } from "./admin-emails.ts"
 import {
   authorizeAdminAction,
+  authorizeEmailChange,
   authorizeListAccounts,
   authorizeOwnAction,
   grantAdmin,
@@ -36,6 +37,7 @@ export type AuthConfig = Omit<
   | "sendNewEmailVerification"
   | "sendDeleteAccountLink"
   | "authorizeOwnAction"
+  | "authorizeEmailChange"
   | "authorizeListAccounts"
   | "authorizeAdminAction"
   | "grantAdmin"
@@ -107,6 +109,8 @@ export class Auth extends Context.Service<
             grantAdmin: (user) => run(grantAdmin(user)),
             authorizeOwnAction: ({ action, session }) =>
               run(authorizeOwnAction(action, session)),
+            authorizeEmailChange: ({ user, session }) =>
+              run(authorizeEmailChange(user, session)),
             authorizeListAccounts: ({ session }) =>
               run(authorizeListAccounts(session)),
             authorizeAdminAction: ({ action, session, target }) =>

@@ -85,12 +85,15 @@ export const authSessionOf = (
   }
 }
 
+// An account as stored, with the admin plugin's fields.
+type StoredUser = Pick<
+  BetterAuthSession["user"],
+  "id" | "email" | "emailVerified" | "role" | "banned"
+>
+
 // The account an admin action acts on, as the access policy reads it.
 export const targetOf = (
-  user: Pick<
-    BetterAuthSession["user"],
-    "id" | "email" | "emailVerified" | "role" | "banned"
-  >,
+  user: StoredUser,
   actor: AuthSession | null,
   adminList: AdminList
 ): Target => {
@@ -100,6 +103,25 @@ export const targetOf = (
     configAdmin,
     isSelf: user.id === actor?.user.id,
     suspended: user.banned === true,
+  }
+}
+
+// The account itself, acting through an emailed link that works from any
+// browser: built from the stored account, with only whether an admin is
+// viewing as it taken from the request's session.
+export const accountOfUser = (
+  user: StoredUser,
+  impersonated: boolean,
+  adminList: AdminList
+): Account => {
+  const configAdmin = isConfigAdmin(user, adminList)
+  return {
+    _tag: "Account",
+    role: roleOf(user.role, configAdmin),
+    verified: user.emailVerified,
+    suspended: user.banned === true,
+    configAdmin,
+    impersonating: impersonated,
   }
 }
 

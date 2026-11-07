@@ -22,6 +22,7 @@ import {
 import { refusal } from "./refusal.ts"
 import {
   accountOf,
+  accountOfUser,
   authSessionOf,
   storedRoleOf,
   targetOf,
@@ -204,6 +205,26 @@ export const authorizeOwnAction = Effect.fn("authorizeOwnAction")(function* (
   const session = found && authSessionOf(found, adminEmails)
   yield* hookVerdict(decide(accountOf(session), action, OWN_ACCOUNT))
 })
+
+// The links that move an account to a new email act on the account they are
+// bound to, from any browser, signed in or not. The policy decides on that
+// account as it is now, since ADMIN_EMAILS may have changed since the link
+// was sent; the request's session says only whether an admin is viewing as
+// it.
+export const authorizeEmailChange = Effect.fn("authorizeEmailChange")(
+  function* (user: TargetUser, found: BetterAuthSession | null) {
+    const adminEmails = yield* AdminEmails
+    const impersonated =
+      found !== null && authSessionOf(found, adminEmails).session.impersonated
+    yield* hookVerdict(
+      decide(
+        accountOfUser(user, impersonated, adminEmails),
+        "own.change-email",
+        OWN_ACCOUNT
+      )
+    )
+  }
+)
 
 // Decision: an email on ADMIN_EMAILS becomes admin once it is verified, not
 // when the account is created, so nobody can squat an admin email before its
