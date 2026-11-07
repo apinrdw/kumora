@@ -127,14 +127,31 @@ const setPasswordLink = async (
   return `${ctx.context.baseURL}/reset-password/${token}?callbackURL=${encodeURIComponent(page)}`
 }
 
+// Leaves the account with no password and no session, still unverified. Both
+// writes converge, so a sign-up retried after a failure between them ends in
+// the same state. Not Better Auth's revokeUnprovenAccountAccess, which also
+// marks the email verified: nothing is proven yet.
+const voidAccess = async (ctx: HookContext, userId: string) => {
+  const { internalAdapter } = ctx.context
+  await internalAdapter.deleteUserSessions(userId)
+  const credential = await internalAdapter.findCredentialAccount(userId)
+  if (credential)
+    await internalAdapter.updateAccount(credential.id, { password: null })
+}
+
 // With auto sign-in on, Better Auth answers a sign-up for a taken email with
 // 422, and an after-hook can't change that status. Answer it here as a
 // success with no session, after hashing the password as a new sign-up
 // would, so the form reveals nothing.
-// Decision: an unverified account is nobody's yet, so its address gets a
-// set-password link and whoever reads the inbox takes the account, with the
-// first password and sessions dying at that moment, not at this sign-up. A
-// verified account's address gets no mail. See apinrdw/kumora#80, "Signing
+// Decision: an unverified account is nobody's yet, so this sign-up voids its
+// password and sessions at once and mails its address a set-password link, so
+// whoever reads the inbox takes the account. Voiding now, not when the link
+// is opened, means a plain verify link mailed earlier (the first sign-up's
+// own, or its Resend) verifies an account with no password and no session,
+// and the squatter keeps nothing. The accepted cost is that anyone can void a
+// never-verified account's password by signing up on its email; the sign-up
+// rate limit and the per-address mail cap bound it. A verified account's
+// address gets no mail and loses nothing. See apinrdw/kumora#80, "Signing
 // in". The send runs as Better Auth's sign-up mail does, so over the mail cap
 // the answer stays the same.
 const hideTakenEmail = async (ctx: HookContext, input: AuthOptionsInput) => {
@@ -145,13 +162,15 @@ const hideTakenEmail = async (ctx: HookContext, input: AuthOptionsInput) => {
   )
   if (!taken) return
   await ctx.context.password.hash(password)
-  if (!taken.user.emailVerified)
+  if (!taken.user.emailVerified) {
+    await voidAccess(ctx, taken.user.id)
     await ctx.context.runInBackgroundOrAwait(
       input.sendSetPassword({
         email: taken.user.email,
         url: await setPasswordLink(ctx, taken.user.id, callbackURL),
       })
     )
+  }
   return ctx.json({ token: null, user: null })
 }
 

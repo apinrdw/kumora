@@ -31,6 +31,12 @@ test("the owner of a squatted email takes the account through the mailed link", 
   await signUp(page, owner)
   await expect(page.getByText(email)).toBeVisible()
 
+  // The squatter's session ended at the owner's sign-up, before any link.
+  const voided = await squatting.request.get(
+    `${DASHBOARD}/api/auth/get-session?disableCookieCache=true`
+  )
+  expect(await voided.json()).toBeNull()
+
   await page.goto(await resetLink(email, since))
   await page.getByLabel("New password").fill(owner.password)
   await page.getByRole("button", { name: "Set password" }).click()
