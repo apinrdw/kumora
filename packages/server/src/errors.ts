@@ -31,3 +31,9 @@ export const HttpError = Schema.Union([
   Unauthorized,
 ])
 export type HttpError = typeof HttpError.Type
+
+// The JSON body an HTTP error carries from the bridge to the route loader.
+export const ErrorBody = Schema.Struct({
+  error: Schema.String,
+  message: Schema.String,
+})

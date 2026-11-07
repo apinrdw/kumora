@@ -3,7 +3,13 @@
 import { createSerializationAdapter, isRedirect } from "@tanstack/react-router"
 import { Effect, Option, Schema } from "effect"
 
-import { BadRequest, Conflict, Forbidden, NotFound } from "./errors.ts"
+import {
+  BadRequest,
+  Conflict,
+  ErrorBody,
+  Forbidden,
+  NotFound,
+} from "./errors.ts"
 
 // The HTTP errors a loader receives as values. Unauthorized arrives as a
 // router redirect instead, and the router follows it.
@@ -15,14 +21,11 @@ export const LoaderError = Schema.Union([
 ])
 export type LoaderError = typeof LoaderError.Type
 
-// The body bridge.ts sends for an HTTP error (`json` there); keep the two in step.
-const ErrorBody = Schema.fromJsonString(
-  Schema.Struct({ error: Schema.String, message: Schema.String })
-)
+const ErrorBodyJson = Schema.fromJsonString(ErrorBody)
 
 const decodeBody = Effect.fnUntraced(function* (response: Response) {
   const text = yield* Effect.tryPromise(() => response.clone().text())
-  const { error, message } = yield* Schema.decodeEffect(ErrorBody)(text)
+  const { error, message } = yield* Schema.decodeEffect(ErrorBodyJson)(text)
   return yield* Schema.decodeUnknownEffect(LoaderError)({
     _tag: error,
     message,

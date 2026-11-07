@@ -1,7 +1,7 @@
 import { redirect } from "@tanstack/react-router"
 import { Cause, Context, Effect, Layer, ManagedRuntime, Schema } from "effect"
 
-import { HttpError } from "./errors.ts"
+import { ErrorBody, HttpError } from "./errors.ts"
 
 // An app types its bindings by augmenting this interface with
 // `env: Cloudflare.InferEnv<typeof Website>` (see apps/web/alchemy.run.ts).
@@ -39,9 +39,8 @@ const respond: {
   Unauthorized: (e) => redirect({ href: e.redirectTo }),
 }
 
-// loader.ts decodes this body back into the error; keep the two in step.
 const json = (error: string, message: string, status: number) =>
-  Response.json({ error, message }, { status })
+  Response.json(ErrorBody.make({ error, message }), { status })
 
 const toResponse = (error: HttpError): Response =>
   (respond[error._tag] as (e: HttpError) => Response)(error)
