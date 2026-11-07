@@ -17,6 +17,9 @@ import type { BetterAuthSession } from "./session-account.ts"
 
 const DAY = 24 * 60 * 60
 
+// The page the delete link opens: src/routes/_app/delete-account.tsx.
+const DELETE_ACCOUNT_PATH = "/delete-account"
+
 export interface AuthOptionsInput {
   readonly database: BetterAuthOptions["database"]
   readonly baseURL: string
@@ -27,6 +30,13 @@ export interface AuthOptionsInput {
   readonly google?: GoogleClient
   readonly sendVerificationEmail: (mail: LinkMail) => Promise<void>
   readonly sendResetPassword: (mail: LinkMail) => Promise<void>
+  // Change email, step one: the old address confirms the move.
+  readonly sendChangeEmailConfirmation: (
+    mail: LinkMail & { readonly newEmail: string }
+  ) => Promise<void>
+  // Change email, step two: the new address verifies.
+  readonly sendNewEmailVerification: (mail: LinkMail) => Promise<void>
+  readonly sendDeleteAccountLink: (mail: LinkMail) => Promise<void>
   // Runs after every write of an account.
   readonly grantAdmin: (user: WrittenUser) => Promise<void>
   // Throws Better Auth's APIError when the access policy refuses the action.
@@ -175,8 +185,37 @@ export function authOptions(input: AuthOptionsInput) {
       sendOnSignUp: true,
       autoSignInAfterVerification: true,
       expiresIn: DAY,
+      // A verified account is mailed a verification link only to move to a
+      // new email: Better Auth hands over the account with that new email.
       sendVerificationEmail: ({ user, url }) =>
-        input.sendVerificationEmail({ email: user.email, url }),
+        user.emailVerified
+          ? input.sendNewEmailVerification({ email: user.email, url })
+          : input.sendVerificationEmail({ email: user.email, url }),
+    },
+    user: {
+      // The old address confirms first, so a stolen session can't move the
+      // account to another inbox; the email changes once the new one verifies.
+      changeEmail: {
+        enabled: true,
+        sendChangeEmailConfirmation: ({ user, newEmail, url }) =>
+          input.sendChangeEmailConfirmation({
+            email: user.email,
+            newEmail,
+            url,
+          }),
+      },
+      // Only by an emailed link, so a Google-only account can delete too and a
+      // stolen session can't. The link opens /delete-account, which asks
+      // before it spends the token and sends a signed-out visitor to sign in.
+      deleteUser: {
+        enabled: true,
+        deleteTokenExpiresIn: 60 * 60,
+        sendDeleteAccountVerification: ({ user, token }) =>
+          input.sendDeleteAccountLink({
+            email: user.email,
+            url: `${input.baseURL}${DELETE_ACCOUNT_PATH}?token=${token}`,
+          }),
+      },
     },
     // Account linking keeps Better Auth's defaults: Google is not a trusted
     // provider and the password account must be verified, so Google on the
