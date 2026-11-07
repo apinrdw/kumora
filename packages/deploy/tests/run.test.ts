@@ -35,6 +35,17 @@ const runMainWith = Effect.fnUntraced(function* (body: string) {
 }, Effect.scoped)
 
 layer(NodeServices.layer)("runMain", (it) => {
+  // A provider's keep-alive socket outlives a successful deploy; an open
+  // server stands in for it here.
+  it.effect("a successful program exits 0 despite an open handle", () =>
+    Effect.gen(function* () {
+      const result = yield* runMainWith(
+        "Effect.sync(() => { Bun.serve({ port: 0, fetch: () => new Response() }) })"
+      ).pipe(Effect.timeout("3 seconds"))
+      assert.deepStrictEqual(result, { exitCode: 0, stdout: "", stderr: "" })
+    })
+  )
+
   // The finalizer's line proves the runtime interrupted the program, rather
   // than the signal killing bun.
   it.effect("a SIGINT interrupts the program and exits 130", () =>
