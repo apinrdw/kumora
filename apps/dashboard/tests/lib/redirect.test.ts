@@ -14,7 +14,11 @@ describe("safeRedirect", () => {
   test.each([
     ["another origin", "https://evil.example/"],
     ["a protocol-relative URL", "//evil.example/"],
+    ["a protocol-relative URL without a slash", "//evil.example"],
+    ["a path that normalizes to protocol-relative", "/a/..//evil.example"],
     ["a backslash host", "/\\evil.example/"],
+    ["a backslash host without a slash", "/\\evil.example"],
+    ["an encoded slash Better Auth refuses", "/%2F/evil.example"],
     ["a tab the URL parser drops", "/\t/evil.example/"],
     ["a script URL", "javascript:alert(1)"],
     ["a relative path", "market-live"],
