@@ -8,10 +8,11 @@ import {
   sendResetPassword,
   sendVerificationEmail,
 } from "./callbacks.ts"
+import { googleClient } from "./google.ts"
 import { Mailer } from "./mailer.ts"
 import { authOptions, type AuthOptionsInput } from "./options.ts"
 
-type AuthConfig = Omit<
+export type AuthConfig = Omit<
   AuthOptionsInput,
   "sendVerificationEmail" | "sendResetPassword"
 >
@@ -78,6 +79,7 @@ export class Auth extends Context.Service<
         // every request, since Auth is built per request; the migration drift
         // check in CI and the handler test seam cover the schema.
         validateSchema: false,
+        google: googleClient(env),
       })
     })
   ).pipe(Layer.provide(Mailer.layer), Layer.provide(waitUntilLive))
