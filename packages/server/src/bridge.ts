@@ -1,5 +1,13 @@
 import { redirect } from "@tanstack/react-router"
-import { Cause, Context, Effect, Layer, ManagedRuntime, Schema } from "effect"
+import {
+  Cause,
+  Context,
+  Effect,
+  Layer,
+  ManagedRuntime,
+  Result,
+  Schema,
+} from "effect"
 
 import { HttpError } from "./errors.ts"
 
@@ -51,45 +59,72 @@ export interface Bridge<R> {
   readonly workerEnv: Layer.Layer<WorkerEnv>
 }
 
-export function makeRunServerEffect<R>({ isolate, workerEnv }: Bridge<R>) {
-  const runtime = ManagedRuntime.make(isolate)
+type Settled<A, R = never> = Effect.Effect<
+  Result.Result<A, HttpError | Response>,
+  never,
+  R
+>
+
+// Runs a program to its value, or to the HTTP error or bare 500 it ends in.
+// Any failure outside the closed set, and any defect, is logged here.
+const settle =
+  ({ workerEnv }: Pick<Bridge<unknown>, "workerEnv">) =>
+  <A, E, R>(effect: Effect.Effect<A, E, R | WorkerEnv>): Settled<A, R> =>
+    effect.pipe(
+      Effect.provide(workerEnv),
+      Effect.matchCauseEffect({
+        onSuccess: (value): Settled<A> => Effect.succeed(Result.succeed(value)),
+        onFailure: (cause): Settled<A> => {
+          const errors = cause.reasons
+            .filter(Cause.isFailReason)
+            .map((reason) => reason.error)
+          if (
+            !Cause.hasDies(cause) &&
+            errors.every(isHttpError) &&
+            errors[0] !== undefined
+          )
+            return Effect.succeed(Result.fail(errors[0]))
+          return Effect.logError("Server effect failed", cause).pipe(
+            Effect.as(Result.fail(json("InternalServerError", "", 500)))
+          )
+        },
+      })
+    )
+
+export function makeRunServerEffect<R>(bridge: Bridge<R>) {
+  const runtime = ManagedRuntime.make(bridge.isolate)
+  const run = settle(bridge)
   return async function runServerEffect<A, E>(
     effect: Effect.Effect<A, E, R | WorkerEnv>
   ): Promise<A> {
-    const outcome = await runtime.runPromise(
-      effect.pipe(
-        Effect.provide(workerEnv),
-        Effect.matchCauseEffect({
-          onSuccess: (value) => Effect.succeed({ ok: true as const, value }),
-          onFailure: (cause) => {
-            const errors = cause.reasons
-              .filter(Cause.isFailReason)
-              .map((reason) => reason.error)
-            if (
-              !Cause.hasDies(cause) &&
-              errors.every(isHttpError) &&
-              errors[0] !== undefined
-            )
-              return Effect.succeed({
-                ok: false as const,
-                response: toResponse(errors[0]),
-              })
-            return Effect.logError("Server effect failed", cause).pipe(
-              Effect.as({
-                ok: false as const,
-                response: json("InternalServerError", "", 500),
-              })
-            )
-          },
-        })
-      )
-    )
-    if (outcome.ok) return outcome.value
-    throw outcome.response
+    const result = await runtime.runPromise(run(effect))
+    if (Result.isSuccess(result)) return result.success
+    throw result.failure instanceof Response
+      ? result.failure
+      : toResponse(result.failure)
+  }
+}
+
+// Decision: a second runner for code that answers an HTTP error differently
+// per surface (the dashboard's Worker entry: socket close 4401, 401 JSON, 403
+// on ingest). It hands back the HTTP error, or the bare 500 Response for
+// anything else, instead of throwing. See apinrdw/kumora#81.
+export function makeRunServerEffectResult<R>(bridge: Bridge<R>) {
+  const runtime = ManagedRuntime.make(bridge.isolate)
+  const run = settle(bridge)
+  return function runServerEffectResult<A, E>(
+    effect: Effect.Effect<A, E, R | WorkerEnv>
+  ): Promise<Result.Result<A, HttpError | Response>> {
+    return runtime.runPromise(run(effect))
   }
 }
 
 export const runServerEffect = makeRunServerEffect({
+  isolate: Layer.empty,
+  workerEnv: workerEnvLive,
+})
+
+export const runServerEffectResult = makeRunServerEffectResult({
   isolate: Layer.empty,
   workerEnv: workerEnvLive,
 })

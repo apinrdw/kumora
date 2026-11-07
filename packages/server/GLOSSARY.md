@@ -5,7 +5,10 @@ The bridge every app's server functions run through. Server-only.
 ## Language
 
 **Bridge**:
-`runServerEffect` and the module around it: the per-isolate runtime, `WorkerEnv`, and the mapping from failures to HTTP. The only code that reaches `cloudflare:workers`.
+`runServerEffect`, `runServerEffectResult` and the module around them: the per-isolate runtime, `WorkerEnv`, and the mapping from failures to HTTP. The only code that reaches `cloudflare:workers`.
+
+**Result runner**:
+`runServerEffectResult`, the runner beside `runServerEffect` for code that answers an HTTP error itself, such as a custom Worker entry. It resolves to a `Result`: the program's value, its HTTP error, or the bare 500 `Response` for any other failure or defect, which it logs. It never throws.
 
 **Per-isolate layer**:
 The services built once per Worker isolate and shared by every request. Pure and config services only.
