@@ -307,3 +307,79 @@ layer(NodeServices.layer)("packages/deploy is under the full ban set", (it) => {
     })
   )
 })
+
+layer(NodeServices.layer)("apps/web is under the Effect bans", (it) => {
+  it.effect.each([
+    ["apps/web/alchemy.run.ts"],
+    ["apps/web/src/router.tsx"],
+    ["apps/web/src/server/thing.ts"],
+    ["apps/web/src/start.ts"],
+  ])("throw and async in %s are rejected", ([file]) =>
+    Effect.gen(function* () {
+      const diagnostics = yield* lint(
+        file,
+        'export const f = async () => {\n  throw new Error("boom")\n}\n'
+      )
+      assertBanned(diagnostics, "kumora(restricted-syntax)", "Effect.fail")
+      assertBanned(diagnostics, "oxc(no-async-await)", "async")
+    })
+  )
+
+  it.effect("an async loader in a route is rejected", () =>
+    Effect.gen(function* () {
+      const diagnostics = yield* lint(
+        "apps/web/src/routes/thing.tsx",
+        "export const loader = async () => 1\n"
+      )
+      assertBanned(diagnostics, "oxc(no-async-await)", "async")
+    })
+  )
+
+  it.effect("a route may throw redirect or notFound", () =>
+    Effect.gen(function* () {
+      const diagnostics = yield* lint(
+        "apps/web/src/routes/thing.tsx",
+        [
+          'import { notFound } from "@tanstack/react-router"',
+          "",
+          "export const beforeLoad = () => {",
+          "  throw notFound()",
+          "}",
+          "",
+        ].join("\n")
+      )
+      assert.deepStrictEqual(diagnostics, [])
+    })
+  )
+
+  it.effect("a route keeps the other bans", () =>
+    Effect.gen(function* () {
+      const diagnostics = yield* lint(
+        "apps/web/src/routes/thing.tsx",
+        [
+          'import { readFileSync } from "node:fs"',
+          'import { z } from "zod"',
+          "",
+          "export { readFileSync, z }",
+          "export const all = Promise.all([])",
+          "export const env = process.env.X",
+          "export const exit = () => globalThis.process.exit(1)",
+          "",
+        ].join("\n")
+      )
+      assertBanned(diagnostics, "eslint(no-restricted-imports)", "FileSystem")
+      assertBanned(
+        diagnostics,
+        "eslint(no-restricted-imports)",
+        "Effect Schema"
+      )
+      assertBanned(
+        diagnostics,
+        "eslint(no-restricted-globals)",
+        "Effect.promise"
+      )
+      assertBanned(diagnostics, "eslint(no-restricted-properties)", "Config")
+      assertBanned(diagnostics, "kumora(restricted-syntax)", "Config")
+    })
+  )
+})
