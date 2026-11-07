@@ -59,10 +59,10 @@ export function SignUpForm({
     setStep({
       _tag: "Form",
       pending: false,
-      error:
-        error.status === 429
-          ? retry.message()
-          : "Couldn't create the account. Try again in a minute.",
+      error: retry.messageFor(
+        error,
+        "Couldn't create the account. Try again in a minute."
+      ),
     })
   }
 

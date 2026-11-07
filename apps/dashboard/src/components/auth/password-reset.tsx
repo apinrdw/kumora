@@ -75,10 +75,10 @@ export function ForgotPasswordForm({
     setStep({
       _tag: "Form",
       pending: false,
-      error:
-        error.status === 429
-          ? retry.message()
-          : "Couldn't send the link. Try again in a minute.",
+      error: retry.messageFor(
+        error,
+        "Couldn't send the link. Try again in a minute."
+      ),
     })
   }
 
