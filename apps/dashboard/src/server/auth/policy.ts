@@ -84,8 +84,12 @@ const featureAccess = (account: Account, feature: Feature): Decision => {
     case "market-live":
     case "account":
       return allow
+    // An impersonation session views as a member, whatever role the member
+    // gains meanwhile; only the admin's own session has admin power.
     case "admin":
-      return account.role === "admin" ? allow : deny("not-found")
+      return account.role === "admin" && !account.impersonating
+        ? allow
+        : deny("not-found")
     default:
       return deny("no-access")
   }
