@@ -21,7 +21,9 @@ export type SignedOut = { readonly _tag: "SignedOut" }
 
 export const signedOut: SignedOut = { _tag: "SignedOut" }
 
-type Feature = "market-live" | "account" | "admin"
+export const FEATURES = ["market-live", "account", "admin"] as const
+
+export type Feature = (typeof FEATURES)[number]
 
 /** The account an admin action acts on, as seen from the acting admin. */
 export type Target = {
