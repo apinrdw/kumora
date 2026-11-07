@@ -1,6 +1,6 @@
 # Server
 
-The bridge every app's server functions run through. Server-only.
+The bridge every app's server functions run through, server-only, and the loader side that decodes its failures in route loaders.
 
 ## Language
 
@@ -19,3 +19,6 @@ The type of WorkerEnv's value, `WorkerEnvShape`: Alchemy's `Cloudflare.InferEnv`
 
 **HTTP error**:
 One of the closed set `NotFound`, `BadRequest`, `Forbidden`, `Conflict` and `Unauthorized`, the only failures a server function sends to HTTP. Any other failure is a 500.
+
+**Loader error**:
+One of the HTTP errors `NotFound`, `BadRequest`, `Forbidden` and `Conflict` as a route loader receives it: `loadServerFn` in `@workspace/server/loader` decodes a server function's failure back into it. `Unauthorized` reaches the loader as a router redirect, and anything else (a 500, a network failure) is an unexpected error. Unlike the bridge, the loader side runs in the browser too.

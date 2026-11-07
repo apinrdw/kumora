@@ -11,7 +11,8 @@
     "test": "vitest run"
   },
   "exports": {
-    ".": "./src/index.ts"
+    ".": "./src/index.ts",
+    "./loader": "./src/loader.ts"
   },
   "dependencies": {
     "@tanstack/react-router": "latest",

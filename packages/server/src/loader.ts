@@ -1,0 +1,61 @@
+// The route-loader side of the bridge. It runs in the browser and during SSR,
+// so it never imports bridge.ts or reaches cloudflare:workers.
+import { createSerializationAdapter, isRedirect } from "@tanstack/react-router"
+import { Effect, Option, Schema } from "effect"
+
+import { BadRequest, Conflict, Forbidden, NotFound } from "./errors.ts"
+
+// The HTTP errors a loader receives as values. Unauthorized arrives as a
+// router redirect instead, and the router follows it.
+export const LoaderError = Schema.Union([
+  NotFound,
+  BadRequest,
+  Forbidden,
+  Conflict,
+])
+export type LoaderError = typeof LoaderError.Type
+
+// The body bridge.ts sends for an HTTP error (`json` there); keep the two in step.
+const ErrorBody = Schema.fromJsonString(
+  Schema.Struct({ error: Schema.String, message: Schema.String })
+)
+
+const decodeBody = Effect.fnUntraced(function* (response: Response) {
+  const text = yield* Effect.tryPromise(() => response.clone().text())
+  const { error, message } = yield* Schema.decodeEffect(ErrorBody)(text)
+  return yield* Schema.decodeUnknownEffect(LoaderError)({
+    _tag: error,
+    message,
+  })
+})
+
+// A failure outside the closed set (a redirect, a notFound(), a 500, a network
+// failure) dies with the thrown value unchanged, so runPromise rejects with it
+// and the router handles it as it would without Effect.
+const decodeFailure = Effect.fnUntraced(function* (thrown: unknown) {
+  if (!(thrown instanceof Response) || isRedirect(thrown))
+    return yield* Effect.die(thrown)
+  const decoded = yield* Effect.option(decodeBody(thrown))
+  if (Option.isNone(decoded)) return yield* Effect.die(thrown)
+  return yield* Effect.fail(decoded.value)
+})
+
+// Calls a server function from a route loader. A closed-set HTTP error comes
+// back as a typed failure, for the route's errorComponent.
+export const loadServerFn = <A>(
+  call: () => Promise<A>
+): Effect.Effect<A, LoaderError> =>
+  Effect.tryPromise({ try: call, catch: (thrown) => thrown }).pipe(
+    Effect.catch(decodeFailure)
+  )
+
+// The router dehydrates any other Error to a bare `new Error(message)`. Register
+// this in the app's createStart so errorComponent sees the same LoaderError
+// after hydration as on the server's first paint.
+export const loaderErrorAdapter = createSerializationAdapter({
+  key: "kumora/LoaderError",
+  test: Schema.is(LoaderError),
+  toSerializable: (error) => Schema.encodeSync(LoaderError)(error),
+  fromSerializable: (encoded: typeof LoaderError.Encoded) =>
+    Schema.decodeSync(LoaderError)(encoded),
+})

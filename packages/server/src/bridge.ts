@@ -39,6 +39,7 @@ const respond: {
   Unauthorized: (e) => redirect({ href: e.redirectTo }),
 }
 
+// loader.ts decodes this body back into the error; keep the two in step.
 const json = (error: string, message: string, status: number) =>
   Response.json({ error, message }, { status })
 
