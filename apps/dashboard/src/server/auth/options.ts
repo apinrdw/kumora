@@ -12,6 +12,7 @@ import { admin } from "better-auth/plugins/admin"
 import { captcha } from "better-auth/plugins/captcha"
 import { tanstackStartCookies } from "better-auth/tanstack-start"
 
+import { LINK_HOURS } from "../../lib/link-lifetime.ts"
 import { MIN_PASSWORD_LENGTH, resetPasswordPage } from "../../lib/password.ts"
 import type { FileRoutesByFullPath } from "../../routeTree.gen.ts"
 import { ac, roles } from "./access.ts"
@@ -22,7 +23,7 @@ import type { BetterAuthSession } from "./session-account.ts"
 const HOUR = 60 * 60
 const DAY = 24 * HOUR
 
-const RESET_TOKEN_SECONDS = HOUR
+const RESET_TOKEN_SECONDS = LINK_HOURS.reset * HOUR
 
 // An admin views as a member for at most this long (apinrdw/kumora#80).
 const IMPERSONATION_SESSION = HOUR
@@ -365,7 +366,7 @@ export function authOptions(input: AuthOptionsInput) {
     emailVerification: {
       sendOnSignUp: true,
       autoSignInAfterVerification: true,
-      expiresIn: DAY,
+      expiresIn: LINK_HOURS.verify * HOUR,
       // A verified account is mailed a verification link only to move to a
       // new email: Better Auth hands over the account with that new email.
       sendVerificationEmail: ({ user, url }) =>
@@ -390,7 +391,7 @@ export function authOptions(input: AuthOptionsInput) {
       // before it spends the token and sends a signed-out visitor to sign in.
       deleteUser: {
         enabled: true,
-        deleteTokenExpiresIn: 60 * 60,
+        deleteTokenExpiresIn: LINK_HOURS.delete * HOUR,
         sendDeleteAccountVerification: ({ user, token }) =>
           input.sendDeleteAccountLink({
             email: user.email,

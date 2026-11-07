@@ -2,6 +2,7 @@ import { useHydrated } from "@tanstack/react-router"
 
 import { KButton } from "@/components/k"
 import { authClient } from "@/lib/auth-client"
+import { linkLifetime } from "@/lib/link-lifetime"
 
 import {
   AccountSection,
@@ -32,7 +33,7 @@ export function DeleteSection({
         ? { _tag: "Failed", message: "Couldn't send the link. Try again." }
         : {
             _tag: "Done",
-            message: `Check ${email} for a link to delete the account. It works for 1 hour.`,
+            message: `Check ${email} for a link to delete the account. It works for ${linkLifetime("delete")}.`,
           }
     })
   return (

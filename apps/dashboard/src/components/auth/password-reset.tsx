@@ -8,13 +8,12 @@ import { useState, type FormEvent } from "react"
 
 import { KButton, KInput } from "@/components/k"
 import { authClient } from "@/lib/auth-client"
+import { linkLifetime } from "@/lib/link-lifetime"
 import { MIN_PASSWORD_LENGTH, resetPasswordPage } from "@/lib/password"
 import { retryAfter } from "@/lib/retry-after"
 
 import { FormError, Notice, formFields, linkClass } from "./auth-page"
 import { CAPTCHA_HEADER, useTurnstile } from "./turnstile"
-
-const RESET_LINK_HOURS = 1
 
 function BackToSignIn({ redirect }: { redirect: string }) {
   return (
@@ -90,7 +89,7 @@ export function ForgotPasswordForm({
       >
         <p>
           If <b className="text-foreground">{step.email}</b> has an account, a
-          reset link is on its way. It expires in {RESET_LINK_HOURS} hour.
+          reset link is on its way. It expires in {linkLifetime("reset")}.
         </p>
       </Notice>
     )
@@ -189,7 +188,7 @@ export function SetPasswordForm({
         }
       >
         <p>
-          A reset link works once, for {RESET_LINK_HOURS} hour. Ask for a new
+          A reset link works once, for {linkLifetime("reset")}. Ask for a new
           one.
         </p>
       </Notice>

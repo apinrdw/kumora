@@ -6,6 +6,7 @@ import { HttpError } from "@workspace/server"
 import { APIError } from "better-auth/api"
 import { Cause, Effect, Exit, Schema, type Context } from "effect"
 
+import { linkLifetime } from "../../lib/link-lifetime.ts"
 import { RETRY_AFTER_HEADER } from "../../lib/retry-after.ts"
 import { Accounts } from "./accounts.ts"
 import { AdminEmails } from "./admin-emails.ts"
@@ -105,7 +106,7 @@ export const sendVerificationEmail = Effect.fn("sendVerificationEmail")(
         "",
         url,
         "",
-        "The link works for 24 hours. If you didn't create an account, ignore this email.",
+        `The link works for ${linkLifetime("verify")}. If you didn't create an account, ignore this email.`,
       ],
     })
   }
@@ -126,7 +127,7 @@ export const sendResetPassword = Effect.fn("sendResetPassword")(function* (
       "",
       url,
       "",
-      "The link works for 1 hour. Setting a new password signs you out everywhere else.",
+      `The link works for ${linkLifetime("reset")}. Setting a new password signs you out everywhere else.`,
       "If you didn't ask for this, ignore this email; your password stays as it is.",
     ],
   })
@@ -147,7 +148,7 @@ export const sendSetPassword = Effect.fn("sendSetPassword")(function* (
       "",
       url,
       "",
-      "The link works for 1 hour. Setting the password signs out every other session of the account.",
+      `The link works for ${linkLifetime("reset")}. Setting the password signs out every other session of the account.`,
       "If you didn't try to create an account, ignore this email.",
     ],
   })
@@ -166,7 +167,7 @@ export const sendChangeEmailConfirmation = Effect.fn(
       "",
       url,
       "",
-      "The link works for 24 hours. Your email changes only once the new address is verified.",
+      `The link works for ${linkLifetime("verify")}. Your email changes only once the new address is verified.`,
       "If you didn't ask for this, ignore this email and change your password.",
     ],
   })
@@ -186,7 +187,7 @@ export const sendNewEmailVerification = Effect.fn("sendNewEmailVerification")(
         "",
         url,
         "",
-        "The link works for 24 hours. If you didn't ask for this, ignore this email.",
+        `The link works for ${linkLifetime("verify")}. If you didn't ask for this, ignore this email.`,
       ],
     })
   }
@@ -203,7 +204,7 @@ export const sendDeleteAccountLink = Effect.fn("sendDeleteAccountLink")(
         "",
         url,
         "",
-        "The link works for 1 hour, in a browser signed in to the account. It asks once more before deleting.",
+        `The link works for ${linkLifetime("delete")}, in a browser signed in to the account. It asks once more before deleting.`,
         "If you didn't ask for this, ignore this email and change your password.",
       ],
     })

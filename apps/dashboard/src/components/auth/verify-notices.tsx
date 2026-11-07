@@ -4,6 +4,7 @@ import { useState } from "react"
 
 import { KButton } from "@/components/k"
 import { authClient } from "@/lib/auth-client"
+import { linkLifetime } from "@/lib/link-lifetime"
 import { withRedirect } from "@/lib/redirect"
 import { retryAfter } from "@/lib/retry-after"
 
@@ -116,7 +117,7 @@ export function VerifyToContinue({
       <p>
         You're signed in as <b className="text-foreground">{email}</b>, but the
         dashboard shows data only to verified accounts. The link we sent expires
-        in 24 hours.
+        in {linkLifetime("verify")}.
       </p>
     </Notice>
   )
