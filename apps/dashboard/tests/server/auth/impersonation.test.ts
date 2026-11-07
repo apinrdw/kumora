@@ -1,6 +1,7 @@
 import { assert, describe, it } from "@effect/vitest"
 import { Effect } from "effect"
 
+import { listAccounts } from "@/server/admin/accounts"
 import { accountPage } from "@/server/auth/account-page"
 import { gatePage } from "@/server/auth/gate"
 import type { Mail } from "@/server/auth/mailer"
@@ -235,6 +236,30 @@ describe("pages while impersonating", () => {
           impersonating: true,
         },
       })
+    }).pipe(Effect.provide(layer))
+  })
+
+  it.effect("leave the viewing session out of the member's own list", () => {
+    const { layer, mails } = seam()
+    return Effect.gen(function* () {
+      const { member } = yield* viewingAsMember(mails)
+      const page = yield* accountPage(
+        new Headers({ cookie: member.cookie }),
+        "/account"
+      )
+      // Sign-up and verification each opened one.
+      assert.strictEqual(page.sessions.length, 2)
+    }).pipe(Effect.provide(layer))
+  })
+
+  it.effect("leave the viewing session out of the users page count", () => {
+    const { layer, mails } = seam()
+    return Effect.gen(function* () {
+      const { admin } = yield* viewingAsMember(mails)
+      const page = yield* listAccounts(new Headers({ cookie: admin.cookie }), {
+        q: MEMBER,
+      })
+      assert.strictEqual(page.rows[0]?.sessions, 2)
     }).pipe(Effect.provide(layer))
   })
 

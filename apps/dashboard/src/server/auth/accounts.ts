@@ -37,6 +37,8 @@ interface Tables {
     readonly userId: string
     readonly expiresAt: string
     readonly updatedAt: string
+    // Set while an admin views as the account; not the account's own.
+    readonly impersonatedBy: string | null
   }
   readonly account: { readonly userId: string; readonly providerId: string }
 }
@@ -75,7 +77,7 @@ const listAccounts = async (
     .$if(query.status !== undefined, (q) => q.where(STATUS_SQL[query.status!]))
   const lastActiveAt = sql<
     string | null
-  >`(select max("updatedAt") from "session" where "session"."userId" = "user"."id")`
+  >`(select max("updatedAt") from "session" where "session"."userId" = "user"."id" and "session"."impersonatedBy" is null)`
   const key = query.sort ?? "createdAt"
   const dir = query.dir ?? "desc"
   const [rows, count] = await Promise.all([
@@ -90,7 +92,7 @@ const listAccounts = async (
         "emailVerified",
         "createdAt",
         lastActiveAt.as("lastActiveAt"),
-        sql<number>`(select count(*) from "session" where "session"."userId" = "user"."id" and "session"."expiresAt" > ${now})`.as(
+        sql<number>`(select count(*) from "session" where "session"."userId" = "user"."id" and "session"."impersonatedBy" is null and "session"."expiresAt" > ${now})`.as(
           "sessions"
         ),
         sql<
