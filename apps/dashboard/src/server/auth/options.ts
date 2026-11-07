@@ -130,10 +130,13 @@ const setPasswordLink = async (
 // With auto sign-in on, Better Auth answers a sign-up for a taken email with
 // 422, and an after-hook can't change that status. Answer it here as a
 // success with no session, after hashing the password as a new sign-up
-// would, so the form reveals nothing. An unverified account is nobody's yet:
-// its address gets a set-password link, so whoever reads the inbox takes the
-// account and the first password dies with it. The send runs as Better
-// Auth's sign-up mail does, so over the mail cap the answer stays the same.
+// would, so the form reveals nothing.
+// Decision: an unverified account is nobody's yet, so its address gets a
+// set-password link and whoever reads the inbox takes the account, with the
+// first password and sessions dying at that moment, not at this sign-up. A
+// verified account's address gets no mail. See apinrdw/kumora#80, "Signing
+// in". The send runs as Better Auth's sign-up mail does, so over the mail cap
+// the answer stays the same.
 const hideTakenEmail = async (ctx: HookContext, input: AuthOptionsInput) => {
   const { email, password, callbackURL } = ctx.body ?? {}
   if (typeof email !== "string" || typeof password !== "string") return
