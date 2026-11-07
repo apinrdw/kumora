@@ -269,6 +269,115 @@ describe("password reset", () => {
   })
 })
 
+// Someone signed up on an email before its owner: the owner's own sign-up
+// gets the same inbox screen, and a mailed link that hands the account over.
+describe("a sign-up on an unverified email", () => {
+  const EMAIL = "ayu@example.com"
+  const SQUATTED = "squatter passphrase"
+  const OWN = "owner passphrase"
+
+  it.effect("answers like a new one, and mails a set-password link", () => {
+    const { layer, mails } = seam()
+    return Effect.gen(function* () {
+      yield* signUp(EMAIL, SQUATTED)
+      const again = yield* signUp(EMAIL, OWN)
+      assert.strictEqual(again.status, 200)
+      assert.notInclude(yield* Effect.promise(() => again.text()), "exists")
+      assert.strictEqual(mails.length, 2)
+      assert.strictEqual(mails[1]?.to, EMAIL)
+      assert.strictEqual(mails[1]?.subject, "Set your KUMORA password")
+      assert.include(mails[1]?.text, `${BASE_URL}/api/auth/reset-password/`)
+      assert.notInclude(mails[1]?.text, "/verify-email?")
+    }).pipe(Effect.provide(layer))
+  })
+
+  it.effect(
+    "hands the account to whoever sets the password from the link, verified",
+    () => {
+      const { layer, mails } = seam()
+      return Effect.gen(function* () {
+        const squatter = cookiesFrom(yield* signUp(EMAIL, SQUATTED))
+        yield* signUp(EMAIL, OWN)
+        assert.strictEqual(mails[1]?.to, EMAIL)
+        const set = yield* resetWith(mails[1], OWN)
+        assert.strictEqual(set.status, 200)
+        assert.isNull(yield* sessionOf(squatter))
+        assert.strictEqual((yield* signIn(EMAIL, SQUATTED)).status, 401)
+        const owner = yield* signIn(EMAIL, OWN)
+        assert.strictEqual(owner.status, 200)
+        assert.isTrue(
+          (yield* sessionOf(cookiesFrom(owner)))?.user.emailVerified
+        )
+      }).pipe(Effect.provide(layer))
+    }
+  )
+
+  it.effect("makes an email on the admin list admin only this way", () => {
+    const { layer, mails } = seam()
+    return Effect.gen(function* () {
+      yield* signUp(ADMIN_EMAIL, SQUATTED)
+      yield* signUp(ADMIN_EMAIL, OWN)
+      assert.strictEqual(mails[1]?.to, ADMIN_EMAIL)
+      yield* resetWith(mails[1], OWN)
+      const owner = yield* signIn(ADMIN_EMAIL, OWN)
+      assert.strictEqual(
+        (yield* sessionOf(cookiesFrom(owner)))?.user.role,
+        "admin"
+      )
+    }).pipe(Effect.provide(layer))
+  })
+
+  it.effect(
+    "Resend from the inbox screen, with no session, mails a set-password link",
+    () => {
+      const { layer, mails } = seam()
+      return Effect.gen(function* () {
+        yield* signUp(EMAIL, SQUATTED)
+        yield* signUp(EMAIL, OWN)
+        const resent = yield* post("/send-verification-email", {
+          email: EMAIL,
+          callbackURL: "/",
+        })
+        assert.strictEqual(resent.status, 200)
+        assert.strictEqual(mails.length, 3)
+        assert.strictEqual(mails[2]?.subject, "Set your KUMORA password")
+        assert.include(mails[2]?.text, `${BASE_URL}/api/auth/reset-password/`)
+      }).pipe(Effect.provide(layer))
+    }
+  )
+
+  it.effect(
+    "Resend from the account's own session keeps the verify link",
+    () => {
+      const { layer, mails } = seam()
+      return Effect.gen(function* () {
+        const cookie = cookiesFrom(yield* signUp(EMAIL, SQUATTED))
+        yield* post(
+          "/send-verification-email",
+          { email: EMAIL, callbackURL: "/" },
+          { cookie }
+        )
+        assert.strictEqual(mails.length, 2)
+        assert.include(
+          mails[1]?.text,
+          `${BASE_URL}/api/auth/verify-email?token=`
+        )
+      }).pipe(Effect.provide(layer))
+    }
+  )
+
+  it.effect("on a verified email still mails nothing", () => {
+    const { layer, mails } = seam()
+    return Effect.gen(function* () {
+      yield* signUp(EMAIL, SQUATTED)
+      yield* send(linkIn(mails[0]))
+      const again = yield* signUp(EMAIL, OWN)
+      assert.strictEqual(again.status, 200)
+      assert.strictEqual(mails.length, 1)
+    }).pipe(Effect.provide(layer))
+  })
+})
+
 // The token the reset link carries to the set-password page.
 const tokenIn = (mail: Mail | undefined) =>
   send(linkIn(mail)).pipe(

@@ -199,6 +199,30 @@ describe("per-address mail cap", () => {
   )
 
   it.effect(
+    "counts the set-password mail of a sign-up on an unverified email, and a capped one still answers neutrally",
+    () => {
+      const { layer, mails } = seam()
+      return Effect.gen(function* () {
+        yield* signUp("ayu@example.com")
+        for (let n = 1; n <= 3; n++) yield* resendFrom("ayu@example.com", n)
+        const again = yield* signUp("ayu@example.com", "another", ip(4))
+        assert.strictEqual(again.status, 200)
+        assert.strictEqual(mails.length, 5)
+        assert.strictEqual(mails.at(-1)?.subject, "Set your KUMORA password")
+
+        const capped = yield* signUp("ayu@example.com", "a third", ip(5))
+        assert.strictEqual(capped.status, 200)
+        assert.strictEqual(
+          yield* Effect.promise(() => capped.text()),
+          yield* Effect.promise(() => again.text())
+        )
+        assert.strictEqual(mails.length, 5)
+      }).pipe(Effect.provide(layer))
+    },
+    { timeout: 15_000 }
+  )
+
+  it.effect(
     "caps each address on its own, and opens again a day after the first mail",
     () => {
       const { layer, mails } = seam()
