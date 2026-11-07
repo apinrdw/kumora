@@ -7,8 +7,11 @@ import {
 } from "@workspace/deploy/stack"
 import * as Alchemy from "alchemy"
 import { Stack } from "alchemy/Stack"
+import * as Config from "effect/Config"
 import * as Effect from "effect/Effect"
+import type { Redacted } from "effect/Redacted"
 
+import { googleSignInOn } from "./src/server/auth/google.ts"
 import { SENDER, SENDING_SUBDOMAIN } from "./src/server/auth/sender.ts"
 
 // apps/e2e's playwright.config.ts waits on this port.
@@ -43,6 +46,18 @@ export const Website = Cloudflare.Website.Vite(
   "Dashboard",
   Effect.gen(function* () {
     const { stage } = yield* Stack
+    // From Infisical `/dashboard`; see googleSignInOn.
+    const google: Partial<
+      Record<
+        "GOOGLE_CLIENT_ID" | "GOOGLE_CLIENT_SECRET",
+        Config.Config<Redacted<string>>
+      >
+    > = googleSignInOn(stackStageKind(stage))
+      ? {
+          GOOGLE_CLIENT_ID: Config.Redacted("GOOGLE_CLIENT_ID"),
+          GOOGLE_CLIENT_SECRET: Config.Redacted("GOOGLE_CLIENT_SECRET"),
+        }
+      : {}
     return {
       ...websiteProps("dashboard", stage),
       rootDir: import.meta.dirname,
@@ -54,6 +69,7 @@ export const Website = Cloudflare.Website.Vite(
         EMAIL: Cloudflare.Email.SendEmail("Email", {
           allowedSenderAddresses: [SENDER],
         }),
+        ...google,
       },
     }
   })

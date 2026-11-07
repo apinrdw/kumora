@@ -4,10 +4,11 @@ import { Context, Effect, Layer } from "effect"
 import type { UnknownError } from "effect/Cause"
 
 import { makeCallbackRunner, sendVerificationEmail } from "./callbacks.ts"
+import { googleClient } from "./google.ts"
 import { Mailer } from "./mailer.ts"
 import { authOptions, type AuthOptionsInput } from "./options.ts"
 
-type AuthConfig = Omit<AuthOptionsInput, "sendVerificationEmail">
+export type AuthConfig = Omit<AuthOptionsInput, "sendVerificationEmail">
 
 // What the gates read of a session. Later plugins widen it (role, banned).
 export interface AuthSession {
@@ -69,6 +70,7 @@ export class Auth extends Context.Service<
         // every request, since Auth is built per request; the migration drift
         // check in CI and the handler test seam cover the schema.
         validateSchema: false,
+        google: googleClient(env),
       })
     })
   ).pipe(Layer.provide(Mailer.layer), Layer.provide(waitUntilLive))

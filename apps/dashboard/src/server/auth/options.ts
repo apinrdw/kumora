@@ -6,6 +6,7 @@ import { createAuthMiddleware } from "better-auth/api"
 import { tanstackStartCookies } from "better-auth/tanstack-start"
 
 import { MIN_PASSWORD_LENGTH } from "../../lib/password.ts"
+import type { GoogleClient } from "./google.ts"
 
 const DAY = 24 * 60 * 60
 
@@ -15,6 +16,8 @@ export interface AuthOptionsInput {
   readonly secret: string
   // Introspects the database on every request, so the Worker passes false.
   readonly validateSchema: boolean
+  // Only Production and Staging have one; see google.ts.
+  readonly google?: GoogleClient
   readonly sendVerificationEmail: (mail: {
     readonly email: string
     readonly url: string
@@ -59,6 +62,10 @@ export function authOptions(input: AuthOptionsInput) {
       sendVerificationEmail: ({ user, url }) =>
         input.sendVerificationEmail({ email: user.email, url }),
     },
+    // Account linking keeps Better Auth's defaults: Google is not a trusted
+    // provider and the password account must be verified, so Google on the
+    // email of an unverified one redirects with "account not linked".
+    socialProviders: input.google ? { google: input.google } : {},
     session: {
       expiresIn: 30 * DAY,
       updateAge: DAY,

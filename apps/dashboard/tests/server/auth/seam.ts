@@ -1,7 +1,7 @@
 import { Effect, Layer } from "effect"
 import { DatabaseSync } from "node:sqlite"
 
-import { Auth } from "@/server/auth/auth"
+import { Auth, type AuthConfig } from "@/server/auth/auth"
 import { Mailer, type Mail } from "@/server/auth/mailer"
 
 import { replayMigrations } from "../../../scripts/auth-schema.ts"
@@ -10,7 +10,10 @@ export const BASE_URL = "http://localhost:3001"
 
 // Seam 3 of spec apinrdw/kumora#80: the real Better Auth config over SQLite
 // with the checked-in migrations, driven through its HTTP handler.
-export function seam(send?: (mail: Mail) => Effect.Effect<void>) {
+export function seam(
+  send?: (mail: Mail) => Effect.Effect<void>,
+  config: Partial<AuthConfig> = {}
+) {
   const database = new DatabaseSync(":memory:")
   replayMigrations(database)
   const mails: Array<Mail> = []
@@ -22,6 +25,7 @@ export function seam(send?: (mail: Mail) => Effect.Effect<void>) {
     baseURL: BASE_URL,
     secret: "handler-test-secret-0123456789abcdef0123456789",
     validateSchema: true,
+    ...config,
   }).pipe(Layer.provide(mailer))
   return { layer, mails }
 }
