@@ -11,6 +11,7 @@ import {
   stageTarget,
   type App,
   type DeployTarget,
+  type UnknownStage,
 } from "./target.ts"
 
 const INFISICAL_PROJECT = "kumora"
@@ -19,12 +20,14 @@ const INFISICAL_PROJECT = "kumora"
 // deployment: auth discovery for `alchemy profile edit`, and `alchemy state`.
 // Read it as Staging, so discovery sees Cloudflare state and Infisical but the
 // stack never reaches for production's secrets.
-function stackTarget(app: App, stage: string): DeployTarget {
-  return stageTarget(
-    app,
-    parseStage(stage === PLACEHOLDER_STAGE ? "staging" : stage)
+const stackTarget = (
+  app: App,
+  stage: string
+): Effect.Effect<DeployTarget, UnknownStage> =>
+  Effect.flatMap(
+    parseStage(stage === PLACEHOLDER_STAGE ? "staging" : stage),
+    (parsed) => stageTarget(app, parsed)
   )
-}
 
 // Decision: Cloudflare Workers with static assets, deployed by Workers Builds
 // running alchemy. Pages lost because Cloudflare steers new projects to Workers;
@@ -36,7 +39,9 @@ export function stackOptions(app: App) {
     state: Layer.unwrap(
       Effect.gen(function* () {
         const stage = yield* Alchemy.Stage
-        return stackTarget(app, stage).stateStore === "local"
+        // The state layer's error type is never, so an unknown Stage dies.
+        const { stateStore } = yield* Effect.orDie(stackTarget(app, stage))
+        return stateStore === "local"
           ? Alchemy.localState()
           : Cloudflare.state()
       })
@@ -45,8 +50,11 @@ export function stackOptions(app: App) {
     // secret_text, so a rotation goes live on the next deploy. This supersedes
     // syncing Infisical into Cloudflare; Secrets Store waits until a secret
     // must rotate without a deploy. See apinrdw/kumora#18.
+    // Alchemy calls this synchronously, so an unknown Stage throws from runSync.
     secrets: ({ stage }: { readonly stage: string }) => {
-      const environment = stackTarget(app, stage).infisicalEnvironment
+      const environment = Effect.runSync(
+        stackTarget(app, stage)
+      ).infisicalEnvironment
       if (environment === undefined) return []
       return ["/", `/${app}`].map((path) =>
         Infisical.Secrets({ project: INFISICAL_PROJECT, environment, path })
@@ -55,10 +63,13 @@ export function stackOptions(app: App) {
   }
 }
 
-export function websiteProps(app: App, stage: string) {
-  return {
-    name: stackTarget(app, stage).workerName,
-    compatibility: { date: COMPATIBILITY_DATE, flags: ["nodejs_compat"] },
-    observability: { enabled: true },
-  }
-}
+// Read inside a stack's Effect, where an unknown Stage is a defect alchemy prints.
+export const websiteProps = (app: App, stage: string) =>
+  stackTarget(app, stage).pipe(
+    Effect.map(({ workerName }) => ({
+      name: workerName,
+      compatibility: { date: COMPATIBILITY_DATE, flags: ["nodejs_compat"] },
+      observability: { enabled: true },
+    })),
+    Effect.orDie
+  )

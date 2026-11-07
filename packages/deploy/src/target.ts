@@ -1,26 +1,19 @@
 import { createHash } from "node:crypto"
 
+import * as Effect from "effect/Effect"
+import * as Schema from "effect/Schema"
+
 export const APPS = ["web", "dashboard"] as const
 export type App = (typeof APPS)[number]
 
-export type Stage = string & { readonly __brand: "Stage" }
-export type Preview = Stage & { readonly __preview: true }
 export type StageKind = "production" | "staging" | "preview" | "dev" | "test"
 export type InfisicalEnvironment = "prod" | "staging"
 export type StateStore = "cloudflare" | "local"
 
-export interface DeployTarget {
-  readonly stage: Stage
-  readonly workerName: string
-  // Undefined on the test stage, which reads only the process environment.
-  readonly infisicalEnvironment: InfisicalEnvironment | undefined
-  readonly stateStore: StateStore
-}
-
-const PRODUCTION = "production" as Stage
-const STAGING = "staging" as Stage
+const PRODUCTION = "production"
+const STAGING = "staging"
 // apps/e2e/playwright.config.ts sets ALCHEMY_STAGE to this name.
-const TEST = "test" as Stage
+const TEST = "test"
 
 const MAX_WORKER_NAME = 54
 // The longest app prefix, `kumora-dashboard-`, plus `-` and the hash, leaves 30.
@@ -31,15 +24,61 @@ const PREVIEW = new RegExp(
 )
 const DEV = /^dev_[-_a-z0-9]+$/i
 
+function classify(raw: string): StageKind | undefined {
+  if (raw === PRODUCTION) return "production"
+  if (raw === STAGING) return "staging"
+  if (raw === TEST) return "test"
+  if (DEV.test(raw)) return "dev"
+  if (PREVIEW.test(raw)) return "preview"
+  return undefined
+}
+
+// Alchemy hands a stack any stage name. Anything that no branch, dev or test
+// stage could produce (alchemy's `live_$USER` default) is not a Stage.
+export const Stage = Schema.String.check(
+  Schema.makeFilter((raw) => classify(raw) !== undefined)
+).pipe(Schema.brand("Stage"))
+export type Stage = typeof Stage.Type
+
+export const Preview = Stage.check(
+  Schema.makeFilter((stage) => classify(stage) === "preview")
+).pipe(Schema.brand("Preview"))
+export type Preview = typeof Preview.Type
+
+export const isPreview = Schema.is(Preview)
+
+export class UnknownStage extends Schema.TaggedError<UnknownStage>()(
+  "UnknownStage",
+  { stage: Schema.String }
+) {
+  override get message() {
+    return `Unknown stage "${this.stage}". Deploy through packages/deploy (production, staging, a branch preview, dev_$USER or test).`
+  }
+}
+
+export interface DeployTarget {
+  readonly stage: Stage
+  readonly workerName: string
+  // Undefined on the test stage, which reads only the process environment.
+  readonly infisicalEnvironment: InfisicalEnvironment | undefined
+  readonly stateStore: StateStore
+}
+
 // Decision: the newest date the workerd bundled with alchemy accepts, not today's,
 // so local dev and the deployed Worker agree. Re-check on every `alchemy` bump:
 // set a far-future date, run `bun alchemy dev`, and read "the newest date
 // supported by this server binary". See apinrdw/kumora#19.
 export const COMPATIBILITY_DATE = "2026-11-02"
 
-export function stageForBranch(branch: string): Stage {
-  if (branch === "main") return PRODUCTION
-  if (branch === "staging") return STAGING
+export const parseStage = (raw: string): Effect.Effect<Stage, UnknownStage> =>
+  Schema.decodeEffect(Stage)(raw).pipe(
+    Effect.mapError(() => new UnknownStage({ stage: raw }))
+  )
+
+// Every branch name maps to a Stage, so a refusal here is a bug.
+export const stageForBranch = (branch: string): Effect.Effect<Stage> => {
+  if (branch === "main") return parseStage(PRODUCTION).pipe(Effect.orDie)
+  if (branch === "staging") return parseStage(STAGING).pipe(Effect.orDie)
   const hash = createHash("sha256")
     .update(branch)
     .digest("hex")
@@ -50,12 +89,11 @@ export function stageForBranch(branch: string): Stage {
     .replace(/^-+/, "")
     .slice(0, MAX_SLUG)
     .replace(/-+$/, "")
-  return (slug ? `${slug}-${hash}` : hash) as Stage
+  return parseStage(slug ? `${slug}-${hash}` : hash).pipe(Effect.orDie)
 }
 
-export function devStage(user: string): Stage {
-  return parseStage(`dev_${user}`)
-}
+export const devStage = (user: string): Effect.Effect<Stage, UnknownStage> =>
+  parseStage(`dev_${user}`)
 
 const KINDS: Record<
   StageKind,
@@ -68,47 +106,28 @@ const KINDS: Record<
   test: { infisicalEnvironment: undefined, stateStore: "local" },
 }
 
-function classify(raw: string): StageKind | undefined {
-  if (raw === PRODUCTION) return "production"
-  if (raw === STAGING) return "staging"
-  if (raw === TEST) return "test"
-  if (DEV.test(raw)) return "dev"
-  if (PREVIEW.test(raw)) return "preview"
-  return undefined
-}
+// The Stage schema admits only names that classify, so a miss is a bug.
+export const stageKind = (stage: Stage): Effect.Effect<StageKind> =>
+  Effect.fromNullishOr(classify(stage)).pipe(Effect.orDie)
 
-// Alchemy hands a stack any stage name. Anything that no branch, dev or test
-// stage could produce (alchemy's `live_$USER` default) is refused here.
-export function parseStage(raw: string): Stage {
-  if (classify(raw) === undefined)
-    throw new Error(
-      `Unknown stage "${raw}". Deploy through packages/deploy (production, staging, a branch preview, dev_$USER or test).`
-    )
-  return raw as Stage
-}
-
-export function stageKind(stage: Stage): StageKind {
-  // Every Stage was parsed or built by stageForBranch, so it classifies.
-  return classify(stage) as StageKind
-}
-
-export function isPreview(stage: Stage): stage is Preview {
-  return stageKind(stage) === "preview"
-}
-
-export function stageTarget(app: App, stage: Stage): DeployTarget {
-  const kind = stageKind(stage)
-  const suffix = stage.toLowerCase().replaceAll("_", "-")
-  return {
+export const stageTarget = (
+  app: App,
+  stage: Stage
+): Effect.Effect<DeployTarget> =>
+  Effect.map(stageKind(stage), (kind) => ({
     stage,
     workerName:
       kind === "production"
         ? `kumora-${app}`
-        : `kumora-${app}-${suffix}`.slice(0, MAX_WORKER_NAME),
+        : `kumora-${app}-${stage.toLowerCase().replaceAll("_", "-")}`.slice(
+            0,
+            MAX_WORKER_NAME
+          ),
     ...KINDS[kind],
-  }
-}
+  }))
 
-export function deployTarget(app: App, branch: string): DeployTarget {
-  return stageTarget(app, stageForBranch(branch))
-}
+export const deployTarget = (
+  app: App,
+  branch: string
+): Effect.Effect<DeployTarget> =>
+  Effect.flatMap(stageForBranch(branch), (stage) => stageTarget(app, stage))

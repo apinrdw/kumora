@@ -1,6 +1,8 @@
 // The GitHub teardown job (.github/workflows/teardown-preview.yml):
 //   bun packages/deploy/src/teardown.ts stage <branch>   prints stage=<stage>
 //   bun packages/deploy/src/teardown.ts destroy <stage>  destroys every app
+import * as Effect from "effect/Effect"
+
 import { runAlchemy } from "./alchemy-cli.ts"
 import {
   APPS,
@@ -27,9 +29,9 @@ async function destroy(stage: Preview): Promise<void> {
 const [command, arg = ""] = process.argv.slice(2)
 
 if (command === "stage") {
-  console.log(`stage=${preview(stageForBranch(arg))}`)
+  console.log(`stage=${preview(await Effect.runPromise(stageForBranch(arg)))}`)
 } else if (command === "destroy") {
-  await destroy(preview(parseStage(arg)))
+  await destroy(preview(await Effect.runPromise(parseStage(arg))))
 } else {
   throw new Error(`Expected "stage <branch>" or "destroy <stage>".`)
 }
