@@ -8,6 +8,7 @@ import {
   getSessionFromCtx,
   isAPIError,
 } from "better-auth/api"
+import { deleteSessionCookie } from "better-auth/cookies"
 import { verifyJWT } from "better-auth/crypto"
 import { admin } from "better-auth/plugins/admin"
 import { captcha } from "better-auth/plugins/captcha"
@@ -129,6 +130,11 @@ const setPasswordLink = async (
 // marks the email verified: nothing is proven yet.
 const voidAccess = async (ctx: HookContext, userId: string) => {
   const { internalAdapter } = ctx.context
+  // A browser signed in as this account keeps the session in its cookie
+  // cache for 5 minutes past the delete, and Resend would read it there:
+  // expire its session cookies, as sign-out does.
+  if ((await getSessionFromCtx(ctx))?.user.id === userId)
+    deleteSessionCookie(ctx)
   await internalAdapter.deleteUserSessions(userId)
   const credential = await internalAdapter.findCredentialAccount(userId)
   if (credential)
