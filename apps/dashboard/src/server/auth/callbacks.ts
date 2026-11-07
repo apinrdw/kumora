@@ -38,6 +38,12 @@ const STATUS = {
   Unauthorized: "UNAUTHORIZED",
 } as const satisfies Record<HttpError["_tag"], string>
 
+// Decision: TooManyMails crosses to HTTP as a 429 with a retry header beside
+// the closed HttpError set, because the spec prescribes that answer for the
+// per-address cap (apinrdw/kumora#80, "Per-address cap"). CODING_STANDARDS
+// ("Only the closed error set crosses to HTTP") binds server functions through
+// runServerEffect; a callback answers through Better Auth instead, and this
+// mapping is the one place a sixth error crosses.
 const toAPIError = (error: HttpError | TooManyMails) =>
   error._tag === "TooManyMails"
     ? new APIError(
