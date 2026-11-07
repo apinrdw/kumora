@@ -84,7 +84,13 @@ export const verifyScreen = Effect.fn("verifyScreen")(function* (
     feature: "account",
   })
   if (decision._tag === "Deny" && decision.reason === "verify" && session)
-    return { _tag: "Unverified", email: session.user.email } as const
+    return {
+      _tag: "Unverified",
+      email: session.user.email,
+      // An admin may view as an unverified member; the screen keeps the
+      // banner, and Stop with it.
+      impersonating: session.session.impersonated,
+    } as const
   if (
     decision._tag === "Deny" &&
     (decision.reason === "sign-in" || decision.reason === "suspended")

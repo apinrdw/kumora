@@ -147,6 +147,7 @@ describe("verifyScreen", () => {
       assert.deepStrictEqual(screen, {
         _tag: "Unverified",
         email: "ayu@example.com",
+        impersonating: false,
       })
     }).pipe(Effect.provide(layer))
   })

@@ -2,6 +2,7 @@ import { createFileRoute } from "@tanstack/react-router"
 
 import { AuthPage } from "@/components/auth/auth-page"
 import { VerifyToContinue } from "@/components/auth/verify-notices"
+import { ImpersonationBanner } from "@/components/shell/impersonation-banner"
 import { safeRedirect } from "@/lib/redirect"
 import { verifyScreenFn } from "@/server/auth/gate.functions"
 
@@ -20,8 +21,11 @@ function Verify() {
   const { redirect } = Route.useSearch()
   const { screen } = Route.useRouteContext()
   return (
-    <AuthPage>
-      <VerifyToContinue email={screen.email} redirect={redirect} />
-    </AuthPage>
+    <>
+      {screen.impersonating && <ImpersonationBanner email={screen.email} />}
+      <AuthPage>
+        <VerifyToContinue email={screen.email} redirect={redirect} />
+      </AuthPage>
+    </>
   )
 }
