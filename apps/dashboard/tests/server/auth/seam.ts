@@ -23,7 +23,7 @@ export function seam(send?: (mail: Mail) => Effect.Effect<void>) {
     secret: "handler-test-secret-0123456789abcdef0123456789",
     validateSchema: true,
   }).pipe(Layer.provide(mailer))
-  return { layer, mails }
+  return { layer, mails, database }
 }
 
 export const send = Effect.fnUntraced(function* (

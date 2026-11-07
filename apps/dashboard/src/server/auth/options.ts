@@ -15,10 +15,13 @@ export interface AuthOptionsInput {
   readonly secret: string
   // Introspects the database on every request, so the Worker passes false.
   readonly validateSchema: boolean
-  readonly sendVerificationEmail: (mail: {
-    readonly email: string
-    readonly url: string
-  }) => Promise<void>
+  readonly sendVerificationEmail: (mail: LinkMail) => Promise<void>
+  readonly sendResetPassword: (mail: LinkMail) => Promise<void>
+}
+
+interface LinkMail {
+  readonly email: string
+  readonly url: string
 }
 
 // With auto sign-in on, Better Auth answers a sign-up for a taken email with
@@ -51,6 +54,11 @@ export function authOptions(input: AuthOptionsInput) {
       // shows it the verify screen instead of any page.
       requireEmailVerification: false,
       autoSignIn: true,
+      // Also creates the password of an account that has none (Google only).
+      sendResetPassword: ({ user, url }) =>
+        input.sendResetPassword({ email: user.email, url }),
+      resetPasswordTokenExpiresIn: 60 * 60,
+      revokeSessionsOnPasswordReset: true,
     },
     emailVerification: {
       sendOnSignUp: true,
