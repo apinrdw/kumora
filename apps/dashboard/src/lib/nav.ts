@@ -26,8 +26,8 @@ export const NAV: ReadonlyArray<NavGroup> = [
     label: "Admin",
     items: [
       {
-        label: "Users",
-        shortLabel: "Users",
+        label: "Accounts",
+        shortLabel: "Accounts",
         icon: IconUsers,
         link: { to: "/admin/users" },
         feature: "admin",

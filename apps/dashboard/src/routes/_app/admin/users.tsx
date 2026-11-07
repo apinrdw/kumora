@@ -9,12 +9,12 @@ import { listAccountsFn } from "@/server/admin/accounts.functions"
 export const Route = createFileRoute("/_app/admin/users")({
   staticData: {
     feature: "admin",
-    crumbs: () => [{ label: "Admin" }, { label: "Users" }],
+    crumbs: () => [{ label: "Admin" }, { label: "Accounts" }],
   },
   validateSearch: parseAccountSearch,
   loaderDeps: ({ search }) => search,
   loader: ({ deps }) => orNotFound(listAccountsFn({ data: deps })),
-  head: () => ({ meta: [{ title: "Users · KUMORA Terminal" }] }),
+  head: () => ({ meta: [{ title: "Accounts · KUMORA Terminal" }] }),
   component: UsersPage,
 })
 
@@ -32,7 +32,7 @@ function UsersPage() {
   )
   return (
     <div className="flex flex-col gap-5 py-6">
-      <h1 className="text-2xl font-bold">Users</h1>
+      <h1 className="text-2xl font-bold">Accounts</h1>
       <AccountsTable page={page} search={search} onSearch={onSearch} />
     </div>
   )
