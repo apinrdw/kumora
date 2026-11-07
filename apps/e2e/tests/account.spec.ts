@@ -1,8 +1,8 @@
 import { expect, test, type Page } from "@playwright/test"
 
-import { DASHBOARD } from "../support/accounts"
+import { ADMIN, DASHBOARD } from "../support/accounts"
 import { accountMenu, signIn, signInUrl, signUp } from "../support/flows"
-import { verificationLink } from "../support/mail"
+import { deleteLink, verificationLink } from "../support/mail"
 
 const ACCOUNT = `${DASHBOARD}/account`
 
@@ -21,7 +21,7 @@ const otherSessions = (page: Page) =>
     .getByRole("listitem")
     .filter({ hasNotText: "This device" })
 
-test("an account renames itself, changes its password and ends a session", async ({
+test("an account renames itself, changes its password, ends a session, moves to a new email and deletes itself", async ({
   browser,
 }) => {
   const first = await (await browser.newContext()).newPage()
@@ -87,5 +87,78 @@ test("an account renames itself, changes its password and ends a session", async
 
     await second.reload()
     await expect(second).toHaveURL(signInUrl("/account"))
+  })
+
+  const newEmail = `moved-${Date.now()}@example.com`
+
+  await test.step("change the email: the old address confirms, the new one verifies", async () => {
+    const since = Date.now()
+    const email = section(first, "Email")
+    await email.getByLabel("New email").fill(newEmail)
+    await email.getByRole("button", { name: "Change email" }).click()
+    await expect(email.getByRole("status")).toHaveText(
+      `Check ${owner.email} for a link to confirm the change.`
+    )
+
+    await first.goto(await verificationLink(owner.email, since))
+    await expect(first).toHaveURL(ACCOUNT)
+    await expect(section(first, "Profile").getByText(owner.email)).toBeVisible()
+
+    await first.goto(await verificationLink(newEmail, since))
+    await expect(first).toHaveURL(ACCOUNT)
+    await expect(section(first, "Profile").getByText(newEmail)).toBeVisible()
+  })
+
+  await test.step("delete the account by the emailed link, which ends every session", async () => {
+    await signIn(second, {
+      ...owner,
+      email: newEmail,
+      password: "a new passphrase",
+    })
+    await expect(second).toHaveURL(ACCOUNT)
+
+    const since = Date.now()
+    const remove = section(first, "Delete account")
+    await remove.getByRole("button", { name: "Email me a delete link" }).click()
+    await expect(remove.getByRole("status")).toContainText(
+      `Check ${newEmail} for a link`
+    )
+
+    await first.goto(await deleteLink(newEmail, since))
+    await expect(
+      first.getByRole("heading", { name: "Delete your account?" })
+    ).toBeVisible()
+    await first.getByRole("button", { name: "Delete account" }).click()
+    await expect(
+      first.getByRole("heading", { name: "Account deleted" })
+    ).toBeVisible()
+
+    await second.reload()
+    await expect(second).toHaveURL(signInUrl("/account"))
+  })
+})
+
+test.describe("a config admin", () => {
+  test.use({ storageState: ADMIN.storageState })
+
+  test("sees change email and delete account disabled, with the reason", async ({
+    page,
+  }) => {
+    await page.goto(ACCOUNT)
+    const email = section(page, "Email")
+    await expect(email.getByLabel("New email")).toBeDisabled()
+    await expect(
+      email.getByRole("button", { name: "Change email" })
+    ).toBeDisabled()
+    await expect(
+      email.getByText("Your email is on the admin list")
+    ).toBeVisible()
+    const remove = section(page, "Delete account")
+    await expect(
+      remove.getByRole("button", { name: "Email me a delete link" })
+    ).toBeDisabled()
+    await expect(
+      remove.getByText("Your email is on the admin list")
+    ).toBeVisible()
   })
 })

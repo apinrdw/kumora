@@ -91,6 +91,60 @@ export const sendResetPassword = Effect.fn("sendResetPassword")(function* (
   })
 })
 
+export const sendChangeEmailConfirmation = Effect.fn(
+  "sendChangeEmailConfirmation"
+)(function* (email: string, newEmail: string, url: string) {
+  const mailer = yield* Mailer
+  yield* mailer.send({
+    to: email,
+    subject: "Confirm your new KUMORA email",
+    text: [
+      `Someone asked to move your KUMORA account to ${newEmail}.`,
+      "Open this link to confirm, and we'll send a link to the new address to verify it:",
+      "",
+      url,
+      "",
+      "The link works for 24 hours. Your email changes only once the new address is verified.",
+      "If you didn't ask for this, ignore this email and change your password.",
+    ].join("\r\n"),
+  })
+})
+
+export const sendNewEmailVerification = Effect.fn("sendNewEmailVerification")(
+  function* (email: string, url: string) {
+    const mailer = yield* Mailer
+    yield* mailer.send({
+      to: email,
+      subject: "Verify your new KUMORA email",
+      text: [
+        "Open this link to verify this address and make it your KUMORA account's email:",
+        "",
+        url,
+        "",
+        "The link works for 24 hours. If you didn't ask for this, ignore this email.",
+      ].join("\r\n"),
+    })
+  }
+)
+
+export const sendDeleteAccountLink = Effect.fn("sendDeleteAccountLink")(
+  function* (email: string, url: string) {
+    const mailer = yield* Mailer
+    yield* mailer.send({
+      to: email,
+      subject: "Delete your KUMORA account",
+      text: [
+        "Open this link to delete your KUMORA account, its sessions and its sign-in methods:",
+        "",
+        url,
+        "",
+        "The link works for 1 hour, in a browser signed in to the account. It asks once more before deleting.",
+        "If you didn't ask for this, ignore this email and change your password.",
+      ].join("\r\n"),
+    })
+  }
+)
+
 // A Better Auth route asks the access policy before an account acts on
 // itself. Each reason maps as the spec's before-hook column says: 401, 404 or
 // 403 (apinrdw/kumora#80, "Access policy").

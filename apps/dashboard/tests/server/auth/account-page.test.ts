@@ -4,7 +4,15 @@ import { Effect } from "effect"
 
 import { accountPage } from "@/server/auth/account-page"
 
-import { cookiesFrom, linkIn, post, seam, send, signUp } from "./seam.ts"
+import {
+  ADMIN_EMAIL,
+  cookiesFrom,
+  linkIn,
+  post,
+  seam,
+  send,
+  signUp,
+} from "./seam.ts"
 
 const EMAIL = "ayu@example.com"
 const PASSWORD = "correct horse"
@@ -50,6 +58,7 @@ describe("accountPage", () => {
           "own.change-email": true,
           "own.delete": true,
         })
+        assert.isFalse(page.configAdmin)
         // Sign-up, verification and the Firefox sign-in each began one.
         assert.strictEqual(page.sessions.length, 3)
         assert.deepStrictEqual(
@@ -59,6 +68,22 @@ describe("accountPage", () => {
         assert.isTrue(
           page.sessions.some((session) => session.device === "Firefox on Linux")
         )
+      }).pipe(Effect.provide(layer))
+    }
+  )
+
+  it.effect(
+    "refuses a config admin change email and delete, and says why",
+    () => {
+      const { layer, mails } = seam()
+      return Effect.gen(function* () {
+        yield* signUp(ADMIN_EMAIL, PASSWORD)
+        const verified = cookiesFrom(yield* send(linkIn(mails[0])))
+        const page = yield* accountPage(headers(verified), "/account")
+        assert.isTrue(page.configAdmin)
+        assert.isFalse(page.allowed["own.change-email"])
+        assert.isFalse(page.allowed["own.delete"])
+        assert.isTrue(page.allowed["own.change-password"])
       }).pipe(Effect.provide(layer))
     }
   )

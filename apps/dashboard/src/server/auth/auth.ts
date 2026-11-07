@@ -9,6 +9,9 @@ import {
   authorizeOwnAction,
   grantAdmin,
   makeCallbackRunner,
+  sendChangeEmailConfirmation,
+  sendDeleteAccountLink,
+  sendNewEmailVerification,
   sendResetPassword,
   sendVerificationEmail,
 } from "./callbacks.ts"
@@ -25,6 +28,9 @@ export type AuthConfig = Omit<
   AuthOptionsInput,
   | "sendVerificationEmail"
   | "sendResetPassword"
+  | "sendChangeEmailConfirmation"
+  | "sendNewEmailVerification"
+  | "sendDeleteAccountLink"
   | "authorizeOwnAction"
   | "grantAdmin"
 >
@@ -67,6 +73,12 @@ export class Auth extends Context.Service<
               run(sendVerificationEmail(email, url)),
             sendResetPassword: ({ email, url }) =>
               run(sendResetPassword(email, url)),
+            sendChangeEmailConfirmation: ({ email, newEmail, url }) =>
+              run(sendChangeEmailConfirmation(email, newEmail, url)),
+            sendNewEmailVerification: ({ email, url }) =>
+              run(sendNewEmailVerification(email, url)),
+            sendDeleteAccountLink: ({ email, url }) =>
+              run(sendDeleteAccountLink(email, url)),
             grantAdmin: (user) => run(grantAdmin(user)),
             authorizeOwnAction: ({ action, session }) =>
               run(authorizeOwnAction(action, session)),
