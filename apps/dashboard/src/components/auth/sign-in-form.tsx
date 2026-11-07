@@ -68,6 +68,11 @@ export function SignInForm({
         required
         size="md"
       />
+      <div className="flex justify-end text-xs">
+        <Link to="/forgot-password" search={{ redirect }} className={linkClass}>
+          Forgot password?
+        </Link>
+      </div>
       {error && <FormError>{error}</FormError>}
       {/* Before hydration the browser would submit the form itself, as a GET
           with the password in the URL. */}

@@ -3,12 +3,19 @@ import { betterAuth } from "better-auth"
 import { Context, Effect, Layer } from "effect"
 import type { UnknownError } from "effect/Cause"
 
-import { makeCallbackRunner, sendVerificationEmail } from "./callbacks.ts"
+import {
+  makeCallbackRunner,
+  sendResetPassword,
+  sendVerificationEmail,
+} from "./callbacks.ts"
 import { googleClient } from "./google.ts"
 import { Mailer } from "./mailer.ts"
 import { authOptions, type AuthOptionsInput } from "./options.ts"
 
-export type AuthConfig = Omit<AuthOptionsInput, "sendVerificationEmail">
+export type AuthConfig = Omit<
+  AuthOptionsInput,
+  "sendVerificationEmail" | "sendResetPassword"
+>
 
 // What the gates read of a session. Later plugins widen it (role, banned).
 export interface AuthSession {
@@ -44,6 +51,8 @@ export class Auth extends Context.Service<
             ...config,
             sendVerificationEmail: ({ email, url }) =>
               run(sendVerificationEmail(email, url)),
+            sendResetPassword: ({ email, url }) =>
+              run(sendResetPassword(email, url)),
           })
         )
         return Auth.of({

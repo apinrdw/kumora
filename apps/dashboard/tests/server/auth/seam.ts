@@ -27,7 +27,7 @@ export function seam(
     validateSchema: true,
     ...config,
   }).pipe(Layer.provide(mailer))
-  return { layer, mails }
+  return { layer, mails, database }
 }
 
 export const send = Effect.fnUntraced(function* (
