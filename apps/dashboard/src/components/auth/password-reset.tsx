@@ -9,8 +9,10 @@ import { useState, type FormEvent } from "react"
 import { KButton, KInput } from "@/components/k"
 import { authClient } from "@/lib/auth-client"
 import { MIN_PASSWORD_LENGTH } from "@/lib/password"
+import { retryAfter } from "@/lib/retry-after"
 
 import { FormError, Notice, formFields, linkClass } from "./auth-page"
+import { CAPTCHA_HEADER, useTurnstile } from "./turnstile"
 
 const RESET_LINK_HOURS = 1
 
@@ -34,28 +36,50 @@ type Request =
  * Better Auth answers a known and an unknown email alike, so "Reset link
  * sent" never says whether the address has an account.
  */
-export function ForgotPasswordForm({ redirect }: { redirect: string }) {
+export function ForgotPasswordForm({
+  redirect,
+  turnstileSiteKey,
+}: {
+  redirect: string
+  turnstileSiteKey: string
+}) {
   const hydrated = useHydrated()
+  const {
+    ref: turnstileRef,
+    token: turnstileToken,
+    reset: resetTurnstile,
+  } = useTurnstile(turnstileSiteKey)
   const [step, setStep] = useState<Request>({ _tag: "Form", pending: false })
 
   const submit = async (event: FormEvent<HTMLFormElement>) => {
     event.preventDefault()
+    if (!turnstileToken) return
     const { email } = formFields(event.currentTarget, ["email"])
     setStep({ _tag: "Form", pending: true })
-    const { error } = await authClient.requestPasswordReset({
-      email,
-      // The link opens the set-password page, which returns to `redirect`.
-      redirectTo: `/reset-password?redirect=${encodeURIComponent(redirect)}`,
-    })
-    setStep(
-      error
-        ? {
-            _tag: "Form",
-            pending: false,
-            error: "Couldn't send the link. Try again in a minute.",
-          }
-        : { _tag: "Sent", email }
+    const retry = retryAfter()
+    const { error } = await authClient.requestPasswordReset(
+      {
+        email,
+        // The link opens the set-password page, which returns to `redirect`.
+        redirectTo: `/reset-password?redirect=${encodeURIComponent(redirect)}`,
+      },
+      {
+        headers: { [CAPTCHA_HEADER]: turnstileToken },
+        onError: retry.onError,
+      }
     )
+    if (!error) return setStep({ _tag: "Sent", email })
+    resetTurnstile()
+    // Only the per-IP limit answers 429 here: over the per-address cap the
+    // reply is the same "Reset link sent" as for any address.
+    setStep({
+      _tag: "Form",
+      pending: false,
+      error:
+        error.status === 429
+          ? retry.message()
+          : "Couldn't send the link. Try again in a minute.",
+    })
   }
 
   if (step._tag === "Sent")
@@ -86,13 +110,14 @@ export function ForgotPasswordForm({ redirect }: { redirect: string }) {
         required
         size="md"
       />
+      <div ref={turnstileRef} />
       {step.error && <FormError>{step.error}</FormError>}
       {/* Before hydration the browser would submit the form itself, as a GET. */}
       <KButton
         type="submit"
         size="lg"
         loading={step.pending}
-        disabled={!hydrated}
+        disabled={!hydrated || !turnstileToken}
       >
         Send reset link
       </KButton>

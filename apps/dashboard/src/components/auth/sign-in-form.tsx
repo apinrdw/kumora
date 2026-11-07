@@ -3,6 +3,7 @@ import { useState, type FormEvent } from "react"
 
 import { KButton, KInput } from "@/components/k"
 import { authClient } from "@/lib/auth-client"
+import { retryAfter } from "@/lib/retry-after"
 
 import { FormError, formFields, linkClass } from "./auth-page"
 
@@ -17,8 +18,10 @@ export function SignInForm({ redirect }: { redirect: string }) {
     event.preventDefault()
     setPending(true)
     setError(null)
+    const retry = retryAfter()
     const { error: refused } = await authClient.signIn.email(
-      formFields(event.currentTarget, ["email", "password"])
+      formFields(event.currentTarget, ["email", "password"]),
+      { onError: retry.onError }
     )
     if (refused) {
       setPending(false)
@@ -26,7 +29,9 @@ export function SignInForm({ redirect }: { redirect: string }) {
       setError(
         refused.status === 401
           ? "Wrong email or password."
-          : "Couldn't sign in. Try again in a minute."
+          : refused.status === 429
+            ? retry.message()
+            : "Couldn't sign in. Try again in a minute."
       )
       return
     }
