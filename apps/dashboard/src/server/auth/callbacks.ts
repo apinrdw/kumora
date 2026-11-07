@@ -71,20 +71,35 @@ export function makeCallbackRunner<R>(
   }
 }
 
+// One mail to one address. A capped mail counts toward the address's daily
+// cap first (mail-cap.ts); over it, the send fails with TooManyMails.
+const sendMail = Effect.fnUntraced(function* (mail: {
+  readonly to: string
+  readonly subject: string
+  readonly lines: ReadonlyArray<string>
+  readonly capped: boolean
+}) {
+  if (mail.capped) yield* (yield* MailCap).take(mail.to)
+  yield* (yield* Mailer).send({
+    to: mail.to,
+    subject: mail.subject,
+    text: mail.lines.join("\r\n"),
+  })
+})
+
 export const sendVerificationEmail = Effect.fn("sendVerificationEmail")(
   function* (email: string, url: string) {
-    yield* (yield* MailCap).take(email)
-    const mailer = yield* Mailer
-    yield* mailer.send({
+    yield* sendMail({
       to: email,
       subject: "Verify your email for KUMORA",
-      text: [
+      capped: true,
+      lines: [
         "Open this link to verify your email and finish creating your KUMORA account:",
         "",
         url,
         "",
         "The link works for 24 hours. If you didn't create an account, ignore this email.",
-      ].join("\r\n"),
+      ],
     })
   }
 )
@@ -95,30 +110,29 @@ export const sendResetPassword = Effect.fn("sendResetPassword")(function* (
   email: string,
   url: string
 ) {
-  yield* (yield* MailCap).take(email)
-  const mailer = yield* Mailer
-  yield* mailer.send({
+  yield* sendMail({
     to: email,
     subject: "Reset your KUMORA password",
-    text: [
+    capped: true,
+    lines: [
       "Open this link to choose a new password for your KUMORA account:",
       "",
       url,
       "",
       "The link works for 1 hour. Setting a new password signs you out everywhere else.",
       "If you didn't ask for this, ignore this email; your password stays as it is.",
-    ].join("\r\n"),
+    ],
   })
 })
 
 export const sendChangeEmailConfirmation = Effect.fn(
   "sendChangeEmailConfirmation"
 )(function* (email: string, newEmail: string, url: string) {
-  const mailer = yield* Mailer
-  yield* mailer.send({
+  yield* sendMail({
     to: email,
     subject: "Confirm your new KUMORA email",
-    text: [
+    capped: false,
+    lines: [
       `Someone asked to move your KUMORA account to ${newEmail}.`,
       "Open this link to confirm, and we'll send a link to the new address to verify it:",
       "",
@@ -126,44 +140,44 @@ export const sendChangeEmailConfirmation = Effect.fn(
       "",
       "The link works for 24 hours. Your email changes only once the new address is verified.",
       "If you didn't ask for this, ignore this email and change your password.",
-    ].join("\r\n"),
+    ],
   })
 })
 
 export const sendNewEmailVerification = Effect.fn("sendNewEmailVerification")(
   function* (email: string, url: string) {
-    // A verification mail, so it counts toward the new address's cap. Better
-    // Auth sends it in the background, so over the cap it is only logged.
-    yield* (yield* MailCap).take(email)
-    const mailer = yield* Mailer
-    yield* mailer.send({
+    yield* sendMail({
       to: email,
       subject: "Verify your new KUMORA email",
-      text: [
+      // A verification mail, so it counts toward the new address's cap.
+      // Better Auth sends it in the background, so over the cap it is only
+      // logged.
+      capped: true,
+      lines: [
         "Open this link to verify this address and make it your KUMORA account's email:",
         "",
         url,
         "",
         "The link works for 24 hours. If you didn't ask for this, ignore this email.",
-      ].join("\r\n"),
+      ],
     })
   }
 )
 
 export const sendDeleteAccountLink = Effect.fn("sendDeleteAccountLink")(
   function* (email: string, url: string) {
-    const mailer = yield* Mailer
-    yield* mailer.send({
+    yield* sendMail({
       to: email,
       subject: "Delete your KUMORA account",
-      text: [
+      capped: false,
+      lines: [
         "Open this link to delete your KUMORA account, its sessions and its sign-in methods:",
         "",
         url,
         "",
         "The link works for 1 hour, in a browser signed in to the account. It asks once more before deleting.",
         "If you didn't ask for this, ignore this email and change your password.",
-      ].join("\r\n"),
+      ],
     })
   }
 )
