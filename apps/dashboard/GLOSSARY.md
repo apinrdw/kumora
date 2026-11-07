@@ -1,6 +1,6 @@
 # Dashboard
 
-The market terminal for the Indonesian stock exchange. Today it is only its shell, with no pages.
+The market terminal for the Indonesian stock exchange. Today it has the shell, sign-in and accounts, `/account` and the admin pages; Market Live is still to come.
 
 ## Language
 
