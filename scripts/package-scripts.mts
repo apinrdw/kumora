@@ -5,6 +5,8 @@
 // redirections >& <& >|. Heredocs, ${...} expansions and case patterns are out
 // of scope.
 
+import { Effect } from "effect"
+
 // The one definition of the allowlist; CODING_STANDARDS.md ("Shell in package scripts") points here.
 export const safeCommands = ["printf", "echo"]
 const safeStage = new RegExp(String.raw`^(${safeCommands.join("|")})(\s|$)`)
@@ -55,19 +57,23 @@ const hidesFailure = (stages: string[]) =>
   stages.length > 1 &&
   !stages.slice(0, -1).every((stage) => safeStage.test(stage))
 
-export function unguardedPipes(command: string): string[] {
-  const tokens = [...command.matchAll(shellToken)].map(([token]) => token)
-  const nested = tokens.flatMap(nestedCommands).flatMap(unguardedPipes)
-  const flat = tokens
-    .map((token) => (isSyntax(token) ? token : mask(token)))
-    .join("")
-  const pipelines = flat
-    .split(listSeparator)
-    .map((list) => list.split("|").map((s) => s.trim()))
-  return [
-    ...nested,
-    ...pipelines
-      .filter(hidesFailure)
-      .map((stages) => unmask(stages.join(" | "))),
-  ]
-}
+export const unguardedPipes: (command: string) => Effect.Effect<Array<string>> =
+  Effect.fnUntraced(function* (command) {
+    const tokens = [...command.matchAll(shellToken)].map(([token]) => token)
+    const nested = yield* Effect.forEach(
+      tokens.flatMap(nestedCommands),
+      unguardedPipes
+    )
+    const flat = tokens
+      .map((token) => (isSyntax(token) ? token : mask(token)))
+      .join("")
+    const pipelines = flat
+      .split(listSeparator)
+      .map((list) => list.split("|").map((s) => s.trim()))
+    return [
+      ...nested.flat(),
+      ...pipelines
+        .filter(hidesFailure)
+        .map((stages) => unmask(stages.join(" | "))),
+    ]
+  })
