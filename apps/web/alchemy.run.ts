@@ -1,4 +1,5 @@
 import * as Cloudflare from "@alchemy.run/cloudflare"
+import { DEV_PORTS, stackName } from "@workspace/deploy"
 import { stackOptions, websiteProps } from "@workspace/deploy/stack"
 import * as Alchemy from "alchemy"
 import { Stack } from "alchemy/Stack"
@@ -12,9 +13,7 @@ export const Website = Cloudflare.Website.Vite(
     return {
       ...(yield* websiteProps("web", stage)),
       rootDir: import.meta.dirname,
-      // Strict: falling back would take the dashboard's 3001. apps/e2e's
-      // playwright.config.ts waits on both ports.
-      dev: { port: 3000, strictPort: true },
+      dev: { port: DEV_PORTS.web, strictPort: true },
       env: { DEPLOY_PROBE_SECRET: Config.Redacted("DEPLOY_PROBE_SECRET") },
     }
   })
@@ -29,8 +28,8 @@ declare module "@workspace/server" {
 }
 
 export default Alchemy.Stack(
-  "kumora-web",
-  // Alchemy.Stack takes the options as a value, and stackOptions is pure.
+  // Alchemy.Stack takes its name and options as values; both are pure.
+  Effect.runSync(stackName("web")),
   Effect.runSync(stackOptions("web")),
   Effect.gen(function* () {
     const website = yield* Website

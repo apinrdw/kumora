@@ -7,6 +7,7 @@ import {
   APPS,
   deployTarget,
   devStage,
+  isReleaseStage,
   parseStage,
   Preview,
   stageTarget,
@@ -170,6 +171,20 @@ describe("parseStage", () => {
         const stage = yield* stageOf(branch)
         assert.strictEqual(yield* parseStage(stage), stage)
       })
+  )
+})
+
+describe("isReleaseStage", () => {
+  it.effect.each([
+    ["production", true],
+    ["staging", true],
+    ["feature-login-df7c7a", false],
+    ["dev_jarvis", false],
+    ["test", false],
+  ] as const)("%s is %s", ([raw, release]) =>
+    Effect.gen(function* () {
+      assert.strictEqual(yield* isReleaseStage(yield* parseStage(raw)), release)
+    })
   )
 })
 

@@ -1,6 +1,6 @@
 # Dashboard
 
-The market terminal for the Indonesian stock exchange. Today it is only its shell, with no pages.
+The market terminal for the Indonesian stock exchange. Today it has the shell, sign-in and accounts, `/account` and the admin pages; Market Live is still to come.
 
 ## Language
 
@@ -122,7 +122,7 @@ The role that manages other accounts: ban and unban, change role, end sessions, 
 _Avoid_: Moderator, owner
 
 **Config admin**:
-An admin whose email is on the configured admin list. It can't be banned or demoted, have its sessions ended by another admin, change its email, or delete itself.
+A verified account whose email is on the configured admin list. It is an admin from the moment its email is on the list, even before its next sign-in stores the role. It can't be banned or demoted, have its sessions ended by another admin, change its email, or delete itself.
 _Avoid_: Super admin, root
 
 **Suspended account**:

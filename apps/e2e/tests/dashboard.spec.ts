@@ -1,13 +1,16 @@
-import { expect, test } from "@playwright/test"
+import { expect, test } from "../support/test"
 
-const DASHBOARD = "http://localhost:3001"
+import { DASHBOARD, MEMBER } from "../support/accounts"
+import { accountMenu } from "../support/flows"
+
+test.use({ storageState: MEMBER.storageState })
 
 test("/ renders the shell around the not-found page with no console errors", async ({
   page,
 }) => {
   const errors: string[] = []
   page.on("console", (message) => {
-    // With no routes yet, `/` itself answers 404, which the browser logs.
+    // With no pages yet, `/` itself answers 404, which the browser logs.
     if (message.location().url === `${DASHBOARD}/`) return
     if (message.type() === "error") errors.push(message.text())
   })
@@ -23,5 +26,6 @@ test("/ renders the shell around the not-found page with no console errors", asy
     page.getByRole("heading", { name: "Halaman tidak ditemukan" })
   ).toBeVisible()
   await expect(page.getByText("WIB", { exact: true })).toBeVisible()
+  await expect(accountMenu(page, MEMBER.name)).toBeVisible()
   expect(errors).toEqual([])
 })

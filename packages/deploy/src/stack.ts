@@ -11,6 +11,7 @@ import {
   stageTarget,
   type App,
   type DeployTarget,
+  type Stage,
   type UnknownStage,
 } from "./target.ts"
 
@@ -19,15 +20,19 @@ const INFISICAL_PROJECT = "kumora"
 // Alchemy evaluates the stack with PLACEHOLDER_STAGE when it addresses no
 // deployment: auth discovery for `alchemy profile edit`, and `alchemy state`.
 // Read it as Staging, so discovery sees Cloudflare state and Infisical but the
-// stack never reaches for production's secrets.
+// stack never reaches for production's secrets. A stack parses Alchemy's stage
+// with this once and passes the Stage on.
+export const stackStage = Effect.fnUntraced(function* (
+  stage: string
+): Effect.fn.Return<Stage, UnknownStage> {
+  return yield* parseStage(stage === PLACEHOLDER_STAGE ? "staging" : stage)
+})
+
 const stackTarget = Effect.fnUntraced(function* (
   app: App,
   stage: string
 ): Effect.fn.Return<DeployTarget, UnknownStage> {
-  return yield* stageTarget(
-    app,
-    yield* parseStage(stage === PLACEHOLDER_STAGE ? "staging" : stage)
-  )
+  return yield* stageTarget(app, yield* stackStage(stage))
 })
 
 // Decision: Cloudflare Workers with static assets, deployed by Workers Builds

@@ -2,9 +2,10 @@ import { HeadContent, Scripts, createRootRoute } from "@tanstack/react-router"
 import { Toaster } from "@workspace/ui/components/sonner"
 import { TooltipProvider } from "@workspace/ui/components/tooltip"
 
-import { AppShell } from "@/components/shell/app-shell"
+import { NotFound } from "@/components/not-found"
 import appCss from "@/styles.css?url"
 import "@/lib/crumbs"
+import "@/lib/page-feature"
 
 export const Route = createRootRoute({
   head: () => ({
@@ -21,12 +22,7 @@ export const Route = createRootRoute({
       { rel: "manifest", href: "/manifest.json" },
     ],
   }),
-  notFoundComponent: () => (
-    <div className="flex flex-col gap-2 pt-16">
-      <h1 className="text-2xl font-bold">Halaman tidak ditemukan</h1>
-      <p className="text-muted-foreground">Periksa alamatnya.</p>
-    </div>
-  ),
+  notFoundComponent: NotFound,
   shellComponent: RootDocument,
 })
 
@@ -37,9 +33,9 @@ function RootDocument({ children }: { children: React.ReactNode }) {
         <HeadContent />
       </head>
       <body>
-        <TooltipProvider>
-          <AppShell>{children}</AppShell>
-        </TooltipProvider>
+        {/* The shell wraps only the gated pages (routes/_app.tsx); the
+            sign-in pages stand alone. */}
+        <TooltipProvider>{children}</TooltipProvider>
         <Toaster position="bottom-right" />
         <Scripts />
       </body>

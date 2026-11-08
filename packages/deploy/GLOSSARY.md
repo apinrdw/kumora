@@ -14,6 +14,9 @@ The Stage `production`, deployed from `main`. Its Workers are `kumora-web` and `
 **Staging**:
 The Stage `staging`, deployed from the `staging` branch to try a release on real Cloudflare before merging.
 
+**Release stage**:
+Production or Staging: the two Stages with a fixed URL that outside services, such as the Google OAuth client and a Turnstile widget, are set up for.
+
 **Preview**:
 A Stage deployed from any other branch, named by a slug of the branch plus a 6-character hash of its full name. It reads Infisical `staging` and is destroyed when its PR closes or its branch is deleted.
 _Avoid_: Preview environment

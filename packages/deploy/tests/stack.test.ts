@@ -6,8 +6,8 @@ import * as Effect from "effect/Effect"
 import * as Exit from "effect/Exit"
 import * as Layer from "effect/Layer"
 
-import { UnknownStage } from "@workspace/deploy"
-import { stackOptions, websiteProps } from "@workspace/deploy/stack"
+import { UnknownStage, stageKind, stageUrl } from "@workspace/deploy"
+import { stackOptions, stackStage, websiteProps } from "@workspace/deploy/stack"
 
 // The defect an Effect died with, or undefined if it did not die.
 const defectOf = <A, E>(exit: Exit.Exit<A, E>) =>
@@ -24,6 +24,13 @@ describe("stackOptions on alchemy's placeholder stage", () => {
       const options = Effect.runSync(stackOptions(app))
       assert.lengthOf(options.secrets({ stage: PLACEHOLDER_STAGE }), 2)
     }
+  )
+
+  it.effect("stackStage reads it as Staging", () =>
+    Effect.gen(function* () {
+      const stage = yield* stackStage(PLACEHOLDER_STAGE)
+      assert.strictEqual(yield* stageKind(stage), "staging")
+    })
   )
 })
 
@@ -63,6 +70,24 @@ describe("websiteProps", () => {
     Effect.gen(function* () {
       const props = yield* websiteProps("dashboard", "staging")
       assert.strictEqual(props.name, "kumora-dashboard-staging")
+    })
+  )
+})
+
+describe("stageUrl", () => {
+  it.effect.each([
+    ["production", "https://kumora-dashboard.kumora.workers.dev"],
+    ["staging", "https://kumora-dashboard-staging.kumora.workers.dev"],
+    [
+      "feat-sign-in-a1b2c3",
+      "https://kumora-dashboard-feat-sign-in-a1b2c3.kumora.workers.dev",
+    ],
+    ["dev_jarvis", "http://localhost:3001"],
+    ["test", "http://localhost:3001"],
+  ] as const)("serves the dashboard on %s from %s", ([stage, url]) =>
+    Effect.gen(function* () {
+      const parsed = yield* stackStage(stage)
+      assert.strictEqual(yield* stageUrl("dashboard", parsed), url)
     })
   )
 })

@@ -12,8 +12,28 @@ export type StateStore = "cloudflare" | "local"
 
 const PRODUCTION = "production"
 const STAGING = "staging"
-// apps/e2e/playwright.config.ts sets ALCHEMY_STAGE to this name.
-const TEST = "test"
+// The Stage e2e runs on: apps/e2e/playwright.config.ts sets ALCHEMY_STAGE to it.
+const TEST_NAME = "test"
+
+// Each app's dev server port under `alchemy dev`, strict so one app never
+// takes the other's. e2e waits on both.
+export const DEV_PORTS = {
+  web: 3000,
+  dashboard: 3001,
+} as const satisfies Record<App, number>
+
+// An app's Alchemy stack, also its Production Worker. Local state lives under
+// `.alchemy/state/<stack>/<stage>/`.
+export const stackName = Effect.fnUntraced(function* (
+  app: App
+): Effect.fn.Return<string> {
+  return `kumora-${app}`
+})
+
+// The account's workers.dev subdomain. docs/runbooks/deploy.md, "Checking a
+// stage", curls the same host, and its sections 9.5 and 10.1 send the auth
+// mail check and Google's redirect URIs to the URL built from it.
+const WORKERS_DEV_SUBDOMAIN = "kumora"
 
 const MAX_WORKER_NAME = 54
 // The longest app prefix, `kumora-dashboard-`, plus `-` and the hash, leaves 30.
@@ -29,7 +49,7 @@ const classify = Effect.fnUntraced(function* (
 ): Effect.fn.Return<StageKind | undefined> {
   if (raw === PRODUCTION) return "production"
   if (raw === STAGING) return "staging"
-  if (raw === TEST) return "test"
+  if (raw === TEST_NAME) return "test"
   if (DEV.test(raw)) return "dev"
   if (PREVIEW.test(raw)) return "preview"
   return undefined
@@ -80,6 +100,10 @@ export const parseStage = Effect.fnUntraced(function* (
   )
 })
 
+// The test stage as a Stage, for e2e. classify accepts its name, so parsing
+// it cannot fail.
+export const TEST: Stage = Effect.runSync(Effect.orDie(parseStage(TEST_NAME)))
+
 // Every branch name maps to a Stage, so a refusal here is a bug.
 export const stageForBranch = Effect.fnUntraced(function* (
   branch: string
@@ -123,22 +147,43 @@ export const stageKind = Effect.fnUntraced(function* (
   return yield* Effect.orDie(Effect.fromNullishOr(yield* classify(stage)))
 })
 
+// Production and Staging: the stages with a fixed URL that outside services
+// (an OAuth client, a Turnstile widget) are set up for.
+export const isReleaseStage = Effect.fnUntraced(function* (
+  stage: Stage
+): Effect.fn.Return<boolean> {
+  const kind = yield* stageKind(stage)
+  return kind === "production" || kind === "staging"
+})
+
 export const stageTarget = Effect.fnUntraced(function* (
   app: App,
   stage: Stage
 ): Effect.fn.Return<DeployTarget> {
   const kind = yield* stageKind(stage)
+  const stack = yield* stackName(app)
+  const suffix = stage.toLowerCase().replaceAll("_", "-")
   return {
     stage,
     workerName:
       kind === "production"
-        ? `kumora-${app}`
-        : `kumora-${app}-${stage.toLowerCase().replaceAll("_", "-")}`.slice(
-            0,
-            MAX_WORKER_NAME
-          ),
+        ? stack
+        : `${stack}-${suffix}`.slice(0, MAX_WORKER_NAME),
     ...KINDS[kind],
   }
+})
+
+// Where a stage's Worker serves: its workers.dev URL, or the app's dev server
+// on Dev and Test stages, which run only under `alchemy dev`.
+export const stageUrl = Effect.fnUntraced(function* (
+  app: App,
+  stage: Stage
+): Effect.fn.Return<string> {
+  const kind = yield* stageKind(stage)
+  if (kind === "dev" || kind === "test")
+    return `http://localhost:${DEV_PORTS[app]}`
+  const { workerName } = yield* stageTarget(app, stage)
+  return `https://${workerName}.${WORKERS_DEV_SUBDOMAIN}.workers.dev`
 })
 
 export const deployTarget = Effect.fnUntraced(function* (
