@@ -10,7 +10,7 @@ export const Website = Cloudflare.Website.Vite(
   Effect.gen(function* () {
     const { stage } = yield* Stack
     return {
-      ...websiteProps("web", stage),
+      ...(yield* websiteProps("web", stage)),
       rootDir: import.meta.dirname,
       // Strict: falling back would take the dashboard's 3001. apps/e2e's
       // playwright.config.ts waits on both ports.
@@ -30,7 +30,8 @@ declare module "@workspace/server" {
 
 export default Alchemy.Stack(
   "kumora-web",
-  stackOptions("web"),
+  // Alchemy.Stack takes the options as a value, and stackOptions is pure.
+  Effect.runSync(stackOptions("web")),
   Effect.gen(function* () {
     const website = yield* Website
     return { url: website.url.as<string>() }

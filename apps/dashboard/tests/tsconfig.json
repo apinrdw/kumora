@@ -1,0 +1,11 @@
+{
+  // Tests run in Node or happy-dom, never in a Worker: without
+  // @cloudflare/workers-types, DOM methods like ParentNode.append keep their
+  // lib.dom signatures.
+  "extends": "../tsconfig.json",
+  "include": ["**/*.ts", "**/*.tsx"],
+  "exclude": [],
+  "compilerOptions": {
+    "types": ["vite/client"]
+  }
+}

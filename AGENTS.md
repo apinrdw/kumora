@@ -27,6 +27,7 @@ Alchemy deploys `apps/web` and `apps/dashboard` through Workers Builds: `main` t
 - Read `repos/effect/LLMS.md` before writing Effect code. Consult `repos/alchemy` for Alchemy resources and props.
 - Never edit `repos/`, and never import from it. Lint rejects the import.
 - The `effect` and `alchemy` versions live once, in the `pnpm-workspace.yaml` catalog. A PR that bumps either also runs `git subtree pull --prefix repos/<name> <url> <tag> --squash` to the matching tag. Alchemy's subtree brings back its `submodules/*` entries, which break the Workers Builds clone: drop them with `git rm --cached`; `scripts/check-no-gitlinks.mts` fails until you do.
+- After any filtered `pnpm --filter <pkg> add`, run a full `pnpm install`: a filtered add links only that package and the root, which leaves the other workspaces unresolved.
 
 ### Briefing a subagent
 
