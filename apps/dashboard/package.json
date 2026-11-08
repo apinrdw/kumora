@@ -9,7 +9,7 @@
     "lint": "oxlint --deny-warnings",
     "format": "oxfmt --write \"**/*.{ts,tsx}\"",
     "format:check": "oxfmt --check \"**/*.{ts,tsx}\"",
-    "typecheck": "tsc --noEmit",
+    "typecheck": "tsc --noEmit && tsc --noEmit -p tests",
     "test": "vitest run --passWithNoTests && node scripts/auth-migrations.ts --check",
     "auth:migrations": "node scripts/auth-migrations.ts"
   },
@@ -43,6 +43,7 @@
     "@types/react": "^19",
     "@types/react-dom": "^19",
     "@vitejs/plugin-react": "^6",
+    "happy-dom": "^21.0.4",
     "typescript": "7.0.2",
     "vite": "^8"
   }

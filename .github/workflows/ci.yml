@@ -20,6 +20,10 @@ jobs:
         with:
           node-version: 24
           cache: pnpm
+      # packages/deploy's run test runs its entry point under bun.
+      - uses: oven-sh/setup-bun@v2
+        with:
+          bun-version-file: .bun-version
       - run: pnpm install --frozen-lockfile
       - run: pnpm check
 

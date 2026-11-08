@@ -1,7 +1,11 @@
-import { TEST, stageUrl } from "@workspace/deploy"
+import { TEST, stageUrl, type App } from "@workspace/deploy"
+import * as Effect from "effect/Effect"
 import { fileURLToPath } from "node:url"
 
-export const DASHBOARD = stageUrl("dashboard", TEST)
+// Where an app serves on the Test stage. stageUrl is pure, so runSync.
+export const testUrl = (app: App) => Effect.runSync(stageUrl(app, TEST))
+
+export const DASHBOARD = testUrl("dashboard")
 
 export interface SharedAccount {
   readonly name: string

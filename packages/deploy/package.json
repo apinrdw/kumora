@@ -15,6 +15,8 @@
     "./stack": "./src/stack.ts"
   },
   "devDependencies": {
+    "@effect/platform-node": "catalog:",
+    "@effect/vitest": "catalog:",
     "@types/node": "^22",
     "typescript": "7.0.2",
     "vitest": "^5.0.5"
@@ -22,6 +24,7 @@
   "dependencies": {
     "@alchemy.run/cloudflare": "catalog:",
     "@alchemy.run/infisical": "catalog:",
+    "@effect/platform-bun": "catalog:",
     "alchemy": "catalog:",
     "effect": "catalog:"
   }

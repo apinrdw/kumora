@@ -1,7 +1,7 @@
 import { defineConfig } from "@playwright/test"
-import { TEST, stageUrl } from "@workspace/deploy"
+import { TEST } from "@workspace/deploy"
 
-import { ADMIN } from "./support/accounts"
+import { ADMIN, testUrl } from "./support/accounts"
 
 export default defineConfig({
   testDir: "tests",
@@ -41,7 +41,7 @@ export default defineConfig({
         // turbo.json passes it through to apps/dashboard/alchemy.run.ts.
         ADMIN_EMAILS: ADMIN.email,
       },
-      url: `${stageUrl("web", TEST)}/probe`,
+      url: `${testUrl("web")}/probe`,
       stdout: "pipe",
       // The default SIGKILL stops turbo before it can stop the apps.
       gracefulShutdown: { signal: "SIGTERM", timeout: 10_000 },
@@ -53,7 +53,7 @@ export default defineConfig({
       // it running is success here. It waits on a static file: `/` answers a
       // redirect to sign-in or a 404, neither of which Playwright counts as up.
       command: 'node -e "setInterval(() => {}, 1 << 30)"',
-      url: `${stageUrl("dashboard", TEST)}/robots.txt`,
+      url: `${testUrl("dashboard")}/robots.txt`,
       reuseExistingServer: true,
     },
   ],

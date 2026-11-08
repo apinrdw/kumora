@@ -4,6 +4,8 @@
     "**/*.tsx",
     "vite.config.ts"
   ],
+  // tests/tsconfig.json typechecks the tests without Workers types.
+  "exclude": ["tests"],
   "compilerOptions": {
     "target": "ES2022",
     "jsx": "react-jsx",

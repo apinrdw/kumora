@@ -1,6 +1,6 @@
 # Deploy
 
-Deploy-time code shared by both apps' stacks, the Workers Builds deploy script and the teardown job. Never bundled into a Worker.
+Deploy-time code shared by both apps' stacks, the Workers Builds deploy script and the teardown job. Never bundled into a Worker. The deploy script and the teardown job drive alchemy in-process through `alchemy/Alchemist`, loading each app's `alchemy.run.ts` by path; they never run the alchemy CLI.
 
 ## Language
 

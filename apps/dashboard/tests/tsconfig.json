@@ -1,0 +1,13 @@
+{
+  // Tests run in Node or happy-dom, never in a Worker: without
+  // @cloudflare/workers-types, DOM methods like ParentNode.append keep their
+  // lib.dom signatures. support/cloudflare-modules.d.ts declares the two
+  // `cloudflare:` modules the server code imports, and alchemy.run.ts is in
+  // so WorkerEnv keeps the dashboard's bindings.
+  "extends": "../tsconfig.json",
+  "include": ["**/*.ts", "**/*.tsx", "../alchemy.run.ts"],
+  "exclude": [],
+  "compilerOptions": {
+    "types": ["vite/client", "node"]
+  }
+}

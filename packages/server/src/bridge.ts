@@ -9,7 +9,7 @@ import {
   Schema,
 } from "effect"
 
-import { HttpError } from "./errors.ts"
+import { ErrorBody, HttpError } from "./errors.ts"
 
 // An app types its bindings by augmenting this interface with
 // `env: Cloudflare.InferEnv<typeof Website>` (see apps/web/alchemy.run.ts).
@@ -52,20 +52,28 @@ const isHttpError = Schema.is(HttpError)
 const respond: {
   readonly [K in HttpError["_tag"]]: (
     error: Extract<HttpError, { readonly _tag: K }>
-  ) => Response
+  ) => Effect.Effect<Response>
 } = {
   NotFound: (e) => json(e._tag, e.message, 404),
   BadRequest: (e) => json(e._tag, e.message, 400),
   Forbidden: (e) => json(e._tag, e.message, 403),
   Conflict: (e) => json(e._tag, e.message, 409),
-  Unauthorized: (e) => redirect({ href: e.redirectTo }),
+  Unauthorized: (e) => Effect.sync(() => redirect({ href: e.redirectTo })),
 }
 
-const json = (error: string, message: string, status: number) =>
-  Response.json({ error, message }, { status })
+const json = Effect.fnUntraced(function* (
+  error: string,
+  message: string,
+  status: number
+) {
+  return Response.json(ErrorBody.make({ error, message }), { status })
+})
 
-const toResponse = (error: HttpError): Response =>
-  (respond[error._tag] as (e: HttpError) => Response)(error)
+const toResponse = Effect.fnUntraced(function* (error: HttpError) {
+  return yield* (
+    respond[error._tag] as (e: HttpError) => Effect.Effect<Response>
+  )(error)
+})
 
 export interface Bridge<R> {
   // Per-isolate services. The layer does no I/O and cannot fail.
@@ -73,49 +81,54 @@ export interface Bridge<R> {
   readonly workerEnv: Layer.Layer<WorkerEnv>
 }
 
-type Settled<A, R = never> = Effect.Effect<
-  Result.Result<A, HttpError | Response>,
-  never,
-  R
->
+type Settled<A> = Result.Result<A, HttpError | Response>
 
 // Runs a program to its value, or to the HTTP error or bare 500 it ends in.
 // Any failure outside the closed set, and any defect, is logged here.
-const settle =
-  ({ workerEnv }: Pick<Bridge<unknown>, "workerEnv">) =>
-  <A, E, R>(effect: Effect.Effect<A, E, R | WorkerEnv>): Settled<A, R> =>
-    effect.pipe(
-      Effect.provide(workerEnv),
-      Effect.matchCauseEffect({
-        onSuccess: (value): Settled<A> => Effect.succeed(Result.succeed(value)),
-        onFailure: (cause): Settled<A> => {
-          const errors = cause.reasons
-            .filter(Cause.isFailReason)
-            .map((reason) => reason.error)
-          if (
-            !Cause.hasDies(cause) &&
-            errors.every(isHttpError) &&
-            errors[0] !== undefined
-          )
-            return Effect.succeed(Result.fail(errors[0]))
-          return Effect.logError("Server effect failed", cause).pipe(
-            Effect.as(Result.fail(json("InternalServerError", "", 500)))
-          )
-        },
-      })
-    )
+const settle = <A, E, R>(
+  workerEnv: Layer.Layer<WorkerEnv>,
+  effect: Effect.Effect<A, E, R | WorkerEnv>
+): Effect.Effect<Settled<A>, never, R> =>
+  effect.pipe(
+    Effect.provide(workerEnv),
+    Effect.matchCauseEffect({
+      onSuccess: (value): Effect.Effect<Settled<A>> =>
+        Effect.succeed(Result.succeed(value)),
+      onFailure: (cause): Effect.Effect<Settled<A>> => {
+        const errors = cause.reasons
+          .filter(Cause.isFailReason)
+          .map((reason) => reason.error)
+        if (
+          !Cause.hasDies(cause) &&
+          errors.every(isHttpError) &&
+          errors[0] !== undefined
+        )
+          return Effect.succeed(Result.fail(errors[0]))
+        return Effect.logError("Server effect failed", cause).pipe(
+          Effect.andThen(json("InternalServerError", "", 500)),
+          Effect.map((response) => Result.fail(response))
+        )
+      },
+    })
+  )
 
-export function makeRunServerEffect<R>(bridge: Bridge<R>) {
-  const runtime = ManagedRuntime.make(bridge.isolate)
-  const run = settle(bridge)
-  return async function runServerEffect<A, E>(
+export function makeRunServerEffect<R>({ isolate, workerEnv }: Bridge<R>) {
+  const runtime = ManagedRuntime.make(isolate)
+  // runPromise rejects with the first failure's error as is, so failing with
+  // the Response is how TanStack Start receives it thrown.
+  return function runServerEffect<A, E>(
     effect: Effect.Effect<A, E, R | WorkerEnv>
   ): Promise<A> {
-    const result = await runtime.runPromise(run(effect))
-    if (Result.isSuccess(result)) return result.success
-    throw result.failure instanceof Response
-      ? result.failure
-      : toResponse(result.failure)
+    return runtime.runPromise(
+      settle(workerEnv, effect).pipe(
+        Effect.flatMap((result) => {
+          if (Result.isSuccess(result)) return Effect.succeed(result.success)
+          if (result.failure instanceof Response)
+            return Effect.fail(result.failure)
+          return Effect.flatMap(toResponse(result.failure), Effect.fail)
+        })
+      )
+    )
   }
 }
 
@@ -123,13 +136,15 @@ export function makeRunServerEffect<R>(bridge: Bridge<R>) {
 // per surface (the dashboard's Worker entry: socket close 4401, 401 JSON, 403
 // on ingest). It hands back the HTTP error, or the bare 500 Response for
 // anything else, instead of throwing. See apinrdw/kumora#81.
-export function makeRunServerEffectResult<R>(bridge: Bridge<R>) {
-  const runtime = ManagedRuntime.make(bridge.isolate)
-  const run = settle(bridge)
+export function makeRunServerEffectResult<R>({
+  isolate,
+  workerEnv,
+}: Bridge<R>) {
+  const runtime = ManagedRuntime.make(isolate)
   return function runServerEffectResult<A, E>(
     effect: Effect.Effect<A, E, R | WorkerEnv>
-  ): Promise<Result.Result<A, HttpError | Response>> {
-    return runtime.runPromise(run(effect))
+  ): Promise<Settled<A>> {
+    return runtime.runPromise(settle(workerEnv, effect))
   }
 }
 

@@ -52,18 +52,24 @@ const TURNSTILE_TEST_KEYS = {
 // Production and Staging each own a widget for their own hostname.
 const turnstileKeys = (stage: Stage) =>
   Effect.gen(function* () {
-    if (!isReleaseStage(stage)) return TURNSTILE_TEST_KEYS
+    if (!(yield* isReleaseStage(stage))) return TURNSTILE_TEST_KEYS
     const widget = yield* Cloudflare.Turnstile.Widget("Turnstile", {
-      domains: [new URL(stageUrl("dashboard", stage)).hostname],
+      domains: [new URL(yield* stageUrl("dashboard", stage)).hostname],
       mode: "managed",
     })
     return { siteKey: widget.sitekey, secretKey: widget.secret }
   })
 
+// The Stage this stack runs on. Read inside a stack's Effect, where an unknown
+// Stage is a defect alchemy prints.
+const currentStage = Effect.gen(function* () {
+  return yield* Effect.orDie(stackStage((yield* Stack).stage))
+})
+
 export const Website = Cloudflare.Website.Vite(
   "Dashboard",
   Effect.gen(function* () {
-    const stage = stackStage((yield* Stack).stage)
+    const stage = yield* currentStage
     const turnstile = yield* turnstileKeys(stage)
     // Decision: Google sign-in is enabled by stage, on Production and Staging,
     // never by whether its client secret is present. Previews and Dev stages
@@ -77,19 +83,19 @@ export const Website = Cloudflare.Website.Vite(
         "GOOGLE_CLIENT_ID" | "GOOGLE_CLIENT_SECRET",
         Config.Config<Redacted.Redacted<string>>
       >
-    > = isReleaseStage(stage)
+    > = (yield* isReleaseStage(stage))
       ? {
           GOOGLE_CLIENT_ID: Config.Redacted("GOOGLE_CLIENT_ID"),
           GOOGLE_CLIENT_SECRET: Config.Redacted("GOOGLE_CLIENT_SECRET"),
         }
       : {}
     return {
-      ...websiteProps("dashboard", stage),
+      ...(yield* websiteProps("dashboard", stage)),
       rootDir: import.meta.dirname,
       dev: { port: DEV_PORTS.dashboard, strictPort: true },
       env: {
         AUTH_DB: AuthDb,
-        AUTH_BASE_URL: stageUrl("dashboard", stage),
+        AUTH_BASE_URL: yield* stageUrl("dashboard", stage),
         BETTER_AUTH_SECRET: Alchemy.makeRandom("BetterAuthSecret"),
         EMAIL: Cloudflare.Email.SendEmail("Email", {
           allowedSenderAddresses: [SENDER],
@@ -117,11 +123,12 @@ declare module "@workspace/server" {
 }
 
 export default Alchemy.Stack(
-  stackName("dashboard"),
-  stackOptions("dashboard"),
+  // Alchemy.Stack takes its name and options as values; both are pure.
+  Effect.runSync(stackName("dashboard")),
+  Effect.runSync(stackOptions("dashboard")),
   Effect.gen(function* () {
-    const stage = stackStage((yield* Stack).stage)
-    if (stageKind(stage) === "production") yield* SendingSubdomain
+    const stage = yield* currentStage
+    if ((yield* stageKind(stage)) === "production") yield* SendingSubdomain
     const website = yield* Website
     return { url: website.url.as<string>() }
   })

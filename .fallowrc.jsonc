@@ -9,14 +9,14 @@
   // peers, so the root declares them and every workspace resolves them from
   // there. @alchemy.run/infisical is here for the CLI: `alchemy profile` finds
   // auth providers in the manifests above the app folder, and only
-  // packages/deploy imports it. All but ws take their versions from the effect and alchemy entries
-  // of the pnpm-workspace.yaml catalog; ws has its own range in the root
-  // package.json, inside alchemy's ^8.21.0 peer range. See apinrdw/kumora#16.
+  // packages/deploy imports it. They take their versions from the effect and
+  // alchemy entries of the pnpm-workspace.yaml catalog. alchemy's ws peer
+  // resolves to the copy @effect/platform-node-shared brings (apinrdw/kumora#122).
+  // See apinrdw/kumora#16.
   "ignoreDependencies": [
     "@alchemy.run/frontend-frameworks",
     "@alchemy.run/infisical",
     "@effect/platform-bun",
-    "@effect/platform-node",
-    "ws"
+    "@effect/platform-node"
   ]
 }

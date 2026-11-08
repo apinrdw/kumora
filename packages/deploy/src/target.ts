@@ -1,26 +1,19 @@
 import { createHash } from "node:crypto"
 
+import * as Effect from "effect/Effect"
+import * as Schema from "effect/Schema"
+
 export const APPS = ["web", "dashboard"] as const
 export type App = (typeof APPS)[number]
 
-export type Stage = string & { readonly __brand: "Stage" }
-export type Preview = Stage & { readonly __preview: true }
 export type StageKind = "production" | "staging" | "preview" | "dev" | "test"
 export type InfisicalEnvironment = "prod" | "staging"
 export type StateStore = "cloudflare" | "local"
 
-export interface DeployTarget {
-  readonly stage: Stage
-  readonly workerName: string
-  // Undefined on the test stage, which reads only the process environment.
-  readonly infisicalEnvironment: InfisicalEnvironment | undefined
-  readonly stateStore: StateStore
-}
-
-const PRODUCTION = "production" as Stage
-const STAGING = "staging" as Stage
+const PRODUCTION = "production"
+const STAGING = "staging"
 // The Stage e2e runs on: apps/e2e/playwright.config.ts sets ALCHEMY_STAGE to it.
-export const TEST = "test" as Stage
+const TEST_NAME = "test"
 
 // Each app's dev server port under `alchemy dev`, strict so one app never
 // takes the other's. e2e waits on both.
@@ -31,9 +24,11 @@ export const DEV_PORTS = {
 
 // An app's Alchemy stack, also its Production Worker. Local state lives under
 // `.alchemy/state/<stack>/<stage>/`.
-export function stackName(app: App): string {
+export const stackName = Effect.fnUntraced(function* (
+  app: App
+): Effect.fn.Return<string> {
   return `kumora-${app}`
-}
+})
 
 // The account's workers.dev subdomain. docs/runbooks/deploy.md, "Checking a
 // stage", curls the same host, and its sections 9.5 and 10.1 send the auth
@@ -49,15 +44,72 @@ const PREVIEW = new RegExp(
 )
 const DEV = /^dev_[-_a-z0-9]+$/i
 
+const classify = Effect.fnUntraced(function* (
+  raw: string
+): Effect.fn.Return<StageKind | undefined> {
+  if (raw === PRODUCTION) return "production"
+  if (raw === STAGING) return "staging"
+  if (raw === TEST_NAME) return "test"
+  if (DEV.test(raw)) return "dev"
+  if (PREVIEW.test(raw)) return "preview"
+  return undefined
+})
+
+// Alchemy hands a stack any stage name. Anything that no branch, dev or test
+// stage could produce (alchemy's `live_$USER` default) is not a Stage.
+// Schema calls a filter synchronously, and classify is pure, so the filters
+// runSync it.
+export const Stage = Schema.String.check(
+  Schema.makeFilter((raw) => Effect.runSync(classify(raw)) !== undefined)
+).pipe(Schema.brand("Stage"))
+export type Stage = typeof Stage.Type
+
+export const Preview = Stage.check(
+  Schema.makeFilter((stage) => Effect.runSync(classify(stage)) === "preview")
+).pipe(Schema.brand("Preview"))
+export type Preview = typeof Preview.Type
+
+export class UnknownStage extends Schema.TaggedError<UnknownStage>()(
+  "UnknownStage",
+  { stage: Schema.String }
+) {
+  override get message() {
+    return `Unknown stage "${this.stage}". Deploy through packages/deploy (production, staging, a branch preview, dev_$USER or test).`
+  }
+}
+
+export interface DeployTarget {
+  readonly stage: Stage
+  readonly workerName: string
+  // Undefined on the test stage, which reads only the process environment.
+  readonly infisicalEnvironment: InfisicalEnvironment | undefined
+  readonly stateStore: StateStore
+}
+
 // Decision: the newest date the workerd bundled with alchemy accepts, not today's,
 // so local dev and the deployed Worker agree. Re-check on every `alchemy` bump:
 // set a far-future date, run `bun alchemy dev`, and read "the newest date
 // supported by this server binary". See apinrdw/kumora#19.
 export const COMPATIBILITY_DATE = "2026-11-02"
 
-export function stageForBranch(branch: string): Stage {
-  if (branch === "main") return PRODUCTION
-  if (branch === "staging") return STAGING
+export const parseStage = Effect.fnUntraced(function* (
+  raw: string
+): Effect.fn.Return<Stage, UnknownStage> {
+  return yield* Schema.decodeEffect(Stage)(raw).pipe(
+    Effect.mapError(() => new UnknownStage({ stage: raw }))
+  )
+})
+
+// The test stage as a Stage, for e2e. classify accepts its name, so parsing
+// it cannot fail.
+export const TEST: Stage = Effect.runSync(Effect.orDie(parseStage(TEST_NAME)))
+
+// Every branch name maps to a Stage, so a refusal here is a bug.
+export const stageForBranch = Effect.fnUntraced(function* (
+  branch: string
+): Effect.fn.Return<Stage> {
+  if (branch === "main") return yield* Effect.orDie(parseStage(PRODUCTION))
+  if (branch === "staging") return yield* Effect.orDie(parseStage(STAGING))
   const hash = createHash("sha256")
     .update(branch)
     .digest("hex")
@@ -68,12 +120,14 @@ export function stageForBranch(branch: string): Stage {
     .replace(/^-+/, "")
     .slice(0, MAX_SLUG)
     .replace(/-+$/, "")
-  return (slug ? `${slug}-${hash}` : hash) as Stage
-}
+  return yield* Effect.orDie(parseStage(slug ? `${slug}-${hash}` : hash))
+})
 
-export function devStage(user: string): Stage {
-  return parseStage(`dev_${user}`)
-}
+export const devStage = Effect.fnUntraced(function* (
+  user: string
+): Effect.fn.Return<Stage, UnknownStage> {
+  return yield* parseStage(`dev_${user}`)
+})
 
 const KINDS: Record<
   StageKind,
@@ -86,64 +140,55 @@ const KINDS: Record<
   test: { infisicalEnvironment: undefined, stateStore: "local" },
 }
 
-function classify(raw: string): StageKind | undefined {
-  if (raw === PRODUCTION) return "production"
-  if (raw === STAGING) return "staging"
-  if (raw === TEST) return "test"
-  if (DEV.test(raw)) return "dev"
-  if (PREVIEW.test(raw)) return "preview"
-  return undefined
-}
-
-// Alchemy hands a stack any stage name. Anything that no branch, dev or test
-// stage could produce (alchemy's `live_$USER` default) is refused here.
-export function parseStage(raw: string): Stage {
-  if (classify(raw) === undefined)
-    throw new Error(
-      `Unknown stage "${raw}". Deploy through packages/deploy (production, staging, a branch preview, dev_$USER or test).`
-    )
-  return raw as Stage
-}
-
-export function stageKind(stage: Stage): StageKind {
-  // Every Stage was parsed or built by stageForBranch, so it classifies.
-  return classify(stage) as StageKind
-}
+// The Stage schema admits only names that classify, so a miss is a bug.
+export const stageKind = Effect.fnUntraced(function* (
+  stage: Stage
+): Effect.fn.Return<StageKind> {
+  return yield* Effect.orDie(Effect.fromNullishOr(yield* classify(stage)))
+})
 
 // Production and Staging: the stages with a fixed URL that outside services
 // (an OAuth client, a Turnstile widget) are set up for.
-export function isReleaseStage(stage: Stage): boolean {
-  const kind = stageKind(stage)
+export const isReleaseStage = Effect.fnUntraced(function* (
+  stage: Stage
+): Effect.fn.Return<boolean> {
+  const kind = yield* stageKind(stage)
   return kind === "production" || kind === "staging"
-}
+})
 
-export function isPreview(stage: Stage): stage is Preview {
-  return stageKind(stage) === "preview"
-}
-
-export function stageTarget(app: App, stage: Stage): DeployTarget {
-  const kind = stageKind(stage)
+export const stageTarget = Effect.fnUntraced(function* (
+  app: App,
+  stage: Stage
+): Effect.fn.Return<DeployTarget> {
+  const kind = yield* stageKind(stage)
+  const stack = yield* stackName(app)
   const suffix = stage.toLowerCase().replaceAll("_", "-")
   return {
     stage,
     workerName:
       kind === "production"
-        ? stackName(app)
-        : `${stackName(app)}-${suffix}`.slice(0, MAX_WORKER_NAME),
+        ? stack
+        : `${stack}-${suffix}`.slice(0, MAX_WORKER_NAME),
     ...KINDS[kind],
   }
-}
+})
 
 // Where a stage's Worker serves: its workers.dev URL, or the app's dev server
 // on Dev and Test stages, which run only under `alchemy dev`.
-export function stageUrl(app: App, stage: Stage): string {
-  const kind = stageKind(stage)
+export const stageUrl = Effect.fnUntraced(function* (
+  app: App,
+  stage: Stage
+): Effect.fn.Return<string> {
+  const kind = yield* stageKind(stage)
   if (kind === "dev" || kind === "test")
     return `http://localhost:${DEV_PORTS[app]}`
-  const { workerName } = stageTarget(app, stage)
+  const { workerName } = yield* stageTarget(app, stage)
   return `https://${workerName}.${WORKERS_DEV_SUBDOMAIN}.workers.dev`
-}
+})
 
-export function deployTarget(app: App, branch: string): DeployTarget {
-  return stageTarget(app, stageForBranch(branch))
-}
+export const deployTarget = Effect.fnUntraced(function* (
+  app: App,
+  branch: string
+): Effect.fn.Return<DeployTarget> {
+  return yield* stageTarget(app, yield* stageForBranch(branch))
+})

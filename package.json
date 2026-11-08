@@ -3,7 +3,7 @@
   "version": "0.0.1",
   "private": true,
   "scripts": {
-    "check": "pnpm typecheck && pnpm lint && pnpm format:check && pnpm test && node scripts/check-skill-links.mts && node scripts/check-decision-docs.mts && node scripts/check-no-gitlinks.mts && node scripts/check-package-scripts.mts",
+    "check": "pnpm typecheck && pnpm lint && pnpm format:check && pnpm test && node scripts/check-skill-links.mts && node scripts/check-decision-docs.mts && node scripts/check-no-gitlinks.mts && node scripts/check-package-scripts.mts && node scripts/check-oxlint-overrides.mts",
     "dev": "turbo dev",
     "lint": "turbo run lint lint:root",
     "lint:root": "oxlint scripts",
@@ -16,21 +16,24 @@
     "test": "turbo run test test:root",
     "test:e2e": "pnpm --filter e2e e2e",
     "prepare": "git config core.hooksPath .githooks",
-    "test:root": "node --test 'scripts/*.test.mts'"
+    "test:root": "vitest run --dir scripts"
+  },
+  "dependencies": {
+    "effect": "catalog:"
   },
   "devDependencies": {
     "@alchemy.run/frontend-frameworks": "catalog:",
     "@alchemy.run/infisical": "catalog:",
     "@effect/platform-bun": "catalog:",
     "@effect/platform-node": "catalog:",
+    "@effect/vitest": "catalog:",
     "@types/node": "^22",
     "fallow": "3.39.0",
     "oxfmt": "0.75.0",
     "oxlint": "1.90.0",
     "turbo": "^2.11.7",
     "typescript": "7.0.2",
-    "vitest": "^5.0.5",
-    "ws": "^8.22.0"
+    "vitest": "^5.0.5"
   },
   "packageManager": "pnpm@11.25.0",
   "engines": {
