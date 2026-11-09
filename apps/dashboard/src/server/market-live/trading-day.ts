@@ -200,8 +200,14 @@ const restoreLastFrames = Effect.fnUntraced(function* (day: {
   readonly dayStates: Effect.Success<typeof makeDayStates>
   readonly bookChunks: Effect.Success<typeof makeBookChunks>
 }) {
+  // Decision: candles come back one code at a time, so a full day's
+  // ~400,000 rows never sit in memory beside the candle book they rebuild;
+  // the book itself holds the day's candles, live or restarted. The
+  // last-frame tables hold one row per code, bounded by the code list.
+  for (const code of yield* day.store.candleCodes)
+    yield* day.candles.restore(yield* day.store.storedCandlesOf(code), [])
   const prices = yield* day.store.livePrices
-  yield* day.candles.restore(yield* day.store.storedCandles, prices)
+  yield* day.candles.restore([], prices)
   for (const price of prices) {
     yield* day.books.livePrice(price)
     yield* day.dayStates.livePrice(price)

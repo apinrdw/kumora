@@ -28,7 +28,7 @@ import { DateTime, Effect, Exit, Layer, Scope } from "effect"
 import { TestClock } from "effect/testing"
 
 import { makeDayIndex } from "@/server/market-live/day-index"
-import type { Sql } from "@/server/market-live/day-store"
+import { makeDayStore, type Sql } from "@/server/market-live/day-store"
 import {
   makeTradingDay,
   type Peer,
@@ -245,7 +245,57 @@ const pastFlush = TestClock.adjust("70 seconds")
 const range = (from: number, to: number) =>
   Array.from({ length: to - from + 1 }, (_, index) => from + index)
 
+// Decision: a full day for the restart's bound is 900 codes trading every
+// minute from the 08:58 match to post-trading's end, about 400,000 candles:
+// more codes than trade on a busy day, each in every minute.
+const FULL_DAY_CODES = 900
+const FULL_DAY_MINUTES = 438
+
 describe("a restarted trading day", () => {
+  it.effect(
+    "restores a full day's candles, every code's",
+    () =>
+      Effect.gen(function* () {
+        yield* TestClock.setTime(wib("16:20:00").epochMilliseconds)
+        const sql = memorySql()
+        const store = yield* makeDayStore(sql)
+        const first = DateTime.toEpochMillis(wib("08:58:00"))
+        const codes = Array.from({ length: FULL_DAY_CODES }, (_, index) =>
+          StockCode.make(`C${String(index).padStart(3, "0")}`)
+        )
+        yield* store.write({
+          trades: [],
+          livePrices: [],
+          chunks: [],
+          facts: {},
+          candles: codes.flatMap((code) =>
+            Array.from({ length: FULL_DAY_MINUTES }, (_, index) => ({
+              code,
+              minute: first + index * 60_000,
+              figures: {
+                openOrder: BigInt(index * 2),
+                open: 100,
+                closeOrder: BigInt(index * 2 + 1),
+                close: 101,
+                high: 102,
+                low: 99,
+                volume: 10,
+                value: 101_000,
+                frequency: 2,
+              },
+            }))
+          ),
+        })
+        const restarted = yield* tradingDay(sql)
+        for (const code of [codes[0]!, codes.at(-1)!]) {
+          const [snapshot] = yield* yield* restarted.viewer(code)
+          assert.lengthOf(snapshot?.candles ?? [], FULL_DAY_MINUTES)
+          assert.strictEqual(snapshot?.candles.at(-1)?.close, 101)
+        }
+      }),
+    { timeout: 60_000 }
+  )
+
   it.effect(
     "keeps its tape and candles, and a late copy of a stored trade counts nowhere twice",
     () =>

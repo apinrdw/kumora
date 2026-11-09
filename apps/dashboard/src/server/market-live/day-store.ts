@@ -285,9 +285,20 @@ export const makeDayStore = (sql: Sql) =>
           .reverse()
       })
 
-    const storedCandles = Effect.sync(() =>
-      sql.exec("SELECT * FROM candles").map(storedCandleOf)
+    // Every code with a candle.
+    const candleCodes = Effect.sync(() =>
+      sql
+        .exec("SELECT DISTINCT code FROM candles")
+        .map((row) => StockCode.make(textOf(row.code)))
     )
+
+    // One code's stored candles, with their trade orders.
+    const storedCandlesOf = (code: StockCode) =>
+      Effect.sync(() =>
+        sql
+          .exec("SELECT * FROM candles WHERE code = ?", code)
+          .map(storedCandleOf)
+      )
 
     // One code's candles, ascending by minute.
     const candlesOf = (code: StockCode) =>
@@ -347,7 +358,8 @@ export const makeDayStore = (sql: Sql) =>
       tradeCount,
       newestTrades,
       tradesAt,
-      storedCandles,
+      candleCodes,
+      storedCandlesOf,
       candlesOf,
       livePrices,
       livePrice,
