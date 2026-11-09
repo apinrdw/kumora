@@ -216,29 +216,40 @@ export const makeOrderBooks = (date: WibDate) =>
       }
     })
 
-    const ajaibFrames = Effect.fnUntraced(function* (
-      frames: ReadonlyArray<string>
-    ) {
-      for (const frame of frames) {
-        const decoded = decodeAjaib(frame)
-        if (Option.isNone(decoded)) continue
-        const { ticker, is_initial, buy, sell, updateTime } = decoded.value
-        if (buy === undefined && sell === undefined) continue
-        const at = DateTime.makeUnsafe(updateTime)
-        if ((yield* wibDateAt(at)) !== date) continue
-        const held = ajaib.get(ticker)
-        const book =
-          held === undefined || is_initial === "true"
-            ? { bids: new Map(), offers: new Map(), at, version: 0 }
-            : held
-        applyLevels(book.bids, buy ?? [])
-        applyLevels(book.offers, sell ?? [])
-        book.at = at
-        book.version = ++version
-        ajaib.set(ticker, book)
-        changed.add(ticker)
-      }
+    // One frame's book change, or undefined for a frame without a side (a
+    // trade or PRICE frame) or from another trading day.
+    const ajaibFrameOf = Effect.fnUntraced(function* (frame: string) {
+      const decoded = decodeAjaib(frame)
+      if (Option.isNone(decoded)) return undefined
+      const { ticker, is_initial, buy, sell, updateTime } = decoded.value
+      if (buy === undefined && sell === undefined) return undefined
+      const at = DateTime.makeUnsafe(updateTime)
+      if ((yield* wibDateAt(at)) !== date) return undefined
+      return { ticker, initial: is_initial === "true", buy, sell, at }
     })
+
+    const ajaibFrame = Effect.fnUntraced(function* (frame: string) {
+      const change = yield* ajaibFrameOf(frame)
+      if (change === undefined) return
+      const { ticker, initial, buy, sell, at } = change
+      const held = ajaib.get(ticker)
+      // Both connections carry the same book, so one may deliver a frame the
+      // other already applied over: older than the book, it is dropped.
+      if (held !== undefined && DateTime.isLessThan(at, held.at)) return
+      const book =
+        held === undefined || initial
+          ? { bids: new Map(), offers: new Map(), at, version: 0 }
+          : held
+      applyLevels(book.bids, buy ?? [])
+      applyLevels(book.offers, sell ?? [])
+      book.at = at
+      book.version = ++version
+      ajaib.set(ticker, book)
+      changed.add(ticker)
+    })
+
+    const ajaibFrames = (frames: ReadonlyArray<string>) =>
+      Effect.forEach(frames, ajaibFrame, { discard: true })
 
     const livePrice = (price: LivePrice) =>
       Effect.sync(() => {
