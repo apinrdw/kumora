@@ -367,8 +367,9 @@ export const makeOrderBooks = (date: WibDate) =>
       }
     })
 
-    // What a flush writes: the whole Ajaib book of every code whose changed.
-    const takeAjaibBooks = Effect.fnUntraced(function* () {
+    // What a flush writes: the whole Ajaib book of every code whose changed
+    // since the last flush.
+    const takeAjaibBooks = Effect.gen(function* () {
       const codes = ajaibUnflushed
       ajaibUnflushed = new Set()
       const books: Array<StoredAjaibBook> = []

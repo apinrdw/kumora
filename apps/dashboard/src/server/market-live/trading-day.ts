@@ -486,7 +486,7 @@ export const makeTradingDay = Effect.fnUntraced(function* (options: {
       ...settled,
       livePrices,
       chunks,
-      ajaibBooks: yield* books.takeAjaibBooks(),
+      ajaibBooks: yield* books.takeAjaibBooks,
       facts: {
         [Fact.feedDowns]: JSON.stringify(yield* market.record),
         ...facts,
