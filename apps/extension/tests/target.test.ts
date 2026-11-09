@@ -1,0 +1,135 @@
+import { assert, describe, it } from "@effect/vitest"
+import {
+  IngestCloseCode,
+  IngestProtocolVersion,
+  decodeIngestUp,
+} from "@workspace/relay"
+import { Effect, Layer, PubSub } from "effect"
+import * as Socket from "effect/socket/Socket"
+import { TestClock } from "effect/testing"
+
+import { DashboardOrigin, type TargetState } from "../src/worker/settings.ts"
+import { runTarget } from "../src/worker/target.ts"
+
+type Listener = (event: Socket.WebSocketEvent) => void
+
+// A dashboard's ingest socket: open from the start, it keeps what the relay
+// sends and closes when the test says.
+class FakeIngest implements Socket.WebSocketLike {
+  readyState = 1
+  readonly sent: Array<string> = []
+  private readonly listeners = new Map<string, Set<Listener>>()
+  constructor(readonly url: string) {}
+  addEventListener(type: string, listener: Listener) {
+    const set = this.listeners.get(type) ?? new Set()
+    set.add(listener)
+    this.listeners.set(type, set)
+  }
+  removeEventListener(type: string, listener: Listener) {
+    this.listeners.get(type)?.delete(listener)
+  }
+  send(data: string | Uint8Array) {
+    this.sent.push(String(data))
+  }
+  close(code = 1000) {
+    if (this.readyState === 3) return
+    this.readyState = 3
+    this.emit("close", { code })
+  }
+  private emit(type: string, event: Socket.WebSocketEvent) {
+    for (const listener of this.listeners.get(type) ?? []) listener(event)
+  }
+}
+
+const origin = DashboardOrigin.make("http://localhost:3001")
+
+const harness = Effect.gen(function* () {
+  const sockets: Array<FakeIngest> = []
+  const states: Array<TargetState> = []
+  const envelopes = yield* PubSub.sliding<string>(16)
+  const fiber = yield* runTarget({
+    origin,
+    token: "the token",
+    envelopes,
+    report: (state) => Effect.sync(() => states.push(state)),
+  }).pipe(
+    Effect.provide(
+      Layer.succeed(Socket.WebSocketConstructor)((url) => {
+        const socket = new FakeIngest(url)
+        sockets.push(socket)
+        return socket
+      })
+    ),
+    Effect.forkScoped
+  )
+  // Lets the target's fibers run until they wait on the socket or the clock.
+  const settle = Effect.repeat(Effect.yieldNow, { times: 20 })
+  return { sockets, states, envelopes, fiber, settle }
+})
+
+describe("a target's ingest socket", () => {
+  it.effect(
+    "sends the token first, then every envelope published while open",
+    () =>
+      Effect.gen(function* () {
+        const { sockets, states, envelopes, settle } = yield* harness
+        yield* settle
+        yield* PubSub.publish(envelopes, "envelope 1")
+        yield* settle
+        assert.strictEqual(sockets.length, 1)
+        assert.strictEqual(
+          sockets[0]?.url,
+          "ws://localhost:3001/market-live/ingest"
+        )
+        const token = yield* decodeIngestUp(sockets[0]?.sent[0] ?? "")
+        assert.deepStrictEqual(token, {
+          _tag: "Token",
+          protocolVersion: IngestProtocolVersion,
+          token: "the token",
+        })
+        assert.deepStrictEqual(sockets[0]?.sent.slice(1), ["envelope 1"])
+        assert.deepStrictEqual(states, ["connecting", "connected"])
+      }).pipe(Effect.scoped)
+  )
+
+  for (const [code, state] of [
+    [IngestCloseCode.RejectedToken, "rejected-token"],
+    [IngestCloseCode.VersionMismatch, "reload-extension"],
+  ] as const)
+    it.effect(`a ${code} close stops retrying and shows ${state}`, () =>
+      Effect.gen(function* () {
+        const { sockets, states, fiber, settle } = yield* harness
+        yield* settle
+        sockets[0]?.close(code)
+        yield* settle
+        yield* TestClock.adjust("10 minutes")
+        yield* settle
+        assert.strictEqual(sockets.length, 1)
+        assert.deepStrictEqual(states.at(-1), state)
+        assert.isDefined(fiber.pollUnsafe())
+      }).pipe(Effect.scoped)
+    )
+
+  it.effect(
+    "any other close retries with backoff, reset once a socket opens",
+    () =>
+      Effect.gen(function* () {
+        const { sockets, states, settle } = yield* harness
+        yield* settle
+        sockets[0]?.close(1006)
+        yield* settle
+        assert.strictEqual(sockets.length, 1)
+        assert.strictEqual(states.at(-1), "retrying")
+        yield* TestClock.adjust("1 second")
+        yield* settle
+        assert.strictEqual(sockets.length, 2)
+        assert.strictEqual(states.at(-1), "connected")
+        // Opened again, so the next drop waits 1 s again, not 2 s.
+        sockets[1]?.close(1006)
+        yield* settle
+        yield* TestClock.adjust("1 second")
+        yield* settle
+        assert.strictEqual(sockets.length, 3)
+      }).pipe(Effect.scoped)
+  )
+})

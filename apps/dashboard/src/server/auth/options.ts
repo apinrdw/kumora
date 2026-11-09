@@ -18,6 +18,7 @@ import { tanstackStartCookies } from "better-auth/tanstack-start"
 import { LINK_HOURS } from "../../lib/link-lifetime.ts"
 import { MIN_PASSWORD_LENGTH, resetPasswordPage } from "../../lib/password.ts"
 import type { FileRoutesByFullPath } from "../../routeTree.gen.ts"
+import type { HeldSessions } from "../market-live/routes.ts"
 import { ac, roles } from "./access.ts"
 import type { GoogleClient } from "./google.ts"
 import type { OwnAction, TargetAction } from "./policy.ts"
@@ -82,6 +83,9 @@ export interface AuthOptionsInput {
   }) => Promise<void>
   // Throws Better Auth's APIError when the access policy refuses the action,
   // and when `target` is null: the userId names no account.
+  // Runs after every route that can end an account's sessions: closes its
+  // live Market Live pages on any session it no longer holds.
+  readonly endLiveSessions: (held: HeldSessions) => Promise<void>
   readonly authorizeAdminAction: (request: {
     readonly action: TargetAction
     readonly session: BetterAuthSession | null
@@ -340,9 +344,44 @@ const before = (input: AuthOptionsInput) =>
     })
   })
 
+// The routes that ban, revoke or delete, each by where it names the account:
+// the admin plugin's body, or the signed-in session. Better Auth answers 404
+// on /admin/revoke-user-session and /revoke-sessions (DISABLED_ROUTES).
+const SESSION_ENDING_ROUTES: Readonly<
+  Partial<Record<string, "body" | "session">>
+> = {
+  "/admin/ban-user": "body",
+  "/admin/revoke-user-sessions": "body",
+  "/revoke-session": "session",
+  "/revoke-other-sessions": "session",
+  "/delete-user/callback": "session",
+}
+
+// Decision: the hook sends the sessions the account still holds, read after
+// the route ran, rather than what each route meant to end. Every route then
+// reads the same way, and a refused or failed one ends nothing.
+const endLiveSessions = async (
+  ctx: HookContext,
+  input: AuthOptionsInput,
+  from: "body" | "session"
+) => {
+  const userId: unknown =
+    from === "body" ? ctx.body?.userId : ctx.context.session?.user.id
+  if (typeof userId !== "string") return
+  const sessions = await ctx.context.internalAdapter.listSessions(userId, {
+    onlyActiveSessions: true,
+  })
+  await input.endLiveSessions({
+    userId,
+    sessionIds: sessions.map((session) => session.id),
+  })
+}
+
 const after = (input: AuthOptionsInput) =>
   createAuthMiddleware(async (ctx) => {
     if (ctx.path === "/sign-up/email") return hideTakenEmail(ctx, input)
+    const from = lookup(SESSION_ENDING_ROUTES, ctx.path)
+    if (from !== undefined) return endLiveSessions(ctx, input, from)
   })
 
 // The per-address mail cap's table (mail-cap.ts). A plugin schema, so the
