@@ -2,6 +2,7 @@ import { defineConfig } from "@playwright/test"
 import { TEST } from "@workspace/deploy"
 
 import { ADMIN, testUrl } from "./support/accounts"
+import { TEST_INGEST_TOKEN } from "./support/ingest"
 
 export default defineConfig({
   testDir: "tests",
@@ -40,6 +41,8 @@ export default defineConfig({
         // The Test stage reads ADMIN_EMAILS from here (apinrdw/kumora#86):
         // turbo.json passes it through to apps/dashboard/alchemy.run.ts.
         ADMIN_EMAILS: ADMIN.email,
+        // Likewise INGEST_TOKEN; support/ingest.ts's fake relay sends it.
+        INGEST_TOKEN: TEST_INGEST_TOKEN,
       },
       url: `${testUrl("web")}/probe`,
       stdout: "pipe",
