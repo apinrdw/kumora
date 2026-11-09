@@ -15,6 +15,9 @@ describe("the shut market the page opens", () => {
         phase: "closed",
         nextOpen: Date.parse("2026-11-16T08:45:00+07:00"),
       })
+      // The clock's own date, not the day shown: the code list of a live day
+      // is that date's.
+      assert.strictEqual(answer.today, "2026-11-14")
       // Looked at again at 17:00, which changes nothing on a weekend.
       assert.strictEqual(answer.changesIn, 7 * 3_600_000)
     })
@@ -35,6 +38,7 @@ describe("the shut market the page opens", () => {
       assert.strictEqual(early.changesIn, 10 * 60_000)
       const live = yield* at("2026-11-09T16:30:00")
       assert.isUndefined(live.closed)
+      assert.strictEqual(live.today, "2026-11-09")
       assert.strictEqual(live.changesIn, 30 * 60_000)
       const sealed = yield* at("2026-11-09T17:00:00")
       assert.strictEqual(sealed.closed?.day, "2026-11-09")
