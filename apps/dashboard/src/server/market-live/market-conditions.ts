@@ -1,14 +1,14 @@
 // What every viewer of a trading day is told besides the tape: the market
-// phase, each feed's freshness, the relay gaps and the indicative prices
-// (spec apinrdw/kumora#138, "Feed freshness" and "Indicative price"). Time is
-// read only through Effect's Clock.
+// conditions (the market phase, each feed's freshness and the relay gaps)
+// and the indicative prices (spec apinrdw/kumora#138, "Feed freshness" and
+// "Indicative price"). Time is read only through Effect's Clock.
 import {
   expectedStretches,
   marketMomentAt,
   nextOpenAfter,
   type IndicativePrice,
   type IngestUp,
-  type MarketStatus,
+  type MarketConditions,
   type StockCode,
   type WibDate,
 } from "@workspace/relay"
@@ -38,7 +38,7 @@ const sameIndicative = (a: IndicativePrice, b: IndicativePrice | undefined) =>
   a.volume === b.volume &&
   DateTime.Equivalence(a.at, b.at)
 
-export const makeMarketStatus = Effect.fnUntraced(function* (
+export const makeMarketConditions = Effect.fnUntraced(function* (
   date: WibDate,
   // The feeds' down stretches an object stored before it restarted.
   restored?: DownRecord
@@ -64,7 +64,7 @@ export const makeMarketStatus = Effect.fnUntraced(function* (
   const dirty = new Set<StockCode>()
   let stockbitLive = false
 
-  const status = Effect.gen(function* () {
+  const conditions = Effect.gen(function* () {
     const now = yield* DateTime.now
     const feeds = yield* health.status(now)
     const live = feeds.feeds.Stockbit === "live"
@@ -73,7 +73,7 @@ export const makeMarketStatus = Effect.fnUntraced(function* (
       stockbitLive = live
       for (const code of [...stockbit.keys(), ...ajaib.keys()]) dirty.add(code)
     }
-    const market: MarketStatus = { ...(yield* phaseAt(now)), ...feeds }
+    const market: MarketConditions = { ...(yield* phaseAt(now)), ...feeds }
     return market
   })
 
@@ -87,7 +87,7 @@ export const makeMarketStatus = Effect.fnUntraced(function* (
 
   // Every code's indicative price that changed since the last call.
   const indicativeChanges = Effect.gen(function* () {
-    yield* status
+    yield* conditions
     const changed: Array<IndicativePrice> = []
     for (const code of dirty) {
       const current = yield* indicativeOf(code)
@@ -141,7 +141,7 @@ export const makeMarketStatus = Effect.fnUntraced(function* (
     ingest,
     relayOnline,
     relayOffline,
-    status,
+    conditions,
     indicativeOf,
     indicativeChanges,
     indicativePending,

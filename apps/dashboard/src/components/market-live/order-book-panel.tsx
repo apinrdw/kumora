@@ -5,7 +5,7 @@ import { useSyncExternalStore } from "react"
 
 import { compact, plain, tapeTime } from "@/lib/format"
 
-import { StaleSince, useMergedStale } from "./market-status"
+import { StaleSince, useMergedStale } from "./market-conditions"
 import type { OrderBookStore } from "./order-book-store"
 
 // The ladder shows 10 levels a side; the depth curve draws 20 (spec

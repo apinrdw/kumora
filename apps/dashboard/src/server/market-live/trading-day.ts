@@ -13,7 +13,7 @@ import {
   bookAt,
   encodeRecordedGaps,
   encodeViewerDown,
-  MarketStatus,
+  MarketConditions,
   marketMomentAt,
   sealInstant,
   StockCode,
@@ -43,7 +43,7 @@ import { makeDayStates } from "./day-states.ts"
 import { Fact, makeDayStore, type Sql } from "./day-store.ts"
 import type { DownRecord } from "./feed-health.ts"
 import { makeGaps } from "./gaps.ts"
-import { makeMarketStatus } from "./market-status.ts"
+import { makeMarketConditions } from "./market-conditions.ts"
 import { makeOnDemand } from "./on-demand.ts"
 import { makeOrderBooks } from "./order-books.ts"
 import { SNAPSHOT_TRADES, recordedAnswer } from "./recorded-answers.ts"
@@ -165,11 +165,13 @@ const settleSide = Effect.fnUntraced(function* (trade: RunningTrade) {
   return sideless ? { ...trade, side: "none" as const } : trade
 })
 
-// How often the object checks whether the market status changed: a feed
+// How often the object checks whether the market conditions changed: a feed
 // going stale is noticed within this.
-const STATUS_INTERVAL = "1 second"
+const CONDITIONS_INTERVAL = "1 second"
 
-const encodeStatus = Schema.encodeEffect(Schema.fromJsonString(MarketStatus))
+const encodeConditions = Schema.encodeEffect(
+  Schema.fromJsonString(MarketConditions)
+)
 
 const sha256 = (text: string) =>
   Effect.promise(() =>
@@ -263,7 +265,7 @@ export const makeTradingDay = Effect.fnUntraced(function* (options: {
   const gaps = yield* makeGaps({ ingests, highest: storedHighest })
   const dayStates = yield* makeDayStates
   const onDemand = yield* makeOnDemand({ viewers: options.viewers, ingests })
-  const market = yield* makeMarketStatus(
+  const market = yield* makeMarketConditions(
     options.date,
     restoring && storedDowns !== undefined
       ? (JSON.parse(storedDowns) as DownRecord)
@@ -287,18 +289,18 @@ export const makeTradingDay = Effect.fnUntraced(function* (options: {
 
   // The order book and Day state fall back to Ajaib while Stockbit isn't live.
   const stockbitLive = Effect.map(
-    market.status,
-    (status) => status.feeds.Stockbit === "live"
+    market.conditions,
+    (conditions) => conditions.feeds.Stockbit === "live"
   )
-  // The market status viewers were last sent, encoded.
-  let sentStatus = ""
+  // The market conditions viewers were last sent, encoded.
+  let sentConditions = ""
   let relayOnline = false
   let checking = false
-  // Whether the market status or an indicative price changed since viewers
-  // were last sent them.
-  const statusPending = Effect.gen(function* () {
-    const encoded = yield* encodeStatus(yield* market.status)
-    return encoded !== sentStatus || (yield* market.indicativePending)
+  // Whether the market conditions or an indicative price changed since
+  // viewers were last sent them.
+  const conditionsPending = Effect.gen(function* () {
+    const encoded = yield* encodeConditions(yield* market.conditions)
+    return encoded !== sentConditions || (yield* market.indicativePending)
   })
 
   // Whether the day holds `trade` outside the tape: in the candle book's
@@ -369,17 +371,17 @@ export const makeTradingDay = Effect.fnUntraced(function* (options: {
     const orderBooks = yield* books.takeChanged(live)
     for (const book of orderBooks) yield* bookChunks.record(book)
     const states = yield* dayStates.takeChanged(live, yield* onDemand.watched)
-    const status = yield* market.status
-    const encoded = yield* encodeStatus(status)
-    const statusChanged = encoded !== sentStatus
-    sentStatus = encoded
+    const conditions = yield* market.conditions
+    const encoded = yield* encodeConditions(conditions)
+    const conditionsChanged = encoded !== sentConditions
+    sentConditions = encoded
     const indicative = yield* market.indicativeChanges
     if (
       trades.length === 0 &&
       changed.length === 0 &&
       orderBooks.length === 0 &&
       states.length === 0 &&
-      !statusChanged &&
+      !conditionsChanged &&
       indicative.length === 0
     )
       return
@@ -389,7 +391,7 @@ export const makeTradingDay = Effect.fnUntraced(function* (options: {
       candles: changed,
       ...(orderBooks.length > 0 ? { orderBooks } : {}),
       ...(states.length === 0 ? {} : { dayStates: states }),
-      ...(statusChanged ? { status } : {}),
+      ...(conditionsChanged ? { status: conditions } : {}),
       ...(indicative.length > 0 ? { indicative } : {}),
     })
     for (const viewer of yield* options.viewers) {
@@ -404,7 +406,7 @@ export const makeTradingDay = Effect.fnUntraced(function* (options: {
       !(yield* candles.hasChanges) &&
       !(yield* books.hasChanges(yield* stockbitLive)) &&
       !(yield* dayStates.hasChanges) &&
-      !(yield* statusPending)
+      !(yield* conditionsPending)
     )
       return
     deltaScheduled = true
@@ -416,16 +418,16 @@ export const makeTradingDay = Effect.fnUntraced(function* (options: {
   })
 
   // Decision: while a viewer is connected, the object looks at the market
-  // status every second and sends a delta when it changed, so a feed going
-  // stale or the phase turning reaches viewers without a frame. With no
-  // viewer it stops: freshness and relay gaps are decided from the instants
-  // of frames and closes, not from these checks, and a snapshot reads them
-  // fresh.
-  const checkStatus: Effect.Effect<void> = Effect.suspend(() => {
+  // conditions every second and sends a delta when they changed, so a feed
+  // going stale or the phase turning reaches viewers without a frame. With
+  // no viewer it stops: freshness and relay gaps are decided from the
+  // instants of frames and closes, not from these checks, and a snapshot
+  // reads them fresh.
+  const checkConditions: Effect.Effect<void> = Effect.suspend(() => {
     if (checking) return Effect.void
     checking = true
     const loop: Effect.Effect<void> = Effect.gen(function* () {
-      yield* Effect.sleep(STATUS_INTERVAL)
+      yield* Effect.sleep(CONDITIONS_INTERVAL)
       if ((yield* options.viewers).length === 0) {
         checking = false
         return
@@ -433,7 +435,7 @@ export const makeTradingDay = Effect.fnUntraced(function* (options: {
       // One failed check is logged; the next still runs.
       yield* scheduleDelta.pipe(
         Effect.catchCause((cause) =>
-          Effect.logError("Status not checked", cause)
+          Effect.logError("Conditions not checked", cause)
         )
       )
       yield* loop
@@ -505,9 +507,9 @@ export const makeTradingDay = Effect.fnUntraced(function* (options: {
     const at = yield* sealInstant(options.date)
     const now = yield* DateTime.now
     if (DateTime.isLessThan(now, at)) return yield* setAlarm(at)
-    const status = yield* market.status
+    const conditions = yield* market.conditions
     yield* flush(true, {
-      [Fact.gaps]: yield* encodeRecordedGaps({ gaps: status.gaps }),
+      [Fact.gaps]: yield* encodeRecordedGaps({ gaps: conditions.gaps }),
     })
     const trades = yield* store.tradeCount
     if (trades > 0) {
@@ -515,7 +517,7 @@ export const makeTradingDay = Effect.fnUntraced(function* (options: {
         day: options.date,
         ...ihsgOf(yield* store.livePrice(IHSG)),
         trades,
-        gap: status.gaps.length > 0,
+        gap: conditions.gaps.length > 0,
       }).pipe(
         Effect.as(true),
         Effect.catchCause((cause) =>
@@ -646,12 +648,12 @@ export const makeTradingDay = Effect.fnUntraced(function* (options: {
         candles: yield* candles.candlesOf(selected),
         ...(orderBook === undefined ? {} : { orderBook }),
         ...(states.length === 0 ? {} : { dayStates: states }),
-        status: yield* market.status,
+        status: yield* market.conditions,
         ...(indicative.length === 0 ? {} : { indicative }),
       })
       yield* socket.send(snapshot)
       yield* socket.setState("ready")
-      yield* checkStatus
+      yield* checkConditions
       if (socket.setWatching !== undefined) {
         yield* socket.setWatching(watching)
         yield* onDemand.update
@@ -687,7 +689,10 @@ export const makeTradingDay = Effect.fnUntraced(function* (options: {
         store,
         codeList: codeListStore,
         sealed,
-        liveGaps: Effect.map(market.status, (status) => status.gaps),
+        liveGaps: Effect.map(
+          market.conditions,
+          (conditions) => conditions.gaps
+        ),
       })
     )
 

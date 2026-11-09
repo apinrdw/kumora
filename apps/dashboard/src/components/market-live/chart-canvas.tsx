@@ -22,7 +22,7 @@ import { useEffect, useRef, useState } from "react"
 import { gapMinutes } from "@/lib/replay"
 
 import type { CandleChange, CandleStore } from "./candle-store"
-import { useAuctionIndicative } from "./market-status"
+import { useAuctionIndicative } from "./market-conditions"
 import type { ReplayCursor } from "./replay-cursor"
 
 const WIB = "Asia/Jakarta"

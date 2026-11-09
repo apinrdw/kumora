@@ -9,14 +9,14 @@ import { DayStrip } from "@/components/market-live/day-strip"
 import { LiveChart } from "@/components/market-live/live-chart"
 import { LiveTape } from "@/components/market-live/live-tape"
 import {
-  MarketStatusBar,
+  MarketConditionsBar,
   useRelayGaps,
-} from "@/components/market-live/market-status"
+} from "@/components/market-live/market-conditions"
 import { OrderBookPanel } from "@/components/market-live/order-book-panel"
 import { makeOrderBookStore } from "@/components/market-live/order-book-store"
 import {
   RecordedOrderBook,
-  RecordedStatusBar,
+  RecordedConditionsBar,
   RecordedTape,
   useRecordedDay,
   useReplayCursor,
@@ -122,11 +122,11 @@ function MarketLiveDay({
           store={candles}
           gaps={cursor === undefined ? liveGaps : gaps}
           dayStates={dayStates}
-          status={
+          conditions={
             cursor === undefined ? (
-              <MarketStatusBar />
+              <MarketConditionsBar />
             ) : (
-              <RecordedStatusBar cursor={cursor} closed={closed} />
+              <RecordedConditionsBar cursor={cursor} closed={closed} />
             )
           }
           cursor={cursor}

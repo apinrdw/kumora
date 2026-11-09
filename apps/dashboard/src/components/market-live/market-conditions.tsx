@@ -1,7 +1,7 @@
 import type {
   IndicativePrice,
   MarketPhase,
-  MarketStatus,
+  MarketConditions,
   RelayGap,
   StockCode,
   ViewerDown,
@@ -16,14 +16,14 @@ import { dateTime } from "@/lib/format"
 // apinrdw/kumora#138, "Freshness display"). `reconnecting` while the page's
 // own socket is down: the feeds aren't blamed for it.
 type View = {
-  readonly status: MarketStatus | undefined
+  readonly conditions: MarketConditions | undefined
   // Each code's latest, the selected and watchlist codes' among them.
   readonly indicative: ReadonlyMap<StockCode, IndicativePrice>
   readonly connection: "connecting" | "live" | "reconnecting"
 }
 
 const initial: View = {
-  status: undefined,
+  conditions: undefined,
   indicative: new Map(),
   connection: "connecting",
 }
@@ -43,11 +43,11 @@ const byCode = (prices: ReadonlyArray<IndicativePrice>) =>
 // delta's indicative prices are every code's that changed, and all are kept,
 // so a code added to the watchlist mid-auction shows its price on the next
 // change; the map is bounded by the listed codes.
-export const applyStatus = (message: ViewerDown) =>
+export const applyConditions = (message: ViewerDown) =>
   Effect.suspend(() => {
     if (message._tag === "Snapshot")
       return publish({
-        status: message.status,
+        conditions: message.status,
         indicative: new Map(byCode(message.indicative ?? [])),
         connection: "live",
       })
@@ -55,7 +55,7 @@ export const applyStatus = (message: ViewerDown) =>
     if (message.status === undefined && prices.length === 0) return Effect.void
     return publish({
       ...view,
-      status: message.status ?? view.status,
+      conditions: message.status ?? view.conditions,
       indicative:
         prices.length === 0
           ? view.indicative
@@ -63,12 +63,12 @@ export const applyStatus = (message: ViewerDown) =>
     })
   })
 
-export const statusReconnecting = Effect.suspend(() =>
+export const conditionsReconnecting = Effect.suspend(() =>
   publish({ ...view, connection: "reconnecting" })
 )
 
 // The page left: the next visit starts from its own snapshot.
-export const resetStatus = Effect.suspend(() => publish(initial))
+export const resetConditions = Effect.suspend(() => publish(initial))
 
 const subscribe = (listener: () => void) => {
   listeners.add(listener)
@@ -76,23 +76,25 @@ const subscribe = (listener: () => void) => {
 }
 const current = () => view
 
-function useMarketStatus(): View {
+function useMarketConditions(): View {
   return useSyncExternalStore(subscribe, current, current)
 }
 
 // The relay gaps so far: the tape shows each as a "not recorded" row.
 export function useRelayGaps(): ReadonlyArray<RelayGap> {
-  return useMarketStatus().status?.gaps ?? []
+  return useMarketConditions().conditions?.gaps ?? []
 }
 
 // Decision: the merged views (tape, candles, watchlist) are stale only when
 // neither feed is live, or while the page's own socket reconnects; one feed
 // down leaves them live, and its pill shows which (apinrdw/kumora#133).
 export function useMergedStale(): boolean {
-  const { status, connection } = useMarketStatus()
+  const { conditions, connection } = useMarketConditions()
   if (connection === "reconnecting") return true
-  if (status === undefined) return false
-  return status.feeds.Stockbit !== "live" && status.feeds.Ajaib !== "live"
+  if (conditions === undefined) return false
+  return (
+    conditions.feeds.Stockbit !== "live" && conditions.feeds.Ajaib !== "live"
+  )
 }
 
 // "STALE · 12s ago" over figures as of `at`, counting each second.
@@ -131,8 +133,8 @@ const AUCTIONS: ReadonlySet<MarketPhase> = new Set([
 ])
 
 const auctionIndicative = (code: StockCode) => {
-  const { status, indicative } = view
-  return status !== undefined && AUCTIONS.has(status.phase)
+  const { conditions, indicative } = view
+  return conditions !== undefined && AUCTIONS.has(conditions.phase)
     ? indicative.get(code)
     : undefined
 }
@@ -173,16 +175,16 @@ export function PhaseLabel({
 
 const FEEDS = ["Stockbit", "Ajaib"] as const
 
-// The chart header's status: a freshness pill per feed and the market phase
-// (with the next open while shut).
-export function MarketStatusBar() {
-  const { status, connection } = useMarketStatus()
-  if (status === undefined) return null
-  const { phase, nextOpen, relayOnline, feeds } = status
+// The chart header's market conditions: a freshness pill per feed and the
+// market phase (with the next open while shut).
+export function MarketConditionsBar() {
+  const { conditions, connection } = useMarketConditions()
+  if (conditions === undefined) return null
+  const { phase, nextOpen, relayOnline, feeds } = conditions
   return (
     <div
       role="group"
-      aria-label="Market status"
+      aria-label="Market conditions"
       className="flex flex-wrap items-center gap-x-3 gap-y-1 text-[12px]"
     >
       {connection === "reconnecting" ? (

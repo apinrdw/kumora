@@ -1,7 +1,8 @@
 // Seam (a) of spec apinrdw/kumora#138, for what viewers are told besides the
-// tape: each feed's freshness, the market phase, relay gaps and indicative
-// prices. Envelopes go in through the ingest socket, TestClock moves time, and
-// the test reads the market status viewers receive.
+// tape: the market conditions (each feed's freshness, the market phase and
+// relay gaps) and indicative prices. Envelopes go in through the ingest
+// socket, TestClock moves time, and the test reads the market conditions
+// viewers receive.
 import { assert, describe, it } from "@effect/vitest"
 import {
   IngestProtocolVersion,
@@ -14,7 +15,7 @@ import {
   type Connection,
   type Feed,
   type IngestUp,
-  type MarketStatus,
+  type MarketConditions,
 } from "@workspace/relay"
 import { WorkerEnv } from "@workspace/server"
 import { DateTime, Effect, Layer, Scope } from "effect"
@@ -112,10 +113,10 @@ const marketAt = Effect.fnUntraced(function* (start: string) {
       watchlist,
     }).pipe(Effect.flatMap((text) => day.viewerMessage(page, text)))
   yield* select(BBCA)
-  // The market status the viewer holds now: its snapshot's, as later deltas
-  // changed it.
+  // The market conditions the viewer holds now: its snapshot's, as later
+  // deltas changed them.
   const status = Effect.gen(function* () {
-    let current: MarketStatus | undefined
+    let current: MarketConditions | undefined
     for (const message of yield* page.received)
       if (message.status !== undefined) current = message.status
     return current!
@@ -125,7 +126,7 @@ const marketAt = Effect.fnUntraced(function* (start: string) {
   return { frames, reported, status, feeds, relayClosed, page, select }
 })
 
-const gapsOf = (status: MarketStatus) =>
+const gapsOf = (status: MarketConditions) =>
   status.gaps.map((gap) => ({
     from: DateTime.formatIso(gap.from),
     to: gap.to === undefined ? undefined : DateTime.formatIso(gap.to),

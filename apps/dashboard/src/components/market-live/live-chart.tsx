@@ -11,7 +11,7 @@ import { lastCloseAt } from "@/lib/recorded-day"
 
 import type { CandleStore } from "./candle-store"
 import { useDayState, type DayStateStore } from "./day-state-store"
-import { useAuctionIndicative, useMergedStale } from "./market-status"
+import { useAuctionIndicative, useMergedStale } from "./market-conditions"
 import type { ReplayCursor } from "./replay-cursor"
 
 // Decision: Lightweight Charts runs only in the browser, in its own chunk:
@@ -116,14 +116,14 @@ function ChartQuote({
 
 // The selected code's 1-minute candles with volume, live from the viewer
 // socket through `store`. `search` sits in the header, to choose the code,
-// and `status` with it: the feed pills and the market phase.
+// and `conditions` with it: the feed pills and the market phase.
 // On a recorded day, the candles after `cursor` are greyed and a clicked
 // candle moves it; `footer` sits under the chart.
 export function LiveChart({
   store,
   gaps,
   dayStates,
-  status,
+  conditions,
   search,
   cursor,
   footer,
@@ -132,7 +132,7 @@ export function LiveChart({
   // The relay gaps to shade as not recorded.
   gaps: ReadonlyArray<RelayGap>
   dayStates: DayStateStore
-  status?: ReactNode
+  conditions?: ReactNode
   search?: ReactNode
   cursor?: ReplayCursor | undefined
   footer?: ReactNode
@@ -151,7 +151,7 @@ export function LiveChart({
         <h2 className="text-lg font-bold">{store.code}</h2>
         <ChartQuote code={store.code} dayStates={dayStates} lastClose={last} />
         {stale && <KStatusPill status="stale" />}
-        {status}
+        {conditions}
         {search}
       </header>
       {/* The canvas has no text: this says what it draws. */}

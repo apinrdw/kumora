@@ -12,7 +12,7 @@ import {
   useDayStateFallback,
   type DayStateStore,
 } from "./day-state-store"
-import { useAuctionIndicative, useMergedStale } from "./market-status"
+import { useAuctionIndicative, useMergedStale } from "./market-conditions"
 import { StockCodePicker } from "./stock-code-picker"
 import type { StockCodeList } from "./use-stock-code-list"
 

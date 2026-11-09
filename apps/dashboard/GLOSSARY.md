@@ -87,6 +87,10 @@ _Avoid_: History, archive day
 A stretch of a market phase that expects trades during which no feed was live, so the terminal holds no trades for it. Shown as not recorded, both live and on a recorded day. One feed dropping while the other stays live is not a relay gap.
 _Avoid_: Outage, missing data
 
+**Market conditions**:
+What a trading day tells every viewer besides the figures: the market phase, each feed's freshness and the relay gaps so far. Sent in every snapshot, and in a delta whenever any of it changed; the chart header shows them.
+_Avoid_: Market status, status bar
+
 **Replay cursor**:
 The moment of a recorded day the page shows: the chart, watchlist, order book and tape all read as of it.
 _Avoid_: Playhead, timestamp

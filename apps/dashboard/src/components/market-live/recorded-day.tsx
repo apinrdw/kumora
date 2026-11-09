@@ -32,7 +32,7 @@ import { TAPE_INTERVAL_MS, gapAt, replayDay, tapeInstant } from "@/lib/replay"
 import type { CandleStore } from "./candle-store"
 import type { DayStateStore } from "./day-state-store"
 import { TAPE_HEIGHT, TapeSection } from "./live-tape"
-import { PhaseLabel } from "./market-status"
+import { PhaseLabel } from "./market-conditions"
 import { OrderBookPanel } from "./order-book-panel"
 import type { OrderBookStore } from "./order-book-store"
 import { makeReplayCursor, useReplay, type ReplayCursor } from "./replay-cursor"
@@ -349,7 +349,7 @@ export function RecordedOrderBook({
 // A recorded day's header status: the RECORDED pill in place of the feed
 // pills, the day shown and where the cursor is; while the market is shut,
 // its phase and next open.
-export function RecordedStatusBar({
+export function RecordedConditionsBar({
   cursor,
   closed,
 }: {
@@ -364,7 +364,7 @@ export function RecordedStatusBar({
   return (
     <div
       role="group"
-      aria-label="Market status"
+      aria-label="Market conditions"
       className="flex flex-wrap items-center gap-x-3 gap-y-1 text-[12px]"
     >
       <KStatusPill status="recorded" />

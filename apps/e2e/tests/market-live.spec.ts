@@ -95,7 +95,7 @@ test.describe("signed in", () => {
     await relay.sendAjaib(session1Today(freshTradeNumbers()).slice(0, 5))
     await relay.report("Stockbit", "alive")
     await page.goto(`${DASHBOARD}${PAGE}`)
-    const status = page.getByRole("group", { name: "Market status" })
+    const status = page.getByRole("group", { name: "Market conditions" })
     const pill = (feed: string) =>
       status.getByRole("listitem").filter({ hasText: feed })
     const tape = page.getByRole("region", { name: "Running trades" })
@@ -145,7 +145,7 @@ test.describe("signed in", () => {
       }
     })
     await page.goto(`${DASHBOARD}${PAGE}`)
-    const status = page.getByRole("group", { name: "Market status" })
+    const status = page.getByRole("group", { name: "Market conditions" })
     await expect(status.getByRole("list", { name: "Feeds" })).toBeVisible()
     await expect.poll(() => dropPage !== undefined).toBe(true)
     dropPage!()

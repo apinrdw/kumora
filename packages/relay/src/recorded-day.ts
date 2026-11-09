@@ -7,7 +7,7 @@ import { DateTime, Effect, Option, Schema } from "effect"
 
 import { StockCode } from "./codes.ts"
 import { Candle, RunningTrade } from "./envelope.ts"
-import { RelayGap } from "./market-status.ts"
+import { RelayGap } from "./market-conditions.ts"
 import { BookLevel, OrderBook } from "./order-book.ts"
 import { WibDate } from "./schedule.ts"
 

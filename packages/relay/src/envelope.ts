@@ -1,7 +1,7 @@
 import { Effect, Order, Schema } from "effect"
 
 import { StockCode } from "./codes.ts"
-import { IndicativePrice, MarketStatus } from "./market-status.ts"
+import { IndicativePrice, MarketConditions } from "./market-conditions.ts"
 import { DayState } from "./day-state.ts"
 import { IndexHasNoBook, OrderBook } from "./order-book.ts"
 
@@ -213,7 +213,7 @@ const Snapshot = Schema.TaggedStruct("Snapshot", {
   // none yet. Absent when none has.
   dayStates: Schema.optionalKey(Schema.Array(DayState)),
   orderBook: Schema.optionalKey(Schema.Union([OrderBook, IndexHasNoBook])),
-  status: MarketStatus,
+  status: MarketConditions,
   // The selected and watchlist codes' that have one, so the watchlist shows
   // them during an auction. Absent when none has.
   indicative: Schema.optionalKey(Schema.Array(IndicativePrice)),
@@ -232,7 +232,7 @@ const Delta = Schema.TaggedStruct("Delta", {
   dayStates: Schema.optionalKey(Schema.Array(DayState)),
   orderBooks: Schema.optionalKey(Schema.Array(OrderBook)),
   // Present only when it changed.
-  status: Schema.optionalKey(MarketStatus),
+  status: Schema.optionalKey(MarketConditions),
   // Every code's that changed, whatever each viewer selected.
   indicative: Schema.optionalKey(Schema.Array(IndicativePrice)),
 })

@@ -98,7 +98,7 @@ test("the day strip opens a recorded day at its close, it replays, and Today · 
     [WATCHLIST_KEY, JSON.stringify([code])] as const
   )
   await page.goto(`${DASHBOARD}${PAGE}?code=${code}`)
-  const status = page.getByRole("group", { name: "Market status" })
+  const status = page.getByRole("group", { name: "Market conditions" })
   await expect(status.getByRole("list", { name: "Feeds" })).toBeVisible()
 
   const strip = page.getByRole("navigation", { name: "Trading days" })

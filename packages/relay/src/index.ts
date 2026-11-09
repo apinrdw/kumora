@@ -12,8 +12,12 @@ export {
   sealInstant,
 } from "./schedule.ts"
 export type { Interval, MarketMoment, PhaseInterval } from "./schedule.ts"
-export { MarketStatus } from "./market-status.ts"
-export type { Freshness, IndicativePrice, RelayGap } from "./market-status.ts"
+export { MarketConditions } from "./market-conditions.ts"
+export type {
+  Freshness,
+  IndicativePrice,
+  RelayGap,
+} from "./market-conditions.ts"
 export { INDEX_CODES, INDICES, IndexCode, StockCode } from "./codes.ts"
 export {
   AjaibFrames,

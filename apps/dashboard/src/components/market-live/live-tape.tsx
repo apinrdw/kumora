@@ -18,12 +18,12 @@ import {
 } from "@/components/market-live/tape-list"
 
 import {
-  applyStatus,
-  resetStatus,
-  statusReconnecting,
+  applyConditions,
+  conditionsReconnecting,
+  resetConditions,
   useMergedStale,
   useRelayGaps,
-} from "./market-status"
+} from "./market-conditions"
 import { signInAgain } from "./sign-in-again"
 import { tapeChangeOf } from "./tape-snapshots"
 
@@ -103,7 +103,7 @@ export function LiveTape({
         Effect.sync(() => {
           firstOnSocket.current = true
         }),
-        statusReconnecting
+        conditionsReconnecting
       ),
     })
     const fiber = clientRuntime.runFork(
@@ -112,7 +112,7 @@ export function LiveTape({
           listener.current?.(message)
           apply(tapeChangeOf(message, firstOnSocket.current))
           if (message._tag === "Snapshot") firstOnSocket.current = false
-        }).pipe(Effect.andThen(applyStatus(message)))
+        }).pipe(Effect.andThen(applyConditions(message)))
       ).pipe(
         Effect.catchTags({
           SignInRequired: () => signInAgain,
@@ -122,7 +122,7 @@ export function LiveTape({
     )
     return () => {
       clientRuntime.runFork(
-        Fiber.interrupt(fiber).pipe(Effect.andThen(resetStatus))
+        Fiber.interrupt(fiber).pipe(Effect.andThen(resetConditions))
       )
     }
   }, [apply, select])

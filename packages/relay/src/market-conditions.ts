@@ -16,9 +16,10 @@ export const RelayGap = Schema.Struct({
 })
 export type RelayGap = typeof RelayGap.Type
 
-// The market phase, each feed's freshness and the relay gaps so far. Sent in
-// every snapshot, and in a delta whenever any of it changed.
-export const MarketStatus = Schema.Struct({
+// The market conditions: the market phase, each feed's freshness and the
+// relay gaps so far. Sent in every snapshot, and in a delta whenever any of
+// it changed.
+export const MarketConditions = Schema.Struct({
   phase: MarketPhase,
   // When the market next opens (08:45 WIB of the next trading day). Absent
   // while it is open, or past the baked schedule.
@@ -29,7 +30,7 @@ export const MarketStatus = Schema.Struct({
   feeds: Schema.Struct({ Stockbit: Freshness, Ajaib: Freshness }),
   gaps: Schema.Array(RelayGap),
 })
-export type MarketStatus = typeof MarketStatus.Type
+export type MarketConditions = typeof MarketConditions.Type
 
 // One code's indicative (auction equilibrium) price and volume in shares,
 // from Stockbit `iepiev`, or Ajaib `INDICATIVE` while Stockbit isn't live.
