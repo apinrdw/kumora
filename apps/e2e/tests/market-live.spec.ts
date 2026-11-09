@@ -116,7 +116,9 @@ test.describe("signed in", () => {
     await relay.report("Ajaib", "closed")
     await expect(pill("Ajaib")).toContainText("UNAVAILABLE")
     await expect(tape).toHaveAttribute("data-stale", "true")
-    await expect(tape.getByText("STALE", { exact: true })).toBeVisible()
+    await expect(
+      tape.getByRole("heading", { name: /Running trades/ })
+    ).toContainText("STALE")
     for (const name of ["Chart", "Watchlist", "Order book"])
       await expect(page.getByRole("region", { name })).toHaveAttribute(
         "data-stale",
