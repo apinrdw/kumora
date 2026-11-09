@@ -1,9 +1,16 @@
 import { DateTime, Effect, Option, Schema } from "effect"
 
-// A calendar date in WIB (UTC+7, no DST), `YYYY-MM-DD`. A trading day is one
-// of these.
+// A calendar date in WIB (UTC+7, no DST), `YYYY-MM-DD`, one the calendar has:
+// a day past the month's end would read as the next month's. A trading day
+// is one of these.
 export const WibDate = Schema.String.check(
-  Schema.isPattern(/^\d{4}-\d{2}-\d{2}$/)
+  Schema.isPattern(/^\d{4}-\d{2}-\d{2}$/),
+  Schema.makeFilter((date) =>
+    Option.exists(
+      DateTime.make(date),
+      (instant) => DateTime.formatIsoDate(instant) === date
+    )
+  )
 ).pipe(Schema.brand("WibDate"))
 export type WibDate = typeof WibDate.Type
 
