@@ -8,6 +8,7 @@ import { gunzipSync, gzipSync } from "node:zlib"
 import {
   StockCode,
   TradeNumber,
+  TradeNumberValue,
   type Candle,
   type RunningTrade,
 } from "@workspace/relay"
@@ -242,7 +243,9 @@ export const makeDayStore = (sql: Sql) =>
 
     const highestTrade = Effect.sync(() => {
       const high = boundTrade("max")
-      return high === undefined ? undefined : BigInt(high)
+      return high === undefined
+        ? undefined
+        : TradeNumberValue.make(BigInt(high))
     })
 
     const tradeCount = Effect.sync(() =>

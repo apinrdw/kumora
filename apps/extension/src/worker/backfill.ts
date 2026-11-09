@@ -80,20 +80,29 @@ const decodeAjaib = Schema.decodeUnknownOption(AjaibNumbers)
 
 // The trade numbers on one page, as bare daily sequences, and whether the
 // broker has more pages after it. None when the body isn't a page.
+interface PageNumbers {
+  readonly numbers: ReadonlyArray<TradeNumberValue>
+  readonly more: boolean
+}
 const numbersOn = Effect.fnUntraced(function* (feed: Feed, body: string) {
-  return feed === "Stockbit"
-    ? Option.map(decodeStockbit(body), (page) => ({
-        numbers: page.data.running_trade.map((row) =>
-          tradeNumberValue(row.trade_number)
-        ),
-        more: true,
-      }))
-    : Option.map(decodeAjaib(body), (page) => ({
-        numbers: page.results.map((row) =>
-          tradeNumberValue(TradeNumber.make(row.trade_num.slice(8)))
-        ),
-        more: page.has_next === true,
-      }))
+  if (feed === "Stockbit") {
+    const page = decodeStockbit(body)
+    if (Option.isNone(page)) return Option.none<PageNumbers>()
+    const numbers = yield* Effect.forEach(
+      page.value.data.running_trade,
+      (row) => tradeNumberValue(row.trade_number)
+    )
+    return Option.some<PageNumbers>({ numbers, more: true })
+  }
+  const page = decodeAjaib(body)
+  if (Option.isNone(page)) return Option.none<PageNumbers>()
+  const numbers = yield* Effect.forEach(page.value.results, (row) =>
+    tradeNumberValue(TradeNumber.make(row.trade_num.slice(8)))
+  )
+  return Option.some<PageNumbers>({
+    numbers,
+    more: page.value.has_next === true,
+  })
 })
 
 // A GET from the Stockbit tab with its own bearer token; none without one.
@@ -191,8 +200,8 @@ export const makeBackfill = Effect.fnUntraced(function* (options: {
     target: TargetName,
     message: Extract<IngestDown, { _tag: "Backfill" }>
   ) {
-    const from = tradeNumberValue(message.from)
-    const to = tradeNumberValue(message.to)
+    const from = yield* tradeNumberValue(message.from)
+    const to = yield* tradeNumberValue(message.to)
     if (to < from) return
     stockbitQueue = yield* enqueue(
       stockbitQueue,

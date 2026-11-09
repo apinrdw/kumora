@@ -6,6 +6,7 @@
 import {
   StockCode,
   TradeNumber,
+  tradeNumberValue,
   type BackfillPage,
   type RunningTrade,
   type WibDate,
@@ -114,16 +115,20 @@ const ajaibRows = (date: WibDate, body: string) => {
 }
 
 // The page's trades of `date` numbered from its `from` to its `to`.
-export const backfillTrades = (date: WibDate, page: BackfillPage) =>
-  Effect.sync(() => {
-    const from = BigInt(page.from)
-    const to = BigInt(page.to)
-    const rows =
-      page.feed === "Stockbit"
-        ? stockbitRows(date, page.body)
-        : ajaibRows(date, page.body)
-    return rows.filter((trade) => {
-      const number = BigInt(trade.tradeNumber)
-      return number >= from && number <= to
-    })
-  })
+export const backfillTrades = Effect.fnUntraced(function* (
+  date: WibDate,
+  page: BackfillPage
+) {
+  const from = yield* tradeNumberValue(page.from)
+  const to = yield* tradeNumberValue(page.to)
+  const rows =
+    page.feed === "Stockbit"
+      ? stockbitRows(date, page.body)
+      : ajaibRows(date, page.body)
+  return yield* Effect.filter(rows, (trade) =>
+    Effect.map(
+      tradeNumberValue(trade.tradeNumber),
+      (number) => number >= from && number <= to
+    )
+  )
+})

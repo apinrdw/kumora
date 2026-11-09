@@ -17,6 +17,7 @@ import {
   marketMomentAt,
   sealInstant,
   StockCode,
+  tradeNumberValue,
   wibDateAt,
   type DayState,
   type IndicativePrice,
@@ -326,7 +327,7 @@ export const makeTradingDay = Effect.fnUntraced(function* (options: {
     const mayBeStored =
       beforeTape ||
       (storedHighest !== undefined &&
-        BigInt(trade.tradeNumber) <= storedHighest)
+        (yield* tradeNumberValue(trade.tradeNumber)) <= storedHighest)
     return mayBeStored && (yield* store.hasTrade(trade.tradeNumber))
   })
 

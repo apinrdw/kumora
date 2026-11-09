@@ -4,7 +4,9 @@
 // relay can't fill stays missing, silently.
 import {
   TradeNumber,
+  TradeNumberValue,
   encodeIngestDown,
+  tradeNumberValue,
   type RunningTrade,
 } from "@workspace/relay"
 import type { DateTime } from "effect"
@@ -28,8 +30,8 @@ const WIDEST_GAP = 10_000n
 
 // A run of missing numbers, not asked for yet.
 interface Missing {
-  readonly from: bigint
-  readonly to: bigint
+  readonly from: TradeNumberValue
+  readonly to: TradeNumberValue
   // When trade `to` + 1 happened, and when it arrived.
   readonly nextTime: DateTime.Utc
   readonly since: number
@@ -39,26 +41,28 @@ export const makeGaps = Effect.fnUntraced(function* (options: {
   // Every ingest socket the object holds, ready or not.
   readonly ingests: Effect.Effect<ReadonlyArray<IngestPeer>>
   // The highest number the day stored before the object restarted.
-  readonly highest?: bigint | undefined
+  readonly highest?: TradeNumberValue | undefined
 }) {
   const scope = yield* Scope.Scope
   // Decision: the day's first number starts the count, and nothing below it is
   // a gap. A restarted object counts on from the highest number it stored, so
   // what the relay sent while it was down is a gap.
-  let highest: bigint | undefined = options.highest
+  let highest: TradeNumberValue | undefined = options.highest
   let missing: Array<Missing> = []
   let checkScheduled = false
 
   // A trade arrived: a jump past the highest number opens a gap, and a number
   // inside a gap closes its part of it.
   const seen = Effect.fnUntraced(function* (trade: RunningTrade) {
-    const number = BigInt(trade.tradeNumber)
+    const number = yield* tradeNumberValue(trade.tradeNumber)
     if (highest === undefined || number > highest) {
       if (highest !== undefined && number > highest + 1n) {
         const from = highest + 1n
         missing.push({
-          from: number - from > WIDEST_GAP ? number - WIDEST_GAP : from,
-          to: number - 1n,
+          from: TradeNumberValue.make(
+            number - from > WIDEST_GAP ? number - WIDEST_GAP : from
+          ),
+          to: TradeNumberValue.make(number - 1n),
           nextTime: trade.time,
           since: yield* Clock.currentTimeMillis,
         })
@@ -70,8 +74,12 @@ export const makeGaps = Effect.fnUntraced(function* (options: {
       number < gap.from || number > gap.to
         ? [gap]
         : [
-            { ...gap, to: number - 1n, nextTime: trade.time },
-            { ...gap, from: number + 1n },
+            {
+              ...gap,
+              to: TradeNumberValue.make(number - 1n),
+              nextTime: trade.time,
+            },
+            { ...gap, from: TradeNumberValue.make(number + 1n) },
           ].filter((part) => part.from <= part.to)
     )
   })

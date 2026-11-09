@@ -63,13 +63,14 @@ export const TradeNumberOrder: Order.Order<TradeNumber> = Order.mapInput(
 )
 
 // A trade number as a bigint, for the arithmetic a range of them needs: the
-// extension's backfill walks, merges and pages ranges by it.
+// extension's backfill walks, merges and pages ranges by it, and the
+// dashboard's gap detection and day store compare by it.
 export const TradeNumberValue = Schema.BigInt.pipe(
   Schema.brand("TradeNumberValue")
 )
 export type TradeNumberValue = typeof TradeNumberValue.Type
 export const tradeNumberValue = (number: TradeNumber) =>
-  TradeNumberValue.make(BigInt(number))
+  Effect.sync(() => TradeNumberValue.make(BigInt(number)))
 
 const versioned = { protocolVersion: Schema.Int }
 const fromConnection = {
