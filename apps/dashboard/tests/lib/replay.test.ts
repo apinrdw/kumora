@@ -25,6 +25,10 @@ describe("the replay cursor", () => {
     expect(day.close).toBe(at("16:15:59.999"))
   })
 
+  test("records until the relay stops streaming, 16:35", () => {
+    expect(day.end).toBe(at("16:34:59.999"))
+  })
+
   test("moves by the real time elapsed times the speed", () => {
     expect(advance(day, at("10:00:00"), 1_000, 1)).toEqual({
       at: at("10:00:01"),
@@ -59,8 +63,13 @@ describe("the replay cursor", () => {
   })
 
   test("asks the tape for the end of the cursor's second", () => {
-    expect(tapeInstant(at("10:15:32.400"))).toBe(at("10:15:32.999"))
-    expect(tapeInstant(at("10:15:32.999"))).toBe(at("10:15:32.999"))
+    expect(tapeInstant(day, at("10:15:32.400"))).toBe(at("10:15:32.999"))
+    expect(tapeInstant(day, at("10:15:32.999"))).toBe(at("10:15:32.999"))
+  })
+
+  test("asks the tape at the day's end when the cursor is at the close", () => {
+    expect(tapeInstant(day, day.close)).toBe(day.end)
+    expect(tapeInstant(day, at("16:15:59.000"))).toBe(at("16:15:59.999"))
   })
 })
 
