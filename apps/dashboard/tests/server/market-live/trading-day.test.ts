@@ -588,6 +588,57 @@ describe("the merged tape", () => {
         ])
       })
   )
+
+  it.effect(
+    "Stockbit's copy of a trade the full tape evicted still corrects its candle inside the merge window",
+    () =>
+      Effect.gen(function* () {
+        const { ingest, viewer, select } = yield* tradingDay()
+        const socket = yield* relay(ingest)
+        const template = JSON.parse(recorded.session1[0]!)
+        // 10,001 BREN trades at 2130 in one minute: the lowest number leaves
+        // the tape as the 10,001st arrives.
+        const frames = Array.from({ length: 10_001 }, (_, i) =>
+          JSON.stringify({
+            ...template,
+            tradeNum: `20261109${String(30_000 + i).padStart(10, "0")}`,
+          })
+        )
+        yield* ingest(socket, yield* ajaib(frames))
+        // Stockbit's copy of the evicted trade, 224 ms later, at 2200.
+        yield* TestClock.adjust("224 millis")
+        yield* ingest(
+          socket,
+          yield* stockbit(
+            [
+              {
+                tradeWib: "09:00:00.500",
+                code: "BREN",
+                price: 2200,
+                volume: 1700,
+                action: 1,
+                board: 1,
+                tradeNumber: 30_000,
+              },
+            ],
+            "A"
+          )
+        )
+        const page = yield* viewer()
+        yield* select(page, "BREN")
+        const [snapshot] = yield* page.received
+        const [candle] = snapshot!.candles
+        // The evicted trade opens the minute's candle: Stockbit's price.
+        assert.deepStrictEqual(
+          {
+            open: candle?.open,
+            high: candle?.high,
+            frequency: candle?.frequency,
+          },
+          { open: 2200, high: 2200, frequency: 10_001 }
+        )
+      })
+  )
 })
 
 // UNTR around the open: the 08:58 opening match from the probe, then made-up
