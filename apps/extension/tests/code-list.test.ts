@@ -87,7 +87,7 @@ describe("the code list", () => {
     () =>
       Effect.gen(function* () {
         const relay = yield* harness({ answer: ok })
-        assert.deepStrictEqual(relay.codeList.codes(), [])
+        assert.deepStrictEqual(yield* relay.codeList.codes, [])
         yield* relay.tick("2026-11-10T08:40:00")
         const envelope = yield* PubSub.take(relay.published)
         // The fetch's fiber finishes its resend after publishing.
@@ -97,7 +97,10 @@ describe("the code list", () => {
         assert.deepStrictEqual(relay.requests, [
           { _tag: "page-fetch", path: CODE_LIST_PATH },
         ])
-        assert.deepStrictEqual(relay.codeList.codes(), codes("BBCA", "TLKM"))
+        assert.deepStrictEqual(
+          yield* relay.codeList.codes,
+          codes("BBCA", "TLKM")
+        )
         assert.strictEqual(
           relay.stored().pipe(Option.getOrUndefined)?.date,
           "2026-11-10"
@@ -122,7 +125,7 @@ describe("the code list", () => {
       yield* relay.tick("2026-11-10T08:41:01")
       yield* Effect.yieldNow
       assert.lengthOf(relay.requests, 2)
-      assert.deepStrictEqual(relay.codeList.codes(), [])
+      assert.deepStrictEqual(yield* relay.codeList.codes, [])
     })
   )
 
@@ -133,7 +136,7 @@ describe("the code list", () => {
       yield* relay.tick("2026-11-10T08:40:00")
       yield* TestClock.adjust("1 second")
       assert.lengthOf(relay.requests, 0)
-      assert.deepStrictEqual(relay.codeList.codes(), codes("BBCA", "TLKM"))
+      assert.deepStrictEqual(yield* relay.codeList.codes, codes("BBCA", "TLKM"))
       assert.deepStrictEqual(
         yield* relay.codeList.catchUp(WibDate.make("2026-11-10")),
         [held.envelope]
@@ -151,7 +154,10 @@ describe("the code list", () => {
         yield* Effect.yieldNow
         // The day's fetch failed, so yesterday's list is still held for the
         // Stockbit subscribe, but it is not today's.
-        assert.deepStrictEqual(relay.codeList.codes(), codes("BBCA", "TLKM"))
+        assert.deepStrictEqual(
+          yield* relay.codeList.codes,
+          codes("BBCA", "TLKM")
+        )
         assert.deepStrictEqual(
           yield* relay.codeList.catchUp(WibDate.make("2026-11-10")),
           []

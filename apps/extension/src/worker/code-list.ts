@@ -104,10 +104,10 @@ export const makeCodeList = Effect.fnUntraced(function* (options: {
       })
     )
 
-  return {
-    tick,
-    catchUp,
-    codes: () =>
-      Option.match(list, { onNone: () => [], onSome: (held) => held.codes }),
-  }
+  // The codes held, today's or an earlier day's: the Stockbit subscribe.
+  const codes = Effect.sync(() =>
+    Option.match(list, { onNone: () => [], onSome: (held) => held.codes })
+  )
+
+  return { tick, catchUp, codes }
 })

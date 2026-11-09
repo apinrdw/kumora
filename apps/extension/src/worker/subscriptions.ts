@@ -33,7 +33,7 @@ export interface Subscriptions {
 // one channel message with every listed code. A changed list resends it in
 // full on every open socket.
 export const makeStockbitSubscriptions = Effect.fnUntraced(function* (
-  codes: () => ReadonlyArray<StockCode>
+  codes: Effect.Effect<ReadonlyArray<StockCode>>
 ): Effect.fn.Return<Subscriptions, never, Scope.Scope> {
   const fibers = yield* FiberMap.make<Connection>()
   const sessions = new Map<
@@ -47,7 +47,7 @@ export const makeStockbitSubscriptions = Effect.fnUntraced(function* (
   ) {
     const session = sessions.get(connection)
     if (session === undefined) return
-    const frame = yield* subscribeFrame({ ...session, codes: codes() })
+    const frame = yield* subscribeFrame({ ...session, codes: yield* codes })
     yield* tab.send("stockbit", connection, { base64: Base64.encode(frame) })
   })
 
@@ -111,7 +111,7 @@ const streams: Readonly<Partial<Record<SiteName, OnDemandStream>>> = {
 // only the difference. Every frame carries the account id `accountId` gives,
 // once there is one.
 export const makeAjaibSubscriptions = Effect.fnUntraced(function* (
-  wanted: () => ReadonlyArray<StockCode>,
+  wanted: Effect.Effect<ReadonlyArray<StockCode>>,
   accountId: Effect.Effect<Option.Option<AjaibAccountId>>
 ): Effect.fn.Return<Subscriptions, never, Scope.Scope> {
   const held = new Map<string, ReadonlyArray<StockCode>>()
@@ -127,10 +127,10 @@ export const makeAjaibSubscriptions = Effect.fnUntraced(function* (
     const stream = streams[site]
     if (stream === undefined || !(yield* tab.isOpen(site, connection))) return
     const id = yield* accountId
+    const to = yield* wanted
     // From here to `held.set` nothing yields, so two updates never send the
     // same difference.
     const key = `${site}/${connection}`
-    const to = wanted()
     const messages = yield* onDemandMessages(
       stream,
       held.get(key) ?? [],

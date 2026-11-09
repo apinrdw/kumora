@@ -210,7 +210,7 @@ const makeOnDemandCodes = Effect.fnUntraced(function* (
       union = next
       return changed
     })
-  return { receive, codes: () => union }
+  return { receive, codes: Effect.sync(() => union) }
 })
 
 // Now on the relay's schedule clock.
