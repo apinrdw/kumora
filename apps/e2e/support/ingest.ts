@@ -134,6 +134,11 @@ export async function openIngest(token = TEST_INGEST_TOKEN) {
   const closed = new Promise<number>((resolve) =>
     socket.addEventListener("close", (event) => resolve(event.code))
   )
+  // Every message the object sent down, as text.
+  const received: Array<string> = []
+  socket.addEventListener("message", (event) =>
+    received.push(String(event.data))
+  )
   await new Promise((resolve, reject) => {
     socket.addEventListener("open", resolve)
     socket.addEventListener("error", reject)
@@ -145,6 +150,7 @@ export async function openIngest(token = TEST_INGEST_TOKEN) {
   })
   return {
     closed,
+    received,
     sendAjaib: (frames: ReadonlyArray<string>) =>
       send(socket, {
         _tag: "Frames",
