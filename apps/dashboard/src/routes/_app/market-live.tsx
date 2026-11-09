@@ -1,10 +1,13 @@
 import { createFileRoute } from "@tanstack/react-router"
 import type { StockCode } from "@workspace/client"
+import type { ViewerDown } from "@workspace/relay"
 import { useCallback, useMemo } from "react"
 
 import { makeCandleStore } from "@/components/market-live/candle-store"
 import { LiveChart } from "@/components/market-live/live-chart"
 import { LiveTape } from "@/components/market-live/live-tape"
+import { OrderBookPanel } from "@/components/market-live/order-book-panel"
+import { makeOrderBookStore } from "@/components/market-live/order-book-store"
 import { StockCodePalette } from "@/components/market-live/stock-code-palette"
 import { StockCodePicker } from "@/components/market-live/stock-code-picker"
 import { useStockCodeList } from "@/components/market-live/use-stock-code-list"
@@ -30,6 +33,14 @@ function MarketLivePage() {
   const codes = useStockCodeList()
   // One store per selected code; the Select for it brings a fresh snapshot.
   const candles = useMemo(() => makeCandleStore(selected), [selected])
+  const book = useMemo(() => makeOrderBookStore(selected), [selected])
+  const apply = useCallback(
+    (message: ViewerDown) => {
+      candles.apply(message)
+      book.apply(message)
+    },
+    [candles, book]
+  )
   const select = useCallback(
     (code: StockCode) =>
       void navigate({
@@ -53,11 +64,10 @@ function MarketLivePage() {
             />
           }
         />
-        <LiveTape
-          selected={selected}
-          onSelect={select}
-          onMessage={candles.apply}
-        />
+        <div className="flex min-w-0 flex-col gap-4">
+          <OrderBookPanel store={book} />
+          <LiveTape selected={selected} onSelect={select} onMessage={apply} />
+        </div>
       </div>
       <StockCodePalette list={codes} onPick={select} />
     </div>
