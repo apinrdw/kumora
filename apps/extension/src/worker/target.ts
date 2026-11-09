@@ -5,7 +5,9 @@ import {
   IngestCloseCode,
   IngestProtocolVersion,
   MarketLivePath,
+  decodeIngestDown,
   encodeIngestUp,
+  type IngestDown,
 } from "@workspace/relay"
 import { Duration, Effect, PubSub } from "effect"
 import * as Socket from "effect/socket/Socket"
@@ -32,6 +34,9 @@ export const runTarget = Effect.fnUntraced(function* (options: {
   readonly token: string
   readonly envelopes: PubSub.PubSub<string>
   readonly report: (state: TargetState) => Effect.Effect<void>
+  // What the trading-day object sends down: on-demand codes and backfill
+  // requests.
+  readonly receive: (message: IngestDown) => Effect.Effect<void>
 }) {
   const url = yield* ingestUrl(options.origin)
   const token = yield* encodeIngestUp({
@@ -48,9 +53,23 @@ export const runTarget = Effect.fnUntraced(function* (options: {
       const writer = yield* socket.writer
       yield* writer.write(token)
       yield* opened
-      // What comes down (backfill requests, on-demand codes) is read only to
-      // notice a close until apinrdw/kumora#155 and #156 act on it.
-      const read = Effect.forever(pull)
+      // A message that doesn't decode is dropped: it may be from a newer
+      // dashboard, which closes 4426 if the versions really differ.
+      const read = Effect.forever(
+        pull.pipe(
+          Effect.flatMap((texts) =>
+            Effect.forEach(
+              texts,
+              (text) =>
+                Effect.matchEffect(decodeIngestDown(text), {
+                  onFailure: () => Effect.void,
+                  onSuccess: options.receive,
+                }),
+              { discard: true }
+            )
+          )
+        )
+      )
       const write = Effect.forever(
         Effect.flatMap(PubSub.take(envelopes), writer.write)
       )

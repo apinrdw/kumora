@@ -2,7 +2,10 @@ import { assert, describe, it } from "@effect/vitest"
 import {
   IngestCloseCode,
   IngestProtocolVersion,
+  StockCode,
   decodeIngestUp,
+  encodeIngestDown,
+  type IngestDown,
 } from "@workspace/relay"
 import { Effect, Layer, PubSub } from "effect"
 import * as Socket from "effect/socket/Socket"
@@ -31,6 +34,10 @@ class FakeIngest implements Socket.WebSocketLike {
   send(data: string | Uint8Array) {
     this.sent.push(String(data))
   }
+  // The dashboard sends a message down.
+  receive(data: string) {
+    this.emit("message", { data })
+  }
   close(code = 1000) {
     if (this.readyState === 3) return
     this.readyState = 3
@@ -46,12 +53,14 @@ const origin = DashboardOrigin.make("http://localhost:3001")
 const harness = Effect.gen(function* () {
   const sockets: Array<FakeIngest> = []
   const states: Array<TargetState> = []
+  const down: Array<IngestDown> = []
   const envelopes = yield* PubSub.sliding<string>(16)
   const fiber = yield* runTarget({
     origin,
     token: "the token",
     envelopes,
     report: (state) => Effect.sync(() => states.push(state)),
+    receive: (message) => Effect.sync(() => down.push(message)),
   }).pipe(
     Effect.provide(
       Layer.succeed(Socket.WebSocketConstructor)((url) => {
@@ -64,7 +73,7 @@ const harness = Effect.gen(function* () {
   )
   // Lets the target's fibers run until they wait on the socket or the clock.
   const settle = Effect.repeat(Effect.yieldNow, { times: 20 })
-  return { sockets, states, envelopes, fiber, settle }
+  return { sockets, states, down, envelopes, fiber, settle }
 })
 
 describe("a target's ingest socket", () => {
@@ -131,5 +140,20 @@ describe("a target's ingest socket", () => {
         yield* settle
         assert.strictEqual(sockets.length, 3)
       }).pipe(Effect.scoped)
+  )
+
+  it.effect("hands on what the trading-day object sends down", () =>
+    Effect.gen(function* () {
+      const { sockets, down, settle } = yield* harness
+      yield* settle
+      const codes: IngestDown = {
+        _tag: "OnDemandCodes",
+        codes: [StockCode.make("BBCA")],
+      }
+      sockets[0]?.receive(yield* encodeIngestDown(codes))
+      sockets[0]?.receive("not a message")
+      yield* settle
+      assert.deepStrictEqual(down, [codes])
+    }).pipe(Effect.scoped)
   )
 })

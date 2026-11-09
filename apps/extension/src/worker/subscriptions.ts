@@ -1,0 +1,152 @@
+// What each open broker socket is subscribed to, kept current as the code
+// list and the on-demand set change (spec apinrdw/kumora#138, "Broker
+// connections").
+import type { Connection, StockCode } from "@workspace/relay"
+import { Effect, FiberMap, Option, type Scope } from "effect"
+import * as Base64 from "effect/encoding/Base64"
+
+import { onDemandMessages, type OnDemandStream } from "./ajaib.ts"
+import type { SiteName } from "./broker.ts"
+import {
+  CREDENTIAL_COOKIE,
+  WEBSOCKET_KEY_URL,
+  stockbitCredential,
+  subscribeFrame,
+  websocketKey,
+  type StockbitCredential,
+} from "./stockbit.ts"
+import type { BrokerTab, TabHooks } from "./tab.ts"
+
+const connections: ReadonlyArray<Connection> = ["A", "B"]
+
+// A tab's subscription keeper: its socket hooks, and a resend after a change.
+export interface Subscriptions {
+  readonly hooks: TabHooks
+  readonly resubscribe: (tab: BrokerTab) => Effect.Effect<void>
+}
+
+// Stockbit: on each open, a fresh websocket key with the tab's token, then
+// one channel message with every listed code. A changed list resends it in
+// full on every open socket.
+export const makeStockbitSubscriptions = Effect.fnUntraced(function* (
+  codes: () => ReadonlyArray<StockCode>
+): Effect.fn.Return<Subscriptions, never, Scope.Scope> {
+  const fibers = yield* FiberMap.make<Connection>()
+  const sessions = new Map<
+    Connection,
+    { readonly credential: StockbitCredential; readonly key: string }
+  >()
+
+  const subscribe = Effect.fnUntraced(function* (
+    tab: BrokerTab,
+    connection: Connection
+  ) {
+    const session = sessions.get(connection)
+    if (session === undefined) return
+    const frame = yield* subscribeFrame({ ...session, codes: codes() })
+    yield* tab.send("stockbit", connection, { base64: Base64.encode(frame) })
+  })
+
+  const authenticate = Effect.fnUntraced(function* (
+    tab: BrokerTab,
+    connection: Connection
+  ) {
+    const cookie = yield* tab.request({
+      _tag: "cookie",
+      name: CREDENTIAL_COOKIE,
+    })
+    const credential = Option.isSome(cookie)
+      ? yield* stockbitCredential(cookie.value.body)
+      : Option.none()
+    if (Option.isNone(credential))
+      return yield* Effect.logWarning("Stockbit tab has no access token")
+    const answer = yield* tab.request({
+      _tag: "fetch",
+      url: WEBSOCKET_KEY_URL,
+      headers: { authorization: `Bearer ${credential.value.accessToken}` },
+    })
+    const key =
+      Option.isSome(answer) && answer.value.status === 200
+        ? yield* websocketKey(answer.value.body)
+        : Option.none()
+    if (Option.isNone(key))
+      return yield* Effect.logWarning("Stockbit websocket key fetch failed")
+    sessions.set(connection, { credential: credential.value, key: key.value })
+    yield* subscribe(tab, connection)
+  })
+
+  const hooks: TabHooks = {
+    opened: (tab, _site, connection) =>
+      FiberMap.run(
+        fibers,
+        connection,
+        // A socket with no key is useless: drop it, and the next tick
+        // reopens it.
+        Effect.flatMap(authenticate(tab, connection), () =>
+          sessions.has(connection)
+            ? Effect.void
+            : tab.drop("stockbit", connection)
+        )
+      ).pipe(Effect.asVoid),
+    closed: (_tab, _site, connection) =>
+      Effect.suspend(() => {
+        sessions.delete(connection)
+        return FiberMap.remove(fibers, connection)
+      }),
+  }
+
+  const resubscribe = (tab: BrokerTab) =>
+    Effect.forEach(connections, (connection) => subscribe(tab, connection), {
+      discard: true,
+    })
+  return { hooks, resubscribe }
+})
+
+const streams: Readonly<Partial<Record<SiteName, OnDemandStream>>> = {
+  "ajaib-price": "PRICE",
+  "ajaib-indicative": "INDICATIVE",
+  "ajaib-order-book": "ORDER_BOOK_CUSTOM",
+}
+
+// Ajaib's on-demand streams: each open socket holds the codes it subscribed,
+// and a change sends only the difference.
+export const makeAjaibOnDemand = Effect.fnUntraced(function* (
+  wanted: () => ReadonlyArray<StockCode>
+): Effect.fn.Return<Subscriptions> {
+  const held = new Map<string, ReadonlyArray<StockCode>>()
+
+  const update = Effect.fnUntraced(function* (
+    tab: BrokerTab,
+    site: SiteName,
+    connection: Connection
+  ) {
+    const stream = streams[site]
+    if (stream === undefined || !tab.isOpen(site, connection)) return
+    const key = `${site}/${connection}`
+    const to = wanted()
+    const messages = yield* onDemandMessages(stream, held.get(key) ?? [], to)
+    held.set(key, to)
+    for (const payload of messages) yield* tab.send(site, connection, payload)
+  })
+
+  const hooks: TabHooks = {
+    opened: update,
+    closed: (_tab, site, connection) =>
+      Effect.sync(() => {
+        held.delete(`${site}/${connection}`)
+      }),
+  }
+
+  const resubscribe = (tab: BrokerTab) =>
+    Effect.forEach(
+      Object.keys(streams) as ReadonlyArray<SiteName>,
+      (site) =>
+        Effect.forEach(
+          connections,
+          (connection) => update(tab, site, connection),
+          { discard: true }
+        ),
+      { discard: true }
+    )
+  return { hooks, resubscribe }
+})

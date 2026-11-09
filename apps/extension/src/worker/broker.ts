@@ -6,49 +6,149 @@
 import { Connection, type Feed } from "@workspace/relay"
 import { Effect, Schema } from "effect"
 
+// One socket's message: Ajaib's JSON text, or Stockbit's protobuf bytes as
+// base64 (a port carries JSON only).
+const Payload = Schema.Union([
+  Schema.Struct({ text: Schema.String }),
+  Schema.Struct({ base64: Schema.String }),
+])
+export type Payload = typeof Payload.Type
+
+// The relay's sockets in a broker tab: Stockbit's one stream, and Ajaib's
+// trade stream plus the three on-demand streams.
+const SiteName = Schema.Literals([
+  "stockbit",
+  "ajaib-trade",
+  "ajaib-price",
+  "ajaib-indicative",
+  "ajaib-order-book",
+])
+export type SiteName = typeof SiteName.Type
+
+const socket = { site: SiteName, connection: Connection }
+
 // Service worker → content script, over the tab's port.
 export type BrokerCommand =
-  // Open the connection's socket, replacing any it has, and send `subscribe`
-  // once it opens.
+  // Open the socket, replacing any it has, and send `subscribe` once it
+  // opens.
   | {
       readonly _tag: "open"
+      readonly site: SiteName
       readonly connection: Connection
       readonly url: string
-      readonly subscribe: ReadonlyArray<string>
+      readonly protocols: ReadonlyArray<string>
+      readonly subscribe: ReadonlyArray<Payload>
     }
   | {
       readonly _tag: "send"
+      readonly site: SiteName
       readonly connection: Connection
-      readonly text: string
+      readonly payload: Payload
     }
+  // Close the socket without reporting it.
+  | {
+      readonly _tag: "close"
+      readonly site: SiteName
+      readonly connection: Connection
+    }
+
+// A one-off request the tab makes from its own origin, answered by an
+// `answer` event with the same id.
+export type TabRequest =
+  // A cookie's value, "" when it is missing.
+  | { readonly _tag: "cookie"; readonly name: string }
+  | {
+      readonly _tag: "fetch"
+      readonly url: string
+      readonly headers: Readonly<Record<string, string>>
+    }
+  // A GET of `path` on the page's own REST API with the page's own headers,
+  // as the MAIN-world wrapper last saw them. Status 0 before it saw any.
+  | { readonly _tag: "page-fetch"; readonly path: string }
+
+export type TabCommand =
+  | BrokerCommand
+  | {
+      readonly _tag: "request"
+      readonly id: number
+      readonly request: TabRequest
+    }
+
+// Status 0: the request failed before any answer.
+export const Answer = Schema.TaggedStruct("answer", {
+  id: Schema.Int,
+  status: Schema.Int,
+  body: Schema.String,
+})
+export type Answer = typeof Answer.Type
 
 // Content script → service worker. The port is a process boundary, so the
 // worker decodes it.
 export const BrokerEvent = Schema.Union([
-  Schema.TaggedStruct("opened", { connection: Connection }),
-  Schema.TaggedStruct("frame", { connection: Connection, text: Schema.String }),
-  Schema.TaggedStruct("closed", { connection: Connection, code: Schema.Int }),
+  Schema.TaggedStruct("opened", socket),
+  Schema.TaggedStruct("frame", { ...socket, payload: Payload }),
+  Schema.TaggedStruct("closed", { ...socket, code: Schema.Int }),
 ])
 export type BrokerEvent = typeof BrokerEvent.Type
 
-// How the relay talks to one broker's socket.
+// How the relay talks to one broker socket.
 export interface BrokerSite {
+  readonly name: SiteName
   readonly feed: Feed
-  readonly url: (connection: Connection) => string
-  readonly subscribe: ReadonlyArray<string>
+  readonly url: string
+  readonly protocols: ReadonlyArray<string>
+  // Sent by the tab as the socket opens. Stockbit's and the on-demand
+  // streams' subscriptions change during the day, so the service worker
+  // sends those itself.
+  readonly subscribe: ReadonlyArray<Payload>
   // The app-level ping a quiet socket sends on a tick.
-  readonly ping: string
+  readonly ping: Payload
 }
 
-export const ajaib: BrokerSite = {
-  feed: "Ajaib",
-  // The page's own direct host; it authenticates with the tab's cookies.
-  url: () => "wss://stream.ajaib.co.id:8009/ws/trade",
-  // The whole-market tape. Ajaib answers a second subscribe on the same
-  // socket with `invalid subscription object`, so it is sent once.
-  subscribe: ['{"method":"SUBSCRIBE","stream":"TRADE","streamObject":"*"}'],
-  ping: '{"method":"SUBSCRIBE","streamObject":"PING-WEB"}',
+const AJAIB_PING: Payload = {
+  text: '{"method":"SUBSCRIBE","streamObject":"PING-WEB"}',
 }
+
+// The page's own direct host; it authenticates with the tab's cookies.
+const ajaibStream = (
+  name: SiteName,
+  stream: string,
+  subscribe: ReadonlyArray<Payload> = []
+): BrokerSite => ({
+  name,
+  feed: "Ajaib",
+  url: `wss://stream.ajaib.co.id:8009/ws/${stream}`,
+  protocols: [],
+  subscribe,
+  ping: AJAIB_PING,
+})
+
+// The whole-market tape. Ajaib answers a second subscribe on the same socket
+// with `invalid subscription object`, so it is sent once.
+export const ajaib = ajaibStream("ajaib-trade", "trade", [
+  { text: '{"method":"SUBSCRIBE","stream":"TRADE","streamObject":"*"}' },
+])
+
+// The on-demand streams, subscribed per code (on-demand.ts).
+export const ajaibOnDemand = [
+  ajaibStream("ajaib-price", "price"),
+  ajaibStream("ajaib-indicative", "indicative"),
+  ajaibStream("ajaib-order-book", "order-book-custom"),
+] as const
+
+export const stockbit: BrokerSite = {
+  name: "stockbit",
+  feed: "Stockbit",
+  url: "wss://wss-jkt.trading.stockbit.com/ws",
+  protocols: ["web"],
+  subscribe: [],
+  // WebsocketRequest { ping: { message: "ping" } }, bytes 22 06 0a 04 "ping".
+  ping: { base64: "IgYKBHBpbmc=" },
+}
+
+// Where the trading day is for the relay: outside streaming hours nothing is
+// open; during an auction a dropped socket reconnects but none opens fresh.
+export type Window = "closed" | "auction" | "open"
 
 interface Link {
   readonly phase: "idle" | "opening" | "open"
@@ -58,10 +158,14 @@ interface Link {
   readonly waiting: boolean
   // A frame arrived on this socket.
   readonly framed: boolean
+  // This connection was open earlier in today's streaming hours, so opening
+  // it again is a reconnect.
+  readonly ever: boolean
 }
 
 // A broker site's connections while a tab of it is attached.
 export interface Links {
+  readonly window: Window
   readonly attached: boolean
   readonly A: Link
   readonly B: Link
@@ -72,16 +176,29 @@ const idle: Link = {
   heard: false,
   waiting: false,
   framed: false,
+  ever: false,
 }
 
-export const detached: Links = { attached: false, A: idle, B: idle }
+export const detached: Links = {
+  window: "closed",
+  attached: false,
+  A: idle,
+  B: idle,
+}
 
 export type FeedStatus = "opened" | "closed" | "alive"
 
 export type BrokerInput =
   | { readonly _tag: "attach" }
   | { readonly _tag: "detach" }
-  | { readonly _tag: "tick" }
+  | { readonly _tag: "tick"; readonly window: Window }
+  // The relay gave up on a socket (Stockbit's key fetch failed): close it and
+  // reopen it on the next tick.
+  | {
+      readonly _tag: "drop"
+      readonly site: SiteName
+      readonly connection: Connection
+    }
   | BrokerEvent
 
 export interface Step {
@@ -108,49 +225,79 @@ const open = Effect.fnUntraced(function* (
   draft: Draft,
   connection: Connection
 ) {
+  const { name: site, url, protocols, subscribe } = draft.site
   draft.commands.push({
     _tag: "open",
+    site,
     connection,
-    url: draft.site.url(connection),
-    subscribe: draft.site.subscribe,
+    url,
+    protocols,
+    subscribe,
   })
-  draft.next[connection] = { ...idle, phase: "opening" }
+  draft.next[connection] = {
+    ...idle,
+    phase: "opening",
+    ever: draft.links[connection].ever,
+  }
 })
 
 // A link the tick must (re)open: an idle A; an idle B once A streams; or one
-// whose open or ping went unanswered for a whole tick.
+// whose open or ping went unanswered for a whole tick. During an auction only
+// a connection that was open before may open.
 const isDue = Effect.fnUntraced(function* (
   draft: Draft,
   connection: Connection
 ) {
   const link = draft.links[connection]
+  if (draft.next.window !== "open" && !link.ever) return false
   if (link.phase !== "idle") return link.waiting
   return (
     connection === "A" || (draft.next.A.phase === "open" && draft.next.A.framed)
   )
 })
 
+const reopen = Effect.fnUntraced(function* (
+  draft: Draft,
+  connection: Connection
+) {
+  if (draft.links[connection].phase === "open")
+    draft.statuses.push({ connection, status: "closed" })
+  yield* open(draft, connection)
+})
+
+// A quiet socket: an open one pings, and either waits a tick for an answer.
+const ping = Effect.fnUntraced(function* (
+  draft: Draft,
+  connection: Connection
+) {
+  const link = draft.links[connection]
+  if (link.phase === "open")
+    draft.commands.push({
+      _tag: "send",
+      site: draft.site.name,
+      connection,
+      payload: draft.site.ping,
+    })
+  draft.next[connection] = { ...link, waiting: true }
+})
+
 // At most one socket opens per tick, so A and B never open together and never
 // drop together. A goes first; B opens for the first time only once A has
 // streamed.
-const onTick = Effect.fnUntraced(function* (draft: Draft) {
+const onTick = Effect.fnUntraced(function* (draft: Draft, window: Window) {
+  draft.next.window = window
+  if (window === "closed") return yield* closeAll(draft)
   if (!draft.links.attached) return
   let opened = false
   for (const connection of connections) {
     const link = draft.links[connection]
-    if (link.heard) {
+    if (link.heard)
       draft.next[connection] = { ...link, heard: false, waiting: false }
-    } else if (yield* isDue(draft, connection)) {
+    else if (yield* isDue(draft, connection)) {
       if (opened) continue
-      if (link.phase === "open")
-        draft.statuses.push({ connection, status: "closed" })
-      yield* open(draft, connection)
+      yield* reopen(draft, connection)
       opened = true
-    } else if (link.phase !== "idle") {
-      if (link.phase === "open")
-        draft.commands.push({ _tag: "send", connection, text: draft.site.ping })
-      draft.next[connection] = { ...link, waiting: true }
-    }
+    } else if (link.phase !== "idle") yield* ping(draft, connection)
   }
 })
 
@@ -176,18 +323,43 @@ const onClosed = Effect.fnUntraced(function* (
   const link = draft.links[connection]
   if (link.phase === "open")
     draft.statuses.push({ connection, status: "closed" })
-  draft.next[connection] = idle
+  draft.next[connection] = { ...idle, ever: link.ever }
+  if (draft.next.window === "closed") return
   // Decision: a socket that streamed reopens at once; one that closed before
   // its first frame waits for the next tick, so a broker refusing the relay
   // costs one attempt per 10 s rather than a tight loop.
   if (link.framed) yield* open(draft, connection)
 })
 
+const onDrop = Effect.fnUntraced(function* (
+  draft: Draft,
+  connection: Connection
+) {
+  const link = draft.links[connection]
+  if (link.phase === "idle") return
+  draft.commands.push({ _tag: "close", site: draft.site.name, connection })
+  if (link.phase === "open")
+    draft.statuses.push({ connection, status: "closed" })
+  draft.next[connection] = { ...idle, ever: link.ever }
+})
+
+// Outside streaming hours: close every socket, and the next day starts fresh.
+const closeAll = Effect.fnUntraced(function* (draft: Draft) {
+  for (const connection of connections) {
+    const link = draft.links[connection]
+    if (link.phase !== "idle")
+      draft.commands.push({ _tag: "close", site: draft.site.name, connection })
+    if (link.phase === "open")
+      draft.statuses.push({ connection, status: "closed" })
+    draft.next[connection] = idle
+  }
+})
+
 const onDetach = Effect.fnUntraced(function* (draft: Draft) {
   for (const connection of connections)
     if (draft.links[connection].phase === "open")
       draft.statuses.push({ connection, status: "closed" })
-  Object.assign(draft.next, detached)
+  Object.assign(draft.next, detached, { window: draft.links.window })
 })
 
 // One input applied to a site's links: the next links, the commands for the
@@ -207,13 +379,13 @@ export const step = Effect.fnUntraced(function* (
   switch (input._tag) {
     case "attach":
       draft.next.attached = true
-      yield* open(draft, "A")
+      if (links.window === "open") yield* open(draft, "A")
       break
     case "detach":
       yield* onDetach(draft)
       break
     case "opened":
-      draft.next[input.connection] = { ...idle, phase: "open" }
+      draft.next[input.connection] = { ...idle, phase: "open", ever: true }
       draft.statuses.push({ connection: input.connection, status: "opened" })
       break
     case "frame":
@@ -222,8 +394,11 @@ export const step = Effect.fnUntraced(function* (
     case "closed":
       yield* onClosed(draft, input.connection)
       break
+    case "drop":
+      yield* onDrop(draft, input.connection)
+      break
     case "tick":
-      yield* onTick(draft)
+      yield* onTick(draft, input.window)
       break
   }
   return {
