@@ -9,9 +9,10 @@ import {
   type RunningTrade,
   type StockCode,
   type ViewerUp,
+  type ViewerDown,
 } from "@workspace/relay"
 import { DateTime, Effect, Fiber, Stream, SubscriptionRef } from "effect"
-import { useEffect, useState } from "react"
+import { useEffect, useRef, useState } from "react"
 
 import { KButton } from "@/components/k/button"
 import { compactIdr, plain, tapeTime } from "@/lib/format"
@@ -70,18 +71,28 @@ function SourceDots({ feeds }: { feeds: ReadonlyArray<Source> }) {
 // visitor to sign in and back; a 4426 close asks for a reload; any other close
 // reconnects and starts over from a fresh snapshot. Clicking a trade selects
 // its code; each change of `selected` is sent down the open socket.
+// `onMessage` hears every viewer message too: the chart reads its candles.
 export function LiveTape({
   selected,
   onSelect,
+  onMessage,
 }: {
   selected: StockCode
   onSelect: (code: StockCode) => void
+  onMessage?: (message: ViewerDown) => void
 }) {
   const [tape, setTape] = useState<ReadonlyArray<RunningTrade>>([])
   const [status, setStatus] = useState<Status>("live")
   const [select] = useState(() =>
     Effect.runSync(SubscriptionRef.make(selectOf(selected)))
   )
+
+  // The latest listener, so a new one (the chart's store for a new code)
+  // doesn't reopen the socket. Updated before the Select below goes out.
+  const listener = useRef(onMessage)
+  useEffect(() => {
+    listener.current = onMessage
+  }, [onMessage])
 
   useEffect(() => {
     clientRuntime.runFork(SubscriptionRef.set(select, selectOf(selected)))
@@ -95,11 +106,12 @@ export function LiveTape({
     })
     const fiber = clientRuntime.runFork(
       Stream.runForEach(messages, (message) =>
-        Effect.sync(() =>
+        Effect.sync(() => {
+          listener.current?.(message)
           setTape((current) =>
             Effect.runSync(applyViewerMessage(current, message))
           )
-        )
+        })
       ).pipe(
         Effect.catchTags({
           // A full load: the sign-in page reads its own session state.

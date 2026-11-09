@@ -1,7 +1,9 @@
 import { createFileRoute } from "@tanstack/react-router"
 import type { StockCode } from "@workspace/client"
-import { useCallback } from "react"
+import { useCallback, useMemo } from "react"
 
+import { makeCandleStore } from "@/components/market-live/candle-store"
+import { LiveChart } from "@/components/market-live/live-chart"
 import { LiveTape } from "@/components/market-live/live-tape"
 import { StockCodePalette } from "@/components/market-live/stock-code-palette"
 import { StockCodePicker } from "@/components/market-live/stock-code-picker"
@@ -26,6 +28,8 @@ function MarketLivePage() {
   const { code: selected = DEFAULT_CODE } = Route.useSearch()
   const navigate = Route.useNavigate()
   const codes = useStockCodeList()
+  // One store per selected code; the Select for it brings a fresh snapshot.
+  const candles = useMemo(() => makeCandleStore(selected), [selected])
   const select = useCallback(
     (code: StockCode) =>
       void navigate({
@@ -36,20 +40,26 @@ function MarketLivePage() {
   return (
     <div className="flex flex-col gap-4">
       <h1 className="text-2xl font-bold">Market Live</h1>
-      <section aria-label="Chart" className="flex flex-col gap-2">
-        <header className="flex flex-wrap items-center gap-3">
-          <h2 className="text-lg font-semibold">{selected}</h2>
-          <StockCodePicker
-            list={codes}
-            label="Search stock code"
-            shortcut="/"
-            onPick={select}
-            className="w-full max-w-xs"
-          />
-        </header>
-      </section>
+      <div className="grid gap-4 lg:grid-cols-[minmax(0,1fr)_400px]">
+        <LiveChart
+          store={candles}
+          search={
+            <StockCodePicker
+              list={codes}
+              label="Search stock code"
+              shortcut="/"
+              onPick={select}
+              className="ml-auto w-full max-w-xs"
+            />
+          }
+        />
+        <LiveTape
+          selected={selected}
+          onSelect={select}
+          onMessage={candles.apply}
+        />
+      </div>
       <StockCodePalette list={codes} onPick={select} />
-      <LiveTape selected={selected} onSelect={select} />
     </div>
   )
 }

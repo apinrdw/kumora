@@ -38,6 +38,7 @@ export {
   encodeViewerUp,
 } from "./envelope.ts"
 export type {
+  Candle,
   IngestDown,
   IngestUp,
   RunningTrade,
