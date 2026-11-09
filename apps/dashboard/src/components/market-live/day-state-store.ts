@@ -6,6 +6,8 @@ export interface DayStateStore {
   // Whether any code's figures are Ajaib's fallback.
   readonly fallback: () => boolean
   readonly apply: (message: ViewerDown) => void
+  // Every code's state at once: a recorded day's rows at the cursor.
+  readonly replace: (states: ReadonlyArray<DayState>) => void
   // `listener` hears every change of `code`'s state, or of any code's when
   // `code` is undefined.
   readonly subscribe: (
@@ -25,22 +27,23 @@ export function makeDayStateStore(): DayStateStore {
       for (const listener of listeners.get(code) ?? []) listener()
     for (const listener of listeners.get(undefined) ?? []) listener()
   }
+  const replace = (arriving: ReadonlyArray<DayState>) => {
+    const before = [...states.keys()]
+    states = new Map(arriving.map((state) => [state.code, state]))
+    emit(new Set([...before, ...states.keys()]))
+  }
   return {
     state: (code) => states.get(code),
     fallback: () =>
       [...states.values()].some((state) => state.provenance === "Ajaib"),
     apply: (message) => {
       const arriving = message.dayStates ?? []
-      if (message._tag === "Snapshot") {
-        const before = [...states.keys()]
-        states = new Map(arriving.map((state) => [state.code, state]))
-        emit(new Set([...before, ...states.keys()]))
-        return
-      }
+      if (message._tag === "Snapshot") return replace(arriving)
       if (arriving.length === 0) return
       for (const state of arriving) states.set(state.code, state)
       emit(arriving.map((state) => state.code))
     },
+    replace,
     subscribe: (code, listener) => {
       const held = listeners.get(code) ?? new Set()
       listeners.set(code, held)

@@ -172,13 +172,16 @@ function Ladder({ book }: { book: OrderBook }) {
 
 // The selected code's order book as an IDX ladder, live from the viewer
 // socket through `store`, with its depth curve and totals underneath. On a
-// recorded day, `recorded`: the stored frame in force, headed by its time.
+// recorded day, `recorded`: the stored frame in force, headed by its time,
+// and `notRecorded` inside a relay gap.
 export function OrderBookPanel({
   store,
   recorded = false,
+  notRecorded = false,
 }: {
   store: OrderBookStore
   recorded?: boolean
+  notRecorded?: boolean
 }) {
   const book = useSyncExternalStore(
     store.subscribe,
@@ -200,7 +203,7 @@ export function OrderBookPanel({
         <h2 className="text-sm font-semibold">Order book</h2>
         <span className="text-sm font-bold">{store.code}</span>
         {stale && book?._tag === "OrderBook" && <StaleSince at={book.at} />}
-        {recorded && book?._tag === "OrderBook" && (
+        {recorded && !notRecorded && book?._tag === "OrderBook" && (
           <span className="ml-auto text-[11px] text-muted-foreground">
             Recorded frame · {tapeTime(DateTime.toEpochMillis(book.at))}
           </span>
@@ -217,7 +220,11 @@ export function OrderBookPanel({
           </span>
         )}
       </header>
-      {book === undefined ? (
+      {notRecorded ? (
+        <p className="py-6 text-center text-[13px] text-muted-foreground">
+          Not recorded
+        </p>
+      ) : book === undefined ? (
         <p className="py-6 text-center text-[13px] text-muted-foreground">
           No data yet.
         </p>

@@ -7,6 +7,7 @@ import { plain } from "@/lib/format"
 
 import type { CandleStore } from "./candle-store"
 import { useMergedStale } from "./market-status"
+import type { ReplayCursor } from "./replay-cursor"
 
 // Decision: Lightweight Charts runs only in the browser, in its own chunk:
 // the Worker's server render never imports it, and other pages never load it
@@ -31,12 +32,18 @@ function useCandles<A>(
 
 // The selected code's 1-minute candles with volume, live from the viewer
 // socket through `store`. `search` sits in the header, to choose the code.
+// On a recorded day, the candles after `cursor` are greyed and a clicked
+// candle moves it; `footer` sits under the chart.
 export function LiveChart({
   store,
   search,
+  cursor,
+  footer,
 }: {
   store: CandleStore
   search?: ReactNode
+  cursor?: ReplayCursor | undefined
+  footer?: ReactNode
 }) {
   const count = useCandles(store, (candles) => candles.length, 0)
   const last = useCandles(store, (candles) => candles.at(-1)?.close, undefined)
@@ -61,10 +68,11 @@ export function LiveChart({
       <div className={stale ? "opacity-50" : undefined}>
         <ClientOnly fallback={<div className={CHART_HEIGHT} />}>
           <Suspense fallback={<div className={CHART_HEIGHT} />}>
-            <ChartCanvas store={store} />
+            <ChartCanvas store={store} cursor={cursor} />
           </Suspense>
         </ClientOnly>
       </div>
+      {footer}
       <p className="text-[11px] text-muted-foreground">
         <a
           href="https://www.tradingview.com/"

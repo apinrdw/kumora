@@ -12,12 +12,15 @@ import { MarketStatusBar } from "@/components/market-live/market-status"
 import { OrderBookPanel } from "@/components/market-live/order-book-panel"
 import { makeOrderBookStore } from "@/components/market-live/order-book-store"
 import {
+  RecordedOrderBook,
   RecordedStatusBar,
   RecordedTape,
   useRecordedDay,
+  useReplayCursor,
 } from "@/components/market-live/recorded-day"
 import { StockCodePalette } from "@/components/market-live/stock-code-palette"
 import { StockCodePicker } from "@/components/market-live/stock-code-picker"
+import { TransportBar } from "@/components/market-live/transport-bar"
 import { useStockCodeList } from "@/components/market-live/use-stock-code-list"
 import { useWatchlist } from "@/components/market-live/use-watchlist"
 import { Watchlist } from "@/components/market-live/watchlist"
@@ -82,8 +85,10 @@ function MarketLiveDay({
   const book = useMemo(() => makeOrderBookStore(selected), [selected])
   const [dayStates] = useState(makeDayStateStore)
   const watchlist = useWatchlist()
-  useRecordedDay({
+  const cursor = useReplayCursor(day)
+  const gaps = useRecordedDay({
     day,
+    cursor,
     selected,
     watchlist: watchlist.codes,
     candles,
@@ -109,15 +114,17 @@ function MarketLiveDay({
     <>
       <header className="flex flex-wrap items-center gap-x-4 gap-y-2">
         <h1 className="text-2xl font-bold">Market Live</h1>
-        {day === undefined ? (
+        {cursor === undefined ? (
           <MarketStatusBar />
         ) : (
-          <RecordedStatusBar day={day} closed={closed} />
+          <RecordedStatusBar cursor={cursor} closed={closed} />
         )}
       </header>
       <div className="grid gap-4 lg:grid-cols-[minmax(0,1fr)_400px]">
         <LiveChart
           store={candles}
+          cursor={cursor}
+          footer={cursor && <TransportBar cursor={cursor} />}
           search={
             <StockCodePicker
               list={codes}
@@ -137,8 +144,12 @@ function MarketLiveDay({
             onRemove={watchlist.remove}
             onSelect={select}
           />
-          <OrderBookPanel store={book} recorded={day !== undefined} />
-          {day === undefined ? (
+          {cursor === undefined ? (
+            <OrderBookPanel store={book} />
+          ) : (
+            <RecordedOrderBook store={book} cursor={cursor} gaps={gaps} />
+          )}
+          {cursor === undefined ? (
             <LiveTape
               selected={selected}
               watchlist={watchlist.codes}
@@ -146,7 +157,12 @@ function MarketLiveDay({
               onMessage={apply}
             />
           ) : (
-            <RecordedTape day={day} selected={selected} onSelect={select} />
+            <RecordedTape
+              cursor={cursor}
+              gaps={gaps}
+              selected={selected}
+              onSelect={select}
+            />
           )}
         </div>
       </div>

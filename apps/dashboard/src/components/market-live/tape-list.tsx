@@ -39,15 +39,27 @@ function framedTapeStore() {
   let frame = 0
   let scheduled: number | undefined
   const listeners = new Set<() => void>()
+  const draw = () => {
+    if (scheduled !== undefined) return
+    scheduled = requestAnimationFrame(() => {
+      scheduled = undefined
+      frame += 1
+      for (const listener of listeners) listener()
+    })
+  }
   return {
     apply: (message: ViewerDown) => {
       tape = applyViewerMessage(tape, message)
-      if (scheduled !== undefined) return
-      scheduled = requestAnimationFrame(() => {
-        scheduled = undefined
-        frame += 1
-        for (const listener of listeners) listener()
+      draw()
+    },
+    // A recorded day's tape at the cursor, in place of what it held.
+    replace: (trades: ReadonlyArray<RunningTrade>) => {
+      tape = applyViewerMessage(emptyTape(), {
+        _tag: "Delta",
+        tape: trades,
+        candles: [],
       })
+      draw()
     },
     subscribe: (listener: () => void) => {
       listeners.add(listener)
@@ -66,7 +78,12 @@ function framedTapeStore() {
 export function useFramedTape() {
   const [store] = useState(framedTapeStore)
   const frame = useSyncExternalStore(store.subscribe, store.frame, store.frame)
-  return { tape: store.tape(), frame, apply: store.apply }
+  return {
+    tape: store.tape(),
+    frame,
+    apply: store.apply,
+    replace: store.replace,
+  }
 }
 
 // Every row is this tall, so the list knows which rows are in view without

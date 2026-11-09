@@ -4,7 +4,6 @@
 // sends the visitor to sign in.
 import {
   DayStripPath,
-  bookAt,
   decodeBookChunk,
   decodeDayStrip,
   decodeRecordedCandles,
@@ -60,20 +59,17 @@ export const fetchRecordedTape = Effect.fnUntraced(function* (
   return (yield* decodeRecordedTape(body.value)).trades
 })
 
-// The stored order book frame in force at `cursor`: the chunk of the
-// cursor's minute, replayed to it. Undefined when none was recorded.
-export const fetchRecordedBook = Effect.fnUntraced(function* (
+// The selected code's stored book chunk for `minute`'s minute (or the latest
+// before it); the page replays it to the cursor with `bookAt`. None when the
+// code had no book by then.
+export const fetchRecordedBookChunk = Effect.fnUntraced(function* (
   date: WibDate,
   code: StockCode,
-  cursor: DateTime.Utc
+  minute: DateTime.Utc
 ) {
-  const body = yield* getResource(date, {
-    _tag: "Book",
-    code,
-    minute: cursor,
-  })
-  if (Option.isNone(body)) return undefined
-  return yield* bookAt(yield* decodeBookChunk(body.value), cursor)
+  const body = yield* getResource(date, { _tag: "Book", code, minute })
+  if (Option.isNone(body)) return Option.none()
+  return Option.some(yield* decodeBookChunk(body.value))
 })
 
 // The day's relay gaps.

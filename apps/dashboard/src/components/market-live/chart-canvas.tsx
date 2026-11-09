@@ -11,7 +11,9 @@ import {
   type IPrimitivePaneRenderer,
   type IPrimitivePaneView,
   type ISeriesPrimitive,
+  type MouseEventParams,
   type SeriesAttachedParameter,
+  type Logical,
   type Time,
   type UTCTimestamp,
 } from "lightweight-charts"
@@ -19,6 +21,7 @@ import { useEffect, useRef, useState } from "react"
 
 import type { CandleChange, CandleStore } from "./candle-store"
 import { useAuctionIndicative } from "./market-status"
+import type { ReplayCursor } from "./replay-cursor"
 
 const WIB = "Asia/Jakarta"
 const wibClock = new Intl.DateTimeFormat("en-US", {
@@ -118,10 +121,81 @@ class SessionLines implements ISeriesPrimitive<Time> {
   }
 }
 
+// Draws the replay cursor as a 2-pixel vertical line at a logical bar
+// position, over the candles.
+class CursorLine implements ISeriesPrimitive<Time> {
+  private logical: number | undefined
+  private attachedTo: SeriesAttachedParameter<Time> | undefined
+  private readonly renderer: IPrimitivePaneRenderer = {
+    draw: (target) =>
+      target.useBitmapCoordinateSpace((scope) => {
+        const timeScale = this.attachedTo?.chart.timeScale()
+        if (timeScale === undefined || this.logical === undefined) return
+        const x = timeScale.logicalToCoordinate(this.logical as Logical)
+        if (x === null) return
+        scope.context.fillStyle = this.color
+        const width = Math.max(2, Math.floor(2 * scope.horizontalPixelRatio))
+        scope.context.fillRect(
+          Math.round(x * scope.horizontalPixelRatio - width / 2),
+          0,
+          width,
+          scope.bitmapSize.height
+        )
+      }),
+  }
+  private readonly views: ReadonlyArray<IPrimitivePaneView> = [
+    { zOrder: () => "top", renderer: () => this.renderer },
+  ]
+
+  constructor(private readonly color: string) {}
+
+  attached(parameter: SeriesAttachedParameter<Time>) {
+    this.attachedTo = parameter
+  }
+
+  detached() {
+    this.attachedTo = undefined
+  }
+
+  setLogical(logical: number | undefined) {
+    this.logical = logical
+    this.attachedTo?.requestUpdate()
+  }
+
+  paneViews() {
+    return this.views
+  }
+}
+
+// Where the cursor's minute sits among the candles, as a logical bar index:
+// on its own candle, or half a bar past the latest candle before it.
+const cursorLogical = (candles: ReadonlyArray<Candle>, minute: number) => {
+  const before = candles.filter(
+    (candle) => DateTime.toEpochMillis(candle.minute) <= minute
+  )
+  const latest = before.at(-1)
+  if (latest === undefined) return -0.5
+  return (
+    before.length -
+    1 +
+    (DateTime.toEpochMillis(latest.minute) === minute ? 0 : 0.5)
+  )
+}
+
+const MINUTE = 60_000
+
 // The selected code's candles and volume, drawn from the candle store. A
 // snapshot redraws with `setData`; deltas go through `update`, at most once an
 // animation frame, a closed minute's with the historical flag.
-export default function ChartCanvas({ store }: { store: CandleStore }) {
+// With `cursor`, a recorded day: candles after the cursor's minute are
+// greyed under a cursor line, and clicking a candle picks its minute.
+export default function ChartCanvas({
+  store,
+  cursor,
+}: {
+  store: CandleStore
+  cursor?: ReplayCursor | undefined
+}) {
   const host = useRef<HTMLDivElement>(null)
   // The candle series, once drawn: the indicative line goes on it.
   const [series, setSeries] = useState<ReturnType<
@@ -178,18 +252,31 @@ export default function ChartCanvas({ store }: { store: CandleStore }) {
     const sessions = new SessionLines(token("--border-subtle"))
     candles.attachPrimitive(sessions)
 
+    const grey = token("--text-muted")
+    const cursorMinute = () =>
+      cursor === undefined
+        ? Number.POSITIVE_INFINITY
+        : Math.floor(cursor.state().at / MINUTE) * MINUTE
+    let shownMinute = cursorMinute()
+    const later = (candle: Candle) =>
+      DateTime.toEpochMillis(candle.minute) > shownMinute
     const bar = (candle: Candle) => ({
       time: timeOf(candle),
       open: candle.open,
       high: candle.high,
       low: candle.low,
       close: candle.close,
+      ...(later(candle) && { color: `${grey}55`, wickColor: `${grey}55` }),
     })
     const volumeBar = (candle: Candle) => ({
       time: timeOf(candle),
       value: candle.volume,
-      color: `${candle.close >= candle.open ? up : down}66`,
+      color: later(candle)
+        ? `${grey}33`
+        : `${candle.close >= candle.open ? up : down}66`,
     })
+    const marker = new CursorLine(token("--text-primary"))
+    if (cursor !== undefined) candles.attachPrimitive(marker)
 
     // The minutes drawn, so a delta can tell a closed minute from a new one.
     let drawn = new Set<number>()
@@ -201,8 +288,23 @@ export default function ChartCanvas({ store }: { store: CandleStore }) {
       sessions.setTimes(sessionStarts(all))
       drawn = new Set(all.map(timeOf))
       latest = all.length === 0 ? 0 : timeOf(all.at(-1)!)
+      if (cursor !== undefined)
+        marker.setLogical(cursorLogical(all, shownMinute))
     }
     redraw()
+
+    // The cursor moved to another minute: grey again from there.
+    const stopCursor = cursor?.subscribe(() => {
+      const minute = cursorMinute()
+      if (minute === shownMinute) return
+      shownMinute = minute
+      redraw()
+    })
+    if (cursor !== undefined)
+      chart.subscribeClick((parameter: MouseEventParams<Time>) => {
+        if (parameter.time !== undefined)
+          cursor.pickMinute((parameter.time as UTCTimestamp) * 1000)
+      })
 
     let reset = false
     const pending = new Map<number, Candle>()
@@ -245,11 +347,12 @@ export default function ChartCanvas({ store }: { store: CandleStore }) {
     })
     return () => {
       unsubscribe()
+      stopCursor?.()
       cancelAnimationFrame(frame)
       setSeries(null)
       chart.remove()
     }
-  }, [store])
+  }, [store, cursor])
 
   // During the auctions, the indicative price as a dashed line.
   useEffect(() => {

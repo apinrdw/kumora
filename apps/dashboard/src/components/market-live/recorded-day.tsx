@@ -1,121 +1,254 @@
-// A recorded day at its close (spec apinrdw/kumora#138, "Closed market and
-// recorded days"): the day's GETs fill the same stores the viewer socket
-// fills live, so the chart, watchlist, order book and tape render unchanged.
+// A recorded day at its replay cursor (spec apinrdw/kumora#138, "Closed
+// market and recorded days", "Recorded day loads"): the day's GETs fill the
+// same stores the viewer socket fills live, so the chart, watchlist, order
+// book and tape render unchanged, each read as of the cursor.
 import {
   clientRuntime,
-  fetchRecordedBook,
+  fetchRecordedBookChunk,
   fetchRecordedCandles,
   fetchRecordedGaps,
   fetchRecordedTape,
 } from "@workspace/client"
-import type {
-  MarketPhase,
-  RelayGap,
-  StockCode,
-  ViewerDown,
-  WibDate,
+import {
+  bookAt,
+  marketPhases,
+  type BookChunk,
+  type MarketPhase,
+  type RecordedCandles,
+  type RelayGap,
+  type RunningTrade,
+  type StockCode,
+  type WibDate,
 } from "@workspace/relay"
 import { DateTime, Effect, Fiber, Option, Predicate } from "effect"
 import type { HttpClient } from "effect/http/HttpClient"
-import { useEffect, useState } from "react"
+import { useEffect, useMemo, useState } from "react"
 
 import { KStatusPill } from "@/components/k/status-pill"
-import { dayLabel } from "@/lib/format"
-import { closeOf, dayStateAt } from "@/lib/recorded-day"
+import { dayLabel, tapeTime } from "@/lib/format"
+import { dayStateAt } from "@/lib/recorded-day"
+import { TAPE_INTERVAL_MS, gapAt, replayDay, tapeInstant } from "@/lib/replay"
 
 import type { CandleStore } from "./candle-store"
 import type { DayStateStore } from "./day-state-store"
 import { TAPE_HEIGHT, TapeSection } from "./live-tape"
 import { PhaseLabel } from "./market-status"
+import { OrderBookPanel } from "./order-book-panel"
 import type { OrderBookStore } from "./order-book-store"
+import { makeReplayCursor, useReplay, type ReplayCursor } from "./replay-cursor"
 import { signInAgain } from "./sign-in-again"
 import { TapeList, useFramedTape } from "./tape-list"
 
-type Delta = Extract<ViewerDown, { readonly _tag: "Delta" }>
+const MINUTE = 60_000
+// Decision: the book frame follows the cursor in quarter seconds, the
+// relay's book delta cadence; finer redraws would show the same frame.
+const BOOK_STEP_MS = 250
 
-// What a recorded load adds to a store, in the socket's words: a delta onto
-// the day's fresh stores.
-const recordedDelta = (parts: Partial<Omit<Delta, "_tag">>): ViewerDown => ({
-  _tag: "Delta",
-  tape: [],
-  candles: [],
-  ...parts,
-})
-
-// Runs a load until the effect that started it cleans up; a 401 sends the
-// visitor to sign in.
-const runLoad = (load: Effect.Effect<void, unknown, HttpClient>) => {
-  const fiber = clientRuntime.runFork(
-    load.pipe(
-      Effect.catchIf(
-        (error) => Predicate.isTagged(error, "SignInRequired"),
-        () => signInAgain
-      ),
-      Effect.catchCause((cause) =>
-        Effect.logWarning("Recorded day not loaded", cause)
+// The loads one effect started, each stopped when the effect cleans up; a
+// 401 sends the visitor to sign in.
+function makeLoads() {
+  const fibers = new Set<Fiber.Fiber<void>>()
+  return {
+    run: (load: Effect.Effect<void, unknown, HttpClient>) => {
+      const fiber = clientRuntime.runFork(
+        load.pipe(
+          Effect.catchIf(
+            (error) => Predicate.isTagged(error, "SignInRequired"),
+            () => signInAgain
+          ),
+          Effect.catchCause((cause) =>
+            Effect.logWarning("Recorded day not loaded", cause)
+          )
+        )
       )
-    )
-  )
-  return () => {
-    clientRuntime.runFork(Fiber.interrupt(fiber))
+      fibers.add(fiber)
+      fiber.addObserver(() => fibers.delete(fiber))
+    },
+    stop: () => {
+      clientRuntime.runFork(Fiber.interruptAll([...fibers]))
+    },
   }
 }
 
-// The selected code's whole-day candles and its book frame at the close.
-const loadSelected = (
+// Runs one load until the effect that started it cleans up.
+const runLoad = (load: Effect.Effect<void, unknown, HttpClient>) => {
+  const loads = makeLoads()
+  loads.run(load)
+  return loads.stop
+}
+
+// Calls `listener` now and whenever `key` of the cursor changes.
+function onCursorKey(
+  cursor: ReplayCursor,
+  key: (at: number) => number,
+  listener: () => void
+) {
+  let last: number | undefined
+  const check = () => {
+    const next = key(cursor.state().at)
+    if (next === last) return
+    last = next
+    listener()
+  }
+  check()
+  return cursor.subscribe(check)
+}
+
+/** A recorded day's replay cursor, opened paused at its close. */
+export function useReplayCursor(day: WibDate | undefined) {
+  const cursor = useMemo(
+    () =>
+      day === undefined
+        ? undefined
+        : makeReplayCursor(
+            replayDay(
+              day,
+              Effect.runSync(
+                marketPhases(day).pipe(Effect.orElseSucceed(() => []))
+              )
+            )
+          ),
+    [day]
+  )
+  useEffect(() => () => cursor?.dispose(), [cursor])
+  return cursor
+}
+
+// The selected code's book frame in force at the cursor: the chunk of the
+// cursor's minute, replayed to it; during Play the next minute's chunk is
+// fetched ahead.
+function followBook(
   day: WibDate,
   selected: StockCode,
-  candles: CandleStore,
+  cursor: ReplayCursor,
   book: OrderBookStore
-) =>
+) {
+  const chunks = new Map<number, Option.Option<BookChunk>>()
+  const asked = new Set<number>()
+  const loads = makeLoads()
+  const show = () => {
+    const { at, playing } = cursor.state()
+    const minute = Math.floor(at / MINUTE) * MINUTE
+    const chunk = chunks.get(minute)
+    if (chunk === undefined) load(minute)
+    else
+      book.replace(
+        Option.isSome(chunk)
+          ? Effect.runSync(bookAt(chunk.value, DateTime.makeUnsafe(at)))
+          : undefined
+      )
+    if (playing) load(minute + MINUTE)
+  }
+  const load = (minute: number) => {
+    if (asked.has(minute)) return
+    asked.add(minute)
+    loads.run(
+      Effect.gen(function* () {
+        const chunk = yield* fetchRecordedBookChunk(
+          day,
+          selected,
+          DateTime.makeUnsafe(minute)
+        )
+        chunks.set(minute, chunk)
+        show()
+      })
+    )
+  }
+  const stop = onCursorKey(cursor, (at) => Math.floor(at / BOOK_STEP_MS), show)
+  return () => {
+    stop()
+    loads.stop()
+  }
+}
+
+// The selected code's whole-day candles, onto the day's fresh store.
+const loadCandles = (day: WibDate, selected: StockCode, candles: CandleStore) =>
   Effect.gen(function* () {
     const answer = yield* fetchRecordedCandles(day, selected)
     if (Option.isSome(answer))
-      candles.apply(recordedDelta({ candles: answer.value.candles }))
-    const frame = yield* fetchRecordedBook(day, selected, closeOf(day))
-    if (frame !== undefined) book.apply(recordedDelta({ orderBooks: [frame] }))
+      candles.apply({ _tag: "Delta", tape: [], candles: answer.value.candles })
   })
 
-// Each watchlist code's row at the close, worked out from its candles.
-const loadWatchlist = (
+// Each watchlist code's candles once, its row worked out at each minute of
+// the cursor.
+function followWatchlist(
   day: WibDate,
   watchlist: ReadonlyArray<StockCode>,
+  cursor: ReplayCursor,
   dayStates: DayStateStore
-) =>
-  Effect.gen(function* () {
-    const answers = yield* Effect.forEach(
-      watchlist,
-      (code) => fetchRecordedCandles(day, code),
-      { concurrency: 4 }
-    )
-    const states = answers.flatMap((answer) => {
-      if (Option.isNone(answer)) return []
-      const state = dayStateAt(answer.value, closeOf(day))
-      return state === undefined ? [] : [state]
+) {
+  let answers: ReadonlyArray<RecordedCandles> = []
+  let stop = () => {}
+  const show = () => {
+    const at = DateTime.makeUnsafe(cursor.state().at)
+    dayStates.replace(answers.flatMap((answer) => dayStateAt(answer, at) ?? []))
+  }
+  const stopLoad = runLoad(
+    Effect.gen(function* () {
+      const fetched = yield* Effect.forEach(
+        watchlist,
+        (code) => fetchRecordedCandles(day, code),
+        { concurrency: 4 }
+      )
+      answers = fetched.flatMap((answer) => Option.toArray(answer))
+      stop = onCursorKey(cursor, (at) => Math.floor(at / MINUTE), show)
     })
-    dayStates.apply(recordedDelta({ dayStates: states }))
-  })
+  )
+  return () => {
+    stopLoad()
+    stop()
+  }
+}
 
-// The newest 200 trades at the close, then the day's relay gaps.
-const loadTape = (
-  day: WibDate,
-  apply: (message: ViewerDown) => void,
-  setGaps: (gaps: ReadonlyArray<RelayGap>) => void
-) =>
-  Effect.gen(function* () {
-    const trades = yield* fetchRecordedTape(day, closeOf(day))
-    apply(recordedDelta({ tape: trades }))
-    const gaps = yield* fetchRecordedGaps(day)
-    setGaps(gaps)
-  })
+// The tape at the cursor. Paused, each move asks at once; during Play at
+// most 4 times a second. The newest answer asked for wins.
+function followTape(
+  cursor: ReplayCursor,
+  replace: (trades: ReadonlyArray<RunningTrade>) => void
+) {
+  const loads = makeLoads()
+  let asked = 0
+  let shown = 0
+  let askedAt = Number.NEGATIVE_INFINITY
+  let timer: ReturnType<typeof setTimeout> | undefined
+  const ask = () => {
+    clearTimeout(timer)
+    timer = undefined
+    askedAt = performance.now()
+    asked += 1
+    const id = asked
+    const at = DateTime.makeUnsafe(tapeInstant(cursor.state().at))
+    loads.run(
+      Effect.map(fetchRecordedTape(cursor.day.date, at), (trades) => {
+        if (id < shown) return
+        shown = id
+        replace(trades)
+      })
+    )
+  }
+  const moved = () => {
+    if (!cursor.state().playing) return ask()
+    if (timer !== undefined) return
+    const wait = askedAt + TAPE_INTERVAL_MS - performance.now()
+    if (wait <= 0) ask()
+    else timer = setTimeout(ask, wait)
+  }
+  const stop = onCursorKey(cursor, tapeInstant, moved)
+  return () => {
+    stop()
+    clearTimeout(timer)
+    loads.stop()
+  }
+}
 
 /**
- * Fills the stores with `day` at its close, when there is one: the selected
+ * Fills the stores with `day` at the cursor, when there is one: the selected
  * code's whole-day candles and its book frame in force, and each watchlist
- * code's row.
+ * code's row. Returns the day's relay gaps.
  */
 export function useRecordedDay({
   day,
+  cursor,
   selected,
   watchlist,
   candles,
@@ -123,37 +256,62 @@ export function useRecordedDay({
   dayStates,
 }: {
   day: WibDate | undefined
+  cursor: ReplayCursor | undefined
   selected: StockCode
   watchlist: ReadonlyArray<StockCode>
   candles: CandleStore
   book: OrderBookStore
   dayStates: DayStateStore
-}) {
+}): ReadonlyArray<RelayGap> {
+  const [gaps, setGaps] = useState(NO_GAPS)
   useEffect(() => {
     if (day === undefined) return
-    return runLoad(loadSelected(day, selected, candles, book))
-  }, [day, selected, candles, book])
+    return runLoad(
+      Effect.map(fetchRecordedGaps(day), (answer) => setGaps(answer))
+    )
+  }, [day])
   useEffect(() => {
     if (day === undefined) return
-    return runLoad(loadWatchlist(day, watchlist, dayStates))
-  }, [day, watchlist, dayStates])
+    return runLoad(loadCandles(day, selected, candles))
+  }, [day, selected, candles])
+  useEffect(() => {
+    if (day === undefined || cursor === undefined) return
+    return followBook(day, selected, cursor, book)
+  }, [day, selected, cursor, book])
+  useEffect(() => {
+    if (day === undefined || cursor === undefined) return
+    return followWatchlist(day, watchlist, cursor, dayStates)
+  }, [day, cursor, watchlist, dayStates])
+  return gaps
 }
 
 const NO_GAPS: ReadonlyArray<RelayGap> = []
 
-// The day's newest 200 trades at its close, with its relay gaps.
+// The day's newest 200 trades at or before the cursor, with the relay gaps
+// it has reached.
 export function RecordedTape({
-  day,
+  cursor,
+  gaps,
   selected,
   onSelect,
 }: {
-  day: WibDate
+  cursor: ReplayCursor
+  gaps: ReadonlyArray<RelayGap>
   selected: StockCode
   onSelect: (code: StockCode) => void
 }) {
-  const { tape, frame, apply } = useFramedTape()
-  const [gaps, setGaps] = useState(NO_GAPS)
-  useEffect(() => runLoad(loadTape(day, apply, setGaps)), [day, apply])
+  const { tape, frame, replace } = useFramedTape()
+  useEffect(() => followTape(cursor, replace), [cursor, replace])
+  // The gaps that began by the cursor.
+  const reached = useReplay(
+    cursor,
+    ({ at }) =>
+      gaps.filter((gap) => DateTime.toEpochMillis(gap.from) <= at).length
+  )
+  const shownGaps = useMemo(
+    () => gaps.filter((_, index) => index < reached),
+    [gaps, reached]
+  )
   return (
     <TapeSection>
       <TapeList
@@ -161,24 +319,43 @@ export function RecordedTape({
         frame={frame}
         selected={selected}
         onSelect={onSelect}
-        gaps={gaps}
+        gaps={shownGaps}
         className={TAPE_HEIGHT}
       />
     </TapeSection>
   )
 }
 
+// The selected code's stored book frame at the cursor, or "Not recorded"
+// while the cursor is inside a relay gap.
+export function RecordedOrderBook({
+  store,
+  cursor,
+  gaps,
+}: {
+  store: OrderBookStore
+  cursor: ReplayCursor
+  gaps: ReadonlyArray<RelayGap>
+}) {
+  const inGap = useReplay(cursor, ({ at }) => gapAt(gaps, at) !== undefined)
+  return <OrderBookPanel store={store} recorded notRecorded={inGap} />
+}
+
 // A recorded day's header status: the RECORDED pill in place of the feed
-// pills and the day shown; while the market is shut, its phase and next open.
+// pills, the day shown and where the cursor is; while the market is shut,
+// its phase and next open.
 export function RecordedStatusBar({
-  day,
+  cursor,
   closed,
 }: {
-  day: WibDate
+  cursor: ReplayCursor
   closed?:
     | { readonly phase: MarketPhase; readonly nextOpen?: number }
     | undefined
 }) {
+  const second = useReplay(cursor, ({ at }) =>
+    at >= cursor.day.close ? undefined : Math.floor(at / 1_000) * 1_000
+  )
   return (
     <div
       role="group"
@@ -187,10 +364,10 @@ export function RecordedStatusBar({
     >
       <KStatusPill status="recorded" />
       <span aria-label="Day shown" className="font-medium">
-        {dayLabel(day)}
+        {dayLabel(cursor.day.date)}
         <span className="font-normal text-muted-foreground">
           {" "}
-          · at the close
+          · {second === undefined ? "at the close" : `at ${tapeTime(second)}`}
         </span>
       </span>
       {closed !== undefined && (

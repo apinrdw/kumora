@@ -12,6 +12,8 @@ export interface OrderBookStore {
   readonly code: StockCode
   readonly book: () => HeldBook
   readonly apply: (message: ViewerDown) => void
+  // A recorded day's frame at the cursor, or none recorded by then.
+  readonly replace: (book: HeldBook) => void
   readonly subscribe: (listener: () => void) => () => void
 }
 
@@ -20,6 +22,11 @@ export interface OrderBookStore {
 export function makeOrderBookStore(code: StockCode): OrderBookStore {
   let held: HeldBook
   const listeners = new Set<() => void>()
+  const replace = (next: HeldBook) => {
+    if (next === held) return
+    held = next
+    for (const listener of listeners) listener()
+  }
   return {
     code,
     book: () => held,
@@ -29,9 +36,9 @@ export function makeOrderBookStore(code: StockCode): OrderBookStore {
           ? message.orderBook
           : message.orderBooks?.find((book) => book.code === code)
       if (message._tag === "Delta" && next === undefined) return
-      held = next
-      for (const listener of listeners) listener()
+      replace(next)
     },
+    replace,
     subscribe: (listener) => {
       listeners.add(listener)
       return () => void listeners.delete(listener)
