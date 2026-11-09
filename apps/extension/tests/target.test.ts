@@ -3,11 +3,12 @@ import {
   IngestCloseCode,
   IngestProtocolVersion,
   StockCode,
+  WibDate,
   decodeIngestUp,
   encodeIngestDown,
   type IngestDown,
 } from "@workspace/relay"
-import { Effect, Layer, PubSub } from "effect"
+import { Effect, Layer, PubSub, SubscriptionRef } from "effect"
 import * as Socket from "effect/socket/Socket"
 import { TestClock } from "effect/testing"
 
@@ -50,15 +51,21 @@ class FakeIngest implements Socket.WebSocketLike {
 
 const origin = DashboardOrigin.make("http://localhost:3001")
 
-const harness = Effect.gen(function* () {
+// `catchUp`: what every fresh socket is sent after the token.
+const harness = Effect.fnUntraced(function* (
+  catchUp: ReadonlyArray<string> = []
+) {
   const sockets: Array<FakeIngest> = []
   const states: Array<TargetState> = []
   const down: Array<IngestDown> = []
   const envelopes = yield* PubSub.sliding<string>(16)
+  const day = yield* SubscriptionRef.make(WibDate.make("2026-11-09"))
   const fiber = yield* runTarget({
     origin,
     token: "the token",
     envelopes,
+    day,
+    catchUp: Effect.succeed(catchUp),
     report: (state) => Effect.sync(() => states.push(state)),
     receive: (message) => Effect.sync(() => down.push(message)),
   }).pipe(
@@ -73,7 +80,7 @@ const harness = Effect.gen(function* () {
   )
   // Lets the target's fibers run until they wait on the socket or the clock.
   const settle = Effect.repeat(Effect.yieldNow, { times: 20 })
-  return { sockets, states, down, envelopes, fiber, settle }
+  return { sockets, states, down, envelopes, day, fiber, settle }
 })
 
 describe("a target's ingest socket", () => {
@@ -81,7 +88,7 @@ describe("a target's ingest socket", () => {
     "sends the token first, then every envelope published while open",
     () =>
       Effect.gen(function* () {
-        const { sockets, states, envelopes, settle } = yield* harness
+        const { sockets, states, envelopes, settle } = yield* harness()
         yield* settle
         yield* PubSub.publish(envelopes, "envelope 1")
         yield* settle
@@ -107,7 +114,7 @@ describe("a target's ingest socket", () => {
   ] as const)
     it.effect(`a ${code} close stops retrying and shows ${state}`, () =>
       Effect.gen(function* () {
-        const { sockets, states, fiber, settle } = yield* harness
+        const { sockets, states, fiber, settle } = yield* harness()
         yield* settle
         sockets[0]?.close(code)
         yield* settle
@@ -123,7 +130,7 @@ describe("a target's ingest socket", () => {
     "any other close retries with backoff, reset once a socket opens",
     () =>
       Effect.gen(function* () {
-        const { sockets, states, settle } = yield* harness
+        const { sockets, states, settle } = yield* harness()
         yield* settle
         sockets[0]?.close(1006)
         yield* settle
@@ -142,9 +149,41 @@ describe("a target's ingest socket", () => {
       }).pipe(Effect.scoped)
   )
 
+  it.effect("sends the catch-up envelopes after the token on every open", () =>
+    Effect.gen(function* () {
+      const { sockets, settle } = yield* harness(["the code list"])
+      yield* settle
+      assert.deepStrictEqual(sockets[0]?.sent.slice(1), ["the code list"])
+      sockets[0]?.close(1006)
+      yield* settle
+      yield* TestClock.adjust("1 second")
+      yield* settle
+      assert.deepStrictEqual(sockets[1]?.sent.slice(1), ["the code list"])
+    }).pipe(Effect.scoped)
+  )
+
+  it.effect(
+    "reconnects at once when the WIB date changes, so the new day's object gets the frames",
+    () =>
+      Effect.gen(function* () {
+        const { sockets, states, day, settle } = yield* harness()
+        yield* settle
+        yield* SubscriptionRef.set(day, WibDate.make("2026-11-10"))
+        yield* settle
+        assert.strictEqual(sockets[0]?.readyState, 3)
+        assert.strictEqual(sockets.length, 2)
+        assert.deepStrictEqual(states, [
+          "connecting",
+          "connected",
+          "connecting",
+          "connected",
+        ])
+      }).pipe(Effect.scoped)
+  )
+
   it.effect("hands on what the trading-day object sends down", () =>
     Effect.gen(function* () {
-      const { sockets, down, settle } = yield* harness
+      const { sockets, down, settle } = yield* harness()
       yield* settle
       const codes: IngestDown = {
         _tag: "OnDemandCodes",
