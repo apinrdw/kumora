@@ -1,5 +1,4 @@
 import {
-  StockCode,
   applyViewerMessage,
   clientRuntime,
   viewerMessages,
@@ -8,8 +7,10 @@ import {
   MarketLivePath,
   ViewerProtocolVersion,
   type RunningTrade,
+  type StockCode,
+  type ViewerUp,
 } from "@workspace/relay"
-import { DateTime, Effect, Fiber, Stream } from "effect"
+import { DateTime, Effect, Fiber, Stream, SubscriptionRef } from "effect"
 import { useEffect, useState } from "react"
 
 import { KButton } from "@/components/k/button"
@@ -20,9 +21,14 @@ import { withRedirect } from "@/lib/redirect"
 // them all (apinrdw/kumora#150).
 const SHOWN_TRADES = 200
 
-// Until the page selects a code (apinrdw/kumora#146), every viewer selects
-// this one; the tape streams the whole market whatever is selected.
-const SELECTED = StockCode.make("BBCA")
+// What the socket tells the object the page shows. The tape streams the whole
+// market whatever is selected.
+const selectOf = (selected: StockCode): ViewerUp => ({
+  _tag: "Select",
+  protocolVersion: ViewerProtocolVersion,
+  selected,
+  watchlist: [],
+})
 
 const SIDE_CLASS: Record<RunningTrade["side"], string> = {
   buy: "text-up",
@@ -62,21 +68,30 @@ function SourceDots({ feeds }: { feeds: ReadonlyArray<Source> }) {
 
 // The whole-market tape from the viewer socket. A 4401 close sends the
 // visitor to sign in and back; a 4426 close asks for a reload; any other close
-// reconnects and starts over from a fresh snapshot.
-export function LiveTape() {
+// reconnects and starts over from a fresh snapshot. Clicking a trade selects
+// its code; each change of `selected` is sent down the open socket.
+export function LiveTape({
+  selected,
+  onSelect,
+}: {
+  selected: StockCode
+  onSelect: (code: StockCode) => void
+}) {
   const [tape, setTape] = useState<ReadonlyArray<RunningTrade>>([])
   const [status, setStatus] = useState<Status>("live")
+  const [select] = useState(() =>
+    Effect.runSync(SubscriptionRef.make(selectOf(selected)))
+  )
+
+  useEffect(() => {
+    clientRuntime.runFork(SubscriptionRef.set(select, selectOf(selected)))
+  }, [select, selected])
 
   useEffect(() => {
     const scheme = window.location.protocol === "https:" ? "wss" : "ws"
     const messages = viewerMessages({
       url: `${scheme}://${window.location.host}${MarketLivePath.live}`,
-      select: {
-        _tag: "Select",
-        protocolVersion: ViewerProtocolVersion,
-        selected: SELECTED,
-        watchlist: [],
-      },
+      select,
     })
     const fiber = clientRuntime.runFork(
       Stream.runForEach(messages, (message) =>
@@ -102,7 +117,7 @@ export function LiveTape() {
     return () => {
       clientRuntime.runFork(Fiber.interrupt(fiber))
     }
-  }, [])
+  }, [select])
 
   return (
     <section aria-label="Running trades" className="flex flex-col gap-2">
@@ -143,9 +158,19 @@ export function LiveTape() {
         </thead>
         <tbody>
           {tape.slice(0, SHOWN_TRADES).map((trade) => (
-            <tr key={trade.tradeNumber} data-trade-number={trade.tradeNumber}>
+            <tr
+              key={trade.tradeNumber}
+              data-trade-number={trade.tradeNumber}
+              className="hover:bg-elevated cursor-pointer"
+              onClick={() => onSelect(trade.code)}
+            >
               <td>{tapeTime(DateTime.toEpochMillis(trade.time))}</td>
-              <td className="font-semibold">{trade.code}</td>
+              <td className="font-semibold">
+                {/* The row's click target for the keyboard and screen readers. */}
+                <button type="button" className="hover:underline">
+                  {trade.code}
+                </button>
+              </td>
               <td className={`text-right ${SIDE_CLASS[trade.side]}`}>
                 {plain(trade.price)}
               </td>

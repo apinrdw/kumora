@@ -27,8 +27,23 @@ const recorded: {
   )
 )
 
-// Today in WIB, `YYYY-MM-DD`: the trading-day object the page reads.
-const wibToday = () =>
+/**
+ * Ajaib's recorded stock code list response from 2026-11-09, trimmed to 13
+ * codes (BBCA, BBRI, BREN, GOTO, WIFI and its right WIFI-R, AMAG and its
+ * warrant AMAG-W2…), shared with the trading-day Durable Object's tests.
+ */
+const RECORDED_CODE_LIST: string = JSON.parse(
+  readFileSync(
+    new URL(
+      "../../dashboard/tests/server/market-live/fixtures/ajaib-code-list-2026-11-09.json",
+      import.meta.url
+    ),
+    "utf8"
+  )
+).body
+
+/** Today in WIB, `YYYY-MM-DD`: the trading-day object the page reads. */
+export const wibToday = () =>
   new Date(Date.now() + 7 * 3_600_000).toISOString().slice(0, 10)
 
 /**
@@ -78,6 +93,13 @@ export async function openIngest(token = TEST_INGEST_TOKEN) {
         connection: "A",
         receivedAt: DateTime.nowUnsafe(),
         frames,
+      }),
+    sendCodeList: (body = RECORDED_CODE_LIST) =>
+      send(socket, {
+        _tag: "CodeList",
+        protocolVersion: IngestProtocolVersion,
+        receivedAt: DateTime.nowUnsafe(),
+        body,
       }),
     close: () => socket.close(),
   }
