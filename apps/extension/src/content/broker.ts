@@ -7,12 +7,13 @@
 //
 // It stays dependency-free and imports types only: a content script is a
 // classic script and can't load a shared chunk.
-import type { Feed } from "@workspace/relay"
+import type { Connection, Feed } from "@workspace/relay"
 
 import type {
   BrokerCommand,
   BrokerEvent,
   Payload,
+  SiteName,
   TabCommand,
   TabRequest,
 } from "../worker/broker.ts"
@@ -93,9 +94,13 @@ const answer = async (request: TabRequest): Promise<[number, string]> => {
   }
 }
 
-const sockets = new Map<string, WebSocket>()
-const keyOf = (command: { site: string; connection: string }) =>
-  `${command.site}/${command.connection}`
+type SocketKey = `${SiteName}/${Connection}`
+
+const sockets = new Map<SocketKey, WebSocket>()
+const keyOf = (command: {
+  site: SiteName
+  connection: Connection
+}): SocketKey => `${command.site}/${command.connection}`
 
 const relay = () => {
   let port: chrome.runtime.Port
