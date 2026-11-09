@@ -1,5 +1,6 @@
 import { ClientOnly } from "@tanstack/react-router"
 import { Suspense, lazy, useSyncExternalStore } from "react"
+import type { ReactNode } from "react"
 
 import { plain } from "@/lib/format"
 
@@ -27,17 +28,24 @@ function useCandles<A>(
 }
 
 // The selected code's 1-minute candles with volume, live from the viewer
-// socket through `store`.
-export function LiveChart({ store }: { store: CandleStore }) {
+// socket through `store`. `search` sits in the header, to choose the code.
+export function LiveChart({
+  store,
+  search,
+}: {
+  store: CandleStore
+  search?: ReactNode
+}) {
   const count = useCandles(store, (candles) => candles.length, 0)
   const last = useCandles(store, (candles) => candles.at(-1)?.close, undefined)
   return (
     <section aria-label="Chart" className="flex min-w-0 flex-col gap-2">
-      <header className="flex items-baseline gap-3">
+      <header className="flex flex-wrap items-baseline gap-3">
         <h2 className="text-lg font-bold">{store.code}</h2>
         <span className="text-[15px] font-semibold tabular-nums">
           {last === undefined ? "—" : plain(last)}
         </span>
+        {search}
       </header>
       {/* The canvas has no text: this says what it draws. */}
       <p className="sr-only">One-minute candles: {count}</p>

@@ -119,10 +119,12 @@ const TradeRow = memo(function TradeRow({
   trade,
   selected,
   inFold,
+  onSelect,
 }: {
   trade: RunningTrade
   selected: boolean
   inFold: boolean
+  onSelect: (code: StockCode) => void
 }) {
   const big = isBigTrade(trade)
   const side = SIDE_TEXT[trade.side]
@@ -134,14 +136,20 @@ const TradeRow = memo(function TradeRow({
       className={cn(
         big ? BIG_TINT[trade.side] : selected && "bg-selected",
         !big && !selected && inFold && "bg-elevated/40",
-        big && "font-bold"
+        big && "font-bold",
+        "hover:bg-elevated cursor-pointer"
       )}
+      // Clicking a trade selects its code; the code's button is the keyboard
+      // and screen reader target.
+      onClick={() => onSelect(trade.code)}
     >
       <td className={cn(CELL, "pl-2", inFold && "pl-4")}>
         {tapeTime(DateTime.toEpochMillis(trade.time))}
       </td>
       <td className={cn(CELL, "font-semibold")}>
-        {trade.code}
+        <button type="button" className="hover:underline">
+          {trade.code}
+        </button>
         {trade.board !== "RG" && (
           <span className="ml-1 rounded-xs px-1 text-[10px] font-normal text-muted-foreground ring-1 ring-border">
             {trade.board}
@@ -212,12 +220,15 @@ export function TapeList({
   tape,
   frame,
   selected,
+  onSelect,
   className,
 }: {
   tape: Tape
   // Changes once per drawn frame: the tape is mutated in place.
   frame: number
   selected: StockCode
+  // Stable across renders, or every visible row re-renders.
+  onSelect: (code: StockCode) => void
   className?: string
 }) {
   const scroller = useRef<HTMLDivElement>(null)
@@ -313,6 +324,7 @@ export function TapeList({
                   trade={row.trade}
                   selected={row.trade.code === selected}
                   inFold={row.inFold !== undefined}
+                  onSelect={onSelect}
                 />
               )
             )}

@@ -4,8 +4,9 @@
 // the class the dashboard stack declares.
 import { WibDate } from "@workspace/relay"
 import { runServerEffectResult } from "@workspace/server"
-import { Effect, Result, Schema, Scope } from "effect"
+import { Effect, Option, Result, Schema, Scope } from "effect"
 
+import type { CodeListStore } from "./code-list.ts"
 import { HeldSessions, ObjectPath, ViewerHeader } from "./routes.ts"
 import { makeTradingDay, type Peer, type PeerState } from "./trading-day.ts"
 
@@ -29,6 +30,15 @@ const peerOf = (socket: WebSocket): Peer => ({
 
 const decodeDate = Schema.decodeUnknownSync(WibDate)
 const decodeHeld = Schema.decodeUnknownEffect(HeldSessions)
+
+const CODE_LIST_KEY = "code-list"
+
+const codeListStore = (storage: DurableObjectStorage): CodeListStore => ({
+  read: Effect.promise(() => storage.get<string>(CODE_LIST_KEY)).pipe(
+    Effect.map(Option.fromUndefinedOr)
+  ),
+  write: (text) => Effect.promise(() => storage.put(CODE_LIST_KEY, text)),
+})
 
 // Decision: a plain class, not `DurableObject` from `cloudflare:workers`: the
 // object needs no RPC, and only the bridge may import that module. Each
@@ -59,16 +69,22 @@ export class TradingDayObject {
     // Lives as long as the object; it holds the delta timers.
     const scope = Scope.makeUnsafe()
     this.day = Effect.runSync(
-      makeTradingDay({ date, viewers, viewersOf, ingests }).pipe(
-        Scope.provide(scope)
-      )
+      makeTradingDay({
+        date,
+        viewers,
+        viewersOf,
+        ingests,
+        codeList: codeListStore(ctx.storage),
+      }).pipe(Scope.provide(scope))
     )
   }
 
-  // Accepts the socket the Worker entry routed here, already gated, or the
-  // sessions a user still holds (live-viewers.ts).
+  // Accepts the socket the Worker entry routed here, already gated; answers
+  // the sessions a user still holds (live-viewers.ts) and the day's stock
+  // code list GET.
   fetch(request: Request): Response | Promise<Response> {
     const { pathname } = new URL(request.url)
+    if (pathname === ObjectPath.codes) return this.codeList()
     // The runner logs any failure.
     if (pathname === ObjectPath.endSessions)
       return runServerEffectResult(
@@ -89,6 +105,14 @@ export class TradingDayObject {
     const pair = new WebSocketPair()
     this.ctx.acceptWebSocket(pair[1], tags)
     return new Response(null, { status: 101, webSocket: pair[0] })
+  }
+
+  private codeList() {
+    return runServerEffectResult(this.day.codeList).then((settled) =>
+      Result.isSuccess(settled)
+        ? settled.success
+        : new Response(null, { status: 500 })
+    )
   }
 
   webSocketMessage(socket: WebSocket, message: string | ArrayBuffer) {

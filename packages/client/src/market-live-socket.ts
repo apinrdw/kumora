@@ -5,7 +5,14 @@ import {
   type ViewerDown,
   type ViewerUp,
 } from "@workspace/relay"
-import { Effect, Queue, Schedule, Schema, Stream } from "effect"
+import {
+  Effect,
+  Queue,
+  Schedule,
+  Schema,
+  Stream,
+  SubscriptionRef,
+} from "effect"
 import * as Socket from "effect/socket/Socket"
 
 // The viewer socket closed with 4401: the page sends the visitor to sign in.
@@ -30,11 +37,12 @@ const reconnect = Schedule.min([
 ])
 
 // Market Live's viewer socket as a Stream of what the trading-day Durable
-// Object sends: a snapshot on every (re)connect, then deltas. It sends `select`
-// on each connect, and fails only on a terminal close.
+// Object sends: a snapshot on every (re)connect, then deltas. It sends the
+// current `select` on each connect and again on every change, each answered
+// with a fresh snapshot, and fails only on a terminal close.
 export const viewerMessages = (options: {
   readonly url: string
-  readonly select: ViewerUp
+  readonly select: SubscriptionRef.SubscriptionRef<ViewerUp>
 }): Stream.Stream<
   ViewerDown,
   SignInRequired | NewVersion,
@@ -47,11 +55,20 @@ export const viewerMessages = (options: {
   >((queue) =>
     Effect.gen(function* () {
       const socket = yield* Socket.makeWebSocket(options.url)
-      const select = yield* Effect.orDie(encodeViewerUp(options.select))
       const connection = Effect.gen(function* () {
         const pull = yield* Socket.readerString(socket)
         const writer = yield* socket.writer
-        yield* writer.write(select)
+        // The current value first, then each change. A write that fails ends
+        // with the socket, which the reader reports.
+        yield* SubscriptionRef.changes(options.select).pipe(
+          Stream.runForEach((select) =>
+            Effect.orDie(encodeViewerUp(select)).pipe(
+              Effect.flatMap((text) => writer.write(text))
+            )
+          ),
+          Effect.ignore,
+          Effect.forkScoped
+        )
         while (true) {
           for (const text of yield* pull)
             Queue.offerUnsafe(queue, yield* decodeViewerDown(text))

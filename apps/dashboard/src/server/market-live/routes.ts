@@ -7,6 +7,7 @@ import { Schema } from "effect"
 export const ObjectPath = {
   ingest: "/ingest",
   live: "/live",
+  codes: "/codes",
   endSessions: "/end-sessions",
 } as const
 

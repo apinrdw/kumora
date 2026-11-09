@@ -20,6 +20,12 @@ import { Effect, Scope } from "effect"
 import { ajaibTrades } from "./ajaib.ts"
 import { backfillTrades } from "./backfill-page.ts"
 import { makeCandleBook } from "./candles.ts"
+import {
+  codeListAnswer,
+  memoryCodeListStore,
+  storeCodeList,
+  type CodeListStore,
+} from "./code-list.ts"
 import { makeGaps } from "./gaps.ts"
 import type { HeldSessions } from "./routes.ts"
 import { stockbitTrades } from "./stockbit.ts"
@@ -118,6 +124,8 @@ export const makeTradingDay = Effect.fnUntraced(function* (options: {
   readonly date: WibDate
   // Every viewer socket the object holds, ready or not.
   readonly viewers: Effect.Effect<ReadonlyArray<Peer>>
+  // Where the day's stock code list is kept; memory when not given.
+  readonly codeList?: CodeListStore
   // The viewer sockets of one account, on any of its sessions.
   readonly viewersOf: (
     userId: string
@@ -128,6 +136,7 @@ export const makeTradingDay = Effect.fnUntraced(function* (options: {
 }) {
   // Delta timers outlive the message that started them.
   const scope = yield* Scope.Scope
+  const codeListStore = options.codeList ?? (yield* memoryCodeListStore)
   const tape: Array<RunningTrade> = []
   // Trades viewers haven't been sent since the last delta, new or changed,
   // by trade number.
@@ -216,6 +225,8 @@ export const makeTradingDay = Effect.fnUntraced(function* (options: {
           return yield* socket.setState("ready")
         return yield* socket.close(IngestCloseCode.RejectedToken, "Bad token")
       }
+      if (message._tag === "CodeList")
+        return yield* storeCodeList(codeListStore, message.body)
       // A page fills only numbers the tape lacks: a held trade keeps the
       // feeds that saw it live.
       if (message._tag === "BackfillPage")
@@ -262,6 +273,9 @@ export const makeTradingDay = Effect.fnUntraced(function* (options: {
       )
   )
 
+  // The GET for the day's stock code list.
+  const codeList = codeListAnswer(codeListStore, options.date)
+
   // After a ban, revoke or delete: the page on a session the account no
   // longer holds is sent to sign in.
   const endSessions = Effect.fnUntraced(function* (held: HeldSessions) {
@@ -271,5 +285,5 @@ export const makeTradingDay = Effect.fnUntraced(function* (options: {
     }
   })
 
-  return { ingestMessage, viewerMessage, endSessions }
+  return { ingestMessage, viewerMessage, endSessions, codeList }
 })
