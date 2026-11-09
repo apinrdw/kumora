@@ -732,6 +732,50 @@ describe("the seal", () => {
       })
   )
 
+  it.effect(
+    "records IHSG's change as zero after a frame whose last price returned to the previous close",
+    () =>
+      Effect.gen(function* () {
+        yield* TestClock.setTime(wib("15:59:00").epochMilliseconds)
+        const index = yield* makeDayIndex(memorySql())
+        const day = yield* tradingDay(memorySql(), index.record)
+        yield* day.stockbit([
+          livePriceFrame({
+            code: "IHSG",
+            last: 7_100,
+            previous: 7_000,
+            time: "15:59:00",
+            isIndex: true,
+          }),
+        ])
+        // Back at the previous close: Stockbit leaves the zero change out.
+        yield* day.stockbit([
+          Uint8Array.from(
+            messageField(9, [
+              ...stringField(1, "IHSG"),
+              ...doubleField(2, 7_000),
+              ...doubleField(3, 1_000_000),
+              ...doubleField(7, 100),
+              ...stringField(11, "2026-11-09T15:59:30+07:00"),
+              ...doubleField(13, 7_000),
+              ...doubleField(14, 5e9),
+              ...varintField(18, 1),
+            ])
+          ),
+        ])
+        yield* day.ajaib([ajaibTrade({ seq: 1, time: "15:59:00" })])
+        yield* TestClock.setTime(wib("17:00:00").epochMilliseconds)
+        yield* day.alarm
+        const { days } = yield* decodeDayStrip(
+          yield* textOf(yield* index.strip)
+        )
+        assert.deepStrictEqual(
+          days.map((row) => row.ihsg),
+          [{ close: 7_000, change: 0, changePercent: 0 }]
+        )
+      })
+  )
+
   it.effect("a sealed day stays sealed after a restart", () =>
     Effect.gen(function* () {
       yield* TestClock.setTime(wib("15:00:00").epochMilliseconds)
