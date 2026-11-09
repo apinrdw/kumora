@@ -13,6 +13,7 @@ import {
   decodeViewerDown,
   encodeIngestUp,
   encodeViewerUp,
+  type RunningTrade,
   type ViewerDown,
 } from "@workspace/relay"
 import { WorkerEnv } from "@workspace/server"
@@ -26,6 +27,7 @@ import {
 } from "@/server/market-live/trading-day"
 
 import recorded from "./fixtures/ajaib-trades-2026-11-09.json"
+import recordedStockbit from "./fixtures/stockbit-trades-2026-11-09.json"
 
 const TOKEN = "e2e-ingest-token"
 const DAY = WibDate.make("2026-11-09")
@@ -313,5 +315,271 @@ describe("running trades from Ajaib", () => {
       const [snapshot] = yield* page.received
       assert.deepStrictEqual(snapshot?.tape, [])
     })
+  )
+})
+
+// Stockbit's running trades as the 2026-11-09 probe decoded them. The probe
+// kept no raw bytes, so `stockbit` encodes the rows back into
+// `running_trade_batch` frames (wrapper case 8), by the field numbers of
+// `securities.transactional.datafeed.v1`.
+interface StockbitRow {
+  readonly tradeWib: string
+  readonly code: string
+  readonly price: number
+  readonly volume: number
+  readonly action?: number
+  readonly board: number
+  readonly tradeNumber: number
+}
+const stockbitRecorded: {
+  readonly openingMatch: ReadonlyArray<StockbitRow>
+  readonly session1: ReadonlyArray<StockbitRow>
+  readonly boards: ReadonlyArray<StockbitRow>
+  readonly ajaibTwins: {
+    readonly openingMatch: ReadonlyArray<string>
+    readonly tn: ReadonlyArray<string>
+  }
+} = recordedStockbit
+
+const varint = (value: number): Array<number> => {
+  const bytes: Array<number> = []
+  let rest = value
+  while (rest >= 0x80) {
+    bytes.push((rest % 0x80) | 0x80)
+    rest = Math.floor(rest / 0x80)
+  }
+  bytes.push(rest)
+  return bytes
+}
+const varintField = (field: number, value: number) => [
+  ...varint(field * 8),
+  ...varint(value),
+]
+const doubleField = (field: number, value: number) => {
+  const bytes = new Uint8Array(8)
+  new DataView(bytes.buffer).setFloat64(0, value, true)
+  return [...varint(field * 8 + 1), ...bytes]
+}
+const messageField = (field: number, bytes: ReadonlyArray<number>) => [
+  ...varint(field * 8 + 2),
+  ...varint(bytes.length),
+  ...bytes,
+]
+const runningTrade = (row: StockbitRow) => {
+  const ms = Date.parse(`2026-11-09T${row.tradeWib}+07:00`)
+  const timestamp = [
+    ...varintField(1, Math.floor(ms / 1000)),
+    ...varintField(2, (ms % 1000) * 1_000_000),
+  ]
+  return [
+    ...messageField(2, [...new TextEncoder().encode(row.code)]),
+    ...doubleField(3, row.price),
+    ...doubleField(4, row.volume),
+    ...(row.action === undefined ? [] : varintField(5, row.action)),
+    ...messageField(7, timestamp),
+    ...varintField(9, row.tradeNumber),
+    ...varintField(10, row.board),
+  ]
+}
+
+const stockbit = (rows: ReadonlyArray<StockbitRow>, connection: "A" | "B") =>
+  encodeIngestUp({
+    _tag: "Frames",
+    protocolVersion: IngestProtocolVersion,
+    feed: "Stockbit",
+    connection,
+    receivedAt: DateTime.makeUnsafe("2026-11-09T02:00:01.000Z"),
+    frames: [
+      Uint8Array.from(
+        messageField(
+          8,
+          rows.flatMap((row) => messageField(1, runningTrade(row)))
+        )
+      ),
+    ],
+  })
+
+const snapshotOf = Effect.fnUntraced(function* (
+  select: (socket: FakeSocket) => Effect.Effect<void, unknown>,
+  viewer: () => Effect.Effect<FakeSocket>
+) {
+  const page = yield* viewer()
+  yield* select(page)
+  const [snapshot] = yield* page.received
+  return snapshot!.tape
+})
+
+const byNumber = (tape: ReadonlyArray<RunningTrade>, tradeNumber: string) =>
+  tape.find((trade) => trade.tradeNumber === tradeNumber)!
+
+describe("the merged tape", () => {
+  it.effect(
+    "a trade from both sites on connections A and B is on it once, with Stockbit's fields",
+    () =>
+      Effect.gen(function* () {
+        const { ingest, viewer, select } = yield* tradingDay()
+        const socket = yield* relay(ingest)
+        for (const connection of ["A", "B"] as const) {
+          yield* ingest(socket, yield* ajaib(recorded.session1, connection))
+          yield* ingest(
+            socket,
+            yield* stockbit(stockbitRecorded.session1, connection)
+          )
+        }
+        const tape = yield* snapshotOf(select, viewer)
+        const numbers = tape.map((trade) => trade.tradeNumber)
+        // 67 numbers, 22265 to 22331, each once: Stockbit saw all of them.
+        assert.lengthOf(numbers, 67)
+        assert.lengthOf(new Set(numbers), 67)
+        assert.strictEqual(numbers[0], "22265")
+        assert.strictEqual(numbers.at(-1), "22331")
+        const first = byNumber(tape, "22265")
+        assert.deepStrictEqual(
+          {
+            feeds: first.feeds,
+            side: first.side,
+            lots: first.lots,
+            // Stockbit's sub-second time, not Ajaib's whole second.
+            time: DateTime.formatIso(first.time),
+          },
+          {
+            feeds: ["Stockbit", "Ajaib"],
+            side: "buy",
+            lots: 17,
+            time: "2026-11-09T02:00:00.002Z",
+          }
+        )
+        const ajaibSaw = new Set(
+          recorded.session1.map((frame) =>
+            String(Number(JSON.parse(frame).tradeNum.slice(8)))
+          )
+        )
+        const stockbitOnly = tape.filter(
+          (trade) => !ajaibSaw.has(trade.tradeNumber)
+        )
+        assert.lengthOf(stockbitOnly, 7)
+        for (const trade of stockbitOnly)
+          assert.deepStrictEqual(trade.feeds, ["Stockbit"])
+      })
+  )
+
+  it.effect(
+    "Ajaib fills a side Stockbit left unspecified; Stockbit's board wins",
+    () =>
+      Effect.gen(function* () {
+        const { ingest, viewer, select } = yield* tradingDay()
+        const socket = yield* relay(ingest)
+        // 22265 as Stockbit would send it without an action.
+        const { action: _, ...unspecified } = stockbitRecorded.session1[0]!
+        const [tn] = stockbitRecorded.boards
+        yield* ingest(socket, yield* stockbit([unspecified, tn!], "A"))
+        yield* ingest(
+          socket,
+          yield* ajaib([
+            recorded.session1[0]!,
+            ...stockbitRecorded.ajaibTwins.tn,
+          ])
+        )
+        const tape = yield* snapshotOf(select, viewer)
+        assert.strictEqual(byNumber(tape, "22265").side, "buy")
+        // Ajaib's frame has no market_type; Stockbit says TN.
+        assert.deepStrictEqual(
+          {
+            board: byNumber(tape, "26320").board,
+            side: byNumber(tape, "26320").side,
+          },
+          { board: "TN", side: "buy" }
+        )
+      })
+  )
+
+  it.effect(
+    "the opening match and negotiated prints have no side, whatever Ajaib's type says",
+    () =>
+      Effect.gen(function* () {
+        const { ingest, viewer, select } = yield* tradingDay()
+        const socket = yield* relay(ingest)
+        const [, ng, oddLot] = stockbitRecorded.boards
+        // An Ajaib twin of the negotiated print, typed BUY.
+        const ngTwin = JSON.stringify({
+          ...JSON.parse(stockbitRecorded.ajaibTwins.tn[0]!),
+          ticker: ng!.code,
+          type: "BUY",
+          tradeNum: `20261109${String(ng!.tradeNumber).padStart(10, "0")}`,
+        })
+        yield* ingest(
+          socket,
+          yield* ajaib([...stockbitRecorded.ajaibTwins.openingMatch, ngTwin])
+        )
+        yield* ingest(
+          socket,
+          yield* stockbit([...stockbitRecorded.openingMatch, ng!, oddLot!], "B")
+        )
+        const tape = yield* snapshotOf(select, viewer)
+        const match = tape.filter((trade) =>
+          DateTime.formatIso(trade.time).startsWith("2026-11-09T01:58:00")
+        )
+        assert.lengthOf(match, 20)
+        for (const trade of match) {
+          assert.strictEqual(trade.side, "none")
+          assert.deepStrictEqual(trade.feeds, ["Stockbit", "Ajaib"])
+        }
+        assert.deepStrictEqual(
+          {
+            board: byNumber(tape, "30536").board,
+            side: byNumber(tape, "30536").side,
+          },
+          { board: "NG", side: "none" }
+        )
+        // 50 shares on the negotiated board.
+        assert.strictEqual(byNumber(tape, "30549").lots, 0.5)
+      })
+  )
+
+  it.effect(
+    "a trade another feed confirms is resent once in a delta, in its place",
+    () =>
+      Effect.gen(function* () {
+        const { ingest, viewer, select } = yield* tradingDay()
+        const page = yield* viewer()
+        yield* select(page)
+        const socket = yield* relay(ingest)
+        const rows = stockbitRecorded.session1
+        // Stockbit's newer trades first, 22275 onwards.
+        yield* ingest(socket, yield* stockbit(rows.slice(10, 20), "A"))
+        yield* TestClock.adjust("250 millis")
+
+        // Ajaib, about a second behind, confirms 22275 and brings older ones.
+        const late = recorded.session1.filter((frame) =>
+          ["22265", "22266", "22275"].includes(
+            JSON.parse(frame).tradeNum.slice(-5)
+          )
+        )
+        yield* ingest(socket, yield* ajaib(late, "A"))
+        yield* ingest(socket, yield* ajaib(late, "B"))
+        // Connection B repeats Stockbit's batch: nothing new.
+        yield* ingest(socket, yield* stockbit(rows.slice(10, 20), "B"))
+        yield* TestClock.adjust("250 millis")
+
+        const [, first, second] = yield* page.received
+        assert.deepStrictEqual(
+          tapeOf(first!),
+          rows.slice(10, 20).map((row) => String(row.tradeNumber))
+        )
+        assert.deepStrictEqual(tapeOf(second!), ["22265", "22266", "22275"])
+        assert.deepStrictEqual(
+          second!.tape.map((trade) => trade.feeds),
+          [["Ajaib"], ["Ajaib"], ["Stockbit", "Ajaib"]]
+        )
+        yield* TestClock.adjust("1 second")
+        assert.lengthOf(yield* page.received, 3)
+
+        const tape = yield* snapshotOf(select, viewer)
+        assert.deepStrictEqual(tapeOf({ _tag: "Snapshot", tape }).slice(0, 3), [
+          "22265",
+          "22266",
+          "22275",
+        ])
+      })
   )
 })

@@ -9,6 +9,7 @@ import {
   decodeIngestUp,
   decodeViewerUp,
   encodeViewerDown,
+  marketMomentAt,
   type RunningTrade,
   type WibDate,
 } from "@workspace/relay"
@@ -16,6 +17,7 @@ import { WorkerEnv } from "@workspace/server"
 import { Effect, Scope } from "effect"
 
 import { ajaibTrades } from "./ajaib.ts"
+import { stockbitTrades } from "./stockbit.ts"
 
 // A socket's progress. An ingest socket is `ready` once its token checked out;
 // a viewer socket once it was sent a snapshot, and from then on gets deltas.
@@ -58,6 +60,43 @@ const positionOf = (
   return low
 }
 
+// A merged trade lists its feeds in this order.
+const FEEDS: ReadonlyArray<RunningTrade["feeds"][number]> = [
+  "Stockbit",
+  "Ajaib",
+  "backfill",
+]
+
+// One trade as two feeds saw it (spec apinrdw/kumora#138, "Merge and
+// dedupe"): Stockbit's fields win, sub-second time included; the other feed
+// fills only a side Stockbit left unspecified.
+const merge = (held: RunningTrade, arriving: RunningTrade): RunningTrade => {
+  const arrivingWins =
+    arriving.feeds.includes("Stockbit") && !held.feeds.includes("Stockbit")
+  const [first, second] = arrivingWins ? [arriving, held] : [held, arriving]
+  return {
+    ...first,
+    side: first.side === "none" ? second.side : first.side,
+    feeds: FEEDS.filter(
+      (feed) => first.feeds.includes(feed) || second.feeds.includes(feed)
+    ),
+  }
+}
+
+// Decision: the auction matches (08:58:00 and 16:00:00, inside pre-opening
+// and pre-closing) and the negotiated board have no side, whichever feed
+// claims one: Ajaib types about 99.5% of match prints SELL. Applied to the
+// merged trade, so an Ajaib side can't fill a match or an NG print that
+// Stockbit left unspecified. The cash board (TN) keeps its side: Stockbit
+// sends a real aggressor there.
+const settleSide = Effect.fnUntraced(function* (trade: RunningTrade) {
+  if (trade.side === "none") return trade
+  const { phase } = yield* marketMomentAt(trade.time)
+  const sideless =
+    trade.board === "NG" || phase === "pre-opening" || phase === "pre-closing"
+  return sideless ? { ...trade, side: "none" as const } : trade
+})
+
 const sha256 = (text: string) =>
   Effect.promise(() =>
     crypto.subtle.digest("SHA-256", new TextEncoder().encode(text))
@@ -71,28 +110,45 @@ export const makeTradingDay = Effect.fnUntraced(function* (options: {
   // Delta timers outlive the message that started them.
   const scope = yield* Scope.Scope
   const tape: Array<RunningTrade> = []
-  let pending: Array<RunningTrade> = []
+  // Trades viewers haven't been sent since the last delta, new or changed,
+  // by trade number.
+  let pending = new Map<string, RunningTrade>()
   let deltaScheduled = false
 
-  // Inserts each trade not yet on the tape. A trade older than a full tape's
-  // oldest is dropped: it can't be told from one already evicted.
-  const insert = (trades: ReadonlyArray<RunningTrade>) => {
-    for (const trade of trades) {
-      const at = positionOf(tape, trade)
-      if (tape[at]?.tradeNumber === trade.tradeNumber) continue
+  // Merges each trade into the tape: a new trade number is inserted in its
+  // place, a known one merged with what other feeds saw. A trade older than a
+  // full tape's oldest is dropped: it can't be told from one already evicted.
+  const insert = Effect.fnUntraced(function* (
+    trades: ReadonlyArray<RunningTrade>
+  ) {
+    for (const arriving of trades) {
+      const at = positionOf(tape, arriving)
+      const held = tape[at]
+      if (held?.tradeNumber === arriving.tradeNumber) {
+        const merged = yield* settleSide(merge(held, arriving))
+        if (
+          merged.feeds.length === held.feeds.length &&
+          merged.side === held.side
+        )
+          continue
+        tape[at] = merged
+        pending.set(merged.tradeNumber, merged)
+        continue
+      }
       if (at === 0 && tape.length >= TAPE_LIMIT) continue
+      const trade = yield* settleSide(arriving)
       tape.splice(at, 0, trade)
       if (tape.length > TAPE_LIMIT) tape.shift()
-      pending.push(trade)
+      pending.set(trade.tradeNumber, trade)
     }
-  }
+  })
 
   const sendDelta = Effect.gen(function* () {
     deltaScheduled = false
-    const trades = pending.sort((a, b) =>
+    const trades = [...pending.values()].sort((a, b) =>
       TradeNumberOrder(a.tradeNumber, b.tradeNumber)
     )
-    pending = []
+    pending = new Map()
     if (trades.length === 0) return
     const text = yield* encodeViewerDown({ _tag: "Delta", tape: trades })
     for (const viewer of yield* options.viewers) {
@@ -101,7 +157,7 @@ export const makeTradingDay = Effect.fnUntraced(function* (options: {
   })
 
   const scheduleDelta = Effect.suspend(() => {
-    if (deltaScheduled || pending.length === 0) return Effect.void
+    if (deltaScheduled || pending.size === 0) return Effect.void
     deltaScheduled = true
     return Effect.sleep(DELTA_INTERVAL).pipe(
       Effect.andThen(sendDelta),
@@ -126,10 +182,13 @@ export const makeTradingDay = Effect.fnUntraced(function* (options: {
           return yield* socket.setState("ready")
         return yield* socket.close(IngestCloseCode.RejectedToken, "Bad token")
       }
-      if (message._tag === "Frames" && message.feed === "Ajaib") {
-        insert(yield* ajaibTrades(options.date, message.frames))
-        yield* scheduleDelta
-      }
+      if (message._tag !== "Frames") return
+      yield* insert(
+        message.feed === "Stockbit"
+          ? yield* stockbitTrades(options.date, message.frames)
+          : yield* ajaibTrades(options.date, message.frames)
+      )
+      yield* scheduleDelta
     },
     (effect, socket) =>
       Effect.catchTag(effect, "ProtocolVersionMismatch", (error) =>

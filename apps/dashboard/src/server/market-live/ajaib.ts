@@ -4,7 +4,6 @@
 import {
   StockCode,
   TradeNumber,
-  marketMomentAt,
   type RunningTrade,
   type WibDate,
 } from "@workspace/relay"
@@ -33,43 +32,32 @@ const decodeTrade = Schema.decodeUnknownOption(
 const boardOf = (marketType: string | undefined): RunningTrade["board"] =>
   marketType === "TN" || marketType === "NG" ? marketType : "RG"
 
-// The auction matches print at 08:58:00 and 16:00:00, inside pre-opening and
-// pre-closing; Ajaib's type on them (SELL on about 99.5%) is not a side.
-const sideOf = Effect.fnUntraced(function* (
-  trade: typeof AjaibTrade.Type,
-  board: RunningTrade["board"]
-) {
-  if (board !== "RG") return "none" as const
-  const { phase } = yield* marketMomentAt(trade.tradedAt)
-  if (phase === "pre-opening" || phase === "pre-closing") return "none" as const
-  return trade.type === "BUY" ? ("buy" as const) : ("sell" as const)
-})
-
 // The running trades in one connection's frames that belong to `date`. Trade
 // numbers lose their date prefix: the tape's number is the bare daily
 // sequence, the one Stockbit sends.
-export const ajaibTrades = Effect.fnUntraced(function* (
-  date: WibDate,
-  frames: ReadonlyArray<string>
-) {
-  const prefix = date.replaceAll("-", "")
-  const trades: Array<RunningTrade> = []
-  for (const frame of frames) {
-    const decoded = decodeTrade(frame)
-    if (Option.isNone(decoded)) continue
-    const trade = decoded.value
-    if (!trade.tradeNum.startsWith(prefix)) continue
-    const board = boardOf(trade.market_type)
-    trades.push({
-      tradeNumber: TradeNumber.make(BigInt(trade.tradeNum.slice(8)).toString()),
-      time: trade.tradedAt,
-      code: trade.ticker,
-      price: trade.price,
-      lots: trade.lot,
-      side: yield* sideOf(trade, board),
-      board,
-      feeds: ["Ajaib"],
-    })
-  }
-  return trades
-})
+export const ajaibTrades = (date: WibDate, frames: ReadonlyArray<string>) =>
+  Effect.sync(() => {
+    const prefix = date.replaceAll("-", "")
+    const trades: Array<RunningTrade> = []
+    for (const frame of frames) {
+      const decoded = decodeTrade(frame)
+      if (Option.isNone(decoded)) continue
+      const trade = decoded.value
+      if (!trade.tradeNum.startsWith(prefix)) continue
+      trades.push({
+        tradeNumber: TradeNumber.make(
+          BigInt(trade.tradeNum.slice(8)).toString()
+        ),
+        time: trade.tradedAt,
+        code: trade.ticker,
+        price: trade.price,
+        lots: trade.lot,
+        // The auction match and negotiated board rule applies on the merged
+        // tape (trading-day.ts).
+        side: trade.type === "BUY" ? "buy" : "sell",
+        board: boardOf(trade.market_type),
+        feeds: ["Ajaib"],
+      })
+    }
+    return trades
+  })

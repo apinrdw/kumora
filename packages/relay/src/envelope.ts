@@ -154,7 +154,9 @@ const RunningTrade = Schema.Struct({
   time: Schema.DateTimeUtcFromMillis,
   code: StockCode,
   price: Schema.Int,
-  lots: Schema.Int,
+  // Not always whole: a negotiated print can be an odd lot (Stockbit sends 50
+  // shares as 0.5 lot).
+  lots: Schema.Finite,
   side: Side,
   board: Board,
   feeds: Schema.Array(TradeSource),
