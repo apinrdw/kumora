@@ -1,4 +1,5 @@
 import {
+  INDEX_CODES,
   StockCode,
   TradeNumber,
   decodeIngestUp,
@@ -107,7 +108,7 @@ test("the built extension relays fake Stockbit and Ajaib tabs to the local tradi
 
     // The Stockbit tab: the socket opens with the `web` subprotocol, the
     // websocket key is fetched with the tab's token, and the channel message
-    // carries both and every listed code.
+    // carries both and every listed code, and the indices' live prices.
     const stockbitTab = await context.newPage()
     await stockbitTab.goto(STOCKBIT_TAB)
     await expect.poll(() => brokers.on("/ws").length, TICKS).toBe(1)
@@ -121,7 +122,7 @@ test("the built extension relays fake Stockbit and Ajaib tabs to the local tradi
         accessToken: STOCKBIT_TOKEN,
         orderBook: LISTED_CODES,
         runningTradeBatch: ["*"],
-        liveprice: LISTED_CODES,
+        liveprice: [...LISTED_CODES, ...INDEX_CODES],
         iepiev: LISTED_CODES,
       })
 
