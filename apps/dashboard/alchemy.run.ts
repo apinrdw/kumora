@@ -137,6 +137,8 @@ export const Website = Cloudflare.Website.Vite(
         // One trading-day object per WIB date; src/worker.ts exports the
         // class. Untyped: the object has no RPC, only fetch, and its module
         // needs Workers types the tests' typecheck runs without.
+        // apps/e2e/reset-test-stage.ts empties both classes' local storage
+        // by these names before each e2e run.
         TRADING_DAY: Cloudflare.DurableObject("TradingDay"),
         // The one index of sealed days, the day strip's source
         // (src/server/market-live/day-index-object.ts). Untyped, like
