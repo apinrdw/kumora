@@ -112,3 +112,14 @@ Create account and Send reset link carry a Turnstile widget. Production and Stag
 2. After each deploy, list the account's widgets with the stage's token (`scripts/deploy-setup.sh` does this as `check_turnstile_widget`): `curl -sS -H "Authorization: Bearer $CLOUDFLARE_API_TOKEN" "https://api.cloudflare.com/client/v4/accounts/$CLOUDFLARE_ACCOUNT_ID/challenges/widgets"` must list the stage's hostname under a widget's `domains`. Then check that Create account on that stage shows the widget.
 
 The auth routes are also rate-limited per client IP in the stage's D1 (sign-in 10 per minute, sign-up 5 per hour, resend verification and reset request 3 per hour), and each address gets at most 5 verification or reset mails a day. Nothing to set up: the tables come with the D1 migrations.
+
+## 12. The relay extension ⬜
+
+Market Live's feed comes from `apps/extension`, loaded unpacked in the owner's Chrome. It is never published or deployed.
+
+1. Run `pnpm --filter extension build`. It writes `apps/extension/dist`, with Production's dashboard URL baked in.
+2. In `chrome://extensions`, turn on Developer mode, choose **Load unpacked** and pick `apps/extension/dist`. After each rebuild, press the extension's reload button, then reload the Ajaib tab.
+3. Open the extension's options page. Paste Production's `INGEST_TOKEN` (step 1). To relay to Staging, a Preview or a Dev stage as well, set the extra target's URL and `staging`'s token. Each target's state shows below its fields; "Connected" means its ingest socket is open.
+4. Keep a signed-in `trade.ajaib.co.id` tab open. Its trades reach the stage's Market Live tape within a second.
+
+The toolbar badge shows the worst target state: `KEY` for a rejected token, `RLD` when the dashboard no longer accepts the extension's protocol (rebuild and reload it), `…` while a target connects or retries.
