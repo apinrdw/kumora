@@ -15,6 +15,7 @@ import {
 } from "@workspace/relay"
 import { DateTime, Effect, Option, Schema } from "effect"
 
+import { newerThanHeld } from "./late-frames.ts"
 import { fieldReader, messagesAt, textOf } from "./stockbit.ts"
 import type { LivePrice } from "./stockbit-liveprice.ts"
 
@@ -234,15 +235,9 @@ export const makeOrderBooks = (date: WibDate) =>
         if (side === undefined || (yield* wibDateAt(side.book.at)) !== date)
           continue
         const held = stockbit.get(side.code)
-        // Both connections carry each side, so one may deliver a frame the
-        // other already applied over: not newer than the side held, it
-        // changes nothing.
-        const heldSide = held?.[side.side]
-        if (
-          heldSide !== undefined &&
-          !DateTime.isGreaterThan(side.book.at, heldSide.at)
-        )
-          continue
+        // Not newer than the side held, the other connection delivering
+        // late, it changes nothing.
+        if (!newerThanHeld(side.book.at, held?.[side.side])) continue
         stockbit.set(side.code, {
           bid: side.side === "bid" ? side.book : held?.bid,
           offer: side.side === "offer" ? side.book : held?.offer,

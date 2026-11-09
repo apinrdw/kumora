@@ -16,6 +16,7 @@ import { DateTime, Effect } from "effect"
 
 import { makeFeedHealth, type DownRecord } from "./feed-health.ts"
 import { ajaibIndicative, stockbitIndicative } from "./indicative.ts"
+import { newerThanHeld } from "./late-frames.ts"
 
 // The phase at `now`, and when the market next opens while it is shut. A year
 // past the baked schedule reads closed.
@@ -104,11 +105,14 @@ export const makeMarketConditions = Effect.fnUntraced(function* (
   // indicativeChanges.
   const indicativePending = Effect.sync(() => dirty.size > 0)
 
+  // A frame not newer than the price held, the other connection delivering
+  // late, changes nothing.
   const keep = (
     store: Map<StockCode, IndicativePrice>,
     prices: ReadonlyArray<IndicativePrice>
   ) => {
     for (const price of prices) {
+      if (!newerThanHeld(price.at, store.get(price.code))) continue
       store.set(price.code, price)
       dirty.add(price.code)
     }
