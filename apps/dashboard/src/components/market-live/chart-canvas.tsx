@@ -329,24 +329,27 @@ export default function ChartCanvas({
     const marker = new CursorLine(token("--text-primary"))
     if (cursor !== undefined) candles.attachPrimitive(marker)
 
-    // The minutes drawn, so a delta can tell a closed minute from a new one.
+    // The minutes drawn as candles, so a delta can tell a closed minute from
+    // a new one, and the series' last bar, candle or gap whitespace: a candle
+    // before it can only go in with the historical flag, or by redrawing.
     let drawn = new Set<number>()
     let latest = 0
     const redraw = () => {
       const all = store.candles()
       drawn = new Set(all.map(timeOf))
-      latest = all.length === 0 ? 0 : timeOf(all.at(-1)!)
+      const newest = all.length === 0 ? 0 : timeOf(all.at(-1)!)
       // Decision: the chart closes gaps up, so a relay gap's minutes go in
       // as whitespace bars, which give it width to shade.
       const runs = gapMinutes(
         shownGaps.current,
-        cursor === undefined ? latest * 1000 : cursor.day.close
+        cursor === undefined ? newest * 1000 : cursor.day.close
       ).map((run) =>
         run
           .map((minute) => (minute / 1000) as UTCTimestamp)
           .filter((time) => !drawn.has(time))
       )
       const blank = runs.flat()
+      latest = Math.max(newest, blank.at(-1) ?? 0)
       candles.setData(
         [...all.map(bar), ...blank.map((time) => ({ time }))].sort(
           (a, b) => a.time - b.time
