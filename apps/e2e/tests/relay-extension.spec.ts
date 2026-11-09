@@ -11,7 +11,11 @@ import type { AddressInfo } from "node:net"
 import { WebSocketServer, type WebSocket } from "ws"
 
 import { DASHBOARD, MEMBER } from "../support/accounts"
-import { TEST_INGEST_TOKEN, session1Today } from "../support/ingest"
+import {
+  TEST_INGEST_TOKEN,
+  freshTradeNumbers,
+  session1Today,
+} from "../support/ingest"
 import {
   AJAIB_TAB,
   LISTED_CODES,
@@ -93,12 +97,13 @@ test("the built extension relays fake Stockbit and Ajaib tabs to the local tradi
       .toBe(true)
 
     // Trades on A reach the trading-day object, and from it the tape.
-    for (const frame of session1Today().slice(20, 30)) a.socket.send(frame)
+    const base = freshTradeNumbers()
+    for (const frame of session1Today(base).slice(20, 30)) a.socket.send(frame)
     await page.goto(`${DASHBOARD}/market-live`)
     const tape = page.getByRole("region", { name: "Running trades" })
-    await expect(tape.locator('tr[data-trade-number="22323"]')).toContainText(
-      "BRMS"
-    )
+    await expect(
+      tape.locator(`tr[data-trade-number="${base + 22323}"]`)
+    ).toContainText("BRMS")
 
     // The Stockbit tab: the socket opens with the `web` subprotocol, the
     // websocket key is fetched with the tab's token, and the channel message
@@ -121,8 +126,10 @@ test("the built extension relays fake Stockbit and Ajaib tabs to the local tradi
       })
 
     // Stockbit's protobuf frames reach the trading-day object too.
-    stockbitA.socket.send(stockbitTradeFrameToday())
-    const stockbitTrade = tape.locator('tr[data-trade-number="26320"]')
+    stockbitA.socket.send(stockbitTradeFrameToday(base))
+    const stockbitTrade = tape.locator(
+      `tr[data-trade-number="${base + 26320}"]`
+    )
     await expect(stockbitTrade).toContainText("ENRG")
     await expect(
       stockbitTrade.getByRole("img", { name: "Stockbit" })

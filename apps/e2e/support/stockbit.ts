@@ -48,16 +48,22 @@ const runningTrade = (row: StockbitRow, date: string) => {
 
 /**
  * One `running_trade_batch` frame (wrapper case 8) of the recorded cash-board
- * trade 26320 (ENRG), moved to today, as Stockbit's socket sends it.
+ * trade 26320 (ENRG), moved to today and numbered `base` above 26320, as
+ * Stockbit's socket sends it.
  */
-export function stockbitTradeFrameToday(): Uint8Array {
+export function stockbitTradeFrameToday(base = 0): Uint8Array {
   const today = wibToday()
   return Uint8Array.from(
     messageField(
       8,
       recorded.boards
         .filter((row) => row.tradeNumber === 26320)
-        .flatMap((row) => messageField(1, runningTrade(row, today)))
+        .flatMap((row) =>
+          messageField(
+            1,
+            runningTrade({ ...row, tradeNumber: base + row.tradeNumber }, today)
+          )
+        )
     )
   )
 }

@@ -2,6 +2,7 @@ import { DASHBOARD, MEMBER } from "../support/accounts"
 import { signInUrl } from "../support/flows"
 import {
   ajaibTradeToday,
+  freshTradeNumbers,
   openIngest,
   openingMatchToday,
   session1Today,
@@ -17,31 +18,35 @@ test.describe("signed in", () => {
     page,
   }) => {
     const relay = await openIngest()
-    const frames = session1Today()
+    const base = freshTradeNumbers()
+    const frames = session1Today(base)
     // Before the page opens: the snapshot carries these.
     await relay.sendAjaib(frames.slice(0, 10))
     await page.goto(`${DASHBOARD}${PAGE}`)
     const tape = page.getByRole("region", { name: "Running trades" })
-    const row = (tradeNumber: string) =>
-      tape.locator(`tr[data-trade-number="${tradeNumber}"]`)
-    await expect(row("22265")).toContainText("BREN")
-    await expect(row("22265")).toContainText("09:00:00")
-    await expect(row("22265")).toContainText("2,130")
+    // A recorded trade number, as this test renumbered it.
+    const row = (recorded: number) =>
+      tape.locator(`tr[data-trade-number="${base + recorded}"]`)
+    await expect(row(22265)).toContainText("BREN")
+    await expect(row(22265)).toContainText("09:00:00")
+    await expect(row(22265)).toContainText("2,130")
     // One dot for the one feed that saw it, explained by the header legend.
-    await expect(row("22265").getByRole("img")).toHaveAccessibleName("Ajaib")
+    await expect(row(22265).getByRole("img")).toHaveAccessibleName("Ajaib")
     await expect(
       tape.getByRole("list", { name: "Sources" }).getByRole("listitem")
     ).toHaveText(["Stockbit", "Ajaib", "Backfill"])
 
     // After: a delta. 22266 arrives late and sorts below 22268.
     await relay.sendAjaib(frames.slice(10, 20))
-    await expect(row("22266")).toBeVisible()
+    await expect(row(22266)).toBeVisible()
     const numbers = await tape
       .locator("tbody tr")
       .evaluateAll((rows) =>
         rows.map((r) => r.getAttribute("data-trade-number"))
       )
-    expect(numbers.indexOf("22266")).toBeGreaterThan(numbers.indexOf("22268"))
+    expect(numbers.indexOf(String(base + 22266))).toBeGreaterThan(
+      numbers.indexOf(String(base + 22268))
+    )
     relay.close()
   })
 
@@ -49,24 +54,26 @@ test.describe("signed in", () => {
     page,
   }) => {
     const relay = await openIngest()
-    // The page selects BBCA; the recorded session has none, so two BBCA
-    // trades are made from its first frame, a minute apart.
+    const base = freshTradeNumbers()
+    // A code no other spec trades, so its candles are this test's alone; the
+    // recorded session has none, so two UNVR trades are made from its first
+    // frame, a minute apart.
     const [template] = session1Today()
     const trade = JSON.parse(template!)
-    const bbca = (sequence: number, price: number, minutes: number) =>
+    const unvr = (sequence: number, price: number, minutes: number) =>
       JSON.stringify({
         ...trade,
-        ticker: "BBCA",
+        ticker: "UNVR",
         price,
-        tradeNum: `${trade.tradeNum.slice(0, 8)}${String(sequence).padStart(10, "0")}`,
+        tradeNum: `${trade.tradeNum.slice(0, 8)}${String(base + sequence).padStart(10, "0")}`,
         tradedAt: new Date(
           Date.parse(trade.tradedAt) + minutes * 60_000
         ).toISOString(),
       })
-    await relay.sendAjaib([bbca(90_001, 9275, 0)])
-    await page.goto(`${DASHBOARD}${PAGE}`)
+    await relay.sendAjaib([unvr(1, 9275, 0)])
+    await page.goto(`${DASHBOARD}${PAGE}?code=UNVR`)
     const chart = page.getByRole("region", { name: "Chart" })
-    await expect(chart.getByRole("heading", { name: "BBCA" })).toBeVisible()
+    await expect(chart.getByRole("heading", { name: "UNVR" })).toBeVisible()
     await expect(chart).toContainText("One-minute candles: 1")
     await expect(chart).toContainText("9,275")
     await expect(chart.locator("canvas").first()).toBeVisible()
@@ -75,7 +82,7 @@ test.describe("signed in", () => {
     ).toHaveAttribute("href", "https://www.tradingview.com/")
 
     // A delta: the next minute opens its own candle.
-    await relay.sendAjaib([bbca(90_002, 9300, 1)])
+    await relay.sendAjaib([unvr(2, 9300, 1)])
     await expect(chart).toContainText("One-minute candles: 2")
     await expect(chart).toContainText("9,300")
     relay.close()
@@ -130,7 +137,8 @@ test.describe("the tape at peak", () => {
     const fold = tape.getByRole("button", { name: /Opening match 08:58:00/ })
     // The first print, once the page's socket is live: a snapshot carries
     // only the 200 newest trades, so the replay waits for it.
-    const match = openingMatchToday(20_000)
+    const base = freshTradeNumbers()
+    const match = openingMatchToday(20_000, base)
     await relay.sendAjaib(match.slice(0, 1))
     await expect(fold).toContainText("1 trade ·")
     // Every animation frame's length from here until the match is in.
@@ -166,7 +174,7 @@ test.describe("the tape at peak", () => {
     await expect(fold).toHaveAttribute("aria-expanded", "false")
     await fold.click()
     await expect(fold).toHaveAttribute("aria-expanded", "true")
-    const newest = tape.locator('tr[data-trade-number="20000"]')
+    const newest = tape.locator(`tr[data-trade-number="${base + 20_000}"]`)
     await expect(newest).toContainText("08:58:00")
     await expect(newest).not.toContainText(/buy|sell/)
     relay.close()
@@ -176,20 +184,21 @@ test.describe("the tape at peak", () => {
     page,
   }) => {
     const relay = await openIngest()
+    const base = freshTradeNumbers()
     const at = { time: "10:00:01", price: 5_000 }
     await relay.sendAjaib([
-      ajaibTradeToday({ ...at, seq: 900_001, ticker: "BBCA", lot: 5 }),
+      ajaibTradeToday({ ...at, seq: base + 1, ticker: "BBCA", lot: 5 }),
       // 5,000 × 2,000 lots × 100 = Rp1 B: a big trade.
       ajaibTradeToday({
         ...at,
-        seq: 900_002,
+        seq: base + 2,
         ticker: "TLKM",
         lot: 2_000,
         type: "SELL",
       }),
       ajaibTradeToday({
         ...at,
-        seq: 900_003,
+        seq: base + 3,
         ticker: "ASII",
         lot: 1,
         board: "TN",
@@ -197,7 +206,7 @@ test.describe("the tape at peak", () => {
       // Negotiated: no side, and never big.
       ajaibTradeToday({
         ...at,
-        seq: 900_004,
+        seq: base + 4,
         ticker: "BBRI",
         lot: 5_000,
         board: "NG",
@@ -205,32 +214,33 @@ test.describe("the tape at peak", () => {
     ])
     await page.goto(`${DASHBOARD}${PAGE}`)
     const tape = page.getByRole("region", { name: "Running trades" })
-    const row = (seq: number) => tape.locator(`tr[data-trade-number="${seq}"]`)
-    const price = (seq: number) => row(seq).locator("td").nth(2)
+    const row = (n: number) =>
+      tape.locator(`tr[data-trade-number="${base + n}"]`)
+    const price = (n: number) => row(n).locator("td").nth(2)
     const up = "rgb(81, 221, 162)"
     const down = "rgb(255, 121, 135)"
 
     // BBCA is the selected code: highlighted, a buy in green.
-    await expect(row(900_001)).toHaveCSS("background-color", "rgb(23, 58, 67)")
-    await expect(price(900_001)).toHaveCSS("color", up)
-    await expect(price(900_001)).toContainText("buy")
+    await expect(row(1)).toHaveCSS("background-color", "rgb(23, 58, 67)")
+    await expect(price(1)).toHaveCSS("color", up)
+    await expect(price(1)).toContainText("buy")
 
-    await expect(row(900_002)).toHaveCSS("font-weight", "700")
+    await expect(row(2)).toHaveCSS("font-weight", "700")
     // The 3 px edge bar, last in Tailwind's stack of empty ring shadows.
-    await expect(row(900_002)).toHaveCSS(
+    await expect(row(2)).toHaveCSS(
       "box-shadow",
       /rgb\(255, 121, 135\) 3px 0px 0px 0px inset$/
     )
-    await expect(price(900_002)).toHaveCSS("color", down)
-    await expect(price(900_002)).toContainText("sell")
-    await expect(row(900_002)).toContainText("Rp1 B")
+    await expect(price(2)).toHaveCSS("color", down)
+    await expect(price(2)).toContainText("sell")
+    await expect(row(2)).toContainText("Rp1 B")
 
-    await expect(row(900_003)).toContainText("ASIITN")
-    await expect(price(900_003)).toHaveCSS("color", up)
+    await expect(row(3)).toContainText("ASIITN")
+    await expect(price(3)).toHaveCSS("color", up)
 
-    await expect(row(900_004)).toContainText("BBRING")
-    await expect(row(900_004)).not.toContainText(/buy|sell/)
-    await expect(row(900_004)).toHaveCSS("font-weight", "400")
+    await expect(row(4)).toContainText("BBRING")
+    await expect(row(4)).not.toContainText(/buy|sell/)
+    await expect(row(4)).toHaveCSS("font-weight", "400")
     relay.close()
   })
 
@@ -238,32 +248,34 @@ test.describe("the tape at peak", () => {
     page,
   }) => {
     const relay = await openIngest()
+    const base = freshTradeNumbers()
     const trades = (from: number, count: number) =>
       Array.from({ length: count }, (_, i) =>
         ajaibTradeToday({
-          seq: from + i,
+          seq: base + from + i,
           time: "10:00:02",
           ticker: "FRZA",
           price: 100,
           lot: 1,
         })
       )
-    await relay.sendAjaib(trades(910_001, 100))
+    await relay.sendAjaib(trades(1, 100))
     await page.goto(`${DASHBOARD}${PAGE}`)
     const tape = page.getByRole("region", { name: "Running trades" })
-    const row = (seq: number) => tape.locator(`tr[data-trade-number="${seq}"]`)
-    await expect(row(910_100)).toBeVisible()
+    const row = (n: number) =>
+      tape.locator(`tr[data-trade-number="${base + n}"]`)
+    await expect(row(100)).toBeVisible()
 
     await tape.getByRole("table").hover()
     await page.mouse.wheel(0, 600)
-    await expect(row(910_100)).not.toBeInViewport()
-    await relay.sendAjaib(trades(910_101, 30))
+    await expect(row(100)).not.toBeInViewport()
+    await relay.sendAjaib(trades(101, 30))
     const pill = tape.getByRole("button", { name: "30 new trades ↑" })
     await expect(pill).toBeVisible()
-    await expect(row(910_130)).toHaveCount(0)
+    await expect(row(130)).toHaveCount(0)
 
     await pill.click()
-    await expect(row(910_130)).toBeInViewport()
+    await expect(row(130)).toBeInViewport()
     await expect(pill).toBeHidden()
     relay.close()
   })

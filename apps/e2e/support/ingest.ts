@@ -47,17 +47,33 @@ export const wibToday = () =>
   new Date(Date.now() + 7 * 3_600_000).toISOString().slice(0, 10)
 
 /**
+ * A test's base trade number: above every number an earlier test sent today's
+ * object, so the test's trades are the newest and lead the tape whatever ran
+ * before it. Every spec shares today's trading-day object, the tape lists the
+ * newest trade numbers first in a window of about 30 rows, and a snapshot
+ * carries only the 200 newest. It counts 100 numbers per millisecond of the
+ * WIB day, so a test numbers at most 100,000 trades above its base (the
+ * next test asks for its own base seconds later).
+ */
+export const freshTradeNumbers = () =>
+  ((Date.now() + 7 * 3_600_000) % 86_400_000) * 100
+
+/** `seq` as today's 18-digit Ajaib trade number. */
+const ajaibTradeNumber = (today: string, seq: number) =>
+  today.replaceAll("-", "") + String(seq).padStart(10, "0")
+
+/**
  * The recorded session-1 frames moved to today, so today's trading-day object
  * keeps them: the trade number's date prefix and the trade's date change, the
- * WIB time of day stays.
+ * WIB time of day stays. Each trade number is `base` above the recorded one.
  */
-export function session1Today(): ReadonlyArray<string> {
+export function session1Today(base = 0): ReadonlyArray<string> {
   const today = wibToday()
   return recorded.session1.map((frame) => {
     const trade = JSON.parse(frame)
     return JSON.stringify({
       ...trade,
-      tradeNum: today.replaceAll("-", "") + trade.tradeNum.slice(8),
+      tradeNum: ajaibTradeNumber(today, base + Number(trade.tradeNum.slice(8))),
       tradedAt: today + trade.tradedAt.slice(10),
     })
   })
@@ -81,20 +97,23 @@ export function ajaibTradeToday(trade: {
     lot: trade.lot,
     value: trade.price * trade.lot * 100,
     tradedAt: `${today}T${trade.time}.000+07:00`,
-    tradeNum: today.replaceAll("-", "") + String(trade.seq).padStart(10, "0"),
+    tradeNum: ajaibTradeNumber(today, trade.seq),
     ...(trade.board === undefined ? {} : { market_type: trade.board }),
   })
 }
 
 /**
- * An opening match of `count` prints today, numbered from 1, at 08:58:00 over
- * 676 stock codes, as the 2026-11-09 match was (22,264 prints, Ajaib typing
- * them SELL).
+ * An opening match of `count` prints today, numbered from `base` + 1, at
+ * 08:58:00 over 676 stock codes, as the 2026-11-09 match was (22,264 prints,
+ * Ajaib typing them SELL).
  */
-export function openingMatchToday(count: number): ReadonlyArray<string> {
+export function openingMatchToday(
+  count: number,
+  base = 0
+): ReadonlyArray<string> {
   return Array.from({ length: count }, (_, i) =>
     ajaibTradeToday({
-      seq: i + 1,
+      seq: base + i + 1,
       time: "08:58:00",
       ticker: `M${String.fromCharCode(65 + (i % 26), 65 + (Math.floor(i / 26) % 26))}X`,
       price: 100 + (i % 50),
