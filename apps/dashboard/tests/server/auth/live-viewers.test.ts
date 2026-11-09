@@ -195,6 +195,78 @@ describe("a live Market Live page", () => {
     })
   )
 
+  it.effect("is closed on every browser when the password is reset", () =>
+    Effect.gen(function* () {
+      const { layer, mails, database, pages } = yield* setup()
+      yield* Effect.gen(function* () {
+        const { laptop, phone } = yield* signedIn(mails, database, pages)
+        yield* post("/request-password-reset", {
+          email: MEMBER,
+          redirectTo: "/reset-password",
+        })
+        const link = yield* send(linkIn(mails.at(-1)))
+        const token = new URL(
+          link.headers.get("location") ?? ""
+        ).searchParams.get("token")
+        const response = yield* post("/reset-password", {
+          newPassword: "battery staple",
+          token,
+        })
+        assert.strictEqual(response.status, 200)
+        assert.deepStrictEqual(closed(pages), [laptop.page, phone.page])
+        assert.strictEqual(
+          phone.page.closedWith,
+          ViewerCloseCode.SignInRequired
+        )
+      }).pipe(Effect.provide(layer))
+    })
+  )
+
+  it.effect(
+    "is closed on every other browser when the password changes with revokeOtherSessions",
+    () =>
+      Effect.gen(function* () {
+        const { layer, mails, database, pages } = yield* setup()
+        yield* Effect.gen(function* () {
+          const { laptop, phone } = yield* signedIn(mails, database, pages)
+          const response = yield* post(
+            "/change-password",
+            {
+              currentPassword: PASSWORD,
+              newPassword: "battery staple",
+              revokeOtherSessions: true,
+            },
+            { cookie: laptop.cookie }
+          )
+          assert.strictEqual(response.status, 200)
+          // The change replaces the laptop's own session too, so its page
+          // may close as well and sign in again.
+          assert.include(closed(pages), phone.page)
+          assert.strictEqual(
+            phone.page.closedWith,
+            ViewerCloseCode.SignInRequired
+          )
+        }).pipe(Effect.provide(layer))
+      })
+  )
+
+  it.effect("is closed on the browser that signs out, and only there", () =>
+    Effect.gen(function* () {
+      const { layer, mails, database, pages } = yield* setup()
+      yield* Effect.gen(function* () {
+        const { laptop, phone } = yield* signedIn(mails, database, pages)
+        const response = yield* post("/sign-out", {}, { cookie: phone.cookie })
+        assert.strictEqual(response.status, 200)
+        assert.deepStrictEqual(closed(pages), [phone.page])
+        assert.strictEqual(
+          phone.page.closedWith,
+          ViewerCloseCode.SignInRequired
+        )
+        assert.isUndefined(laptop.page.closedWith)
+      }).pipe(Effect.provide(layer))
+    })
+  )
+
   it.effect("stays open when the ban is refused", () =>
     Effect.gen(function* () {
       const { layer, mails, database, pages } = yield* setup()
