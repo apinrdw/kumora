@@ -4,10 +4,10 @@
 // the class the dashboard stack declares.
 import { WibDate } from "@workspace/relay"
 import { runServerEffectResult } from "@workspace/server"
-import { Effect, Schema, Scope } from "effect"
+import { Effect, Result, Schema, Scope } from "effect"
 
 import { withMarketClock } from "./market-clock.ts"
-import { ObjectPath, ViewerHeader } from "./routes.ts"
+import { HeldSessions, ObjectPath, ViewerHeader } from "./routes.ts"
 import { makeTradingDay, type Peer, type PeerState } from "./trading-day.ts"
 
 // Socket tags. A viewer socket also carries its user and session, so a ban or
@@ -15,7 +15,8 @@ import { makeTradingDay, type Peer, type PeerState } from "./trading-day.ts"
 const INGEST = "ingest"
 const VIEWER = "viewer"
 const userTag = (userId: string) => `user:${userId}`
-const sessionTag = (sessionId: string) => `session:${sessionId}`
+const SESSION = "session:"
+const sessionTag = (sessionId: string) => `${SESSION}${sessionId}`
 
 const peerOf = (socket: WebSocket): Peer => ({
   send: (text) => Effect.sync(() => socket.send(text)),
@@ -28,6 +29,7 @@ const peerOf = (socket: WebSocket): Peer => ({
 })
 
 const decodeDate = Schema.decodeUnknownSync(WibDate)
+const decodeHeld = Schema.decodeUnknownEffect(HeldSessions)
 
 // Decision: a plain class, not `DurableObject` from `cloudflare:workers`: the
 // object needs no RPC, and only the bridge may import that module. Each
@@ -41,16 +43,39 @@ export class TradingDayObject {
     const viewers = Effect.sync(() =>
       ctx.getWebSockets(VIEWER).map((socket) => peerOf(socket))
     )
+    const viewersOf = (userId: string) =>
+      Effect.sync(() =>
+        ctx.getWebSockets(userTag(userId)).map((socket) => ({
+          peer: peerOf(socket),
+          sessionId:
+            ctx
+              .getTags(socket)
+              .find((tag) => tag.startsWith(SESSION))
+              ?.slice(SESSION.length) ?? "",
+        }))
+      )
     // Lives as long as the object; it holds the delta timers.
     const scope = Scope.makeUnsafe()
     this.day = Effect.runSync(
-      makeTradingDay({ date, viewers }).pipe(Scope.provide(scope))
+      makeTradingDay({ date, viewers, viewersOf }).pipe(Scope.provide(scope))
     )
   }
 
-  // Accepts the socket the Worker entry routed here, already gated.
-  fetch(request: Request): Response {
+  // Accepts the socket the Worker entry routed here, already gated, or the
+  // sessions a user still holds (live-viewers.ts).
+  fetch(request: Request): Response | Promise<Response> {
     const { pathname } = new URL(request.url)
+    // The runner logs any failure.
+    if (pathname === ObjectPath.endSessions)
+      return runServerEffectResult(
+        Effect.promise(() => request.json()).pipe(
+          Effect.flatMap(decodeHeld),
+          Effect.flatMap(this.day.endSessions)
+        )
+      ).then(
+        (settled) =>
+          new Response(null, { status: Result.isSuccess(settled) ? 204 : 500 })
+      )
     const userId = request.headers.get(ViewerHeader.userId) ?? ""
     const sessionId = request.headers.get(ViewerHeader.sessionId) ?? ""
     const tags =

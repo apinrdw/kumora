@@ -102,9 +102,10 @@ export const Website = Cloudflare.Website.Vite(
     > =
       stage === TEST
         ? {
+            // Unset: no shift.
             MARKET_LIVE_CLOCK_OFFSET: Config.Redacted(
               "MARKET_LIVE_CLOCK_OFFSET"
-            ),
+            ).pipe(Config.withDefault(Redacted.make("0"))),
           }
         : {}
     return {

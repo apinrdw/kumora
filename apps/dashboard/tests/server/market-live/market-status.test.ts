@@ -58,6 +58,7 @@ const marketAt = Effect.fnUntraced(function* (start: string) {
   const day = yield* makeTradingDay({
     date: WibDate.make(start.slice(0, 10)),
     viewers: Effect.sync(() => viewers),
+    viewersOf: () => Effect.succeed([]),
   }).pipe(Scope.provide(yield* Scope.make()))
   const relay = new FakeSocket()
   const up = (message: IngestUp) =>

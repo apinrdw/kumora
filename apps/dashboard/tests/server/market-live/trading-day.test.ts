@@ -57,12 +57,30 @@ const env = Layer.succeed(WorkerEnv)(
   { INGEST_TOKEN: TOKEN } as unknown as WorkerEnv["Service"]
 )
 
+// The account and session a viewer socket was tagged with at upgrade.
+interface SignedIn {
+  readonly userId: string
+  readonly sessionId: string
+}
+
+const AYU: SignedIn = { userId: "ayu", sessionId: "ayu-laptop" }
+
 const tradingDay = Effect.fnUntraced(function* () {
   const viewers: Array<FakeSocket> = []
+  const signedIn = new Map<FakeSocket, SignedIn>()
   const scope = yield* Scope.make()
   const day = yield* makeTradingDay({
     date: DAY,
     viewers: Effect.sync(() => viewers),
+    viewersOf: (userId) =>
+      Effect.sync(() =>
+        viewers.flatMap((peer) => {
+          const held = signedIn.get(peer)
+          return held?.userId === userId
+            ? [{ peer, sessionId: held.sessionId }]
+            : []
+        })
+      ),
   }).pipe(Scope.provide(scope))
   const ingest = Effect.fnUntraced(function* (
     socket: FakeSocket,
@@ -70,9 +88,10 @@ const tradingDay = Effect.fnUntraced(function* () {
   ) {
     return yield* day.ingestMessage(socket, text).pipe(Effect.provide(env))
   })
-  const viewer = Effect.fnUntraced(function* () {
+  const viewer = Effect.fnUntraced(function* (as: SignedIn = AYU) {
     const socket = new FakeSocket()
     viewers.push(socket)
+    signedIn.set(socket, as)
     return socket
   })
   const select = (socket: FakeSocket) =>
@@ -161,6 +180,29 @@ describe("the viewer socket", () => {
       assert.strictEqual(page.closedWith, ViewerCloseCode.NewVersion)
       assert.lengthOf(page.sent, 0)
     })
+  )
+})
+
+describe("a ban, revoke or delete", () => {
+  it.effect(
+    "closes the user's viewer sockets on every session it no longer holds with 4401",
+    () =>
+      Effect.gen(function* () {
+        const { viewer, select, day } = yield* tradingDay()
+        const laptop = yield* viewer(AYU)
+        const phone = yield* viewer({ userId: "ayu", sessionId: "ayu-phone" })
+        const other = yield* viewer({ userId: "budi", sessionId: "budi-1" })
+        yield* Effect.forEach([laptop, phone, other], select)
+
+        yield* day.endSessions({ userId: "ayu", sessionIds: ["ayu-laptop"] })
+        assert.strictEqual(phone.closedWith, ViewerCloseCode.SignInRequired)
+        assert.isUndefined(laptop.closedWith)
+        assert.isUndefined(other.closedWith)
+
+        yield* day.endSessions({ userId: "ayu", sessionIds: [] })
+        assert.strictEqual(laptop.closedWith, ViewerCloseCode.SignInRequired)
+        assert.isUndefined(other.closedWith)
+      })
   )
 })
 
