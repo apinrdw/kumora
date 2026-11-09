@@ -27,11 +27,13 @@ const MERGE_WINDOW = 5_000
 
 // A candle's figures. Open and close belong to the trades with the lowest and
 // highest order: the trade number for a stock, the frame time for an index.
+// The close's time is its trade's, in epoch ms.
 export interface CandleFigures {
   readonly openOrder: bigint
   readonly open: number
   readonly closeOrder: bigint
   readonly close: number
+  readonly closeTime: number
   readonly high: number
   readonly low: number
   readonly volume: number
@@ -42,45 +44,51 @@ export interface CandleFigures {
 interface Print {
   readonly order: bigint
   readonly price: number
+  readonly time: number
   readonly volume: number
   readonly value: number
   readonly frequency: number
 }
 
-const add = (
-  figures: CandleFigures | undefined,
-  print: Print
-): CandleFigures => {
-  if (figures === undefined)
-    return {
-      openOrder: print.order,
-      open: print.price,
-      closeOrder: print.order,
-      close: print.price,
-      high: print.price,
-      low: print.price,
-      volume: print.volume,
-      value: print.value,
-      frequency: print.frequency,
-    }
-  const opens = print.order < figures.openOrder
-  const closes = print.order > figures.closeOrder
+const single = (print: Print): CandleFigures => ({
+  openOrder: print.order,
+  open: print.price,
+  closeOrder: print.order,
+  close: print.price,
+  closeTime: print.time,
+  high: print.price,
+  low: print.price,
+  volume: print.volume,
+  value: print.value,
+  frequency: print.frequency,
+})
+
+// Two sets of figures as one: the earlier open, the later close, the range
+// and the sums of both.
+const fold = (a: CandleFigures, b: CandleFigures): CandleFigures => {
+  const opens = b.openOrder < a.openOrder
+  const closes = b.closeOrder > a.closeOrder
   return {
-    openOrder: opens ? print.order : figures.openOrder,
-    open: opens ? print.price : figures.open,
-    closeOrder: closes ? print.order : figures.closeOrder,
-    close: closes ? print.price : figures.close,
-    high: Math.max(figures.high, print.price),
-    low: Math.min(figures.low, print.price),
-    volume: figures.volume + print.volume,
-    value: figures.value + print.value,
-    frequency: figures.frequency + print.frequency,
+    openOrder: opens ? b.openOrder : a.openOrder,
+    open: opens ? b.open : a.open,
+    closeOrder: closes ? b.closeOrder : a.closeOrder,
+    close: closes ? b.close : a.close,
+    closeTime: closes ? b.closeTime : a.closeTime,
+    high: Math.max(a.high, b.high),
+    low: Math.min(a.low, b.low),
+    volume: a.volume + b.volume,
+    value: a.value + b.value,
+    frequency: a.frequency + b.frequency,
   }
 }
+
+const add = (figures: CandleFigures | undefined, print: Print) =>
+  figures === undefined ? single(print) : fold(figures, single(print))
 
 const printOf = (trade: RunningTrade): Print => ({
   order: BigInt(trade.tradeNumber),
   price: trade.price,
+  time: DateTime.toEpochMillis(trade.time),
   volume: trade.lots,
   value: trade.price * trade.lots * 100,
   frequency: 1,
@@ -108,9 +116,15 @@ const sameCandlePart = (a: RunningTrade, b: RunningTrade) =>
   a.price === b.price &&
   a.lots === b.lots
 
-const candleOf = (slot: Slot): Candle | undefined => {
+// What has settled plus the trades still inside the merge window.
+const figuresOf = (slot: Slot) => {
   let figures = slot.settled
   for (const trade of slot.open.values()) figures = add(figures, printOf(trade))
+  return figures
+}
+
+const candleOf = (slot: Slot): Candle | undefined => {
+  const figures = figuresOf(slot)
   if (figures === undefined) return undefined
   return {
     code: slot.code,
@@ -228,6 +242,7 @@ export const makeCandleBook = Effect.sync(() => {
     slot.settled = add(slot.settled, {
       order: BigInt(time),
       price: last,
+      time,
       // Shares into lots, like a stock's candle.
       volume: (price.volume - base.volume) / 100,
       value: price.value - base.value,
@@ -244,6 +259,20 @@ export const makeCandleBook = Effect.sync(() => {
         .sort((a, b) => a.minute - b.minute)
         .flatMap((slot) => candleOf(slot) ?? [])
     )
+
+  // One code's candles for the minutes after `minute`, folded into one; the
+  // Day state fallback carries a `liveprice` frame on by them.
+  const foldAfter = (code: StockCode, minute: number) =>
+    Effect.sync(() => {
+      let folded: CandleFigures | undefined
+      for (const slot of series.get(code)?.values() ?? []) {
+        if (slot.minute <= minute) continue
+        const figures = figuresOf(slot)
+        if (figures === undefined) continue
+        folded = folded === undefined ? figures : fold(folded, figures)
+      }
+      return folded
+    })
 
   // Every candle changed since the last call, of any code.
   const takeChanged = Effect.sync(() => {
@@ -309,6 +338,7 @@ export const makeCandleBook = Effect.sync(() => {
     trade,
     indexPrice,
     candlesOf,
+    foldAfter,
     takeChanged,
     hasChanges,
     holds,

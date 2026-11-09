@@ -77,6 +77,7 @@ const SCHEMA = [
     open REAL NOT NULL,
     close_order INTEGER NOT NULL,
     close REAL NOT NULL,
+    close_time INTEGER NOT NULL,
     high REAL NOT NULL,
     low REAL NOT NULL,
     volume REAL NOT NULL,
@@ -130,6 +131,7 @@ const storedCandleOf = (row: Record<string, SqlValue>): StoredCandle => ({
     open: numberOf(row.open),
     closeOrder: BigInt(numberOf(row.close_order)),
     close: numberOf(row.close),
+    closeTime: numberOf(row.close_time),
     high: numberOf(row.high),
     low: numberOf(row.low),
     volume: numberOf(row.volume),
@@ -186,13 +188,14 @@ export const makeDayStore = (sql: Sql) =>
             )
           for (const { code, minute, figures } of flush.candles)
             sql.exec(
-              "INSERT OR REPLACE INTO candles VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
+              "INSERT OR REPLACE INTO candles VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
               code,
               minute,
               Number(figures.openOrder),
               figures.open,
               Number(figures.closeOrder),
               figures.close,
+              figures.closeTime,
               figures.high,
               figures.low,
               figures.volume,
@@ -262,29 +265,35 @@ export const makeDayStore = (sql: Sql) =>
         number
       )[0]
 
-    // Decision: the newest trades at or before `at` are found by a binary
-    // search on the trade number, which IDX hands out in matching order, so
-    // the time grows with it; the table needs no index on time. Rows the
-    // search brackets that are still later than `at` are left out.
+    // Decision: the highest number at or before an instant is found by a
+    // binary search on the trade number, which IDX hands out in matching
+    // order, so the time grows with it; the table needs no index on time.
+    // Rows a search brackets are still filtered by time.
+    const highestAt = (cutoff: number) => {
+      let low = boundTrade("min")
+      let high = boundTrade("max")
+      if (low === undefined || high === undefined) return undefined
+      let found: number | undefined
+      while (low <= high) {
+        const middle = Math.floor((low + high) / 2)
+        const row = firstFrom(middle)
+        if (row === undefined || numberOf(row.number) > high) {
+          high = middle - 1
+          continue
+        }
+        if (numberOf(row.time) <= cutoff) {
+          found = numberOf(row.number)
+          low = found + 1
+        } else high = middle - 1
+      }
+      return found
+    }
+
+    // The newest `limit` trades at or before `at`, ascending.
     const tradesAt = (at: DateTime.Utc, limit: number) =>
       Effect.sync(() => {
         const cutoff = DateTime.toEpochMillis(at)
-        let low = boundTrade("min")
-        let high = boundTrade("max")
-        if (low === undefined || high === undefined) return []
-        let found: number | undefined
-        while (low <= high) {
-          const middle = Math.floor((low + high) / 2)
-          const row = firstFrom(middle)
-          if (row === undefined || numberOf(row.number) > high) {
-            high = middle - 1
-            continue
-          }
-          if (numberOf(row.time) <= cutoff) {
-            found = numberOf(row.number)
-            low = found + 1
-          } else high = middle - 1
-        }
+        const found = highestAt(cutoff)
         if (found === undefined) return []
         return sql
           .exec(
@@ -295,6 +304,30 @@ export const makeDayStore = (sql: Sql) =>
           .map(tradeOf)
           .filter((trade) => DateTime.toEpochMillis(trade.time) <= cutoff)
           .reverse()
+      })
+
+    // The trades after `after` and at or before `through`, ascending. The
+    // feeds' times of neighbouring trades disagree by up to Ajaib's rounding
+    // to the second, so the numbers start a second early and the time
+    // filter decides.
+    const tradesBetween = (after: DateTime.Utc, through: DateTime.Utc) =>
+      Effect.sync(() => {
+        const from = DateTime.toEpochMillis(after)
+        const to = DateTime.toEpochMillis(through)
+        const last = highestAt(to)
+        if (last === undefined) return []
+        const first = highestAt(from - 1_000) ?? 0
+        return sql
+          .exec(
+            "SELECT * FROM trades WHERE number > ? AND number <= ? ORDER BY number",
+            first,
+            last
+          )
+          .map(tradeOf)
+          .filter((trade) => {
+            const time = DateTime.toEpochMillis(trade.time)
+            return from < time && time <= to
+          })
       })
 
     // Every code with a candle.
@@ -370,6 +403,7 @@ export const makeDayStore = (sql: Sql) =>
       tradeCount,
       newestTrades,
       tradesAt,
+      tradesBetween,
       candleCodes,
       storedCandlesOf,
       candlesOf,

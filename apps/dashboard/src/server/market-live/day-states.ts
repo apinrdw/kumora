@@ -2,11 +2,20 @@
 // values"): the last Stockbit `liveprice` frame per code, which carries the
 // day's totals so far, and, while Stockbit's feed is lost, those figures
 // carried on by the merged tape's regular-board trades and Ajaib's `PRICE`.
-import type { DayState, RunningTrade, StockCode } from "@workspace/relay"
+import {
+  TradeNumberOrder,
+  type DayState,
+  type RunningTrade,
+  type StockCode,
+  type TradeNumber,
+} from "@workspace/relay"
 import { DateTime, Effect } from "effect"
 
 import type { AjaibPrice } from "./ajaib-price.ts"
+import type { CandleFigures } from "./candles.ts"
 import type { LivePrice } from "./stockbit-liveprice.ts"
+
+const MINUTE = 60_000
 
 // A code's figures as of its last `liveprice` frame, the fallback's base.
 interface Base {
@@ -24,38 +33,56 @@ interface Base {
   readonly time: DateTime.Utc
 }
 
-// One counted trade, as much of it as the figures need.
-interface Counted {
-  readonly number: bigint
+// One regular-board trade kept whole, as much of it as the figures need.
+interface Kept {
+  readonly number: TradeNumber
   readonly price: number
+  readonly lots: number
   readonly time: DateTime.Utc
 }
 
-// The regular-board trades of a code after its base's time: how many at
-// each price, for the day's range; the newest few, ascending by trade
-// number, for the last price and its time; and their sums. Decision: a
-// feed's later copy of a trade can take it off the figures or move its
-// price, so the range and the last price are kept in forms a removal
-// leaves exact. The newest trades are capped at NEWEST_KEPT: a code's
-// whole day of trades is more than the object holds.
-interface Since {
-  readonly prices: Map<number, number>
-  readonly newest: Array<Counted>
-  volume: number
-  value: number
-  frequency: number
+// A code's kept trades of one minute, ascending by trade number.
+interface KeptMinute {
+  readonly minute: number
+  readonly trades: Array<Kept>
 }
 
-const NEWEST_KEPT = 16
+// What the trades since a base add to it: their range and sums, and the
+// newest one's price and time.
+interface Since {
+  readonly high: number
+  readonly low: number
+  readonly volume: number
+  readonly value: number
+  readonly frequency: number
+  readonly last: number | undefined
+  readonly time: DateTime.Utc | undefined
+}
 
-const rangeOf = (since: Since) => {
-  let high = -Infinity
-  let low = Infinity
-  for (const price of since.prices.keys()) {
-    high = Math.max(high, price)
-    low = Math.min(low, price)
+const NOTHING: Since = {
+  high: -Infinity,
+  low: Infinity,
+  volume: 0,
+  value: 0,
+  frequency: 0,
+  last: undefined,
+  time: undefined,
+}
+
+const minuteOf = (time: DateTime.Utc) =>
+  Math.floor(DateTime.toEpochMillis(time) / MINUTE) * MINUTE
+
+// The index in `trades`, ascending by trade number, where `number` sits or
+// would be inserted.
+const positionOf = (trades: ReadonlyArray<Kept>, number: TradeNumber) => {
+  let low = 0
+  let high = trades.length
+  while (low < high) {
+    const middle = (low + high) >>> 1
+    if (TradeNumberOrder(trades[middle]!.number, number) < 0) low = middle + 1
+    else high = middle
   }
-  return { high, low }
+  return low
 }
 
 const after = (a: DateTime.Utc, b: DateTime.Utc | undefined) =>
@@ -114,13 +141,33 @@ const fromStockbit = (code: StockCode, base: Base): DayState => ({
   provenance: "Stockbit",
 })
 
-// No trades counted since a base.
-const NO_TRADES = {
-  high: -Infinity,
-  low: Infinity,
-  volume: 0,
-  value: 0,
-  frequency: 0,
+// `tail`, the base minute's trades after the base, then `later`, the candles
+// of the minutes after it folded into one, whose close is the newest trade.
+const sinceOf = (
+  tail: ReadonlyArray<Kept>,
+  later: CandleFigures | undefined
+): Since => {
+  let since = NOTHING
+  for (const trade of tail)
+    since = {
+      high: Math.max(since.high, trade.price),
+      low: Math.min(since.low, trade.price),
+      volume: since.volume + trade.lots,
+      value: since.value + trade.price * trade.lots * 100,
+      frequency: since.frequency + 1,
+      last: trade.price,
+      time: trade.time,
+    }
+  if (later === undefined) return since
+  return {
+    high: Math.max(since.high, later.high),
+    low: Math.min(since.low, later.low),
+    volume: since.volume + later.volume,
+    value: since.value + later.value,
+    frequency: since.frequency + later.frequency,
+    last: later.close,
+    time: DateTime.makeUnsafe(later.closeTime),
+  }
 }
 
 // `start`'s figures carried on by the trades `since` it and an Ajaib `PRICE`
@@ -128,13 +175,10 @@ const NO_TRADES = {
 const carriedOn = (
   code: StockCode,
   start: Base,
-  since: Since | undefined,
+  since: Since,
   price: AjaibPrice | undefined
 ): DayState => {
-  const added =
-    since === undefined ? NO_TRADES : { ...since, ...rangeOf(since) }
-  const newest = since?.newest.at(-1)
-  const last = price?.last ?? newest?.price ?? start.last
+  const last = price?.last ?? since.last ?? start.last
   return {
     code,
     last,
@@ -143,12 +187,12 @@ const carriedOn = (
       ? changeOf(last, start.previousClose)
       : { change: price.change, changePercent: price.changePercent }),
     open: start.open,
-    high: Math.max(start.high, added.high),
-    low: Math.min(start.low, added.low),
-    volume: start.volume + added.volume,
-    value: start.value + added.value,
-    frequency: start.frequency + added.frequency,
-    asOf: latest(start.time, newest?.time, price?.time) ?? start.time,
+    high: Math.max(start.high, since.high),
+    low: Math.min(start.low, since.low),
+    volume: start.volume + since.volume,
+    value: start.value + since.value,
+    frequency: start.frequency + since.frequency,
+    asOf: latest(start.time, since.time, price?.time) ?? start.time,
     provenance: "Ajaib",
   }
 }
@@ -175,150 +219,188 @@ const priceBase = (price: AjaibPrice): Base => ({
 // Ajaib `PRICE` newer than that frame fills the last price and the change
 // (spec apinrdw/kumora#138, "Day state"). A code Stockbit never sent today
 // starts from its `PRICE` frame, whose volume already holds the trades, and
-// its value and frequency count only the regular-board trades this object
-// saw.
+// its value and frequency count the day's regular-board trades.
 const fromFallback = (
   code: StockCode,
   base: Base | undefined,
-  since: Since | undefined,
+  since: Since,
   ajaib: AjaibPrice | undefined
 ): DayState | undefined => {
   const price =
     ajaib !== undefined && after(ajaib.time, base?.time) ? ajaib : undefined
   if (base !== undefined) return carriedOn(code, base, since, price)
   if (price === undefined) return undefined
-  const counted = since === undefined ? undefined : { ...since, volume: 0 }
-  return carriedOn(code, priceBase(price), counted, price)
+  return carriedOn(code, priceBase(price), { ...since, volume: 0 }, price)
 }
 
-export const makeDayStates = Effect.sync(() => {
-  const bases = new Map<StockCode, Base>()
-  const sinces = new Map<StockCode, Since>()
-  const ajaibs = new Map<StockCode, AjaibPrice>()
-  // Codes whose Stockbit figures changed, and whose fallback figures did.
-  const stockbitChanged = new Set<StockCode>()
-  const fallbackChanged = new Set<StockCode>()
-  // Whether the last changes taken were Stockbit's: a switch resends all.
-  let wasLive = true
+// Decision: the trades after a code's base are read as the candle book's
+// candles for the minutes after the base's, plus the base minute's trades
+// after the base's time, kept here trade by trade. The candles are the day's
+// regular-board trades as the store holds them, so a restart, a later copy
+// of a trade (within the candle book's merge window) and a frame that
+// arrives after trades newer than it all leave the same figures. A code also
+// keeps its newest minute whole, so a frame in that minute cuts it exactly.
+// A frame whose minute is neither (delayed past the minute's end) counts
+// that minute's trades after it only from the next frame on.
+export const makeDayStates = (candles: {
+  readonly foldAfter: (
+    code: StockCode,
+    minute: number
+  ) => Effect.Effect<CandleFigures | undefined>
+}) =>
+  Effect.sync(() => {
+    const bases = new Map<StockCode, Base>()
+    const kept = new Map<StockCode, ReadonlyArray<KeptMinute>>()
+    const ajaibs = new Map<StockCode, AjaibPrice>()
+    // Codes whose Stockbit figures changed, and whose fallback figures did.
+    const stockbitChanged = new Set<StockCode>()
+    const fallbackChanged = new Set<StockCode>()
+    // Whether the last changes taken were Stockbit's: a switch resends all.
+    let wasLive = true
 
-  // A frame older than the code's base, from the other connection or late,
-  // changes nothing. The trades counted since the old base are in the new.
-  const livePrice = (price: LivePrice) =>
-    Effect.sync(() => {
-      if (!price.regularBoard) return
-      const held = bases.get(price.code)
-      if (held !== undefined && !after(price.time, held.time)) return
-      bases.set(price.code, baseOf(price, held))
-      sinces.delete(price.code)
-      stockbitChanged.add(price.code)
-      fallbackChanged.add(price.code)
-    })
-
-  const ajaibPrice = (price: AjaibPrice) =>
-    Effect.sync(() => {
-      const held = ajaibs.get(price.code)
-      if (held !== undefined && !after(price.time, held.time)) return
-      ajaibs.set(price.code, price)
-      fallbackChanged.add(price.code)
-    })
-
-  // Whether a trade belongs in its code's figures since the base: on the
-  // regular board, and after the base's time.
-  const counts = (trade: RunningTrade) => {
-    if (trade.board !== "RG") return false
-    const base = bases.get(trade.code)
-    return base === undefined || after(trade.time, base.time)
-  }
-
-  const add = (trade: RunningTrade) => {
-    const since = sinces.get(trade.code) ?? {
-      prices: new Map(),
-      newest: [],
-      volume: 0,
-      value: 0,
-      frequency: 0,
+    const baseMinuteOf = (code: StockCode) => {
+      const base = bases.get(code)
+      return base === undefined ? undefined : minuteOf(base.time)
     }
-    const number = BigInt(trade.tradeNumber)
-    const at = since.newest.findIndex((kept) => kept.number > number)
-    since.newest.splice(at === -1 ? since.newest.length : at, 0, {
-      number,
-      price: trade.price,
-      time: trade.time,
-    })
-    if (since.newest.length > NEWEST_KEPT) since.newest.shift()
-    since.prices.set(trade.price, (since.prices.get(trade.price) ?? 0) + 1)
-    since.volume += trade.lots
-    since.value += trade.price * trade.lots * 100
-    since.frequency += 1
-    sinces.set(trade.code, since)
-  }
 
-  // Takes a counted trade back out. One the figures don't hold, because a
-  // liveprice frame since took the base past it, is left alone.
-  const remove = (trade: RunningTrade) => {
-    const since = sinces.get(trade.code)
-    const count = since?.prices.get(trade.price)
-    if (since === undefined || count === undefined) return false
-    if (count === 1) since.prices.delete(trade.price)
-    else since.prices.set(trade.price, count - 1)
-    const number = BigInt(trade.tradeNumber)
-    const at = since.newest.findIndex((kept) => kept.number === number)
-    if (at !== -1) since.newest.splice(at, 1)
-    since.volume -= trade.lots
-    since.value -= trade.price * trade.lots * 100
-    since.frequency -= 1
-    if (since.frequency === 0) sinces.delete(trade.code)
-    return true
-  }
+    // A frame older than the code's base, from the other connection or late,
+    // changes nothing. The trades at or before the frame are in its totals:
+    // the minutes before the frame's go, and its own minute keeps the trades
+    // after it.
+    const livePrice = (price: LivePrice) =>
+      Effect.sync(() => {
+        if (!price.regularBoard) return
+        const held = bases.get(price.code)
+        if (held !== undefined && !after(price.time, held.time)) return
+        bases.set(price.code, baseOf(price, held))
+        const minute = minuteOf(price.time)
+        kept.set(
+          price.code,
+          (kept.get(price.code) ?? []).flatMap((candidate) => {
+            if (candidate.minute < minute) return []
+            if (candidate.minute > minute) return [candidate]
+            const trades = candidate.trades.filter((trade) =>
+              after(trade.time, price.time)
+            )
+            return trades.length === 0 ? [] : [{ minute, trades }]
+          })
+        )
+        stockbitChanged.add(price.code)
+        fallbackChanged.add(price.code)
+      })
 
-  // A trade as the merged tape now holds it: new (`held` undefined), or
-  // merged from what it held before, which may change its price, lots,
-  // board or time.
-  const trade = (held: RunningTrade | undefined, current: RunningTrade) =>
-    Effect.sync(() => {
-      const removed = held !== undefined && counts(held) && remove(held)
-      const added = counts(current)
-      if (added) add(current)
-      if (removed || added) fallbackChanged.add(current.code)
-    })
+    const ajaibPrice = (price: AjaibPrice) =>
+      Effect.sync(() => {
+        const held = ajaibs.get(price.code)
+        if (held !== undefined && !after(price.time, held.time)) return
+        ajaibs.set(price.code, price)
+        fallbackChanged.add(price.code)
+      })
 
-  // A code's Day state, from Stockbit while `stockbitLive`; undefined while
-  // it has no figures yet.
-  const stateOf = (code: StockCode, stockbitLive: boolean) =>
-    Effect.sync(() => {
+    // Whether a trade is in its code's figures since the base: on the
+    // regular board, and after the base's time.
+    const counts = (trade: RunningTrade) => {
+      if (trade.board !== "RG") return false
+      const base = bases.get(trade.code)
+      return base === undefined || after(trade.time, base.time)
+    }
+
+    // Keeps a counted trade whole when its minute is its code's base minute
+    // or at or past its newest; an older minute's trade is in its candle.
+    const keep = (trade: RunningTrade) => {
+      const minute = minuteOf(trade.time)
+      const minutes = kept.get(trade.code) ?? []
+      let held = minutes.find((candidate) => candidate.minute === minute)
+      if (held === undefined) {
+        const baseMinute = baseMinuteOf(trade.code)
+        if (
+          minute !== baseMinute &&
+          minutes.some((candidate) => candidate.minute > minute)
+        )
+          return
+        held = { minute, trades: [] }
+        kept.set(trade.code, [
+          ...minutes.filter(
+            (candidate) =>
+              candidate.minute === baseMinute || candidate.minute > minute
+          ),
+          held,
+        ])
+      }
+      held.trades.splice(positionOf(held.trades, trade.tradeNumber), 0, {
+        number: trade.tradeNumber,
+        price: trade.price,
+        lots: trade.lots,
+        time: trade.time,
+      })
+    }
+
+    const unkeep = (trade: RunningTrade) => {
+      const minute = minuteOf(trade.time)
+      const held = kept
+        .get(trade.code)
+        ?.find((candidate) => candidate.minute === minute)
+      if (held === undefined) return
+      const at = positionOf(held.trades, trade.tradeNumber)
+      if (held.trades[at]?.number === trade.tradeNumber)
+        held.trades.splice(at, 1)
+    }
+
+    // A trade as the merged tape now holds it: new (`held` undefined), or
+    // merged from what it held before, which may change its price, lots,
+    // board or time.
+    const trade = (held: RunningTrade | undefined, current: RunningTrade) =>
+      Effect.sync(() => {
+        const removed = held !== undefined && counts(held)
+        if (removed) unkeep(held)
+        const added = counts(current)
+        if (added) keep(current)
+        if (removed || added) fallbackChanged.add(current.code)
+      })
+
+    // A code's Day state, from Stockbit while `stockbitLive`; undefined while
+    // it has no figures yet.
+    const stateOf = Effect.fnUntraced(function* (
+      code: StockCode,
+      stockbitLive: boolean
+    ) {
       const base = bases.get(code)
       if (stockbitLive)
         return base === undefined ? undefined : fromStockbit(code, base)
-      return fromFallback(code, base, sinces.get(code), ajaibs.get(code))
+      const baseMinute = baseMinuteOf(code)
+      const tail =
+        kept.get(code)?.find((held) => held.minute === baseMinute)?.trades ?? []
+      const later = yield* candles.foldAfter(code, baseMinute ?? -Infinity)
+      return fromFallback(code, base, sinceOf(tail, later), ajaibs.get(code))
     })
 
-  const changedCodes = (stockbitLive: boolean) =>
-    stockbitLive !== wasLive
-      ? new Set([...bases.keys(), ...sinces.keys(), ...ajaibs.keys()])
-      : stockbitLive
-        ? stockbitChanged
-        : fallbackChanged
+    const changedCodes = (stockbitLive: boolean) =>
+      stockbitLive !== wasLive
+        ? new Set([...bases.keys(), ...ajaibs.keys()])
+        : stockbitLive
+          ? stockbitChanged
+          : fallbackChanged
 
-  // The Day states of `watched` codes that changed since the last call.
-  const takeChanged = Effect.fnUntraced(function* (
-    stockbitLive: boolean,
-    watched: ReadonlySet<StockCode>
-  ) {
-    const changed: Array<DayState> = []
-    for (const code of changedCodes(stockbitLive)) {
-      if (!watched.has(code)) continue
-      const state = yield* stateOf(code, stockbitLive)
-      if (state !== undefined) changed.push(state)
-    }
-    stockbitChanged.clear()
-    fallbackChanged.clear()
-    wasLive = stockbitLive
-    return changed
+    // The Day states of `watched` codes that changed since the last call.
+    const takeChanged = Effect.fnUntraced(function* (
+      stockbitLive: boolean,
+      watched: ReadonlySet<StockCode>
+    ) {
+      const changed: Array<DayState> = []
+      for (const code of changedCodes(stockbitLive)) {
+        if (!watched.has(code)) continue
+        const state = yield* stateOf(code, stockbitLive)
+        if (state !== undefined) changed.push(state)
+      }
+      stockbitChanged.clear()
+      fallbackChanged.clear()
+      wasLive = stockbitLive
+      return changed
+    })
+
+    const hasChanges = Effect.sync(
+      () => stockbitChanged.size > 0 || fallbackChanged.size > 0
+    )
+
+    return { livePrice, ajaibPrice, trade, stateOf, takeChanged, hasChanges }
   })
-
-  const hasChanges = Effect.sync(
-    () => stockbitChanged.size > 0 || fallbackChanged.size > 0
-  )
-
-  return { livePrice, ajaibPrice, trade, stateOf, takeChanged, hasChanges }
-})

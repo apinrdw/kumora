@@ -299,6 +299,7 @@ describe("a restarted trading day", () => {
                 open: 100,
                 closeOrder: BigInt(index * 2 + 1),
                 close: 101,
+                closeTime: first + index * 60_000 + 30_000,
                 high: 102,
                 low: 99,
                 volume: 10,

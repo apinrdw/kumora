@@ -185,7 +185,7 @@ const restoreLastFrames = Effect.fnUntraced(function* (day: {
   readonly store: Effect.Success<ReturnType<typeof makeDayStore>>
   readonly candles: Effect.Success<typeof makeCandleBook>
   readonly books: Effect.Success<ReturnType<typeof makeOrderBooks>>
-  readonly dayStates: Effect.Success<typeof makeDayStates>
+  readonly dayStates: Effect.Success<ReturnType<typeof makeDayStates>>
   readonly bookChunks: Effect.Success<typeof makeBookChunks>
 }) {
   // Decision: candles come back one code at a time, so a full day's
@@ -200,6 +200,20 @@ const restoreLastFrames = Effect.fnUntraced(function* (day: {
     yield* day.books.livePrice(price)
     yield* day.dayStates.livePrice(price)
   }
+  // The stored trades of every base's minute, so each code's Day state
+  // fallback holds the ones after its base: one scan per distinct minute.
+  const minutes = new Set(
+    prices.map(
+      (price) =>
+        Math.floor(DateTime.toEpochMillis(price.time) / MINUTE) * MINUTE
+    )
+  )
+  for (const minute of minutes)
+    for (const trade of yield* day.store.tradesBetween(
+      DateTime.makeUnsafe(minute - 1),
+      DateTime.makeUnsafe(minute + MINUTE - 1)
+    ))
+      yield* day.dayStates.trade(undefined, trade)
   for (const text of yield* day.store.latestChunks) {
     const chunk = yield* decodeBookChunk(text)
     const book = yield* bookAt(chunk, DateTime.makeUnsafe(8.64e15))
@@ -263,7 +277,7 @@ export const makeTradingDay = Effect.fnUntraced(function* (options: {
   const books = yield* makeOrderBooks(options.date)
   const bookChunks = yield* makeBookChunks
   const gaps = yield* makeGaps({ ingests, highest: storedHighest })
-  const dayStates = yield* makeDayStates
+  const dayStates = yield* makeDayStates(candles)
   const onDemand = yield* makeOnDemand({ viewers: options.viewers, ingests })
   const market = yield* makeMarketConditions(
     options.date,
