@@ -44,6 +44,7 @@ const { compileMigrations, unsafeChanges, schemaProblems } =
       authorizeOwnAction: async () => {},
       authorizeEmailChange: async () => {},
       authorizeAdminAction: async () => {},
+      endLiveSessions: async () => {},
     }),
     { throwOnUnsafe: false }
   )
