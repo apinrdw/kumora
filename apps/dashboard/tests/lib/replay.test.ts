@@ -108,6 +108,23 @@ describe("a relay gap on the chart", () => {
     ).toEqual([[at("10:01:00"), at("10:02:00")], [at("11:00:00")]])
   })
 
+  test("gaps that touch the same minute, or overlap, make one run", () => {
+    expect(
+      gapMinutes(
+        [
+          gap("10:05:40", "10:07:00"),
+          gap("10:01:30", "10:02:10"),
+          gap("10:02:40", "10:03:00"),
+          gap("10:06:00"),
+        ],
+        at("10:07:30")
+      )
+    ).toEqual([
+      [at("10:01:00"), at("10:02:00")],
+      [at("10:05:00"), at("10:06:00"), at("10:07:00")],
+    ])
+  })
+
   test("an open gap runs to the end given", () => {
     expect(gapMinutes([gap("15:58:10")], at("16:00:30"))).toEqual([
       [at("15:58:00"), at("15:59:00"), at("16:00:00")],

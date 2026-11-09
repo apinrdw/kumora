@@ -98,23 +98,34 @@ export const scrubbedTo = (day: ReplayDay, value: number) =>
 const MINUTE = 60_000
 
 /**
- * The minutes each relay gap touches, as minute starts, one run per gap: the
- * chart shades them as not recorded. A gap with no end runs to `end`.
+ * The minutes the relay gaps touch, as minute starts, in ascending runs: the
+ * chart shades them as not recorded. Gaps that touch the same minute, or
+ * overlap, make one run, so no minute appears twice. A gap with no end runs
+ * to `end`.
  */
 export function gapMinutes(
   gaps: ReadonlyArray<RelayGap>,
   end: number
 ): ReadonlyArray<ReadonlyArray<number>> {
-  return gaps.flatMap((gap) => {
-    const from = DateTime.toEpochMillis(gap.from)
-    const to = gap.to === undefined ? end + 1 : DateTime.toEpochMillis(gap.to)
-    const minutes: Array<number> = []
+  const runs: Array<Array<number>> = []
+  const spans = gaps
+    .map((gap) => ({
+      from: Math.floor(DateTime.toEpochMillis(gap.from) / MINUTE) * MINUTE,
+      to: gap.to === undefined ? end + 1 : DateTime.toEpochMillis(gap.to),
+    }))
+    .sort((a, b) => a.from - b.from)
+  for (const { from, to } of spans) {
+    const run = runs.at(-1)
+    const last = run?.at(-1)
+    const minutes =
+      run !== undefined && last !== undefined && from <= last ? run : []
     for (
-      let minute = Math.floor(from / MINUTE) * MINUTE;
+      let minute = Math.max(from, (last ?? from - MINUTE) + MINUTE);
       minute < to;
       minute += MINUTE
     )
       minutes.push(minute)
-    return minutes.length === 0 ? [] : [minutes]
-  })
+    if (minutes !== run && minutes.length > 0) runs.push(minutes)
+  }
+  return runs
 }
