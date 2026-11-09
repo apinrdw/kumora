@@ -13,6 +13,7 @@ import {
   decodeViewerDown,
   encodeIngestUp,
   encodeViewerUp,
+  type Candle,
   type RunningTrade,
   type ViewerDown,
 } from "@workspace/relay"
@@ -27,7 +28,9 @@ import {
 } from "@/server/market-live/trading-day"
 
 import recorded from "./fixtures/ajaib-trades-2026-11-09.json"
+import recordedIhsg from "./fixtures/stockbit-ihsg-liveprice.json"
 import recordedStockbit from "./fixtures/stockbit-trades-2026-11-09.json"
+import { doubleField, messageField, stringField, varintField } from "./protobuf"
 
 const TOKEN = "e2e-ingest-token"
 const DAY = WibDate.make("2026-11-09")
@@ -94,11 +97,11 @@ const tradingDay = Effect.fnUntraced(function* () {
     signedIn.set(socket, as)
     return socket
   })
-  const select = (socket: FakeSocket) =>
+  const select = (socket: FakeSocket, selected = "BBCA") =>
     encodeViewerUp({
       _tag: "Select",
       protocolVersion: ViewerProtocolVersion,
-      selected: StockCode.make("BBCA"),
+      selected: StockCode.make(selected),
       watchlist: [],
     }).pipe(Effect.flatMap((text) => day.viewerMessage(socket, text)))
   return { day, ingest, viewer, select }
@@ -192,7 +195,9 @@ describe("a ban, revoke or delete", () => {
         const laptop = yield* viewer(AYU)
         const phone = yield* viewer({ userId: "ayu", sessionId: "ayu-phone" })
         const other = yield* viewer({ userId: "budi", sessionId: "budi-1" })
-        yield* Effect.forEach([laptop, phone, other], select)
+        yield* Effect.forEach([laptop, phone, other], (socket) =>
+          select(socket)
+        )
 
         yield* day.endSessions({ userId: "ayu", sessionIds: ["ayu-laptop"] })
         assert.strictEqual(phone.closedWith, ViewerCloseCode.SignInRequired)
@@ -383,30 +388,6 @@ const stockbitRecorded: {
   }
 } = recordedStockbit
 
-const varint = (value: number): Array<number> => {
-  const bytes: Array<number> = []
-  let rest = value
-  while (rest >= 0x80) {
-    bytes.push((rest % 0x80) | 0x80)
-    rest = Math.floor(rest / 0x80)
-  }
-  bytes.push(rest)
-  return bytes
-}
-const varintField = (field: number, value: number) => [
-  ...varint(field * 8),
-  ...varint(value),
-]
-const doubleField = (field: number, value: number) => {
-  const bytes = new Uint8Array(8)
-  new DataView(bytes.buffer).setFloat64(0, value, true)
-  return [...varint(field * 8 + 1), ...bytes]
-}
-const messageField = (field: number, bytes: ReadonlyArray<number>) => [
-  ...varint(field * 8 + 2),
-  ...varint(bytes.length),
-  ...bytes,
-]
 const runningTrade = (row: StockbitRow) => {
   const ms = Date.parse(`2026-11-09T${row.tradeWib}+07:00`)
   const timestamp = [
@@ -625,3 +606,234 @@ describe("the merged tape", () => {
       })
   )
 })
+
+// UNTR around the open: the 08:58 opening match from the probe, then made-up
+// trades in session 1, two of them off the regular board.
+const untr = (
+  tradeNumber: number,
+  tradeWib: string,
+  price: number,
+  volume: number,
+  board = 1
+): StockbitRow => ({
+  tradeWib,
+  code: "UNTR",
+  price,
+  volume,
+  action: 1,
+  board,
+  tradeNumber,
+})
+const untrSession = [
+  untr(40001, "09:00:10.000", 23300, 200),
+  untr(40002, "09:00:20.000", 23150, 100),
+  // A negotiated block and a cash-board print, far off the market.
+  untr(40003, "09:00:30.000", 30000, 50000, 3),
+  untr(40004, "09:00:40.000", 10000, 100, 2),
+  untr(40005, "09:00:59.900", 23250, 300),
+  untr(40006, "09:01:05.000", 23275, 100),
+]
+
+const figures = (candle: Candle | undefined) =>
+  candle && {
+    minute: DateTime.formatIso(candle.minute),
+    ohlc: [candle.open, candle.high, candle.low, candle.close],
+    volume: candle.volume,
+    value: candle.value,
+    frequency: candle.frequency,
+  }
+
+const candlesOf = (
+  messages: ReadonlyArray<ViewerDown>,
+  code: string
+): ReadonlyArray<Candle> =>
+  messages.flatMap((message) =>
+    message.candles.filter((candle) => candle.code === code)
+  )
+
+describe("candles", () => {
+  it.effect(
+    "RG trades only, each in its own minute; the opening match makes its own candle",
+    () =>
+      Effect.gen(function* () {
+        const { ingest, viewer, select } = yield* tradingDay()
+        const socket = yield* relay(ingest)
+        // Ajaib's copies of the match, typed SELL, change nothing.
+        yield* ingest(
+          socket,
+          yield* ajaib(stockbitRecorded.ajaibTwins.openingMatch)
+        )
+        yield* ingest(
+          socket,
+          yield* stockbit(
+            [...stockbitRecorded.openingMatch, ...untrSession],
+            "A"
+          )
+        )
+        const page = yield* viewer()
+        yield* select(page, "UNTR")
+        const [snapshot] = yield* page.received
+        assert.deepStrictEqual(snapshot!.candles.map(figures), [
+          {
+            minute: "2026-11-09T01:58:00.000Z",
+            ohlc: [23200, 23200, 23200, 23200],
+            volume: 54,
+            value: 23200 * 5400,
+            frequency: 20,
+          },
+          {
+            minute: "2026-11-09T02:00:00.000Z",
+            ohlc: [23300, 23300, 23150, 23250],
+            volume: 6,
+            value: 23300 * 200 + 23150 * 100 + 23250 * 300,
+            frequency: 3,
+          },
+          {
+            minute: "2026-11-09T02:01:00.000Z",
+            ohlc: [23275, 23275, 23275, 23275],
+            volume: 1,
+            value: 23275 * 100,
+            frequency: 1,
+          },
+        ])
+      })
+  )
+
+  it.effect(
+    "a late trade resends its own minute's candle, though the next has begun",
+    () =>
+      Effect.gen(function* () {
+        const { ingest, viewer, select } = yield* tradingDay()
+        const page = yield* viewer()
+        yield* select(page, "UNTR")
+        const socket = yield* relay(ingest)
+        const [first, ...rest] = untrSession
+        yield* ingest(socket, yield* stockbit(rest, "A"))
+        yield* TestClock.adjust("250 millis")
+        yield* ingest(socket, yield* stockbit([first!], "A"))
+        yield* TestClock.adjust("250 millis")
+
+        const [, before, after] = yield* page.received
+        assert.deepStrictEqual(
+          candlesOf([before!], "UNTR").map((candle) => candle.open),
+          [23150, 23275]
+        )
+        // Only 09:00's candle, now opened by the earlier trade number.
+        assert.deepStrictEqual(candlesOf([after!], "UNTR").map(figures), [
+          {
+            minute: "2026-11-09T02:00:00.000Z",
+            ohlc: [23300, 23300, 23150, 23250],
+            volume: 6,
+            value: 23300 * 200 + 23150 * 100 + 23250 * 300,
+            frequency: 3,
+          },
+        ])
+      })
+  )
+
+  it.effect(
+    "Stockbit's time moves a trade Ajaib rounded into the next minute back to its own",
+    () =>
+      Effect.gen(function* () {
+        const { ingest, viewer, select } = yield* tradingDay()
+        const socket = yield* relay(ingest)
+        const late = untrSession[4]!
+        // Ajaib rounds 09:00:59.900 up to 09:01:00.
+        const rounded = JSON.stringify({
+          ...JSON.parse(stockbitRecorded.ajaibTwins.tn[0]!),
+          ticker: late.code,
+          type: "BUY",
+          price: late.price,
+          lot: late.volume / 100,
+          tradedAt: "2026-11-09T09:01:00+07:00",
+          tradeNum: `20261109${String(late.tradeNumber).padStart(10, "0")}`,
+        })
+        yield* ingest(socket, yield* ajaib([rounded]))
+        const early = yield* viewer()
+        yield* select(early, "UNTR")
+        const [before] = yield* early.received
+        assert.deepStrictEqual(
+          before!.candles.map((candle) => DateTime.formatIso(candle.minute)),
+          ["2026-11-09T02:01:00.000Z"]
+        )
+
+        yield* TestClock.adjust("1 second")
+        yield* ingest(socket, yield* stockbit([late], "A"))
+        const page = yield* viewer()
+        yield* select(page, "UNTR")
+        const [snapshot] = yield* page.received
+        assert.deepStrictEqual(snapshot!.candles.map(figures), [
+          {
+            minute: "2026-11-09T02:00:00.000Z",
+            ohlc: [23250, 23250, 23250, 23250],
+            volume: 3,
+            value: 23250 * 300,
+            frequency: 1,
+          },
+        ])
+      })
+  )
+
+  it.effect("IHSG's candles come from its liveprice frames", () =>
+    Effect.gen(function* () {
+      const { ingest, viewer, select } = yield* tradingDay()
+      const socket = yield* relay(ingest)
+      yield* ingest(socket, yield* livePrices(recordedIhsg.ihsg, "A"))
+      // Connection B repeats them: nothing counts twice.
+      yield* ingest(socket, yield* livePrices(recordedIhsg.ihsg, "B"))
+      const page = yield* viewer()
+      yield* select(page, "IHSG")
+      const [snapshot] = yield* page.received
+      assert.deepStrictEqual(snapshot!.candles.map(figures), [
+        {
+          // The first frame sets the base: only what traded after it counts.
+          minute: "2026-11-09T07:15:00.000Z",
+          ohlc: [4975.55, 4979.874, 4975.55, 4979.874],
+          volume: (23_884_163_300 - 23_883_768_100) / 100,
+          value: 4_136_495_385_800 - 4_136_209_751_400,
+          frequency: 661_626 - 661_544,
+        },
+        {
+          minute: "2026-11-09T07:19:00.000Z",
+          ohlc: [4970.272, 4972.39, 4970.272, 4971.287],
+          volume: (24_187_023_700 - 23_884_163_300) / 100,
+          value: 4_224_616_955_900 - 4_136_495_385_800,
+          frequency: 674_825 - 661_626,
+        },
+      ])
+    })
+  )
+})
+
+// IHSG's `liveprice` frames from the probe, encoded back into wrapper case 9
+// by `LivePrice`'s field numbers. Some frames carry only the totals.
+interface LivePriceRow {
+  readonly code: string
+  readonly date: string
+  readonly last?: number
+  readonly volume: number
+  readonly value: number
+  readonly frequency: number
+}
+
+const livePrices = (rows: ReadonlyArray<LivePriceRow>, connection: "A" | "B") =>
+  encodeIngestUp({
+    _tag: "Frames",
+    protocolVersion: IngestProtocolVersion,
+    feed: "Stockbit",
+    connection,
+    receivedAt: DateTime.makeUnsafe("2026-11-09T07:15:37.000Z"),
+    frames: rows.map((row) =>
+      Uint8Array.from(
+        messageField(9, [
+          ...stringField(1, row.code),
+          ...(row.last === undefined ? [] : doubleField(2, row.last)),
+          ...doubleField(3, row.volume),
+          ...doubleField(7, row.frequency),
+          ...stringField(11, row.date),
+          ...doubleField(14, row.value),
+          ...varintField(18, 1),
+        ])
+      )
+    ),
+  })

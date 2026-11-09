@@ -2,8 +2,8 @@
 // "Decoding (Worker-side)"). The schema is `securities.transactional.datafeed.v1`
 // from Stockbit's public bundle; only the fields Market Live reads are decoded,
 // by field number, and a frame that isn't a running trade batch is skipped:
-// indicative.ts reads `iepiev` with the same reader (`fieldReader`,
-// `messagesAt`); other tickets decode `liveprice` and `order_book`.
+// indicative.ts reads `iepiev` and stockbit-liveprice.ts `liveprice` with the
+// same reader.
 import {
   StockCode,
   TradeNumber,
@@ -79,6 +79,21 @@ const fieldsOf = (bytes: Uint8Array): ReadonlyArray<Field> | undefined => {
   return fields
 }
 
+// A length-delimited field read as UTF-8 text.
+export const textOf = (value: Value | undefined) => {
+  const run = bytesOf(value)
+  return run === undefined ? undefined : new TextDecoder().decode(run)
+}
+
+// Reads one message's fields by number, or is undefined when the bytes don't
+// parse.
+export const fieldReader = (bytes: Uint8Array) => {
+  const fields = fieldsOf(bytes)
+  if (fields === undefined) return undefined
+  return (number: number) =>
+    fields.find((field) => field.number === number)?.value
+}
+
 export const bytesOf = (value: Value | undefined) =>
   value instanceof Uint8Array ? value : undefined
 export const numberOf = (value: Value | undefined) =>
@@ -130,15 +145,6 @@ const instantOf = (bytes: Uint8Array | undefined) => {
   const part = (number: number) =>
     numberOf(fields.find((field) => field.number === number)?.value) ?? 0
   return DateTime.makeUnsafe(part(1) * 1000 + Math.floor(part(2) / 1e6))
-}
-
-// Reads one message's fields by number, or undefined when the bytes don't
-// parse.
-export const fieldReader = (bytes: Uint8Array) => {
-  const fields = fieldsOf(bytes)
-  if (fields === undefined) return undefined
-  return (number: number) =>
-    fields.find((field) => field.number === number)?.value
 }
 
 // One `RunningTrade`, or undefined when a field the tape needs is missing.

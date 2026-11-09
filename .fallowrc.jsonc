@@ -6,7 +6,8 @@
   "entry": [
     "packages/deploy/src/deploy.ts",
     "apps/extension/src/worker/service-worker.ts",
-    "apps/extension/src/content/ajaib.ts",
+    "apps/extension/src/content/broker.ts",
+    "apps/extension/src/content/page.ts",
     "apps/extension/src/options/main.tsx"
   ],
   // The Workers runtime calls a Durable Object's handlers; no module does

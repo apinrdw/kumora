@@ -2,10 +2,13 @@
 // drives the broker tabs' connections on a 10 s tick, batches their frames,
 // and sends the envelopes to every target's ingest socket.
 import {
-  Feed,
   IngestProtocolVersion,
+  type StockCode,
   encodeIngestUp,
+  wibDateAt,
+  type IngestDown,
   type IngestUp,
+  type WibDate,
 } from "@workspace/relay"
 import {
   DateTime,
@@ -16,29 +19,34 @@ import {
   PubSub,
   Queue,
   Schedule,
-  Schema,
+  type Scope,
 } from "effect"
 import * as Socket from "effect/socket/Socket"
 
+import { CODE_LIST_PATH, listedCodes } from "./ajaib.ts"
+import { makeBackfill } from "./backfill.ts"
 import { BATCH_INTERVAL, makeBatcher } from "./batch.ts"
-import {
-  BrokerEvent,
-  ajaib,
-  detached,
-  step,
-  type BrokerInput,
-  type Links,
-} from "./broker.ts"
+import { ajaib, ajaibOnDemand, stockbit } from "./broker.ts"
+import { windowAt } from "./gate.ts"
 import {
   DashboardOrigin,
   isSettingsChange,
+  loadClockOffset,
+  loadCodeList,
   loadSettings,
+  saveCodeList,
   saveTargetStates,
   type Settings,
   type TargetName,
   type TargetState,
   type TargetStates,
 } from "./settings.ts"
+import {
+  makeAjaibOnDemand,
+  makeStockbitSubscriptions,
+  type Subscriptions,
+} from "./subscriptions.ts"
+import { makeBrokerTab, type BrokerTab } from "./tab.ts"
 import { runTarget } from "./target.ts"
 
 // Decision: the service worker ticks every 10 s; in-tab timers are throttled
@@ -82,9 +90,6 @@ chrome.storage.onChanged.addListener((changes, area) => {
     queue({ _tag: "settings" })
 })
 
-const decodeFeed = Schema.decodeUnknownOption(Feed)
-const decodeBrokerEvent = Schema.decodeUnknownOption(BrokerEvent)
-
 // The toolbar badge shows the worst target state.
 const badges: Record<TargetState, { text: string; title: string }> = {
   off: { text: "", title: "no ingest token" },
@@ -120,17 +125,25 @@ const showStates = Effect.fnUntraced(function* (states: TargetStates) {
 
 // Targets: one fiber each, restarted when its settings change.
 const makeTargets = Effect.fnUntraced(function* (
-  envelopes: PubSub.PubSub<string>
+  envelopes: PubSub.PubSub<string>,
+  receive: (
+    name: TargetName,
+    message: IngestDown | undefined
+  ) => Effect.Effect<void>
 ) {
   const fibers = yield* FiberMap.make<TargetName>()
   const states: Record<TargetName, TargetState> = {
     production: "off",
     extra: "off",
   }
+  // A target that isn't connected wants no on-demand codes.
   const report = (name: TargetName) => (state: TargetState) =>
     Effect.suspend(() => {
       states[name] = state
-      return showStates({ ...states })
+      return Effect.andThen(
+        showStates({ ...states }),
+        state === "connected" ? Effect.void : receive(name, undefined)
+      )
     })
   const restart = Effect.fnUntraced(function* (
     name: TargetName,
@@ -142,7 +155,12 @@ const makeTargets = Effect.fnUntraced(function* (
     yield* FiberMap.run(
       fibers,
       name,
-      runTarget({ ...target, envelopes, report: report(name) })
+      runTarget({
+        ...target,
+        envelopes,
+        report: report(name),
+        receive: (message) => receive(name, message),
+      })
     )
   })
 
@@ -163,69 +181,87 @@ const makeTargets = Effect.fnUntraced(function* (
   return { apply }
 })
 
-// The broker tab. The first tab to connect is relayed; another waits until it
-// goes.
-const makeBrokerTab = Effect.fnUntraced(function* (
-  publish: (message: IngestUp) => Effect.Effect<unknown>
+// The on-demand codes: the union of what each target's trading-day object
+// asked for. Backfill requests go on to `backfill`.
+const makeOnDemandCodes = Effect.fnUntraced(function* (
+  changed: Effect.Effect<void>,
+  backfill: (
+    name: TargetName,
+    message: Extract<IngestDown, { _tag: "Backfill" }>
+  ) => Effect.Effect<void>
 ) {
-  const batcher = yield* makeBatcher()
-  yield* Effect.forkScoped(
-    Effect.repeat(
-      Effect.flatMap(batcher.flush, (batch) => Effect.forEach(batch, publish)),
-      Schedule.spaced(BATCH_INTERVAL)
-    )
-  )
+  const byTarget = new Map<TargetName, ReadonlyArray<StockCode>>()
+  let union: ReadonlyArray<StockCode> = []
+  const receive = (name: TargetName, message: IngestDown | undefined) =>
+    Effect.suspend(() => {
+      if (message?._tag === "Backfill") return backfill(name, message)
+      byTarget.set(name, message?.codes ?? [])
+      const next = [...new Set([...byTarget.values()].flat())].sort()
+      if (JSON.stringify(next) === JSON.stringify(union)) return Effect.void
+      union = next
+      return changed
+    })
+  return { receive, codes: () => union }
+})
 
-  let active: chrome.runtime.Port | undefined
-  const waiting: Array<chrome.runtime.Port> = []
-  let links: Links = detached
-  const drive = Effect.fnUntraced(function* (input: BrokerInput) {
-    const next = yield* step(ajaib, links, input)
-    links = next.links
-    for (const command of next.commands)
-      yield* Effect.ignore(Effect.try(() => active?.postMessage(command)))
-    const at = yield* DateTime.now
-    for (const { connection, status } of next.statuses)
-      yield* publish({
-        _tag: "FeedStatus",
-        protocolVersion: IngestProtocolVersion,
-        feed: ajaib.feed,
-        connection,
-        at,
-        status,
-      })
-  })
-  const attach = Effect.fnUntraced(function* (port: chrome.runtime.Port) {
-    active = port
-    yield* drive({ _tag: "attach" })
-  })
+// Decision: the code list is fetched from the Ajaib tab once a WIB day, and
+// retried at most once a minute until it answers. See apinrdw/kumora#138.
+const CODE_LIST_RETRY = Duration.minutes(1)
 
-  const connect = Effect.fnUntraced(function* (port: chrome.runtime.Port) {
-    const feed = decodeFeed(port.name)
-    if (Option.isNone(feed) || feed.value !== ajaib.feed) return
-    if (active === undefined) yield* attach(port)
-    else waiting.push(port)
-  })
-  const message = Effect.fnUntraced(function* (
-    port: chrome.runtime.Port,
-    raw: unknown
+const makeCodeList = Effect.fnUntraced(function* (options: {
+  readonly publish: (message: IngestUp) => Effect.Effect<unknown>
+  readonly changed: Effect.Effect<void>
+}) {
+  let list = yield* loadCodeList
+  let lastTry = 0
+  let fetching = false
+
+  const fetchList = Effect.fnUntraced(function* (
+    tab: BrokerTab,
+    today: WibDate
   ) {
-    const event = decodeBrokerEvent(raw)
-    if (port !== active || Option.isNone(event)) return
-    if (event.value._tag === "frame")
-      yield* batcher.add(event.value.connection, event.value.text)
-    yield* drive(event.value)
+    const answer = yield* tab.request({
+      _tag: "page-fetch",
+      path: CODE_LIST_PATH,
+    })
+    if (Option.isNone(answer) || answer.value.status !== 200) return
+    const codes = yield* listedCodes(answer.value.body)
+    if (codes.length === 0) return
+    list = Option.some({ date: today, codes })
+    yield* saveCodeList({ date: today, codes })
+    yield* options.publish({
+      _tag: "CodeList",
+      protocolVersion: IngestProtocolVersion,
+      receivedAt: yield* DateTime.now,
+      body: answer.value.body,
+    })
+    yield* options.changed
   })
-  const disconnect = Effect.fnUntraced(function* (port: chrome.runtime.Port) {
-    const at = waiting.indexOf(port)
-    if (at !== -1) waiting.splice(at, 1)
-    if (port !== active) return
-    active = undefined
-    yield* drive({ _tag: "detach" })
-    const next = waiting.shift()
-    if (next !== undefined) yield* attach(next)
+
+  // On a tick: fetch today's list unless it's held, one try at a time.
+  const tick = Effect.fnUntraced(function* (tab: BrokerTab, now: DateTime.Utc) {
+    const today = yield* wibDateAt(now)
+    const ms = DateTime.toEpochMillis(now)
+    if (Option.isSome(list) && list.value.date === today) return
+    if (fetching || !tab.attached()) return
+    if (ms - lastTry < Duration.toMillis(CODE_LIST_RETRY)) return
+    lastTry = ms
+    fetching = true
+    yield* Effect.forkScoped(
+      Effect.ensuring(
+        fetchList(tab, today),
+        Effect.sync(() => {
+          fetching = false
+        })
+      )
+    )
   })
-  return { connect, message, disconnect, tick: drive({ _tag: "tick" }) }
+
+  return {
+    tick,
+    codes: () =>
+      Option.match(list, { onNone: () => [], onSome: (held) => held.codes }),
+  }
 })
 
 const main = Effect.gen(function* () {
@@ -234,16 +270,63 @@ const main = Effect.gen(function* () {
     Effect.flatMap(Effect.orDie(encodeIngestUp(message)), (text) =>
       PubSub.publish(envelopes, text)
     )
-  const targets = yield* makeTargets(envelopes)
-  const tab = yield* makeBrokerTab(publish)
+  const batcher = yield* makeBatcher()
+  yield* Effect.forkScoped(
+    Effect.repeat(
+      Effect.flatMap(batcher.flush, (batch) => Effect.forEach(batch, publish)),
+      Schedule.spaced(BATCH_INTERVAL)
+    )
+  )
+
+  // A changed list or on-demand set resubscribes the open sockets.
+  const codeList = yield* makeCodeList({
+    publish,
+    changed: Effect.suspend(() => stockbitCodes.resubscribe(stockbitTab)),
+  })
+  const stockbitCodes: Subscriptions = yield* makeStockbitSubscriptions(
+    codeList.codes
+  )
+  const onDemandCodes = yield* makeOnDemandCodes(
+    Effect.suspend(() => onDemand.resubscribe(ajaibTab)),
+    (name, message) => Effect.suspend(() => backfill.request(name, message))
+  )
+  const onDemand: Subscriptions = yield* makeAjaibOnDemand(onDemandCodes.codes)
+  const stockbitTab = yield* makeBrokerTab({
+    feed: "Stockbit",
+    sites: [stockbit],
+    reporting: stockbit.name,
+    batcher,
+    publish,
+    hooks: stockbitCodes.hooks,
+  })
+  const ajaibTab = yield* makeBrokerTab({
+    feed: "Ajaib",
+    sites: [ajaib, ...ajaibOnDemand],
+    reporting: ajaib.name,
+    batcher,
+    publish,
+    hooks: onDemand.hooks,
+  })
+  const tabs = [stockbitTab, ajaibTab]
+  const backfill = yield* makeBackfill({
+    stockbit: stockbitTab,
+    ajaib: ajaibTab,
+    publish,
+  })
+  yield* Effect.forkScoped(backfill.run)
+  const targets = yield* makeTargets(envelopes, onDemandCodes.receive)
 
   // The tick, from the worker's own timer and the alarm.
   let lastTick = 0
   const tick = Effect.fnUntraced(function* (alarm: boolean) {
-    const now = DateTime.toEpochMillis(yield* DateTime.now)
-    if (alarm && now - lastTick < Duration.toMillis(TICK)) return
-    lastTick = now
-    yield* tab.tick
+    const now = yield* DateTime.now
+    const ms = DateTime.toEpochMillis(now)
+    if (alarm && ms - lastTick < Duration.toMillis(TICK)) return
+    lastTick = ms
+    const schedule = DateTime.add(now, { milliseconds: yield* loadClockOffset })
+    const window = yield* windowAt(schedule)
+    for (const tab of tabs) yield* tab.tick(window)
+    yield* codeList.tick(ajaibTab, schedule)
   })
   yield* Effect.forkScoped(
     Effect.repeat(
@@ -255,14 +338,22 @@ const main = Effect.gen(function* () {
     chrome.alarms.create(ALARM, { periodInMinutes: 0.5 })
   )
 
-  const handle = (event: WorkerEvent) => {
+  const handle = (
+    event: WorkerEvent
+  ): Effect.Effect<
+    unknown,
+    never,
+    Scope.Scope | Socket.WebSocketConstructor
+  > => {
     switch (event._tag) {
       case "connect":
-        return tab.connect(event.port)
+        return Effect.forEach(tabs, (tab) => tab.connect(event.port))
       case "message":
-        return tab.message(event.port, event.message)
+        return Effect.forEach(tabs, (tab) =>
+          tab.message(event.port, event.message)
+        )
       case "disconnect":
-        return tab.disconnect(event.port)
+        return Effect.forEach(tabs, (tab) => tab.disconnect(event.port))
       case "tick":
       case "alarm":
         return tick(event._tag === "alarm")

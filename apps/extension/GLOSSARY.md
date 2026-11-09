@@ -5,11 +5,11 @@ The relay: an unpacked Chrome MV3 extension that reads the owner's signed-in bro
 ## Language
 
 **Broker tab**:
-A tab of a broker site (Ajaib today) the owner keeps open and signed in. Its content script opens the relay's own sockets from the tab's origin; with no broker tab open, that feed is unavailable.
+A tab of a broker site (Stockbit or Ajaib) the owner keeps open and signed in. Its content script opens the relay's own sockets from the tab's origin; with no broker tab open, that feed is unavailable.
 _Avoid_: page socket, source tab
 
 **Connection**:
-One of a broker site's two relay sockets, A or B. B opens on the tick after A's first frame, and at most one connection opens per tick.
+One of a broker site's two relay sockets, A or B. B opens on the tick after A's first frame, and at most one connection opens per tick. On Ajaib, connection A (or B) is four sockets, one per stream: the trade tape and the three on-demand streams.
 _Avoid_: stream, channel
 
 **Tick**:
@@ -23,3 +23,15 @@ _Avoid_: destination, stage (a target names a Stage's dashboard, not the Stage)
 **Target state**:
 What a target's ingest socket is doing: off (no token), connecting, connected, retrying, token rejected (`4403`) or reload extension (`4426`). The last two stop retrying until the target's settings change.
 _Avoid_: status
+
+**On-demand codes**:
+The codes the trading-day objects ask the relay to keep subscribed on Ajaib's `PRICE`, `INDICATIVE` and `ORDER_BOOK_CUSTOM` streams: the union across both targets. Each code is subscribed once per socket; a change sends only the difference.
+_Avoid_: watchlist codes
+
+**Code list**:
+Ajaib's stock code list, fetched once a WIB day from the Ajaib tab with the page's own headers and sent up raw. Stockbit's channel message lists every code on it.
+_Avoid_: universe
+
+**Streaming window**:
+Where the relay's schedule clock is: closed (outside 08:40–16:35 WIB on trading days, every socket closed), auction (pre-opening and pre-closing, a dropped connection reconnects but none opens fresh) or open.
+_Avoid_: market hours

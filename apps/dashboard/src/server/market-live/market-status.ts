@@ -113,6 +113,10 @@ export const makeMarketStatus = Effect.fnUntraced(function* (date: WibDate) {
     return changed
   })
 
+  // Whether a code's indicative price may have changed since the last
+  // indicativeChanges.
+  const indicativePending = Effect.sync(() => dirty.size > 0)
+
   const keep = (
     store: Map<StockCode, IndicativePrice>,
     prices: ReadonlyArray<IndicativePrice>
@@ -152,5 +156,6 @@ export const makeMarketStatus = Effect.fnUntraced(function* (date: WibDate) {
     status,
     indicativeOf,
     indicativeChanges,
+    indicativePending,
   }
 })

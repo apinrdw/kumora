@@ -29,7 +29,9 @@ const decodeTrade = Schema.decodeUnknownOption(
 // 2026-11-09 probe saw no `market_type` on any of 44,360 TRADE frames, all
 // regular-board stocks; an unknown value is read the same way until a capture
 // shows the cash and negotiated boards' frames.
-const boardOf = (marketType: string | undefined): RunningTrade["board"] =>
+export const boardOf = (
+  marketType: string | undefined
+): RunningTrade["board"] =>
   marketType === "TN" || marketType === "NG" ? marketType : "RG"
 
 // The running trades in one connection's frames that belong to `date`. Trade

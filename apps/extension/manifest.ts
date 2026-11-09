@@ -6,13 +6,15 @@
 // names in dist.
 export const scriptEntries = {
   "service-worker": "src/worker/service-worker.ts",
-  ajaib: "src/content/ajaib.ts",
+  broker: "src/content/broker.ts",
+  page: "src/content/page.ts",
 } as const
 
 export const optionsPage = "options.html"
 
 // The broker tabs the relay reads. Exact hosts only.
 const AJAIB_TAB = "https://trade.ajaib.co.id/*"
+const STOCKBIT_TAB = "https://stockbit.com/*"
 
 export const manifest = (
   productionDashboard: string
@@ -21,25 +23,33 @@ export const manifest = (
   name: "Kumora relay",
   version: "0.0.1",
   description:
-    "Relays Ajaib's running trades from a signed-in tab to Kumora's Market Live.",
+    "Relays Stockbit's and Ajaib's live data from signed-in tabs to Kumora's Market Live.",
   // Port messages keep the service worker alive from 110, websocket traffic
-  // from 116.
+  // from 116. Manifest-declared MAIN-world scripts need 111.
   minimum_chrome_version: "116",
   permissions: ["storage", "alarms"],
   // Decision: exact hosts only, never a `*.workers.dev` wildcard: workers.dev
   // is on the Public Suffix List, so one would admit any Workers site. The
   // extra target's ingest socket needs no host permission. See
   // apinrdw/kumora#135.
-  host_permissions: [`${productionDashboard}/*`, AJAIB_TAB],
+  host_permissions: [`${productionDashboard}/*`, STOCKBIT_TAB, AJAIB_TAB],
   background: {
     service_worker: `${"service-worker" satisfies keyof typeof scriptEntries}.js`,
     type: "module",
   },
   content_scripts: [
     {
-      matches: [AJAIB_TAB],
-      js: [`${"ajaib" satisfies keyof typeof scriptEntries}.js`],
+      matches: [STOCKBIT_TAB, AJAIB_TAB],
+      js: [`${"broker" satisfies keyof typeof scriptEntries}.js`],
       run_at: "document_idle",
+    },
+    // Watches the Ajaib page's own REST requests for their headers. It must
+    // run before the page's scripts to see their first calls.
+    {
+      matches: [AJAIB_TAB],
+      js: [`${"page" satisfies keyof typeof scriptEntries}.js`],
+      run_at: "document_start",
+      world: "MAIN",
     },
   ],
   options_ui: { page: optionsPage, open_in_tab: true },

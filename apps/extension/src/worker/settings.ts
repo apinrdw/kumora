@@ -1,5 +1,6 @@
 // What the options page sets and what the service worker reports back, both
 // kept in chrome.storage (spec apinrdw/kumora#138, "Batching and targets").
+import { StockCode, WibDate } from "@workspace/relay"
 import { Effect, Option, Schema } from "effect"
 
 // Where a dashboard serves: an origin, `https://host` or `http://host:port`.
@@ -90,4 +91,45 @@ export const isTargetStatesChange = Effect.fnUntraced(function* (
   area: string
 ) {
   return area === "session" && STATES_KEY in changes
+})
+
+// The day's stock code list, kept so a restarted worker subscribes Stockbit
+// at once and fetches the list only once a day.
+const CodeListCache = Schema.Struct({
+  date: WibDate,
+  codes: Schema.Array(StockCode),
+})
+export type CodeListCache = typeof CodeListCache.Type
+
+const CODE_LIST_KEY = "codeList"
+
+export const loadCodeList = Effect.gen(function* () {
+  const stored = yield* Effect.promise(() =>
+    chrome.storage.local.get(CODE_LIST_KEY)
+  )
+  return Schema.decodeUnknownOption(CodeListCache)(stored[CODE_LIST_KEY])
+})
+
+export const saveCodeList = Effect.fnUntraced(function* (list: CodeListCache) {
+  const encoded = yield* Schema.encodeEffect(CodeListCache)(list)
+  yield* Effect.promise(() =>
+    chrome.storage.local.set({ [CODE_LIST_KEY]: encoded })
+  )
+})
+
+// Decision: a test-only clock offset, in ms, moves the relay's schedule (its
+// streaming hours, its auctions and the code list's day) and nothing else, so
+// the extension e2e can run in market hours at any time of day. Only a script
+// in the service worker's console sets it; the options page never shows it.
+// Frames keep their real receive times. See apinrdw/kumora#155.
+const CLOCK_OFFSET_KEY = "clockOffsetMs"
+
+export const loadClockOffset = Effect.gen(function* () {
+  const stored = yield* Effect.promise(() =>
+    chrome.storage.local.get(CLOCK_OFFSET_KEY)
+  )
+  return Option.getOrElse(
+    Schema.decodeUnknownOption(Schema.Finite)(stored[CLOCK_OFFSET_KEY]),
+    () => 0
+  )
 })

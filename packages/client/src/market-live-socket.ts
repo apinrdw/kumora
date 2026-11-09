@@ -1,13 +1,18 @@
 import {
-  TradeNumberOrder,
   ViewerCloseCode,
   decodeViewerDown,
   encodeViewerUp,
-  type RunningTrade,
   type ViewerDown,
   type ViewerUp,
 } from "@workspace/relay"
-import { Effect, Queue, Schedule, Schema, Stream } from "effect"
+import {
+  Effect,
+  Queue,
+  Schedule,
+  Schema,
+  Stream,
+  SubscriptionRef,
+} from "effect"
 import * as Socket from "effect/socket/Socket"
 
 // The viewer socket closed with 4401: the page sends the visitor to sign in.
@@ -32,12 +37,13 @@ const reconnect = Schedule.min([
 ])
 
 // Market Live's viewer socket as a Stream of what the trading-day Durable
-// Object sends: a snapshot on every (re)connect, then deltas. It sends `select`
-// on each connect, and fails only on a terminal close. `onReconnecting` runs
-// each time a connection drops and another will be tried.
+// Object sends: a snapshot on every (re)connect, then deltas. It sends the
+// current `select` on each connect and again on every change, each answered
+// with a fresh snapshot, and fails only on a terminal close. `onReconnecting`
+// runs each time a connection drops and another will be tried.
 export const viewerMessages = (options: {
   readonly url: string
-  readonly select: ViewerUp
+  readonly select: SubscriptionRef.SubscriptionRef<ViewerUp>
   readonly onReconnecting?: Effect.Effect<void>
 }): Stream.Stream<
   ViewerDown,
@@ -51,11 +57,20 @@ export const viewerMessages = (options: {
   >((queue) =>
     Effect.gen(function* () {
       const socket = yield* Socket.makeWebSocket(options.url)
-      const select = yield* Effect.orDie(encodeViewerUp(options.select))
       const connection = Effect.gen(function* () {
         const pull = yield* Socket.readerString(socket)
         const writer = yield* socket.writer
-        yield* writer.write(select)
+        // The current value first, then each change. A write that fails ends
+        // with the socket, which the reader reports.
+        yield* SubscriptionRef.changes(options.select).pipe(
+          Stream.runForEach((select) =>
+            Effect.orDie(encodeViewerUp(select)).pipe(
+              Effect.flatMap((text) => writer.write(text))
+            )
+          ),
+          Effect.ignore,
+          Effect.forkScoped
+        )
         while (true) {
           for (const text of yield* pull)
             Queue.offerUnsafe(queue, yield* decodeViewerDown(text))
@@ -91,22 +106,3 @@ export const viewerMessages = (options: {
       )
     })
   )
-
-// The tape a page keeps: newest first, at most this many trades.
-const TAPE_CAP = 10_000
-
-// The page's tape after one viewer message. A snapshot replaces it; a delta's
-// trades go in by trade number, so a late one lands in its place.
-export const applyViewerMessage = Effect.fnUntraced(function* (
-  tape: ReadonlyArray<RunningTrade>,
-  message: ViewerDown
-) {
-  const arriving = new Set(message.tape.map((trade) => trade.tradeNumber))
-  const known =
-    message._tag === "Snapshot"
-      ? []
-      : tape.filter((trade) => !arriving.has(trade.tradeNumber))
-  return [...known, ...message.tape]
-    .sort((a, b) => TradeNumberOrder(b.tradeNumber, a.tradeNumber))
-    .slice(0, TAPE_CAP)
-})

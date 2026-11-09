@@ -1,23 +1,23 @@
-import {
-  StockCode,
-  applyViewerMessage,
-  clientRuntime,
-  viewerMessages,
-} from "@workspace/client"
+import { clientRuntime, viewerMessages } from "@workspace/client"
 import {
   MarketLivePath,
   ViewerProtocolVersion,
-  type RunningTrade,
+  type StockCode,
+  type ViewerDown,
+  type ViewerUp,
 } from "@workspace/relay"
-import { DateTime, Effect, Fiber, Stream } from "effect"
-import { useEffect, useState } from "react"
+import { Effect, Fiber, Stream, SubscriptionRef } from "effect"
+import { useEffect, useRef, useState } from "react"
 
 import { KButton } from "@/components/k/button"
 import { KStatusPill } from "@/components/k/status-pill"
-import { compactIdr, plain, tapeTime } from "@/lib/format"
+import {
+  SOURCES,
+  TapeList,
+  useFramedTape,
+} from "@/components/market-live/tape-list"
 import { withRedirect } from "@/lib/redirect"
 
-import { withGapRows } from "./gap-rows"
 import {
   applyStatus,
   resetStatus,
@@ -26,78 +26,95 @@ import {
   useRelayGaps,
 } from "./market-status"
 
-// The page shows this many of the trades it keeps; the tape ticket renders
-// them all (apinrdw/kumora#150).
-const SHOWN_TRADES = 200
+// What the socket tells the object the page shows. The tape streams the whole
+// market whatever is selected.
+const selectOf = (
+  selected: StockCode,
+  watchlist: ReadonlyArray<StockCode>
+): ViewerUp => ({
+  _tag: "Select",
+  protocolVersion: ViewerProtocolVersion,
+  selected,
+  watchlist,
+})
 
-// Until the page selects a code (apinrdw/kumora#146), every viewer selects
-// this one; the tape streams the whole market whatever is selected.
-const SELECTED = StockCode.make("BBCA")
-
-const SIDE_CLASS: Record<RunningTrade["side"], string> = {
-  buy: "text-up",
-  sell: "text-down",
-  none: "",
-}
+const NO_CODES: ReadonlyArray<StockCode> = []
 
 type Status = "live" | "new-version"
 
-type Source = RunningTrade["feeds"][number]
-
-// One dot per feed that saw a trade, in the order the server lists them.
-const SOURCES: ReadonlyArray<{
-  readonly source: Source
-  readonly label: string
-  readonly dot: string
-}> = [
-  { source: "Stockbit", label: "Stockbit", dot: "bg-info" },
-  { source: "Ajaib", label: "Ajaib", dot: "bg-vwap" },
-  { source: "backfill", label: "Backfill", dot: "bg-neutral" },
-]
-
-function SourceDots({ feeds }: { feeds: ReadonlyArray<Source> }) {
-  const shown = SOURCES.filter(({ source }) => feeds.includes(source))
-  return (
-    <span
-      className="inline-flex gap-0.5"
-      aria-label={shown.map(({ label }) => label).join(", ")}
-      role="img"
-    >
-      {shown.map(({ source, dot }) => (
-        <span key={source} className={`size-1.5 rounded-full ${dot}`} />
-      ))}
-    </span>
-  )
-}
-
 // The whole-market tape from the viewer socket. A 4401 close sends the
 // visitor to sign in and back; a 4426 close asks for a reload; any other close
-// reconnects and starts over from a fresh snapshot.
-export function LiveTape() {
-  const [tape, setTape] = useState<ReadonlyArray<RunningTrade>>([])
+// reconnects and starts over from a fresh snapshot. Clicking a trade selects
+// its code; each change of `selected` or `watchlist` is sent down the open
+// socket.
+// `onMessage` hears every viewer message too: the chart reads its candles.
+export function LiveTape({
+  selected,
+  watchlist = NO_CODES,
+  onSelect,
+  onMessage,
+}: {
+  selected: StockCode
+  watchlist?: ReadonlyArray<StockCode>
+  onSelect: (code: StockCode) => void
+  onMessage?: (message: ViewerDown) => void
+}) {
+  const { tape, frame, apply } = useFramedTape()
   const [status, setStatus] = useState<Status>("live")
   const stale = useMergedStale()
   const gaps = useRelayGaps()
+  const [select] = useState(() =>
+    Effect.runSync(SubscriptionRef.make(selectOf(selected, watchlist)))
+  )
+
+  // The latest listener, so a new one (the chart's store for a new code)
+  // doesn't reopen the socket. Updated before the Select below goes out.
+  const listener = useRef(onMessage)
+  useEffect(() => {
+    listener.current = onMessage
+  }, [onMessage])
+
+  // The code the socket last sent, and whether the object's answer to a
+  // changed Select is still due.
+  const sent = useRef({ selected, watchlist })
+  const reselected = useRef(false)
+  useEffect(() => {
+    if (
+      sent.current.selected === selected &&
+      sent.current.watchlist === watchlist
+    )
+      return
+    sent.current = { selected, watchlist }
+    reselected.current = true
+    clientRuntime.runFork(
+      SubscriptionRef.set(select, selectOf(selected, watchlist))
+    )
+  }, [select, selected, watchlist])
 
   useEffect(() => {
     const scheme = window.location.protocol === "https:" ? "wss" : "ws"
     const messages = viewerMessages({
       url: `${scheme}://${window.location.host}${MarketLivePath.live}`,
-      select: {
-        _tag: "Select",
-        protocolVersion: ViewerProtocolVersion,
-        selected: SELECTED,
-        watchlist: [],
-      },
+      select,
       onReconnecting: statusReconnecting,
     })
     const fiber = clientRuntime.runFork(
       Stream.runForEach(messages, (message) =>
-        Effect.sync(() =>
-          setTape((current) =>
-            Effect.runSync(applyViewerMessage(current, message))
-          )
-        ).pipe(Effect.andThen(applyStatus(message, SELECTED)))
+        Effect.sync(() => {
+          listener.current?.(message)
+          // Decision: the snapshot answering a changed Select is merged into
+          // the tape like a delta. Replacing it would cut the 10,000 trades
+          // the page keeps to the snapshot's 200 newest, and an auction
+          // match's fold with them. The chart still takes it as a snapshot.
+          if (message._tag === "Snapshot" && reselected.current) {
+            reselected.current = false
+            apply({
+              _tag: "Delta",
+              tape: message.tape,
+              candles: message.candles,
+            })
+          } else apply(message)
+        }).pipe(Effect.andThen(applyStatus(message, sent.current.selected)))
       ).pipe(
         Effect.catchTags({
           // A full load: the sign-in page reads its own session state.
@@ -117,7 +134,7 @@ export function LiveTape() {
         Fiber.interrupt(fiber).pipe(Effect.andThen(resetStatus))
       )
     }
-  }, [])
+  }, [apply, select])
 
   return (
     <section
@@ -150,65 +167,14 @@ export function LiveTape() {
           </KButton>
         </div>
       )}
-      <table
-        className={`w-full text-[13px] tabular-nums ${stale ? "opacity-50" : ""}`}
-      >
-        <thead className="text-left text-muted-foreground">
-          <tr>
-            <th className="font-normal">Time</th>
-            <th className="font-normal">Code</th>
-            <th className="text-right font-normal">Price</th>
-            <th className="text-right font-normal">Lot</th>
-            <th className="text-right font-normal">Value</th>
-            <th className="font-normal">
-              <span className="sr-only">Source</span>
-            </th>
-          </tr>
-        </thead>
-        <tbody>
-          {Effect.runSync(withGapRows(tape.slice(0, SHOWN_TRADES), gaps)).map(
-            (row) =>
-              row.kind === "gap" ? (
-                <tr
-                  key={`gap-${DateTime.toEpochMillis(row.gap.from)}`}
-                  data-relay-gap
-                >
-                  <td
-                    colSpan={6}
-                    className="py-1 text-center text-muted-foreground"
-                  >
-                    Not recorded ·{" "}
-                    {tapeTime(DateTime.toEpochMillis(row.gap.from))}–
-                    {row.gap.to === undefined
-                      ? "now"
-                      : tapeTime(DateTime.toEpochMillis(row.gap.to))}
-                  </td>
-                </tr>
-              ) : (
-                <TradeRow key={row.trade.tradeNumber} trade={row.trade} />
-              )
-          )}
-        </tbody>
-      </table>
+      <TapeList
+        tape={tape}
+        frame={frame}
+        selected={selected}
+        onSelect={onSelect}
+        gaps={gaps}
+        className={`h-[min(70vh,640px)] ${stale ? "opacity-50" : ""}`}
+      />
     </section>
-  )
-}
-
-function TradeRow({ trade }: { trade: RunningTrade }) {
-  return (
-    <tr data-trade-number={trade.tradeNumber}>
-      <td>{tapeTime(DateTime.toEpochMillis(trade.time))}</td>
-      <td className="font-semibold">{trade.code}</td>
-      <td className={`text-right ${SIDE_CLASS[trade.side]}`}>
-        {plain(trade.price)}
-      </td>
-      <td className="text-right">{plain(trade.lots)}</td>
-      <td className="text-right">
-        {compactIdr(trade.price * trade.lots * 100).replace("+", "")}
-      </td>
-      <td className="pl-2">
-        <SourceDots feeds={trade.feeds} />
-      </td>
-    </tr>
   )
 }

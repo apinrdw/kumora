@@ -2,6 +2,8 @@ import { Effect, Order, Schema } from "effect"
 
 import { StockCode } from "./codes.ts"
 import { IndicativePrice, MarketStatus } from "./market-status.ts"
+import { DayState } from "./day-state.ts"
+import { IndexHasNoBook, OrderBook } from "./order-book.ts"
 
 // Bump on any change to an ingest message's shape. The dashboard accepts this
 // version and the one before it, so an extension one release behind keeps
@@ -102,6 +104,20 @@ export const FeedStatus = Schema.TaggedStruct("FeedStatus", {
   status: Schema.Literals(["opened", "closed", "alive"]),
 })
 
+// One REST page of a broker's running-trade tape, fetched to answer a
+// Backfill, as the raw response body: the Worker decodes it, as it does the
+// sockets' frames. `from` and `to` are the numbers the page was fetched for;
+// the object keeps only the rows between them.
+const BackfillPage = Schema.TaggedStruct("BackfillPage", {
+  ...versioned,
+  feed: Feed,
+  receivedAt: Schema.DateTimeUtcFromMillis,
+  from: TradeNumber,
+  to: TradeNumber,
+  body: Schema.String,
+})
+export type BackfillPage = typeof BackfillPage.Type
+
 // Extension → trading-day Durable Object.
 const IngestUp = Schema.Union([
   IngestToken,
@@ -109,13 +125,17 @@ const IngestUp = Schema.Union([
   AjaibFrames,
   CodeList,
   FeedStatus,
+  BackfillPage,
 ])
 export type IngestUp = typeof IngestUp.Type
 
-// Fetch the trades numbered from `from` to `to`, inclusive.
+// Fetch the trades numbered from `from` to `to`, inclusive. `nextTime` is
+// when trade `to` + 1, the first after the gap, happened: Ajaib's REST tape
+// has no trade-number filter and pages back from a time.
 export const Backfill = Schema.TaggedStruct("Backfill", {
   from: TradeNumber,
   to: TradeNumber,
+  nextTime: Schema.DateTimeUtcFromMillis,
 })
 
 // The codes to keep subscribed on Ajaib: every code a viewer has selected or
@@ -164,19 +184,52 @@ const RunningTrade = Schema.Struct({
 })
 export type RunningTrade = typeof RunningTrade.Type
 
+// One stock code's or index's 1-minute candle. A stock's is built from its
+// regular-board trades: volume in lots, value in rupiah, frequency in trades.
+// An index's is built from its `liveprice` frames, its volume, value and
+// frequency the market's over that minute.
+const Candle = Schema.Struct({
+  code: StockCode,
+  // The minute's start.
+  minute: Schema.DateTimeUtcFromMillis,
+  open: Schema.Finite,
+  high: Schema.Finite,
+  low: Schema.Finite,
+  close: Schema.Finite,
+  volume: Schema.Finite,
+  value: Schema.Finite,
+  frequency: Schema.Int,
+})
+export type Candle = typeof Candle.Type
+
 // What a viewer starts from after each Select: the 200 newest running trades,
-// ascending by trade number.
+// ascending by trade number, and the selected code's candles so far,
+// ascending by minute. The selected code's order book once it has one, or
+// word that it is an index.
 const Snapshot = Schema.TaggedStruct("Snapshot", {
   tape: Schema.Array(RunningTrade),
+  candles: Schema.Array(Candle),
+  // The selected and watchlist codes' that have figures; a code missing has
+  // none yet. Absent when none has.
+  dayStates: Schema.optionalKey(Schema.Array(DayState)),
+  orderBook: Schema.optionalKey(Schema.Union([OrderBook, IndexHasNoBook])),
   status: MarketStatus,
   // The selected code's, once it has one.
   indicative: Schema.optionalKey(IndicativePrice),
 })
 
 // The running trades that arrived in the last ~250 ms, ascending by trade
-// number. A late trade sorts below ones the viewer already holds.
+// number. A late trade sorts below ones the viewer already holds. Candles are
+// every candle that changed since the last delta, of any code, each whole: the
+// page keeps its selected code's. Order books likewise: every code's whose
+// served book changed, each whole.
 const Delta = Schema.TaggedStruct("Delta", {
   tape: Schema.Array(RunningTrade),
+  candles: Schema.Array(Candle),
+  // Every changed Day state of a code some viewer selected or watches, each
+  // whole. Absent when none changed.
+  dayStates: Schema.optionalKey(Schema.Array(DayState)),
+  orderBooks: Schema.optionalKey(Schema.Array(OrderBook)),
   // Present only when it changed.
   status: Schema.optionalKey(MarketStatus),
   // Every code's that changed, whatever each viewer selected.

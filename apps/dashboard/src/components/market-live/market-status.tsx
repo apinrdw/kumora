@@ -7,7 +7,7 @@ import type {
   ViewerDown,
 } from "@workspace/relay"
 import { DateTime, Effect } from "effect"
-import { useSyncExternalStore } from "react"
+import { useEffect, useState, useSyncExternalStore } from "react"
 
 import { KStatusPill } from "@/components/k/status-pill"
 import { dateTime, plain, shares } from "@/lib/format"
@@ -88,6 +88,24 @@ export function useMergedStale(): boolean {
   return status.feeds.Stockbit !== "live" && status.feeds.Ajaib !== "live"
 }
 
+// "STALE · 12s ago" over figures as of `at`, counting each second.
+export function StaleSince({ at }: { at: DateTime.Utc }) {
+  const [now, setNow] = useState(() => Date.now())
+  useEffect(() => {
+    const timer = setInterval(() => setNow(Date.now()), 1000)
+    return () => clearInterval(timer)
+  }, [])
+  const seconds = Math.max(
+    0,
+    Math.floor((now - DateTime.toEpochMillis(at)) / 1000)
+  )
+  return (
+    <span className="text-warning text-[11px] font-semibold tracking-[0.04em]">
+      STALE · {seconds}s ago
+    </span>
+  )
+}
+
 const PHASE: Record<MarketPhase, string> = {
   "pre-opening": "Pre-opening",
   "session-1": "Session 1",
@@ -104,6 +122,15 @@ const AUCTIONS: ReadonlySet<MarketPhase> = new Set([
   "pre-opening",
   "pre-closing",
 ])
+
+// The selected code's indicative price while an auction runs, for the
+// chart's dashed line.
+export function useAuctionIndicative(): number | undefined {
+  const { status, indicative } = useMarketStatus()
+  return status !== undefined && AUCTIONS.has(status.phase)
+    ? indicative?.price
+    : undefined
+}
 
 const FEEDS = ["Stockbit", "Ajaib"] as const
 

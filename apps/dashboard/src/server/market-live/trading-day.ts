@@ -12,16 +12,33 @@ import {
   encodeViewerDown,
   MarketStatus,
   marketMomentAt,
+  type DayState,
+  type IngestUp,
   type RunningTrade,
+  type StockCode,
   type WibDate,
 } from "@workspace/relay"
 import { WorkerEnv } from "@workspace/server"
 import { Effect, Schema, Scope } from "effect"
 
 import { ajaibTrades } from "./ajaib.ts"
+import { ajaibPrices } from "./ajaib-price.ts"
+import { backfillTrades } from "./backfill-page.ts"
+import { makeCandleBook } from "./candles.ts"
+import {
+  codeListAnswer,
+  memoryCodeListStore,
+  storeCodeList,
+  type CodeListStore,
+} from "./code-list.ts"
+import { makeDayStates } from "./day-states.ts"
+import { makeGaps } from "./gaps.ts"
 import { makeMarketStatus } from "./market-status.ts"
+import { makeOnDemand } from "./on-demand.ts"
+import { makeOrderBooks } from "./order-books.ts"
 import type { HeldSessions } from "./routes.ts"
 import { stockbitTrades } from "./stockbit.ts"
+import { stockbitLivePrices } from "./stockbit-liveprice.ts"
 
 // A socket's progress. An ingest socket is `ready` once its token checked out;
 // a viewer socket once it was sent a snapshot, and from then on gets deltas.
@@ -34,6 +51,12 @@ export interface Peer {
   readonly close: (code: number, reason: string) => Effect.Effect<void>
   readonly state: Effect.Effect<PeerState>
   readonly setState: (state: PeerState) => Effect.Effect<void>
+  // A viewer's selected and watchlist codes, kept with the socket like its
+  // state. An ingest socket has none; a viewer without them counts as none.
+  readonly watching?: Effect.Effect<ReadonlyArray<StockCode>>
+  readonly setWatching?: (
+    codes: ReadonlyArray<StockCode>
+  ) => Effect.Effect<void>
 }
 
 // A viewer socket and the session it was gated with.
@@ -122,23 +145,46 @@ export const makeTradingDay = Effect.fnUntraced(function* (options: {
   readonly date: WibDate
   // Every viewer socket the object holds, ready or not.
   readonly viewers: Effect.Effect<ReadonlyArray<Peer>>
+  // Where the day's stock code list is kept; memory when not given.
+  readonly codeList?: CodeListStore
   // The viewer sockets of one account, on any of its sessions.
   readonly viewersOf: (
     userId: string
   ) => Effect.Effect<ReadonlyArray<SessionViewer>>
+  // Every ingest socket the object holds, ready or not: backfill requests go
+  // down the ready ones. None by default.
+  readonly ingests?: Effect.Effect<ReadonlyArray<Peer>>
 }) {
   // Delta timers outlive the message that started them.
   const scope = yield* Scope.Scope
+  const codeListStore = options.codeList ?? (yield* memoryCodeListStore)
   const tape: Array<RunningTrade> = []
   // Trades viewers haven't been sent since the last delta, new or changed,
   // by trade number.
   let pending = new Map<string, RunningTrade>()
   let deltaScheduled = false
+  const candles = yield* makeCandleBook
+  const ingests = options.ingests ?? Effect.succeed([])
+  const books = yield* makeOrderBooks(options.date)
+  const gaps = yield* makeGaps({ ingests })
+  const dayStates = yield* makeDayStates
+  const onDemand = yield* makeOnDemand({ viewers: options.viewers, ingests })
   const market = yield* makeMarketStatus(options.date)
+  // The order book and Day state fall back to Ajaib while Stockbit isn't live.
+  const stockbitLive = Effect.map(
+    market.status,
+    (status) => status.feeds.Stockbit === "live"
+  )
   // The market status viewers were last sent, encoded.
   let sentStatus = ""
   let relayOnline = false
   let checking = false
+  // Whether the market status or an indicative price changed since viewers
+  // were last sent them.
+  const statusPending = Effect.gen(function* () {
+    const encoded = yield* encodeStatus(yield* market.status)
+    return encoded !== sentStatus || (yield* market.indicativePending)
+  })
 
   // Merges each trade into the tape: a new trade number is inserted in its
   // place, a known one merged with what other feeds saw. A trade older than a
@@ -147,6 +193,7 @@ export const makeTradingDay = Effect.fnUntraced(function* (options: {
     trades: ReadonlyArray<RunningTrade>
   ) {
     for (const arriving of trades) {
+      yield* gaps.seen(arriving)
       const at = positionOf(tape, arriving)
       const held = tape[at]
       if (held?.tradeNumber === arriving.tradeNumber) {
@@ -158,6 +205,7 @@ export const makeTradingDay = Effect.fnUntraced(function* (options: {
           continue
         tape[at] = merged
         pending.set(merged.tradeNumber, merged)
+        yield* candles.trade(held, merged)
         continue
       }
       if (at === 0 && tape.length >= TAPE_LIMIT) continue
@@ -165,24 +213,44 @@ export const makeTradingDay = Effect.fnUntraced(function* (options: {
       tape.splice(at, 0, trade)
       if (tape.length > TAPE_LIMIT) tape.shift()
       pending.set(trade.tradeNumber, trade)
+      yield* candles.trade(undefined, trade)
+      yield* dayStates.trade(trade)
     }
   })
 
+  // Decision: a delta carries every candle that changed, of any code, not
+  // just each viewer's selected code's: one encoded text serves every viewer
+  // and no socket keeps its selection. The page keeps its own code's.
   const sendDelta = Effect.gen(function* () {
     deltaScheduled = false
     const trades = [...pending.values()].sort((a, b) =>
       TradeNumberOrder(a.tradeNumber, b.tradeNumber)
     )
     pending = new Map()
+    const changed = yield* candles.takeChanged
+    const live = yield* stockbitLive
+    const orderBooks = yield* books.takeChanged(live)
+    const states = yield* dayStates.takeChanged(live, yield* onDemand.watched)
     const status = yield* market.status
     const encoded = yield* encodeStatus(status)
     const statusChanged = encoded !== sentStatus
     sentStatus = encoded
     const indicative = yield* market.indicativeChanges
-    if (trades.length === 0 && !statusChanged && indicative.length === 0) return
+    if (
+      trades.length === 0 &&
+      changed.length === 0 &&
+      orderBooks.length === 0 &&
+      states.length === 0 &&
+      !statusChanged &&
+      indicative.length === 0
+    )
+      return
     const text = yield* encodeViewerDown({
       _tag: "Delta",
       tape: trades,
+      candles: changed,
+      ...(orderBooks.length > 0 ? { orderBooks } : {}),
+      ...(states.length === 0 ? {} : { dayStates: states }),
       ...(statusChanged ? { status } : {}),
       ...(indicative.length > 0 ? { indicative } : {}),
     })
@@ -191,45 +259,83 @@ export const makeTradingDay = Effect.fnUntraced(function* (options: {
     }
   })
 
-  const scheduleDelta = Effect.suspend(() => {
-    if (deltaScheduled) return Effect.void
+  const scheduleDelta = Effect.gen(function* () {
+    if (deltaScheduled) return
+    if (
+      pending.size === 0 &&
+      !(yield* candles.hasChanges) &&
+      !(yield* books.hasChanges(yield* stockbitLive)) &&
+      !(yield* dayStates.hasChanges) &&
+      !(yield* statusPending)
+    )
+      return
     deltaScheduled = true
-    return Effect.sleep(DELTA_INTERVAL).pipe(
+    yield* Effect.sleep(DELTA_INTERVAL).pipe(
       Effect.andThen(sendDelta),
       Effect.catchCause((cause) => Effect.logError("Delta not sent", cause)),
-      Effect.forkIn(scope),
-      Effect.asVoid
+      Effect.forkIn(scope)
     )
   })
 
-  // Decision: while a relay or a viewer is connected, the object looks at the
-  // market status every second and sends a delta when it changed, so a feed
-  // going stale or the phase turning reaches viewers without a frame. Alone,
-  // it stops, and the object can hibernate.
+  // Decision: while a viewer is connected, the object looks at the market
+  // status every second and sends a delta when it changed, so a feed going
+  // stale or the phase turning reaches viewers without a frame. With no
+  // viewer it stops: freshness and relay gaps are decided from the instants
+  // of frames and closes, not from these checks, and a snapshot reads them
+  // fresh.
   const checkStatus: Effect.Effect<void> = Effect.suspend(() => {
     if (checking) return Effect.void
     checking = true
     const loop: Effect.Effect<void> = Effect.gen(function* () {
       yield* Effect.sleep(STATUS_INTERVAL)
-      if (!relayOnline && (yield* options.viewers).length === 0) {
+      if ((yield* options.viewers).length === 0) {
         checking = false
         return
       }
-      yield* scheduleDelta
+      // One failed check is logged; the next still runs.
+      yield* scheduleDelta.pipe(
+        Effect.catchCause((cause) =>
+          Effect.logError("Status not checked", cause)
+        )
+      )
       yield* loop
     })
-    return loop.pipe(
-      Effect.catchCause((cause) =>
-        Effect.logError("Status not checked", cause)
-      ),
-      Effect.forkIn(scope),
-      Effect.asVoid
-    )
+    return loop.pipe(Effect.forkIn(scope), Effect.asVoid)
   })
 
   const tokenMatches = Effect.fnUntraced(function* (token: string) {
     const { INGEST_TOKEN } = yield* WorkerEnv
     return (yield* sha256(token)) === (yield* sha256(INGEST_TOKEN))
+  })
+
+  // Ajaib's `PRICE` frames, for the Day state fallback.
+  const ajaibPriceFrames = Effect.fnUntraced(function* (
+    frames: ReadonlyArray<string>
+  ) {
+    for (const price of yield* ajaibPrices(options.date, frames))
+      yield* dayStates.ajaibPrice(price)
+  })
+
+  const framesIn = Effect.fnUntraced(function* (
+    message: Extract<IngestUp, { readonly _tag: "Frames" }>
+  ) {
+    if (message.feed === "Stockbit") {
+      yield* insert(yield* stockbitTrades(options.date, message.frames))
+      for (const price of yield* stockbitLivePrices(
+        options.date,
+        message.frames
+      )) {
+        yield* books.livePrice(price)
+        yield* dayStates.livePrice(price)
+        if (price.isIndex) yield* candles.indexPrice(price)
+      }
+      yield* books.stockbitFrames(message.frames)
+    } else {
+      yield* insert(yield* ajaibTrades(options.date, message.frames))
+      yield* books.ajaibFrames(message.frames)
+      yield* ajaibPriceFrames(message.frames)
+    }
+    yield* gaps.schedule
   })
 
   // One envelope from the relay. The token comes first; anything before it, or
@@ -243,20 +349,24 @@ export const makeTradingDay = Effect.fnUntraced(function* (options: {
           relayOnline = true
           yield* market.relayOnline
           yield* scheduleDelta
-          return yield* checkStatus
+          return yield* onDemand.greet(socket)
         }
         return yield* socket.close(IngestCloseCode.RejectedToken, "Bad token")
       }
       relayOnline = true
       yield* market.ingest(message)
-      yield* scheduleDelta
-      yield* checkStatus
-      if (message._tag !== "Frames") return
-      yield* insert(
-        message.feed === "Stockbit"
-          ? yield* stockbitTrades(options.date, message.frames)
-          : yield* ajaibTrades(options.date, message.frames)
-      )
+      if (message._tag === "CodeList")
+        return yield* storeCodeList(codeListStore, message.body)
+      // A page fills only numbers the tape lacks: a held trade keeps the
+      // feeds that saw it live.
+      if (message._tag === "BackfillPage")
+        yield* insert(
+          (yield* backfillTrades(options.date, message)).filter(
+            (trade) =>
+              tape[positionOf(tape, trade)]?.tradeNumber !== trade.tradeNumber
+          )
+        )
+      if (message._tag === "Frames") yield* framesIn(message)
       yield* scheduleDelta
     },
     (effect, socket) =>
@@ -269,17 +379,32 @@ export const makeTradingDay = Effect.fnUntraced(function* (options: {
   // after which the socket gets deltas.
   const viewerMessage = Effect.fnUntraced(
     function* (socket: Peer, text: string) {
-      const { selected } = yield* decodeViewerUp(text)
+      const { selected, watchlist } = yield* decodeViewerUp(text)
+      const live = yield* stockbitLive
+      const orderBook = yield* books.bookOf(selected, live)
+      const watching = [...new Set([selected, ...watchlist])]
+      const states: Array<DayState> = []
+      for (const code of watching) {
+        const state = yield* dayStates.stateOf(code, live)
+        if (state !== undefined) states.push(state)
+      }
       const indicative = yield* market.indicativeOf(selected)
       const snapshot = yield* encodeViewerDown({
         _tag: "Snapshot",
         tape: tape.slice(-SNAPSHOT_TRADES),
+        candles: yield* candles.candlesOf(selected),
+        ...(orderBook === undefined ? {} : { orderBook }),
+        ...(states.length === 0 ? {} : { dayStates: states }),
         status: yield* market.status,
         ...(indicative === undefined ? {} : { indicative }),
       })
       yield* socket.send(snapshot)
       yield* socket.setState("ready")
       yield* checkStatus
+      if (socket.setWatching !== undefined) {
+        yield* socket.setWatching(watching)
+        yield* onDemand.update
+      }
     },
     (effect, socket) =>
       Effect.catchTag(effect, "ProtocolVersionMismatch", (error) =>
@@ -296,6 +421,16 @@ export const makeTradingDay = Effect.fnUntraced(function* (options: {
     yield* scheduleDelta
   })
 
+  // A viewer socket closed: its codes leave the on-demand set.
+  const viewerClosed = Effect.fnUntraced(function* (socket: Peer) {
+    if (socket.setWatching === undefined) return
+    yield* socket.setWatching([])
+    yield* onDemand.update
+  })
+
+  // The GET for the day's stock code list.
+  const codeList = codeListAnswer(codeListStore, options.date)
+
   // After a ban, revoke or delete: the page on a session the account no
   // longer holds is sent to sign in.
   const endSessions = Effect.fnUntraced(function* (held: HeldSessions) {
@@ -305,5 +440,12 @@ export const makeTradingDay = Effect.fnUntraced(function* (options: {
     }
   })
 
-  return { ingestMessage, viewerMessage, ingestClosed, endSessions }
+  return {
+    ingestMessage,
+    viewerMessage,
+    viewerClosed,
+    ingestClosed,
+    endSessions,
+    codeList,
+  }
 })

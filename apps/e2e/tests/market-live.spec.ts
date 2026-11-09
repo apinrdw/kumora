@@ -1,6 +1,12 @@
 import { DASHBOARD, MEMBER } from "../support/accounts"
 import { signInUrl } from "../support/flows"
-import { openIngest, session1Today } from "../support/ingest"
+import {
+  ajaibTradeToday,
+  freshTradeNumbers,
+  openIngest,
+  openingMatchToday,
+  session1Today,
+} from "../support/ingest"
 import { expect, test } from "../support/test"
 
 const PAGE = "/market-live"
@@ -12,31 +18,73 @@ test.describe("signed in", () => {
     page,
   }) => {
     const relay = await openIngest()
-    const frames = session1Today()
+    const base = freshTradeNumbers()
+    const frames = session1Today(base)
     // Before the page opens: the snapshot carries these.
     await relay.sendAjaib(frames.slice(0, 10))
     await page.goto(`${DASHBOARD}${PAGE}`)
     const tape = page.getByRole("region", { name: "Running trades" })
-    const row = (tradeNumber: string) =>
-      tape.locator(`tr[data-trade-number="${tradeNumber}"]`)
-    await expect(row("22265")).toContainText("BREN")
-    await expect(row("22265")).toContainText("09:00:00")
-    await expect(row("22265")).toContainText("2,130")
+    // A recorded trade number, as this test renumbered it.
+    const row = (recorded: number) =>
+      tape.locator(`tr[data-trade-number="${base + recorded}"]`)
+    await expect(row(22265)).toContainText("BREN")
+    await expect(row(22265)).toContainText("09:00:00")
+    await expect(row(22265)).toContainText("2,130")
     // One dot for the one feed that saw it, explained by the header legend.
-    await expect(row("22265").getByRole("img")).toHaveAccessibleName("Ajaib")
+    await expect(row(22265).getByRole("img")).toHaveAccessibleName("Ajaib")
     await expect(
       tape.getByRole("list", { name: "Sources" }).getByRole("listitem")
     ).toHaveText(["Stockbit", "Ajaib", "Backfill"])
 
     // After: a delta. 22266 arrives late and sorts below 22268.
     await relay.sendAjaib(frames.slice(10, 20))
-    await expect(row("22266")).toBeVisible()
+    await expect(row(22266)).toBeVisible()
     const numbers = await tape
       .locator("tbody tr")
       .evaluateAll((rows) =>
         rows.map((r) => r.getAttribute("data-trade-number"))
       )
-    expect(numbers.indexOf("22266")).toBeGreaterThan(numbers.indexOf("22268"))
+    expect(numbers.indexOf(String(base + 22266))).toBeGreaterThan(
+      numbers.indexOf(String(base + 22268))
+    )
+    relay.close()
+  })
+
+  test("the selected code's candles draw on the chart as trades arrive", async ({
+    page,
+  }) => {
+    const relay = await openIngest()
+    const base = freshTradeNumbers()
+    // A code no other spec trades, so its candles are this test's alone; the
+    // recorded session has none, so two UNVR trades are made from its first
+    // frame, a minute apart.
+    const [template] = session1Today()
+    const trade = JSON.parse(template!)
+    const unvr = (sequence: number, price: number, minutes: number) =>
+      JSON.stringify({
+        ...trade,
+        ticker: "UNVR",
+        price,
+        tradeNum: `${trade.tradeNum.slice(0, 8)}${String(base + sequence).padStart(10, "0")}`,
+        tradedAt: new Date(
+          Date.parse(trade.tradedAt) + minutes * 60_000
+        ).toISOString(),
+      })
+    await relay.sendAjaib([unvr(1, 9275, 0)])
+    await page.goto(`${DASHBOARD}${PAGE}?code=UNVR`)
+    const chart = page.getByRole("region", { name: "Chart" })
+    await expect(chart.getByRole("heading", { name: "UNVR" })).toBeVisible()
+    await expect(chart).toContainText("One-minute candles: 1")
+    await expect(chart).toContainText("9,275")
+    await expect(chart.locator("canvas").first()).toBeVisible()
+    await expect(
+      chart.getByRole("link", { name: "TradingView Lightweight Charts™" })
+    ).toHaveAttribute("href", "https://www.tradingview.com/")
+
+    // A delta: the next minute opens its own candle.
+    await relay.sendAjaib([unvr(2, 9300, 1)])
+    await expect(chart).toContainText("One-minute candles: 2")
+    await expect(chart).toContainText("9,300")
     relay.close()
   })
 
@@ -44,7 +92,7 @@ test.describe("signed in", () => {
     page,
   }) => {
     const relay = await openIngest()
-    await relay.sendAjaib(session1Today().slice(0, 5))
+    await relay.sendAjaib(session1Today(freshTradeNumbers()).slice(0, 5))
     await relay.report("Stockbit", "alive")
     await page.goto(`${DASHBOARD}${PAGE}`)
     const status = page.getByRole("group", { name: "Market status" })
@@ -69,6 +117,11 @@ test.describe("signed in", () => {
     await expect(pill("Ajaib")).toContainText("UNAVAILABLE")
     await expect(tape).toHaveAttribute("data-stale", "true")
     await expect(tape.getByText("STALE", { exact: true })).toBeVisible()
+    for (const name of ["Chart", "Watchlist", "Order book"])
+      await expect(page.getByRole("region", { name })).toHaveAttribute(
+        "data-stale",
+        "true"
+      )
     // The last trades stay on screen.
     await expect(tape.locator("tr[data-trade-number]").first()).toBeVisible()
     relay.close()
@@ -140,6 +193,162 @@ test.describe("signed in", () => {
     )
     await page.goto(`${DASHBOARD}${PAGE}`)
     await expect(page.getByRole("alert")).toContainText("Reload to continue")
+  })
+})
+
+test.describe("the tape at peak", () => {
+  test.use({ storageState: MEMBER.storageState })
+
+  test("the 08:58 match folds into one row while the page holds smooth frames", async ({
+    page,
+  }) => {
+    const relay = await openIngest()
+    await page.goto(`${DASHBOARD}${PAGE}`)
+    const tape = page.getByRole("region", { name: "Running trades" })
+    const fold = tape.getByRole("button", { name: /Opening match 08:58:00/ })
+    // The first print, once the page's socket is live: a snapshot carries
+    // only the 200 newest trades, so the replay waits for it.
+    const base = freshTradeNumbers()
+    const match = openingMatchToday(20_000, base)
+    await relay.sendAjaib(match.slice(0, 1))
+    await expect(fold).toContainText("1 trade ·")
+    // Every animation frame's length from here until the match is in.
+    await page.evaluate(() => {
+      const frames: Array<number> = []
+      Object.assign(window, { tapeFrames: frames })
+      let last = performance.now()
+      const tick = (now: number) => {
+        frames.push(now - last)
+        last = now
+        requestAnimationFrame(tick)
+      }
+      requestAnimationFrame(tick)
+    })
+
+    // The rest in 250 ms batches of 1,278, the peak delta measured on
+    // 2026-11-09.
+    for (let at = 1; at < match.length; at += 1_278) {
+      await relay.sendAjaib(match.slice(at, at + 1_278))
+      await page.waitForTimeout(250)
+    }
+    await expect(fold).toContainText("20,000 trades", { timeout: 30_000 })
+    await expect(fold).toContainText("676 codes")
+    const frames = await page.evaluate(() =>
+      (window as unknown as { tapeFrames: Array<number> }).tapeFrames
+        .slice(1)
+        .sort((a, b) => a - b)
+    )
+    const p99 = frames[Math.floor(frames.length * 0.99)]!
+    expect(p99, `p99 of ${frames.length} frames`).toBeLessThan(50)
+
+    // Expanded, the fold lists its prints newest first, without a side.
+    await expect(fold).toHaveAttribute("aria-expanded", "false")
+    await fold.click()
+    await expect(fold).toHaveAttribute("aria-expanded", "true")
+    const newest = tape.locator(`tr[data-trade-number="${base + 20_000}"]`)
+    await expect(newest).toContainText("08:58:00")
+    await expect(newest).not.toContainText(/buy|sell/)
+    relay.close()
+  })
+
+  test("rows show side, big trades, boards and the selected code", async ({
+    page,
+  }) => {
+    const relay = await openIngest()
+    const base = freshTradeNumbers()
+    const at = { time: "10:00:01", price: 5_000 }
+    await relay.sendAjaib([
+      ajaibTradeToday({ ...at, seq: base + 1, ticker: "BBCA", lot: 5 }),
+      // 5,000 × 2,000 lots × 100 = Rp1 B: a big trade.
+      ajaibTradeToday({
+        ...at,
+        seq: base + 2,
+        ticker: "TLKM",
+        lot: 2_000,
+        type: "SELL",
+      }),
+      ajaibTradeToday({
+        ...at,
+        seq: base + 3,
+        ticker: "ASII",
+        lot: 1,
+        board: "TN",
+      }),
+      // Negotiated: no side, and never big.
+      ajaibTradeToday({
+        ...at,
+        seq: base + 4,
+        ticker: "BBRI",
+        lot: 5_000,
+        board: "NG",
+      }),
+    ])
+    await page.goto(`${DASHBOARD}${PAGE}`)
+    const tape = page.getByRole("region", { name: "Running trades" })
+    const row = (n: number) =>
+      tape.locator(`tr[data-trade-number="${base + n}"]`)
+    const price = (n: number) => row(n).locator("td").nth(2)
+    const up = "rgb(81, 221, 162)"
+    const down = "rgb(255, 121, 135)"
+
+    // BBCA is the selected code: highlighted, a buy in green.
+    await expect(row(1)).toHaveCSS("background-color", "rgb(23, 58, 67)")
+    await expect(price(1)).toHaveCSS("color", up)
+    await expect(price(1)).toContainText("buy")
+
+    await expect(row(2)).toHaveCSS("font-weight", "700")
+    // The 3 px edge bar, last in Tailwind's stack of empty ring shadows.
+    await expect(row(2)).toHaveCSS(
+      "box-shadow",
+      /rgb\(255, 121, 135\) 3px 0px 0px 0px inset$/
+    )
+    await expect(price(2)).toHaveCSS("color", down)
+    await expect(price(2)).toContainText("sell")
+    await expect(row(2)).toContainText("Rp1 B")
+
+    await expect(row(3)).toContainText("ASIITN")
+    await expect(price(3)).toHaveCSS("color", up)
+
+    await expect(row(4)).toContainText("BBRING")
+    await expect(row(4)).not.toContainText(/buy|sell/)
+    await expect(row(4)).toHaveCSS("font-weight", "400")
+    relay.close()
+  })
+
+  test("scrolled down, the tape freezes and counts new trades until the pill returns it to live", async ({
+    page,
+  }) => {
+    const relay = await openIngest()
+    const base = freshTradeNumbers()
+    const trades = (from: number, count: number) =>
+      Array.from({ length: count }, (_, i) =>
+        ajaibTradeToday({
+          seq: base + from + i,
+          time: "10:00:02",
+          ticker: "FRZA",
+          price: 100,
+          lot: 1,
+        })
+      )
+    await relay.sendAjaib(trades(1, 100))
+    await page.goto(`${DASHBOARD}${PAGE}`)
+    const tape = page.getByRole("region", { name: "Running trades" })
+    const row = (n: number) =>
+      tape.locator(`tr[data-trade-number="${base + n}"]`)
+    await expect(row(100)).toBeVisible()
+
+    await tape.getByRole("table").hover()
+    await page.mouse.wheel(0, 600)
+    await expect(row(100)).not.toBeInViewport()
+    await relay.sendAjaib(trades(101, 30))
+    const pill = tape.getByRole("button", { name: "30 new trades ↑" })
+    await expect(pill).toBeVisible()
+    await expect(row(130)).toHaveCount(0)
+
+    await pill.click()
+    await expect(row(130)).toBeInViewport()
+    await expect(pill).toBeHidden()
+    relay.close()
   })
 })
 

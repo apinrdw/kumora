@@ -2,11 +2,12 @@
 // Cloudflare's hibernatable websockets to trading-day.ts, which holds the
 // behaviour. Exported from the Worker entry (src/worker.ts) as `TradingDay`,
 // the class the dashboard stack declares.
-import { WibDate } from "@workspace/relay"
+import { WibDate, type StockCode } from "@workspace/relay"
 import { runServerEffectResult } from "@workspace/server"
-import { Effect, Result, Schema, Scope } from "effect"
+import { Effect, Option, Result, Schema, Scope } from "effect"
 
 import { withMarketClock } from "./market-clock.ts"
+import type { CodeListStore } from "./code-list.ts"
 import { HeldSessions, ObjectPath, ViewerHeader } from "./routes.ts"
 import { makeTradingDay, type Peer, type PeerState } from "./trading-day.ts"
 
@@ -18,18 +19,54 @@ const userTag = (userId: string) => `user:${userId}`
 const SESSION = "session:"
 const sessionTag = (sessionId: string) => `${SESSION}${sessionId}`
 
+// A socket's attachment survives hibernation: its state, and a viewer's codes
+// once it sent a Select. An ingest socket's is the bare state.
+type Attachment =
+  | PeerState
+  | { readonly state: PeerState; readonly watching: ReadonlyArray<StockCode> }
+
+const attachmentOf = (socket: WebSocket) => {
+  const attachment = socket.deserializeAttachment() as Attachment | null
+  // A socket without an attachment is new.
+  if (attachment === null) return { state: "new" as const, watching: [] }
+  return typeof attachment === "string"
+    ? { state: attachment, watching: [] }
+    : attachment
+}
+
+// Decision: a socket watching no codes keeps the bare state, so an ingest
+// socket's attachment is always its state.
+const attach = (
+  socket: WebSocket,
+  state: PeerState,
+  watching: ReadonlyArray<StockCode>
+) =>
+  socket.serializeAttachment(
+    watching.length === 0 ? state : { state, watching }
+  )
+
 const peerOf = (socket: WebSocket): Peer => ({
   send: (text) => Effect.sync(() => socket.send(text)),
   close: (code, reason) => Effect.sync(() => socket.close(code, reason)),
-  // The attachment survives hibernation; a socket without one is new.
-  state: Effect.sync(
-    () => (socket.deserializeAttachment() as PeerState | null) ?? "new"
-  ),
-  setState: (state) => Effect.sync(() => socket.serializeAttachment(state)),
+  state: Effect.sync(() => attachmentOf(socket).state),
+  setState: (state) =>
+    Effect.sync(() => attach(socket, state, attachmentOf(socket).watching)),
+  watching: Effect.sync(() => attachmentOf(socket).watching),
+  setWatching: (watching) =>
+    Effect.sync(() => attach(socket, attachmentOf(socket).state, watching)),
 })
 
 const decodeDate = Schema.decodeUnknownSync(WibDate)
 const decodeHeld = Schema.decodeUnknownEffect(HeldSessions)
+
+const CODE_LIST_KEY = "code-list"
+
+const codeListStore = (storage: DurableObjectStorage): CodeListStore => ({
+  read: Effect.promise(() => storage.get<string>(CODE_LIST_KEY)).pipe(
+    Effect.map(Option.fromUndefinedOr)
+  ),
+  write: (text) => Effect.promise(() => storage.put(CODE_LIST_KEY, text)),
+})
 
 // Decision: a plain class, not `DurableObject` from `cloudflare:workers`: the
 // object needs no RPC, and only the bridge may import that module. Each
@@ -54,17 +91,28 @@ export class TradingDayObject {
               ?.slice(SESSION.length) ?? "",
         }))
       )
+    const ingests = Effect.sync(() =>
+      ctx.getWebSockets(INGEST).map((socket) => peerOf(socket))
+    )
     // Lives as long as the object; it holds the delta timers.
     const scope = Scope.makeUnsafe()
     this.day = Effect.runSync(
-      makeTradingDay({ date, viewers, viewersOf }).pipe(Scope.provide(scope))
+      makeTradingDay({
+        date,
+        viewers,
+        viewersOf,
+        ingests,
+        codeList: codeListStore(ctx.storage),
+      }).pipe(Scope.provide(scope))
     )
   }
 
-  // Accepts the socket the Worker entry routed here, already gated, or the
-  // sessions a user still holds (live-viewers.ts).
+  // Accepts the socket the Worker entry routed here, already gated; answers
+  // the sessions a user still holds (live-viewers.ts) and the day's stock
+  // code list GET.
   fetch(request: Request): Response | Promise<Response> {
     const { pathname } = new URL(request.url)
+    if (pathname === ObjectPath.codes) return this.codeList()
     // The runner logs any failure.
     if (pathname === ObjectPath.endSessions)
       return runServerEffectResult(
@@ -87,6 +135,14 @@ export class TradingDayObject {
     return new Response(null, { status: 101, webSocket: pair[0] })
   }
 
+  private codeList() {
+    return runServerEffectResult(this.day.codeList).then((settled) =>
+      Result.isSuccess(settled)
+        ? settled.success
+        : new Response(null, { status: 500 })
+    )
+  }
+
   webSocketMessage(socket: WebSocket, message: string | ArrayBuffer) {
     const text =
       typeof message === "string" ? message : new TextDecoder().decode(message)
@@ -100,9 +156,15 @@ export class TradingDayObject {
     )
   }
 
-  // A relay's socket closing may leave the object with none: relay offline.
+  // A viewer closing takes its codes out of the on-demand set; a relay closing
+  // may leave the object with none: relay offline.
   webSocketClose(socket: WebSocket) {
-    if (!this.ctx.getTags(socket).includes(INGEST)) return undefined
+    const tags = this.ctx.getTags(socket)
+    if (tags.includes(VIEWER))
+      return runServerEffectResult(
+        withMarketClock(this.day.viewerClosed(peerOf(socket)))
+      )
+    if (!tags.includes(INGEST)) return undefined
     const remaining = this.ctx
       .getWebSockets(INGEST)
       .filter(

@@ -1,7 +1,7 @@
-import { chromium } from "@playwright/test"
+import { chromium, type Worker } from "@playwright/test"
 import { execFileSync } from "node:child_process"
 import { mkdtempSync, readFileSync } from "node:fs"
-import { createServer } from "node:https"
+import { createServer, type Server } from "node:https"
 import type { AddressInfo } from "node:net"
 import { tmpdir } from "node:os"
 import { join } from "node:path"
@@ -14,17 +14,29 @@ const EXTENSION = fileURLToPath(
 )
 
 export const AJAIB_TAB = "https://trade.ajaib.co.id/"
+export const STOCKBIT_TAB = "https://stockbit.com/"
 
-/** One socket the relay opened to the fake Ajaib, and what it sent. */
-interface AjaibSocket {
+/** Every broker host the fakes answer for, all on one local port. */
+const HOSTS = [
+  "trade.ajaib.co.id",
+  "stream.ajaib.co.id",
+  "stockbit.com",
+  "exodus.stockbit.com",
+  "wss-jkt.trading.stockbit.com",
+]
+
+/** One socket the relay opened to a fake broker, and what it sent. */
+export interface BrokerSocket {
+  readonly path: string
+  readonly protocol: string
   readonly socket: WebSocket
-  readonly received: Array<string>
+  readonly received: Array<string | Uint8Array>
 }
 
 // A self-signed certificate for the fake broker hosts, which Chromium is told
 // to accept.
 function selfSignedCertificate() {
-  const dir = mkdtempSync(join(tmpdir(), "fake-ajaib-"))
+  const dir = mkdtempSync(join(tmpdir(), "fake-brokers-"))
   execFileSync(
     "openssl",
     [
@@ -36,7 +48,7 @@ function selfSignedCertificate() {
       "-days",
       "1",
       "-subj",
-      "/CN=ajaib.co.id",
+      "/CN=fake-broker",
       "-keyout",
       join(dir, "key.pem"),
       "-out",
@@ -50,33 +62,138 @@ function selfSignedCertificate() {
   }
 }
 
+const base64Url = (value: unknown) =>
+  Buffer.from(JSON.stringify(value)).toString("base64url")
+
+/** The fake Stockbit user's access token: a JWT naming user 4242. */
+export const STOCKBIT_TOKEN = `${base64Url({ alg: "HS256" })}.${base64Url({ data: { uid: 4242 } })}.c2ln`
+export const STOCKBIT_KEY = "fake-websocket-key"
+
+/** The fake Ajaib page's own REST header, which its code list requires. */
+const AJAIB_HEADER = "x-fake-ajaib-page"
+
+/** Ajaib's stock code list, as the fake answers it. */
+export const LISTED_CODES = ["BBCA", "BRMS", "ENRG", "TLKM"]
+
+// The fake Ajaib page calls its own API once it loads, as Ajaib's does; the
+// relay's MAIN-world wrapper sees that call's headers.
+const AJAIB_PAGE = `<!doctype html><title>Fake Ajaib</title><p>Fake Ajaib</p>
+<script>fetch("/api/v1/user/profile/", { headers: { "${AJAIB_HEADER}": "yes" } })</script>`
+
+// Stockbit's session cookie holds the access token, readable from scripts.
+const STOCKBIT_CREDENTIAL = encodeURIComponent(
+  JSON.stringify({ accessToken: STOCKBIT_TOKEN })
+)
+
+// WebsocketWrapMessageChannel { ping (2): { message: "pong" } }
+const PONG = Uint8Array.from([0x12, 0x06, 0x0a, 0x04, ...Buffer.from("pong")])
+
 /**
- * A fake Ajaib on one local HTTPS port: a blank page for the tab, and the
- * trade stream's websocket, which answers PING-WEB like Ajaib does.
+ * Fake Stockbit and Ajaib on one local HTTPS port, told apart by host: each
+ * site's page for its tab, Stockbit's websocket key and Ajaib's code list
+ * REST routes, and every relay socket, which answers pings like the real
+ * ones do.
  */
-export async function startFakeAjaib() {
-  const server = createServer(selfSignedCertificate(), (_request, response) => {
-    response.writeHead(200, { "content-type": "text/html" })
-    response.end("<!doctype html><title>Fake Ajaib</title><p>Fake Ajaib</p>")
+export async function startFakeBrokers() {
+  // The REST running-trade tapes' answers, by query; a test sets them.
+  const tapes: {
+    stockbit: (query: URLSearchParams) => unknown
+    ajaib: (query: URLSearchParams) => unknown
+  } = {
+    stockbit: () => ({ data: { running_trade: [] } }),
+    ajaib: () => ({ results: [], has_next: false }),
+  }
+  const sockets: Array<BrokerSocket> = []
+  const requests: Array<{ path: string; headers: Record<string, unknown> }> = []
+  const server: Server = createServer(
+    selfSignedCertificate(),
+    (request, response) => {
+      const host = request.headers.host?.split(":")[0]
+      const path = request.url ?? "/"
+      requests.push({ path, headers: request.headers })
+      if (host === "exodus.stockbit.com") {
+        response.setHeader(
+          "access-control-allow-origin",
+          STOCKBIT_TAB.slice(0, -1)
+        )
+        response.setHeader("access-control-allow-headers", "authorization")
+        if (request.method === "OPTIONS") return response.end()
+        const authorized =
+          request.headers.authorization === `Bearer ${STOCKBIT_TOKEN}`
+        response.writeHead(authorized ? 200 : 401, {
+          "content-type": "application/json",
+        })
+        const url = new URL(path, "https://exodus.stockbit.com")
+        return response.end(
+          JSON.stringify(
+            url.pathname === "/order-trade/running-trade"
+              ? tapes.stockbit(url.searchParams)
+              : { message: "ok", data: { key: STOCKBIT_KEY } }
+          )
+        )
+      }
+      if (host === "stockbit.com") {
+        response.writeHead(200, {
+          "content-type": "text/html",
+          "set-cookie": `credentialStorage=${STOCKBIT_CREDENTIAL}; Path=/; Secure`,
+        })
+        return response.end("<!doctype html><title>Fake Stockbit</title>")
+      }
+      if (path === "/api/v1/stock/data/list/") {
+        const page = request.headers[AJAIB_HEADER] === "yes"
+        response.writeHead(page ? 200 : 403, {
+          "content-type": "application/json",
+        })
+        return response.end(
+          JSON.stringify({
+            data: LISTED_CODES.map((code) => ({ code, name: code })),
+          })
+        )
+      }
+      if (path.startsWith("/api/v1/stock/detail/running_trades/")) {
+        const page = request.headers[AJAIB_HEADER] === "yes"
+        response.writeHead(page ? 200 : 403, {
+          "content-type": "application/json",
+        })
+        const url = new URL(path, "https://trade.ajaib.co.id")
+        return response.end(JSON.stringify(tapes.ajaib(url.searchParams)))
+      }
+      if (path.startsWith("/api/")) return response.end("{}")
+      response.writeHead(200, { "content-type": "text/html" })
+      response.end(AJAIB_PAGE)
+    }
+  )
+  const streams = new WebSocketServer({
+    server,
+    handleProtocols: (protocols) => (protocols.has("web") ? "web" : false),
   })
-  const sockets: Array<AjaibSocket> = []
-  const streams = new WebSocketServer({ server, path: "/ws/trade" })
-  streams.on("connection", (socket) => {
-    const entry: AjaibSocket = { socket, received: [] }
+  streams.on("connection", (socket, request) => {
+    const entry: BrokerSocket = {
+      path: request.url ?? "",
+      protocol: socket.protocol,
+      socket,
+      received: [],
+    }
     sockets.push(entry)
-    socket.on("message", (data) => {
-      const text = String(data)
-      entry.received.push(text)
-      if (text.includes("PING-WEB"))
+    socket.on("message", (data, binary) => {
+      const message = binary ? new Uint8Array(data as Buffer) : String(data)
+      entry.received.push(message)
+      if (typeof message === "string" && message.includes("PING-WEB"))
         socket.send(
           JSON.stringify({ message: "already have active subscription" })
         )
+      // WebsocketRequest { ping (4): { message: "ping" } }
+      if (typeof message !== "string" && message[0] === 0x22) socket.send(PONG)
     })
   })
   await new Promise<void>((resolve) => server.listen(0, "127.0.0.1", resolve))
   return {
     port: (server.address() as AddressInfo).port,
+    tapes,
     sockets,
+    requests,
+    /** The sockets opened on one path, oldest first. */
+    on: (path: string) => sockets.filter((socket) => socket.path === path),
     close: async () => {
       for (const { socket } of sockets) socket.terminate()
       await new Promise((resolve) => server.close(resolve))
@@ -85,16 +202,28 @@ export async function startFakeAjaib() {
 }
 
 /**
- * Chromium with the built extension loaded, and both Ajaib hosts (the tab's
- * and the stream's, any port) mapped to the fake on `port`.
+ * Moves the relay's schedule clock so that it reads `wib` (a WIB wall-clock
+ * time, `YYYY-MM-DDTHH:MM:SS`) now. Frames keep their real times.
+ */
+export async function setRelayClock(worker: Worker, wib: string) {
+  const offset = Date.parse(`${wib}+07:00`) - Date.now()
+  await worker.evaluate(
+    `chrome.storage.local.set({ clockOffsetMs: ${offset} })`
+  )
+}
+
+/**
+ * Chromium with the built extension loaded, and every broker host (any port)
+ * mapped to the fakes on `port`.
  */
 export async function launchWithExtension(port: number) {
+  const rules = HOSTS.map((host) => `MAP ${host} 127.0.0.1:${port}`).join(", ")
   const context = await chromium.launchPersistentContext("", {
     channel: "chromium",
     args: [
       `--disable-extensions-except=${EXTENSION}`,
       `--load-extension=${EXTENSION}`,
-      `--host-resolver-rules=MAP trade.ajaib.co.id 127.0.0.1:${port}, MAP stream.ajaib.co.id 127.0.0.1:${port}`,
+      `--host-resolver-rules=${rules}`,
       "--ignore-certificate-errors",
     ],
   })
@@ -103,6 +232,7 @@ export async function launchWithExtension(port: number) {
   const extensionId = new URL(worker.url()).host
   return {
     context,
+    worker,
     optionsUrl: `chrome-extension://${extensionId}/options.html`,
   }
 }

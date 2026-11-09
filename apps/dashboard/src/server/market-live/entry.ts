@@ -1,11 +1,18 @@
 // Market Live's routes in the custom Worker entry (src/worker.ts), ahead of
 // TanStack Start: the ingest socket and the viewer socket. Both reach today's
-// trading-day Durable Object, named by the WIB date.
-import { MarketLivePath, ViewerCloseCode, wibDateAt } from "@workspace/relay"
+// trading-day Durable Object, named by the WIB date; the recorded day GETs
+// (days.ts) reach the object of the day they name.
+import {
+  MarketLivePath,
+  ViewerCloseCode,
+  stockCodeListDay,
+  wibDateAt,
+} from "@workspace/relay"
 import { WorkerEnv } from "@workspace/server"
 import { DateTime, Effect, Option } from "effect"
 
 import { Auth } from "../auth/auth.ts"
+import { stockCodeListRoute } from "./days.ts"
 import { gateLiveViewer } from "./gate.ts"
 import { withMarketClock } from "./market-clock.ts"
 import { ObjectPath, ViewerHeader } from "./routes.ts"
@@ -64,5 +71,8 @@ export const marketLiveRoute = (request: Request) => {
   const { pathname } = new URL(request.url)
   if (pathname === MarketLivePath.ingest) return ingest(request)
   if (pathname === MarketLivePath.live) return live(request)
+  const codeListDay = Effect.runSync(stockCodeListDay(pathname))
+  if (Option.isSome(codeListDay))
+    return stockCodeListRoute(request, codeListDay.value)
   return undefined
 }

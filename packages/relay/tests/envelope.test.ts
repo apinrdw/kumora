@@ -141,6 +141,7 @@ describe("ingest envelope, down", () => {
         _tag: "Backfill",
         from,
         to: TradeNumber.make("202611090000012399"),
+        nextTime: DateTime.makeUnsafe("2026-11-09T02:00:05.250Z"),
       }
       const wire = yield* encodeIngestDown(message)
       assert.include(wire, '"202611090000012345"')
@@ -161,7 +162,7 @@ describe("ingest envelope, down", () => {
 
   it.effect("a trade number sent as a JSON number is rejected", () =>
     Effect.gen(function* () {
-      const wire = '{"_tag":"Backfill","from":1,"to":2}'
+      const wire = '{"_tag":"Backfill","from":1,"to":2,"nextTime":0}'
       const error = yield* Effect.flip(decodeIngestDown(wire))
       assert.strictEqual(error._tag, "SchemaError")
     })
@@ -202,26 +203,41 @@ describe("viewer protocol", () => {
 })
 
 describe("viewer protocol, down", () => {
-  it.effect("a delta's running trades round trip with their time", () =>
-    Effect.gen(function* () {
-      const message: ViewerDown = {
-        _tag: "Delta",
-        tape: [
-          {
-            tradeNumber: TradeNumber.make("2350"),
-            time: DateTime.makeUnsafe("2026-11-09T01:58:00.000Z"),
-            code: StockCode.make("SINI"),
-            price: 7725,
-            lots: 10,
-            side: "none",
-            board: "RG",
-            feeds: ["Ajaib"],
-          },
-        ],
-      }
-      const wire = yield* encodeViewerDown(message)
-      assert.deepStrictEqual(yield* decodeViewerDown(wire), message)
-    })
+  it.effect(
+    "a delta's running trades and candles round trip with their time",
+    () =>
+      Effect.gen(function* () {
+        const message: ViewerDown = {
+          _tag: "Delta",
+          tape: [
+            {
+              tradeNumber: TradeNumber.make("2350"),
+              time: DateTime.makeUnsafe("2026-11-09T01:58:00.000Z"),
+              code: StockCode.make("SINI"),
+              price: 7725,
+              lots: 10,
+              side: "none",
+              board: "RG",
+              feeds: ["Ajaib"],
+            },
+          ],
+          candles: [
+            {
+              code: StockCode.make("IHSG"),
+              minute: DateTime.makeUnsafe("2026-11-09T07:15:00.000Z"),
+              open: 4975.55,
+              high: 4979.874,
+              low: 4975.55,
+              close: 4979.874,
+              volume: 3952,
+              value: 285_634_400,
+              frequency: 82,
+            },
+          ],
+        }
+        const wire = yield* encodeViewerDown(message)
+        assert.deepStrictEqual(yield* decodeViewerDown(wire), message)
+      })
   )
 })
 
