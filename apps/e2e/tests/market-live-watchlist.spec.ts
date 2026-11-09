@@ -11,6 +11,17 @@ import { expect, test } from "../support/test"
 
 const PAGE = "/market-live"
 
+// Where the page keeps its watchlist, as apps/dashboard's use-watchlist.ts
+// defines it.
+const WATCHLIST_KEY = "kumora:market-live:watchlist"
+
+// The Ajaib on-demand set the relay was last sent.
+const lastOnDemandCodes = (received: ReadonlyArray<string>) =>
+  received
+    .map((text) => JSON.parse(text))
+    .filter((message) => message._tag === "OnDemandCodes")
+    .at(-1)?.codes
+
 // Loads the page and waits until it is hydrated: its viewer socket opens from
 // an effect.
 async function open(page: Page) {
@@ -85,13 +96,7 @@ test("a watched code's row fills from Ajaib's PRICE, and the relay is asked for 
 
   // The selected BBCA and the watched WIFI.
   await expect
-    .poll(
-      () =>
-        relay.received
-          .map((text) => JSON.parse(text))
-          .filter((message) => message._tag === "OnDemandCodes")
-          .at(-1)?.codes
-    )
+    .poll(() => lastOnDemandCodes(relay.received))
     .toEqual(expect.arrayContaining(["BBCA", "WIFI"]))
 
   // Stockbit lost (another spec may have sent its frames moments ago), so
@@ -120,6 +125,28 @@ test("a watched code's row fills from Ajaib's PRICE, and the relay is asked for 
   await expect(row).toContainText("+70")
   await expect(row).toContainText("+1.73%")
   await expect(watchlist.getByText("Ajaib", { exact: true })).toBeVisible()
+  relay.close()
+})
+
+// 3,000 codes serialize past the 16 KiB a socket attachment may hold.
+test("a watchlist larger than a socket attachment reaches the relay whole as the on-demand set", async ({
+  page,
+}) => {
+  const relay = await openIngest()
+  const codes = Array.from(
+    { length: 3_000 },
+    (_, index) => `W${String(index).padStart(4, "0")}`
+  )
+  await page.addInitScript(
+    ([key, seeded]) => window.localStorage.setItem(key, JSON.stringify(seeded)),
+    [WATCHLIST_KEY, codes] as const
+  )
+  await open(page)
+  const watchlist = page.getByRole("region", { name: "Watchlist" })
+  await expect(watchlist.locator("tbody tr")).toHaveCount(codes.length)
+  await expect
+    .poll(() => lastOnDemandCodes(relay.received))
+    .toEqual(expect.arrayContaining(codes))
   relay.close()
 })
 

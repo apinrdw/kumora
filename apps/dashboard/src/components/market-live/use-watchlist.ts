@@ -4,7 +4,8 @@ import { useCallback, useSyncExternalStore } from "react"
 import { parseMarketLiveSearch } from "@/lib/market-live-search"
 
 // Decision: each browser keeps its own watchlist in localStorage (spec
-// apinrdw/kumora#138, "Watchlist"), not on the account.
+// apinrdw/kumora#138, "Watchlist"), not on the account. The e2e seeds the
+// key (apps/e2e/tests/market-live-watchlist.spec.ts).
 const KEY = "kumora:market-live:watchlist"
 
 const NONE: ReadonlyArray<StockCode> = []
