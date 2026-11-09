@@ -149,7 +149,7 @@ const TradeSource = Schema.Literals(["Stockbit", "Ajaib", "backfill"])
 // One trade on the whole-market tape, merged across feeds. Its trade number is
 // the bare daily sequence, one market-wide numbering per trading day. Value is
 // price × lots × 100 shares, so it does not travel.
-export const RunningTrade = Schema.Struct({
+const RunningTrade = Schema.Struct({
   tradeNumber: TradeNumber,
   time: Schema.DateTimeUtcFromMillis,
   code: StockCode,

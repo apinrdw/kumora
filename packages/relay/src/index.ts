@@ -24,7 +24,6 @@ export {
   ProtocolVersionMismatch,
   Select,
   StockbitFrames,
-  RunningTrade,
   TradeNumber,
   TradeNumberOrder,
   ViewerCloseCode,
@@ -38,4 +37,10 @@ export {
   encodeViewerDown,
   encodeViewerUp,
 } from "./envelope.ts"
-export type { IngestDown, IngestUp, ViewerDown, ViewerUp } from "./envelope.ts"
+export type {
+  IngestDown,
+  IngestUp,
+  RunningTrade,
+  ViewerDown,
+  ViewerUp,
+} from "./envelope.ts"

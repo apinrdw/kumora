@@ -8,3 +8,9 @@ export type {
   DayStateUpdate,
 } from "./day-state-store.ts"
 export { FrameScheduler } from "./frame-scheduler.ts"
+export {
+  NewVersion,
+  SignInRequired,
+  applyViewerMessage,
+  viewerMessages,
+} from "./market-live-socket.ts"

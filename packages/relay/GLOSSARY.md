@@ -55,3 +55,18 @@ _Avoid_: subscriptions
 **Protocol version**:
 The number an ingest envelope or a viewer message carries. The dashboard accepts the current and the previous ingest version, and only the current viewer version; a mismatch closes the socket with `4426`.
 _Avoid_: schema version, API version
+
+### Viewer
+
+**Selection**:
+The page's `Select` message: its selected stock code and watchlist. Sent on every connect and every change; the trading-day Durable Object answers each with a snapshot.
+_Avoid_: subscribe
+
+**Snapshot**:
+What a viewer starts from after each selection: today the 200 newest running trades, ascending by trade number. Later tickets add candles, Day state, the order book and freshness.
+_Avoid_: initial state
+
+**Delta**:
+The running trades that reached the trading-day Durable Object in the last ~250 ms, ascending by trade number, sent to every viewer that has a snapshot. A late trade can sort below trades the viewer already holds.
+_Avoid_: update, patch
+
