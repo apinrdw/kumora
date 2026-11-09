@@ -3,6 +3,9 @@
 // TestClock, and the test reads what viewers, the relay, the recorded day GETs
 // and the index of days receive. Handing a second trading day the first's
 // database is the object restarting after a deploy.
+import { setFlagsFromString } from "node:v8"
+import { runInNewContext } from "node:vm"
+
 import { assert, describe, it } from "@effect/vitest"
 import {
   IngestProtocolVersion,
@@ -300,9 +303,22 @@ const range = (from: number, to: number) =>
 const FULL_DAY_CODES = 900
 const FULL_DAY_MINUTES = 438
 
+// Decision: a restarted object may keep at most 32 MiB of a full day on the
+// heap, a quarter of the Durable Object's 128 MiB: the whole day's candles
+// kept as objects take about 180 MiB (measured 2026-11-10).
+const RESTART_HEAP_LIMIT = 32 * 2 ** 20
+
+// The heap after a full collection: what is retained, not what is garbage.
+const retainedHeap = Effect.sync(() => {
+  setFlagsFromString("--expose-gc")
+  const collect = runInNewContext("gc") as () => void
+  collect()
+  return process.memoryUsage().heapUsed
+})
+
 describe("a restarted trading day", () => {
   it.effect(
-    "restores a full day's candles, every code's",
+    "serves a full day's candles, every code's, keeping under 32 MiB of it",
     () =>
       Effect.gen(function* () {
         yield* TestClock.setTime(wib("16:20:00").epochMilliseconds)
@@ -336,14 +352,21 @@ describe("a restarted trading day", () => {
             }))
           ),
         })
+        const before = yield* retainedHeap
         const restarted = yield* tradingDay(sql)
+        const retained = (yield* retainedHeap) - before
         for (const code of [codes[0]!, codes.at(-1)!]) {
           const [snapshot] = yield* yield* restarted.viewer(code)
           assert.lengthOf(snapshot?.candles ?? [], FULL_DAY_MINUTES)
           assert.strictEqual(snapshot?.candles.at(-1)?.close, 101)
         }
+        assert.isBelow(
+          retained,
+          RESTART_HEAP_LIMIT,
+          `${(retained / 2 ** 20).toFixed(0)} MiB retained`
+        )
       }),
-    { timeout: 60_000 }
+    { timeout: 120_000 }
   )
 
   it.effect(
