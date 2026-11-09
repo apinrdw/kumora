@@ -228,7 +228,7 @@ const main = Effect.gen(function* () {
   const batcher = yield* makeBatcher()
   yield* Effect.forkScoped(
     Effect.repeat(
-      Effect.flatMap(batcher.flush, (batch) => Effect.forEach(batch, publish)),
+      Effect.flatMap(batcher.flush, Effect.forEach(publish)),
       Schedule.spaced(BATCH_INTERVAL)
     )
   )

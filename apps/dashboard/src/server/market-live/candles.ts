@@ -52,8 +52,8 @@ export interface StoredCandle {
 }
 
 // The settled candles the day store holds: the book reads one back when a
-// trade lands in a minute it let go of, and a code's history when a snapshot
-// or the Day state fallback asks for it.
+// trade lands in a minute it let go of, and a code's candles so far when a
+// snapshot or the Day state fallback asks for them.
 export interface SettledCandles {
   readonly storedCandle: (
     code: StockCode,
@@ -189,8 +189,8 @@ interface Totals {
 // candle leaves the book, and a trade that lands in that minute later reads
 // the figures back from the store first. So the book holds about a minute of
 // the day, bounded by the codes trading in it, however long the day runs
-// (CODING_STANDARDS.md, "Bounded memory on a Worker"); a code's history is
-// read from the store when a snapshot or the Day state fallback asks for it,
+// (CODING_STANDARDS.md, "Bounded memory on a Worker"); a code's candles so
+// far are read from the store when a snapshot or the Day state fallback asks,
 // and a restart reads nothing back. A flush that fails leaves its candles in
 // the book, and the next flush writes them again, with the trades the failed
 // one took (trading-day.ts).
@@ -323,7 +323,7 @@ export const makeCandleBook = Effect.fnUntraced(function* (
 
   // One code's figures for the minutes after `after`, every minute when
   // undefined: the store's candles with the book's laid over them, by minute.
-  const historyOf = Effect.fnUntraced(function* (
+  const candlesAfter = Effect.fnUntraced(function* (
     code: StockCode,
     after: number | undefined
   ) {
@@ -340,7 +340,7 @@ export const makeCandleBook = Effect.fnUntraced(function* (
 
   // One code's candles so far, ascending by minute.
   const candlesOf = Effect.fnUntraced(function* (code: StockCode) {
-    return [...(yield* historyOf(code, undefined))]
+    return [...(yield* candlesAfter(code, undefined))]
       .sort(([a], [b]) => a - b)
       .map(([minute, figures]) => candleFrom(code, minute, figures))
   })
@@ -353,7 +353,7 @@ export const makeCandleBook = Effect.fnUntraced(function* (
     minute: number | undefined
   ) {
     let folded: CandleFigures | undefined
-    for (const figures of (yield* historyOf(code, minute)).values())
+    for (const figures of (yield* candlesAfter(code, minute)).values())
       folded = folded === undefined ? figures : fold(folded, figures)
     return folded
   })
