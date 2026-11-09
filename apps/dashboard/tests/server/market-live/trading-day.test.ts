@@ -18,7 +18,7 @@ import {
   type ViewerDown,
 } from "@workspace/relay"
 import { WorkerEnv } from "@workspace/server"
-import { DateTime, Effect, Layer, Scope } from "effect"
+import { DateTime, Effect, Exit, Layer, Scope } from "effect"
 import { TestClock } from "effect/testing"
 
 import {
@@ -49,6 +49,8 @@ class FakeSocket implements Peer {
   closedWith: number | undefined
   // A viewer's session end, as the object reads it from the socket's tags.
   sessionEnd?: Effect.Effect<number | undefined>
+  // A viewer's codes, as the object keeps them in its storage.
+  setWatching?: (codes: ReadonlyArray<StockCode>) => Effect.Effect<void>
   private current: PeerState = "new"
   send = (text: string) => Effect.sync(() => void this.sent.push(text))
   close = (code: number) =>
@@ -206,6 +208,20 @@ describe("the viewer socket", () => {
       assert.strictEqual(page.closedWith, ViewerCloseCode.NewVersion)
       assert.lengthOf(page.sent, 0)
     })
+  )
+
+  it.effect(
+    "a Select whose codes couldn't be kept closes it with 1011, so the page reconnects",
+    () =>
+      Effect.gen(function* () {
+        const { viewer, select } = yield* tradingDay()
+        const page = yield* viewer()
+        // The object's storage refusing the write.
+        page.setWatching = () => Effect.die(new Error("Storage write failed"))
+        const exit = yield* Effect.exit(select(page))
+        assert.isTrue(Exit.isFailure(exit))
+        assert.strictEqual(page.closedWith, 1011)
+      })
   )
 })
 
