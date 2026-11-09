@@ -7,7 +7,7 @@ import {
 import { DateTime } from "effect"
 import { describe, expect, test } from "vitest"
 
-import { closeOf, dayStateAt } from "@/lib/recorded-day"
+import { closeOf, dayStateAt, lastCloseAt } from "@/lib/recorded-day"
 
 const BBCA = StockCode.make("BBCA")
 
@@ -88,5 +88,22 @@ describe("a recorded day's watchlist row", () => {
     expect(
       dayStateAt(noClose, closeOf(WibDate.make("2026-11-06")))
     ).toMatchObject({ previousClose: 8_950, change: -75 })
+  })
+})
+
+describe("the chart header's last close at the cursor", () => {
+  const at = (wib: string) => DateTime.makeUnsafe(`2026-11-06T${wib}+07:00`)
+
+  test("is the latest candle's close at or before the cursor", () => {
+    expect(lastCloseAt(day.candles, at("09:01:30"))).toBe(9_075)
+    expect(lastCloseAt(day.candles, at("12:00:00"))).toBe(9_075)
+  })
+
+  test("is none before the code's first candle, never a later close", () => {
+    expect(lastCloseAt(day.candles, at("08:59:59"))).toBeUndefined()
+  })
+
+  test("without a cursor it is the last candle's close", () => {
+    expect(lastCloseAt(day.candles, undefined)).toBe(8_875)
   })
 })
