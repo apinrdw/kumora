@@ -24,16 +24,38 @@ interface Base {
   readonly time: DateTime.Utc
 }
 
-// The regular-board trades of a code after its base's time, summed.
-interface Since {
-  readonly lastNumber: bigint
-  readonly last: number
-  readonly high: number
-  readonly low: number
-  readonly volume: number
-  readonly value: number
-  readonly frequency: number
+// One counted trade, as much of it as the figures need.
+interface Counted {
+  readonly number: bigint
+  readonly price: number
   readonly time: DateTime.Utc
+}
+
+// The regular-board trades of a code after its base's time: how many at
+// each price, for the day's range; the newest few, ascending by trade
+// number, for the last price and its time; and their sums. Decision: a
+// feed's later copy of a trade can take it off the figures or move its
+// price, so the range and the last price are kept in forms a removal
+// leaves exact. The newest trades are capped at NEWEST_KEPT: a code's
+// whole day of trades is more than the object holds.
+interface Since {
+  readonly prices: Map<number, number>
+  readonly newest: Array<Counted>
+  volume: number
+  value: number
+  frequency: number
+}
+
+const NEWEST_KEPT = 16
+
+const rangeOf = (since: Since) => {
+  let high = -Infinity
+  let low = Infinity
+  for (const price of since.prices.keys()) {
+    high = Math.max(high, price)
+    low = Math.min(low, price)
+  }
+  return { high, low }
 }
 
 const after = (a: DateTime.Utc, b: DateTime.Utc | undefined) =>
@@ -109,8 +131,10 @@ const carriedOn = (
   since: Since | undefined,
   price: AjaibPrice | undefined
 ): DayState => {
-  const added = since ?? NO_TRADES
-  const last = price?.last ?? since?.last ?? start.last
+  const added =
+    since === undefined ? NO_TRADES : { ...since, ...rangeOf(since) }
+  const newest = since?.newest.at(-1)
+  const last = price?.last ?? newest?.price ?? start.last
   return {
     code,
     last,
@@ -124,7 +148,7 @@ const carriedOn = (
     volume: start.volume + added.volume,
     value: start.value + added.value,
     frequency: start.frequency + added.frequency,
-    asOf: latest(start.time, since?.time, price?.time) ?? start.time,
+    asOf: latest(start.time, newest?.time, price?.time) ?? start.time,
     provenance: "Ajaib",
   }
 }
@@ -198,26 +222,64 @@ export const makeDayStates = Effect.sync(() => {
       fallbackChanged.add(price.code)
     })
 
-  // A new trade on the merged tape, each trade number once.
-  const trade = (arriving: RunningTrade) =>
+  // Whether a trade belongs in its code's figures since the base: on the
+  // regular board, and after the base's time.
+  const counts = (trade: RunningTrade) => {
+    if (trade.board !== "RG") return false
+    const base = bases.get(trade.code)
+    return base === undefined || after(trade.time, base.time)
+  }
+
+  const add = (trade: RunningTrade) => {
+    const since = sinces.get(trade.code) ?? {
+      prices: new Map(),
+      newest: [],
+      volume: 0,
+      value: 0,
+      frequency: 0,
+    }
+    const number = BigInt(trade.tradeNumber)
+    const at = since.newest.findIndex((kept) => kept.number > number)
+    since.newest.splice(at === -1 ? since.newest.length : at, 0, {
+      number,
+      price: trade.price,
+      time: trade.time,
+    })
+    if (since.newest.length > NEWEST_KEPT) since.newest.shift()
+    since.prices.set(trade.price, (since.prices.get(trade.price) ?? 0) + 1)
+    since.volume += trade.lots
+    since.value += trade.price * trade.lots * 100
+    since.frequency += 1
+    sinces.set(trade.code, since)
+  }
+
+  // Takes a counted trade back out. One the figures don't hold, because a
+  // liveprice frame since took the base past it, is left alone.
+  const remove = (trade: RunningTrade) => {
+    const since = sinces.get(trade.code)
+    const count = since?.prices.get(trade.price)
+    if (since === undefined || count === undefined) return false
+    if (count === 1) since.prices.delete(trade.price)
+    else since.prices.set(trade.price, count - 1)
+    const number = BigInt(trade.tradeNumber)
+    const at = since.newest.findIndex((kept) => kept.number === number)
+    if (at !== -1) since.newest.splice(at, 1)
+    since.volume -= trade.lots
+    since.value -= trade.price * trade.lots * 100
+    since.frequency -= 1
+    if (since.frequency === 0) sinces.delete(trade.code)
+    return true
+  }
+
+  // A trade as the merged tape now holds it: new (`held` undefined), or
+  // merged from what it held before, which may change its price, lots,
+  // board or time.
+  const trade = (held: RunningTrade | undefined, current: RunningTrade) =>
     Effect.sync(() => {
-      if (arriving.board !== "RG") return
-      const base = bases.get(arriving.code)
-      if (base !== undefined && !after(arriving.time, base.time)) return
-      const held = sinces.get(arriving.code)
-      const number = BigInt(arriving.tradeNumber)
-      const newest = held === undefined || number > held.lastNumber
-      sinces.set(arriving.code, {
-        lastNumber: newest ? number : held.lastNumber,
-        last: newest ? arriving.price : held.last,
-        high: Math.max(arriving.price, held?.high ?? -Infinity),
-        low: Math.min(arriving.price, held?.low ?? Infinity),
-        volume: (held?.volume ?? 0) + arriving.lots,
-        value: (held?.value ?? 0) + arriving.price * arriving.lots * 100,
-        frequency: (held?.frequency ?? 0) + 1,
-        time: latest(arriving.time, held?.time) ?? arriving.time,
-      })
-      fallbackChanged.add(arriving.code)
+      const removed = held !== undefined && counts(held) && remove(held)
+      const added = counts(current)
+      if (added) add(current)
+      if (removed || added) fallbackChanged.add(current.code)
     })
 
   // A code's Day state, from Stockbit while `stockbitLive`; undefined while

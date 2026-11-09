@@ -342,6 +342,7 @@ export const makeTradingDay = Effect.fnUntraced(function* (options: {
         tape[at] = merged
         pending.set(merged.tradeNumber, merged)
         yield* candles.trade(held, merged)
+        yield* dayStates.trade(held, merged)
         continue
       }
       const beforeTape = at === 0 && tape.length >= TAPE_LIMIT
@@ -353,7 +354,7 @@ export const makeTradingDay = Effect.fnUntraced(function* (options: {
         pending.set(trade.tradeNumber, trade)
       }
       yield* candles.trade(undefined, trade)
-      yield* dayStates.trade(trade)
+      yield* dayStates.trade(undefined, trade)
     }
   })
 
