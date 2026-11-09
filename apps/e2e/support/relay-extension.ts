@@ -20,6 +20,7 @@ export const STOCKBIT_TAB = "https://stockbit.com/"
 const HOSTS = [
   "trade.ajaib.co.id",
   "stream.ajaib.co.id",
+  "ht2.ajaib.co.id",
   "stockbit.com",
   "exodus.stockbit.com",
   "wss-jkt.trading.stockbit.com",
@@ -69,6 +70,35 @@ const base64Url = (value: unknown) =>
 export const STOCKBIT_TOKEN = `${base64Url({ alg: "HS256" })}.${base64Url({ data: { uid: 4242 } })}.c2ln`
 export const STOCKBIT_KEY = "fake-websocket-key"
 
+/** The fake Ajaib account's id, as its access token's `sub` names it. */
+export const AJAIB_USER_ID = 4999301
+
+/** Ajaib's PIN check's answers, as the owner saw them on 2026-11-09. */
+export const PIN_ANSWERS = {
+  approved: {
+    err_code: "EC0000000",
+    err_message: "APPROVED/OK",
+    result: {
+      valid: true,
+      access_token: `${base64Url({ alg: "HS256" })}.${base64Url({ sub: AJAIB_USER_ID })}.c2ln`,
+      refresh_token: `${base64Url({ alg: "HS256" })}.${base64Url({ sub: AJAIB_USER_ID })}.cmVm`,
+      is_pin_6digit: true,
+      show_2fa: false,
+    },
+  },
+  refused: {
+    err_code: "EC0000012",
+    err_message: "INVALID PIN",
+    result: {
+      valid: false,
+      access_token: "",
+      refresh_token: "",
+      is_pin_6digit: true,
+      show_2fa: false,
+    },
+  },
+}
+
 /** The fake Ajaib page's own REST header, which its code list requires. */
 const AJAIB_HEADER = "x-fake-ajaib-page"
 
@@ -103,6 +133,11 @@ export async function startFakeBrokers() {
     stockbit: () => ({ data: { running_trade: [] } }),
     ajaib: () => ({ results: [], has_next: false }),
   }
+  // The PIN check's answer; a test sets it. Every body it was sent.
+  const pin: { answer: unknown; bodies: Array<string> } = {
+    answer: PIN_ANSWERS.approved,
+    bodies: [],
+  }
   const sockets: Array<BrokerSocket> = []
   const requests: Array<{ path: string; headers: Record<string, unknown> }> = []
   const server: Server = createServer(
@@ -131,6 +166,25 @@ export async function startFakeBrokers() {
               : { message: "ok", data: { key: STOCKBIT_KEY } }
           )
         )
+      }
+      if (host === "ht2.ajaib.co.id") {
+        response.setHeader(
+          "access-control-allow-origin",
+          AJAIB_TAB.slice(0, -1)
+        )
+        response.setHeader("access-control-allow-credentials", "true")
+        response.setHeader(
+          "access-control-allow-headers",
+          `content-type, ${AJAIB_HEADER}`
+        )
+        if (request.method === "OPTIONS") return response.end()
+        let body = ""
+        request.on("data", (chunk) => (body += String(chunk)))
+        return request.on("end", () => {
+          if (path === "/api/v5/users/me/pin/validate") pin.bodies.push(body)
+          response.writeHead(200, { "content-type": "application/json" })
+          response.end(JSON.stringify(pin.answer))
+        })
       }
       if (host === "stockbit.com") {
         response.writeHead(200, {
@@ -190,6 +244,7 @@ export async function startFakeBrokers() {
   return {
     port: (server.address() as AddressInfo).port,
     tapes,
+    pin,
     sockets,
     requests,
     /** The sockets opened on one path, oldest first. */

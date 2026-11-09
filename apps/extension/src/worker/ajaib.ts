@@ -7,33 +7,57 @@ import type { Payload } from "./broker.ts"
 
 export type OnDemandStream = "PRICE" | "INDICATIVE" | "ORDER_BOOK_CUSTOM"
 
-const message = (
+// Decision: a frame carries the account id once the relay knows it, in the
+// page's own field order (`{"method","id","stream","streamObject"}`, seen
+// 2026-11-06, apinrdw/kumora#50); until then it goes without, as the relay
+// always sent it. The id comes from the tab's token or the PIN sign-in
+// (ajaib-session.ts).
+const message = Effect.fnUntraced(function* (
   method: "SUBSCRIBE" | "UNSUBSCRIBE",
-  stream: OnDemandStream,
-  code: StockCode
-): Payload => ({
-  text: JSON.stringify({ method, stream, streamObject: code }),
+  stream: "TRADE" | OnDemandStream,
+  streamObject: string,
+  id: Option.Option<number>
+) {
+  const payload: Payload = {
+    text: JSON.stringify({
+      method,
+      ...(Option.isSome(id) ? { id: id.value } : {}),
+      stream,
+      streamObject,
+    }),
+  }
+  return payload
 })
 
-// Decision: each code is subscribed once per socket. Ajaib answers a repeated
-// subscribe with `invalid subscription object`, so a change sends only the
-// difference: UNSUBSCRIBE for codes no longer wanted, SUBSCRIBE for new ones.
-// A reopened socket starts from nothing. See apinrdw/kumora#50.
+// The whole-market tape, subscribed once as the trade socket opens.
+export const tradeSubscribe = (id: Option.Option<number>) =>
+  message("SUBSCRIBE", "TRADE", "*", id)
+
+// Decision: each code is subscribed once per socket, and a change of the
+// on-demand set sends only the difference: UNSUBSCRIBE for codes no longer
+// wanted, SUBSCRIBE for new ones. That is "subscribe once per connection" per
+// code: the spec's repeated subscribe is the same code twice, which this
+// never sends. It keeps the diff over reopening the sockets because Ajaib's
+// own page does the same, UNSUBSCRIBE then SUBSCRIBE, when its code changes
+// (owner's DevTools, 2026-11-06, apinrdw/kumora#50); `invalid subscription
+// object` there answered the PING-WEB heartbeat. A reopened socket starts
+// from nothing.
 export const onDemandMessages = Effect.fnUntraced(function* (
   stream: OnDemandStream,
   from: ReadonlyArray<StockCode>,
-  to: ReadonlyArray<StockCode>
+  to: ReadonlyArray<StockCode>,
+  id: Option.Option<number>
 ) {
   const held = new Set(from)
   const wanted = new Set(to)
-  return [
-    ...from
-      .filter((code) => !wanted.has(code))
-      .map((code) => message("UNSUBSCRIBE", stream, code)),
-    ...to
-      .filter((code) => !held.has(code))
-      .map((code) => message("SUBSCRIBE", stream, code)),
-  ]
+  const messages: Array<Payload> = []
+  for (const code of from)
+    if (!wanted.has(code))
+      messages.push(yield* message("UNSUBSCRIBE", stream, code, id))
+  for (const code of to)
+    if (!held.has(code))
+      messages.push(yield* message("SUBSCRIBE", stream, code, id))
+  return messages
 })
 
 // The path of the code list on Ajaib's REST API, called with the page's own

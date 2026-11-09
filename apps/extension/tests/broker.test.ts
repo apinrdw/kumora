@@ -72,7 +72,7 @@ const streamingA: ReadonlyArray<BrokerInput> = [
 
 describe("a broker site's connections", () => {
   it.effect(
-    "attaching a tab opens A on Ajaib's trade stream with the TRADE subscribe",
+    "attaching a tab opens A on Ajaib's trade stream; its subscribe follows the open",
     () =>
       Effect.gen(function* () {
         const { steps } = yield* run([{ _tag: "attach" }])
@@ -83,11 +83,7 @@ describe("a broker site's connections", () => {
             connection: "A",
             url: "wss://stream.ajaib.co.id:8009/ws/trade",
             protocols: [],
-            subscribe: [
-              {
-                text: '{"method":"SUBSCRIBE","stream":"TRADE","streamObject":"*"}',
-              },
-            ],
+            subscribe: [],
           },
         ])
       })

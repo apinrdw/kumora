@@ -63,8 +63,18 @@ export type TabRequest =
       readonly headers: Readonly<Record<string, string>>
     }
   // A GET of `path` on the page's own REST API with the page's own headers,
-  // as the MAIN-world wrapper last saw them. Status 0 before it saw any.
-  | { readonly _tag: "page-fetch"; readonly path: string }
+  // as the MAIN-world wrapper last saw them. Before it saw any, `token` (the
+  // PIN sign-in's) stands in on Ajaib's API host; status 0 without either.
+  | {
+      readonly _tag: "page-fetch"
+      readonly path: string
+      readonly token?: string
+    }
+  // A JSON POST from the tab, with its cookies and the page's headers.
+  | { readonly _tag: "page-post"; readonly url: string; readonly body: string }
+  // The bearer token of the page's latest REST request; status 0 before it
+  // made one.
+  | { readonly _tag: "page-token" }
 
 export type TabCommand =
   | BrokerCommand
@@ -110,31 +120,36 @@ const AJAIB_PING: Payload = {
 }
 
 // The page's own direct host; it authenticates with the tab's cookies.
-const ajaibStream = (
-  name: SiteName,
-  stream: string,
-  subscribe: ReadonlyArray<Payload> = []
-): BrokerSite => ({
-  name,
+const AJAIB_STREAMS = "wss://stream.ajaib.co.id:8009/ws"
+const ajaibSocket = {
   feed: "Ajaib",
-  url: `wss://stream.ajaib.co.id:8009/ws/${stream}`,
   protocols: [],
-  subscribe,
+  subscribe: [],
   ping: AJAIB_PING,
-})
+} as const
 
-// The whole-market tape. Ajaib answers a second subscribe on the same socket
-// with `invalid subscription object`, so it is sent once.
-export const ajaib = ajaibStream("ajaib-trade", "trade", [
-  { text: '{"method":"SUBSCRIBE","stream":"TRADE","streamObject":"*"}' },
-])
+// The whole-market tape. Its TRADE subscribe goes once, as the socket opens,
+// from the service worker, so it can carry the account id (subscriptions.ts).
+export const ajaib: BrokerSite = {
+  ...ajaibSocket,
+  name: "ajaib-trade",
+  url: `${AJAIB_STREAMS}/trade`,
+}
 
-// The on-demand streams, subscribed per code (on-demand.ts).
-export const ajaibOnDemand = [
-  ajaibStream("ajaib-price", "price"),
-  ajaibStream("ajaib-indicative", "indicative"),
-  ajaibStream("ajaib-order-book", "order-book-custom"),
-] as const
+// The on-demand streams, subscribed per code (subscriptions.ts).
+export const ajaibOnDemand: ReadonlyArray<BrokerSite> = [
+  { ...ajaibSocket, name: "ajaib-price", url: `${AJAIB_STREAMS}/price` },
+  {
+    ...ajaibSocket,
+    name: "ajaib-indicative",
+    url: `${AJAIB_STREAMS}/indicative`,
+  },
+  {
+    ...ajaibSocket,
+    name: "ajaib-order-book",
+    url: `${AJAIB_STREAMS}/order-book-custom`,
+  },
+]
 
 export const stockbit: BrokerSite = {
   name: "stockbit",

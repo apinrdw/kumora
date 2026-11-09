@@ -5,7 +5,11 @@ import type { Connection, StockCode } from "@workspace/relay"
 import { Effect, FiberMap, Option, type Scope } from "effect"
 import * as Base64 from "effect/encoding/Base64"
 
-import { onDemandMessages, type OnDemandStream } from "./ajaib.ts"
+import {
+  onDemandMessages,
+  tradeSubscribe,
+  type OnDemandStream,
+} from "./ajaib.ts"
 import type { SiteName } from "./broker.ts"
 import {
   WEBSOCKET_KEY_URL,
@@ -101,12 +105,18 @@ const streams: Readonly<Partial<Record<SiteName, OnDemandStream>>> = {
   "ajaib-order-book": "ORDER_BOOK_CUSTOM",
 }
 
-// Ajaib's on-demand streams: each open socket holds the codes it subscribed,
-// and a change sends only the difference.
-export const makeAjaibOnDemand = Effect.fnUntraced(function* (
-  wanted: () => ReadonlyArray<StockCode>
-): Effect.fn.Return<Subscriptions> {
+// Ajaib's sockets: the trade socket subscribes the whole tape as it opens;
+// each on-demand socket holds the codes it subscribed, and a change sends
+// only the difference. Every frame carries the account id `userId` gives,
+// once there is one.
+export const makeAjaibSubscriptions = Effect.fnUntraced(function* (
+  wanted: () => ReadonlyArray<StockCode>,
+  userId: Effect.Effect<Option.Option<number>>
+): Effect.fn.Return<Subscriptions, never, Scope.Scope> {
   const held = new Map<string, ReadonlyArray<StockCode>>()
+  // Reading the id asks the tab, whose answer queues behind the event a hook
+  // runs in, so each socket's subscribe runs in a fiber of its own.
+  const fibers = yield* FiberMap.make<string>()
 
   const update = Effect.fnUntraced(function* (
     tab: BrokerTab,
@@ -115,18 +125,46 @@ export const makeAjaibOnDemand = Effect.fnUntraced(function* (
   ) {
     const stream = streams[site]
     if (stream === undefined || !tab.isOpen(site, connection)) return
+    const id = yield* userId
+    // From here to `held.set` nothing yields, so two updates never send the
+    // same difference.
     const key = `${site}/${connection}`
     const to = wanted()
-    const messages = yield* onDemandMessages(stream, held.get(key) ?? [], to)
+    const messages = yield* onDemandMessages(
+      stream,
+      held.get(key) ?? [],
+      to,
+      id
+    )
     held.set(key, to)
     for (const payload of messages) yield* tab.send(site, connection, payload)
   })
 
+  const opened = Effect.fnUntraced(function* (
+    tab: BrokerTab,
+    site: SiteName,
+    connection: Connection
+  ) {
+    if (site === "ajaib-trade")
+      return yield* tab.send(
+        site,
+        connection,
+        yield* tradeSubscribe(yield* userId)
+      )
+    yield* update(tab, site, connection)
+  })
+
   const hooks: TabHooks = {
-    opened: update,
+    opened: (tab, site, connection) =>
+      FiberMap.run(
+        fibers,
+        `${site}/${connection}`,
+        opened(tab, site, connection)
+      ).pipe(Effect.asVoid),
     closed: (_tab, site, connection) =>
-      Effect.sync(() => {
+      Effect.suspend(() => {
         held.delete(`${site}/${connection}`)
+        return FiberMap.remove(fibers, `${site}/${connection}`)
       }),
   }
 

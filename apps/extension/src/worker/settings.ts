@@ -3,6 +3,8 @@
 import { StockCode, WibDate } from "@workspace/relay"
 import { Effect, Option, Schema } from "effect"
 
+import { SignIn, type PinStore } from "./ajaib-session.ts"
+
 // Where a dashboard serves: an origin, `https://host` or `http://host:port`.
 export const DashboardOrigin = Schema.String.check(
   Schema.isPattern(/^https?:\/\/[^/\s]+$/)
@@ -133,3 +135,56 @@ export const loadClockOffset = Effect.gen(function* () {
     () => 0
   )
 })
+
+// Decision: the Ajaib PIN lives in chrome.storage.session alone: in memory,
+// cleared when Chrome closes, out of content scripts' reach. It is never
+// logged and never leaves the extension but for the one PIN check the Ajaib
+// tab makes (ajaib-session.ts). The sign-in and its access token sit beside
+// it, so a restarted worker keeps them until Chrome closes.
+const PIN_KEY = "ajaibPin"
+const SIGN_IN_KEY = "ajaibSignIn"
+
+export const AjaibPin = Schema.String.check(Schema.isPattern(/^\d{6}$/)).pipe(
+  Schema.brand("AjaibPin")
+)
+export type AjaibPin = typeof AjaibPin.Type
+
+// A new entry: tried once, on the next tick with an Ajaib tab.
+export const savePin = Effect.fnUntraced(function* (pin: AjaibPin) {
+  const waiting: SignIn = { state: "waiting" }
+  yield* Effect.promise(() =>
+    chrome.storage.session.set({ [PIN_KEY]: pin, [SIGN_IN_KEY]: waiting })
+  )
+})
+
+const decodePin = Schema.decodeUnknownOption(AjaibPin)
+const decodeSignIn = Schema.decodeUnknownOption(SignIn)
+
+export const loadSignIn = Effect.gen(function* () {
+  const stored = yield* Effect.promise(() =>
+    chrome.storage.session.get(SIGN_IN_KEY)
+  )
+  return Option.getOrElse(decodeSignIn(stored[SIGN_IN_KEY]), (): SignIn => ({
+    state: "none",
+  }))
+})
+
+export const isSignInChange = Effect.fnUntraced(function* (
+  changes: Readonly<Record<string, unknown>>,
+  area: string
+) {
+  return area === "session" && SIGN_IN_KEY in changes
+})
+
+export const sessionPinStore: PinStore = {
+  takePin: Effect.gen(function* () {
+    const stored = yield* Effect.promise(() =>
+      chrome.storage.session.get(PIN_KEY)
+    )
+    yield* Effect.promise(() => chrome.storage.session.remove(PIN_KEY))
+    return decodePin(stored[PIN_KEY])
+  }),
+  signIn: loadSignIn,
+  setSignIn: (signIn) =>
+    Effect.promise(() => chrome.storage.session.set({ [SIGN_IN_KEY]: signIn })),
+}

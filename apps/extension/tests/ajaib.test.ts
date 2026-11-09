@@ -1,8 +1,12 @@
 import { assert, describe, it } from "@effect/vitest"
 import { StockCode } from "@workspace/relay"
-import { Effect } from "effect"
+import { Effect, Option } from "effect"
 
-import { listedCodes, onDemandMessages } from "../src/worker/ajaib.ts"
+import {
+  listedCodes,
+  onDemandMessages,
+  tradeSubscribe,
+} from "../src/worker/ajaib.ts"
 
 const codes = (...names: ReadonlyArray<string>) =>
   names.map((name) => StockCode.make(name))
@@ -15,7 +19,8 @@ describe("Ajaib's on-demand subscriptions", () => {
         const messages = yield* onDemandMessages(
           "ORDER_BOOK_CUSTOM",
           codes("BBCA", "TLKM"),
-          codes("TLKM", "GOTO")
+          codes("TLKM", "GOTO"),
+          Option.none()
         )
         assert.deepStrictEqual(messages, [
           {
@@ -31,9 +36,45 @@ describe("Ajaib's on-demand subscriptions", () => {
   it.effect("an unchanged set sends nothing", () =>
     Effect.gen(function* () {
       assert.deepStrictEqual(
-        yield* onDemandMessages("PRICE", codes("BBCA"), codes("BBCA")),
+        yield* onDemandMessages(
+          "PRICE",
+          codes("BBCA"),
+          codes("BBCA"),
+          Option.none()
+        ),
         []
       )
+    })
+  )
+})
+
+describe("Ajaib's subscribe frames", () => {
+  it.effect("carry the account id once it is known, as the page's do", () =>
+    Effect.gen(function* () {
+      assert.deepStrictEqual(
+        yield* onDemandMessages(
+          "INDICATIVE",
+          [],
+          codes("BBCA"),
+          Option.some(4999301)
+        ),
+        [
+          {
+            text: '{"method":"SUBSCRIBE","id":4999301,"stream":"INDICATIVE","streamObject":"BBCA"}',
+          },
+        ]
+      )
+      assert.deepStrictEqual(yield* tradeSubscribe(Option.some(4999301)), {
+        text: '{"method":"SUBSCRIBE","id":4999301,"stream":"TRADE","streamObject":"*"}',
+      })
+    })
+  )
+
+  it.effect("without an id, are the id-less frames the relay always sent", () =>
+    Effect.gen(function* () {
+      assert.deepStrictEqual(yield* tradeSubscribe(Option.none()), {
+        text: '{"method":"SUBSCRIBE","stream":"TRADE","streamObject":"*"}',
+      })
     })
   )
 })

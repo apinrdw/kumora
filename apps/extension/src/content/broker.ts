@@ -25,6 +25,11 @@ type Answer = {
   readonly body: string
 }
 
+// Decision: before the page made a REST call of its own, its API base is
+// taken as the PIN check's host, ht2.ajaib.co.id/api/; unconfirmed until the
+// owner checks a page call in DevTools.
+const AJAIB_API_BASE = "https://ht2.ajaib.co.id/api/"
+
 const feed: Feed = location.hostname === "stockbit.com" ? "Stockbit" : "Ajaib"
 
 // The page's latest REST request, from the MAIN-world wrapper (page.ts): its
@@ -84,12 +89,37 @@ const answer = async (request: TabRequest): Promise<[number, string]> => {
       return [response.status, await response.text()]
     }
     case "page-fetch": {
-      if (pageRequest === undefined) return [0, ""]
-      const response = await fetch(new URL(request.path, pageRequest.base), {
-        headers: pageRequest.headers,
+      if (pageRequest === undefined && request.token === undefined)
+        return [0, ""]
+      const response = await fetch(
+        new URL(request.path, pageRequest?.base ?? AJAIB_API_BASE),
+        {
+          headers: pageRequest?.headers ?? {
+            authorization: `Bearer ${request.token}`,
+          },
+          credentials: "include",
+        }
+      )
+      return [response.status, await response.text()]
+    }
+    case "page-post": {
+      const response = await fetch(request.url, {
+        method: "POST",
+        headers: {
+          ...pageRequest?.headers,
+          "content-type": "application/json",
+        },
+        body: request.body,
         credentials: "include",
       })
       return [response.status, await response.text()]
+    }
+    case "page-token": {
+      const header = Object.entries(pageRequest?.headers ?? {}).find(
+        ([name]) => name.toLowerCase() === "authorization"
+      )?.[1]
+      const token = header?.match(/^Bearer (.+)$/i)?.[1]
+      return token === undefined ? [0, ""] : [200, token]
     }
   }
 }

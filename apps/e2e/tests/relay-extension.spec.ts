@@ -19,6 +19,8 @@ import {
 } from "../support/ingest"
 import {
   AJAIB_TAB,
+  AJAIB_USER_ID,
+  PIN_ANSWERS,
   LISTED_CODES,
   STOCKBIT_KEY,
   STOCKBIT_TAB,
@@ -265,6 +267,73 @@ test("the relay streams only in IDX hours and subscribes Ajaib's on-demand codes
         TICKS
       )
       .toBe(true)
+  } finally {
+    await context.close()
+    await ingest.close()
+    await brokers.close()
+  }
+})
+
+test("a PIN from the options page signs in to Ajaib once, and Ajaib's frames carry the account id", async () => {
+  test.setTimeout(150_000)
+  const brokers = await startFakeBrokers()
+  const ingest = await startFakeIngest()
+  const { context, worker, optionsUrl } = await launchWithExtension(
+    brokers.port
+  )
+  try {
+    await setRelayClock(worker, SESSION_1)
+    const options = await context.newPage()
+    await options.goto(optionsUrl)
+    await options.getByLabel("Extra target URL").fill(ingest.origin)
+    await options.getByLabel("Extra target ingest token").fill("any")
+    await options.getByRole("button", { name: "Save" }).click()
+    await expect.poll(() => ingest.sockets.length).toBe(1)
+    const state = options.getByLabel("Ajaib sign-in state")
+    await expect(state).toContainText("No PIN entered")
+
+    await options.getByLabel("Ajaib PIN").fill("123456")
+    await options.getByRole("button", { name: "Sign in" }).click()
+    await expect(state).toContainText("tried once when an Ajaib tab is open")
+    // The PIN stays in this browser session only.
+    expect(
+      await worker.evaluate(
+        "chrome.storage.local.get(null).then((all) => JSON.stringify(all))"
+      )
+    ).not.toContain("123456")
+
+    // The fake page's own REST call carries no token, so the PIN sign-in
+    // names the account.
+    const ajaibTab = await context.newPage()
+    await ajaibTab.goto(AJAIB_TAB)
+    await expect(state).toHaveText("Signed in.", TICKS)
+    expect(brokers.pin.bodies).toEqual(['{"pin_code":"123456"}'])
+    await expect.poll(() => brokers.on("/ws/price").length, TICKS).toBe(1)
+    await ingest.sendDown({
+      _tag: "OnDemandCodes",
+      codes: [StockCode.make("BBCA")],
+    })
+    await expect
+      .poll(() => sent(brokers.on("/ws/price")[0]))
+      .toEqual([
+        JSON.stringify({
+          method: "SUBSCRIBE",
+          id: AJAIB_USER_ID,
+          stream: "PRICE",
+          streamObject: "BBCA",
+        }),
+      ])
+
+    // A refused PIN is tried once and never again.
+    brokers.pin.answer = PIN_ANSWERS.refused
+    await options.getByLabel("Ajaib PIN").fill("111111")
+    await options.getByRole("button", { name: "Sign in" }).click()
+    await expect(state).toContainText("Ajaib refused the PIN", TICKS)
+    await options.waitForTimeout(25_000)
+    expect(brokers.pin.bodies).toEqual([
+      '{"pin_code":"123456"}',
+      '{"pin_code":"111111"}',
+    ])
   } finally {
     await context.close()
     await ingest.close()

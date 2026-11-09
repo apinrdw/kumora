@@ -24,6 +24,7 @@ import {
 import * as Socket from "effect/socket/Socket"
 
 import { CODE_LIST_PATH, listedCodes } from "./ajaib.ts"
+import { makeAjaibSession } from "./ajaib-session.ts"
 import { makeBackfill } from "./backfill.ts"
 import { BATCH_INTERVAL, makeBatcher } from "./batch.ts"
 import { ajaib, ajaibOnDemand, stockbit } from "./broker.ts"
@@ -36,13 +37,14 @@ import {
   loadSettings,
   saveCodeList,
   saveTargetStates,
+  sessionPinStore,
   type Settings,
   type TargetName,
   type TargetState,
   type TargetStates,
 } from "./settings.ts"
 import {
-  makeAjaibOnDemand,
+  makeAjaibSubscriptions,
   makeStockbitSubscriptions,
   type Subscriptions,
 } from "./subscriptions.ts"
@@ -290,7 +292,10 @@ const main = Effect.gen(function* () {
     Effect.suspend(() => onDemand.resubscribe(ajaibTab)),
     (name, message) => Effect.suspend(() => backfill.request(name, message))
   )
-  const onDemand: Subscriptions = yield* makeAjaibOnDemand(onDemandCodes.codes)
+  const onDemand: Subscriptions = yield* makeAjaibSubscriptions(
+    onDemandCodes.codes,
+    Effect.suspend(() => ajaibSession.userId)
+  )
   const stockbitTab = yield* makeBrokerTab({
     feed: "Stockbit",
     sites: [stockbit],
@@ -308,9 +313,28 @@ const main = Effect.gen(function* () {
     hooks: onDemand.hooks,
   })
   const tabs = [stockbitTab, ajaibTab]
+  const ajaibSession = yield* makeAjaibSession({
+    tab: ajaibTab,
+    store: sessionPinStore,
+  })
+  // The Ajaib tab's REST calls, with the PIN sign-in's token for the page's
+  // API before the page made a call of its own.
+  const ajaibRest: BrokerTab = {
+    ...ajaibTab,
+    request: (request) =>
+      request._tag === "page-fetch"
+        ? Effect.flatMap(ajaibSession.fallbackToken, (token) =>
+            ajaibTab.request(
+              Option.isSome(token)
+                ? { ...request, token: token.value }
+                : request
+            )
+          )
+        : ajaibTab.request(request),
+  }
   const backfill = yield* makeBackfill({
     stockbit: stockbitTab,
-    ajaib: ajaibTab,
+    ajaib: ajaibRest,
     publish,
   })
   yield* Effect.forkScoped(backfill.run)
@@ -326,7 +350,9 @@ const main = Effect.gen(function* () {
     const schedule = DateTime.add(now, { milliseconds: yield* loadClockOffset })
     const window = yield* windowAt(schedule)
     for (const tab of tabs) yield* tab.tick(window)
-    yield* codeList.tick(ajaibTab, schedule)
+    // The PIN check's answer queues behind this tick.
+    yield* Effect.forkScoped(ajaibSession.tick)
+    yield* codeList.tick(ajaibRest, schedule)
   })
   yield* Effect.forkScoped(
     Effect.repeat(

@@ -8,13 +8,18 @@ import {
 } from "@workspace/ui/components/card"
 import { Input } from "@workspace/ui/components/input"
 import { Label } from "@workspace/ui/components/label"
-import { Effect, Option } from "effect"
+import { Effect, Option, Schema } from "effect"
 import { useEffect, useId, useState, type FormEvent } from "react"
 
+import type { SignIn } from "../worker/ajaib-session.ts"
 import {
+  AjaibPin,
+  isSignInChange,
   isTargetStatesChange,
   loadSettings,
+  loadSignIn,
   loadTargetStates,
+  savePin,
   saveSettings,
   type TargetName,
   type TargetState,
@@ -30,6 +35,84 @@ const stateLabels: Record<TargetState, string> = {
   "rejected-token": "Ingest token rejected. Fix it and save.",
   "reload-extension":
     "The dashboard no longer accepts this extension. Rebuild and reload it.",
+}
+
+const signInLabels: Record<SignIn["state"], string> = {
+  none: "No PIN entered: Ajaib's frames go without an account id until the tab shows one.",
+  waiting: "PIN saved; it is tried once when an Ajaib tab is open.",
+  "signing-in": "Signing in…",
+  "signed-in": "Signed in.",
+  "wrong-pin":
+    "Ajaib refused the PIN. It is not tried again; enter it again to retry.",
+  "needs-2fa":
+    "Ajaib asks for a second factor. Sign in in the Ajaib tab instead.",
+  failed:
+    "The PIN check failed. It is not tried again; enter it again to retry.",
+}
+
+// Ajaib's PIN, kept in this browser session only (settings.ts) and tried
+// once per entry from the Ajaib tab.
+function AjaibSignIn() {
+  const [pin, setPin] = useState("")
+  const [signIn, setSignIn] = useState<SignIn>({ state: "none" })
+  const [message, setMessage] = useState("")
+
+  useEffect(() => {
+    const refresh = () => void Effect.runPromise(loadSignIn).then(setSignIn)
+    const onChanged = (
+      changes: Record<string, chrome.storage.StorageChange>,
+      area: string
+    ) => {
+      if (Effect.runSync(isSignInChange(changes, area))) refresh()
+    }
+    refresh()
+    chrome.storage.onChanged.addListener(onChanged)
+    return () => chrome.storage.onChanged.removeListener(onChanged)
+  }, [])
+
+  const save = (event: FormEvent) => {
+    event.preventDefault()
+    const entered = Schema.decodeUnknownOption(AjaibPin)(pin.trim())
+    if (Option.isNone(entered)) return setMessage("Enter the 6-digit PIN.")
+    void Effect.runPromise(savePin(entered.value)).then(() => {
+      setPin("")
+      setMessage("")
+    })
+  }
+
+  return (
+    <form onSubmit={save}>
+      <Card>
+        <CardHeader>
+          <CardTitle>Ajaib sign-in</CardTitle>
+          <CardDescription>
+            Optional. Kept only until Chrome closes, never sent to the
+            dashboard. Enter it again after each Chrome start.
+          </CardDescription>
+        </CardHeader>
+        <CardContent className="grid gap-4">
+          <Field
+            label="Ajaib PIN"
+            type="password"
+            value={pin}
+            onChange={setPin}
+          />
+          <div className="flex items-center gap-4">
+            <Button type="submit">Sign in</Button>
+            <p role="status" className="text-sm">
+              {message}
+            </p>
+          </div>
+          <p className="text-sm">
+            State:{" "}
+            <output aria-label="Ajaib sign-in state">
+              {signInLabels[signIn.state]}
+            </output>
+          </p>
+        </CardContent>
+      </Card>
+    </form>
+  )
 }
 
 const targetLabels: Record<TargetName, string> = {
@@ -179,6 +262,7 @@ export function OptionsPage() {
           </p>
         </div>
       </form>
+      <AjaibSignIn />
     </main>
   )
 }
