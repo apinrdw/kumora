@@ -191,11 +191,20 @@ export const OnDemandCodes = Schema.TaggedStruct("OnDemandCodes", {
 const IngestDown = Schema.Union([Backfill, OnDemandCodes])
 export type IngestDown = typeof IngestDown.Type
 
+// Decision: a watchlist holds at most 10,000 codes, ten times the codes
+// Ajaib lists. A viewer socket message may carry 32 MiB (Cloudflare's
+// documented limit), and the trading-day object stores a viewer's codes as
+// one value, which its SQLite-backed storage caps at 2 MB with the key; the
+// cap keeps every Select's codes well inside it. A Select past the cap fails
+// to decode, and the object closes the socket as for any Select it couldn't
+// serve.
+const WATCHLIST_LIMIT = 10_000
+
 // The page's selected code and watchlist, sent on open and on every change.
 export const Select = Schema.TaggedStruct("Select", {
   ...versioned,
   selected: StockCode,
-  watchlist: Schema.Array(StockCode),
+  watchlist: Schema.Array(StockCode).check(Schema.isMaxLength(WATCHLIST_LIMIT)),
 })
 
 // Page → dashboard Worker.

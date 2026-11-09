@@ -74,10 +74,14 @@ const WATCHING = "watching:"
 // (Cloudflare's documented limit, and what workerd 1.20261026.1 enforces),
 // about 2,300 four-character codes, and a Select past it would throw after
 // the snapshot, leaving the page connected but off the on-demand set. The
-// storage bounds nothing a Select can carry, and a read is kept in memory, so
-// a delta's read of every viewer's codes is free after the first since the
-// object woke. A socket's codes leave storage when it closes; an object reset
-// that skips the close callback leaves a few bytes nothing reads.
+// storage is SQLite-backed (the day store runs SQL on it), and Cloudflare
+// caps a key and its value together at 2 MB: a Select's watchlist is capped
+// at 10,000 codes at decode (envelope.ts), and the longest code Ajaib lists
+// is 10 characters, so a viewer's codes stay under 200 KB. A read is kept in
+// memory, so a delta's read of every viewer's codes is free after the first
+// since the object woke. A socket's codes leave storage when it closes; an
+// object reset that skips the close callback leaves a few bytes nothing
+// reads.
 const watchingStore = (storage: DurableObjectStorage) => {
   const held = new Map<string, ReadonlyArray<StockCode>>()
   const read = (id: string) =>
