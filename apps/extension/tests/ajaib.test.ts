@@ -3,6 +3,7 @@ import { StockCode } from "@workspace/relay"
 import { Effect, Option } from "effect"
 
 import {
+  AjaibAccountId,
   listedCodes,
   onDemandMessages,
   tradeSubscribe,
@@ -56,7 +57,7 @@ describe("Ajaib's subscribe frames", () => {
           "INDICATIVE",
           [],
           codes("BBCA"),
-          Option.some(4999301)
+          Option.some(AjaibAccountId.make(4999301))
         ),
         [
           {
@@ -64,9 +65,12 @@ describe("Ajaib's subscribe frames", () => {
           },
         ]
       )
-      assert.deepStrictEqual(yield* tradeSubscribe(Option.some(4999301)), {
-        text: '{"method":"SUBSCRIBE","id":4999301,"stream":"TRADE","streamObject":"*"}',
-      })
+      assert.deepStrictEqual(
+        yield* tradeSubscribe(Option.some(AjaibAccountId.make(4999301))),
+        {
+          text: '{"method":"SUBSCRIBE","id":4999301,"stream":"TRADE","streamObject":"*"}',
+        }
+      )
     })
   )
 

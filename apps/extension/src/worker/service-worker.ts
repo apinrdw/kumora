@@ -317,7 +317,7 @@ const main = Effect.gen(function* () {
   )
   const onDemand: Subscriptions = yield* makeAjaibSubscriptions(
     onDemandCodes.codes,
-    Effect.suspend(() => ajaibSession.userId)
+    Effect.suspend(() => ajaibSession.accountId)
   )
   const stockbitTab = yield* makeBrokerTab({
     feed: "Stockbit",

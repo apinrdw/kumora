@@ -4,6 +4,7 @@
 // shown one, from a PIN sign-in the owner starts on the options page.
 import { Effect, Option, Schema } from "effect"
 
+import { AjaibAccountId } from "./ajaib.ts"
 import type { Answer, TabRequest } from "./broker.ts"
 import { jwtPayloadText } from "./jwt.ts"
 
@@ -12,14 +13,10 @@ import { jwtPayloadText } from "./jwt.ts"
 export const PIN_VALIDATE_URL =
   "https://ht2.ajaib.co.id/api/v5/users/me/pin/validate"
 
-// Decision: the user id is the access token's `sub` claim, as the archived
+// Decision: the account id is the access token's `sub` claim, as the archived
 // orca-trader Ajaib capture read it; `user_id` and `id` are taken when `sub`
 // is missing. No capture in this repo shows the claim, so the owner confirms
 // it in DevTools (runbook, "The relay extension").
-const NumericId = Schema.Union([
-  Schema.Int,
-  Schema.NumberFromString.check(Schema.isInt()),
-])
 const Claims = Schema.fromJsonString(
   Schema.Struct({
     sub: Schema.optionalKey(Schema.Unknown),
@@ -28,12 +25,12 @@ const Claims = Schema.fromJsonString(
   })
 )
 const decodeClaims = Schema.decodeUnknownOption(Claims)
-const decodeId = Schema.decodeUnknownOption(NumericId)
+const decodeId = Schema.decodeUnknownOption(AjaibAccountId)
 
-// The account a token names; none when it names no numeric user.
-export const ajaibUserId = Effect.fnUntraced(function* (token: string) {
+// The account a token names; none when it names no numeric account.
+export const ajaibAccountId = Effect.fnUntraced(function* (token: string) {
   const claims = Option.flatMap(yield* jwtPayloadText(token), decodeClaims)
-  if (Option.isNone(claims)) return Option.none<number>()
+  if (Option.isNone(claims)) return Option.none<AjaibAccountId>()
   const { sub, user_id, id } = claims.value
   return Option.firstSomeOf([sub, user_id, id].map((claim) => decodeId(claim)))
 })
@@ -139,7 +136,7 @@ export const makeAjaibSession = Effect.fnUntraced(function* (options: {
 
   // The account id: from the tab's own token, else the PIN sign-in's; none
   // before either.
-  const userId = Effect.gen(function* () {
+  const accountId = Effect.gen(function* () {
     const own = yield* tab.request({ _tag: "page-token" })
     const tabToken = Option.filter(
       Option.map(own, (answered) => answered.body),
@@ -147,9 +144,9 @@ export const makeAjaibSession = Effect.fnUntraced(function* (options: {
     )
     const token = Option.isSome(tabToken) ? tabToken : yield* fallbackToken
     return Option.isSome(token)
-      ? yield* ajaibUserId(token.value)
-      : Option.none<number>()
+      ? yield* ajaibAccountId(token.value)
+      : Option.none<AjaibAccountId>()
   })
 
-  return { tick, fallbackToken, userId }
+  return { tick, fallbackToken, accountId }
 })

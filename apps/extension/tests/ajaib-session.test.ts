@@ -3,11 +3,12 @@ import { Effect, Option } from "effect"
 
 import {
   PIN_VALIDATE_URL,
-  ajaibUserId,
+  ajaibAccountId,
   makeAjaibSession,
   pinOutcome,
   type SignIn,
 } from "../src/worker/ajaib-session.ts"
+import { AjaibAccountId } from "../src/worker/ajaib.ts"
 import type { Answer, TabRequest } from "../src/worker/broker.ts"
 
 const base64Url = (value: unknown) =>
@@ -38,16 +39,16 @@ const approved = (accessToken: string) => ({
   },
 })
 
-describe("the Ajaib user id", () => {
+describe("the Ajaib account id", () => {
   it.effect("is the access token's `sub` claim", () =>
     Effect.gen(function* () {
       assert.deepStrictEqual(
-        yield* ajaibUserId(jwt({ sub: 4999301, exp: 1 })),
-        Option.some(4999301)
+        yield* ajaibAccountId(jwt({ sub: 4999301, exp: 1 })),
+        Option.some(AjaibAccountId.make(4999301))
       )
       assert.deepStrictEqual(
-        yield* ajaibUserId(jwt({ sub: "4999301" })),
-        Option.some(4999301)
+        yield* ajaibAccountId(jwt({ sub: "4999301" })),
+        Option.some(AjaibAccountId.make(4999301))
       )
     })
   )
@@ -55,17 +56,17 @@ describe("the Ajaib user id", () => {
   it.effect("falls back to `user_id`, then `id`", () =>
     Effect.gen(function* () {
       assert.deepStrictEqual(
-        yield* ajaibUserId(jwt({ user_id: 12 })),
-        Option.some(12)
+        yield* ajaibAccountId(jwt({ user_id: 12 })),
+        Option.some(AjaibAccountId.make(12))
       )
       assert.deepStrictEqual(
-        yield* ajaibUserId(jwt({ id: "13" })),
-        Option.some(13)
+        yield* ajaibAccountId(jwt({ id: "13" })),
+        Option.some(AjaibAccountId.make(13))
       )
     })
   )
 
-  it.effect("is none for a token that names no numeric user", () =>
+  it.effect("is none for a token that names no numeric account", () =>
     Effect.gen(function* () {
       for (const token of [
         "not a token",
@@ -73,7 +74,7 @@ describe("the Ajaib user id", () => {
         jwt({ exp: 1 }),
         "a.%%%.c",
       ])
-        assert.deepStrictEqual(yield* ajaibUserId(token), Option.none())
+        assert.deepStrictEqual(yield* ajaibAccountId(token), Option.none())
     })
   )
 })

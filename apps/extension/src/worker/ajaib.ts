@@ -7,6 +7,17 @@ import type { Payload } from "./broker.ts"
 
 export type OnDemandStream = "PRICE" | "INDICATIVE" | "ORDER_BOOK_CUSTOM"
 
+// The Ajaib account id a frame carries as `id`: a number, as a token claim
+// carries it or as digits.
+export const AjaibAccountId = Schema.Union([
+  Schema.Int,
+  Schema.NumberFromString.check(Schema.isInt()),
+]).pipe(Schema.brand("AjaibAccountId"))
+export type AjaibAccountId =
+  | typeof AjaibAccountId.Type
+  | "INDICATIVE"
+  | "ORDER_BOOK_CUSTOM"
+
 // Decision: a frame carries the account id once the relay knows it, in the
 // page's own field order (`{"method","id","stream","streamObject"}`, seen
 // 2026-11-06, apinrdw/kumora#50); until then it goes without, as the relay
@@ -16,7 +27,7 @@ const message = Effect.fnUntraced(function* (
   method: "SUBSCRIBE" | "UNSUBSCRIBE",
   stream: "TRADE" | OnDemandStream,
   streamObject: string,
-  id: Option.Option<number>
+  id: Option.Option<AjaibAccountId>
 ) {
   const payload: Payload = {
     text: JSON.stringify({
@@ -30,7 +41,7 @@ const message = Effect.fnUntraced(function* (
 })
 
 // The whole-market tape, subscribed once as the trade socket opens.
-export const tradeSubscribe = (id: Option.Option<number>) =>
+export const tradeSubscribe = (id: Option.Option<AjaibAccountId>) =>
   message("SUBSCRIBE", "TRADE", "*", id)
 
 // Decision: each code is subscribed once per socket, and a change of the
@@ -46,7 +57,7 @@ export const onDemandMessages = Effect.fnUntraced(function* (
   stream: OnDemandStream,
   from: ReadonlyArray<StockCode>,
   to: ReadonlyArray<StockCode>,
-  id: Option.Option<number>
+  id: Option.Option<AjaibAccountId>
 ) {
   const held = new Set(from)
   const wanted = new Set(to)

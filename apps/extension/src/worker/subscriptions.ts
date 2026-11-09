@@ -8,6 +8,7 @@ import * as Base64 from "effect/encoding/Base64"
 import {
   onDemandMessages,
   tradeSubscribe,
+  type AjaibAccountId,
   type OnDemandStream,
 } from "./ajaib.ts"
 import type { SiteName } from "./broker.ts"
@@ -107,11 +108,11 @@ const streams: Readonly<Partial<Record<SiteName, OnDemandStream>>> = {
 
 // Ajaib's sockets: the trade socket subscribes the whole tape as it opens;
 // each on-demand socket holds the codes it subscribed, and a change sends
-// only the difference. Every frame carries the account id `userId` gives,
+// only the difference. Every frame carries the account id `accountId` gives,
 // once there is one.
 export const makeAjaibSubscriptions = Effect.fnUntraced(function* (
   wanted: () => ReadonlyArray<StockCode>,
-  userId: Effect.Effect<Option.Option<number>>
+  accountId: Effect.Effect<Option.Option<AjaibAccountId>>
 ): Effect.fn.Return<Subscriptions, never, Scope.Scope> {
   const held = new Map<string, ReadonlyArray<StockCode>>()
   // Reading the id asks the tab, whose answer queues behind the event a hook
@@ -125,7 +126,7 @@ export const makeAjaibSubscriptions = Effect.fnUntraced(function* (
   ) {
     const stream = streams[site]
     if (stream === undefined || !(yield* tab.isOpen(site, connection))) return
-    const id = yield* userId
+    const id = yield* accountId
     // From here to `held.set` nothing yields, so two updates never send the
     // same difference.
     const key = `${site}/${connection}`
@@ -149,7 +150,7 @@ export const makeAjaibSubscriptions = Effect.fnUntraced(function* (
       return yield* tab.send(
         site,
         connection,
-        yield* tradeSubscribe(yield* userId)
+        yield* tradeSubscribe(yield* accountId)
       )
     yield* update(tab, site, connection)
   })
