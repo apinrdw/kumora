@@ -6,6 +6,7 @@ import { INDEX_CODES, type StockCode } from "@workspace/relay"
 import { Effect, Option, Schema } from "effect"
 
 import type { Answer, TabRequest } from "./broker.ts"
+import { jwtPayloadText } from "./jwt.ts"
 
 // Decision: the key comes from Stockbit's REST host, called from the tab with
 // the token in its `credentialStorage` cookie. The relay never refreshes the
@@ -33,12 +34,6 @@ const JwtPayload = Schema.fromJsonString(
 )
 const decodePayload = Schema.decodeUnknownOption(JwtPayload)
 
-const base64UrlText = (segment: string) =>
-  Option.liftThrowable(() => {
-    const base64 = segment.replaceAll("-", "+").replaceAll("_", "/")
-    return atob(base64.padEnd(Math.ceil(base64.length / 4) * 4, "="))
-  })()
-
 // The access token in the cookie's value, and the user it names. The cookie's
 // layout is the page's business, so this takes the first JWT in it.
 export const stockbitCredential = Effect.fnUntraced(function* (cookie: string) {
@@ -48,7 +43,7 @@ export const stockbitCredential = Effect.fnUntraced(function* (cookie: string) {
   )
   const accessToken = JWT.exec(text)?.[0]
   if (accessToken === undefined) return Option.none<StockbitCredential>()
-  return base64UrlText(accessToken.split(".")[1] ?? "").pipe(
+  return (yield* jwtPayloadText(accessToken)).pipe(
     Option.flatMap(decodePayload),
     Option.map((payload): StockbitCredential => ({
       accessToken,
@@ -81,7 +76,7 @@ export const websocketKey = Effect.fnUntraced(function* (body: string) {
 // Protobuf, by hand: strings and nested messages are all this frame needs.
 const utf8 = new TextEncoder()
 
-const varint = (value: number) => {
+const varint = Effect.fnUntraced(function* (value: number) {
   const bytes: Array<number> = []
   let rest = value
   while (rest > 0x7f) {
@@ -90,16 +85,28 @@ const varint = (value: number) => {
   }
   bytes.push(rest)
   return bytes
-}
+})
 
-const lengthDelimited = (field: number, bytes: ArrayLike<number>) => [
-  ...varint((field << 3) | 2),
-  ...varint(bytes.length),
-  ...Array.from(bytes),
-]
+const lengthDelimited = Effect.fnUntraced(function* (
+  field: number,
+  bytes: ArrayLike<number>
+) {
+  return [
+    ...(yield* varint((field << 3) | 2)),
+    ...(yield* varint(bytes.length)),
+    ...Array.from(bytes),
+  ]
+})
 
-const strings = (field: number, values: ReadonlyArray<string>) =>
-  values.flatMap((value) => lengthDelimited(field, utf8.encode(value)))
+const strings = Effect.fnUntraced(function* (
+  field: number,
+  values: ReadonlyArray<string>
+) {
+  const bytes: Array<number> = []
+  for (const value of values)
+    bytes.push(...(yield* lengthDelimited(field, utf8.encode(value))))
+  return bytes
+})
 
 // securities.transactional.datafeed.v1 field numbers.
 const Channel = {
@@ -126,15 +133,15 @@ export const subscribeFrame = Effect.fnUntraced(function* (options: {
 }) {
   const { credential, key, codes } = options
   const channel = [
-    ...strings(Channel.orderBook, codes),
-    ...strings(Channel.runningTradeBatch, ["*"]),
-    ...strings(Channel.liveprice, [...codes, ...INDEX_CODES]),
-    ...strings(Channel.iepiev, codes),
+    ...(yield* strings(Channel.orderBook, codes)),
+    ...(yield* strings(Channel.runningTradeBatch, ["*"])),
+    ...(yield* strings(Channel.liveprice, [...codes, ...INDEX_CODES])),
+    ...(yield* strings(Channel.iepiev, codes)),
   ]
   return Uint8Array.from([
-    ...strings(Request.userId, [credential.userId]),
-    ...lengthDelimited(Request.channel, channel),
-    ...strings(Request.key, [key]),
-    ...strings(Request.accessToken, [credential.accessToken]),
+    ...(yield* strings(Request.userId, [credential.userId])),
+    ...(yield* lengthDelimited(Request.channel, channel)),
+    ...(yield* strings(Request.key, [key])),
+    ...(yield* strings(Request.accessToken, [credential.accessToken])),
   ])
 })
