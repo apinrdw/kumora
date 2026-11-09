@@ -248,7 +248,8 @@ export const makeDayStore = (sql: Sql) =>
         : TradeNumberValue.make(BigInt(high))
     })
 
-    const tradeCount = Effect.sync(() =>
+    // How many trades the day stored so far: the index row's figure.
+    const storedTrades = Effect.sync(() =>
       numberOf(sql.exec("SELECT count(*) AS count FROM trades")[0]?.count)
     )
 
@@ -403,7 +404,7 @@ export const makeDayStore = (sql: Sql) =>
       write,
       hasTrade,
       highestTrade,
-      tradeCount,
+      storedTrades,
       newestTrades,
       tradesAt,
       tradesBetween,

@@ -541,7 +541,7 @@ export const makeTradingDay = Effect.fnUntraced(function* (options: {
     yield* flush(true, {
       [Fact.gaps]: yield* encodeRecordedGaps({ gaps: conditions.gaps }),
     })
-    const trades = yield* store.tradeCount
+    const trades = yield* store.storedTrades
     if (trades > 0) {
       const recorded = yield* (options.recordDay ?? (() => Effect.void))({
         day: options.date,
