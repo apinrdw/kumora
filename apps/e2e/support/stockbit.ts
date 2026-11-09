@@ -87,6 +87,39 @@ export function stockbitTradeFrameToday(base = 0): Uint8Array {
   )
 }
 
+/**
+ * One `orderbook` frame (wrapper case 10): one full side of `code`'s book,
+ * levels of `[price, orders, lots]`, as Stockbit's socket sends it now.
+ */
+export function stockbitOrderBookFrame(
+  code: string,
+  side: "BID" | "OFFER",
+  levels: ReadonlyArray<readonly [number, number, number]>
+): Uint8Array {
+  const shares = levels.map(([price, orders, lots]) => [
+    price,
+    orders,
+    lots * 100,
+  ])
+  const orders = shares.reduce((sum, [, count]) => sum + count!, 0)
+  const total = shares.reduce((sum, [, , count]) => sum + count!, 0)
+  const body = [
+    "#O",
+    code,
+    side,
+    ...shares.map((level) => level.join(";")),
+    `${Math.floor(Date.now() / 1000)}-${orders}&${total}`,
+  ].join("|")
+  const encode = (text: string) => [...new TextEncoder().encode(text)]
+  return Uint8Array.from(
+    messageField(10, [
+      ...messageField(1, encode(code)),
+      ...messageField(2, encode(body)),
+      ...messageField(5, encode(new Date().toISOString())),
+    ])
+  )
+}
+
 const readVarint = (bytes: Uint8Array, at: number): [number, number] => {
   let value = 0
   let shift = 0
