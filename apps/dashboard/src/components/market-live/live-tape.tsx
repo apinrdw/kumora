@@ -8,6 +8,7 @@ import {
   MarketLivePath,
   ViewerProtocolVersion,
   type RunningTrade,
+  type ViewerDown,
 } from "@workspace/relay"
 import { DateTime, Effect, Fiber, Stream } from "effect"
 import { useEffect, useState } from "react"
@@ -22,7 +23,7 @@ const SHOWN_TRADES = 200
 
 // Until the page selects a code (apinrdw/kumora#146), every viewer selects
 // this one; the tape streams the whole market whatever is selected.
-const SELECTED = StockCode.make("BBCA")
+export const SELECTED = StockCode.make("BBCA")
 
 const SIDE_CLASS: Record<RunningTrade["side"], string> = {
   buy: "text-up",
@@ -63,7 +64,12 @@ function SourceDots({ feeds }: { feeds: ReadonlyArray<Source> }) {
 // The whole-market tape from the viewer socket. A 4401 close sends the
 // visitor to sign in and back; a 4426 close asks for a reload; any other close
 // reconnects and starts over from a fresh snapshot.
-export function LiveTape() {
+// `onMessage` hears every viewer message too: the chart reads its candles.
+export function LiveTape({
+  onMessage,
+}: {
+  onMessage?: (message: ViewerDown) => void
+}) {
   const [tape, setTape] = useState<ReadonlyArray<RunningTrade>>([])
   const [status, setStatus] = useState<Status>("live")
 
@@ -80,11 +86,12 @@ export function LiveTape() {
     })
     const fiber = clientRuntime.runFork(
       Stream.runForEach(messages, (message) =>
-        Effect.sync(() =>
+        Effect.sync(() => {
+          onMessage?.(message)
           setTape((current) =>
             Effect.runSync(applyViewerMessage(current, message))
           )
-        )
+        })
       ).pipe(
         Effect.catchTags({
           // A full load: the sign-in page reads its own session state.
@@ -102,7 +109,7 @@ export function LiveTape() {
     return () => {
       clientRuntime.runFork(Fiber.interrupt(fiber))
     }
-  }, [])
+  }, [onMessage])
 
   return (
     <section aria-label="Running trades" className="flex flex-col gap-2">

@@ -40,6 +40,42 @@ test.describe("signed in", () => {
     relay.close()
   })
 
+  test("the selected code's candles draw on the chart as trades arrive", async ({
+    page,
+  }) => {
+    const relay = await openIngest()
+    // The page selects BBCA; the recorded session has none, so two BBCA
+    // trades are made from its first frame, a minute apart.
+    const [template] = session1Today()
+    const trade = JSON.parse(template!)
+    const bbca = (sequence: number, price: number, minutes: number) =>
+      JSON.stringify({
+        ...trade,
+        ticker: "BBCA",
+        price,
+        tradeNum: `${trade.tradeNum.slice(0, 8)}${String(sequence).padStart(10, "0")}`,
+        tradedAt: new Date(
+          Date.parse(trade.tradedAt) + minutes * 60_000
+        ).toISOString(),
+      })
+    await relay.sendAjaib([bbca(90_001, 9275, 0)])
+    await page.goto(`${DASHBOARD}${PAGE}`)
+    const chart = page.getByRole("region", { name: "Chart" })
+    await expect(chart.getByRole("heading", { name: "BBCA" })).toBeVisible()
+    await expect(chart).toContainText("One-minute candles: 1")
+    await expect(chart).toContainText("9,275")
+    await expect(chart.locator("canvas").first()).toBeVisible()
+    await expect(
+      chart.getByRole("link", { name: "TradingView Lightweight Charts™" })
+    ).toHaveAttribute("href", "https://www.tradingview.com/")
+
+    // A delta: the next minute opens its own candle.
+    await relay.sendAjaib([bbca(90_002, 9300, 1)])
+    await expect(chart).toContainText("One-minute candles: 2")
+    await expect(chart).toContainText("9,300")
+    relay.close()
+  })
+
   test("the nav leads to Market Live", async ({ page }) => {
     await page.goto(`${DASHBOARD}/account`)
     await page.getByRole("link", { name: "Market Live" }).first().click()

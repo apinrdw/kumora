@@ -148,6 +148,9 @@ export const makeTradingDay = Effect.fnUntraced(function* (options: {
     }
   })
 
+  // Decision: a delta carries every candle that changed, of any code, not
+  // just each viewer's selected code's: one encoded text serves every viewer
+  // and no socket keeps its selection. The page keeps its own code's.
   const sendDelta = Effect.gen(function* () {
     deltaScheduled = false
     const trades = [...pending.values()].sort((a, b) =>
