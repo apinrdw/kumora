@@ -48,6 +48,47 @@ export function session1Today(): ReadonlyArray<string> {
   })
 }
 
+/** One Ajaib TRADE frame for today, numbered `seq` at WIB `time` (HH:MM:SS). */
+export function ajaibTradeToday(trade: {
+  readonly seq: number
+  readonly time: string
+  readonly ticker: string
+  readonly price: number
+  readonly lot: number
+  readonly type?: "BUY" | "SELL"
+  readonly board?: "RG" | "TN" | "NG"
+}): string {
+  const today = wibToday()
+  return JSON.stringify({
+    ticker: trade.ticker,
+    type: trade.type ?? "BUY",
+    price: trade.price,
+    lot: trade.lot,
+    value: trade.price * trade.lot * 100,
+    tradedAt: `${today}T${trade.time}.000+07:00`,
+    tradeNum: today.replaceAll("-", "") + String(trade.seq).padStart(10, "0"),
+    ...(trade.board === undefined ? {} : { market_type: trade.board }),
+  })
+}
+
+/**
+ * An opening match of `count` prints today, numbered from 1, at 08:58:00 over
+ * 676 stock codes, as the 2026-11-09 match was (22,264 prints, Ajaib typing
+ * them SELL).
+ */
+export function openingMatchToday(count: number): ReadonlyArray<string> {
+  return Array.from({ length: count }, (_, i) =>
+    ajaibTradeToday({
+      seq: i + 1,
+      time: "08:58:00",
+      ticker: `M${String.fromCharCode(65 + (i % 26), 65 + (Math.floor(i / 26) % 26))}X`,
+      price: 100 + (i % 50),
+      lot: 1 + (i % 9),
+      type: "SELL",
+    })
+  )
+}
+
 const send = async (socket: WebSocket, message: IngestUp) =>
   socket.send(await Effect.runPromise(encodeIngestUp(message)))
 
