@@ -406,6 +406,42 @@ describe("Stockbit's order_book frames", () => {
     })
   )
 
+  // One side's body: a single level, and the side's totals.
+  const body = (side: "BID" | "OFFER", price: number, lots: number) =>
+    `#O|BBCA|${side}|${price};1;${lots * 100}|1762653661-1&${lots * 100}`
+  // 09:01:0s WIB, as `datetime` carries it.
+  const at = (second: number) => `2026-11-09T09:01:0${second}+07:00`
+
+  it.effect(
+    "a side's frame not newer than the side held, as the other connection delivers one late, changes nothing; the other side still applies",
+    () =>
+      Effect.gen(function* () {
+        const books = yield* makeOrderBooks(DAY)
+        yield* books.stockbitFrames([
+          orderBookFrame("BBCA", body("BID", 5000, 10), at(2)),
+        ])
+        // Connection B: an older bid, and the offer side the book lacks.
+        yield* books.stockbitFrames([
+          orderBookFrame("BBCA", body("BID", 4900, 5), at(1)),
+          orderBookFrame("BBCA", body("OFFER", 5100, 7), at(1)),
+        ])
+        const book = yield* books.bookOf(StockCode.make("BBCA"), true)
+        assert(book?._tag === "OrderBook")
+        assert.deepStrictEqual(
+          {
+            bids: book.bids,
+            offers: book.offers,
+            at: DateTime.toEpochMillis(book.at),
+          },
+          {
+            bids: [{ price: 5000, lots: 10, orders: 1 }],
+            offers: [{ price: 5100, lots: 7, orders: 1 }],
+            at: Date.parse(at(2)),
+          }
+        )
+      })
+  )
+
   it.effect("skip a frame from another trading day", () =>
     Effect.gen(function* () {
       const books = yield* makeOrderBooks(WibDate.make("2026-07-30"))
