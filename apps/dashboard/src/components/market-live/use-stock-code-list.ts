@@ -1,6 +1,6 @@
 import { clientRuntime, fetchStockCodeList } from "@workspace/client"
-import { wibDateAt, type ListedCode, type WibDate } from "@workspace/relay"
-import { DateTime, Effect, Fiber, Option } from "effect"
+import type { ListedCode, WibDate } from "@workspace/relay"
+import { Effect, Fiber, Option } from "effect"
 import { useEffect, useState } from "react"
 
 import { signInAgain } from "./sign-in-again"
@@ -15,15 +15,13 @@ export type StockCodeList =
 const LOADING: StockCodeList = { _tag: "Loading" }
 const MISSING: StockCodeList = { _tag: "Missing" }
 
-// `day`'s list, or today's; a 401 sends the visitor to sign in and back.
+// `day`'s list; a 401 sends the visitor to sign in and back.
 const loadStockCodeList = (
-  day: WibDate | undefined,
+  day: WibDate,
   setList: (list: StockCodeList) => void
 ) =>
   Effect.gen(function* () {
-    const codes = yield* fetchStockCodeList(
-      day ?? (yield* wibDateAt(yield* DateTime.now))
-    )
+    const codes = yield* fetchStockCodeList(day)
     setList(
       Option.match(codes, {
         onNone: () => MISSING,
@@ -39,10 +37,16 @@ const loadStockCodeList = (
     )
   )
 
-// Fetched once per page visit and day shown (a recorded day's, or today's);
-// the browser caches it for the day.
-export function useStockCodeList(day?: WibDate): StockCodeList {
+// Fetched once per page visit and day shown: a recorded day's, or the live
+// page's, which is `today` on the market clock (the route loader's date, not
+// the browser's: the Test stage shifts only the Worker's clock). The browser
+// caches it for the day.
+export function useStockCodeList(
+  shown: WibDate | undefined,
+  today: WibDate
+): StockCodeList {
   const [list, setList] = useState<StockCodeList>(LOADING)
+  const day = shown ?? today
   useEffect(() => {
     const fiber = clientRuntime.runFork(loadStockCodeList(day, setList))
     return () => {

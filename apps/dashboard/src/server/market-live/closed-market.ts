@@ -12,13 +12,16 @@ import {
 import { DateTime, Effect, Option } from "effect"
 
 // The trading day the page opens at its close, the phase (closed or holiday)
-// and the next open in epoch ms; and how many ms until the answer may change.
+// and the next open in epoch ms; the clock's own WIB date, which the live
+// page's code list is fetched for; and how many ms until the answer may
+// change.
 export type ClosedMarket = {
   readonly closed?: {
     readonly day: WibDate
     readonly phase: MarketPhase
     readonly nextOpen?: number
   }
+  readonly today: WibDate
   readonly changesIn: number
 }
 
@@ -43,7 +46,8 @@ export const closedMarketAt = Effect.fnUntraced(function* (now: DateTime.Utc) {
       Effect.succeed(Option.none<WibDate>())
     )
   )
-  if (Option.isNone(day)) return { changesIn } satisfies ClosedMarket
+  if (Option.isNone(day))
+    return { today: date, changesIn } satisfies ClosedMarket
   const { phase } = yield* marketMomentAt(now)
   const nextOpen = yield* nextOpenAfter(now)
   return {
@@ -54,6 +58,7 @@ export const closedMarketAt = Effect.fnUntraced(function* (now: DateTime.Utc) {
         ? {}
         : { nextOpen: DateTime.toEpochMillis(nextOpen) }),
     },
+    today: date,
     changesIn,
   } satisfies ClosedMarket
 })

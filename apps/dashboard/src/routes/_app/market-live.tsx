@@ -50,7 +50,7 @@ export const Route = createFileRoute("/_app/market-live")({
 
 function MarketLivePage() {
   const { day } = Route.useSearch()
-  const { closed, changesIn } = Route.useLoaderData()
+  const { closed, today, changesIn } = Route.useLoaderData()
   const router = useRouter()
   // Asked again when the answer may change: 08:40, the 17:00 seal, midnight.
   useEffect(() => {
@@ -67,6 +67,7 @@ function MarketLivePage() {
       <MarketLiveDay
         key={shown ?? "live"}
         day={shown}
+        today={today}
         closed={day === undefined ? closed : undefined}
       />
     </div>
@@ -75,14 +76,17 @@ function MarketLivePage() {
 
 function MarketLiveDay({
   day,
+  today,
   closed,
 }: {
   day: WibDate | undefined
+  // The market clock's date: the live page's day.
+  today: WibDate
   closed: ClosedMarket["closed"]
 }) {
   const { code: selected = DEFAULT_CODE } = Route.useSearch()
   const navigate = Route.useNavigate()
-  const codes = useStockCodeList(day)
+  const codes = useStockCodeList(day, today)
   // One store per selected code; the Select for it brings a fresh snapshot.
   const candles = useMemo(() => makeCandleStore(selected), [selected])
   const book = useMemo(() => makeOrderBookStore(selected), [selected])
