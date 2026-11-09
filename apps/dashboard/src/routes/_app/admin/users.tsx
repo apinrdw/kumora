@@ -25,7 +25,11 @@ function UsersPage() {
   const onSearch = useCallback(
     (change: Partial<AccountSearch>) =>
       void navigate({
-        search: (previous) => ({ ...previous, page: undefined, ...change }),
+        search: (previous: AccountSearch) => ({
+          ...previous,
+          page: undefined,
+          ...change,
+        }),
         replace: true,
       }),
     [navigate]

@@ -3,6 +3,7 @@ import { describe, expect, test } from "vitest"
 import {
   MINUS,
   asOf,
+  tapeTime,
   billionShort,
   compact,
   compactIdr,
@@ -85,6 +86,11 @@ describe("K, M and B suffixes", () => {
 })
 
 describe("WIB timestamps", () => {
+  test("tapeTime renders Jakarta time to the second, midnight as 00", () => {
+    expect(tapeTime(Date.parse("2026-11-09T02:00:07Z"))).toBe("09:00:07")
+    expect(tapeTime(Date.parse("2026-11-09T17:00:05Z"))).toBe("00:00:05")
+  })
+
   test("asOf renders 24-hour Jakarta time", () => {
     expect(asOf("2026-10-24T07:45:00Z")).toBe("14:45 WIB")
     expect(asOf("2026-10-24T17:05:00Z")).toBe("00:05 WIB")

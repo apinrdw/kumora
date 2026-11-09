@@ -1,4 +1,4 @@
-import { IconUsers, type Icon } from "@tabler/icons-react"
+import { IconChartCandle, IconUsers, type Icon } from "@tabler/icons-react"
 import type { LinkProps } from "@tanstack/react-router"
 
 import type { Feature } from "@/server/auth/policy"
@@ -22,6 +22,19 @@ export type NavItem = {
 export type NavGroup = { label: string; items: ReadonlyArray<NavItem> }
 
 export const NAV: ReadonlyArray<NavGroup> = [
+  {
+    label: "Market",
+    items: [
+      {
+        label: "Market Live",
+        shortLabel: "Live",
+        icon: IconChartCandle,
+        link: { to: "/market-live" },
+        feature: "market-live",
+        mobile: true,
+      },
+    ],
+  },
   {
     label: "Admin",
     items: [

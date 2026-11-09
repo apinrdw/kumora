@@ -11,10 +11,12 @@ const viewer = {
 } as const
 
 describe("AppSidebar", () => {
-  test("hides the Admin group from a member", async () => {
+  test("shows a member the Market group, without Admin", async () => {
     const html = await renderAt("/", () => <AppSidebar viewer={viewer} />)
-    expect(html.match(/<a title="/g)).toBeNull()
+    expect(html).toContain(">Market<")
+    expect(html).toMatch(/<a title="Market Live"[^>]*href="\/market-live"/)
     expect(html).not.toContain(">Admin<")
+    expect(html).not.toContain('title="Accounts"')
   })
 
   test("shows an admin the Admin group", async () => {

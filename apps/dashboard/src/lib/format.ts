@@ -17,6 +17,13 @@ const timeWib = new Intl.DateTimeFormat("en-US", {
   timeZone: "Asia/Jakarta",
   hourCycle: "h23",
 })
+const secondsWib = new Intl.DateTimeFormat("en-US", {
+  hour: "2-digit",
+  minute: "2-digit",
+  second: "2-digit",
+  timeZone: "Asia/Jakarta",
+  hourCycle: "h23",
+})
 const dateTimeWib = new Intl.DateTimeFormat("en-US", {
   day: "2-digit",
   month: "short",
@@ -79,6 +86,11 @@ export function shares(n: number): string {
 /** 14:45 WIB */
 export function asOf(iso: string): string {
   return timeWib.format(new Date(iso)) + " WIB"
+}
+
+/** A tape row's time in WIB, to the second: 09:00:07 */
+export function tapeTime(epochMillis: number): string {
+  return secondsWib.format(new Date(epochMillis))
 }
 
 /** Oct 24, 14:45 WIB */

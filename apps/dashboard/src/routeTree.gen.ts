@@ -20,6 +20,7 @@ import { Route as AppIndexRouteImport } from './routes/_app/index'
 import { Route as AppSplatRouteImport } from './routes/_app/$'
 import { Route as AppAccountRouteImport } from './routes/_app/account'
 import { Route as AppDeleteAccountRouteImport } from './routes/_app/delete-account'
+import { Route as AppMarketLiveRouteImport } from './routes/_app/market-live'
 import { Route as AppAdminUsersRouteImport } from './routes/_app/admin/users'
 import { Route as ApiAuthSplatRouteImport } from './routes/api/auth/$'
 
@@ -77,6 +78,11 @@ const AppDeleteAccountRoute = AppDeleteAccountRouteImport.update({
   path: '/delete-account',
   getParentRoute: () => AppRoute,
 } as any)
+const AppMarketLiveRoute = AppMarketLiveRouteImport.update({
+  id: '/market-live',
+  path: '/market-live',
+  getParentRoute: () => AppRoute,
+} as any)
 const AppAdminUsersRoute = AppAdminUsersRouteImport.update({
   id: '/admin/users',
   path: '/admin/users',
@@ -99,6 +105,7 @@ export interface FileRoutesByFullPath {
   '/$': typeof AppSplatRoute
   '/account': typeof AppAccountRoute
   '/delete-account': typeof AppDeleteAccountRoute
+  '/market-live': typeof AppMarketLiveRoute
   '/admin/users': typeof AppAdminUsersRoute
   '/api/auth/$': typeof ApiAuthSplatRoute
 }
@@ -112,6 +119,7 @@ export interface FileRoutesByTo {
   '/$': typeof AppSplatRoute
   '/account': typeof AppAccountRoute
   '/delete-account': typeof AppDeleteAccountRoute
+  '/market-live': typeof AppMarketLiveRoute
   '/': typeof AppIndexRoute
   '/admin/users': typeof AppAdminUsersRoute
   '/api/auth/$': typeof ApiAuthSplatRoute
@@ -128,6 +136,7 @@ export interface FileRoutesById {
   '/_app/$': typeof AppSplatRoute
   '/_app/account': typeof AppAccountRoute
   '/_app/delete-account': typeof AppDeleteAccountRoute
+  '/_app/market-live': typeof AppMarketLiveRoute
   '/_app/': typeof AppIndexRoute
   '/_app/admin/users': typeof AppAdminUsersRoute
   '/api/auth/$': typeof ApiAuthSplatRoute
@@ -145,6 +154,7 @@ export interface FileRouteTypes {
     | '/$'
     | '/account'
     | '/delete-account'
+    | '/market-live'
     | '/admin/users'
     | '/api/auth/$'
   fileRoutesByTo: FileRoutesByTo
@@ -158,6 +168,7 @@ export interface FileRouteTypes {
     | '/$'
     | '/account'
     | '/delete-account'
+    | '/market-live'
     | '/'
     | '/admin/users'
     | '/api/auth/$'
@@ -173,6 +184,7 @@ export interface FileRouteTypes {
     | '/_app/$'
     | '/_app/account'
     | '/_app/delete-account'
+    | '/_app/market-live'
     | '/_app/'
     | '/_app/admin/users'
     | '/api/auth/$'
@@ -268,6 +280,13 @@ declare module '@tanstack/react-router' {
       preLoaderRoute: typeof AppDeleteAccountRouteImport
       parentRoute: typeof AppRoute
     }
+    '/_app/market-live': {
+      id: '/_app/market-live'
+      path: '/market-live'
+      fullPath: '/market-live'
+      preLoaderRoute: typeof AppMarketLiveRouteImport
+      parentRoute: typeof AppRoute
+    }
     '/_app/admin/users': {
       id: '/_app/admin/users'
       path: '/admin/users'
@@ -289,6 +308,7 @@ interface AppRouteChildren {
   AppSplatRoute: typeof AppSplatRoute
   AppAccountRoute: typeof AppAccountRoute
   AppDeleteAccountRoute: typeof AppDeleteAccountRoute
+  AppMarketLiveRoute: typeof AppMarketLiveRoute
   AppIndexRoute: typeof AppIndexRoute
   AppAdminUsersRoute: typeof AppAdminUsersRoute
 }
@@ -297,6 +317,7 @@ const AppRouteChildren: AppRouteChildren = {
   AppSplatRoute: AppSplatRoute,
   AppAccountRoute: AppAccountRoute,
   AppDeleteAccountRoute: AppDeleteAccountRoute,
+  AppMarketLiveRoute: AppMarketLiveRoute,
   AppIndexRoute: AppIndexRoute,
   AppAdminUsersRoute: AppAdminUsersRoute,
 }
