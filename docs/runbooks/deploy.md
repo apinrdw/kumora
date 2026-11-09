@@ -123,3 +123,10 @@ Market Live's feed comes from `apps/extension`, loaded unpacked in the owner's C
 4. Keep a signed-in `stockbit.com` tab and a signed-in `trade.ajaib.co.id` tab open. The relay streams by itself from 08:40 to 16:35 WIB on trading days and closes its sockets outside those hours. In hours, trades reach the stage's Market Live tape within a second.
 
 The toolbar badge shows the worst target state: `KEY` for a rejected token, `RLD` when the dashboard no longer accepts the extension's protocol (rebuild and reload it), `…` while a target connects or retries.
+
+## 13. Edge caching of recorded days ⬜
+
+Recorded day loads are cached in the browser only (`Cache-Control: private, immutable` on a sealed day). Before anyone adds edge caching through the Cache API, run this check on Staging, since `workers.dev` may not support the Cache API (spec apinrdw/kumora#138, "Recorded day loads"):
+
+1. In a throwaway route deployed to Staging, `put` a response under a URL with `caches.default.put(url, response)`, then `match` the same URL in a later request.
+2. Only if `match` returns the stored response does edge caching go in, keyed on the URL alone and checked after the gate. If it returns `undefined`, keep the browser cache as the only cache and record the result, with its date, in this step.
