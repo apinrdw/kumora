@@ -33,8 +33,9 @@ import {
 import { makeTradingDay, type Peer, type PeerState } from "./trading-day.ts"
 
 // Socket tags. A viewer socket also carries its user and session, so a ban or
-// revoke can close it (apinrdw/kumora#144), and its session's end, so an
-// expired one is closed (trading-day.ts). Tags outlive hibernation.
+// revoke can close it (apinrdw/kumora#144), its session's end, so an expired
+// one is closed (trading-day.ts), and its own id, which keys its codes in
+// storage. Tags outlive hibernation.
 const INGEST = "ingest"
 const VIEWER = "viewer"
 const userTag = (userId: AccountId) => `user:${userId}`
@@ -42,70 +43,114 @@ const SESSION = "session:"
 const sessionTag = (sessionId: SessionId) => `${SESSION}${sessionId}`
 const SESSION_END = "session-end:"
 const sessionEndTag = (end: number) => `${SESSION_END}${end}`
+const SOCKET = "socket:"
+const socketTag = (id: string) => `${SOCKET}${id}`
 
 const decodeSessionEnd = Schema.decodeUnknownOption(SessionEnd)
+
+const tagValue = (tags: ReadonlyArray<string>, prefix: string) => {
+  const tag = tags.find((each) => each.startsWith(prefix))
+  return tag === undefined ? undefined : tag.slice(prefix.length)
+}
 
 // A viewer's session end from its tags; none for a socket tagged without
 // one, which is served nothing.
 const sessionEndOf = (tags: ReadonlyArray<string>) => {
-  const tag = tags.find((each) => each.startsWith(SESSION_END))
-  return tag === undefined
+  const end = tagValue(tags, SESSION_END)
+  return end === undefined
     ? undefined
-    : Option.getOrUndefined(decodeSessionEnd(tag.slice(SESSION_END.length)))
+    : Option.getOrUndefined(decodeSessionEnd(end))
 }
 
-// A socket's attachment survives hibernation: its state, and a viewer's codes
-// once it sent a Select. An ingest socket's is the bare state.
-type Attachment =
-  | PeerState
-  | { readonly state: PeerState; readonly watching: ReadonlyArray<StockCode> }
+// A socket's attachment survives hibernation: its state. A socket without
+// one is new.
+const stateOf = (socket: WebSocket) =>
+  (socket.deserializeAttachment() as PeerState | null) ?? "new"
 
-const attachmentOf = (socket: WebSocket) => {
-  const attachment = socket.deserializeAttachment() as Attachment | null
-  // A socket without an attachment is new.
-  if (attachment === null) return { state: "new" as const, watching: [] }
-  return typeof attachment === "string"
-    ? { state: attachment, watching: [] }
-    : attachment
+const WATCHING = "watching:"
+
+// Decision: a viewer's codes live in the object's storage under its socket's
+// id, not in the socket's attachment: an attachment holds 16,384 bytes
+// (Cloudflare's documented limit, and what workerd 1.20261026.1 enforces),
+// about 2,300 four-character codes, and a Select past it would throw after
+// the snapshot, leaving the page connected but off the on-demand set. The
+// storage bounds nothing a Select can carry, and a read is kept in memory, so
+// a delta's read of every viewer's codes is free after the first since the
+// object woke. A socket's codes leave storage when it closes; an object reset
+// that skips the close callback leaves a few bytes nothing reads.
+const watchingStore = (storage: DurableObjectStorage) => {
+  const held = new Map<string, ReadonlyArray<StockCode>>()
+  const read = (id: string) =>
+    Effect.suspend(() => {
+      const cached = held.get(id)
+      if (cached !== undefined) return Effect.succeed(cached)
+      return Effect.promise(() =>
+        storage.get<ReadonlyArray<StockCode>>(`${WATCHING}${id}`)
+      ).pipe(
+        Effect.map((stored) => {
+          const codes = stored ?? []
+          held.set(id, codes)
+          return codes
+        })
+      )
+    })
+  const write = (id: string, codes: ReadonlyArray<StockCode>) => {
+    const key = `${WATCHING}${id}`
+    const stored =
+      codes.length === 0
+        ? Effect.promise(() => storage.delete(key))
+        : Effect.promise(() => storage.put(key, codes))
+    return Effect.andThen(
+      stored,
+      Effect.sync(() => {
+        if (codes.length === 0) held.delete(id)
+        else held.set(id, codes)
+      })
+    )
+  }
+  return { read, write }
 }
 
-// Decision: a socket watching no codes keeps the bare state, so an ingest
-// socket's attachment is always its state.
-const attach = (
-  socket: WebSocket,
-  state: PeerState,
-  watching: ReadonlyArray<StockCode>
-) =>
-  socket.serializeAttachment(
-    watching.length === 0 ? state : { state, watching }
-  )
+type WatchingStore = ReturnType<typeof watchingStore>
 
 // A socket already closing, which a delta can still find listed, takes
-// neither a send nor a second close.
-const peerOf = (ctx: DurableObjectState, socket: WebSocket): Peer => ({
-  send: (text) =>
-    Effect.sync(() => {
-      if (socket.readyState === WebSocket.OPEN) socket.send(text)
-    }),
-  close: (code, reason) =>
-    Effect.sync(() => {
-      if (socket.readyState === WebSocket.OPEN) socket.close(code, reason)
-    }),
-  state: Effect.sync(() => attachmentOf(socket).state),
-  setState: (state) =>
-    Effect.sync(() => attach(socket, state, attachmentOf(socket).watching)),
-  watching: Effect.sync(() => attachmentOf(socket).watching),
-  setWatching: (watching) =>
-    Effect.sync(() => attach(socket, attachmentOf(socket).state, watching)),
-  sessionEnd: Effect.sync(() => sessionEndOf(ctx.getTags(socket))),
-})
+// neither a send nor a second close. A viewer's codes are read and written
+// under its id tag; an ingest socket has no id, and no codes.
+const peerOf = (
+  ctx: DurableObjectState,
+  watching: WatchingStore,
+  socket: WebSocket
+): Peer => {
+  const tags = ctx.getTags(socket)
+  const id = tagValue(tags, SOCKET)
+  return {
+    send: (text) =>
+      Effect.sync(() => {
+        if (socket.readyState === WebSocket.OPEN) socket.send(text)
+      }),
+    close: (code, reason) =>
+      Effect.sync(() => {
+        if (socket.readyState === WebSocket.OPEN) socket.close(code, reason)
+      }),
+    state: Effect.sync(() => stateOf(socket)),
+    setState: (state) => Effect.sync(() => socket.serializeAttachment(state)),
+    ...(id === undefined
+      ? {}
+      : {
+          watching: watching.read(id),
+          setWatching: (codes: ReadonlyArray<StockCode>) =>
+            watching.write(id, codes),
+        }),
+    sessionEnd: Effect.sync(() => sessionEndOf(tags)),
+  }
+}
 
 const decodeDate = Schema.decodeUnknownSync(WibDate)
 const decodeAccount = Schema.decodeUnknownOption(AccountId)
 const decodeSession = Schema.decodeUnknownOption(SessionId)
 
-// A gated viewer socket's tags, from the headers the entry set; none when
-// any is missing.
+// A gated viewer socket's tags, from the headers the entry set and a fresh
+// id; none when any header is missing.
 const viewerTags = (request: Request) => {
   const userId = decodeAccount(request.headers.get(ViewerHeader.userId))
   const sessionId = decodeSession(request.headers.get(ViewerHeader.sessionId))
@@ -120,6 +165,7 @@ const viewerTags = (request: Request) => {
         userTag(userId.value),
         sessionTag(sessionId.value),
         sessionEndTag(sessionEnd.value),
+        socketTag(crypto.randomUUID()),
       ]
     : undefined
 }
@@ -160,6 +206,7 @@ const recordDay = Effect.fnUntraced(function* (day: RecordedDay) {
 // callback runs through the bridge's result runner, which logs any failure.
 export class TradingDayObject {
   private day!: Effect.Success<ReturnType<typeof makeTradingDay>>
+  private readonly watching: WatchingStore
 
   constructor(
     private readonly ctx: DurableObjectState,
@@ -170,27 +217,22 @@ export class TradingDayObject {
   ) {
     // The Worker entry reaches the object by name, so the name is set.
     const date = decodeDate(ctx.id.name)
-    const viewers = Effect.sync(() =>
-      ctx.getWebSockets(VIEWER).map((socket) => peerOf(ctx, socket))
-    )
+    const watching = watchingStore(ctx.storage)
+    this.watching = watching
+    const peer = (socket: WebSocket) => peerOf(ctx, watching, socket)
+    const viewers = Effect.sync(() => ctx.getWebSockets(VIEWER).map(peer))
     const viewersOf = (userId: AccountId) =>
       Effect.sync(() =>
         ctx.getWebSockets(userTag(userId)).map((socket) => {
-          const tag = ctx
-            .getTags(socket)
-            .find((each) => each.startsWith(SESSION))
+          const sessionId = tagValue(ctx.getTags(socket), SESSION)
           return {
-            peer: peerOf(ctx, socket),
+            peer: peer(socket),
             sessionId:
-              tag === undefined
-                ? undefined
-                : SessionId.make(tag.slice(SESSION.length)),
+              sessionId === undefined ? undefined : SessionId.make(sessionId),
           }
         })
       )
-    const ingests = Effect.sync(() =>
-      ctx.getWebSockets(INGEST).map((socket) => peerOf(ctx, socket))
-    )
+    const ingests = Effect.sync(() => ctx.getWebSockets(INGEST).map(peer))
     // Lives as long as the object; it holds the delta timers.
     const scope = Scope.makeUnsafe()
     const workerEnv = Layer.succeed(WorkerEnv)(env)
@@ -259,7 +301,7 @@ export class TradingDayObject {
   webSocketMessage(socket: WebSocket, message: string | ArrayBuffer) {
     const text =
       typeof message === "string" ? message : new TextDecoder().decode(message)
-    const peer = peerOf(this.ctx, socket)
+    const peer = peerOf(this.ctx, this.watching, socket)
     return runServerEffectResult(
       withMarketClock(
         this.ctx.getTags(socket).includes(VIEWER)
@@ -275,7 +317,9 @@ export class TradingDayObject {
     const tags = this.ctx.getTags(socket)
     if (tags.includes(VIEWER))
       return runServerEffectResult(
-        withMarketClock(this.day.viewerClosed(peerOf(this.ctx, socket)))
+        withMarketClock(
+          this.day.viewerClosed(peerOf(this.ctx, this.watching, socket))
+        )
       )
     if (!tags.includes(INGEST)) return undefined
     const remaining = this.ctx
