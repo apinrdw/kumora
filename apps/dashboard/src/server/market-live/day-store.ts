@@ -100,6 +100,13 @@ const SCHEMA = [
   ) WITHOUT ROWID`,
 ]
 
+// The keys of the facts table.
+export const Fact = {
+  sealed: "sealed",
+  gaps: "gaps",
+  feedDowns: "feed-downs",
+} as const
+
 const numberOf = (value: SqlValue | undefined) => Number(value)
 const textOf = (value: SqlValue | undefined) => String(value)
 

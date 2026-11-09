@@ -11,9 +11,7 @@ import {
   decodeBookChunk,
   decodeViewerUp,
   bookAt,
-  encodeRecordedCandles,
   encodeRecordedGaps,
-  encodeRecordedTape,
   encodeViewerDown,
   MarketStatus,
   marketMomentAt,
@@ -37,24 +35,19 @@ import { backfillTrades } from "./backfill-page.ts"
 import { makeBookChunks } from "./book-chunks.ts"
 import { makeCandleBook } from "./candles.ts"
 import {
-  codeListAnswer,
   memoryCodeListStore,
   storeCodeList,
   type CodeListStore,
 } from "./code-list.ts"
 import { makeDayStates } from "./day-states.ts"
-import { makeDayStore, type Sql } from "./day-store.ts"
+import { Fact, makeDayStore, type Sql } from "./day-store.ts"
 import type { DownRecord } from "./feed-health.ts"
 import { makeGaps } from "./gaps.ts"
 import { makeMarketStatus } from "./market-status.ts"
 import { makeOnDemand } from "./on-demand.ts"
 import { makeOrderBooks } from "./order-books.ts"
-import {
-  SEALED_CACHE,
-  type AccountId,
-  type HeldSessions,
-  type SessionId,
-} from "./routes.ts"
+import { SNAPSHOT_TRADES, recordedAnswer } from "./recorded-answers.ts"
+import { type AccountId, type HeldSessions, type SessionId } from "./routes.ts"
 import { stockbitTrades } from "./stockbit.ts"
 import { stockbitLivePrices, type LivePrice } from "./stockbit-liveprice.ts"
 
@@ -84,8 +77,6 @@ export interface SessionViewer {
   readonly sessionId: SessionId | undefined
 }
 
-const SNAPSHOT_TRADES = 200
-
 // How often viewers get the trades that arrived since the last delta.
 const DELTA_INTERVAL = "250 millis"
 
@@ -103,22 +94,6 @@ const TAPE_LIMIT = 10_000
 // progress, which the relay's backfill refills from the next gap.
 const MINUTE = 60_000
 const FLUSH_PAST_MINUTE = 5_000
-
-// The day store's facts.
-const Fact = {
-  sealed: "sealed",
-  gaps: "gaps",
-  feedDowns: "feed-downs",
-} as const
-
-const json = (text: string, cacheControl: string, status = 200) =>
-  new Response(text, {
-    status,
-    headers: {
-      "Content-Type": "application/json",
-      "Cache-Control": cacheControl,
-    },
-  })
 
 // IHSG's close and change on the strip, from its last `liveprice` frame.
 const ihsgOf = (price: LivePrice | undefined) => {
@@ -683,53 +658,17 @@ export const makeTradingDay = Effect.fnUntraced(function* (options: {
     yield* onDemand.update
   })
 
-  // A recorded day GET (spec apinrdw/kumora#138, "Recorded day loads"),
-  // answered from the store. A day not sealed yet answers what it flushed,
-  // not cached.
-  const recorded = Effect.fnUntraced(function* (resource: RecordedResource) {
-    const cacheControl = sealed ? SEALED_CACHE : "no-store"
-    switch (resource._tag) {
-      case "Codes":
-        return yield* codeListAnswer(codeListStore, options.date)
-      case "Tape":
-        return json(
-          yield* encodeRecordedTape({
-            trades: yield* store.tradesAt(resource.at, SNAPSHOT_TRADES),
-          }),
-          cacheControl
-        )
-      case "Candles": {
-        const previous = (yield* store.livePrice(resource.code))?.previous
-        return json(
-          yield* encodeRecordedCandles({
-            code: resource.code,
-            ...(previous === undefined ? {} : { previousClose: previous }),
-            candles: yield* store.candlesOf(resource.code),
-          }),
-          cacheControl
-        )
-      }
-      case "Book": {
-        const minute =
-          Math.floor(DateTime.toEpochMillis(resource.minute) / MINUTE) * MINUTE
-        const chunk = yield* store.chunkAt(resource.code, minute)
-        return chunk === undefined
-          ? json(
-              '{"error":"NotFound","message":"Not recorded"}',
-              cacheControl,
-              404
-            )
-          : json(chunk, cacheControl)
-      }
-      case "Gaps":
-        return json(
-          sealed
-            ? ((yield* store.fact(Fact.gaps)) ?? '{"gaps":[]}')
-            : yield* encodeRecordedGaps({ gaps: (yield* market.status).gaps }),
-          cacheControl
-        )
-    }
-  })
+  // A recorded day GET, answered from the store (recorded-answers.ts).
+  const recorded = (resource: RecordedResource) =>
+    Effect.suspend(() =>
+      recordedAnswer(resource, {
+        date: options.date,
+        store,
+        codeList: codeListStore,
+        sealed,
+        liveGaps: Effect.map(market.status, (status) => status.gaps),
+      })
+    )
 
   if (!sealed) yield* setAlarm(yield* sealInstant(options.date))
 
