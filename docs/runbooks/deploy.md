@@ -118,8 +118,8 @@ The auth routes are also rate-limited per client IP in the stage's D1 (sign-in 1
 Market Live's feed comes from `apps/extension`, loaded unpacked in the owner's Chrome. It is never published or deployed.
 
 1. Run `pnpm --filter extension build`. It writes `apps/extension/dist`, with Production's dashboard URL baked in.
-2. In `chrome://extensions`, turn on Developer mode, choose **Load unpacked** and pick `apps/extension/dist`. After each rebuild, press the extension's reload button, then reload the Ajaib tab.
+2. In `chrome://extensions`, turn on Developer mode, choose **Load unpacked** and pick `apps/extension/dist`. After each rebuild, press the extension's reload button, then reload the Stockbit and Ajaib tabs.
 3. Open the extension's options page. Paste Production's `INGEST_TOKEN` (step 1). To relay to Staging, a Preview or a Dev stage as well, set the extra target's URL and `staging`'s token. Each target's state shows below its fields; "Connected" means its ingest socket is open.
-4. Keep a signed-in `trade.ajaib.co.id` tab open. Its trades reach the stage's Market Live tape within a second.
+4. Keep a signed-in `stockbit.com` tab and a signed-in `trade.ajaib.co.id` tab open. The relay streams by itself from 08:40 to 16:35 WIB on trading days and closes its sockets outside those hours. In hours, trades reach the stage's Market Live tape within a second.
 
 The toolbar badge shows the worst target state: `KEY` for a rejected token, `RLD` when the dashboard no longer accepts the extension's protocol (rebuild and reload it), `…` while a target connects or retries.
