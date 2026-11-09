@@ -220,7 +220,7 @@ describe("the viewer socket", () => {
         page.setWatching = () => Effect.die(new Error("Storage write failed"))
         const exit = yield* Effect.exit(select(page))
         assert.isTrue(Exit.isFailure(exit))
-        assert.strictEqual(page.closedWith, 1011)
+        assert.strictEqual(page.closedWith, ViewerCloseCode.SelectNotServed)
       })
   )
 })

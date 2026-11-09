@@ -764,7 +764,11 @@ export const makeTradingDay = Effect.fnUntraced(function* (options: {
     (effect, socket) =>
       Effect.catchTag(effect, "ProtocolVersionMismatch", (error) =>
         socket.close(error.closeCode, "New version, reload")
-      ).pipe(Effect.tapCause(() => socket.close(1011, "Select not served")))
+      ).pipe(
+        Effect.tapCause(() =>
+          socket.close(ViewerCloseCode.SelectNotServed, "Select not served")
+        )
+      )
   )
 
   // A ready ingest socket closed, leaving `remaining` ready ones. With none,

@@ -28,11 +28,13 @@ export const IngestCloseCode = {
   VersionMismatch: 4426,
 } as const
 
-// Both are terminal for the page; any other close reconnects and resumes from
-// a fresh snapshot.
+// 4401 and 4426 are terminal for the page. 1011, a Select the trading-day
+// object couldn't serve, reconnects like any other close and resumes from a
+// fresh snapshot.
 export const ViewerCloseCode = {
   SignInRequired: 4401,
   NewVersion: 4426,
+  SelectNotServed: 1011,
 } as const
 
 // Where the dashboard Worker serves the two sockets. The extension opens the
