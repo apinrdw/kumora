@@ -81,6 +81,15 @@ describe("Ajaib's subscribe frames", () => {
       })
     })
   )
+
+  it("take only an account id as the id, never a stream's name", () => {
+    const id: Option.Option<AjaibAccountId> = Option.some(
+      AjaibAccountId.make(4999301)
+    )
+    // @ts-expect-error a stream name is not an AjaibAccountId
+    const stream: Option.Option<AjaibAccountId> = Option.some("INDICATIVE")
+    assert.isTrue(Option.isSome(id) && Option.isSome(stream))
+  })
 })
 
 describe("Ajaib's stock code list", () => {
