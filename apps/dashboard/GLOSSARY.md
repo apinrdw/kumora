@@ -19,7 +19,7 @@ The stock codes and indices a user chooses to keep an eye on, each with its day 
 _Avoid_: Favourites, portfolio
 
 **Big trade**:
-A running trade worth at least Rp1 miliar.
+A running trade worth at least Rp1 B (one billion rupiah).
 _Avoid_: Whale trade
 
 **Frequency**:

@@ -3,6 +3,7 @@ import { describe, expect, test } from "vitest"
 
 import { CANDLE_LEGEND, KChartPanel } from "@/components/k/chart-panel"
 import type { KChartPanelProps } from "@/components/k/chart-panel"
+import { EMPTY } from "@/components/k/empty-state"
 
 const AS_OF = "2026-10-28T07:45:00Z"
 
@@ -32,7 +33,7 @@ describe("KChartPanel", () => {
     )
     expect(html).toContain("Satuan: Rp per saham · Zona waktu WIB")
     expect(html).toContain("Feed harga")
-    expect(html).toContain("per 14.45 WIB")
+    expect(html).toContain("per 14:45 WIB")
     expect(html).toContain('data-testid="chart"')
   })
 
@@ -69,7 +70,7 @@ describe("KChartPanel", () => {
     expect(loading).not.toContain('data-testid="chart"')
 
     const restricted = render({ state: { status: "restricted" } })
-    expect(restricted).toContain("Data broker tidak termasuk dalam paket Anda")
+    expect(restricted).toContain(EMPTY["no-access"].title)
     expect(restricted).not.toContain('data-testid="chart"')
   })
 

@@ -7,7 +7,7 @@ describe("flowReadoutRow", () => {
   test("a positive net reads as a net buy in the up color", () => {
     expect(flowReadoutRow({ label: "BBCA", net: 86.2e9 }, compactIdr)).toEqual({
       label: "Net beli",
-      value: "+Rp86,2 miliar",
+      value: "+Rp86.2 B",
       swatch: "var(--semantic-up)",
     })
   })
@@ -15,7 +15,7 @@ describe("flowReadoutRow", () => {
   test("a negative net reads as a net sell in the down color", () => {
     expect(flowReadoutRow({ label: "YP", net: -4e6 }, compactIdr)).toEqual({
       label: "Net jual",
-      value: "−Rp4,0 juta",
+      value: "−Rp4 M",
       swatch: "var(--semantic-down)",
     })
   })

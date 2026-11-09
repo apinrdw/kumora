@@ -12,7 +12,7 @@ import {
 } from "recharts"
 
 import type { FlowPoint } from "@/domain/flow"
-import { compactIdr, miliarShort } from "@/lib/format"
+import { compactIdr, billionShort } from "@/lib/format"
 import { AXIS_TICK, CHART_COLOR } from "./colors"
 import { pointReadout } from "./readout"
 import type { ReadoutRow } from "./readout"
@@ -21,7 +21,7 @@ export type NetFlowChartProps = {
   data: ReadonlyArray<FlowPoint>
   /** Axis tick text. Default "+Rp318 M". */
   formatTick?: (n: number) => string
-  /** Readout value text. Default "+Rp86,2 miliar". */
+  /** Readout value text. Default "+Rp86.2 B". */
   formatValue?: (n: number) => string
   /** px. Default 200. */
   height?: number
@@ -50,7 +50,7 @@ export function flowReadoutRow(
 /** Diverging bars around a visible zero line: net buy up, net sell down. */
 export function NetFlowChart({
   data,
-  formatTick = miliarShort,
+  formatTick = billionShort,
   formatValue = compactIdr,
   height = 200,
   horizontal = false,
