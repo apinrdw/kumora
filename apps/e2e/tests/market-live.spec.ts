@@ -95,12 +95,12 @@ test.describe("signed in", () => {
     await relay.sendAjaib(session1Today(freshTradeNumbers()).slice(0, 5))
     await relay.report("Stockbit", "alive")
     await page.goto(`${DASHBOARD}${PAGE}`)
-    const status = page.getByRole("group", { name: "Market conditions" })
+    const conditions = page.getByRole("group", { name: "Market conditions" })
     const pill = (feed: string) =>
-      status.getByRole("listitem").filter({ hasText: feed })
+      conditions.getByRole("listitem").filter({ hasText: feed })
     const tape = page.getByRole("region", { name: "Running trades" })
     // The Test stage's clock offset puts the market in session 1.
-    await expect(status.getByLabel("Market phase")).toHaveText("Session 1")
+    await expect(conditions.getByLabel("Market phase")).toHaveText("Session 1")
     await expect(pill("Stockbit")).toContainText("LIVE")
     await expect(pill("Ajaib")).toContainText("LIVE")
     // The morning before the first relay connected wasn't recorded.
@@ -145,18 +145,18 @@ test.describe("signed in", () => {
       }
     })
     await page.goto(`${DASHBOARD}${PAGE}`)
-    const status = page.getByRole("group", { name: "Market conditions" })
-    await expect(status.getByRole("list", { name: "Feeds" })).toBeVisible()
+    const conditions = page.getByRole("group", { name: "Market conditions" })
+    await expect(conditions.getByRole("list", { name: "Feeds" })).toBeVisible()
     await expect.poll(() => dropPage !== undefined).toBe(true)
     dropPage!()
-    await expect(status.getByRole("status")).toHaveText("Reconnecting…")
-    await expect(status.getByRole("list", { name: "Feeds" })).toBeHidden()
+    await expect(conditions.getByRole("status")).toHaveText("Reconnecting…")
+    await expect(conditions.getByRole("list", { name: "Feeds" })).toBeHidden()
     await expect(
       page.getByRole("region", { name: "Running trades" })
     ).toHaveAttribute("data-stale", "true")
     // The reconnect's fresh snapshot brings the pills back.
     accept = true
-    await expect(status.getByRole("list", { name: "Feeds" })).toBeVisible({
+    await expect(conditions.getByRole("list", { name: "Feeds" })).toBeVisible({
       timeout: 15_000,
     })
   })

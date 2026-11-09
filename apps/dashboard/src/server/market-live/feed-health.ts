@@ -213,8 +213,8 @@ export const makeFeedHealth = Effect.fnUntraced(function* (options: {
     )
   }
 
-  // What viewers are told at `now`.
-  const status = (now: DateTime.Utc) =>
+  // The feeds' part of the market conditions viewers are told at `now`.
+  const conditionsAt = (now: DateTime.Utc) =>
     Effect.sync(() => {
       observe(now)
       return {
@@ -239,5 +239,5 @@ export const makeFeedHealth = Effect.fnUntraced(function* (options: {
     Ajaib: downsOf("Ajaib"),
   }))
 
-  return { sign, closed, online, offline, status, record }
+  return { sign, closed, online, offline, conditionsAt, record }
 })

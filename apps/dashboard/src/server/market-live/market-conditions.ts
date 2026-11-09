@@ -66,7 +66,7 @@ export const makeMarketConditions = Effect.fnUntraced(function* (
 
   const conditions = Effect.gen(function* () {
     const now = yield* DateTime.now
-    const feeds = yield* health.status(now)
+    const feeds = yield* health.conditionsAt(now)
     const live = feeds.feeds.Stockbit === "live"
     if (live !== stockbitLive) {
       // The fallback switches source for every code.

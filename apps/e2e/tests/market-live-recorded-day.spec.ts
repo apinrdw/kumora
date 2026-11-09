@@ -98,15 +98,15 @@ test("the day strip opens a recorded day at its close, it replays, and Today · 
     [WATCHLIST_KEY, JSON.stringify([code])] as const
   )
   await page.goto(`${DASHBOARD}${PAGE}?code=${code}`)
-  const status = page.getByRole("group", { name: "Market conditions" })
-  await expect(status.getByRole("list", { name: "Feeds" })).toBeVisible()
+  const conditions = page.getByRole("group", { name: "Market conditions" })
+  await expect(conditions.getByRole("list", { name: "Feeds" })).toBeVisible()
 
   const strip = page.getByRole("navigation", { name: "Trading days" })
   await strip.getByRole("link", { name: /IHSG \+0\.50%/ }).click()
   await expect(page).toHaveURL(new RegExp(`[?&]day=${day}(&|$)`))
-  await expect(status).toContainText("RECORDED")
-  await expect(status).toContainText("at the close")
-  await expect(status.getByRole("list", { name: "Feeds" })).toHaveCount(0)
+  await expect(conditions).toContainText("RECORDED")
+  await expect(conditions).toContainText("at the close")
+  await expect(conditions.getByRole("list", { name: "Feeds" })).toHaveCount(0)
   await expect(strip.getByRole("link", { name: /IHSG/ })).toHaveAttribute(
     "aria-current",
     "page"
@@ -129,7 +129,7 @@ test("the day strip opens a recorded day at its close, it replays, and Today · 
   // tape say it wasn't recorded.
   const scrubber = page.getByRole("slider", { name: "Replay cursor" })
   await scrubber.fill(String(gapFrom + 60_000))
-  await expect(status).toContainText(`at ${clock(gapFrom + 60_000)}`)
+  await expect(conditions).toContainText(`at ${clock(gapFrom + 60_000)}`)
   await expect(tape.locator(`tr[data-trade-number="${base + 2}"]`)).toHaveCount(
     0
   )
@@ -163,11 +163,11 @@ test("the day strip opens a recorded day at its close, it replays, and Today · 
   // Dragged to its end, its last whole-second step, the cursor is at the
   // close, not a second before.
   await scrubber.fill(String(Number(await scrubber.getAttribute("max")) - 999))
-  await expect(status).toContainText("at the close")
+  await expect(conditions).toContainText("at the close")
 
   await strip.getByRole("link", { name: "Today · live" }).click()
   await expect(page).not.toHaveURL(/[?&]day=/)
-  await expect(status.getByRole("list", { name: "Feeds" })).toBeVisible()
+  await expect(conditions.getByRole("list", { name: "Feeds" })).toBeVisible()
 })
 
 test("a 401 recorded day answer sends the viewer to sign in", async ({
