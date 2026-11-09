@@ -11,7 +11,9 @@ import { DateTime } from "effect"
 const MINUTE = 60_000
 
 // Where a recorded day opens: the end of the close's minute, 16:15 WIB, when
-// post-trading ends. Every trade of the day is at or before it.
+// post-trading ends. Every regular-board trade of the day is at or before
+// it; the negotiated board's run on until the relay stops at 16:35
+// (`replayDay`'s end).
 export const closeOf = (day: WibDate) =>
   DateTime.makeUnsafe(`${day}T16:15:59.999+07:00`)
 

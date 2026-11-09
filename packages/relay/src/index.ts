@@ -10,6 +10,7 @@ export {
   nextOpenAfter,
   wibDateAt,
   sealInstant,
+  streamingEndOf,
 } from "./schedule.ts"
 export type { Interval, MarketMoment, PhaseInterval } from "./schedule.ts"
 export { MarketConditions } from "./market-conditions.ts"

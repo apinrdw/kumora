@@ -217,7 +217,7 @@ function followTape(
     askedAt = performance.now()
     asked += 1
     const id = asked
-    const at = DateTime.makeUnsafe(tapeInstant(cursor.state().at))
+    const at = DateTime.makeUnsafe(tapeInstant(cursor.day, cursor.state().at))
     loads.run(
       Effect.map(fetchRecordedTape(cursor.day.date, at), (trades) => {
         if (id < shown) return
@@ -233,7 +233,7 @@ function followTape(
     if (wait <= 0) ask()
     else timer = setTimeout(ask, wait)
   }
-  const stop = onCursorKey(cursor, tapeInstant, moved)
+  const stop = onCursorKey(cursor, (at) => tapeInstant(cursor.day, at), moved)
   return () => {
     stop()
     clearTimeout(timer)

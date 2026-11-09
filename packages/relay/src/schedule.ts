@@ -141,6 +141,12 @@ const auctionMatchMinutes: ReadonlyArray<Span> = [
 // included. A narrower window loses auction data; a wider one costs little.
 const streaming: Span = { first: "08:40:00", last: "16:34:59" }
 
+// The last instant the relay streams on `date`, the last a trade can be
+// recorded at: a recorded day's tape at the close reads there.
+export const streamingEndOf = Effect.fnUntraced(function* (date: WibDate) {
+  return DateTime.makeUnsafe(`${date}T${streaming.last}.999+07:00`)
+})
+
 export const isTradingDay = Effect.fnUntraced(function* (date: WibDate) {
   const year = Number(date.slice(0, 4))
   const yearHolidays = holidays[year]

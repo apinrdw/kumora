@@ -1,13 +1,14 @@
 // The replay cursor over a recorded day (spec apinrdw/kumora#138, "Closed
 // market and recorded days"): where Play moves it, and what the tape and
 // relay gaps read at it. Instants are epoch milliseconds.
-import type {
-  MarketPhase,
-  PhaseInterval,
-  RelayGap,
-  WibDate,
+import {
+  streamingEndOf,
+  type MarketPhase,
+  type PhaseInterval,
+  type RelayGap,
+  type WibDate,
 } from "@workspace/relay"
-import { DateTime } from "effect"
+import { DateTime, Effect } from "effect"
 
 import { closeOf } from "./recorded-day"
 
@@ -25,11 +26,18 @@ export type Band = {
 }
 
 // A recorded day's span for the scrubber, 08:45 to the end of the close
-// minute, and its market phases: the session bands and the break Play skips.
+// minute; where its record ends; and its market phases: the session bands
+// and the break Play skips.
 export type ReplayDay = {
   readonly date: WibDate
   readonly start: number
   readonly close: number
+  // Decision: the scrubber and Play end at the close, 16:15, as the spec's
+  // transport bar says, but the relay records until it stops streaming at
+  // 16:35, when the negotiated board has closed too. The tape at the close
+  // reads at the record's end, so every stored trade of the day shows there;
+  // the chart and watchlist read regular-board candles, which end by 16:15.
+  readonly end: number
   readonly bands: ReadonlyArray<Band>
 }
 
@@ -41,6 +49,7 @@ export function replayDay(
     date: day,
     start: DateTime.toEpochMillis(DateTime.makeUnsafe(`${day}T08:45:00+07:00`)),
     close: DateTime.toEpochMillis(closeOf(day)),
+    end: DateTime.toEpochMillis(Effect.runSync(streamingEndOf(day))),
     bands: phases.map(({ phase, from, to }) => ({
       phase,
       from: DateTime.toEpochMillis(from),
@@ -78,8 +87,10 @@ export const minuteEnd = (minute: number) => minute + 59_999
 
 // Decision: the tape is asked at the end of the cursor's second, a whole
 // second's worth of cursors sharing one URL (so a sealed day's answer
-// caches) and every trade of that second included.
-export const tapeInstant = (at: number) => Math.floor(at / 1_000) * 1_000 + 999
+// caches) and every trade of that second included; at the close it is asked
+// at the day's end, for the trades after 16:15.
+export const tapeInstant = (day: ReplayDay, at: number) =>
+  at >= day.close ? day.end : Math.floor(at / 1_000) * 1_000 + 999
 
 // The relay gap the cursor is in: from its start up to, not including, its
 // end; one with no end runs to the close.
