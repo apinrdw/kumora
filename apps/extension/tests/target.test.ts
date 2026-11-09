@@ -1,5 +1,6 @@
 import { assert, describe, it } from "@effect/vitest"
 import {
+  EncodedIngestUp,
   IngestCloseCode,
   IngestProtocolVersion,
   StockCode,
@@ -53,12 +54,12 @@ const origin = DashboardOrigin.make("http://localhost:3001")
 
 // `catchUp`: what every fresh socket is sent after the token.
 const harness = Effect.fnUntraced(function* (
-  catchUp: ReadonlyArray<string> = []
+  catchUp: ReadonlyArray<EncodedIngestUp> = []
 ) {
   const sockets: Array<FakeIngest> = []
   const states: Array<TargetState> = []
   const down: Array<IngestDown> = []
-  const envelopes = yield* PubSub.sliding<string>(16)
+  const envelopes = yield* PubSub.sliding<EncodedIngestUp>(16)
   const day = yield* SubscriptionRef.make(WibDate.make("2026-11-09"))
   const fiber = yield* runTarget({
     origin,
@@ -90,7 +91,7 @@ describe("a target's ingest socket", () => {
       Effect.gen(function* () {
         const { sockets, states, envelopes, settle } = yield* harness()
         yield* settle
-        yield* PubSub.publish(envelopes, "envelope 1")
+        yield* PubSub.publish(envelopes, EncodedIngestUp.make("envelope 1"))
         yield* settle
         assert.strictEqual(sockets.length, 1)
         assert.strictEqual(
@@ -151,7 +152,9 @@ describe("a target's ingest socket", () => {
 
   it.effect("sends the catch-up envelopes after the token on every open", () =>
     Effect.gen(function* () {
-      const { sockets, settle } = yield* harness(["the code list"])
+      const { sockets, settle } = yield* harness([
+        EncodedIngestUp.make("the code list"),
+      ])
       yield* settle
       assert.deepStrictEqual(sockets[0]?.sent.slice(1), ["the code list"])
       sockets[0]?.close(1006)

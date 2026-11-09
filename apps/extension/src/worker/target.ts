@@ -7,6 +7,7 @@ import {
   MarketLivePath,
   decodeIngestDown,
   encodeIngestUp,
+  type EncodedIngestUp,
   type IngestDown,
   type WibDate,
 } from "@workspace/relay"
@@ -43,7 +44,7 @@ const ingestUrl = Effect.fnUntraced(function* (origin: DashboardOrigin) {
 export const runTarget = Effect.fnUntraced(function* (options: {
   readonly origin: DashboardOrigin
   readonly token: string
-  readonly envelopes: PubSub.PubSub<string>
+  readonly envelopes: PubSub.PubSub<EncodedIngestUp>
   // Today's WIB date on the relay's schedule clock. Decision: the dashboard
   // picks the trading-day object at the handshake, by its WIB date, so a
   // socket left open past midnight would feed the sealed day and lose the
@@ -51,7 +52,7 @@ export const runTarget = Effect.fnUntraced(function* (options: {
   readonly day: SubscriptionRef.SubscriptionRef<WibDate>
   // What every fresh socket is sent after the token: the day's code list,
   // which a target that was down for the daily fetch would otherwise miss.
-  readonly catchUp: Effect.Effect<ReadonlyArray<string>>
+  readonly catchUp: Effect.Effect<ReadonlyArray<EncodedIngestUp>>
   readonly report: (state: TargetState) => Effect.Effect<void>
   // What the trading-day object sends down: on-demand codes and backfill
   // requests.

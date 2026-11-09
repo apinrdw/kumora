@@ -1,6 +1,6 @@
 // What the options page sets and what the service worker reports back, both
 // kept in chrome.storage (spec apinrdw/kumora#138, "Batching and targets").
-import { StockCode, WibDate } from "@workspace/relay"
+import { EncodedIngestUp, StockCode, WibDate } from "@workspace/relay"
 import { Effect, Option, Schema } from "effect"
 
 import { SignIn, type PinStore } from "./ajaib-session.ts"
@@ -101,7 +101,7 @@ export const isTargetStatesChange = Effect.fnUntraced(function* (
 const CodeListCache = Schema.Struct({
   date: WibDate,
   codes: Schema.Array(StockCode),
-  envelope: Schema.String,
+  envelope: EncodedIngestUp,
 })
 export type CodeListCache = typeof CodeListCache.Type
 

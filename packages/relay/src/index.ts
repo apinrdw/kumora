@@ -42,6 +42,7 @@ export {
   decodeIngestUp,
   decodeViewerDown,
   decodeViewerUp,
+  EncodedIngestUp,
   encodeIngestDown,
   encodeIngestUp,
   encodeViewerDown,

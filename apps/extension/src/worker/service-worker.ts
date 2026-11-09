@@ -6,6 +6,7 @@ import {
   type StockCode,
   encodeIngestUp,
   wibDateAt,
+  type EncodedIngestUp,
   type IngestDown,
   type IngestUp,
   type WibDate,
@@ -128,9 +129,9 @@ const showStates = Effect.fnUntraced(function* (states: TargetStates) {
 
 // Targets: one fiber each, restarted when its settings change.
 const makeTargets = Effect.fnUntraced(function* (options: {
-  readonly envelopes: PubSub.PubSub<string>
+  readonly envelopes: PubSub.PubSub<EncodedIngestUp>
   readonly day: SubscriptionRef.SubscriptionRef<WibDate>
-  readonly catchUp: Effect.Effect<ReadonlyArray<string>>
+  readonly catchUp: Effect.Effect<ReadonlyArray<EncodedIngestUp>>
   readonly receive: (
     name: TargetName,
     message: IngestDown | undefined
@@ -217,7 +218,7 @@ const makeOnDemandCodes = Effect.fnUntraced(function* (
 const CODE_LIST_RETRY = Duration.minutes(1)
 
 const makeCodeList = Effect.fnUntraced(function* (options: {
-  readonly envelopes: PubSub.PubSub<string>
+  readonly envelopes: PubSub.PubSub<EncodedIngestUp>
   readonly changed: Effect.Effect<void>
 }) {
   let list = yield* loadCodeList
@@ -289,7 +290,7 @@ const scheduleNow = Effect.gen(function* () {
 })
 
 const main = Effect.gen(function* () {
-  const envelopes = yield* PubSub.sliding<string>(1024)
+  const envelopes = yield* PubSub.sliding<EncodedIngestUp>(1024)
   const publish = (message: IngestUp) =>
     Effect.flatMap(Effect.orDie(encodeIngestUp(message)), (text) =>
       PubSub.publish(envelopes, text)

@@ -285,9 +285,17 @@ export const decodeIngestUp = Effect.fnUntraced(function* (text: string) {
   return yield* Schema.decodeUnknownEffect(IngestUp)(json)
 })
 
-export const encodeIngestUp = Schema.encodeEffect(
-  Schema.fromJsonString(IngestUp)
+// An ingest envelope as the socket carries it, from `encodeIngestUp` only.
+export const EncodedIngestUp = Schema.String.pipe(
+  Schema.brand("EncodedIngestUp")
 )
+export type EncodedIngestUp = typeof EncodedIngestUp.Type
+
+const encodeIngestUpText = Schema.encodeEffect(Schema.fromJsonString(IngestUp))
+
+export const encodeIngestUp = Effect.fnUntraced(function* (message: IngestUp) {
+  return EncodedIngestUp.make(yield* encodeIngestUpText(message))
+})
 
 export const decodeIngestDown = Schema.decodeUnknownEffect(
   Schema.fromJsonString(IngestDown)
