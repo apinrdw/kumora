@@ -677,12 +677,15 @@ export const makeTradingDay = Effect.fnUntraced(function* (options: {
   )
 
   // A ready ingest socket closed, leaving `remaining` ready ones. With none,
-  // the relay is offline.
+  // the relay is offline: written at once, as nothing else may arrive to
+  // schedule a flush before the object is evicted, and a restart would count
+  // the gap from its own start.
   const ingestClosed = Effect.fnUntraced(function* (remaining: number) {
     if (remaining > 0 || !relayOnline) return
     relayOnline = false
     yield* market.relayOffline
     yield* scheduleDelta
+    if (!sealed) yield* flush(false)
   })
 
   // A viewer socket closed: its codes leave the on-demand set.

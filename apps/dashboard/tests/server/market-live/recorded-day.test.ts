@@ -450,10 +450,15 @@ describe("a restarted trading day", () => {
         yield* TestClock.setTime(wib("09:00:00").epochMilliseconds)
         const sql = memorySql()
         const first = yield* tradingDay(sql)
-        yield* first.ajaib([ajaibTrade({ seq: 1, time: "09:00:00" })])
-        // The minute's flush at 09:00:05 stored Ajaib up; the relay goes at
-        // 09:01:10, after it.
-        yield* pastFlush
+        // Ajaib live through the 09:01:05 flush, which stored it up; the
+        // relay goes at 09:01:10, after it.
+        for (let tick = 0; tick < 7; tick++) {
+          const time = DateTime.formatIso(
+            DateTime.add(wib("09:00:00"), { hours: 7, seconds: tick * 10 })
+          ).slice(11, 19)
+          yield* first.ajaib([ajaibTrade({ seq: tick + 1, time })])
+          yield* TestClock.adjust("10 seconds")
+        }
         yield* first.relayClosed
         yield* first.stop
         yield* TestClock.setTime(wib("10:00:00").epochMilliseconds)
