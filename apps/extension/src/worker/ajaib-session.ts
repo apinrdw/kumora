@@ -99,7 +99,7 @@ export interface PinStore {
 
 export const makeAjaibSession = Effect.fnUntraced(function* (options: {
   readonly tab: {
-    readonly attached: () => boolean
+    readonly attached: Effect.Effect<boolean>
     readonly request: (
       request: TabRequest
     ) => Effect.Effect<Option.Option<Answer>>
@@ -113,7 +113,7 @@ export const makeAjaibSession = Effect.fnUntraced(function* (options: {
   // can send it again: a wrong PIN tried twice could lock the account. Only a
   // new entry on the options page is tried again.
   const tick = Effect.gen(function* () {
-    if (!tab.attached()) return
+    if (!(yield* tab.attached)) return
     const pin = yield* store.takePin
     if (Option.isNone(pin)) return
     yield* store.setSignIn({ state: "signing-in" })

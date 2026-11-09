@@ -124,7 +124,7 @@ export const makeAjaibSubscriptions = Effect.fnUntraced(function* (
     connection: Connection
   ) {
     const stream = streams[site]
-    if (stream === undefined || !tab.isOpen(site, connection)) return
+    if (stream === undefined || !(yield* tab.isOpen(site, connection))) return
     const id = yield* userId
     // From here to `held.set` nothing yields, so two updates never send the
     // same difference.

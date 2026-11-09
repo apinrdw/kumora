@@ -198,7 +198,7 @@ export const makeBrokerTab = Effect.fnUntraced(function* (options: {
   })
 
   const isOpen = (site: SiteName, connection: Connection) =>
-    links.get(site)?.[connection].phase === "open"
+    Effect.sync(() => links.get(site)?.[connection].phase === "open")
 
   const tab: BrokerTab = {
     connect,
@@ -209,7 +209,7 @@ export const makeBrokerTab = Effect.fnUntraced(function* (options: {
     send,
     drop,
     isOpen,
-    attached: () => active !== undefined,
+    attached: Effect.sync(() => active !== undefined),
   }
   return tab
 })
@@ -231,6 +231,9 @@ export interface BrokerTab {
     payload: Payload
   ) => Effect.Effect<void>
   readonly drop: (site: SiteName, connection: Connection) => Effect.Effect<void>
-  readonly isOpen: (site: SiteName, connection: Connection) => boolean
-  readonly attached: () => boolean
+  readonly isOpen: (
+    site: SiteName,
+    connection: Connection
+  ) => Effect.Effect<boolean>
+  readonly attached: Effect.Effect<boolean>
 }

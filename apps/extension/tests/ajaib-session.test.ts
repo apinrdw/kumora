@@ -125,7 +125,7 @@ const harness = Effect.fnUntraced(function* (reply: Answer) {
   let signIn: SignIn = { state: "none" }
   const session = yield* makeAjaibSession({
     tab: {
-      attached: () => true,
+      attached: Effect.succeed(true),
       request: (request: TabRequest) =>
         Effect.sync(() => {
           requests.push(request)

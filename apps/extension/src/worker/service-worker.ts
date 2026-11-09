@@ -255,7 +255,7 @@ const makeCodeList = Effect.fnUntraced(function* (options: {
     const today = yield* wibDateAt(now)
     const ms = DateTime.toEpochMillis(now)
     if (Option.isSome(list) && list.value.date === today) return
-    if (fetching || !tab.attached()) return
+    if (fetching || !(yield* tab.attached)) return
     if (ms - lastTry < Duration.toMillis(CODE_LIST_RETRY)) return
     lastTry = ms
     fetching = true
