@@ -4,7 +4,7 @@
   "type": "module",
   "private": true,
   "scripts": {
-    "e2e": "playwright test",
+    "e2e": "pnpm --filter extension build && playwright test",
     "lint": "oxlint --deny-warnings",
     "format": "oxfmt --write \"**/*.{ts,tsx}\"",
     "format:check": "oxfmt --check \"**/*.{ts,tsx}\"",
@@ -13,9 +13,11 @@
   "devDependencies": {
     "@playwright/test": "1.64.1",
     "@types/node": "^22",
+    "@types/ws": "^8.18.2",
     "@workspace/deploy": "workspace:*",
     "@workspace/relay": "workspace:*",
     "effect": "catalog:",
-    "typescript": "7.0.2"
+    "typescript": "7.0.2",
+    "ws": "^8.22.1"
   }
 }
