@@ -1,6 +1,6 @@
-// A ban, revoke or delete closes the account's live Market Live pages at once
-// (apinrdw/kumora#144): the handler seam's after-hook tells a real trading
-// day, as the Worker tells today's Durable Object.
+// Ending a session closes its live Market Live pages at once
+// (apinrdw/kumora#144): the handler seam's session delete hook tells a real
+// trading day, as the Worker tells today's Durable Object.
 import { assert, describe, it } from "@effect/vitest"
 import { ViewerCloseCode, WibDate } from "@workspace/relay"
 import { Effect, Scope } from "effect"

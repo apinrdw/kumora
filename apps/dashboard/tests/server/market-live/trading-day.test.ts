@@ -70,7 +70,7 @@ interface SignedIn {
 
 const AYU: SignedIn = { userId: "ayu", sessionId: "ayu-laptop" }
 
-// The sessions an account still holds, as the after-hook sends them.
+// The sessions an account still holds, as the session delete hook sends them.
 const heldSessions = (userId: string, sessionIds: ReadonlyArray<string>) => ({
   userId: AccountId.make(userId),
   sessionIds: sessionIds.map((id) => SessionId.make(id)),

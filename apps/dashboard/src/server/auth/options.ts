@@ -87,8 +87,8 @@ export interface AuthOptionsInput {
   }) => Promise<void>
   // Throws Better Auth's APIError when the access policy refuses the action,
   // and when `target` is null: the userId names no account.
-  // Runs after every route that can end an account's sessions: closes its
-  // live Market Live pages on any session it no longer holds.
+  // Runs after every session row is deleted: closes the account's live Market
+  // Live pages on any session it no longer holds.
   readonly endLiveSessions: (held: HeldSessions) => Promise<void>
   readonly authorizeAdminAction: (request: {
     readonly action: TargetAction
@@ -348,35 +348,27 @@ const before = (input: AuthOptionsInput) =>
     })
   })
 
-// The routes that ban, revoke or delete, each by where it names the account:
-// the admin plugin's body, or the signed-in session. Better Auth answers 404
-// on /admin/revoke-user-session and /revoke-sessions (DISABLED_ROUTES).
-const SESSION_ENDING_ROUTES: Readonly<
-  Partial<Record<string, "body" | "session">>
-> = {
-  "/admin/ban-user": "body",
-  "/admin/revoke-user-sessions": "body",
-  "/revoke-session": "session",
-  "/revoke-other-sessions": "session",
-  "/delete-user/callback": "session",
-}
-
-// Decision: the hook sends the sessions the account still holds, read after
-// the route ran, rather than what each route meant to end. Every route then
-// reads the same way, and a refused or failed one ends nothing.
+// Decision: live pages close from the session table's delete hook, not from
+// a table of routes: every route that ends a session (ban, revoke, delete,
+// sign-out, a password reset or change, an expired session being read)
+// deletes its row through it, and the hook runs after the route's
+// transaction. It sends the sessions the account still holds, read after the
+// delete, rather than what the route meant to end, so a refused or failed
+// route ends nothing. /change-password with revokeOtherSessions replaces the
+// caller's own session too, so its page closes and signs in again.
 const endLiveSessions = async (
-  ctx: HookContext,
   input: AuthOptionsInput,
-  from: "body" | "session"
+  ended: { readonly userId: string },
+  // Null outside an endpoint, where Better Auth deletes nothing.
+  ctx: Pick<HookContext, "context"> | null
 ) => {
-  const userId: unknown =
-    from === "body" ? ctx.body?.userId : ctx.context.session?.user.id
-  if (typeof userId !== "string" || userId === "") return
-  const sessions = await ctx.context.internalAdapter.listSessions(userId, {
-    onlyActiveSessions: true,
-  })
+  if (ctx === null) return
+  const sessions = await ctx.context.internalAdapter.listSessions(
+    ended.userId,
+    { onlyActiveSessions: true }
+  )
   await input.endLiveSessions({
-    userId: AccountId.make(userId),
+    userId: AccountId.make(ended.userId),
     sessionIds: sessions.map((session) => SessionId.make(session.id)),
   })
 }
@@ -384,8 +376,6 @@ const endLiveSessions = async (
 const after = (input: AuthOptionsInput) =>
   createAuthMiddleware(async (ctx) => {
     if (ctx.path === "/sign-up/email") return hideTakenEmail(ctx, input)
-    const from = lookup(SESSION_ENDING_ROUTES, ctx.path)
-    if (from !== undefined) return endLiveSessions(ctx, input, from)
   })
 
 // The per-address mail cap's table (mail-cap.ts). A plugin schema, so the
@@ -493,6 +483,9 @@ export function authOptions(input: AuthOptionsInput) {
             grantAdmin(
               (await ctx?.context.internalAdapter.findUserById(userId)) ?? null
             ),
+        },
+        delete: {
+          after: (session, ctx) => endLiveSessions(input, session, ctx),
         },
         // get-session renews a session within updateAge of its renewal at the
         // full expiresIn, and an impersonation session, made an hour from its

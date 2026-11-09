@@ -1,4 +1,4 @@
-// The socket-closing after-hook reaches today's trading-day object on Market
+// The socket-closing session hook reaches today's trading-day object on Market
 // Live's clock, the same day the viewer sockets were routed to (spec
 // apinrdw/kumora#138, "The custom Worker entry and the gate").
 import { assert, describe, it } from "@effect/vitest"

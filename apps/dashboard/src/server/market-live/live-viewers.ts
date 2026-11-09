@@ -1,6 +1,6 @@
-// What Better Auth's socket-closing after-hook (auth/options.ts) reaches:
-// today's trading-day Durable Object, told which sessions an account still
-// holds after a ban, revoke or delete, so it closes the account's Market Live
+// What Better Auth's session delete hook (auth/options.ts) reaches: today's
+// trading-day Durable Object, told which sessions an account still holds
+// after one of its sessions ended, so it closes the account's Market Live
 // pages on every other session with 4401 (spec apinrdw/kumora#138, "The
 // custom Worker entry and the gate").
 import { WorkerEnv } from "@workspace/server"
@@ -22,8 +22,8 @@ export class LiveViewers extends Context.Service<
     Effect.gen(function* () {
       const env = yield* WorkerEnv
       return LiveViewers.of({
-        // The ban or revoke already happened, so a failure here is logged
-        // and the action still answers as it did.
+        // The session already ended, so a failure here is logged and the
+        // route still answers as it did.
         endSessions: Effect.fnUntraced(
           function* (held) {
             const today = yield* marketToday.pipe(
