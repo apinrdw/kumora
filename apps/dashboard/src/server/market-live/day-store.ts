@@ -109,6 +109,10 @@ export const Fact = {
   feedDowns: "feed-downs",
 } as const
 
+// The most a stored trade's time can run before the time of the trade
+// numbered before it: Ajaib's and the backfill's rounding to the second.
+const TIME_SKEW_MS = 1_000
+
 const numberOf = (value: SqlValue | undefined) => Number(value)
 const textOf = (value: SqlValue | undefined) => String(value)
 
@@ -269,11 +273,17 @@ export const makeDayStore = (sql: Sql) =>
         number
       )[0]
 
-    // Decision: the highest number at or before an instant is found by a
-    // binary search on the trade number, which IDX hands out in matching
-    // order, so the time grows with it; the table needs no index on time.
-    // Rows a search brackets are still filtered by time.
-    const highestAt = (cutoff: number) => {
+    // Decision: a trade number at or above every trade at or before an
+    // instant is found by a binary search on the trade number, which IDX
+    // hands out in matching order, so the table needs no index on time. The
+    // stored times do not grow with the number exactly: Stockbit times a
+    // trade to the millisecond, Ajaib and the backfill to the second, so a
+    // trade's stored time runs at most TIME_SKEW_MS before the one before
+    // it. The search therefore looks for the highest number whose time is
+    // within the skew after the instant: every trade at or before the
+    // instant is at or below it, and the query's time filter drops the rest.
+    const highestWithin = (cutoff: number) => {
+      const envelope = cutoff + TIME_SKEW_MS
       let low = boundTrade("min")
       let high = boundTrade("max")
       if (low === undefined || high === undefined) return undefined
@@ -285,7 +295,7 @@ export const makeDayStore = (sql: Sql) =>
           high = middle - 1
           continue
         }
-        if (numberOf(row.time) <= cutoff) {
+        if (numberOf(row.time) <= envelope) {
           found = numberOf(row.number)
           low = found + 1
         } else high = middle - 1
@@ -293,45 +303,45 @@ export const makeDayStore = (sql: Sql) =>
       return found
     }
 
-    // The newest `limit` trades at or before `at`, ascending.
+    // The newest `limit` trades at or before `at`, ascending: SQLite walks
+    // the primary key down from the search's number and skips the rows the
+    // skew lets past it.
     const tradesAt = (at: DateTime.Utc, limit: number) =>
       Effect.sync(() => {
         const cutoff = DateTime.toEpochMillis(at)
-        const found = highestAt(cutoff)
+        const found = highestWithin(cutoff)
         if (found === undefined) return []
         return sql
           .exec(
-            "SELECT * FROM trades WHERE number <= ? ORDER BY number DESC LIMIT ?",
+            "SELECT * FROM trades WHERE number <= ? AND time <= ? ORDER BY number DESC LIMIT ?",
             found,
+            cutoff,
             limit
           )
           .map(tradeOf)
-          .filter((trade) => DateTime.toEpochMillis(trade.time) <= cutoff)
           .reverse()
       })
 
     // The trades after `after` and at or before `through`, ascending. The
-    // feeds' times of neighbouring trades disagree by up to Ajaib's rounding
-    // to the second, so the numbers start a second early and the time
-    // filter decides.
+    // numbers start from a search two skews before `after`: every trade at
+    // or below that number is at or before `after`, so none is missed, and
+    // the time filter decides the rest.
     const tradesBetween = (after: DateTime.Utc, through: DateTime.Utc) =>
       Effect.sync(() => {
         const from = DateTime.toEpochMillis(after)
         const to = DateTime.toEpochMillis(through)
-        const last = highestAt(to)
+        const last = highestWithin(to)
         if (last === undefined) return []
-        const first = highestAt(from - 1_000) ?? 0
+        const first = highestWithin(from - 2 * TIME_SKEW_MS) ?? 0
         return sql
           .exec(
-            "SELECT * FROM trades WHERE number > ? AND number <= ? ORDER BY number",
+            "SELECT * FROM trades WHERE number > ? AND number <= ? AND time > ? AND time <= ? ORDER BY number",
             first,
-            last
+            last,
+            from,
+            to
           )
           .map(tradeOf)
-          .filter((trade) => {
-            const time = DateTime.toEpochMillis(trade.time)
-            return from < time && time <= to
-          })
       })
 
     // Every code with a candle.
