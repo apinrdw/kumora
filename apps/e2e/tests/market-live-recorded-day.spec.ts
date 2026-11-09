@@ -138,6 +138,12 @@ test("the day strip opens a recorded day at its close, it replays, and Today · 
     "Not recorded"
   )
   await expect(row).toContainText("no data yet")
+  // The scrubber shades the gap.
+  await expect(
+    page
+      .getByRole("group", { name: "Replay" })
+      .locator('[title="Not recorded"]')
+  ).toHaveCount(1)
 
   // Past the gap, then Play at 60× runs into the trades.
   await scrubber.fill(String(gapTo + 60_000))
@@ -153,6 +159,11 @@ test("the day strip opens a recorded day at its close, it replays, and Today · 
   ).toBeVisible()
   await replay.getByRole("button", { name: "Pause" }).click()
   await expect(replay.getByRole("button", { name: "Play" })).toBeVisible()
+
+  // Dragged to its end, its last whole-second step, the cursor is at the
+  // close, not a second before.
+  await scrubber.fill(String(Number(await scrubber.getAttribute("max")) - 999))
+  await expect(status).toContainText("at the close")
 
   await strip.getByRole("link", { name: "Today · live" }).click()
   await expect(page).not.toHaveURL(/[?&]day=/)

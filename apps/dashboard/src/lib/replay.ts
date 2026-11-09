@@ -89,3 +89,32 @@ export const gapAt = (gaps: ReadonlyArray<RelayGap>, at: number) =>
       DateTime.toEpochMillis(gap.from) <= at &&
       (gap.to === undefined || at < DateTime.toEpochMillis(gap.to))
   )
+
+// The scrubber steps whole seconds from 08:45, so its last step is the close
+// minute's last whole second: dragged there, the cursor is at the close.
+export const scrubbedTo = (day: ReplayDay, value: number) =>
+  value > day.close - 1_000 ? day.close : value
+
+const MINUTE = 60_000
+
+/**
+ * The minutes each relay gap touches, as minute starts, one run per gap: the
+ * chart shades them as not recorded. A gap with no end runs to `end`.
+ */
+export function gapMinutes(
+  gaps: ReadonlyArray<RelayGap>,
+  end: number
+): ReadonlyArray<ReadonlyArray<number>> {
+  return gaps.flatMap((gap) => {
+    const from = DateTime.toEpochMillis(gap.from)
+    const to = gap.to === undefined ? end + 1 : DateTime.toEpochMillis(gap.to)
+    const minutes: Array<number> = []
+    for (
+      let minute = Math.floor(from / MINUTE) * MINUTE;
+      minute < to;
+      minute += MINUTE
+    )
+      minutes.push(minute)
+    return minutes.length === 0 ? [] : [minutes]
+  })
+}

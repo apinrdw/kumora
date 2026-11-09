@@ -1,9 +1,10 @@
-import type { MarketPhase } from "@workspace/relay"
+import type { MarketPhase, RelayGap } from "@workspace/relay"
+import { DateTime } from "effect"
 import { cn } from "@workspace/ui/lib/utils"
 import { useEffect } from "react"
 
 import { tapeTime } from "@/lib/format"
-import { SPEEDS } from "@/lib/replay"
+import { SPEEDS, scrubbedTo } from "@/lib/replay"
 
 import { useReplay, type ReplayCursor } from "./replay-cursor"
 
@@ -40,9 +41,16 @@ const takesSpace = (target: EventTarget | null) =>
 
 /**
  * A recorded day's transport bar, under the chart: Play/Pause (Space), the
- * replay speeds, and a 08:45–16:15 scrubber over the day's market phases.
+ * replay speeds, and a 08:45–16:15 scrubber over the day's market phases,
+ * with its relay gaps shaded as not recorded.
  */
-export function TransportBar({ cursor }: { cursor: ReplayCursor }) {
+export function TransportBar({
+  cursor,
+  gaps,
+}: {
+  cursor: ReplayCursor
+  gaps: ReadonlyArray<RelayGap>
+}) {
   const { start, close, bands } = cursor.day
   const at = useReplay(cursor, (state) => state.at)
   const playing = useReplay(cursor, (state) => state.playing)
@@ -112,6 +120,23 @@ export function TransportBar({ cursor }: { cursor: ReplayCursor }) {
                 }}
               />
             ))}
+            {gaps.map((gap) => {
+              const from = DateTime.toEpochMillis(gap.from)
+              const to =
+                gap.to === undefined ? close : DateTime.toEpochMillis(gap.to)
+              return (
+                <i
+                  key={from}
+                  title="Not recorded"
+                  data-gap
+                  className="absolute inset-y-0 bg-[repeating-linear-gradient(135deg,var(--text-muted)_0_2px,transparent_2px_5px)] opacity-60"
+                  style={{
+                    left: percent(from),
+                    width: `calc(${percent(to)} - ${percent(from)})`,
+                  }}
+                />
+              )
+            })}
           </div>
           <input
             type="range"
@@ -121,7 +146,9 @@ export function TransportBar({ cursor }: { cursor: ReplayCursor }) {
             max={close}
             step={1_000}
             value={at}
-            onChange={(event) => cursor.seek(Number(event.target.value))}
+            onChange={(event) =>
+              cursor.seek(scrubbedTo(cursor.day, Number(event.target.value)))
+            }
             className="absolute inset-0 w-full cursor-pointer appearance-none bg-transparent accent-foreground"
           />
         </div>

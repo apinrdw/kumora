@@ -8,7 +8,10 @@ import { makeDayStateStore } from "@/components/market-live/day-state-store"
 import { DayStrip } from "@/components/market-live/day-strip"
 import { LiveChart } from "@/components/market-live/live-chart"
 import { LiveTape } from "@/components/market-live/live-tape"
-import { MarketStatusBar } from "@/components/market-live/market-status"
+import {
+  MarketStatusBar,
+  useRelayGaps,
+} from "@/components/market-live/market-status"
 import { OrderBookPanel } from "@/components/market-live/order-book-panel"
 import { makeOrderBookStore } from "@/components/market-live/order-book-store"
 import {
@@ -95,6 +98,7 @@ function MarketLiveDay({
     book,
     dayStates,
   })
+  const liveGaps = useRelayGaps()
   const apply = useCallback(
     (message: ViewerDown) => {
       candles.apply(message)
@@ -116,6 +120,7 @@ function MarketLiveDay({
       <div className="grid gap-4 lg:grid-cols-[minmax(0,1fr)_400px]">
         <LiveChart
           store={candles}
+          gaps={cursor === undefined ? liveGaps : gaps}
           dayStates={dayStates}
           status={
             cursor === undefined ? (
@@ -125,7 +130,7 @@ function MarketLiveDay({
             )
           }
           cursor={cursor}
-          footer={cursor && <TransportBar cursor={cursor} />}
+          footer={cursor && <TransportBar cursor={cursor} gaps={gaps} />}
           search={
             <StockCodePicker
               list={codes}

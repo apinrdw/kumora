@@ -1,6 +1,6 @@
 // Lightweight Charts, loaded only in the browser (live-chart.tsx lazy-loads
 // this module inside ClientOnly), so the Worker never bundles or runs it.
-import { marketMomentAt, type Candle } from "@workspace/relay"
+import { marketMomentAt, type Candle, type RelayGap } from "@workspace/relay"
 import { DateTime, Effect, Option } from "effect"
 import {
   CandlestickSeries,
@@ -18,6 +18,8 @@ import {
   type UTCTimestamp,
 } from "lightweight-charts"
 import { useEffect, useRef, useState } from "react"
+
+import { gapMinutes } from "@/lib/replay"
 
 import type { CandleChange, CandleStore } from "./candle-store"
 import { useAuctionIndicative } from "./market-status"
@@ -121,6 +123,52 @@ class SessionLines implements ISeriesPrimitive<Time> {
   }
 }
 
+// Shades each relay gap's minutes, drawn as whitespace bars since the gap has
+// no candles, as not recorded, behind the candles.
+class GapShades implements ISeriesPrimitive<Time> {
+  private runs: ReadonlyArray<ReadonlyArray<UTCTimestamp>> = []
+  private attachedTo: SeriesAttachedParameter<Time> | undefined
+  private readonly renderer: IPrimitivePaneRenderer = {
+    draw: (target) =>
+      target.useBitmapCoordinateSpace((scope) => {
+        const timeScale = this.attachedTo?.chart.timeScale()
+        if (timeScale === undefined) return
+        const half = timeScale.options().barSpacing / 2
+        scope.context.fillStyle = this.color
+        for (const run of this.runs) {
+          const first = timeScale.timeToCoordinate(run[0]!)
+          const last = timeScale.timeToCoordinate(run.at(-1)!)
+          if (first === null || last === null) continue
+          const left = Math.round((first - half) * scope.horizontalPixelRatio)
+          const right = Math.round((last + half) * scope.horizontalPixelRatio)
+          scope.context.fillRect(left, 0, right - left, scope.bitmapSize.height)
+        }
+      }),
+  }
+  private readonly views: ReadonlyArray<IPrimitivePaneView> = [
+    { zOrder: () => "bottom", renderer: () => this.renderer },
+  ]
+
+  constructor(private readonly color: string) {}
+
+  attached(parameter: SeriesAttachedParameter<Time>) {
+    this.attachedTo = parameter
+  }
+
+  detached() {
+    this.attachedTo = undefined
+  }
+
+  setRuns(runs: ReadonlyArray<ReadonlyArray<UTCTimestamp>>) {
+    this.runs = runs
+    this.attachedTo?.requestUpdate()
+  }
+
+  paneViews() {
+    return this.views
+  }
+}
+
 // Draws the replay cursor as a 2-pixel vertical line at a logical bar
 // position, over the candles.
 class CursorLine implements ISeriesPrimitive<Time> {
@@ -167,19 +215,14 @@ class CursorLine implements ISeriesPrimitive<Time> {
   }
 }
 
-// Where the cursor's minute sits among the candles, as a logical bar index:
-// on its own candle, or half a bar past the latest candle before it.
-const cursorLogical = (candles: ReadonlyArray<Candle>, minute: number) => {
-  const before = candles.filter(
-    (candle) => DateTime.toEpochMillis(candle.minute) <= minute
-  )
+// Where the cursor's minute sits among the bars drawn (candles and gap
+// whitespace, `times` ascending, in seconds), as a logical bar index: on its
+// own bar, or half a bar past the latest bar before it.
+const cursorLogical = (times: ReadonlyArray<number>, minute: number) => {
+  const before = times.filter((time) => time * 1000 <= minute)
   const latest = before.at(-1)
   if (latest === undefined) return -0.5
-  return (
-    before.length -
-    1 +
-    (DateTime.toEpochMillis(latest.minute) === minute ? 0 : 0.5)
-  )
+  return before.length - 1 + (latest * 1000 === minute ? 0 : 0.5)
 }
 
 const MINUTE = 60_000
@@ -188,15 +231,21 @@ const MINUTE = 60_000
 // snapshot redraws with `setData`; deltas go through `update`, at most once an
 // animation frame, a closed minute's with the historical flag.
 // With `cursor`, a recorded day: candles after the cursor's minute are
-// greyed under a cursor line, and clicking a candle picks its minute.
+// greyed under a cursor line, and clicking a candle picks its minute. Each
+// relay gap in `gaps` is shaded; a gap with no end yet is shaded once it
+// ends, or on a recorded day up to the close.
 export default function ChartCanvas({
   store,
   cursor,
+  gaps,
 }: {
   store: CandleStore
   cursor?: ReplayCursor | undefined
+  gaps: ReadonlyArray<RelayGap>
 }) {
   const host = useRef<HTMLDivElement>(null)
+  const shownGaps = useRef(gaps)
+  const redrawGaps = useRef<() => void>(undefined)
   // The candle series, once drawn: the indicative line goes on it.
   const [series, setSeries] = useState<ReturnType<
     ReturnType<typeof createChart>["addSeries"]
@@ -251,8 +300,10 @@ export default function ChartCanvas({
     setSeries(candles)
     const sessions = new SessionLines(token("--border-subtle"))
     candles.attachPrimitive(sessions)
-
     const grey = token("--text-muted")
+    const shades = new GapShades(`${grey}26`)
+    candles.attachPrimitive(shades)
+
     const cursorMinute = () =>
       cursor === undefined
         ? Number.POSITIVE_INFINITY
@@ -283,15 +334,37 @@ export default function ChartCanvas({
     let latest = 0
     const redraw = () => {
       const all = store.candles()
-      candles.setData(all.map(bar))
-      volume.setData(all.map(volumeBar))
-      sessions.setTimes(sessionStarts(all))
       drawn = new Set(all.map(timeOf))
       latest = all.length === 0 ? 0 : timeOf(all.at(-1)!)
+      // Decision: the chart closes gaps up, so a relay gap's minutes go in
+      // as whitespace bars, which give it width to shade.
+      const runs = gapMinutes(
+        shownGaps.current,
+        cursor === undefined ? latest * 1000 : cursor.day.close
+      ).map((run) =>
+        run
+          .map((minute) => (minute / 1000) as UTCTimestamp)
+          .filter((time) => !drawn.has(time))
+      )
+      const blank = runs.flat()
+      candles.setData(
+        [...all.map(bar), ...blank.map((time) => ({ time }))].sort(
+          (a, b) => a.time - b.time
+        )
+      )
+      volume.setData(all.map(volumeBar))
+      sessions.setTimes(sessionStarts(all))
+      shades.setRuns(runs.filter((run) => run.length > 0))
       if (cursor !== undefined)
-        marker.setLogical(cursorLogical(all, shownMinute))
+        marker.setLogical(
+          cursorLogical(
+            [...drawn, ...blank].sort((a, b) => a - b),
+            shownMinute
+          )
+        )
     }
     redraw()
+    redrawGaps.current = redraw
 
     // The cursor moved to another minute: grey again from there.
     const stopCursor = cursor?.subscribe(() => {
@@ -346,6 +419,7 @@ export default function ChartCanvas({
       if (frame === 0) frame = requestAnimationFrame(flush)
     })
     return () => {
+      redrawGaps.current = undefined
       unsubscribe()
       stopCursor?.()
       cancelAnimationFrame(frame)
@@ -353,6 +427,11 @@ export default function ChartCanvas({
       chart.remove()
     }
   }, [store, cursor])
+
+  useEffect(() => {
+    shownGaps.current = gaps
+    redrawGaps.current?.()
+  }, [gaps])
 
   // During the auctions, the indicative price as a dashed line.
   useEffect(() => {

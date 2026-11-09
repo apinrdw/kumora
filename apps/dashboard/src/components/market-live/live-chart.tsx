@@ -2,7 +2,7 @@ import { ClientOnly } from "@tanstack/react-router"
 import { Suspense, lazy, useSyncExternalStore } from "react"
 import type { ReactNode } from "react"
 
-import type { StockCode } from "@workspace/relay"
+import type { RelayGap, StockCode } from "@workspace/relay"
 
 import { KStatusPill } from "@/components/k/status-pill"
 import { direction, pct, quote, shares, signed } from "@/lib/format"
@@ -91,6 +91,7 @@ function ChartQuote({
 // candle moves it; `footer` sits under the chart.
 export function LiveChart({
   store,
+  gaps,
   dayStates,
   status,
   search,
@@ -98,6 +99,8 @@ export function LiveChart({
   footer,
 }: {
   store: CandleStore
+  // The relay gaps to shade as not recorded.
+  gaps: ReadonlyArray<RelayGap>
   dayStates: DayStateStore
   status?: ReactNode
   search?: ReactNode
@@ -126,7 +129,7 @@ export function LiveChart({
       <div className={stale ? "opacity-50" : undefined}>
         <ClientOnly fallback={<div className={CHART_HEIGHT} />}>
           <Suspense fallback={<div className={CHART_HEIGHT} />}>
-            <ChartCanvas store={store} cursor={cursor} />
+            <ChartCanvas store={store} cursor={cursor} gaps={gaps} />
           </Suspense>
         </ClientOnly>
       </div>

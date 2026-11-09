@@ -5,9 +5,11 @@ import { describe, expect, test } from "vitest"
 import {
   advance,
   gapAt,
+  gapMinutes,
   minuteEnd,
   playFrom,
   replayDay,
+  scrubbedTo,
   tapeInstant,
 } from "@/lib/replay"
 
@@ -78,5 +80,37 @@ describe("a relay gap at the cursor", () => {
 
   test("with no end runs to the close", () => {
     expect(gapAt(gaps, day.close)).toBe(gaps[1])
+  })
+})
+
+describe("the scrubber", () => {
+  test("dragged to its end lands on the close, not the last whole second", () => {
+    expect(scrubbedTo(day, at("16:15:59"))).toBe(day.close)
+    expect(scrubbedTo(day, at("16:15:58"))).toBe(at("16:15:58"))
+    expect(scrubbedTo(day, at("10:00:00"))).toBe(at("10:00:00"))
+  })
+})
+
+describe("a relay gap on the chart", () => {
+  const gap = (from: string, to?: string): RelayGap => ({
+    from: DateTime.makeUnsafe(`${DAY}T${from}+07:00`),
+    ...(to === undefined
+      ? {}
+      : { to: DateTime.makeUnsafe(`${DAY}T${to}+07:00`) }),
+  })
+
+  test("covers each minute it touches, one run per gap", () => {
+    expect(
+      gapMinutes(
+        [gap("10:01:30", "10:03:00"), gap("11:00:00", "11:01:00")],
+        at("16:15:59.999")
+      )
+    ).toEqual([[at("10:01:00"), at("10:02:00")], [at("11:00:00")]])
+  })
+
+  test("an open gap runs to the end given", () => {
+    expect(gapMinutes([gap("15:58:10")], at("16:00:30"))).toEqual([
+      [at("15:58:00"), at("15:59:00"), at("16:00:00")],
+    ])
   })
 })
