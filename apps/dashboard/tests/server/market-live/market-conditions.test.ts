@@ -443,6 +443,47 @@ describe("indicative price", () => {
   )
 
   it.effect(
+    "a frame not newer than the price held, as the other connection delivers one late, changes nothing",
+    () =>
+      Effect.gen(function* () {
+        const market = yield* marketAt("2026-11-09T15:50:01")
+        const newest = iepiev(
+          "BBCA",
+          5325,
+          1500,
+          "2026-11-09T15:50:01.03944+07:00"
+        )
+        yield* market.frames("Stockbit", "A", [newest])
+        yield* TestClock.adjust("250 millis")
+        // Connection B: the frame before A's, then A's own again.
+        yield* market.frames("Stockbit", "B", [
+          iepiev("BBCA", 5300, 1000, "2026-11-09T15:50:00.9+07:00"),
+        ])
+        yield* TestClock.adjust("250 millis")
+        yield* market.frames("Stockbit", "B", [newest])
+        yield* TestClock.adjust("250 millis")
+        // Ajaib, standing in once Stockbit is lost: the same late delivery.
+        yield* market.reported("Stockbit", "A", "closed")
+        yield* market.reported("Stockbit", "B", "closed")
+        const at = Date.parse("2026-11-09T15:50:02+07:00")
+        yield* market.frames("Ajaib", "A", [ajaibIndicative(5350, 2000, at)])
+        yield* TestClock.adjust("250 millis")
+        yield* market.frames("Ajaib", "B", [
+          ajaibIndicative(5340, 1900, at - 500),
+        ])
+        yield* TestClock.adjust("250 millis")
+        const sent = (yield* market.page.received)
+          .flatMap((message) => message.indicative ?? [])
+          .filter((price) => price.code === BBCA)
+          .map(({ price, volume }) => [price, volume])
+        assert.deepStrictEqual(sent, [
+          [5325, 1500],
+          [5350, 2000],
+        ])
+      })
+  )
+
+  it.effect(
     "a snapshot carries the selected and watchlist codes' indicative prices",
     () =>
       Effect.gen(function* () {
