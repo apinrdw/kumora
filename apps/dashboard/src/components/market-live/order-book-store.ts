@@ -18,7 +18,8 @@ export interface OrderBookStore {
 }
 
 // The selected code's order book from the viewer socket, outside React. A
-// snapshot replaces it; a delta's book of this code replaces it whole.
+// snapshot of this code replaces it, and one answering an earlier Select of
+// another code changes nothing; a delta's book of this code replaces it whole.
 export function makeOrderBookStore(code: StockCode): OrderBookStore {
   let held: HeldBook
   const listeners = new Set<() => void>()
@@ -31,12 +32,12 @@ export function makeOrderBookStore(code: StockCode): OrderBookStore {
     code,
     book: () => held,
     apply: (message) => {
-      const next =
-        message._tag === "Snapshot"
-          ? message.orderBook
-          : message.orderBooks?.find((book) => book.code === code)
-      if (message._tag === "Delta" && next === undefined) return
-      replace(next)
+      if (message._tag === "Snapshot") {
+        if (message.selected === code) replace(message.orderBook)
+        return
+      }
+      const next = message.orderBooks?.find((book) => book.code === code)
+      if (next !== undefined) replace(next)
     },
     replace,
     subscribe: (listener) => {

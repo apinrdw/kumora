@@ -17,8 +17,9 @@ export interface CandleStore {
 
 // The selected code's candles from the viewer socket, outside React: the chart
 // reads them once when it mounts and then hears each change, so a trade never
-// re-renders the page. A snapshot replaces them; a delta's candles of this
-// code replace theirs by minute.
+// re-renders the page. A snapshot of this code replaces them, and one
+// answering an earlier Select of another code changes nothing; a delta's
+// candles of this code replace theirs by minute.
 export function makeCandleStore(code: StockCode): CandleStore {
   let byMinute = new Map<number, Candle>()
   const listeners = new Set<(change: CandleChange) => void>()
@@ -33,6 +34,7 @@ export function makeCandleStore(code: StockCode): CandleStore {
         .map(([, candle]) => candle),
     apply: (message) => {
       if (message._tag === "Snapshot") {
+        if (message.selected !== code) return
         byMinute = new Map(
           message.candles.map((candle) => [
             DateTime.toEpochMillis(candle.minute),
