@@ -42,12 +42,13 @@ export interface LivePrice {
   readonly volume: number
   readonly value: number
   readonly frequency: number
+  // The previous close, when the frame carries it.
+  readonly previous: number | undefined
   readonly isIndex: boolean
   // The day's, so far; absent on a frame that carries only the totals.
   readonly high: number | undefined
   readonly low: number | undefined
   readonly open: number | undefined
-  readonly previousClose: number | undefined
   readonly change: number | undefined
   readonly changePercent: number | undefined
   // False for a cash or negotiated board's frame of the code.
@@ -80,11 +81,11 @@ const livePriceOf = (bytes: Uint8Array): LivePrice | undefined => {
     volume: numberOf(read(Field.volume)) ?? 0,
     value: numberOf(read(Field.value)) ?? 0,
     frequency: numberOf(read(Field.frequency)) ?? 0,
+    previous: numberOf(read(Field.previous)),
     isIndex: numberOf(read(Field.isIndex)) === 1,
     high: numberOf(read(Field.high)),
     low: numberOf(read(Field.low)),
     open: numberOf(read(Field.open)),
-    previousClose: numberOf(read(Field.previous)),
     change: numberOf(change?.(ChangeField.value)),
     changePercent: numberOf(change?.(ChangeField.percent)),
     regularBoard: board === undefined || board === REGULAR_BOARD,

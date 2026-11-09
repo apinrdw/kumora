@@ -58,7 +58,7 @@ const changeOf = (last: number, previousClose: number) => {
 // range, which a frame without them doesn't move.
 const baseOf = (price: LivePrice, held: Base | undefined): Base => {
   const last = price.last ?? held?.last ?? 0
-  const previousClose = price.previousClose ?? held?.previousClose ?? last
+  const previousClose = price.previous ?? held?.previousClose ?? last
   return {
     last,
     previousClose,

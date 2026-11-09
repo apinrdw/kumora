@@ -7,6 +7,8 @@ import { makeCandleStore } from "@/components/market-live/candle-store"
 import { makeDayStateStore } from "@/components/market-live/day-state-store"
 import { LiveChart } from "@/components/market-live/live-chart"
 import { LiveTape } from "@/components/market-live/live-tape"
+import { OrderBookPanel } from "@/components/market-live/order-book-panel"
+import { makeOrderBookStore } from "@/components/market-live/order-book-store"
 import { StockCodePalette } from "@/components/market-live/stock-code-palette"
 import { StockCodePicker } from "@/components/market-live/stock-code-picker"
 import { useStockCodeList } from "@/components/market-live/use-stock-code-list"
@@ -34,14 +36,16 @@ function MarketLivePage() {
   const codes = useStockCodeList()
   // One store per selected code; the Select for it brings a fresh snapshot.
   const candles = useMemo(() => makeCandleStore(selected), [selected])
+  const book = useMemo(() => makeOrderBookStore(selected), [selected])
   const [dayStates] = useState(makeDayStateStore)
   const watchlist = useWatchlist()
-  const onMessage = useCallback(
+  const apply = useCallback(
     (message: ViewerDown) => {
       candles.apply(message)
+      book.apply(message)
       dayStates.apply(message)
     },
-    [candles, dayStates]
+    [candles, book, dayStates]
   )
   const select = useCallback(
     (code: StockCode) =>
@@ -75,11 +79,12 @@ function MarketLivePage() {
             onRemove={watchlist.remove}
             onSelect={select}
           />
+          <OrderBookPanel store={book} />
           <LiveTape
             selected={selected}
             watchlist={watchlist.codes}
             onSelect={select}
-            onMessage={onMessage}
+            onMessage={apply}
           />
         </div>
       </div>

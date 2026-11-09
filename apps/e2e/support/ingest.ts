@@ -160,6 +160,15 @@ export async function openIngest(token = TEST_INGEST_TOKEN) {
         receivedAt: DateTime.nowUnsafe(),
         frames,
       }),
+    sendStockbit: (frames: ReadonlyArray<Uint8Array>) =>
+      send(socket, {
+        _tag: "Frames",
+        protocolVersion: IngestProtocolVersion,
+        feed: "Stockbit",
+        connection: "A",
+        receivedAt: DateTime.nowUnsafe(),
+        frames,
+      }),
     sendCodeList: (body = RECORDED_CODE_LIST) =>
       send(socket, {
         _tag: "CodeList",
