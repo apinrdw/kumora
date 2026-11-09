@@ -32,6 +32,7 @@ export type StockCodePickerProps = {
   /** The list shows while the input has focus; `always` keeps it open (the palette). */
   open?: "focus" | "always"
   shortcut?: string
+  placeholder?: string
   className?: string
 }
 
@@ -43,6 +44,7 @@ export function StockCodePicker({
   label,
   open = "focus",
   shortcut,
+  placeholder = "Search code or name",
   className,
 }: StockCodePickerProps) {
   const listId = useId()
@@ -89,7 +91,7 @@ export function StockCodePicker({
         hideLabel
         icon={IconSearch}
         shortcut={shortcut}
-        placeholder="Search code or name"
+        placeholder={placeholder}
         role="combobox"
         aria-expanded={expanded}
         aria-controls={listId}

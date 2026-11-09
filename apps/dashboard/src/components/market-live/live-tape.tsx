@@ -19,33 +19,41 @@ import { withRedirect } from "@/lib/redirect"
 
 // What the socket tells the object the page shows. The tape streams the whole
 // market whatever is selected.
-const selectOf = (selected: StockCode): ViewerUp => ({
+const selectOf = (
+  selected: StockCode,
+  watchlist: ReadonlyArray<StockCode>
+): ViewerUp => ({
   _tag: "Select",
   protocolVersion: ViewerProtocolVersion,
   selected,
-  watchlist: [],
+  watchlist,
 })
+
+const NO_CODES: ReadonlyArray<StockCode> = []
 
 type Status = "live" | "new-version"
 
 // The whole-market tape from the viewer socket. A 4401 close sends the
 // visitor to sign in and back; a 4426 close asks for a reload; any other close
 // reconnects and starts over from a fresh snapshot. Clicking a trade selects
-// its code; each change of `selected` is sent down the open socket.
+// its code; each change of `selected` or `watchlist` is sent down the open
+// socket.
 // `onMessage` hears every viewer message too: the chart reads its candles.
 export function LiveTape({
   selected,
+  watchlist = NO_CODES,
   onSelect,
   onMessage,
 }: {
   selected: StockCode
+  watchlist?: ReadonlyArray<StockCode>
   onSelect: (code: StockCode) => void
   onMessage?: (message: ViewerDown) => void
 }) {
   const { tape, frame, apply } = useFramedTape()
   const [status, setStatus] = useState<Status>("live")
   const [select] = useState(() =>
-    Effect.runSync(SubscriptionRef.make(selectOf(selected)))
+    Effect.runSync(SubscriptionRef.make(selectOf(selected, watchlist)))
   )
 
   // The latest listener, so a new one (the chart's store for a new code)
@@ -57,14 +65,20 @@ export function LiveTape({
 
   // The code the socket last sent, and whether the object's answer to a
   // changed Select is still due.
-  const sent = useRef(selected)
+  const sent = useRef({ selected, watchlist })
   const reselected = useRef(false)
   useEffect(() => {
-    if (sent.current === selected) return
-    sent.current = selected
+    if (
+      sent.current.selected === selected &&
+      sent.current.watchlist === watchlist
+    )
+      return
+    sent.current = { selected, watchlist }
     reselected.current = true
-    clientRuntime.runFork(SubscriptionRef.set(select, selectOf(selected)))
-  }, [select, selected])
+    clientRuntime.runFork(
+      SubscriptionRef.set(select, selectOf(selected, watchlist))
+    )
+  }, [select, selected, watchlist])
 
   useEffect(() => {
     const scheme = window.location.protocol === "https:" ? "wss" : "ws"
