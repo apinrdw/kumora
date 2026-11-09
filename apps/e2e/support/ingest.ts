@@ -2,6 +2,7 @@ import {
   IngestProtocolVersion,
   MarketLivePath,
   encodeIngestUp,
+  type Feed,
   type IngestUp,
 } from "@workspace/relay"
 import { DateTime, Effect } from "effect"
@@ -175,6 +176,19 @@ export async function openIngest(token = TEST_INGEST_TOKEN) {
         protocolVersion: IngestProtocolVersion,
         receivedAt: DateTime.nowUnsafe(),
         body,
+      }),
+    report: (
+      feed: Feed,
+      status: "alive" | "closed",
+      connection: "A" | "B" = "A"
+    ) =>
+      send(socket, {
+        _tag: "FeedStatus",
+        protocolVersion: IngestProtocolVersion,
+        feed,
+        connection,
+        at: DateTime.nowUnsafe(),
+        status,
       }),
     close: () => socket.close(),
   }

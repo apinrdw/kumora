@@ -93,8 +93,10 @@ test("a watched code's row fills from Ajaib's PRICE, and the relay is asked for 
     )
     .toEqual(expect.arrayContaining(["BBCA", "WIFI"]))
 
-  // The 2026-11-06 BBCA frame's shape, as WIFI's today. No Stockbit frames
-  // reach the Test stage, so Ajaib's figures stand in.
+  // Stockbit lost (another spec may have sent its frames moments ago), so
+  // Ajaib's figures stand in: the 2026-11-06 BBCA PRICE frame's shape, as
+  // WIFI's today.
+  await relay.report("Stockbit", "closed")
   await relay.sendAjaib([
     JSON.stringify({
       ticker: "WIFI",
