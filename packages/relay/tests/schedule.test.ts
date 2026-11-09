@@ -3,6 +3,7 @@ import { DateTime, Effect } from "effect"
 
 import {
   WibDate,
+  expectedStretches,
   isTradingDay,
   marketMomentAt,
   sealInstant,
@@ -180,6 +181,47 @@ describe("WIB date", () => {
         DateTime.makeUnsafe("2031-03-02T17:00:00Z")
       )
       assert.deepStrictEqual([before, after], ["2031-03-02", "2031-03-03"])
+    })
+  )
+})
+
+describe("stretches that expect trades", () => {
+  const stretchesOf = (date: string) =>
+    expectedStretches(WibDate.make(date)).pipe(
+      Effect.map((stretches) =>
+        stretches.map(({ from, to }) => [
+          DateTime.formatIso(DateTime.add(from, { hours: 7 })).slice(11, 19),
+          DateTime.formatIso(DateTime.add(to, { hours: 7 })).slice(11, 19),
+        ])
+      )
+    )
+
+  it.effect("are the match minutes, the sessions and post-trading", () =>
+    Effect.gen(function* () {
+      assert.deepStrictEqual(yield* stretchesOf("2026-11-09"), [
+        ["08:58:00", "08:59:00"],
+        ["09:00:00", "12:00:01"],
+        ["13:30:00", "15:50:00"],
+        ["16:00:00", "16:01:00"],
+        ["16:02:00", "16:15:01"],
+      ])
+    })
+  )
+
+  it.effect("follow Friday's longer break", () =>
+    Effect.gen(function* () {
+      const friday = yield* stretchesOf("2026-11-13")
+      assert.deepStrictEqual(friday.slice(1, 3), [
+        ["09:00:00", "11:30:01"],
+        ["14:00:00", "15:50:00"],
+      ])
+    })
+  )
+
+  it.effect("are none on a weekend or holiday", () =>
+    Effect.gen(function* () {
+      assert.deepStrictEqual(yield* stretchesOf("2026-11-14"), [])
+      assert.deepStrictEqual(yield* stretchesOf("2026-08-17"), [])
     })
   )
 })

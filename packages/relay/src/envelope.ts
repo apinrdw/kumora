@@ -1,6 +1,7 @@
 import { Effect, Order, Schema } from "effect"
 
 import { StockCode } from "./codes.ts"
+import { IndicativePrice, MarketStatus } from "./market-status.ts"
 
 // Bump on any change to an ingest message's shape. The dashboard accepts this
 // version and the one before it, so an extension one release behind keeps
@@ -38,10 +39,10 @@ export const MarketLivePath = {
   live: "/market-live/live",
 } as const
 
-export const Feed = Schema.Literals(["Stockbit", "Ajaib"])
+const Feed = Schema.Literals(["Stockbit", "Ajaib"])
 export type Feed = typeof Feed.Type
 
-export const Connection = Schema.Literals(["A", "B"])
+const Connection = Schema.Literals(["A", "B"])
 export type Connection = typeof Connection.Type
 
 // Decision: a trade number travels as a string of digits. The date-prefixed
@@ -167,12 +168,19 @@ export type RunningTrade = typeof RunningTrade.Type
 // ascending by trade number.
 const Snapshot = Schema.TaggedStruct("Snapshot", {
   tape: Schema.Array(RunningTrade),
+  status: MarketStatus,
+  // The selected code's, once it has one.
+  indicative: Schema.optionalKey(IndicativePrice),
 })
 
 // The running trades that arrived in the last ~250 ms, ascending by trade
 // number. A late trade sorts below ones the viewer already holds.
 const Delta = Schema.TaggedStruct("Delta", {
   tape: Schema.Array(RunningTrade),
+  // Present only when it changed.
+  status: Schema.optionalKey(MarketStatus),
+  // Every code's that changed, whatever each viewer selected.
+  indicative: Schema.optionalKey(Schema.Array(IndicativePrice)),
 })
 
 // Trading-day Durable Object → page. It carries no version: the page's

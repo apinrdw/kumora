@@ -191,3 +191,42 @@ export const marketMomentAt = Effect.fnUntraced(function* (
 export const sealInstant = Effect.fnUntraced(function* (date: WibDate) {
   return DateTime.makeUnsafe(`${date}T17:00:00+07:00`)
 })
+
+// One stretch of a trading day as instants, from its first second to just
+// after its last.
+export type Interval = {
+  readonly from: DateTime.Utc
+  readonly to: DateTime.Utc
+}
+
+// The stretches of `date` that expect trades, in order: the 08:58 match
+// minute, session 1, session 2, the 16:00 match minute and post-trading
+// (adjacent stretches joined). None on a weekend or holiday. Freshness counts
+// silence and relay gaps only inside these.
+export const expectedStretches = Effect.fnUntraced(function* (date: WibDate) {
+  if (!(yield* isTradingDay(date))) return []
+  const { weekDay } = DateTime.toPartsUtc(DateTime.makeUnsafe(date))
+  const day = weekDay === 5 ? friday : mondayToThursday
+  const spans = [
+    ...auctionMatchMinutes,
+    ...day.filter((stretch) => tradingPhases.has(stretch.phase)),
+  ]
+    .map((span) => ({
+      from: DateTime.makeUnsafe(`${date}T${span.first}+07:00`),
+      to: DateTime.add(DateTime.makeUnsafe(`${date}T${span.last}+07:00`), {
+        seconds: 1,
+      }),
+    }))
+    .sort((a, b) => DateTime.Order(a.from, b.from))
+  const joined: Array<Interval> = []
+  for (const span of spans) {
+    const last = joined.at(-1)
+    if (last !== undefined && DateTime.Order(last.to, span.from) >= 0)
+      joined[joined.length - 1] = {
+        from: last.from,
+        to: DateTime.max(last.to, span.to),
+      }
+    else joined.push(span)
+  }
+  return joined
+})
