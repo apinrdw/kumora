@@ -55,7 +55,7 @@ describe("KMetricCard", () => {
 
   test("shows the change with its period, using the pre-formatted text when given", () => {
     const html = render({ change: -2.5, period: "1H" })
-    expect(html).toContain("−2,50%")
+    expect(html).toContain("−2.50%")
     expect(html).toContain("turun")
     expect(html).toContain(">1H</span>")
 
@@ -73,6 +73,6 @@ describe("KMetricCard", () => {
   test("shows the provenance line", () => {
     const html = render({ source: "IDX", asOf: AS_OF })
     expect(html).toContain("IDX")
-    expect(html).toContain("per 14.45 WIB")
+    expect(html).toContain("per 14:45 WIB")
   })
 })

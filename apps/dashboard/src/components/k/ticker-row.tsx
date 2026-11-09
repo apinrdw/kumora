@@ -14,7 +14,7 @@ export type KTickerRowProps = {
   name?: string
   last: number | null
   changePct: number | null
-  /** Shares traded, rendered "12,4 juta lembar". */
+  /** Shares traded, rendered "12.4 M shares". */
   volume: number | null
   freshness?: Freshness
   /** ISO datetime; shown in the card form, title-only in rows. */

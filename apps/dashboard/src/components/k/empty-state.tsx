@@ -30,34 +30,33 @@ export type KEmptyKind =
 export const EMPTY = {
   "no-watchlist": {
     Icon: IconPlus,
-    title: "Watchlist masih kosong",
-    description: "Tambahkan ticker untuk mulai memantau.",
+    title: "Your watchlist is empty",
+    description: "Add a stock code to start watching.",
     iconClass: "text-muted-foreground",
   },
   "no-result": {
     Icon: IconRadar,
-    title: "Belum ada kandidat yang memenuhi filter.",
-    description: "Ubah kriteria untuk memperluas hasil.",
+    title: "Nothing matches the filter yet.",
+    description: "Change the criteria to widen the results.",
     iconClass: "text-muted-foreground",
   },
   "no-access": {
     Icon: IconEyeOff,
-    title: "Data broker tidak termasuk dalam paket Anda",
+    title: "Broker data is not included in your plan",
     description:
-      "Fitur ini memerlukan lisensi data broker. Nilai lain tetap tersedia.",
+      "This feature needs a broker data licence. Other values stay available.",
     iconClass: "text-warning",
   },
   "no-data": {
     Icon: IconDatabase,
-    title: "Belum ada data yang cukup untuk periode ini.",
-    description:
-      "Nilai tidak diganti dengan nol. Coba periode yang lebih panjang.",
+    title: "Not enough data for this period yet.",
+    description: "Values are not replaced with zero. Try a longer period.",
     iconClass: "text-muted-foreground",
   },
   error: {
     Icon: IconAlertCircle,
-    title: "Data pasar belum dapat dimuat.",
-    description: "Coba lagi.",
+    title: "Market data could not be loaded.",
+    description: "Try again.",
     iconClass: "text-down",
   },
 } as const satisfies Record<
@@ -182,7 +181,7 @@ export function KStateBody({
           title={state.message}
           action={
             state.onRetry
-              ? { label: "Coba lagi", onClick: state.onRetry }
+              ? { label: "Try again", onClick: state.onRetry }
               : undefined
           }
         />

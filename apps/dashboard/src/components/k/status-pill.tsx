@@ -9,32 +9,32 @@ type TradeSource = "upstream" | "extension" | "none"
 export const FRESHNESS = {
   live: {
     label: "LIVE",
-    def: "Data real-time.",
+    def: "Real-time data.",
     className: "text-up",
   },
   delayed: {
     label: "DELAYED",
-    def: "Data tertunda; lihat waktu pembaruan terakhir.",
+    def: "Delayed data; see the last update time.",
     className: "text-warning",
   },
   eod: {
     label: "EOD",
-    def: "Data akhir hari (end-of-day), bukan intraday.",
+    def: "End-of-day data, not intraday.",
     className: "text-info",
   },
   stale: {
     label: "STALE",
-    def: "Pembaruan terhenti; nilai terakhir yang valid tetap ditampilkan.",
+    def: "Updates have stopped; the last valid values stay on screen.",
     className: "border-warning text-warning",
   },
   unavailable: {
     label: "UNAVAILABLE",
-    def: "Data belum tersedia untuk periode ini.",
+    def: "No data available for this period yet.",
     className: "text-down",
   },
   demo: {
     label: "DATA DEMO",
-    def: "Data sintetis untuk demonstrasi, bukan data pasar.",
+    def: "Synthetic demo data, not market data.",
     className: "border-dashed border-neutral text-neutral",
   },
 } as const satisfies Record<
@@ -46,7 +46,7 @@ export type KStatusPillProps = {
   status: Freshness
   /** Where the figure came from, beside the label: "LIVE · extension". */
   source?: TradeSource
-  /** ISO datetime, rendered as "14.45 WIB". */
+  /** ISO datetime, rendered as "14:45 WIB". */
   asOf?: string
   /** Keep the time in the title and sr text only (dense rows). */
   hideAsOf?: boolean
@@ -62,7 +62,7 @@ export function KStatusPill({
 }: KStatusPillProps) {
   const meta = FRESHNESS[status]
   const time = asOf ? formatAsOf(asOf) : null
-  const definition = meta.def + (time ? ` Pembaruan terakhir ${time}.` : "")
+  const definition = meta.def + (time ? ` Last updated ${time}.` : "")
   return (
     <Badge
       variant="outline"
