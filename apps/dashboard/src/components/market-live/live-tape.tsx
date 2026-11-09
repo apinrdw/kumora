@@ -140,6 +140,7 @@ export function LiveTape({
       <TapeList
         tape={tape}
         frame={frame}
+        live
         selected={selected}
         onSelect={onSelect}
         gaps={gaps}

@@ -251,12 +251,14 @@ function GapRow({ gap }: { gap: RelayGap }) {
   )
 }
 
-// The tape as a virtual list: only the rows in view are DOM. At the top it
-// follows live; scrolled down it holds the tape as it was and counts what
-// arrived since.
+// The tape as a virtual list: only the rows in view are DOM. A live tape
+// follows live at the top; scrolled down it holds the tape as it was and
+// counts what arrived since. A recorded tape is whole as of the replay
+// cursor, and each move of the cursor replaces it, so it never holds.
 export function TapeList({
   tape,
   frame,
+  live = false,
   selected,
   onSelect,
   gaps = [],
@@ -265,6 +267,7 @@ export function TapeList({
   tape: Tape
   // Changes once per drawn frame: the tape is mutated in place.
   frame: number
+  live?: boolean
   selected: StockCode
   // Stable across renders, or every visible row re-renders.
   onSelect: (code: StockCode) => void
@@ -290,7 +293,7 @@ export function TapeList({
   const onScroll = () => {
     const top = scroller.current?.scrollTop ?? 0
     setScrollTop(top)
-    if (top <= ROW_PX) setFrozen(undefined)
+    if (!live || top <= ROW_PX) setFrozen(undefined)
     else setFrozen((held) => held ?? freezeTape(tape))
   }
 
