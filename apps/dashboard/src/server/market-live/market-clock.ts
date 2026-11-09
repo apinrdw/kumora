@@ -2,8 +2,9 @@
 // shifts it, so the e2e opens the page in a chosen market phase (spec
 // apinrdw/kumora#138, "The trading-day Durable Object"; apps/e2e/support/clock.ts
 // sets it).
+import { wibDateAt } from "@workspace/relay"
 import { WorkerEnv } from "@workspace/server"
-import { Clock, Effect } from "effect"
+import { Clock, DateTime, Effect, Schema } from "effect"
 
 // The Clock `base` reads, `offset` ms later. Sleeps are unchanged.
 const shifted = (base: Clock.Clock, offset: number): Clock.Clock => ({
@@ -20,11 +21,16 @@ const shifted = (base: Clock.Clock, offset: number): Clock.Clock => ({
   sleep: (duration) => base.sleep(duration),
 })
 
-// How far Market Live's clock runs ahead of the Worker's, in ms.
+const decodeOffset = Schema.decodeUnknownEffect(Schema.FiniteFromString)
+
+// How far Market Live's clock runs ahead of the Worker's, in ms. Only the
+// Test stage binds it; a value that isn't a number is a broken Test stage, so
+// it dies rather than running unshifted.
 export const marketClockOffset = Effect.gen(function* () {
-  const env: { readonly MARKET_LIVE_CLOCK_OFFSET?: string } = yield* WorkerEnv
-  const offset = Number(env.MARKET_LIVE_CLOCK_OFFSET ?? "0")
-  return Number.isFinite(offset) ? offset : 0
+  const env = yield* WorkerEnv
+  return yield* decodeOffset(env.MARKET_LIVE_CLOCK_OFFSET ?? "0").pipe(
+    Effect.orDie
+  )
 })
 
 // Runs `effect` on Market Live's clock. Fibers it forks keep that clock.
@@ -39,3 +45,9 @@ export const withMarketClock = <A, E, R>(effect: Effect.Effect<A, E, R>) =>
       shifted(base, offset)
     )
   })
+
+// Today's WIB date on Market Live's clock: the trading-day object every live
+// route reaches.
+export const marketToday = withMarketClock(
+  Effect.flatMap(DateTime.now, wibDateAt)
+)

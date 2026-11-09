@@ -8,15 +8,14 @@ import {
   MarketLivePath,
   ViewerCloseCode,
   recordedDayRequest,
-  wibDateAt,
 } from "@workspace/relay"
 import { WorkerEnv } from "@workspace/server"
-import { DateTime, Effect, Option } from "effect"
+import { Effect, Option } from "effect"
 
 import { Auth } from "../auth/auth.ts"
 import { dayStripRoute, recordedDayRoute } from "./days.ts"
 import { gateLiveViewer } from "./gate.ts"
-import { withMarketClock } from "./market-clock.ts"
+import { marketToday } from "./market-clock.ts"
 import { ObjectPath, ViewerHeader } from "./routes.ts"
 
 const toTradingDay = Effect.fnUntraced(function* (
@@ -24,7 +23,7 @@ const toTradingDay = Effect.fnUntraced(function* (
   headers: Readonly<Record<string, string>>
 ) {
   const env = yield* WorkerEnv
-  const today = yield* withMarketClock(Effect.flatMap(DateTime.now, wibDateAt))
+  const today = yield* marketToday
   const object = env.TRADING_DAY.getByName(today)
   // A new request, so only these headers reach the object.
   const request = new Request(new URL(path, "https://trading-day.invalid"), {
