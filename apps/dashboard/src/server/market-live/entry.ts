@@ -44,6 +44,8 @@ const closedSocket = Effect.fnUntraced(function* (
   return new Response(null, { status: 101, webSocket: pair[0] })
 })
 
+const signInRequired = closedSocket(ViewerCloseCode.SignInRequired, "Sign in")
+
 const notUpgrade = Effect.sync(
   () => new Response("Expected a websocket upgrade", { status: 426 })
 )
@@ -56,16 +58,23 @@ const isUpgrade = (request: Request) =>
 const ingest = (request: Request) =>
   isUpgrade(request) ? toTradingDay(ObjectPath.ingest, {}) : notUpgrade
 
-const live = Effect.fnUntraced(function* (request: Request) {
-  if (!isUpgrade(request)) return yield* notUpgrade
-  const viewer = yield* gateLiveViewer(request)
-  if (Option.isNone(viewer))
-    return yield* closedSocket(ViewerCloseCode.SignInRequired, "Sign in")
-  return yield* toTradingDay(ObjectPath.live, {
-    [ViewerHeader.userId]: viewer.value.userId,
-    [ViewerHeader.sessionId]: viewer.value.sessionId,
-  })
-}, Effect.provide(Auth.layer))
+const live = Effect.fnUntraced(
+  function* (request: Request) {
+    if (!isUpgrade(request)) return yield* notUpgrade
+    const viewer = yield* gateLiveViewer(request)
+    return yield* toTradingDay(ObjectPath.live, {
+      [ViewerHeader.userId]: viewer.userId,
+      [ViewerHeader.sessionId]: viewer.sessionId,
+    })
+  },
+  // This surface's HTTP errors: every denial closes the socket with 4401.
+  Effect.catchTags({
+    Unauthorized: () => signInRequired,
+    NotFound: () => signInRequired,
+    Forbidden: () => signInRequired,
+  }),
+  Effect.provide(Auth.layer)
+)
 
 // The route for a Market Live path, or undefined for TanStack Start's.
 export const marketLiveRoute = (request: Request) => {

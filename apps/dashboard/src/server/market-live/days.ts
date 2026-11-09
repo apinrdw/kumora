@@ -4,10 +4,11 @@
 // path to the trading-day Durable Object of the day it names.
 import type { WibDate } from "@workspace/relay"
 import { WorkerEnv } from "@workspace/server"
-import { Effect, Option } from "effect"
+import { Effect } from "effect"
 
 import { Auth } from "../auth/auth.ts"
 import { decide } from "../auth/policy.ts"
+import { refusal } from "../auth/refusal.ts"
 import { accountOf } from "../auth/session-account.ts"
 import { DAY_INDEX, DayIndexPath } from "./routes.ts"
 
@@ -20,10 +21,9 @@ const refused = (status: 401 | 403, error: string, message: string) =>
 // Decision: recorded day loads read the session through Better Auth's cookie
 // cache (5 minutes), as the spec says: Play fetches the tape up to 4 times a
 // second. A ban or revoke bites here within those 5 minutes; the live socket
-// reads past the cache and closes at once. Signed out, unverified, suspended
-// or not found answers 401, so the page sends the visitor to sign in; no
-// access or forbidden answers 403.
-const recordedDayDenial = Effect.fn("recordedDayDenial")(function* (
+// reads past the cache and closes at once. A denial fails with the access
+// policy's refusal.
+const gateRecordedDay = Effect.fn("gateRecordedDay")(function* (
   request: Request
 ) {
   const auth = yield* Auth
@@ -31,15 +31,21 @@ const recordedDayDenial = Effect.fn("recordedDayDenial")(function* (
   const decision = decide(accountOf(session), "market-live.view-recorded-day", {
     feature: "market-live",
   })
-  if (decision._tag === "Allow" && session !== null)
-    return Option.none<Response>()
-  if (
-    decision._tag === "Deny" &&
-    (decision.reason === "no-access" || decision.reason === "forbidden")
-  )
-    return Option.some(refused(403, "Forbidden", "No access to Market Live"))
-  return Option.some(refused(401, "Unauthorized", "Sign in"))
+  if (decision._tag === "Deny")
+    return yield* refusal(decision.reason, new URL(request.url).pathname)
+  if (session === null)
+    return yield* refusal("sign-in", new URL(request.url).pathname)
 })
+
+const refusedAnswer = {
+  // Signed out, unverified, suspended or not found: the page sends the
+  // visitor to sign in.
+  Unauthorized: () => Effect.succeed(refused(401, "Unauthorized", "Sign in")),
+  NotFound: () => Effect.succeed(refused(401, "Unauthorized", "Sign in")),
+  // No access or forbidden.
+  Forbidden: () =>
+    Effect.succeed(refused(403, "Forbidden", "No access to Market Live")),
+}
 
 // A new request to the object, so no header the client sent, its cookie
 // included, reaches it; and the object's answer carries no Set-Cookie, so a
@@ -53,13 +59,12 @@ const gated = Effect.fnUntraced(function* (
 ) {
   if (request.method !== "GET")
     return new Response(null, { status: 405, headers: { Allow: "GET" } })
-  const denial = yield* recordedDayDenial(request)
-  if (Option.isSome(denial)) return denial.value
+  yield* gateRecordedDay(request)
   const object = stub(yield* WorkerEnv)
   return yield* Effect.promise(() =>
     object.fetch(new URL(path, "https://market-live.invalid"))
   )
-})
+}, Effect.catchTags(refusedAnswer))
 
 export const dayStripRoute = (request: Request) =>
   gated(

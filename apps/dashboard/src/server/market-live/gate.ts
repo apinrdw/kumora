@@ -1,12 +1,15 @@
 // The viewer socket's gate (spec apinrdw/kumora#138, "The custom Worker entry
 // and the gate"): the Origin, a session read past the cookie cache, then the
-// access policy. Any denial is `None`; the entry answers it with a socket it
-// closes with 4401, since a browser can't read a refused handshake's status.
-import { WorkerEnv } from "@workspace/server"
-import { Effect, Option } from "effect"
+// access policy. A denial fails with the HTTP error the access policy's
+// refusal names; the entry answers any of them with a socket it closes with
+// 4401, since a browser can't read a refused handshake's status.
+import { MarketLivePath } from "@workspace/relay"
+import { Forbidden, WorkerEnv } from "@workspace/server"
+import { Effect } from "effect"
 
 import { Auth } from "../auth/auth.ts"
 import { decide } from "../auth/policy.ts"
+import { refusal } from "../auth/refusal.ts"
 import { accountOf } from "../auth/session-account.ts"
 
 interface LiveViewer {
@@ -20,17 +23,18 @@ export const gateLiveViewer = Effect.fn("gateLiveViewer")(function* (
   const env = yield* WorkerEnv
   // Another site's page could open the socket with this site's cookies.
   if (request.headers.get("Origin") !== new URL(env.AUTH_BASE_URL).origin)
-    return Option.none<LiveViewer>()
+    return yield* new Forbidden({ message: "Origin" })
   const auth = yield* Auth
   // Past the cookie cache, so a ban or revoke bites at once.
   const session = yield* auth.getSession(request.headers, { fresh: true })
   const decision = decide(accountOf(session), "market-live.view-live", {
     feature: "market-live",
   })
-  if (decision._tag === "Deny" || session === null)
-    return Option.none<LiveViewer>()
-  return Option.some<LiveViewer>({
+  if (decision._tag === "Deny")
+    return yield* refusal(decision.reason, MarketLivePath.live)
+  if (session === null) return yield* refusal("sign-in", MarketLivePath.live)
+  return {
     userId: session.user.id,
     sessionId: session.session.id,
-  })
+  } satisfies LiveViewer
 })

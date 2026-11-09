@@ -9,12 +9,17 @@ import {
   type RecordedDay,
   type StockCode,
 } from "@workspace/relay"
-import { WorkerEnv, runServerEffectResult } from "@workspace/server"
-import { DateTime, Effect, Layer, Option, Result, Schema, Scope } from "effect"
+import {
+  WorkerEnv,
+  runServerEffect,
+  runServerEffectResult,
+} from "@workspace/server"
+import { DateTime, Effect, Layer, Option, Schema, Scope } from "effect"
 
 import { durableSql } from "./durable-sql.ts"
 import { marketClockOffset, withMarketClock } from "./market-clock.ts"
 import type { CodeListStore } from "./code-list.ts"
+import { respond } from "./respond.ts"
 import {
   DAY_INDEX,
   DayIndexPath,
@@ -100,7 +105,7 @@ const recordDay = Effect.fnUntraced(function* (day: RecordedDay) {
 // object needs no RPC, and only the bridge may import that module. Each
 // callback runs through the bridge's result runner, which logs any failure.
 export class TradingDayObject {
-  private readonly day
+  private day!: Effect.Success<ReturnType<typeof makeTradingDay>>
 
   constructor(
     private readonly ctx: DurableObjectState,
@@ -132,11 +137,9 @@ export class TradingDayObject {
     const scope = Scope.makeUnsafe()
     const workerEnv = Layer.succeed(WorkerEnv)(env)
     // The alarm runs on the Worker's clock; the seal on Market Live's.
-    const offset = Effect.runSync(
-      marketClockOffset.pipe(Effect.provide(workerEnv))
-    )
-    this.day = Effect.runSync(
-      withMarketClock(
+    const start = Effect.gen(function* () {
+      const offset = yield* marketClockOffset
+      return yield* withMarketClock(
         makeTradingDay({
           date,
           viewers,
@@ -151,7 +154,16 @@ export class TradingDayObject {
             ),
           recordDay,
         })
-      ).pipe(Scope.provide(scope), Effect.provide(workerEnv))
+      )
+    })
+    // Cloudflare holds every event until the day is made; a failure resets
+    // the object.
+    void ctx.blockConcurrencyWhile(() =>
+      runServerEffect(
+        start.pipe(Scope.provide(scope), Effect.provide(workerEnv))
+      ).then((day) => {
+        this.day = day
+      })
     )
   }
 
@@ -166,14 +178,12 @@ export class TradingDayObject {
       return this.answer(this.day.recorded(recorded.value.resource))
     // The runner logs any failure.
     if (pathname === ObjectPath.endSessions)
-      return runServerEffectResult(
+      return respond(
         Effect.promise(() => request.json()).pipe(
           Effect.flatMap(decodeHeld),
-          Effect.flatMap(this.day.endSessions)
+          Effect.flatMap(this.day.endSessions),
+          Effect.as(new Response(null, { status: 204 }))
         )
-      ).then(
-        (settled) =>
-          new Response(null, { status: Result.isSuccess(settled) ? 204 : 500 })
       )
     const userId = request.headers.get(ViewerHeader.userId) ?? ""
     const sessionId = request.headers.get(ViewerHeader.sessionId) ?? ""
@@ -187,11 +197,7 @@ export class TradingDayObject {
   }
 
   private answer(response: Effect.Effect<Response, unknown, WorkerEnv>) {
-    return runServerEffectResult(withMarketClock(response)).then((settled) =>
-      Result.isSuccess(settled)
-        ? settled.success
-        : new Response(null, { status: 500 })
-    )
+    return respond(withMarketClock(response))
   }
 
   webSocketMessage(socket: WebSocket, message: string | ArrayBuffer) {

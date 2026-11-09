@@ -2,20 +2,27 @@
 // adapts day-index.ts, which holds the behaviour. Exported from the Worker
 // entry (src/worker.ts) as `DayIndex`, the class the dashboard stack declares.
 import { decodeRecordedDay } from "@workspace/relay"
-import { runServerEffectResult } from "@workspace/server"
-import { Effect, Result } from "effect"
+import { runServerEffect } from "@workspace/server"
+import { Effect } from "effect"
 
 import { durableSql } from "./durable-sql.ts"
 import { makeDayIndex } from "./day-index.ts"
 import { withMarketClock } from "./market-clock.ts"
+import { respond } from "./respond.ts"
 
 // Decision: a plain class, like the trading-day object: fetch only, and only
 // the bridge may import `cloudflare:workers`.
 export class DayIndexObject {
-  private readonly index
+  private index!: Effect.Success<ReturnType<typeof makeDayIndex>>
 
+  // Cloudflare holds every event until the index is made; a failure resets
+  // the object.
   constructor(ctx: DurableObjectState) {
-    this.index = Effect.runSync(makeDayIndex(durableSql(ctx.storage)))
+    void ctx.blockConcurrencyWhile(() =>
+      runServerEffect(makeDayIndex(durableSql(ctx.storage))).then((index) => {
+        this.index = index
+      })
+    )
   }
 
   // POST: a sealed day's row. GET: the day strip. The runner logs any
@@ -29,10 +36,6 @@ export class DayIndexObject {
             Effect.as(new Response(null, { status: 204 }))
           )
         : withMarketClock(this.index.strip)
-    return runServerEffectResult(answer).then((settled) =>
-      Result.isSuccess(settled)
-        ? settled.success
-        : new Response(null, { status: 500 })
-    )
+    return respond(answer)
   }
 }
