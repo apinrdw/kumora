@@ -747,6 +747,37 @@ describe("a restarted trading day", () => {
 })
 
 describe("a trade older than the tape", () => {
+  it.effect(
+    "that a failed flush took still counts once when its copy comes after the tape evicted it",
+    () =>
+      Effect.gen(function* () {
+        yield* TestClock.setTime(wib("09:00:10").epochMilliseconds)
+        const day = yield* tradingDay(flakySql(memorySql(), [1]))
+        const page = yield* day.viewer("UNVR")
+        const early = ajaibTrade({
+          seq: 50,
+          time: "09:00:30",
+          ticker: "UNVR",
+          lot: 7,
+        })
+        yield* day.ajaib([early])
+        // The 09:01:05 flush takes it, and its write fails.
+        yield* pastFlush
+        // A full tape of newer trades evicts it, then its copy comes.
+        yield* day.ajaib(
+          range(100_001, 110_000).map((seq) =>
+            ajaibTrade({ seq, time: "09:01:10", ticker: "TLKM" })
+          )
+        )
+        yield* day.ajaib([early])
+        yield* TestClock.adjust("1 second")
+        const deltas = (yield* page).slice(1)
+        assert.deepStrictEqual(candlesOf(deltas, "UNVR"), [
+          { minute: "2026-11-09T02:00:00.000Z", volume: 7, frequency: 1 },
+        ])
+      })
+  )
+
   it.effect("still lands in its own minute's candle, once", () =>
     Effect.gen(function* () {
       yield* TestClock.setTime(wib("09:10:00").epochMilliseconds)
