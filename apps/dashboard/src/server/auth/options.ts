@@ -355,7 +355,10 @@ const before = (input: AuthOptionsInput) =>
 // transaction. It sends the sessions the account still holds, read after the
 // delete, rather than what the route meant to end, so a refused or failed
 // route ends nothing. /change-password with revokeOtherSessions replaces the
-// caller's own session too, so its page closes and signs in again.
+// caller's own session too, so its page closes and signs in again. A session
+// that expires unread deletes no row, so the page's socket also carries the
+// session's end from the gate (market-live/gate.ts), and the trading-day
+// object closes it at its next delta or Select (market-live/trading-day.ts).
 const endLiveSessions = async (
   input: AuthOptionsInput,
   ended: { readonly userId: string },
