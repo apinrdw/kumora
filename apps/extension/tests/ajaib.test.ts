@@ -99,8 +99,8 @@ describe("Ajaib's stock code list", () => {
   it.effect("lists every entry's code, warrants included", () =>
     Effect.gen(function* () {
       const body = JSON.stringify({
-        message: "ok",
-        data: [
+        err_code: "EC0000000",
+        results: [
           { code: "BBCA", name: "Bank Central Asia Tbk.", watchlisted: false },
           { code: "BUKA-W", name: "Waran Bukalapak", watchlisted: false },
         ],

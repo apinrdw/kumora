@@ -17,7 +17,12 @@ import type { Answer, TabRequest } from "../src/worker/broker.ts"
 // An instant written as a WIB wall-clock time.
 const wib = (dateTime: string) => DateTime.makeUnsafe(`${dateTime}+07:00`)
 
-const LIST = JSON.stringify({ data: [{ code: "BBCA" }, { code: "TLKM" }] })
+const LIST = JSON.stringify({
+  results: [
+    { code: "BBCA", name: "Bank Central Asia Tbk" },
+    { code: "TLKM", name: null },
+  ],
+})
 const codes = (...names: ReadonlyArray<string>) =>
   names.map((name) => StockCode.make(name))
 

@@ -64,7 +64,11 @@ export type {
   ViewerDown,
   ViewerUp,
 } from "./envelope.ts"
-export { decodeStockCodeList, encodeStockCodeList } from "./code-list.ts"
+export {
+  decodeAjaibCodeList,
+  decodeStockCodeList,
+  encodeStockCodeList,
+} from "./code-list.ts"
 export {
   DayStripPath,
   bookAt,

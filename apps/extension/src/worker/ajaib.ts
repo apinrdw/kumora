@@ -1,6 +1,6 @@
 // Ajaib's on-demand subscriptions and its stock code list (spec
 // apinrdw/kumora#138, "Broker connections" and "Stock code list").
-import { StockCode } from "@workspace/relay"
+import { decodeAjaibCodeList, type StockCode } from "@workspace/relay"
 import { Effect, Option, Schema } from "effect"
 
 import type { Payload } from "./broker.ts"
@@ -72,18 +72,13 @@ export const onDemandMessages = Effect.fnUntraced(function* (
 // headers.
 export const CODE_LIST_PATH = "v1/stock/data/list/"
 
-const CodeListAnswer = Schema.fromJsonString(
-  Schema.Struct({
-    data: Schema.Array(Schema.Struct({ code: StockCode })),
-  })
-)
-const decodeCodeList = Schema.decodeUnknownOption(CodeListAnswer)
-
 // Every code on the list (3,406 on 2026-11-06, warrants included); none when
 // the answer isn't a list.
-export const listedCodes = Effect.fnUntraced(function* (body: string) {
-  return Option.match(decodeCodeList(body), {
-    onNone: () => [],
-    onSome: (answer) => answer.data.map((entry) => entry.code),
-  })
-})
+export const listedCodes = Effect.fnUntraced(
+  function* (body: string) {
+    return (yield* decodeAjaibCodeList(body)).map((entry) => entry.code)
+  },
+  Effect.catchTag("SchemaError", () =>
+    Effect.succeed<ReadonlyArray<StockCode>>([])
+  )
+)

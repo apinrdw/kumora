@@ -3,13 +3,13 @@
 // stores it normalised and serves it to the page with one GET.
 import {
   INDICES,
-  StockCode,
+  decodeAjaibCodeList,
   encodeStockCodeList,
   wibDateAt,
   type CodeKind,
   type WibDate,
 } from "@workspace/relay"
-import { DateTime, Effect, Option, Schema } from "effect"
+import { DateTime, Effect, Option } from "effect"
 
 import { SEALED_CACHE } from "./routes.ts"
 
@@ -32,15 +32,6 @@ export const memoryCodeListStore = Effect.sync((): CodeListStore => {
   }
 })
 
-// Ajaib's `/stock/data/list/` body, as the 2026-11-09 probe recorded it.
-const AjaibList = Schema.fromJsonString(
-  Schema.Struct({
-    results: Schema.Array(
-      Schema.Struct({ code: Schema.String, name: Schema.NullOr(Schema.String) })
-    ),
-  })
-)
-
 // Decision: the kind comes from the suffix alone, as the spec says: `-W` and
 // `-W2` are warrants, `-R` rights. Ajaib's structured warrants (`BBRIDRCM3A`)
 // and funds (`R-LQ45X`) stay shares.
@@ -56,15 +47,10 @@ const MAX_STORED_BYTES = 2_000_000
 // logged and dropped: the relay keeps relaying.
 export const storeCodeList = Effect.fnUntraced(
   function* (store: CodeListStore, body: string) {
-    const { results } = yield* Schema.decodeUnknownEffect(AjaibList)(body)
+    const listed = yield* decodeAjaibCodeList(body)
     const text = yield* encodeStockCodeList({
-      codes: results
-        .filter(({ code }) => code !== "")
-        .map(({ code, name }) => ({
-          code: StockCode.make(code),
-          name: name ?? "",
-          kind: kindOf(code),
-        }))
+      codes: listed
+        .map((entry) => ({ ...entry, kind: kindOf(entry.code) }))
         .concat(INDICES.map((index) => ({ ...index, kind: "index" as const }))),
     })
     if (new TextEncoder().encode(text).length > MAX_STORED_BYTES)
