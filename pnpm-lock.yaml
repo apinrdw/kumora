@@ -263,6 +263,9 @@ importers:
 
   packages/client:
     dependencies:
+      '@workspace/relay':
+        specifier: workspace:*
+        version: link:../relay
       effect:
         specifier: 'catalog:'
         version: 4.1.2
