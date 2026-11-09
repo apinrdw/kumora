@@ -82,15 +82,17 @@ const ajaibTrade = (trade: {
     tradeNum: `20261109${String(trade.seq).padStart(10, "0")}`,
   })
 
-// Ajaib's `ORDER_BOOK_CUSTOM` frame of BBCA's whole book, as of `time`.
+// Ajaib's `ORDER_BOOK_CUSTOM` frame of BBCA's whole book, as of `time`, or
+// of the levels that changed when `initial` is false.
 const ajaibBookFrame = (
   time: string,
   buy: ReadonlyArray<readonly [price: number, lot: number, num: number]>,
-  sell: ReadonlyArray<readonly [price: number, lot: number, num: number]>
+  sell: ReadonlyArray<readonly [price: number, lot: number, num: number]>,
+  initial = true
 ) =>
   JSON.stringify({
     ticker: "BBCA",
-    is_initial: "true",
+    ...(initial ? { is_initial: "true" } : {}),
     buy: buy.map(([price, lot, num]) => ({ price, lot, num })),
     sell: sell.map(([price, lot, num]) => ({ price, lot, num })),
     updateTime: wib(time).epochMilliseconds,
@@ -530,6 +532,45 @@ describe("a restarted trading day", () => {
         assert.deepStrictEqual(bookOf(snapshot), bookOf(before))
         assert.deepStrictEqual(snapshot?.dayStates, before?.dayStates)
         assert.strictEqual(snapshot?.dayStates?.[0]?.last, 8_000)
+      })
+  )
+
+  it.effect(
+    "keeps an Ajaib book's levels past the 20 served, and its totals, for the deltas after",
+    () =>
+      Effect.gen(function* () {
+        yield* TestClock.setTime(wib("09:00:00").epochMilliseconds)
+        const sql = memorySql()
+        const first = yield* tradingDay(sql)
+        // 25 levels a side of 10 lots each; the object serves 20.
+        const levels = (from: number, step: number) =>
+          range(0, 24).map((index) => [from + index * step, 10, 1] as const)
+        yield* first.ajaib([
+          ajaibBookFrame("09:00:00", levels(8_000, -5), levels(8_025, 5)),
+        ])
+        yield* pastFlush
+        yield* first.stop
+
+        const restarted = yield* tradingDay(sql)
+        const page = yield* restarted.viewer("BBCA")
+        const [snapshot] = yield* page
+        const bookOf = (message: ViewerDown | undefined) => {
+          const book =
+            message?._tag === "Snapshot"
+              ? message.orderBook
+              : message?.orderBooks?.find((held) => held.code === "BBCA")
+          return book?._tag === "OrderBook"
+            ? { bids: book.bids.length, bidLots: book.bidLots }
+            : undefined
+        }
+        assert.deepStrictEqual(bookOf(snapshot), { bids: 20, bidLots: 250 })
+        // The 25th bid, below the served ones, is taken away.
+        yield* restarted.ajaib([
+          ajaibBookFrame("09:01:30", [[8_000 - 24 * 5, 0, 0]], [], false),
+        ])
+        yield* TestClock.adjust("1 second")
+        const delta = (yield* page).at(-1)
+        assert.deepStrictEqual(bookOf(delta), { bids: 20, bidLots: 240 })
       })
   )
 
