@@ -724,7 +724,10 @@ export const makeTradingDay = Effect.fnUntraced(function* (options: {
   )
 
   // The page's Select, on open and on every change: answered with a snapshot,
-  // after which the socket gets deltas.
+  // after which the socket gets deltas. A Select the object couldn't serve,
+  // its codes not kept or the on-demand set not sent, closes the socket with
+  // 1011 (the failure is still logged): the page reconnects and sends its
+  // Select again, rather than sitting connected with its codes off the set.
   const viewerMessage = Effect.fnUntraced(
     function* (socket: Peer, text: string) {
       if (yield* sessionEnded(socket)) return yield* signInRequired(socket)
@@ -760,7 +763,7 @@ export const makeTradingDay = Effect.fnUntraced(function* (options: {
     (effect, socket) =>
       Effect.catchTag(effect, "ProtocolVersionMismatch", (error) =>
         socket.close(error.closeCode, "New version, reload")
-      )
+      ).pipe(Effect.tapCause(() => socket.close(1011, "Select not served")))
   )
 
   // A ready ingest socket closed, leaving `remaining` ready ones. With none,
