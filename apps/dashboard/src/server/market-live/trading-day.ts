@@ -18,7 +18,9 @@ import { WorkerEnv } from "@workspace/server"
 import { Effect, Scope } from "effect"
 
 import { ajaibTrades } from "./ajaib.ts"
+import { backfillTrades } from "./backfill-page.ts"
 import { makeCandleBook } from "./candles.ts"
+import { makeGaps } from "./gaps.ts"
 import type { HeldSessions } from "./routes.ts"
 import { stockbitTrades } from "./stockbit.ts"
 import { stockbitLivePrices } from "./stockbit-liveprice.ts"
@@ -120,6 +122,9 @@ export const makeTradingDay = Effect.fnUntraced(function* (options: {
   readonly viewersOf: (
     userId: string
   ) => Effect.Effect<ReadonlyArray<SessionViewer>>
+  // Every ingest socket the object holds, ready or not: backfill requests go
+  // down the ready ones. None by default.
+  readonly ingests?: Effect.Effect<ReadonlyArray<Peer>>
 }) {
   // Delta timers outlive the message that started them.
   const scope = yield* Scope.Scope
@@ -129,6 +134,9 @@ export const makeTradingDay = Effect.fnUntraced(function* (options: {
   let pending = new Map<string, RunningTrade>()
   let deltaScheduled = false
   const candles = yield* makeCandleBook
+  const gaps = yield* makeGaps({
+    ingests: options.ingests ?? Effect.succeed([]),
+  })
 
   // Merges each trade into the tape: a new trade number is inserted in its
   // place, a known one merged with what other feeds saw. A trade older than a
@@ -137,6 +145,7 @@ export const makeTradingDay = Effect.fnUntraced(function* (options: {
     trades: ReadonlyArray<RunningTrade>
   ) {
     for (const arriving of trades) {
+      yield* gaps.seen(arriving)
       const at = positionOf(tape, arriving)
       const held = tape[at]
       if (held?.tradeNumber === arriving.tradeNumber) {
@@ -207,7 +216,16 @@ export const makeTradingDay = Effect.fnUntraced(function* (options: {
           return yield* socket.setState("ready")
         return yield* socket.close(IngestCloseCode.RejectedToken, "Bad token")
       }
-      if (message._tag !== "Frames") return
+      // A page fills only numbers the tape lacks: a held trade keeps the
+      // feeds that saw it live.
+      if (message._tag === "BackfillPage")
+        yield* insert(
+          (yield* backfillTrades(options.date, message)).filter(
+            (trade) =>
+              tape[positionOf(tape, trade)]?.tradeNumber !== trade.tradeNumber
+          )
+        )
+      if (message._tag !== "Frames") return yield* scheduleDelta
       if (message.feed === "Stockbit") {
         yield* insert(yield* stockbitTrades(options.date, message.frames))
         for (const price of yield* stockbitLivePrices(
@@ -216,6 +234,7 @@ export const makeTradingDay = Effect.fnUntraced(function* (options: {
         ))
           if (price.isIndex) yield* candles.indexPrice(price)
       } else yield* insert(yield* ajaibTrades(options.date, message.frames))
+      yield* gaps.schedule
       yield* scheduleDelta
     },
     (effect, socket) =>

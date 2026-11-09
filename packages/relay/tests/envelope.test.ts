@@ -141,6 +141,7 @@ describe("ingest envelope, down", () => {
         _tag: "Backfill",
         from,
         to: TradeNumber.make("202611090000012399"),
+        nextTime: DateTime.makeUnsafe("2026-11-09T02:00:05.250Z"),
       }
       const wire = yield* encodeIngestDown(message)
       assert.include(wire, '"202611090000012345"')
@@ -161,7 +162,7 @@ describe("ingest envelope, down", () => {
 
   it.effect("a trade number sent as a JSON number is rejected", () =>
     Effect.gen(function* () {
-      const wire = '{"_tag":"Backfill","from":1,"to":2}'
+      const wire = '{"_tag":"Backfill","from":1,"to":2,"nextTime":0}'
       const error = yield* Effect.flip(decodeIngestDown(wire))
       assert.strictEqual(error._tag, "SchemaError")
     })

@@ -53,10 +53,15 @@ export class TradingDayObject {
               ?.slice(SESSION.length) ?? "",
         }))
       )
+    const ingests = Effect.sync(() =>
+      ctx.getWebSockets(INGEST).map((socket) => peerOf(socket))
+    )
     // Lives as long as the object; it holds the delta timers.
     const scope = Scope.makeUnsafe()
     this.day = Effect.runSync(
-      makeTradingDay({ date, viewers, viewersOf }).pipe(Scope.provide(scope))
+      makeTradingDay({ date, viewers, viewersOf, ingests }).pipe(
+        Scope.provide(scope)
+      )
     )
   }
 

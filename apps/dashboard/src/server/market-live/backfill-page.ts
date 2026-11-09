@@ -1,0 +1,129 @@
+// The brokers' REST running-trade pages into running trades (spec
+// apinrdw/kumora#138, "Backfill"). The relay fetches a page to answer a
+// Backfill request and sends its raw body up; only the rows numbered inside
+// the page's range are kept, each marked backfill. A row that doesn't decode
+// is skipped.
+import {
+  StockCode,
+  TradeNumber,
+  type BackfillPage,
+  type RunningTrade,
+  type WibDate,
+} from "@workspace/relay"
+import { DateTime, Effect, Option, Schema } from "effect"
+
+import { boardOf } from "./ajaib.ts"
+
+// Stockbit's `GET /order-trade/running-trade`: numbers as comma-grouped
+// strings ("2,300"), the time as WIB `HH:MM:SS` on the page's `data.date`,
+// and `action` "buy" or "sell". Captured 2026-11-06.
+const StockbitPage = Schema.fromJsonString(
+  Schema.Struct({
+    data: Schema.Struct({
+      date: Schema.optionalKey(Schema.String),
+      running_trade: Schema.Array(Schema.Unknown),
+    }),
+  })
+)
+const StockbitRow = Schema.Struct({
+  trade_number: Schema.String.check(Schema.isPattern(/^\d+$/)),
+  time: Schema.String.check(Schema.isPattern(/^\d\d:\d\d:\d\d$/)),
+  code: StockCode,
+  price: Schema.String,
+  lot: Schema.String,
+  action: Schema.optionalKey(Schema.String),
+  market_board: Schema.optionalKey(Schema.String),
+})
+
+// Ajaib's `GET v1/stock/detail/running_trades/`: `trade_num` is `YYYYMMDD`
+// and the 10-digit sequence, `timestamp` epoch ms. Captured 2026-11-06.
+const AjaibPage = Schema.fromJsonString(
+  Schema.Struct({ results: Schema.Array(Schema.Unknown) })
+)
+const AjaibRow = Schema.Struct({
+  trade_num: Schema.String.check(Schema.isPattern(/^\d{18}$/)),
+  stock_code: StockCode,
+  price: Schema.Int,
+  lot: Schema.Finite,
+  side: Schema.String,
+  timestamp: Schema.Finite,
+  market_type: Schema.optionalKey(Schema.String),
+})
+
+const decodeStockbitPage = Schema.decodeUnknownOption(StockbitPage)
+const decodeStockbitRow = Schema.decodeUnknownOption(StockbitRow)
+const decodeAjaibPage = Schema.decodeUnknownOption(AjaibPage)
+const decodeAjaibRow = Schema.decodeUnknownOption(AjaibRow)
+
+const grouped = (text: string) => Number(text.replaceAll(",", ""))
+
+const sideOf = (side: string | undefined): RunningTrade["side"] => {
+  const lower = side?.toLowerCase()
+  return lower === "buy" || lower === "sell" ? lower : "none"
+}
+
+const stockbitRows = (date: WibDate, body: string) => {
+  const page = decodeStockbitPage(body)
+  if (Option.isNone(page)) return []
+  if ((page.value.data.date ?? date) !== date) return []
+  return page.value.data.running_trade.flatMap((raw) => {
+    const row = decodeStockbitRow(raw)
+    if (Option.isNone(row)) return []
+    const { value } = row
+    const time = DateTime.make(`${date}T${value.time}+07:00`)
+    const price = grouped(value.price)
+    const lots = grouped(value.lot)
+    if (Option.isNone(time) || !Number.isInteger(price) || !(lots > 0))
+      return []
+    const trade: RunningTrade = {
+      tradeNumber: TradeNumber.make(BigInt(value.trade_number).toString()),
+      time: DateTime.toUtc(time.value),
+      code: value.code,
+      price,
+      lots,
+      side: sideOf(value.action),
+      board: boardOf(value.market_board),
+      feeds: ["backfill"],
+    }
+    return [trade]
+  })
+}
+
+const ajaibRows = (date: WibDate, body: string) => {
+  const prefix = date.replaceAll("-", "")
+  const page = decodeAjaibPage(body)
+  if (Option.isNone(page)) return []
+  return page.value.results.flatMap((raw) => {
+    const row = decodeAjaibRow(raw)
+    if (Option.isNone(row) || !row.value.trade_num.startsWith(prefix)) return []
+    const { value } = row
+    const trade: RunningTrade = {
+      tradeNumber: TradeNumber.make(
+        BigInt(value.trade_num.slice(8)).toString()
+      ),
+      time: DateTime.makeUnsafe(value.timestamp),
+      code: value.stock_code,
+      price: value.price,
+      lots: value.lot,
+      side: sideOf(value.side),
+      board: boardOf(value.market_type),
+      feeds: ["backfill"],
+    }
+    return [trade]
+  })
+}
+
+// The page's trades of `date` numbered from its `from` to its `to`.
+export const backfillTrades = (date: WibDate, page: BackfillPage) =>
+  Effect.sync(() => {
+    const from = BigInt(page.from)
+    const to = BigInt(page.to)
+    const rows =
+      page.feed === "Stockbit"
+        ? stockbitRows(date, page.body)
+        : ajaibRows(date, page.body)
+    return rows.filter((trade) => {
+      const number = BigInt(trade.tradeNumber)
+      return number >= from && number <= to
+    })
+  })

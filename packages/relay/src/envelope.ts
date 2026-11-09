@@ -101,6 +101,20 @@ export const FeedStatus = Schema.TaggedStruct("FeedStatus", {
   status: Schema.Literals(["opened", "closed", "alive"]),
 })
 
+// One REST page of a broker's running-trade tape, fetched to answer a
+// Backfill, as the raw response body: the Worker decodes it, as it does the
+// sockets' frames. `from` and `to` are the numbers the page was fetched for;
+// the object keeps only the rows between them.
+const BackfillPage = Schema.TaggedStruct("BackfillPage", {
+  ...versioned,
+  feed: Feed,
+  receivedAt: Schema.DateTimeUtcFromMillis,
+  from: TradeNumber,
+  to: TradeNumber,
+  body: Schema.String,
+})
+export type BackfillPage = typeof BackfillPage.Type
+
 // Extension → trading-day Durable Object.
 const IngestUp = Schema.Union([
   IngestToken,
@@ -108,13 +122,17 @@ const IngestUp = Schema.Union([
   AjaibFrames,
   CodeList,
   FeedStatus,
+  BackfillPage,
 ])
 export type IngestUp = typeof IngestUp.Type
 
-// Fetch the trades numbered from `from` to `to`, inclusive.
+// Fetch the trades numbered from `from` to `to`, inclusive. `nextTime` is
+// when trade `to` + 1, the first after the gap, happened: Ajaib's REST tape
+// has no trade-number filter and pages back from a time.
 export const Backfill = Schema.TaggedStruct("Backfill", {
   from: TradeNumber,
   to: TradeNumber,
+  nextTime: Schema.DateTimeUtcFromMillis,
 })
 
 // The codes to keep subscribed on Ajaib: every code a viewer has selected or

@@ -38,6 +38,7 @@ export {
   encodeViewerUp,
 } from "./envelope.ts"
 export type {
+  BackfillPage,
   Candle,
   IngestDown,
   IngestUp,
