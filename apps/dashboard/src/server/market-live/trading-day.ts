@@ -18,8 +18,10 @@ import { WorkerEnv } from "@workspace/server"
 import { Effect, Scope } from "effect"
 
 import { ajaibTrades } from "./ajaib.ts"
+import { makeCandleBook } from "./candles.ts"
 import type { HeldSessions } from "./routes.ts"
 import { stockbitTrades } from "./stockbit.ts"
+import { stockbitLivePrices } from "./stockbit-liveprice.ts"
 
 // A socket's progress. An ingest socket is `ready` once its token checked out;
 // a viewer socket once it was sent a snapshot, and from then on gets deltas.
@@ -126,6 +128,7 @@ export const makeTradingDay = Effect.fnUntraced(function* (options: {
   // by trade number.
   let pending = new Map<string, RunningTrade>()
   let deltaScheduled = false
+  const candles = yield* makeCandleBook
 
   // Merges each trade into the tape: a new trade number is inserted in its
   // place, a known one merged with what other feeds saw. A trade older than a
@@ -145,6 +148,7 @@ export const makeTradingDay = Effect.fnUntraced(function* (options: {
           continue
         tape[at] = merged
         pending.set(merged.tradeNumber, merged)
+        yield* candles.trade(held, merged)
         continue
       }
       if (at === 0 && tape.length >= TAPE_LIMIT) continue
@@ -152,30 +156,39 @@ export const makeTradingDay = Effect.fnUntraced(function* (options: {
       tape.splice(at, 0, trade)
       if (tape.length > TAPE_LIMIT) tape.shift()
       pending.set(trade.tradeNumber, trade)
+      yield* candles.trade(undefined, trade)
     }
   })
 
+  // Decision: a delta carries every candle that changed, of any code, not
+  // just each viewer's selected code's: one encoded text serves every viewer
+  // and no socket keeps its selection. The page keeps its own code's.
   const sendDelta = Effect.gen(function* () {
     deltaScheduled = false
     const trades = [...pending.values()].sort((a, b) =>
       TradeNumberOrder(a.tradeNumber, b.tradeNumber)
     )
     pending = new Map()
-    if (trades.length === 0) return
-    const text = yield* encodeViewerDown({ _tag: "Delta", tape: trades })
+    const changed = yield* candles.takeChanged
+    if (trades.length === 0 && changed.length === 0) return
+    const text = yield* encodeViewerDown({
+      _tag: "Delta",
+      tape: trades,
+      candles: changed,
+    })
     for (const viewer of yield* options.viewers) {
       if ((yield* viewer.state) === "ready") yield* viewer.send(text)
     }
   })
 
-  const scheduleDelta = Effect.suspend(() => {
-    if (deltaScheduled || pending.size === 0) return Effect.void
+  const scheduleDelta = Effect.gen(function* () {
+    if (deltaScheduled) return
+    if (pending.size === 0 && !(yield* candles.hasChanges)) return
     deltaScheduled = true
-    return Effect.sleep(DELTA_INTERVAL).pipe(
+    yield* Effect.sleep(DELTA_INTERVAL).pipe(
       Effect.andThen(sendDelta),
       Effect.catchCause((cause) => Effect.logError("Delta not sent", cause)),
-      Effect.forkIn(scope),
-      Effect.asVoid
+      Effect.forkIn(scope)
     )
   })
 
@@ -195,11 +208,14 @@ export const makeTradingDay = Effect.fnUntraced(function* (options: {
         return yield* socket.close(IngestCloseCode.RejectedToken, "Bad token")
       }
       if (message._tag !== "Frames") return
-      yield* insert(
-        message.feed === "Stockbit"
-          ? yield* stockbitTrades(options.date, message.frames)
-          : yield* ajaibTrades(options.date, message.frames)
-      )
+      if (message.feed === "Stockbit") {
+        yield* insert(yield* stockbitTrades(options.date, message.frames))
+        for (const price of yield* stockbitLivePrices(
+          options.date,
+          message.frames
+        ))
+          if (price.isIndex) yield* candles.indexPrice(price)
+      } else yield* insert(yield* ajaibTrades(options.date, message.frames))
       yield* scheduleDelta
     },
     (effect, socket) =>
@@ -212,10 +228,11 @@ export const makeTradingDay = Effect.fnUntraced(function* (options: {
   // after which the socket gets deltas.
   const viewerMessage = Effect.fnUntraced(
     function* (socket: Peer, text: string) {
-      yield* decodeViewerUp(text)
+      const { selected } = yield* decodeViewerUp(text)
       const snapshot = yield* encodeViewerDown({
         _tag: "Snapshot",
         tape: tape.slice(-SNAPSHOT_TRADES),
+        candles: yield* candles.candlesOf(selected),
       })
       yield* socket.send(snapshot)
       yield* socket.setState("ready")
