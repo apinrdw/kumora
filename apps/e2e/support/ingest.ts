@@ -2,12 +2,14 @@ import {
   IngestProtocolVersion,
   MarketLivePath,
   encodeIngestUp,
+  type Feed,
   type IngestUp,
 } from "@workspace/relay"
 import { DateTime, Effect } from "effect"
 import { readFileSync } from "node:fs"
 
 import { DASHBOARD } from "./accounts"
+import { marketNow } from "./clock"
 
 /** The Test stage's INGEST_TOKEN (playwright.config.ts sets it). */
 export const TEST_INGEST_TOKEN = "e2e-ingest-token-not-a-secret"
@@ -27,9 +29,10 @@ const recorded: {
   )
 )
 
-// Today in WIB, `YYYY-MM-DD`: the trading-day object the page reads.
+// Today in WIB on the Test stage's Market Live clock, `YYYY-MM-DD`: the
+// trading-day object the page reads.
 const wibToday = () =>
-  new Date(Date.now() + 7 * 3_600_000).toISOString().slice(0, 10)
+  new Date(marketNow() + 7 * 3_600_000).toISOString().slice(0, 10)
 
 /**
  * The recorded session-1 frames moved to today, so today's trading-day object
@@ -78,6 +81,20 @@ export async function openIngest(token = TEST_INGEST_TOKEN) {
         connection: "A",
         receivedAt: DateTime.nowUnsafe(),
         frames,
+      }),
+    /** Reports one of a feed's connections alive (a ping reply) or closed. */
+    report: (
+      feed: Feed,
+      status: "alive" | "closed",
+      connection: "A" | "B" = "A"
+    ) =>
+      send(socket, {
+        _tag: "FeedStatus",
+        protocolVersion: IngestProtocolVersion,
+        feed,
+        connection,
+        at: DateTime.nowUnsafe(),
+        status,
       }),
     close: () => socket.close(),
   }

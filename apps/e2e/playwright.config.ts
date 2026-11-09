@@ -2,6 +2,7 @@ import { defineConfig } from "@playwright/test"
 import { TEST } from "@workspace/deploy"
 
 import { ADMIN, testUrl } from "./support/accounts"
+import { MARKET_CLOCK_OFFSET } from "./support/clock"
 import { TEST_INGEST_TOKEN } from "./support/ingest"
 
 export default defineConfig({
@@ -43,6 +44,8 @@ export default defineConfig({
         ADMIN_EMAILS: ADMIN.email,
         // Likewise INGEST_TOKEN; support/ingest.ts's fake relay sends it.
         INGEST_TOKEN: TEST_INGEST_TOKEN,
+        // Market Live's clock, shifted into session 1 of a trading day.
+        MARKET_LIVE_CLOCK_OFFSET: String(MARKET_CLOCK_OFFSET),
       },
       url: `${testUrl("web")}/probe`,
       stdout: "pipe",

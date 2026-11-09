@@ -40,6 +40,72 @@ test.describe("signed in", () => {
     relay.close()
   })
 
+  test("a feed drop flips its pill, and both down dims the tape with STALE", async ({
+    page,
+  }) => {
+    const relay = await openIngest()
+    await relay.sendAjaib(session1Today().slice(0, 5))
+    await relay.report("Stockbit", "alive")
+    await page.goto(`${DASHBOARD}${PAGE}`)
+    const status = page.getByRole("group", { name: "Market status" })
+    const pill = (feed: string) =>
+      status.getByRole("listitem").filter({ hasText: feed })
+    const tape = page.getByRole("region", { name: "Running trades" })
+    // The Test stage's clock offset puts the market in session 1.
+    await expect(status.getByLabel("Market phase")).toHaveText("Session 1")
+    await expect(pill("Stockbit")).toContainText("LIVE")
+    await expect(pill("Ajaib")).toContainText("LIVE")
+    // The morning before the first relay connected wasn't recorded.
+    await expect(tape.locator("tr[data-relay-gap]").first()).toContainText(
+      "Not recorded"
+    )
+
+    await relay.report("Stockbit", "closed")
+    await expect(pill("Stockbit")).toContainText("UNAVAILABLE")
+    await expect(pill("Ajaib")).toContainText("LIVE")
+    await expect(tape).not.toHaveAttribute("data-stale")
+
+    await relay.report("Ajaib", "closed")
+    await expect(pill("Ajaib")).toContainText("UNAVAILABLE")
+    await expect(tape).toHaveAttribute("data-stale", "true")
+    await expect(tape.getByText("STALE", { exact: true })).toBeVisible()
+    // The last trades stay on screen.
+    await expect(tape.locator("tr[data-trade-number]").first()).toBeVisible()
+    relay.close()
+  })
+
+  test("a dropped page socket shows Reconnecting… without blaming the feeds", async ({
+    page,
+  }) => {
+    // The page's socket goes through Playwright: the test drops it, then
+    // refuses reconnects until it lets one through.
+    let accept = true
+    let dropPage: (() => void) | undefined
+    await page.routeWebSocket(/\/market-live\/live$/, (socket) => {
+      if (!accept) return socket.close({ code: 1012, reason: "Restart" })
+      socket.connectToServer()
+      dropPage = () => {
+        accept = false
+        void socket.close({ code: 1012, reason: "Restart" })
+      }
+    })
+    await page.goto(`${DASHBOARD}${PAGE}`)
+    const status = page.getByRole("group", { name: "Market status" })
+    await expect(status.getByRole("list", { name: "Feeds" })).toBeVisible()
+    await expect.poll(() => dropPage !== undefined).toBe(true)
+    dropPage!()
+    await expect(status.getByRole("status")).toHaveText("Reconnecting…")
+    await expect(status.getByRole("list", { name: "Feeds" })).toBeHidden()
+    await expect(
+      page.getByRole("region", { name: "Running trades" })
+    ).toHaveAttribute("data-stale", "true")
+    // The reconnect's fresh snapshot brings the pills back.
+    accept = true
+    await expect(status.getByRole("list", { name: "Feeds" })).toBeVisible({
+      timeout: 15_000,
+    })
+  })
+
   test("the nav leads to Market Live", async ({ page }) => {
     await page.goto(`${DASHBOARD}/account`)
     await page.getByRole("link", { name: "Market Live" }).first().click()
