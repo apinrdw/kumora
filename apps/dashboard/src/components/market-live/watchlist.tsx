@@ -65,12 +65,9 @@ const WatchlistRow = memo(function WatchlistRow({
             </td>
           ) : (
             <td className={cn(CELL, "text-right")}>
-              <abbr
-                title="Indicative price"
-                className="mr-1 text-[10px] text-muted-foreground no-underline"
-              >
-                IEP
-              </abbr>
+              <span className="mr-1 text-[10px] text-muted-foreground">
+                Indicative
+              </span>
               {quote(indicative.price)}
             </td>
           )}

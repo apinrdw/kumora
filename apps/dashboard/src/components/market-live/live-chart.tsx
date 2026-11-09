@@ -107,7 +107,7 @@ function ChartQuote({
           aria-label="Indicative price"
           className="text-[13px] tabular-nums"
         >
-          IEP {quote(indicative.price)} · {shares(indicative.volume)}
+          Indicative {quote(indicative.price)} · {shares(indicative.volume)}
         </span>
       )}
     </>

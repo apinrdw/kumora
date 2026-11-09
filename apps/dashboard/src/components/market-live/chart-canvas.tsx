@@ -444,7 +444,7 @@ export default function ChartCanvas({
         .trim(),
       lineStyle: LineStyle.Dashed,
       lineWidth: 1,
-      title: "IEP",
+      title: "Indicative",
     })
     return () => candles.removePriceLine(line)
   }, [indicative, series])
