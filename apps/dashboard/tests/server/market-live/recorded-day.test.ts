@@ -398,6 +398,48 @@ describe("a restarted trading day", () => {
       })
   )
 
+  it.effect(
+    "a flush whose write failed is written by the next, so a restart keeps its trades with their candles",
+    () =>
+      Effect.gen(function* () {
+        // The first flush, at 09:01:05, takes the trades: their merge
+        // windows closed.
+        yield* TestClock.setTime(wib("09:00:10").epochMilliseconds)
+        const sql = memorySql()
+        let failing = true
+        // The storage transaction failing once, as a Durable Object's can.
+        const flaky: Sql = {
+          exec: sql.exec,
+          transaction: (write) => {
+            if (!failing) return sql.transaction(write)
+            failing = false
+            throw new Error("Storage write failed")
+          },
+        }
+        const first = yield* tradingDay(flaky)
+        yield* first.ajaib(
+          range(1, 10).map((seq) => ajaibTrade({ seq, time: "09:00:30" }))
+        )
+        yield* pastFlush
+        yield* first.ajaib(
+          range(11, 20).map((seq) => ajaibTrade({ seq, time: "09:01:30" }))
+        )
+        yield* pastFlush
+        yield* first.stop
+
+        const restarted = yield* tradingDay(sql)
+        const [snapshot] = yield* yield* restarted.viewer()
+        assert.deepStrictEqual(
+          snapshot?.tape.map((trade) => trade.tradeNumber),
+          range(1, 20).map(String)
+        )
+        assert.deepStrictEqual(
+          snapshot?.candles.map((candle) => candle.frequency),
+          [10, 10]
+        )
+      })
+  )
+
   it.effect("asks the relay for the numbers it missed while it was down", () =>
     Effect.gen(function* () {
       yield* TestClock.setTime(wib("09:01:00").epochMilliseconds)
