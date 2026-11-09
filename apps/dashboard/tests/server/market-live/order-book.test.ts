@@ -333,6 +333,47 @@ describe("the order book", () => {
 const PRDL_BID =
   "Uu0BCgRQUkRMEpUBI098UFJETHxCSUR8MjUyOzU4OzU4NjYwMHwyNTA7MTQ0OzEwODg3MDB8MjQ4OzM0OzIwNjQwMHwyNDY7MTk7MTU3MDAwfDI0NDsyMTsxMjE4MDB8MjQyOzI2OzUyMDIwMHwyNDA7NDk7OTUzOTAwfDIzODs2OTsyMzc1MjAwfDE3ODUyOTM0NjEtNDIwJjYwMDk4MDAY0FAgpVkqIDIwMjYtMDctMjlUMDk6NTE6MDEuMzIzNDU0KzA3OjAwQAFKIzIwMjYtMDctMjlUMDk6NTE6MDEuMzI0NTI1OTIzKzA3OjAw"
 
+describe("Ajaib's ORDER_BOOK_CUSTOM frames", () => {
+  // 09:00:ss WIB, as `updateTime` carries it.
+  const at = (seconds: number) => Date.UTC(2026, 10, 9, 2, 0, seconds)
+  const frame = (
+    updateTime: number,
+    buy: ReadonlyArray<{ price: number; lot: number; num: number }>,
+    initial = false
+  ) =>
+    JSON.stringify({
+      ticker: "BBCA",
+      ...(initial ? { is_initial: "true" } : {}),
+      buy,
+      sell: [],
+      updateTime,
+    })
+
+  it.effect(
+    "a frame older than the book's last, as the other connection delivers one late, changes nothing",
+    () =>
+      Effect.gen(function* () {
+        const books = yield* makeOrderBooks(DAY)
+        yield* books.ajaibFrames([
+          frame(at(0), [{ price: 5000, lot: 10, num: 1 }], true),
+          frame(at(2), [{ price: 5000, lot: 30, num: 3 }]),
+        ])
+        // Connection B: the delta A already applied over, then an older
+        // snapshot.
+        yield* books.ajaibFrames([
+          frame(at(1), [{ price: 5000, lot: 20, num: 2 }]),
+          frame(at(1), [{ price: 4900, lot: 5, num: 1 }], true),
+        ])
+        const book = yield* books.bookOf(StockCode.make("BBCA"), false)
+        assert(book?._tag === "OrderBook")
+        assert.deepStrictEqual(
+          { bids: book.bids, at: DateTime.toEpochMillis(book.at) },
+          { bids: [{ price: 5000, lots: 30, orders: 3 }], at: at(2) }
+        )
+      })
+  )
+})
+
 describe("Stockbit's order_book frames", () => {
   it.effect("decode one side: levels in lots, the side's total lots", () =>
     Effect.gen(function* () {
