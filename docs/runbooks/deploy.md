@@ -121,6 +121,11 @@ Market Live's feed comes from `apps/extension`, loaded unpacked in the owner's C
 2. In `chrome://extensions`, turn on Developer mode, choose **Load unpacked** and pick `apps/extension/dist`. After each rebuild, press the extension's reload button, then reload the Stockbit and Ajaib tabs.
 3. Open the extension's options page. Paste Production's `INGEST_TOKEN` (step 1). To relay to Staging, a Preview or a Dev stage as well, set the extra target's URL and `staging`'s token. Each target's state shows below its fields; "Connected" means its ingest socket is open.
 4. Keep a signed-in `stockbit.com` tab and a signed-in `trade.ajaib.co.id` tab open. The relay streams by itself from 08:40 to 16:35 WIB on trading days and closes its sockets outside those hours. In hours, trades reach the stage's Market Live tape within a second.
+5. After each Chrome start, enter the 6-digit Ajaib PIN under **Ajaib sign-in** on the options page. Chrome forgets it when it closes. The Ajaib tab checks it once: "Signed in." means Ajaib's frames carry your account id. A refused PIN is not tried again. Check the PIN and enter it again; Ajaib may lock the account after several wrong PINs. If the state says Ajaib asks for a second factor, sign in in the Ajaib tab itself. Without a PIN the relay still works, and its Ajaib frames carry the id once the Ajaib page has made a REST call of its own.
+6. Once, with the Ajaib tab open, confirm in DevTools these guesses the relay makes, none of them seen in a capture yet:
+   - the account id Ajaib's own subscribe frames send (Network, the `ws/trade` socket's first SUBSCRIBE) is the `sub` claim of the access token in the page's `Authorization` header (paste its middle part into a base64 decoder);
+   - the page's REST calls go to `https://ht2.ajaib.co.id/api/`, the base the relay uses before the page made a call;
+   - an `ORDER_BOOK_CUSTOM` socket takes more than 30 codes. An older capture tool capped it at 30 a socket; the relay subscribes every on-demand code on one socket.
 
 The toolbar badge shows the worst target state: `KEY` for a rejected token, `RLD` when the dashboard no longer accepts the extension's protocol (rebuild and reload it), `…` while a target connects or retries.
 

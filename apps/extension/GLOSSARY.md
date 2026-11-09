@@ -35,3 +35,11 @@ _Avoid_: universe
 **Streaming window**:
 Where the relay's schedule clock is: closed (outside 08:40–16:35 WIB on trading days, every socket closed), auction (pre-opening and pre-closing, a dropped connection reconnects but none opens fresh) or open.
 _Avoid_: market hours
+
+**Ajaib account id**:
+The number Ajaib's subscribe frames carry as `id`, read from the `sub` claim of an Ajaib access token: the Ajaib tab's own, once the page has made a REST call, else the PIN sign-in's. Until either is seen, frames go without it.
+_Avoid_: user id (Stockbit's subscribe has its own `user_id`)
+
+**PIN sign-in**:
+The owner's 6-digit Ajaib PIN, entered on the options page and kept in `chrome.storage.session` only, which the Ajaib tab checks once with Ajaib's PIN validate call to get an access token. A refused PIN is never tried again; only a new entry is.
+_Avoid_: login, PIN retry
