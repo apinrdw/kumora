@@ -14,8 +14,14 @@ export type IndexCode = typeof IndexCode.Type
 // stock by the frame's `is_index`. The relay subscribes their `liveprice`
 // explicitly, since Ajaib's code list has none of them (spec
 // apinrdw/kumora#138, "Candles").
-export const INDEX_CODES: ReadonlyArray<StockCode> = [
-  StockCode.make("IHSG"),
-  StockCode.make("TN.IHSG"),
-  StockCode.make("NG.IHSG"),
+export const INDICES: ReadonlyArray<{
+  readonly code: StockCode
+  readonly name: string
+}> = [
+  { code: StockCode.make("IHSG"), name: "IDX Composite" },
+  // TN: the cash market's board; NG: the negotiated market's.
+  { code: StockCode.make("TN.IHSG"), name: "IDX Composite, cash market" },
+  { code: StockCode.make("NG.IHSG"), name: "IDX Composite, negotiated market" },
 ]
+
+export const INDEX_CODES = INDICES.map(({ code }) => code)

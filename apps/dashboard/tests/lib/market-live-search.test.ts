@@ -12,8 +12,20 @@ describe("the Market Live search params", () => {
     })
   })
 
+  it("keeps an index", () => {
+    for (const code of ["IHSG", "TN.IHSG", "NG.IHSG"])
+      expect(parseMarketLiveSearch({ code }).code).toBe(code)
+  })
+
   it("drops a code that isn't one, so the page falls back", () => {
-    for (const code of ["not a code", "bbri", "", 42, "TOOLONGCODE123"])
+    for (const code of [
+      "not a code",
+      "bbri",
+      "",
+      42,
+      "TOOLONGCODE123",
+      ".IHSG",
+    ])
       expect(parseMarketLiveSearch({ code }).code).toBeUndefined()
     expect(parseMarketLiveSearch({})).toStrictEqual({
       code: undefined,

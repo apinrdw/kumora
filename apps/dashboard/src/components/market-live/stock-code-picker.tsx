@@ -15,6 +15,7 @@ const SHOWN = 50
 
 const KIND_TAG: Record<ListedCode["kind"], string | undefined> = {
   share: undefined,
+  index: "Index",
   warrant: "Warrant",
   right: "Right",
 }

@@ -20,6 +20,7 @@ export const fetchStockCodeList = Effect.fnUntraced(function* (date: WibDate) {
 
 const KIND_RANK: Record<ListedCode["kind"], number> = {
   share: 0,
+  index: 0,
   warrant: 1,
   right: 2,
 }
@@ -33,8 +34,8 @@ const matchRank = (listed: ListedCode, query: string) => {
   return undefined
 }
 
-// The codes a search offers, best first: by match, then shares above warrants
-// and rights, then shorter codes, then A to Z. An empty query offers the
+// The codes a search offers, best first: by match, then shares and indices
+// above warrants and rights, then shorter codes, then A to Z. An empty query offers the
 // shares from A.
 export const searchStockCodes = Effect.fnUntraced(function* (
   codes: ReadonlyArray<ListedCode>,

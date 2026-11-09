@@ -2,6 +2,7 @@
 // loads"): the relay sends Ajaib's raw list response once a day; the object
 // stores it normalised and serves it to the page with one GET.
 import {
+  INDICES,
   StockCode,
   encodeStockCodeList,
   wibDateAt,
@@ -50,8 +51,9 @@ const kindOf = (code: string): CodeKind =>
 // dropped with a log. Ajaib's 3,406 codes encode to about 0.2 MB.
 const MAX_STORED_BYTES = 2_000_000
 
-// Normalises Ajaib's body and stores it, replacing the day's earlier list. A
-// body that doesn't parse is logged and dropped: the relay keeps relaying.
+// Normalises Ajaib's body, adds the indices, which Ajaib doesn't list, and
+// stores it, replacing the day's earlier list. A body that doesn't parse is
+// logged and dropped: the relay keeps relaying.
 export const storeCodeList = Effect.fnUntraced(
   function* (store: CodeListStore, body: string) {
     const { results } = yield* Schema.decodeUnknownEffect(AjaibList)(body)
@@ -62,7 +64,8 @@ export const storeCodeList = Effect.fnUntraced(
           code: StockCode.make(code),
           name: name ?? "",
           kind: kindOf(code),
-        })),
+        }))
+        .concat(INDICES.map((index) => ({ ...index, kind: "index" as const }))),
     })
     if (new TextEncoder().encode(text).length > MAX_STORED_BYTES)
       return yield* Effect.logWarning("Stock code list too large; dropped")

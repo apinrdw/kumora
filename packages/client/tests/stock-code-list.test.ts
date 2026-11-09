@@ -20,6 +20,8 @@ const CODES = [
   listed("WIFI", "Solusi Sinergi Digital Tbk."),
   listed("BUKA", "Bukalapak.com Tbk."),
   listed("BBCA", "Bank Central Asia Tbk"),
+  listed("TN.IHSG", "IDX Composite, cash market", "index"),
+  listed("TNCA-W", "Waran Seri I Trimuda Nuansa Citra", "warrant"),
 ]
 
 const codesFor = (query: string, limit = 10) =>
@@ -50,6 +52,12 @@ describe("stock code search", () => {
         // By name: Bumi Resources Minerals.
         "BRMS",
       ])
+    })
+  )
+
+  it.effect("ranks an index with shares, above warrants", () =>
+    Effect.gen(function* () {
+      assert.deepStrictEqual(yield* codesFor("TN"), ["TN.IHSG", "TNCA-W"])
     })
   )
 

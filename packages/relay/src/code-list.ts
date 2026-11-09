@@ -6,8 +6,9 @@ import { Schema } from "effect"
 import { StockCode } from "./codes.ts"
 
 // Tagged by the code's suffix: `-W` (or `-W2`) a warrant, `-R` a right.
-// Search ranks both below shares.
-const CodeKind = Schema.Literals(["share", "warrant", "right"])
+// Search ranks both below shares. An index is one of INDICES, which the
+// object adds to Ajaib's list.
+const CodeKind = Schema.Literals(["share", "index", "warrant", "right"])
 export type CodeKind = typeof CodeKind.Type
 
 const ListedCode = Schema.Struct({

@@ -112,8 +112,8 @@ describe("the stock code list", () => {
         const response = yield* day.recorded({ _tag: "Codes" })
         assert.strictEqual(response.status, 200)
         const { codes } = yield* listOf(response)
-        // Ajaib's one empty entry is dropped.
-        assert.lengthOf(codes, 13)
+        // Ajaib's one empty entry is dropped; the three indices are added.
+        assert.lengthOf(codes, 16)
         const kindOf = (code: string) =>
           codes.find((listed) => listed.code === code)?.kind
         const byCode = new Map<string, unknown>(
@@ -132,6 +132,13 @@ describe("the stock code list", () => {
         })
         assert.strictEqual(kindOf("WIFI-R"), "right")
         assert.strictEqual(kindOf("R-LQ45X"), "share")
+        assert.deepStrictEqual(byCode.get("IHSG"), {
+          code: "IHSG",
+          name: "IDX Composite",
+          kind: "index",
+        })
+        assert.strictEqual(kindOf("TN.IHSG"), "index")
+        assert.strictEqual(kindOf("NG.IHSG"), "index")
         // Today's list is cached until midnight WIB, 15 hours on.
         assert.strictEqual(
           response.headers.get("Cache-Control"),
@@ -152,7 +159,7 @@ describe("the stock code list", () => {
         response.headers.get("Cache-Control"),
         "private, max-age=31536000, immutable"
       )
-      assert.lengthOf((yield* listOf(response)).codes, 13)
+      assert.lengthOf((yield* listOf(response)).codes, 16)
     })
   )
 
@@ -169,7 +176,7 @@ describe("the stock code list", () => {
       const { codes } = yield* listOf(yield* day.recorded({ _tag: "Codes" }))
       assert.deepStrictEqual(
         codes.map(({ code }) => code),
-        ["BBCA"]
+        ["BBCA", "IHSG", "TN.IHSG", "NG.IHSG"]
       )
     })
   )
@@ -183,7 +190,7 @@ describe("the stock code list", () => {
       yield* send(JSON.stringify({ results: [{ ticker: "BBCA" }] }))
       assert.lengthOf(
         (yield* listOf(yield* day.recorded({ _tag: "Codes" }))).codes,
-        13
+        16
       )
     })
   )
@@ -198,7 +205,7 @@ describe("the stock code list", () => {
       yield* (yield* relay)(JSON.stringify({ results }))
       assert.lengthOf(
         (yield* listOf(yield* day.recorded({ _tag: "Codes" }))).codes,
-        3_406
+        3_409
       )
     })
   )
