@@ -8,10 +8,9 @@ import * as Base64 from "effect/encoding/Base64"
 import { onDemandMessages, type OnDemandStream } from "./ajaib.ts"
 import type { SiteName } from "./broker.ts"
 import {
-  CREDENTIAL_COOKIE,
   WEBSOCKET_KEY_URL,
-  stockbitCredential,
   subscribeFrame,
+  tabCredential,
   websocketKey,
   type StockbitCredential,
 } from "./stockbit.ts"
@@ -51,13 +50,7 @@ export const makeStockbitSubscriptions = Effect.fnUntraced(function* (
     tab: BrokerTab,
     connection: Connection
   ) {
-    const cookie = yield* tab.request({
-      _tag: "cookie",
-      name: CREDENTIAL_COOKIE,
-    })
-    const credential = Option.isSome(cookie)
-      ? yield* stockbitCredential(cookie.value.body)
-      : Option.none()
+    const credential = yield* tabCredential(tab)
     if (Option.isNone(credential))
       return yield* Effect.logWarning("Stockbit tab has no access token")
     const answer = yield* tab.request({

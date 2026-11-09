@@ -5,13 +5,19 @@
 import type { StockCode } from "@workspace/relay"
 import { Effect, Option, Schema } from "effect"
 
+import type { Answer, TabRequest } from "./broker.ts"
+
 // Decision: the key comes from Stockbit's REST host, called from the tab with
 // the token in its `credentialStorage` cookie. The relay never refreshes the
 // token: it reads the cookie again before every key fetch, so it uses
 // whatever the page last refreshed. See apinrdw/kumora#43.
 export const WEBSOCKET_KEY_URL =
   "https://exodus.stockbit.com/auth/websocket/key"
-export const CREDENTIAL_COOKIE = "credentialStorage"
+const CREDENTIAL_COOKIE = "credentialStorage"
+
+// Stockbit's REST running-trade tape, which backfill pages by trade number.
+export const RUNNING_TRADE_URL =
+  "https://exodus.stockbit.com/order-trade/running-trade"
 
 export interface StockbitCredential {
   readonly accessToken: string
@@ -49,6 +55,18 @@ export const stockbitCredential = Effect.fnUntraced(function* (cookie: string) {
       userId: String(payload.data.uid),
     }))
   )
+})
+
+// The tab's current credential, read from its cookie at call time.
+export const tabCredential = Effect.fnUntraced(function* (tab: {
+  readonly request: (
+    request: TabRequest
+  ) => Effect.Effect<Option.Option<Answer>>
+}) {
+  const cookie = yield* tab.request({ _tag: "cookie", name: CREDENTIAL_COOKIE })
+  return Option.isSome(cookie)
+    ? yield* stockbitCredential(cookie.value.body)
+    : Option.none<StockbitCredential>()
 })
 
 const KeyAnswer = Schema.fromJsonString(

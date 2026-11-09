@@ -24,6 +24,7 @@ import {
 import * as Socket from "effect/socket/Socket"
 
 import { CODE_LIST_PATH, listedCodes } from "./ajaib.ts"
+import { makeBackfill } from "./backfill.ts"
 import { BATCH_INTERVAL, makeBatcher } from "./batch.ts"
 import { ajaib, ajaibOnDemand, stockbit } from "./broker.ts"
 import { windowAt } from "./gate.ts"
@@ -181,17 +182,19 @@ const makeTargets = Effect.fnUntraced(function* (
 })
 
 // The on-demand codes: the union of what each target's trading-day object
-// asked for.
+// asked for. Backfill requests go on to `backfill`.
 const makeOnDemandCodes = Effect.fnUntraced(function* (
-  changed: Effect.Effect<void>
+  changed: Effect.Effect<void>,
+  backfill: (
+    name: TargetName,
+    message: Extract<IngestDown, { _tag: "Backfill" }>
+  ) => Effect.Effect<void>
 ) {
   const byTarget = new Map<TargetName, ReadonlyArray<StockCode>>()
   let union: ReadonlyArray<StockCode> = []
   const receive = (name: TargetName, message: IngestDown | undefined) =>
     Effect.suspend(() => {
-      // Backfill requests are apinrdw/kumora#156's.
-      if (message !== undefined && message._tag !== "OnDemandCodes")
-        return Effect.void
+      if (message?._tag === "Backfill") return backfill(name, message)
       byTarget.set(name, message?.codes ?? [])
       const next = [...new Set([...byTarget.values()].flat())].sort()
       if (JSON.stringify(next) === JSON.stringify(union)) return Effect.void
@@ -284,7 +287,8 @@ const main = Effect.gen(function* () {
     codeList.codes
   )
   const onDemandCodes = yield* makeOnDemandCodes(
-    Effect.suspend(() => onDemand.resubscribe(ajaibTab))
+    Effect.suspend(() => onDemand.resubscribe(ajaibTab)),
+    (name, message) => Effect.suspend(() => backfill.request(name, message))
   )
   const onDemand: Subscriptions = yield* makeAjaibOnDemand(onDemandCodes.codes)
   const stockbitTab = yield* makeBrokerTab({
@@ -304,6 +308,12 @@ const main = Effect.gen(function* () {
     hooks: onDemand.hooks,
   })
   const tabs = [stockbitTab, ajaibTab]
+  const backfill = yield* makeBackfill({
+    stockbit: stockbitTab,
+    ajaib: ajaibTab,
+    publish,
+  })
+  yield* Effect.forkScoped(backfill.run)
   const targets = yield* makeTargets(envelopes, onDemandCodes.receive)
 
   // The tick, from the worker's own timer and the alarm.
