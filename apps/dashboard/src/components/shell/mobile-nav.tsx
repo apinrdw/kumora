@@ -11,7 +11,7 @@ export function MobileNav({ features }: { features: ReadonlyArray<Feature> }) {
   if (items.length === 0) return null
   return (
     <nav
-      aria-label="Navigasi utama"
+      aria-label="Main navigation"
       className="fixed inset-x-0 bottom-0 z-30 grid h-16 border-t border-border bg-sidebar pb-[env(safe-area-inset-bottom)] md:hidden"
       style={{ gridTemplateColumns: `repeat(${items.length}, 1fr)` }}
     >
