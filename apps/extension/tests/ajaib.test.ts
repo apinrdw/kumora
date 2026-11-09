@@ -9,6 +9,9 @@ import {
   tradeSubscribe,
 } from "../src/worker/ajaib.ts"
 
+// The dashboard's capture of Ajaib's list answer, shared, not copied.
+import recordedList from "../../dashboard/tests/server/market-live/fixtures/ajaib-code-list-2026-11-09.json"
+
 const codes = (...names: ReadonlyArray<string>) =>
   names.map((name) => StockCode.make(name))
 
@@ -110,6 +113,19 @@ describe("Ajaib's stock code list", () => {
     Effect.gen(function* () {
       assert.deepStrictEqual(yield* listedCodes('{"detail":"forbidden"}'), [])
       assert.deepStrictEqual(yield* listedCodes("<html>"), [])
+    })
+  )
+})
+
+describe("Ajaib's stock code list, as the 2026-11-09 probe recorded it", () => {
+  it.effect("lists every non-empty code of the recorded answer", () =>
+    Effect.gen(function* () {
+      const listed = yield* listedCodes(recordedList.body)
+      assert.lengthOf(listed, 13)
+      assert.include(listed, StockCode.make("BBCA"))
+      assert.include(listed, StockCode.make("AMAG-W2"))
+      assert.include(listed, StockCode.make("R-LQ45X"))
+      assert.notInclude(listed, StockCode.make(""))
     })
   )
 })
