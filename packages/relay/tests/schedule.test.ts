@@ -1,5 +1,5 @@
 import { assert, describe, it } from "@effect/vitest"
-import { DateTime, Effect } from "effect"
+import { DateTime, Effect, Option, Schema } from "effect"
 
 import {
   WibDate,
@@ -17,6 +17,23 @@ import {
 const wib = (dateTime: string) => DateTime.makeUnsafe(`${dateTime}+07:00`)
 
 const momentAt = (dateTime: string) => marketMomentAt(wib(dateTime))
+
+describe("a WIB date", () => {
+  it("is a date the calendar has, in YYYY-MM-DD", () => {
+    const decode = Schema.decodeUnknownOption(WibDate)
+    assert.isTrue(Option.isSome(decode("2026-02-28")))
+    assert.isTrue(Option.isSome(decode("2028-02-29")))
+    for (const date of [
+      "2026-13-01",
+      "2026-02-30",
+      "2026-02-29",
+      "2026-00-10",
+      "2026-11-00",
+      "2026-11-6",
+    ])
+      assert.isTrue(Option.isNone(decode(date)), date)
+  })
+})
 
 describe("trading days", () => {
   it.effect("a weekday is a trading day unless it is a holiday", () =>
