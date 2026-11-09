@@ -8,18 +8,29 @@ import {
   decodeIngestDown,
   encodeIngestUp,
   type IngestDown,
+  type WibDate,
 } from "@workspace/relay"
-import { Duration, Effect, PubSub } from "effect"
+import {
+  Duration,
+  Effect,
+  PubSub,
+  Schema,
+  Stream,
+  SubscriptionRef,
+} from "effect"
 import * as Socket from "effect/socket/Socket"
 
 import type { DashboardOrigin, TargetState } from "./settings.ts"
 
 // Decision: backoff starts at 1 s, doubles, and caps at 30 s; it resets once a
-// socket opens, so a deploy during market hours costs one quick reconnect.
+// socket opens, so a deploy during streaming hours costs one quick reconnect.
 // 4403 and 4426 stop retrying until the target's settings change. See
 // apinrdw/kumora#45.
 const FIRST_RETRY = Duration.seconds(1)
 const LAST_RETRY = Duration.seconds(30)
+
+// The WIB date moved on while the socket was open.
+class DayChanged extends Schema.TaggedError<DayChanged>()("DayChanged", {}) {}
 
 const ingestUrl = Effect.fnUntraced(function* (origin: DashboardOrigin) {
   return `${origin.replace(/^http/, "ws")}${MarketLivePath.ingest}`
@@ -33,6 +44,14 @@ export const runTarget = Effect.fnUntraced(function* (options: {
   readonly origin: DashboardOrigin
   readonly token: string
   readonly envelopes: PubSub.PubSub<string>
+  // Today's WIB date on the relay's schedule clock. Decision: the dashboard
+  // picks the trading-day object at the handshake, by its WIB date, so a
+  // socket left open past midnight would feed the sealed day and lose the
+  // new one's frames; the socket is reopened as soon as the date changes.
+  readonly day: SubscriptionRef.SubscriptionRef<WibDate>
+  // What every fresh socket is sent after the token: the day's code list,
+  // which a target that was down for the daily fetch would otherwise miss.
+  readonly catchUp: Effect.Effect<ReadonlyArray<string>>
   readonly report: (state: TargetState) => Effect.Effect<void>
   // What the trading-day object sends down: on-demand codes and backfill
   // requests.
@@ -51,7 +70,9 @@ export const runTarget = Effect.fnUntraced(function* (options: {
       const envelopes = yield* PubSub.subscribe(options.envelopes)
       const pull = yield* Socket.readerString(socket)
       const writer = yield* socket.writer
+      const day = yield* SubscriptionRef.get(options.day)
       yield* writer.write(token)
+      for (const text of yield* options.catchUp) yield* writer.write(text)
       yield* opened
       // A message that doesn't decode is dropped: it may be from a newer
       // dashboard, which closes 4426 if the versions really differ.
@@ -73,7 +94,15 @@ export const runTarget = Effect.fnUntraced(function* (options: {
       const write = Effect.forever(
         Effect.flatMap(PubSub.take(envelopes), writer.write)
       )
-      return yield* Effect.all([read, write], { concurrency: "unbounded" })
+      const untilNextDay = SubscriptionRef.changes(options.day).pipe(
+        Stream.filter((current) => current !== day),
+        Stream.take(1),
+        Stream.runDrain,
+        Effect.andThen(Effect.fail(new DayChanged()))
+      )
+      return yield* Effect.all([read, write, untilNextDay], {
+        concurrency: "unbounded",
+      })
     }).pipe(Effect.scoped)
 
   let retry = FIRST_RETRY
@@ -84,6 +113,10 @@ export const runTarget = Effect.fnUntraced(function* (options: {
   yield* options.report("connecting")
   while (true) {
     const error = yield* Effect.flip(connection(opened))
+    if (error._tag === "DayChanged") {
+      yield* options.report("connecting")
+      continue
+    }
     const code =
       error.reason._tag === "SocketCloseError" ? error.reason.code : undefined
     if (code === IngestCloseCode.RejectedToken)

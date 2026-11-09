@@ -19,6 +19,7 @@ import {
   PubSub,
   Queue,
   Schedule,
+  SubscriptionRef,
   type Scope,
 } from "effect"
 import * as Socket from "effect/socket/Socket"
@@ -126,13 +127,16 @@ const showStates = Effect.fnUntraced(function* (states: TargetStates) {
 })
 
 // Targets: one fiber each, restarted when its settings change.
-const makeTargets = Effect.fnUntraced(function* (
-  envelopes: PubSub.PubSub<string>,
-  receive: (
+const makeTargets = Effect.fnUntraced(function* (options: {
+  readonly envelopes: PubSub.PubSub<string>
+  readonly day: SubscriptionRef.SubscriptionRef<WibDate>
+  readonly catchUp: Effect.Effect<ReadonlyArray<string>>
+  readonly receive: (
     name: TargetName,
     message: IngestDown | undefined
   ) => Effect.Effect<void>
-) {
+}) {
+  const { receive } = options
   const fibers = yield* FiberMap.make<TargetName>()
   const states: Record<TargetName, TargetState> = {
     production: "off",
@@ -159,7 +163,9 @@ const makeTargets = Effect.fnUntraced(function* (
       name,
       runTarget({
         ...target,
-        envelopes,
+        envelopes: options.envelopes,
+        day: options.day,
+        catchUp: options.catchUp,
         report: report(name),
         receive: (message) => receive(name, message),
       })
@@ -211,7 +217,7 @@ const makeOnDemandCodes = Effect.fnUntraced(function* (
 const CODE_LIST_RETRY = Duration.minutes(1)
 
 const makeCodeList = Effect.fnUntraced(function* (options: {
-  readonly publish: (message: IngestUp) => Effect.Effect<unknown>
+  readonly envelopes: PubSub.PubSub<string>
   readonly changed: Effect.Effect<void>
 }) {
   let list = yield* loadCodeList
@@ -229,14 +235,18 @@ const makeCodeList = Effect.fnUntraced(function* (options: {
     if (Option.isNone(answer) || answer.value.status !== 200) return
     const codes = yield* listedCodes(answer.value.body)
     if (codes.length === 0) return
-    list = Option.some({ date: today, codes })
-    yield* saveCodeList({ date: today, codes })
-    yield* options.publish({
-      _tag: "CodeList",
-      protocolVersion: IngestProtocolVersion,
-      receivedAt: yield* DateTime.now,
-      body: answer.value.body,
-    })
+    const envelope = yield* Effect.orDie(
+      encodeIngestUp({
+        _tag: "CodeList",
+        protocolVersion: IngestProtocolVersion,
+        receivedAt: yield* DateTime.now,
+        body: answer.value.body,
+      })
+    )
+    const held = { date: today, codes, envelope }
+    list = Option.some(held)
+    yield* saveCodeList(held)
+    yield* PubSub.publish(options.envelopes, envelope)
     yield* options.changed
   })
 
@@ -259,11 +269,23 @@ const makeCodeList = Effect.fnUntraced(function* (options: {
     )
   })
 
+  // The day's CodeList envelope, for a target's fresh socket.
+  const catchUp = Effect.sync(() =>
+    Option.match(list, { onNone: () => [], onSome: (held) => [held.envelope] })
+  )
+
   return {
     tick,
+    catchUp,
     codes: () =>
       Option.match(list, { onNone: () => [], onSome: (held) => held.codes }),
   }
+})
+
+// Now on the relay's schedule clock.
+const scheduleNow = Effect.gen(function* () {
+  const now = yield* DateTime.now
+  return DateTime.add(now, { milliseconds: yield* loadClockOffset })
 })
 
 const main = Effect.gen(function* () {
@@ -282,7 +304,7 @@ const main = Effect.gen(function* () {
 
   // A changed list or on-demand set resubscribes the open sockets.
   const codeList = yield* makeCodeList({
-    publish,
+    envelopes,
     changed: Effect.suspend(() => stockbitCodes.resubscribe(stockbitTab)),
   })
   const stockbitCodes: Subscriptions = yield* makeStockbitSubscriptions(
@@ -338,7 +360,14 @@ const main = Effect.gen(function* () {
     publish,
   })
   yield* Effect.forkScoped(backfill.run)
-  const targets = yield* makeTargets(envelopes, onDemandCodes.receive)
+  // Today's WIB date on the schedule clock, moved on by the tick.
+  const day = yield* SubscriptionRef.make(yield* wibDateAt(yield* scheduleNow))
+  const targets = yield* makeTargets({
+    envelopes,
+    day,
+    catchUp: codeList.catchUp,
+    receive: onDemandCodes.receive,
+  })
 
   // The tick, from the worker's own timer and the alarm.
   let lastTick = 0
@@ -347,7 +376,10 @@ const main = Effect.gen(function* () {
     const ms = DateTime.toEpochMillis(now)
     if (alarm && ms - lastTick < Duration.toMillis(TICK)) return
     lastTick = ms
-    const schedule = DateTime.add(now, { milliseconds: yield* loadClockOffset })
+    const schedule = yield* scheduleNow
+    const today = yield* wibDateAt(schedule)
+    if (today !== (yield* SubscriptionRef.get(day)))
+      yield* SubscriptionRef.set(day, today)
     const window = yield* windowAt(schedule)
     for (const tab of tabs) yield* tab.tick(window)
     // The PIN check's answer queues behind this tick.

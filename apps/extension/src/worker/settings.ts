@@ -96,10 +96,12 @@ export const isTargetStatesChange = Effect.fnUntraced(function* (
 })
 
 // The day's stock code list, kept so a restarted worker subscribes Stockbit
-// at once and fetches the list only once a day.
+// at once and fetches the list only once a day, with the CodeList envelope
+// it sent, for a target that connects later in the day.
 const CodeListCache = Schema.Struct({
   date: WibDate,
   codes: Schema.Array(StockCode),
+  envelope: Schema.String,
 })
 export type CodeListCache = typeof CodeListCache.Type
 
@@ -121,7 +123,7 @@ export const saveCodeList = Effect.fnUntraced(function* (list: CodeListCache) {
 
 // Decision: a test-only clock offset, in ms, moves the relay's schedule (its
 // streaming hours, its auctions and the code list's day) and nothing else, so
-// the extension e2e can run in market hours at any time of day. Only a script
+// the extension e2e can run in streaming hours at any time of day. Only a script
 // in the service worker's console sets it; the options page never shows it.
 // Frames keep their real receive times. See apinrdw/kumora#155.
 const CLOCK_OFFSET_KEY = "clockOffsetMs"
