@@ -49,7 +49,12 @@ import { makeGaps } from "./gaps.ts"
 import { makeMarketStatus } from "./market-status.ts"
 import { makeOnDemand } from "./on-demand.ts"
 import { makeOrderBooks } from "./order-books.ts"
-import { SEALED_CACHE, type HeldSessions } from "./routes.ts"
+import {
+  SEALED_CACHE,
+  type AccountId,
+  type HeldSessions,
+  type SessionId,
+} from "./routes.ts"
 import { stockbitTrades } from "./stockbit.ts"
 import { stockbitLivePrices, type LivePrice } from "./stockbit-liveprice.ts"
 
@@ -72,10 +77,11 @@ export interface Peer {
   ) => Effect.Effect<void>
 }
 
-// A viewer socket and the session it was gated with.
+// A viewer socket and the session it was gated with; none for a socket
+// tagged without one, which no held session keeps open.
 export interface SessionViewer {
   readonly peer: Peer
-  readonly sessionId: string
+  readonly sessionId: SessionId | undefined
 }
 
 const SNAPSHOT_TRADES = 200
@@ -231,7 +237,7 @@ export const makeTradingDay = Effect.fnUntraced(function* (options: {
   readonly codeList?: CodeListStore
   // The viewer sockets of one account, on any of its sessions.
   readonly viewersOf: (
-    userId: string
+    userId: AccountId
   ) => Effect.Effect<ReadonlyArray<SessionViewer>>
   // Every ingest socket the object holds, ready or not: backfill requests go
   // down the ready ones. None by default.
@@ -731,7 +737,10 @@ export const makeTradingDay = Effect.fnUntraced(function* (options: {
   // longer holds is sent to sign in.
   const endSessions = Effect.fnUntraced(function* (held: HeldSessions) {
     for (const viewer of yield* options.viewersOf(held.userId)) {
-      if (!held.sessionIds.includes(viewer.sessionId))
+      if (
+        viewer.sessionId === undefined ||
+        !held.sessionIds.includes(viewer.sessionId)
+      )
         yield* viewer.peer.close(ViewerCloseCode.SignInRequired, "Sign in")
     }
   })

@@ -7,6 +7,7 @@ import { DateTime, Effect, Layer } from "effect"
 import { TestClock } from "effect/testing"
 
 import { LiveViewers } from "@/server/market-live/live-viewers"
+import { AccountId } from "@/server/market-live/routes"
 
 const DAY_MS = 24 * 60 * 60 * 1000
 
@@ -35,7 +36,10 @@ describe("ending live sessions", () => {
       const { reached, layer } = reachedWith(-3 * DAY_MS)
       yield* Effect.gen(function* () {
         const viewers = yield* LiveViewers
-        yield* viewers.endSessions({ userId: "ayu", sessionIds: [] })
+        yield* viewers.endSessions({
+          userId: AccountId.make("ayu"),
+          sessionIds: [],
+        })
       }).pipe(Effect.provide(layer))
       assert.deepStrictEqual(reached, ["2026-11-06"])
     })

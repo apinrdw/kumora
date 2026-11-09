@@ -32,6 +32,7 @@ import recordedIhsg from "./fixtures/stockbit-ihsg-liveprice.json"
 import recordedStockbit from "./fixtures/stockbit-trades-2026-11-09.json"
 import { doubleField, messageField, stringField, varintField } from "./protobuf"
 import { memorySql } from "./sql"
+import { AccountId, SessionId } from "@/server/market-live/routes"
 
 const TOKEN = "e2e-ingest-token"
 const DAY = WibDate.make("2026-11-09")
@@ -69,6 +70,12 @@ interface SignedIn {
 
 const AYU: SignedIn = { userId: "ayu", sessionId: "ayu-laptop" }
 
+// The sessions an account still holds, as the after-hook sends them.
+const heldSessions = (userId: string, sessionIds: ReadonlyArray<string>) => ({
+  userId: AccountId.make(userId),
+  sessionIds: sessionIds.map((id) => SessionId.make(id)),
+})
+
 const tradingDay = Effect.fnUntraced(function* () {
   const viewers: Array<FakeSocket> = []
   const signedIn = new Map<FakeSocket, SignedIn>()
@@ -82,7 +89,7 @@ const tradingDay = Effect.fnUntraced(function* () {
         viewers.flatMap((peer) => {
           const held = signedIn.get(peer)
           return held?.userId === userId
-            ? [{ peer, sessionId: held.sessionId }]
+            ? [{ peer, sessionId: SessionId.make(held.sessionId) }]
             : []
         })
       ),
@@ -201,12 +208,12 @@ describe("a ban, revoke or delete", () => {
           select(socket)
         )
 
-        yield* day.endSessions({ userId: "ayu", sessionIds: ["ayu-laptop"] })
+        yield* day.endSessions(heldSessions("ayu", ["ayu-laptop"]))
         assert.strictEqual(phone.closedWith, ViewerCloseCode.SignInRequired)
         assert.isUndefined(laptop.closedWith)
         assert.isUndefined(other.closedWith)
 
-        yield* day.endSessions({ userId: "ayu", sessionIds: [] })
+        yield* day.endSessions(heldSessions("ayu", []))
         assert.strictEqual(laptop.closedWith, ViewerCloseCode.SignInRequired)
         assert.isUndefined(other.closedWith)
       })

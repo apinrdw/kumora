@@ -21,10 +21,12 @@ import { marketClockOffset, withMarketClock } from "./market-clock.ts"
 import type { CodeListStore } from "./code-list.ts"
 import { respond } from "./respond.ts"
 import {
+  AccountId,
   DAY_INDEX,
   DayIndexPath,
   HeldSessions,
   ObjectPath,
+  SessionId,
   ViewerHeader,
 } from "./routes.ts"
 import { makeTradingDay, type Peer, type PeerState } from "./trading-day.ts"
@@ -33,9 +35,9 @@ import { makeTradingDay, type Peer, type PeerState } from "./trading-day.ts"
 // revoke can close it (apinrdw/kumora#144).
 const INGEST = "ingest"
 const VIEWER = "viewer"
-const userTag = (userId: string) => `user:${userId}`
+const userTag = (userId: AccountId) => `user:${userId}`
 const SESSION = "session:"
-const sessionTag = (sessionId: string) => `${SESSION}${sessionId}`
+const sessionTag = (sessionId: SessionId) => `${SESSION}${sessionId}`
 
 // A socket's attachment survives hibernation: its state, and a viewer's codes
 // once it sent a Select. An ingest socket's is the bare state.
@@ -75,6 +77,18 @@ const peerOf = (socket: WebSocket): Peer => ({
 })
 
 const decodeDate = Schema.decodeUnknownSync(WibDate)
+const decodeAccount = Schema.decodeUnknownOption(AccountId)
+const decodeSession = Schema.decodeUnknownOption(SessionId)
+
+// A gated viewer socket's tags, from the headers the entry set; none when
+// either is missing.
+const viewerTags = (request: Request) => {
+  const userId = decodeAccount(request.headers.get(ViewerHeader.userId))
+  const sessionId = decodeSession(request.headers.get(ViewerHeader.sessionId))
+  return Option.isSome(userId) && Option.isSome(sessionId)
+    ? [VIEWER, userTag(userId.value), sessionTag(sessionId.value)]
+    : undefined
+}
 const decodeHeld = Schema.decodeUnknownEffect(HeldSessions)
 
 const CODE_LIST_KEY = "code-list"
@@ -85,6 +99,12 @@ const codeListStore = (storage: DurableObjectStorage): CodeListStore => ({
   ),
   write: (text) => Effect.promise(() => storage.put(CODE_LIST_KEY, text)),
 })
+
+// The index Durable Object didn't take a sealed day's row; the seal retries.
+class IndexRefusedDay extends Schema.TaggedError<IndexRefusedDay>()(
+  "IndexRefusedDay",
+  { status: Schema.Int }
+) {}
 
 // The sealed day's row, to the index Durable Object.
 const recordDay = Effect.fnUntraced(function* (day: RecordedDay) {
@@ -98,7 +118,7 @@ const recordDay = Effect.fnUntraced(function* (day: RecordedDay) {
     })
   )
   if (!response.ok)
-    return yield* Effect.fail(new Error(`Index answered ${response.status}`))
+    return yield* new IndexRefusedDay({ status: response.status })
 })
 
 // Decision: a plain class, not `DurableObject` from `cloudflare:workers`: the
@@ -119,16 +139,20 @@ export class TradingDayObject {
     const viewers = Effect.sync(() =>
       ctx.getWebSockets(VIEWER).map((socket) => peerOf(socket))
     )
-    const viewersOf = (userId: string) =>
+    const viewersOf = (userId: AccountId) =>
       Effect.sync(() =>
-        ctx.getWebSockets(userTag(userId)).map((socket) => ({
-          peer: peerOf(socket),
-          sessionId:
-            ctx
-              .getTags(socket)
-              .find((tag) => tag.startsWith(SESSION))
-              ?.slice(SESSION.length) ?? "",
-        }))
+        ctx.getWebSockets(userTag(userId)).map((socket) => {
+          const tag = ctx
+            .getTags(socket)
+            .find((each) => each.startsWith(SESSION))
+          return {
+            peer: peerOf(socket),
+            sessionId:
+              tag === undefined
+                ? undefined
+                : SessionId.make(tag.slice(SESSION.length)),
+          }
+        })
       )
     const ingests = Effect.sync(() =>
       ctx.getWebSockets(INGEST).map((socket) => peerOf(socket))
@@ -185,12 +209,10 @@ export class TradingDayObject {
           Effect.as(new Response(null, { status: 204 }))
         )
       )
-    const userId = request.headers.get(ViewerHeader.userId) ?? ""
-    const sessionId = request.headers.get(ViewerHeader.sessionId) ?? ""
-    const tags =
-      pathname === ObjectPath.live
-        ? [VIEWER, userTag(userId), sessionTag(sessionId)]
-        : [INGEST]
+    const tags = pathname === ObjectPath.live ? viewerTags(request) : [INGEST]
+    // The entry always names the viewer's account and session.
+    if (tags === undefined)
+      return new Response("Viewer not named", { status: 400 })
     const pair = new WebSocketPair()
     this.ctx.acceptWebSocket(pair[1], tags)
     return new Response(null, { status: 101, webSocket: pair[0] })

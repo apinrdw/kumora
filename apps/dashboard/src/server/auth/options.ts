@@ -18,7 +18,11 @@ import { tanstackStartCookies } from "better-auth/tanstack-start"
 import { LINK_HOURS } from "../../lib/link-lifetime.ts"
 import { MIN_PASSWORD_LENGTH, resetPasswordPage } from "../../lib/password.ts"
 import type { FileRoutesByFullPath } from "../../routeTree.gen.ts"
-import type { HeldSessions } from "../market-live/routes.ts"
+import {
+  AccountId,
+  SessionId,
+  type HeldSessions,
+} from "../market-live/routes.ts"
 import { ac, roles } from "./access.ts"
 import type { GoogleClient } from "./google.ts"
 import type { OwnAction, TargetAction } from "./policy.ts"
@@ -367,13 +371,13 @@ const endLiveSessions = async (
 ) => {
   const userId: unknown =
     from === "body" ? ctx.body?.userId : ctx.context.session?.user.id
-  if (typeof userId !== "string") return
+  if (typeof userId !== "string" || userId === "") return
   const sessions = await ctx.context.internalAdapter.listSessions(userId, {
     onlyActiveSessions: true,
   })
   await input.endLiveSessions({
-    userId,
-    sessionIds: sessions.map((session) => session.id),
+    userId: AccountId.make(userId),
+    sessionIds: sessions.map((session) => SessionId.make(session.id)),
   })
 }
 

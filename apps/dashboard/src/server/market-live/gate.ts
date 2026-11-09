@@ -11,10 +11,11 @@ import { Auth } from "../auth/auth.ts"
 import { decide } from "../auth/policy.ts"
 import { refusal } from "../auth/refusal.ts"
 import { accountOf } from "../auth/session-account.ts"
+import { AccountId, SessionId } from "./routes.ts"
 
 interface LiveViewer {
-  readonly userId: string
-  readonly sessionId: string
+  readonly userId: AccountId
+  readonly sessionId: SessionId
 }
 
 export const gateLiveViewer = Effect.fn("gateLiveViewer")(function* (
@@ -34,7 +35,7 @@ export const gateLiveViewer = Effect.fn("gateLiveViewer")(function* (
     return yield* refusal(decision.reason, MarketLivePath.live)
   if (session === null) return yield* refusal("sign-in", MarketLivePath.live)
   return {
-    userId: session.user.id,
-    sessionId: session.session.id,
+    userId: AccountId.make(session.user.id),
+    sessionId: SessionId.make(session.session.id),
   } satisfies LiveViewer
 })

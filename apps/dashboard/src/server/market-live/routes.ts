@@ -18,7 +18,14 @@ export const ObjectPath = {
 export const DAY_INDEX = "index"
 export const DayIndexPath = "/days"
 
-// The gated viewer's user and session; the object tags the socket with them.
+// An account's id and one of its sessions' ids, as Better Auth names them.
+export const AccountId = Schema.NonEmptyString.pipe(Schema.brand("AccountId"))
+export type AccountId = typeof AccountId.Type
+export const SessionId = Schema.NonEmptyString.pipe(Schema.brand("SessionId"))
+export type SessionId = typeof SessionId.Type
+
+// The gated viewer's account and session; the object tags the socket with
+// them.
 export const ViewerHeader = {
   userId: "x-kumora-user-id",
   sessionId: "x-kumora-session-id",
@@ -28,8 +35,8 @@ export const ViewerHeader = {
 // the user still holds. The object closes the user's viewer sockets on every
 // other session.
 export const HeldSessions = Schema.Struct({
-  userId: Schema.String,
-  sessionIds: Schema.Array(Schema.String),
+  userId: AccountId,
+  sessionIds: Schema.Array(SessionId),
 })
 export type HeldSessions = typeof HeldSessions.Type
 

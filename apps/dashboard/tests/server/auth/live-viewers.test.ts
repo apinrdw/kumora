@@ -7,6 +7,7 @@ import { Effect, Scope } from "effect"
 import type { DatabaseSync } from "node:sqlite"
 
 import type { Mail } from "@/server/auth/mailer"
+import { SessionId } from "@/server/market-live/routes"
 import { makeTradingDay } from "@/server/market-live/trading-day"
 
 import {
@@ -53,7 +54,7 @@ const live = Effect.fnUntraced(function* () {
       Effect.sync(() =>
         pages
           .filter((page) => page.userId === userId)
-          .map((peer) => ({ peer, sessionId: peer.sessionId }))
+          .map((peer) => ({ peer, sessionId: SessionId.make(peer.sessionId) }))
       ),
   }).pipe(Scope.provide(yield* Scope.make()))
   return { pages, day }
