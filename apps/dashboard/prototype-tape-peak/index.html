@@ -1,0 +1,320 @@
+<!doctype html>
+<!--
+  PROTOTYPE, throw away. "How many trades the whole-market tape keeps and how fast it renders at peak" (apinrdw/kumora#136).
+  Replays 30,000 real trades that Ajaib delivered on 2026-11-09 between 08:58:01 and 09:00:16 WIB:
+  the opening match (22,264 trades stamped 08:58:00, delivered over ~11 s, up to ~4,500/s) and the session 1 open.
+  Trades are grouped into 250 ms deltas the way the Durable Object sends them. Three tape variants, switch with the
+  bottom bar or the left and right arrow keys. Plain DOM, not React: it measures the browser's work, which React only adds to.
+-->
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Tape peak prototype</title>
+<style>
+  :root { --bg:#0b0d10; --panel:#12151a; --line:#232830; --fg:#d7dce3; --muted:#7c8594; --up:#22c55e; --down:#ef4444; --up-bg:rgba(34,197,94,.14); --down-bg:rgba(239,68,68,.14); --accent:#60a5fa; --warn:#f59e0b; }
+  * { box-sizing:border-box; }
+  body { margin:0; background:var(--bg); color:var(--fg); font:13px/1.3 ui-sans-serif,system-ui,sans-serif; }
+  .wrap { display:grid; grid-template-columns: 1fr 440px; gap:12px; padding:12px; height:100vh; }
+  .side { display:flex; flex-direction:column; gap:12px; min-height:0; }
+  .card { background:var(--panel); border:1px solid var(--line); border-radius:8px; }
+  .chart { display:flex; flex-direction:column; padding:12px; min-height:0; }
+  h2 { margin:0 0 8px; font-size:12px; letter-spacing:.06em; text-transform:uppercase; color:var(--muted); font-weight:600; }
+  .controls { display:flex; flex-wrap:wrap; gap:6px; align-items:center; margin-bottom:10px; }
+  button, select { background:#1b2028; color:var(--fg); border:1px solid var(--line); border-radius:6px; padding:4px 8px; font:inherit; cursor:pointer; }
+  button.on { border-color:var(--accent); color:var(--accent); }
+  .metrics { display:grid; grid-template-columns: repeat(4, 1fr); gap:8px; }
+  .m { background:#0f1216; border:1px solid var(--line); border-radius:6px; padding:8px; }
+  .m b { display:block; font:600 18px ui-monospace,monospace; }
+  .m span { color:var(--muted); font-size:11px; }
+  .bad b { color:var(--down); } .ok b { color:var(--up); } .meh b { color:var(--warn); }
+  canvas { width:100%; height:120px; margin-top:10px; background:#0f1216; border:1px solid var(--line); border-radius:6px; }
+  .note { color:var(--muted); font-size:12px; margin-top:8px; }
+  .wl { height:180px; padding:10px; color:var(--muted); }
+  .tape { flex:1; min-height:0; display:flex; flex-direction:column; }
+  .tape header { display:flex; justify-content:space-between; align-items:center; padding:8px 10px; border-bottom:1px solid var(--line); }
+  .pill { font:600 10px ui-monospace,monospace; padding:2px 6px; border-radius:999px; background:var(--up-bg); color:var(--up); }
+  .cols, .row { display:grid; grid-template-columns: 62px 52px 1fr 1fr 1fr 22px; gap:6px; padding:0 10px; font:12px ui-monospace,monospace; align-items:center; }
+  .cols { color:var(--muted); height:24px; border-bottom:1px solid var(--line); font-size:11px; }
+  .cols div:nth-child(n+3), .row div:nth-child(n+3) { text-align:right; }
+  .row { height:22px; white-space:nowrap; }
+  .row .code { font-weight:600; }
+  .b { color:var(--up); } .s { color:var(--down); } .n { color:var(--fg); }
+  .big.b-row { background:var(--up-bg); } .big.s-row { background:var(--down-bg); } .big.n-row { background:rgba(148,163,184,.12); }
+  .src { color:var(--muted); font-size:10px; }
+  .scroller { flex:1; overflow-y:auto; position:relative; min-height:0; }
+  .newpill { position:absolute; left:50%; transform:translateX(-50%); top:58px; background:var(--accent); color:#06121f; font:600 11px ui-sans-serif; border:0; border-radius:999px; padding:4px 10px; z-index:2; display:none; }
+  .fold { height:22px; display:flex; align-items:center; gap:8px; padding:0 10px; font:12px ui-monospace,monospace; background:rgba(96,165,250,.12); color:var(--accent); cursor:pointer; border-bottom:1px solid var(--line); }
+  .fold.live::before { content:""; width:6px; height:6px; border-radius:50%; background:var(--accent); animation:pulse 1s infinite; }
+  @keyframes pulse { 50% { opacity:.2 } }
+  .switcher { position:fixed; bottom:16px; left:50%; transform:translateX(-50%); display:flex; align-items:center; gap:10px; background:#f8fafc; color:#0b0d10; border-radius:999px; padding:6px 10px; box-shadow:0 6px 24px rgba(0,0,0,.5); font:600 13px ui-sans-serif; z-index:10; }
+  .switcher button { background:#e2e8f0; color:#0b0d10; border:0; border-radius:999px; width:28px; height:28px; padding:0; }
+</style>
+</head>
+<body>
+<div class="wrap">
+  <section class="card chart">
+    <h2>Replay controls and frame cost</h2>
+    <div class="controls">
+      <button id="play">Pause</button>
+      <button data-jump="0">08:58 match</button>
+      <button data-jump="1">09:00 open</button>
+      <span style="color:var(--muted)">Speed</span>
+      <select id="speed"><option>0.5</option><option selected>1</option><option>2</option><option>4</option></select>
+      <span style="color:var(--muted)" title="Copies each trade with new trade numbers, to stand in for a busier day">Stress ×</span>
+      <select id="stress"><option selected>1</option><option>2</option><option>4</option></select>
+      <span style="color:var(--muted)">Keep</span>
+      <select id="keep"></select>
+    </div>
+    <div class="metrics" id="metrics"></div>
+    <canvas id="graph" width="900" height="120"></canvas>
+    <div class="note">Graph: frame time per animation frame (green under 16.7 ms, red over 50 ms), and blue bars for trades per 250 ms delta. Clock <span id="clock">–</span>. Delta now <span id="dnow">0</span> trades.</div>
+    <div class="note" id="vnote"></div>
+    <div class="note">Tip: open DevTools → Performance and set the CPU to 4× slowdown to stand in for a mid-range laptop.</div>
+  </section>
+  <aside class="side">
+    <div class="card wl">Watchlist (placeholder, so the tape gets its real height)</div>
+    <div class="card tape">
+      <header><b>Running trades · whole market</b><span><span class="pill">AJAIB LIVE</span></span></header>
+      <div class="cols"><div>Time</div><div>Code</div><div>Price</div><div>Lot</div><div>Value</div><div></div></div>
+      <div class="scroller" id="scroller"></div>
+      <button class="newpill" id="newpill"></button>
+    </div>
+  </aside>
+</div>
+<div class="switcher"><button id="prev">←</button><span id="vlabel"></span><button id="next">→</button></div>
+<script src="trades.js"></script>
+<script>
+const VARIANTS = {
+  A: { name: "Virtualised ring", keeps: [2000, 10000, 50000, 200000], keep: 10000,
+       note: "A keeps up to the cap in a ring buffer and draws only the ~30 visible rows, once per animation frame however many deltas arrived. It follows the top live; scroll down and it freezes with an 'N new' pill." },
+  B: { name: "Plain DOM, capped", keeps: [200, 500, 1000, 3000], keep: 500,
+       note: "B renders every kept row as real DOM, inserting each delta as one fragment and trimming the tail. No virtualisation, which is the baseline A and C are judged against." },
+  C: { name: "Burst fold", keeps: [2000, 10000, 50000, 200000], keep: 10000,
+       note: "C is A plus folding: trades of an auction match (same trade second at 08:58:00 / 16:00:00), or any delta over 400 trades, collapse into one live summary row (count, value, codes). Click it to unfold into the virtual list." },
+};
+const keys = Object.keys(VARIANTS);
+let vkey = new URLSearchParams(location.search).get("variant") ?? "A";
+if (!VARIANTS[vkey]) vkey = "A";
+
+// ---- data: group into 250 ms deltas by receive time ----
+const RAW = window.TRADES; // [recvMs, code, price, lot, side, seq, tradedAt]
+const byRecv = [...RAW].sort((a, b) => a[0] - b[0]);
+const t0 = byRecv[0][0];
+const deltas = [];
+for (const t of byRecv) {
+  const i = Math.floor((t[0] - t0) / 250);
+  (deltas[i] ??= []).push(t);
+}
+for (let i = 0; i < deltas.length; i++) deltas[i] ??= [];
+const openIdx = Math.floor((byRecv.find(t => t[6] >= "09:00:00")[0] - t0) / 250) - 4;
+const fmtClock = ms => new Date(Date.UTC(0,0,0,0,0,0,ms)).toISOString().slice(11, 23);
+
+// ---- state ----
+let ring = [];          // newest first (array of trade objects); capped
+let seqBoost = 0;
+let cursor = 0, playing = true, speed = 1, stress = 1, keep = VARIANTS[vkey].keep;
+let frozen = false, unseen = 0;
+let folds = [];         // variant C: {key, label, trades:[], open:false}
+const scroller = document.getElementById("scroller");
+const newpill = document.getElementById("newpill");
+const ROW = 22;
+
+function toTrade(t, k) {
+  const value = t[2] * t[3] * 100;
+  const match = t[6] === "08:58:00";
+  return { time: t[6], code: t[1], price: t[2], lot: t[3], value, side: match ? 0 : t[4], seq: t[5] + k * 1e7, match };
+}
+const nf = new Intl.NumberFormat("en-US");
+function fmtVal(v) { return v >= 1e9 ? (v/1e9).toFixed(2)+" B" : v >= 1e6 ? (v/1e6).toFixed(1)+" M" : nf.format(v); }
+function rowHTML(t) {
+  const c = t.side > 0 ? "b" : t.side < 0 ? "s" : "n";
+  const big = t.value >= 1e9 ? ` big ${c}-row` : "";
+  return `<div class="row${big}"><div>${t.time}</div><div class="code">${t.code}</div><div class="${c}">${nf.format(t.price)}</div><div class="${c}">${nf.format(t.lot)}</div><div class="${c}">${fmtVal(t.value)}</div><div class="src">A</div></div>`;
+}
+
+// ---- metrics ----
+const frames = []; let lastFrame = performance.now(); let longTasks = 0, applyMs = 0, worstApply = 0, renderMs = 0;
+const deltaSizes = [];
+try { new PerformanceObserver(l => { longTasks += l.getEntries().length; }).observe({ type: "longtask", buffered: false }); } catch {}
+
+function applyDelta(list) {
+  const s = performance.now();
+  let fresh = [];
+  for (let k = 0; k < stress; k++) for (const t of list) fresh.push(toTrade(t, k));
+  fresh.sort((a, b) => b.seq - a.seq);
+  deltaSizes.push(fresh.length); if (deltaSizes.length > 400) deltaSizes.shift();
+  document.getElementById("dnow").textContent = fresh.length;
+  if (vkey === "C") {
+    const burst = fresh.filter(t => t.match);
+    const rest = fresh.filter(t => !t.match);
+    if (burst.length) foldInto("match-0858", "Opening match 08:58:00", burst);
+    if (rest.length > 400) foldInto("burst-" + cursor, "Burst " + rest[0].time, rest);
+    else fresh = rest;
+    if (rest.length > 400) fresh = [];
+  }
+  if (vkey === "B") applyDom(fresh);
+  else {
+    ring = fresh.concat(ring);
+    if (ring.length > keep) ring.length = keep;
+    if (frozen) unseen += fresh.length;
+    dirty = true;
+  }
+  const d = performance.now() - s; applyMs = d; worstApply = Math.max(worstApply, d);
+}
+function foldInto(key, label, trades) {
+  let f = folds.find(f => f.key === key);
+  if (!f) { f = { key, label, trades: [], open: false, live: true }; folds.unshift(f); }
+  f.trades = trades.concat(f.trades);
+  f.last = performance.now();
+  dirty = true;
+}
+
+// ---- variant B: real DOM ----
+function applyDom(fresh) {
+  const s = performance.now();
+  const html = fresh.slice(0, keep).map(rowHTML).join("");
+  scroller.insertAdjacentHTML("afterbegin", html);
+  while (scroller.childElementCount > keep) scroller.lastElementChild.remove();
+  renderMs = performance.now() - s;
+}
+
+// ---- variants A/C: virtual list ----
+let dirty = true;
+const spacer = document.createElement("div");
+const view = document.createElement("div");
+function setupVirtual() {
+  scroller.innerHTML = "";
+  if (vkey === "B") return;
+  spacer.style.cssText = "position:relative;";
+  view.style.cssText = "position:absolute;left:0;right:0;top:0;";
+  spacer.appendChild(view); scroller.appendChild(spacer);
+}
+function foldRows() {
+  const out = [];
+  for (const f of folds) {
+    const v = f.trades.reduce((a, t) => a + t.value, 0);
+    const codes = new Set(f.trades.map(t => t.code)).size;
+    out.push({ fold: f, html: `<div class="fold${performance.now() - f.last < 1000 ? " live" : ""}" data-fold="${f.key}">${f.open ? "▾" : "▸"} ${f.label} · ${nf.format(f.trades.length)} trades · Rp ${fmtVal(v)} · ${codes} codes</div>` });
+    if (f.open) for (const t of f.trades) out.push({ t });
+  }
+  return out;
+}
+function renderVirtual() {
+  const s = performance.now();
+  const head = vkey === "C" ? foldRows() : [];
+  const total = head.length + ring.length;
+  spacer.style.height = total * ROW + "px";
+  const top = scroller.scrollTop, h = scroller.clientHeight;
+  const first = Math.max(0, Math.floor(top / ROW) - 5), last = Math.min(total, Math.ceil((top + h) / ROW) + 5);
+  let html = "";
+  for (let i = first; i < last; i++) {
+    if (i < head.length) html += head[i].html ?? rowHTML(head[i].t);
+    else html += rowHTML(ring[i - head.length]);
+  }
+  view.style.transform = `translateY(${first * ROW}px)`;
+  view.innerHTML = html;
+  renderMs = performance.now() - s;
+  newpill.style.display = frozen && unseen ? "block" : "none";
+  newpill.textContent = `${nf.format(unseen)} new trades ↑`;
+}
+scroller.addEventListener("scroll", () => {
+  if (vkey === "B") return;
+  const was = frozen; frozen = scroller.scrollTop > ROW;
+  if (!frozen && was) unseen = 0;
+  dirty = true;
+});
+scroller.addEventListener("click", e => {
+  const el = e.target.closest("[data-fold]"); if (!el) return;
+  const f = folds.find(f => f.key === el.dataset.fold); f.open = !f.open; dirty = true;
+});
+newpill.onclick = () => { scroller.scrollTop = 0; frozen = false; unseen = 0; dirty = true; };
+
+// ---- loop ----
+let acc = 0, lastTick = performance.now();
+function frame(now) {
+  const ft = now - lastFrame; lastFrame = now;
+  frames.push({ ft, d: 0 }); if (frames.length > 300) frames.shift();
+  if (playing) {
+    acc += (now - lastTick) * speed;
+    while (acc >= 250) {
+      acc -= 250;
+      if (cursor < deltas.length) { applyDelta(deltas[cursor]); frames[frames.length - 1].d += deltaSizes.at(-1); cursor++; }
+      else { playing = false; document.getElementById("play").textContent = "Replay"; }
+    }
+  }
+  lastTick = now;
+  if (dirty && vkey !== "B" && !frozen) { renderVirtual(); dirty = false; }
+  else if (dirty && frozen) { newpill.style.display = unseen ? "block" : "none"; newpill.textContent = `${nf.format(unseen)} new trades ↑`; if (vkey === "C") renderVirtual(); dirty = false; }
+  document.getElementById("clock").textContent = fmtClock(t0 + cursor * 250);
+  draw(); metrics();
+  requestAnimationFrame(frame);
+}
+function draw() {
+  const c = document.getElementById("graph"), g = c.getContext("2d");
+  g.clearRect(0, 0, c.width, c.height);
+  const w = c.width / 300;
+  frames.forEach((f, i) => {
+    if (f.d) { g.fillStyle = "rgba(96,165,250,.35)"; const h = Math.min(120, f.d / 20); g.fillRect(i * w, 120 - h, w, h); }
+    g.fillStyle = f.ft > 50 ? "#ef4444" : f.ft > 17.5 ? "#f59e0b" : "#22c55e";
+    const h = Math.min(120, f.ft * 1.2); g.fillRect(i * w, 120 - h, Math.max(1, w - 1), 2);
+  });
+  g.strokeStyle = "#334155"; g.beginPath(); g.moveTo(0, 120 - 20); g.lineTo(c.width, 120 - 20); g.stroke();
+}
+let lastM = 0;
+function metrics() {
+  const now = performance.now(); if (now - lastM < 250) return; lastM = now;
+  const recent = frames.slice(-120);
+  const fps = 1000 / (recent.reduce((a, f) => a + f.ft, 0) / recent.length);
+  const worst = Math.max(...recent.map(f => f.ft));
+  const kept = vkey === "B" ? scroller.childElementCount : ring.length + folds.reduce((a, f) => a + f.trades.length, 0);
+  const mem = performance.memory ? (performance.memory.usedJSHeapSize / 1048576).toFixed(0) + " MB" : "n/a";
+  const peak = Math.max(0, ...deltaSizes);
+  const cls = (v, ok, bad) => v <= ok ? "ok" : v >= bad ? "bad" : "meh";
+  document.getElementById("metrics").innerHTML = [
+    [fps.toFixed(0), "fps (last 120 frames)", fps >= 55 ? "ok" : fps < 30 ? "bad" : "meh"],
+    [worst.toFixed(0) + " ms", "worst frame", cls(worst, 20, 50)],
+    [renderMs.toFixed(1) + " ms", "last render", cls(renderMs, 4, 16)],
+    [worstApply.toFixed(1) + " ms", "worst delta apply", cls(worstApply, 4, 16)],
+    [nf.format(kept), "trades kept", ""],
+    [nf.format(vkey === "B" ? scroller.childElementCount : scroller.querySelectorAll(".row,.fold").length), "DOM rows", ""],
+    [nf.format(peak), "biggest delta seen", ""],
+    [String(longTasks) + " · " + mem, "long tasks · JS heap", longTasks ? "meh" : "ok"],
+  ].map(([b, s, c]) => `<div class="m ${c}"><b>${b}</b><span>${s}</span></div>`).join("");
+}
+
+// ---- controls ----
+function reset(to = 0) {
+  ring = []; folds = []; cursor = to; unseen = 0; frozen = false; worstApply = 0; longTasks = 0; deltaSizes.length = 0; acc = 0;
+  setupVirtual(); dirty = true; playing = true; document.getElementById("play").textContent = "Pause";
+}
+function setVariant(k) {
+  vkey = k; const v = VARIANTS[k];
+  history.replaceState(null, "", "?variant=" + k);
+  document.getElementById("vlabel").textContent = `${k} (${v.name})`;
+  document.getElementById("vnote").textContent = v.note;
+  const sel = document.getElementById("keep");
+  keep = v.keep;
+  sel.innerHTML = v.keeps.map(n => `<option ${n === keep ? "selected" : ""}>${n}</option>`).join("");
+  reset(cursor);
+}
+document.getElementById("keep").onchange = e => { keep = +e.target.value; reset(cursor); };
+document.getElementById("speed").onchange = e => speed = +e.target.value;
+document.getElementById("stress").onchange = e => { stress = +e.target.value; reset(cursor); };
+document.getElementById("play").onclick = e => {
+  if (cursor >= deltas.length) reset(0); else playing = !playing;
+  e.target.textContent = playing ? "Pause" : "Play";
+};
+document.querySelectorAll("[data-jump]").forEach(b => b.onclick = () => reset(b.dataset.jump === "0" ? 0 : openIdx));
+const cycle = d => setVariant(keys[(keys.indexOf(vkey) + d + keys.length) % keys.length]);
+document.getElementById("prev").onclick = () => cycle(-1);
+document.getElementById("next").onclick = () => cycle(1);
+addEventListener("keydown", e => {
+  if (e.target.closest("input,textarea,select,[contenteditable]")) return;
+  if (e.key === "ArrowLeft") cycle(-1); if (e.key === "ArrowRight") cycle(1);
+});
+setVariant(vkey);
+requestAnimationFrame(frame);
+</script>
+</body>
+</html>
