@@ -30,7 +30,14 @@ import {
 import recorded from "./fixtures/ajaib-trades-2026-11-09.json"
 import recordedIhsg from "./fixtures/stockbit-ihsg-liveprice.json"
 import recordedStockbit from "./fixtures/stockbit-trades-2026-11-09.json"
-import { doubleField, messageField, stringField, varintField } from "./protobuf"
+import {
+  doubleField,
+  messageField,
+  runningTradeBatch,
+  stringField,
+  varintField,
+  type StockbitRow,
+} from "./protobuf"
 import { memorySql } from "./sql"
 import { AccountId, SessionId } from "@/server/market-live/routes"
 
@@ -376,17 +383,7 @@ describe("running trades from Ajaib", () => {
 
 // Stockbit's running trades as the 2026-11-09 probe decoded them. The probe
 // kept no raw bytes, so `stockbit` encodes the rows back into
-// `running_trade_batch` frames (wrapper case 8), by the field numbers of
-// `securities.transactional.datafeed.v1`.
-interface StockbitRow {
-  readonly tradeWib: string
-  readonly code: string
-  readonly price: number
-  readonly volume: number
-  readonly action?: number
-  readonly board: number
-  readonly tradeNumber: number
-}
+// `running_trade_batch` frames.
 const stockbitRecorded: {
   readonly openingMatch: ReadonlyArray<StockbitRow>
   readonly session1: ReadonlyArray<StockbitRow>
@@ -397,23 +394,6 @@ const stockbitRecorded: {
   }
 } = recordedStockbit
 
-const runningTrade = (row: StockbitRow) => {
-  const ms = Date.parse(`2026-11-09T${row.tradeWib}+07:00`)
-  const timestamp = [
-    ...varintField(1, Math.floor(ms / 1000)),
-    ...varintField(2, (ms % 1000) * 1_000_000),
-  ]
-  return [
-    ...messageField(2, [...new TextEncoder().encode(row.code)]),
-    ...doubleField(3, row.price),
-    ...doubleField(4, row.volume),
-    ...(row.action === undefined ? [] : varintField(5, row.action)),
-    ...messageField(7, timestamp),
-    ...varintField(9, row.tradeNumber),
-    ...varintField(10, row.board),
-  ]
-}
-
 const stockbit = (rows: ReadonlyArray<StockbitRow>, connection: "A" | "B") =>
   encodeIngestUp({
     _tag: "Frames",
@@ -421,14 +401,7 @@ const stockbit = (rows: ReadonlyArray<StockbitRow>, connection: "A" | "B") =>
     feed: "Stockbit",
     connection,
     receivedAt: DateTime.makeUnsafe("2026-11-09T02:00:01.000Z"),
-    frames: [
-      Uint8Array.from(
-        messageField(
-          8,
-          rows.flatMap((row) => messageField(1, runningTrade(row)))
-        )
-      ),
-    ],
+    frames: [runningTradeBatch(rows)],
   })
 
 const snapshotOf = Effect.fnUntraced(function* (

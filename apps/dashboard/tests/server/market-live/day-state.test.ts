@@ -28,7 +28,14 @@ import {
 import recordedPrice from "./fixtures/ajaib-price-2026-11-06.json"
 import recordedTrades from "./fixtures/ajaib-trades-2026-11-09.json"
 import recordedLivePrice from "./fixtures/stockbit-liveprice-2026-11-09.json"
-import { doubleField, messageField, stringField, varintField } from "./protobuf"
+import {
+  doubleField,
+  messageField,
+  runningTradeBatch,
+  stringField,
+  varintField,
+  type StockbitRow,
+} from "./protobuf"
 import { memorySql } from "./sql"
 
 const TOKEN = "e2e-ingest-token"
@@ -176,6 +183,15 @@ const tradingDay = Effect.fnUntraced(function* () {
           connection,
           receivedAt: DateTime.makeUnsafe("2026-11-09T02:51:02.000Z"),
           frames: rows.map(livePriceFrame),
+        }),
+      stockbitTrades: (rows: ReadonlyArray<StockbitRow>) =>
+        send({
+          _tag: "Frames",
+          protocolVersion: IngestProtocolVersion,
+          feed: "Stockbit",
+          connection: "A",
+          receivedAt: DateTime.makeUnsafe("2026-11-09T02:51:02.000Z"),
+          frames: [runningTradeBatch(rows)],
         }),
       ajaib: (frames: ReadonlyArray<string>) =>
         send({
@@ -411,6 +427,70 @@ describe("Day state", () => {
         assert.deepInclude(statesOf((yield* received(page)).at(-1)!).BBRI, {
           last: 2910,
           provenance: "Stockbit",
+        })
+      })
+  )
+
+  it.effect(
+    "with Stockbit lost, Stockbit's late copy of a trade Ajaib brought corrects the figures carried on from it",
+    () =>
+      Effect.gen(function* () {
+        const { relay, viewer } = yield* tradingDay()
+        const feed = yield* relay()
+        yield* feed.stockbit([BBRI], "A")
+        yield* feed.ajaib([
+          ajaibTrade({
+            seq: 700_002,
+            wib: "09:51:10",
+            ticker: "BBRI",
+            price: 2940,
+            lot: 10,
+          }),
+          // No market_type: Ajaib shows it on the regular board.
+          ajaibTrade({
+            seq: 700_003,
+            wib: "09:51:12",
+            ticker: "BBRI",
+            price: 3000,
+            lot: 50,
+          }),
+        ])
+        // Stockbit, a moment behind: 700002 at 2950, 700003 on the cash board.
+        yield* feed.stockbitTrades([
+          {
+            tradeWib: "09:51:10.400",
+            code: "BBRI",
+            price: 2950,
+            volume: 1000,
+            action: 1,
+            board: 1,
+            tradeNumber: 700_002,
+          },
+          {
+            tradeWib: "09:51:12.400",
+            code: "BBRI",
+            price: 3000,
+            volume: 5000,
+            action: 1,
+            board: 2,
+            tradeNumber: 700_003,
+          },
+        ])
+        // 15 s without a Stockbit frame: lost.
+        yield* TestClock.adjust("15 seconds")
+        const page = yield* viewer("BBCA", ["BBRI"])
+        const [snapshot] = yield* received(page)
+        assert.deepStrictEqual(statesOf(snapshot!).BBRI, {
+          ...BBRI_FROM_STOCKBIT,
+          last: 2950,
+          change: 20,
+          changePercent: (20 / 2930) * 100,
+          high: 2950,
+          volume: 224_118 + 10,
+          value: 65_698_513_000 + 2950 * 1000,
+          frequency: 6908 + 1,
+          asOf: "2026-11-09T02:51:10.400Z",
+          provenance: "Ajaib",
         })
       })
   )
