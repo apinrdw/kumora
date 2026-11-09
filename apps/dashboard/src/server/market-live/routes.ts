@@ -3,7 +3,11 @@
 
 // The object's own paths. The entry builds a new request to them, so no
 // header a client sent reaches the object.
-export const ObjectPath = { ingest: "/ingest", live: "/live" } as const
+export const ObjectPath = {
+  ingest: "/ingest",
+  live: "/live",
+  codes: "/codes",
+} as const
 
 // The gated viewer's user and session; the object tags the socket with them.
 export const ViewerHeader = {

@@ -17,6 +17,11 @@ import { WorkerEnv } from "@workspace/server"
 import { Effect, Scope } from "effect"
 
 import { ajaibTrades } from "./ajaib.ts"
+import {
+  codeListAnswer,
+  storeCodeList,
+  type CodeListStore,
+} from "./code-list.ts"
 import { stockbitTrades } from "./stockbit.ts"
 
 // A socket's progress. An ingest socket is `ready` once its token checked out;
@@ -106,6 +111,7 @@ export const makeTradingDay = Effect.fnUntraced(function* (options: {
   readonly date: WibDate
   // Every viewer socket the object holds, ready or not.
   readonly viewers: Effect.Effect<ReadonlyArray<Peer>>
+  readonly codeList: CodeListStore
 }) {
   // Delta timers outlive the message that started them.
   const scope = yield* Scope.Scope
@@ -182,6 +188,8 @@ export const makeTradingDay = Effect.fnUntraced(function* (options: {
           return yield* socket.setState("ready")
         return yield* socket.close(IngestCloseCode.RejectedToken, "Bad token")
       }
+      if (message._tag === "CodeList")
+        return yield* storeCodeList(options.codeList, message.body)
       if (message._tag !== "Frames") return
       yield* insert(
         message.feed === "Stockbit"
@@ -214,5 +222,8 @@ export const makeTradingDay = Effect.fnUntraced(function* (options: {
       )
   )
 
-  return { ingestMessage, viewerMessage }
+  // The GET for the day's stock code list.
+  const codeList = codeListAnswer(options.codeList, options.date)
+
+  return { ingestMessage, viewerMessage, codeList }
 })

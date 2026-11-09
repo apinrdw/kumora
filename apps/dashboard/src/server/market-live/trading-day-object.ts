@@ -4,8 +4,9 @@
 // the class the dashboard stack declares.
 import { WibDate } from "@workspace/relay"
 import { runServerEffectResult } from "@workspace/server"
-import { Effect, Schema, Scope } from "effect"
+import { Effect, Option, Result, Schema, Scope } from "effect"
 
+import type { CodeListStore } from "./code-list.ts"
 import { ObjectPath, ViewerHeader } from "./routes.ts"
 import { makeTradingDay, type Peer, type PeerState } from "./trading-day.ts"
 
@@ -28,6 +29,15 @@ const peerOf = (socket: WebSocket): Peer => ({
 
 const decodeDate = Schema.decodeUnknownSync(WibDate)
 
+const CODE_LIST_KEY = "code-list"
+
+const codeListStore = (storage: DurableObjectStorage): CodeListStore => ({
+  read: Effect.promise(() => storage.get<string>(CODE_LIST_KEY)).pipe(
+    Effect.map(Option.fromUndefinedOr)
+  ),
+  write: (text) => Effect.promise(() => storage.put(CODE_LIST_KEY, text)),
+})
+
 // Decision: a plain class, not `DurableObject` from `cloudflare:workers`: the
 // object needs no RPC, and only the bridge may import that module. Each
 // callback runs through the bridge's result runner, which logs any failure.
@@ -43,13 +53,19 @@ export class TradingDayObject {
     // Lives as long as the object; it holds the delta timers.
     const scope = Scope.makeUnsafe()
     this.day = Effect.runSync(
-      makeTradingDay({ date, viewers }).pipe(Scope.provide(scope))
+      makeTradingDay({
+        date,
+        viewers,
+        codeList: codeListStore(ctx.storage),
+      }).pipe(Scope.provide(scope))
     )
   }
 
-  // Accepts the socket the Worker entry routed here, already gated.
-  fetch(request: Request): Response {
+  // Accepts the socket the Worker entry routed here, already gated, or
+  // answers the day's stock code list GET.
+  fetch(request: Request): Response | Promise<Response> {
     const { pathname } = new URL(request.url)
+    if (pathname === ObjectPath.codes) return this.codeList()
     const userId = request.headers.get(ViewerHeader.userId) ?? ""
     const sessionId = request.headers.get(ViewerHeader.sessionId) ?? ""
     const tags =
@@ -59,6 +75,14 @@ export class TradingDayObject {
     const pair = new WebSocketPair()
     this.ctx.acceptWebSocket(pair[1], tags)
     return new Response(null, { status: 101, webSocket: pair[0] })
+  }
+
+  private codeList() {
+    return runServerEffectResult(this.day.codeList).then((settled) =>
+      Result.isSuccess(settled)
+        ? settled.success
+        : new Response(null, { status: 500 })
+    )
   }
 
   webSocketMessage(socket: WebSocket, message: string | ArrayBuffer) {

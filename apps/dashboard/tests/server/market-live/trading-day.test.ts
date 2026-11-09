@@ -17,7 +17,7 @@ import {
   type ViewerDown,
 } from "@workspace/relay"
 import { WorkerEnv } from "@workspace/server"
-import { DateTime, Effect, Layer, Scope } from "effect"
+import { DateTime, Effect, Layer, Option, Scope } from "effect"
 import { TestClock } from "effect/testing"
 
 import {
@@ -63,6 +63,8 @@ const tradingDay = Effect.fnUntraced(function* () {
   const day = yield* makeTradingDay({
     date: DAY,
     viewers: Effect.sync(() => viewers),
+    // The stock code list has its own tests (code-list.test.ts).
+    codeList: { read: Effect.succeed(Option.none()), write: () => Effect.void },
   }).pipe(Scope.provide(scope))
   const ingest = Effect.fnUntraced(function* (
     socket: FakeSocket,
