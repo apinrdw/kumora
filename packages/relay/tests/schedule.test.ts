@@ -7,6 +7,7 @@ import {
   expectedStretches,
   isTradingDay,
   marketMomentAt,
+  marketPhases,
   nextOpenAfter,
   sealInstant,
   wibDateAt,
@@ -224,6 +225,41 @@ describe("stretches that expect trades", () => {
     Effect.gen(function* () {
       assert.deepStrictEqual(yield* stretchesOf("2026-11-14"), [])
       assert.deepStrictEqual(yield* stretchesOf("2026-08-17"), [])
+    })
+  )
+})
+
+describe("a trading day's market phases", () => {
+  const phasesOf = (date: string) =>
+    marketPhases(WibDate.make(date)).pipe(
+      Effect.map((phases) =>
+        phases.map(({ phase, from, to }) => [
+          phase,
+          DateTime.formatIso(DateTime.add(from, { hours: 7 })).slice(11, 19),
+          DateTime.formatIso(DateTime.add(to, { hours: 7 })).slice(11, 19),
+        ])
+      )
+    )
+
+  it.effect("run from pre-opening to post-trading, Friday's break longer", () =>
+    Effect.gen(function* () {
+      assert.deepStrictEqual(yield* phasesOf("2026-11-09"), [
+        ["pre-opening", "08:45:00", "09:00:00"],
+        ["session-1", "09:00:00", "12:00:01"],
+        ["break", "12:00:01", "13:30:00"],
+        ["session-2", "13:30:00", "15:50:00"],
+        ["pre-closing", "15:50:00", "16:02:00"],
+        ["post-trading", "16:02:00", "16:15:01"],
+      ])
+      const friday = yield* phasesOf("2026-11-13")
+      assert.deepStrictEqual(friday[2], ["break", "11:30:01", "14:00:00"])
+    })
+  )
+
+  it.effect("are none on a weekend or holiday", () =>
+    Effect.gen(function* () {
+      assert.deepStrictEqual(yield* phasesOf("2026-11-14"), [])
+      assert.deepStrictEqual(yield* phasesOf("2026-08-17"), [])
     })
   )
 })

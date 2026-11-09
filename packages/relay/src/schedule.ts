@@ -245,6 +245,31 @@ export type Interval = {
   readonly to: DateTime.Utc
 }
 
+// One market phase of a trading day as instants, from its first second to
+// just after its last.
+export type PhaseInterval = Interval & { readonly phase: MarketPhase }
+
+// The market phases of `date` in order, pre-opening to post-trading: the
+// replay's session bands and the break it skips. None on a weekend or holiday.
+export const marketPhases = Effect.fnUntraced(function* (date: WibDate) {
+  if (!(yield* isTradingDay(date))) return []
+  const { weekDay } = DateTime.toPartsUtc(DateTime.makeUnsafe(date))
+  return (weekDay === 5 ? friday : mondayToThursday).map(
+    (stretch): PhaseInterval => ({
+      phase: stretch.phase,
+      ...intervalOf(date, stretch),
+    })
+  )
+})
+
+// The instants of one span on `date`.
+const intervalOf = (date: WibDate, span: Span): Interval => ({
+  from: DateTime.makeUnsafe(`${date}T${span.first}+07:00`),
+  to: DateTime.add(DateTime.makeUnsafe(`${date}T${span.last}+07:00`), {
+    seconds: 1,
+  }),
+})
+
 // The stretches of `date` that expect trades, in order: the 08:58 match
 // minute, session 1, session 2, the 16:00 match minute and post-trading
 // (adjacent stretches joined). None on a weekend or holiday. Freshness counts
@@ -257,12 +282,7 @@ export const expectedStretches = Effect.fnUntraced(function* (date: WibDate) {
     ...auctionMatchMinutes,
     ...day.filter((stretch) => tradingPhases.has(stretch.phase)),
   ]
-    .map((span) => ({
-      from: DateTime.makeUnsafe(`${date}T${span.first}+07:00`),
-      to: DateTime.add(DateTime.makeUnsafe(`${date}T${span.last}+07:00`), {
-        seconds: 1,
-      }),
-    }))
+    .map((span) => intervalOf(date, span))
     .sort((a, b) => DateTime.Order(a.from, b.from))
   const joined: Array<Interval> = []
   for (const span of spans) {

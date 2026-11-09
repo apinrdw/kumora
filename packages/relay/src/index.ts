@@ -6,11 +6,12 @@ export {
   expectedStretches,
   isTradingDay,
   marketMomentAt,
+  marketPhases,
   nextOpenAfter,
   wibDateAt,
   sealInstant,
 } from "./schedule.ts"
-export type { Interval, MarketMoment } from "./schedule.ts"
+export type { Interval, MarketMoment, PhaseInterval } from "./schedule.ts"
 export { MarketStatus } from "./market-status.ts"
 export type { Freshness, IndicativePrice, RelayGap } from "./market-status.ts"
 export { IndexCode, StockCode } from "./codes.ts"
