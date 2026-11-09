@@ -92,6 +92,26 @@ const livePriceOf = (bytes: Uint8Array): LivePrice | undefined => {
   }
 }
 
+// A frame on top of the code's last: a frame carrying only the totals keeps
+// the last price, previous close, range and change as last sent, so what the
+// store keeps per code is whole.
+export const mergedLivePrice = Effect.fnUntraced(function* (
+  held: LivePrice | undefined,
+  price: LivePrice
+): Effect.fn.Return<LivePrice> {
+  if (held === undefined) return price
+  return {
+    ...price,
+    last: price.last ?? held.last,
+    previous: price.previous ?? held.previous,
+    high: price.high ?? held.high,
+    low: price.low ?? held.low,
+    open: price.open ?? held.open,
+    change: price.change ?? held.change,
+    changePercent: price.changePercent ?? held.changePercent,
+  }
+})
+
 // The `liveprice` frames in one connection's frames that belong to `date`.
 export const stockbitLivePrices = Effect.fnUntraced(function* (
   date: WibDate,

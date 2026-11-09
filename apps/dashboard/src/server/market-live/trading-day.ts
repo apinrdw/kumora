@@ -49,7 +49,11 @@ import { makeOrderBooks } from "./order-books.ts"
 import { SNAPSHOT_TRADES, recordedAnswer } from "./recorded-answers.ts"
 import { type AccountId, type HeldSessions, type SessionId } from "./routes.ts"
 import { stockbitTrades } from "./stockbit.ts"
-import { stockbitLivePrices, type LivePrice } from "./stockbit-liveprice.ts"
+import {
+  mergedLivePrice,
+  stockbitLivePrices,
+  type LivePrice,
+} from "./stockbit-liveprice.ts"
 
 // A socket's progress. An ingest socket is `ready` once its token checked out;
 // a viewer socket once it was sent a snapshot, and from then on gets deltas.
@@ -173,7 +177,8 @@ const sha256 = (text: string) =>
   ).pipe(Effect.map((digest) => new Uint8Array(digest).toString()))
 
 // The last-frame cache, rebuilt from the store after a restart: candles,
-// each code's last `liveprice` frame and its last served order book.
+// each code's last `liveprice` frame and its last served order book. Returns
+// the frames.
 const restoreLastFrames = Effect.fnUntraced(function* (day: {
   readonly store: Effect.Success<ReturnType<typeof makeDayStore>>
   readonly candles: Effect.Success<typeof makeCandleBook>
@@ -202,6 +207,7 @@ const restoreLastFrames = Effect.fnUntraced(function* (day: {
       { minute: DateTime.toEpochMillis(chunk.minute), book },
     ])
   }
+  return prices
 })
 
 export const makeTradingDay = Effect.fnUntraced(function* (options: {
@@ -263,12 +269,21 @@ export const makeTradingDay = Effect.fnUntraced(function* (options: {
       ? (JSON.parse(storedDowns) as DownRecord)
       : undefined
   )
-  // Each code's newest `liveprice` frame since the last flush.
+  // Each code's newest `liveprice` frame, merged over the ones before it, and
+  // the codes' whose changed since the last flush.
+  const lastLivePrices = new Map<StockCode, LivePrice>()
   let livePricesChanged = new Map<StockCode, LivePrice>()
   let flushScheduled = false
 
   if (restoring)
-    yield* restoreLastFrames({ store, candles, books, dayStates, bookChunks })
+    for (const price of yield* restoreLastFrames({
+      store,
+      candles,
+      books,
+      dayStates,
+      bookChunks,
+    }))
+      lastLivePrices.set(price.code, price)
 
   // The order book and Day state fall back to Ajaib while Stockbit isn't live.
   const stockbitLive = Effect.map(
@@ -546,9 +561,15 @@ export const makeTradingDay = Effect.fnUntraced(function* (options: {
       )) {
         yield* books.livePrice(price)
         yield* dayStates.livePrice(price)
-        const held = livePricesChanged.get(price.code)
-        if (held === undefined || DateTime.isGreaterThan(price.time, held.time))
-          livePricesChanged.set(price.code, price)
+        const held = lastLivePrices.get(price.code)
+        if (
+          held === undefined ||
+          DateTime.isGreaterThan(price.time, held.time)
+        ) {
+          const merged = yield* mergedLivePrice(held, price)
+          lastLivePrices.set(price.code, merged)
+          livePricesChanged.set(price.code, merged)
+        }
         if (price.isIndex) yield* candles.indexPrice(price)
       }
       yield* books.stockbitFrames(message.frames)
