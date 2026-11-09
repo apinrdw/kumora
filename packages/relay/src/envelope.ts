@@ -163,16 +163,39 @@ const RunningTrade = Schema.Struct({
 })
 export type RunningTrade = typeof RunningTrade.Type
 
+// One stock code's or index's 1-minute candle. A stock's is built from its
+// regular-board trades: volume in lots, value in rupiah, frequency in trades.
+// An index's is built from its `liveprice` frames, its volume, value and
+// frequency the market's over that minute.
+const Candle = Schema.Struct({
+  code: StockCode,
+  // The minute's start.
+  minute: Schema.DateTimeUtcFromMillis,
+  open: Schema.Finite,
+  high: Schema.Finite,
+  low: Schema.Finite,
+  close: Schema.Finite,
+  volume: Schema.Finite,
+  value: Schema.Finite,
+  frequency: Schema.Int,
+})
+export type Candle = typeof Candle.Type
+
 // What a viewer starts from after each Select: the 200 newest running trades,
-// ascending by trade number.
+// ascending by trade number, and the selected code's candles so far,
+// ascending by minute.
 const Snapshot = Schema.TaggedStruct("Snapshot", {
   tape: Schema.Array(RunningTrade),
+  candles: Schema.Array(Candle),
 })
 
 // The running trades that arrived in the last ~250 ms, ascending by trade
-// number. A late trade sorts below ones the viewer already holds.
+// number. A late trade sorts below ones the viewer already holds. Candles are
+// every candle that changed since the last delta, of any code, each whole: the
+// page keeps its selected code's.
 const Delta = Schema.TaggedStruct("Delta", {
   tape: Schema.Array(RunningTrade),
+  candles: Schema.Array(Candle),
 })
 
 // Trading-day Durable Object → page. It carries no version: the page's
