@@ -1,3 +1,4 @@
+import { WibDate } from "@workspace/relay"
 import { describe, expect, test } from "vitest"
 
 import {
@@ -98,8 +99,8 @@ describe("WIB timestamps", () => {
   })
 
   test("dayLabel names a WIB date's weekday, month and day", () => {
-    expect(dayLabel("2026-11-06")).toBe("Fri, Nov 6")
-    expect(dayLabel("2027-01-04")).toBe("Mon, Jan 4")
+    expect(dayLabel(WibDate.make("2026-11-06"))).toBe("Fri, Nov 6")
+    expect(dayLabel(WibDate.make("2027-01-04"))).toBe("Mon, Jan 4")
   })
 
   test("dateTime includes the short month and day", () => {

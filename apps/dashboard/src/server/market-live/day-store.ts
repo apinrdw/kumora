@@ -220,7 +220,7 @@ export const makeDayStore = (sql: Sql) =>
         })
       )
 
-    const hasTrade = (tradeNumber: string) =>
+    const hasTrade = (tradeNumber: TradeNumber) =>
       Effect.sync(
         () =>
           sql.exec("SELECT 1 FROM trades WHERE number = ?", Number(tradeNumber))

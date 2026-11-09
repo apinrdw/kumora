@@ -4,7 +4,12 @@
 // their own; an index's come from its `liveprice` frames. The trading day
 // feeds every inserted or merged trade through `trade` and sends what
 // `takeChanged` returns.
-import type { Candle, RunningTrade, StockCode } from "@workspace/relay"
+import type {
+  Candle,
+  RunningTrade,
+  StockCode,
+  TradeNumber,
+} from "@workspace/relay"
 import { Clock, DateTime, Effect } from "effect"
 
 import type { LivePrice } from "./stockbit-liveprice.ts"
@@ -251,7 +256,7 @@ export const makeCandleBook = Effect.sync(() => {
 
   // Whether the book holds a trade the store doesn't have yet: inside its
   // merge window, or settled since the last flush.
-  const holds = (tradeNumber: string) =>
+  const holds = (tradeNumber: TradeNumber) =>
     Effect.sync(
       () => arrivals.has(tradeNumber) || settledTrades.has(tradeNumber)
     )

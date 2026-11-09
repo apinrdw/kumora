@@ -1,3 +1,5 @@
+import type { WibDate } from "@workspace/relay"
+
 export const MINUS = "−"
 
 // Decision: en-US separators with K/M/B suffixes, replacing id-ID (issue #137).
@@ -112,7 +114,7 @@ export function dateTime(iso: string): string {
 }
 
 /** A `YYYY-MM-DD` trading day: Fri, Nov 6 */
-export function dayLabel(date: string): string {
+export function dayLabel(date: WibDate): string {
   return dayOfDate.format(new Date(`${date}T00:00:00Z`))
 }
 

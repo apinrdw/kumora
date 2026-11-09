@@ -6,6 +6,7 @@
 import {
   TradeNumberOrder,
   type RunningTrade,
+  type StockCode,
   type TradeNumber,
   type ViewerDown,
 } from "@workspace/relay"
@@ -51,7 +52,7 @@ type Fold = {
   // Ascending by trade number.
   readonly trades: Array<RunningTrade>
   value: number
-  readonly codes: Map<string, number>
+  readonly codes: Map<StockCode, number>
 }
 
 export type Tape = {
@@ -134,7 +135,7 @@ function removeFrom(
   return trades.splice(at, 1)[0]
 }
 
-function countCode(fold: Fold, code: string, by: 1 | -1) {
+function countCode(fold: Fold, code: StockCode, by: 1 | -1) {
   const count = (fold.codes.get(code) ?? 0) + by
   if (count === 0) fold.codes.delete(code)
   else fold.codes.set(code, count)
