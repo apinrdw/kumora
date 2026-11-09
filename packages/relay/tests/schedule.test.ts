@@ -3,7 +3,7 @@ import { DateTime, Effect } from "effect"
 
 import {
   WibDate,
-  closedMarketDay,
+  closedTradingDay,
   expectedStretches,
   isTradingDay,
   marketMomentAt,
@@ -266,7 +266,7 @@ describe("a trading day's market phases", () => {
 
 describe("the day a shut market opens at its close", () => {
   const shownAt = (dateTime: string) =>
-    closedMarketDay(wib(dateTime)).pipe(
+    closedTradingDay(wib(dateTime)).pipe(
       Effect.map((day) => (day._tag === "Some" ? day.value : undefined))
     )
 

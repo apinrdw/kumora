@@ -2,7 +2,7 @@
 // apinrdw/kumora#138, "Closed market and recorded days"), on Market Live's
 // clock, so the Test stage's shifted clock decides it as it decides the phase.
 import {
-  closedMarketDay,
+  closedTradingDay,
   marketMomentAt,
   nextOpenAfter,
   wibDateAt,
@@ -38,7 +38,7 @@ export const closedMarketAt = Effect.fnUntraced(function* (now: DateTime.Utc) {
     return midnight + (hours * 60 + minutes) * 60_000
   }).find((change) => change > at)
   const changesIn = (next ?? midnight + 86_400_000) - at
-  const day = yield* closedMarketDay(now).pipe(
+  const day = yield* closedTradingDay(now).pipe(
     Effect.catchTag("ScheduleYearMissing", () =>
       Effect.succeed(Option.none<WibDate>())
     )

@@ -217,7 +217,7 @@ export const nextOpenAfter = Effect.fnUntraced(
 // or holiday, and before the relay streams (08:40) on a trading day, the
 // latest trading day before; from a trading day's 17:00 seal, that day. None
 // from 08:40 until the seal: the live page shows the day, its close included.
-export const closedMarketDay = Effect.fnUntraced(function* (
+export const closedTradingDay = Effect.fnUntraced(function* (
   instant: DateTime.Utc
 ) {
   const date = yield* wibDateAt(instant)
