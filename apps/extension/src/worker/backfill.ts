@@ -4,9 +4,11 @@
 // time, once Ajaib's REST tape has caught up. Pages go up raw: the Worker
 // decodes them and keeps the rows it lacks.
 import {
+  AjaibTradeNum,
   IngestProtocolVersion,
   TradeNumber,
   TradeNumberValue,
+  ajaibSequence,
   tradeNumberValue,
   type Feed,
   type IngestDown,
@@ -69,7 +71,7 @@ const AjaibNumbers = Schema.fromJsonString(
   Schema.Struct({
     results: Schema.Array(
       Schema.Struct({
-        trade_num: Schema.String.check(Schema.isPattern(/^\d{18}$/)),
+        trade_num: AjaibTradeNum,
       })
     ),
     has_next: Schema.optionalKey(Schema.NullOr(Schema.Boolean)),
@@ -97,7 +99,7 @@ const numbersOn = Effect.fnUntraced(function* (feed: Feed, body: string) {
   const page = decodeAjaib(body)
   if (Option.isNone(page)) return Option.none<PageNumbers>()
   const numbers = yield* Effect.forEach(page.value.results, (row) =>
-    tradeNumberValue(TradeNumber.make(row.trade_num.slice(8)))
+    Effect.flatMap(ajaibSequence(row.trade_num), tradeNumberValue)
   )
   return Option.some<PageNumbers>({
     numbers,

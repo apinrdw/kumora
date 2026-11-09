@@ -1,9 +1,10 @@
-import { Effect, Order, Schema } from "effect"
+import { Effect, Option, Order, Schema } from "effect"
 
 import { StockCode } from "./codes.ts"
 import { IndicativePrice, MarketConditions } from "./market-conditions.ts"
 import { DayState } from "./day-state.ts"
 import { IndexHasNoBook, OrderBook } from "./order-book.ts"
+import type { WibDate } from "./schedule.ts"
 
 // Bump on any change to an ingest message's shape. The dashboard accepts this
 // version and the one before it, so an extension one release behind keeps
@@ -71,6 +72,28 @@ export const TradeNumberValue = Schema.BigInt.pipe(
 export type TradeNumberValue = typeof TradeNumberValue.Type
 export const tradeNumberValue = (number: TradeNumber) =>
   Effect.sync(() => TradeNumberValue.make(BigInt(number)))
+
+// Ajaib's number for a trade, in its trade frames and REST pages: the WIB
+// date, `YYYYMMDD`, and the day's 10-digit sequence. The tape's trade number
+// is the bare sequence, the one Stockbit sends.
+export const AjaibTradeNum = Schema.String.check(Schema.isPattern(/^\d{18}$/))
+export type AjaibTradeNum = typeof AjaibTradeNum.Type
+const AJAIB_DATE_LENGTH = 8
+
+// The tape's trade number of an Ajaib trade number, whatever its date.
+export const ajaibSequence = (tradeNum: AjaibTradeNum) =>
+  Effect.sync(() =>
+    TradeNumber.make(BigInt(tradeNum.slice(AJAIB_DATE_LENGTH)).toString())
+  )
+
+// The tape's trade number of an Ajaib trade number when it is `date`'s; none
+// for another day's, which a page or a frame near midnight can carry.
+export const ajaibTradeNumber = (date: WibDate, tradeNum: AjaibTradeNum) =>
+  Effect.map(ajaibSequence(tradeNum), (tradeNumber) =>
+    tradeNum.startsWith(date.replaceAll("-", ""))
+      ? Option.some(tradeNumber)
+      : Option.none()
+  )
 
 const versioned = { protocolVersion: Schema.Int }
 const fromConnection = {

@@ -4,8 +4,10 @@
 // the page's range are kept, each marked backfill. A row that doesn't decode
 // is skipped.
 import {
+  AjaibTradeNum,
   StockCode,
   TradeNumber,
+  ajaibTradeNumber,
   tradeNumberValue,
   type BackfillPage,
   type RunningTrade,
@@ -36,13 +38,13 @@ const StockbitRow = Schema.Struct({
   market_board: Schema.optionalKey(Schema.String),
 })
 
-// Ajaib's `GET v1/stock/detail/running_trades/`: `trade_num` is `YYYYMMDD`
-// and the 10-digit sequence, `timestamp` epoch ms. Captured 2026-11-06.
+// Ajaib's `GET v1/stock/detail/running_trades/`: `trade_num` in Ajaib's
+// form, `timestamp` epoch ms. Captured 2026-11-06.
 const AjaibPage = Schema.fromJsonString(
   Schema.Struct({ results: Schema.Array(Schema.Unknown) })
 )
 const AjaibRow = Schema.Struct({
-  trade_num: Schema.String.check(Schema.isPattern(/^\d{18}$/)),
+  trade_num: AjaibTradeNum,
   stock_code: StockCode,
   price: Schema.Int,
   lot: Schema.Finite,
@@ -90,18 +92,18 @@ const stockbitRows = (date: WibDate, body: string) => {
   })
 }
 
-const ajaibRows = (date: WibDate, body: string) => {
-  const prefix = date.replaceAll("-", "")
+const ajaibRows = Effect.fnUntraced(function* (date: WibDate, body: string) {
   const page = decodeAjaibPage(body)
   if (Option.isNone(page)) return []
-  return page.value.results.flatMap((raw) => {
+  const trades: Array<RunningTrade> = []
+  for (const raw of page.value.results) {
     const row = decodeAjaibRow(raw)
-    if (Option.isNone(row) || !row.value.trade_num.startsWith(prefix)) return []
+    if (Option.isNone(row)) continue
     const { value } = row
-    const trade: RunningTrade = {
-      tradeNumber: TradeNumber.make(
-        BigInt(value.trade_num.slice(8)).toString()
-      ),
+    const tradeNumber = yield* ajaibTradeNumber(date, value.trade_num)
+    if (Option.isNone(tradeNumber)) continue
+    trades.push({
+      tradeNumber: tradeNumber.value,
       time: DateTime.makeUnsafe(value.timestamp),
       code: value.stock_code,
       price: value.price,
@@ -109,10 +111,10 @@ const ajaibRows = (date: WibDate, body: string) => {
       side: sideOf(value.side),
       board: boardOf(value.market_type),
       feeds: ["backfill"],
-    }
-    return [trade]
-  })
-}
+    })
+  }
+  return trades
+})
 
 // The page's trades of `date` numbered from its `from` to its `to`.
 export const backfillTrades = Effect.fnUntraced(function* (
@@ -124,7 +126,7 @@ export const backfillTrades = Effect.fnUntraced(function* (
   const rows =
     page.feed === "Stockbit"
       ? stockbitRows(date, page.body)
-      : ajaibRows(date, page.body)
+      : yield* ajaibRows(date, page.body)
   return yield* Effect.filter(rows, (trade) =>
     Effect.map(
       tradeNumberValue(trade.tradeNumber),

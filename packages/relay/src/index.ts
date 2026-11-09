@@ -21,6 +21,9 @@ export type {
 export { INDEX_CODES, INDICES, IndexCode, StockCode } from "./codes.ts"
 export {
   AjaibFrames,
+  AjaibTradeNum,
+  ajaibSequence,
+  ajaibTradeNumber,
   Backfill,
   CodeList,
   Connection,
