@@ -565,9 +565,12 @@ export const makeTradingDay = Effect.fnUntraced(function* (options: {
         yield* books.livePrice(price)
         yield* dayStates.livePrice(price)
         const held = lastLivePrices.get(price.code)
+        // The store keeps each code's regular-board frame, the one a restart
+        // rebuilds its Day state from: a cash or negotiated board's would
+        // displace it.
         if (
-          held === undefined ||
-          DateTime.isGreaterThan(price.time, held.time)
+          price.regularBoard &&
+          (held === undefined || DateTime.isGreaterThan(price.time, held.time))
         ) {
           const merged = yield* mergedLivePrice(held, price)
           lastLivePrices.set(price.code, merged)
