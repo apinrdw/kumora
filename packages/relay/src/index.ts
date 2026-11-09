@@ -45,10 +45,9 @@ export type {
   ViewerUp,
 } from "./envelope.ts"
 export {
-  ListedCode,
   decodeStockCodeList,
   encodeStockCodeList,
   stockCodeListDay,
   stockCodeListPath,
 } from "./code-list.ts"
-export type { CodeKind, StockCodeList } from "./code-list.ts"
+export type { CodeKind, ListedCode } from "./code-list.ts"

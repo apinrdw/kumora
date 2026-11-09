@@ -11,7 +11,7 @@ import { WibDate } from "./schedule.ts"
 const CodeKind = Schema.Literals(["share", "warrant", "right"])
 export type CodeKind = typeof CodeKind.Type
 
-export const ListedCode = Schema.Struct({
+const ListedCode = Schema.Struct({
   code: StockCode,
   // Empty when Ajaib lists none.
   name: Schema.String,
@@ -20,7 +20,6 @@ export const ListedCode = Schema.Struct({
 export type ListedCode = typeof ListedCode.Type
 
 const StockCodeList = Schema.Struct({ codes: Schema.Array(ListedCode) })
-export type StockCodeList = typeof StockCodeList.Type
 
 export const decodeStockCodeList = Schema.decodeUnknownEffect(
   Schema.fromJsonString(StockCodeList)
