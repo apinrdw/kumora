@@ -87,7 +87,9 @@ const DELTA_INTERVAL = "250 millis"
 // Decision: the tape in memory holds the newest 10,000 trades, the most the
 // page keeps; a restarted object reloads them from the day store. A trade
 // older than that window is still deduped against the store and still counts
-// in its candle, but viewers aren't sent it: the page keeps the same window.
+// in its candle, and a second feed's copy still merges into it while its
+// merge window is open (the candle book holds it), but viewers aren't sent
+// it: the page keeps the same window.
 const TAPE_LIMIT = 10_000
 
 // Decision: trades, candles, last `liveprice` frames, book chunks and the
@@ -329,27 +331,44 @@ export const makeTradingDay = Effect.fnUntraced(function* (options: {
   const inTape = (trade: RunningTrade) =>
     tape[positionOf(tape, trade)]?.tradeNumber === trade.tradeNumber
 
+  // A copy of a trade the day holds, merged into the tape row at `slot`, or
+  // into the candle book's copy once the tape evicted it. A copy that adds
+  // no feed and no side changes nothing.
+  const mergeInto = Effect.fnUntraced(function* (
+    held: RunningTrade,
+    arriving: RunningTrade,
+    slot: number | undefined
+  ) {
+    const merged = yield* settleSide(merge(held, arriving))
+    if (merged.feeds.length === held.feeds.length && merged.side === held.side)
+      return
+    if (slot !== undefined) {
+      tape[slot] = merged
+      pending.set(merged.tradeNumber, merged)
+    }
+    yield* candles.trade(held, merged)
+    yield* dayStates.trade(held, merged)
+  })
+
   // Merges each trade into the tape: a new trade number is inserted in its
-  // place, a known one merged with what other feeds saw. A new trade older
-  // than a full tape's oldest counts in its candle but stays off the tape.
+  // place, a known one merged with what other feeds saw, on the tape or, once
+  // the tape evicted it, inside its merge window. A new trade older than a
+  // full tape's oldest counts in its candle but stays off the tape.
   const insert = Effect.fnUntraced(function* (
     trades: ReadonlyArray<RunningTrade>
   ) {
     for (const arriving of trades) {
       yield* gaps.seen(arriving)
       const at = positionOf(tape, arriving)
-      const held = tape[at]
-      if (held?.tradeNumber === arriving.tradeNumber) {
-        const merged = yield* settleSide(merge(held, arriving))
-        if (
-          merged.feeds.length === held.feeds.length &&
-          merged.side === held.side
-        )
-          continue
-        tape[at] = merged
-        pending.set(merged.tradeNumber, merged)
-        yield* candles.trade(held, merged)
-        yield* dayStates.trade(held, merged)
+      // The tape row of this number, if it holds one.
+      const slot =
+        tape[at]?.tradeNumber === arriving.tradeNumber ? at : undefined
+      const held =
+        slot === undefined
+          ? yield* candles.openTrade(arriving.tradeNumber)
+          : tape[slot]
+      if (held !== undefined) {
+        yield* mergeInto(held, arriving, slot)
         continue
       }
       const beforeTape = at === 0 && tape.length >= TAPE_LIMIT

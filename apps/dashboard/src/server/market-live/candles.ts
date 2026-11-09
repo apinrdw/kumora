@@ -285,6 +285,13 @@ export const makeCandleBook = Effect.sync(() => {
 
   const hasChanges = Effect.sync(() => changed.size > 0)
 
+  // A trade still inside its merge window, as the book holds it: a second
+  // feed's copy merges into it even once the tape evicted it.
+  const openTrade = Effect.fnUntraced(function* (tradeNumber: TradeNumber) {
+    settle(yield* Clock.currentTimeMillis)
+    return arrivals.get(tradeNumber)?.trade
+  })
+
   // Whether the book holds a trade the store doesn't have yet: inside its
   // merge window, or settled since the last flush.
   const holds = (tradeNumber: TradeNumber) =>
@@ -343,6 +350,7 @@ export const makeCandleBook = Effect.sync(() => {
     foldAfter,
     takeChanged,
     hasChanges,
+    openTrade,
     holds,
     takeSettled,
     hasUnsettled,
