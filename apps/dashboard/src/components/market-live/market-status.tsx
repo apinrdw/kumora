@@ -10,20 +10,21 @@ import { DateTime, Effect } from "effect"
 import { useEffect, useState, useSyncExternalStore } from "react"
 
 import { KStatusPill } from "@/components/k/status-pill"
-import { dateTime, plain, shares } from "@/lib/format"
+import { dateTime } from "@/lib/format"
 
 // What the page knows besides the tape, from the viewer socket (spec
 // apinrdw/kumora#138, "Freshness display"). `reconnecting` while the page's
 // own socket is down: the feeds aren't blamed for it.
 type View = {
   readonly status: MarketStatus | undefined
-  readonly indicative: IndicativePrice | undefined
+  // Each code's latest, the selected and watchlist codes' among them.
+  readonly indicative: ReadonlyMap<StockCode, IndicativePrice>
   readonly connection: "connecting" | "live" | "reconnecting"
 }
 
 const initial: View = {
   status: undefined,
-  indicative: undefined,
+  indicative: new Map(),
   connection: "connecting",
 }
 let view = initial
@@ -35,24 +36,30 @@ const publish = (next: View) =>
     for (const listener of listeners) listener()
   })
 
-// The view after one viewer message for `selected`. A snapshot starts over.
-export const applyStatus = (message: ViewerDown, selected: StockCode) =>
+const byCode = (prices: ReadonlyArray<IndicativePrice>) =>
+  prices.map((price) => [price.code, price] as const)
+
+// The view after one viewer message. A snapshot starts over. Decision: a
+// delta's indicative prices are every code's that changed, and all are kept,
+// so a code added to the watchlist mid-auction shows its price on the next
+// change; the map is bounded by the listed codes.
+export const applyStatus = (message: ViewerDown) =>
   Effect.suspend(() => {
     if (message._tag === "Snapshot")
       return publish({
         status: message.status,
-        indicative: message.indicative,
+        indicative: new Map(byCode(message.indicative ?? [])),
         connection: "live",
       })
-    const indicative = (message.indicative ?? []).find(
-      (price) => price.code === selected
-    )
-    if (message.status === undefined && indicative === undefined)
-      return Effect.void
+    const prices = message.indicative ?? []
+    if (message.status === undefined && prices.length === 0) return Effect.void
     return publish({
       ...view,
       status: message.status ?? view.status,
-      indicative: indicative ?? view.indicative,
+      indicative:
+        prices.length === 0
+          ? view.indicative
+          : new Map([...view.indicative, ...byCode(prices)]),
     })
   })
 
@@ -123,13 +130,24 @@ const AUCTIONS: ReadonlySet<MarketPhase> = new Set([
   "pre-closing",
 ])
 
-// The selected code's indicative price while an auction runs, for the
-// chart's dashed line.
-export function useAuctionIndicative(): number | undefined {
-  const { status, indicative } = useMarketStatus()
+const auctionIndicative = (code: StockCode) => {
+  const { status, indicative } = view
   return status !== undefined && AUCTIONS.has(status.phase)
-    ? indicative?.price
+    ? indicative.get(code)
     : undefined
+}
+
+// `code`'s indicative price while an auction runs: the chart's dashed line
+// and header, and the watchlist row's price. It re-renders only when that
+// code's changes.
+export function useAuctionIndicative(
+  code: StockCode
+): IndicativePrice | undefined {
+  return useSyncExternalStore(
+    subscribe,
+    () => auctionIndicative(code),
+    () => undefined
+  )
 }
 
 // The market phase, with the next open while the market is shut.
@@ -155,11 +173,10 @@ export function PhaseLabel({
 
 const FEEDS = ["Stockbit", "Ajaib"] as const
 
-// The chart header's status: a freshness pill per feed, the market phase
-// (with the next open while shut) and, during the auctions, the selected
-// code's indicative price and volume.
+// The chart header's status: a freshness pill per feed and the market phase
+// (with the next open while shut).
 export function MarketStatusBar() {
-  const { status, indicative, connection } = useMarketStatus()
+  const { status, connection } = useMarketStatus()
   if (status === undefined) return null
   const { phase, nextOpen, relayOnline, feeds } = status
   return (
@@ -186,11 +203,6 @@ export function MarketStatusBar() {
         </ul>
       )}
       <PhaseLabel phase={phase} nextOpen={nextOpen} />
-      {AUCTIONS.has(phase) && indicative !== undefined && (
-        <span aria-label="Indicative price" className="num">
-          IEP {plain(indicative.price)} · {shares(indicative.volume)}
-        </span>
-      )}
     </div>
   )
 }

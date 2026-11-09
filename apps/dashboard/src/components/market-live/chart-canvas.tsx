@@ -201,7 +201,7 @@ export default function ChartCanvas({
   const [series, setSeries] = useState<ReturnType<
     ReturnType<typeof createChart>["addSeries"]
   > | null>(null)
-  const indicative = useAuctionIndicative()
+  const indicative = useAuctionIndicative(store.code)?.price
 
   useEffect(() => {
     const element = host.current

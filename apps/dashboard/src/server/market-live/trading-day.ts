@@ -21,6 +21,7 @@ import {
   StockCode,
   wibDateAt,
   type DayState,
+  type IndicativePrice,
   type IngestUp,
   type RecordedDay,
   type RecordedResource,
@@ -624,11 +625,13 @@ export const makeTradingDay = Effect.fnUntraced(function* (options: {
       const orderBook = yield* books.bookOf(selected, live)
       const watching = [...new Set([selected, ...watchlist])]
       const states: Array<DayState> = []
+      const indicative: Array<IndicativePrice> = []
       for (const code of watching) {
         const state = yield* dayStates.stateOf(code, live)
         if (state !== undefined) states.push(state)
+        const price = yield* market.indicativeOf(code)
+        if (price !== undefined) indicative.push(price)
       }
-      const indicative = yield* market.indicativeOf(selected)
       const snapshot = yield* encodeViewerDown({
         _tag: "Snapshot",
         tape: tape.slice(-SNAPSHOT_TRADES),
@@ -636,7 +639,7 @@ export const makeTradingDay = Effect.fnUntraced(function* (options: {
         ...(orderBook === undefined ? {} : { orderBook }),
         ...(states.length === 0 ? {} : { dayStates: states }),
         status: yield* market.status,
-        ...(indicative === undefined ? {} : { indicative }),
+        ...(indicative.length === 0 ? {} : { indicative }),
       })
       yield* socket.send(snapshot)
       yield* socket.setState("ready")

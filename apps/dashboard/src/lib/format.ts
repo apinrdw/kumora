@@ -67,6 +67,11 @@ export function pct(n: number): string {
   return n === 0 ? "0.00%" : sign(n) + nf2.format(Math.abs(n)) + "%"
 }
 
+/** A quote: 9,275 for a stock, 7,243.18 for an index, whose prices are fractional. */
+export function quote(n: number): string {
+  return plain(n, Number.isInteger(n) ? 0 : 2)
+}
+
 /** +90, −1.5 */
 export function signed(n: number, digits: 0 | 1 | 2 = 0): string {
   return sign(n) + plain(Math.abs(n), digits)

@@ -101,12 +101,17 @@ const marketAt = Effect.fnUntraced(function* (start: string) {
     })
   const page = new FakeSocket()
   viewers.push(page)
-  yield* encodeViewerUp({
-    _tag: "Select",
-    protocolVersion: ViewerProtocolVersion,
-    selected: BBCA,
-    watchlist: [],
-  }).pipe(Effect.flatMap((text) => day.viewerMessage(page, text)))
+  const select = (
+    selected: StockCode,
+    watchlist: ReadonlyArray<StockCode> = []
+  ) =>
+    encodeViewerUp({
+      _tag: "Select",
+      protocolVersion: ViewerProtocolVersion,
+      selected,
+      watchlist,
+    }).pipe(Effect.flatMap((text) => day.viewerMessage(page, text)))
+  yield* select(BBCA)
   // The market status the viewer holds now: its snapshot's, as later deltas
   // changed it.
   const status = Effect.gen(function* () {
@@ -117,7 +122,7 @@ const marketAt = Effect.fnUntraced(function* (start: string) {
   })
   const feeds = Effect.map(status, (current) => current.feeds)
   const relayClosed = day.ingestClosed(0)
-  return { frames, reported, status, feeds, relayClosed, page }
+  return { frames, reported, status, feeds, relayClosed, page, select }
 })
 
 const gapsOf = (status: MarketStatus) =>
@@ -395,7 +400,7 @@ describe("indicative price", () => {
           for (const message of yield* market.page.received) {
             const prices =
               message._tag === "Snapshot"
-                ? [message.indicative ?? []].flat()
+                ? (message.indicative ?? [])
                 : (message.indicative ?? [])
             for (const each of prices)
               if (each.code === BBCA) price = each.price
@@ -406,6 +411,30 @@ describe("indicative price", () => {
         yield* market.reported("Stockbit", "A", "closed")
         yield* TestClock.adjust("250 millis")
         assert.strictEqual(yield* indicativeOf, 5300)
+      })
+  )
+
+  it.effect(
+    "a snapshot carries the selected and watchlist codes' indicative prices",
+    () =>
+      Effect.gen(function* () {
+        const market = yield* marketAt("2026-11-09T15:50:01")
+        yield* market.frames("Stockbit", "A", [
+          iepiev("BBCA", 5325, 1500, "2026-11-09T15:50:01.03944+07:00"),
+          iepiev("BBRI", 4010, 900, "2026-11-09T15:50:01.04+07:00"),
+          iepiev("TLKM", 2990, 100, "2026-11-09T15:50:01.05+07:00"),
+        ])
+        yield* market.select(BBCA, [StockCode.make("BBRI")])
+        const snapshot = (yield* market.page.received)
+          .filter((message) => message._tag === "Snapshot")
+          .at(-1)
+        assert.deepStrictEqual(
+          snapshot?.indicative?.map(({ code, price }) => [code, price]),
+          [
+            ["BBCA", 5325],
+            ["BBRI", 4010],
+          ]
+        )
       })
   )
 })

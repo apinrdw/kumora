@@ -5,14 +5,14 @@ import { memo } from "react"
 
 import { KIconButton } from "@/components/k/button"
 import { KStatusPill } from "@/components/k/status-pill"
-import { compact, direction, pct, plain, signed } from "@/lib/format"
+import { compact, direction, pct, plain, quote, signed } from "@/lib/format"
 
 import {
   useDayState,
   useDayStateFallback,
   type DayStateStore,
 } from "./day-state-store"
-import { useMergedStale } from "./market-status"
+import { useAuctionIndicative, useMergedStale } from "./market-status"
 import { StockCodePicker } from "./stock-code-picker"
 import type { StockCodeList } from "./use-stock-code-list"
 
@@ -23,9 +23,6 @@ const CHANGE_TONE = {
   down: "text-down",
   flat: "text-muted-foreground",
 } as const
-
-// Prices up to two decimals: an index's are fractional.
-const price = (n: number) => plain(n, Number.isInteger(n) ? 0 : 2)
 
 interface RowProps {
   readonly code: StockCode
@@ -42,6 +39,8 @@ const WatchlistRow = memo(function WatchlistRow({
   onRemove,
 }: RowProps) {
   const state = useDayState(store, code)
+  // During an auction the row shows where the code would match.
+  const indicative = useAuctionIndicative(code)
   const tone = state === undefined ? "" : CHANGE_TONE[direction(state.change)]
   return (
     <tr data-code={code} className="border-b border-border/60">
@@ -60,7 +59,21 @@ const WatchlistRow = memo(function WatchlistRow({
         </td>
       ) : (
         <>
-          <td className={cn(CELL, "text-right", tone)}>{price(state.last)}</td>
+          {indicative === undefined ? (
+            <td className={cn(CELL, "text-right", tone)}>
+              {quote(state.last)}
+            </td>
+          ) : (
+            <td className={cn(CELL, "text-right")}>
+              <abbr
+                title="Indicative price"
+                className="mr-1 text-[10px] text-muted-foreground no-underline"
+              >
+                IEP
+              </abbr>
+              {quote(indicative.price)}
+            </td>
+          )}
           <td className={cn(CELL, "text-right", tone)}>
             {signed(state.change, Number.isInteger(state.change) ? 0 : 2)}{" "}
             <span className="text-[11px]">{pct(state.changePercent)}</span>

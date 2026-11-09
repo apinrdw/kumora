@@ -114,7 +114,7 @@ export function LiveTape({
               candles: message.candles,
             })
           } else apply(message)
-        }).pipe(Effect.andThen(applyStatus(message, sent.current.selected)))
+        }).pipe(Effect.andThen(applyStatus(message)))
       ).pipe(
         Effect.catchTags({
           SignInRequired: () => signInAgain,

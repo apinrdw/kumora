@@ -122,3 +122,39 @@ test("a watched code's row fills from Ajaib's PRICE, and the relay is asked for 
   await expect(watchlist.getByText("Ajaib", { exact: true })).toBeVisible()
   relay.close()
 })
+
+test("the chart header shows the selected code's last price and change, and an index can be chosen", async ({
+  page,
+}) => {
+  const relay = await openIngest()
+  const live = page.waitForEvent("websocket", (socket) =>
+    socket.url().endsWith("/market-live/live")
+  )
+  await page.goto(`${DASHBOARD}${PAGE}?code=UNTR`)
+  await live
+  await relay.report("Stockbit", "closed")
+  await relay.sendAjaib([
+    JSON.stringify({
+      ticker: "UNTR",
+      updateTime: marketNow(),
+      price: 26_150,
+      change: -350,
+      pctChange: -0.013208,
+      tradableVolume: 2_000_000,
+      hi: 26_600,
+      lo: 26_000,
+      open: 26_500,
+      close: 26_500,
+    }),
+  ])
+  const chart = page.getByRole("region", { name: "Chart" })
+  await expect(chart.getByLabel("Last price")).toHaveText("26,150")
+  await expect(chart.getByLabel("Change")).toHaveText("−350 −1.32%")
+
+  // Ajaib's list has no index; the day's list adds the three.
+  await chart.getByRole("combobox", { name: "Search stock code" }).fill("ihsg")
+  await chart.getByRole("option", { name: /^IHSG\b/ }).click()
+  await expect(page).toHaveURL(`${DASHBOARD}${PAGE}?code=IHSG`)
+  await expect(chart.getByRole("heading", { name: "IHSG" })).toBeVisible()
+  relay.close()
+})

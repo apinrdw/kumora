@@ -112,17 +112,18 @@ function MarketLiveDay({
   )
   return (
     <>
-      <header className="flex flex-wrap items-center gap-x-4 gap-y-2">
-        <h1 className="text-2xl font-bold">Market Live</h1>
-        {cursor === undefined ? (
-          <MarketStatusBar />
-        ) : (
-          <RecordedStatusBar cursor={cursor} closed={closed} />
-        )}
-      </header>
+      <h1 className="text-2xl font-bold">Market Live</h1>
       <div className="grid gap-4 lg:grid-cols-[minmax(0,1fr)_400px]">
         <LiveChart
           store={candles}
+          dayStates={dayStates}
+          status={
+            cursor === undefined ? (
+              <MarketStatusBar />
+            ) : (
+              <RecordedStatusBar cursor={cursor} closed={closed} />
+            )
+          }
           cursor={cursor}
           footer={cursor && <TransportBar cursor={cursor} />}
           search={

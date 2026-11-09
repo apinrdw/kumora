@@ -243,8 +243,8 @@ function followTape(
 
 /**
  * Fills the stores with `day` at the cursor, when there is one: the selected
- * code's whole-day candles and its book frame in force, and each watchlist
- * code's row. Returns the day's relay gaps.
+ * code's whole-day candles and its book frame in force, and its and each
+ * watchlist code's Day state. Returns the day's relay gaps.
  */
 export function useRecordedDay({
   day,
@@ -278,10 +278,15 @@ export function useRecordedDay({
     if (day === undefined || cursor === undefined) return
     return followBook(day, selected, cursor, book)
   }, [day, selected, cursor, book])
+  // The selected code's figures head the chart.
+  const watched = useMemo(
+    () => [...new Set([selected, ...watchlist])],
+    [selected, watchlist]
+  )
   useEffect(() => {
     if (day === undefined || cursor === undefined) return
-    return followWatchlist(day, watchlist, cursor, dayStates)
-  }, [day, cursor, watchlist, dayStates])
+    return followWatchlist(day, watched, cursor, dayStates)
+  }, [day, cursor, watched, dayStates])
   return gaps
 }
 

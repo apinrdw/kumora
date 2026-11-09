@@ -214,8 +214,9 @@ const Snapshot = Schema.TaggedStruct("Snapshot", {
   dayStates: Schema.optionalKey(Schema.Array(DayState)),
   orderBook: Schema.optionalKey(Schema.Union([OrderBook, IndexHasNoBook])),
   status: MarketStatus,
-  // The selected code's, once it has one.
-  indicative: Schema.optionalKey(IndicativePrice),
+  // The selected and watchlist codes' that have one, so the watchlist shows
+  // them during an auction. Absent when none has.
+  indicative: Schema.optionalKey(Schema.Array(IndicativePrice)),
 })
 
 // The running trades that arrived in the last ~250 ms, ascending by trade

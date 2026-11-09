@@ -2,11 +2,14 @@ import { ClientOnly } from "@tanstack/react-router"
 import { Suspense, lazy, useSyncExternalStore } from "react"
 import type { ReactNode } from "react"
 
+import type { StockCode } from "@workspace/relay"
+
 import { KStatusPill } from "@/components/k/status-pill"
-import { plain } from "@/lib/format"
+import { direction, pct, quote, shares, signed } from "@/lib/format"
 
 import type { CandleStore } from "./candle-store"
-import { useMergedStale } from "./market-status"
+import { useDayState, type DayStateStore } from "./day-state-store"
+import { useAuctionIndicative, useMergedStale } from "./market-status"
 import type { ReplayCursor } from "./replay-cursor"
 
 // Decision: Lightweight Charts runs only in the browser, in its own chunk:
@@ -30,17 +33,73 @@ function useCandles<A>(
   )
 }
 
+const CHANGE_TONE = {
+  up: "text-up",
+  down: "text-down",
+  flat: "text-muted-foreground",
+} as const
+
+// The header's headline figures (spec apinrdw/kumora#138, "Layout"): the
+// code's last price and change from the previous close, from its Day state,
+// or its last candle's close before it has one; during the auctions, its
+// indicative price and volume.
+function ChartQuote({
+  code,
+  dayStates,
+  lastClose,
+}: {
+  code: StockCode
+  dayStates: DayStateStore
+  lastClose: number | undefined
+}) {
+  const state = useDayState(dayStates, code)
+  const indicative = useAuctionIndicative(code)
+  const last = state?.last ?? lastClose
+  return (
+    <>
+      <span
+        aria-label="Last price"
+        className="text-[15px] font-semibold tabular-nums"
+      >
+        {last === undefined ? "—" : quote(last)}
+      </span>
+      {state !== undefined && (
+        <span
+          aria-label="Change"
+          className={`text-[13px] tabular-nums ${CHANGE_TONE[direction(state.change)]}`}
+        >
+          {signed(state.change, Number.isInteger(state.change) ? 0 : 2)}{" "}
+          {pct(state.changePercent)}
+        </span>
+      )}
+      {indicative !== undefined && (
+        <span
+          aria-label="Indicative price"
+          className="text-[13px] tabular-nums"
+        >
+          IEP {quote(indicative.price)} · {shares(indicative.volume)}
+        </span>
+      )}
+    </>
+  )
+}
+
 // The selected code's 1-minute candles with volume, live from the viewer
-// socket through `store`. `search` sits in the header, to choose the code.
+// socket through `store`. `search` sits in the header, to choose the code,
+// and `status` with it: the feed pills and the market phase.
 // On a recorded day, the candles after `cursor` are greyed and a clicked
 // candle moves it; `footer` sits under the chart.
 export function LiveChart({
   store,
+  dayStates,
+  status,
   search,
   cursor,
   footer,
 }: {
   store: CandleStore
+  dayStates: DayStateStore
+  status?: ReactNode
   search?: ReactNode
   cursor?: ReplayCursor | undefined
   footer?: ReactNode
@@ -57,10 +116,9 @@ export function LiveChart({
     >
       <header className="flex flex-wrap items-baseline gap-3">
         <h2 className="text-lg font-bold">{store.code}</h2>
-        <span className="text-[15px] font-semibold tabular-nums">
-          {last === undefined ? "—" : plain(last)}
-        </span>
+        <ChartQuote code={store.code} dayStates={dayStates} lastClose={last} />
         {stale && <KStatusPill status="stale" />}
+        {status}
         {search}
       </header>
       {/* The canvas has no text: this says what it draws. */}
