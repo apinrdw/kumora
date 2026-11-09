@@ -15,12 +15,6 @@ import type { StoredChunk } from "./day-store.ts"
 
 const MINUTE = 60_000
 
-// Decision: a minute's chunk is written once the clock is 5 s past its end,
-// so a frame the relay delivers late still lands in it. A frame later than
-// that joins the code's next chunk (a chunk is written once), and a frame
-// older than the open chunk's minute joins the open chunk.
-const SETTLE = 5_000
-
 interface Open {
   readonly minute: number
   readonly start: OrderBook | undefined
@@ -31,10 +25,14 @@ const same = (a: unknown, b: unknown) => JSON.stringify(a) === JSON.stringify(b)
 
 // The parts of `book` that differ from `before`; every part when there is no
 // book before it.
-const deltaOf = (before: OrderBook | undefined, book: OrderBook): BookDelta => {
+const deltaOf = (
+  servedAt: DateTime.Utc,
+  before: OrderBook | undefined,
+  book: OrderBook
+): BookDelta => {
   const delta: {
     -readonly [K in keyof BookDelta]: BookDelta[K]
-  } = { at: book.at }
+  } = { servedAt, at: book.at }
   if (before?.provenance !== book.provenance) delta.provenance = book.provenance
   if (before === undefined || !same(before.bids, book.bids))
     delta.bids = book.bids
@@ -50,50 +48,44 @@ const deltaOf = (before: OrderBook | undefined, book: OrderBook): BookDelta => {
   return delta
 }
 
-const minuteOf = (time: DateTime.Utc) =>
-  Math.floor(DateTime.toEpochMillis(time) / MINUTE) * MINUTE
-
 export const makeBookChunks = Effect.sync(() => {
   // The book each code last served, and its chunk still taking frames.
   const last = new Map<StockCode, OrderBook>()
   const open = new Map<StockCode, Open>()
-  // Each code's newest minute whose chunk is closed.
-  const closedThrough = new Map<StockCode, number>()
   let closed: Array<{ readonly code: StockCode; readonly open: Open }> = []
 
   const close = (code: StockCode, held: Open) => {
     closed.push({ code, open: held })
-    closedThrough.set(code, held.minute)
     open.delete(code)
   }
 
-  // A book viewers were sent.
-  const record = (book: OrderBook) =>
-    Effect.sync(() => {
-      const through = closedThrough.get(book.code)
-      const minute = Math.max(
-        minuteOf(book.at),
-        through === undefined ? -Infinity : through + MINUTE
-      )
-      let held = open.get(book.code)
-      if (held !== undefined && minute > held.minute) {
-        close(book.code, held)
-        held = undefined
-      }
-      if (held === undefined) {
-        held = { minute, start: last.get(book.code), deltas: [] }
-        open.set(book.code, held)
-      }
-      held.deltas.push(deltaOf(last.get(book.code), book))
-      last.set(book.code, book)
-    })
+  // A book viewers were sent. Decision: a frame joins the chunk of the
+  // minute it was served in, by the object's clock, so a code's deltas
+  // follow the viewers' timeline whatever each book's as-of.
+  const record = Effect.fnUntraced(function* (book: OrderBook) {
+    const now = yield* Clock.currentTimeMillis
+    const minute = Math.floor(now / MINUTE) * MINUTE
+    let held = open.get(book.code)
+    if (held !== undefined && minute > held.minute) {
+      close(book.code, held)
+      held = undefined
+    }
+    if (held === undefined) {
+      held = { minute, start: last.get(book.code), deltas: [] }
+      open.set(book.code, held)
+    }
+    held.deltas.push(
+      deltaOf(DateTime.makeUnsafe(now), last.get(book.code), book)
+    )
+    last.set(book.code, book)
+  })
 
   // Every chunk whose minute is over by `now`, encoded; at the seal, every
   // open one too.
   const take = Effect.fnUntraced(function* (final: boolean) {
     const now = yield* Clock.currentTimeMillis
     for (const [code, held] of open)
-      if (final || held.minute + MINUTE + SETTLE <= now) close(code, held)
+      if (final || held.minute + MINUTE <= now) close(code, held)
     const taken = closed
     closed = []
     const chunks: Array<StoredChunk> = []
@@ -113,16 +105,11 @@ export const makeBookChunks = Effect.sync(() => {
 
   const hasOpen = Effect.sync(() => open.size > 0 || closed.length > 0)
 
-  // A restarted object's latest stored chunk per code, replayed to its end:
-  // the next chunk starts from that book, a minute after the stored one.
-  const restore = (
-    latest: ReadonlyArray<{ readonly minute: number; readonly book: OrderBook }>
-  ) =>
+  // A restarted object's last stored book per code, replayed to its chunk's
+  // end: the next chunk starts from it.
+  const restore = (books: ReadonlyArray<OrderBook>) =>
     Effect.sync(() => {
-      for (const { minute, book } of latest) {
-        last.set(book.code, book)
-        closedThrough.set(book.code, minute)
-      }
+      for (const book of books) last.set(book.code, book)
     })
 
   return { record, take, hasOpen, restore }

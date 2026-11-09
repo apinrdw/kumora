@@ -162,9 +162,14 @@ export const decodeRecordedGaps = Schema.decodeUnknownEffect(
   Schema.fromJsonString(RecordedGaps)
 )
 
-// One served order book frame after the one before it: only the parts that
-// changed. The first frame of a code's day carries every part.
+// One served order book frame after the one before it: when the trading-day
+// Durable Object served it, the book's as-of, and the other parts that
+// changed. The first frame of a code's day carries every part. Decision:
+// the served instant is the replay's timeline, not the as-of: a served book
+// can be older than the one before it (Ajaib's when Stockbit goes stale),
+// and a replay cursor is an instant on the viewers' clock.
 const BookDelta = Schema.Struct({
+  servedAt: Schema.DateTimeUtcFromMillis,
   at: Schema.DateTimeUtcFromMillis,
   provenance: Schema.optionalKey(Schema.Literals(["Stockbit", "Ajaib"])),
   bids: Schema.optionalKey(Schema.Array(BookLevel)),
@@ -193,13 +198,13 @@ export const decodeBookChunk = Schema.decodeUnknownEffect(
   Schema.fromJsonString(BookChunk)
 )
 
-// The frame in force at `cursor`: the chunk's start with every frame at or
-// before the cursor applied. Undefined before the code's first book.
+// The frame in force at `cursor`: the chunk's start with every frame served
+// at or before the cursor applied. Undefined before the code's first book.
 export const bookAt = (chunk: BookChunk, cursor: DateTime.Utc) =>
   Effect.sync(() => {
     let book = chunk.start
-    for (const { at, ...parts } of chunk.deltas) {
-      if (DateTime.isGreaterThan(at, cursor)) break
+    for (const { servedAt, ...parts } of chunk.deltas) {
+      if (DateTime.isGreaterThan(servedAt, cursor)) break
       // A first frame carries every part.
       const before: OrderBook = book ?? {
         _tag: "OrderBook",
@@ -208,10 +213,10 @@ export const bookAt = (chunk: BookChunk, cursor: DateTime.Utc) =>
         offers: [],
         bidLots: 0,
         offerLots: 0,
-        at,
+        at: parts.at,
         provenance: "Stockbit",
       }
-      book = { ...before, ...parts, at }
+      book = { ...before, ...parts }
     }
     return book
   })

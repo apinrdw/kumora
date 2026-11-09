@@ -219,9 +219,7 @@ const restoreLastFrames = Effect.fnUntraced(function* (day: {
     const book = yield* bookAt(chunk, DateTime.makeUnsafe(8.64e15))
     if (book === undefined) continue
     yield* day.books.restore(book)
-    yield* day.bookChunks.restore([
-      { minute: DateTime.toEpochMillis(chunk.minute), book },
-    ])
+    yield* day.bookChunks.restore([book])
   }
   return prices
 })
