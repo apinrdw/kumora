@@ -93,8 +93,8 @@ const DELTA_INTERVAL = "250 millis"
 // it: the page keeps the same window.
 const TAPE_LIMIT = 10_000
 
-// Decision: trades, candles, last `liveprice` frames, book chunks and the
-// feeds' record are written to the day store once a minute, 5 s past the
+// Decision: trades, candles, last `liveprice` frames, book chunks, whole
+// Ajaib books and the feeds' record are written to the day store once a minute, 5 s past the
 // minute (spec apinrdw/kumora#138, "Storage and cost"), so each flush closes
 // the minute that just ended: its book chunks, and its trades' 5 s merge
 // windows. The one exception is the relay going offline (`ingestClosed`),
@@ -219,6 +219,7 @@ const restoreLastFrames = Effect.fnUntraced(function* (day: {
     yield* day.books.restore(book)
     yield* day.bookChunks.restore([book])
   }
+  yield* day.books.restoreAjaib(yield* day.store.ajaibBooks)
   return prices
 })
 
@@ -485,6 +486,7 @@ export const makeTradingDay = Effect.fnUntraced(function* (options: {
       ...settled,
       livePrices,
       chunks,
+      ajaibBooks: yield* books.takeAjaibBooks(),
       facts: {
         [Fact.feedDowns]: JSON.stringify(yield* market.record),
         ...facts,
@@ -497,7 +499,8 @@ export const makeTradingDay = Effect.fnUntraced(function* (options: {
     return (
       livePricesChanged.size > 0 ||
       (yield* candles.hasUnflushed) ||
-      (yield* bookChunks.hasOpen)
+      (yield* bookChunks.hasOpen) ||
+      (yield* books.hasUnflushedAjaib)
     )
   })
 
@@ -563,6 +566,7 @@ export const makeTradingDay = Effect.fnUntraced(function* (options: {
       candles: [],
       livePrices: [],
       chunks: [],
+      ajaibBooks: [],
       facts: { [Fact.sealed]: DateTime.formatIso(now) },
     })
     sealed = true

@@ -6,9 +6,9 @@
 // the other when it has none. Time is read only through Effect's Clock.
 import {
   BOOK_DEPTH,
+  BookLevel,
   StockCode,
   wibDateAt,
-  type BookLevel,
   type IndexHasNoBook,
   type OrderBook,
   type WibDate,
@@ -103,6 +103,28 @@ interface AjaibBook {
   version: number
 }
 
+// One code's whole Ajaib book, encoded, as the day store keeps it.
+export interface StoredAjaibBook {
+  readonly code: StockCode
+  readonly book: string
+}
+
+// Decision: an Ajaib book is stored whole, every level and its as-of, one
+// row per code, replaced by each flush that saw it change: Ajaib sends a
+// whole book only on subscribing, then per-level deltas, and a restarted
+// object keeps its hibernated ingest socket, so no new whole book comes.
+// The served book's 20 levels can't carry the deltas on. One row per code
+// Ajaib sent a book of: the on-demand codes.
+const AjaibBookRecord = Schema.fromJsonString(
+  Schema.Struct({
+    bids: Schema.Array(BookLevel),
+    offers: Schema.Array(BookLevel),
+    at: Schema.Finite,
+  })
+)
+const encodeAjaibBook = Schema.encodeEffect(AjaibBookRecord)
+const decodeAjaibBook = Schema.decodeUnknownEffect(AjaibBookRecord)
+
 // The later of its sides' times is the book's.
 interface StockbitBook {
   bid: SideBook | undefined
@@ -141,8 +163,10 @@ export const makeOrderBooks = (date: WibDate) =>
     const ajaib = new Map<StockCode, AjaibBook>()
     const previous = new Map<StockCode, number>()
     const indices = new Set<StockCode>()
-    // Codes whose books took a frame since the last delta.
+    // Codes whose books took a frame since the last delta, and whose Ajaib
+    // book did since the last flush.
     let changed = new Set<StockCode>()
+    let ajaibUnflushed = new Set<StockCode>()
     // What each code's served book was when viewers were last sent it.
     const sent = new Map<StockCode, string>()
     let servedLive: boolean | undefined
@@ -262,6 +286,7 @@ export const makeOrderBooks = (date: WibDate) =>
       book.version = ++version
       ajaib.set(code, book)
       changed.add(code)
+      ajaibUnflushed.add(code)
     })
 
     const ajaibFrames = (frames: ReadonlyArray<string>) =>
@@ -310,36 +335,70 @@ export const makeOrderBooks = (date: WibDate) =>
         return books
       })
 
-    // A restarted object's last served book of a code, as its source's book:
-    // the next frames build on it. An Ajaib book keeps only the levels served.
+    // A restarted object's last served book of a code: its previous close,
+    // and, from Stockbit, the sides the next frames replace whole. An Ajaib
+    // book comes back whole through `restoreAjaib`, not from its 20 served
+    // levels.
     const restore = (book: OrderBook) =>
       Effect.sync(() => {
         if (book.previousClose !== undefined)
           previous.set(book.code, book.previousClose)
-        if (book.provenance === "Stockbit") {
-          stockbit.set(book.code, {
-            bid: { levels: book.bids, lots: book.bidLots, at: book.at },
-            offer: { levels: book.offers, lots: book.offerLots, at: book.at },
-            at: book.at,
-            version: ++version,
-          })
-          return
-        }
-        ajaib.set(book.code, {
-          bids: new Map(book.bids.map((level) => [level.price, level])),
-          offers: new Map(book.offers.map((level) => [level.price, level])),
+        if (book.provenance !== "Stockbit") return
+        stockbit.set(book.code, {
+          bid: { levels: book.bids, lots: book.bidLots, at: book.at },
+          offer: { levels: book.offers, lots: book.offerLots, at: book.at },
           at: book.at,
           version: ++version,
         })
       })
 
+    // A restarted object's Ajaib books, whole, as the store kept them.
+    const restoreAjaib = Effect.fnUntraced(function* (
+      stored: ReadonlyArray<StoredAjaibBook>
+    ) {
+      for (const { code, book } of stored) {
+        const { bids, offers, at } = yield* decodeAjaibBook(book)
+        ajaib.set(code, {
+          bids: new Map(bids.map((level) => [level.price, level])),
+          offers: new Map(offers.map((level) => [level.price, level])),
+          at: DateTime.makeUnsafe(at),
+          version: ++version,
+        })
+      }
+    })
+
+    // What a flush writes: the whole Ajaib book of every code whose changed.
+    const takeAjaibBooks = Effect.fnUntraced(function* () {
+      const codes = ajaibUnflushed
+      ajaibUnflushed = new Set()
+      const books: Array<StoredAjaibBook> = []
+      for (const code of codes) {
+        const book = ajaib.get(code)
+        if (book === undefined) continue
+        books.push({
+          code,
+          book: yield* encodeAjaibBook({
+            bids: [...book.bids.values()],
+            offers: [...book.offers.values()],
+            at: DateTime.toEpochMillis(book.at),
+          }),
+        })
+      }
+      return books
+    })
+
+    const hasUnflushedAjaib = Effect.sync(() => ajaibUnflushed.size > 0)
+
     return {
       restore,
+      restoreAjaib,
       stockbitFrames,
       ajaibFrames,
       livePrice,
       bookOf,
       hasChanges,
       takeChanged,
+      takeAjaibBooks,
+      hasUnflushedAjaib,
     }
   })

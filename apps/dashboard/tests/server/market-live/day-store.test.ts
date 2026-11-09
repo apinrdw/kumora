@@ -70,6 +70,7 @@ describe("the recorded tape's query plan", () => {
         candles: [],
         livePrices: [],
         chunks: [],
+        ajaibBooks: [],
         facts: {},
       })
       statements.length = 0
@@ -104,6 +105,7 @@ describe("the recorded tape with mixed feed precision", () => {
         candles: [],
         livePrices: [],
         chunks: [],
+        ajaibBooks: [],
         facts: {},
       })
       assert.deepStrictEqual(
@@ -133,6 +135,7 @@ describe("the recorded tape with mixed feed precision", () => {
         candles: [],
         livePrices: [],
         chunks: [],
+        ajaibBooks: [],
         facts: {},
       })
       assert.deepStrictEqual(

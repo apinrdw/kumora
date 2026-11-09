@@ -42,7 +42,13 @@ const flush = Effect.fnUntraced(function* (
 ) {
   yield* TestClock.setTime(DateTime.toEpochMillis(minute) + 65_000)
   const settled = yield* book.takeSettled(false)
-  yield* store.write({ ...settled, livePrices: [], chunks: [], facts: {} })
+  yield* store.write({
+    ...settled,
+    livePrices: [],
+    chunks: [],
+    ajaibBooks: [],
+    facts: {},
+  })
   yield* book.written
 })
 
@@ -111,6 +117,7 @@ describe("the candle book over a full day", () => {
           ...settled,
           livePrices: [],
           chunks: [],
+          ajaibBooks: [],
           facts: {},
         })
         yield* book.written

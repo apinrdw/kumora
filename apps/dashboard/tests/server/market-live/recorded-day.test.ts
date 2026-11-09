@@ -329,6 +329,7 @@ describe("a restarted trading day", () => {
           trades: [],
           livePrices: [],
           chunks: [],
+          ajaibBooks: [],
           facts: {},
           candles: codes.flatMap((code) =>
             Array.from({ length: FULL_DAY_MINUTES }, (_, index) => ({

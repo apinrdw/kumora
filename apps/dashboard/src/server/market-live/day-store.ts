@@ -15,6 +15,7 @@ import {
 import { DateTime, Effect } from "effect"
 
 import type { StoredCandle } from "./candles.ts"
+import type { StoredAjaibBook } from "./order-books.ts"
 import type { LivePrice } from "./stockbit-liveprice.ts"
 
 export type SqlValue = string | number | null | Uint8Array
@@ -42,6 +43,7 @@ interface Flush {
   readonly candles: ReadonlyArray<StoredCandle>
   readonly livePrices: ReadonlyArray<LivePrice>
   readonly chunks: ReadonlyArray<StoredChunk>
+  readonly ajaibBooks: ReadonlyArray<StoredAjaibBook>
   readonly facts: Readonly<Record<string, string>>
 }
 
@@ -49,8 +51,8 @@ interface Flush {
 // KEY, the table's rowid, with no secondary index, so each insert writes one
 // row (spec apinrdw/kumora#138, "Storage and cost"). A day's numbers are far
 // below 2^53, so they travel as plain numbers. Candles, last `liveprice`
-// frames and book chunks are keyed tables WITHOUT ROWID, replaced at most
-// once a minute.
+// frames, book chunks and whole Ajaib books are keyed tables WITHOUT ROWID,
+// replaced at most once a minute.
 const SCHEMA = [
   `CREATE TABLE IF NOT EXISTS trades (
     number INTEGER PRIMARY KEY,
@@ -86,6 +88,10 @@ const SCHEMA = [
     minute INTEGER NOT NULL,
     chunk BLOB NOT NULL,
     PRIMARY KEY (code, minute)
+  ) WITHOUT ROWID`,
+  `CREATE TABLE IF NOT EXISTS ajaib_books (
+    code TEXT PRIMARY KEY,
+    book TEXT NOT NULL
   ) WITHOUT ROWID`,
   `CREATE TABLE IF NOT EXISTS facts (
     key TEXT PRIMARY KEY,
@@ -213,6 +219,12 @@ export const makeDayStore = (sql: Sql) =>
               code,
               minute,
               new Uint8Array(gzipSync(chunk))
+            )
+          for (const { code, book } of flush.ajaibBooks)
+            sql.exec(
+              "INSERT OR REPLACE INTO ajaib_books VALUES (?, ?)",
+              code,
+              book
             )
           for (const [key, value] of Object.entries(flush.facts))
             sql.exec("INSERT OR REPLACE INTO facts VALUES (?, ?)", key, value)
@@ -404,6 +416,17 @@ export const makeDayStore = (sql: Sql) =>
         .map((row) => chunkOf(row.chunk))
     )
 
+    // Every code's whole Ajaib book: what a restarted object's deltas build
+    // on.
+    const ajaibBooks = Effect.sync(() =>
+      sql
+        .exec("SELECT code, book FROM ajaib_books")
+        .map((row): StoredAjaibBook => ({
+          code: StockCode.make(textOf(row.code)),
+          book: textOf(row.book),
+        }))
+    )
+
     const fact = (key: string) =>
       Effect.sync(() => {
         const [row] = sql.exec("SELECT value FROM facts WHERE key = ?", key)
@@ -425,6 +448,7 @@ export const makeDayStore = (sql: Sql) =>
       livePrice,
       chunkAt,
       latestChunks,
+      ajaibBooks,
       fact,
     }
   })
