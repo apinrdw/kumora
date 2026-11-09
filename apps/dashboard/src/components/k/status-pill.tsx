@@ -37,6 +37,11 @@ export const FRESHNESS = {
     def: "Synthetic demo data, not market data.",
     className: "border-dashed border-neutral text-neutral",
   },
+  recorded: {
+    label: "RECORDED",
+    def: "A recorded trading day, not live.",
+    className: "text-info",
+  },
 } as const satisfies Record<
   Freshness,
   { label: string; def: string; className: string }

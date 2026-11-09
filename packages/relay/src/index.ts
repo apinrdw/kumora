@@ -73,6 +73,7 @@ export {
 export type {
   BookChunk,
   BookDelta,
+  RecordedCandles,
   RecordedDay,
   RecordedResource,
 } from "./recorded-day.ts"

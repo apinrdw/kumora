@@ -142,6 +142,7 @@ const RecordedCandles = Schema.Struct({
   previousClose: Schema.optionalKey(Schema.Finite),
   candles: Schema.Array(Candle),
 })
+export type RecordedCandles = typeof RecordedCandles.Type
 
 export const encodeRecordedCandles = Schema.encodeEffect(
   Schema.fromJsonString(RecordedCandles)

@@ -1,15 +1,21 @@
-import { createFileRoute } from "@tanstack/react-router"
+import { createFileRoute, useRouter } from "@tanstack/react-router"
 import type { StockCode } from "@workspace/client"
-import type { ViewerDown } from "@workspace/relay"
-import { useCallback, useMemo, useState } from "react"
+import type { ViewerDown, WibDate } from "@workspace/relay"
+import { useCallback, useEffect, useMemo, useState } from "react"
 
 import { makeCandleStore } from "@/components/market-live/candle-store"
 import { makeDayStateStore } from "@/components/market-live/day-state-store"
+import { DayStrip } from "@/components/market-live/day-strip"
 import { LiveChart } from "@/components/market-live/live-chart"
 import { LiveTape } from "@/components/market-live/live-tape"
 import { MarketStatusBar } from "@/components/market-live/market-status"
 import { OrderBookPanel } from "@/components/market-live/order-book-panel"
 import { makeOrderBookStore } from "@/components/market-live/order-book-store"
+import {
+  RecordedStatusBar,
+  RecordedTape,
+  useRecordedDay,
+} from "@/components/market-live/recorded-day"
 import { StockCodePalette } from "@/components/market-live/stock-code-palette"
 import { StockCodePicker } from "@/components/market-live/stock-code-picker"
 import { useStockCodeList } from "@/components/market-live/use-stock-code-list"
@@ -20,6 +26,8 @@ import {
   parseMarketLiveSearch,
   type MarketLiveSearch,
 } from "@/lib/market-live-search"
+import type { ClosedMarket } from "@/server/market-live/closed-market"
+import { closedMarketFn } from "@/server/market-live/closed-market.functions"
 
 export const Route = createFileRoute("/_app/market-live")({
   staticData: {
@@ -27,19 +35,61 @@ export const Route = createFileRoute("/_app/market-live")({
     crumbs: () => [{ label: "Market Live" }],
   },
   validateSearch: parseMarketLiveSearch,
+  loader: () => closedMarketFn(),
+  // Looked at again when it may change (below), not on each code picked.
+  staleTime: 60_000,
   head: () => ({ meta: [{ title: "Market Live · KUMORA Terminal" }] }),
   component: MarketLivePage,
 })
 
 function MarketLivePage() {
+  const { day } = Route.useSearch()
+  const { closed, changesIn } = Route.useLoaderData()
+  const router = useRouter()
+  // Asked again when the answer may change: 08:40, the 17:00 seal, midnight.
+  useEffect(() => {
+    const timer = setTimeout(() => void router.invalidate(), changesIn + 1000)
+    return () => clearTimeout(timer)
+  }, [router, changesIn])
+  // The URL's recorded day; else, while the market is shut, the latest
+  // trading day at its close; else the live page.
+  const shown = day ?? closed?.day
+  return (
+    <div className="flex flex-col gap-4">
+      <DayStrip shown={day} />
+      {/* Fresh stores and sockets for each day shown. */}
+      <MarketLiveDay
+        key={shown ?? "live"}
+        day={shown}
+        closed={day === undefined ? closed : undefined}
+      />
+    </div>
+  )
+}
+
+function MarketLiveDay({
+  day,
+  closed,
+}: {
+  day: WibDate | undefined
+  closed: ClosedMarket["closed"]
+}) {
   const { code: selected = DEFAULT_CODE } = Route.useSearch()
   const navigate = Route.useNavigate()
-  const codes = useStockCodeList()
+  const codes = useStockCodeList(day)
   // One store per selected code; the Select for it brings a fresh snapshot.
   const candles = useMemo(() => makeCandleStore(selected), [selected])
   const book = useMemo(() => makeOrderBookStore(selected), [selected])
   const [dayStates] = useState(makeDayStateStore)
   const watchlist = useWatchlist()
+  useRecordedDay({
+    day,
+    selected,
+    watchlist: watchlist.codes,
+    candles,
+    book,
+    dayStates,
+  })
   const apply = useCallback(
     (message: ViewerDown) => {
       candles.apply(message)
@@ -56,10 +106,14 @@ function MarketLivePage() {
     [navigate]
   )
   return (
-    <div className="flex flex-col gap-4">
+    <>
       <header className="flex flex-wrap items-center gap-x-4 gap-y-2">
         <h1 className="text-2xl font-bold">Market Live</h1>
-        <MarketStatusBar />
+        {day === undefined ? (
+          <MarketStatusBar />
+        ) : (
+          <RecordedStatusBar day={day} closed={closed} />
+        )}
       </header>
       <div className="grid gap-4 lg:grid-cols-[minmax(0,1fr)_400px]">
         <LiveChart
@@ -83,16 +137,20 @@ function MarketLivePage() {
             onRemove={watchlist.remove}
             onSelect={select}
           />
-          <OrderBookPanel store={book} />
-          <LiveTape
-            selected={selected}
-            watchlist={watchlist.codes}
-            onSelect={select}
-            onMessage={apply}
-          />
+          <OrderBookPanel store={book} recorded={day !== undefined} />
+          {day === undefined ? (
+            <LiveTape
+              selected={selected}
+              watchlist={watchlist.codes}
+              onSelect={select}
+              onMessage={apply}
+            />
+          ) : (
+            <RecordedTape day={day} selected={selected} onSelect={select} />
+          )}
         </div>
       </div>
       <StockCodePalette list={codes} onPick={select} />
-    </div>
+    </>
   )
 }

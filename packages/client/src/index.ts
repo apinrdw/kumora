@@ -14,3 +14,10 @@ export {
   viewerMessages,
 } from "./market-live-socket.ts"
 export { fetchStockCodeList, searchStockCodes } from "./stock-code-list.ts"
+export {
+  fetchDayStrip,
+  fetchRecordedBook,
+  fetchRecordedCandles,
+  fetchRecordedGaps,
+  fetchRecordedTape,
+} from "./recorded-day.ts"

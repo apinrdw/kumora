@@ -7,7 +7,7 @@ import {
   type ViewerUp,
 } from "@workspace/relay"
 import { Effect, Fiber, Stream, SubscriptionRef } from "effect"
-import { useEffect, useRef, useState } from "react"
+import { useEffect, useRef, useState, type ReactNode } from "react"
 
 import { KButton } from "@/components/k/button"
 import { KStatusPill } from "@/components/k/status-pill"
@@ -16,7 +16,6 @@ import {
   TapeList,
   useFramedTape,
 } from "@/components/market-live/tape-list"
-import { withRedirect } from "@/lib/redirect"
 
 import {
   applyStatus,
@@ -25,6 +24,7 @@ import {
   useMergedStale,
   useRelayGaps,
 } from "./market-status"
+import { signInAgain } from "./sign-in-again"
 
 // What the socket tells the object the page shows. The tape streams the whole
 // market whatever is selected.
@@ -117,14 +117,7 @@ export function LiveTape({
         }).pipe(Effect.andThen(applyStatus(message, sent.current.selected)))
       ).pipe(
         Effect.catchTags({
-          // A full load: the sign-in page reads its own session state.
-          SignInRequired: () =>
-            Effect.sync(() => {
-              const { pathname, search } = window.location
-              window.location.assign(
-                withRedirect("/sign-in", `${pathname}${search}`)
-              )
-            }),
+          SignInRequired: () => signInAgain,
           NewVersion: () => Effect.sync(() => setStatus("new-version")),
         })
       )
@@ -136,6 +129,38 @@ export function LiveTape({
     }
   }, [apply, select])
 
+  return (
+    <TapeSection stale={stale}>
+      {status === "new-version" && (
+        <div role="alert" className="flex items-center gap-3 text-[13px]">
+          <span>A new version of Market Live is out. Reload to continue.</span>
+          <KButton size="sm" onClick={() => window.location.reload()}>
+            Reload
+          </KButton>
+        </div>
+      )}
+      <TapeList
+        tape={tape}
+        frame={frame}
+        selected={selected}
+        onSelect={onSelect}
+        gaps={gaps}
+        className={`${TAPE_HEIGHT} ${stale ? "opacity-50" : ""}`}
+      />
+    </TapeSection>
+  )
+}
+
+export const TAPE_HEIGHT = "h-[min(70vh,640px)]"
+
+// The tape's panel: its heading, the sources legend, then `children`.
+export function TapeSection({
+  stale = false,
+  children,
+}: {
+  stale?: boolean
+  children: ReactNode
+}) {
   return (
     <section
       aria-label="Running trades"
@@ -159,22 +184,7 @@ export function LiveTape({
           ))}
         </ul>
       </header>
-      {status === "new-version" && (
-        <div role="alert" className="flex items-center gap-3 text-[13px]">
-          <span>A new version of Market Live is out. Reload to continue.</span>
-          <KButton size="sm" onClick={() => window.location.reload()}>
-            Reload
-          </KButton>
-        </div>
-      )}
-      <TapeList
-        tape={tape}
-        frame={frame}
-        selected={selected}
-        onSelect={onSelect}
-        gaps={gaps}
-        className={`h-[min(70vh,640px)] ${stale ? "opacity-50" : ""}`}
-      />
+      {children}
     </section>
   )
 }

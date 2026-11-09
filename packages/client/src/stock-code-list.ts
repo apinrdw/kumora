@@ -5,19 +5,16 @@ import {
   type WibDate,
 } from "@workspace/relay"
 import { Effect, Option } from "effect"
-import * as HttpClient from "effect/http/HttpClient"
 
-import { SignInRequired } from "./market-live-socket.ts"
+import { getRecorded } from "./recorded-day.ts"
 
 // The trading day's stock code list from the dashboard Worker. None when the
 // relay hasn't sent that day's list yet (404) or the Worker can't answer; a
 // 401 fails SignInRequired.
 export const fetchStockCodeList = Effect.fnUntraced(function* (date: WibDate) {
-  const client = yield* HttpClient.HttpClient
-  const response = yield* client.get(yield* stockCodeListPath(date))
-  if (response.status === 401) return yield* new SignInRequired()
-  if (response.status !== 200) return Option.none<ReadonlyArray<ListedCode>>()
-  const { codes } = yield* decodeStockCodeList(yield* response.text)
+  const body = yield* getRecorded(yield* stockCodeListPath(date))
+  if (Option.isNone(body)) return Option.none<ReadonlyArray<ListedCode>>()
+  const { codes } = yield* decodeStockCodeList(body.value)
   return Option.some(codes)
 })
 

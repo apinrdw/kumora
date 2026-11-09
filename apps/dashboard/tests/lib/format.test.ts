@@ -8,6 +8,7 @@ import {
   compact,
   compactIdr,
   dateTime,
+  dayLabel,
   direction,
   idr,
   pct,
@@ -94,6 +95,11 @@ describe("WIB timestamps", () => {
   test("asOf renders 24-hour Jakarta time", () => {
     expect(asOf("2026-10-24T07:45:00Z")).toBe("14:45 WIB")
     expect(asOf("2026-10-24T17:05:00Z")).toBe("00:05 WIB")
+  })
+
+  test("dayLabel names a WIB date's weekday, month and day", () => {
+    expect(dayLabel("2026-11-06")).toBe("Fri, Nov 6")
+    expect(dayLabel("2027-01-04")).toBe("Mon, Jan 4")
   })
 
   test("dateTime includes the short month and day", () => {

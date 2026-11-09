@@ -33,6 +33,14 @@ const dateTimeWib = new Intl.DateTimeFormat("en-US", {
   hourCycle: "h23",
 })
 
+// A WIB date names its own calendar day: read it at UTC midnight.
+const dayOfDate = new Intl.DateTimeFormat("en-US", {
+  weekday: "short",
+  month: "short",
+  day: "numeric",
+  timeZone: "UTC",
+})
+
 export type Direction = "up" | "down" | "flat"
 
 export function direction(n: number): Direction {
@@ -96,6 +104,11 @@ export function tapeTime(epochMillis: number): string {
 /** Oct 24, 14:45 WIB */
 export function dateTime(iso: string): string {
   return dateTimeWib.format(new Date(iso)) + " WIB"
+}
+
+/** A `YYYY-MM-DD` trading day: Fri, Nov 6 */
+export function dayLabel(date: string): string {
+  return dayOfDate.format(new Date(`${date}T00:00:00Z`))
 }
 
 /** Orca's tape style, whole billions: +Rp318 B */

@@ -132,6 +132,27 @@ export function useAuctionIndicative(): number | undefined {
     : undefined
 }
 
+// The market phase, with the next open while the market is shut.
+export function PhaseLabel({
+  phase,
+  nextOpen,
+}: {
+  phase: MarketPhase
+  nextOpen?: DateTime.Utc | undefined
+}) {
+  return (
+    <span aria-label="Market phase" className="font-medium">
+      {PHASE[phase]}
+      {nextOpen !== undefined && (
+        <span className="font-normal text-muted-foreground">
+          {" · opens "}
+          {dateTime(DateTime.formatIso(nextOpen))}
+        </span>
+      )}
+    </span>
+  )
+}
+
 const FEEDS = ["Stockbit", "Ajaib"] as const
 
 // The chart header's status: a freshness pill per feed, the market phase
@@ -164,15 +185,7 @@ export function MarketStatusBar() {
           ))}
         </ul>
       )}
-      <span aria-label="Market phase" className="font-medium">
-        {PHASE[phase]}
-        {nextOpen !== undefined && (
-          <span className="font-normal text-muted-foreground">
-            {" · opens "}
-            {dateTime(DateTime.formatIso(nextOpen))}
-          </span>
-        )}
-      </span>
+      <PhaseLabel phase={phase} nextOpen={nextOpen} />
       {AUCTIONS.has(phase) && indicative !== undefined && (
         <span aria-label="Indicative price" className="num">
           IEP {plain(indicative.price)} · {shares(indicative.volume)}

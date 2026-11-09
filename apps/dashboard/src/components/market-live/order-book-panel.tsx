@@ -1,8 +1,9 @@
 import type { BookLevel, OrderBook } from "@workspace/relay"
 import { cn } from "@workspace/ui/lib/utils"
+import { DateTime } from "effect"
 import { useSyncExternalStore } from "react"
 
-import { compact, plain } from "@/lib/format"
+import { compact, plain, tapeTime } from "@/lib/format"
 
 import { StaleSince, useMergedStale } from "./market-status"
 import type { OrderBookStore } from "./order-book-store"
@@ -170,8 +171,15 @@ function Ladder({ book }: { book: OrderBook }) {
 }
 
 // The selected code's order book as an IDX ladder, live from the viewer
-// socket through `store`, with its depth curve and totals underneath.
-export function OrderBookPanel({ store }: { store: OrderBookStore }) {
+// socket through `store`, with its depth curve and totals underneath. On a
+// recorded day, `recorded`: the stored frame in force, headed by its time.
+export function OrderBookPanel({
+  store,
+  recorded = false,
+}: {
+  store: OrderBookStore
+  recorded?: boolean
+}) {
   const book = useSyncExternalStore(
     store.subscribe,
     store.book,
@@ -192,7 +200,12 @@ export function OrderBookPanel({ store }: { store: OrderBookStore }) {
         <h2 className="text-sm font-semibold">Order book</h2>
         <span className="text-sm font-bold">{store.code}</span>
         {stale && book?._tag === "OrderBook" && <StaleSince at={book.at} />}
-        {book?._tag === "OrderBook" && (
+        {recorded && book?._tag === "OrderBook" && (
+          <span className="ml-auto text-[11px] text-muted-foreground">
+            Recorded frame · {tapeTime(DateTime.toEpochMillis(book.at))}
+          </span>
+        )}
+        {!recorded && book?._tag === "OrderBook" && (
           <span className="ml-auto flex items-center gap-1 text-[11px] text-muted-foreground">
             <i
               className={cn(
