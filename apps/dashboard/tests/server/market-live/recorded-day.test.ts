@@ -131,6 +131,24 @@ const livePriceFrame = (price: {
     ])
   )
 
+// A `liveprice` frame carrying only the day's totals: no last price, previous
+// close or range.
+const totalsFrame = (price: {
+  readonly code: string
+  readonly volume: number
+  readonly time: string
+}) =>
+  Uint8Array.from(
+    messageField(9, [
+      ...stringField(1, price.code),
+      ...doubleField(3, price.volume),
+      ...doubleField(7, 100),
+      ...stringField(11, `2026-11-09T${price.time}+07:00`),
+      ...doubleField(14, 5e9),
+      ...varintField(23, 1),
+    ])
+  )
+
 const tradingDay = Effect.fnUntraced(function* (
   sql: Sql,
   recordDay?: (day: RecordedDay) => Effect.Effect<void, unknown>
@@ -423,6 +441,42 @@ describe("a restarted trading day", () => {
         assert.deepStrictEqual(bookOf(snapshot), bookOf(before))
         assert.deepStrictEqual(snapshot?.dayStates, before?.dayStates)
         assert.strictEqual(snapshot?.dayStates?.[0]?.last, 8_000)
+      })
+  )
+
+  it.effect(
+    "keeps a code's last price and previous close past a totals-only liveprice frame",
+    () =>
+      Effect.gen(function* () {
+        yield* TestClock.setTime(wib("09:00:00").epochMilliseconds)
+        const sql = memorySql()
+        const day = yield* tradingDay(sql)
+        yield* day.stockbit([
+          livePriceFrame({
+            code: "BBCA",
+            last: 9_000,
+            previous: 8_900,
+            time: "09:00:00",
+          }),
+        ])
+        yield* day.stockbit([
+          totalsFrame({ code: "BBCA", volume: 2_000_000, time: "09:00:30" }),
+        ])
+        yield* pastFlush
+        yield* day.stop
+        const restarted = yield* tradingDay(sql)
+        const [snapshot] = yield* yield* restarted.viewer("BBCA")
+        const state = snapshot?.dayStates?.find(
+          (dayState) => dayState.code === "BBCA"
+        )
+        assert.deepStrictEqual(
+          {
+            last: state?.last,
+            previousClose: state?.previousClose,
+            volume: state?.volume,
+          },
+          { last: 9_000, previousClose: 8_900, volume: 20_000 }
+        )
       })
   )
 })
