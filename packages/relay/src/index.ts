@@ -2,9 +2,11 @@ export {
   MarketPhase,
   ScheduleYearMissing,
   WibDate,
+  closedMarketDay,
   expectedStretches,
   isTradingDay,
   marketMomentAt,
+  nextOpenAfter,
   wibDateAt,
   sealInstant,
 } from "./schedule.ts"

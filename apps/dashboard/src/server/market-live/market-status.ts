@@ -3,39 +3,19 @@
 // (spec apinrdw/kumora#138, "Feed freshness" and "Indicative price"). Time is
 // read only through Effect's Clock.
 import {
-  WibDate,
   expectedStretches,
-  isTradingDay,
   marketMomentAt,
+  nextOpenAfter,
   type IndicativePrice,
   type IngestUp,
   type MarketStatus,
   type StockCode,
+  type WibDate,
 } from "@workspace/relay"
 import { DateTime, Effect } from "effect"
 
 import { makeFeedHealth, type DownRecord } from "./feed-health.ts"
 import { ajaibIndicative, stockbitIndicative } from "./indicative.ts"
-
-// The market opens with pre-opening, 08:45 WIB.
-const OPENS_AT = "08:45:00"
-
-// The next trading day's opening after `now`, looking up to a month ahead.
-// Undefined past the baked schedule.
-const nextOpenAfter = Effect.fnUntraced(
-  function* (now: DateTime.Utc) {
-    for (let days = 0; days <= 31; days++) {
-      const date = WibDate.make(
-        DateTime.formatIsoDate(DateTime.add(now, { hours: 7, days }))
-      )
-      const open = DateTime.makeUnsafe(`${date}T${OPENS_AT}+07:00`)
-      if (DateTime.Order(open, now) <= 0) continue
-      if (yield* isTradingDay(date)) return open
-    }
-    return undefined
-  },
-  Effect.catchTag("ScheduleYearMissing", () => Effect.succeed(undefined))
-)
 
 // The phase at `now`, and when the market next opens while it is shut. A year
 // past the baked schedule reads closed.

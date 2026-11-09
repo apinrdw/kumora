@@ -3,9 +3,11 @@ import { DateTime, Effect } from "effect"
 
 import {
   WibDate,
+  closedMarketDay,
   expectedStretches,
   isTradingDay,
   marketMomentAt,
+  nextOpenAfter,
   sealInstant,
   wibDateAt,
 } from "@workspace/relay"
@@ -222,6 +224,59 @@ describe("stretches that expect trades", () => {
     Effect.gen(function* () {
       assert.deepStrictEqual(yield* stretchesOf("2026-11-14"), [])
       assert.deepStrictEqual(yield* stretchesOf("2026-08-17"), [])
+    })
+  )
+})
+
+describe("the day a shut market opens at its close", () => {
+  const shownAt = (dateTime: string) =>
+    closedMarketDay(wib(dateTime)).pipe(
+      Effect.map((day) => (day._tag === "Some" ? day.value : undefined))
+    )
+
+  it.effect("a weekend or holiday shows the latest trading day before it", () =>
+    Effect.gen(function* () {
+      // Saturday and Sunday after Friday 2026-11-13.
+      assert.strictEqual(yield* shownAt("2026-11-14T10:00:00"), "2026-11-13")
+      assert.strictEqual(yield* shownAt("2026-11-15T23:59:59"), "2026-11-13")
+      // Independence Day, a Monday: the Friday before.
+      assert.strictEqual(yield* shownAt("2026-08-17T10:00:00"), "2026-08-14")
+    })
+  )
+
+  it.effect("a trading day before 08:40 shows the trading day before it", () =>
+    Effect.gen(function* () {
+      // Monday morning: last Friday.
+      assert.strictEqual(yield* shownAt("2026-11-09T08:39:59"), "2026-11-06")
+      assert.strictEqual(yield* shownAt("2026-11-10T00:00:00"), "2026-11-09")
+    })
+  )
+
+  it.effect("a trading day is live from 08:40 until its 17:00 seal", () =>
+    Effect.gen(function* () {
+      assert.isUndefined(yield* shownAt("2026-11-09T08:40:00"))
+      assert.isUndefined(yield* shownAt("2026-11-09T16:59:59"))
+      // Sealed: the day itself, now a recorded day.
+      assert.strictEqual(yield* shownAt("2026-11-09T17:00:00"), "2026-11-09")
+    })
+  )
+
+  it.effect("the next open is 08:45 of the next trading day", () =>
+    Effect.gen(function* () {
+      const open = (dateTime: string) =>
+        nextOpenAfter(wib(dateTime)).pipe(
+          Effect.map((at) => at && DateTime.formatIso(at))
+        )
+      assert.strictEqual(
+        yield* open("2026-11-14T10:00:00"),
+        "2026-11-16T01:45:00.000Z"
+      )
+      assert.strictEqual(
+        yield* open("2026-11-09T08:00:00"),
+        "2026-11-09T01:45:00.000Z"
+      )
+      // Past the baked schedule.
+      assert.isUndefined(yield* open("2027-12-31T10:00:00"))
     })
   )
 })

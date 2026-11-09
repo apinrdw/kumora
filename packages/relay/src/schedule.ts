@@ -1,4 +1,4 @@
-import { DateTime, Effect, Schema } from "effect"
+import { DateTime, Effect, Option, Schema } from "effect"
 
 // A calendar date in WIB (UTC+7, no DST), `YYYY-MM-DD`. A trading day is one
 // of these.
@@ -190,6 +190,52 @@ export const marketMomentAt = Effect.fnUntraced(function* (
 // The instant a trading day is sealed into a recorded day: 17:00 WIB.
 export const sealInstant = Effect.fnUntraced(function* (date: WibDate) {
   return DateTime.makeUnsafe(`${date}T17:00:00+07:00`)
+})
+
+// The market opens with pre-opening, 08:45 WIB.
+const OPENS_AT = "08:45:00"
+
+// The next trading day's opening after `instant`, looking up to a month
+// ahead. Undefined past the baked schedule.
+export const nextOpenAfter = Effect.fnUntraced(
+  function* (instant: DateTime.Utc) {
+    for (let days = 0; days <= 31; days++) {
+      const date = WibDate.make(
+        DateTime.formatIsoDate(DateTime.add(instant, { hours: 7, days }))
+      )
+      const open = DateTime.makeUnsafe(`${date}T${OPENS_AT}+07:00`)
+      if (DateTime.Order(open, instant) <= 0) continue
+      if (yield* isTradingDay(date)) return open
+    }
+    return undefined
+  },
+  Effect.catchTag("ScheduleYearMissing", () => Effect.succeed(undefined))
+)
+
+// The trading day Market Live opens at its close while the market is shut
+// (spec apinrdw/kumora#138, "Closed market and recorded days"): on a weekend
+// or holiday, and before the relay streams (08:40) on a trading day, the
+// latest trading day before; from a trading day's 17:00 seal, that day. None
+// from 08:40 until the seal: the live page shows the day, its close included.
+export const closedMarketDay = Effect.fnUntraced(function* (
+  instant: DateTime.Utc
+) {
+  const date = yield* wibDateAt(instant)
+  const at = DateTime.formatIso(DateTime.add(instant, { hours: 7 })).slice(
+    11,
+    19
+  )
+  if ((yield* isTradingDay(date)) && at >= streaming.first)
+    return DateTime.isLessThan(instant, yield* sealInstant(date))
+      ? Option.none<WibDate>()
+      : Option.some(date)
+  for (let days = 1; days <= 31; days++) {
+    const before = WibDate.make(
+      DateTime.formatIsoDate(DateTime.add(instant, { hours: 7, days: -days }))
+    )
+    if (yield* isTradingDay(before)) return Option.some(before)
+  }
+  return Option.none<WibDate>()
 })
 
 // One stretch of a trading day as instants, from its first second to just
