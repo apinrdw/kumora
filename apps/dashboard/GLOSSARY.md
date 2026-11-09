@@ -42,6 +42,10 @@ _Avoid_: Market type
 The price, and the volume with it, that an auction would match at if it closed now. Published only during pre-opening and pre-closing.
 _Avoid_: IEP, projected price
 
+**Auction match**:
+The running trades a pre-opening or pre-closing auction produces when it closes: every stock code at its one matched price, all stamped with the same second. They carry no buy or sell side.
+_Avoid_: Crossing, uncross, opening print
+
 **Day state**:
 A stock code's or index's figures for the trading day so far: last price, previous close, change, open, high, low, volume, value and frequency.
 _Avoid_: Quote, summary
@@ -78,6 +82,10 @@ _Avoid_: Market status, session (for the whole day)
 **Recorded day**:
 A past trading day the terminal kept, fixed after the day closes, that a viewer can replay.
 _Avoid_: History, archive day
+
+**Relay gap**:
+A stretch of a market phase that expects trades during which no feed was live, so the terminal holds no trades for it. Shown as not recorded, both live and on a recorded day. One feed dropping while the other stays live is not a relay gap.
+_Avoid_: Outage, missing data
 
 **Replay cursor**:
 The moment of a recorded day the page shows: the chart, watchlist, order book and tape all read as of it.
