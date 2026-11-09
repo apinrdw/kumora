@@ -78,6 +78,20 @@ const ajaibTrade = (trade: {
     tradeNum: `20261109${String(trade.seq).padStart(10, "0")}`,
   })
 
+// Ajaib's `ORDER_BOOK_CUSTOM` frame of BBCA's whole book, as of `time`.
+const ajaibBookFrame = (
+  time: string,
+  buy: ReadonlyArray<readonly [price: number, lot: number, num: number]>,
+  sell: ReadonlyArray<readonly [price: number, lot: number, num: number]>
+) =>
+  JSON.stringify({
+    ticker: "BBCA",
+    is_initial: "true",
+    buy: buy.map(([price, lot, num]) => ({ price, lot, num })),
+    sell: sell.map(([price, lot, num]) => ({ price, lot, num })),
+    updateTime: wib(time).epochMilliseconds,
+  })
+
 // Stockbit's `order_book` frame (wrapper case 10): one full side.
 const orderBookFrame = (
   side: "BID" | "OFFER",
@@ -729,6 +743,46 @@ describe("the recorded order book", () => {
         offers: [10],
       })
     })
+  )
+
+  it.effect(
+    "replays a switch to Ajaib's older book when it was served, not at its as-of",
+    () =>
+      Effect.gen(function* () {
+        yield* TestClock.setTime(wib("14:20:10").epochMilliseconds)
+        const day = yield* tradingDay(memorySql())
+        yield* day.ajaib([
+          ajaibBookFrame("14:20:05", [[8_000, 50, 3]], [[8_025, 40, 2]]),
+        ])
+        yield* day.stockbit([
+          orderBookFrame("BID", [[8_000, 5, 90]], "14:20:10"),
+          orderBookFrame("OFFER", [[8_025, 1, 10]], "14:20:10"),
+        ])
+        yield* day.viewer()
+        // 15 s without a Stockbit frame: stale, so Ajaib's book is served.
+        yield* TestClock.adjust("16 seconds")
+        yield* TestClock.adjust("2 minutes")
+        const response = yield* day.get({
+          _tag: "Book",
+          code: StockCode.make("BBCA"),
+          minute: wib("14:20:00"),
+        })
+        const chunk = yield* decodeBookChunk(yield* textOf(response))
+        const served = Effect.fnUntraced(function* (cursor: string) {
+          const book = yield* bookAt(chunk, wib(cursor))
+          return book === undefined
+            ? undefined
+            : { provenance: book.provenance, at: DateTime.formatIso(book.at) }
+        })
+        assert.deepStrictEqual(yield* served("14:20:15"), {
+          provenance: "Stockbit",
+          at: "2026-11-09T07:20:10.000Z",
+        })
+        assert.deepStrictEqual(yield* served("14:20:40"), {
+          provenance: "Ajaib",
+          at: "2026-11-09T07:20:05.000Z",
+        })
+      })
   )
 })
 
