@@ -51,6 +51,11 @@ const trade = (number: number, at: string): RunningTrade => ({
   feeds: ["Ajaib"],
 })
 
+const wib = (at: string) => DateTime.makeUnsafe(`2026-11-09T${at}+07:00`)
+
+const numbers = (trades: ReadonlyArray<RunningTrade>) =>
+  trades.map((found) => found.tradeNumber)
+
 describe("the recorded tape's query plan", () => {
   it.effect("searches the trades table by number and never scans it", () =>
     Effect.gen(function* () {
@@ -84,6 +89,56 @@ describe("the recorded tape's query plan", () => {
             .map((detail) => `${detail}: ${statement}`)
         )
       assert.deepStrictEqual(scans, [])
+    })
+  )
+})
+
+// Stockbit times a trade to the millisecond, Ajaib and the backfill to the
+// second, so a trade's stored time can be earlier than the one before it.
+describe("the recorded tape with mixed feed precision", () => {
+  it.effect("finds a trade whose time is before its predecessor's", () =>
+    Effect.gen(function* () {
+      const store = yield* makeDayStore(recordingSql().sql)
+      yield* store.write({
+        trades: [trade(1, "09:00:00.900"), trade(2, "09:00:00.000")],
+        candles: [],
+        livePrices: [],
+        chunks: [],
+        facts: {},
+      })
+      assert.deepStrictEqual(
+        numbers(yield* store.tradesAt(wib("09:00:00.500"), 200)),
+        ["2"]
+      )
+      assert.deepStrictEqual(
+        numbers(
+          yield* store.tradesBetween(wib("08:59:59.000"), wib("09:00:00.500"))
+        ),
+        ["2"]
+      )
+    })
+  )
+
+  it.effect("keeps the newest `limit` trades after the time filter", () =>
+    Effect.gen(function* () {
+      const store = yield* makeDayStore(recordingSql().sql)
+      yield* store.write({
+        trades: [
+          trade(1, "09:00:00.000"),
+          trade(2, "09:00:00.100"),
+          trade(3, "09:00:00.900"),
+          trade(4, "09:00:00.950"),
+          trade(5, "09:00:00.200"),
+        ],
+        candles: [],
+        livePrices: [],
+        chunks: [],
+        facts: {},
+      })
+      assert.deepStrictEqual(
+        numbers(yield* store.tradesAt(wib("09:00:00.500"), 2)),
+        ["2", "5"]
+      )
     })
   )
 })
