@@ -496,6 +496,92 @@ describe("Day state", () => {
   )
 
   it.effect(
+    "a liveprice frame arriving after a trade newer than it keeps that trade in the figures carried on",
+    () =>
+      Effect.gen(function* () {
+        const { relay, viewer } = yield* tradingDay()
+        const feed = yield* relay()
+        yield* feed.stockbit([BBRI], "A")
+        yield* feed.ajaib([
+          ajaibTrade({
+            seq: 700_002,
+            wib: "09:51:03",
+            ticker: "BBRI",
+            price: 2940,
+            lot: 10,
+          }),
+        ])
+        // Connection B's frame: newer than the base, older than the trade.
+        yield* feed.stockbit(
+          [{ ...BBRI, date: "2026-11-09T09:51:02.000000+07:00" }],
+          "B"
+        )
+        // 15 s without a Stockbit frame: lost.
+        yield* TestClock.adjust("15 seconds")
+        const page = yield* viewer("BBCA", ["BBRI"])
+        const [snapshot] = yield* received(page)
+        assert.deepStrictEqual(statesOf(snapshot!).BBRI, {
+          ...BBRI_FROM_STOCKBIT,
+          last: 2940,
+          change: 10,
+          changePercent: (10 / 2930) * 100,
+          volume: 224_118 + 10,
+          value: 65_698_513_000 + 2940 * 1000,
+          frequency: 6908 + 1,
+          asOf: "2026-11-09T02:51:03.000Z",
+          provenance: "Ajaib",
+        })
+      })
+  )
+
+  it.effect(
+    "with Stockbit lost, the last price stays exact when later copies move every newer trade off the regular board",
+    () =>
+      Effect.gen(function* () {
+        const { relay, viewer } = yield* tradingDay()
+        const feed = yield* relay()
+        yield* feed.stockbit([BBRI], "A")
+        // Seventeen trades Ajaib shows on the regular board, 2921 rising.
+        const trades = Array.from({ length: 17 }, (_, index) => ({
+          seq: 700_001 + index,
+          wib: `09:51:${10 + index}`,
+          price: 2921 + index,
+        }))
+        yield* feed.ajaib(
+          trades.map((trade) =>
+            ajaibTrade({ ...trade, ticker: "BBRI", lot: 5 })
+          )
+        )
+        // Stockbit has every one but the first on the cash board.
+        yield* feed.stockbitTrades(
+          trades.slice(1).map((trade) => ({
+            tradeWib: `${trade.wib}.400`,
+            code: "BBRI",
+            price: trade.price,
+            volume: 500,
+            action: 1,
+            board: 2,
+            tradeNumber: trade.seq,
+          }))
+        )
+        yield* TestClock.adjust("15 seconds")
+        const page = yield* viewer("BBCA", ["BBRI"])
+        const [snapshot] = yield* received(page)
+        assert.deepStrictEqual(statesOf(snapshot!).BBRI, {
+          ...BBRI_FROM_STOCKBIT,
+          last: 2921,
+          change: -9,
+          changePercent: (-9 / 2930) * 100,
+          volume: 224_118 + 5,
+          value: 65_698_513_000 + 2921 * 500,
+          frequency: 6908 + 1,
+          asOf: "2026-11-09T02:51:10.000Z",
+          provenance: "Ajaib",
+        })
+      })
+  )
+
+  it.effect(
     "a code Stockbit never sent starts from Ajaib's PRICE while Stockbit is lost",
     () =>
       Effect.gen(function* () {
