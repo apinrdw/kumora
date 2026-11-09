@@ -32,6 +32,34 @@ const SIDE_CLASS: Record<RunningTrade["side"], string> = {
 
 type Status = "live" | "new-version"
 
+type Source = RunningTrade["feeds"][number]
+
+// One dot per feed that saw a trade, in the order the server lists them.
+const SOURCES: ReadonlyArray<{
+  readonly source: Source
+  readonly label: string
+  readonly dot: string
+}> = [
+  { source: "Stockbit", label: "Stockbit", dot: "bg-info" },
+  { source: "Ajaib", label: "Ajaib", dot: "bg-vwap" },
+  { source: "backfill", label: "Backfill", dot: "bg-neutral" },
+]
+
+function SourceDots({ feeds }: { feeds: ReadonlyArray<Source> }) {
+  const shown = SOURCES.filter(({ source }) => feeds.includes(source))
+  return (
+    <span
+      className="inline-flex gap-0.5"
+      aria-label={shown.map(({ label }) => label).join(", ")}
+      role="img"
+    >
+      {shown.map(({ source, dot }) => (
+        <span key={source} className={`size-1.5 rounded-full ${dot}`} />
+      ))}
+    </span>
+  )
+}
+
 // The whole-market tape from the viewer socket. A 4401 close sends the
 // visitor to sign in and back; a 4426 close asks for a reload; any other close
 // reconnects and starts over from a fresh snapshot.
@@ -78,7 +106,20 @@ export function LiveTape() {
 
   return (
     <section aria-label="Running trades" className="flex flex-col gap-2">
-      <h2 className="text-sm font-semibold">Running trades</h2>
+      <header className="flex items-center justify-between gap-3">
+        <h2 className="text-sm font-semibold">Running trades</h2>
+        <ul
+          aria-label="Sources"
+          className="flex gap-3 text-[11px] text-muted-foreground"
+        >
+          {SOURCES.map(({ source, label, dot }) => (
+            <li key={source} className="inline-flex items-center gap-1">
+              <span className={`size-1.5 rounded-full ${dot}`} />
+              {label}
+            </li>
+          ))}
+        </ul>
+      </header>
       {status === "new-version" && (
         <div role="alert" className="flex items-center gap-3 text-[13px]">
           <span>A new version of Market Live is out. Reload to continue.</span>
@@ -95,6 +136,9 @@ export function LiveTape() {
             <th className="text-right font-normal">Price</th>
             <th className="text-right font-normal">Lot</th>
             <th className="text-right font-normal">Value</th>
+            <th className="font-normal">
+              <span className="sr-only">Source</span>
+            </th>
           </tr>
         </thead>
         <tbody>
@@ -108,6 +152,9 @@ export function LiveTape() {
               <td className="text-right">{plain(trade.lots)}</td>
               <td className="text-right">
                 {compactIdr(trade.price * trade.lots * 100).replace("+", "")}
+              </td>
+              <td className="pl-2">
+                <SourceDots feeds={trade.feeds} />
               </td>
             </tr>
           ))}
