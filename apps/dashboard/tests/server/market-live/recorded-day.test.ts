@@ -103,13 +103,15 @@ const orderBookFrame = (
   )
 }
 
-// Stockbit's `liveprice` frame (wrapper case 9) of an index or a stock.
+// Stockbit's `liveprice` frame (wrapper case 9) of an index or a stock, on
+// the regular board unless `board` says otherwise (2 is the cash board).
 const livePriceFrame = (price: {
   readonly code: string
   readonly last: number
   readonly previous: number
   readonly time: string
   readonly isIndex?: boolean
+  readonly board?: number
 }) =>
   Uint8Array.from(
     messageField(9, [
@@ -127,7 +129,9 @@ const livePriceFrame = (price: {
           ((price.last - price.previous) / price.previous) * 100
         ),
       ]),
-      ...(price.isIndex === true ? varintField(18, 1) : varintField(23, 1)),
+      ...(price.isIndex === true
+        ? varintField(18, 1)
+        : varintField(23, price.board ?? 1)),
     ])
   )
 
@@ -476,6 +480,42 @@ describe("a restarted trading day", () => {
             volume: state?.volume,
           },
           { last: 9_000, previousClose: 8_900, volume: 20_000 }
+        )
+      })
+  )
+
+  it.effect(
+    "keeps a code's regular-board figures past a newer cash-board liveprice frame",
+    () =>
+      Effect.gen(function* () {
+        yield* TestClock.setTime(wib("09:00:00").epochMilliseconds)
+        const sql = memorySql()
+        const day = yield* tradingDay(sql)
+        yield* day.stockbit([
+          livePriceFrame({
+            code: "BBCA",
+            last: 9_000,
+            previous: 8_900,
+            time: "09:00:00",
+          }),
+          livePriceFrame({
+            code: "BBCA",
+            last: 9_100,
+            previous: 8_900,
+            time: "09:00:30",
+            board: 2,
+          }),
+        ])
+        yield* pastFlush
+        yield* day.stop
+        const restarted = yield* tradingDay(sql)
+        const [snapshot] = yield* yield* restarted.viewer("BBCA")
+        const state = snapshot?.dayStates?.find(
+          (dayState) => dayState.code === "BBCA"
+        )
+        assert.deepStrictEqual(
+          { last: state?.last, provenance: state?.provenance },
+          { last: 9_000, provenance: "Ajaib" }
         )
       })
   )
