@@ -3,21 +3,27 @@
 // its seal, served as the day strip by one GET. day-index-object.ts adapts it
 // to the single index Durable Object. Time is read only through Effect's
 // Clock.
-import { encodeRecordedDay, type RecordedDay } from "@workspace/relay"
+import {
+  encodeRecordedDay,
+  sealInstant,
+  wibDateAt,
+  type RecordedDay,
+} from "@workspace/relay"
 import { DateTime, Effect } from "effect"
 
 import type { Sql } from "./day-store.ts"
 
-const DAY = 86_400_000
-
 // Decision: the strip is cached in the browser until a minute after the next
 // 17:00 WIB, when the next day seals and its row lands; a retried row can
 // land later and shows on the next day's load.
-const nextSealAfter = (now: number) => {
-  const wib = now + 7 * 3_600_000
-  const sealToday = Math.floor(wib / DAY) * DAY + 17 * 3_600_000 + 60_000
-  return (sealToday > wib ? sealToday : sealToday + DAY) - 7 * 3_600_000
-}
+const stripExpiresAfter = Effect.fnUntraced(function* (now: DateTime.Utc) {
+  const today = DateTime.add(yield* sealInstant(yield* wibDateAt(now)), {
+    minutes: 1,
+  })
+  return DateTime.isLessThan(now, today)
+    ? today
+    : DateTime.add(today, { days: 1 })
+})
 
 export const makeDayIndex = (sql: Sql) =>
   Effect.sync(() => {
@@ -34,12 +40,13 @@ export const makeDayIndex = (sql: Sql) =>
     // Every sealed day, newest first.
     const strip = Effect.gen(function* () {
       const rows = sql.exec("SELECT row FROM days ORDER BY day DESC")
-      const now = DateTime.toEpochMillis(yield* DateTime.now)
+      const now = yield* DateTime.now
+      const expires = yield* stripExpiresAfter(now)
       const body = `{"days":[${rows.map((row) => String(row.row)).join(",")}]}`
       return new Response(body, {
         headers: {
           "Content-Type": "application/json",
-          "Cache-Control": `private, max-age=${Math.ceil((nextSealAfter(now) - now) / 1000)}`,
+          "Cache-Control": `private, max-age=${Math.ceil((DateTime.toEpochMillis(expires) - DateTime.toEpochMillis(now)) / 1000)}`,
         },
       })
     })

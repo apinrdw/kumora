@@ -32,3 +32,7 @@ export const HeldSessions = Schema.Struct({
   sessionIds: Schema.Array(Schema.String),
 })
 export type HeldSessions = typeof HeldSessions.Type
+
+// A sealed day's answers never change, so the browser keeps them (spec
+// apinrdw/kumora#138, "Recorded day loads").
+export const SEALED_CACHE = "private, max-age=31536000, immutable"

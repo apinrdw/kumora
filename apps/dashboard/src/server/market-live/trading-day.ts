@@ -48,7 +48,7 @@ import { makeGaps } from "./gaps.ts"
 import { makeMarketStatus } from "./market-status.ts"
 import { makeOnDemand } from "./on-demand.ts"
 import { makeOrderBooks } from "./order-books.ts"
-import type { HeldSessions } from "./routes.ts"
+import { SEALED_CACHE, type HeldSessions } from "./routes.ts"
 import { stockbitTrades } from "./stockbit.ts"
 import { stockbitLivePrices, type LivePrice } from "./stockbit-liveprice.ts"
 
@@ -103,9 +103,6 @@ const Fact = {
   gaps: "gaps",
   feedDowns: "feed-downs",
 } as const
-
-// A sealed day's answers never change.
-const SEALED_CACHE = "private, max-age=31536000, immutable"
 
 const json = (text: string, cacheControl: string, status = 200) =>
   new Response(text, {

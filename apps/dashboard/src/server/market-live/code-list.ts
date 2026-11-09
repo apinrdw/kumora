@@ -10,6 +10,8 @@ import {
 } from "@workspace/relay"
 import { DateTime, Effect, Option, Schema } from "effect"
 
+import { SEALED_CACHE } from "./routes.ts"
+
 // Where the object keeps the list: one stored value, the encoded list.
 export interface CodeListStore {
   readonly read: Effect.Effect<Option.Option<string>>
@@ -88,7 +90,7 @@ export const codeListAnswer = Effect.fnUntraced(function* (
   const nextDay = Date.parse(`${today}T00:00:00+07:00`) + 86_400_000
   const cacheControl =
     date < today
-      ? "private, max-age=31536000, immutable"
+      ? SEALED_CACHE
       : `private, max-age=${Math.ceil((nextDay - DateTime.toEpochMillis(now)) / 1000)}`
   return new Response(stored.value, {
     headers: {
