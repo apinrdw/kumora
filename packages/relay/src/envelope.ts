@@ -85,8 +85,8 @@ export const StockbitFrames = Schema.TaggedStruct("Frames", {
   feed: Schema.Literal("Stockbit"),
   frames: Schema.Array(Schema.Uint8ArrayFromBase64),
 })
-// Which of Ajaib's sockets a batch of frames came from: the trade tape, whose
-// frames are the feed's signs of life, or an on-demand stream (price,
+// Which of Ajaib's sockets an envelope's frames came from: the trade tape,
+// whose frames are the feed's signs of life, or an on-demand stream (price,
 // indicative or order book), whose frames answer a subscription and say
 // nothing about the tape.
 const FrameStream = Schema.Literals(["trade", "on-demand"])

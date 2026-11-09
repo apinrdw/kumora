@@ -13,8 +13,10 @@ import { DateTime, Effect } from "effect"
 // Decision: a feed is stale after 15 s of silence and unavailable after 60 s,
 // counted only inside stretches that expect trades (the sessions,
 // post-trading and the two match minutes), so the break and the auctions
-// before their match never go stale. A frame or a ping reply is a sign of
-// life. See apinrdw/kumora#133.
+// before their match never go stale. A Stockbit frame, an Ajaib trade-stream
+// frame or a ping reply is a sign of life; Ajaib's on-demand frames answer a
+// subscription and say nothing about its tape (market-conditions.ts decides
+// which frames count). See apinrdw/kumora#133.
 const STALE_AFTER = 15_000
 const UNAVAILABLE_AFTER = 60_000
 

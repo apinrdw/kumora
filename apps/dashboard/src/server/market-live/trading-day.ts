@@ -96,8 +96,10 @@ const TAPE_LIMIT = 10_000
 // feeds' record are written to the day store once a minute, 5 s past the
 // minute (spec apinrdw/kumora#138, "Storage and cost"), so each flush closes
 // the minute that just ended: its book chunks, and its trades' 5 s merge
-// windows. Each trade is written once. A restart loses at most the minute in
-// progress, which the relay's backfill refills from the next gap.
+// windows. The one exception is the relay going offline (`ingestClosed`),
+// which flushes at once, mid-minute, so a restart keeps the relay gap from
+// that instant. Each trade is written once. A restart loses at most the
+// minute in progress, which the relay's backfill refills from the next gap.
 const MINUTE = 60_000
 const FLUSH_PAST_MINUTE = 5_000
 
