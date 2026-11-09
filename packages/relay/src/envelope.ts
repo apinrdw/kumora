@@ -1,6 +1,7 @@
 import { Effect, Order, Schema } from "effect"
 
 import { StockCode } from "./codes.ts"
+import { IndexHasNoBook, OrderBook } from "./order-book.ts"
 
 // Bump on any change to an ingest message's shape. The dashboard accepts this
 // version and the one before it, so an extension one release behind keeps
@@ -201,19 +202,23 @@ export type Candle = typeof Candle.Type
 
 // What a viewer starts from after each Select: the 200 newest running trades,
 // ascending by trade number, and the selected code's candles so far,
-// ascending by minute.
+// ascending by minute. The selected code's order book once it has one, or
+// word that it is an index.
 const Snapshot = Schema.TaggedStruct("Snapshot", {
   tape: Schema.Array(RunningTrade),
   candles: Schema.Array(Candle),
+  orderBook: Schema.optionalKey(Schema.Union([OrderBook, IndexHasNoBook])),
 })
 
 // The running trades that arrived in the last ~250 ms, ascending by trade
 // number. A late trade sorts below ones the viewer already holds. Candles are
 // every candle that changed since the last delta, of any code, each whole: the
-// page keeps its selected code's.
+// page keeps its selected code's. Order books likewise: every code's whose
+// served book changed, each whole.
 const Delta = Schema.TaggedStruct("Delta", {
   tape: Schema.Array(RunningTrade),
   candles: Schema.Array(Candle),
+  orderBooks: Schema.optionalKey(Schema.Array(OrderBook)),
 })
 
 // Trading-day Durable Object → page. It carries no version: the page's

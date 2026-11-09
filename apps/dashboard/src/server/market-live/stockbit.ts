@@ -78,6 +78,12 @@ const fieldsOf = (bytes: Uint8Array): ReadonlyArray<Field> | undefined => {
   return fields
 }
 
+// A length-delimited field read as UTF-8 text.
+export const textOf = (value: Value | undefined) => {
+  const run = bytesOf(value)
+  return run === undefined ? undefined : new TextDecoder().decode(run)
+}
+
 // Reads one message's fields by number, or is undefined when the bytes don't
 // parse.
 export const fieldReader = (bytes: Uint8Array) => {

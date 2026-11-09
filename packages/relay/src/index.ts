@@ -53,3 +53,5 @@ export {
   stockCodeListPath,
 } from "./code-list.ts"
 export type { CodeKind, ListedCode } from "./code-list.ts"
+export { BOOK_DEPTH } from "./order-book.ts"
+export type { BookLevel, IndexHasNoBook, OrderBook } from "./order-book.ts"

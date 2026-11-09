@@ -11,11 +11,12 @@ import {
   decodeViewerUp,
   encodeViewerDown,
   marketMomentAt,
+  type IngestUp,
   type RunningTrade,
   type WibDate,
 } from "@workspace/relay"
 import { WorkerEnv } from "@workspace/server"
-import { Effect, Scope } from "effect"
+import { Clock, Effect, Scope } from "effect"
 
 import { ajaibTrades } from "./ajaib.ts"
 import { backfillTrades } from "./backfill-page.ts"
@@ -27,6 +28,7 @@ import {
   type CodeListStore,
 } from "./code-list.ts"
 import { makeGaps } from "./gaps.ts"
+import { makeOrderBooks } from "./order-books.ts"
 import type { HeldSessions } from "./routes.ts"
 import { stockbitTrades } from "./stockbit.ts"
 import { stockbitLivePrices } from "./stockbit-liveprice.ts"
@@ -115,6 +117,12 @@ const settleSide = Effect.fnUntraced(function* (trade: RunningTrade) {
   return sideless ? { ...trade, side: "none" as const } : trade
 })
 
+// Decision: until feed freshness lands (apinrdw/kumora#149), the order book
+// counts Stockbit live while it sent a frame or a ping reply in the last 15 s
+// and hasn't reported its sockets closed. Once the market status decides
+// Stockbit's freshness, the book reads that instead.
+const STOCKBIT_STALE_AFTER = 15_000
+
 const sha256 = (text: string) =>
   Effect.promise(() =>
     crypto.subtle.digest("SHA-256", new TextEncoder().encode(text))
@@ -143,6 +151,12 @@ export const makeTradingDay = Effect.fnUntraced(function* (options: {
   let pending = new Map<string, RunningTrade>()
   let deltaScheduled = false
   const candles = yield* makeCandleBook
+  const books = yield* makeOrderBooks(options.date)
+  let stockbitSeen = Number.NEGATIVE_INFINITY
+  const stockbitLive = Effect.map(
+    Clock.currentTimeMillis,
+    (now) => now - stockbitSeen < STOCKBIT_STALE_AFTER
+  )
   const gaps = yield* makeGaps({
     ingests: options.ingests ?? Effect.succeed([]),
   })
@@ -188,11 +202,14 @@ export const makeTradingDay = Effect.fnUntraced(function* (options: {
     )
     pending = new Map()
     const changed = yield* candles.takeChanged
-    if (trades.length === 0 && changed.length === 0) return
+    const orderBooks = yield* books.takeChanged(yield* stockbitLive)
+    if (trades.length === 0 && changed.length === 0 && orderBooks.length === 0)
+      return
     const text = yield* encodeViewerDown({
       _tag: "Delta",
       tape: trades,
       candles: changed,
+      ...(orderBooks.length > 0 ? { orderBooks } : {}),
     })
     for (const viewer of yield* options.viewers) {
       if ((yield* viewer.state) === "ready") yield* viewer.send(text)
@@ -201,7 +218,12 @@ export const makeTradingDay = Effect.fnUntraced(function* (options: {
 
   const scheduleDelta = Effect.gen(function* () {
     if (deltaScheduled) return
-    if (pending.size === 0 && !(yield* candles.hasChanges)) return
+    if (
+      pending.size === 0 &&
+      !(yield* candles.hasChanges) &&
+      !(yield* books.hasChanges(yield* stockbitLive))
+    )
+      return
     deltaScheduled = true
     yield* Effect.sleep(DELTA_INTERVAL).pipe(
       Effect.andThen(sendDelta),
@@ -213,6 +235,36 @@ export const makeTradingDay = Effect.fnUntraced(function* (options: {
   const tokenMatches = Effect.fnUntraced(function* (token: string) {
     const { INGEST_TOKEN } = yield* WorkerEnv
     return (yield* sha256(token)) === (yield* sha256(INGEST_TOKEN))
+  })
+
+  // Stockbit's last sign of life, for the order book's fallback.
+  const noteStockbit = Effect.fnUntraced(function* (message: IngestUp) {
+    if (message._tag !== "Frames" && message._tag !== "FeedStatus") return
+    if (message.feed !== "Stockbit") return
+    stockbitSeen =
+      message._tag === "FeedStatus" && message.status === "closed"
+        ? Number.NEGATIVE_INFINITY
+        : yield* Clock.currentTimeMillis
+  })
+
+  const framesIn = Effect.fnUntraced(function* (
+    message: Extract<IngestUp, { readonly _tag: "Frames" }>
+  ) {
+    if (message.feed === "Stockbit") {
+      yield* insert(yield* stockbitTrades(options.date, message.frames))
+      for (const price of yield* stockbitLivePrices(
+        options.date,
+        message.frames
+      )) {
+        yield* books.livePrice(price)
+        if (price.isIndex) yield* candles.indexPrice(price)
+      }
+      yield* books.stockbitFrames(message.frames)
+    } else {
+      yield* insert(yield* ajaibTrades(options.date, message.frames))
+      yield* books.ajaibFrames(message.frames)
+    }
+    yield* gaps.schedule
   })
 
   // One envelope from the relay. The token comes first; anything before it, or
@@ -236,16 +288,8 @@ export const makeTradingDay = Effect.fnUntraced(function* (options: {
               tape[positionOf(tape, trade)]?.tradeNumber !== trade.tradeNumber
           )
         )
-      if (message._tag !== "Frames") return yield* scheduleDelta
-      if (message.feed === "Stockbit") {
-        yield* insert(yield* stockbitTrades(options.date, message.frames))
-        for (const price of yield* stockbitLivePrices(
-          options.date,
-          message.frames
-        ))
-          if (price.isIndex) yield* candles.indexPrice(price)
-      } else yield* insert(yield* ajaibTrades(options.date, message.frames))
-      yield* gaps.schedule
+      yield* noteStockbit(message)
+      if (message._tag === "Frames") yield* framesIn(message)
       yield* scheduleDelta
     },
     (effect, socket) =>
@@ -259,10 +303,12 @@ export const makeTradingDay = Effect.fnUntraced(function* (options: {
   const viewerMessage = Effect.fnUntraced(
     function* (socket: Peer, text: string) {
       const { selected } = yield* decodeViewerUp(text)
+      const orderBook = yield* books.bookOf(selected, yield* stockbitLive)
       const snapshot = yield* encodeViewerDown({
         _tag: "Snapshot",
         tape: tape.slice(-SNAPSHOT_TRADES),
         candles: yield* candles.candlesOf(selected),
+        ...(orderBook === undefined ? {} : { orderBook }),
       })
       yield* socket.send(snapshot)
       yield* socket.setState("ready")

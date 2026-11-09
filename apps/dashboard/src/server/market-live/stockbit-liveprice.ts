@@ -16,6 +16,7 @@ const Field = {
   volume: 3,
   frequency: 7,
   date: 11,
+  previous: 13,
   value: 14,
   isIndex: 18,
 } as const
@@ -30,6 +31,8 @@ export interface LivePrice {
   readonly volume: number
   readonly value: number
   readonly frequency: number
+  // The previous close, when the frame carries it.
+  readonly previous: number | undefined
   readonly isIndex: boolean
 }
 
@@ -55,6 +58,7 @@ const livePriceOf = (bytes: Uint8Array): LivePrice | undefined => {
     volume: numberOf(read(Field.volume)) ?? 0,
     value: numberOf(read(Field.value)) ?? 0,
     frequency: numberOf(read(Field.frequency)) ?? 0,
+    previous: numberOf(read(Field.previous)),
     isIndex: numberOf(read(Field.isIndex)) === 1,
   }
 }
