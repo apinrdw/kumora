@@ -17,7 +17,7 @@ The service worker's 10 s heartbeat. A connection quiet since the last tick send
 _Avoid_: interval, poll
 
 **Target**:
-A dashboard the relay sends envelopes to over its own ingest socket: always Production, plus at most one extra target (Staging, a Preview or a Dev stage) set on the options page.
+A dashboard the relay sends envelopes to over its own ingest socket: always Production, plus at most one extra target (Staging, a Preview or a Dev stage) set on the options page. The dashboard picks the trading-day object at the socket's handshake, by the WIB date, so the socket is reopened when the date changes.
 _Avoid_: destination, stage (a target names a Stage's dashboard, not the Stage)
 
 **Target state**:
@@ -29,7 +29,7 @@ The codes the trading-day objects ask the relay to keep subscribed on Ajaib's `P
 _Avoid_: watchlist codes
 
 **Code list**:
-Ajaib's stock code list, fetched once a WIB day from the Ajaib tab with the page's own headers and sent up raw. Stockbit's channel message lists every code on it.
+Ajaib's stock code list, fetched once a WIB day from the Ajaib tab with the page's own headers and sent up raw, and again to each target's fresh socket after its token. Stockbit's channel message lists every code on it.
 _Avoid_: universe
 
 **Streaming window**:
