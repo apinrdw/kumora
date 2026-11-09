@@ -250,7 +250,19 @@ const tradingDay = Effect.fnUntraced(function* (
   const stop = Scope.close(scope, Exit.void)
   // The Durable Object's alarm firing.
   const alarm = day.alarm.pipe(Effect.provide(env))
-  return { ajaib, stockbit, viewer, get, requests, alarms, alarm, stop }
+  // The relay's last ingest socket closing.
+  const relayClosed = day.ingestClosed(0)
+  return {
+    ajaib,
+    stockbit,
+    viewer,
+    get,
+    requests,
+    alarms,
+    alarm,
+    stop,
+    relayClosed,
+  }
 })
 
 const textOf = (response: Response) => Effect.promise(() => response.text())
@@ -427,6 +439,40 @@ describe("a restarted trading day", () => {
             to: "2026-11-09T01:59:00.000Z",
           },
           { from: "2026-11-09T02:10:00.000Z", to: undefined },
+        ])
+      })
+  )
+
+  it.effect(
+    "keeps the relay gap from the instant the relay went offline, past a restart",
+    () =>
+      Effect.gen(function* () {
+        yield* TestClock.setTime(wib("09:00:00").epochMilliseconds)
+        const sql = memorySql()
+        const first = yield* tradingDay(sql)
+        yield* first.ajaib([ajaibTrade({ seq: 1, time: "09:00:00" })])
+        // The minute's flush at 09:00:05 stored Ajaib up; the relay goes at
+        // 09:01:10, after it.
+        yield* pastFlush
+        yield* first.relayClosed
+        yield* first.stop
+        yield* TestClock.setTime(wib("10:00:00").epochMilliseconds)
+
+        const restarted = yield* tradingDay(sql)
+        yield* TestClock.adjust("1 second")
+        const [snapshot] = yield* yield* restarted.viewer()
+        const gaps = (
+          snapshot?._tag === "Snapshot" ? snapshot.conditions.gaps : []
+        ).map((gap) => ({
+          from: DateTime.formatIso(gap.from),
+          to: gap.to === undefined ? undefined : DateTime.formatIso(gap.to),
+        }))
+        assert.deepStrictEqual(gaps, [
+          {
+            from: "2026-11-09T01:58:00.000Z",
+            to: "2026-11-09T01:59:00.000Z",
+          },
+          { from: "2026-11-09T02:01:10.000Z", to: undefined },
         ])
       })
   )
