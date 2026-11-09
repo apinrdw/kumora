@@ -51,9 +51,6 @@ export interface TabHooks {
 export const makeBrokerTab = Effect.fnUntraced(function* (options: {
   readonly feed: Feed
   readonly sites: ReadonlyArray<BrokerSite>
-  // The site whose connections are the feed's freshness: its opens and
-  // closes go up as FeedStatus.
-  readonly reporting: SiteName
   readonly batcher: Effect.Success<ReturnType<typeof makeBatcher>>
   readonly publish: (message: IngestUp) => Effect.Effect<unknown>
   readonly hooks: TabHooks
@@ -109,7 +106,7 @@ export const makeBrokerTab = Effect.fnUntraced(function* (options: {
     const next = yield* step(site, before, input)
     links.set(site.name, next.links)
     for (const command of next.commands) yield* post(command)
-    if (site.name === options.reporting) yield* report(next.statuses)
+    if (site.stream === "trade") yield* report(next.statuses)
     yield* notify(site.name, before, next.links)
   })
   const driveAll = (input: BrokerInput) =>
@@ -134,7 +131,7 @@ export const makeBrokerTab = Effect.fnUntraced(function* (options: {
     const site = siteOf(event.site)
     if (site === undefined) return
     if (event._tag === "frame")
-      yield* batcher.add(feed, event.connection, event.payload)
+      yield* batcher.add(site, event.connection, event.payload)
     yield* drive(site, event)
   })
 

@@ -114,13 +114,15 @@ export const makeMarketConditions = Effect.fnUntraced(function* (
     }
   }
 
-  // One envelope from a ready relay: frames and ping replies are signs of
-  // life, a reported close takes that connection away.
+  // One envelope from a ready relay: a trade stream's frames and ping replies
+  // are signs of life, a reported close takes that connection away. Ajaib's
+  // on-demand frames answer a subscription and say nothing about its tape.
   const ingest = Effect.fnUntraced(function* (message: IngestUp) {
     const now = yield* DateTime.now
     yield* health.online
     if (message._tag === "Frames") {
-      yield* health.sign(message.feed, message.connection, now)
+      if (message.feed === "Stockbit" || message.stream === "trade")
+        yield* health.sign(message.feed, message.connection, now)
       if (message.feed === "Stockbit")
         keep(stockbit, yield* stockbitIndicative(message.frames))
       else keep(ajaib, yield* ajaibIndicative(message.frames))

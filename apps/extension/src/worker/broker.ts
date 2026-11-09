@@ -3,7 +3,7 @@
 // reconnect"). The content script in the broker tab holds the sockets and does
 // only what it is told; every decision is made here, on the service worker's
 // tick, because timers inside a background tab are throttled.
-import { Connection, type Feed } from "@workspace/relay"
+import { Connection, type Feed, type FrameStream } from "@workspace/relay"
 import { Effect, Schema } from "effect"
 
 // One socket's message: Ajaib's JSON text, or Stockbit's protobuf bytes as
@@ -105,6 +105,10 @@ export type BrokerEvent = typeof BrokerEvent.Type
 export interface BrokerSite {
   readonly name: SiteName
   readonly feed: Feed
+  // The trade tape's sockets are the feed's freshness: their opens and closes
+  // go up as feed status and their frames as signs of life. An on-demand
+  // stream's frames go up marked as such.
+  readonly stream: FrameStream
   readonly url: string
   readonly protocols: ReadonlyArray<string>
   // Sent by the tab as the socket opens. Stockbit's and the on-demand
@@ -123,6 +127,7 @@ const AJAIB_PING: Payload = {
 const AJAIB_STREAMS = "wss://stream.ajaib.co.id:8009/ws"
 const ajaibSocket = {
   feed: "Ajaib",
+  stream: "on-demand",
   protocols: [],
   subscribe: [],
   ping: AJAIB_PING,
@@ -133,6 +138,7 @@ const ajaibSocket = {
 export const ajaib: BrokerSite = {
   ...ajaibSocket,
   name: "ajaib-trade",
+  stream: "trade",
   url: `${AJAIB_STREAMS}/trade`,
 }
 
@@ -154,6 +160,7 @@ export const ajaibOnDemand: ReadonlyArray<BrokerSite> = [
 export const stockbit: BrokerSite = {
   name: "stockbit",
   feed: "Stockbit",
+  stream: "trade",
   url: "wss://wss-jkt.trading.stockbit.com/ws",
   protocols: ["web"],
   subscribe: [],

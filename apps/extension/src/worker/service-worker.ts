@@ -253,7 +253,6 @@ const main = Effect.gen(function* () {
   const stockbitTab = yield* makeBrokerTab({
     feed: "Stockbit",
     sites: [stockbit],
-    reporting: stockbit.name,
     batcher,
     publish,
     hooks: stockbitCodes.hooks,
@@ -261,7 +260,6 @@ const main = Effect.gen(function* () {
   const ajaibTab = yield* makeBrokerTab({
     feed: "Ajaib",
     sites: [ajaib, ...ajaibOnDemand],
-    reporting: ajaib.name,
     batcher,
     publish,
     hooks: onDemand.hooks,

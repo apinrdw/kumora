@@ -9,7 +9,7 @@ A tab of a broker site (Stockbit or Ajaib) the owner keeps open and signed in. I
 _Avoid_: page socket, source tab
 
 **Connection**:
-One of a broker site's two relay sockets, A or B. B opens on the tick after A's first frame, and at most one connection opens per tick. On Ajaib, connection A (or B) is four sockets, one per stream: the trade tape and the three on-demand streams.
+One of a broker site's two relay sockets, A or B. B opens on the tick after A's first frame, and at most one connection opens per tick. On Ajaib, connection A (or B) is four sockets, one per stream: the trade tape, whose socket is the connection's freshness, and the three on-demand streams, whose frames go up marked as theirs.
 _Avoid_: stream, channel
 
 **Tick**:

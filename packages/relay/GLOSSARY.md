@@ -29,7 +29,7 @@ _Avoid_: close, finalize
 ### Ingest
 
 **Ingest envelope**:
-One message from the relay to the dashboard: the feed, the connection, when it was received, and the feed's raw frames, unparsed. Also the ingest token, the daily stock code list, and feed status events travel as envelopes.
+One message from the relay to the dashboard: the feed, the connection, when it was received, and the feed's raw frames, unparsed. An Ajaib envelope also names the stream its frames came from, the trade tape or an on-demand stream; only the tape's frames are signs of life. Also the ingest token, the daily stock code list, and feed status events travel as envelopes.
 _Avoid_: packet, batch
 
 **Connection**:

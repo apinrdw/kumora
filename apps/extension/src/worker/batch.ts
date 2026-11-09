@@ -3,31 +3,40 @@
 import {
   IngestProtocolVersion,
   type Connection,
-  type Feed,
+  type FrameStream,
   type IngestUp,
 } from "@workspace/relay"
 import { DateTime, Effect, Result } from "effect"
 import * as Base64 from "effect/encoding/Base64"
 
-import type { Payload } from "./broker.ts"
+import type { BrokerSite, Payload } from "./broker.ts"
 
 export const BATCH_INTERVAL = "250 millis"
 
 export const makeBatcher = Effect.fnUntraced(function* () {
-  // Ajaib's JSON text, and Stockbit's protobuf bytes.
-  const ajaib = new Map<Connection, Array<string>>()
+  // Ajaib's JSON text per connection and stream, and Stockbit's protobuf
+  // bytes per connection.
+  const ajaib: Array<{
+    readonly connection: Connection
+    readonly stream: FrameStream
+    readonly frames: Array<string>
+  }> = []
   const stockbit = new Map<Connection, Array<Uint8Array>>()
 
   const add = Effect.fnUntraced(function* (
-    feed: Feed,
+    site: Pick<BrokerSite, "feed" | "stream">,
     connection: Connection,
     payload: Payload
   ) {
-    if (feed === "Ajaib" && "text" in payload) {
-      const buffer = ajaib.get(connection)
-      if (buffer === undefined) ajaib.set(connection, [payload.text])
-      else buffer.push(payload.text)
-    } else if (feed === "Stockbit" && "base64" in payload) {
+    if (site.feed === "Ajaib" && "text" in payload) {
+      const held = ajaib.find(
+        (bucket) =>
+          bucket.connection === connection && bucket.stream === site.stream
+      )
+      if (held === undefined)
+        ajaib.push({ connection, stream: site.stream, frames: [payload.text] })
+      else held.frames.push(payload.text)
+    } else if (site.feed === "Stockbit" && "base64" in payload) {
       const decoded = Base64.decode(payload.base64)
       if (Result.isFailure(decoded)) return
       const frame = decoded.success
@@ -51,17 +60,17 @@ export const makeBatcher = Effect.fnUntraced(function* () {
         connection,
         frames,
       })
-    for (const [connection, frames] of ajaib)
+    for (const { connection, stream, frames } of ajaib)
       envelopes.push({
         _tag: "Frames",
         ...base,
         feed: "Ajaib",
-        stream: "trade",
+        stream,
         connection,
         frames,
       })
     stockbit.clear()
-    ajaib.clear()
+    ajaib.length = 0
     return envelopes
   })
 
