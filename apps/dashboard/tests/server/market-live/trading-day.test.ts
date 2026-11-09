@@ -47,6 +47,8 @@ const DAY = WibDate.make("2026-11-09")
 class FakeSocket implements Peer {
   readonly sent: Array<string> = []
   closedWith: number | undefined
+  // A viewer's session end, as the object reads it from the socket's tags.
+  sessionEnd?: Effect.Effect<number | undefined>
   private current: PeerState = "new"
   send = (text: string) => Effect.sync(() => void this.sent.push(text))
   close = (code: number) =>
@@ -69,10 +71,12 @@ const env = Layer.succeed(WorkerEnv)(
   { INGEST_TOKEN: TOKEN } as unknown as WorkerEnv["Service"]
 )
 
-// The account and session a viewer socket was tagged with at upgrade.
+// The account and session a viewer socket was tagged with at upgrade, and
+// the session's end; one without an end never expires.
 interface SignedIn {
   readonly userId: string
   readonly sessionId: string
+  readonly sessionEnd?: DateTime.Utc
 }
 
 const AYU: SignedIn = { userId: "ayu", sessionId: "ayu-laptop" }
@@ -109,6 +113,8 @@ const tradingDay = Effect.fnUntraced(function* () {
   })
   const viewer = Effect.fnUntraced(function* (as: SignedIn = AYU) {
     const socket = new FakeSocket()
+    if (as.sessionEnd !== undefined)
+      socket.sessionEnd = Effect.succeed(DateTime.toEpochMillis(as.sessionEnd))
     viewers.push(socket)
     signedIn.set(socket, as)
     return socket
@@ -224,6 +230,56 @@ describe("a ban, revoke or delete", () => {
         yield* day.endSessions(heldSessions("ayu", []))
         assert.strictEqual(laptop.closedWith, ViewerCloseCode.SignInRequired)
         assert.isUndefined(other.closedWith)
+      })
+  )
+})
+
+describe("a session's end", () => {
+  const start = DateTime.makeUnsafe("2026-11-09T02:00:00.000Z")
+  const expiring: SignedIn = {
+    userId: "ayu",
+    sessionId: "ayu-hour",
+    sessionEnd: DateTime.add(start, { hours: 1 }),
+  }
+
+  it.effect(
+    "a viewer whose session ended is closed with 4401 at its next delta, and sent nothing more",
+    () =>
+      Effect.gen(function* () {
+        yield* TestClock.setTime(DateTime.toEpochMillis(start))
+        const { ingest, viewer, select } = yield* tradingDay()
+        const page = yield* viewer(expiring)
+        const other = yield* viewer(AYU)
+        yield* select(page)
+        yield* select(other)
+        const socket = yield* relay(ingest)
+        yield* ingest(socket, yield* ajaib(recorded.session1.slice(0, 10)))
+        yield* TestClock.adjust("250 millis")
+        assert.lengthOf(page.sent, 2)
+        assert.isUndefined(page.closedWith)
+
+        yield* TestClock.adjust("1 hour")
+        yield* ingest(socket, yield* ajaib(recorded.session1.slice(10, 20)))
+        yield* TestClock.adjust("250 millis")
+        assert.strictEqual(page.closedWith, ViewerCloseCode.SignInRequired)
+        assert.lengthOf(page.sent, 2)
+        assert.isUndefined(other.closedWith)
+        assert.lengthOf(other.sent, 3)
+      })
+  )
+
+  it.effect(
+    "a Select on an ended session is answered with 4401, not a snapshot",
+    () =>
+      Effect.gen(function* () {
+        yield* TestClock.setTime(
+          DateTime.toEpochMillis(DateTime.add(start, { hours: 1 }))
+        )
+        const { viewer, select } = yield* tradingDay()
+        const page = yield* viewer(expiring)
+        yield* select(page)
+        assert.strictEqual(page.closedWith, ViewerCloseCode.SignInRequired)
+        assert.lengthOf(page.sent, 0)
       })
   )
 })
