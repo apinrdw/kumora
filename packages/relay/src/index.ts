@@ -36,6 +36,8 @@ export {
   StockbitFrames,
   TradeNumber,
   TradeNumberOrder,
+  TradeNumberValue,
+  tradeNumberValue,
   ViewerCloseCode,
   ViewerProtocolVersion,
   decodeIngestDown,

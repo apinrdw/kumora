@@ -6,6 +6,8 @@
 import {
   IngestProtocolVersion,
   TradeNumber,
+  TradeNumberValue,
+  tradeNumberValue,
   type Feed,
   type IngestDown,
   type IngestUp,
@@ -41,15 +43,15 @@ const AJAIB_PAGE_SIZE = 40
 // A range to fetch and who asked for it. `nextTime` is when trade `to` + 1
 // happened, in epoch ms.
 interface Job {
-  readonly from: bigint
-  readonly to: bigint
+  readonly from: TradeNumberValue
+  readonly to: TradeNumberValue
   readonly nextTime: number
   readonly targets: ReadonlySet<TargetName>
   // Paging: Stockbit's cursor, or Ajaib's next page.
-  readonly cursor: bigint
+  readonly cursor: TradeNumberValue
   readonly page: number
   // The numbers in the range the pages so far carried.
-  readonly covered: ReadonlySet<bigint>
+  readonly covered: ReadonlySet<TradeNumberValue>
 }
 
 const StockbitNumbers = Schema.fromJsonString(
@@ -57,7 +59,7 @@ const StockbitNumbers = Schema.fromJsonString(
     data: Schema.Struct({
       running_trade: Schema.Array(
         Schema.Struct({
-          trade_number: Schema.String.check(Schema.isPattern(/^\d+$/)),
+          trade_number: TradeNumber,
         })
       ),
     }),
@@ -81,11 +83,15 @@ const decodeAjaib = Schema.decodeUnknownOption(AjaibNumbers)
 const numbersOn = Effect.fnUntraced(function* (feed: Feed, body: string) {
   return feed === "Stockbit"
     ? Option.map(decodeStockbit(body), (page) => ({
-        numbers: page.data.running_trade.map((row) => BigInt(row.trade_number)),
+        numbers: page.data.running_trade.map((row) =>
+          tradeNumberValue(row.trade_number)
+        ),
         more: true,
       }))
     : Option.map(decodeAjaib(body), (page) => ({
-        numbers: page.results.map((row) => BigInt(row.trade_num.slice(8))),
+        numbers: page.results.map((row) =>
+          tradeNumberValue(TradeNumber.make(row.trade_num.slice(8)))
+        ),
         more: page.has_next === true,
       }))
 })
@@ -109,7 +115,7 @@ const fresh = Effect.fnUntraced(function* (
 ) {
   const job: Job = {
     ...range,
-    cursor: range.to + 1n,
+    cursor: TradeNumberValue.make(range.to + 1n),
     page: 1,
     covered: new Set(),
   }
@@ -118,8 +124,12 @@ const fresh = Effect.fnUntraced(function* (
 
 // The runs of numbers in the job's range that no page carried.
 const uncovered = Effect.fnUntraced(function* (job: Job) {
-  const runs: Array<{ from: bigint; to: bigint }> = []
-  for (let number = job.from; number <= job.to; number++) {
+  const runs: Array<{ from: TradeNumberValue; to: TradeNumberValue }> = []
+  for (
+    let number = job.from;
+    number <= job.to;
+    number = TradeNumberValue.make(number + 1n)
+  ) {
     if (job.covered.has(number)) continue
     const last = runs.at(-1)
     if (last !== undefined && last.to === number - 1n) last.to = number
@@ -181,8 +191,8 @@ export const makeBackfill = Effect.fnUntraced(function* (options: {
     target: TargetName,
     message: Extract<IngestDown, { _tag: "Backfill" }>
   ) {
-    const from = BigInt(message.from)
-    const to = BigInt(message.to)
+    const from = tradeNumberValue(message.from)
+    const to = tradeNumberValue(message.to)
     if (to < from) return
     stockbitQueue = yield* enqueue(
       stockbitQueue,
@@ -225,7 +235,7 @@ export const makeBackfill = Effect.fnUntraced(function* (options: {
   // The job after one page: done, or paged on from the page's oldest number.
   const after = Effect.fnUntraced(function* (
     job: Job,
-    numbers: ReadonlyArray<bigint>
+    numbers: ReadonlyArray<TradeNumberValue>
   ) {
     const covered = new Set(job.covered)
     for (const number of numbers)
@@ -245,7 +255,10 @@ export const makeBackfill = Effect.fnUntraced(function* (options: {
     const answer = yield* bearerFetch(options.stockbit, url)
     const ok = Option.filter(answer, (received) => received.status === 200)
     const page = Option.isNone(ok)
-      ? Option.none<{ numbers: ReadonlyArray<bigint>; body: string }>()
+      ? Option.none<{
+          numbers: ReadonlyArray<TradeNumberValue>
+          body: string
+        }>()
       : Option.map(yield* numbersOn("Stockbit", ok.value.body), (found) => ({
           ...found,
           body: ok.value.body,
