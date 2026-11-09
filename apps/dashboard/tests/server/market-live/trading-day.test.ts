@@ -135,6 +135,7 @@ const ajaib = (frames: ReadonlyArray<string>, connection: "A" | "B" = "A") =>
     _tag: "Frames",
     protocolVersion: IngestProtocolVersion,
     feed: "Ajaib",
+    stream: "trade",
     connection,
     receivedAt: DateTime.makeUnsafe("2026-11-09T02:00:01.000Z"),
     frames,

@@ -56,6 +56,7 @@ export const makeBatcher = Effect.fnUntraced(function* () {
         _tag: "Frames",
         ...base,
         feed: "Ajaib",
+        stream: "trade",
         connection,
         frames,
       })

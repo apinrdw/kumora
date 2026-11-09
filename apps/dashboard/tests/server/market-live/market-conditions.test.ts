@@ -14,6 +14,7 @@ import {
   encodeViewerUp,
   type Connection,
   type Feed,
+  type FrameStream,
   type IngestUp,
   type MarketConditions,
 } from "@workspace/relay"
@@ -77,7 +78,8 @@ const marketAt = Effect.fnUntraced(function* (start: string) {
   const frames = (
     feed: Feed,
     connection: Connection = "A",
-    content: ReadonlyArray<string | Uint8Array> = []
+    content: ReadonlyArray<string | Uint8Array> = [],
+    stream: FrameStream = "trade"
   ) =>
     up({
       _tag: "Frames",
@@ -85,6 +87,7 @@ const marketAt = Effect.fnUntraced(function* (start: string) {
       feed,
       connection,
       receivedAt: DateTime.makeUnsafe(0),
+      ...(feed === "Ajaib" ? { stream } : {}),
       frames: content,
     } as IngestUp)
   const reported = (
@@ -221,6 +224,30 @@ describe("feed freshness", () => {
           Stockbit: "unavailable",
           Ajaib: "live",
         })
+      })
+  )
+
+  it.effect(
+    "Ajaib's on-demand frames are no sign of life once its trade sockets closed",
+    () =>
+      Effect.gen(function* () {
+        const market = yield* marketAt("2026-11-09T10:00:00")
+        yield* market.frames("Ajaib", "A")
+        yield* TestClock.adjust("10 seconds")
+        yield* market.reported("Ajaib", "A", "closed")
+        yield* TestClock.adjust("250 millis")
+        assert.strictEqual((yield* market.feeds).Ajaib, "unavailable")
+        // The price, indicative and order book sockets still answer.
+        yield* market.frames("Ajaib", "A", [], "on-demand")
+        yield* TestClock.adjust("250 millis")
+        assert.strictEqual((yield* market.feeds).Ajaib, "unavailable")
+        assert.deepStrictEqual(gapsOf(yield* market.conditions).at(-1), {
+          from: "2026-11-09T03:00:10.000Z",
+          to: undefined,
+        })
+        yield* market.frames("Ajaib", "A", [], "trade")
+        yield* TestClock.adjust("250 millis")
+        assert.strictEqual((yield* market.feeds).Ajaib, "live")
       })
   )
 

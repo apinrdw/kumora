@@ -51,6 +51,7 @@ export {
 export type {
   BackfillPage,
   Candle,
+  FrameStream,
   IngestDown,
   IngestUp,
   RunningTrade,

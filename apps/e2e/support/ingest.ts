@@ -161,6 +161,7 @@ export async function openIngest(token = TEST_INGEST_TOKEN) {
         _tag: "Frames",
         protocolVersion: IngestProtocolVersion,
         feed: "Ajaib",
+        stream: "trade",
         connection: "A",
         receivedAt: DateTime.nowUnsafe(),
         frames,

@@ -149,6 +149,7 @@ const tradingDay = Effect.fnUntraced(function* () {
         _tag: "Frames",
         protocolVersion: IngestProtocolVersion,
         feed: "Ajaib",
+        stream: "trade",
         connection: "A",
         receivedAt,
         frames,
