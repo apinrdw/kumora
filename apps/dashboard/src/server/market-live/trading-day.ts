@@ -67,8 +67,9 @@ export interface Peer {
   readonly close: (code: number, reason: string) => Effect.Effect<void>
   readonly state: Effect.Effect<PeerState>
   readonly setState: (state: PeerState) => Effect.Effect<void>
-  // A viewer's selected and watchlist codes, kept with the socket like its
-  // state. An ingest socket has none; a viewer without them counts as none.
+  // A viewer's selected and watchlist codes, kept in the object's storage
+  // under the socket's id (trading-day-object.ts). An ingest socket has none;
+  // a viewer without them counts as none.
   readonly watching?: Effect.Effect<ReadonlyArray<StockCode>>
   readonly setWatching?: (
     codes: ReadonlyArray<StockCode>
