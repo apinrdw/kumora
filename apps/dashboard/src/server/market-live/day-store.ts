@@ -14,7 +14,7 @@ import {
 } from "@workspace/relay"
 import { DateTime, Effect } from "effect"
 
-import type { CandleFigures } from "./candles.ts"
+import type { StoredCandle } from "./candles.ts"
 import type { LivePrice } from "./stockbit-liveprice.ts"
 
 export type SqlValue = string | number | null | Uint8Array
@@ -27,15 +27,6 @@ export interface Sql {
     ...bindings: ReadonlyArray<SqlValue>
   ) => ReadonlyArray<Record<string, SqlValue>>
   readonly transaction: (write: () => void) => void
-}
-
-// One code's candle for one minute, with the trade numbers (or, for an index,
-// the frame times) its open and close came from, so a restarted object keeps
-// adding to it.
-interface StoredCandle {
-  readonly code: StockCode
-  readonly minute: number
-  readonly figures: CandleFigures
 }
 
 // One code's order book chunk for one minute, encoded.
@@ -344,18 +335,27 @@ export const makeDayStore = (sql: Sql) =>
           .map(tradeOf)
       })
 
-    // Every code with a candle.
-    const candleCodes = Effect.sync(() =>
-      sql
-        .exec("SELECT DISTINCT code FROM candles")
-        .map((row) => StockCode.make(textOf(row.code)))
-    )
+    // One code's candle for one minute, with its trade orders.
+    const storedCandle = (code: StockCode, minute: number) =>
+      Effect.sync(() => {
+        const [row] = sql.exec(
+          "SELECT * FROM candles WHERE code = ? AND minute = ?",
+          code,
+          minute
+        )
+        return row === undefined ? undefined : storedCandleOf(row).figures
+      })
 
-    // One code's stored candles, with their trade orders.
-    const storedCandlesOf = (code: StockCode) =>
+    // One code's candles after `after`, every one when undefined, with their
+    // trade orders, ascending by minute.
+    const storedCandlesOf = (code: StockCode, after?: number) =>
       Effect.sync(() =>
         sql
-          .exec("SELECT * FROM candles WHERE code = ?", code)
+          .exec(
+            "SELECT * FROM candles WHERE code = ? AND minute > ? ORDER BY minute",
+            code,
+            after ?? -1
+          )
           .map(storedCandleOf)
       )
 
@@ -418,7 +418,7 @@ export const makeDayStore = (sql: Sql) =>
       newestTrades,
       tradesAt,
       tradesBetween,
-      candleCodes,
+      storedCandle,
       storedCandlesOf,
       candlesOf,
       livePrices,

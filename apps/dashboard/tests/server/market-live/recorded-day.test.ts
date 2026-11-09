@@ -39,6 +39,7 @@ import {
 } from "@/server/market-live/trading-day"
 
 import recorded from "./fixtures/ajaib-trades-2026-11-09.json"
+import { FULL_DAY_CODES, FULL_DAY_MINUTES } from "./full-day"
 import { doubleField, messageField, stringField, varintField } from "./protobuf"
 import { memorySql } from "./sql"
 
@@ -296,12 +297,6 @@ const pastFlush = TestClock.adjust("70 seconds")
 
 const range = (from: number, to: number) =>
   Array.from({ length: to - from + 1 }, (_, index) => from + index)
-
-// Decision: a full day for the restart's bound is 900 codes trading every
-// minute from the 08:58 match to post-trading's end, about 400,000 candles:
-// more codes than trade on a busy day, each in every minute.
-const FULL_DAY_CODES = 900
-const FULL_DAY_MINUTES = 438
 
 // Decision: a restarted object may keep at most 32 MiB of a full day on the
 // heap, a quarter of the Durable Object's 128 MiB: the whole day's candles

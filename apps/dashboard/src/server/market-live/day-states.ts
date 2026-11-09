@@ -240,7 +240,7 @@ const fromFallback = (
 export const makeDayStates = (candles: {
   readonly foldAfter: (
     code: StockCode,
-    minute: number
+    minute: number | undefined
   ) => Effect.Effect<CandleFigures | undefined>
 }) =>
   Effect.sync(() => {
@@ -365,7 +365,7 @@ export const makeDayStates = (candles: {
       const baseMinute = baseMinuteOf(code)
       const tail =
         kept.get(code)?.find((held) => held.minute === baseMinute)?.trades ?? []
-      const later = yield* candles.foldAfter(code, baseMinute ?? -Infinity)
+      const later = yield* candles.foldAfter(code, baseMinute)
       return fromFallback(code, base, sinceOf(tail, later), ajaibs.get(code))
     })
 

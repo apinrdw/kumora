@@ -183,24 +183,22 @@ const sha256 = (text: string) =>
     crypto.subtle.digest("SHA-256", new TextEncoder().encode(text))
   ).pipe(Effect.map((digest) => new Uint8Array(digest).toString()))
 
-// The last-frame cache, rebuilt from the store after a restart: candles,
-// each code's last `liveprice` frame and its last served order book. Returns
-// the frames.
+// The last-frame cache, rebuilt from the store after a restart: each code's
+// last `liveprice` frame and its last served order book. Returns the frames.
 const restoreLastFrames = Effect.fnUntraced(function* (day: {
   readonly store: Effect.Success<ReturnType<typeof makeDayStore>>
-  readonly candles: Effect.Success<typeof makeCandleBook>
+  readonly candles: Effect.Success<ReturnType<typeof makeCandleBook>>
   readonly books: Effect.Success<ReturnType<typeof makeOrderBooks>>
   readonly dayStates: Effect.Success<ReturnType<typeof makeDayStates>>
   readonly bookChunks: Effect.Success<typeof makeBookChunks>
 }) {
-  // Decision: candles come back one code at a time, so a full day's
-  // ~400,000 rows never sit in memory beside the candle book they rebuild;
-  // the book itself holds the day's candles, live or restarted. The
-  // last-frame tables hold one row per code, bounded by the code list.
-  for (const code of yield* day.store.candleCodes)
-    yield* day.candles.restore(yield* day.store.storedCandlesOf(code), [])
+  // Decision: a restart reads back only the last-frame tables, one row per
+  // code, bounded by the code list. The day's candles stay in the store: the
+  // candle book reads a code's as a snapshot, the Day state fallback or a
+  // trade in a past minute asks for them (candles.ts), so a full day's
+  // ~400,000 rows never sit in memory.
   const prices = yield* day.store.livePrices
-  yield* day.candles.restore([], prices)
+  yield* day.candles.restore(prices)
   for (const price of prices) {
     yield* day.books.livePrice(price)
     yield* day.dayStates.livePrice(price)
@@ -270,7 +268,7 @@ export const makeTradingDay = Effect.fnUntraced(function* (options: {
   // by trade number.
   let pending = new Map<string, RunningTrade>()
   let deltaScheduled = false
-  const candles = yield* makeCandleBook
+  const candles = yield* makeCandleBook(store)
   const ingests = options.ingests ?? Effect.succeed([])
   const books = yield* makeOrderBooks(options.date)
   const bookChunks = yield* makeBookChunks
@@ -492,12 +490,13 @@ export const makeTradingDay = Effect.fnUntraced(function* (options: {
         ...facts,
       },
     })
+    yield* candles.written
   })
 
   const unflushed = Effect.gen(function* () {
     return (
       livePricesChanged.size > 0 ||
-      (yield* candles.hasUnsettled) ||
+      (yield* candles.hasUnflushed) ||
       (yield* bookChunks.hasOpen)
     )
   })

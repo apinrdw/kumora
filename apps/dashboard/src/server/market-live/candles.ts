@@ -3,7 +3,8 @@
 // in the candle of its own minute, so the 08:58 and 16:00 auction matches make
 // their own; an index's come from its `liveprice` frames. The trading day
 // feeds every inserted or merged trade through `trade` and sends what
-// `takeChanged` returns.
+// `takeChanged` returns. The book holds a candle only while it is changing;
+// the day store holds the rest.
 import type {
   Candle,
   RunningTrade,
@@ -39,6 +40,30 @@ export interface CandleFigures {
   readonly volume: number
   readonly value: number
   readonly frequency: number
+}
+
+// One code's candle for one minute as the day store holds it, with the trade
+// numbers (or, for an index, the frame times) its open and close came from,
+// so the book keeps adding to it.
+export interface StoredCandle {
+  readonly code: StockCode
+  readonly minute: number
+  readonly figures: CandleFigures
+}
+
+// The settled candles the day store holds: the book reads one back when a
+// trade lands in a minute it let go of, and a code's history when a snapshot
+// or the Day state fallback asks for it.
+export interface SettledCandles {
+  readonly storedCandle: (
+    code: StockCode,
+    minute: number
+  ) => Effect.Effect<CandleFigures | undefined>
+  // One code's candles after `after`, every one when undefined, ascending.
+  readonly storedCandlesOf: (
+    code: StockCode,
+    after?: number
+  ) => Effect.Effect<ReadonlyArray<StoredCandle>>
 }
 
 interface Print {
@@ -125,20 +150,27 @@ const figuresOf = (slot: Slot) => {
   return figures
 }
 
+const candleFrom = (
+  code: StockCode,
+  minute: number,
+  figures: CandleFigures
+): Candle => ({
+  code,
+  minute: DateTime.makeUnsafe(minute),
+  open: figures.open,
+  high: figures.high,
+  low: figures.low,
+  close: figures.close,
+  volume: figures.volume,
+  value: figures.value,
+  frequency: figures.frequency,
+})
+
 const candleOf = (slot: Slot): Candle | undefined => {
   const figures = figuresOf(slot)
-  if (figures === undefined) return undefined
-  return {
-    code: slot.code,
-    minute: DateTime.makeUnsafe(slot.minute),
-    open: figures.open,
-    high: figures.high,
-    low: figures.low,
-    close: figures.close,
-    volume: figures.volume,
-    value: figures.value,
-    frequency: figures.frequency,
-  }
+  return figures === undefined
+    ? undefined
+    : candleFrom(slot.code, slot.minute, figures)
 }
 
 // An index's day totals at its latest frame, so a frame's candle gets only
@@ -151,7 +183,19 @@ interface Totals {
   readonly frequency: number
 }
 
-export const makeCandleBook = Effect.sync(() => {
+// Decision: the book keeps a candle in memory only while it is changing: a
+// trade of its is inside the merge window, or its settled figures changed
+// since the last flush. Once the flush that took it has written it, the
+// candle leaves the book, and a trade that lands in that minute later reads
+// the figures back from the store first. So the book holds about a minute of
+// the day, bounded by the codes trading in it, however long the day runs
+// (CODING_STANDARDS.md, "Bounded memory on a Worker"); a code's history is
+// read from the store when a snapshot or the Day state fallback asks for it,
+// and a restart reads nothing back. A flush that fails leaves its candles in
+// the book, and the next flush writes them again.
+export const makeCandleBook = Effect.fnUntraced(function* (
+  store: SettledCandles
+) {
   const series = new Map<StockCode, Map<number, Slot>>()
   // Trades still inside the merge window, in arrival order.
   const arrivals = new Map<
@@ -164,8 +208,10 @@ export const makeCandleBook = Effect.sync(() => {
   // and the candles whose settled figures changed.
   let settledTrades = new Map<string, RunningTrade>()
   let unflushed = new Set<Slot>()
+  // The candles a flush took and hasn't written yet.
+  let flushing = new Set<Slot>()
 
-  const slotOf = (code: StockCode, minute: number) => {
+  const slotOf = Effect.fnUntraced(function* (code: StockCode, minute: number) {
     let minutes = series.get(code)
     if (minutes === undefined) {
       minutes = new Map()
@@ -173,25 +219,45 @@ export const makeCandleBook = Effect.sync(() => {
     }
     let slot = minutes.get(minute)
     if (slot === undefined) {
-      slot = { code, minute, settled: undefined, open: new Map() }
+      slot = {
+        code,
+        minute,
+        settled: yield* store.storedCandle(code, minute),
+        open: new Map(),
+      }
       minutes.set(minute, slot)
     }
     return slot
+  })
+
+  // Lets a candle go once nothing in the book still refers to it.
+  const release = (slot: Slot) => {
+    if (
+      slot.open.size > 0 ||
+      unflushed.has(slot) ||
+      flushing.has(slot) ||
+      changed.has(slot)
+    )
+      return
+    const minutes = series.get(slot.code)
+    if (minutes?.get(slot.minute) !== slot) return
+    minutes.delete(slot.minute)
+    if (minutes.size === 0) series.delete(slot.code)
   }
 
-  const settle = (now: number) => {
+  const settle = Effect.fnUntraced(function* (now: number) {
     for (const [tradeNumber, arrival] of arrivals) {
       if (arrival.arrivedAt + MERGE_WINDOW > now) return
       arrivals.delete(tradeNumber)
       const { trade } = arrival
       settledTrades.set(tradeNumber, trade)
       if (!counts(trade)) continue
-      const slot = slotOf(trade.code, minuteOf(trade.time))
+      const slot = yield* slotOf(trade.code, minuteOf(trade.time))
       slot.open.delete(tradeNumber)
       slot.settled = add(slot.settled, printOf(trade))
       unflushed.add(slot)
     }
-  }
+  })
 
   // A trade as the tape now holds it: new (`held` undefined), or merged from
   // what it held before.
@@ -200,14 +266,14 @@ export const makeCandleBook = Effect.sync(() => {
     current: RunningTrade
   ) {
     const now = yield* Clock.currentTimeMillis
-    settle(now)
+    yield* settle(now)
     const arrival = arrivals.get(current.tradeNumber)
     if (held !== undefined) {
       if (arrival === undefined) return
       arrival.trade = current
       if (sameCandlePart(held, current)) return
       if (counts(held)) {
-        const before = slotOf(held.code, minuteOf(held.time))
+        const before = yield* slotOf(held.code, minuteOf(held.time))
         before.open.delete(held.tradeNumber)
         changed.add(before)
       }
@@ -215,7 +281,7 @@ export const makeCandleBook = Effect.sync(() => {
       arrivals.set(current.tradeNumber, { arrivedAt: now, trade: current })
     }
     if (!counts(current)) return
-    const slot = slotOf(current.code, minuteOf(current.time))
+    const slot = yield* slotOf(current.code, minuteOf(current.time))
     slot.open.set(current.tradeNumber, current)
     changed.add(slot)
   })
@@ -240,7 +306,7 @@ export const makeCandleBook = Effect.sync(() => {
     }
     const base = before ?? totals
     indexTotals.set(price.code, totals)
-    const slot = slotOf(price.code, minuteOf(price.time))
+    const slot = yield* slotOf(price.code, minuteOf(price.time))
     slot.settled = add(slot.settled, {
       order: BigInt(time),
       price: last,
@@ -254,33 +320,50 @@ export const makeCandleBook = Effect.sync(() => {
     unflushed.add(slot)
   })
 
-  // One code's candles so far, ascending by minute.
-  const candlesOf = (code: StockCode) =>
-    Effect.sync(() =>
-      [...(series.get(code)?.values() ?? [])]
-        .sort((a, b) => a.minute - b.minute)
-        .flatMap((slot) => candleOf(slot) ?? [])
-    )
+  // One code's figures for the minutes after `after`, every minute when
+  // undefined: the store's candles with the book's laid over them, by minute.
+  const historyOf = Effect.fnUntraced(function* (
+    code: StockCode,
+    after: number | undefined
+  ) {
+    const minutes = new Map<number, CandleFigures>()
+    for (const stored of yield* store.storedCandlesOf(code, after))
+      minutes.set(stored.minute, stored.figures)
+    for (const slot of series.get(code)?.values() ?? []) {
+      if (after !== undefined && slot.minute <= after) continue
+      const figures = figuresOf(slot)
+      if (figures !== undefined) minutes.set(slot.minute, figures)
+    }
+    return minutes
+  })
 
-  // One code's candles for the minutes after `minute`, folded into one; the
-  // Day state fallback carries a `liveprice` frame on by them.
-  const foldAfter = (code: StockCode, minute: number) =>
-    Effect.sync(() => {
-      let folded: CandleFigures | undefined
-      for (const slot of series.get(code)?.values() ?? []) {
-        if (slot.minute <= minute) continue
-        const figures = figuresOf(slot)
-        if (figures === undefined) continue
-        folded = folded === undefined ? figures : fold(folded, figures)
-      }
-      return folded
-    })
+  // One code's candles so far, ascending by minute.
+  const candlesOf = Effect.fnUntraced(function* (code: StockCode) {
+    return [...(yield* historyOf(code, undefined))]
+      .sort(([a], [b]) => a - b)
+      .map(([minute, figures]) => candleFrom(code, minute, figures))
+  })
+
+  // One code's candles for the minutes after `minute`, every minute when
+  // undefined, folded into one; the Day state fallback carries a `liveprice`
+  // frame on by them.
+  const foldAfter = Effect.fnUntraced(function* (
+    code: StockCode,
+    minute: number | undefined
+  ) {
+    let folded: CandleFigures | undefined
+    for (const figures of (yield* historyOf(code, minute)).values())
+      folded = folded === undefined ? figures : fold(folded, figures)
+    return folded
+  })
 
   // Every candle changed since the last call, of any code.
   const takeChanged = Effect.sync(() => {
     const slots = changed
     changed = new Set()
-    return [...slots].flatMap((slot) => candleOf(slot) ?? [])
+    const candles = [...slots].flatMap((slot) => candleOf(slot) ?? [])
+    for (const slot of slots) release(slot)
+    return candles
   })
 
   const hasChanges = Effect.sync(() => changed.size > 0)
@@ -288,7 +371,7 @@ export const makeCandleBook = Effect.sync(() => {
   // A trade still inside its merge window, as the book holds it: a second
   // feed's copy merges into it even once the tape evicted it.
   const openTrade = Effect.fnUntraced(function* (tradeNumber: TradeNumber) {
-    settle(yield* Clock.currentTimeMillis)
+    yield* settle(yield* Clock.currentTimeMillis)
     return arrivals.get(tradeNumber)?.trade
   })
 
@@ -300,37 +383,44 @@ export const makeCandleBook = Effect.sync(() => {
     )
 
   // What a flush writes: the trades whose merge window closed by `now`, and
-  // the settled figures of every candle they or an index frame changed. At
-  // the seal `now` is the end of time: every window closes.
+  // the settled figures of every candle they or an index frame changed,
+  // with those an earlier flush took but didn't write. At the seal `now` is
+  // the end of time: every window closes.
   const takeSettled = Effect.fnUntraced(function* (final: boolean) {
-    settle(final ? Infinity : yield* Clock.currentTimeMillis)
+    yield* settle(final ? Infinity : yield* Clock.currentTimeMillis)
     const trades = [...settledTrades.values()]
-    const candles = [...unflushed].flatMap((slot) =>
+    for (const slot of unflushed) flushing.add(slot)
+    unflushed = new Set()
+    const candles = [...flushing].flatMap((slot) =>
       slot.settled === undefined
         ? []
         : [{ code: slot.code, minute: slot.minute, figures: slot.settled }]
     )
     settledTrades = new Map()
-    unflushed = new Set()
     return { trades, candles }
   })
 
-  // Trades still waiting for their merge window to close.
-  const hasUnsettled = Effect.sync(() => arrivals.size > 0)
+  // The flush that took the last `takeSettled` landed: its candles leave the
+  // book unless they are changing again.
+  const written = Effect.sync(() => {
+    const slots = flushing
+    flushing = new Set()
+    for (const slot of slots) release(slot)
+  })
 
-  // A restarted object's stored candles, and its indices' last frames, so new
-  // trades and frames add to them.
-  const restore = (
-    stored: ReadonlyArray<{
-      readonly code: StockCode
-      readonly minute: number
-      readonly figures: CandleFigures
-    }>,
-    indexPrices: ReadonlyArray<LivePrice>
-  ) =>
+  // Whether a flush has anything of the book's to write: trades waiting for
+  // their merge window to close, or candles not written yet.
+  const hasUnflushed = Effect.sync(
+    () =>
+      arrivals.size > 0 ||
+      settledTrades.size > 0 ||
+      unflushed.size > 0 ||
+      flushing.size > 0
+  )
+
+  // A restarted object's indices' last frames, so new frames add to them.
+  const restore = (indexPrices: ReadonlyArray<LivePrice>) =>
     Effect.sync(() => {
-      for (const { code, minute, figures } of stored)
-        slotOf(code, minute).settled = figures
       for (const price of indexPrices) {
         if (!price.isIndex || price.last === undefined) continue
         indexTotals.set(price.code, {
@@ -343,6 +433,13 @@ export const makeCandleBook = Effect.sync(() => {
       }
     })
 
+  // How many candles the book holds: the bound's measure.
+  const retained = Effect.sync(() => {
+    let count = 0
+    for (const minutes of series.values()) count += minutes.size
+    return count
+  })
+
   return {
     trade,
     indexPrice,
@@ -353,7 +450,9 @@ export const makeCandleBook = Effect.sync(() => {
     openTrade,
     holds,
     takeSettled,
-    hasUnsettled,
+    written,
+    hasUnflushed,
     restore,
+    retained,
   }
 })
