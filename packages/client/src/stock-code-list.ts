@@ -27,12 +27,15 @@ const KIND_RANK: Record<ListedCode["kind"], number> = {
 
 // How well a code matches the query: the code itself, a code starting with
 // it, then a name containing it. None for no match.
-const matchRank = (listed: ListedCode, query: string) => {
+const matchRank = Effect.fnUntraced(function* (
+  listed: ListedCode,
+  query: string
+) {
   if (listed.code === query) return 0
   if (listed.code.startsWith(query)) return 1
   if (listed.name.toUpperCase().includes(query)) return 2
   return undefined
-}
+})
 
 // The codes a search offers, best first: by match, then shares and indices
 // above warrants and rights, then shorter codes, then A to Z. An empty query offers the
@@ -43,11 +46,12 @@ export const searchStockCodes = Effect.fnUntraced(function* (
   limit: number
 ) {
   const wanted = query.trim().toUpperCase()
-  return codes
-    .flatMap((listed) => {
-      const rank = matchRank(listed, wanted)
-      return rank === undefined ? [] : [{ listed, rank }]
-    })
+  const matches: Array<{ listed: ListedCode; rank: number }> = []
+  for (const listed of codes) {
+    const rank = yield* matchRank(listed, wanted)
+    if (rank !== undefined) matches.push({ listed, rank })
+  }
+  return matches
     .sort(
       (a, b) =>
         a.rank - b.rank ||

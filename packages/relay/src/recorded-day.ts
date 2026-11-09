@@ -57,15 +57,16 @@ export const stockCodeListPath = (date: WibDate) =>
 const decodeDate = Schema.decodeUnknownOption(WibDate)
 const decodeCode = Schema.decodeUnknownOption(StockCode)
 
-const instantOf = (text: string | undefined) =>
-  text !== undefined && /^\d{1,15}$/.test(text)
+const instantOf = Effect.fnUntraced(function* (text: string | undefined) {
+  return text !== undefined && /^\d{1,15}$/.test(text)
     ? Option.some(DateTime.makeUnsafe(Number(text)))
     : Option.none<DateTime.Utc>()
+})
 
 // A query's parameters: the paths above carry digits only, so nothing in
 // them is escaped.
-const parametersOf = (search: string) =>
-  new Map(
+const parametersOf = Effect.fnUntraced(function* (search: string) {
+  return new Map(
     search
       .replace(/^\?/, "")
       .split("&")
@@ -76,18 +77,19 @@ const parametersOf = (search: string) =>
           : ([pair.slice(0, at), pair.slice(at + 1)] as const)
       })
   )
+})
 
-const resourceOf = (
+const resourceOf = Effect.fnUntraced(function* (
   parts: ReadonlyArray<string>,
   search: ReadonlyMap<string, string>
-): Option.Option<RecordedResource> => {
+): Effect.fn.Return<Option.Option<RecordedResource>> {
   const [kind, code, ...rest] = parts
   if (rest.length > 0) return Option.none()
   if (code === undefined) {
     if (kind === "codes") return Option.some({ _tag: "Codes" })
     if (kind === "gaps") return Option.some({ _tag: "Gaps" })
     if (kind === "trades")
-      return Option.map(instantOf(search.get("at")), (at) => ({
+      return Option.map(yield* instantOf(search.get("at")), (at) => ({
         _tag: "Tape" as const,
         at,
       }))
@@ -101,11 +103,11 @@ const resourceOf = (
   if (kind === "books")
     return Option.zipWith(
       decodeCode(code),
-      instantOf(search.get("minute")),
+      yield* instantOf(search.get("minute")),
       (stock, minute) => ({ _tag: "Book" as const, code: stock, minute })
     )
   return Option.none()
-}
+})
 
 // The day and resource a request's path and query name; none for any other
 // path, the day strip's included. A URL fits `location`.
@@ -113,14 +115,14 @@ export const recordedDayRequest = (location: {
   readonly pathname: string
   readonly search: string
 }) =>
-  Effect.sync(() => {
+  Effect.gen(function* () {
     const url = location
     if (!url.pathname.startsWith(`${DAYS}/`))
       return Option.none<{ date: WibDate; resource: RecordedResource }>()
     const [day, ...parts] = url.pathname.slice(DAYS.length + 1).split("/")
     return Option.zipWith(
       decodeDate(day),
-      resourceOf(parts, parametersOf(url.search)),
+      yield* resourceOf(parts, yield* parametersOf(url.search)),
       (date, resource) => ({ date, resource })
     )
   })

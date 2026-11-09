@@ -254,20 +254,21 @@ export type PhaseInterval = Interval & { readonly phase: MarketPhase }
 export const marketPhases = Effect.fnUntraced(function* (date: WibDate) {
   if (!(yield* isTradingDay(date))) return []
   const { weekDay } = DateTime.toPartsUtc(DateTime.makeUnsafe(date))
-  return (weekDay === 5 ? friday : mondayToThursday).map(
-    (stretch): PhaseInterval => ({
-      phase: stretch.phase,
-      ...intervalOf(date, stretch),
-    })
-  )
+  const phases: Array<PhaseInterval> = []
+  for (const stretch of weekDay === 5 ? friday : mondayToThursday)
+    phases.push({ phase: stretch.phase, ...(yield* intervalOf(date, stretch)) })
+  return phases
 })
 
 // The instants of one span on `date`.
-const intervalOf = (date: WibDate, span: Span): Interval => ({
-  from: DateTime.makeUnsafe(`${date}T${span.first}+07:00`),
-  to: DateTime.add(DateTime.makeUnsafe(`${date}T${span.last}+07:00`), {
-    seconds: 1,
-  }),
+const intervalOf = Effect.fnUntraced(function* (date: WibDate, span: Span) {
+  const interval: Interval = {
+    from: DateTime.makeUnsafe(`${date}T${span.first}+07:00`),
+    to: DateTime.add(DateTime.makeUnsafe(`${date}T${span.last}+07:00`), {
+      seconds: 1,
+    }),
+  }
+  return interval
 })
 
 // The stretches of `date` that expect trades, in order: the 08:58 match
@@ -278,12 +279,13 @@ export const expectedStretches = Effect.fnUntraced(function* (date: WibDate) {
   if (!(yield* isTradingDay(date))) return []
   const { weekDay } = DateTime.toPartsUtc(DateTime.makeUnsafe(date))
   const day = weekDay === 5 ? friday : mondayToThursday
-  const spans = [
+  const spans: Array<Interval> = []
+  for (const span of [
     ...auctionMatchMinutes,
     ...day.filter((stretch) => tradingPhases.has(stretch.phase)),
-  ]
-    .map((span) => intervalOf(date, span))
-    .sort((a, b) => DateTime.Order(a.from, b.from))
+  ])
+    spans.push(yield* intervalOf(date, span))
+  spans.sort((a, b) => DateTime.Order(a.from, b.from))
   const joined: Array<Interval> = []
   for (const span of spans) {
     const last = joined.at(-1)
