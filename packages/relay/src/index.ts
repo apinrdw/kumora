@@ -16,6 +16,8 @@ export {
   AjaibFrames,
   Backfill,
   CodeList,
+  Connection,
+  Feed,
   FeedStatus,
   IngestCloseCode,
   IngestProtocolVersion,
@@ -39,8 +41,6 @@ export {
   encodeViewerUp,
 } from "./envelope.ts"
 export type {
-  Connection,
-  Feed,
   IngestDown,
   IngestUp,
   RunningTrade,

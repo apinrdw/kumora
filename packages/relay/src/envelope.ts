@@ -39,10 +39,10 @@ export const MarketLivePath = {
   live: "/market-live/live",
 } as const
 
-const Feed = Schema.Literals(["Stockbit", "Ajaib"])
+export const Feed = Schema.Literals(["Stockbit", "Ajaib"])
 export type Feed = typeof Feed.Type
 
-const Connection = Schema.Literals(["A", "B"])
+export const Connection = Schema.Literals(["A", "B"])
 export type Connection = typeof Connection.Type
 
 // Decision: a trade number travels as a string of digits. The date-prefixed
