@@ -3,6 +3,15 @@
   // Workers Builds runs this by path (docs/runbooks/deploy.md, step 4), so no
   // module imports it.
   "entry": ["packages/deploy/src/deploy.ts"],
+  // The Workers runtime calls a Durable Object's handlers; no module does
+  // (apps/dashboard/src/server/market-live/trading-day-object.ts).
+  "usedClassMembers": [
+    "fetch",
+    "webSocketMessage",
+    "webSocketClose",
+    "webSocketError",
+    "alarm"
+  ],
   // Decision: alchemy and @alchemy.run/cloudflare load these optional peers at
   // runtime; without them `alchemy dev` fails with "could not load the required
   // peer dependency @effect/platform-bun". pnpm never auto-installs optional

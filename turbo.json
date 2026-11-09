@@ -32,6 +32,9 @@
         // Read by apps/dashboard/alchemy.run.ts; apps/e2e/playwright.config.ts
         // sets it for the Test stage.
         "ADMIN_EMAILS",
+        // Read by apps/dashboard/alchemy.run.ts on the Test stage, like
+        // ADMIN_EMAILS; apps/e2e/playwright.config.ts sets it.
+        "INGEST_TOKEN",
         "ALCHEMY_STAGE",
         "ALCHEMY_PROFILE"
       ]

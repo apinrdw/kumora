@@ -99,9 +99,15 @@ importers:
       '@tanstack/react-start':
         specifier: latest
         version: 1.169.5(esbuild@0.28.2)(react-dom@19.3.0(react@19.3.0))(react@19.3.0)(rolldown@1.2.13)(rollup@2.80.0)(vite@8.3.4(@types/node@22.20.5)(esbuild@0.28.2)(jiti@2.7.0)(tsx@4.21.0)(yaml@2.9.1))
+      '@workspace/client':
+        specifier: workspace:*
+        version: link:../../packages/client
       '@workspace/deploy':
         specifier: workspace:*
         version: link:../../packages/deploy
+      '@workspace/relay':
+        specifier: workspace:*
+        version: link:../../packages/relay
       '@workspace/server':
         specifier: workspace:*
         version: link:../../packages/server
@@ -181,6 +187,9 @@ importers:
       '@workspace/deploy':
         specifier: workspace:*
         version: link:../../packages/deploy
+      '@workspace/relay':
+        specifier: workspace:*
+        version: link:../../packages/relay
       effect:
         specifier: 'catalog:'
         version: 4.1.2

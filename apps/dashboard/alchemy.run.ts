@@ -92,6 +92,9 @@ export const Website = Cloudflare.Website.Vite(
     return {
       ...(yield* websiteProps("dashboard", stage)),
       rootDir: import.meta.dirname,
+      // Market Live's sockets ahead of TanStack Start, and the Durable Object
+      // classes (spec apinrdw/kumora#138, "The custom Worker entry and the gate").
+      main: "src/worker.ts",
       dev: { port: DEV_PORTS.dashboard, strictPort: true },
       env: {
         AUTH_DB: AuthDb,
@@ -108,6 +111,14 @@ export const Website = Cloudflare.Website.Vite(
         // it, turbo.json passes it through). Redacted, so it binds as
         // secret_text like the other Infisical values (packages/deploy/src/stack.ts).
         ADMIN_EMAILS: Config.Redacted("ADMIN_EMAILS"),
+        // The relay's shared secret: Infisical /dashboard of `prod` and
+        // `staging` (Previews and Dev stages share staging's); the process
+        // environment on the Test stage, like ADMIN_EMAILS.
+        INGEST_TOKEN: Config.Redacted("INGEST_TOKEN"),
+        // One trading-day object per WIB date; src/worker.ts exports the
+        // class. Untyped: the object has no RPC, only fetch, and its module
+        // needs Workers types the tests' typecheck runs without.
+        TRADING_DAY: Cloudflare.DurableObject("TradingDay"),
         ...google,
       },
     }
