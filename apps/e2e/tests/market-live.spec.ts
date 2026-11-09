@@ -22,6 +22,11 @@ test.describe("signed in", () => {
     await expect(row("22265")).toContainText("BREN")
     await expect(row("22265")).toContainText("09:00:00")
     await expect(row("22265")).toContainText("2,130")
+    // One dot for the one feed that saw it, explained by the header legend.
+    await expect(row("22265").getByRole("img")).toHaveAccessibleName("Ajaib")
+    await expect(
+      tape.getByRole("list", { name: "Sources" }).getByRole("listitem")
+    ).toHaveText(["Stockbit", "Ajaib", "Backfill"])
 
     // After: a delta. 22266 arrives late and sorts below 22268.
     await relay.sendAjaib(frames.slice(10, 20))
