@@ -191,9 +191,9 @@ interface Totals {
 // the day, bounded by the codes trading in it, however long the day runs
 // (CODING_STANDARDS.md, "Bounded memory on a Worker"); a code's candles so
 // far are read from the store when a snapshot or the Day state fallback asks,
-// and a restart reads nothing back. A flush that fails leaves its candles in
-// the book, and the next flush writes them again, with the trades the failed
-// one took (trading-day.ts).
+// and a restart reads nothing back. A flush that fails leaves its candles and
+// trades in the book, held until the write lands, so a late copy of a trade
+// it took is not counted again, and the next flush writes them (trading-day.ts).
 export const makeCandleBook = Effect.fnUntraced(function* (
   store: SettledCandles
 ) {
@@ -209,8 +209,9 @@ export const makeCandleBook = Effect.fnUntraced(function* (
   // and the candles whose settled figures changed.
   let settledTrades = new Map<string, RunningTrade>()
   let unflushed = new Set<Slot>()
-  // The candles a flush took and hasn't written yet.
+  // The candles and trades a flush took and hasn't written yet.
   let flushing = new Set<Slot>()
+  let flushingTrades = new Map<string, RunningTrade>()
 
   const slotOf = Effect.fnUntraced(function* (code: StockCode, minute: number) {
     let minutes = series.get(code)
@@ -377,19 +378,24 @@ export const makeCandleBook = Effect.fnUntraced(function* (
   })
 
   // Whether the book holds a trade the store doesn't have yet: inside its
-  // merge window, or settled since the last flush.
+  // merge window, settled since the last flush, or taken by a flush that
+  // hasn't landed.
   const holds = (tradeNumber: TradeNumber) =>
     Effect.sync(
-      () => arrivals.has(tradeNumber) || settledTrades.has(tradeNumber)
+      () =>
+        arrivals.has(tradeNumber) ||
+        settledTrades.has(tradeNumber) ||
+        flushingTrades.has(tradeNumber)
     )
 
   // What a flush writes: the trades whose merge window closed by `now`, and
   // the settled figures of every candle they or an index frame changed,
-  // with those an earlier flush took but didn't write. At the seal `now` is
-  // the end of time: every window closes.
+  // with the trades and candles an earlier flush took but didn't write. At
+  // the seal `now` is the end of time: every window closes.
   const takeSettled = Effect.fnUntraced(function* (final: boolean) {
     yield* settle(final ? Infinity : yield* Clock.currentTimeMillis)
-    const trades = [...settledTrades.values()]
+    for (const entry of settledTrades) flushingTrades.set(...entry)
+    settledTrades = new Map()
     for (const slot of unflushed) flushing.add(slot)
     unflushed = new Set()
     const candles = [...flushing].flatMap((slot) =>
@@ -397,24 +403,25 @@ export const makeCandleBook = Effect.fnUntraced(function* (
         ? []
         : [{ code: slot.code, minute: slot.minute, figures: slot.settled }]
     )
-    settledTrades = new Map()
-    return { trades, candles }
+    return { trades: [...flushingTrades.values()], candles }
   })
 
-  // The flush that took the last `takeSettled` landed: its candles leave the
-  // book unless they are changing again.
+  // The flush that took the last `takeSettled` landed: its trades leave the
+  // book, and its candles unless they are changing again.
   const written = Effect.sync(() => {
+    flushingTrades = new Map()
     const slots = flushing
     flushing = new Set()
     for (const slot of slots) release(slot)
   })
 
   // Whether a flush has anything of the book's to write: trades waiting for
-  // their merge window to close, or candles not written yet.
+  // their merge window to close, or trades and candles not written yet.
   const hasUnflushed = Effect.sync(
     () =>
       arrivals.size > 0 ||
       settledTrades.size > 0 ||
+      flushingTrades.size > 0 ||
       unflushed.size > 0 ||
       flushing.size > 0
   )

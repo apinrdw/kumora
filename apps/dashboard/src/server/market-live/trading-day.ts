@@ -106,7 +106,8 @@ const TAPE_LIMIT = 10_000
 // that instant. Each trade is written once. A flush whose write failed keeps
 // what it took, and the next flush, a minute later, writes it with what
 // settled since, so a candle is never stored without the trades it counted;
-// the candle book keeps its own (candles.ts). A restart loses at most the
+// the candle book keeps the trades and candles, still held against a late
+// copy (candles.ts), and the day the rest. A restart loses at most the
 // minute in progress and an unwritten flush, which the relay's backfill
 // refills from the next gap.
 const MINUTE = 60_000
@@ -321,8 +322,9 @@ export const makeTradingDay = Effect.fnUntraced(function* (options: {
   const lastLivePrices = new Map<StockCode, LivePrice>()
   let livePricesChanged = new Map<StockCode, LivePrice>()
   let flushScheduled = false
-  // What a flush took whose write failed; the next flush writes it.
-  let unwritten: Flush | undefined
+  // What a flush took whose write failed, apart from the trades and candles
+  // the candle book keeps; the next flush writes it.
+  let unwritten: Pick<Flush, "livePrices" | "chunks" | "ajaibBooks"> | undefined
 
   if (restoring)
     for (const price of yield* restoreLastFrames({
@@ -350,8 +352,8 @@ export const makeTradingDay = Effect.fnUntraced(function* (options: {
     return encoded !== sentConditions || (yield* market.indicativePending)
   })
 
-  // Whether the day holds `trade` outside the tape: in the candle book's
-  // merge window, waiting for a flush, or stored. The store is asked only
+  // Whether the day holds `trade` outside the tape: in the candle book, inside
+  // its merge window or waiting for a flush to land, or stored. The store is asked only
   // when it could hold it: below a full tape, or at or below what it held
   // when this object started.
   const heldOutsideTape = Effect.fnUntraced(function* (
@@ -511,9 +513,9 @@ export const makeTradingDay = Effect.fnUntraced(function* (options: {
   })
 
   // Writes what the day recorded since the last flush in one transaction,
-  // with what a failed flush took. The candles come from the book, which
-  // kept a failed flush's. At the seal every merge window and open chunk
-  // closes.
+  // with what a failed flush took. The trades and candles come from the
+  // book, which kept a failed flush's. At the seal every merge window and
+  // open chunk closes.
   const flush = Effect.fnUntraced(function* (
     final: boolean,
     facts: Readonly<Record<string, string>> = {}
@@ -525,7 +527,7 @@ export const makeTradingDay = Effect.fnUntraced(function* (options: {
     const ajaibBooks = yield* books.takeAjaibBooks
     const retained = unwritten
     const payload: Flush = {
-      trades: [...(retained?.trades ?? []), ...settled.trades],
+      trades: settled.trades,
       candles: settled.candles,
       livePrices: latestByCode(retained?.livePrices ?? [], livePrices),
       chunks: [...(retained?.chunks ?? []), ...chunks],
