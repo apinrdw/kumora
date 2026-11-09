@@ -7,6 +7,7 @@ import { DateTime, Effect, Option } from "effect"
 
 import { Auth } from "../auth/auth.ts"
 import { gateLiveViewer } from "./gate.ts"
+import { withMarketClock } from "./market-clock.ts"
 import { ObjectPath, ViewerHeader } from "./routes.ts"
 
 const toTradingDay = Effect.fnUntraced(function* (
@@ -14,7 +15,7 @@ const toTradingDay = Effect.fnUntraced(function* (
   headers: Readonly<Record<string, string>>
 ) {
   const env = yield* WorkerEnv
-  const today = yield* wibDateAt(yield* DateTime.now)
+  const today = yield* withMarketClock(Effect.flatMap(DateTime.now, wibDateAt))
   const object = env.TRADING_DAY.getByName(today)
   // A new request, so only these headers reach the object.
   const request = new Request(new URL(path, "https://trading-day.invalid"), {

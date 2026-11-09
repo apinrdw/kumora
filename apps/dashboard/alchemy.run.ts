@@ -1,6 +1,7 @@
 import * as Cloudflare from "@alchemy.run/cloudflare"
 import {
   DEV_PORTS,
+  TEST,
   isReleaseStage,
   stackName,
   stageKind,
@@ -89,6 +90,23 @@ export const Website = Cloudflare.Website.Vite(
           GOOGLE_CLIENT_SECRET: Config.Redacted("GOOGLE_CLIENT_SECRET"),
         }
       : {}
+    // Decision: the Test stage alone takes a Market Live clock offset (ms),
+    // so the e2e opens the page in a chosen market phase; no deployed stage
+    // can shift it. apps/e2e/support/clock.ts sets it, turbo.json passes it
+    // through. See src/server/market-live/market-clock.ts.
+    const clockOffset: Partial<
+      Record<
+        "MARKET_LIVE_CLOCK_OFFSET",
+        Config.Config<Redacted.Redacted<string>>
+      >
+    > =
+      stage === TEST
+        ? {
+            MARKET_LIVE_CLOCK_OFFSET: Config.Redacted(
+              "MARKET_LIVE_CLOCK_OFFSET"
+            ),
+          }
+        : {}
     return {
       ...(yield* websiteProps("dashboard", stage)),
       rootDir: import.meta.dirname,
@@ -120,6 +138,7 @@ export const Website = Cloudflare.Website.Vite(
         // needs Workers types the tests' typecheck runs without.
         TRADING_DAY: Cloudflare.DurableObject("TradingDay"),
         ...google,
+        ...clockOffset,
       },
     }
   })

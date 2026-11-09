@@ -9,14 +9,16 @@ import {
   decodeIngestUp,
   decodeViewerUp,
   encodeViewerDown,
+  MarketStatus,
   marketMomentAt,
   type RunningTrade,
   type WibDate,
 } from "@workspace/relay"
 import { WorkerEnv } from "@workspace/server"
-import { Effect, Scope } from "effect"
+import { Effect, Schema, Scope } from "effect"
 
 import { ajaibTrades } from "./ajaib.ts"
+import { makeMarketStatus } from "./market-status.ts"
 import { stockbitTrades } from "./stockbit.ts"
 
 // A socket's progress. An ingest socket is `ready` once its token checked out;
@@ -97,6 +99,12 @@ const settleSide = Effect.fnUntraced(function* (trade: RunningTrade) {
   return sideless ? { ...trade, side: "none" as const } : trade
 })
 
+// How often the object checks whether the market status changed: a feed
+// going stale is noticed within this.
+const STATUS_INTERVAL = "1 second"
+
+const encodeStatus = Schema.encodeEffect(Schema.fromJsonString(MarketStatus))
+
 const sha256 = (text: string) =>
   Effect.promise(() =>
     crypto.subtle.digest("SHA-256", new TextEncoder().encode(text))
@@ -114,6 +122,11 @@ export const makeTradingDay = Effect.fnUntraced(function* (options: {
   // by trade number.
   let pending = new Map<string, RunningTrade>()
   let deltaScheduled = false
+  const market = yield* makeMarketStatus(options.date)
+  // The market status viewers were last sent, encoded.
+  let sentStatus = ""
+  let relayOnline = false
+  let checking = false
 
   // Merges each trade into the tape: a new trade number is inserted in its
   // place, a known one merged with what other feeds saw. A trade older than a
@@ -149,19 +162,54 @@ export const makeTradingDay = Effect.fnUntraced(function* (options: {
       TradeNumberOrder(a.tradeNumber, b.tradeNumber)
     )
     pending = new Map()
-    if (trades.length === 0) return
-    const text = yield* encodeViewerDown({ _tag: "Delta", tape: trades })
+    const status = yield* market.status
+    const encoded = yield* encodeStatus(status)
+    const statusChanged = encoded !== sentStatus
+    sentStatus = encoded
+    const indicative = yield* market.indicativeChanges
+    if (trades.length === 0 && !statusChanged && indicative.length === 0) return
+    const text = yield* encodeViewerDown({
+      _tag: "Delta",
+      tape: trades,
+      ...(statusChanged ? { status } : {}),
+      ...(indicative.length > 0 ? { indicative } : {}),
+    })
     for (const viewer of yield* options.viewers) {
       if ((yield* viewer.state) === "ready") yield* viewer.send(text)
     }
   })
 
   const scheduleDelta = Effect.suspend(() => {
-    if (deltaScheduled || pending.size === 0) return Effect.void
+    if (deltaScheduled) return Effect.void
     deltaScheduled = true
     return Effect.sleep(DELTA_INTERVAL).pipe(
       Effect.andThen(sendDelta),
       Effect.catchCause((cause) => Effect.logError("Delta not sent", cause)),
+      Effect.forkIn(scope),
+      Effect.asVoid
+    )
+  })
+
+  // Decision: while a relay or a viewer is connected, the object looks at the
+  // market status every second and sends a delta when it changed, so a feed
+  // going stale or the phase turning reaches viewers without a frame. Alone,
+  // it stops, and the object can hibernate.
+  const checkStatus: Effect.Effect<void> = Effect.suspend(() => {
+    if (checking) return Effect.void
+    checking = true
+    const loop: Effect.Effect<void> = Effect.gen(function* () {
+      yield* Effect.sleep(STATUS_INTERVAL)
+      if (!relayOnline && (yield* options.viewers).length === 0) {
+        checking = false
+        return
+      }
+      yield* scheduleDelta
+      yield* loop
+    })
+    return loop.pipe(
+      Effect.catchCause((cause) =>
+        Effect.logError("Status not checked", cause)
+      ),
       Effect.forkIn(scope),
       Effect.asVoid
     )
@@ -178,10 +226,19 @@ export const makeTradingDay = Effect.fnUntraced(function* (options: {
     function* (socket: Peer, text: string) {
       const message = yield* decodeIngestUp(text)
       if ((yield* socket.state) === "new") {
-        if (message._tag === "Token" && (yield* tokenMatches(message.token)))
-          return yield* socket.setState("ready")
+        if (message._tag === "Token" && (yield* tokenMatches(message.token))) {
+          yield* socket.setState("ready")
+          relayOnline = true
+          yield* market.relayOnline
+          yield* scheduleDelta
+          return yield* checkStatus
+        }
         return yield* socket.close(IngestCloseCode.RejectedToken, "Bad token")
       }
+      relayOnline = true
+      yield* market.ingest(message)
+      yield* scheduleDelta
+      yield* checkStatus
       if (message._tag !== "Frames") return
       yield* insert(
         message.feed === "Stockbit"
@@ -200,13 +257,17 @@ export const makeTradingDay = Effect.fnUntraced(function* (options: {
   // after which the socket gets deltas.
   const viewerMessage = Effect.fnUntraced(
     function* (socket: Peer, text: string) {
-      yield* decodeViewerUp(text)
+      const { selected } = yield* decodeViewerUp(text)
+      const indicative = yield* market.indicativeOf(selected)
       const snapshot = yield* encodeViewerDown({
         _tag: "Snapshot",
         tape: tape.slice(-SNAPSHOT_TRADES),
+        status: yield* market.status,
+        ...(indicative === undefined ? {} : { indicative }),
       })
       yield* socket.send(snapshot)
       yield* socket.setState("ready")
+      yield* checkStatus
     },
     (effect, socket) =>
       Effect.catchTag(effect, "ProtocolVersionMismatch", (error) =>
@@ -214,5 +275,14 @@ export const makeTradingDay = Effect.fnUntraced(function* (options: {
       )
   )
 
-  return { ingestMessage, viewerMessage }
+  // A ready ingest socket closed, leaving `remaining` ready ones. With none,
+  // the relay is offline.
+  const ingestClosed = Effect.fnUntraced(function* (remaining: number) {
+    if (remaining > 0 || !relayOnline) return
+    relayOnline = false
+    yield* market.relayOffline
+    yield* scheduleDelta
+  })
+
+  return { ingestMessage, viewerMessage, ingestClosed }
 })

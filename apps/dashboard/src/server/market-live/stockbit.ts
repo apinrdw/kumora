@@ -2,7 +2,8 @@
 // "Decoding (Worker-side)"). The schema is `securities.transactional.datafeed.v1`
 // from Stockbit's public bundle; only the fields Market Live reads are decoded,
 // by field number, and a frame that isn't a running trade batch is skipped:
-// other tickets decode `liveprice`, `order_book` and `iepiev`.
+// indicative.ts reads `iepiev` with the same reader (`fieldReader`,
+// `messagesAt`); other tickets decode `liveprice` and `order_book`.
 import {
   StockCode,
   TradeNumber,
@@ -78,13 +79,13 @@ const fieldsOf = (bytes: Uint8Array): ReadonlyArray<Field> | undefined => {
   return fields
 }
 
-const bytesOf = (value: Value | undefined) =>
+export const bytesOf = (value: Value | undefined) =>
   value instanceof Uint8Array ? value : undefined
-const numberOf = (value: Value | undefined) =>
+export const numberOf = (value: Value | undefined) =>
   typeof value === "number" ? value : undefined
 
 // The embedded messages in field `number` of a message.
-const messagesAt = (bytes: Uint8Array, number: number) =>
+export const messagesAt = (bytes: Uint8Array, number: number) =>
   (fieldsOf(bytes) ?? []).flatMap((field) => {
     const message = bytesOf(field.value)
     return field.number === number && message !== undefined ? [message] : []
@@ -131,12 +132,19 @@ const instantOf = (bytes: Uint8Array | undefined) => {
   return DateTime.makeUnsafe(part(1) * 1000 + Math.floor(part(2) / 1e6))
 }
 
-// One `RunningTrade`, or undefined when a field the tape needs is missing.
-const tradeOf = (bytes: Uint8Array) => {
+// Reads one message's fields by number, or undefined when the bytes don't
+// parse.
+export const fieldReader = (bytes: Uint8Array) => {
   const fields = fieldsOf(bytes)
   if (fields === undefined) return undefined
-  const read = (number: number) =>
+  return (number: number) =>
     fields.find((field) => field.number === number)?.value
+}
+
+// One `RunningTrade`, or undefined when a field the tape needs is missing.
+const tradeOf = (bytes: Uint8Array) => {
+  const read = fieldReader(bytes)
+  if (read === undefined) return undefined
   const code = new TextDecoder().decode(bytesOf(read(Trade.stock)))
   const price = numberOf(read(Trade.price))
   const volume = numberOf(read(Trade.volume))

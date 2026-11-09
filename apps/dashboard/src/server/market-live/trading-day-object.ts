@@ -6,6 +6,7 @@ import { WibDate } from "@workspace/relay"
 import { runServerEffectResult } from "@workspace/server"
 import { Effect, Schema, Scope } from "effect"
 
+import { withMarketClock } from "./market-clock.ts"
 import { ObjectPath, ViewerHeader } from "./routes.ts"
 import { makeTradingDay, type Peer, type PeerState } from "./trading-day.ts"
 
@@ -66,9 +67,31 @@ export class TradingDayObject {
       typeof message === "string" ? message : new TextDecoder().decode(message)
     const peer = peerOf(socket)
     return runServerEffectResult(
-      this.ctx.getTags(socket).includes(VIEWER)
-        ? this.day.viewerMessage(peer, text)
-        : this.day.ingestMessage(peer, text)
+      withMarketClock(
+        this.ctx.getTags(socket).includes(VIEWER)
+          ? this.day.viewerMessage(peer, text)
+          : this.day.ingestMessage(peer, text)
+      )
     )
+  }
+
+  // A relay's socket closing may leave the object with none: relay offline.
+  webSocketClose(socket: WebSocket) {
+    if (!this.ctx.getTags(socket).includes(INGEST)) return undefined
+    const remaining = this.ctx
+      .getWebSockets(INGEST)
+      .filter(
+        (other) =>
+          other !== socket &&
+          other.readyState === WebSocket.OPEN &&
+          other.deserializeAttachment() === "ready"
+      ).length
+    return runServerEffectResult(
+      withMarketClock(this.day.ingestClosed(remaining))
+    )
+  }
+
+  webSocketError(socket: WebSocket) {
+    return this.webSocketClose(socket)
   }
 }

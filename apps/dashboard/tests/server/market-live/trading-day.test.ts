@@ -111,7 +111,7 @@ const relay = Effect.fnUntraced(function* (
   return socket
 })
 
-const tapeOf = (message: ViewerDown) =>
+const tapeOf = (message: Pick<ViewerDown, "tape">) =>
   message.tape.map((trade) => trade.tradeNumber)
 
 describe("the ingest socket", () => {
@@ -575,7 +575,7 @@ describe("the merged tape", () => {
         assert.lengthOf(yield* page.received, 3)
 
         const tape = yield* snapshotOf(select, viewer)
-        assert.deepStrictEqual(tapeOf({ _tag: "Snapshot", tape }).slice(0, 3), [
+        assert.deepStrictEqual(tapeOf({ tape }).slice(0, 3), [
           "22265",
           "22266",
           "22275",
