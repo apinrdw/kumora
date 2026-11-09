@@ -346,7 +346,7 @@ export function RecordedOrderBook({
   return <OrderBookPanel store={store} recorded notRecorded={inGap} />
 }
 
-// A recorded day's header status: the RECORDED pill in place of the feed
+// A recorded day's market conditions bar: the RECORDED pill in place of the feed
 // pills, the day shown and where the cursor is; while the market is shut,
 // its phase and next open.
 export function RecordedConditionsBar({
