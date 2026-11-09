@@ -286,7 +286,7 @@ export const makeDayStore = (sql: Sql) =>
     // within the skew after the instant: every trade at or before the
     // instant is at or below it, and the query's time filter drops the rest.
     const highestWithin = (cutoff: number) => {
-      const envelope = cutoff + TIME_SKEW_MS
+      const bound = cutoff + TIME_SKEW_MS
       let low = boundTrade("min")
       let high = boundTrade("max")
       if (low === undefined || high === undefined) return undefined
@@ -298,7 +298,7 @@ export const makeDayStore = (sql: Sql) =>
           high = middle - 1
           continue
         }
-        if (numberOf(row.time) <= envelope) {
+        if (numberOf(row.time) <= bound) {
           found = numberOf(row.number)
           low = found + 1
         } else high = middle - 1
