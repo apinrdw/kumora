@@ -25,6 +25,7 @@ import {
   useRelayGaps,
 } from "./market-status"
 import { signInAgain } from "./sign-in-again"
+import { tapeChangeOf } from "./tape-snapshots"
 
 // What the socket tells the object the page shows. The tape streams the whole
 // market whatever is selected.
@@ -74,10 +75,8 @@ export function LiveTape({
     listener.current = onMessage
   }, [onMessage])
 
-  // The code the socket last sent, and whether the object's answer to a
-  // changed Select is still due.
+  // The code the socket last sent.
   const sent = useRef({ selected, watchlist })
-  const reselected = useRef(false)
   useEffect(() => {
     if (
       sent.current.selected === selected &&
@@ -85,35 +84,34 @@ export function LiveTape({
     )
       return
     sent.current = { selected, watchlist }
-    reselected.current = true
     clientRuntime.runFork(
       SubscriptionRef.set(select, selectOf(selected, watchlist))
     )
   }, [select, selected, watchlist])
 
+  // Whether the next snapshot is the first on the current socket
+  // (tape-snapshots.ts): so on open and after each drop.
+  const firstOnSocket = useRef(true)
+
   useEffect(() => {
     const scheme = window.location.protocol === "https:" ? "wss" : "ws"
+    firstOnSocket.current = true
     const messages = viewerMessages({
       url: `${scheme}://${window.location.host}${MarketLivePath.live}`,
       select,
-      onReconnecting: statusReconnecting,
+      onReconnecting: Effect.andThen(
+        Effect.sync(() => {
+          firstOnSocket.current = true
+        }),
+        statusReconnecting
+      ),
     })
     const fiber = clientRuntime.runFork(
       Stream.runForEach(messages, (message) =>
         Effect.sync(() => {
           listener.current?.(message)
-          // Decision: the snapshot answering a changed Select is merged into
-          // the tape like a delta. Replacing it would cut the 10,000 trades
-          // the page keeps to the snapshot's 200 newest, and an auction
-          // match's fold with them. The chart still takes it as a snapshot.
-          if (message._tag === "Snapshot" && reselected.current) {
-            reselected.current = false
-            apply({
-              _tag: "Delta",
-              tape: message.tape,
-              candles: message.candles,
-            })
-          } else apply(message)
+          apply(tapeChangeOf(message, firstOnSocket.current))
+          if (message._tag === "Snapshot") firstOnSocket.current = false
         }).pipe(Effect.andThen(applyStatus(message)))
       ).pipe(
         Effect.catchTags({
