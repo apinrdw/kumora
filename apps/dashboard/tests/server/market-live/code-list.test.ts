@@ -49,6 +49,7 @@ const tradingDay = Effect.fnUntraced(function* (
   const day = yield* makeTradingDay({
     date: DAY,
     viewers: Effect.succeed([]),
+    viewersOf: () => Effect.succeed([]),
     codeList: {
       read: Effect.sync(() => stored.value),
       write: (text) =>

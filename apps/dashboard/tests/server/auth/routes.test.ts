@@ -75,6 +75,7 @@ const mountedRoutes = () => {
     authorizeOwnAction: noop,
     authorizeEmailChange: noop,
     authorizeAdminAction: noop,
+    endLiveSessions: noop,
   })
   const api: Record<string, Endpoint> = betterAuth(options).api
   const mounted = Object.values(api).flatMap((endpoint) => {

@@ -3,6 +3,7 @@ import { betterAuth, getCurrentAdapter, type Session } from "better-auth"
 import { Context, Effect, Layer } from "effect"
 import type { UnknownError } from "effect/Cause"
 
+import { LiveViewers } from "../market-live/live-viewers.ts"
 import { Accounts } from "./accounts.ts"
 import { AdminEmails } from "./admin-emails.ts"
 import {
@@ -43,6 +44,7 @@ export type AuthConfig = Omit<
   | "authorizeEmailChange"
   | "authorizeAdminAction"
   | "grantAdmin"
+  | "endLiveSessions"
 >
 
 // An admin viewing as the account: Better Auth's own session list leaves it
@@ -80,21 +82,25 @@ export class Auth extends Context.Service<
     Layer.effect(
       Auth,
       Effect.gen(function* () {
-        const context = yield* Effect.context<Mailer | AdminEmails | Accounts>()
+        const context = yield* Effect.context<
+          Mailer | AdminEmails | Accounts | LiveViewers
+        >()
         // The cap counts through Better Auth's adapter, joining the request's
         // transaction when there is one (a second connection would wait on
         // it forever). Callbacks run only once `auth` exists.
-        const run: CallbackRunner<Mailer | AdminEmails | Accounts | MailCap> =
-          makeCallbackRunner(
-            Context.add(
-              context,
-              MailCap,
-              MailCap.make(() =>
-                auth.$context.then((ctx) => getCurrentAdapter(ctx.adapter))
-              )
+        const run: CallbackRunner<
+          Mailer | AdminEmails | Accounts | LiveViewers | MailCap
+        > = makeCallbackRunner(
+          Context.add(
+            context,
+            MailCap,
+            MailCap.make(() =>
+              auth.$context.then((ctx) => getCurrentAdapter(ctx.adapter))
             )
           )
+        )
         const adminEmails = Context.get(context, AdminEmails)
+        const liveViewers = Context.get(context, LiveViewers)
         const auth = betterAuth(
           authOptions({
             ...config,
@@ -112,6 +118,7 @@ export class Auth extends Context.Service<
             sendDeleteAccountLink: ({ email, url }) =>
               run(sendDeleteAccountLink(email, url)),
             grantAdmin: (user) => run(grantAdmin(user)),
+            endLiveSessions: (held) => run(liveViewers.endSessions(held)),
             authorizeOwnAction: ({ action, session }) =>
               run(authorizeOwnAction(action, session)),
             authorizeEmailChange: ({ user, session }) =>
@@ -177,6 +184,7 @@ export class Auth extends Context.Service<
   ).pipe(
     Layer.provideMerge(AdminEmails.layer),
     Layer.provide(Mailer.layer),
+    Layer.provide(LiveViewers.layer),
     Layer.provide(waitUntilLive)
   )
 }

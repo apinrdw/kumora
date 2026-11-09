@@ -16,6 +16,19 @@ export interface CodeListStore {
   readonly write: (text: string) => Effect.Effect<void>
 }
 
+// A store that lasts as long as the trading day: for tests, and for a caller
+// with no storage.
+export const memoryCodeListStore = Effect.sync((): CodeListStore => {
+  let stored = Option.none<string>()
+  return {
+    read: Effect.sync(() => stored),
+    write: (text) =>
+      Effect.sync(() => {
+        stored = Option.some(text)
+      }),
+  }
+})
+
 // Ajaib's `/stock/data/list/` body, as the 2026-11-09 probe recorded it.
 const AjaibList = Schema.fromJsonString(
   Schema.Struct({

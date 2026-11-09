@@ -6,6 +6,7 @@
 import {
   IngestCloseCode,
   TradeNumberOrder,
+  ViewerCloseCode,
   decodeIngestUp,
   decodeViewerUp,
   encodeViewerDown,
@@ -19,9 +20,11 @@ import { Effect, Scope } from "effect"
 import { ajaibTrades } from "./ajaib.ts"
 import {
   codeListAnswer,
+  memoryCodeListStore,
   storeCodeList,
   type CodeListStore,
 } from "./code-list.ts"
+import type { HeldSessions } from "./routes.ts"
 import { stockbitTrades } from "./stockbit.ts"
 
 // A socket's progress. An ingest socket is `ready` once its token checked out;
@@ -35,6 +38,12 @@ export interface Peer {
   readonly close: (code: number, reason: string) => Effect.Effect<void>
   readonly state: Effect.Effect<PeerState>
   readonly setState: (state: PeerState) => Effect.Effect<void>
+}
+
+// A viewer socket and the session it was gated with.
+export interface SessionViewer {
+  readonly peer: Peer
+  readonly sessionId: string
 }
 
 const SNAPSHOT_TRADES = 200
@@ -111,10 +120,16 @@ export const makeTradingDay = Effect.fnUntraced(function* (options: {
   readonly date: WibDate
   // Every viewer socket the object holds, ready or not.
   readonly viewers: Effect.Effect<ReadonlyArray<Peer>>
-  readonly codeList: CodeListStore
+  // Where the day's stock code list is kept; memory when not given.
+  readonly codeList?: CodeListStore
+  // The viewer sockets of one account, on any of its sessions.
+  readonly viewersOf: (
+    userId: string
+  ) => Effect.Effect<ReadonlyArray<SessionViewer>>
 }) {
   // Delta timers outlive the message that started them.
   const scope = yield* Scope.Scope
+  const codeListStore = options.codeList ?? (yield* memoryCodeListStore)
   const tape: Array<RunningTrade> = []
   // Trades viewers haven't been sent since the last delta, new or changed,
   // by trade number.
@@ -189,7 +204,7 @@ export const makeTradingDay = Effect.fnUntraced(function* (options: {
         return yield* socket.close(IngestCloseCode.RejectedToken, "Bad token")
       }
       if (message._tag === "CodeList")
-        return yield* storeCodeList(options.codeList, message.body)
+        return yield* storeCodeList(codeListStore, message.body)
       if (message._tag !== "Frames") return
       yield* insert(
         message.feed === "Stockbit"
@@ -223,7 +238,16 @@ export const makeTradingDay = Effect.fnUntraced(function* (options: {
   )
 
   // The GET for the day's stock code list.
-  const codeList = codeListAnswer(options.codeList, options.date)
+  const codeList = codeListAnswer(codeListStore, options.date)
 
-  return { ingestMessage, viewerMessage, codeList }
+  // After a ban, revoke or delete: the page on a session the account no
+  // longer holds is sent to sign in.
+  const endSessions = Effect.fnUntraced(function* (held: HeldSessions) {
+    for (const viewer of yield* options.viewersOf(held.userId)) {
+      if (!held.sessionIds.includes(viewer.sessionId))
+        yield* viewer.peer.close(ViewerCloseCode.SignInRequired, "Sign in")
+    }
+  })
+
+  return { ingestMessage, viewerMessage, endSessions, codeList }
 })
