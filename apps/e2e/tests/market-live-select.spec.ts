@@ -4,7 +4,12 @@
 import type { Page } from "@playwright/test"
 
 import { DASHBOARD, MEMBER } from "../support/accounts"
-import { openIngest, session1Today, wibToday } from "../support/ingest"
+import {
+  freshTradeNumbers,
+  openIngest,
+  session1Today,
+  wibToday,
+} from "../support/ingest"
 import { expect, test } from "../support/test"
 
 const PAGE = "/market-live"
@@ -115,28 +120,15 @@ test("the / and Ctrl+K palette selects a code", async ({ page }) => {
   await expect.poll(() => selected).toEqual(["BBCA", "BBRI", "GOTO"])
 })
 
-// Every spec shares today's trading-day object, and the tape specs expect
-// their trades near the top, so this one adds no trade numbers of its own:
-// it sends the first 10 recorded session-1 trades, which the tape spec sends
-// too (a repeat merges into nothing), and
-// scrolls the virtual list to the row.
 test("clicking a tape row selects its code", async ({ page }) => {
   const relay = await openIngest()
-  await relay.sendAjaib(session1Today().slice(0, 10))
+  const base = freshTradeNumbers()
+  await relay.sendAjaib(session1Today(base).slice(0, 10))
   const selected = await recordSelects(page)
   await page.goto(`${DASHBOARD}${PAGE}`)
   await expect.poll(() => selected).toEqual(["BBCA"])
   const tape = page.getByRole("region", { name: "Running trades" })
-  const row = tape.locator('tr[data-trade-number="22265"]')
-  await expect
-    .poll(async () => {
-      if ((await row.count()) > 0) return true
-      await tape.evaluate((element) =>
-        element.querySelector("[class*=overflow-y-auto]")?.scrollBy(0, 300)
-      )
-      return false
-    })
-    .toBe(true)
+  const row = tape.locator(`tr[data-trade-number="${base + 22265}"]`)
   await expect(row).toContainText("BREN")
   await row.click()
   await expect(page).toHaveURL(`${DASHBOARD}${PAGE}?code=BREN`)
