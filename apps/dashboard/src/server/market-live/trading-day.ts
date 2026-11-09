@@ -33,7 +33,7 @@ import { ajaibTrades } from "./ajaib.ts"
 import { ajaibPrices } from "./ajaib-price.ts"
 import { backfillTrades } from "./backfill-page.ts"
 import { makeBookChunks } from "./book-chunks.ts"
-import { makeCandleBook } from "./candles.ts"
+import { makeCandleBook, minuteOf } from "./candles.ts"
 import {
   memoryCodeListStore,
   storeCodeList,
@@ -202,12 +202,7 @@ const restoreLastFrames = Effect.fnUntraced(function* (day: {
   }
   // The stored trades of every base's minute, so each code's Day state
   // fallback holds the ones after its base: one scan per distinct minute.
-  const minutes = new Set(
-    prices.map(
-      (price) =>
-        Math.floor(DateTime.toEpochMillis(price.time) / MINUTE) * MINUTE
-    )
-  )
+  const minutes = new Set(prices.map((price) => minuteOf(price.time)))
   for (const minute of minutes)
     for (const trade of yield* day.store.tradesBetween(
       DateTime.makeUnsafe(minute - 1),

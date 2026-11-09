@@ -103,7 +103,9 @@ interface Slot {
   readonly open: Map<string, RunningTrade>
 }
 
-const minuteOf = (time: DateTime.Utc) =>
+// The start of `time`'s minute, in epoch ms: a candle's key, which the Day
+// state fallback and the restart's trade scan share.
+export const minuteOf = (time: DateTime.Utc) =>
   Math.floor(DateTime.toEpochMillis(time) / MINUTE) * MINUTE
 
 const counts = (trade: RunningTrade) => trade.board === "RG"

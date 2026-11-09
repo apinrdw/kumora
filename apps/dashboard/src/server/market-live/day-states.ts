@@ -12,10 +12,8 @@ import {
 import { DateTime, Effect } from "effect"
 
 import type { AjaibPrice } from "./ajaib-price.ts"
-import type { CandleFigures } from "./candles.ts"
+import { minuteOf, type CandleFigures } from "./candles.ts"
 import type { LivePrice } from "./stockbit-liveprice.ts"
-
-const MINUTE = 60_000
 
 // A code's figures as of its last `liveprice` frame, the fallback's base.
 interface Base {
@@ -68,9 +66,6 @@ const NOTHING: Since = {
   last: undefined,
   time: undefined,
 }
-
-const minuteOf = (time: DateTime.Utc) =>
-  Math.floor(DateTime.toEpochMillis(time) / MINUTE) * MINUTE
 
 // The index in `trades`, ascending by trade number, where `number` sits or
 // would be inserted.
