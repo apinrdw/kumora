@@ -26,10 +26,12 @@ const Field = { stockCode: 1, body: 2, datetime: 5 } as const
 
 type Side = "bid" | "offer"
 
-// One side as one frame carried it: every level, and its lots in total.
+// One side as one frame carried it: every level, its lots in total, and the
+// frame's time.
 interface SideBook {
   readonly levels: ReadonlyArray<BookLevel>
   readonly lots: number
+  readonly at: DateTime.Utc
 }
 
 const isStockCode = Schema.is(StockCode)
@@ -69,7 +71,7 @@ const stockbitSideOf = (bytes: Uint8Array) => {
   )
   if (code === undefined || !isStockCode(code) || !parsed || !at)
     return undefined
-  return { code, at, ...parsed }
+  return { code, side: parsed.side, book: { ...parsed.book, at } }
 }
 
 const AjaibLevel = Schema.Struct({
@@ -101,6 +103,7 @@ interface AjaibBook {
   version: number
 }
 
+// The later of its sides' times is the book's.
 interface StockbitBook {
   bid: SideBook | undefined
   offer: SideBook | undefined
@@ -204,12 +207,25 @@ export const makeOrderBooks = (date: WibDate) =>
         messagesAt(frame, ORDERBOOK)
       )) {
         const side = stockbitSideOf(bytes)
-        if (side === undefined || (yield* wibDateAt(side.at)) !== date) continue
+        if (side === undefined || (yield* wibDateAt(side.book.at)) !== date)
+          continue
         const held = stockbit.get(side.code)
+        // Both connections carry each side, so one may deliver a frame the
+        // other already applied over: not newer than the side held, it
+        // changes nothing.
+        const heldSide = held?.[side.side]
+        if (
+          heldSide !== undefined &&
+          !DateTime.isGreaterThan(side.book.at, heldSide.at)
+        )
+          continue
         stockbit.set(side.code, {
           bid: side.side === "bid" ? side.book : held?.bid,
           offer: side.side === "offer" ? side.book : held?.offer,
-          at: side.at,
+          at:
+            held === undefined
+              ? side.book.at
+              : DateTime.max(held.at, side.book.at),
           version: ++version,
         })
         changed.add(side.code)
@@ -302,8 +318,8 @@ export const makeOrderBooks = (date: WibDate) =>
           previous.set(book.code, book.previousClose)
         if (book.provenance === "Stockbit") {
           stockbit.set(book.code, {
-            bid: { levels: book.bids, lots: book.bidLots },
-            offer: { levels: book.offers, lots: book.offerLots },
+            bid: { levels: book.bids, lots: book.bidLots, at: book.at },
+            offer: { levels: book.offers, lots: book.offerLots, at: book.at },
             at: book.at,
             version: ++version,
           })
