@@ -185,6 +185,26 @@ describe("viewer protocol", () => {
     })
   )
 
+  it.effect(
+    "a watchlist of 10,000 codes is accepted, one past that refused",
+    () =>
+      Effect.gen(function* () {
+        const select = (codes: number) =>
+          JSON.stringify({
+            _tag: "Select",
+            protocolVersion: ViewerProtocolVersion,
+            selected: "BBCA",
+            watchlist: Array.from({ length: codes }, (_, index) => `W${index}`),
+          })
+        assert.lengthOf(
+          (yield* decodeViewerUp(select(10_000))).watchlist,
+          10_000
+        )
+        const error = yield* Effect.flip(decodeViewerUp(select(10_001)))
+        assert.strictEqual(error._tag, "SchemaError")
+      })
+  )
+
   it.effect("only the current version is accepted", () =>
     Effect.gen(function* () {
       const wire = JSON.stringify({
