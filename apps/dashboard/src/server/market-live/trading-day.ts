@@ -392,7 +392,7 @@ export const makeTradingDay = Effect.fnUntraced(function* (options: {
       candles: changed,
       ...(orderBooks.length > 0 ? { orderBooks } : {}),
       ...(states.length === 0 ? {} : { dayStates: states }),
-      ...(conditionsChanged ? { status: conditions } : {}),
+      ...(conditionsChanged ? { conditions } : {}),
       ...(indicative.length > 0 ? { indicative } : {}),
     })
     for (const viewer of yield* options.viewers) {
@@ -649,7 +649,7 @@ export const makeTradingDay = Effect.fnUntraced(function* (options: {
         candles: yield* candles.candlesOf(selected),
         ...(orderBook === undefined ? {} : { orderBook }),
         ...(states.length === 0 ? {} : { dayStates: states }),
-        status: yield* market.conditions,
+        conditions: yield* market.conditions,
         ...(indicative.length === 0 ? {} : { indicative }),
       })
       yield* socket.send(snapshot)

@@ -115,19 +115,19 @@ const marketAt = Effect.fnUntraced(function* (start: string) {
   yield* select(BBCA)
   // The market conditions the viewer holds now: its snapshot's, as later
   // deltas changed them.
-  const status = Effect.gen(function* () {
+  const conditions = Effect.gen(function* () {
     let current: MarketConditions | undefined
     for (const message of yield* page.received)
-      if (message.status !== undefined) current = message.status
+      if (message.conditions !== undefined) current = message.conditions
     return current!
   })
-  const feeds = Effect.map(status, (current) => current.feeds)
+  const feeds = Effect.map(conditions, (current) => current.feeds)
   const relayClosed = day.ingestClosed(0)
-  return { frames, reported, status, feeds, relayClosed, page, select }
+  return { frames, reported, conditions, feeds, relayClosed, page, select }
 })
 
-const gapsOf = (status: MarketConditions) =>
-  status.gaps.map((gap) => ({
+const gapsOf = (conditions: MarketConditions) =>
+  conditions.gaps.map((gap) => ({
     from: DateTime.formatIso(gap.from),
     to: gap.to === undefined ? undefined : DateTime.formatIso(gap.to),
   }))
@@ -232,12 +232,12 @@ describe("feed freshness", () => {
         yield* market.frames("Stockbit")
         yield* market.frames("Ajaib")
         yield* TestClock.adjust("250 millis")
-        assert.isTrue((yield* market.status).relayOnline)
+        assert.isTrue((yield* market.conditions).relayOnline)
         yield* market.relayClosed
         yield* TestClock.adjust("250 millis")
-        const status = yield* market.status
-        assert.isFalse(status.relayOnline)
-        assert.deepStrictEqual(status.feeds, {
+        const conditions = yield* market.conditions
+        assert.isFalse(conditions.relayOnline)
+        assert.deepStrictEqual(conditions.feeds, {
           Stockbit: "unavailable",
           Ajaib: "unavailable",
         })
@@ -267,17 +267,17 @@ describe("relay gaps", () => {
         }
         assert.strictEqual((yield* market.feeds).Stockbit, "stale")
         // The morning before the relay connected wasn't recorded.
-        assert.deepStrictEqual(gapsOf(yield* market.status), MORNING)
+        assert.deepStrictEqual(gapsOf(yield* market.conditions), MORNING)
         // Ajaib's last frame was at 10:00:30: stale from 10:00:45 until its
         // next, at 10:01:00.
         yield* TestClock.adjust("20 seconds")
-        assert.deepStrictEqual(gapsOf(yield* market.status), [
+        assert.deepStrictEqual(gapsOf(yield* market.conditions), [
           ...MORNING,
           { from: "2026-11-09T03:00:45.000Z", to: undefined },
         ])
         yield* market.frames("Ajaib")
         yield* TestClock.adjust("250 millis")
-        assert.deepStrictEqual(gapsOf(yield* market.status), [
+        assert.deepStrictEqual(gapsOf(yield* market.conditions), [
           ...MORNING,
           { from: "2026-11-09T03:00:45.000Z", to: "2026-11-09T03:01:00.000Z" },
         ])
@@ -297,7 +297,7 @@ describe("relay gaps", () => {
         yield* TestClock.adjust("1 second")
         // Ajaib never delivered, so from the 08:58 match on; the break
         // between is no gap.
-        assert.deepStrictEqual(gapsOf(yield* market.status), [
+        assert.deepStrictEqual(gapsOf(yield* market.conditions), [
           { from: "2026-11-09T01:58:00.000Z", to: "2026-11-09T01:59:00.000Z" },
           { from: "2026-11-09T02:00:00.000Z", to: "2026-11-09T05:00:01.000Z" },
           { from: "2026-11-09T06:30:00.000Z", to: undefined },
@@ -310,7 +310,7 @@ describe("market phase", () => {
   it.effect("names the phase, with no next open while the market is open", () =>
     Effect.gen(function* () {
       const open = yield* marketAt("2026-11-09T10:00:00")
-      const during = yield* open.status
+      const during = yield* open.conditions
       assert.strictEqual(during.phase, "session-1")
       assert.isUndefined(during.nextOpen)
     })
@@ -319,7 +319,7 @@ describe("market phase", () => {
   it.effect("on a weekend, closed until Monday's 08:45 WIB", () =>
     Effect.gen(function* () {
       const weekend = yield* marketAt("2026-11-14T10:00:00")
-      const shut = yield* weekend.status
+      const shut = yield* weekend.conditions
       assert.strictEqual(shut.phase, "closed")
       assert.strictEqual(
         DateTime.formatIso(shut.nextOpen!),
@@ -331,9 +331,9 @@ describe("market phase", () => {
   it.effect("a phase change reaches viewers without a frame", () =>
     Effect.gen(function* () {
       const market = yield* marketAt("2026-11-09T11:59:58")
-      assert.strictEqual((yield* market.status).phase, "session-1")
+      assert.strictEqual((yield* market.conditions).phase, "session-1")
       yield* TestClock.adjust("4 seconds")
-      assert.strictEqual((yield* market.status).phase, "break")
+      assert.strictEqual((yield* market.conditions).phase, "break")
     })
   )
 })

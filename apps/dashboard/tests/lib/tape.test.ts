@@ -44,7 +44,7 @@ const snapshot = (...tape: Array<RunningTrade>): ViewerDown => ({
   _tag: "Snapshot",
   tape,
   candles: [],
-  status: {
+  conditions: {
     phase: "session-1",
     relayOnline: true,
     feeds: { Stockbit: "live", Ajaib: "live" },

@@ -47,15 +47,16 @@ export const applyConditions = (message: ViewerDown) =>
   Effect.suspend(() => {
     if (message._tag === "Snapshot")
       return publish({
-        conditions: message.status,
+        conditions: message.conditions,
         indicative: new Map(byCode(message.indicative ?? [])),
         connection: "live",
       })
     const prices = message.indicative ?? []
-    if (message.status === undefined && prices.length === 0) return Effect.void
+    if (message.conditions === undefined && prices.length === 0)
+      return Effect.void
     return publish({
       ...view,
-      conditions: message.status ?? view.conditions,
+      conditions: message.conditions ?? view.conditions,
       indicative:
         prices.length === 0
           ? view.indicative

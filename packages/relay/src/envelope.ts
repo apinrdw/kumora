@@ -213,7 +213,7 @@ const Snapshot = Schema.TaggedStruct("Snapshot", {
   // none yet. Absent when none has.
   dayStates: Schema.optionalKey(Schema.Array(DayState)),
   orderBook: Schema.optionalKey(Schema.Union([OrderBook, IndexHasNoBook])),
-  status: MarketConditions,
+  conditions: MarketConditions,
   // The selected and watchlist codes' that have one, so the watchlist shows
   // them during an auction. Absent when none has.
   indicative: Schema.optionalKey(Schema.Array(IndicativePrice)),
@@ -231,8 +231,8 @@ const Delta = Schema.TaggedStruct("Delta", {
   // whole. Absent when none changed.
   dayStates: Schema.optionalKey(Schema.Array(DayState)),
   orderBooks: Schema.optionalKey(Schema.Array(OrderBook)),
-  // Present only when it changed.
-  status: Schema.optionalKey(MarketConditions),
+  // Present only when they changed.
+  conditions: Schema.optionalKey(MarketConditions),
   // Every code's that changed, whatever each viewer selected.
   indicative: Schema.optionalKey(Schema.Array(IndicativePrice)),
 })

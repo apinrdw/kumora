@@ -395,7 +395,7 @@ describe("a restarted trading day", () => {
         yield* TestClock.adjust("30 seconds")
         const [snapshot] = yield* yield* restarted.viewer()
         const gaps = (
-          snapshot?._tag === "Snapshot" ? snapshot.status.gaps : []
+          snapshot?._tag === "Snapshot" ? snapshot.conditions.gaps : []
         ).map((gap) => ({
           from: DateTime.formatIso(gap.from),
           to: gap.to === undefined ? undefined : DateTime.formatIso(gap.to),
