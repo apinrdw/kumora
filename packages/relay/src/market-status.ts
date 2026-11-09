@@ -10,7 +10,7 @@ export type Freshness = typeof Freshness.Type
 
 // A stretch that expects trades in which neither feed was live, or the relay
 // was offline. One still open has no end.
-const RelayGap = Schema.Struct({
+export const RelayGap = Schema.Struct({
   from: Schema.DateTimeUtcFromMillis,
   to: Schema.optionalKey(Schema.DateTimeUtcFromMillis),
 })

@@ -170,7 +170,7 @@ const TradeSource = Schema.Literals(["Stockbit", "Ajaib", "backfill"])
 // One trade on the whole-market tape, merged across feeds. Its trade number is
 // the bare daily sequence, one market-wide numbering per trading day. Value is
 // price × lots × 100 shares, so it does not travel.
-const RunningTrade = Schema.Struct({
+export const RunningTrade = Schema.Struct({
   tradeNumber: TradeNumber,
   time: Schema.DateTimeUtcFromMillis,
   code: StockCode,
@@ -188,7 +188,7 @@ export type RunningTrade = typeof RunningTrade.Type
 // regular-board trades: volume in lots, value in rupiah, frequency in trades.
 // An index's is built from its `liveprice` frames, its volume, value and
 // frequency the market's over that minute.
-const Candle = Schema.Struct({
+export const Candle = Schema.Struct({
   code: StockCode,
   // The minute's start.
   minute: Schema.DateTimeUtcFromMillis,

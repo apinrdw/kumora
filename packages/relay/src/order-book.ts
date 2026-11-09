@@ -7,7 +7,7 @@ import { StockCode } from "./codes.ts"
 export const BOOK_DEPTH = 20
 
 // One price level: the lots resting there and how many orders hold them.
-const BookLevel = Schema.Struct({
+export const BookLevel = Schema.Struct({
   price: Schema.Finite,
   lots: Schema.Finite,
   orders: Schema.Int,

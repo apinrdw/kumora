@@ -25,6 +25,13 @@ const millis = DateTime.toEpochMillis
 // A stretch in which a feed was not live. The last may still be open.
 type Down = { readonly from: DateTime.Utc; to: DateTime.Utc | undefined }
 
+// Each feed's down stretches as epoch ms, the form a restarted object reads
+// back (trading-day.ts stores it).
+export type DownRecord = Record<
+  Feed,
+  ReadonlyArray<{ readonly from: number; readonly to?: number }>
+>
+
 interface Track {
   lastSign: DateTime.Utc | undefined
   // Connections that showed a sign of life and weren't reported closed since.
@@ -85,6 +92,9 @@ export const makeFeedHealth = Effect.fnUntraced(function* (options: {
   // Where the record starts: the feeds count as down from here until the
   // relay first delivers.
   readonly since: DateTime.Utc
+  // What an object stored before it restarted at `at`. A feed up when the
+  // record was stored counts as down again from the restart.
+  readonly restored?: { readonly record: DownRecord; readonly at: DateTime.Utc }
 }) {
   const { stretches } = options
   let relayOnline = false
@@ -92,8 +102,21 @@ export const makeFeedHealth = Effect.fnUntraced(function* (options: {
     Stockbit: { lastSign: undefined, open: new Set(), downs: [] },
     Ajaib: { lastSign: undefined, open: new Set(), downs: [] },
   }
-  for (const feed of FEEDS)
-    tracks[feed].downs.push({ from: options.since, to: undefined })
+  for (const feed of FEEDS) {
+    const { restored } = options
+    if (restored === undefined) {
+      tracks[feed].downs.push({ from: options.since, to: undefined })
+      continue
+    }
+    const downs = tracks[feed].downs
+    for (const down of restored.record[feed])
+      downs.push({
+        from: DateTime.makeUnsafe(down.from),
+        to: down.to === undefined ? undefined : DateTime.makeUnsafe(down.to),
+      })
+    if (downs.length === 0 || downs.at(-1)?.to !== undefined)
+      downs.push({ from: restored.at, to: undefined })
+  }
 
   const freshnessAt = (track: Track, now: DateTime.Utc): Freshness => {
     if (!relayOnline || track.lastSign === undefined || track.open.size === 0)
@@ -204,5 +227,17 @@ export const makeFeedHealth = Effect.fnUntraced(function* (options: {
       }
     })
 
-  return { sign, closed, online, offline, status }
+  // Each feed's down stretches so far, for storage.
+  const downsOf = (feed: Feed) =>
+    tracks[feed].downs.map((down) =>
+      down.to === undefined
+        ? { from: millis(down.from) }
+        : { from: millis(down.from), to: millis(down.to) }
+    )
+  const record = Effect.sync((): DownRecord => ({
+    Stockbit: downsOf("Stockbit"),
+    Ajaib: downsOf("Ajaib"),
+  }))
+
+  return { sign, closed, online, offline, status, record }
 })

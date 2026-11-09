@@ -18,6 +18,7 @@ import {
 } from "@/server/market-live/trading-day"
 
 import recorded from "./fixtures/ajaib-code-list-2026-11-09.json"
+import { memorySql } from "./sql"
 
 const TOKEN = "e2e-ingest-token"
 const DAY = WibDate.make("2026-11-09")
@@ -47,6 +48,7 @@ const tradingDay = Effect.fnUntraced(function* (
 ) {
   const scope = yield* Scope.make()
   const day = yield* makeTradingDay({
+    sql: memorySql(),
     date: DAY,
     viewers: Effect.succeed([]),
     viewersOf: () => Effect.succeed([]),
@@ -93,7 +95,7 @@ describe("the stock code list", () => {
   it.effect("a day with no list yet answers 404, uncached", () =>
     Effect.gen(function* () {
       const { day } = yield* tradingDay()
-      const response = yield* day.codeList
+      const response = yield* day.recorded({ _tag: "Codes" })
       assert.strictEqual(response.status, 404)
       assert.strictEqual(response.headers.get("Cache-Control"), "no-store")
     })
@@ -107,7 +109,7 @@ describe("the stock code list", () => {
         const { day, relay } = yield* tradingDay()
         const send = yield* relay
         yield* send(recorded.body)
-        const response = yield* day.codeList
+        const response = yield* day.recorded({ _tag: "Codes" })
         assert.strictEqual(response.status, 200)
         const { codes } = yield* listOf(response)
         // Ajaib's one empty entry is dropped.
@@ -145,7 +147,7 @@ describe("the stock code list", () => {
       yield* (yield* first.relay)(recorded.body)
       yield* TestClock.adjust("1 day")
       const restarted = yield* tradingDay(first.stored)
-      const response = yield* restarted.day.codeList
+      const response = yield* restarted.day.recorded({ _tag: "Codes" })
       assert.strictEqual(
         response.headers.get("Cache-Control"),
         "private, max-age=31536000, immutable"
@@ -164,7 +166,7 @@ describe("the stock code list", () => {
           results: [{ code: "BBCA", name: "Bank Central Asia" }],
         })
       )
-      const { codes } = yield* listOf(yield* day.codeList)
+      const { codes } = yield* listOf(yield* day.recorded({ _tag: "Codes" }))
       assert.deepStrictEqual(
         codes.map(({ code }) => code),
         ["BBCA"]
@@ -179,7 +181,10 @@ describe("the stock code list", () => {
       yield* send(recorded.body)
       yield* send("<html>Service unavailable</html>")
       yield* send(JSON.stringify({ results: [{ ticker: "BBCA" }] }))
-      assert.lengthOf((yield* listOf(yield* day.codeList)).codes, 13)
+      assert.lengthOf(
+        (yield* listOf(yield* day.recorded({ _tag: "Codes" }))).codes,
+        13
+      )
     })
   )
 
@@ -191,7 +196,10 @@ describe("the stock code list", () => {
         name: "Call Warrant ADRO DR Exp 19 Jun 23 and a long name to spare",
       }))
       yield* (yield* relay)(JSON.stringify({ results }))
-      assert.lengthOf((yield* listOf(yield* day.codeList)).codes, 3_406)
+      assert.lengthOf(
+        (yield* listOf(yield* day.recorded({ _tag: "Codes" }))).codes,
+        3_406
+      )
     })
   )
 
@@ -205,7 +213,7 @@ describe("the stock code list", () => {
         body: recorded.body,
       })
       yield* day.ingestMessage(relaySocket(), text).pipe(Effect.provide(env))
-      assert.strictEqual((yield* day.codeList).status, 404)
+      assert.strictEqual((yield* day.recorded({ _tag: "Codes" })).status, 404)
     })
   )
 })

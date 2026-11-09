@@ -8,22 +8,32 @@ import {
   TradeNumberOrder,
   ViewerCloseCode,
   decodeIngestUp,
+  decodeBookChunk,
   decodeViewerUp,
+  bookAt,
+  encodeRecordedCandles,
+  encodeRecordedGaps,
+  encodeRecordedTape,
   encodeViewerDown,
   MarketStatus,
   marketMomentAt,
+  sealInstant,
+  StockCode,
+  wibDateAt,
   type DayState,
   type IngestUp,
+  type RecordedDay,
+  type RecordedResource,
   type RunningTrade,
-  type StockCode,
   type WibDate,
 } from "@workspace/relay"
 import { WorkerEnv } from "@workspace/server"
-import { Effect, Schema, Scope } from "effect"
+import { Clock, DateTime, Duration, Effect, Schema, Scope } from "effect"
 
 import { ajaibTrades } from "./ajaib.ts"
 import { ajaibPrices } from "./ajaib-price.ts"
 import { backfillTrades } from "./backfill-page.ts"
+import { makeBookChunks } from "./book-chunks.ts"
 import { makeCandleBook } from "./candles.ts"
 import {
   codeListAnswer,
@@ -32,13 +42,15 @@ import {
   type CodeListStore,
 } from "./code-list.ts"
 import { makeDayStates } from "./day-states.ts"
+import { makeDayStore, type Sql } from "./day-store.ts"
+import type { DownRecord } from "./feed-health.ts"
 import { makeGaps } from "./gaps.ts"
 import { makeMarketStatus } from "./market-status.ts"
 import { makeOnDemand } from "./on-demand.ts"
 import { makeOrderBooks } from "./order-books.ts"
 import type { HeldSessions } from "./routes.ts"
 import { stockbitTrades } from "./stockbit.ts"
-import { stockbitLivePrices } from "./stockbit-liveprice.ts"
+import { stockbitLivePrices, type LivePrice } from "./stockbit-liveprice.ts"
 
 // A socket's progress. An ingest socket is `ready` once its token checked out;
 // a viewer socket once it was sent a snapshot, and from then on gets deltas.
@@ -70,11 +82,51 @@ const SNAPSHOT_TRADES = 200
 // How often viewers get the trades that arrived since the last delta.
 const DELTA_INTERVAL = "250 millis"
 
-// Decision: the tape lives in memory, bounded to the newest 10,000 trades, the
-// most the page keeps. Storage, and dedupe of a trade older than the window,
-// arrive with the recorded day ticket (apinrdw/kumora#151); until then a
-// restart starts the tape empty.
+// Decision: the tape in memory holds the newest 10,000 trades, the most the
+// page keeps; a restarted object reloads them from the day store. A trade
+// older than that window is still deduped against the store and still counts
+// in its candle, but viewers aren't sent it: the page keeps the same window.
 const TAPE_LIMIT = 10_000
+
+// Decision: trades, candles, last `liveprice` frames, book chunks and the
+// feeds' record are written to the day store once a minute, 5 s past the
+// minute (spec apinrdw/kumora#138, "Storage and cost"), so each flush closes
+// the minute that just ended: its book chunks, and its trades' 5 s merge
+// windows. Each trade is written once. A restart loses at most the minute in
+// progress, which the relay's backfill refills from the next gap.
+const MINUTE = 60_000
+const FLUSH_PAST_MINUTE = 5_000
+
+// The day store's facts.
+const Fact = {
+  sealed: "sealed",
+  gaps: "gaps",
+  feedDowns: "feed-downs",
+} as const
+
+// A sealed day's answers never change.
+const SEALED_CACHE = "private, max-age=31536000, immutable"
+
+const json = (text: string, cacheControl: string, status = 200) =>
+  new Response(text, {
+    status,
+    headers: {
+      "Content-Type": "application/json",
+      "Cache-Control": cacheControl,
+    },
+  })
+
+// IHSG's close and change on the strip, from its last `liveprice` frame.
+const ihsgOf = (price: LivePrice | undefined) => {
+  if (price?.last === undefined) return {}
+  const previous = price.previous ?? price.last
+  const change = price.change ?? price.last - previous
+  const changePercent =
+    price.changePercent ?? (previous === 0 ? 0 : (change / previous) * 100)
+  return { ihsg: { close: price.last, change, changePercent } }
+}
+
+const IHSG = StockCode.make("IHSG")
 
 // The tape ordered by trade number, ascending; the index where `trade` sits or
 // would be inserted.
@@ -141,6 +193,32 @@ const sha256 = (text: string) =>
     crypto.subtle.digest("SHA-256", new TextEncoder().encode(text))
   ).pipe(Effect.map((digest) => new Uint8Array(digest).toString()))
 
+// The last-frame cache, rebuilt from the store after a restart: candles,
+// each code's last `liveprice` frame and its last served order book.
+const restoreLastFrames = Effect.fnUntraced(function* (day: {
+  readonly store: Effect.Success<ReturnType<typeof makeDayStore>>
+  readonly candles: Effect.Success<typeof makeCandleBook>
+  readonly books: Effect.Success<ReturnType<typeof makeOrderBooks>>
+  readonly dayStates: Effect.Success<typeof makeDayStates>
+  readonly bookChunks: Effect.Success<typeof makeBookChunks>
+}) {
+  const prices = yield* day.store.livePrices
+  yield* day.candles.restore(yield* day.store.storedCandles, prices)
+  for (const price of prices) {
+    yield* day.books.livePrice(price)
+    yield* day.dayStates.livePrice(price)
+  }
+  for (const text of yield* day.store.latestChunks) {
+    const chunk = yield* decodeBookChunk(text)
+    const book = yield* bookAt(chunk, DateTime.makeUnsafe(8.64e15))
+    if (book === undefined) continue
+    yield* day.books.restore(book)
+    yield* day.bookChunks.restore([
+      { minute: DateTime.toEpochMillis(chunk.minute), book },
+    ])
+  }
+})
+
 export const makeTradingDay = Effect.fnUntraced(function* (options: {
   readonly date: WibDate
   // Every viewer socket the object holds, ready or not.
@@ -154,11 +232,35 @@ export const makeTradingDay = Effect.fnUntraced(function* (options: {
   // Every ingest socket the object holds, ready or not: backfill requests go
   // down the ready ones. None by default.
   readonly ingests?: Effect.Effect<ReadonlyArray<Peer>>
+  // The object's SQLite database: the day store.
+  readonly sql: Sql
+  // Wakes the object at `at` to call `alarm`: the Durable Object's alarm.
+  // Nothing wakes it by default.
+  readonly setAlarm?: (at: DateTime.Utc) => Effect.Effect<void>
+  // Writes the sealed day's row to the index Durable Object. Nothing by
+  // default.
+  readonly recordDay?: (
+    day: RecordedDay
+  ) => Effect.Effect<void, unknown, WorkerEnv>
 }) {
   // Delta timers outlive the message that started them.
   const scope = yield* Scope.Scope
   const codeListStore = options.codeList ?? (yield* memoryCodeListStore)
-  const tape: Array<RunningTrade> = []
+  const store = yield* makeDayStore(options.sql)
+  const setAlarm = options.setAlarm ?? (() => Effect.void)
+  let sealed = (yield* store.fact(Fact.sealed)) !== undefined
+  // Decision: an object restores the live day from its store unless the day
+  // is sealed and past: a past day's object only answers recorded day GETs,
+  // straight from the store. Today's still serves viewers after the seal.
+  const today = (yield* wibDateAt(yield* DateTime.now)) === options.date
+  const restoring = !sealed || today
+  const tape: Array<RunningTrade> = restoring
+    ? [...(yield* store.newestTrades(TAPE_LIMIT))]
+    : []
+  // The highest number stored before this object started: a number at or
+  // below it that the tape lacks may be stored already.
+  const storedHighest = restoring ? yield* store.highestTrade : undefined
+  const storedDowns = yield* store.fact(Fact.feedDowns)
   // Trades viewers haven't been sent since the last delta, new or changed,
   // by trade number.
   let pending = new Map<string, RunningTrade>()
@@ -166,10 +268,23 @@ export const makeTradingDay = Effect.fnUntraced(function* (options: {
   const candles = yield* makeCandleBook
   const ingests = options.ingests ?? Effect.succeed([])
   const books = yield* makeOrderBooks(options.date)
-  const gaps = yield* makeGaps({ ingests })
+  const bookChunks = yield* makeBookChunks
+  const gaps = yield* makeGaps({ ingests, highest: storedHighest })
   const dayStates = yield* makeDayStates
   const onDemand = yield* makeOnDemand({ viewers: options.viewers, ingests })
-  const market = yield* makeMarketStatus(options.date)
+  const market = yield* makeMarketStatus(
+    options.date,
+    restoring && storedDowns !== undefined
+      ? (JSON.parse(storedDowns) as DownRecord)
+      : undefined
+  )
+  // Each code's newest `liveprice` frame since the last flush.
+  let livePricesChanged = new Map<StockCode, LivePrice>()
+  let flushScheduled = false
+
+  if (restoring)
+    yield* restoreLastFrames({ store, candles, books, dayStates, bookChunks })
+
   // The order book and Day state fall back to Ajaib while Stockbit isn't live.
   const stockbitLive = Effect.map(
     market.status,
@@ -186,9 +301,28 @@ export const makeTradingDay = Effect.fnUntraced(function* (options: {
     return encoded !== sentStatus || (yield* market.indicativePending)
   })
 
+  // Whether the day holds `trade` outside the tape: in the candle book's
+  // merge window, waiting for a flush, or stored. The store is asked only
+  // when it could hold it: below a full tape, or at or below what it held
+  // when this object started.
+  const heldOutsideTape = Effect.fnUntraced(function* (
+    trade: RunningTrade,
+    beforeTape: boolean
+  ) {
+    if (yield* candles.holds(trade.tradeNumber)) return true
+    const mayBeStored =
+      beforeTape ||
+      (storedHighest !== undefined &&
+        BigInt(trade.tradeNumber) <= storedHighest)
+    return mayBeStored && (yield* store.hasTrade(trade.tradeNumber))
+  })
+
+  const inTape = (trade: RunningTrade) =>
+    tape[positionOf(tape, trade)]?.tradeNumber === trade.tradeNumber
+
   // Merges each trade into the tape: a new trade number is inserted in its
-  // place, a known one merged with what other feeds saw. A trade older than a
-  // full tape's oldest is dropped: it can't be told from one already evicted.
+  // place, a known one merged with what other feeds saw. A new trade older
+  // than a full tape's oldest counts in its candle but stays off the tape.
   const insert = Effect.fnUntraced(function* (
     trades: ReadonlyArray<RunningTrade>
   ) {
@@ -208,11 +342,14 @@ export const makeTradingDay = Effect.fnUntraced(function* (options: {
         yield* candles.trade(held, merged)
         continue
       }
-      if (at === 0 && tape.length >= TAPE_LIMIT) continue
+      const beforeTape = at === 0 && tape.length >= TAPE_LIMIT
+      if (yield* heldOutsideTape(arriving, beforeTape)) continue
       const trade = yield* settleSide(arriving)
-      tape.splice(at, 0, trade)
-      if (tape.length > TAPE_LIMIT) tape.shift()
-      pending.set(trade.tradeNumber, trade)
+      if (!beforeTape) {
+        tape.splice(at, 0, trade)
+        if (tape.length > TAPE_LIMIT) tape.shift()
+        pending.set(trade.tradeNumber, trade)
+      }
       yield* candles.trade(undefined, trade)
       yield* dayStates.trade(trade)
     }
@@ -230,6 +367,7 @@ export const makeTradingDay = Effect.fnUntraced(function* (options: {
     const changed = yield* candles.takeChanged
     const live = yield* stockbitLive
     const orderBooks = yield* books.takeChanged(live)
+    for (const book of orderBooks) yield* bookChunks.record(book)
     const states = yield* dayStates.takeChanged(live, yield* onDemand.watched)
     const status = yield* market.status
     const encoded = yield* encodeStatus(status)
@@ -303,6 +441,102 @@ export const makeTradingDay = Effect.fnUntraced(function* (options: {
     return loop.pipe(Effect.forkIn(scope), Effect.asVoid)
   })
 
+  // Writes what the day recorded since the last flush in one transaction. At
+  // the seal every merge window and open chunk closes.
+  const flush = Effect.fnUntraced(function* (
+    final: boolean,
+    facts: Readonly<Record<string, string>> = {}
+  ) {
+    const settled = yield* candles.takeSettled(final)
+    const chunks = yield* bookChunks.take(final)
+    const livePrices = [...livePricesChanged.values()]
+    livePricesChanged = new Map()
+    yield* store.write({
+      ...settled,
+      livePrices,
+      chunks,
+      facts: {
+        [Fact.feedDowns]: JSON.stringify(yield* market.record),
+        ...facts,
+      },
+    })
+  })
+
+  const unflushed = Effect.gen(function* () {
+    return (
+      livePricesChanged.size > 0 ||
+      (yield* candles.hasUnsettled) ||
+      (yield* bookChunks.hasOpen)
+    )
+  })
+
+  // One flush a minute while anything is left to write.
+  const scheduleFlush: Effect.Effect<void> = Effect.suspend(() => {
+    if (flushScheduled || sealed) return Effect.void
+    flushScheduled = true
+    return Clock.currentTimeMillis.pipe(
+      Effect.flatMap((now) =>
+        Effect.sleep(
+          Duration.millis(
+            MINUTE - ((((now - FLUSH_PAST_MINUTE) % MINUTE) + MINUTE) % MINUTE)
+          )
+        )
+      ),
+      Effect.andThen(
+        Effect.suspend(() => {
+          flushScheduled = false
+          return sealed ? Effect.void : flush(false)
+        })
+      ),
+      Effect.andThen(unflushed),
+      Effect.flatMap((more) => (more ? scheduleFlush : Effect.void)),
+      Effect.catchCause((cause) => Effect.logError("Day not flushed", cause)),
+      Effect.forkIn(scope),
+      Effect.asVoid
+    )
+  })
+
+  // The alarm, set for the seal: 17:00 WIB. The seal writes everything left,
+  // the day's relay gaps and the index row; after it the day takes no
+  // ingest and its answers are immutable. An early alarm sets itself again;
+  // an index row that didn't land is retried a minute later.
+  const alarm = Effect.gen(function* () {
+    if (sealed) return
+    const at = yield* sealInstant(options.date)
+    const now = yield* DateTime.now
+    if (DateTime.isLessThan(now, at)) return yield* setAlarm(at)
+    const status = yield* market.status
+    yield* flush(true, {
+      [Fact.gaps]: yield* encodeRecordedGaps({ gaps: status.gaps }),
+    })
+    const trades = yield* store.tradeCount
+    if (trades > 0) {
+      const recorded = yield* (options.recordDay ?? (() => Effect.void))({
+        day: options.date,
+        ...ihsgOf(yield* store.livePrice(IHSG)),
+        trades,
+        gap: status.gaps.length > 0,
+      }).pipe(
+        Effect.as(true),
+        Effect.catchCause((cause) =>
+          Effect.logError("Index row not written", cause).pipe(
+            Effect.andThen(setAlarm(DateTime.add(now, { minutes: 1 }))),
+            Effect.as(false)
+          )
+        )
+      )
+      if (!recorded) return
+    }
+    yield* store.write({
+      trades: [],
+      candles: [],
+      livePrices: [],
+      chunks: [],
+      facts: { [Fact.sealed]: DateTime.formatIso(now) },
+    })
+    sealed = true
+  })
+
   const tokenMatches = Effect.fnUntraced(function* (token: string) {
     const { INGEST_TOKEN } = yield* WorkerEnv
     return (yield* sha256(token)) === (yield* sha256(INGEST_TOKEN))
@@ -327,6 +561,9 @@ export const makeTradingDay = Effect.fnUntraced(function* (options: {
       )) {
         yield* books.livePrice(price)
         yield* dayStates.livePrice(price)
+        const held = livePricesChanged.get(price.code)
+        if (held === undefined || DateTime.isGreaterThan(price.time, held.time))
+          livePricesChanged.set(price.code, price)
         if (price.isIndex) yield* candles.indexPrice(price)
       }
       yield* books.stockbitFrames(message.frames)
@@ -354,20 +591,26 @@ export const makeTradingDay = Effect.fnUntraced(function* (options: {
         return yield* socket.close(IngestCloseCode.RejectedToken, "Bad token")
       }
       relayOnline = true
+      // A sealed day takes nothing more.
+      if (sealed) return
       yield* market.ingest(message)
       if (message._tag === "CodeList")
         return yield* storeCodeList(codeListStore, message.body)
-      // A page fills only numbers the tape lacks: a held trade keeps the
-      // feeds that saw it live.
+      // A page fills only numbers the day lacks: a held trade keeps the feeds
+      // that saw it live.
       if (message._tag === "BackfillPage")
         yield* insert(
-          (yield* backfillTrades(options.date, message)).filter(
+          yield* Effect.filter(
+            yield* backfillTrades(options.date, message),
             (trade) =>
-              tape[positionOf(tape, trade)]?.tradeNumber !== trade.tradeNumber
+              inTape(trade)
+                ? Effect.succeed(false)
+                : Effect.map(heldOutsideTape(trade, true), (held) => !held)
           )
         )
       if (message._tag === "Frames") yield* framesIn(message)
       yield* scheduleDelta
+      yield* scheduleFlush
     },
     (effect, socket) =>
       Effect.catchTag(effect, "ProtocolVersionMismatch", (error) =>
@@ -428,8 +671,55 @@ export const makeTradingDay = Effect.fnUntraced(function* (options: {
     yield* onDemand.update
   })
 
-  // The GET for the day's stock code list.
-  const codeList = codeListAnswer(codeListStore, options.date)
+  // A recorded day GET (spec apinrdw/kumora#138, "Recorded day loads"),
+  // answered from the store. A day not sealed yet answers what it flushed,
+  // not cached.
+  const recorded = Effect.fnUntraced(function* (resource: RecordedResource) {
+    const cacheControl = sealed ? SEALED_CACHE : "no-store"
+    switch (resource._tag) {
+      case "Codes":
+        return yield* codeListAnswer(codeListStore, options.date)
+      case "Tape":
+        return json(
+          yield* encodeRecordedTape({
+            trades: yield* store.tradesAt(resource.at, SNAPSHOT_TRADES),
+          }),
+          cacheControl
+        )
+      case "Candles": {
+        const previous = (yield* store.livePrice(resource.code))?.previous
+        return json(
+          yield* encodeRecordedCandles({
+            code: resource.code,
+            ...(previous === undefined ? {} : { previousClose: previous }),
+            candles: yield* store.candlesOf(resource.code),
+          }),
+          cacheControl
+        )
+      }
+      case "Book": {
+        const minute =
+          Math.floor(DateTime.toEpochMillis(resource.minute) / MINUTE) * MINUTE
+        const chunk = yield* store.chunkAt(resource.code, minute)
+        return chunk === undefined
+          ? json(
+              '{"error":"NotFound","message":"Not recorded"}',
+              cacheControl,
+              404
+            )
+          : json(chunk, cacheControl)
+      }
+      case "Gaps":
+        return json(
+          sealed
+            ? ((yield* store.fact(Fact.gaps)) ?? '{"gaps":[]}')
+            : yield* encodeRecordedGaps({ gaps: (yield* market.status).gaps }),
+          cacheControl
+        )
+    }
+  })
+
+  if (!sealed) yield* setAlarm(yield* sealInstant(options.date))
 
   // After a ban, revoke or delete: the page on a session the account no
   // longer holds is sent to sign in.
@@ -446,6 +736,7 @@ export const makeTradingDay = Effect.fnUntraced(function* (options: {
     viewerClosed,
     ingestClosed,
     endSessions,
-    codeList,
+    recorded,
+    alarm,
   }
 })

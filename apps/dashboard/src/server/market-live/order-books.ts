@@ -283,7 +283,31 @@ export const makeOrderBooks = (date: WibDate) =>
         return books
       })
 
+    // A restarted object's last served book of a code, as its source's book:
+    // the next frames build on it. An Ajaib book keeps only the levels served.
+    const restore = (book: OrderBook) =>
+      Effect.sync(() => {
+        if (book.previousClose !== undefined)
+          previous.set(book.code, book.previousClose)
+        if (book.provenance === "Stockbit") {
+          stockbit.set(book.code, {
+            bid: { levels: book.bids, lots: book.bidLots },
+            offer: { levels: book.offers, lots: book.offerLots },
+            at: book.at,
+            version: ++version,
+          })
+          return
+        }
+        ajaib.set(book.code, {
+          bids: new Map(book.bids.map((level) => [level.price, level])),
+          offers: new Map(book.offers.map((level) => [level.price, level])),
+          at: book.at,
+          version: ++version,
+        })
+      })
+
     return {
+      restore,
       stockbitFrames,
       ajaibFrames,
       livePrice,

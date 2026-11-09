@@ -29,6 +29,7 @@ import recordedPrice from "./fixtures/ajaib-price-2026-11-06.json"
 import recordedTrades from "./fixtures/ajaib-trades-2026-11-09.json"
 import recordedLivePrice from "./fixtures/stockbit-liveprice-2026-11-09.json"
 import { doubleField, messageField, stringField, varintField } from "./protobuf"
+import { memorySql } from "./sql"
 
 const TOKEN = "e2e-ingest-token"
 const DAY = WibDate.make("2026-11-09")
@@ -137,6 +138,7 @@ const tradingDay = Effect.fnUntraced(function* () {
   const relays: Array<FakeSocket> = []
   const scope = yield* Scope.make()
   const day = yield* makeTradingDay({
+    sql: memorySql(),
     date: DAY,
     viewers: Effect.sync(() => viewers),
     viewersOf: () => Effect.succeed([]),

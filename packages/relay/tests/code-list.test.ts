@@ -1,34 +1,74 @@
 import { assert, describe, it } from "@effect/vitest"
-import { Effect, Option } from "effect"
+import { DateTime, Effect, Option } from "effect"
 
 import {
   StockCode,
   WibDate,
   decodeStockCodeList,
   encodeStockCodeList,
-  stockCodeListDay,
+  DayStripPath,
+  recordedDayPath,
+  recordedDayRequest,
   stockCodeListPath,
+  type RecordedResource,
 } from "@workspace/relay"
 
-describe("the stock code list path", () => {
-  it.effect("names its day, and the Worker reads the day back", () =>
+const locationOf = (path: string) => {
+  const at = path.indexOf("?")
+  return at < 0
+    ? { pathname: path, search: "" }
+    : { pathname: path.slice(0, at), search: path.slice(at) }
+}
+
+describe("recorded day paths", () => {
+  it.effect("name their day and resource, and the Worker reads both back", () =>
     Effect.gen(function* () {
       const day = WibDate.make("2026-11-09")
-      const path = yield* stockCodeListPath(day)
-      assert.strictEqual(path, "/market-live/days/2026-11-09/codes")
-      assert.deepStrictEqual(yield* stockCodeListDay(path), Option.some(day))
+      const at = DateTime.makeUnsafe("2026-11-09T03:15:00.000Z")
+      const code = StockCode.make("BBCA")
+      const resources: ReadonlyArray<RecordedResource> = [
+        { _tag: "Codes" },
+        { _tag: "Tape", at },
+        { _tag: "Candles", code },
+        { _tag: "Book", code, minute: at },
+        { _tag: "Gaps" },
+      ]
+      assert.strictEqual(
+        yield* stockCodeListPath(day),
+        "/market-live/days/2026-11-09/codes"
+      )
+      assert.strictEqual(
+        yield* recordedDayPath(day, { _tag: "Tape", at }),
+        "/market-live/days/2026-11-09/trades?at=1794194100000"
+      )
+      for (const resource of resources) {
+        const path = yield* recordedDayPath(day, resource)
+        assert.deepStrictEqual(
+          yield* recordedDayRequest(locationOf(path)),
+          Option.some({ date: day, resource }),
+          path
+        )
+      }
     })
   )
 
-  it.effect("reads no day from any other path", () =>
+  it.effect("read nothing from any other path", () =>
     Effect.gen(function* () {
       for (const path of [
+        DayStripPath,
         "/market-live/days/latest/codes",
         "/market-live/days/2026-11-09/tape",
+        "/market-live/days/2026-11-09/trades",
+        "/market-live/days/2026-11-09/trades?at=soon",
+        "/market-live/days/2026-11-09/books/BBCA",
+        "/market-live/days/2026-11-09/codes/more",
         "/market-live/days//codes",
         "/market-live/live",
       ])
-        assert.isTrue(Option.isNone(yield* stockCodeListDay(path)), path)
+        assert.isTrue(
+          Option.isNone(yield* recordedDayRequest(locationOf(path))),
+          path
+        )
     })
   )
 })

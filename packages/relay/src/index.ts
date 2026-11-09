@@ -49,12 +49,31 @@ export type {
   ViewerDown,
   ViewerUp,
 } from "./envelope.ts"
+export { decodeStockCodeList, encodeStockCodeList } from "./code-list.ts"
 export {
-  decodeStockCodeList,
-  encodeStockCodeList,
-  stockCodeListDay,
+  DayStripPath,
+  bookAt,
+  decodeBookChunk,
+  decodeDayStrip,
+  decodeRecordedCandles,
+  decodeRecordedDay,
+  decodeRecordedGaps,
+  decodeRecordedTape,
+  encodeBookChunk,
+  encodeRecordedCandles,
+  encodeRecordedDay,
+  encodeRecordedGaps,
+  encodeRecordedTape,
+  recordedDayPath,
+  recordedDayRequest,
   stockCodeListPath,
-} from "./code-list.ts"
+} from "./recorded-day.ts"
+export type {
+  BookChunk,
+  BookDelta,
+  RecordedDay,
+  RecordedResource,
+} from "./recorded-day.ts"
 export type { CodeKind, ListedCode } from "./code-list.ts"
 export type { DayState } from "./day-state.ts"
 export { BOOK_DEPTH } from "./order-book.ts"

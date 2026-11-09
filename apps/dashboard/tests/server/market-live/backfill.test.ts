@@ -28,6 +28,7 @@ import {
 
 import recorded from "./fixtures/ajaib-trades-2026-11-09.json"
 import rest from "./fixtures/rest-running-trades-2026-11-09.json"
+import { memorySql } from "./sql"
 
 const TOKEN = "e2e-ingest-token"
 const DAY = WibDate.make("2026-11-09")
@@ -56,6 +57,7 @@ const tradingDay = Effect.fnUntraced(function* () {
   const relays: Array<FakeSocket> = []
   const scope = yield* Scope.make()
   const day = yield* makeTradingDay({
+    sql: memorySql(),
     date: DAY,
     viewers: Effect.sync(() => viewers),
     viewersOf: () => Effect.succeed([]),

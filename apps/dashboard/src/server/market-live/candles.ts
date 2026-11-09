@@ -22,7 +22,7 @@ const MERGE_WINDOW = 5_000
 
 // A candle's figures. Open and close belong to the trades with the lowest and
 // highest order: the trade number for a stock, the frame time for an index.
-interface Figures {
+export interface CandleFigures {
   readonly openOrder: bigint
   readonly open: number
   readonly closeOrder: bigint
@@ -42,7 +42,10 @@ interface Print {
   readonly frequency: number
 }
 
-const add = (figures: Figures | undefined, print: Print): Figures => {
+const add = (
+  figures: CandleFigures | undefined,
+  print: Print
+): CandleFigures => {
   if (figures === undefined)
     return {
       openOrder: print.order,
@@ -83,7 +86,7 @@ const printOf = (trade: RunningTrade): Print => ({
 interface Slot {
   readonly code: StockCode
   readonly minute: number
-  settled: Figures | undefined
+  settled: CandleFigures | undefined
   readonly open: Map<string, RunningTrade>
 }
 
@@ -136,6 +139,10 @@ export const makeCandleBook = Effect.sync(() => {
   >()
   const indexTotals = new Map<StockCode, Totals>()
   let changed = new Set<Slot>()
+  // What the next flush writes: trades whose merge window closed, each once,
+  // and the candles whose settled figures changed.
+  let settledTrades = new Map<string, RunningTrade>()
+  let unflushed = new Set<Slot>()
 
   const slotOf = (code: StockCode, minute: number) => {
     let minutes = series.get(code)
@@ -156,10 +163,12 @@ export const makeCandleBook = Effect.sync(() => {
       if (arrival.arrivedAt + MERGE_WINDOW > now) return
       arrivals.delete(tradeNumber)
       const { trade } = arrival
+      settledTrades.set(tradeNumber, trade)
       if (!counts(trade)) continue
       const slot = slotOf(trade.code, minuteOf(trade.time))
       slot.open.delete(tradeNumber)
       slot.settled = add(slot.settled, printOf(trade))
+      unflushed.add(slot)
     }
   }
 
@@ -220,6 +229,7 @@ export const makeCandleBook = Effect.sync(() => {
       frequency: price.frequency - base.frequency,
     })
     changed.add(slot)
+    unflushed.add(slot)
   })
 
   // One code's candles so far, ascending by minute.
@@ -239,5 +249,66 @@ export const makeCandleBook = Effect.sync(() => {
 
   const hasChanges = Effect.sync(() => changed.size > 0)
 
-  return { trade, indexPrice, candlesOf, takeChanged, hasChanges }
+  // Whether the book holds a trade the store doesn't have yet: inside its
+  // merge window, or settled since the last flush.
+  const holds = (tradeNumber: string) =>
+    Effect.sync(
+      () => arrivals.has(tradeNumber) || settledTrades.has(tradeNumber)
+    )
+
+  // What a flush writes: the trades whose merge window closed by `now`, and
+  // the settled figures of every candle they or an index frame changed. At
+  // the seal `now` is the end of time: every window closes.
+  const takeSettled = Effect.fnUntraced(function* (final: boolean) {
+    settle(final ? Infinity : yield* Clock.currentTimeMillis)
+    const trades = [...settledTrades.values()]
+    const candles = [...unflushed].flatMap((slot) =>
+      slot.settled === undefined
+        ? []
+        : [{ code: slot.code, minute: slot.minute, figures: slot.settled }]
+    )
+    settledTrades = new Map()
+    unflushed = new Set()
+    return { trades, candles }
+  })
+
+  // Trades still waiting for their merge window to close.
+  const hasUnsettled = Effect.sync(() => arrivals.size > 0)
+
+  // A restarted object's stored candles, and its indices' last frames, so new
+  // trades and frames add to them.
+  const restore = (
+    stored: ReadonlyArray<{
+      readonly code: StockCode
+      readonly minute: number
+      readonly figures: CandleFigures
+    }>,
+    indexPrices: ReadonlyArray<LivePrice>
+  ) =>
+    Effect.sync(() => {
+      for (const { code, minute, figures } of stored)
+        slotOf(code, minute).settled = figures
+      for (const price of indexPrices) {
+        if (!price.isIndex || price.last === undefined) continue
+        indexTotals.set(price.code, {
+          time: DateTime.toEpochMillis(price.time),
+          last: price.last,
+          volume: price.volume,
+          value: price.value,
+          frequency: price.frequency,
+        })
+      }
+    })
+
+  return {
+    trade,
+    indexPrice,
+    candlesOf,
+    takeChanged,
+    hasChanges,
+    holds,
+    takeSettled,
+    hasUnsettled,
+    restore,
+  }
 })

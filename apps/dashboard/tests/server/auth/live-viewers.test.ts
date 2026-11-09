@@ -18,6 +18,7 @@ import {
   send,
   signUp,
 } from "./seam.ts"
+import { memorySql } from "../market-live/sql"
 
 const PASSWORD = "correct horse"
 const MEMBER = "ayu@example.com"
@@ -45,6 +46,7 @@ const json = <A>(response: Response) =>
 const live = Effect.fnUntraced(function* () {
   const pages: Array<Page> = []
   const day = yield* makeTradingDay({
+    sql: memorySql(),
     date: WibDate.make("2026-11-09"),
     viewers: Effect.sync(() => pages),
     viewersOf: (userId) =>

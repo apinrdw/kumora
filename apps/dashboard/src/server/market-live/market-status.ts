@@ -14,7 +14,7 @@ import {
 } from "@workspace/relay"
 import { DateTime, Effect } from "effect"
 
-import { makeFeedHealth } from "./feed-health.ts"
+import { makeFeedHealth, type DownRecord } from "./feed-health.ts"
 import { ajaibIndicative, stockbitIndicative } from "./indicative.ts"
 
 // The market opens with pre-opening, 08:45 WIB.
@@ -58,17 +58,24 @@ const sameIndicative = (a: IndicativePrice, b: IndicativePrice | undefined) =>
   a.volume === b.volume &&
   DateTime.Equivalence(a.at, b.at)
 
-export const makeMarketStatus = Effect.fnUntraced(function* (date: WibDate) {
+export const makeMarketStatus = Effect.fnUntraced(function* (
+  date: WibDate,
+  // The feeds' down stretches an object stored before it restarted.
+  restored?: DownRecord
+) {
   const stretches = yield* expectedStretches(date).pipe(
     Effect.catchTag("ScheduleYearMissing", () => Effect.succeed([]))
   )
   // Decision: the record of feed up and down stretches starts at the day's
-  // midnight WIB and lives in memory, like the tape, until the recorded day
-  // ticket stores it (apinrdw/kumora#151). An object that restarts mid-day
-  // shows what it lost as a relay gap, which is what its tape lost too.
+  // midnight WIB. The trading day stores it with every flush, so an object
+  // that restarts keeps the morning's record, and shows only the time from
+  // its restart to the relay's next frame as down.
   const health = yield* makeFeedHealth({
     stretches,
     since: DateTime.makeUnsafe(`${date}T00:00:00+07:00`),
+    ...(restored === undefined
+      ? {}
+      : { restored: { record: restored, at: yield* DateTime.now } }),
   })
   const stockbit = new Map<StockCode, IndicativePrice>()
   const ajaib = new Map<StockCode, IndicativePrice>()
@@ -150,6 +157,7 @@ export const makeMarketStatus = Effect.fnUntraced(function* (date: WibDate) {
   const relayOffline = Effect.flatMap(DateTime.now, health.offline)
 
   return {
+    record: health.record,
     ingest,
     relayOnline,
     relayOffline,

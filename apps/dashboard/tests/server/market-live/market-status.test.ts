@@ -25,6 +25,7 @@ import {
   type Peer,
   type PeerState,
 } from "@/server/market-live/trading-day"
+import { memorySql } from "./sql"
 
 const TOKEN = "e2e-ingest-token"
 const BBCA = StockCode.make("BBCA")
@@ -56,6 +57,7 @@ const marketAt = Effect.fnUntraced(function* (start: string) {
   yield* TestClock.setTime(DateTime.toEpochMillis(wib(start)))
   const viewers: Array<FakeSocket> = []
   const day = yield* makeTradingDay({
+    sql: memorySql(),
     date: WibDate.make(start.slice(0, 10)),
     viewers: Effect.sync(() => viewers),
     viewersOf: () => Effect.succeed([]),
