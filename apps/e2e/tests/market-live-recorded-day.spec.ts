@@ -1,0 +1,134 @@
+// Seam (b) of spec apinrdw/kumora#138, a recorded day: the day strip opens a
+// day at its close under `?day=`, with its whole-day candles, the watchlist
+// rows worked out in the browser, its tape and the RECORDED pill; Today ·
+// live goes back to the live page; a 401 answer sends the viewer to sign in.
+import {
+  StockCode,
+  WibDate,
+  decodeRecordedCandles,
+  recordedDayPath,
+} from "@workspace/relay"
+import { Effect } from "effect"
+
+import { DASHBOARD, MEMBER } from "../support/accounts"
+import { marketNow } from "../support/clock"
+import { signInUrl } from "../support/flows"
+import {
+  ajaibTradeToday,
+  freshTradeNumbers,
+  openIngest,
+  wibToday,
+} from "../support/ingest"
+import { expect, test } from "../support/test"
+
+const PAGE = "/market-live"
+const WATCHLIST_KEY = "kumora:market-live:watchlist"
+
+test.use({ storageState: MEMBER.storageState })
+
+test("the day strip opens a recorded day at its close, and Today · live returns", async ({
+  page,
+}) => {
+  // The flush runs 5 s past each minute and writes the minute that ended.
+  test.setTimeout(180_000)
+  const base = freshTradeNumbers()
+  // A code of its own: today's object keeps every code's candles.
+  const code = StockCode.make(`RP${Date.now().toString(36).toUpperCase()}`)
+  const day = WibDate.make(wibToday())
+  const time = new Date(marketNow() + 7 * 3_600_000).toISOString().slice(11, 19)
+  const relay = await openIngest()
+  await relay.sendAjaib([
+    ajaibTradeToday({ seq: base + 1, time, ticker: code, price: 500, lot: 3 }),
+    ajaibTradeToday({ seq: base + 2, time, ticker: code, price: 505, lot: 2 }),
+  ])
+  relay.close()
+
+  // Recorded once the minute's flush has run.
+  const candlesUrl = `${DASHBOARD}${Effect.runSync(
+    recordedDayPath(day, { _tag: "Candles", code })
+  )}`
+  await expect
+    .poll(
+      async () => {
+        const answer = await page.request.get(candlesUrl)
+        if (answer.status() !== 200) return 0
+        const { candles } = await Effect.runPromise(
+          decodeRecordedCandles(await answer.text())
+        )
+        return candles.reduce((sum, candle) => sum + candle.volume, 0)
+      },
+      { timeout: 150_000, intervals: [5_000] }
+    )
+    .toBe(5)
+
+  // Today has not sealed, so the index lists no day yet: the strip is
+  // answered with today as a recorded day, whose GETs the object answers
+  // from what it flushed.
+  await page.route(
+    (url) => url.pathname === "/market-live/days",
+    (route) =>
+      route.fulfill({
+        json: {
+          days: [
+            {
+              day,
+              ihsg: { close: 7_035, change: 35, changePercent: 0.5 },
+              trades: 2,
+              gap: false,
+            },
+          ],
+        },
+      })
+  )
+  await page.addInitScript(
+    ([key, watched]) => window.localStorage.setItem(key, watched),
+    [WATCHLIST_KEY, JSON.stringify([code])] as const
+  )
+  await page.goto(`${DASHBOARD}${PAGE}?code=${code}`)
+  const status = page.getByRole("group", { name: "Market status" })
+  await expect(status.getByRole("list", { name: "Feeds" })).toBeVisible()
+
+  const strip = page.getByRole("navigation", { name: "Trading days" })
+  await strip.getByRole("link", { name: /IHSG \+0\.50%/ }).click()
+  await expect(page).toHaveURL(new RegExp(`[?&]day=${day}(&|$)`))
+  await expect(status).toContainText("RECORDED")
+  await expect(status).toContainText("at the close")
+  await expect(status.getByRole("list", { name: "Feeds" })).toHaveCount(0)
+  await expect(strip.getByRole("link", { name: /IHSG/ })).toHaveAttribute(
+    "aria-current",
+    "page"
+  )
+
+  await expect(page.getByText("One-minute candles: 1")).toBeAttached()
+  const row = page
+    .getByRole("region", { name: "Watchlist" })
+    .locator(`tr[data-code="${code}"]`)
+  // Last 505; 5 lots in 2 trades.
+  await expect(row.locator("td").nth(1)).toHaveText("505")
+  await expect(row.locator("td").nth(4)).toHaveText("5")
+  await expect(row.locator("td").nth(5)).toHaveText("2")
+  const tape = page.getByRole("region", { name: "Running trades" })
+  await expect(
+    tape.locator(`tr[data-trade-number="${base + 2}"]`)
+  ).toBeVisible()
+
+  await strip.getByRole("link", { name: "Today · live" }).click()
+  await expect(page).not.toHaveURL(/[?&]day=/)
+  await expect(status.getByRole("list", { name: "Feeds" })).toBeVisible()
+})
+
+test("a 401 recorded day answer sends the viewer to sign in", async ({
+  page,
+}) => {
+  await page.route(
+    (url) => url.pathname.startsWith("/market-live/days/"),
+    (route) =>
+      route.fulfill({
+        status: 401,
+        json: { error: "Unauthorized", message: "Sign in" },
+      })
+  )
+  const path = `${PAGE}?day=${wibToday()}`
+  await page.goto(`${DASHBOARD}${path}`)
+  await expect(page).toHaveURL(signInUrl(path), { timeout: 15_000 })
+})
