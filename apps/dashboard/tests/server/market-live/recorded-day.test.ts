@@ -519,6 +519,57 @@ describe("a restarted trading day", () => {
         )
       })
   )
+
+  it.effect(
+    "carries a code's Day state on from the stored trades after its last liveprice frame",
+    () =>
+      Effect.gen(function* () {
+        yield* TestClock.setTime(wib("09:30:00").epochMilliseconds)
+        const sql = memorySql()
+        const day = yield* tradingDay(sql)
+        yield* day.stockbit([
+          livePriceFrame({
+            code: "BBCA",
+            last: 8_000,
+            previous: 7_975,
+            time: "09:30:00",
+          }),
+        ])
+        // One in the frame's minute, one in the next.
+        yield* day.ajaib([
+          ajaibTrade({ seq: 1, time: "09:30:20", price: 8_025, lot: 3 }),
+          ajaibTrade({ seq: 2, time: "09:31:10", price: 8_050, lot: 2 }),
+        ])
+        yield* pastFlush
+        yield* day.stop
+        // Stockbit is lost from the restart until its next frame.
+        const restarted = yield* tradingDay(sql)
+        const [snapshot] = yield* yield* restarted.viewer("BBCA")
+        const state = snapshot?.dayStates?.find(
+          (dayState) => dayState.code === "BBCA"
+        )
+        assert.deepStrictEqual(
+          state === undefined
+            ? undefined
+            : { ...state, asOf: DateTime.formatIso(state.asOf) },
+          {
+            code: "BBCA",
+            last: 8_050,
+            previousClose: 7_975,
+            change: 75,
+            changePercent: (75 / 7_975) * 100,
+            open: 8_000,
+            high: 8_050,
+            low: 8_000,
+            volume: 10_000 + 5,
+            value: 5e9 + 8_025 * 300 + 8_050 * 200,
+            frequency: 100 + 2,
+            asOf: "2026-11-09T02:31:10.000Z",
+            provenance: "Ajaib",
+          }
+        )
+      })
+  )
 })
 
 describe("a trade older than the tape", () => {
