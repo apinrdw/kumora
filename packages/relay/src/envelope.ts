@@ -1,0 +1,185 @@
+import { Effect, Schema } from "effect"
+
+import { StockCode } from "./codes.ts"
+
+// Bump on any change to an ingest message's shape. The dashboard accepts this
+// version and the one before it, so an extension one release behind keeps
+// relaying while the owner reloads it.
+export const IngestProtocolVersion = 1
+const acceptedIngestVersions: ReadonlyArray<unknown> = [
+  IngestProtocolVersion,
+  IngestProtocolVersion - 1,
+]
+
+// Bump on any change to a viewer message's shape. Only this version is
+// accepted: a page on another version reloads.
+export const ViewerProtocolVersion = 1
+
+// Decision: an extension that hits either code stops retrying that target and
+// shows it; any other close, 1006 included, retries with backoff. The token
+// travels as the first message because a browser websocket can't set headers.
+// See apinrdw/kumora#45.
+export const IngestCloseCode = {
+  RejectedToken: 4403,
+  VersionMismatch: 4426,
+} as const
+
+// Both are terminal for the page; any other close reconnects and resumes from
+// a fresh snapshot.
+export const ViewerCloseCode = {
+  SignInRequired: 4401,
+  NewVersion: 4426,
+} as const
+
+export const Feed = Schema.Literals(["Stockbit", "Ajaib"])
+export type Feed = typeof Feed.Type
+
+export const Connection = Schema.Literals(["A", "B"])
+export type Connection = typeof Connection.Type
+
+// Decision: a trade number travels as a string of digits. The date-prefixed
+// form (YYYYMMDD plus the sequence) exceeds 2^53, so a JSON number would lose
+// digits. See apinrdw/kumora#45.
+export const TradeNumber = Schema.String.check(Schema.isPattern(/^\d+$/)).pipe(
+  Schema.brand("TradeNumber")
+)
+
+const versioned = { protocolVersion: Schema.Int }
+const fromConnection = {
+  ...versioned,
+  connection: Connection,
+  receivedAt: Schema.DateTimeUtcFromMillis,
+}
+
+// One connection's raw frames from about 250 ms, unparsed: Stockbit's protobuf
+// bytes (base64 on the wire) or Ajaib's JSON text.
+export const StockbitFrames = Schema.TaggedStruct("Frames", {
+  ...fromConnection,
+  feed: Schema.Literal("Stockbit"),
+  frames: Schema.Array(Schema.Uint8ArrayFromBase64),
+})
+export const AjaibFrames = Schema.TaggedStruct("Frames", {
+  ...fromConnection,
+  feed: Schema.Literal("Ajaib"),
+  frames: Schema.Array(Schema.String),
+})
+
+// The ingest token, the first message after the socket opens.
+export const IngestToken = Schema.TaggedStruct("Token", {
+  ...versioned,
+  token: Schema.String,
+})
+
+// Ajaib's stock code list, sent once a day as the raw response body.
+export const CodeList = Schema.TaggedStruct("CodeList", {
+  ...versioned,
+  receivedAt: Schema.DateTimeUtcFromMillis,
+  body: Schema.String,
+})
+
+// A connection opened, closed, or answered a ping (a sign of life).
+export const FeedStatus = Schema.TaggedStruct("FeedStatus", {
+  ...versioned,
+  feed: Feed,
+  connection: Connection,
+  at: Schema.DateTimeUtcFromMillis,
+  status: Schema.Literals(["opened", "closed", "alive"]),
+})
+
+// Extension → trading-day Durable Object.
+const IngestUp = Schema.Union([
+  IngestToken,
+  StockbitFrames,
+  AjaibFrames,
+  CodeList,
+  FeedStatus,
+])
+export type IngestUp = typeof IngestUp.Type
+
+// Fetch the trades numbered from `from` to `to`, inclusive.
+export const Backfill = Schema.TaggedStruct("Backfill", {
+  from: TradeNumber,
+  to: TradeNumber,
+})
+
+// The codes to keep subscribed on Ajaib: every code a viewer has selected or
+// in a watchlist.
+export const OnDemandCodes = Schema.TaggedStruct("OnDemandCodes", {
+  codes: Schema.Array(StockCode),
+})
+
+// Trading-day Durable Object → extension.
+const IngestDown = Schema.Union([Backfill, OnDemandCodes])
+export type IngestDown = typeof IngestDown.Type
+
+// The page's selected code and watchlist, sent on open and on every change.
+export const Select = Schema.TaggedStruct("Select", {
+  ...versioned,
+  selected: StockCode,
+  watchlist: Schema.Array(StockCode),
+})
+
+// Page → dashboard Worker.
+export type ViewerUp = typeof Select.Type
+
+export class ProtocolVersionMismatch extends Schema.TaggedError<ProtocolVersionMismatch>()(
+  "ProtocolVersionMismatch",
+  {
+    protocol: Schema.Literals(["ingest", "viewer"]),
+    received: Schema.Unknown,
+    closeCode: Schema.Literal(4426),
+  }
+) {}
+
+const Json = Schema.fromJsonString(Schema.Unknown)
+const VersionProbe = Schema.Struct({
+  protocolVersion: Schema.optionalKey(Schema.Unknown),
+})
+
+// Parses a message's JSON and fails with ProtocolVersionMismatch unless its
+// version is accepted, before its shape is checked: a message from another
+// version may not decode at all.
+const versionChecked = Effect.fnUntraced(function* (
+  text: string,
+  protocol: "ingest" | "viewer",
+  accepted: ReadonlyArray<unknown>
+) {
+  const json = yield* Schema.decodeUnknownEffect(Json)(text)
+  const { protocolVersion } =
+    yield* Schema.decodeUnknownEffect(VersionProbe)(json)
+  if (!accepted.includes(protocolVersion)) {
+    return yield* new ProtocolVersionMismatch({
+      protocol,
+      received: protocolVersion,
+      closeCode:
+        protocol === "ingest"
+          ? IngestCloseCode.VersionMismatch
+          : ViewerCloseCode.NewVersion,
+    })
+  }
+  return json
+})
+
+export const decodeIngestUp = Effect.fnUntraced(function* (text: string) {
+  const json = yield* versionChecked(text, "ingest", acceptedIngestVersions)
+  return yield* Schema.decodeUnknownEffect(IngestUp)(json)
+})
+
+export const encodeIngestUp = Schema.encodeEffect(
+  Schema.fromJsonString(IngestUp)
+)
+
+export const decodeIngestDown = Schema.decodeUnknownEffect(
+  Schema.fromJsonString(IngestDown)
+)
+
+export const encodeIngestDown = Schema.encodeEffect(
+  Schema.fromJsonString(IngestDown)
+)
+
+export const decodeViewerUp = Effect.fnUntraced(function* (text: string) {
+  const json = yield* versionChecked(text, "viewer", [ViewerProtocolVersion])
+  return yield* Schema.decodeUnknownEffect(Select)(json)
+})
+
+export const encodeViewerUp = Schema.encodeEffect(Schema.fromJsonString(Select))
