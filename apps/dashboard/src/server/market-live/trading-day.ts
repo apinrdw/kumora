@@ -41,7 +41,7 @@ import {
   type CodeListStore,
 } from "./code-list.ts"
 import { makeDayStates } from "./day-states.ts"
-import { Fact, makeDayStore, type Sql } from "./day-store.ts"
+import { Fact, makeDayStore, type Flush, type Sql } from "./day-store.ts"
 import type { DownRecord } from "./feed-health.ts"
 import { makeGaps } from "./gaps.ts"
 import { makeMarketConditions } from "./market-conditions.ts"
@@ -103,8 +103,12 @@ const TAPE_LIMIT = 10_000
 // the minute that just ended: its book chunks, and its trades' 5 s merge
 // windows. The one exception is the relay going offline (`ingestClosed`),
 // which flushes at once, mid-minute, so a restart keeps the relay gap from
-// that instant. Each trade is written once. A restart loses at most the
-// minute in progress, which the relay's backfill refills from the next gap.
+// that instant. Each trade is written once. A flush whose write failed keeps
+// what it took, and the next flush, a minute later, writes it with what
+// settled since, so a candle is never stored without the trades it counted;
+// the candle book keeps its own (candles.ts). A restart loses at most the
+// minute in progress and an unwritten flush, which the relay's backfill
+// refills from the next gap.
 const MINUTE = 60_000
 const FLUSH_PAST_MINUTE = 5_000
 
@@ -119,6 +123,16 @@ const ihsgOf = (price: LivePrice | undefined) => {
 }
 
 const IHSG = StockCode.make("IHSG")
+
+// One row per code from two flushes' rows, the later flush's replacing the
+// earlier's.
+const latestByCode = <T extends { readonly code: StockCode }>(
+  earlier: ReadonlyArray<T>,
+  later: ReadonlyArray<T>
+) => {
+  const codes = new Set(later.map((row) => row.code))
+  return [...earlier.filter((row) => !codes.has(row.code)), ...later]
+}
 
 // Decision: a viewer whose session ended is closed with 4401 when it would
 // next be served, a delta or a snapshot, not by a timer: that is where it
@@ -307,6 +321,8 @@ export const makeTradingDay = Effect.fnUntraced(function* (options: {
   const lastLivePrices = new Map<StockCode, LivePrice>()
   let livePricesChanged = new Map<StockCode, LivePrice>()
   let flushScheduled = false
+  // What a flush took whose write failed; the next flush writes it.
+  let unwritten: Flush | undefined
 
   if (restoring)
     for (const price of yield* restoreLastFrames({
@@ -494,8 +510,10 @@ export const makeTradingDay = Effect.fnUntraced(function* (options: {
     return loop.pipe(Effect.forkIn(scope), Effect.asVoid)
   })
 
-  // Writes what the day recorded since the last flush in one transaction. At
-  // the seal every merge window and open chunk closes.
+  // Writes what the day recorded since the last flush in one transaction,
+  // with what a failed flush took. The candles come from the book, which
+  // kept a failed flush's. At the seal every merge window and open chunk
+  // closes.
   const flush = Effect.fnUntraced(function* (
     final: boolean,
     facts: Readonly<Record<string, string>> = {}
@@ -504,21 +522,28 @@ export const makeTradingDay = Effect.fnUntraced(function* (options: {
     const chunks = yield* bookChunks.take(final)
     const livePrices = [...livePricesChanged.values()]
     livePricesChanged = new Map()
-    yield* store.write({
-      ...settled,
-      livePrices,
-      chunks,
-      ajaibBooks: yield* books.takeAjaibBooks,
+    const ajaibBooks = yield* books.takeAjaibBooks
+    const retained = unwritten
+    const payload: Flush = {
+      trades: [...(retained?.trades ?? []), ...settled.trades],
+      candles: settled.candles,
+      livePrices: latestByCode(retained?.livePrices ?? [], livePrices),
+      chunks: [...(retained?.chunks ?? []), ...chunks],
+      ajaibBooks: latestByCode(retained?.ajaibBooks ?? [], ajaibBooks),
       facts: {
         [Fact.feedDowns]: JSON.stringify(yield* market.record),
         ...facts,
       },
-    })
+    }
+    unwritten = payload
+    yield* store.write(payload)
+    unwritten = undefined
     yield* candles.written
   })
 
   const unflushed = Effect.gen(function* () {
     return (
+      unwritten !== undefined ||
       livePricesChanged.size > 0 ||
       (yield* candles.hasUnflushed) ||
       (yield* bookChunks.hasOpen) ||
@@ -526,7 +551,8 @@ export const makeTradingDay = Effect.fnUntraced(function* (options: {
     )
   })
 
-  // One flush a minute while anything is left to write.
+  // One flush a minute while anything is left to write, a failed one
+  // included.
   const scheduleFlush: Effect.Effect<void> = Effect.suspend(() => {
     if (flushScheduled || sealed) return Effect.void
     flushScheduled = true
@@ -541,12 +567,17 @@ export const makeTradingDay = Effect.fnUntraced(function* (options: {
       Effect.andThen(
         Effect.suspend(() => {
           flushScheduled = false
-          return sealed ? Effect.void : flush(false)
+          return sealed
+            ? Effect.void
+            : flush(false).pipe(
+                Effect.catchCause((cause) =>
+                  Effect.logError("Day not flushed", cause)
+                )
+              )
         })
       ),
       Effect.andThen(unflushed),
       Effect.flatMap((more) => (more ? scheduleFlush : Effect.void)),
-      Effect.catchCause((cause) => Effect.logError("Day not flushed", cause)),
       Effect.forkIn(scope),
       Effect.asVoid
     )

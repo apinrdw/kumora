@@ -38,7 +38,7 @@ export interface StoredChunk {
 }
 
 // What one flush writes.
-interface Flush {
+export interface Flush {
   readonly trades: ReadonlyArray<RunningTrade>
   readonly candles: ReadonlyArray<StoredCandle>
   readonly livePrices: ReadonlyArray<LivePrice>

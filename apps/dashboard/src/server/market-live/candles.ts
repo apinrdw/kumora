@@ -192,7 +192,8 @@ interface Totals {
 // (CODING_STANDARDS.md, "Bounded memory on a Worker"); a code's history is
 // read from the store when a snapshot or the Day state fallback asks for it,
 // and a restart reads nothing back. A flush that fails leaves its candles in
-// the book, and the next flush writes them again.
+// the book, and the next flush writes them again, with the trades the failed
+// one took (trading-day.ts).
 export const makeCandleBook = Effect.fnUntraced(function* (
   store: SettledCandles
 ) {
