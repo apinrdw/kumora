@@ -1,6 +1,11 @@
 // What a recorded day shows at its replay cursor, worked out in the browser
 // from the day's GETs (spec apinrdw/kumora#138, "Recorded day loads").
-import type { DayState, RecordedCandles, WibDate } from "@workspace/relay"
+import type {
+  Candle,
+  DayState,
+  RecordedCandles,
+  WibDate,
+} from "@workspace/relay"
 import { DateTime } from "effect"
 
 const MINUTE = 60_000
@@ -45,4 +50,21 @@ export function dayStateAt(
     // The candles are built from the merged tape, with Stockbit's fields.
     provenance: "Stockbit",
   }
+}
+
+/**
+ * The close the chart header shows before the code has a Day state: the last
+ * candle's, or at `cursor` the latest candle's at or before it, so scrubbing
+ * before the code's first candle shows no price rather than a later one.
+ */
+export function lastCloseAt(
+  candles: ReadonlyArray<Candle>,
+  cursor: DateTime.Utc | undefined
+): number | undefined {
+  if (cursor === undefined) return candles.at(-1)?.close
+  for (let index = candles.length - 1; index >= 0; index--) {
+    const candle = candles[index]!
+    if (DateTime.isLessThanOrEqualTo(candle.minute, cursor)) return candle.close
+  }
+  return undefined
 }

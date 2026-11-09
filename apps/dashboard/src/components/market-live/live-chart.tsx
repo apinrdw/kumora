@@ -1,11 +1,13 @@
 import { ClientOnly } from "@tanstack/react-router"
-import { Suspense, lazy, useSyncExternalStore } from "react"
+import { Suspense, lazy, useCallback, useSyncExternalStore } from "react"
 import type { ReactNode } from "react"
 
 import type { RelayGap, StockCode } from "@workspace/relay"
+import { DateTime } from "effect"
 
 import { KStatusPill } from "@/components/k/status-pill"
 import { direction, pct, quote, shares, signed } from "@/lib/format"
+import { lastCloseAt } from "@/lib/recorded-day"
 
 import type { CandleStore } from "./candle-store"
 import { useDayState, type DayStateStore } from "./day-state-store"
@@ -30,6 +32,34 @@ function useCandles<A>(
     store.subscribe,
     () => read(store.candles()),
     () => server
+  )
+}
+
+// The code's last close for the header, read as of the cursor on a recorded
+// day. It changes at most once a minute of the cursor, so only the header
+// re-renders.
+function useLastClose(store: CandleStore, cursor: ReplayCursor | undefined) {
+  const subscribe = useCallback(
+    (listener: () => void) => {
+      const stopStore = store.subscribe(listener)
+      const stopCursor = cursor?.subscribe(listener)
+      return () => {
+        stopStore()
+        stopCursor?.()
+      }
+    },
+    [store, cursor]
+  )
+  return useSyncExternalStore(
+    subscribe,
+    () =>
+      lastCloseAt(
+        store.candles(),
+        cursor === undefined
+          ? undefined
+          : DateTime.makeUnsafe(cursor.state().at)
+      ),
+    () => undefined
   )
 }
 
@@ -108,7 +138,7 @@ export function LiveChart({
   footer?: ReactNode
 }) {
   const count = useCandles(store, (candles) => candles.length, 0)
-  const last = useCandles(store, (candles) => candles.at(-1)?.close, undefined)
+  const last = useLastClose(store, cursor)
   // Both feeds down: the candles stay, dimmed.
   const stale = useMergedStale()
   return (
