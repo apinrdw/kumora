@@ -6,16 +6,24 @@ import {
   IngestProtocolVersion,
   StockCode,
   TradeNumber,
+  TradeNumberOrder,
   ViewerCloseCode,
   ViewerProtocolVersion,
   decodeIngestDown,
   decodeIngestUp,
+  decodeViewerDown,
   decodeViewerUp,
   encodeIngestDown,
   encodeIngestUp,
+  encodeViewerDown,
   encodeViewerUp,
 } from "@workspace/relay"
-import type { IngestDown, IngestUp, ViewerUp } from "@workspace/relay"
+import type {
+  IngestDown,
+  IngestUp,
+  ViewerDown,
+  ViewerUp,
+} from "@workspace/relay"
 
 const receivedAt = DateTime.makeUnsafe("2026-11-09T02:00:00.250Z")
 
@@ -191,4 +199,37 @@ describe("viewer protocol", () => {
       assert.strictEqual(ViewerCloseCode.SignInRequired, 4401)
     })
   )
+})
+
+describe("viewer protocol, down", () => {
+  it.effect("a delta's running trades round trip with their time", () =>
+    Effect.gen(function* () {
+      const message: ViewerDown = {
+        _tag: "Delta",
+        tape: [
+          {
+            tradeNumber: TradeNumber.make("2350"),
+            time: DateTime.makeUnsafe("2026-11-09T01:58:00.000Z"),
+            code: StockCode.make("SINI"),
+            price: 7725,
+            lots: 10,
+            side: "none",
+            board: "RG",
+            feeds: ["Ajaib"],
+          },
+        ],
+      }
+      const wire = yield* encodeViewerDown(message)
+      assert.deepStrictEqual(yield* decodeViewerDown(wire), message)
+    })
+  )
+})
+
+describe("trade number order", () => {
+  it("orders by number, not by text", () => {
+    const sorted = ["10", "9", "100"]
+      .map((n) => TradeNumber.make(n))
+      .sort(TradeNumberOrder)
+    assert.deepStrictEqual(sorted, ["9", "10", "100"])
+  })
 })

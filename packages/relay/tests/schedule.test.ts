@@ -6,6 +6,7 @@ import {
   isTradingDay,
   marketMomentAt,
   sealInstant,
+  wibDateAt,
 } from "@workspace/relay"
 
 // An instant written as a WIB wall-clock time.
@@ -165,6 +166,20 @@ describe("seal", () => {
     Effect.gen(function* () {
       const seal = yield* sealInstant(WibDate.make("2026-11-09"))
       assert.strictEqual(DateTime.formatIso(seal), "2026-11-09T10:00:00.000Z")
+    })
+  )
+})
+
+describe("WIB date", () => {
+  it.effect("turns at midnight WIB, 17:00 UTC, in any year", () =>
+    Effect.gen(function* () {
+      const before = yield* wibDateAt(
+        DateTime.makeUnsafe("2031-03-02T16:59:59Z")
+      )
+      const after = yield* wibDateAt(
+        DateTime.makeUnsafe("2031-03-02T17:00:00Z")
+      )
+      assert.deepStrictEqual([before, after], ["2031-03-02", "2031-03-03"])
     })
   )
 })

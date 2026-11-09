@@ -1,4 +1,4 @@
-import { Effect, Schema } from "effect"
+import { Effect, Order, Schema } from "effect"
 
 import { StockCode } from "./codes.ts"
 
@@ -31,6 +31,13 @@ export const ViewerCloseCode = {
   NewVersion: 4426,
 } as const
 
+// Where the dashboard Worker serves the two sockets. The extension opens the
+// ingest socket; the Market Live page opens the viewer socket.
+export const MarketLivePath = {
+  ingest: "/market-live/ingest",
+  live: "/market-live/live",
+} as const
+
 export const Feed = Schema.Literals(["Stockbit", "Ajaib"])
 export type Feed = typeof Feed.Type
 
@@ -42,6 +49,14 @@ export type Connection = typeof Connection.Type
 // digits. See apinrdw/kumora#45.
 export const TradeNumber = Schema.String.check(Schema.isPattern(/^\d+$/)).pipe(
   Schema.brand("TradeNumber")
+)
+export type TradeNumber = typeof TradeNumber.Type
+
+// Trade numbers in their numeric order. Strings of different lengths compare
+// wrongly as text, so they compare as BigInt.
+export const TradeNumberOrder: Order.Order<TradeNumber> = Order.mapInput(
+  Order.BigInt,
+  BigInt
 )
 
 const versioned = { protocolVersion: Schema.Int }
@@ -122,6 +137,47 @@ export const Select = Schema.TaggedStruct("Select", {
 // Page → dashboard Worker.
 export type ViewerUp = typeof Select.Type
 
+// Who took the aggressor side. Auction matches and negotiated prints have none.
+const Side = Schema.Literals(["buy", "sell", "none"])
+
+// The market board: regular, cash (tunai), or negotiated.
+const Board = Schema.Literals(["RG", "TN", "NG"])
+
+// Where a running trade was seen: a live feed, or a backfill request's answer.
+const TradeSource = Schema.Literals(["Stockbit", "Ajaib", "backfill"])
+
+// One trade on the whole-market tape, merged across feeds. Its trade number is
+// the bare daily sequence, one market-wide numbering per trading day. Value is
+// price × lots × 100 shares, so it does not travel.
+export const RunningTrade = Schema.Struct({
+  tradeNumber: TradeNumber,
+  time: Schema.DateTimeUtcFromMillis,
+  code: StockCode,
+  price: Schema.Int,
+  lots: Schema.Int,
+  side: Side,
+  board: Board,
+  feeds: Schema.Array(TradeSource),
+})
+export type RunningTrade = typeof RunningTrade.Type
+
+// What a viewer starts from after each Select: the 200 newest running trades,
+// ascending by trade number.
+const Snapshot = Schema.TaggedStruct("Snapshot", {
+  tape: Schema.Array(RunningTrade),
+})
+
+// The running trades that arrived in the last ~250 ms, ascending by trade
+// number. A late trade sorts below ones the viewer already holds.
+const Delta = Schema.TaggedStruct("Delta", {
+  tape: Schema.Array(RunningTrade),
+})
+
+// Trading-day Durable Object → page. It carries no version: the page's
+// version is checked on its Select, and a mismatch closes the socket.
+const ViewerDown = Schema.Union([Snapshot, Delta])
+export type ViewerDown = typeof ViewerDown.Type
+
 export class ProtocolVersionMismatch extends Schema.TaggedError<ProtocolVersionMismatch>()(
   "ProtocolVersionMismatch",
   {
@@ -183,3 +239,11 @@ export const decodeViewerUp = Effect.fnUntraced(function* (text: string) {
 })
 
 export const encodeViewerUp = Schema.encodeEffect(Schema.fromJsonString(Select))
+
+export const decodeViewerDown = Schema.decodeUnknownEffect(
+  Schema.fromJsonString(ViewerDown)
+)
+
+export const encodeViewerDown = Schema.encodeEffect(
+  Schema.fromJsonString(ViewerDown)
+)

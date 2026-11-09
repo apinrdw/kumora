@@ -153,12 +153,22 @@ export type MarketMoment = {
   readonly streaming: boolean
 }
 
+// The WIB date of an instant. Unlike marketMomentAt it needs no baked year, so
+// it names a trading-day Durable Object on any date.
+export const wibDateAt = Effect.fnUntraced(function* (
+  instant: DateTime.DateTime
+) {
+  return WibDate.make(
+    DateTime.formatIso(DateTime.add(instant, { hours: 7 })).slice(0, 10)
+  )
+})
+
 export const marketMomentAt = Effect.fnUntraced(function* (
   instant: DateTime.DateTime
 ): Effect.fn.Return<MarketMoment, ScheduleYearMissing> {
   // `YYYY-MM-DDTHH:MM:SS.sssZ` of the WIB wall clock.
   const wib = DateTime.formatIso(DateTime.add(instant, { hours: 7 }))
-  const date = WibDate.make(wib.slice(0, 10))
+  const date = yield* wibDateAt(instant)
   const at = wib.slice(11, 19)
   const { weekDay } = DateTime.toPartsUtc(DateTime.makeUnsafe(date))
   const covers = (span: Span) => span.first <= at && at <= span.last

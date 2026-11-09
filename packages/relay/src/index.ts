@@ -4,6 +4,7 @@ export {
   WibDate,
   isTradingDay,
   marketMomentAt,
+  wibDateAt,
   sealInstant,
 } from "./schedule.ts"
 export type { MarketMoment } from "./schedule.ts"
@@ -18,18 +19,23 @@ export {
   IngestCloseCode,
   IngestProtocolVersion,
   IngestToken,
+  MarketLivePath,
   OnDemandCodes,
   ProtocolVersionMismatch,
   Select,
   StockbitFrames,
+  RunningTrade,
   TradeNumber,
+  TradeNumberOrder,
   ViewerCloseCode,
   ViewerProtocolVersion,
   decodeIngestDown,
   decodeIngestUp,
+  decodeViewerDown,
   decodeViewerUp,
   encodeIngestDown,
   encodeIngestUp,
+  encodeViewerDown,
   encodeViewerUp,
 } from "./envelope.ts"
-export type { IngestDown, IngestUp, ViewerUp } from "./envelope.ts"
+export type { IngestDown, IngestUp, ViewerDown, ViewerUp } from "./envelope.ts"
