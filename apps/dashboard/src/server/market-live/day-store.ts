@@ -227,11 +227,19 @@ export const makeDayStore = (sql: Sql) =>
             .length > 0
       )
 
-    const highestTrade = Effect.sync(() => {
-      const [row] = sql.exec("SELECT max(number) AS number FROM trades")
-      return row?.number === null || row === undefined
+    // The lowest or highest number held. One aggregate per statement: SQLite
+    // reads a lone min() or max() off the primary key's end, but scans the
+    // whole table for a statement that asks for both.
+    const boundTrade = (bound: "min" | "max") => {
+      const [row] = sql.exec(`SELECT ${bound}(number) AS number FROM trades`)
+      return row === undefined || row.number === null
         ? undefined
-        : BigInt(numberOf(row.number))
+        : numberOf(row.number)
+    }
+
+    const highestTrade = Effect.sync(() => {
+      const high = boundTrade("max")
+      return high === undefined ? undefined : BigInt(high)
     })
 
     const tradeCount = Effect.sync(() =>
@@ -261,12 +269,9 @@ export const makeDayStore = (sql: Sql) =>
     const tradesAt = (at: DateTime.Utc, limit: number) =>
       Effect.sync(() => {
         const cutoff = DateTime.toEpochMillis(at)
-        const [range] = sql.exec(
-          "SELECT min(number) AS low, max(number) AS high FROM trades"
-        )
-        if (range === undefined || range.low === null) return []
-        let low = numberOf(range.low)
-        let high = numberOf(range.high)
+        let low = boundTrade("min")
+        let high = boundTrade("max")
+        if (low === undefined || high === undefined) return []
         let found: number | undefined
         while (low <= high) {
           const middle = Math.floor((low + high) / 2)
