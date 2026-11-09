@@ -51,7 +51,10 @@ test("the day's code list is served for the day, cacheable", async ({
 })
 
 test("a signed-out code list GET answers 401", async ({ browser }) => {
-  const context = await browser.newContext()
+  // A new context inherits the member's storageState unless given another.
+  const context = await browser.newContext({
+    storageState: { cookies: [], origins: [] },
+  })
   const response = await context.request.get(
     `${DASHBOARD}/market-live/days/${wibToday()}/codes`
   )
@@ -139,6 +142,8 @@ test("the selected code survives a reload, and a bad one falls back", async ({
   await page.goto(`${DASHBOARD}${PAGE}?code=GOTO`)
   const chart = page.getByRole("region", { name: "Chart" })
   await expect(chart.getByRole("heading", { name: "GOTO" })).toBeVisible()
+  // Hydrated, its socket open.
+  await expect.poll(() => selected).toEqual(["GOTO"])
   await page.reload()
   await expect(chart.getByRole("heading", { name: "GOTO" })).toBeVisible()
   await expect.poll(() => selected).toEqual(["GOTO", "GOTO"])

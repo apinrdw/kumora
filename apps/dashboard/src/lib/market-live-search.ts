@@ -7,16 +7,20 @@ import { Option, Schema } from "effect"
 const CodeParam = StockCode.check(Schema.isPattern(/^[A-Z0-9-]{1,12}$/))
 
 export interface MarketLiveSearch {
-  readonly code?: typeof CodeParam.Type
+  readonly code?: typeof CodeParam.Type | undefined
 }
 
 // Selected when the URL names none, or one that doesn't parse.
 export const DEFAULT_CODE = StockCode.make("BBCA")
 
-/** Keeps a code that parses and drops anything else, so a stale link still opens the page. */
+/**
+ * Keeps a code that parses and drops anything else, so a stale link still
+ * opens the page. A dropped code is set `undefined`: the router lays the
+ * validated search over the raw one, which would keep it.
+ */
 export function parseMarketLiveSearch(
   raw: Record<string, unknown>
 ): MarketLiveSearch {
   const code = Schema.decodeUnknownOption(CodeParam)(raw.code)
-  return Option.isSome(code) ? { code: code.value } : {}
+  return { code: Option.getOrUndefined(code) }
 }
