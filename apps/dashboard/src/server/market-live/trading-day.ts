@@ -583,37 +583,22 @@ export const makeTradingDay = Effect.fnUntraced(function* (options: {
     )
   })
 
-  // The alarm, set for the seal: 17:00 WIB. The seal writes everything left,
-  // the day's relay gaps and the index row; after it the day takes no
-  // ingest and its answers are immutable. An early alarm sets itself again;
-  // an index row that didn't land is retried a minute later.
-  const alarm = Effect.gen(function* () {
-    if (sealed) return
-    const at = yield* sealInstant(options.date)
-    const now = yield* DateTime.now
-    if (DateTime.isLessThan(now, at)) return yield* setAlarm(at)
+  // The seal: everything left, the day's relay gaps and the index row are
+  // written, then the sealed marker; after it the day takes no ingest and
+  // its answers are immutable.
+  const seal = Effect.fnUntraced(function* (now: DateTime.Utc) {
     const conditions = yield* market.conditions
     yield* flush(true, {
       [Fact.gaps]: yield* encodeRecordedGaps({ gaps: conditions.gaps }),
     })
     const trades = yield* store.storedTrades
-    if (trades > 0) {
-      const recorded = yield* (options.recordDay ?? (() => Effect.void))({
+    if (trades > 0)
+      yield* (options.recordDay ?? (() => Effect.void))({
         day: options.date,
         ...ihsgOf(yield* store.livePrice(IHSG)),
         trades,
         gap: conditions.gaps.length > 0,
-      }).pipe(
-        Effect.as(true),
-        Effect.catchCause((cause) =>
-          Effect.logError("Index row not written", cause).pipe(
-            Effect.andThen(setAlarm(DateTime.add(now, { minutes: 1 }))),
-            Effect.as(false)
-          )
-        )
-      )
-      if (!recorded) return
-    }
+      })
     yield* store.write({
       trades: [],
       candles: [],
@@ -623,6 +608,27 @@ export const makeTradingDay = Effect.fnUntraced(function* (options: {
       facts: { [Fact.sealed]: DateTime.formatIso(now) },
     })
     sealed = true
+  })
+
+  // Decision: the alarm, set for the seal at 17:00 WIB, never fails: an
+  // early alarm sets itself again, and a seal that didn't land, whether its
+  // final flush, its index row or its sealed marker, sets the alarm a minute
+  // later and seals then. The Durable Object's runner answers a failure as
+  // handled, so Cloudflare would not retry the alarm, and nothing else wakes
+  // an object whose relay has gone for the day; the retry keeps what the
+  // failed flush took.
+  const alarm = Effect.gen(function* () {
+    if (sealed) return
+    const at = yield* sealInstant(options.date)
+    const now = yield* DateTime.now
+    if (DateTime.isLessThan(now, at)) return yield* setAlarm(at)
+    yield* seal(now).pipe(
+      Effect.catchCause((cause) =>
+        Effect.logError("Day not sealed", cause).pipe(
+          Effect.andThen(setAlarm(DateTime.add(now, { minutes: 1 })))
+        )
+      )
+    )
   })
 
   const tokenMatches = Effect.fnUntraced(function* (token: string) {

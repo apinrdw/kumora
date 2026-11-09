@@ -1085,15 +1085,16 @@ describe("the seal", () => {
     "a seal whose final flush or sealed marker didn't land is retried a minute later",
     () =>
       Effect.gen(function* () {
-        yield* TestClock.setTime(wib("16:59:00").epochMilliseconds)
+        yield* TestClock.setTime(wib("16:58:00").epochMilliseconds)
         const index = yield* makeDayIndex(memorySql())
         const sql = memorySql()
-        // The seal's first transaction is its final flush; the third, after
-        // the retry's flush, its sealed marker.
-        const day = yield* tradingDay(flakySql(sql, [1, 3]), index.record)
+        // The minute's flush at 16:58:05 is the first transaction. The seal's
+        // final flush is the second; the fourth, after the retry's flush, is
+        // its sealed marker.
+        const day = yield* tradingDay(flakySql(sql, [2, 4]), index.record)
         yield* day.ajaib(
           range(1, 10).map((seq) =>
-            ajaibTrade({ seq, time: "16:59:00", ticker: "BBCA" })
+            ajaibTrade({ seq, time: "16:58:00", ticker: "BBCA" })
           )
         )
         yield* TestClock.setTime(wib("17:00:00").epochMilliseconds)
