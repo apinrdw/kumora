@@ -53,3 +53,4 @@ export {
   stockCodeListPath,
 } from "./code-list.ts"
 export type { CodeKind, ListedCode } from "./code-list.ts"
+export type { DayState } from "./day-state.ts"

@@ -1,6 +1,7 @@
 import { Effect, Order, Schema } from "effect"
 
 import { StockCode } from "./codes.ts"
+import { DayState } from "./day-state.ts"
 
 // Bump on any change to an ingest message's shape. The dashboard accepts this
 // version and the one before it, so an extension one release behind keeps
@@ -205,6 +206,9 @@ export type Candle = typeof Candle.Type
 const Snapshot = Schema.TaggedStruct("Snapshot", {
   tape: Schema.Array(RunningTrade),
   candles: Schema.Array(Candle),
+  // The selected and watchlist codes' that have figures; a code missing has
+  // none yet. Absent when none has.
+  dayStates: Schema.optionalKey(Schema.Array(DayState)),
 })
 
 // The running trades that arrived in the last ~250 ms, ascending by trade
@@ -214,6 +218,9 @@ const Snapshot = Schema.TaggedStruct("Snapshot", {
 const Delta = Schema.TaggedStruct("Delta", {
   tape: Schema.Array(RunningTrade),
   candles: Schema.Array(Candle),
+  // Every changed Day state of a code some viewer selected or watches, each
+  // whole. Absent when none changed.
+  dayStates: Schema.optionalKey(Schema.Array(DayState)),
 })
 
 // Trading-day Durable Object → page. It carries no version: the page's

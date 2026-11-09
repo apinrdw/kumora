@@ -30,6 +30,7 @@ import {
 import recorded from "./fixtures/ajaib-trades-2026-11-09.json"
 import recordedIhsg from "./fixtures/stockbit-ihsg-liveprice.json"
 import recordedStockbit from "./fixtures/stockbit-trades-2026-11-09.json"
+import { doubleField, messageField, stringField, varintField } from "./protobuf"
 
 const TOKEN = "e2e-ingest-token"
 const DAY = WibDate.make("2026-11-09")
@@ -387,30 +388,6 @@ const stockbitRecorded: {
   }
 } = recordedStockbit
 
-const varint = (value: number): Array<number> => {
-  const bytes: Array<number> = []
-  let rest = value
-  while (rest >= 0x80) {
-    bytes.push((rest % 0x80) | 0x80)
-    rest = Math.floor(rest / 0x80)
-  }
-  bytes.push(rest)
-  return bytes
-}
-const varintField = (field: number, value: number) => [
-  ...varint(field * 8),
-  ...varint(value),
-]
-const doubleField = (field: number, value: number) => {
-  const bytes = new Uint8Array(8)
-  new DataView(bytes.buffer).setFloat64(0, value, true)
-  return [...varint(field * 8 + 1), ...bytes]
-}
-const messageField = (field: number, bytes: ReadonlyArray<number>) => [
-  ...varint(field * 8 + 2),
-  ...varint(bytes.length),
-  ...bytes,
-]
 const runningTrade = (row: StockbitRow) => {
   const ms = Date.parse(`2026-11-09T${row.tradeWib}+07:00`)
   const timestamp = [
@@ -837,9 +814,6 @@ interface LivePriceRow {
   readonly value: number
   readonly frequency: number
 }
-
-const stringField = (field: number, text: string) =>
-  messageField(field, [...new TextEncoder().encode(text)])
 
 const livePrices = (rows: ReadonlyArray<LivePriceRow>, connection: "A" | "B") =>
   encodeIngestUp({

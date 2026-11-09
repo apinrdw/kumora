@@ -1,5 +1,11 @@
 import { readFileSync } from "node:fs"
 
+import {
+  doubleField,
+  messageField,
+  varintField,
+} from "../../dashboard/tests/server/market-live/protobuf.ts"
+
 // Recorded Stockbit running trades from 2026-11-09, shared with the
 // trading-day Durable Object's tests.
 interface StockbitRow {
@@ -20,31 +26,6 @@ const recorded: { readonly boards: ReadonlyArray<StockbitRow> } = JSON.parse(
     "utf8"
   )
 )
-
-const varint = (value: number): Array<number> => {
-  const bytes: Array<number> = []
-  let rest = value
-  while (rest >= 0x80) {
-    bytes.push((rest % 0x80) | 0x80)
-    rest = Math.floor(rest / 0x80)
-  }
-  bytes.push(rest)
-  return bytes
-}
-const varintField = (field: number, value: number) => [
-  ...varint(field * 8),
-  ...varint(value),
-]
-const doubleField = (field: number, value: number) => {
-  const bytes = new Uint8Array(8)
-  new DataView(bytes.buffer).setFloat64(0, value, true)
-  return [...varint(field * 8 + 1), ...bytes]
-}
-const messageField = (field: number, bytes: ReadonlyArray<number>) => [
-  ...varint(field * 8 + 2),
-  ...varint(bytes.length),
-  ...bytes,
-]
 
 const wibToday = () =>
   new Date(Date.now() + 7 * 3_600_000).toISOString().slice(0, 10)

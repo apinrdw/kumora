@@ -2,7 +2,7 @@
 // Cloudflare's hibernatable websockets to trading-day.ts, which holds the
 // behaviour. Exported from the Worker entry (src/worker.ts) as `TradingDay`,
 // the class the dashboard stack declares.
-import { WibDate } from "@workspace/relay"
+import { WibDate, type StockCode } from "@workspace/relay"
 import { runServerEffectResult } from "@workspace/server"
 import { Effect, Option, Result, Schema, Scope } from "effect"
 
@@ -18,14 +18,41 @@ const userTag = (userId: string) => `user:${userId}`
 const SESSION = "session:"
 const sessionTag = (sessionId: string) => `${SESSION}${sessionId}`
 
+// A socket's attachment survives hibernation: its state, and a viewer's codes
+// once it sent a Select. An ingest socket's is the bare state.
+type Attachment =
+  | PeerState
+  | { readonly state: PeerState; readonly watching: ReadonlyArray<StockCode> }
+
+const attachmentOf = (socket: WebSocket) => {
+  const attachment = socket.deserializeAttachment() as Attachment | null
+  // A socket without an attachment is new.
+  if (attachment === null) return { state: "new" as const, watching: [] }
+  return typeof attachment === "string"
+    ? { state: attachment, watching: [] }
+    : attachment
+}
+
+// Decision: a socket watching no codes keeps the bare state, so an ingest
+// socket's attachment is always its state.
+const attach = (
+  socket: WebSocket,
+  state: PeerState,
+  watching: ReadonlyArray<StockCode>
+) =>
+  socket.serializeAttachment(
+    watching.length === 0 ? state : { state, watching }
+  )
+
 const peerOf = (socket: WebSocket): Peer => ({
   send: (text) => Effect.sync(() => socket.send(text)),
   close: (code, reason) => Effect.sync(() => socket.close(code, reason)),
-  // The attachment survives hibernation; a socket without one is new.
-  state: Effect.sync(
-    () => (socket.deserializeAttachment() as PeerState | null) ?? "new"
-  ),
-  setState: (state) => Effect.sync(() => socket.serializeAttachment(state)),
+  state: Effect.sync(() => attachmentOf(socket).state),
+  setState: (state) =>
+    Effect.sync(() => attach(socket, state, attachmentOf(socket).watching)),
+  watching: Effect.sync(() => attachmentOf(socket).watching),
+  setWatching: (watching) =>
+    Effect.sync(() => attach(socket, attachmentOf(socket).state, watching)),
 })
 
 const decodeDate = Schema.decodeUnknownSync(WibDate)
@@ -124,5 +151,15 @@ export class TradingDayObject {
         ? this.day.viewerMessage(peer, text)
         : this.day.ingestMessage(peer, text)
     )
+  }
+
+  // A viewer's codes leave the on-demand set when its socket closes.
+  webSocketClose(socket: WebSocket) {
+    if (!this.ctx.getTags(socket).includes(VIEWER)) return undefined
+    return runServerEffectResult(this.day.viewerClosed(peerOf(socket)))
+  }
+
+  webSocketError(socket: WebSocket) {
+    return this.webSocketClose(socket)
   }
 }
