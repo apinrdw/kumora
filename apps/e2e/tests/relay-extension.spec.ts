@@ -1,5 +1,11 @@
-import { StockCode, encodeIngestDown, type IngestDown } from "@workspace/relay"
-import { Effect } from "effect"
+import {
+  StockCode,
+  TradeNumber,
+  decodeIngestUp,
+  encodeIngestDown,
+  type IngestDown,
+} from "@workspace/relay"
+import { DateTime, Effect } from "effect"
 import { createServer } from "node:http"
 import type { AddressInfo } from "node:net"
 import { WebSocketServer, type WebSocket } from "ws"
@@ -142,18 +148,31 @@ test("the built extension relays fake Stockbit and Ajaib tabs to the local tradi
   }
 })
 
-// A fake dashboard's ingest socket for the extra target: it accepts any token
-// and sends down what the test tells it.
+// A fake dashboard's ingest socket for the extra target: it accepts any token,
+// keeps what the relay sends up and sends down what the test tells it.
 async function startFakeIngest() {
   const server = createServer()
   const sockets: Array<WebSocket> = []
-  new WebSocketServer({ server }).on("connection", (socket) =>
+  const received: Array<string> = []
+  new WebSocketServer({ server }).on("connection", (socket) => {
     sockets.push(socket)
-  )
+    socket.on("message", (data) => received.push(String(data)))
+  })
   await new Promise<void>((resolve) => server.listen(0, "127.0.0.1", resolve))
   return {
     origin: `http://127.0.0.1:${(server.address() as AddressInfo).port}`,
     sockets,
+    /** Every BackfillPage the relay sent up: feed, range and body. */
+    backfillPages: () =>
+      Effect.runPromise(
+        Effect.forEach(received, (text) => Effect.option(decodeIngestUp(text)))
+      ).then((messages) =>
+        messages.flatMap((message) =>
+          message._tag === "Some" && message.value._tag === "BackfillPage"
+            ? [message.value]
+            : []
+        )
+      ),
     sendDown: async (message: IngestDown) => {
       const text = await Effect.runPromise(encodeIngestDown(message))
       for (const socket of sockets) socket.send(text)
@@ -238,6 +257,106 @@ test("the relay streams only in IDX hours and subscribes Ajaib's on-demand codes
         TICKS
       )
       .toBe(true)
+  } finally {
+    await context.close()
+    await ingest.close()
+    await brokers.close()
+  }
+})
+
+// Stockbit's REST rows for these numbers, as its tape answers them.
+const stockbitRows = (numbers: ReadonlyArray<number>) =>
+  numbers.map((number) => ({
+    time: "10:00:00",
+    action: "buy",
+    code: "BBRI",
+    price: "2,840",
+    lot: "1",
+    trade_number: String(number),
+    market_board: "RG",
+  }))
+
+test("the relay fills a requested gap from Stockbit's REST tape, and what Stockbit lacks from Ajaib's", async () => {
+  test.setTimeout(120_000)
+  const brokers = await startFakeBrokers()
+  const ingest = await startFakeIngest()
+  // Stockbit's page before 22331 skips 22326; Ajaib's tape has it.
+  brokers.tapes.stockbit = (query) => ({
+    data: {
+      running_trade:
+        query.get("trade_number") === "22331"
+          ? stockbitRows([
+              22330, 22329, 22328, 22327, 22325, 22324, 22323, 22322, 22321,
+            ])
+          : [],
+    },
+  })
+  brokers.tapes.ajaib = () => ({
+    results: [{ trade_num: "202611100000022326", stock_code: "TINS" }],
+    has_next: false,
+  })
+  const { context, worker, optionsUrl } = await launchWithExtension(
+    brokers.port
+  )
+  try {
+    await setRelayClock(worker, SESSION_1)
+    const options = await context.newPage()
+    await options.goto(optionsUrl)
+    await options.getByLabel("Extra target URL").fill(ingest.origin)
+    await options.getByLabel("Extra target ingest token").fill("any")
+    await options.getByRole("button", { name: "Save" }).click()
+    await expect.poll(() => ingest.sockets.length).toBe(1)
+    const stockbitTab = await context.newPage()
+    await stockbitTab.goto(STOCKBIT_TAB)
+    const ajaibTab = await context.newPage()
+    await ajaibTab.goto(AJAIB_TAB)
+    await expect.poll(() => brokers.on("/ws/trade").length, TICKS).toBe(1)
+
+    // Trade 22331 happened 3 minutes ago, so Ajaib's tape has caught up.
+    const nextTime = Date.now() - 180_000
+    await ingest.sendDown({
+      _tag: "Backfill",
+      from: TradeNumber.make("22322"),
+      to: TradeNumber.make("22330"),
+      nextTime: DateTime.makeUnsafe(nextTime),
+    })
+    await expect
+      .poll(async () =>
+        (await ingest.backfillPages()).map((page) => [
+          page.feed,
+          page.from,
+          page.to,
+        ])
+      )
+      .toEqual([
+        ["Stockbit", "22322", "22330"],
+        ["Ajaib", "22326", "22326"],
+      ])
+
+    // Stockbit was paged by trade number with the tab's token; Ajaib by time
+    // with the page's own headers. Both bodies went up as they came.
+    // The CORS preflight before it carries no token.
+    const stockbitCall = brokers.requests.find(
+      (request) =>
+        request.path.startsWith("/order-trade/running-trade") &&
+        request.headers.authorization !== undefined
+    )!
+    expect(stockbitCall.path).toBe(
+      "/order-trade/running-trade?sort=DESC&order_by=RUNNING_TRADE_ORDER_BY_TIME&limit=100&trade_number=22331"
+    )
+    expect(stockbitCall.headers.authorization).toBe(`Bearer ${STOCKBIT_TOKEN}`)
+    const ajaibCall = brokers.requests.find((request) =>
+      request.path.startsWith("/api/v1/stock/detail/running_trades/")
+    )!
+    expect(ajaibCall.path).toBe(
+      `/api/v1/stock/detail/running_trades/?direction=DESC&last_timestamp=${nextTime + 1000}&page=1&page_size=40`
+    )
+    expect(ajaibCall.headers["x-fake-ajaib-page"]).toBe("yes")
+    const [stockbitPage, ajaibPage] = await ingest.backfillPages()
+    expect(JSON.parse(stockbitPage!.body)).toEqual(
+      brokers.tapes.stockbit(new URLSearchParams("trade_number=22331"))
+    )
+    expect(JSON.parse(ajaibPage!.body).results[0].stock_code).toBe("TINS")
   } finally {
     await context.close()
     await ingest.close()

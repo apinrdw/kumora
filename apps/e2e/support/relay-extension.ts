@@ -95,6 +95,14 @@ const PONG = Uint8Array.from([0x12, 0x06, 0x0a, 0x04, ...Buffer.from("pong")])
  * ones do.
  */
 export async function startFakeBrokers() {
+  // The REST running-trade tapes' answers, by query; a test sets them.
+  const tapes: {
+    stockbit: (query: URLSearchParams) => unknown
+    ajaib: (query: URLSearchParams) => unknown
+  } = {
+    stockbit: () => ({ data: { running_trade: [] } }),
+    ajaib: () => ({ results: [], has_next: false }),
+  }
   const sockets: Array<BrokerSocket> = []
   const requests: Array<{ path: string; headers: Record<string, unknown> }> = []
   const server: Server = createServer(
@@ -115,8 +123,13 @@ export async function startFakeBrokers() {
         response.writeHead(authorized ? 200 : 401, {
           "content-type": "application/json",
         })
+        const url = new URL(path, "https://exodus.stockbit.com")
         return response.end(
-          JSON.stringify({ message: "ok", data: { key: STOCKBIT_KEY } })
+          JSON.stringify(
+            url.pathname === "/order-trade/running-trade"
+              ? tapes.stockbit(url.searchParams)
+              : { message: "ok", data: { key: STOCKBIT_KEY } }
+          )
         )
       }
       if (host === "stockbit.com") {
@@ -136,6 +149,14 @@ export async function startFakeBrokers() {
             data: LISTED_CODES.map((code) => ({ code, name: code })),
           })
         )
+      }
+      if (path.startsWith("/api/v1/stock/detail/running_trades/")) {
+        const page = request.headers[AJAIB_HEADER] === "yes"
+        response.writeHead(page ? 200 : 403, {
+          "content-type": "application/json",
+        })
+        const url = new URL(path, "https://trade.ajaib.co.id")
+        return response.end(JSON.stringify(tapes.ajaib(url.searchParams)))
       }
       if (path.startsWith("/api/")) return response.end("{}")
       response.writeHead(200, { "content-type": "text/html" })
@@ -168,6 +189,7 @@ export async function startFakeBrokers() {
   await new Promise<void>((resolve) => server.listen(0, "127.0.0.1", resolve))
   return {
     port: (server.address() as AddressInfo).port,
+    tapes,
     sockets,
     requests,
     /** The sockets opened on one path, oldest first. */
