@@ -24,12 +24,15 @@ export type AccountId = typeof AccountId.Type
 export const SessionId = Schema.NonEmptyString.pipe(Schema.brand("SessionId"))
 export type SessionId = typeof SessionId.Type
 
-// The gated viewer's account and session; the object tags the socket with
-// them.
+// The gated viewer's account, session and the session's end; the object tags
+// the socket with them. The end is epoch ms on Market Live's clock, the one
+// the object compares it against (market-clock.ts).
 export const ViewerHeader = {
   userId: "x-kumora-user-id",
   sessionId: "x-kumora-session-id",
+  sessionEnd: "x-kumora-session-end",
 } as const
+export const SessionEnd = Schema.FiniteFromString
 
 // Sent to ObjectPath.endSessions after a ban, revoke or delete: the sessions
 // the user still holds. The object closes the user's viewer sockets on every

@@ -1,6 +1,8 @@
 // What the gates read of a Better Auth session, and the access policy's
 // Account built from it. Pure, so the Better Auth hooks and the page gates
 // build the same Account.
+import { DateTime } from "effect"
+
 import {
   signedOut,
   type Account,
@@ -24,6 +26,9 @@ export interface AuthSession {
     readonly id: string
     // An admin is viewing as this account.
     readonly impersonated: boolean
+    // When the session expires. An impersonation session's is at most an
+    // hour from its creation (options.ts holds the hour).
+    readonly expiresAt: DateTime.Utc
   }
 }
 
@@ -39,6 +44,7 @@ export interface BetterAuthSession {
   }
   readonly session: {
     readonly id: string
+    readonly expiresAt: Date
     readonly impersonatedBy?: unknown
   }
 }
@@ -81,7 +87,11 @@ export const authSessionOf = (
       banned: user.banned === true,
       configAdmin,
     },
-    session: { id: session.id, impersonated: Boolean(session.impersonatedBy) },
+    session: {
+      id: session.id,
+      impersonated: Boolean(session.impersonatedBy),
+      expiresAt: DateTime.makeUnsafe(session.expiresAt),
+    },
   }
 }
 

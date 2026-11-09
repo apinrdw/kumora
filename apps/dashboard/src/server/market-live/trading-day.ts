@@ -73,6 +73,10 @@ export interface Peer {
   readonly setWatching?: (
     codes: ReadonlyArray<StockCode>
   ) => Effect.Effect<void>
+  // When a viewer's session ends, in epoch ms on the Clock, kept with the
+  // socket like its state; undefined for a viewer tagged without one. An
+  // ingest socket has none, and a viewer without the field never expires.
+  readonly sessionEnd?: Effect.Effect<number | undefined>
 }
 
 // A viewer socket and the session it was gated with; none for a socket
@@ -115,6 +119,22 @@ const ihsgOf = (price: LivePrice | undefined) => {
 }
 
 const IHSG = StockCode.make("IHSG")
+
+// Decision: a viewer whose session ended is closed with 4401 when it would
+// next be served, a delta or a snapshot, not by a timer: that is where it
+// would otherwise get data, and it needs nothing the object keeps in memory,
+// so it holds across hibernation. An idle expired socket stays open, served
+// nothing, until then. A viewer tagged without an end is closed the same way,
+// as the sessions a user holds keep open no socket tagged without a session
+// (`endSessions`).
+const sessionEnded = Effect.fnUntraced(function* (viewer: Peer) {
+  if (viewer.sessionEnd === undefined) return false
+  const end = yield* viewer.sessionEnd
+  return end === undefined || end <= (yield* Clock.currentTimeMillis)
+})
+
+const signInRequired = (viewer: Peer) =>
+  viewer.close(ViewerCloseCode.SignInRequired, "Sign in")
 
 // The tape ordered by trade number, ascending; the index where `trade` sits or
 // would be inserted.
@@ -424,7 +444,9 @@ export const makeTradingDay = Effect.fnUntraced(function* (options: {
       ...(indicative.length > 0 ? { indicative } : {}),
     })
     for (const viewer of yield* options.viewers) {
-      if ((yield* viewer.state) === "ready") yield* viewer.send(text)
+      if ((yield* viewer.state) !== "ready") continue
+      if (yield* sessionEnded(viewer)) yield* signInRequired(viewer)
+      else yield* viewer.send(text)
     }
   })
 
@@ -666,6 +688,7 @@ export const makeTradingDay = Effect.fnUntraced(function* (options: {
   // after which the socket gets deltas.
   const viewerMessage = Effect.fnUntraced(
     function* (socket: Peer, text: string) {
+      if (yield* sessionEnded(socket)) return yield* signInRequired(socket)
       const { selected, watchlist } = yield* decodeViewerUp(text)
       const live = yield* stockbitLive
       const orderBook = yield* books.bookOf(selected, live)
@@ -745,7 +768,7 @@ export const makeTradingDay = Effect.fnUntraced(function* (options: {
         viewer.sessionId === undefined ||
         !held.sessionIds.includes(viewer.sessionId)
       )
-        yield* viewer.peer.close(ViewerCloseCode.SignInRequired, "Sign in")
+        yield* signInRequired(viewer.peer)
     }
   })
 

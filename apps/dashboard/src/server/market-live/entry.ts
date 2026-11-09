@@ -10,13 +10,15 @@ import {
   recordedDayRequest,
 } from "@workspace/relay"
 import { WorkerEnv } from "@workspace/server"
-import { Effect, Option } from "effect"
+import { DateTime, Effect, Option, Schema } from "effect"
 
 import { Auth } from "../auth/auth.ts"
 import { dayStripRoute, recordedDayRoute } from "./days.ts"
 import { gateLiveViewer } from "./gate.ts"
-import { marketToday } from "./market-clock.ts"
-import { ObjectPath, ViewerHeader } from "./routes.ts"
+import { marketClockOffset, marketToday } from "./market-clock.ts"
+import { ObjectPath, SessionEnd, ViewerHeader } from "./routes.ts"
+
+const encodeSessionEnd = Schema.encodeSync(SessionEnd)
 
 const toTradingDay = Effect.fnUntraced(function* (
   path: (typeof ObjectPath)[keyof typeof ObjectPath],
@@ -62,9 +64,13 @@ const live = Effect.fnUntraced(
   function* (request: Request) {
     if (!isUpgrade(request)) return yield* notUpgrade
     const viewer = yield* gateLiveViewer(request)
+    // The session ends on the Worker's clock; the object reads its own.
+    const sessionEnd =
+      DateTime.toEpochMillis(viewer.sessionEnd) + (yield* marketClockOffset)
     return yield* toTradingDay(ObjectPath.live, {
       [ViewerHeader.userId]: viewer.userId,
       [ViewerHeader.sessionId]: viewer.sessionId,
+      [ViewerHeader.sessionEnd]: encodeSessionEnd(sessionEnd),
     })
   },
   // This surface's HTTP errors: every denial closes the socket with 4401.

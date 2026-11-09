@@ -258,13 +258,18 @@ describe("a session's end", () => {
         assert.lengthOf(page.sent, 2)
         assert.isUndefined(page.closedWith)
 
+        // The market conditions change over the hour; those deltas still go
+        // to both.
         yield* TestClock.adjust("1 hour")
+        assert.isUndefined(page.closedWith)
+        const sent = page.sent.length
+        const otherSent = other.sent.length
         yield* ingest(socket, yield* ajaib(recorded.session1.slice(10, 20)))
         yield* TestClock.adjust("250 millis")
         assert.strictEqual(page.closedWith, ViewerCloseCode.SignInRequired)
-        assert.lengthOf(page.sent, 2)
+        assert.lengthOf(page.sent, sent)
         assert.isUndefined(other.closedWith)
-        assert.lengthOf(other.sent, 3)
+        assert.lengthOf(other.sent, otherSent + 1)
       })
   )
 
