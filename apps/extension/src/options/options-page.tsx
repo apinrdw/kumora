@@ -26,6 +26,7 @@ import {
   type TargetStates,
 } from "../worker/settings.ts"
 import { settingsFromForm } from "./form.ts"
+import { optionsRuntime } from "./runtime.ts"
 
 const stateLabels: Record<TargetState, string> = {
   off: "Off: no ingest token",
@@ -58,7 +59,8 @@ function AjaibSignIn() {
   const [message, setMessage] = useState("")
 
   useEffect(() => {
-    const refresh = () => void Effect.runPromise(loadSignIn).then(setSignIn)
+    const refresh = () =>
+      void optionsRuntime.runPromise(loadSignIn).then(setSignIn)
     const onChanged = (
       changes: Record<string, chrome.storage.StorageChange>,
       area: string
@@ -74,7 +76,7 @@ function AjaibSignIn() {
     event.preventDefault()
     const entered = Schema.decodeUnknownOption(AjaibPin)(pin.trim())
     if (Option.isNone(entered)) return setMessage("Enter the 6-digit PIN.")
-    void Effect.runPromise(savePin(entered.value)).then(() => {
+    void optionsRuntime.runPromise(savePin(entered.value)).then(() => {
       setPin("")
       setMessage("")
     })
@@ -174,15 +176,15 @@ export function OptionsPage() {
   const [message, setMessage] = useState("")
 
   useEffect(() => {
-    void Effect.runPromise(loadSettings).then((settings) => {
+    void optionsRuntime.runPromise(loadSettings).then((settings) => {
       setProductionToken(settings.productionToken)
       setExtraUrl(settings.extra?.origin ?? "")
       setExtraToken(settings.extra?.token ?? "")
     })
     const refresh = () =>
-      void Effect.runPromise(loadTargetStates).then((loaded) =>
-        setStates(Option.getOrUndefined(loaded))
-      )
+      void optionsRuntime
+        .runPromise(loadTargetStates)
+        .then((loaded) => setStates(Option.getOrUndefined(loaded)))
     const onChanged = (
       changes: Record<string, chrome.storage.StorageChange>,
       area: string
@@ -196,17 +198,19 @@ export function OptionsPage() {
 
   const save = (event: FormEvent) => {
     event.preventDefault()
-    void Effect.runPromise(
-      settingsFromForm({ productionToken, extraUrl, extraToken }).pipe(
-        Effect.flatMap(saveSettings),
-        Effect.as("Saved."),
-        Effect.catchTag("InvalidDashboardUrl", () =>
-          Effect.succeed(
-            "Enter the extra target's dashboard URL, such as https://kumora-dashboard-staging.kumora.workers.dev."
+    void optionsRuntime
+      .runPromise(
+        settingsFromForm({ productionToken, extraUrl, extraToken }).pipe(
+          Effect.flatMap(saveSettings),
+          Effect.as("Saved."),
+          Effect.catchTag("InvalidDashboardUrl", () =>
+            Effect.succeed(
+              "Enter the extra target's dashboard URL, such as https://kumora-dashboard-staging.kumora.workers.dev."
+            )
           )
         )
       )
-    ).then(setMessage)
+      .then(setMessage)
   }
 
   return (
