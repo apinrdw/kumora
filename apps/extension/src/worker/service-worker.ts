@@ -129,7 +129,9 @@ const showStates = Effect.fnUntraced(function* (states: TargetStates) {
 const makeTargets = Effect.fnUntraced(function* (options: {
   readonly envelopes: PubSub.PubSub<EncodedIngestUp>
   readonly day: SubscriptionRef.SubscriptionRef<WibDate>
-  readonly catchUp: Effect.Effect<ReadonlyArray<EncodedIngestUp>>
+  readonly catchUp: (
+    day: WibDate
+  ) => Effect.Effect<ReadonlyArray<EncodedIngestUp>>
   readonly receive: (
     name: TargetName,
     message: IngestDown | undefined

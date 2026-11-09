@@ -66,7 +66,7 @@ const harness = Effect.fnUntraced(function* (
     token: "the token",
     envelopes,
     day,
-    catchUp: Effect.succeed(catchUp),
+    catchUp: () => Effect.succeed(catchUp),
     report: (state) => Effect.sync(() => states.push(state)),
     receive: (message) => Effect.sync(() => down.push(message)),
   }).pipe(

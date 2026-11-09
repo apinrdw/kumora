@@ -50,9 +50,12 @@ export const runTarget = Effect.fnUntraced(function* (options: {
   // socket left open past midnight would feed the sealed day and lose the
   // new one's frames; the socket is reopened as soon as the date changes.
   readonly day: SubscriptionRef.SubscriptionRef<WibDate>
-  // What every fresh socket is sent after the token: the day's code list,
-  // which a target that was down for the daily fetch would otherwise miss.
-  readonly catchUp: Effect.Effect<ReadonlyArray<EncodedIngestUp>>
+  // What every fresh socket is sent after the token: the socket's day's code
+  // list, which a target that was down for the daily fetch would otherwise
+  // miss.
+  readonly catchUp: (
+    day: WibDate
+  ) => Effect.Effect<ReadonlyArray<EncodedIngestUp>>
   readonly report: (state: TargetState) => Effect.Effect<void>
   // What the trading-day object sends down: on-demand codes and backfill
   // requests.
@@ -73,7 +76,7 @@ export const runTarget = Effect.fnUntraced(function* (options: {
       const writer = yield* socket.writer
       const day = yield* SubscriptionRef.get(options.day)
       yield* writer.write(token)
-      for (const text of yield* options.catchUp) yield* writer.write(text)
+      for (const text of yield* options.catchUp(day)) yield* writer.write(text)
       yield* opened
       // A message that doesn't decode is dropped: it may be from a newer
       // dashboard, which closes 4426 if the versions really differ.

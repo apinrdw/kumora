@@ -29,7 +29,7 @@ The codes the trading-day objects ask the relay to keep subscribed on Ajaib's `P
 _Avoid_: watchlist codes
 
 **Code list**:
-Ajaib's stock code list, fetched once a WIB day from the Ajaib tab with the page's own headers and sent up raw, and again to each target's fresh socket after its token. Stockbit's channel message lists every code on it.
+Ajaib's stock code list, fetched once a WIB day from the Ajaib tab with the page's own headers and sent up raw, and again to each target's fresh socket after its token when it is that socket's day's. Stockbit's channel message lists every code on it, an earlier day's until the day's fetch answers.
 _Avoid_: universe
 
 **Streaming window**:

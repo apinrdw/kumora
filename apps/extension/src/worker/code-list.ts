@@ -93,10 +93,16 @@ export const makeCodeList = Effect.fnUntraced(function* (options: {
     )
   })
 
-  // The day's CodeList envelope, for a target's fresh socket.
-  const catchUp = Effect.sync(() =>
-    Option.match(list, { onNone: () => [], onSome: (held) => [held.envelope] })
-  )
+  // The CodeList envelope of `day`, for a target's fresh socket of that day;
+  // none while the list held is an earlier day's, which the Stockbit
+  // subscribe still uses until the day's fetch answers.
+  const catchUp = (day: WibDate) =>
+    Effect.sync(() =>
+      Option.match(list, {
+        onNone: () => [],
+        onSome: (held) => (held.date === day ? [held.envelope] : []),
+      })
+    )
 
   return {
     tick,
