@@ -19,6 +19,15 @@
       ]
     },
     "format:check": {},
+    // Only apps/extension builds; the apps deploy through Alchemy instead.
+    "build": {
+      "dependsOn": [
+        "^build"
+      ],
+      "outputs": [
+        "dist/**"
+      ]
+    },
     "typecheck": {
       "dependsOn": [
         "^typecheck"

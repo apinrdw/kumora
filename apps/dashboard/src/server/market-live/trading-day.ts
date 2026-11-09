@@ -6,6 +6,7 @@
 import {
   IngestCloseCode,
   TradeNumberOrder,
+  ViewerCloseCode,
   decodeIngestUp,
   decodeViewerUp,
   encodeViewerDown,
@@ -18,6 +19,7 @@ import { Effect, Scope } from "effect"
 
 import { ajaibTrades } from "./ajaib.ts"
 import { makeCandleBook } from "./candles.ts"
+import type { HeldSessions } from "./routes.ts"
 import { stockbitTrades } from "./stockbit.ts"
 import { stockbitLivePrices } from "./stockbit-liveprice.ts"
 
@@ -32,6 +34,12 @@ export interface Peer {
   readonly close: (code: number, reason: string) => Effect.Effect<void>
   readonly state: Effect.Effect<PeerState>
   readonly setState: (state: PeerState) => Effect.Effect<void>
+}
+
+// A viewer socket and the session it was gated with.
+export interface SessionViewer {
+  readonly peer: Peer
+  readonly sessionId: string
 }
 
 const SNAPSHOT_TRADES = 200
@@ -108,6 +116,10 @@ export const makeTradingDay = Effect.fnUntraced(function* (options: {
   readonly date: WibDate
   // Every viewer socket the object holds, ready or not.
   readonly viewers: Effect.Effect<ReadonlyArray<Peer>>
+  // The viewer sockets of one account, on any of its sessions.
+  readonly viewersOf: (
+    userId: string
+  ) => Effect.Effect<ReadonlyArray<SessionViewer>>
 }) {
   // Delta timers outlive the message that started them.
   const scope = yield* Scope.Scope
@@ -231,5 +243,14 @@ export const makeTradingDay = Effect.fnUntraced(function* (options: {
       )
   )
 
-  return { ingestMessage, viewerMessage }
+  // After a ban, revoke or delete: the page on a session the account no
+  // longer holds is sent to sign in.
+  const endSessions = Effect.fnUntraced(function* (held: HeldSessions) {
+    for (const viewer of yield* options.viewersOf(held.userId)) {
+      if (!held.sessionIds.includes(viewer.sessionId))
+        yield* viewer.peer.close(ViewerCloseCode.SignInRequired, "Sign in")
+    }
+  })
+
+  return { ingestMessage, viewerMessage, endSessions }
 })

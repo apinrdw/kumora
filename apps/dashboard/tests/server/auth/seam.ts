@@ -6,6 +6,7 @@ import { Accounts } from "@/server/auth/accounts"
 import { AdminEmails } from "@/server/auth/admin-emails"
 import { Auth, type AuthConfig } from "@/server/auth/auth"
 import { Mailer, type Mail } from "@/server/auth/mailer"
+import { LiveViewers } from "@/server/market-live/live-viewers"
 import { CLIENT_IP_HEADER } from "@/server/auth/options"
 
 import { replayMigrations } from "../../../scripts/auth-schema.ts"
@@ -45,7 +46,9 @@ export function seam(
   deployed: {
     readonly database?: DatabaseSync
     readonly adminEmails?: string
-  } = {}
+  } = {},
+  // Today's trading day, which closes the account's live pages.
+  liveViewers: LiveViewers["Service"] = { endSessions: () => Effect.void }
 ) {
   vi.stubGlobal("fetch", siteverify)
   const database = deployed.database ?? new DatabaseSync(":memory:")
@@ -69,7 +72,8 @@ export function seam(
         AdminEmails.from(deployed.adminEmails ?? ADMIN_EMAILS)
       )
     ),
-    Layer.provide(mailer)
+    Layer.provide(mailer),
+    Layer.provide(Layer.succeed(LiveViewers, liveViewers))
   )
   return { layer, mails, database }
 }
