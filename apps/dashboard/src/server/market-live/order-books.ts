@@ -237,18 +237,18 @@ export const makeOrderBooks = (date: WibDate) =>
     const ajaibFrameOf = Effect.fnUntraced(function* (frame: string) {
       const decoded = decodeAjaib(frame)
       if (Option.isNone(decoded)) return undefined
-      const { ticker, is_initial, buy, sell, updateTime } = decoded.value
+      const { ticker: code, is_initial, buy, sell, updateTime } = decoded.value
       if (buy === undefined && sell === undefined) return undefined
       const at = DateTime.makeUnsafe(updateTime)
       if ((yield* wibDateAt(at)) !== date) return undefined
-      return { ticker, initial: is_initial === "true", buy, sell, at }
+      return { code, initial: is_initial === "true", buy, sell, at }
     })
 
     const ajaibFrame = Effect.fnUntraced(function* (frame: string) {
       const change = yield* ajaibFrameOf(frame)
       if (change === undefined) return
-      const { ticker, initial, buy, sell, at } = change
-      const held = ajaib.get(ticker)
+      const { code, initial, buy, sell, at } = change
+      const held = ajaib.get(code)
       // Both connections carry the same book, so one may deliver a frame the
       // other already applied over: older than the book, it is dropped.
       if (held !== undefined && DateTime.isLessThan(at, held.at)) return
@@ -260,8 +260,8 @@ export const makeOrderBooks = (date: WibDate) =>
       applyLevels(book.offers, sell ?? [])
       book.at = at
       book.version = ++version
-      ajaib.set(ticker, book)
-      changed.add(ticker)
+      ajaib.set(code, book)
+      changed.add(code)
     })
 
     const ajaibFrames = (frames: ReadonlyArray<string>) =>
