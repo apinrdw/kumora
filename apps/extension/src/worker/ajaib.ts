@@ -48,7 +48,7 @@ export const tradeSubscribe = (id: Option.Option<AjaibAccountId>) =>
 // never sends. It keeps the diff over reopening the sockets because Ajaib's
 // own page does the same, UNSUBSCRIBE then SUBSCRIBE, when its code changes
 // (owner's DevTools, 2026-11-06, apinrdw/kumora#50); `invalid subscription
-// object` there answered the PING-WEB heartbeat. A reopened socket starts
+// object` there answered the PING-WEB ping. A reopened socket starts
 // from nothing.
 export const onDemandMessages = Effect.fnUntraced(function* (
   stream: OnDemandStream,
