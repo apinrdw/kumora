@@ -13,8 +13,18 @@ import { DateTime, Effect, Fiber, Stream } from "effect"
 import { useEffect, useState } from "react"
 
 import { KButton } from "@/components/k/button"
+import { KStatusPill } from "@/components/k/status-pill"
 import { compactIdr, plain, tapeTime } from "@/lib/format"
 import { withRedirect } from "@/lib/redirect"
+
+import { withGapRows } from "./gap-rows"
+import {
+  applyStatus,
+  resetStatus,
+  statusReconnecting,
+  useMergedStale,
+  useRelayGaps,
+} from "./market-status"
 
 // The page shows this many of the trades it keeps; the tape ticket renders
 // them all (apinrdw/kumora#150).
@@ -66,6 +76,8 @@ function SourceDots({ feeds }: { feeds: ReadonlyArray<Source> }) {
 export function LiveTape() {
   const [tape, setTape] = useState<ReadonlyArray<RunningTrade>>([])
   const [status, setStatus] = useState<Status>("live")
+  const stale = useMergedStale()
+  const gaps = useRelayGaps()
 
   useEffect(() => {
     const scheme = window.location.protocol === "https:" ? "wss" : "ws"
@@ -77,6 +89,7 @@ export function LiveTape() {
         selected: SELECTED,
         watchlist: [],
       },
+      onReconnecting: statusReconnecting,
     })
     const fiber = clientRuntime.runFork(
       Stream.runForEach(messages, (message) =>
@@ -84,7 +97,7 @@ export function LiveTape() {
           setTape((current) =>
             Effect.runSync(applyViewerMessage(current, message))
           )
-        )
+        ).pipe(Effect.andThen(applyStatus(message, SELECTED)))
       ).pipe(
         Effect.catchTags({
           // A full load: the sign-in page reads its own session state.
@@ -100,14 +113,23 @@ export function LiveTape() {
       )
     )
     return () => {
-      clientRuntime.runFork(Fiber.interrupt(fiber))
+      clientRuntime.runFork(
+        Fiber.interrupt(fiber).pipe(Effect.andThen(resetStatus))
+      )
     }
   }, [])
 
   return (
-    <section aria-label="Running trades" className="flex flex-col gap-2">
+    <section
+      aria-label="Running trades"
+      data-stale={stale || undefined}
+      className="flex flex-col gap-2"
+    >
       <header className="flex items-center justify-between gap-3">
-        <h2 className="text-sm font-semibold">Running trades</h2>
+        <h2 className="flex items-center gap-2 text-sm font-semibold">
+          Running trades
+          {stale && <KStatusPill status="stale" />}
+        </h2>
         <ul
           aria-label="Sources"
           className="flex gap-3 text-[11px] text-muted-foreground"
@@ -128,7 +150,9 @@ export function LiveTape() {
           </KButton>
         </div>
       )}
-      <table className="w-full text-[13px] tabular-nums">
+      <table
+        className={`w-full text-[13px] tabular-nums ${stale ? "opacity-50" : ""}`}
+      >
         <thead className="text-left text-muted-foreground">
           <tr>
             <th className="font-normal">Time</th>
@@ -142,24 +166,49 @@ export function LiveTape() {
           </tr>
         </thead>
         <tbody>
-          {tape.slice(0, SHOWN_TRADES).map((trade) => (
-            <tr key={trade.tradeNumber} data-trade-number={trade.tradeNumber}>
-              <td>{tapeTime(DateTime.toEpochMillis(trade.time))}</td>
-              <td className="font-semibold">{trade.code}</td>
-              <td className={`text-right ${SIDE_CLASS[trade.side]}`}>
-                {plain(trade.price)}
-              </td>
-              <td className="text-right">{plain(trade.lots)}</td>
-              <td className="text-right">
-                {compactIdr(trade.price * trade.lots * 100).replace("+", "")}
-              </td>
-              <td className="pl-2">
-                <SourceDots feeds={trade.feeds} />
-              </td>
-            </tr>
-          ))}
+          {Effect.runSync(withGapRows(tape.slice(0, SHOWN_TRADES), gaps)).map(
+            (row) =>
+              row.kind === "gap" ? (
+                <tr
+                  key={`gap-${DateTime.toEpochMillis(row.gap.from)}`}
+                  data-relay-gap
+                >
+                  <td
+                    colSpan={6}
+                    className="py-1 text-center text-muted-foreground"
+                  >
+                    Not recorded ·{" "}
+                    {tapeTime(DateTime.toEpochMillis(row.gap.from))}–
+                    {row.gap.to === undefined
+                      ? "now"
+                      : tapeTime(DateTime.toEpochMillis(row.gap.to))}
+                  </td>
+                </tr>
+              ) : (
+                <TradeRow key={row.trade.tradeNumber} trade={row.trade} />
+              )
+          )}
         </tbody>
       </table>
     </section>
+  )
+}
+
+function TradeRow({ trade }: { trade: RunningTrade }) {
+  return (
+    <tr data-trade-number={trade.tradeNumber}>
+      <td>{tapeTime(DateTime.toEpochMillis(trade.time))}</td>
+      <td className="font-semibold">{trade.code}</td>
+      <td className={`text-right ${SIDE_CLASS[trade.side]}`}>
+        {plain(trade.price)}
+      </td>
+      <td className="text-right">{plain(trade.lots)}</td>
+      <td className="text-right">
+        {compactIdr(trade.price * trade.lots * 100).replace("+", "")}
+      </td>
+      <td className="pl-2">
+        <SourceDots feeds={trade.feeds} />
+      </td>
+    </tr>
   )
 }

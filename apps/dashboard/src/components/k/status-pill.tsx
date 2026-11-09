@@ -50,6 +50,8 @@ export type KStatusPillProps = {
   asOf?: string
   /** Keep the time in the title and sr text only (dense rows). */
   hideAsOf?: boolean
+  /** Why, ahead of the definition in the tooltip: "Relay offline". */
+  reason?: string
   className?: string
 }
 
@@ -58,11 +60,15 @@ export function KStatusPill({
   source,
   asOf,
   hideAsOf = false,
+  reason,
   className,
 }: KStatusPillProps) {
   const meta = FRESHNESS[status]
   const time = asOf ? formatAsOf(asOf) : null
-  const definition = meta.def + (time ? ` Last updated ${time}.` : "")
+  const definition =
+    (reason ? `${reason}. ` : "") +
+    meta.def +
+    (time ? ` Last updated ${time}.` : "")
   return (
     <Badge
       variant="outline"

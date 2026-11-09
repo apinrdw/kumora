@@ -33,10 +33,12 @@ const reconnect = Schedule.min([
 
 // Market Live's viewer socket as a Stream of what the trading-day Durable
 // Object sends: a snapshot on every (re)connect, then deltas. It sends `select`
-// on each connect, and fails only on a terminal close.
+// on each connect, and fails only on a terminal close. `onReconnecting` runs
+// each time a connection drops and another will be tried.
 export const viewerMessages = (options: {
   readonly url: string
   readonly select: ViewerUp
+  readonly onReconnecting?: Effect.Effect<void>
 }): Stream.Stream<
   ViewerDown,
   SignInRequired | NewVersion,
@@ -72,6 +74,11 @@ export const viewerMessages = (options: {
             return new NewVersion()
           return error
         }),
+        Effect.tapError((error) =>
+          error instanceof SignInRequired || error instanceof NewVersion
+            ? Effect.void
+            : (options.onReconnecting ?? Effect.void)
+        ),
         Effect.retry({
           while: (error) =>
             !(error instanceof SignInRequired || error instanceof NewVersion),
