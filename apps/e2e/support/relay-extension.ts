@@ -198,9 +198,11 @@ export async function startFakeBrokers() {
         response.writeHead(page ? 200 : 403, {
           "content-type": "application/json",
         })
+        // The 2026-11-09 capture's shape: the list under `results`.
         return response.end(
           JSON.stringify({
-            data: LISTED_CODES.map((code) => ({ code, name: code })),
+            err_code: "EC0000000",
+            results: LISTED_CODES.map((code) => ({ code, name: code })),
           })
         )
       }
