@@ -134,8 +134,29 @@ describe("the code list", () => {
       yield* TestClock.adjust("1 second")
       assert.lengthOf(relay.requests, 0)
       assert.deepStrictEqual(relay.codeList.codes(), codes("BBCA", "TLKM"))
-      assert.deepStrictEqual(yield* relay.codeList.catchUp, [held.envelope])
+      assert.deepStrictEqual(
+        yield* relay.codeList.catchUp(WibDate.make("2026-11-10")),
+        [held.envelope]
+      )
     })
+  )
+
+  it.effect(
+    "a fresh socket of a later day than the held list's is sent no list",
+    () =>
+      Effect.gen(function* () {
+        const held = yield* heldOn("2026-11-09")
+        const relay = yield* harness({ held, answer: failed })
+        yield* relay.tick("2026-11-10T08:40:00")
+        yield* Effect.yieldNow
+        // The day's fetch failed, so yesterday's list is still held for the
+        // Stockbit subscribe, but it is not today's.
+        assert.deepStrictEqual(relay.codeList.codes(), codes("BBCA", "TLKM"))
+        assert.deepStrictEqual(
+          yield* relay.codeList.catchUp(WibDate.make("2026-11-10")),
+          []
+        )
+      })
   )
 
   it.effect("a held list of an earlier day is fetched anew", () =>
