@@ -297,6 +297,21 @@ const candlesOf = (messages: ReadonlyArray<ViewerDown>, code: string) =>
 // What a flush needs: the merge window closed, then the minute's timer.
 const pastFlush = TestClock.adjust("70 seconds")
 
+// `sql` with its storage transactions failing, as a Durable Object's can:
+// the ones whose ordinal (from 1) `failing` names throw, the rest commit.
+const flakySql = (sql: Sql, failing: ReadonlyArray<number>): Sql => {
+  let transactions = 0
+  return {
+    exec: sql.exec,
+    transaction: (write) => {
+      transactions += 1
+      if (failing.includes(transactions))
+        throw new Error("Storage write failed")
+      sql.transaction(write)
+    },
+  }
+}
+
 const range = (from: number, to: number) =>
   Array.from({ length: to - from + 1 }, (_, index) => from + index)
 
@@ -406,17 +421,7 @@ describe("a restarted trading day", () => {
         // windows closed.
         yield* TestClock.setTime(wib("09:00:10").epochMilliseconds)
         const sql = memorySql()
-        let failing = true
-        // The storage transaction failing once, as a Durable Object's can.
-        const flaky: Sql = {
-          exec: sql.exec,
-          transaction: (write) => {
-            if (!failing) return sql.transaction(write)
-            failing = false
-            throw new Error("Storage write failed")
-          },
-        }
-        const first = yield* tradingDay(flaky)
+        const first = yield* tradingDay(flakySql(sql, [1]))
         yield* first.ajaib(
           range(1, 10).map((seq) => ajaibTrade({ seq, time: "09:00:30" }))
         )
@@ -1072,6 +1077,60 @@ describe("the seal", () => {
         assert.deepStrictEqual(
           days.map((row) => row.ihsg),
           [{ close: 7_000, change: 0, changePercent: 0 }]
+        )
+      })
+  )
+
+  it.effect(
+    "a seal whose final flush or sealed marker didn't land is retried a minute later",
+    () =>
+      Effect.gen(function* () {
+        yield* TestClock.setTime(wib("16:59:00").epochMilliseconds)
+        const index = yield* makeDayIndex(memorySql())
+        const sql = memorySql()
+        // The seal's first transaction is its final flush; the third, after
+        // the retry's flush, its sealed marker.
+        const day = yield* tradingDay(flakySql(sql, [1, 3]), index.record)
+        yield* day.ajaib(
+          range(1, 10).map((seq) =>
+            ajaibTrade({ seq, time: "16:59:00", ticker: "BBCA" })
+          )
+        )
+        yield* TestClock.setTime(wib("17:00:00").epochMilliseconds)
+        yield* day.alarm
+        yield* TestClock.setTime(wib("17:01:00").epochMilliseconds)
+        yield* day.alarm
+        yield* TestClock.setTime(wib("17:02:00").epochMilliseconds)
+        yield* day.alarm
+        assert.deepStrictEqual(day.alarms.map(DateTime.formatIso), [
+          "2026-11-09T10:00:00.000Z",
+          "2026-11-09T10:01:00.000Z",
+          "2026-11-09T10:02:00.000Z",
+        ])
+        const { days } = yield* decodeDayStrip(
+          yield* textOf(yield* index.strip)
+        )
+        assert.deepStrictEqual(
+          days.map((row) => [row.day, row.trades]),
+          [[DAY, 10]]
+        )
+        // Sealed: a late print is not taken, and the answers are immutable.
+        yield* day.ajaib([ajaibTrade({ seq: 11, time: "16:59:30" })])
+        yield* pastFlush
+        const { response, numbers } = yield* tapeAt(day.get, wib("17:02:00"))
+        assert.deepStrictEqual(numbers, range(1, 10).map(String))
+        assert.strictEqual(
+          response.headers.get("Cache-Control"),
+          "private, max-age=31536000, immutable"
+        )
+        const bbca = yield* decodeRecordedCandles(
+          yield* textOf(
+            yield* day.get({ _tag: "Candles", code: StockCode.make("BBCA") })
+          )
+        )
+        assert.deepStrictEqual(
+          bbca.candles.map((candle) => candle.frequency),
+          [10]
         )
       })
   )
