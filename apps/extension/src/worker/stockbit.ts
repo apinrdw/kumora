@@ -2,7 +2,7 @@
 // apinrdw/kumora#138, "Broker connections"). After the socket opens, the tab
 // fetches a websocket key with its own bearer token, and the relay sends one
 // WebsocketRequest naming every channel it wants.
-import type { StockCode } from "@workspace/relay"
+import { INDEX_CODES, type StockCode } from "@workspace/relay"
 import { Effect, Option, Schema } from "effect"
 
 import type { Answer, TabRequest } from "./broker.ts"
@@ -117,7 +117,8 @@ const Request = { userId: 1, channel: 2, key: 3, accessToken: 5 } as const
 // codes is unmeasured. See apinrdw/kumora#155.
 //
 // `running_trade_batch` `["*"]` is the only wildcard Stockbit honours, so
-// `liveprice`, `order_book` and `iepiev` list every code.
+// `liveprice`, `order_book` and `iepiev` list every code. The indices, which
+// have no book and no auction, take `liveprice` alone, code list or not.
 export const subscribeFrame = Effect.fnUntraced(function* (options: {
   readonly credential: StockbitCredential
   readonly key: string
@@ -127,7 +128,7 @@ export const subscribeFrame = Effect.fnUntraced(function* (options: {
   const channel = [
     ...strings(Channel.orderBook, codes),
     ...strings(Channel.runningTradeBatch, ["*"]),
-    ...strings(Channel.liveprice, codes),
+    ...strings(Channel.liveprice, [...codes, ...INDEX_CODES]),
     ...strings(Channel.iepiev, codes),
   ]
   return Uint8Array.from([

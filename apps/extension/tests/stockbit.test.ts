@@ -22,7 +22,7 @@ const jwt = `${base64Url({ alg: "HS256" })}.${base64Url({ data: { uid: 4242 }, e
 
 describe("Stockbit's subscribe frame", () => {
   it.effect(
-    "carries the user, the key, the tab's token, the whole tape and every code's channels",
+    "carries the user, the key, the tab's token, the whole tape, every code's channels and the indices' live prices",
     () =>
       Effect.gen(function* () {
         const frame = yield* subscribeFrame({
@@ -35,14 +35,17 @@ describe("Stockbit's subscribe frame", () => {
           [
             // user_id (1) "42"
             "0a 02 34 32",
-            // channel (2), 21 bytes:
-            "12 15",
+            // channel (2), 45 bytes:
+            "12 2d",
             // order_book (2) BBCA
             "12 04 42 42 43 41",
             // running_trade_batch (5) "*"
             "2a 01 2a",
-            // liveprice (6) BBCA
+            // liveprice (6) BBCA, then IHSG, TN.IHSG and NG.IHSG
             "32 04 42 42 43 41",
+            "32 04 49 48 53 47",
+            "32 07 54 4e 2e 49 48 53 47",
+            "32 07 4e 47 2e 49 48 53 47",
             // iepiev (7) BBCA
             "3a 04 42 42 43 41",
             // key (3) "k"
@@ -54,18 +57,28 @@ describe("Stockbit's subscribe frame", () => {
       })
   )
 
-  it.effect("with no code list yet, subscribes the whole tape only", () =>
-    Effect.gen(function* () {
-      const frame = yield* subscribeFrame({
-        credential: { accessToken: "t", userId: "42" },
-        key: "k",
-        codes: [],
+  it.effect(
+    "with no code list yet, subscribes the whole tape and the indices' live prices",
+    () =>
+      Effect.gen(function* () {
+        const frame = yield* subscribeFrame({
+          credential: { accessToken: "t", userId: "42" },
+          key: "k",
+          codes: [],
+        })
+        assert.strictEqual(
+          hex(frame),
+          [
+            "0a 02 34 32",
+            "12 1b",
+            "2a 01 2a",
+            "32 04 49 48 53 47",
+            "32 07 54 4e 2e 49 48 53 47",
+            "32 07 4e 47 2e 49 48 53 47",
+            "1a 01 6b 2a 01 74",
+          ].join(" ")
+        )
       })
-      assert.strictEqual(
-        hex(frame),
-        "0a 02 34 32 12 03 2a 01 2a 1a 01 6b 2a 01 74"
-      )
-    })
   )
 })
 

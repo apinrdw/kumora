@@ -14,7 +14,7 @@ export {
 export type { Interval, MarketMoment, PhaseInterval } from "./schedule.ts"
 export { MarketStatus } from "./market-status.ts"
 export type { Freshness, IndicativePrice, RelayGap } from "./market-status.ts"
-export { IndexCode, StockCode } from "./codes.ts"
+export { INDEX_CODES, IndexCode, StockCode } from "./codes.ts"
 export {
   AjaibFrames,
   Backfill,
