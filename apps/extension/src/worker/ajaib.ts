@@ -13,10 +13,7 @@ export const AjaibAccountId = Schema.Union([
   Schema.Int,
   Schema.NumberFromString.check(Schema.isInt()),
 ]).pipe(Schema.brand("AjaibAccountId"))
-export type AjaibAccountId =
-  | typeof AjaibAccountId.Type
-  | "INDICATIVE"
-  | "ORDER_BOOK_CUSTOM"
+export type AjaibAccountId = typeof AjaibAccountId.Type
 
 // Decision: a frame carries the account id once the relay knows it, in the
 // page's own field order (`{"method","id","stream","streamObject"}`, seen
