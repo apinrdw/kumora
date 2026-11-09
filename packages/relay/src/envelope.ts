@@ -250,6 +250,10 @@ export type Candle = typeof Candle.Type
 // ascending by minute. The selected code's order book once it has one, or
 // word that it is an index.
 const Snapshot = Schema.TaggedStruct("Snapshot", {
+  // The code the Select it answers selected. A snapshot answering an earlier
+  // Select can arrive after the page moved to another code, so the chart and
+  // the order book take only a snapshot of their own code.
+  selected: StockCode,
   tape: Schema.Array(RunningTrade),
   candles: Schema.Array(Candle),
   // The selected and watchlist codes' that have figures; a code missing has

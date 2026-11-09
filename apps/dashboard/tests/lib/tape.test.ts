@@ -42,6 +42,7 @@ const delta = (...tape: Array<RunningTrade>): ViewerDown => ({
 })
 const snapshot = (...tape: Array<RunningTrade>): ViewerDown => ({
   _tag: "Snapshot",
+  selected: StockCode.make("BBCA"),
   tape,
   candles: [],
   conditions: {

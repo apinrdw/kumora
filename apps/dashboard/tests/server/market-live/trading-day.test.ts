@@ -210,6 +210,19 @@ describe("the viewer socket", () => {
     })
   )
 
+  it.effect("a snapshot names the code its Select selected", () =>
+    Effect.gen(function* () {
+      const { viewer, select } = yield* tradingDay()
+      const page = yield* viewer()
+      yield* select(page, "BBRI")
+      const [snapshot] = yield* page.received
+      assert.strictEqual(
+        snapshot?._tag === "Snapshot" && snapshot.selected,
+        StockCode.make("BBRI")
+      )
+    })
+  )
+
   it.effect(
     "a Select whose codes couldn't be kept closes it with 1011, so the page reconnects",
     () =>

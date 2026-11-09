@@ -746,6 +746,7 @@ export const makeTradingDay = Effect.fnUntraced(function* (options: {
       }
       const snapshot = yield* encodeViewerDown({
         _tag: "Snapshot",
+        selected,
         tape: tape.slice(-SNAPSHOT_TRADES),
         candles: yield* candles.candlesOf(selected),
         ...(orderBook === undefined ? {} : { orderBook }),

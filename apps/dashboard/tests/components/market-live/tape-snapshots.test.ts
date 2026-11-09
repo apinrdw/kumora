@@ -22,6 +22,7 @@ const trade: RunningTrade = {
 
 const snapshot: ViewerDown = {
   _tag: "Snapshot",
+  selected: StockCode.make("BBCA"),
   tape: [trade],
   candles: [],
   conditions: {
