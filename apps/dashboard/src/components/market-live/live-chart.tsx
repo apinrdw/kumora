@@ -6,7 +6,7 @@ import type { RelayGap, StockCode } from "@workspace/relay"
 import { DateTime } from "effect"
 
 import { KStatusPill } from "@/components/k/status-pill"
-import { direction, pct, quote, shares, signed } from "@/lib/format"
+import { direction, pct, price, shares, signed } from "@/lib/format"
 import { lastCloseAt } from "@/lib/recorded-day"
 
 import type { CandleStore } from "./candle-store"
@@ -73,7 +73,7 @@ const CHANGE_TONE = {
 // code's last price and change from the previous close, from its Day state,
 // or its last candle's close before it has one; during the auctions, its
 // indicative price and volume.
-function ChartQuote({
+function ChartHeadline({
   code,
   dayStates,
   lastClose,
@@ -91,7 +91,7 @@ function ChartQuote({
         aria-label="Last price"
         className="text-[15px] font-semibold tabular-nums"
       >
-        {last === undefined ? "—" : quote(last)}
+        {last === undefined ? "—" : price(last)}
       </span>
       {state !== undefined && (
         <span
@@ -107,7 +107,7 @@ function ChartQuote({
           aria-label="Indicative price"
           className="text-[13px] tabular-nums"
         >
-          Indicative {quote(indicative.price)} · {shares(indicative.volume)}
+          Indicative {price(indicative.price)} · {shares(indicative.volume)}
         </span>
       )}
     </>
@@ -149,7 +149,11 @@ export function LiveChart({
     >
       <header className="flex flex-wrap items-baseline gap-3">
         <h2 className="text-lg font-bold">{store.code}</h2>
-        <ChartQuote code={store.code} dayStates={dayStates} lastClose={last} />
+        <ChartHeadline
+          code={store.code}
+          dayStates={dayStates}
+          lastClose={last}
+        />
         {stale && <KStatusPill status="stale" />}
         {conditions}
         {search}

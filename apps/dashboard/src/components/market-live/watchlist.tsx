@@ -5,7 +5,7 @@ import { memo } from "react"
 
 import { KIconButton } from "@/components/k/button"
 import { KStatusPill } from "@/components/k/status-pill"
-import { compact, direction, pct, plain, quote, signed } from "@/lib/format"
+import { compact, direction, pct, plain, price, signed } from "@/lib/format"
 
 import {
   useDayState,
@@ -61,14 +61,14 @@ const WatchlistRow = memo(function WatchlistRow({
         <>
           {indicative === undefined ? (
             <td className={cn(CELL, "text-right", tone)}>
-              {quote(state.last)}
+              {price(state.last)}
             </td>
           ) : (
             <td className={cn(CELL, "text-right")}>
               <span className="mr-1 text-[10px] text-muted-foreground">
                 Indicative
               </span>
-              {quote(indicative.price)}
+              {price(indicative.price)}
             </td>
           )}
           <td className={cn(CELL, "text-right", tone)}>
