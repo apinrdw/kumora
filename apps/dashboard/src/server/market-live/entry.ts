@@ -1,18 +1,20 @@
 // Market Live's routes in the custom Worker entry (src/worker.ts), ahead of
 // TanStack Start: the ingest socket and the viewer socket. Both reach today's
 // trading-day Durable Object, named by the WIB date; the recorded day GETs
-// (days.ts) reach the object of the day they name.
+// (days.ts) reach the object of the day they name, and the day strip the
+// index object.
 import {
+  DayStripPath,
   MarketLivePath,
   ViewerCloseCode,
-  stockCodeListDay,
+  recordedDayRequest,
   wibDateAt,
 } from "@workspace/relay"
 import { WorkerEnv } from "@workspace/server"
 import { DateTime, Effect, Option } from "effect"
 
 import { Auth } from "../auth/auth.ts"
-import { stockCodeListRoute } from "./days.ts"
+import { dayStripRoute, recordedDayRoute } from "./days.ts"
 import { gateLiveViewer } from "./gate.ts"
 import { withMarketClock } from "./market-clock.ts"
 import { ObjectPath, ViewerHeader } from "./routes.ts"
@@ -68,11 +70,16 @@ const live = Effect.fnUntraced(function* (request: Request) {
 
 // The route for a Market Live path, or undefined for TanStack Start's.
 export const marketLiveRoute = (request: Request) => {
-  const { pathname } = new URL(request.url)
+  const url = new URL(request.url)
+  const { pathname } = url
   if (pathname === MarketLivePath.ingest) return ingest(request)
   if (pathname === MarketLivePath.live) return live(request)
-  const codeListDay = Effect.runSync(stockCodeListDay(pathname))
-  if (Option.isSome(codeListDay))
-    return stockCodeListRoute(request, codeListDay.value)
+  if (pathname === DayStripPath)
+    return dayStripRoute(request).pipe(Effect.provide(Auth.layer))
+  const recorded = Effect.runSync(recordedDayRequest(url))
+  if (Option.isSome(recorded))
+    return recordedDayRoute(request, url, recorded.value.date).pipe(
+      Effect.provide(Auth.layer)
+    )
   return undefined
 }

@@ -20,12 +20,18 @@ const shifted = (base: Clock.Clock, offset: number): Clock.Clock => ({
   sleep: (duration) => base.sleep(duration),
 })
 
+// How far Market Live's clock runs ahead of the Worker's, in ms.
+export const marketClockOffset = Effect.gen(function* () {
+  const env: { readonly MARKET_LIVE_CLOCK_OFFSET?: string } = yield* WorkerEnv
+  const offset = Number(env.MARKET_LIVE_CLOCK_OFFSET ?? "0")
+  return Number.isFinite(offset) ? offset : 0
+})
+
 // Runs `effect` on Market Live's clock. Fibers it forks keep that clock.
 export const withMarketClock = <A, E, R>(effect: Effect.Effect<A, E, R>) =>
   Effect.gen(function* () {
-    const env: { readonly MARKET_LIVE_CLOCK_OFFSET?: string } = yield* WorkerEnv
-    const offset = Number(env.MARKET_LIVE_CLOCK_OFFSET ?? "0")
-    if (!Number.isFinite(offset) || offset === 0) return yield* effect
+    const offset = yield* marketClockOffset
+    if (offset === 0) return yield* effect
     const base = yield* Clock.Clock
     return yield* Effect.provideService(
       effect,

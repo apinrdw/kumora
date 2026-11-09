@@ -138,6 +138,10 @@ export const Website = Cloudflare.Website.Vite(
         // class. Untyped: the object has no RPC, only fetch, and its module
         // needs Workers types the tests' typecheck runs without.
         TRADING_DAY: Cloudflare.DurableObject("TradingDay"),
+        // The one index of sealed days, the day strip's source
+        // (src/server/market-live/day-index-object.ts). Untyped, like
+        // TRADING_DAY.
+        MARKET_LIVE_INDEX: Cloudflare.DurableObject("DayIndex"),
         ...google,
         ...clockOffset,
       },

@@ -4,12 +4,19 @@ import { Schema } from "effect"
 
 // The object's own paths. The entry builds a new request to them, so no
 // header a client sent reaches the object.
+// A recorded day GET reaches the object at its own path under
+// `/market-live/days/`, with no header the client sent.
 export const ObjectPath = {
   ingest: "/ingest",
   live: "/live",
-  codes: "/codes",
   endSessions: "/end-sessions",
 } as const
+
+// The index Durable Object (day-index-object.ts): one, by this name. A day's
+// object POSTs its row to its path at the seal; the Worker GETs the strip
+// from it.
+export const DAY_INDEX = "index"
+export const DayIndexPath = "/days"
 
 // The gated viewer's user and session; the object tags the socket with them.
 export const ViewerHeader = {

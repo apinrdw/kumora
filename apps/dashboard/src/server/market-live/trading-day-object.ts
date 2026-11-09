@@ -2,13 +2,26 @@
 // Cloudflare's hibernatable websockets to trading-day.ts, which holds the
 // behaviour. Exported from the Worker entry (src/worker.ts) as `TradingDay`,
 // the class the dashboard stack declares.
-import { WibDate, type StockCode } from "@workspace/relay"
-import { runServerEffectResult } from "@workspace/server"
-import { Effect, Option, Result, Schema, Scope } from "effect"
+import {
+  WibDate,
+  encodeRecordedDay,
+  recordedDayRequest,
+  type RecordedDay,
+  type StockCode,
+} from "@workspace/relay"
+import { WorkerEnv, runServerEffectResult } from "@workspace/server"
+import { DateTime, Effect, Layer, Option, Result, Schema, Scope } from "effect"
 
-import { withMarketClock } from "./market-clock.ts"
+import { durableSql } from "./durable-sql.ts"
+import { marketClockOffset, withMarketClock } from "./market-clock.ts"
 import type { CodeListStore } from "./code-list.ts"
-import { HeldSessions, ObjectPath, ViewerHeader } from "./routes.ts"
+import {
+  DAY_INDEX,
+  DayIndexPath,
+  HeldSessions,
+  ObjectPath,
+  ViewerHeader,
+} from "./routes.ts"
 import { makeTradingDay, type Peer, type PeerState } from "./trading-day.ts"
 
 // Socket tags. A viewer socket also carries its user and session, so a ban or
@@ -68,13 +81,34 @@ const codeListStore = (storage: DurableObjectStorage): CodeListStore => ({
   write: (text) => Effect.promise(() => storage.put(CODE_LIST_KEY, text)),
 })
 
+// The sealed day's row, to the index Durable Object.
+const recordDay = Effect.fnUntraced(function* (day: RecordedDay) {
+  const env = yield* WorkerEnv
+  const index = env.MARKET_LIVE_INDEX.getByName(DAY_INDEX)
+  const body = yield* encodeRecordedDay(day)
+  const response = yield* Effect.tryPromise(() =>
+    index.fetch(new URL(DayIndexPath, "https://day-index.invalid"), {
+      method: "POST",
+      body,
+    })
+  )
+  if (!response.ok)
+    return yield* Effect.fail(new Error(`Index answered ${response.status}`))
+})
+
 // Decision: a plain class, not `DurableObject` from `cloudflare:workers`: the
 // object needs no RPC, and only the bridge may import that module. Each
 // callback runs through the bridge's result runner, which logs any failure.
 export class TradingDayObject {
   private readonly day
 
-  constructor(private readonly ctx: DurableObjectState) {
+  constructor(
+    private readonly ctx: DurableObjectState,
+    // Decision: the bindings Cloudflare hands the constructor serve only the
+    // object's start, which runs before any request: the market clock and
+    // its offset for the seal's alarm. Callbacks read WorkerEnv per request.
+    env: WorkerEnv["Service"]
+  ) {
     // The Worker entry reaches the object by name, so the name is set.
     const date = decodeDate(ctx.id.name)
     const viewers = Effect.sync(() =>
@@ -96,23 +130,40 @@ export class TradingDayObject {
     )
     // Lives as long as the object; it holds the delta timers.
     const scope = Scope.makeUnsafe()
+    const workerEnv = Layer.succeed(WorkerEnv)(env)
+    // The alarm runs on the Worker's clock; the seal on Market Live's.
+    const offset = Effect.runSync(
+      marketClockOffset.pipe(Effect.provide(workerEnv))
+    )
     this.day = Effect.runSync(
-      makeTradingDay({
-        date,
-        viewers,
-        viewersOf,
-        ingests,
-        codeList: codeListStore(ctx.storage),
-      }).pipe(Scope.provide(scope))
+      withMarketClock(
+        makeTradingDay({
+          date,
+          viewers,
+          viewersOf,
+          ingests,
+          codeList: codeListStore(ctx.storage),
+          sql: durableSql(ctx.storage),
+          setAlarm: (at) =>
+            Effect.sync(
+              () =>
+                void ctx.storage.setAlarm(DateTime.toEpochMillis(at) - offset)
+            ),
+          recordDay,
+        })
+      ).pipe(Scope.provide(scope), Effect.provide(workerEnv))
     )
   }
 
   // Accepts the socket the Worker entry routed here, already gated; answers
-  // the sessions a user still holds (live-viewers.ts) and the day's stock
-  // code list GET.
+  // the sessions a user still holds (live-viewers.ts) and the recorded day
+  // GETs, also gated.
   fetch(request: Request): Response | Promise<Response> {
-    const { pathname } = new URL(request.url)
-    if (pathname === ObjectPath.codes) return this.codeList()
+    const url = new URL(request.url)
+    const { pathname } = url
+    const recorded = Effect.runSync(recordedDayRequest(url))
+    if (Option.isSome(recorded))
+      return this.answer(this.day.recorded(recorded.value.resource))
     // The runner logs any failure.
     if (pathname === ObjectPath.endSessions)
       return runServerEffectResult(
@@ -135,8 +186,8 @@ export class TradingDayObject {
     return new Response(null, { status: 101, webSocket: pair[0] })
   }
 
-  private codeList() {
-    return runServerEffectResult(this.day.codeList).then((settled) =>
+  private answer(response: Effect.Effect<Response, unknown, WorkerEnv>) {
+    return runServerEffectResult(withMarketClock(response)).then((settled) =>
       Result.isSuccess(settled)
         ? settled.success
         : new Response(null, { status: 500 })
@@ -180,5 +231,10 @@ export class TradingDayObject {
 
   webSocketError(socket: WebSocket) {
     return this.webSocketClose(socket)
+  }
+
+  // Set for the seal, 17:00 WIB (trading-day.ts `alarm`).
+  alarm() {
+    return runServerEffectResult(withMarketClock(this.day.alarm))
   }
 }
