@@ -94,12 +94,15 @@ const livePriceOf = (bytes: Uint8Array): LivePrice | undefined => {
 
 // A frame on top of the code's last: a frame carrying only the totals keeps
 // the last price, previous close, range and change as last sent, so what the
-// store keeps per code is whole.
+// store keeps per code is whole. A frame with a last price and no change
+// keeps none: Stockbit leaves a zero change out, and the readers work a
+// missing change out from the last price and the previous close.
 export const mergedLivePrice = Effect.fnUntraced(function* (
   held: LivePrice | undefined,
   price: LivePrice
 ): Effect.fn.Return<LivePrice> {
   if (held === undefined) return price
+  const totalsOnly = price.last === undefined
   return {
     ...price,
     last: price.last ?? held.last,
@@ -107,8 +110,10 @@ export const mergedLivePrice = Effect.fnUntraced(function* (
     high: price.high ?? held.high,
     low: price.low ?? held.low,
     open: price.open ?? held.open,
-    change: price.change ?? held.change,
-    changePercent: price.changePercent ?? held.changePercent,
+    change: totalsOnly ? (price.change ?? held.change) : price.change,
+    changePercent: totalsOnly
+      ? (price.changePercent ?? held.changePercent)
+      : price.changePercent,
   }
 })
 
