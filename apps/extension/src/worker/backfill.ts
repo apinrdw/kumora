@@ -78,8 +78,8 @@ const decodeAjaib = Schema.decodeUnknownOption(AjaibNumbers)
 
 // The trade numbers on one page, as bare daily sequences, and whether the
 // broker has more pages after it. None when the body isn't a page.
-const numbersOn = (feed: Feed, body: string) =>
-  feed === "Stockbit"
+const numbersOn = Effect.fnUntraced(function* (feed: Feed, body: string) {
+  return feed === "Stockbit"
     ? Option.map(decodeStockbit(body), (page) => ({
         numbers: page.data.running_trade.map((row) => BigInt(row.trade_number)),
         more: true,
@@ -88,6 +88,7 @@ const numbersOn = (feed: Feed, body: string) =>
         numbers: page.results.map((row) => BigInt(row.trade_num.slice(8))),
         more: page.has_next === true,
       }))
+})
 
 // A GET from the Stockbit tab with its own bearer token; none without one.
 const bearerFetch = Effect.fnUntraced(function* (
@@ -103,12 +104,20 @@ const bearerFetch = Effect.fnUntraced(function* (
   })
 })
 
-const fresh = (
+const fresh = Effect.fnUntraced(function* (
   range: Pick<Job, "from" | "to" | "nextTime" | "targets">
-): Job => ({ ...range, cursor: range.to + 1n, page: 1, covered: new Set() })
+) {
+  const job: Job = {
+    ...range,
+    cursor: range.to + 1n,
+    page: 1,
+    covered: new Set(),
+  }
+  return job
+})
 
 // The runs of numbers in the job's range that no page carried.
-const uncovered = (job: Job) => {
+const uncovered = Effect.fnUntraced(function* (job: Job) {
   const runs: Array<{ from: bigint; to: bigint }> = []
   for (let number = job.from; number <= job.to; number++) {
     if (job.covered.has(number)) continue
@@ -117,20 +126,23 @@ const uncovered = (job: Job) => {
     else runs.push({ from: number, to: number })
   }
   return runs
-}
-
-const sharesACall = (a: Job, b: Job, slack: bigint) =>
-  a.from <= b.to + slack && b.from <= a.to + slack
+})
 
 // Adds a range to a site's queue, merged into a queued one it overlaps or
 // sits next to, whichever target asked: every page goes to every target.
-const enqueue = (queue: Array<Job>, job: Job, slack: bigint) => {
-  const merged = queue.filter((held) => sharesACall(held, job, slack))
-  const kept = queue.filter((held) => !sharesACall(held, job, slack))
+const enqueue = Effect.fnUntraced(function* (
+  queue: Array<Job>,
+  job: Job,
+  slack: bigint
+) {
+  const sharesACall = (held: Job) =>
+    held.from <= job.to + slack && job.from <= held.to + slack
+  const merged = queue.filter(sharesACall)
+  const kept = queue.filter((held) => !sharesACall(held))
   const all = [...merged, job]
   const to = all.reduce((max, each) => (each.to > max.to ? each : max))
   kept.push(
-    fresh({
+    yield* fresh({
       from: all.reduce(
         (min, each) => (each.from < min ? each.from : min),
         job.from
@@ -141,17 +153,20 @@ const enqueue = (queue: Array<Job>, job: Job, slack: bigint) => {
     })
   )
   return kept
-}
+})
 
 // Decision: Production's ranges are fetched first; a range only the extra
 // target asked for waits for a spare call. See apinrdw/kumora#134.
-const takeNext = (queue: Array<Job>, ready: (job: Job) => boolean) => {
+const takeNext = Effect.fnUntraced(function* (
+  queue: Array<Job>,
+  ready: (job: Job) => boolean
+) {
   const eligible = queue.filter(ready)
   const job =
     eligible.find((each) => each.targets.has("production")) ?? eligible[0]
   if (job !== undefined) queue.splice(queue.indexOf(job), 1)
   return job
-}
+})
 
 export const makeBackfill = Effect.fnUntraced(function* (options: {
   readonly stockbit: RequestingTab
@@ -169,9 +184,9 @@ export const makeBackfill = Effect.fnUntraced(function* (options: {
     const from = BigInt(message.from)
     const to = BigInt(message.to)
     if (to < from) return
-    stockbitQueue = enqueue(
+    stockbitQueue = yield* enqueue(
       stockbitQueue,
-      fresh({
+      yield* fresh({
         from,
         to,
         nextTime: DateTime.toEpochMillis(message.nextTime),
@@ -182,11 +197,14 @@ export const makeBackfill = Effect.fnUntraced(function* (options: {
   })
 
   // What Stockbit left goes to Ajaib, run by run.
-  const fallBack = (job: Job) =>
-    Effect.sync(() => {
-      for (const run of uncovered(job))
-        ajaibQueue = enqueue(ajaibQueue, fresh({ ...job, ...run }), 0n)
-    })
+  const fallBack = Effect.fnUntraced(function* (job: Job) {
+    for (const run of yield* uncovered(job))
+      ajaibQueue = yield* enqueue(
+        ajaibQueue,
+        yield* fresh({ ...job, ...run }),
+        0n
+      )
+  })
 
   const send = Effect.fnUntraced(function* (
     feed: Feed,
@@ -205,7 +223,10 @@ export const makeBackfill = Effect.fnUntraced(function* (options: {
   })
 
   // The job after one page: done, or paged on from the page's oldest number.
-  const after = (job: Job, numbers: ReadonlyArray<bigint>) => {
+  const after = Effect.fnUntraced(function* (
+    job: Job,
+    numbers: ReadonlyArray<bigint>
+  ) {
     const covered = new Set(job.covered)
     for (const number of numbers)
       if (number >= job.from && number <= job.to) covered.add(number)
@@ -214,30 +235,33 @@ export const makeBackfill = Effect.fnUntraced(function* (options: {
       job.cursor
     )
     return { ...job, covered, cursor: oldest, page: job.page + 1 }
-  }
+  })
 
   // One Stockbit call: the page before the job's cursor, newest first.
   const stockbitCall = Effect.fnUntraced(function* () {
-    const job = takeNext(stockbitQueue, () => true)
+    const job = yield* takeNext(stockbitQueue, () => true)
     if (job === undefined) return false
     const url = `${RUNNING_TRADE_URL}?sort=DESC&order_by=RUNNING_TRADE_ORDER_BY_TIME&limit=${STOCKBIT_PAGE}&trade_number=${job.cursor}`
     const answer = yield* bearerFetch(options.stockbit, url)
-    const page = Option.flatMap(
-      Option.filter(answer, (received) => received.status === 200),
-      (received) =>
-        Option.map(numbersOn("Stockbit", received.body), (found) => ({
+    const ok = Option.filter(answer, (received) => received.status === 200)
+    const page = Option.isNone(ok)
+      ? Option.none<{ numbers: ReadonlyArray<bigint>; body: string }>()
+      : Option.map(yield* numbersOn("Stockbit", ok.value.body), (found) => ({
           ...found,
-          body: received.body,
+          body: ok.value.body,
         }))
-    )
     if (Option.isNone(page)) {
       yield* fallBack(job)
       return true
     }
     yield* send("Stockbit", job, page.value.body)
-    const next = after(job, page.value.numbers)
+    const next = yield* after(job, page.value.numbers)
     const progressed = next.cursor < job.cursor
-    if (progressed && next.cursor > job.from && uncovered(next).length > 0)
+    if (
+      progressed &&
+      next.cursor > job.from &&
+      (yield* uncovered(next)).length > 0
+    )
       stockbitQueue.unshift(next)
     else yield* fallBack(next)
     return true
@@ -246,23 +270,26 @@ export const makeBackfill = Effect.fnUntraced(function* (options: {
   // One Ajaib call: a page of the tape at the job's next trade's time.
   const ajaibCall = Effect.fnUntraced(function* () {
     const now = yield* Clock.currentTimeMillis
-    const job = takeNext(ajaibQueue, (each) => each.nextTime + AJAIB_LAG <= now)
+    const job = yield* takeNext(
+      ajaibQueue,
+      (each) => each.nextTime + AJAIB_LAG <= now
+    )
     if (job === undefined) return false
     // Ajaib rounds its times to the second.
     const lastTimestamp = job.nextTime + 1000
     const path = `v1/stock/detail/running_trades/?direction=DESC&last_timestamp=${lastTimestamp}&page=${job.page}&page_size=${AJAIB_PAGE_SIZE}`
     const answer = yield* options.ajaib.request({ _tag: "page-fetch", path })
     if (Option.isNone(answer) || answer.value.status !== 200) return true
-    const found = numbersOn("Ajaib", answer.value.body)
+    const found = yield* numbersOn("Ajaib", answer.value.body)
     if (Option.isNone(found)) return true
     yield* send("Ajaib", job, answer.value.body)
-    const next = after(job, found.value.numbers)
+    const next = yield* after(job, found.value.numbers)
     // A range Ajaib can't fill either stays unfilled.
     if (
       found.value.more &&
       found.value.numbers.length > 0 &&
       next.cursor > job.from &&
-      uncovered(next).length > 0
+      (yield* uncovered(next)).length > 0
     )
       ajaibQueue.unshift(next)
     return true
