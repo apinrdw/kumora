@@ -1,9 +1,7 @@
 import {
-  TradeNumberOrder,
   ViewerCloseCode,
   decodeViewerDown,
   encodeViewerUp,
-  type RunningTrade,
   type ViewerDown,
   type ViewerUp,
 } from "@workspace/relay"
@@ -101,22 +99,3 @@ export const viewerMessages = (options: {
       )
     })
   )
-
-// The tape a page keeps: newest first, at most this many trades.
-const TAPE_CAP = 10_000
-
-// The page's tape after one viewer message. A snapshot replaces it; a delta's
-// trades go in by trade number, so a late one lands in its place.
-export const applyViewerMessage = Effect.fnUntraced(function* (
-  tape: ReadonlyArray<RunningTrade>,
-  message: ViewerDown
-) {
-  const arriving = new Set(message.tape.map((trade) => trade.tradeNumber))
-  const known =
-    message._tag === "Snapshot"
-      ? []
-      : tape.filter((trade) => !arriving.has(trade.tradeNumber))
-  return [...known, ...message.tape]
-    .sort((a, b) => TradeNumberOrder(b.tradeNumber, a.tradeNumber))
-    .slice(0, TAPE_CAP)
-})

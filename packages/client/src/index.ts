@@ -11,7 +11,6 @@ export { FrameScheduler } from "./frame-scheduler.ts"
 export {
   NewVersion,
   SignInRequired,
-  applyViewerMessage,
   viewerMessages,
 } from "./market-live-socket.ts"
 export { fetchStockCodeList, searchStockCodes } from "./stock-code-list.ts"

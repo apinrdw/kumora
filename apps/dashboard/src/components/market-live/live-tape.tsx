@@ -1,26 +1,21 @@
-import {
-  applyViewerMessage,
-  clientRuntime,
-  viewerMessages,
-} from "@workspace/client"
+import { clientRuntime, viewerMessages } from "@workspace/client"
 import {
   MarketLivePath,
   ViewerProtocolVersion,
-  type RunningTrade,
   type StockCode,
-  type ViewerUp,
   type ViewerDown,
+  type ViewerUp,
 } from "@workspace/relay"
-import { DateTime, Effect, Fiber, Stream, SubscriptionRef } from "effect"
+import { Effect, Fiber, Stream, SubscriptionRef } from "effect"
 import { useEffect, useRef, useState } from "react"
 
 import { KButton } from "@/components/k/button"
-import { compactIdr, plain, tapeTime } from "@/lib/format"
+import {
+  SOURCES,
+  TapeList,
+  useFramedTape,
+} from "@/components/market-live/tape-list"
 import { withRedirect } from "@/lib/redirect"
-
-// The page shows this many of the trades it keeps; the tape ticket renders
-// them all (apinrdw/kumora#150).
-const SHOWN_TRADES = 200
 
 // What the socket tells the object the page shows. The tape streams the whole
 // market whatever is selected.
@@ -31,41 +26,7 @@ const selectOf = (selected: StockCode): ViewerUp => ({
   watchlist: [],
 })
 
-const SIDE_CLASS: Record<RunningTrade["side"], string> = {
-  buy: "text-up",
-  sell: "text-down",
-  none: "",
-}
-
 type Status = "live" | "new-version"
-
-type Source = RunningTrade["feeds"][number]
-
-// One dot per feed that saw a trade, in the order the server lists them.
-const SOURCES: ReadonlyArray<{
-  readonly source: Source
-  readonly label: string
-  readonly dot: string
-}> = [
-  { source: "Stockbit", label: "Stockbit", dot: "bg-info" },
-  { source: "Ajaib", label: "Ajaib", dot: "bg-vwap" },
-  { source: "backfill", label: "Backfill", dot: "bg-neutral" },
-]
-
-function SourceDots({ feeds }: { feeds: ReadonlyArray<Source> }) {
-  const shown = SOURCES.filter(({ source }) => feeds.includes(source))
-  return (
-    <span
-      className="inline-flex gap-0.5"
-      aria-label={shown.map(({ label }) => label).join(", ")}
-      role="img"
-    >
-      {shown.map(({ source, dot }) => (
-        <span key={source} className={`size-1.5 rounded-full ${dot}`} />
-      ))}
-    </span>
-  )
-}
 
 // The whole-market tape from the viewer socket. A 4401 close sends the
 // visitor to sign in and back; a 4426 close asks for a reload; any other close
@@ -81,7 +42,7 @@ export function LiveTape({
   onSelect: (code: StockCode) => void
   onMessage?: (message: ViewerDown) => void
 }) {
-  const [tape, setTape] = useState<ReadonlyArray<RunningTrade>>([])
+  const { tape, frame, apply } = useFramedTape()
   const [status, setStatus] = useState<Status>("live")
   const [select] = useState(() =>
     Effect.runSync(SubscriptionRef.make(selectOf(selected)))
@@ -94,7 +55,14 @@ export function LiveTape({
     listener.current = onMessage
   }, [onMessage])
 
+  // The code the socket last sent, and whether the object's answer to a
+  // changed Select is still due.
+  const sent = useRef(selected)
+  const reselected = useRef(false)
   useEffect(() => {
+    if (sent.current === selected) return
+    sent.current = selected
+    reselected.current = true
     clientRuntime.runFork(SubscriptionRef.set(select, selectOf(selected)))
   }, [select, selected])
 
@@ -108,9 +76,14 @@ export function LiveTape({
       Stream.runForEach(messages, (message) =>
         Effect.sync(() => {
           listener.current?.(message)
-          setTape((current) =>
-            Effect.runSync(applyViewerMessage(current, message))
-          )
+          // Decision: the snapshot answering a changed Select is merged into
+          // the tape like a delta. Replacing it would cut the 10,000 trades
+          // the page keeps to the snapshot's 200 newest, and an auction
+          // match's fold with them. The chart still takes it as a snapshot.
+          if (message._tag === "Snapshot" && reselected.current) {
+            reselected.current = false
+            apply({ ...message, _tag: "Delta" })
+          } else apply(message)
         })
       ).pipe(
         Effect.catchTags({
@@ -129,7 +102,7 @@ export function LiveTape({
     return () => {
       clientRuntime.runFork(Fiber.interrupt(fiber))
     }
-  }, [select])
+  }, [apply, select])
 
   return (
     <section aria-label="Running trades" className="flex flex-col gap-2">
@@ -155,48 +128,13 @@ export function LiveTape({
           </KButton>
         </div>
       )}
-      <table className="w-full text-[13px] tabular-nums">
-        <thead className="text-left text-muted-foreground">
-          <tr>
-            <th className="font-normal">Time</th>
-            <th className="font-normal">Code</th>
-            <th className="text-right font-normal">Price</th>
-            <th className="text-right font-normal">Lot</th>
-            <th className="text-right font-normal">Value</th>
-            <th className="font-normal">
-              <span className="sr-only">Source</span>
-            </th>
-          </tr>
-        </thead>
-        <tbody>
-          {tape.slice(0, SHOWN_TRADES).map((trade) => (
-            <tr
-              key={trade.tradeNumber}
-              data-trade-number={trade.tradeNumber}
-              className="hover:bg-elevated cursor-pointer"
-              onClick={() => onSelect(trade.code)}
-            >
-              <td>{tapeTime(DateTime.toEpochMillis(trade.time))}</td>
-              <td className="font-semibold">
-                {/* The row's click target for the keyboard and screen readers. */}
-                <button type="button" className="hover:underline">
-                  {trade.code}
-                </button>
-              </td>
-              <td className={`text-right ${SIDE_CLASS[trade.side]}`}>
-                {plain(trade.price)}
-              </td>
-              <td className="text-right">{plain(trade.lots)}</td>
-              <td className="text-right">
-                {compactIdr(trade.price * trade.lots * 100).replace("+", "")}
-              </td>
-              <td className="pl-2">
-                <SourceDots feeds={trade.feeds} />
-              </td>
-            </tr>
-          ))}
-        </tbody>
-      </table>
+      <TapeList
+        tape={tape}
+        frame={frame}
+        selected={selected}
+        onSelect={onSelect}
+        className="h-[min(70vh,640px)]"
+      />
     </section>
   )
 }
