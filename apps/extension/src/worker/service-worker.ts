@@ -2,7 +2,6 @@
 // drives the broker tabs' connections on a 10 s tick, batches their frames,
 // and sends the envelopes to every target's ingest socket.
 import {
-  IngestProtocolVersion,
   type StockCode,
   encodeIngestUp,
   wibDateAt,
@@ -25,19 +24,18 @@ import {
 } from "effect"
 import * as Socket from "effect/socket/Socket"
 
-import { CODE_LIST_PATH, listedCodes } from "./ajaib.ts"
 import { makeAjaibSession } from "./ajaib-session.ts"
 import { makeBackfill } from "./backfill.ts"
 import { BATCH_INTERVAL, makeBatcher } from "./batch.ts"
 import { ajaib, ajaibOnDemand, stockbit } from "./broker.ts"
+import { makeCodeList } from "./code-list.ts"
 import { windowAt } from "./gate.ts"
 import {
   DashboardOrigin,
+  codeListStore,
   isSettingsChange,
   loadClockOffset,
-  loadCodeList,
   loadSettings,
-  saveCodeList,
   saveTargetStates,
   sessionPinStore,
   type Settings,
@@ -213,76 +211,6 @@ const makeOnDemandCodes = Effect.fnUntraced(function* (
   return { receive, codes: () => union }
 })
 
-// Decision: the code list is fetched from the Ajaib tab once a WIB day, and
-// retried at most once a minute until it answers. See apinrdw/kumora#138.
-const CODE_LIST_RETRY = Duration.minutes(1)
-
-const makeCodeList = Effect.fnUntraced(function* (options: {
-  readonly envelopes: PubSub.PubSub<EncodedIngestUp>
-  readonly changed: Effect.Effect<void>
-}) {
-  let list = yield* loadCodeList
-  let lastTry = 0
-  let fetching = false
-
-  const fetchList = Effect.fnUntraced(function* (
-    tab: BrokerTab,
-    today: WibDate
-  ) {
-    const answer = yield* tab.request({
-      _tag: "page-fetch",
-      path: CODE_LIST_PATH,
-    })
-    if (Option.isNone(answer) || answer.value.status !== 200) return
-    const codes = yield* listedCodes(answer.value.body)
-    if (codes.length === 0) return
-    const envelope = yield* Effect.orDie(
-      encodeIngestUp({
-        _tag: "CodeList",
-        protocolVersion: IngestProtocolVersion,
-        receivedAt: yield* DateTime.now,
-        body: answer.value.body,
-      })
-    )
-    const held = { date: today, codes, envelope }
-    list = Option.some(held)
-    yield* saveCodeList(held)
-    yield* PubSub.publish(options.envelopes, envelope)
-    yield* options.changed
-  })
-
-  // On a tick: fetch today's list unless it's held, one try at a time.
-  const tick = Effect.fnUntraced(function* (tab: BrokerTab, now: DateTime.Utc) {
-    const today = yield* wibDateAt(now)
-    const ms = DateTime.toEpochMillis(now)
-    if (Option.isSome(list) && list.value.date === today) return
-    if (fetching || !(yield* tab.attached)) return
-    if (ms - lastTry < Duration.toMillis(CODE_LIST_RETRY)) return
-    lastTry = ms
-    fetching = true
-    yield* Effect.forkScoped(
-      Effect.ensuring(
-        fetchList(tab, today),
-        Effect.sync(() => {
-          fetching = false
-        })
-      )
-    )
-  })
-
-  // The day's CodeList envelope, for a target's fresh socket.
-  const catchUp = Effect.sync(() =>
-    Option.match(list, { onNone: () => [], onSome: (held) => [held.envelope] })
-  )
-
-  return {
-    tick,
-    catchUp,
-    codes: () =>
-      Option.match(list, { onNone: () => [], onSome: (held) => held.codes }),
-  }
-})
-
 // Now on the relay's schedule clock.
 const scheduleNow = Effect.gen(function* () {
   const now = yield* DateTime.now
@@ -305,6 +233,7 @@ const main = Effect.gen(function* () {
 
   // A changed list or on-demand set resubscribes the open sockets.
   const codeList = yield* makeCodeList({
+    store: codeListStore,
     envelopes,
     changed: Effect.suspend(() => stockbitCodes.resubscribe(stockbitTab)),
   })

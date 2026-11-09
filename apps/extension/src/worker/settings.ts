@@ -1,9 +1,9 @@
 // What the options page sets and what the service worker reports back, both
 // kept in chrome.storage (spec apinrdw/kumora#138, "Batching and targets").
-import { EncodedIngestUp, StockCode, WibDate } from "@workspace/relay"
 import { Effect, Option, Schema } from "effect"
 
 import { SignIn, type PinStore } from "./ajaib-session.ts"
+import { CodeListCache, type CodeListStore } from "./code-list.ts"
 
 // Where a dashboard serves: an origin, `https://host` or `http://host:port`.
 export const DashboardOrigin = Schema.String.check(
@@ -95,31 +95,27 @@ export const isTargetStatesChange = Effect.fnUntraced(function* (
   return area === "session" && STATES_KEY in changes
 })
 
-// The day's stock code list, kept so a restarted worker subscribes Stockbit
-// at once and fetches the list only once a day, with the CodeList envelope
-// it sent, for a target that connects later in the day.
-const CodeListCache = Schema.Struct({
-  date: WibDate,
-  codes: Schema.Array(StockCode),
-  envelope: EncodedIngestUp,
-})
-export type CodeListCache = typeof CodeListCache.Type
-
+// The code list, so a worker that restarts holds today's list at once and
+// fetches it only once a day, with the CodeList envelope it sent, for a target
+// that connects later in the day (code-list.ts).
 const CODE_LIST_KEY = "codeList"
 
-export const loadCodeList = Effect.gen(function* () {
-  const stored = yield* Effect.promise(() =>
-    chrome.storage.local.get(CODE_LIST_KEY)
-  )
-  return Schema.decodeUnknownOption(CodeListCache)(stored[CODE_LIST_KEY])
-})
-
-export const saveCodeList = Effect.fnUntraced(function* (list: CodeListCache) {
-  const encoded = yield* Schema.encodeEffect(CodeListCache)(list)
-  yield* Effect.promise(() =>
-    chrome.storage.local.set({ [CODE_LIST_KEY]: encoded })
-  )
-})
+export const codeListStore: CodeListStore = {
+  load: Effect.gen(function* () {
+    const stored = yield* Effect.promise(() =>
+      chrome.storage.local.get(CODE_LIST_KEY)
+    )
+    return Schema.decodeUnknownOption(CodeListCache)(stored[CODE_LIST_KEY])
+  }),
+  save: Effect.fnUntraced(function* (list: CodeListCache) {
+    const encoded = yield* Effect.orDie(
+      Schema.encodeEffect(CodeListCache)(list)
+    )
+    yield* Effect.promise(() =>
+      chrome.storage.local.set({ [CODE_LIST_KEY]: encoded })
+    )
+  }),
+}
 
 // Decision: a test-only clock offset, in ms, moves the relay's schedule (its
 // streaming hours, its auctions and the code list's day) and nothing else, so
