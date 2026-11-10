@@ -18,13 +18,18 @@ import { runTarget } from "../src/worker/target.ts"
 
 type Listener = (event: Socket.WebSocketEvent) => void
 
-// A dashboard's ingest socket: open from the start, it keeps what the relay
-// sends and closes when the test says.
+// A dashboard's ingest socket: open from the start unless the test opens it,
+// it keeps what the relay sends and closes when the test says.
 class FakeIngest implements Socket.WebSocketLike {
-  readyState = 1
+  readyState: number
   readonly sent: Array<string> = []
   private readonly listeners = new Map<string, Set<Listener>>()
-  constructor(readonly url: string) {}
+  constructor(
+    readonly url: string,
+    opened = true
+  ) {
+    this.readyState = opened ? 1 : 0
+  }
   addEventListener(type: string, listener: Listener) {
     const set = this.listeners.get(type) ?? new Set()
     set.add(listener)
@@ -40,6 +45,12 @@ class FakeIngest implements Socket.WebSocketLike {
   receive(data: string) {
     this.emit("message", { data })
   }
+  // The handshake completes.
+  open() {
+    if (this.readyState !== 0) return
+    this.readyState = 1
+    this.emit("open", {})
+  }
   close(code = 1000) {
     if (this.readyState === 3) return
     this.readyState = 3
@@ -52,10 +63,13 @@ class FakeIngest implements Socket.WebSocketLike {
 
 const origin = DashboardOrigin.make("http://localhost:3001")
 
-// `catchUp`: what every fresh socket is sent after the token.
-const harness = Effect.fnUntraced(function* (
-  catchUp: ReadonlyArray<EncodedIngestUp> = []
-) {
+// `catchUp`: what every fresh socket is sent after the token. With
+// `handshake`, the first socket opens only when the test says.
+const harness = Effect.fnUntraced(function* (options?: {
+  readonly catchUp?: ReadonlyArray<EncodedIngestUp>
+  readonly handshake?: boolean
+}) {
+  const catchUp = options?.catchUp ?? []
   const sockets: Array<FakeIngest> = []
   const states: Array<TargetState> = []
   const down: Array<IngestDown> = []
@@ -72,7 +86,10 @@ const harness = Effect.fnUntraced(function* (
   }).pipe(
     Effect.provide(
       Layer.succeed(Socket.WebSocketConstructor)((url) => {
-        const socket = new FakeIngest(url)
+        const socket = new FakeIngest(
+          url,
+          !(options?.handshake === true && sockets.length === 0)
+        )
         sockets.push(socket)
         return socket
       })
@@ -152,9 +169,9 @@ describe("a target's ingest socket", () => {
 
   it.effect("sends the catch-up envelopes after the token on every open", () =>
     Effect.gen(function* () {
-      const { sockets, settle } = yield* harness([
-        EncodedIngestUp.make("the code list"),
-      ])
+      const { sockets, settle } = yield* harness({
+        catchUp: [EncodedIngestUp.make("the code list")],
+      })
       yield* settle
       assert.deepStrictEqual(sockets[0]?.sent.slice(1), ["the code list"])
       sockets[0]?.close(1006)
@@ -172,6 +189,31 @@ describe("a target's ingest socket", () => {
         const { sockets, states, day, settle } = yield* harness()
         yield* settle
         yield* SubscriptionRef.set(day, WibDate.make("2026-11-10"))
+        yield* settle
+        assert.strictEqual(sockets[0]?.readyState, 3)
+        assert.strictEqual(sockets.length, 2)
+        assert.deepStrictEqual(states, [
+          "connecting",
+          "connected",
+          "connecting",
+          "connected",
+        ])
+      }).pipe(Effect.scoped)
+  )
+
+  it.effect(
+    "reconnects when the WIB date changes during the handshake, which routed the socket to the old day's object",
+    () =>
+      Effect.gen(function* () {
+        const { sockets, states, day, settle } = yield* harness({
+          handshake: true,
+        })
+        yield* settle
+        assert.strictEqual(sockets.length, 1)
+        assert.deepStrictEqual(states, ["connecting"])
+        yield* SubscriptionRef.set(day, WibDate.make("2026-11-10"))
+        yield* settle
+        sockets[0]?.open()
         yield* settle
         assert.strictEqual(sockets[0]?.readyState, 3)
         assert.strictEqual(sockets.length, 2)
