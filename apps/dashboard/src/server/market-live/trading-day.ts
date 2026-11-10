@@ -347,7 +347,6 @@ export const makeTradingDay = Effect.fnUntraced(function* (options: {
   )
   // The market conditions viewers were last sent, encoded.
   let sentConditions = ""
-  let relayOnline = false
   let checking = false
   // Whether the market conditions or an indicative price changed since
   // viewers were last sent them.
@@ -701,7 +700,6 @@ export const makeTradingDay = Effect.fnUntraced(function* (options: {
             : undefined
         if (first?._tag === "Token" && (yield* tokenMatches(first.token))) {
           yield* socket.setState("ready")
-          relayOnline = true
           yield* market.relayOnline
           yield* scheduleDelta
           return yield* onDemand.greet(socket)
@@ -709,7 +707,6 @@ export const makeTradingDay = Effect.fnUntraced(function* (options: {
         return yield* socket.close(IngestCloseCode.RejectedToken, "Bad token")
       }
       const message = yield* decodeIngestUp(text)
-      relayOnline = true
       // A sealed day takes nothing more.
       if (sealed) return
       yield* market.ingest(message)
@@ -792,13 +789,20 @@ export const makeTradingDay = Effect.fnUntraced(function* (options: {
       )
   )
 
-  // A ready ingest socket closed, leaving `remaining` ready ones. With none,
-  // the relay is offline: written at once, as nothing else may arrive to
-  // schedule a flush before the object is evicted, and a restart would count
-  // the gap from its own start.
-  const ingestClosed = Effect.fnUntraced(function* (remaining: number) {
-    if (remaining > 0 || !relayOnline) return
-    relayOnline = false
+  // An ingest socket closed, leaving `remaining` ready ones. Decision: the
+  // relay is offline when the socket that closed was ready and none remain,
+  // read from the sockets' state, which lives with them across hibernation.
+  // An instance flag set by the token or a frame is false when the close is
+  // the first event after the object woke, which skipped this transition and
+  // its flush, so the next eviction lost the outage's start and the next
+  // restart counted the gap from its own wake. A rejected socket closing
+  // changes nothing. Written at once, as nothing else may arrive to schedule
+  // a flush before the object is evicted.
+  const ingestClosed = Effect.fnUntraced(function* (
+    socket: Peer,
+    remaining: number
+  ) {
+    if (remaining > 0 || (yield* socket.state) !== "ready") return
     yield* market.relayOffline
     yield* scheduleDelta
     if (!sealed) yield* flush(false)

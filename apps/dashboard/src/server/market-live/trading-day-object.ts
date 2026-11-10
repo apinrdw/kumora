@@ -319,8 +319,10 @@ export class TradingDayObject {
     )
   }
 
-  // A viewer closing takes its codes out of the on-demand set; a relay closing
-  // may leave the object with none: relay offline.
+  // A viewer closing takes its codes out of the on-demand set; a ready relay
+  // socket closing may leave the object with no ready one: relay offline.
+  // Both the closing socket's state and the others' are read from their
+  // attachments, so the first event after hibernation decides the same way.
   webSocketClose(socket: WebSocket) {
     const tags = this.ctx.getTags(socket)
     if (tags.includes(VIEWER))
@@ -339,7 +341,12 @@ export class TradingDayObject {
           other.deserializeAttachment() === "ready"
       ).length
     return runServerEffectResult(
-      withMarketClock(this.day.ingestClosed(remaining))
+      withMarketClock(
+        this.day.ingestClosed(
+          peerOf(this.ctx, this.watching, socket),
+          remaining
+        )
+      )
     )
   }
 

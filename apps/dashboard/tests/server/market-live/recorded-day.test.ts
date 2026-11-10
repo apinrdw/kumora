@@ -262,7 +262,7 @@ const tradingDay = Effect.fnUntraced(function* (
   // The Durable Object's alarm firing.
   const alarm = day.alarm.pipe(Effect.provide(env))
   // The relay's last ingest socket closing.
-  const relayClosed = day.ingestClosed(0)
+  const relayClosed = day.ingestClosed(relay, 0)
   return {
     ajaib,
     stockbit,
