@@ -1,8 +1,12 @@
 import { Link } from "@tanstack/react-router"
-import { clientRuntime, fetchDayStrip } from "@workspace/client"
+import {
+  clientRuntime,
+  fetchDayStrip,
+  type clientLayer,
+} from "@workspace/client"
 import type { RecordedDay, WibDate } from "@workspace/relay"
 import { cn } from "@workspace/ui/lib/utils"
-import { Effect, Fiber } from "effect"
+import { Effect, Fiber, type Layer } from "effect"
 import { useEffect, useRef, useState } from "react"
 
 import { dayLabel, direction, pct } from "@/lib/format"
@@ -43,7 +47,9 @@ const stripLoad = (
   )
 
 // Runs `effect` until the effect hook's cleanup.
-const fork = (effect: Effect.Effect<void>) => {
+const fork = (
+  effect: Effect.Effect<void, never, Layer.Success<typeof clientLayer>>
+) => {
   const fiber = clientRuntime.runFork(effect)
   return () => {
     clientRuntime.runFork(Fiber.interrupt(fiber))
