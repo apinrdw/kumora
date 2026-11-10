@@ -116,7 +116,8 @@ export function useReplayCursor(day: WibDate | undefined) {
 
 // The selected code's book frame in force at the cursor: the chunk of the
 // cursor's minute, replayed to it; during Play the next minute's chunk is
-// fetched ahead.
+// fetched ahead. A minute is asked for once; a load that failed forgets its
+// minute, so the cursor's next step or visit asks again.
 function followBook(
   day: WibDate,
   selected: StockCode,
@@ -151,7 +152,7 @@ function followBook(
         )
         chunks.set(minute, chunk)
         show()
-      })
+      }).pipe(Effect.onError(() => Effect.sync(() => asked.delete(minute))))
     )
   }
   const stop = onCursorKey(cursor, (at) => Math.floor(at / BOOK_STEP_MS), show)
