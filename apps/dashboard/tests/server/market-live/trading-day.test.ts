@@ -428,6 +428,44 @@ describe("a session's end", () => {
   )
 })
 
+describe("the day's end", () => {
+  // 23:59:59.900 WIB on the object's day.
+  const beforeMidnight = DateTime.makeUnsafe("2026-11-09T16:59:59.900Z")
+
+  it.effect(
+    "a viewer is closed with 1001 at its next delta once the clock's date passed the day, and sent nothing more",
+    () =>
+      Effect.gen(function* () {
+        yield* TestClock.setTime(DateTime.toEpochMillis(beforeMidnight))
+        const { ingest, viewer, select } = yield* tradingDay()
+        const page = yield* viewer()
+        yield* select(page)
+        assert.lengthOf(page.sent, 1)
+        const socket = yield* relay(ingest)
+        yield* ingest(socket, yield* ajaib(recorded.session1.slice(0, 10)))
+        // The delta falls past midnight.
+        yield* TestClock.adjust("250 millis")
+        assert.strictEqual(page.closedWith, ViewerCloseCode.DayEnded)
+        assert.lengthOf(page.sent, 1)
+      })
+  )
+
+  it.effect(
+    "a Select once the clock's date passed the day is answered with 1001, not a snapshot",
+    () =>
+      Effect.gen(function* () {
+        yield* TestClock.setTime(
+          DateTime.toEpochMillis(DateTime.add(beforeMidnight, { seconds: 1 }))
+        )
+        const { viewer, select } = yield* tradingDay()
+        const page = yield* viewer()
+        yield* select(page)
+        assert.strictEqual(page.closedWith, ViewerCloseCode.DayEnded)
+        assert.lengthOf(page.sent, 0)
+      })
+  )
+})
+
 describe("running trades from Ajaib", () => {
   it.effect(
     "a viewer's snapshot holds the trades so far, ordered by trade number",
