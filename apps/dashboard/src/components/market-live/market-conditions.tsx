@@ -131,7 +131,10 @@ const PHASE: Record<MarketPhase, string> = {
 // `code`'s held price while the auction of its time is the phase the server
 // says runs: the prices are held across phases, so without this the
 // morning's would show at 15:50 until the closing auction's first frame
-// (the server serves by the same rule, `market-conditions.ts`).
+// (the server serves by the same rule, `market-conditions.ts`). The page
+// compares the phase alone, not the date: a viewer socket is closed when its
+// day ends (`trading-day.ts`, DayEnded), and the next day's snapshot replaces
+// every held price, so a held price is always of today.
 const auctionIndicative = (code: StockCode) => {
   const { conditions, indicative } = view
   const price = indicative.get(code)
