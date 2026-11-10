@@ -683,19 +683,28 @@ export const makeTradingDay = Effect.fnUntraced(function* (options: {
 
   // One envelope from the relay. The token comes first, in a message no longer
   // than INGEST_TOKEN_MESSAGE_LIMIT; a longer first message is closed with
-  // 4403 unread, as is anything else before the token, or a wrong one.
+  // 4403 unread. Decision: so is any first message that isn't a Token of this
+  // protocol version carrying the right token: not JSON, a Token without its
+  // token, another envelope, or a wrong token. Only a first message of
+  // another protocol version closes with 4426, the code that stops an
+  // extension of that version retrying (envelope.ts). A decode failure that
+  // escaped would be logged and leave the unauthenticated socket open, free
+  // to keep the shared object parsing.
   const ingestMessage = Effect.fnUntraced(
     function* (socket: Peer, text: string) {
       if ((yield* socket.state) === "new") {
-        if (text.length <= INGEST_TOKEN_MESSAGE_LIMIT) {
-          const first = yield* decodeIngestUp(text)
-          if (first._tag === "Token" && (yield* tokenMatches(first.token))) {
-            yield* socket.setState("ready")
-            relayOnline = true
-            yield* market.relayOnline
-            yield* scheduleDelta
-            return yield* onDemand.greet(socket)
-          }
+        const first =
+          text.length <= INGEST_TOKEN_MESSAGE_LIMIT
+            ? yield* decodeIngestUp(text).pipe(
+                Effect.catchTag("SchemaError", () => Effect.succeed(undefined))
+              )
+            : undefined
+        if (first?._tag === "Token" && (yield* tokenMatches(first.token))) {
+          yield* socket.setState("ready")
+          relayOnline = true
+          yield* market.relayOnline
+          yield* scheduleDelta
+          return yield* onDemand.greet(socket)
         }
         return yield* socket.close(IngestCloseCode.RejectedToken, "Bad token")
       }
