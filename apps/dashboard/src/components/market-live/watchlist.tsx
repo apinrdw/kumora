@@ -43,7 +43,8 @@ const WatchlistRow = memo(function WatchlistRow({
   // day's first PRICE or liveprice frame it may be all the code has: it shows
   // alone, the figures' cells saying nothing traded yet.
   const indicative = useAuctionIndicative(code)
-  const tone = state === undefined ? "" : CHANGE_TONE[direction(state.change)]
+  const change = state?.change
+  const tone = change === undefined ? "" : CHANGE_TONE[direction(change.amount)]
   return (
     <tr data-code={code} className="border-b border-border/60">
       <td className={cn(CELL, "pl-2 font-semibold")}>
@@ -72,8 +73,14 @@ const WatchlistRow = memo(function WatchlistRow({
       {state !== undefined ? (
         <>
           <td className={cn(CELL, "text-right", tone)}>
-            {signed(state.change, Number.isInteger(state.change) ? 0 : 2)}{" "}
-            <span className="text-[11px]">{pct(state.changePercent)}</span>
+            {change === undefined ? (
+              <span className="text-muted-foreground">—</span>
+            ) : (
+              <>
+                {signed(change.amount, Number.isInteger(change.amount) ? 0 : 2)}{" "}
+                <span className="text-[11px]">{pct(change.percent)}</span>
+              </>
+            )}
           </td>
           <td className={cn(CELL, "text-right")}>{compact(state.value)}</td>
           <td className={cn(CELL, "text-right")}>{compact(state.volume)}</td>

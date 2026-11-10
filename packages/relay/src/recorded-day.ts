@@ -222,7 +222,9 @@ export const bookAt = (chunk: BookChunk, cursor: DateTime.Utc) =>
   })
 
 // One sealed day in the strip: IHSG's close and change when the day had an
-// IHSG frame, how many trades it recorded, and whether it had a relay gap.
+// IHSG frame whose change was known (an index's frames carry no previous
+// close, so one with neither a change nor a previous close records nothing),
+// how many trades it recorded, and whether it had a relay gap.
 const RecordedDay = Schema.Struct({
   day: WibDate,
   ihsg: Schema.optionalKey(

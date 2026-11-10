@@ -70,9 +70,10 @@ const CHANGE_TONE = {
 } as const
 
 // The header's headline figures (spec apinrdw/kumora#138, "Layout"): the
-// code's last price and change from the previous close, from its Day state,
-// or its last candle's close before it has one; during the auctions, its
-// indicative price and volume.
+// code's last price and change from the previous close, from its Day state
+// (no change while it has no previous close, as an index's frames carry
+// none), or its last candle's close before it has one; during the auctions,
+// its indicative price and volume.
 function ChartHeadline({
   code,
   dayStates,
@@ -93,15 +94,26 @@ function ChartHeadline({
       >
         {last === undefined ? "—" : price(last)}
       </span>
-      {state !== undefined && (
-        <span
-          aria-label="Change"
-          className={`text-[13px] tabular-nums ${CHANGE_TONE[direction(state.change)]}`}
-        >
-          {signed(state.change, Number.isInteger(state.change) ? 0 : 2)}{" "}
-          {pct(state.changePercent)}
-        </span>
-      )}
+      {state !== undefined &&
+        (state.change === undefined ? (
+          <span
+            aria-label="Change"
+            className="text-[13px] text-muted-foreground"
+          >
+            —
+          </span>
+        ) : (
+          <span
+            aria-label="Change"
+            className={`text-[13px] tabular-nums ${CHANGE_TONE[direction(state.change.amount)]}`}
+          >
+            {signed(
+              state.change.amount,
+              Number.isInteger(state.change.amount) ? 0 : 2
+            )}{" "}
+            {pct(state.change.percent)}
+          </span>
+        ))}
       {indicative !== undefined && (
         <span
           aria-label="Indicative price"

@@ -43,7 +43,7 @@ import {
   storeCodeList,
   type CodeListStore,
 } from "./code-list.ts"
-import { makeDayStates } from "./day-states.ts"
+import { changeOf, makeDayStates } from "./day-states.ts"
 import { Fact, makeDayStore, type Flush, type Sql } from "./day-store.ts"
 import type { DownRecord } from "./feed-health.ts"
 import { makeGaps } from "./gaps.ts"
@@ -126,13 +126,25 @@ const MINUTE = 60_000
 const FLUSH_PAST_MINUTE = 5_000
 
 // IHSG's close and change on the strip, from its last `liveprice` frame.
+// Decision: an index's frames carry no previous close and, so far observed,
+// no change (the 2026-11-06 probe, `stockbit-ihsg-liveprice.json`), so the
+// day records no IHSG change rather than one run from a price seen today,
+// and the strip shows none; a frame that does carry either is used.
 const ihsgOf = (price: LivePrice | undefined) => {
   if (price?.last === undefined) return {}
-  const previous = price.previous ?? price.last
-  const change = price.change ?? price.last - previous
-  const changePercent =
-    price.changePercent ?? (previous === 0 ? 0 : (change / previous) * 100)
-  return { ihsg: { close: price.last, change, changePercent } }
+  const change =
+    price.change === undefined
+      ? changeOf(price.last, price.previous)
+      : { amount: price.change, percent: price.changePercent ?? 0 }
+  return change === undefined
+    ? {}
+    : {
+        ihsg: {
+          close: price.last,
+          change: change.amount,
+          changePercent: change.percent,
+        },
+      }
 }
 
 const IHSG = StockCode.make("IHSG")

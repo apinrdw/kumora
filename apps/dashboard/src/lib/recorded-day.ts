@@ -32,16 +32,24 @@ export function dayStateAt(
   const first = upTo[0]
   const latest = upTo.at(-1)
   if (first === undefined || latest === undefined) return undefined
-  // Decision: a code whose day had no `liveprice` frame has no previous
-  // close; its change runs from the day's open, so the row still reads.
-  const previousClose = answer.previousClose ?? first.open
-  const change = latest.close - previousClose
+  // Decision: a code whose day had no `liveprice` frame with a previous
+  // close (an index's never carry one) has no change: the row shows none
+  // rather than one run from the day's open.
+  const previousClose = answer.previousClose
+  const amount =
+    previousClose === undefined ? undefined : latest.close - previousClose
   return {
     code: answer.code,
     last: latest.close,
-    previousClose,
-    change,
-    changePercent: previousClose === 0 ? 0 : (change / previousClose) * 100,
+    ...(previousClose === undefined || amount === undefined
+      ? {}
+      : {
+          previousClose,
+          change: {
+            amount,
+            percent: previousClose === 0 ? 0 : (amount / previousClose) * 100,
+          },
+        }),
     open: first.open,
     high: Math.max(...upTo.map((candle) => candle.high)),
     low: Math.min(...upTo.map((candle) => candle.low)),

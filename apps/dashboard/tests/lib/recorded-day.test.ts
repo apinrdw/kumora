@@ -43,8 +43,7 @@ describe("a recorded day's watchlist row", () => {
       code: BBCA,
       last: 8_875,
       previousClose: 8_900,
-      change: -25,
-      changePercent: -25 / 89,
+      change: { amount: -25, percent: -25 / 89 },
       open: 8_950,
       high: 9_100,
       low: 8_850,
@@ -63,7 +62,7 @@ describe("a recorded day's watchlist row", () => {
     )
     expect(state).toMatchObject({
       last: 9_075,
-      change: 175,
+      change: { amount: 175, percent: 175 / 89 },
       high: 9_100,
       volume: 40,
       frequency: 5,

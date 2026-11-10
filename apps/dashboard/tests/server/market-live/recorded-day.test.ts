@@ -779,13 +779,16 @@ describe("a restarted trading day", () => {
         assert.deepStrictEqual(
           state === undefined
             ? undefined
-            : { ...state, asOf: DateTime.formatIso(state.asOf) },
+            : {
+                ...state,
+                code: String(state.code),
+                asOf: DateTime.formatIso(state.asOf),
+              },
           {
             code: "BBCA",
             last: 8_050,
             previousClose: 7_975,
-            change: 75,
-            changePercent: (75 / 7_975) * 100,
+            change: { amount: 75, percent: (75 / 7_975) * 100 },
             open: 8_000,
             high: 8_050,
             low: 8_000,

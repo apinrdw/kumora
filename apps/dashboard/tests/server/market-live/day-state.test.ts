@@ -109,27 +109,29 @@ const livePriceFrame = (row: LivePriceRow) =>
   )
 
 // IHSG's recorded `liveprice` frames: an index's carry no previous close, no
-// change and no board.
+// change and no board, and some only the totals.
 interface IndexRow {
   readonly code: string
   readonly date: string
-  readonly last: number
+  readonly last?: number
   readonly volume: number
-  readonly high: number
-  readonly low: number
-  readonly open: number
+  readonly high?: number
+  readonly low?: number
+  readonly open?: number
   readonly frequency: number
   readonly value: number
 }
+const optionalDouble = (field: number, value: number | undefined) =>
+  value === undefined ? [] : doubleField(field, value)
 const indexFrame = (row: IndexRow) =>
   Uint8Array.from(
     messageField(9, [
       ...stringField(1, row.code),
-      ...doubleField(2, row.last),
+      ...optionalDouble(2, row.last),
       ...doubleField(3, row.volume),
-      ...doubleField(4, row.high),
-      ...doubleField(5, row.low),
-      ...doubleField(6, row.open),
+      ...optionalDouble(4, row.high),
+      ...optionalDouble(5, row.low),
+      ...optionalDouble(6, row.open),
       ...doubleField(7, row.frequency),
       ...stringField(11, row.date),
       ...doubleField(14, row.value),
@@ -278,12 +280,16 @@ const tradingDay = Effect.fnUntraced(function* () {
 const received = (socket: FakeSocket) =>
   Effect.forEach(socket.sent, (text) => decodeViewerDown(text))
 
-// A message's Day states by code, their times as ISO text.
+// A message's Day states by code, their codes and times as plain text.
 const statesOf = (message: ViewerDown) =>
   Object.fromEntries(
     (message.dayStates ?? []).map((state: DayState) => [
       state.code,
-      { ...state, asOf: DateTime.formatIso(state.asOf) },
+      {
+        ...state,
+        code: String(state.code),
+        asOf: DateTime.formatIso(state.asOf),
+      },
     ])
   )
 
@@ -292,8 +298,7 @@ const BBRI_FROM_STOCKBIT = {
   code: "BBRI",
   last: 2920,
   previousClose: 2930,
-  change: -10,
-  changePercent: -0.3412969283276451,
+  change: { amount: -10, percent: -0.3412969283276451 },
   open: 2930,
   high: 2950,
   low: 2910,
@@ -301,7 +306,7 @@ const BBRI_FROM_STOCKBIT = {
   value: 65_698_513_000,
   frequency: 6908,
   asOf: "2026-11-09T02:51:01.396Z",
-  provenance: "Stockbit",
+  provenance: "Stockbit" as const,
 }
 
 describe("Day state", () => {
@@ -389,7 +394,7 @@ describe("Day state", () => {
       assert.deepStrictEqual(Object.keys(statesOf(delta!)), ["BBRI"])
       assert.deepInclude(statesOf(delta!).BBRI, {
         last: 2930,
-        change: 0,
+        change: { amount: 0, percent: 0 },
         volume: 224_123,
         frequency: 6909,
         provenance: "Stockbit",
@@ -447,15 +452,14 @@ describe("Day state", () => {
         const fallback = {
           ...BBRI_FROM_STOCKBIT,
           last: 2900,
-          change: -30,
-          changePercent: (-30 / 2930) * 100,
+          change: { amount: -30, percent: (-30 / 2930) * 100 },
           high: 2950,
           low: 2900,
           volume: 224_118 + 14,
           value: 65_698_513_000 + 2940 * 1000 + 2900 * 400,
           frequency: 6908 + 2,
           asOf: "2026-11-09T02:51:12.000Z",
-          provenance: "Ajaib",
+          provenance: "Ajaib" as const,
         }
         const page = yield* viewer("BBCA", ["BBRI"])
         const [snapshot] = yield* received(page)
@@ -477,8 +481,7 @@ describe("Day state", () => {
         assert.deepStrictEqual(statesOf(delta).BBRI, {
           ...fallback,
           last: 2910,
-          change: -20,
-          changePercent: -0.006826 * 100,
+          change: { amount: -20, percent: -0.006826 * 100 },
           asOf: "2026-11-09T02:51:14.000Z",
         })
 
@@ -547,8 +550,7 @@ describe("Day state", () => {
         assert.deepStrictEqual(statesOf(snapshot!).BBRI, {
           ...BBRI_FROM_STOCKBIT,
           last: 2950,
-          change: 20,
-          changePercent: (20 / 2930) * 100,
+          change: { amount: 20, percent: (20 / 2930) * 100 },
           high: 2950,
           volume: 224_118 + 10,
           value: 65_698_513_000 + 2950 * 1000,
@@ -587,8 +589,7 @@ describe("Day state", () => {
         assert.deepStrictEqual(statesOf(snapshot!).BBRI, {
           ...BBRI_FROM_STOCKBIT,
           last: 2940,
-          change: 10,
-          changePercent: (10 / 2930) * 100,
+          change: { amount: 10, percent: (10 / 2930) * 100 },
           volume: 224_118 + 10,
           value: 65_698_513_000 + 2940 * 1000,
           frequency: 6908 + 1,
@@ -634,8 +635,7 @@ describe("Day state", () => {
         assert.deepStrictEqual(statesOf(snapshot!).BBRI, {
           ...BBRI_FROM_STOCKBIT,
           last: 2921,
-          change: -9,
-          changePercent: (-9 / 2930) * 100,
+          change: { amount: -9, percent: (-9 / 2930) * 100 },
           volume: 224_118 + 5,
           value: 65_698_513_000 + 2921 * 500,
           frequency: 6908 + 1,
@@ -662,8 +662,7 @@ describe("Day state", () => {
           code: "BBCA",
           last: 5050,
           previousClose: 5125,
-          change: -75,
-          changePercent: -0.014634 * 100,
+          change: { amount: -75, percent: -0.014634 * 100 },
           open: 5025,
           high: 5100,
           low: 4990,

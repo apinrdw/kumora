@@ -47,7 +47,7 @@ The running trades a pre-opening or pre-closing auction produces when it closes:
 _Avoid_: Crossing, uncross, opening print
 
 **Day state**:
-A stock code's or index's figures for the trading day so far: last price, previous close, change, open, high, low, volume, value and frequency.
+A stock code's or index's figures for the trading day so far: last price, previous close, change, open, high, low, volume, value and frequency. The previous close and the change are absent until a frame of the code carries a previous close, which an index's never do; a price seen today never stands in for it.
 _Avoid_: Quote, summary
 
 **Order book**:

@@ -4,6 +4,7 @@
 // carried on by the merged tape's regular-board trades and Ajaib's `PRICE`.
 import {
   TradeNumberOrder,
+  type DayChange,
   type DayState,
   type RunningTrade,
   type StockCode,
@@ -16,12 +17,13 @@ import { minuteOf, type CandleFigures } from "./candles.ts"
 import { newerThanHeld } from "./late-frames.ts"
 import type { LivePrice } from "./stockbit-liveprice.ts"
 
-// A code's figures as of its last `liveprice` frame, the fallback's base.
+// A code's figures as of its last `liveprice` frame, the fallback's base. The
+// previous close is as a frame last carried it; the change as the last frame
+// with a last price did (Stockbit leaves a zero change out).
 interface Base {
   readonly last: number
-  readonly previousClose: number
-  readonly change: number | undefined
-  readonly changePercent: number | undefined
+  readonly previousClose: number | undefined
+  readonly change: DayChange | undefined
   readonly open: number
   readonly high: number
   readonly low: number
@@ -88,24 +90,34 @@ const latest = (...times: ReadonlyArray<DateTime.Utc | undefined>) =>
     undefined
   )
 
-const changeOf = (last: number, previousClose: number) => {
-  const change = last - previousClose
+// The change of `last` from `previousClose`, when the latter is known.
+export const changeOf = (
+  last: number,
+  previousClose: number | undefined
+): DayChange | undefined => {
+  if (previousClose === undefined) return undefined
+  const amount = last - previousClose
   return {
-    change,
-    changePercent: previousClose === 0 ? 0 : (change / previousClose) * 100,
+    amount,
+    percent: previousClose === 0 ? 0 : (amount / previousClose) * 100,
   }
 }
+
+// A frame's change, as it carries it; Stockbit leaves its percent out with
+// a zero change.
+const frameChange = (price: LivePrice): DayChange | undefined =>
+  price.change === undefined
+    ? undefined
+    : { amount: price.change, percent: price.changePercent ?? 0 }
 
 // A frame with the totals only keeps the base's last price and the day's
 // range, which a frame without them doesn't move.
 const baseOf = (price: LivePrice, held: Base | undefined): Base => {
   const last = price.last ?? held?.last ?? 0
-  const previousClose = price.previous ?? held?.previousClose ?? last
   return {
     last,
-    previousClose,
-    change: price.change,
-    changePercent: price.changePercent,
+    previousClose: price.previous ?? held?.previousClose,
+    change: frameChange(price),
     open: price.open ?? held?.open ?? last,
     high: price.high ?? held?.high ?? last,
     low: price.low ?? held?.low ?? last,
@@ -116,14 +128,22 @@ const baseOf = (price: LivePrice, held: Base | undefined): Base => {
   }
 }
 
+// The Day state's optional figures, each present when known.
+const known = (
+  previousClose: number | undefined,
+  change: DayChange | undefined
+) => ({
+  ...(previousClose === undefined ? {} : { previousClose }),
+  ...(change === undefined ? {} : { change }),
+})
+
 const fromStockbit = (code: StockCode, base: Base): DayState => ({
   code,
   last: base.last,
-  previousClose: base.previousClose,
-  // Stockbit leaves a zero change out of the frame.
-  ...(base.change === undefined
-    ? changeOf(base.last, base.previousClose)
-    : { change: base.change, changePercent: base.changePercent ?? 0 }),
+  ...known(
+    base.previousClose,
+    base.change ?? changeOf(base.last, base.previousClose)
+  ),
   open: base.open,
   high: base.high,
   low: base.low,
@@ -172,13 +192,16 @@ const carriedOn = (
   price: AjaibPrice | undefined
 ): DayState => {
   const last = price?.last ?? since.last ?? start.last
+  const previousClose = start.previousClose ?? price?.previousClose
   return {
     code,
     last,
-    previousClose: start.previousClose,
-    ...(price === undefined
-      ? changeOf(last, start.previousClose)
-      : { change: price.change, changePercent: price.changePercent }),
+    ...known(
+      previousClose,
+      price === undefined
+        ? changeOf(last, previousClose)
+        : { amount: price.change, percent: price.changePercent }
+    ),
     open: start.open,
     high: Math.max(start.high, since.high),
     low: Math.min(start.low, since.low),
@@ -195,8 +218,7 @@ const carriedOn = (
 const priceBase = (price: AjaibPrice): Base => ({
   last: price.last,
   previousClose: price.previousClose,
-  change: price.change,
-  changePercent: price.changePercent,
+  change: { amount: price.change, percent: price.changePercent },
   open: price.open,
   high: price.high,
   low: price.low,
@@ -208,11 +230,14 @@ const priceBase = (price: AjaibPrice): Base => ({
 
 // Decision: with Stockbit lost, last, high, low, volume, value and frequency
 // carry on from the merged tape's regular-board trades after the last
-// `liveprice`, the previous close stays as Stockbit last sent it, and an
-// Ajaib `PRICE` newer than that frame fills the last price and the change
-// (spec apinrdw/kumora#138, "Day state"). A code Stockbit never sent today
-// starts from its `PRICE` frame, whose volume already holds the trades, and
-// its value and frequency count the day's regular-board trades.
+// `liveprice`, the previous close stays as Stockbit last sent it (the
+// `PRICE` frame's when Stockbit never sent one), and an Ajaib `PRICE` newer
+// than that frame fills the last price and the change (spec
+// apinrdw/kumora#138, "Day state"). A code Stockbit never sent today starts
+// from its `PRICE` frame, whose volume already holds the trades, and its
+// value and frequency count the day's regular-board trades. A code with no
+// previous close from either feed has no change: a price seen today never
+// stands in for the previous close.
 const fromFallback = (
   code: StockCode,
   base: Base | undefined,

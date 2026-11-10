@@ -97,6 +97,6 @@ export type {
   RecordedResource,
 } from "./recorded-day.ts"
 export type { CodeKind, ListedCode } from "./code-list.ts"
-export type { DayState } from "./day-state.ts"
+export type { DayChange, DayState } from "./day-state.ts"
 export { BOOK_DEPTH, BookLevel } from "./order-book.ts"
 export type { IndexHasNoBook, OrderBook } from "./order-book.ts"
