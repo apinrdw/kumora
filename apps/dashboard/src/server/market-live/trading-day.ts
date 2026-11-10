@@ -680,25 +680,29 @@ export const makeTradingDay = Effect.fnUntraced(function* (options: {
     yield* gaps.schedule
   })
 
-  // One envelope from the relay. The token comes first, in a message no longer
-  // than INGEST_TOKEN_MESSAGE_LIMIT; a longer first message is closed with
-  // 4403 unread. Decision: so is any first message that isn't a Token of this
-  // protocol version carrying the right token: not JSON, a Token without its
-  // token, another envelope, or a wrong token. Only a first message of
-  // another protocol version closes with 4426, the code that stops an
-  // extension of that version retrying (envelope.ts). A decode failure that
-  // escaped would be logged and leave the unauthenticated socket open, free
-  // to keep the shared object parsing.
+  // The token a new socket's first message carries, or none. Decision: a
+  // first message longer than INGEST_TOKEN_MESSAGE_LIMIT carries none,
+  // unread, and so does one that isn't a Token of this protocol version:
+  // not JSON, a Token without its token, or another envelope. Only a first
+  // message of another protocol version fails, closing with 4426, the code
+  // that stops an extension of that version retrying (envelope.ts). A decode
+  // failure that escaped would be logged and leave the unauthenticated
+  // socket open, free to keep the shared object parsing.
+  const firstToken = Effect.fnUntraced(function* (text: string) {
+    if (text.length > INGEST_TOKEN_MESSAGE_LIMIT) return undefined
+    const first = yield* decodeIngestUp(text).pipe(
+      Effect.catchTag("SchemaError", () => Effect.succeed(undefined))
+    )
+    return first?._tag === "Token" ? first.token : undefined
+  })
+
+  // One envelope from the relay. The token comes first; a first message
+  // without one, or with a wrong one, is closed with 4403.
   const ingestMessage = Effect.fnUntraced(
     function* (socket: Peer, text: string) {
       if ((yield* socket.state) === "new") {
-        const first =
-          text.length <= INGEST_TOKEN_MESSAGE_LIMIT
-            ? yield* decodeIngestUp(text).pipe(
-                Effect.catchTag("SchemaError", () => Effect.succeed(undefined))
-              )
-            : undefined
-        if (first?._tag === "Token" && (yield* tokenMatches(first.token))) {
+        const token = yield* firstToken(text)
+        if (token !== undefined && (yield* tokenMatches(token))) {
           yield* socket.setState("ready")
           yield* market.relayOnline
           yield* scheduleDelta
