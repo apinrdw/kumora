@@ -205,6 +205,34 @@ describe("viewer protocol", () => {
       })
   )
 
+  it.effect(
+    "a code past 16 characters is refused, and the largest Select accepted stores under the object's 8 MB",
+    () =>
+      Effect.gen(function* () {
+        const select = (codes: ReadonlyArray<string>) =>
+          JSON.stringify({
+            _tag: "Select",
+            protocolVersion: ViewerProtocolVersion,
+            selected: codes[0],
+            watchlist: codes,
+          })
+        const longest = Array.from(
+          { length: 10_000 },
+          (_, index) => `TN.W${String(index).padStart(12, "0")}`
+        )
+        assert.lengthOf(longest[0]!, 16)
+        const { watchlist } = yield* decodeViewerUp(select(longest))
+        assert.lengthOf(watchlist, 10_000)
+        // As the trading-day object stores a viewer's codes: one value, of
+        // ASCII, so a character is a byte.
+        assert.isBelow(JSON.stringify(watchlist).length, 8_000_000)
+        const error = yield* Effect.flip(
+          decodeViewerUp(select(["TN.W0000000000000"]))
+        )
+        assert.strictEqual(error._tag, "SchemaError")
+      })
+  )
+
   it.effect("only the current version is accepted", () =>
     Effect.gen(function* () {
       const wire = JSON.stringify({

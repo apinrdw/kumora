@@ -4,6 +4,7 @@ import { DateTime, Effect, Option } from "effect"
 import {
   StockCode,
   WibDate,
+  decodeAjaibCodeList,
   decodeStockCodeList,
   encodeStockCodeList,
   DayStripPath,
@@ -70,6 +71,29 @@ describe("recorded day paths", () => {
           path
         )
     })
+  )
+})
+
+describe("Ajaib's code list", () => {
+  it.effect(
+    "drops an entry whose code isn't a stock code's shape, like the empty one",
+    () =>
+      Effect.gen(function* () {
+        const listed = yield* decodeAjaibCodeList(
+          JSON.stringify({
+            results: [
+              { code: "BBCA", name: "Bank Central Asia Tbk" },
+              { code: "", name: null },
+              { code: "not a code", name: null },
+              { code: "TOOLONGFORACODE12", name: null },
+            ],
+          })
+        )
+        assert.deepStrictEqual(
+          listed.map(({ code }) => code),
+          [StockCode.make("BBCA")]
+        )
+      })
   )
 })
 
