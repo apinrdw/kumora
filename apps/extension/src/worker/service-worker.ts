@@ -2,7 +2,6 @@
 // drives the broker tabs' connections on a 10 s tick, batches their frames,
 // and sends the envelopes to every target's ingest socket.
 import {
-  type StockCode,
   encodeIngestUp,
   wibDateAt,
   type EncodedIngestUp,
@@ -30,6 +29,7 @@ import { BATCH_INTERVAL, makeBatcher } from "./batch.ts"
 import { ajaib, ajaibOnDemand, stockbit } from "./broker.ts"
 import { makeCodeList } from "./code-list.ts"
 import { windowAt } from "./gate.ts"
+import { makeOnDemandCodes } from "./on-demand-codes.ts"
 import {
   DashboardOrigin,
   codeListStore,
@@ -192,29 +192,6 @@ const makeTargets = Effect.fnUntraced(function* (options: {
   return { apply }
 })
 
-// The on-demand codes: the union of what each target's trading-day object
-// asked for. Backfill requests go on to `backfill`.
-const makeOnDemandCodes = Effect.fnUntraced(function* (
-  changed: Effect.Effect<void>,
-  backfill: (
-    name: TargetName,
-    message: Extract<IngestDown, { _tag: "Backfill" }>
-  ) => Effect.Effect<void>
-) {
-  const byTarget = new Map<TargetName, ReadonlyArray<StockCode>>()
-  let union: ReadonlyArray<StockCode> = []
-  const receive = (name: TargetName, message: IngestDown | undefined) =>
-    Effect.suspend(() => {
-      if (message?._tag === "Backfill") return backfill(name, message)
-      byTarget.set(name, message?.codes ?? [])
-      const next = [...new Set([...byTarget.values()].flat())].sort()
-      if (JSON.stringify(next) === JSON.stringify(union)) return Effect.void
-      union = next
-      return changed
-    })
-  return { receive, codes: Effect.sync(() => union) }
-})
-
 // Now on the relay's schedule clock.
 const scheduleNow = Effect.gen(function* () {
   const now = yield* DateTime.now
@@ -244,10 +221,11 @@ const main = Effect.gen(function* () {
   const stockbitCodes: Subscriptions = yield* makeStockbitSubscriptions(
     codeList.codes
   )
-  const onDemandCodes = yield* makeOnDemandCodes(
-    Effect.suspend(() => onDemand.resubscribe(ajaibTab)),
-    (name, message) => Effect.suspend(() => backfill.request(name, message))
-  )
+  const onDemandCodes = yield* makeOnDemandCodes({
+    changed: Effect.suspend(() => onDemand.resubscribe(ajaibTab)),
+    backfill: (name, message) =>
+      Effect.suspend(() => backfill.request(name, message)),
+  })
   const onDemand: Subscriptions = yield* makeAjaibSubscriptions(
     onDemandCodes.codes,
     Effect.suspend(() => ajaibSession.accountId)
