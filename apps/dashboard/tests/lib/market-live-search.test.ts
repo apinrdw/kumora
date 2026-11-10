@@ -23,7 +23,7 @@ describe("the Market Live search params", () => {
       "bbri",
       "",
       42,
-      "TOOLONGCODE123",
+      "TOOLONGFORACODE12",
       ".IHSG",
     ])
       expect(parseMarketLiveSearch({ code }).code).toBeUndefined()

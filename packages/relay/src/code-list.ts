@@ -17,12 +17,15 @@ const AjaibCodeList = Schema.fromJsonString(
   })
 )
 
-// Ajaib's listed codes, the empty entry dropped, each with its name or "".
+const isStockCode = Schema.is(StockCode)
+
+// Ajaib's listed codes, each with its name or "". An entry whose code isn't
+// a stock code's shape (the empty one) is dropped.
 export const decodeAjaibCodeList = Effect.fnUntraced(function* (body: string) {
   const { results } = yield* Schema.decodeUnknownEffect(AjaibCodeList)(body)
-  return results
-    .filter(({ code }) => code !== "")
-    .map(({ code, name }) => ({ code: StockCode.make(code), name: name ?? "" }))
+  return results.flatMap(({ code, name }) =>
+    isStockCode(code) ? [{ code, name: name ?? "" }] : []
+  )
 })
 
 // Tagged by the code's suffix: `-W` (or `-W2`) a warrant, `-R` a right.

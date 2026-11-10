@@ -1,15 +1,15 @@
+import type { StockCode } from "@workspace/relay"
 import { Effect, Fiber, Stream } from "effect"
 
-import type { DayStateCode } from "./day-state-code.ts"
 import { FrameScheduler } from "./frame-scheduler.ts"
 
 // One stock code's (or index's) new Day state, as a source emits it.
 export type DayStateUpdate<A> = {
-  readonly code: DayStateCode
+  readonly code: StockCode
   readonly dayState: A
 }
 
-export type DayStateSnapshot<A> = ReadonlyMap<DayStateCode, A>
+export type DayStateSnapshot<A> = ReadonlyMap<StockCode, A>
 
 // The shape useSyncExternalStore takes. React calls these, so they are plain
 // functions.
@@ -23,7 +23,7 @@ export type DayStateStore<A> = {
 // identity until its own stock code updates, so Object.is skips every other row.
 export const selectDayState = Effect.fnUntraced(function* <A>(
   snapshot: DayStateSnapshot<A>,
-  code: DayStateCode
+  code: StockCode
 ): Effect.fn.Return<A | undefined> {
   return snapshot.get(code)
 })

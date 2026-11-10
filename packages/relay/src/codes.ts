@@ -1,12 +1,22 @@
 import { Schema } from "effect"
 
-// The IDX ticker of one listed instrument, such as `BBCA`.
-export const StockCode = Schema.String.pipe(Schema.brand("StockCode"))
-export type StockCode = typeof StockCode.Type
+// Decision: a stock code is capitals, digits and dashes (`BBCA`, `BUMI-W2`,
+// `R-LQ45X`), or those after a two-letter board and a dot (`TN.IHSG`), at
+// most 16 characters: the longest Ajaib lists is a structured warrant's 10
+// (`ADRODRCM3A`, the 2026-11-09 capture) and the longest index code 7. This
+// is the one definition of a code's shape, checked wherever one is decoded:
+// a viewer's Select, the page's URL, both feeds' frames and Ajaib's list. The
+// trading-day object's storage decision (trading-day-object.ts) and the
+// watchlist cap (envelope.ts) count on the length.
+const STOCK_CODE_MAX_LENGTH = 16
 
-// The code of one index, such as `COMPOSITE`.
-export const IndexCode = Schema.String.pipe(Schema.brand("IndexCode"))
-export type IndexCode = typeof IndexCode.Type
+// The IDX ticker of one listed instrument, such as `BBCA`; the three indices
+// travel as stock codes too (INDICES).
+export const StockCode = Schema.String.check(
+  Schema.isPattern(/^(?:[A-Z]{2}\.)?[A-Z0-9-]+$/),
+  Schema.isMaxLength(STOCK_CODE_MAX_LENGTH)
+).pipe(Schema.brand("StockCode"))
+export type StockCode = typeof StockCode.Type
 
 // Decision: the three indices travel as stock codes, in a Select, a watchlist
 // and every viewer message alike: Stockbit names them in the same `liveprice`

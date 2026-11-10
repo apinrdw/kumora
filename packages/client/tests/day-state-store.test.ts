@@ -7,7 +7,7 @@ import {
   selectDayState,
   StockCode,
 } from "@workspace/client"
-import type { DayStateCode, DayStateUpdate } from "@workspace/client"
+import type { DayStateUpdate } from "@workspace/client"
 import { manualFrames } from "@workspace/client/testing"
 
 type TestDayState = { readonly last: number }
@@ -17,7 +17,7 @@ const TLKM = StockCode.make("TLKM")
 
 const bbca: TestDayState = { last: 9_800 }
 const tlkm: TestDayState = { last: 3_100 }
-const initial = new Map<DayStateCode, TestDayState>([
+const initial = new Map<StockCode, TestDayState>([
   [BBCA, bbca],
   [TLKM, tlkm],
 ])
@@ -31,7 +31,7 @@ const harness = Effect.gen(function* () {
     source: Stream.fromQueue(updates),
     initial,
   }).pipe(Effect.provideService(FrameScheduler, frames.scheduler))
-  const push = (code: DayStateCode, dayState: TestDayState) =>
+  const push = (code: StockCode, dayState: TestDayState) =>
     Queue.offer(updates, { code, dayState })
   return { store, frames, push }
 })

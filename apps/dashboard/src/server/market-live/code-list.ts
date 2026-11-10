@@ -38,8 +38,10 @@ export const memoryCodeListStore = Effect.sync((): CodeListStore => {
 const kindOf = (code: string): CodeKind =>
   /-W\d*$/.test(code) ? "warrant" : /-R\d*$/.test(code) ? "right" : "share"
 
-// Decision: an encoded list over 2 MB, the most one stored value holds, is
-// dropped with a log. Ajaib's 3,406 codes encode to about 0.2 MB.
+// Decision: an encoded list over 2 MB is dropped with a log: a stored key
+// and value together hold up to 8 MB (Cloudflare's Durable Objects limits
+// page, https://developers.cloudflare.com/durable-objects/platform/limits/, read
+// 2026-11-10), and Ajaib's 3,406 codes encode to about 0.2 MB.
 const MAX_STORED_BYTES = 2_000_000
 
 // Normalises Ajaib's body, adds the indices, which Ajaib doesn't list, and

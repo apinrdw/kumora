@@ -125,7 +125,7 @@ describe("Ajaib's stock code list, as the 2026-11-09 probe recorded it", () => {
       assert.include(listed, StockCode.make("BBCA"))
       assert.include(listed, StockCode.make("AMAG-W2"))
       assert.include(listed, StockCode.make("R-LQ45X"))
-      assert.notInclude(listed, StockCode.make(""))
+      assert.notInclude(listed.map(String), "")
     })
   )
 })

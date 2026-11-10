@@ -5,14 +5,8 @@ import { StockCode } from "@workspace/client"
 import { WibDate } from "@workspace/relay"
 import { Option, Schema } from "effect"
 
-// An IDX code as Ajaib lists it: capitals, digits and a dash (`BUMI-W2`); or
-// an index, whose board prefix takes a dot (`TN.IHSG`).
-const CodeParam = StockCode.check(
-  Schema.isPattern(/^(?:[A-Z]{2}\.)?[A-Z0-9-]{1,12}$/)
-)
-
 export interface MarketLiveSearch {
-  readonly code?: typeof CodeParam.Type | undefined
+  readonly code?: StockCode | undefined
   // The recorded day shown; none for the live page.
   readonly day?: WibDate | undefined
 }
@@ -28,7 +22,7 @@ export const DEFAULT_CODE = StockCode.make("BBCA")
 export function parseMarketLiveSearch(
   raw: Record<string, unknown>
 ): MarketLiveSearch {
-  const code = Schema.decodeUnknownOption(CodeParam)(raw.code)
+  const code = Schema.decodeUnknownOption(StockCode)(raw.code)
   const day = Schema.decodeUnknownOption(WibDate)(raw.day)
   return { code: Option.getOrUndefined(code), day: Option.getOrUndefined(day) }
 }
