@@ -43,6 +43,7 @@ export {
   TradeNumberOrder,
   TradeNumberValue,
   tradeNumberValue,
+  VIEWER_MESSAGE_LIMIT,
   ViewerCloseCode,
   ViewerProtocolVersion,
   decodeIngestDown,

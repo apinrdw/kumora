@@ -221,6 +221,21 @@ export type IngestDown = typeof IngestDown.Type
 // any Select it couldn't serve.
 const WATCHLIST_LIMIT = 10_000
 
+// Decision: a viewer message is read only up to VIEWER_MESSAGE_LIMIT UTF-16
+// units (at most three times that in UTF-8 bytes); the trading-day object
+// checks the length before parsing and closes a longer one with 1011 unread.
+// The largest Select `encodeViewerUp` makes, 10,000 codes of 16 characters,
+// is 190,081 units; envelope.test.ts measures it under the limit. A
+// websocket message may carry 32 MiB (Cloudflare's Durable Objects limits
+// page, https://developers.cloudflare.com/durable-objects/platform/limits/,
+// read 2026-11-10), so a signed-in viewer could otherwise have the shared
+// object parse millions of short codes before the watchlist cap refused
+// them. 1011 is the code a Select past that cap gets, and the bound follows
+// from the cap: the page reconnects with backoff and sends its Select again,
+// while its terminal codes, 4401 and 4426, mean its session or its version
+// is wrong, not that the object refused one message.
+export const VIEWER_MESSAGE_LIMIT = 200_000
+
 // The page's selected code and watchlist, sent on open and on every change.
 export const Select = Schema.TaggedStruct("Select", {
   ...versioned,

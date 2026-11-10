@@ -8,6 +8,7 @@ import {
   IngestCloseCode,
   IngestProtocolVersion,
   StockCode,
+  VIEWER_MESSAGE_LIMIT,
   ViewerCloseCode,
   ViewerProtocolVersion,
   WibDate,
@@ -43,8 +44,6 @@ import { memorySql } from "./sql"
 import { AccountId, SessionId } from "@/server/market-live/routes"
 
 const TOKEN = "e2e-ingest-token"
-// The longest viewer message the object reads.
-const VIEWER_MESSAGE_LIMIT = 200_000
 const DAY = WibDate.make("2026-11-09")
 
 class FakeSocket implements Peer {

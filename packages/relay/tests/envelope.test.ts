@@ -7,6 +7,7 @@ import {
   StockCode,
   TradeNumber,
   TradeNumberOrder,
+  VIEWER_MESSAGE_LIMIT,
   ViewerCloseCode,
   ViewerProtocolVersion,
   decodeIngestDown,
@@ -206,7 +207,7 @@ describe("viewer protocol", () => {
   )
 
   it.effect(
-    "a code past 16 characters is refused, and the largest Select accepted stores under 200 KB",
+    "a code past 16 characters is refused, and the largest Select accepted fits the message limit and stores under 200 KB",
     () =>
       Effect.gen(function* () {
         const select = (codes: ReadonlyArray<string>) =>
@@ -221,8 +222,14 @@ describe("viewer protocol", () => {
           (_, index) => `TN.W${String(index).padStart(12, "0")}`
         )
         assert.lengthOf(longest[0]!, 16)
-        const { watchlist } = yield* decodeViewerUp(select(longest))
+        const message = yield* decodeViewerUp(select(longest))
+        const { watchlist } = message
         assert.lengthOf(watchlist, 10_000)
+        // As the socket carries it: the object reads a message only up to
+        // the limit.
+        const wire = yield* encodeViewerUp(message)
+        assert.strictEqual(wire.length, 190_081)
+        assert.isAtMost(wire.length, VIEWER_MESSAGE_LIMIT)
         // As the trading-day object stores a viewer's codes: one value, of
         // ASCII, so a character is a byte. Its storage holds 8 MB.
         assert.isBelow(JSON.stringify(watchlist).length, 200_000)

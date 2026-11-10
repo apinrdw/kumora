@@ -7,6 +7,7 @@ import {
   INGEST_TOKEN_MESSAGE_LIMIT,
   IngestCloseCode,
   TradeNumberOrder,
+  VIEWER_MESSAGE_LIMIT,
   ViewerCloseCode,
   decodeIngestUp,
   decodeBookChunk,
@@ -727,14 +728,21 @@ export const makeTradingDay = Effect.fnUntraced(function* (options: {
       )
   )
 
-  // The page's Select, on open and on every change: answered with a snapshot,
-  // after which the socket gets deltas. A Select the object couldn't serve,
-  // its codes not kept or the on-demand set not sent, closes the socket with
-  // 1011 (the failure is still logged): the page reconnects and sends its
-  // Select again, rather than sitting connected with its codes off the set.
+  // The page's Select, on open and on every change, in a message no longer
+  // than VIEWER_MESSAGE_LIMIT: answered with a snapshot, after which the
+  // socket gets deltas. A longer message is closed with 1011 unread. A Select
+  // the object couldn't serve, its codes not kept or the on-demand set not
+  // sent, closes the socket with 1011 too (the failure is still logged): the
+  // page reconnects and sends its Select again, rather than sitting connected
+  // with its codes off the set.
   const viewerMessage = Effect.fnUntraced(
     function* (socket: Peer, text: string) {
       if (yield* sessionEnded(socket)) return yield* signInRequired(socket)
+      if (text.length > VIEWER_MESSAGE_LIMIT)
+        return yield* socket.close(
+          ViewerCloseCode.SelectNotServed,
+          "Select too long"
+        )
       const { selected, watchlist } = yield* decodeViewerUp(text)
       const live = yield* stockbitLive
       const orderBook = yield* books.bookOf(selected, live)

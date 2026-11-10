@@ -59,7 +59,7 @@ _Avoid_: schema version, API version
 ### Viewer
 
 **Selection**:
-The page's `Select` message: its selected stock code and watchlist. Sent on every connect and every change; the trading-day Durable Object answers each with a snapshot.
+The page's `Select` message: its selected stock code and watchlist. Sent on every connect and every change; the trading-day Durable Object answers each with a snapshot. The object reads a viewer message only up to 200,000 UTF-16 units, which the largest `Select` fits, and closes a longer one with `1011` unread.
 _Avoid_: subscribe
 
 **Snapshot**:
