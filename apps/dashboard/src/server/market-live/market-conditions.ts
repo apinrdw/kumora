@@ -128,8 +128,8 @@ export const makeMarketConditions = Effect.fnUntraced(function* (
       if (message.feed === "Stockbit" || message.stream === "trade")
         yield* health.sign(message.feed, message.connection, now)
       if (message.feed === "Stockbit")
-        keep(stockbit, yield* stockbitIndicative(message.frames))
-      else keep(ajaib, yield* ajaibIndicative(message.frames))
+        keep(stockbit, yield* stockbitIndicative(date, message.frames))
+      else keep(ajaib, yield* ajaibIndicative(date, message.frames))
     }
     if (message._tag === "FeedStatus") {
       if (message.status === "alive")
