@@ -93,6 +93,11 @@ export function compactIdr(n: number): string {
   return sign(n) + "Rp" + compact(n)
 }
 
+/** 1,250 or 0.25: a lot is 100 shares, so an odd lot needs its hundredths */
+export function lots(n: number): string {
+  return nfUpTo2.format(n)
+}
+
 /** 12.4 M shares */
 export function shares(n: number): string {
   return compact(n) + " shares"

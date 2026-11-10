@@ -15,7 +15,7 @@ import {
   useSyncExternalStore,
 } from "react"
 
-import { compact, plain, tapeTime } from "@/lib/format"
+import { compact, lots, plain, tapeTime } from "@/lib/format"
 import {
   applyViewerMessage,
   emptyTape,
@@ -186,9 +186,7 @@ const TradeRow = memo(function TradeRow({
           <span className="sr-only"> {trade.side}</span>
         )}
       </td>
-      <td className={cn(CELL, "text-right", side)}>
-        {plain(trade.lots, Number.isInteger(trade.lots) ? 0 : 1)}
-      </td>
+      <td className={cn(CELL, "text-right", side)}>{lots(trade.lots)}</td>
       <td className={cn(CELL, "text-right", side)}>
         Rp{compact(tradeValue(trade))}
       </td>
