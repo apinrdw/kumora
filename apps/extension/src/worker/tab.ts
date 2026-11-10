@@ -112,7 +112,8 @@ export const makeBrokerTab = Effect.fnUntraced(function* (options: {
   const driveAll = (input: BrokerInput) =>
     Effect.forEach(sites, (site) => drive(site, input), { discard: true })
 
-  const siteOf = (name: SiteName) => sites.find((site) => site.name === name)
+  const siteOf = (name: SiteName) =>
+    Effect.sync(() => sites.find((site) => site.name === name))
 
   const attach = Effect.fnUntraced(function* (port: chrome.runtime.Port) {
     active = port
@@ -128,7 +129,7 @@ export const makeBrokerTab = Effect.fnUntraced(function* (options: {
   })
 
   const onEvent = Effect.fnUntraced(function* (event: BrokerEvent) {
-    const site = siteOf(event.site)
+    const site = yield* siteOf(event.site)
     if (site === undefined) return
     if (event._tag === "frame")
       yield* batcher.add(site, event.connection, event.payload)
@@ -189,7 +190,7 @@ export const makeBrokerTab = Effect.fnUntraced(function* (options: {
     name: SiteName,
     connection: Connection
   ) {
-    const site = siteOf(name)
+    const site = yield* siteOf(name)
     if (site !== undefined)
       yield* drive(site, { _tag: "drop", site: name, connection })
   })

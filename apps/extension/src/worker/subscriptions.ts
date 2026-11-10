@@ -120,7 +120,7 @@ export const makeAjaibSubscriptions = Effect.fnUntraced(function* (
   // its own, keyed by the socket: a later one replaces one still asking.
   const fibers = yield* FiberMap.make<string>()
   const keyOf = (site: SiteName, connection: Connection) =>
-    `${site}/${connection}`
+    Effect.succeed(`${site}/${connection}`)
 
   const update = Effect.fnUntraced(function* (
     tab: BrokerTab,
@@ -131,7 +131,7 @@ export const makeAjaibSubscriptions = Effect.fnUntraced(function* (
     if (stream === undefined || !(yield* tab.isOpen(site, connection))) return
     const id = yield* accountId
     const to = yield* wanted
-    const key = keyOf(site, connection)
+    const key = yield* keyOf(site, connection)
     // From here to the last send nothing waits, and a replacing update can't
     // interrupt, so two updates never send the same difference and a socket
     // never holds half of one.
@@ -165,17 +165,26 @@ export const makeAjaibSubscriptions = Effect.fnUntraced(function* (
   })
 
   const hooks: TabHooks = {
-    opened: (tab, site, connection) =>
-      FiberMap.run(
+    opened: Effect.fnUntraced(function* (
+      tab: BrokerTab,
+      site: SiteName,
+      connection: Connection
+    ) {
+      yield* FiberMap.run(
         fibers,
-        keyOf(site, connection),
+        yield* keyOf(site, connection),
         opened(tab, site, connection)
-      ).pipe(Effect.asVoid),
-    closed: (_tab, site, connection) =>
-      Effect.suspend(() => {
-        held.delete(keyOf(site, connection))
-        return FiberMap.remove(fibers, keyOf(site, connection))
-      }),
+      )
+    }),
+    closed: Effect.fnUntraced(function* (
+      _tab: BrokerTab,
+      site: SiteName,
+      connection: Connection
+    ) {
+      const key = yield* keyOf(site, connection)
+      held.delete(key)
+      yield* FiberMap.remove(fibers, key)
+    }),
   }
 
   const resubscribe = (tab: BrokerTab) =>
@@ -185,10 +194,8 @@ export const makeAjaibSubscriptions = Effect.fnUntraced(function* (
         Effect.forEach(
           connections,
           (connection) =>
-            FiberMap.run(
-              fibers,
-              keyOf(site, connection),
-              update(tab, site, connection)
+            Effect.flatMap(keyOf(site, connection), (key) =>
+              FiberMap.run(fibers, key, update(tab, site, connection))
             ),
           { discard: true }
         ),
