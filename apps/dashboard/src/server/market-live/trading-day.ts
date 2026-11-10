@@ -297,6 +297,35 @@ export const makeTradingDay = Effect.fnUntraced(function* (options: {
   // straight from the store. Today's still serves viewers after the seal.
   const today = (yield* wibDateAt(yield* DateTime.now)) === options.date
   const restoring = !sealed || today
+  // Decision: a viewer is served only until the object's day ends. Once the
+  // clock's WIB date is past it, the socket is closed with 1001 when it would
+  // next be served, a delta or a snapshot, as an ended session is with 4401
+  // above, and the page reconnects through the gate, which checks the session
+  // again, to today's object. The page itself opens no socket past the day:
+  // at the 17:00 seal its loader turns to the day's recorded view, which
+  // drops the socket, and the live view opens a new one at 08:40
+  // (routes/_app/market-live.tsx, closed-market.ts). A socket that lives on
+  // is a page whose timer hasn't fired, or a script with the cookies. A ban,
+  // revoke or delete reaches today's object alone (live-viewers.ts), so a
+  // viewer on yesterday's object that was still served would outlive it.
+  // A WIB date is ISO, so a later one reads greater.
+  const dayEnded = Effect.map(
+    Effect.flatMap(DateTime.now, wibDateAt),
+    (date) => date > options.date
+  )
+  // Closes a viewer that is no longer served, its session or the day ended,
+  // and says so.
+  const closedUnserved = Effect.fnUntraced(function* (viewer: Peer) {
+    if (yield* sessionEnded(viewer)) {
+      yield* signInRequired(viewer)
+      return true
+    }
+    if (yield* dayEnded) {
+      yield* viewer.close(ViewerCloseCode.DayEnded, "Day ended")
+      return true
+    }
+    return false
+  })
   const tape: Array<RunningTrade> = restoring
     ? [...(yield* store.newestTrades(TAPE_LIMIT))]
     : []
@@ -466,8 +495,7 @@ export const makeTradingDay = Effect.fnUntraced(function* (options: {
     })
     for (const viewer of yield* options.viewers) {
       if ((yield* viewer.state) !== "ready") continue
-      if (yield* sessionEnded(viewer)) yield* signInRequired(viewer)
-      else yield* viewer.send(text)
+      if (!(yield* closedUnserved(viewer))) yield* viewer.send(text)
     }
   })
 
@@ -747,7 +775,7 @@ export const makeTradingDay = Effect.fnUntraced(function* (options: {
   // with its codes off the set.
   const viewerMessage = Effect.fnUntraced(
     function* (socket: Peer, text: string) {
-      if (yield* sessionEnded(socket)) return yield* signInRequired(socket)
+      if (yield* closedUnserved(socket)) return
       if (text.length > VIEWER_MESSAGE_LIMIT)
         return yield* socket.close(
           ViewerCloseCode.SelectNotServed,

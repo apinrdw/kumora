@@ -2,7 +2,9 @@
 // trading-day Durable Object, told which sessions an account still holds
 // after one of its sessions ended, so it closes the account's Market Live
 // pages on every other session with 4401 (spec apinrdw/kumora#138, "The
-// custom Worker entry and the gate").
+// custom Worker entry and the gate"). Today's object is the only one that
+// serves viewers: a day's object serves a viewer only on its own date
+// (trading-day.ts), and the entry upgrades a viewer to today's.
 import { WorkerEnv } from "@workspace/server"
 import { Context, Effect, Layer, Schema } from "effect"
 
