@@ -174,7 +174,21 @@ function takeOut(tape: Tape, number: TradeNumber): boolean {
   return false
 }
 
-function insert(tape: Tape, trade: RunningTrade) {
+// Whether the tape holds `number`, or dropped it past the cap.
+function seenBy(tape: Tape, number: TradeNumber): boolean {
+  if (
+    tape.evictedThrough !== undefined &&
+    TradeNumberOrder(number, tape.evictedThrough) <= 0
+  )
+    return true
+  const holds = (trades: ReadonlyArray<RunningTrade>) =>
+    trades[positionOf(trades, number)]?.tradeNumber === number
+  return holds(tape.continuous) || tape.folds.some((fold) => holds(fold.trades))
+}
+
+// `seen`: the trade was held before a snapshot started the tape over, so it
+// isn't received again.
+function insert(tape: Tape, trade: RunningTrade, seen = false) {
   const match = auctionMatchOf(trade)
   const known = takeOut(tape, trade.tradeNumber)
   const tooOld =
@@ -190,7 +204,7 @@ function insert(tape: Tape, trade: RunningTrade) {
     place(fold.trades, trade)
     addToFold(fold, trade)
   }
-  if (!known) tape.received += 1
+  if (!known && !seen) tape.received += 1
 }
 
 // Drops the oldest continuous trades past the cap, then each fold the drop
@@ -212,11 +226,20 @@ function evict(tape: Tape) {
   tape.folds.sort((a, b) => TradeNumberOrder(newestOf(a), newestOf(b)))
 }
 
-// The tape after one viewer message. A snapshot starts it over; a delta's
-// trades go in by trade number, a known one replacing what the tape held.
+// The tape after one viewer message. A snapshot starts it over, its received
+// count carried on and counting only the trades the tape didn't hold, so a
+// frozen tape's "N new trades" survives a reconnect; a delta's trades go in by
+// trade number, a known one replacing what the tape held.
 export function applyViewerMessage(tape: Tape, message: ViewerDown): Tape {
-  const next = message._tag === "Snapshot" ? emptyTape() : tape
-  for (const trade of message.tape) insert(next, trade)
+  if (message._tag !== "Snapshot") {
+    for (const trade of message.tape) insert(tape, trade)
+    evict(tape)
+    return tape
+  }
+  const next = emptyTape()
+  next.received = tape.received
+  for (const trade of message.tape)
+    insert(next, trade, seenBy(tape, trade.tradeNumber))
   evict(next)
   return next
 }
