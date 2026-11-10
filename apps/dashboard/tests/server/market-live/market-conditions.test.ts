@@ -484,6 +484,34 @@ describe("indicative price", () => {
   )
 
   it.effect(
+    "an indicative frame from another trading day, a broker's cached one, is dropped",
+    () =>
+      Effect.gen(function* () {
+        const market = yield* marketAt("2026-11-10T08:50:01")
+        yield* market.frames("Stockbit", "A", [
+          iepiev("BBCA", 5325, 1500, "2026-11-09T15:50:01.03944+07:00"),
+        ])
+        yield* market.reported("Stockbit", "A", "closed")
+        yield* market.frames("Ajaib", "A", [
+          ajaibIndicative(5300, 1000, Date.parse("2026-11-09T15:50:01+07:00")),
+        ])
+        yield* TestClock.adjust("250 millis")
+        const sent = Effect.map(market.page.received, (messages) =>
+          messages
+            .flatMap((message) => message.indicative ?? [])
+            .filter((price) => price.code === BBCA)
+            .map(({ price, volume }) => [price, volume])
+        )
+        assert.deepStrictEqual(yield* sent, [])
+        yield* market.frames("Ajaib", "A", [
+          ajaibIndicative(5310, 1100, Date.parse("2026-11-10T08:50:01+07:00")),
+        ])
+        yield* TestClock.adjust("250 millis")
+        assert.deepStrictEqual(yield* sent, [[5310, 1100]])
+      })
+  )
+
+  it.effect(
     "a snapshot carries the selected and watchlist codes' indicative prices",
     () =>
       Effect.gen(function* () {
