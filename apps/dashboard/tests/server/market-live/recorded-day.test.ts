@@ -175,7 +175,10 @@ const totalsFrame = (price: {
 
 const tradingDay = Effect.fnUntraced(function* (
   sql: Sql,
-  recordDay?: (day: RecordedDay) => Effect.Effect<void, unknown>
+  recordDay?: (day: RecordedDay) => Effect.Effect<void, unknown>,
+  // The ready ingest socket an object woken from hibernation still holds:
+  // no token goes down it.
+  held?: FakeSocket
 ) {
   const viewers: Array<FakeSocket> = []
   const relays: Array<FakeSocket> = []
@@ -192,16 +195,17 @@ const tradingDay = Effect.fnUntraced(function* (
   }).pipe(Scope.provide(scope))
   const ingest = (socket: FakeSocket, text: string) =>
     day.ingestMessage(socket, text).pipe(Effect.provide(env))
-  const relay = new FakeSocket()
+  const relay = held ?? new FakeSocket()
   relays.push(relay)
-  yield* ingest(
-    relay,
-    yield* encodeIngestUp({
-      _tag: "Token",
-      protocolVersion: IngestProtocolVersion,
-      token: TOKEN,
-    })
-  )
+  if (held === undefined)
+    yield* ingest(
+      relay,
+      yield* encodeIngestUp({
+        _tag: "Token",
+        protocolVersion: IngestProtocolVersion,
+        token: TOKEN,
+      })
+    )
   const ajaib = Effect.fnUntraced(function* (frames: ReadonlyArray<string>) {
     yield* ingest(
       relay,
@@ -269,6 +273,7 @@ const tradingDay = Effect.fnUntraced(function* (
     alarm,
     stop,
     relayClosed,
+    relay,
   }
 })
 
@@ -549,6 +554,50 @@ describe("a restarted trading day", () => {
             to: "2026-11-09T01:59:00.000Z",
           },
           { from: "2026-11-09T02:01:10.000Z", to: undefined },
+        ])
+      })
+  )
+
+  it.effect(
+    "keeps the relay gap from the wake when the relay's close is the first event after hibernation",
+    () =>
+      Effect.gen(function* () {
+        yield* TestClock.setTime(wib("09:00:00").epochMilliseconds)
+        const sql = memorySql()
+        const first = yield* tradingDay(sql)
+        // Ajaib live through the 09:01:05 flush, which stored it up.
+        for (let tick = 0; tick < 7; tick++) {
+          const time = DateTime.formatIso(
+            DateTime.add(wib("09:00:00"), { hours: 7, seconds: tick * 10 })
+          ).slice(11, 19)
+          yield* first.ajaib([ajaibTrade({ seq: tick + 1, time })])
+          yield* TestClock.adjust("10 seconds")
+        }
+        // The object hibernates: its instance and timers go, its socket and
+        // store stay. The relay's close at 09:30 wakes a fresh instance,
+        // whose first event it is; the object is then evicted.
+        yield* first.stop
+        yield* TestClock.setTime(wib("09:30:00").epochMilliseconds)
+        const woken = yield* tradingDay(sql, undefined, first.relay)
+        yield* woken.relayClosed
+        yield* woken.stop
+        yield* TestClock.setTime(wib("10:00:00").epochMilliseconds)
+
+        const restarted = yield* tradingDay(sql)
+        yield* TestClock.adjust("1 second")
+        const [snapshot] = yield* yield* restarted.viewer()
+        const gaps = (
+          snapshot?._tag === "Snapshot" ? snapshot.conditions.gaps : []
+        ).map((gap) => ({
+          from: DateTime.formatIso(gap.from),
+          to: gap.to === undefined ? undefined : DateTime.formatIso(gap.to),
+        }))
+        assert.deepStrictEqual(gaps, [
+          {
+            from: "2026-11-09T01:58:00.000Z",
+            to: "2026-11-09T01:59:00.000Z",
+          },
+          { from: "2026-11-09T02:30:00.000Z", to: undefined },
         ])
       })
   )
