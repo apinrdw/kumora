@@ -219,6 +219,21 @@ test("a frozen tape holds still while deltas arrive", () => {
   expect(live.received - frozen.received).toBe(1)
 })
 
+test("a reconnect's snapshot counts only the trades the tape didn't hold as received", () => {
+  const trades = Array.from({ length: 300 }, (_, i) => trade(i + 1))
+  const live = applyViewerMessage(emptyTape(), delta(...trades))
+  const frozen = freezeTape(live)
+  // The socket's first snapshot: the 200 newest, 50 of them new.
+  const reconnected = applyViewerMessage(
+    live,
+    snapshot(...Array.from({ length: 200 }, (_, i) => trade(i + 151)))
+  )
+  expect(reconnected.received - frozen.received).toBe(50)
+  expect(tapeRows(reconnected, new Set(), 0, 1)).toMatchObject([
+    { trade: { tradeNumber: "350" } },
+  ])
+})
+
 test("a big trade is Rp1 B or more on the regular board", () => {
   expect(isBigTrade(trade(1, { price: 10_000, lots: 1_000 }))).toBe(true)
   expect(isBigTrade(trade(1, { price: 10_000, lots: 999 }))).toBe(false)

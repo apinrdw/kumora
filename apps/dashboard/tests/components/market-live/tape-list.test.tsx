@@ -1,5 +1,10 @@
 // @vitest-environment happy-dom
-import { StockCode, TradeNumber, type RunningTrade } from "@workspace/relay"
+import {
+  StockCode,
+  TradeNumber,
+  type RunningTrade,
+  type ViewerDown,
+} from "@workspace/relay"
 import { DateTime } from "effect"
 import { act } from "react"
 import { createRoot } from "react-dom/client"
@@ -29,6 +34,21 @@ const tapeOf = (from: number, count: number) =>
     tape: Array.from({ length: count }, (_, i) => trade(from + i)),
     candles: [],
   })
+
+// A socket's first snapshot: the tape starts over from the `count` trades
+// numbered from `from`.
+const snapshotOf = (from: number, count: number): ViewerDown => ({
+  _tag: "Snapshot",
+  selected: StockCode.make("BBCA"),
+  tape: Array.from({ length: count }, (_, i) => trade(from + i)),
+  candles: [],
+  conditions: {
+    phase: "session-1",
+    relayOnline: true,
+    feeds: { Stockbit: "live", Ajaib: "live" },
+    gaps: [],
+  },
+})
 
 const shownNumbers = (container: Element) =>
   [...container.querySelectorAll("tr[data-trade-number]")].map((row) =>
@@ -63,5 +83,36 @@ test("a recorded tape scrolled down shows the tape it is given next, not the one
   expect(numbers.length).toBeGreaterThan(0)
   expect(Math.min(...numbers)).toBeGreaterThan(1000)
   expect(container.querySelector("button[type=button].absolute")).toBeNull()
+  act(() => root.unmount())
+})
+
+test("a live tape scrolled down counts the trades a reconnect's snapshot brings as new", () => {
+  const container = document.body.appendChild(document.createElement("div"))
+  const root = createRoot(container)
+  const render = (tape: ReturnType<typeof tapeOf>) =>
+    act(() =>
+      root.render(
+        <TapeList
+          tape={tape}
+          frame={1}
+          live
+          selected={StockCode.make("BBCA")}
+          onSelect={() => {}}
+        />
+      )
+    )
+  const tape = tapeOf(1, 300)
+  render(tape)
+  const scroller = container.querySelector("table")!.parentElement!
+  act(() => {
+    scroller.scrollTop = 600
+    scroller.dispatchEvent(new Event("scroll"))
+  })
+  // The socket dropped and reconnected: its first snapshot, 50 trades newer
+  // than any held among the 200 newest.
+  render(applyViewerMessage(tape, snapshotOf(151, 200)))
+  expect(
+    container.querySelector("button[type=button].absolute")?.textContent
+  ).toBe("50 new trades ↑")
   act(() => root.unmount())
 })
