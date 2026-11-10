@@ -1,7 +1,10 @@
 // Recorded day loads from the dashboard Worker (spec apinrdw/kumora#138,
 // "Recorded day loads"). Each GET answers none when nothing was recorded
-// (404) or the Worker can't answer; a 401 fails SignInRequired, so the page
-// sends the visitor to sign in.
+// (404); a 401 fails SignInRequired, so the page sends the visitor to sign
+// in. Decision: any other status fails, a 5xx included. None is what the
+// page keeps, as a minute's missing book chunk, so a Worker that can't
+// answer must not look like one that recorded nothing, or the page would
+// never ask again once the Worker recovers.
 import {
   DayStripPath,
   decodeBookChunk,
@@ -17,6 +20,7 @@ import {
 import type { DateTime } from "effect"
 import { Effect, Option } from "effect"
 import * as HttpClient from "effect/http/HttpClient"
+import * as HttpClientResponse from "effect/http/HttpClientResponse"
 
 import { SignInRequired } from "./market-live-socket.ts"
 
@@ -25,14 +29,15 @@ export const getRecorded = Effect.fnUntraced(function* (path: string) {
   const client = yield* HttpClient.HttpClient
   const response = yield* client.get(path)
   if (response.status === 401) return yield* new SignInRequired()
-  if (response.status !== 200) return Option.none<string>()
-  return Option.some(yield* response.text)
+  if (response.status === 404) return Option.none<string>()
+  const ok = yield* HttpClientResponse.filterStatusOk(response)
+  return Option.some(yield* ok.text)
 })
 
 const getResource = (date: WibDate, resource: RecordedResource) =>
   Effect.flatMap(recordedDayPath(date, resource), getRecorded)
 
-// Every sealed day, newest first; none when the index can't answer.
+// Every sealed day, newest first; none before the first day is sealed.
 export const fetchDayStrip = Effect.gen(function* () {
   const body = yield* getRecorded(DayStripPath)
   if (Option.isNone(body)) return []

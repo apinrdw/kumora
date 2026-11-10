@@ -9,8 +9,8 @@ import { Effect, Option } from "effect"
 import { getRecorded } from "./recorded-day.ts"
 
 // The trading day's stock code list from the dashboard Worker. None when the
-// relay hasn't sent that day's list yet (404) or the Worker can't answer; a
-// 401 fails SignInRequired.
+// relay hasn't sent that day's list yet (404); a 401 fails SignInRequired,
+// and a Worker that can't answer fails.
 export const fetchStockCodeList = Effect.fnUntraced(function* (date: WibDate) {
   const body = yield* getRecorded(yield* stockCodeListPath(date))
   if (Option.isNone(body)) return Option.none<ReadonlyArray<ListedCode>>()
