@@ -512,6 +512,38 @@ describe("indicative price", () => {
   )
 
   it.effect(
+    "an indicative price from pre-opening is not served once pre-closing runs: only one whose time is in the auction running now",
+    () =>
+      Effect.gen(function* () {
+        // Session 2's last second, with the morning's price still held.
+        const market = yield* marketAt("2026-11-09T15:49:59")
+        yield* market.frames("Stockbit", "A", [
+          iepiev("BBCA", 5325, 1500, "2026-11-09T08:50:01.03944+07:00"),
+        ])
+        yield* TestClock.adjust("2 seconds")
+        const sent = Effect.map(market.page.received, (messages) =>
+          messages
+            .flatMap((message) => message.indicative ?? [])
+            .filter((price) => price.code === BBCA)
+            .map(({ price, volume }) => [price, volume])
+        )
+        assert.deepStrictEqual(yield* sent, [])
+        // 15:50:01, pre-closing: a fresh selection's snapshot carries none.
+        yield* market.select(BBCA)
+        const snapshot = (yield* market.page.received)
+          .filter((message) => message._tag === "Snapshot")
+          .at(-1)
+        assert.isUndefined(snapshot?.indicative)
+        // The closing auction's own frame is served.
+        yield* market.frames("Stockbit", "A", [
+          iepiev("BBCA", 5400, 2000, "2026-11-09T15:50:01.5+07:00"),
+        ])
+        yield* TestClock.adjust("250 millis")
+        assert.deepStrictEqual(yield* sent, [[5400, 2000]])
+      })
+  )
+
+  it.effect(
     "a snapshot carries the selected and watchlist codes' indicative prices",
     () =>
       Effect.gen(function* () {

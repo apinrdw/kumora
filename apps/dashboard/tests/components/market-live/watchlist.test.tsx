@@ -67,6 +67,76 @@ test("a code with an indicative price before any Day state shows the indicative 
   act(() => root.unmount())
 })
 
+test("an indicative price from pre-opening is not shown in pre-closing: only one whose time is in the auction running now", () => {
+  const store = makeDayStateStore()
+  const container = document.body.appendChild(document.createElement("div"))
+  const root = createRoot(container)
+  act(() =>
+    root.render(
+      <Watchlist
+        codes={[BBCA]}
+        list={{ _tag: "Loading" }}
+        store={store}
+        onAdd={() => {}}
+        onRemove={() => {}}
+        onSelect={() => {}}
+      />
+    )
+  )
+  const row = container.querySelector('tr[data-code="BBCA"]')!
+  const conditions = (phase: "pre-opening" | "pre-closing") => ({
+    phase,
+    relayOnline: true,
+    feeds: { Stockbit: "live", Ajaib: "live" } as const,
+    gaps: [],
+  })
+  const indicative = (price: number, at: string) => ({
+    code: BBCA,
+    price,
+    volume: 1_500,
+    at: DateTime.makeUnsafe(`2026-11-09T${at}+07:00`),
+  })
+  act(() =>
+    Effect.runSync(
+      applyConditions({
+        _tag: "Snapshot",
+        selected: BBCA,
+        tape: [],
+        candles: [],
+        conditions: conditions("pre-opening"),
+        indicative: [indicative(5_325, "08:50:01")],
+      })
+    )
+  )
+  expect(row.textContent).toContain("Indicative")
+  // 15:50, with no frame of the closing auction yet.
+  act(() =>
+    Effect.runSync(
+      applyConditions({
+        _tag: "Delta",
+        tape: [],
+        candles: [],
+        conditions: conditions("pre-closing"),
+      })
+    )
+  )
+  expect(row.textContent).not.toContain("Indicative")
+  act(() =>
+    Effect.runSync(
+      applyConditions({
+        _tag: "Delta",
+        tape: [],
+        candles: [],
+        indicative: [indicative(5_400, "15:50:02")],
+      })
+    )
+  )
+  expect(row.textContent).toContain("Indicative")
+  expect(row.textContent).toContain("5,400")
+  act(() => Effect.runSync(resetConditions))
+  act(() => root.unmount())
+})
+
 test("a Day state without a change, an index's whose frames carry no previous close, shows none rather than 0%", () => {
   const IHSG = StockCode.make("IHSG")
   const store = makeDayStateStore()
