@@ -55,28 +55,19 @@ const bookOf = (minute: number): OrderBook => ({
   provenance: "Stockbit",
 })
 
-test("a book chunk whose load failed is asked for again when the cursor visits its minute again", async () => {
-  const cursor = makeReplayCursor(replayDay(DAY, []))
-  const closeMinute = Math.floor(cursor.state().at / MINUTE) * MINUTE
-  // The close minute's chunk: the relay's first answer fails, the next is the
-  // chunk; any other minute has no book.
-  let closeAsked = 0
-  mocks.bookChunk.mockImplementation((minute) => {
-    if (DateTime.toEpochMillis(minute) !== closeMinute)
-      return Effect.succeed(Option.none())
-    closeAsked += 1
-    return closeAsked === 1
-      ? Effect.fail("recorded day not served")
-      : Effect.succeed(
-          Option.some({
-            code: BBCA,
-            minute: DateTime.makeUnsafe(closeMinute),
-            start: bookOf(closeMinute),
-            deltas: [],
-          })
-        )
-  })
-  const book = makeOrderBookStore(BBCA)
+// A minute's chunk: its book at its start, and no delta.
+const chunkOf = (minute: number): BookChunk => ({
+  code: BBCA,
+  minute: DateTime.makeUnsafe(minute),
+  start: bookOf(minute),
+  deltas: [],
+})
+
+// The hook over `cursor`, filling `book`; returns the unmount.
+const mount = async (
+  cursor: ReturnType<typeof makeReplayCursor>,
+  book: ReturnType<typeof makeOrderBookStore>
+) => {
   const candles = makeCandleStore(BBCA)
   const dayStates = makeDayStateStore()
   function Harness() {
@@ -94,6 +85,25 @@ test("a book chunk whose load failed is asked for again when the cursor visits i
   const container = document.body.appendChild(document.createElement("div"))
   const root = createRoot(container)
   await act(() => root.render(<Harness />))
+  return () => act(() => root.unmount())
+}
+
+test("a book chunk whose load failed is asked for again when the cursor visits its minute again", async () => {
+  const cursor = makeReplayCursor(replayDay(DAY, []))
+  const closeMinute = Math.floor(cursor.state().at / MINUTE) * MINUTE
+  // The close minute's chunk: the relay's first answer fails, the next is the
+  // chunk; any other minute has no book.
+  let closeAsked = 0
+  mocks.bookChunk.mockImplementation((minute) => {
+    if (DateTime.toEpochMillis(minute) !== closeMinute)
+      return Effect.succeed(Option.none())
+    closeAsked += 1
+    return closeAsked === 1
+      ? Effect.fail("recorded day not served")
+      : Effect.succeed(Option.some(chunkOf(closeMinute)))
+  })
+  const book = makeOrderBookStore(BBCA)
+  const unmount = await mount(cursor, book)
   await vi.waitFor(() => expect(closeAsked).toBe(1))
   expect(book.book()).toBeUndefined()
 
@@ -102,5 +112,32 @@ test("a book chunk whose load failed is asked for again when the cursor visits i
   act(() => cursor.seek(closeMinute))
   await vi.waitFor(() => expect(book.book()?._tag).toBe("OrderBook"))
   expect(closeAsked).toBe(2)
-  act(() => root.unmount())
+  unmount()
+})
+
+test("the cursor on a minute whose chunk hasn't answered shows no book, the last minute's included after its load failed", async () => {
+  const cursor = makeReplayCursor(replayDay(DAY, []))
+  const closeMinute = Math.floor(cursor.state().at / MINUTE) * MINUTE
+  const earlier = closeMinute - MINUTE
+  // The close minute's chunk answers; the minute before never does.
+  let earlierAsked = 0
+  mocks.bookChunk.mockImplementation((minute) => {
+    const at = DateTime.toEpochMillis(minute)
+    if (at === closeMinute)
+      return Effect.succeed(Option.some(chunkOf(closeMinute)))
+    if (at !== earlier) return Effect.succeed(Option.none())
+    earlierAsked += 1
+    return Effect.fail("recorded day not served")
+  })
+  const book = makeOrderBookStore(BBCA)
+  const unmount = await mount(cursor, book)
+  await vi.waitFor(() => expect(book.book()?._tag).toBe("OrderBook"))
+
+  act(() => cursor.seek(earlier))
+  expect(book.book()).toBeUndefined()
+  await vi.waitFor(() => expect(earlierAsked).toBe(1))
+  // Paused on the minute, the failed load leaves nothing shown.
+  await vi.waitFor(() => expect(mocks.bookChunk).toHaveBeenCalledTimes(2))
+  expect(book.book()).toBeUndefined()
+  unmount()
 })
