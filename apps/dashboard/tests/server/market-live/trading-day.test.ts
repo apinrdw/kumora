@@ -43,6 +43,8 @@ import { memorySql } from "./sql"
 import { AccountId, SessionId } from "@/server/market-live/routes"
 
 const TOKEN = "e2e-ingest-token"
+// The longest viewer message the object reads.
+const VIEWER_MESSAGE_LIMIT = 200_000
 const DAY = WibDate.make("2026-11-09")
 
 class FakeSocket implements Peer {
@@ -241,6 +243,52 @@ describe("the viewer socket", () => {
       assert.strictEqual(page.closedWith, ViewerCloseCode.NewVersion)
       assert.lengthOf(page.sent, 0)
     })
+  )
+
+  it.effect(
+    "the largest Select is served, at the message limit too; a message past the limit closes it with 1011 unread",
+    () =>
+      Effect.gen(function* () {
+        const { viewer, day } = yield* tradingDay()
+        const longest = Array.from({ length: 10_000 }, (_, index) =>
+          StockCode.make(`TN.W${String(index).padStart(12, "0")}`)
+        )
+        const largest = yield* encodeViewerUp({
+          _tag: "Select",
+          protocolVersion: ViewerProtocolVersion,
+          selected: longest[0]!,
+          watchlist: longest,
+        })
+        assert.isAtMost(largest.length, VIEWER_MESSAGE_LIMIT)
+        const page = yield* viewer()
+        yield* day.viewerMessage(page, largest)
+        const [snapshot] = yield* page.received
+        assert.strictEqual(
+          snapshot?._tag === "Snapshot" && snapshot.selected,
+          longest[0]
+        )
+        // The largest Select, padded with the whitespace JSON allows, to the
+        // limit and one past it.
+        const padded = (length: number) =>
+          `${largest.slice(0, -1)}${" ".repeat(length - largest.length)}}`
+        const atLimit = yield* viewer()
+        yield* day.viewerMessage(atLimit, padded(VIEWER_MESSAGE_LIMIT))
+        assert.isUndefined(atLimit.closedWith)
+        assert.lengthOf(yield* atLimit.received, 1)
+        const over = yield* viewer()
+        yield* day.viewerMessage(over, padded(VIEWER_MESSAGE_LIMIT + 1))
+        assert.strictEqual(over.closedWith, ViewerCloseCode.SelectNotServed)
+        assert.lengthOf(over.sent, 0)
+        // Not JSON at all: refused by its length, before any parse, so it
+        // doesn't fail as a Select the object couldn't serve.
+        const garbage = yield* viewer()
+        const exit = yield* Effect.exit(
+          day.viewerMessage(garbage, "x".repeat(VIEWER_MESSAGE_LIMIT + 1))
+        )
+        assert.isTrue(Exit.isSuccess(exit))
+        assert.strictEqual(garbage.closedWith, ViewerCloseCode.SelectNotServed)
+        assert.lengthOf(garbage.sent, 0)
+      })
   )
 
   it.effect("a snapshot names the code its Select selected", () =>
