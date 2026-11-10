@@ -1,10 +1,10 @@
 import { assert, describe, it } from "@effect/vitest"
 import { StockCode } from "@workspace/relay"
 import { Deferred, Effect, Option } from "effect"
-import type { IngestDown } from "@workspace/relay"
+import type { Connection, IngestDown } from "@workspace/relay"
 
 import type { AjaibAccountId } from "../src/worker/ajaib.ts"
-import type { Payload } from "../src/worker/broker.ts"
+import type { Payload, SiteName } from "../src/worker/broker.ts"
 import { makeOnDemandCodes } from "../src/worker/on-demand-codes.ts"
 import {
   makeAjaibSubscriptions,
@@ -12,9 +12,11 @@ import {
 } from "../src/worker/subscriptions.ts"
 import type { BrokerTab } from "../src/worker/tab.ts"
 
+type Sent = { site: SiteName; connection: Connection; payload: Payload }
+
 // An Ajaib tab with every socket open, keeping what is sent on each.
 const openTab = () => {
-  const sent: Array<{ site: string; connection: string; payload: Payload }> = []
+  const sent: Array<Sent> = []
   const tab: BrokerTab = {
     connect: () => Effect.void,
     message: () => Effect.void,
@@ -82,9 +84,9 @@ const asks = (codes: ReadonlyArray<StockCode>): IngestDown => ({
 
 // The methods sent on one socket, in order.
 const methodsOn = (
-  sent: ReadonlyArray<{ site: string; connection: string; payload: Payload }>,
-  site: string,
-  connection: string
+  sent: ReadonlyArray<Sent>,
+  site: SiteName,
+  connection: Connection
 ) =>
   sent
     .filter((entry) => entry.site === site && entry.connection === connection)

@@ -46,9 +46,12 @@ export const tradeSubscribe = (id: Option.Option<AjaibAccountId>) =>
 // wanted, SUBSCRIBE for new ones. That is "subscribe once per connection" per
 // code: the spec's repeated subscribe is the same code twice, which this
 // never sends. A code in `fresh` the socket already holds is sent the pair,
-// UNSUBSCRIBE then SUBSCRIBE, so Ajaib sends its whole book again: it sends
-// one only on subscribing, then per-level deltas. The pair is what Ajaib's
-// own page sends when its code changes (owner's DevTools, 2026-11-06,
+// UNSUBSCRIBE then SUBSCRIBE, so that Ajaib sends its whole book again.
+// Documented (spec apinrdw/kumora#138, "The extension"): ORDER_BOOK_CUSTOM
+// sends its own `is_initial` snapshot on subscribing, then per-level
+// deltas. Inferred, not yet observed on the relay's socket: that it sends
+// the snapshot again after the pair. The pair is what Ajaib's own page
+// sends when its code changes (owner's DevTools, 2026-11-06,
 // apinrdw/kumora#50), which is also why the diff is kept over reopening the
 // sockets; `invalid subscription object` there answered the PING-WEB ping. A
 // reopened socket starts from nothing.
