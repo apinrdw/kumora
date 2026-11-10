@@ -23,8 +23,12 @@ export const ViewerProtocolVersion = 1
 // shows it; any other close, 1006 included, retries with backoff. The token
 // travels as the first message because a browser websocket can't set headers.
 // See apinrdw/kumora#45.
+// 4403 and 4426 stop the relay retrying (apps/extension target.ts); 4408, a
+// socket closed without its token within the trading-day object's deadline,
+// reconnects like a dropped one.
 export const IngestCloseCode = {
   RejectedToken: 4403,
+  TokenOverdue: 4408,
   VersionMismatch: 4426,
 } as const
 

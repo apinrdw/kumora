@@ -81,6 +81,11 @@ export interface Peer {
   // socket like its state; undefined for a viewer tagged without one. An
   // ingest socket has none, and a viewer without the field never expires.
   readonly sessionEnd?: Effect.Effect<number | undefined>
+  // When an ingest socket was accepted, in epoch ms on the Clock, kept with
+  // the socket like its state; undefined for one tagged without it, which
+  // is closed at the next alarm as one past its token deadline. A viewer
+  // has none.
+  readonly accepted?: Effect.Effect<number | undefined>
 }
 
 // A viewer socket and the session it was gated with; none for a socket
@@ -92,6 +97,9 @@ export interface SessionViewer {
 
 // How often viewers get the trades that arrived since the last delta.
 const DELTA_INTERVAL = "250 millis"
+
+// How long an accepted ingest socket has to send its token (`alarm`).
+const INGEST_TOKEN_DEADLINE = Duration.seconds(10)
 
 // Decision: the tape in memory holds the newest 10,000 trades, the most the
 // page keeps; a restarted object reloads them from the day store. A trade
@@ -292,6 +300,7 @@ export const makeTradingDay = Effect.fnUntraced(function* (options: {
   const store = yield* makeDayStore(options.sql)
   const setAlarm = options.setAlarm ?? (() => Effect.void)
   let sealed = (yield* store.fact(Fact.sealed)) !== undefined
+  const sealAt = yield* sealInstant(options.date)
   // Decision: an object restores the live day from its store unless the day
   // is sealed and past: a past day's object only answers recorded day GETs,
   // straight from the store. Today's still serves viewers after the seal.
@@ -643,25 +652,99 @@ export const makeTradingDay = Effect.fnUntraced(function* (options: {
     sealed = true
   })
 
+  // When the seal next needs the alarm: 17:00 WIB, a minute after a seal
+  // that didn't land, none once sealed.
+  let sealWake: DateTime.Utc | undefined = sealed ? undefined : sealAt
+  // What the alarm is armed for since it last fired, so a later wake never
+  // displaces an earlier one. The Durable Object keeps the alarm itself
+  // across hibernation; the day's start arms it again from what it finds.
+  let armed: DateTime.Utc | undefined
+  const arm = (at: DateTime.Utc) =>
+    Effect.suspend(() => {
+      if (armed !== undefined && !DateTime.isLessThan(at, armed))
+        return Effect.void
+      armed = at
+      return setAlarm(at)
+    })
+
+  // Decision: an ingest socket that hasn't sent its token is closed with
+  // 4408 by the alarm once INGEST_TOKEN_DEADLINE passed since the object
+  // accepted it, read from the socket's tags, which outlive hibernation:
+  // nothing but the alarm wakes an object whose only sockets are silent, and
+  // the token check runs only on a message, so without it a client without
+  // the token could hold sockets open for good and fill the shared object's
+  // 32,768 (Cloudflare's Durable Object State page,
+  // https://developers.cloudflare.com/durable-objects/api/state/, read
+  // 2026-11-10). The relay sends its token as the socket opens
+  // (apps/extension/src/worker/target.ts), so 10 s is latency alone. The
+  // alarm is armed for the earliest of the seal and a socket's deadline, and
+  // a sweep that leaves a socket with time arms it a deadline on rather than
+  // at that socket's instant, so a trickle of openings wakes the object once
+  // a deadline and a silent socket lives at most two. No cap on the silent
+  // sockets: one would let such a client refuse the relay by filling it,
+  // where the deadline bounds them to the opening rate times 20 s.
+  // Whether a socket still has time.
+  const closeOverdueIngests = Effect.fnUntraced(function* (now: number) {
+    let withTime = false
+    for (const socket of yield* ingests) {
+      if ((yield* socket.state) !== "new") continue
+      const accepted =
+        socket.accepted === undefined ? undefined : yield* socket.accepted
+      if (
+        accepted !== undefined &&
+        now < accepted + Duration.toMillis(INGEST_TOKEN_DEADLINE)
+      ) {
+        withTime = true
+        continue
+      }
+      yield* socket.close(IngestCloseCode.TokenOverdue, "Token overdue")
+    }
+    return withTime
+  })
+
+  // Closes the ingest sockets past their token deadline and arms the alarm
+  // for the next wake.
+  const sweepIngests = Effect.gen(function* () {
+    const now = yield* DateTime.now
+    const withTime = yield* closeOverdueIngests(DateTime.toEpochMillis(now))
+    if (sealWake !== undefined) yield* arm(sealWake)
+    if (withTime) yield* arm(DateTime.addDuration(now, INGEST_TOKEN_DEADLINE))
+  })
+
+  // An ingest socket the object accepted: its token deadline is a wake.
+  const ingestOpened = Effect.gen(function* () {
+    yield* arm(DateTime.addDuration(yield* DateTime.now, INGEST_TOKEN_DEADLINE))
+  })
+
   // Decision: the alarm, set for the seal at 17:00 WIB, never fails: an
   // early alarm sets itself again, and a seal that didn't land, whether its
   // final flush, its index row or its sealed marker, sets the alarm a minute
   // later and seals then. The Durable Object's runner answers a failure as
   // handled, so Cloudflare would not retry the alarm, and nothing else wakes
   // an object whose relay has gone for the day; the retry keeps what the
-  // failed flush took.
+  // failed flush took. Every alarm, the seal's or a token deadline's, sweeps
+  // the ingest sockets first.
   const alarm = Effect.gen(function* () {
-    if (sealed) return
-    const at = yield* sealInstant(options.date)
+    armed = undefined
     const now = yield* DateTime.now
-    if (DateTime.isLessThan(now, at)) return yield* setAlarm(at)
-    yield* seal(now).pipe(
-      Effect.catchCause((cause) =>
-        Effect.logError("Day not sealed", cause).pipe(
-          Effect.andThen(setAlarm(DateTime.add(now, { minutes: 1 })))
+    if (!sealed && !DateTime.isLessThan(now, sealAt))
+      yield* seal(now).pipe(
+        Effect.andThen(
+          Effect.sync(() => {
+            sealWake = undefined
+          })
+        ),
+        Effect.catchCause((cause) =>
+          Effect.logError("Day not sealed", cause).pipe(
+            Effect.andThen(
+              Effect.sync(() => {
+                sealWake = DateTime.add(now, { minutes: 1 })
+              })
+            )
+          )
         )
       )
-    )
+    yield* sweepIngests
   })
 
   const tokenMatches = Effect.fnUntraced(function* (token: string) {
@@ -862,7 +945,7 @@ export const makeTradingDay = Effect.fnUntraced(function* (options: {
       })
     )
 
-  if (!sealed) yield* setAlarm(yield* sealInstant(options.date))
+  yield* sweepIngests
 
   // After a ban, revoke or delete: the page on a session the account no
   // longer holds is sent to sign in.
@@ -877,6 +960,7 @@ export const makeTradingDay = Effect.fnUntraced(function* (options: {
   })
 
   return {
+    ingestOpened,
     ingestMessage,
     viewerMessage,
     viewerClosed,

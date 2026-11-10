@@ -14,7 +14,7 @@ import {
   runServerEffect,
   runServerEffectResult,
 } from "@workspace/server"
-import { DateTime, Effect, Layer, Option, Schema, Scope } from "effect"
+import { Clock, DateTime, Effect, Layer, Option, Schema, Scope } from "effect"
 
 import { durableSql } from "./durable-sql.ts"
 import { marketClockOffset, withMarketClock } from "./market-clock.ts"
@@ -35,8 +35,11 @@ import { makeTradingDay, type Peer, type PeerState } from "./trading-day.ts"
 // Socket tags. A viewer socket also carries its user and session, so a ban or
 // revoke can close it (apinrdw/kumora#144), its session's end, so an expired
 // one is closed (trading-day.ts), and its own id, which keys its codes in
-// storage. Tags outlive hibernation.
+// storage. An ingest socket carries when it was accepted, so one that never
+// sends its token is closed (trading-day.ts). Tags outlive hibernation.
 const INGEST = "ingest"
+const ACCEPTED = "accepted:"
+const acceptedTag = (at: number) => `${ACCEPTED}${at}`
 const VIEWER = "viewer"
 const userTag = (userId: AccountId) => `user:${userId}`
 const SESSION = "session:"
@@ -47,6 +50,7 @@ const SOCKET = "socket:"
 const socketTag = (id: string) => `${SOCKET}${id}`
 
 const decodeSessionEnd = Schema.decodeUnknownOption(SessionEnd)
+const decodeAccepted = Schema.decodeUnknownOption(Schema.FiniteFromString)
 
 const tagValue = (tags: ReadonlyArray<string>, prefix: string) => {
   const tag = tags.find((each) => each.startsWith(prefix))
@@ -60,6 +64,15 @@ const sessionEndOf = (tags: ReadonlyArray<string>) => {
   return end === undefined
     ? undefined
     : Option.getOrUndefined(decodeSessionEnd(end))
+}
+
+// When an ingest socket was accepted, from its tags; none for a socket
+// tagged without it.
+const acceptedOf = (tags: ReadonlyArray<string>) => {
+  const at = tagValue(tags, ACCEPTED)
+  return at === undefined
+    ? undefined
+    : Option.getOrUndefined(decodeAccepted(at))
 }
 
 // A socket's attachment survives hibernation: its state. A socket without
@@ -150,6 +163,7 @@ const peerOf = (
             watching.write(id, codes),
         }),
     sessionEnd: Effect.sync(() => sessionEndOf(tags)),
+    accepted: Effect.sync(() => acceptedOf(tags)),
   }
 }
 
@@ -275,9 +289,10 @@ export class TradingDayObject {
     )
   }
 
-  // Accepts the socket the Worker entry routed here, already gated; answers
-  // the sessions a user still holds (live-viewers.ts) and the recorded day
-  // GETs, also gated.
+  // Accepts the socket the Worker entry routed here, a viewer's already
+  // gated and the relay's tagged with the instant on Market Live's clock its
+  // token deadline counts from; answers the sessions a user still holds
+  // (live-viewers.ts) and the recorded day GETs, also gated.
   fetch(request: Request): Response | Promise<Response> {
     const url = new URL(request.url)
     const { pathname } = url
@@ -293,7 +308,19 @@ export class TradingDayObject {
           Effect.as(new Response(null, { status: 204 }))
         )
       )
-    const tags = pathname === ObjectPath.live ? viewerTags(request) : [INGEST]
+    if (pathname === ObjectPath.ingest) {
+      const { ctx, day } = this
+      return this.answer(
+        Effect.gen(function* () {
+          const accepted = yield* Clock.currentTimeMillis
+          const pair = new WebSocketPair()
+          ctx.acceptWebSocket(pair[1], [INGEST, acceptedTag(accepted)])
+          yield* day.ingestOpened
+          return new Response(null, { status: 101, webSocket: pair[0] })
+        })
+      )
+    }
+    const tags = viewerTags(request)
     // The entry always names the viewer's account, session and its end.
     if (tags === undefined)
       return new Response("Viewer not named", { status: 400 })

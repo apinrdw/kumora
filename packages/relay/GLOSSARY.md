@@ -29,7 +29,7 @@ _Avoid_: close, finalize
 ### Ingest
 
 **Ingest envelope**:
-One message from the relay to the dashboard: the feed, the connection, when it was received, and the feed's raw frames, unparsed. An Ajaib envelope also names the stream its frames came from, the trade tape or an on-demand stream; only the tape's frames are signs of life. A connection's buffered frames go up before its `closed` status; its other statuses go up at once, ahead of frames still batched. Also the ingest token, the daily stock code list, and feed status events travel as envelopes.
+One message from the relay to the dashboard: the feed, the connection, when it was received, and the feed's raw frames, unparsed. An Ajaib envelope also names the stream its frames came from, the trade tape or an on-demand stream; only the tape's frames are signs of life. A connection's buffered frames go up before its `closed` status; its other statuses go up at once, ahead of frames still batched. Also the ingest token, the daily stock code list, and feed status events travel as envelopes. The token is the socket's first envelope, due within 10 s of the socket opening; the dashboard closes a socket still without it with `4408`, which the relay treats as a dropped socket.
 _Avoid_: packet, batch
 
 **Connection**:
