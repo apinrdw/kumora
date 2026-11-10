@@ -62,7 +62,7 @@ function MarketLivePage() {
   const shown = day ?? closed?.day
   return (
     <div className="flex flex-col gap-4">
-      <DayStrip shown={day} />
+      <DayStrip shown={day} closedDay={closed?.day} />
       {/* Fresh stores and sockets for each day shown. */}
       <MarketLiveDay
         key={shown ?? "live"}

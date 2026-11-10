@@ -23,9 +23,11 @@ const mocks = vi.hoisted(() => ({
     vi.fn<(fresh?: boolean) => Effect.Effect<ReadonlyArray<RecordedDay>>>(),
 }))
 
+// Counted when the load runs, not when the strip builds it.
 vi.mock("@workspace/client", async (importOriginal) => ({
   ...(await importOriginal<typeof Client>()),
-  fetchDayStrip: (fresh = false) => mocks.fetchDayStrip(fresh),
+  fetchDayStrip: (fresh = false) =>
+    Effect.suspend(() => mocks.fetchDayStrip(fresh)),
 }))
 
 const FRIDAY = WibDate.make("2026-11-06")
