@@ -1,5 +1,6 @@
-// The page's stock code list against a Worker that has no list yet: the
-// live page asks again until the relay delivers it, a recorded day doesn't.
+// The page's stock code list against a Worker that has no list yet, or
+// couldn't answer: the live page asks again until the relay delivers it, a
+// recorded day takes a 404 as final, and either asks again after a failure.
 import { assert, describe, it } from "@effect/vitest"
 import { WibDate } from "@workspace/relay"
 import { Effect, Fiber, Queue } from "effect"
