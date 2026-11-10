@@ -15,12 +15,13 @@ import {
   decodeViewerDown,
   encodeIngestUp,
   encodeViewerUp,
+  sealInstant,
   type Candle,
   type RunningTrade,
   type ViewerDown,
 } from "@workspace/relay"
 import { WorkerEnv } from "@workspace/server"
-import { DateTime, Effect, Exit, Layer, Scope } from "effect"
+import { Clock, DateTime, Effect, Exit, Layer, Scope } from "effect"
 import { TestClock } from "effect/testing"
 
 import {
@@ -51,6 +52,9 @@ class FakeSocket implements Peer {
   closedWith: number | undefined
   // A viewer's session end, as the object reads it from the socket's tags.
   sessionEnd?: Effect.Effect<number | undefined>
+  // When an ingest socket was accepted, as the object reads it from the
+  // socket's tags.
+  accepted?: Effect.Effect<number | undefined>
   // A viewer's codes, as the object keeps them in its storage.
   setWatching?: (codes: ReadonlyArray<StockCode>) => Effect.Effect<void>
   private current: PeerState = "new"
@@ -91,14 +95,20 @@ const heldSessions = (userId: string, sessionIds: ReadonlyArray<string>) => ({
   sessionIds: sessionIds.map((id) => SessionId.make(id)),
 })
 
-const tradingDay = Effect.fnUntraced(function* () {
+// `woken`: an ingest socket the object already holds when the day is made,
+// as one woken from hibernation does.
+const tradingDay = Effect.fnUntraced(function* (woken?: FakeSocket) {
   const viewers: Array<FakeSocket> = []
+  const relays: Array<FakeSocket> = woken === undefined ? [] : [woken]
+  const alarms: Array<DateTime.Utc> = []
   const signedIn = new Map<FakeSocket, SignedIn>()
   const scope = yield* Scope.make()
   const day = yield* makeTradingDay({
     sql: memorySql(),
     date: DAY,
     viewers: Effect.sync(() => viewers),
+    ingests: Effect.sync(() => relays),
+    setAlarm: (at) => Effect.sync(() => void alarms.push(at)),
     viewersOf: (userId) =>
       Effect.sync(() =>
         viewers.flatMap((peer) => {
@@ -115,6 +125,16 @@ const tradingDay = Effect.fnUntraced(function* () {
   ) {
     return yield* day.ingestMessage(socket, text).pipe(Effect.provide(env))
   })
+  // An ingest socket the object accepted now, its token still to come.
+  const open = Effect.fnUntraced(function* () {
+    const socket = new FakeSocket()
+    socket.accepted = Effect.succeed(yield* Clock.currentTimeMillis)
+    relays.push(socket)
+    yield* day.ingestOpened
+    return socket
+  })
+  // The Durable Object's alarm firing.
+  const alarm = day.alarm.pipe(Effect.provide(env))
   const viewer = Effect.fnUntraced(function* (as: SignedIn = AYU) {
     const socket = new FakeSocket()
     if (as.sessionEnd !== undefined)
@@ -130,7 +150,7 @@ const tradingDay = Effect.fnUntraced(function* () {
       selected: StockCode.make(selected),
       watchlist: [],
     }).pipe(Effect.flatMap((text) => day.viewerMessage(socket, text)))
-  return { day, ingest, viewer, select }
+  return { day, ingest, viewer, select, open, relays, alarms, alarm }
 })
 
 const token = (value: string) =>
@@ -253,6 +273,70 @@ describe("the ingest socket", () => {
           otherVersion.closedWith,
           IngestCloseCode.VersionMismatch
         )
+      })
+  )
+})
+
+// The epoch ms the alarm was last set for.
+const lastAlarm = (alarms: ReadonlyArray<DateTime.Utc>) =>
+  DateTime.toEpochMillis(alarms[alarms.length - 1]!)
+
+describe("the ingest socket's token deadline", () => {
+  const start = DateTime.makeUnsafe("2026-11-09T02:00:00.000Z")
+  const at = (seconds: number) =>
+    DateTime.toEpochMillis(DateTime.add(start, { seconds }))
+
+  it.effect(
+    "a socket silent for 10 s is closed with 4408 at the alarm, which is armed a deadline on while one has time, then for the seal",
+    () =>
+      Effect.gen(function* () {
+        yield* TestClock.setTime(DateTime.toEpochMillis(start))
+        const { ingest, open, alarms, alarm } = yield* tradingDay()
+        // The seal's, set when the day was made.
+        assert.lengthOf(alarms, 1)
+        const silent = yield* open()
+        assert.strictEqual(lastAlarm(alarms), at(10))
+
+        yield* TestClock.adjust("5 seconds")
+        const later = yield* open()
+        const ready = yield* open()
+        yield* ingest(ready, yield* token(TOKEN))
+        // No wake earlier than the one armed.
+        assert.lengthOf(alarms, 2)
+
+        yield* TestClock.adjust("5 seconds")
+        yield* alarm
+        assert.strictEqual(silent.closedWith, IngestCloseCode.TokenOverdue)
+        assert.isUndefined(later.closedWith)
+        assert.isUndefined(ready.closedWith)
+        assert.strictEqual(lastAlarm(alarms), at(20))
+
+        yield* TestClock.adjust("10 seconds")
+        yield* alarm
+        assert.strictEqual(later.closedWith, IngestCloseCode.TokenOverdue)
+        assert.isUndefined(ready.closedWith)
+        assert.strictEqual(
+          lastAlarm(alarms),
+          DateTime.toEpochMillis(yield* sealInstant(DAY))
+        )
+      })
+  )
+
+  it.effect(
+    "a socket without a token and no accept instant is closed at the next alarm, and at the day's start",
+    () =>
+      Effect.gen(function* () {
+        yield* TestClock.setTime(DateTime.toEpochMillis(start))
+        const { relays, alarm } = yield* tradingDay()
+        const untimed = new FakeSocket()
+        relays.push(untimed)
+        yield* alarm
+        assert.strictEqual(untimed.closedWith, IngestCloseCode.TokenOverdue)
+
+        const held = new FakeSocket()
+        const woken = yield* tradingDay(held)
+        assert.strictEqual(held.closedWith, IngestCloseCode.TokenOverdue)
+        assert.lengthOf(woken.alarms, 1)
       })
   )
 })
