@@ -200,6 +200,31 @@ export const marketMomentAt = Effect.fnUntraced(function* (
   }
 })
 
+// The call auctions, pre-opening and pre-closing, which publish an
+// indicative price.
+export type Auction = "pre-opening" | "pre-closing"
+const auctions: ReadonlySet<MarketPhase> = new Set<Auction>([
+  "pre-opening",
+  "pre-closing",
+])
+const isAuction = (phase: MarketPhase): phase is Auction => auctions.has(phase)
+
+// The auction `instant` falls in, on its WIB date: none outside the
+// auctions, on a weekend or holiday, or past the baked schedule. An
+// indicative price is shown only while the auction of its time still runs,
+// so pre-closing never shows the morning's.
+export const auctionAt = Effect.fnUntraced(function* (
+  instant: DateTime.Utc
+): Effect.fn.Return<
+  { readonly date: WibDate; readonly phase: Auction } | undefined
+> {
+  const moment = yield* marketMomentAt(instant).pipe(
+    Effect.catchTag("ScheduleYearMissing", () => Effect.succeed(undefined))
+  )
+  if (moment === undefined || !isAuction(moment.phase)) return undefined
+  return { date: moment.date, phase: moment.phase }
+})
+
 // The instant a trading day is sealed into a recorded day: 17:00 WIB.
 export const sealInstant = Effect.fnUntraced(function* (date: WibDate) {
   return DateTime.makeUnsafe(`${date}T17:00:00+07:00`)

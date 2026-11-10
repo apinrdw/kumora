@@ -1,10 +1,11 @@
-import type {
-  IndicativePrice,
-  MarketPhase,
-  MarketConditions,
-  RelayGap,
-  StockCode,
-  ViewerDown,
+import {
+  auctionAt,
+  type IndicativePrice,
+  type MarketPhase,
+  type MarketConditions,
+  type RelayGap,
+  type StockCode,
+  type ViewerDown,
 } from "@workspace/relay"
 import { DateTime, Effect } from "effect"
 import { useEffect, useState, useSyncExternalStore } from "react"
@@ -127,20 +128,20 @@ const PHASE: Record<MarketPhase, string> = {
   holiday: "Holiday",
 }
 
-// The auctions, when the indicative price is shown.
-const AUCTIONS: ReadonlySet<MarketPhase> = new Set([
-  "pre-opening",
-  "pre-closing",
-])
-
+// `code`'s held price while the auction of its time is the phase the server
+// says runs: the prices are held across phases, so without this the
+// morning's would show at 15:50 until the closing auction's first frame
+// (the server serves by the same rule, `market-conditions.ts`).
 const auctionIndicative = (code: StockCode) => {
   const { conditions, indicative } = view
-  return conditions !== undefined && AUCTIONS.has(conditions.phase)
-    ? indicative.get(code)
+  const price = indicative.get(code)
+  if (price === undefined || conditions === undefined) return undefined
+  return Effect.runSync(auctionAt(price.at))?.phase === conditions.phase
+    ? price
     : undefined
 }
 
-// `code`'s indicative price while an auction runs: the chart's dashed line
+// `code`'s indicative price while its auction runs: the chart's dashed line
 // and header, and the watchlist row's price. It re-renders only when that
 // code's changes.
 export function useAuctionIndicative(

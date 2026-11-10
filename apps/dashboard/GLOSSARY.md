@@ -39,7 +39,7 @@ The exchange market a running trade happens on: regular, cash, or negotiated. Ca
 _Avoid_: Market type
 
 **Indicative price**:
-The price, and the volume with it, that an auction would match at if it closed now. Published only during pre-opening and pre-closing.
+The price, and the volume with it, that an auction would match at if it closed now. Published only during pre-opening and pre-closing, and shown only while the auction of its time runs: pre-closing shows nothing until its own first frame, never the morning's price.
 _Avoid_: IEP, projected price
 
 **Auction match**:

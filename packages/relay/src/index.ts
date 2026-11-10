@@ -2,6 +2,7 @@ export {
   MarketPhase,
   ScheduleYearMissing,
   WibDate,
+  auctionAt,
   closedTradingDay,
   expectedStretches,
   isTradingDay,

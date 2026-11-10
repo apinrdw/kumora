@@ -3,6 +3,7 @@
 // and the indicative prices (spec apinrdw/kumora#138, "Feed freshness" and
 // "Indicative price"). Time is read only through Effect's Clock.
 import {
+  auctionAt,
   expectedStretches,
   marketMomentAt,
   nextOpenAfter,
@@ -78,13 +79,29 @@ export const makeMarketConditions = Effect.fnUntraced(function* (
     return market
   })
 
-  // Ajaib's indicative price only while Stockbit isn't live.
-  const indicativeOf = (code: StockCode) =>
-    Effect.sync(() =>
-      stockbitLive
-        ? (stockbit.get(code) ?? ajaib.get(code))
-        : (ajaib.get(code) ?? stockbit.get(code))
-    )
+  // Decision: a code's indicative price is served only while the auction of
+  // its time runs, decided by the clock here for every viewer: the prices
+  // are held all day, and the morning's would otherwise come back at 15:50
+  // in a snapshot, or in a delta when Stockbit's loss resends every code's.
+  // The page applies the same rule to what it holds across a phase change
+  // (`market-conditions.tsx`). Ajaib's price only while Stockbit isn't live.
+  const indicativeOf = Effect.fnUntraced(function* (code: StockCode) {
+    const running = yield* auctionAt(yield* DateTime.now)
+    if (running === undefined) return undefined
+    const current = Effect.fnUntraced(function* (
+      store: Map<StockCode, IndicativePrice>
+    ) {
+      const held = store.get(code)
+      if (held === undefined) return undefined
+      const auction = yield* auctionAt(held.at)
+      return auction?.date === running.date && auction.phase === running.phase
+        ? held
+        : undefined
+    })
+    return stockbitLive
+      ? ((yield* current(stockbit)) ?? (yield* current(ajaib)))
+      : ((yield* current(ajaib)) ?? (yield* current(stockbit)))
+  })
 
   // Every code's indicative price that changed since the last call.
   const indicativeChanges = Effect.gen(function* () {
