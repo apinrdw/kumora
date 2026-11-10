@@ -30,6 +30,7 @@ export {
   Connection,
   Feed,
   FeedStatus,
+  INGEST_TOKEN_MESSAGE_LIMIT,
   IngestCloseCode,
   IngestProtocolVersion,
   IngestToken,

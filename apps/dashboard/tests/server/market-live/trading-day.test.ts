@@ -4,6 +4,7 @@
 // receive.
 import { assert, describe, it } from "@effect/vitest"
 import {
+  INGEST_TOKEN_MESSAGE_LIMIT,
   IngestCloseCode,
   IngestProtocolVersion,
   StockCode,
@@ -42,8 +43,6 @@ import { memorySql } from "./sql"
 import { AccountId, SessionId } from "@/server/market-live/routes"
 
 const TOKEN = "e2e-ingest-token"
-// The longest token message the object reads.
-const INGEST_TOKEN_MESSAGE_LIMIT = 1024
 const DAY = WibDate.make("2026-11-09")
 
 class FakeSocket implements Peer {

@@ -125,6 +125,22 @@ export const AjaibFrames = Schema.TaggedStruct("Frames", {
   frames: Schema.Array(Schema.String),
 })
 
+// Decision: a new ingest socket's first message is read only up to
+// INGEST_TOKEN_MESSAGE_LIMIT UTF-16 units (at most three times that in UTF-8
+// bytes); the trading-day object checks the length before parsing and closes
+// a longer one with 4403. A websocket message may carry 32 MiB (Cloudflare's
+// Durable Objects limits page,
+// https://developers.cloudflare.com/durable-objects/platform/limits/, read
+// 2026-11-10), so a client without the token could otherwise have the shared
+// object decode a Frames envelope of millions of frames before its token was
+// checked. A token message is 45 characters plus the token, which
+// `openssl rand -base64 32` (docs/runbooks/deploy.md) makes 44; a token too
+// long for the message is rejected like a wrong one. Envelopes after the
+// token have no bound here: the relay holds the secret, and a Frames
+// envelope's size at peak is unmeasured (spec apinrdw/kumora#138, open
+// items).
+export const INGEST_TOKEN_MESSAGE_LIMIT = 1024
+
 // The ingest token, the first message after the socket opens.
 export const IngestToken = Schema.TaggedStruct("Token", {
   ...versioned,

@@ -4,6 +4,7 @@
 // hibernatable sockets; the tests drive it with fake sockets and TestClock.
 // Time is read only through Effect's Clock.
 import {
+  INGEST_TOKEN_MESSAGE_LIMIT,
   IngestCloseCode,
   TradeNumberOrder,
   ViewerCloseCode,
@@ -679,21 +680,25 @@ export const makeTradingDay = Effect.fnUntraced(function* (options: {
     yield* gaps.schedule
   })
 
-  // One envelope from the relay. The token comes first; anything before it, or
-  // a wrong one, closes the socket with 4403.
+  // One envelope from the relay. The token comes first, in a message no longer
+  // than INGEST_TOKEN_MESSAGE_LIMIT; a longer first message is closed with
+  // 4403 unread, as is anything else before the token, or a wrong one.
   const ingestMessage = Effect.fnUntraced(
     function* (socket: Peer, text: string) {
-      const message = yield* decodeIngestUp(text)
       if ((yield* socket.state) === "new") {
-        if (message._tag === "Token" && (yield* tokenMatches(message.token))) {
-          yield* socket.setState("ready")
-          relayOnline = true
-          yield* market.relayOnline
-          yield* scheduleDelta
-          return yield* onDemand.greet(socket)
+        if (text.length <= INGEST_TOKEN_MESSAGE_LIMIT) {
+          const first = yield* decodeIngestUp(text)
+          if (first._tag === "Token" && (yield* tokenMatches(first.token))) {
+            yield* socket.setState("ready")
+            relayOnline = true
+            yield* market.relayOnline
+            yield* scheduleDelta
+            return yield* onDemand.greet(socket)
+          }
         }
         return yield* socket.close(IngestCloseCode.RejectedToken, "Bad token")
       }
+      const message = yield* decodeIngestUp(text)
       relayOnline = true
       // A sealed day takes nothing more.
       if (sealed) return
