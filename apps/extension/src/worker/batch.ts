@@ -1,8 +1,10 @@
 // Frames gathered per feed and connection and sent as one envelope each about
-// every 250 ms (spec apinrdw/kumora#138, "Batching and targets").
+// every 250 ms (spec apinrdw/kumora#138, "Batching and targets"), or sooner
+// for a connection the tab reports closed (tab.ts).
 import {
   IngestProtocolVersion,
   type Connection,
+  type Feed,
   type FrameStream,
   type IngestUp,
 } from "@workspace/relay"
@@ -46,33 +48,48 @@ export const makeBatcher = Effect.fnUntraced(function* () {
     }
   })
 
-  // The envelopes for every connection that received frames since the last
-  // flush, stamped with the flush time.
-  const flush = Effect.gen(function* () {
-    const receivedAt = yield* DateTime.now
-    const envelopes: Array<IngestUp> = []
-    const base = { protocolVersion: IngestProtocolVersion, receivedAt }
-    for (const [connection, frames] of stockbit)
-      envelopes.push({
-        _tag: "Frames",
-        ...base,
-        feed: "Stockbit",
-        connection,
-        frames,
+  // The envelopes of every held connection `chosen` picks, stamped with the
+  // time they are taken; the batcher forgets their frames.
+  const take = (chosen: (feed: Feed, connection: Connection) => boolean) =>
+    Effect.gen(function* () {
+      const receivedAt = yield* DateTime.now
+      const envelopes: Array<IngestUp> = []
+      const base = { protocolVersion: IngestProtocolVersion, receivedAt }
+      for (const [connection, frames] of stockbit) {
+        if (!chosen("Stockbit", connection)) continue
+        envelopes.push({
+          _tag: "Frames",
+          ...base,
+          feed: "Stockbit",
+          connection,
+          frames,
+        })
+        stockbit.delete(connection)
+      }
+      const kept = ajaib.filter((bucket) => {
+        const { connection, stream, frames } = bucket
+        if (!chosen("Ajaib", connection)) return true
+        envelopes.push({
+          _tag: "Frames",
+          ...base,
+          feed: "Ajaib",
+          stream,
+          connection,
+          frames,
+        })
+        return false
       })
-    for (const { connection, stream, frames } of ajaib)
-      envelopes.push({
-        _tag: "Frames",
-        ...base,
-        feed: "Ajaib",
-        stream,
-        connection,
-        frames,
-      })
-    stockbit.clear()
-    ajaib.length = 0
-    return envelopes
-  })
+      ajaib.splice(0, ajaib.length, ...kept)
+      return envelopes
+    })
 
-  return { add, flush }
+  // The envelopes for every connection that received frames since the last
+  // flush.
+  const flush = take(() => true)
+
+  // The envelopes of one connection's frames, every stream of it.
+  const drain = (feed: Feed, connection: Connection) =>
+    take((held, of) => held === feed && of === connection)
+
+  return { add, flush, drain }
 })

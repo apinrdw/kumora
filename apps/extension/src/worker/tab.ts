@@ -67,12 +67,20 @@ export const makeBrokerTab = Effect.fnUntraced(function* (options: {
   const post = (command: TabCommand) =>
     Effect.ignore(Effect.try(() => active?.postMessage(command)))
 
+  // Decision: a connection's buffered frames go up before its close, drained
+  // from the batcher here rather than left to the 250 ms flush, so the
+  // dashboard sees one connection's envelopes in the order the tab saw them
+  // and a frame never revives a connection it was told is closed. Statuses
+  // go up at once; only frames are batched.
   const report = Effect.fnUntraced(function* (
     statuses: ReadonlyArray<{
       connection: Connection
       status: "opened" | "closed" | "alive"
     }>
   ) {
+    for (const { connection, status } of statuses)
+      if (status === "closed")
+        yield* Effect.forEach(yield* batcher.drain(feed, connection), publish)
     const at = yield* DateTime.now
     for (const { connection, status } of statuses)
       yield* publish({
