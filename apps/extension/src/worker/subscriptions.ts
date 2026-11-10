@@ -116,8 +116,11 @@ export const makeAjaibSubscriptions = Effect.fnUntraced(function* (
 ): Effect.fn.Return<Subscriptions, never, Scope.Scope> {
   const held = new Map<string, ReadonlyArray<StockCode>>()
   // Reading the id asks the tab, whose answer queues behind the event a hook
-  // runs in, so each socket's subscribe runs in a fiber of its own.
+  // or a resubscribe runs in, so each socket's subscribe runs in a fiber of
+  // its own, keyed by the socket: a later one replaces one still asking.
   const fibers = yield* FiberMap.make<string>()
+  const keyOf = (site: SiteName, connection: Connection) =>
+    `${site}/${connection}`
 
   const update = Effect.fnUntraced(function* (
     tab: BrokerTab,
@@ -128,17 +131,23 @@ export const makeAjaibSubscriptions = Effect.fnUntraced(function* (
     if (stream === undefined || !(yield* tab.isOpen(site, connection))) return
     const id = yield* accountId
     const to = yield* wanted
-    // From here to `held.set` nothing yields, so two updates never send the
-    // same difference.
-    const key = `${site}/${connection}`
-    const messages = yield* onDemandMessages(
-      stream,
-      held.get(key) ?? [],
-      to,
-      id
+    const key = keyOf(site, connection)
+    // From here to the last send nothing waits, and a replacing update can't
+    // interrupt, so two updates never send the same difference and a socket
+    // never holds half of one.
+    yield* Effect.uninterruptible(
+      Effect.gen(function* () {
+        const messages = yield* onDemandMessages(
+          stream,
+          held.get(key) ?? [],
+          to,
+          id
+        )
+        held.set(key, to)
+        for (const payload of messages)
+          yield* tab.send(site, connection, payload)
+      })
     )
-    held.set(key, to)
-    for (const payload of messages) yield* tab.send(site, connection, payload)
   })
 
   const opened = Effect.fnUntraced(function* (
@@ -159,13 +168,13 @@ export const makeAjaibSubscriptions = Effect.fnUntraced(function* (
     opened: (tab, site, connection) =>
       FiberMap.run(
         fibers,
-        `${site}/${connection}`,
+        keyOf(site, connection),
         opened(tab, site, connection)
       ).pipe(Effect.asVoid),
     closed: (_tab, site, connection) =>
       Effect.suspend(() => {
-        held.delete(`${site}/${connection}`)
-        return FiberMap.remove(fibers, `${site}/${connection}`)
+        held.delete(keyOf(site, connection))
+        return FiberMap.remove(fibers, keyOf(site, connection))
       }),
   }
 
@@ -175,7 +184,12 @@ export const makeAjaibSubscriptions = Effect.fnUntraced(function* (
       (site) =>
         Effect.forEach(
           connections,
-          (connection) => update(tab, site, connection),
+          (connection) =>
+            FiberMap.run(
+              fibers,
+              keyOf(site, connection),
+              update(tab, site, connection)
+            ),
           { discard: true }
         ),
       { discard: true }
