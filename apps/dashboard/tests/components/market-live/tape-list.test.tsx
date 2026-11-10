@@ -145,3 +145,39 @@ test("a live tape scrolled down counts the trades a reconnect's snapshot brings 
   ).toBe("50 new trades ↑")
   act(() => root.unmount())
 })
+
+test("an odd lot shows its hundredths: 1 share is 0.01 lots, 25 shares 0.25", () => {
+  const container = document.body.appendChild(document.createElement("div"))
+  const root = createRoot(container)
+  const tape = applyViewerMessage(emptyTape(), {
+    _tag: "Delta",
+    tape: [
+      { ...trade(1), lots: 0.01, board: "NG", side: "none" },
+      { ...trade(2), lots: 0.25, board: "NG", side: "none" },
+      { ...trade(3), lots: 0.5, board: "NG", side: "none" },
+      { ...trade(4), lots: 12 },
+    ],
+    candles: [],
+  })
+  act(() =>
+    root.render(
+      <TapeList
+        tape={tape}
+        frame={1}
+        selected={StockCode.make("BBCA")}
+        onSelect={() => {}}
+      />
+    )
+  )
+  const lotsOf = (n: number) =>
+    container
+      .querySelector(`tr[data-trade-number="${n}"]`)!
+      .querySelectorAll("td")[3]!.textContent
+  expect([lotsOf(1), lotsOf(2), lotsOf(3), lotsOf(4)]).toEqual([
+    "0.01",
+    "0.25",
+    "0.5",
+    "12",
+  ])
+  act(() => root.unmount())
+})
