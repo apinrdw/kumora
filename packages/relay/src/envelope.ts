@@ -133,9 +133,9 @@ export const AjaibFrames = Schema.TaggedStruct("Frames", {
 // https://developers.cloudflare.com/durable-objects/platform/limits/, read
 // 2026-11-10), so a client without the token could otherwise have the shared
 // object decode a Frames envelope of millions of frames before its token was
-// checked. A token message is 45 characters plus the token, which
-// `openssl rand -base64 32` (docs/runbooks/deploy.md) makes 44; a token too
-// long for the message is rejected like a wrong one. Envelopes after the
+// checked. A token message from `encodeIngestUp` is 47 characters plus the
+// token, which `openssl rand -base64 32` (docs/runbooks/deploy.md) makes 44,
+// so 91; a token too long for the message is rejected like a wrong one. Envelopes after the
 // token have no bound here: the relay holds the secret, and a Frames
 // envelope's size at peak is unmeasured (spec apinrdw/kumora#138, open
 // items).
