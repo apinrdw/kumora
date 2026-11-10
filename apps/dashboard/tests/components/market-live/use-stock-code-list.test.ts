@@ -62,16 +62,28 @@ describe("the page's stock code list", () => {
     "asks for the live day's list again until the relay delivers it",
     () =>
       Effect.gen(function* () {
-        const { next, asked } = yield* follow(undefined, [404, 404])
+        const { next, asked } = yield* follow(undefined, [404, 500, 404])
         assert.strictEqual(yield* next, "Missing")
+        yield* TestClock.adjust(RETRY_INTERVAL)
+        // The failed ask hands the page nothing; the ask after it does.
         yield* TestClock.adjust(RETRY_INTERVAL)
         assert.strictEqual(yield* next, "Missing")
         yield* TestClock.adjust(RETRY_INTERVAL)
         assert.strictEqual(yield* next, "Ready")
         assert.strictEqual(yield* next, "Ended")
         yield* TestClock.adjust(RETRY_INTERVAL)
-        assert.strictEqual(asked(), 3)
+        assert.strictEqual(asked(), 4)
       })
+  )
+
+  it.effect("asks for a recorded day's list again after a failed ask", () =>
+    Effect.gen(function* () {
+      const { next, asked } = yield* follow(DAY, [500])
+      yield* TestClock.adjust(RETRY_INTERVAL)
+      assert.strictEqual(yield* next, "Ready")
+      assert.strictEqual(yield* next, "Ended")
+      assert.strictEqual(asked(), 2)
+    })
   )
 
   it.effect("takes a recorded day's missing list as final", () =>
