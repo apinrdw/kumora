@@ -28,7 +28,7 @@ export function DayStrip({ shown }: { shown: WibDate | undefined }) {
   const [days, setDays] = useState(NO_DAYS)
   useEffect(() => {
     const fiber = clientRuntime.runFork(
-      fetchDayStrip.pipe(
+      fetchDayStrip().pipe(
         Effect.flatMap((strip) => Effect.sync(() => setDays(strip))),
         Effect.catchTag("SignInRequired", () => signInAgain),
         Effect.catchCause((cause) =>

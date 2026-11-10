@@ -19,6 +19,7 @@ import {
 } from "@workspace/relay"
 import type { DateTime } from "effect"
 import { Effect, Option } from "effect"
+import * as FetchHttpClient from "effect/http/FetchHttpClient"
 import * as HttpClient from "effect/http/HttpClient"
 import * as HttpClientResponse from "effect/http/HttpClientResponse"
 
@@ -37,12 +38,20 @@ export const getRecorded = Effect.fnUntraced(function* (path: string) {
 const getResource = (date: WibDate, resource: RecordedResource) =>
   Effect.flatMap(recordedDayPath(date, resource), getRecorded)
 
-// Every sealed day, newest first; none before the first day is sealed.
-export const fetchDayStrip = Effect.gen(function* () {
-  const body = yield* getRecorded(DayStripPath)
-  if (Option.isNone(body)) return []
-  return (yield* decodeDayStrip(body.value)).days
-})
+// Every sealed day, newest first; none before the first day is sealed. The
+// browser keeps the answer until a minute past the next 17:00 WIB seal, as
+// the Worker's Cache-Control says (apps/dashboard day-index.ts); `fresh`
+// asks the Worker past that copy, for the row the seal just wrote.
+export const fetchDayStrip = (fresh = false) =>
+  Effect.gen(function* () {
+    const body = yield* getRecorded(DayStripPath)
+    if (Option.isNone(body)) return []
+    return (yield* decodeDayStrip(body.value)).days
+  }).pipe(
+    fresh
+      ? Effect.provideService(FetchHttpClient.RequestInit, { cache: "reload" })
+      : (effect) => effect
+  )
 
 // One code's whole-day candles and its previous close.
 export const fetchRecordedCandles = Effect.fnUntraced(function* (
