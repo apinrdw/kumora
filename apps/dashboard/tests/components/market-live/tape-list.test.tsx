@@ -86,6 +86,35 @@ test("a recorded tape scrolled down shows the tape it is given next, not the one
   act(() => root.unmount())
 })
 
+test("a recorded tape scrolled past the end of the shorter tape it is given next shows that tape", () => {
+  const container = document.body.appendChild(document.createElement("div"))
+  const root = createRoot(container)
+  const render = (tape: ReturnType<typeof tapeOf>, frame: number) =>
+    act(() =>
+      root.render(
+        <TapeList
+          tape={tape}
+          frame={frame}
+          selected={StockCode.make("BBCA")}
+          onSelect={() => {}}
+        />
+      )
+    )
+  render(tapeOf(1, 200), 1)
+  const scroller = container.querySelector("table")!.parentElement!
+  act(() => {
+    scroller.scrollTop = 3300
+    scroller.dispatchEvent(new Event("scroll"))
+  })
+  // The replay cursor moved earlier: 20 trades, all above the viewport.
+  render(tapeOf(1001, 20), 2)
+  const numbers = shownNumbers(container)
+  expect(numbers.length).toBeGreaterThan(0)
+  expect(Math.min(...numbers)).toBeGreaterThan(1000)
+  expect(Math.max(...numbers)).toBe(1020)
+  act(() => root.unmount())
+})
+
 test("a live tape scrolled down counts the trades a reconnect's snapshot brings as new", () => {
   const container = document.body.appendChild(document.createElement("div"))
   const root = createRoot(container)
