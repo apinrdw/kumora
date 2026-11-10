@@ -115,9 +115,11 @@ export function useReplayCursor(day: WibDate | undefined) {
 }
 
 // The selected code's book frame in force at the cursor: the chunk of the
-// cursor's minute, replayed to it; during Play the next minute's chunk is
-// fetched ahead. A minute is asked for once; a load that failed forgets its
-// minute, so the cursor's next step or visit asks again.
+// cursor's minute, replayed to it, and no book until that minute is
+// answered, so a minute's frame never shows under a cursor on another;
+// during Play the next minute's chunk is fetched ahead. A minute is asked
+// for once; a load that failed forgets its minute, so the cursor's next step
+// or visit asks again.
 function followBook(
   day: WibDate,
   selected: StockCode,
@@ -131,13 +133,12 @@ function followBook(
     const { at, playing } = cursor.state()
     const minute = Math.floor(at / MINUTE) * MINUTE
     const chunk = chunks.get(minute)
+    book.replace(
+      chunk !== undefined && Option.isSome(chunk)
+        ? Effect.runSync(bookAt(chunk.value, DateTime.makeUnsafe(at)))
+        : undefined
+    )
     if (chunk === undefined) load(minute)
-    else
-      book.replace(
-        Option.isSome(chunk)
-          ? Effect.runSync(bookAt(chunk.value, DateTime.makeUnsafe(at)))
-          : undefined
-      )
     if (playing) load(minute + MINUTE)
   }
   const load = (minute: number) => {
