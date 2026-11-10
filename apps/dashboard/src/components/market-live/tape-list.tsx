@@ -254,7 +254,8 @@ function GapRow({ gap }: { gap: RelayGap }) {
 // The tape as a virtual list: only the rows in view are DOM. A live tape
 // follows live at the top; scrolled down it holds the tape as it was and
 // counts what arrived since. A recorded tape is whole as of the replay
-// cursor, and each move of the cursor replaces it, so it never holds.
+// cursor, and each move of the cursor replaces it, so it never holds; one
+// shorter than the distance scrolled is viewed from its end.
 export function TapeList({
   tape,
   frame,
@@ -315,11 +316,11 @@ export function TapeList({
 
   const view = frozen ?? tape
   const total = tapeLength(view, open)
-  const first = Math.max(0, Math.floor(scrollTop / ROW_PX) - OVERSCAN)
-  const last = Math.min(
-    total,
-    Math.ceil((scrollTop + height) / ROW_PX) + OVERSCAN
-  )
+  // The scrolled distance, held to the tape: a shorter tape (the replay
+  // cursor moved earlier) would otherwise put every row above the viewport.
+  const top = Math.min(scrollTop, Math.max(0, total * ROW_PX - height))
+  const first = Math.max(0, Math.floor(top / ROW_PX) - OVERSCAN)
+  const last = Math.min(total, Math.ceil((top + height) / ROW_PX) + OVERSCAN)
   const rows = Effect.runSync(
     withGapRows(tapeRows(view, open, first, last), gaps, {
       top: first === 0,
