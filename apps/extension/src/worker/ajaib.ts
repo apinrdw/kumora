@@ -45,25 +45,29 @@ export const tradeSubscribe = (id: Option.Option<AjaibAccountId>) =>
 // on-demand set sends only the difference: UNSUBSCRIBE for codes no longer
 // wanted, SUBSCRIBE for new ones. That is "subscribe once per connection" per
 // code: the spec's repeated subscribe is the same code twice, which this
-// never sends. It keeps the diff over reopening the sockets because Ajaib's
-// own page does the same, UNSUBSCRIBE then SUBSCRIBE, when its code changes
-// (owner's DevTools, 2026-11-06, apinrdw/kumora#50); `invalid subscription
-// object` there answered the PING-WEB ping. A reopened socket starts
-// from nothing.
+// never sends. A code in `fresh` the socket already holds is sent the pair,
+// UNSUBSCRIBE then SUBSCRIBE, so Ajaib sends its whole book again: it sends
+// one only on subscribing, then per-level deltas. The pair is what Ajaib's
+// own page sends when its code changes (owner's DevTools, 2026-11-06,
+// apinrdw/kumora#50), which is also why the diff is kept over reopening the
+// sockets; `invalid subscription object` there answered the PING-WEB ping. A
+// reopened socket starts from nothing.
 export const onDemandMessages = Effect.fnUntraced(function* (
   stream: OnDemandStream,
   from: ReadonlyArray<StockCode>,
   to: ReadonlyArray<StockCode>,
+  fresh: ReadonlyArray<StockCode>,
   id: Option.Option<AjaibAccountId>
 ) {
   const held = new Set(from)
   const wanted = new Set(to)
+  const again = new Set(fresh)
   const messages: Array<Payload> = []
   for (const code of from)
-    if (!wanted.has(code))
+    if (!wanted.has(code) || again.has(code))
       messages.push(yield* message("UNSUBSCRIBE", stream, code, id))
   for (const code of to)
-    if (!held.has(code))
+    if (!held.has(code) || again.has(code))
       messages.push(yield* message("SUBSCRIBE", stream, code, id))
   return messages
 })

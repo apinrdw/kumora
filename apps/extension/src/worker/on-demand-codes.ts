@@ -7,8 +7,9 @@ import { Effect } from "effect"
 import type { TargetName } from "./settings.ts"
 
 export const makeOnDemandCodes = Effect.fnUntraced(function* (options: {
-  // Runs when the union changed: the Ajaib resubscribe follows it.
-  readonly changed: Effect.Effect<void>
+  // Runs when the union changed or a target newly asked for codes, with the
+  // codes it newly asked for: the Ajaib resubscribe follows it.
+  readonly changed: (fresh: ReadonlyArray<StockCode>) => Effect.Effect<void>
   // A target's backfill request, passed on.
   readonly backfill: (
     name: TargetName,
@@ -23,11 +24,19 @@ export const makeOnDemandCodes = Effect.fnUntraced(function* (options: {
   const receive = (name: TargetName, message: IngestDown | undefined) =>
     Effect.suspend(() => {
       if (message?._tag === "Backfill") return options.backfill(name, message)
-      byTarget.set(name, message?.codes ?? [])
+      const before = new Set(byTarget.get(name) ?? [])
+      const codes = message?.codes ?? []
+      byTarget.set(name, codes)
+      // Decision: a target's codes are diffed per target, not only as the
+      // union. A code it newly asks for while the other target holds it, or
+      // that it held before its socket dropped, is subscribed afresh so Ajaib
+      // sends the whole book again: the dashboard behind the socket never saw
+      // one, or missed deltas while down, and a book can't be backfilled.
+      const fresh = codes.filter((code) => !before.has(code))
       const next = [...new Set([...byTarget.values()].flat())].sort()
-      if (JSON.stringify(next) === JSON.stringify(union)) return Effect.void
+      const same = JSON.stringify(next) === JSON.stringify(union)
       union = next
-      return options.changed
+      return same && fresh.length === 0 ? Effect.void : options.changed(fresh)
     })
 
   return { receive, codes: Effect.sync(() => union) }

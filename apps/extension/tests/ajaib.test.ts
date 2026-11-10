@@ -24,6 +24,7 @@ describe("Ajaib's on-demand subscriptions", () => {
           "ORDER_BOOK_CUSTOM",
           codes("BBCA", "TLKM"),
           codes("TLKM", "GOTO"),
+          [],
           Option.none()
         )
         assert.deepStrictEqual(messages, [
@@ -37,6 +38,31 @@ describe("Ajaib's on-demand subscriptions", () => {
       })
   )
 
+  it.effect(
+    "a fresh code the socket holds is unsubscribed then subscribed, as the page does on a code change; one it doesn't hold is subscribed once",
+    () =>
+      Effect.gen(function* () {
+        const messages = yield* onDemandMessages(
+          "ORDER_BOOK_CUSTOM",
+          codes("BBCA"),
+          codes("BBCA", "TLKM"),
+          codes("BBCA", "TLKM"),
+          Option.none()
+        )
+        assert.deepStrictEqual(messages, [
+          {
+            text: '{"method":"UNSUBSCRIBE","stream":"ORDER_BOOK_CUSTOM","streamObject":"BBCA"}',
+          },
+          {
+            text: '{"method":"SUBSCRIBE","stream":"ORDER_BOOK_CUSTOM","streamObject":"BBCA"}',
+          },
+          {
+            text: '{"method":"SUBSCRIBE","stream":"ORDER_BOOK_CUSTOM","streamObject":"TLKM"}',
+          },
+        ])
+      })
+  )
+
   it.effect("an unchanged set sends nothing", () =>
     Effect.gen(function* () {
       assert.deepStrictEqual(
@@ -44,6 +70,7 @@ describe("Ajaib's on-demand subscriptions", () => {
           "PRICE",
           codes("BBCA"),
           codes("BBCA"),
+          [],
           Option.none()
         ),
         []
@@ -60,6 +87,7 @@ describe("Ajaib's subscribe frames", () => {
           "INDICATIVE",
           [],
           codes("BBCA"),
+          [],
           Option.some(AjaibAccountId.make(4999301))
         ),
         [

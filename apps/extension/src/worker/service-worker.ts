@@ -46,6 +46,7 @@ import {
 import {
   makeAjaibSubscriptions,
   makeStockbitSubscriptions,
+  type OnDemandSubscriptions,
   type Subscriptions,
 } from "./subscriptions.ts"
 import { makeBrokerTab, type BrokerTab } from "./tab.ts"
@@ -222,11 +223,12 @@ const main = Effect.gen(function* () {
     codeList.codes
   )
   const onDemandCodes = yield* makeOnDemandCodes({
-    changed: Effect.suspend(() => onDemand.resubscribe(ajaibTab)),
+    changed: (fresh) =>
+      Effect.suspend(() => onDemand.resubscribe(ajaibTab, fresh)),
     backfill: (name, message) =>
       Effect.suspend(() => backfill.request(name, message)),
   })
-  const onDemand: Subscriptions = yield* makeAjaibSubscriptions(
+  const onDemand: OnDemandSubscriptions = yield* makeAjaibSubscriptions(
     onDemandCodes.codes,
     Effect.suspend(() => ajaibSession.accountId)
   )

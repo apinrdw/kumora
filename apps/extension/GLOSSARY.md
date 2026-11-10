@@ -25,7 +25,7 @@ What a target's ingest socket is doing: off (no token), connecting, connected, r
 _Avoid_: status
 
 **On-demand codes**:
-The codes the trading-day objects ask the relay to keep subscribed on Ajaib's `PRICE`, `INDICATIVE` and `ORDER_BOOK_CUSTOM` streams: the union across both targets. Each code is subscribed once per socket; a change sends only the difference.
+The codes the trading-day objects ask the relay to keep subscribed on Ajaib's `PRICE`, `INDICATIVE` and `ORDER_BOOK_CUSTOM` streams: the union across both targets. Each code is subscribed once per socket; a change sends only the difference. A code a target newly asks for that a socket already holds is sent UNSUBSCRIBE then SUBSCRIBE, so Ajaib sends that target its whole book, which it sends only on subscribing.
 _Avoid_: watchlist codes
 
 **Code list**:

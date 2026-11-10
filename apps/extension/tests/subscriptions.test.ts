@@ -8,7 +8,7 @@ import type { Payload } from "../src/worker/broker.ts"
 import { makeOnDemandCodes } from "../src/worker/on-demand-codes.ts"
 import {
   makeAjaibSubscriptions,
-  type Subscriptions,
+  type OnDemandSubscriptions,
 } from "../src/worker/subscriptions.ts"
 import type { BrokerTab } from "../src/worker/tab.ts"
 
@@ -44,7 +44,7 @@ describe("Ajaib's on-demand subscriptions", () => {
           Deferred.await(accountId)
         )
         const resubscribe = yield* Effect.forkChild(
-          subscriptions.resubscribe(tab)
+          subscriptions.resubscribe(tab, [])
         )
         yield* Effect.yieldNow
         assert.isDefined(resubscribe.pollUnsafe())
@@ -88,9 +88,9 @@ const methodsOn = (
 ) =>
   sent
     .filter((entry) => entry.site === site && entry.connection === connection)
-    .map((entry) => {
+    .map(({ payload }) => {
       const { method, streamObject } = JSON.parse(
-        (entry.payload as { text: string }).text
+        "text" in payload ? payload.text : "{}"
       ) as { method: string; streamObject: string }
       return `${method} ${streamObject}`
     })
@@ -99,12 +99,12 @@ const methodsOn = (
 // them, with every Ajaib socket open and the account id known.
 const relay = Effect.gen(function* () {
   const { tab, sent } = openTab()
-  const subscriptions: Subscriptions = yield* makeAjaibSubscriptions(
+  const subscriptions: OnDemandSubscriptions = yield* makeAjaibSubscriptions(
     Effect.suspend(() => onDemandCodes.codes),
     Effect.succeed(Option.none())
   )
   const onDemandCodes = yield* makeOnDemandCodes({
-    changed: subscriptions.resubscribe(tab),
+    changed: (fresh) => subscriptions.resubscribe(tab, fresh),
     backfill: () => Effect.void,
   })
   return { sent, receive: onDemandCodes.receive }

@@ -182,7 +182,9 @@ export const Backfill = Schema.TaggedStruct("Backfill", {
 })
 
 // The codes to keep subscribed on Ajaib: every code a viewer has selected or
-// in a watchlist.
+// in a watchlist. A code this message newly names for its socket is
+// subscribed afresh, so the object gets Ajaib's whole book of it even when
+// the relay's other target already holds the code.
 export const OnDemandCodes = Schema.TaggedStruct("OnDemandCodes", {
   codes: Schema.Array(StockCode),
 })
