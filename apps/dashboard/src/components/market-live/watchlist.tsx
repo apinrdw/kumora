@@ -39,7 +39,9 @@ const WatchlistRow = memo(function WatchlistRow({
   onRemove,
 }: RowProps) {
   const state = useDayState(store, code)
-  // During an auction the row shows where the code would match.
+  // During an auction the row shows where the code would match. Before the
+  // day's first PRICE or liveprice frame it may be all the code has: it shows
+  // alone, the figures' cells saying nothing traded yet.
   const indicative = useAuctionIndicative(code)
   const tone = state === undefined ? "" : CHANGE_TONE[direction(state.change)]
   return (
@@ -53,24 +55,22 @@ const WatchlistRow = memo(function WatchlistRow({
           {code}
         </button>
       </td>
-      {state === undefined ? (
+      {indicative !== undefined ? (
+        <td className={cn(CELL, "text-right")}>
+          <span className="mr-1 text-[10px] text-muted-foreground">
+            Indicative
+          </span>
+          {price(indicative.price)}
+        </td>
+      ) : state !== undefined ? (
+        <td className={cn(CELL, "text-right", tone)}>{price(state.last)}</td>
+      ) : (
         <td colSpan={5} className={cn(CELL, "text-muted-foreground")}>
           no data yet
         </td>
-      ) : (
+      )}
+      {state !== undefined ? (
         <>
-          {indicative === undefined ? (
-            <td className={cn(CELL, "text-right", tone)}>
-              {price(state.last)}
-            </td>
-          ) : (
-            <td className={cn(CELL, "text-right")}>
-              <span className="mr-1 text-[10px] text-muted-foreground">
-                Indicative
-              </span>
-              {price(indicative.price)}
-            </td>
-          )}
           <td className={cn(CELL, "text-right", tone)}>
             {signed(state.change, Number.isInteger(state.change) ? 0 : 2)}{" "}
             <span className="text-[11px]">{pct(state.changePercent)}</span>
@@ -79,6 +79,12 @@ const WatchlistRow = memo(function WatchlistRow({
           <td className={cn(CELL, "text-right")}>{compact(state.volume)}</td>
           <td className={cn(CELL, "text-right")}>{plain(state.frequency)}</td>
         </>
+      ) : (
+        indicative !== undefined && (
+          <td colSpan={4} className={cn(CELL, "text-muted-foreground")}>
+            no trades yet
+          </td>
+        )
       )}
       <td className={cn(CELL, "w-7 px-0")}>
         <KIconButton
