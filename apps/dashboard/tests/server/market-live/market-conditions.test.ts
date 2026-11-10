@@ -125,7 +125,7 @@ const marketAt = Effect.fnUntraced(function* (start: string) {
     return current!
   })
   const feeds = Effect.map(conditions, (current) => current.feeds)
-  const relayClosed = day.ingestClosed(0)
+  const relayClosed = day.ingestClosed(relay, 0)
   return { frames, reported, conditions, feeds, relayClosed, page, select }
 })
 
