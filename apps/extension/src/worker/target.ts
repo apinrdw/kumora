@@ -49,6 +49,10 @@ export const runTarget = Effect.fnUntraced(function* (options: {
   // picks the trading-day object at the handshake, by its WIB date, so a
   // socket left open past midnight would feed the sealed day and lose the
   // new one's frames; the socket is reopened as soon as the date changes.
+  // The socket's day is read before it dials, not after the handshake: a
+  // date that moves on during the handshake has routed the socket to the
+  // old day's object, and reading it afterwards would keep that socket
+  // open until the day after.
   readonly day: SubscriptionRef.SubscriptionRef<WibDate>
   // What every fresh socket is sent after the token: the socket's day's code
   // list, which a target that was down for the daily fetch would otherwise
@@ -72,9 +76,9 @@ export const runTarget = Effect.fnUntraced(function* (options: {
     Effect.gen(function* () {
       const socket = yield* Socket.makeWebSocket(url)
       const envelopes = yield* PubSub.subscribe(options.envelopes)
+      const day = yield* SubscriptionRef.get(options.day)
       const pull = yield* Socket.readerString(socket)
       const writer = yield* socket.writer
-      const day = yield* SubscriptionRef.get(options.day)
       yield* writer.write(token)
       for (const text of yield* options.catchUp(day)) yield* writer.write(text)
       yield* opened
@@ -98,6 +102,8 @@ export const runTarget = Effect.fnUntraced(function* (options: {
       const write = Effect.forever(
         Effect.flatMap(PubSub.take(envelopes), writer.write)
       )
+      // `changes` replays the current date, so a change since `day` was read
+      // is seen here too.
       const untilNextDay = SubscriptionRef.changes(options.day).pipe(
         Stream.filter((current) => current !== day),
         Stream.take(1),
