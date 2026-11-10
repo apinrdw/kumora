@@ -135,10 +135,11 @@ export const loadClockOffset = Effect.gen(function* () {
 })
 
 // Decision: the Ajaib PIN lives in chrome.storage.session alone: in memory,
-// cleared when Chrome closes, out of content scripts' reach. It is never
-// logged and never leaves the extension but for the one PIN check the Ajaib
-// tab makes (ajaib-session.ts). The sign-in and its access token sit beside
-// it, so a restarted worker keeps them until Chrome closes.
+// cleared when Chrome closes, out of content scripts' reach by default (per
+// https://developer.chrome.com/docs/extensions/reference/api/storage). It is
+// never logged and never leaves the extension but for the one PIN check the
+// Ajaib tab makes (ajaib-session.ts). The sign-in and its access token sit
+// beside it, so a restarted worker keeps them until Chrome closes.
 const PIN_KEY = "ajaibPin"
 const SIGN_IN_KEY = "ajaibSignIn"
 

@@ -53,8 +53,10 @@ import { runTarget } from "./target.ts"
 
 // Decision: the service worker ticks every 10 s; in-tab timers are throttled
 // in background tabs and never relied on. A `chrome.alarms` alarm (Chrome's
-// shortest period, 30 s) wakes a worker Chrome stopped, and ticks only when
-// the in-worker timer is overdue. See apinrdw/kumora#59.
+// shortest period, 30 s since Chrome 120, per
+// https://developer.chrome.com/docs/extensions/reference/api/alarms) wakes a
+// worker Chrome stopped, and ticks only when the in-worker timer is overdue.
+// See apinrdw/kumora#59.
 const TICK = Duration.seconds(10)
 const ALARM = "tick"
 

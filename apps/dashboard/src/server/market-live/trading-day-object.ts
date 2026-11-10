@@ -71,7 +71,9 @@ const WATCHING = "watching:"
 
 // Decision: a viewer's codes live in the object's storage under its socket's
 // id, not in the socket's attachment: an attachment holds 16,384 bytes
-// (Cloudflare's documented limit, and what workerd 1.20261026.1 enforces),
+// (Cloudflare's documented limit for `serializeAttachment`,
+// https://developers.cloudflare.com/durable-objects/best-practices/websockets/,
+// and what workerd 1.20261026.1 enforces),
 // about 2,300 four-character codes, and a Select past it would throw after
 // the snapshot, leaving the page connected but off the on-demand set. The
 // storage is SQLite-backed (the day store runs SQL on it), and holds a key

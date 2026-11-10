@@ -316,7 +316,9 @@ const range = (from: number, to: number) =>
   Array.from({ length: to - from + 1 }, (_, index) => from + index)
 
 // Decision: a restarted object may keep at most 32 MiB of a full day on the
-// heap, a quarter of the Durable Object's 128 MiB: the whole day's candles
+// heap, a quarter of the Durable Object's 128 MB memory limit
+// (https://developers.cloudflare.com/durable-objects/platform/limits/, read
+// 2026-11-10): the whole day's candles
 // kept as objects take about 180 MiB (measured 2026-11-10).
 const RESTART_HEAP_LIMIT = 32 * 2 ** 20
 

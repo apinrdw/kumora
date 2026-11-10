@@ -10,7 +10,7 @@ import { Schema } from "effect"
 // watchlist cap (envelope.ts) count on the length.
 const STOCK_CODE_MAX_LENGTH = 16
 
-// The IDX ticker of one listed instrument, such as `BBCA`; the three indices
+// The stock code of one listed instrument, such as `BBCA`; the three indices
 // travel as stock codes too (INDICES).
 export const StockCode = Schema.String.check(
   Schema.isPattern(/^(?:[A-Z]{2}\.)?[A-Z0-9-]+$/),
