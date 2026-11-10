@@ -7,6 +7,7 @@ import type { Page } from "@playwright/test"
 import { DASHBOARD, MEMBER } from "../support/accounts"
 import { marketNow } from "../support/clock"
 import { openIngest, wibToday } from "../support/ingest"
+import { stockbitIndexFrameNow } from "../support/stockbit"
 import { expect, test } from "../support/test"
 
 const PAGE = "/market-live"
@@ -183,5 +184,9 @@ test("the chart header shows the selected code's last price and change, and an i
   await chart.getByRole("option", { name: /^IHSG\b/ }).click()
   await expect(page).toHaveURL(`${DASHBOARD}${PAGE}?code=IHSG`)
   await expect(chart.getByRole("heading", { name: "IHSG" })).toBeVisible()
+  // An index's frames carry no previous close: no change is shown.
+  await relay.sendStockbit([stockbitIndexFrameNow(4_971.287)])
+  await expect(chart.getByLabel("Last price")).toHaveText("4,971.29")
+  await expect(chart.getByLabel("Change")).toHaveText("—")
   relay.close()
 })

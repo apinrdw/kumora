@@ -83,11 +83,12 @@ describe("a recorded day's watchlist row", () => {
     ).toBeUndefined()
   })
 
-  test("without a previous close the change runs from the open", () => {
+  test("without a previous close the row has no change, not one run from the open", () => {
     const { previousClose: _, ...noClose } = day
-    expect(
-      dayStateAt(noClose, closeOf(WibDate.make("2026-11-06")))
-    ).toMatchObject({ previousClose: 8_950, change: -75 })
+    const state = dayStateAt(noClose, closeOf(WibDate.make("2026-11-06")))
+    expect(state).toMatchObject({ last: 8_875 })
+    expect(state).not.toHaveProperty("previousClose")
+    expect(state).not.toHaveProperty("change")
   })
 })
 

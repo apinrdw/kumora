@@ -128,7 +128,8 @@ const orderBookFrame = (
 const livePriceFrame = (price: {
   readonly code: string
   readonly last: number
-  readonly previous: number
+  // Absent, with the change, as an index's frames leave it.
+  readonly previous?: number
   readonly time: string
   readonly isIndex?: boolean
   readonly board?: number
@@ -140,15 +141,17 @@ const livePriceFrame = (price: {
       ...doubleField(3, 1_000_000),
       ...doubleField(7, 100),
       ...stringField(11, `2026-11-09T${price.time}+07:00`),
-      ...doubleField(13, price.previous),
+      ...(price.previous === undefined ? [] : doubleField(13, price.previous)),
       ...doubleField(14, 5e9),
-      ...messageField(15, [
-        ...doubleField(1, price.last - price.previous),
-        ...doubleField(
-          2,
-          ((price.last - price.previous) / price.previous) * 100
-        ),
-      ]),
+      ...(price.previous === undefined
+        ? []
+        : messageField(15, [
+            ...doubleField(1, price.last - price.previous),
+            ...doubleField(
+              2,
+              ((price.last - price.previous) / price.previous) * 100
+            ),
+          ])),
       ...(price.isIndex === true
         ? varintField(18, 1)
         : varintField(23, price.board ?? 1)),
@@ -1159,6 +1162,40 @@ describe("the seal", () => {
         assert.deepStrictEqual(
           days.map((row) => row.ihsg),
           [{ close: 7_000, change: 0, changePercent: 0 }]
+        )
+      })
+  )
+
+  it.effect(
+    "records no IHSG change when its frames carried no previous close, rather than a change from a price seen today",
+    () =>
+      Effect.gen(function* () {
+        yield* TestClock.setTime(wib("15:59:00").epochMilliseconds)
+        const index = yield* makeDayIndex(memorySql())
+        const day = yield* tradingDay(memorySql(), index.record)
+        yield* day.stockbit([
+          livePriceFrame({
+            code: "IHSG",
+            last: 7_000,
+            time: "15:59:00",
+            isIndex: true,
+          }),
+          livePriceFrame({
+            code: "IHSG",
+            last: 7_100,
+            time: "15:59:30",
+            isIndex: true,
+          }),
+        ])
+        yield* day.ajaib([ajaibTrade({ seq: 1, time: "15:59:00" })])
+        yield* TestClock.setTime(wib("17:00:00").epochMilliseconds)
+        yield* day.alarm
+        const { days } = yield* decodeDayStrip(
+          yield* textOf(yield* index.strip)
+        )
+        assert.deepStrictEqual(
+          days.map((row) => [row.trades, row.ihsg]),
+          [[1, undefined]]
         )
       })
   )

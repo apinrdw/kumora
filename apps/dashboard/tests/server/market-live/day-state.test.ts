@@ -27,6 +27,7 @@ import {
 
 import recordedPrice from "./fixtures/ajaib-price-2026-11-06.json"
 import recordedTrades from "./fixtures/ajaib-trades-2026-11-09.json"
+import recordedIhsg from "./fixtures/stockbit-ihsg-liveprice.json"
 import recordedLivePrice from "./fixtures/stockbit-liveprice-2026-11-09.json"
 import {
   doubleField,
@@ -107,6 +108,35 @@ const livePriceFrame = (row: LivePriceRow) =>
     ])
   )
 
+// IHSG's recorded `liveprice` frames: an index's carry no previous close, no
+// change and no board.
+interface IndexRow {
+  readonly code: string
+  readonly date: string
+  readonly last: number
+  readonly volume: number
+  readonly high: number
+  readonly low: number
+  readonly open: number
+  readonly frequency: number
+  readonly value: number
+}
+const indexFrame = (row: IndexRow) =>
+  Uint8Array.from(
+    messageField(9, [
+      ...stringField(1, row.code),
+      ...doubleField(2, row.last),
+      ...doubleField(3, row.volume),
+      ...doubleField(4, row.high),
+      ...doubleField(5, row.low),
+      ...doubleField(6, row.open),
+      ...doubleField(7, row.frequency),
+      ...stringField(11, row.date),
+      ...doubleField(14, row.value),
+      ...varintField(18, 1),
+    ])
+  )
+
 // An Ajaib TRADE frame shaped like the recorded ones, at a WIB time today.
 const ajaibTrade = (trade: {
   readonly seq: number
@@ -183,6 +213,15 @@ const tradingDay = Effect.fnUntraced(function* () {
           connection,
           receivedAt: DateTime.makeUnsafe("2026-11-09T02:51:02.000Z"),
           frames: rows.map(livePriceFrame),
+        }),
+      stockbitIndex: (rows: ReadonlyArray<IndexRow>, connection: "A" | "B") =>
+        send({
+          _tag: "Frames",
+          protocolVersion: IngestProtocolVersion,
+          feed: "Stockbit",
+          connection,
+          receivedAt: DateTime.makeUnsafe("2026-11-09T07:19:28.000Z"),
+          frames: rows.map(indexFrame),
         }),
       stockbitTrades: (rows: ReadonlyArray<StockbitRow>) =>
         send({
@@ -291,6 +330,30 @@ describe("Day state", () => {
         assert.deepStrictEqual(states.BBRI, BBRI_FROM_STOCKBIT)
         assert.strictEqual(states.TINS!.last, 3490)
         assert.strictEqual(states.TINS!.volume, 159_047)
+      })
+  )
+
+  it.effect(
+    "an index's frames carry no previous close, so its Day state has none and no change, rather than one run from a price seen today",
+    () =>
+      Effect.gen(function* () {
+        const { relay, viewer } = yield* tradingDay()
+        const feed = yield* relay()
+        yield* feed.stockbitIndex(recordedIhsg.ihsg, "A")
+        const page = yield* viewer("IHSG", [])
+        const [snapshot] = yield* received(page)
+        assert.deepStrictEqual(statesOf(snapshot!).IHSG, {
+          code: "IHSG",
+          last: 4971.287,
+          open: 4955.834,
+          high: 4983.81,
+          low: 4925.101,
+          volume: 241_870_237,
+          value: 4_224_616_955_900,
+          frequency: 674_825,
+          asOf: "2026-11-09T07:19:27.145Z",
+          provenance: "Stockbit",
+        })
       })
   )
 

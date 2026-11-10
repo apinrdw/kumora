@@ -66,3 +66,43 @@ test("a code with an indicative price before any Day state shows the indicative 
   act(() => Effect.runSync(resetConditions))
   act(() => root.unmount())
 })
+
+test("a Day state without a change, an index's whose frames carry no previous close, shows none rather than 0%", () => {
+  const IHSG = StockCode.make("IHSG")
+  const store = makeDayStateStore()
+  const container = document.body.appendChild(document.createElement("div"))
+  const root = createRoot(container)
+  act(() =>
+    root.render(
+      <Watchlist
+        codes={[IHSG]}
+        list={{ _tag: "Loading" }}
+        store={store}
+        onAdd={() => {}}
+        onRemove={() => {}}
+        onSelect={() => {}}
+      />
+    )
+  )
+  act(() =>
+    store.replace([
+      {
+        code: IHSG,
+        last: 4971.287,
+        open: 4955.834,
+        high: 4983.81,
+        low: 4925.101,
+        volume: 241_870_237,
+        value: 4_224_616_955_900,
+        frequency: 674_825,
+        asOf: DateTime.makeUnsafe("2026-11-09T14:19:27+07:00"),
+        provenance: "Stockbit",
+      },
+    ])
+  )
+  const cells = [...container.querySelectorAll('tr[data-code="IHSG"] td')].map(
+    (cell) => cell.textContent
+  )
+  expect(cells.slice(1, 3)).toEqual(["4,971.29", "—"])
+  act(() => root.unmount())
+})

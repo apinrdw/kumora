@@ -69,6 +69,29 @@ export function stockbitTradeFrameToday(base = 0): Uint8Array {
 }
 
 /**
+ * One IHSG `liveprice` frame (wrapper case 9) at `last`, as Stockbit's socket
+ * sends an index's: the day's totals, no previous close and no change.
+ */
+export function stockbitIndexFrameNow(last: number): Uint8Array {
+  return Uint8Array.from(
+    messageField(9, [
+      ...messageField(1, [...new TextEncoder().encode("IHSG")]),
+      ...doubleField(2, last),
+      ...doubleField(3, 24_187_023_700),
+      ...doubleField(4, last),
+      ...doubleField(5, last),
+      ...doubleField(6, last),
+      ...doubleField(7, 674_825),
+      ...messageField(11, [
+        ...new TextEncoder().encode(new Date(marketNow()).toISOString()),
+      ]),
+      ...doubleField(14, 4_224_616_955_900),
+      ...varintField(18, 1),
+    ])
+  )
+}
+
+/**
  * One `orderbook` frame (wrapper case 10): one full side of `code`'s book,
  * levels of `[price, orders, lots]`, as Stockbit's socket sends it now.
  */
