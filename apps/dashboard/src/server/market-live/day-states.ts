@@ -13,6 +13,7 @@ import { DateTime, Effect } from "effect"
 
 import type { AjaibPrice } from "./ajaib-price.ts"
 import { minuteOf, type CandleFigures } from "./candles.ts"
+import { newerThanHeld } from "./late-frames.ts"
 import type { LivePrice } from "./stockbit-liveprice.ts"
 
 // A code's figures as of its last `liveprice` frame, the fallback's base.
@@ -80,13 +81,10 @@ const positionOf = (trades: ReadonlyArray<Kept>, number: TradeNumber) => {
   return low
 }
 
-const after = (a: DateTime.Utc, b: DateTime.Utc | undefined) =>
-  b === undefined || DateTime.isGreaterThan(a, b)
-
 const latest = (...times: ReadonlyArray<DateTime.Utc | undefined>) =>
   times.reduce<DateTime.Utc | undefined>(
     (newest, time) =>
-      time === undefined || !after(time, newest) ? newest : time,
+      time === undefined || !newerThanHeld(time, newest) ? newest : time,
     undefined
   )
 
@@ -222,7 +220,9 @@ const fromFallback = (
   ajaib: AjaibPrice | undefined
 ): DayState | undefined => {
   const price =
-    ajaib !== undefined && after(ajaib.time, base?.time) ? ajaib : undefined
+    ajaib !== undefined && newerThanHeld(ajaib.time, base?.time)
+      ? ajaib
+      : undefined
   if (base !== undefined) return carriedOn(code, base, since, price)
   if (price === undefined) return undefined
   return carriedOn(code, priceBase(price), { ...since, volume: 0 }, price)
@@ -266,7 +266,7 @@ export const makeDayStates = (candles: {
       Effect.sync(() => {
         if (!price.regularBoard) return
         const held = bases.get(price.code)
-        if (held !== undefined && !after(price.time, held.time)) return
+        if (held !== undefined && !newerThanHeld(price.time, held.time)) return
         bases.set(price.code, baseOf(price, held))
         const minute = minuteOf(price.time)
         kept.set(
@@ -275,7 +275,7 @@ export const makeDayStates = (candles: {
             if (candidate.minute < minute) return []
             if (candidate.minute > minute) return [candidate]
             const trades = candidate.trades.filter((trade) =>
-              after(trade.time, price.time)
+              newerThanHeld(trade.time, price.time)
             )
             return trades.length === 0 ? [] : [{ minute, trades }]
           })
@@ -287,7 +287,7 @@ export const makeDayStates = (candles: {
     const ajaibPrice = (price: AjaibPrice) =>
       Effect.sync(() => {
         const held = ajaibs.get(price.code)
-        if (held !== undefined && !after(price.time, held.time)) return
+        if (held !== undefined && !newerThanHeld(price.time, held.time)) return
         ajaibs.set(price.code, price)
         fallbackChanged.add(price.code)
       })
@@ -297,7 +297,7 @@ export const makeDayStates = (candles: {
     const counts = (trade: RunningTrade) => {
       if (trade.board !== "RG") return false
       const base = bases.get(trade.code)
-      return base === undefined || after(trade.time, base.time)
+      return base === undefined || newerThanHeld(trade.time, base.time)
     }
 
     // Keeps a counted trade whole when its minute is its code's base minute

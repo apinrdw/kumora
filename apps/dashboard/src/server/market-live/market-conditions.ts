@@ -112,7 +112,7 @@ export const makeMarketConditions = Effect.fnUntraced(function* (
     prices: ReadonlyArray<IndicativePrice>
   ) => {
     for (const price of prices) {
-      if (!newerThanHeld(price.at, store.get(price.code))) continue
+      if (!newerThanHeld(price.at, store.get(price.code)?.at)) continue
       store.set(price.code, price)
       dirty.add(price.code)
     }

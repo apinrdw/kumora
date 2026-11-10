@@ -35,6 +35,7 @@ import { ajaibPrices } from "./ajaib-price.ts"
 import { backfillTrades } from "./backfill-page.ts"
 import { makeBookChunks } from "./book-chunks.ts"
 import { makeCandleBook, minuteOf } from "./candles.ts"
+import { newerThanHeld } from "./late-frames.ts"
 import {
   memoryCodeListStore,
   storeCodeList,
@@ -662,10 +663,7 @@ export const makeTradingDay = Effect.fnUntraced(function* (options: {
         // The store keeps each code's regular-board frame, the one a restart
         // rebuilds its Day state from: a cash or negotiated board's would
         // displace it.
-        if (
-          price.regularBoard &&
-          (held === undefined || DateTime.isGreaterThan(price.time, held.time))
-        ) {
+        if (price.regularBoard && newerThanHeld(price.time, held?.time)) {
           const merged = yield* mergedLivePrice(held, price)
           lastLivePrices.set(price.code, merged)
           livePricesChanged.set(price.code, merged)

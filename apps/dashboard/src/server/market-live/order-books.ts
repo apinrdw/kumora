@@ -237,7 +237,7 @@ export const makeOrderBooks = (date: WibDate) =>
         const held = stockbit.get(side.code)
         // Not newer than the side held, the other connection delivering
         // late, it changes nothing.
-        if (!newerThanHeld(side.book.at, held?.[side.side])) continue
+        if (!newerThanHeld(side.book.at, held?.[side.side]?.at)) continue
         stockbit.set(side.code, {
           bid: side.side === "bid" ? side.book : held?.bid,
           offer: side.side === "offer" ? side.book : held?.offer,
