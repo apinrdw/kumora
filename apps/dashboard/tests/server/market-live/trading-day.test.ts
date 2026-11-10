@@ -225,6 +225,36 @@ describe("the ingest socket", () => {
       assert.strictEqual(socket.closedWith, IngestCloseCode.VersionMismatch)
     })
   )
+
+  it.effect(
+    "a malformed first message closes it with 4403: not JSON, or a Token without its token; another version's first message still closes with 4426",
+    () =>
+      Effect.gen(function* () {
+        const { ingest } = yield* tradingDay()
+        const notJson = new FakeSocket()
+        yield* ingest(notJson, "{not json")
+        assert.strictEqual(notJson.closedWith, IngestCloseCode.RejectedToken)
+        const tokenless = new FakeSocket()
+        yield* ingest(
+          tokenless,
+          JSON.stringify({
+            _tag: "Token",
+            protocolVersion: IngestProtocolVersion,
+          })
+        )
+        assert.strictEqual(tokenless.closedWith, IngestCloseCode.RejectedToken)
+        assert.strictEqual(yield* tokenless.state, "new")
+        const otherVersion = new FakeSocket()
+        yield* ingest(
+          otherVersion,
+          JSON.stringify({ _tag: "Token", protocolVersion: 99, token: TOKEN })
+        )
+        assert.strictEqual(
+          otherVersion.closedWith,
+          IngestCloseCode.VersionMismatch
+        )
+      })
+  )
 })
 
 describe("the viewer socket", () => {
