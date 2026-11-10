@@ -42,6 +42,8 @@ import { memorySql } from "./sql"
 import { AccountId, SessionId } from "@/server/market-live/routes"
 
 const TOKEN = "e2e-ingest-token"
+// The longest token message the object reads.
+const INGEST_TOKEN_MESSAGE_LIMIT = 1024
 const DAY = WibDate.make("2026-11-09")
 
 class FakeSocket implements Peer {
@@ -178,6 +180,38 @@ describe("the ingest socket", () => {
       const [snapshot] = yield* page.received
       assert.deepStrictEqual(snapshot?.tape, [])
     })
+  )
+
+  it.effect(
+    "a first message past the token limit closes it with 4403 unread; the token at the limit is taken, and the frames after it",
+    () =>
+      Effect.gen(function* () {
+        const { ingest, viewer, select } = yield* tradingDay()
+        // The right token, padded with the whitespace JSON allows, to the
+        // limit and one past it.
+        const tokenText = yield* token(TOKEN)
+        const padded = (length: number) =>
+          `${tokenText.slice(0, -1)}${" ".repeat(length - tokenText.length)}}`
+        const over = new FakeSocket()
+        yield* ingest(over, padded(INGEST_TOKEN_MESSAGE_LIMIT + 1))
+        assert.strictEqual(over.closedWith, IngestCloseCode.RejectedToken)
+        // Not JSON at all: refused by its length, before any parse.
+        const garbage = new FakeSocket()
+        yield* ingest(garbage, "x".repeat(INGEST_TOKEN_MESSAGE_LIMIT + 1))
+        assert.strictEqual(garbage.closedWith, IngestCloseCode.RejectedToken)
+
+        const socket = new FakeSocket()
+        yield* ingest(socket, padded(INGEST_TOKEN_MESSAGE_LIMIT))
+        assert.strictEqual(socket.closedWith, undefined)
+        assert.strictEqual(yield* socket.state, "ready")
+        const frames = yield* ajaib(recorded.session1)
+        assert.isAbove(frames.length, INGEST_TOKEN_MESSAGE_LIMIT)
+        yield* ingest(socket, frames)
+        const page = yield* viewer()
+        yield* select(page)
+        const [snapshot] = yield* page.received
+        assert.strictEqual(snapshot?.tape.length, recorded.session1.length)
+      })
   )
 
   it.effect("an envelope of another protocol version closes it with 4426", () =>
