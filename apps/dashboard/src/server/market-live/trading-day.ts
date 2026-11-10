@@ -826,7 +826,7 @@ export const makeTradingDay = Effect.fnUntraced(function* (options: {
   // read from the sockets' state, which lives with them across hibernation.
   // An instance flag set by the token or a frame is false when the close is
   // the first event after the object woke, which skipped this transition and
-  // its flush, so the next eviction lost the outage's start and the next
+  // its flush, so the next eviction lost the relay gap's start and the next
   // restart counted the gap from its own wake. A rejected socket closing
   // changes nothing. Written at once, as nothing else may arrive to schedule
   // a flush before the object is evicted.
