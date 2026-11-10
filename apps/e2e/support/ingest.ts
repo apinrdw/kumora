@@ -131,23 +131,36 @@ export function openingMatchToday(
 const send = async (socket: WebSocket, message: IngestUp) =>
   socket.send(await Effect.runPromise(encodeIngestUp(message)))
 
-/** A fake relay: the ingest socket, opened with `token`. */
-export async function openIngest(token = TEST_INGEST_TOKEN) {
+// The ingest socket, open; `closed` settles with its close code.
+const dial = async () => {
   const socket = new WebSocket(
     `${DASHBOARD.replace(/^http/, "ws")}${MarketLivePath.ingest}`
   )
   const closed = new Promise<number>((resolve) =>
     socket.addEventListener("close", (event) => resolve(event.code))
   )
-  // Every message the object sent down, as text.
-  const received: Array<string> = []
-  socket.addEventListener("message", (event) =>
-    received.push(String(event.data))
-  )
   await new Promise((resolve, reject) => {
     socket.addEventListener("open", resolve)
     socket.addEventListener("error", reject)
   })
+  return { socket, closed }
+}
+
+/** A client without the token: the ingest socket, opened and left silent. */
+export async function openSilentIngest() {
+  const { closed } = await dial()
+  return { closed }
+}
+
+/** A fake relay: the ingest socket, opened with `token`. */
+export async function openIngest(token = TEST_INGEST_TOKEN) {
+  const { socket, closed } = await dial()
+  // Every message the object sent down, as text; none comes before the
+  // token.
+  const received: Array<string> = []
+  socket.addEventListener("message", (event) =>
+    received.push(String(event.data))
+  )
   await send(socket, {
     _tag: "Token",
     protocolVersion: IngestProtocolVersion,

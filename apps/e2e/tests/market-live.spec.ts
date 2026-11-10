@@ -4,6 +4,7 @@ import {
   ajaibTradeToday,
   freshTradeNumbers,
   openIngest,
+  openSilentIngest,
   openingMatchToday,
   session1Today,
 } from "../support/ingest"
@@ -364,4 +365,11 @@ test("a signed-out visit goes to sign-in, keeping the page", async ({
 test("a wrong ingest token closes the ingest socket with 4403", async () => {
   const relay = await openIngest("not the token")
   expect(await relay.closed).toBe(4403)
+})
+
+test("an ingest socket that sends no token is closed with 4408", async () => {
+  // Between 10 and 20 s after it opened, at the trading-day object's alarm.
+  test.setTimeout(60_000)
+  const silent = await openSilentIngest()
+  expect(await silent.closed).toBe(4408)
 })
