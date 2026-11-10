@@ -11,7 +11,7 @@ The `ManagedRuntime` over the client layer, `clientRuntime`. Event handlers and 
 The services the client runtime provides, `clientLayer`. It does no I/O when built, so importing it during SSR is safe. Today it holds the frame scheduler.
 
 **Day state store**:
-The Day state of every stock code (and every index, by index code) on a page, as one map that `useSyncExternalStore` reads. An update replaces only its own code's Day state, and listeners fire at most once per animation frame. It runs its source only while something subscribes.
+The Day state of every stock code on a page, an index under its stock code (`TN.IHSG`), as one map that `useSyncExternalStore` reads. An update replaces only its own code's Day state, and listeners fire at most once per animation frame. It runs its source only while something subscribes.
 _Avoid_: quote store, feed store
 
 **Source**:

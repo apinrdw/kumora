@@ -191,11 +191,12 @@ export const OnDemandCodes = Schema.TaggedStruct("OnDemandCodes", {
 const IngestDown = Schema.Union([Backfill, OnDemandCodes])
 export type IngestDown = typeof IngestDown.Type
 
-// Decision: a watchlist holds at most 10,000 codes, ten times the codes
-// Ajaib lists. A viewer socket message may carry 32 MiB, and the trading-day
-// object stores a viewer's codes as one value, which its SQLite-backed
-// storage holds up to 8 MB together with the key (both from Cloudflare's
-// Durable Objects limits page, https://developers.cloudflare.com/durable-objects/platform/limits/, read
+// Decision: a watchlist holds at most 10,000 codes, about three times the
+// 3,406 Ajaib lists. A viewer socket message may carry 32 MiB, and the
+// trading-day object stores a viewer's codes as one value, which its
+// SQLite-backed storage holds up to 8 MB together with the key (both from
+// Cloudflare's Durable Objects limits page,
+// https://developers.cloudflare.com/durable-objects/platform/limits/, read
 // 2026-11-10). A code is at most 16 characters (codes.ts), so the largest
 // Select accepted stores under 200 KB; envelope.test.ts measures it. A Select
 // past either cap fails to decode, and the object closes the socket as for

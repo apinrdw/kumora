@@ -206,7 +206,7 @@ describe("viewer protocol", () => {
   )
 
   it.effect(
-    "a code past 16 characters is refused, and the largest Select accepted stores under the object's 8 MB",
+    "a code past 16 characters is refused, and the largest Select accepted stores under 200 KB",
     () =>
       Effect.gen(function* () {
         const select = (codes: ReadonlyArray<string>) =>
@@ -224,8 +224,8 @@ describe("viewer protocol", () => {
         const { watchlist } = yield* decodeViewerUp(select(longest))
         assert.lengthOf(watchlist, 10_000)
         // As the trading-day object stores a viewer's codes: one value, of
-        // ASCII, so a character is a byte.
-        assert.isBelow(JSON.stringify(watchlist).length, 8_000_000)
+        // ASCII, so a character is a byte. Its storage holds 8 MB.
+        assert.isBelow(JSON.stringify(watchlist).length, 200_000)
         const error = yield* Effect.flip(
           decodeViewerUp(select(["TN.W0000000000000"]))
         )
