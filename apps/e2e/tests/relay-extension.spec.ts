@@ -32,12 +32,21 @@ import { expect, test } from "../support/test"
 // trading-day object; the one that relays to the real dashboard lives in
 // market-live-relay-extension.spec.ts.
 
-// Ticks the relay until `probe` gives what the poll expects.
-const tickUntil = (worker: Worker, probe: () => unknown) =>
-  expect.poll(async () => {
-    await tickRelay(worker)
-    return probe()
-  })
+// Waits until the Ajaib tab just opened is attached: the tab attaches on a
+// browser event, not on a tick, so this ticks the relay until a tick's code
+// list GET shows it ran with the tab. That tick also tried any PIN entered.
+const ajaibAttached = (
+  worker: Worker,
+  brokers: Awaited<ReturnType<typeof startFakeBrokers>>
+) =>
+  expect
+    .poll(async () => {
+      await tickRelay(worker)
+      return brokers.requests.some(
+        (request) => request.path === "/api/v1/stock/data/list/"
+      )
+    })
+    .toBe(true)
 
 test.use({ storageState: MEMBER.storageState })
 
@@ -109,11 +118,7 @@ test("the relay streams only in IDX hours and subscribes Ajaib's on-demand codes
     // shows a tick ran with the tab, and the ticks after it open nothing.
     const ajaibTab = await context.newPage()
     await ajaibTab.goto(AJAIB_TAB)
-    await tickUntil(worker, () =>
-      brokers.requests.some(
-        (request) => request.path === "/api/v1/stock/data/list/"
-      )
-    ).toBe(true)
+    await ajaibAttached(worker, brokers)
     await tickRelay(worker, 3)
     expect(brokers.sockets).toEqual([])
 
@@ -145,10 +150,12 @@ test("the relay streams only in IDX hours and subscribes Ajaib's on-demand codes
       ])
 
     // At 16:35 every socket closes.
-    await setRelayClock(worker, "2026-11-10T16:34:59")
-    await tickUntil(worker, () =>
-      brokers.sockets.every((socket) => socket.socket.readyState === 3)
-    ).toBe(true)
+    await setRelayClock(worker, "2026-11-10T16:35:00")
+    await expect
+      .poll(() =>
+        brokers.sockets.every((socket) => socket.socket.readyState === 3)
+      )
+      .toBe(true)
   } finally {
     await context.close()
     await ingest.close()
@@ -188,7 +195,7 @@ test("a PIN from the options page signs in to Ajaib once, and Ajaib's frames car
     // names the account.
     const ajaibTab = await context.newPage()
     await ajaibTab.goto(AJAIB_TAB)
-    await tickUntil(worker, () => brokers.pin.bodies.length).toBe(1)
+    await ajaibAttached(worker, brokers)
     await expect(state).toHaveText("Signed in.")
     expect(brokers.pin.bodies).toEqual(['{"pin_code":"123456"}'])
     await expect.poll(() => brokers.on("/ws/price").length).toBe(1)
@@ -212,7 +219,9 @@ test("a PIN from the options page signs in to Ajaib once, and Ajaib's frames car
     brokers.pin.answer = PIN_ANSWERS.refused
     await options.getByLabel("Ajaib PIN").fill("111111")
     await options.getByRole("button", { name: "Sign in" }).click()
-    await tickUntil(worker, () => brokers.pin.bodies.length).toBe(2)
+    await expect(state).toContainText("tried once when an Ajaib tab is open")
+    await tickRelay(worker)
+    expect(brokers.pin.bodies).toHaveLength(2)
     await expect(state).toContainText("Ajaib refused the PIN")
     await tickRelay(worker, 3)
     expect(brokers.pin.bodies).toEqual([
