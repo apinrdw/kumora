@@ -1,20 +1,24 @@
-export type Candle = {
-  /** Axis label, e.g. "14 Okt". */
-  label: string
-  o: number
-  h: number
-  l: number
-  c: number
-  /** Shares traded. */
-  v?: number
-  vwap?: number
-}
+import { Schema } from "effect"
 
-export type PricePoint = {
+const Candle = Schema.Struct({
+  /** Axis label, e.g. "14 Okt". */
+  label: Schema.String,
+  o: Schema.Number,
+  h: Schema.Number,
+  l: Schema.Number,
+  c: Schema.Number,
+  /** Shares traded. */
+  v: Schema.optionalKey(Schema.Number),
+  vwap: Schema.optionalKey(Schema.Number),
+})
+export type Candle = typeof Candle.Type
+
+const PricePoint = Schema.Struct({
   /** Axis label, unique per point, e.g. "09.15" or "14 Okt". */
-  label: string
-  price: number
-  vwap?: number
+  label: Schema.String,
+  price: Schema.Number,
+  vwap: Schema.optionalKey(Schema.Number),
   /** Shares traded in the interval. */
-  volume?: number
-}
+  volume: Schema.optionalKey(Schema.Number),
+})
+export type PricePoint = typeof PricePoint.Type
