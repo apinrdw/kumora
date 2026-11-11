@@ -361,10 +361,24 @@ layer(NodeServices.layer)("workflow dependencies", (it) => {
         const restoreStep = steps[restore] ?? ""
         const id = /^\s+(?:- )?id: ([\w-]+)$/m.exec(restoreStep)?.[1]
         assert.isDefined(id, "the restore step has an id")
-        assert.include(
-          /^\s+key: (.+)$/m.exec(restoreStep)?.[1] ?? "",
-          "hashFiles('pnpm-lock.yaml'"
-        )
+        const key = /^\s+key: (.+)$/m.exec(restoreStep)?.[1] ?? ""
+        assert.include(key, "hashFiles('pnpm-lock.yaml'")
+        assert.include(key, "${{ runner.os }}")
+        for (const tool of ["node", "pnpm"]) {
+          const versionId = new RegExp(
+            `\\$\\{\\{ steps\\.([\\w-]+)\\.outputs\\.${tool} \\}\\}`
+          ).exec(key)?.[1]
+          assert.isDefined(versionId, `the key names ${tool}'s version`)
+          const reads = steps.findIndex((step) =>
+            new RegExp(`^\\s+(?:- )?id: ${versionId}$`, "m").test(step)
+          )
+          assert.isAbove(reads, -1, `a step outputs ${tool}'s version`)
+          assert.isBelow(reads, restore)
+          assert.match(
+            steps[reads] ?? "",
+            new RegExp(`\\b${tool}=.*\\b${tool} (?:-p|--version)\\b`)
+          )
+        }
         const onMiss = `if: steps.${id}.outputs.cache-hit != 'true'`
         const installs = steps.filter((step) =>
           /\bpnpm install --frozen-lockfile\b/.test(step)
