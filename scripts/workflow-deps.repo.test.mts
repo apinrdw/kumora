@@ -63,6 +63,10 @@ const jobSteps = (workflow: typeof Workflow.Type) =>
 
 const runs = (step: Step, pattern: RegExp) => pattern.test(step.run ?? "")
 
+const isBrowserCache = (step: Step) =>
+  /^actions\/cache@v\d+$/.test(step.uses ?? "") &&
+  step.with?.["path"] === "~/.cache/ms-playwright"
+
 layer(NodeServices.layer)("workflow dependencies", (it) => {
   it.effect(
     "every job running a packages/deploy entry point installs dependencies first",
@@ -177,34 +181,45 @@ layer(NodeServices.layer)("workflow dependencies", (it) => {
     () =>
       Effect.gen(function* () {
         const steps = jobSteps(yield* ciWorkflow).get("e2e") ?? []
-        const cache = steps.findIndex(
-          (step) =>
-            /^actions\/cache@v\d+$/.test(step.uses ?? "") &&
-            step.with?.["path"] === "~/.cache/ms-playwright"
-        )
-        assert.isAbove(cache, -1, "e2e caches ~/.cache/ms-playwright")
+        const cache = steps.findIndex(isBrowserCache)
         const cacheStep = steps[cache]
-        const cacheId = cacheStep?.id
+        assert.isDefined(cacheStep, "e2e caches ~/.cache/ms-playwright")
         const versionId = /\$\{\{ steps\.([\w-]+)\.outputs\.version \}\}/.exec(
-          String(cacheStep?.with?.["key"] ?? "")
+          String(cacheStep.with?.["key"])
         )?.[1]
         assert.isDefined(versionId, "the cache key names a step's version")
         const reads = steps.findIndex((step) => step.id === versionId)
-        assert.isAbove(reads, -1, "a step outputs the version")
-        assert.isBelow(reads, cache)
-        assert.match(steps[reads]?.run ?? "", /\bplaywright --version\b/)
+        const versionStep = steps[reads]
+        assert.isDefined(versionStep, "a step outputs the version")
+        assert.isBelow(reads, cache, "the version step runs before the cache")
+        assert.isTrue(
+          runs(versionStep, /\bplaywright --version\b/),
+          "the version step runs playwright --version"
+        )
         const installs = steps.filter((step) =>
           runs(step, /\bplaywright install\b/)
         )
-        assert.strictEqual(installs.length, 1)
-        const install = installs[0]
-        assert.isAbove(steps.indexOf(install as Step), cache)
-        assert.strictEqual(
-          install?.if,
-          `steps.${cacheId}.outputs.cache-hit != 'true'`
+        const [install] = installs
+        assert.isDefined(install, "e2e installs the browser")
+        assert.strictEqual(installs.length, 1, "e2e installs the browser once")
+        assert.isAbove(
+          steps.indexOf(install),
+          cache,
+          "the install step runs after the cache"
         )
-        assert.match(install?.run ?? "", /\bplaywright install chromium$/)
-        assert.notInclude(install?.run ?? "", "--with-deps")
+        assert.strictEqual(
+          install.if,
+          `steps.${cacheStep.id}.outputs.cache-hit != 'true'`,
+          "the install step's if: runs it only on a cache miss"
+        )
+        assert.isTrue(
+          runs(install, /\bplaywright install chromium$/),
+          "the install step runs playwright install chromium"
+        )
+        assert.isFalse(
+          runs(install, /--with-deps/),
+          "the install step skips --with-deps"
+        )
       })
   )
 })
