@@ -289,7 +289,7 @@ function DataRow<TRow extends object>({
       onKeyDown={
         onRowClick &&
         ((e) => {
-          if (!isActivationKey(e.key)) return
+          if (!Effect.runSync(isActivationKey(e.key))) return
           e.preventDefault()
           onRowClick(row)
         })
@@ -386,7 +386,7 @@ export function KDataTable<TRow extends object>({
   const [ownSort, setOwnSort] = useState(defaultSort)
   const sort = controlledSort ?? ownSort
 
-  const sorted = sort && !onSort ? sortRows(rows, sort) : rows
+  const sorted = sort && !onSort ? Effect.runSync(sortRows(rows, sort)) : rows
 
   function toggleSort(key: KSort<TRow>["key"]) {
     const next: KSort<TRow> = {

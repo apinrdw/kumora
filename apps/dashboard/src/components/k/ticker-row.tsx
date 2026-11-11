@@ -55,7 +55,7 @@ export function KTickerRow({
       tabIndex={0}
       onClick={onSelect}
       onKeyDown={(e) => {
-        if (isActivationKey(e.key) && onSelect) {
+        if (Effect.runSync(isActivationKey(e.key)) && onSelect) {
           e.preventDefault()
           onSelect()
         }
