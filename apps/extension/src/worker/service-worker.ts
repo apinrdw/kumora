@@ -13,6 +13,7 @@ import {
   DateTime,
   Duration,
   Effect,
+  Fiber,
   FiberMap,
   Option,
   PubSub,
@@ -296,8 +297,11 @@ const main = Effect.gen(function* () {
     receive: onDemandCodes.receive,
   })
 
-  // The tick, from the worker's own timer and the alarm.
+  // The tick, from the worker's own timer and the alarm. Its tab calls are
+  // forked, since their answers queue behind it as worker events; `settled`
+  // ends once the last tick's calls and every earlier tick's have answers.
   let lastTick = 0
+  let settled = Option.none<Fiber.Fiber<void>>()
   const tick = Effect.fnUntraced(function* (alarm: boolean) {
     const { now, offset, schedule } = yield* clocks
     const ms = DateTime.toEpochMillis(now)
@@ -308,14 +312,28 @@ const main = Effect.gen(function* () {
       yield* SubscriptionRef.set(day, today)
     const window = yield* windowAt(schedule)
     for (const tab of tabs) yield* tab.tick(window)
-    // The PIN check's answer queues behind this tick.
-    yield* Effect.forkScoped(ajaibSession.tick)
-    yield* codeList.tick(ajaibRest, schedule)
-    // Decision: a completed tick leaves the clock offset it ran on in the
-    // worker's global scope, test-only like the offset itself, so a spec that
-    // moved the clock reads it to await a tick on the new clock instead of
-    // sleeping. See apinrdw/kumora#174.
-    Object.assign(globalThis, { [LAST_TICK_KEY]: offset })
+    const session = yield* Effect.forkScoped(ajaibSession.tick)
+    const fetch = yield* codeList.tick(ajaibRest, schedule)
+    const earlier = settled
+    settled = Option.some(
+      yield* Effect.forkScoped(
+        Effect.gen(function* () {
+          yield* Fiber.awaitAll([
+            ...Option.toArray(earlier),
+            session,
+            ...Option.toArray(fetch),
+          ])
+          // Decision: a completed tick leaves the clock offset it ran on in
+          // the worker's global scope, test-only like the offset itself, so a
+          // spec that moved the clock reads it to await a tick on the new
+          // clock instead of sleeping. Completed means its PIN check and code
+          // list fetch have their answers, and every earlier tick's have, so
+          // a spec that forces ticks and then asserts sees what they sent.
+          // See apinrdw/kumora#174.
+          Object.assign(globalThis, { [LAST_TICK_KEY]: offset })
+        })
+      )
+    )
   })
   yield* Effect.forkScoped(
     Effect.repeat(

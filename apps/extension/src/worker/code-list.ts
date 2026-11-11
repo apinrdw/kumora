@@ -9,7 +9,15 @@ import {
   encodeIngestUp,
   wibDateAt,
 } from "@workspace/relay"
-import { DateTime, Duration, Effect, Option, PubSub, Schema } from "effect"
+import {
+  DateTime,
+  Duration,
+  Effect,
+  type Fiber,
+  Option,
+  PubSub,
+  Schema,
+} from "effect"
 
 import { CODE_LIST_PATH, listedCodes } from "./ajaib.ts"
 import type { BrokerTab } from "./tab.ts"
@@ -120,23 +128,27 @@ export const makeCodeList = Effect.fnUntraced(function* (options: {
     )
   }
 
-  // On a tick: fetch today's list unless it's held, one try at a time.
+  // On a tick: fetch today's list unless it's held, one try at a time. The
+  // fetch is forked, since the tab's answer comes in as a worker event; the
+  // tick gives its fiber, none when it fetched nothing.
   const tick = Effect.fnUntraced(function* (
     tab: Pick<BrokerTab, "request" | "attached">,
     now: DateTime.Utc
   ) {
+    const none = Option.none<Fiber.Fiber<boolean>>()
     const today = yield* wibDateAt(now)
     const ms = DateTime.toEpochMillis(now)
-    if (Option.isSome(list) && list.value.date === today) return
-    if (fetching) return
+    if (Option.isSome(list) && list.value.date === today) return none
+    if (fetching) return none
     if (!(yield* tab.attached)) {
-      if (ms - lastUnattached < Duration.toMillis(CODE_LIST_RETRY)) return
+      if (ms - lastUnattached < Duration.toMillis(CODE_LIST_RETRY)) return none
       lastUnattached = ms
-      return yield* Effect.logWarning("Code list waits for an open Ajaib tab")
+      yield* Effect.logWarning("Code list waits for an open Ajaib tab")
+      return none
     }
-    if (ms - lastTry < Duration.toMillis(CODE_LIST_RETRY)) return
+    if (ms - lastTry < Duration.toMillis(CODE_LIST_RETRY)) return none
     lastTry = ms
-    yield* Effect.forkScoped(fetchOnce(tab, today))
+    return Option.some(yield* Effect.forkScoped(fetchOnce(tab, today)))
   })
 
   // The CodeList envelope of `day`, for a target's fresh socket of that day;
