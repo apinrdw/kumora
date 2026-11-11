@@ -3,14 +3,13 @@ import { execFileSync } from "node:child_process"
 
 // Ports the OS has free, found in a child process: listening is asynchronous,
 // and every module that builds a test URL needs them while it loads.
-const FREE_PORTS = `
+const FREE_PORTS = (count: number) => `
 const net = require("node:net")
-const servers = ${APPS.length}
 const ports = []
-for (let i = 0; i < servers; i++) {
+for (let i = 0; i < ${count}; i++) {
   const server = net.createServer().listen(0, "localhost", () => {
     ports.push(server.address().port)
-    if (ports.length === servers) process.stdout.write(ports.join(" "))
+    if (ports.length === ${count}) process.stdout.write(ports.join(" "))
     server.unref()
   })
 }
@@ -20,13 +19,29 @@ for (let i = 0; i < servers; i++) {
  * Gives each app of this e2e run a free port, once, where
  * playwright.config.ts first loads this, and keeps them in the environment,
  * so the dev servers (through turbo's dev passThroughEnv) and every test
- * worker read the same ones (packages/deploy/src/target.ts devPort).
+ * worker read the same ones (packages/deploy/src/target.ts devPort). A port
+ * already set stays, and must be valid, so devPort cannot fail on it.
  */
-if (APPS.some((app) => !process.env[DEV_PORT_VARIABLES[app]])) {
-  const ports = execFileSync(process.execPath, ["-e", FREE_PORTS], {
-    encoding: "utf8",
-  }).split(" ")
-  APPS.forEach((app, i) => {
+const unset = APPS.filter((app) => {
+  const variable = DEV_PORT_VARIABLES[app]
+  const value = process.env[variable]
+  if (!value) return true
+  const port = Number(value)
+  if (!/^\d+$/.test(value) || port < 1 || port > 65535)
+    throw new Error(
+      `${variable}=${JSON.stringify(value)} is not a port. Set it to an integer from 1 to 65535, or unset it for a free port.`
+    )
+  return false
+})
+if (unset.length > 0) {
+  const ports = execFileSync(
+    process.execPath,
+    ["-e", FREE_PORTS(unset.length)],
+    {
+      encoding: "utf8",
+    }
+  ).split(" ")
+  unset.forEach((app, i) => {
     process.env[DEV_PORT_VARIABLES[app]] = ports[i]
   })
 }
