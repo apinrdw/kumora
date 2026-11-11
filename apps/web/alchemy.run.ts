@@ -1,5 +1,5 @@
 import * as Cloudflare from "@alchemy.run/cloudflare"
-import { DEV_PORTS, stackName } from "@workspace/deploy"
+import { devPort, stackName } from "@workspace/deploy"
 import { stackOptions, websiteProps } from "@workspace/deploy/stack"
 import * as Alchemy from "alchemy"
 import { Stack } from "alchemy/Stack"
@@ -13,7 +13,7 @@ export const Website = Cloudflare.Website.Vite(
     return {
       ...(yield* websiteProps("web", stage)),
       rootDir: import.meta.dirname,
-      dev: { port: DEV_PORTS.web, strictPort: true },
+      dev: { port: yield* devPort("web"), strictPort: true },
       env: { DEPLOY_PROBE_SECRET: Config.Redacted("DEPLOY_PROBE_SECRET") },
     }
   })

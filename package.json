@@ -18,6 +18,7 @@
     "typecheck:root": "tsc --noEmit",
     "test": "turbo run test test:root test:repo",
     "test:e2e": "pnpm --filter e2e e2e",
+    "ci-timings": "node scripts/report-ci-timings.mts",
     "prepare": "git config core.hooksPath .githooks",
     "test:root": "vitest run --dir scripts --exclude \"**/*.repo.test.mts\"",
     "test:repo": "vitest run --dir scripts .repo.test.mts"
@@ -37,7 +38,8 @@
     "oxlint": "1.90.0",
     "turbo": "^2.11.7",
     "typescript": "7.0.2",
-    "vitest": "^5.0.5"
+    "vitest": "^5.0.5",
+    "yaml": "2.9.1"
   },
   "packageManager": "pnpm@11.25.0",
   "engines": {

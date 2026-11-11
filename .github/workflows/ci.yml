@@ -1,3 +1,7 @@
+# Where a run's time went, per job, step and e2e spec:
+# pnpm ci-timings <run-id>. scripts/ci-timings.mts finds the e2e jobs by the
+# `e2e` job name and their test step by `pnpm test:e2e`, so renaming either
+# goes there too.
 name: CI
 
 on:
