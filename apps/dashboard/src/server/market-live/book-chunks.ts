@@ -21,22 +21,23 @@ interface Open {
   readonly deltas: Array<BookDelta>
 }
 
-const same = (a: unknown, b: unknown) => JSON.stringify(a) === JSON.stringify(b)
+const same = (a: unknown, b: unknown) =>
+  Effect.succeed(JSON.stringify(a) === JSON.stringify(b))
 
 // The parts of `book` that differ from `before`; every part when there is no
 // book before it.
-const deltaOf = (
+const deltaOf = Effect.fnUntraced(function* (
   servedAt: DateTime.Utc,
   before: OrderBook | undefined,
   book: OrderBook
-): BookDelta => {
+) {
   const delta: {
     -readonly [K in keyof BookDelta]: BookDelta[K]
   } = { servedAt, at: book.at }
   if (before?.provenance !== book.provenance) delta.provenance = book.provenance
-  if (before === undefined || !same(before.bids, book.bids))
+  if (before === undefined || !(yield* same(before.bids, book.bids)))
     delta.bids = book.bids
-  if (before === undefined || !same(before.offers, book.offers))
+  if (before === undefined || !(yield* same(before.offers, book.offers)))
     delta.offers = book.offers
   if (before?.bidLots !== book.bidLots) delta.bidLots = book.bidLots
   if (before?.offerLots !== book.offerLots) delta.offerLots = book.offerLots
@@ -46,7 +47,7 @@ const deltaOf = (
   )
     delta.previousClose = book.previousClose
   return delta
-}
+})
 
 export const makeBookChunks = Effect.sync(() => {
   // The book each code last served, and its chunk still taking frames.
@@ -54,10 +55,11 @@ export const makeBookChunks = Effect.sync(() => {
   const open = new Map<StockCode, Open>()
   let closed: Array<{ readonly code: StockCode; readonly open: Open }> = []
 
-  const close = (code: StockCode, held: Open) => {
-    closed.push({ code, open: held })
-    open.delete(code)
-  }
+  const close = (code: StockCode, held: Open) =>
+    Effect.sync(() => {
+      closed.push({ code, open: held })
+      open.delete(code)
+    })
 
   // A book viewers were sent. Decision: a frame joins the chunk of the
   // minute it was served in, by the object's clock, so a code's deltas
@@ -67,7 +69,7 @@ export const makeBookChunks = Effect.sync(() => {
     const minute = Math.floor(now / MINUTE) * MINUTE
     let held = open.get(book.code)
     if (held !== undefined && minute > held.minute) {
-      close(book.code, held)
+      yield* close(book.code, held)
       held = undefined
     }
     if (held === undefined) {
@@ -75,7 +77,7 @@ export const makeBookChunks = Effect.sync(() => {
       open.set(book.code, held)
     }
     held.deltas.push(
-      deltaOf(DateTime.makeUnsafe(now), last.get(book.code), book)
+      yield* deltaOf(DateTime.makeUnsafe(now), last.get(book.code), book)
     )
     last.set(book.code, book)
   })
@@ -85,7 +87,7 @@ export const makeBookChunks = Effect.sync(() => {
   const take = Effect.fnUntraced(function* (final: boolean) {
     const now = yield* Clock.currentTimeMillis
     for (const [code, held] of open)
-      if (final || held.minute + MINUTE <= now) close(code, held)
+      if (final || held.minute + MINUTE <= now) yield* close(code, held)
     const taken = closed
     closed = []
     const chunks: Array<StoredChunk> = []

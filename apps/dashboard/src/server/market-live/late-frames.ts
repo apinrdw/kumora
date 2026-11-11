@@ -1,4 +1,4 @@
-import { DateTime } from "effect"
+import { DateTime, Effect } from "effect"
 
 // Both of a feed's connections carry the same frames, so one may deliver a
 // frame the other already applied over. Whether a frame timed `at` is newer
@@ -6,4 +6,4 @@ import { DateTime } from "effect"
 export const newerThanHeld = (
   at: DateTime.Utc,
   held: DateTime.Utc | undefined
-) => held === undefined || DateTime.isGreaterThan(at, held)
+) => Effect.succeed(held === undefined || DateTime.isGreaterThan(at, held))

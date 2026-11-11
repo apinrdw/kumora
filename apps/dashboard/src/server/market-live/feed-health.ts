@@ -47,15 +47,17 @@ const expectedBetween = (
   from: DateTime.Utc,
   to: DateTime.Utc
 ) =>
-  stretches.reduce(
-    (total, stretch) =>
-      total +
-      Math.max(
-        0,
-        Math.min(millis(to), millis(stretch.to)) -
-          Math.max(millis(from), millis(stretch.from))
-      ),
-    0
+  Effect.sync(() =>
+    stretches.reduce(
+      (total, stretch) =>
+        total +
+        Math.max(
+          0,
+          Math.min(millis(to), millis(stretch.to)) -
+            Math.max(millis(from), millis(stretch.from))
+        ),
+      0
+    )
   )
 
 // The instant `amount` ms of `stretches` have passed since `from`.
@@ -63,29 +65,29 @@ const afterExpected = (
   stretches: ReadonlyArray<Interval>,
   from: DateTime.Utc,
   amount: number
-) => {
-  let left = amount
-  for (const stretch of stretches) {
-    const start = Math.max(millis(from), millis(stretch.from))
-    const available = millis(stretch.to) - start
-    if (available <= 0) continue
-    if (available >= left) return DateTime.makeUnsafe(start + left)
-    left -= available
-  }
-  return undefined
-}
+) =>
+  Effect.sync(() => {
+    let left = amount
+    for (const stretch of stretches) {
+      const start = Math.max(millis(from), millis(stretch.from))
+      const available = millis(stretch.to) - start
+      if (available <= 0) continue
+      if (available >= left) return DateTime.makeUnsafe(start + left)
+      left -= available
+    }
+    return undefined
+  })
 
 // Where two sorted lists of stretches overlap.
-const overlap = (
-  a: ReadonlyArray<Interval>,
-  b: ReadonlyArray<Interval>
-): ReadonlyArray<Interval> =>
-  a.flatMap((x) =>
-    b.flatMap((y) => {
-      const from = DateTime.max(x.from, y.from)
-      const to = DateTime.min(x.to, y.to)
-      return DateTime.Order(from, to) < 0 ? [{ from, to }] : []
-    })
+const overlap = (a: ReadonlyArray<Interval>, b: ReadonlyArray<Interval>) =>
+  Effect.sync((): ReadonlyArray<Interval> =>
+    a.flatMap((x) =>
+      b.flatMap((y) => {
+        const from = DateTime.max(x.from, y.from)
+        const to = DateTime.min(x.to, y.to)
+        return DateTime.Order(from, to) < 0 ? [{ from, to }] : []
+      })
+    )
   )
 
 export const makeFeedHealth = Effect.fnUntraced(function* (options: {
@@ -120,57 +122,67 @@ export const makeFeedHealth = Effect.fnUntraced(function* (options: {
       downs.push({ from: restored.at, to: undefined })
   }
 
-  const freshnessAt = (track: Track, now: DateTime.Utc): Freshness => {
+  const freshnessAt = Effect.fnUntraced(function* (
+    track: Track,
+    now: DateTime.Utc
+  ): Effect.fn.Return<Freshness> {
     if (!relayOnline || track.lastSign === undefined || track.open.size === 0)
       return "unavailable"
-    const silence = expectedBetween(stretches, track.lastSign, now)
+    const silence = yield* expectedBetween(stretches, track.lastSign, now)
     if (silence >= UNAVAILABLE_AFTER) return "unavailable"
     if (silence >= STALE_AFTER) return "stale"
     return "live"
-  }
+  })
 
   // Opens a down stretch for a feed that stopped being live by `now`, from
   // the instant it did: the moment its silence reached 15 s.
-  const observe = (now: DateTime.Utc) => {
+  const observe = Effect.fnUntraced(function* (now: DateTime.Utc) {
     for (const feed of FEEDS) {
       const track = tracks[feed]
       if (track.downs.at(-1)?.to === undefined && track.downs.length > 0)
         continue
-      if (freshnessAt(track, now) === "live") continue
+      if ((yield* freshnessAt(track, now)) === "live") continue
       const from =
         track.lastSign === undefined
           ? now
-          : (afterExpected(stretches, track.lastSign, STALE_AFTER) ?? now)
+          : ((yield* afterExpected(stretches, track.lastSign, STALE_AFTER)) ??
+            now)
       track.downs.push({ from: DateTime.min(from, now), to: undefined })
     }
-  }
+  })
 
-  const goDown = (track: Track, at: DateTime.Utc) => {
-    if (track.downs.at(-1)?.to !== undefined || track.downs.length === 0)
-      track.downs.push({ from: at, to: undefined })
-  }
+  const goDown = (track: Track, at: DateTime.Utc) =>
+    Effect.sync(() => {
+      if (track.downs.at(-1)?.to !== undefined || track.downs.length === 0)
+        track.downs.push({ from: at, to: undefined })
+    })
 
   // A frame or a ping reply on one of a feed's connections.
-  const sign = (feed: Feed, connection: Connection, at: DateTime.Utc) =>
-    Effect.sync(() => {
-      observe(at)
-      const track = tracks[feed]
-      track.lastSign = at
-      track.open.add(connection)
-      const last = track.downs.at(-1)
-      if (relayOnline && last !== undefined && last.to === undefined)
-        last.to = at
-    })
+  const sign = Effect.fnUntraced(function* (
+    feed: Feed,
+    connection: Connection,
+    at: DateTime.Utc
+  ) {
+    yield* observe(at)
+    const track = tracks[feed]
+    track.lastSign = at
+    track.open.add(connection)
+    const last = track.downs.at(-1)
+    if (relayOnline && last !== undefined && last.to === undefined) last.to = at
+  })
 
   // The relay reported one of a feed's connections closed: with none left,
   // the feed is unavailable at once.
-  const closed = (feed: Feed, connection: Connection, at: DateTime.Utc) =>
-    Effect.sync(() => {
-      observe(at)
-      const track = tracks[feed]
-      track.open.delete(connection)
-      if (track.open.size === 0) goDown(track, at)
-    })
+  const closed = Effect.fnUntraced(function* (
+    feed: Feed,
+    connection: Connection,
+    at: DateTime.Utc
+  ) {
+    yield* observe(at)
+    const track = tracks[feed]
+    track.open.delete(connection)
+    if (track.open.size === 0) yield* goDown(track, at)
+  })
 
   const online = Effect.sync(() => {
     relayOnline = true
@@ -178,29 +190,37 @@ export const makeFeedHealth = Effect.fnUntraced(function* (options: {
 
   // No ingest socket left: both feeds unavailable, and each starts over from
   // its first frame.
-  const offline = (at: DateTime.Utc) =>
-    Effect.sync(() => {
-      observe(at)
-      relayOnline = false
-      for (const feed of FEEDS) {
-        const track = tracks[feed]
-        track.lastSign = undefined
-        track.open.clear()
-        goDown(track, at)
-      }
-    })
+  const offline = Effect.fnUntraced(function* (at: DateTime.Utc) {
+    yield* observe(at)
+    relayOnline = false
+    for (const feed of FEEDS) {
+      const track = tracks[feed]
+      track.lastSign = undefined
+      track.open.clear()
+      yield* goDown(track, at)
+    }
+  })
 
-  // Where both feeds were down at once inside a stretch that expects trades,
-  // up to `now`. The one still running has no end.
-  const gapsAt = (now: DateTime.Utc): ReadonlyArray<RelayGap> => {
-    const downsOf = (feed: Feed) =>
+  // Each feed's down stretches, the one still running ending at `now`.
+  const downsUntil = (feed: Feed, now: DateTime.Utc) =>
+    Effect.sync(() =>
       tracks[feed].downs.map((down) => ({
         from: down.from,
         to: down.to ?? now,
       }))
+    )
+
+  // Where both feeds were down at once inside a stretch that expects trades,
+  // up to `now`. The one still running has no end.
+  const gapsAt = Effect.fnUntraced(function* (
+    now: DateTime.Utc
+  ): Effect.fn.Return<ReadonlyArray<RelayGap>> {
     const pieces: Array<Interval> = []
-    for (const piece of overlap(
-      overlap(downsOf("Stockbit"), downsOf("Ajaib")),
+    for (const piece of yield* overlap(
+      yield* overlap(
+        yield* downsUntil("Stockbit", now),
+        yield* downsUntil("Ajaib", now)
+      ),
       stretches
     )) {
       const last = pieces.at(-1)
@@ -213,33 +233,37 @@ export const makeFeedHealth = Effect.fnUntraced(function* (options: {
         ? { from: piece.from }
         : { from: piece.from, to: piece.to }
     )
-  }
+  })
 
   // The feeds' part of the market conditions viewers are told at `now`.
-  const conditionsAt = (now: DateTime.Utc) =>
-    Effect.sync(() => {
-      observe(now)
-      return {
-        relayOnline,
-        feeds: {
-          Stockbit: freshnessAt(tracks.Stockbit, now),
-          Ajaib: freshnessAt(tracks.Ajaib, now),
-        },
-        gaps: gapsAt(now),
-      }
-    })
+  const conditionsAt = Effect.fnUntraced(function* (now: DateTime.Utc) {
+    yield* observe(now)
+    return {
+      relayOnline,
+      feeds: {
+        Stockbit: yield* freshnessAt(tracks.Stockbit, now),
+        Ajaib: yield* freshnessAt(tracks.Ajaib, now),
+      },
+      gaps: yield* gapsAt(now),
+    }
+  })
 
   // Each feed's down stretches so far, for storage.
   const downsOf = (feed: Feed) =>
-    tracks[feed].downs.map((down) =>
-      down.to === undefined
-        ? { from: millis(down.from) }
-        : { from: millis(down.from), to: millis(down.to) }
+    Effect.sync(() =>
+      tracks[feed].downs.map((down) =>
+        down.to === undefined
+          ? { from: millis(down.from) }
+          : { from: millis(down.from), to: millis(down.to) }
+      )
     )
-  const record = Effect.sync((): DownRecord => ({
-    Stockbit: downsOf("Stockbit"),
-    Ajaib: downsOf("Ajaib"),
-  }))
+  const record = Effect.gen(function* () {
+    const downs: DownRecord = {
+      Stockbit: yield* downsOf("Stockbit"),
+      Ajaib: yield* downsOf("Ajaib"),
+    }
+    return downs
+  })
 
   return { sign, closed, online, offline, conditionsAt, record }
 })

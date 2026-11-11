@@ -7,19 +7,24 @@ import { WorkerEnv } from "@workspace/server"
 import { Clock, DateTime, Effect, Schema } from "effect"
 
 // The Clock `base` reads, `offset` ms later. Sleeps are unchanged.
-const shifted = (base: Clock.Clock, offset: number): Clock.Clock => ({
-  currentTimeMillisUnsafe: () => base.currentTimeMillisUnsafe() + offset,
-  currentTimeMillis: Effect.map(base.currentTimeMillis, (now) => now + offset),
-  currentTimeNanosUnsafe: () =>
-    base.currentTimeNanosUnsafe() + BigInt(offset) * 1_000_000n,
-  currentTimeNanos: Effect.map(
-    base.currentTimeNanos,
-    (now) => now + BigInt(offset) * 1_000_000n
-  ),
-  monotonicTimeNanosUnsafe: () => base.monotonicTimeNanosUnsafe(),
-  monotonicTimeNanos: base.monotonicTimeNanos,
-  sleep: (duration) => base.sleep(duration),
-})
+// Its methods are the Clock interface Effect's runtime calls.
+const shifted = (base: Clock.Clock, offset: number) =>
+  Effect.succeed<Clock.Clock>({
+    currentTimeMillisUnsafe: () => base.currentTimeMillisUnsafe() + offset,
+    currentTimeMillis: Effect.map(
+      base.currentTimeMillis,
+      (now) => now + offset
+    ),
+    currentTimeNanosUnsafe: () =>
+      base.currentTimeNanosUnsafe() + BigInt(offset) * 1_000_000n,
+    currentTimeNanos: Effect.map(
+      base.currentTimeNanos,
+      (now) => now + BigInt(offset) * 1_000_000n
+    ),
+    monotonicTimeNanosUnsafe: () => base.monotonicTimeNanosUnsafe(),
+    monotonicTimeNanos: base.monotonicTimeNanos,
+    sleep: (duration) => base.sleep(duration),
+  })
 
 const decodeOffset = Schema.decodeUnknownEffect(Schema.FiniteFromString)
 
@@ -42,7 +47,7 @@ export const withMarketClock = <A, E, R>(effect: Effect.Effect<A, E, R>) =>
     return yield* Effect.provideService(
       effect,
       Clock.Clock,
-      shifted(base, offset)
+      yield* shifted(base, offset)
     )
   })
 

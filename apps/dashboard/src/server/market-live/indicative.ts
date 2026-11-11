@@ -11,7 +11,7 @@ import {
 } from "@workspace/relay"
 import { Effect, Option, Schema } from "effect"
 
-import { bytesOf, fieldReader, messagesAt, numberOf } from "./stockbit.ts"
+import { bytesOf, fieldReader, messagesIn, numberOf } from "./stockbit.ts"
 
 // `WebsocketWrapMessageChannel` case 11, `IepIev`: 1 stock code, 2 price,
 // 3 volume (shares), 5 the exchange's time as ISO text with the WIB offset.
@@ -21,25 +21,28 @@ const IepIev = { code: 1, price: 2, volume: 3, time: 5 } as const
 const isStockCode = Schema.is(StockCode)
 const decodeInstant = Schema.decodeUnknownOption(Schema.DateTimeUtcFromString)
 
-const stockbitOne = (bytes: Uint8Array): IndicativePrice | undefined => {
-  const read = fieldReader(bytes)
+const stockbitOne = Effect.fnUntraced(function* (bytes: Uint8Array) {
+  const read = yield* fieldReader(bytes)
   if (read === undefined) return undefined
-  const code = new TextDecoder().decode(bytesOf(read(IepIev.code)))
-  const price = numberOf(read(IepIev.price))
-  const volume = numberOf(read(IepIev.volume)) ?? 0
-  const at = decodeInstant(new TextDecoder().decode(bytesOf(read(IepIev.time))))
+  const code = new TextDecoder().decode(yield* bytesOf(read.get(IepIev.code)))
+  const price = yield* numberOf(read.get(IepIev.price))
+  const volume = (yield* numberOf(read.get(IepIev.volume))) ?? 0
+  const at = decodeInstant(
+    new TextDecoder().decode(yield* bytesOf(read.get(IepIev.time)))
+  )
   if (!isStockCode(code) || price === undefined || Option.isNone(at))
     return undefined
-  return { code, price, volume, at: at.value }
-}
+  const indicative: IndicativePrice = { code, price, volume, at: at.value }
+  return indicative
+})
 
 export const stockbitIndicative = Effect.fnUntraced(function* (
   date: WibDate,
   frames: ReadonlyArray<Uint8Array>
 ) {
   const prices: Array<IndicativePrice> = []
-  for (const bytes of frames.flatMap((frame) => messagesAt(frame, IEPIEV))) {
-    const price = stockbitOne(bytes)
+  for (const bytes of yield* messagesIn(frames, IEPIEV)) {
+    const price = yield* stockbitOne(bytes)
     if (price !== undefined && (yield* wibDateAt(price.at)) === date)
       prices.push(price)
   }

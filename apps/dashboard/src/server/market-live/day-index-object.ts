@@ -19,7 +19,9 @@ export class DayIndexObject {
   // the object.
   constructor(ctx: DurableObjectState) {
     void ctx.blockConcurrencyWhile(() =>
-      runServerEffect(makeDayIndex(durableSql(ctx.storage))).then((index) => {
+      runServerEffect(
+        Effect.flatMap(durableSql(ctx.storage), makeDayIndex)
+      ).then((index) => {
         this.index = index
       })
     )

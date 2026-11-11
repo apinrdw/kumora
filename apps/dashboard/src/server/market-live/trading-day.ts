@@ -32,6 +32,7 @@ import {
 import { WorkerEnv } from "@workspace/server"
 import { Clock, DateTime, Duration, Effect, Schema, Scope } from "effect"
 
+import { tradePosition } from "../../lib/trade-position.ts"
 import { ajaibTrades } from "./ajaib.ts"
 import { ajaibPrices } from "./ajaib-price.ts"
 import { backfillTrades } from "./backfill-page.ts"
@@ -130,11 +131,11 @@ const FLUSH_PAST_MINUTE = 5_000
 // no change (the 2026-11-06 probe, `stockbit-ihsg-liveprice.json`), so the
 // day records no IHSG change rather than one run from a price seen today,
 // and the strip shows none; a frame that does carry either is used.
-const ihsgOf = (price: LivePrice | undefined) => {
+const ihsgOf = Effect.fnUntraced(function* (price: LivePrice | undefined) {
   if (price?.last === undefined) return {}
   const change =
     price.change === undefined
-      ? changeOf(price.last, price.previous)
+      ? yield* changeOf(price.last, price.previous)
       : { amount: price.change, percent: price.changePercent ?? 0 }
   return change === undefined
     ? {}
@@ -145,7 +146,7 @@ const ihsgOf = (price: LivePrice | undefined) => {
           changePercent: change.percent,
         },
       }
-}
+})
 
 const IHSG = StockCode.make("IHSG")
 
@@ -154,10 +155,11 @@ const IHSG = StockCode.make("IHSG")
 const latestByCode = <T extends { readonly code: StockCode }>(
   earlier: ReadonlyArray<T>,
   later: ReadonlyArray<T>
-) => {
-  const codes = new Set(later.map((row) => row.code))
-  return [...earlier.filter((row) => !codes.has(row.code)), ...later]
-}
+) =>
+  Effect.sync(() => {
+    const codes = new Set(later.map((row) => row.code))
+    return [...earlier.filter((row) => !codes.has(row.code)), ...later]
+  })
 
 // Decision: a viewer whose session ended is closed with 4401 when it would
 // next be served, a delta or a snapshot, not by a timer: that is where it
@@ -175,23 +177,6 @@ const sessionEnded = Effect.fnUntraced(function* (viewer: Peer) {
 const signInRequired = (viewer: Peer) =>
   viewer.close(ViewerCloseCode.SignInRequired, "Sign in")
 
-// The tape ordered by trade number, ascending; the index where `trade` sits or
-// would be inserted.
-const positionOf = (
-  tape: ReadonlyArray<RunningTrade>,
-  trade: RunningTrade
-): number => {
-  let low = 0
-  let high = tape.length
-  while (low < high) {
-    const middle = (low + high) >>> 1
-    if (TradeNumberOrder(tape[middle]!.tradeNumber, trade.tradeNumber) < 0)
-      low = middle + 1
-    else high = middle
-  }
-  return low
-}
-
 // A merged trade lists its feeds in this order.
 const FEEDS: ReadonlyArray<RunningTrade["feeds"][number]> = [
   "Stockbit",
@@ -202,18 +187,19 @@ const FEEDS: ReadonlyArray<RunningTrade["feeds"][number]> = [
 // One trade as two feeds saw it (spec apinrdw/kumora#138, "Merge and
 // dedupe"): Stockbit's fields win, sub-second time included; the other feed
 // fills only a side Stockbit left unspecified.
-const merge = (held: RunningTrade, arriving: RunningTrade): RunningTrade => {
-  const arrivingWins =
-    arriving.feeds.includes("Stockbit") && !held.feeds.includes("Stockbit")
-  const [first, second] = arrivingWins ? [arriving, held] : [held, arriving]
-  return {
-    ...first,
-    side: first.side === "none" ? second.side : first.side,
-    feeds: FEEDS.filter(
-      (feed) => first.feeds.includes(feed) || second.feeds.includes(feed)
-    ),
-  }
-}
+const merge = (held: RunningTrade, arriving: RunningTrade) =>
+  Effect.sync((): RunningTrade => {
+    const arrivingWins =
+      arriving.feeds.includes("Stockbit") && !held.feeds.includes("Stockbit")
+    const [first, second] = arrivingWins ? [arriving, held] : [held, arriving]
+    return {
+      ...first,
+      side: first.side === "none" ? second.side : first.side,
+      feeds: FEEDS.filter(
+        (feed) => first.feeds.includes(feed) || second.feeds.includes(feed)
+      ),
+    }
+  })
 
 // Decision: the auction matches (08:58:00 and 16:00:00, inside pre-opening
 // and pre-closing) and the negotiated board have no side, whichever feed
@@ -264,7 +250,8 @@ const restoreLastFrames = Effect.fnUntraced(function* (day: {
   }
   // The stored trades of every base's minute, so each code's Day state
   // fallback holds the ones after its base: one scan per distinct minute.
-  const minutes = new Set(prices.map((price) => minuteOf(price.time)))
+  const minutes = new Set<number>()
+  for (const price of prices) minutes.add(yield* minuteOf(price.time))
   for (const minute of minutes)
     for (const trade of yield* day.store.tradesBetween(
       DateTime.makeUnsafe(minute - 1),
@@ -421,8 +408,10 @@ export const makeTradingDay = Effect.fnUntraced(function* (options: {
     return mayBeStored && (yield* store.hasTrade(trade.tradeNumber))
   })
 
-  const inTape = (trade: RunningTrade) =>
-    tape[positionOf(tape, trade)]?.tradeNumber === trade.tradeNumber
+  const inTape = Effect.fnUntraced(function* (trade: RunningTrade) {
+    const at = yield* tradePosition(tape, trade.tradeNumber)
+    return tape[at]?.tradeNumber === trade.tradeNumber
+  })
 
   // A copy of a trade the day holds, merged into the tape row at `slot`, or
   // into the candle book's copy once the tape evicted it. A copy that adds
@@ -432,7 +421,7 @@ export const makeTradingDay = Effect.fnUntraced(function* (options: {
     arriving: RunningTrade,
     slot: number | undefined
   ) {
-    const merged = yield* settleSide(merge(held, arriving))
+    const merged = yield* settleSide(yield* merge(held, arriving))
     if (merged.feeds.length === held.feeds.length && merged.side === held.side)
       return
     if (slot !== undefined) {
@@ -452,7 +441,7 @@ export const makeTradingDay = Effect.fnUntraced(function* (options: {
   ) {
     for (const arriving of trades) {
       yield* gaps.seen(arriving)
-      const at = positionOf(tape, arriving)
+      const at = yield* tradePosition(tape, arriving.tradeNumber)
       // The tape row of this number, if it holds one.
       const slot =
         tape[at]?.tradeNumber === arriving.tradeNumber ? at : undefined
@@ -581,9 +570,9 @@ export const makeTradingDay = Effect.fnUntraced(function* (options: {
     const payload: Flush = {
       trades: settled.trades,
       candles: settled.candles,
-      livePrices: latestByCode(retained?.livePrices ?? [], livePrices),
+      livePrices: yield* latestByCode(retained?.livePrices ?? [], livePrices),
       chunks: [...(retained?.chunks ?? []), ...chunks],
-      ajaibBooks: latestByCode(retained?.ajaibBooks ?? [], ajaibBooks),
+      ajaibBooks: yield* latestByCode(retained?.ajaibBooks ?? [], ajaibBooks),
       facts: {
         [Fact.feedDowns]: JSON.stringify(yield* market.record),
         ...facts,
@@ -649,7 +638,7 @@ export const makeTradingDay = Effect.fnUntraced(function* (options: {
     if (trades > 0)
       yield* (options.recordDay ?? (() => Effect.void))({
         day: options.date,
-        ...ihsgOf(yield* store.livePrice(IHSG)),
+        ...(yield* ihsgOf(yield* store.livePrice(IHSG))),
         trades,
         gap: conditions.gaps.length > 0,
       })
@@ -787,7 +776,10 @@ export const makeTradingDay = Effect.fnUntraced(function* (options: {
         // The store keeps each code's regular-board frame, the one a restart
         // rebuilds its Day state from: a cash or negotiated board's would
         // displace it.
-        if (price.regularBoard && newerThanHeld(price.time, held?.time)) {
+        if (
+          price.regularBoard &&
+          (yield* newerThanHeld(price.time, held?.time))
+        ) {
           const merged = yield* mergedLivePrice(held, price)
           lastLivePrices.set(price.code, merged)
           livePricesChanged.set(price.code, merged)
@@ -845,10 +837,10 @@ export const makeTradingDay = Effect.fnUntraced(function* (options: {
         yield* insert(
           yield* Effect.filter(
             yield* backfillTrades(options.date, message),
-            (trade) =>
-              inTape(trade)
-                ? Effect.succeed(false)
-                : Effect.map(heldOutsideTape(trade, true), (held) => !held)
+            Effect.fnUntraced(function* (trade) {
+              if (yield* inTape(trade)) return false
+              return !(yield* heldOutsideTape(trade, true))
+            })
           )
         )
       if (message._tag === "Frames") yield* framesIn(message)

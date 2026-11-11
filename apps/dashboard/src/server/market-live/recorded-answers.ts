@@ -21,13 +21,16 @@ export const SNAPSHOT_TRADES = 200
 const MINUTE = 60_000
 
 const json = (text: string, cacheControl: string, status = 200) =>
-  new Response(text, {
-    status,
-    headers: {
-      "Content-Type": "application/json",
-      "Cache-Control": cacheControl,
-    },
-  })
+  Effect.sync(
+    () =>
+      new Response(text, {
+        status,
+        headers: {
+          "Content-Type": "application/json",
+          "Cache-Control": cacheControl,
+        },
+      })
+  )
 
 export const recordedAnswer = Effect.fnUntraced(function* (
   resource: RecordedResource,
@@ -46,7 +49,7 @@ export const recordedAnswer = Effect.fnUntraced(function* (
     case "Codes":
       return yield* codeListAnswer(day.codeList, day.date)
     case "Tape":
-      return json(
+      return yield* json(
         yield* encodeRecordedTape({
           trades: yield* store.tradesAt(resource.at, SNAPSHOT_TRADES),
         }),
@@ -54,7 +57,7 @@ export const recordedAnswer = Effect.fnUntraced(function* (
       )
     case "Candles": {
       const previous = (yield* store.livePrice(resource.code))?.previous
-      return json(
+      return yield* json(
         yield* encodeRecordedCandles({
           code: resource.code,
           ...(previous === undefined ? {} : { previousClose: previous }),
@@ -68,15 +71,15 @@ export const recordedAnswer = Effect.fnUntraced(function* (
         Math.floor(DateTime.toEpochMillis(resource.minute) / MINUTE) * MINUTE
       const chunk = yield* store.chunkAt(resource.code, minute)
       return chunk === undefined
-        ? json(
+        ? yield* json(
             '{"error":"NotFound","message":"Not recorded"}',
             cacheControl,
             404
           )
-        : json(chunk, cacheControl)
+        : yield* json(chunk, cacheControl)
     }
     case "Gaps":
-      return json(
+      return yield* json(
         day.sealed
           ? ((yield* store.fact(Fact.gaps)) ?? '{"gaps":[]}')
           : yield* encodeRecordedGaps({ gaps: yield* day.liveGaps }),

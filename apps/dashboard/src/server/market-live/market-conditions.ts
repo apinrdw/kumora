@@ -35,10 +35,12 @@ const phaseAt = Effect.fnUntraced(function* (now: DateTime.Utc) {
 })
 
 const sameIndicative = (a: IndicativePrice, b: IndicativePrice | undefined) =>
-  b !== undefined &&
-  a.price === b.price &&
-  a.volume === b.volume &&
-  DateTime.Equivalence(a.at, b.at)
+  Effect.succeed(
+    b !== undefined &&
+      a.price === b.price &&
+      a.volume === b.volume &&
+      DateTime.Equivalence(a.at, b.at)
+  )
 
 export const makeMarketConditions = Effect.fnUntraced(function* (
   date: WibDate,
@@ -109,7 +111,10 @@ export const makeMarketConditions = Effect.fnUntraced(function* (
     const changed: Array<IndicativePrice> = []
     for (const code of dirty) {
       const current = yield* indicativeOf(code)
-      if (current === undefined || sameIndicative(current, sent.get(code)))
+      if (
+        current === undefined ||
+        (yield* sameIndicative(current, sent.get(code)))
+      )
         continue
       sent.set(code, current)
       changed.push(current)
@@ -124,16 +129,16 @@ export const makeMarketConditions = Effect.fnUntraced(function* (
 
   // A frame not newer than the price held, the other connection delivering
   // late, changes nothing.
-  const keep = (
+  const keep = Effect.fnUntraced(function* (
     store: Map<StockCode, IndicativePrice>,
     prices: ReadonlyArray<IndicativePrice>
-  ) => {
+  ) {
     for (const price of prices) {
-      if (!newerThanHeld(price.at, store.get(price.code)?.at)) continue
+      if (!(yield* newerThanHeld(price.at, store.get(price.code)?.at))) continue
       store.set(price.code, price)
       dirty.add(price.code)
     }
-  }
+  })
 
   // One envelope from a ready relay: a trade stream's frames and ping replies
   // are signs of life, a reported close takes that connection away. Ajaib's
@@ -145,8 +150,8 @@ export const makeMarketConditions = Effect.fnUntraced(function* (
       if (message.feed === "Stockbit" || message.stream === "trade")
         yield* health.sign(message.feed, message.connection, now)
       if (message.feed === "Stockbit")
-        keep(stockbit, yield* stockbitIndicative(date, message.frames))
-      else keep(ajaib, yield* ajaibIndicative(date, message.frames))
+        yield* keep(stockbit, yield* stockbitIndicative(date, message.frames))
+      else yield* keep(ajaib, yield* ajaibIndicative(date, message.frames))
     }
     if (message._tag === "FeedStatus") {
       if (message.status === "alive")

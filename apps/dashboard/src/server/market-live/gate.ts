@@ -36,9 +36,13 @@ export const gateLiveViewer = Effect.fn("gateLiveViewer")(function* (
   const auth = yield* Auth
   // Past the cookie cache, so a ban or revoke bites at once.
   const session = yield* auth.getSession(request.headers, { fresh: true })
-  const decision = decide(accountOf(session), "market-live.view-live", {
-    feature: "market-live",
-  })
+  const decision = yield* decide(
+    yield* accountOf(session),
+    "market-live.view-live",
+    {
+      feature: "market-live",
+    }
+  )
   if (decision._tag === "Deny")
     return yield* refusal(decision.reason, MarketLivePath.live)
   if (session === null) return yield* refusal("sign-in", MarketLivePath.live)

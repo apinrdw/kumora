@@ -16,7 +16,7 @@ import {
 import { DateTime, Effect, Option, Schema } from "effect"
 
 import { newerThanHeld } from "./late-frames.ts"
-import { fieldReader, messagesAt, textOf } from "./stockbit.ts"
+import { fieldReader, messagesIn, textOf } from "./stockbit.ts"
 import type { LivePrice } from "./stockbit-liveprice.ts"
 
 const ORDERBOOK = 10
@@ -39,41 +39,43 @@ const isStockCode = Schema.is(StockCode)
 
 // `#O|<code>|BID or OFFER|price;orders;shares|…|<epoch s>-<orders>&<shares>`.
 // Undefined when the body isn't one.
-const sideBookOf = (body: string) => {
-  const parts = body.split("|")
-  const side: Side | undefined =
-    parts[2] === "BID" ? "bid" : parts[2] === "OFFER" ? "offer" : undefined
-  const totals = /^\d+-\d+&(\d+)$/.exec(parts.at(-1) ?? "")
-  if (parts[0] !== "#O" || side === undefined || totals === null)
-    return undefined
-  const levels: Array<BookLevel> = []
-  for (const part of parts.slice(3, -1)) {
-    const [price, orders, shares] = part.split(";").map(Number)
-    if (
-      !Number.isFinite(price) ||
-      !Number.isInteger(orders) ||
-      !Number.isFinite(shares)
-    )
+const sideBookOf = (body: string) =>
+  Effect.sync(() => {
+    const parts = body.split("|")
+    const side: Side | undefined =
+      parts[2] === "BID" ? "bid" : parts[2] === "OFFER" ? "offer" : undefined
+    const totals = /^\d+-\d+&(\d+)$/.exec(parts.at(-1) ?? "")
+    if (parts[0] !== "#O" || side === undefined || totals === null)
       return undefined
-    if (shares! > 0)
-      levels.push({ price: price!, lots: shares! / 100, orders: orders! })
-  }
-  return { side, book: { levels, lots: Number(totals[1]) / 100 } }
-}
+    const levels: Array<BookLevel> = []
+    for (const part of parts.slice(3, -1)) {
+      const [price, orders, shares] = part.split(";").map(Number)
+      if (
+        !Number.isFinite(price) ||
+        !Number.isInteger(orders) ||
+        !Number.isFinite(shares)
+      )
+        return undefined
+      if (shares! > 0)
+        levels.push({ price: price!, lots: shares! / 100, orders: orders! })
+    }
+    return { side, book: { levels, lots: Number(totals[1]) / 100 } }
+  })
 
-const stockbitSideOf = (bytes: Uint8Array) => {
-  const read = fieldReader(bytes)
+const stockbitSideOf = Effect.fnUntraced(function* (bytes: Uint8Array) {
+  const read = yield* fieldReader(bytes)
   if (read === undefined) return undefined
-  const text = (number: number) => textOf(read(number))
-  const code = text(Field.stockCode)
-  const parsed = sideBookOf(text(Field.body) ?? "")
+  const code = yield* textOf(read.get(Field.stockCode))
+  const parsed = yield* sideBookOf((yield* textOf(read.get(Field.body))) ?? "")
   const at = Option.getOrUndefined(
-    DateTime.make(text(Field.datetime) ?? "").pipe(Option.map(DateTime.toUtc))
+    DateTime.make((yield* textOf(read.get(Field.datetime))) ?? "").pipe(
+      Option.map(DateTime.toUtc)
+    )
   )
   if (code === undefined || !isStockCode(code) || !parsed || !at)
     return undefined
   return { code, side: parsed.side, book: { ...parsed.book, at } }
-}
+})
 
 const AjaibLevel = Schema.Struct({
   price: Schema.Finite,
@@ -134,29 +136,30 @@ interface StockbitBook {
   version: number
 }
 
-const best = (
-  levels: Iterable<BookLevel>,
-  side: Side
-): ReadonlyArray<BookLevel> =>
-  [...levels]
-    .sort((a, b) => (side === "bid" ? b.price - a.price : a.price - b.price))
-    .slice(0, BOOK_DEPTH)
+const best = (levels: Iterable<BookLevel>, side: Side) =>
+  Effect.sync((): ReadonlyArray<BookLevel> =>
+    [...levels]
+      .sort((a, b) => (side === "bid" ? b.price - a.price : a.price - b.price))
+      .slice(0, BOOK_DEPTH)
+  )
 
-const lotsOf = (levels: Iterable<BookLevel>) => {
-  let lots = 0
-  for (const level of levels) lots += level.lots
-  return lots
-}
+const lotsOf = (levels: Iterable<BookLevel>) =>
+  Effect.sync(() => {
+    let lots = 0
+    for (const level of levels) lots += level.lots
+    return lots
+  })
 
 const applyLevels = (
   held: Map<number, BookLevel>,
   levels: ReadonlyArray<typeof AjaibLevel.Type>
-) => {
-  for (const { price, lot, num } of levels) {
-    if (lot > 0) held.set(price, { price, lots: lot, orders: num })
-    else held.delete(price)
-  }
-}
+) =>
+  Effect.sync(() => {
+    for (const { price, lot, num } of levels) {
+      if (lot > 0) held.set(price, { price, lots: lot, orders: num })
+      else held.delete(price)
+    }
+  })
 
 export const makeOrderBooks = (date: WibDate) =>
   Effect.sync(() => {
@@ -173,71 +176,78 @@ export const makeOrderBooks = (date: WibDate) =>
     let servedLive: boolean | undefined
     let version = 0
 
-    const build = (
+    const build = Effect.fnUntraced(function* (
       code: StockCode,
       provenance: OrderBook["provenance"]
-    ): OrderBook | undefined => {
+    ) {
       const close = previous.get(code)
       const extra = close === undefined ? {} : { previousClose: close }
       if (provenance === "Stockbit") {
         const book = stockbit.get(code)
         if (book === undefined) return undefined
-        return {
+        const built: OrderBook = {
           _tag: "OrderBook",
           code,
-          bids: best(book.bid?.levels ?? [], "bid"),
-          offers: best(book.offer?.levels ?? [], "offer"),
+          bids: yield* best(book.bid?.levels ?? [], "bid"),
+          offers: yield* best(book.offer?.levels ?? [], "offer"),
           bidLots: book.bid?.lots ?? 0,
           offerLots: book.offer?.lots ?? 0,
           at: book.at,
           provenance,
           ...extra,
         }
+        return built
       }
       const book = ajaib.get(code)
       if (book === undefined) return undefined
-      return {
+      const built: OrderBook = {
         _tag: "OrderBook",
         code,
-        bids: best(book.bids.values(), "bid"),
-        offers: best(book.offers.values(), "offer"),
-        bidLots: lotsOf(book.bids.values()),
-        offerLots: lotsOf(book.offers.values()),
+        bids: yield* best(book.bids.values(), "bid"),
+        offers: yield* best(book.offers.values(), "offer"),
+        bidLots: yield* lotsOf(book.bids.values()),
+        offerLots: yield* lotsOf(book.offers.values()),
         at: book.at,
         provenance,
         ...extra,
       }
-    }
+      return built
+    })
 
     // What a served book is made of: a different key means viewers need it.
     const keyOf = (code: StockCode, book: OrderBook) =>
-      `${book.provenance}:${(book.provenance === "Stockbit" ? stockbit : ajaib).get(code)?.version}:${book.previousClose}`
+      Effect.sync(
+        () =>
+          `${book.provenance}:${(book.provenance === "Stockbit" ? stockbit : ajaib).get(code)?.version}:${book.previousClose}`
+      )
 
-    const served = (code: StockCode, stockbitLive: boolean) => {
+    const served = Effect.fnUntraced(function* (
+      code: StockCode,
+      stockbitLive: boolean
+    ) {
       const [first, second] = stockbitLive
         ? (["Stockbit", "Ajaib"] as const)
         : (["Ajaib", "Stockbit"] as const)
-      return build(code, first) ?? build(code, second)
-    }
+      return (yield* build(code, first)) ?? (yield* build(code, second))
+    })
 
     // A change of Stockbit's liveness can switch every code Ajaib has a book
     // of; codes without one keep Stockbit's.
     const switched = (stockbitLive: boolean) =>
-      servedLive !== stockbitLive && ajaib.size > 0
+      Effect.sync(() => servedLive !== stockbitLive && ajaib.size > 0)
 
     const stockbitFrames = Effect.fnUntraced(function* (
       frames: ReadonlyArray<Uint8Array>
     ) {
-      for (const bytes of frames.flatMap((frame) =>
-        messagesAt(frame, ORDERBOOK)
-      )) {
-        const side = stockbitSideOf(bytes)
+      for (const bytes of yield* messagesIn(frames, ORDERBOOK)) {
+        const side = yield* stockbitSideOf(bytes)
         if (side === undefined || (yield* wibDateAt(side.book.at)) !== date)
           continue
         const held = stockbit.get(side.code)
         // Not newer than the side held, the other connection delivering
         // late, it changes nothing.
-        if (!newerThanHeld(side.book.at, held?.[side.side]?.at)) continue
+        if (!(yield* newerThanHeld(side.book.at, held?.[side.side]?.at)))
+          continue
         stockbit.set(side.code, {
           bid: side.side === "bid" ? side.book : held?.bid,
           offer: side.side === "offer" ? side.book : held?.offer,
@@ -275,8 +285,8 @@ export const makeOrderBooks = (date: WibDate) =>
         held === undefined || initial
           ? { bids: new Map(), offers: new Map(), at, version: 0 }
           : held
-      applyLevels(book.bids, buy ?? [])
-      applyLevels(book.offers, sell ?? [])
+      yield* applyLevels(book.bids, buy ?? [])
+      yield* applyLevels(book.offers, sell ?? [])
       book.at = at
       book.version = ++version
       ajaib.set(code, book)
@@ -297,38 +307,37 @@ export const makeOrderBooks = (date: WibDate) =>
       })
 
     // The book a viewer selecting `code` starts from.
-    const bookOf = (
+    const bookOf = Effect.fnUntraced(function* (
       code: StockCode,
       stockbitLive: boolean
-    ): Effect.Effect<OrderBook | IndexHasNoBook | undefined> =>
-      Effect.sync(() =>
-        indices.has(code)
-          ? { _tag: "IndexHasNoBook", code }
-          : served(code, stockbitLive)
-      )
+    ): Effect.fn.Return<OrderBook | IndexHasNoBook | undefined> {
+      return indices.has(code)
+        ? { _tag: "IndexHasNoBook", code }
+        : yield* served(code, stockbitLive)
+    })
 
-    const hasChanges = (stockbitLive: boolean) =>
-      Effect.sync(() => changed.size > 0 || switched(stockbitLive))
+    const hasChanges = Effect.fnUntraced(function* (stockbitLive: boolean) {
+      return changed.size > 0 || (yield* switched(stockbitLive))
+    })
 
     // Every code's served book that changed since viewers were last sent it.
-    const takeChanged = (stockbitLive: boolean) =>
-      Effect.sync(() => {
-        const codes = changed
-        changed = new Set()
-        if (switched(stockbitLive))
-          for (const code of ajaib.keys()) codes.add(code)
-        servedLive = stockbitLive
-        const books: Array<OrderBook> = []
-        for (const code of codes) {
-          const book = served(code, stockbitLive)
-          if (book === undefined) continue
-          const key = keyOf(code, book)
-          if (sent.get(code) === key) continue
-          sent.set(code, key)
-          books.push(book)
-        }
-        return books
-      })
+    const takeChanged = Effect.fnUntraced(function* (stockbitLive: boolean) {
+      const codes = changed
+      changed = new Set()
+      if (yield* switched(stockbitLive))
+        for (const code of ajaib.keys()) codes.add(code)
+      servedLive = stockbitLive
+      const books: Array<OrderBook> = []
+      for (const code of codes) {
+        const book = yield* served(code, stockbitLive)
+        if (book === undefined) continue
+        const key = yield* keyOf(code, book)
+        if (sent.get(code) === key) continue
+        sent.set(code, key)
+        books.push(book)
+      }
+      return books
+    })
 
     // A restarted object's last served book of a code: its previous close,
     // and, from Stockbit, the sides the next frames replace whole. An Ajaib
