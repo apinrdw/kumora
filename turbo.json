@@ -135,6 +135,8 @@
         "packages/*/package.json",
         "pnpm-workspace.yaml",
         "pnpm-lock.yaml",
+        // workflow-deps checks the e2e matrix covers its projects.
+        "apps/e2e/playwright.config.ts",
         ".github/workflows/**",
         ".claude/hooks/fallow-gate.sh"
       ]
