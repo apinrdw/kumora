@@ -5,7 +5,7 @@ import {
   type RunningTrade,
   type ViewerDown,
 } from "@workspace/relay"
-import { DateTime } from "effect"
+import { Effect, DateTime } from "effect"
 import { act } from "react"
 import { createRoot } from "react-dom/client"
 import { expect, test } from "vitest"
@@ -29,11 +29,13 @@ const trade = (n: number): RunningTrade => ({
 
 // A tape of `count` trades numbered from `from`.
 const tapeOf = (from: number, count: number) =>
-  applyViewerMessage(emptyTape(), {
-    _tag: "Delta",
-    tape: Array.from({ length: count }, (_, i) => trade(from + i)),
-    candles: [],
-  })
+  Effect.runSync(
+    applyViewerMessage(Effect.runSync(emptyTape()), {
+      _tag: "Delta",
+      tape: Array.from({ length: count }, (_, i) => trade(from + i)),
+      candles: [],
+    })
+  )
 
 // A socket's first snapshot: the tape starts over from the `count` trades
 // numbered from `from`.
@@ -139,7 +141,7 @@ test("a live tape scrolled down counts the trades a reconnect's snapshot brings 
   })
   // The socket dropped and reconnected: its first snapshot, 50 trades newer
   // than any held among the 200 newest.
-  render(applyViewerMessage(tape, snapshotOf(151, 200)))
+  render(Effect.runSync(applyViewerMessage(tape, snapshotOf(151, 200))))
   expect(
     container.querySelector("button[type=button].absolute")?.textContent
   ).toBe("50 new trades ↑")
@@ -149,16 +151,18 @@ test("a live tape scrolled down counts the trades a reconnect's snapshot brings 
 test("an odd lot shows its hundredths: 1 share is 0.01 lots, 25 shares 0.25", () => {
   const container = document.body.appendChild(document.createElement("div"))
   const root = createRoot(container)
-  const tape = applyViewerMessage(emptyTape(), {
-    _tag: "Delta",
-    tape: [
-      { ...trade(1), lots: 0.01, board: "NG", side: "none" },
-      { ...trade(2), lots: 0.25, board: "NG", side: "none" },
-      { ...trade(3), lots: 0.5, board: "NG", side: "none" },
-      { ...trade(4), lots: 12 },
-    ],
-    candles: [],
-  })
+  const tape = Effect.runSync(
+    applyViewerMessage(Effect.runSync(emptyTape()), {
+      _tag: "Delta",
+      tape: [
+        { ...trade(1), lots: 0.01, board: "NG", side: "none" },
+        { ...trade(2), lots: 0.25, board: "NG", side: "none" },
+        { ...trade(3), lots: 0.5, board: "NG", side: "none" },
+        { ...trade(4), lots: 12 },
+      ],
+      candles: [],
+    })
+  )
   act(() =>
     root.render(
       <TapeList

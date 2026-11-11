@@ -1,4 +1,5 @@
 import type { ViewerDown } from "@workspace/relay"
+import { Effect } from "effect"
 
 // What a viewer message changes on the tape. The trading-day object sends a
 // snapshot when a socket opens and again for every Select, so the socket's
@@ -9,10 +10,9 @@ import type { ViewerDown } from "@workspace/relay"
 // it as a snapshot. Counting outstanding Selects was dropped: two changes
 // before their answers arrive, or changes the socket coalesced, left the
 // count wrong and a later snapshot replacing the tape.
-export function tapeChangeOf(
-  message: ViewerDown,
-  firstOnSocket: boolean
-): ViewerDown {
-  if (message._tag !== "Snapshot" || firstOnSocket) return message
-  return { _tag: "Delta", tape: message.tape, candles: message.candles }
-}
+export const tapeChangeOf = (message: ViewerDown, firstOnSocket: boolean) =>
+  Effect.sync((): ViewerDown =>
+    message._tag !== "Snapshot" || firstOnSocket
+      ? message
+      : { _tag: "Delta", tape: message.tape, candles: message.candles }
+  )

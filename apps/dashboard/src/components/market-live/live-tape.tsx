@@ -110,7 +110,7 @@ export function LiveTape({
       Stream.runForEach(messages, (message) =>
         Effect.sync(() => {
           listener.current?.(message)
-          apply(tapeChangeOf(message, firstOnSocket.current))
+          apply(Effect.runSync(tapeChangeOf(message, firstOnSocket.current)))
           if (message._tag === "Snapshot") firstOnSocket.current = false
         }).pipe(Effect.andThen(applyConditions(message)))
       ).pipe(

@@ -1,51 +1,62 @@
-import { describe, expect, it } from "vitest"
+import { describe, expect, it } from "@effect/vitest"
+import { Effect } from "effect"
 
 import { parseMarketLiveSearch } from "@/lib/market-live-search"
 
 describe("the Market Live search params", () => {
-  it("keeps a listed code's shape, warrants included", () => {
-    expect(parseMarketLiveSearch({ code: "BBRI" })).toMatchObject({
-      code: "BBRI",
+  it.effect("keeps a listed code's shape, warrants included", () =>
+    Effect.gen(function* () {
+      expect(yield* parseMarketLiveSearch({ code: "BBRI" })).toMatchObject({
+        code: "BBRI",
+      })
+      expect(yield* parseMarketLiveSearch({ code: "AMAG-W2" })).toMatchObject({
+        code: "AMAG-W2",
+      })
     })
-    expect(parseMarketLiveSearch({ code: "AMAG-W2" })).toMatchObject({
-      code: "AMAG-W2",
-    })
-  })
+  )
 
-  it("keeps an index", () => {
-    for (const code of ["IHSG", "TN.IHSG", "NG.IHSG"])
-      expect(parseMarketLiveSearch({ code }).code).toBe(code)
-  })
-
-  it("drops a code that isn't one, so the page falls back", () => {
-    for (const code of [
-      "not a code",
-      "bbri",
-      "",
-      42,
-      "TOOLONGFORACODE12",
-      ".IHSG",
-    ])
-      expect(parseMarketLiveSearch({ code }).code).toBeUndefined()
-    expect(parseMarketLiveSearch({})).toStrictEqual({
-      code: undefined,
-      day: undefined,
+  it.effect("keeps an index", () =>
+    Effect.gen(function* () {
+      for (const code of ["IHSG", "TN.IHSG", "NG.IHSG"])
+        expect((yield* parseMarketLiveSearch({ code })).code).toBe(code)
     })
-  })
+  )
 
-  it("keeps a recorded day's date and drops anything else", () => {
-    expect(parseMarketLiveSearch({ day: "2026-11-06" })).toMatchObject({
-      day: "2026-11-06",
+  it.effect("drops a code that isn't one, so the page falls back", () =>
+    Effect.gen(function* () {
+      for (const code of [
+        "not a code",
+        "bbri",
+        "",
+        42,
+        "TOOLONGFORACODE12",
+        ".IHSG",
+      ])
+        expect((yield* parseMarketLiveSearch({ code })).code).toBeUndefined()
+      expect(yield* parseMarketLiveSearch({})).toStrictEqual({
+        code: undefined,
+        day: undefined,
+      })
     })
-    for (const day of [
-      "2026-11-6",
-      "06-11-2026",
-      "yesterday",
-      20261106,
-      "",
-      "2026-13-01",
-      "2026-02-30",
-    ])
-      expect(parseMarketLiveSearch({ day }).day).toBeUndefined()
-  })
+  )
+
+  it.effect("keeps a recorded day's date and drops anything else", () =>
+    Effect.gen(function* () {
+      expect(yield* parseMarketLiveSearch({ day: "2026-11-06" })).toMatchObject(
+        {
+          day: "2026-11-06",
+        }
+      )
+      for (const day of [
+        "2026-11-6",
+        "06-11-2026",
+        "yesterday",
+        20261106,
+        "",
+        "2026-13-01",
+        "2026-02-30",
+      ])
+        expect((yield* parseMarketLiveSearch({ day })).day).toBeUndefined()
+    })
+  )
 })

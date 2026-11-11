@@ -100,12 +100,11 @@ export function useReplayCursor(day: WibDate | undefined) {
     () =>
       day === undefined
         ? undefined
-        : makeReplayCursor(
-            replayDay(
-              day,
-              Effect.runSync(
-                marketPhases(day).pipe(Effect.orElseSucceed(() => []))
-              )
+        : Effect.runSync(
+            marketPhases(day).pipe(
+              Effect.orElseSucceed(() => []),
+              Effect.flatMap((phases) => replayDay(day, phases)),
+              Effect.flatMap(makeReplayCursor)
             )
           ),
     [day]
@@ -183,7 +182,9 @@ function followWatchlist(
   let stop = () => {}
   const show = () => {
     const at = DateTime.makeUnsafe(cursor.state().at)
-    dayStates.replace(answers.flatMap((answer) => dayStateAt(answer, at) ?? []))
+    dayStates.replace(
+      answers.flatMap((answer) => Effect.runSync(dayStateAt(answer, at)) ?? [])
+    )
   }
   const stopLoad = runLoad(
     Effect.gen(function* () {
@@ -219,7 +220,9 @@ function followTape(
     askedAt = performance.now()
     asked += 1
     const id = asked
-    const at = DateTime.makeUnsafe(tapeInstant(cursor.day, cursor.state().at))
+    const at = DateTime.makeUnsafe(
+      Effect.runSync(tapeInstant(cursor.day, cursor.state().at))
+    )
     loads.run(
       Effect.map(fetchRecordedTape(cursor.day.date, at), (trades) => {
         if (id < shown) return
@@ -235,7 +238,11 @@ function followTape(
     if (wait <= 0) ask()
     else timer = setTimeout(ask, wait)
   }
-  const stop = onCursorKey(cursor, (at) => tapeInstant(cursor.day, at), moved)
+  const stop = onCursorKey(
+    cursor,
+    (at) => Effect.runSync(tapeInstant(cursor.day, at)),
+    moved
+  )
   return () => {
     stop()
     clearTimeout(timer)
@@ -344,7 +351,10 @@ export function RecordedOrderBook({
   cursor: ReplayCursor
   gaps: ReadonlyArray<RelayGap>
 }) {
-  const inGap = useReplay(cursor, ({ at }) => gapAt(gaps, at) !== undefined)
+  const inGap = useReplay(
+    cursor,
+    ({ at }) => Effect.runSync(gapAt(gaps, at)) !== undefined
+  )
   return <OrderBookPanel store={store} recorded notRecorded={inGap} />
 }
 

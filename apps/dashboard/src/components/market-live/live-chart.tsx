@@ -53,11 +53,13 @@ function useLastClose(store: CandleStore, cursor: ReplayCursor | undefined) {
   return useSyncExternalStore(
     subscribe,
     () =>
-      lastCloseAt(
-        store.candles(),
-        cursor === undefined
-          ? undefined
-          : DateTime.makeUnsafe(cursor.state().at)
+      Effect.runSync(
+        lastCloseAt(
+          store.candles(),
+          cursor === undefined
+            ? undefined
+            : DateTime.makeUnsafe(cursor.state().at)
+        )
       ),
     () => undefined
   )

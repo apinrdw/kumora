@@ -1,6 +1,6 @@
 // @vitest-environment happy-dom
 import { StockCode, type Candle, type RelayGap } from "@workspace/relay"
-import { DateTime } from "effect"
+import { Effect, DateTime } from "effect"
 import { act } from "react"
 import { createRoot } from "react-dom/client"
 import { expect, test, vi } from "vitest"
@@ -94,7 +94,7 @@ const nextFrame = () =>
   act(() => new Promise<void>((resolve) => setTimeout(resolve, 50)))
 
 test("a candle backfilled into a relay gap after the last candle goes on the chart", async () => {
-  const store = makeCandleStore(BBCA)
+  const store = Effect.runSync(makeCandleStore(BBCA))
   store.apply({ _tag: "Delta", tape: [], candles: [candle("09:00", 100)] })
   const container = document.body.appendChild(document.createElement("div"))
   const root = createRoot(container)

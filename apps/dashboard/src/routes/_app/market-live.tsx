@@ -41,7 +41,8 @@ export const Route = createFileRoute("/_app/market-live")({
     feature: "market-live",
     crumbs: () => Effect.succeed([{ label: "Market Live" }]),
   },
-  validateSearch: parseMarketLiveSearch,
+  validateSearch: (raw: Record<string, unknown>) =>
+    Effect.runSync(parseMarketLiveSearch(raw)),
   loader: () => closedMarketFn(),
   // Looked at again when it may change (below), not on each code picked.
   staleTime: 60_000,
@@ -89,9 +90,15 @@ function MarketLiveDay({
   const navigate = Route.useNavigate()
   const codes = useStockCodeList(day, today)
   // One store per selected code; the Select for it brings a fresh snapshot.
-  const candles = useMemo(() => makeCandleStore(selected), [selected])
-  const book = useMemo(() => makeOrderBookStore(selected), [selected])
-  const [dayStates] = useState(makeDayStateStore)
+  const candles = useMemo(
+    () => Effect.runSync(makeCandleStore(selected)),
+    [selected]
+  )
+  const book = useMemo(
+    () => Effect.runSync(makeOrderBookStore(selected)),
+    [selected]
+  )
+  const [dayStates] = useState(() => Effect.runSync(makeDayStateStore()))
   const watchlist = useWatchlist()
   const cursor = useReplayCursor(day)
   const gaps = useRecordedDay({

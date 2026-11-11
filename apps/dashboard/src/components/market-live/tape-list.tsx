@@ -35,7 +35,7 @@ import { withGapRows } from "./gap-rows"
 // frame however many deltas arrive in it: each message goes into the tape at
 // once, and the next frame tells React to draw them all.
 function framedTapeStore() {
-  let tape = emptyTape()
+  let tape = Effect.runSync(emptyTape())
   let frame = 0
   let scheduled: number | undefined
   const listeners = new Set<() => void>()
@@ -49,16 +49,18 @@ function framedTapeStore() {
   }
   return {
     apply: (message: ViewerDown) => {
-      tape = applyViewerMessage(tape, message)
+      tape = Effect.runSync(applyViewerMessage(tape, message))
       draw()
     },
     // A recorded day's tape at the cursor, in place of what it held.
     replace: (trades: ReadonlyArray<RunningTrade>) => {
-      tape = applyViewerMessage(emptyTape(), {
-        _tag: "Delta",
-        tape: trades,
-        candles: [],
-      })
+      tape = Effect.runSync(
+        applyViewerMessage(Effect.runSync(emptyTape()), {
+          _tag: "Delta",
+          tape: trades,
+          candles: [],
+        })
+      )
       draw()
     },
     subscribe: (listener: () => void) => {
@@ -150,7 +152,7 @@ const TradeRow = memo(function TradeRow({
   inFold: boolean
   onSelect: (code: StockCode) => void
 }) {
-  const big = isBigTrade(trade)
+  const big = Effect.runSync(isBigTrade(trade))
   const side = SIDE_TEXT[trade.side]
   return (
     <tr
@@ -190,7 +192,7 @@ const TradeRow = memo(function TradeRow({
         {Effect.runSync(lots(trade.lots))}
       </td>
       <td className={cn(CELL, "text-right", side)}>
-        Rp{Effect.runSync(compact(tradeValue(trade)))}
+        Rp{Effect.runSync(compact(Effect.runSync(tradeValue(trade))))}
       </td>
       <td className={cn(CELL, "pl-2")}>
         <SourceDots feeds={trade.feeds} />
@@ -296,7 +298,7 @@ export function TapeList({
     const top = scroller.current?.scrollTop ?? 0
     setScrollTop(top)
     if (!live || top <= ROW_PX) setFrozen(undefined)
-    else setFrozen((held) => held ?? freezeTape(tape))
+    else setFrozen((held) => held ?? Effect.runSync(freezeTape(tape)))
   }
 
   const backToLive = () => {
@@ -316,14 +318,14 @@ export function TapeList({
   )
 
   const view = frozen ?? tape
-  const total = tapeLength(view, open)
+  const total = Effect.runSync(tapeLength(view, open))
   // The scrolled distance, held to the tape: a shorter tape (the replay
   // cursor moved earlier) would otherwise put every row above the viewport.
   const top = Math.min(scrollTop, Math.max(0, total * ROW_PX - height))
   const first = Math.max(0, Math.floor(top / ROW_PX) - OVERSCAN)
   const last = Math.min(total, Math.ceil((top + height) / ROW_PX) + OVERSCAN)
   const rows = Effect.runSync(
-    withGapRows(tapeRows(view, open, first, last), gaps, {
+    withGapRows(Effect.runSync(tapeRows(view, open, first, last)), gaps, {
       top: first === 0,
       bottom: last >= total,
     })

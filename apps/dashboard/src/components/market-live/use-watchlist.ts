@@ -1,4 +1,5 @@
 import type { StockCode } from "@workspace/relay"
+import { Effect } from "effect"
 import { useCallback, useSyncExternalStore } from "react"
 
 import { parseMarketLiveSearch } from "@/lib/market-live-search"
@@ -16,7 +17,8 @@ const parse = (raw: string | null): ReadonlyArray<StockCode> => {
     const stored: unknown = JSON.parse(raw ?? "[]")
     if (!Array.isArray(stored)) return NONE
     const codes = stored.flatMap(
-      (entry) => parseMarketLiveSearch({ code: entry }).code ?? []
+      (entry) =>
+        Effect.runSync(parseMarketLiveSearch({ code: entry })).code ?? []
     )
     return [...new Set(codes)]
   } catch {

@@ -13,9 +13,15 @@ import { expect, test, vi } from "vitest"
 
 import { makeCandleStore } from "@/components/market-live/candle-store"
 import { makeDayStateStore } from "@/components/market-live/day-state-store"
-import { makeOrderBookStore } from "@/components/market-live/order-book-store"
+import {
+  makeOrderBookStore,
+  type OrderBookStore,
+} from "@/components/market-live/order-book-store"
 import { useRecordedDay } from "@/components/market-live/recorded-day"
-import { makeReplayCursor } from "@/components/market-live/replay-cursor"
+import {
+  makeReplayCursor,
+  type ReplayCursor,
+} from "@/components/market-live/replay-cursor"
 import { replayDay } from "@/lib/replay"
 
 // React's `act` warns outside a test environment that declares itself.
@@ -64,12 +70,9 @@ const chunkOf = (minute: number): BookChunk => ({
 })
 
 // The hook over `cursor`, filling `book`; returns the unmount.
-const mount = async (
-  cursor: ReturnType<typeof makeReplayCursor>,
-  book: ReturnType<typeof makeOrderBookStore>
-) => {
-  const candles = makeCandleStore(BBCA)
-  const dayStates = makeDayStateStore()
+const mount = async (cursor: ReplayCursor, book: OrderBookStore) => {
+  const candles = Effect.runSync(makeCandleStore(BBCA))
+  const dayStates = Effect.runSync(makeDayStateStore())
   function Harness() {
     useRecordedDay({
       day: DAY,
@@ -89,7 +92,9 @@ const mount = async (
 }
 
 test("a book chunk whose load failed is asked for again when the cursor visits its minute again", async () => {
-  const cursor = makeReplayCursor(replayDay(DAY, []))
+  const cursor = Effect.runSync(
+    Effect.flatMap(replayDay(DAY, []), makeReplayCursor)
+  )
   const closeMinute = Math.floor(cursor.state().at / MINUTE) * MINUTE
   // The close minute's chunk: the relay's first answer fails, the next is the
   // chunk; any other minute has no book.
@@ -102,7 +107,7 @@ test("a book chunk whose load failed is asked for again when the cursor visits i
       ? Effect.fail("recorded day not served")
       : Effect.succeed(Option.some(chunkOf(closeMinute)))
   })
-  const book = makeOrderBookStore(BBCA)
+  const book = Effect.runSync(makeOrderBookStore(BBCA))
   const unmount = await mount(cursor, book)
   await vi.waitFor(() => expect(closeAsked).toBe(1))
   expect(book.book()).toBeUndefined()
@@ -116,7 +121,9 @@ test("a book chunk whose load failed is asked for again when the cursor visits i
 })
 
 test("the cursor on a minute whose chunk hasn't answered shows no book, the last minute's included after its load failed", async () => {
-  const cursor = makeReplayCursor(replayDay(DAY, []))
+  const cursor = Effect.runSync(
+    Effect.flatMap(replayDay(DAY, []), makeReplayCursor)
+  )
   const closeMinute = Math.floor(cursor.state().at / MINUTE) * MINUTE
   const earlier = closeMinute - MINUTE
   // The close minute's chunk answers; the minute before never does.
@@ -129,7 +136,7 @@ test("the cursor on a minute whose chunk hasn't answered shows no book, the last
     earlierAsked += 1
     return Effect.fail("recorded day not served")
   })
-  const book = makeOrderBookStore(BBCA)
+  const book = Effect.runSync(makeOrderBookStore(BBCA))
   const unmount = await mount(cursor, book)
   await vi.waitFor(() => expect(book.book()?._tag).toBe("OrderBook"))
 

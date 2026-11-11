@@ -41,70 +41,75 @@ export type ReplayDay = {
   readonly bands: ReadonlyArray<Band>
 }
 
-export function replayDay(
+export const replayDay = Effect.fnUntraced(function* (
   day: WibDate,
   phases: ReadonlyArray<PhaseInterval>
-): ReplayDay {
+): Effect.fn.Return<ReplayDay> {
   return {
     date: day,
     start: DateTime.toEpochMillis(DateTime.makeUnsafe(`${day}T08:45:00+07:00`)),
-    close: DateTime.toEpochMillis(closeOf(day)),
-    end: DateTime.toEpochMillis(Effect.runSync(streamingEndOf(day))),
+    close: DateTime.toEpochMillis(yield* closeOf(day)),
+    end: DateTime.toEpochMillis(yield* streamingEndOf(day)),
     bands: phases.map(({ phase, from, to }) => ({
       phase,
       from: DateTime.toEpochMillis(from),
       to: DateTime.toEpochMillis(to),
     })),
   }
-}
+})
 
 /**
  * The cursor after `elapsed` real milliseconds of Play at `speed`: a cursor
  * that lands in the lunch break jumps to session 2's open, and one that
  * reaches the close stops there, `ended`.
  */
-export function advance(
+export const advance = (
   day: ReplayDay,
   at: number,
   elapsed: number,
   speed: Speed
-): { readonly at: number; readonly ended: boolean } {
-  let next = at + elapsed * speed
-  for (const band of day.bands)
-    if (band.phase === "break" && band.from <= next && next < band.to)
-      next = band.to
-  return next >= day.close
-    ? { at: day.close, ended: true }
-    : { at: next, ended: false }
-}
+): Effect.Effect<{ readonly at: number; readonly ended: boolean }> =>
+  Effect.sync(() => {
+    let next = at + elapsed * speed
+    for (const band of day.bands)
+      if (band.phase === "break" && band.from <= next && next < band.to)
+        next = band.to
+    return next >= day.close
+      ? { at: day.close, ended: true }
+      : { at: next, ended: false }
+  })
 
 // Where Play starts: from the cursor, or over from 08:45 at the close.
 export const playFrom = (day: ReplayDay, at: number) =>
-  at >= day.close ? day.start : at
+  Effect.sync(() => (at >= day.close ? day.start : at))
 
 // A candle click's cursor: the end of that candle's minute.
-export const minuteEnd = (minute: number) => minute + 59_999
+export const minuteEnd = (minute: number) => Effect.sync(() => minute + 59_999)
 
 // Decision: the tape is asked at the end of the cursor's second, a whole
 // second's worth of cursors sharing one URL (so a sealed day's answer
 // caches) and every trade of that second included; at the close it is asked
 // at the day's end, for the trades after 16:15.
 export const tapeInstant = (day: ReplayDay, at: number) =>
-  at >= day.close ? day.end : Math.floor(at / 1_000) * 1_000 + 999
+  Effect.sync(() =>
+    at >= day.close ? day.end : Math.floor(at / 1_000) * 1_000 + 999
+  )
 
 // The relay gap the cursor is in: from its start up to, not including, its
 // end; one with no end runs to the close.
 export const gapAt = (gaps: ReadonlyArray<RelayGap>, at: number) =>
-  gaps.find(
-    (gap) =>
-      DateTime.toEpochMillis(gap.from) <= at &&
-      (gap.to === undefined || at < DateTime.toEpochMillis(gap.to))
+  Effect.sync(() =>
+    gaps.find(
+      (gap) =>
+        DateTime.toEpochMillis(gap.from) <= at &&
+        (gap.to === undefined || at < DateTime.toEpochMillis(gap.to))
+    )
   )
 
 // The scrubber steps whole seconds from 08:45, so its last step is the close
 // minute's last whole second: dragged there, the cursor is at the close.
 export const scrubbedTo = (day: ReplayDay, value: number) =>
-  value > day.close - 1_000 ? day.close : value
+  Effect.sync(() => (value > day.close - 1_000 ? day.close : value))
 
 const MINUTE = 60_000
 
@@ -114,10 +119,10 @@ const MINUTE = 60_000
  * overlap, make one run, so no minute appears twice. A gap with no end runs
  * to `end`.
  */
-export function gapMinutes(
+export const gapMinutes = Effect.fnUntraced(function* (
   gaps: ReadonlyArray<RelayGap>,
   end: number
-): ReadonlyArray<ReadonlyArray<number>> {
+): Effect.fn.Return<ReadonlyArray<ReadonlyArray<number>>> {
   const runs: Array<Array<number>> = []
   const spans = gaps
     .map((gap) => ({
@@ -139,4 +144,4 @@ export function gapMinutes(
     if (minutes !== run && minutes.length > 0) runs.push(minutes)
   }
   return runs
-}
+})

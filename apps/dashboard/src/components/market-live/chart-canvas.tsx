@@ -340,9 +340,11 @@ export default function ChartCanvas({
       const newest = all.length === 0 ? 0 : timeOf(all.at(-1)!)
       // Decision: the chart closes gaps up, so a relay gap's minutes go in
       // as whitespace bars, which give it width to shade.
-      const runs = gapMinutes(
-        shownGaps.current,
-        cursor === undefined ? newest * 1000 : cursor.day.close
+      const runs = Effect.runSync(
+        gapMinutes(
+          shownGaps.current,
+          cursor === undefined ? newest * 1000 : cursor.day.close
+        )
       ).map((run) =>
         run
           .map((minute) => (minute / 1000) as UTCTimestamp)

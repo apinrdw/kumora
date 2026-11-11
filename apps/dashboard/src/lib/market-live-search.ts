@@ -3,7 +3,7 @@
 // shared link opens them.
 import { StockCode } from "@workspace/client"
 import { WibDate } from "@workspace/relay"
-import { Option, Schema } from "effect"
+import { Effect, Option, Schema } from "effect"
 
 export interface MarketLiveSearch {
   readonly code?: StockCode | undefined
@@ -19,10 +19,14 @@ export const DEFAULT_CODE = StockCode.make("BBCA")
  * still opens the page. A dropped one is set `undefined`: the router lays the
  * validated search over the raw one, which would keep it.
  */
-export function parseMarketLiveSearch(
+export const parseMarketLiveSearch = (
   raw: Record<string, unknown>
-): MarketLiveSearch {
-  const code = Schema.decodeUnknownOption(StockCode)(raw.code)
-  const day = Schema.decodeUnknownOption(WibDate)(raw.day)
-  return { code: Option.getOrUndefined(code), day: Option.getOrUndefined(day) }
-}
+): Effect.Effect<MarketLiveSearch> =>
+  Effect.sync(() => {
+    const code = Schema.decodeUnknownOption(StockCode)(raw.code)
+    const day = Schema.decodeUnknownOption(WibDate)(raw.day)
+    return {
+      code: Option.getOrUndefined(code),
+      day: Option.getOrUndefined(day),
+    }
+  })

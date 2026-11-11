@@ -18,7 +18,7 @@ Object.assign(globalThis, { IS_REACT_ACT_ENVIRONMENT: true })
 const BBCA = StockCode.make("BBCA")
 
 test("a code with an indicative price before any Day state shows the indicative price, not 'no data yet'", () => {
-  const store = makeDayStateStore()
+  const store = Effect.runSync(makeDayStateStore())
   const container = document.body.appendChild(document.createElement("div"))
   const root = createRoot(container)
   act(() =>
@@ -68,7 +68,7 @@ test("a code with an indicative price before any Day state shows the indicative 
 })
 
 test("an indicative price from pre-opening is not shown in pre-closing: only one whose time is in the auction running now", () => {
-  const store = makeDayStateStore()
+  const store = Effect.runSync(makeDayStateStore())
   const container = document.body.appendChild(document.createElement("div"))
   const root = createRoot(container)
   act(() =>
@@ -139,7 +139,7 @@ test("an indicative price from pre-opening is not shown in pre-closing: only one
 
 test("a Day state without a change, an index's whose frames carry no previous close, shows none rather than 0%", () => {
   const IHSG = StockCode.make("IHSG")
-  const store = makeDayStateStore()
+  const store = Effect.runSync(makeDayStateStore())
   const container = document.body.appendChild(document.createElement("div"))
   const root = createRoot(container)
   act(() =>

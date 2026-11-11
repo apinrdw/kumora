@@ -1,5 +1,5 @@
 import type { Candle, StockCode, ViewerDown } from "@workspace/relay"
-import { DateTime } from "effect"
+import { DateTime, Effect } from "effect"
 
 // What changed since the listener last heard: every candle (a fresh snapshot),
 // or these candles, each whole.
@@ -20,39 +20,40 @@ export interface CandleStore {
 // re-renders the page. A snapshot of this code replaces them, and one
 // answering an earlier Select of another code changes nothing; a delta's
 // candles of this code replace theirs by minute.
-export function makeCandleStore(code: StockCode): CandleStore {
-  let byMinute = new Map<number, Candle>()
-  const listeners = new Set<(change: CandleChange) => void>()
-  const emit = (change: CandleChange) => {
-    for (const listener of listeners) listener(change)
-  }
-  return {
-    code,
-    candles: () =>
-      [...byMinute.entries()]
-        .sort(([a], [b]) => a - b)
-        .map(([, candle]) => candle),
-    apply: (message) => {
-      if (message._tag === "Snapshot") {
-        if (message.selected !== code) return
-        byMinute = new Map(
-          message.candles.map((candle) => [
-            DateTime.toEpochMillis(candle.minute),
-            candle,
-          ])
-        )
-        emit({ _tag: "Reset" })
-        return
-      }
-      const mine = message.candles.filter((candle) => candle.code === code)
-      if (mine.length === 0) return
-      for (const candle of mine)
-        byMinute.set(DateTime.toEpochMillis(candle.minute), candle)
-      emit({ _tag: "Update", candles: mine })
-    },
-    subscribe: (listener) => {
-      listeners.add(listener)
-      return () => void listeners.delete(listener)
-    },
-  }
-}
+export const makeCandleStore = (code: StockCode) =>
+  Effect.sync((): CandleStore => {
+    let byMinute = new Map<number, Candle>()
+    const listeners = new Set<(change: CandleChange) => void>()
+    const emit = (change: CandleChange) => {
+      for (const listener of listeners) listener(change)
+    }
+    return {
+      code,
+      candles: () =>
+        [...byMinute.entries()]
+          .sort(([a], [b]) => a - b)
+          .map(([, candle]) => candle),
+      apply: (message) => {
+        if (message._tag === "Snapshot") {
+          if (message.selected !== code) return
+          byMinute = new Map(
+            message.candles.map((candle) => [
+              DateTime.toEpochMillis(candle.minute),
+              candle,
+            ])
+          )
+          emit({ _tag: "Reset" })
+          return
+        }
+        const mine = message.candles.filter((candle) => candle.code === code)
+        if (mine.length === 0) return
+        for (const candle of mine)
+          byMinute.set(DateTime.toEpochMillis(candle.minute), candle)
+        emit({ _tag: "Update", candles: mine })
+      },
+      subscribe: (listener) => {
+        listeners.add(listener)
+        return () => void listeners.delete(listener)
+      },
+    }
+  })

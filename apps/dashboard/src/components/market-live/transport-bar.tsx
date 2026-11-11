@@ -147,7 +147,11 @@ export function TransportBar({
             step={1_000}
             value={at}
             onChange={(event) =>
-              cursor.seek(scrubbedTo(cursor.day, Number(event.target.value)))
+              cursor.seek(
+                Effect.runSync(
+                  scrubbedTo(cursor.day, Number(event.target.value))
+                )
+              )
             }
             className="absolute inset-0 w-full cursor-pointer appearance-none bg-transparent accent-foreground"
           />
