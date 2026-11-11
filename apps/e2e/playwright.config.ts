@@ -21,6 +21,11 @@ export default defineConfig({
   // Decision: no retries, so a flake the parallelism brings shows up and gets
   // fixed instead of passing on a second try (apinrdw/kumora#168).
   retries: 0,
+  // Decision: on a CI runner's 2 cores a test gets 60 s, not the default 30 s.
+  // The first PR run with 2 workers per shard timed out the shared accounts
+  // setup (the first sign-up's cold compile took 36 s) and the account test
+  // that hashes real passwords (apinrdw/kumora#190).
+  timeout: process.env.CI ? 60_000 : 30_000,
   reporter: "list",
   use: { browserName: "chromium" },
   projects: [
