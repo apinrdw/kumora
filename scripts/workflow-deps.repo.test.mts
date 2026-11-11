@@ -1,9 +1,10 @@
 // A workflow job that runs a packages/deploy entry point imports its
 // dependencies, so it has to install them first on a clean runner. CI runs the
-// same checks as `pnpm check`, one root `check:*` script per job. e2e runs as
-// a matrix of shards, each project sharded on its own, that each finish on
-// their own, on a cached browser and cached vite optimizer output. Each CI
-// job installs through the install action, which restores node_modules.
+// same checks as `pnpm check`, one root `check:*` script per job. e2e shards
+// each Playwright project on its own, one matrix job per shard, and every
+// shard runs on a cached browser and cached vite optimizer output and
+// finishes whether or not the others fail. Each CI job installs through the
+// install action, which restores node_modules.
 import { NodeServices } from "@effect/platform-node"
 import { assert, layer } from "@effect/vitest"
 import { Effect, FileSystem, Path, Schema } from "effect"
@@ -12,70 +13,68 @@ const Manifest = Schema.fromJsonString(
   Schema.Struct({ scripts: Schema.Record(Schema.String, Schema.String) })
 )
 
-const jobStart = /^ {2}([\w-]+):\s*$/
-const stepStart = /^ {6}- /
+const repoPath = (relPath: string) =>
+  Effect.gen(function* () {
+    const path = yield* Path.Path
+    return path.resolve(import.meta.dirname, "..", relPath)
+  })
+
+const repoFile = (relPath: string) =>
+  Effect.gen(function* () {
+    const fs = yield* FileSystem.FileSystem
+    return yield* fs.readFileString(yield* repoPath(relPath))
+  })
+
+// The lines under the first line equal to `header`, up to the next line
+// indented no deeper than it.
+const block = (text: string, header: string) => {
+  const lines = text.split("\n")
+  const start = lines.indexOf(header)
+  if (start === -1) return []
+  const depth = header.search(/\S/)
+  const end = lines.findIndex(
+    (line, index) =>
+      index > start && /\S/.test(line) && line.search(/\S/) <= depth
+  )
+  return lines.slice(start + 1, end === -1 ? undefined : end)
+}
+
+// The list items at `indent` in `lines`, each with the lines below it up to
+// the next; lines before the first item are dropped.
+const listItems = (lines: ReadonlyArray<string>, indent: number) => {
+  const itemStart = new RegExp(`^ {${indent}}- `)
+  const items: Array<string> = []
+  for (const line of lines) {
+    if (itemStart.test(line)) items.push(line)
+    else if (items.length > 0) items[items.length - 1] += `\n${line}`
+  }
+  return items
+}
 
 const jobSteps = (workflow: string) =>
   Effect.sync(() => {
-    const jobs = new Map<string, Array<string>>()
-    let inJobs = false
-    let steps: Array<string> | undefined
-    for (const line of workflow.split("\n")) {
-      if (/^\S/.test(line)) {
-        inJobs = line.startsWith("jobs:")
-        steps = undefined
-        continue
-      }
-      const job = inJobs ? jobStart.exec(line) : null
-      if (job !== null) {
-        steps = []
-        jobs.set(job[1] as string, steps)
-      } else if (steps !== undefined && stepStart.test(line)) {
-        steps.push(line)
-      } else if (steps !== undefined && steps.length > 0) {
-        steps[steps.length - 1] += `\n${line}`
-      }
-    }
-    return jobs
+    const jobs = block(workflow, "jobs:").join("\n")
+    const names = [...jobs.matchAll(/^ {2}([\w-]+):\s*$/gm)].map(
+      ([, name]) => name as string
+    )
+    return new Map(
+      names.map((name) => [name, listItems(block(jobs, `  ${name}:`), 6)])
+    )
   })
 
-// A job's lines from its name up to the next job.
-const jobText = (workflow: string, name: string) => {
-  const lines = workflow.split("\n")
-  const start = lines.indexOf(`  ${name}:`)
-  if (start === -1) return ""
-  const end = lines.findIndex(
-    (line, index) => index > start && /^ {0,2}\S/.test(line)
-  )
-  return lines.slice(start, end === -1 ? undefined : end).join("\n")
-}
+// A composite action's steps.
+const actionSteps = (action: string) =>
+  Effect.sync(() => listItems(block(action, "  steps:"), 4))
+
+const runsPnpmInstall = /\bpnpm install\b/
+const usesInstallAction = /\buses: \.\/\.github\/actions\/install$/m
 
 // A step that installs the workspace's dependencies, itself or through the
 // install action.
-const installsDeps = /\bpnpm install\b|\buses: \.\/\.github\/actions\/install$/m
+const installsDeps = (step: string) =>
+  runsPnpmInstall.test(step) || usesInstallAction.test(step)
 
-// A composite action's steps, each with its continuation lines.
-const actionSteps = (action: string) =>
-  Effect.sync(() => {
-    const steps: Array<string> = []
-    let inSteps = false
-    for (const line of action.split("\n")) {
-      if (/^ {2}steps:\s*$/.test(line)) inSteps = true
-      else if (/^ {0,2}\S/.test(line)) inSteps = false
-      else if (inSteps && /^ {4}- /.test(line)) steps.push(line)
-      else if (inSteps && steps.length > 0)
-        steps[steps.length - 1] += `\n${line}`
-    }
-    return steps
-  })
-
-const ciWorkflow = Effect.gen(function* () {
-  const fs = yield* FileSystem.FileSystem
-  const path = yield* Path.Path
-  return yield* fs.readFileString(
-    path.resolve(import.meta.dirname, "../.github/workflows/ci.yml")
-  )
-})
+const ciWorkflow = repoFile(".github/workflows/ci.yml")
 
 layer(NodeServices.layer)("workflow dependencies", (it) => {
   it.effect(
@@ -83,14 +82,14 @@ layer(NodeServices.layer)("workflow dependencies", (it) => {
     () =>
       Effect.gen(function* () {
         const fs = yield* FileSystem.FileSystem
-        const path = yield* Path.Path
-        const dir = path.resolve(import.meta.dirname, "../.github/workflows")
-        const files = yield* fs.readDirectory(dir)
+        const files = yield* fs.readDirectory(
+          yield* repoPath(".github/workflows")
+        )
         let checked = 0
         const missing: Array<string> = []
         for (const file of files.filter((name) => name.endsWith(".yml"))) {
           const jobs = yield* jobSteps(
-            yield* fs.readFileString(path.join(dir, file))
+            yield* repoFile(`.github/workflows/${file}`)
           )
           for (const [job, steps] of jobs) {
             const runs = steps.findIndex((step) =>
@@ -98,7 +97,7 @@ layer(NodeServices.layer)("workflow dependencies", (it) => {
             )
             if (runs === -1) continue
             checked++
-            const installs = steps.findIndex((step) => installsDeps.test(step))
+            const installs = steps.findIndex(installsDeps)
             if (installs === -1 || installs > runs) {
               missing.push(`${file} ${job}`)
             }
@@ -111,18 +110,10 @@ layer(NodeServices.layer)("workflow dependencies", (it) => {
 
   it.effect("CI runs each root check:* script in a job of its own", () =>
     Effect.gen(function* () {
-      const fs = yield* FileSystem.FileSystem
-      const path = yield* Path.Path
       const { scripts } = yield* Schema.decodeEffect(Manifest)(
-        yield* fs.readFileString(
-          path.resolve(import.meta.dirname, "../package.json")
-        )
+        yield* repoFile("package.json")
       )
-      const jobs = yield* jobSteps(
-        yield* fs.readFileString(
-          path.resolve(import.meta.dirname, "../.github/workflows/ci.yml")
-        )
-      )
+      const jobs = yield* jobSteps(yield* ciWorkflow)
       const perJob = [...jobs.values()]
         .map((steps) =>
           steps.flatMap((step) =>
@@ -147,13 +138,7 @@ layer(NodeServices.layer)("workflow dependencies", (it) => {
     "each CI job running a check:* script starts the turbo cache, pinned to a commit, first",
     () =>
       Effect.gen(function* () {
-        const fs = yield* FileSystem.FileSystem
-        const path = yield* Path.Path
-        const jobs = yield* jobSteps(
-          yield* fs.readFileString(
-            path.resolve(import.meta.dirname, "../.github/workflows/ci.yml")
-          )
-        )
+        const jobs = yield* jobSteps(yield* ciWorkflow)
         let checked = 0
         const missing: Array<string> = []
         for (const [job, steps] of jobs) {
@@ -176,17 +161,13 @@ layer(NodeServices.layer)("workflow dependencies", (it) => {
     "e2e runs each Playwright project as its own shards, one per matrix job, and a failing shard stops no other",
     () =>
       Effect.gen(function* () {
-        const fs = yield* FileSystem.FileSystem
-        const path = yield* Path.Path
-        const config = yield* fs.readFileString(
-          path.resolve(import.meta.dirname, "../apps/e2e/playwright.config.ts")
-        )
+        const config = yield* repoFile("apps/e2e/playwright.config.ts")
         const projects = [...config.matchAll(/^ {6}name: "([\w-]+)",$/gm)]
           .map(([, name]) => name as string)
           .filter((name) => name !== "setup")
         assert.isAbove(projects.length, 1, "found the specs' projects")
         const workflow = yield* ciWorkflow
-        const e2e = jobText(workflow, "e2e")
+        const e2e = block(workflow, "  e2e:").join("\n")
         const entries = [
           ...e2e.matchAll(
             /^ {10}- \{ project: ([\w-]+), shard: (\d+)\/(\d+) \}$/gm
@@ -202,11 +183,15 @@ layer(NodeServices.layer)("workflow dependencies", (it) => {
           [...projects].sort()
         )
         for (const project of projects) {
-          const own = entries.filter((entry) => entry.project === project)
-          assert.isAbove(own.length, 1, `${project} runs as shards`)
+          const projectShards = entries.filter(
+            (entry) => entry.project === project
+          )
+          assert.isAbove(projectShards.length, 1, `${project} runs as shards`)
           assert.deepStrictEqual(
-            own.map(({ index, total }) => `${index}/${total}`),
-            own.map((_, index) => `${index + 1}/${own.length}`),
+            projectShards.map(({ index, total }) => `${index}/${total}`),
+            projectShards.map(
+              (_, index) => `${index + 1}/${projectShards.length}`
+            ),
             `${project}'s shards are 1/n to n/n`
           )
         }
@@ -295,7 +280,7 @@ layer(NodeServices.layer)("workflow dependencies", (it) => {
           restoreKey.length > 0 && key.startsWith(restoreKey),
           "a source change restores the last output for the same lockfile"
         )
-        const installs = steps.findIndex((step) => installsDeps.test(step))
+        const installs = steps.findIndex(installsDeps)
         const runs = steps.findIndex((step) => /\bpnpm test:e2e\b/.test(step))
         assert.isAbove(steps.indexOf(cache), installs)
         assert.isBelow(steps.indexOf(cache), runs)
@@ -309,23 +294,23 @@ layer(NodeServices.layer)("workflow dependencies", (it) => {
         const workflow = yield* ciWorkflow
         const jobs = yield* jobSteps(workflow)
         assert.isAbove(jobs.size, 0)
-        const wrong: Array<string> = []
+        const violations: Array<string> = []
         for (const [job, steps] of jobs) {
           const installs = steps.findIndex((step) =>
-            /^ {6}- uses: \.\/\.github\/actions\/install$/m.test(step)
+            usesInstallAction.test(step)
           )
           const firstPnpm = steps.findIndex((step) =>
             /^\s+(?:- )?run: .*\bpnpm\b/m.test(step)
           )
-          if (installs === -1) wrong.push(`${job}: no install action`)
+          if (installs === -1) violations.push(`${job}: no install action`)
           else if (firstPnpm !== -1 && firstPnpm < installs)
-            wrong.push(`${job}: runs pnpm before installing`)
-          if (steps.some((step) => /\bpnpm install\b/.test(step)))
-            wrong.push(`${job}: runs pnpm install itself`)
+            violations.push(`${job}: runs pnpm before installing`)
+          if (steps.some((step) => runsPnpmInstall.test(step)))
+            violations.push(`${job}: runs pnpm install itself`)
           if (steps.some((step) => /^\s+cache: pnpm$/m.test(step)))
-            wrong.push(`${job}: setup-node restores the pnpm store`)
+            violations.push(`${job}: setup-node restores the pnpm store`)
         }
-        assert.deepStrictEqual(wrong, [])
+        assert.deepStrictEqual(violations, [])
       })
   )
 
@@ -333,15 +318,8 @@ layer(NodeServices.layer)("workflow dependencies", (it) => {
     "the install action restores node_modules by the lockfile, and installs and saves them only on a miss",
     () =>
       Effect.gen(function* () {
-        const fs = yield* FileSystem.FileSystem
-        const path = yield* Path.Path
         const steps = yield* actionSteps(
-          yield* fs.readFileString(
-            path.resolve(
-              import.meta.dirname,
-              "../.github/actions/install/action.yml"
-            )
-          )
+          yield* repoFile(".github/actions/install/action.yml")
         )
         const modulePaths = [
           "node_modules",
