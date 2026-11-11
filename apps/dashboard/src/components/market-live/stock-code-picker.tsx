@@ -23,7 +23,8 @@ const KIND_TAG: Record<ListedCode["kind"], string | undefined> = {
 const EMPTY_TEXT: Record<StockCodeList["_tag"], string> = {
   Loading: "Loading codes…",
   Ready: "No code matches.",
-  Missing: "The code list arrives when the relay starts.",
+  Missing:
+    "No code list for this day yet. The relay sends it from the Ajaib tab.",
 }
 
 export type StockCodePickerProps = {
