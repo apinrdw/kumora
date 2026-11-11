@@ -1,4 +1,5 @@
 import { assert, describe, it } from "@effect/vitest"
+import { Effect } from "effect"
 
 import { specTimes } from "./ci-timings.mts"
 
@@ -12,27 +13,36 @@ const log = [
 ].join("\n")
 
 describe("specTimes", () => {
-  it("sums each spec's test seconds, slowest first", () => {
-    const { specs } = specTimes(log, "2026-11-11T18:34:24Z")
-    assert.deepStrictEqual(
-      specs.map(([spec, s]) => [spec, Number(s.toFixed(3))]),
-      [
-        ["tests/market-live-recorded.spec.ts", 72],
-        ["tests/accounts.setup.ts", 57.8],
-        ["tests/web.spec.ts", 0.406],
-      ]
-    )
-  })
+  it.effect("sums each spec's test seconds, slowest first", () =>
+    Effect.gen(function* () {
+      const { specs } = yield* specTimes(log, "2026-11-11T18:34:24Z")
+      assert.deepStrictEqual(
+        specs.map(([spec, s]) => [spec, Number(s.toFixed(3))]),
+        [
+          ["tests/market-live-recorded.spec.ts", 72],
+          ["tests/accounts.setup.ts", 57.8],
+          ["tests/web.spec.ts", 0.406],
+        ]
+      )
+    })
+  )
 
-  it("counts finished tests, failed ones included, and not the summary line", () => {
-    assert.strictEqual(specTimes(log, null).tests, 4)
-  })
+  it.effect(
+    "counts finished tests, failed ones included, and not the summary line",
+    () =>
+      Effect.gen(function* () {
+        assert.strictEqual((yield* specTimes(log, null)).tests, 4)
+      })
+  )
 
-  it("times the first finished test from the test step's start", () => {
-    assert.strictEqual(
-      Math.round(specTimes(log, "2026-11-11T18:34:24Z").firstTestAfter ?? -1),
-      56
-    )
-    assert.strictEqual(specTimes(log, null).firstTestAfter, undefined)
-  })
+  it.effect("times the first finished test from the test step's start", () =>
+    Effect.gen(function* () {
+      const timed = yield* specTimes(log, "2026-11-11T18:34:24Z")
+      assert.strictEqual(Math.round(timed.firstTestAfter ?? -1), 56)
+      assert.strictEqual(
+        (yield* specTimes(log, null)).firstTestAfter,
+        undefined
+      )
+    })
+  )
 })

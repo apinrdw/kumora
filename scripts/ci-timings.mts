@@ -26,8 +26,14 @@ const Run = Schema.Struct({
   created_at: Schema.String,
 })
 
-const seconds = (from: string | null, to: string | null) =>
-  from === null || to === null ? 0 : (Date.parse(to) - Date.parse(from)) / 1000
+const seconds = Effect.fnUntraced(function* (
+  from: string | null,
+  to: string | null
+) {
+  return from === null || to === null
+    ? 0
+    : (Date.parse(to) - Date.parse(from)) / 1000
+})
 
 // One finished Playwright test in a job log's list-reporter output, as
 // "<timestamp> ✓  12 [chromium] › tests/x.spec.ts:9:3 › title (10.3s)".
@@ -37,7 +43,10 @@ const UNIT: Record<string, number> = { ms: 0.001, s: 1, m: 60 }
 
 // An e2e job log's test count, seconds from the test step's start to its
 // first finished test, and each spec's summed test seconds, slowest first.
-export const specTimes = (log: string, testStepStart: string | null) => {
+export const specTimes = Effect.fnUntraced(function* (
+  log: string,
+  testStepStart: string | null
+) {
   const tests = log.split("\n").flatMap((line) => {
     const [, at = "", spec = "", value = "0", unit = "s"] =
       line.match(testLine) ?? []
@@ -52,11 +61,11 @@ export const specTimes = (log: string, testStepStart: string | null) => {
     tests: tests.length,
     firstTestAfter:
       tests[0] && testStepStart !== null
-        ? seconds(testStepStart, tests[0].at)
+        ? yield* seconds(testStepStart, tests[0].at)
         : undefined,
     specs: [...specs].sort((a, b) => b[1] - a[1]),
   }
-}
+})
 
 const api = Effect.fn("api")(function* (root: string, path: string) {
   return yield* stdoutOf("gh", ["api", `repos/{owner}/{repo}/${path}`], {
@@ -64,20 +73,30 @@ const api = Effect.fn("api")(function* (root: string, path: string) {
   })
 })
 
-const decode = <S extends Schema.Top>(schema: S) =>
-  Schema.decodeEffect(Schema.fromJsonString(schema))
+const decode = Effect.fnUntraced(function* <S extends Schema.Top>(
+  schema: S,
+  json: string
+) {
+  return yield* Schema.decodeEffect(Schema.fromJsonString(schema))(json)
+})
 
-const slowestSteps = (job: typeof Job.Type) =>
-  job.steps
-    .map((step) => ({
-      name: step.name.replace(/^Run /, "").slice(0, 40),
-      s: seconds(step.started_at, step.completed_at),
-    }))
+const slowestSteps = Effect.fnUntraced(function* (job: typeof Job.Type) {
+  const steps = yield* Effect.forEach(
+    job.steps,
+    Effect.fnUntraced(function* (step) {
+      return {
+        name: step.name.replace(/^Run /, "").slice(0, 40),
+        s: yield* seconds(step.started_at, step.completed_at),
+      }
+    })
+  )
+  return steps
     .filter((step) => step.s >= 3)
     .sort((a, b) => b.s - a.s)
     .slice(0, 4)
     .map((step) => `${step.name} ${step.s.toFixed(0)}`)
     .join("; ")
+})
 
 const e2eReport = Effect.fn("e2eReport")(function* (
   root: string,
@@ -88,7 +107,7 @@ const e2eReport = Effect.fn("e2eReport")(function* (
     Effect.retry(Schedule.recurs(2))
   )
   const testStep = job.steps.find((step) => step.name.includes("test:e2e"))
-  const { tests, firstTestAfter, specs } = specTimes(
+  const { tests, firstTestAfter, specs } = yield* specTimes(
     log,
     testStep?.started_at ?? null
   )
@@ -109,24 +128,30 @@ export const ciTimings = Effect.fn("ciTimings")(function* (
       summary: "Usage: pnpm ci-timings <run-id>",
       findings: [],
     })
-  const run = yield* decode(Run)(yield* api(root, `actions/runs/${runId}`))
-  const { jobs } = yield* decode(Jobs)(
+  const run = yield* decode(Run, yield* api(root, `actions/runs/${runId}`))
+  const { jobs } = yield* decode(
+    Jobs,
     yield* api(root, `actions/runs/${runId}/jobs?per_page=100`)
   )
   const end = jobs.map((job) => job.completed_at ?? job.started_at).sort()
+  const runSeconds = yield* seconds(run.created_at, end.at(-1) ?? null)
   yield* Console.log(
-    `Run ${runId} on ${run.head_sha.slice(0, 10)}: ${seconds(run.created_at, end.at(-1) ?? null).toFixed(0)} s from creation to the last job's end.\n\n| job | s | slowest steps (s) |\n|---|---|---|`
+    `Run ${runId} on ${run.head_sha.slice(0, 10)}: ${runSeconds.toFixed(0)} s from creation to the last job's end.\n\n| job | s | slowest steps (s) |\n|---|---|---|`
   )
-  const duration = (job: typeof Job.Type) =>
-    seconds(job.started_at, job.completed_at)
-  const byDuration = [...jobs].sort((a, b) => duration(b) - duration(a))
-  for (const job of byDuration)
+  const timed = yield* Effect.forEach(
+    jobs,
+    Effect.fnUntraced(function* (job) {
+      return { job, s: yield* seconds(job.started_at, job.completed_at) }
+    })
+  )
+  const byDuration = timed.sort((a, b) => b.s - a.s)
+  for (const { job, s } of byDuration)
     yield* Console.log(
-      `| ${job.name} | ${duration(job).toFixed(0)} | ${slowestSteps(job)} |`
+      `| ${job.name} | ${s.toFixed(0)} | ${yield* slowestSteps(job)} |`
     )
   yield* Effect.forEach(
-    byDuration.filter((job) => job.name.startsWith("e2e")),
-    (job) => e2eReport(root, job),
+    byDuration.filter(({ job }) => job.name.startsWith("e2e")),
+    ({ job }) => e2eReport(root, job),
     { discard: true }
   )
 })
