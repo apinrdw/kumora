@@ -15,17 +15,20 @@ const LADDER_LEVELS = 10
 const PROVENANCE = { Stockbit: "Stockbit", Ajaib: "Ajaib (fallback)" } as const
 
 const priceTone = (price: number, previousClose: number | undefined) =>
-  previousClose === undefined || price === previousClose
-    ? "text-neutral"
-    : price > previousClose
-      ? "text-up"
-      : "text-down"
+  Effect.sync(() =>
+    previousClose === undefined || price === previousClose
+      ? "text-neutral"
+      : price > previousClose
+        ? "text-up"
+        : "text-down"
+  )
 
 // A lot figure with its bar behind it, scaled to the largest level shown:
 // bids grow from the right edge, offers from the left.
-const lotBar = (level: BookLevel, largest: number, side: "bid" | "offer") => ({
-  background: `linear-gradient(to ${side === "bid" ? "left" : "right"}, color-mix(in oklab, var(--semantic-${side === "bid" ? "up" : "down"}) 18%, transparent) ${(level.lots / largest) * 100}%, transparent 0)`,
-})
+const lotBar = (level: BookLevel, largest: number, side: "bid" | "offer") =>
+  Effect.sync(() => ({
+    background: `linear-gradient(to ${side === "bid" ? "left" : "right"}, color-mix(in oklab, var(--semantic-${side === "bid" ? "up" : "down"}) 18%, transparent) ${(level.lots / largest) * 100}%, transparent 0)`,
+  }))
 
 // Cumulative lots over price: bids green from the left, offers red to the
 // right, over the 20 levels a side the book carries.
@@ -116,7 +119,7 @@ function Ladder({ book }: { book: OrderBook }) {
     ...rows.flatMap(([bid, offer]) => [bid?.lots ?? 0, offer?.lots ?? 0])
   )
   const tone = (level: BookLevel | undefined) =>
-    level && priceTone(level.price, book.previousClose)
+    level && Effect.runSync(priceTone(level.price, book.previousClose))
   return (
     <table className="w-full text-[12px] tabular-nums">
       <thead className="text-[10px] tracking-[0.08em] text-muted-foreground uppercase">
@@ -137,7 +140,7 @@ function Ladder({ book }: { book: OrderBook }) {
             </td>
             <td
               className="text-right"
-              style={bid && lotBar(bid, largest, "bid")}
+              style={bid && Effect.runSync(lotBar(bid, largest, "bid"))}
             >
               {bid && Effect.runSync(plain(bid.lots))}
             </td>
@@ -159,7 +162,9 @@ function Ladder({ book }: { book: OrderBook }) {
             >
               {offer && Effect.runSync(plain(offer.price))}
             </td>
-            <td style={offer && lotBar(offer, largest, "offer")}>
+            <td
+              style={offer && Effect.runSync(lotBar(offer, largest, "offer"))}
+            >
               {offer && Effect.runSync(plain(offer.lots))}
             </td>
             <td className="pr-1 text-muted-foreground">

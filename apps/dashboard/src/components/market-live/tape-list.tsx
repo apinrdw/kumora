@@ -34,7 +34,7 @@ import { withGapRows } from "./gap-rows"
 // The page's tape as an external store, drawn at most once per animation
 // frame however many deltas arrive in it: each message goes into the tape at
 // once, and the next frame tells React to draw them all.
-function framedTapeStore() {
+const makeFramedTapeStore = Effect.sync(() => {
   let tape = Effect.runSync(emptyTape())
   let frame = 0
   let scheduled: number | undefined
@@ -75,10 +75,10 @@ function framedTapeStore() {
     frame: () => frame,
     tape: () => tape,
   }
-}
+})
 
 export function useFramedTape() {
-  const [store] = useState(framedTapeStore)
+  const [store] = useState(() => Effect.runSync(makeFramedTapeStore))
   const frame = useSyncExternalStore(store.subscribe, store.frame, store.frame)
   return {
     tape: store.tape(),
@@ -202,7 +202,7 @@ const TradeRow = memo(function TradeRow({
 })
 
 const count = (n: number, noun: string) =>
-  `${Effect.runSync(plain(n))} ${noun}${n === 1 ? "" : "s"}`
+  Effect.map(plain(n), (figure) => `${figure} ${noun}${n === 1 ? "" : "s"}`)
 
 function FoldRow({
   row,
@@ -230,8 +230,9 @@ function FoldRow({
           )}
           <span className="font-semibold">{MATCH_LABEL[row.match]}</span>
           <span>
-            {count(row.trades, "trade")} · Rp
-            {Effect.runSync(compact(row.value))} · {count(row.codes, "code")}
+            {Effect.runSync(count(row.trades, "trade"))} · Rp
+            {Effect.runSync(compact(row.value))} ·{" "}
+            {Effect.runSync(count(row.codes, "code"))}
           </span>
         </button>
       </td>

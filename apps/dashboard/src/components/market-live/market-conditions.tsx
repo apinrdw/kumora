@@ -38,32 +38,33 @@ const publish = (next: View) =>
   })
 
 const byCode = (prices: ReadonlyArray<IndicativePrice>) =>
-  prices.map((price) => [price.code, price] as const)
+  Effect.succeed(prices.map((price) => [price.code, price] as const))
 
 // The view after one viewer message. A snapshot starts over. Decision: a
 // delta's indicative prices are every code's that changed, and all are kept,
 // so a code added to the watchlist mid-auction shows its price on the next
 // change; the map is bounded by the listed codes.
-export const applyConditions = (message: ViewerDown) =>
-  Effect.suspend(() => {
-    if (message._tag === "Snapshot")
-      return publish({
-        conditions: message.conditions,
-        indicative: new Map(byCode(message.indicative ?? [])),
-        connection: "live",
-      })
-    const prices = message.indicative ?? []
-    if (message.conditions === undefined && prices.length === 0)
-      return Effect.void
-    return publish({
-      ...view,
-      conditions: message.conditions ?? view.conditions,
-      indicative:
-        prices.length === 0
-          ? view.indicative
-          : new Map([...view.indicative, ...byCode(prices)]),
+export const applyConditions = Effect.fnUntraced(function* (
+  message: ViewerDown
+) {
+  if (message._tag === "Snapshot")
+    return yield* publish({
+      conditions: message.conditions,
+      indicative: new Map(yield* byCode(message.indicative ?? [])),
+      connection: "live",
     })
+  const prices = message.indicative ?? []
+  if (message.conditions === undefined && prices.length === 0) return
+  const arriving = yield* byCode(prices)
+  return yield* publish({
+    ...view,
+    conditions: message.conditions ?? view.conditions,
+    indicative:
+      prices.length === 0
+        ? view.indicative
+        : new Map([...view.indicative, ...arriving]),
   })
+})
 
 export const conditionsReconnecting = Effect.suspend(() =>
   publish({ ...view, connection: "reconnecting" })
@@ -135,14 +136,14 @@ const PHASE: Record<MarketPhase, string> = {
 // compares the phase alone, not the date: a viewer socket is closed when its
 // day ends (`trading-day.ts`, DayEnded), and the next day's snapshot replaces
 // every held price, so a held price is always of today.
-const auctionIndicative = (code: StockCode) => {
+const auctionIndicative = Effect.fnUntraced(function* (code: StockCode) {
   const { conditions, indicative } = view
   const price = indicative.get(code)
   if (price === undefined || conditions === undefined) return undefined
-  return Effect.runSync(auctionAt(price.at))?.phase === conditions.phase
+  return (yield* auctionAt(price.at))?.phase === conditions.phase
     ? price
     : undefined
-}
+})
 
 // `code`'s indicative price while its auction runs: the chart's dashed line
 // and header, and the watchlist row's price. It re-renders only when that
@@ -152,7 +153,7 @@ export function useAuctionIndicative(
 ): IndicativePrice | undefined {
   return useSyncExternalStore(
     subscribe,
-    () => auctionIndicative(code),
+    () => Effect.runSync(auctionIndicative(code)),
     () => undefined
   )
 }

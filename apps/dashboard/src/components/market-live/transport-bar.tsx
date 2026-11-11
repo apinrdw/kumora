@@ -34,10 +34,14 @@ const BAND_LABEL: Record<MarketPhase, string> = {
 
 // Space plays or pauses, unless a control that takes Space has focus.
 const takesSpace = (target: EventTarget | null) =>
-  target instanceof HTMLElement &&
-  (target.isContentEditable ||
-    target.closest("button, a, select, textarea, input:not([type=range])") !==
-      null)
+  Effect.sync(
+    () =>
+      target instanceof HTMLElement &&
+      (target.isContentEditable ||
+        target.closest(
+          "button, a, select, textarea, input:not([type=range])"
+        ) !== null)
+  )
 
 /**
  * A recorded day's transport bar, under the chart: Play/Pause (Space), the
@@ -58,7 +62,11 @@ export function TransportBar({
 
   useEffect(() => {
     const onKey = (event: KeyboardEvent) => {
-      if (event.code !== "Space" || event.repeat || takesSpace(event.target))
+      if (
+        event.code !== "Space" ||
+        event.repeat ||
+        Effect.runSync(takesSpace(event.target))
+      )
         return
       event.preventDefault()
       cursor.toggle()

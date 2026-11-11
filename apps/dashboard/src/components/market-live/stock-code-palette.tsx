@@ -4,6 +4,7 @@ import {
   DialogContent,
   DialogTitle,
 } from "@workspace/ui/components/dialog"
+import { Effect } from "effect"
 import { useEffect, useState } from "react"
 
 import { StockCodePicker } from "./stock-code-picker"
@@ -11,11 +12,14 @@ import type { StockCodeList } from "./use-stock-code-list"
 
 // Typing `/` there means the character, not the palette.
 const isEditable = (target: EventTarget | null) =>
-  target instanceof HTMLElement &&
-  (target.isContentEditable ||
-    target.tagName === "INPUT" ||
-    target.tagName === "TEXTAREA" ||
-    target.tagName === "SELECT")
+  Effect.sync(
+    () =>
+      target instanceof HTMLElement &&
+      (target.isContentEditable ||
+        target.tagName === "INPUT" ||
+        target.tagName === "TEXTAREA" ||
+        target.tagName === "SELECT")
+  )
 
 // The keyboard palette: `/` anywhere outside a text field, or Ctrl/⌘+K
 // anywhere, opens a search over the day's codes, focused (the dialog focuses
@@ -38,7 +42,7 @@ export function StockCodePalette({
         !event.ctrlKey &&
         !event.metaKey &&
         !event.altKey &&
-        !isEditable(event.target)
+        !Effect.runSync(isEditable(event.target))
       if (!commandK && !slash) return
       event.preventDefault()
       setOpen(true)

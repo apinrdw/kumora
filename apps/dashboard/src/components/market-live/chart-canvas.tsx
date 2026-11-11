@@ -43,22 +43,32 @@ const wibYear = new Intl.DateTimeFormat("en-US", {
 })
 
 // The data is in UTC seconds; every label reads WIB, 24-hour.
-const dateOf = (time: Time) => new Date((time as UTCTimestamp) * 1000)
-const crosshairTime = (time: Time) =>
-  `${wibDate.format(dateOf(time))}, ${wibClock.format(dateOf(time))} WIB`
-const tickMark = (time: Time, type: TickMarkType) =>
-  type === TickMarkType.Year
-    ? wibYear.format(dateOf(time))
+const dateOf = (time: Time) =>
+  Effect.sync(() => new Date((time as UTCTimestamp) * 1000))
+// Lightweight Charts calls these two back, so they are plain.
+const crosshairTime = (time: Time) => {
+  const date = Effect.runSync(dateOf(time))
+  return `${wibDate.format(date)}, ${wibClock.format(date)} WIB`
+}
+const tickMark = (time: Time, type: TickMarkType) => {
+  const date = Effect.runSync(dateOf(time))
+  return type === TickMarkType.Year
+    ? wibYear.format(date)
     : type === TickMarkType.Month || type === TickMarkType.DayOfMonth
-      ? wibDate.format(dateOf(time))
-      : wibClock.format(dateOf(time))
+      ? wibDate.format(date)
+      : wibClock.format(date)
+}
 
 const timeOf = (candle: Candle) =>
-  (DateTime.toEpochMillis(candle.minute) / 1000) as UTCTimestamp
+  Effect.sync(
+    () => (DateTime.toEpochMillis(candle.minute) / 1000) as UTCTimestamp
+  )
 
 // The first candle of session 1 and of session 2. The break and the night are
 // closed up, so a thin line marks where each session starts.
-const sessionStarts = (candles: ReadonlyArray<Candle>) => {
+const sessionStarts = Effect.fnUntraced(function* (
+  candles: ReadonlyArray<Candle>
+) {
   const starts: Array<UTCTimestamp> = []
   let previous: string | undefined
   for (const candle of candles) {
@@ -70,11 +80,11 @@ const sessionStarts = (candles: ReadonlyArray<Candle>) => {
       (current === "session-1" || current === "session-2") &&
       current !== previous
     )
-      starts.push(timeOf(candle))
+      starts.push(yield* timeOf(candle))
     previous = current
   }
   return starts
-}
+})
 
 // Draws a 1-pixel vertical line at each session start, behind the candles.
 class SessionLines implements ISeriesPrimitive<Time> {
@@ -218,12 +228,15 @@ class CursorLine implements ISeriesPrimitive<Time> {
 // Where the cursor's minute sits among the bars drawn (candles and gap
 // whitespace, `times` ascending, in seconds), as a logical bar index: on its
 // own bar, or half a bar past the latest bar before it.
-const cursorLogical = (times: ReadonlyArray<number>, minute: number) => {
+const cursorLogical = Effect.fnUntraced(function* (
+  times: ReadonlyArray<number>,
+  minute: number
+) {
   const before = times.filter((time) => time * 1000 <= minute)
   const latest = before.at(-1)
   if (latest === undefined) return -0.5
   return before.length - 1 + (latest * 1000 === minute ? 0 : 0.5)
-}
+})
 
 const MINUTE = 60_000
 
@@ -312,7 +325,7 @@ export default function ChartCanvas({
     const later = (candle: Candle) =>
       DateTime.toEpochMillis(candle.minute) > shownMinute
     const bar = (candle: Candle) => ({
-      time: timeOf(candle),
+      time: Effect.runSync(timeOf(candle)),
       open: candle.open,
       high: candle.high,
       low: candle.low,
@@ -320,7 +333,7 @@ export default function ChartCanvas({
       ...(later(candle) && { color: `${grey}55`, wickColor: `${grey}55` }),
     })
     const volumeBar = (candle: Candle) => ({
-      time: timeOf(candle),
+      time: Effect.runSync(timeOf(candle)),
       value: candle.volume,
       color: later(candle)
         ? `${grey}33`
@@ -336,8 +349,8 @@ export default function ChartCanvas({
     let latest = 0
     const redraw = () => {
       const all = store.candles()
-      drawn = new Set(all.map(timeOf))
-      const newest = all.length === 0 ? 0 : timeOf(all.at(-1)!)
+      drawn = new Set(all.map((candle) => Effect.runSync(timeOf(candle))))
+      const newest = all.length === 0 ? 0 : Effect.runSync(timeOf(all.at(-1)!))
       // Decision: the chart closes gaps up, so a relay gap's minutes go in
       // as whitespace bars, which give it width to shade.
       const runs = Effect.runSync(
@@ -358,13 +371,15 @@ export default function ChartCanvas({
         )
       )
       volume.setData(all.map(volumeBar))
-      sessions.setTimes(sessionStarts(all))
+      sessions.setTimes(Effect.runSync(sessionStarts(all)))
       shades.setRuns(runs.filter((run) => run.length > 0))
       if (cursor !== undefined)
         marker.setLogical(
-          cursorLogical(
-            [...drawn, ...blank].sort((a, b) => a - b),
-            shownMinute
+          Effect.runSync(
+            cursorLogical(
+              [...drawn, ...blank].sort((a, b) => a - b),
+              shownMinute
+            )
           )
         )
     }
@@ -390,7 +405,7 @@ export default function ChartCanvas({
     const flush = () => {
       frame = 0
       const changed = [...pending.values()].sort(
-        (a, b) => timeOf(a) - timeOf(b)
+        (a, b) => Effect.runSync(timeOf(a)) - Effect.runSync(timeOf(b))
       )
       pending.clear()
       // A minute the chart has never drawn, before its latest one, can only
@@ -398,7 +413,9 @@ export default function ChartCanvas({
       if (
         reset ||
         changed.some(
-          (candle) => timeOf(candle) < latest && !drawn.has(timeOf(candle))
+          (candle) =>
+            Effect.runSync(timeOf(candle)) < latest &&
+            !drawn.has(Effect.runSync(timeOf(candle)))
         )
       ) {
         reset = false
@@ -407,7 +424,7 @@ export default function ChartCanvas({
       }
       let starts = false
       for (const candle of changed) {
-        const time = timeOf(candle)
+        const time = Effect.runSync(timeOf(candle))
         const historical = time < latest
         candles.update(bar(candle), historical)
         volume.update(volumeBar(candle), historical)
@@ -415,12 +432,14 @@ export default function ChartCanvas({
         drawn.add(time)
         latest = Math.max(latest, time)
       }
-      if (starts) sessions.setTimes(sessionStarts(store.candles()))
+      if (starts)
+        sessions.setTimes(Effect.runSync(sessionStarts(store.candles())))
     }
     const unsubscribe = store.subscribe((change: CandleChange) => {
       if (change._tag === "Reset") reset = true
       else
-        for (const candle of change.candles) pending.set(timeOf(candle), candle)
+        for (const candle of change.candles)
+          pending.set(Effect.runSync(timeOf(candle)), candle)
       if (frame === 0) frame = requestAnimationFrame(flush)
     })
     return () => {

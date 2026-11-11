@@ -32,12 +32,13 @@ import { tapeChangeOf } from "./tape-snapshots"
 const selectOf = (
   selected: StockCode,
   watchlist: ReadonlyArray<StockCode>
-): ViewerUp => ({
-  _tag: "Select",
-  protocolVersion: ViewerProtocolVersion,
-  selected,
-  watchlist,
-})
+): Effect.Effect<ViewerUp> =>
+  Effect.succeed({
+    _tag: "Select",
+    protocolVersion: ViewerProtocolVersion,
+    selected,
+    watchlist,
+  })
 
 const NO_CODES: ReadonlyArray<StockCode> = []
 
@@ -65,7 +66,9 @@ export function LiveTape({
   const stale = useMergedStale()
   const gaps = useRelayGaps()
   const [select] = useState(() =>
-    Effect.runSync(SubscriptionRef.make(selectOf(selected, watchlist)))
+    Effect.runSync(
+      Effect.flatMap(selectOf(selected, watchlist), SubscriptionRef.make)
+    )
   )
 
   // The latest listener, so a new one (the chart's store for a new code)
@@ -85,7 +88,9 @@ export function LiveTape({
       return
     sent.current = { selected, watchlist }
     clientRuntime.runFork(
-      SubscriptionRef.set(select, selectOf(selected, watchlist))
+      Effect.flatMap(selectOf(selected, watchlist), (next) =>
+        SubscriptionRef.set(select, next)
+      )
     )
   }, [select, selected, watchlist])
 
