@@ -91,13 +91,16 @@ const answer = async (request: TabRequest): Promise<[number, string]> => {
     case "page-fetch": {
       if (pageRequest === undefined && request.token === undefined)
         return [0, ""]
+      // Decision: no cookies. Ajaib's REST API preflights with
+      // `Access-Control-Allow-Origin: *`, which the browser refuses for a
+      // credentialed request (seen 2026-11-11 on `v1/stock/data/list/`); the
+      // bearer token in the headers is the session.
       const response = await fetch(
         new URL(request.path, pageRequest?.base ?? AJAIB_API_BASE),
         {
           headers: pageRequest?.headers ?? {
             authorization: `Bearer ${request.token}`,
           },
-          credentials: "include",
         }
       )
       return [response.status, await response.text()]

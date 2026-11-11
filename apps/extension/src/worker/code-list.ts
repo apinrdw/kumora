@@ -43,6 +43,7 @@ export const makeCodeList = Effect.fnUntraced(function* (options: {
 }) {
   let list = yield* options.store.load
   let lastTry = 0
+  let lastUnattached = 0
   let fetching = false
 
   const fetchList = Effect.fnUntraced(function* (
@@ -53,9 +54,24 @@ export const makeCodeList = Effect.fnUntraced(function* (options: {
       _tag: "page-fetch",
       path: CODE_LIST_PATH,
     })
-    if (Option.isNone(answer) || answer.value.status !== 200) return
+    // Each miss is logged: the page's search and watchlist wait on this list,
+    // and the next try is a minute away.
+    // None also when the Ajaib page made no REST call yet and no PIN token
+    // is held: the tab sends nothing then.
+    if (Option.isNone(answer))
+      return yield* Effect.logWarning(
+        "Code list fetch got no answer: the Ajaib tab has no session yet, or went"
+      )
+    if (answer.value.status !== 200)
+      return yield* Effect.logWarning(
+        `Code list fetch answered ${answer.value.status}`
+      )
     const codes = yield* listedCodes(answer.value.body)
-    if (codes.length === 0) return
+    if (codes.length === 0)
+      return yield* Effect.logWarning(
+        "Code list answer held no codes",
+        answer.value.body.slice(0, 200)
+      )
     const envelope = yield* Effect.orDie(
       encodeIngestUp({
         _tag: "CodeList",
@@ -79,13 +95,22 @@ export const makeCodeList = Effect.fnUntraced(function* (options: {
     const today = yield* wibDateAt(now)
     const ms = DateTime.toEpochMillis(now)
     if (Option.isSome(list) && list.value.date === today) return
-    if (fetching || !(yield* tab.attached)) return
+    if (fetching) return
+    if (!(yield* tab.attached)) {
+      if (ms - lastUnattached < Duration.toMillis(CODE_LIST_RETRY)) return
+      lastUnattached = ms
+      return yield* Effect.logWarning("Code list waits for an open Ajaib tab")
+    }
     if (ms - lastTry < Duration.toMillis(CODE_LIST_RETRY)) return
     lastTry = ms
     fetching = true
     yield* Effect.forkScoped(
       Effect.ensuring(
-        fetchList(tab, today),
+        fetchList(tab, today).pipe(
+          Effect.tapCause((cause) =>
+            Effect.logError("Code list fetch failed", cause)
+          )
+        ),
         Effect.sync(() => {
           fetching = false
         })
