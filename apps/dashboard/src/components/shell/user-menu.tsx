@@ -7,6 +7,7 @@ import {
   DropdownMenuSeparator,
   DropdownMenuTrigger,
 } from "@workspace/ui/components/dropdown-menu"
+import { clientRuntime } from "@workspace/client"
 import { cn } from "@workspace/ui/lib/utils"
 import { Effect } from "effect"
 
@@ -14,13 +15,25 @@ import { authClient } from "@/lib/auth-client"
 import { withRedirect } from "@/lib/redirect"
 import type { Viewer } from "@/server/auth/gate"
 
-const initials = (name: string) =>
-  name
-    .split(/\s+/)
-    .filter(Boolean)
-    .slice(0, 2)
-    .map((word) => word[0]?.toUpperCase())
-    .join("")
+const initials = (name: string): Effect.Effect<string> =>
+  Effect.succeed(
+    name
+      .split(/\s+/)
+      .filter(Boolean)
+      .slice(0, 2)
+      .map((word) => word[0]?.toUpperCase())
+      .join("")
+  )
+
+// Signs out, then to sign-in, which returns to `href` on the next sign-in.
+const signOut = Effect.fnUntraced(function* (
+  href: string,
+  navigate: (href: string) => Promise<void>
+) {
+  yield* Effect.promise(() => authClient.signOut())
+  const signIn = yield* withRedirect("/sign-in", href)
+  yield* Effect.promise(() => navigate(signIn))
+})
 
 /**
  * The account's menu. `rail` is the sidebar block (full at ≥1280, avatar only
@@ -35,12 +48,6 @@ export function UserMenu({
 }) {
   const router = useRouter()
   const href = useLocation({ select: (location) => location.href })
-  const signOut = async () => {
-    await authClient.signOut()
-    await router.navigate({
-      href: Effect.runSync(withRedirect("/sign-in", href)),
-    })
-  }
   return (
     <DropdownMenu>
       <DropdownMenuTrigger
@@ -55,7 +62,7 @@ export function UserMenu({
           aria-hidden
           className="num bg-elevated grid size-8 shrink-0 place-items-center rounded-full border border-border text-xs font-semibold"
         >
-          {initials(viewer.name)}
+          {Effect.runSync(initials(viewer.name))}
         </span>
         {variant === "rail" && (
           <>
@@ -87,7 +94,13 @@ export function UserMenu({
           <IconUser aria-hidden />
           Account
         </DropdownMenuItem>
-        <DropdownMenuItem onClick={() => void signOut()}>
+        <DropdownMenuItem
+          onClick={() =>
+            clientRuntime.runFork(
+              signOut(href, (to) => router.navigate({ href: to }))
+            )
+          }
+        >
           <IconLogout aria-hidden />
           Sign out
         </DropdownMenuItem>

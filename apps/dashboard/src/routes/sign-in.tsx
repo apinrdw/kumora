@@ -1,4 +1,5 @@
 import { createFileRoute } from "@tanstack/react-router"
+import { loadServerFn, runLoader } from "@workspace/server/loader"
 import { Effect } from "effect"
 
 import { AuthPage } from "@/components/auth/auth-page"
@@ -12,7 +13,13 @@ export const Route = createFileRoute("/sign-in")({
     redirect: Effect.runSync(safeRedirect(search.redirect)),
     ...(typeof search.error === "string" && { error: search.error }),
   }),
-  loader: async () => ({ google: await googleSignInFn() }),
+  loader: () =>
+    runLoader(
+      Effect.map(
+        loadServerFn(() => googleSignInFn()),
+        (google) => ({ google })
+      )
+    ),
   staleTime: Infinity,
   head: () => ({ meta: [{ title: "Sign in · KUMORA Terminal" }] }),
   component: SignIn,

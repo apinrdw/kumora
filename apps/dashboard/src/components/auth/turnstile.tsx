@@ -1,3 +1,5 @@
+import { clientRuntime } from "@workspace/client"
+import { Data, Effect, Fiber } from "effect"
 import { useCallback, useEffect, useRef, useState } from "react"
 
 // The header Better Auth's captcha plugin reads the widget's token from.
@@ -27,27 +29,36 @@ declare global {
   }
 }
 
-let loading: Promise<TurnstileApi> | undefined
+class TurnstileDidNotLoad extends Data.TaggedError("TurnstileDidNotLoad") {}
 
-// Loads Cloudflare's script once per page.
-function loadTurnstile(): Promise<TurnstileApi> {
-  loading ??= new Promise((resolve, reject) => {
+let loading: Fiber.Fiber<TurnstileApi, TurnstileDidNotLoad> | undefined
+
+const loadScript = Effect.callback<TurnstileApi, TurnstileDidNotLoad>(
+  (resume) => {
     const script = document.createElement("script")
     script.src = SCRIPT
     script.async = true
     script.addEventListener("load", () =>
-      window.turnstile
-        ? resolve(window.turnstile)
-        : reject(new Error("Turnstile did not load"))
+      resume(
+        window.turnstile
+          ? Effect.succeed(window.turnstile)
+          : Effect.fail(new TurnstileDidNotLoad())
+      )
     )
     script.addEventListener("error", () => {
       loading = undefined
-      reject(new Error("Turnstile did not load"))
+      resume(Effect.fail(new TurnstileDidNotLoad()))
     })
     document.head.appendChild(script)
-  })
-  return loading
-}
+  }
+)
+
+// Loads Cloudflare's script once per page. The load runs in its own fiber, so
+// a widget that unmounts mid-load stops waiting without cancelling it.
+const loadTurnstile = Effect.suspend(() => {
+  loading ??= clientRuntime.runFork(loadScript)
+  return Fiber.join(loading)
+})
 
 /**
  * A Turnstile widget for a form: put `ref` on the element it renders into.
@@ -63,16 +74,20 @@ export function useTurnstile(siteKey: string) {
   useEffect(() => {
     if (!element) return
     let mounted = true
-    void loadTurnstile().then((api) => {
-      if (!mounted) return
-      const id = api.render(element, {
-        sitekey: siteKey,
-        callback: setToken,
-        "expired-callback": () => setToken(null),
-        "error-callback": () => setToken(null),
-      })
-      widget.current = { api, id }
-    })
+    clientRuntime.runFork(
+      Effect.flatMap(loadTurnstile, (api) =>
+        Effect.sync(() => {
+          if (!mounted) return
+          const id = api.render(element, {
+            sitekey: siteKey,
+            callback: setToken,
+            "expired-callback": () => setToken(null),
+            "error-callback": () => setToken(null),
+          })
+          widget.current = { api, id }
+        })
+      )
+    )
     return () => {
       mounted = false
       if (widget.current) widget.current.api.remove(widget.current.id)

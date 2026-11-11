@@ -1,4 +1,5 @@
 import { createFileRoute } from "@tanstack/react-router"
+import { loadServerFn, runLoader } from "@workspace/server/loader"
 import { Effect } from "effect"
 
 import { AuthPage } from "@/components/auth/auth-page"
@@ -13,9 +14,13 @@ export const Route = createFileRoute("/verify")({
   validateSearch: (search) => ({
     redirect: Effect.runSync(safeRedirect(search.redirect)),
   }),
-  beforeLoad: async ({ search }) => ({
-    screen: await verifyScreenFn({ data: search.redirect }),
-  }),
+  beforeLoad: ({ search }) =>
+    runLoader(
+      Effect.map(
+        loadServerFn(() => verifyScreenFn({ data: search.redirect })),
+        (screen) => ({ screen })
+      )
+    ),
   head: () => ({ meta: [{ title: "Verify your email · KUMORA Terminal" }] }),
   component: Verify,
 })

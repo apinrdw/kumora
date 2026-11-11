@@ -1,5 +1,6 @@
 import { IconMailCheck } from "@tabler/icons-react"
 import { useRouter } from "@tanstack/react-router"
+import { clientRuntime } from "@workspace/client"
 import { Effect } from "effect"
 import { useState } from "react"
 
@@ -15,6 +16,37 @@ type Resend =
   | { readonly _tag: "Idle" | "Sending" | "Sent" }
   | { readonly _tag: "Failed"; readonly error: string }
 
+const resend = Effect.fnUntraced(function* (
+  email: string,
+  redirect: string
+): Effect.fn.Return<Resend> {
+  const retry = yield* retryAfter()
+  const { error } = yield* Effect.promise(() =>
+    authClient.sendVerificationEmail(
+      { email, callbackURL: redirect },
+      { onError: retry.onError }
+    )
+  )
+  if (!error) return { _tag: "Sent" }
+  // A 429 is the per-IP limit or this address's daily mail cap.
+  return {
+    _tag: "Failed",
+    error: yield* retry.messageFor(
+      error,
+      "Couldn't send the link. Try again in a minute."
+    ),
+  }
+})
+
+const signOut = Effect.fnUntraced(function* (
+  redirect: string,
+  navigate: (href: string) => Promise<void>
+) {
+  yield* Effect.promise(() => authClient.signOut())
+  const href = yield* withRedirect("/sign-in", redirect)
+  yield* Effect.promise(() => navigate(href))
+})
+
 // The verification link returns to `redirect`, the page first asked for.
 function ResendButton({
   email,
@@ -26,31 +58,19 @@ function ResendButton({
   variant: "primary" | "secondary"
 }) {
   const [state, setState] = useState<Resend>({ _tag: "Idle" })
-  const resend = async () => {
-    setState({ _tag: "Sending" })
-    const retry = Effect.runSync(retryAfter())
-    const { error } = await authClient.sendVerificationEmail(
-      { email, callbackURL: redirect },
-      { onError: retry.onError }
-    )
-    if (!error) return setState({ _tag: "Sent" })
-    // A 429 is the per-IP limit or this address's daily mail cap.
-    setState({
-      _tag: "Failed",
-      error: Effect.runSync(
-        retry.messageFor(
-          error,
-          "Couldn't send the link. Try again in a minute."
-        )
-      ),
-    })
-  }
   return (
     <>
       <KButton
         variant={variant}
         loading={state._tag === "Sending"}
-        onClick={() => void resend()}
+        onClick={() => {
+          setState({ _tag: "Sending" })
+          clientRuntime.runFork(
+            Effect.flatMap(resend(email, redirect), (next) =>
+              Effect.sync(() => setState(next))
+            )
+          )
+        }}
       >
         {state._tag === "Sent" ? "Link sent again" : "Resend link"}
       </KButton>
@@ -100,12 +120,6 @@ export function VerifyToContinue({
   redirect: string
 }) {
   const router = useRouter()
-  const signOut = async () => {
-    await authClient.signOut()
-    await router.navigate({
-      href: Effect.runSync(withRedirect("/sign-in", redirect)),
-    })
-  }
   return (
     <Notice
       icon={IconMailCheck}
@@ -113,7 +127,14 @@ export function VerifyToContinue({
       actions={
         <>
           <ResendButton email={email} redirect={redirect} variant="primary" />
-          <KButton variant="ghost" onClick={() => void signOut()}>
+          <KButton
+            variant="ghost"
+            onClick={() =>
+              clientRuntime.runFork(
+                signOut(redirect, (href) => router.navigate({ href }))
+              )
+            }
+          >
             Sign out
           </KButton>
         </>

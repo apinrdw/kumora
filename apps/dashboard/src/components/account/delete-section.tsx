@@ -1,4 +1,5 @@
 import { useHydrated } from "@tanstack/react-router"
+import { clientRuntime } from "@workspace/client"
 import { Effect } from "effect"
 
 import { KButton } from "@/components/k"
@@ -9,7 +10,21 @@ import {
   AccountSection,
   OutcomeLine,
   useAccountAction,
+  type Outcome,
 } from "./account-section"
+
+const requestLink = Effect.fnUntraced(function* (
+  email: string
+): Effect.fn.Return<Outcome> {
+  const { error } = yield* Effect.promise(() => authClient.deleteUser({}))
+  if (error)
+    return { _tag: "Failed", message: "Couldn't send the link. Try again." }
+  const lifetime = yield* linkLifetime("delete")
+  return {
+    _tag: "Done",
+    message: `Check ${email} for a link to delete the account. It works for ${lifetime}.`,
+  }
+})
 
 /**
  * Delete account, by a link mailed to the account's address, so a stolen
@@ -27,16 +42,6 @@ export function DeleteSection({
 }) {
   const hydrated = useHydrated()
   const { pending, outcome, run } = useAccountAction()
-  const requestLink = () =>
-    run(async () => {
-      const { error } = await authClient.deleteUser({})
-      return error
-        ? { _tag: "Failed", message: "Couldn't send the link. Try again." }
-        : {
-            _tag: "Done",
-            message: `Check ${email} for a link to delete the account. It works for ${Effect.runSync(linkLifetime("delete"))}.`,
-          }
-    })
   return (
     <AccountSection
       title="Delete account"
@@ -48,7 +53,7 @@ export function DeleteSection({
           className="self-start"
           loading={pending}
           disabled={!hydrated || !canDelete}
-          onClick={() => void requestLink()}
+          onClick={() => clientRuntime.runFork(run(requestLink(email)))}
         >
           Email me a delete link
         </KButton>

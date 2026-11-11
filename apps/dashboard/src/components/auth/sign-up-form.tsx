@@ -1,4 +1,5 @@
 import { Link, useHydrated } from "@tanstack/react-router"
+import { clientRuntime } from "@workspace/client"
 import { Effect } from "effect"
 import { useState, type FormEvent } from "react"
 
@@ -18,6 +19,37 @@ type Step =
       readonly error?: string
     }
   | { readonly _tag: "CheckInbox"; readonly email: string }
+
+// The step after the form: the inbox, or the form again with what went wrong.
+const signUp = Effect.fnUntraced(function* (
+  form: HTMLFormElement,
+  token: string,
+  redirect: string
+): Effect.fn.Return<Step> {
+  const fields = yield* formFields(form, ["name", "email", "password"])
+  const retry = yield* retryAfter()
+  const { error } = yield* Effect.promise(() =>
+    authClient.signUp.email(
+      { ...fields, callbackURL: redirect },
+      {
+        headers: { [CAPTCHA_HEADER]: token },
+        onError: retry.onError,
+      }
+    )
+  )
+  if (!error) return { _tag: "CheckInbox", email: fields.email }
+  return {
+    _tag: "Form",
+    pending: false,
+    error: yield* retry.messageFor(
+      error,
+      "Couldn't create the account. Try again in a minute."
+    ),
+  }
+})
+
+// The new account holds an unverified session; end it before another try.
+const startOver = Effect.promise(() => authClient.signOut())
 
 /**
  * A taken email gets the same "Check your inbox" as a new one, so the form
@@ -40,54 +72,40 @@ export function SignUpForm({
   } = useTurnstile(turnstileSiteKey)
   const [step, setStep] = useState<Step>({ _tag: "Form", pending: false })
 
-  const submit = async (event: FormEvent<HTMLFormElement>) => {
-    event.preventDefault()
-    if (!turnstileToken) return
-    const fields = formFields(event.currentTarget, [
-      "name",
-      "email",
-      "password",
-    ])
-    setStep({ _tag: "Form", pending: true })
-    const retry = Effect.runSync(retryAfter())
-    const { error } = await authClient.signUp.email(
-      { ...fields, callbackURL: redirect },
-      {
-        headers: { [CAPTCHA_HEADER]: turnstileToken },
-        onError: retry.onError,
-      }
-    )
-    if (!error) return setStep({ _tag: "CheckInbox", email: fields.email })
-    resetTurnstile()
-    setStep({
-      _tag: "Form",
-      pending: false,
-      error: Effect.runSync(
-        retry.messageFor(
-          error,
-          "Couldn't create the account. Try again in a minute."
-        )
-      ),
-    })
-  }
-
-  // The new account holds an unverified session; end it before another try.
-  const startOver = async () => {
-    await authClient.signOut()
-    setStep({ _tag: "Form", pending: false })
-  }
-
   if (step._tag === "CheckInbox")
     return (
       <CheckInbox
         email={step.email}
         redirect={redirect}
-        onUseAnotherEmail={() => void startOver()}
+        onUseAnotherEmail={() =>
+          clientRuntime.runFork(
+            Effect.andThen(
+              startOver,
+              Effect.sync(() => setStep({ _tag: "Form", pending: false }))
+            )
+          )
+        }
       />
     )
 
   return (
-    <form className="flex flex-col gap-4" onSubmit={(e) => void submit(e)}>
+    <form
+      className="flex flex-col gap-4"
+      onSubmit={(event: FormEvent<HTMLFormElement>) => {
+        event.preventDefault()
+        if (!turnstileToken) return
+        const form = event.currentTarget
+        setStep({ _tag: "Form", pending: true })
+        clientRuntime.runFork(
+          Effect.flatMap(signUp(form, turnstileToken, redirect), (next) =>
+            Effect.sync(() => {
+              if (next._tag === "Form") resetTurnstile()
+              setStep(next)
+            })
+          )
+        )
+      }}
+    >
       <h1 className="text-xl font-semibold">Create your account</h1>
       <KInput label="Name" name="name" autoComplete="name" required size="md" />
       <KInput

@@ -1,5 +1,6 @@
 import { Card } from "@workspace/ui/components/card"
 import { cn } from "@workspace/ui/lib/utils"
+import { Effect } from "effect"
 
 import { Delta } from "./delta"
 import { KSkeleton } from "./skeleton"
@@ -27,10 +28,14 @@ export type KMetricCardProps = {
   className?: string
 }
 
-function valueTone(value: string | null, stale: boolean) {
-  if (value === null) return "text-muted-foreground"
-  return stale ? "text-secondary-text" : "text-foreground"
-}
+const valueTone = (value: string | null, stale: boolean) =>
+  Effect.succeed(
+    value === null
+      ? "text-muted-foreground"
+      : stale
+        ? "text-secondary-text"
+        : "text-foreground"
+  )
 
 function MetricValue({
   value,
@@ -45,7 +50,7 @@ function MetricValue({
         size === "regular"
           ? "text-[28px] leading-[34px] font-[650]"
           : "text-xl leading-7 font-semibold",
-        valueTone(value, stale)
+        Effect.runSync(valueTone(value, stale))
       )}
     >
       {value ?? "—"}

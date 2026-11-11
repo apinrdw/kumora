@@ -7,7 +7,7 @@ import { asOf as formatAsOf } from "@/lib/format"
 
 type TradeSource = "upstream" | "extension" | "none"
 
-export const FRESHNESS = {
+const FRESHNESS = {
   live: {
     label: "LIVE",
     def: "Real-time data.",

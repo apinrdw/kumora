@@ -1,11 +1,34 @@
 import { Link, useHydrated, useNavigate } from "@tanstack/react-router"
+import { clientRuntime } from "@workspace/client"
 import { cn } from "@workspace/ui/lib/utils"
+import { Effect } from "effect"
 import { useState } from "react"
 
 import { KButton, kCard } from "@/components/k"
 import { authClient } from "@/lib/auth-client"
 
 const linkClass = "text-[13px] text-primary hover:underline"
+
+const linkGone =
+  "This link has expired or was already used, or it belongs to another account. Ask for a new one on your account page."
+
+// Spends the delete link's token: null once the account is gone, else what
+// to tell the visitor.
+const spendToken = (token: string) =>
+  Effect.map(
+    Effect.promise(() =>
+      authClient.$fetch("/delete-user/callback", {
+        method: "GET",
+        query: { token },
+      })
+    ),
+    ({ error }) =>
+      !error
+        ? null
+        : error.status === 404
+          ? linkGone
+          : "Couldn't delete the account. Try again."
+  )
 
 /**
  * The page the delete link opens. It asks once more before it spends the
@@ -25,23 +48,20 @@ export function ConfirmDelete({
   const navigate = useNavigate()
   const [pending, setPending] = useState(false)
   const [failed, setFailed] = useState<string | null>(null)
-  const linkGone =
-    "This link has expired or was already used, or it belongs to another account. Ask for a new one on your account page."
 
-  const confirm = async () => {
+  const confirm = () => {
     if (token === undefined) return
     setPending(true)
     setFailed(null)
-    const { error } = await authClient.$fetch("/delete-user/callback", {
-      method: "GET",
-      query: { token },
-    })
-    if (!error) return navigate({ to: "/account-deleted" })
-    setPending(false)
-    setFailed(
-      error.status === 404
-        ? linkGone
-        : "Couldn't delete the account. Try again."
+    clientRuntime.runFork(
+      Effect.flatMap(spendToken(token), (failure) =>
+        failure === null
+          ? Effect.promise(() => navigate({ to: "/account-deleted" }))
+          : Effect.sync(() => {
+              setPending(false)
+              setFailed(failure)
+            })
+      )
     )
   }
 
@@ -75,7 +95,7 @@ export function ConfirmDelete({
             variant="danger"
             loading={pending}
             disabled={!hydrated}
-            onClick={() => void confirm()}
+            onClick={confirm}
           >
             Delete account
           </KButton>

@@ -4,7 +4,7 @@ import { Schema } from "effect"
  * How current a figure is. `live` only while a source is delivering;
  * `recorded` for a recorded day's replay.
  */
-const Freshness = Schema.Literals([
+export const Freshness = Schema.Literals([
   "live",
   "delayed",
   "eod",

@@ -6,6 +6,7 @@ import {
   IconX,
 } from "@tabler/icons-react"
 import { cn } from "@workspace/ui/lib/utils"
+import { Effect } from "effect"
 import { toast } from "sonner"
 
 import { KButton, KIconButton } from "./button"
@@ -92,31 +93,33 @@ type ToastOptions = {
   duration?: number
 }
 
-function show(tone: KToastTone, title: string, opts: ToastOptions = {}) {
-  return toast.custom(
-    (id) => (
-      <KToast
-        tone={tone}
-        title={title}
-        description={opts.description}
-        action={
-          opts.action && {
-            label: opts.action.label,
-            onClick: () => {
-              opts.action?.onClick()
-              toast.dismiss(id)
-            },
+const show = (tone: KToastTone, title: string, opts: ToastOptions = {}) =>
+  Effect.sync(() =>
+    toast.custom(
+      (id) => (
+        <KToast
+          tone={tone}
+          title={title}
+          description={opts.description}
+          action={
+            opts.action && {
+              label: opts.action.label,
+              onClick: () => {
+                opts.action?.onClick()
+                toast.dismiss(id)
+              },
+            }
           }
-        }
-        onDismiss={() => toast.dismiss(id)}
-      />
-    ),
-    {
-      duration:
-        opts.duration ?? (tone === "error" || tone === "warning" ? 8000 : 4000),
-    }
+          onDismiss={() => toast.dismiss(id)}
+        />
+      ),
+      {
+        duration:
+          opts.duration ??
+          (tone === "error" || tone === "warning" ? 8000 : 4000),
+      }
+    )
   )
-}
 
 /**
  * Toast helpers over sonner. Important notices also belong in the
@@ -127,5 +130,5 @@ export const kToast = {
   info: (title: string, opts?: ToastOptions) => show("info", title, opts),
   warning: (title: string, opts?: ToastOptions) => show("warning", title, opts),
   error: (title: string, opts?: ToastOptions) => show("error", title, opts),
-  dismiss: toast.dismiss,
+  dismiss: (id?: string | number) => Effect.sync(() => toast.dismiss(id)),
 }

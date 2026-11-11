@@ -1,4 +1,5 @@
 import { createFileRoute } from "@tanstack/react-router"
+import { loadServerFn, runLoader } from "@workspace/server/loader"
 import { Effect } from "effect"
 
 import { DeleteSection } from "@/components/account/delete-section"
@@ -16,7 +17,8 @@ export const Route = createFileRoute("/_app/account")({
   // Better Auth sends a change-email link that failed back with its code.
   validateSearch: (search): { error?: string } =>
     typeof search.error === "string" ? { error: search.error } : {},
-  loader: ({ location }) => accountPageFn({ data: location.href }),
+  loader: ({ location }) =>
+    runLoader(loadServerFn(() => accountPageFn({ data: location.href }))),
   component: AccountPage,
 })
 

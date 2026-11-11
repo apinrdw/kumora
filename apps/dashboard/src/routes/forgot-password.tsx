@@ -1,4 +1,5 @@
 import { createFileRoute } from "@tanstack/react-router"
+import { loadServerFn, runLoader } from "@workspace/server/loader"
 import { Effect } from "effect"
 
 import { AuthPage } from "@/components/auth/auth-page"
@@ -10,7 +11,7 @@ export const Route = createFileRoute("/forgot-password")({
   validateSearch: (search) => ({
     redirect: Effect.runSync(safeRedirect(search.redirect)),
   }),
-  loader: () => turnstileSiteKeyFn(),
+  loader: () => runLoader(loadServerFn(() => turnstileSiteKeyFn())),
   head: () => ({ meta: [{ title: "Reset password · KUMORA Terminal" }] }),
   component: ForgotPassword,
 })
