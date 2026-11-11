@@ -12,7 +12,12 @@ What every implementer or reviewer brief in this repo carries. Copy the shape; f
 
 ## Worktree guard
 
-An isolated subagent's shell refuses any compound command it cannot prove stays inside its worktree. Tell it: run `git`, `pnpm`, `node`, `bun` and `infisical` as plain separate commands from the worktree root. No `&&` chains, `$(...)`, shell variables, `timeout`, or `HOME=` around them. One refusal costs a round trip and a rewrite; the three implementers of spec #59 hit 22 across 367 calls.
+An isolated subagent's shell refuses any command it cannot prove stays inside its worktree. Tell it:
+
+- One command per Bash call, run where the shell starts: the worktree root.
+- Create and change files with the Write and Edit tools.
+
+Each refusal costs a round trip and a rewrite. The three implementers of spec #59 hit 22 across 367 calls. Spec #175's fifteen hit 39, mostly from forms an older ban list here never named: `;` chains, a `cd <worktree>;` prefix, and heredocs into `cat` or `python3`.
 
 ## Secrets
 
@@ -22,6 +27,7 @@ Never print a secret value; hash prefixes only. Never run `alchemy deploy` or `a
 
 - The verify command or test the spec names passes, with the exact command and output in the report.
 - From the repo root: `pnpm check`, which is what CI runs, and the lint and format commands in `AGENTS.md` exit 0.
+- A test the change adds, moves or reruns differently also passes on CI's 2 cores: rerun the affected suite under `taskset -c 0,1`. In spec #175, Vitest's 5 s and Playwright's 30 s default timeouts held locally and failed only on CI.
 - Small logical commits whose messages end with the attribution line the harness requires. Before reporting, merge the integration branch's current tip.
 
 ## Report

@@ -1,3 +1,5 @@
+# Where a run's time went, per job, step and e2e spec:
+# pnpm ci-timings <run-id>
 name: CI
 
 on:

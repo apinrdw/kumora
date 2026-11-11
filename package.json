@@ -16,6 +16,7 @@
     "typecheck:root": "tsc --noEmit",
     "test": "turbo run test test:root",
     "test:e2e": "pnpm --filter e2e e2e",
+    "ci-timings": "node scripts/report-ci-timings.mts",
     "prepare": "git config core.hooksPath .githooks",
     "test:root": "vitest run --dir scripts"
   },
