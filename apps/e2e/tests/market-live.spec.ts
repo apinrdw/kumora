@@ -1,4 +1,5 @@
 import { DASHBOARD, MEMBER } from "../support/accounts"
+import { marketNow } from "../support/clock"
 import { signInUrl } from "../support/flows"
 import {
   ajaibTradeToday,
@@ -344,11 +345,17 @@ test.describe("the tape at peak", () => {
   }) => {
     const relay = await openIngest()
     const base = freshTradeNumbers()
+    // Now on the market clock: every relay that closed before this test left
+    // a "Not recorded" gap, drawn above any trade older than it, and enough
+    // of them would push this test's trades out of view.
+    const time = new Date(marketNow() + 7 * 3_600_000)
+      .toISOString()
+      .slice(11, 19)
     const trades = (from: number, count: number) =>
       Array.from({ length: count }, (_, i) =>
         ajaibTradeToday({
           seq: base + from + i,
-          time: "10:00:02",
+          time,
           ticker: "FRZA",
           price: 100,
           lot: 1,
