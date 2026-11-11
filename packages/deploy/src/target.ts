@@ -32,13 +32,10 @@ const DEFAULT_DEV_PORTS = {
 
 export const devPort = (app: App): Effect.Effect<number> =>
   Config.Port(DEV_PORT_VARIABLES[app]).pipe(
-    // Decision: the port comes from the app's variable when it is set, else
-    // the default. apps/e2e/support/ports.ts sets an unset one to a free port
-    // for each run, so e2e runs in parallel worktrees, or beside another
-    // project's server on 3000, with no lock. It beat fixed ports behind a
-    // machine-wide lock, which queued spec #175's implementers one e2e run at
-    // a time. A port taken between its pick and its bind fails the run
-    // loudly, since each port is strict. `pnpm dev` keeps 3000 and 3001.
+    // Decision: the app's variable, else the default. apps/e2e/support/ports.ts
+    // gives each e2e run free ports, so parallel worktrees need no lock; this
+    // beat fixed ports behind a machine-wide lock. A port taken between pick
+    // and bind fails the run loudly, since each port is strict.
     // See apinrdw/kumora#194.
     Config.withDefault(DEFAULT_DEV_PORTS[app]),
     Effect.orDie

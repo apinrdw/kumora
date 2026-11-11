@@ -92,7 +92,7 @@
       }
     },
     {
-      // The deploy token swap is the one Effect-override file that writes process.env:
+      // The deploy token swap and its test are the Effect-override files that write process.env:
       // alchemy's plan and Infisical read it there, not through Config. It
       // must stay after the Effect override, which it narrows. See
       // apinrdw/kumora#107.
