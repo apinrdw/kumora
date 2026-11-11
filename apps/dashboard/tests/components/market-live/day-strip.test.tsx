@@ -11,7 +11,8 @@ import { WibDate, type RecordedDay } from "@workspace/relay"
 import { Effect } from "effect"
 import { act, useSyncExternalStore } from "react"
 import { createRoot } from "react-dom/client"
-import { afterEach, beforeEach, expect, test, vi } from "vitest"
+import { afterEach, beforeEach, expect, it } from "@effect/vitest"
+import { vi } from "vitest"
 
 import { DayStrip } from "@/components/market-live/day-strip"
 
@@ -24,11 +25,13 @@ const mocks = vi.hoisted(() => ({
 }))
 
 // Counted when the load runs, not when the strip builds it.
-vi.mock("@workspace/client", async (importOriginal) => ({
-  ...(await importOriginal<typeof Client>()),
-  fetchDayStrip: (fresh = false) =>
-    Effect.suspend(() => mocks.fetchDayStrip(fresh)),
-}))
+vi.mock("@workspace/client", (importOriginal) =>
+  importOriginal<typeof Client>().then((actual) => ({
+    ...actual,
+    fetchDayStrip: (fresh = false) =>
+      Effect.suspend(() => mocks.fetchDayStrip(fresh)),
+  }))
+)
 
 const FRIDAY = WibDate.make("2026-11-06")
 const MONDAY = WibDate.make("2026-11-09")
@@ -69,61 +72,58 @@ afterEach(() => {
   mocks.fetchDayStrip.mockReset()
 })
 
-test("the strip asks for the days again, fresh, a minute after the loader says the day sealed", async () => {
-  // The browser's copy, until the seal; the Worker's answer after it.
-  mocks.fetchDayStrip.mockImplementation((fresh) =>
-    Effect.succeed(fresh ? [row(MONDAY), row(FRIDAY)] : [row(FRIDAY)])
-  )
-  const rootRoute = createRootRoute({
-    component: () => (
-      <>
-        <Page />
-        <Outlet />
-      </>
-    ),
-  })
-  const router = createRouter({
-    routeTree: rootRoute,
-    history: createMemoryHistory({ initialEntries: ["/"] }),
-  })
-  await router.load()
-  const container = document.body.appendChild(document.createElement("div"))
-  const root = createRoot(container)
-  await act(async () => {
-    root.render(<RouterProvider router={router} />)
-  })
-  const links = () =>
-    [...container.querySelectorAll("a")].map((link) => link.textContent)
-  expect(links()).toEqual(["Today · live", "Fri, Nov 6IHSG +0.50%"])
-  expect(mocks.fetchDayStrip.mock.calls).toEqual([[false]])
+// An async act around `f`, so React flushes the work it schedules.
+const inAct = (f: () => unknown) =>
+  Effect.promise(() => act(() => Effect.runPromise(Effect.sync(f))))
 
-  // 17:00: the loader turns to the recorded view of today.
-  await act(async () => {
-    setClosedDay(MONDAY)
-  })
-  await act(async () => {
-    await vi.advanceTimersByTimeAsync(59_000)
-  })
-  expect(mocks.fetchDayStrip.mock.calls).toEqual([[false]])
-  await act(async () => {
-    await vi.advanceTimersByTimeAsync(1_000)
-  })
-  expect(mocks.fetchDayStrip.mock.calls).toEqual([[false], [true]])
-  expect(links()).toEqual([
-    "Today · live",
-    "Mon, Nov 9IHSG +0.50%",
-    "Fri, Nov 6IHSG +0.50%",
-  ])
+const advance = (ms: number) =>
+  Effect.promise(() => act(() => vi.advanceTimersByTimeAsync(ms)))
 
-  // Midnight and 08:40 change the loader's answer, not the days recorded.
-  await act(async () => {
-    setClosedDay(undefined)
-  })
-  await act(async () => {
-    await vi.advanceTimersByTimeAsync(60_000)
-  })
-  expect(mocks.fetchDayStrip.mock.calls).toEqual([[false], [true]])
-  await act(async () => {
-    root.unmount()
-  })
-})
+it.live(
+  "the strip asks for the days again, fresh, a minute after the loader says the day sealed",
+  () =>
+    Effect.gen(function* () {
+      // The browser's copy, until the seal; the Worker's answer after it.
+      mocks.fetchDayStrip.mockImplementation((fresh) =>
+        Effect.succeed(fresh ? [row(MONDAY), row(FRIDAY)] : [row(FRIDAY)])
+      )
+      const rootRoute = createRootRoute({
+        component: () => (
+          <>
+            <Page />
+            <Outlet />
+          </>
+        ),
+      })
+      const router = createRouter({
+        routeTree: rootRoute,
+        history: createMemoryHistory({ initialEntries: ["/"] }),
+      })
+      yield* Effect.promise(() => router.load())
+      const container = document.body.appendChild(document.createElement("div"))
+      const root = createRoot(container)
+      yield* inAct(() => root.render(<RouterProvider router={router} />))
+      const links = () =>
+        [...container.querySelectorAll("a")].map((link) => link.textContent)
+      expect(links()).toEqual(["Today · live", "Fri, Nov 6IHSG +0.50%"])
+      expect(mocks.fetchDayStrip.mock.calls).toEqual([[false]])
+
+      // 17:00: the loader turns to the recorded view of today.
+      yield* inAct(() => setClosedDay(MONDAY))
+      yield* advance(59_000)
+      expect(mocks.fetchDayStrip.mock.calls).toEqual([[false]])
+      yield* advance(1_000)
+      expect(mocks.fetchDayStrip.mock.calls).toEqual([[false], [true]])
+      expect(links()).toEqual([
+        "Today · live",
+        "Mon, Nov 9IHSG +0.50%",
+        "Fri, Nov 6IHSG +0.50%",
+      ])
+
+      // Midnight and 08:40 change the loader's answer, not the days recorded.
+      yield* inAct(() => setClosedDay(undefined))
+      yield* advance(60_000)
+      expect(mocks.fetchDayStrip.mock.calls).toEqual([[false], [true]])
+      yield* inAct(() => root.unmount())
+    })
+)
