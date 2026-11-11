@@ -122,4 +122,21 @@ jobs:
           key: playwright-${{ runner.os }}-${{ steps.playwright.outputs.version }}
       - if: steps.browser.outputs.cache-hit != 'true'
         run: pnpm --filter e2e exec playwright install chromium
+      # Decision: both apps' vite optimizer output is cached between runs, so
+      # the dev servers start without the cold dependency prebundle; this
+      # reverses spec #175's "leave the cold compile alone"
+      # (apinrdw/kumora#190). Vite checks the restored output against the
+      # lockfile and its config and rebundles on a mismatch, so a stale entry
+      # costs only that rebundle. The key adds the app and package sources, so
+      # a change that imports a new dependency saves a fresh entry, and
+      # restore-keys hands any other change the last entry for the same
+      # lockfile and configs. In CI a warm cache starts the servers in
+      # PLACEHOLDER s against a miss's PLACEHOLDER s (run PLACEHOLDER).
+      - uses: actions/cache@v6
+        with:
+          path: |
+            apps/web/node_modules/.vite
+            apps/dashboard/node_modules/.vite
+          key: vite-${{ runner.os }}-${{ hashFiles('pnpm-lock.yaml', 'apps/web/vite.config.ts', 'apps/dashboard/vite.config.ts') }}-${{ hashFiles('apps/web/src/**', 'apps/dashboard/src/**', 'packages/*/src/**') }}
+          restore-keys: vite-${{ runner.os }}-${{ hashFiles('pnpm-lock.yaml', 'apps/web/vite.config.ts', 'apps/dashboard/vite.config.ts') }}-
       - run: pnpm test:e2e --project=${{ matrix.project }} --shard=${{ matrix.shard }}

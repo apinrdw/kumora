@@ -2,7 +2,7 @@
 // dependencies, so it has to install them first on a clean runner. CI runs the
 // same checks as `pnpm check`, one root `check:*` script per job. e2e runs as
 // a matrix of shards, each project sharded on its own, that each finish on
-// their own, on a cached browser.
+// their own, on a cached browser and cached vite optimizer output.
 import { NodeServices } from "@effect/platform-node"
 import { assert, layer } from "@effect/vitest"
 import { Effect, FileSystem, Path, Schema } from "effect"
@@ -242,6 +242,47 @@ layer(NodeServices.layer)("workflow dependencies", (it) => {
         )
         assert.match(install, /\bplaywright install chromium$/m)
         assert.notInclude(install, "--with-deps")
+      })
+  )
+
+  it.effect(
+    "e2e restores both apps' vite optimizer output before the servers start, keyed by what invalidates it",
+    () =>
+      Effect.gen(function* () {
+        const steps = (yield* jobSteps(yield* ciWorkflow)).get("e2e") ?? []
+        const caches = steps.filter(
+          (step) =>
+            /\buses: actions\/cache@v\d+\b/.test(step) &&
+            /\bnode_modules\/\.vite\b/.test(step)
+        )
+        assert.strictEqual(caches.length, 1, "one step caches vite's output")
+        const cache = caches[0] ?? ""
+        for (const app of ["web", "dashboard"]) {
+          assert.match(
+            cache,
+            new RegExp(`^\\s+apps/${app}/node_modules/\\.vite$`, "m"),
+            `${app}'s optimizer output is cached`
+          )
+        }
+        const key = /^\s+key: (.+)$/m.exec(cache)?.[1] ?? ""
+        for (const input of [
+          "pnpm-lock.yaml",
+          "apps/web/vite.config.ts",
+          "apps/dashboard/vite.config.ts",
+        ]) {
+          assert.include(key, `'${input}'`, `the key hashes ${input}`)
+        }
+        const restoreKey = /^\s+restore-keys: (.+)$/m.exec(cache)?.[1] ?? ""
+        assert.isTrue(
+          restoreKey.length > 0 && key.startsWith(restoreKey),
+          "a source change restores the last output for the same lockfile"
+        )
+        const installs = steps.findIndex((step) =>
+          /\bpnpm install\b/.test(step)
+        )
+        const runs = steps.findIndex((step) => /\bpnpm test:e2e\b/.test(step))
+        assert.isAbove(steps.indexOf(cache), installs)
+        assert.isBelow(steps.indexOf(cache), runs)
       })
   )
 })
