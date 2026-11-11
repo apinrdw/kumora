@@ -46,11 +46,11 @@ describe("priceScale", () => {
 describe("priceReadoutRows", () => {
   test("lists price, then VWAP and volume when the point has them and they are shown", () => {
     expect(priceReadoutRows(session[0]!, true, true)).toEqual([
-      { label: "Harga", value: "Rp9.200", swatch: "var(--text-secondary)" },
-      { label: "VWAP", value: "Rp9.210", swatch: "var(--chart-vwap)" },
+      { label: "Harga", value: "Rp9,200", swatch: "var(--text-secondary)" },
+      { label: "VWAP", value: "Rp9,210", swatch: "var(--chart-vwap)" },
       {
         label: "Volume",
-        value: "4,0 ribu lembar",
+        value: "4 K shares",
         swatch: "var(--chart-volume)",
       },
     ])

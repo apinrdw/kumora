@@ -1,0 +1,80 @@
+{
+ "note": "Stockbit liveprice frames (case 9) for five stocks, decoded by field number (1 code, 2 last, 3 volume in shares, 4 high, 5 low, 6 open, 7 frequency, 11 date, 13 prev, 14 value, 15 change {1 value, 2 percent}, 23 board) from the 2026-07-29 capture in the stockbit-ws-probe fixtures. Dates moved to 2026-11-09 so the tests' trading day keeps them.",
+ "rows": [
+  {
+   "code": "CTTH",
+   "last": 117,
+   "volume": 3734700,
+   "high": 125,
+   "low": 115,
+   "open": 122,
+   "frequency": 534,
+   "date": "2026-11-09T09:51:01.362738+07:00",
+   "prev": 122,
+   "value": 444857900,
+   "change": -5,
+   "changePercent": -4.098360655737705,
+   "board": 1
+  },
+  {
+   "code": "TINS",
+   "last": 3490,
+   "volume": 15904700,
+   "high": 3570,
+   "low": 3480,
+   "open": 3500,
+   "frequency": 4617,
+   "date": "2026-11-09T09:51:01.304621+07:00",
+   "prev": 3460,
+   "value": 56048615000,
+   "change": 30,
+   "changePercent": 0.8670520231213872,
+   "board": 1
+  },
+  {
+   "code": "MINA",
+   "last": 264,
+   "volume": 12166100,
+   "high": 276,
+   "low": 264,
+   "open": 272,
+   "frequency": 1415,
+   "date": "2026-11-09T09:51:01.315014+07:00",
+   "prev": 272,
+   "value": 3285509000,
+   "change": -8,
+   "changePercent": -2.941176470588235,
+   "board": 1
+  },
+  {
+   "code": "BBRI",
+   "last": 2920,
+   "volume": 22411800,
+   "high": 2950,
+   "low": 2910,
+   "open": 2930,
+   "frequency": 6908,
+   "date": "2026-11-09T09:51:01.396114+07:00",
+   "prev": 2930,
+   "value": 65698513000,
+   "change": -10,
+   "changePercent": -0.3412969283276451,
+   "board": 1
+  },
+  {
+   "code": "BRPT",
+   "last": 1725,
+   "volume": 35433600,
+   "high": 1790,
+   "low": 1720,
+   "open": 1765,
+   "frequency": 6902,
+   "date": "2026-11-09T09:51:01.361223+07:00",
+   "prev": 1745,
+   "value": 62352197500,
+   "change": -20,
+   "changePercent": -1.146131805157593,
+   "board": 1
+  }
+ ]
+}

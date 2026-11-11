@@ -11,7 +11,7 @@ import { UserMenu } from "./user-menu"
 export function AppSidebar({ viewer }: { viewer: Viewer }) {
   return (
     <nav
-      aria-label="Navigasi utama"
+      aria-label="Main navigation"
       className="sticky top-(--banner-h,0px) hidden h-[calc(100svh-var(--banner-h,0px))] w-16 shrink-0 flex-col border-r border-sidebar-border bg-sidebar md:flex xl:w-[244px]"
     >
       {/* An <a>, not a Link: with no routes yet, `/` is not a typed target. */}

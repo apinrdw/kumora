@@ -61,11 +61,11 @@ function Breadcrumbs() {
   )
 }
 
-const clockFormat = new Intl.DateTimeFormat("id-ID", {
+const clockFormat = new Intl.DateTimeFormat("en-US", {
   hour: "2-digit",
   minute: "2-digit",
   second: "2-digit",
-  hour12: false,
+  hourCycle: "h23",
   timeZone: "Asia/Jakarta",
 })
 
@@ -80,7 +80,7 @@ function WibClock() {
   return (
     <span className="num text-secondary-text hidden items-center gap-1.5 text-xs sm:inline-flex">
       <i aria-hidden className="bg-up size-1.5 rounded-full" />
-      <span className="min-w-[7.5ch]">{now ?? "--.--.--"}</span>
+      <span className="min-w-[7.5ch]">{now ?? "--:--:--"}</span>
       <span className="text-muted-foreground">WIB</span>
     </span>
   )

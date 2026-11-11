@@ -23,8 +23,8 @@ describe("CandlestickChart", () => {
     const html = render()
     expect(html).toContain('aria-valuetext="15 Okt"')
     expect(html).toContain('aria-valuenow="2"')
-    expect(html).toMatch(/class="text-up">C Rp9\.200</)
-    expect(html).toContain("Vol 2,0 ribu lembar")
+    expect(html).toMatch(/class="text-up">C Rp9,200</)
+    expect(html).toContain("Vol 2 K shares")
   })
 
   test("a down candle and an up candle use the matching semantic color", () => {

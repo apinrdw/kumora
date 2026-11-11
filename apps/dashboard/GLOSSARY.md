@@ -19,7 +19,7 @@ The stock codes and indices a user chooses to keep an eye on, each with its day 
 _Avoid_: Favourites, portfolio
 
 **Big trade**:
-A running trade worth at least Rp1 miliar.
+A running trade worth at least Rp1 B (one billion rupiah).
 _Avoid_: Whale trade
 
 **Frequency**:
@@ -39,7 +39,7 @@ The exchange market a running trade happens on: regular, cash, or negotiated. Ca
 _Avoid_: Market type
 
 **Indicative price**:
-The price, and the volume with it, that an auction would match at if it closed now. Published only during pre-opening and pre-closing.
+The price, and the volume with it, that an auction would match at if it closed now. Published only during pre-opening and pre-closing, and shown only while the auction of its time runs: pre-closing shows nothing until its own first frame, never the morning's price.
 _Avoid_: IEP, projected price
 
 **Auction match**:
@@ -47,7 +47,7 @@ The running trades a pre-opening or pre-closing auction produces when it closes:
 _Avoid_: Crossing, uncross, opening print
 
 **Day state**:
-A stock code's or index's figures for the trading day so far: last price, previous close, change, open, high, low, volume, value and frequency.
+A stock code's or index's figures for the trading day so far: last price, previous close, change, open, high, low, volume, value and frequency. The previous close and the change are absent until a frame of the code carries a previous close, which an index's never do; a price seen today never stands in for it.
 _Avoid_: Quote, summary
 
 **Order book**:
@@ -86,6 +86,10 @@ _Avoid_: History, archive day
 **Relay gap**:
 A stretch of a market phase that expects trades during which no feed was live, so the terminal holds no trades for it. Shown as not recorded, both live and on a recorded day. One feed dropping while the other stays live is not a relay gap.
 _Avoid_: Outage, missing data
+
+**Market conditions**:
+What a trading day tells every viewer besides the figures: the market phase, each feed's freshness and the relay gaps so far. Sent in every snapshot, and in a delta whenever any of it changed; the chart header shows them.
+_Avoid_: Market status, status bar
 
 **Replay cursor**:
 The moment of a recorded day the page shows: the chart, watchlist, order book and tape all read as of it.

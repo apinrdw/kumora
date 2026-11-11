@@ -1,6 +1,7 @@
 import * as Cloudflare from "@alchemy.run/cloudflare"
 import {
   DEV_PORTS,
+  TEST,
   isReleaseStage,
   stackName,
   stageKind,
@@ -89,9 +90,30 @@ export const Website = Cloudflare.Website.Vite(
           GOOGLE_CLIENT_SECRET: Config.Redacted("GOOGLE_CLIENT_SECRET"),
         }
       : {}
+    // Decision: the Test stage alone takes a Market Live clock offset (ms),
+    // so the e2e opens the page in a chosen market phase; no deployed stage
+    // can shift it. apps/e2e/support/clock.ts sets it, turbo.json passes it
+    // through. See src/server/market-live/market-clock.ts.
+    const clockOffset: Partial<
+      Record<
+        "MARKET_LIVE_CLOCK_OFFSET",
+        Config.Config<Redacted.Redacted<string>>
+      >
+    > =
+      stage === TEST
+        ? {
+            // Unset: no shift.
+            MARKET_LIVE_CLOCK_OFFSET: Config.Redacted(
+              "MARKET_LIVE_CLOCK_OFFSET"
+            ).pipe(Config.withDefault(Redacted.make("0"))),
+          }
+        : {}
     return {
       ...(yield* websiteProps("dashboard", stage)),
       rootDir: import.meta.dirname,
+      // Market Live's sockets ahead of TanStack Start, and the Durable Object
+      // classes (spec apinrdw/kumora#138, "The custom Worker entry and the gate").
+      main: "src/worker.ts",
       dev: { port: DEV_PORTS.dashboard, strictPort: true },
       env: {
         AUTH_DB: AuthDb,
@@ -108,7 +130,22 @@ export const Website = Cloudflare.Website.Vite(
         // it, turbo.json passes it through). Redacted, so it binds as
         // secret_text like the other Infisical values (packages/deploy/src/stack.ts).
         ADMIN_EMAILS: Config.Redacted("ADMIN_EMAILS"),
+        // The relay's shared secret: Infisical /dashboard of `prod` and
+        // `staging` (Previews and Dev stages share staging's); the process
+        // environment on the Test stage, like ADMIN_EMAILS.
+        INGEST_TOKEN: Config.Redacted("INGEST_TOKEN"),
+        // One trading-day object per WIB date; src/worker.ts exports the
+        // class. Untyped: the object has no RPC, only fetch, and its module
+        // needs Workers types the tests' typecheck runs without.
+        // apps/e2e/reset-test-stage.ts empties both classes' local storage
+        // by these names before each e2e run.
+        TRADING_DAY: Cloudflare.DurableObject("TradingDay"),
+        // The one index of sealed days, the day strip's source
+        // (src/server/market-live/day-index-object.ts). Untyped, like
+        // TRADING_DAY.
+        MARKET_LIVE_INDEX: Cloudflare.DurableObject("DayIndex"),
         ...google,
+        ...clockOffset,
       },
     }
   })

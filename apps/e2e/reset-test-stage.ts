@@ -1,8 +1,9 @@
 // Runs before the apps start (playwright.config.ts). Each e2e run starts with
 // an empty local D1: without the Test stage's Alchemy state, `alchemy dev`
 // creates a new local database (and signing secret) and applies the
-// migrations to it. The Dev stage's state is left alone.
-import { TEST, stackName } from "@workspace/deploy"
+// migrations to it. It also starts with empty Market Live Durable Objects.
+// The Dev stage's state is left alone.
+import { TEST, stackName, stageTarget } from "@workspace/deploy"
 import * as Effect from "effect/Effect"
 import { createHash, createHmac } from "node:crypto"
 import { readFileSync, rmSync } from "node:fs"
@@ -63,3 +64,15 @@ if (databaseId !== undefined) {
   )
 }
 rmSync(STATE, { recursive: true, force: true })
+
+// The trading-day and index objects keep their SQLite stores across
+// `alchemy dev` restarts, so a run would start from the last run's tape and
+// candles. `alchemy dev` keeps a class's objects in `local/<worker>-<class>/`;
+// the class names are the Durable Object bindings' in
+// apps/dashboard/alchemy.run.ts.
+const { workerName } = Effect.runSync(stageTarget("dashboard", TEST))
+for (const className of ["TradingDay", "DayIndex"])
+  rmSync(new URL(`local/${workerName}-${className}/`, ALCHEMY), {
+    recursive: true,
+    force: true,
+  })

@@ -2,6 +2,10 @@ import { defineConfig } from "@playwright/test"
 import { TEST } from "@workspace/deploy"
 
 import { ADMIN, testUrl } from "./support/accounts"
+import { MARKET_CLOCK_OFFSET } from "./support/clock"
+import { TEST_INGEST_TOKEN } from "./support/ingest"
+
+const TRADING_DAY_SPECS = /(market-live[\w-]*|relay-extension)\.spec\.ts$/
 
 export default defineConfig({
   testDir: "tests",
@@ -15,12 +19,23 @@ export default defineConfig({
     {
       name: "chromium",
       dependencies: ["setup"],
-      testIgnore: /too-many-attempts\.spec\.ts$/,
+      testIgnore: [TRADING_DAY_SPECS, /too-many-attempts\.spec\.ts$/],
+    },
+    // Decision: the specs that send trades share one Durable Object, today's
+    // trading day, so they run one at a time: a spec running alongside would
+    // add trades to the tape it counts. Each test's trades are numbered above
+    // everything sent before it (support/ingest.ts freshTradeNumbers), so the
+    // order they run in doesn't matter.
+    {
+      name: "trading-day",
+      dependencies: ["setup"],
+      testMatch: TRADING_DAY_SPECS,
+      workers: 1,
     },
     // Spends a per-IP limit on purpose, so it runs after every other spec.
     {
       name: "limits",
-      dependencies: ["chromium"],
+      dependencies: ["chromium", "trading-day"],
       testMatch: /too-many-attempts\.spec\.ts$/,
     },
   ],
@@ -40,6 +55,10 @@ export default defineConfig({
         // The Test stage reads ADMIN_EMAILS from here (apinrdw/kumora#86):
         // turbo.json passes it through to apps/dashboard/alchemy.run.ts.
         ADMIN_EMAILS: ADMIN.email,
+        // Likewise INGEST_TOKEN; support/ingest.ts's fake relay sends it.
+        INGEST_TOKEN: TEST_INGEST_TOKEN,
+        // Market Live's clock, shifted into session 1 of a trading day.
+        MARKET_LIVE_CLOCK_OFFSET: String(MARKET_CLOCK_OFFSET),
       },
       url: `${testUrl("web")}/probe`,
       stdout: "pipe",

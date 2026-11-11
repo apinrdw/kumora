@@ -224,7 +224,7 @@ check_dashboard_values() {
     SKIPPED+=("check /dashboard values in Infisical $env by eye")
     return
   fi
-  for name in GOOGLE_CLIENT_ID GOOGLE_CLIENT_SECRET ADMIN_EMAILS; do
+  for name in GOOGLE_CLIENT_ID GOOGLE_CLIENT_SECRET ADMIN_EMAILS INGEST_TOKEN; do
     if infisical_has "$env" "$name"; then
       printf '  %s✓%s %s is set in %s /dashboard\n' "$GREEN" "$RESET" "$name" "$env"
     else
@@ -301,15 +301,17 @@ step "Save, then keep the Client ID and Client secret open for the next two stag
 pause "Saved both redirect URIs? Press Enter."
 
 # ── 2 ─────────────────────────────────────────────────────────────────────
-stage "Infisical prod: the dashboard's three values"
-say "Production reads /dashboard of prod. Its deploy fails until all three exist."
+stage "Infisical prod: the dashboard's four values"
+say "Production reads /dashboard of prod. Its deploy fails until all four exist."
 open_url "$INFISICAL"
 step "Project kumora → environment prod → folder /dashboard (create the folder if it's missing; this path is unverified, not yet observed)."
 step "GOOGLE_CLIENT_ID      = the client ID from stage 1"
 step "GOOGLE_CLIENT_SECRET  = the client secret from stage 1"
 step "ADMIN_EMAILS          = comma-separated emails that become admins once verified, e.g. you@pusat.ai"
 note "Only those addresses become admins, and only after they verify. Changing the list later needs a redeploy."
-pause "Added all three? Press Enter to check them."
+step "INGEST_TOKEN          = the Market Live relay's secret: a long random string, e.g. from \`openssl rand -base64 32\`"
+note "Paste the same INGEST_TOKEN into the extension's options page for Production."
+pause "Added all four? Press Enter to check them."
 note "The check uses the infisical CLI. The project ID is on the project's Settings page in Infisical (path unverified, not yet observed; the ID is not a secret)."
 ask INFISICAL_PROJECT_ID "Infisical project ID for kumora (Enter to skip the check):"
 [[ -n "$INFISICAL_PROJECT_ID" ]] && write_env INFISICAL_PROJECT_ID "$INFISICAL_PROJECT_ID"
@@ -317,14 +319,15 @@ check_dashboard_values prod
 pause
 
 # ── 3 ─────────────────────────────────────────────────────────────────────
-stage "Infisical staging: the same three values"
+stage "Infisical staging: the same four values"
 say "Staging reads /dashboard of staging, and so do every Preview and your pnpm dev."
 open_url "$INFISICAL"
 step "Project kumora → environment staging → folder /dashboard (path unverified, not yet observed)."
 step "GOOGLE_CLIENT_ID and GOOGLE_CLIENT_SECRET: the same client as prod."
 step "ADMIN_EMAILS: the admins for Staging, Previews and Dev stages (may differ from prod)."
+step "INGEST_TOKEN: a different random string from prod's; Staging, Previews and Dev stages share it."
 note "Never put them in the dev environment: nothing reads it."
-pause "Added all three? Press Enter to check them."
+pause "Added all four? Press Enter to check them."
 check_dashboard_values staging
 pause
 

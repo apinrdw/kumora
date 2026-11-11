@@ -1,8 +1,24 @@
 {
   "ignorePatterns": ["repos/**"],
-  // Workers Builds runs this by path (docs/runbooks/deploy.md, step 4), so no
-  // module imports it.
-  "entry": ["packages/deploy/src/deploy.ts"],
+  // Workers Builds runs deploy.ts by path (docs/runbooks/deploy.md, step 4),
+  // so no module imports it. Chrome loads the extension's entries from its
+  // manifest (apps/extension/manifest.ts).
+  "entry": [
+    "packages/deploy/src/deploy.ts",
+    "apps/extension/src/worker/service-worker.ts",
+    "apps/extension/src/content/broker.ts",
+    "apps/extension/src/content/page.ts",
+    "apps/extension/src/options/main.tsx"
+  ],
+  // The Workers runtime calls a Durable Object's handlers; no module does
+  // (apps/dashboard/src/server/market-live/trading-day-object.ts).
+  "usedClassMembers": [
+    "fetch",
+    "webSocketMessage",
+    "webSocketClose",
+    "webSocketError",
+    "alarm"
+  ],
   // Decision: alchemy and @alchemy.run/cloudflare load these optional peers at
   // runtime; without them `alchemy dev` fails with "could not load the required
   // peer dependency @effect/platform-bun". pnpm never auto-installs optional

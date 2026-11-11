@@ -1,0 +1,192 @@
+// Seam (b) of spec apinrdw/kumora#138, the watchlist: codes added through
+// Add code… survive a reload, × removes one, a code with no figures says so,
+// and an Ajaib PRICE frame fills its row while Stockbit is lost. The page's
+// codes go down the relay's ingest socket as the Ajaib on-demand set.
+import type { Page } from "@playwright/test"
+
+import { DASHBOARD, MEMBER } from "../support/accounts"
+import { marketNow } from "../support/clock"
+import { openIngest, wibToday } from "../support/ingest"
+import { stockbitIndexFrameNow } from "../support/stockbit"
+import { expect, test } from "../support/test"
+
+const PAGE = "/market-live"
+
+// Where the page keeps its watchlist, as apps/dashboard's use-watchlist.ts
+// defines it.
+const WATCHLIST_KEY = "kumora:market-live:watchlist"
+
+// The Ajaib on-demand set the relay was last sent.
+const lastOnDemandCodes = (received: ReadonlyArray<string>) =>
+  received
+    .map((text) => JSON.parse(text))
+    .filter((message) => message._tag === "OnDemandCodes")
+    .at(-1)?.codes
+
+// Loads the page and waits until it is hydrated: its viewer socket opens from
+// an effect.
+async function open(page: Page) {
+  const live = page.waitForEvent("websocket", (socket) =>
+    socket.url().endsWith("/market-live/live")
+  )
+  await page.goto(`${DASHBOARD}${PAGE}`)
+  await live
+}
+
+test.use({ storageState: MEMBER.storageState })
+
+test.beforeEach(async ({ request }) => {
+  const relay = await openIngest()
+  await relay.sendCodeList()
+  // Stored once the object has handled it.
+  const url = `${DASHBOARD}/market-live/days/${wibToday()}/codes`
+  await expect.poll(async () => (await request.get(url)).status()).toBe(200)
+  relay.close()
+})
+
+test("the watchlist survives a reload, and × removes a code", async ({
+  page,
+}) => {
+  await open(page)
+  const watchlist = page.getByRole("region", { name: "Watchlist" })
+  await expect(watchlist).toContainText("No codes yet. Add one above.")
+
+  const add = watchlist.getByRole("combobox", { name: "Add code…" })
+  for (const code of ["BREN", "AMAG"]) {
+    await add.fill(code.toLowerCase())
+    await watchlist
+      .getByRole("option", { name: new RegExp(`^${code}`) })
+      .first()
+      .click()
+  }
+  const rows = watchlist.locator("tbody tr")
+  await expect(rows).toHaveCount(2)
+  await expect(rows.nth(0)).toContainText("BREN")
+  await expect(rows.nth(1)).toContainText("AMAG")
+
+  await page.reload()
+  await expect(rows).toHaveCount(2)
+  await expect(rows.nth(0)).toContainText("BREN")
+  await expect(rows.nth(1)).toContainText("AMAG")
+
+  await watchlist.getByRole("button", { name: "Remove BREN" }).click()
+  await expect(rows).toHaveCount(1)
+  await page.reload()
+  await expect(rows).toHaveCount(1)
+  await expect(rows.nth(0)).toContainText("AMAG")
+
+  // A code's button selects it.
+  await rows.nth(0).getByRole("button", { name: "AMAG", exact: true }).click()
+  await expect(page).toHaveURL(`${DASHBOARD}${PAGE}?code=AMAG`)
+})
+
+test("a watched code's row fills from Ajaib's PRICE, and the relay is asked for it", async ({
+  page,
+}) => {
+  const relay = await openIngest()
+  await open(page)
+  const watchlist = page.getByRole("region", { name: "Watchlist" })
+  const add = watchlist.getByRole("combobox", { name: "Add code…" })
+  await add.fill("wifi")
+  await watchlist
+    .getByRole("option", { name: /^WIFI\b/ })
+    .first()
+    .click()
+  const row = watchlist.locator('tr[data-code="WIFI"]')
+  await expect(row).toContainText("no data yet")
+
+  // The selected BBCA and the watched WIFI.
+  await expect
+    .poll(() => lastOnDemandCodes(relay.received))
+    .toEqual(expect.arrayContaining(["BBCA", "WIFI"]))
+
+  // Stockbit lost (another spec may have sent its frames moments ago), so
+  // Ajaib's figures stand in: the 2026-11-06 BBCA PRICE frame's shape, as
+  // WIFI's today.
+  await relay.report("Stockbit", "closed")
+  await relay.sendAjaib([
+    JSON.stringify({
+      ticker: "WIFI",
+      updateTime: marketNow(),
+      price: 4120,
+      change: 70,
+      pctChange: 0.017284,
+      tradableVolume: 1234500,
+      hi: 4150,
+      lo: 4030,
+      open: 4050,
+      close: 4050,
+      p: 0,
+      co: 2795,
+      s: 2798,
+      eb: 3,
+    }),
+  ])
+  await expect(row).toContainText("4,120")
+  await expect(row).toContainText("+70")
+  await expect(row).toContainText("+1.73%")
+  await expect(watchlist.getByText("Ajaib", { exact: true })).toBeVisible()
+  relay.close()
+})
+
+// 3,000 codes serialize past the 16 KiB a socket attachment may hold.
+test("a watchlist larger than a socket attachment reaches the relay whole as the on-demand set", async ({
+  page,
+}) => {
+  const relay = await openIngest()
+  const codes = Array.from(
+    { length: 3_000 },
+    (_, index) => `W${String(index).padStart(4, "0")}`
+  )
+  await page.addInitScript(
+    ([key, seeded]) => window.localStorage.setItem(key, JSON.stringify(seeded)),
+    [WATCHLIST_KEY, codes] as const
+  )
+  await open(page)
+  const watchlist = page.getByRole("region", { name: "Watchlist" })
+  await expect(watchlist.locator("tbody tr")).toHaveCount(codes.length)
+  await expect
+    .poll(() => lastOnDemandCodes(relay.received))
+    .toEqual(expect.arrayContaining(codes))
+  relay.close()
+})
+
+test("the chart header shows the selected code's last price and change, and an index can be chosen", async ({
+  page,
+}) => {
+  const relay = await openIngest()
+  const live = page.waitForEvent("websocket", (socket) =>
+    socket.url().endsWith("/market-live/live")
+  )
+  await page.goto(`${DASHBOARD}${PAGE}?code=UNTR`)
+  await live
+  await relay.report("Stockbit", "closed")
+  await relay.sendAjaib([
+    JSON.stringify({
+      ticker: "UNTR",
+      updateTime: marketNow(),
+      price: 26_150,
+      change: -350,
+      pctChange: -0.013208,
+      tradableVolume: 2_000_000,
+      hi: 26_600,
+      lo: 26_000,
+      open: 26_500,
+      close: 26_500,
+    }),
+  ])
+  const chart = page.getByRole("region", { name: "Chart" })
+  await expect(chart.getByLabel("Last price")).toHaveText("26,150")
+  await expect(chart.getByLabel("Change")).toHaveText("−350 −1.32%")
+
+  // Ajaib's list has no index; the day's list adds the three.
+  await chart.getByRole("combobox", { name: "Search stock code" }).fill("ihsg")
+  await chart.getByRole("option", { name: /^IHSG\b/ }).click()
+  await expect(page).toHaveURL(`${DASHBOARD}${PAGE}?code=IHSG`)
+  await expect(chart.getByRole("heading", { name: "IHSG" })).toBeVisible()
+  // An index's frames carry no previous close: no change is shown.
+  await relay.sendStockbit([stockbitIndexFrameNow(4_971.287)])
+  await expect(chart.getByLabel("Last price")).toHaveText("4,971.29")
+  await expect(chart.getByLabel("Change")).toHaveText("—")
+  relay.close()
+})

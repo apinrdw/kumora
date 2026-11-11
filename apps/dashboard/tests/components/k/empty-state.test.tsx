@@ -96,10 +96,10 @@ describe("KStateBody", () => {
     const plain = body({ status: "error", message: "Gagal" })
     expect(plain).toContain('role="alert"')
     expect(plain).toContain("Gagal")
-    expect(plain).not.toContain("Coba lagi</button>")
+    expect(plain).not.toContain("Try again</button>")
 
     const retry = body({ status: "error", onRetry: noop })
     expect(retry).toContain(EMPTY.error.title)
-    expect(retry).toMatch(/<button[^>]*>Coba lagi<\/button>/)
+    expect(retry).toMatch(/<button[^>]*>Try again<\/button>/)
   })
 })

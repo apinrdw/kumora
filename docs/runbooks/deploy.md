@@ -12,6 +12,7 @@ Steps marked ✅ were done during the throwaway deploy, observed 2026-11-05 ([ap
 - `/` in each environment holds `CLOUDFLARE_API_TOKEN` and `CLOUDFLARE_ACCOUNT_ID`, with a separate token per environment.
 - `/web` holds `DEPLOY_PROBE_SECRET`. `/dashboard` holds the dashboard's secrets: the Google client of step 10, and:
   - ⬜ `ADMIN_EMAILS` in both `prod` and `staging`: the comma-separated emails that become admins once verified. The dashboard deploy, and `pnpm dev` (which reads `staging`), fail without it. The Test stage reads it from the process environment instead (`apps/e2e/playwright.config.ts`). To change the list later, edit the value and redeploy the dashboard (values are read at deploy). An email added after its account was verified is a config admin from the deploy on, and its admin role is stored at its next sign-in or admin action. An email removed keeps its stored admin role, without the config-admin protections; demote it on `/admin/users` if it should be a member.
+  - ⬜ `INGEST_TOKEN` in both `prod` and `staging`: the Market Live relay's shared secret, a long random string (for example `openssl rand -base64 32`). The dashboard deploy, and `pnpm dev`, fail without it. Paste each into the extension's options page for that Stage. Previews and Dev stages share `staging`'s. The Test stage reads it from the process environment (`apps/e2e/playwright.config.ts`). A deploy restarts every Durable Object and drops the relay's socket; during IDX hours that costs a reconnect and a backfill.
 - Machine identity `kumora-workers-builds`: Universal Auth only, client secret with a 1-year TTL, project `kumora` role Viewer. Organization role **No Access**, set 2026-11-05 (it was Admin, which let every branch build manage the whole Infisical organization); the owner reported the next build succeeding.
 
 ## 2. Cloudflare API tokens ✅
@@ -111,3 +112,26 @@ Create account and Send reset link carry a Turnstile widget. Production and Stag
 2. After each deploy, list the account's widgets with the stage's token (`scripts/deploy-setup.sh` does this as `check_turnstile_widget`): `curl -sS -H "Authorization: Bearer $CLOUDFLARE_API_TOKEN" "https://api.cloudflare.com/client/v4/accounts/$CLOUDFLARE_ACCOUNT_ID/challenges/widgets"` must list the stage's hostname under a widget's `domains`. Then check that Create account on that stage shows the widget.
 
 The auth routes are also rate-limited per client IP in the stage's D1 (sign-in 10 per minute, sign-up 5 per hour, resend verification and reset request 3 per hour), and each address gets at most 5 verification or reset mails a day. Nothing to set up: the tables come with the D1 migrations.
+
+## 12. The relay extension ⬜
+
+Market Live's feed comes from `apps/extension`, loaded unpacked in the owner's Chrome. It is never published or deployed.
+
+1. Run `pnpm --filter extension build`. It writes `apps/extension/dist`, with Production's dashboard URL baked in.
+2. In `chrome://extensions`, turn on Developer mode, choose **Load unpacked** and pick `apps/extension/dist`. After each rebuild, press the extension's reload button, then reload the Stockbit and Ajaib tabs.
+3. Open the extension's options page. Paste Production's `INGEST_TOKEN` (step 1). To relay to Staging, a Preview or a Dev stage as well, set the extra target's URL and `staging`'s token. Each target's state shows below its fields; "Connected" means its ingest socket is open.
+4. Keep a signed-in `stockbit.com` tab and a signed-in `trade.ajaib.co.id` tab open. The relay streams by itself from 08:40 to 16:35 WIB on trading days and closes its sockets outside those hours. In hours, trades reach the stage's Market Live tape within a second.
+5. After each Chrome start, enter the 6-digit Ajaib PIN under **Ajaib sign-in** on the options page. Chrome forgets it when it closes. The Ajaib tab checks it once: "Signed in." means Ajaib's frames carry your account id. A refused PIN is not tried again. Check the PIN and enter it again; Ajaib may lock the account after several wrong PINs. If the state says Ajaib asks for a second factor, sign in in the Ajaib tab itself. Without a PIN the relay still works, and its Ajaib frames carry the id once the Ajaib page has made a REST call of its own.
+6. Once, with the Ajaib tab open, confirm in DevTools these guesses the relay makes, none of them seen in a capture yet:
+   - the account id Ajaib's own subscribe frames send (Network, the `ws/trade` socket's first SUBSCRIBE) is the `sub` claim of the access token in the page's `Authorization` header (paste its middle part into a base64 decoder);
+   - the page's REST calls go to `https://ht2.ajaib.co.id/api/`, the base the relay uses before the page made a call;
+   - an `ORDER_BOOK_CUSTOM` socket takes more than 30 codes. An older capture tool capped it at 30 a socket; the relay subscribes every on-demand code on one socket.
+
+The toolbar badge shows the worst target state: `KEY` for a rejected token, `RLD` when the dashboard no longer accepts the extension's protocol (rebuild and reload it), `…` while a target connects or retries.
+
+## 13. Edge caching of recorded days ⬜
+
+Recorded day loads are cached in the browser only (`Cache-Control: private, immutable` on a sealed day). Before anyone adds edge caching through the Cache API, run this check on Staging, since `workers.dev` may not support the Cache API (spec apinrdw/kumora#138, "Recorded day loads"):
+
+1. In a throwaway route deployed to Staging, `put` a response under a URL with `caches.default.put(url, response)`, then `match` the same URL in a later request.
+2. Only if `match` returns the stored response does edge caching go in, keyed on the URL alone and checked after the gate. If it returns `undefined`, keep the browser cache as the only cache and record the result, with its date, in this step.

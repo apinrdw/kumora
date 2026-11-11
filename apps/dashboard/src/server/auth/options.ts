@@ -18,6 +18,11 @@ import { tanstackStartCookies } from "better-auth/tanstack-start"
 import { LINK_HOURS } from "../../lib/link-lifetime.ts"
 import { MIN_PASSWORD_LENGTH, resetPasswordPage } from "../../lib/password.ts"
 import type { FileRoutesByFullPath } from "../../routeTree.gen.ts"
+import {
+  AccountId,
+  SessionId,
+  type HeldSessions,
+} from "../market-live/routes.ts"
 import { ac, roles } from "./access.ts"
 import type { GoogleClient } from "./google.ts"
 import type { OwnAction, TargetAction } from "./policy.ts"
@@ -82,6 +87,9 @@ export interface AuthOptionsInput {
   }) => Promise<void>
   // Throws Better Auth's APIError when the access policy refuses the action,
   // and when `target` is null: the userId names no account.
+  // Runs after every session row is deleted: closes the account's live Market
+  // Live pages on any session it no longer holds.
+  readonly endLiveSessions: (held: HeldSessions) => Promise<void>
   readonly authorizeAdminAction: (request: {
     readonly action: TargetAction
     readonly session: BetterAuthSession | null
@@ -340,6 +348,34 @@ const before = (input: AuthOptionsInput) =>
     })
   })
 
+// Decision: live pages close from the session table's delete hook, not from
+// a table of routes: every route that ends a session (ban, revoke, delete,
+// sign-out, a password reset or change, an expired session being read)
+// deletes its row through it, and the hook runs after the route's
+// transaction. It sends the sessions the account still holds, read after the
+// delete, rather than what the route meant to end, so a refused or failed
+// route ends nothing. /change-password with revokeOtherSessions replaces the
+// caller's own session too, so its page closes and signs in again. A session
+// that expires unread deletes no row, so the page's socket also carries the
+// session's end from the gate (market-live/gate.ts), and the trading-day
+// object closes it at its next delta or Select (market-live/trading-day.ts).
+const endLiveSessions = async (
+  input: AuthOptionsInput,
+  ended: { readonly userId: string },
+  // Null outside an endpoint, where Better Auth deletes nothing.
+  ctx: Pick<HookContext, "context"> | null
+) => {
+  if (ctx === null) return
+  const sessions = await ctx.context.internalAdapter.listSessions(
+    ended.userId,
+    { onlyActiveSessions: true }
+  )
+  await input.endLiveSessions({
+    userId: AccountId.make(ended.userId),
+    sessionIds: sessions.map((session) => SessionId.make(session.id)),
+  })
+}
+
 const after = (input: AuthOptionsInput) =>
   createAuthMiddleware(async (ctx) => {
     if (ctx.path === "/sign-up/email") return hideTakenEmail(ctx, input)
@@ -450,6 +486,9 @@ export function authOptions(input: AuthOptionsInput) {
             grantAdmin(
               (await ctx?.context.internalAdapter.findUserById(userId)) ?? null
             ),
+        },
+        delete: {
+          after: (session, ctx) => endLiveSessions(input, session, ctx),
         },
         // get-session renews a session within updateAge of its renewal at the
         // full expiresIn, and an impersonation session, made an hour from its

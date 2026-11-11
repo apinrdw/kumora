@@ -1,0 +1,35 @@
+{
+  "name": "extension",
+  "version": "0.0.1",
+  "type": "module",
+  "private": true,
+  "scripts": {
+    "build": "vite build",
+    "dev": "vite build --watch",
+    "lint": "oxlint --deny-warnings",
+    "format": "oxfmt --write \"**/*.{ts,tsx}\"",
+    "format:check": "oxfmt --check \"**/*.{ts,tsx}\"",
+    "typecheck": "tsc --noEmit",
+    "test": "vitest run"
+  },
+  "dependencies": {
+    "@workspace/relay": "workspace:*",
+    "@workspace/ui": "workspace:*",
+    "effect": "catalog:",
+    "react": "^19.2.8",
+    "react-dom": "^19.2.8"
+  },
+  "devDependencies": {
+    "@effect/vitest": "catalog:",
+    "@tailwindcss/vite": "^4",
+    "@types/chrome": "^0.3.7",
+    "@types/node": "^22",
+    "@types/react": "^19",
+    "@types/react-dom": "^19",
+    "@vitejs/plugin-react": "^6",
+    "@workspace/deploy": "workspace:*",
+    "typescript": "7.0.2",
+    "vite": "^8",
+    "vitest": "^5.0.5"
+  }
+}

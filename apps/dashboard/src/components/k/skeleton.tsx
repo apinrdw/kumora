@@ -13,7 +13,7 @@ export type KSkeletonProps =
 const busy = {
   role: "status",
   "aria-busy": true,
-  "aria-label": "Memuat…",
+  "aria-label": "Loading…",
 } as const
 
 function Bar({

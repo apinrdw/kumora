@@ -4,6 +4,7 @@ import { describe, expect, test } from "vitest"
 
 import { KDataTable } from "@/components/k/data-table"
 import type { KDataTableProps } from "@/components/k/data-table"
+import { EMPTY } from "@/components/k/empty-state"
 
 type Row = { ticker: string; sector: string }
 
@@ -171,19 +172,19 @@ describe("KDataTable cell kinds", () => {
 
     expect(bbca[0]).toContain("BBCA")
     expect(bbca[0]).toContain("Bank Central Asia")
-    expect(bbca[1]).toContain("+1,35%")
+    expect(bbca[1]).toContain("+1.35%")
     expect(bbca[1]).toContain("naik")
-    expect(bbca[2]).toContain("Rp9.275")
-    expect(bbca[3]).toMatch(/class="text-up"[^>]*>\+Rp128,6 miliar/)
-    expect(bbca[4]).toContain("12,4 juta lembar")
+    expect(bbca[2]).toContain("Rp9,275")
+    expect(bbca[3]).toMatch(/class="text-up"[^>]*>\+Rp128.6 B/)
+    expect(bbca[4]).toContain("12.4 M shares")
     expect(bbca[5]).toContain("EOD")
-    expect(bbca[6]).toContain("14.45 WIB")
+    expect(bbca[6]).toContain("14:45 WIB")
 
     expect(tlkm[0]).not.toContain("Bank Central Asia")
     expect(tlkm[1]).toContain("turun")
     expect(tlkm[2]).toContain(">—<")
-    expect(tlkm[3]).toMatch(/class="text-down"[^>]*>−Rp2,5 juta/)
-    expect(tlkm[4]).toContain("900 lembar")
+    expect(tlkm[3]).toMatch(/class="text-down"[^>]*>−Rp2.5 M/)
+    expect(tlkm[4]).toContain("900 shares")
     expect(tlkm[5]).toContain(">—<")
 
     expect(asii[1]).toContain(">—<")
@@ -277,7 +278,7 @@ describe("KDataTable rows and states", () => {
 
   test("a ready table with no rows shows the no-result state across all columns", () => {
     const html = tableHtml({ rows: [] })
-    expect(html).toContain("Belum ada kandidat yang memenuhi filter.")
+    expect(html).toContain(EMPTY["no-result"].title)
     expect(html).toContain('colSpan="7"')
   })
 
