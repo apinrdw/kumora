@@ -33,6 +33,7 @@ const relaySocket = () => {
   return {
     send: () => Effect.void,
     close: () => Effect.void,
+    open: Effect.succeed(true),
     state: Effect.sync(() => state),
     setState: (next: PeerState) =>
       Effect.sync(() => {

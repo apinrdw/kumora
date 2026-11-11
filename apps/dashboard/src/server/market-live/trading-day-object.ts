@@ -137,13 +137,14 @@ type WatchingStore = Effect.Success<ReturnType<typeof watchingStore>>
 // A socket already closing, which a delta can still find listed, takes
 // neither a send nor a second close. A viewer's codes are read and written
 // under its id tag; an ingest socket has no id, and no codes.
-const peerOf = Effect.fnUntraced(function* (
+const makePeer = Effect.fnUntraced(function* (
   ctx: DurableObjectState,
   watching: WatchingStore,
   socket: WebSocket
 ) {
   const tags = ctx.getTags(socket)
   const id = yield* tagValue(tags, SOCKET)
+  const open = Effect.sync(() => socket.readyState === WebSocket.OPEN)
   const peer: Peer = {
     send: (text) =>
       Effect.sync(() => {
@@ -153,6 +154,7 @@ const peerOf = Effect.fnUntraced(function* (
       Effect.sync(() => {
         if (socket.readyState === WebSocket.OPEN) socket.close(code, reason)
       }),
+    open,
     state: stateOf(socket),
     setState: (state) => Effect.sync(() => socket.serializeAttachment(state)),
     ...(id === undefined
@@ -167,6 +169,25 @@ const peerOf = Effect.fnUntraced(function* (
   }
   return peer
 })
+
+// One Peer per socket for as long as the object is awake, so the day can
+// tell the closing socket from the others it lists (trading-day.ts
+// `ingestClosed`). Hibernation empties it; a peer reads its state from the
+// socket, so a rebuilt one is the same.
+const peerCache = (ctx: DurableObjectState, watching: WatchingStore) =>
+  Effect.sync(() => {
+    const peers = new WeakMap<WebSocket, Peer>()
+    return (socket: WebSocket) =>
+      Effect.suspend(() => {
+        const cached = peers.get(socket)
+        if (cached !== undefined) return Effect.succeed(cached)
+        return Effect.tap(makePeer(ctx, watching, socket), (peer) =>
+          Effect.sync(() => peers.set(socket, peer))
+        )
+      })
+  })
+
+type PeerOf = Effect.Success<ReturnType<typeof peerCache>>
 
 const decodeDate = Schema.decodeUnknownSync(WibDate)
 const decodeAccount = Schema.decodeUnknownOption(AccountId)
@@ -230,7 +251,7 @@ const recordDay = Effect.fnUntraced(function* (day: RecordedDay) {
 // callback runs through the bridge's result runner, which logs any failure.
 export class TradingDayObject {
   private day!: Effect.Success<ReturnType<typeof makeTradingDay>>
-  private watching!: WatchingStore
+  private peer!: PeerOf
 
   constructor(
     private readonly ctx: DurableObjectState,
@@ -246,8 +267,7 @@ export class TradingDayObject {
     const workerEnv = Layer.succeed(WorkerEnv)(env)
     // The alarm runs on the Worker's clock; the seal on Market Live's.
     const start = Effect.gen(function* () {
-      const watching = yield* watchingStore(ctx.storage)
-      const peer = (socket: WebSocket) => peerOf(ctx, watching, socket)
+      const peer = yield* peerCache(ctx, yield* watchingStore(ctx.storage))
       const viewers = Effect.suspend(() =>
         Effect.forEach(ctx.getWebSockets(VIEWER), peer)
       )
@@ -287,16 +307,16 @@ export class TradingDayObject {
           recordDay,
         })
       )
-      return { day, watching }
+      return { day, peer }
     })
     // Cloudflare holds every event until the day is made; a failure resets
     // the object.
     void ctx.blockConcurrencyWhile(() =>
       runServerEffect(
         start.pipe(Scope.provide(scope), Effect.provide(workerEnv))
-      ).then(({ day, watching }) => {
+      ).then(({ day, peer }) => {
         this.day = day
-        this.watching = watching
+        this.peer = peer
       })
     )
   }
@@ -354,7 +374,7 @@ export class TradingDayObject {
     const viewer = this.ctx.getTags(socket).includes(VIEWER)
     return runServerEffectResult(
       withMarketClock(
-        Effect.flatMap(peerOf(this.ctx, this.watching, socket), (peer) =>
+        Effect.flatMap(this.peer(socket), (peer) =>
           viewer ? day.viewerMessage(peer, text) : day.ingestMessage(peer, text)
         )
       )
@@ -370,32 +390,12 @@ export class TradingDayObject {
     if (tags.includes(VIEWER))
       return runServerEffectResult(
         withMarketClock(
-          Effect.flatMap(
-            peerOf(this.ctx, this.watching, socket),
-            this.day.viewerClosed
-          )
+          Effect.flatMap(this.peer(socket), this.day.viewerClosed)
         )
       )
     if (!tags.includes(INGEST)) return undefined
-    // Counted when the day handles the close (trading-day.ts `ingestClosed`).
-    const remaining = Effect.sync(
-      () =>
-        this.ctx
-          .getWebSockets(INGEST)
-          .filter(
-            (other) =>
-              other !== socket &&
-              other.readyState === WebSocket.OPEN &&
-              other.deserializeAttachment() === "ready"
-          ).length
-    )
-    const { day } = this
     return runServerEffectResult(
-      withMarketClock(
-        Effect.flatMap(peerOf(this.ctx, this.watching, socket), (peer) =>
-          day.ingestClosed(peer, remaining)
-        )
-      )
+      withMarketClock(Effect.flatMap(this.peer(socket), this.day.ingestClosed))
     )
   }
 

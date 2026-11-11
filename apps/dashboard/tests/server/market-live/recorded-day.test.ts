@@ -47,6 +47,7 @@ const TOKEN = "e2e-ingest-token"
 const DAY = WibDate.make("2026-11-09")
 
 class FakeSocket implements Peer {
+  open = Effect.succeed(true)
   readonly sent: Array<string> = []
   private current: PeerState = "new"
   send = (text: string) => Effect.sync(() => void this.sent.push(text))
@@ -265,7 +266,7 @@ const tradingDay = Effect.fnUntraced(function* (
   // The Durable Object's alarm firing.
   const alarm = day.alarm.pipe(Effect.provide(env))
   // The relay's last ingest socket closing.
-  const relayClosed = day.ingestClosed(relay, Effect.succeed(0))
+  const relayClosed = day.ingestClosed(relay)
   return {
     ajaib,
     stockbit,

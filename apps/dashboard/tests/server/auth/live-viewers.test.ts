@@ -37,6 +37,7 @@ class Page {
     Effect.sync(() => {
       this.closedWith = code
     })
+  open = Effect.succeed(true)
   state = Effect.succeed("ready" as const)
   setState = () => Effect.void
 }
