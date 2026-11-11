@@ -43,7 +43,7 @@ const cumulative = (levels: ReadonlyArray<BookLevel>) =>
   })
 
 // The depth curve's two SVG areas, bids and offers, on one price and lot scale.
-const depthAreas = Effect.fnUntraced(function* (book: OrderBook) {
+const curveAreas = Effect.fnUntraced(function* (book: OrderBook) {
   const bids = yield* cumulative(book.bids)
   const offers = yield* cumulative(book.offers)
   const low = bids.at(-1)?.price ?? offers[0]?.price ?? 0
@@ -63,7 +63,7 @@ const depthAreas = Effect.fnUntraced(function* (book: OrderBook) {
 // Cumulative lots over price: bids green from the left, offers red to the
 // right, over the 20 levels a side the book carries.
 function DepthCurve({ book }: { book: OrderBook }) {
-  const areas = Effect.runSync(depthAreas(book))
+  const areas = Effect.runSync(curveAreas(book))
   return (
     <svg
       viewBox={`0 0 ${DEPTH_WIDTH} ${DEPTH_HEIGHT}`}
