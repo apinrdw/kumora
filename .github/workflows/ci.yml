@@ -67,9 +67,19 @@ jobs:
         with:
           command: audit
 
+  # Decision: e2e runs as shards that each start their own servers and
+  # storage, rerun the setup project, and log their own failures with the
+  # list reporter, with no merged report (apinrdw/kumora#168). A failing shard
+  # stops no other. Tune the count by editing the list alone: each job's
+  # --shard reads its index and the matrix size.
   e2e:
+    name: e2e (shard ${{ matrix.shard }}/${{ strategy.job-total }})
     runs-on: ubuntu-latest
     timeout-minutes: 15
+    strategy:
+      fail-fast: false
+      matrix:
+        shard: [1, 2, 3, 4]
     steps:
       - uses: actions/checkout@v5
       - uses: pnpm/action-setup@v6
@@ -81,5 +91,16 @@ jobs:
         with:
           bun-version-file: .bun-version
       - run: pnpm install --frozen-lockfile
-      - run: pnpm --filter e2e exec playwright install --with-deps chromium
-      - run: pnpm test:e2e
+      - id: playwright
+        run: echo "version=$(pnpm --filter e2e exec playwright --version | awk '{print $2}')" >> "$GITHUB_OUTPUT"
+      # Decision: the browser is cached by the Playwright version the lockfile
+      # pins, and installed only on a miss. No --with-deps: the runner image
+      # already has its system packages.
+      - id: browser
+        uses: actions/cache@v6
+        with:
+          path: ~/.cache/ms-playwright
+          key: playwright-${{ runner.os }}-${{ steps.playwright.outputs.version }}
+      - if: steps.browser.outputs.cache-hit != 'true'
+        run: pnpm --filter e2e exec playwright install chromium
+      - run: pnpm test:e2e --shard=${{ matrix.shard }}/${{ strategy.job-total }}

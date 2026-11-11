@@ -1,6 +1,7 @@
 // A workflow job that runs a packages/deploy entry point imports its
 // dependencies, so it has to install them first on a clean runner. CI runs the
-// same checks as `pnpm check`, one root `check:*` script per job.
+// same checks as `pnpm check`, one root `check:*` script per job. e2e runs as
+// a matrix of shards that each finish on their own, on a cached browser.
 import { NodeServices } from "@effect/platform-node"
 import { assert, layer } from "@effect/vitest"
 import { Effect, FileSystem, Path, Schema } from "effect"
@@ -35,6 +36,25 @@ const jobSteps = (workflow: string) =>
     }
     return jobs
   })
+
+// A job's lines from its name up to the next job.
+const jobText = (workflow: string, name: string) => {
+  const lines = workflow.split("\n")
+  const start = lines.indexOf(`  ${name}:`)
+  if (start === -1) return ""
+  const end = lines.findIndex(
+    (line, index) => index > start && /^ {0,2}\S/.test(line)
+  )
+  return lines.slice(start, end === -1 ? undefined : end).join("\n")
+}
+
+const ciWorkflow = Effect.gen(function* () {
+  const fs = yield* FileSystem.FileSystem
+  const path = yield* Path.Path
+  return yield* fs.readFileString(
+    path.resolve(import.meta.dirname, "../.github/workflows/ci.yml")
+  )
+})
 
 layer(NodeServices.layer)("workflow dependencies", (it) => {
   it.effect(
@@ -130,6 +150,73 @@ layer(NodeServices.layer)("workflow dependencies", (it) => {
         }
         assert.isAbove(checked, 0, "found a job running a check:* script")
         assert.deepStrictEqual(missing, [])
+      })
+  )
+
+  it.effect(
+    "e2e runs one shard per matrix job, and a failing shard stops no other",
+    () =>
+      Effect.gen(function* () {
+        const workflow = yield* ciWorkflow
+        const e2e = jobText(workflow, "e2e")
+        const shards = /^ {6}matrix:\n {8}shard: \[([\d, ]+)\]$/m.exec(e2e)
+        assert.isNotNull(shards, "e2e has a shard matrix")
+        const listed = (shards?.[1] ?? "").split(",").map(Number)
+        assert.isAbove(listed.length, 1)
+        assert.deepStrictEqual(
+          listed,
+          listed.map((_, index) => index + 1)
+        )
+        assert.match(e2e, /^ {6}fail-fast: false$/m)
+        const runs = (yield* jobSteps(workflow))
+          .get("e2e")
+          ?.filter((step) => /\bpnpm test:e2e\b/.test(step))
+        assert.deepStrictEqual(
+          runs?.map((step) =>
+            step.includes(
+              "--shard=${{ matrix.shard }}/${{ strategy.job-total }}"
+            )
+          ),
+          [true]
+        )
+      })
+  )
+
+  it.effect(
+    "e2e restores the browser from a cache keyed by the Playwright version, and installs it only on a miss",
+    () =>
+      Effect.gen(function* () {
+        const steps = (yield* jobSteps(yield* ciWorkflow)).get("e2e") ?? []
+        const cache = steps.findIndex(
+          (step) =>
+            /\buses: actions\/cache@v\d+\b/.test(step) &&
+            /^\s+path: ~\/\.cache\/ms-playwright$/m.test(step)
+        )
+        assert.isAbove(cache, -1, "e2e caches ~/.cache/ms-playwright")
+        const cacheStep = steps[cache] ?? ""
+        const cacheId = /^\s+(?:- )?id: ([\w-]+)$/m.exec(cacheStep)?.[1]
+        const versionId = /\$\{\{ steps\.([\w-]+)\.outputs\.version \}\}/.exec(
+          /^\s+key: (.+)$/m.exec(cacheStep)?.[1] ?? ""
+        )?.[1]
+        assert.isDefined(versionId, "the cache key names a step's version")
+        const reads = steps.findIndex((step) =>
+          new RegExp(`^\\s+(?:- )?id: ${versionId}$`, "m").test(step)
+        )
+        assert.isAbove(reads, -1, "a step outputs the version")
+        assert.isBelow(reads, cache)
+        assert.match(steps[reads] ?? "", /\bplaywright --version\b/)
+        const installs = steps.filter((step) =>
+          /\bplaywright install\b/.test(step)
+        )
+        assert.strictEqual(installs.length, 1)
+        const install = installs[0] ?? ""
+        assert.isAbove(steps.indexOf(install), cache)
+        assert.include(
+          install,
+          `if: steps.${cacheId}.outputs.cache-hit != 'true'`
+        )
+        assert.match(install, /\bplaywright install chromium$/m)
+        assert.notInclude(install, "--with-deps")
       })
   )
 })
