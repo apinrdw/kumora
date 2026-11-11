@@ -8,6 +8,8 @@ import { join } from "node:path"
 import { fileURLToPath } from "node:url"
 import { WebSocketServer, type WebSocket } from "ws"
 
+import { wibInstant } from "./clock"
+
 /** The built extension (`pnpm --filter extension build`, run by `pnpm e2e`). */
 const EXTENSION = fileURLToPath(
   new URL("../../extension/dist", import.meta.url)
@@ -295,7 +297,7 @@ async function setClockOffset(worker: Worker, offset: number) {
  * their real times.
  */
 export async function setRelayClock(worker: Worker, wib: string) {
-  await setClockOffset(worker, Date.parse(`${wib}+07:00`) - Date.now())
+  await setClockOffset(worker, wibInstant(wib) - Date.now())
 }
 
 /** Ticks the relay `count` times, each awaited, by moving its clock 1 ms on. */

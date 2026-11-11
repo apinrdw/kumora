@@ -13,6 +13,9 @@ export const WIB_OFFSET = WIB_UTC_OFFSET_HOURS * 3_600_000
 export const wibDate = (at: number) =>
   Effect.runSync(wibDateAt(DateTime.makeUnsafe(at)))
 
+/** The instant a WIB wall-clock time (`YYYY-MM-DDTHH:MM:SS`) names, in epoch ms. */
+export const wibInstant = (wall: string) => Date.parse(`${wall}Z`) - WIB_OFFSET
+
 /** An instant's WIB time of day, as the page writes it: `10:15:32`. */
 export const wibTime = (at: number) =>
   new Date(at + WIB_OFFSET).toISOString().slice(11, 19)
@@ -35,8 +38,7 @@ const latestTradingDay = (now: number) => {
  */
 export const MARKET_CLOCK_OFFSET = Number(
   (process.env.MARKET_LIVE_CLOCK_OFFSET ??= String(
-    Date.parse(`${latestTradingDay(Date.now())}T${MARKET_TIME}+07:00`) -
-      Date.now()
+    wibInstant(`${latestTradingDay(Date.now())}T${MARKET_TIME}`) - Date.now()
   ))
 )
 
