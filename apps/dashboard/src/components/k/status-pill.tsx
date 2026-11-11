@@ -1,5 +1,6 @@
 import { Badge } from "@workspace/ui/components/badge"
 import { cn } from "@workspace/ui/lib/utils"
+import { Effect } from "effect"
 
 import type { Freshness } from "@/domain/freshness"
 import { asOf as formatAsOf } from "@/lib/format"
@@ -69,7 +70,7 @@ export function KStatusPill({
   className,
 }: KStatusPillProps) {
   const meta = FRESHNESS[status]
-  const time = asOf ? formatAsOf(asOf) : null
+  const time = asOf ? Effect.runSync(formatAsOf(asOf)) : null
   const definition =
     (reason ? `${reason}. ` : "") +
     meta.def +

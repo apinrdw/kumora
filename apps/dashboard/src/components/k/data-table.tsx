@@ -8,6 +8,7 @@ import {
   TableRow,
 } from "@workspace/ui/components/table"
 import { cn } from "@workspace/ui/lib/utils"
+import { Effect } from "effect"
 import { useState } from "react"
 import type { ComponentProps, ReactNode } from "react"
 
@@ -119,14 +120,14 @@ function TickerCell({ symbol, row }: { symbol: string; row: object }) {
 
 const KIND_RENDERERS: Record<CellKind, KindRenderer> = {
   pct: numberCell((n) => <Delta value={n} />),
-  idr: numberCell(idr),
+  idr: numberCell((n) => Effect.runSync(idr(n))),
   compactIdr: numberCell((n) => (
-    <span className={signTone(n)}>{compactIdr(n)}</span>
+    <span className={signTone(n)}>{Effect.runSync(compactIdr(n))}</span>
   )),
-  shares: numberCell(shares),
+  shares: numberCell((n) => Effect.runSync(shares(n))),
   ticker: (v, row) => <TickerCell symbol={String(v)} row={row} />,
   status: (v) => (isFreshness(v) ? <KStatusPill status={v} hideAsOf /> : "—"),
-  asOf: (v) => (typeof v === "string" ? asOf(v) : "—"),
+  asOf: (v) => (typeof v === "string" ? Effect.runSync(asOf(v)) : "—"),
 }
 
 function renderKind(kind: CellKind, v: unknown, row: object): ReactNode {

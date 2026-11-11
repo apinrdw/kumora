@@ -1,4 +1,5 @@
 import { cn } from "@workspace/ui/lib/utils"
+import { Effect } from "effect"
 
 import { idr, shares } from "@/lib/format"
 import { Delta } from "./delta"
@@ -77,7 +78,7 @@ export function KTickerRow({
         )}
       </div>
       <div role="cell" className="num text-right whitespace-nowrap">
-        {last === null ? "—" : idr(last)}
+        {last === null ? "—" : Effect.runSync(idr(last))}
       </div>
       <div role="cell" className={cn("flex", !card && "justify-end")}>
         <Delta value={changePct} />
@@ -89,7 +90,7 @@ export function KTickerRow({
           card ? "col-start-1 text-left" : "text-right"
         )}
       >
-        {volume === null ? "—" : shares(volume)}
+        {volume === null ? "—" : Effect.runSync(shares(volume))}
       </div>
       <div role="cell" className={cn(card && "justify-self-end")}>
         {freshness && (

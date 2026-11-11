@@ -371,10 +371,13 @@ export function RecordedConditionsBar({
     >
       <KStatusPill status="recorded" />
       <span aria-label="Day shown" className="font-medium">
-        {dayLabel(cursor.day.date)}
+        {Effect.runSync(dayLabel(cursor.day.date))}
         <span className="font-normal text-muted-foreground">
           {" "}
-          · {second === undefined ? "at the close" : `at ${tapeTime(second)}`}
+          ·{" "}
+          {second === undefined
+            ? "at the close"
+            : `at ${Effect.runSync(tapeTime(second))}`}
         </span>
       </span>
       {closed !== undefined && (

@@ -1,4 +1,5 @@
 import { useHydrated } from "@tanstack/react-router"
+import { Effect } from "effect"
 import type { ReactNode } from "react"
 
 import { KBadge, KButton } from "@/components/k"
@@ -101,7 +102,7 @@ function SessionItem({
         </span>
         <span className="num text-xs text-muted-foreground">
           {session.ipAddress ?? "Unknown IP"} · Last active{" "}
-          {dateTime(session.lastActive)}
+          {Effect.runSync(dateTime(session.lastActive))}
         </span>
       </div>
       {children}

@@ -1,5 +1,5 @@
 import type { MarketPhase, RelayGap } from "@workspace/relay"
-import { DateTime } from "effect"
+import { Effect, DateTime } from "effect"
 import { cn } from "@workspace/ui/lib/utils"
 import { useEffect } from "react"
 
@@ -104,7 +104,7 @@ export function TransportBar({
         ))}
       </div>
       <span className="w-16 font-semibold tabular-nums" aria-hidden>
-        {tapeTime(at)}
+        {Effect.runSync(tapeTime(at))}
       </span>
       <div className="flex min-w-48 flex-1 flex-col gap-0.5">
         <div className="relative h-5">
@@ -141,7 +141,7 @@ export function TransportBar({
           <input
             type="range"
             aria-label="Replay cursor"
-            aria-valuetext={`${tapeTime(at)} WIB`}
+            aria-valuetext={`${Effect.runSync(tapeTime(at))} WIB`}
             min={start}
             max={close}
             step={1_000}

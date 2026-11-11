@@ -1,6 +1,7 @@
 import { IconX } from "@tabler/icons-react"
 import type { StockCode } from "@workspace/relay"
 import { cn } from "@workspace/ui/lib/utils"
+import { Effect } from "effect"
 import { memo } from "react"
 
 import { KIconButton } from "@/components/k/button"
@@ -44,7 +45,10 @@ const WatchlistRow = memo(function WatchlistRow({
   // alone, the figures' cells saying nothing traded yet.
   const indicative = useAuctionIndicative(code)
   const change = state?.change
-  const tone = change === undefined ? "" : CHANGE_TONE[direction(change.amount)]
+  const tone =
+    change === undefined
+      ? ""
+      : CHANGE_TONE[Effect.runSync(direction(change.amount))]
   return (
     <tr data-code={code} className="border-b border-border/60">
       <td className={cn(CELL, "pl-2 font-semibold")}>
@@ -61,10 +65,12 @@ const WatchlistRow = memo(function WatchlistRow({
           <span className="mr-1 text-[10px] text-muted-foreground">
             Indicative
           </span>
-          {price(indicative.price)}
+          {Effect.runSync(price(indicative.price))}
         </td>
       ) : state !== undefined ? (
-        <td className={cn(CELL, "text-right", tone)}>{price(state.last)}</td>
+        <td className={cn(CELL, "text-right", tone)}>
+          {Effect.runSync(price(state.last))}
+        </td>
       ) : (
         <td colSpan={5} className={cn(CELL, "text-muted-foreground")}>
           no data yet
@@ -77,14 +83,24 @@ const WatchlistRow = memo(function WatchlistRow({
               <span className="text-muted-foreground">—</span>
             ) : (
               <>
-                {signed(change.amount, Number.isInteger(change.amount) ? 0 : 2)}{" "}
-                <span className="text-[11px]">{pct(change.percent)}</span>
+                {Effect.runSync(
+                  signed(change.amount, Number.isInteger(change.amount) ? 0 : 2)
+                )}{" "}
+                <span className="text-[11px]">
+                  {Effect.runSync(pct(change.percent))}
+                </span>
               </>
             )}
           </td>
-          <td className={cn(CELL, "text-right")}>{compact(state.value)}</td>
-          <td className={cn(CELL, "text-right")}>{compact(state.volume)}</td>
-          <td className={cn(CELL, "text-right")}>{plain(state.frequency)}</td>
+          <td className={cn(CELL, "text-right")}>
+            {Effect.runSync(compact(state.value))}
+          </td>
+          <td className={cn(CELL, "text-right")}>
+            {Effect.runSync(compact(state.volume))}
+          </td>
+          <td className={cn(CELL, "text-right")}>
+            {Effect.runSync(plain(state.frequency))}
+          </td>
         </>
       ) : (
         indicative !== undefined && (

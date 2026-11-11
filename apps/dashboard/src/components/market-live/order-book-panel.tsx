@@ -1,6 +1,6 @@
 import type { BookLevel, OrderBook } from "@workspace/relay"
 import { cn } from "@workspace/ui/lib/utils"
-import { DateTime } from "effect"
+import { Effect, DateTime } from "effect"
 import { useSyncExternalStore } from "react"
 
 import { compact, plain, tapeTime } from "@/lib/format"
@@ -82,11 +82,13 @@ function Totals({ book }: { book: OrderBook }) {
     <div className="flex flex-col gap-1 text-[11px] text-muted-foreground">
       <div className="flex justify-between tabular-nums">
         <span>
-          Bid <b className="text-up">{compact(book.bidLots)}</b> lots ·{" "}
-          {plain(bidShare)}%
+          Bid <b className="text-up">{Effect.runSync(compact(book.bidLots))}</b>{" "}
+          lots · {Effect.runSync(plain(bidShare))}%
         </span>
         <span>
-          Offer <b className="text-down">{compact(book.offerLots)}</b> lots
+          Offer{" "}
+          <b className="text-down">{Effect.runSync(compact(book.offerLots))}</b>{" "}
+          lots
         </span>
       </div>
       <div
@@ -131,13 +133,13 @@ function Ladder({ book }: { book: OrderBook }) {
         {rows.map(([bid, offer], index) => (
           <tr key={index} className="h-[22px]">
             <td className="pl-1 text-right text-muted-foreground">
-              {bid && plain(bid.orders)}
+              {bid && Effect.runSync(plain(bid.orders))}
             </td>
             <td
               className="text-right"
               style={bid && lotBar(bid, largest, "bid")}
             >
-              {bid && plain(bid.lots)}
+              {bid && Effect.runSync(plain(bid.lots))}
             </td>
             <td
               className={cn(
@@ -146,7 +148,7 @@ function Ladder({ book }: { book: OrderBook }) {
                 index === 0 && "underline decoration-dotted"
               )}
             >
-              {bid && plain(bid.price)}
+              {bid && Effect.runSync(plain(bid.price))}
             </td>
             <td
               className={cn(
@@ -155,13 +157,13 @@ function Ladder({ book }: { book: OrderBook }) {
                 index === 0 && "underline decoration-dotted"
               )}
             >
-              {offer && plain(offer.price)}
+              {offer && Effect.runSync(plain(offer.price))}
             </td>
             <td style={offer && lotBar(offer, largest, "offer")}>
-              {offer && plain(offer.lots)}
+              {offer && Effect.runSync(plain(offer.lots))}
             </td>
             <td className="pr-1 text-muted-foreground">
-              {offer && plain(offer.orders)}
+              {offer && Effect.runSync(plain(offer.orders))}
             </td>
           </tr>
         ))}
@@ -205,7 +207,8 @@ export function OrderBookPanel({
         {stale && book?._tag === "OrderBook" && <StaleSince at={book.at} />}
         {recorded && !notRecorded && book?._tag === "OrderBook" && (
           <span className="ml-auto text-[11px] text-muted-foreground">
-            Recorded frame · {tapeTime(DateTime.toEpochMillis(book.at))}
+            Recorded frame ·{" "}
+            {Effect.runSync(tapeTime(DateTime.toEpochMillis(book.at)))}
           </span>
         )}
         {!recorded && book?._tag === "OrderBook" && (

@@ -168,7 +168,7 @@ const TradeRow = memo(function TradeRow({
       onClick={() => onSelect(trade.code)}
     >
       <td className={cn(CELL, "pl-2", inFold && "pl-4")}>
-        {tapeTime(DateTime.toEpochMillis(trade.time))}
+        {Effect.runSync(tapeTime(DateTime.toEpochMillis(trade.time)))}
       </td>
       <td className={cn(CELL, "font-semibold")}>
         <button type="button" className="hover:underline">
@@ -181,14 +181,16 @@ const TradeRow = memo(function TradeRow({
         )}
       </td>
       <td className={cn(CELL, "text-right", side)}>
-        {plain(trade.price)}
+        {Effect.runSync(plain(trade.price))}
         {trade.side !== "none" && (
           <span className="sr-only"> {trade.side}</span>
         )}
       </td>
-      <td className={cn(CELL, "text-right", side)}>{lots(trade.lots)}</td>
       <td className={cn(CELL, "text-right", side)}>
-        Rp{compact(tradeValue(trade))}
+        {Effect.runSync(lots(trade.lots))}
+      </td>
+      <td className={cn(CELL, "text-right", side)}>
+        Rp{Effect.runSync(compact(tradeValue(trade)))}
       </td>
       <td className={cn(CELL, "pl-2")}>
         <SourceDots feeds={trade.feeds} />
@@ -198,7 +200,7 @@ const TradeRow = memo(function TradeRow({
 })
 
 const count = (n: number, noun: string) =>
-  `${plain(n)} ${noun}${n === 1 ? "" : "s"}`
+  `${Effect.runSync(plain(n))} ${noun}${n === 1 ? "" : "s"}`
 
 function FoldRow({
   row,
@@ -226,8 +228,8 @@ function FoldRow({
           )}
           <span className="font-semibold">{MATCH_LABEL[row.match]}</span>
           <span>
-            {count(row.trades, "trade")} · Rp{compact(row.value)} ·{" "}
-            {count(row.codes, "code")}
+            {count(row.trades, "trade")} · Rp
+            {Effect.runSync(compact(row.value))} · {count(row.codes, "code")}
           </span>
         </button>
       </td>
@@ -240,10 +242,11 @@ function GapRow({ gap }: { gap: RelayGap }) {
   return (
     <tr data-relay-gap className="text-muted-foreground">
       <td colSpan={6} className={cn(CELL, "text-center")}>
-        Not recorded · {tapeTime(DateTime.toEpochMillis(gap.from))}–
+        Not recorded ·{" "}
+        {Effect.runSync(tapeTime(DateTime.toEpochMillis(gap.from)))}–
         {gap.to === undefined
           ? "now"
-          : tapeTime(DateTime.toEpochMillis(gap.to))}
+          : Effect.runSync(tapeTime(DateTime.toEpochMillis(gap.to)))}
       </td>
     </tr>
   )
@@ -393,7 +396,7 @@ export function TapeList({
           onClick={backToLive}
           className="absolute top-8 left-1/2 z-20 -translate-x-1/2 rounded-full bg-primary px-3 py-1 text-[11px] font-semibold text-primary-foreground shadow-popover"
         >
-          {plain(unseen)} new trades ↑
+          {Effect.runSync(plain(unseen))} new trades ↑
         </button>
       )}
     </div>

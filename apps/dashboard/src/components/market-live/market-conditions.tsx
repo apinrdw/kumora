@@ -171,7 +171,7 @@ export function PhaseLabel({
       {nextOpen !== undefined && (
         <span className="font-normal text-muted-foreground">
           {" · opens "}
-          {dateTime(DateTime.formatIso(nextOpen))}
+          {Effect.runSync(dateTime(DateTime.formatIso(nextOpen)))}
         </span>
       )}
     </span>
