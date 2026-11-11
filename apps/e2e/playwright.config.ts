@@ -14,6 +14,13 @@ export default defineConfig({
   // tests can run on different workers and shards (apinrdw/kumora#168). A
   // file whose tests form a sequence says so with a serial describe.
   fullyParallel: true,
+  // Decision: a CI shard runs 2 workers on its runner's 2 cores: much of an
+  // e2e test is waiting, so the second worker adds throughput
+  // (apinrdw/kumora#168). Locally, Playwright picks from the cores.
+  workers: process.env.CI ? 2 : undefined,
+  // Decision: no retries, so a flake the parallelism brings shows up and gets
+  // fixed instead of passing on a second try (apinrdw/kumora#168).
+  retries: 0,
   reporter: "list",
   use: { browserName: "chromium" },
   projects: [
@@ -26,10 +33,14 @@ export default defineConfig({
       testIgnore: TRADING_DAY_SPECS,
     },
     // Decision: the specs that send trades share one Durable Object, today's
-    // trading day, so they run one at a time: a spec running alongside would
-    // add trades to the tape it counts. Each test's trades are numbered above
-    // everything sent before it (support/ingest.ts freshTradeNumbers), so the
-    // order they run in doesn't matter.
+    // trading day, so within a shard they run one at a time: a spec running
+    // alongside would add trades to the tape it counts. Isolation across
+    // shards comes from the shards themselves: each CI shard is its own job
+    // with its own server and Durable Object storage, so shards never share a
+    // trading day, and the dashboard has no test-only key for one
+    // (apinrdw/kumora#169). Each test's trades are numbered above everything
+    // sent before it (support/ingest.ts freshTradeNumbers), so the order they
+    // run in doesn't matter.
     {
       name: "trading-day",
       dependencies: ["setup"],
