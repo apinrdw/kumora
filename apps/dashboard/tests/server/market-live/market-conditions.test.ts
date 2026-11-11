@@ -28,6 +28,7 @@ import {
   type PeerState,
 } from "@/server/market-live/trading-day"
 import { memorySql } from "./sql"
+import { everySplit } from "../../interleaved"
 
 const TOKEN = "e2e-ingest-token"
 const BBCA = StockCode.make("BBCA")
@@ -125,8 +126,70 @@ const marketAt = Effect.fnUntraced(function* (start: string) {
     return current!
   })
   const feeds = Effect.map(conditions, (current) => current.feeds)
-  const relayClosed = day.ingestClosed(relay, 0)
-  return { frames, reported, conditions, feeds, relayClosed, page, select }
+  // The relay socket closes, `others` being the object's other relay sockets,
+  // counted ready when the day handles the close, as the object counts them.
+  const relayClosedAmong = (others: ReadonlyArray<FakeSocket>) =>
+    day.ingestClosed(
+      relay,
+      Effect.gen(function* () {
+        let ready = 0
+        for (const other of others)
+          if ((yield* other.state) === "ready") ready++
+        return ready
+      })
+    )
+  const relayClosed = relayClosedAmong([])
+  // Another relay socket sends its token.
+  const tokenOn = (socket: FakeSocket) =>
+    encodeIngestUp({
+      _tag: "Token",
+      protocolVersion: IngestProtocolVersion,
+      token: TOKEN,
+    }).pipe(
+      Effect.flatMap((text) => day.ingestMessage(socket, text)),
+      Effect.provide(env)
+    )
+  return {
+    frames,
+    reported,
+    conditions,
+    feeds,
+    relayClosed,
+    relayClosedAmong,
+    tokenOn,
+    page,
+    select,
+  }
+})
+
+describe("the relay under overlapping callbacks", () => {
+  it.effect(
+    "a relay socket closing while another relay's token is being handled leaves the relay online",
+    () =>
+      Effect.gen(function* () {
+        const operations = yield* everySplit({
+          setup: Effect.gen(function* () {
+            const market = yield* marketAt("2026-11-09T10:00:00")
+            yield* market.frames("Stockbit")
+            return { market, other: new FakeSocket() }
+          }),
+          first: ({ market, other }) => market.tokenOn(other),
+          // The close waits for the token's turn, and the other socket is
+          // counted ready by then.
+          second: ({ market, other }) => market.relayClosedAmong([other]),
+          check: ({ market }, at) =>
+            Effect.gen(function* () {
+              yield* TestClock.adjust("250 millis")
+              assert.isTrue(
+                (yield* market.conditions).relayOnline,
+                `the token's callback yielded at operation ${at}`
+              )
+            }),
+        })
+        assert.isAbove(operations, 0)
+      }),
+    60_000
+  )
 })
 
 const gapsOf = (conditions: MarketConditions) =>

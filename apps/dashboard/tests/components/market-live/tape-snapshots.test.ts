@@ -4,8 +4,8 @@ import {
   type RunningTrade,
   type ViewerDown,
 } from "@workspace/relay"
-import { DateTime } from "effect"
-import { describe, expect, test } from "vitest"
+import { DateTime, Effect } from "effect"
+import { describe, expect, it } from "@effect/vitest"
 
 import { tapeChangeOf } from "@/components/market-live/tape-snapshots"
 
@@ -36,25 +36,33 @@ const snapshot: ViewerDown = {
 const delta: ViewerDown = { _tag: "Delta", tape: [trade], candles: [] }
 
 describe("what a viewer message changes on the tape", () => {
-  test("a socket's first snapshot starts the tape over", () => {
-    expect(tapeChangeOf(snapshot, true)).toBe(snapshot)
-  })
-
-  test("every later snapshot on the socket answers a Select and merges like a delta", () => {
-    // Two selections changed before either answer arrived: both merge.
-    expect(tapeChangeOf(snapshot, false)).toEqual({
-      _tag: "Delta",
-      tape: [trade],
-      candles: [],
+  it.effect("a socket's first snapshot starts the tape over", () =>
+    Effect.gen(function* () {
+      expect(yield* tapeChangeOf(snapshot, true)).toBe(snapshot)
     })
-    expect(tapeChangeOf(snapshot, false)).toEqual({
-      _tag: "Delta",
-      tape: [trade],
-      candles: [],
-    })
-  })
+  )
 
-  test("a delta is applied as it is", () => {
-    expect(tapeChangeOf(delta, false)).toBe(delta)
-  })
+  it.effect(
+    "every later snapshot on the socket answers a Select and merges like a delta",
+    () =>
+      Effect.gen(function* () {
+        // Two selections changed before either answer arrived: both merge.
+        expect(yield* tapeChangeOf(snapshot, false)).toEqual({
+          _tag: "Delta",
+          tape: [trade],
+          candles: [],
+        })
+        expect(yield* tapeChangeOf(snapshot, false)).toEqual({
+          _tag: "Delta",
+          tape: [trade],
+          candles: [],
+        })
+      })
+  )
+
+  it.effect("a delta is applied as it is", () =>
+    Effect.gen(function* () {
+      expect(yield* tapeChangeOf(delta, false)).toBe(delta)
+    })
+  )
 })

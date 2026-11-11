@@ -1,6 +1,6 @@
 import type { BookLevel, OrderBook } from "@workspace/relay"
 import { cn } from "@workspace/ui/lib/utils"
-import { DateTime } from "effect"
+import { Effect, DateTime } from "effect"
 import { useSyncExternalStore } from "react"
 
 import { compact, plain, tapeTime } from "@/lib/format"
@@ -15,58 +15,70 @@ const LADDER_LEVELS = 10
 const PROVENANCE = { Stockbit: "Stockbit", Ajaib: "Ajaib (fallback)" } as const
 
 const priceTone = (price: number, previousClose: number | undefined) =>
-  previousClose === undefined || price === previousClose
-    ? "text-neutral"
-    : price > previousClose
-      ? "text-up"
-      : "text-down"
+  Effect.sync(() =>
+    previousClose === undefined || price === previousClose
+      ? "text-neutral"
+      : price > previousClose
+        ? "text-up"
+        : "text-down"
+  )
 
 // A lot figure with its bar behind it, scaled to the largest level shown:
 // bids grow from the right edge, offers from the left.
-const lotBar = (level: BookLevel, largest: number, side: "bid" | "offer") => ({
-  background: `linear-gradient(to ${side === "bid" ? "left" : "right"}, color-mix(in oklab, var(--semantic-${side === "bid" ? "up" : "down"}) 18%, transparent) ${(level.lots / largest) * 100}%, transparent 0)`,
-})
+const lotBar = (level: BookLevel, largest: number, side: "bid" | "offer") =>
+  Effect.sync(() => ({
+    background: `linear-gradient(to ${side === "bid" ? "left" : "right"}, color-mix(in oklab, var(--semantic-${side === "bid" ? "up" : "down"}) 18%, transparent) ${(level.lots / largest) * 100}%, transparent 0)`,
+  }))
 
-// Cumulative lots over price: bids green from the left, offers red to the
-// right, over the 20 levels a side the book carries.
-function DepthCurve({ book }: { book: OrderBook }) {
-  const width = 360
-  const height = 64
-  const cumulative = (levels: ReadonlyArray<BookLevel>) => {
+const CURVE_WIDTH = 360
+const CURVE_HEIGHT = 64
+
+const cumulative = (levels: ReadonlyArray<BookLevel>) =>
+  Effect.sync(() => {
     let lots = 0
     return levels.map((level) => ({
       price: level.price,
       lots: (lots += level.lots),
     }))
-  }
-  const bids = cumulative(book.bids)
-  const offers = cumulative(book.offers)
+  })
+
+// The order book curve's two SVG areas, bids and offers, on one price and lot scale.
+const curveAreas = Effect.fnUntraced(function* (book: OrderBook) {
+  const bids = yield* cumulative(book.bids)
+  const offers = yield* cumulative(book.offers)
   const low = bids.at(-1)?.price ?? offers[0]?.price ?? 0
   const high = offers.at(-1)?.price ?? bids[0]?.price ?? 0
   const most = Math.max(bids.at(-1)?.lots ?? 0, offers.at(-1)?.lots ?? 0, 1)
-  const x = (price: number) => ((price - low) / (high - low || 1)) * width
-  const y = (lots: number) => height - (lots / most) * (height - 4)
+  const x = (price: number) => ((price - low) / (high - low || 1)) * CURVE_WIDTH
+  const y = (lots: number) => CURVE_HEIGHT - (lots / most) * (CURVE_HEIGHT - 4)
   const area = (points: ReadonlyArray<{ price: number; lots: number }>) =>
     points.length === 0
       ? ""
-      : `M${x(points[0]!.price)},${height} ${points
+      : `M${x(points[0]!.price)},${CURVE_HEIGHT} ${points
           .map((point) => `L${x(point.price)},${y(point.lots)}`)
-          .join(" ")} L${x(points.at(-1)!.price)},${height} Z`
+          .join(" ")} L${x(points.at(-1)!.price)},${CURVE_HEIGHT} Z`
+  return { bids: area(bids), offers: area(offers) }
+})
+
+// Cumulative lots over price: bids green from the left, offers red to the
+// right, over the 20 levels a side the book carries.
+function DepthCurve({ book }: { book: OrderBook }) {
+  const areas = Effect.runSync(curveAreas(book))
   return (
     <svg
-      viewBox={`0 0 ${width} ${height}`}
+      viewBox={`0 0 ${CURVE_WIDTH} ${CURVE_HEIGHT}`}
       preserveAspectRatio="none"
       role="img"
       aria-label="Cumulative depth, 20 levels a side"
       className="h-16 w-full"
     >
       <path
-        d={area(bids)}
+        d={areas.bids}
         fill="color-mix(in oklab, var(--semantic-up) 25%, transparent)"
         stroke="var(--semantic-up)"
       />
       <path
-        d={area(offers)}
+        d={areas.offers}
         fill="color-mix(in oklab, var(--semantic-down) 25%, transparent)"
         stroke="var(--semantic-down)"
       />
@@ -82,11 +94,13 @@ function Totals({ book }: { book: OrderBook }) {
     <div className="flex flex-col gap-1 text-[11px] text-muted-foreground">
       <div className="flex justify-between tabular-nums">
         <span>
-          Bid <b className="text-up">{compact(book.bidLots)}</b> lots ·{" "}
-          {plain(bidShare)}%
+          Bid <b className="text-up">{Effect.runSync(compact(book.bidLots))}</b>{" "}
+          lots · {Effect.runSync(plain(bidShare))}%
         </span>
         <span>
-          Offer <b className="text-down">{compact(book.offerLots)}</b> lots
+          Offer{" "}
+          <b className="text-down">{Effect.runSync(compact(book.offerLots))}</b>{" "}
+          lots
         </span>
       </div>
       <div
@@ -114,7 +128,7 @@ function Ladder({ book }: { book: OrderBook }) {
     ...rows.flatMap(([bid, offer]) => [bid?.lots ?? 0, offer?.lots ?? 0])
   )
   const tone = (level: BookLevel | undefined) =>
-    level && priceTone(level.price, book.previousClose)
+    level && Effect.runSync(priceTone(level.price, book.previousClose))
   return (
     <table className="w-full text-[12px] tabular-nums">
       <thead className="text-[10px] tracking-[0.08em] text-muted-foreground uppercase">
@@ -131,13 +145,13 @@ function Ladder({ book }: { book: OrderBook }) {
         {rows.map(([bid, offer], index) => (
           <tr key={index} className="h-[22px]">
             <td className="pl-1 text-right text-muted-foreground">
-              {bid && plain(bid.orders)}
+              {bid && Effect.runSync(plain(bid.orders))}
             </td>
             <td
               className="text-right"
-              style={bid && lotBar(bid, largest, "bid")}
+              style={bid && Effect.runSync(lotBar(bid, largest, "bid"))}
             >
-              {bid && plain(bid.lots)}
+              {bid && Effect.runSync(plain(bid.lots))}
             </td>
             <td
               className={cn(
@@ -146,7 +160,7 @@ function Ladder({ book }: { book: OrderBook }) {
                 index === 0 && "underline decoration-dotted"
               )}
             >
-              {bid && plain(bid.price)}
+              {bid && Effect.runSync(plain(bid.price))}
             </td>
             <td
               className={cn(
@@ -155,13 +169,15 @@ function Ladder({ book }: { book: OrderBook }) {
                 index === 0 && "underline decoration-dotted"
               )}
             >
-              {offer && plain(offer.price)}
+              {offer && Effect.runSync(plain(offer.price))}
             </td>
-            <td style={offer && lotBar(offer, largest, "offer")}>
-              {offer && plain(offer.lots)}
+            <td
+              style={offer && Effect.runSync(lotBar(offer, largest, "offer"))}
+            >
+              {offer && Effect.runSync(plain(offer.lots))}
             </td>
             <td className="pr-1 text-muted-foreground">
-              {offer && plain(offer.orders)}
+              {offer && Effect.runSync(plain(offer.orders))}
             </td>
           </tr>
         ))}
@@ -205,7 +221,8 @@ export function OrderBookPanel({
         {stale && book?._tag === "OrderBook" && <StaleSince at={book.at} />}
         {recorded && !notRecorded && book?._tag === "OrderBook" && (
           <span className="ml-auto text-[11px] text-muted-foreground">
-            Recorded frame · {tapeTime(DateTime.toEpochMillis(book.at))}
+            Recorded frame ·{" "}
+            {Effect.runSync(tapeTime(DateTime.toEpochMillis(book.at)))}
           </span>
         )}
         {!recorded && book?._tag === "OrderBook" && (

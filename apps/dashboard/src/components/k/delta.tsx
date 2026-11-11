@@ -4,6 +4,7 @@ import {
   IconMinus,
 } from "@tabler/icons-react"
 import { cn } from "@workspace/ui/lib/utils"
+import { Effect } from "effect"
 
 import { direction, pct } from "@/lib/format"
 import type { Direction } from "@/lib/format"
@@ -27,7 +28,7 @@ export function Delta({ value, display, className }: DeltaProps) {
   if (value === null) {
     return <span className={cn("num text-muted-foreground", className)}>—</span>
   }
-  const d = DIRECTION[direction(value)]
+  const d = DIRECTION[Effect.runSync(direction(value))]
   return (
     <span
       className={cn(
@@ -37,7 +38,7 @@ export function Delta({ value, display, className }: DeltaProps) {
       )}
     >
       <d.Icon aria-hidden className="size-4 shrink-0" stroke={1.75} />
-      {display ?? pct(value)}
+      {display ?? Effect.runSync(pct(value))}
       <span className="sr-only"> {d.word}</span>
     </span>
   )

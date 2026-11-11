@@ -10,6 +10,7 @@ import {
   XAxis,
   YAxis,
 } from "recharts"
+import { Effect } from "effect"
 
 import type { FlowPoint } from "@/domain/flow"
 import { compactIdr, billionShort } from "@/lib/format"
@@ -20,9 +21,9 @@ import type { ReadoutRow } from "./readout"
 export type NetFlowChartProps = {
   data: ReadonlyArray<FlowPoint>
   /** Axis tick text. Default "+Rp318 M". */
-  formatTick?: (n: number) => string
+  formatTick?: (n: number) => Effect.Effect<string>
   /** Readout value text. Default "+Rp86.2 B". */
-  formatValue?: (n: number) => string
+  formatValue?: (n: number) => Effect.Effect<string>
   /** px. Default 200. */
   height?: number
   /** horizontal bars, labels on the left (broker rankings). Default false. */
@@ -35,17 +36,17 @@ const config = {
 } satisfies ChartConfig
 
 /** Crosshair readout row: net buy (up color) at or above zero, net sell below. */
-export function flowReadoutRow(
+export const flowReadoutRow = Effect.fnUntraced(function* (
   p: FlowPoint,
-  formatValue: (n: number) => string
-): ReadoutRow {
+  formatValue: (n: number) => Effect.Effect<string>
+): Effect.fn.Return<ReadoutRow> {
   const buy = p.net >= 0
   return {
     label: buy ? "Net beli" : "Net jual",
-    value: formatValue(p.net),
+    value: yield* formatValue(p.net),
     swatch: buy ? CHART_COLOR.up : CHART_COLOR.down,
   }
-}
+})
 
 /** Diverging bars around a visible zero line: net buy up, net sell down. */
 export function NetFlowChart({
@@ -65,7 +66,8 @@ export function NetFlowChart({
     tickLine: false,
     axisLine: false,
     tick: AXIS_TICK,
-    tickFormatter: (n: number) => (n === 0 ? "0" : formatTick(n)),
+    tickFormatter: (n: number) =>
+      n === 0 ? "0" : Effect.runSync(formatTick(n)),
   }
   const categoryAxis = {
     type: "category" as const,
@@ -118,7 +120,9 @@ export function NetFlowChart({
         </Bar>
         <ChartTooltip
           cursor={{ fill: CHART_COLOR.hover, fillOpacity: 0.6 }}
-          content={pointReadout(data, (p) => [flowReadoutRow(p, formatValue)])}
+          content={pointReadout(data, (p) => [
+            Effect.runSync(flowReadoutRow(p, formatValue)),
+          ])}
         />
       </BarChart>
     </ChartContainer>

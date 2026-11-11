@@ -21,7 +21,11 @@ import type { LivePrice } from "./stockbit-liveprice.ts"
 export type SqlValue = string | number | null | Uint8Array
 
 // The part of SQLite the store needs: Cloudflare's `SqlStorage` and Node's
-// `DatabaseSync` both fit behind it.
+// `DatabaseSync` both fit behind it. Decision: its methods are plain, not
+// Effects: they are the adapter over those synchronous third-party calls,
+// and `transaction` runs its write inside the database's own synchronous
+// transaction, where an Effect could not run. The store wraps every call in
+// an Effect.
 export interface Sql {
   readonly exec: (
     query: string,
@@ -110,63 +114,64 @@ export const Fact = {
 // numbered before it: Ajaib's and the backfill's rounding to the second.
 const TIME_SKEW_MS = 1_000
 
-const numberOf = (value: SqlValue | undefined) => Number(value)
-const textOf = (value: SqlValue | undefined) => String(value)
-
 // Rows are the store's own writes, so they are read back without a decode.
-const tradeOf = (row: Record<string, SqlValue>): RunningTrade => ({
-  tradeNumber: TradeNumber.make(textOf(row.number)),
-  time: DateTime.makeUnsafe(numberOf(row.time)),
-  code: StockCode.make(textOf(row.code)),
-  price: numberOf(row.price),
-  lots: numberOf(row.lots),
-  side: textOf(row.side) as RunningTrade["side"],
-  board: textOf(row.board) as RunningTrade["board"],
-  feeds: textOf(row.feeds).split(",") as RunningTrade["feeds"],
-})
+const tradeOf = (row: Record<string, SqlValue>) =>
+  Effect.sync((): RunningTrade => ({
+    tradeNumber: TradeNumber.make(String(row.number)),
+    time: DateTime.makeUnsafe(Number(row.time)),
+    code: StockCode.make(String(row.code)),
+    price: Number(row.price),
+    lots: Number(row.lots),
+    side: String(row.side) as RunningTrade["side"],
+    board: String(row.board) as RunningTrade["board"],
+    feeds: String(row.feeds).split(",") as RunningTrade["feeds"],
+  }))
 
-const storedCandleOf = (row: Record<string, SqlValue>): StoredCandle => ({
-  code: StockCode.make(textOf(row.code)),
-  minute: numberOf(row.minute),
-  figures: {
-    openOrder: BigInt(numberOf(row.open_order)),
-    open: numberOf(row.open),
-    closeOrder: BigInt(numberOf(row.close_order)),
-    close: numberOf(row.close),
-    closeTime: numberOf(row.close_time),
-    high: numberOf(row.high),
-    low: numberOf(row.low),
-    volume: numberOf(row.volume),
-    value: numberOf(row.value),
-    frequency: numberOf(row.frequency),
-  },
-})
+const storedCandleOf = (row: Record<string, SqlValue>) =>
+  Effect.sync((): StoredCandle => ({
+    code: StockCode.make(String(row.code)),
+    minute: Number(row.minute),
+    figures: {
+      openOrder: BigInt(Number(row.open_order)),
+      open: Number(row.open),
+      closeOrder: BigInt(Number(row.close_order)),
+      close: Number(row.close),
+      closeTime: Number(row.close_time),
+      high: Number(row.high),
+      low: Number(row.low),
+      volume: Number(row.volume),
+      value: Number(row.value),
+      frequency: Number(row.frequency),
+    },
+  }))
 
-const candleOf = ({ code, minute, figures }: StoredCandle): Candle => ({
-  code,
-  minute: DateTime.makeUnsafe(minute),
-  open: figures.open,
-  high: figures.high,
-  low: figures.low,
-  close: figures.close,
-  volume: figures.volume,
-  value: figures.value,
-  frequency: figures.frequency,
-})
+const candleOf = ({ code, minute, figures }: StoredCandle) =>
+  Effect.succeed<Candle>({
+    code,
+    minute: DateTime.makeUnsafe(minute),
+    open: figures.open,
+    high: figures.high,
+    low: figures.low,
+    close: figures.close,
+    volume: figures.volume,
+    value: figures.value,
+    frequency: figures.frequency,
+  })
 
-const livePriceOf = (frame: SqlValue | undefined): LivePrice => {
-  const { time, ...rest } = JSON.parse(textOf(frame)) as Omit<
-    LivePrice,
-    "time"
-  > & { readonly time: number }
-  return { ...rest, time: DateTime.makeUnsafe(time) }
-}
+const livePriceOf = (frame: SqlValue | undefined) =>
+  Effect.sync((): LivePrice => {
+    const { time, ...rest } = JSON.parse(String(frame)) as Omit<
+      LivePrice,
+      "time"
+    > & { readonly time: number }
+    return { ...rest, time: DateTime.makeUnsafe(time) }
+  })
 
 // Decision: a book chunk is stored gzipped (spec apinrdw/kumora#138, "Storage
 // and cost"), with Node's zlib that the Worker's nodejs_compat flag provides:
 // synchronous, so a flush stays one transaction.
 const chunkOf = (blob: SqlValue | undefined) =>
-  new TextDecoder().decode(gunzipSync(blob as Uint8Array))
+  Effect.sync(() => new TextDecoder().decode(gunzipSync(blob as Uint8Array)))
 
 export const makeDayStore = (sql: Sql) =>
   Effect.sync(() => {
@@ -241,15 +246,16 @@ export const makeDayStore = (sql: Sql) =>
     // The lowest or highest number held. One aggregate per statement: SQLite
     // reads a lone min() or max() off the primary key's end, but scans the
     // whole table for a statement that asks for both.
-    const boundTrade = (bound: "min" | "max") => {
-      const [row] = sql.exec(`SELECT ${bound}(number) AS number FROM trades`)
-      return row === undefined || row.number === null
-        ? undefined
-        : numberOf(row.number)
-    }
+    const boundTrade = (bound: "min" | "max") =>
+      Effect.sync(() => {
+        const [row] = sql.exec(`SELECT ${bound}(number) AS number FROM trades`)
+        return row === undefined || row.number === null
+          ? undefined
+          : Number(row.number)
+      })
 
-    const highestTrade = Effect.sync(() => {
-      const high = boundTrade("max")
+    const highestTrade = Effect.gen(function* () {
+      const high = yield* boundTrade("max")
       return high === undefined
         ? undefined
         : TradeNumberValue.make(BigInt(high))
@@ -257,24 +263,27 @@ export const makeDayStore = (sql: Sql) =>
 
     // How many trades the day stored so far: the index row's figure.
     const storedTrades = Effect.sync(() =>
-      numberOf(sql.exec("SELECT count(*) AS count FROM trades")[0]?.count)
+      Number(sql.exec("SELECT count(*) AS count FROM trades")[0]?.count)
     )
 
     // The newest `limit` trades, ascending.
-    const newestTrades = (limit: number) =>
-      Effect.sync(() =>
-        sql
-          .exec("SELECT * FROM trades ORDER BY number DESC LIMIT ?", limit)
-          .map(tradeOf)
-          .reverse()
+    const newestTrades = Effect.fnUntraced(function* (limit: number) {
+      const trades = yield* Effect.forEach(
+        sql.exec("SELECT * FROM trades ORDER BY number DESC LIMIT ?", limit),
+        tradeOf
       )
+      return trades.reverse()
+    })
 
     // The trade with the lowest number at or above `number`.
     const firstFrom = (number: number) =>
-      sql.exec(
-        "SELECT number, time FROM trades WHERE number >= ? ORDER BY number LIMIT 1",
-        number
-      )[0]
+      Effect.sync(
+        () =>
+          sql.exec(
+            "SELECT number, time FROM trades WHERE number >= ? ORDER BY number LIMIT 1",
+            number
+          )[0]
+      )
 
     // Decision: a trade number at or above every trade at or before an
     // instant is found by a binary search on the trade number, which IDX
@@ -285,135 +294,152 @@ export const makeDayStore = (sql: Sql) =>
     // it. The search therefore looks for the highest number whose time is
     // within the skew after the instant: every trade at or before the
     // instant is at or below it, and the query's time filter drops the rest.
-    const highestWithin = (cutoff: number) => {
+    const highestWithin = Effect.fnUntraced(function* (cutoff: number) {
       const bound = cutoff + TIME_SKEW_MS
-      let low = boundTrade("min")
-      let high = boundTrade("max")
+      let low = yield* boundTrade("min")
+      let high = yield* boundTrade("max")
       if (low === undefined || high === undefined) return undefined
       let found: number | undefined
       while (low <= high) {
         const middle = Math.floor((low + high) / 2)
-        const row = firstFrom(middle)
-        if (row === undefined || numberOf(row.number) > high) {
+        const row = yield* firstFrom(middle)
+        if (row === undefined || Number(row.number) > high) {
           high = middle - 1
           continue
         }
-        if (numberOf(row.time) <= bound) {
-          found = numberOf(row.number)
+        if (Number(row.time) <= bound) {
+          found = Number(row.number)
           low = found + 1
         } else high = middle - 1
       }
       return found
-    }
+    })
 
     // The newest `limit` trades at or before `at`, ascending: SQLite walks
     // the primary key down from the search's number and skips the rows the
     // skew lets past it.
-    const tradesAt = (at: DateTime.Utc, limit: number) =>
-      Effect.sync(() => {
-        const cutoff = DateTime.toEpochMillis(at)
-        const found = highestWithin(cutoff)
-        if (found === undefined) return []
-        return sql
-          .exec(
-            "SELECT * FROM trades WHERE number <= ? AND time <= ? ORDER BY number DESC LIMIT ?",
-            found,
-            cutoff,
-            limit
-          )
-          .map(tradeOf)
-          .reverse()
-      })
+    const tradesAt = Effect.fnUntraced(function* (
+      at: DateTime.Utc,
+      limit: number
+    ) {
+      const cutoff = DateTime.toEpochMillis(at)
+      const found = yield* highestWithin(cutoff)
+      if (found === undefined) return []
+      const trades = yield* Effect.forEach(
+        sql.exec(
+          "SELECT * FROM trades WHERE number <= ? AND time <= ? ORDER BY number DESC LIMIT ?",
+          found,
+          cutoff,
+          limit
+        ),
+        tradeOf
+      )
+      return trades.reverse()
+    })
 
     // The trades after `after` and at or before `through`, ascending. The
     // numbers start from a search two skews before `after`: every trade at
     // or below that number is at or before `after`, so none is missed, and
     // the time filter decides the rest.
-    const tradesBetween = (after: DateTime.Utc, through: DateTime.Utc) =>
-      Effect.sync(() => {
-        const from = DateTime.toEpochMillis(after)
-        const to = DateTime.toEpochMillis(through)
-        const last = highestWithin(to)
-        if (last === undefined) return []
-        const first = highestWithin(from - 2 * TIME_SKEW_MS) ?? 0
-        return sql
-          .exec(
-            "SELECT * FROM trades WHERE number > ? AND number <= ? AND time > ? AND time <= ? ORDER BY number",
-            first,
-            last,
-            from,
-            to
-          )
-          .map(tradeOf)
-      })
+    const tradesBetween = Effect.fnUntraced(function* (
+      after: DateTime.Utc,
+      through: DateTime.Utc
+    ) {
+      const from = DateTime.toEpochMillis(after)
+      const to = DateTime.toEpochMillis(through)
+      const last = yield* highestWithin(to)
+      if (last === undefined) return []
+      const first = (yield* highestWithin(from - 2 * TIME_SKEW_MS)) ?? 0
+      return yield* Effect.forEach(
+        sql.exec(
+          "SELECT * FROM trades WHERE number > ? AND number <= ? AND time > ? AND time <= ? ORDER BY number",
+          first,
+          last,
+          from,
+          to
+        ),
+        tradeOf
+      )
+    })
 
     // One code's candle for one minute, with its trade orders.
-    const storedCandle = (code: StockCode, minute: number) =>
-      Effect.sync(() => {
-        const [row] = sql.exec(
-          "SELECT * FROM candles WHERE code = ? AND minute = ?",
-          code,
-          minute
-        )
-        return row === undefined ? undefined : storedCandleOf(row).figures
-      })
+    const storedCandle = Effect.fnUntraced(function* (
+      code: StockCode,
+      minute: number
+    ) {
+      const [row] = sql.exec(
+        "SELECT * FROM candles WHERE code = ? AND minute = ?",
+        code,
+        minute
+      )
+      return row === undefined
+        ? undefined
+        : (yield* storedCandleOf(row)).figures
+    })
 
     // One code's candles after `after`, every one when undefined, with their
     // trade orders, ascending by minute.
     const storedCandlesOf = (code: StockCode, after?: number) =>
-      Effect.sync(() =>
-        sql
-          .exec(
+      Effect.suspend(() =>
+        Effect.forEach(
+          sql.exec(
             "SELECT * FROM candles WHERE code = ? AND minute > ? ORDER BY minute",
             code,
             after ?? -1
-          )
-          .map(storedCandleOf)
+          ),
+          storedCandleOf
+        )
       )
 
     // One code's candles, ascending by minute.
     const candlesOf = (code: StockCode) =>
-      Effect.sync(() =>
-        sql
-          .exec("SELECT * FROM candles WHERE code = ? ORDER BY minute", code)
-          .map((row) => candleOf(storedCandleOf(row)))
+      Effect.suspend(() =>
+        Effect.forEach(
+          sql.exec(
+            "SELECT * FROM candles WHERE code = ? ORDER BY minute",
+            code
+          ),
+          (row) => Effect.flatMap(storedCandleOf(row), candleOf)
+        )
       )
 
-    const livePrices = Effect.sync(() =>
-      sql
-        .exec("SELECT frame FROM live_prices")
-        .map((row) => livePriceOf(row.frame))
+    const livePrices = Effect.suspend(() =>
+      Effect.forEach(sql.exec("SELECT frame FROM live_prices"), (row) =>
+        livePriceOf(row.frame)
+      )
     )
 
-    const livePrice = (code: StockCode) =>
-      Effect.sync(() => {
-        const [row] = sql.exec(
-          "SELECT frame FROM live_prices WHERE code = ?",
-          code
-        )
-        return row === undefined ? undefined : livePriceOf(row.frame)
-      })
+    const livePrice = Effect.fnUntraced(function* (code: StockCode) {
+      const [row] = sql.exec(
+        "SELECT frame FROM live_prices WHERE code = ?",
+        code
+      )
+      return row === undefined ? undefined : yield* livePriceOf(row.frame)
+    })
 
     // The chunk of `code` for the minute holding `minute`, or the latest
     // before it: the book in force then.
-    const chunkAt = (code: StockCode, minute: number) =>
-      Effect.sync(() => {
-        const [row] = sql.exec(
-          "SELECT chunk FROM book_chunks WHERE code = ? AND minute <= ? ORDER BY minute DESC LIMIT 1",
-          code,
-          minute
-        )
-        return row === undefined ? undefined : chunkOf(row.chunk)
-      })
+    const chunkAt = Effect.fnUntraced(function* (
+      code: StockCode,
+      minute: number
+    ) {
+      const [row] = sql.exec(
+        "SELECT chunk FROM book_chunks WHERE code = ? AND minute <= ? ORDER BY minute DESC LIMIT 1",
+        code,
+        minute
+      )
+      return row === undefined ? undefined : yield* chunkOf(row.chunk)
+    })
 
     // Every code's latest chunk: the books a restarted object starts from.
-    const latestChunks = Effect.sync(() =>
-      sql
-        .exec(
+    const latestChunks = Effect.suspend(() =>
+      Effect.forEach(
+        sql.exec(
           `SELECT chunk FROM book_chunks AS b
            WHERE minute = (SELECT max(minute) FROM book_chunks WHERE code = b.code)`
-        )
-        .map((row) => chunkOf(row.chunk))
+        ),
+        (row) => chunkOf(row.chunk)
+      )
     )
 
     // Every code's whole Ajaib book: what a restarted object's deltas build
@@ -422,15 +448,15 @@ export const makeDayStore = (sql: Sql) =>
       sql
         .exec("SELECT code, book FROM ajaib_books")
         .map((row): StoredAjaibBook => ({
-          code: StockCode.make(textOf(row.code)),
-          book: textOf(row.book),
+          code: StockCode.make(String(row.code)),
+          book: String(row.book),
         }))
     )
 
     const fact = (key: string) =>
       Effect.sync(() => {
         const [row] = sql.exec("SELECT value FROM facts WHERE key = ?", key)
-        return row === undefined ? undefined : textOf(row.value)
+        return row === undefined ? undefined : String(row.value)
       })
 
     return {

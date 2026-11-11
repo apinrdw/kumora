@@ -1,4 +1,6 @@
 import { useHydrated } from "@tanstack/react-router"
+import { clientRuntime } from "@workspace/client"
+import { Effect } from "effect"
 import type { FormEvent } from "react"
 
 import { KButton, KInput } from "@/components/k"
@@ -10,7 +12,38 @@ import {
   AccountSection,
   OutcomeLine,
   useAccountAction,
+  type Outcome,
 } from "./account-section"
+
+const changePassword = Effect.fnUntraced(function* (
+  form: HTMLFormElement
+): Effect.fn.Return<Outcome> {
+  const data = new FormData(form)
+  const retry = yield* retryAfter()
+  const { error } = yield* Effect.promise(() =>
+    authClient.changePassword(
+      {
+        currentPassword: String(data.get("currentPassword")),
+        newPassword: String(data.get("newPassword")),
+        revokeOtherSessions: data.get("revokeOtherSessions") === "on",
+      },
+      { onError: retry.onError }
+    )
+  )
+  if (error)
+    return {
+      _tag: "Failed",
+      message:
+        error.code === "INVALID_PASSWORD"
+          ? "The current password is wrong."
+          : yield* retry.messageFor(
+              error,
+              "Couldn't change the password. Try again."
+            ),
+    }
+  yield* Effect.sync(() => form.reset())
+  return { _tag: "Done", message: "Password changed." }
+})
 
 /**
  * Change password, with the current one. "Sign out other sessions" starts
@@ -23,32 +56,7 @@ export function PasswordSection({ canChange }: { canChange: boolean }) {
   const { pending, outcome, run } = useAccountAction()
   const submit = (event: FormEvent<HTMLFormElement>) => {
     event.preventDefault()
-    const form = event.currentTarget
-    const data = new FormData(form)
-    void run(async () => {
-      const retry = retryAfter()
-      const { error } = await authClient.changePassword(
-        {
-          currentPassword: String(data.get("currentPassword")),
-          newPassword: String(data.get("newPassword")),
-          revokeOtherSessions: data.get("revokeOtherSessions") === "on",
-        },
-        { onError: retry.onError }
-      )
-      if (error)
-        return {
-          _tag: "Failed",
-          message:
-            error.code === "INVALID_PASSWORD"
-              ? "The current password is wrong."
-              : retry.messageFor(
-                  error,
-                  "Couldn't change the password. Try again."
-                ),
-        }
-      form.reset()
-      return { _tag: "Done", message: "Password changed." }
-    })
+    clientRuntime.runFork(run(changePassword(event.currentTarget)))
   }
   return (
     <AccountSection title="Password">

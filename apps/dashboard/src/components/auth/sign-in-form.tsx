@@ -1,5 +1,7 @@
 import { IconBan } from "@tabler/icons-react"
 import { Link, useHydrated, useRouter } from "@tanstack/react-router"
+import { clientRuntime } from "@workspace/client"
+import { Effect } from "effect"
 import { useState, type FormEvent } from "react"
 
 import { KButton, KInput } from "@/components/k"
@@ -12,6 +14,38 @@ import { GoogleSignIn, googleErrorMessage } from "./google-sign-in"
 // Better Auth's code for a sign-in refused because an admin banned the
 // account: a 403 to the password form, `?error=` back from Google.
 const BANNED = "BANNED_USER"
+
+const signIn = Effect.fnUntraced(function* (
+  form: HTMLFormElement,
+  view: {
+    readonly setPending: (pending: boolean) => void
+    readonly setError: (error: string | null) => void
+    readonly setBanned: () => void
+    readonly signedIn: Effect.Effect<void>
+  }
+) {
+  yield* Effect.sync(() => {
+    view.setPending(true)
+    view.setError(null)
+  })
+  const retry = yield* retryAfter()
+  const fields = yield* formFields(form, ["email", "password"])
+  const { error: refused } = yield* Effect.promise(() =>
+    authClient.signIn.email(fields, { onError: retry.onError })
+  )
+  if (!refused) return yield* view.signedIn
+  yield* Effect.sync(() => view.setPending(false))
+  if (refused.code === BANNED) return yield* Effect.sync(view.setBanned)
+  // One message for an unknown email and a wrong password alike.
+  const message =
+    refused.status === 401
+      ? "Wrong email or password."
+      : yield* retry.messageFor(
+          refused,
+          "Couldn't sign in. Try again in a minute."
+        )
+  yield* Effect.sync(() => view.setError(message))
+})
 
 /**
  * Returns to `redirect` once signed in; the gate sends an unverified account
@@ -33,7 +67,7 @@ export function SignInForm({
   const [error, setError] = useState<string | null>(
     googleError === undefined || googleError === BANNED
       ? null
-      : googleErrorMessage(googleError)
+      : Effect.runSync(googleErrorMessage(googleError))
   )
   const [bannedByPassword, setBannedByPassword] = useState(false)
 
@@ -45,37 +79,21 @@ export function SignInForm({
       />
     )
 
-  const submit = async (event: FormEvent<HTMLFormElement>) => {
-    event.preventDefault()
-    setPending(true)
-    setError(null)
-    const retry = retryAfter()
-    const { error: refused } = await authClient.signIn.email(
-      formFields(event.currentTarget, ["email", "password"]),
-      { onError: retry.onError }
-    )
-    if (refused) {
-      setPending(false)
-      if (refused.code === BANNED) {
-        setBannedByPassword(true)
-        return
-      }
-      // One message for an unknown email and a wrong password alike.
-      setError(
-        refused.status === 401
-          ? "Wrong email or password."
-          : retry.messageFor(
-              refused,
-              "Couldn't sign in. Try again in a minute."
-            )
-      )
-      return
-    }
-    await router.navigate({ href: redirect })
-  }
-
   return (
-    <form className="flex flex-col gap-4" onSubmit={(e) => void submit(e)}>
+    <form
+      className="flex flex-col gap-4"
+      onSubmit={(event: FormEvent<HTMLFormElement>) => {
+        event.preventDefault()
+        clientRuntime.runFork(
+          signIn(event.currentTarget, {
+            setPending,
+            setError,
+            setBanned: () => setBannedByPassword(true),
+            signedIn: Effect.promise(() => router.navigate({ href: redirect })),
+          })
+        )
+      }}
+    >
       <h1 className="text-xl font-semibold">Sign in to KUMORA</h1>
       {google && <GoogleSignIn redirect={redirect} />}
       <KInput

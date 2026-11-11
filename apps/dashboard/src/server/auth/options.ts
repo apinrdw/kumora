@@ -1,6 +1,7 @@
 // The Better Auth config, shared by the Worker (auth.ts), the handler test seam
 // and the migration script (scripts/auth-migrations.ts). The script runs under
-// plain Node, so this module imports only packages, never `@/` paths or Effect.
+// plain Node, so this module imports only packages, never `@/` paths or
+// `@workspace/server`, whose bridge reaches cloudflare:workers.
 import type { BetterAuthOptions, BetterAuthPlugin } from "better-auth"
 import {
   APIError,
@@ -14,6 +15,7 @@ import { verifyJWT } from "better-auth/crypto"
 import { admin } from "better-auth/plugins/admin"
 import { captcha } from "better-auth/plugins/captcha"
 import { tanstackStartCookies } from "better-auth/tanstack-start"
+import { Effect, Predicate } from "effect"
 
 import { LINK_HOURS } from "../../lib/link-lifetime.ts"
 import { MIN_PASSWORD_LENGTH, resetPasswordPage } from "../../lib/password.ts"
@@ -36,8 +38,10 @@ const RESET_TOKEN_SECONDS = LINK_HOURS.reset * HOUR
 // An admin views as a member for at most this long (apinrdw/kumora#80).
 const IMPERSONATION_SESSION = HOUR
 
-const impersonatedBy = (session: object): unknown =>
-  "impersonatedBy" in session ? session.impersonatedBy : undefined
+const impersonatedBy = (session: object): Effect.Effect<unknown> =>
+  Effect.succeed(
+    "impersonatedBy" in session ? session.impersonatedBy : undefined
+  )
 
 // The page the delete link opens: src/routes/_app/delete-account.tsx. e2e
 // finds the link by it in apps/e2e/support/mail.ts.
@@ -116,40 +120,62 @@ export interface WrittenUser {
 
 type HookContext = Parameters<Parameters<typeof createAuthMiddleware>[0]>[0]
 
+// Decision: Better Auth's hooks are third-party callbacks that must return a
+// Promise, so each runs its Effect here with a bare runPromise and no
+// services. A refusal fails with Better Auth's own APIError, and a rejected
+// Better Auth call dies with its error; runPromise rejects with either
+// unchanged, so Better Auth answers as it would to a throw. Not
+// makeCallbackRunner (callbacks.ts): that one maps our HttpErrors and needs
+// @workspace/server, which the migration script can't load.
+// CODING_STANDARDS.md lists it among the runtimes.
+const runHook = <A>(effect: Effect.Effect<A, APIError>): Promise<A> =>
+  Effect.runPromise(effect)
+
 // Minted as Better Auth's /request-password-reset mints one, so its
 // /reset-password/:token and /reset-password routes spend it, and setting the
 // password ends every session (revokeSessionsOnPasswordReset).
-const setPasswordLink = async (
+const setPasswordLink = Effect.fnUntraced(function* (
   ctx: HookContext,
   userId: string,
   redirect: unknown
-) => {
+) {
   const token = crypto.randomUUID().replaceAll("-", "")
-  await ctx.context.internalAdapter.createVerificationValue({
-    value: userId,
-    identifier: `reset-password:${token}`,
-    expiresAt: new Date(Date.now() + RESET_TOKEN_SECONDS * 1000),
-  })
-  const page = resetPasswordPage(typeof redirect === "string" ? redirect : "/")
+  yield* Effect.promise(() =>
+    ctx.context.internalAdapter.createVerificationValue({
+      value: userId,
+      identifier: `reset-password:${token}`,
+      expiresAt: new Date(Date.now() + RESET_TOKEN_SECONDS * 1000),
+    })
+  )
+  const page = yield* resetPasswordPage(
+    typeof redirect === "string" ? redirect : "/"
+  )
   return `${ctx.context.baseURL}/reset-password/${token}?callbackURL=${encodeURIComponent(page)}`
-}
+})
 
 // Leaves the account with no password and no session, still unverified. Both
 // writes converge, so a sign-up retried after a failure between them ends in
 // the same state. Not Better Auth's revokeUnprovenAccountAccess, which also
 // marks the email verified: nothing is proven yet.
-const voidAccess = async (ctx: HookContext, userId: string) => {
+const voidAccess = Effect.fnUntraced(function* (
+  ctx: HookContext,
+  userId: string
+) {
   const { internalAdapter } = ctx.context
   // A browser signed in as this account keeps the session in its cookie
   // cache for 5 minutes past the delete, and Resend would read it there:
   // expire its session cookies, as sign-out does.
-  if ((await getSessionFromCtx(ctx))?.user.id === userId)
-    deleteSessionCookie(ctx)
-  await internalAdapter.deleteUserSessions(userId)
-  const credential = await internalAdapter.findCredentialAccount(userId)
+  const signedIn = yield* Effect.promise(() => getSessionFromCtx(ctx))
+  if (signedIn?.user.id === userId) deleteSessionCookie(ctx)
+  yield* Effect.promise(() => internalAdapter.deleteUserSessions(userId))
+  const credential = yield* Effect.promise(() =>
+    internalAdapter.findCredentialAccount(userId)
+  )
   if (credential)
-    await internalAdapter.updateAccount(credential.id, { password: null })
-}
+    yield* Effect.promise(() =>
+      internalAdapter.updateAccount(credential.id, { password: null })
+    )
+})
 
 // With auto sign-in on, Better Auth refuses a sign-up for a taken email with
 // 422, after checking the input exactly as it does for a new email. Replace
@@ -167,7 +193,10 @@ const voidAccess = async (ctx: HookContext, userId: string) => {
 // address gets no mail and loses nothing. See apinrdw/kumora#80, "Signing
 // in". The send runs as Better Auth's sign-up mail does, so over the mail cap
 // the answer stays the same.
-const hideTakenEmail = async (ctx: HookContext, input: AuthOptionsInput) => {
+const hideTakenEmail = Effect.fnUntraced(function* (
+  ctx: HookContext,
+  input: AuthOptionsInput
+) {
   const { email, password, callbackURL } = ctx.body ?? {}
   const refused = ctx.context.returned
   if (
@@ -177,22 +206,21 @@ const hideTakenEmail = async (ctx: HookContext, input: AuthOptionsInput) => {
     refused.statusCode !== 422
   )
     return
-  const taken = await ctx.context.internalAdapter.findUserByEmail(
-    email.toLowerCase()
+  const taken = yield* Effect.promise(() =>
+    ctx.context.internalAdapter.findUserByEmail(email.toLowerCase())
   )
   if (!taken) return
-  await ctx.context.password.hash(password)
+  yield* Effect.promise(() => ctx.context.password.hash(password))
   if (!taken.user.emailVerified) {
-    await voidAccess(ctx, taken.user.id)
-    await ctx.context.runInBackgroundOrAwait(
-      input.sendSetPassword({
-        email: taken.user.email,
-        url: await setPasswordLink(ctx, taken.user.id, callbackURL),
-      })
+    yield* voidAccess(ctx, taken.user.id)
+    const url = yield* setPasswordLink(ctx, taken.user.id, callbackURL)
+    const sent = ctx.context.runInBackgroundOrAwait(
+      input.sendSetPassword({ email: taken.user.email, url })
     )
+    if (Predicate.isPromiseLike(sent)) yield* Effect.promise(() => sent)
   }
   return Response.json({ token: null, user: null })
-}
+})
 
 // Better Auth takes at least this long to answer a signed-out resend, so the
 // reply's timing says nothing about the address.
@@ -202,24 +230,26 @@ const RESEND_MINIMUM_MS = 500
 // a taken email holds none, so it gets the set-password link again, never a
 // verify link that would verify the first password. A session, the new
 // account's own, is left to Better Auth and keeps its verify link.
-const resendSetPassword = async (ctx: HookContext, input: AuthOptionsInput) => {
+const resendSetPassword = Effect.fnUntraced(function* (
+  ctx: HookContext,
+  input: AuthOptionsInput
+) {
   const { email, callbackURL } = ctx.body ?? {}
-  if (typeof email !== "string" || (await getSessionFromCtx(ctx)) !== null)
-    return
-  const found = await ctx.context.internalAdapter.findUserByEmail(
-    email.toLowerCase()
+  if (typeof email !== "string") return
+  if ((yield* Effect.promise(() => getSessionFromCtx(ctx))) !== null) return
+  const found = yield* Effect.promise(() =>
+    ctx.context.internalAdapter.findUserByEmail(email.toLowerCase())
   )
   if (!found || found.user.emailVerified) return
   const start = Date.now()
-  await input.sendSetPassword({
-    email: found.user.email,
-    url: await setPasswordLink(ctx, found.user.id, callbackURL),
-  })
+  const url = yield* setPasswordLink(ctx, found.user.id, callbackURL)
+  yield* Effect.promise(() =>
+    input.sendSetPassword({ email: found.user.email, url })
+  )
   const remaining = RESEND_MINIMUM_MS - (Date.now() - start)
-  if (remaining > 0)
-    await new Promise((resolve) => setTimeout(resolve, remaining))
+  if (remaining > 0) yield* Effect.sleep(remaining)
   return ctx.json({ status: true })
-}
+})
 
 // The routes where an account acts on itself. Each asks the access policy
 // first, which refuses them while impersonating, and refuses change email and
@@ -277,76 +307,101 @@ const DISABLED_ROUTES = [
   "/ok",
 ]
 
-const badRequest = (message: string) => new APIError("BAD_REQUEST", { message })
+const badRequest = (message: string) =>
+  Effect.fail(new APIError("BAD_REQUEST", { message }))
 
 // The account an admin route acts on. Better Auth's admin schemas take the
 // userId through String(), so an array of one id would name that account
 // once past this hook: every shape but a non-empty string is refused here.
-const targetUser = async (ctx: HookContext): Promise<TargetUser | null> => {
+const targetUser = Effect.fnUntraced(function* (
+  ctx: HookContext
+): Effect.fn.Return<TargetUser | null, APIError> {
   const userId: unknown = ctx.body?.userId
   if (typeof userId !== "string" || userId === "")
-    throw badRequest("userId must be a non-empty string")
-  return ctx.context.internalAdapter.findUserById(userId)
-}
+    return yield* badRequest("userId must be a non-empty string")
+  return yield* Effect.promise(() =>
+    ctx.context.internalAdapter.findUserById(userId)
+  )
+})
 
-const lookup = <A>(table: Readonly<Partial<Record<string, A>>>, path: string) =>
-  Object.hasOwn(table, path) ? table[path] : undefined
+const lookup = <A>(
+  table: Readonly<Partial<Record<string, A>>>,
+  path: string
+): Effect.Effect<A | undefined> =>
+  Effect.succeed(Object.hasOwn(table, path) ? table[path] : undefined)
 
 // The account a change-email link's token is bound to, or null for any other
 // link. A repeated query key parses as an array and is refused; an invalid or
 // expired token is left to Better Auth, which answers with the error code the
 // page shows.
-const emailChangeTarget = async (
+const emailChangeTarget = Effect.fnUntraced(function* (
   ctx: HookContext
-): Promise<TargetUser | null> => {
+): Effect.fn.Return<TargetUser | null, APIError> {
   const token: unknown = ctx.query?.token
-  if (typeof token !== "string") throw badRequest("token must be a string")
-  const payload = await verifyJWT(token, ctx.context.secret)
+  if (typeof token !== "string")
+    return yield* badRequest("token must be a string")
+  const payload = yield* Effect.promise(() =>
+    verifyJWT(token, ctx.context.secret)
+  )
   if (
     payload === null ||
     typeof payload.updateTo !== "string" ||
     typeof payload.userId !== "string"
   )
     return null
-  return ctx.context.internalAdapter.findUserById(payload.userId)
-}
+  const { userId } = payload
+  return yield* Effect.promise(() =>
+    ctx.context.internalAdapter.findUserById(userId)
+  )
+})
 
 // /verify-email finishes a change of email, from any browser, signed in or
 // not. Only the request asked the policy, so a link sent before the account
 // became a config admin would still move its email: ask again now.
-const authorizeEmailChangeLink = async (
+const authorizeEmailChangeLink = Effect.fnUntraced(function* (
   ctx: HookContext,
   input: AuthOptionsInput
-) => {
-  const user = await emailChangeTarget(ctx)
+) {
+  const user = yield* emailChangeTarget(ctx)
   if (user === null) return
-  await input.authorizeEmailChange({
-    user,
-    session: await getAuthoritativeSessionFromCtx(ctx),
-  })
-}
+  const session = yield* Effect.promise(() =>
+    getAuthoritativeSessionFromCtx(ctx)
+  )
+  yield* Effect.promise(() => input.authorizeEmailChange({ user, session }))
+})
 
+const beforeHook = Effect.fnUntraced(function* (
+  ctx: HookContext,
+  input: AuthOptionsInput
+) {
+  if (ctx.path === "/send-verification-email")
+    return yield* resendSetPassword(ctx, input)
+  if (ctx.path === "/verify-email")
+    return yield* authorizeEmailChangeLink(ctx, input)
+  const own = yield* lookup(OWN_ACCOUNT_ROUTES, ctx.path)
+  const onAccount = yield* lookup(ADMIN_ROUTES, ctx.path)
+  if (own === undefined && onAccount === undefined) return
+  // Past the cookie cache, so a session ended elsewhere acts on nothing and
+  // admin power always sees the current role.
+  const session = yield* Effect.promise(() =>
+    getAuthoritativeSessionFromCtx(ctx)
+  )
+  if (own !== undefined)
+    return yield* Effect.promise(() =>
+      input.authorizeOwnAction({ action: own, session })
+    )
+  if (onAccount === undefined) return
+  const target = yield* targetUser(ctx)
+  yield* Effect.promise(() =>
+    input.authorizeAdminAction({ action: onAccount, session, target })
+  )
+})
+
+// Decision: `before` and `after` stay plain functions, not Effects: they build
+// Better Auth's hook middleware for authOptions, which is plain (see its
+// Decision) and so can't yield them.
 const before = (input: AuthOptionsInput) =>
-  createAuthMiddleware(async (ctx) => {
-    if (ctx.path === "/send-verification-email")
-      return resendSetPassword(ctx, input)
-    if (ctx.path === "/verify-email")
-      return authorizeEmailChangeLink(ctx, input)
-    const own = lookup(OWN_ACCOUNT_ROUTES, ctx.path)
-    const onAccount = lookup(ADMIN_ROUTES, ctx.path)
-    if (own === undefined && onAccount === undefined) return
-    // Past the cookie cache, so a session ended elsewhere acts on nothing and
-    // admin power always sees the current role.
-    const session = await getAuthoritativeSessionFromCtx(ctx)
-    if (own !== undefined)
-      return input.authorizeOwnAction({ action: own, session })
-    if (onAccount === undefined) return
-    await input.authorizeAdminAction({
-      action: onAccount,
-      session,
-      target: await targetUser(ctx),
-    })
-  })
+  createAuthMiddleware((ctx) => runHook(beforeHook(ctx, input)))
 
 // Decision: live pages close from the session table's delete hook, not from
 // a table of routes: every route that ends a session (ban, revoke, delete,
@@ -359,27 +414,75 @@ const before = (input: AuthOptionsInput) =>
 // that expires unread deletes no row, so the page's socket also carries the
 // session's end from the gate (market-live/gate.ts), and the trading-day
 // object closes it at its next delta or Select (market-live/trading-day.ts).
-const endLiveSessions = async (
+const endLiveSessions = Effect.fnUntraced(function* (
   input: AuthOptionsInput,
   ended: { readonly userId: string },
   // Null outside an endpoint, where Better Auth deletes nothing.
   ctx: Pick<HookContext, "context"> | null
-) => {
+) {
   if (ctx === null) return
-  const sessions = await ctx.context.internalAdapter.listSessions(
-    ended.userId,
-    { onlyActiveSessions: true }
+  const sessions = yield* Effect.promise(() =>
+    ctx.context.internalAdapter.listSessions(ended.userId, {
+      onlyActiveSessions: true,
+    })
   )
-  await input.endLiveSessions({
-    userId: AccountId.make(ended.userId),
-    sessionIds: sessions.map((session) => SessionId.make(session.id)),
-  })
-}
+  yield* Effect.promise(() =>
+    input.endLiveSessions({
+      userId: AccountId.make(ended.userId),
+      sessionIds: sessions.map((session) => SessionId.make(session.id)),
+    })
+  )
+})
 
 const after = (input: AuthOptionsInput) =>
-  createAuthMiddleware(async (ctx) => {
-    if (ctx.path === "/sign-up/email") return hideTakenEmail(ctx, input)
-  })
+  createAuthMiddleware((ctx) =>
+    runHook(
+      ctx.path === "/sign-up/email"
+        ? hideTakenEmail(ctx, input)
+        : Effect.succeed(undefined)
+    )
+  )
+
+// Every account write, and every new session, may grant admin.
+const grantAdminOf = Effect.fnUntraced(function* (
+  input: AuthOptionsInput,
+  user: WrittenUser | null
+) {
+  if (user !== null) yield* Effect.promise(() => input.grantAdmin(user))
+})
+
+const grantAdminOfSession = Effect.fnUntraced(function* (
+  input: AuthOptionsInput,
+  userId: string,
+  ctx: Pick<HookContext, "context"> | null | undefined
+) {
+  if (!ctx) return
+  const user = yield* Effect.promise(() =>
+    ctx.context.internalAdapter.findUserById(userId)
+  )
+  yield* grantAdminOf(input, user)
+})
+
+// get-session renews a session within updateAge of its renewal at the full
+// expiresIn, and an impersonation session, made an hour from its end, always
+// is. Only the dont_remember cookie keeps it off that path, so the hour is
+// held here, where the browser's cookies can't reach.
+const capImpersonationExpiry = Effect.fnUntraced(function* (
+  data: { readonly expiresAt?: Date | undefined },
+  ctx: Pick<HookContext, "context"> | null | undefined
+) {
+  const current = ctx?.context.session?.session
+  if (!data.expiresAt || !current || !(yield* impersonatedBy(current)))
+    return undefined
+  const deadline = new Date(
+    current.createdAt.getTime() + IMPERSONATION_SESSION * 1000
+  )
+  return {
+    data: {
+      expiresAt: data.expiresAt < deadline ? data.expiresAt : deadline,
+    },
+  }
+})
 
 // The per-address mail cap's table (mail-cap.ts). A plugin schema, so the
 // migration script generates it and Better Auth's adapter reaches it on D1 and
@@ -399,10 +502,12 @@ const mailCapTable = {
   },
 } satisfies BetterAuthPlugin
 
+// Decision: authOptions stays a plain function, not an Effect: Better Auth,
+// the test seam and the migration script take the options object as is.
+// CODING_STANDARDS.md lists such config builders among the exceptions.
 export function authOptions(input: AuthOptionsInput) {
-  const grantAdmin = async (user: WrittenUser | null) => {
-    if (user !== null) await input.grantAdmin(user)
-  }
+  const grantAdmin = (user: WrittenUser | null) =>
+    runHook(grantAdminOf(input, user))
   return {
     appName: "KUMORA",
     baseURL: input.baseURL,
@@ -482,33 +587,15 @@ export function authOptions(input: AuthOptionsInput) {
       },
       session: {
         create: {
-          after: async ({ userId }, ctx) =>
-            grantAdmin(
-              (await ctx?.context.internalAdapter.findUserById(userId)) ?? null
-            ),
+          after: ({ userId }, ctx) =>
+            runHook(grantAdminOfSession(input, userId, ctx)),
         },
         delete: {
-          after: (session, ctx) => endLiveSessions(input, session, ctx),
+          after: (session, ctx) =>
+            runHook(endLiveSessions(input, session, ctx)),
         },
-        // get-session renews a session within updateAge of its renewal at the
-        // full expiresIn, and an impersonation session, made an hour from its
-        // end, always is. Only the dont_remember cookie keeps it off that
-        // path, so the hour is held here, where the browser's cookies can't
-        // reach.
         update: {
-          before: async (data, ctx) => {
-            const current = ctx?.context.session?.session
-            if (!data.expiresAt || !current || !impersonatedBy(current)) return
-            const deadline = new Date(
-              current.createdAt.getTime() + IMPERSONATION_SESSION * 1000
-            )
-            return {
-              data: {
-                expiresAt:
-                  data.expiresAt < deadline ? data.expiresAt : deadline,
-              },
-            }
-          },
+          before: (data, ctx) => runHook(capImpersonationExpiry(data, ctx)),
         },
       },
     },

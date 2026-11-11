@@ -1,4 +1,6 @@
+import { clientRuntime } from "@workspace/client"
 import type { StockCode } from "@workspace/relay"
+import { Effect } from "effect"
 import { useCallback, useSyncExternalStore } from "react"
 
 import { parseMarketLiveSearch } from "@/lib/market-live-search"
@@ -11,26 +13,23 @@ const KEY = "kumora:market-live:watchlist"
 const NONE: ReadonlyArray<StockCode> = []
 
 // The stored list, its codes parsed as the URL's are: anything else dropped.
-const parse = (raw: string | null): ReadonlyArray<StockCode> => {
-  try {
-    const stored: unknown = JSON.parse(raw ?? "[]")
-    if (!Array.isArray(stored)) return NONE
-    const codes = stored.flatMap(
-      (entry) => parseMarketLiveSearch({ code: entry }).code ?? []
-    )
-    return [...new Set(codes)]
-  } catch {
-    return NONE
+const parse = Effect.fnUntraced(function* (raw: string | null) {
+  const stored = yield* Effect.try((): unknown => JSON.parse(raw ?? "[]")).pipe(
+    Effect.orElseSucceed(() => NONE)
+  )
+  if (!Array.isArray(stored)) return NONE
+  const codes: Array<StockCode> = []
+  for (const entry of stored) {
+    const { code } = yield* parseMarketLiveSearch({ code: entry })
+    if (code !== undefined) codes.push(code)
   }
-}
+  return [...new Set(codes)]
+})
 
-const read = (): string | null => {
-  try {
-    return window.localStorage.getItem(KEY)
-  } catch {
-    return null
-  }
-}
+// Storage blocked reads as no list.
+const read = Effect.try(() => window.localStorage.getItem(KEY)).pipe(
+  Effect.orElseSucceed(() => null)
+)
 
 // The list as last read, kept while the stored text is unchanged, so React
 // sees the same array.
@@ -39,8 +38,9 @@ let cached: { raw: string | null; codes: ReadonlyArray<StockCode> } = {
   codes: NONE,
 }
 const snapshot = () => {
-  const raw = read()
-  if (raw !== cached.raw) cached = { raw, codes: parse(raw) }
+  const raw = clientRuntime.runSync(read)
+  if (raw !== cached.raw)
+    cached = { raw, codes: clientRuntime.runSync(parse(raw)) }
   return cached.codes
 }
 
@@ -55,15 +55,17 @@ const subscribe = (listener: () => void) => {
   }
 }
 
-const write = (codes: ReadonlyArray<StockCode>) => {
-  try {
+const write = Effect.fnUntraced(function* (codes: ReadonlyArray<StockCode>) {
+  yield* Effect.try(() =>
     window.localStorage.setItem(KEY, JSON.stringify(codes))
-  } catch {
+  ).pipe(
     // Storage blocked: the list lasts as long as the page.
-    cached = { raw: cached.raw, codes }
-  }
+    Effect.orElseSucceed(() => {
+      cached = { raw: cached.raw, codes }
+    })
+  )
   for (const listener of listeners) listener()
-}
+})
 
 // The viewer's watchlist codes, in the order added, and its two changes. The
 // server render has none.
@@ -71,10 +73,11 @@ export function useWatchlist() {
   const codes = useSyncExternalStore(subscribe, snapshot, () => NONE)
   const add = useCallback((code: StockCode) => {
     const held = snapshot()
-    if (!held.includes(code)) write([...held, code])
+    if (!held.includes(code)) clientRuntime.runSync(write([...held, code]))
   }, [])
   const remove = useCallback(
-    (code: StockCode) => write(snapshot().filter((held) => held !== code)),
+    (code: StockCode) =>
+      clientRuntime.runSync(write(snapshot().filter((held) => held !== code))),
     []
   )
   return { codes, add, remove }

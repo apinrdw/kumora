@@ -4,7 +4,13 @@
 import { StockCode, wibDateAt, type WibDate } from "@workspace/relay"
 import { DateTime, Effect, Option, Schema } from "effect"
 
-import { bytesOf, fieldReader, messagesAt, numberOf } from "./stockbit.ts"
+import {
+  bytesOf,
+  fieldReader,
+  messagesIn,
+  numberOf,
+  textOf,
+} from "./stockbit.ts"
 
 const LIVEPRICE = 9
 
@@ -57,40 +63,39 @@ export interface LivePrice {
 
 const isStockCode = Schema.is(StockCode)
 
-const livePriceOf = (bytes: Uint8Array): LivePrice | undefined => {
-  const read = fieldReader(bytes)
+const livePriceOf = Effect.fnUntraced(function* (bytes: Uint8Array) {
+  const read = yield* fieldReader(bytes)
   if (read === undefined) return undefined
-  const text = (number: number) => {
-    const run = bytesOf(read(number))
-    return run === undefined ? undefined : new TextDecoder().decode(run)
-  }
-  const code = text(Field.stockCode)
+  const code = yield* textOf(read.get(Field.stockCode))
   const time = Option.getOrUndefined(
-    DateTime.make(text(Field.date) ?? "").pipe(Option.map(DateTime.toUtc))
+    DateTime.make((yield* textOf(read.get(Field.date))) ?? "").pipe(
+      Option.map(DateTime.toUtc)
+    )
   )
   if (code === undefined || !isStockCode(code) || time === undefined)
     return undefined
-  const changeBytes = bytesOf(read(Field.change))
+  const changeBytes = yield* bytesOf(read.get(Field.change))
   const change =
-    changeBytes === undefined ? undefined : fieldReader(changeBytes)
-  const board = numberOf(read(Field.board))
-  return {
+    changeBytes === undefined ? undefined : yield* fieldReader(changeBytes)
+  const board = yield* numberOf(read.get(Field.board))
+  const price: LivePrice = {
     code,
     time,
-    last: numberOf(read(Field.last)),
-    volume: numberOf(read(Field.volume)) ?? 0,
-    value: numberOf(read(Field.value)) ?? 0,
-    frequency: numberOf(read(Field.frequency)) ?? 0,
-    previous: numberOf(read(Field.previous)),
-    isIndex: numberOf(read(Field.isIndex)) === 1,
-    high: numberOf(read(Field.high)),
-    low: numberOf(read(Field.low)),
-    open: numberOf(read(Field.open)),
-    change: numberOf(change?.(ChangeField.value)),
-    changePercent: numberOf(change?.(ChangeField.percent)),
+    last: yield* numberOf(read.get(Field.last)),
+    volume: (yield* numberOf(read.get(Field.volume))) ?? 0,
+    value: (yield* numberOf(read.get(Field.value))) ?? 0,
+    frequency: (yield* numberOf(read.get(Field.frequency))) ?? 0,
+    previous: yield* numberOf(read.get(Field.previous)),
+    isIndex: (yield* numberOf(read.get(Field.isIndex))) === 1,
+    high: yield* numberOf(read.get(Field.high)),
+    low: yield* numberOf(read.get(Field.low)),
+    open: yield* numberOf(read.get(Field.open)),
+    change: yield* numberOf(change?.get(ChangeField.value)),
+    changePercent: yield* numberOf(change?.get(ChangeField.percent)),
     regularBoard: board === undefined || board === REGULAR_BOARD,
   }
-}
+  return price
+})
 
 // A frame on top of the code's last: a frame carrying only the totals keeps
 // the last price, previous close, range and change as last sent, so what the
@@ -123,8 +128,8 @@ export const stockbitLivePrices = Effect.fnUntraced(function* (
   frames: ReadonlyArray<Uint8Array>
 ) {
   const prices: Array<LivePrice> = []
-  for (const bytes of frames.flatMap((frame) => messagesAt(frame, LIVEPRICE))) {
-    const price = livePriceOf(bytes)
+  for (const bytes of yield* messagesIn(frames, LIVEPRICE)) {
+    const price = yield* livePriceOf(bytes)
     if (price !== undefined && (yield* wibDateAt(price.time)) === date)
       prices.push(price)
   }

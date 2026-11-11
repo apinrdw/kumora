@@ -1,5 +1,5 @@
 import type { MarketPhase, RelayGap } from "@workspace/relay"
-import { DateTime } from "effect"
+import { Effect, DateTime } from "effect"
 import { cn } from "@workspace/ui/lib/utils"
 import { useEffect } from "react"
 
@@ -34,10 +34,14 @@ const BAND_LABEL: Record<MarketPhase, string> = {
 
 // Space plays or pauses, unless a control that takes Space has focus.
 const takesSpace = (target: EventTarget | null) =>
-  target instanceof HTMLElement &&
-  (target.isContentEditable ||
-    target.closest("button, a, select, textarea, input:not([type=range])") !==
-      null)
+  Effect.sync(
+    () =>
+      target instanceof HTMLElement &&
+      (target.isContentEditable ||
+        target.closest(
+          "button, a, select, textarea, input:not([type=range])"
+        ) !== null)
+  )
 
 /**
  * A recorded day's transport bar, under the chart: Play/Pause (Space), the
@@ -58,7 +62,11 @@ export function TransportBar({
 
   useEffect(() => {
     const onKey = (event: KeyboardEvent) => {
-      if (event.code !== "Space" || event.repeat || takesSpace(event.target))
+      if (
+        event.code !== "Space" ||
+        event.repeat ||
+        Effect.runSync(takesSpace(event.target))
+      )
         return
       event.preventDefault()
       cursor.toggle()
@@ -104,7 +112,7 @@ export function TransportBar({
         ))}
       </div>
       <span className="w-16 font-semibold tabular-nums" aria-hidden>
-        {tapeTime(at)}
+        {Effect.runSync(tapeTime(at))}
       </span>
       <div className="flex min-w-48 flex-1 flex-col gap-0.5">
         <div className="relative h-5">
@@ -141,13 +149,17 @@ export function TransportBar({
           <input
             type="range"
             aria-label="Replay cursor"
-            aria-valuetext={`${tapeTime(at)} WIB`}
+            aria-valuetext={`${Effect.runSync(tapeTime(at))} WIB`}
             min={start}
             max={close}
             step={1_000}
             value={at}
             onChange={(event) =>
-              cursor.seek(scrubbedTo(cursor.day, Number(event.target.value)))
+              cursor.seek(
+                Effect.runSync(
+                  scrubbedTo(cursor.day, Number(event.target.value))
+                )
+              )
             }
             className="absolute inset-0 w-full cursor-pointer appearance-none bg-transparent accent-foreground"
           />

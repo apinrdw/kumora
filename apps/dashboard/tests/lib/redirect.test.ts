@@ -1,17 +1,20 @@
-import { describe, expect, test } from "vitest"
+import { describe, expect, it } from "@effect/vitest"
+import { Effect } from "effect"
 
 import { safeRedirect } from "@/lib/redirect"
 
 describe("safeRedirect", () => {
-  test.each([
+  it.effect.each([
     ["/market-live", "/market-live"],
     ["/market-live?day=2026-11-06#tape", "/market-live?day=2026-11-06#tape"],
     ["/", "/"],
-  ])("keeps the same-origin path %s", (raw, expected) => {
-    expect(safeRedirect(raw)).toBe(expected)
-  })
+  ])("keeps the same-origin path %s", ([raw, expected]) =>
+    Effect.gen(function* () {
+      expect(yield* safeRedirect(raw)).toBe(expected)
+    })
+  )
 
-  test.each([
+  it.effect.each([
     ["another origin", "https://evil.example/"],
     ["a protocol-relative URL", "//evil.example/"],
     ["a protocol-relative URL without a slash", "//evil.example"],
@@ -25,7 +28,9 @@ describe("safeRedirect", () => {
     ["an empty value", ""],
     ["no value", undefined],
     ["a number", 42],
-  ])("sends %s home", (_, raw) => {
-    expect(safeRedirect(raw)).toBe("/")
-  })
+  ])("sends %s home", ([_, raw]) =>
+    Effect.gen(function* () {
+      expect(yield* safeRedirect(raw)).toBe("/")
+    })
+  )
 })

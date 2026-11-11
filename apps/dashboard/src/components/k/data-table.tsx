@@ -8,6 +8,7 @@ import {
   TableRow,
 } from "@workspace/ui/components/table"
 import { cn } from "@workspace/ui/lib/utils"
+import { Effect, Schema } from "effect"
 import { useState } from "react"
 import type { ComponentProps, ReactNode } from "react"
 
@@ -16,8 +17,8 @@ import { Delta } from "./delta"
 import { KStateBody } from "./empty-state"
 import type { KDataState } from "./empty-state"
 import { KSkeleton } from "./skeleton"
-import { FRESHNESS, KStatusPill } from "./status-pill"
-import type { Freshness } from "@/domain/freshness"
+import { KStatusPill } from "./status-pill"
+import { Freshness } from "@/domain/freshness"
 import { isActivationKey } from "./keyboard"
 import { sortRows } from "./sort"
 import type { KSort } from "./sort"
@@ -75,12 +76,15 @@ const NUMERIC_KINDS: ReadonlySet<CellKind> = new Set([
   "asOf",
 ])
 
-function alignOf<TRow extends object>(c: KColumn<TRow>) {
-  if (c.align) return c.align
-  return typeof c.cell === "string" && NUMERIC_KINDS.has(c.cell)
-    ? "right"
-    : "left"
-}
+type Align = "left" | "right" | "center"
+
+const alignOf = <TRow extends object>(c: KColumn<TRow>): Effect.Effect<Align> =>
+  Effect.succeed(
+    c.align ??
+      (typeof c.cell === "string" && NUMERIC_KINDS.has(c.cell)
+        ? "right"
+        : "left")
+  )
 
 const ALIGN = {
   left: "text-left",
@@ -88,21 +92,21 @@ const ALIGN = {
   center: "text-center",
 } as const
 
-function isFreshness(v: unknown): v is Freshness {
-  return typeof v === "string" && v in FRESHNESS
-}
+const isFreshness = Schema.is(Freshness)
 
-type KindRenderer = (v: NonNullable<unknown>, row: object) => ReactNode
+type KindRenderer = (
+  v: NonNullable<unknown>,
+  row: object
+) => Effect.Effect<ReactNode>
 
-function numberCell(format: (n: number) => ReactNode): KindRenderer {
-  return (v) => (typeof v === "number" ? format(v) : "—")
-}
+const numberCell = (
+  v: unknown,
+  format: (n: number) => Effect.Effect<ReactNode>
+): Effect.Effect<ReactNode> =>
+  typeof v === "number" ? format(v) : Effect.succeed("—")
 
-function signTone(n: number) {
-  if (n > 0) return "text-up"
-  if (n < 0) return "text-down"
-  return undefined
-}
+const signTone = (n: number) =>
+  Effect.succeed(n > 0 ? "text-up" : n < 0 ? "text-down" : undefined)
 
 function TickerCell({ symbol, row }: { symbol: string; row: object }) {
   return (
@@ -118,58 +122,93 @@ function TickerCell({ symbol, row }: { symbol: string; row: object }) {
 }
 
 const KIND_RENDERERS: Record<CellKind, KindRenderer> = {
-  pct: numberCell((n) => <Delta value={n} />),
-  idr: numberCell(idr),
-  compactIdr: numberCell((n) => (
-    <span className={signTone(n)}>{compactIdr(n)}</span>
-  )),
-  shares: numberCell(shares),
-  ticker: (v, row) => <TickerCell symbol={String(v)} row={row} />,
-  status: (v) => (isFreshness(v) ? <KStatusPill status={v} hideAsOf /> : "—"),
-  asOf: (v) => (typeof v === "string" ? asOf(v) : "—"),
+  pct: (v) => numberCell(v, (n) => Effect.succeed(<Delta value={n} />)),
+  idr: (v) => numberCell(v, idr),
+  compactIdr: (v) =>
+    numberCell(v, (n) =>
+      Effect.gen(function* () {
+        const tone = yield* signTone(n)
+        return <span className={tone}>{yield* compactIdr(n)}</span>
+      })
+    ),
+  shares: (v) => numberCell(v, shares),
+  ticker: (v, row) =>
+    Effect.succeed(<TickerCell symbol={String(v)} row={row} />),
+  status: (v) =>
+    Effect.succeed(isFreshness(v) ? <KStatusPill status={v} hideAsOf /> : "—"),
+  asOf: (v) => (typeof v === "string" ? asOf(v) : Effect.succeed("—")),
 }
 
-function renderKind(kind: CellKind, v: unknown, row: object): ReactNode {
-  if (v === null || v === undefined) return "—"
-  return KIND_RENDERERS[kind](v, row)
-}
+const renderKind = (
+  kind: CellKind,
+  v: unknown,
+  row: object
+): Effect.Effect<ReactNode> =>
+  v === null || v === undefined
+    ? Effect.succeed("—")
+    : KIND_RENDERERS[kind](v, row)
 
-function plain(v: unknown): ReactNode {
-  return typeof v === "string" || typeof v === "number" ? v : "—"
-}
+const plain = (v: unknown): Effect.Effect<ReactNode> =>
+  Effect.succeed(typeof v === "string" || typeof v === "number" ? v : "—")
 
-function renderCell<TRow extends object>(
+const renderCell = <TRow extends object>(
   c: KColumn<TRow>,
   row: TRow
-): ReactNode {
-  if (typeof c.cell === "function") return c.cell(row)
-  if (c.cell) return renderKind(c.cell, row[c.key], row)
+): Effect.Effect<ReactNode> => {
+  const { cell } = c
+  if (typeof cell === "function") return Effect.sync(() => cell(row))
+  if (cell) return renderKind(cell, row[c.key], row)
   return plain(row[c.key])
 }
 
 type SortDir = KSort<object>["dir"]
 
 /** Direction of the active sort on this column, or undefined when it is not the sort key. */
-function activeDir<TRow extends object>(
+const activeDir = <TRow extends object>(
   c: KColumn<TRow>,
   sort: KSort<TRow> | undefined
-): SortDir | undefined {
-  return sort?.key === c.key ? sort.dir : undefined
-}
+): Effect.Effect<SortDir | undefined> =>
+  Effect.succeed(sort?.key === c.key ? sort.dir : undefined)
 
-function ariaSortOf(sortable: boolean | undefined, dir: SortDir | undefined) {
-  if (!sortable) return undefined
-  if (!dir) return "none"
-  return dir === "asc" ? "ascending" : "descending"
-}
+const ariaSortOf = (sortable: boolean | undefined, dir: SortDir | undefined) =>
+  Effect.succeed(
+    !sortable
+      ? undefined
+      : !dir
+        ? ("none" as const)
+        : dir === "asc"
+          ? ("ascending" as const)
+          : ("descending" as const)
+  )
+
+// A header cell's sort direction, alignment and aria-sort.
+const headerOf = <TRow extends object>(
+  c: KColumn<TRow>,
+  sort: KSort<TRow> | undefined
+) =>
+  Effect.gen(function* () {
+    const dir = yield* activeDir(c, sort)
+    return {
+      dir,
+      align: yield* alignOf(c),
+      ariaSort: yield* ariaSortOf(c.sortable, dir),
+    }
+  })
 
 type StateBody = Exclude<KDataState, { status: "ready" }>
 
 /** The state that replaces the body, or null when rows render. */
-function bodyState(state: KDataState, rowCount: number): StateBody | null {
-  if (state.status !== "ready") return state
-  return rowCount === 0 ? { status: "empty", kind: "no-result" } : null
-}
+const bodyState = (
+  state: KDataState,
+  rowCount: number
+): Effect.Effect<StateBody | null> =>
+  Effect.succeed(
+    state.status !== "ready"
+      ? state
+      : rowCount === 0
+        ? { status: "empty", kind: "no-result" }
+        : null
+  )
 
 /** Spreads every other button prop so it can serve as a tooltip trigger. */
 function SortButton({
@@ -246,12 +285,11 @@ function HeaderCell<TRow extends object>({
   sticky: boolean
   onToggle: () => void
 }) {
-  const dir = activeDir(c, sort)
-  const align = alignOf(c)
+  const { dir, align, ariaSort } = Effect.runSync(headerOf(c, sort))
   return (
     <TableHead
       scope="col"
-      aria-sort={ariaSortOf(c.sortable, dir)}
+      aria-sort={ariaSort}
       className={cn(
         "bg-surface h-9 border-b border-border px-3 text-xs font-[450] text-muted-foreground",
         dir && "text-foreground",
@@ -288,7 +326,7 @@ function DataRow<TRow extends object>({
       onKeyDown={
         onRowClick &&
         ((e) => {
-          if (!isActivationKey(e.key)) return
+          if (!Effect.runSync(isActivationKey(e.key))) return
           e.preventDefault()
           onRowClick(row)
         })
@@ -305,11 +343,11 @@ function DataRow<TRow extends object>({
           className={cn(
             rowHeight,
             "bg-surface group-hover/row:bg-elevated group-aria-selected/row:bg-selected border-b border-border px-3 py-0 group-last/row:border-b-0",
-            ALIGN[alignOf(c)],
+            ALIGN[Effect.runSync(alignOf(c))],
             ci === 0 && stickyFirst && "sticky left-0 z-[1]"
           )}
         >
-          {renderCell(c, row)}
+          {Effect.runSync(renderCell(c, row))}
         </TableCell>
       ))}
     </TableRow>
@@ -335,7 +373,7 @@ function TableRows<TRow extends object>({
   state,
   stickyFirst,
 }: TableRowsProps<TRow>) {
-  const body = bodyState(state, rows.length)
+  const body = Effect.runSync(bodyState(state, rows.length))
   if (body) {
     return (
       <TableRow className="border-0 hover:bg-transparent">
@@ -385,7 +423,7 @@ export function KDataTable<TRow extends object>({
   const [ownSort, setOwnSort] = useState(defaultSort)
   const sort = controlledSort ?? ownSort
 
-  const sorted = sort && !onSort ? sortRows(rows, sort) : rows
+  const sorted = sort && !onSort ? Effect.runSync(sortRows(rows, sort)) : rows
 
   function toggleSort(key: KSort<TRow>["key"]) {
     const next: KSort<TRow> = {

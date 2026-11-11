@@ -1,5 +1,6 @@
 import { useRouter } from "@tanstack/react-router"
 import { cn } from "@workspace/ui/lib/utils"
+import { Effect } from "effect"
 import { useId, useState, type ReactNode } from "react"
 
 import { kCard } from "@/components/k"
@@ -52,21 +53,40 @@ export function OutcomeLine({ outcome }: { outcome: Outcome | null }) {
   )
 }
 
+const runAction = Effect.fnUntraced(function* (
+  action: Effect.Effect<Outcome>,
+  reload: Effect.Effect<void>,
+  show: {
+    pending: (pending: boolean) => void
+    outcome: (o: Outcome | null) => void
+  }
+) {
+  yield* Effect.sync(() => {
+    show.pending(true)
+    show.outcome(null)
+  })
+  const result = yield* action
+  if (result._tag === "Done") yield* reload
+  yield* Effect.sync(() => {
+    show.outcome(result)
+    show.pending(false)
+  })
+})
+
 /**
  * Runs a section's Better Auth call, then reloads the page's data so every
- * section (and the user menu) shows the result.
+ * section (and the user menu) shows the result. `run` returns the Effect;
+ * the section's event handler forks it.
  */
 export function useAccountAction() {
   const router = useRouter()
   const [pending, setPending] = useState(false)
   const [outcome, setOutcome] = useState<Outcome | null>(null)
-  const run = async (action: () => Promise<Outcome>) => {
-    setPending(true)
-    setOutcome(null)
-    const result = await action()
-    if (result._tag === "Done") await router.invalidate()
-    setOutcome(result)
-    setPending(false)
-  }
+  const run = (action: Effect.Effect<Outcome>) =>
+    runAction(
+      action,
+      Effect.promise(() => router.invalidate()),
+      { pending: setPending, outcome: setOutcome }
+    )
   return { pending, outcome, run }
 }

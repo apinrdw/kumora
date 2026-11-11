@@ -30,8 +30,17 @@ import {
   type WibDate,
 } from "@workspace/relay"
 import { WorkerEnv } from "@workspace/server"
-import { Clock, DateTime, Duration, Effect, Schema, Scope } from "effect"
+import {
+  Clock,
+  DateTime,
+  Duration,
+  Effect,
+  Schema,
+  Scope,
+  Semaphore,
+} from "effect"
 
+import { tradePosition } from "../../lib/trade-position.ts"
 import { ajaibTrades } from "./ajaib.ts"
 import { ajaibPrices } from "./ajaib-price.ts"
 import { backfillTrades } from "./backfill-page.ts"
@@ -130,11 +139,11 @@ const FLUSH_PAST_MINUTE = 5_000
 // no change (the 2026-11-06 probe, `stockbit-ihsg-liveprice.json`), so the
 // day records no IHSG change rather than one run from a price seen today,
 // and the strip shows none; a frame that does carry either is used.
-const ihsgOf = (price: LivePrice | undefined) => {
+const ihsgOf = Effect.fnUntraced(function* (price: LivePrice | undefined) {
   if (price?.last === undefined) return {}
   const change =
     price.change === undefined
-      ? changeOf(price.last, price.previous)
+      ? yield* changeOf(price.last, price.previous)
       : { amount: price.change, percent: price.changePercent ?? 0 }
   return change === undefined
     ? {}
@@ -145,7 +154,7 @@ const ihsgOf = (price: LivePrice | undefined) => {
           changePercent: change.percent,
         },
       }
-}
+})
 
 const IHSG = StockCode.make("IHSG")
 
@@ -154,10 +163,11 @@ const IHSG = StockCode.make("IHSG")
 const latestByCode = <T extends { readonly code: StockCode }>(
   earlier: ReadonlyArray<T>,
   later: ReadonlyArray<T>
-) => {
-  const codes = new Set(later.map((row) => row.code))
-  return [...earlier.filter((row) => !codes.has(row.code)), ...later]
-}
+) =>
+  Effect.sync(() => {
+    const codes = new Set(later.map((row) => row.code))
+    return [...earlier.filter((row) => !codes.has(row.code)), ...later]
+  })
 
 // Decision: a viewer whose session ended is closed with 4401 when it would
 // next be served, a delta or a snapshot, not by a timer: that is where it
@@ -175,23 +185,6 @@ const sessionEnded = Effect.fnUntraced(function* (viewer: Peer) {
 const signInRequired = (viewer: Peer) =>
   viewer.close(ViewerCloseCode.SignInRequired, "Sign in")
 
-// The tape ordered by trade number, ascending; the index where `trade` sits or
-// would be inserted.
-const positionOf = (
-  tape: ReadonlyArray<RunningTrade>,
-  trade: RunningTrade
-): number => {
-  let low = 0
-  let high = tape.length
-  while (low < high) {
-    const middle = (low + high) >>> 1
-    if (TradeNumberOrder(tape[middle]!.tradeNumber, trade.tradeNumber) < 0)
-      low = middle + 1
-    else high = middle
-  }
-  return low
-}
-
 // A merged trade lists its feeds in this order.
 const FEEDS: ReadonlyArray<RunningTrade["feeds"][number]> = [
   "Stockbit",
@@ -202,18 +195,19 @@ const FEEDS: ReadonlyArray<RunningTrade["feeds"][number]> = [
 // One trade as two feeds saw it (spec apinrdw/kumora#138, "Merge and
 // dedupe"): Stockbit's fields win, sub-second time included; the other feed
 // fills only a side Stockbit left unspecified.
-const merge = (held: RunningTrade, arriving: RunningTrade): RunningTrade => {
-  const arrivingWins =
-    arriving.feeds.includes("Stockbit") && !held.feeds.includes("Stockbit")
-  const [first, second] = arrivingWins ? [arriving, held] : [held, arriving]
-  return {
-    ...first,
-    side: first.side === "none" ? second.side : first.side,
-    feeds: FEEDS.filter(
-      (feed) => first.feeds.includes(feed) || second.feeds.includes(feed)
-    ),
-  }
-}
+const merge = (held: RunningTrade, arriving: RunningTrade) =>
+  Effect.sync((): RunningTrade => {
+    const arrivingWins =
+      arriving.feeds.includes("Stockbit") && !held.feeds.includes("Stockbit")
+    const [first, second] = arrivingWins ? [arriving, held] : [held, arriving]
+    return {
+      ...first,
+      side: first.side === "none" ? second.side : first.side,
+      feeds: FEEDS.filter(
+        (feed) => first.feeds.includes(feed) || second.feeds.includes(feed)
+      ),
+    }
+  })
 
 // Decision: the auction matches (08:58:00 and 16:00:00, inside pre-opening
 // and pre-closing) and the negotiated board have no side, whichever feed
@@ -264,7 +258,8 @@ const restoreLastFrames = Effect.fnUntraced(function* (day: {
   }
   // The stored trades of every base's minute, so each code's Day state
   // fallback holds the ones after its base: one scan per distinct minute.
-  const minutes = new Set(prices.map((price) => minuteOf(price.time)))
+  const minutes = new Set<number>()
+  for (const price of prices) minutes.add(yield* minuteOf(price.time))
   for (const minute of minutes)
     for (const trade of yield* day.store.tradesBetween(
       DateTime.makeUnsafe(minute - 1),
@@ -308,6 +303,17 @@ export const makeTradingDay = Effect.fnUntraced(function* (options: {
 }) {
   // Delta timers outlive the message that started them.
   const scope = yield* Scope.Scope
+  // Decision: the object's callbacks and timer bodies run one at a time, as
+  // they did before they were Effects. Every guard on the day's state (a
+  // frame newer than what its code holds, a trade's position on the tape)
+  // reads the state its write then changes, and the run loop yields a fiber
+  // every 2048 operations, so without this a second callback's frames land
+  // inside the first's and the first writes over them (the tests under
+  // "overlapping ingest callbacks"). One permit, taken where a callback or a
+  // timer body enters (the returned handlers, the delta, conditions and
+  // flush bodies after their sleeps) and never inside, so nothing under it
+  // waits on it.
+  const turn = yield* Semaphore.make(1)
   const codeListStore = options.codeList ?? (yield* memoryCodeListStore)
   const store = yield* makeDayStore(options.sql)
   const setAlarm = options.setAlarm ?? (() => Effect.void)
@@ -421,8 +427,10 @@ export const makeTradingDay = Effect.fnUntraced(function* (options: {
     return mayBeStored && (yield* store.hasTrade(trade.tradeNumber))
   })
 
-  const inTape = (trade: RunningTrade) =>
-    tape[positionOf(tape, trade)]?.tradeNumber === trade.tradeNumber
+  const inTape = Effect.fnUntraced(function* (trade: RunningTrade) {
+    const at = yield* tradePosition(tape, trade.tradeNumber)
+    return tape[at]?.tradeNumber === trade.tradeNumber
+  })
 
   // A copy of a trade the day holds, merged into the tape row at `slot`, or
   // into the candle book's copy once the tape evicted it. A copy that adds
@@ -432,7 +440,7 @@ export const makeTradingDay = Effect.fnUntraced(function* (options: {
     arriving: RunningTrade,
     slot: number | undefined
   ) {
-    const merged = yield* settleSide(merge(held, arriving))
+    const merged = yield* settleSide(yield* merge(held, arriving))
     if (merged.feeds.length === held.feeds.length && merged.side === held.side)
       return
     if (slot !== undefined) {
@@ -452,7 +460,7 @@ export const makeTradingDay = Effect.fnUntraced(function* (options: {
   ) {
     for (const arriving of trades) {
       yield* gaps.seen(arriving)
-      const at = positionOf(tape, arriving)
+      const at = yield* tradePosition(tape, arriving.tradeNumber)
       // The tape row of this number, if it holds one.
       const slot =
         tape[at]?.tradeNumber === arriving.tradeNumber ? at : undefined
@@ -532,7 +540,7 @@ export const makeTradingDay = Effect.fnUntraced(function* (options: {
       return
     deltaScheduled = true
     yield* Effect.sleep(DELTA_INTERVAL).pipe(
-      Effect.andThen(sendDelta),
+      Effect.andThen(turn.withPermit(sendDelta)),
       Effect.catchCause((cause) => Effect.logError("Delta not sent", cause)),
       Effect.forkIn(scope)
     )
@@ -554,11 +562,13 @@ export const makeTradingDay = Effect.fnUntraced(function* (options: {
         return
       }
       // One failed check is logged; the next still runs.
-      yield* scheduleDelta.pipe(
-        Effect.catchCause((cause) =>
-          Effect.logError("Conditions not checked", cause)
+      yield* turn
+        .withPermit(scheduleDelta)
+        .pipe(
+          Effect.catchCause((cause) =>
+            Effect.logError("Conditions not checked", cause)
+          )
         )
-      )
       yield* loop
     })
     return loop.pipe(Effect.forkIn(scope), Effect.asVoid)
@@ -581,9 +591,9 @@ export const makeTradingDay = Effect.fnUntraced(function* (options: {
     const payload: Flush = {
       trades: settled.trades,
       candles: settled.candles,
-      livePrices: latestByCode(retained?.livePrices ?? [], livePrices),
+      livePrices: yield* latestByCode(retained?.livePrices ?? [], livePrices),
       chunks: [...(retained?.chunks ?? []), ...chunks],
-      ajaibBooks: latestByCode(retained?.ajaibBooks ?? [], ajaibBooks),
+      ajaibBooks: yield* latestByCode(retained?.ajaibBooks ?? [], ajaibBooks),
       facts: {
         [Fact.feedDowns]: JSON.stringify(yield* market.record),
         ...facts,
@@ -619,18 +629,19 @@ export const makeTradingDay = Effect.fnUntraced(function* (options: {
         )
       ),
       Effect.andThen(
-        Effect.suspend(() => {
-          flushScheduled = false
-          return sealed
-            ? Effect.void
-            : flush(false).pipe(
-                Effect.catchCause((cause) =>
-                  Effect.logError("Day not flushed", cause)
+        turn.withPermit(
+          Effect.suspend(() => {
+            flushScheduled = false
+            return sealed
+              ? Effect.void
+              : flush(false).pipe(
+                  Effect.catchCause((cause) =>
+                    Effect.logError("Day not flushed", cause)
+                  )
                 )
-              )
-        })
+          }).pipe(Effect.andThen(unflushed))
+        )
       ),
-      Effect.andThen(unflushed),
       Effect.flatMap((more) => (more ? scheduleFlush : Effect.void)),
       Effect.forkIn(scope),
       Effect.asVoid
@@ -649,7 +660,7 @@ export const makeTradingDay = Effect.fnUntraced(function* (options: {
     if (trades > 0)
       yield* (options.recordDay ?? (() => Effect.void))({
         day: options.date,
-        ...ihsgOf(yield* store.livePrice(IHSG)),
+        ...(yield* ihsgOf(yield* store.livePrice(IHSG))),
         trades,
         gap: conditions.gaps.length > 0,
       })
@@ -787,7 +798,10 @@ export const makeTradingDay = Effect.fnUntraced(function* (options: {
         // The store keeps each code's regular-board frame, the one a restart
         // rebuilds its Day state from: a cash or negotiated board's would
         // displace it.
-        if (price.regularBoard && newerThanHeld(price.time, held?.time)) {
+        if (
+          price.regularBoard &&
+          (yield* newerThanHeld(price.time, held?.time))
+        ) {
           const merged = yield* mergedLivePrice(held, price)
           lastLivePrices.set(price.code, merged)
           livePricesChanged.set(price.code, merged)
@@ -845,10 +859,10 @@ export const makeTradingDay = Effect.fnUntraced(function* (options: {
         yield* insert(
           yield* Effect.filter(
             yield* backfillTrades(options.date, message),
-            (trade) =>
-              inTape(trade)
-                ? Effect.succeed(false)
-                : Effect.map(heldOutsideTape(trade, true), (held) => !held)
+            Effect.fnUntraced(function* (trade) {
+              if (yield* inTape(trade)) return false
+              return !(yield* heldOutsideTape(trade, true))
+            })
           )
         )
       if (message._tag === "Frames") yield* framesIn(message)
@@ -924,12 +938,15 @@ export const makeTradingDay = Effect.fnUntraced(function* (options: {
   // its flush, so the next eviction lost the relay gap's start and the next
   // restart counted the gap from its own wake. A rejected socket closing
   // changes nothing. Written at once, as nothing else may arrive to schedule
-  // a flush before the object is evicted.
+  // a flush before the object is evicted. `remaining` is counted here, under
+  // the permit: counted when the close arrives, a relay whose token is still
+  // being handled (its hash is awaited) is not ready yet, and the close
+  // would mark the relay offline once the token has put it online.
   const ingestClosed = Effect.fnUntraced(function* (
     socket: Peer,
-    remaining: number
+    remaining: Effect.Effect<number>
   ) {
-    if (remaining > 0 || (yield* socket.state) !== "ready") return
+    if ((yield* remaining) > 0 || (yield* socket.state) !== "ready") return
     yield* market.relayOffline
     yield* scheduleDelta
     if (!sealed) yield* flush(false)
@@ -972,13 +989,17 @@ export const makeTradingDay = Effect.fnUntraced(function* (options: {
   })
 
   return {
-    ingestOpened,
-    ingestMessage,
-    viewerMessage,
-    viewerClosed,
-    ingestClosed,
-    endSessions,
-    recorded,
-    alarm,
+    ingestOpened: turn.withPermit(ingestOpened),
+    ingestMessage: (socket: Peer, text: string) =>
+      turn.withPermit(ingestMessage(socket, text)),
+    viewerMessage: (socket: Peer, text: string) =>
+      turn.withPermit(viewerMessage(socket, text)),
+    viewerClosed: (socket: Peer) => turn.withPermit(viewerClosed(socket)),
+    ingestClosed: (socket: Peer, remaining: Effect.Effect<number>) =>
+      turn.withPermit(ingestClosed(socket, remaining)),
+    endSessions: (held: HeldSessions) => turn.withPermit(endSessions(held)),
+    recorded: (resource: RecordedResource) =>
+      turn.withPermit(recorded(resource)),
+    alarm: turn.withPermit(alarm),
   }
 })

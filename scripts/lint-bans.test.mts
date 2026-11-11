@@ -383,3 +383,176 @@ layer(NodeServices.layer)("apps/web is under the Effect bans", (it) => {
     })
   )
 })
+
+layer(NodeServices.layer)(
+  "apps/dashboard's non-component code is under the full ban set",
+  (it) => {
+    it.effect.each([
+      ["apps/dashboard/alchemy.run.ts"],
+      ["apps/dashboard/src/domain/thing.ts"],
+      ["apps/dashboard/src/lib/thing.ts"],
+      ["apps/dashboard/src/server/auth/thing.ts"],
+      ["apps/dashboard/src/worker.ts"],
+      ["apps/dashboard/src/components/k/thing.ts"],
+      ["apps/dashboard/tests/lib/thing.test.ts"],
+      ["apps/dashboard/tests/server/thing.test.ts"],
+      ["apps/dashboard/tests/components/k/thing.test.ts"],
+      ["apps/dashboard/tests/start.test.ts"],
+    ])("throw and async in %s are rejected", ([file]) =>
+      Effect.gen(function* () {
+        const diagnostics = yield* lint(
+          file,
+          'export const f = async () => {\n  throw new Error("boom")\n}\n'
+        )
+        assertBanned(diagnostics, "kumora(restricted-syntax)", "Effect.fail")
+        assertBanned(diagnostics, "oxc(no-async-await)", "async")
+      })
+    )
+
+    it.effect("a dashboard lib function keeps the other bans", () =>
+      Effect.gen(function* () {
+        const diagnostics = yield* lint(
+          "apps/dashboard/src/lib/thing.ts",
+          [
+            'import { readFileSync } from "node:fs"',
+            "",
+            "export { readFileSync }",
+            "export const all = Promise.all([])",
+            "export const env = process.env.X",
+            "",
+          ].join("\n")
+        )
+        assertBanned(diagnostics, "eslint(no-restricted-imports)", "FileSystem")
+        assertBanned(
+          diagnostics,
+          "eslint(no-restricted-globals)",
+          "Effect.promise"
+        )
+        assertBanned(diagnostics, "eslint(no-restricted-properties)", "Config")
+      })
+    )
+  }
+)
+
+layer(NodeServices.layer)(
+  "apps/dashboard's React code is under the bans, throw allowed in routes",
+  (it) => {
+    it.effect.each([
+      ["apps/dashboard/src/router.tsx"],
+      ["apps/dashboard/src/components/k/thing.tsx"],
+      ["apps/dashboard/src/components/market-live/thing.tsx"],
+    ])("throw and async in %s are rejected", ([file]) =>
+      Effect.gen(function* () {
+        const diagnostics = yield* lint(
+          file,
+          'export const f = async () => {\n  throw new Error("boom")\n}\n'
+        )
+        assertBanned(diagnostics, "kumora(restricted-syntax)", "Effect.fail")
+        assertBanned(diagnostics, "oxc(no-async-await)", "async")
+      })
+    )
+
+    // Spec apinrdw/kumora#113 leaves component tests as they were.
+    it.effect.each([
+      ["apps/dashboard/tests/components/k/thing.test.tsx"],
+      ["apps/dashboard/tests/support/thing.tsx"],
+    ])("component tests in %s may still use async", ([file]) =>
+      Effect.gen(function* () {
+        const diagnostics = yield* lint(
+          file,
+          "export const f = async () => {}\n"
+        )
+        assert.isFalse(
+          diagnostics.some((line) => line.startsWith("oxc(no-async-await)")),
+          diagnostics.join("\n")
+        )
+      })
+    )
+
+    it.effect("an async event handler in a component is rejected", () =>
+      Effect.gen(function* () {
+        const diagnostics = yield* lint(
+          "apps/dashboard/src/components/account/thing.tsx",
+          [
+            "export function Thing() {",
+            "  const save = async () => {}",
+            "  return <button onClick={() => void save()}>Save</button>",
+            "}",
+            "",
+          ].join("\n")
+        )
+        assertBanned(diagnostics, "oxc(no-async-await)", "async")
+      })
+    )
+
+    it.effect("an async loader in a route is rejected", () =>
+      Effect.gen(function* () {
+        const diagnostics = yield* lint(
+          "apps/dashboard/src/routes/_app/thing.tsx",
+          "export const loader = async () => 1\n"
+        )
+        assertBanned(diagnostics, "oxc(no-async-await)", "async")
+      })
+    )
+
+    it.effect("a route may throw redirect or notFound", () =>
+      Effect.gen(function* () {
+        const diagnostics = yield* lint(
+          "apps/dashboard/src/routes/_app/thing.tsx",
+          [
+            'import { notFound, redirect } from "@tanstack/react-router"',
+            "",
+            "export const beforeLoad = (signedIn: boolean) => {",
+            '  if (!signedIn) throw redirect({ to: "/sign-in" })',
+            "  throw notFound()",
+            "}",
+            "",
+          ].join("\n")
+        )
+        assert.deepStrictEqual(diagnostics, [])
+      })
+    )
+
+    it.effect("a route keeps the other bans", () =>
+      Effect.gen(function* () {
+        const diagnostics = yield* lint(
+          "apps/dashboard/src/routes/thing.tsx",
+          [
+            'import { readFileSync } from "node:fs"',
+            "",
+            "export { readFileSync }",
+            "export const all = Promise.all([])",
+            "export const env = process.env.X",
+            "export const exit = () => globalThis.process.exit(1)",
+            "",
+          ].join("\n")
+        )
+        assertBanned(diagnostics, "eslint(no-restricted-imports)", "FileSystem")
+        assertBanned(
+          diagnostics,
+          "eslint(no-restricted-globals)",
+          "Effect.promise"
+        )
+        assertBanned(diagnostics, "eslint(no-restricted-properties)", "Config")
+        assertBanned(diagnostics, "kumora(restricted-syntax)", "Config")
+      })
+    )
+
+    it.effect("a component may throw nothing, a route's throw included", () =>
+      Effect.gen(function* () {
+        const diagnostics = yield* lint(
+          "apps/dashboard/src/components/thing.tsx",
+          [
+            'import { notFound } from "@tanstack/react-router"',
+            "",
+            "export const missing = () => {",
+            "  throw notFound()",
+            "}",
+            "",
+          ].join("\n")
+        )
+        assertBanned(diagnostics, "kumora(restricted-syntax)", "Effect.fail")
+      })
+    )
+  }
+)

@@ -1,5 +1,6 @@
 // @vitest-environment happy-dom
 import type * as Client from "@workspace/client"
+import { clientRuntime } from "@workspace/client"
 import {
   StockCode,
   WibDate,
@@ -65,11 +66,11 @@ const chunkOf = (minute: number): BookChunk => ({
 
 // The hook over `cursor`, filling `book`; returns the unmount.
 const mount = async (
-  cursor: ReturnType<typeof makeReplayCursor>,
-  book: ReturnType<typeof makeOrderBookStore>
+  cursor: Effect.Success<ReturnType<typeof makeReplayCursor>>,
+  book: Effect.Success<ReturnType<typeof makeOrderBookStore>>
 ) => {
-  const candles = makeCandleStore(BBCA)
-  const dayStates = makeDayStateStore()
+  const candles = Effect.runSync(makeCandleStore(BBCA))
+  const dayStates = clientRuntime.runSync(makeDayStateStore())
   function Harness() {
     useRecordedDay({
       day: DAY,
@@ -89,7 +90,9 @@ const mount = async (
 }
 
 test("a book chunk whose load failed is asked for again when the cursor visits its minute again", async () => {
-  const cursor = makeReplayCursor(replayDay(DAY, []))
+  const cursor = Effect.runSync(
+    Effect.flatMap(replayDay(DAY, []), makeReplayCursor)
+  )
   const closeMinute = Math.floor(cursor.state().at / MINUTE) * MINUTE
   // The close minute's chunk: the relay's first answer fails, the next is the
   // chunk; any other minute has no book.
@@ -102,7 +105,7 @@ test("a book chunk whose load failed is asked for again when the cursor visits i
       ? Effect.fail("recorded day not served")
       : Effect.succeed(Option.some(chunkOf(closeMinute)))
   })
-  const book = makeOrderBookStore(BBCA)
+  const book = Effect.runSync(makeOrderBookStore(BBCA))
   const unmount = await mount(cursor, book)
   await vi.waitFor(() => expect(closeAsked).toBe(1))
   expect(book.book()).toBeUndefined()
@@ -116,7 +119,9 @@ test("a book chunk whose load failed is asked for again when the cursor visits i
 })
 
 test("the cursor on a minute whose chunk hasn't answered shows no book, the last minute's included after its load failed", async () => {
-  const cursor = makeReplayCursor(replayDay(DAY, []))
+  const cursor = Effect.runSync(
+    Effect.flatMap(replayDay(DAY, []), makeReplayCursor)
+  )
   const closeMinute = Math.floor(cursor.state().at / MINUTE) * MINUTE
   const earlier = closeMinute - MINUTE
   // The close minute's chunk answers; the minute before never does.
@@ -129,7 +134,7 @@ test("the cursor on a minute whose chunk hasn't answered shows no book, the last
     earlierAsked += 1
     return Effect.fail("recorded day not served")
   })
-  const book = makeOrderBookStore(BBCA)
+  const book = Effect.runSync(makeOrderBookStore(BBCA))
   const unmount = await mount(cursor, book)
   await vi.waitFor(() => expect(book.book()?._tag).toBe("OrderBook"))
 

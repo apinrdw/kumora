@@ -1,6 +1,6 @@
 // What /admin/users asks for and gets back. Shared by the page and the
 // server, so it holds no server code.
-import { Option, Schema } from "effect"
+import { Effect, Option, Schema } from "effect"
 
 import type { SignInMethod } from "@/lib/sign-in-method"
 import { ROLES, type Role, type TargetAction } from "@/server/auth/policy"
@@ -35,16 +35,18 @@ export const AccountSearch = Schema.Struct({
 export type AccountSearch = typeof AccountSearch.Type
 
 /** Keeps each search param that parses and drops the rest, so a stale link still opens the page. */
-export function parseAccountSearch(
+export const parseAccountSearch = Effect.fnUntraced(function* (
   raw: Record<string, unknown>
-): AccountSearch {
+) {
   const search: Record<string, unknown> = {}
   for (const [key, field] of Object.entries(fields)) {
     const value = Schema.decodeUnknownOption(field)(raw[key])
     if (Option.isSome(value)) search[key] = value.value
   }
-  return Schema.decodeUnknownSync(AccountSearch)(search)
-}
+  return yield* Schema.decodeUnknownEffect(AccountSearch)(search).pipe(
+    Effect.orDie
+  )
+})
 
 /** An account as the database holds it. */
 export interface StoredAccount {

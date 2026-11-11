@@ -34,8 +34,8 @@ import { withGapRows } from "./gap-rows"
 // The page's tape as an external store, drawn at most once per animation
 // frame however many deltas arrive in it: each message goes into the tape at
 // once, and the next frame tells React to draw them all.
-function framedTapeStore() {
-  let tape = emptyTape()
+const makeFramedTapeStore = Effect.sync(() => {
+  let tape = Effect.runSync(emptyTape())
   let frame = 0
   let scheduled: number | undefined
   const listeners = new Set<() => void>()
@@ -49,16 +49,18 @@ function framedTapeStore() {
   }
   return {
     apply: (message: ViewerDown) => {
-      tape = applyViewerMessage(tape, message)
+      tape = Effect.runSync(applyViewerMessage(tape, message))
       draw()
     },
     // A recorded day's tape at the cursor, in place of what it held.
     replace: (trades: ReadonlyArray<RunningTrade>) => {
-      tape = applyViewerMessage(emptyTape(), {
-        _tag: "Delta",
-        tape: trades,
-        candles: [],
-      })
+      tape = Effect.runSync(
+        applyViewerMessage(Effect.runSync(emptyTape()), {
+          _tag: "Delta",
+          tape: trades,
+          candles: [],
+        })
+      )
       draw()
     },
     subscribe: (listener: () => void) => {
@@ -73,10 +75,10 @@ function framedTapeStore() {
     frame: () => frame,
     tape: () => tape,
   }
-}
+})
 
 export function useFramedTape() {
-  const [store] = useState(framedTapeStore)
+  const [store] = useState(() => Effect.runSync(makeFramedTapeStore))
   const frame = useSyncExternalStore(store.subscribe, store.frame, store.frame)
   return {
     tape: store.tape(),
@@ -150,7 +152,7 @@ const TradeRow = memo(function TradeRow({
   inFold: boolean
   onSelect: (code: StockCode) => void
 }) {
-  const big = isBigTrade(trade)
+  const big = Effect.runSync(isBigTrade(trade))
   const side = SIDE_TEXT[trade.side]
   return (
     <tr
@@ -168,7 +170,7 @@ const TradeRow = memo(function TradeRow({
       onClick={() => onSelect(trade.code)}
     >
       <td className={cn(CELL, "pl-2", inFold && "pl-4")}>
-        {tapeTime(DateTime.toEpochMillis(trade.time))}
+        {Effect.runSync(tapeTime(DateTime.toEpochMillis(trade.time)))}
       </td>
       <td className={cn(CELL, "font-semibold")}>
         <button type="button" className="hover:underline">
@@ -181,14 +183,16 @@ const TradeRow = memo(function TradeRow({
         )}
       </td>
       <td className={cn(CELL, "text-right", side)}>
-        {plain(trade.price)}
+        {Effect.runSync(plain(trade.price))}
         {trade.side !== "none" && (
           <span className="sr-only"> {trade.side}</span>
         )}
       </td>
-      <td className={cn(CELL, "text-right", side)}>{lots(trade.lots)}</td>
       <td className={cn(CELL, "text-right", side)}>
-        Rp{compact(tradeValue(trade))}
+        {Effect.runSync(lots(trade.lots))}
+      </td>
+      <td className={cn(CELL, "text-right", side)}>
+        Rp{Effect.runSync(compact(Effect.runSync(tradeValue(trade))))}
       </td>
       <td className={cn(CELL, "pl-2")}>
         <SourceDots feeds={trade.feeds} />
@@ -198,7 +202,7 @@ const TradeRow = memo(function TradeRow({
 })
 
 const count = (n: number, noun: string) =>
-  `${plain(n)} ${noun}${n === 1 ? "" : "s"}`
+  Effect.map(plain(n), (figure) => `${figure} ${noun}${n === 1 ? "" : "s"}`)
 
 function FoldRow({
   row,
@@ -226,8 +230,9 @@ function FoldRow({
           )}
           <span className="font-semibold">{MATCH_LABEL[row.match]}</span>
           <span>
-            {count(row.trades, "trade")} · Rp{compact(row.value)} ·{" "}
-            {count(row.codes, "code")}
+            {Effect.runSync(count(row.trades, "trade"))} · Rp
+            {Effect.runSync(compact(row.value))} ·{" "}
+            {Effect.runSync(count(row.codes, "code"))}
           </span>
         </button>
       </td>
@@ -240,10 +245,11 @@ function GapRow({ gap }: { gap: RelayGap }) {
   return (
     <tr data-relay-gap className="text-muted-foreground">
       <td colSpan={6} className={cn(CELL, "text-center")}>
-        Not recorded · {tapeTime(DateTime.toEpochMillis(gap.from))}–
+        Not recorded ·{" "}
+        {Effect.runSync(tapeTime(DateTime.toEpochMillis(gap.from)))}–
         {gap.to === undefined
           ? "now"
-          : tapeTime(DateTime.toEpochMillis(gap.to))}
+          : Effect.runSync(tapeTime(DateTime.toEpochMillis(gap.to)))}
       </td>
     </tr>
   )
@@ -293,7 +299,7 @@ export function TapeList({
     const top = scroller.current?.scrollTop ?? 0
     setScrollTop(top)
     if (!live || top <= ROW_PX) setFrozen(undefined)
-    else setFrozen((held) => held ?? freezeTape(tape))
+    else setFrozen((held) => held ?? Effect.runSync(freezeTape(tape)))
   }
 
   const backToLive = () => {
@@ -313,14 +319,14 @@ export function TapeList({
   )
 
   const view = frozen ?? tape
-  const total = tapeLength(view, open)
+  const total = Effect.runSync(tapeLength(view, open))
   // The scrolled distance, held to the tape: a shorter tape (the replay
   // cursor moved earlier) would otherwise put every row above the viewport.
   const top = Math.min(scrollTop, Math.max(0, total * ROW_PX - height))
   const first = Math.max(0, Math.floor(top / ROW_PX) - OVERSCAN)
   const last = Math.min(total, Math.ceil((top + height) / ROW_PX) + OVERSCAN)
   const rows = Effect.runSync(
-    withGapRows(tapeRows(view, open, first, last), gaps, {
+    withGapRows(Effect.runSync(tapeRows(view, open, first, last)), gaps, {
       top: first === 0,
       bottom: last >= total,
     })
@@ -393,7 +399,7 @@ export function TapeList({
           onClick={backToLive}
           className="absolute top-8 left-1/2 z-20 -translate-x-1/2 rounded-full bg-primary px-3 py-1 text-[11px] font-semibold text-primary-foreground shadow-popover"
         >
-          {plain(unseen)} new trades ↑
+          {Effect.runSync(plain(unseen))} new trades ↑
         </button>
       )}
     </div>

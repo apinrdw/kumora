@@ -27,6 +27,7 @@ import {
 
 import recorded from "./fixtures/order-books-2026-11-09.json"
 import { memorySql } from "./sql"
+import { everySplit } from "../../interleaved"
 
 const TOKEN = "e2e-ingest-token"
 const DAY = WibDate.make("2026-11-09")
@@ -200,6 +201,90 @@ const BBCA_SIDES = [
   orderBookFrame("BBCA", bbca.bid, bbca.datetime),
   orderBookFrame("BBCA", bbca.offer, bbca.datetime),
 ]
+
+// The recorded bid side a second later, its best level replaced.
+const NEWER_BID = orderBookFrame(
+  "BBCA",
+  bbca.bid.replace("5025;193;3600900", "5030;5;50000"),
+  "2026-11-09T14:20:27.246+07:00"
+)
+
+describe("the order book under overlapping ingest callbacks", () => {
+  it.effect(
+    "a newer Stockbit side is not overwritten by an older one whose callback yielded mid-way",
+    () =>
+      Effect.gen(function* () {
+        const operations = yield* everySplit({
+          setup: Effect.gen(function* () {
+            const day = yield* tradingDay()
+            yield* day.stockbit([
+              livePriceFrame({ code: "BBCA", previous: 5025 }),
+            ])
+            return day
+          }),
+          first: ({ stockbit }) =>
+            stockbit([orderBookFrame("BBCA", bbca.bid, bbca.datetime)]),
+          second: ({ stockbit }) => stockbit([NEWER_BID]),
+          check: ({ viewer }, at) =>
+            Effect.gen(function* () {
+              const book = snapshotBook(yield* received(yield* viewer("BBCA")))
+              assert(book?._tag === "OrderBook")
+              assert.deepStrictEqual(
+                book.bids[0],
+                { price: 5030, lots: 500, orders: 5 },
+                `the older side's callback yielded at operation ${at}`
+              )
+            }),
+        })
+        assert.isAbove(operations, 0)
+      }),
+    60_000
+  )
+
+  // An Ajaib delta to BBCA's bid at 5000, `seconds` after 14:20:26 WIB.
+  const ajaibDelta = (seconds: number, lot: number, initial = false) =>
+    JSON.stringify({
+      ticker: "BBCA",
+      ...(initial ? { is_initial: "true" } : {}),
+      buy: [{ price: 5000, lot, num: lot }],
+      sell: [],
+      updateTime: SEEN + seconds * 1000,
+    })
+
+  it.effect(
+    "a newer Ajaib delta is not overwritten by an older one whose callback yielded mid-way",
+    () =>
+      Effect.gen(function* () {
+        const operations = yield* everySplit({
+          setup: Effect.gen(function* () {
+            const day = yield* tradingDay()
+            yield* day.stockbit(BBCA_SIDES)
+            // 15 s with no Stockbit frame: stale, so Ajaib's book is served.
+            yield* TestClock.adjust("16 seconds")
+            yield* day.ajaib([ajaibDelta(0, 10, true)])
+            return day
+          }),
+          first: ({ ajaib }) => ajaib([ajaibDelta(1, 20)]),
+          second: ({ ajaib }) => ajaib([ajaibDelta(2, 30)]),
+          check: ({ viewer }, at) =>
+            Effect.gen(function* () {
+              const book = snapshotBook(yield* received(yield* viewer("BBCA")))
+              assert(book?._tag === "OrderBook")
+              assert.deepStrictEqual(
+                { provenance: book.provenance, bids: book.bids },
+                {
+                  provenance: "Ajaib",
+                  bids: [{ price: 5000, lots: 30, orders: 30 }],
+                },
+                `the older delta's callback yielded at operation ${at}`
+              )
+            }),
+        })
+        assert.isAbove(operations, 0)
+      }),
+    60_000
+  )
+})
 
 describe("the order book", () => {
   it.effect(

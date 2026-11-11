@@ -1,6 +1,7 @@
 import { ChartContainer, ChartTooltip } from "@workspace/ui/components/chart"
 import type { ChartConfig } from "@workspace/ui/components/chart"
 import { cn } from "@workspace/ui/lib/utils"
+import { Effect } from "effect"
 import { useId } from "react"
 import {
   Area,
@@ -38,17 +39,19 @@ const config = {
   volume: { label: "Volume", color: CHART_COLOR.volume },
 } satisfies ChartConfig
 
+/** The overlays a price chart can draw over its price line. */
+export type Overlays = { readonly vwap: boolean; readonly volume: boolean }
+
 /**
- * Which overlays draw, and the price axis. With volume, the domain extends below
+ * Which of the `shown` overlays draw, and the price axis. With volume, the domain extends below
  * the lowest tick so the price sits in the top ~70%, clear of the bars.
  */
-export function priceScale(
+export const priceScale = Effect.fnUntraced(function* (
   data: ReadonlyArray<PricePoint>,
-  showVwap: boolean,
-  showVolume: boolean
+  shown: Overlays
 ) {
-  const hasVwap = showVwap && data.some((d) => d.vwap !== undefined)
-  const hasVolume = showVolume && data.some((d) => d.volume !== undefined)
+  const hasVwap = shown.vwap && data.some((d) => d.vwap !== undefined)
+  const hasVolume = shown.volume && data.some((d) => d.volume !== undefined)
   const maxVolume = Math.max(0, ...data.map((d) => d.volume ?? 0))
   const prices = data.flatMap((d) =>
     hasVwap && d.vwap !== undefined ? [d.price, d.vwap] : [d.price]
@@ -56,30 +59,33 @@ export function priceScale(
   const {
     domain: [lo, hi],
     ticks,
-  } = niceScale(Math.min(...prices), Math.max(...prices))
+  } = yield* niceScale(Math.min(...prices), Math.max(...prices))
   const domain: [number, number] = [hasVolume ? lo - (hi - lo) * 0.45 : lo, hi]
   return { hasVwap, hasVolume, maxVolume, domain, ticks }
-}
+})
 
 /** Crosshair readout rows: price, then VWAP and volume when drawn and present. */
-export function priceReadoutRows(
+export const priceReadoutRows = Effect.fnUntraced(function* (
   p: PricePoint,
-  hasVwap: boolean,
-  hasVolume: boolean
-): Array<ReadoutRow> {
+  drawn: Overlays
+): Effect.fn.Return<Array<ReadoutRow>> {
   const rows: Array<ReadoutRow> = [
-    { label: "Harga", value: idr(p.price), swatch: CHART_COLOR.price },
+    { label: "Harga", value: yield* idr(p.price), swatch: CHART_COLOR.price },
   ]
-  if (hasVwap && p.vwap !== undefined)
-    rows.push({ label: "VWAP", value: idr(p.vwap), swatch: CHART_COLOR.vwap })
-  if (hasVolume && p.volume !== undefined)
+  if (drawn.vwap && p.vwap !== undefined)
+    rows.push({
+      label: "VWAP",
+      value: yield* idr(p.vwap),
+      swatch: CHART_COLOR.vwap,
+    })
+  if (drawn.volume && p.volume !== undefined)
     rows.push({
       label: "Volume",
-      value: shares(p.volume),
+      value: yield* shares(p.volume),
       swatch: CHART_COLOR.volume,
     })
   return rows
-}
+})
 
 /** Intraday or daily price with optional VWAP and volume. Wrap in KChartPanel. */
 export function PriceChart({
@@ -91,11 +97,10 @@ export function PriceChart({
   className,
 }: PriceChartProps) {
   const gradientId = `price-fill-${useId().replace(/:/g, "")}`
-  const { hasVwap, hasVolume, maxVolume, domain, ticks } = priceScale(
-    data,
-    showVwap,
-    showVolume
+  const { hasVwap, hasVolume, maxVolume, domain, ticks } = Effect.runSync(
+    priceScale(data, { vwap: showVwap, volume: showVolume })
   )
+  const drawn: Overlays = { vwap: hasVwap, volume: hasVolume }
 
   return (
     <ChartContainer
@@ -134,7 +139,7 @@ export function PriceChart({
           tickLine={false}
           axisLine={false}
           tick={AXIS_TICK}
-          tickFormatter={(v: number) => plain(v)}
+          tickFormatter={(v: number) => Effect.runSync(plain(v))}
           width={56}
         />
         {hasVolume && (
@@ -186,7 +191,7 @@ export function PriceChart({
         <ChartTooltip
           cursor={{ stroke: CHART_COLOR.zero }}
           content={pointReadout(data, (p) =>
-            priceReadoutRows(p, hasVwap, hasVolume)
+            Effect.runSync(priceReadoutRows(p, drawn))
           )}
         />
       </ComposedChart>

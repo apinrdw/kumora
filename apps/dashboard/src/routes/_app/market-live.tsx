@@ -1,6 +1,8 @@
 import { createFileRoute, useRouter } from "@tanstack/react-router"
-import type { StockCode } from "@workspace/client"
+import { Effect } from "effect"
+import { clientRuntime, type StockCode } from "@workspace/client"
 import type { ViewerDown, WibDate } from "@workspace/relay"
+import { loadServerFn, runLoader } from "@workspace/server/loader"
 import { useCallback, useEffect, useMemo, useState } from "react"
 
 import { makeCandleStore } from "@/components/market-live/candle-store"
@@ -38,10 +40,11 @@ import { closedMarketFn } from "@/server/market-live/closed-market.functions"
 export const Route = createFileRoute("/_app/market-live")({
   staticData: {
     feature: "market-live",
-    crumbs: () => [{ label: "Market Live" }],
+    crumbs: () => Effect.succeed([{ label: "Market Live" }]),
   },
-  validateSearch: parseMarketLiveSearch,
-  loader: () => closedMarketFn(),
+  validateSearch: (raw: Record<string, unknown>) =>
+    Effect.runSync(parseMarketLiveSearch(raw)),
+  loader: () => runLoader(loadServerFn(() => closedMarketFn())),
   // Looked at again when it may change (below), not on each code picked.
   staleTime: 60_000,
   head: () => ({ meta: [{ title: "Market Live · KUMORA Terminal" }] }),
@@ -88,9 +91,20 @@ function MarketLiveDay({
   const navigate = Route.useNavigate()
   const codes = useStockCodeList(day, today)
   // One store per selected code; the Select for it brings a fresh snapshot.
-  const candles = useMemo(() => makeCandleStore(selected), [selected])
-  const book = useMemo(() => makeOrderBookStore(selected), [selected])
-  const [dayStates] = useState(makeDayStateStore)
+  const candles = useMemo(
+    () => Effect.runSync(makeCandleStore(selected)),
+    [selected]
+  )
+  const book = useMemo(
+    () => Effect.runSync(makeOrderBookStore(selected)),
+    [selected]
+  )
+  // Decision: the watchlist's Day state store starts empty on the server, and
+  // the loader gives it no server snapshot. The watchlist's codes live in the
+  // browser's localStorage (use-watchlist.ts), so the server can't know which
+  // codes' Day states to load. The server render shows no codes, and the
+  // rows fill once the page hydrates and the viewer socket's snapshot arrives.
+  const [dayStates] = useState(() => clientRuntime.runSync(makeDayStateStore()))
   const watchlist = useWatchlist()
   const cursor = useReplayCursor(day)
   const gaps = useRecordedDay({
@@ -155,24 +169,25 @@ function MarketLiveDay({
             onSelect={select}
           />
           {cursor === undefined ? (
-            <OrderBookPanel store={book} />
+            <>
+              <OrderBookPanel store={book} />
+              <LiveTape
+                selected={selected}
+                watchlist={watchlist.codes}
+                onSelect={select}
+                onMessage={apply}
+              />
+            </>
           ) : (
-            <RecordedOrderBook store={book} cursor={cursor} gaps={gaps} />
-          )}
-          {cursor === undefined ? (
-            <LiveTape
-              selected={selected}
-              watchlist={watchlist.codes}
-              onSelect={select}
-              onMessage={apply}
-            />
-          ) : (
-            <RecordedTape
-              cursor={cursor}
-              gaps={gaps}
-              selected={selected}
-              onSelect={select}
-            />
+            <>
+              <RecordedOrderBook store={book} cursor={cursor} gaps={gaps} />
+              <RecordedTape
+                cursor={cursor}
+                gaps={gaps}
+                selected={selected}
+                onSelect={select}
+              />
+            </>
           )}
         </div>
       </div>

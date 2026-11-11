@@ -29,10 +29,10 @@ const decodeTrade = Schema.decodeUnknownOption(
 // 2026-11-09 probe saw no `market_type` on any of 44,360 TRADE frames, all
 // regular-board stocks; an unknown value is read the same way until a capture
 // shows the cash and negotiated boards' frames.
-export const boardOf = (
-  marketType: string | undefined
-): RunningTrade["board"] =>
-  marketType === "TN" || marketType === "NG" ? marketType : "RG"
+export const boardOf = (marketType: string | undefined) =>
+  Effect.succeed<RunningTrade["board"]>(
+    marketType === "TN" || marketType === "NG" ? marketType : "RG"
+  )
 
 // The running trades in one connection's frames that belong to `date`, under
 // their tape trade numbers.
@@ -56,7 +56,7 @@ export const ajaibTrades = Effect.fnUntraced(function* (
       // The auction match and negotiated board rule applies on the merged
       // tape (trading-day.ts).
       side: trade.type === "BUY" ? "buy" : "sell",
-      board: boardOf(trade.market_type),
+      board: yield* boardOf(trade.market_type),
       feeds: ["Ajaib"],
     })
   }

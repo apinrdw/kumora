@@ -8,23 +8,22 @@ import type { AdminList } from "./session-account.ts"
 export class AdminEmails extends Context.Service<AdminEmails, AdminList>()(
   "dashboard/server/auth/AdminEmails"
 ) {
-  static readonly from = (raw: string) => {
-    const emails = new Set(
-      raw
-        .split(",")
-        .map((email) => email.trim().toLowerCase())
-        .filter((email) => email !== "")
+  static readonly from = (raw: string) =>
+    Effect.succeed(
+      AdminEmails.of({
+        emails: [
+          ...new Set(
+            raw
+              .split(",")
+              .map((email) => email.trim().toLowerCase())
+              .filter((email) => email !== "")
+          ),
+        ],
+      })
     )
-    return AdminEmails.of({
-      includes: (email) => emails.has(email.toLowerCase()),
-      emails: [...emails],
-    })
-  }
 
   static readonly layer = Layer.effect(
     AdminEmails,
-    Effect.gen(function* () {
-      return AdminEmails.from((yield* WorkerEnv).ADMIN_EMAILS)
-    })
+    Effect.flatMap(WorkerEnv, (env) => AdminEmails.from(env.ADMIN_EMAILS))
   )
 }

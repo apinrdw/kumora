@@ -100,16 +100,20 @@ export function DayStrip({
               aria-current={shown === day ? "page" : undefined}
               className={ITEM}
             >
-              <span className="font-semibold">{dayLabel(day)}</span>
+              <span className="font-semibold">
+                {Effect.runSync(dayLabel(day))}
+              </span>
               <span
                 className={cn(
                   "tabular-nums",
                   ihsg === undefined
                     ? "text-muted-foreground"
-                    : TONE[direction(ihsg.change)]
+                    : TONE[Effect.runSync(direction(ihsg.change))]
                 )}
               >
-                {ihsg === undefined ? "—" : `IHSG ${pct(ihsg.changePercent)}`}
+                {ihsg === undefined
+                  ? "—"
+                  : `IHSG ${Effect.runSync(pct(ihsg.changePercent))}`}
               </span>
             </Link>
           </li>

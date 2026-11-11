@@ -1,3 +1,4 @@
+import { Effect } from "effect"
 import { useSyncExternalStore } from "react"
 
 import {
@@ -31,50 +32,55 @@ export interface ReplayCursor {
 
 // A recorded day's replay cursor, outside React: it opens paused at the
 // close, and Play moves it once an animation frame by the real time elapsed.
-export function makeReplayCursor(day: ReplayDay): ReplayCursor {
-  let state: ReplayState = { at: day.close, playing: false, speed: 1 }
-  let frame = 0
-  let last = 0
-  const listeners = new Set<() => void>()
-  const set = (next: Partial<ReplayState>) => {
-    state = { ...state, ...next }
-    for (const listener of listeners) listener()
-  }
-  const tick = (now: number) => {
-    const moved = advance(day, state.at, now - last, state.speed)
-    last = now
-    frame = moved.ended ? 0 : requestAnimationFrame(tick)
-    set({ at: moved.at, playing: !moved.ended })
-  }
-  const pause = () => {
-    cancelAnimationFrame(frame)
-    frame = 0
-    if (state.playing) set({ playing: false })
-  }
-  return {
-    day,
-    state: () => state,
-    subscribe: (listener) => {
-      listeners.add(listener)
-      return () => void listeners.delete(listener)
-    },
-    toggle: () => {
-      if (state.playing) return pause()
-      last = performance.now()
-      frame = requestAnimationFrame(tick)
-      set({ at: playFrom(day, state.at), playing: true })
-    },
-    pause,
-    seek: (at) =>
-      set({ at: Math.min(day.close, Math.max(day.start, Math.round(at))) }),
-    setSpeed: (speed) => set({ speed }),
-    pickMinute: (minute) => {
-      pause()
-      set({ at: Math.min(day.close, minuteEnd(minute)) })
-    },
-    dispose: pause,
-  }
-}
+// Its methods stay plain: animation frames, React and the transport
+// bar's handlers call them.
+export const makeReplayCursor = (day: ReplayDay) =>
+  Effect.sync((): ReplayCursor => {
+    let state: ReplayState = { at: day.close, playing: false, speed: 1 }
+    let frame = 0
+    let last = 0
+    const listeners = new Set<() => void>()
+    const set = (next: Partial<ReplayState>) => {
+      state = { ...state, ...next }
+      for (const listener of listeners) listener()
+    }
+    const tick = (now: number) => {
+      const moved = Effect.runSync(
+        advance(day, state.at, now - last, state.speed)
+      )
+      last = now
+      frame = moved.ended ? 0 : requestAnimationFrame(tick)
+      set({ at: moved.at, playing: !moved.ended })
+    }
+    const pause = () => {
+      cancelAnimationFrame(frame)
+      frame = 0
+      if (state.playing) set({ playing: false })
+    }
+    return {
+      day,
+      state: () => state,
+      subscribe: (listener) => {
+        listeners.add(listener)
+        return () => void listeners.delete(listener)
+      },
+      toggle: () => {
+        if (state.playing) return pause()
+        last = performance.now()
+        frame = requestAnimationFrame(tick)
+        set({ at: Effect.runSync(playFrom(day, state.at)), playing: true })
+      },
+      pause,
+      seek: (at) =>
+        set({ at: Math.min(day.close, Math.max(day.start, Math.round(at))) }),
+      setSpeed: (speed) => set({ speed }),
+      pickMinute: (minute) => {
+        pause()
+        set({ at: Math.min(day.close, Effect.runSync(minuteEnd(minute))) })
+      },
+      dispose: pause,
+    }
+  })
 
 // One figure of the cursor, re-rendering only when it changes: select a
 // coarse one (the minute, the second) where the finest isn't needed.

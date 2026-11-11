@@ -42,8 +42,8 @@ export const accountPage = Effect.fn("accountPage")(function* (
 ) {
   const auth = yield* Auth
   const session = yield* auth.getSession(headers, { fresh: true })
-  const account = accountOf(session)
-  const decision = decide(account, "page.view", OWN_ACCOUNT)
+  const account = yield* accountOf(session)
+  const decision = yield* decide(account, "page.view", OWN_ACCOUNT)
   if (decision._tag === "Deny") return yield* refusal(decision.reason, href)
   // Unreachable: the policy sends every visitor without a session to sign-in.
   if (session === null || account._tag === "SignedOut")
@@ -53,35 +53,39 @@ export const accountPage = Effect.fn("accountPage")(function* (
     auth.sessionsOf(session.user.id),
     auth.providersOf(session.user.id),
   ])
-  const sessions = stored
-    .map((each): SessionRow => ({
+  const rows = yield* Effect.forEach(stored, (each) =>
+    Effect.map(device(each.userAgent), (named): SessionRow => ({
       id: each.id,
       token: each.token,
-      device: device(each.userAgent),
+      device: named,
       ipAddress: each.ipAddress || null,
       lastActive: each.updatedAt.toISOString(),
       current: each.id === session.session.id,
     }))
-    .sort(
-      (a, b) =>
-        Number(b.current) - Number(a.current) ||
-        b.lastActive.localeCompare(a.lastActive)
-    )
+  )
+  const sessions = rows.sort(
+    (a, b) =>
+      Number(b.current) - Number(a.current) ||
+      b.lastActive.localeCompare(a.lastActive)
+  )
   const allowed = (action: OwnAction) =>
-    decide(account, action, OWN_ACCOUNT)._tag === "Allow"
+    Effect.map(
+      decide(account, action, OWN_ACCOUNT),
+      (decided) => decided._tag === "Allow"
+    )
   return {
     email: session.user.email,
     name: session.user.name,
     role: account.role,
-    signInMethods: signInMethodsOf(providers),
+    signInMethods: yield* signInMethodsOf(providers),
     sessions,
-    allowed: {
+    allowed: yield* Effect.all({
       "own.update-details": allowed("own.update-details"),
       "own.change-password": allowed("own.change-password"),
       "own.end-sessions": allowed("own.end-sessions"),
       "own.change-email": allowed("own.change-email"),
       "own.delete": allowed("own.delete"),
-    },
+    }),
     configAdmin: account.configAdmin,
   } satisfies AccountPage
 })

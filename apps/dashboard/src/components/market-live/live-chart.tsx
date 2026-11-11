@@ -3,7 +3,7 @@ import { Suspense, lazy, useCallback, useSyncExternalStore } from "react"
 import type { ReactNode } from "react"
 
 import type { RelayGap, StockCode } from "@workspace/relay"
-import { DateTime } from "effect"
+import { Effect, DateTime } from "effect"
 
 import { KStatusPill } from "@/components/k/status-pill"
 import { direction, pct, price, shares, signed } from "@/lib/format"
@@ -53,11 +53,13 @@ function useLastClose(store: CandleStore, cursor: ReplayCursor | undefined) {
   return useSyncExternalStore(
     subscribe,
     () =>
-      lastCloseAt(
-        store.candles(),
-        cursor === undefined
-          ? undefined
-          : DateTime.makeUnsafe(cursor.state().at)
+      Effect.runSync(
+        lastCloseAt(
+          store.candles(),
+          cursor === undefined
+            ? undefined
+            : DateTime.makeUnsafe(cursor.state().at)
+        )
       ),
     () => undefined
   )
@@ -92,7 +94,7 @@ function ChartHeadline({
         aria-label="Last price"
         className="text-[15px] font-semibold tabular-nums"
       >
-        {last === undefined ? "—" : price(last)}
+        {last === undefined ? "—" : Effect.runSync(price(last))}
       </span>
       {state !== undefined &&
         (state.change === undefined ? (
@@ -105,13 +107,15 @@ function ChartHeadline({
         ) : (
           <span
             aria-label="Change"
-            className={`text-[13px] tabular-nums ${CHANGE_TONE[direction(state.change.amount)]}`}
+            className={`text-[13px] tabular-nums ${CHANGE_TONE[Effect.runSync(direction(state.change.amount))]}`}
           >
-            {signed(
-              state.change.amount,
-              Number.isInteger(state.change.amount) ? 0 : 2
+            {Effect.runSync(
+              signed(
+                state.change.amount,
+                Number.isInteger(state.change.amount) ? 0 : 2
+              )
             )}{" "}
-            {pct(state.change.percent)}
+            {Effect.runSync(pct(state.change.percent))}
           </span>
         ))}
       {indicative !== undefined && (
@@ -119,7 +123,8 @@ function ChartHeadline({
           aria-label="Indicative price"
           className="text-[13px] tabular-nums"
         >
-          Indicative {price(indicative.price)} · {shares(indicative.volume)}
+          Indicative {Effect.runSync(price(indicative.price))} ·{" "}
+          {Effect.runSync(shares(indicative.volume))}
         </span>
       )}
     </>

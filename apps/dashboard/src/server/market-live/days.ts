@@ -13,9 +13,11 @@ import { accountOf } from "../auth/session-account.ts"
 import { DAY_INDEX, DayIndexPath } from "./routes.ts"
 
 const refused = (status: 401 | 403, error: string, message: string) =>
-  Response.json(
-    { error, message },
-    { status, headers: { "Cache-Control": "no-store" } }
+  Effect.sync(() =>
+    Response.json(
+      { error, message },
+      { status, headers: { "Cache-Control": "no-store" } }
+    )
   )
 
 // Decision: recorded day loads read the session through Better Auth's cookie
@@ -28,9 +30,13 @@ const gateRecordedDay = Effect.fn("gateRecordedDay")(function* (
 ) {
   const auth = yield* Auth
   const session = yield* auth.getSession(request.headers)
-  const decision = decide(accountOf(session), "market-live.view-recorded-day", {
-    feature: "market-live",
-  })
+  const decision = yield* decide(
+    yield* accountOf(session),
+    "market-live.view-recorded-day",
+    {
+      feature: "market-live",
+    }
+  )
   if (decision._tag === "Deny")
     return yield* refusal(decision.reason, new URL(request.url).pathname)
   if (session === null)
@@ -40,11 +46,10 @@ const gateRecordedDay = Effect.fn("gateRecordedDay")(function* (
 const refusedAnswer = {
   // Signed out, unverified, suspended or not found: the page sends the
   // visitor to sign in.
-  Unauthorized: () => Effect.succeed(refused(401, "Unauthorized", "Sign in")),
-  NotFound: () => Effect.succeed(refused(401, "Unauthorized", "Sign in")),
+  Unauthorized: () => refused(401, "Unauthorized", "Sign in"),
+  NotFound: () => refused(401, "Unauthorized", "Sign in"),
   // No access or forbidden.
-  Forbidden: () =>
-    Effect.succeed(refused(403, "Forbidden", "No access to Market Live")),
+  Forbidden: () => refused(403, "Forbidden", "No access to Market Live"),
 }
 
 // A new request to the object, so no header the client sent, its cookie
@@ -52,15 +57,15 @@ const refusedAnswer = {
 // sealed day's answers cache in the browser.
 const gated = Effect.fnUntraced(function* (
   request: Request,
-  stub: (env: WorkerEnv["Service"]) => {
+  stub: (env: WorkerEnv["Service"]) => Effect.Effect<{
     readonly fetch: (url: URL) => Promise<Response>
-  },
+  }>,
   path: string
 ) {
   if (request.method !== "GET")
     return new Response(null, { status: 405, headers: { Allow: "GET" } })
   yield* gateRecordedDay(request)
-  const object = stub(yield* WorkerEnv)
+  const object = yield* stub(yield* WorkerEnv)
   return yield* Effect.promise(() =>
     object.fetch(new URL(path, "https://market-live.invalid"))
   )
@@ -69,7 +74,7 @@ const gated = Effect.fnUntraced(function* (
 export const dayStripRoute = (request: Request) =>
   gated(
     request,
-    (env) => env.MARKET_LIVE_INDEX.getByName(DAY_INDEX),
+    (env) => Effect.sync(() => env.MARKET_LIVE_INDEX.getByName(DAY_INDEX)),
     DayIndexPath
   )
 
@@ -77,6 +82,6 @@ export const dayStripRoute = (request: Request) =>
 export const recordedDayRoute = (request: Request, url: URL, date: WibDate) =>
   gated(
     request,
-    (env) => env.TRADING_DAY.getByName(date),
+    (env) => Effect.sync(() => env.TRADING_DAY.getByName(date)),
     `${url.pathname}${url.search}`
   )

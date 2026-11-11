@@ -1,4 +1,5 @@
 import type { AnyRouteMatch } from "@tanstack/react-router"
+import { Effect } from "effect"
 
 import type { Feature } from "@/server/auth/policy"
 
@@ -12,6 +13,9 @@ declare module "@tanstack/react-router" {
 /** The feature of the deepest matched route that names one. */
 export const pageFeature = (
   matches: ReadonlyArray<AnyRouteMatch>
-): Feature | undefined =>
-  [...matches].reverse().find((match) => match.staticData.feature)?.staticData
-    .feature
+): Effect.Effect<Feature | undefined> =>
+  Effect.sync(
+    () =>
+      [...matches].reverse().find((match) => match.staticData.feature)
+        ?.staticData.feature
+  )

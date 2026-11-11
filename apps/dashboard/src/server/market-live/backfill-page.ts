@@ -58,39 +58,41 @@ const decodeStockbitRow = Schema.decodeUnknownOption(StockbitRow)
 const decodeAjaibPage = Schema.decodeUnknownOption(AjaibPage)
 const decodeAjaibRow = Schema.decodeUnknownOption(AjaibRow)
 
-const grouped = (text: string) => Number(text.replaceAll(",", ""))
+const grouped = (text: string) =>
+  Effect.succeed(Number(text.replaceAll(",", "")))
 
-const sideOf = (side: string | undefined): RunningTrade["side"] => {
-  const lower = side?.toLowerCase()
-  return lower === "buy" || lower === "sell" ? lower : "none"
-}
+const sideOf = (side: string | undefined) =>
+  Effect.sync((): RunningTrade["side"] => {
+    const lower = side?.toLowerCase()
+    return lower === "buy" || lower === "sell" ? lower : "none"
+  })
 
-const stockbitRows = (date: WibDate, body: string) => {
+const stockbitRows = Effect.fnUntraced(function* (date: WibDate, body: string) {
   const page = decodeStockbitPage(body)
   if (Option.isNone(page)) return []
   if ((page.value.data.date ?? date) !== date) return []
-  return page.value.data.running_trade.flatMap((raw) => {
+  const trades: Array<RunningTrade> = []
+  for (const raw of page.value.data.running_trade) {
     const row = decodeStockbitRow(raw)
-    if (Option.isNone(row)) return []
+    if (Option.isNone(row)) continue
     const { value } = row
     const time = DateTime.make(`${date}T${value.time}+07:00`)
-    const price = grouped(value.price)
-    const lots = grouped(value.lot)
-    if (Option.isNone(time) || !Number.isInteger(price) || !(lots > 0))
-      return []
-    const trade: RunningTrade = {
+    const price = yield* grouped(value.price)
+    const lots = yield* grouped(value.lot)
+    if (Option.isNone(time) || !Number.isInteger(price) || !(lots > 0)) continue
+    trades.push({
       tradeNumber: TradeNumber.make(BigInt(value.trade_number).toString()),
       time: DateTime.toUtc(time.value),
       code: value.code,
       price,
       lots,
-      side: sideOf(value.action),
-      board: boardOf(value.market_board),
+      side: yield* sideOf(value.action),
+      board: yield* boardOf(value.market_board),
       feeds: ["backfill"],
-    }
-    return [trade]
-  })
-}
+    })
+  }
+  return trades
+})
 
 const ajaibRows = Effect.fnUntraced(function* (date: WibDate, body: string) {
   const page = decodeAjaibPage(body)
@@ -108,8 +110,8 @@ const ajaibRows = Effect.fnUntraced(function* (date: WibDate, body: string) {
       code: value.stock_code,
       price: value.price,
       lots: value.lot,
-      side: sideOf(value.side),
-      board: boardOf(value.market_type),
+      side: yield* sideOf(value.side),
+      board: yield* boardOf(value.market_type),
       feeds: ["backfill"],
     })
   }
@@ -125,7 +127,7 @@ export const backfillTrades = Effect.fnUntraced(function* (
   const to = yield* tradeNumberValue(page.to)
   const rows =
     page.feed === "Stockbit"
-      ? stockbitRows(date, page.body)
+      ? yield* stockbitRows(date, page.body)
       : yield* ajaibRows(date, page.body)
   return yield* Effect.filter(rows, (trade) =>
     Effect.map(

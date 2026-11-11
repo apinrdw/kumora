@@ -3,6 +3,9 @@
 // and each auction match folded into one row kept outside that cap. Deltas
 // mutate it in place, so a 1,278-trade delta costs a few milliseconds; the
 // view copies it with `freezeTape` when it must hold still.
+// Decision: the per-trade helpers return Effects like every other function
+// here. That costs about 1 µs a trade on node (50k trades: 161 ms against
+// 101 ms as plain functions); a 1,278-trade delta still takes about 3.6 ms.
 import {
   TradeNumberOrder,
   type RunningTrade,
@@ -10,7 +13,9 @@ import {
   type TradeNumber,
   type ViewerDown,
 } from "@workspace/relay"
-import { DateTime } from "effect"
+import { DateTime, Effect } from "effect"
+
+import { tradePosition } from "./trade-position"
 
 // The two auction matches whose prints fold.
 export type AuctionMatch = "opening" | "closing"
@@ -27,21 +32,25 @@ const MATCH_SECONDS: ReadonlyMap<number, AuctionMatch> = new Map([
 const WIB_OFFSET_SECONDS = 7 * 3_600
 const DAY_SECONDS = 86_400
 
-function auctionMatchOf(trade: RunningTrade): AuctionMatch | undefined {
-  if (trade.board !== "RG") return undefined
-  const epochSeconds = Math.floor(DateTime.toEpochMillis(trade.time) / 1_000)
-  return MATCH_SECONDS.get((epochSeconds + WIB_OFFSET_SECONDS) % DAY_SECONDS)
-}
+const auctionMatchOf = (trade: RunningTrade) =>
+  Effect.sync((): AuctionMatch | undefined => {
+    if (trade.board !== "RG") return undefined
+    const epochSeconds = Math.floor(DateTime.toEpochMillis(trade.time) / 1_000)
+    return MATCH_SECONDS.get((epochSeconds + WIB_OFFSET_SECONDS) % DAY_SECONDS)
+  })
 
 // Decision: a big trade is worth Rp1 B or more on the regular board (spec
 // apinrdw/kumora#138, "Tape"), a fixed line for now.
 const BIG_TRADE_IDR = 1_000_000_000
 
-export const tradeValue = (trade: RunningTrade): number =>
-  trade.price * trade.lots * 100
+export const tradeValue = (trade: RunningTrade) =>
+  Effect.sync(() => trade.price * trade.lots * 100)
 
-export const isBigTrade = (trade: RunningTrade): boolean =>
-  trade.board === "RG" && tradeValue(trade) >= BIG_TRADE_IDR
+export const isBigTrade = (trade: RunningTrade) =>
+  Effect.map(
+    tradeValue(trade),
+    (value) => trade.board === "RG" && value >= BIG_TRADE_IDR
+  )
 
 // Decision: the page keeps the 10,000 newest continuous-trading trades, the
 // count apinrdw/kumora#136 measured smooth at the opening match's peak.
@@ -66,150 +75,137 @@ export type Tape = {
   received: number
 }
 
-export const emptyTape = (): Tape => ({
-  continuous: [],
-  folds: [],
-  evictedThrough: undefined,
-  received: 0,
-})
+export const emptyTape = () =>
+  Effect.sync((): Tape => ({
+    continuous: [],
+    folds: [],
+    evictedThrough: undefined,
+    received: 0,
+  }))
 
 // A copy later deltas leave alone.
-export const freezeTape = (tape: Tape): Tape => ({
-  continuous: [...tape.continuous],
-  folds: tape.folds.map((fold) => ({
-    ...fold,
-    trades: [...fold.trades],
-    codes: new Map(fold.codes),
-  })),
-  evictedThrough: tape.evictedThrough,
-  received: tape.received,
+export const freezeTape = (tape: Tape) =>
+  Effect.sync((): Tape => ({
+    continuous: [...tape.continuous],
+    folds: tape.folds.map((fold) => ({
+      ...fold,
+      trades: [...fold.trades],
+      codes: new Map(fold.codes),
+    })),
+    evictedThrough: tape.evictedThrough,
+    received: tape.received,
+  }))
+
+// Inserts `trade` in an ascending list, or replaces the trade it numbers,
+// appending without a search when it is the newest.
+const place = (trades: Array<RunningTrade>, trade: RunningTrade) =>
+  Effect.suspend(() => {
+    const last = trades.at(-1)
+    if (
+      last === undefined ||
+      TradeNumberOrder(last.tradeNumber, trade.tradeNumber) < 0
+    )
+      return Effect.sync(() => void trades.push(trade))
+    return Effect.map(tradePosition(trades, trade.tradeNumber), (at) => {
+      if (trades[at]?.tradeNumber === trade.tradeNumber) trades[at] = trade
+      else trades.splice(at, 0, trade)
+    })
+  })
+
+const removeFrom = (trades: Array<RunningTrade>, number: TradeNumber) =>
+  Effect.map(tradePosition(trades, number), (at) =>
+    trades[at]?.tradeNumber === number ? trades.splice(at, 1)[0] : undefined
+  )
+
+const countCode = (fold: Fold, code: StockCode, by: 1 | -1) =>
+  Effect.sync(() => {
+    const count = (fold.codes.get(code) ?? 0) + by
+    if (count === 0) fold.codes.delete(code)
+    else fold.codes.set(code, count)
+  })
+
+const addToFold = Effect.fnUntraced(function* (
+  fold: Fold,
+  trade: RunningTrade
+) {
+  fold.value += yield* tradeValue(trade)
+  yield* countCode(fold, trade.code, 1)
 })
 
-// Where `number` sits, or would be inserted, in a list ascending by trade
-// number.
-function positionOf(
-  trades: ReadonlyArray<RunningTrade>,
-  number: TradeNumber
-): number {
-  let low = 0
-  let high = trades.length
-  while (low < high) {
-    const middle = (low + high) >>> 1
-    if (TradeNumberOrder(trades[middle]!.tradeNumber, number) < 0)
-      low = middle + 1
-    else high = middle
-  }
-  return low
-}
-
-// Inserts or replaces `trade` in an ascending list, appending without a search
-// when it is the newest. Answers the trade it replaced.
-function place(
-  trades: Array<RunningTrade>,
+const takeFromFold = Effect.fnUntraced(function* (
+  fold: Fold,
   trade: RunningTrade
-): RunningTrade | undefined {
-  const last = trades.at(-1)
-  if (
-    last === undefined ||
-    TradeNumberOrder(last.tradeNumber, trade.tradeNumber) < 0
-  ) {
-    trades.push(trade)
-    return undefined
-  }
-  const at = positionOf(trades, trade.tradeNumber)
-  const held = trades[at]
-  if (held?.tradeNumber === trade.tradeNumber) {
-    trades[at] = trade
-    return held
-  }
-  trades.splice(at, 0, trade)
-  return undefined
-}
+) {
+  fold.value -= yield* tradeValue(trade)
+  yield* countCode(fold, trade.code, -1)
+})
 
-function removeFrom(
-  trades: Array<RunningTrade>,
-  number: TradeNumber
-): RunningTrade | undefined {
-  const at = positionOf(trades, number)
-  if (trades[at]?.tradeNumber !== number) return undefined
-  return trades.splice(at, 1)[0]
-}
+const newestOf = (fold: Fold) =>
+  Effect.sync((): TradeNumber => fold.trades.at(-1)!.tradeNumber)
 
-function countCode(fold: Fold, code: StockCode, by: 1 | -1) {
-  const count = (fold.codes.get(code) ?? 0) + by
-  if (count === 0) fold.codes.delete(code)
-  else fold.codes.set(code, count)
-}
-
-function addToFold(fold: Fold, trade: RunningTrade) {
-  fold.value += tradeValue(trade)
-  countCode(fold, trade.code, 1)
-}
-
-function takeFromFold(fold: Fold, trade: RunningTrade) {
-  fold.value -= tradeValue(trade)
-  countCode(fold, trade.code, -1)
-}
-
-const newestOf = (fold: Fold): TradeNumber => fold.trades.at(-1)!.tradeNumber
-
-function foldFor(tape: Tape, match: AuctionMatch): Fold {
-  const held = tape.folds.find((fold) => fold.match === match)
-  if (held !== undefined) return held
-  const fold: Fold = { match, trades: [], value: 0, codes: new Map() }
-  tape.folds.push(fold)
-  return fold
-}
+const foldFor = (tape: Tape, match: AuctionMatch) =>
+  Effect.sync((): Fold => {
+    const held = tape.folds.find((fold) => fold.match === match)
+    if (held !== undefined) return held
+    const fold: Fold = { match, trades: [], value: 0, codes: new Map() }
+    tape.folds.push(fold)
+    return fold
+  })
 
 // Takes a trade number already held out of wherever it sits: a later feed
 // can change its board or time, and with them whether it folds.
-function takeOut(tape: Tape, number: TradeNumber): boolean {
-  if (removeFrom(tape.continuous, number) !== undefined) return true
+const takeOut = Effect.fnUntraced(function* (tape: Tape, number: TradeNumber) {
+  if ((yield* removeFrom(tape.continuous, number)) !== undefined) return true
   for (const fold of tape.folds) {
-    const held = removeFrom(fold.trades, number)
+    const held = yield* removeFrom(fold.trades, number)
     if (held === undefined) continue
-    takeFromFold(fold, held)
+    yield* takeFromFold(fold, held)
     return true
   }
   return false
-}
+})
 
 // Whether the tape holds `number`, or dropped it past the cap.
-function seenBy(tape: Tape, number: TradeNumber): boolean {
+const seenBy = Effect.fnUntraced(function* (tape: Tape, number: TradeNumber) {
   if (
     tape.evictedThrough !== undefined &&
     TradeNumberOrder(number, tape.evictedThrough) <= 0
   )
     return true
-  const holds = (trades: ReadonlyArray<RunningTrade>) =>
-    trades[positionOf(trades, number)]?.tradeNumber === number
-  return holds(tape.continuous) || tape.folds.some((fold) => holds(fold.trades))
-}
+  for (const trades of [tape.continuous, ...tape.folds.map((f) => f.trades)])
+    if (trades[yield* tradePosition(trades, number)]?.tradeNumber === number)
+      return true
+  return false
+})
 
 // `seen`: the trade was held before a snapshot started the tape over, so it
 // isn't received again.
-function insert(tape: Tape, trade: RunningTrade, seen = false) {
-  const match = auctionMatchOf(trade)
-  const known = takeOut(tape, trade.tradeNumber)
+const insert = Effect.fnUntraced(function* (
+  tape: Tape,
+  trade: RunningTrade,
+  seen = false
+) {
+  const match = yield* auctionMatchOf(trade)
+  const known = yield* takeOut(tape, trade.tradeNumber)
   const tooOld =
     tape.evictedThrough !== undefined &&
     TradeNumberOrder(trade.tradeNumber, tape.evictedThrough) <= 0
   if (match === undefined) {
     if (tooOld && !known) return
-    place(tape.continuous, trade)
+    yield* place(tape.continuous, trade)
   } else {
     const held = tape.folds.find((fold) => fold.match === match)
     if (tooOld && held === undefined) return
-    const fold = held ?? foldFor(tape, match)
-    place(fold.trades, trade)
-    addToFold(fold, trade)
+    const fold = held ?? (yield* foldFor(tape, match))
+    yield* place(fold.trades, trade)
+    yield* addToFold(fold, trade)
   }
   if (!known && !seen) tape.received += 1
-}
+})
 
 // Drops the oldest continuous trades past the cap, then each fold the drop
 // passed: a fold leaves once the trades on both sides of it have.
-function evict(tape: Tape) {
+const evict = Effect.fnUntraced(function* (tape: Tape) {
   const excess = tape.continuous.length - KEPT_TRADES
   if (excess > 0) {
     const dropped = tape.continuous.splice(0, excess)
@@ -220,29 +216,37 @@ function evict(tape: Tape) {
     const fold = tape.folds[index]!
     const gone =
       fold.trades.length === 0 ||
-      (through !== undefined && TradeNumberOrder(newestOf(fold), through) < 0)
+      (through !== undefined &&
+        TradeNumberOrder(yield* newestOf(fold), through) < 0)
     if (gone) tape.folds.splice(index, 1)
   }
-  tape.folds.sort((a, b) => TradeNumberOrder(newestOf(a), newestOf(b)))
-}
+  // Array.sort calls the comparator back, so it reads each newest trade
+  // number itself.
+  tape.folds.sort((a, b) =>
+    TradeNumberOrder(a.trades.at(-1)!.tradeNumber, b.trades.at(-1)!.tradeNumber)
+  )
+})
 
 // The tape after one viewer message. A snapshot starts it over, its received
 // count carried on and counting only the trades the tape didn't hold, so a
 // frozen tape's "N new trades" survives a reconnect; a delta's trades go in by
 // trade number, a known one replacing what the tape held.
-export function applyViewerMessage(tape: Tape, message: ViewerDown): Tape {
+export const applyViewerMessage = Effect.fnUntraced(function* (
+  tape: Tape,
+  message: ViewerDown
+): Effect.fn.Return<Tape> {
   if (message._tag !== "Snapshot") {
-    for (const trade of message.tape) insert(tape, trade)
-    evict(tape)
+    for (const trade of message.tape) yield* insert(tape, trade)
+    yield* evict(tape)
     return tape
   }
-  const next = emptyTape()
+  const next = yield* emptyTape()
   next.received = tape.received
   for (const trade of message.tape)
-    insert(next, trade, seenBy(tape, trade.tradeNumber))
-  evict(next)
+    yield* insert(next, trade, yield* seenBy(tape, trade.tradeNumber))
+  yield* evict(next)
   return next
-}
+})
 
 export type TapeRow =
   | {
@@ -271,17 +275,18 @@ type Segment =
     }
   | { readonly kind: "fold"; readonly fold: Fold; readonly open: boolean }
 
-function segmentsOf(
+const segmentsOf = Effect.fnUntraced(function* (
   tape: Tape,
   open: ReadonlySet<AuctionMatch>
-): Array<Segment> {
+): Effect.fn.Return<Array<Segment>> {
   const segments: Array<Segment> = []
   // `from` counts back from the newest continuous trade.
   let taken = 0
   for (let index = tape.folds.length - 1; index >= 0; index--) {
     const fold = tape.folds[index]!
     const newer =
-      tape.continuous.length - positionOf(tape.continuous, newestOf(fold))
+      tape.continuous.length -
+      (yield* tradePosition(tape.continuous, yield* newestOf(fold)))
     if (newer > taken)
       segments.push({ kind: "continuous", from: taken, length: newer - taken })
     taken = Math.max(taken, newer)
@@ -294,33 +299,36 @@ function segmentsOf(
       length: tape.continuous.length - taken,
     })
   return segments
-}
+})
 
-const segmentLength = (segment: Segment): number =>
-  segment.kind === "continuous"
-    ? segment.length
-    : 1 + (segment.open ? segment.fold.trades.length : 0)
+const segmentLength = (segment: Segment) =>
+  Effect.sync(() =>
+    segment.kind === "continuous"
+      ? segment.length
+      : 1 + (segment.open ? segment.fold.trades.length : 0)
+  )
 
-export function tapeLength(
+export const tapeLength = Effect.fnUntraced(function* (
   tape: Tape,
   open: ReadonlySet<AuctionMatch>
-): number {
+) {
   let length = 0
-  for (const segment of segmentsOf(tape, open)) length += segmentLength(segment)
+  for (const segment of yield* segmentsOf(tape, open))
+    length += yield* segmentLength(segment)
   return length
-}
+})
 
 // Rows `from` (inclusive) to `to` (exclusive) of the list, newest first.
-export function tapeRows(
+export const tapeRows = Effect.fnUntraced(function* (
   tape: Tape,
   open: ReadonlySet<AuctionMatch>,
   from: number,
   to: number
-): Array<TapeRow> {
+): Effect.fn.Return<Array<TapeRow>> {
   const rows: Array<TapeRow> = []
   let start = 0
-  for (const segment of segmentsOf(tape, open)) {
-    const length = segmentLength(segment)
+  for (const segment of yield* segmentsOf(tape, open)) {
+    const length = yield* segmentLength(segment)
     const first = Math.max(from, start)
     const last = Math.min(to, start + length)
     for (let index = first; index < last; index++) {
@@ -343,7 +351,10 @@ export function tapeRows(
           codes: fold.codes.size,
           live:
             newestContinuous === undefined ||
-            TradeNumberOrder(newestContinuous.tradeNumber, newestOf(fold)) < 0,
+            TradeNumberOrder(
+              newestContinuous.tradeNumber,
+              yield* newestOf(fold)
+            ) < 0,
         })
       } else {
         const { trades, match } = segment.fold
@@ -358,4 +369,4 @@ export function tapeRows(
     if (start >= to) break
   }
   return rows
-}
+})

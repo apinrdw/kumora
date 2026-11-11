@@ -31,46 +31,54 @@ const initial: View = {
 let view = initial
 const listeners = new Set<() => void>()
 
-const publish = (next: View) =>
+// Reads the view and writes what `next` makes of it in one operation: the
+// socket's consumer and the socket's own fiber (live-tape.tsx) both publish,
+// and a scheduler yield between a read and its write would let the other's
+// write land in between and be lost.
+const publish = (next: (held: View) => View) =>
   Effect.sync(() => {
-    view = next
+    view = next(view)
     for (const listener of listeners) listener()
   })
 
 const byCode = (prices: ReadonlyArray<IndicativePrice>) =>
-  prices.map((price) => [price.code, price] as const)
+  Effect.succeed(prices.map((price) => [price.code, price] as const))
 
 // The view after one viewer message. A snapshot starts over. Decision: a
 // delta's indicative prices are every code's that changed, and all are kept,
 // so a code added to the watchlist mid-auction shows its price on the next
 // change; the map is bounded by the listed codes.
-export const applyConditions = (message: ViewerDown) =>
-  Effect.suspend(() => {
-    if (message._tag === "Snapshot")
-      return publish({
-        conditions: message.conditions,
-        indicative: new Map(byCode(message.indicative ?? [])),
-        connection: "live",
-      })
-    const prices = message.indicative ?? []
-    if (message.conditions === undefined && prices.length === 0)
-      return Effect.void
-    return publish({
-      ...view,
-      conditions: message.conditions ?? view.conditions,
-      indicative:
-        prices.length === 0
-          ? view.indicative
-          : new Map([...view.indicative, ...byCode(prices)]),
-    })
-  })
+export const applyConditions = Effect.fnUntraced(function* (
+  message: ViewerDown
+) {
+  if (message._tag === "Snapshot") {
+    const indicative = new Map(yield* byCode(message.indicative ?? []))
+    return yield* publish(() => ({
+      conditions: message.conditions,
+      indicative,
+      connection: "live",
+    }))
+  }
+  const prices = message.indicative ?? []
+  if (message.conditions === undefined && prices.length === 0) return
+  const arriving = yield* byCode(prices)
+  return yield* publish((held) => ({
+    ...held,
+    conditions: message.conditions ?? held.conditions,
+    indicative:
+      prices.length === 0
+        ? held.indicative
+        : new Map([...held.indicative, ...arriving]),
+  }))
+})
 
-export const conditionsReconnecting = Effect.suspend(() =>
-  publish({ ...view, connection: "reconnecting" })
-)
+export const conditionsReconnecting = publish((held) => ({
+  ...held,
+  connection: "reconnecting",
+}))
 
 // The page left: the next visit starts from its own snapshot.
-export const resetConditions = Effect.suspend(() => publish(initial))
+export const resetConditions = publish(() => initial)
 
 const subscribe = (listener: () => void) => {
   listeners.add(listener)
@@ -135,14 +143,14 @@ const PHASE: Record<MarketPhase, string> = {
 // compares the phase alone, not the date: a viewer socket is closed when its
 // day ends (`trading-day.ts`, DayEnded), and the next day's snapshot replaces
 // every held price, so a held price is always of today.
-const auctionIndicative = (code: StockCode) => {
+const auctionIndicative = Effect.fnUntraced(function* (code: StockCode) {
   const { conditions, indicative } = view
   const price = indicative.get(code)
   if (price === undefined || conditions === undefined) return undefined
-  return Effect.runSync(auctionAt(price.at))?.phase === conditions.phase
+  return (yield* auctionAt(price.at))?.phase === conditions.phase
     ? price
     : undefined
-}
+})
 
 // `code`'s indicative price while its auction runs: the chart's dashed line
 // and header, and the watchlist row's price. It re-renders only when that
@@ -152,7 +160,7 @@ export function useAuctionIndicative(
 ): IndicativePrice | undefined {
   return useSyncExternalStore(
     subscribe,
-    () => auctionIndicative(code),
+    () => Effect.runSync(auctionIndicative(code)),
     () => undefined
   )
 }
@@ -171,7 +179,7 @@ export function PhaseLabel({
       {nextOpen !== undefined && (
         <span className="font-normal text-muted-foreground">
           {" · opens "}
-          {dateTime(DateTime.formatIso(nextOpen))}
+          {Effect.runSync(dateTime(DateTime.formatIso(nextOpen)))}
         </span>
       )}
     </span>

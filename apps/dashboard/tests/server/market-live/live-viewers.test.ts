@@ -19,7 +19,9 @@ const reachedWith = (offset: number) => {
       getByName: (name: string) => ({
         fetch: () => {
           reached.push(name)
-          return Promise.resolve(new Response(null, { status: 204 }))
+          return Effect.runPromise(
+            Effect.succeed(new Response(null, { status: 204 }))
+          )
         },
       }),
     },

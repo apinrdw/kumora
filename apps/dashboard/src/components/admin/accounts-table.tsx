@@ -4,7 +4,7 @@ import {
   IconSearch,
 } from "@tabler/icons-react"
 import { useHydrated } from "@tanstack/react-router"
-import { Schema } from "effect"
+import { Effect, Schema } from "effect"
 import { useEffect, useState } from "react"
 
 import {
@@ -81,13 +81,14 @@ const COLUMNS: ReadonlyArray<KColumn<AccountRow>> = [
     key: "createdAt",
     label: "Created",
     sortable: true,
-    cell: (row) => dateTime(row.createdAt),
+    cell: (row) => Effect.runSync(dateTime(row.createdAt)),
   },
   {
     key: "lastActiveAt",
     label: "Last active",
     sortable: true,
-    cell: (row) => (row.lastActiveAt ? dateTime(row.lastActiveAt) : "—"),
+    cell: (row) =>
+      row.lastActiveAt ? Effect.runSync(dateTime(row.lastActiveAt)) : "—",
   },
   { key: "sessions", label: "Sessions", align: "right" },
 ]

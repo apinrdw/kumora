@@ -53,16 +53,20 @@ const notUpgrade = Effect.sync(
 )
 
 const isUpgrade = (request: Request) =>
-  request.headers.get("Upgrade")?.toLowerCase() === "websocket"
+  Effect.sync(
+    () => request.headers.get("Upgrade")?.toLowerCase() === "websocket"
+  )
 
 // The ingest token is checked by the object, from the first message: the
 // extension's `chrome-extension://` origin carries no session.
-const ingest = (request: Request) =>
-  isUpgrade(request) ? toTradingDay(ObjectPath.ingest, {}) : notUpgrade
+const ingest = Effect.fnUntraced(function* (request: Request) {
+  if (!(yield* isUpgrade(request))) return yield* notUpgrade
+  return yield* toTradingDay(ObjectPath.ingest, {})
+})
 
 const live = Effect.fnUntraced(
   function* (request: Request) {
-    if (!isUpgrade(request)) return yield* notUpgrade
+    if (!(yield* isUpgrade(request))) return yield* notUpgrade
     const viewer = yield* gateLiveViewer(request)
     // The session ends on the Worker's clock; the object reads its own.
     const sessionEnd =
@@ -82,18 +86,20 @@ const live = Effect.fnUntraced(
   Effect.provide(Auth.layer)
 )
 
-// The route for a Market Live path, or undefined for TanStack Start's.
-export const marketLiveRoute = (request: Request) => {
+// The route for a Market Live path, or none for TanStack Start's.
+export const marketLiveRoute = Effect.fnUntraced(function* (request: Request) {
   const url = new URL(request.url)
   const { pathname } = url
-  if (pathname === MarketLivePath.ingest) return ingest(request)
-  if (pathname === MarketLivePath.live) return live(request)
+  if (pathname === MarketLivePath.ingest) return Option.some(ingest(request))
+  if (pathname === MarketLivePath.live) return Option.some(live(request))
   if (pathname === DayStripPath)
-    return dayStripRoute(request).pipe(Effect.provide(Auth.layer))
-  const recorded = Effect.runSync(recordedDayRequest(url))
+    return Option.some(dayStripRoute(request).pipe(Effect.provide(Auth.layer)))
+  const recorded = yield* recordedDayRequest(url)
   if (Option.isSome(recorded))
-    return recordedDayRoute(request, url, recorded.value.date).pipe(
-      Effect.provide(Auth.layer)
+    return Option.some(
+      recordedDayRoute(request, url, recorded.value.date).pipe(
+        Effect.provide(Auth.layer)
+      )
     )
-  return undefined
-}
+  return Option.none()
+})

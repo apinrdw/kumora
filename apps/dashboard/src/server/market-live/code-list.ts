@@ -35,8 +35,10 @@ export const memoryCodeListStore = Effect.sync((): CodeListStore => {
 // Decision: the kind comes from the suffix alone, as the spec says: `-W` and
 // `-W2` are warrants, `-R` rights. Ajaib's structured warrants (`BBRIDRCM3A`)
 // and funds (`R-LQ45X`) stay shares.
-const kindOf = (code: string): CodeKind =>
-  /-W\d*$/.test(code) ? "warrant" : /-R\d*$/.test(code) ? "right" : "share"
+const kindOf = (code: string) =>
+  Effect.succeed<CodeKind>(
+    /-W\d*$/.test(code) ? "warrant" : /-R\d*$/.test(code) ? "right" : "share"
+  )
 
 // Decision: an encoded list over 2 MB is dropped with a log. Ajaib's 3,406
 // codes encode to about 0.2 MB, so a body ten times that is a wrong answer
@@ -52,10 +54,14 @@ const MAX_STORED_BYTES = 2_000_000
 export const storeCodeList = Effect.fnUntraced(
   function* (store: CodeListStore, body: string) {
     const listed = yield* decodeAjaibCodeList(body)
+    const codes = yield* Effect.forEach(listed, (entry) =>
+      Effect.map(kindOf(entry.code), (kind) => ({ ...entry, kind }))
+    )
     const text = yield* encodeStockCodeList({
-      codes: listed
-        .map((entry) => ({ ...entry, kind: kindOf(entry.code) }))
-        .concat(INDICES.map((index) => ({ ...index, kind: "index" as const }))),
+      codes: [
+        ...codes,
+        ...INDICES.map((index) => ({ ...index, kind: "index" as const })),
+      ],
     })
     if (new TextEncoder().encode(text).length > MAX_STORED_BYTES)
       return yield* Effect.logWarning("Stock code list too large; dropped")

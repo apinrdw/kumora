@@ -265,7 +265,7 @@ const tradingDay = Effect.fnUntraced(function* (
   // The Durable Object's alarm firing.
   const alarm = day.alarm.pipe(Effect.provide(env))
   // The relay's last ingest socket closing.
-  const relayClosed = day.ingestClosed(relay, 0)
+  const relayClosed = day.ingestClosed(relay, Effect.succeed(0))
   return {
     ajaib,
     stockbit,
@@ -313,8 +313,9 @@ const flakySql = (sql: Sql, failing: ReadonlyArray<number>): Sql => {
     exec: sql.exec,
     transaction: (write) => {
       transactions += 1
+      // The storage API is synchronous and throws; runSync throws the failure.
       if (failing.includes(transactions))
-        throw new Error("Storage write failed")
+        return Effect.runSync(Effect.fail(new Error("Storage write failed")))
       sql.transaction(write)
     },
   }

@@ -1,4 +1,5 @@
 // @vitest-environment happy-dom
+import { clientRuntime } from "@workspace/client"
 import { StockCode } from "@workspace/relay"
 import { DateTime, Effect } from "effect"
 import { act } from "react"
@@ -18,7 +19,7 @@ Object.assign(globalThis, { IS_REACT_ACT_ENVIRONMENT: true })
 const BBCA = StockCode.make("BBCA")
 
 test("a code with an indicative price before any Day state shows the indicative price, not 'no data yet'", () => {
-  const store = makeDayStateStore()
+  const store = clientRuntime.runSync(makeDayStateStore())
   const container = document.body.appendChild(document.createElement("div"))
   const root = createRoot(container)
   act(() =>
@@ -68,7 +69,7 @@ test("a code with an indicative price before any Day state shows the indicative 
 })
 
 test("an indicative price from pre-opening is not shown in pre-closing: only one whose time is in the auction running now", () => {
-  const store = makeDayStateStore()
+  const store = clientRuntime.runSync(makeDayStateStore())
   const container = document.body.appendChild(document.createElement("div"))
   const root = createRoot(container)
   act(() =>
@@ -137,9 +138,9 @@ test("an indicative price from pre-opening is not shown in pre-closing: only one
   act(() => root.unmount())
 })
 
-test("a Day state without a change, an index's whose frames carry no previous close, shows none rather than 0%", () => {
+test("a Day state without a change, an index's whose frames carry no previous close, shows none rather than 0%", async () => {
   const IHSG = StockCode.make("IHSG")
-  const store = makeDayStateStore()
+  const store = clientRuntime.runSync(makeDayStateStore())
   const container = document.body.appendChild(document.createElement("div"))
   const root = createRoot(container)
   act(() =>
@@ -170,6 +171,8 @@ test("a Day state without a change, an index's whose frames carry no previous cl
       },
     ])
   )
+  // The store draws its updates at the next animation frame.
+  await act(() => new Promise<void>((resolve) => setTimeout(resolve, 50)))
   const cells = [...container.querySelectorAll('tr[data-code="IHSG"] td')].map(
     (cell) => cell.textContent
   )

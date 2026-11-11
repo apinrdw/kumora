@@ -4,6 +4,8 @@ import {
   IconMailCheck,
 } from "@tabler/icons-react"
 import { Link, useHydrated } from "@tanstack/react-router"
+import { clientRuntime } from "@workspace/client"
+import { Effect } from "effect"
 import { useState, type FormEvent } from "react"
 
 import { KButton, KInput } from "@/components/k"
@@ -31,6 +33,37 @@ type Request =
     }
   | { readonly _tag: "Sent"; readonly email: string }
 
+// The step after the form: sent, or the form again with what went wrong.
+const requestReset = Effect.fnUntraced(function* (
+  form: HTMLFormElement,
+  token: string,
+  redirect: string
+): Effect.fn.Return<Request> {
+  const { email } = yield* formFields(form, ["email"])
+  const retry = yield* retryAfter()
+  const redirectTo = yield* resetPasswordPage(redirect)
+  const { error } = yield* Effect.promise(() =>
+    authClient.requestPasswordReset(
+      { email, redirectTo },
+      {
+        headers: { [CAPTCHA_HEADER]: token },
+        onError: retry.onError,
+      }
+    )
+  )
+  if (!error) return { _tag: "Sent", email }
+  // Only the per-IP limit answers 429 here: over the per-address cap the
+  // reply is the same "Reset link sent" as for any address.
+  return {
+    _tag: "Form",
+    pending: false,
+    error: yield* retry.messageFor(
+      error,
+      "Couldn't send the link. Try again in a minute."
+    ),
+  }
+})
+
 /**
  * Better Auth answers a known and an unknown email alike, so "Reset link
  * sent" never says whether the address has an account.
@@ -50,36 +83,6 @@ export function ForgotPasswordForm({
   } = useTurnstile(turnstileSiteKey)
   const [step, setStep] = useState<Request>({ _tag: "Form", pending: false })
 
-  const submit = async (event: FormEvent<HTMLFormElement>) => {
-    event.preventDefault()
-    if (!turnstileToken) return
-    const { email } = formFields(event.currentTarget, ["email"])
-    setStep({ _tag: "Form", pending: true })
-    const retry = retryAfter()
-    const { error } = await authClient.requestPasswordReset(
-      {
-        email,
-        redirectTo: resetPasswordPage(redirect),
-      },
-      {
-        headers: { [CAPTCHA_HEADER]: turnstileToken },
-        onError: retry.onError,
-      }
-    )
-    if (!error) return setStep({ _tag: "Sent", email })
-    resetTurnstile()
-    // Only the per-IP limit answers 429 here: over the per-address cap the
-    // reply is the same "Reset link sent" as for any address.
-    setStep({
-      _tag: "Form",
-      pending: false,
-      error: retry.messageFor(
-        error,
-        "Couldn't send the link. Try again in a minute."
-      ),
-    })
-  }
-
   if (step._tag === "Sent")
     return (
       <Notice
@@ -89,13 +92,30 @@ export function ForgotPasswordForm({
       >
         <p>
           If <b className="text-foreground">{step.email}</b> has an account, a
-          reset link is on its way. It expires in {linkLifetime("reset")}.
+          reset link is on its way. It expires in{" "}
+          {Effect.runSync(linkLifetime("reset"))}.
         </p>
       </Notice>
     )
 
   return (
-    <form className="flex flex-col gap-4" onSubmit={(e) => void submit(e)}>
+    <form
+      className="flex flex-col gap-4"
+      onSubmit={(event: FormEvent<HTMLFormElement>) => {
+        event.preventDefault()
+        if (!turnstileToken) return
+        const form = event.currentTarget
+        setStep({ _tag: "Form", pending: true })
+        clientRuntime.runFork(
+          Effect.flatMap(requestReset(form, turnstileToken, redirect), (next) =>
+            Effect.sync(() => {
+              if (next._tag === "Form") resetTurnstile()
+              setStep(next)
+            })
+          )
+        )
+      }}
+    >
       <h1 className="text-xl font-semibold">Reset your password</h1>
       <p className="text-[13px] text-muted-foreground">
         Enter your account's email and we'll send a reset link.
@@ -133,6 +153,25 @@ type SetPassword =
   | { readonly _tag: "Expired" }
   | { readonly _tag: "Done" }
 
+const setPassword = Effect.fnUntraced(function* (
+  form: HTMLFormElement,
+  token: string
+): Effect.fn.Return<SetPassword> {
+  const { newPassword } = yield* formFields(form, ["newPassword"])
+  const { error } = yield* Effect.promise(() =>
+    authClient.resetPassword({ newPassword, token })
+  )
+  if (!error) return { _tag: "Done" }
+  // Better Auth answers an expired or used token with INVALID_TOKEN.
+  return error.code === "INVALID_TOKEN"
+    ? { _tag: "Expired" }
+    : {
+        _tag: "Form",
+        pending: false,
+        error: "Couldn't set the password. Try again in a minute.",
+      }
+})
+
 /**
  * The page a reset link opens. Setting the password ends every session of
  * the account, so the next step is signing in, which returns to `redirect`.
@@ -148,25 +187,6 @@ export function SetPasswordForm({
   const [step, setStep] = useState<SetPassword>(
     token ? { _tag: "Form", pending: false } : { _tag: "Expired" }
   )
-
-  const submit = async (event: FormEvent<HTMLFormElement>) => {
-    event.preventDefault()
-    if (!token) return
-    const { newPassword } = formFields(event.currentTarget, ["newPassword"])
-    setStep({ _tag: "Form", pending: true })
-    const { error } = await authClient.resetPassword({ newPassword, token })
-    if (!error) return setStep({ _tag: "Done" })
-    // Better Auth answers an expired or used token with INVALID_TOKEN.
-    setStep(
-      error.code === "INVALID_TOKEN"
-        ? { _tag: "Expired" }
-        : {
-            _tag: "Form",
-            pending: false,
-            error: "Couldn't set the password. Try again in a minute.",
-          }
-    )
-  }
 
   if (step._tag === "Expired")
     return (
@@ -188,8 +208,8 @@ export function SetPasswordForm({
         }
       >
         <p>
-          A reset link works once, for {linkLifetime("reset")}. Ask for a new
-          one.
+          A reset link works once, for {Effect.runSync(linkLifetime("reset"))}.
+          Ask for a new one.
         </p>
       </Notice>
     )
@@ -210,7 +230,20 @@ export function SetPasswordForm({
     )
 
   return (
-    <form className="flex flex-col gap-4" onSubmit={(e) => void submit(e)}>
+    <form
+      className="flex flex-col gap-4"
+      onSubmit={(event: FormEvent<HTMLFormElement>) => {
+        event.preventDefault()
+        if (!token) return
+        const form = event.currentTarget
+        setStep({ _tag: "Form", pending: true })
+        clientRuntime.runFork(
+          Effect.flatMap(setPassword(form, token), (next) =>
+            Effect.sync(() => setStep(next))
+          )
+        )
+      }}
+    >
       <h1 className="text-xl font-semibold">Choose a new password</h1>
       <KInput
         label="New password"

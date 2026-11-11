@@ -14,6 +14,8 @@ import {
   DropdownMenuItem,
   DropdownMenuTrigger,
 } from "@workspace/ui/components/dropdown-menu"
+import { clientRuntime } from "@workspace/client"
+import { Effect } from "effect"
 import { useState } from "react"
 
 import type { Outcome } from "@/components/account/account-section"
@@ -27,10 +29,38 @@ type Confirm = "ban" | "set-role" | "end-sessions"
 export type Asked = { readonly kind: Confirm; readonly row: AccountRow }
 
 /** Runs a Better Auth admin call, then reloads the table. */
-export type RunAction = (action: () => Promise<Outcome>) => Promise<void>
+export type RunAction = (action: Effect.Effect<Outcome>) => Effect.Effect<void>
 
-const outcome = (error: unknown, done: string, failed: string): Outcome =>
-  error ? { _tag: "Failed", message: failed } : { _tag: "Done", message: done }
+// Runs a Better Auth admin call and says how it went.
+const outcome = (
+  call: () => Promise<{ readonly error: unknown }>,
+  done: string,
+  failed: string
+): Effect.Effect<Outcome> =>
+  Effect.map(Effect.promise(call), ({ error }) =>
+    error
+      ? { _tag: "Failed", message: failed }
+      : { _tag: "Done", message: done }
+  )
+
+// Runs at once and leaves the page; only a refusal stays to be told.
+const impersonate = Effect.fnUntraced(function* (
+  row: AccountRow,
+  run: RunAction,
+  leave: Effect.Effect<void>
+) {
+  const { error } = yield* Effect.promise(() =>
+    authClient.admin.impersonateUser({ userId: row.id })
+  )
+  if (error)
+    return yield* run(
+      Effect.succeed({
+        _tag: "Failed",
+        message: `Couldn't impersonate ${row.email}. Try again.`,
+      })
+    )
+  yield* leave
+})
 
 /**
  * A row's menu: only the actions the access policy allows the viewing admin
@@ -48,18 +78,20 @@ export function AccountActions({
   const hydrated = useHydrated()
   const router = useRouter()
   const suspended = row.status === "suspended"
-  // Runs at once and leaves the page; only a refusal stays to be told.
-  const impersonate = async () => {
-    const { error } = await authClient.admin.impersonateUser({ userId: row.id })
-    if (error)
-      return run(async () =>
-        outcome(error, "", `Couldn't impersonate ${row.email}. Try again.`)
-      )
-    await router.navigate({ to: "/" })
-  }
   const items = [
     row.allowed["admin.impersonate"] && (
-      <DropdownMenuItem key="impersonate" onClick={() => void impersonate()}>
+      <DropdownMenuItem
+        key="impersonate"
+        onClick={() =>
+          clientRuntime.runFork(
+            impersonate(
+              row,
+              run,
+              Effect.promise(() => router.navigate({ to: "/" }))
+            )
+          )
+        }
+      >
         <IconEye aria-hidden />
         Impersonate
       </DropdownMenuItem>
@@ -78,16 +110,15 @@ export function AccountActions({
       <DropdownMenuItem
         key="unban"
         onClick={() =>
-          void run(async () => {
-            const { error } = await authClient.admin.unbanUser({
-              userId: row.id,
-            })
-            return outcome(
-              error,
-              `Unbanned ${row.email}.`,
-              `Couldn't unban ${row.email}. Try again.`
+          clientRuntime.runFork(
+            run(
+              outcome(
+                () => authClient.admin.unbanUser({ userId: row.id }),
+                `Unbanned ${row.email}.`,
+                `Couldn't unban ${row.email}. Try again.`
+              )
             )
-          })
+          )
         }
       >
         <IconUserCheck aria-hidden />
@@ -153,10 +184,11 @@ export function ConfirmAction({
   }
   if (asked === null) return null
   const { row } = asked
-  const confirm = (action: () => Promise<Outcome>) => async () => {
-    await run(action)
-    close()
-  }
+  const confirm = (action: Effect.Effect<Outcome>) =>
+    Effect.andThen(
+      run(action),
+      Effect.sync(() => close())
+    )
   const common = {
     open: true,
     onOpenChange: (open: boolean) => {
@@ -175,17 +207,19 @@ export function ConfirmAction({
           description="Every session of this account ends now, and it can't sign in until an admin unbans it."
           confirmLabel="Ban account"
           onConfirm={() =>
-            void confirm(async () => {
-              const { error } = await authClient.admin.banUser({
-                userId: row.id,
-                ...(reason.trim() !== "" && { banReason: reason.trim() }),
-              })
-              return outcome(
-                error,
-                `Banned ${row.email}.`,
-                `Couldn't ban ${row.email}. Try again.`
+            clientRuntime.runFork(
+              confirm(
+                outcome(
+                  () =>
+                    authClient.admin.banUser({
+                      userId: row.id,
+                      ...(reason.trim() !== "" && { banReason: reason.trim() }),
+                    }),
+                  `Banned ${row.email}.`,
+                  `Couldn't ban ${row.email}. Try again.`
+                )
               )
-            })()
+            )
           }
         >
           <KInput
@@ -215,17 +249,15 @@ export function ConfirmAction({
           }
           confirmLabel={role === "admin" ? "Make admin" : "Make member"}
           onConfirm={() =>
-            void confirm(async () => {
-              const { error } = await authClient.admin.setRole({
-                userId: row.id,
-                role,
-              })
-              return outcome(
-                error,
-                `${row.email} is now ${role === "admin" ? "an admin" : "a member"}.`,
-                `Couldn't change the role of ${row.email}. Try again.`
+            clientRuntime.runFork(
+              confirm(
+                outcome(
+                  () => authClient.admin.setRole({ userId: row.id, role }),
+                  `${row.email} is now ${role === "admin" ? "an admin" : "a member"}.`,
+                  `Couldn't change the role of ${row.email}. Try again.`
+                )
               )
-            })()
+            )
           }
         />
       )
@@ -239,16 +271,15 @@ export function ConfirmAction({
           description="Every browser signed in to this account is signed out now. It can sign in again."
           confirmLabel="End sessions"
           onConfirm={() =>
-            void confirm(async () => {
-              const { error } = await authClient.admin.revokeUserSessions({
-                userId: row.id,
-              })
-              return outcome(
-                error,
-                `Ended every session of ${row.email}.`,
-                `Couldn't end the sessions of ${row.email}. Try again.`
+            clientRuntime.runFork(
+              confirm(
+                outcome(
+                  () => authClient.admin.revokeUserSessions({ userId: row.id }),
+                  `Ended every session of ${row.email}.`,
+                  `Couldn't end the sessions of ${row.email}. Try again.`
+                )
               )
-            })()
+            )
           }
         />
       )

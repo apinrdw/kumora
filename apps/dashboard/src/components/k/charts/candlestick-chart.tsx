@@ -1,5 +1,6 @@
 import { cn } from "@workspace/ui/lib/utils"
 import { kFocus } from "../styles"
+import { Effect } from "effect"
 import { useState } from "react"
 
 import type { Candle } from "@/domain/quote"
@@ -51,7 +52,7 @@ export function CandlestickChart({
   const {
     domain: [lo, hi],
     ticks,
-  } = niceScale(Math.min(...prices), Math.max(...prices))
+  } = Effect.runSync(niceScale(Math.min(...prices), Math.max(...prices)))
   const vmax = Math.max(1, ...data.map((d) => d.v ?? 0))
   const cw = (W - PL - PR) / n
   const bw = Math.max(2, cw * 0.6)
@@ -75,13 +76,15 @@ export function CandlestickChart({
         className="num text-secondary-text mb-1 flex min-h-[18px] flex-wrap gap-x-3 text-xs leading-[18px]"
       >
         <span className="text-foreground">{focus.label}</span>
-        <span>O {idr(focus.o)}</span>
-        <span>H {idr(focus.h)}</span>
-        <span>L {idr(focus.l)}</span>
+        <span>O {Effect.runSync(idr(focus.o))}</span>
+        <span>H {Effect.runSync(idr(focus.h))}</span>
+        <span>L {Effect.runSync(idr(focus.l))}</span>
         <span className={focus.c >= focus.o ? "text-up" : "text-down"}>
-          C {idr(focus.c)}
+          C {Effect.runSync(idr(focus.c))}
         </span>
-        {focus.v !== undefined && <span>Vol {shares(focus.v)}</span>}
+        {focus.v !== undefined && (
+          <span>Vol {Effect.runSync(shares(focus.v))}</span>
+        )}
       </div>
       <svg
         viewBox={`0 0 ${W} ${H}`}
@@ -118,7 +121,7 @@ export function CandlestickChart({
               stroke={CHART_COLOR.grid}
             />
             <text x={W - PR + 6} y={y(t) + 4} style={AXIS_TICK}>
-              {plain(Math.round(t))}
+              {Effect.runSync(plain(Math.round(t)))}
             </text>
           </g>
         ))}

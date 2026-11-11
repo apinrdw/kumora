@@ -4,8 +4,8 @@ import {
   type RunningTrade,
   type ViewerDown,
 } from "@workspace/relay"
-import { DateTime } from "effect"
-import { describe, expect, test } from "vitest"
+import { DateTime, Effect } from "effect"
+import { describe, expect, it } from "@effect/vitest"
 
 import {
   applyViewerMessage,
@@ -54,51 +54,78 @@ const snapshot = (...tape: Array<RunningTrade>): ViewerDown => ({
 })
 
 // What the list shows, newest first, with every fold in `open` expanded.
-function shown(
+const shown = Effect.fnUntraced(function* (
   messages: ReadonlyArray<ViewerDown>,
   open: ReadonlyArray<"opening" | "closing"> = []
 ) {
-  let tape = emptyTape()
-  for (const message of messages) tape = applyViewerMessage(tape, message)
-  return tapeRows(tape, new Set(open), 0, Number.MAX_SAFE_INTEGER).map((row) =>
+  let tape = yield* emptyTape()
+  for (const message of messages)
+    tape = yield* applyViewerMessage(tape, message)
+  const rows = yield* tapeRows(tape, new Set(open), 0, Number.MAX_SAFE_INTEGER)
+  return rows.map((row) =>
     row.kind === "fold"
       ? `${row.match} fold: ${row.trades} trades, ${row.codes} codes`
       : row.trade.tradeNumber
   )
-}
+})
 
 describe("the tape", () => {
-  test("lists trades newest first, a late one in its place", () => {
-    expect(
-      shown([snapshot(trade(1), trade(2)), delta(trade(5), trade(3))])
-    ).toEqual(["5", "3", "2", "1"])
-    expect(
-      shown([snapshot(trade(1)), delta(trade(4)), delta(trade(2))])
-    ).toEqual(["4", "2", "1"])
-  })
-
-  test("a known trade number replaces the trade it held, counted once", () => {
-    let tape = applyViewerMessage(emptyTape(), snapshot(trade(1), trade(2)))
-    tape = applyViewerMessage(
-      tape,
-      delta(trade(1, { feeds: ["Stockbit", "Ajaib"], side: "sell" }))
-    )
-    const [, oldest] = tapeRows(tape, new Set(), 0, 2)
-    expect(oldest).toMatchObject({
-      trade: { tradeNumber: "1", side: "sell", feeds: ["Stockbit", "Ajaib"] },
+  it.effect("lists trades newest first, a late one in its place", () =>
+    Effect.gen(function* () {
+      expect(
+        yield* shown([snapshot(trade(1), trade(2)), delta(trade(5), trade(3))])
+      ).toEqual(["5", "3", "2", "1"])
+      expect(
+        yield* shown([snapshot(trade(1)), delta(trade(4)), delta(trade(2))])
+      ).toEqual(["4", "2", "1"])
     })
-    expect(tape.received).toBe(2)
-  })
+  )
 
-  test("keeps the 10,000 newest continuous trades and drops older arrivals", () => {
-    const trades = Array.from({ length: 10_050 }, (_, i) => trade(i + 1))
-    let tape = applyViewerMessage(emptyTape(), delta(...trades))
-    tape = applyViewerMessage(tape, delta(trade(20)))
-    const rows = tapeRows(tape, new Set(), 0, Number.MAX_SAFE_INTEGER)
-    expect(rows).toHaveLength(10_000)
-    expect(rows.at(0)).toMatchObject({ trade: { tradeNumber: "10050" } })
-    expect(rows.at(-1)).toMatchObject({ trade: { tradeNumber: "51" } })
-  })
+  it.effect(
+    "a known trade number replaces the trade it held, counted once",
+    () =>
+      Effect.gen(function* () {
+        let tape = yield* applyViewerMessage(
+          yield* emptyTape(),
+          snapshot(trade(1), trade(2))
+        )
+        tape = yield* applyViewerMessage(
+          tape,
+          delta(trade(1, { feeds: ["Stockbit", "Ajaib"], side: "sell" }))
+        )
+        const [, oldest] = yield* tapeRows(tape, new Set(), 0, 2)
+        expect(oldest).toMatchObject({
+          trade: {
+            tradeNumber: "1",
+            side: "sell",
+            feeds: ["Stockbit", "Ajaib"],
+          },
+        })
+        expect(tape.received).toBe(2)
+      })
+  )
+
+  it.effect(
+    "keeps the 10,000 newest continuous trades and drops older arrivals",
+    () =>
+      Effect.gen(function* () {
+        const trades = Array.from({ length: 10_050 }, (_, i) => trade(i + 1))
+        let tape = yield* applyViewerMessage(
+          yield* emptyTape(),
+          delta(...trades)
+        )
+        tape = yield* applyViewerMessage(tape, delta(trade(20)))
+        const rows = yield* tapeRows(
+          tape,
+          new Set(),
+          0,
+          Number.MAX_SAFE_INTEGER
+        )
+        expect(rows).toHaveLength(10_000)
+        expect(rows.at(0)).toMatchObject({ trade: { tradeNumber: "10050" } })
+        expect(rows.at(-1)).toMatchObject({ trade: { tradeNumber: "51" } })
+      })
+  )
 })
 
 describe("auction matches", () => {
@@ -110,134 +137,181 @@ describe("auction matches", () => {
       side: "none",
     })
 
-  test("fold into one summary row at their place, with the trades, value and codes", () => {
-    const messages = [
-      delta(opening(1), opening(2, "TLKM"), opening(3, "TLKM", 2)),
-      delta(trade(5), trade(4)),
-    ]
-    expect(shown(messages)).toEqual([
-      "5",
-      "4",
-      "opening fold: 3 trades, 2 codes",
-    ])
-    expect(shown(messages, ["opening"])).toEqual([
-      "5",
-      "4",
-      "opening fold: 3 trades, 2 codes",
-      "3",
-      "2",
-      "1",
-    ])
-    let tape = emptyTape()
-    for (const message of messages) tape = applyViewerMessage(tape, message)
-    expect(tapeRows(tape, new Set(), 2, 3)).toEqual([
-      {
-        kind: "fold",
-        match: "opening",
-        trades: 3,
-        value: 4 * 9_000 * 100,
-        codes: 2,
-        live: false,
-      },
-    ])
-  })
-
-  test("the closing match folds apart from the opening one", () => {
-    expect(
-      shown([
-        delta(
-          opening(1),
-          trade(2),
-          trade(3, { wib: "16:00:00.000" }),
-          trade(4, { wib: "16:02:00.000" })
-        ),
-      ])
-    ).toEqual([
-      "4",
-      "closing fold: 1 trades, 1 codes",
-      "2",
-      "opening fold: 1 trades, 1 codes",
-    ])
-  })
-
-  test("a fold is live until continuous trading passes it", () => {
-    let tape = applyViewerMessage(emptyTape(), delta(opening(1)))
-    expect(tapeRows(tape, new Set(), 0, 1)).toMatchObject([{ live: true }])
-    tape = applyViewerMessage(tape, delta(trade(2)))
-    expect(tapeRows(tape, new Set(), 1, 2)).toMatchObject([{ live: false }])
-  })
-
-  test("negotiated and cash prints in the match second, and continuous trading, never fold", () => {
-    expect(
-      shown([
-        delta(
-          trade(1, { wib: "08:58:00.000", board: "NG" }),
-          trade(2, { wib: "16:00:00.000", board: "TN" }),
-          trade(3, { wib: "08:58:01.000" }),
-          trade(4, { wib: "15:59:59.999" })
-        ),
-      ])
-    ).toEqual(["4", "3", "2", "1"])
-  })
-
-  test("sit outside the cap, and drop off once the cap passes them", () => {
-    const matchPrints = Array.from({ length: 20_000 }, (_, i) => opening(i + 1))
-    const session = (from: number, count: number) =>
-      Array.from({ length: count }, (_, i) => trade(from + i))
-    let tape = applyViewerMessage(emptyTape(), delta(...matchPrints))
-    tape = applyViewerMessage(tape, delta(...session(20_001, 10_000)))
-    expect(tapeLength(tape, new Set())).toBe(10_001)
-    expect(tapeLength(tape, new Set(["opening"]))).toBe(30_001)
-    tape = applyViewerMessage(tape, delta(...session(30_001, 1)))
-    expect(tapeLength(tape, new Set())).toBe(10_000)
-    // A late print of a fold that dropped off stays dropped, and isn't new.
-    const received = tape.received
-    tape = applyViewerMessage(tape, delta(opening(20_000)))
-    expect(tapeLength(tape, new Set())).toBe(10_000)
-    expect(tape.received).toBe(received)
-  })
-
-  test("a print that turns out negotiated leaves the fold", () => {
-    let tape = applyViewerMessage(emptyTape(), delta(opening(1), opening(2)))
-    tape = applyViewerMessage(
-      tape,
-      delta(trade(2, { wib: "08:58:00.004", board: "NG" }))
-    )
-    expect(tapeRows(tape, new Set(), 0, 9)).toMatchObject([
-      { kind: "trade", trade: { tradeNumber: "2" } },
-      { kind: "fold", trades: 1, codes: 1 },
-    ])
-    expect(tape.received).toBe(2)
-  })
-})
-
-test("a frozen tape holds still while deltas arrive", () => {
-  const live = applyViewerMessage(emptyTape(), delta(trade(1)))
-  const frozen = freezeTape(live)
-  applyViewerMessage(live, delta(trade(2)))
-  expect(tapeRows(frozen, new Set(), 0, 9)).toHaveLength(1)
-  expect(live.received - frozen.received).toBe(1)
-})
-
-test("a reconnect's snapshot counts only the trades the tape didn't hold as received", () => {
-  const trades = Array.from({ length: 300 }, (_, i) => trade(i + 1))
-  const live = applyViewerMessage(emptyTape(), delta(...trades))
-  const frozen = freezeTape(live)
-  // The socket's first snapshot: the 200 newest, 50 of them new.
-  const reconnected = applyViewerMessage(
-    live,
-    snapshot(...Array.from({ length: 200 }, (_, i) => trade(i + 151)))
+  it.effect(
+    "fold into one summary row at their place, with the trades, value and codes",
+    () =>
+      Effect.gen(function* () {
+        const messages = [
+          delta(opening(1), opening(2, "TLKM"), opening(3, "TLKM", 2)),
+          delta(trade(5), trade(4)),
+        ]
+        expect(yield* shown(messages)).toEqual([
+          "5",
+          "4",
+          "opening fold: 3 trades, 2 codes",
+        ])
+        expect(yield* shown(messages, ["opening"])).toEqual([
+          "5",
+          "4",
+          "opening fold: 3 trades, 2 codes",
+          "3",
+          "2",
+          "1",
+        ])
+        let tape = yield* emptyTape()
+        for (const message of messages)
+          tape = yield* applyViewerMessage(tape, message)
+        expect(yield* tapeRows(tape, new Set(), 2, 3)).toEqual([
+          {
+            kind: "fold",
+            match: "opening",
+            trades: 3,
+            value: 4 * 9_000 * 100,
+            codes: 2,
+            live: false,
+          },
+        ])
+      })
   )
-  expect(reconnected.received - frozen.received).toBe(50)
-  expect(tapeRows(reconnected, new Set(), 0, 1)).toMatchObject([
-    { trade: { tradeNumber: "350" } },
-  ])
+
+  it.effect("the closing match folds apart from the opening one", () =>
+    Effect.gen(function* () {
+      expect(
+        yield* shown([
+          delta(
+            opening(1),
+            trade(2),
+            trade(3, { wib: "16:00:00.000" }),
+            trade(4, { wib: "16:02:00.000" })
+          ),
+        ])
+      ).toEqual([
+        "4",
+        "closing fold: 1 trades, 1 codes",
+        "2",
+        "opening fold: 1 trades, 1 codes",
+      ])
+    })
+  )
+
+  it.effect("a fold is live until continuous trading passes it", () =>
+    Effect.gen(function* () {
+      let tape = yield* applyViewerMessage(
+        yield* emptyTape(),
+        delta(opening(1))
+      )
+      expect(yield* tapeRows(tape, new Set(), 0, 1)).toMatchObject([
+        { live: true },
+      ])
+      tape = yield* applyViewerMessage(tape, delta(trade(2)))
+      expect(yield* tapeRows(tape, new Set(), 1, 2)).toMatchObject([
+        { live: false },
+      ])
+    })
+  )
+
+  it.effect(
+    "negotiated and cash prints in the match second, and continuous trading, never fold",
+    () =>
+      Effect.gen(function* () {
+        expect(
+          yield* shown([
+            delta(
+              trade(1, { wib: "08:58:00.000", board: "NG" }),
+              trade(2, { wib: "16:00:00.000", board: "TN" }),
+              trade(3, { wib: "08:58:01.000" }),
+              trade(4, { wib: "15:59:59.999" })
+            ),
+          ])
+        ).toEqual(["4", "3", "2", "1"])
+      })
+  )
+
+  it.effect("sit outside the cap, and drop off once the cap passes them", () =>
+    Effect.gen(function* () {
+      const matchPrints = Array.from({ length: 20_000 }, (_, i) =>
+        opening(i + 1)
+      )
+      const session = (from: number, count: number) =>
+        Array.from({ length: count }, (_, i) => trade(from + i))
+      let tape = yield* applyViewerMessage(
+        yield* emptyTape(),
+        delta(...matchPrints)
+      )
+      tape = yield* applyViewerMessage(tape, delta(...session(20_001, 10_000)))
+      expect(yield* tapeLength(tape, new Set())).toBe(10_001)
+      expect(yield* tapeLength(tape, new Set(["opening"]))).toBe(30_001)
+      tape = yield* applyViewerMessage(tape, delta(...session(30_001, 1)))
+      expect(yield* tapeLength(tape, new Set())).toBe(10_000)
+      // A late print of a fold that dropped off stays dropped, and isn't new.
+      const received = tape.received
+      tape = yield* applyViewerMessage(tape, delta(opening(20_000)))
+      expect(yield* tapeLength(tape, new Set())).toBe(10_000)
+      expect(tape.received).toBe(received)
+    })
+  )
+
+  it.effect("a print that turns out negotiated leaves the fold", () =>
+    Effect.gen(function* () {
+      let tape = yield* applyViewerMessage(
+        yield* emptyTape(),
+        delta(opening(1), opening(2))
+      )
+      tape = yield* applyViewerMessage(
+        tape,
+        delta(trade(2, { wib: "08:58:00.004", board: "NG" }))
+      )
+      expect(yield* tapeRows(tape, new Set(), 0, 9)).toMatchObject([
+        { kind: "trade", trade: { tradeNumber: "2" } },
+        { kind: "fold", trades: 1, codes: 1 },
+      ])
+      expect(tape.received).toBe(2)
+    })
+  )
 })
 
-test("a big trade is Rp1 B or more on the regular board", () => {
-  expect(isBigTrade(trade(1, { price: 10_000, lots: 1_000 }))).toBe(true)
-  expect(isBigTrade(trade(1, { price: 10_000, lots: 999 }))).toBe(false)
-  expect(
-    isBigTrade(trade(1, { price: 10_000, lots: 1_000, board: "NG" }))
-  ).toBe(false)
-})
+it.effect("a frozen tape holds still while deltas arrive", () =>
+  Effect.gen(function* () {
+    const live = yield* applyViewerMessage(yield* emptyTape(), delta(trade(1)))
+    const frozen = yield* freezeTape(live)
+    yield* applyViewerMessage(live, delta(trade(2)))
+    expect(yield* tapeRows(frozen, new Set(), 0, 9)).toHaveLength(1)
+    expect(live.received - frozen.received).toBe(1)
+  })
+)
+
+it.effect(
+  "a reconnect's snapshot counts only the trades the tape didn't hold as received",
+  () =>
+    Effect.gen(function* () {
+      const trades = Array.from({ length: 300 }, (_, i) => trade(i + 1))
+      const live = yield* applyViewerMessage(
+        yield* emptyTape(),
+        delta(...trades)
+      )
+      const frozen = yield* freezeTape(live)
+      // The socket's first snapshot: the 200 newest, 50 of them new.
+      const reconnected = yield* applyViewerMessage(
+        live,
+        snapshot(...Array.from({ length: 200 }, (_, i) => trade(i + 151)))
+      )
+      expect(reconnected.received - frozen.received).toBe(50)
+      expect(yield* tapeRows(reconnected, new Set(), 0, 1)).toMatchObject([
+        { trade: { tradeNumber: "350" } },
+      ])
+    })
+)
+
+it.effect("a big trade is Rp1 B or more on the regular board", () =>
+  Effect.gen(function* () {
+    expect(yield* isBigTrade(trade(1, { price: 10_000, lots: 1_000 }))).toBe(
+      true
+    )
+    expect(yield* isBigTrade(trade(1, { price: 10_000, lots: 999 }))).toBe(
+      false
+    )
+    expect(
+      yield* isBigTrade(trade(1, { price: 10_000, lots: 1_000, board: "NG" }))
+    ).toBe(false)
+  })
+)

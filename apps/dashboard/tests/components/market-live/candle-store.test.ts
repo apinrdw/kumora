@@ -1,6 +1,6 @@
 import { StockCode, type Candle, type ViewerDown } from "@workspace/relay"
-import { DateTime } from "effect"
-import { describe, expect, test } from "vitest"
+import { DateTime, Effect } from "effect"
+import { describe, expect, it } from "@effect/vitest"
 
 import {
   makeCandleStore,
@@ -37,16 +37,20 @@ const snapshot = (
 })
 
 describe("the selected code's candles", () => {
-  test("a snapshot answering an earlier Select of another code changes nothing; this code's replaces them", () => {
-    const store = makeCandleStore(StockCode.make("BBRI"))
-    const heard: Array<CandleChange> = []
-    store.subscribe((change) => heard.push(change))
-    // The page moved from BBCA to BBRI before BBCA's snapshot arrived.
-    store.apply(snapshot("BBCA", [candle("BBCA", 9_000)]))
-    expect(store.candles()).toEqual([])
-    expect(heard).toEqual([])
-    store.apply(snapshot("BBRI", [candle("BBRI", 4_000)]))
-    expect(store.candles()).toEqual([candle("BBRI", 4_000)])
-    expect(heard).toEqual([{ _tag: "Reset" }])
-  })
+  it.effect(
+    "a snapshot answering an earlier Select of another code changes nothing; this code's replaces them",
+    () =>
+      Effect.gen(function* () {
+        const store = yield* makeCandleStore(StockCode.make("BBRI"))
+        const heard: Array<CandleChange> = []
+        store.subscribe((change) => heard.push(change))
+        // The page moved from BBCA to BBRI before BBCA's snapshot arrived.
+        store.apply(snapshot("BBCA", [candle("BBCA", 9_000)]))
+        expect(store.candles()).toEqual([])
+        expect(heard).toEqual([])
+        store.apply(snapshot("BBRI", [candle("BBRI", 4_000)]))
+        expect(store.candles()).toEqual([candle("BBRI", 4_000)])
+        expect(heard).toEqual([{ _tag: "Reset" }])
+      })
+  )
 })

@@ -1,4 +1,5 @@
 import type { WibDate } from "@workspace/relay"
+import { Effect } from "effect"
 
 export const MINUS = "−"
 
@@ -45,85 +46,76 @@ const dayOfDate = new Intl.DateTimeFormat("en-US", {
 
 export type Direction = "up" | "down" | "flat"
 
-export function direction(n: number): Direction {
-  return n > 0 ? "up" : n < 0 ? "down" : "flat"
-}
+export const direction = (n: number) =>
+  Effect.sync((): Direction => (n > 0 ? "up" : n < 0 ? "down" : "flat"))
 
-export function sign(n: number): string {
-  return n > 0 ? "+" : n < 0 ? MINUS : ""
-}
+export const sign = (n: number) =>
+  Effect.sync(() => (n > 0 ? "+" : n < 0 ? MINUS : ""))
 
 /** Rp9,275 */
-export function idr(n: number): string {
-  return "Rp" + nfInt.format(Math.abs(n))
-}
+export const idr = (n: number) =>
+  Effect.sync(() => "Rp" + nfInt.format(Math.abs(n)))
 
 /** 9,275 or 7,243.18 */
-export function plain(n: number, digits: 0 | 1 | 2 = 0): string {
-  const f = digits === 2 ? nf2 : digits === 1 ? nf1 : nfInt
-  return f.format(n)
-}
+export const plain = (n: number, digits: 0 | 1 | 2 = 0) =>
+  Effect.sync(() => (digits === 2 ? nf2 : digits === 1 ? nf1 : nfInt).format(n))
 
 /** +1.35% */
-export function pct(n: number): string {
-  return n === 0 ? "0.00%" : sign(n) + nf2.format(Math.abs(n)) + "%"
-}
+export const pct = (n: number) =>
+  n === 0
+    ? Effect.succeed("0.00%")
+    : Effect.map(sign(n), (s) => s + nf2.format(Math.abs(n)) + "%")
 
 /** A price: 9,275 for a stock, 7,243.18 for an index, whose prices are fractional. */
-export function price(n: number): string {
-  return plain(n, Number.isInteger(n) ? 0 : 2)
-}
+export const price = (n: number) => plain(n, Number.isInteger(n) ? 0 : 2)
 
 /** +90, −1.5 */
-export function signed(n: number, digits: 0 | 1 | 2 = 0): string {
-  return sign(n) + plain(Math.abs(n), digits)
-}
+export const signed = Effect.fnUntraced(function* (
+  n: number,
+  digits: 0 | 1 | 2 = 0
+) {
+  return (yield* sign(n)) + (yield* plain(Math.abs(n), digits))
+})
 
 /** Unsigned magnitude with a K, M or B suffix: 1.23 B, 12.4 M, 950. B is the largest. */
-export function compact(n: number): string {
-  const a = Math.abs(n)
-  if (a >= 1e9) return nfUpTo2.format(a / 1e9) + " B"
-  if (a >= 1e6) return nfUpTo2.format(a / 1e6) + " M"
-  if (a >= 1e3) return nfUpTo2.format(a / 1e3) + " K"
-  return nfInt.format(a)
-}
+export const compact = (n: number) =>
+  Effect.sync(() => {
+    const a = Math.abs(n)
+    if (a >= 1e9) return nfUpTo2.format(a / 1e9) + " B"
+    if (a >= 1e6) return nfUpTo2.format(a / 1e6) + " M"
+    if (a >= 1e3) return nfUpTo2.format(a / 1e3) + " K"
+    return nfInt.format(a)
+  })
 
 /** −Rp1.23 B */
-export function compactIdr(n: number): string {
-  return sign(n) + "Rp" + compact(n)
-}
+export const compactIdr = Effect.fnUntraced(function* (n: number) {
+  return (yield* sign(n)) + "Rp" + (yield* compact(n))
+})
 
 /** 1,250 or 0.25: a lot is 100 shares, so an odd lot needs its hundredths */
-export function lots(n: number): string {
-  return nfUpTo2.format(n)
-}
+export const lots = (n: number) => Effect.sync(() => nfUpTo2.format(n))
 
 /** 12.4 M shares */
-export function shares(n: number): string {
-  return compact(n) + " shares"
-}
+export const shares = (n: number) =>
+  Effect.map(compact(n), (figure) => figure + " shares")
 
 /** 14:45 WIB */
-export function asOf(iso: string): string {
-  return timeWib.format(new Date(iso)) + " WIB"
-}
+export const asOf = (iso: string) =>
+  Effect.sync(() => timeWib.format(new Date(iso)) + " WIB")
 
 /** A tape row's time in WIB, to the second: 09:00:07 */
-export function tapeTime(epochMillis: number): string {
-  return secondsWib.format(new Date(epochMillis))
-}
+export const tapeTime = (epochMillis: number) =>
+  Effect.sync(() => secondsWib.format(new Date(epochMillis)))
 
 /** Oct 24, 14:45 WIB */
-export function dateTime(iso: string): string {
-  return dateTimeWib.format(new Date(iso)) + " WIB"
-}
+export const dateTime = (iso: string) =>
+  Effect.sync(() => dateTimeWib.format(new Date(iso)) + " WIB")
 
 /** A `YYYY-MM-DD` trading day: Fri, Nov 6 */
-export function dayLabel(date: WibDate): string {
-  return dayOfDate.format(new Date(`${date}T00:00:00Z`))
-}
+export const dayLabel = (date: WibDate) =>
+  Effect.sync(() => dayOfDate.format(new Date(`${date}T00:00:00Z`)))
 
 /** Orca's tape style, whole billions: +Rp318 B */
-export function billionShort(n: number): string {
-  return `${sign(n)}Rp${plain(Math.abs(n) / 1e9)} B`
-}
+export const billionShort = Effect.fnUntraced(function* (n: number) {
+  return `${yield* sign(n)}Rp${yield* plain(Math.abs(n) / 1e9)} B`
+})

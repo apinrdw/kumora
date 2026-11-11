@@ -29,19 +29,23 @@ const startGoogle = post("/sign-in/social", {
 })
 
 describe("googleClient", () => {
-  it("is the bound client id and secret", () => {
-    assert.deepStrictEqual(
-      googleClient({
-        GOOGLE_CLIENT_ID: GOOGLE.clientId,
-        GOOGLE_CLIENT_SECRET: GOOGLE.clientSecret,
-      }),
-      GOOGLE
-    )
-  })
+  it.effect("is the bound client id and secret", () =>
+    Effect.gen(function* () {
+      assert.deepStrictEqual(
+        yield* googleClient({
+          GOOGLE_CLIENT_ID: GOOGLE.clientId,
+          GOOGLE_CLIENT_SECRET: GOOGLE.clientSecret,
+        }),
+        GOOGLE
+      )
+    })
+  )
 
-  it("is absent on a stage that binds no client", () => {
-    assert.isUndefined(googleClient({}))
-  })
+  it.effect("is absent on a stage that binds no client", () =>
+    Effect.gen(function* () {
+      assert.isUndefined(yield* googleClient({}))
+    })
+  )
 })
 
 describe("Google sign-in", () => {
@@ -81,19 +85,23 @@ const googleReturns = Effect.fnUntraced(function* (email: string) {
   vi.stubGlobal("fetch", (input: RequestInfo | URL) => {
     const target = input instanceof Request ? input.url : String(input)
     if (target !== "https://oauth2.googleapis.com/token")
-      return Promise.reject(new Error(`unexpected fetch ${target}`))
-    return Promise.resolve(
-      Response.json({
-        access_token: "google-access-token",
-        token_type: "Bearer",
-        expires_in: 3600,
-        id_token: idToken({
-          sub: "google-user-1",
-          email,
-          email_verified: true,
-          name: "Ayu",
-        }),
-      })
+      return Effect.runPromise(
+        Effect.fail(new Error(`unexpected fetch ${target}`))
+      )
+    return Effect.runPromise(
+      Effect.succeed(
+        Response.json({
+          access_token: "google-access-token",
+          token_type: "Bearer",
+          expires_in: 3600,
+          id_token: idToken({
+            sub: "google-user-1",
+            email,
+            email_verified: true,
+            name: "Ayu",
+          }),
+        })
+      )
     )
   })
   return yield* send(`/callback/google?code=google-code&state=${state}`, {

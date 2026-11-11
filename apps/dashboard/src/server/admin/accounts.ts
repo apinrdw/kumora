@@ -29,8 +29,8 @@ export const listAccounts = Effect.fn("listAccounts")(function* (
   const auth = yield* Auth
   // Admin server functions read past the cookie cache.
   const session = yield* auth.getSession(headers, { fresh: true })
-  const account = accountOf(session)
-  const decision = decide(account, "admin.list-accounts", {
+  const account = yield* accountOf(session)
+  const decision = yield* decide(account, "admin.list-accounts", {
     feature: "admin",
   })
   if (decision._tag === "Deny")
@@ -39,21 +39,24 @@ export const listAccounts = Effect.fn("listAccounts")(function* (
   const page = yield* (yield* Accounts).list(search, adminEmails)
   return {
     total: page.total,
-    rows: page.rows.map((row): AccountRow => {
-      const target = targetOf(
-        { ...row, banned: row.status === "suspended" },
-        session,
-        adminEmails
-      )
-      return {
-        ...row,
-        allowed: Object.fromEntries(
-          TARGET_ACTIONS.map((action) => [
-            action,
-            decide(account, action, target)._tag === "Allow",
-          ])
-        ) as Record<TargetAction, boolean>,
-      }
-    }),
+    rows: yield* Effect.forEach(page.rows, (row) =>
+      Effect.gen(function* () {
+        const target = yield* targetOf(
+          { ...row, banned: row.status === "suspended" },
+          session,
+          adminEmails
+        )
+        const allowed = yield* Effect.forEach(TARGET_ACTIONS, (action) =>
+          Effect.map(
+            decide(account, action, target),
+            (decided) => [action, decided._tag === "Allow"] as const
+          )
+        )
+        return {
+          ...row,
+          allowed: Object.fromEntries(allowed) as Record<TargetAction, boolean>,
+        } satisfies AccountRow
+      })
+    ),
   }
 })

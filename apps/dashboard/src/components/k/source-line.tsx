@@ -1,4 +1,5 @@
 import { cn } from "@workspace/ui/lib/utils"
+import { Effect } from "effect"
 import { Fragment } from "react"
 import type { ReactNode } from "react"
 
@@ -22,7 +23,10 @@ export function KSourceLine({
 }: KSourceLineProps) {
   const items: Array<ReactNode> = []
   if (source) items.push(<span>{source}</span>)
-  if (asOf) items.push(<span className="num">per {formatAsOf(asOf)}</span>)
+  if (asOf)
+    items.push(
+      <span className="num">per {Effect.runSync(formatAsOf(asOf))}</span>
+    )
   if (extra) items.push(extra)
   if (!items.length) return null
   return (

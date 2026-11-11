@@ -1,4 +1,6 @@
 import { useHydrated } from "@tanstack/react-router"
+import { clientRuntime } from "@workspace/client"
+import { Effect } from "effect"
 import type { FormEvent } from "react"
 
 import { KButton, KInput } from "@/components/k"
@@ -20,6 +22,29 @@ const LINK_FAILED: Outcome = {
   _tag: "Failed",
   message: "That link has expired or was already used. Start again.",
 }
+
+const changeEmail = Effect.fnUntraced(function* (
+  form: HTMLFormElement,
+  newEmail: string,
+  email: string
+): Effect.fn.Return<Outcome> {
+  const { error } = yield* Effect.promise(() =>
+    authClient.changeEmail({ newEmail, callbackURL: ACCOUNT_PATH })
+  )
+  if (error)
+    return {
+      _tag: "Failed",
+      message:
+        error.status === 400
+          ? "Enter an email other than the current one."
+          : "Couldn't start the change. Try again.",
+    }
+  yield* Effect.sync(() => form.reset())
+  return {
+    _tag: "Done",
+    message: `Check ${email} for a link to confirm the change.`,
+  }
+})
 
 /**
  * Change email: the current address confirms the move, then the new one
@@ -43,25 +68,7 @@ export function EmailSection({
     event.preventDefault()
     const form = event.currentTarget
     const newEmail = String(new FormData(form).get("newEmail")).trim()
-    void run(async () => {
-      const { error } = await authClient.changeEmail({
-        newEmail,
-        callbackURL: ACCOUNT_PATH,
-      })
-      if (error)
-        return {
-          _tag: "Failed",
-          message:
-            error.status === 400
-              ? "Enter an email other than the current one."
-              : "Couldn't start the change. Try again.",
-        }
-      form.reset()
-      return {
-        _tag: "Done",
-        message: `Check ${email} for a link to confirm the change.`,
-      }
-    })
+    clientRuntime.runFork(run(changeEmail(form, newEmail, email)))
   }
   return (
     <AccountSection

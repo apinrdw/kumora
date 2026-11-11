@@ -1,5 +1,6 @@
 import { IconChartCandle, IconUsers } from "@tabler/icons-react"
-import { describe, expect, test } from "vitest"
+import { describe, expect, it } from "@effect/vitest"
+import { Effect } from "effect"
 
 import { visibleNav, type NavGroup } from "@/lib/nav"
 
@@ -34,16 +35,20 @@ const labels = (nav: ReadonlyArray<NavGroup>) =>
   nav.map((group) => [group.label, group.items.map((item) => item.label)])
 
 describe("visibleNav", () => {
-  test("keeps the items of features the account may view", () => {
-    expect(labels(visibleNav(NAV, ["market-live", "admin"]))).toEqual([
-      ["Market", ["Market Live"]],
-      ["Admin", ["Accounts"]],
-    ])
-  })
+  it.effect("keeps the items of features the account may view", () =>
+    Effect.gen(function* () {
+      expect(labels(yield* visibleNav(NAV, ["market-live", "admin"]))).toEqual([
+        ["Market", ["Market Live"]],
+        ["Admin", ["Accounts"]],
+      ])
+    })
+  )
 
-  test("drops a group left with no item", () => {
-    expect(labels(visibleNav(NAV, ["market-live", "account"]))).toEqual([
-      ["Market", ["Market Live"]],
-    ])
-  })
+  it.effect("drops a group left with no item", () =>
+    Effect.gen(function* () {
+      expect(
+        labels(yield* visibleNav(NAV, ["market-live", "account"]))
+      ).toEqual([["Market", ["Market Live"]]])
+    })
+  )
 })

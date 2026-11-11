@@ -1,4 +1,6 @@
 import { useHydrated } from "@tanstack/react-router"
+import { clientRuntime } from "@workspace/client"
+import { Effect } from "effect"
 import type { FormEvent } from "react"
 
 import { KButton, KInput } from "@/components/k"
@@ -11,7 +13,17 @@ import {
   AccountSection,
   OutcomeLine,
   useAccountAction,
+  type Outcome,
 } from "./account-section"
+
+const saveName = (name: string) =>
+  Effect.map(
+    Effect.promise(() => authClient.updateUser({ name })),
+    ({ error }): Outcome =>
+      error
+        ? { _tag: "Failed", message: "Couldn't save the name. Try again." }
+        : { _tag: "Done", message: "Name saved." }
+  )
 
 /** Email, role and sign-in methods, read-only; the display name, editable. */
 export function DetailsSection({
@@ -26,12 +38,7 @@ export function DetailsSection({
   const submit = (event: FormEvent<HTMLFormElement>) => {
     event.preventDefault()
     const name = String(new FormData(event.currentTarget).get("name")).trim()
-    void run(async () => {
-      const { error } = await authClient.updateUser({ name })
-      return error
-        ? { _tag: "Failed", message: "Couldn't save the name. Try again." }
-        : { _tag: "Done", message: "Name saved." }
-    })
+    clientRuntime.runFork(run(saveName(name)))
   }
   return (
     <AccountSection title="Details">

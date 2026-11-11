@@ -1,3 +1,5 @@
+import { Effect } from "effect"
+
 // A way an account proves who it is (GLOSSARY.md, "Sign-in method"). Shared by
 // the server, which reads Better Auth's provider ids, and the pages.
 export type SignInMethod = "password" | "google"
@@ -11,14 +13,16 @@ const BY_PROVIDER: Readonly<Partial<Record<string, SignInMethod>>> = {
 /** The sign-in methods of an account's Better Auth provider ids, sorted, once each. */
 export const signInMethodsOf = (
   providerIds: Iterable<string>
-): ReadonlyArray<SignInMethod> =>
-  [
-    ...new Set(
-      [...providerIds].flatMap((id) =>
-        Object.hasOwn(BY_PROVIDER, id) ? [BY_PROVIDER[id]!] : []
-      )
-    ),
-  ].sort()
+): Effect.Effect<ReadonlyArray<SignInMethod>> =>
+  Effect.sync(() =>
+    [
+      ...new Set(
+        [...providerIds].flatMap((id) =>
+          Object.hasOwn(BY_PROVIDER, id) ? [BY_PROVIDER[id]!] : []
+        )
+      ),
+    ].sort()
+  )
 
 export const SIGN_IN_METHOD_LABEL = {
   password: "Password",

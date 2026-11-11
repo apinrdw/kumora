@@ -27,6 +27,7 @@ import {
 } from "@/server/market-live/trading-day"
 
 import recorded from "./fixtures/ajaib-trades-2026-11-09.json"
+import { everySplit } from "../../interleaved"
 import rest from "./fixtures/rest-running-trades-2026-11-09.json"
 import { memorySql } from "./sql"
 
@@ -138,6 +139,46 @@ const GAPS = [
   ["22322", "22322", "2026-11-09T02:00:00.000Z"],
   ["22325", "22330", "2026-11-09T02:00:00.000Z"],
 ]
+
+const numberOf = (frame: string) => Number(JSON.parse(frame).tradeNum.slice(8))
+
+describe("backfill requests under an overlapping gap timer", () => {
+  it.effect(
+    "a gap opened while the timer asks for an earlier one is still asked for",
+    () =>
+      Effect.gen(function* () {
+        const operations = yield* everySplit({
+          setup: Effect.gen(function* () {
+            const day = yield* tradingDay()
+            // The frames up to 22324 open the first gap; the rest the second.
+            yield* day.ajaib(
+              recorded.session1.filter((frame) => numberOf(frame) <= 22324)
+            )
+            return day
+          }),
+          first: (day) =>
+            day.ajaib(
+              recorded.session1.filter((frame) => numberOf(frame) > 22324)
+            ),
+          // The timer wakes inside the adjust and asks for the first gap
+          // before the frames' callback resumes.
+          second: () => TestClock.adjust("5 seconds"),
+          holdFirst: true,
+          check: (day, at) =>
+            Effect.gen(function* () {
+              yield* TestClock.adjust("5 seconds")
+              assert.deepStrictEqual(
+                (yield* day.requests).map(range),
+                GAPS,
+                `the frames' callback yielded at operation ${at}`
+              )
+            }),
+        })
+        assert.isAbove(operations, 0)
+      }),
+    60_000
+  )
+})
 
 describe("backfill requests", () => {
   it.effect(

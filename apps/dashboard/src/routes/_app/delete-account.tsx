@@ -1,4 +1,6 @@
 import { createFileRoute } from "@tanstack/react-router"
+import { loadServerFn, runLoader } from "@workspace/server/loader"
+import { Effect } from "effect"
 
 import { ConfirmDelete } from "@/components/account/confirm-delete"
 import { accountPageFn } from "@/server/auth/account-page.functions"
@@ -9,11 +11,13 @@ import { accountPageFn } from "@/server/auth/account-page.functions"
 export const Route = createFileRoute("/_app/delete-account")({
   staticData: {
     feature: "account",
-    crumbs: () => [{ label: "Account" }, { label: "Delete account" }],
+    crumbs: () =>
+      Effect.succeed([{ label: "Account" }, { label: "Delete account" }]),
   },
   validateSearch: (search): { token?: string } =>
     typeof search.token === "string" ? { token: search.token } : {},
-  loader: ({ location }) => accountPageFn({ data: location.href }),
+  loader: ({ location }) =>
+    runLoader(loadServerFn(() => accountPageFn({ data: location.href }))),
   head: () => ({ meta: [{ title: "Delete account · KUMORA Terminal" }] }),
   component: DeleteAccount,
 })
