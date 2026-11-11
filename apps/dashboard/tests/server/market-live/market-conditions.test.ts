@@ -131,13 +131,14 @@ const marketAt = Effect.fnUntraced(function* (start: string) {
     return current!
   })
   const feeds = Effect.map(conditions, (current) => current.feeds)
-  // The relay socket closes, `others` being the object's other relay sockets.
-  const relayClosedAmong = (others: ReadonlyArray<FakeSocket>) =>
-    Effect.suspend(() => {
-      relays.splice(1, relays.length, ...others)
-      return day.ingestClosed(relay)
-    })
-  const relayClosed = relayClosedAmong([])
+  // The relay socket closes.
+  const relayClosed = day.ingestClosed(relay)
+  // Another relay socket is accepted, listed from then on.
+  const relayAccepted = Effect.sync(() => {
+    const socket = new FakeSocket()
+    relays.push(socket)
+    return socket
+  })
   // Another relay socket sends its token.
   const tokenOn = (socket: FakeSocket) =>
     encodeIngestUp({
@@ -154,7 +155,7 @@ const marketAt = Effect.fnUntraced(function* (start: string) {
     conditions,
     feeds,
     relayClosed,
-    relayClosedAmong,
+    relayAccepted,
     tokenOn,
     page,
     select,
@@ -170,12 +171,12 @@ describe("the relay under overlapping callbacks", () => {
           setup: Effect.gen(function* () {
             const market = yield* marketAt("2026-11-09T10:00:00")
             yield* market.frames("Stockbit")
-            return { market, other: new FakeSocket() }
+            return { market, other: yield* market.relayAccepted }
           }),
           first: ({ market, other }) => market.tokenOn(other),
           // The close waits for the token's turn, and the other socket is
           // counted ready by then.
-          second: ({ market, other }) => market.relayClosedAmong([other]),
+          second: ({ market }) => market.relayClosed,
           check: ({ market }, at) =>
             Effect.gen(function* () {
               yield* TestClock.adjust("250 millis")
@@ -198,11 +199,11 @@ describe("the relay going offline", () => {
       Effect.gen(function* () {
         const market = yield* marketAt("2026-11-09T10:00:00")
         yield* market.frames("Stockbit")
-        const other = new FakeSocket()
+        const other = yield* market.relayAccepted
         yield* market.tokenOn(other)
         // Closed, its own close not handled yet.
         other.isOpen = false
-        yield* market.relayClosedAmong([other])
+        yield* market.relayClosed
         yield* TestClock.adjust("250 millis")
         assert.isFalse((yield* market.conditions).relayOnline)
       })
