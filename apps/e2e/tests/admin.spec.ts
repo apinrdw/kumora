@@ -83,11 +83,15 @@ test.describe("an admin", () => {
     await expect(created).toHaveAttribute("aria-sort", "ascending")
     // Oldest first, once the loader has fetched the re-sorted page.
     await expect.poll(emails).not.toEqual(newestFirst)
-    const sorted = await emails()
+    // The shared accounts alone: the setup project signs them up before any
+    // spec, so they stay the two oldest while specs running alongside sign up
+    // accounts that land below them.
+    const oldest = (await emails()).slice(0, 2)
+    expect(oldest).toEqual(expect.arrayContaining([ADMIN.email, MEMBER.email]))
 
     await page.reload()
     await expect(page).toHaveURL(/[?&]sort=createdAt&dir=asc/)
     await expect(created).toHaveAttribute("aria-sort", "ascending")
-    await expect.poll(emails).toEqual(sorted)
+    await expect.poll(async () => (await emails()).slice(0, 2)).toEqual(oldest)
   })
 })
