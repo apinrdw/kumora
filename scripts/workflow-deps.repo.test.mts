@@ -347,23 +347,41 @@ layer(NodeServices.layer)("workflow dependencies", (it) => {
     () =>
       Effect.gen(function* () {
         const { steps } = (yield* installAction).runs
-        const modulePaths = [
-          "node_modules",
-          "apps/*/node_modules",
-          "packages/*/node_modules",
-        ]
-        const coversModules = (step: Step) => {
-          const paths = input(step, "path").trim().split("\n")
-          return modulePaths.every((dir) => paths.includes(dir))
-        }
         const restore = steps.findIndex(
-          (step) => usesCache(step, "/restore") && coversModules(step)
+          (step) =>
+            usesCache(step, "/restore") &&
+            input(step, "key").startsWith("node-modules-")
         )
         const restoreStep = steps[restore]
         assert.isDefined(restoreStep, "restores node_modules")
         assert.isDefined(restoreStep.id, "the restore step has an id")
+        const paths = input(restoreStep, "path")
+        const lists = outputStep(steps, paths, "modules")
+        const listStep = steps[lists]
+        assert.isDefined(listStep, "a step's output lists the restored paths")
+        assert.isBelow(lists, restore)
+        const listed = /^\s*modules=\((.*)\)$/m.exec(listStep.run ?? "")?.[1]
+        assert.deepStrictEqual(
+          listed?.split(" ").map((word) => word.replace(/^'|'$/g, "")),
+          ["node_modules", "apps/*/node_modules", "packages/*/node_modules"],
+          "the paths are the root's and every workspace's node_modules"
+        )
+        assert.match(
+          listStep.run ?? "",
+          /\bmodules-hash=.*"\$\{modules\[@\]\}".*\bsha256sum\b/,
+          "the step hashes the same list"
+        )
         const key = input(restoreStep, "key")
-        assert.include(key, "hashFiles('pnpm-lock.yaml'")
+        assert.deepStrictEqual(
+          [...key.matchAll(/hashFiles\(([^)]*)\)/g)].map(([, files]) => files),
+          ["'pnpm-lock.yaml', 'pnpm-workspace.yaml'"],
+          "the key hashes only the files pnpm installs from"
+        )
+        assert.strictEqual(
+          outputStep(steps, key, "modules-hash"),
+          lists,
+          "the key holds the paths' hash"
+        )
         assert.include(key, "${{ runner.os }}")
         for (const tool of ["node", "pnpm"]) {
           const reads = outputStep(steps, key, tool)
@@ -387,7 +405,10 @@ layer(NodeServices.layer)("workflow dependencies", (it) => {
         assert.strictEqual(installs.length, 1, "the action installs once")
         assert.strictEqual(install.if, onMiss)
         const save = steps.findIndex(
-          (step) => usesCache(step, "/save") && coversModules(step)
+          (step) =>
+            usesCache(step, "/save") &&
+            input(step, "key") ===
+              `\${{ steps.${restoreStep.id}.outputs.cache-primary-key }}`
         )
         assert.isAbove(
           save,
@@ -396,8 +417,9 @@ layer(NodeServices.layer)("workflow dependencies", (it) => {
         )
         assert.strictEqual(steps[save]?.if, onMiss)
         assert.strictEqual(
-          input(steps[save] ?? {}, "key"),
-          `\${{ steps.${restoreStep.id}.outputs.cache-primary-key }}`
+          input(steps[save] ?? {}, "path"),
+          paths,
+          "saves the paths it restores"
         )
         const store = steps.findIndex(
           (step) =>

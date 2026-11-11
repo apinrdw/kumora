@@ -2,35 +2,40 @@ name: Install dependencies
 description: Restore the workspace's node_modules by the lockfile, or install them with pnpm and save them.
 
 # Decision: CI restores the whole node_modules tree, the root's and every
-# workspace's, keyed by what pnpm installs from, and skips `pnpm install` on a
-# hit (apinrdw/kumora#190). Each job used to restore the pnpm store
-# (setup-node's `cache: pnpm`) and then link it, about 27 s, on every run. The
-# key holds this file too, so a change to the paths below starts a fresh
-# entry. It also holds the Node major the jobs' setup-node resolves and the
-# pnpm version that `packageManager` pins, so a Node or pnpm bump with no
-# lockfile change installs afresh: native addons are built per Node major,
-# and pnpm's layout can change between its versions. Workers Builds is
-# unaffected: it clones the repo and runs its own
-# `pnpm install --frozen-lockfile` before the deploy command, and bun reads
-# the same node_modules in both places. In CI a hit takes 7-10 s against a
-# miss's 25-28 s (run 43091968909, attempts 2 and 1).
+# workspace's, keyed by what changes the install, and skips `pnpm install` on
+# a hit (apinrdw/kumora#190). Each job used to restore the pnpm store
+# (setup-node's `cache: pnpm`) and then link it, about 27 s, on every run.
+# The key holds the lockfile and workspace file, the Node major the jobs'
+# setup-node resolves, the pnpm version that `packageManager` pins (native
+# addons are built per Node major, and pnpm's layout can change between its
+# versions), and a hash of the cached paths, so changing that list starts a
+# fresh entry. It holds no hash of this file: a comment-only edit to it missed
+# every job's cache in run 43093360716. The `inputs` step lists the paths
+# once, for the key and both cache steps. Workers Builds is unaffected: it
+# clones the repo and runs its own `pnpm install --frozen-lockfile` before
+# the deploy command, and bun reads the same node_modules in both places. In
+# CI a hit takes 7-10 s against a miss's 25-28 s (run 43091968909, attempts 2
+# and 1).
 runs:
   using: composite
   steps:
-    - id: versions
+    - id: inputs
       shell: bash
       run: |
-        echo "node=$(node -p 'process.versions.node.split(".")[0]')" >> "$GITHUB_OUTPUT"
-        echo "pnpm=$(pnpm --version)" >> "$GITHUB_OUTPUT"
-    # The same three paths as the node_modules save step at the end.
+        modules=(node_modules 'apps/*/node_modules' 'packages/*/node_modules')
+        {
+          echo "node=$(node -p 'process.versions.node.split(".")[0]')"
+          echo "pnpm=$(pnpm --version)"
+          echo "modules-hash=$(printf '%s\n' "${modules[@]}" | sha256sum | cut -c1-12)"
+          echo 'modules<<EOF'
+          printf '%s\n' "${modules[@]}"
+          echo EOF
+        } >> "$GITHUB_OUTPUT"
     - id: modules
       uses: actions/cache/restore@v6
       with:
-        path: |
-          node_modules
-          apps/*/node_modules
-          packages/*/node_modules
-        key: node-modules-${{ runner.os }}-${{ runner.arch }}-node${{ steps.versions.outputs.node }}-pnpm${{ steps.versions.outputs.pnpm }}-${{ hashFiles('pnpm-lock.yaml', 'pnpm-workspace.yaml', '.github/actions/install/action.yml') }}
+        path: ${{ steps.inputs.outputs.modules }}
+        key: node-modules-${{ runner.os }}-${{ runner.arch }}-node${{ steps.inputs.outputs.node }}-pnpm${{ steps.inputs.outputs.pnpm }}-${{ steps.inputs.outputs.modules-hash }}-${{ hashFiles('pnpm-lock.yaml', 'pnpm-workspace.yaml') }}
     # Decision: only a miss restores the pnpm store, the last one saved for
     # this runner, so pnpm downloads just what the lockfile added. Each store
     # and node_modules entry is saved as soon as the install ends, before a
@@ -55,12 +60,8 @@ runs:
       with:
         path: ${{ steps.store-path.outputs.path }}
         key: ${{ steps.store.outputs.cache-primary-key }}
-    # The same three paths as the node_modules restore step at the top.
     - if: steps.modules.outputs.cache-hit != 'true'
       uses: actions/cache/save@v6
       with:
-        path: |
-          node_modules
-          apps/*/node_modules
-          packages/*/node_modules
+        path: ${{ steps.inputs.outputs.modules }}
         key: ${{ steps.modules.outputs.cache-primary-key }}
