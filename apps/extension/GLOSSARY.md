@@ -13,7 +13,7 @@ One of a broker site's two relay sockets, A or B. B opens on the tick after A's 
 _Avoid_: stream, channel
 
 **Tick**:
-The service worker's 10 s heartbeat. A connection quiet since the last tick sends its ping; one still unanswered at the next tick reopens.
+The service worker's 10 s heartbeat. A connection quiet since the last tick sends its ping; one still unanswered at the next tick reopens. In e2e a changed test clock offset also ticks at once.
 _Avoid_: interval, poll
 
 **Target**:

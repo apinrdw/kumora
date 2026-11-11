@@ -231,7 +231,7 @@ test.describe("the tape at peak", () => {
       tape.locator(`tr[data-trade-number="${base + newer}"]`)
     ).toBeVisible()
     const fold = tape.getByRole("button", { name: /Opening match 08:58:00/ })
-    // The first print, once the page's socket is live, so the replay waits
+    // The auction match's first running trade, once the page's socket is live, so the replay waits
     // for the snapshot.
     const match = openingMatchToday(20_000, base + newer)
     await relay.sendAjaib(match.slice(0, 1))
