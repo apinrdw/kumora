@@ -12,13 +12,19 @@ import { Effect, Option, Schema } from "effect"
 import { useEffect, useId, useState, type FormEvent } from "react"
 
 import type { SignIn } from "../worker/ajaib-session.ts"
+import type { RelayOutcome } from "../worker/code-list.ts"
 import {
   AjaibPin,
+  isCodeListRelayChange,
+  isHeldCodeListChange,
   isSignInChange,
   isTargetStatesChange,
+  loadCodeListRelay,
+  loadHeldCodeList,
   loadSettings,
   loadSignIn,
   loadTargetStates,
+  saveCodeListRelay,
   savePin,
   saveSettings,
   type TargetName,
@@ -114,6 +120,80 @@ function AjaibSignIn() {
         </CardContent>
       </Card>
     </form>
+  )
+}
+
+const relayLabels: Record<"asked" | RelayOutcome, string> = {
+  asked: "Relaying…",
+  fetched: "Fetched from Ajaib and sent to the connected targets.",
+  resent:
+    "Ajaib didn't answer, so today's held list was sent again to the connected targets.",
+  missed:
+    "Ajaib didn't answer and no list of today is held. Open the Ajaib tab, sign in, and try again; the service worker console says why.",
+  busy: "A fetch is already under way. Try again in a moment.",
+}
+
+// The relay's held code list and a button that sends it up now: fetched
+// fresh from the Ajaib tab, or today's held list again when Ajaib misses.
+function CodeListRelayCard() {
+  const [held, setHeld] = useState<{ date: string; count: number }>()
+  const [relay, setRelay] = useState<"asked" | RelayOutcome>()
+
+  useEffect(() => {
+    const refreshHeld = () =>
+      void optionsRuntime
+        .runPromise(loadHeldCodeList)
+        .then((loaded) => setHeld(Option.getOrUndefined(loaded)))
+    const refreshRelay = () =>
+      void optionsRuntime
+        .runPromise(loadCodeListRelay)
+        .then((loaded) => setRelay(Option.getOrUndefined(loaded)?.state))
+    const onChanged = (
+      changes: Record<string, chrome.storage.StorageChange>,
+      area: string
+    ) => {
+      if (Effect.runSync(isHeldCodeListChange(changes, area))) refreshHeld()
+      if (Effect.runSync(isCodeListRelayChange(changes, area))) refreshRelay()
+    }
+    refreshHeld()
+    refreshRelay()
+    chrome.storage.onChanged.addListener(onChanged)
+    return () => chrome.storage.onChanged.removeListener(onChanged)
+  }, [])
+
+  const relayNow = () =>
+    void optionsRuntime.runPromise(
+      saveCodeListRelay({ state: "asked", at: Date.now() })
+    )
+
+  return (
+    <Card>
+      <CardHeader>
+        <CardTitle>Code list</CardTitle>
+        <CardDescription>
+          Fetched from the Ajaib tab once a day and sent to every target. Relay
+          it by hand when Market Live's search has no codes.
+        </CardDescription>
+      </CardHeader>
+      <CardContent className="grid gap-4">
+        <p className="text-sm">
+          Held:{" "}
+          <output aria-label="Held code list">
+            {held === undefined
+              ? "None"
+              : `${held.date}, ${held.count.toLocaleString("en")} codes`}
+          </output>
+        </p>
+        <div className="flex items-center gap-4">
+          <Button type="button" disabled={relay === "asked"} onClick={relayNow}>
+            Relay the code list now
+          </Button>
+          <p role="status" className="text-sm">
+            {relay === undefined ? "" : relayLabels[relay]}
+          </p>
+        </div>
+      </CardContent>
+    </Card>
   )
 }
 
@@ -266,6 +346,7 @@ export function OptionsPage() {
           </p>
         </div>
       </form>
+      <CodeListRelayCard />
       <AjaibSignIn />
     </main>
   )

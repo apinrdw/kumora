@@ -33,9 +33,11 @@ import { makeOnDemandCodes } from "./on-demand-codes.ts"
 import {
   DashboardOrigin,
   codeListStore,
+  isCodeListRelayAsk,
   isSettingsChange,
   loadClockOffset,
   loadSettings,
+  saveCodeListRelay,
   saveTargetStates,
   sessionPinStore,
   type Settings,
@@ -72,6 +74,7 @@ type WorkerEvent =
   | { readonly _tag: "tick" }
   | { readonly _tag: "alarm" }
   | { readonly _tag: "settings" }
+  | { readonly _tag: "relay-code-list" }
 
 // Chrome delivers the events that wake a stopped worker only to listeners
 // added synchronously while its script first runs, so they are added here and
@@ -93,6 +96,8 @@ chrome.alarms.onAlarm.addListener((alarm) => {
 chrome.storage.onChanged.addListener((changes, area) => {
   if (Effect.runSync(isSettingsChange(changes, area)))
     queue({ _tag: "settings" })
+  if (Effect.runSync(isCodeListRelayAsk(changes, area)))
+    queue({ _tag: "relay-code-list" })
 })
 
 // The toolbar badge shows the worst target state.
@@ -329,6 +334,12 @@ const main = Effect.gen(function* () {
         return tick(event._tag === "alarm")
       case "settings":
         return targets.apply
+      case "relay-code-list":
+        return Effect.flatMap(scheduleNow, (now) =>
+          codeList.relayNow(ajaibRest, now, (state) =>
+            saveCodeListRelay({ state, at: Date.now() })
+          )
+        )
     }
   }
   return yield* Effect.forever(Effect.flatMap(Queue.take(events), handle))

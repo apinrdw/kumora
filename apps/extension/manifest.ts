@@ -2,6 +2,8 @@
 // manifest plugin in vite.config.ts. The entries below are also the build's
 // inputs, so a file named here is always one the build emits.
 
+import packageJson from "./package.json" with { type: "json" }
+
 // Each script entry: the source the build reads, and the file the manifest
 // names in dist.
 export const scriptEntries = {
@@ -21,7 +23,8 @@ export const manifest = (
 ): chrome.runtime.ManifestV3 => ({
   manifest_version: 3,
   name: "Kumora relay",
-  version: "0.0.1",
+  // One version, the package's: Chrome shows it on chrome://extensions.
+  version: packageJson.version,
   description:
     "Relays Stockbit's and Ajaib's live data from signed-in tabs to Kumora's Market Live.",
   // Port messages keep the service worker alive from 110, websocket traffic

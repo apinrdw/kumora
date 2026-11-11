@@ -3,7 +3,7 @@
 import { Effect, Option, Schema } from "effect"
 
 import { SignIn, type PinStore } from "./ajaib-session.ts"
-import { CodeListCache, type CodeListStore } from "./code-list.ts"
+import { CodeListCache, RelayOutcome, type CodeListStore } from "./code-list.ts"
 
 // Where a dashboard serves: an origin, `https://host` or `http://host:port`.
 export const DashboardOrigin = Schema.String.check(
@@ -116,6 +116,62 @@ export const codeListStore: CodeListStore = {
     )
   }),
 }
+
+// The held list as the options page shows it: its day and how many codes.
+export const loadHeldCodeList = Effect.map(codeListStore.load, (held) =>
+  Option.map(held, ({ date, codes }) => ({ date, count: codes.length }))
+)
+
+export const isHeldCodeListChange = Effect.fnUntraced(function* (
+  changes: Readonly<Record<string, unknown>>,
+  area: string
+) {
+  return area === "local" && CODE_LIST_KEY in changes
+})
+
+// Decision: the options page's relay button asks the worker through session
+// storage, as the settings do: it writes `asked`, a change wakes a stopped
+// worker, and the worker writes the outcome back under the same key.
+const CODE_LIST_RELAY_KEY = "codeListRelay"
+
+const CodeListRelay = Schema.Struct({
+  state: Schema.Union([Schema.Literal("asked"), RelayOutcome]),
+  at: Schema.Number,
+})
+export type CodeListRelay = typeof CodeListRelay.Type
+const decodeRelay = Schema.decodeUnknownOption(CodeListRelay)
+
+export const saveCodeListRelay = Effect.fnUntraced(function* (
+  relay: CodeListRelay
+) {
+  yield* Effect.promise(() =>
+    chrome.storage.session.set({ [CODE_LIST_RELAY_KEY]: relay })
+  )
+})
+
+export const loadCodeListRelay = Effect.gen(function* () {
+  const stored = yield* Effect.promise(() =>
+    chrome.storage.session.get(CODE_LIST_RELAY_KEY)
+  )
+  return decodeRelay(stored[CODE_LIST_RELAY_KEY])
+})
+
+export const isCodeListRelayChange = Effect.fnUntraced(function* (
+  changes: Readonly<Record<string, unknown>>,
+  area: string
+) {
+  return area === "session" && CODE_LIST_RELAY_KEY in changes
+})
+
+// A change that asks the worker to relay: the new value is `asked`.
+export const isCodeListRelayAsk = Effect.fnUntraced(function* (
+  changes: Readonly<Record<string, chrome.storage.StorageChange>>,
+  area: string
+) {
+  if (!(yield* isCodeListRelayChange(changes, area))) return false
+  const asked = decodeRelay(changes[CODE_LIST_RELAY_KEY]?.newValue)
+  return Option.isSome(asked) && asked.value.state === "asked"
+})
 
 // Decision: a test-only clock offset, in ms, moves the relay's schedule (its
 // streaming hours, its auctions and the code list's day) and nothing else, so
