@@ -42,7 +42,7 @@ const cumulative = (levels: ReadonlyArray<BookLevel>) =>
     }))
   })
 
-// The depth curve's two SVG areas, bids and offers, on one price and lot scale.
+// The order book curve's two SVG areas, bids and offers, on one price and lot scale.
 const curveAreas = Effect.fnUntraced(function* (book: OrderBook) {
   const bids = yield* cumulative(book.bids)
   const offers = yield* cumulative(book.offers)
