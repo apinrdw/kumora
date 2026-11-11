@@ -11,7 +11,11 @@ import { DateTime, Effect, Option, PubSub } from "effect"
 import { TestClock } from "effect/testing"
 
 import { CODE_LIST_PATH } from "../src/worker/ajaib.ts"
-import { makeCodeList, type CodeListCache } from "../src/worker/code-list.ts"
+import {
+  makeCodeList,
+  type CodeListCache,
+  type RelayOutcome,
+} from "../src/worker/code-list.ts"
 import type { Answer, TabRequest } from "../src/worker/broker.ts"
 
 // An instant written as a WIB wall-clock time.
@@ -73,7 +77,14 @@ const harness = Effect.fnUntraced(function* (options: {
       }),
   }
   const tick = (dateTime: string) => codeList.tick(tab, wib(dateTime))
+  const outcomes: Array<RelayOutcome> = []
+  const relayNow = (dateTime: string) =>
+    codeList.relayNow(tab, wib(dateTime), (outcome) =>
+      Effect.sync(() => void outcomes.push(outcome))
+    )
   return {
+    relayNow,
+    outcomes,
     codeList,
     tick,
     requests,
@@ -183,4 +194,56 @@ describe("the code list", () => {
       )
     })
   )
+
+  describe("relayed by hand", () => {
+    it.effect("fetches anew though today's list is held, and sends it", () =>
+      Effect.gen(function* () {
+        const held = yield* heldOn("2026-11-10")
+        const relay = yield* harness({ held, answer: ok })
+        yield* relay.relayNow("2026-11-10T18:00:00")
+        const message = yield* decodeIngestUp(
+          yield* PubSub.take(relay.published)
+        )
+        yield* Effect.yieldNow
+        assert.strictEqual(message._tag, "CodeList")
+        assert.lengthOf(relay.requests, 1)
+        assert.deepStrictEqual(relay.outcomes, ["fetched"])
+      })
+    )
+
+    it.effect("sends today's held list again when Ajaib misses", () =>
+      Effect.gen(function* () {
+        const held = yield* heldOn("2026-11-10")
+        const relay = yield* harness({ held, answer: failed })
+        yield* relay.relayNow("2026-11-10T18:00:00")
+        assert.strictEqual(yield* PubSub.take(relay.published), held.envelope)
+        yield* Effect.yieldNow
+        assert.deepStrictEqual(relay.outcomes, ["resent"])
+      })
+    )
+
+    it.effect(
+      "sends nothing when Ajaib misses and only an earlier day's list is held",
+      () =>
+        Effect.gen(function* () {
+          const held = yield* heldOn("2026-11-09")
+          const relay = yield* harness({ held, answer: failed })
+          yield* relay.relayNow("2026-11-10T18:00:00")
+          yield* Effect.yieldNow
+          yield* Effect.yieldNow
+          assert.deepStrictEqual(relay.outcomes, ["missed"])
+          assert.strictEqual(yield* PubSub.remaining(relay.published), 0)
+        })
+    )
+
+    it.effect("answers busy while a fetch is under way", () =>
+      Effect.gen(function* () {
+        const relay = yield* harness({ answer: ok })
+        yield* relay.tick("2026-11-10T08:40:00")
+        yield* relay.relayNow("2026-11-10T08:40:01")
+        assert.deepStrictEqual(relay.outcomes, ["busy"])
+        assert.lengthOf(relay.requests, 0)
+      })
+    )
+  })
 })
