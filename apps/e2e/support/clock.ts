@@ -33,3 +33,13 @@ export const MARKET_CLOCK_OFFSET = Number(
 
 /** Now on the Test stage's Market Live clock, in epoch ms. */
 export const marketNow = () => Date.now() + MARKET_CLOCK_OFFSET
+
+/**
+ * How long a trade stays in its candle's merge window after it arrives, as
+ * apps/dashboard/src/server/market-live/candles.ts defines it.
+ */
+export const MERGE_WINDOW = 5_000
+
+/** Milliseconds until `at` on the market clock has passed, 500 ms to spare. */
+export const untilMarketTime = (at: number) =>
+  Math.max(0, at + 500 - marketNow())

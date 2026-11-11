@@ -15,7 +15,7 @@ import {
 import { DateTime, Effect } from "effect"
 
 import { DASHBOARD, MEMBER } from "../support/accounts"
-import { marketNow } from "../support/clock"
+import { MERGE_WINDOW, marketNow, untilMarketTime } from "../support/clock"
 import {
   ajaibTradeToday,
   freshTradeNumbers,
@@ -61,7 +61,7 @@ test("trades and order books the relay sent are read back from the store after t
   // the next minute's flush.
   const minuteOver = (Math.floor(sentAt / 60_000) + 1) * 60_000
   await page.waitForTimeout(
-    Math.max(minuteOver, sentAt + 5_000) + 500 - marketNow()
+    untilMarketTime(Math.max(minuteOver, sentAt + MERGE_WINDOW))
   )
   relay.close()
 

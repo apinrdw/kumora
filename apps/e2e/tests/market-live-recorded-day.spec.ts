@@ -13,7 +13,7 @@ import {
 import { Effect } from "effect"
 
 import { DASHBOARD, MEMBER } from "../support/accounts"
-import { marketNow } from "../support/clock"
+import { MERGE_WINDOW, marketNow, untilMarketTime } from "../support/clock"
 import { signInUrl } from "../support/flows"
 import {
   ajaibTradeToday,
@@ -48,7 +48,7 @@ test("the day strip opens a recorded day at its close, it replays, and Today · 
   // The relay closing flushes at once what has left its 5 s merge window
   // (candles.ts), so it closes once the trades have, rather than waiting for
   // the next minute's flush.
-  await page.waitForTimeout(5_500)
+  await page.waitForTimeout(untilMarketTime(sentAt + MERGE_WINDOW))
   relay.close()
 
   // Recorded once the close's flush has run.
