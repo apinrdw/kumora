@@ -36,6 +36,8 @@ describe("the Market Live search params", () => {
       expect(yield* parseMarketLiveSearch({})).toStrictEqual({
         code: undefined,
         day: undefined,
+        sort: undefined,
+        dir: undefined,
       })
     })
   )
@@ -57,6 +59,18 @@ describe("the Market Live search params", () => {
         "2026-02-30",
       ])
         expect((yield* parseMarketLiveSearch({ day })).day).toBeUndefined()
+    })
+  )
+
+  it.effect("keeps the watchlist's sort and drops anything else", () =>
+    Effect.gen(function* () {
+      expect(
+        yield* parseMarketLiveSearch({ sort: "change", dir: "asc" })
+      ).toMatchObject({ sort: "change", dir: "asc" })
+      for (const sort of ["price", "createdAt", "", 1])
+        expect((yield* parseMarketLiveSearch({ sort })).sort).toBeUndefined()
+      for (const dir of ["up", "DESC", ""])
+        expect((yield* parseMarketLiveSearch({ dir })).dir).toBeUndefined()
     })
   )
 })

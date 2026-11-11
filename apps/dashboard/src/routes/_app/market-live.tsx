@@ -1,6 +1,6 @@
 import { createFileRoute, useRouter } from "@tanstack/react-router"
 import { Effect } from "effect"
-import type { StockCode } from "@workspace/client"
+import { clientRuntime, type StockCode } from "@workspace/client"
 import type { ViewerDown, WibDate } from "@workspace/relay"
 import { useCallback, useEffect, useMemo, useState } from "react"
 
@@ -28,6 +28,10 @@ import { TransportBar } from "@/components/market-live/transport-bar"
 import { useStockCodeList } from "@/components/market-live/use-stock-code-list"
 import { useWatchlist } from "@/components/market-live/use-watchlist"
 import { Watchlist } from "@/components/market-live/watchlist"
+import {
+  watchlistSortOf,
+  type WatchlistSort,
+} from "@/components/market-live/watchlist-sort"
 import {
   DEFAULT_CODE,
   parseMarketLiveSearch,
@@ -76,6 +80,29 @@ function MarketLivePage() {
   )
 }
 
+// The watchlist's sort, from the URL, and the change that writes it back.
+function useWatchlistSort() {
+  const { sort: key, dir } = Route.useSearch()
+  const navigate = Route.useNavigate()
+  const sort = useMemo(
+    () => Effect.runSync(watchlistSortOf({ sort: key, dir })),
+    [key, dir]
+  )
+  const sortBy = useCallback(
+    (next: WatchlistSort | undefined) =>
+      void navigate({
+        search: (previous: MarketLiveSearch) => ({
+          ...previous,
+          sort: next?.key,
+          dir: next?.dir,
+        }),
+        replace: true,
+      }),
+    [navigate]
+  )
+  return [sort, sortBy] as const
+}
+
 function MarketLiveDay({
   day,
   today,
@@ -98,8 +125,11 @@ function MarketLiveDay({
     () => Effect.runSync(makeOrderBookStore(selected)),
     [selected]
   )
-  const [dayStates] = useState(() => Effect.runSync(makeDayStateStore()))
+  // Its server snapshot is empty: the watchlist's codes live in the browser
+  // (use-watchlist.ts), so the loader can't know which Day states to load.
+  const [dayStates] = useState(() => clientRuntime.runSync(makeDayStateStore()))
   const watchlist = useWatchlist()
+  const [sort, sortBy] = useWatchlistSort()
   const cursor = useReplayCursor(day)
   const gaps = useRecordedDay({
     day,
@@ -158,29 +188,32 @@ function MarketLiveDay({
             codes={watchlist.codes}
             list={codes}
             store={dayStates}
+            sort={sort}
+            onSort={sortBy}
             onAdd={watchlist.add}
             onRemove={watchlist.remove}
             onSelect={select}
           />
           {cursor === undefined ? (
-            <OrderBookPanel store={book} />
+            <>
+              <OrderBookPanel store={book} />
+              <LiveTape
+                selected={selected}
+                watchlist={watchlist.codes}
+                onSelect={select}
+                onMessage={apply}
+              />
+            </>
           ) : (
-            <RecordedOrderBook store={book} cursor={cursor} gaps={gaps} />
-          )}
-          {cursor === undefined ? (
-            <LiveTape
-              selected={selected}
-              watchlist={watchlist.codes}
-              onSelect={select}
-              onMessage={apply}
-            />
-          ) : (
-            <RecordedTape
-              cursor={cursor}
-              gaps={gaps}
-              selected={selected}
-              onSelect={select}
-            />
+            <>
+              <RecordedOrderBook store={book} cursor={cursor} gaps={gaps} />
+              <RecordedTape
+                cursor={cursor}
+                gaps={gaps}
+                selected={selected}
+                onSelect={select}
+              />
+            </>
           )}
         </div>
       </div>
