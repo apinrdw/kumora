@@ -6,6 +6,7 @@ import {
   encodeIngestDown,
   type IngestDown,
 } from "@workspace/relay"
+import type { Worker } from "@playwright/test"
 import { DateTime, Effect } from "effect"
 import { createServer } from "node:http"
 import type { AddressInfo } from "node:net"
@@ -28,6 +29,7 @@ import {
   launchWithExtension,
   setRelayClock,
   startFakeBrokers,
+  tickRelay,
   type BrokerSocket,
 } from "../support/relay-extension"
 import { readSubscribe, stockbitTradeFrameToday } from "../support/stockbit"
@@ -37,9 +39,16 @@ const TRADE_SUBSCRIBE =
   '{"method":"SUBSCRIBE","stream":"TRADE","streamObject":"*"}'
 const PING = '{"method":"SUBSCRIBE","streamObject":"PING-WEB"}'
 
-// The relay ticks every 10 s, so B, pings, reopens and a moved clock each take
-// up to a tick or two.
+// The relay ticks every 10 s, so B, pings and reopens each take up to a tick
+// or two. A moved clock ticks it at once (support/relay-extension.ts).
 const TICKS = { timeout: 25_000 }
+
+// Ticks the relay until `probe` gives what the poll expects.
+const tickUntil = (worker: Worker, probe: () => unknown) =>
+  expect.poll(async () => {
+    await tickRelay(worker)
+    return probe()
+  })
 
 // A trading day's session 1 (a Tuesday), for the relay's schedule only.
 const SESSION_1 = "2026-11-10T10:00:00"
@@ -226,16 +235,22 @@ test("the relay streams only in IDX hours and subscribes Ajaib's on-demand codes
     await options.getByRole("button", { name: "Save" }).click()
     await expect.poll(() => ingest.sockets.length).toBe(1)
 
-    // Before 08:40 an open Ajaib tab gets no sockets.
+    // Before 08:40 an open Ajaib tab gets no sockets: its code list fetch
+    // shows a tick ran with the tab, and the ticks after it open nothing.
     const ajaibTab = await context.newPage()
     await ajaibTab.goto(AJAIB_TAB)
-    await ajaibTab.waitForTimeout(12_000)
+    await tickUntil(worker, () =>
+      brokers.requests.some(
+        (request) => request.path === "/api/v1/stock/data/list/"
+      )
+    ).toBe(true)
+    await tickRelay(worker, 3)
     expect(brokers.sockets).toEqual([])
 
     // In session 1 every Ajaib stream opens.
     await setRelayClock(worker, SESSION_1)
     for (const path of Object.keys(ON_DEMAND))
-      await expect.poll(() => brokers.on(path).length, TICKS).toBe(1)
+      await expect.poll(() => brokers.on(path).length).toBe(1)
 
     // The on-demand codes the trading-day object sends down are subscribed
     // once each, and a change sends only the difference.
@@ -261,12 +276,9 @@ test("the relay streams only in IDX hours and subscribes Ajaib's on-demand codes
 
     // At 16:35 every socket closes.
     await setRelayClock(worker, "2026-11-10T16:34:59")
-    await expect
-      .poll(
-        () => brokers.sockets.every((socket) => socket.socket.readyState === 3),
-        TICKS
-      )
-      .toBe(true)
+    await tickUntil(worker, () =>
+      brokers.sockets.every((socket) => socket.socket.readyState === 3)
+    ).toBe(true)
   } finally {
     await context.close()
     await ingest.close()
@@ -306,9 +318,10 @@ test("a PIN from the options page signs in to Ajaib once, and Ajaib's frames car
     // names the account.
     const ajaibTab = await context.newPage()
     await ajaibTab.goto(AJAIB_TAB)
-    await expect(state).toHaveText("Signed in.", TICKS)
+    await tickUntil(worker, () => brokers.pin.bodies.length).toBe(1)
+    await expect(state).toHaveText("Signed in.")
     expect(brokers.pin.bodies).toEqual(['{"pin_code":"123456"}'])
-    await expect.poll(() => brokers.on("/ws/price").length, TICKS).toBe(1)
+    await expect.poll(() => brokers.on("/ws/price").length).toBe(1)
     await ingest.sendDown({
       _tag: "OnDemandCodes",
       codes: [StockCode.make("BBCA")],
@@ -324,16 +337,23 @@ test("a PIN from the options page signs in to Ajaib once, and Ajaib's frames car
         }),
       ])
 
-    // A refused PIN is tried once and never again.
+    // A refused PIN is tried once and never again, and is gone from the
+    // session.
     brokers.pin.answer = PIN_ANSWERS.refused
     await options.getByLabel("Ajaib PIN").fill("111111")
     await options.getByRole("button", { name: "Sign in" }).click()
-    await expect(state).toContainText("Ajaib refused the PIN", TICKS)
-    await options.waitForTimeout(25_000)
+    await tickUntil(worker, () => brokers.pin.bodies.length).toBe(2)
+    await expect(state).toContainText("Ajaib refused the PIN")
+    await tickRelay(worker, 3)
     expect(brokers.pin.bodies).toEqual([
       '{"pin_code":"123456"}',
       '{"pin_code":"111111"}',
     ])
+    expect(
+      await worker.evaluate(
+        "chrome.storage.session.get(null).then((all) => JSON.stringify(all))"
+      )
+    ).not.toContain("111111")
   } finally {
     await context.close()
     await ingest.close()

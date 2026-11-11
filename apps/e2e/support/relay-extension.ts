@@ -1,4 +1,4 @@
-import { chromium, type Worker } from "@playwright/test"
+import { chromium, expect, type Worker } from "@playwright/test"
 import { execFileSync } from "node:child_process"
 import { mkdtempSync, readFileSync } from "node:fs"
 import { createServer, type Server } from "node:https"
@@ -258,15 +258,34 @@ export async function startFakeBrokers() {
   }
 }
 
-/**
- * Moves the relay's schedule clock so that it reads `wib` (a WIB wall-clock
- * time, `YYYY-MM-DDTHH:MM:SS`) now. Frames keep their real times.
- */
-export async function setRelayClock(worker: Worker, wib: string) {
-  const offset = Date.parse(`${wib}+07:00`) - Date.now()
+// Sets the relay's clock offset, which ticks it at once, and waits until a
+// tick on that offset has completed (service-worker.ts).
+async function setClockOffset(worker: Worker, offset: number) {
   await worker.evaluate(
     `chrome.storage.local.set({ clockOffsetMs: ${offset} })`
   )
+  await expect
+    .poll(() => worker.evaluate("globalThis.lastTickClockOffsetMs"))
+    .toBe(offset)
+}
+
+/**
+ * Moves the relay's schedule clock so that it reads `wib` (a WIB wall-clock
+ * time, `YYYY-MM-DDTHH:MM:SS`) now, and waits for the tick on it. Frames keep
+ * their real times.
+ */
+export async function setRelayClock(worker: Worker, wib: string) {
+  await setClockOffset(worker, Date.parse(`${wib}+07:00`) - Date.now())
+}
+
+/** Ticks the relay `count` times, each awaited, by moving its clock 1 ms on. */
+export async function tickRelay(worker: Worker, count = 1) {
+  for (let tick = 0; tick < count; tick++) {
+    const offset = await worker.evaluate<number>(
+      "chrome.storage.local.get('clockOffsetMs').then((stored) => stored.clockOffsetMs ?? 0)"
+    )
+    await setClockOffset(worker, offset + 1)
+  }
 }
 
 /**
