@@ -90,29 +90,30 @@ test("a watched code's row fills from Ajaib's PRICE, and the relay is asked for 
   page,
 }) => {
   const relay = await openIngest()
+  // A code of its own, watched from the start: today's object keeps every
+  // code's figures, so a listed code would have them from a repeat's run.
+  const code = `WL${Date.now().toString(36).toUpperCase()}`
+  await page.addInitScript(
+    ([key, seeded]) => window.localStorage.setItem(key, JSON.stringify(seeded)),
+    [WATCHLIST_KEY, [code]] as const
+  )
   await open(page)
   const watchlist = page.getByRole("region", { name: "Watchlist" })
-  const add = watchlist.getByRole("combobox", { name: "Add code…" })
-  await add.fill("wifi")
-  await watchlist
-    .getByRole("option", { name: /^WIFI\b/ })
-    .first()
-    .click()
-  const row = watchlist.locator('tr[data-code="WIFI"]')
+  const row = watchlist.locator(`tr[data-code="${code}"]`)
   await expect(row).toContainText("no data yet")
 
-  // The selected BBCA and the watched WIFI.
+  // The selected BBCA and the watched code.
   await expect
     .poll(() => lastOnDemandCodes(relay.received))
-    .toEqual(expect.arrayContaining(["BBCA", "WIFI"]))
+    .toEqual(expect.arrayContaining(["BBCA", code]))
 
   // Stockbit lost (another spec may have sent its frames moments ago), so
   // Ajaib's figures stand in: the 2026-11-06 BBCA PRICE frame's shape, as
-  // WIFI's today.
+  // the watched code's today.
   await relay.report("Stockbit", "closed")
   await relay.sendAjaib([
     JSON.stringify({
-      ticker: "WIFI",
+      ticker: code,
       updateTime: marketNow(),
       price: 4120,
       change: 70,
