@@ -16,8 +16,9 @@ An isolated subagent's shell refuses any command it cannot prove stays inside it
 
 - One command per Bash call, run where the shell starts: the worktree root.
 - Create and change files with the Write and Edit tools.
+- The command itself is plain too: no `$(...)`, shell variables, `timeout`, or `VAR=` prefix.
 
-Each refusal costs a round trip and a rewrite. The three implementers of spec #59 hit 22 across 367 calls. Spec #175's fifteen hit 39, mostly from forms an older ban list here never named: `;` chains, a `cd <worktree>;` prefix, and heredocs into `cat` or `python3`.
+Each refusal costs a round trip and a rewrite. Spec #59's three implementers hit 22 across 367 calls. Spec #175's sixteen implementers and fixers hit 39 across 1,059 calls, most from `;` chains, a `cd <worktree>;` prefix, and heredocs into `cat` or `python3`.
 
 ## Secrets
 
@@ -27,7 +28,7 @@ Never print a secret value; hash prefixes only. Never run `alchemy deploy` or `a
 
 - The verify command or test the spec names passes, with the exact command and output in the report.
 - From the repo root: `pnpm check`, which is what CI runs, and the lint and format commands in `AGENTS.md` exit 0.
-- A test the change adds, moves or reruns differently also passes on CI's 2 cores: rerun the affected suite under `taskset -c 0,1`. In spec #175, Vitest's 5 s and Playwright's 30 s default timeouts held locally and failed only on CI.
+- A test the change adds, moves or reruns differently also passes on CI's 2 cores: rerun the affected suite under `taskset -c 0,1`, giving Playwright the `--workers` count `apps/e2e/playwright.config.ts` sets for CI, since its default counts every core even under `taskset`. In spec #175, Vitest's 5 s and Playwright's 30 s default timeouts held locally and failed only on CI.
 - Small logical commits whose messages end with the attribution line the harness requires. Before reporting, merge the integration branch's current tip.
 
 ## Report

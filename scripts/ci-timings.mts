@@ -1,6 +1,8 @@
 // Where a CI run's time went: each job's seconds and its slowest steps, then,
 // for each e2e job, when its first test finished and each spec's summed test
-// time. `pnpm ci-timings <run-id>` (from `gh run list`) runs it.
+// time. `pnpm ci-timings <run-id>` (from `gh run list`) runs it. It finds the
+// e2e jobs and their test step by the names .github/workflows/ci.yml gives
+// them (`e2e`, `pnpm test:e2e`); ci.yml names this file back.
 import { Console, Effect, Schedule, Schema } from "effect"
 
 import { CheckFailed } from "./lib/check.mts"
