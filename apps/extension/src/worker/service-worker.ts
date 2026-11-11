@@ -205,11 +205,14 @@ const makeTargets = Effect.fnUntraced(function* (options: {
   return { apply }
 })
 
-// Now on the relay's schedule clock.
-const scheduleNow = Effect.gen(function* () {
+// Now on the real clock and on the relay's schedule clock, and the offset
+// between them.
+const clocks = Effect.gen(function* () {
   const now = yield* DateTime.now
-  return DateTime.add(now, { milliseconds: yield* loadClockOffset })
+  const offset = yield* loadClockOffset
+  return { now, offset, schedule: DateTime.add(now, { milliseconds: offset }) }
 })
+const scheduleNow = Effect.map(clocks, ({ schedule }) => schedule)
 
 const main = Effect.gen(function* () {
   const envelopes = yield* PubSub.sliding<EncodedIngestUp>(1024)
@@ -296,12 +299,10 @@ const main = Effect.gen(function* () {
   // The tick, from the worker's own timer and the alarm.
   let lastTick = 0
   const tick = Effect.fnUntraced(function* (alarm: boolean) {
-    const now = yield* DateTime.now
+    const { now, offset, schedule } = yield* clocks
     const ms = DateTime.toEpochMillis(now)
     if (alarm && ms - lastTick < Duration.toMillis(TICK)) return
     lastTick = ms
-    const offset = yield* loadClockOffset
-    const schedule = DateTime.add(now, { milliseconds: offset })
     const today = yield* wibDateAt(schedule)
     if (today !== (yield* SubscriptionRef.get(day)))
       yield* SubscriptionRef.set(day, today)
