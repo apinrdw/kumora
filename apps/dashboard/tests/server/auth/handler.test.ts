@@ -504,3 +504,29 @@ describe("a callback that dies", () => {
     }).pipe(Effect.provide(layer))
   })
 })
+
+// The seam hashes with a fast stand-in; this test drops it, so sign-up and
+// sign-in run Better Auth's scrypt as the Worker does.
+describe("the Worker's password hashing", () => {
+  it.effect("stores a scrypt hash that signs in only its own password", () => {
+    const { layer, database } = seam(undefined, { password: undefined })
+    return Effect.gen(function* () {
+      yield* signUp("ayu@example.com", "correct horse")
+      const { password } = database
+        .prepare(
+          `select "password" from "account" join "user" on "user"."id" = "account"."userId" where "email" = ?`
+        )
+        .get("ayu@example.com") as { password: string }
+      // A 16-byte salt and a 64-byte key, in hex.
+      assert.match(password, /^[0-9a-f]{32}:[0-9a-f]{128}$/)
+      assert.strictEqual(
+        (yield* signIn("ayu@example.com", "correct horse")).status,
+        200
+      )
+      assert.strictEqual(
+        (yield* signIn("ayu@example.com", "wrong horse!")).status,
+        401
+      )
+    }).pipe(Effect.provide(layer))
+  })
+})

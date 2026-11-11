@@ -1,14 +1,15 @@
-// Runs last, in its own project (playwright.config.ts): it spends a per-IP
-// limit on purpose.
+// Spends the per-IP sign-in limit on purpose, from an address no other spec
+// draws (support/test.ts newLimitSpendingContext), so it runs alongside them.
 import { DASHBOARD, MEMBER } from "../support/accounts"
 import { signIn, signInUrl } from "../support/flows"
-import { expect, test } from "../support/test"
+import { expect, newLimitSpendingContext, test } from "../support/test"
 
 const WRONG = { ...MEMBER, password: "not the passphrase" }
 
 test("an eleventh sign-in in a minute is told when to try again", async ({
-  page,
+  browser,
 }) => {
+  const page = await (await newLimitSpendingContext(browser)).newPage()
   await page.goto(signInUrl("/"))
   const alert = page.getByRole("alert")
   const attempt = async () => {

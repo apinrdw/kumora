@@ -19,7 +19,7 @@ export default defineConfig({
     {
       name: "chromium",
       dependencies: ["setup"],
-      testIgnore: [TRADING_DAY_SPECS, /too-many-attempts\.spec\.ts$/],
+      testIgnore: TRADING_DAY_SPECS,
     },
     // Decision: the specs that send trades share one Durable Object, today's
     // trading day, so they run one at a time: a spec running alongside would
@@ -31,12 +31,6 @@ export default defineConfig({
       dependencies: ["setup"],
       testMatch: TRADING_DAY_SPECS,
       workers: 1,
-    },
-    // Spends a per-IP limit on purpose, so it runs after every other spec.
-    {
-      name: "limits",
-      dependencies: ["chromium", "trading-day"],
-      testMatch: /too-many-attempts\.spec\.ts$/,
     },
   ],
   // Both apps run on alchemy's local `test` stage: local state, no Infisical,

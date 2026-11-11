@@ -10,7 +10,27 @@ concurrency:
   cancel-in-progress: true
 
 jobs:
-  check:
+  # The static checks and the unit tests each get a runner's 2 cores; each
+  # job runs one root check:* script, and `pnpm check` runs them all.
+  static:
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@v5
+      - uses: pnpm/action-setup@v6
+      - uses: actions/setup-node@v5
+        with:
+          node-version: 24
+          cache: pnpm
+      - run: pnpm install --frozen-lockfile
+      # Decision: turbo replays tasks from the GitHub Actions cache. It needs
+      # no secret, and GitHub scopes entries by ref, so a PR reads main's and
+      # its own while main never replays a PR's. Pinned to a commit because it
+      # holds the runner's cache token (v2.5.2).
+      - uses: rharkor/caching-for-turbo@760158c05c47e7a764f78e9a22ca3b5a6ed8c52e
+      - run: pnpm check:static
+
+  unit-tests:
     runs-on: ubuntu-latest
     timeout-minutes: 15
     steps:
@@ -25,7 +45,9 @@ jobs:
         with:
           bun-version-file: .bun-version
       - run: pnpm install --frozen-lockfile
-      - run: pnpm check
+      # The same turbo cache as static's, pinned to the same commit.
+      - uses: rharkor/caching-for-turbo@760158c05c47e7a764f78e9a22ca3b5a6ed8c52e
+      - run: pnpm check:test
 
   fallow:
     runs-on: ubuntu-latest
