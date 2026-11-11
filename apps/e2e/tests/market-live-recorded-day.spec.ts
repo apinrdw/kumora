@@ -13,10 +13,16 @@ import {
 import { Effect } from "effect"
 
 import { DASHBOARD, MEMBER } from "../support/accounts"
-import { MERGE_WINDOW, marketNow, untilMarketTime } from "../support/clock"
+import {
+  MERGE_WINDOW,
+  marketNow,
+  untilMarketTime,
+  wibTime,
+} from "../support/clock"
 import { signInUrl } from "../support/flows"
 import {
   ajaibTradeToday,
+  freshCode,
   freshTradeNumbers,
   openIngest,
   wibToday,
@@ -24,9 +30,6 @@ import {
 import { expect, test } from "../support/test"
 
 const PAGE = "/market-live"
-// An instant's WIB time of day, as the page writes it: 10:15:32.
-const clock = (at: number) =>
-  new Date(at + 7 * 3_600_000).toISOString().slice(11, 19)
 const WATCHLIST_KEY = "kumora:market-live:watchlist"
 
 test.use({ storageState: MEMBER.storageState })
@@ -36,10 +39,10 @@ test("the day strip opens a recorded day at its close, it replays, and Today · 
 }) => {
   const base = freshTradeNumbers()
   // A code of its own: today's object keeps every code's candles.
-  const code = StockCode.make(`RP${Date.now().toString(36).toUpperCase()}`)
+  const code = StockCode.make(freshCode("RP"))
   const day = WibDate.make(wibToday())
   const sentAt = marketNow()
-  const time = new Date(sentAt + 7 * 3_600_000).toISOString().slice(11, 19)
+  const time = wibTime(sentAt)
   const relay = await openIngest()
   await relay.sendAjaib([
     ajaibTradeToday({ seq: base + 1, time, ticker: code, price: 500, lot: 3 }),
@@ -131,7 +134,7 @@ test("the day strip opens a recorded day at its close, it replays, and Today · 
   // tape say it wasn't recorded.
   const scrubber = page.getByRole("slider", { name: "Replay cursor" })
   await scrubber.fill(String(gapFrom + 60_000))
-  await expect(conditions).toContainText(`at ${clock(gapFrom + 60_000)}`)
+  await expect(conditions).toContainText(`at ${wibTime(gapFrom + 60_000)}`)
   await expect(tape.locator(`tr[data-trade-number="${base + 2}"]`)).toHaveCount(
     0
   )

@@ -15,9 +15,15 @@ import {
 import { DateTime, Effect } from "effect"
 
 import { DASHBOARD, MEMBER } from "../support/accounts"
-import { MERGE_WINDOW, marketNow, untilMarketTime } from "../support/clock"
+import {
+  MERGE_WINDOW,
+  marketNow,
+  untilMarketTime,
+  wibTime,
+} from "../support/clock"
 import {
   ajaibTradeToday,
+  freshCode,
   freshTradeNumbers,
   openIngest,
   wibToday,
@@ -37,15 +43,14 @@ test("trades and order books the relay sent are read back from the store after t
   test.setTimeout(90_000)
   const base = freshTradeNumbers()
   // A code of its own: today's object keeps every code's candles and books.
-  const code = StockCode.make(`RD${Date.now().toString(36).toUpperCase()}`)
+  const code = StockCode.make(freshCode("RD"))
   const day = WibDate.make(wibToday())
   const sentAt = marketNow()
-  const wibTime = new Date(sentAt + 7 * 3_600_000).toISOString().slice(11, 19)
   const relay = await openIngest()
   await relay.sendAjaib([
     ajaibTradeToday({
       seq: base + 1,
-      time: wibTime,
+      time: wibTime(sentAt),
       ticker: code,
       price: 500,
       lot: 3,

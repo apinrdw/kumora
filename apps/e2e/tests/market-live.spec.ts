@@ -1,8 +1,9 @@
 import { DASHBOARD, MEMBER } from "../support/accounts"
-import { marketNow } from "../support/clock"
+import { marketNow, wibTime } from "../support/clock"
 import { signInUrl } from "../support/flows"
 import {
   ajaibTradeToday,
+  freshCode,
   freshTradeNumbers,
   openIngest,
   openSilentIngest,
@@ -60,7 +61,7 @@ test.describe("signed in", () => {
     // A code of its own, so its candles are this test's alone, a repeat's
     // too: today's object keeps every code's candles. The recorded session
     // has none, so two trades are made from its first frame, a minute apart.
-    const code = `CN${Date.now().toString(36).toUpperCase()}`
+    const code = freshCode("CN")
     const [template] = session1Today()
     const trade = JSON.parse(template!)
     const tradeAt = (sequence: number, price: number, minutes: number) =>
@@ -348,9 +349,7 @@ test.describe("the tape at peak", () => {
     // Now on the market clock: every relay that closed before this test left
     // a "Not recorded" gap, drawn above any trade older than it, and enough
     // of them would push this test's trades out of view.
-    const time = new Date(marketNow() + 7 * 3_600_000)
-      .toISOString()
-      .slice(11, 19)
+    const time = wibTime(marketNow())
     const trades = (from: number, count: number) =>
       Array.from({ length: count }, (_, i) =>
         ajaibTradeToday({

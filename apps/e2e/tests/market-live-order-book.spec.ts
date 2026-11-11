@@ -3,7 +3,7 @@
 // Stockbit has none, then Stockbit's once it sends one.
 import { MEMBER, DASHBOARD } from "../support/accounts"
 import { marketNow } from "../support/clock"
-import { openIngest } from "../support/ingest"
+import { freshCode, openIngest } from "../support/ingest"
 import { stockbitOrderBookFrame } from "../support/stockbit"
 import { expect, test } from "../support/test"
 
@@ -14,7 +14,7 @@ test("the selected code's order book appears, Ajaib's as the fallback, then Stoc
 }) => {
   // A code of its own: today's trading-day object keeps every code's last
   // book, from earlier runs too.
-  const code = `OB${Date.now().toString(36).toUpperCase()}`
+  const code = freshCode("OB")
   const relay = await openIngest()
   await relay.sendAjaib([
     JSON.stringify({
