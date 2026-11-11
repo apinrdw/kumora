@@ -211,7 +211,7 @@ test.describe("the tape at peak", () => {
     const relay = await openIngest()
     const base = freshTradeNumbers()
     // A snapshot carries only the 200 newest trades. Today's object keeps an
-    // earlier run's match prints, so 200 continuous trades above them keep
+    // earlier run's auction match trades, so 200 continuous trades above them keep
     // those out of the page's snapshot, and the fold counts this run's alone.
     const newer = 200
     await relay.sendAjaib(
@@ -347,7 +347,7 @@ test.describe("the tape at peak", () => {
     const relay = await openIngest()
     const base = freshTradeNumbers()
     // Now on the market clock: every relay that closed before this test left
-    // a "Not recorded" gap, drawn above any trade older than it, and enough
+    // a relay gap (its "Not recorded" row), drawn above any trade older than it, and enough
     // of them would push this test's trades out of view.
     const time = wibTime(marketNow())
     const trades = (from: number, count: number) =>

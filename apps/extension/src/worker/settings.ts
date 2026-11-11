@@ -174,8 +174,10 @@ export const isCodeListRelayAsk = Effect.fnUntraced(function* (
 })
 
 // Decision: a test-only clock offset, in ms, moves the relay's schedule (its
-// streaming hours, its auctions and the code list's day) and nothing else, so
-// the extension e2e can run in streaming hours at any time of day. Only a script
+// streaming hours, its auctions and the code list's day), so the extension
+// e2e can run in streaming hours at any time of day. Its only other effects
+// are test seams: a change ticks at once (isClockOffsetChange below) and each
+// tick leaves the offset it used for a spec to await (service-worker.ts). Only a script
 // in the service worker's console sets it; the options page never shows it.
 // Frames keep their real receive times. See apinrdw/kumora#155.
 // apps/e2e/support/relay-extension.ts names this key too: it sets the offset.
