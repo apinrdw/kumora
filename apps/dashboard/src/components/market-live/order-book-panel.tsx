@@ -30,8 +30,8 @@ const lotBar = (level: BookLevel, largest: number, side: "bid" | "offer") =>
     background: `linear-gradient(to ${side === "bid" ? "left" : "right"}, color-mix(in oklab, var(--semantic-${side === "bid" ? "up" : "down"}) 18%, transparent) ${(level.lots / largest) * 100}%, transparent 0)`,
   }))
 
-const DEPTH_WIDTH = 360
-const DEPTH_HEIGHT = 64
+const CURVE_WIDTH = 360
+const CURVE_HEIGHT = 64
 
 const cumulative = (levels: ReadonlyArray<BookLevel>) =>
   Effect.sync(() => {
@@ -49,14 +49,14 @@ const curveAreas = Effect.fnUntraced(function* (book: OrderBook) {
   const low = bids.at(-1)?.price ?? offers[0]?.price ?? 0
   const high = offers.at(-1)?.price ?? bids[0]?.price ?? 0
   const most = Math.max(bids.at(-1)?.lots ?? 0, offers.at(-1)?.lots ?? 0, 1)
-  const x = (price: number) => ((price - low) / (high - low || 1)) * DEPTH_WIDTH
-  const y = (lots: number) => DEPTH_HEIGHT - (lots / most) * (DEPTH_HEIGHT - 4)
+  const x = (price: number) => ((price - low) / (high - low || 1)) * CURVE_WIDTH
+  const y = (lots: number) => CURVE_HEIGHT - (lots / most) * (CURVE_HEIGHT - 4)
   const area = (points: ReadonlyArray<{ price: number; lots: number }>) =>
     points.length === 0
       ? ""
-      : `M${x(points[0]!.price)},${DEPTH_HEIGHT} ${points
+      : `M${x(points[0]!.price)},${CURVE_HEIGHT} ${points
           .map((point) => `L${x(point.price)},${y(point.lots)}`)
-          .join(" ")} L${x(points.at(-1)!.price)},${DEPTH_HEIGHT} Z`
+          .join(" ")} L${x(points.at(-1)!.price)},${CURVE_HEIGHT} Z`
   return { bids: area(bids), offers: area(offers) }
 })
 
@@ -66,7 +66,7 @@ function DepthCurve({ book }: { book: OrderBook }) {
   const areas = Effect.runSync(curveAreas(book))
   return (
     <svg
-      viewBox={`0 0 ${DEPTH_WIDTH} ${DEPTH_HEIGHT}`}
+      viewBox={`0 0 ${CURVE_WIDTH} ${CURVE_HEIGHT}`}
       preserveAspectRatio="none"
       role="img"
       aria-label="Cumulative depth, 20 levels a side"
