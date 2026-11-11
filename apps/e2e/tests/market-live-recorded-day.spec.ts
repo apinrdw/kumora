@@ -34,8 +34,6 @@ test.use({ storageState: MEMBER.storageState })
 test("the day strip opens a recorded day at its close, it replays, and Today · live returns", async ({
   page,
 }) => {
-  // The flush runs 5 s past each minute and writes the minute that ended.
-  test.setTimeout(180_000)
   const base = freshTradeNumbers()
   // A code of its own: today's object keeps every code's candles.
   const code = StockCode.make(`RP${Date.now().toString(36).toUpperCase()}`)
@@ -47,9 +45,13 @@ test("the day strip opens a recorded day at its close, it replays, and Today · 
     ajaibTradeToday({ seq: base + 1, time, ticker: code, price: 500, lot: 3 }),
     ajaibTradeToday({ seq: base + 2, time, ticker: code, price: 505, lot: 2 }),
   ])
+  // The relay closing flushes at once what has left its 5 s merge window
+  // (candles.ts), so it closes once the trades have, rather than waiting for
+  // the next minute's flush.
+  await page.waitForTimeout(5_500)
   relay.close()
 
-  // Recorded once the minute's flush has run.
+  // Recorded once the close's flush has run.
   const candlesUrl = `${DASHBOARD}${Effect.runSync(
     recordedDayPath(day, { _tag: "Candles", code })
   )}`
@@ -63,7 +65,7 @@ test("the day strip opens a recorded day at its close, it replays, and Today · 
         )
         return candles.reduce((sum, candle) => sum + candle.volume, 0)
       },
-      { timeout: 150_000, intervals: [5_000] }
+      { timeout: 15_000, intervals: [500] }
     )
     .toBe(5)
 
