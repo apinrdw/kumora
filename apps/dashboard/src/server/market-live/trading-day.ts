@@ -35,6 +35,7 @@ import {
   DateTime,
   Duration,
   Effect,
+  Option,
   Schema,
   Scope,
   Semaphore,
@@ -851,8 +852,18 @@ export const makeTradingDay = Effect.fnUntraced(function* (options: {
         return yield* socket.close(IngestCloseCode.RejectedToken, "Bad token")
       }
       const message = yield* decodeIngestUp(text)
-      // A sealed day takes nothing more.
-      if (sealed) return
+      // Decision: a sealed day takes nothing more, but a day sealed with no
+      // code list takes the relay's first one. Its 404 was never cached
+      // (`no-store`), so no immutable answer changes, and a day whose list
+      // missed the seal stays searchable. A list it holds stays fixed.
+      if (sealed) {
+        if (
+          message._tag === "CodeList" &&
+          Option.isNone(yield* codeListStore.read)
+        )
+          yield* storeCodeList(codeListStore, message.body)
+        return
+      }
       yield* market.ingest(message)
       if (message._tag === "CodeList")
         return yield* storeCodeList(codeListStore, message.body)

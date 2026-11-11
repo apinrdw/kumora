@@ -71,6 +71,11 @@ const tradingDay = Effect.fnUntraced(function* (
     })
     yield* day.ingestMessage(socket, text).pipe(Effect.provide(env))
   })
+  // 17:00 WIB on the fixture's day, and the alarm that seals it.
+  const seal = Effect.gen(function* () {
+    yield* TestClock.setTime(Date.parse("2026-11-09T10:00:00Z"))
+    yield* day.alarm.pipe(Effect.provide(env))
+  })
   const relay = Effect.gen(function* () {
     const token = yield* encodeIngestUp({
       _tag: "Token",
@@ -80,7 +85,7 @@ const tradingDay = Effect.fnUntraced(function* (
     yield* day.ingestMessage(socket, token).pipe(Effect.provide(env))
     return send
   })
-  return { day, relay, stored }
+  return { day, relay, seal, stored }
 })
 
 const listOf = Effect.fnUntraced(function* (response: Response) {
@@ -222,6 +227,39 @@ describe("the stock code list", () => {
       })
       yield* day.ingestMessage(relaySocket(), text).pipe(Effect.provide(env))
       assert.strictEqual((yield* day.recorded({ _tag: "Codes" })).status, 404)
+    })
+  )
+
+  it.effect("a day sealed with no list takes the relay's first one", () =>
+    Effect.gen(function* () {
+      yield* atNine
+      const { day, relay, seal } = yield* tradingDay()
+      const send = yield* relay
+      yield* seal
+      yield* send(recorded.body)
+      assert.lengthOf(
+        (yield* listOf(yield* day.recorded({ _tag: "Codes" }))).codes,
+        16
+      )
+    })
+  )
+
+  it.effect("a day sealed with a list keeps it", () =>
+    Effect.gen(function* () {
+      yield* atNine
+      const { day, relay, seal } = yield* tradingDay()
+      const send = yield* relay
+      yield* send(recorded.body)
+      yield* seal
+      yield* send(
+        JSON.stringify({
+          results: [{ code: "BBCA", name: "Bank Central Asia" }],
+        })
+      )
+      assert.lengthOf(
+        (yield* listOf(yield* day.recorded({ _tag: "Codes" }))).codes,
+        16
+      )
     })
   )
 })
