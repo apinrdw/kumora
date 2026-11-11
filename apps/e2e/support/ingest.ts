@@ -7,6 +7,7 @@ import {
 } from "@workspace/relay"
 import { DateTime, Effect } from "effect"
 import { readFileSync } from "node:fs"
+import { WebSocket } from "ws"
 
 import { DASHBOARD } from "./accounts"
 import { marketNow } from "./clock"
@@ -131,10 +132,20 @@ export function openingMatchToday(
 const send = async (socket: WebSocket, message: IngestUp) =>
   socket.send(await Effect.runPromise(encodeIngestUp(message)))
 
+// ws 8.22 honors `closeTimeout`; @types/ws 8.18.2, its latest, leaves it out.
+const SOCKET_OPTIONS: WebSocket.ClientOptions & { closeTimeout: number } = {
+  closeTimeout: 1_000,
+}
+
 // The ingest socket, open; `closed` settles with its close code.
 const dial = async () => {
+  // Decision: `ws`, not Node's built-in WebSocket, which reports `close` only
+  // once workerd tears down TCP, 20 to 30 s or more after the close frame.
+  // `ws` answers the close frame, then destroys the socket after
+  // `closeTimeout`, so `closed` settles within it.
   const socket = new WebSocket(
-    `${DASHBOARD.replace(/^http/, "ws")}${MarketLivePath.ingest}`
+    `${DASHBOARD.replace(/^http/, "ws")}${MarketLivePath.ingest}`,
+    SOCKET_OPTIONS
   )
   const closed = new Promise<number>((resolve) =>
     socket.addEventListener("close", (event) => resolve(event.code))
