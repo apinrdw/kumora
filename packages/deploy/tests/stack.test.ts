@@ -2,6 +2,7 @@ import { assert, describe, it } from "@effect/vitest"
 import * as Alchemy from "alchemy"
 import { PLACEHOLDER_STAGE } from "alchemy/Alchemist/Operations"
 import * as Cause from "effect/Cause"
+import * as ConfigProvider from "effect/ConfigProvider"
 import * as Effect from "effect/Effect"
 import * as Exit from "effect/Exit"
 import * as Layer from "effect/Layer"
@@ -89,5 +90,21 @@ describe("stageUrl", () => {
       const parsed = yield* stackStage(stage)
       assert.strictEqual(yield* stageUrl("dashboard", parsed), url)
     })
+  )
+
+  it.effect("serves a local stage on the port its variable names", () =>
+    Effect.gen(function* () {
+      const parsed = yield* stackStage("test")
+      assert.strictEqual(
+        yield* stageUrl("dashboard", parsed),
+        "http://localhost:4123"
+      )
+    }).pipe(
+      Effect.provide(
+        ConfigProvider.layer(
+          ConfigProvider.fromUnknown({ KUMORA_DASHBOARD_PORT: "4123" })
+        )
+      )
+    )
   )
 })

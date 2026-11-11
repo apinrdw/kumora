@@ -1,5 +1,6 @@
 import { createHash } from "node:crypto"
 
+import * as Config from "effect/Config"
 import * as Effect from "effect/Effect"
 import * as Schema from "effect/Schema"
 
@@ -17,10 +18,24 @@ const TEST_NAME = "test"
 
 // Each app's dev server port under `alchemy dev`, strict so one app never
 // takes the other's. e2e waits on both.
-export const DEV_PORTS = {
+// Decision: the port comes from the app's variable when it is set, else the
+// default. apps/e2e/support/ports.ts sets both to free ports for each run,
+// so e2e runs in parallel worktrees, or beside another project's server on
+// 3000, never collide. `pnpm dev` keeps 3000 and 3001.
+export const DEV_PORT_VARIABLES = {
+  web: "KUMORA_WEB_PORT",
+  dashboard: "KUMORA_DASHBOARD_PORT",
+} as const satisfies Record<App, string>
+const DEFAULT_DEV_PORTS = {
   web: 3000,
   dashboard: 3001,
 } as const satisfies Record<App, number>
+
+export const devPort = (app: App): Effect.Effect<number> =>
+  Config.Port(DEV_PORT_VARIABLES[app]).pipe(
+    Config.withDefault(DEFAULT_DEV_PORTS[app]),
+    Effect.orDie
+  )
 
 // An app's Alchemy stack, also its Production Worker. Local state lives under
 // `.alchemy/state/<stack>/<stage>/`.
@@ -181,7 +196,7 @@ export const stageUrl = Effect.fnUntraced(function* (
 ): Effect.fn.Return<string> {
   const kind = yield* stageKind(stage)
   if (kind === "dev" || kind === "test")
-    return `http://localhost:${DEV_PORTS[app]}`
+    return `http://localhost:${yield* devPort(app)}`
   const { workerName } = yield* stageTarget(app, stage)
   return `https://${workerName}.${WORKERS_DEV_SUBDOMAIN}.workers.dev`
 })

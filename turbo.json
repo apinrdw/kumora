@@ -70,7 +70,11 @@
         // apps/e2e/playwright.config.ts sets it (apps/e2e/support/clock.ts).
         "MARKET_LIVE_CLOCK_OFFSET",
         "ALCHEMY_STAGE",
-        "ALCHEMY_PROFILE"
+        "ALCHEMY_PROFILE",
+        // packages/deploy/src/target.ts devPort; apps/e2e/support/ports.ts
+        // sets them.
+        "KUMORA_WEB_PORT",
+        "KUMORA_DASHBOARD_PORT"
       ]
     },
     "test": {
