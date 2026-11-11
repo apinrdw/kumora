@@ -1,12 +1,10 @@
 // @vitest-environment happy-dom
-import { expect, it } from "@effect/vitest"
-import { clientRuntime, FrameScheduler } from "@workspace/client"
-import { manualFrames } from "@workspace/client/testing"
+import { clientRuntime } from "@workspace/client"
 import { StockCode } from "@workspace/relay"
 import { DateTime, Effect } from "effect"
 import { act } from "react"
 import { createRoot } from "react-dom/client"
-import { test } from "vitest"
+import { expect, test } from "vitest"
 
 import { makeDayStateStore } from "@/components/market-live/day-state-store"
 import {
@@ -19,13 +17,6 @@ import { Watchlist } from "@/components/market-live/watchlist"
 Object.assign(globalThis, { IS_REACT_ACT_ENVIRONMENT: true })
 
 const BBCA = StockCode.make("BBCA")
-
-// Lets the store's source fiber drain what the test queued.
-const settle = Effect.repeat(Effect.yieldNow, { times: 10 })
-
-// An async act around `effect`, so React flushes the renders it schedules.
-const inAct = (effect: Effect.Effect<void>) =>
-  Effect.promise(() => act(() => Effect.runPromise(effect)))
 
 test("a code with an indicative price before any Day state shows the indicative price, not 'no data yet'", () => {
   const store = clientRuntime.runSync(makeDayStateStore())
@@ -147,51 +138,44 @@ test("an indicative price from pre-opening is not shown in pre-closing: only one
   act(() => root.unmount())
 })
 
-it.effect(
-  "a Day state without a change, an index's whose frames carry no previous close, shows none rather than 0%",
-  () =>
-    Effect.gen(function* () {
-      const IHSG = StockCode.make("IHSG")
-      const frames = yield* manualFrames
-      const store = yield* makeDayStateStore().pipe(
-        Effect.provideService(FrameScheduler, frames.scheduler)
-      )
-      const container = document.body.appendChild(document.createElement("div"))
-      const root = createRoot(container)
-      act(() =>
-        root.render(
-          <Watchlist
-            codes={[IHSG]}
-            list={{ _tag: "Loading" }}
-            store={store}
-            onAdd={() => {}}
-            onRemove={() => {}}
-            onSelect={() => {}}
-          />
-        )
-      )
-      act(() =>
-        store.replace([
-          {
-            code: IHSG,
-            last: 4971.287,
-            open: 4955.834,
-            high: 4983.81,
-            low: 4925.101,
-            volume: 241_870_237,
-            value: 4_224_616_955_900,
-            frequency: 674_825,
-            asOf: DateTime.makeUnsafe("2026-11-09T14:19:27+07:00"),
-            provenance: "Stockbit",
-          },
-        ])
-      )
-      yield* settle
-      yield* inAct(frames.step)
-      const cells = [
-        ...container.querySelectorAll('tr[data-code="IHSG"] td'),
-      ].map((cell) => cell.textContent)
-      expect(cells.slice(1, 3)).toEqual(["4,971.29", "—"])
-      act(() => root.unmount())
-    })
-)
+test("a Day state without a change, an index's whose frames carry no previous close, shows none rather than 0%", async () => {
+  const IHSG = StockCode.make("IHSG")
+  const store = clientRuntime.runSync(makeDayStateStore())
+  const container = document.body.appendChild(document.createElement("div"))
+  const root = createRoot(container)
+  act(() =>
+    root.render(
+      <Watchlist
+        codes={[IHSG]}
+        list={{ _tag: "Loading" }}
+        store={store}
+        onAdd={() => {}}
+        onRemove={() => {}}
+        onSelect={() => {}}
+      />
+    )
+  )
+  act(() =>
+    store.replace([
+      {
+        code: IHSG,
+        last: 4971.287,
+        open: 4955.834,
+        high: 4983.81,
+        low: 4925.101,
+        volume: 241_870_237,
+        value: 4_224_616_955_900,
+        frequency: 674_825,
+        asOf: DateTime.makeUnsafe("2026-11-09T14:19:27+07:00"),
+        provenance: "Stockbit",
+      },
+    ])
+  )
+  // The store draws its updates at the next animation frame.
+  await act(() => new Promise<void>((resolve) => setTimeout(resolve, 50)))
+  const cells = [...container.querySelectorAll('tr[data-code="IHSG"] td')].map(
+    (cell) => cell.textContent
+  )
+  expect(cells.slice(1, 3)).toEqual(["4,971.29", "—"])
+  act(() => root.unmount())
+})

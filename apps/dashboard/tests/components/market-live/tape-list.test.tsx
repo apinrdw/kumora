@@ -5,7 +5,7 @@ import {
   type RunningTrade,
   type ViewerDown,
 } from "@workspace/relay"
-import { Effect, DateTime } from "effect"
+import { DateTime, Effect } from "effect"
 import { act } from "react"
 import { createRoot } from "react-dom/client"
 import { expect, test } from "vitest"

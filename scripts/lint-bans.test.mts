@@ -397,6 +397,7 @@ layer(NodeServices.layer)(
       ["apps/dashboard/tests/lib/thing.test.ts"],
       ["apps/dashboard/tests/server/thing.test.ts"],
       ["apps/dashboard/tests/components/k/thing.test.ts"],
+      ["apps/dashboard/tests/start.test.ts"],
     ])("throw and async in %s are rejected", ([file]) =>
       Effect.gen(function* () {
         const diagnostics = yield* lint(
@@ -440,8 +441,6 @@ layer(NodeServices.layer)(
       ["apps/dashboard/src/router.tsx"],
       ["apps/dashboard/src/components/k/thing.tsx"],
       ["apps/dashboard/src/components/market-live/thing.tsx"],
-      ["apps/dashboard/tests/components/k/thing.test.tsx"],
-      ["apps/dashboard/tests/support/thing.tsx"],
     ])("throw and async in %s are rejected", ([file]) =>
       Effect.gen(function* () {
         const diagnostics = yield* lint(
@@ -450,6 +449,23 @@ layer(NodeServices.layer)(
         )
         assertBanned(diagnostics, "kumora(restricted-syntax)", "Effect.fail")
         assertBanned(diagnostics, "oxc(no-async-await)", "async")
+      })
+    )
+
+    // Spec apinrdw/kumora#113 leaves component tests as they were.
+    it.effect.each([
+      ["apps/dashboard/tests/components/k/thing.test.tsx"],
+      ["apps/dashboard/tests/support/thing.tsx"],
+    ])("component tests in %s may still use async", ([file]) =>
+      Effect.gen(function* () {
+        const diagnostics = yield* lint(
+          file,
+          "export const f = async () => {}\n"
+        )
+        assert.isFalse(
+          diagnostics.some((line) => line.startsWith("oxc(no-async-await)")),
+          diagnostics.join("\n")
+        )
       })
     )
 

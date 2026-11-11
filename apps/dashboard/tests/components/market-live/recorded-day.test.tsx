@@ -1,7 +1,6 @@
 // @vitest-environment happy-dom
-import { expect, it } from "@effect/vitest"
-import { clientRuntime } from "@workspace/client"
 import type * as Client from "@workspace/client"
+import { clientRuntime } from "@workspace/client"
 import {
   StockCode,
   WibDate,
@@ -11,19 +10,13 @@ import {
 import { DateTime, Effect, Option } from "effect"
 import { act } from "react"
 import { createRoot } from "react-dom/client"
-import { vi } from "vitest"
+import { expect, test, vi } from "vitest"
 
 import { makeCandleStore } from "@/components/market-live/candle-store"
 import { makeDayStateStore } from "@/components/market-live/day-state-store"
-import {
-  makeOrderBookStore,
-  type OrderBookStore,
-} from "@/components/market-live/order-book-store"
+import { makeOrderBookStore } from "@/components/market-live/order-book-store"
 import { useRecordedDay } from "@/components/market-live/recorded-day"
-import {
-  makeReplayCursor,
-  type ReplayCursor,
-} from "@/components/market-live/replay-cursor"
+import { makeReplayCursor } from "@/components/market-live/replay-cursor"
 import { replayDay } from "@/lib/replay"
 
 // React's `act` warns outside a test environment that declares itself.
@@ -37,18 +30,16 @@ const mocks = vi.hoisted(() => ({
 }))
 
 // The recorded day's GETs, answered here: nothing but the book chunks.
-vi.mock("@workspace/client", (importOriginal) =>
-  importOriginal<typeof Client>().then((actual) => ({
-    ...actual,
-    fetchRecordedGaps: () => Effect.succeed([]),
-    fetchRecordedCandles: () => Effect.succeed(Option.none()),
-    fetchRecordedBookChunk: (
-      _day: WibDate,
-      _code: StockCode,
-      minute: DateTime.Utc
-    ) => mocks.bookChunk(minute),
-  }))
-)
+vi.mock("@workspace/client", async (importOriginal) => ({
+  ...(await importOriginal<typeof Client>()),
+  fetchRecordedGaps: () => Effect.succeed([]),
+  fetchRecordedCandles: () => Effect.succeed(Option.none()),
+  fetchRecordedBookChunk: (
+    _day: WibDate,
+    _code: StockCode,
+    minute: DateTime.Utc
+  ) => mocks.bookChunk(minute),
+}))
 
 const BBCA = StockCode.make("BBCA")
 const DAY = WibDate.make("2026-11-09")
@@ -74,96 +65,84 @@ const chunkOf = (minute: number): BookChunk => ({
 })
 
 // The hook over `cursor`, filling `book`; returns the unmount.
-const mount = (cursor: ReplayCursor, book: OrderBookStore) =>
-  Effect.gen(function* () {
-    const candles = Effect.runSync(makeCandleStore(BBCA))
-    const dayStates = clientRuntime.runSync(makeDayStateStore())
-    function Harness() {
-      useRecordedDay({
-        day: DAY,
-        cursor,
-        selected: BBCA,
-        watchlist: [],
-        candles,
-        book,
-        dayStates,
-      })
-      return null
-    }
-    const container = document.body.appendChild(document.createElement("div"))
-    const root = createRoot(container)
-    yield* Effect.promise(() =>
-      act(() => Effect.runPromise(Effect.sync(() => root.render(<Harness />))))
-    )
-    return () => act(() => root.unmount())
+const mount = async (
+  cursor: Effect.Success<ReturnType<typeof makeReplayCursor>>,
+  book: Effect.Success<ReturnType<typeof makeOrderBookStore>>
+) => {
+  const candles = Effect.runSync(makeCandleStore(BBCA))
+  const dayStates = clientRuntime.runSync(makeDayStateStore())
+  function Harness() {
+    useRecordedDay({
+      day: DAY,
+      cursor,
+      selected: BBCA,
+      watchlist: [],
+      candles,
+      book,
+      dayStates,
+    })
+    return null
+  }
+  const container = document.body.appendChild(document.createElement("div"))
+  const root = createRoot(container)
+  await act(() => root.render(<Harness />))
+  return () => act(() => root.unmount())
+}
+
+test("a book chunk whose load failed is asked for again when the cursor visits its minute again", async () => {
+  const cursor = Effect.runSync(
+    Effect.flatMap(replayDay(DAY, []), makeReplayCursor)
+  )
+  const closeMinute = Math.floor(cursor.state().at / MINUTE) * MINUTE
+  // The close minute's chunk: the relay's first answer fails, the next is the
+  // chunk; any other minute has no book.
+  let closeAsked = 0
+  mocks.bookChunk.mockImplementation((minute) => {
+    if (DateTime.toEpochMillis(minute) !== closeMinute)
+      return Effect.succeed(Option.none())
+    closeAsked += 1
+    return closeAsked === 1
+      ? Effect.fail("recorded day not served")
+      : Effect.succeed(Option.some(chunkOf(closeMinute)))
   })
+  const book = Effect.runSync(makeOrderBookStore(BBCA))
+  const unmount = await mount(cursor, book)
+  await vi.waitFor(() => expect(closeAsked).toBe(1))
+  expect(book.book()).toBeUndefined()
 
-// Waits until `assertion` passes, as vi.waitFor does.
-const waitFor = (assertion: () => void) =>
-  Effect.promise(() => vi.waitFor(assertion))
+  // Away to the minute before, then back.
+  act(() => cursor.seek(closeMinute - MINUTE))
+  act(() => cursor.seek(closeMinute))
+  await vi.waitFor(() => expect(book.book()?._tag).toBe("OrderBook"))
+  expect(closeAsked).toBe(2)
+  unmount()
+})
 
-it.live(
-  "a book chunk whose load failed is asked for again when the cursor visits its minute again",
-  () =>
-    Effect.gen(function* () {
-      const cursor = Effect.runSync(
-        Effect.flatMap(replayDay(DAY, []), makeReplayCursor)
-      )
-      const closeMinute = Math.floor(cursor.state().at / MINUTE) * MINUTE
-      // The close minute's chunk: the relay's first answer fails, the next is the
-      // chunk; any other minute has no book.
-      let closeAsked = 0
-      mocks.bookChunk.mockImplementation((minute) => {
-        if (DateTime.toEpochMillis(minute) !== closeMinute)
-          return Effect.succeed(Option.none())
-        closeAsked += 1
-        return closeAsked === 1
-          ? Effect.fail("recorded day not served")
-          : Effect.succeed(Option.some(chunkOf(closeMinute)))
-      })
-      const book = Effect.runSync(makeOrderBookStore(BBCA))
-      const unmount = yield* mount(cursor, book)
-      yield* waitFor(() => expect(closeAsked).toBe(1))
-      expect(book.book()).toBeUndefined()
+test("the cursor on a minute whose chunk hasn't answered shows no book, the last minute's included after its load failed", async () => {
+  const cursor = Effect.runSync(
+    Effect.flatMap(replayDay(DAY, []), makeReplayCursor)
+  )
+  const closeMinute = Math.floor(cursor.state().at / MINUTE) * MINUTE
+  const earlier = closeMinute - MINUTE
+  // The close minute's chunk answers; the minute before never does.
+  let earlierAsked = 0
+  mocks.bookChunk.mockImplementation((minute) => {
+    const at = DateTime.toEpochMillis(minute)
+    if (at === closeMinute)
+      return Effect.succeed(Option.some(chunkOf(closeMinute)))
+    if (at !== earlier) return Effect.succeed(Option.none())
+    earlierAsked += 1
+    return Effect.fail("recorded day not served")
+  })
+  const book = Effect.runSync(makeOrderBookStore(BBCA))
+  const unmount = await mount(cursor, book)
+  await vi.waitFor(() => expect(book.book()?._tag).toBe("OrderBook"))
 
-      // Away to the minute before, then back.
-      act(() => cursor.seek(closeMinute - MINUTE))
-      act(() => cursor.seek(closeMinute))
-      yield* waitFor(() => expect(book.book()?._tag).toBe("OrderBook"))
-      expect(closeAsked).toBe(2)
-      unmount()
-    })
-)
-
-it.live(
-  "the cursor on a minute whose chunk hasn't answered shows no book, the last minute's included after its load failed",
-  () =>
-    Effect.gen(function* () {
-      const cursor = Effect.runSync(
-        Effect.flatMap(replayDay(DAY, []), makeReplayCursor)
-      )
-      const closeMinute = Math.floor(cursor.state().at / MINUTE) * MINUTE
-      const earlier = closeMinute - MINUTE
-      // The close minute's chunk answers; the minute before never does.
-      let earlierAsked = 0
-      mocks.bookChunk.mockImplementation((minute) => {
-        const at = DateTime.toEpochMillis(minute)
-        if (at === closeMinute)
-          return Effect.succeed(Option.some(chunkOf(closeMinute)))
-        if (at !== earlier) return Effect.succeed(Option.none())
-        earlierAsked += 1
-        return Effect.fail("recorded day not served")
-      })
-      const book = Effect.runSync(makeOrderBookStore(BBCA))
-      const unmount = yield* mount(cursor, book)
-      yield* waitFor(() => expect(book.book()?._tag).toBe("OrderBook"))
-
-      act(() => cursor.seek(earlier))
-      expect(book.book()).toBeUndefined()
-      yield* waitFor(() => expect(earlierAsked).toBe(1))
-      // Paused on the minute, the failed load leaves nothing shown.
-      yield* waitFor(() => expect(mocks.bookChunk).toHaveBeenCalledTimes(2))
-      expect(book.book()).toBeUndefined()
-      unmount()
-    })
-)
+  act(() => cursor.seek(earlier))
+  expect(book.book()).toBeUndefined()
+  await vi.waitFor(() => expect(earlierAsked).toBe(1))
+  // Paused on the minute, the failed load leaves nothing shown.
+  await vi.waitFor(() => expect(mocks.bookChunk).toHaveBeenCalledTimes(2))
+  expect(book.book()).toBeUndefined()
+  unmount()
+})

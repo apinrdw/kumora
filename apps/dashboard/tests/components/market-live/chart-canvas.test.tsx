@@ -1,10 +1,9 @@
 // @vitest-environment happy-dom
 import { StockCode, type Candle, type RelayGap } from "@workspace/relay"
-import { Effect, DateTime } from "effect"
+import { DateTime, Effect } from "effect"
 import { act } from "react"
 import { createRoot } from "react-dom/client"
-import { expect, it } from "@effect/vitest"
-import { vi } from "vitest"
+import { expect, test, vi } from "vitest"
 
 import { makeCandleStore } from "@/components/market-live/candle-store"
 import ChartCanvas from "@/components/market-live/chart-canvas"
@@ -29,20 +28,12 @@ const { series, FakeSeries } = vi.hoisted(() => {
     }
     update(row: Row, historical = false) {
       if (!historical && this.last !== undefined && row.time < this.last)
-        return Effect.runSync(
-          Effect.die(
-            new Error(
-              `Cannot update oldest data, last time=${this.last}, new time=${row.time}`
-            )
-          )
+        throw new Error(
+          `Cannot update oldest data, last time=${this.last}, new time=${row.time}`
         )
       if (historical && !this.rows.has(row.time))
-        return Effect.runSync(
-          Effect.die(
-            new Error(
-              "Cannot update non-existing data point when historicalUpdate is true"
-            )
-          )
+        throw new Error(
+          "Cannot update non-existing data point when historicalUpdate is true"
         )
       this.rows.set(row.time, row)
       if (!historical) this.last = row.time
@@ -100,52 +91,34 @@ const gap = (from: string, to: string): RelayGap => ({
 
 // The animation frame the chart batches deltas into.
 const nextFrame = () =>
-  Effect.promise(() => act(() => Effect.runPromise(Effect.sleep("50 millis"))))
+  act(() => new Promise<void>((resolve) => setTimeout(resolve, 50)))
 
-// An async act around `f`, so React flushes the work it schedules.
-const inAct = (f: () => unknown) =>
-  Effect.promise(() => act(() => Effect.runPromise(Effect.sync(f))))
+test("a candle backfilled into a relay gap after the last candle goes on the chart", async () => {
+  const store = Effect.runSync(makeCandleStore(BBCA))
+  store.apply({ _tag: "Delta", tape: [], candles: [candle("09:00", 100)] })
+  const container = document.body.appendChild(document.createElement("div"))
+  const root = createRoot(container)
+  await act(() =>
+    root.render(<ChartCanvas store={store} gaps={[gap("09:01", "09:04")]} />)
+  )
+  const [candles, volume] = series
+  // The gap's minutes are whitespace after the last candle.
+  expect([...candles!.rows.keys()]).toEqual(
+    ["09:00", "09:01", "09:02", "09:03"].map(seconds)
+  )
 
-it.live(
-  "a candle backfilled into a relay gap after the last candle goes on the chart",
-  () =>
-    Effect.gen(function* () {
-      const store = Effect.runSync(makeCandleStore(BBCA))
-      store.apply({ _tag: "Delta", tape: [], candles: [candle("09:00", 100)] })
-      const container = document.body.appendChild(document.createElement("div"))
-      const root = createRoot(container)
-      yield* inAct(() =>
-        root.render(
-          <ChartCanvas store={store} gaps={[gap("09:01", "09:04")]} />
-        )
-      )
-      const [candles, volume] = series
-      // The gap's minutes are whitespace after the last candle.
-      expect([...candles!.rows.keys()]).toEqual(
-        ["09:00", "09:01", "09:02", "09:03"].map(seconds)
-      )
+  await act(() =>
+    store.apply({ _tag: "Delta", tape: [], candles: [candle("09:02", 101)] })
+  )
+  await nextFrame()
+  expect(candles!.rows.get(seconds("09:02"))).toMatchObject({ close: 101 })
+  expect(volume!.rows.get(seconds("09:02"))).toMatchObject({ value: 1 })
 
-      yield* inAct(() =>
-        store.apply({
-          _tag: "Delta",
-          tape: [],
-          candles: [candle("09:02", 101)],
-        })
-      )
-      yield* nextFrame()
-      expect(candles!.rows.get(seconds("09:02"))).toMatchObject({ close: 101 })
-      expect(volume!.rows.get(seconds("09:02"))).toMatchObject({ value: 1 })
-
-      // A live candle after the gap still goes in as the newest bar.
-      yield* inAct(() =>
-        store.apply({
-          _tag: "Delta",
-          tape: [],
-          candles: [candle("09:05", 102)],
-        })
-      )
-      yield* nextFrame()
-      expect(candles!.rows.get(seconds("09:05"))).toMatchObject({ close: 102 })
-      yield* inAct(() => root.unmount())
-    })
-)
+  // A live candle after the gap still goes in as the newest bar.
+  await act(() =>
+    store.apply({ _tag: "Delta", tape: [], candles: [candle("09:05", 102)] })
+  )
+  await nextFrame()
+  expect(candles!.rows.get(seconds("09:05"))).toMatchObject({ close: 102 })
+  await act(() => root.unmount())
+})
