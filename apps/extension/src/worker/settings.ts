@@ -178,6 +178,7 @@ export const isCodeListRelayAsk = Effect.fnUntraced(function* (
 // the extension e2e can run in streaming hours at any time of day. Only a script
 // in the service worker's console sets it; the options page never shows it.
 // Frames keep their real receive times. See apinrdw/kumora#155.
+// apps/e2e/support/relay-extension.ts names this key too: it sets the offset.
 const CLOCK_OFFSET_KEY = "clockOffsetMs"
 
 export const loadClockOffset = Effect.gen(function* () {

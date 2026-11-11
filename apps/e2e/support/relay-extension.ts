@@ -271,14 +271,21 @@ export async function startFakeBrokers() {
   }
 }
 
+// The relay's test clock offset in chrome.storage.local, as
+// apps/extension/src/worker/settings.ts names it.
+const CLOCK_OFFSET_KEY = "clockOffsetMs"
+// The offset of the relay's last completed tick on the worker's global scope,
+// as apps/extension/src/worker/service-worker.ts names it.
+const LAST_TICK_KEY = "lastTickClockOffsetMs"
+
 // Sets the relay's clock offset, which ticks it at once, and waits until a
-// tick on that offset has completed (service-worker.ts).
+// tick on that offset has completed.
 async function setClockOffset(worker: Worker, offset: number) {
   await worker.evaluate(
-    `chrome.storage.local.set({ clockOffsetMs: ${offset} })`
+    `chrome.storage.local.set({ ${CLOCK_OFFSET_KEY}: ${offset} })`
   )
   await expect
-    .poll(() => worker.evaluate("globalThis.lastTickClockOffsetMs"))
+    .poll(() => worker.evaluate(`globalThis.${LAST_TICK_KEY}`))
     .toBe(offset)
 }
 
@@ -295,7 +302,7 @@ export async function setRelayClock(worker: Worker, wib: string) {
 export async function tickRelay(worker: Worker, count = 1) {
   for (let tick = 0; tick < count; tick++) {
     const offset = await worker.evaluate<number>(
-      "chrome.storage.local.get('clockOffsetMs').then((stored) => stored.clockOffsetMs ?? 0)"
+      `chrome.storage.local.get("${CLOCK_OFFSET_KEY}").then((stored) => stored.${CLOCK_OFFSET_KEY} ?? 0)`
     )
     await setClockOffset(worker, offset + 1)
   }

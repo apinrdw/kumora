@@ -64,6 +64,10 @@ import { runTarget } from "./target.ts"
 const TICK = Duration.seconds(10)
 const ALARM = "tick"
 
+// Where a completed tick leaves its clock offset on the worker's global scope.
+// apps/e2e/support/relay-extension.ts names it too: it reads it.
+const LAST_TICK_KEY = "lastTickClockOffsetMs"
+
 type WorkerEvent =
   | { readonly _tag: "connect"; readonly port: chrome.runtime.Port }
   | {
@@ -310,7 +314,7 @@ const main = Effect.gen(function* () {
     // worker's global scope, test-only like the offset itself, so a spec that
     // moved the clock reads it to await a tick on the new clock instead of
     // sleeping. See apinrdw/kumora#174.
-    Object.assign(globalThis, { lastTickClockOffsetMs: offset })
+    Object.assign(globalThis, { [LAST_TICK_KEY]: offset })
   })
   yield* Effect.forkScoped(
     Effect.repeat(
