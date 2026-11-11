@@ -16,16 +16,14 @@ const STAGING = "staging"
 // The Stage e2e runs on: apps/e2e/playwright.config.ts sets ALCHEMY_STAGE to it.
 const TEST_NAME = "test"
 
-// Each app's dev server port under `alchemy dev`, strict so one app never
-// takes the other's. e2e waits on both.
-// Decision: the port comes from the app's variable when it is set, else the
-// default. apps/e2e/support/ports.ts sets both to free ports for each run,
-// so e2e runs in parallel worktrees, or beside another project's server on
-// 3000, never collide. `pnpm dev` keeps 3000 and 3001.
+// The variables that move each app's dev server port. turbo.json's dev
+// passThroughEnv repeats both names, so a rename here goes there too.
 export const DEV_PORT_VARIABLES = {
   web: "KUMORA_WEB_PORT",
   dashboard: "KUMORA_DASHBOARD_PORT",
 } as const satisfies Record<App, string>
+// Each app's dev server port under `alchemy dev`, strict so one app never
+// takes the other's. e2e waits on both.
 const DEFAULT_DEV_PORTS = {
   web: 3000,
   dashboard: 3001,
@@ -33,6 +31,10 @@ const DEFAULT_DEV_PORTS = {
 
 export const devPort = (app: App): Effect.Effect<number> =>
   Config.Port(DEV_PORT_VARIABLES[app]).pipe(
+    // Decision: the port comes from the app's variable when it is set, else
+    // the default. apps/e2e/support/ports.ts sets both to free ports for each
+    // run, so e2e runs in parallel worktrees, or beside another project's
+    // server on 3000, never collide. `pnpm dev` keeps 3000 and 3001.
     Config.withDefault(DEFAULT_DEV_PORTS[app]),
     Effect.orDie
   )
