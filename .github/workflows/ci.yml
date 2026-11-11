@@ -126,8 +126,10 @@ jobs:
       # costs only that rebundle. The key adds the app and package sources, so
       # a change that imports a new dependency saves a fresh entry, and
       # restore-keys hands any other change the last entry for the same
-      # lockfile and configs. In CI a warm cache starts the servers in
-      # PLACEHOLDER s against a miss's PLACEHOLDER s (run PLACEHOLDER).
+      # lockfile and configs. In CI a warm cache skips the optimizer and starts
+      # the dashboard in 12.6-14.6 s against a miss's 13.4-16.2 s, for a 1 s
+      # restore (run 43091968909, attempts 2 and 1): a small gain, since the
+      # first sign-up's slow compile is the app's own code, not its deps.
       - uses: actions/cache@v6
         with:
           path: |

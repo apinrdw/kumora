@@ -8,8 +8,8 @@ description: Restore the workspace's node_modules by the lockfile, or install th
 # key holds this file too, so a change to the paths below starts a fresh
 # entry. Workers Builds is unaffected: it clones the repo and runs its own
 # `pnpm install --frozen-lockfile` before the deploy command, and bun reads
-# the same node_modules in both places. In CI a hit takes PLACEHOLDER s
-# against a miss's PLACEHOLDER s (run PLACEHOLDER).
+# the same node_modules in both places. In CI a hit takes 7-10 s against a
+# miss's 25-28 s (run 43091968909, attempts 2 and 1).
 runs:
   using: composite
   steps:
