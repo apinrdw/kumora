@@ -30,46 +30,55 @@ const lotBar = (level: BookLevel, largest: number, side: "bid" | "offer") =>
     background: `linear-gradient(to ${side === "bid" ? "left" : "right"}, color-mix(in oklab, var(--semantic-${side === "bid" ? "up" : "down"}) 18%, transparent) ${(level.lots / largest) * 100}%, transparent 0)`,
   }))
 
-// Cumulative lots over price: bids green from the left, offers red to the
-// right, over the 20 levels a side the book carries.
-function DepthCurve({ book }: { book: OrderBook }) {
-  const width = 360
-  const height = 64
-  const cumulative = (levels: ReadonlyArray<BookLevel>) => {
+const DEPTH_WIDTH = 360
+const DEPTH_HEIGHT = 64
+
+const cumulative = (levels: ReadonlyArray<BookLevel>) =>
+  Effect.sync(() => {
     let lots = 0
     return levels.map((level) => ({
       price: level.price,
       lots: (lots += level.lots),
     }))
-  }
-  const bids = cumulative(book.bids)
-  const offers = cumulative(book.offers)
+  })
+
+// The depth curve's two SVG areas, bids and offers, on one price and lot scale.
+const depthAreas = Effect.fnUntraced(function* (book: OrderBook) {
+  const bids = yield* cumulative(book.bids)
+  const offers = yield* cumulative(book.offers)
   const low = bids.at(-1)?.price ?? offers[0]?.price ?? 0
   const high = offers.at(-1)?.price ?? bids[0]?.price ?? 0
   const most = Math.max(bids.at(-1)?.lots ?? 0, offers.at(-1)?.lots ?? 0, 1)
-  const x = (price: number) => ((price - low) / (high - low || 1)) * width
-  const y = (lots: number) => height - (lots / most) * (height - 4)
+  const x = (price: number) => ((price - low) / (high - low || 1)) * DEPTH_WIDTH
+  const y = (lots: number) => DEPTH_HEIGHT - (lots / most) * (DEPTH_HEIGHT - 4)
   const area = (points: ReadonlyArray<{ price: number; lots: number }>) =>
     points.length === 0
       ? ""
-      : `M${x(points[0]!.price)},${height} ${points
+      : `M${x(points[0]!.price)},${DEPTH_HEIGHT} ${points
           .map((point) => `L${x(point.price)},${y(point.lots)}`)
-          .join(" ")} L${x(points.at(-1)!.price)},${height} Z`
+          .join(" ")} L${x(points.at(-1)!.price)},${DEPTH_HEIGHT} Z`
+  return { bids: area(bids), offers: area(offers) }
+})
+
+// Cumulative lots over price: bids green from the left, offers red to the
+// right, over the 20 levels a side the book carries.
+function DepthCurve({ book }: { book: OrderBook }) {
+  const areas = Effect.runSync(depthAreas(book))
   return (
     <svg
-      viewBox={`0 0 ${width} ${height}`}
+      viewBox={`0 0 ${DEPTH_WIDTH} ${DEPTH_HEIGHT}`}
       preserveAspectRatio="none"
       role="img"
       aria-label="Cumulative depth, 20 levels a side"
       className="h-16 w-full"
     >
       <path
-        d={area(bids)}
+        d={areas.bids}
         fill="color-mix(in oklab, var(--semantic-up) 25%, transparent)"
         stroke="var(--semantic-up)"
       />
       <path
-        d={area(offers)}
+        d={areas.offers}
         fill="color-mix(in oklab, var(--semantic-down) 25%, transparent)"
         stroke="var(--semantic-down)"
       />

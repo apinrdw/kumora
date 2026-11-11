@@ -35,6 +35,7 @@ export function ChartReadout({
 /**
  * Recharts tooltip `content` that shows the readout for the hovered point,
  * matched by its unique label, and nothing outside the plot.
+ * Plain, not an Effect: it builds the render callback recharts calls.
  */
 export function pointReadout<P extends { label: string }>(
   data: ReadonlyArray<P>,

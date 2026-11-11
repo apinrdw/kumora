@@ -46,24 +46,11 @@ const dayOfDate = new Intl.DateTimeFormat("en-US", {
 
 export type Direction = "up" | "down" | "flat"
 
-// The pure cores the formatters share; each export returns an Effect.
-const signOf = (n: number) => (n > 0 ? "+" : n < 0 ? MINUS : "")
-
-const plainOf = (n: number, digits: 0 | 1 | 2) =>
-  (digits === 2 ? nf2 : digits === 1 ? nf1 : nfInt).format(n)
-
-const compactOf = (n: number) => {
-  const a = Math.abs(n)
-  if (a >= 1e9) return nfUpTo2.format(a / 1e9) + " B"
-  if (a >= 1e6) return nfUpTo2.format(a / 1e6) + " M"
-  if (a >= 1e3) return nfUpTo2.format(a / 1e3) + " K"
-  return nfInt.format(a)
-}
-
 export const direction = (n: number) =>
   Effect.sync((): Direction => (n > 0 ? "up" : n < 0 ? "down" : "flat"))
 
-export const sign = (n: number) => Effect.sync(() => signOf(n))
+export const sign = (n: number) =>
+  Effect.sync(() => (n > 0 ? "+" : n < 0 ? MINUS : ""))
 
 /** Rp9,275 */
 export const idr = (n: number) =>
@@ -71,34 +58,46 @@ export const idr = (n: number) =>
 
 /** 9,275 or 7,243.18 */
 export const plain = (n: number, digits: 0 | 1 | 2 = 0) =>
-  Effect.sync(() => plainOf(n, digits))
+  Effect.sync(() => (digits === 2 ? nf2 : digits === 1 ? nf1 : nfInt).format(n))
 
 /** +1.35% */
 export const pct = (n: number) =>
-  Effect.sync(() =>
-    n === 0 ? "0.00%" : signOf(n) + nf2.format(Math.abs(n)) + "%"
-  )
+  n === 0
+    ? Effect.succeed("0.00%")
+    : Effect.map(sign(n), (s) => s + nf2.format(Math.abs(n)) + "%")
 
 /** A price: 9,275 for a stock, 7,243.18 for an index, whose prices are fractional. */
-export const price = (n: number) =>
-  Effect.sync(() => plainOf(n, Number.isInteger(n) ? 0 : 2))
+export const price = (n: number) => plain(n, Number.isInteger(n) ? 0 : 2)
 
 /** +90, −1.5 */
-export const signed = (n: number, digits: 0 | 1 | 2 = 0) =>
-  Effect.sync(() => signOf(n) + plainOf(Math.abs(n), digits))
+export const signed = Effect.fnUntraced(function* (
+  n: number,
+  digits: 0 | 1 | 2 = 0
+) {
+  return (yield* sign(n)) + (yield* plain(Math.abs(n), digits))
+})
 
 /** Unsigned magnitude with a K, M or B suffix: 1.23 B, 12.4 M, 950. B is the largest. */
-export const compact = (n: number) => Effect.sync(() => compactOf(n))
+export const compact = (n: number) =>
+  Effect.sync(() => {
+    const a = Math.abs(n)
+    if (a >= 1e9) return nfUpTo2.format(a / 1e9) + " B"
+    if (a >= 1e6) return nfUpTo2.format(a / 1e6) + " M"
+    if (a >= 1e3) return nfUpTo2.format(a / 1e3) + " K"
+    return nfInt.format(a)
+  })
 
 /** −Rp1.23 B */
-export const compactIdr = (n: number) =>
-  Effect.sync(() => signOf(n) + "Rp" + compactOf(n))
+export const compactIdr = Effect.fnUntraced(function* (n: number) {
+  return (yield* sign(n)) + "Rp" + (yield* compact(n))
+})
 
 /** 1,250 or 0.25: a lot is 100 shares, so an odd lot needs its hundredths */
 export const lots = (n: number) => Effect.sync(() => nfUpTo2.format(n))
 
 /** 12.4 M shares */
-export const shares = (n: number) => Effect.sync(() => compactOf(n) + " shares")
+export const shares = (n: number) =>
+  Effect.map(compact(n), (figure) => figure + " shares")
 
 /** 14:45 WIB */
 export const asOf = (iso: string) =>
@@ -117,5 +116,6 @@ export const dayLabel = (date: WibDate) =>
   Effect.sync(() => dayOfDate.format(new Date(`${date}T00:00:00Z`)))
 
 /** Orca's tape style, whole billions: +Rp318 B */
-export const billionShort = (n: number) =>
-  Effect.sync(() => `${signOf(n)}Rp${plainOf(Math.abs(n) / 1e9, 0)} B`)
+export const billionShort = Effect.fnUntraced(function* (n: number) {
+  return `${yield* sign(n)}Rp${yield* plain(Math.abs(n) / 1e9)} B`
+})
