@@ -1,5 +1,6 @@
 import { IconBrandGoogleFilled } from "@tabler/icons-react"
 import { useHydrated } from "@tanstack/react-router"
+import { Effect } from "effect"
 import { useState } from "react"
 
 import { KButton } from "@/components/k"
@@ -19,7 +20,7 @@ export function GoogleSignIn({ redirect }: { redirect: string }) {
     const { error } = await authClient.signIn.social({
       provider: "google",
       callbackURL: redirect,
-      errorCallbackURL: withRedirect("/sign-in", redirect),
+      errorCallbackURL: Effect.runSync(withRedirect("/sign-in", redirect)),
     })
     if (error) setPending(false)
   }

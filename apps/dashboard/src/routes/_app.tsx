@@ -1,4 +1,5 @@
 import { Outlet, createFileRoute, notFound } from "@tanstack/react-router"
+import { Effect } from "effect"
 import type { ReactNode } from "react"
 
 import { NoAccess } from "@/components/no-access"
@@ -10,7 +11,7 @@ import { gatePageFn } from "@/server/auth/gate.functions"
 // Every page in the shell sits under this layout, behind the sign-in gate.
 export const Route = createFileRoute("/_app")({
   beforeLoad: async ({ location, matches }) => {
-    const feature = pageFeature(matches)
+    const feature = Effect.runSync(pageFeature(matches))
     // A page that names no feature has nothing the policy could allow.
     if (feature === undefined) throw notFound()
     const access = await gatePageFn({

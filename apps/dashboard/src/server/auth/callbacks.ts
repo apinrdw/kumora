@@ -109,7 +109,7 @@ export const sendVerificationEmail = Effect.fn("sendVerificationEmail")(
         "",
         url,
         "",
-        `The link works for ${linkLifetime("verify")}. If you didn't create an account, ignore this email.`,
+        `The link works for ${yield* linkLifetime("verify")}. If you didn't create an account, ignore this email.`,
       ],
     })
   }
@@ -130,7 +130,7 @@ export const sendResetPassword = Effect.fn("sendResetPassword")(function* (
       "",
       url,
       "",
-      `The link works for ${linkLifetime("reset")}. Setting a new password signs you out everywhere else.`,
+      `The link works for ${yield* linkLifetime("reset")}. Setting a new password signs you out everywhere else.`,
       "If you didn't ask for this, ignore this email; your password stays as it is.",
     ],
   })
@@ -151,7 +151,7 @@ export const sendSetPassword = Effect.fn("sendSetPassword")(function* (
       "",
       url,
       "",
-      `The link works for ${linkLifetime("reset")}. Setting the password signs out every other session of the account.`,
+      `The link works for ${yield* linkLifetime("reset")}. Setting the password signs out every other session of the account.`,
       "If you didn't try to create an account, ignore this email.",
     ],
   })
@@ -170,7 +170,7 @@ export const sendChangeEmailConfirmation = Effect.fn(
       "",
       url,
       "",
-      `The link works for ${linkLifetime("verify")}. Your email changes only once the new address is verified.`,
+      `The link works for ${yield* linkLifetime("verify")}. Your email changes only once the new address is verified.`,
       "If you didn't ask for this, ignore this email and change your password.",
     ],
   })
@@ -190,7 +190,7 @@ export const sendNewEmailVerification = Effect.fn("sendNewEmailVerification")(
         "",
         url,
         "",
-        `The link works for ${linkLifetime("verify")}. If you didn't ask for this, ignore this email.`,
+        `The link works for ${yield* linkLifetime("verify")}. If you didn't ask for this, ignore this email.`,
       ],
     })
   }
@@ -207,7 +207,7 @@ export const sendDeleteAccountLink = Effect.fn("sendDeleteAccountLink")(
         "",
         url,
         "",
-        `The link works for ${linkLifetime("delete")}, in a browser signed in to the account. It asks once more before deleting.`,
+        `The link works for ${yield* linkLifetime("delete")}, in a browser signed in to the account. It asks once more before deleting.`,
         "If you didn't ask for this, ignore this email and change your password.",
       ],
     })
@@ -218,9 +218,7 @@ export const sendDeleteAccountLink = Effect.fn("sendDeleteAccountLink")(
 // spec's before-hook column says: 401, 404 or 403 (apinrdw/kumora#80,
 // "Access policy"). A route has no page to return to.
 const hookVerdict = (decision: Decision) =>
-  decision._tag === "Allow"
-    ? Effect.void
-    : Effect.fail(refusal(decision.reason, "/"))
+  decision._tag === "Allow" ? Effect.void : refusal(decision.reason, "/")
 
 export const authorizeOwnAction = Effect.fn("authorizeOwnAction")(function* (
   action: OwnAction,
@@ -305,7 +303,7 @@ export const authorizeAdminAction = Effect.fn("authorizeAdminAction")(
     const account = accountOf(session)
     if (target === null) {
       yield* hookVerdict(decide(account, "page.view", { feature: "admin" }))
-      return yield* Effect.fail(refusal("not-found", "/"))
+      return yield* refusal("not-found", "/")
     }
     yield* hookVerdict(
       decide(account, action, targetOf(target, session, adminEmails))

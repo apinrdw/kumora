@@ -1,11 +1,12 @@
 import { Link } from "@tanstack/react-router"
+import { Effect } from "effect"
 
 import { NAV, visibleNav } from "@/lib/nav"
 import type { Feature } from "@/server/auth/policy"
 
 /** Below 768px the sidebar gives way to a bottom bar: monitoring and alerts first. */
 export function MobileNav({ features }: { features: ReadonlyArray<Feature> }) {
-  const items = visibleNav(NAV, features)
+  const items = Effect.runSync(visibleNav(NAV, features))
     .flatMap((g) => g.items)
     .filter((i) => i.mobile)
   if (items.length === 0) return null

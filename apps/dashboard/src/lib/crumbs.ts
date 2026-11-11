@@ -1,10 +1,13 @@
 import type { LinkProps } from "@tanstack/react-router"
+import type { Effect } from "effect"
 
 export type Crumb = { label: string; link?: LinkProps }
 
 declare module "@tanstack/react-router" {
   interface StaticDataRouteOption {
     /** Header breadcrumb for the deepest matched route; receives that route's params. */
-    crumbs?: (params: Record<string, string>) => ReadonlyArray<Crumb>
+    crumbs?: (
+      params: Record<string, string>
+    ) => Effect.Effect<ReadonlyArray<Crumb>>
   }
 }

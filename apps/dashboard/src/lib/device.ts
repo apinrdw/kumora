@@ -1,3 +1,5 @@
+import { Effect } from "effect"
+
 // Order matters: Edge and Opera also say Chrome, and Chrome also says Safari.
 const BROWSERS = [
   ["Edge", /Edg(e|A|iOS)?\//],
@@ -24,10 +26,11 @@ const first = (
 ) => names.find(([, pattern]) => pattern.test(userAgent))?.[0]
 
 /** A session's browser and system in words, such as "Chrome on macOS". */
-export function device(userAgent: string | null | undefined): string {
-  if (!userAgent) return "Unknown device"
-  const browser = first(BROWSERS, userAgent)
-  const system = first(SYSTEMS, userAgent)
-  if (browser === undefined) return "Unknown browser"
-  return system === undefined ? browser : `${browser} on ${system}`
-}
+export const device = (userAgent: string | null | undefined) =>
+  Effect.sync(() => {
+    if (!userAgent) return "Unknown device"
+    const browser = first(BROWSERS, userAgent)
+    const system = first(SYSTEMS, userAgent)
+    if (browser === undefined) return "Unknown browser"
+    return system === undefined ? browser : `${browser} on ${system}`
+  })

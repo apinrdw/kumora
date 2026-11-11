@@ -1,5 +1,6 @@
 import { IconBan } from "@tabler/icons-react"
 import { Link, useHydrated, useRouter } from "@tanstack/react-router"
+import { Effect } from "effect"
 import { useState, type FormEvent } from "react"
 
 import { KButton, KInput } from "@/components/k"
@@ -49,7 +50,7 @@ export function SignInForm({
     event.preventDefault()
     setPending(true)
     setError(null)
-    const retry = retryAfter()
+    const retry = Effect.runSync(retryAfter())
     const { error: refused } = await authClient.signIn.email(
       formFields(event.currentTarget, ["email", "password"]),
       { onError: retry.onError }
@@ -64,9 +65,11 @@ export function SignInForm({
       setError(
         refused.status === 401
           ? "Wrong email or password."
-          : retry.messageFor(
-              refused,
-              "Couldn't sign in. Try again in a minute."
+          : Effect.runSync(
+              retry.messageFor(
+                refused,
+                "Couldn't sign in. Try again in a minute."
+              )
             )
       )
       return

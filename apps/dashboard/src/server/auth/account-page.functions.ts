@@ -9,7 +9,7 @@ import { accountPage } from "./account-page.ts"
 import { Auth } from "./auth.ts"
 
 export const accountPageFn = createServerFn({ method: "GET" })
-  .validator((href: unknown) => safeRedirect(href))
+  .validator((href: unknown) => Effect.runSync(safeRedirect(href)))
   .handler(({ data }) =>
     runServerEffect(
       accountPage(getRequest().headers, data).pipe(Effect.provide(Auth.layer))

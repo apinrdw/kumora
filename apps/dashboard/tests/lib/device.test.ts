@@ -1,9 +1,10 @@
-import { describe, expect, it } from "vitest"
+import { describe, expect, it } from "@effect/vitest"
+import { Effect } from "effect"
 
 import { device } from "@/lib/device"
 
 describe("device", () => {
-  it.each([
+  it.effect.each([
     [
       "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/131.0.0.0 Safari/537.36",
       "Chrome on macOS",
@@ -30,11 +31,15 @@ describe("device", () => {
     ],
     ["curl/8.5.0", "Unknown browser"],
     ["", "Unknown device"],
-  ])("names %j as %j", (userAgent, name) => {
-    expect(device(userAgent)).toBe(name)
-  })
+  ])("names %j as %j", ([userAgent, name]) =>
+    Effect.gen(function* () {
+      expect(yield* device(userAgent)).toBe(name)
+    })
+  )
 
-  it("names a session with no user agent as an unknown device", () => {
-    expect(device(null)).toBe("Unknown device")
-  })
+  it.effect("names a session with no user agent as an unknown device", () =>
+    Effect.gen(function* () {
+      expect(yield* device(null)).toBe("Unknown device")
+    })
+  )
 })

@@ -18,7 +18,7 @@ const decodePage = Schema.decodeUnknownSync(
 export const gatePageFn = createServerFn({ method: "GET" })
   .validator((input: unknown) => {
     const page = decodePage(input)
-    return { ...page, href: safeRedirect(page.href) }
+    return { ...page, href: Effect.runSync(safeRedirect(page.href)) }
   })
   .handler(({ data }) =>
     runServerEffect(
@@ -27,7 +27,7 @@ export const gatePageFn = createServerFn({ method: "GET" })
   )
 
 export const verifyScreenFn = createServerFn({ method: "GET" })
-  .validator((href: unknown) => safeRedirect(href))
+  .validator((href: unknown) => Effect.runSync(safeRedirect(href)))
   .handler(({ data }) =>
     runServerEffect(
       verifyScreen(getRequest().headers, data).pipe(Effect.provide(Auth.layer))

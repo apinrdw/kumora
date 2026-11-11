@@ -1,4 +1,5 @@
 import { useHydrated } from "@tanstack/react-router"
+import { Effect } from "effect"
 import type { FormEvent } from "react"
 
 import { KButton, KInput } from "@/components/k"
@@ -26,7 +27,7 @@ export function PasswordSection({ canChange }: { canChange: boolean }) {
     const form = event.currentTarget
     const data = new FormData(form)
     void run(async () => {
-      const retry = retryAfter()
+      const retry = Effect.runSync(retryAfter())
       const { error } = await authClient.changePassword(
         {
           currentPassword: String(data.get("currentPassword")),
@@ -41,9 +42,11 @@ export function PasswordSection({ canChange }: { canChange: boolean }) {
           message:
             error.code === "INVALID_PASSWORD"
               ? "The current password is wrong."
-              : retry.messageFor(
-                  error,
-                  "Couldn't change the password. Try again."
+              : Effect.runSync(
+                  retry.messageFor(
+                    error,
+                    "Couldn't change the password. Try again."
+                  )
                 ),
         }
       form.reset()

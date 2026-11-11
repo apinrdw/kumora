@@ -1,4 +1,5 @@
 import { createFileRoute } from "@tanstack/react-router"
+import { Effect } from "effect"
 import { loadServerFn, runLoader } from "@workspace/server/loader"
 import { useCallback } from "react"
 
@@ -9,9 +10,10 @@ import { listAccountsFn } from "@/server/admin/accounts.functions"
 export const Route = createFileRoute("/_app/admin/users")({
   staticData: {
     feature: "admin",
-    crumbs: () => [{ label: "Admin" }, { label: "Accounts" }],
+    crumbs: () => Effect.succeed([{ label: "Admin" }, { label: "Accounts" }]),
   },
-  validateSearch: parseAccountSearch,
+  validateSearch: (raw: Record<string, unknown>) =>
+    Effect.runSync(parseAccountSearch(raw)),
   loaderDeps: ({ search }) => search,
   loader: ({ deps }) =>
     runLoader(loadServerFn(() => listAccountsFn({ data: deps }))),

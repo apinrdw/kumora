@@ -1,4 +1,5 @@
 import { createFileRoute, useRouter } from "@tanstack/react-router"
+import { Effect } from "effect"
 import type { StockCode } from "@workspace/client"
 import type { ViewerDown, WibDate } from "@workspace/relay"
 import { useCallback, useEffect, useMemo, useState } from "react"
@@ -38,7 +39,7 @@ import { closedMarketFn } from "@/server/market-live/closed-market.functions"
 export const Route = createFileRoute("/_app/market-live")({
   staticData: {
     feature: "market-live",
-    crumbs: () => [{ label: "Market Live" }],
+    crumbs: () => Effect.succeed([{ label: "Market Live" }]),
   },
   validateSearch: parseMarketLiveSearch,
   loader: () => closedMarketFn(),

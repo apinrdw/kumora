@@ -1,4 +1,5 @@
 import { createFileRoute } from "@tanstack/react-router"
+import { Effect } from "effect"
 
 import { AuthPage } from "@/components/auth/auth-page"
 import { VerifyToContinue } from "@/components/auth/verify-notices"
@@ -9,7 +10,9 @@ import { verifyScreenFn } from "@/server/auth/gate.functions"
 // The gate sends an unverified session here from every page; once the
 // account is verified it goes on to the page it asked for.
 export const Route = createFileRoute("/verify")({
-  validateSearch: (search) => ({ redirect: safeRedirect(search.redirect) }),
+  validateSearch: (search) => ({
+    redirect: Effect.runSync(safeRedirect(search.redirect)),
+  }),
   beforeLoad: async ({ search }) => ({
     screen: await verifyScreenFn({ data: search.redirect }),
   }),

@@ -56,7 +56,7 @@
     "vitest/no-focused-tests": "error",
     "vitest/no-disabled-tests": "warn",
     "vitest/no-identical-title": "error",
-    "vitest/no-standalone-expect": ["error", { "additionalTestBlockFunctions": ["it.effect", "it.live"] }],
+    "vitest/no-standalone-expect": ["error", { "additionalTestBlockFunctions": ["it.effect", "it.effect.each", "it.live"] }],
     "vitest/valid-expect": "error",
     "vitest/valid-title": "error"
   },

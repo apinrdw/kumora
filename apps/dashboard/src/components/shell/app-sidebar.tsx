@@ -1,5 +1,6 @@
 import { Link } from "@tanstack/react-router"
 import { cn } from "@workspace/ui/lib/utils"
+import { Effect } from "effect"
 
 import { NAV, visibleNav } from "@/lib/nav"
 import type { NavItem } from "@/lib/nav"
@@ -35,7 +36,7 @@ export function AppSidebar({ viewer }: { viewer: Viewer }) {
       </a>
 
       <div className="flex-1 overflow-y-auto px-1.5 py-3 xl:px-2.5">
-        {visibleNav(NAV, viewer.features).map((group) => (
+        {Effect.runSync(visibleNav(NAV, viewer.features)).map((group) => (
           <div key={group.label} className="mb-3 flex flex-col gap-0.5">
             <span className="num hidden px-2.5 pb-1.5 text-[10px] font-medium tracking-[0.16em] text-muted-foreground uppercase xl:block">
               {group.label}

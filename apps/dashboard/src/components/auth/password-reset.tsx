@@ -56,7 +56,7 @@ export function ForgotPasswordForm({
     if (!turnstileToken) return
     const { email } = formFields(event.currentTarget, ["email"])
     setStep({ _tag: "Form", pending: true })
-    const retry = retryAfter()
+    const retry = Effect.runSync(retryAfter())
     const { error } = await authClient.requestPasswordReset(
       {
         email,
@@ -74,9 +74,11 @@ export function ForgotPasswordForm({
     setStep({
       _tag: "Form",
       pending: false,
-      error: retry.messageFor(
-        error,
-        "Couldn't send the link. Try again in a minute."
+      error: Effect.runSync(
+        retry.messageFor(
+          error,
+          "Couldn't send the link. Try again in a minute."
+        )
       ),
     })
   }
@@ -90,7 +92,8 @@ export function ForgotPasswordForm({
       >
         <p>
           If <b className="text-foreground">{step.email}</b> has an account, a
-          reset link is on its way. It expires in {linkLifetime("reset")}.
+          reset link is on its way. It expires in{" "}
+          {Effect.runSync(linkLifetime("reset"))}.
         </p>
       </Notice>
     )
@@ -189,8 +192,8 @@ export function SetPasswordForm({
         }
       >
         <p>
-          A reset link works once, for {linkLifetime("reset")}. Ask for a new
-          one.
+          A reset link works once, for {Effect.runSync(linkLifetime("reset"))}.
+          Ask for a new one.
         </p>
       </Notice>
     )

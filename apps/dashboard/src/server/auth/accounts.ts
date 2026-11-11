@@ -125,23 +125,28 @@ const listAccounts = Effect.fnUntraced(function* (
   )
   return {
     total: Number(count.total),
-    rows: rows.map((row) => ({
-      id: row.id,
-      email: row.email,
-      name: row.name,
-      role: row.isAdmin ? "admin" : "member",
-      banReason: row.banned ? row.banReason : null,
-      emailVerified: row.emailVerified === 1,
-      status: row.banned
-        ? "suspended"
-        : row.emailVerified
-          ? "active"
-          : "unverified",
-      methods: signInMethodsOf((row.providers ?? "").split(",")),
-      createdAt: row.createdAt,
-      lastActiveAt: row.lastActiveAt,
-      sessions: Number(row.sessions),
-    })),
+    rows: yield* Effect.forEach(rows, (row) =>
+      Effect.map(
+        signInMethodsOf((row.providers ?? "").split(",")),
+        (methods): StoredAccount => ({
+          id: row.id,
+          email: row.email,
+          name: row.name,
+          role: row.isAdmin ? "admin" : "member",
+          banReason: row.banned ? row.banReason : null,
+          emailVerified: row.emailVerified === 1,
+          status: row.banned
+            ? "suspended"
+            : row.emailVerified
+              ? "active"
+              : "unverified",
+          methods,
+          createdAt: row.createdAt,
+          lastActiveAt: row.lastActiveAt,
+          sessions: Number(row.sessions),
+        })
+      )
+    ),
   }
 })
 

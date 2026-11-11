@@ -1,5 +1,6 @@
 import { IconMailCheck } from "@tabler/icons-react"
 import { useRouter } from "@tanstack/react-router"
+import { Effect } from "effect"
 import { useState } from "react"
 
 import { KButton } from "@/components/k"
@@ -27,7 +28,7 @@ function ResendButton({
   const [state, setState] = useState<Resend>({ _tag: "Idle" })
   const resend = async () => {
     setState({ _tag: "Sending" })
-    const retry = retryAfter()
+    const retry = Effect.runSync(retryAfter())
     const { error } = await authClient.sendVerificationEmail(
       { email, callbackURL: redirect },
       { onError: retry.onError }
@@ -36,9 +37,11 @@ function ResendButton({
     // A 429 is the per-IP limit or this address's daily mail cap.
     setState({
       _tag: "Failed",
-      error: retry.messageFor(
-        error,
-        "Couldn't send the link. Try again in a minute."
+      error: Effect.runSync(
+        retry.messageFor(
+          error,
+          "Couldn't send the link. Try again in a minute."
+        )
       ),
     })
   }
@@ -99,7 +102,9 @@ export function VerifyToContinue({
   const router = useRouter()
   const signOut = async () => {
     await authClient.signOut()
-    await router.navigate({ href: withRedirect("/sign-in", redirect) })
+    await router.navigate({
+      href: Effect.runSync(withRedirect("/sign-in", redirect)),
+    })
   }
   return (
     <Notice
@@ -117,7 +122,7 @@ export function VerifyToContinue({
       <p>
         You're signed in as <b className="text-foreground">{email}</b>, but the
         dashboard shows data only to verified accounts. The link we sent expires
-        in {linkLifetime("verify")}.
+        in {Effect.runSync(linkLifetime("verify"))}.
       </p>
     </Notice>
   )

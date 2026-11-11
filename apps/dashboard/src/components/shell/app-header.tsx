@@ -1,6 +1,7 @@
 import { Fragment, useEffect, useState } from "react"
 import { IconChevronRight } from "@tabler/icons-react"
 import { Link, useMatches } from "@tanstack/react-router"
+import { Effect } from "effect"
 import type { AnyRouteMatch } from "@tanstack/react-router"
 
 import type { Crumb } from "@/lib/crumbs"
@@ -29,8 +30,9 @@ function Breadcrumbs() {
   // Typed `never[]` while no route exists; widened so crumbs work once one does.
   const matches: ReadonlyArray<AnyRouteMatch> = useMatches()
   const leaf = [...matches].reverse().find((m) => m.staticData.crumbs)
-  const crumbs: ReadonlyArray<Crumb> =
-    leaf?.staticData.crumbs?.(leaf.params) ?? []
+  const crumbs: ReadonlyArray<Crumb> = leaf?.staticData.crumbs
+    ? Effect.runSync(leaf.staticData.crumbs(leaf.params))
+    : []
   return (
     <nav
       aria-label="Breadcrumb"

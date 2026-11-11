@@ -53,27 +53,28 @@ export const accountPage = Effect.fn("accountPage")(function* (
     auth.sessionsOf(session.user.id),
     auth.providersOf(session.user.id),
   ])
-  const sessions = stored
-    .map((each): SessionRow => ({
+  const rows = yield* Effect.forEach(stored, (each) =>
+    Effect.map(device(each.userAgent), (named): SessionRow => ({
       id: each.id,
       token: each.token,
-      device: device(each.userAgent),
+      device: named,
       ipAddress: each.ipAddress || null,
       lastActive: each.updatedAt.toISOString(),
       current: each.id === session.session.id,
     }))
-    .sort(
-      (a, b) =>
-        Number(b.current) - Number(a.current) ||
-        b.lastActive.localeCompare(a.lastActive)
-    )
+  )
+  const sessions = rows.sort(
+    (a, b) =>
+      Number(b.current) - Number(a.current) ||
+      b.lastActive.localeCompare(a.lastActive)
+  )
   const allowed = (action: OwnAction) =>
     decide(account, action, OWN_ACCOUNT)._tag === "Allow"
   return {
     email: session.user.email,
     name: session.user.name,
     role: account.role,
-    signInMethods: signInMethodsOf(providers),
+    signInMethods: yield* signInMethodsOf(providers),
     sessions,
     allowed: {
       "own.update-details": allowed("own.update-details"),

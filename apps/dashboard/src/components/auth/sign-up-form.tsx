@@ -1,4 +1,5 @@
 import { Link, useHydrated } from "@tanstack/react-router"
+import { Effect } from "effect"
 import { useState, type FormEvent } from "react"
 
 import { KButton, KInput } from "@/components/k"
@@ -48,7 +49,7 @@ export function SignUpForm({
       "password",
     ])
     setStep({ _tag: "Form", pending: true })
-    const retry = retryAfter()
+    const retry = Effect.runSync(retryAfter())
     const { error } = await authClient.signUp.email(
       { ...fields, callbackURL: redirect },
       {
@@ -61,9 +62,11 @@ export function SignUpForm({
     setStep({
       _tag: "Form",
       pending: false,
-      error: retry.messageFor(
-        error,
-        "Couldn't create the account. Try again in a minute."
+      error: Effect.runSync(
+        retry.messageFor(
+          error,
+          "Couldn't create the account. Try again in a minute."
+        )
       ),
     })
   }

@@ -1,5 +1,6 @@
 import { IconChartCandle, IconUsers, type Icon } from "@tabler/icons-react"
 import type { LinkProps } from "@tanstack/react-router"
+import { Effect } from "effect"
 
 import type { Feature } from "@/server/auth/policy"
 
@@ -51,14 +52,15 @@ export const NAV: ReadonlyArray<NavGroup> = [
 ]
 
 /** The nav an account sees: items of the features the access policy lets it view. */
-export function visibleNav(
+export const visibleNav = (
   nav: ReadonlyArray<NavGroup>,
   features: ReadonlyArray<Feature>
-): ReadonlyArray<NavGroup> {
-  return nav
-    .map((group) => ({
-      ...group,
-      items: group.items.filter((item) => features.includes(item.feature)),
-    }))
-    .filter((group) => group.items.length > 0)
-}
+): Effect.Effect<ReadonlyArray<NavGroup>> =>
+  Effect.sync(() =>
+    nav
+      .map((group) => ({
+        ...group,
+        items: group.items.filter((item) => features.includes(item.feature)),
+      }))
+      .filter((group) => group.items.length > 0)
+  )

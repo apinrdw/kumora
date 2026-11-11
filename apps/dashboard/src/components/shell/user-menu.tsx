@@ -8,6 +8,7 @@ import {
   DropdownMenuTrigger,
 } from "@workspace/ui/components/dropdown-menu"
 import { cn } from "@workspace/ui/lib/utils"
+import { Effect } from "effect"
 
 import { authClient } from "@/lib/auth-client"
 import { withRedirect } from "@/lib/redirect"
@@ -36,7 +37,9 @@ export function UserMenu({
   const href = useLocation({ select: (location) => location.href })
   const signOut = async () => {
     await authClient.signOut()
-    await router.navigate({ href: withRedirect("/sign-in", href) })
+    await router.navigate({
+      href: Effect.runSync(withRedirect("/sign-in", href)),
+    })
   }
   return (
     <DropdownMenu>
