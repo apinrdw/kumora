@@ -2,7 +2,7 @@
 
 Running the Playwright suite against the Test stage.
 
-- **Parallel runs share only the CPU.** Each run picks free dev ports (`apps/e2e/support/ports.ts`), so parallel worktrees don't collide, but give each `--workers=<cores / runs>`: two runs at 8 workers on 16 cores time out sign-in specs.
+- **Parallel runs share only the CPU.** Each run picks free dev ports (`apps/e2e/support/ports.ts`), so parallel worktrees don't share a port unless one is exported in both, but give each `--workers=<cores / runs>`: two runs at 8 workers on 16 cores time out sign-in specs.
 - **`pnpm test:e2e -- <file>` still runs the setup project**, which signs up and verifies the shared accounts from `.eml` files first, so a one-spec run takes about 40 s.
 - **Each browser context needs its own client IP.** Import `test` and `newClientContext` from `support/test.ts`: it sends a random `cf-connecting-ip` per context, so the per-IP rate limits stay on without specs eating each other's budget. A spec that builds a context with `browser.newContext` directly shares one IP.
 - **CI is slower than a laptop.** Each CI shard runs 2 workers on 2 cores with a 60 s test timeout (`playwright.config.ts`); a test near 25 s locally can still hit it, so split a long journey into tests with their own accounts rather than raising it again.

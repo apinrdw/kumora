@@ -4,8 +4,10 @@ import { TEST, stageUrl, type App } from "@workspace/deploy"
 import * as Effect from "effect/Effect"
 import { fileURLToPath } from "node:url"
 
-// Where an app serves on the Test stage. stageUrl reads only ports that
-// ./ports.ts picked or checked as valid, so it cannot fail: runSync.
+// Where an app serves on the Test stage. stageUrl's one input beyond its
+// arguments is the port variables, which ./ports.ts fills or validates before
+// any URL is built and nothing changes after, so the call is synchronous, has
+// the same answer every time, and cannot fail: runSync.
 export const testUrl = (app: App) => Effect.runSync(stageUrl(app, TEST))
 
 export const DASHBOARD = testUrl("dashboard")
