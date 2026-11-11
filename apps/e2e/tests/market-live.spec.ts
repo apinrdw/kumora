@@ -390,7 +390,7 @@ test("a wrong ingest token closes the ingest socket with 4403", async () => {
 
 test("an ingest socket that sends no token is closed with 4408", async () => {
   // Between 10 and 20 s after it opened, at the trading-day object's alarm.
-  test.setTimeout(60_000)
+  test.setTimeout(25_000)
   const silent = await openSilentIngest()
   expect(await silent.closed).toBe(4408)
 })
