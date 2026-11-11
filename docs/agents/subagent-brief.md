@@ -34,3 +34,7 @@ Never print a secret value; hash prefixes only. Never run `alchemy deploy` or `a
 ## Report
 
 Branch, commit list, the verify output, each check's exit code, deviations from the spec, open concerns. Dev servers stopped.
+
+## e2e in parallel
+
+Each e2e run picks free dev server ports (`apps/e2e/support/ports.ts`), and its local state lives in its own worktree, so parallel implementers run `pnpm test:e2e` with no lock, as long as neither port variable (`DEV_PORT_VARIABLES` in `packages/deploy/src/target.ts`) is exported. CPU is the shared limit: give each run `--workers=<cores / runs>`. Two runs at 8 workers each on 16 cores timed out sign-in specs; at 4 each, both passed.

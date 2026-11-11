@@ -1,6 +1,8 @@
 import { expect, test } from "@playwright/test"
 
-const WEB = "http://localhost:3000"
+import { testUrl } from "../support/accounts"
+
+const WEB = testUrl("web")
 
 test("GET / serves the landing page", async ({ page }) => {
   const response = await page.goto(`${WEB}/`)

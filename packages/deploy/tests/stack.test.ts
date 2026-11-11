@@ -2,11 +2,17 @@ import { assert, describe, it } from "@effect/vitest"
 import * as Alchemy from "alchemy"
 import { PLACEHOLDER_STAGE } from "alchemy/Alchemist/Operations"
 import * as Cause from "effect/Cause"
+import * as ConfigProvider from "effect/ConfigProvider"
 import * as Effect from "effect/Effect"
 import * as Exit from "effect/Exit"
 import * as Layer from "effect/Layer"
 
-import { UnknownStage, stageKind, stageUrl } from "@workspace/deploy"
+import {
+  DEV_PORT_VARIABLES,
+  UnknownStage,
+  stageKind,
+  stageUrl,
+} from "@workspace/deploy"
 import { stackOptions, stackStage, websiteProps } from "@workspace/deploy/stack"
 
 // The defect an Effect died with, or undefined if it did not die.
@@ -75,6 +81,8 @@ describe("websiteProps", () => {
 })
 
 describe("stageUrl", () => {
+  // Each case reads an empty environment, so a port variable the shell
+  // exports cannot move the local stages off their default.
   it.effect.each([
     ["production", "https://kumora-dashboard.kumora.workers.dev"],
     ["staging", "https://kumora-dashboard-staging.kumora.workers.dev"],
@@ -88,6 +96,26 @@ describe("stageUrl", () => {
     Effect.gen(function* () {
       const parsed = yield* stackStage(stage)
       assert.strictEqual(yield* stageUrl("dashboard", parsed), url)
-    })
+    }).pipe(
+      Effect.provide(ConfigProvider.layer(ConfigProvider.fromUnknown({})))
+    )
+  )
+
+  it.effect("serves a local stage on the port its variable names", () =>
+    Effect.gen(function* () {
+      const parsed = yield* stackStage("test")
+      assert.strictEqual(
+        yield* stageUrl("dashboard", parsed),
+        "http://localhost:4123"
+      )
+    }).pipe(
+      Effect.provide(
+        ConfigProvider.layer(
+          ConfigProvider.fromUnknown({
+            [DEV_PORT_VARIABLES.dashboard]: "4123",
+          })
+        )
+      )
+    )
   )
 })

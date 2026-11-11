@@ -1,6 +1,6 @@
 import * as Cloudflare from "@alchemy.run/cloudflare"
 import {
-  DEV_PORTS,
+  devPort,
   TEST,
   isReleaseStage,
   stackName,
@@ -115,7 +115,7 @@ export const Website = Cloudflare.Website.Vite(
       // Market Live's sockets ahead of TanStack Start, and the Durable Object
       // classes (spec apinrdw/kumora#138, "The custom Worker entry and the gate").
       main: "src/worker.ts",
-      dev: { port: DEV_PORTS.dashboard, strictPort: true },
+      dev: { port: yield* devPort("dashboard"), strictPort: true },
       env: {
         AUTH_DB: AuthDb,
         AUTH_BASE_URL: yield* stageUrl("dashboard", stage),
