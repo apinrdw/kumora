@@ -1,6 +1,6 @@
 // Recorded day loads on the Test stage (spec apinrdw/kumora#138, "Recorded
 // day loads"): what the relay sends lands in today's trading-day object's
-// SQLite store at its next minute's flush, and the gated GETs read it back.
+// SQLite store at the flush its close runs, and the gated GETs read it back.
 // The page that replays a recorded day is apinrdw/kumora#152's.
 import { request as requests } from "@playwright/test"
 import {
@@ -33,8 +33,8 @@ const urlOf = (path: Effect.Effect<string>) =>
 test("trades and order books the relay sent are read back from the store after the flush", async ({
   page,
 }) => {
-  // The flush runs 5 s past each minute and writes the minute that ended.
-  test.setTimeout(180_000)
+  // A book chunk is written once its minute is over: up to a minute's wait.
+  test.setTimeout(90_000)
   const base = freshTradeNumbers()
   // A code of its own: today's object keeps every code's candles and books.
   const code = StockCode.make(`RD${Date.now().toString(36).toUpperCase()}`)
@@ -55,6 +55,15 @@ test("trades and order books the relay sent are read back from the store after t
     stockbitOrderBookFrame(code, "BID", [[500, 4, 120]]),
     stockbitOrderBookFrame(code, "OFFER", [[505, 2, 60]]),
   ])
+  // The relay closing flushes at once every book chunk whose market-clock
+  // minute is over (book-chunks.ts) and every trade out of its 5 s merge
+  // window (candles.ts), so it closes once both are, rather than waiting for
+  // the next minute's flush.
+  const minuteOver = (Math.floor(sentAt / 60_000) + 1) * 60_000
+  await page.waitForTimeout(
+    Math.max(minuteOver, sentAt + 5_000) + 500 - marketNow()
+  )
+  relay.close()
 
   const bookUrl = urlOf(
     recordedDayPath(day, {
@@ -65,8 +74,8 @@ test("trades and order books the relay sent are read back from the store after t
   )
   await expect
     .poll(async () => (await page.request.get(bookUrl)).status(), {
-      timeout: 150_000,
-      intervals: [5_000],
+      timeout: 15_000,
+      intervals: [500],
     })
     .toBe(200)
   const chunk = await Effect.runPromise(
@@ -102,7 +111,6 @@ test("trades and order books the relay sent are read back from the store after t
     )
   )
   expect(candles.candles.map((candle) => candle.volume)).toEqual([3])
-  relay.close()
 })
 
 test("a signed-out recorded day GET answers 401 JSON", async () => {
