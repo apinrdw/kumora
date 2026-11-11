@@ -1,8 +1,13 @@
 // A workflow job that runs a packages/deploy entry point imports its
-// dependencies, so it has to install them first on a clean runner.
+// dependencies, so it has to install them first on a clean runner. CI runs the
+// same checks as `pnpm check`, one root `check:*` script per job.
 import { NodeServices } from "@effect/platform-node"
 import { assert, layer } from "@effect/vitest"
-import { Effect, FileSystem, Path } from "effect"
+import { Effect, FileSystem, Path, Schema } from "effect"
+
+const Manifest = Schema.fromJsonString(
+  Schema.Struct({ scripts: Schema.Record(Schema.String, Schema.String) })
+)
 
 const jobStart = /^ {2}([\w-]+):\s*$/
 const stepStart = /^ {6}- /
@@ -63,5 +68,39 @@ layer(NodeServices.layer)("workflow dependencies", (it) => {
         assert.isAbove(checked, 0, "found a job running packages/deploy")
         assert.deepStrictEqual(missing, [])
       })
+  )
+
+  it.effect("CI runs each root check:* script in a job of its own", () =>
+    Effect.gen(function* () {
+      const fs = yield* FileSystem.FileSystem
+      const path = yield* Path.Path
+      const { scripts } = yield* Schema.decodeEffect(Manifest)(
+        yield* fs.readFileString(
+          path.resolve(import.meta.dirname, "../package.json")
+        )
+      )
+      const jobs = yield* jobSteps(
+        yield* fs.readFileString(
+          path.resolve(import.meta.dirname, "../.github/workflows/ci.yml")
+        )
+      )
+      const perJob = [...jobs.values()]
+        .map((steps) =>
+          steps.flatMap((step) =>
+            [...step.matchAll(/\bpnpm (check(?::[\w-]+)?)\b/g)].map(
+              ([, script]) => script as string
+            )
+          )
+        )
+        .filter((checks) => checks.length > 0)
+      const parts = Object.keys(scripts).filter((name) =>
+        name.startsWith("check:")
+      )
+      assert.isAbove(parts.length, 0, "found a root check:* script")
+      assert.deepStrictEqual(
+        perJob.map((checks) => checks.join(", ")).sort(),
+        parts.sort()
+      )
+    })
   )
 })

@@ -10,7 +10,22 @@ concurrency:
   cancel-in-progress: true
 
 jobs:
-  check:
+  # The static checks and the unit tests each get a runner's 2 cores; each
+  # job runs one root check:* script, and `pnpm check` runs them all.
+  static:
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@v5
+      - uses: pnpm/action-setup@v6
+      - uses: actions/setup-node@v5
+        with:
+          node-version: 24
+          cache: pnpm
+      - run: pnpm install --frozen-lockfile
+      - run: pnpm check:static
+
+  unit-tests:
     runs-on: ubuntu-latest
     timeout-minutes: 15
     steps:
@@ -25,7 +40,7 @@ jobs:
         with:
           bun-version-file: .bun-version
       - run: pnpm install --frozen-lockfile
-      - run: pnpm check
+      - run: pnpm check:test
 
   fallow:
     runs-on: ubuntu-latest
