@@ -7,7 +7,12 @@ import * as Effect from "effect/Effect"
 import * as Exit from "effect/Exit"
 import * as Layer from "effect/Layer"
 
-import { UnknownStage, stageKind, stageUrl } from "@workspace/deploy"
+import {
+  DEV_PORT_VARIABLES,
+  UnknownStage,
+  stageKind,
+  stageUrl,
+} from "@workspace/deploy"
 import { stackOptions, stackStage, websiteProps } from "@workspace/deploy/stack"
 
 // The defect an Effect died with, or undefined if it did not die.
@@ -102,7 +107,9 @@ describe("stageUrl", () => {
     }).pipe(
       Effect.provide(
         ConfigProvider.layer(
-          ConfigProvider.fromUnknown({ KUMORA_DASHBOARD_PORT: "4123" })
+          ConfigProvider.fromUnknown({
+            [DEV_PORT_VARIABLES.dashboard]: "4123",
+          })
         )
       )
     )
