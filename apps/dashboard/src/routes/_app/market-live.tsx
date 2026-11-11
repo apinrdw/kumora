@@ -2,6 +2,7 @@ import { createFileRoute, useRouter } from "@tanstack/react-router"
 import { Effect } from "effect"
 import { clientRuntime, type StockCode } from "@workspace/client"
 import type { ViewerDown, WibDate } from "@workspace/relay"
+import { loadServerFn, runLoader } from "@workspace/server/loader"
 import { useCallback, useEffect, useMemo, useState } from "react"
 
 import { makeCandleStore } from "@/components/market-live/candle-store"
@@ -43,7 +44,7 @@ export const Route = createFileRoute("/_app/market-live")({
   },
   validateSearch: (raw: Record<string, unknown>) =>
     Effect.runSync(parseMarketLiveSearch(raw)),
-  loader: () => closedMarketFn(),
+  loader: () => runLoader(loadServerFn(() => closedMarketFn())),
   // Looked at again when it may change (below), not on each code picked.
   staleTime: 60_000,
   head: () => ({ meta: [{ title: "Market Live · KUMORA Terminal" }] }),
