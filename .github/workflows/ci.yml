@@ -74,23 +74,25 @@ jobs:
     timeout-minutes: 15
     strategy:
       fail-fast: false
-      # Decision: each spec project is sharded on its own, 2 chromium and 5
+      # Decision: each spec project is sharded on its own, 3 chromium and 5
       # trading-day, not one list cut into 6 (apinrdw/kumora#190). Playwright
       # cuts a list into contiguous shards by test count, so with one list
       # the trading-day tests, which run one at a time, filled whole shards
-      # and left their second worker idle. trading-day's 30 tests sum to
-      # 134 s locally, and three sit together in file order: the recorded day
-      # (12 s), the recorded spec (52 s; 17-51 s in CI, waiting for a real
-      # market-clock minute) and the real-dashboard relay test (21 s). Only
-      # at 5 shards does a boundary fall between the recorded spec and the
-      # relay test: the heaviest shard sums to 69 s, against 91 s at 3 and
-      # 90 s at 4. chromium's 24 sum to 64 s across 2 workers, so 2 shards
-      # carry about 19 s and 13 s each. Tune a project's count by its list:
-      # its shards run 1/n to n/n, and workflow-deps checks they are whole.
+      # and left their second worker idle. trading-day's recorded spec waits
+      # for a real market-clock minute, so the shard that holds it is the
+      # slowest of the five. With 2 chromium shards, CI's warm run
+      # (43091968909, attempt 2) finished chromium at 2:49 and 2:44 and
+      # trading-day 1/5 at 2:50, while trading-day 2/5 to 5/5 finished at
+      # 2:03-2:25, so chromium sat on the critical path. At 3 chromium shards
+      # they finish at PLACEHOLDER and trading-day 1/5 at PLACEHOLDER
+      # (run PLACEHOLDER). Tune a project's count by its list, against the
+      # CI job times: its shards run 1/n to n/n, and workflow-deps checks
+      # they are whole.
       matrix:
         include:
-          - { project: chromium, shard: 1/2 }
-          - { project: chromium, shard: 2/2 }
+          - { project: chromium, shard: 1/3 }
+          - { project: chromium, shard: 2/3 }
+          - { project: chromium, shard: 3/3 }
           - { project: trading-day, shard: 1/5 }
           - { project: trading-day, shard: 2/5 }
           - { project: trading-day, shard: 3/5 }
