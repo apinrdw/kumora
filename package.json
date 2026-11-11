@@ -4,7 +4,7 @@
   "private": true,
   "scripts": {
     "check": "pnpm check:static && pnpm check:test",
-    "check:static": "turbo run typecheck typecheck:root build lint lint:root format:check format:check:root test:root && node scripts/check-skill-links.mts && node scripts/check-decision-docs.mts && node scripts/check-no-gitlinks.mts && node scripts/check-package-scripts.mts && node scripts/check-oxlint-overrides.mts",
+    "check:static": "turbo run typecheck typecheck:root build lint lint:root format:check format:check:root test:root test:repo && node scripts/check-skill-links.mts && node scripts/check-decision-docs.mts && node scripts/check-no-gitlinks.mts && node scripts/check-package-scripts.mts && node scripts/check-oxlint-overrides.mts",
     "check:test": "turbo run test",
     "dev": "turbo dev",
     "build": "turbo run build",
@@ -16,10 +16,11 @@
     "format:check:root": "oxfmt --check \"scripts/**/*.mts\"",
     "typecheck": "turbo run typecheck typecheck:root",
     "typecheck:root": "tsc --noEmit",
-    "test": "turbo run test test:root",
+    "test": "turbo run test test:root test:repo",
     "test:e2e": "pnpm --filter e2e e2e",
     "prepare": "git config core.hooksPath .githooks",
-    "test:root": "vitest run --dir scripts"
+    "test:root": "vitest run --dir scripts --exclude \"**/*.repo.test.mts\"",
+    "test:repo": "vitest run --dir scripts .repo.test.mts"
   },
   "dependencies": {
     "effect": "catalog:"

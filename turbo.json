@@ -82,7 +82,20 @@
         "tsconfig.json"
       ]
     },
+    // Decision: the root tests split by what they read, so a workflow or
+    // lockfile edit reruns only the *.repo.test.mts files that read live repo
+    // config (#170). scripts/root-test-inputs.repo.test.mts checks each task's
+    // inputs cover the files its tests read.
     "//#test:root": {
+      "inputs": [
+        "scripts/**",
+        "vitest.config.*",
+        ".oxlintrc.json"
+      ]
+    },
+    // All of scripts/**, not only what these tests import: root-test-inputs
+    // reads every test's source and ci-checks lists scripts/check-*.mts.
+    "//#test:repo": {
       "inputs": [
         "scripts/**",
         "vitest.config.*",

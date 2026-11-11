@@ -18,7 +18,7 @@ minimumReleaseAgeExclude:
 # Decision: the Effect and Alchemy pins live here once. Two Effect copies break
 # Context.Service and Schema.TaggedError identity, and repos/effect and
 # repos/alchemy are subtrees of these exact versions, so a bump here also runs
-# the subtree pull in AGENTS.md. scripts/catalog-pins.test.mts rejects a
+# the subtree pull in AGENTS.md. scripts/catalog-pins.repo.test.mts rejects a
 # non-catalog specifier for them; catalogMode only governs pnpm add.
 catalog:
   effect: &effect 4.1.2
