@@ -81,7 +81,6 @@ export function DayStrip({
       <ul className="flex gap-2">
         <li>
           <Link
-            from="/market-live"
             to="/market-live"
             search={(previous: MarketLiveSearch) => ({
               ...previous,
@@ -96,7 +95,6 @@ export function DayStrip({
         {days.map(({ day, ihsg }) => (
           <li key={day}>
             <Link
-              from="/market-live"
               to="/market-live"
               search={(previous: MarketLiveSearch) => ({ ...previous, day })}
               aria-current={shown === day ? "page" : undefined}

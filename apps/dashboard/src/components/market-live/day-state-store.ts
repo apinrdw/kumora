@@ -25,23 +25,17 @@ export interface DayStateStore extends KeyedStore<HeldDayState> {
   readonly replace: (states: ReadonlyArray<DayState>) => void
 }
 
-const updateOf = (state: DayState): DayStateUpdate<HeldDayState> => ({
-  code: state.code,
-  dayState: state,
-})
-
-// `initial` is the route loader's Day state: the server snapshot.
-export const makeDayStateStore = Effect.fnUntraced(function* (
-  initial: ReadonlyArray<DayState> = []
-) {
+// Its server snapshot is empty: the page's route loader has no Day state to
+// give it (market-live.tsx says why).
+export const makeDayStateStore = Effect.fnUntraced(function* () {
   const changes = yield* Queue.unbounded<DayStateUpdate<HeldDayState>>()
   const store = yield* makeKeyedStore({
     source: Stream.fromQueue(changes),
-    initial: new Map(initial.map((state) => [state.code, state])),
+    initial: new Map<StockCode, HeldDayState>(),
   })
   // The codes that hold a Day state once every queued change has applied, so
   // a replacement knows which codes to drop.
-  let held = new Set(initial.map((state) => state.code))
+  let held = new Set<StockCode>()
   const offer = (updates: ReadonlyArray<DayStateUpdate<HeldDayState>>) =>
     void Queue.offerAllUnsafe(changes, updates)
   const replace = (states: ReadonlyArray<DayState>) => {
@@ -49,7 +43,7 @@ export const makeDayStateStore = Effect.fnUntraced(function* (
     const dropped = [...held].filter((code) => !arriving.has(code))
     held = arriving
     offer([
-      ...states.map(updateOf),
+      ...states.map((state) => ({ code: state.code, dayState: state })),
       ...dropped.map((code) => ({ code, dayState: undefined })),
     ])
   }
@@ -59,7 +53,7 @@ export const makeDayStateStore = Effect.fnUntraced(function* (
       const arriving = message.dayStates ?? []
       if (message._tag === "Snapshot") return replace(arriving)
       for (const state of arriving) held.add(state.code)
-      offer(arriving.map(updateOf))
+      offer(arriving.map((state) => ({ code: state.code, dayState: state })))
     },
     replace,
   }

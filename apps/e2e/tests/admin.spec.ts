@@ -50,4 +50,31 @@ test.describe("an admin", () => {
       table.getByRole("cell", { name: ADMIN.email, exact: true })
     ).toBeVisible()
   })
+
+  test("the accounts table's sort lives in the URL, so it survives a reload", async ({
+    page,
+  }) => {
+    await page.goto(USERS)
+    const table = page.getByRole("table", { name: "Accounts" })
+    const created = table.getByRole("columnheader", { name: "Created" })
+    await expect(created).toHaveAttribute("aria-sort", "descending")
+    const emails = () =>
+      table
+        .getByRole("row")
+        .filter({ hasText: "@" })
+        .evaluateAll((rows) => rows.map((row) => row.textContent))
+    const newestFirst = await emails()
+
+    await created.getByRole("button", { name: "Created" }).click()
+    await expect(page).toHaveURL(/[?&]sort=createdAt&dir=asc/)
+    await expect(created).toHaveAttribute("aria-sort", "ascending")
+    // Oldest first, once the loader has fetched the re-sorted page.
+    await expect.poll(emails).not.toEqual(newestFirst)
+    const sorted = await emails()
+
+    await page.reload()
+    await expect(page).toHaveURL(/[?&]sort=createdAt&dir=asc/)
+    await expect(created).toHaveAttribute("aria-sort", "ascending")
+    await expect.poll(emails).toEqual(sorted)
+  })
 })

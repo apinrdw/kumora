@@ -129,32 +129,6 @@ test("a watched code's row fills from Ajaib's PRICE, and the relay is asked for 
   relay.close()
 })
 
-test("the watchlist's sort lives in the URL, so it survives a reload", async ({
-  page,
-}) => {
-  await page.addInitScript(
-    ([key, seeded]) => window.localStorage.setItem(key, JSON.stringify(seeded)),
-    [WATCHLIST_KEY, ["WIFI", "BBCA", "AMAG"]] as const
-  )
-  await open(page)
-  const watchlist = page.getByRole("region", { name: "Watchlist" })
-  const codes = () =>
-    watchlist
-      .locator("tbody tr")
-      .evaluateAll((rows) => rows.map((row) => row.getAttribute("data-code")))
-  await expect.poll(codes).toEqual(["WIFI", "BBCA", "AMAG"])
-
-  await watchlist.getByRole("button", { name: "Code", exact: true }).click()
-  await expect(page).toHaveURL(/[?&]sort=code&dir=asc/)
-  await expect.poll(codes).toEqual(["AMAG", "BBCA", "WIFI"])
-
-  await page.reload()
-  await expect.poll(codes).toEqual(["AMAG", "BBCA", "WIFI"])
-  await expect(
-    watchlist.getByRole("columnheader", { name: "Code" })
-  ).toHaveAttribute("aria-sort", "ascending")
-})
-
 // 3,000 codes serialize past the 16 KiB a socket attachment may hold.
 test("a watchlist larger than a socket attachment reaches the relay whole as the on-demand set", async ({
   page,

@@ -29,10 +29,6 @@ import { useStockCodeList } from "@/components/market-live/use-stock-code-list"
 import { useWatchlist } from "@/components/market-live/use-watchlist"
 import { Watchlist } from "@/components/market-live/watchlist"
 import {
-  watchlistSortOf,
-  type WatchlistSort,
-} from "@/components/market-live/watchlist-sort"
-import {
   DEFAULT_CODE,
   parseMarketLiveSearch,
   type MarketLiveSearch,
@@ -80,29 +76,6 @@ function MarketLivePage() {
   )
 }
 
-// The watchlist's sort, from the URL, and the change that writes it back.
-function useWatchlistSort() {
-  const { sort: key, dir } = Route.useSearch()
-  const navigate = Route.useNavigate()
-  const sort = useMemo(
-    () => Effect.runSync(watchlistSortOf({ sort: key, dir })),
-    [key, dir]
-  )
-  const sortBy = useCallback(
-    (next: WatchlistSort | undefined) =>
-      void navigate({
-        search: (previous: MarketLiveSearch) => ({
-          ...previous,
-          sort: next?.key,
-          dir: next?.dir,
-        }),
-        replace: true,
-      }),
-    [navigate]
-  )
-  return [sort, sortBy] as const
-}
-
 function MarketLiveDay({
   day,
   today,
@@ -125,11 +98,13 @@ function MarketLiveDay({
     () => Effect.runSync(makeOrderBookStore(selected)),
     [selected]
   )
-  // Its server snapshot is empty: the watchlist's codes live in the browser
-  // (use-watchlist.ts), so the loader can't know which Day states to load.
+  // Decision: the watchlist's Day state store starts empty on the server, and
+  // the loader gives it no server snapshot. The watchlist's codes live in the
+  // browser's localStorage (use-watchlist.ts), so the server can't know which
+  // codes' Day states to load. The server render shows no codes, and the
+  // rows fill once the page hydrates and the viewer socket's snapshot arrives.
   const [dayStates] = useState(() => clientRuntime.runSync(makeDayStateStore()))
   const watchlist = useWatchlist()
-  const [sort, sortBy] = useWatchlistSort()
   const cursor = useReplayCursor(day)
   const gaps = useRecordedDay({
     day,
@@ -188,8 +163,6 @@ function MarketLiveDay({
             codes={watchlist.codes}
             list={codes}
             store={dayStates}
-            sort={sort}
-            onSort={sortBy}
             onAdd={watchlist.add}
             onRemove={watchlist.remove}
             onSelect={select}
