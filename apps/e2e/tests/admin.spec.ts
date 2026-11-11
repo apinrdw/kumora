@@ -58,11 +58,19 @@ test.describe("an admin", () => {
     const table = page.getByRole("table", { name: "Accounts" })
     const created = table.getByRole("columnheader", { name: "Created" })
     await expect(created).toHaveAttribute("aria-sort", "descending")
+    // The email cells alone: suspended.spec.ts changes a row's status in
+    // parallel, and the order is what this test is about.
     const emails = () =>
       table
         .getByRole("row")
         .filter({ hasText: "@" })
-        .evaluateAll((rows) => rows.map((row) => row.textContent))
+        .evaluateAll((rows) =>
+          rows.map((row) =>
+            Array.from((row as HTMLTableRowElement).cells)
+              .map((cell) => cell.textContent ?? "")
+              .find((text) => text.includes("@"))
+          )
+        )
     const newestFirst = await emails()
 
     // The page has just loaded: retry until hydration lets the header sort.
