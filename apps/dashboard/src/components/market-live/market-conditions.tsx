@@ -31,9 +31,13 @@ const initial: View = {
 let view = initial
 const listeners = new Set<() => void>()
 
-const publish = (next: View) =>
+// Reads the view and writes what `next` makes of it in one operation: the
+// socket's consumer and the socket's own fiber (live-tape.tsx) both publish,
+// and a scheduler yield between a read and its write would let the other's
+// write land in between and be lost.
+const publish = (next: (held: View) => View) =>
   Effect.sync(() => {
-    view = next
+    view = next(view)
     for (const listener of listeners) listener()
   })
 
@@ -47,31 +51,34 @@ const byCode = (prices: ReadonlyArray<IndicativePrice>) =>
 export const applyConditions = Effect.fnUntraced(function* (
   message: ViewerDown
 ) {
-  if (message._tag === "Snapshot")
-    return yield* publish({
+  if (message._tag === "Snapshot") {
+    const indicative = new Map(yield* byCode(message.indicative ?? []))
+    return yield* publish(() => ({
       conditions: message.conditions,
-      indicative: new Map(yield* byCode(message.indicative ?? [])),
+      indicative,
       connection: "live",
-    })
+    }))
+  }
   const prices = message.indicative ?? []
   if (message.conditions === undefined && prices.length === 0) return
   const arriving = yield* byCode(prices)
-  return yield* publish({
-    ...view,
-    conditions: message.conditions ?? view.conditions,
+  return yield* publish((held) => ({
+    ...held,
+    conditions: message.conditions ?? held.conditions,
     indicative:
       prices.length === 0
-        ? view.indicative
-        : new Map([...view.indicative, ...arriving]),
-  })
+        ? held.indicative
+        : new Map([...held.indicative, ...arriving]),
+  }))
 })
 
-export const conditionsReconnecting = Effect.suspend(() =>
-  publish({ ...view, connection: "reconnecting" })
-)
+export const conditionsReconnecting = publish((held) => ({
+  ...held,
+  connection: "reconnecting",
+}))
 
 // The page left: the next visit starts from its own snapshot.
-export const resetConditions = Effect.suspend(() => publish(initial))
+export const resetConditions = publish(() => initial)
 
 const subscribe = (listener: () => void) => {
   listeners.add(listener)
