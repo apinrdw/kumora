@@ -138,6 +138,7 @@
         // workflow-deps checks the e2e matrix covers its projects.
         "apps/e2e/playwright.config.ts",
         ".github/workflows/**",
+        ".github/actions/**",
         ".claude/hooks/fallow-gate.sh"
       ]
     }

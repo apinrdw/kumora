@@ -21,8 +21,7 @@ jobs:
       - uses: actions/setup-node@v5
         with:
           node-version: 24
-          cache: pnpm
-      - run: pnpm install --frozen-lockfile
+      - uses: ./.github/actions/install
       # Decision: turbo replays tasks from the GitHub Actions cache. It needs
       # no secret, and GitHub scopes entries by ref, so a PR reads main's and
       # its own while main never replays a PR's. Pinned to a commit because it
@@ -39,12 +38,11 @@ jobs:
       - uses: actions/setup-node@v5
         with:
           node-version: 24
-          cache: pnpm
       # packages/deploy's run test runs its entry point under bun.
       - uses: oven-sh/setup-bun@v2
         with:
           bun-version-file: .bun-version
-      - run: pnpm install --frozen-lockfile
+      - uses: ./.github/actions/install
       # The same turbo cache as static's, pinned to the same commit.
       - uses: rharkor/caching-for-turbo@760158c05c47e7a764f78e9a22ca3b5a6ed8c52e
       - run: pnpm check:test
@@ -61,8 +59,7 @@ jobs:
       - uses: actions/setup-node@v5
         with:
           node-version: 24
-          cache: pnpm
-      - run: pnpm install --frozen-lockfile
+      - uses: ./.github/actions/install
       - uses: fallow-rs/fallow@v3
         with:
           command: audit
@@ -105,11 +102,10 @@ jobs:
       - uses: actions/setup-node@v5
         with:
           node-version: 24
-          cache: pnpm
       - uses: oven-sh/setup-bun@v2
         with:
           bun-version-file: .bun-version
-      - run: pnpm install --frozen-lockfile
+      - uses: ./.github/actions/install
       - id: playwright
         run: echo "version=$(pnpm --filter e2e exec playwright --version | awk '{print $2}')" >> "$GITHUB_OUTPUT"
       # Decision: the browser is cached by the Playwright version the lockfile

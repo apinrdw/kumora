@@ -2,7 +2,8 @@
 // dependencies, so it has to install them first on a clean runner. CI runs the
 // same checks as `pnpm check`, one root `check:*` script per job. e2e runs as
 // a matrix of shards, each project sharded on its own, that each finish on
-// their own, on a cached browser and cached vite optimizer output.
+// their own, on a cached browser and cached vite optimizer output. Each CI
+// job installs through the install action, which restores node_modules.
 import { NodeServices } from "@effect/platform-node"
 import { assert, layer } from "@effect/vitest"
 import { Effect, FileSystem, Path, Schema } from "effect"
@@ -49,6 +50,25 @@ const jobText = (workflow: string, name: string) => {
   return lines.slice(start, end === -1 ? undefined : end).join("\n")
 }
 
+// A step that installs the workspace's dependencies, itself or through the
+// install action.
+const installsDeps = /\bpnpm install\b|\buses: \.\/\.github\/actions\/install$/m
+
+// A composite action's steps, each with its continuation lines.
+const actionSteps = (action: string) =>
+  Effect.sync(() => {
+    const steps: Array<string> = []
+    let inSteps = false
+    for (const line of action.split("\n")) {
+      if (/^ {2}steps:\s*$/.test(line)) inSteps = true
+      else if (/^ {0,2}\S/.test(line)) inSteps = false
+      else if (inSteps && /^ {4}- /.test(line)) steps.push(line)
+      else if (inSteps && steps.length > 0)
+        steps[steps.length - 1] += `\n${line}`
+    }
+    return steps
+  })
+
 const ciWorkflow = Effect.gen(function* () {
   const fs = yield* FileSystem.FileSystem
   const path = yield* Path.Path
@@ -78,9 +98,7 @@ layer(NodeServices.layer)("workflow dependencies", (it) => {
             )
             if (runs === -1) continue
             checked++
-            const installs = steps.findIndex((step) =>
-              /\bpnpm install\b/.test(step)
-            )
+            const installs = steps.findIndex((step) => installsDeps.test(step))
             if (installs === -1 || installs > runs) {
               missing.push(`${file} ${job}`)
             }
@@ -277,12 +295,102 @@ layer(NodeServices.layer)("workflow dependencies", (it) => {
           restoreKey.length > 0 && key.startsWith(restoreKey),
           "a source change restores the last output for the same lockfile"
         )
-        const installs = steps.findIndex((step) =>
-          /\bpnpm install\b/.test(step)
-        )
+        const installs = steps.findIndex((step) => installsDeps.test(step))
         const runs = steps.findIndex((step) => /\bpnpm test:e2e\b/.test(step))
         assert.isAbove(steps.indexOf(cache), installs)
         assert.isBelow(steps.indexOf(cache), runs)
+      })
+  )
+
+  it.effect(
+    "every CI job installs through the install action before it runs pnpm, and none restores the pnpm store itself",
+    () =>
+      Effect.gen(function* () {
+        const workflow = yield* ciWorkflow
+        const jobs = yield* jobSteps(workflow)
+        assert.isAbove(jobs.size, 0)
+        const wrong: Array<string> = []
+        for (const [job, steps] of jobs) {
+          const installs = steps.findIndex((step) =>
+            /^ {6}- uses: \.\/\.github\/actions\/install$/m.test(step)
+          )
+          const firstPnpm = steps.findIndex((step) =>
+            /^\s+(?:- )?run: .*\bpnpm\b/m.test(step)
+          )
+          if (installs === -1) wrong.push(`${job}: no install action`)
+          else if (firstPnpm !== -1 && firstPnpm < installs)
+            wrong.push(`${job}: runs pnpm before installing`)
+          if (steps.some((step) => /\bpnpm install\b/.test(step)))
+            wrong.push(`${job}: runs pnpm install itself`)
+          if (steps.some((step) => /^\s+cache: pnpm$/m.test(step)))
+            wrong.push(`${job}: setup-node restores the pnpm store`)
+        }
+        assert.deepStrictEqual(wrong, [])
+      })
+  )
+
+  it.effect(
+    "the install action restores node_modules by the lockfile, and installs and saves them only on a miss",
+    () =>
+      Effect.gen(function* () {
+        const fs = yield* FileSystem.FileSystem
+        const path = yield* Path.Path
+        const steps = yield* actionSteps(
+          yield* fs.readFileString(
+            path.resolve(
+              import.meta.dirname,
+              "../.github/actions/install/action.yml"
+            )
+          )
+        )
+        const modulePaths = [
+          "node_modules",
+          "apps/*/node_modules",
+          "packages/*/node_modules",
+        ]
+        const coversModules = (step: string) =>
+          modulePaths.every((dir) =>
+            new RegExp(`^\\s+${dir.replace(/[.*]/g, "\\$&")}$`, "m").test(step)
+          )
+        const restore = steps.findIndex(
+          (step) =>
+            /\buses: actions\/cache\/restore@v\d+\b/.test(step) &&
+            coversModules(step)
+        )
+        assert.isAbove(restore, -1, "restores node_modules")
+        const restoreStep = steps[restore] ?? ""
+        const id = /^\s+(?:- )?id: ([\w-]+)$/m.exec(restoreStep)?.[1]
+        assert.isDefined(id, "the restore step has an id")
+        assert.include(
+          /^\s+key: (.+)$/m.exec(restoreStep)?.[1] ?? "",
+          "hashFiles('pnpm-lock.yaml'"
+        )
+        const onMiss = `if: steps.${id}.outputs.cache-hit != 'true'`
+        const installs = steps.filter((step) =>
+          /\bpnpm install --frozen-lockfile\b/.test(step)
+        )
+        assert.strictEqual(installs.length, 1)
+        const install = steps.indexOf(installs[0] ?? "")
+        assert.include(installs[0], onMiss)
+        const save = steps.findIndex(
+          (step) =>
+            /\buses: actions\/cache\/save@v\d+\b/.test(step) &&
+            coversModules(step)
+        )
+        assert.isAbove(save, install, "saves node_modules after installing")
+        assert.include(steps[save], onMiss)
+        assert.include(
+          steps[save],
+          `key: \${{ steps.${id}.outputs.cache-primary-key }}`
+        )
+        const store = steps.findIndex(
+          (step) =>
+            /\buses: actions\/cache(?:\/restore)?@v\d+\b/.test(step) &&
+            /^\s+key: pnpm-store-/m.test(step)
+        )
+        assert.isAbove(store, restore, "restores the pnpm store")
+        assert.isBelow(store, install)
+        assert.include(steps[store], onMiss)
       })
   )
 })
