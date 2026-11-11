@@ -10,6 +10,10 @@ const TRADING_DAY_SPECS = /(market-live[\w-]*|relay-extension)\.spec\.ts$/
 export default defineConfig({
   testDir: "tests",
   forbidOnly: Boolean(process.env.CI),
+  // Decision: tests, not files, are the unit of parallelism, so one file's
+  // tests can run on different workers and shards (apinrdw/kumora#168). A
+  // file whose tests form a sequence says so with a serial describe.
+  fullyParallel: true,
   reporter: "list",
   use: { browserName: "chromium" },
   projects: [
