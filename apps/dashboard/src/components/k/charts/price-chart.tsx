@@ -39,17 +39,19 @@ const config = {
   volume: { label: "Volume", color: CHART_COLOR.volume },
 } satisfies ChartConfig
 
+/** The overlays a price chart can draw over its price line. */
+export type Overlays = { readonly vwap: boolean; readonly volume: boolean }
+
 /**
- * Which overlays draw, and the price axis. With volume, the domain extends below
+ * Which of the `shown` overlays draw, and the price axis. With volume, the domain extends below
  * the lowest tick so the price sits in the top ~70%, clear of the bars.
  */
 export const priceScale = Effect.fnUntraced(function* (
   data: ReadonlyArray<PricePoint>,
-  showVwap: boolean,
-  showVolume: boolean
+  shown: Overlays
 ) {
-  const hasVwap = showVwap && data.some((d) => d.vwap !== undefined)
-  const hasVolume = showVolume && data.some((d) => d.volume !== undefined)
+  const hasVwap = shown.vwap && data.some((d) => d.vwap !== undefined)
+  const hasVolume = shown.volume && data.some((d) => d.volume !== undefined)
   const maxVolume = Math.max(0, ...data.map((d) => d.volume ?? 0))
   const prices = data.flatMap((d) =>
     hasVwap && d.vwap !== undefined ? [d.price, d.vwap] : [d.price]
@@ -65,19 +67,18 @@ export const priceScale = Effect.fnUntraced(function* (
 /** Crosshair readout rows: price, then VWAP and volume when drawn and present. */
 export const priceReadoutRows = Effect.fnUntraced(function* (
   p: PricePoint,
-  hasVwap: boolean,
-  hasVolume: boolean
+  drawn: Overlays
 ): Effect.fn.Return<Array<ReadoutRow>> {
   const rows: Array<ReadoutRow> = [
     { label: "Harga", value: yield* idr(p.price), swatch: CHART_COLOR.price },
   ]
-  if (hasVwap && p.vwap !== undefined)
+  if (drawn.vwap && p.vwap !== undefined)
     rows.push({
       label: "VWAP",
       value: yield* idr(p.vwap),
       swatch: CHART_COLOR.vwap,
     })
-  if (hasVolume && p.volume !== undefined)
+  if (drawn.volume && p.volume !== undefined)
     rows.push({
       label: "Volume",
       value: yield* shares(p.volume),
@@ -97,8 +98,9 @@ export function PriceChart({
 }: PriceChartProps) {
   const gradientId = `price-fill-${useId().replace(/:/g, "")}`
   const { hasVwap, hasVolume, maxVolume, domain, ticks } = Effect.runSync(
-    priceScale(data, showVwap, showVolume)
+    priceScale(data, { vwap: showVwap, volume: showVolume })
   )
+  const drawn: Overlays = { vwap: hasVwap, volume: hasVolume }
 
   return (
     <ChartContainer
@@ -189,7 +191,7 @@ export function PriceChart({
         <ChartTooltip
           cursor={{ stroke: CHART_COLOR.zero }}
           content={pointReadout(data, (p) =>
-            Effect.runSync(priceReadoutRows(p, hasVwap, hasVolume))
+            Effect.runSync(priceReadoutRows(p, drawn))
           )}
         />
       </ComposedChart>

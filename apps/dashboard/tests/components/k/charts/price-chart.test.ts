@@ -14,7 +14,7 @@ describe("priceScale", () => {
   it.effect("price only: the domain is the nice range of the prices", () =>
     Effect.gen(function* () {
       const bare = session.map(({ label, price }) => ({ label, price }))
-      expect(yield* priceScale(bare, true, true)).toEqual({
+      expect(yield* priceScale(bare, { vwap: true, volume: true })).toEqual({
         hasVwap: false,
         hasVolume: false,
         maxVolume: 0,
@@ -26,12 +26,16 @@ describe("priceScale", () => {
 
   it.effect("VWAP widens the price range when it is shown", () =>
     Effect.gen(function* () {
-      expect(yield* priceScale(session, true, false)).toMatchObject({
+      expect(
+        yield* priceScale(session, { vwap: true, volume: false })
+      ).toMatchObject({
         hasVwap: true,
         domain: [9200, 9300],
         ticks: [9200, 9225, 9250, 9275, 9300],
       })
-      expect(yield* priceScale(session, false, false)).toMatchObject({
+      expect(
+        yield* priceScale(session, { vwap: false, volume: false })
+      ).toMatchObject({
         hasVwap: false,
         domain: [9200, 9260],
       })
@@ -42,7 +46,7 @@ describe("priceScale", () => {
     "volume pushes the price domain down so the line clears the bars",
     () =>
       Effect.gen(function* () {
-        const scale = yield* priceScale(session, false, true)
+        const scale = yield* priceScale(session, { vwap: false, volume: true })
         expect(scale.hasVolume).toBe(true)
         expect(scale.maxVolume).toBe(10_000)
         // 45% of the 60-point tick range below the lowest tick; ticks unchanged.
@@ -57,7 +61,9 @@ describe("priceReadoutRows", () => {
     "lists price, then VWAP and volume when the point has them and they are shown",
     () =>
       Effect.gen(function* () {
-        expect(yield* priceReadoutRows(session[0]!, true, true)).toEqual([
+        expect(
+          yield* priceReadoutRows(session[0]!, { vwap: true, volume: true })
+        ).toEqual([
           { label: "Harga", value: "Rp9,200", swatch: "var(--text-secondary)" },
           { label: "VWAP", value: "Rp9,210", swatch: "var(--chart-vwap)" },
           {
@@ -72,10 +78,16 @@ describe("priceReadoutRows", () => {
   it.effect("hidden overlays and missing values leave only the price", () =>
     Effect.gen(function* () {
       expect(
-        (yield* priceReadoutRows(session[0]!, false, false)).map((r) => r.label)
+        (yield* priceReadoutRows(session[0]!, {
+          vwap: false,
+          volume: false,
+        })).map((r) => r.label)
       ).toEqual(["Harga"])
       expect(
-        (yield* priceReadoutRows(session[2]!, true, true)).map((r) => r.label)
+        (yield* priceReadoutRows(session[2]!, {
+          vwap: true,
+          volume: true,
+        })).map((r) => r.label)
       ).toEqual(["Harga"])
     })
   )

@@ -181,6 +181,20 @@ const ariaSortOf = (sortable: boolean | undefined, dir: SortDir | undefined) =>
           : ("descending" as const)
   )
 
+// A header cell's sort direction, alignment and aria-sort.
+const headerOf = <TRow extends object>(
+  c: KColumn<TRow>,
+  sort: KSort<TRow> | undefined
+) =>
+  Effect.gen(function* () {
+    const dir = yield* activeDir(c, sort)
+    return {
+      dir,
+      align: yield* alignOf(c),
+      ariaSort: yield* ariaSortOf(c.sortable, dir),
+    }
+  })
+
 type StateBody = Exclude<KDataState, { status: "ready" }>
 
 /** The state that replaces the body, or null when rows render. */
@@ -271,12 +285,11 @@ function HeaderCell<TRow extends object>({
   sticky: boolean
   onToggle: () => void
 }) {
-  const dir = Effect.runSync(activeDir(c, sort))
-  const align = Effect.runSync(alignOf(c))
+  const { dir, align, ariaSort } = Effect.runSync(headerOf(c, sort))
   return (
     <TableHead
       scope="col"
-      aria-sort={Effect.runSync(ariaSortOf(c.sortable, dir))}
+      aria-sort={ariaSort}
       className={cn(
         "bg-surface h-9 border-b border-border px-3 text-xs font-[450] text-muted-foreground",
         dir && "text-foreground",
