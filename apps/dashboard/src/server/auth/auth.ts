@@ -127,6 +127,7 @@ export class Auth extends Context.Service<
               run(authorizeAdminAction(action, session, target)),
           })
         )
+        const authContext = Effect.tryPromise(() => auth.$context)
         return Auth.of({
           handler: (request) => Effect.tryPromise(() => auth.handler(request)),
           getSession: (headers, options) =>
@@ -146,20 +147,24 @@ export class Auth extends Context.Service<
               )
             ),
           sessionsOf: (userId) =>
-            Effect.tryPromise(async () => {
-              const { internalAdapter } = await auth.$context
-              const sessions = await internalAdapter.listSessions(userId, {
-                onlyActiveSessions: true,
-              })
+            Effect.gen(function* () {
+              const { internalAdapter } = yield* authContext
+              const sessions = yield* Effect.tryPromise(() =>
+                internalAdapter.listSessions(userId, {
+                  onlyActiveSessions: true,
+                })
+              )
               const now = new Date()
               return sessions.filter(
                 (session) => session.expiresAt > now && !impersonation(session)
               )
             }),
           providersOf: (userId) =>
-            Effect.tryPromise(async () => {
-              const { internalAdapter } = await auth.$context
-              const accounts = await internalAdapter.findAccounts(userId)
+            Effect.gen(function* () {
+              const { internalAdapter } = yield* authContext
+              const accounts = yield* Effect.tryPromise(() =>
+                internalAdapter.findAccounts(userId)
+              )
               return accounts.map((account) => account.providerId)
             }),
         })

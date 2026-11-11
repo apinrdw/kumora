@@ -383,3 +383,52 @@ layer(NodeServices.layer)("apps/web is under the Effect bans", (it) => {
     })
   )
 })
+
+layer(NodeServices.layer)(
+  "apps/dashboard's non-component code is under the full ban set",
+  (it) => {
+    it.effect.each([
+      ["apps/dashboard/alchemy.run.ts"],
+      ["apps/dashboard/src/domain/thing.ts"],
+      ["apps/dashboard/src/lib/thing.ts"],
+      ["apps/dashboard/src/server/auth/thing.ts"],
+      ["apps/dashboard/src/worker.ts"],
+      ["apps/dashboard/src/components/k/thing.ts"],
+      ["apps/dashboard/tests/lib/thing.test.ts"],
+      ["apps/dashboard/tests/server/thing.test.ts"],
+      ["apps/dashboard/tests/components/k/thing.test.ts"],
+    ])("throw and async in %s are rejected", ([file]) =>
+      Effect.gen(function* () {
+        const diagnostics = yield* lint(
+          file,
+          'export const f = async () => {\n  throw new Error("boom")\n}\n'
+        )
+        assertBanned(diagnostics, "kumora(restricted-syntax)", "Effect.fail")
+        assertBanned(diagnostics, "oxc(no-async-await)", "async")
+      })
+    )
+
+    it.effect("a dashboard lib function keeps the other bans", () =>
+      Effect.gen(function* () {
+        const diagnostics = yield* lint(
+          "apps/dashboard/src/lib/thing.ts",
+          [
+            'import { readFileSync } from "node:fs"',
+            "",
+            "export { readFileSync }",
+            "export const all = Promise.all([])",
+            "export const env = process.env.X",
+            "",
+          ].join("\n")
+        )
+        assertBanned(diagnostics, "eslint(no-restricted-imports)", "FileSystem")
+        assertBanned(
+          diagnostics,
+          "eslint(no-restricted-globals)",
+          "Effect.promise"
+        )
+        assertBanned(diagnostics, "eslint(no-restricted-properties)", "Config")
+      })
+    )
+  }
+)

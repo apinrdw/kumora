@@ -23,10 +23,12 @@ const objects = () => {
     getByName: (name: string) => ({
       fetch: (url: URL) => {
         reached.push({ name: `${binding}:${name}`, url: url.href })
-        return Promise.resolve(
-          new Response('{"trades":[]}', {
-            headers: { "Cache-Control": SEALED },
-          })
+        return Effect.runPromise(
+          Effect.succeed(
+            new Response('{"trades":[]}', {
+              headers: { "Cache-Control": SEALED },
+            })
+          )
         )
       },
     }),

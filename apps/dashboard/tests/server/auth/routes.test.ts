@@ -1,5 +1,6 @@
 import { assert, describe, it } from "@effect/vitest"
 import { betterAuth } from "better-auth"
+import { Effect } from "effect"
 import { DatabaseSync } from "node:sqlite"
 
 import { authOptions } from "@/server/auth/options"
@@ -40,7 +41,7 @@ const OFFERED = [
   "POST /update-user",
 ]
 
-const noop = async () => {}
+const noop = () => Effect.runPromise(Effect.void)
 
 interface Endpoint {
   readonly path?: string

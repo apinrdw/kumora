@@ -1,3 +1,5 @@
+import { Effect } from "effect"
+
 import type { FileRoutesByFullPath } from "../routeTree.gen.ts"
 
 // Better Auth enforces it (server/auth/options.ts); the sign-up form hints it.
@@ -9,4 +11,6 @@ const RESET_PASSWORD_PATH =
 
 /** Where a reset or set-password link lands, returning to `redirect` once the password is set. */
 export const resetPasswordPage = (redirect: string) =>
-  `${RESET_PASSWORD_PATH}?redirect=${encodeURIComponent(redirect)}`
+  Effect.sync(
+    () => `${RESET_PASSWORD_PATH}?redirect=${encodeURIComponent(redirect)}`
+  )

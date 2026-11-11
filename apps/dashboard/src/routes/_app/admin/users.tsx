@@ -1,9 +1,9 @@
 import { createFileRoute } from "@tanstack/react-router"
+import { loadServerFn, runLoader } from "@workspace/server/loader"
 import { useCallback } from "react"
 
 import { AccountsTable } from "@/components/admin/accounts-table"
 import { parseAccountSearch, type AccountSearch } from "@/lib/account-query"
-import { orNotFound } from "@/lib/or-not-found"
 import { listAccountsFn } from "@/server/admin/accounts.functions"
 
 export const Route = createFileRoute("/_app/admin/users")({
@@ -13,7 +13,8 @@ export const Route = createFileRoute("/_app/admin/users")({
   },
   validateSearch: parseAccountSearch,
   loaderDeps: ({ search }) => search,
-  loader: ({ deps }) => orNotFound(listAccountsFn({ data: deps })),
+  loader: ({ deps }) =>
+    runLoader(loadServerFn(() => listAccountsFn({ data: deps }))),
   head: () => ({ meta: [{ title: "Accounts · KUMORA Terminal" }] }),
   component: UsersPage,
 })

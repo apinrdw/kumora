@@ -4,6 +4,7 @@ import {
   IconMailCheck,
 } from "@tabler/icons-react"
 import { Link, useHydrated } from "@tanstack/react-router"
+import { Effect } from "effect"
 import { useState, type FormEvent } from "react"
 
 import { KButton, KInput } from "@/components/k"
@@ -59,7 +60,7 @@ export function ForgotPasswordForm({
     const { error } = await authClient.requestPasswordReset(
       {
         email,
-        redirectTo: resetPasswordPage(redirect),
+        redirectTo: Effect.runSync(resetPasswordPage(redirect)),
       },
       {
         headers: { [CAPTCHA_HEADER]: turnstileToken },

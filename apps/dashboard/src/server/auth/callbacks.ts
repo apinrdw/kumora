@@ -4,7 +4,7 @@
 // Better Auth.
 import { HttpError } from "@workspace/server"
 import { APIError } from "better-auth/api"
-import { Cause, Effect, Exit, Schema, type Context } from "effect"
+import { Cause, Effect, Schema, type Context } from "effect"
 
 import { linkLifetime } from "../../lib/link-lifetime.ts"
 import { RETRY_AFTER_HEADER } from "../../lib/retry-after.ts"
@@ -62,21 +62,24 @@ export type CallbackRunner<R> = <A, E>(
   effect: Effect.Effect<A, E, R>
 ) => Promise<A>
 
+// A known failure fails as its APIError; anything else is logged and fails as
+// a 500. runPromise rejects with that APIError unchanged.
+const toBetterAuth = <E>(cause: Cause.Cause<E>) => {
+  const errors = cause.reasons
+    .filter(Cause.isFailReason)
+    .map((reason) => reason.error)
+  if (!Cause.hasDies(cause) && errors.every(isKnown) && errors[0])
+    return Effect.fail(toAPIError(errors[0]))
+  return Effect.logError("Auth callback failed", cause).pipe(
+    Effect.andThen(Effect.fail(new APIError("INTERNAL_SERVER_ERROR")))
+  )
+}
+
 export function makeCallbackRunner<R>(
   context: Context.Context<R>
 ): CallbackRunner<R> {
   const run = Effect.runPromiseWith(context)
-  return async (effect) => {
-    const exit = await Effect.runPromiseExitWith(context)(effect)
-    if (Exit.isSuccess(exit)) return exit.value
-    const errors = exit.cause.reasons
-      .filter(Cause.isFailReason)
-      .map((reason) => reason.error)
-    if (!Cause.hasDies(exit.cause) && errors.every(isKnown) && errors[0])
-      throw toAPIError(errors[0])
-    await run(Effect.logError("Auth callback failed", exit.cause))
-    throw new APIError("INTERNAL_SERVER_ERROR")
-  }
+  return (effect) => run(Effect.catchCause(effect, toBetterAuth))
 }
 
 // One mail to one address. A capped mail counts toward the address's daily

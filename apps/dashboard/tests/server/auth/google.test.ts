@@ -81,19 +81,23 @@ const googleReturns = Effect.fnUntraced(function* (email: string) {
   vi.stubGlobal("fetch", (input: RequestInfo | URL) => {
     const target = input instanceof Request ? input.url : String(input)
     if (target !== "https://oauth2.googleapis.com/token")
-      return Promise.reject(new Error(`unexpected fetch ${target}`))
-    return Promise.resolve(
-      Response.json({
-        access_token: "google-access-token",
-        token_type: "Bearer",
-        expires_in: 3600,
-        id_token: idToken({
-          sub: "google-user-1",
-          email,
-          email_verified: true,
-          name: "Ayu",
-        }),
-      })
+      return Effect.runPromise(
+        Effect.fail(new Error(`unexpected fetch ${target}`))
+      )
+    return Effect.runPromise(
+      Effect.succeed(
+        Response.json({
+          access_token: "google-access-token",
+          token_type: "Bearer",
+          expires_in: 3600,
+          id_token: idToken({
+            sub: "google-user-1",
+            email,
+            email_verified: true,
+            name: "Ayu",
+          }),
+        })
+      )
     )
   })
   return yield* send(`/callback/google?code=google-code&state=${state}`, {

@@ -56,11 +56,11 @@ const isAdminSql = (adminList: AdminList) =>
     ? sql<SqlBool>`"role" = 'admin'`
     : sql<SqlBool>`("role" = 'admin' or ("emailVerified" = 1 and lower("email") in (${sql.join(adminList.emails)})))`
 
-const listAccounts = async (
+const listAccounts = Effect.fnUntraced(function* (
   db: Kysely<Tables>,
   query: AccountSearch,
   adminList: AdminList
-): Promise<AccountPage<StoredAccount>> => {
+): Effect.fn.Return<AccountPage<StoredAccount>, UnknownError> {
   const now = new Date().toISOString()
   const needle = (query.q ?? "").trim().toLowerCase()
   const isAdmin = isAdminSql(adminList)
@@ -82,40 +82,47 @@ const listAccounts = async (
   >`(select max("updatedAt") from "session" where "session"."userId" = "user"."id" and "session"."impersonatedBy" is null)`
   const key = query.sort ?? "createdAt"
   const dir = query.dir ?? "desc"
-  const [rows, count] = await Promise.all([
-    matching
-      .select([
-        "id",
-        "email",
-        "name",
-        sql<number>`case when ${isAdmin} then 1 else 0 end`.as("isAdmin"),
-        "banned",
-        "banReason",
-        "emailVerified",
-        "createdAt",
-        lastActiveAt.as("lastActiveAt"),
-        sql<number>`(select count(*) from "session" where "session"."userId" = "user"."id" and "session"."impersonatedBy" is null and "session"."expiresAt" > ${now})`.as(
-          "sessions"
-        ),
-        sql<
-          string | null
-        >`(select group_concat(distinct "providerId") from "account" where "account"."userId" = "user"."id")`.as(
-          "providers"
-        ),
-      ])
-      // Accounts with no session sort last either way.
-      .$if(key === "lastActiveAt", (q) =>
-        q.orderBy(sql`${lastActiveAt} is null`).orderBy(lastActiveAt, dir)
-      )
-      .orderBy("createdAt", key === "createdAt" ? dir : "desc")
-      .orderBy("id")
-      .limit(PAGE_SIZE)
-      .offset(((query.page ?? 1) - 1) * PAGE_SIZE)
-      .execute(),
-    matching
-      .select(sql<number>`count(*)`.as("total"))
-      .executeTakeFirstOrThrow(),
-  ])
+  const [rows, count] = yield* Effect.all(
+    [
+      Effect.tryPromise(() =>
+        matching
+          .select([
+            "id",
+            "email",
+            "name",
+            sql<number>`case when ${isAdmin} then 1 else 0 end`.as("isAdmin"),
+            "banned",
+            "banReason",
+            "emailVerified",
+            "createdAt",
+            lastActiveAt.as("lastActiveAt"),
+            sql<number>`(select count(*) from "session" where "session"."userId" = "user"."id" and "session"."impersonatedBy" is null and "session"."expiresAt" > ${now})`.as(
+              "sessions"
+            ),
+            sql<
+              string | null
+            >`(select group_concat(distinct "providerId") from "account" where "account"."userId" = "user"."id")`.as(
+              "providers"
+            ),
+          ])
+          // Accounts with no session sort last either way.
+          .$if(key === "lastActiveAt", (q) =>
+            q.orderBy(sql`${lastActiveAt} is null`).orderBy(lastActiveAt, dir)
+          )
+          .orderBy("createdAt", key === "createdAt" ? dir : "desc")
+          .orderBy("id")
+          .limit(PAGE_SIZE)
+          .offset(((query.page ?? 1) - 1) * PAGE_SIZE)
+          .execute()
+      ),
+      Effect.tryPromise(() =>
+        matching
+          .select(sql<number>`count(*)`.as("total"))
+          .executeTakeFirstOrThrow()
+      ),
+    ],
+    { concurrency: "unbounded" }
+  )
   return {
     total: Number(count.total),
     rows: rows.map((row) => ({
@@ -136,7 +143,7 @@ const listAccounts = async (
       sessions: Number(row.sessions),
     })),
   }
-}
+})
 
 export class Accounts extends Context.Service<
   Accounts,
@@ -171,8 +178,7 @@ export class Accounts extends Context.Service<
               .execute()
           ).pipe(Effect.asVoid)
         return Accounts.of({
-          list: (query, adminList) =>
-            Effect.tryPromise(() => listAccounts(db, query, adminList)),
+          list: (query, adminList) => listAccounts(db, query, adminList),
           makeAdmin: (userId) => update(userId, { role: "admin" }),
           verifyEmail: (userId) => update(userId, { emailVerified: 1 }),
         })

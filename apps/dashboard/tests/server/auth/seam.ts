@@ -21,17 +21,21 @@ const TURNSTILE_SECRET = "handler-test-turnstile-secret"
 const SOLVED_TURNSTILE = "solved-turnstile-token"
 
 // Cloudflare's siteverify, faked: the captcha plugin calls the global fetch.
-const siteverify = async (input: RequestInfo | URL, init?: RequestInit) => {
-  const url = input instanceof Request ? input.url : String(input)
-  if (url !== SITEVERIFY) throw new Error(`Unexpected fetch to ${url}`)
-  const { secret, response } = JSON.parse(String(init?.body)) as {
-    secret: string
-    response: string
-  }
-  return Response.json({
-    success: secret === TURNSTILE_SECRET && response === SOLVED_TURNSTILE,
-  })
-}
+const siteverify = (input: RequestInfo | URL, init?: RequestInit) =>
+  Effect.runPromise(
+    Effect.gen(function* () {
+      const url = input instanceof Request ? input.url : String(input)
+      if (url !== SITEVERIFY)
+        return yield* Effect.fail(new Error(`Unexpected fetch to ${url}`))
+      const { secret, response } = JSON.parse(String(init?.body)) as {
+        secret: string
+        response: string
+      }
+      return Response.json({
+        success: secret === TURNSTILE_SECRET && response === SOLVED_TURNSTILE,
+      })
+    })
+  )
 
 // The seam's ADMIN_EMAILS: ADMIN_EMAIL and other@example.com.
 const ADMIN_EMAILS = ` ${ADMIN_EMAIL.toUpperCase()}, other@example.com`
