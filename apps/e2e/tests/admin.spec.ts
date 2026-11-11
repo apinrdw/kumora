@@ -65,8 +65,13 @@ test.describe("an admin", () => {
         .evaluateAll((rows) => rows.map((row) => row.textContent))
     const newestFirst = await emails()
 
-    await created.getByRole("button", { name: "Created" }).click()
-    await expect(page).toHaveURL(/[?&]sort=createdAt&dir=asc/)
+    // The page has just loaded: retry until hydration lets the header sort.
+    await expect(async () => {
+      await created.getByRole("button", { name: "Created" }).click()
+      await expect(page).toHaveURL(/[?&]sort=createdAt&dir=asc/, {
+        timeout: 1000,
+      })
+    }).toPass()
     await expect(created).toHaveAttribute("aria-sort", "ascending")
     // Oldest first, once the loader has fetched the re-sorted page.
     await expect.poll(emails).not.toEqual(newestFirst)
