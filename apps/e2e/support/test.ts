@@ -6,6 +6,7 @@ import {
 import { randomInt } from "node:crypto"
 
 import { DASHBOARD } from "./accounts"
+import { stubTurnstile } from "./turnstile"
 
 // The dashboard's auth routes keep their per-IP limits in e2e (spec
 // apinrdw/kumora#80), and every browser here shares one socket address. So
@@ -28,32 +29,50 @@ const LIMIT_SPENDING_BLOCK = 19
 const clientIp = (block: number) =>
   `198.${block}.${randomInt(256)}.${randomInt(1, 255)}`
 
+// Decision: every context gets support/turnstile.ts's stub, which passes at
+// once and never contacts Cloudflare, except the shared accounts setup's,
+// which loads the real widget so e2e still proves it loads
+// (apinrdw/kumora#174).
+type Turnstile = "stub" | "cloudflare"
+
 async function asOwnClient(
   context: BrowserContext,
-  ip = clientIp(SHARED_BLOCK)
+  {
+    ip = clientIp(SHARED_BLOCK),
+    turnstile = "stub",
+  }: { ip?: string; turnstile?: Turnstile } = {}
 ) {
   await context.route(`${DASHBOARD}/**`, (route) =>
     route.continue({
       headers: { ...route.request().headers(), [CLIENT_IP_HEADER]: ip },
     })
   )
+  if (turnstile === "stub") await stubTurnstile(context)
   return context
 }
 
-/** `browser.newContext()`, sending from its own client address. */
-export const newClientContext = async (browser: Browser) =>
-  asOwnClient(await browser.newContext())
+/**
+ * `browser.newContext()`, sending from its own client address, with
+ * Turnstile stubbed unless `turnstile` is `"cloudflare"`.
+ */
+export const newClientContext = async (
+  browser: Browser,
+  options: { turnstile?: Turnstile } = {}
+) => asOwnClient(await browser.newContext(), options)
 
 /**
  * `browser.newContext()`, sending from an address no other context draws, for
  * a spec that spends a per-IP limit on purpose.
  */
 export const newLimitSpendingContext = async (browser: Browser) =>
-  asOwnClient(await browser.newContext(), clientIp(LIMIT_SPENDING_BLOCK))
+  asOwnClient(await browser.newContext(), {
+    ip: clientIp(LIMIT_SPENDING_BLOCK),
+  })
 
 /**
  * Playwright's `test`, with each test's own `context` (and so `page`) sent
- * from its own client address. Make other contexts with `newClientContext`.
+ * from its own client address and with Turnstile stubbed. Make other
+ * contexts with `newClientContext`.
  */
 export const test = base.extend({
   context: async ({ context }, provide) => {
