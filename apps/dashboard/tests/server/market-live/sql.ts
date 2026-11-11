@@ -1,17 +1,29 @@
 // The trading day's SQLite database for tests: Node's, in memory, behind the
 // day store's `Sql` (src/server/market-live/day-store.ts). Handing the same
 // database to a second trading day is a restart.
-import { DatabaseSync, type SQLInputValue } from "node:sqlite"
+import {
+  DatabaseSync,
+  type SQLInputValue,
+  type StatementSync,
+} from "node:sqlite"
 
 import type { Sql, SqlValue } from "@/server/market-live/day-store"
 
 export const memorySql = (): Sql => {
   const database = new DatabaseSync(":memory:")
+  // Decision: each query string is prepared once and reused. Preparing per
+  // call dominated the candles and recorded-day tests (#171).
+  const statements = new Map<string, StatementSync>()
+  const statement = (query: string) => {
+    const cached = statements.get(query)
+    if (cached !== undefined) return cached
+    const prepared = database.prepare(query)
+    statements.set(query, prepared)
+    return prepared
+  }
   return {
     exec: (query, ...bindings) =>
-      database
-        .prepare(query)
-        .all(...(bindings as Array<SQLInputValue>)) as Array<
+      statement(query).all(...(bindings as Array<SQLInputValue>)) as Array<
         Record<string, SqlValue>
       >,
     transaction: (write) => {

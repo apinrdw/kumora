@@ -5,7 +5,7 @@ import { ADMIN, testUrl } from "./support/accounts"
 import { MARKET_CLOCK_OFFSET } from "./support/clock"
 import { TEST_INGEST_TOKEN } from "./support/ingest"
 
-const TRADING_DAY_SPECS = /(market-live[\w-]*|relay-extension)\.spec\.ts$/
+const TRADING_DAY_SPECS = /market-live[\w-]*\.spec\.ts$/
 
 export default defineConfig({
   testDir: "tests",
