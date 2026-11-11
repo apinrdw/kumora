@@ -1,4 +1,4 @@
-import { isTradingDay, wibDateAt } from "@workspace/relay"
+import { WIB_UTC_OFFSET_HOURS, isTradingDay, wibDateAt } from "@workspace/relay"
 import { DateTime, Effect } from "effect"
 
 // The WIB time of day the Test stage's Market Live clock reads at the start
@@ -6,11 +6,8 @@ import { DateTime, Effect } from "effect"
 const MARKET_TIME = "10:00:00"
 const DAY = 86_400_000
 
-/**
- * WIB's offset from UTC, in ms: UTC+7 all year, as
- * packages/relay/src/schedule.ts's wibDateAt adds it.
- */
-export const WIB_OFFSET = 7 * 3_600_000
+/** WIB's offset from UTC, in ms. */
+export const WIB_OFFSET = WIB_UTC_OFFSET_HOURS * 3_600_000
 
 /** An instant's WIB date. */
 export const wibDate = (at: number) =>
