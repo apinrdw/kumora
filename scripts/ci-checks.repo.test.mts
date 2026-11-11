@@ -6,25 +6,11 @@ import { NodeServices } from "@effect/platform-node"
 import { assert, layer } from "@effect/vitest"
 import { Effect, FileSystem, Path, Schema } from "effect"
 
-import { stdoutOf } from "./lib/command.mts"
+import { CHECK_KINDS, turboDryRun } from "./lib/turbo.mts"
 
 const Manifest = Schema.fromJsonString(
   Schema.Struct({ scripts: Schema.Record(Schema.String, Schema.String) })
 )
-const DryRun = Schema.fromJsonString(
-  Schema.Struct({
-    tasks: Schema.Array(
-      Schema.Struct({
-        taskId: Schema.String,
-        task: Schema.String,
-        package: Schema.String,
-      })
-    ),
-  })
-)
-
-// The root scripts that each run one kind of check through turbo.
-const checkKinds = ["typecheck", "build", "lint", "format:check", "test"]
 const turboRun = /^turbo run (.+)$/
 
 const rootScripts = Effect.gen(function* () {
@@ -56,16 +42,6 @@ const turboTasks = (script: string) =>
   commands(script).flatMap((command) =>
     (turboRun.exec(command)?.[1] ?? "").split(/\s+/).filter((t) => t !== "")
   )
-
-const plan = Effect.fnUntraced(function* (tasks: ReadonlyArray<string>) {
-  const path = yield* Path.Path
-  const dryRun = yield* stdoutOf(
-    "pnpm",
-    ["exec", "turbo", "run", ...tasks, "--dry=json"],
-    { cwd: path.resolve(import.meta.dirname, "..") }
-  )
-  return (yield* Schema.decodeEffect(DryRun)(dryRun)).tasks
-})
 
 layer(NodeServices.layer)("check scripts", (it) => {
   it.effect("pnpm check runs exactly the union of the check:* scripts", () =>
@@ -116,13 +92,15 @@ layer(NodeServices.layer)("check scripts", (it) => {
         const scripts = yield* rootScripts
         const ids = (tasks: ReadonlyArray<{ taskId: string }>) =>
           new Set(tasks.map(({ taskId }) => taskId))
-        const wanted = yield* plan(
-          checkKinds.flatMap((kind) => turboTasks(scripts[kind] ?? ""))
+        const wanted = yield* turboDryRun(
+          CHECK_KINDS.flatMap((kind) => turboTasks(scripts[kind] ?? ""))
         )
-        const staticTasks = yield* plan(
+        const staticTasks = yield* turboDryRun(
           turboTasks(scripts["check:static"] ?? "")
         )
-        const testTasks = yield* plan(turboTasks(scripts["check:test"] ?? ""))
+        const testTasks = yield* turboDryRun(
+          turboTasks(scripts["check:test"] ?? "")
+        )
         const isUnitTest = (task: { task: string; package: string }) =>
           task.task === "test" && task.package !== "//"
 

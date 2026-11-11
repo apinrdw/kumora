@@ -4,20 +4,9 @@ import { NodeServices } from "@effect/platform-node"
 import { assert, layer } from "@effect/vitest"
 import { Effect, FileSystem, Path, Schema } from "effect"
 
-import { stdoutOf } from "./lib/command.mts"
+import { repoRoot } from "./lib/check.mts"
+import { turboDryRun, type DryTask } from "./lib/turbo.mts"
 
-const DryTask = Schema.Struct({
-  taskId: Schema.String,
-  task: Schema.String,
-  package: Schema.String,
-  directory: Schema.String,
-  dependencies: Schema.Array(Schema.String),
-})
-type DryTask = typeof DryTask.Type
-
-const DryRun = Schema.fromJsonString(
-  Schema.Struct({ tasks: Schema.Array(DryTask) })
-)
 const Manifest = Schema.fromJsonString(
   Schema.Struct({
     dependencies: Schema.optional(Schema.Record(Schema.String, Schema.String)),
@@ -28,15 +17,7 @@ const Manifest = Schema.fromJsonString(
 )
 
 const planTests = Effect.gen(function* () {
-  const path = yield* Path.Path
-  const root = path.resolve(import.meta.dirname, "..")
-  const dryRun = yield* stdoutOf(
-    "pnpm",
-    ["exec", "turbo", "run", "test", "--dry=json"],
-    { cwd: root }
-  )
-  const { tasks } = yield* Schema.decodeEffect(DryRun)(dryRun)
-  return { root, tasks }
+  return { root: yield* repoRoot, tasks: yield* turboDryRun(["test"]) }
 })
 
 const reachablePackages = (

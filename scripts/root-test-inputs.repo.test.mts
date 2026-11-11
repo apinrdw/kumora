@@ -1,28 +1,20 @@
 // A cached root test task must miss when a file one of its tests reads
 // changes, so each task's inputs must hold every file its tests read: the test
-// itself, the root Vitest config, each repo file a test opens by path, and the
-// files a tool it spawns reads on its own.
+// itself and the scripts modules it imports, the root Vitest config, each repo
+// file a test opens by path, and the files a tool it or a module it imports
+// spawns reads on its own.
 import { NodeServices } from "@effect/platform-node"
 import { assert, layer } from "@effect/vitest"
 import { Effect, FileSystem, Path, Schema } from "effect"
 
 import { repoRoot } from "./lib/check.mts"
 import { stdoutOf } from "./lib/command.mts"
+import { turboDryRun } from "./lib/turbo.mts"
 
 const rootTestTasks = ["test:root", "test:repo"]
 
 const Manifest = Schema.fromJsonString(
   Schema.Struct({ scripts: Schema.Record(Schema.String, Schema.String) })
-)
-const DryRun = Schema.fromJsonString(
-  Schema.Struct({
-    tasks: Schema.Array(
-      Schema.Struct({
-        taskId: Schema.String,
-        inputs: Schema.Record(Schema.String, Schema.String),
-      })
-    ),
-  })
 )
 const Listed = Schema.fromJsonString(
   Schema.Array(Schema.Struct({ file: Schema.String }))
@@ -34,6 +26,7 @@ const Projects = Schema.fromJsonString(
 const repoRead = /path\.resolve\(\s*import\.meta\.dirname,\s*"\.\.\/([^"]+)"/g
 const spawned = /"(?:[^"\s]*\/)?(turbo|pnpm|oxlint)"/g
 const vitestRun = /^vitest run (.+)$/
+const localImport = /from "(\.\.?\/[^"]+\.mts)"/g
 
 // The files under `target`, or `target` itself when it is a file.
 const filesAt = Effect.fnUntraced(function* (root: string, target: string) {
@@ -50,6 +43,26 @@ const filesAt = Effect.fnUntraced(function* (root: string, target: string) {
       files.push(path.relative(root, full))
   }
   return files
+})
+
+// A test and every scripts module it imports, directly or not, by repo path.
+const importedModules = Effect.fnUntraced(function* (
+  root: string,
+  test: string
+) {
+  const fs = yield* FileSystem.FileSystem
+  const path = yield* Path.Path
+  const modules = new Map<string, string>()
+  const pending = [test]
+  while (pending.length > 0) {
+    const file = pending.pop() as string
+    if (modules.has(file)) continue
+    const source = yield* fs.readFileString(path.join(root, file))
+    modules.set(file, source)
+    for (const [, specifier] of source.matchAll(localImport))
+      pending.push(path.join(path.dirname(file), specifier as string))
+  }
+  return modules
 })
 
 // The repo files each tool reads without a test naming them.
@@ -101,13 +114,7 @@ const testFiles = Effect.fnUntraced(function* (task: string) {
 })
 
 const taskInputs = Effect.fnUntraced(function* (task: string) {
-  const root = yield* repoRoot
-  const dryRun = yield* stdoutOf(
-    "pnpm",
-    ["exec", "turbo", "run", task, "--dry=json"],
-    { cwd: root }
-  )
-  const { tasks } = yield* Schema.decodeEffect(DryRun)(dryRun)
+  const tasks = yield* turboDryRun([task])
   const planned = tasks.find(({ taskId }) => taskId === `//#${task}`)
   assert.isDefined(planned, `turbo plans //#${task}`)
   return new Set(Object.keys(planned?.inputs ?? {}))
@@ -115,7 +122,6 @@ const taskInputs = Effect.fnUntraced(function* (task: string) {
 
 const filesRead = Effect.fnUntraced(function* (tests: ReadonlyArray<string>) {
   const fs = yield* FileSystem.FileSystem
-  const path = yield* Path.Path
   const root = yield* repoRoot
   const tools = yield* toolReads
   const read = new Set(
@@ -125,12 +131,16 @@ const filesRead = Effect.fnUntraced(function* (tests: ReadonlyArray<string>) {
   )
   assert.isAbove(read.size, 0, "found the root Vitest config")
   for (const test of tests) {
-    read.add(test)
-    const source = yield* fs.readFileString(path.join(root, test))
-    for (const [, target] of source.matchAll(repoRead))
+    const modules = yield* importedModules(root, test)
+    for (const [module, source] of modules) {
+      read.add(module)
+      for (const [, tool] of source.matchAll(spawned))
+        for (const file of tools[tool as string] ?? []) read.add(file)
+    }
+    // A module in scripts/lib resolves `../` from there, so only the test's
+    // own reads by path are taken.
+    for (const [, target] of (modules.get(test) ?? "").matchAll(repoRead))
       for (const file of yield* filesAt(root, target as string)) read.add(file)
-    for (const [, tool] of source.matchAll(spawned))
-      for (const file of tools[tool as string] ?? []) read.add(file)
   }
   return read
 })

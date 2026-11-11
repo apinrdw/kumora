@@ -3,25 +3,11 @@
 // transit), may hash a Markdown file.
 import { NodeServices } from "@effect/platform-node"
 import { assert, layer } from "@effect/vitest"
-import { Effect, Schema } from "effect"
+import { Effect } from "effect"
 
 import { repoRoot } from "./lib/check.mts"
 import { stdoutOf } from "./lib/command.mts"
-
-const kinds = ["typecheck", "build", "lint", "format:check", "test"]
-
-const DryRun = Schema.fromJsonString(
-  Schema.Struct({
-    tasks: Schema.Array(
-      Schema.Struct({
-        taskId: Schema.String,
-        task: Schema.String,
-        package: Schema.String,
-        inputs: Schema.Record(Schema.String, Schema.String),
-      })
-    ),
-  })
-)
+import { CHECK_KINDS, turboDryRun } from "./lib/turbo.mts"
 
 const markdownFile = /\.md$/
 
@@ -38,19 +24,11 @@ layer(NodeServices.layer)("package task inputs", (it) => {
         .filter((file) => file !== "")
       assert.isAbove(markdown.length, 0, "found Markdown in a package")
 
-      const { tasks } = yield* Schema.decodeEffect(DryRun)(
-        yield* stdoutOf(
-          "pnpm",
-          ["exec", "turbo", "run", ...kinds, "--dry=json"],
-          {
-            cwd: root,
-          }
-        )
-      )
+      const tasks = yield* turboDryRun(CHECK_KINDS)
       const checked = tasks.filter((task) => task.package !== "//")
       assert.includeMembers(
         [...new Set(checked.map((task) => task.task))],
-        kinds
+        [...CHECK_KINDS]
       )
       assert.deepStrictEqual(
         checked.flatMap((task) =>
