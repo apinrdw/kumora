@@ -207,13 +207,31 @@ test.describe("the tape at peak", () => {
     page,
   }) => {
     const relay = await openIngest()
+    const base = freshTradeNumbers()
+    // A snapshot carries only the 200 newest trades. Today's object keeps an
+    // earlier run's match prints, so 200 continuous trades above them keep
+    // those out of the page's snapshot, and the fold counts this run's alone.
+    const newer = 200
+    await relay.sendAjaib(
+      Array.from({ length: newer }, (_, i) =>
+        ajaibTradeToday({
+          seq: base + i + 1,
+          time: "10:00:03",
+          ticker: "PSTM",
+          price: 100,
+          lot: 1,
+        })
+      )
+    )
     await page.goto(`${DASHBOARD}${PAGE}`)
     const tape = page.getByRole("region", { name: "Running trades" })
+    await expect(
+      tape.locator(`tr[data-trade-number="${base + newer}"]`)
+    ).toBeVisible()
     const fold = tape.getByRole("button", { name: /Opening match 08:58:00/ })
-    // The first print, once the page's socket is live: a snapshot carries
-    // only the 200 newest trades, so the replay waits for it.
-    const base = freshTradeNumbers()
-    const match = openingMatchToday(20_000, base)
+    // The first print, once the page's socket is live, so the replay waits
+    // for the snapshot.
+    const match = openingMatchToday(20_000, base + newer)
     await relay.sendAjaib(match.slice(0, 1))
     await expect(fold).toContainText("1 trade ·")
     // Every animation frame's length from here until the match is in.
@@ -249,7 +267,9 @@ test.describe("the tape at peak", () => {
     await expect(fold).toHaveAttribute("aria-expanded", "false")
     await fold.click()
     await expect(fold).toHaveAttribute("aria-expanded", "true")
-    const newest = tape.locator(`tr[data-trade-number="${base + 20_000}"]`)
+    const newest = tape.locator(
+      `tr[data-trade-number="${base + newer + 20_000}"]`
+    )
     await expect(newest).toContainText("08:58:00")
     await expect(newest).not.toContainText(/buy|sell/)
     relay.close()
