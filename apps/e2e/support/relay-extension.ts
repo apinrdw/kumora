@@ -34,6 +34,19 @@ export interface BrokerSocket {
   readonly received: Array<string | Uint8Array>
 }
 
+// The relay ticks every 10 s, so B, pings and reopens each take up to a tick
+// or two. A moved clock ticks it at once (setRelayClock).
+export const TICKS = { timeout: 25_000 }
+
+// A trading day's session 1 (a Tuesday), for the relay's schedule only.
+export const SESSION_1 = "2026-11-10T10:00:00"
+
+export const PING = '{"method":"SUBSCRIBE","streamObject":"PING-WEB"}'
+
+// What a socket received, its pings left out.
+export const sent = (socket: BrokerSocket | undefined) =>
+  (socket?.received ?? []).filter((message) => message !== PING)
+
 // A self-signed certificate for the fake broker hosts, which Chromium is told
 // to accept.
 function selfSignedCertificate() {
