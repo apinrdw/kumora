@@ -81,6 +81,8 @@ describe("websiteProps", () => {
 })
 
 describe("stageUrl", () => {
+  // Each case reads an empty environment, so a port variable the shell
+  // exports cannot move the local stages off their default.
   it.effect.each([
     ["production", "https://kumora-dashboard.kumora.workers.dev"],
     ["staging", "https://kumora-dashboard-staging.kumora.workers.dev"],
@@ -94,7 +96,9 @@ describe("stageUrl", () => {
     Effect.gen(function* () {
       const parsed = yield* stackStage(stage)
       assert.strictEqual(yield* stageUrl("dashboard", parsed), url)
-    })
+    }).pipe(
+      Effect.provide(ConfigProvider.layer(ConfigProvider.fromUnknown({})))
+    )
   )
 
   it.effect("serves a local stage on the port its variable names", () =>
