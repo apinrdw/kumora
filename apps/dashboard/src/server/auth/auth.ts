@@ -51,7 +51,7 @@ export type AuthConfig = Omit<
 // out, and so do ours.
 const impersonation = (
   session: Session & { readonly impersonatedBy?: unknown }
-) => Boolean(session.impersonatedBy)
+) => Effect.succeed(Boolean(session.impersonatedBy))
 
 export class Auth extends Context.Service<
   Auth,
@@ -90,12 +90,14 @@ export class Auth extends Context.Service<
         // it forever). Callbacks run only once `auth` exists.
         const run: CallbackRunner<
           Mailer | AdminEmails | Accounts | LiveViewers | MailCap
-        > = makeCallbackRunner(
+        > = yield* makeCallbackRunner(
           Context.add(
             context,
             MailCap,
-            MailCap.make(() =>
-              auth.$context.then((ctx) => getCurrentAdapter(ctx.adapter))
+            yield* MailCap.make(
+              Effect.promise(() =>
+                auth.$context.then((ctx) => getCurrentAdapter(ctx.adapter))
+              )
             )
           )
         )
@@ -137,9 +139,9 @@ export class Auth extends Context.Service<
                 query: { disableCookieCache: options?.fresh ?? false },
               })
             ).pipe(
-              Effect.map((found) =>
+              Effect.flatMap((found) =>
                 found === null
-                  ? null
+                  ? Effect.succeed(null)
                   : authSessionOf(
                       found satisfies BetterAuthSession,
                       adminEmails
@@ -155,8 +157,11 @@ export class Auth extends Context.Service<
                 })
               )
               const now = new Date()
-              return sessions.filter(
-                (session) => session.expiresAt > now && !impersonation(session)
+              return yield* Effect.filter(sessions, (session) =>
+                Effect.map(
+                  impersonation(session),
+                  (impersonated) => session.expiresAt > now && !impersonated
+                )
               )
             }),
           providersOf: (userId) =>
@@ -182,7 +187,7 @@ export class Auth extends Context.Service<
         // every request, since Auth is built per request; the migration drift
         // check in CI and the handler test seam cover the schema.
         validateSchema: false,
-        google: googleClient(env),
+        google: yield* googleClient(env),
         turnstileSecretKey: env.TURNSTILE_SECRET_KEY,
       }).pipe(Layer.provideMerge(Accounts.make(env.AUTH_DB)))
     })

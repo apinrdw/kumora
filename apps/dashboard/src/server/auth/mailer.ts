@@ -13,18 +13,20 @@ export interface Mail {
 // (with its To: header) that e2e can find by address. Its message builder
 // writes only the body.
 const toMime = (mail: Mail, date: DateTime.Utc) =>
-  [
-    `From: KUMORA <${SENDER}>`,
-    `To: ${mail.to}`,
-    `Subject: ${mail.subject}`,
-    `Date: ${DateTime.toDateUtc(date).toUTCString()}`,
-    `Message-ID: <${crypto.randomUUID()}@${SENDING_SUBDOMAIN}>`,
-    "MIME-Version: 1.0",
-    "Content-Type: text/plain; charset=utf-8",
-    "Content-Transfer-Encoding: 8bit",
-    "",
-    mail.text,
-  ].join("\r\n")
+  Effect.sync(() =>
+    [
+      `From: KUMORA <${SENDER}>`,
+      `To: ${mail.to}`,
+      `Subject: ${mail.subject}`,
+      `Date: ${DateTime.toDateUtc(date).toUTCString()}`,
+      `Message-ID: <${crypto.randomUUID()}@${SENDING_SUBDOMAIN}>`,
+      "MIME-Version: 1.0",
+      "Content-Type: text/plain; charset=utf-8",
+      "Content-Transfer-Encoding: 8bit",
+      "",
+      mail.text,
+    ].join("\r\n")
+  )
 
 export class Mailer extends Context.Service<
   Mailer,
@@ -43,7 +45,7 @@ export class Mailer extends Context.Service<
         () => import("cloudflare:email")
       )
       const send = Effect.fn("Mailer.send")(function* (mail: Mail) {
-        const raw = toMime(mail, yield* DateTime.now)
+        const raw = yield* toMime(mail, yield* DateTime.now)
         const delivery = Effect.tryPromise(() =>
           env.EMAIL.send(new EmailMessage(SENDER, mail.to, raw))
         ).pipe(
@@ -51,6 +53,10 @@ export class Mailer extends Context.Service<
             Effect.logError("Mail send failed", cause)
           )
         )
+        // Decision: the send is its own runtime boundary. It outlives the
+        // request's fiber, and Cloudflare's waitUntil keeps the isolate alive
+        // only for a Promise, so it runs with runPromiseWith on the request's
+        // context. CODING_STANDARDS.md lists it among the runtimes.
         const context = yield* Effect.context<never>()
         waitUntil(Effect.runPromiseWith(context)(delivery))
       })

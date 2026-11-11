@@ -1,13 +1,22 @@
 import { assert, describe, it } from "@effect/vitest"
+import { Effect } from "effect"
 
 import {
   type Account,
   type Action,
   type Reason,
+  type SignedOut,
   type Target,
   decide,
   signedOut,
 } from "@/server/auth/policy"
+
+// The policy's decision, run: every rule is pure and synchronous.
+const decided = <A extends Action>(
+  account: Account | SignedOut,
+  action: A,
+  resource: Parameters<typeof decide<A>>[2]
+) => Effect.runSync(decide(account, action, resource))
 
 const member: Account = {
   _tag: "Account",
@@ -51,7 +60,7 @@ describe("decide", () => {
       },
     ] as const)("$name", ({ account, reason }) => {
       assert.deepStrictEqual(
-        decide(account, "page.view", { feature: "market-live" }),
+        decided(account, "page.view", { feature: "market-live" }),
         {
           _tag: "Deny",
           reason,
@@ -111,7 +120,7 @@ describe("decide", () => {
       "$who viewing a $feature page: $decision",
       ({ account, feature, decision }) => {
         assert.deepStrictEqual(
-          decide(account, "page.view", { feature }),
+          decided(account, "page.view", { feature }),
           decision
         )
       }
@@ -125,22 +134,22 @@ describe("decide", () => {
       (action) => {
         for (const account of [member, admin, configAdmin, impersonated]) {
           assert.deepStrictEqual(
-            decide(account, action, { feature: "market-live" }),
+            decided(account, action, { feature: "market-live" }),
             allow
           )
         }
         assert.deepStrictEqual(
-          decide(signedOut, action, { feature: "market-live" }),
+          decided(signedOut, action, { feature: "market-live" }),
           deny("sign-in")
         )
         assert.deepStrictEqual(
-          decide({ ...member, verified: false }, action, {
+          decided({ ...member, verified: false }, action, {
             feature: "market-live",
           }),
           deny("verify")
         )
         assert.deepStrictEqual(
-          decide({ ...member, suspended: true }, action, {
+          decided({ ...member, suspended: true }, action, {
             feature: "market-live",
           }),
           deny("suspended")
@@ -165,18 +174,18 @@ const configSelf: Target = { ...self, configAdmin: true }
 describe("decide on admin actions", () => {
   it("lets an admin list accounts and tells a member it is not found", () => {
     assert.deepStrictEqual(
-      decide(admin, "admin.list-accounts", { feature: "admin" }),
+      decided(admin, "admin.list-accounts", { feature: "admin" }),
       allow
     )
     assert.deepStrictEqual(
-      decide(member, "admin.list-accounts", { feature: "admin" }),
+      decided(member, "admin.list-accounts", { feature: "admin" }),
       deny("not-found")
     )
   })
 
   it("tells an impersonated member made admin that accounts are not found", () => {
     assert.deepStrictEqual(
-      decide(impersonatedAdmin, "admin.list-accounts", { feature: "admin" }),
+      decided(impersonatedAdmin, "admin.list-accounts", { feature: "admin" }),
       deny("not-found")
     )
   })
@@ -299,8 +308,8 @@ describe("decide on admin actions", () => {
   ] as const)(
     "$action on $target by an admin: $decision",
     ({ action, resource, decision }) => {
-      assert.deepStrictEqual(decide(admin, action, resource), decision)
-      assert.deepStrictEqual(decide(configAdmin, action, resource), decision)
+      assert.deepStrictEqual(decided(admin, action, resource), decision)
+      assert.deepStrictEqual(decided(configAdmin, action, resource), decision)
     }
   )
 
@@ -312,11 +321,11 @@ describe("decide on admin actions", () => {
     "admin.impersonate",
   ] as const)("%s is not found for a member, impersonated or not", (action) => {
     assert.deepStrictEqual(
-      decide(member, action, otherMember),
+      decided(member, action, otherMember),
       deny("not-found")
     )
     assert.deepStrictEqual(
-      decide(impersonated, action, otherMember),
+      decided(impersonated, action, otherMember),
       deny("not-found")
     )
   })
@@ -333,7 +342,7 @@ describe("decide on admin actions", () => {
     "%s is not found for an impersonated member made admin",
     (action) => {
       assert.deepStrictEqual(
-        decide(impersonatedAdmin, action, otherMember),
+        decided(impersonatedAdmin, action, otherMember),
         deny("not-found")
       )
     }
@@ -341,15 +350,15 @@ describe("decide on admin actions", () => {
 
   it("applies the sign-in gate before the admin rules", () => {
     assert.deepStrictEqual(
-      decide(signedOut, "admin.ban", otherMember),
+      decided(signedOut, "admin.ban", otherMember),
       deny("sign-in")
     )
     assert.deepStrictEqual(
-      decide({ ...admin, verified: false }, "admin.ban", otherMember),
+      decided({ ...admin, verified: false }, "admin.ban", otherMember),
       deny("verify")
     )
     assert.deepStrictEqual(
-      decide({ ...admin, suspended: true }, "admin.ban", otherMember),
+      decided({ ...admin, suspended: true }, "admin.ban", otherMember),
       deny("suspended")
     )
   })
@@ -371,22 +380,22 @@ describe("decide on own-account actions", () => {
   ] as const)(
     "$action",
     ({ action, member: forMember, configAdmin: forConfigAdmin }) => {
-      assert.deepStrictEqual(decide(member, action, ownAccount), forMember)
-      assert.deepStrictEqual(decide(admin, action, ownAccount), forMember)
+      assert.deepStrictEqual(decided(member, action, ownAccount), forMember)
+      assert.deepStrictEqual(decided(admin, action, ownAccount), forMember)
       assert.deepStrictEqual(
-        decide(configAdmin, action, ownAccount),
+        decided(configAdmin, action, ownAccount),
         forConfigAdmin
       )
       assert.deepStrictEqual(
-        decide(impersonated, action, ownAccount),
+        decided(impersonated, action, ownAccount),
         deny("forbidden")
       )
       assert.deepStrictEqual(
-        decide(signedOut, action, ownAccount),
+        decided(signedOut, action, ownAccount),
         deny("sign-in")
       )
       assert.deepStrictEqual(
-        decide({ ...member, verified: false }, action, ownAccount),
+        decided({ ...member, verified: false }, action, ownAccount),
         deny("verify")
       )
     }
@@ -399,7 +408,7 @@ describe("deny by default", () => {
   it("denies an action with no rule, with no access", () => {
     const unlisted = "market-live.export" as Action
     assert.deepStrictEqual(
-      decide(admin, unlisted, { feature: "market-live" } as never),
+      decided(admin, unlisted, { feature: "market-live" } as never),
       deny("no-access")
     )
   })
@@ -407,7 +416,7 @@ describe("deny by default", () => {
   it("denies an action named like an object built-in, with no access", () => {
     const builtIn = "constructor" as Action
     assert.deepStrictEqual(
-      decide(admin, builtIn, { feature: "market-live" } as never),
+      decided(admin, builtIn, { feature: "market-live" } as never),
       deny("no-access")
     )
   })
@@ -417,7 +426,7 @@ describe("deny by default", () => {
       feature: "market-live"
     }
     assert.deepStrictEqual(
-      decide(admin, "page.view", unlisted),
+      decided(admin, "page.view", unlisted),
       deny("no-access")
     )
   })
@@ -425,7 +434,7 @@ describe("deny by default", () => {
   it("still asks an unlisted action's account to sign in first", () => {
     const unlisted = "market-live.export" as Action
     assert.deepStrictEqual(
-      decide(signedOut, unlisted, { feature: "market-live" } as never),
+      decided(signedOut, unlisted, { feature: "market-live" } as never),
       deny("sign-in")
     )
   })

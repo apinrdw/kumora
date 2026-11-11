@@ -52,9 +52,11 @@ const STATUS_SQL = {
 // The role as the access policy reads it (session-account.ts): a stored
 // admin, or a verified email on the admin list before its grant is stored.
 const isAdminSql = (adminList: AdminList) =>
-  adminList.emails.length === 0
-    ? sql<SqlBool>`"role" = 'admin'`
-    : sql<SqlBool>`("role" = 'admin' or ("emailVerified" = 1 and lower("email") in (${sql.join(adminList.emails)})))`
+  Effect.succeed(
+    adminList.emails.length === 0
+      ? sql<SqlBool>`"role" = 'admin'`
+      : sql<SqlBool>`("role" = 'admin' or ("emailVerified" = 1 and lower("email") in (${sql.join(adminList.emails)})))`
+  )
 
 const listAccounts = Effect.fnUntraced(function* (
   db: Kysely<Tables>,
@@ -63,7 +65,7 @@ const listAccounts = Effect.fnUntraced(function* (
 ): Effect.fn.Return<AccountPage<StoredAccount>, UnknownError> {
   const now = new Date().toISOString()
   const needle = (query.q ?? "").trim().toLowerCase()
-  const isAdmin = isAdminSql(adminList)
+  const isAdmin = yield* isAdminSql(adminList)
   const roleSql = {
     admin: isAdmin,
     member: sql<SqlBool>`not ${isAdmin}`,

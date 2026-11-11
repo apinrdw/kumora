@@ -5,6 +5,7 @@
 // socket, recorded day loads) asks `decide` and maps the reason to its own
 // response; feature access per account later adds an attribute and a rule, not
 // gate edits. See apinrdw/kumora#95.
+import { Effect } from "effect"
 
 export const ROLES = ["admin", "member"] as const
 
@@ -78,10 +79,14 @@ export type Decision =
   | { readonly _tag: "Allow" }
   | { readonly _tag: "Deny"; readonly reason: Reason }
 
-const allow: Decision = { _tag: "Allow" }
-const deny = (reason: Reason): Decision => ({ _tag: "Deny", reason })
+const allow: Effect.Effect<Decision> = Effect.succeed({ _tag: "Allow" })
+const deny = (reason: Reason): Effect.Effect<Decision> =>
+  Effect.succeed({ _tag: "Deny", reason })
 
-const featureAccess = (account: Account, feature: Feature): Decision => {
+const featureAccess = (
+  account: Account,
+  feature: Feature
+): Effect.Effect<Decision> => {
   switch (feature) {
     case "market-live":
     case "account":
@@ -97,27 +102,34 @@ const featureAccess = (account: Account, feature: Feature): Decision => {
   }
 }
 
-const adminOn =
-  (protectedTarget: (target: Target) => boolean) =>
-  (account: Account, target: Target): Decision => {
-    const access = featureAccess(account, "admin")
-    if (access._tag === "Deny") return access
-    return protectedTarget(target) ? deny("forbidden") : allow
-  }
+// `protectedTarget`: the action may not touch this target.
+const adminOn = Effect.fnUntraced(function* (
+  account: Account,
+  protectedTarget: boolean
+): Effect.fn.Return<Decision> {
+  const access = yield* featureAccess(account, "admin")
+  if (access._tag === "Deny") return access
+  return yield* protectedTarget ? deny("forbidden") : allow
+})
 
-const own =
-  ({ refusedToConfigAdmin }: { readonly refusedToConfigAdmin: boolean }) =>
-  (account: Account, { feature }: OwnAccount): Decision => {
-    const access = featureAccess(account, feature)
-    if (access._tag === "Deny") return access
-    if (account.impersonating) return deny("forbidden")
-    return refusedToConfigAdmin && account.configAdmin
-      ? deny("forbidden")
-      : allow
-  }
+const own = Effect.fnUntraced(function* (
+  account: Account,
+  { feature }: OwnAccount,
+  { refusedToConfigAdmin }: { readonly refusedToConfigAdmin: boolean }
+): Effect.fn.Return<Decision> {
+  const access = yield* featureAccess(account, feature)
+  if (access._tag === "Deny") return access
+  if (account.impersonating) return yield* deny("forbidden")
+  return yield* refusedToConfigAdmin && account.configAdmin
+    ? deny("forbidden")
+    : allow
+})
 
 type Rules = {
-  readonly [A in Action]: (account: Account, resource: Resources[A]) => Decision
+  readonly [A in Action]: (
+    account: Account,
+    resource: Resources[A]
+  ) => Effect.Effect<Decision>
 }
 
 const rules: Rules = {
@@ -128,29 +140,34 @@ const rules: Rules = {
     featureAccess(account, feature),
   "admin.list-accounts": (account, { feature }) =>
     featureAccess(account, feature),
-  "admin.ban": adminOn((target) => target.configAdmin || target.isSelf),
-  "admin.unban": adminOn(() => false),
+  "admin.ban": (account, target) =>
+    adminOn(account, target.configAdmin || target.isSelf),
+  "admin.unban": (account) => adminOn(account, false),
   // Both targets are admins, so any role change on them is a demotion.
-  "admin.set-role": adminOn((target) => target.configAdmin || target.isSelf),
+  "admin.set-role": (account, target) =>
+    adminOn(account, target.configAdmin || target.isSelf),
   // A config admin may still end their own sessions; only other admins may not.
-  "admin.end-sessions": adminOn(
-    (target) => target.configAdmin && !target.isSelf
-  ),
-  "admin.impersonate": adminOn(
-    (target) => target.role !== "member" || target.suspended
-  ),
-  "own.change-password": own({ refusedToConfigAdmin: false }),
-  "own.change-email": own({ refusedToConfigAdmin: true }),
-  "own.update-details": own({ refusedToConfigAdmin: false }),
-  "own.end-sessions": own({ refusedToConfigAdmin: false }),
-  "own.delete": own({ refusedToConfigAdmin: true }),
+  "admin.end-sessions": (account, target) =>
+    adminOn(account, target.configAdmin && !target.isSelf),
+  "admin.impersonate": (account, target) =>
+    adminOn(account, target.role !== "member" || target.suspended),
+  "own.change-password": (account, resource) =>
+    own(account, resource, { refusedToConfigAdmin: false }),
+  "own.change-email": (account, resource) =>
+    own(account, resource, { refusedToConfigAdmin: true }),
+  "own.update-details": (account, resource) =>
+    own(account, resource, { refusedToConfigAdmin: false }),
+  "own.end-sessions": (account, resource) =>
+    own(account, resource, { refusedToConfigAdmin: false }),
+  "own.delete": (account, resource) =>
+    own(account, resource, { refusedToConfigAdmin: true }),
 }
 
 export const decide = <A extends Action>(
   account: Account | SignedOut,
   action: A,
   resource: Resources[A]
-): Decision => {
+): Effect.Effect<Decision> => {
   if (account._tag === "SignedOut") return deny("sign-in")
   if (account.suspended) return deny("suspended")
   if (!account.verified) return deny("verify")

@@ -7,6 +7,8 @@ import { googleClient } from "./google.ts"
 /** Whether this stage offers Google sign-in: it bound a Google client. */
 export const googleSignInFn = createServerFn({ method: "GET" }).handler(() =>
   runServerEffect(
-    Effect.map(WorkerEnv, (env) => googleClient(env) !== undefined)
+    Effect.gen(function* () {
+      return (yield* googleClient(yield* WorkerEnv)) !== undefined
+    })
   )
 )

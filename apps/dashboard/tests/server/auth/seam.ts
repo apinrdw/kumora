@@ -71,7 +71,7 @@ export function seam(
   }).pipe(
     Layer.provideMerge(Accounts.make(database)),
     Layer.provideMerge(
-      Layer.succeed(
+      Layer.effect(
         AdminEmails,
         AdminEmails.from(deployed.adminEmails ?? ADMIN_EMAILS)
       )

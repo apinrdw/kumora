@@ -25,8 +25,10 @@ import {
   accountOf,
   accountOfUser,
   authSessionOf,
+  onAdminList,
   storedRoleOf,
   targetOf,
+  type AdminList,
   type BetterAuthSession,
 } from "./session-account.ts"
 
@@ -46,17 +48,20 @@ const STATUS = {
 // ("Only the closed error set crosses to HTTP") binds server functions through
 // runServerEffect; a callback answers through Better Auth instead, and this
 // mapping is the one place a sixth error crosses.
+// Fails with the APIError that answers `error`.
 const toAPIError = (error: HttpError | TooManyMails) =>
-  error._tag === "TooManyMails"
-    ? new APIError(
-        "TOO_MANY_REQUESTS",
-        { code: error._tag, message: "Too many requests. Try again later." },
-        { [RETRY_AFTER_HEADER]: String(error.retryAfter) }
-      )
-    : new APIError(STATUS[error._tag], {
-        code: error._tag,
-        message: "message" in error ? error.message : undefined,
-      })
+  Effect.fail(
+    error._tag === "TooManyMails"
+      ? new APIError(
+          "TOO_MANY_REQUESTS",
+          { code: error._tag, message: "Too many requests. Try again later." },
+          { [RETRY_AFTER_HEADER]: String(error.retryAfter) }
+        )
+      : new APIError(STATUS[error._tag], {
+          code: error._tag,
+          message: "message" in error ? error.message : undefined,
+        })
+  )
 
 export type CallbackRunner<R> = <A, E>(
   effect: Effect.Effect<A, E, R>
@@ -69,18 +74,22 @@ const toBetterAuth = <E>(cause: Cause.Cause<E>) => {
     .filter(Cause.isFailReason)
     .map((reason) => reason.error)
   if (!Cause.hasDies(cause) && errors.every(isKnown) && errors[0])
-    return Effect.fail(toAPIError(errors[0]))
+    return toAPIError(errors[0])
   return Effect.logError("Auth callback failed", cause).pipe(
     Effect.andThen(Effect.fail(new APIError("INTERNAL_SERVER_ERROR")))
   )
 }
 
-export function makeCallbackRunner<R>(
+// Decision: the runner this builds is a plain function returning a Promise,
+// not an Effect: it is the runtime Better Auth's callbacks go through, and
+// Better Auth calls them with fixed Promise signatures.
+export const makeCallbackRunner = <R>(
   context: Context.Context<R>
-): CallbackRunner<R> {
-  const run = Effect.runPromiseWith(context)
-  return (effect) => run(Effect.catchCause(effect, toBetterAuth))
-}
+): Effect.Effect<CallbackRunner<R>> =>
+  Effect.sync(() => {
+    const run = Effect.runPromiseWith(context)
+    return (effect) => run(Effect.catchCause(effect, toBetterAuth))
+  })
 
 // One mail to one address. A capped mail counts toward the address's daily
 // cap first (mail-cap.ts); over it, the send fails with TooManyMails.
@@ -217,16 +226,21 @@ export const sendDeleteAccountLink = Effect.fn("sendDeleteAccountLink")(
 // A Better Auth route asks the access policy first. Each reason maps as the
 // spec's before-hook column says: 401, 404 or 403 (apinrdw/kumora#80,
 // "Access policy"). A route has no page to return to.
-const hookVerdict = (decision: Decision) =>
-  decision._tag === "Allow" ? Effect.void : refusal(decision.reason, "/")
+const hookVerdict = (decision: Effect.Effect<Decision>) =>
+  Effect.flatMap(decision, (decided) =>
+    decided._tag === "Allow" ? Effect.void : refusal(decided.reason, "/")
+  )
+
+// Better Auth's session as the gates read it, or null without one.
+const sessionOf = (found: BetterAuthSession | null, adminList: AdminList) =>
+  found === null ? Effect.succeed(null) : authSessionOf(found, adminList)
 
 export const authorizeOwnAction = Effect.fn("authorizeOwnAction")(function* (
   action: OwnAction,
   found: BetterAuthSession | null
 ) {
-  const adminEmails = yield* AdminEmails
-  const session = found && authSessionOf(found, adminEmails)
-  yield* hookVerdict(decide(accountOf(session), action, OWN_ACCOUNT))
+  const session = yield* sessionOf(found, yield* AdminEmails)
+  yield* hookVerdict(decide(yield* accountOf(session), action, OWN_ACCOUNT))
 })
 
 // The links that move an account to a new email act on the account they are
@@ -237,11 +251,11 @@ export const authorizeOwnAction = Effect.fn("authorizeOwnAction")(function* (
 export const authorizeEmailChange = Effect.fn("authorizeEmailChange")(
   function* (user: TargetUser, found: BetterAuthSession | null) {
     const adminEmails = yield* AdminEmails
-    const impersonated =
-      found !== null && authSessionOf(found, adminEmails).session.impersonated
+    const session = yield* sessionOf(found, adminEmails)
+    const impersonated = session !== null && session.session.impersonated
     yield* hookVerdict(
       decide(
-        accountOfUser(user, impersonated, adminEmails),
+        yield* accountOfUser(user, impersonated, adminEmails),
         "own.change-email",
         OWN_ACCOUNT
       )
@@ -264,8 +278,8 @@ export const grantAdmin = Effect.fn("grantAdmin")(function* (
   const adminEmails = yield* AdminEmails
   if (
     !user.emailVerified ||
-    storedRoleOf(user.role) === "admin" ||
-    !adminEmails.includes(user.email)
+    (yield* storedRoleOf(user.role)) === "admin" ||
+    !(yield* onAdminList(adminEmails, user.email))
   )
     return
   yield* (yield* Accounts).makeAdmin(user.id)
@@ -299,14 +313,14 @@ export const authorizeAdminAction = Effect.fn("authorizeAdminAction")(
     target: TargetUser | null
   ) {
     const adminEmails = yield* AdminEmails
-    const session = found && authSessionOf(found, adminEmails)
-    const account = accountOf(session)
+    const session = yield* sessionOf(found, adminEmails)
+    const account = yield* accountOf(session)
     if (target === null) {
       yield* hookVerdict(decide(account, "page.view", { feature: "admin" }))
       return yield* refusal("not-found", "/")
     }
     yield* hookVerdict(
-      decide(account, action, targetOf(target, session, adminEmails))
+      decide(account, action, yield* targetOf(target, session, adminEmails))
     )
     yield* storeGrant(found)
   }

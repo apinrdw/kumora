@@ -46,8 +46,8 @@ export const gatePage = Effect.fn("gatePage")(function* (
   const session = yield* auth.getSession(headers, {
     fresh: feature === "admin",
   })
-  const account = accountOf(session)
-  const decision = decide(account, "page.view", { feature })
+  const account = yield* accountOf(session)
+  const decision = yield* decide(account, "page.view", { feature })
   if (
     decision._tag === "Deny" &&
     decision.reason !== "no-access" &&
@@ -59,8 +59,11 @@ export const gatePage = Effect.fn("gatePage")(function* (
   const viewer: Viewer = {
     name: session.user.name,
     email: session.user.email,
-    features: FEATURES.filter(
-      (each) => decide(account, "page.view", { feature: each })._tag === "Allow"
+    features: yield* Effect.filter(FEATURES, (each) =>
+      Effect.map(
+        decide(account, "page.view", { feature: each }),
+        (allowed) => allowed._tag === "Allow"
+      )
     ),
     impersonating: session.session.impersonated,
   }
@@ -80,7 +83,7 @@ export const verifyScreen = Effect.fn("verifyScreen")(function* (
   const auth = yield* Auth
   const session = yield* auth.getSession(headers, { fresh: true })
   // The verify screen belongs to the account itself.
-  const decision = decide(accountOf(session), "page.view", {
+  const decision = yield* decide(yield* accountOf(session), "page.view", {
     feature: "account",
   })
   if (decision._tag === "Deny" && decision.reason === "verify" && session)

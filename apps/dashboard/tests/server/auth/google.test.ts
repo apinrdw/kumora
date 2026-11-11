@@ -29,19 +29,23 @@ const startGoogle = post("/sign-in/social", {
 })
 
 describe("googleClient", () => {
-  it("is the bound client id and secret", () => {
-    assert.deepStrictEqual(
-      googleClient({
-        GOOGLE_CLIENT_ID: GOOGLE.clientId,
-        GOOGLE_CLIENT_SECRET: GOOGLE.clientSecret,
-      }),
-      GOOGLE
-    )
-  })
+  it.effect("is the bound client id and secret", () =>
+    Effect.gen(function* () {
+      assert.deepStrictEqual(
+        yield* googleClient({
+          GOOGLE_CLIENT_ID: GOOGLE.clientId,
+          GOOGLE_CLIENT_SECRET: GOOGLE.clientSecret,
+        }),
+        GOOGLE
+      )
+    })
+  )
 
-  it("is absent on a stage that binds no client", () => {
-    assert.isUndefined(googleClient({}))
-  })
+  it.effect("is absent on a stage that binds no client", () =>
+    Effect.gen(function* () {
+      assert.isUndefined(yield* googleClient({}))
+    })
+  )
 })
 
 describe("Google sign-in", () => {

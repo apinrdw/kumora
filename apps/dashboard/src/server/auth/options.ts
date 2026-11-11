@@ -38,8 +38,10 @@ const RESET_TOKEN_SECONDS = LINK_HOURS.reset * HOUR
 // An admin views as a member for at most this long (apinrdw/kumora#80).
 const IMPERSONATION_SESSION = HOUR
 
-const impersonatedBy = (session: object): unknown =>
-  "impersonatedBy" in session ? session.impersonatedBy : undefined
+const impersonatedBy = (session: object): Effect.Effect<unknown> =>
+  Effect.succeed(
+    "impersonatedBy" in session ? session.impersonatedBy : undefined
+  )
 
 // The page the delete link opens: src/routes/_app/delete-account.tsx. e2e
 // finds the link by it in apps/e2e/support/mail.ts.
@@ -305,7 +307,8 @@ const DISABLED_ROUTES = [
   "/ok",
 ]
 
-const badRequest = (message: string) => new APIError("BAD_REQUEST", { message })
+const badRequest = (message: string) =>
+  Effect.fail(new APIError("BAD_REQUEST", { message }))
 
 // The account an admin route acts on. Better Auth's admin schemas take the
 // userId through String(), so an array of one id would name that account
@@ -315,14 +318,17 @@ const targetUser = Effect.fnUntraced(function* (
 ): Effect.fn.Return<TargetUser | null, APIError> {
   const userId: unknown = ctx.body?.userId
   if (typeof userId !== "string" || userId === "")
-    return yield* Effect.fail(badRequest("userId must be a non-empty string"))
+    return yield* badRequest("userId must be a non-empty string")
   return yield* Effect.promise(() =>
     ctx.context.internalAdapter.findUserById(userId)
   )
 })
 
-const lookup = <A>(table: Readonly<Partial<Record<string, A>>>, path: string) =>
-  Object.hasOwn(table, path) ? table[path] : undefined
+const lookup = <A>(
+  table: Readonly<Partial<Record<string, A>>>,
+  path: string
+): Effect.Effect<A | undefined> =>
+  Effect.succeed(Object.hasOwn(table, path) ? table[path] : undefined)
 
 // The account a change-email link's token is bound to, or null for any other
 // link. A repeated query key parses as an array and is refused; an invalid or
@@ -333,7 +339,7 @@ const emailChangeTarget = Effect.fnUntraced(function* (
 ): Effect.fn.Return<TargetUser | null, APIError> {
   const token: unknown = ctx.query?.token
   if (typeof token !== "string")
-    return yield* Effect.fail(badRequest("token must be a string"))
+    return yield* badRequest("token must be a string")
   const payload = yield* Effect.promise(() =>
     verifyJWT(token, ctx.context.secret)
   )
@@ -372,8 +378,8 @@ const beforeHook = Effect.fnUntraced(function* (
     return yield* resendSetPassword(ctx, input)
   if (ctx.path === "/verify-email")
     return yield* authorizeEmailChangeLink(ctx, input)
-  const own = lookup(OWN_ACCOUNT_ROUTES, ctx.path)
-  const onAccount = lookup(ADMIN_ROUTES, ctx.path)
+  const own = yield* lookup(OWN_ACCOUNT_ROUTES, ctx.path)
+  const onAccount = yield* lookup(ADMIN_ROUTES, ctx.path)
   if (own === undefined && onAccount === undefined) return
   // Past the cookie cache, so a session ended elsewhere acts on nothing and
   // admin power always sees the current role.
@@ -391,6 +397,9 @@ const beforeHook = Effect.fnUntraced(function* (
   )
 })
 
+// Decision: `before` and `after` stay plain functions, not Effects: they build
+// Better Auth's hook middleware for authOptions, which is plain (see its
+// Decision) and so can't yield them.
 const before = (input: AuthOptionsInput) =>
   createAuthMiddleware((ctx) => runHook(beforeHook(ctx, input)))
 
@@ -454,6 +463,27 @@ const grantAdminOfSession = Effect.fnUntraced(function* (
   yield* grantAdminOf(input, user)
 })
 
+// get-session renews a session within updateAge of its renewal at the full
+// expiresIn, and an impersonation session, made an hour from its end, always
+// is. Only the dont_remember cookie keeps it off that path, so the hour is
+// held here, where the browser's cookies can't reach.
+const capImpersonationExpiry = Effect.fnUntraced(function* (
+  data: { readonly expiresAt?: Date | undefined },
+  ctx: Pick<HookContext, "context"> | null | undefined
+) {
+  const current = ctx?.context.session?.session
+  if (!data.expiresAt || !current || !(yield* impersonatedBy(current)))
+    return undefined
+  const deadline = new Date(
+    current.createdAt.getTime() + IMPERSONATION_SESSION * 1000
+  )
+  return {
+    data: {
+      expiresAt: data.expiresAt < deadline ? data.expiresAt : deadline,
+    },
+  }
+})
+
 // The per-address mail cap's table (mail-cap.ts). A plugin schema, so the
 // migration script generates it and Better Auth's adapter reaches it on D1 and
 // SQLite alike.
@@ -474,6 +504,7 @@ const mailCapTable = {
 
 // Decision: authOptions stays a plain function, not an Effect: Better Auth,
 // the test seam and the migration script take the options object as is.
+// CODING_STANDARDS.md lists such config builders among the exceptions.
 export function authOptions(input: AuthOptionsInput) {
   const grantAdmin = (user: WrittenUser | null) =>
     runHook(grantAdminOf(input, user))
@@ -563,29 +594,8 @@ export function authOptions(input: AuthOptionsInput) {
           after: (session, ctx) =>
             runHook(endLiveSessions(input, session, ctx)),
         },
-        // get-session renews a session within updateAge of its renewal at the
-        // full expiresIn, and an impersonation session, made an hour from its
-        // end, always is. Only the dont_remember cookie keeps it off that
-        // path, so the hour is held here, where the browser's cookies can't
-        // reach.
         update: {
-          before: (data, ctx) =>
-            runHook(
-              Effect.sync(() => {
-                const current = ctx?.context.session?.session
-                if (!data.expiresAt || !current || !impersonatedBy(current))
-                  return undefined
-                const deadline = new Date(
-                  current.createdAt.getTime() + IMPERSONATION_SESSION * 1000
-                )
-                return {
-                  data: {
-                    expiresAt:
-                      data.expiresAt < deadline ? data.expiresAt : deadline,
-                  },
-                }
-              })
-            ),
+          before: (data, ctx) => runHook(capImpersonationExpiry(data, ctx)),
         },
       },
     },
