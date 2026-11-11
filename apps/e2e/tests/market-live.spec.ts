@@ -56,25 +56,26 @@ test.describe("signed in", () => {
   }) => {
     const relay = await openIngest()
     const base = freshTradeNumbers()
-    // A code no other spec trades, so its candles are this test's alone; the
-    // recorded session has none, so two UNVR trades are made from its first
-    // frame, a minute apart.
+    // A code of its own, so its candles are this test's alone, a repeat's
+    // too: today's object keeps every code's candles. The recorded session
+    // has none, so two trades are made from its first frame, a minute apart.
+    const code = `CN${Date.now().toString(36).toUpperCase()}`
     const [template] = session1Today()
     const trade = JSON.parse(template!)
-    const unvr = (sequence: number, price: number, minutes: number) =>
+    const tradeAt = (sequence: number, price: number, minutes: number) =>
       JSON.stringify({
         ...trade,
-        ticker: "UNVR",
+        ticker: code,
         price,
         tradeNum: `${trade.tradeNum.slice(0, 8)}${String(base + sequence).padStart(10, "0")}`,
         tradedAt: new Date(
           Date.parse(trade.tradedAt) + minutes * 60_000
         ).toISOString(),
       })
-    await relay.sendAjaib([unvr(1, 9275, 0)])
-    await page.goto(`${DASHBOARD}${PAGE}?code=UNVR`)
+    await relay.sendAjaib([tradeAt(1, 9275, 0)])
+    await page.goto(`${DASHBOARD}${PAGE}?code=${code}`)
     const chart = page.getByRole("region", { name: "Chart" })
-    await expect(chart.getByRole("heading", { name: "UNVR" })).toBeVisible()
+    await expect(chart.getByRole("heading", { name: code })).toBeVisible()
     await expect(chart).toContainText("One-minute candles: 1")
     await expect(chart).toContainText("9,275")
     await expect(chart.locator("canvas").first()).toBeVisible()
@@ -83,7 +84,7 @@ test.describe("signed in", () => {
     ).toHaveAttribute("href", "https://www.tradingview.com/")
 
     // A delta: the next minute opens its own candle.
-    await relay.sendAjaib([unvr(2, 9300, 1)])
+    await relay.sendAjaib([tradeAt(2, 9300, 1)])
     await expect(chart).toContainText("One-minute candles: 2")
     await expect(chart).toContainText("9,300")
     relay.close()

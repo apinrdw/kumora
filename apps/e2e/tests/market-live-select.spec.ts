@@ -34,9 +34,15 @@ test.use({ storageState: MEMBER.storageState })
 test.beforeEach(async ({ request }) => {
   const relay = await openIngest()
   await relay.sendCodeList()
-  // Stored once the object has handled it.
+  // Stored once the object has handled it. Another spec's relay may have
+  // sent a list of its own earlier, so wait for this one's codes.
   const url = `${DASHBOARD}/market-live/days/${wibToday()}/codes`
-  await expect.poll(async () => (await request.get(url)).status()).toBe(200)
+  await expect
+    .poll(async () => {
+      const response = await request.get(url)
+      return response.ok() && (await response.text()).includes('"WIFI-R"')
+    })
+    .toBe(true)
   relay.close()
 })
 
