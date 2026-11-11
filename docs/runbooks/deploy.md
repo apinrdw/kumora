@@ -44,7 +44,7 @@ The deploy command runs alchemy in-process, in the same `bun` process, and print
 
 As observed 2026-11-05 in the dashboard's Build configuration panel, the preview command is the field named **Version command**, beside Build command, Deploy command and Root directory. Leave the build command empty: as observed 2026-11-05, Workers Builds already runs `pnpm install --frozen-lockfile` at the repo root before the deploy command. `BUN_VERSION` must match `.bun-version`; change both together.
 
-The four root files in Watch paths are every app's dependency inputs, so a lockfile or catalog change alone still deploys; `ROOT_WATCH_PATHS` in `scripts/deploy-setup.sh` lists the same files. The owner set them on both connections on 2026-11-05 as a comma-separated list; the first dependency-only commit is what confirms the field took them.
+The four root files in Watch paths are every app's dependency inputs, so a lockfile or catalog change alone still deploys. Nothing in the repo sets or checks the watch paths, so after editing a connection's settings, compare its include list with this table. As observed 2026-11-11, `kumora-dashboard-builds` listed `apps/web/**` in place of `apps/dashboard/**`, so pushes to `main` that touched only the dashboard built nothing, while branch pushes still built; the owner corrected it the same day. The owner set the four root files on both connections on 2026-11-05 as a comma-separated list; the first dependency-only commit is what confirms the field took them.
 
 As observed 2026-11-05, every push to `main` fails the `kumora-web-builds` check until this spec merges, because `main` has no deploy script. Pause that connection's builds or ignore the check.
 
