@@ -1,7 +1,8 @@
 // A workflow job that runs a packages/deploy entry point imports its
 // dependencies, so it has to install them first on a clean runner. CI runs the
 // same checks as `pnpm check`, one root `check:*` script per job. e2e runs as
-// a matrix of shards that each finish on their own, on a cached browser.
+// a matrix of shards, each project sharded on its own, that each finish on
+// their own, on a cached browser.
 import { NodeServices } from "@effect/platform-node"
 import { assert, layer } from "@effect/vitest"
 import { Effect, FileSystem, Path, Schema } from "effect"
@@ -154,19 +155,43 @@ layer(NodeServices.layer)("workflow dependencies", (it) => {
   )
 
   it.effect(
-    "e2e runs one shard per matrix job, and a failing shard stops no other",
+    "e2e runs each Playwright project as its own shards, one per matrix job, and a failing shard stops no other",
     () =>
       Effect.gen(function* () {
+        const fs = yield* FileSystem.FileSystem
+        const path = yield* Path.Path
+        const config = yield* fs.readFileString(
+          path.resolve(import.meta.dirname, "../apps/e2e/playwright.config.ts")
+        )
+        const projects = [...config.matchAll(/^ {6}name: "([\w-]+)",$/gm)]
+          .map(([, name]) => name as string)
+          .filter((name) => name !== "setup")
+        assert.isAbove(projects.length, 1, "found the specs' projects")
         const workflow = yield* ciWorkflow
         const e2e = jobText(workflow, "e2e")
-        const shards = /^ {6}matrix:\n {8}shard: \[([\d, ]+)\]$/m.exec(e2e)
-        assert.isNotNull(shards, "e2e has a shard matrix")
-        const listed = (shards?.[1] ?? "").split(",").map(Number)
-        assert.isAbove(listed.length, 1)
+        const entries = [
+          ...e2e.matchAll(
+            /^ {10}- \{ project: ([\w-]+), shard: (\d+)\/(\d+) \}$/gm
+          ),
+        ].map(([, project, index, total]) => ({
+          project: project as string,
+          index: Number(index),
+          total: Number(total),
+        }))
+        assert.match(e2e, /^ {6}matrix:\n {8}include:$/m)
         assert.deepStrictEqual(
-          listed,
-          listed.map((_, index) => index + 1)
+          [...new Set(entries.map(({ project }) => project))].sort(),
+          [...projects].sort()
         )
+        for (const project of projects) {
+          const own = entries.filter((entry) => entry.project === project)
+          assert.isAbove(own.length, 1, `${project} runs as shards`)
+          assert.deepStrictEqual(
+            own.map(({ index, total }) => `${index}/${total}`),
+            own.map((_, index) => `${index + 1}/${own.length}`),
+            `${project}'s shards are 1/n to n/n`
+          )
+        }
         assert.match(e2e, /^ {6}fail-fast: false$/m)
         const runs = (yield* jobSteps(workflow))
           .get("e2e")
@@ -174,7 +199,7 @@ layer(NodeServices.layer)("workflow dependencies", (it) => {
         assert.deepStrictEqual(
           runs?.map((step) =>
             step.includes(
-              "--shard=${{ matrix.shard }}/${{ strategy.job-total }}"
+              "--project=${{ matrix.project }} --shard=${{ matrix.shard }}"
             )
           ),
           [true]

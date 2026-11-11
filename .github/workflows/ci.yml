@@ -70,21 +70,35 @@ jobs:
   # Decision: e2e runs as shards that each start their own servers and
   # storage, rerun the setup project, and log their own failures with the
   # list reporter, with no merged report (apinrdw/kumora#168). A failing shard
-  # stops no other. Tune the count by editing the list alone: each job's
-  # --shard reads its index and the matrix size.
+  # stops no other.
   e2e:
-    name: e2e (shard ${{ matrix.shard }}/${{ strategy.job-total }})
+    name: e2e (${{ matrix.project }} ${{ matrix.shard }})
     runs-on: ubuntu-latest
     timeout-minutes: 15
     strategy:
       fail-fast: false
-      # Decision: 6 shards, not the spec's 4. Each shard pays about 105 s
-      # before its first spec (job setup 45 s, servers 30 s, the setup
-      # project's cold first sign-up 28 s), so at 4 shards the slowest one
-      # ran 3:22 and the PR took 3:25 (run 43077920056). More shards cut only
-      # the spec time each one carries (apinrdw/kumora#190).
+      # Decision: each spec project is sharded on its own, 2 chromium and 5
+      # trading-day, not one list cut into 6 (apinrdw/kumora#190). Playwright
+      # cuts a list into contiguous shards by test count, so with one list
+      # the trading-day tests, which run one at a time, filled whole shards
+      # and left their second worker idle. trading-day's 30 tests sum to
+      # 134 s locally, and three sit together in file order: the recorded day
+      # (12 s), the recorded spec (52 s; 17-51 s in CI, waiting for a real
+      # market-clock minute) and the real-dashboard relay test (21 s). Only
+      # at 5 shards does a boundary fall between the recorded spec and the
+      # relay test: the heaviest shard sums to 69 s, against 91 s at 3 and
+      # 90 s at 4. chromium's 24 sum to 64 s across 2 workers, so 2 shards
+      # carry about 19 s and 13 s each. Tune a project's count by its list:
+      # its shards run 1/n to n/n, and workflow-deps checks they are whole.
       matrix:
-        shard: [1, 2, 3, 4, 5, 6]
+        include:
+          - { project: chromium, shard: 1/2 }
+          - { project: chromium, shard: 2/2 }
+          - { project: trading-day, shard: 1/5 }
+          - { project: trading-day, shard: 2/5 }
+          - { project: trading-day, shard: 3/5 }
+          - { project: trading-day, shard: 4/5 }
+          - { project: trading-day, shard: 5/5 }
     steps:
       - uses: actions/checkout@v5
       - uses: pnpm/action-setup@v6
@@ -108,4 +122,4 @@ jobs:
           key: playwright-${{ runner.os }}-${{ steps.playwright.outputs.version }}
       - if: steps.browser.outputs.cache-hit != 'true'
         run: pnpm --filter e2e exec playwright install chromium
-      - run: pnpm test:e2e --shard=${{ matrix.shard }}/${{ strategy.job-total }}
+      - run: pnpm test:e2e --project=${{ matrix.project }} --shard=${{ matrix.shard }}
