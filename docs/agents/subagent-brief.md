@@ -28,7 +28,7 @@ Never print a secret value; hash prefixes only. Never run `alchemy deploy` or `a
 
 - The verify command or test the spec names passes, with the exact command and output in the report.
 - From the repo root: `pnpm check`, which is what CI runs, and the lint and format commands in `AGENTS.md` exit 0.
-- A test the change adds, moves or reruns differently also passes on CI's 2 cores: rerun the affected suite under `taskset -c 0,1`, giving Playwright the `--workers` count `apps/e2e/playwright.config.ts` sets for CI, since its default counts every core even under `taskset`. In spec #175, Vitest's 5 s and Playwright's 30 s default timeouts held locally and failed only on CI.
+- A test the change adds, moves or reruns differently also passes on CI's 2 cores: rerun the affected suite under `taskset -c 0,1`, giving Playwright CI's worker count with `--workers`: the `workers` that `apps/e2e/playwright.config.ts` sets for CI, else 1, its default on CI's 2 cores. Locally its default counts every core even under `taskset`. In spec #175, Vitest's 5 s and Playwright's 30 s default timeouts held locally and failed only on CI.
 - Small logical commits whose messages end with the attribution line the harness requires. Before reporting, merge the integration branch's current tip.
 
 ## Report
