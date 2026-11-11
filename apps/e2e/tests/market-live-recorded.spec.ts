@@ -4,7 +4,6 @@
 // The page that replays a recorded day is apinrdw/kumora#152's.
 import { request as requests } from "@playwright/test"
 import {
-  StockCode,
   WibDate,
   bookAt,
   decodeBookChunk,
@@ -43,7 +42,7 @@ test("trades and order books the relay sent are read back from the store after t
   test.setTimeout(90_000)
   const base = freshTradeNumbers()
   // A code of its own: today's object keeps every code's candles and books.
-  const code = StockCode.make(freshCode("RD"))
+  const code = freshCode("RD")
   const day = WibDate.make(wibToday())
   const relay = await openIngest()
   // Decision: the waits below run from when the live page shows the trade and

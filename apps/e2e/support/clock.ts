@@ -1,17 +1,17 @@
-import { WibDate, isTradingDay } from "@workspace/relay"
-import { Effect } from "effect"
+import { WIB_UTC_OFFSET_HOURS, isTradingDay, wibDateAt } from "@workspace/relay"
+import { DateTime, Effect } from "effect"
 
 // The WIB time of day the Test stage's Market Live clock reads at the start
 // of a run: session 1, where silence counts and trades are expected.
 const MARKET_TIME = "10:00:00"
 const DAY = 86_400_000
 
-/** WIB's offset from UTC, in ms: UTC+7 all year. */
-export const WIB_OFFSET = 7 * 3_600_000
+/** WIB's offset from UTC, in ms. */
+export const WIB_OFFSET = WIB_UTC_OFFSET_HOURS * 3_600_000
 
-/** An instant's WIB date, `YYYY-MM-DD`. */
+/** An instant's WIB date. */
 export const wibDate = (at: number) =>
-  new Date(at + WIB_OFFSET).toISOString().slice(0, 10)
+  Effect.runSync(wibDateAt(DateTime.makeUnsafe(at)))
 
 /** An instant's WIB time of day, as the page writes it: `10:15:32`. */
 export const wibTime = (at: number) =>
@@ -21,7 +21,7 @@ export const wibTime = (at: number) =>
 const latestTradingDay = (now: number) => {
   for (let back = 0; back < 31; back++) {
     const date = wibDate(now - back * DAY)
-    if (Effect.runSync(isTradingDay(WibDate.make(date)))) return date
+    if (Effect.runSync(isTradingDay(date))) return date
   }
   throw new Error("No trading day in the last month")
 }

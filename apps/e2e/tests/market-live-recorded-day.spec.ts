@@ -5,7 +5,6 @@
 // Today · live goes back to the live page; a 401 answer sends the viewer to
 // sign in.
 import {
-  StockCode,
   WibDate,
   decodeRecordedCandles,
   recordedDayPath,
@@ -39,7 +38,7 @@ test("the day strip opens a recorded day at its close, it replays, and Today · 
 }) => {
   const base = freshTradeNumbers()
   // A code of its own: today's object keeps every code's candles.
-  const code = StockCode.make(freshCode("RP"))
+  const code = freshCode("RP")
   const day = WibDate.make(wibToday())
   const sentAt = marketNow()
   const time = wibTime(sentAt)

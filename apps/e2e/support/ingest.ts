@@ -4,6 +4,7 @@ import {
   encodeIngestUp,
   type Feed,
   type IngestUp,
+  StockCode,
 } from "@workspace/relay"
 import { expect, type APIRequestContext } from "@playwright/test"
 import { DateTime, Effect } from "effect"
@@ -70,7 +71,7 @@ export const freshTradeNumbers = () =>
  * code would have a repeat's.
  */
 export const freshCode = (prefix: string) =>
-  `${prefix}${Date.now().toString(36).toUpperCase()}`
+  StockCode.make(`${prefix}${Date.now().toString(36).toUpperCase()}`)
 
 /** `seq` as today's 18-digit Ajaib trade number. */
 const ajaibTradeNumber = (today: string, seq: number) =>

@@ -10,6 +10,7 @@ export {
   marketPhases,
   nextOpenAfter,
   wibDateAt,
+  WIB_UTC_OFFSET_HOURS,
   sealInstant,
   streamingEndOf,
 } from "./schedule.ts"
