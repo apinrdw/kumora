@@ -38,6 +38,7 @@ import {
   type StockbitRow,
 } from "./protobuf"
 import { memorySql } from "./sql"
+import { everySplit } from "../../interleaved"
 
 const TOKEN = "e2e-ingest-token"
 const DAY = WibDate.make("2026-11-09")
@@ -308,6 +309,49 @@ const BBRI_FROM_STOCKBIT = {
   asOf: "2026-11-09T02:51:01.396Z",
   provenance: "Stockbit" as const,
 }
+
+// BBRI's recorded frame a second later, with a new last price.
+const BBRI_NEWER: LivePriceRow = {
+  ...BBRI,
+  last: 2950,
+  change: 20,
+  changePercent: 0.6825938566552902,
+  date: "2026-11-09T09:51:02.396114+07:00",
+}
+
+describe("Day state under overlapping ingest callbacks", () => {
+  it.effect(
+    "a newer liveprice frame is not overwritten by an older one whose callback yielded mid-way",
+    () =>
+      Effect.gen(function* () {
+        const operations = yield* everySplit({
+          setup: Effect.gen(function* () {
+            const { relay, viewer } = yield* tradingDay()
+            return { feed: yield* relay(), viewer }
+          }),
+          first: ({ feed }) => feed.stockbit([BBRI], "A"),
+          second: ({ feed }) => feed.stockbit([BBRI_NEWER], "B"),
+          check: ({ viewer }, at) =>
+            Effect.gen(function* () {
+              const [snapshot] = yield* received(yield* viewer("BBRI", []))
+              assert(snapshot !== undefined)
+              assert.deepStrictEqual(
+                statesOf(snapshot).BBRI,
+                {
+                  ...BBRI_FROM_STOCKBIT,
+                  last: 2950,
+                  change: { amount: 20, percent: 0.6825938566552902 },
+                  asOf: "2026-11-09T02:51:02.396Z",
+                },
+                `the older frame's callback yielded at operation ${at}`
+              )
+            }),
+        })
+        assert.isAbove(operations, 0)
+      }),
+    60_000
+  )
+})
 
 describe("Day state", () => {
   it.effect(

@@ -42,6 +42,7 @@ import {
   type StockbitRow,
 } from "./protobuf"
 import { memorySql } from "./sql"
+import { everySplit } from "../../interleaved"
 import { AccountId, SessionId } from "@/server/market-live/routes"
 
 const TOKEN = "e2e-ingest-token"
@@ -739,6 +740,46 @@ const snapshotOf = Effect.fnUntraced(function* (
 
 const byNumber = (tape: ReadonlyArray<RunningTrade>, tradeNumber: string) =>
   tape.find((trade) => trade.tradeNumber === tradeNumber)!
+
+describe("the merged tape under overlapping ingest callbacks", () => {
+  it.effect(
+    "a batch delivered by both connections, one callback yielding mid-way, leaves each trade on it once, in order",
+    () =>
+      Effect.gen(function* () {
+        const operations = yield* everySplit({
+          setup: Effect.gen(function* () {
+            const { ingest, viewer, select } = yield* tradingDay()
+            const socket = yield* relay(ingest)
+            const batch = (connection: "A" | "B") =>
+              Effect.flatMap(
+                stockbit(stockbitRecorded.session1, connection),
+                (text) => ingest(socket, text)
+              )
+            return { batch, viewer, select }
+          }),
+          first: ({ batch }) => batch("A"),
+          second: ({ batch }) => batch("B"),
+          check: ({ select, viewer }, at) =>
+            Effect.gen(function* () {
+              const tape = yield* snapshotOf(select, viewer)
+              const numbers = tape.map((trade) => trade.tradeNumber)
+              assert.deepStrictEqual(
+                numbers,
+                [...new Set(numbers)].sort((a, b) => Number(a) - Number(b)),
+                `connection A's callback yielded at operation ${at}`
+              )
+              assert.lengthOf(
+                numbers,
+                67,
+                `connection A's callback yielded at operation ${at}`
+              )
+            }),
+        })
+        assert.isAbove(operations, 0)
+      }),
+    120_000
+  )
+})
 
 describe("the merged tape", () => {
   it.effect(
