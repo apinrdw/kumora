@@ -938,12 +938,15 @@ export const makeTradingDay = Effect.fnUntraced(function* (options: {
   // its flush, so the next eviction lost the relay gap's start and the next
   // restart counted the gap from its own wake. A rejected socket closing
   // changes nothing. Written at once, as nothing else may arrive to schedule
-  // a flush before the object is evicted.
+  // a flush before the object is evicted. `remaining` is counted here, under
+  // the permit: counted when the close arrives, a relay whose token is still
+  // being handled (its hash is awaited) is not ready yet, and the close
+  // would mark the relay offline once the token has put it online.
   const ingestClosed = Effect.fnUntraced(function* (
     socket: Peer,
-    remaining: number
+    remaining: Effect.Effect<number>
   ) {
-    if (remaining > 0 || (yield* socket.state) !== "ready") return
+    if ((yield* remaining) > 0 || (yield* socket.state) !== "ready") return
     yield* market.relayOffline
     yield* scheduleDelta
     if (!sealed) yield* flush(false)
@@ -992,7 +995,7 @@ export const makeTradingDay = Effect.fnUntraced(function* (options: {
     viewerMessage: (socket: Peer, text: string) =>
       turn.withPermit(viewerMessage(socket, text)),
     viewerClosed: (socket: Peer) => turn.withPermit(viewerClosed(socket)),
-    ingestClosed: (socket: Peer, remaining: number) =>
+    ingestClosed: (socket: Peer, remaining: Effect.Effect<number>) =>
       turn.withPermit(ingestClosed(socket, remaining)),
     endSessions: (held: HeldSessions) => turn.withPermit(endSessions(held)),
     recorded: (resource: RecordedResource) =>

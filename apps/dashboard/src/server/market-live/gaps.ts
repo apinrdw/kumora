@@ -53,8 +53,15 @@ export const makeGaps = Effect.fnUntraced(function* (options: {
 
   // A trade arrived: a jump past the highest number opens a gap, and a number
   // inside a gap closes its part of it.
+  // Decision: the timer that asks for due gaps (`request`) runs on its own
+  // fiber, outside the trading day's permit, and replaces `missing`. So
+  // `seen` reads the clock first and touches `missing` in one synchronous
+  // step: a yield between reading the list and pushing onto it would let
+  // the timer replace it in between, and the push would land on the old
+  // one (the backfill test under "an overlapping gap timer").
   const seen = Effect.fnUntraced(function* (trade: RunningTrade) {
     const number = yield* tradeNumberValue(trade.tradeNumber)
+    const since = yield* Clock.currentTimeMillis
     if (highest === undefined || number > highest) {
       if (highest !== undefined && number > highest + 1n) {
         const from = highest + 1n
@@ -64,7 +71,7 @@ export const makeGaps = Effect.fnUntraced(function* (options: {
           ),
           to: TradeNumberValue.make(number - 1n),
           nextTime: trade.time,
-          since: yield* Clock.currentTimeMillis,
+          since,
         })
       }
       highest = number

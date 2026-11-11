@@ -126,7 +126,19 @@ const marketAt = Effect.fnUntraced(function* (start: string) {
     return current!
   })
   const feeds = Effect.map(conditions, (current) => current.feeds)
-  const relayClosed = day.ingestClosed(relay, 0)
+  // The relay socket closes, `others` being the object's other relay sockets,
+  // counted ready when the day handles the close, as the object counts them.
+  const relayClosedAmong = (others: ReadonlyArray<FakeSocket>) =>
+    day.ingestClosed(
+      relay,
+      Effect.gen(function* () {
+        let ready = 0
+        for (const other of others)
+          if ((yield* other.state) === "ready") ready++
+        return ready
+      })
+    )
+  const relayClosed = relayClosedAmong([])
   // Another relay socket sends its token.
   const tokenOn = (socket: FakeSocket) =>
     encodeIngestUp({
@@ -143,6 +155,7 @@ const marketAt = Effect.fnUntraced(function* (start: string) {
     conditions,
     feeds,
     relayClosed,
+    relayClosedAmong,
     tokenOn,
     page,
     select,
@@ -161,9 +174,9 @@ describe("the relay under overlapping callbacks", () => {
             return { market, other: new FakeSocket() }
           }),
           first: ({ market, other }) => market.tokenOn(other),
-          // The object counts the ready sockets when the close arrives: the
-          // other socket's token is still being handled, so none remain.
-          second: ({ market }) => market.relayClosed,
+          // The close waits for the token's turn, and the other socket is
+          // counted ready by then.
+          second: ({ market, other }) => market.relayClosedAmong([other]),
           check: ({ market }, at) =>
             Effect.gen(function* () {
               yield* TestClock.adjust("250 millis")

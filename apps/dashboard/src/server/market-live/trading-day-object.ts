@@ -377,14 +377,18 @@ export class TradingDayObject {
         )
       )
     if (!tags.includes(INGEST)) return undefined
-    const remaining = this.ctx
-      .getWebSockets(INGEST)
-      .filter(
-        (other) =>
-          other !== socket &&
-          other.readyState === WebSocket.OPEN &&
-          other.deserializeAttachment() === "ready"
-      ).length
+    // Counted when the day handles the close (trading-day.ts `ingestClosed`).
+    const remaining = Effect.sync(
+      () =>
+        this.ctx
+          .getWebSockets(INGEST)
+          .filter(
+            (other) =>
+              other !== socket &&
+              other.readyState === WebSocket.OPEN &&
+              other.deserializeAttachment() === "ready"
+          ).length
+    )
     const { day } = this
     return runServerEffectResult(
       withMarketClock(
