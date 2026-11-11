@@ -77,6 +77,9 @@ export type PeerState = "new" | "ready"
 export interface Peer {
   readonly send: (text: string) => Effect.Effect<void>
   readonly close: (code: number, reason: string) => Effect.Effect<void>
+  // Whether the socket is still open. One that closed keeps its state until
+  // its own close is handled.
+  readonly open: Effect.Effect<boolean>
   readonly state: Effect.Effect<PeerState>
   readonly setState: (state: PeerState) => Effect.Effect<void>
   // A viewer's selected and watchlist codes, kept in the object's storage
@@ -930,23 +933,30 @@ export const makeTradingDay = Effect.fnUntraced(function* (options: {
       )
   )
 
-  // An ingest socket closed, leaving `remaining` ready ones. Decision: the
-  // relay is offline when the socket that closed was ready and none remain,
-  // read from the sockets' state, which lives with them across hibernation.
-  // An instance flag set by the token or a frame is false when the close is
-  // the first event after the object woke, which skipped this transition and
-  // its flush, so the next eviction lost the relay gap's start and the next
-  // restart counted the gap from its own wake. A rejected socket closing
-  // changes nothing. Written at once, as nothing else may arrive to schedule
-  // a flush before the object is evicted. `remaining` is counted here, under
-  // the permit: counted when the close arrives, a relay whose token is still
-  // being handled (its hash is awaited) is not ready yet, and the close
-  // would mark the relay offline once the token has put it online.
-  const ingestClosed = Effect.fnUntraced(function* (
-    socket: Peer,
-    remaining: Effect.Effect<number>
-  ) {
-    if ((yield* remaining) > 0 || (yield* socket.state) !== "ready") return
+  // An ingest socket closed. Decision: the relay is offline when the socket
+  // that closed was ready and no other listed ingest socket is both open and
+  // ready, read from the sockets' state, which lives with them across
+  // hibernation. An instance flag set by the token or a frame is false when
+  // the close is the first event after the object woke, which skipped this
+  // transition and its flush, so the next eviction lost the relay gap's start
+  // and the next restart counted the gap from its own wake. A rejected socket
+  // closing changes nothing. Written at once, as nothing else may arrive to
+  // schedule a flush before the object is evicted. The others are counted
+  // here, under the permit: counted when the close arrives, a relay whose
+  // token is still being handled (its hash is awaited) is not ready yet, and
+  // the close would mark the relay offline once the token has put it online.
+  // The closing socket is told apart by identity: the object hands out one
+  // Peer per socket. One that closed but whose own close isn't handled yet
+  // still reads ready, so it must also be open to count.
+  const ingestClosed = Effect.fnUntraced(function* (socket: Peer) {
+    if ((yield* socket.state) !== "ready") return
+    for (const other of yield* ingests)
+      if (
+        other !== socket &&
+        (yield* other.open) &&
+        (yield* other.state) === "ready"
+      )
+        return
     yield* market.relayOffline
     yield* scheduleDelta
     if (!sealed) yield* flush(false)
@@ -995,8 +1005,7 @@ export const makeTradingDay = Effect.fnUntraced(function* (options: {
     viewerMessage: (socket: Peer, text: string) =>
       turn.withPermit(viewerMessage(socket, text)),
     viewerClosed: (socket: Peer) => turn.withPermit(viewerClosed(socket)),
-    ingestClosed: (socket: Peer, remaining: Effect.Effect<number>) =>
-      turn.withPermit(ingestClosed(socket, remaining)),
+    ingestClosed: (socket: Peer) => turn.withPermit(ingestClosed(socket)),
     endSessions: (held: HeldSessions) => turn.withPermit(endSessions(held)),
     recorded: (resource: RecordedResource) =>
       turn.withPermit(recorded(resource)),

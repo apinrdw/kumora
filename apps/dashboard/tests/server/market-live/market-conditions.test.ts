@@ -36,8 +36,10 @@ const BBCA = StockCode.make("BBCA")
 class FakeSocket implements Peer {
   readonly sent: Array<string> = []
   private current: PeerState = "new"
+  isOpen = true
   send = (text: string) => Effect.sync(() => void this.sent.push(text))
   close = () => Effect.void
+  open = Effect.sync(() => this.isOpen)
   state = Effect.sync(() => this.current)
   setState = (state: PeerState) =>
     Effect.sync(() => {
@@ -59,13 +61,16 @@ const wib = (dateTime: string) => DateTime.makeUnsafe(`${dateTime}+07:00`)
 const marketAt = Effect.fnUntraced(function* (start: string) {
   yield* TestClock.setTime(DateTime.toEpochMillis(wib(start)))
   const viewers: Array<FakeSocket> = []
+  const relay = new FakeSocket()
+  // The object's relay sockets: this one, and any others a test adds.
+  const relays: Array<FakeSocket> = [relay]
   const day = yield* makeTradingDay({
     sql: memorySql(),
     date: WibDate.make(start.slice(0, 10)),
     viewers: Effect.sync(() => viewers),
     viewersOf: () => Effect.succeed([]),
+    ingests: Effect.sync(() => relays),
   }).pipe(Scope.provide(yield* Scope.make()))
-  const relay = new FakeSocket()
   const up = (message: IngestUp) =>
     encodeIngestUp(message).pipe(
       Effect.flatMap((text) => day.ingestMessage(relay, text)),
@@ -126,19 +131,14 @@ const marketAt = Effect.fnUntraced(function* (start: string) {
     return current!
   })
   const feeds = Effect.map(conditions, (current) => current.feeds)
-  // The relay socket closes, `others` being the object's other relay sockets,
-  // counted ready when the day handles the close, as the object counts them.
-  const relayClosedAmong = (others: ReadonlyArray<FakeSocket>) =>
-    day.ingestClosed(
-      relay,
-      Effect.gen(function* () {
-        let ready = 0
-        for (const other of others)
-          if ((yield* other.state) === "ready") ready++
-        return ready
-      })
-    )
-  const relayClosed = relayClosedAmong([])
+  // The relay socket closes.
+  const relayClosed = day.ingestClosed(relay)
+  // Another relay socket is accepted, listed from then on.
+  const relayAccepted = Effect.sync(() => {
+    const socket = new FakeSocket()
+    relays.push(socket)
+    return socket
+  })
   // Another relay socket sends its token.
   const tokenOn = (socket: FakeSocket) =>
     encodeIngestUp({
@@ -155,7 +155,7 @@ const marketAt = Effect.fnUntraced(function* (start: string) {
     conditions,
     feeds,
     relayClosed,
-    relayClosedAmong,
+    relayAccepted,
     tokenOn,
     page,
     select,
@@ -171,12 +171,12 @@ describe("the relay under overlapping callbacks", () => {
           setup: Effect.gen(function* () {
             const market = yield* marketAt("2026-11-09T10:00:00")
             yield* market.frames("Stockbit")
-            return { market, other: new FakeSocket() }
+            return { market, other: yield* market.relayAccepted }
           }),
           first: ({ market, other }) => market.tokenOn(other),
           // The close waits for the token's turn, and the other socket is
           // counted ready by then.
-          second: ({ market, other }) => market.relayClosedAmong([other]),
+          second: ({ market }) => market.relayClosed,
           check: ({ market }, at) =>
             Effect.gen(function* () {
               yield* TestClock.adjust("250 millis")
@@ -189,6 +189,36 @@ describe("the relay under overlapping callbacks", () => {
         assert.isAbove(operations, 0)
       }),
     60_000
+  )
+})
+
+describe("the relay going offline", () => {
+  it.effect(
+    "a ready relay socket that already closed doesn't keep the relay online",
+    () =>
+      Effect.gen(function* () {
+        const market = yield* marketAt("2026-11-09T10:00:00")
+        yield* market.frames("Stockbit")
+        const other = yield* market.relayAccepted
+        yield* market.tokenOn(other)
+        // Closed, its own close not handled yet.
+        other.isOpen = false
+        yield* market.relayClosed
+        yield* TestClock.adjust("250 millis")
+        assert.isFalse((yield* market.conditions).relayOnline)
+      })
+  )
+
+  it.effect(
+    "the closing relay socket, still listed open and ready, isn't counted as remaining",
+    () =>
+      Effect.gen(function* () {
+        const market = yield* marketAt("2026-11-09T10:00:00")
+        yield* market.frames("Stockbit")
+        yield* market.relayClosed
+        yield* TestClock.adjust("250 millis")
+        assert.isFalse((yield* market.conditions).relayOnline)
+      })
   )
 })
 

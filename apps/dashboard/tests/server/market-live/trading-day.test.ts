@@ -49,6 +49,7 @@ const TOKEN = "e2e-ingest-token"
 const DAY = WibDate.make("2026-11-09")
 
 class FakeSocket implements Peer {
+  open = Effect.succeed(true)
   readonly sent: Array<string> = []
   closedWith: number | undefined
   // A viewer's session end, as the object reads it from the socket's tags.
