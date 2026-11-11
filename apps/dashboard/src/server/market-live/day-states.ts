@@ -265,6 +265,8 @@ const fromFallback = Effect.fnUntraced(function* (
 // keeps its newest minute whole, so a frame in that minute cuts it exactly.
 // A frame whose minute is neither (delayed past the minute's end) counts
 // that minute's trades after it only from the next frame on.
+// The guards here read what a code holds and then write it, across yields:
+// the trading day runs its callers one at a time (its `turn` permit).
 export const makeDayStates = (candles: {
   readonly foldAfter: (
     code: StockCode,

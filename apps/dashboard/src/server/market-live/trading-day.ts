@@ -30,7 +30,15 @@ import {
   type WibDate,
 } from "@workspace/relay"
 import { WorkerEnv } from "@workspace/server"
-import { Clock, DateTime, Duration, Effect, Schema, Scope } from "effect"
+import {
+  Clock,
+  DateTime,
+  Duration,
+  Effect,
+  Schema,
+  Scope,
+  Semaphore,
+} from "effect"
 
 import { tradePosition } from "../../lib/trade-position.ts"
 import { ajaibTrades } from "./ajaib.ts"
@@ -295,6 +303,17 @@ export const makeTradingDay = Effect.fnUntraced(function* (options: {
 }) {
   // Delta timers outlive the message that started them.
   const scope = yield* Scope.Scope
+  // Decision: the object's callbacks and timer bodies run one at a time, as
+  // they did before they were Effects. Every guard on the day's state (a
+  // frame newer than what its code holds, a trade's position on the tape)
+  // reads the state its write then changes, and the run loop yields a fiber
+  // every 2048 operations, so without this a second callback's frames land
+  // inside the first's and the first writes over them (the tests under
+  // "overlapping ingest callbacks"). One permit, taken where a callback or a
+  // timer body enters (the returned handlers, the delta, conditions and
+  // flush bodies after their sleeps) and never inside, so nothing under it
+  // waits on it.
+  const turn = yield* Semaphore.make(1)
   const codeListStore = options.codeList ?? (yield* memoryCodeListStore)
   const store = yield* makeDayStore(options.sql)
   const setAlarm = options.setAlarm ?? (() => Effect.void)
@@ -521,7 +540,7 @@ export const makeTradingDay = Effect.fnUntraced(function* (options: {
       return
     deltaScheduled = true
     yield* Effect.sleep(DELTA_INTERVAL).pipe(
-      Effect.andThen(sendDelta),
+      Effect.andThen(turn.withPermit(sendDelta)),
       Effect.catchCause((cause) => Effect.logError("Delta not sent", cause)),
       Effect.forkIn(scope)
     )
@@ -543,11 +562,13 @@ export const makeTradingDay = Effect.fnUntraced(function* (options: {
         return
       }
       // One failed check is logged; the next still runs.
-      yield* scheduleDelta.pipe(
-        Effect.catchCause((cause) =>
-          Effect.logError("Conditions not checked", cause)
+      yield* turn
+        .withPermit(scheduleDelta)
+        .pipe(
+          Effect.catchCause((cause) =>
+            Effect.logError("Conditions not checked", cause)
+          )
         )
-      )
       yield* loop
     })
     return loop.pipe(Effect.forkIn(scope), Effect.asVoid)
@@ -608,18 +629,19 @@ export const makeTradingDay = Effect.fnUntraced(function* (options: {
         )
       ),
       Effect.andThen(
-        Effect.suspend(() => {
-          flushScheduled = false
-          return sealed
-            ? Effect.void
-            : flush(false).pipe(
-                Effect.catchCause((cause) =>
-                  Effect.logError("Day not flushed", cause)
+        turn.withPermit(
+          Effect.suspend(() => {
+            flushScheduled = false
+            return sealed
+              ? Effect.void
+              : flush(false).pipe(
+                  Effect.catchCause((cause) =>
+                    Effect.logError("Day not flushed", cause)
+                  )
                 )
-              )
-        })
+          }).pipe(Effect.andThen(unflushed))
+        )
       ),
-      Effect.andThen(unflushed),
       Effect.flatMap((more) => (more ? scheduleFlush : Effect.void)),
       Effect.forkIn(scope),
       Effect.asVoid
@@ -964,13 +986,17 @@ export const makeTradingDay = Effect.fnUntraced(function* (options: {
   })
 
   return {
-    ingestOpened,
-    ingestMessage,
-    viewerMessage,
-    viewerClosed,
-    ingestClosed,
-    endSessions,
-    recorded,
-    alarm,
+    ingestOpened: turn.withPermit(ingestOpened),
+    ingestMessage: (socket: Peer, text: string) =>
+      turn.withPermit(ingestMessage(socket, text)),
+    viewerMessage: (socket: Peer, text: string) =>
+      turn.withPermit(viewerMessage(socket, text)),
+    viewerClosed: (socket: Peer) => turn.withPermit(viewerClosed(socket)),
+    ingestClosed: (socket: Peer, remaining: number) =>
+      turn.withPermit(ingestClosed(socket, remaining)),
+    endSessions: (held: HeldSessions) => turn.withPermit(endSessions(held)),
+    recorded: (resource: RecordedResource) =>
+      turn.withPermit(recorded(resource)),
+    alarm: turn.withPermit(alarm),
   }
 })
