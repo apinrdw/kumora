@@ -103,4 +103,33 @@ layer(NodeServices.layer)("workflow dependencies", (it) => {
       )
     })
   )
+
+  it.effect(
+    "each CI job running a check:* script starts the turbo cache, pinned to a commit, first",
+    () =>
+      Effect.gen(function* () {
+        const fs = yield* FileSystem.FileSystem
+        const path = yield* Path.Path
+        const jobs = yield* jobSteps(
+          yield* fs.readFileString(
+            path.resolve(import.meta.dirname, "../.github/workflows/ci.yml")
+          )
+        )
+        let checked = 0
+        const missing: Array<string> = []
+        for (const [job, steps] of jobs) {
+          const runs = steps.findIndex((step) =>
+            /\bpnpm check(?::[\w-]+)?\b/.test(step)
+          )
+          if (runs === -1) continue
+          checked++
+          const caches = steps.findIndex((step) =>
+            /\buses: rharkor\/caching-for-turbo@[0-9a-f]{40}\b/.test(step)
+          )
+          if (caches === -1 || caches > runs) missing.push(job)
+        }
+        assert.isAbove(checked, 0, "found a job running a check:* script")
+        assert.deepStrictEqual(missing, [])
+      })
+  )
 })
