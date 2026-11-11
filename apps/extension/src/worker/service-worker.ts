@@ -33,6 +33,7 @@ import { makeOnDemandCodes } from "./on-demand-codes.ts"
 import {
   DashboardOrigin,
   codeListStore,
+  isClockOffsetChange,
   isCodeListRelayAsk,
   isSettingsChange,
   loadClockOffset,
@@ -98,6 +99,8 @@ chrome.storage.onChanged.addListener((changes, area) => {
     queue({ _tag: "settings" })
   if (Effect.runSync(isCodeListRelayAsk(changes, area)))
     queue({ _tag: "relay-code-list" })
+  if (Effect.runSync(isClockOffsetChange(changes, area)))
+    queue({ _tag: "tick" })
 })
 
 // The toolbar badge shows the worst target state.
@@ -293,7 +296,8 @@ const main = Effect.gen(function* () {
     const ms = DateTime.toEpochMillis(now)
     if (alarm && ms - lastTick < Duration.toMillis(TICK)) return
     lastTick = ms
-    const schedule = yield* scheduleNow
+    const offset = yield* loadClockOffset
+    const schedule = DateTime.add(now, { milliseconds: offset })
     const today = yield* wibDateAt(schedule)
     if (today !== (yield* SubscriptionRef.get(day)))
       yield* SubscriptionRef.set(day, today)
@@ -302,6 +306,11 @@ const main = Effect.gen(function* () {
     // The PIN check's answer queues behind this tick.
     yield* Effect.forkScoped(ajaibSession.tick)
     yield* codeList.tick(ajaibRest, schedule)
+    // Decision: a completed tick leaves the clock offset it ran on in the
+    // worker's global scope, test-only like the offset itself, so a spec that
+    // moved the clock reads it to await a tick on the new clock instead of
+    // sleeping. See apinrdw/kumora#174.
+    Object.assign(globalThis, { lastTickClockOffsetMs: offset })
   })
   yield* Effect.forkScoped(
     Effect.repeat(

@@ -190,6 +190,17 @@ export const loadClockOffset = Effect.gen(function* () {
   )
 })
 
+// Decision: a changed offset ticks the relay at once, so a spec that moves the
+// clock waits for that tick instead of the next 10 s one. With the key never
+// set, as in the owner's browser, the relay ticks only on its timer. See
+// apinrdw/kumora#174.
+export const isClockOffsetChange = Effect.fnUntraced(function* (
+  changes: Readonly<Record<string, unknown>>,
+  area: string
+) {
+  return area === "local" && CLOCK_OFFSET_KEY in changes
+})
+
 // Decision: the Ajaib PIN lives in chrome.storage.session alone: in memory,
 // cleared when Chrome closes, out of content scripts' reach by default (per
 // https://developer.chrome.com/docs/extensions/reference/api/storage). It is
