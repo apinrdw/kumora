@@ -8,9 +8,18 @@
     ".oxfmtrc.json"
   ],
   "tasks": {
+    // Decision: the package tasks CI runs (typecheck, build, lint,
+    // format:check, test) and test's transit hash no Markdown, so a
+    // GLOSSARY-only edit replays them from cache. No package's code or tests
+    // read a .md file; one that starts to must drop the "!**/*.md" from the
+    // tasks that read it.
     "lint": {
       "dependsOn": [
         "^lint"
+      ],
+      "inputs": [
+        "$TURBO_DEFAULT$",
+        "!**/*.md"
       ]
     },
     "format": {
@@ -18,7 +27,12 @@
         "^format"
       ]
     },
-    "format:check": {},
+    "format:check": {
+      "inputs": [
+        "$TURBO_DEFAULT$",
+        "!**/*.md"
+      ]
+    },
     // Only apps/extension builds; the apps deploy through Alchemy instead.
     "build": {
       "dependsOn": [
@@ -26,11 +40,19 @@
       ],
       "outputs": [
         "dist/**"
+      ],
+      "inputs": [
+        "$TURBO_DEFAULT$",
+        "!**/*.md"
       ]
     },
     "typecheck": {
       "dependsOn": [
         "^typecheck"
+      ],
+      "inputs": [
+        "$TURBO_DEFAULT$",
+        "!**/*.md"
       ]
     },
     "dev": {
@@ -54,11 +76,19 @@
     "test": {
       "dependsOn": [
         "transit"
+      ],
+      "inputs": [
+        "$TURBO_DEFAULT$",
+        "!**/*.md"
       ]
     },
     "transit": {
       "dependsOn": [
         "^transit"
+      ],
+      "inputs": [
+        "$TURBO_DEFAULT$",
+        "!**/*.md"
       ]
     },
     "//#lint:root": {
