@@ -24,6 +24,7 @@ const MINUTE = 60_000
 // folded in for good, and a later feed changes only the tape row. A candle
 // whose every trade moved away keeps its last sent figures on the page until
 // the next snapshot: the viewer protocol has no removal.
+// apps/e2e/support/clock.ts repeats it for the specs that wait it out.
 const MERGE_WINDOW = 5_000
 
 // A candle's figures. Open and close belong to the trades with the lowest and

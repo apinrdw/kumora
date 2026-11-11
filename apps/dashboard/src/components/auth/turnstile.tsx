@@ -5,6 +5,7 @@ import { useCallback, useEffect, useRef, useState } from "react"
 // The header Better Auth's captcha plugin reads the widget's token from.
 export const CAPTCHA_HEADER = "x-captcha-response"
 
+// apps/e2e/support/turnstile.ts stubs this URL and the API below for the specs.
 const SCRIPT =
   "https://challenges.cloudflare.com/turnstile/v0/api.js?render=explicit"
 

@@ -10,7 +10,27 @@ concurrency:
   cancel-in-progress: true
 
 jobs:
-  check:
+  # The static checks and the unit tests each get a runner's 2 cores; each
+  # job runs one root check:* script, and `pnpm check` runs them all.
+  static:
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@v5
+      - uses: pnpm/action-setup@v6
+      - uses: actions/setup-node@v5
+        with:
+          node-version: 24
+          cache: pnpm
+      - run: pnpm install --frozen-lockfile
+      # Decision: turbo replays tasks from the GitHub Actions cache. It needs
+      # no secret, and GitHub scopes entries by ref, so a PR reads main's and
+      # its own while main never replays a PR's. Pinned to a commit because it
+      # holds the runner's cache token (v2.5.2); unit-tests pins the same commit.
+      - uses: rharkor/caching-for-turbo@760158c05c47e7a764f78e9a22ca3b5a6ed8c52e
+      - run: pnpm check:static
+
+  unit-tests:
     runs-on: ubuntu-latest
     timeout-minutes: 15
     steps:
@@ -25,7 +45,9 @@ jobs:
         with:
           bun-version-file: .bun-version
       - run: pnpm install --frozen-lockfile
-      - run: pnpm check
+      # The same turbo cache as static's, pinned to the same commit.
+      - uses: rharkor/caching-for-turbo@760158c05c47e7a764f78e9a22ca3b5a6ed8c52e
+      - run: pnpm check:test
 
   fallow:
     runs-on: ubuntu-latest
@@ -45,9 +67,24 @@ jobs:
         with:
           command: audit
 
+  # Decision: e2e runs as shards that each start their own servers and
+  # storage, rerun the setup project, and log their own failures with the
+  # list reporter, with no merged report (apinrdw/kumora#168). A failing shard
+  # stops no other. Tune the count by editing the list alone: each job's
+  # --shard reads its index and the matrix size.
   e2e:
+    name: e2e (shard ${{ matrix.shard }}/${{ strategy.job-total }})
     runs-on: ubuntu-latest
     timeout-minutes: 15
+    strategy:
+      fail-fast: false
+      # Decision: 6 shards, not the spec's 4. Each shard pays about 105 s
+      # before its first spec (job setup 45 s, servers 30 s, the setup
+      # project's cold first sign-up 28 s), so at 4 shards the slowest one
+      # ran 3:22 and the PR took 3:25 (run 43077920056). More shards cut only
+      # the spec time each one carries (apinrdw/kumora#190).
+      matrix:
+        shard: [1, 2, 3, 4, 5, 6]
     steps:
       - uses: actions/checkout@v5
       - uses: pnpm/action-setup@v6
@@ -59,5 +96,16 @@ jobs:
         with:
           bun-version-file: .bun-version
       - run: pnpm install --frozen-lockfile
-      - run: pnpm --filter e2e exec playwright install --with-deps chromium
-      - run: pnpm test:e2e
+      - id: playwright
+        run: echo "version=$(pnpm --filter e2e exec playwright --version | awk '{print $2}')" >> "$GITHUB_OUTPUT"
+      # Decision: the browser is cached by the Playwright version the lockfile
+      # pins, and installed only on a miss. No --with-deps: the runner image
+      # already has its system packages.
+      - id: browser
+        uses: actions/cache@v6
+        with:
+          path: ~/.cache/ms-playwright
+          key: playwright-${{ runner.os }}-${{ steps.playwright.outputs.version }}
+      - if: steps.browser.outputs.cache-hit != 'true'
+        run: pnpm --filter e2e exec playwright install chromium
+      - run: pnpm test:e2e --shard=${{ matrix.shard }}/${{ strategy.job-total }}

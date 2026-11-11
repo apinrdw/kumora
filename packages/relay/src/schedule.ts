@@ -166,13 +166,18 @@ export type MarketMoment = {
   readonly streaming: boolean
 }
 
+// WIB's offset from UTC, in hours: UTC+7 all year, with no daylight saving.
+export const WIB_UTC_OFFSET_HOURS = 7
+
 // The WIB date of an instant. Unlike marketMomentAt it needs no baked year, so
 // it names a trading-day Durable Object on any date.
 export const wibDateAt = Effect.fnUntraced(function* (
   instant: DateTime.DateTime
 ) {
   return WibDate.make(
-    DateTime.formatIso(DateTime.add(instant, { hours: 7 })).slice(0, 10)
+    DateTime.formatIso(
+      DateTime.add(instant, { hours: WIB_UTC_OFFSET_HOURS })
+    ).slice(0, 10)
   )
 })
 
@@ -180,7 +185,9 @@ export const marketMomentAt = Effect.fnUntraced(function* (
   instant: DateTime.DateTime
 ): Effect.fn.Return<MarketMoment, ScheduleYearMissing> {
   // `YYYY-MM-DDTHH:MM:SS.sssZ` of the WIB wall clock.
-  const wib = DateTime.formatIso(DateTime.add(instant, { hours: 7 }))
+  const wib = DateTime.formatIso(
+    DateTime.add(instant, { hours: WIB_UTC_OFFSET_HOURS })
+  )
   const date = yield* wibDateAt(instant)
   const at = wib.slice(11, 19)
   const { weekDay } = DateTime.toPartsUtc(DateTime.makeUnsafe(date))
@@ -239,7 +246,9 @@ export const nextOpenAfter = Effect.fnUntraced(
   function* (instant: DateTime.Utc) {
     for (let days = 0; days <= 31; days++) {
       const date = WibDate.make(
-        DateTime.formatIsoDate(DateTime.add(instant, { hours: 7, days }))
+        DateTime.formatIsoDate(
+          DateTime.add(instant, { hours: WIB_UTC_OFFSET_HOURS, days })
+        )
       )
       const open = DateTime.makeUnsafe(`${date}T${OPENS_AT}+07:00`)
       if (DateTime.Order(open, instant) <= 0) continue
@@ -259,17 +268,18 @@ export const closedTradingDay = Effect.fnUntraced(function* (
   instant: DateTime.Utc
 ) {
   const date = yield* wibDateAt(instant)
-  const at = DateTime.formatIso(DateTime.add(instant, { hours: 7 })).slice(
-    11,
-    19
-  )
+  const at = DateTime.formatIso(
+    DateTime.add(instant, { hours: WIB_UTC_OFFSET_HOURS })
+  ).slice(11, 19)
   if ((yield* isTradingDay(date)) && at >= streaming.first)
     return DateTime.isLessThan(instant, yield* sealInstant(date))
       ? Option.none<WibDate>()
       : Option.some(date)
   for (let days = 1; days <= 31; days++) {
     const before = WibDate.make(
-      DateTime.formatIsoDate(DateTime.add(instant, { hours: 7, days: -days }))
+      DateTime.formatIsoDate(
+        DateTime.add(instant, { hours: WIB_UTC_OFFSET_HOURS, days: -days })
+      )
     )
     if (yield* isTradingDay(before)) return Option.some(before)
   }

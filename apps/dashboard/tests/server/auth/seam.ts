@@ -37,6 +37,15 @@ const siteverify = (input: RequestInfo | URL, init?: RequestInit) =>
     })
   )
 
+// Stands in for scrypt, which costs about 57 ms a sign-up. A test passes
+// `password: undefined` to hash as the Worker does.
+const fastPassword = {
+  hash: (password: string) =>
+    Effect.runPromise(Effect.succeed(`fast:${password}`)),
+  verify: ({ hash, password }: { hash: string; password: string }) =>
+    Effect.runPromise(Effect.succeed(hash === `fast:${password}`)),
+}
+
 // The seam's ADMIN_EMAILS: ADMIN_EMAIL and other@example.com.
 const ADMIN_EMAILS = ` ${ADMIN_EMAIL.toUpperCase()}, other@example.com`
 
@@ -67,6 +76,7 @@ export function seam(
     secret: "handler-test-secret-0123456789abcdef0123456789",
     validateSchema: true,
     turnstileSecretKey: TURNSTILE_SECRET,
+    password: fastPassword,
     ...config,
   }).pipe(
     Layer.provideMerge(Accounts.make(database)),

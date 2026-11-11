@@ -1,7 +1,9 @@
 import { DASHBOARD, MEMBER } from "../support/accounts"
+import { marketNow, wibTime } from "../support/clock"
 import { signInUrl } from "../support/flows"
 import {
   ajaibTradeToday,
+  freshCode,
   freshTradeNumbers,
   openIngest,
   openSilentIngest,
@@ -56,25 +58,26 @@ test.describe("signed in", () => {
   }) => {
     const relay = await openIngest()
     const base = freshTradeNumbers()
-    // A code no other spec trades, so its candles are this test's alone; the
-    // recorded session has none, so two UNVR trades are made from its first
-    // frame, a minute apart.
+    // A code of its own, so its candles are this test's alone, a repeat's
+    // too: today's object keeps every code's candles. The recorded session
+    // has none, so two trades are made from its first frame, a minute apart.
+    const code = freshCode("CN")
     const [template] = session1Today()
     const trade = JSON.parse(template!)
-    const unvr = (sequence: number, price: number, minutes: number) =>
+    const tradeAt = (sequence: number, price: number, minutes: number) =>
       JSON.stringify({
         ...trade,
-        ticker: "UNVR",
+        ticker: code,
         price,
         tradeNum: `${trade.tradeNum.slice(0, 8)}${String(base + sequence).padStart(10, "0")}`,
         tradedAt: new Date(
           Date.parse(trade.tradedAt) + minutes * 60_000
         ).toISOString(),
       })
-    await relay.sendAjaib([unvr(1, 9275, 0)])
-    await page.goto(`${DASHBOARD}${PAGE}?code=UNVR`)
+    await relay.sendAjaib([tradeAt(1, 9275, 0)])
+    await page.goto(`${DASHBOARD}${PAGE}?code=${code}`)
     const chart = page.getByRole("region", { name: "Chart" })
-    await expect(chart.getByRole("heading", { name: "UNVR" })).toBeVisible()
+    await expect(chart.getByRole("heading", { name: code })).toBeVisible()
     await expect(chart).toContainText("One-minute candles: 1")
     await expect(chart).toContainText("9,275")
     await expect(chart.locator("canvas").first()).toBeVisible()
@@ -83,7 +86,7 @@ test.describe("signed in", () => {
     ).toHaveAttribute("href", "https://www.tradingview.com/")
 
     // A delta: the next minute opens its own candle.
-    await relay.sendAjaib([unvr(2, 9300, 1)])
+    await relay.sendAjaib([tradeAt(2, 9300, 1)])
     await expect(chart).toContainText("One-minute candles: 2")
     await expect(chart).toContainText("9,300")
     relay.close()
@@ -206,13 +209,31 @@ test.describe("the tape at peak", () => {
     page,
   }) => {
     const relay = await openIngest()
+    const base = freshTradeNumbers()
+    // A snapshot carries only the 200 newest trades. Today's object keeps an
+    // earlier run's auction match trades, so 200 continuous trades above them keep
+    // those out of the page's snapshot, and the fold counts this run's alone.
+    const newer = 200
+    await relay.sendAjaib(
+      Array.from({ length: newer }, (_, i) =>
+        ajaibTradeToday({
+          seq: base + i + 1,
+          time: "10:00:03",
+          ticker: "PSTM",
+          price: 100,
+          lot: 1,
+        })
+      )
+    )
     await page.goto(`${DASHBOARD}${PAGE}`)
     const tape = page.getByRole("region", { name: "Running trades" })
+    await expect(
+      tape.locator(`tr[data-trade-number="${base + newer}"]`)
+    ).toBeVisible()
     const fold = tape.getByRole("button", { name: /Opening match 08:58:00/ })
-    // The first print, once the page's socket is live: a snapshot carries
-    // only the 200 newest trades, so the replay waits for it.
-    const base = freshTradeNumbers()
-    const match = openingMatchToday(20_000, base)
+    // The auction match's first running trade, once the page's socket is live, so the replay waits
+    // for the snapshot.
+    const match = openingMatchToday(20_000, base + newer)
     await relay.sendAjaib(match.slice(0, 1))
     await expect(fold).toContainText("1 trade ·")
     // Every animation frame's length from here until the match is in.
@@ -248,7 +269,9 @@ test.describe("the tape at peak", () => {
     await expect(fold).toHaveAttribute("aria-expanded", "false")
     await fold.click()
     await expect(fold).toHaveAttribute("aria-expanded", "true")
-    const newest = tape.locator(`tr[data-trade-number="${base + 20_000}"]`)
+    const newest = tape.locator(
+      `tr[data-trade-number="${base + newer + 20_000}"]`
+    )
     await expect(newest).toContainText("08:58:00")
     await expect(newest).not.toContainText(/buy|sell/)
     relay.close()
@@ -323,11 +346,15 @@ test.describe("the tape at peak", () => {
   }) => {
     const relay = await openIngest()
     const base = freshTradeNumbers()
+    // Now on the market clock: every relay that closed before this test left
+    // a relay gap (its "Not recorded" row), drawn above any trade older than it, and enough
+    // of them would push this test's trades out of view.
+    const time = wibTime(marketNow())
     const trades = (from: number, count: number) =>
       Array.from({ length: count }, (_, i) =>
         ajaibTradeToday({
           seq: base + from + i,
-          time: "10:00:02",
+          time,
           ticker: "FRZA",
           price: 100,
           lot: 1,
@@ -369,7 +396,7 @@ test("a wrong ingest token closes the ingest socket with 4403", async () => {
 
 test("an ingest socket that sends no token is closed with 4408", async () => {
   // Between 10 and 20 s after it opened, at the trading-day object's alarm.
-  test.setTimeout(60_000)
+  test.setTimeout(25_000)
   const silent = await openSilentIngest()
   expect(await silent.closed).toBe(4408)
 })

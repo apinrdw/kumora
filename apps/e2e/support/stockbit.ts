@@ -6,7 +6,7 @@ import {
   varintField,
 } from "../../dashboard/tests/server/market-live/protobuf.ts"
 
-import { marketNow } from "./clock"
+import { marketNow, wibInstant } from "./clock"
 import { wibToday } from "./ingest"
 
 // Recorded Stockbit running trades from 2026-11-09, shared with the
@@ -31,7 +31,7 @@ const recorded: { readonly boards: ReadonlyArray<StockbitRow> } = JSON.parse(
 )
 
 const runningTrade = (row: StockbitRow, date: string) => {
-  const ms = Date.parse(`${date}T${row.tradeWib}+07:00`)
+  const ms = wibInstant(`${date}T${row.tradeWib}`)
   return [
     ...messageField(2, [...new TextEncoder().encode(row.code)]),
     ...doubleField(3, row.price),

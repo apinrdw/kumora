@@ -4,12 +4,15 @@ import {
   encodeIngestUp,
   type Feed,
   type IngestUp,
+  StockCode,
 } from "@workspace/relay"
+import { expect, type APIRequestContext } from "@playwright/test"
 import { DateTime, Effect } from "effect"
 import { readFileSync } from "node:fs"
+import { WebSocket } from "ws"
 
 import { DASHBOARD } from "./accounts"
-import { marketNow } from "./clock"
+import { WIB_OFFSET, marketNow, wibDate } from "./clock"
 
 /** The Test stage's INGEST_TOKEN (playwright.config.ts sets it). */
 export const TEST_INGEST_TOKEN = "e2e-ingest-token-not-a-secret"
@@ -48,8 +51,7 @@ const RECORDED_CODE_LIST: string = JSON.parse(
  * Today in WIB on the Test stage's Market Live clock, `YYYY-MM-DD`: the
  * trading-day object the page reads.
  */
-export const wibToday = () =>
-  new Date(marketNow() + 7 * 3_600_000).toISOString().slice(0, 10)
+export const wibToday = () => wibDate(marketNow())
 
 /**
  * A test's base trade number: above every number an earlier test sent today's
@@ -61,7 +63,15 @@ export const wibToday = () =>
  * next test asks for its own base seconds later).
  */
 export const freshTradeNumbers = () =>
-  ((Date.now() + 7 * 3_600_000) % 86_400_000) * 100
+  ((Date.now() + WIB_OFFSET) % 86_400_000) * 100
+
+/**
+ * A stock code of the test's own, `prefix` and the time: today's object keeps
+ * every code's candles, books and figures, from earlier runs too, so a listed
+ * code would have a repeat's.
+ */
+export const freshCode = (prefix: string) =>
+  StockCode.make(`${prefix}${Date.now().toString(36).toUpperCase()}`)
 
 /** `seq` as today's 18-digit Ajaib trade number. */
 const ajaibTradeNumber = (today: string, seq: number) =>
@@ -131,10 +141,20 @@ export function openingMatchToday(
 const send = async (socket: WebSocket, message: IngestUp) =>
   socket.send(await Effect.runPromise(encodeIngestUp(message)))
 
+// ws 8.22 honors `closeTimeout`; @types/ws 8.18.2, its latest, leaves it out.
+const SOCKET_OPTIONS: WebSocket.ClientOptions & { closeTimeout: number } = {
+  closeTimeout: 1_000,
+}
+
 // The ingest socket, open; `closed` settles with its close code.
 const dial = async () => {
+  // Decision: `ws`, not Node's built-in WebSocket, which reports `close` only
+  // once workerd tears down TCP, 20 to 30 s or more after the close frame.
+  // `ws` answers the close frame, then destroys the socket after
+  // `closeTimeout`, so `closed` settles within it.
   const socket = new WebSocket(
-    `${DASHBOARD.replace(/^http/, "ws")}${MarketLivePath.ingest}`
+    `${DASHBOARD.replace(/^http/, "ws")}${MarketLivePath.ingest}`,
+    SOCKET_OPTIONS
   )
   const closed = new Promise<number>((resolve) =>
     socket.addEventListener("close", (event) => resolve(event.code))
@@ -150,6 +170,24 @@ const dial = async () => {
 export async function openSilentIngest() {
   const { closed } = await dial()
   return { closed }
+}
+
+/**
+ * Sends today's object the recorded code list and waits until it is stored.
+ * Another spec's relay may have sent a list of its own earlier, so it waits
+ * for this list's WIFI-R.
+ */
+export async function storeRecordedCodeList(request: APIRequestContext) {
+  const relay = await openIngest()
+  await relay.sendCodeList()
+  const url = `${DASHBOARD}/market-live/days/${wibToday()}/codes`
+  await expect
+    .poll(async () => {
+      const response = await request.get(url)
+      return response.ok() && (await response.text()).includes('"WIFI-R"')
+    })
+    .toBe(true)
+  relay.close()
 }
 
 /** A fake relay: the ingest socket, opened with `token`. */

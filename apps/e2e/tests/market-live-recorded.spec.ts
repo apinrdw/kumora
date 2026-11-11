@@ -1,10 +1,9 @@
 // Recorded day loads on the Test stage (spec apinrdw/kumora#138, "Recorded
 // day loads"): what the relay sends lands in today's trading-day object's
-// SQLite store at its next minute's flush, and the gated GETs read it back.
+// SQLite store at the flush its close runs, and the gated GETs read it back.
 // The page that replays a recorded day is apinrdw/kumora#152's.
 import { request as requests } from "@playwright/test"
 import {
-  StockCode,
   WibDate,
   bookAt,
   decodeBookChunk,
@@ -15,9 +14,15 @@ import {
 import { DateTime, Effect } from "effect"
 
 import { DASHBOARD, MEMBER } from "../support/accounts"
-import { marketNow } from "../support/clock"
+import {
+  MERGE_WINDOW,
+  marketNow,
+  untilMarketTime,
+  wibTime,
+} from "../support/clock"
 import {
   ajaibTradeToday,
+  freshCode,
   freshTradeNumbers,
   openIngest,
   wibToday,
@@ -33,19 +38,30 @@ const urlOf = (path: Effect.Effect<string>) =>
 test("trades and order books the relay sent are read back from the store after the flush", async ({
   page,
 }) => {
-  // The flush runs 5 s past each minute and writes the minute that ended.
-  test.setTimeout(180_000)
+  // A book chunk is written once its minute is over: up to a minute's wait.
+  test.setTimeout(90_000)
   const base = freshTradeNumbers()
   // A code of its own: today's object keeps every code's candles and books.
-  const code = StockCode.make(`RD${Date.now().toString(36).toUpperCase()}`)
+  const code = freshCode("RD")
   const day = WibDate.make(wibToday())
-  const sentAt = marketNow()
-  const wibTime = new Date(sentAt + 7 * 3_600_000).toISOString().slice(11, 19)
   const relay = await openIngest()
+  // Decision: the waits below run from when the live page shows the trade and
+  // the book, not from `sentAt`. The merge window opens when the object takes
+  // the trade (candles.ts) and the book's chunk is the minute the object
+  // served its frame in (book-chunks.ts), both after the spec sent them. The
+  // page is open on the code before they are sent, so they reach it in the
+  // delta that serves the frame, and both have happened once it shows them.
+  await page.goto(`${DASHBOARD}/market-live?code=${code}`)
+  await expect(
+    page
+      .getByRole("group", { name: "Market conditions" })
+      .getByRole("list", { name: "Feeds" })
+  ).toBeVisible()
+  const sentAt = marketNow()
   await relay.sendAjaib([
     ajaibTradeToday({
       seq: base + 1,
-      time: wibTime,
+      time: wibTime(sentAt),
       ticker: code,
       price: 500,
       lot: 3,
@@ -55,26 +71,47 @@ test("trades and order books the relay sent are read back from the store after t
     stockbitOrderBookFrame(code, "BID", [[500, 4, 120]]),
     stockbitOrderBookFrame(code, "OFFER", [[505, 2, 60]]),
   ])
+  await expect(
+    page
+      .getByRole("region", { name: "Running trades" })
+      .locator(`tr[data-trade-number="${base + 1}"]`)
+  ).toBeVisible()
+  await expect(
+    page
+      .getByRole("region", { name: "Order book" })
+      .getByText("Stockbit", { exact: true })
+  ).toBeVisible()
+  const arrivedBy = marketNow()
+  // The relay closing flushes at once every book chunk whose market-clock
+  // minute is over (book-chunks.ts) and every trade out of its 5 s merge
+  // window (candles.ts), so it closes once both are, rather than waiting for
+  // the next minute's flush.
+  const minuteOver = (Math.floor(arrivedBy / 60_000) + 1) * 60_000
+  await page.waitForTimeout(
+    untilMarketTime(Math.max(minuteOver, arrivedBy + MERGE_WINDOW))
+  )
+  relay.close()
 
+  // The chunk is this minute's, or the one before when the frame was served
+  // just before the minute turned: the store answers the latest chunk at or
+  // before the minute asked for.
   const bookUrl = urlOf(
     recordedDayPath(day, {
       _tag: "Book",
       code,
-      minute: DateTime.makeUnsafe(sentAt),
+      minute: DateTime.makeUnsafe(arrivedBy),
     })
   )
   await expect
     .poll(async () => (await page.request.get(bookUrl)).status(), {
-      timeout: 150_000,
-      intervals: [5_000],
+      timeout: 15_000,
+      intervals: [500],
     })
     .toBe(200)
   const chunk = await Effect.runPromise(
     decodeBookChunk(await (await page.request.get(bookUrl)).text())
   )
-  const book = Effect.runSync(
-    bookAt(chunk, DateTime.makeUnsafe(sentAt + 60_000))
-  )
+  const book = Effect.runSync(bookAt(chunk, DateTime.makeUnsafe(arrivedBy)))
   expect(book?.bids.map((level) => level.lots)).toEqual([120])
   expect(book?.offers.map((level) => level.lots)).toEqual([60])
 
@@ -102,7 +139,6 @@ test("trades and order books the relay sent are read back from the store after t
     )
   )
   expect(candles.candles.map((candle) => candle.volume)).toEqual([3])
-  relay.close()
 })
 
 test("a signed-out recorded day GET answers 401 JSON", async () => {

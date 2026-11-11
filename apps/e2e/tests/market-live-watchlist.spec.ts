@@ -6,7 +6,7 @@ import type { Page } from "@playwright/test"
 
 import { DASHBOARD, MEMBER } from "../support/accounts"
 import { marketNow } from "../support/clock"
-import { openIngest, wibToday } from "../support/ingest"
+import { freshCode, openIngest, storeRecordedCodeList } from "../support/ingest"
 import { stockbitIndexFrameNow } from "../support/stockbit"
 import { expect, test } from "../support/test"
 
@@ -35,14 +35,7 @@ async function open(page: Page) {
 
 test.use({ storageState: MEMBER.storageState })
 
-test.beforeEach(async ({ request }) => {
-  const relay = await openIngest()
-  await relay.sendCodeList()
-  // Stored once the object has handled it.
-  const url = `${DASHBOARD}/market-live/days/${wibToday()}/codes`
-  await expect.poll(async () => (await request.get(url)).status()).toBe(200)
-  relay.close()
-})
+test.beforeEach(({ request }) => storeRecordedCodeList(request))
 
 test("the watchlist survives a reload, and × removes a code", async ({
   page,
@@ -84,29 +77,30 @@ test("a watched code's row fills from Ajaib's PRICE, and the relay is asked for 
   page,
 }) => {
   const relay = await openIngest()
+  // A code of its own, watched from the start: today's object keeps every
+  // code's figures, so a listed code would have them from a repeat's run.
+  const code = freshCode("WL")
+  await page.addInitScript(
+    ([key, seeded]) => window.localStorage.setItem(key, JSON.stringify(seeded)),
+    [WATCHLIST_KEY, [code]] as const
+  )
   await open(page)
   const watchlist = page.getByRole("region", { name: "Watchlist" })
-  const add = watchlist.getByRole("combobox", { name: "Add code…" })
-  await add.fill("wifi")
-  await watchlist
-    .getByRole("option", { name: /^WIFI\b/ })
-    .first()
-    .click()
-  const row = watchlist.locator('tr[data-code="WIFI"]')
+  const row = watchlist.locator(`tr[data-code="${code}"]`)
   await expect(row).toContainText("no data yet")
 
-  // The selected BBCA and the watched WIFI.
+  // The selected BBCA and the watched code.
   await expect
     .poll(() => lastOnDemandCodes(relay.received))
-    .toEqual(expect.arrayContaining(["BBCA", "WIFI"]))
+    .toEqual(expect.arrayContaining(["BBCA", code]))
 
   // Stockbit lost (another spec may have sent its frames moments ago), so
   // Ajaib's figures stand in: the 2026-11-06 BBCA PRICE frame's shape, as
-  // WIFI's today.
+  // the watched code's today.
   await relay.report("Stockbit", "closed")
   await relay.sendAjaib([
     JSON.stringify({
-      ticker: "WIFI",
+      ticker: code,
       updateTime: marketNow(),
       price: 4120,
       change: 70,

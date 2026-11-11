@@ -58,6 +58,12 @@ export interface AuthOptionsInput {
   readonly secret: string
   // Introspects the database on every request, so the Worker passes false.
   readonly validateSchema: boolean
+  // Decision: the Worker passes none and hashes with Better Auth's scrypt.
+  // The test seam passes a fast stand-in, since scrypt costs about 57 ms per
+  // sign-up (apinrdw/kumora#171); handler.test.ts keeps one test on scrypt.
+  readonly password?: NonNullable<
+    BetterAuthOptions["emailAndPassword"]
+  >["password"]
   // Only Production and Staging have one; see google.ts.
   readonly google?: GoogleClient
   readonly sendVerificationEmail: (mail: LinkMail) => Promise<void>
@@ -518,6 +524,7 @@ export function authOptions(input: AuthOptionsInput) {
     emailAndPassword: {
       enabled: true,
       minPasswordLength: MIN_PASSWORD_LENGTH,
+      password: input.password,
       // An unverified account signs in and holds a session; the sign-in gate
       // shows it the verify screen instead of any page.
       requireEmailVerification: false,

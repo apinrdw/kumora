@@ -45,6 +45,7 @@ const SendingSubdomain = Effect.gen(function* () {
 
 // Cloudflare's always-pass Turnstile keys, for every stage without its own
 // widget: Previews, Dev and Test never show a real challenge.
+// apps/e2e/support/turnstile.ts hands the dummy token this secret accepts.
 const TURNSTILE_TEST_KEYS = {
   siteKey: "1x00000000000000000000AA",
   secretKey: Redacted.make("1x0000000000000000000000000000000AA"),

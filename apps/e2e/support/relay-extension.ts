@@ -1,4 +1,4 @@
-import { chromium, type Worker } from "@playwright/test"
+import { chromium, expect, type Worker } from "@playwright/test"
 import { execFileSync } from "node:child_process"
 import { mkdtempSync, readFileSync } from "node:fs"
 import { createServer, type Server } from "node:https"
@@ -7,6 +7,8 @@ import { tmpdir } from "node:os"
 import { join } from "node:path"
 import { fileURLToPath } from "node:url"
 import { WebSocketServer, type WebSocket } from "ws"
+
+import { wibInstant } from "./clock"
 
 /** The built extension (`pnpm --filter extension build`, run by `pnpm e2e`). */
 const EXTENSION = fileURLToPath(
@@ -33,6 +35,19 @@ export interface BrokerSocket {
   readonly socket: WebSocket
   readonly received: Array<string | Uint8Array>
 }
+
+// The relay ticks every 10 s, so B, pings and reopens each take up to a tick
+// or two. A moved clock ticks it at once (setRelayClock).
+export const TICKS = { timeout: 25_000 }
+
+// A trading day's session 1 (a Tuesday), for the relay's schedule only.
+export const SESSION_1 = "2026-11-10T10:00:00"
+
+export const PING = '{"method":"SUBSCRIBE","streamObject":"PING-WEB"}'
+
+// What a socket received, its pings left out.
+export const sent = (socket: BrokerSocket | undefined) =>
+  (socket?.received ?? []).filter((message) => message !== PING)
 
 // A self-signed certificate for the fake broker hosts, which Chromium is told
 // to accept.
@@ -258,15 +273,41 @@ export async function startFakeBrokers() {
   }
 }
 
+// The relay's test clock offset in chrome.storage.local, as
+// apps/extension/src/worker/settings.ts names it.
+const CLOCK_OFFSET_KEY = "clockOffsetMs"
+// The offset of the relay's last completed tick on the worker's global scope,
+// as apps/extension/src/worker/service-worker.ts names it.
+const LAST_TICK_KEY = "lastTickClockOffsetMs"
+
+// Sets the relay's clock offset, which ticks it at once, and waits until a
+// tick on that offset has completed.
+async function setClockOffset(worker: Worker, offset: number) {
+  await worker.evaluate(
+    `chrome.storage.local.set({ ${CLOCK_OFFSET_KEY}: ${offset} })`
+  )
+  await expect
+    .poll(() => worker.evaluate(`globalThis.${LAST_TICK_KEY}`))
+    .toBe(offset)
+}
+
 /**
  * Moves the relay's schedule clock so that it reads `wib` (a WIB wall-clock
- * time, `YYYY-MM-DDTHH:MM:SS`) now. Frames keep their real times.
+ * time, `YYYY-MM-DDTHH:MM:SS`) now, and waits for the tick on it. Frames keep
+ * their real times.
  */
 export async function setRelayClock(worker: Worker, wib: string) {
-  const offset = Date.parse(`${wib}+07:00`) - Date.now()
-  await worker.evaluate(
-    `chrome.storage.local.set({ clockOffsetMs: ${offset} })`
-  )
+  await setClockOffset(worker, wibInstant(wib) - Date.now())
+}
+
+/** Ticks the relay `count` times, each awaited, by moving its clock 1 ms on. */
+export async function tickRelay(worker: Worker, count = 1) {
+  for (let tick = 0; tick < count; tick++) {
+    const offset = await worker.evaluate<number>(
+      `chrome.storage.local.get("${CLOCK_OFFSET_KEY}").then((stored) => stored.${CLOCK_OFFSET_KEY} ?? 0)`
+    )
+    await setClockOffset(worker, offset + 1)
+  }
 }
 
 /**

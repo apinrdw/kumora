@@ -13,6 +13,7 @@ import {
   DateTime,
   Duration,
   Effect,
+  Fiber,
   FiberMap,
   Option,
   PubSub,
@@ -33,6 +34,7 @@ import { makeOnDemandCodes } from "./on-demand-codes.ts"
 import {
   DashboardOrigin,
   codeListStore,
+  isClockOffsetChange,
   isCodeListRelayAsk,
   isSettingsChange,
   loadClockOffset,
@@ -62,6 +64,10 @@ import { runTarget } from "./target.ts"
 // See apinrdw/kumora#59.
 const TICK = Duration.seconds(10)
 const ALARM = "tick"
+
+// Where a completed tick leaves its clock offset on the worker's global scope.
+// apps/e2e/support/relay-extension.ts names it too: it reads it.
+const LAST_TICK_KEY = "lastTickClockOffsetMs"
 
 type WorkerEvent =
   | { readonly _tag: "connect"; readonly port: chrome.runtime.Port }
@@ -98,6 +104,8 @@ chrome.storage.onChanged.addListener((changes, area) => {
     queue({ _tag: "settings" })
   if (Effect.runSync(isCodeListRelayAsk(changes, area)))
     queue({ _tag: "relay-code-list" })
+  if (Effect.runSync(isClockOffsetChange(changes, area)))
+    queue({ _tag: "tick" })
 })
 
 // The toolbar badge shows the worst target state.
@@ -198,11 +206,14 @@ const makeTargets = Effect.fnUntraced(function* (options: {
   return { apply }
 })
 
-// Now on the relay's schedule clock.
-const scheduleNow = Effect.gen(function* () {
+// Now on the real clock and on the relay's schedule clock, and the offset
+// between them.
+const clocks = Effect.gen(function* () {
   const now = yield* DateTime.now
-  return DateTime.add(now, { milliseconds: yield* loadClockOffset })
+  const offset = yield* loadClockOffset
+  return { now, offset, schedule: DateTime.add(now, { milliseconds: offset }) }
 })
+const scheduleNow = Effect.map(clocks, ({ schedule }) => schedule)
 
 const main = Effect.gen(function* () {
   const envelopes = yield* PubSub.sliding<EncodedIngestUp>(1024)
@@ -286,22 +297,43 @@ const main = Effect.gen(function* () {
     receive: onDemandCodes.receive,
   })
 
-  // The tick, from the worker's own timer and the alarm.
+  // The tick, from the worker's own timer and the alarm. Its tab calls are
+  // forked, since their answers queue behind it as worker events; `settled`
+  // ends once the last tick's calls and every earlier tick's have answers.
   let lastTick = 0
+  let settled = Option.none<Fiber.Fiber<void>>()
   const tick = Effect.fnUntraced(function* (alarm: boolean) {
-    const now = yield* DateTime.now
+    const { now, offset, schedule } = yield* clocks
     const ms = DateTime.toEpochMillis(now)
     if (alarm && ms - lastTick < Duration.toMillis(TICK)) return
     lastTick = ms
-    const schedule = yield* scheduleNow
     const today = yield* wibDateAt(schedule)
     if (today !== (yield* SubscriptionRef.get(day)))
       yield* SubscriptionRef.set(day, today)
     const window = yield* windowAt(schedule)
     for (const tab of tabs) yield* tab.tick(window)
-    // The PIN check's answer queues behind this tick.
-    yield* Effect.forkScoped(ajaibSession.tick)
-    yield* codeList.tick(ajaibRest, schedule)
+    const session = yield* Effect.forkScoped(ajaibSession.tick)
+    const fetch = yield* codeList.tick(ajaibRest, schedule)
+    const earlier = settled
+    settled = Option.some(
+      yield* Effect.forkScoped(
+        Effect.gen(function* () {
+          yield* Fiber.awaitAll([
+            ...Option.toArray(earlier),
+            session,
+            ...Option.toArray(fetch),
+          ])
+          // Decision: a completed tick leaves the clock offset it ran on in
+          // the worker's global scope, test-only like the offset itself, so a
+          // spec that moved the clock reads it to await a tick on the new
+          // clock instead of sleeping. Completed means its PIN check and code
+          // list fetch have their answers, and every earlier tick's have, so
+          // a spec that forces ticks and then asserts sees what they sent.
+          // See apinrdw/kumora#174.
+          Object.assign(globalThis, { [LAST_TICK_KEY]: offset })
+        })
+      )
+    )
   })
   yield* Effect.forkScoped(
     Effect.repeat(

@@ -8,6 +8,7 @@ import {
   freshTradeNumbers,
   openIngest,
   session1Today,
+  storeRecordedCodeList,
   wibToday,
 } from "../support/ingest"
 import { expect, test } from "../support/test"
@@ -31,14 +32,7 @@ async function recordSelects(page: Page) {
 
 test.use({ storageState: MEMBER.storageState })
 
-test.beforeEach(async ({ request }) => {
-  const relay = await openIngest()
-  await relay.sendCodeList()
-  // Stored once the object has handled it.
-  const url = `${DASHBOARD}/market-live/days/${wibToday()}/codes`
-  await expect.poll(async () => (await request.get(url)).status()).toBe(200)
-  relay.close()
-})
+test.beforeEach(({ request }) => storeRecordedCodeList(request))
 
 test("the day's code list is served for the day, cacheable", async ({
   request,

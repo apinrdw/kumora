@@ -174,10 +174,13 @@ export const isCodeListRelayAsk = Effect.fnUntraced(function* (
 })
 
 // Decision: a test-only clock offset, in ms, moves the relay's schedule (its
-// streaming hours, its auctions and the code list's day) and nothing else, so
-// the extension e2e can run in streaming hours at any time of day. Only a script
+// streaming hours, its auctions and the code list's day), so the extension
+// e2e can run in streaming hours at any time of day. Its only other effects
+// are test seams: a change ticks at once (isClockOffsetChange below) and each
+// tick leaves the offset it used for a spec to await (service-worker.ts). Only a script
 // in the service worker's console sets it; the options page never shows it.
 // Frames keep their real receive times. See apinrdw/kumora#155.
+// apps/e2e/support/relay-extension.ts names this key too: it sets the offset.
 const CLOCK_OFFSET_KEY = "clockOffsetMs"
 
 export const loadClockOffset = Effect.gen(function* () {
@@ -188,6 +191,17 @@ export const loadClockOffset = Effect.gen(function* () {
     Schema.decodeUnknownOption(Schema.Finite)(stored[CLOCK_OFFSET_KEY]),
     () => 0
   )
+})
+
+// Decision: a changed offset ticks the relay at once, so a spec that moves the
+// clock waits for that tick instead of the next 10 s one. With the key never
+// set, as in the owner's browser, the relay ticks only on its timer. See
+// apinrdw/kumora#174.
+export const isClockOffsetChange = Effect.fnUntraced(function* (
+  changes: Readonly<Record<string, unknown>>,
+  area: string
+) {
+  return area === "local" && CLOCK_OFFSET_KEY in changes
 })
 
 // Decision: the Ajaib PIN lives in chrome.storage.session alone: in memory,

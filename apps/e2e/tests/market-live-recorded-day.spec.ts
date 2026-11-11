@@ -5,7 +5,6 @@
 // Today · live goes back to the live page; a 401 answer sends the viewer to
 // sign in.
 import {
-  StockCode,
   WibDate,
   decodeRecordedCandles,
   recordedDayPath,
@@ -13,10 +12,16 @@ import {
 import { Effect } from "effect"
 
 import { DASHBOARD, MEMBER } from "../support/accounts"
-import { marketNow } from "../support/clock"
+import {
+  MERGE_WINDOW,
+  marketNow,
+  untilMarketTime,
+  wibTime,
+} from "../support/clock"
 import { signInUrl } from "../support/flows"
 import {
   ajaibTradeToday,
+  freshCode,
   freshTradeNumbers,
   openIngest,
   wibToday,
@@ -24,9 +29,6 @@ import {
 import { expect, test } from "../support/test"
 
 const PAGE = "/market-live"
-// An instant's WIB time of day, as the page writes it: 10:15:32.
-const clock = (at: number) =>
-  new Date(at + 7 * 3_600_000).toISOString().slice(11, 19)
 const WATCHLIST_KEY = "kumora:market-live:watchlist"
 
 test.use({ storageState: MEMBER.storageState })
@@ -34,39 +36,17 @@ test.use({ storageState: MEMBER.storageState })
 test("the day strip opens a recorded day at its close, it replays, and Today · live returns", async ({
   page,
 }) => {
-  // The flush runs 5 s past each minute and writes the minute that ended.
-  test.setTimeout(180_000)
   const base = freshTradeNumbers()
   // A code of its own: today's object keeps every code's candles.
-  const code = StockCode.make(`RP${Date.now().toString(36).toUpperCase()}`)
+  const code = freshCode("RP")
   const day = WibDate.make(wibToday())
   const sentAt = marketNow()
-  const time = new Date(sentAt + 7 * 3_600_000).toISOString().slice(11, 19)
+  const time = wibTime(sentAt)
   const relay = await openIngest()
   await relay.sendAjaib([
     ajaibTradeToday({ seq: base + 1, time, ticker: code, price: 500, lot: 3 }),
     ajaibTradeToday({ seq: base + 2, time, ticker: code, price: 505, lot: 2 }),
   ])
-  relay.close()
-
-  // Recorded once the minute's flush has run.
-  const candlesUrl = `${DASHBOARD}${Effect.runSync(
-    recordedDayPath(day, { _tag: "Candles", code })
-  )}`
-  await expect
-    .poll(
-      async () => {
-        const answer = await page.request.get(candlesUrl)
-        if (answer.status() !== 200) return 0
-        const { candles } = await Effect.runPromise(
-          decodeRecordedCandles(await answer.text())
-        )
-        return candles.reduce((sum, candle) => sum + candle.volume, 0)
-      },
-      { timeout: 150_000, intervals: [5_000] }
-    )
-    .toBe(5)
-
   // Today has not sealed, so the index lists no day yet: the strip is
   // answered with today as a recorded day, whose GETs the object answers
   // from what it flushed.
@@ -101,6 +81,40 @@ test("the day strip opens a recorded day at its close, it replays, and Today · 
   const conditions = page.getByRole("group", { name: "Market conditions" })
   await expect(conditions.getByRole("list", { name: "Feeds" })).toBeVisible()
 
+  // Decision: the merge window is waited out from when the live page shows
+  // the trades, not from `sentAt`. The window opens when the object takes a
+  // trade (candles.ts), which is after the spec sent it and no later than the
+  // page showing it, so a slow connection or object can't make the relay
+  // close on trades still inside it.
+  const tape = page.getByRole("region", { name: "Running trades" })
+  await expect(
+    tape.locator(`tr[data-trade-number="${base + 2}"]`)
+  ).toBeVisible()
+  const arrivedBy = marketNow()
+  // The relay closing flushes at once what has left its 5 s merge window
+  // (candles.ts), so it closes once the trades have, rather than waiting for
+  // the next minute's flush.
+  await page.waitForTimeout(untilMarketTime(arrivedBy + MERGE_WINDOW))
+  relay.close()
+
+  // Recorded once the close's flush has run.
+  const candlesUrl = `${DASHBOARD}${Effect.runSync(
+    recordedDayPath(day, { _tag: "Candles", code })
+  )}`
+  await expect
+    .poll(
+      async () => {
+        const answer = await page.request.get(candlesUrl)
+        if (answer.status() !== 200) return 0
+        const { candles } = await Effect.runPromise(
+          decodeRecordedCandles(await answer.text())
+        )
+        return candles.reduce((sum, candle) => sum + candle.volume, 0)
+      },
+      { timeout: 15_000, intervals: [500] }
+    )
+    .toBe(5)
+
   const strip = page.getByRole("navigation", { name: "Trading days" })
   await strip.getByRole("link", { name: /IHSG \+0\.50%/ }).click()
   await expect(page).toHaveURL(new RegExp(`[?&]day=${day}(&|$)`))
@@ -120,7 +134,6 @@ test("the day strip opens a recorded day at its close, it replays, and Today · 
   await expect(row.locator("td").nth(1)).toHaveText("505")
   await expect(row.locator("td").nth(4)).toHaveText("5")
   await expect(row.locator("td").nth(5)).toHaveText("2")
-  const tape = page.getByRole("region", { name: "Running trades" })
   await expect(
     tape.locator(`tr[data-trade-number="${base + 2}"]`)
   ).toBeVisible()
@@ -129,7 +142,7 @@ test("the day strip opens a recorded day at its close, it replays, and Today · 
   // tape say it wasn't recorded.
   const scrubber = page.getByRole("slider", { name: "Replay cursor" })
   await scrubber.fill(String(gapFrom + 60_000))
-  await expect(conditions).toContainText(`at ${clock(gapFrom + 60_000)}`)
+  await expect(conditions).toContainText(`at ${wibTime(gapFrom + 60_000)}`)
   await expect(tape.locator(`tr[data-trade-number="${base + 2}"]`)).toHaveCount(
     0
   )

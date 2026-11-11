@@ -5,11 +5,27 @@ import { ADMIN, testUrl } from "./support/accounts"
 import { MARKET_CLOCK_OFFSET } from "./support/clock"
 import { TEST_INGEST_TOKEN } from "./support/ingest"
 
-const TRADING_DAY_SPECS = /(market-live[\w-]*|relay-extension)\.spec\.ts$/
+const TRADING_DAY_SPECS = /market-live[\w-]*\.spec\.ts$/
 
 export default defineConfig({
   testDir: "tests",
   forbidOnly: Boolean(process.env.CI),
+  // Decision: tests, not files, are the unit of parallelism, so one file's
+  // tests can run on different workers and shards (apinrdw/kumora#168). A
+  // file whose tests form a sequence says so with a serial describe.
+  fullyParallel: true,
+  // Decision: a CI shard runs 2 workers on its runner's 2 cores: much of an
+  // e2e test is waiting, so the second worker adds throughput
+  // (apinrdw/kumora#168). Locally, Playwright picks from the cores.
+  workers: process.env.CI ? 2 : undefined,
+  // Decision: no retries, so a flake the parallelism brings shows up and gets
+  // fixed instead of passing on a second try (apinrdw/kumora#168).
+  retries: 0,
+  // Decision: on a CI runner's 2 cores a test gets 60 s, not the default 30 s.
+  // The first PR run with 2 workers per shard timed out the shared accounts
+  // setup (the first sign-up's cold compile took 36 s) and the account test
+  // that hashes real passwords (apinrdw/kumora#190).
+  timeout: process.env.CI ? 60_000 : 30_000,
   reporter: "list",
   use: { browserName: "chromium" },
   projects: [
@@ -19,24 +35,22 @@ export default defineConfig({
     {
       name: "chromium",
       dependencies: ["setup"],
-      testIgnore: [TRADING_DAY_SPECS, /too-many-attempts\.spec\.ts$/],
+      testIgnore: TRADING_DAY_SPECS,
     },
     // Decision: the specs that send trades share one Durable Object, today's
-    // trading day, so they run one at a time: a spec running alongside would
-    // add trades to the tape it counts. Each test's trades are numbered above
-    // everything sent before it (support/ingest.ts freshTradeNumbers), so the
-    // order they run in doesn't matter.
+    // trading day, so within a shard they run one at a time: a spec running
+    // alongside would add trades to the tape it counts. Isolation across
+    // shards comes from the shards themselves: each CI shard is its own job
+    // with its own server and Durable Object storage, so shards never share a
+    // trading day, and the dashboard has no test-only key for one
+    // (apinrdw/kumora#169). Each test's trades are numbered above everything
+    // sent before it (support/ingest.ts freshTradeNumbers), so the order they
+    // run in doesn't matter.
     {
       name: "trading-day",
       dependencies: ["setup"],
       testMatch: TRADING_DAY_SPECS,
       workers: 1,
-    },
-    // Spends a per-IP limit on purpose, so it runs after every other spec.
-    {
-      name: "limits",
-      dependencies: ["chromium", "trading-day"],
-      testMatch: /too-many-attempts\.spec\.ts$/,
     },
   ],
   // Both apps run on alchemy's local `test` stage: local state, no Infisical,
