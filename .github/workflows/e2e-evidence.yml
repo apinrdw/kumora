@@ -1,0 +1,71 @@
+# Marks each PR head commit's `e2e-evidence` status. `pnpm e2e:evidence` sets
+# it green after posting video; scripts/e2e-evidence-gate.repo.test.mts runs
+# this job's script against a fake GitHub client.
+name: e2e evidence
+
+# Decision: a workflow of its own, not a job in ci.yml as #203 planned. In
+# ci.yml a label event would cancel the running checks through its concurrency
+# group, and would replace their results with skipped check runs on the head.
+on:
+  pull_request:
+    types: [opened, synchronize, reopened, labeled, unlabeled]
+
+concurrency:
+  group: e2e-evidence-${{ github.event.pull_request.number }}
+  cancel-in-progress: true
+
+jobs:
+  # Decision: red until evidence, green for a PR with no app code or the
+  # no-e2e-evidence label, and a success someone else set is never touched
+  # (apinrdw/kumora#203). The gate's own success is recomputed, so removing the
+  # label turns it red. The job's name differs from the status's so its green
+  # check run can't satisfy a ruleset that requires `e2e-evidence`.
+  e2e-evidence:
+    name: e2e-evidence gate
+    runs-on: ubuntu-latest
+    timeout-minutes: 2
+    permissions:
+      statuses: write
+      pull-requests: read
+    steps:
+      - uses: actions/github-script@v9
+        with:
+          script: |
+            const { owner, repo } = context.repo
+            const pr = context.payload.pull_request
+            const sha = pr.head.sha
+            const statuses = await github.paginate(
+              github.rest.repos.listCommitStatusesForRef,
+              { owner, repo, ref: sha, per_page: 100 }
+            )
+            const latest = statuses.find((s) => s.context === "e2e-evidence")
+            if (
+              latest?.state === "success" &&
+              latest.creator?.login !== "github-actions[bot]"
+            ) {
+              return
+            }
+            const files = await github.paginate(github.rest.pulls.listFiles, {
+              owner,
+              repo,
+              pull_number: pr.number,
+              per_page: 100,
+            })
+            const app = /^(apps\/(web|dashboard|extension|e2e)|packages)\//
+            const touchesApp = files.some(
+              (f) =>
+                app.test(f.filename) || app.test(f.previous_filename ?? "")
+            )
+            const [state, description] = !touchesApp
+              ? ["success", "touches no app code (apps/web, dashboard, extension, e2e, packages/*)"]
+              : pr.labels.some((l) => l.name === "no-e2e-evidence")
+                ? ["success", "opted out with the no-e2e-evidence label"]
+                : ["failure", `no e2e evidence for ${sha.slice(0, 7)}`]
+            await github.rest.repos.createCommitStatus({
+              owner,
+              repo,
+              sha,
+              state,
+              description,
+              context: "e2e-evidence",
+            })
