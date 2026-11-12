@@ -6,8 +6,14 @@ import { checkDecisionDocs } from "./decision-docs.mts"
 import { CheckFailed } from "./lib/check.mts"
 import { memoryFileSystem, recordingSpawner } from "./lib/testing.mts"
 
-// Built, so this file's own lines don't point into an ADR directory.
+// Built, so this file's own lines don't point into an ADR directory or carry
+// a tag.
 const adrDocs = ["docs", "adr"].join("/")
+const tag = ["Decision", ":"].join("")
+const comment = (lines: number, marker = "//") => [
+  `${marker} ${tag} one`,
+  ...Array.from({ length: lines - 1 }, () => `${marker} more`),
+]
 
 // A repo whose index lists the files given, plus `unreadable` ones that are
 // listed but not on disk.
@@ -39,7 +45,7 @@ describe("checkDecisionDocs", () => {
       yield* checkDecisionDocs("/repo")
       assert.include(index.calls[0]?.args ?? [], ":(exclude)repos")
       assert.deepStrictEqual(yield* TestConsole.logLines, [
-        "Checked 2 files, no ADRs.",
+        "Checked 2 files: no ADRs, every Decision in shape.",
       ])
     }).pipe(Effect.provide(layer))
   })
@@ -67,7 +73,42 @@ describe("checkDecisionDocs", () => {
     return Effect.gen(function* () {
       yield* checkDecisionDocs("/repo")
       assert.deepStrictEqual(yield* TestConsole.logLines, [
-        "Checked 2 files, no ADRs.",
+        "Checked 2 files: no ADRs, every Decision in shape.",
+      ])
+    }).pipe(Effect.provide(layer))
+  })
+
+  it.effect(
+    "passes a five-line decision, closed by an empty comment line or */",
+    () => {
+      const { layer } = repo({
+        "a.ts": [...comment(5), "//", "// Unrelated.", "const a = 1"].join(
+          "\n"
+        ),
+        "b.tsx": ["/**", ...comment(5, " *"), " */"].join("\n"),
+        "c.yml": [...comment(5, "#"), "key: value"].join("\n"),
+        "d.ts": `// Prose about the \`${tag}\` tag.`,
+        "e.md": `Notes. ${tag} prose, not a comment.`,
+      })
+      return Effect.gen(function* () {
+        yield* checkDecisionDocs("/repo")
+      }).pipe(Effect.provide(layer))
+    }
+  )
+
+  it.effect("fails a decision over five lines, or one opening mid-line", () => {
+    const { layer } = repo({
+      "a.ts": [...comment(6), "const a = 1"].join("\n"),
+      "b.tsx": ["/**", ...comment(5, " *"), " * more */"].join("\n"),
+      "c.ts": `// What this does. ${tag} why.`,
+    })
+    return Effect.gen(function* () {
+      const error = yield* Effect.flip(checkDecisionDocs("/repo"))
+      assert.instanceOf(error, CheckFailed)
+      assert.deepStrictEqual(error.findings, [
+        "a.ts:1: Decision runs 6 lines; keep 5 and link the PR for the rest",
+        "b.tsx:2: Decision runs 6 lines; keep 5 and link the PR for the rest",
+        `c.ts:1: ${tag} starts mid-comment; open its own comment line with it`,
       ])
     }).pipe(Effect.provide(layer))
   })
