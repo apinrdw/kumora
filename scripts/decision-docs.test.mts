@@ -272,6 +272,17 @@ describe("checkDecisionDocs", () => {
     })
   )
 
+  it.effect("reads YAML comments", () =>
+    Effect.gen(function* () {
+      assert.deepStrictEqual(
+        yield* findings({
+          "a.yml": [...comment(6, "#"), "key: value"].join("\n"),
+        }),
+        ["a.yml:1: Decision runs 6 lines; keep 5 and link the PR for the rest"]
+      )
+    })
+  )
+
   it.effect("names a file it cannot parse and reads no Decision in it", () =>
     Effect.gen(function* () {
       yield* passes({ "a.ts": ["const = ;", ...comment(6)].join("\n") })
