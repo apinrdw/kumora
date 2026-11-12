@@ -73,7 +73,11 @@ Which feed a figure came from and its as-of.
 The instant a figure was last true at its source.
 
 **Freshness**:
-How current a figure is relative to its feed: live, delayed, end-of-day, stale, unavailable, or demo. Live means arriving now; it does not mean the feed is licensed.
+How current a figure is relative to its feed: live, delayed, end-of-day, stale, unavailable, or demo. Live means arriving now; it does not mean the feed is licensed. Delayed means arriving, but with a feed lag far behind the exchange.
+
+**Feed lag**:
+How long after the exchange's trade time a relayed running trade first reached the terminal. A quiet feed has no feed lag, only an old as-of.
+_Avoid_: Tape lag, delay, latency
 
 **Market phase**:
 The part of the trading day the exchange is in: pre-opening, session 1, break, session 2, pre-closing, post-trading, closed, or holiday. A quiet feed in a phase where no trades are expected is still live.
