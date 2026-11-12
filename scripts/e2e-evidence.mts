@@ -1,7 +1,8 @@
 // `pnpm e2e:evidence [--pr <n>] [--dry-run] [spec...]`: runs the full e2e
-// suite with video on, posts the picked specs' videos to the PR as one comment
-// and marks the PR head `e2e-evidence: success`, linking to it. Every decision
-// is in scripts/e2e-evidence-plan.mts; this file runs git, gh and Playwright.
+// suite, recording video of only the picked specs, posts their videos to the
+// PR as one comment and marks the PR head `e2e-evidence: success`, linking to
+// it. Every decision is in scripts/e2e-evidence-plan.mts; this file runs git,
+// gh and Playwright.
 // --dry-run prints the comment and the gh calls instead of making them.
 import { availableParallelism } from "node:os"
 import { parseArgs as parseCliArgs } from "node:util"
@@ -166,9 +167,10 @@ const e2eEvidence = Effect.fn("e2eEvidence")(function* (
   const results = path.join(root, "apps/e2e/test-results")
   const reportFile = path.join(results, "e2e-evidence-report.json")
   yield* fs.remove(reportFile, { force: true })
-  // Decision: about a quarter of the cores, since every page records through
-  // its own VP9 encoder: 8 workers with video timed out on 16 cores, 4 passed
-  // (apinrdw/kumora#210).
+  // Decision: about a quarter of the cores, since the trace of every test is
+  // the run's load, not the picked specs' video: on 16 cores, 8 workers timed
+  // out account.spec.ts in 2 of 3 runs (one during a DNS outage) with no video
+  // on it and finished no sooner than 4, which passed (apinrdw/kumora#210).
   const workers = Math.max(1, Math.floor(availableParallelism() / 4))
   const playwright = [
     "test:e2e",
@@ -181,9 +183,13 @@ const e2eEvidence = Effect.fn("e2eEvidence")(function* (
   const exitCode = yield* runOnTerminal(
     ChildProcess.make("pnpm", playwright, {
       cwd: root,
-      // The video switch, as apps/e2e/support/video.ts defines it; a root
-      // script imports from no workspace, so the two name each other.
-      env: { E2E_VIDEO: "on", PLAYWRIGHT_JSON_OUTPUT_FILE: reportFile },
+      // The video switch, as apps/e2e/support/video.ts defines it: the picked
+      // specs, comma-separated. A root script imports from no workspace, so
+      // the two name each other.
+      env: {
+        E2E_VIDEO: specs.join(","),
+        PLAYWRIGHT_JSON_OUTPUT_FILE: reportFile,
+      },
       extendEnv: true,
       stdin: "inherit",
       stdout: "inherit",

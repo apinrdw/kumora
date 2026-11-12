@@ -116,7 +116,10 @@ export interface PreflightInputs extends Checkout {
 
 // The files a spec as typed names. Either path may be the longer: a changed
 // file is repo-relative, the report's is relative to apps/e2e/tests, and the
-// author may type either or something between.
+// author may type either or something between. apps/e2e/support/video.ts
+// matches the picked specs it records by this rule less the shorter-spec case
+// (isNamedBy), since its files sit directly in tests/, so change the two
+// together.
 const filesOf = Effect.fnUntraced(function* (
   spec: string,
   files: ReadonlyArray<string>

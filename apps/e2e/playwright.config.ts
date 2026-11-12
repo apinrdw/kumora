@@ -1,12 +1,16 @@
 import { defineConfig } from "@playwright/test"
 import { TEST } from "@workspace/deploy"
+import { readdirSync } from "node:fs"
 
 import { ADMIN, testUrl } from "./support/accounts"
 import { MARKET_CLOCK_OFFSET } from "./support/clock"
 import { TEST_INGEST_TOKEN } from "./support/ingest"
-import { video } from "./support/video"
+import { recording, SWITCH, TRADING_DAY_SPECS, video } from "./support/video"
 
-const TRADING_DAY_SPECS = /market-live[\w-]*\.spec\.ts$/
+const recorded = recording(
+  process.env[SWITCH],
+  readdirSync(new URL("tests", import.meta.url))
+)
 
 export default defineConfig({
   testDir: "tests",
@@ -18,7 +22,7 @@ export default defineConfig({
   // fixed instead of passing on a second try (apinrdw/kumora#168).
   retries: 0,
   reporter: "list",
-  use: { browserName: "chromium", video },
+  use: { browserName: "chromium" },
   projects: [
     // Signs up and verifies the shared accounts through the UI and saves
     // their signed-in state (support/accounts.ts) for the specs.
@@ -26,8 +30,21 @@ export default defineConfig({
     {
       name: "chromium",
       dependencies: ["setup"],
-      testIgnore: TRADING_DAY_SPECS,
+      testIgnore: [TRADING_DAY_SPECS, ...recorded.chromium],
     },
+    // Decision: video is a worker option, so it can vary per project but not
+    // per test: the chromium specs an evidence run picks run in a project of
+    // their own that records, and the rest record nothing.
+    ...(recorded.chromium.length > 0
+      ? [
+          {
+            name: "chromium-video",
+            dependencies: ["setup"],
+            testMatch: recorded.chromium,
+            use: { video },
+          },
+        ]
+      : []),
     // Decision: the specs that send trades share one Durable Object, today's
     // trading day, so they run one at a time: a spec alongside would add
     // trades to the tape it counts. A run has one server and one storage, and
@@ -38,6 +55,10 @@ export default defineConfig({
       dependencies: ["setup"],
       testMatch: TRADING_DAY_SPECS,
       workers: 1,
+      // Decision: not split like chromium, or its two halves would run side
+      // by side: when an evidence run picks any trading-day spec, the whole
+      // project records.
+      ...(recorded.tradingDay ? { use: { video } } : {}),
     },
   ],
   // Both apps run on alchemy's local `test` stage: local state, no Infisical,
