@@ -524,6 +524,34 @@ describe("delayed freshness", () => {
   )
 
   it.effect(
+    "a delayed feed whose connections all close starts over undelayed when it reconnects inside the lag window",
+    () =>
+      Effect.gen(function* () {
+        const market = yield* marketAt("2026-11-09T10:00:00")
+        const next = yield* everySecond(market, "Stockbit", {
+          first: 50_001,
+          seconds: 10,
+          lag: 6_000,
+        })
+        assert.strictEqual((yield* market.feeds).Stockbit, "delayed")
+        yield* market.reported("Stockbit", "A", "closed")
+        yield* TestClock.adjust("250 millis")
+        assert.strictEqual((yield* market.feeds).Stockbit, "unavailable")
+        yield* TestClock.adjust("2 seconds")
+        yield* everySecond(market, "Stockbit", {
+          first: next,
+          seconds: 1,
+          lag: 200,
+        })
+        assert.deepStrictEqual(lagged(yield* market.conditions), {
+          Stockbit: "live",
+          Ajaib: "unavailable",
+          lags: {},
+        })
+      })
+  )
+
+  it.effect(
     "a lag that moves by less than a second sends no market conditions",
     () =>
       Effect.gen(function* () {
