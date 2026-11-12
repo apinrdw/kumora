@@ -122,9 +122,12 @@ const INGEST_TOKEN_DEADLINE = Duration.seconds(10)
 // trade is still deduped, counted in its candle and merged (the candle book
 // holds it), but viewers aren't sent it. See apinrdw/kumora#157.
 const TAPE_LIMIT = 10_000
-// How many trade numbers each feed remembers timing from copies held only
-// outside the tape (`insertRelayed`): a tape's worth.
-const OUTSIDE_TIMED_LIMIT = TAPE_LIMIT
+// Decision: each feed remembers the last 40,000 trade numbers it timed, four
+// tapes' worth. Its copy of a trade is held outside the tape and merge window
+// only after 10,000 newer trades and 5 s; connection B trails A by seconds,
+// far inside 30,000 more of the feed's trades. Two sets of 40,000 short
+// strings cost a few MB.
+const TIMED_LIMIT = 4 * TAPE_LIMIT
 
 // Decision: the day's state is written to the day store once a minute, 5 s
 // past it, so each flush closes the minute's book chunks and 5 s merge
@@ -481,21 +484,19 @@ export const makeTradingDay = Effect.fnUntraced(function* (options: {
     for (const arriving of trades) yield* insertOne(arriving)
   })
 
-  // Each feed's trade numbers it timed from copies held only outside the tape
-  // and merge windows, newest last, at most OUTSIDE_TIMED_LIMIT.
-  const timedOutside: Record<Feed, Set<TradeNumber>> = {
+  // Each feed's trade numbers it timed, newest last, at most TIMED_LIMIT.
+  const timedBy: Record<Feed, Set<TradeNumber>> = {
     Stockbit: new Set(),
     Ajaib: new Set(),
   }
-  // Whether `feed`'s copy of a trade held only outside the tape and merge
-  // windows is its first: one it hasn't timed before. Remembers it.
-  const firstOutside = (feed: Feed, trade: RunningTrade) =>
+  // Whether `feed`'s copy of a trade is its first: a number it hasn't timed
+  // before. Remembers it.
+  const firstTiming = (feed: Feed, trade: RunningTrade) =>
     Effect.sync(() => {
-      const timed = timedOutside[feed]
+      const timed = timedBy[feed]
       if (timed.has(trade.tradeNumber)) return false
       timed.add(trade.tradeNumber)
-      if (timed.size > OUTSIDE_TIMED_LIMIT)
-        timed.delete(timed.values().next().value!)
+      if (timed.size > TIMED_LIMIT) timed.delete(timed.values().next().value!)
       return true
     })
 
@@ -503,10 +504,9 @@ export const makeTradingDay = Effect.fnUntraced(function* (options: {
   // the feed's first relayed copy of each: new to the day, or held from the
   // other feed alone. Backfill pages aren't relayed and are never timed.
   // Decision: a copy held only outside the tape and merge windows is timed for
-  // the arriving feed, its feeds unread: a feed over a tape's span behind the
-  // other (Stockbit ~17 min behind Ajaib) has only such copies. The feed's
-  // last OUTSIDE_TIMED_LIMIT such numbers keep connection B's copy untimed.
-  // See apinrdw/kumora#239.
+  // the arriving feed unless the feed timed that number before, its feeds
+  // unread: a feed over a tape's span behind the other (Stockbit ~17 min
+  // behind Ajaib) has only such copies. See apinrdw/kumora#239.
   const insertRelayed = Effect.fnUntraced(function* (
     feed: Feed,
     trades: ReadonlyArray<RunningTrade>
@@ -514,11 +514,8 @@ export const makeTradingDay = Effect.fnUntraced(function* (options: {
     const firsts: Array<RunningTrade> = []
     for (const arriving of trades) {
       const before = yield* insertOne(arriving)
-      const first =
-        before === undefined
-          ? yield* firstOutside(feed, arriving)
-          : !before.includes(feed)
-      if (first) firsts.push(arriving)
+      const unheld = before === undefined || !before.includes(feed)
+      if (unheld && (yield* firstTiming(feed, arriving))) firsts.push(arriving)
     }
     const lags = yield* timeTrades(feed, firsts)
     yield* feedLags.record(lags)
