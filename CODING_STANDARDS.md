@@ -10,6 +10,8 @@ A pipe in an npm script hides the producer's failure, because `sh` has no `pipef
 
 A value that two files must agree on (a hash length, a route path, a header name, a key name) has one definition. The second file imports it, or, when the two cannot share a module (a Worker route and a Node script), each names the other in a comment at the definition so a change to one finds the other.
 
+The same holds for prose about behaviour. A doc, skill note or brief that needs how some code behaves (when it keeps a value, what it skips, which case it fails on) names the file that does it and leaves the how to that file's comment. A doc that restates the behaviour goes false with the code's next fix, and PR #194's review spent three rounds on six such copies.
+
 ## Glossary terms are types
 
 A parameter or field that holds a glossary term (an Environment, a Preview) carries a union or branded type from that term's definition, never a bare `string` narrowed by `includes`. Parse external input (argv, JSON, env) into the type at the boundary and trust it inside.
