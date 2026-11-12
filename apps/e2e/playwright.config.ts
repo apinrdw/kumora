@@ -38,14 +38,10 @@ export default defineConfig({
       testIgnore: TRADING_DAY_SPECS,
     },
     // Decision: the specs that send trades share one Durable Object, today's
-    // trading day, so within a shard they run one at a time: a spec running
-    // alongside would add trades to the tape it counts. Isolation across
-    // shards comes from the shards themselves: each CI shard is its own job
-    // with its own server and Durable Object storage, so shards never share a
-    // trading day, and the dashboard has no test-only key for one
-    // (apinrdw/kumora#169). Each test's trades are numbered above everything
-    // sent before it (support/ingest.ts freshTradeNumbers), so the order they
-    // run in doesn't matter.
+    // trading day, so within a shard they run one at a time: a spec alongside
+    // would add trades to the tape it counts. Each CI shard has its own server
+    // and storage, and the dashboard has no test-only key for a trading day.
+    // See apinrdw/kumora#157 and #169.
     {
       name: "trading-day",
       dependencies: ["setup"],

@@ -164,10 +164,11 @@ export const decodeRecordedGaps = Schema.decodeUnknownEffect(
 
 // One served order book frame after the one before it: when the trading-day
 // Durable Object served it, the book's as-of, and the other parts that
-// changed. The first frame of a code's day carries every part. Decision:
-// the served instant is the replay's timeline, not the as-of: a served book
-// can be older than the one before it (Ajaib's when Stockbit goes stale),
-// and a replay cursor is an instant on the viewers' clock.
+// changed. The first frame of a code's day carries every part.
+// Decision: the served instant is the replay's timeline, not the as-of: a
+// served book can be older than the one before it (Ajaib's when Stockbit goes
+// stale), and a replay cursor is an instant on the viewers' clock.
+// See apinrdw/kumora#157.
 const BookDelta = Schema.Struct({
   servedAt: Schema.DateTimeUtcFromMillis,
   at: Schema.DateTimeUtcFromMillis,

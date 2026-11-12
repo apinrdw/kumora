@@ -14,12 +14,10 @@ import { accountOf } from "../auth/session-account.ts"
 import { AccountId, SessionId } from "./routes.ts"
 
 // Decision: the gate runs once, at the upgrade, so the viewer carries its
-// session's end with it: the object closes the socket with 4401 once the end
-// passes (trading-day.ts), where a session's delete hook never fires. The end
-// is the session's `expiresAt`, which already holds an impersonation session
-// to its hour (options.ts). A session renewed by other requests after the
-// upgrade is still closed at the end the gate saw; the page signs in again
-// and comes back.
+// session's `expiresAt` and the object closes the socket with 4401 once it
+// passes (trading-day.ts), where a session's delete hook never fires. A session
+// renewed after the upgrade still closes at the end the gate saw; the page
+// signs in again. See apinrdw/kumora#157.
 interface LiveViewer {
   readonly userId: AccountId
   readonly sessionId: SessionId

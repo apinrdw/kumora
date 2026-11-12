@@ -27,11 +27,9 @@ const ITEM =
 
 // Decision: the strip is loaded on mount, and again, past the copy the
 // browser keeps until 17:01 WIB (day-index.ts), a minute after the loader
-// first says the market shut on a day: that is the 17:00 seal, which writes
-// the day's row; the seal's flush and index row take seconds, and a row its
-// retry lands later shows on the next load, as day-index.ts decides. The
-// loader's day at mount, a weekend's or an evening's, is in the copy already.
-// Midnight and 08:40 change the loader's answer, not the days recorded.
+// first says the market shut on a day, so the 17:00 seal has written the day's
+// row; a row its retry lands later shows on the next load. Midnight and 08:40
+// change the loader's answer, not the days recorded. See apinrdw/kumora#157.
 const SEAL_SETTLED = "1 minute"
 
 const stripLoad = (

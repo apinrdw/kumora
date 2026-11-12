@@ -23,6 +23,7 @@ export const ViewerProtocolVersion = 1
 // shows it; any other close, 1006 included, retries with backoff. The token
 // travels as the first message because a browser websocket can't set headers.
 // See apinrdw/kumora#45.
+//
 // 4403 and 4426 stop the relay retrying (apps/extension target.ts); 4408, a
 // socket closed without its token within the trading-day object's deadline,
 // reconnects like a dropped one.
@@ -130,20 +131,11 @@ export const AjaibFrames = Schema.TaggedStruct("Frames", {
   frames: Schema.Array(Schema.String),
 })
 
-// Decision: a new ingest socket's first message is read only up to
-// INGEST_TOKEN_MESSAGE_LIMIT UTF-16 units (at most three times that in UTF-8
-// bytes); the trading-day object checks the length before parsing and closes
-// a longer one with 4403. A websocket message may carry 32 MiB (Cloudflare's
-// Durable Objects limits page,
-// https://developers.cloudflare.com/durable-objects/platform/limits/, read
-// 2026-11-10), so a client without the token could otherwise have the shared
-// object decode a Frames envelope of millions of frames before its token was
-// checked. A token message from `encodeIngestUp` is 47 characters plus the
-// token, which `openssl rand -base64 32` (docs/runbooks/deploy.md) makes 44,
-// so 91; a token too long for the message is rejected like a wrong one. Envelopes after the
-// token have no bound here: the relay holds the secret, and a Frames
-// envelope's size at peak is unmeasured (spec apinrdw/kumora#138, open
-// items).
+// Decision: the trading-day object closes a new ingest socket's first message
+// with 4403 unread when it passes this many UTF-16 units, so a client without
+// the token can't have it decode a 32 MiB Frames envelope. A token message is
+// 91 (47 plus a 44-character token); later envelopes have no bound here.
+// See apinrdw/kumora#157.
 export const INGEST_TOKEN_MESSAGE_LIMIT = 1024
 
 // The ingest token, the first message after the socket opens.
@@ -215,30 +207,17 @@ const IngestDown = Schema.Union([Backfill, OnDemandCodes])
 export type IngestDown = typeof IngestDown.Type
 
 // Decision: a watchlist holds at most 10,000 codes, about three times the
-// 3,406 Ajaib lists. A viewer socket message may carry 32 MiB, and the
-// trading-day object stores a viewer's codes as one value, which its
-// SQLite-backed storage holds up to 8 MB together with the key (both from
-// Cloudflare's Durable Objects limits page,
-// https://developers.cloudflare.com/durable-objects/platform/limits/, read
-// 2026-11-10). A code is at most 16 characters (codes.ts), so the largest
-// Select accepted stores under 200 KB; envelope.test.ts measures it. A Select
-// past either cap fails to decode, and the object closes the socket as for
-// any Select it couldn't serve.
+// 3,406 Ajaib lists. The object stores a viewer's codes as one value, capped
+// at 8 MB with its key; with 16-character codes the largest Select stores
+// under 200 KB (envelope.test.ts). A Select past the cap fails to decode and
+// its socket closes. See apinrdw/kumora#157.
 const WATCHLIST_LIMIT = 10_000
 
-// Decision: a viewer message is read only up to VIEWER_MESSAGE_LIMIT UTF-16
-// units (at most three times that in UTF-8 bytes); the trading-day object
-// checks the length before parsing and closes a longer one with 1011 unread.
-// The largest Select `encodeViewerUp` makes, 10,000 codes of 16 characters,
-// is 190,081 units; envelope.test.ts measures it under the limit. A
-// websocket message may carry 32 MiB (Cloudflare's Durable Objects limits
-// page, https://developers.cloudflare.com/durable-objects/platform/limits/,
-// read 2026-11-10), so a signed-in viewer could otherwise have the shared
-// object parse millions of short codes before the watchlist cap refused
-// them. 1011 is the code a Select past that cap gets, and the bound follows
-// from the cap: the page reconnects with backoff and sends its Select again,
-// while its terminal codes, 4401 and 4426, mean its session or its version
-// is wrong, not that the object refused one message.
+// Decision: the trading-day object closes a viewer message past this many
+// UTF-16 units with 1011 unread, so a viewer can't have it parse a 32 MiB
+// message before the watchlist cap. The largest Select is 190,081 units
+// (envelope.test.ts). 1011, as for a Select past the cap, retries with
+// backoff, not terminal 4401 or 4426. See apinrdw/kumora#157.
 export const VIEWER_MESSAGE_LIMIT = 200_000
 
 // The page's selected code and watchlist, sent on open and on every change.

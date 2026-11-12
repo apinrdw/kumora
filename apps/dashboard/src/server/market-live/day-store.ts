@@ -21,11 +21,11 @@ import type { LivePrice } from "./stockbit-liveprice.ts"
 export type SqlValue = string | number | null | Uint8Array
 
 // The part of SQLite the store needs: Cloudflare's `SqlStorage` and Node's
-// `DatabaseSync` both fit behind it. Decision: its methods are plain, not
-// Effects: they are the adapter over those synchronous third-party calls,
-// and `transaction` runs its write inside the database's own synchronous
-// transaction, where an Effect could not run. The store wraps every call in
-// an Effect.
+// `DatabaseSync` both fit behind it.
+// Decision: its methods are plain, not Effects: they adapt those synchronous
+// third-party calls, and `transaction` runs its write inside the database's
+// own synchronous transaction, where an Effect could not run. The store wraps
+// every call in an Effect. See apinrdw/kumora#159.
 export interface Sql {
   readonly exec: (
     query: string,
@@ -52,11 +52,10 @@ export interface Flush {
 }
 
 // Decision: a trade is one row keyed by its number as the INTEGER PRIMARY
-// KEY, the table's rowid, with no secondary index, so each insert writes one
-// row (spec apinrdw/kumora#138, "Storage and cost"). A day's numbers are far
-// below 2^53, so they travel as plain numbers. Candles, last `liveprice`
-// frames, book chunks and whole Ajaib books are keyed tables WITHOUT ROWID,
-// replaced at most once a minute.
+// KEY (the rowid; a day's numbers stay far below 2^53), with no secondary
+// index, so each insert writes one row. The other tables are keyed WITHOUT
+// ROWID, replaced at most once a minute. See spec apinrdw/kumora#138,
+// "Storage and cost".
 const SCHEMA = [
   `CREATE TABLE IF NOT EXISTS trades (
     number INTEGER PRIMARY KEY,
@@ -285,15 +284,11 @@ export const makeDayStore = (sql: Sql) =>
           )[0]
       )
 
-    // Decision: a trade number at or above every trade at or before an
-    // instant is found by a binary search on the trade number, which IDX
-    // hands out in matching order, so the table needs no index on time. The
-    // stored times do not grow with the number exactly: Stockbit times a
-    // trade to the millisecond, Ajaib and the backfill to the second, so a
-    // trade's stored time runs at most TIME_SKEW_MS before the one before
-    // it. The search therefore looks for the highest number whose time is
-    // within the skew after the instant: every trade at or before the
-    // instant is at or below it, and the query's time filter drops the rest.
+    // Decision: the trades up to an instant are bounded by a binary search on
+    // the trade number, which IDX hands out in time order, so the table needs
+    // no time index. Stored times can run up to TIME_SKEW_MS backwards, so the
+    // search targets the instant plus the skew and the query's time filter
+    // drops the rest. See apinrdw/kumora#157.
     const highestWithin = Effect.fnUntraced(function* (cutoff: number) {
       const bound = cutoff + TIME_SKEW_MS
       let low = yield* boundTrade("min")

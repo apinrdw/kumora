@@ -42,19 +42,10 @@ export const tradeSubscribe = (id: Option.Option<AjaibAccountId>) =>
   message("SUBSCRIBE", "TRADE", "*", id)
 
 // Decision: each code is subscribed once per socket, and a change of the
-// on-demand set sends only the difference: UNSUBSCRIBE for codes no longer
-// wanted, SUBSCRIBE for new ones. That is "subscribe once per connection" per
-// code: the spec's repeated subscribe is the same code twice, which this
-// never sends. A code in `fresh` the socket already holds is sent the pair,
-// UNSUBSCRIBE then SUBSCRIBE, so that Ajaib sends its whole book again.
-// Documented (spec apinrdw/kumora#138, "The extension"): ORDER_BOOK_CUSTOM
-// sends its own `is_initial` snapshot on subscribing, then per-level
-// deltas. Inferred, not yet observed on the relay's socket: that it sends
-// the snapshot again after the pair. The pair is what Ajaib's own page
-// sends when its code changes (owner's DevTools, 2026-11-06,
-// apinrdw/kumora#50), which is also why the diff is kept over reopening the
-// sockets; `invalid subscription object` there answered the PING-WEB ping. A
-// reopened socket starts from nothing.
+// on-demand set sends only the difference; a code in `fresh` the socket holds
+// gets UNSUBSCRIBE then SUBSCRIBE so Ajaib resends its whole book (inferred,
+// not yet observed). Diffing beat reopening the sockets, which starts from
+// nothing; the pair is what Ajaib's own page sends. See apinrdw/kumora#157.
 export const onDemandMessages = Effect.fnUntraced(function* (
   stream: OnDemandStream,
   from: ReadonlyArray<StockCode>,

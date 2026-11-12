@@ -1,10 +1,10 @@
 // Recorded day loads from the dashboard Worker (spec apinrdw/kumora#138,
 // "Recorded day loads"). Each GET answers none when nothing was recorded
 // (404); a 401 fails SignInRequired, so the page sends the visitor to sign
-// in. Decision: any other status fails, a 5xx included. None is what the
-// page keeps, as a minute's missing book chunk, so a Worker that can't
-// answer must not look like one that recorded nothing, or the page would
-// never ask again once the Worker recovers.
+// in.
+// Decision: any other status fails, a 5xx included. The page keeps None as a
+// minute's missing book chunk and never asks again, so a Worker that can't
+// answer must not look like one that recorded nothing. See apinrdw/kumora#157.
 import {
   DayStripPath,
   decodeBookChunk,

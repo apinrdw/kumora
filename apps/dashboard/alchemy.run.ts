@@ -25,9 +25,8 @@ const AuthDb = Cloudflare.D1.Database("AuthDb", { migrations: "./migrations" })
 // Decision: Production alone owns the mailer.pusat.ai sending subdomain; every
 // other stage only binds EMAIL with this sender, so destroying a Preview never
 // removes it, and their mail fails until Production has deployed it. Message
-// previews are off here, on the subdomain, because Alchemy's SendEmail binding
-// has no previewEnabled; the spec asked for it on every binding. See
-// apinrdw/kumora#82.
+// previews are off on the subdomain: Alchemy's SendEmail binding has no
+// previewEnabled. See apinrdw/kumora#82.
 const SendingSubdomain = Effect.gen(function* () {
   const { accountId } = yield* yield* Cloudflare.CloudflareEnvironment
   const zone = yield* Cloudflare.Zone.findZoneByName({
@@ -74,12 +73,10 @@ export const Website = Cloudflare.Website.Vite(
     const stage = yield* currentStage
     const turnstile = yield* turnstileKeys(stage)
     // Decision: Google sign-in is enabled by stage, on Production and Staging,
-    // never by whether its client secret is present. Previews and Dev stages
-    // read Infisical `staging`, which holds the Google client too, and their
-    // URLs are not redirect URIs of the OAuth client. The client is bound (from
-    // Infisical `/dashboard`) only there, so a missing secret on Production or
-    // Staging fails the deploy instead of hiding the button. See
-    // apinrdw/kumora#89.
+    // never by whether its client secret is present: Previews and Dev read
+    // Infisical `staging`, which holds the Google client too, but their URLs are
+    // not OAuth redirect URIs. So a missing secret on Production or Staging fails
+    // the deploy instead of hiding the button. See apinrdw/kumora#89.
     const google: Partial<
       Record<
         "GOOGLE_CLIENT_ID" | "GOOGLE_CLIENT_SECRET",

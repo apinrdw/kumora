@@ -115,26 +115,16 @@ const DELTA_INTERVAL = "250 millis"
 const INGEST_TOKEN_DEADLINE = Duration.seconds(10)
 
 // Decision: the tape in memory holds the newest 10,000 trades, the most the
-// page keeps; a restarted object reloads them from the day store. A trade
-// older than that window is still deduped against the store and still counts
-// in its candle, and a second feed's copy still merges into it while its
-// merge window is open (the candle book holds it), but viewers aren't sent
-// it: the page keeps the same window.
+// page keeps; a restarted object reloads them from the day store. An older
+// trade is still deduped, counted in its candle and merged (the candle book
+// holds it), but viewers aren't sent it. See apinrdw/kumora#157.
 const TAPE_LIMIT = 10_000
 
-// Decision: trades, candles, last `liveprice` frames, book chunks, whole
-// Ajaib books and the feeds' record are written to the day store once a minute, 5 s past the
-// minute (spec apinrdw/kumora#138, "Storage and cost"), so each flush closes
-// the minute that just ended: its book chunks, and its trades' 5 s merge
-// windows. The one exception is the relay going offline (`ingestClosed`),
-// which flushes at once, mid-minute, so a restart keeps the relay gap from
-// that instant. Each trade is written once. A flush whose write failed keeps
-// what it took, and the next flush, a minute later, writes it with what
-// settled since, so a candle is never stored without the trades it counted;
-// the candle book keeps the trades and candles, still held against a late
-// copy (candles.ts), and the day the rest. A restart loses at most the
-// minute in progress and an unwritten flush, which the relay's backfill
-// refills from the next gap.
+// Decision: the day's state is written to the day store once a minute, 5 s
+// past it, so each flush closes the minute's book chunks and 5 s merge
+// windows; only the relay going offline (`ingestClosed`) flushes at once. A
+// failed flush's payload rides the next, so a candle is never stored without
+// its trades. See apinrdw/kumora#138 and apinrdw/kumora#157.
 const MINUTE = 60_000
 const FLUSH_PAST_MINUTE = 5_000
 
@@ -174,12 +164,10 @@ const latestByCode = <T extends { readonly code: StockCode }>(
   })
 
 // Decision: a viewer whose session ended is closed with 4401 when it would
-// next be served, a delta or a snapshot, not by a timer: that is where it
-// would otherwise get data, and it needs nothing the object keeps in memory,
-// so it holds across hibernation. An idle expired socket stays open, served
-// nothing, until then. A viewer tagged without an end is closed the same way,
-// as the sessions a user holds keep open no socket tagged without a session
-// (`endSessions`).
+// next be served, a delta or a snapshot, not by a timer, which hibernation
+// would lose. An idle expired socket stays open, served nothing, until then.
+// A viewer tagged without an end is closed the same way. See
+// apinrdw/kumora#157.
 const sessionEnded = Effect.fnUntraced(function* (viewer: Peer) {
   if (viewer.sessionEnd === undefined) return false
   const end = yield* viewer.sessionEnd
@@ -213,12 +201,10 @@ const merge = (held: RunningTrade, arriving: RunningTrade) =>
     }
   })
 
-// Decision: the auction matches (08:58:00 and 16:00:00, inside pre-opening
-// and pre-closing) and the negotiated board have no side, whichever feed
-// claims one: Ajaib types about 99.5% of match prints SELL. Applied to the
-// merged trade, so an Ajaib side can't fill a match or an NG print that
-// Stockbit left unspecified. The cash board (TN) keeps its side: Stockbit
-// sends a real aggressor there.
+// Decision: the auction matches (inside pre-opening and pre-closing) and the
+// negotiated board have no side, whichever feed claims one: Ajaib types about
+// 99.5% of match prints SELL. Applied to the merged trade; the cash board
+// (TN) keeps Stockbit's real aggressor. See apinrdw/kumora#157.
 const settleSide = Effect.fnUntraced(function* (trade: RunningTrade) {
   if (trade.side === "none") return trade
   const { phase } = yield* marketMomentAt(trade.time)
@@ -307,16 +293,11 @@ export const makeTradingDay = Effect.fnUntraced(function* (options: {
 }) {
   // Delta timers outlive the message that started them.
   const scope = yield* Scope.Scope
-  // Decision: the object's callbacks and timer bodies run one at a time, as
-  // they did before they were Effects. Every guard on the day's state (a
-  // frame newer than what its code holds, a trade's position on the tape)
-  // reads the state its write then changes, and the run loop yields a fiber
-  // every 2048 operations, so without this a second callback's frames land
-  // inside the first's and the first writes over them (the tests under
-  // "overlapping ingest callbacks"). One permit, taken where a callback or a
-  // timer body enters (the returned handlers, the delta, conditions and
-  // flush bodies after their sleeps) and never inside, so nothing under it
-  // waits on it.
+  // Decision: the object's callbacks and timer bodies run one at a time:
+  // every guard on the day's state reads what its write then changes, and the
+  // run loop yields mid-callback, so overlapping callbacks write over each
+  // other. One permit, taken only where a callback or timer body enters and
+  // never inside, so nothing under it waits on it. See apinrdw/kumora#159.
   const turn = yield* Semaphore.make(1)
   const codeListStore = options.codeList ?? (yield* memoryCodeListStore)
   const store = yield* makeDayStore(options.sql)
@@ -328,17 +309,12 @@ export const makeTradingDay = Effect.fnUntraced(function* (options: {
   // straight from the store. Today's still serves viewers after the seal.
   const today = (yield* wibDateAt(yield* DateTime.now)) === options.date
   const restoring = !sealed || today
-  // Decision: a viewer is served only until the object's day ends. Once the
-  // clock's WIB date is past it, the socket is closed with 1001 when it would
-  // next be served, a delta or a snapshot, as an ended session is with 4401
-  // above, and the page reconnects through the gate, which checks the session
-  // again, to today's object. The page itself opens no socket past the day:
-  // at the 17:00 seal its loader turns to the day's recorded view, which
-  // drops the socket, and the live view opens a new one at 08:40
-  // (routes/_app/market-live.tsx, closed-market.ts). A socket that lives on
-  // is a page whose timer hasn't fired, or a script with the cookies. A ban,
-  // revoke or delete reaches today's object alone (live-viewers.ts), so a
-  // viewer on yesterday's object that was still served would outlive it.
+  // Decision: a viewer is served only until the object's day ends: past it,
+  // the socket is closed with 1001 when it would next be served, and the page
+  // reconnects through the gate to today's object. A ban, revoke or delete
+  // reaches today's object alone (live-viewers.ts), so a socket served on
+  // yesterday's would outlive it. See apinrdw/kumora#157.
+  //
   // A WIB date is ISO, so a later one reads greater.
   const dayEnded = Effect.map(
     Effect.flatMap(DateTime.now, wibDateAt),
@@ -550,12 +526,11 @@ export const makeTradingDay = Effect.fnUntraced(function* (options: {
     )
   })
 
-  // Decision: while a viewer is connected, the object looks at the market
-  // conditions every second and sends a delta when they changed, so a feed
-  // going stale or the phase turning reaches viewers without a frame. With
-  // no viewer it stops: freshness and relay gaps are decided from the
-  // instants of frames and closes, not from these checks, and a snapshot
-  // reads them fresh.
+  // Decision: while a viewer is connected, the object checks the market
+  // conditions every second and sends a delta when they changed, so a stale
+  // feed or a phase turn reaches viewers without a frame. With no viewer it
+  // stops: freshness and gaps come from frame and close instants, not these
+  // checks. See apinrdw/kumora#157.
   const checkConditions: Effect.Effect<void> = Effect.suspend(() => {
     if (checking) return Effect.void
     checking = true
@@ -694,22 +669,12 @@ export const makeTradingDay = Effect.fnUntraced(function* (options: {
       return setAlarm(at)
     })
 
-  // Decision: an ingest socket that hasn't sent its token is closed with
-  // 4408 by the alarm once INGEST_TOKEN_DEADLINE passed since the object
-  // accepted it, read from the socket's tags, which outlive hibernation:
-  // nothing but the alarm wakes an object whose only sockets are silent, and
-  // the token check runs only on a message, so without it a client without
-  // the token could hold sockets open for good and fill the shared object's
-  // 32,768 (Cloudflare's Durable Object State page,
-  // https://developers.cloudflare.com/durable-objects/api/state/, read
-  // 2026-11-10). The relay sends its token as the socket opens
-  // (apps/extension/src/worker/target.ts), so 10 s is latency alone. The
-  // alarm is armed for the earliest of the seal and a socket's deadline, and
-  // a sweep that leaves a socket with time arms it a deadline on rather than
-  // at that socket's instant, so a trickle of openings wakes the object once
-  // a deadline and a silent socket lives at most two. No cap on the silent
-  // sockets: one would let such a client refuse the relay by filling it,
-  // where the deadline bounds them to the opening rate times 20 s.
+  // Decision: the alarm closes an ingest socket still without its token with
+  // 4408 once INGEST_TOKEN_DEADLINE passed since its accept instant in its
+  // tags, so a tokenless client can't fill the object's 32,768 sockets. No
+  // cap on silent sockets, which would let such a client lock out the relay.
+  // See apinrdw/kumora#157.
+  //
   // Whether a socket still has time.
   const closeOverdueIngests = Effect.fnUntraced(function* (now: number) {
     let withTime = false
@@ -743,14 +708,11 @@ export const makeTradingDay = Effect.fnUntraced(function* (options: {
     yield* arm(DateTime.addDuration(yield* DateTime.now, INGEST_TOKEN_DEADLINE))
   })
 
-  // Decision: the alarm, set for the seal at 17:00 WIB, never fails: an
-  // early alarm sets itself again, and a seal that didn't land, whether its
-  // final flush, its index row or its sealed marker, sets the alarm a minute
-  // later and seals then. The Durable Object's runner answers a failure as
-  // handled, so Cloudflare would not retry the alarm, and nothing else wakes
-  // an object whose relay has gone for the day; the retry keeps what the
-  // failed flush took. Every alarm, the seal's or a token deadline's, sweeps
-  // the ingest sockets first.
+  // Decision: the alarm, set for the seal at 17:00 WIB, never fails: a seal
+  // that didn't land sets the alarm a minute later, as the runner answers a
+  // failure as handled, so Cloudflare would not retry it and nothing else
+  // wakes the object. Every alarm sweeps the ingest sockets first. See
+  // apinrdw/kumora#157.
   const alarm = Effect.gen(function* () {
     armed = undefined
     const now = yield* DateTime.now
@@ -821,14 +783,11 @@ export const makeTradingDay = Effect.fnUntraced(function* (options: {
     yield* gaps.schedule
   })
 
-  // The token a new socket's first message carries, or none. Decision: a
-  // first message longer than INGEST_TOKEN_MESSAGE_LIMIT carries none,
-  // unread, and so does one that isn't a Token of this protocol version:
-  // not JSON, a Token without its token, or another envelope. Only a first
-  // message of another protocol version fails, closing with 4426, the code
-  // that stops an extension of that version retrying (envelope.ts). A decode
-  // failure that escaped would be logged and leave the unauthenticated
-  // socket open, free to keep the shared object parsing.
+  // The token a new socket's first message carries, or none.
+  // Decision: a first message past INGEST_TOKEN_MESSAGE_LIMIT, or not a Token
+  // of this protocol version, carries none. Only another protocol version
+  // fails, closing with 4426 (envelope.ts); an escaped decode failure would
+  // leave the unauthenticated socket open. See apinrdw/kumora#157.
   const firstToken = Effect.fnUntraced(function* (text: string) {
     if (text.length > INGEST_TOKEN_MESSAGE_LIMIT) return undefined
     const first = yield* decodeIngestUp(text).pipe(
@@ -944,18 +903,13 @@ export const makeTradingDay = Effect.fnUntraced(function* (options: {
       )
   )
 
-  // An ingest socket closed. Decision: the relay is offline when the socket
-  // that closed was ready and no other listed ingest socket is both open and
-  // ready, read from the sockets' state, which lives with them across
-  // hibernation. An instance flag set by the token or a frame is false when
-  // the close is the first event after the object woke, which skipped this
-  // transition and its flush, so the next eviction lost the relay gap's start
-  // and the next restart counted the gap from its own wake. A rejected socket
-  // closing changes nothing. Written at once, as nothing else may arrive to
-  // schedule a flush before the object is evicted. The others are counted
-  // here, under the permit: counted when the close arrives, a relay whose
-  // token is still being handled (its hash is awaited) is not ready yet, and
-  // the close would mark the relay offline once the token has put it online.
+  // An ingest socket closed.
+  // Decision: the relay is offline when the closed socket was ready and no
+  // other ingest socket is open and ready, read from socket state that
+  // survives hibernation, not an instance flag a woken object would lack; it
+  // flushes at once. Counted under the permit, so a pending token is settled.
+  // See apinrdw/kumora#157 and apinrdw/kumora#161.
+  //
   // The closing socket is told apart by identity: the object hands out one
   // Peer per socket. One that closed but whose own close isn't handled yet
   // still reads ready, so it must also be open to count.

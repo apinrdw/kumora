@@ -126,14 +126,11 @@ export interface WrittenUser {
 
 type HookContext = Parameters<Parameters<typeof createAuthMiddleware>[0]>[0]
 
-// Decision: Better Auth's hooks are third-party callbacks that must return a
-// Promise, so each runs its Effect here with a bare runPromise and no
-// services. A refusal fails with Better Auth's own APIError, and a rejected
-// Better Auth call dies with its error; runPromise rejects with either
-// unchanged, so Better Auth answers as it would to a throw. Not
-// makeCallbackRunner (callbacks.ts): that one maps our HttpErrors and needs
-// @workspace/server, which the migration script can't load.
-// CODING_STANDARDS.md lists it among the runtimes.
+// Decision: Better Auth's hooks must return a Promise, so each runs its Effect
+// here with a bare runPromise and no services, which rejects with the APIError
+// or a dying call's error unchanged, as Better Auth expects of a throw. Not
+// makeCallbackRunner (callbacks.ts): it needs @workspace/server, which the
+// migration script can't load. See apinrdw/kumora#159.
 const runHook = <A>(effect: Effect.Effect<A, APIError>): Promise<A> =>
   Effect.runPromise(effect)
 
@@ -187,18 +184,14 @@ const voidAccess = Effect.fnUntraced(function* (
 // 422, after checking the input exactly as it does for a new email. Replace
 // that refusal with a success and no session, after hashing the password as a
 // new sign-up would, so the form reveals nothing. A Response, not ctx.json:
-// the 422 would stay on a plain body.
+// the 422 would stay on a plain body. A verified account's address gets no
+// mail and loses nothing. The set-password mail is sent as Better Auth's
+// sign-up mail is, so over the mail cap the answer stays the same.
 // Decision: an unverified account is nobody's yet, so this sign-up voids its
-// password and sessions at once and mails its address a set-password link, so
-// whoever reads the inbox takes the account. Voiding now, not when the link
-// is opened, means a plain verify link mailed earlier (the first sign-up's
-// own, or its Resend) verifies an account with no password and no session,
-// and the squatter keeps nothing. The accepted cost is that anyone can void a
-// never-verified account's password by signing up on its email; the sign-up
-// rate limit and the per-address mail cap bound it. A verified account's
-// address gets no mail and loses nothing. See apinrdw/kumora#80, "Signing
-// in". The send runs as Better Auth's sign-up mail does, so over the mail cap
-// the answer stays the same.
+// password and sessions now, not when the link is opened, and mails a
+// set-password link; an earlier verify link then leaves the squatter nothing.
+// Anyone can void a never-verified password this way, bounded by the sign-up
+// rate limit and mail cap. See apinrdw/kumora#80, "Signing in".
 const hideTakenEmail = Effect.fnUntraced(function* (
   ctx: HookContext,
   input: AuthOptionsInput
@@ -409,17 +402,11 @@ const beforeHook = Effect.fnUntraced(function* (
 const before = (input: AuthOptionsInput) =>
   createAuthMiddleware((ctx) => runHook(beforeHook(ctx, input)))
 
-// Decision: live pages close from the session table's delete hook, not from
-// a table of routes: every route that ends a session (ban, revoke, delete,
-// sign-out, a password reset or change, an expired session being read)
-// deletes its row through it, and the hook runs after the route's
-// transaction. It sends the sessions the account still holds, read after the
-// delete, rather than what the route meant to end, so a refused or failed
-// route ends nothing. /change-password with revokeOtherSessions replaces the
-// caller's own session too, so its page closes and signs in again. A session
-// that expires unread deletes no row, so the page's socket also carries the
-// session's end from the gate (market-live/gate.ts), and the trading-day
-// object closes it at its next delta or Select (market-live/trading-day.ts).
+// Decision: live pages close from the session table's delete hook, not a table
+// of routes: every route that ends a session deletes its row through it, after
+// its transaction. It sends the sessions still held, read after the delete, so
+// a failed route ends nothing. A session that expires unread deletes no row, so
+// gate.ts and trading-day.ts close that one. See apinrdw/kumora#157.
 const endLiveSessions = Effect.fnUntraced(function* (
   input: AuthOptionsInput,
   ended: { readonly userId: string },

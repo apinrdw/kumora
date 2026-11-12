@@ -29,11 +29,9 @@ export const makeOnDemandCodes = Effect.fnUntraced(function* (options: {
       byTarget.set(name, codes)
       // Decision: a target's codes are diffed per target, not only as the
       // union. A code it newly asks for while the other target holds it, or
-      // that it held before its socket dropped, is subscribed afresh so that
-      // Ajaib sends the whole book again (documented on subscribing, inferred
-      // after the resubscribe: see `onDemandMessages`): the dashboard behind
-      // the socket never saw one, or missed deltas while down, and a book
-      // can't be backfilled.
+      // held before its socket dropped, is subscribed afresh so Ajaib resends
+      // the whole book (see `onDemandMessages`): a book can't be backfilled.
+      // See apinrdw/kumora#157.
       const fresh = codes.filter((code) => !before.has(code))
       const next = [...new Set([...byTarget.values()].flat())].sort()
       const same = JSON.stringify(next) === JSON.stringify(union)

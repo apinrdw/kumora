@@ -25,12 +25,10 @@ interface Field {
 // A cursor over one message's bytes. Each read returns undefined when the
 // bytes end early. Varints are read as numbers: the fields read here
 // (seconds, nanos, enums, the daily trade sequence) stay far below 2^53.
-// Decision: the cursor and its reads stay plain functions, not Effects. It
-// steps through every frame on the hot path, a key and a value read per
-// field, and a yielded Effect costs about 120 ns where a read costs a few:
-// with each read an Effect, decoding 100,000 running trades took 745 ms
-// instead of 385 ms in a throwaway timing. `fieldsOf` wraps one message's
-// whole loop in one Effect.
+// Decision: the cursor and its reads stay plain functions, not Effects: they
+// step through every frame on the hot path, a key and a value read per field,
+// and as Effects decoding ran about twice as slow. `fieldsOf` wraps one
+// message's whole loop in one Effect. See apinrdw/kumora#159.
 const readerOf = (bytes: Uint8Array) => {
   const view = new DataView(bytes.buffer, bytes.byteOffset, bytes.byteLength)
   let at = 0

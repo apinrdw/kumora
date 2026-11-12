@@ -173,13 +173,12 @@ export const isCodeListRelayAsk = Effect.fnUntraced(function* (
   return Option.isSome(asked) && asked.value.state === "asked"
 })
 
-// Decision: a test-only clock offset, in ms, moves the relay's schedule (its
-// streaming hours, its auctions and the code list's day), so the extension
-// e2e can run in streaming hours at any time of day. Its only other effects
-// are test seams: a change ticks at once (isClockOffsetChange below) and each
-// tick leaves the offset it used for a spec to await (service-worker.ts). Only a script
-// in the service worker's console sets it; the options page never shows it.
-// Frames keep their real receive times. See apinrdw/kumora#155.
+// Decision: a test-only clock offset, in ms, moves the relay's schedule
+// (streaming hours, auctions, the code list's day) so the extension e2e runs
+// in streaming hours at any time; frames keep their real receive times. Only
+// a script in the worker's console sets it, never the options page.
+// See apinrdw/kumora#155.
+//
 // apps/e2e/support/relay-extension.ts names this key too: it sets the offset.
 const CLOCK_OFFSET_KEY = "clockOffsetMs"
 
@@ -205,11 +204,10 @@ export const isClockOffsetChange = Effect.fnUntraced(function* (
 })
 
 // Decision: the Ajaib PIN lives in chrome.storage.session alone: in memory,
-// cleared when Chrome closes, out of content scripts' reach by default (per
-// https://developer.chrome.com/docs/extensions/reference/api/storage). It is
-// never logged and never leaves the extension but for the one PIN check the
-// Ajaib tab makes (ajaib-session.ts). The sign-in and its access token sit
-// beside it, so a restarted worker keeps them until Chrome closes.
+// cleared when Chrome closes, out of content scripts' reach. It is never
+// logged and leaves the extension only for the Ajaib tab's PIN check. The
+// sign-in and its token sit beside it, so a restarted worker keeps them.
+// See apinrdw/kumora#157.
 const PIN_KEY = "ajaibPin"
 const SIGN_IN_KEY = "ajaibSignIn"
 

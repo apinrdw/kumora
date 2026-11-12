@@ -226,16 +226,11 @@ const priceBase = (price: AjaibPrice) =>
     time: price.time,
   })
 
-// Decision: with Stockbit lost, last, high, low, volume, value and frequency
-// carry on from the merged tape's regular-board trades after the last
-// `liveprice`, the previous close stays as Stockbit last sent it (the
-// `PRICE` frame's when Stockbit never sent one), and an Ajaib `PRICE` newer
-// than that frame fills the last price and the change (spec
-// apinrdw/kumora#138, "Day state"). A code Stockbit never sent today starts
-// from its `PRICE` frame, whose volume already holds the trades, and its
-// value and frequency count the day's regular-board trades. A code with no
-// previous close from either feed has no change: a price seen today never
-// stands in for the previous close.
+// Decision: with Stockbit lost, a code's figures carry on from the merged
+// tape's regular-board trades after the last `liveprice`, and an Ajaib
+// `PRICE` newer than that frame fills the last price and the change. A code
+// with no previous close from either feed has no change: a price seen today
+// never stands in. See spec apinrdw/kumora#138, "Day state".
 const fromFallback = Effect.fnUntraced(function* (
   code: StockCode,
   base: Base | undefined,
@@ -257,14 +252,11 @@ const fromFallback = Effect.fnUntraced(function* (
 })
 
 // Decision: the trades after a code's base are read as the candle book's
-// candles for the minutes after the base's, plus the base minute's trades
-// after the base's time, kept here trade by trade. The candles are the day's
-// regular-board trades as the store holds them, so a restart, a later copy
-// of a trade (within the candle book's merge window) and a frame that
-// arrives after trades newer than it all leave the same figures. A code also
-// keeps its newest minute whole, so a frame in that minute cuts it exactly.
-// A frame whose minute is neither (delayed past the minute's end) counts
-// that minute's trades after it only from the next frame on.
+// candles after the base minute plus that minute's trades kept here, so a
+// restart, a late copy of a trade and an out-of-order frame leave the same
+// figures. A frame delayed past its minute's end counts that minute's trades
+// only from the next frame on. See apinrdw/kumora#157.
+//
 // The guards here read what a code holds and then write it, across yields:
 // the trading day runs its callers one at a time (its `turn` permit).
 export const makeDayStates = (candles: {

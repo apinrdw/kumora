@@ -17,14 +17,11 @@ import type { LivePrice } from "./stockbit-liveprice.ts"
 
 const MINUTE = 60_000
 
-// Decision: a trade's part in its candle stays open for 5 s after the trade
-// first arrived, the merge window of spec apinrdw/kumora#138 ("Merge and
-// dedupe"): a second feed's copy can still move it to another minute (Ajaib
-// rounds to the second), another board, or change its price. After that it is
-// folded in for good, and a later feed changes only the tape row. A candle
-// whose every trade moved away keeps its last sent figures on the page until
-// the next snapshot: the viewer protocol has no removal.
-// apps/e2e/support/clock.ts repeats it for the specs that wait it out.
+// Decision: a trade's part in its candle stays open for 5 s after it first
+// arrived, so a second feed's copy can still move or reprice it; after that a
+// later feed changes only the tape row. The viewer protocol has no removal, so
+// an emptied candle stays on the page until the next snapshot. See spec
+// apinrdw/kumora#138 ("Merge and dedupe"); apps/e2e/support/clock.ts repeats it.
 const MERGE_WINDOW = 5_000
 
 // A candle's figures. Open and close belong to the trades with the lowest and
@@ -77,11 +74,9 @@ interface Print {
 }
 
 // Decision: the candle arithmetic (`single`, `fold`, `add`, `printOf`) stays
-// plain functions, not Effects. A delta folds every trade still inside its
-// merge window into its candle, every 250 ms, so a busy minute runs it
-// thousands of times a delta; as Effects, ingesting 100,000 trades took
-// 2.7 s instead of 2.4 s in a throwaway timing. The Effects around it
-// (`figuresOf`, `settle`, `indexPrice`, `foldAfter`) call it inline.
+// plain functions, not Effects: every 250 ms delta folds each trade still in
+// its merge window, thousands a busy minute, and Effects measured slower. The
+// Effects around it call it inline. See apinrdw/kumora#159.
 const single = (print: Print): CandleFigures => ({
   openOrder: print.order,
   open: print.price,
@@ -195,17 +190,11 @@ interface Totals {
   readonly frequency: number
 }
 
-// Decision: the book keeps a candle in memory only while it is changing: a
-// trade of its is inside the merge window, or its settled figures changed
-// since the last flush. Once the flush that took it has written it, the
-// candle leaves the book, and a trade that lands in that minute later reads
-// the figures back from the store first. So the book holds about a minute of
-// the day, bounded by the codes trading in it, however long the day runs
-// (CODING_STANDARDS.md, "Bounded memory on a Worker"); a code's candles so
-// far are read from the store when a snapshot or the Day state fallback asks,
-// and a restart reads nothing back. A flush that fails leaves its candles and
-// trades in the book, held until the write lands, so a late copy of a trade
-// it took is not counted again, and the next flush writes them (trading-day.ts).
+// Decision: the book keeps a candle in memory only while a trade of its is in
+// the merge window or its figures changed since the last flush; once written
+// it leaves, and a later trade in that minute reads it back from the store.
+// Holding the whole day would grow without bound on a Worker. A failed flush
+// keeps its candles and trades until the write lands. See apinrdw/kumora#157.
 export const makeCandleBook = Effect.fnUntraced(function* (
   store: SettledCandles
 ) {
