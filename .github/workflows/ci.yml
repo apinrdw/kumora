@@ -20,6 +20,11 @@ jobs:
     timeout-minutes: 15
     steps:
       - uses: actions/checkout@v5
+        with:
+          # Decision: full history, for check-extension-version.mts's
+          # merge-base with the PR's base branch. It costs about a second of
+          # checkout (5 s for fallow's full clone, 4 s shallow, run 43219223062).
+          fetch-depth: 0
       - uses: pnpm/action-setup@v6
       - uses: actions/setup-node@v5
         with:
