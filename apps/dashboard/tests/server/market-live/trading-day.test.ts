@@ -8,6 +8,7 @@ import {
   IngestCloseCode,
   IngestProtocolVersion,
   StockCode,
+  TradeNumber,
   VIEWER_MESSAGE_LIMIT,
   ViewerCloseCode,
   ViewerProtocolVersion,
@@ -21,7 +22,16 @@ import {
   type ViewerDown,
 } from "@workspace/relay"
 import { WorkerEnv } from "@workspace/server"
-import { Clock, DateTime, Effect, Exit, Layer, Scope } from "effect"
+import {
+  Clock,
+  DateTime,
+  Effect,
+  Exit,
+  Layer,
+  Logger,
+  References,
+  Scope,
+} from "effect"
 import { TestClock } from "effect/testing"
 
 import {
@@ -1235,3 +1245,232 @@ const livePrices = (rows: ReadonlyArray<LivePriceRow>, connection: "A" | "B") =>
       )
     ),
   })
+
+// The fields of one "Feed lag" log line.
+interface FeedLagLine {
+  readonly feed: string
+  readonly minute: string
+  readonly trades: number
+  readonly p50Ms: number
+  readonly p99Ms: number
+  readonly maxMs: number
+}
+
+// Runs `test` with every "Feed lag" line logged meanwhile, the minute
+// flush's included, collected into the array it is handed.
+const withFeedLagLines = <A, E, R>(
+  test: (lines: ReadonlyArray<FeedLagLine>) => Effect.Effect<A, E, R>
+) => {
+  const lines: Array<FeedLagLine> = []
+  const capture = Logger.make(({ message, fiber }) => {
+    const [text] = Array.isArray(message) ? message : [message]
+    if (text === "Feed lag")
+      lines.push(
+        fiber.getRef(References.CurrentLogAnnotations) as unknown as FeedLagLine
+      )
+  })
+  return test(lines).pipe(Effect.provide(Logger.layer([capture])))
+}
+
+const wibAt = (time: string) => DateTime.makeUnsafe(`2026-11-09T${time}+07:00`)
+
+const WIB_OFFSET = 7 * 3_600_000
+
+// A Stockbit trade of BBCA whose exchange time is `lag` ms before `at`.
+const stockbitBefore = (
+  tradeNumber: number,
+  at: DateTime.Utc,
+  lag: number
+): StockbitRow => ({
+  tradeWib: new Date(DateTime.toEpochMillis(at) - lag + WIB_OFFSET)
+    .toISOString()
+    .slice(11, 23),
+  code: "BBCA",
+  price: 9000,
+  volume: 100,
+  action: 1,
+  board: 1,
+  tradeNumber,
+})
+
+// An Ajaib TRADE frame of BBCA whose exchange time is `lag` ms before `at`.
+// Ajaib's times are whole seconds.
+const ajaibBefore = (tradeNumber: number, at: DateTime.Utc, lag: number) =>
+  JSON.stringify({
+    ticker: "BBCA",
+    type: "BUY",
+    price: 9000,
+    lot: 1,
+    tradedAt: new Date(DateTime.toEpochMillis(at) - lag).toISOString(),
+    tradeNum: `20261109${String(tradeNumber).padStart(10, "0")}`,
+  })
+
+// A Stockbit backfill page holding one BBCA trade at `wib`.
+const stockbitPage = (tradeNumber: string, wib: string) =>
+  encodeIngestUp({
+    _tag: "BackfillPage",
+    protocolVersion: IngestProtocolVersion,
+    feed: "Stockbit",
+    receivedAt: DateTime.makeUnsafe("2026-11-09T03:00:30.000Z"),
+    from: TradeNumber.make(tradeNumber),
+    to: TradeNumber.make(tradeNumber),
+    body: JSON.stringify({
+      data: {
+        date: "2026-11-09",
+        running_trade: [
+          {
+            trade_number: tradeNumber,
+            time: wib,
+            code: "BBCA",
+            price: "9,000",
+            lot: "1",
+            action: "buy",
+          },
+        ],
+      },
+    }),
+  })
+
+const TEN = wibAt("10:00:00.000")
+const MINUTE_TEN = "2026-11-09T03:00:00.000Z"
+
+describe("the per-minute feed lag log", () => {
+  it.effect(
+    "each feed that relayed trades in a minute gets one line with its count, p50, p99 and max",
+    () =>
+      withFeedLagLines((lines) =>
+        Effect.gen(function* () {
+          yield* TestClock.setTime(DateTime.toEpochMillis(TEN))
+          const { ingest } = yield* tradingDay()
+          const socket = yield* relay(ingest)
+          // Stockbit's ten trail the clock by 100 ms to 1 s.
+          const rows = Array.from({ length: 10 }, (_, i) =>
+            stockbitBefore(50_001 + i, TEN, 100 * (i + 1))
+          )
+          yield* ingest(socket, yield* stockbit(rows, "A"))
+          // Ajaib's four by 1 s to 4 s.
+          yield* ingest(
+            socket,
+            yield* ajaib(
+              [1, 2, 3, 4].map((i) => ajaibBefore(60_000 + i, TEN, 1000 * i))
+            )
+          )
+          yield* TestClock.setTime(
+            DateTime.toEpochMillis(wibAt("10:01:04.999"))
+          )
+          assert.deepStrictEqual(lines, [])
+          yield* TestClock.setTime(
+            DateTime.toEpochMillis(wibAt("10:01:05.000"))
+          )
+          assert.deepStrictEqual(lines, [
+            {
+              feed: "Stockbit",
+              minute: MINUTE_TEN,
+              trades: 10,
+              p50Ms: 500,
+              p99Ms: 1000,
+              maxMs: 1000,
+            },
+            {
+              feed: "Ajaib",
+              minute: MINUTE_TEN,
+              trades: 4,
+              p50Ms: 2000,
+              p99Ms: 4000,
+              maxMs: 4000,
+            },
+          ])
+        })
+      )
+  )
+
+  it.effect(
+    "connection B's copy, a late copy and a backfilled trade change neither the count nor the percentiles",
+    () =>
+      withFeedLagLines((lines) =>
+        Effect.gen(function* () {
+          yield* TestClock.setTime(DateTime.toEpochMillis(TEN))
+          const { ingest } = yield* tradingDay()
+          const socket = yield* relay(ingest)
+          const rows = [
+            stockbitBefore(50_001, TEN, 200),
+            stockbitBefore(50_002, TEN, 400),
+          ]
+          yield* ingest(socket, yield* stockbit(rows, "A"))
+          yield* TestClock.adjust("300 millis")
+          yield* ingest(socket, yield* stockbit(rows, "B"))
+          yield* TestClock.adjust("20 seconds")
+          yield* ingest(socket, yield* stockbit(rows, "B"))
+          // A page fills a number the feeds missed, ten minutes old.
+          yield* ingest(socket, yield* stockbitPage("50003", "09:50:00"))
+          yield* TestClock.setTime(
+            DateTime.toEpochMillis(wibAt("10:01:05.000"))
+          )
+          assert.deepStrictEqual(lines, [
+            {
+              feed: "Stockbit",
+              minute: MINUTE_TEN,
+              trades: 2,
+              p50Ms: 200,
+              p99Ms: 400,
+              maxMs: 400,
+            },
+          ])
+        })
+      )
+  )
+
+  it.effect(
+    "a trade one feed relayed first is timed for the other feed at its first copy",
+    () =>
+      withFeedLagLines((lines) =>
+        Effect.gen(function* () {
+          yield* TestClock.setTime(DateTime.toEpochMillis(TEN))
+          const { ingest } = yield* tradingDay()
+          const socket = yield* relay(ingest)
+          yield* ingest(
+            socket,
+            yield* stockbit([stockbitBefore(50_001, TEN, 300)], "A")
+          )
+          yield* TestClock.adjust("2 seconds")
+          // Ajaib's copy: its whole-second time is 1 s before TEN.
+          yield* ingest(socket, yield* ajaib([ajaibBefore(50_001, TEN, 1000)]))
+          yield* TestClock.setTime(
+            DateTime.toEpochMillis(wibAt("10:01:05.000"))
+          )
+          assert.deepStrictEqual(
+            lines.map((line) => [line.feed, line.trades, line.maxMs]),
+            [
+              ["Stockbit", 1, 300],
+              ["Ajaib", 1, 3000],
+            ]
+          )
+        })
+      )
+  )
+
+  it.effect("a minute with no trades for a feed writes no line for it", () =>
+    withFeedLagLines((lines) =>
+      Effect.gen(function* () {
+        yield* TestClock.setTime(DateTime.toEpochMillis(TEN))
+        const { ingest } = yield* tradingDay()
+        const socket = yield* relay(ingest)
+        yield* ingest(socket, yield* ajaib([ajaibBefore(60_001, TEN, 1000)]))
+        const later = wibAt("10:01:30.000")
+        yield* TestClock.setTime(DateTime.toEpochMillis(later))
+        yield* ingest(
+          socket,
+          yield* stockbit([stockbitBefore(50_001, later, 250)], "A")
+        )
+        yield* TestClock.setTime(DateTime.toEpochMillis(wibAt("10:04:05.000")))
+        assert.deepStrictEqual(
+          lines.map((line) => [line.feed, line.minute, line.trades]),
+          [
+            ["Ajaib", MINUTE_TEN, 1],
+            ["Stockbit", "2026-11-09T03:01:00.000Z", 1],
+          ]
+        )
+      })
+    )
+  )
+})
