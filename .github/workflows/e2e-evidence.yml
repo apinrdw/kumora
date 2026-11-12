@@ -15,20 +15,25 @@ on:
   # GitHub runs the base branch's copy: the gate starts once this file is on
   # the base, and a PR that adds or edits it runs the old copy or none.
   pull_request_target:
-    types: [opened, synchronize, reopened, labeled, unlabeled]
+    types: [opened, synchronize, reopened, labeled, unlabeled, edited]
 
+# Retargeting a PR changes its files but not its head, and is the one `edited`
+# event with `changes.base`. Any other edit skips the job through the same test
+# in its `if`, and must wait for a running gate instead of cancelling it: that
+# run may be the one marking a new head.
 concurrency:
   group: e2e-evidence-${{ github.event.pull_request.number }}
-  cancel-in-progress: true
+  cancel-in-progress: ${{ github.event.action != 'edited' || github.event.changes.base.ref.from != '' }}
 
 jobs:
   # Decision: red until evidence, green for a PR with no app code or the
   # no-e2e-evidence label, and a success someone else set is never touched
   # (apinrdw/kumora#203). The gate's own success is recomputed, so removing the
-  # label turns it red. The job's name differs from the status's so its green
-  # check run can't satisfy a ruleset that requires `e2e-evidence`.
+  # label or retargeting can turn it red. The job's name differs from the
+  # status's so its green check run can't satisfy a ruleset on `e2e-evidence`.
   e2e-evidence:
     name: e2e-evidence gate
+    if: github.event.action != 'edited' || github.event.changes.base.ref.from != ''
     runs-on: ubuntu-latest
     timeout-minutes: 2
     permissions:
