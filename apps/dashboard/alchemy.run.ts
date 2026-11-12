@@ -75,8 +75,8 @@ export const Website = Cloudflare.Website.Vite(
     // Decision: Google sign-in is bound (from Infisical `/dashboard`) by stage,
     // on Production and Staging only, never by whether its secret is present:
     // Previews and Dev read `staging`, which holds the client too, but their
-    // URLs are not OAuth redirect URIs. So a missing secret on Production or
-    // Staging fails the deploy, never hides sign-in. See apinrdw/kumora#89.
+    // URLs are not OAuth redirect URIs. On Production or Staging, a missing
+    // secret fails the deploy, never hides Google sign-in. See apinrdw/kumora#89.
     const google: Partial<
       Record<
         "GOOGLE_CLIENT_ID" | "GOOGLE_CLIENT_SECRET",
