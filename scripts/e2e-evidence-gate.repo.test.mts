@@ -3,6 +3,7 @@
 // green when the PR needs no evidence (apinrdw/kumora#203). The shape tests
 // read the workflow as YAML; the behaviour tests run its github-script against
 // a fake GitHub client and read the status it writes.
+import { data, Evaluator, Lexer, Parser } from "@actions/expressions"
 import { NodeServices } from "@effect/platform-node"
 import { assert, layer } from "@effect/vitest"
 import { Effect, FileSystem, Path, Schema } from "effect"
@@ -14,6 +15,7 @@ const Workflow = Schema.Struct({
     Schema.Struct({ types: Schema.Array(Schema.String) })
   ),
   concurrency: Schema.Struct({
+    group: Schema.String,
     "cancel-in-progress": Schema.Union([Schema.Boolean, Schema.String]),
   }),
   jobs: Schema.Record(
@@ -135,6 +137,60 @@ const runGate = (pr: Pr) =>
 const notATitleOrBodyEdit =
   "github.event.action != 'edited' || github.event.changes.base.ref.from != ''"
 
+// One pull_request_target event, as the `github` context shows it.
+interface Triggered {
+  readonly action: string
+  // An `edited` event's `changes`: each field edited, with its old value.
+  readonly changes?: Record<string, unknown>
+  readonly pr: number
+  readonly runId: number
+}
+
+// A workflow string with each ${{ }} evaluated for the event by GitHub's own
+// expression library: the workflow runs from the base branch, so a PR that
+// edits it can't try it.
+const expand = (text: string, { action, changes, pr, runId }: Triggered) => {
+  const github = new data.Dictionary({
+    key: "github",
+    value: JSON.parse(
+      JSON.stringify({
+        run_id: runId,
+        event: { action, changes, pull_request: { number: pr } },
+      }),
+      data.reviver
+    ),
+  })
+  return text.replace(/\$\{\{(.*?)\}\}/g, (_, expression: string) =>
+    new Evaluator(
+      new Parser(new Lexer(expression).lex().tokens, ["github"], []).parse(),
+      github
+    )
+      .evaluate()
+      .coerceString()
+  )
+}
+
+const push: Triggered = { action: "synchronize", pr: 7, runId: 100 }
+const label: Triggered = { action: "labeled", pr: 7, runId: 101 }
+const retarget: Triggered = {
+  action: "edited",
+  changes: { base: { ref: { from: "main" }, sha: { from: sha } } },
+  pr: 7,
+  runId: 102,
+}
+const titleEdit: Triggered = {
+  action: "edited",
+  changes: { title: { from: "An old title" } },
+  pr: 7,
+  runId: 103,
+}
+const bodyEdit: Triggered = {
+  action: "edited",
+  changes: { body: { from: "An old body" } },
+  pr: 7,
+  runId: 104,
+}
+
 const appFile = { filename: "apps/web/src/routes/index.tsx" }
 const docsFile = { filename: "docs/runbooks/deploy.md" }
 
@@ -190,6 +246,39 @@ layer(NodeServices.layer)("e2e-evidence gate", (it) => {
         assert.strictEqual(
           workflow.concurrency["cancel-in-progress"],
           `\${{ ${notATitleOrBodyEdit} }}`
+        )
+      })
+  )
+
+  it.effect(
+    "keeps a PR's pushes, labels and retargets in one concurrency group, apart from another PR's",
+    () =>
+      Effect.gen(function* () {
+        const { concurrency } = yield* gateWorkflow
+        const ofPr = expand(concurrency.group, push)
+        assert.strictEqual(expand(concurrency.group, label), ofPr)
+        assert.strictEqual(expand(concurrency.group, retarget), ofPr)
+        assert.notStrictEqual(
+          expand(concurrency.group, { ...push, pr: 8 }),
+          ofPr
+        )
+      })
+  )
+
+  it.effect(
+    "keeps a title or body edit, whose job is skipped, out of the PR's concurrency group, where GitHub would let it replace a pending push or label run",
+    () =>
+      Effect.gen(function* () {
+        const { concurrency } = yield* gateWorkflow
+        const job = yield* gateJob
+        const ofPr = expand(concurrency.group, push)
+        for (const edit of [titleEdit, bodyEdit]) {
+          assert.strictEqual(expand(`\${{ ${job.if} }}`, edit), "false")
+          assert.notStrictEqual(expand(concurrency.group, edit), ofPr)
+        }
+        assert.notStrictEqual(
+          expand(concurrency.group, titleEdit),
+          expand(concurrency.group, bodyEdit)
         )
       })
   )

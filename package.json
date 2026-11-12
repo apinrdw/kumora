@@ -28,6 +28,7 @@
     "effect": "catalog:"
   },
   "devDependencies": {
+    "@actions/expressions": "0.3.61",
     "@alchemy.run/frontend-frameworks": "catalog:",
     "@alchemy.run/infisical": "catalog:",
     "@effect/platform-bun": "catalog:",
