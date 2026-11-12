@@ -72,11 +72,11 @@ export const Website = Cloudflare.Website.Vite(
   Effect.gen(function* () {
     const stage = yield* currentStage
     const turnstile = yield* turnstileKeys(stage)
-    // Decision: Google sign-in is enabled by stage, on Production and Staging,
-    // never by whether its client secret is present: Previews and Dev read
-    // Infisical `staging`, which holds the Google client too, but their URLs are
-    // not OAuth redirect URIs. So a missing secret on Production or Staging fails
-    // the deploy instead of hiding the button. See apinrdw/kumora#89.
+    // Decision: Google sign-in is bound (from Infisical `/dashboard`) by stage,
+    // on Production and Staging only, never by whether its secret is present:
+    // Previews and Dev read `staging` too, but their URLs are not OAuth redirect
+    // URIs. So a missing secret on Production or Staging fails the deploy
+    // instead of hiding the button. See apinrdw/kumora#89.
     const google: Partial<
       Record<
         "GOOGLE_CLIENT_ID" | "GOOGLE_CLIENT_SECRET",

@@ -18,7 +18,8 @@ export type StockCode = typeof StockCode.Type
 // Decision: the three indices travel as stock codes in every viewer message:
 // Stockbit names them in the same `liveprice` symbol field, and the object
 // tells an index by the frame's `is_index`. The relay subscribes them
-// explicitly, since Ajaib's code list has none. See apinrdw/kumora#157.
+// explicitly, since Ajaib's code list has none. See spec apinrdw/kumora#138,
+// "Candles".
 export const INDICES: ReadonlyArray<{
   readonly code: StockCode
   readonly name: string

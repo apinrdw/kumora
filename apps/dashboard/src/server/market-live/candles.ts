@@ -75,8 +75,8 @@ interface Print {
 
 // Decision: the candle arithmetic (`single`, `fold`, `add`, `printOf`) stays
 // plain functions, not Effects: every 250 ms delta folds each trade still in
-// its merge window, thousands a busy minute, and Effects measured slower. The
-// Effects around it call it inline. See apinrdw/kumora#159.
+// its merge window, and as Effects ingesting 100,000 trades took 2.7 s, not
+// 2.4 s. The Effects around it call it inline. See apinrdw/kumora#159.
 const single = (print: Print): CandleFigures => ({
   openOrder: print.order,
   open: print.price,

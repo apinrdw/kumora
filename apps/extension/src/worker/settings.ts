@@ -206,8 +206,8 @@ export const isClockOffsetChange = Effect.fnUntraced(function* (
 // Decision: the Ajaib PIN lives in chrome.storage.session alone: in memory,
 // cleared when Chrome closes, out of content scripts' reach. It is never
 // logged and leaves the extension only for the Ajaib tab's PIN check. The
-// sign-in and its token sit beside it, so a restarted worker keeps them.
-// See apinrdw/kumora#157.
+// sign-in and its token sit beside it, so a restarted worker keeps them. See
+// https://developer.chrome.com/docs/extensions/reference/api/storage.
 const PIN_KEY = "ajaibPin"
 const SIGN_IN_KEY = "ajaibSignIn"
 

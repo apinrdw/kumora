@@ -204,7 +204,7 @@ const merge = (held: RunningTrade, arriving: RunningTrade) =>
 // Decision: the auction matches (inside pre-opening and pre-closing) and the
 // negotiated board have no side, whichever feed claims one: Ajaib types about
 // 99.5% of match prints SELL. Applied to the merged trade; the cash board
-// (TN) keeps Stockbit's real aggressor. See apinrdw/kumora#157.
+// (TN) keeps Stockbit's real aggressor. See spec apinrdw/kumora#138.
 const settleSide = Effect.fnUntraced(function* (trade: RunningTrade) {
   if (trade.side === "none") return trade
   const { phase } = yield* marketMomentAt(trade.time)
@@ -700,6 +700,8 @@ export const makeTradingDay = Effect.fnUntraced(function* (options: {
     const now = yield* DateTime.now
     const withTime = yield* closeOverdueIngests(DateTime.toEpochMillis(now))
     if (sealWake !== undefined) yield* arm(sealWake)
+    // A deadline on, not at each socket's instant: a trickle of openings then
+    // wakes the object once a deadline, and a silent socket lives two at most.
     if (withTime) yield* arm(DateTime.addDuration(now, INGEST_TOKEN_DEADLINE))
   })
 
