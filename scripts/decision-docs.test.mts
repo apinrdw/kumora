@@ -96,6 +96,53 @@ describe("checkDecisionDocs", () => {
     }
   )
 
+  it.effect(
+    "counts every line of a block comment whose lines carry no * prefix",
+    () => {
+      const plain = Array.from({ length: 6 }, () => "  more")
+      const { layer } = repo({
+        "a.tsx": [`{/* ${tag} one`, ...plain, "*/}"].join("\n"),
+        "b.ts": [`/** ${tag} one`, ...plain.slice(1), "  more */"].join("\n"),
+      })
+      return Effect.gen(function* () {
+        const error = yield* Effect.flip(checkDecisionDocs("/repo"))
+        assert.deepStrictEqual(error.findings, [
+          "a.tsx:1: Decision runs 7 lines; keep 5 and link the PR for the rest",
+          "b.ts:1: Decision runs 7 lines; keep 5 and link the PR for the rest",
+        ])
+      }).pipe(Effect.provide(layer))
+    }
+  )
+
+  it.effect(
+    "passes a tag in a string or a YAML value, outside a comment",
+    () => {
+      const { layer } = repo({
+        "a.ts": `const label = '${tag} keep'`,
+        "b.yml": `description: "${tag} keep"`,
+      })
+      return Effect.gen(function* () {
+        yield* checkDecisionDocs("/repo")
+      }).pipe(Effect.provide(layer))
+    }
+  )
+
+  it.effect("keeps a decision open past a line comment ending in */", () => {
+    const { layer } = repo({
+      "a.ts": [
+        `// ${tag} one`,
+        "// see apps/*/",
+        ...Array.from({ length: 4 }, () => "// more"),
+      ].join("\n"),
+    })
+    return Effect.gen(function* () {
+      const error = yield* Effect.flip(checkDecisionDocs("/repo"))
+      assert.deepStrictEqual(error.findings, [
+        "a.ts:1: Decision runs 6 lines; keep 5 and link the PR for the rest",
+      ])
+    }).pipe(Effect.provide(layer))
+  })
+
   it.effect("fails a decision over five lines, or one opening mid-line", () => {
     const { layer } = repo({
       "a.ts": [...comment(6), "const a = 1"].join("\n"),
