@@ -11,6 +11,9 @@ export const SWITCH = "E2E_VIDEO"
 /** The specs the config's trading-day project runs. */
 export const TRADING_DAY_SPECS = /market-live[\w-]*\.spec\.ts$/
 
+// A spec as typed names a file under tests/ by its name or a path ending in
+// it: the rule filesOf in scripts/e2e-evidence-plan.mts applies to the specs
+// it sends here, so change the two together.
 const isNamedBy = (typed: string) => (file: string) =>
   file === typed || typed.endsWith(`/${file}`)
 

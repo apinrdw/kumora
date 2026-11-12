@@ -169,8 +169,8 @@ const e2eEvidence = Effect.fn("e2eEvidence")(function* (
   yield* fs.remove(reportFile, { force: true })
   // Decision: about a quarter of the cores, since the trace of every test is
   // the run's load, not the picked specs' video: on 16 cores, 8 workers timed
-  // out account.spec.ts in 2 of 3 runs with no video on it and finished no
-  // sooner than 4, which passed (apinrdw/kumora#210).
+  // out account.spec.ts in 2 of 3 runs (one during a DNS outage) with no video
+  // on it and finished no sooner than 4, which passed (apinrdw/kumora#210).
   const workers = Math.max(1, Math.floor(availableParallelism() / 4))
   const playwright = [
     "test:e2e",
