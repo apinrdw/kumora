@@ -75,6 +75,14 @@ const findPr = Effect.fnUntraced(function* (
   return yield* Schema.decodeEffect(Pr)(result.stdout)
 })
 
+// The checkout as git reports it now, read before the run and again after it.
+const readCheckout = Effect.fnUntraced(function* (root: string) {
+  return {
+    dirty: yield* gitLines(root, ["status", "--porcelain"]),
+    head: (yield* stdoutOf("git", ["rev-parse", "HEAD"], { cwd: root })).trim(),
+  }
+})
+
 // Runs a command on this terminal and returns its exit code.
 const runOnTerminal = Effect.fn("runOnTerminal")(function* (
   command: ChildProcess.Command
@@ -141,8 +149,7 @@ const e2eEvidence = Effect.fn("e2eEvidence")(function* (
   const { pr, specs, unmet } = yield* preflight({
     named,
     changed,
-    dirty: yield* gitLines(root, ["status", "--porcelain"]),
-    head: (yield* stdoutOf("git", ["rev-parse", "HEAD"], { cwd: root })).trim(),
+    ...(yield* readCheckout(root)),
     pr:
       found === undefined
         ? undefined
@@ -199,7 +206,13 @@ const e2eEvidence = Effect.fn("e2eEvidence")(function* (
     exitCode,
     report,
     files: yield* listFiles(root, report),
+    checkout: yield* readCheckout(root),
+    dryRun,
   })
+  if (plan.unmet.length > 0)
+    yield* Console.log(
+      `\n--dry-run: after the suite, a real run would refuse:\n${plan.unmet.join("\n")}`
+    )
 
   yield* fs.writeFileString(path.join(root, plan.bodyFile), plan.body)
   // gh runs from the body file's folder, which the plan's video paths are

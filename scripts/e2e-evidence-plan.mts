@@ -94,15 +94,19 @@ interface Pr {
   readonly headSha: string
 }
 
-export interface PreflightInputs {
-  /** The spec files the author named, as typed: `x.spec.ts` or a path ending in it. */
-  readonly named: ReadonlyArray<string>
-  /** Repo-relative files the branch changes against the PR's base ref. */
-  readonly changed: ReadonlyArray<string>
+/** The checkout as git reports it at one moment: before the run, or after it. */
+interface Checkout {
   /** What `git status --porcelain` prints, a line per dirty path. */
   readonly dirty: ReadonlyArray<string>
   /** The local HEAD's SHA. */
   readonly head: string
+}
+
+export interface PreflightInputs extends Checkout {
+  /** The spec files the author named, as typed: `x.spec.ts` or a path ending in it. */
+  readonly named: ReadonlyArray<string>
+  /** Repo-relative files the branch changes against the PR's base ref. */
+  readonly changed: ReadonlyArray<string>
   /** The branch's PR, or the one --pr names; undefined when there is none. */
   readonly pr: Pr | undefined
   /** What `gh --version` prints. */
@@ -141,6 +145,26 @@ const ghTooOld = Effect.fnUntraced(function* (printed: string) {
     : undefined
 })
 
+// Why a run of this checkout would not be a run of the PR's head. preflight
+// asks before the run, evidencePlan again after it.
+const offThePrHead = Effect.fnUntraced(function* (
+  { dirty, head }: Checkout,
+  pr: Pr | undefined
+) {
+  return [
+    ...(dirty.length > 0
+      ? [
+          `The working tree is dirty, so the run would not be of the commit it vouches for. Commit or stash:\n${dirty.map((line) => `  ${line}`).join("\n")}`,
+        ]
+      : []),
+    ...(pr !== undefined && head !== pr.headSha
+      ? [
+          `Local HEAD ${head} is not PR #${pr.number}'s pushed head ${pr.headSha}. Push, or check out the PR's head.`,
+        ]
+      : []),
+  ]
+})
+
 /**
  * Before the run: refuses what a run can't vouch for and picks the specs, the
  * named ones then each changed spec file. Its `unmet` lists what a real run
@@ -157,16 +181,7 @@ export const preflight = Effect.fn("preflight")(function* ({
 }: PreflightInputs) {
   const oldGh = yield* ghTooOld(gh)
   const unmet = [
-    ...(dirty.length > 0
-      ? [
-          `The working tree is dirty, so the run would not be of the commit it vouches for. Commit or stash:\n${dirty.map((line) => `  ${line}`).join("\n")}`,
-        ]
-      : []),
-    ...(pr !== undefined && head !== pr.headSha
-      ? [
-          `Local HEAD ${head} is not PR #${pr.number}'s pushed head ${pr.headSha}. Push, or check out the PR's head.`,
-        ]
-      : []),
+    ...(yield* offThePrHead({ dirty, head }, pr)),
     ...(oldGh === undefined ? [] : [oldGh]),
   ]
   // Decision: a dry run posts nothing and sets no status, so it runs past
@@ -213,9 +228,14 @@ export interface EvidenceInputs {
   readonly report: typeof PlaywrightReport.Type
   /** Each results folder, as the report names it, to the files in it. */
   readonly files: ReadonlyMap<string, ReadonlyArray<ResultFile>>
+  /** The checkout once the suite has run. */
+  readonly checkout: Checkout
+  readonly dryRun: boolean
 }
 
 interface PostPlan {
+  /** What a real run would have refused but a dry run got past; empty on a real run. */
+  readonly unmet: ReadonlyArray<string>
   readonly pr: number
   /** BODY_FILE, which `body` goes into. */
   readonly bodyFile: string
@@ -357,10 +377,24 @@ export const evidencePlan = Effect.fn("evidencePlan")(function* (
   inputs: EvidenceInputs
 ) {
   const path = yield* Path.Path
-  const { specs, pr, report, files } = inputs
+  const { specs, pr, report, files, checkout, dryRun } = inputs
   const tests = yield* reportTests(report)
   const red = yield* redRun(tests, inputs)
   if (red !== undefined) return yield* new EvidenceRefused({ reason: red })
+
+  // Decision: the checkout is read again once the suite ends, because the dev
+  // servers serve the working tree: an edit or a switched commit mid-run means
+  // the suite did not test the PR's head. A throwaway checkout per run would
+  // also catch an edit undone before the end, but adds an install and a cold
+  // local state to every run (apinrdw/kumora#217). A dry run is only told.
+  const unmet = yield* offThePrHead(checkout, pr)
+  if (unmet.length > 0 && !dryRun)
+    return yield* new EvidenceRefused({
+      reason: [
+        `The checkout changed while the suite ran, so nothing was posted and the ${CONTEXT} status is unchanged. Run it again and leave the checkout alone until it ends.`,
+        ...unmet,
+      ].join("\n"),
+    })
 
   const ran = [...new Set(tests.map((test) => test.file))]
   // The files each picked spec names, in the order they were picked.
@@ -417,6 +451,7 @@ export const evidencePlan = Effect.fn("evidencePlan")(function* (
       ].join("\n"),
     })
   return {
+    unmet,
     pr: pr.number,
     bodyFile: BODY_FILE,
     videos: attached.map((video) => video.fromBody),
