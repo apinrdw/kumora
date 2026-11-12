@@ -13,10 +13,14 @@ const Workflow = Schema.Struct({
     Schema.String,
     Schema.Struct({ types: Schema.Array(Schema.String) })
   ),
+  concurrency: Schema.Struct({
+    "cancel-in-progress": Schema.Union([Schema.Boolean, Schema.String]),
+  }),
   jobs: Schema.Record(
     Schema.String,
     Schema.Struct({
       name: Schema.optional(Schema.String),
+      if: Schema.optional(Schema.String),
       permissions: Schema.optional(Schema.Record(Schema.String, Schema.String)),
       steps: Schema.Array(
         Schema.Struct({
@@ -75,6 +79,7 @@ interface Pr {
 
 const sha = "abc1234def5678abc1234def5678abc1234def56"
 const author = { login: "apinrdw" }
+// The login of every workflow's GITHUB_TOKEN, whatever event triggered it.
 const gate = { login: "github-actions[bot]" }
 
 const gateScript = Effect.map(gateJob, (job) =>
@@ -126,6 +131,10 @@ const runGate = (pr: Pr) =>
     return written
   })
 
+// A retarget is the one `edited` event that carries `changes.base`.
+const notATitleOrBodyEdit =
+  "github.event.action != 'edited' || github.event.changes.base.ref.from != ''"
+
 const appFile = { filename: "apps/web/src/routes/index.tsx" }
 const docsFile = { filename: "docs/runbooks/deploy.md" }
 
@@ -141,14 +150,48 @@ layer(NodeServices.layer)("e2e-evidence gate", (it) => {
       })
   )
 
-  it.effect("runs on the five types that change the head or its labels", () =>
-    Effect.gen(function* () {
-      const workflow = yield* gateWorkflow
-      assert.deepStrictEqual(
-        Object.values(workflow.on).map((trigger) => [...trigger.types].sort()),
-        [["labeled", "opened", "reopened", "synchronize", "unlabeled"]]
-      )
-    })
+  it.effect(
+    "runs on the six types that change the head, its labels or its base",
+    () =>
+      Effect.gen(function* () {
+        const workflow = yield* gateWorkflow
+        assert.deepStrictEqual(
+          Object.values(workflow.on).map((trigger) =>
+            [...trigger.types].sort()
+          ),
+          [
+            [
+              "edited",
+              "labeled",
+              "opened",
+              "reopened",
+              "synchronize",
+              "unlabeled",
+            ],
+          ]
+        )
+      })
+  )
+
+  it.effect(
+    "skips an edit that leaves the base alone, so a new title or body doesn't rerun it",
+    () =>
+      Effect.gen(function* () {
+        const job = yield* gateJob
+        assert.strictEqual(job.if, notATitleOrBodyEdit)
+      })
+  )
+
+  it.effect(
+    "never lets a skipped edit cancel the gate run of a push or label before it",
+    () =>
+      Effect.gen(function* () {
+        const workflow = yield* gateWorkflow
+        assert.strictEqual(
+          workflow.concurrency["cancel-in-progress"],
+          `\${{ ${notATitleOrBodyEdit} }}`
+        )
+      })
   )
 
   it.effect(
@@ -269,7 +312,7 @@ layer(NodeServices.layer)("e2e-evidence gate", (it) => {
   )
 
   it.effect(
-    "turns its own opt-out success red again once the label is removed",
+    "turns its own success red again once the label is removed or a retarget brings app code into the diff",
     () =>
       Effect.gen(function* () {
         const [status] = yield* runGate({
