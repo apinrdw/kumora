@@ -9,6 +9,7 @@ import { fileURLToPath } from "node:url"
 import { WebSocketServer, type WebSocket } from "ws"
 
 import { wibInstant } from "./clock"
+import { recordVideo } from "./video"
 
 /** The built extension (`pnpm --filter extension build`, run by `pnpm e2e`). */
 const EXTENSION = fileURLToPath(
@@ -324,6 +325,7 @@ export async function launchWithExtension(port: number) {
       `--host-resolver-rules=${rules}`,
       "--ignore-certificate-errors",
     ],
+    ...recordVideo(),
   })
   const worker =
     context.serviceWorkers()[0] ?? (await context.waitForEvent("serviceworker"))

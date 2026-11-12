@@ -12,6 +12,7 @@ import {
   wibToday,
 } from "../support/ingest"
 import { expect, test } from "../support/test"
+import { recordVideo } from "../support/video"
 
 const PAGE = "/market-live"
 
@@ -53,6 +54,7 @@ test("a signed-out code list GET answers 401", async ({ browser }) => {
   // A new context inherits the member's storageState unless given another.
   const context = await browser.newContext({
     storageState: { cookies: [], origins: [] },
+    ...recordVideo(),
   })
   const response = await context.request.get(
     `${DASHBOARD}/market-live/days/${wibToday()}/codes`

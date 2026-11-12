@@ -4,6 +4,7 @@ import { TEST } from "@workspace/deploy"
 import { ADMIN, testUrl } from "./support/accounts"
 import { MARKET_CLOCK_OFFSET } from "./support/clock"
 import { TEST_INGEST_TOKEN } from "./support/ingest"
+import { video } from "./support/video"
 
 const TRADING_DAY_SPECS = /market-live[\w-]*\.spec\.ts$/
 
@@ -27,7 +28,7 @@ export default defineConfig({
   // that hashes real passwords (apinrdw/kumora#190).
   timeout: process.env.CI ? 60_000 : 30_000,
   reporter: "list",
-  use: { browserName: "chromium" },
+  use: { browserName: "chromium", video },
   projects: [
     // Signs up and verifies the shared accounts through the UI and saves
     // their signed-in state (support/accounts.ts) for the specs.
