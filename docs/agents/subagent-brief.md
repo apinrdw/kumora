@@ -28,7 +28,8 @@ Never print a secret value; hash prefixes only. Never run `alchemy deploy` or `a
 
 - The verify command or test the spec names passes, with the exact command and output in the report.
 - From the repo root: `pnpm check`, which is what CI runs, and the lint and format commands in `AGENTS.md` exit 0.
-- A test the change adds, moves or reruns differently also passes on CI's 2 cores: rerun the affected suite under `taskset -c 0,1`, giving Playwright CI's worker count with `--workers`: the `workers` that `apps/e2e/playwright.config.ts` sets for CI, else 1, its default on CI's 2 cores. Locally its default counts every core even under `taskset`. In spec #175, Vitest's 5 s and Playwright's 30 s default timeouts held locally and failed only on CI.
+- A Vitest test the change adds, moves or reruns differently also passes on CI's 2 cores: rerun the affected suite under `taskset -c 0,1`. In spec #175, Vitest's 5 s default timeout held locally and failed only on CI.
+- An e2e change passes `pnpm test:e2e`, which runs only on the dev machine. A per-ticket implementer inside an implement-spec run posts no evidence; `post-implementation-review` runs `pnpm e2e:evidence` on the integration PR.
 - A new entry file, such as a `scripts/*.mts` that a command runs, lands in the same commit as the `package.json` script that runs it. Until then fallow's commit gate blocks it as an unused file.
 - Small logical commits whose messages end with the attribution line the harness requires. Before reporting, merge the integration branch's current tip.
 

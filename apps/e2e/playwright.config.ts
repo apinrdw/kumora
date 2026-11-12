@@ -11,7 +11,7 @@ const TRADING_DAY_SPECS = /market-live[\w-]*\.spec\.ts$/
 export default defineConfig({
   testDir: "tests",
   // Decision: tests, not files, are the unit of parallelism, so one file's
-  // tests can run on different workers and shards (apinrdw/kumora#168). A
+  // tests can run on different workers (apinrdw/kumora#168). A
   // file whose tests form a sequence says so with a serial describe.
   fullyParallel: true,
   // Decision: no retries, so a flake the parallelism brings shows up and gets
@@ -29,10 +29,10 @@ export default defineConfig({
       testIgnore: TRADING_DAY_SPECS,
     },
     // Decision: the specs that send trades share one Durable Object, today's
-    // trading day, so within a shard they run one at a time: a spec alongside
-    // would add trades to the tape it counts. Each CI shard has its own server
-    // and storage, and the dashboard has no test-only key for a trading day.
-    // See apinrdw/kumora#157 and #169.
+    // trading day, so they run one at a time: a spec alongside would add
+    // trades to the tape it counts. A run has one server and one storage, and
+    // the dashboard has no test-only key for a trading day. See
+    // apinrdw/kumora#157 and #169.
     {
       name: "trading-day",
       dependencies: ["setup"],
