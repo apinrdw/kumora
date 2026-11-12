@@ -27,8 +27,8 @@ import {
   type Peer,
   type PeerState,
 } from "@/server/market-live/trading-day"
-import { ajaibBefore, stockbitBefore } from "./lagged"
-import { runningTradeBatch } from "./protobuf"
+import { ajaibBefore, bothEverySecond, stockbitBefore } from "./lagged"
+import { runningTradeBatch, type StockbitRow } from "./protobuf"
 import { memorySql } from "./sql"
 import { everySplit } from "../../interleaved"
 
@@ -752,6 +752,50 @@ describe("indicative price", () => {
         yield* market.reported("Stockbit", "A", "closed")
         yield* TestClock.adjust("250 millis")
         assert.strictEqual(yield* indicativeOf, 5300)
+      })
+  )
+
+  it.effect(
+    "a watched code's is Ajaib's while Stockbit is delayed and Ajaib live, and Stockbit's once it is live again",
+    () =>
+      Effect.gen(function* () {
+        const market = yield* marketAt("2026-11-09T15:50:01")
+        yield* market.select(StockCode.make("GOTO"), [BBCA])
+        yield* market.frames("Stockbit", "A", [
+          iepiev("BBCA", 5325, 1500, "2026-11-09T15:50:01.03944+07:00"),
+        ])
+        yield* market.frames("Ajaib", "A", [
+          ajaibIndicative(5300, 1000, Date.parse("2026-11-09T15:50:01+07:00")),
+        ])
+        yield* TestClock.adjust("250 millis")
+        const sent = Effect.map(market.page.received, (messages) =>
+          messages
+            .flatMap((message) =>
+              message._tag === "Delta" ? (message.indicative ?? []) : []
+            )
+            .filter((price) => price.code === BBCA)
+            .map((price) => price.price)
+        )
+        assert.deepStrictEqual(yield* sent, [5325])
+        const relay = {
+          stockbit: (trades: ReadonlyArray<StockbitRow>) =>
+            market.frames("Stockbit", "A", [runningTradeBatch(trades)]),
+          ajaib: (frames: ReadonlyArray<string>) =>
+            market.frames("Ajaib", "A", frames),
+        }
+        const next = yield* bothEverySecond(relay, {
+          first: 50_001,
+          seconds: 10,
+          lags: { Stockbit: 6_000, Ajaib: 0 },
+        })
+        assert.strictEqual((yield* market.feeds).Stockbit, "delayed")
+        assert.deepStrictEqual(yield* sent, [5325, 5300])
+        yield* bothEverySecond(relay, {
+          first: next,
+          seconds: 10,
+          lags: { Stockbit: 200, Ajaib: 0 },
+        })
+        assert.deepStrictEqual(yield* sent, [5325, 5300, 5325])
       })
   )
 

@@ -12,7 +12,7 @@ import { readFileSync } from "node:fs"
 import { WebSocket } from "ws"
 
 import { DASHBOARD } from "./accounts"
-import { WIB_OFFSET, marketNow, wibDate } from "./clock"
+import { WIB_OFFSET, marketNow, wibDate, wibTime } from "./clock"
 
 /** The Test stage's INGEST_TOKEN (playwright.config.ts sets it). */
 export const TEST_INGEST_TOKEN = "e2e-ingest-token-not-a-secret"
@@ -78,18 +78,23 @@ const ajaibTradeNumber = (today: string, seq: number) =>
   today.replaceAll("-", "") + String(seq).padStart(10, "0")
 
 /**
- * The recorded session-1 frames moved to today, so today's trading-day object
- * keeps them: the trade number's date prefix and the trade's date change, the
- * WIB time of day stays. Each trade number is `base` above the recorded one.
+ * The recorded session-1 frames moved to now on the market clock, so today's
+ * trading-day object keeps them and Ajaib reads live: the trade number's date
+ * prefix changes, and every trade, recorded at 09:00:00, is stamped with the
+ * current second. Each trade number is `base` above the recorded one. Kept at
+ * 09:00, they would trail the clock's 10:00 by an hour and read DELAYED for
+ * the next 10 s of whatever test runs after.
  */
 export function session1Today(base = 0): ReadonlyArray<string> {
-  const today = wibToday()
+  const now = marketNow()
+  const today = wibDate(now)
+  const tradedAt = `${today}T${wibTime(now)}.000+07:00`
   return recorded.session1.map((frame) => {
     const trade = JSON.parse(frame)
     return JSON.stringify({
       ...trade,
       tradeNum: ajaibTradeNumber(today, base + Number(trade.tradeNum.slice(8))),
-      tradedAt: today + trade.tradedAt.slice(10),
+      tradedAt,
     })
   })
 }

@@ -29,6 +29,7 @@ import recordedPrice from "./fixtures/ajaib-price-2026-11-06.json"
 import recordedTrades from "./fixtures/ajaib-trades-2026-11-09.json"
 import recordedIhsg from "./fixtures/stockbit-ihsg-liveprice.json"
 import recordedLivePrice from "./fixtures/stockbit-liveprice-2026-11-09.json"
+import { bothEverySecond } from "./lagged"
 import {
   doubleField,
   messageField,
@@ -687,6 +688,50 @@ describe("Day state", () => {
           asOf: "2026-11-09T02:51:10.000Z",
           provenance: "Ajaib",
         })
+      })
+  )
+
+  it.effect(
+    "while Stockbit is delayed and Ajaib live, a watched code's Day state is Ajaib's, and Stockbit's once it is live again",
+    () =>
+      Effect.gen(function* () {
+        const { relay, viewer } = yield* tradingDay()
+        const feed = yield* relay()
+        yield* feed.stockbit([BBRI], "A")
+        yield* feed.ajaib([
+          ajaibPrice({
+            ticker: "BBRI",
+            price: 2910,
+            change: -20,
+            pctChange: -0.006826,
+            close: 2930,
+            wib: "09:51:04",
+          }),
+        ])
+        const page = yield* viewer("GOTO", ["BBRI"])
+        // BBRI's Day state in each delta, as its feed and last price.
+        const sent = Effect.map(received(page), (messages) =>
+          messages.flatMap((message) => {
+            const state = message._tag === "Delta" && statesOf(message).BBRI
+            return state ? [[state.provenance, state.last]] : []
+          })
+        )
+        const relayed = { stockbit: feed.stockbitTrades, ajaib: feed.ajaib }
+        const next = yield* bothEverySecond(relayed, {
+          first: 50_001,
+          seconds: 10,
+          lags: { Stockbit: 6_000, Ajaib: 0 },
+        })
+        assert.deepStrictEqual(yield* sent, [["Ajaib", 2910]])
+        yield* bothEverySecond(relayed, {
+          first: next,
+          seconds: 10,
+          lags: { Stockbit: 200, Ajaib: 0 },
+        })
+        assert.deepStrictEqual(yield* sent, [
+          ["Ajaib", 2910],
+          ["Stockbit", 2920],
+        ])
       })
   )
 

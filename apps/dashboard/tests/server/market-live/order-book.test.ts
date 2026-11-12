@@ -26,6 +26,8 @@ import {
 } from "@/server/market-live/trading-day"
 
 import recorded from "./fixtures/order-books-2026-11-09.json"
+import { bothEverySecond } from "./lagged"
+import { runningTradeBatch, type StockbitRow } from "./protobuf"
 import { memorySql } from "./sql"
 import { everySplit } from "../../interleaved"
 
@@ -409,6 +411,88 @@ describe("the order book", () => {
         assert.deepStrictEqual(
           books.map((book) => book.provenance),
           ["Stockbit", "Ajaib", "Stockbit"]
+        )
+      })
+  )
+
+  it.effect(
+    "while Stockbit is delayed and Ajaib live, Ajaib's book is served, and Stockbit's once it is live again",
+    () =>
+      Effect.gen(function* () {
+        const { stockbit, ajaib, viewer } = yield* tradingDay()
+        const relay = {
+          stockbit: (trades: ReadonlyArray<StockbitRow>) =>
+            stockbit([runningTradeBatch(trades)]),
+          ajaib,
+        }
+        yield* stockbit(BBCA_SIDES)
+        yield* ajaib(recorded.ajaib.bbca)
+        const page = yield* viewer("BBCA")
+        const provenances = Effect.map(received(page), (messages) =>
+          deltaBooks(messages, "BBCA").map((book) => book.provenance)
+        )
+        yield* TestClock.adjust("1 second")
+        const next = yield* bothEverySecond(relay, {
+          first: 50_001,
+          seconds: 10,
+          lags: { Stockbit: 6_000, Ajaib: 0 },
+        })
+        assert.deepStrictEqual(yield* provenances, ["Stockbit", "Ajaib"])
+        const late = snapshotBook(yield* received(yield* viewer("BBCA")))
+        assert.strictEqual(
+          late?._tag === "OrderBook" ? late.provenance : undefined,
+          "Ajaib"
+        )
+        // No new Stockbit book frame: its held book returns with its lag.
+        yield* bothEverySecond(relay, {
+          first: next,
+          seconds: 10,
+          lags: { Stockbit: 200, Ajaib: 0 },
+        })
+        assert.deepStrictEqual(yield* provenances, [
+          "Stockbit",
+          "Ajaib",
+          "Stockbit",
+        ])
+      })
+  )
+
+  it.effect(
+    "while Stockbit is delayed, a code with no Ajaib book keeps Stockbit's",
+    () =>
+      Effect.gen(function* () {
+        const { stockbit, ajaib, viewer } = yield* tradingDay()
+        const relay = {
+          stockbit: (trades: ReadonlyArray<StockbitRow>) =>
+            stockbit([runningTradeBatch(trades)]),
+          ajaib,
+        }
+        yield* stockbit(BBCA_SIDES)
+        // Ajaib holds a book, but only of another code.
+        yield* ajaib(
+          recorded.ajaib.bbca.map((frame) =>
+            frame.replace('"ticker":"BBCA"', '"ticker":"BBRI"')
+          )
+        )
+        const page = yield* viewer("BBCA")
+        yield* TestClock.adjust("1 second")
+        yield* bothEverySecond(relay, {
+          first: 50_001,
+          seconds: 10,
+          lags: { Stockbit: 6_000, Ajaib: 0 },
+        })
+        assert.deepStrictEqual(
+          deltaBooks(yield* received(page), "BBCA").map(
+            (book) => book.provenance
+          ),
+          ["Stockbit"]
+        )
+        const [snapshot] = yield* received(yield* viewer("BBCA"))
+        assert.strictEqual(snapshot?.conditions?.feeds.Stockbit, "delayed")
+        const late = snapshotBook([snapshot!])
+        assert.strictEqual(
+          late?._tag === "OrderBook" ? late.provenance : undefined,
+          "Stockbit"
         )
       })
   )
