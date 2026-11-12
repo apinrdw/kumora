@@ -184,4 +184,82 @@ describe("checkDecisionDocs", () => {
       ])
     }).pipe(Effect.provide(layer))
   })
+
+  // Each case below was misread by the line classifier these tests replaced.
+  const findings = (files: Record<string, string>) =>
+    Effect.flip(checkDecisionDocs("/repo")).pipe(
+      Effect.map((error) => error.findings),
+      Effect.provide(repo(files).layer)
+    )
+  const passes = (files: Record<string, string>) =>
+    checkDecisionDocs("/repo").pipe(Effect.provide(repo(files).layer))
+  const partway = (at: string) =>
+    `${at}: ${tag} sits partway along a line; open a comment line with it`
+
+  it.effect("passes comment markers inside strings and template literals", () =>
+    passes({
+      "a.ts": [
+        `const example = "text // ${tag} example"`,
+        `const hash = "x # ${tag} y"`,
+        `const dash = 'x -- ${tag} y'`,
+        "const t = `",
+        `see a // ${tag} x`,
+        "`",
+      ].join("\n"),
+      "b.yml": `k: "a # ${tag} b"`,
+      "c.json": `{ "a": "x // ${tag} y" }`,
+    })
+  )
+
+  it.effect("fails a block comment opened after code", () =>
+    Effect.gen(function* () {
+      assert.deepStrictEqual(
+        yield* findings({
+          "a.ts": `const n = 1; /* Context. ${tag} keep it */`,
+          "b.ts": ["foo() /* start", ` * ${tag} keep it */`].join("\n"),
+        }),
+        [partway("a.ts:1"), partway("b.ts:2")]
+      )
+    })
+  )
+
+  it.effect("fails a tag after code with no space, or in inline JSX", () =>
+    Effect.gen(function* () {
+      assert.deepStrictEqual(
+        yield* findings({
+          "a.ts": `a();// ${tag} x`,
+          "b.tsx": `const d = <div>{/* ${tag} x */}</div>`,
+        }),
+        [partway("a.ts:1"), partway("b.tsx:1")]
+      )
+    })
+  )
+
+  it.effect("ends a decision at a private field after it", () =>
+    passes({
+      "a.ts": ["class A {", ...comment(5, "  //"), "  #field = 1", "}"].join(
+        "\n"
+      ),
+    })
+  )
+
+  it.effect("reads no block comment from a /* that is not one", () =>
+    passes({
+      ".gitignore": ["/*", "!keep", `# ${tag} x`].join("\n"),
+      "a.ts": ["const glob = `", "/* all", "`", `// ${tag} one`].join("\n"),
+    })
+  )
+
+  it.effect("reads JSONC comments", () =>
+    Effect.gen(function* () {
+      assert.deepStrictEqual(
+        yield* findings({
+          "a.jsonc": ["{", ...comment(6, "  //"), '  "a": 1', "}"].join("\n"),
+        }),
+        [
+          "a.jsonc:2: Decision runs 6 lines; keep 5 and link the PR for the rest",
+        ]
+      )
+    })
+  )
 })
