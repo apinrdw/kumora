@@ -1,7 +1,7 @@
 // A workflow job that runs a packages/deploy entry point imports its
 // dependencies, so it has to install them first on a clean runner. CI runs the
-// same checks as `pnpm check`, one root `check:*` script per job. e2e runs as
-// a matrix of shards that each finish on their own, on a cached browser.
+// same checks as `pnpm check`, one root `check:*` script per job. No job runs
+// e2e: a PR carries locally recorded evidence instead.
 // Workflows are read as YAML, so comments and layout never change a verdict.
 import { NodeServices } from "@effect/platform-node"
 import { assert, layer } from "@effect/vitest"
@@ -13,11 +13,8 @@ const Manifest = Schema.fromJsonString(
 )
 
 const Step = Schema.Struct({
-  id: Schema.optional(Schema.String),
-  if: Schema.optional(Schema.String),
   uses: Schema.optional(Schema.String),
   run: Schema.optional(Schema.String),
-  with: Schema.optional(Schema.Record(Schema.String, Schema.Unknown)),
 })
 type Step = typeof Step.Type
 
@@ -26,16 +23,6 @@ const Workflow = Schema.Struct({
     Schema.String,
     Schema.Struct({
       steps: Schema.optional(Schema.Array(Step)),
-      strategy: Schema.optional(
-        Schema.Struct({
-          "fail-fast": Schema.optional(Schema.Boolean),
-          matrix: Schema.optional(
-            Schema.Struct({
-              shard: Schema.optional(Schema.Array(Schema.Number)),
-            })
-          ),
-        })
-      ),
     })
   ),
 })
@@ -62,10 +49,6 @@ const jobSteps = (workflow: typeof Workflow.Type) =>
   )
 
 const runs = (step: Step, pattern: RegExp) => pattern.test(step.run ?? "")
-
-const isBrowserCache = (step: Step) =>
-  /^actions\/cache@v\d+$/.test(step.uses ?? "") &&
-  step.with?.["path"] === "~/.cache/ms-playwright"
 
 layer(NodeServices.layer)("workflow dependencies", (it) => {
   it.effect(
@@ -149,77 +132,21 @@ layer(NodeServices.layer)("workflow dependencies", (it) => {
       })
   )
 
-  it.effect(
-    "e2e runs one shard per matrix job, and a failing shard stops no other",
-    () =>
-      Effect.gen(function* () {
-        const workflow = yield* ciWorkflow
-        const e2e = workflow.jobs["e2e"]
-        const listed = e2e?.strategy?.matrix?.shard ?? []
-        assert.isAbove(listed.length, 1, "e2e has a shard matrix")
-        assert.deepStrictEqual(
-          listed,
-          listed.map((_, index) => index + 1)
-        )
-        assert.strictEqual(e2e?.strategy?.["fail-fast"], false)
-        const tests = (e2e?.steps ?? []).filter((step) =>
-          runs(step, /\bpnpm test:e2e\b/)
-        )
-        assert.deepStrictEqual(
-          tests.map((step) =>
-            (step.run ?? "").includes(
-              "--shard=${{ matrix.shard }}/${{ strategy.job-total }}"
-            )
-          ),
-          [true]
-        )
-      })
-  )
-
-  it.effect(
-    "e2e restores the browser from a cache keyed by the Playwright version, and installs it only on a miss",
-    () =>
-      Effect.gen(function* () {
-        const steps = jobSteps(yield* ciWorkflow).get("e2e") ?? []
-        const cache = steps.findIndex(isBrowserCache)
-        const cacheStep = steps[cache]
-        assert.isDefined(cacheStep, "e2e caches ~/.cache/ms-playwright")
-        const versionId = /\$\{\{ steps\.([\w-]+)\.outputs\.version \}\}/.exec(
-          String(cacheStep.with?.["key"])
-        )?.[1]
-        assert.isDefined(versionId, "the cache key names a step's version")
-        const reads = steps.findIndex((step) => step.id === versionId)
-        const versionStep = steps[reads]
-        assert.isDefined(versionStep, "a step outputs the version")
-        assert.isBelow(reads, cache, "the version step runs before the cache")
-        assert.isTrue(
-          runs(versionStep, /\bplaywright --version\b/),
-          "the version step runs playwright --version"
-        )
-        const installs = steps.filter((step) =>
-          runs(step, /\bplaywright install\b/)
-        )
-        const [install] = installs
-        assert.isDefined(install, "e2e installs the browser")
-        assert.strictEqual(installs.length, 1, "e2e installs the browser once")
-        assert.isAbove(
-          steps.indexOf(install),
-          cache,
-          "the install step runs after the cache"
-        )
-        assert.strictEqual(
-          install.if,
-          `steps.${cacheStep.id}.outputs.cache-hit != 'true'`,
-          "the install step's if: runs it only on a cache miss"
-        )
-        assert.isTrue(
-          runs(install, /\bplaywright install chromium$/),
-          "the install step runs playwright install chromium"
-        )
-        assert.isFalse(
-          runs(install, /--with-deps/),
-          "the install step skips --with-deps"
-        )
-      })
+  it.effect("no workflow job runs pnpm test:e2e", () =>
+    Effect.gen(function* () {
+      const fs = yield* FileSystem.FileSystem
+      const dir = yield* workflowsDir
+      const files = yield* fs.readDirectory(dir)
+      const e2e: Array<string> = []
+      for (const file of files.filter((name) => name.endsWith(".yml"))) {
+        for (const [job, steps] of jobSteps(
+          yield* readWorkflow(`${dir}/${file}`)
+        )) {
+          if (steps.some((step) => runs(step, /\bpnpm test:e2e\b/)))
+            e2e.push(`${file} ${job}`)
+        }
+      }
+      assert.deepStrictEqual(e2e, [])
+    })
   )
 })
