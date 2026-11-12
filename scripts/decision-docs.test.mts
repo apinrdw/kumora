@@ -234,7 +234,7 @@ describe("checkDecisionDocs", () => {
           "a.ts": `a();// ${tag} x`,
           "b.tsx": `const d = <div>{/* ${tag} x */}</div>`,
           // A `{` before a comment is JSX only in a JSX file.
-          "c.ts": `if (a) { // ${tag} x`,
+          "c.ts": `{ // ${tag} x\n}`,
         }),
         [partway("a.ts:1"), partway("b.tsx:1"), partway("c.ts:1")]
       )
