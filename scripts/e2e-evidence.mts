@@ -1,29 +1,34 @@
-// `pnpm e2e:evidence [--pr <n>] [--dry-run] <spec...>`: runs the full e2e
-// suite with video on, posts the named specs' videos to the PR as one comment
+// `pnpm e2e:evidence [--pr <n>] [--dry-run] [spec...]`: runs the full e2e
+// suite with video on, posts the picked specs' videos to the PR as one comment
 // and marks the PR head `e2e-evidence: success`, linking to it. Every decision
-// is in scripts/e2e-evidence-plan.mts; this file runs gh and Playwright.
+// is in scripts/e2e-evidence-plan.mts; this file runs git, gh and Playwright.
 // --dry-run prints the comment and the gh calls instead of making them.
 import { availableParallelism } from "node:os"
 import { parseArgs as parseCliArgs } from "node:util"
 
-import { Console, Effect, FileSystem, Path, Schema } from "effect"
+import { ByteSize, Console, Effect, FileSystem, Path, Schema } from "effect"
 import { Stdio } from "effect/Stdio"
 import { ChildProcess, ChildProcessSpawner } from "effect/process"
 
 import {
   commentUrl,
   evidencePlan,
+  preflight,
   resultsFolders,
   PlaywrightReport,
 } from "./e2e-evidence-plan.mts"
 import { CheckFailed, repoRoot } from "./lib/check.mts"
-import { CommandFailed, stdoutOf } from "./lib/command.mts"
+import { collect, CommandFailed, gitLines, stdoutOf } from "./lib/command.mts"
 import { runScript } from "./lib/run.mts"
 
-const USAGE = "Usage: pnpm e2e:evidence [--pr <n>] [--dry-run] <spec...>"
+const USAGE = "Usage: pnpm e2e:evidence [--pr <n>] [--dry-run] [spec...]"
 
 const Pr = Schema.fromJsonString(
-  Schema.Struct({ number: Schema.Number, headRefOid: Schema.String })
+  Schema.Struct({
+    number: Schema.Number,
+    headRefOid: Schema.String,
+    baseRefName: Schema.String,
+  })
 )
 
 const parseArgs = Effect.fnUntraced(function* (args: ReadonlyArray<string>) {
@@ -46,6 +51,30 @@ const parseArgs = Effect.fnUntraced(function* (args: ReadonlyArray<string>) {
   return { specs: parsed.positionals, pr, dryRun }
 })
 
+// The branch's PR, or the one --pr names; undefined when gh finds none.
+const findPr = Effect.fnUntraced(function* (
+  root: string,
+  prArg: string | undefined
+) {
+  const args = [
+    "pr",
+    "view",
+    ...(prArg ? [prArg] : []),
+    "--json",
+    "number,headRefOid,baseRefName",
+  ]
+  const result = yield* collect(ChildProcess.make("gh", args, { cwd: root }))
+  if (result.exitCode !== 0 && /no pull requests found/i.test(result.stderr))
+    return undefined
+  if (result.exitCode !== 0)
+    return yield* new CommandFailed({
+      command: ["gh", ...args].join(" "),
+      exitCode: result.exitCode,
+      stderr: result.stderr,
+    })
+  return yield* Schema.decodeEffect(Pr)(result.stdout)
+})
+
 // Runs a command on this terminal and returns its exit code.
 const attached = Effect.fn("attached")(function* (
   command: ChildProcess.Command
@@ -55,9 +84,9 @@ const attached = Effect.fn("attached")(function* (
   return yield* handle.exitCode
 }, Effect.scoped)
 
-// Each results folder the report names, to the repo-relative .webm files in
-// it. A test that opens no page may leave no folder.
-const listVideos = Effect.fnUntraced(function* (
+// Each results folder the report names, to the files in it, repo-relative
+// with their sizes. A test that opens no page may leave no folder.
+const listFiles = Effect.fnUntraced(function* (
   root: string,
   report: typeof PlaywrightReport.Type
 ) {
@@ -66,16 +95,19 @@ const listVideos = Effect.fnUntraced(function* (
   const listed = yield* Effect.forEach(
     yield* resultsFolders(report),
     (folder) =>
-      Effect.map(
-        Effect.orElseSucceed(fs.readDirectory(folder), () => []),
-        (names) =>
-          [
-            folder,
-            names
-              .filter((name) => name.endsWith(".webm"))
-              .map((name) => path.relative(root, path.join(folder, name))),
-          ] as const
-      )
+      Effect.gen(function* () {
+        const names = yield* Effect.orElseSucceed(
+          fs.readDirectory(folder),
+          () => []
+        )
+        const files = yield* Effect.forEach(names, (name) =>
+          Effect.map(fs.stat(path.join(folder, name)), (info) => ({
+            path: path.relative(root, path.join(folder, name)),
+            bytes: Number(ByteSize.toBigInt(info.size)),
+          }))
+        )
+        return [folder, files] as const
+      })
   )
   return new Map(listed)
 })
@@ -86,18 +118,47 @@ const e2eEvidence = Effect.fn("e2eEvidence")(function* (
 ) {
   const fs = yield* FileSystem.FileSystem
   const path = yield* Path.Path
-  const { specs, pr: prArg, dryRun } = yield* parseArgs(args)
+  const { specs: named, pr: prArg, dryRun } = yield* parseArgs(args)
 
-  const pr = yield* Schema.decodeEffect(Pr)(
-    yield* stdoutOf(
-      "gh",
-      ["pr", "view", ...(prArg ? [prArg] : []), "--json", "number,headRefOid"],
-      { cwd: root }
+  const found = yield* findPr(root, prArg)
+  // Decision: changed specs are diffed from the merge base with the PR's base
+  // as last fetched, without deleted files, which no longer run a test
+  // (apinrdw/kumora#202).
+  const changed =
+    found === undefined
+      ? []
+      : yield* gitLines(root, [
+          "diff",
+          "--name-only",
+          "--diff-filter=d",
+          (yield* stdoutOf(
+            "git",
+            ["merge-base", "HEAD", `origin/${found.baseRefName}`],
+            { cwd: root }
+          )).trim(),
+          "HEAD",
+        ])
+  const { pr, specs, unmet } = yield* preflight({
+    named,
+    changed,
+    dirty: yield* gitLines(root, ["status", "--porcelain"]),
+    head: (yield* stdoutOf("git", ["rev-parse", "HEAD"], { cwd: root })).trim(),
+    pr:
+      found === undefined
+        ? undefined
+        : { number: found.number, headSha: found.headRefOid },
+    gh: yield* stdoutOf("gh", ["--version"], { cwd: root }),
+    dryRun,
+  })
+  if (unmet.length > 0)
+    yield* Console.log(
+      `--dry-run: a real run would refuse:\n${unmet.join("\n")}\n`
     )
-  )
+  yield* Console.log(`Picked: ${specs.join(", ")}`)
 
   const results = path.join(root, "apps/e2e/test-results")
   const reportFile = path.join(results, "e2e-evidence-report.json")
+  yield* fs.remove(reportFile, { force: true })
   // Decision: about a quarter of the cores, since every page records through
   // its own VP9 encoder: 8 workers with video timed out on 16 cores, 4 passed
   // (apinrdw/kumora#210).
@@ -106,6 +167,8 @@ const e2eEvidence = Effect.fn("e2eEvidence")(function* (
     "test:e2e",
     "--forbid-only",
     `--workers=${workers}`,
+    // A failure keeps its trace, which a red run prints (apinrdw/kumora#207).
+    "--trace=retain-on-failure",
     "--reporter=list,json",
   ]
   const exitCode = yield* attached(
@@ -118,11 +181,11 @@ const e2eEvidence = Effect.fn("e2eEvidence")(function* (
       stderr: "inherit",
     })
   )
-  if (exitCode !== 0)
+  if (!(yield* fs.exists(reportFile)))
     return yield* new CommandFailed({
       command: ["pnpm", ...playwright].join(" "),
       exitCode,
-      stderr: "",
+      stderr: `It wrote no JSON report to ${path.relative(root, reportFile)}.`,
     })
 
   const report = yield* Schema.decodeEffect(
@@ -130,9 +193,10 @@ const e2eEvidence = Effect.fn("e2eEvidence")(function* (
   )(yield* fs.readFileString(reportFile))
   const plan = yield* evidencePlan({
     specs,
-    pr: { number: pr.number, headSha: pr.headRefOid },
+    pr,
+    exitCode,
     report,
-    videos: yield* listVideos(root, report),
+    files: yield* listFiles(root, report),
   })
 
   const bodyFile = path.join(results, "e2e-evidence.md")

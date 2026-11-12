@@ -7,57 +7,244 @@ import {
   EvidenceRefused,
   evidencePlan,
   PlaywrightReport,
+  preflight,
 } from "./e2e-evidence-plan.mts"
 
 const SHA = "b40ace6e4b02b88d864f939f7501f8de34b1df08"
 const PR = { number: 217, headSha: SHA }
 
+const fixture = (name: string) =>
+  Effect.gen(function* () {
+    const fs = yield* FileSystem.FileSystem
+    const path = yield* Path.Path
+    return yield* Schema.decodeEffect(Schema.fromJsonString(PlaywrightReport))(
+      yield* fs.readFileString(path.join(import.meta.dirname, "fixtures", name))
+    )
+  })
+
 // A real JSON report of web, taken-email and market-live-select with
 // E2E_VIDEO=on (11 passed), its checkout path replaced by /repo.
-const report = Effect.gen(function* () {
-  const fs = yield* FileSystem.FileSystem
-  const path = yield* Path.Path
-  return yield* Schema.decodeEffect(Schema.fromJsonString(PlaywrightReport))(
-    yield* fs.readFileString(
-      path.join(import.meta.dirname, "fixtures/e2e-evidence-report.json")
-    )
-  )
-})
+const green = fixture("e2e-evidence-report.json")
+// A real JSON report of web and taken-email with E2E_VIDEO=on and
+// --trace=retain-on-failure, with web's landing-page test made to fail
+// (1 failed, 4 passed), its checkout path replaced by /repo.
+const red = fixture("e2e-evidence-red-report.json")
 
-// What that run left in each results folder, as the shell lists it: the
-// .webm files, repo-relative. A request-only test has an empty or no folder.
+// What a run left in each results folder, as the shell lists it: every file,
+// repo-relative, with its size. A request-only test has an empty or no folder.
 const results = "apps/e2e/test-results"
-const listed: Record<string, ReadonlyArray<string>> = {
-  "web-GET-serves-the-landing-page-chromium": ["video.webm"],
+const MB = 1_000_000
+const folders = (
+  listed: Record<string, ReadonlyArray<readonly [string, number]>>
+) =>
+  new Map(
+    Object.entries(listed).map(([folder, names]) => [
+      `/repo/${results}/${folder}`,
+      names.map(([name, bytes]) => ({
+        path: `${results}/${folder}/${name}`,
+        bytes,
+      })),
+    ])
+  )
+const greenFiles = folders({
+  "web-GET-serves-the-landing-page-chromium": [["video.webm", 0.05 * MB]],
   "taken-email-the-owner-of-a-2e971-unt-through-the-mailed-link-chromium": [
-    "page@a0193e67cba0c6be8365d1b731100033.webm",
-    "page@3b02dfa9110f20441cf1bc739eea183e.webm",
+    ["page@a0193e67cba0c6be8365d1b731100033.webm", 0.6 * MB],
+    ["page@3b02dfa9110f20441cf1bc739eea183e.webm", 0.5 * MB],
   ],
   "market-live-select-the-cha-cbdcf--a-code-shares-above-rights-trading-day": [
-    "video.webm",
+    ["video.webm", 1 * MB],
   ],
   "market-live-select-the-and-Ctrl-K-palette-selects-a-code-trading-day": [
-    "video.webm",
+    ["video.webm", 1 * MB],
   ],
   "market-live-select-clicking-a-tape-row-selects-its-code-trading-day": [
-    "video.webm",
+    ["video.webm", 1 * MB],
   ],
   "market-live-select-the-sel-cd411-ad-and-a-bad-one-falls-back-trading-day": [
-    "video.webm",
+    ["video.webm", 1 * MB],
   ],
   "market-live-select-a-signed-out-code-list-GET-answers-401-trading-day": [],
-}
-const videos = new Map(
-  Object.entries(listed).map(([folder, names]) => [
-    `/repo/${results}/${folder}`,
-    names.map((name) => `${results}/${folder}/${name}`),
-  ])
-)
+})
+const redFiles = folders({
+  "web-GET-serves-the-landing-page-chromium": [
+    ["error-context.md", 0.002 * MB],
+    ["trace.zip", 0.2 * MB],
+    ["video.webm", 0.05 * MB],
+  ],
+  "taken-email-the-owner-of-a-2e971-unt-through-the-mailed-link-chromium": [
+    ["page@71ee8912abda0a5dc3c41df1b03cca02.webm", 0.6 * MB],
+    ["page@cb588c83eafab5a2567cbbf0d5af7ea0.webm", 0.5 * MB],
+  ],
+})
 
-const plan = (specs: ReadonlyArray<string>) =>
-  Effect.flatMap(report, (playwright) =>
-    evidencePlan({ specs, pr: PR, report: playwright, videos })
+const plan = (
+  specs: ReadonlyArray<string>,
+  files: Parameters<typeof evidencePlan>[0]["files"] = greenFiles
+) =>
+  Effect.flatMap(green, (report) =>
+    evidencePlan({ specs, pr: PR, exitCode: 0, report, files })
   )
+
+const redPlan = (specs: ReadonlyArray<string>) =>
+  Effect.flatMap(red, (report) =>
+    evidencePlan({ specs, pr: PR, exitCode: 1, report, files: redFiles })
+  )
+
+// Everything a real run needs, met.
+const ready: Parameters<typeof preflight>[0] = {
+  named: ["web.spec.ts"],
+  changed: ["apps/web/src/routes/index.tsx", "apps/e2e/support/test.ts"],
+  dirty: [],
+  head: SHA,
+  pr: PR,
+  gh: "gh version 2.99.0 (2026-10-01)\nhttps://github.com/cli/cli/releases/tag/v2.99.0\n",
+  dryRun: false,
+}
+
+const refusal = (inputs: Partial<typeof ready>) =>
+  Effect.map(Effect.flip(preflight({ ...ready, ...inputs })), (refused) => {
+    assert.instanceOf(refused, EvidenceRefused)
+    return refused.message
+  })
+
+layer(NodeServices.layer)("preflight", (it) => {
+  it.effect("selects only the named specs when no spec file changed", () =>
+    Effect.gen(function* () {
+      const { specs, unmet } = yield* preflight(ready)
+      assert.deepStrictEqual(specs, ["web.spec.ts"])
+      assert.deepStrictEqual(unmet, [])
+    })
+  )
+
+  it.effect(
+    "adds each spec file changed against the base after the named ones",
+    () =>
+      Effect.gen(function* () {
+        const { specs } = yield* preflight({
+          ...ready,
+          changed: [
+            "apps/e2e/tests/taken-email.spec.ts",
+            "apps/e2e/tests/accounts.setup.ts",
+            "apps/e2e/support/test.ts",
+            "apps/web/src/web.spec.ts",
+          ],
+        })
+        assert.deepStrictEqual(specs, [
+          "web.spec.ts",
+          "apps/e2e/tests/taken-email.spec.ts",
+        ])
+      })
+  )
+
+  it.effect("selects a changed spec when none is named", () =>
+    Effect.gen(function* () {
+      const { specs } = yield* preflight({
+        ...ready,
+        named: [],
+        changed: ["apps/e2e/tests/taken-email.spec.ts"],
+      })
+      assert.deepStrictEqual(specs, ["apps/e2e/tests/taken-email.spec.ts"])
+    })
+  )
+
+  it.effect("refuses an empty selection, pointing at a spec or the label", () =>
+    Effect.gen(function* () {
+      const message = yield* refusal({ named: [] })
+      assert.include(message, "Name a spec file")
+      assert.include(message, "no-e2e-evidence")
+    })
+  )
+
+  it.effect("refuses a dirty working tree, listing what is dirty", () =>
+    Effect.gen(function* () {
+      const message = yield* refusal({
+        dirty: [" M apps/web/src/routes/index.tsx", "?? notes.txt"],
+      })
+      assert.include(message, "The working tree is dirty")
+      assert.include(message, "apps/web/src/routes/index.tsx")
+      assert.include(message, "notes.txt")
+    })
+  )
+
+  it.effect("refuses a local HEAD that is not the PR's head, naming both", () =>
+    Effect.gen(function* () {
+      const head = "0123456789abcdef0123456789abcdef01234567"
+      const message = yield* refusal({ head })
+      assert.include(message, head)
+      assert.include(message, SHA)
+      assert.include(message, "PR #217")
+    })
+  )
+
+  it.effect("refuses a branch with no PR", () =>
+    Effect.gen(function* () {
+      const message = yield* refusal({ pr: undefined })
+      assert.include(message, "No PR")
+      assert.include(message, "--pr")
+    })
+  )
+
+  it.effect("refuses gh older than 2.99.0, naming the version found", () =>
+    Effect.gen(function* () {
+      const message = yield* refusal({
+        gh: "gh version 2.96.0 (2026-07-02)\nhttps://github.com/cli/cli/releases/tag/v2.96.0\n",
+      })
+      assert.include(message, "2.96.0")
+      assert.include(message, "2.99.0")
+    })
+  )
+
+  it.effect("compares gh versions by number, not as text", () =>
+    Effect.gen(function* () {
+      for (const version of ["2.100.0", "3.0.0", "2.99.1"])
+        yield* preflight({ ...ready, gh: `gh version ${version} (2027-01-01)` })
+    })
+  )
+
+  it.effect("refuses a gh version it cannot read", () =>
+    Effect.gen(function* () {
+      assert.include(yield* refusal({ gh: "nope" }), "2.99.0")
+    })
+  )
+
+  it.effect("names every unmet precondition in one refusal", () =>
+    Effect.gen(function* () {
+      const message = yield* refusal({
+        dirty: ["?? notes.txt"],
+        gh: "gh version 2.96.0 (2026-07-02)",
+      })
+      assert.include(message, "dirty")
+      assert.include(message, "2.96.0")
+    })
+  )
+
+  it.effect(
+    "lets a dry run past the post's preconditions and reports them",
+    () =>
+      Effect.gen(function* () {
+        const { specs, unmet } = yield* preflight({
+          ...ready,
+          dryRun: true,
+          dirty: ["?? notes.txt"],
+          head: "0123456789abcdef0123456789abcdef01234567",
+          gh: "gh version 2.96.0 (2026-07-02)",
+        })
+        assert.deepStrictEqual(specs, ["web.spec.ts"])
+        assert.lengthOf(unmet, 3)
+      })
+  )
+
+  it.effect("refuses a dry run with no PR or an empty selection", () =>
+    Effect.gen(function* () {
+      assert.include(yield* refusal({ dryRun: true, pr: undefined }), "No PR")
+      assert.include(
+        yield* refusal({ dryRun: true, named: [] }),
+        "no-e2e-evidence"
+      )
+    })
+  )
+})
 
 layer(NodeServices.layer)("evidencePlan", (it) => {
   it.effect(
@@ -109,7 +296,7 @@ layer(NodeServices.layer)("evidencePlan", (it) => {
   )
 
   it.effect(
-    "covers one video per test of each named file and none from unnamed ones",
+    "covers one video per test of each selected file and none from others",
     () =>
       Effect.gen(function* () {
         const post = yield* plan([
@@ -137,13 +324,122 @@ layer(NodeServices.layer)("evidencePlan", (it) => {
       })
   )
 
-  it.effect("refuses a named spec that ran no test", () =>
+  it.effect("posts a spec named and also changed once", () =>
+    Effect.gen(function* () {
+      const post = yield* plan(["web.spec.ts", "apps/e2e/tests/web.spec.ts"])
+      assert.lengthOf(post.videos, 1)
+    })
+  )
+
+  it.effect("refuses a selected spec that ran no test", () =>
     Effect.gen(function* () {
       const refused = yield* Effect.flip(
         plan(["web.spec.ts", "nonexistent.spec.ts"])
       )
       assert.instanceOf(refused, EvidenceRefused)
       assert.include(refused.message, "nonexistent.spec.ts")
+    })
+  )
+
+  const failure = [
+    "web.spec.ts › GET / serves the landing page",
+    `  video: ${results}/web-GET-serves-the-landing-page-chromium/video.webm`,
+    `  trace: ${results}/web-GET-serves-the-landing-page-chromium/trace.zip`,
+  ].join("\n")
+
+  it.effect(
+    "blocks the post on a failed picked test, listing its video and trace",
+    () =>
+      Effect.gen(function* () {
+        const refused = yield* Effect.flip(redPlan(["web.spec.ts"]))
+        assert.instanceOf(refused, EvidenceRefused)
+        assert.include(refused.message, "nothing was posted")
+        assert.include(refused.message, failure)
+        assert.notInclude(refused.message, "taken-email")
+      })
+  )
+
+  it.effect("blocks the post on a failed test in an unpicked spec", () =>
+    Effect.gen(function* () {
+      const refused = yield* Effect.flip(redPlan(["taken-email.spec.ts"]))
+      assert.instanceOf(refused, EvidenceRefused)
+      assert.include(refused.message, failure)
+    })
+  )
+
+  it.effect(
+    "blocks the post when Playwright exits non-zero with no failed test",
+    () =>
+      Effect.gen(function* () {
+        const report = yield* green
+        const refused = yield* Effect.flip(
+          evidencePlan({
+            specs: ["web.spec.ts"],
+            pr: PR,
+            exitCode: 1,
+            report: {
+              ...report,
+              errors: [{ message: "Error: did not expect test.only" }],
+            },
+            files: greenFiles,
+          })
+        )
+        assert.instanceOf(refused, EvidenceRefused)
+        assert.include(refused.message, "exited 1")
+        assert.include(refused.message, "did not expect test.only")
+      })
+  )
+
+  it.effect("refuses a video over 100 MB, naming its test", () =>
+    Effect.gen(function* () {
+      const folder = `${results}/web-GET-serves-the-landing-page-chromium`
+      const refused = yield* Effect.flip(
+        plan(
+          ["web.spec.ts"],
+          new Map([
+            ...greenFiles,
+            [
+              `/repo/${folder}`,
+              [{ path: `${folder}/video.webm`, bytes: 100 * MB + 1 }],
+            ],
+          ])
+        )
+      )
+      assert.instanceOf(refused, EvidenceRefused)
+      assert.include(refused.message, "GET / serves the landing page")
+      assert.include(refused.message, "100 MB")
+    })
+  )
+
+  it.effect("posts a video of exactly 100 MB", () =>
+    Effect.gen(function* () {
+      const folder = `${results}/web-GET-serves-the-landing-page-chromium`
+      yield* plan(
+        ["web.spec.ts"],
+        new Map([
+          ...greenFiles,
+          [
+            `/repo/${folder}`,
+            [{ path: `${folder}/video.webm`, bytes: 100 * MB }],
+          ],
+        ])
+      )
+    })
+  )
+
+  it.effect("ignores an oversize video of a test it does not post", () =>
+    Effect.gen(function* () {
+      const folder = `${results}/web-GET-serves-the-landing-page-chromium`
+      yield* plan(
+        ["taken-email.spec.ts"],
+        new Map([
+          ...greenFiles,
+          [
+            `/repo/${folder}`,
+            [{ path: `${folder}/video.webm`, bytes: 500 * MB }],
+          ],
+        ])
+      )
     })
   )
 })
