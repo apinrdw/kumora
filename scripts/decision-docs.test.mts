@@ -106,6 +106,7 @@ describe("checkDecisionDocs", () => {
       })
       return Effect.gen(function* () {
         const error = yield* Effect.flip(checkDecisionDocs("/repo"))
+        assert.instanceOf(error, CheckFailed)
         assert.deepStrictEqual(error.findings, [
           "a.tsx:1: Decision runs 7 lines; keep 5 and link the PR for the rest",
           "b.ts:1: Decision runs 7 lines; keep 5 and link the PR for the rest",
@@ -127,6 +128,29 @@ describe("checkDecisionDocs", () => {
     }
   )
 
+  it.effect("reads SQL, HTML and after-code comments the same way", () => {
+    const { layer } = repo({
+      "a.sql": [`-- ${tag} one`, "--", `select 1 -- What. ${tag} why`].join(
+        "\n"
+      ),
+      "b.html": [
+        `<!-- ${tag} one`,
+        ...Array.from({ length: 5 }, () => "more"),
+        "-->",
+      ].join("\n"),
+      "c.ts": `const a = 1 // ${tag} why`,
+    })
+    return Effect.gen(function* () {
+      const error = yield* Effect.flip(checkDecisionDocs("/repo"))
+      assert.instanceOf(error, CheckFailed)
+      assert.deepStrictEqual(error.findings, [
+        `a.sql:3: ${tag} starts mid-comment; open its own comment line with it`,
+        "b.html:1: Decision runs 6 lines; keep 5 and link the PR for the rest",
+        `c.ts:1: ${tag} starts mid-comment; open its own comment line with it`,
+      ])
+    }).pipe(Effect.provide(layer))
+  })
+
   it.effect("keeps a decision open past a line comment ending in */", () => {
     const { layer } = repo({
       "a.ts": [
@@ -137,6 +161,7 @@ describe("checkDecisionDocs", () => {
     })
     return Effect.gen(function* () {
       const error = yield* Effect.flip(checkDecisionDocs("/repo"))
+      assert.instanceOf(error, CheckFailed)
       assert.deepStrictEqual(error.findings, [
         "a.ts:1: Decision runs 6 lines; keep 5 and link the PR for the rest",
       ])
