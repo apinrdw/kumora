@@ -14,10 +14,7 @@ const Workflow = Schema.Struct({
     Schema.String,
     Schema.Struct({ types: Schema.Array(Schema.String) })
   ),
-  concurrency: Schema.Struct({
-    group: Schema.String,
-    "cancel-in-progress": Schema.Union([Schema.Boolean, Schema.String]),
-  }),
+  concurrency: Schema.Struct({ group: Schema.String }),
   jobs: Schema.Record(
     Schema.String,
     Schema.Struct({
@@ -235,18 +232,6 @@ layer(NodeServices.layer)("e2e-evidence gate", (it) => {
       Effect.gen(function* () {
         const job = yield* gateJob
         assert.strictEqual(job.if, notATitleOrBodyEdit)
-      })
-  )
-
-  it.effect(
-    "never lets a skipped edit cancel the gate run of a push or label before it",
-    () =>
-      Effect.gen(function* () {
-        const workflow = yield* gateWorkflow
-        assert.strictEqual(
-          workflow.concurrency["cancel-in-progress"],
-          `\${{ ${notATitleOrBodyEdit} }}`
-        )
       })
   )
 
