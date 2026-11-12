@@ -76,7 +76,7 @@ const findPr = Effect.fnUntraced(function* (
 })
 
 // Runs a command on this terminal and returns its exit code.
-const attached = Effect.fn("attached")(function* (
+const runOnTerminal = Effect.fn("runOnTerminal")(function* (
   command: ChildProcess.Command
 ) {
   const spawner = yield* ChildProcessSpawner.ChildProcessSpawner
@@ -171,9 +171,11 @@ const e2eEvidence = Effect.fn("e2eEvidence")(function* (
     "--trace=retain-on-failure",
     "--reporter=list,json",
   ]
-  const exitCode = yield* attached(
+  const exitCode = yield* runOnTerminal(
     ChildProcess.make("pnpm", playwright, {
       cwd: root,
+      // The video switch, as apps/e2e/support/video.ts defines it; a root
+      // script imports from no workspace, so the two name each other.
       env: { E2E_VIDEO: "on", PLAYWRIGHT_JSON_OUTPUT_FILE: reportFile },
       extendEnv: true,
       stdin: "inherit",
@@ -199,14 +201,16 @@ const e2eEvidence = Effect.fn("e2eEvidence")(function* (
     files: yield* listFiles(root, report),
   })
 
-  const bodyFile = path.join(results, "e2e-evidence.md")
-  yield* fs.writeFileString(bodyFile, plan.body)
+  yield* fs.writeFileString(path.join(root, plan.bodyFile), plan.body)
+  // gh runs from the body file's folder, which the plan's video paths are
+  // relative to.
+  const commentDir = path.dirname(plan.bodyFile)
   const comment = [
     "pr",
     "comment",
     String(plan.pr),
     "--body-file",
-    path.relative(root, bodyFile),
+    path.basename(plan.bodyFile),
     ...plan.videos.flatMap((video) => ["--attach", video]),
   ]
   const status = (target: string) => [
@@ -225,11 +229,13 @@ const e2eEvidence = Effect.fn("e2eEvidence")(function* (
   ]
   if (dryRun) {
     yield* Console.log(
-      `\n--dry-run: would post this to PR #${plan.pr}:\n\n${plan.body}\ngh ${comment.join(" ")}\ngh ${status("<comment URL>").join(" ")}`
+      `\n--dry-run: would post this to PR #${plan.pr}:\n\n${plan.body}\nin ${commentDir}: gh ${comment.join(" ")}\ngh ${status("<comment URL>").join(" ")}`
     )
     return
   }
-  const url = yield* commentUrl(yield* stdoutOf("gh", comment, { cwd: root }))
+  const url = yield* commentUrl(
+    yield* stdoutOf("gh", comment, { cwd: path.join(root, commentDir) })
+  )
   yield* stdoutOf("gh", status(url), { cwd: root })
   yield* Console.log(
     `Posted ${plan.videos.length} videos to ${url} and set ${plan.status.context} to ${plan.status.state} on ${plan.status.sha.slice(0, 10)}.`

@@ -253,8 +253,9 @@ layer(NodeServices.layer)("evidencePlan", (it) => {
     () =>
       Effect.gen(function* () {
         const post = yield* plan(["web.spec.ts"])
-        const video = `${results}/web-GET-serves-the-landing-page-chromium/video.webm`
+        const video = "./web-GET-serves-the-landing-page-chromium/video.webm"
         assert.strictEqual(post.pr, 217)
+        assert.strictEqual(post.bodyFile, `${results}/e2e-evidence.md`)
         assert.deepStrictEqual(post.videos, [video])
         assert.strictEqual(
           post.body,
@@ -279,11 +280,24 @@ layer(NodeServices.layer)("evidencePlan", (it) => {
   )
 
   it.effect(
+    "writes each video's path relative to the body file's directory, so gh need not fall back to the working directory",
+    () =>
+      Effect.gen(function* () {
+        const post = yield* plan(["web.spec.ts"])
+        const video = "./web-GET-serves-the-landing-page-chromium/video.webm"
+        assert.deepStrictEqual(post.videos, [video])
+        assert.include(post.body, `![](${video})`)
+        assert.notInclude(post.body, results)
+      })
+  )
+
+  it.effect(
     "attaches every video in a test's folder, sorted by name, each in its own paragraph",
     () =>
       Effect.gen(function* () {
         const post = yield* plan(["taken-email.spec.ts"])
-        const folder = `${results}/taken-email-the-owner-of-a-2e971-unt-through-the-mailed-link-chromium`
+        const folder =
+          "./taken-email-the-owner-of-a-2e971-unt-through-the-mailed-link-chromium"
         const sorted = [
           `${folder}/page@3b02dfa9110f20441cf1bc739eea183e.webm`,
           `${folder}/page@a0193e67cba0c6be8365d1b731100033.webm`,
@@ -426,6 +440,31 @@ layer(NodeServices.layer)("evidencePlan", (it) => {
         ])
       )
     })
+  )
+
+  it.effect(
+    "refuses more than 50 videos, the most gh attaches to one comment, naming the count",
+    () =>
+      Effect.gen(function* () {
+        const folder = `${results}/web-GET-serves-the-landing-page-chromium`
+        const many = (count: number) =>
+          new Map([
+            ...greenFiles,
+            [
+              `/repo/${folder}`,
+              Array.from({ length: count }, (_, at) => ({
+                path: `${folder}/page@${String(at).padStart(2, "0")}.webm`,
+                bytes: MB,
+              })),
+            ],
+          ])
+        const refused = yield* Effect.flip(plan(["web.spec.ts"], many(51)))
+        assert.instanceOf(refused, EvidenceRefused)
+        assert.include(refused.message, "51 videos")
+        assert.include(refused.message, "50")
+        assert.include(refused.message, "fewer specs")
+        assert.lengthOf((yield* plan(["web.spec.ts"], many(50))).videos, 50)
+      })
   )
 
   it.effect("ignores an oversize video of a test it does not post", () =>
