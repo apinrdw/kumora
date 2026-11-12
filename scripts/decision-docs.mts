@@ -1,6 +1,6 @@
 // Fails when an ADR directory or a path into one is back in the repo, or when a
 // `Decision:` comment breaks its shape: the tag opens a comment line, and the
-// comment runs five lines at most. See docs/agents/domain.md. Comments come
+// decision runs five lines at most from its tag. See docs/agents/domain.md. Comments come
 // from parsers: oxc for JS, TS and JSON, `yaml` for YAML. A file of any other
 // type is read for ADR links only, never for a Decision.
 import { parseSync } from "oxc-parser"
@@ -17,6 +17,7 @@ const tag = "Decision:"
 // A tag in comment text; a backticked one is prose about the tag.
 const anyTag = new RegExp(String.raw`(?<!\`)\b${tag}`)
 const script = /\.[cm]?[jt]sx?$/
+const jsx = /\.[jt]sx$/
 const json = /\.jsonc?$/
 const yaml = /\.ya?ml$/
 
@@ -29,8 +30,7 @@ interface Found {
 }
 
 // The comments in a file: empty when it is not a parsed type, none when oxc
-// cannot parse it. A file that fails to parse also fails typecheck or its
-// consumer, so the check names it and reads nothing from it.
+// cannot parse it. The check then names the file and reads nothing from it.
 const readComments = Effect.fnUntraced(function* (file: string, text: string) {
   const oxc = (name: string, source: string, shift: number) => {
     const { errors, comments } = parseSync(name, source)
@@ -58,15 +58,16 @@ const readComments = Effect.fnUntraced(function* (file: string, text: string) {
     return Object.values(node).flatMap(yamlComments)
   }
   if (script.test(file)) return oxc(file, text, 0)
-  // JSON with comments is a JS expression once wrapped in parentheses.
-  if (json.test(file)) return oxc(`${file}.js`, `(${text})`, 1)
+  // JSON with comments is a JS expression once wrapped in parentheses; the
+  // newline keeps a closing line comment from taking the `)`.
+  if (json.test(file)) return oxc(`${file}.js`, `(${text}\n)`, 1)
   if (yaml.test(file))
     return Option.some(yamlComments([...new Parser().parse(text)]))
   return Option.some([])
 })
 
-// A comment laid over its source lines. `opens` when only whitespace, or a
-// JSX `{`, sits before it on its line. A run of `//` or `#` comments on
+// A comment laid over its source lines. `opens` when only whitespace, or in a
+// JSX file a `{`, sits before it on its line. A run of `//` or `#` comments on
 // consecutive lines, each opening its line, is one comment.
 interface Comment {
   readonly line: number
@@ -85,7 +86,7 @@ const decisionFindings = Effect.fnUntraced(function* (
     (all, { block, start, value }) => {
       const line = text.slice(0, start).split("\n").length - 1
       const before = text.slice(text.lastIndexOf("\n", start - 1) + 1, start)
-      const opens = /^\s*\{?\s*$/.test(before)
+      const opens = (jsx.test(file) ? /^\s*\{?\s*$/ : /^\s*$/).test(before)
       const lines = value
         .split("\n")
         .map((part) => (block ? part.replace(/^\s*\*?/, "") : part).trim())
