@@ -123,10 +123,9 @@ const INGEST_TOKEN_DEADLINE = Duration.seconds(10)
 // holds it), but viewers aren't sent it. See apinrdw/kumora#157.
 const TAPE_LIMIT = 10_000
 // Decision: each feed remembers the last 40,000 trade numbers it timed, four
-// tapes' worth. Its copy of a trade is held outside the tape and merge window
-// only after 10,000 newer trades and 5 s; connection B trails A by seconds,
-// far inside 30,000 more of the feed's trades. Two sets of 40,000 short
-// strings cost a few MB.
+// tapes' worth. A copy falls outside the tape only after a tape of newer
+// trades; connection B trails A by seconds, far inside 30,000 more of the
+// feed's trades. Two sets of 40,000 short strings cost a few MB.
 const TIMED_LIMIT = 4 * TAPE_LIMIT
 
 // Decision: the day's state is written to the day store once a minute, 5 s
