@@ -1,0 +1,755 @@
+{
+  "config": {
+    "argv": [
+      "/usr/bin/node",
+      "/repo/apps/e2e/node_modules/@playwright/test/cli.js",
+      "test",
+      "web.spec.ts",
+      "taken-email.spec.ts",
+      "market-live-select.spec.ts",
+      "--reporter=list,json",
+      "--workers=4"
+    ],
+    "configFile": "/repo/apps/e2e/playwright.config.ts",
+    "rootDir": "/repo/apps/e2e/tests",
+    "failOnFlakyTests": false,
+    "forbidOnly": false,
+    "fullyParallel": true,
+    "globalSetup": null,
+    "globalTeardown": null,
+    "globalTimeout": 0,
+    "grep": {},
+    "grepInvert": null,
+    "maxFailures": 0,
+    "metadata": {
+      "actualWorkers": 4
+    },
+    "preserveOutput": "always",
+    "projects": [
+      {
+        "outputDir": "/repo/apps/e2e/test-results",
+        "repeatEach": 1,
+        "retries": 0,
+        "metadata": {
+          "actualWorkers": 4
+        },
+        "id": "setup",
+        "name": "setup",
+        "testDir": "/repo/apps/e2e/tests",
+        "testIgnore": [],
+        "testMatch": [
+          "/\\.setup\\.ts$/"
+        ],
+        "timeout": 30000
+      },
+      {
+        "outputDir": "/repo/apps/e2e/test-results",
+        "repeatEach": 1,
+        "retries": 0,
+        "metadata": {
+          "actualWorkers": 4
+        },
+        "id": "chromium",
+        "name": "chromium",
+        "testDir": "/repo/apps/e2e/tests",
+        "testIgnore": [
+          "/market-live[\\w-]*\\.spec\\.ts$/"
+        ],
+        "testMatch": [
+          "**/*.@(spec|test).?(c|m)[jt]s?(x)"
+        ],
+        "timeout": 30000
+      },
+      {
+        "outputDir": "/repo/apps/e2e/test-results",
+        "repeatEach": 1,
+        "retries": 0,
+        "metadata": {
+          "actualWorkers": 4
+        },
+        "id": "trading-day",
+        "name": "trading-day",
+        "testDir": "/repo/apps/e2e/tests",
+        "testIgnore": [],
+        "testMatch": [
+          "/market-live[\\w-]*\\.spec\\.ts$/"
+        ],
+        "timeout": 30000
+      }
+    ],
+    "filteredProjects": [
+      {
+        "grep": {},
+        "grepInvert": null,
+        "outputDir": "/repo/apps/e2e/test-results",
+        "repeatEach": 1,
+        "retries": 0,
+        "metadata": {
+          "actualWorkers": 4
+        },
+        "name": "setup",
+        "testDir": "/repo/apps/e2e/tests",
+        "snapshotDir": "/repo/apps/e2e/tests",
+        "testIgnore": [],
+        "testMatch": {},
+        "timeout": 30000,
+        "use": {
+          "browserName": "chromium",
+          "video": {
+            "mode": "on",
+            "size": {
+              "width": 1280,
+              "height": 720
+            }
+          }
+        },
+        "dependencies": [],
+        "ignoreSnapshots": false,
+        "__projectId": "setup"
+      },
+      {
+        "grep": {},
+        "grepInvert": null,
+        "outputDir": "/repo/apps/e2e/test-results",
+        "repeatEach": 1,
+        "retries": 0,
+        "metadata": {
+          "actualWorkers": 4
+        },
+        "name": "chromium",
+        "testDir": "/repo/apps/e2e/tests",
+        "snapshotDir": "/repo/apps/e2e/tests",
+        "testIgnore": {},
+        "testMatch": "**/*.@(spec|test).?(c|m)[jt]s?(x)",
+        "timeout": 30000,
+        "use": {
+          "browserName": "chromium",
+          "video": {
+            "mode": "on",
+            "size": {
+              "width": 1280,
+              "height": 720
+            }
+          }
+        },
+        "dependencies": [
+          "setup"
+        ],
+        "ignoreSnapshots": false,
+        "__projectId": "chromium"
+      },
+      {
+        "grep": {},
+        "grepInvert": null,
+        "outputDir": "/repo/apps/e2e/test-results",
+        "repeatEach": 1,
+        "retries": 0,
+        "metadata": {
+          "actualWorkers": 4
+        },
+        "name": "trading-day",
+        "testDir": "/repo/apps/e2e/tests",
+        "snapshotDir": "/repo/apps/e2e/tests",
+        "testIgnore": [],
+        "testMatch": {},
+        "timeout": 30000,
+        "use": {
+          "browserName": "chromium",
+          "video": {
+            "mode": "on",
+            "size": {
+              "width": 1280,
+              "height": 720
+            }
+          }
+        },
+        "dependencies": [
+          "setup"
+        ],
+        "ignoreSnapshots": false,
+        "__projectId": "trading-day"
+      }
+    ],
+    "quiet": false,
+    "reporter": [
+      [
+        "list"
+      ],
+      [
+        "json"
+      ]
+    ],
+    "reportSlowTests": {
+      "max": 5,
+      "threshold": 300000
+    },
+    "shard": null,
+    "tags": [],
+    "updateSnapshots": "default",
+    "updateSourceMethod": "patch",
+    "version": "1.64.1",
+    "workers": 4,
+    "webServer": null
+  },
+  "suites": [
+    {
+      "title": "accounts.setup.ts",
+      "file": "accounts.setup.ts",
+      "column": 0,
+      "line": 0,
+      "specs": [
+        {
+          "title": "sign up and verify member@example.com",
+          "ok": true,
+          "tags": [
+            "example.com"
+          ],
+          "tests": [
+            {
+              "timeout": 30000,
+              "annotations": [
+                {
+                  "type": "results-folder",
+                  "description": "/repo/apps/e2e/test-results/accounts.setup.ts-sign-up-and-verify-member-example-com-setup"
+                }
+              ],
+              "expectedStatus": "passed",
+              "projectId": "setup",
+              "projectName": "setup",
+              "results": [
+                {
+                  "workerIndex": 0,
+                  "parallelIndex": 0,
+                  "status": "passed",
+                  "duration": 9031,
+                  "errors": [],
+                  "stdout": [],
+                  "stderr": [],
+                  "retry": 0,
+                  "startTime": "2026-11-12T03:48:26.487Z",
+                  "annotations": [
+                    {
+                      "type": "results-folder",
+                      "description": "/repo/apps/e2e/test-results/accounts.setup.ts-sign-up-and-verify-member-example-com-setup"
+                    }
+                  ],
+                  "attachments": []
+                }
+              ],
+              "status": "expected"
+            }
+          ],
+          "id": "2e2d59e88b215c14af79-eecc1a622295a54f776e",
+          "file": "accounts.setup.ts",
+          "line": 9,
+          "column": 3
+        },
+        {
+          "title": "sign up and verify admin@example.com",
+          "ok": true,
+          "tags": [
+            "example.com"
+          ],
+          "tests": [
+            {
+              "timeout": 30000,
+              "annotations": [
+                {
+                  "type": "results-folder",
+                  "description": "/repo/apps/e2e/test-results/accounts.setup.ts-sign-up-and-verify-admin-example-com-setup"
+                }
+              ],
+              "expectedStatus": "passed",
+              "projectId": "setup",
+              "projectName": "setup",
+              "results": [
+                {
+                  "workerIndex": 1,
+                  "parallelIndex": 1,
+                  "status": "passed",
+                  "duration": 9046,
+                  "errors": [],
+                  "stdout": [],
+                  "stderr": [],
+                  "retry": 0,
+                  "startTime": "2026-11-12T03:48:26.519Z",
+                  "annotations": [
+                    {
+                      "type": "results-folder",
+                      "description": "/repo/apps/e2e/test-results/accounts.setup.ts-sign-up-and-verify-admin-example-com-setup"
+                    }
+                  ],
+                  "attachments": []
+                }
+              ],
+              "status": "expected"
+            }
+          ],
+          "id": "2e2d59e88b215c14af79-e8082b3678bb9c8a7d89",
+          "file": "accounts.setup.ts",
+          "line": 9,
+          "column": 3
+        }
+      ]
+    },
+    {
+      "title": "taken-email.spec.ts",
+      "file": "taken-email.spec.ts",
+      "column": 0,
+      "line": 0,
+      "specs": [
+        {
+          "title": "the owner of a squatted email takes the account through the mailed link",
+          "ok": true,
+          "tags": [],
+          "tests": [
+            {
+              "timeout": 30000,
+              "annotations": [
+                {
+                  "type": "results-folder",
+                  "description": "/repo/apps/e2e/test-results/taken-email-the-owner-of-a-2e971-unt-through-the-mailed-link-chromium"
+                }
+              ],
+              "expectedStatus": "passed",
+              "projectId": "chromium",
+              "projectName": "chromium",
+              "results": [
+                {
+                  "workerIndex": 2,
+                  "parallelIndex": 0,
+                  "status": "passed",
+                  "duration": 5826,
+                  "errors": [],
+                  "stdout": [],
+                  "stderr": [],
+                  "retry": 0,
+                  "startTime": "2026-11-12T03:48:36.159Z",
+                  "annotations": [
+                    {
+                      "type": "results-folder",
+                      "description": "/repo/apps/e2e/test-results/taken-email-the-owner-of-a-2e971-unt-through-the-mailed-link-chromium"
+                    }
+                  ],
+                  "attachments": []
+                }
+              ],
+              "status": "expected"
+            }
+          ],
+          "id": "86b9b2eb133ab3fb0a64-e36f7562424232be3c58",
+          "file": "taken-email.spec.ts",
+          "line": 9,
+          "column": 1
+        }
+      ]
+    },
+    {
+      "title": "web.spec.ts",
+      "file": "web.spec.ts",
+      "column": 0,
+      "line": 0,
+      "specs": [
+        {
+          "title": "GET / serves the landing page",
+          "ok": true,
+          "tags": [],
+          "tests": [
+            {
+              "timeout": 30000,
+              "annotations": [
+                {
+                  "type": "results-folder",
+                  "description": "/repo/apps/e2e/test-results/web-GET-serves-the-landing-page-chromium"
+                }
+              ],
+              "expectedStatus": "passed",
+              "projectId": "chromium",
+              "projectName": "chromium",
+              "results": [
+                {
+                  "workerIndex": 3,
+                  "parallelIndex": 1,
+                  "status": "passed",
+                  "duration": 527,
+                  "errors": [],
+                  "stdout": [],
+                  "stderr": [],
+                  "retry": 0,
+                  "startTime": "2026-11-12T03:48:36.146Z",
+                  "annotations": [
+                    {
+                      "type": "results-folder",
+                      "description": "/repo/apps/e2e/test-results/web-GET-serves-the-landing-page-chromium"
+                    }
+                  ],
+                  "attachments": [
+                    {
+                      "name": "video",
+                      "contentType": "video/webm",
+                      "path": "/repo/apps/e2e/test-results/web-GET-serves-the-landing-page-chromium/video.webm"
+                    }
+                  ]
+                }
+              ],
+              "status": "expected"
+            }
+          ],
+          "id": "2948388c6448a8e5345d-62ba8647300537b2a863",
+          "file": "web.spec.ts",
+          "line": 7,
+          "column": 1
+        },
+        {
+          "title": "GET /probe proves the secret reached the Worker",
+          "ok": true,
+          "tags": [],
+          "tests": [
+            {
+              "timeout": 30000,
+              "annotations": [
+                {
+                  "type": "results-folder",
+                  "description": "/repo/apps/e2e/test-results/web-GET-probe-proves-the-secret-reached-the-Worker-chromium"
+                }
+              ],
+              "expectedStatus": "passed",
+              "projectId": "chromium",
+              "projectName": "chromium",
+              "results": [
+                {
+                  "workerIndex": 4,
+                  "parallelIndex": 2,
+                  "status": "passed",
+                  "duration": 51,
+                  "errors": [],
+                  "stdout": [],
+                  "stderr": [],
+                  "retry": 0,
+                  "startTime": "2026-11-12T03:48:36.161Z",
+                  "annotations": [
+                    {
+                      "type": "results-folder",
+                      "description": "/repo/apps/e2e/test-results/web-GET-probe-proves-the-secret-reached-the-Worker-chromium"
+                    }
+                  ],
+                  "attachments": []
+                }
+              ],
+              "status": "expected"
+            }
+          ],
+          "id": "2948388c6448a8e5345d-00e9604fc7c977d0fb29",
+          "file": "web.spec.ts",
+          "line": 13,
+          "column": 1
+        }
+      ]
+    },
+    {
+      "title": "market-live-select.spec.ts",
+      "file": "market-live-select.spec.ts",
+      "column": 0,
+      "line": 0,
+      "specs": [
+        {
+          "title": "the day's code list is served for the day, cacheable",
+          "ok": true,
+          "tags": [],
+          "tests": [
+            {
+              "timeout": 30000,
+              "annotations": [
+                {
+                  "type": "results-folder",
+                  "description": "/repo/apps/e2e/test-results/market-live-select-the-day-90304-erved-for-the-day-cacheable-trading-day"
+                }
+              ],
+              "expectedStatus": "passed",
+              "projectId": "trading-day",
+              "projectName": "trading-day",
+              "results": [
+                {
+                  "workerIndex": 5,
+                  "parallelIndex": 3,
+                  "status": "passed",
+                  "duration": 253,
+                  "errors": [],
+                  "stdout": [],
+                  "stderr": [],
+                  "retry": 0,
+                  "startTime": "2026-11-12T03:48:36.160Z",
+                  "annotations": [
+                    {
+                      "type": "results-folder",
+                      "description": "/repo/apps/e2e/test-results/market-live-select-the-day-90304-erved-for-the-day-cacheable-trading-day"
+                    }
+                  ],
+                  "attachments": []
+                }
+              ],
+              "status": "expected"
+            }
+          ],
+          "id": "ccde2e20313b6cb40a7c-1d2ceb0d331f12e8d3fa",
+          "file": "market-live-select.spec.ts",
+          "line": 38,
+          "column": 1
+        },
+        {
+          "title": "a signed-out code list GET answers 401",
+          "ok": true,
+          "tags": [],
+          "tests": [
+            {
+              "timeout": 30000,
+              "annotations": [
+                {
+                  "type": "results-folder",
+                  "description": "/repo/apps/e2e/test-results/market-live-select-a-signed-out-code-list-GET-answers-401-trading-day"
+                }
+              ],
+              "expectedStatus": "passed",
+              "projectId": "trading-day",
+              "projectName": "trading-day",
+              "results": [
+                {
+                  "workerIndex": 5,
+                  "parallelIndex": 3,
+                  "status": "passed",
+                  "duration": 113,
+                  "errors": [],
+                  "stdout": [],
+                  "stderr": [],
+                  "retry": 0,
+                  "startTime": "2026-11-12T03:48:36.508Z",
+                  "annotations": [
+                    {
+                      "type": "results-folder",
+                      "description": "/repo/apps/e2e/test-results/market-live-select-a-signed-out-code-list-GET-answers-401-trading-day"
+                    }
+                  ],
+                  "attachments": []
+                }
+              ],
+              "status": "expected"
+            }
+          ],
+          "id": "ccde2e20313b6cb40a7c-9006a9dfb5181fb1601e",
+          "file": "market-live-select.spec.ts",
+          "line": 53,
+          "column": 1
+        },
+        {
+          "title": "the chart header's search selects a code, shares above rights",
+          "ok": true,
+          "tags": [],
+          "tests": [
+            {
+              "timeout": 30000,
+              "annotations": [
+                {
+                  "type": "results-folder",
+                  "description": "/repo/apps/e2e/test-results/market-live-select-the-cha-cbdcf--a-code-shares-above-rights-trading-day"
+                }
+              ],
+              "expectedStatus": "passed",
+              "projectId": "trading-day",
+              "projectName": "trading-day",
+              "results": [
+                {
+                  "workerIndex": 5,
+                  "parallelIndex": 3,
+                  "status": "passed",
+                  "duration": 3085,
+                  "errors": [],
+                  "stdout": [],
+                  "stderr": [],
+                  "retry": 0,
+                  "startTime": "2026-11-12T03:48:36.635Z",
+                  "annotations": [
+                    {
+                      "type": "results-folder",
+                      "description": "/repo/apps/e2e/test-results/market-live-select-the-cha-cbdcf--a-code-shares-above-rights-trading-day"
+                    }
+                  ],
+                  "attachments": [
+                    {
+                      "name": "video",
+                      "contentType": "video/webm",
+                      "path": "/repo/apps/e2e/test-results/market-live-select-the-cha-cbdcf--a-code-shares-above-rights-trading-day/video.webm"
+                    }
+                  ]
+                }
+              ],
+              "status": "expected"
+            }
+          ],
+          "id": "ccde2e20313b6cb40a7c-367243894679aaafce72",
+          "file": "market-live-select.spec.ts",
+          "line": 66,
+          "column": 1
+        },
+        {
+          "title": "the / and Ctrl+K palette selects a code",
+          "ok": true,
+          "tags": [],
+          "tests": [
+            {
+              "timeout": 30000,
+              "annotations": [
+                {
+                  "type": "results-folder",
+                  "description": "/repo/apps/e2e/test-results/market-live-select-the-and-Ctrl-K-palette-selects-a-code-trading-day"
+                }
+              ],
+              "expectedStatus": "passed",
+              "projectId": "trading-day",
+              "projectName": "trading-day",
+              "results": [
+                {
+                  "workerIndex": 5,
+                  "parallelIndex": 3,
+                  "status": "passed",
+                  "duration": 2668,
+                  "errors": [],
+                  "stdout": [],
+                  "stderr": [],
+                  "retry": 0,
+                  "startTime": "2026-11-12T03:48:39.730Z",
+                  "annotations": [
+                    {
+                      "type": "results-folder",
+                      "description": "/repo/apps/e2e/test-results/market-live-select-the-and-Ctrl-K-palette-selects-a-code-trading-day"
+                    }
+                  ],
+                  "attachments": [
+                    {
+                      "name": "video",
+                      "contentType": "video/webm",
+                      "path": "/repo/apps/e2e/test-results/market-live-select-the-and-Ctrl-K-palette-selects-a-code-trading-day/video.webm"
+                    }
+                  ]
+                }
+              ],
+              "status": "expected"
+            }
+          ],
+          "id": "ccde2e20313b6cb40a7c-d39aaf0c67c1f0c830a2",
+          "file": "market-live-select.spec.ts",
+          "line": 97,
+          "column": 1
+        },
+        {
+          "title": "clicking a tape row selects its code",
+          "ok": true,
+          "tags": [],
+          "tests": [
+            {
+              "timeout": 30000,
+              "annotations": [
+                {
+                  "type": "results-folder",
+                  "description": "/repo/apps/e2e/test-results/market-live-select-clicking-a-tape-row-selects-its-code-trading-day"
+                }
+              ],
+              "expectedStatus": "passed",
+              "projectId": "trading-day",
+              "projectName": "trading-day",
+              "results": [
+                {
+                  "workerIndex": 5,
+                  "parallelIndex": 3,
+                  "status": "passed",
+                  "duration": 1130,
+                  "errors": [],
+                  "stdout": [],
+                  "stderr": [],
+                  "retry": 0,
+                  "startTime": "2026-11-12T03:48:42.405Z",
+                  "annotations": [
+                    {
+                      "type": "results-folder",
+                      "description": "/repo/apps/e2e/test-results/market-live-select-clicking-a-tape-row-selects-its-code-trading-day"
+                    }
+                  ],
+                  "attachments": [
+                    {
+                      "name": "video",
+                      "contentType": "video/webm",
+                      "path": "/repo/apps/e2e/test-results/market-live-select-clicking-a-tape-row-selects-its-code-trading-day/video.webm"
+                    }
+                  ]
+                }
+              ],
+              "status": "expected"
+            }
+          ],
+          "id": "ccde2e20313b6cb40a7c-abf4be126778e6de5e07",
+          "file": "market-live-select.spec.ts",
+          "line": 119,
+          "column": 1
+        },
+        {
+          "title": "the selected code survives a reload, and a bad one falls back",
+          "ok": true,
+          "tags": [],
+          "tests": [
+            {
+              "timeout": 30000,
+              "annotations": [
+                {
+                  "type": "results-folder",
+                  "description": "/repo/apps/e2e/test-results/market-live-select-the-sel-cd411-ad-and-a-bad-one-falls-back-trading-day"
+                }
+              ],
+              "expectedStatus": "passed",
+              "projectId": "trading-day",
+              "projectName": "trading-day",
+              "results": [
+                {
+                  "workerIndex": 5,
+                  "parallelIndex": 3,
+                  "status": "passed",
+                  "duration": 2092,
+                  "errors": [],
+                  "stdout": [],
+                  "stderr": [],
+                  "retry": 0,
+                  "startTime": "2026-11-12T03:48:43.544Z",
+                  "annotations": [
+                    {
+                      "type": "results-folder",
+                      "description": "/repo/apps/e2e/test-results/market-live-select-the-sel-cd411-ad-and-a-bad-one-falls-back-trading-day"
+                    }
+                  ],
+                  "attachments": [
+                    {
+                      "name": "video",
+                      "contentType": "video/webm",
+                      "path": "/repo/apps/e2e/test-results/market-live-select-the-sel-cd411-ad-and-a-bad-one-falls-back-trading-day/video.webm"
+                    }
+                  ]
+                }
+              ],
+              "status": "expected"
+            }
+          ],
+          "id": "ccde2e20313b6cb40a7c-889361b57035eed61684",
+          "file": "market-live-select.spec.ts",
+          "line": 140,
+          "column": 1
+        }
+      ]
+    }
+  ],
+  "errors": [],
+  "stats": {
+    "startTime": "2026-11-12T03:48:15.222Z",
+    "duration": 30686.462,
+    "expected": 11,
+    "skipped": 0,
+    "unexpected": 0,
+    "flaky": 0
+  }
+}

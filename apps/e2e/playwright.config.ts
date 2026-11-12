@@ -4,30 +4,21 @@ import { TEST } from "@workspace/deploy"
 import { ADMIN, testUrl } from "./support/accounts"
 import { MARKET_CLOCK_OFFSET } from "./support/clock"
 import { TEST_INGEST_TOKEN } from "./support/ingest"
+import { video } from "./support/video"
 
 const TRADING_DAY_SPECS = /market-live[\w-]*\.spec\.ts$/
 
 export default defineConfig({
   testDir: "tests",
-  forbidOnly: Boolean(process.env.CI),
   // Decision: tests, not files, are the unit of parallelism, so one file's
-  // tests can run on different workers and shards (apinrdw/kumora#168). A
+  // tests can run on different workers (apinrdw/kumora#168). A
   // file whose tests form a sequence says so with a serial describe.
   fullyParallel: true,
-  // Decision: a CI shard runs 2 workers on its runner's 2 cores: much of an
-  // e2e test is waiting, so the second worker adds throughput
-  // (apinrdw/kumora#168). Locally, Playwright picks from the cores.
-  workers: process.env.CI ? 2 : undefined,
   // Decision: no retries, so a flake the parallelism brings shows up and gets
   // fixed instead of passing on a second try (apinrdw/kumora#168).
   retries: 0,
-  // Decision: on a CI runner's 2 cores a test gets 60 s, not the default 30 s.
-  // The first PR run with 2 workers per shard timed out the shared accounts
-  // setup (the first sign-up's cold compile took 36 s) and the account test
-  // that hashes real passwords (apinrdw/kumora#190).
-  timeout: process.env.CI ? 60_000 : 30_000,
   reporter: "list",
-  use: { browserName: "chromium" },
+  use: { browserName: "chromium", video },
   projects: [
     // Signs up and verifies the shared accounts through the UI and saves
     // their signed-in state (support/accounts.ts) for the specs.
@@ -38,10 +29,10 @@ export default defineConfig({
       testIgnore: TRADING_DAY_SPECS,
     },
     // Decision: the specs that send trades share one Durable Object, today's
-    // trading day, so within a shard they run one at a time: a spec alongside
-    // would add trades to the tape it counts. Each CI shard has its own server
-    // and storage, and the dashboard has no test-only key for a trading day.
-    // See apinrdw/kumora#157 and #169.
+    // trading day, so they run one at a time: a spec alongside would add
+    // trades to the tape it counts. A run has one server and one storage, and
+    // the dashboard has no test-only key for a trading day. See
+    // apinrdw/kumora#157 and #169.
     {
       name: "trading-day",
       dependencies: ["setup"],

@@ -1,0 +1,87 @@
+# Marks each PR head commit's `e2e-evidence` status. `pnpm e2e:evidence` sets
+# it green after posting video; scripts/e2e-evidence-gate.repo.test.mts runs
+# this job's script against a fake GitHub client. The `e2e-evidence` context
+# and the `no-e2e-evidence` label are also CONTEXT and OPT_OUT_LABEL in
+# scripts/e2e-evidence-plan.mts, so change them together.
+name: e2e evidence
+
+# Decision: a workflow of its own, not a job in ci.yml as #203 planned. In
+# ci.yml a label event would cancel the running checks through its concurrency
+# group, and would replace their results with skipped check runs on the head.
+on:
+  # Decision: pull_request_target, because pull_request's token is read-only by
+  # default on a Dependabot or fork PR, so the status write would 403. Safe only
+  # while no step checks out or runs PR code and the script takes no ${{ }}.
+  # GitHub runs the base branch's copy: the gate starts once this file is on
+  # the base, and a PR that adds or edits it runs the old copy or none.
+  pull_request_target:
+    types: [opened, synchronize, reopened, labeled, unlabeled, edited]
+
+# Retargeting a PR changes its files but not its head, and is the one `edited`
+# event with `changes.base`. Any other edit skips the job through the same test
+# in its `if`. The runs that mark a head share the PR's group, where a newer
+# one, whose payload is newer, cancels the one before it.
+# Decision: a skipped edit takes a group of its own, named by its run id. In
+# the PR's group GitHub would let it replace a pending run, whatever
+# cancel-in-progress says, and that run may be the one marking a new head
+# (apinrdw/kumora#217).
+concurrency:
+  group: e2e-evidence-${{ (github.event.action != 'edited' || github.event.changes.base.ref.from != '') && github.event.pull_request.number || github.run_id }}
+  cancel-in-progress: true
+
+jobs:
+  # Decision: red until evidence, green for a PR with no app code or the
+  # no-e2e-evidence label, and a success someone else set is never touched
+  # (apinrdw/kumora#203). The gate's own success is recomputed, so removing the
+  # label or retargeting can turn it red. The job's name differs from the
+  # status's so its green check run can't satisfy a ruleset on `e2e-evidence`.
+  e2e-evidence:
+    name: e2e-evidence gate
+    if: github.event.action != 'edited' || github.event.changes.base.ref.from != ''
+    runs-on: ubuntu-latest
+    timeout-minutes: 2
+    permissions:
+      statuses: write
+      pull-requests: read
+    steps:
+      - uses: actions/github-script@v9
+        with:
+          script: |
+            const { owner, repo } = context.repo
+            const pr = context.payload.pull_request
+            const sha = pr.head.sha
+            const statuses = await github.paginate(
+              github.rest.repos.listCommitStatusesForRef,
+              { owner, repo, ref: sha, per_page: 100 }
+            )
+            const latest = statuses.find((s) => s.context === "e2e-evidence")
+            if (
+              latest?.state === "success" &&
+              latest.creator?.login !== "github-actions[bot]"
+            ) {
+              return
+            }
+            const files = await github.paginate(github.rest.pulls.listFiles, {
+              owner,
+              repo,
+              pull_number: pr.number,
+              per_page: 100,
+            })
+            const app = /^(apps\/(web|dashboard|extension|e2e)|packages)\//
+            const touchesApp = files.some(
+              (f) =>
+                app.test(f.filename) || app.test(f.previous_filename ?? "")
+            )
+            const [state, description] = !touchesApp
+              ? ["success", "touches no app code (apps/web, dashboard, extension, e2e, packages/*)"]
+              : pr.labels.some((l) => l.name === "no-e2e-evidence")
+                ? ["success", "opted out with the no-e2e-evidence label"]
+                : ["failure", `no e2e evidence for ${sha.slice(0, 7)}`]
+            await github.rest.repos.createCommitStatus({
+              owner,
+              repo,
+              sha,
+              state,
+              description,
+              context: "e2e-evidence",
+            })

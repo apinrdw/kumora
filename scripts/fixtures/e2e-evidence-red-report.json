@@ -1,0 +1,496 @@
+{
+  "config": {
+    "argv": [
+      "/usr/bin/node",
+      "/repo/apps/e2e/node_modules/@playwright/test/cli.js",
+      "test",
+      "web.spec.ts",
+      "taken-email.spec.ts",
+      "--workers=4",
+      "--trace=retain-on-failure",
+      "--reporter=list,json"
+    ],
+    "configFile": "/repo/apps/e2e/playwright.config.ts",
+    "rootDir": "/repo/apps/e2e/tests",
+    "failOnFlakyTests": false,
+    "forbidOnly": false,
+    "fullyParallel": true,
+    "globalSetup": null,
+    "globalTeardown": null,
+    "globalTimeout": 0,
+    "grep": {},
+    "grepInvert": null,
+    "maxFailures": 0,
+    "metadata": {
+      "actualWorkers": 3
+    },
+    "preserveOutput": "always",
+    "projects": [
+      {
+        "outputDir": "/repo/apps/e2e/test-results",
+        "repeatEach": 1,
+        "retries": 0,
+        "metadata": {
+          "actualWorkers": 3
+        },
+        "id": "setup",
+        "name": "setup",
+        "testDir": "/repo/apps/e2e/tests",
+        "testIgnore": [],
+        "testMatch": [
+          "/\\.setup\\.ts$/"
+        ],
+        "timeout": 30000
+      },
+      {
+        "outputDir": "/repo/apps/e2e/test-results",
+        "repeatEach": 1,
+        "retries": 0,
+        "metadata": {
+          "actualWorkers": 3
+        },
+        "id": "chromium",
+        "name": "chromium",
+        "testDir": "/repo/apps/e2e/tests",
+        "testIgnore": [
+          "/market-live[\\w-]*\\.spec\\.ts$/"
+        ],
+        "testMatch": [
+          "**/*.@(spec|test).?(c|m)[jt]s?(x)"
+        ],
+        "timeout": 30000
+      },
+      {
+        "outputDir": "/repo/apps/e2e/test-results",
+        "repeatEach": 1,
+        "retries": 0,
+        "metadata": {
+          "actualWorkers": 3
+        },
+        "id": "trading-day",
+        "name": "trading-day",
+        "testDir": "/repo/apps/e2e/tests",
+        "testIgnore": [],
+        "testMatch": [
+          "/market-live[\\w-]*\\.spec\\.ts$/"
+        ],
+        "timeout": 30000
+      }
+    ],
+    "filteredProjects": [
+      {
+        "grep": {},
+        "grepInvert": null,
+        "outputDir": "/repo/apps/e2e/test-results",
+        "repeatEach": 1,
+        "retries": 0,
+        "metadata": {
+          "actualWorkers": 3
+        },
+        "name": "setup",
+        "testDir": "/repo/apps/e2e/tests",
+        "snapshotDir": "/repo/apps/e2e/tests",
+        "testIgnore": [],
+        "testMatch": {},
+        "timeout": 30000,
+        "use": {
+          "browserName": "chromium",
+          "video": {
+            "mode": "on",
+            "size": {
+              "width": 1280,
+              "height": 720
+            }
+          },
+          "trace": "retain-on-failure"
+        },
+        "dependencies": [],
+        "ignoreSnapshots": false,
+        "__projectId": "setup"
+      },
+      {
+        "grep": {},
+        "grepInvert": null,
+        "outputDir": "/repo/apps/e2e/test-results",
+        "repeatEach": 1,
+        "retries": 0,
+        "metadata": {
+          "actualWorkers": 3
+        },
+        "name": "chromium",
+        "testDir": "/repo/apps/e2e/tests",
+        "snapshotDir": "/repo/apps/e2e/tests",
+        "testIgnore": {},
+        "testMatch": "**/*.@(spec|test).?(c|m)[jt]s?(x)",
+        "timeout": 30000,
+        "use": {
+          "browserName": "chromium",
+          "video": {
+            "mode": "on",
+            "size": {
+              "width": 1280,
+              "height": 720
+            }
+          },
+          "trace": "retain-on-failure"
+        },
+        "dependencies": [
+          "setup"
+        ],
+        "ignoreSnapshots": false,
+        "__projectId": "chromium"
+      },
+      {
+        "grep": {},
+        "grepInvert": null,
+        "outputDir": "/repo/apps/e2e/test-results",
+        "repeatEach": 1,
+        "retries": 0,
+        "metadata": {
+          "actualWorkers": 3
+        },
+        "name": "trading-day",
+        "testDir": "/repo/apps/e2e/tests",
+        "snapshotDir": "/repo/apps/e2e/tests",
+        "testIgnore": [],
+        "testMatch": {},
+        "timeout": 30000,
+        "use": {
+          "browserName": "chromium",
+          "video": {
+            "mode": "on",
+            "size": {
+              "width": 1280,
+              "height": 720
+            }
+          },
+          "trace": "retain-on-failure"
+        },
+        "dependencies": [
+          "setup"
+        ],
+        "ignoreSnapshots": false,
+        "__projectId": "trading-day"
+      }
+    ],
+    "quiet": false,
+    "reporter": [
+      [
+        "list"
+      ],
+      [
+        "json"
+      ]
+    ],
+    "reportSlowTests": {
+      "max": 5,
+      "threshold": 300000
+    },
+    "shard": null,
+    "tags": [],
+    "updateSnapshots": "default",
+    "updateSourceMethod": "patch",
+    "version": "1.64.1",
+    "workers": 4,
+    "webServer": null
+  },
+  "suites": [
+    {
+      "title": "accounts.setup.ts",
+      "file": "accounts.setup.ts",
+      "column": 0,
+      "line": 0,
+      "specs": [
+        {
+          "title": "sign up and verify member@example.com",
+          "ok": true,
+          "tags": [
+            "example.com"
+          ],
+          "tests": [
+            {
+              "timeout": 30000,
+              "annotations": [
+                {
+                  "type": "results-folder",
+                  "description": "/repo/apps/e2e/test-results/accounts.setup.ts-sign-up-and-verify-member-example-com-setup"
+                }
+              ],
+              "expectedStatus": "passed",
+              "projectId": "setup",
+              "projectName": "setup",
+              "results": [
+                {
+                  "workerIndex": 0,
+                  "parallelIndex": 0,
+                  "status": "passed",
+                  "duration": 9690,
+                  "errors": [],
+                  "stdout": [],
+                  "stderr": [],
+                  "retry": 0,
+                  "startTime": "2026-11-12T04:00:14.790Z",
+                  "annotations": [
+                    {
+                      "type": "results-folder",
+                      "description": "/repo/apps/e2e/test-results/accounts.setup.ts-sign-up-and-verify-member-example-com-setup"
+                    }
+                  ],
+                  "attachments": []
+                }
+              ],
+              "status": "expected"
+            }
+          ],
+          "id": "2e2d59e88b215c14af79-eecc1a622295a54f776e",
+          "file": "accounts.setup.ts",
+          "line": 9,
+          "column": 3
+        },
+        {
+          "title": "sign up and verify admin@example.com",
+          "ok": true,
+          "tags": [
+            "example.com"
+          ],
+          "tests": [
+            {
+              "timeout": 30000,
+              "annotations": [
+                {
+                  "type": "results-folder",
+                  "description": "/repo/apps/e2e/test-results/accounts.setup.ts-sign-up-and-verify-admin-example-com-setup"
+                }
+              ],
+              "expectedStatus": "passed",
+              "projectId": "setup",
+              "projectName": "setup",
+              "results": [
+                {
+                  "workerIndex": 1,
+                  "parallelIndex": 1,
+                  "status": "passed",
+                  "duration": 9724,
+                  "errors": [],
+                  "stdout": [],
+                  "stderr": [],
+                  "retry": 0,
+                  "startTime": "2026-11-12T04:00:14.807Z",
+                  "annotations": [
+                    {
+                      "type": "results-folder",
+                      "description": "/repo/apps/e2e/test-results/accounts.setup.ts-sign-up-and-verify-admin-example-com-setup"
+                    }
+                  ],
+                  "attachments": []
+                }
+              ],
+              "status": "expected"
+            }
+          ],
+          "id": "2e2d59e88b215c14af79-e8082b3678bb9c8a7d89",
+          "file": "accounts.setup.ts",
+          "line": 9,
+          "column": 3
+        }
+      ]
+    },
+    {
+      "title": "taken-email.spec.ts",
+      "file": "taken-email.spec.ts",
+      "column": 0,
+      "line": 0,
+      "specs": [
+        {
+          "title": "the owner of a squatted email takes the account through the mailed link",
+          "ok": true,
+          "tags": [],
+          "tests": [
+            {
+              "timeout": 30000,
+              "annotations": [
+                {
+                  "type": "results-folder",
+                  "description": "/repo/apps/e2e/test-results/taken-email-the-owner-of-a-2e971-unt-through-the-mailed-link-chromium"
+                }
+              ],
+              "expectedStatus": "passed",
+              "projectId": "chromium",
+              "projectName": "chromium",
+              "results": [
+                {
+                  "workerIndex": 2,
+                  "parallelIndex": 0,
+                  "status": "passed",
+                  "duration": 8517,
+                  "errors": [],
+                  "stdout": [],
+                  "stderr": [],
+                  "retry": 0,
+                  "startTime": "2026-11-12T04:00:25.077Z",
+                  "annotations": [
+                    {
+                      "type": "results-folder",
+                      "description": "/repo/apps/e2e/test-results/taken-email-the-owner-of-a-2e971-unt-through-the-mailed-link-chromium"
+                    }
+                  ],
+                  "attachments": []
+                }
+              ],
+              "status": "expected"
+            }
+          ],
+          "id": "86b9b2eb133ab3fb0a64-e36f7562424232be3c58",
+          "file": "taken-email.spec.ts",
+          "line": 9,
+          "column": 1
+        }
+      ]
+    },
+    {
+      "title": "web.spec.ts",
+      "file": "web.spec.ts",
+      "column": 0,
+      "line": 0,
+      "specs": [
+        {
+          "title": "GET / serves the landing page",
+          "ok": false,
+          "tags": [],
+          "tests": [
+            {
+              "timeout": 30000,
+              "annotations": [
+                {
+                  "type": "results-folder",
+                  "description": "/repo/apps/e2e/test-results/web-GET-serves-the-landing-page-chromium"
+                }
+              ],
+              "expectedStatus": "passed",
+              "projectId": "chromium",
+              "projectName": "chromium",
+              "results": [
+                {
+                  "workerIndex": 3,
+                  "parallelIndex": 1,
+                  "status": "failed",
+                  "duration": 537,
+                  "error": {
+                    "message": "Error: \u001b[2mexpect(\u001b[22m\u001b[31mreceived\u001b[39m\u001b[2m).\u001b[22mtoBe\u001b[2m(\u001b[22m\u001b[32mexpected\u001b[39m\u001b[2m) // Object.is equality\u001b[22m\n\nExpected: \u001b[32m201\u001b[39m\nReceived: \u001b[31m200\u001b[39m",
+                    "stack": "Error: \u001b[2mexpect(\u001b[22m\u001b[31mreceived\u001b[39m\u001b[2m).\u001b[22mtoBe\u001b[2m(\u001b[22m\u001b[32mexpected\u001b[39m\u001b[2m) // Object.is equality\u001b[22m\n\nExpected: \u001b[32m201\u001b[39m\nReceived: \u001b[31m200\u001b[39m\n    at /repo/apps/e2e/tests/web.spec.ts:9:30",
+                    "location": {
+                      "file": "/repo/apps/e2e/tests/web.spec.ts",
+                      "column": 30,
+                      "line": 9
+                    },
+                    "snippet": "   7 | test(\"GET / serves the landing page\", async ({ page }) => {\n   8 |   const response = await page.goto(`${WEB}/`)\n>  9 |   expect(response?.status()).toBe(201)\n     |                              ^\n  10 |   await expect(page.getByRole(\"heading\", { level: 1 })).toBeVisible()\n  11 | })\n  12 |"
+                  },
+                  "errors": [
+                    {
+                      "location": {
+                        "file": "/repo/apps/e2e/tests/web.spec.ts",
+                        "column": 30,
+                        "line": 9
+                      },
+                      "message": "Error: \u001b[2mexpect(\u001b[22m\u001b[31mreceived\u001b[39m\u001b[2m).\u001b[22mtoBe\u001b[2m(\u001b[22m\u001b[32mexpected\u001b[39m\u001b[2m) // Object.is equality\u001b[22m\n\nExpected: \u001b[32m201\u001b[39m\nReceived: \u001b[31m200\u001b[39m\n\n   7 | test(\"GET / serves the landing page\", async ({ page }) => {\n   8 |   const response = await page.goto(`${WEB}/`)\n>  9 |   expect(response?.status()).toBe(201)\n     |                              ^\n  10 |   await expect(page.getByRole(\"heading\", { level: 1 })).toBeVisible()\n  11 | })\n  12 |\n    at /repo/apps/e2e/tests/web.spec.ts:9:30"
+                    }
+                  ],
+                  "stdout": [],
+                  "stderr": [],
+                  "retry": 0,
+                  "startTime": "2026-11-12T04:00:25.084Z",
+                  "annotations": [
+                    {
+                      "type": "results-folder",
+                      "description": "/repo/apps/e2e/test-results/web-GET-serves-the-landing-page-chromium"
+                    }
+                  ],
+                  "attachments": [
+                    {
+                      "name": "video",
+                      "contentType": "video/webm",
+                      "path": "/repo/apps/e2e/test-results/web-GET-serves-the-landing-page-chromium/video.webm"
+                    },
+                    {
+                      "name": "error-context",
+                      "contentType": "text/markdown",
+                      "path": "/repo/apps/e2e/test-results/web-GET-serves-the-landing-page-chromium/error-context.md"
+                    },
+                    {
+                      "name": "trace",
+                      "contentType": "application/zip",
+                      "path": "/repo/apps/e2e/test-results/web-GET-serves-the-landing-page-chromium/trace.zip"
+                    }
+                  ],
+                  "errorLocation": {
+                    "file": "/repo/apps/e2e/tests/web.spec.ts",
+                    "column": 30,
+                    "line": 9
+                  }
+                }
+              ],
+              "status": "unexpected"
+            }
+          ],
+          "id": "2948388c6448a8e5345d-62ba8647300537b2a863",
+          "file": "web.spec.ts",
+          "line": 7,
+          "column": 1
+        },
+        {
+          "title": "GET /probe proves the secret reached the Worker",
+          "ok": true,
+          "tags": [],
+          "tests": [
+            {
+              "timeout": 30000,
+              "annotations": [
+                {
+                  "type": "results-folder",
+                  "description": "/repo/apps/e2e/test-results/web-GET-probe-proves-the-secret-reached-the-Worker-chromium"
+                }
+              ],
+              "expectedStatus": "passed",
+              "projectId": "chromium",
+              "projectName": "chromium",
+              "results": [
+                {
+                  "workerIndex": 4,
+                  "parallelIndex": 2,
+                  "status": "passed",
+                  "duration": 44,
+                  "errors": [],
+                  "stdout": [],
+                  "stderr": [],
+                  "retry": 0,
+                  "startTime": "2026-11-12T04:00:25.102Z",
+                  "annotations": [
+                    {
+                      "type": "results-folder",
+                      "description": "/repo/apps/e2e/test-results/web-GET-probe-proves-the-secret-reached-the-Worker-chromium"
+                    }
+                  ],
+                  "attachments": []
+                }
+              ],
+              "status": "expected"
+            }
+          ],
+          "id": "2948388c6448a8e5345d-00e9604fc7c977d0fb29",
+          "file": "web.spec.ts",
+          "line": 13,
+          "column": 1
+        }
+      ]
+    }
+  ],
+  "errors": [],
+  "stats": {
+    "startTime": "2026-11-12T04:00:03.752Z",
+    "duration": 30181.311,
+    "expected": 4,
+    "skipped": 0,
+    "unexpected": 1,
+    "flaky": 0
+  }
+}

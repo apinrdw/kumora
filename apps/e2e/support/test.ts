@@ -7,6 +7,7 @@ import { randomInt } from "node:crypto"
 
 import { DASHBOARD } from "./accounts"
 import { stubTurnstile } from "./turnstile"
+import { recordVideo } from "./video"
 
 // The dashboard's auth routes keep their per-IP limits in e2e (spec
 // apinrdw/kumora#80), and every browser here shares one socket address. So
@@ -51,6 +52,20 @@ async function asOwnClient(
   return context
 }
 
+// The running test's hand-built contexts, which `test` closes when the test
+// ends.
+const handBuilt = new Set<BrowserContext>()
+
+/** Has `test` close a context the running test built when the test ends. */
+export function closeWhenTestEnds(context: BrowserContext) {
+  handBuilt.add(context)
+  return context
+}
+
+async function newHandBuiltContext(browser: Browser) {
+  return closeWhenTestEnds(await browser.newContext(recordVideo()))
+}
+
 /**
  * `browser.newContext()`, sending from its own client address, with
  * Turnstile stubbed unless `turnstile` is `"cloudflare"`.
@@ -58,26 +73,56 @@ async function asOwnClient(
 export const newClientContext = async (
   browser: Browser,
   options: { turnstile?: Turnstile } = {}
-) => asOwnClient(await browser.newContext(), options)
+) => asOwnClient(await newHandBuiltContext(browser), options)
 
 /**
  * `browser.newContext()`, sending from an address no other context draws, for
  * a spec that spends a per-IP limit on purpose.
  */
 export const newLimitSpendingContext = async (browser: Browser) =>
-  asOwnClient(await browser.newContext(), {
+  asOwnClient(await newHandBuiltContext(browser), {
     ip: clientIp(LIMIT_SPENDING_BLOCK),
   })
 
 /**
  * Playwright's `test`, with each test's own `context` (and so `page`) sent
  * from its own client address and with Turnstile stubbed. Make other
- * contexts with `newClientContext`.
+ * contexts with `newClientContext`; `test` closes them when the test ends.
  */
-export const test = base.extend({
+export const test = base.extend<{
+  closeHandBuilt: void
+  annotateResultsFolder: void
+}>({
   context: async ({ context }, provide) => {
     await provide(await asOwnClient(context))
   },
+  // A context's video is only complete once the context closes, and a test
+  // that fails or forgets leaves its contexts open.
+  closeHandBuilt: [
+    // Playwright reads a fixture's dependencies from its first parameter's
+    // pattern, which may not be empty; the contexts come from `browser`.
+    async ({ browser: _browser }, provide) => {
+      await provide()
+      await Promise.all([...handBuilt].map((context) => context.close()))
+      handBuilt.clear()
+    },
+    { auto: true },
+  ],
+  // Decision: each test names its results folder in a `results-folder`
+  // annotation, because the JSON report lists only the built-in context's
+  // videos, not a hand-built context's `page@<hex>.webm`, and gives no folder
+  // for a test with none. scripts/e2e-evidence-plan.mts reads it and attaches
+  // every .webm in the folder (apinrdw/kumora#211).
+  annotateResultsFolder: [
+    async ({ browser: _browser }, provide, testInfo) => {
+      testInfo.annotations.push({
+        type: "results-folder",
+        description: testInfo.outputDir,
+      })
+      await provide()
+    },
+    { auto: true },
+  ],
 })
 
 export { expect } from "@playwright/test"
