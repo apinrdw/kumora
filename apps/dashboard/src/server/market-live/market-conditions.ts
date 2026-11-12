@@ -82,11 +82,10 @@ export const makeMarketConditions = Effect.fnUntraced(function* (
   })
 
   // Decision: a code's indicative price is served only while the auction of
-  // its time runs, decided by the clock here for every viewer: the prices
-  // are held all day, and the morning's would otherwise come back at 15:50
-  // in a snapshot, or in a delta when Stockbit's loss resends every code's.
-  // The page applies the same rule to what it holds across a phase change
-  // (`market-conditions.tsx`). Ajaib's price only while Stockbit isn't live.
+  // its time runs, by the clock here for every viewer: the prices are held all
+  // day, and the morning's would otherwise come back at 15:50. The page applies
+  // the same rule (`market-conditions.tsx`). Ajaib's price only while Stockbit
+  // isn't live. See apinrdw/kumora#157.
   const indicativeOf = Effect.fnUntraced(function* (code: StockCode) {
     const running = yield* auctionAt(yield* DateTime.now)
     if (running === undefined) return undefined

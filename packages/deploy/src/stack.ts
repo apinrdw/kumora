@@ -56,6 +56,7 @@ export const stackOptions = Effect.fnUntraced(function* (app: App) {
     // secret_text, so a rotation goes live on the next deploy. This supersedes
     // syncing Infisical into Cloudflare; Secrets Store waits until a secret
     // must rotate without a deploy. See apinrdw/kumora#18.
+    //
     // Alchemy calls this synchronously, so an unknown Stage is a defect that
     // runSync throws.
     secrets: ({ stage }: { readonly stage: string }) => {

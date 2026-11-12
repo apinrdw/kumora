@@ -57,11 +57,9 @@ import { makeBrokerTab, type BrokerTab } from "./tab.ts"
 import { runTarget } from "./target.ts"
 
 // Decision: the service worker ticks every 10 s; in-tab timers are throttled
-// in background tabs and never relied on. A `chrome.alarms` alarm (Chrome's
-// shortest period, 30 s since Chrome 120, per
-// https://developer.chrome.com/docs/extensions/reference/api/alarms) wakes a
-// worker Chrome stopped, and ticks only when the in-worker timer is overdue.
-// See apinrdw/kumora#59.
+// in background tabs and never relied on. A `chrome.alarms` alarm (30 s, its
+// shortest period) wakes a worker Chrome stopped, and ticks only when the
+// in-worker timer is overdue. See apinrdw/kumora#59.
 const TICK = Duration.seconds(10)
 const ALARM = "tick"
 
@@ -323,12 +321,10 @@ const main = Effect.gen(function* () {
             session,
             ...Option.toArray(fetch),
           ])
-          // Decision: a completed tick leaves the clock offset it ran on in
-          // the worker's global scope, test-only like the offset itself, so a
-          // spec that moved the clock reads it to await a tick on the new
-          // clock instead of sleeping. Completed means its PIN check and code
-          // list fetch have their answers, and every earlier tick's have, so
-          // a spec that forces ticks and then asserts sees what they sent.
+          // Decision: a completed tick (its PIN check, code list fetch and
+          // every earlier tick's have answered) leaves its clock offset in
+          // the worker's global scope, test-only, so a spec that moved the
+          // clock awaits a tick on the new clock instead of sleeping.
           // See apinrdw/kumora#174.
           Object.assign(globalThis, { [LAST_TICK_KEY]: offset })
         })

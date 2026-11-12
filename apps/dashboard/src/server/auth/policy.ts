@@ -1,10 +1,8 @@
 // Decision: access is decided by one attribute-based policy we own, with deny
-// by default. Better Auth's access control is role-based and fixed in code, so
-// its admin and member roles stay underneath and the role is one attribute
-// here. Every gate (pages, server functions, Better Auth hooks, the Market Live
-// socket, recorded day loads) asks `decide` and maps the reason to its own
-// response; feature access per account later adds an attribute and a rule, not
-// gate edits. See apinrdw/kumora#95.
+// by default; Better Auth's access control is role-based and fixed in code, so
+// its admin and member roles stay underneath as one attribute here. Every gate
+// asks `decide` and maps the reason to its own response, so feature access per
+// account adds an attribute and a rule, not gate edits. See apinrdw/kumora#95.
 import { Effect } from "effect"
 
 export const ROLES = ["admin", "member"] as const

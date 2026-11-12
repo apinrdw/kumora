@@ -45,14 +45,11 @@ export const runTarget = Effect.fnUntraced(function* (options: {
   readonly origin: DashboardOrigin
   readonly token: string
   readonly envelopes: PubSub.PubSub<EncodedIngestUp>
-  // Today's WIB date on the relay's schedule clock. Decision: the dashboard
-  // picks the trading-day object at the handshake, by its WIB date, so a
-  // socket left open past midnight would feed the sealed day and lose the
-  // new one's frames; the socket is reopened as soon as the date changes.
-  // The socket's day is read before it dials, not after the handshake: a
-  // date that moves on during the handshake has routed the socket to the
-  // old day's object, and reading it afterwards would keep that socket
-  // open until the day after.
+  // Today's WIB date on the relay's schedule clock.
+  // Decision: the socket reopens as soon as the date changes, since the
+  // dashboard picks the trading-day object by WIB date at the handshake. Its
+  // day is read before it dials: read after, a date that moved mid-handshake
+  // would keep a socket on the old day's object a day. See apinrdw/kumora#157.
   readonly day: SubscriptionRef.SubscriptionRef<WibDate>
   // What every fresh socket is sent after the token: the socket's day's code
   // list, which a target that was down for the daily fetch would otherwise

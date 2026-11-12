@@ -82,22 +82,10 @@ const stateOf = (socket: WebSocket) =>
 const WATCHING = "watching:"
 
 // Decision: a viewer's codes live in the object's storage under its socket's
-// id, not in the socket's attachment: an attachment holds 16,384 bytes
-// (Cloudflare's documented limit for `serializeAttachment`,
-// https://developers.cloudflare.com/durable-objects/best-practices/websockets/,
-// and what workerd 1.20261026.1 enforces),
-// about 2,300 four-character codes, and a Select past it would throw after
-// the snapshot, leaving the page connected but off the on-demand set. The
-// storage is SQLite-backed (the day store runs SQL on it), and holds a key
-// and its value together up to 8 MB (Cloudflare's Durable Objects limits
-// page, https://developers.cloudflare.com/durable-objects/platform/limits/, read
-// 2026-11-10): a Select's watchlist is capped at 10,000 codes and a code at
-// 16 characters at decode (envelope.ts, codes.ts), so a viewer's codes stay
-// under 200 KB, as envelope.test.ts measures. A read is kept in
-// memory, so a delta's read of every viewer's codes is free after the first
-// since the object woke. A socket's codes leave storage when it closes; an
-// object reset that skips the close callback leaves a few bytes nothing
-// reads.
+// id, not in the socket's attachment: an attachment holds 16,384 bytes, about
+// 2,300 codes, and a Select past it would throw after the snapshot. A storage
+// value holds 8 MB; a viewer's codes stay under 200 KB (envelope.test.ts).
+// See apinrdw/kumora#157.
 const watchingStore = (storage: DurableObjectStorage) =>
   Effect.sync(() => {
     const held = new Map<string, ReadonlyArray<StockCode>>()

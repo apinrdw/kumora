@@ -112,12 +112,11 @@ export interface StoredAjaibBook {
   readonly book: string
 }
 
-// Decision: an Ajaib book is stored whole, every level and its as-of, one
-// row per code, replaced by each flush that saw it change: Ajaib sends a
-// whole book only on subscribing, then per-level deltas, and a restarted
-// object keeps its hibernated ingest socket, so no new whole book comes.
-// The served book's 20 levels can't carry the deltas on. One row per code
-// Ajaib sent a book of: the on-demand codes.
+// Decision: an Ajaib book is stored whole, every level and its as-of, one row
+// per on-demand code, replaced by each flush that saw it change: Ajaib sends a
+// whole book only on subscribing, a restarted object keeps its hibernated
+// socket so none comes again, and the served book's 20 levels can't carry the
+// deltas on. See apinrdw/kumora#157.
 const AjaibBookRecord = Schema.fromJsonString(
   Schema.Struct({
     bids: Schema.Array(BookLevel),

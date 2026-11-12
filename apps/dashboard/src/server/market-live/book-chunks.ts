@@ -61,9 +61,10 @@ export const makeBookChunks = Effect.sync(() => {
       open.delete(code)
     })
 
-  // A book viewers were sent. Decision: a frame joins the chunk of the
-  // minute it was served in, by the object's clock, so a code's deltas
-  // follow the viewers' timeline whatever each book's as-of.
+  // A book viewers were sent.
+  // Decision: a frame joins the chunk of the minute it was served in, by the
+  // object's clock, not by the book's as-of, so a code's deltas follow the
+  // viewers' timeline. See apinrdw/kumora#157.
   const record = Effect.fnUntraced(function* (book: OrderBook) {
     const now = yield* Clock.currentTimeMillis
     const minute = Math.floor(now / MINUTE) * MINUTE

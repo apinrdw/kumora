@@ -37,8 +37,8 @@ A term shared by more than one context belongs in the system-wide section of `GL
 This repo keeps no ADRs. A decision is recorded as a comment at the line that enacts it, and `scripts/check-decision-docs.mts` fails CI if an ADR directory or a link to one comes back.
 
 - **Where.** On the code or config line that would change if the decision were reversed. A decision with no single code site (a platform or tool choice) goes in the config file that enacts it: `.oxlintrc.json`, `.fallowrc.jsonc`, `pnpm-workspace.yaml`.
-- **Tag.** Start the comment with `Decision:` in the file's comment syntax (`// Decision:`, `# Decision:`). The tag tells `/no-comments`, `/deslop` and reviewers to keep it, and makes every decision greppable.
-- **Content.** The choice, the constraint it puts on the code, and in one clause the main option it beat and why. Link the wayfinder ticket or PR for the full trade-off. Keep it to five lines at most; the tracker holds the rest.
+- **Tag.** Open a comment line with `Decision:` in the file's comment syntax (`// Decision:`, `# Decision:`), in a comment that starts its own line rather than following code. The tag tells `/no-comments`, `/deslop` and reviewers to keep it, and makes every decision greppable.
+- **Content.** The choice, the constraint it puts on the code, and in one clause the main option it beat and why. Link the wayfinder ticket or PR for the full trade-off. Keep it to five lines at most, from the tag to the first empty comment line or code line; the tracker holds the rest. `scripts/check-decision-docs.mts` fails a longer one, and one whose tag sits partway along a line, after code or after other text on its comment line. It reads the comments of JS, TS, JSON and YAML files only.
 - **When.** Only for a choice that is hard to reverse, surprising without context, and the result of a real trade-off. Anything else needs no comment.
 
 When `/domain-modeling` says to offer or write an ADR, write a `Decision:` comment instead. When a change makes a `Decision:` comment false, update or delete it in the same commit.

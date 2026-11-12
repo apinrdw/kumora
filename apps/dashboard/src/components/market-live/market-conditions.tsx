@@ -44,10 +44,10 @@ const publish = (next: (held: View) => View) =>
 const byCode = (prices: ReadonlyArray<IndicativePrice>) =>
   Effect.succeed(prices.map((price) => [price.code, price] as const))
 
-// The view after one viewer message. A snapshot starts over. Decision: a
-// delta's indicative prices are every code's that changed, and all are kept,
-// so a code added to the watchlist mid-auction shows its price on the next
-// change; the map is bounded by the listed codes.
+// The view after one viewer message. A snapshot starts over.
+// Decision: a delta's indicative prices are every code's that changed, and all
+// are kept, so a code added to the watchlist mid-auction shows its price on the
+// next change; the map is bounded by the listed codes. See apinrdw/kumora#157.
 export const applyConditions = Effect.fnUntraced(function* (
   message: ViewerDown
 ) {

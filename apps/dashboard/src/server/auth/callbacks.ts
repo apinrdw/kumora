@@ -44,10 +44,10 @@ const STATUS = {
 
 // Decision: TooManyMails crosses to HTTP as a 429 with a retry header beside
 // the closed HttpError set, because the spec prescribes that answer for the
-// per-address cap (apinrdw/kumora#80, "Per-address cap"). CODING_STANDARDS
-// ("Only the closed error set crosses to HTTP") binds server functions through
-// runServerEffect; a callback answers through Better Auth instead, and this
-// mapping is the one place a sixth error crosses.
+// per-address cap. CODING_STANDARDS' closed set binds server functions through
+// runServerEffect; a callback answers through Better Auth, and this is the one
+// place a sixth error crosses. See apinrdw/kumora#80, "Per-address cap".
+//
 // Fails with the APIError that answers `error`.
 const toAPIError = (error: HttpError | TooManyMails) =>
   Effect.fail(
@@ -265,13 +265,9 @@ export const authorizeEmailChange = Effect.fn("authorizeEmailChange")(
 
 // Decision: an email on ADMIN_EMAILS becomes admin once it is verified, not
 // when the account is created, so nobody can squat an admin email before its
-// owner signs up. It runs after every write of an account, which covers the
-// verification link, a sign-up with a sign-in method that already verified
-// the email (Google), and a change to an email on the list. From then on the
-// role lives in the database. An email put on the list after it was verified
-// is a config admin at once (session-account.ts) and is stored as admin here
-// at its next sign-in or admin action, whichever comes first. See
-// apinrdw/kumora#70.
+// owner signs up. It runs after every write of an account; from then on the
+// role lives in the database. An email listed after verification is a config
+// admin at once (session-account.ts). See apinrdw/kumora#70.
 export const grantAdmin = Effect.fn("grantAdmin")(function* (
   user: WrittenUser
 ) {
