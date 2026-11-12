@@ -28,6 +28,7 @@ import {
   type RecordedDay,
   type RecordedResource,
   type RunningTrade,
+  type TradeNumber,
   type WibDate,
 } from "@workspace/relay"
 import { WorkerEnv } from "@workspace/server"
@@ -482,7 +483,7 @@ export const makeTradingDay = Effect.fnUntraced(function* (options: {
 
   // Each feed's trade numbers it timed from copies held only outside the tape
   // and merge windows, newest last, at most OUTSIDE_TIMED_LIMIT.
-  const timedOutside: Record<Feed, Set<string>> = {
+  const timedOutside: Record<Feed, Set<TradeNumber>> = {
     Stockbit: new Set(),
     Ajaib: new Set(),
   }
