@@ -228,7 +228,7 @@ const priceBase = (price: AjaibPrice) =>
 
 // Decision: with Stockbit lost, a code carries on from its last `liveprice`
 // plus the regular-board trades after it, or, never sent, from its `PRICE`
-// frame (whose volume holds the day's trades) plus their value and frequency.
+// frame (volume included) plus the day's regular-board value and frequency.
 // An Ajaib `PRICE` newer than the `liveprice` fills last and change; the
 // previous close stays as sent. See spec apinrdw/kumora#138.
 const fromFallback = Effect.fnUntraced(function* (

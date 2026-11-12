@@ -1,8 +1,8 @@
 // Fails when an ADR directory or a path into one is back in the repo, or when a
 // `Decision:` comment breaks its shape: the tag opens a comment line, and the
-// decision runs five lines at most from its tag. See docs/agents/domain.md. Comments come
-// from parsers: oxc for JS, TS and JSON, `yaml` for YAML. A file of any other
-// type is read for ADR links only, never for a Decision.
+// decision runs five lines at most from its tag. See docs/agents/domain.md.
+// Comments come from parsers: oxc for JS, TS and JSON, `yaml` for YAML. A file
+// of any other type is read for ADR links only, never for a Decision.
 import { parseSync } from "oxc-parser"
 import { Console, Effect, FileSystem, Option, Path } from "effect"
 import { Parser } from "yaml"

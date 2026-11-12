@@ -76,7 +76,7 @@ export const Website = Cloudflare.Website.Vite(
     // on Production and Staging only, never by whether its secret is present:
     // Previews and Dev read `staging`, which holds the client too, but their
     // URLs are not OAuth redirect URIs. So a missing secret on Production or
-    // Staging fails the deploy instead of hiding it. See apinrdw/kumora#89.
+    // Staging fails the deploy, never hides sign-in. See apinrdw/kumora#89.
     const google: Partial<
       Record<
         "GOOGLE_CLIENT_ID" | "GOOGLE_CLIENT_SECRET",
