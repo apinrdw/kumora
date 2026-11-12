@@ -1,3 +1,4 @@
+import type { Connection } from "@workspace/relay"
 import {
   SESSION_1,
   STOCKBIT_TAB,
@@ -113,7 +114,7 @@ test("the relay carries 2,000 Stockbit frames a second on each connection to ing
 
     // Every frame, once per connection, and how late each arrived.
     const arrivals = async () => {
-      const byConnection = new Map<string, Set<number>>()
+      const byConnection = new Map<Connection, Set<number>>()
       const lags: Array<number> = []
       for (const { message, at } of await ingest.messages()) {
         if (message._tag !== "Frames" || message.feed !== "Stockbit") continue
