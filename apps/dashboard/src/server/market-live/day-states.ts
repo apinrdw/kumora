@@ -226,11 +226,11 @@ const priceBase = (price: AjaibPrice) =>
     time: price.time,
   })
 
-// Decision: with Stockbit lost, last to frequency carry on from the merged
-// tape's regular-board trades after the last `liveprice` (after today's
-// `PRICE` frame if Stockbit never sent the code), and a newer Ajaib `PRICE`
-// fills the last price and change. The previous close stays as last sent; a
-// price seen today never stands in for it. See spec apinrdw/kumora#138.
+// Decision: with Stockbit lost, last, high, low, volume, value and frequency
+// carry on from the tape's regular-board trades after the last `liveprice`; a
+// code Stockbit never sent starts from its `PRICE` frame, whose volume holds
+// the day's trades. An Ajaib `PRICE` newer than that frame fills last and
+// change; the previous close stays as sent. See spec apinrdw/kumora#138.
 const fromFallback = Effect.fnUntraced(function* (
   code: StockCode,
   base: Base | undefined,
