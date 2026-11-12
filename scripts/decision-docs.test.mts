@@ -128,28 +128,29 @@ describe("checkDecisionDocs", () => {
     }
   )
 
-  it.effect("reads SQL, HTML and after-code comments the same way", () => {
-    const { layer } = repo({
-      "a.sql": [`-- ${tag} one`, "--", `select 1 -- What. ${tag} why`].join(
-        "\n"
-      ),
-      "b.html": [
-        `<!-- ${tag} one`,
-        ...Array.from({ length: 5 }, () => "more"),
-        "-->",
-      ].join("\n"),
-      "c.ts": `const a = 1 // ${tag} why`,
-    })
-    return Effect.gen(function* () {
-      const error = yield* Effect.flip(checkDecisionDocs("/repo"))
-      assert.instanceOf(error, CheckFailed)
-      assert.deepStrictEqual(error.findings, [
-        `a.sql:3: ${tag} starts mid-comment; open its own comment line with it`,
-        "b.html:1: Decision runs 6 lines; keep 5 and link the PR for the rest",
-        `c.ts:1: ${tag} starts mid-comment; open its own comment line with it`,
-      ])
-    }).pipe(Effect.provide(layer))
-  })
+  it.effect(
+    "reads no Decision in SQL or HTML, and fails one after code",
+    () => {
+      const { layer } = repo({
+        "a.sql": [`-- ${tag} one`, "--", `select 1 -- What. ${tag} why`].join(
+          "\n"
+        ),
+        "b.html": [
+          `<!-- ${tag} one`,
+          ...Array.from({ length: 5 }, () => "more"),
+          "-->",
+        ].join("\n"),
+        "c.ts": `const a = 1 // ${tag} why`,
+      })
+      return Effect.gen(function* () {
+        const error = yield* Effect.flip(checkDecisionDocs("/repo"))
+        assert.instanceOf(error, CheckFailed)
+        assert.deepStrictEqual(error.findings, [
+          `c.ts:1: ${tag} sits partway along a line; open a comment line with it`,
+        ])
+      }).pipe(Effect.provide(layer))
+    }
+  )
 
   it.effect("keeps a decision open past a line comment ending in */", () => {
     const { layer } = repo({
@@ -180,7 +181,7 @@ describe("checkDecisionDocs", () => {
       assert.deepStrictEqual(error.findings, [
         "a.ts:1: Decision runs 6 lines; keep 5 and link the PR for the rest",
         "b.tsx:2: Decision runs 6 lines; keep 5 and link the PR for the rest",
-        `c.ts:1: ${tag} starts mid-comment; open its own comment line with it`,
+        `c.ts:1: ${tag} sits partway along a line; open a comment line with it`,
       ])
     }).pipe(Effect.provide(layer))
   })
@@ -188,7 +189,10 @@ describe("checkDecisionDocs", () => {
   // Each case below was misread by the line classifier these tests replaced.
   const findings = (files: Record<string, string>) =>
     Effect.flip(checkDecisionDocs("/repo")).pipe(
-      Effect.map((error) => error.findings),
+      Effect.map((error) => {
+        assert.instanceOf(error, CheckFailed)
+        return error.findings
+      }),
       Effect.provide(repo(files).layer)
     )
   const passes = (files: Record<string, string>) =>
@@ -260,6 +264,15 @@ describe("checkDecisionDocs", () => {
           "a.jsonc:2: Decision runs 6 lines; keep 5 and link the PR for the rest",
         ]
       )
+    })
+  )
+
+  it.effect("names a file it cannot parse and reads no Decision in it", () =>
+    Effect.gen(function* () {
+      yield* passes({ "a.ts": ["const = ;", ...comment(6)].join("\n") })
+      assert.deepStrictEqual(yield* TestConsole.errorLines, [
+        "a.ts: does not parse, so no Decision in it was read",
+      ])
     })
   )
 })

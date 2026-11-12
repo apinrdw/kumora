@@ -1,7 +1,11 @@
 // Fails when an ADR directory or a path into one is back in the repo, or when a
 // `Decision:` comment breaks its shape: the tag opens a comment line, and the
-// comment runs five lines at most. See docs/agents/domain.md.
-import { Array as Arr, Console, Effect, FileSystem, Option, Path } from "effect"
+// comment runs five lines at most. See docs/agents/domain.md. Comments come
+// from parsers: oxc for JS, TS and JSON, `yaml` for YAML. A file of any other
+// type is read for ADR links only, never for a Decision.
+import { parseSync } from "oxc-parser"
+import { Console, Effect, FileSystem, Option, Path } from "effect"
+import { Parser } from "yaml"
 
 import { CheckFailed } from "./lib/check.mts"
 import { gitLines } from "./lib/command.mts"
@@ -9,96 +13,119 @@ import { gitLines } from "./lib/command.mts"
 const adrDir = /(^|\/)adrs?\//i
 const adrLink = /docs\/adrs?\//i
 const maxDecisionLines = 5
-// Built, so this file's own lines carry no tag.
-const tag = ["Decision", ":"].join("")
+const tag = "Decision:"
 // A tag in comment text; a backticked one is prose about the tag.
 const anyTag = new RegExp(String.raw`(?<!\`)\b${tag}`)
-const lineComment = /^\s*(\/\/|#|--(?=\s|$))/
-// A comment after code on the same line.
-const trailingComment = /\s(?:\/\/|#|--)\s(.*)$/
-// Block comments open at a line's start and run to their closer.
-const blockComments = [
-  { open: /^\s*\{?\s*\/\*\*?/, close: "*/" },
-  { open: /^\s*<!--/, close: "-->" },
-]
+const script = /\.[cm]?[jt]sx?$/
+const json = /\.jsonc?$/
+const yaml = /\.ya?ml$/
 
-// The comment text on one line. `own` when the comment opens the line,
-// `ends` when the line closes its block comment.
-interface Comment {
-  readonly text: string
-  readonly own: boolean
-  readonly ends: boolean
+// A comment as a parser reports it: its text, after `//` or `#` or between
+// `/*` and `*/`, and the offset where it opens.
+interface Found {
+  readonly block: boolean
+  readonly start: number
+  readonly value: string
 }
-// The closer of the block comment open after a line, if one is.
-type Open = string | undefined
 
-// A file's `Decision:` comments that open mid-comment or run too long.
-// Markdown describes the tag rather than using it, so it has none.
+// The comments in a file: empty when it is not a parsed type, none when oxc
+// cannot parse it. A file that fails to parse also fails typecheck or its
+// consumer, so the check names it and reads nothing from it.
+const readComments = Effect.fnUntraced(function* (file: string, text: string) {
+  const oxc = (name: string, source: string, shift: number) => {
+    const { errors, comments } = parseSync(name, source)
+    return errors.length > 0
+      ? Option.none()
+      : Option.some(
+          comments.map((comment) => ({
+            block: comment.type === "Block",
+            start: comment.start - shift,
+            value: comment.value,
+          }))
+        )
+  }
+  // CST tokens nest; every comment is a `comment` token somewhere in them.
+  const yamlComments = (node: unknown): ReadonlyArray<Found> => {
+    if (typeof node !== "object" || node === null) return []
+    if ("type" in node && node.type === "comment" && "source" in node)
+      return [
+        {
+          block: false,
+          start: "offset" in node ? Number(node.offset) : 0,
+          value: String(node.source).slice(1),
+        },
+      ]
+    return Object.values(node).flatMap(yamlComments)
+  }
+  if (script.test(file)) return oxc(file, text, 0)
+  // JSON with comments is a JS expression once wrapped in parentheses.
+  if (json.test(file)) return oxc(`${file}.js`, `(${text})`, 1)
+  if (yaml.test(file))
+    return Option.some(yamlComments([...new Parser().parse(text)]))
+  return Option.some([])
+})
+
+// A comment laid over its source lines. `opens` when only whitespace, or a
+// JSX `{`, sits before it on its line. A run of `//` or `#` comments on
+// consecutive lines, each opening its line, is one comment.
+interface Comment {
+  readonly line: number
+  readonly opens: boolean
+  readonly block: boolean
+  readonly lines: Array<string>
+}
+
+// A file's `Decision:` comments that sit partway along a line or run too long.
 const decisionFindings = Effect.fnUntraced(function* (
   file: string,
-  lines: ReadonlyArray<string>
+  text: string,
+  found: ReadonlyArray<Found>
 ) {
-  if (file.endsWith(".md")) return []
-  // The text of a block comment's line up to `close`, which may end it here.
-  const blockLine = (rest: string, close: string): readonly [Open, Comment] => {
-    const at = rest.indexOf(close)
-    const text = (at < 0 ? rest : rest.slice(0, at)).replace(/^\s*\*?/, "")
-    return [
-      at < 0 ? close : undefined,
-      { text: text.trim(), own: true, ends: at >= 0 },
-    ]
+  const comments = found.reduce<Array<Comment>>(
+    (all, { block, start, value }) => {
+      const line = text.slice(0, start).split("\n").length - 1
+      const before = text.slice(text.lastIndexOf("\n", start - 1) + 1, start)
+      const opens = /^\s*\{?\s*$/.test(before)
+      const lines = value
+        .split("\n")
+        .map((part) => (block ? part.replace(/^\s*\*?/, "") : part).trim())
+      const last = all.at(-1)
+      if (
+        last !== undefined &&
+        !block &&
+        !last.block &&
+        opens &&
+        last.opens &&
+        last.line + last.lines.length === line
+      )
+        last.lines.push(...lines)
+      else all.push({ line, opens, block, lines })
+      return all
+    },
+    []
+  )
+  // The lines a decision whose tag is on `lines[at]` runs: to the end of
+  // its comment or an empty comment line.
+  const runs = (lines: ReadonlyArray<string>, at: number) => {
+    const end = lines.findIndex((part, index) => index > at && part === "")
+    return (end < 0 ? lines.length : end) - at
   }
-  const codeLine = (line: string): readonly [Open, Comment | undefined] => {
-    const block = blockComments.find(({ open }) => open.test(line))
-    if (block !== undefined)
-      return blockLine(line.replace(block.open, ""), block.close)
-    const trailing = trailingComment.exec(line)?.[1]
-    return [
-      undefined,
-      trailing === undefined
-        ? undefined
-        : { text: trailing, own: false, ends: false },
-    ]
-  }
-  const classify = (
-    open: Open,
-    line: string
-  ): readonly [Open, Comment | undefined] => {
-    if (open !== undefined) return blockLine(line, open)
-    const marker = lineComment.exec(line)?.[0]
-    if (marker === undefined) return codeLine(line)
-    return [
-      undefined,
-      { text: line.slice(marker.length).trim(), own: true, ends: false },
-    ]
-  }
-  const closed: Open = undefined
-  const [, comments] = Arr.mapAccum(lines, closed, classify)
-  // An empty comment line, a code line, or the end of its block closes a
-  // decision.
-  const continues = (index: number) =>
-    comments[index - 1]?.ends === false &&
-    comments[index]?.own === true &&
-    comments[index]?.text !== ""
-  // The comment lines a decision opening at `start` runs, its tag included.
-  const length = (start: number) => {
-    let end = start + 1
-    while (continues(end)) end++
-    return end - start
-  }
-  return comments.flatMap((comment, index) => {
-    if (comment === undefined || !anyTag.test(comment.text)) return []
-    if (!comment.own || !comment.text.startsWith(tag))
-      return [
-        `${file}:${index + 1}: ${tag} starts mid-comment; open its own comment line with it`,
-      ]
-    const runs = length(index)
-    return runs > maxDecisionLines
-      ? [
-          `${file}:${index + 1}: Decision runs ${runs} lines; keep ${maxDecisionLines} and link the PR for the rest`,
+  return comments.flatMap(({ line, opens, lines }) =>
+    lines.flatMap((part, index) => {
+      if (!anyTag.test(part)) return []
+      const at = `${file}:${line + index + 1}`
+      if (!opens || !part.startsWith(tag))
+        return [
+          `${at}: ${tag} sits partway along a line; open a comment line with it`,
         ]
-      : []
-  })
+      const length = runs(lines, index)
+      return length > maxDecisionLines
+        ? [
+            `${at}: Decision runs ${length} lines; keep ${maxDecisionLines} and link the PR for the rest`,
+          ]
+        : []
+    })
+  )
 })
 
 export const checkDecisionDocs = Effect.fn("checkDecisionDocs")(function* (
@@ -123,13 +150,22 @@ export const checkDecisionDocs = Effect.fn("checkDecisionDocs")(function* (
         fs.readFileString(path.resolve(root, file))
       )
       if (Option.isNone(text) || text.value.includes("\0")) return []
-      const lines = text.value.split("\n")
-      const links = lines.flatMap((line, index) =>
-        adrLink.test(line)
-          ? [`${file}:${index + 1}: points into an ADR directory`]
-          : []
-      )
-      return [...links, ...(yield* decisionFindings(file, lines))]
+      const links = text.value
+        .split("\n")
+        .flatMap((line, index) =>
+          adrLink.test(line)
+            ? [`${file}:${index + 1}: points into an ADR directory`]
+            : []
+        )
+      const found = yield* readComments(file, text.value)
+      if (Option.isNone(found))
+        yield* Console.error(
+          `${file}: does not parse, so no Decision in it was read`
+        )
+      const decisions = Option.isSome(found)
+        ? yield* decisionFindings(file, text.value, found.value)
+        : []
+      return [...links, ...decisions]
     })
   )
   if (findings.flat().length > 0)
