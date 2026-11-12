@@ -52,14 +52,18 @@ async function asOwnClient(
   return context
 }
 
-// The running test's contexts from the helpers below, which `test` closes
-// when the test ends.
+// The running test's hand-built contexts, which `test` closes when the test
+// ends.
 const handBuilt = new Set<BrowserContext>()
 
-async function newHandBuiltContext(browser: Browser) {
-  const context = await browser.newContext(recordVideo())
+/** Has `test` close a context the running test built when the test ends. */
+export function closeWhenTestEnds(context: BrowserContext) {
   handBuilt.add(context)
   return context
+}
+
+async function newHandBuiltContext(browser: Browser) {
+  return closeWhenTestEnds(await browser.newContext(recordVideo()))
 }
 
 /**

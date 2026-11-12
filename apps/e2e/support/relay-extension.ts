@@ -9,6 +9,7 @@ import { fileURLToPath } from "node:url"
 import { WebSocketServer, type WebSocket } from "ws"
 
 import { wibInstant } from "./clock"
+import { closeWhenTestEnds } from "./test"
 import { recordVideo } from "./video"
 
 /** The built extension (`pnpm --filter extension build`, run by `pnpm e2e`). */
@@ -313,20 +314,22 @@ export async function tickRelay(worker: Worker, count = 1) {
 
 /**
  * Chromium with the built extension loaded, and every broker host (any port)
- * mapped to the fakes on `port`.
+ * mapped to the fakes on `port`. `test` closes it when the test ends.
  */
 export async function launchWithExtension(port: number) {
   const rules = HOSTS.map((host) => `MAP ${host} 127.0.0.1:${port}`).join(", ")
-  const context = await chromium.launchPersistentContext("", {
-    channel: "chromium",
-    args: [
-      `--disable-extensions-except=${EXTENSION}`,
-      `--load-extension=${EXTENSION}`,
-      `--host-resolver-rules=${rules}`,
-      "--ignore-certificate-errors",
-    ],
-    ...recordVideo(),
-  })
+  const context = closeWhenTestEnds(
+    await chromium.launchPersistentContext("", {
+      channel: "chromium",
+      args: [
+        `--disable-extensions-except=${EXTENSION}`,
+        `--load-extension=${EXTENSION}`,
+        `--host-resolver-rules=${rules}`,
+        "--ignore-certificate-errors",
+      ],
+      ...recordVideo(),
+    })
+  )
   const worker =
     context.serviceWorkers()[0] ?? (await context.waitForEvent("serviceworker"))
   const extensionId = new URL(worker.url()).host
