@@ -716,19 +716,25 @@ describe("Day state", () => {
             return state ? [[state.provenance, state.last]] : []
           })
         )
+        yield* TestClock.adjust("1 second")
+        assert.deepStrictEqual(yield* sent, [["Stockbit", 2920]])
         const relayed = { stockbit: feed.stockbitTrades, ajaib: feed.ajaib }
         const next = yield* bothEverySecond(relayed, {
           first: 50_001,
           seconds: 10,
           lags: { Stockbit: 6_000, Ajaib: 0 },
         })
-        assert.deepStrictEqual(yield* sent, [["Ajaib", 2910]])
+        assert.deepStrictEqual(yield* sent, [
+          ["Stockbit", 2920],
+          ["Ajaib", 2910],
+        ])
         yield* bothEverySecond(relayed, {
           first: next,
           seconds: 10,
           lags: { Stockbit: 200, Ajaib: 0 },
         })
         assert.deepStrictEqual(yield* sent, [
+          ["Stockbit", 2920],
           ["Ajaib", 2910],
           ["Stockbit", 2920],
         ])

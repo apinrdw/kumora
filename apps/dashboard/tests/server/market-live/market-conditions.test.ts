@@ -464,6 +464,96 @@ describe("delayed freshness", () => {
     })
   )
 
+  it.effect("one late trade after a quiet window doesn't flip it", () =>
+    Effect.gen(function* () {
+      const market = yield* marketAt("2026-11-09T10:00:00")
+      const next = yield* everySecond(market, "Stockbit", {
+        first: 50_001,
+        seconds: 5,
+        lag: 200,
+      })
+      yield* TestClock.adjust("11 seconds")
+      yield* everySecond(market, "Stockbit", {
+        first: next,
+        seconds: 1,
+        lag: 6_000,
+      })
+      assert.deepStrictEqual(lagged(yield* market.conditions), {
+        Stockbit: "live",
+        Ajaib: "unavailable",
+        lags: {},
+      })
+    })
+  )
+
+  it.effect(
+    "a silent delayed feed stays delayed with its last lag until it goes stale",
+    () =>
+      Effect.gen(function* () {
+        const market = yield* marketAt("2026-11-09T10:00:00")
+        const next = yield* everySecond(market, "Stockbit", {
+          first: 50_001,
+          seconds: 10,
+          lag: 6_000,
+        })
+        // The last trade arrived a second ago: its window empties at 10 s,
+        // the silence goes stale at 15 s.
+        for (let second = 1; second < 15; second++) {
+          assert.deepStrictEqual(lagged(yield* market.conditions), {
+            Stockbit: "delayed",
+            Ajaib: "unavailable",
+            lags: { Stockbit: 6_000 },
+          })
+          yield* TestClock.adjust("1 second")
+        }
+        // The next check's delta tells it.
+        yield* TestClock.adjust("1 second")
+        assert.strictEqual((yield* market.feeds).Stockbit, "stale")
+        // Back from stale, it starts over undelayed.
+        yield* everySecond(market, "Stockbit", {
+          first: next,
+          seconds: 1,
+          lag: 3_000,
+        })
+        assert.deepStrictEqual(lagged(yield* market.conditions), {
+          Stockbit: "live",
+          Ajaib: "unavailable",
+          lags: {},
+        })
+      })
+  )
+
+  it.effect(
+    "a lag that moves by less than a second sends no market conditions",
+    () =>
+      Effect.gen(function* () {
+        const market = yield* marketAt("2026-11-09T10:00:00")
+        const next = yield* everySecond(market, "Stockbit", {
+          first: 50_001,
+          seconds: 10,
+          lag: 6_000,
+        })
+        assert.deepStrictEqual((yield* market.conditions).lags, {
+          Stockbit: 6_000,
+        })
+        const told = (yield* market.page.received).filter(
+          (message) => message.conditions !== undefined
+        ).length
+        yield* everySecond(market, "Stockbit", {
+          first: next,
+          seconds: 12,
+          lag: 6_300,
+        })
+        const now = (yield* market.page.received).filter(
+          (message) => message.conditions !== undefined
+        ).length
+        assert.strictEqual(now, told)
+        assert.deepStrictEqual((yield* market.conditions).lags, {
+          Stockbit: 6_000,
+        })
+      })
+  )
+
   it.effect(
     "it stays delayed between 2 s and 5 s, and returns to live under 2 s",
     () =>

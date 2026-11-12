@@ -121,6 +121,9 @@ const INGEST_TOKEN_DEADLINE = Duration.seconds(10)
 // trade is still deduped, counted in its candle and merged (the candle book
 // holds it), but viewers aren't sent it. See apinrdw/kumora#157.
 const TAPE_LIMIT = 10_000
+// How many trade numbers each feed remembers timing from copies held only
+// outside the tape (`insertRelayed`): a tape's worth.
+const OUTSIDE_TIMED_LIMIT = TAPE_LIMIT
 
 // Decision: the day's state is written to the day store once a minute, 5 s
 // past it, so each flush closes the minute's book chunks and 5 s merge
@@ -365,8 +368,8 @@ export const makeTradingDay = Effect.fnUntraced(function* (options: {
   const lastLivePrices = new Map<StockCode, LivePrice>()
   let livePricesChanged = new Map<StockCode, LivePrice>()
   let flushScheduled = false
-  // Whether the scheduled flush writes, not just logs feed lag lines.
-  let flushWrites = false
+  // The feed downs fact as the day store last took it.
+  let writtenDowns = storedDowns
   // What a flush took whose write failed, apart from the trades and candles
   // the candle book keeps; the next flush writes it.
   let unwritten: Pick<Flush, "livePrices" | "chunks" | "ajaibBooks"> | undefined
@@ -477,26 +480,48 @@ export const makeTradingDay = Effect.fnUntraced(function* (options: {
     for (const arriving of trades) yield* insertOne(arriving)
   })
 
+  // Each feed's trade numbers it timed from copies held only outside the tape
+  // and merge windows, newest last, at most OUTSIDE_TIMED_LIMIT.
+  const timedOutside: Record<Feed, Set<string>> = {
+    Stockbit: new Set(),
+    Ajaib: new Set(),
+  }
+  // Whether `feed`'s copy of a trade held only outside the tape and merge
+  // windows is its first: one it hasn't timed before. Remembers it.
+  const firstOutside = (feed: Feed, trade: RunningTrade) =>
+    Effect.sync(() => {
+      const timed = timedOutside[feed]
+      if (timed.has(trade.tradeNumber)) return false
+      timed.add(trade.tradeNumber)
+      if (timed.size > OUTSIDE_TIMED_LIMIT)
+        timed.delete(timed.values().next().value!)
+      return true
+    })
+
   // A feed's running trades from one envelope, merged into the day, timed at
   // the feed's first relayed copy of each: new to the day, or held from the
   // other feed alone. Backfill pages aren't relayed and are never timed.
   // Decision: a copy held only outside the tape and merge windows is timed for
   // the arriving feed, its feeds unread: a feed over a tape's span behind the
-  // other (Stockbit ~17 min behind Ajaib) has only such copies. Connection
-  // B's repeat that old counts twice, at about the same lag. See
-  // apinrdw/kumora#239.
-  const relayed = Effect.fnUntraced(function* (
+  // other (Stockbit ~17 min behind Ajaib) has only such copies. The feed's
+  // last OUTSIDE_TIMED_LIMIT such numbers keep connection B's copy untimed.
+  // See apinrdw/kumora#239.
+  const insertRelayed = Effect.fnUntraced(function* (
     feed: Feed,
     trades: ReadonlyArray<RunningTrade>
   ) {
     const firsts: Array<RunningTrade> = []
     for (const arriving of trades) {
       const before = yield* insertOne(arriving)
-      if (before === undefined || !before.includes(feed)) firsts.push(arriving)
+      const first =
+        before === undefined
+          ? yield* firstOutside(feed, arriving)
+          : !before.includes(feed)
+      if (first) firsts.push(arriving)
     }
-    const timed = yield* timeTrades(feed, firsts)
-    yield* feedLags.record(timed)
-    yield* market.timed(timed)
+    const lags = yield* timeTrades(feed, firsts)
+    yield* feedLags.record(lags)
+    yield* market.recordLags(lags)
   })
 
   // Decision: a delta carries every candle that changed, of any code, not
@@ -616,6 +641,7 @@ export const makeTradingDay = Effect.fnUntraced(function* (options: {
     unwritten = payload
     yield* store.write(payload)
     unwritten = undefined
+    writtenDowns = payload.facts[Fact.feedDowns]
     yield* candles.written
   })
 
@@ -625,18 +651,18 @@ export const makeTradingDay = Effect.fnUntraced(function* (options: {
       livePricesChanged.size > 0 ||
       (yield* candles.hasUnflushed) ||
       (yield* bookChunks.hasOpen) ||
-      (yield* books.hasUnflushedAjaib)
+      (yield* books.hasUnflushedAjaib) ||
+      JSON.stringify(yield* market.record) !== writtenDowns
     )
   })
 
   // One flush a minute while anything is left to write, a failed one
-  // included. A wake with nothing to write but a feed lag line to log only
-  // logs it, so the lines add no transaction.
-  const scheduleFlush = (write: boolean): Effect.Effect<void> =>
-    Effect.suspend(() => {
-      if (write) flushWrites = true
-      return armFlush
-    })
+  // included, or a feed lag line to log. A wake with nothing to write only
+  // logs, so the lines add no transaction.
+  // Decision: feed lag lines are logged on this flush, 5 s past the minute, as
+  // structured Effect logs that Workers Logs keeps: no binding, metric store
+  // or alert. A minute's timed trades keep the flush armed until its lines
+  // are out. See apinrdw/kumora#231.
   const armFlush: Effect.Effect<void> = Effect.suspend(() => {
     if (flushScheduled || sealed) return Effect.void
     flushScheduled = true
@@ -650,23 +676,21 @@ export const makeTradingDay = Effect.fnUntraced(function* (options: {
       ),
       Effect.andThen(
         turn.withPermit(
-          Effect.suspend(() => {
+          Effect.gen(function* () {
             flushScheduled = false
-            const write = flushWrites
-            flushWrites = false
-            if (sealed) return Effect.void
-            return write
-              ? flush(false).pipe(
-                  Effect.catchCause((cause) =>
-                    Effect.logError("Day not flushed", cause)
-                  )
+            if (sealed) return
+            if (yield* unflushed)
+              yield* flush(false).pipe(
+                Effect.catchCause((cause) =>
+                  Effect.logError("Day not flushed", cause)
                 )
-              : feedLags.logEnded
-          }).pipe(Effect.andThen(Effect.all([unflushed, feedLags.holding])))
+              )
+            else yield* feedLags.logEnded
+          }).pipe(Effect.andThen(Effect.all([unflushed, feedLags.hasUnlogged])))
         )
       ),
       Effect.flatMap(([more, logging]) =>
-        more || logging ? scheduleFlush(more) : Effect.void
+        more || logging ? armFlush : Effect.void
       ),
       Effect.forkIn(scope),
       Effect.asVoid
@@ -801,7 +825,7 @@ export const makeTradingDay = Effect.fnUntraced(function* (options: {
     message: Extract<IngestUp, { readonly _tag: "Frames" }>
   ) {
     if (message.feed === "Stockbit") {
-      yield* relayed(
+      yield* insertRelayed(
         "Stockbit",
         yield* stockbitTrades(options.date, message.frames)
       )
@@ -827,7 +851,10 @@ export const makeTradingDay = Effect.fnUntraced(function* (options: {
       }
       yield* books.stockbitFrames(message.frames)
     } else {
-      yield* relayed("Ajaib", yield* ajaibTrades(options.date, message.frames))
+      yield* insertRelayed(
+        "Ajaib",
+        yield* ajaibTrades(options.date, message.frames)
+      )
       yield* books.ajaibFrames(message.frames)
       yield* ajaibPriceFrames(message.frames)
     }
@@ -891,7 +918,7 @@ export const makeTradingDay = Effect.fnUntraced(function* (options: {
         )
       if (message._tag === "Frames") yield* framesIn(message)
       yield* scheduleDelta
-      yield* scheduleFlush(true)
+      yield* armFlush
     },
     (effect, socket) =>
       Effect.catchTag(effect, "ProtocolVersionMismatch", (error) =>

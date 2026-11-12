@@ -30,14 +30,11 @@ const MINUTE = 60_000
 
 // The nearest-rank `p`th percentile of ascending `sorted`, never empty.
 export const percentile = (sorted: ReadonlyArray<number>, p: number) =>
-  sorted[Math.ceil((p / 100) * sorted.length) - 1]!
+  Effect.sync(() => sorted[Math.ceil((p / 100) * sorted.length) - 1]!)
 
 // Each feed's timed trades, by the minute they arrived in, until that
-// minute's line is logged.
-// Decision: the lines are written on the trading day's minute flush, 5 s past
-// the minute, as structured Effect logs that Workers Logs keeps: no binding,
-// metric store or alert. A minute's trades keep the flush scheduled until its
-// lines are out. Percentiles are nearest-rank. See apinrdw/kumora#231.
+// minute's line is logged. The trading day's minute flush logs them
+// (`armFlush` in trading-day.ts).
 export const makeFeedLagLog = Effect.sync(() => {
   const minutes = new Map<number, Map<Feed, Array<number>>>()
 
@@ -68,8 +65,8 @@ export const makeFeedLagLog = Effect.sync(() => {
             feed,
             minute: new Date(minute).toISOString(),
             trades: sorted.length,
-            p50Ms: percentile(sorted, 50),
-            p99Ms: percentile(sorted, 99),
+            p50Ms: yield* percentile(sorted, 50),
+            p99Ms: yield* percentile(sorted, 99),
             maxMs: sorted.at(-1)!,
           })
         )
@@ -79,7 +76,7 @@ export const makeFeedLagLog = Effect.sync(() => {
   })
 
   // Whether a minute's lines are still to be logged.
-  const holding = Effect.sync(() => minutes.size > 0)
+  const hasUnlogged = Effect.sync(() => minutes.size > 0)
 
-  return { record, logEnded, holding }
+  return { record, logEnded, hasUnlogged }
 })
