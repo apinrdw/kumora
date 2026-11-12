@@ -85,7 +85,10 @@ export const newLimitSpendingContext = async (browser: Browser) =>
  * from its own client address and with Turnstile stubbed. Make other
  * contexts with `newClientContext`; `test` closes them when the test ends.
  */
-export const test = base.extend<{ closeHandBuilt: void }>({
+export const test = base.extend<{
+  closeHandBuilt: void
+  annotateResultsFolder: void
+}>({
   context: async ({ context }, provide) => {
     await provide(await asOwnClient(context))
   },
@@ -98,6 +101,21 @@ export const test = base.extend<{ closeHandBuilt: void }>({
       await provide()
       await Promise.all([...handBuilt].map((context) => context.close()))
       handBuilt.clear()
+    },
+    { auto: true },
+  ],
+  // Decision: each test names its results folder in a `results-folder`
+  // annotation, because the JSON report lists only the built-in context's
+  // videos, not a hand-built context's `page@<hex>.webm`, and gives no folder
+  // for a test with none. scripts/e2e-evidence-plan.mts reads it and attaches
+  // every .webm in the folder (apinrdw/kumora#211).
+  annotateResultsFolder: [
+    async ({ browser: _browser }, provide, testInfo) => {
+      testInfo.annotations.push({
+        type: "results-folder",
+        description: testInfo.outputDir,
+      })
+      await provide()
     },
     { auto: true },
   ],
