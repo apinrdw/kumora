@@ -19,6 +19,7 @@ import {
   PubSub,
   Queue,
   Schedule,
+  Scheduler,
   SubscriptionRef,
   type Scope,
 } from "effect"
@@ -54,6 +55,7 @@ import {
   type Subscriptions,
 } from "./subscriptions.ts"
 import { makeBrokerTab, type BrokerTab } from "./tab.ts"
+import { relayScheduler } from "./scheduler.ts"
 import { runTarget } from "./target.ts"
 
 // Decision: the service worker ticks every 10 s; in-tab timers are throttled
@@ -377,6 +379,12 @@ Effect.runFork(
   main.pipe(
     Effect.scoped,
     Effect.provide(Socket.layerWebSocketConstructorGlobal),
+    // Decision: every fiber runs on the relay scheduler, which yields through a
+    // `MessageChannel` message. Effect's default `setTimeout(0)` yields nest
+    // under a backlog, and Chrome clamps nested timers to 4 ms: about 250
+    // events a second. One provision covers every loop; none gets
+    // `disableYield`. See apinrdw/kumora#229.
+    Effect.provideService(Scheduler.Scheduler, relayScheduler),
     Effect.tapCause((cause) => Effect.logError("Relay stopped", cause))
   )
 )
