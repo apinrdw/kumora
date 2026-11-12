@@ -30,8 +30,9 @@ export const MarketConditions = Schema.Struct({
   // reason rather than a broker socket dropping.
   relayOnline: Schema.Boolean,
   feeds: Schema.Struct({ Stockbit: Freshness, Ajaib: Freshness }),
-  // Each delayed feed's feed lag: the median of the trades that arrived in
-  // the last 10 s, in ms. Absent while no feed is delayed.
+  // Each delayed feed's feed lag in ms, its last reading as the trading day
+  // judges it (apps/dashboard feed-health.ts). Absent while no feed is
+  // delayed.
   lags: Schema.optionalKey(
     Schema.Struct({
       Stockbit: Schema.optionalKey(Schema.Finite),

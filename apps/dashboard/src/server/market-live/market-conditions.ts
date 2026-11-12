@@ -166,7 +166,7 @@ export const makeMarketConditions = Effect.fnUntraced(function* (
   return {
     record: health.record,
     ingest,
-    timed: health.timed,
+    recordLags: health.recordLags,
     relayOnline,
     relayOffline,
     conditions,
