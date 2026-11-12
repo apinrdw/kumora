@@ -50,6 +50,8 @@ const FRESHNESS = {
 
 export type KStatusPillProps = {
   status: Freshness
+  /** Part of the label after the status: "DELAYED · 17m". */
+  detail?: string
   /** Where the figure came from, beside the label: "LIVE · extension". */
   source?: TradeSource
   /** ISO datetime, rendered as "14:45 WIB". */
@@ -63,6 +65,7 @@ export type KStatusPillProps = {
 
 export function KStatusPill({
   status,
+  detail,
   source,
   asOf,
   hideAsOf = false,
@@ -86,7 +89,7 @@ export function KStatusPill({
       )}
     >
       <i aria-hidden className="size-1.5 rounded-full bg-current" />
-      {meta.label}
+      {detail === undefined ? meta.label : `${meta.label} · ${detail}`}
       {source && <span className="normal-case">· {source}</span>}
       {time && !hideAsOf && (
         <span className="num ml-1 tracking-normal text-muted-foreground normal-case">

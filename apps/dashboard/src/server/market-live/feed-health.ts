@@ -1,6 +1,7 @@
 // Each feed's freshness and the day's relay gaps (spec apinrdw/kumora#138,
-// "Feed freshness"). Everything is decided from instants the caller reads
-// through Effect's Clock, so the tests drive it with TestClock.
+// "Feed freshness", and apinrdw/kumora#235, "Feed health"). Everything is
+// decided from instants and lags the caller reads through Effect's Clock, so
+// the tests drive it with TestClock.
 import {
   type Connection,
   type Feed,
@@ -10,6 +11,8 @@ import {
 } from "@workspace/relay"
 import { DateTime, Effect } from "effect"
 
+import { percentile, type TimedTrade } from "./feed-lag.ts"
+
 // Decision: a feed is stale after 15 s of silence and unavailable after 60 s,
 // counted only inside stretches that expect trades, so the break and the
 // auctions before their match never go stale. Ajaib's on-demand frames are no
@@ -17,6 +20,15 @@ import { DateTime, Effect } from "effect"
 // decides which frames count). See apinrdw/kumora#133.
 const STALE_AFTER = 15_000
 const UNAVAILABLE_AFTER = 60_000
+
+// Decision: a feed is delayed while the median feed lag of its trades that
+// arrived in the last 10 s is over 5 s, and live again once it is under 2 s.
+// A window with no trades has no reading and clears it. Stale and unavailable
+// outrank it, and it opens no relay gap: frames still arrive. See
+// apinrdw/kumora#235.
+const LAG_WINDOW = 10_000
+const DELAYED_OVER = 5_000
+const LIVE_UNDER = 2_000
 
 const FEEDS: ReadonlyArray<Feed> = ["Stockbit", "Ajaib"]
 
@@ -37,7 +49,40 @@ interface Track {
   // Connections that showed a sign of life and weren't reported closed since.
   readonly open: Set<Connection>
   readonly downs: Array<Down>
+  // The feed lags of its timed trades, oldest arrival first, back to the lag
+  // window.
+  readonly lags: Array<Pick<TimedTrade, "arrived" | "lag">>
+  delayed: boolean
 }
+
+const newTrack = (): Track => ({
+  lastSign: undefined,
+  open: new Set(),
+  downs: [],
+  lags: [],
+  delayed: false,
+})
+
+// The median feed lag of a feed's trades that arrived in the lag window up to
+// `now` (epoch ms), once it has judged by it whether the feed is delayed.
+const lagAt = (track: Track, now: number) =>
+  Effect.sync(() => {
+    const kept = track.lags.findIndex(
+      (timed) => timed.arrived >= now - LAG_WINDOW
+    )
+    track.lags.splice(0, kept === -1 ? track.lags.length : kept)
+    if (track.lags.length === 0) {
+      track.delayed = false
+      return undefined
+    }
+    const median = percentile(
+      track.lags.map((timed) => timed.lag).sort((a, b) => a - b),
+      50
+    )
+    if (median > DELAYED_OVER) track.delayed = true
+    if (median < LIVE_UNDER) track.delayed = false
+    return median
+  })
 
 // The milliseconds of `stretches` between two instants.
 const expectedBetween = (
@@ -101,8 +146,8 @@ export const makeFeedHealth = Effect.fnUntraced(function* (options: {
   const { stretches } = options
   let relayOnline = false
   const tracks: Record<Feed, Track> = {
-    Stockbit: { lastSign: undefined, open: new Set(), downs: [] },
-    Ajaib: { lastSign: undefined, open: new Set(), downs: [] },
+    Stockbit: newTrack(),
+    Ajaib: newTrack(),
   }
   for (const feed of FEEDS) {
     const { restored } = options
@@ -154,6 +199,20 @@ export const makeFeedHealth = Effect.fnUntraced(function* (options: {
       if (track.downs.at(-1)?.to !== undefined || track.downs.length === 0)
         track.downs.push({ from: at, to: undefined })
     })
+
+  // Running trades timed at their first relayed arrival on their feed. Each
+  // feed is judged at its newest arrival too, so a median that crosses a
+  // threshold between two conditions isn't missed.
+  const timed = Effect.fnUntraced(function* (
+    trades: ReadonlyArray<TimedTrade>
+  ) {
+    const newest = new Map<Feed, number>()
+    for (const { feed, arrived, lag } of trades) {
+      tracks[feed].lags.push({ arrived, lag })
+      newest.set(feed, arrived)
+    }
+    for (const [feed, arrived] of newest) yield* lagAt(tracks[feed], arrived)
+  })
 
   // A frame or a ping reply on one of a feed's connections.
   const sign = Effect.fnUntraced(function* (
@@ -233,15 +292,32 @@ export const makeFeedHealth = Effect.fnUntraced(function* (options: {
     )
   })
 
+  // A feed's freshness at `now`, with its lag while it is delayed. Silence
+  // outranks the lag.
+  const feedAt = Effect.fnUntraced(function* (feed: Feed, now: DateTime.Utc) {
+    const track = tracks[feed]
+    const silence = yield* freshnessAt(track, now)
+    const lag = yield* lagAt(track, millis(now))
+    return silence === "live" && track.delayed && lag !== undefined
+      ? { freshness: "delayed" as const, lag }
+      : { freshness: silence, lag: undefined }
+  })
+
   // The feeds' part of the market conditions viewers are told at `now`.
   const conditionsAt = Effect.fnUntraced(function* (now: DateTime.Utc) {
     yield* observe(now)
+    const stockbit = yield* feedAt("Stockbit", now)
+    const ajaib = yield* feedAt("Ajaib", now)
+    const lags = {
+      ...(stockbit.lag === undefined ? {} : { Stockbit: stockbit.lag }),
+      ...(ajaib.lag === undefined ? {} : { Ajaib: ajaib.lag }),
+    }
     return {
       relayOnline,
-      feeds: {
-        Stockbit: yield* freshnessAt(tracks.Stockbit, now),
-        Ajaib: yield* freshnessAt(tracks.Ajaib, now),
-      },
+      feeds: { Stockbit: stockbit.freshness, Ajaib: ajaib.freshness },
+      ...(stockbit.lag === undefined && ajaib.lag === undefined
+        ? {}
+        : { lags }),
       gaps: yield* gapsAt(now),
     }
   })
@@ -263,5 +339,5 @@ export const makeFeedHealth = Effect.fnUntraced(function* (options: {
     return downs
   })
 
-  return { sign, closed, online, offline, conditionsAt, record }
+  return { timed, sign, closed, online, offline, conditionsAt, record }
 })

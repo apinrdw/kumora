@@ -29,7 +29,7 @@ export const timeTrades = Effect.fnUntraced(function* (
 const MINUTE = 60_000
 
 // The nearest-rank `p`th percentile of ascending `sorted`, never empty.
-const percentile = (sorted: ReadonlyArray<number>, p: number) =>
+export const percentile = (sorted: ReadonlyArray<number>, p: number) =>
   sorted[Math.ceil((p / 100) * sorted.length) - 1]!
 
 // Each feed's timed trades, by the minute they arrived in, until that

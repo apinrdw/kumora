@@ -257,6 +257,24 @@ describe("viewer protocol", () => {
       assert.strictEqual(ViewerCloseCode.SignInRequired, 4401)
     })
   )
+
+  it.effect(
+    "a page from before delayed freshness, on version 1, is told to reload",
+    () =>
+      Effect.gen(function* () {
+        const wire = JSON.stringify({
+          _tag: "Select",
+          protocolVersion: 1,
+          selected: "BBCA",
+          watchlist: [],
+        })
+        const error = yield* Effect.flip(decodeViewerUp(wire))
+        assert.strictEqual(
+          error._tag === "ProtocolVersionMismatch" && error.closeCode,
+          ViewerCloseCode.NewVersion
+        )
+      })
+  )
 })
 
 describe("viewer protocol, down", () => {
