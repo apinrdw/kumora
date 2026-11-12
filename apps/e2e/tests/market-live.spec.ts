@@ -31,7 +31,9 @@ test.describe("signed in", () => {
     const row = (recorded: number) =>
       tape.locator(`tr[data-trade-number="${base + recorded}"]`)
     await expect(row(22265)).toContainText("BREN")
-    await expect(row(22265)).toContainText("09:00:00")
+    await expect(row(22265)).toContainText(
+      wibTime(Date.parse(JSON.parse(frames[0]!).tradedAt))
+    )
     await expect(row(22265)).toContainText("2,130")
     // One dot for the one feed that saw it, explained by the header legend.
     await expect(row(22265).getByRole("img")).toHaveAccessibleName("Ajaib")
