@@ -107,6 +107,13 @@ export const asOf = (iso: string) =>
 export const tapeTime = (epochMillis: number) =>
   Effect.sync(() => secondsWib.format(new Date(epochMillis)))
 
+/** A feed lag in ms, to the second under a minute and to the minute above: 6s, 17m */
+export const feedLag = (ms: number) =>
+  Effect.sync(() => {
+    const seconds = Math.round(ms / 1000)
+    return seconds < 60 ? `${seconds}s` : `${Math.round(ms / 60_000)}m`
+  })
+
 /** Oct 24, 14:45 WIB */
 export const dateTime = (iso: string) =>
   Effect.sync(() => dateTimeWib.format(new Date(iso)) + " WIB")

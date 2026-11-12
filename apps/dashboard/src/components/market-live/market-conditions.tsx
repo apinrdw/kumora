@@ -11,7 +11,7 @@ import { DateTime, Effect } from "effect"
 import { useEffect, useState, useSyncExternalStore } from "react"
 
 import { KStatusPill } from "@/components/k/status-pill"
-import { dateTime } from "@/lib/format"
+import { dateTime, feedLag } from "@/lib/format"
 
 // What the page knows besides the tape, from the viewer socket (spec
 // apinrdw/kumora#138, "Freshness display"). `reconnecting` while the page's
@@ -95,15 +95,17 @@ export function useRelayGaps(): ReadonlyArray<RelayGap> {
   return useMarketConditions().conditions?.gaps ?? []
 }
 
-// Decision: the merged views (tape, candles, watchlist) are stale only when
-// neither feed is live, or while the page's own socket reconnects; one feed
-// down leaves them live, and its pill shows which (apinrdw/kumora#133).
+// Decision: the merged views (tape, candles, watchlist, order book panel) are
+// stale only when neither feed is arriving, or while the page's own socket
+// reconnects. A delayed feed counts as arriving: its frames still come, and
+// its pill already says DELAYED. One feed stale or unavailable leaves them
+// live, and its pill shows which (apinrdw/kumora#133, #235).
 export function useMergedStale(): boolean {
   const { conditions, connection } = useMarketConditions()
   if (connection === "reconnecting") return true
   if (conditions === undefined) return false
-  return (
-    conditions.feeds.Stockbit !== "live" && conditions.feeds.Ajaib !== "live"
+  return Object.values(conditions.feeds).every(
+    (freshness) => freshness === "stale" || freshness === "unavailable"
   )
 }
 
@@ -193,7 +195,7 @@ const FEEDS = ["Stockbit", "Ajaib"] as const
 export function MarketConditionsBar() {
   const { conditions, connection } = useMarketConditions()
   if (conditions === undefined) return null
-  const { phase, nextOpen, relayOnline, feeds } = conditions
+  const { phase, nextOpen, relayOnline, feeds, lags } = conditions
   return (
     <div
       role="group"
@@ -206,15 +208,25 @@ export function MarketConditionsBar() {
         </span>
       ) : (
         <ul aria-label="Feeds" className="flex items-center gap-2">
-          {FEEDS.map((feed) => (
-            <li key={feed} className="inline-flex items-center gap-1">
-              {feed}
-              <KStatusPill
-                status={feeds[feed]}
-                reason={relayOnline ? undefined : "Relay offline"}
-              />
-            </li>
-          ))}
+          {FEEDS.map((feed) => {
+            const lag = lags?.[feed]
+            const behind =
+              lag === undefined ? undefined : Effect.runSync(feedLag(lag))
+            let reason: string | undefined
+            if (!relayOnline) reason = "Relay offline"
+            else if (behind !== undefined)
+              reason = `Running trades arrive ${behind} behind the exchange`
+            return (
+              <li key={feed} className="inline-flex items-center gap-1">
+                {feed}
+                <KStatusPill
+                  status={feeds[feed]}
+                  {...(behind === undefined ? {} : { detail: behind })}
+                  reason={reason}
+                />
+              </li>
+            )
+          })}
         </ul>
       )}
       <PhaseLabel phase={phase} nextOpen={nextOpen} />

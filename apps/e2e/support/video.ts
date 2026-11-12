@@ -11,6 +11,9 @@ export const SWITCH = "E2E_VIDEO"
 /** The specs the config's trading-day project runs. */
 export const TRADING_DAY_SPECS = /market-live[\w-]*\.spec\.ts$/
 
+/** The spec the config's relay-load project runs. */
+export const RELAY_LOAD_SPEC = /relay-load\.spec\.ts$/
+
 // A spec as typed names a file under tests/ by its name or a path ending in
 // it: the rule filesOf in scripts/e2e-evidence-plan.mts applies to the specs
 // it sends here, so change the two together.
@@ -36,7 +39,11 @@ export function recording(
     typed.some((spec) => isNamedBy(spec)(file))
   )
   return {
-    chromium: picked.filter((file) => !TRADING_DAY_SPECS.test(file)),
+    // Decision: a picked relay-load spec records nothing, since encoding
+    // video would take CPU from the relay whose lag it measures.
+    chromium: picked.filter(
+      (file) => !TRADING_DAY_SPECS.test(file) && !RELAY_LOAD_SPEC.test(file)
+    ),
     tradingDay: picked.some((file) => TRADING_DAY_SPECS.test(file)),
   }
 }

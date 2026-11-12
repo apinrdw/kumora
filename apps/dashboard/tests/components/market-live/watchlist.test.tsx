@@ -1,5 +1,6 @@
 // @vitest-environment happy-dom
 import { clientRuntime } from "@workspace/client"
+import type { MarketConditions } from "@workspace/relay"
 import { StockCode } from "@workspace/relay"
 import { DateTime, Effect } from "effect"
 import { act } from "react"
@@ -177,5 +178,49 @@ test("a Day state without a change, an index's whose frames carry no previous cl
     (cell) => cell.textContent
   )
   expect(cells.slice(1, 3)).toEqual(["4,971.29", "—"])
+  act(() => root.unmount())
+})
+
+test("both feeds delayed leave the watchlist live; both silent dim it", () => {
+  const store = clientRuntime.runSync(makeDayStateStore())
+  const container = document.body.appendChild(document.createElement("div"))
+  const root = createRoot(container)
+  act(() =>
+    root.render(
+      <Watchlist
+        codes={[BBCA]}
+        list={{ _tag: "Loading" }}
+        store={store}
+        onAdd={() => {}}
+        onRemove={() => {}}
+        onSelect={() => {}}
+      />
+    )
+  )
+  const showWith = (feeds: MarketConditions["feeds"]): Element | null => {
+    act(() =>
+      Effect.runSync(
+        applyConditions({
+          _tag: "Snapshot",
+          selected: BBCA,
+          tape: [],
+          candles: [],
+          conditions: {
+            phase: "session-2",
+            relayOnline: true,
+            feeds,
+            gaps: [],
+          },
+        })
+      )
+    )
+    return container.querySelector('section[aria-label="Watchlist"]')
+  }
+  const delayed = showWith({ Stockbit: "delayed", Ajaib: "delayed" })!
+  expect(delayed.hasAttribute("data-stale")).toBe(false)
+  expect(delayed.textContent).not.toContain("STALE")
+  const stale = showWith({ Stockbit: "stale", Ajaib: "unavailable" })!
+  expect(stale.hasAttribute("data-stale")).toBe(true)
+  act(() => Effect.runSync(resetConditions))
   act(() => root.unmount())
 })

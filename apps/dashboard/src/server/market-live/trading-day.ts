@@ -22,11 +22,13 @@ import {
   tradeNumberValue,
   wibDateAt,
   type DayState,
+  type Feed,
   type IndicativePrice,
   type IngestUp,
   type RecordedDay,
   type RecordedResource,
   type RunningTrade,
+  type TradeNumber,
   type WibDate,
 } from "@workspace/relay"
 import { WorkerEnv } from "@workspace/server"
@@ -56,6 +58,7 @@ import {
 import { changeOf, makeDayStates } from "./day-states.ts"
 import { Fact, makeDayStore, type Flush, type Sql } from "./day-store.ts"
 import type { DownRecord } from "./feed-health.ts"
+import { makeFeedLagLog, timeTrades } from "./feed-lag.ts"
 import { makeGaps } from "./gaps.ts"
 import { makeMarketConditions } from "./market-conditions.ts"
 import { makeOnDemand } from "./on-demand.ts"
@@ -119,6 +122,11 @@ const INGEST_TOKEN_DEADLINE = Duration.seconds(10)
 // trade is still deduped, counted in its candle and merged (the candle book
 // holds it), but viewers aren't sent it. See apinrdw/kumora#157.
 const TAPE_LIMIT = 10_000
+// Decision: each feed remembers the last 40,000 trade numbers it timed, four
+// tapes' worth. A copy falls outside the tape only after a tape of newer
+// trades; connection B trails A by seconds, far inside 30,000 more of the
+// feed's trades. Two sets of 40,000 short strings cost a few MB.
+const TIMED_LIMIT = 4 * TAPE_LIMIT
 
 // Decision: the day's state is written to the day store once a minute, 5 s
 // past it, so each flush closes the minute's book chunks and 5 s merge
@@ -351,6 +359,7 @@ export const makeTradingDay = Effect.fnUntraced(function* (options: {
   const gaps = yield* makeGaps({ ingests, highest: storedHighest })
   const dayStates = yield* makeDayStates(candles)
   const onDemand = yield* makeOnDemand({ viewers: options.viewers, ingests })
+  const feedLags = yield* makeFeedLagLog
   const market = yield* makeMarketConditions(
     options.date,
     restoring && storedDowns !== undefined
@@ -362,6 +371,8 @@ export const makeTradingDay = Effect.fnUntraced(function* (options: {
   const lastLivePrices = new Map<StockCode, LivePrice>()
   let livePricesChanged = new Map<StockCode, LivePrice>()
   let flushScheduled = false
+  // The feed downs fact as the day store last took it.
+  let writtenDowns = storedDowns
   // What a flush took whose write failed, apart from the trades and candles
   // the candle book keeps; the next flush writes it.
   let unwritten: Pick<Flush, "livePrices" | "chunks" | "ajaibBooks"> | undefined
@@ -376,7 +387,8 @@ export const makeTradingDay = Effect.fnUntraced(function* (options: {
     }))
       lastLivePrices.set(price.code, price)
 
-  // The order book and Day state fall back to Ajaib while Stockbit isn't live.
+  // The order book and Day state fall back to Ajaib while Stockbit's freshness
+  // isn't live: delayed falls over as stale does.
   const stockbitLive = Effect.map(
     market.conditions,
     (conditions) => conditions.feeds.Stockbit === "live"
@@ -431,38 +443,82 @@ export const makeTradingDay = Effect.fnUntraced(function* (options: {
     yield* dayStates.trade(held, merged)
   })
 
-  // Merges each trade into the tape: a new trade number is inserted in its
+  // Merges a trade into the tape: a new trade number is inserted in its
   // place, a known one merged with what other feeds saw, on the tape or, once
   // the tape evicted it, inside its merge window. A new trade older than a
   // full tape's oldest counts in its candle but stays off the tape.
+  //
+  // Returns the feeds the day held it from before: none for a new trade,
+  // undefined for one held only outside the tape and merge windows, whose
+  // feeds aren't read back from the store.
+  const insertOne = Effect.fnUntraced(function* (arriving: RunningTrade) {
+    yield* gaps.seen(arriving)
+    const at = yield* tradePosition(tape, arriving.tradeNumber)
+    // The tape row of this number, if it holds one.
+    const slot = tape[at]?.tradeNumber === arriving.tradeNumber ? at : undefined
+    const held =
+      slot === undefined
+        ? yield* candles.openTrade(arriving.tradeNumber)
+        : tape[slot]
+    if (held !== undefined) {
+      yield* mergeInto(held, arriving, slot)
+      return held.feeds
+    }
+    const beforeTape = at === 0 && tape.length >= TAPE_LIMIT
+    if (yield* heldOutsideTape(arriving, beforeTape)) return undefined
+    const trade = yield* settleSide(arriving)
+    if (!beforeTape) {
+      tape.splice(at, 0, trade)
+      if (tape.length > TAPE_LIMIT) tape.shift()
+      pending.set(trade.tradeNumber, trade)
+    }
+    yield* candles.trade(undefined, trade)
+    yield* dayStates.trade(undefined, trade)
+    return []
+  })
+
   const insert = Effect.fnUntraced(function* (
     trades: ReadonlyArray<RunningTrade>
   ) {
+    for (const arriving of trades) yield* insertOne(arriving)
+  })
+
+  // Each feed's trade numbers it timed, newest last, at most TIMED_LIMIT.
+  const timedBy: Record<Feed, Set<TradeNumber>> = {
+    Stockbit: new Set(),
+    Ajaib: new Set(),
+  }
+  // Whether `feed`'s copy of a trade is its first: a number it hasn't timed
+  // before. Remembers it.
+  const firstTiming = (feed: Feed, trade: RunningTrade) =>
+    Effect.sync(() => {
+      const timed = timedBy[feed]
+      if (timed.has(trade.tradeNumber)) return false
+      timed.add(trade.tradeNumber)
+      if (timed.size > TIMED_LIMIT) timed.delete(timed.values().next().value!)
+      return true
+    })
+
+  // A feed's running trades from one envelope, merged into the day, timed at
+  // the feed's first relayed copy of each: new to the day, or held from the
+  // other feed alone. Backfill pages aren't relayed and are never timed.
+  // Decision: a copy held only outside the tape and merge windows is timed for
+  // the arriving feed unless the feed timed that number before, its feeds
+  // unread: a feed over a tape's span behind the other (Stockbit ~17 min
+  // behind Ajaib) has only such copies. See apinrdw/kumora#239.
+  const insertRelayed = Effect.fnUntraced(function* (
+    feed: Feed,
+    trades: ReadonlyArray<RunningTrade>
+  ) {
+    const firsts: Array<RunningTrade> = []
     for (const arriving of trades) {
-      yield* gaps.seen(arriving)
-      const at = yield* tradePosition(tape, arriving.tradeNumber)
-      // The tape row of this number, if it holds one.
-      const slot =
-        tape[at]?.tradeNumber === arriving.tradeNumber ? at : undefined
-      const held =
-        slot === undefined
-          ? yield* candles.openTrade(arriving.tradeNumber)
-          : tape[slot]
-      if (held !== undefined) {
-        yield* mergeInto(held, arriving, slot)
-        continue
-      }
-      const beforeTape = at === 0 && tape.length >= TAPE_LIMIT
-      if (yield* heldOutsideTape(arriving, beforeTape)) continue
-      const trade = yield* settleSide(arriving)
-      if (!beforeTape) {
-        tape.splice(at, 0, trade)
-        if (tape.length > TAPE_LIMIT) tape.shift()
-        pending.set(trade.tradeNumber, trade)
-      }
-      yield* candles.trade(undefined, trade)
-      yield* dayStates.trade(undefined, trade)
+      const before = yield* insertOne(arriving)
+      const unheld = before === undefined || !before.includes(feed)
+      if (unheld && (yield* firstTiming(feed, arriving))) firsts.push(arriving)
     }
+    const lags = yield* timeTrades(feed, firsts)
+    yield* feedLags.record(lags)
+    yield* market.recordLags(lags)
   })
 
   // Decision: a delta carries every candle that changed, of any code, not
@@ -561,6 +617,7 @@ export const makeTradingDay = Effect.fnUntraced(function* (options: {
     final: boolean,
     facts: Readonly<Record<string, string>> = {}
   ) {
+    yield* feedLags.logEnded
     const settled = yield* candles.takeSettled(final)
     const chunks = yield* bookChunks.take(final)
     const livePrices = [...livePricesChanged.values()]
@@ -581,6 +638,7 @@ export const makeTradingDay = Effect.fnUntraced(function* (options: {
     unwritten = payload
     yield* store.write(payload)
     unwritten = undefined
+    writtenDowns = payload.facts[Fact.feedDowns]
     yield* candles.written
   })
 
@@ -590,13 +648,19 @@ export const makeTradingDay = Effect.fnUntraced(function* (options: {
       livePricesChanged.size > 0 ||
       (yield* candles.hasUnflushed) ||
       (yield* bookChunks.hasOpen) ||
-      (yield* books.hasUnflushedAjaib)
+      (yield* books.hasUnflushedAjaib) ||
+      JSON.stringify(yield* market.record) !== writtenDowns
     )
   })
 
   // One flush a minute while anything is left to write, a failed one
-  // included.
-  const scheduleFlush: Effect.Effect<void> = Effect.suspend(() => {
+  // included, or a feed lag line to log. A wake with nothing to write only
+  // logs, so the lines add no transaction.
+  // Decision: feed lag lines are logged on this flush, 5 s past the minute, as
+  // structured Effect logs that Workers Logs keeps: no binding, metric store
+  // or alert. A minute's timed trades keep the flush armed until its lines
+  // are out. See apinrdw/kumora#231.
+  const armFlush: Effect.Effect<void> = Effect.suspend(() => {
     if (flushScheduled || sealed) return Effect.void
     flushScheduled = true
     return Clock.currentTimeMillis.pipe(
@@ -609,19 +673,22 @@ export const makeTradingDay = Effect.fnUntraced(function* (options: {
       ),
       Effect.andThen(
         turn.withPermit(
-          Effect.suspend(() => {
+          Effect.gen(function* () {
             flushScheduled = false
-            return sealed
-              ? Effect.void
-              : flush(false).pipe(
-                  Effect.catchCause((cause) =>
-                    Effect.logError("Day not flushed", cause)
-                  )
+            if (sealed) return
+            if (yield* unflushed)
+              yield* flush(false).pipe(
+                Effect.catchCause((cause) =>
+                  Effect.logError("Day not flushed", cause)
                 )
-          }).pipe(Effect.andThen(unflushed))
+              )
+            else yield* feedLags.logEnded
+          }).pipe(Effect.andThen(Effect.all([unflushed, feedLags.hasUnlogged])))
         )
       ),
-      Effect.flatMap((more) => (more ? scheduleFlush : Effect.void)),
+      Effect.flatMap(([more, logging]) =>
+        more || logging ? armFlush : Effect.void
+      ),
       Effect.forkIn(scope),
       Effect.asVoid
     )
@@ -755,7 +822,10 @@ export const makeTradingDay = Effect.fnUntraced(function* (options: {
     message: Extract<IngestUp, { readonly _tag: "Frames" }>
   ) {
     if (message.feed === "Stockbit") {
-      yield* insert(yield* stockbitTrades(options.date, message.frames))
+      yield* insertRelayed(
+        "Stockbit",
+        yield* stockbitTrades(options.date, message.frames)
+      )
       for (const price of yield* stockbitLivePrices(
         options.date,
         message.frames
@@ -778,7 +848,10 @@ export const makeTradingDay = Effect.fnUntraced(function* (options: {
       }
       yield* books.stockbitFrames(message.frames)
     } else {
-      yield* insert(yield* ajaibTrades(options.date, message.frames))
+      yield* insertRelayed(
+        "Ajaib",
+        yield* ajaibTrades(options.date, message.frames)
+      )
       yield* books.ajaibFrames(message.frames)
       yield* ajaibPriceFrames(message.frames)
     }
@@ -842,7 +915,7 @@ export const makeTradingDay = Effect.fnUntraced(function* (options: {
         )
       if (message._tag === "Frames") yield* framesIn(message)
       yield* scheduleDelta
-      yield* scheduleFlush
+      yield* armFlush
     },
     (effect, socket) =>
       Effect.catchTag(effect, "ProtocolVersionMismatch", (error) =>

@@ -1,15 +1,6 @@
-import {
-  StockCode,
-  TradeNumber,
-  decodeIngestUp,
-  encodeIngestDown,
-  type IngestDown,
-} from "@workspace/relay"
+import { StockCode, TradeNumber } from "@workspace/relay"
 import type { Worker } from "@playwright/test"
-import { DateTime, Effect } from "effect"
-import { createServer } from "node:http"
-import type { AddressInfo } from "node:net"
-import { WebSocketServer, type WebSocket } from "ws"
+import { DateTime } from "effect"
 
 import { MEMBER } from "../support/accounts"
 import {
@@ -24,6 +15,7 @@ import {
   sent,
   setRelayClock,
   startFakeBrokers,
+  startFakeIngest,
   tickRelay,
 } from "../support/relay-extension"
 import { expect, test } from "../support/test"
@@ -49,42 +41,6 @@ const ajaibAttached = (
     .toBe(true)
 
 test.use({ storageState: MEMBER.storageState })
-
-// A fake dashboard's ingest socket for the extra target: it accepts any token,
-// keeps what the relay sends up and sends down what the test tells it.
-async function startFakeIngest() {
-  const server = createServer()
-  const sockets: Array<WebSocket> = []
-  const received: Array<string> = []
-  new WebSocketServer({ server }).on("connection", (socket) => {
-    sockets.push(socket)
-    socket.on("message", (data) => received.push(String(data)))
-  })
-  await new Promise<void>((resolve) => server.listen(0, "127.0.0.1", resolve))
-  return {
-    origin: `http://127.0.0.1:${(server.address() as AddressInfo).port}`,
-    sockets,
-    /** Every BackfillPage the relay sent up: feed, range and body. */
-    backfillPages: () =>
-      Effect.runPromise(
-        Effect.forEach(received, (text) => Effect.option(decodeIngestUp(text)))
-      ).then((messages) =>
-        messages.flatMap((message) =>
-          message._tag === "Some" && message.value._tag === "BackfillPage"
-            ? [message.value]
-            : []
-        )
-      ),
-    sendDown: async (message: IngestDown) => {
-      const text = await Effect.runPromise(encodeIngestDown(message))
-      for (const socket of sockets) socket.send(text)
-    },
-    close: async () => {
-      for (const socket of sockets) socket.terminate()
-      await new Promise((resolve) => server.close(resolve))
-    },
-  }
-}
 
 const ON_DEMAND = {
   "/ws/price": "PRICE",
