@@ -5,12 +5,57 @@ import { readdirSync } from "node:fs"
 import { ADMIN, testUrl } from "./support/accounts"
 import { MARKET_CLOCK_OFFSET } from "./support/clock"
 import { TEST_INGEST_TOKEN } from "./support/ingest"
-import { recording, SWITCH, TRADING_DAY_SPECS, video } from "./support/video"
+import {
+  RELAY_LOAD_SPEC,
+  recording,
+  SWITCH,
+  TRADING_DAY_SPECS,
+  video,
+} from "./support/video"
 
 const recorded = recording(
   process.env[SWITCH],
   readdirSync(new URL("tests", import.meta.url))
 )
+
+const projects = [
+  // Signs up and verifies the shared accounts through the UI and saves
+  // their signed-in state (support/accounts.ts) for the specs.
+  { name: "setup", testMatch: /\.setup\.ts$/ },
+  {
+    name: "chromium",
+    dependencies: ["setup"],
+    testIgnore: [TRADING_DAY_SPECS, RELAY_LOAD_SPEC, ...recorded.chromium],
+  },
+  // Decision: video is a worker option, so it can vary per project but not
+  // per test: the chromium specs an evidence run picks run in a project of
+  // their own that records, and the rest record nothing.
+  ...(recorded.chromium.length > 0
+    ? [
+        {
+          name: "chromium-video",
+          dependencies: ["setup"],
+          testMatch: recorded.chromium,
+          use: { video },
+        },
+      ]
+    : []),
+  // Decision: the specs that send trades share one Durable Object, today's
+  // trading day, so they run one at a time: a spec alongside would add
+  // trades to the tape it counts. A run has one server and one storage, and
+  // the dashboard has no test-only key for a trading day. See
+  // apinrdw/kumora#157 and #169.
+  {
+    name: "trading-day",
+    dependencies: ["setup"],
+    testMatch: TRADING_DAY_SPECS,
+    workers: 1,
+    // Decision: not split like chromium, or its two halves would run side
+    // by side: when an evidence run picks any trading-day spec, the whole
+    // project records.
+    ...(recorded.tradingDay ? { use: { video } } : {}),
+  },
+]
 
 export default defineConfig({
   testDir: "tests",
@@ -24,41 +69,15 @@ export default defineConfig({
   reporter: "list",
   use: { browserName: "chromium" },
   projects: [
-    // Signs up and verifies the shared accounts through the UI and saves
-    // their signed-in state (support/accounts.ts) for the specs.
-    { name: "setup", testMatch: /\.setup\.ts$/ },
+    ...projects,
+    // Decision: the relay-load spec times the relay against the wall clock,
+    // so it runs alone, after every other project: a spec alongside would
+    // share the CPU it measures (apinrdw/kumora#233).
     {
-      name: "chromium",
-      dependencies: ["setup"],
-      testIgnore: [TRADING_DAY_SPECS, ...recorded.chromium],
-    },
-    // Decision: video is a worker option, so it can vary per project but not
-    // per test: the chromium specs an evidence run picks run in a project of
-    // their own that records, and the rest record nothing.
-    ...(recorded.chromium.length > 0
-      ? [
-          {
-            name: "chromium-video",
-            dependencies: ["setup"],
-            testMatch: recorded.chromium,
-            use: { video },
-          },
-        ]
-      : []),
-    // Decision: the specs that send trades share one Durable Object, today's
-    // trading day, so they run one at a time: a spec alongside would add
-    // trades to the tape it counts. A run has one server and one storage, and
-    // the dashboard has no test-only key for a trading day. See
-    // apinrdw/kumora#157 and #169.
-    {
-      name: "trading-day",
-      dependencies: ["setup"],
-      testMatch: TRADING_DAY_SPECS,
+      name: "relay-load",
+      dependencies: projects.map((project) => project.name),
+      testMatch: RELAY_LOAD_SPEC,
       workers: 1,
-      // Decision: not split like chromium, or its two halves would run side
-      // by side: when an evidence run picks any trading-day spec, the whole
-      // project records.
-      ...(recorded.tradingDay ? { use: { video } } : {}),
     },
   ],
   // Both apps run on alchemy's local `test` stage: local state, no Infisical,

@@ -1,6 +1,14 @@
+import {
+  decodeIngestUp,
+  encodeIngestDown,
+  type IngestDown,
+  type IngestUp,
+} from "@workspace/relay"
 import { chromium, expect, type Worker } from "@playwright/test"
+import { Effect } from "effect"
 import { execFileSync } from "node:child_process"
 import { mkdtempSync, readFileSync } from "node:fs"
+import { createServer as createHttpServer } from "node:http"
 import { createServer, type Server } from "node:https"
 import type { AddressInfo } from "node:net"
 import { tmpdir } from "node:os"
@@ -270,6 +278,62 @@ export async function startFakeBrokers() {
     on: (path: string) => sockets.filter((socket) => socket.path === path),
     close: async () => {
       for (const { socket } of sockets) socket.terminate()
+      await new Promise((resolve) => server.close(resolve))
+    },
+  }
+}
+
+/**
+ * A fake dashboard's ingest socket for the extra target: it accepts any
+ * token, keeps what the relay sends up with when it arrived, and sends down
+ * what the test tells it.
+ */
+export async function startFakeIngest() {
+  const server = createHttpServer()
+  const sockets: Array<WebSocket> = []
+  // Stamped on arrival and decoded only when read, each once, so a busy
+  // relay's envelopes are timed as they arrive.
+  const received: Array<{ text: string; at: number }> = []
+  const decoded: Array<{ message: IngestUp; at: number }> = []
+  new WebSocketServer({ server }).on("connection", (socket) => {
+    sockets.push(socket)
+    socket.on("message", (data) =>
+      received.push({ text: String(data), at: Date.now() })
+    )
+  })
+  await new Promise<void>((resolve) => server.listen(0, "127.0.0.1", resolve))
+  /** Every envelope the relay sent up, and when it arrived (epoch ms). */
+  const messages = async (): Promise<
+    ReadonlyArray<{ message: IngestUp; at: number }>
+  > => {
+    const unread = received.splice(0)
+    const fresh = await Effect.runPromise(
+      Effect.forEach(unread, ({ text, at }) =>
+        Effect.map(Effect.option(decodeIngestUp(text)), (message) =>
+          message._tag === "Some" ? [{ message: message.value, at }] : []
+        )
+      )
+    )
+    decoded.push(...fresh.flat())
+    return decoded
+  }
+  return {
+    origin: `http://127.0.0.1:${(server.address() as AddressInfo).port}`,
+    sockets,
+    messages,
+    /** Every BackfillPage the relay sent up: feed, range and body. */
+    backfillPages: () =>
+      messages().then((all) =>
+        all.flatMap(({ message }) =>
+          message._tag === "BackfillPage" ? [message] : []
+        )
+      ),
+    sendDown: async (message: IngestDown) => {
+      const text = await Effect.runPromise(encodeIngestDown(message))
+      for (const socket of sockets) socket.send(text)
+    },
+    close: async () => {
+      for (const socket of sockets) socket.terminate()
       await new Promise((resolve) => server.close(resolve))
     },
   }
