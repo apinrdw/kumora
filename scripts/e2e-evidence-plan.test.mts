@@ -125,6 +125,7 @@ layer(NodeServices.layer)("preflight", (it) => {
           ...ready,
           changed: [
             "apps/e2e/tests/taken-email.spec.ts",
+            "apps/e2e/tests/web.spec.ts",
             "apps/e2e/tests/accounts.setup.ts",
             "apps/e2e/support/test.ts",
             "apps/web/src/web.spec.ts",

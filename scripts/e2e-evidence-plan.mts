@@ -155,9 +155,13 @@ export const preflight = Effect.fn("preflight")(function* ({
   if (pr === undefined || blocking.length > 0)
     return yield* new EvidenceRefused({ reason: blocking.join("\n") })
 
-  const specs = [
-    ...new Set([...named, ...changed.filter((file) => SPEC_FILE.test(file))]),
-  ]
+  // A changed spec the author already named is not picked twice.
+  const added = changed.filter(
+    (file) =>
+      SPEC_FILE.test(file) &&
+      !named.some((spec) => file === spec || file.endsWith(`/${spec}`))
+  )
+  const specs = [...new Set([...named, ...added])]
   if (specs.length === 0)
     return yield* new EvidenceRefused({
       reason:
