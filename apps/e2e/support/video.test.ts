@@ -56,6 +56,10 @@ describe("recording", () => {
     )
     // Part of a name is not the name.
     expect(() => recording("ount.spec.ts", FILES)).toThrow(/ount\.spec\.ts/)
+    // Nor is a longer name that ends in it, without a folder between.
+    expect(() => recording("my-account.spec.ts", FILES)).toThrow(
+      /my-account\.spec\.ts/
+    )
     expect(() => recording("accounts.setup.ts", FILES)).toThrow(
       /accounts\.setup\.ts/
     )
