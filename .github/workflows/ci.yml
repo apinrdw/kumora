@@ -1,7 +1,6 @@
-# Where a run's time went, per job, step and e2e spec:
-# pnpm ci-timings <run-id>. scripts/ci-timings.mts finds the e2e jobs by the
-# `e2e` job name and their test step by `pnpm test:e2e`, so renaming either
-# goes there too.
+# Where a run's time went, per job and step: pnpm ci-timings <run-id>. The
+# e2e-evidence gate runs in its own workflow, e2e-evidence.yml, so a PR's gate
+# job has a run id of its own.
 name: CI
 
 on:
@@ -70,46 +69,3 @@ jobs:
       - uses: fallow-rs/fallow@v3
         with:
           command: audit
-
-  # Decision: e2e runs as shards that each start their own servers and
-  # storage, rerun the setup project, and log their own failures with the
-  # list reporter, with no merged report (apinrdw/kumora#168). A failing shard
-  # stops no other. Tune the count by editing the list alone: each job's
-  # --shard reads its index and the matrix size.
-  e2e:
-    name: e2e (shard ${{ matrix.shard }}/${{ strategy.job-total }})
-    runs-on: ubuntu-latest
-    timeout-minutes: 15
-    strategy:
-      fail-fast: false
-      # Decision: 6 shards, not the spec's 4. Each shard pays about 105 s
-      # before its first spec (job setup 45 s, servers 30 s, the setup
-      # project's cold first sign-up 28 s), so at 4 shards the slowest one
-      # ran 3:22 and the PR took 3:25 (run 43077920056). More shards cut only
-      # the spec time each one carries (apinrdw/kumora#190).
-      matrix:
-        shard: [1, 2, 3, 4, 5, 6]
-    steps:
-      - uses: actions/checkout@v5
-      - uses: pnpm/action-setup@v6
-      - uses: actions/setup-node@v5
-        with:
-          node-version: 24
-          cache: pnpm
-      - uses: oven-sh/setup-bun@v2
-        with:
-          bun-version-file: .bun-version
-      - run: pnpm install --frozen-lockfile
-      - id: playwright
-        run: echo "version=$(pnpm --filter e2e exec playwright --version | awk '{print $2}')" >> "$GITHUB_OUTPUT"
-      # Decision: the browser is cached by the Playwright version the lockfile
-      # pins, and installed only on a miss. No --with-deps: the runner image
-      # already has its system packages.
-      - id: browser
-        uses: actions/cache@v6
-        with:
-          path: ~/.cache/ms-playwright
-          key: playwright-${{ runner.os }}-${{ steps.playwright.outputs.version }}
-      - if: steps.browser.outputs.cache-hit != 'true'
-        run: pnpm --filter e2e exec playwright install chromium
-      - run: pnpm test:e2e --shard=${{ matrix.shard }}/${{ strategy.job-total }}

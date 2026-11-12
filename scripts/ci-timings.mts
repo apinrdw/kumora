@@ -1,9 +1,7 @@
-// Where a CI run's time went: each job's seconds and its slowest steps, then,
-// for each e2e job, when its first test finished and each spec's summed test
-// time. `pnpm ci-timings <run-id>` (from `gh run list`) runs it. It finds the
-// e2e jobs and their test step by the names .github/workflows/ci.yml gives
-// them (`e2e`, `pnpm test:e2e`); ci.yml names this file back.
-import { Console, Effect, Schedule, Schema } from "effect"
+// Where a workflow run's time went: each job's seconds and its slowest steps.
+// `pnpm ci-timings <run-id>` (from `gh run list`) runs it, for a run of any
+// workflow.
+import { Console, Effect, Schema } from "effect"
 
 import { CheckFailed } from "./lib/check.mts"
 import { stdoutOf } from "./lib/command.mts"
@@ -33,38 +31,6 @@ const seconds = Effect.fnUntraced(function* (
   return from === null || to === null
     ? 0
     : (Date.parse(to) - Date.parse(from)) / 1000
-})
-
-// One finished Playwright test in a job log's list-reporter output, as
-// "<timestamp> ✓  12 [chromium] › tests/x.spec.ts:9:3 › title (10.3s)".
-const testLine =
-  /^(\S+Z) \s*[✓✘-]\s+\d+\s+\[[\w-]+\]\s+›\s+(\S+?):\d+:\d+\s+›\s+.+\((\d+(?:\.\d+)?)(ms|s|m)\)\s*$/
-const UNIT: Record<string, number> = { ms: 0.001, s: 1, m: 60 }
-
-// An e2e job log's test count, seconds from the test step's start to its
-// first finished test, and each spec's summed test seconds, slowest first.
-export const specTimes = Effect.fnUntraced(function* (
-  log: string,
-  testStepStart: string | null
-) {
-  const tests = log.split("\n").flatMap((line) => {
-    const [, at = "", spec = "", value = "0", unit = "s"] =
-      line.match(testLine) ?? []
-    return spec === ""
-      ? []
-      : [{ at, spec, s: Number(value) * (UNIT[unit] ?? 1) }]
-  })
-  const specs = new Map<string, number>()
-  for (const test of tests)
-    specs.set(test.spec, (specs.get(test.spec) ?? 0) + test.s)
-  return {
-    tests: tests.length,
-    firstTestAfter:
-      tests[0] && testStepStart !== null
-        ? yield* seconds(testStepStart, tests[0].at)
-        : undefined,
-    specs: [...specs].sort((a, b) => b[1] - a[1]),
-  }
 })
 
 const api = Effect.fn("api")(function* (root: string, path: string) {
@@ -98,26 +64,6 @@ const slowestSteps = Effect.fnUntraced(function* (job: typeof Job.Type) {
     .join("; ")
 })
 
-const e2eReport = Effect.fn("e2eReport")(function* (
-  root: string,
-  job: typeof Job.Type
-) {
-  // GitHub's log download redirects to blob storage, which sometimes times out.
-  const log = yield* api(root, `actions/jobs/${job.id}/logs`).pipe(
-    Effect.retry(Schedule.recurs(2))
-  )
-  const testStep = job.steps.find((step) => step.name.includes("test:e2e"))
-  const { tests, firstTestAfter, specs } = yield* specTimes(
-    log,
-    testStep?.started_at ?? null
-  )
-  yield* Console.log(
-    `\n### ${job.name}\n\nFirst test finished ${firstTestAfter?.toFixed(0) ?? "?"} s into the test step; ${tests} tests.\n\n| spec | s |\n|---|---|`
-  )
-  for (const [spec, s] of specs)
-    yield* Console.log(`| ${spec} | ${s.toFixed(1)} |`)
-})
-
 export const ciTimings = Effect.fn("ciTimings")(function* (
   root: string,
   args: ReadonlyArray<string>
@@ -149,9 +95,4 @@ export const ciTimings = Effect.fn("ciTimings")(function* (
     yield* Console.log(
       `| ${job.name} | ${s.toFixed(0)} | ${yield* slowestSteps(job)} |`
     )
-  yield* Effect.forEach(
-    byDuration.filter(({ job }) => job.name.startsWith("e2e")),
-    ({ job }) => e2eReport(root, job),
-    { discard: true }
-  )
 })
