@@ -71,9 +71,7 @@ export const makeMarketConditions = Effect.fnUntraced(function* (
   const conditions = Effect.gen(function* () {
     const now = yield* DateTime.now
     const feeds = yield* health.conditionsAt(now)
-    // A delayed Stockbit is still served until apinrdw/kumora#240.
-    const live =
-      feeds.feeds.Stockbit === "live" || feeds.feeds.Stockbit === "delayed"
+    const live = feeds.feeds.Stockbit === "live"
     if (live !== stockbitLive) {
       // The fallback switches source for every code.
       stockbitLive = live

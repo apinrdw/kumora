@@ -381,13 +381,11 @@ export const makeTradingDay = Effect.fnUntraced(function* (options: {
     }))
       lastLivePrices.set(price.code, price)
 
-  // The order book and Day state fall back to Ajaib while Stockbit isn't live.
-  // A delayed Stockbit is still served until apinrdw/kumora#240.
+  // The order book and Day state fall back to Ajaib while Stockbit's freshness
+  // isn't live: delayed falls over as stale does.
   const stockbitLive = Effect.map(
     market.conditions,
-    (conditions) =>
-      conditions.feeds.Stockbit === "live" ||
-      conditions.feeds.Stockbit === "delayed"
+    (conditions) => conditions.feeds.Stockbit === "live"
   )
   // The market conditions viewers were last sent, encoded.
   let sentConditions = ""
