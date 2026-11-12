@@ -95,15 +95,17 @@ export function useRelayGaps(): ReadonlyArray<RelayGap> {
   return useMarketConditions().conditions?.gaps ?? []
 }
 
-// Decision: the merged views (tape, candles, watchlist) are stale only when
-// neither feed is live, or while the page's own socket reconnects; one feed
-// down leaves them live, and its pill shows which (apinrdw/kumora#133).
+// Decision: the merged views (tape, candles, watchlist, order book panel) are
+// stale only when neither feed is arriving, or while the page's own socket
+// reconnects. A delayed feed counts as arriving: its frames still come, and
+// its pill already says DELAYED. One feed stale or unavailable leaves them
+// live, and its pill shows which (apinrdw/kumora#133, #235).
 export function useMergedStale(): boolean {
   const { conditions, connection } = useMarketConditions()
   if (connection === "reconnecting") return true
   if (conditions === undefined) return false
-  return (
-    conditions.feeds.Stockbit !== "live" && conditions.feeds.Ajaib !== "live"
+  return Object.values(conditions.feeds).every(
+    (freshness) => freshness === "stale" || freshness === "unavailable"
   )
 }
 
