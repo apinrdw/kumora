@@ -235,8 +235,12 @@ export const makeFeedHealth = Effect.fnUntraced(function* (options: {
   ) {
     yield* observe(at)
     const track = tracks[feed]
-    // A feed back from stale or unavailable starts over undelayed.
-    if ((yield* freshnessAt(track, at)) !== "live") track.delayedBy = undefined
+    // A feed back from stale or unavailable starts over undelayed, its lag
+    // window emptied: a reconnect inside 10 s would re-read the old lags.
+    if ((yield* freshnessAt(track, at)) !== "live") {
+      track.delayedBy = undefined
+      track.lags.length = 0
+    }
     track.lastSign = at
     track.open.add(connection)
     const last = track.downs.at(-1)
