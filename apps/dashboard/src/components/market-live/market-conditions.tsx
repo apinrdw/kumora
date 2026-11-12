@@ -11,7 +11,7 @@ import { DateTime, Effect } from "effect"
 import { useEffect, useState, useSyncExternalStore } from "react"
 
 import { KStatusPill } from "@/components/k/status-pill"
-import { dateTime } from "@/lib/format"
+import { dateTime, feedLag } from "@/lib/format"
 
 // What the page knows besides the tape, from the viewer socket (spec
 // apinrdw/kumora#138, "Freshness display"). `reconnecting` while the page's
@@ -193,7 +193,7 @@ const FEEDS = ["Stockbit", "Ajaib"] as const
 export function MarketConditionsBar() {
   const { conditions, connection } = useMarketConditions()
   if (conditions === undefined) return null
-  const { phase, nextOpen, relayOnline, feeds } = conditions
+  const { phase, nextOpen, relayOnline, feeds, lags } = conditions
   return (
     <div
       role="group"
@@ -206,15 +206,27 @@ export function MarketConditionsBar() {
         </span>
       ) : (
         <ul aria-label="Feeds" className="flex items-center gap-2">
-          {FEEDS.map((feed) => (
-            <li key={feed} className="inline-flex items-center gap-1">
-              {feed}
-              <KStatusPill
-                status={feeds[feed]}
-                reason={relayOnline ? undefined : "Relay offline"}
-              />
-            </li>
-          ))}
+          {FEEDS.map((feed) => {
+            const lag = lags?.[feed]
+            const behind =
+              lag === undefined ? undefined : Effect.runSync(feedLag(lag))
+            return (
+              <li key={feed} className="inline-flex items-center gap-1">
+                {feed}
+                <KStatusPill
+                  status={feeds[feed]}
+                  {...(behind === undefined ? {} : { detail: behind })}
+                  reason={
+                    !relayOnline
+                      ? "Relay offline"
+                      : behind === undefined
+                        ? undefined
+                        : `Running trades arrive ${behind} behind the exchange`
+                  }
+                />
+              </li>
+            )
+          })}
         </ul>
       )}
       <PhaseLabel phase={phase} nextOpen={nextOpen} />
