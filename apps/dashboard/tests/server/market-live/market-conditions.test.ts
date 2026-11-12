@@ -27,6 +27,8 @@ import {
   type Peer,
   type PeerState,
 } from "@/server/market-live/trading-day"
+import { ajaibBefore, stockbitBefore } from "./lagged"
+import { runningTradeBatch } from "./protobuf"
 import { memorySql } from "./sql"
 import { everySplit } from "../../interleaved"
 
@@ -362,6 +364,224 @@ describe("feed freshness", () => {
           Ajaib: "unavailable",
         })
       })
+  )
+})
+
+// Each feed's freshness, with the lag of each delayed one.
+const lagged = (conditions: MarketConditions) => ({
+  ...conditions.feeds,
+  lags: conditions.lags ?? {},
+})
+
+// The kind of the last message that told the viewer market conditions.
+const lastToldBy = (market: Effect.Success<ReturnType<typeof marketAt>>) =>
+  Effect.map(
+    market.page.received,
+    (messages) =>
+      messages.filter((message) => message.conditions !== undefined).at(-1)
+        ?._tag
+  )
+
+// One relayed trade a second on `feed` for `seconds`, each trailing the clock
+// by `lag` ms. Trade numbers count up from `first`.
+const everySecond = Effect.fnUntraced(function* (
+  market: Effect.Success<ReturnType<typeof marketAt>>,
+  feed: Feed,
+  options: { first: number; seconds: number; lag: number }
+) {
+  for (let i = 0; i < options.seconds; i++) {
+    const now = yield* DateTime.now
+    const number = options.first + i
+    yield* feed === "Stockbit"
+      ? market.frames("Stockbit", "A", [
+          runningTradeBatch([stockbitBefore(number, now, options.lag)]),
+        ])
+      : market.frames("Ajaib", "A", [ajaibBefore(number, now, options.lag)])
+    yield* TestClock.adjust("1 second")
+  }
+  return options.first + options.seconds
+})
+
+describe("delayed freshness", () => {
+  it.effect(
+    "Stockbit reads delayed with its lag once the 10 s median passes 5 s",
+    () =>
+      Effect.gen(function* () {
+        const market = yield* marketAt("2026-11-09T10:00:00")
+        let next = yield* everySecond(market, "Stockbit", {
+          first: 50_001,
+          seconds: 10,
+          lag: 200,
+        })
+        // Four late of the last ten: the median is still on time.
+        next = yield* everySecond(market, "Stockbit", {
+          first: next,
+          seconds: 4,
+          lag: 6_000,
+        })
+        assert.deepStrictEqual(lagged(yield* market.conditions), {
+          Stockbit: "live",
+          Ajaib: "unavailable",
+          lags: {},
+        })
+        yield* everySecond(market, "Stockbit", {
+          first: next,
+          seconds: 2,
+          lag: 6_000,
+        })
+        assert.deepStrictEqual(lagged(yield* market.conditions), {
+          Stockbit: "delayed",
+          Ajaib: "unavailable",
+          lags: { Stockbit: 6_000 },
+        })
+        assert.strictEqual(yield* lastToldBy(market), "Delta")
+      })
+  )
+
+  it.effect("a single late batch doesn't flip it", () =>
+    Effect.gen(function* () {
+      const market = yield* marketAt("2026-11-09T10:00:00")
+      let next = yield* everySecond(market, "Stockbit", {
+        first: 50_001,
+        seconds: 10,
+        lag: 200,
+      })
+      const now = yield* DateTime.now
+      yield* market.frames("Stockbit", "A", [
+        runningTradeBatch(
+          [0, 1, 2].map((i) => stockbitBefore(next + i, now, 30_000))
+        ),
+      ])
+      next += 3
+      yield* TestClock.adjust("250 millis")
+      assert.strictEqual((yield* market.feeds).Stockbit, "live")
+      yield* everySecond(market, "Stockbit", {
+        first: next,
+        seconds: 5,
+        lag: 200,
+      })
+      assert.strictEqual((yield* market.feeds).Stockbit, "live")
+    })
+  )
+
+  it.effect(
+    "it stays delayed between 2 s and 5 s, and returns to live under 2 s",
+    () =>
+      Effect.gen(function* () {
+        const market = yield* marketAt("2026-11-09T10:20:00")
+        let next = yield* everySecond(market, "Stockbit", {
+          first: 50_001,
+          seconds: 10,
+          lag: 17 * 60_000,
+        })
+        assert.deepStrictEqual((yield* market.conditions).lags, {
+          Stockbit: 17 * 60_000,
+        })
+        next = yield* everySecond(market, "Stockbit", {
+          first: next,
+          seconds: 11,
+          lag: 3_000,
+        })
+        assert.deepStrictEqual(lagged(yield* market.conditions), {
+          Stockbit: "delayed",
+          Ajaib: "unavailable",
+          lags: { Stockbit: 3_000 },
+        })
+        yield* everySecond(market, "Stockbit", {
+          first: next,
+          seconds: 6,
+          lag: 1_000,
+        })
+        assert.deepStrictEqual(lagged(yield* market.conditions), {
+          Stockbit: "live",
+          Ajaib: "unavailable",
+          lags: {},
+        })
+        assert.strictEqual(yield* lastToldBy(market), "Delta")
+      })
+  )
+
+  it.effect("stale outranks delayed once Stockbit goes silent", () =>
+    Effect.gen(function* () {
+      const market = yield* marketAt("2026-11-09T10:00:00")
+      yield* everySecond(market, "Stockbit", {
+        first: 50_001,
+        seconds: 10,
+        lag: 6_000,
+      })
+      assert.strictEqual((yield* market.feeds).Stockbit, "delayed")
+      yield* TestClock.adjust("15 seconds")
+      assert.deepStrictEqual(lagged(yield* market.conditions), {
+        Stockbit: "stale",
+        Ajaib: "unavailable",
+        lags: {},
+      })
+    })
+  )
+
+  it.effect("delayed opens no relay gap", () =>
+    Effect.gen(function* () {
+      const market = yield* marketAt("2026-11-09T10:00:00")
+      yield* everySecond(market, "Stockbit", {
+        first: 50_001,
+        seconds: 30,
+        lag: 6_000,
+      })
+      const conditions = yield* market.conditions
+      assert.strictEqual(conditions.feeds.Stockbit, "delayed")
+      // Ajaib never delivered: only the morning before the relay connected.
+      assert.deepStrictEqual(gapsOf(conditions), MORNING)
+    })
+  )
+
+  // The 2026-11-12 incident: Stockbit ~17 min behind a live Ajaib. Every
+  // Stockbit copy is of a trade Ajaib relayed so long ago that more than a
+  // full tape's trades came after it.
+  it.effect(
+    "Stockbit trailing a live Ajaib by 17 min reads delayed, its copies held only outside the tape",
+    () =>
+      Effect.gen(function* () {
+        const market = yield* marketAt("2026-11-09T10:00:00")
+        const ajaibBatch = Effect.fnUntraced(function* (
+          first: number,
+          size: number
+        ) {
+          const now = yield* DateTime.now
+          yield* market.frames(
+            "Ajaib",
+            "A",
+            Array.from({ length: size }, (_, i) =>
+              ajaibBefore(first + i, now, 1_000)
+            )
+          )
+          return first + size
+        })
+        // 10:00 to 10:17, 10,200 trades, all on Ajaib alone.
+        let next = 1
+        for (let step = 0; step < 102; step++) {
+          next = yield* ajaibBatch(next, 100)
+          yield* TestClock.adjust("10 seconds")
+        }
+        // From 10:17, Stockbit relays the trades Ajaib relayed at 10:00.
+        for (let second = 0; second < 10; second++) {
+          next = yield* ajaibBatch(next, 10)
+          const now = yield* DateTime.now
+          yield* market.frames("Stockbit", "A", [
+            runningTradeBatch(
+              Array.from({ length: 10 }, (_, i) =>
+                stockbitBefore(1 + second * 10 + i, now, 17 * 60_000)
+              )
+            ),
+          ])
+          yield* TestClock.adjust("1 second")
+        }
+        assert.deepStrictEqual(lagged(yield* market.conditions), {
+          Stockbit: "delayed",
+          Ajaib: "live",
+          lags: { Stockbit: 17 * 60_000 },
+        })
+      }),
+    60_000
   )
 })
 
