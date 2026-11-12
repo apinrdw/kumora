@@ -4,8 +4,10 @@ import { StockCode } from "./codes.ts"
 import { MarketPhase } from "./schedule.ts"
 
 // How current one feed is, as the trading-day Durable Object decides it for
-// every viewer (spec apinrdw/kumora#138, "Feed freshness").
-const Freshness = Schema.Literals(["live", "stale", "unavailable"])
+// every viewer (spec apinrdw/kumora#138, "Feed freshness"). Delayed is
+// arriving, but with a feed lag far behind the exchange (spec
+// apinrdw/kumora#235, "Feed health").
+const Freshness = Schema.Literals(["live", "delayed", "stale", "unavailable"])
 export type Freshness = typeof Freshness.Type
 
 // A stretch that expects trades in which neither feed was live, or the relay
@@ -28,6 +30,14 @@ export const MarketConditions = Schema.Struct({
   // reason rather than a broker socket dropping.
   relayOnline: Schema.Boolean,
   feeds: Schema.Struct({ Stockbit: Freshness, Ajaib: Freshness }),
+  // Each delayed feed's feed lag: the median of the trades that arrived in
+  // the last 10 s, in ms. Absent while no feed is delayed.
+  lags: Schema.optionalKey(
+    Schema.Struct({
+      Stockbit: Schema.optionalKey(Schema.Finite),
+      Ajaib: Schema.optionalKey(Schema.Finite),
+    })
+  ),
   gaps: Schema.Array(RelayGap),
 })
 export type MarketConditions = typeof MarketConditions.Type

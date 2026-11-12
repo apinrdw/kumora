@@ -382,9 +382,12 @@ export const makeTradingDay = Effect.fnUntraced(function* (options: {
       lastLivePrices.set(price.code, price)
 
   // The order book and Day state fall back to Ajaib while Stockbit isn't live.
+  // A delayed Stockbit is still served until apinrdw/kumora#240.
   const stockbitLive = Effect.map(
     market.conditions,
-    (conditions) => conditions.feeds.Stockbit === "live"
+    (conditions) =>
+      conditions.feeds.Stockbit === "live" ||
+      conditions.feeds.Stockbit === "delayed"
   )
   // The market conditions viewers were last sent, encoded.
   let sentConditions = ""
@@ -478,10 +481,12 @@ export const makeTradingDay = Effect.fnUntraced(function* (options: {
 
   // A feed's running trades from one envelope, merged into the day, timed at
   // the feed's first relayed copy of each: new to the day, or held from the
-  // other feed alone.
-  // Decision: a copy the day holds only outside the tape and merge windows is
-  // not timed, as its feeds aren't read back from the store. Backfill pages
-  // aren't relayed and are never timed. See apinrdw/kumora#238.
+  // other feed alone. Backfill pages aren't relayed and are never timed.
+  // Decision: a copy held only outside the tape and merge windows is timed for
+  // the arriving feed, its feeds unread: a feed over a tape's span behind the
+  // other (Stockbit ~17 min behind Ajaib) has only such copies. Connection
+  // B's repeat that old counts twice, at about the same lag. See
+  // apinrdw/kumora#239.
   const relayed = Effect.fnUntraced(function* (
     feed: Feed,
     trades: ReadonlyArray<RunningTrade>
@@ -489,9 +494,11 @@ export const makeTradingDay = Effect.fnUntraced(function* (options: {
     const firsts: Array<RunningTrade> = []
     for (const arriving of trades) {
       const before = yield* insertOne(arriving)
-      if (before !== undefined && !before.includes(feed)) firsts.push(arriving)
+      if (before === undefined || !before.includes(feed)) firsts.push(arriving)
     }
-    yield* feedLags.record(yield* timeTrades(feed, firsts))
+    const timed = yield* timeTrades(feed, firsts)
+    yield* feedLags.record(timed)
+    yield* market.timed(timed)
   })
 
   // Decision: a delta carries every candle that changed, of any code, not

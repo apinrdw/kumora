@@ -51,6 +51,7 @@ import {
   varintField,
   type StockbitRow,
 } from "./protobuf"
+import { ajaibBefore, stockbitBefore } from "./lagged"
 import { memorySql } from "./sql"
 import { everySplit } from "../../interleaved"
 import { AccountId, SessionId } from "@/server/market-live/routes"
@@ -1273,37 +1274,6 @@ const withFeedLagLines = <A, E, R>(
 }
 
 const wibAt = (time: string) => DateTime.makeUnsafe(`2026-11-09T${time}+07:00`)
-
-const WIB_OFFSET = 7 * 3_600_000
-
-// A Stockbit trade of BBCA whose exchange time is `lag` ms before `at`.
-const stockbitBefore = (
-  tradeNumber: number,
-  at: DateTime.Utc,
-  lag: number
-): StockbitRow => ({
-  tradeWib: new Date(DateTime.toEpochMillis(at) - lag + WIB_OFFSET)
-    .toISOString()
-    .slice(11, 23),
-  code: "BBCA",
-  price: 9000,
-  volume: 100,
-  action: 1,
-  board: 1,
-  tradeNumber,
-})
-
-// An Ajaib TRADE frame of BBCA whose exchange time is `lag` ms before `at`.
-// Ajaib's times are whole seconds.
-const ajaibBefore = (tradeNumber: number, at: DateTime.Utc, lag: number) =>
-  JSON.stringify({
-    ticker: "BBCA",
-    type: "BUY",
-    price: 9000,
-    lot: 1,
-    tradedAt: new Date(DateTime.toEpochMillis(at) - lag).toISOString(),
-    tradeNum: `20261109${String(tradeNumber).padStart(10, "0")}`,
-  })
 
 // A Stockbit backfill page holding one BBCA trade at `wib`.
 const stockbitPage = (tradeNumber: string, wib: string) =>

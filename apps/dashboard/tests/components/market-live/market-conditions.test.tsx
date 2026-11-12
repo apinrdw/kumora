@@ -65,6 +65,43 @@ test("a delta suspended as the socket drops keeps its phase and the reconnect", 
     })
   ).then((ops) => expect(ops).toBeGreaterThan(0)))
 
+// The bar's text as a reader gets it, tags dropped.
+const barText = () => bar().replaceAll(/<[^>]+>/g, "")
+
+test("a delayed Stockbit reads DELAYED with its lag while a live Ajaib reads LIVE", () =>
+  Effect.runPromise(
+    Effect.gen(function* () {
+      yield* connected
+      yield* applyConditions({
+        ...delta,
+        conditions: {
+          ...conditionsOf("session-2"),
+          feeds: { Stockbit: "delayed", Ajaib: "live" },
+          lags: { Stockbit: 17 * 60_000 + 25_000 },
+        },
+      })
+      const text = barText()
+      expect(text).toContain("StockbitDELAYED · 17m")
+      expect(text).toContain("AjaibLIVE")
+    })
+  ))
+
+test("a lag under a minute reads in seconds", () =>
+  Effect.runPromise(
+    Effect.gen(function* () {
+      yield* connected
+      yield* applyConditions({
+        ...delta,
+        conditions: {
+          ...conditionsOf("session-2"),
+          feeds: { Stockbit: "live", Ajaib: "delayed" },
+          lags: { Ajaib: 6_400 },
+        },
+      })
+      expect(barText()).toContain("AjaibDELAYED · 6s")
+    })
+  ))
+
 test("the drop suspended as a delta applies keeps the delta's phase and the reconnect", () =>
   Effect.runPromise(
     everySplit({

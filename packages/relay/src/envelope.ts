@@ -17,7 +17,8 @@ const acceptedIngestVersions: ReadonlyArray<unknown> = [
 
 // Bump on any change to a viewer message's shape. Only this version is
 // accepted: a page on another version reloads.
-export const ViewerProtocolVersion = 1
+// 2: market conditions carry delayed freshness and each delayed feed's lag.
+export const ViewerProtocolVersion = 2
 
 // Decision: an extension that hits either code stops retrying that target and
 // shows it; any other close, 1006 included, retries with backoff. The token
