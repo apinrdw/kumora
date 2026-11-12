@@ -233,8 +233,10 @@ describe("checkDecisionDocs", () => {
         yield* findings({
           "a.ts": `a();// ${tag} x`,
           "b.tsx": `const d = <div>{/* ${tag} x */}</div>`,
+          // A `{` before a comment is JSX only in a JSX file.
+          "c.ts": `if (a) { // ${tag} x`,
         }),
-        [partway("a.ts:1"), partway("b.tsx:1")]
+        [partway("a.ts:1"), partway("b.tsx:1"), partway("c.ts:1")]
       )
     })
   )
@@ -259,9 +261,12 @@ describe("checkDecisionDocs", () => {
       assert.deepStrictEqual(
         yield* findings({
           "a.jsonc": ["{", ...comment(6, "  //"), '  "a": 1', "}"].join("\n"),
+          // No final newline after a closing line comment.
+          "b.jsonc": ['{ "a": 1 }', ...comment(6)].join("\n"),
         }),
         [
           "a.jsonc:2: Decision runs 6 lines; keep 5 and link the PR for the rest",
+          "b.jsonc:2: Decision runs 6 lines; keep 5 and link the PR for the rest",
         ]
       )
     })
