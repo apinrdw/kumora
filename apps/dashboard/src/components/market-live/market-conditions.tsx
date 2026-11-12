@@ -210,19 +210,17 @@ export function MarketConditionsBar() {
             const lag = lags?.[feed]
             const behind =
               lag === undefined ? undefined : Effect.runSync(feedLag(lag))
+            let reason: string | undefined
+            if (!relayOnline) reason = "Relay offline"
+            else if (behind !== undefined)
+              reason = `Running trades arrive ${behind} behind the exchange`
             return (
               <li key={feed} className="inline-flex items-center gap-1">
                 {feed}
                 <KStatusPill
                   status={feeds[feed]}
                   {...(behind === undefined ? {} : { detail: behind })}
-                  reason={
-                    !relayOnline
-                      ? "Relay offline"
-                      : behind === undefined
-                        ? undefined
-                        : `Running trades arrive ${behind} behind the exchange`
-                  }
+                  reason={reason}
                 />
               </li>
             )
