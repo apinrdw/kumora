@@ -9,9 +9,10 @@ import { Effect, FileSystem, Path, Schema } from "effect"
 import { parse } from "yaml"
 
 const Workflow = Schema.Struct({
-  on: Schema.Struct({
-    pull_request: Schema.Struct({ types: Schema.Array(Schema.String) }),
-  }),
+  on: Schema.Record(
+    Schema.String,
+    Schema.Struct({ types: Schema.Array(Schema.String) })
+  ),
   jobs: Schema.Record(
     Schema.String,
     Schema.Struct({
@@ -76,12 +77,15 @@ const sha = "abc1234def5678abc1234def5678abc1234def56"
 const author = { login: "apinrdw" }
 const gate = { login: "github-actions[bot]" }
 
+const gateScript = Effect.map(gateJob, (job) =>
+  String(job.steps[0]?.with?.["script"])
+)
+
 // Runs the job's script as actions/github-script does, as the body of an async
 // function given `github` and `context`, and returns the statuses it wrote.
 const runGate = (pr: Pr) =>
   Effect.gen(function* () {
-    const job = yield* gateJob
-    const script = String(job.steps[0]?.with?.["script"])
+    const script = yield* gateScript
     const written: Array<Written> = []
     // The script awaits each call, so the fakes answer with plain values.
     const github = {
@@ -127,24 +131,32 @@ const docsFile = { filename: "docs/runbooks/deploy.md" }
 
 layer(NodeServices.layer)("e2e-evidence gate", (it) => {
   it.effect(
-    "runs on the five pull_request types that change the head or its labels",
+    "runs on pull_request_target alone, whose token can write the status on a Dependabot or fork PR",
     () =>
       Effect.gen(function* () {
         const workflow = yield* gateWorkflow
-        assert.deepStrictEqual([...workflow.on.pull_request.types].sort(), [
-          "labeled",
-          "opened",
-          "reopened",
-          "synchronize",
-          "unlabeled",
+        assert.deepStrictEqual(Object.keys(workflow.on), [
+          "pull_request_target",
         ])
       })
   )
 
+  it.effect("runs on the five types that change the head or its labels", () =>
+    Effect.gen(function* () {
+      const workflow = yield* gateWorkflow
+      assert.deepStrictEqual(
+        Object.values(workflow.on).map((trigger) => [...trigger.types].sort()),
+        [["labeled", "opened", "reopened", "synchronize", "unlabeled"]]
+      )
+    })
+  )
+
   it.effect(
-    "is one github-script step with no checkout or install, allowed to write statuses",
+    "is the workflow's only job and one github-script step, so no checkout, install or run step executes PR code",
     () =>
       Effect.gen(function* () {
+        const workflow = yield* gateWorkflow
+        assert.deepStrictEqual(Object.keys(workflow.jobs), ["e2e-evidence"])
         const job = yield* gateJob
         assert.deepStrictEqual(
           job.steps.map((step) => [
@@ -153,7 +165,26 @@ layer(NodeServices.layer)("e2e-evidence gate", (it) => {
           ]),
           [[true, undefined]]
         )
-        assert.strictEqual(job.permissions?.["statuses"], "write")
+      })
+  )
+
+  it.effect(
+    "interpolates nothing into its script, so no string a PR controls becomes code",
+    () =>
+      Effect.gen(function* () {
+        assert.notInclude(yield* gateScript, "${{")
+      })
+  )
+
+  it.effect(
+    "holds only the two permissions it uses: write statuses, read the PR",
+    () =>
+      Effect.gen(function* () {
+        const job = yield* gateJob
+        assert.deepStrictEqual(job.permissions, {
+          statuses: "write",
+          "pull-requests": "read",
+        })
       })
   )
 
