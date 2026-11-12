@@ -78,17 +78,54 @@ const redFiles = folders({
   ],
 })
 
+// The checkout a run leaves alone: still clean, still on the PR's head.
+const untouched = { dirty: [], head: SHA }
+const OTHER_SHA = "0123456789abcdef0123456789abcdef01234567"
+
 const plan = (
   specs: ReadonlyArray<string>,
   files: Parameters<typeof evidencePlan>[0]["files"] = greenFiles
 ) =>
   Effect.flatMap(green, (report) =>
-    evidencePlan({ specs, pr: PR, exitCode: 0, report, files })
+    evidencePlan({
+      specs,
+      pr: PR,
+      exitCode: 0,
+      report,
+      files,
+      checkout: untouched,
+      dryRun: false,
+    })
+  )
+
+// A green run of web.spec.ts that ends on the given checkout.
+const planAfter = (
+  checkout: Parameters<typeof evidencePlan>[0]["checkout"],
+  dryRun = false
+) =>
+  Effect.flatMap(green, (report) =>
+    evidencePlan({
+      specs: ["web.spec.ts"],
+      pr: PR,
+      exitCode: 0,
+      report,
+      files: greenFiles,
+      checkout,
+      dryRun,
+    })
   )
 
 const redPlan = (specs: ReadonlyArray<string>) =>
   Effect.flatMap(red, (report) =>
-    evidencePlan({ specs, pr: PR, exitCode: 1, report, files: redFiles })
+    evidencePlan({
+      specs,
+      pr: PR,
+      exitCode: 1,
+      report,
+      files: redFiles,
+      checkout: untouched,
+      dryRun: false,
+    })
   )
 
 // Everything a real run needs, met.
@@ -397,11 +434,70 @@ layer(NodeServices.layer)("evidencePlan", (it) => {
               errors: [{ message: "Error: did not expect test.only" }],
             },
             files: greenFiles,
+            checkout: untouched,
+            dryRun: false,
           })
         )
         assert.instanceOf(refused, EvidenceRefused)
         assert.include(refused.message, "exited 1")
         assert.include(refused.message, "did not expect test.only")
+      })
+  )
+
+  it.effect(
+    "refuses to post when a file changed while the suite ran, listing what is dirty",
+    () =>
+      Effect.gen(function* () {
+        const refused = yield* Effect.flip(
+          planAfter({
+            dirty: [" M apps/web/src/routes/index.tsx", "?? notes.txt"],
+            head: SHA,
+          })
+        )
+        assert.instanceOf(refused, EvidenceRefused)
+        assert.include(refused.message, "while the suite ran")
+        assert.include(refused.message, "nothing was posted")
+        assert.include(refused.message, "apps/web/src/routes/index.tsx")
+        assert.include(refused.message, "notes.txt")
+      })
+  )
+
+  it.effect(
+    "refuses to post when HEAD left the PR's head while the suite ran, naming both",
+    () =>
+      Effect.gen(function* () {
+        const refused = yield* Effect.flip(
+          planAfter({ dirty: [], head: OTHER_SHA })
+        )
+        assert.instanceOf(refused, EvidenceRefused)
+        assert.include(refused.message, "while the suite ran")
+        assert.include(refused.message, OTHER_SHA)
+        assert.include(refused.message, SHA)
+        assert.include(refused.message, "PR #217")
+      })
+  )
+
+  it.effect(
+    "lets a dry run past a checkout that changed during the run and reports it",
+    () =>
+      Effect.gen(function* () {
+        const post = yield* planAfter(
+          { dirty: ["?? notes.txt"], head: OTHER_SHA },
+          true
+        )
+        assert.lengthOf(post.unmet, 2)
+        assert.include(post.unmet.join("\n"), "notes.txt")
+        assert.include(post.unmet.join("\n"), OTHER_SHA)
+        assert.strictEqual(post.status.sha, SHA)
+      })
+  )
+
+  it.effect(
+    "reports nothing unmet after a run that left the checkout alone",
+    () =>
+      Effect.gen(function* () {
+        assert.deepStrictEqual((yield* planAfter(untouched)).unmet, [])
+        assert.deepStrictEqual((yield* planAfter(untouched, true)).unmet, [])
       })
   )
 
