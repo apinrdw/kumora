@@ -181,7 +181,7 @@ test("a Day state without a change, an index's whose frames carry no previous cl
   act(() => root.unmount())
 })
 
-test("both feeds delayed leave the watchlist live; both stale dim it", () => {
+test("both feeds delayed leave the watchlist live; both silent dim it", () => {
   const store = clientRuntime.runSync(makeDayStateStore())
   const container = document.body.appendChild(document.createElement("div"))
   const root = createRoot(container)

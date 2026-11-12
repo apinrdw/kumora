@@ -88,7 +88,7 @@ A past trading day the terminal kept, fixed after the day closes, that a viewer 
 _Avoid_: History, archive day
 
 **Relay gap**:
-A stretch of a market phase that expects trades during which no feed was live, so the terminal holds no trades for it. Shown as not recorded, both live and on a recorded day. One feed dropping while the other stays live is not a relay gap.
+A stretch of a market phase that expects trades during which no feed was arriving, so the terminal holds no trades for it. Shown as not recorded, both live and on a recorded day. One feed dropping while the other still arrives is not a relay gap, and neither is a delayed feed.
 _Avoid_: Outage, missing data
 
 **Market conditions**:

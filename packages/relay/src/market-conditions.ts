@@ -10,7 +10,7 @@ import { MarketPhase } from "./schedule.ts"
 const Freshness = Schema.Literals(["live", "delayed", "stale", "unavailable"])
 export type Freshness = typeof Freshness.Type
 
-// A stretch that expects trades in which neither feed was live, or the relay
+// A stretch that expects trades in which neither feed was arriving, or the relay
 // was offline. One still open has no end.
 export const RelayGap = Schema.Struct({
   from: Schema.DateTimeUtcFromMillis,
