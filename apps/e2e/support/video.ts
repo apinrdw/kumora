@@ -2,7 +2,8 @@ import { test } from "@playwright/test"
 
 /**
  * The switch an evidence run sets to record video of every test:
- * `E2E_VIDEO=on`. Unset, nothing records.
+ * `E2E_VIDEO=on`. Unset, nothing records. scripts/e2e-evidence.mts sets it
+ * by name, so change the two together.
  */
 const SWITCH = "E2E_VIDEO"
 

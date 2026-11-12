@@ -1,6 +1,8 @@
 # Marks each PR head commit's `e2e-evidence` status. `pnpm e2e:evidence` sets
 # it green after posting video; scripts/e2e-evidence-gate.repo.test.mts runs
-# this job's script against a fake GitHub client.
+# this job's script against a fake GitHub client. The `e2e-evidence` context
+# and the `no-e2e-evidence` label are also CONTEXT and OPT_OUT_LABEL in
+# scripts/e2e-evidence-plan.mts, so change them together.
 name: e2e evidence
 
 # Decision: a workflow of its own, not a job in ci.yml as #203 planned. In
