@@ -1430,6 +1430,45 @@ describe("the per-minute feed lag log", () => {
   )
 
   it.effect(
+    "connection B's copy of a trade timed on the tape isn't timed again once the tape and merge window lost it",
+    () =>
+      withFeedLagLines((lines) =>
+        Effect.gen(function* () {
+          yield* TestClock.setTime(DateTime.toEpochMillis(TEN))
+          const { ingest } = yield* tradingDay()
+          const socket = yield* relay(ingest)
+          // 10,010 trades on connection A: trades 1 to 10 are evicted.
+          for (let batch = 0; batch < 10; batch++)
+            yield* ingest(
+              socket,
+              yield* ajaib(
+                Array.from({ length: 1_001 }, (_, i) =>
+                  ajaibBefore(1 + batch * 1_001 + i, TEN, 1000)
+                )
+              )
+            )
+          // Past their merge windows.
+          yield* TestClock.adjust("11 seconds")
+          yield* ingest(
+            socket,
+            yield* ajaib(
+              [1, 2, 3].map((n) => ajaibBefore(n, TEN, 1000)),
+              "B"
+            )
+          )
+          yield* TestClock.setTime(
+            DateTime.toEpochMillis(wibAt("10:01:05.000"))
+          )
+          assert.deepStrictEqual(
+            lines.map((line) => [line.feed, line.trades, line.maxMs]),
+            [["Ajaib", 10_010, 1000]]
+          )
+        })
+      ),
+    60_000
+  )
+
+  it.effect(
     "a trade one feed relayed first is timed for the other feed at its first copy",
     () =>
       withFeedLagLines((lines) =>
