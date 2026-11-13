@@ -1,6 +1,6 @@
 // What the options page sets and what the service worker reports back, both
 // kept in chrome.storage (spec apinrdw/kumora#138, "Batching and targets").
-import { WibDate, type Feed } from "@workspace/relay"
+import { Feed, WibDate } from "@workspace/relay"
 import { Effect, Option, Schema } from "effect"
 
 import { AjaibLock } from "./ajaib-lock.ts"
@@ -578,33 +578,28 @@ export const isBrokerCodesRunAsk = Effect.fnUntraced(function* (
 
 // Until when (epoch ms) each site's pacer stopped calling after a throttle
 // (pacer.ts), in session storage for the options page and for the pacers a
-// restarted service worker builds.
-const THROTTLED_KEY = "brokerCodesThrottled"
-const Throttled = Schema.Struct({
-  Stockbit: Schema.optionalKey(Schema.Finite),
-  Ajaib: Schema.optionalKey(Schema.Finite),
-})
-type Throttled = typeof Throttled.Type
+// restarted service worker builds. Each site has its own key, so two pacers
+// throttled at once never write over each other's.
+const THROTTLED_PREFIX = "brokerCodesThrottled."
+const decodeUntil = Schema.decodeUnknownOption(Schema.Finite)
 
 export const loadThrottled = Effect.gen(function* () {
-  const stored = yield* Effect.promise(() =>
-    chrome.storage.session.get(THROTTLED_KEY)
-  )
-  return Option.getOrElse(
-    Schema.decodeUnknownOption(Throttled)(stored[THROTTLED_KEY]),
-    (): Throttled => ({})
-  )
+  const keys = Feed.literals.map((feed) => `${THROTTLED_PREFIX}${feed}`)
+  const stored = yield* Effect.promise(() => chrome.storage.session.get(keys))
+  const throttled: Partial<Record<Feed, number>> = {}
+  for (const feed of Feed.literals) {
+    const until = decodeUntil(stored[`${THROTTLED_PREFIX}${feed}`])
+    if (Option.isSome(until)) throttled[feed] = until.value
+  }
+  return throttled
 })
 
 export const saveThrottled = Effect.fnUntraced(function* (
   feed: Feed,
   until: number
 ) {
-  const throttled = yield* loadThrottled
   yield* Effect.promise(() =>
-    chrome.storage.session.set({
-      [THROTTLED_KEY]: { ...throttled, [feed]: until },
-    })
+    chrome.storage.session.set({ [`${THROTTLED_PREFIX}${feed}`]: until })
   )
 })
 
@@ -612,7 +607,10 @@ export const isThrottledChange = Effect.fnUntraced(function* (
   changes: Readonly<Record<string, unknown>>,
   area: string
 ) {
-  return area === "session" && THROTTLED_KEY in changes
+  return (
+    area === "session" &&
+    Object.keys(changes).some((key) => key.startsWith(THROTTLED_PREFIX))
+  )
 })
 
 export const loadAjaibLock = Effect.gen(function* () {

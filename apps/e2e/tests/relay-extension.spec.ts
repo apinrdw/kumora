@@ -472,7 +472,7 @@ test("the options page drops a throttle when it ends, however long the page was 
     await options.clock.fastForward("01:00")
     const until = (await options.evaluate(() => Date.now())) + 5_000
     await worker.evaluate(
-      `chrome.storage.session.set({ brokerCodesThrottled: { Stockbit: ${until} } })`
+      `chrome.storage.session.set({ "brokerCodesThrottled.Stockbit": ${until} })`
     )
     await expect(causes).toContainText("Stockbit throttled until")
     await options.clock.fastForward(6_000)
