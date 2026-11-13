@@ -1,0 +1,831 @@
+<!doctype html>
+<!--
+  PROTOTYPE, throw away. "How the two stacked charts and the Buy/Sell sweep log lay out on Market Live" (apinrdw/kumora#260, map #256).
+  Real data: SINI on recorded day 2026-11-13 (data.js): 1-minute candles, sweeps, footprint cells, 10 s book heatmap slices.
+  Chart 1: candles + book heatmap (bottom-layer series primitive) + sweep bubbles (normal series primitive with hitTest).
+  Chart 2: footprint custom series (Stacked style only) + a Vol / Δ / CVD footer pane.
+  Both charts: logical-range and crosshair sync both ways, equal rightPriceScale.minimumWidth, a replay cursor line.
+  Three layout variants (?variant=A|B|C), switch with the bottom bar or the left and right arrow keys.
+  Plain DOM + lightweight-charts@5.2.1 standalone, not React.
+-->
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Order flow layout prototype</title>
+<style>
+  :root {
+    --bg-canvas:#0b1421; --bg-surface:#142234; --bg-elevated:#1b2c40; --bg-selected:#173a43;
+    --border-subtle:#26394e; --border-strong:#3e566b; --text-primary:#edf4fb; --text-secondary:#b0c2d2; --text-muted:#839aae;
+    --accent:#55d9c7; --up:#51dda2; --down:#ff7987; --warn:#f4c36e; --info:#7dbcf5; --grid:#26384b;
+  }
+  * { box-sizing:border-box; }
+  body { margin:0; background:var(--bg-canvas); color:var(--text-primary); font:13px/1.35 ui-sans-serif,system-ui,sans-serif; padding:16px 20px 72px; }
+  .num { font-variant-numeric:tabular-nums; }
+  h1 { font-size:24px; margin:0 0 10px; }
+  .card { background:var(--bg-surface); border:1px solid var(--border-subtle); border-radius:8px; padding:10px 12px; min-width:0; }
+  .muted { color:var(--text-muted); }
+  .up { color:var(--up); } .down { color:var(--down); }
+  button { background:var(--bg-elevated); color:var(--text-primary); border:1px solid var(--border-subtle); border-radius:6px; padding:3px 8px; font:inherit; font-size:12px; cursor:pointer; }
+  button.on { border-color:var(--accent); color:var(--accent); }
+
+  /* top controls + state readout */
+  .controls { display:flex; flex-wrap:wrap; align-items:center; gap:8px 14px; margin-bottom:10px; font-size:12px; }
+  .controls input[type=range] { width:320px; accent-color:var(--accent); }
+  .state { display:grid; grid-template-columns:repeat(6, auto); gap:2px 18px; font:11px/1.4 ui-monospace,monospace; color:var(--text-secondary); background:#0e1a29; border:1px dashed var(--border-strong); border-radius:6px; padding:6px 10px; margin-bottom:12px; }
+  .state b { color:var(--text-primary); font-weight:600; }
+
+  /* chart blocks */
+  .chartbox header { display:flex; align-items:baseline; gap:10px; margin-bottom:6px; }
+  .chartbox h2 { font-size:15px; margin:0; }
+  .chartbox .legend { font-size:11px; color:var(--text-muted); }
+  #c1 { height:400px; }
+  #c2 { height:380px; }
+
+  /* readout: compact strip by default, a tall panel in variant A */
+  .readout { font-size:12px; }
+  .readout h3 { margin:0 0 6px; font-size:12px; color:var(--text-muted); font-weight:600; text-transform:uppercase; letter-spacing:.06em; }
+  .readout dl { margin:0; display:flex; flex-wrap:wrap; gap:2px 14px; }
+  .readout dl div { display:flex; gap:5px; }
+  .readout dt { color:var(--text-muted); }
+  .readout dd { margin:0; font-variant-numeric:tabular-nums; }
+  .v-A .readout dl { display:grid; grid-template-columns:1fr; gap:6px; }
+  .v-A .readout dl div { justify-content:space-between; border-bottom:1px solid var(--border-subtle); padding-bottom:4px; font-size:13px; }
+  .v-B .readout, .v-C .readout { padding:6px 12px; }
+  .v-B .readout h3, .v-C .readout h3 { display:inline; margin-right:10px; }
+  .v-B .readout dl, .v-C .readout dl { display:inline-flex; }
+
+  /* sweep log */
+  .log { position:relative; display:flex; flex-direction:column; padding:0; min-height:0; }
+  .log header { padding:8px 10px 6px; border-bottom:1px solid var(--border-subtle); }
+  .log header .t { display:flex; align-items:center; gap:8px; font-weight:600; font-size:13px; }
+  .log header .t button { margin-left:auto; padding:1px 6px; font-size:11px; }
+  .log header .c { font-size:11px; color:var(--text-muted); margin-top:2px; }
+  .log .cols, .log .lrow { display:grid; grid-template-columns:58px 30px minmax(0,1fr) 54px 10px; gap:5px; padding:0 10px; align-items:center; font:12px ui-monospace,monospace; white-space:nowrap; }
+  .log .cols { height:22px; font-size:10px; color:var(--text-muted); text-transform:uppercase; letter-spacing:.06em; border-bottom:1px solid var(--border-subtle); font-family:ui-sans-serif,system-ui; }
+  .log .cols span:nth-child(4), .log .lrow span:nth-child(4) { text-align:right; }
+  .log .scroller { position:absolute; left:0; right:0; bottom:0; overflow-y:auto; }
+  .log .lrow { height:24px; cursor:pointer; overflow:hidden; }
+  .log .lrow span:nth-child(3) { overflow:hidden; text-overflow:ellipsis; }
+  .log .lrow:hover { background:var(--bg-elevated); }
+  .log .lrow.buy .side { color:var(--up); } .log .lrow.sell .side { color:var(--down); } .log .lrow.none .side { color:var(--text-muted); }
+  .log .lrow.big { background:rgba(244,195,110,.07); }
+  .log .lrow.big .mk { color:var(--warn); }
+  .log .lrow.sel { background:var(--bg-selected); box-shadow:inset 3px 0 0 var(--accent); }
+
+  /* right-column placeholders */
+  .ph-title { display:flex; align-items:center; gap:8px; font-weight:600; font-size:14px; margin-bottom:6px; }
+  .ph-title .tag { font:600 10px ui-monospace,monospace; color:var(--warn); border:1px solid rgba(244,195,110,.4); border-radius:3px; padding:0 4px; }
+  table { border-collapse:collapse; width:100%; font-size:12px; font-variant-numeric:tabular-nums; }
+  th { font-weight:500; color:var(--text-muted); font-size:11px; text-align:right; padding:4px 6px; border-bottom:1px solid var(--border-subtle); }
+  td { text-align:right; padding:4px 6px; border-bottom:1px solid rgba(38,57,78,.6); }
+  th:first-child, td:first-child { text-align:left; }
+  .ob td, .ob th { padding:3px 6px; }
+  .ob .bid { background:linear-gradient(to left, rgba(81,221,162,.16) var(--w), transparent var(--w)); }
+  .ob .off { background:linear-gradient(to right, rgba(255,121,135,.16) var(--w), transparent var(--w)); text-align:left; }
+  .tape .trow { display:grid; grid-template-columns:62px 48px 1fr 1fr 1fr; gap:6px; height:22px; align-items:center; font:12px ui-monospace,monospace; border-bottom:1px solid rgba(38,57,78,.5); }
+  .tape .trow span:nth-child(n+3) { text-align:right; }
+  .tapebody { overflow:hidden; }
+
+  /* layouts */
+  .side { display:flex; flex-direction:column; gap:16px; min-width:0; }
+  #wl { height:236px; overflow:hidden; } #ob { height:372px; overflow:hidden; } #tape { height:460px; overflow:hidden; }
+  .gA { display:grid; grid-template-columns:minmax(0,1fr) 400px; gap:16px; align-items:start; }
+  .gA .main { display:grid; grid-template-columns:minmax(0,1fr) 340px; gap:12px; }
+  .gA .main > * { min-width:0; }
+  .gB { display:grid; grid-template-columns:minmax(0,1fr) 340px 400px; gap:16px; align-items:stretch; }
+  .gB .stack { display:flex; flex-direction:column; gap:12px; min-width:0; }
+  .gC .stack { display:flex; flex-direction:column; gap:12px; }
+  .gC .row { display:grid; grid-template-columns:1.25fr 1fr 1fr 1.1fr; gap:16px; margin-top:16px; height:460px; }
+  .gC .row > * { height:100% !important; }
+
+  .switcher { position:fixed; bottom:16px; left:50%; transform:translateX(-50%); display:flex; align-items:center; gap:10px; background:#f8fafc; color:#0b0d10; border-radius:999px; padding:6px 10px; box-shadow:0 6px 24px rgba(0,0,0,.5); font:600 13px ui-sans-serif,system-ui; z-index:10; }
+  .switcher button { background:#e2e8f0; color:#0b0d10; border:0; border-radius:999px; width:28px; height:28px; padding:0; font-size:14px; }
+</style>
+</head>
+<body>
+<h1>Market Live <span class="muted" style="font-size:13px;font-weight:400">· recorded day 2026-11-13 · prototype</span></h1>
+<div class="controls">
+  <span>Replay cursor</span>
+  <input id="cursor" type="range">
+  <b id="cursorLabel" class="num"></b>
+  <span class="muted">Zoom</span>
+  <span id="zooms"><button data-zoom="day">Day</button> <button data-zoom="open60">Open 60 min</button> <button data-zoom="open15">Open 15 min</button> <button data-zoom="busy">Busiest 15 min</button></span>
+  <button id="bench">Bench: pan 120 frames</button>
+</div>
+<div class="state" id="state"></div>
+<div id="layout"></div>
+
+<div id="parts" hidden>
+  <section class="card chartbox" id="box1">
+    <header><h2>SINI</h2><span class="num" id="last"></span><span class="legend">Chart 1 · candles, book heatmap (bid green, offer red), sweep bubbles (area ∝ lots, amber ring = big trade ≥ Rp1 B)</span></header>
+    <div id="c1"></div>
+  </section>
+  <section class="card chartbox" id="box2">
+    <header><h2>Footprint</h2><span class="legend">Chart 2 · sell × buy lots per price (Stacked), footer Vol / Δ / CVD</span></header>
+    <div id="c2"></div>
+  </section>
+  <section class="card readout" id="readout"><h3 id="roTitle">Minute</h3><dl id="roBody"></dl></section>
+  <section class="card log" id="log">
+    <header>
+      <div class="t">Buy/Sell sweeps · SINI <button id="bigOnly">Big only</button></div>
+      <div class="c num" id="logCounts"></div>
+    </header>
+    <div class="cols"><span>Time</span><span>Side</span><span>Lots @ first→last</span><span>Value</span><span></span></div>
+    <div class="scroller" id="scroller"><div id="spacer" style="position:relative"><div id="view" style="position:absolute;left:0;right:0;top:0"></div></div></div>
+  </section>
+  <section class="card" id="wl"></section>
+  <section class="card ob" id="ob"></section>
+  <section class="card tape" id="tape"></section>
+</div>
+
+<div class="switcher"><button id="prev" aria-label="Previous variant">←</button><span id="vlabel"></span><button id="next" aria-label="Next variant">→</button></div>
+
+<script src="https://unpkg.com/lightweight-charts@5.2.1/dist/lightweight-charts.standalone.production.js"></script>
+<script src="data.js"></script>
+<script>
+const LW = LightweightCharts;
+const F = window.FIXTURE;
+const UP = "#51dda2", DOWN = "#ff7987", MUTED = "#839aae", GRID = "#26384b", BORDER = "#26394e", TEXT = "#edf4fb", ACCENT = "#55d9c7", WARN = "#f4c36e";
+const MIN = 60000, TICK = 25, BIG = 1e9, SLICE = 10000;
+const nf = new Intl.NumberFormat("en-US");
+const $ = id => document.getElementById(id);
+const wib = ms => new Date(ms + 7 * 3600e3).toISOString().slice(11, 19);
+const wibHM = ms => wib(ms).slice(0, 5);
+const fmtVal = v => v >= 1e9 ? (v / 1e9).toFixed(2) + " B" : v >= 1e6 ? (v / 1e6).toFixed(1) + " M" : (v / 1e3).toFixed(0) + " K";
+const fmtLots = n => { const a = Math.abs(n); return a >= 100000 ? Math.round(n / 1000) + "K" : a >= 10000 ? (n / 1000).toFixed(1) + "K" : String(n); };
+const signed = n => (n > 0 ? "+" : n < 0 ? "−" : "") + nf.format(Math.abs(n));
+const signedC = n => (n > 0 ? "+" : n < 0 ? "−" : "") + fmtLots(Math.abs(n));
+
+// ---------- data ----------
+const candles = F.candles;
+const minutes = candles.map(c => c.minute);
+const indexOf = new Map(minutes.map((m, i) => [m, i]));
+const dayStart = minutes[0], dayEnd = minutes.at(-1) + MIN;
+const sweeps = F.sweeps.slice().sort((a, b) => a.time - b.time).map((s, id) => ({
+  ...s, id, minute: Math.floor(s.time / MIN) * MIN, sec: (s.time % MIN) / 1000,
+  price: s.value / (s.lots * 100), big: s.value >= BIG,
+}));
+const byMinute = new Map();
+for (const s of sweeps) (byMinute.get(s.minute) ?? byMinute.set(s.minute, []).get(s.minute)).push(s);
+for (const list of byMinute.values()) list.sort((a, b) => b.lots - a.lots); // small bubbles drawn last, on top
+
+const fp = candles.map(c => {
+  const cells = F.footprint[c.minute] || {};
+  const levels = Object.entries(cells).map(([p, [s, b, n]]) => [+p, s, b, n]).sort((a, b) => b[0] - a[0]);
+  let buy = 0, sell = 0, max = 0;
+  for (const l of levels) { sell += l[1]; buy += l[2]; max = Math.max(max, l[1] + l[2] + l[3]); }
+  return { levels, buy, sell, delta: buy - sell, max };
+});
+{ let cvd = 0; for (const f of fp) { cvd += f.delta; f.cvd = cvd; } }
+const maxCell = Math.max(...fp.map(f => f.max));
+
+// heatmap: per minute, six 10 s slots of flat [price, side(0 bid / 1 offer), bucket] triples; plus a per-minute average
+const NB = 8;
+const allLots = [];
+for (const [, lv] of F.heatmap) for (const [, b, o] of lv) { if (b) allLots.push(b); if (o) allLots.push(o); }
+allLots.sort((a, b) => a - b);
+const P98 = allLots[Math.floor(allLots.length * 0.98)];
+const bucketOf = lots => Math.min(NB - 1, Math.floor(Math.sqrt(lots / P98) * NB));
+const heat = new Map();
+for (const [start, lv] of F.heatmap) {
+  const m = Math.floor(start / MIN) * MIN;
+  const k = Math.round((start - m) / SLICE);
+  let h = heat.get(m);
+  if (!h) { h = { slots: [[], [], [], [], [], []], sum: new Map(), avg: [] }; heat.set(m, h); }
+  const slot = h.slots[k];
+  for (const [p, b, o] of lv) {
+    if (b > 0) slot.push(p, 0, bucketOf(b));
+    if (o > 0) slot.push(p, 1, bucketOf(o));
+    const acc = h.sum.get(p) ?? [0, 0]; acc[0] += b; acc[1] += o; h.sum.set(p, acc);
+  }
+}
+for (const h of heat.values()) {
+  for (const [p, [b, o]] of h.sum) { if (b) h.avg.push(p, 0, bucketOf(b / 6)); if (o) h.avg.push(p, 1, bucketOf(o / 6)); }
+  delete h.sum;
+}
+const HEAT_FILL = [];
+for (const side of [UP, DOWN]) for (let k = 0; k < NB; k++) {
+  const a = (0.05 + 0.5 * (k + 1) / NB).toFixed(3);
+  const [r, g, b] = [1, 3, 5].map(i => parseInt(side.slice(i, i + 2), 16));
+  HEAT_FILL.push(`rgba(${r},${g},${b},${a})`);
+}
+
+// ---------- state ----------
+const VARIANTS = {
+  A: "Log beside chart 1, readout beside chart 2",
+  B: "Charts stacked, log as a full-height column",
+  C: "Charts full width, panels in a row below",
+};
+const keys = Object.keys(VARIANTS);
+const params = new URLSearchParams(location.search);
+let vkey = VARIANTS[params.get("variant")] ? params.get("variant") : "A";
+const initCursorHM = params.get("cursor") ?? "14:30";
+let cursor = (() => { const [h, m] = initCursorHM.split(":").map(Number); return Date.UTC(2026, 10, 13, h - 7, m); })();
+let cursorMinute = Math.floor(cursor / MIN) * MIN;
+let selectedId = null;
+let bigOnly = false;
+let hoverMinute = null;
+const stats = { c1: { full: 0, top: 0, rects: 0, bubbles: 0 }, c2: { full: 0, top: 0, texts: 0, mode: "" } };
+let benchRec = null, benchText = "not run";
+
+// repaint timing: the first primitive drawn in a chart's paint stamps t0, a microtask after the paint stamps the end.
+const stamp = { c1: { t0: null }, c2: { t0: null } };
+function mark(key, kind) {
+  const st = stamp[key];
+  if (st.t0 !== null) return;
+  st.t0 = performance.now(); st.kind = kind;
+  queueMicrotask(() => {
+    const ms = performance.now() - st.t0; st.t0 = null;
+    stats[key][st.kind] = ms;
+    if (benchRec && st.kind === "full") benchRec[key].push(ms);
+    scheduleState();
+  });
+}
+class Stamp {
+  constructor(key) {
+    this.views = [
+      { zOrder: () => "bottom", renderer: () => ({ draw: () => mark(key, "full") }) },
+      { zOrder: () => "top", renderer: () => ({ draw: () => mark(key, "top") }) },
+    ];
+  }
+  paneViews() { return this.views; }
+}
+
+// ---------- primitives ----------
+const barSpacing = chart => chart.timeScale().options().barSpacing;
+const visibleIdx = chart => {
+  const r = chart.timeScale().getVisibleLogicalRange();
+  if (!r) return [0, -1];
+  return [Math.max(0, Math.floor(r.from) - 1), Math.min(minutes.length - 1, Math.ceil(r.to) + 1)];
+};
+
+class Heatmap {
+  constructor() {
+    this.views = [{ zOrder: () => "bottom", renderer: () => ({ draw: t => t.useBitmapCoordinateSpace(s => this.draw(s)) }) }];
+    this.buckets = Array.from({ length: NB * 2 }, () => []);
+  }
+  attached(p) { this.p = p; }
+  detached() { this.p = undefined; }
+  paneViews() { return this.views; }
+  draw(scope) {
+    if (!this.p) return;
+    const { chart, series } = this.p, ts = chart.timeScale();
+    const ctx = scope.context, hpr = scope.horizontalPixelRatio, vpr = scope.verticalPixelRatio, H = scope.bitmapSize.height;
+    const bs = barSpacing(chart);
+    const perSlice = bs / 6 * hpr >= 1.5; // otherwise draw the minute's average as one column
+    const yCache = new Map();
+    const yOf = p => { let y = yCache.get(p); if (y === undefined) { y = series.priceToCoordinate(p); yCache.set(p, y); } return y; };
+    for (const b of this.buckets) b.length = 0;
+    let rects = 0;
+    const [i0, i1] = visibleIdx(chart);
+    for (let i = i0; i <= i1; i++) {
+      const m = minutes[i];
+      if (m > cursor) break;
+      const h = heat.get(m);
+      if (!h) continue;
+      const cx = ts.timeToCoordinate(m / 1000);
+      if (cx === null) continue;
+      const cols = perSlice ? h.slots : [h.avg];
+      const w = perSlice ? bs / 6 : bs;
+      for (let k = 0; k < cols.length; k++) {
+        if (perSlice && m + k * SLICE > cursor) break;
+        const cells = cols[k];
+        const x0 = Math.round((cx - bs / 2 + k * w) * hpr), x1 = Math.round((cx - bs / 2 + (k + 1) * w) * hpr);
+        if (x1 <= x0) continue;
+        for (let j = 0; j < cells.length; j += 3) {
+          const p = cells[j];
+          const yt = yOf(p + TICK / 2), yb = yOf(p - TICK / 2);
+          if (yt === null || yb === null) continue;
+          const t = Math.round(yt * vpr), bt = Math.round(yb * vpr);
+          if (bt < 0 || t > H) continue;
+          this.buckets[cells[j + 1] * NB + cells[j + 2]].push(x0, t, x1 - x0, Math.max(1, bt - t));
+          rects++;
+        }
+      }
+    }
+    for (let b = 0; b < this.buckets.length; b++) {
+      const r = this.buckets[b];
+      if (!r.length) continue;
+      ctx.fillStyle = HEAT_FILL[b];
+      ctx.beginPath();
+      for (let j = 0; j < r.length; j += 4) ctx.rect(r[j], r[j + 1], r[j + 2], r[j + 3]);
+      ctx.fill();
+    }
+    stats.c1.rects = rects;
+  }
+}
+
+const radius = lots => Math.max(1.5, Math.min(24, 0.25 * Math.sqrt(lots)));
+class Bubbles {
+  constructor() {
+    this.views = [{ zOrder: () => "normal", renderer: () => ({ draw: t => t.useBitmapCoordinateSpace(s => this.draw(s)) }) }];
+  }
+  attached(p) { this.p = p; }
+  detached() { this.p = undefined; }
+  paneViews() { return this.views; }
+  xOf(s, cx, bs) { return cx + ((s.sec + 0.5) / 60 - 0.5) * bs; }
+  draw(scope) {
+    if (!this.p) return;
+    const { chart, series } = this.p, ts = chart.timeScale();
+    const ctx = scope.context, hpr = scope.horizontalPixelRatio, vpr = scope.verticalPixelRatio;
+    const bs = barSpacing(chart);
+    const paths = { buy: new Path2D(), sell: new Path2D() }, rings = new Path2D();
+    let selected = null, n = 0;
+    const [i0, i1] = visibleIdx(chart);
+    for (let i = i0; i <= i1; i++) {
+      const m = minutes[i];
+      if (m > cursor) break;
+      const list = byMinute.get(m);
+      if (!list) continue;
+      const cx = ts.timeToCoordinate(m / 1000);
+      if (cx === null) continue;
+      for (const s of list) {
+        if (s.time > cursor) continue;
+        const y = series.priceToCoordinate(s.price);
+        if (y === null) continue;
+        const x = this.xOf(s, cx, bs) * hpr, yy = y * vpr, r = radius(s.lots) * hpr;
+        const path = paths[s.side] ?? paths.buy;
+        path.moveTo(x + r, yy); path.arc(x, yy, r, 0, Math.PI * 2);
+        if (s.big) { rings.moveTo(x + r + 2 * hpr, yy); rings.arc(x, yy, r + 2 * hpr, 0, Math.PI * 2); }
+        if (s.id === selectedId) selected = [x, yy, r];
+        n++;
+      }
+    }
+    ctx.lineWidth = Math.max(1, hpr);
+    ctx.fillStyle = "rgba(81,221,162,.38)"; ctx.fill(paths.buy); ctx.strokeStyle = "rgba(81,221,162,.9)"; ctx.stroke(paths.buy);
+    ctx.fillStyle = "rgba(255,121,135,.38)"; ctx.fill(paths.sell); ctx.strokeStyle = "rgba(255,121,135,.9)"; ctx.stroke(paths.sell);
+    ctx.lineWidth = 1.5 * hpr; ctx.strokeStyle = WARN; ctx.stroke(rings);
+    if (selected) {
+      const [x, y, r] = selected;
+      ctx.lineWidth = 2.5 * hpr; ctx.strokeStyle = ACCENT;
+      ctx.beginPath(); ctx.arc(x, y, r + 5 * hpr, 0, Math.PI * 2); ctx.stroke();
+      ctx.setLineDash([3 * hpr, 3 * hpr]); ctx.lineWidth = hpr;
+      ctx.beginPath(); ctx.moveTo(x, 0); ctx.lineTo(x, y - r - 6 * hpr); ctx.moveTo(x, y + r + 6 * hpr); ctx.lineTo(x, scope.bitmapSize.height); ctx.stroke();
+      ctx.setLineDash([]);
+    }
+    stats.c1.bubbles = n;
+  }
+  hitTest(x, y) {
+    if (!this.p) return null;
+    const { chart, series } = this.p, ts = chart.timeScale();
+    const l = ts.coordinateToLogical(x);
+    if (l === null) return null;
+    const bs = barSpacing(chart);
+    let best = null, bestD = Infinity;
+    for (let i = Math.round(l) - 1; i <= Math.round(l) + 1; i++) {
+      const list = byMinute.get(minutes[i]);
+      if (!list) continue;
+      const cx = ts.timeToCoordinate(minutes[i] / 1000);
+      for (const s of list) {
+        if (s.time > cursor) continue;
+        const sy = series.priceToCoordinate(s.price);
+        const d = Math.hypot(this.xOf(s, cx, bs) - x, sy - y);
+        if (d <= radius(s.lots) + 2 && d < bestD) { best = s; bestD = d; }
+      }
+    }
+    return best && { externalId: String(best.id), zOrder: "normal", cursorStyle: "pointer", hitTestPriority: 2 };
+  }
+}
+
+// the replay cursor line, at its second inside its minute; between sessions it sits at the right edge of the last minute before it
+function cursorX(chart) {
+  const ts = chart.timeScale(), bs = barSpacing(chart);
+  const i = indexOf.get(cursorMinute);
+  if (i !== undefined) { const c = ts.timeToCoordinate(cursorMinute / 1000); return c === null ? null : c + ((cursor - cursorMinute) / MIN - 0.5) * bs; }
+  let j = minutes.length - 1; while (j >= 0 && minutes[j] > cursor) j--;
+  if (j < 0) return null;
+  const c = ts.timeToCoordinate(minutes[j] / 1000);
+  return c === null ? null : c + bs / 2;
+}
+class CursorLine {
+  constructor(label) {
+    this.label = label;
+    this.views = [{ zOrder: () => "top", renderer: () => ({ draw: t => t.useBitmapCoordinateSpace(s => this.draw(s)) }) }];
+  }
+  attached(p) { this.p = p; }
+  detached() { this.p = undefined; }
+  paneViews() { return this.views; }
+  draw(scope) {
+    if (!this.p) return;
+    const x = cursorX(this.p.chart);
+    if (x === null) return;
+    const ctx = scope.context, hpr = scope.horizontalPixelRatio;
+    const w = Math.max(2, Math.floor(2 * hpr)), X = Math.round(x * hpr - w / 2);
+    ctx.fillStyle = "rgba(237,244,251,.85)";
+    ctx.fillRect(X, 0, w, scope.bitmapSize.height);
+    if (this.label) {
+      ctx.font = `600 ${10 * hpr}px ui-monospace,monospace`;
+      const txt = wib(cursor), tw = ctx.measureText(txt).width + 8 * hpr;
+      ctx.fillStyle = TEXT; ctx.fillRect(X + w, 0, tw, 15 * hpr);
+      ctx.fillStyle = "#0b1421"; ctx.textBaseline = "middle"; ctx.fillText(txt, X + w + 4 * hpr, 7.5 * hpr);
+    }
+  }
+}
+
+// ---------- chart 2 custom series ----------
+function drawCandle(ctx, conv, d, xc, bodyW, hpr, vpr, color) {
+  const yh = conv(d.high) * vpr, yl = conv(d.low) * vpr, yo = conv(d.open) * vpr, yc = conv(d.close) * vpr;
+  const X = Math.round(xc * hpr), ww = Math.max(1, Math.floor(hpr));
+  ctx.fillStyle = color;
+  ctx.fillRect(X - Math.floor(ww / 2), Math.round(yh), ww, Math.max(1, Math.round(yl - yh)));
+  const bw = Math.max(ww, Math.round(bodyW * hpr));
+  ctx.fillRect(X - Math.floor(bw / 2), Math.round(Math.min(yo, yc)), bw, Math.max(1, Math.round(Math.abs(yc - yo))));
+}
+class FootprintView {
+  constructor() { this.r = { draw: (t, conv) => t.useBitmapCoordinateSpace(s => this.draw(s, conv)) }; }
+  renderer() { return this.r; }
+  update(data) { this.data = data; }
+  priceValueBuilder(d) { return [d.low, d.high, d.close]; }
+  isWhitespace(d) { return d.close === undefined; }
+  defaultOptions() { return { ...(LW.customSeriesDefaultOptions ?? {}), color: UP }; }
+  draw(scope, conv) {
+    const data = this.data;
+    if (!data || !data.visibleRange) return;
+    const ctx = scope.context, hpr = scope.horizontalPixelRatio, vpr = scope.verticalPixelRatio;
+    const bs = data.barSpacing;
+    const ref = candles[0].close, rowH = Math.abs(conv(ref) - conv(ref + TICK));
+    const mode = bs >= 56 && rowH >= 8 ? "text" : bs >= 9 && rowH >= 2 ? "bars" : "candle";
+    let texts = 0;
+    stats.c2.rowH = rowH;
+    if (mode === "text") { ctx.font = `${Math.min(11, rowH - 1) * vpr}px ui-monospace,monospace`; ctx.textBaseline = "middle"; }
+    for (let i = data.visibleRange.from; i < data.visibleRange.to; i++) {
+      const bar = data.bars[i];
+      if (!bar) continue;
+      const d = bar.originalData, x = bar.x;
+      const col = d.later ? "rgba(131,154,174,.33)" : d.close >= d.open ? UP : DOWN;
+      if (d.later || mode === "candle") { drawCandle(ctx, conv, d, x, Math.max(1, bs * 0.7), hpr, vpr, col); continue; }
+      if (mode === "bars") {
+        drawCandle(ctx, conv, d, x - bs * 0.32, Math.max(1, bs * 0.12), hpr, vpr, col);
+        const xa = x - bs * 0.22, W = bs * 0.66;
+        for (const [p, s, b, n] of d.fp.levels) {
+          const yt = Math.round(conv(p + TICK / 2) * vpr), yb = Math.round(conv(p - TICK / 2) * vpr), hh = Math.max(1, yb - yt - 1);
+          const mx = d.fp.max || 1, ws = W * s / mx, wb = W * b / mx, wn = W * n / mx;
+          ctx.fillStyle = "rgba(255,121,135,.75)"; ctx.fillRect(Math.round(xa * hpr), yt, Math.max(s ? 1 : 0, Math.round(ws * hpr)), hh);
+          ctx.fillStyle = "rgba(81,221,162,.75)"; ctx.fillRect(Math.round((xa + ws) * hpr), yt, Math.max(b ? 1 : 0, Math.round(wb * hpr)), hh);
+          if (n) { ctx.fillStyle = "rgba(168,184,200,.6)"; ctx.fillRect(Math.round((xa + ws + wb) * hpr), yt, Math.max(1, Math.round(wn * hpr)), hh); }
+        }
+        continue;
+      }
+      // text: thin candle on the column's left, then "sell × buy" per price on a delta tint
+      const left = x - bs / 2;
+      drawCandle(ctx, conv, d, left + 4, 3, hpr, vpr, col);
+      const cx = left + 9 + (bs - 11) / 2;
+      for (const [p, s, b, n] of d.fp.levels) {
+        const yt = Math.round(conv(p + TICK / 2) * vpr), yb = Math.round(conv(p - TICK / 2) * vpr), y = (yt + yb) / 2;
+        const tint = (s + b) / d.fp.max;
+        ctx.fillStyle = b >= s ? `rgba(81,221,162,${(0.06 + 0.3 * tint).toFixed(3)})` : `rgba(255,121,135,${(0.06 + 0.3 * tint).toFixed(3)})`;
+        ctx.fillRect(Math.round((left + 8) * hpr), yt, Math.round((bs - 10) * hpr), Math.max(1, yb - yt - 1));
+        if (s === 0 && b === 0) { ctx.fillStyle = MUTED; ctx.textAlign = "center"; ctx.fillText(fmtLots(n), cx * hpr, y); texts++; continue; }
+        ctx.textAlign = "right"; ctx.fillStyle = "#ffb3bb"; ctx.fillText(fmtLots(s), (cx - 5) * hpr, y);
+        ctx.textAlign = "center"; ctx.fillStyle = MUTED; ctx.fillText("×", cx * hpr, y);
+        ctx.textAlign = "left"; ctx.fillStyle = "#a6f0cf"; ctx.fillText(fmtLots(b), (cx + 5) * hpr, y);
+        texts += 3;
+      }
+    }
+    stats.c2.texts = texts; stats.c2.mode = mode;
+  }
+}
+class FooterView {
+  constructor() { this.r = { draw: t => t.useBitmapCoordinateSpace(s => this.draw(s)) }; }
+  renderer() { return this.r; }
+  update(data) { this.data = data; }
+  priceValueBuilder() { return [0, 1]; }
+  isWhitespace(d) { return d.vol === undefined; }
+  defaultOptions() { return { ...(LW.customSeriesDefaultOptions ?? {}), color: MUTED }; }
+  draw(scope) {
+    const data = this.data;
+    if (!data || !data.visibleRange) return;
+    const ctx = scope.context, hpr = scope.horizontalPixelRatio, vpr = scope.verticalPixelRatio, H = scope.bitmapSize.height;
+    const bs = data.barSpacing, band = H / 3;
+    const vis = [];
+    for (let i = data.visibleRange.from; i < data.visibleRange.to; i++) if (data.bars[i] && !data.bars[i].originalData.later) vis.push(data.bars[i]);
+    if (bs >= 44) {
+      ctx.font = `${10 * vpr}px ui-monospace,monospace`; ctx.textAlign = "center"; ctx.textBaseline = "middle";
+      for (const bar of vis) {
+        const d = bar.originalData, X = bar.x * hpr;
+        ctx.fillStyle = TEXT; ctx.fillText(fmtLots(d.vol), X, band * 0.5);
+        ctx.fillStyle = d.delta >= 0 ? UP : DOWN; ctx.fillText(signedC(d.delta), X, band * 1.5);
+        ctx.fillStyle = d.cvd >= 0 ? UP : DOWN; ctx.fillText(signedC(d.cvd), X, band * 2.5);
+      }
+      stats.c2.texts += vis.length * 3;
+      return;
+    }
+    let mv = 1, md = 1, mc = 1;
+    for (const bar of vis) { const d = bar.originalData; mv = Math.max(mv, d.vol); md = Math.max(md, Math.abs(d.delta)); mc = Math.max(mc, Math.abs(d.cvd)); }
+    const w = Math.max(1, Math.round(bs * 0.7 * hpr)), pad = 3 * vpr, half = band / 2 - pad;
+    for (const bar of vis) {
+      const d = bar.originalData, X = Math.round(bar.x * hpr - w / 2);
+      const hv = (band - 2 * pad) * d.vol / mv;
+      ctx.fillStyle = "rgba(98,127,155,.9)"; ctx.fillRect(X, band - pad - hv, w, Math.max(1, hv));
+      const hd = half * Math.abs(d.delta) / md, mid1 = band * 1.5;
+      ctx.fillStyle = d.delta >= 0 ? UP : DOWN; ctx.fillRect(X, d.delta >= 0 ? mid1 - hd : mid1, w, Math.max(1, hd));
+      const hc = half * Math.abs(d.cvd) / mc, mid2 = band * 2.5;
+      ctx.fillStyle = d.cvd >= 0 ? "rgba(81,221,162,.6)" : "rgba(255,121,135,.6)"; ctx.fillRect(X, d.cvd >= 0 ? mid2 - hc : mid2, w, Math.max(1, hc));
+    }
+  }
+}
+// row labels in the footer's price-scale strip
+class FooterLabels {
+  constructor() {
+    this.views = [{ renderer: () => ({ draw: t => t.useBitmapCoordinateSpace(s => {
+      const ctx = s.context, H = s.bitmapSize.height, band = H / 3;
+      ctx.font = `600 ${10 * s.verticalPixelRatio}px ui-sans-serif,system-ui`; ctx.fillStyle = MUTED; ctx.textBaseline = "middle"; ctx.textAlign = "left";
+      ["Vol", "Δ", "CVD"].forEach((l, i) => ctx.fillText(l, 8 * s.horizontalPixelRatio, band * (i + 0.5)));
+      ctx.fillStyle = BORDER; ctx.fillRect(0, Math.round(band), s.bitmapSize.width, 1); ctx.fillRect(0, Math.round(band * 2), s.bitmapSize.width, 1);
+    }) }) }];
+  }
+  paneViews() { return []; }
+  priceAxisPaneViews() { return this.views; }
+}
+
+// ---------- charts ----------
+const baseOptions = () => ({
+  autoSize: true,
+  layout: { background: { color: "transparent" }, textColor: MUTED, fontSize: 11, panes: { separatorColor: BORDER } },
+  grid: { vertLines: { color: GRID }, horzLines: { color: GRID } },
+  rightPriceScale: { borderColor: BORDER, minimumWidth: 72 },
+  timeScale: { borderColor: BORDER, timeVisible: true, secondsVisible: false, rightOffset: 4, tickMarkFormatter: t => wibHM(t * 1000) },
+  // no localization.priceFormatter: it would override the footer series' blank priceFormat
+  localization: { locale: "en-US", timeFormatter: t => wibHM(t * 1000) + " WIB" },
+  crosshair: { mode: LW.CrosshairMode.Normal },
+});
+const chart1 = LW.createChart($("c1"), baseOptions());
+const priceFormat = { type: "custom", minMove: 1, formatter: p => nf.format(Math.round(p)) };
+const cs1 = chart1.addSeries(LW.CandlestickSeries, { upColor: UP, downColor: DOWN, wickUpColor: UP, wickDownColor: DOWN, borderVisible: false, priceLineVisible: false, priceFormat });
+cs1.priceScale().applyOptions({ scaleMargins: { top: 0.06, bottom: 0.06 } });
+cs1.attachPrimitive(new Stamp("c1"));
+const heatmap = new Heatmap(); cs1.attachPrimitive(heatmap);
+const bubbles = new Bubbles(); cs1.attachPrimitive(bubbles);
+const line1 = new CursorLine(true); cs1.attachPrimitive(line1);
+
+const chart2 = LW.createChart($("c2"), { ...baseOptions(), layout: { ...baseOptions().layout, attributionLogo: false } }); // chart 1 keeps the attribution
+const fps = chart2.addCustomSeries(new FootprintView(), { priceLineVisible: false, lastValueVisible: true, priceFormat });
+fps.priceScale().applyOptions({ scaleMargins: { top: 0.06, bottom: 0.06 } });
+fps.attachPrimitive(new Stamp("c2"));
+const line2 = new CursorLine(false); fps.attachPrimitive(line2);
+const foot = chart2.addCustomSeries(new FooterView(), { priceLineVisible: false, lastValueVisible: false, priceFormat: { type: "custom", formatter: () => "" } }, 1);
+foot.attachPrimitive(new FooterLabels());
+foot.priceScale().applyOptions({ scaleMargins: { top: 0, bottom: 0 } });
+// stretch factors, not setHeight: the chart is created at zero size inside the hidden parts holder
+chart2.panes()[0].setStretchFactor(5);
+chart2.panes()[1].setStretchFactor(1);
+
+function setSeriesData() {
+  const grey = "rgba(131,154,174,.33)";
+  cs1.setData(candles.map(c => ({ time: c.minute / 1000, open: c.open, high: c.high, low: c.low, close: c.close, ...(c.minute > cursorMinute && { color: grey, wickColor: grey }) })));
+  fps.setData(candles.map((c, i) => ({ time: c.minute / 1000, open: c.open, high: c.high, low: c.low, close: c.close, fp: fp[i], later: c.minute > cursorMinute })));
+  foot.setData(candles.map((c, i) => ({ time: c.minute / 1000, vol: c.volume, buy: fp[i].buy, sell: fp[i].sell, delta: fp[i].delta, cvd: fp[i].cvd, later: c.minute > cursorMinute })));
+}
+setSeriesData();
+
+// sync: logical range both ways (same time points in both charts), crosshair both ways (synced crosshair fires no event back)
+let syncing = false;
+const link = (a, b) => a.timeScale().subscribeVisibleLogicalRangeChange(r => {
+  if (!r || syncing) return;
+  syncing = true; b.timeScale().setVisibleLogicalRange(r); syncing = false;
+  scheduleState();
+});
+link(chart1, chart2); link(chart2, chart1);
+chart1.subscribeCrosshairMove(p => {
+  const d = p.time !== undefined ? p.seriesData.get(cs1) : undefined;
+  if (d) chart2.setCrosshairPosition(p.point ? cs1.coordinateToPrice(p.point.y) ?? d.close : d.close, d.time, fps); else chart2.clearCrosshairPosition();
+  hover(p.time);
+});
+chart2.subscribeCrosshairMove(p => {
+  const d = p.time !== undefined ? p.seriesData.get(fps) : undefined;
+  const price = p.point && (p.paneIndex ?? 0) === 0 ? fps.coordinateToPrice(p.point.y) ?? d?.close : d?.close;
+  if (d) chart1.setCrosshairPosition(price, d.time, cs1); else chart1.clearCrosshairPosition();
+  hover(p.time);
+});
+chart1.subscribeClick(p => {
+  if (p.hoveredObjectId !== undefined && p.hoveredObjectId !== null) selectSweep(sweeps[+p.hoveredObjectId], false);
+});
+
+// ---------- readout ----------
+function hover(time) { hoverMinute = time === undefined ? null : time * 1000; renderReadout(); }
+function renderReadout() {
+  let m = hoverMinute ?? cursorMinute;
+  let i = indexOf.get(m);
+  if (i === undefined) { i = minutes.length - 1; while (i > 0 && minutes[i] > m) i--; m = minutes[i]; }
+  const c = candles[i], f = fp[i], later = m > cursorMinute;
+  $("roTitle").textContent = `${hoverMinute === null ? "Cursor minute" : "Hovered minute"} ${wibHM(m)} WIB${later ? " (after cursor)" : ""}`;
+  const pairs = later ? [["O", "—"], ["H", "—"], ["L", "—"], ["C", "—"], ["Lots", "—"], ["Buy", "—"], ["Sell", "—"], ["Δ", "—"], ["CVD", "—"]] : [
+    ["O", nf.format(c.open)], ["H", nf.format(c.high)], ["L", nf.format(c.low)], ["C", `<span class="${c.close >= c.open ? "up" : "down"}">${nf.format(c.close)}</span>`],
+    ["Lots", nf.format(c.volume)], ["Buy", `<span class="up">${nf.format(f.buy)}</span>`], ["Sell", `<span class="down">${nf.format(f.sell)}</span>`],
+    ["Δ", `<span class="${f.delta >= 0 ? "up" : "down"}">${signed(f.delta)}</span>`], ["CVD", `<span class="${f.cvd >= 0 ? "up" : "down"}">${signed(f.cvd)}</span>`],
+  ];
+  $("roBody").innerHTML = pairs.map(([k, v]) => `<div><dt>${k}</dt><dd>${v}</dd></div>`).join("");
+}
+
+// ---------- sweep log (virtual list) ----------
+const ROW = 24;
+let logRows = [];
+const scroller = $("scroller"), spacer = $("spacer"), view = $("view");
+function layoutLog() {
+  const head = $("log").querySelector(".cols");
+  scroller.style.top = head.offsetTop + head.offsetHeight + "px";
+}
+function rebuildLog() {
+  logRows = [];
+  let buys = 0, sells = 0, bigs = 0;
+  for (let i = sweeps.length - 1; i >= 0; i--) {
+    const s = sweeps[i];
+    if (s.time > cursor) continue;
+    if (s.side === "buy") buys++; else sells++;
+    if (s.big) bigs++;
+    if (!bigOnly || s.big) logRows.push(s);
+  }
+  $("logCounts").textContent = `${nf.format(buys + sells)} sweeps to ${wib(cursor)} · Buy ${nf.format(buys)} · Sell ${nf.format(sells)} · Big ${bigs}`;
+  spacer.style.height = logRows.length * ROW + "px";
+  renderLog();
+}
+function rowHTML(s) {
+  const side = s.side === "buy" ? "Buy" : s.side === "sell" ? "Sell" : "—";
+  const path = s.first === s.last ? nf.format(s.first) : `${nf.format(s.first)}→${nf.format(s.last)}`;
+  return `<div class="lrow ${s.side}${s.big ? " big" : ""}${s.id === selectedId ? " sel" : ""}" data-id="${s.id}" title="${s.trades} trades"><span>${wib(s.time)}</span><span class="side">${side}</span><span>${nf.format(s.lots)} @ ${path}</span><span>${fmtVal(s.value)}</span><span class="mk">${s.big ? "◆" : ""}</span></div>`;
+}
+function renderLog() {
+  const top = scroller.scrollTop, h = scroller.clientHeight;
+  const first = Math.max(0, Math.floor(top / ROW) - 4), last = Math.min(logRows.length, Math.ceil((top + h) / ROW) + 4);
+  let html = "";
+  for (let i = first; i < last; i++) html += rowHTML(logRows[i]);
+  view.style.transform = `translateY(${first * ROW}px)`;
+  view.innerHTML = html;
+}
+scroller.addEventListener("scroll", renderLog);
+scroller.addEventListener("click", e => {
+  const row = e.target.closest("[data-id]");
+  if (row) selectSweep(sweeps[+row.dataset.id], true);
+});
+$("bigOnly").onclick = e => { bigOnly = !bigOnly; e.target.classList.toggle("on", bigOnly); rebuildLog(); };
+
+// clicking a row scrolls both charts to its minute (keeping the zoom unless it is wider than 60 bars) and rings its bubble
+function selectSweep(s, fromLog) {
+  if (!s) return;
+  selectedId = s.id;
+  const i = indexOf.get(s.minute);
+  if (fromLog && i !== undefined) {
+    const r = chart1.timeScale().getVisibleLogicalRange();
+    let w = r ? r.to - r.from : 30;
+    if (w > 60) w = 30;
+    chart1.timeScale().setVisibleLogicalRange({ from: i - w / 2, to: i + w / 2 });
+  }
+  if (!fromLog) {
+    const k = logRows.indexOf(s);
+    if (k >= 0) scroller.scrollTop = Math.max(0, k * ROW - scroller.clientHeight / 2);
+  }
+  renderLog();
+  bubbles.p?.requestUpdate();
+  scheduleState();
+}
+
+// ---------- replay cursor ----------
+const slider = $("cursor");
+slider.min = dayStart; slider.max = dayEnd; slider.step = SLICE; slider.value = cursor;
+let pendingCursor = null;
+slider.addEventListener("input", () => {
+  pendingCursor = +slider.value;
+  requestAnimationFrame(() => { if (pendingCursor !== null) { setCursor(pendingCursor); pendingCursor = null; } });
+});
+function setCursor(t) {
+  cursor = t;
+  const m = Math.floor(t / MIN) * MIN;
+  if (m !== cursorMinute) { cursorMinute = m; setSeriesData(); }
+  heatmap.p?.requestUpdate(); line2.p?.requestUpdate();
+  $("cursorLabel").textContent = wib(cursor) + " WIB";
+  rebuildLog(); renderReadout(); scheduleState();
+}
+
+// ---------- zoom presets ----------
+const busiest = (() => { let best = 0, bi = 0; minutes.forEach((m, i) => { const n = (byMinute.get(m) ?? []).length; if (n > best) { best = n; bi = i; } }); return bi; })();
+function zoom(z) {
+  const ts = chart1.timeScale();
+  if (z === "day") ts.fitContent();
+  else if (z === "open60") ts.setVisibleLogicalRange({ from: -0.5, to: 59.5 });
+  else if (z === "open15") ts.setVisibleLogicalRange({ from: -0.5, to: 14.5 });
+  else if (z === "busy") ts.setVisibleLogicalRange({ from: busiest - 7.5, to: busiest + 7.5 });
+  document.querySelectorAll("[data-zoom]").forEach(b => b.classList.toggle("on", b.dataset.zoom === z));
+  params.set("zoom", z); history.replaceState(null, "", "?" + params);
+}
+document.querySelectorAll("[data-zoom]").forEach(b => b.onclick = () => zoom(b.dataset.zoom));
+
+// ---------- bench: pan back and forth, record every full repaint of each chart ----------
+const pct = (a, q) => { const s = a.slice().sort((x, y) => x - y); return s.length ? s[Math.min(s.length - 1, Math.floor(s.length * q))] : NaN; };
+async function bench(frames = 120) {
+  const ts = chart1.timeScale(), r0 = ts.getVisibleLogicalRange();
+  benchRec = { c1: [], c2: [] };
+  const amp = Math.max(1, (r0.to - r0.from) * 0.08);
+  for (let f = 0; f < frames; f++) {
+    const d = Math.sin((f / frames) * Math.PI * 2) * amp;
+    ts.setVisibleLogicalRange({ from: r0.from + d, to: r0.to + d });
+    await new Promise(r => requestAnimationFrame(() => requestAnimationFrame(r)));
+  }
+  ts.setVisibleLogicalRange(r0);
+  await new Promise(r => requestAnimationFrame(() => requestAnimationFrame(r)));
+  const rec = benchRec; benchRec = null;
+  const sum = a => `p50 ${pct(a, 0.5).toFixed(1)} / p95 ${pct(a, 0.95).toFixed(1)} / max ${Math.max(...a).toFixed(1)} ms (${a.length})`;
+  benchText = `c1 ${sum(rec.c1)} · c2 ${sum(rec.c2)}`;
+  scheduleState();
+  return { c1: { p50: pct(rec.c1, 0.5), p95: pct(rec.c1, 0.95), max: Math.max(...rec.c1), n: rec.c1.length }, c2: { p50: pct(rec.c2, 0.5), p95: pct(rec.c2, 0.95), max: Math.max(...rec.c2), n: rec.c2.length } };
+}
+$("bench").onclick = () => bench();
+window.__bench = bench;
+window.__zoom = zoom;
+window.__selectFirstBigRow = () => { const k = logRows.findIndex(s => s.big); if (k < 0) return null; scroller.scrollTop = Math.max(0, k * ROW - 60); renderLog(); const el = view.querySelector(`[data-id="${logRows[k].id}"]`); el?.click(); return logRows[k].id; };
+
+// ---------- state readout ----------
+let stateQueued = false;
+function scheduleState() { if (stateQueued) return; stateQueued = true; requestAnimationFrame(() => { stateQueued = false; renderState(); }); }
+function renderState() {
+  const r = chart1.timeScale().getVisibleLogicalRange();
+  let vis = "–";
+  if (r) {
+    const a = Math.max(0, Math.ceil(r.from)), b = Math.min(minutes.length - 1, Math.floor(r.to));
+    vis = `${wibHM(minutes[a])}–${wibHM(minutes[b])} · ${b - a + 1} bars · ${barSpacing(chart1).toFixed(1)} px/bar`;
+  }
+  const w1 = $("c1").clientWidth, w2 = $("c2").clientWidth;
+  const sel = selectedId === null ? "none" : `${wib(sweeps[selectedId].time)} ${sweeps[selectedId].side} ${nf.format(sweeps[selectedId].lots)}`;
+  $("state").innerHTML = [
+    ["variant", `${vkey} · ${VARIANTS[vkey]}`], ["visible", vis], ["cursor", wib(cursor) + " WIB"],
+    ["chart widths", `${w1} / ${w2} px${w1 === w2 ? " ✓" : " ✗"}`], ["selected sweep", sel], ["log rows", nf.format(logRows.length)],
+    ["chart 1 repaint", `full ${stats.c1.full.toFixed(1)} ms · crosshair ${stats.c1.top.toFixed(1)} ms`],
+    ["chart 1 shapes", `${nf.format(stats.c1.rects)} heat rects · ${nf.format(stats.c1.bubbles)} bubbles`],
+    ["chart 2 repaint", `full ${stats.c2.full.toFixed(1)} ms · crosshair ${stats.c2.top.toFixed(1)} ms`],
+    ["chart 2 shapes", `${nf.format(stats.c2.texts)} fillText · footprint ${stats.c2.mode} · ${(stats.c2.rowH ?? 0).toFixed(1)} px/tick`],
+    ["bench", benchText], ["", ""],
+  ].map(([k, v]) => `<span>${k}${k ? ":" : ""} <b>${v}</b></span>`).join("");
+}
+
+// ---------- right-column placeholders (static, at real size) ----------
+function placeholders() {
+  const wl = [["BBCA", "8,975", "+0.84%", "412.3 B", "459,210", "18,402"], ["BBRI", "4,180", "−1.18%", "288.0 B", "689,011", "21,077"], ["TLKM", "3,020", "+0.33%", "96.1 B", "318,442", "9,815"],
+    ["ASII", "5,125", "−0.49%", "71.4 B", "139,320", "6,204"], ["GOTO", "71", "+2.90%", "64.8 B", "9,126,330", "14,551"], ["SINI", nf.format(candles.at(-1).close), "", "", "", ""]];
+  const last = candles.at(-1), ch = (last.close - F.previousClose) / F.previousClose * 100;
+  wl[5][2] = (ch >= 0 ? "+" : "−") + Math.abs(ch).toFixed(2) + "%";
+  wl[5][3] = fmtVal(candles.reduce((a, c) => a + c.value, 0)); wl[5][4] = nf.format(candles.reduce((a, c) => a + c.volume, 0)); wl[5][5] = nf.format(candles.reduce((a, c) => a + c.frequency, 0));
+  $("wl").innerHTML = `<div class="ph-title">Watchlist <span class="tag">PLACEHOLDER</span></div><table><thead><tr><th>Code</th><th>Last</th><th>Change</th><th>Value</th><th>Lot</th><th>Freq</th></tr></thead><tbody>${wl.map(r => `<tr><td><b>${r[0]}</b></td><td>${r[1]}</td><td class="${r[2].startsWith("−") ? "down" : "up"}">${r[2]}</td><td>${r[3]}</td><td>${r[4]}</td><td>${r[5]}</td></tr>`).join("")}</tbody></table>`;
+  const slice = F.heatmap.filter(s => s[0] <= cursor).at(-1) ?? F.heatmap[0];
+  const bids = slice[1].filter(l => l[1] > 0).sort((a, b) => b[0] - a[0]).slice(0, 10);
+  const offs = slice[1].filter(l => l[2] > 0).sort((a, b) => a[0] - b[0]).slice(0, 10);
+  const mx = Math.max(...bids.map(l => l[1]), ...offs.map(l => l[2]));
+  let rows = "";
+  for (let i = 0; i < 10; i++) {
+    const b = bids[i], o = offs[i];
+    rows += `<tr><td class="muted">${b ? 10 + (b[1] * 7) % 90 : ""}</td><td class="bid" style="--w:${b ? (b[1] / mx * 100).toFixed(0) : 0}%">${b ? nf.format(b[1]) : ""}</td><td class="up">${b ? nf.format(b[0]) : ""}</td><td class="down" style="text-align:left">${o ? nf.format(o[0]) : ""}</td><td class="off" style="--w:${o ? (o[2] / mx * 100).toFixed(0) : 0}%">${o ? nf.format(o[2]) : ""}</td><td class="muted">${o ? 10 + (o[2] * 7) % 90 : ""}</td></tr>`;
+  }
+  $("ob").innerHTML = `<div class="ph-title">Order book · SINI <span class="tag">PLACEHOLDER</span></div><div style="height:64px;border:1px solid var(--border-subtle);border-radius:4px;margin-bottom:6px" class="muted"></div><div class="muted" style="font-size:11px;margin-bottom:4px">Bid <b class="up">${nf.format(bids.reduce((a, l) => a + l[1], 0))}</b> · Offer <b class="down">${nf.format(offs.reduce((a, l) => a + l[2], 0))}</b></div><table><thead><tr><th>Freq</th><th>Lot</th><th>Bid</th><th style="text-align:left">Offer</th><th style="text-align:left">Lot</th><th>Freq</th></tr></thead><tbody>${rows}</tbody></table>`;
+  const codes = ["BBCA", "GOTO", "BBRI", "SINI", "TLKM", "ADRO", "BMRI", "ANTM", "SINI", "ASII"];
+  let tape = "";
+  const src = sweeps.filter(s => s.time <= cursor).slice(-40).reverse();
+  src.forEach((s, i) => { tape += `<div class="trow"><span>${wib(s.time)}</span><b>${codes[i % codes.length]}</b><span class="${s.side === "buy" ? "up" : "down"}">${nf.format(s.last)}</span><span class="${s.side === "buy" ? "up" : "down"}">${nf.format(s.lots)}</span><span>${fmtVal(s.value)}</span></div>`; });
+  $("tape").innerHTML = `<div class="ph-title">Running trades · whole market <span class="tag">PLACEHOLDER</span></div><div class="trow muted" style="font-family:ui-sans-serif;font-size:11px"><span>Time</span><span>Code</span><span>Price</span><span>Lot</span><span>Value</span></div><div class="tapebody">${tape}</div>`;
+  $("last").innerHTML = `${nf.format(last.close)} <span class="${ch >= 0 ? "up" : "down"}">${ch >= 0 ? "+" : "−"}${Math.abs(ch).toFixed(2)}%</span>`;
+}
+
+// ---------- layouts: same parts, structurally different placements ----------
+const part = id => $(id);
+function layout(k) {
+  const L = $("layout");
+  for (const id of ["box1", "box2", "readout", "log", "wl", "ob", "tape"]) $("parts").appendChild(part(id));
+  L.innerHTML = "";
+  document.body.className = "v-" + k;
+  const div = (cls, ...kids) => { const d = document.createElement("div"); d.className = cls; kids.forEach(c => d.appendChild(c)); return d; };
+  if (k === "A") {
+    // chart 1 | log ; chart 2 | readout — chart 2 sits in chart 1's grid column, so it has chart 1's exact width
+    L.appendChild(div("gA", div("main", part("box1"), part("log"), part("box2"), part("readout")), div("side", part("wl"), part("ob"), part("tape"))));
+  } else if (k === "B") {
+    const log = part("log"); log.style.height = "";
+    L.appendChild(div("gB", div("stack", part("box1"), part("readout"), part("box2")), log, div("side", part("wl"), part("ob"), part("tape"))));
+  } else {
+    L.appendChild(div("gC", div("stack", part("box1"), part("readout"), part("box2")), div("row", part("log"), part("wl"), part("ob"), part("tape"))));
+  }
+  requestAnimationFrame(() => { layoutLog(); renderLog(); scheduleState(); });
+}
+function setVariant(k) {
+  vkey = k;
+  params.set("variant", k); history.replaceState(null, "", "?" + params);
+  $("vlabel").textContent = `${k} (${VARIANTS[k]})`;
+  layout(k);
+}
+const cycle = d => setVariant(keys[(keys.indexOf(vkey) + d + keys.length) % keys.length]);
+$("prev").onclick = () => cycle(-1);
+$("next").onclick = () => cycle(1);
+addEventListener("keydown", e => {
+  if (e.target.closest("input,textarea,select,[contenteditable]")) return;
+  if (e.key === "ArrowLeft") cycle(-1);
+  if (e.key === "ArrowRight") cycle(1);
+});
+new ResizeObserver(() => { layoutLog(); renderLog(); scheduleState(); }).observe($("log"));
+
+placeholders();
+setVariant(vkey);
+setCursor(cursor);
+// zoom once autoSize has given the charts their width
+requestAnimationFrame(() => requestAnimationFrame(() => {
+  zoom(params.get("zoom") ?? "open60");
+  requestAnimationFrame(() => { window.__ready = true; });
+}));
+</script>
+</body>
+</html>

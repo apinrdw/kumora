@@ -1,5 +1,6 @@
 {
-  "ignorePatterns": ["repos/**"],
+  // Decision: throwaway prototype folders (this branch only) hold standalone helper scripts nothing imports.
+  "ignorePatterns": ["repos/**", "apps/dashboard/prototype-*/**"],
   // Workers Builds runs deploy.ts by path (docs/runbooks/deploy.md, step 4),
   // so no module imports it. Chrome loads the extension's entries from its
   // manifest (apps/extension/manifest.ts).
