@@ -43,6 +43,27 @@ export const fetchSend: Send = ({ url, token, body }) =>
     Effect.orElseSucceed(() => 0)
   )
 
+// One GET's body when it answered 200; none on any other answer or none.
+export type GetStatus = (request: {
+  readonly url: string
+  readonly token: string
+}) => Effect.Effect<Option.Option<string>>
+
+export const fetchStatus: GetStatus = ({ url, token }) =>
+  Effect.tryPromise(() =>
+    fetch(url, { headers: { authorization: `Bearer ${token}` } })
+  ).pipe(
+    Effect.flatMap((response) =>
+      response.status === 200
+        ? Effect.map(
+            Effect.tryPromise(() => response.text()),
+            Option.some
+          )
+        : Effect.succeed(Option.none<string>())
+    ),
+    Effect.orElseSucceed(() => Option.none<string>())
+  )
+
 export const makeBrokerCodesPoster = Effect.fnUntraced(function* (options: {
   // The target as its settings stand now; none without a token.
   readonly target: Effect.Effect<Option.Option<BrokerCodesTarget>>

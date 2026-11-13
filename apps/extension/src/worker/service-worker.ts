@@ -29,7 +29,12 @@ import { makeAjaibLock } from "./ajaib-lock.ts"
 import { makeAjaibSession } from "./ajaib-session.ts"
 import { makeBackfill } from "./backfill.ts"
 import { makeAjaibWalk } from "./broker-codes/ajaib-walk.ts"
-import { fetchSend, makeBrokerCodesPoster } from "./broker-codes/poster.ts"
+import { makeExtraTarget } from "./broker-codes/extra-target.ts"
+import {
+  fetchSend,
+  fetchStatus,
+  makeBrokerCodesPoster,
+} from "./broker-codes/poster.ts"
 import { makeRunQueue } from "./broker-codes/run-queue.ts"
 import { BATCH_INTERVAL, makeBatcher } from "./batch.ts"
 import { ajaib, ajaibOnDemand, stockbit } from "./broker.ts"
@@ -39,6 +44,7 @@ import { makeOnDemandCodes } from "./on-demand-codes.ts"
 import { makePacer } from "./pacer.ts"
 import {
   DashboardOrigin,
+  ajaibCatchUpStore,
   ajaibWalkStore,
   codeListStore,
   isClockOffsetChange,
@@ -167,19 +173,32 @@ const makeTargets = Effect.fnUntraced(function* (options: {
     production: "off",
     extra: "off",
   }
+  // A 401 or 426 to a broker codes POST: shown over the socket's state until
+  // the target's settings change.
+  const stops: Partial<Record<TargetName, TargetState>> = {}
+  const shown = Effect.sync((): TargetStates => ({
+    production: stops.production ?? states.production,
+    extra: stops.extra ?? states.extra,
+  }))
   // A target that isn't connected wants no on-demand codes.
   const report = (name: TargetName) => (state: TargetState) =>
     Effect.suspend(() => {
       states[name] = state
       return Effect.andThen(
-        showStates({ ...states }),
+        Effect.flatMap(shown, showStates),
         state === "connected" ? Effect.void : receive(name, undefined)
       )
+    })
+  const stop = (name: TargetName, state: TargetState) =>
+    Effect.suspend(() => {
+      stops[name] = state
+      return Effect.flatMap(shown, showStates)
     })
   const restart = Effect.fnUntraced(function* (
     name: TargetName,
     target: Settings["extra"]
   ) {
+    delete stops[name]
     yield* FiberMap.remove(fibers, name)
     if (target === null || target.token === "")
       return yield* report(name)("off")
@@ -209,9 +228,9 @@ const makeTargets = Effect.fnUntraced(function* (options: {
       yield* restart("extra", settings.extra)
     applied = settings
   })
-  yield* showStates({ ...states })
+  yield* Effect.flatMap(shown, showStates)
   yield* apply
-  return { apply }
+  return { apply, stop }
 })
 
 // Now on the real clock and on the relay's schedule clock, and the offset
@@ -310,25 +329,47 @@ const main = Effect.gen(function* () {
     publish,
   })
   yield* Effect.forkScoped(backfill.run)
-  // Broker codes: the newest closed day's walks post to Production.
+  // Broker codes: the newest closed day's walks post to Production, and
+  // each batch also goes to the extra target, which then catches up on what
+  // it missed.
+  const productionTarget = Effect.map(loadSettings, (settings) =>
+    settings.productionToken === ""
+      ? Option.none()
+      : Option.some({
+          origin: DashboardOrigin.make(__PRODUCTION_DASHBOARD__),
+          token: settings.productionToken,
+        })
+  )
   const production = yield* makeBrokerCodesPoster({
-    target: Effect.map(loadSettings, (settings) =>
-      settings.productionToken === ""
-        ? Option.none()
-        : Option.some({
-            origin: DashboardOrigin.make(__PRODUCTION_DASHBOARD__),
-            token: settings.productionToken,
-          })
-    ),
+    target: productionTarget,
     send: fetchSend,
   })
+  const extra = yield* makeExtraTarget({
+    target: Effect.map(loadSettings, (settings) =>
+      Option.filter(
+        Option.fromNullOr(settings.extra),
+        ({ token }) => token !== ""
+      )
+    ),
+    production: productionTarget,
+    send: fetchSend,
+    get: fetchStatus,
+    report: (state) => Effect.suspend(() => targets.stop("extra", state)),
+  })
+  yield* Effect.forkScoped(extra.run)
   const ajaibWalk = yield* makeAjaibWalk({
     tab: ajaibPacer.tab("walk"),
-    post: production.post,
-    store: ajaibWalkStore,
+    post: extra.tee(production.post),
+    store: yield* ajaibWalkStore,
   })
+  const ajaibCatchUp = yield* extra.catchUp("Ajaib", ({ post }) =>
+    Effect.flatMap(ajaibCatchUpStore, (store) =>
+      makeAjaibWalk({ tab: ajaibPacer.tab("walk"), post, store })
+    )
+  )
   const brokerCodes = yield* makeRunQueue({
     newestDay: [{ feed: "Ajaib", walk: ajaibWalk.walk }],
+    catchUp: [ajaibCatchUp],
     report: saveBrokerCodesProgress,
   })
   yield* Effect.forkScoped(brokerCodes.run)

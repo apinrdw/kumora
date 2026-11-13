@@ -277,25 +277,24 @@ export const saveAjaibLock = Effect.fnUntraced(function* (lock: AjaibLock) {
 
 // Ajaib's walk position for the day it walks (ajaib-walk.ts), in local
 // storage so a restarted worker or browser carries on: Ajaib can't be asked
-// where a walk stopped.
-const AJAIB_WALK_KEY = "brokerCodesAjaibWalk"
+// where a walk stopped. Production's walk and the extra target's catch-up
+// (extra-target.ts) each keep their own.
+const ajaibWalkStoreAt = (key: string) =>
+  Effect.sync((): AjaibWalkStore => ({
+    load: Effect.gen(function* () {
+      const stored = yield* Effect.promise(() => chrome.storage.local.get(key))
+      return Schema.decodeUnknownOption(AjaibWalkPosition)(stored[key])
+    }),
+    save: Effect.fnUntraced(function* (position: AjaibWalkPosition) {
+      const encoded = yield* Effect.orDie(
+        Schema.encodeEffect(AjaibWalkPosition)(position)
+      )
+      yield* Effect.promise(() => chrome.storage.local.set({ [key]: encoded }))
+    }),
+  }))
 
-export const ajaibWalkStore: AjaibWalkStore = {
-  load: Effect.gen(function* () {
-    const stored = yield* Effect.promise(() =>
-      chrome.storage.local.get(AJAIB_WALK_KEY)
-    )
-    return Schema.decodeUnknownOption(AjaibWalkPosition)(stored[AJAIB_WALK_KEY])
-  }),
-  save: Effect.fnUntraced(function* (position: AjaibWalkPosition) {
-    const encoded = yield* Effect.orDie(
-      Schema.encodeEffect(AjaibWalkPosition)(position)
-    )
-    yield* Effect.promise(() =>
-      chrome.storage.local.set({ [AJAIB_WALK_KEY]: encoded })
-    )
-  }),
-}
+export const ajaibWalkStore = ajaibWalkStoreAt("brokerCodesAjaibWalk")
+export const ajaibCatchUpStore = ajaibWalkStoreAt("brokerCodesAjaibCatchUp")
 
 // What the broker codes run queue is doing (run-queue.ts), for the options
 // page, in session storage: it describes this browser session's walks.
