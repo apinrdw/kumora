@@ -580,4 +580,44 @@ describe("the extra target", () => {
       assert.lengthOf(extra.posts, 1)
     })
   )
+
+  it.effect(
+    "a catch-up walk's posts and status reads stay on the settings it began with",
+    () =>
+      Effect.gen(function* () {
+        const extra = fakeDashboard({
+          status: holding({ n: null, missing: [], held: 0 }),
+        })
+        const target = yield* harness({
+          production: fakeDashboard({ status: COMPLETE }),
+          extra,
+        })
+        const reads: Array<string> = []
+        const catchUp = yield* target.extra.catchUp(
+          "Ajaib",
+          ({ post, status, origin }) =>
+            Effect.sync(() => ({
+              walk: (_day: WibDate) =>
+                Effect.gen(function* () {
+                  assert.strictEqual(yield* post(batch([1])), "sent")
+                  yield* target.switchTo(PREVIEW)
+                  assert.strictEqual(yield* post(batch([2])), "off")
+                  assert.isTrue(Option.isNone(yield* status(DAY)))
+                  assert.isTrue(Option.isNone(yield* origin))
+                  reads.push("done")
+                  return {
+                    _tag: "stopped",
+                    cause: "no-token",
+                  } satisfies WalkResult
+                }),
+            }))
+        )
+        yield* catchUp.walk(DAY)
+        assert.deepStrictEqual(reads, ["done"])
+        assert.deepStrictEqual(extra.written, ["1"])
+        assert.isTrue(
+          extra.posts.every((url) => url.startsWith(STAGING.origin))
+        )
+      })
+  )
 })
