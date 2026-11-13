@@ -31,6 +31,8 @@ import { makeBackfill } from "./backfill.ts"
 import { makeAjaibWalk } from "./broker-codes/ajaib-walk.ts"
 import { fetchSend, makeBrokerCodesPoster } from "./broker-codes/poster.ts"
 import { makeRunQueue } from "./broker-codes/run-queue.ts"
+import { fetchGet, makeBrokerCodesStatus } from "./broker-codes/status.ts"
+import { makeStockbitWalk } from "./broker-codes/stockbit-walk.ts"
 import { BATCH_INTERVAL, makeBatcher } from "./batch.ts"
 import { ajaib, ajaibOnDemand, stockbit } from "./broker.ts"
 import { makeCodeList } from "./code-list.ts"
@@ -310,25 +312,39 @@ const main = Effect.gen(function* () {
     publish,
   })
   yield* Effect.forkScoped(backfill.run)
-  // Broker codes: the newest closed day's walks post to Production.
+  // Broker codes: the newest closed day's walks post to Production, and
+  // resume from its status.
+  const productionTarget = Effect.map(loadSettings, (settings) =>
+    settings.productionToken === ""
+      ? Option.none()
+      : Option.some({
+          origin: DashboardOrigin.make(__PRODUCTION_DASHBOARD__),
+          token: settings.productionToken,
+        })
+  )
   const production = yield* makeBrokerCodesPoster({
-    target: Effect.map(loadSettings, (settings) =>
-      settings.productionToken === ""
-        ? Option.none()
-        : Option.some({
-            origin: DashboardOrigin.make(__PRODUCTION_DASHBOARD__),
-            token: settings.productionToken,
-          })
-    ),
+    target: productionTarget,
     send: fetchSend,
+  })
+  const productionStatus = yield* makeBrokerCodesStatus({
+    target: productionTarget,
+    get: fetchGet,
   })
   const ajaibWalk = yield* makeAjaibWalk({
     tab: ajaibPacer.tab("walk"),
     post: production.post,
     store: ajaibWalkStore,
   })
+  const stockbitWalk = yield* makeStockbitWalk({
+    tab: stockbitPacer.tab("walk"),
+    post: production.post,
+    status: productionStatus.status,
+  })
   const brokerCodes = yield* makeRunQueue({
-    newestDay: [{ feed: "Ajaib", walk: ajaibWalk.walk }],
+    newestDay: [
+      { feed: "Ajaib", walk: ajaibWalk.walk },
+      { feed: "Stockbit", walk: stockbitWalk.walk },
+    ],
     report: saveBrokerCodesProgress,
   })
   yield* Effect.forkScoped(brokerCodes.run)

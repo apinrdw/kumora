@@ -14,7 +14,7 @@ import { jwtPayloadText } from "./jwt.ts"
 // whatever the page last refreshed. See apinrdw/kumora#43.
 export const WEBSOCKET_KEY_URL =
   "https://exodus.stockbit.com/auth/websocket/key"
-const CREDENTIAL_COOKIE = "credentialStorage"
+export const CREDENTIAL_COOKIE = "credentialStorage"
 
 // Stockbit's REST running-trade tape, which backfill pages by trade number.
 export const RUNNING_TRADE_URL =

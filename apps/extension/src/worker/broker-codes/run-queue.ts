@@ -6,11 +6,13 @@ import { DateTime, Effect, Option, Queue, Schema } from "effect"
 
 import { isMarketHours, newestClosedDay } from "./hours.ts"
 
-// Why walks stopped in place until something changes: market hours, or the
-// Production target refused the batches (no token, a rejected token, a
-// version the dashboard no longer takes).
+// Why walks stopped in place until something changes: market hours, no
+// broker tab of the walk's site, or the Production target refused the
+// batches (no token, a rejected token, a version the dashboard no longer
+// takes).
 const PauseCause = Schema.Literals([
   "market-hours",
+  "no-tab",
   "no-token",
   "rejected-token",
   "reload-extension",
@@ -20,12 +22,13 @@ export type PauseCause = typeof PauseCause.Type
 // How one walk of a day ended:
 // - walked: its site served the day to its end;
 // - unserved: its site can't serve the day, and the next walk takes it;
+//   `no-rows` is Stockbit answering the day with no rows, which gives it up;
 // - stopped: it stopped in place, and the run ends until the next trigger.
 export type WalkResult =
   | { readonly _tag: "walked" }
   | {
       readonly _tag: "unserved"
-      readonly reason: "no-tab" | "window-passed" | "other-date"
+      readonly reason: "no-tab" | "window-passed" | "other-date" | "no-rows"
     }
   | { readonly _tag: "stopped"; readonly cause: PauseCause }
 
