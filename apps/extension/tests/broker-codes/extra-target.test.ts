@@ -278,6 +278,28 @@ describe("the extra target", () => {
   )
 
   it.effect(
+    "a 401 on settings changed during a retry stops it on those settings",
+    () =>
+      Effect.gen(function* () {
+        const extra = fakeDashboard({ statuses: [503, 401] })
+        let settings = STAGING
+        const target = yield* harness({
+          extra,
+          target: () => Option.some(settings),
+        })
+        yield* fakeWalk(target.post).walk(DAY)
+        yield* settle
+        assert.lengthOf(extra.posts, 1)
+        settings = { ...STAGING, token: "new-token" }
+        yield* TestClock.adjust("1 minute")
+        yield* settle
+        assert.deepStrictEqual(target.reported, ["retrying", "rejected-token"])
+        assert.lengthOf(extra.posts, 2)
+        assert.deepStrictEqual(extra.written, [])
+      })
+  )
+
+  it.effect(
     "catches up from its own status: only the trades it misses, never to Production",
     () =>
       Effect.gen(function* () {
