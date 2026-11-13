@@ -4,7 +4,7 @@
 // anyway, types the owner's PIN into it once.
 import { Duration, Effect, Option, Queue, Schema } from "effect"
 
-import type { PinStore, SignIn } from "./ajaib-session.ts"
+import type { PinEntry, PinStore, SignIn } from "./ajaib-session.ts"
 import type { Answer, LocalRequest, PageEvent } from "./broker.ts"
 
 // Decision: one synthetic `mousemove` every 10 minutes, all day while an
@@ -61,7 +61,7 @@ export const makeAjaibLock = Effect.fnUntraced(function* (options: {
   // answered 200 and the screen is gone at its end; a non-200 refuses at
   // once. A screen that goes and comes back sooner was redrawn, and one gone
   // with no answer (a slow check, a closed tab) may yet refuse the PIN.
-  const refused = Effect.gen(function* () {
+  const wasRefused = Effect.gen(function* () {
     let accepted = false
     const answered = yield* Effect.timeoutOption(
       Effect.gen(function* () {
@@ -78,11 +78,45 @@ export const makeAjaibLock = Effect.fnUntraced(function* (options: {
     return Option.isSome(answered) || locked || !accepted
   })
 
+  // The PIN is refused: wiped, and the lock shown as the page reports it.
+  const refuse = (entry: PinEntry) =>
+    Effect.andThen(
+      entry.wipePin,
+      Effect.suspend(() =>
+        record(
+          locked
+            ? { state: "locked", reason: "refused" }
+            : { state: "unlocked" }
+        )
+      )
+    )
+
   // Decision: the lock screen gets the kept PIN once per lock, and only from
   // an entry read whole, last thing before `type-pin`, as `signed-in` and
   // marked `typing`. The mark is stored first and cleared once the screen
   // has gone, so a try a restart cut short is found and counts as refused.
   // A refused PIN is wiped. See apinrdw/kumora#244, "Unlock".
+  const attempt = Effect.fnUntraced(function* (entry: PinEntry) {
+    yield* record({ state: "unlocking" })
+    yield* entry.setTyping(true)
+    const pin = Option.flatMap(yield* pins.latest, (now) =>
+      now.typing && now.signIn.state === "signed-in"
+        ? now.pin
+        : Option.none<string>()
+    )
+    // A newer entry took its place: it has no mark, and waits for its own
+    // sign-in.
+    if (Option.isNone(pin)) return
+    const typed = yield* tab.request({ _tag: "type-pin", pin: pin.value })
+    if (Option.isSome(typed) && typed.value.status !== 200) {
+      yield* entry.setTyping(false)
+      return yield* record({ state: "locked", reason: "not-typed" })
+    }
+    if (yield* wasRefused) return yield* refuse(entry)
+    yield* entry.setTyping(false)
+    yield* record({ state: "unlocked" })
+  })
+
   const unlock = Effect.gen(function* () {
     const kept = Option.filter(yield* pins.latest, (entry) =>
       Option.isSome(entry.pin)
@@ -93,32 +127,8 @@ export const makeAjaibLock = Effect.fnUntraced(function* (options: {
       return Option.exists(lock, (each) => each.state === "locked")
         ? undefined
         : yield* record({ state: "locked", reason: "no-pin" })
-    const entry = kept.value
-    if (!entry.typing) {
-      yield* record({ state: "unlocking" })
-      yield* entry.setTyping(true)
-      const pin = Option.flatMap(yield* pins.latest, (now) =>
-        now.typing && now.signIn.state === "signed-in"
-          ? now.pin
-          : Option.none<string>()
-      )
-      // A newer entry took its place: it has no mark, and waits for its own
-      // sign-in.
-      if (Option.isNone(pin)) return
-      const typed = yield* tab.request({ _tag: "type-pin", pin: pin.value })
-      if (Option.isSome(typed) && typed.value.status !== 200) {
-        yield* entry.setTyping(false)
-        return yield* record({ state: "locked", reason: "not-typed" })
-      }
-      if (!(yield* refused)) {
-        yield* entry.setTyping(false)
-        return yield* record({ state: "unlocked" })
-      }
-    }
-    yield* entry.wipePin
-    yield* record(
-      locked ? { state: "locked", reason: "refused" } : { state: "unlocked" }
-    )
+    // A mark already there is a try a restarted worker left.
+    yield* kept.value.typing ? refuse(kept.value) : attempt(kept.value)
   })
 
   // A lock seen on a page event, or still there on a tick, is unlocked if it
