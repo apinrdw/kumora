@@ -454,3 +454,28 @@ test("the options page shows the broker codes walks, and Pause and Run now steer
     await brokers.close()
   }
 })
+
+test("the options page drops a throttle when it ends, however long the page was open", async () => {
+  const brokers = await startFakeBrokers()
+  const { context, worker, optionsUrl } = await launchWithExtension(
+    brokers.port
+  )
+  try {
+    const options = await context.newPage()
+    await options.clock.install()
+    await options.goto(optionsUrl)
+    const causes = options.getByLabel("Broker codes pause causes")
+    // The page has been open a minute when Stockbit throttles for 5 s.
+    await options.clock.fastForward("01:00")
+    const until = (await options.evaluate(() => Date.now())) + 5_000
+    await worker.evaluate(
+      `chrome.storage.session.set({ brokerCodesThrottled: { Stockbit: ${until} } })`
+    )
+    await expect(causes).toContainText("Stockbit throttled until")
+    await options.clock.fastForward(6_000)
+    await expect(causes).not.toContainText("Stockbit throttled")
+  } finally {
+    await context.close()
+    await brokers.close()
+  }
+})
