@@ -350,6 +350,56 @@ describe("a throttled site", () => {
       assert.deepStrictEqual(stopped, [1_000 + 5 * MINUTE])
     })
   )
+  it.effect(
+    "keeps a throttle's stop and half rate when the service worker restarts",
+    () =>
+      Effect.gen(function* () {
+        const site = fakeSite({
+          answer: () =>
+            site.calls.length === 1
+              ? { _tag: "answer", id: 0, status: 429, body: "" }
+              : OK,
+        })
+        // Session storage, which outlives the service worker.
+        let stored: number | undefined
+        const before = yield* makePacer({
+          feed: "Stockbit",
+          tab: site,
+          throttled: (until) =>
+            Effect.sync(() => {
+              stored = until
+            }),
+        })
+        const running = yield* Effect.forkChild(before.run)
+        yield* before.tab("walk").request({ _tag: "page-fetch", path: "t" })
+        assert.strictEqual(stored, 5 * MINUTE)
+        yield* Fiber.interrupt(running)
+        yield* TestClock.adjust("1 minute")
+        const restarted = {
+          feed: "Stockbit" as const,
+          tab: site,
+          stoppedUntil: stored,
+        }
+        const after = yield* makePacer(restarted)
+        yield* Effect.forkChild(after.run)
+        for (let at = 0; at < 4; at++) {
+          yield* Effect.forkChild(
+            Effect.forever(
+              after.tab("walk").request({ _tag: "page-fetch", path: `s${at}` })
+            )
+          )
+          yield* TestClock.adjust("0 millis")
+        }
+        yield* TestClock.adjust("10 minutes")
+        const starts = (from: number, to: number) =>
+          site.calls.filter((call) => call.start >= from && call.start < to)
+            .length
+        assert.strictEqual(starts(1, 5 * MINUTE), 0)
+        const half = starts(5 * MINUTE, 6 * MINUTE)
+        assert.isAtLeast(half, 85)
+        assert.isAtMost(half, 90)
+      })
+  )
 })
 
 describe("Ajaib's PIN sign-in", () => {
