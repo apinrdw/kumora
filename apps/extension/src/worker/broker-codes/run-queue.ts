@@ -51,10 +51,23 @@ export const makeRunQueue = Effect.fnUntraced(function* (options: {
   // The newest closed day's walks, in order: each runs once the one before
   // it walked the day or couldn't serve it.
   readonly newestDay: ReadonlyArray<DayWalk>
+  // The extra target's catch-up of the newest closed day, in the same order:
+  // walks that post only to the extra target, only what it misses
+  // (extra-target.ts).
+  readonly catchUp: ReadonlyArray<DayWalk>
   readonly report: (progress: BrokerCodesProgress) => Effect.Effect<void>
 }) {
   const wakes = yield* Queue.sliding<void>(1)
   const trigger = Effect.asVoid(Queue.offer(wakes, undefined))
+
+  // The extra target's walks: a stop ends the catch-up only, since
+  // Production isn't paused.
+  const catchUp = Effect.fnUntraced(function* (day: WibDate) {
+    for (const { walk } of options.catchUp) {
+      const result = yield* walk(day)
+      if (result._tag === "stopped") return
+    }
+  })
 
   const runOnce = Effect.gen(function* () {
     const now = yield* DateTime.now
@@ -69,6 +82,15 @@ export const makeRunQueue = Effect.fnUntraced(function* (options: {
         return yield* options.report({ state: "paused", cause: result.cause })
     }
     yield* options.report({ state: "idle" })
+    // Decision: the extra target catches up once Production's queue is
+    // empty, and gives way to the next trigger, which interrupts it and is
+    // offered again so its run starts at once. The walks resume as after a
+    // restart, and a failing extra target, whose posts retry for ever,
+    // holds nothing up. See apinrdw/kumora#250.
+    yield* Effect.raceFirst(
+      catchUp(day.value),
+      Effect.andThen(Queue.take(wakes), trigger)
+    )
   })
   const run = Effect.forever(Effect.andThen(Queue.take(wakes), runOnce))
 

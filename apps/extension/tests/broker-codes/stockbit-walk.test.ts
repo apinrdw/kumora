@@ -471,6 +471,7 @@ describe("Stockbit's walk: when it starts and gives up", () => {
           { feed: "Ajaib", walk: ajaib.walk },
           { feed: "Stockbit", walk: stockbit.walk },
         ],
+        catchUp: [],
         report: (progress) =>
           progress.state === "idle"
             ? Deferred.succeed(idle, undefined)

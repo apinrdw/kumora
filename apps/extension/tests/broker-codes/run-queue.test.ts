@@ -26,13 +26,34 @@ const fakeWalk = (
     }),
 })
 
+// The extra target's catch-up walk of a site, kept as `catch-up <feed> <day>`.
+const catchUpWalk = (
+  feed: Feed,
+  walked: Array<string>,
+  result: (day: WibDate) => Effect.Effect<WalkResult> = () =>
+    Effect.succeed({ _tag: "walked" })
+) => ({
+  feed,
+  walk: (day: WibDate) =>
+    Effect.suspend(() => {
+      walked.push(`catch-up ${feed} ${day}`)
+      return result(day)
+    }),
+})
+
+type Walks = (
+  walked: Array<string>
+) => ReadonlyArray<ReturnType<typeof fakeWalk>>
+
 const harness = Effect.fnUntraced(function* (
-  walks: (walked: Array<string>) => ReadonlyArray<ReturnType<typeof fakeWalk>>
+  walks: Walks,
+  catchUp: Walks = () => []
 ) {
   const walked: Array<string> = []
   const progress: Array<BrokerCodesProgress> = []
   const queue = yield* makeRunQueue({
     newestDay: walks(walked),
+    catchUp: catchUp(walked),
     report: (each) => Effect.sync(() => progress.push(each)),
   })
   yield* Effect.forkChild(queue.run)
@@ -156,5 +177,75 @@ describe("the broker codes run queue", () => {
         "Ajaib 2026-11-12",
       ])
     })
+  )
+
+  it.effect(
+    "once the day's walks are done, the extra target's catch-up walks run",
+    () =>
+      Effect.gen(function* () {
+        yield* TestClock.setTime(wib("2026-11-12", "17:00:00"))
+        const queue = yield* harness(
+          (walked) => [fakeWalk("Ajaib", walked), fakeWalk("Stockbit", walked)],
+          (walked) => [
+            catchUpWalk("Ajaib", walked, () =>
+              Effect.succeed({ _tag: "unserved", reason: "window-passed" })
+            ),
+            catchUpWalk("Stockbit", walked),
+          ]
+        )
+        yield* queue.trigger
+        assert.deepStrictEqual(queue.walked, [
+          "Ajaib 2026-11-12",
+          "Stockbit 2026-11-12",
+          "catch-up Ajaib 2026-11-12",
+          "catch-up Stockbit 2026-11-12",
+        ])
+        assert.deepStrictEqual(queue.progress.at(-1), { state: "idle" })
+      })
+  )
+
+  it.effect("a catch-up gives way to the next run", () =>
+    Effect.gen(function* () {
+      yield* TestClock.setTime(wib("2026-11-12", "17:00:00"))
+      const queue = yield* harness(
+        (walked) => [fakeWalk("Ajaib", walked)],
+        (walked) => [catchUpWalk("Stockbit", walked, () => Effect.never)]
+      )
+      yield* queue.trigger
+      assert.deepStrictEqual(queue.walked, [
+        "Ajaib 2026-11-12",
+        "catch-up Stockbit 2026-11-12",
+      ])
+      // A catch-up that never ends: a new day's run still starts at once.
+      yield* TestClock.setTime(wib("2026-11-13", "16:35:00"))
+      yield* queue.tick
+      assert.deepStrictEqual(queue.walked.slice(2), [
+        "Ajaib 2026-11-13",
+        "catch-up Stockbit 2026-11-13",
+      ])
+    })
+  )
+
+  it.effect(
+    "a catch-up the extra target stopped leaves Production's progress idle",
+    () =>
+      Effect.gen(function* () {
+        yield* TestClock.setTime(wib("2026-11-12", "17:00:00"))
+        const queue = yield* harness(
+          (walked) => [fakeWalk("Ajaib", walked)],
+          (walked) => [
+            catchUpWalk("Ajaib", walked, () =>
+              Effect.succeed({ _tag: "stopped", cause: "rejected-token" })
+            ),
+            catchUpWalk("Stockbit", walked),
+          ]
+        )
+        yield* queue.trigger
+        assert.deepStrictEqual(queue.walked, [
+          "Ajaib 2026-11-12",
+          "catch-up Ajaib 2026-11-12",
+        ])
+        assert.deepStrictEqual(queue.progress.at(-1), { state: "idle" })
+      })
   )
 })
