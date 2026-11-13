@@ -166,10 +166,12 @@ export const makePacer = Effect.fnUntraced(function* (options: {
 
   const tab = (priority: Priority): PacedTab =>
     ({
-      // A REST call on the broker's API is paced. A cookie or the page's token
-      // is read in the tab and isn't.
+      // A REST call on the broker's API is paced, the PIN check's post too. A
+      // cookie or the page's token is read in the tab and isn't.
       request: (request) =>
-        request._tag === "fetch" || request._tag === "page-fetch"
+        request._tag === "fetch" ||
+        request._tag === "page-fetch" ||
+        request._tag === "page-post"
           ? paced(priority, request)
           : options.tab.request(request),
     }) as PacedTab

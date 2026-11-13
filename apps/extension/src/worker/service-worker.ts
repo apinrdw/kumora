@@ -319,10 +319,6 @@ const main = Effect.gen(function* () {
       Effect.suspend(() => ajaibLock.page(event)),
   })
   const tabs = [stockbitTab, ajaibTab]
-  const ajaibSession = yield* makeAjaibSession({
-    tab: ajaibTab,
-    store: sessionPinStore,
-  })
   const ajaibLock = yield* makeAjaibLock({
     tab: ajaibTab,
     pins: sessionPinStore,
@@ -334,8 +330,10 @@ const main = Effect.gen(function* () {
   // API before the page made a call of its own.
   const withToken = (request: TabRequest) =>
     request._tag === "page-fetch"
-      ? Effect.map(ajaibSession.fallbackToken, (token) =>
-          Option.isSome(token) ? { ...request, token: token.value } : request
+      ? Effect.map(
+          Effect.suspend(() => ajaibSession.fallbackToken),
+          (token) =>
+            Option.isSome(token) ? { ...request, token: token.value } : request
         )
       : Effect.succeed(request)
   const ajaibRest: BrokerTab = {
@@ -357,11 +355,18 @@ const main = Effect.gen(function* () {
   })
   yield* Effect.forkScoped(stockbitPacer.run)
   yield* Effect.forkScoped(ajaibPacer.run)
+  // The Ajaib backfill's paced calls, and whether their tab is still there.
   // The code list feeds Market Live's search, so it goes with the backfill.
-  const codeListTab = {
+  const ajaibBackfillTab = {
     ...ajaibPacer.tab("backfill"),
     attached: ajaibTab.attached,
   }
+  // Decision: the PIN check goes with the backfill, served first: it is the
+  // owner's own action, and a walk's queue would keep them waiting.
+  const ajaibSession = yield* makeAjaibSession({
+    tab: ajaibBackfillTab,
+    store: sessionPinStore,
+  })
   const backfill = yield* makeBackfill({
     stockbit: stockbitPacer.tab("backfill"),
     ajaib: ajaibPacer.tab("backfill"),
@@ -489,7 +494,7 @@ const main = Effect.gen(function* () {
     const session = yield* Effect.forkScoped(ajaibSession.tick)
     yield* ajaibLock.tick
     yield* brokerCodes.tick
-    const fetch = yield* codeList.tick(codeListTab, schedule)
+    const fetch = yield* codeList.tick(ajaibBackfillTab, schedule)
     const earlier = settled
     settled = Option.some(
       yield* Effect.forkScoped(
@@ -557,7 +562,7 @@ const main = Effect.gen(function* () {
         return showBadge
       case "relay-code-list":
         return Effect.flatMap(scheduleNow, (now) =>
-          codeList.relayNow(codeListTab, now, (state) =>
+          codeList.relayNow(ajaibBackfillTab, now, (state) =>
             saveCodeListRelay({ state, at: Date.now() })
           )
         )

@@ -5,8 +5,10 @@
 import { Effect, Option, Schema } from "effect"
 
 import { AjaibAccountId } from "./ajaib.ts"
-import type { Answer, TabRequest } from "./broker.ts"
+import type { Answer } from "./broker.ts"
 import { jwtPayloadText } from "./jwt.ts"
+import type { PacedTab } from "./pacer.ts"
+import type { BrokerTab } from "./tab.ts"
 
 // Ajaib's PIN check, which the web app calls to get its tokens. Called from
 // the Ajaib tab, so the page's cookies and headers apply.
@@ -97,12 +99,8 @@ export interface PinStore {
 }
 
 export const makeAjaibSession = Effect.fnUntraced(function* (options: {
-  readonly tab: {
-    readonly attached: Effect.Effect<boolean>
-    readonly request: (
-      request: TabRequest
-    ) => Effect.Effect<Option.Option<Answer>>
-  }
+  // The Ajaib pacer's tab, so the PIN check waits for the site's pace.
+  readonly tab: PacedTab & Pick<BrokerTab, "attached">
   readonly store: PinStore
 }) {
   const { tab, store } = options

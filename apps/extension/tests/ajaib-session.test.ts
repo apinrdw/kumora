@@ -10,6 +10,7 @@ import {
 } from "../src/worker/ajaib-session.ts"
 import { AjaibAccountId } from "../src/worker/ajaib.ts"
 import type { Answer, TabRequest } from "../src/worker/broker.ts"
+import type { PacedTab } from "../src/worker/pacer.ts"
 
 const base64Url = (value: unknown) =>
   btoa(JSON.stringify(value))
@@ -132,7 +133,7 @@ const harness = Effect.fnUntraced(function* (reply: Answer) {
           requests.push(request)
           return Option.some(reply)
         }),
-    },
+    } as PacedTab & { readonly attached: Effect.Effect<boolean> },
     store: {
       pin: Effect.sync(() => Option.fromNullishOr(pin)),
       wipePin: Effect.sync(() => {
