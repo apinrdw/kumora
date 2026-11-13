@@ -417,6 +417,37 @@ describe("Ajaib's walk: stopping and carrying on", () => {
       })
   )
 
+  it.effect(
+    "asks again once a 401 lands after the page already renewed the token the call was sent with",
+    () =>
+      Effect.gen(function* () {
+        yield* TestClock.setTime(wib("2026-11-12", "17:30:00"))
+        let token = "expired"
+        const production = fakeProduction()
+        const tab = fakeAjaib({
+          token: () => token,
+          // The page renews its token while the 30th call is in flight,
+          // whose answer is still the old token's 401.
+          answer: (_, call) =>
+            call === 30
+              ? Effect.sync(() => {
+                  token = "renewed"
+                  return STATUS(401)
+                })
+              : undefined,
+        })
+        const walk = yield* walkWith(tab, production)
+        const fiber = yield* Effect.forkChild(walk.walk(DAY))
+        yield* settle(tab, 30)
+        yield* TestClock.adjust("10 seconds")
+        yield* settle(tab, 31)
+        assert.isAbove(tab.paths.length, 30)
+        assert.strictEqual(tab.paths[30], tab.paths[29])
+        assert.deepStrictEqual(yield* Fiber.join(fiber), { _tag: "walked" })
+        assert.deepStrictEqual(missingOf(production.held()), [])
+      })
+  )
+
   it.effect("leaves the day to Stockbit when its Ajaib tab goes mid-walk", () =>
     Effect.gen(function* () {
       yield* TestClock.setTime(wib("2026-11-12", "17:30:00"))
