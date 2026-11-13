@@ -46,6 +46,7 @@ describe("the Ajaib catch-up position", () => {
         next: 0,
         repair: [],
       }
+      yield* store.load
       yield* store.save(done)
       assert.deepStrictEqual(yield* store.load, Option.some(done))
 

@@ -335,20 +335,23 @@ export const saveAjaibLock = Effect.fnUntraced(function* (lock: AjaibLock) {
 })
 
 // A value the extra target's catch-up keeps in local storage beside the
-// origin it was kept for. It reads as none for another origin, while no
-// extra target is set, or when it doesn't decode; it is saved only while
-// one is set.
+// origin it was kept for. A load captures the origin as it stands, and reads
+// as none for another origin, while none is set, or when it doesn't decode.
+// A save is kept for the origin its load captured, and dropped once `origin`
+// stands elsewhere (target-hold.ts).
 const keptForOrigin = <A, I>(
   key: string,
   value: Schema.Codec<A, I>,
-  // The extra target's origin as its settings stand now.
+  // The extra target's origin while its operation's settings hold.
   origin: Effect.Effect<Option.Option<DashboardOrigin>>
 ) =>
   Effect.sync(() => {
     const Kept = Schema.Struct({ origin: DashboardOrigin, value })
+    let loaded = Option.none<DashboardOrigin>()
     return {
       load: Effect.gen(function* () {
-        const current = yield* origin
+        loaded = yield* origin
+        const current = loaded
         if (Option.isNone(current)) return Option.none<A>()
         const stored = yield* Effect.promise(() =>
           chrome.storage.local.get(key)
@@ -363,9 +366,10 @@ const keptForOrigin = <A, I>(
       }),
       save: Effect.fnUntraced(function* (kept: A) {
         const current = yield* origin
-        if (Option.isNone(current)) return
+        if (Option.isNone(loaded) || !Option.contains(current, loaded.value))
+          return
         const encoded = yield* Effect.orDie(
-          Schema.encodeEffect(Kept)({ origin: current.value, value: kept })
+          Schema.encodeEffect(Kept)({ origin: loaded.value, value: kept })
         )
         yield* Effect.promise(() =>
           chrome.storage.local.set({ [key]: encoded })
