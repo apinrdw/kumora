@@ -31,15 +31,12 @@ import { makeBackfill } from "./backfill.ts"
 import { badgeOf } from "./badge.ts"
 import { makeAjaibWalk } from "./broker-codes/ajaib-walk.ts"
 import { makeExtraTarget } from "./broker-codes/extra-target.ts"
-import {
-  brokerCodesTargets,
-  fetchSend,
-  makeBrokerCodesPoster,
-} from "./broker-codes/poster.ts"
+import { brokerCodesTargets, fetchSend } from "./broker-codes/poster.ts"
+import { makeProductionTarget } from "./broker-codes/production-target.ts"
 import { makeHistoryWalk } from "./broker-codes/history.ts"
 import { makeProgress } from "./broker-codes/progress.ts"
 import { makeRunQueue } from "./broker-codes/run-queue.ts"
-import { fetchGet, makeBrokerCodesStatus } from "./broker-codes/status.ts"
+import { fetchGet } from "./broker-codes/status.ts"
 import {
   makeStockbitWalk,
   stockbitCatchUp,
@@ -378,13 +375,12 @@ const main = Effect.gen(function* () {
   // then catches up on what it missed.
   const targetsNow = Effect.flatMap(loadSettings, brokerCodesTargets)
   const productionTarget = Effect.map(targetsNow, (now) => now.production)
-  const production = yield* makeBrokerCodesPoster({
+  const production = yield* makeProductionTarget({
     target: productionTarget,
     send: fetchSend,
-  })
-  const productionStatus = yield* makeBrokerCodesStatus({
-    target: productionTarget,
     get: fetchGet,
+    stop: (state) =>
+      Effect.suspend(() => targets.stop("production", Option.some(state))),
   })
   const extraTarget = Effect.map(targetsNow, (now) => now.extra)
   const extra = yield* makeExtraTarget({
@@ -416,7 +412,7 @@ const main = Effect.gen(function* () {
   const stockbitWalk = yield* makeStockbitWalk({
     tab: stockbitWalkTab,
     post: extra.tee(production.post),
-    status: productionStatus.status,
+    status: production.status,
     trades: progress.trades,
     signedOut: progress.signedOut,
   })
