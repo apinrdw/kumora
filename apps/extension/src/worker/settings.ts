@@ -2,6 +2,7 @@
 // kept in chrome.storage (spec apinrdw/kumora#138, "Batching and targets").
 import { Effect, Option, Schema } from "effect"
 
+import { AjaibLock } from "./ajaib-lock.ts"
 import { SignIn, type PinStore } from "./ajaib-session.ts"
 import { CodeListCache, RelayOutcome, type CodeListStore } from "./code-list.ts"
 
@@ -216,7 +217,8 @@ export const AjaibPin = Schema.String.check(Schema.isPattern(/^\d{6}$/)).pipe(
 )
 export type AjaibPin = typeof AjaibPin.Type
 
-// A new entry: tried once, on the next tick with an Ajaib tab.
+// A new entry: tried once, on the next tick with an Ajaib tab, then kept for
+// the lock screen until Chrome closes or Ajaib refuses it (ajaib-session.ts).
 export const savePin = Effect.fnUntraced(function* (pin: AjaibPin) {
   const waiting: SignIn = { state: "waiting" }
   yield* Effect.promise(() =>
@@ -244,14 +246,26 @@ export const isSignInChange = Effect.fnUntraced(function* (
 })
 
 export const sessionPinStore: PinStore = {
-  takePin: Effect.gen(function* () {
+  pin: Effect.gen(function* () {
     const stored = yield* Effect.promise(() =>
       chrome.storage.session.get(PIN_KEY)
     )
-    yield* Effect.promise(() => chrome.storage.session.remove(PIN_KEY))
     return decodePin(stored[PIN_KEY])
   }),
+  wipePin: Effect.promise(() => chrome.storage.session.remove(PIN_KEY)),
   signIn: loadSignIn,
   setSignIn: (signIn) =>
     Effect.promise(() => chrome.storage.session.set({ [SIGN_IN_KEY]: signIn })),
 }
+
+// The relayed Ajaib tab's PIN lock (ajaib-lock.ts), in session storage: it
+// describes this browser session's tab only. A `locked` state is the cause
+// "Ajaib locked" the options page and badge show.
+const AJAIB_LOCK_KEY = "ajaibLock"
+
+export const saveAjaibLock = Effect.fnUntraced(function* (lock: AjaibLock) {
+  const encoded = yield* Effect.orDie(Schema.encodeEffect(AjaibLock)(lock))
+  yield* Effect.promise(() =>
+    chrome.storage.session.set({ [AJAIB_LOCK_KEY]: encoded })
+  )
+})

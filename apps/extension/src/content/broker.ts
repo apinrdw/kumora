@@ -12,6 +12,7 @@ import type { Connection, Feed } from "@workspace/relay"
 import type {
   BrokerCommand,
   BrokerEvent,
+  PageEvent,
   Payload,
   SiteName,
   TabCommand,
@@ -60,6 +61,58 @@ window.addEventListener("message", (event) => {
 
 window.postMessage({ kumoraRelay: "ask-page-request" }, location.origin)
 
+// Ajaib's lock screen (spec apinrdw/kumora#244, "The extension: Ajaib
+// keep-alive and the PIN lock"): page.ts reports it and the page's PIN check,
+// which go to the worker over the current port, and answers `type-pin`.
+let forward: (event: PageEvent) => void = () => {}
+const typing = new Map<number, (typed: boolean) => void>()
+let nextTyping = 0
+
+const fromPage = (event: MessageEvent): Record<string, unknown> | undefined => {
+  const data: unknown = event.data
+  if (event.source !== window || typeof data !== "object" || data === null)
+    return undefined
+  return data as Record<string, unknown>
+}
+
+const lockMessages: Record<string, (data: Record<string, unknown>) => void> = {
+  lock: ({ locked }) => {
+    if (typeof locked === "boolean") forward({ _tag: "lock", locked })
+  },
+  "pin-validated": ({ status }) => {
+    if (typeof status === "number") forward({ _tag: "pin-validated", status })
+  },
+  "pin-typed": ({ id, typed }) => {
+    if (typeof id !== "number") return
+    typing.get(id)?.(typed === true)
+    typing.delete(id)
+  },
+}
+
+window.addEventListener("message", (event) => {
+  const data = fromPage(event)
+  if (typeof data?.kumoraRelay === "string")
+    lockMessages[data.kumoraRelay]?.(data)
+})
+
+type LockRequest = Extract<TabRequest, { _tag: "activity" | "type-pin" }>
+
+// Asks page.ts to type the PIN: whether it found the lock screen's boxes.
+const typePin = (pin: string) =>
+  new Promise<boolean>((resolve) => {
+    const id = nextTyping++
+    typing.set(id, resolve)
+    window.postMessage({ kumoraRelay: "type-pin", id, pin }, location.origin)
+  })
+
+const lockAnswer = async (request: LockRequest): Promise<[number, string]> => {
+  if (request._tag === "activity") {
+    window.postMessage({ kumoraRelay: "activity" }, location.origin)
+    return [200, ""]
+  }
+  return (await typePin(request.pin)) ? [200, ""] : [404, ""]
+}
+
 const toBase64 = (buffer: ArrayBuffer) => {
   const bytes = new Uint8Array(buffer)
   let binary = ""
@@ -92,7 +145,7 @@ const read = async (
 ]
 
 const answer = async (
-  request: TabRequest
+  request: Exclude<TabRequest, LockRequest>
 ): Promise<[number, string, boolean?]> => {
   switch (request._tag) {
     case "cookie":
@@ -140,6 +193,11 @@ const answer = async (
   }
 }
 
+const reply = (request: TabRequest) =>
+  request._tag === "activity" || request._tag === "type-pin"
+    ? lockAnswer(request)
+    : answer(request)
+
 type SocketKey = `${SiteName}/${Connection}`
 
 const sockets = new Map<SocketKey, WebSocket>()
@@ -157,13 +215,16 @@ const relay = () => {
     // the tab reloads.
     return
   }
-  const post = (event: BrokerEvent | Answer) => {
+  const post = (event: BrokerEvent | PageEvent | Answer) => {
     try {
       port.postMessage(event)
     } catch {
       // The port closed; onDisconnect reconnects.
     }
   }
+  // A new port's worker learns the lock as it stands.
+  forward = post
+  window.postMessage({ kumoraRelay: "ask-lock" }, location.origin)
 
   const open = (command: Extract<BrokerCommand, { _tag: "open" }>) => {
     const { site, connection } = command
@@ -210,7 +271,7 @@ const relay = () => {
         return socket?.close()
       }
       case "request":
-        return void answer(command.request).then(
+        return void reply(command.request).then(
           ([status, body, challenge]) =>
             post({
               _tag: "answer",
