@@ -59,4 +59,18 @@ describe("the Ajaib catch-up position", () => {
       assert.deepStrictEqual(yield* store.load, Option.some(done))
     })
   )
+
+  // Codex review round 11: the save after a settings change credited the
+  // old target's position to the new one.
+  it.effect("credits a walk's position only to the origin it loaded for", () =>
+    Effect.gen(function* () {
+      memoryLocal()
+      let origin = Option.some(STAGING)
+      const store = yield* ajaibCatchUpStore(Effect.sync(() => origin))
+      assert.isTrue(Option.isNone(yield* store.load))
+      origin = Option.some(PREVIEW)
+      yield* store.save({ day: DAY, pass: "done", next: 0, repair: [] })
+      assert.isTrue(Option.isNone(yield* store.load))
+    })
+  )
 })
