@@ -1,4 +1,6 @@
 <!doctype html>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
 <!--
   PROTOTYPE, throw away. "How the two stacked charts and the Buy/Sell sweep log lay out on Market Live" (apinrdw/kumora#260, map #256).
   Real data: SINI on recorded day 2026-11-13 (data.js): 1-minute candles, sweeps, footprint cells, 10 s book heatmap slices.
@@ -8,11 +10,7 @@
   Three layout variants (?variant=A|B|C), switch with the bottom bar or the left and right arrow keys.
   Plain DOM + lightweight-charts@5.2.1 standalone, not React.
 -->
-<html lang="en">
-<head>
-<meta charset="utf-8">
-<meta name="viewport" content="width=device-width, initial-scale=1">
-<title>Order flow layout prototype</title>
+<title>Order Flow Layouts</title>
 <style>
   :root {
     --bg-canvas:#0b1421; --bg-surface:#142234; --bg-elevated:#1b2c40; --bg-selected:#173a43;
@@ -39,6 +37,9 @@
   .chartbox header { display:flex; align-items:baseline; gap:10px; margin-bottom:6px; }
   .chartbox h2 { font-size:15px; margin:0; }
   .chartbox .legend { font-size:11px; color:var(--text-muted); }
+  .chartbox .noise { margin-left:auto; display:flex; align-items:center; gap:4px; font-size:11px; color:var(--text-muted); white-space:nowrap; }
+  .chartbox .noise button { padding:1px 7px; font-size:11px; }
+  .chartbox .noise #noiseMin { margin-left:4px; font-variant-numeric:tabular-nums; }
   #c1 { height:400px; }
   #c2 { height:380px; }
 
@@ -98,12 +99,21 @@
   .gC .stack { display:flex; flex-direction:column; gap:12px; }
   .gC .row { display:grid; grid-template-columns:1.25fr 1fr 1fr 1.1fr; gap:16px; margin-top:16px; height:460px; }
   .gC .row > * { height:100% !important; }
+  /* A and B fill the window: the layout is at least as tall as the viewport below it (--fill, set
+     in fit()), the chart boxes share the extra height (chart 2 a little more: the footprint needs
+     rows), and the tape grows to the same bottom edge. */
+  .gA, .gB { min-height:var(--fill, auto); align-items:stretch; }
+  .gB .stack > #box1, .gA .main > #box1 { flex:1 1 auto; }
+  .gB .stack > #box2, .gA .main > #box2 { flex:1.25 1 auto; }
+  .gA .main { grid-template-rows:1fr 1.25fr; }
+  .gA .chartbox, .gB .chartbox { display:flex; flex-direction:column; }
+  .gA #c1, .gB #c1 { flex:1 1 400px; min-height:400px; height:auto; }
+  .gA #c2, .gB #c2 { flex:1 1 380px; min-height:380px; height:auto; }
+  .gA .side #tape, .gB .side #tape { flex:1 1 460px; height:auto; min-height:460px; }
 
   .switcher { position:fixed; bottom:16px; left:50%; transform:translateX(-50%); display:flex; align-items:center; gap:10px; background:#f8fafc; color:#0b0d10; border-radius:999px; padding:6px 10px; box-shadow:0 6px 24px rgba(0,0,0,.5); font:600 13px ui-sans-serif,system-ui; z-index:10; }
   .switcher button { background:#e2e8f0; color:#0b0d10; border:0; border-radius:999px; width:28px; height:28px; padding:0; font-size:14px; }
 </style>
-</head>
-<body>
 <h1>Market Live <span class="muted" style="font-size:13px;font-weight:400">· recorded day 2026-11-13 · prototype</span></h1>
 <div class="controls">
   <span>Replay cursor</span>
@@ -118,7 +128,8 @@
 
 <div id="parts" hidden>
   <section class="card chartbox" id="box1">
-    <header><h2>SINI</h2><span class="num" id="last"></span><span class="legend">Chart 1 · candles, book heatmap (bid green, offer red), sweep bubbles (area ∝ lots, amber ring = big trade ≥ Rp1 B)</span></header>
+    <header><h2>SINI</h2><span class="num" id="last"></span><span class="legend">Chart 1 · candles, book heatmap (bid green, offer red), sweep bubbles (area ∝ lots, amber ring = big trade ≥ Rp1 B)</span>
+      <span class="noise" title="Hide small sweeps: keep the largest N% of this code's sweeps by value, up to the cursor">Show top <button data-top="100">All</button><button data-top="50">50%</button><button data-top="25" class="on">25%</button><button data-top="10">10%</button><button data-top="1">1%</button><span id="noiseMin"></span></span></header>
     <div id="c1"></div>
   </section>
   <section class="card chartbox" id="box2">
@@ -153,7 +164,23 @@ const $ = id => document.getElementById(id);
 const wib = ms => new Date(ms + 7 * 3600e3).toISOString().slice(11, 19);
 const wibHM = ms => wib(ms).slice(0, 5);
 const fmtVal = v => v >= 1e9 ? (v / 1e9).toFixed(2) + " B" : v >= 1e6 ? (v / 1e6).toFixed(1) + " M" : (v / 1e3).toFixed(0) + " K";
-const fmtLots = n => { const a = Math.abs(n); return a >= 100000 ? Math.round(n / 1000) + "K" : a >= 10000 ? (n / 1000).toFixed(1) + "K" : String(n); };
+// Lots, shortened from 1,000 with 2 decimals: 1.50K, 12.35K, 178.00K, 1.21M, 25.60M.
+const shortLots = (n, exactBelow = 1000, commas = false) => {
+  const a = Math.abs(n);
+  if (a < exactBelow) return commas ? nf.format(Math.round(n)) : String(Math.round(n));
+  if (a < 999995) return (n / 1e3).toFixed(2) + "K"; // always 2 decimals: 1.50K, 12.35K, 178.00K
+  if (a < 999995000) return (n / 1e6).toFixed(2) + "M";
+  return (n / 1e9).toFixed(2) + "B";
+};
+const fmtLots = n => shortLots(n);
+// Shrinks the font (down to 6 px) until `width(ctx)` fits `avail` bitmap px; returns the size used.
+function fitFont(ctx, px, vpr, avail, width) {
+  let size = px;
+  ctx.font = `${size * vpr}px ui-monospace,monospace`;
+  const w = width(ctx);
+  if (w > avail && w > 0) { size = Math.max(6, size * avail / w); ctx.font = `${size * vpr}px ui-monospace,monospace`; }
+  return size;
+}
 const signed = n => (n > 0 ? "+" : n < 0 ? "−" : "") + nf.format(Math.abs(n));
 const signedC = n => (n > 0 ? "+" : n < 0 ? "−" : "") + fmtLots(Math.abs(n));
 
@@ -219,12 +246,26 @@ const VARIANTS = {
 };
 const keys = Object.keys(VARIANTS);
 const params = new URLSearchParams(location.search);
+const hashVariant = (location.hash.match(/^#variant-([abc])$/i) || [])[1];
+if (hashVariant) params.set("variant", hashVariant.toUpperCase());
 let vkey = VARIANTS[params.get("variant")] ? params.get("variant") : "A";
 const initCursorHM = params.get("cursor") ?? "14:30";
 let cursor = (() => { const [h, m] = initCursorHM.split(":").map(Number); return Date.UTC(2026, 10, 13, h - 7, m); })();
 let cursorMinute = Math.floor(cursor / MIN) * MIN;
 let selectedId = null;
 let bigOnly = false;
+// Noise filter (owner's call, 2026-11-13): bubbles and the log keep only the largest topPct% of
+// the code's sweeps by value, counted over the sweeps up to the cursor, so every code gets a
+// similar density whatever its price. minValue is that percentile's value.
+let topPct = 25, minValue = 0;
+function updateThreshold() {
+  const vals = [];
+  for (const s of sweeps) if (s.time <= cursor) vals.push(s.value);
+  vals.sort((a, b) => b - a);
+  minValue = topPct >= 100 || !vals.length ? 0 : vals[Math.max(0, Math.ceil(vals.length * topPct / 100) - 1)];
+  const el = document.getElementById("noiseMin");
+  if (el) el.textContent = minValue ? `≥ Rp${shortLots(minValue).replace(/\.00(?=[KMB])/, "")}` : "";
+}
 let hoverMinute = null;
 const stats = { c1: { full: 0, top: 0, rects: 0, bubbles: 0 }, c2: { full: 0, top: 0, texts: 0, mode: "" } };
 let benchRec = null, benchText = "not run";
@@ -341,7 +382,7 @@ class Bubbles {
       const cx = ts.timeToCoordinate(m / 1000);
       if (cx === null) continue;
       for (const s of list) {
-        if (s.time > cursor) continue;
+        if (s.time > cursor || s.value < minValue) continue;
         const y = series.priceToCoordinate(s.price);
         if (y === null) continue;
         const x = this.xOf(s, cx, bs) * hpr, yy = y * vpr, r = radius(s.lots) * hpr;
@@ -378,7 +419,7 @@ class Bubbles {
       if (!list) continue;
       const cx = ts.timeToCoordinate(minutes[i] / 1000);
       for (const s of list) {
-        if (s.time > cursor) continue;
+        if (s.time > cursor || s.value < minValue) continue;
         const sy = series.priceToCoordinate(s.price);
         const d = Math.hypot(this.xOf(s, cx, bs) - x, sy - y);
         if (d <= radius(s.lots) + 2 && d < bestD) { best = s; bestD = d; }
@@ -423,6 +464,43 @@ class CursorLine {
   }
 }
 
+// Price axis on IDX ticks: a label and a faint gridline at every tick (25 for SINI) when rows are
+// at least 13 px tall, else every 2nd, 4th, 8th… tick, so labels never collide. The library's own
+// labels are hidden (its spacing can't be forced to the tick).
+class TickAxis {
+  constructor() {
+    this.labels = [];
+    this.grid = [{ zOrder: () => "bottom", renderer: () => ({ draw: t => t.useBitmapCoordinateSpace(s => this.drawGrid(s)) }) }];
+  }
+  attached(p) { this.p = p; }
+  detached() { this.p = undefined; }
+  updateAllViews() {
+    const s = this.p?.series; if (!s) return;
+    const h = this.p.chart.panes()[0].getHeight();
+    const top = s.coordinateToPrice(0), bottom = s.coordinateToPrice(h);
+    if (top === null || bottom === null) { this.labels = []; return; }
+    const tick = idxTick((top + bottom) / 2);
+    const rowPx = Math.abs(s.priceToCoordinate(bottom + tick) - s.priceToCoordinate(bottom));
+    let step = tick; while (rowPx * (step / tick) < 13) step *= 2;
+    const ys = [];
+    for (let p = Math.ceil(bottom / step) * step; p <= top; p += step) {
+      const y = s.priceToCoordinate(p);
+      if (y !== null && y > 6 && y < h - 6) ys.push([p, y]);
+    }
+    this.labels = ys.map(([p, y]) => ({
+      coordinate: () => y, text: () => nf.format(p), textColor: () => MUTED,
+      backColor: () => "rgba(0,0,0,0)", visible: () => true, tickVisible: () => true,
+    }));
+  }
+  priceAxisViews() { return this.labels; }
+  paneViews() { return this.grid; }
+  drawGrid(scope) {
+    const ctx = scope.context, vpr = scope.verticalPixelRatio;
+    ctx.fillStyle = GRID;
+    for (const l of this.labels) ctx.fillRect(0, Math.round(l.coordinate() * vpr), scope.bitmapSize.width, Math.max(1, Math.floor(vpr)));
+  }
+}
+
 // ---------- chart 2 custom series ----------
 function drawCandle(ctx, conv, d, xc, bodyW, hpr, vpr, color) {
   const yh = conv(d.high) * vpr, yl = conv(d.low) * vpr, yo = conv(d.open) * vpr, yc = conv(d.close) * vpr;
@@ -445,10 +523,13 @@ class FootprintView {
     const ctx = scope.context, hpr = scope.horizontalPixelRatio, vpr = scope.verticalPixelRatio;
     const bs = data.barSpacing;
     const ref = candles[0].close, rowH = Math.abs(conv(ref) - conv(ref + TICK));
-    const mode = bs >= 56 && rowH >= 8 ? "text" : bs >= 9 && rowH >= 2 ? "bars" : "candle";
+    // text from 56 px a minute; compact text (smaller font, K-shortened, no ×) from 34 px
+    const mode = bs >= 56 && rowH >= 8 ? "text" : bs >= 34 && rowH >= 7 ? "compact" : bs >= 9 && rowH >= 2 ? "bars" : "candle";
     let texts = 0;
     stats.c2.rowH = rowH;
     if (mode === "text") { ctx.font = `${Math.min(11, rowH - 1) * vpr}px ui-monospace,monospace`; ctx.textBaseline = "middle"; }
+    if (mode === "compact") { ctx.font = `${Math.min(9, rowH - 1) * vpr}px ui-monospace,monospace`; ctx.textBaseline = "middle"; }
+    const k = n => shortLots(n, 1000);
     for (let i = data.visibleRange.from; i < data.visibleRange.to; i++) {
       const bar = data.bars[i];
       if (!bar) continue;
@@ -467,6 +548,24 @@ class FootprintView {
         }
         continue;
       }
+      if (mode === "compact") {
+        const left = x - bs / 2;
+        drawCandle(ctx, conv, d, left + 2, 2, hpr, vpr, col);
+        const cx = left + 4 + (bs - 5) / 2;
+        for (const [p, s, b, n] of d.fp.levels) {
+          const yt = Math.round(conv(p + TICK / 2) * vpr), yb = Math.round(conv(p - TICK / 2) * vpr), y = (yt + yb) / 2;
+          const tint = (s + b) / d.fp.max;
+          ctx.fillStyle = b >= s ? `rgba(81,221,162,${(0.06 + 0.3 * tint).toFixed(3)})` : `rgba(255,121,135,${(0.06 + 0.3 * tint).toFixed(3)})`;
+          ctx.fillRect(Math.round((left + 4) * hpr), yt, Math.round((bs - 5) * hpr), Math.max(1, yb - yt - 1));
+          const half = (bs - 8) / 2 * hpr, base = Math.min(9, rowH - 1);
+          if (s === 0 && b === 0) { fitFont(ctx, base, vpr, 2 * half, c => c.measureText(k(n)).width); ctx.fillStyle = MUTED; ctx.textAlign = "center"; ctx.fillText(k(n), cx * hpr, y); texts++; continue; }
+          fitFont(ctx, base, vpr, half, c => Math.max(c.measureText(k(s)).width, c.measureText(k(b)).width));
+          ctx.textAlign = "right"; ctx.fillStyle = "#ffb3bb"; ctx.fillText(k(s), (cx - 1.5) * hpr, y);
+          ctx.textAlign = "left"; ctx.fillStyle = "#a6f0cf"; ctx.fillText(k(b), (cx + 1.5) * hpr, y);
+          texts += 2;
+        }
+        continue;
+      }
       // text: thin candle on the column's left, then "sell × buy" per price on a delta tint
       const left = x - bs / 2;
       drawCandle(ctx, conv, d, left + 4, 3, hpr, vpr, col);
@@ -476,7 +575,9 @@ class FootprintView {
         const tint = (s + b) / d.fp.max;
         ctx.fillStyle = b >= s ? `rgba(81,221,162,${(0.06 + 0.3 * tint).toFixed(3)})` : `rgba(255,121,135,${(0.06 + 0.3 * tint).toFixed(3)})`;
         ctx.fillRect(Math.round((left + 8) * hpr), yt, Math.round((bs - 10) * hpr), Math.max(1, yb - yt - 1));
-        if (s === 0 && b === 0) { ctx.fillStyle = MUTED; ctx.textAlign = "center"; ctx.fillText(fmtLots(n), cx * hpr, y); texts++; continue; }
+        const half = ((bs - 12) / 2 - 5) * hpr, base = Math.min(11, rowH - 1);
+        if (s === 0 && b === 0) { fitFont(ctx, base, vpr, 2 * half, c => c.measureText(fmtLots(n)).width); ctx.fillStyle = MUTED; ctx.textAlign = "center"; ctx.fillText(fmtLots(n), cx * hpr, y); texts++; continue; }
+        fitFont(ctx, base, vpr, half, c => Math.max(c.measureText(fmtLots(s)).width, c.measureText(fmtLots(b)).width));
         ctx.textAlign = "right"; ctx.fillStyle = "#ffb3bb"; ctx.fillText(fmtLots(s), (cx - 5) * hpr, y);
         ctx.textAlign = "center"; ctx.fillStyle = MUTED; ctx.fillText("×", cx * hpr, y);
         ctx.textAlign = "left"; ctx.fillStyle = "#a6f0cf"; ctx.fillText(fmtLots(b), (cx + 5) * hpr, y);
@@ -500,15 +601,35 @@ class FooterView {
     const bs = data.barSpacing, band = H / 3;
     const vis = [];
     for (let i = data.visibleRange.from; i < data.visibleRange.to; i++) if (data.bars[i] && !data.bars[i].originalData.later) vis.push(data.bars[i]);
-    if (bs >= 44) {
-      ctx.font = `${10 * vpr}px ui-monospace,monospace`; ctx.textAlign = "center"; ctx.textBaseline = "middle";
+    if (bs >= 28) {
+      // One cell per minute and row: "Vol 3,896" / "Δ +3,128" / "CVD +4.1K" with the label when
+      // the column is wide enough, numbers only (K-shortened) when narrow.
+      const K = n => shortLots(n);
+      const sg = n => (n > 0 ? "+" : "") + K(n);
+      const labelled = bs >= 76;
+      ctx.font = `${(bs >= 44 ? 10.5 : 9) * vpr}px ui-monospace,monospace`; ctx.textBaseline = "middle";
       for (const bar of vis) {
-        const d = bar.originalData, X = bar.x * hpr;
-        ctx.fillStyle = TEXT; ctx.fillText(fmtLots(d.vol), X, band * 0.5);
-        ctx.fillStyle = d.delta >= 0 ? UP : DOWN; ctx.fillText(signedC(d.delta), X, band * 1.5);
-        ctx.fillStyle = d.cvd >= 0 ? UP : DOWN; ctx.fillText(signedC(d.cvd), X, band * 2.5);
+        const d = bar.originalData, X = bar.x * hpr, cw = (bs - 3) * hpr, x0 = X - cw / 2;
+        const tint = d.delta >= 0 ? "rgba(81,221,162,.10)" : "rgba(255,121,135,.10)";
+        ctx.fillStyle = "rgba(98,127,155,.10)"; ctx.fillRect(Math.round(x0), Math.round(2 * vpr), Math.round(cw), Math.round(band - 3 * vpr));
+        ctx.fillStyle = tint; ctx.fillRect(Math.round(x0), Math.round(band + vpr), Math.round(cw), Math.round(band - 2 * vpr));
+        ctx.fillStyle = d.cvd >= 0 ? "rgba(81,221,162,.06)" : "rgba(255,121,135,.06)"; ctx.fillRect(Math.round(x0), Math.round(2 * band + vpr), Math.round(cw), Math.round(band - 3 * vpr));
+        const rows = [["Vol", K(d.vol), TEXT], ["Δ", sg(d.delta), d.delta >= 0 ? UP : DOWN], ["CVD", sg(d.cvd), d.cvd >= 0 ? UP : DOWN]];
+        rows.forEach(([lab, val, col], r) => {
+          const y = band * (r + 0.5);
+          const base = bs >= 44 ? 10.5 : 9, avail = cw - 8 * hpr;
+          ctx.font = `${base * vpr}px ui-monospace,monospace`;
+          // the label goes first when the value doesn't fit beside it, then the font shrinks
+          if (labelled && ctx.measureText(lab + "  " + val).width <= avail) {
+            ctx.textAlign = "left"; ctx.fillStyle = MUTED; ctx.fillText(lab, x0 + 5 * hpr, y);
+            ctx.textAlign = "right"; ctx.fillStyle = col; ctx.fillText(val, x0 + cw - 5 * hpr, y);
+          } else {
+            fitFont(ctx, base, vpr, avail, c => c.measureText(val).width);
+            ctx.textAlign = "center"; ctx.fillStyle = col; ctx.fillText(val, X, y);
+          }
+        });
       }
-      stats.c2.texts += vis.length * 3;
+      stats.c2.texts += vis.length * (labelled ? 6 : 3);
       return;
     }
     let mv = 1, md = 1, mc = 1;
@@ -543,7 +664,7 @@ class FooterLabels {
 const baseOptions = () => ({
   autoSize: true,
   layout: { background: { color: "transparent" }, textColor: MUTED, fontSize: 11, panes: { separatorColor: BORDER } },
-  grid: { vertLines: { color: GRID }, horzLines: { color: GRID } },
+  grid: { vertLines: { color: GRID }, horzLines: { visible: false } }, // horizontal lines come from TickAxis
   rightPriceScale: { borderColor: BORDER, minimumWidth: 72 },
   timeScale: { borderColor: BORDER, timeVisible: true, secondsVisible: false, rightOffset: 4, tickMarkFormatter: t => wibHM(t * 1000) },
   // no localization.priceFormatter: it would override the footer series' blank priceFormat
@@ -551,29 +672,66 @@ const baseOptions = () => ({
   crosshair: { mode: LW.CrosshairMode.Normal },
 });
 const chart1 = LW.createChart($("c1"), baseOptions());
-const priceFormat = { type: "custom", minMove: 1, formatter: p => nf.format(Math.round(p)) };
+// IDX tick size (fraksi harga) for a price: <200: 1, 200–<500: 2, 500–<2,000: 5, 2,000–<5,000: 10, ≥5,000: 25.
+const idxTick = p => p < 200 ? 1 : p < 500 ? 2 : p < 2000 ? 5 : p < 5000 ? 10 : 25;
+const toTick = p => { const t = idxTick(p); return Math.round(p / t) * t; };
+// minMove at the code's tick makes the axis labels land on tick multiples; the formatter snaps
+// the crosshair label to the nearest valid price, using the band of that price.
+const priceFormat = { type: "custom", minMove: idxTick(F.previousClose ?? candles[0].close), formatter: p => nf.format(toTick(p)) };
 const cs1 = chart1.addSeries(LW.CandlestickSeries, { upColor: UP, downColor: DOWN, wickUpColor: UP, wickDownColor: DOWN, borderVisible: false, priceLineVisible: false, priceFormat });
-cs1.priceScale().applyOptions({ scaleMargins: { top: 0.06, bottom: 0.06 } });
+cs1.priceScale().applyOptions({ scaleMargins: { top: 0.06, bottom: 0.06 }, textColor: "rgba(0,0,0,0)" });
+cs1.attachPrimitive(new TickAxis());
 cs1.attachPrimitive(new Stamp("c1"));
 const heatmap = new Heatmap(); cs1.attachPrimitive(heatmap);
 const bubbles = new Bubbles(); cs1.attachPrimitive(bubbles);
 const line1 = new CursorLine(true); cs1.attachPrimitive(line1);
+// Volume pane under chart 1: one stacked bar per minute, buy-aggressor lots (green) at the bottom,
+// sell-aggressor lots (red) above, no-side lots (grey, auction matches) on top. Drawn as three
+// overlapping histograms of running totals; the later series paints over the earlier one.
+const volFormat = { type: "custom", minMove: 1, formatter: v => v >= 1000 ? (v / 1000).toFixed(1) + "K" : String(Math.round(v)) };
+const volAll = chart1.addSeries(LW.HistogramSeries, { color: "rgba(131,154,174,.55)", priceLineVisible: false, lastValueVisible: false, priceFormat: volFormat }, 1);
+const volSell = chart1.addSeries(LW.HistogramSeries, { color: DOWN, priceLineVisible: false, lastValueVisible: false, priceFormat: volFormat }, 1);
+const volBuy = chart1.addSeries(LW.HistogramSeries, { color: UP, priceLineVisible: false, lastValueVisible: false, priceFormat: volFormat }, 1);
+volAll.priceScale().applyOptions({ scaleMargins: { top: 0.1, bottom: 0 } });
+chart1.panes()[0].setStretchFactor(4);
+chart1.panes()[1].setStretchFactor(1);
 
 const chart2 = LW.createChart($("c2"), { ...baseOptions(), layout: { ...baseOptions().layout, attributionLogo: false } }); // chart 1 keeps the attribution
-const fps = chart2.addCustomSeries(new FootprintView(), { priceLineVisible: false, lastValueVisible: true, priceFormat });
-fps.priceScale().applyOptions({ scaleMargins: { top: 0.06, bottom: 0.06 } });
+// Rows stay about FP_ROW_PX tall: the autoscaled range (the visible minutes' low to high) is
+// widened around its middle until one tick takes at most FP_ROW_PX, so a few prices don't stretch
+// into giant rows; a wide range still fits by shrinking rows.
+const FP_ROW_PX = 36;
+const FP_MINUTES = 10;
+const fps = chart2.addCustomSeries(new FootprintView(), {
+  priceLineVisible: false, lastValueVisible: true, priceFormat,
+  autoscaleInfoProvider: original => {
+    const r = original();
+    if (!r || !r.priceRange) return r;
+    const { minValue, maxValue } = r.priceRange, h = chart2.panes()[0]?.getHeight() ?? 0;
+    if (!h) return r;
+    const mid = (minValue + maxValue) / 2, tick = idxTick(mid);
+    const half = Math.max((maxValue - minValue) / 2 + tick / 2, (h * 0.88 / FP_ROW_PX) * tick / 2);
+    return { ...r, priceRange: { minValue: mid - half, maxValue: mid + half } };
+  },
+});
+fps.priceScale().applyOptions({ scaleMargins: { top: 0.06, bottom: 0.06 }, textColor: "rgba(0,0,0,0)" });
+fps.attachPrimitive(new TickAxis());
 fps.attachPrimitive(new Stamp("c2"));
 const line2 = new CursorLine(false); fps.attachPrimitive(line2);
 const foot = chart2.addCustomSeries(new FooterView(), { priceLineVisible: false, lastValueVisible: false, priceFormat: { type: "custom", formatter: () => "" } }, 1);
 foot.attachPrimitive(new FooterLabels());
 foot.priceScale().applyOptions({ scaleMargins: { top: 0, bottom: 0 } });
 // stretch factors, not setHeight: the chart is created at zero size inside the hidden parts holder
-chart2.panes()[0].setStretchFactor(5);
+chart2.panes()[0].setStretchFactor(4);
 chart2.panes()[1].setStretchFactor(1);
 
 function setSeriesData() {
   const grey = "rgba(131,154,174,.33)";
   cs1.setData(candles.map(c => ({ time: c.minute / 1000, open: c.open, high: c.high, low: c.low, close: c.close, ...(c.minute > cursorMinute && { color: grey, wickColor: grey }) })));
+  const dim = (i, col) => candles[i].minute > cursorMinute ? grey : col;
+  volAll.setData(candles.map((c, i) => ({ time: c.minute / 1000, value: c.volume, color: dim(i, "rgba(131,154,174,.55)") })));
+  volSell.setData(candles.map((c, i) => ({ time: c.minute / 1000, value: fp[i].buy + fp[i].sell, color: dim(i, DOWN) })));
+  volBuy.setData(candles.map((c, i) => ({ time: c.minute / 1000, value: fp[i].buy, color: dim(i, UP) })));
   fps.setData(candles.map((c, i) => ({ time: c.minute / 1000, open: c.open, high: c.high, low: c.low, close: c.close, fp: fp[i], later: c.minute > cursorMinute })));
   foot.setData(candles.map((c, i) => ({ time: c.minute / 1000, vol: c.volume, buy: fp[i].buy, sell: fp[i].sell, delta: fp[i].delta, cvd: fp[i].cvd, later: c.minute > cursorMinute })));
 }
@@ -586,7 +744,62 @@ const link = (a, b) => a.timeScale().subscribeVisibleLogicalRangeChange(r => {
   syncing = true; b.timeScale().setVisibleLogicalRange(r); syncing = false;
   scheduleState();
 });
-link(chart1, chart2); link(chart2, chart1);
+// Chart 2 zooms on its own: it shows a footprint-sized window (about 72 px a minute, so every
+// price shows sell × buy numbers), and chart 1 shades that window. Clicking a minute on chart 1
+// or a log row moves chart 2 there. The crosshair still syncs both ways.
+class WindowBand {
+  constructor() { this.views = [{ zOrder: () => "top", renderer: () => ({ draw: t => t.useBitmapCoordinateSpace(s => this.draw(s)) }) }]; }
+  attached(p) { this.p = p; }
+  detached() { this.p = undefined; }
+  update() { this.p?.requestUpdate(); }
+  paneViews() { return this.views; }
+  draw(scope) {
+    const r = chart2.timeScale().getVisibleLogicalRange();
+    if (!r || !this.p) return;
+    // whole-minute positions only: logicalToCoordinate returns 0 for fractional ones in 5.2.1
+    const ts = chart1.timeScale(), i0 = Math.max(0, Math.ceil(r.from)), i1 = Math.min(candles.length - 1, Math.floor(r.to));
+    const c0 = ts.logicalToCoordinate(i0), c1 = ts.logicalToCoordinate(i1), half = barSpacing(chart1) / 2;
+    if (c0 === null || c1 === null || i1 < i0) return;
+    const a = c0 - half, b = c1 + half;
+    const ctx = scope.context, hpr = scope.horizontalPixelRatio, H = scope.bitmapSize.height;
+    const x0 = Math.round(a * hpr), x1 = Math.round(b * hpr), w = Math.max(1, Math.floor(hpr));
+    ctx.fillStyle = "rgba(237,244,251,.10)"; ctx.fillRect(x0, 0, x1 - x0, H);
+    ctx.fillStyle = "rgba(85,217,199,.95)"; ctx.fillRect(x0, 0, 2 * w, H); ctx.fillRect(x1 - 2 * w, 0, 2 * w, H);
+  }
+}
+const band = new WindowBand(); cs1.attachPrimitive(band);
+// Pan sync: a pan (range moved, width kept) on either chart moves the other by the same number of
+// minutes; a zoom (width changed) stays on its own chart, so each keeps its own zoom.
+// The library reports a range change later (next frame), so a move one chart made for the other
+// is recognised by its target range and swallowed instead of echoed back.
+// Only the chart under the pointer leads; the follower's own range events never propagate, so
+// nothing echoes. The follower's position is tracked here (its own reports arrive a frame late).
+let leader = null;
+const lastRange = new Map(), followTo = new Map();
+const panLink = (a, b, el) => {
+  for (const ev of ["pointerenter", "pointerdown", "wheel", "touchstart"]) $(el).addEventListener(ev, () => { leader = a; followTo.delete(a); }, { passive: true });
+  lastRange.set(a, a.timeScale().getVisibleLogicalRange());
+  a.timeScale().subscribeVisibleLogicalRangeChange(r => {
+    band.update(); scheduleState();
+    const prev = lastRange.get(a); lastRange.set(a, r);
+    if (leader !== a || !r || !prev) return;
+    const shift = r.from - prev.from, widthChange = (r.to - r.from) - (prev.to - prev.from);
+    if (Math.abs(widthChange) > 0.01 || Math.abs(shift) < 1e-6) return;
+    const o = followTo.get(b) ?? b.timeScale().getVisibleLogicalRange();
+    if (!o) return;
+    const target = { from: o.from + shift, to: o.to + shift };
+    followTo.set(b, target);
+    b.timeScale().setVisibleLogicalRange(target);
+  });
+};
+panLink(chart1, chart2, "c1"); panLink(chart2, chart1, "c2");
+function focusFootprint(i) {
+  const w = FP_MINUTES; // the footprint opens and jumps at 10 minutes wide
+  // the library shows whole bars from `from` to `to` inclusive, so w bars is a range w − 1 wide
+  const from = i - Math.floor((w - 1) / 2), target = { from, to: from + w - 1 };
+  followTo.set(chart2, target); // a jump, not a pan: later pans start from here
+  chart2.timeScale().setVisibleLogicalRange(target);
+}
 chart1.subscribeCrosshairMove(p => {
   const d = p.time !== undefined ? p.seriesData.get(cs1) : undefined;
   if (d) chart2.setCrosshairPosition(p.point ? cs1.coordinateToPrice(p.point.y) ?? d.close : d.close, d.time, fps); else chart2.clearCrosshairPosition();
@@ -597,9 +810,42 @@ chart2.subscribeCrosshairMove(p => {
   const price = p.point && (p.paneIndex ?? 0) === 0 ? fps.coordinateToPrice(p.point.y) ?? d?.close : d?.close;
   if (d) chart1.setCrosshairPosition(price, d.time, cs1); else chart1.clearCrosshairPosition();
   hover(p.time);
+  ladder(d, p.point, price);
 });
+
+// Hover ladder: the hovered minute's sell × buy lots at every price, readable at any zoom.
+const ladderEl = document.createElement("div");
+ladderEl.id = "fpLadder";
+ladderEl.style.cssText = "position:fixed;z-index:50;pointer-events:none;background:#0f1b2a;border:1px solid #3e566b;border-radius:6px;padding:6px 8px;font:11px/1.45 ui-monospace,monospace;color:#edf4fb;box-shadow:0 6px 20px rgba(0,0,0,.45);font-variant-numeric:tabular-nums";
+ladderEl.hidden = true;
+document.body.appendChild(ladderEl);
+// Vol, Δ and CVD for the hovered minute, exact, under the ladder.
+function footLines(d, f) {
+  const c = candles[indexOf.get(d.time * 1000)], up = "#a6f0cf", dn = "#ffb3bb";
+  const sg = n => `<span style="color:${n >= 0 ? up : dn}">${n > 0 ? "+" : ""}${nf.format(n)}</span>`;
+  const row = (k, v) => `<tr><td style="color:#839aae;padding:0 10px 0 0">${k}</td><td style="text-align:right">${v}</td></tr>`;
+  return `<table style="border-collapse:collapse;margin-top:5px;padding-top:4px;border-top:1px solid #26394e;width:100%">${row("Vol", nf.format(c?.volume ?? f.buy + f.sell))}${row("Δ", sg(f.delta))}${row("CVD", sg(f.cvd))}</table>`;
+}
+function ladder(d, point, price) {
+  if (!d || !point || d.later || !d.fp.levels.length) { ladderEl.hidden = true; return; }
+  const near = d.fp.levels.reduce((a, l) => Math.abs(l[0] - price) < Math.abs(a[0] - price) ? l : a, d.fp.levels[0])[0];
+  const rows = d.fp.levels.map(([p, s, b, n]) => {
+    const hl = p === near ? "background:#173a43;" : "";
+    return `<tr style="${hl}"><td style="color:#ffb3bb;text-align:right;padding:0 6px">${nf.format(s)}</td><td style="color:#b0c2d2;text-align:center;padding:0 6px">${nf.format(p)}</td><td style="color:#a6f0cf;text-align:left;padding:0 6px">${nf.format(b)}</td>${n ? `<td style="color:#839aae;padding-left:4px">+${nf.format(n)}</td>` : "<td></td>"}</tr>`;
+  }).join("");
+  const f = d.fp;
+  ladderEl.innerHTML = `<div style="color:#839aae;margin-bottom:3px">${wibHM(d.time * 1000)} WIB · Sell × Buy</div><table style="border-collapse:collapse">${rows}</table>${footLines(d, f)}`;
+  ladderEl.hidden = false;
+  const r = $("c2").getBoundingClientRect(), w = ladderEl.offsetWidth, h = ladderEl.offsetHeight;
+  let x = r.left + point.x + 16, y = r.top + point.y - h / 2;
+  if (x + w > innerWidth - 8) x = r.left + point.x - w - 16;
+  y = Math.max(8, Math.min(innerHeight - h - 8, y));
+  ladderEl.style.left = x + "px"; ladderEl.style.top = y + "px";
+}
+$("c2").addEventListener("mouseleave", () => { ladderEl.hidden = true; });
 chart1.subscribeClick(p => {
   if (p.hoveredObjectId !== undefined && p.hoveredObjectId !== null) selectSweep(sweeps[+p.hoveredObjectId], false);
+  if (p.logical !== undefined) focusFootprint(Math.round(p.logical));
 });
 
 // ---------- readout ----------
@@ -634,9 +880,9 @@ function rebuildLog() {
     if (s.time > cursor) continue;
     if (s.side === "buy") buys++; else sells++;
     if (s.big) bigs++;
-    if (!bigOnly || s.big) logRows.push(s);
+    if ((!bigOnly || s.big) && s.value >= minValue) logRows.push(s);
   }
-  $("logCounts").textContent = `${nf.format(buys + sells)} sweeps to ${wib(cursor)} · Buy ${nf.format(buys)} · Sell ${nf.format(sells)} · Big ${bigs}`;
+  $("logCounts").textContent = `${nf.format(buys + sells)} sweeps to ${wib(cursor)} · Buy ${nf.format(buys)} · Sell ${nf.format(sells)} · Big ${bigs}${minValue ? ` · showing ${nf.format(logRows.length)} ≥ Rp${shortLots(minValue).replace(/\.00(?=[KMB])/, "")}` : ""}`;
   spacer.style.height = logRows.length * ROW + "px";
   renderLog();
 }
@@ -658,6 +904,11 @@ scroller.addEventListener("click", e => {
   const row = e.target.closest("[data-id]");
   if (row) selectSweep(sweeps[+row.dataset.id], true);
 });
+document.querySelectorAll("[data-top]").forEach(b => b.onclick = () => {
+  topPct = +b.dataset.top;
+  document.querySelectorAll("[data-top]").forEach(x => x.classList.toggle("on", x === b));
+  updateThreshold(); rebuildLog(); bubbles.p?.requestUpdate(); scheduleState();
+});
 $("bigOnly").onclick = e => { bigOnly = !bigOnly; e.target.classList.toggle("on", bigOnly); rebuildLog(); };
 
 // clicking a row scrolls both charts to its minute (keeping the zoom unless it is wider than 60 bars) and rings its bubble
@@ -671,6 +922,7 @@ function selectSweep(s, fromLog) {
     if (w > 60) w = 30;
     chart1.timeScale().setVisibleLogicalRange({ from: i - w / 2, to: i + w / 2 });
   }
+  if (i !== undefined) focusFootprint(i);
   if (!fromLog) {
     const k = logRows.indexOf(s);
     if (k >= 0) scroller.scrollTop = Math.max(0, k * ROW - scroller.clientHeight / 2);
@@ -694,19 +946,22 @@ function setCursor(t) {
   if (m !== cursorMinute) { cursorMinute = m; setSeriesData(); }
   heatmap.p?.requestUpdate(); line2.p?.requestUpdate();
   $("cursorLabel").textContent = wib(cursor) + " WIB";
-  rebuildLog(); renderReadout(); scheduleState();
+  updateThreshold(); rebuildLog(); renderReadout(); scheduleState();
+  bubbles.p?.requestUpdate();
 }
 
 // ---------- zoom presets ----------
 const busiest = (() => { let best = 0, bi = 0; minutes.forEach((m, i) => { const n = (byMinute.get(m) ?? []).length; if (n > best) { best = n; bi = i; } }); return bi; })();
 function zoom(z) {
   const ts = chart1.timeScale();
-  if (z === "day") ts.fitContent();
-  else if (z === "open60") ts.setVisibleLogicalRange({ from: -0.5, to: 59.5 });
-  else if (z === "open15") ts.setVisibleLogicalRange({ from: -0.5, to: 14.5 });
-  else if (z === "busy") ts.setVisibleLogicalRange({ from: busiest - 7.5, to: busiest + 7.5 });
+  followTo.delete(chart1);
+  const want = z === "day" ? { from: 0, to: candles.length - 1 } : z === "open60" ? { from: -0.5, to: 59.5 } : z === "open15" ? { from: -0.5, to: 14.5 } : { from: busiest - 7.5, to: busiest + 7.5 };
+  if (z === "day") ts.fitContent(); else ts.setVisibleLogicalRange(want);
+  // chart 2 opens on the middle of chart 1's view, at footprint zoom
+  // (from the requested range: the library applies it a frame later, so reading it back is stale)
+  focusFootprint(Math.round(Math.min(Math.max((want.from + want.to) / 2, 0), candles.length - 1)));
   document.querySelectorAll("[data-zoom]").forEach(b => b.classList.toggle("on", b.dataset.zoom === z));
-  params.set("zoom", z); history.replaceState(null, "", "?" + params);
+  params.set("zoom", z);
 }
 document.querySelectorAll("[data-zoom]").forEach(b => b.onclick = () => zoom(b.dataset.zoom));
 
@@ -800,11 +1055,21 @@ function layout(k) {
   } else {
     L.appendChild(div("gC", div("stack", part("box1"), part("readout"), part("box2")), div("row", part("log"), part("wl"), part("ob"), part("tape"))));
   }
-  requestAnimationFrame(() => { layoutLog(); renderLog(); scheduleState(); });
+  requestAnimationFrame(() => { fit(); layoutLog(); renderLog(); scheduleState(); });
 }
+function fit() {
+  const L = $("layout"), top = L.getBoundingClientRect().top + scrollY;
+  L.style.setProperty("--fill", Math.max(0, innerHeight - top - 16) + "px");
+}
+addEventListener("resize", () => {
+  fit(); layoutLog(); renderLog();
+  // keep the footprint at FP_MINUTES around its current middle
+  const r = chart2.timeScale().getVisibleLogicalRange();
+  if (r) requestAnimationFrame(() => focusFootprint(Math.round((r.from + r.to) / 2)));
+});
 function setVariant(k) {
   vkey = k;
-  params.set("variant", k); history.replaceState(null, "", "?" + params);
+  params.set("variant", k); try { history.replaceState(null, "", "#variant-" + k.toLowerCase()); } catch {}
   $("vlabel").textContent = `${k} (${VARIANTS[k]})`;
   layout(k);
 }
@@ -827,5 +1092,3 @@ requestAnimationFrame(() => requestAnimationFrame(() => {
   requestAnimationFrame(() => { window.__ready = true; });
 }));
 </script>
-</body>
-</html>
