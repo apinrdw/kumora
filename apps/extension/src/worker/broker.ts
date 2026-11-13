@@ -75,6 +75,12 @@ export type TabRequest =
   // The bearer token of the page's latest REST request; status 0 before it
   // made one.
   | { readonly _tag: "page-token" }
+  // Ajaib: one synthetic `mousemove` on the page's document, which re-arms
+  // its idle PIN lock (ajaib-lock.ts).
+  | { readonly _tag: "activity" }
+  // Ajaib: type the PIN into the lock screen's six boxes. Status 200 once
+  // typed, 404 when no lock screen shows, so nothing was typed.
+  | { readonly _tag: "type-pin"; readonly pin: string }
 
 export type TabCommand =
   | BrokerCommand
@@ -100,6 +106,15 @@ export const BrokerEvent = Schema.Union([
   Schema.TaggedStruct("closed", { ...socket, code: Schema.Int }),
 ])
 export type BrokerEvent = typeof BrokerEvent.Type
+
+// What Ajaib's page script (page.ts) sees of the page, by way of the content
+// script: the PIN lock screen showing or gone, and the answer status of the
+// page's own PIN validate call.
+export const PageEvent = Schema.Union([
+  Schema.TaggedStruct("lock", { locked: Schema.Boolean }),
+  Schema.TaggedStruct("pin-validated", { status: Schema.Int }),
+])
+export type PageEvent = typeof PageEvent.Type
 
 // How the relay talks to one broker socket.
 export interface BrokerSite {

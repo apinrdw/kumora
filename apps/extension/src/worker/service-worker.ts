@@ -25,6 +25,7 @@ import {
 } from "effect"
 import * as Socket from "effect/socket/Socket"
 
+import { makeAjaibLock } from "./ajaib-lock.ts"
 import { makeAjaibSession } from "./ajaib-session.ts"
 import { makeBackfill } from "./backfill.ts"
 import { BATCH_INTERVAL, makeBatcher } from "./batch.ts"
@@ -40,6 +41,7 @@ import {
   isSettingsChange,
   loadClockOffset,
   loadSettings,
+  saveAjaibLock,
   saveCodeListRelay,
   saveTargetStates,
   sessionPinStore,
@@ -261,12 +263,21 @@ const main = Effect.gen(function* () {
     batcher,
     publish,
     hooks: onDemand.hooks,
+    page: (event): Effect.Effect<void> =>
+      Effect.suspend(() => ajaibLock.page(event)),
   })
   const tabs = [stockbitTab, ajaibTab]
   const ajaibSession = yield* makeAjaibSession({
     tab: ajaibTab,
     store: sessionPinStore,
   })
+  const ajaibLock = yield* makeAjaibLock({
+    tab: ajaibTab,
+    pins: sessionPinStore,
+    save: saveAjaibLock,
+  })
+  yield* Effect.forkScoped(ajaibLock.run)
+  yield* Effect.forkScoped(ajaibLock.keepAlive)
   // The Ajaib tab's REST calls, with the PIN sign-in's token for the page's
   // API before the page made a call of its own.
   const ajaibRest: BrokerTab = {
@@ -313,6 +324,7 @@ const main = Effect.gen(function* () {
     const window = yield* windowAt(schedule)
     for (const tab of tabs) yield* tab.tick(window)
     const session = yield* Effect.forkScoped(ajaibSession.tick)
+    yield* ajaibLock.tick
     const fetch = yield* codeList.tick(ajaibRest, schedule)
     const earlier = settled
     settled = Option.some(

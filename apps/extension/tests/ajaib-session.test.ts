@@ -134,10 +134,9 @@ const harness = Effect.fnUntraced(function* (reply: Answer) {
         }),
     },
     store: {
-      takePin: Effect.sync(() => {
-        const taken = Option.fromNullishOr(pin)
+      pin: Effect.sync(() => Option.fromNullishOr(pin)),
+      wipePin: Effect.sync(() => {
         pin = undefined
-        return taken
       }),
       signIn: Effect.sync(() => signIn),
       setSignIn: (next) =>
@@ -149,11 +148,19 @@ const harness = Effect.fnUntraced(function* (reply: Answer) {
   return {
     session,
     requests,
+    // As the options page saves a new entry (settings.ts savePin).
     enter: (entered: string) =>
       Effect.sync(() => {
         pin = entered
+        signIn = { state: "waiting" }
       }),
     signIn: () => signIn,
+    pin: () => pin,
+    restartedMidCall: (entered: string) =>
+      Effect.sync(() => {
+        pin = entered
+        signIn = { state: "signing-in" }
+      }),
   }
 })
 
@@ -161,7 +168,7 @@ describe("signing in to Ajaib with the PIN", () => {
   it.effect("tries a PIN once, from the tab, and keeps its state", () =>
     Effect.gen(function* () {
       const token = jwt({ sub: 4999301 })
-      const { session, requests, enter, signIn } = yield* harness(
+      const { session, requests, enter, signIn, pin } = yield* harness(
         answer(200, approved(token))
       )
       yield* session.tick
@@ -181,6 +188,8 @@ describe("signing in to Ajaib with the PIN", () => {
         accessToken: token,
       })
       assert.deepStrictEqual(yield* session.fallbackToken, Option.some(token))
+      // Kept for the lock screen (ajaib-lock.ts), yet never sent again.
+      assert.strictEqual(pin(), "123456")
     })
   )
 
@@ -188,7 +197,7 @@ describe("signing in to Ajaib with the PIN", () => {
     "never tries a wrong PIN again; only a new entry is tried, once",
     () =>
       Effect.gen(function* () {
-        const { session, requests, enter, signIn } = yield* harness(
+        const { session, requests, enter, signIn, pin } = yield* harness(
           answer(200, {
             ...approved(""),
             err_code: "EC0000012",
@@ -199,10 +208,34 @@ describe("signing in to Ajaib with the PIN", () => {
         for (let tick = 0; tick < 5; tick++) yield* session.tick
         assert.lengthOf(requests, 1)
         assert.deepStrictEqual(signIn(), { state: "wrong-pin" })
+        assert.strictEqual(pin(), undefined)
         assert.deepStrictEqual(yield* session.fallbackToken, Option.none())
         yield* enter("222222")
         for (let tick = 0; tick < 5; tick++) yield* session.tick
         assert.lengthOf(requests, 2)
       })
+  )
+
+  it.effect(
+    "a worker restarted during the call never sends the PIN again",
+    () =>
+      Effect.gen(function* () {
+        const { session, requests, restartedMidCall } = yield* harness(
+          answer(200, approved(jwt({ sub: 1 })))
+        )
+        yield* restartedMidCall("123456")
+        for (let tick = 0; tick < 5; tick++) yield* session.tick
+        assert.lengthOf(requests, 0)
+      })
+  )
+
+  it.effect("a failed check wipes the PIN too", () =>
+    Effect.gen(function* () {
+      const { session, enter, signIn, pin } = yield* harness(answer(500, ""))
+      yield* enter("123456")
+      yield* session.tick
+      assert.deepStrictEqual(signIn(), { state: "failed" })
+      assert.strictEqual(pin(), undefined)
+    })
   )
 })

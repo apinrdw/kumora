@@ -88,8 +88,10 @@ export const pinOutcome = Effect.fnUntraced(function* (answer: Answer) {
 
 // Where the PIN and the sign-in live: chrome.storage.session (settings.ts).
 export interface PinStore {
-  // The entered PIN, removed as it is read.
-  readonly takePin: Effect.Effect<Option.Option<string>>
+  // The entered PIN, kept for the browser session so the lock screen
+  // (ajaib-lock.ts) can type it, until it is wiped.
+  readonly pin: Effect.Effect<Option.Option<string>>
+  readonly wipePin: Effect.Effect<void>
   readonly signIn: Effect.Effect<SignIn>
   readonly setSignIn: (signIn: SignIn) => Effect.Effect<void>
 }
@@ -105,25 +107,28 @@ export const makeAjaibSession = Effect.fnUntraced(function* (options: {
 }) {
   const { tab, store } = options
 
-  // Decision: a PIN is tried once, on the first tick with an Ajaib tab, and
-  // taken out of storage before the call, so no retry, restart or later tick
-  // can send it again: a wrong PIN tried twice could lock the account. Only a
-  // new entry on the options page is tried again.
+  // Decision: a PIN is tried once, while its sign-in is `waiting` (a new
+  // entry), which moves to `signing-in` before the call, so no retry or
+  // restart sends it again: a wrong PIN tried twice could lock the account.
+  // The PIN stays for the lock screen unless refused or failed, then it is
+  // wiped. See apinrdw/kumora#244, "The PIN's storage".
   const tick = Effect.gen(function* () {
     if (!(yield* tab.attached)) return
-    const pin = yield* store.takePin
-    if (Option.isNone(pin)) return
+    if ((yield* store.signIn).state !== "waiting") return
+    const pin = yield* store.pin
+    if (Option.isNone(pin)) return yield* store.setSignIn({ state: "none" })
     yield* store.setSignIn({ state: "signing-in" })
     const answer = yield* tab.request({
       _tag: "page-post",
       url: PIN_VALIDATE_URL,
       body: JSON.stringify({ pin_code: pin.value }),
     })
-    yield* store.setSignIn(
-      Option.isSome(answer)
-        ? yield* pinOutcome(answer.value)
-        : { state: "failed" }
-    )
+    const outcome: SignIn = Option.isSome(answer)
+      ? yield* pinOutcome(answer.value)
+      : { state: "failed" }
+    if (outcome.state === "wrong-pin" || outcome.state === "failed")
+      yield* store.wipePin
+    yield* store.setSignIn(outcome)
   })
 
   // The PIN sign-in's access token, for the tab's REST calls before the page

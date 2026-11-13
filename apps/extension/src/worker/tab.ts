@@ -14,6 +14,7 @@ import type { makeBatcher } from "./batch.ts"
 import {
   Answer,
   BrokerEvent,
+  PageEvent,
   detached,
   step,
   type BrokerInput,
@@ -28,6 +29,7 @@ import {
 
 const decodeBrokerEvent = Schema.decodeUnknownOption(BrokerEvent)
 const decodeAnswer = Schema.decodeUnknownOption(Answer)
+const decodePageEvent = Schema.decodeUnknownOption(PageEvent)
 const decodeFeed = Schema.decodeUnknownOption(Feed)
 
 const REQUEST_TIMEOUT = "15 seconds"
@@ -54,8 +56,12 @@ export const makeBrokerTab = Effect.fnUntraced(function* (options: {
   readonly batcher: Effect.Success<ReturnType<typeof makeBatcher>>
   readonly publish: (message: IngestUp) => Effect.Effect<unknown>
   readonly hooks: TabHooks
+  // What the page script sees of the page (Ajaib's lock screen). A tab that
+  // goes reports its lock gone.
+  readonly page?: (event: PageEvent) => Effect.Effect<void>
 }) {
   const { feed, sites, batcher, publish, hooks } = options
+  const page = options.page ?? (() => Effect.void)
   let active: chrome.runtime.Port | undefined
   const waiting: Array<chrome.runtime.Port> = []
   const links = new Map<SiteName, Links>(
@@ -158,7 +164,9 @@ export const makeBrokerTab = Effect.fnUntraced(function* (options: {
       return
     }
     const event = decodeBrokerEvent(raw)
-    if (Option.isSome(event)) yield* onEvent(event.value)
+    if (Option.isSome(event)) return yield* onEvent(event.value)
+    const seen = decodePageEvent(raw)
+    if (Option.isSome(seen)) yield* page(seen.value)
   })
 
   const disconnect = Effect.fnUntraced(function* (port: chrome.runtime.Port) {
@@ -171,6 +179,7 @@ export const makeBrokerTab = Effect.fnUntraced(function* (options: {
       yield* Deferred.succeed(deferred, gone)
     pending.clear()
     yield* driveAll({ _tag: "detach" })
+    yield* page({ _tag: "lock", locked: false })
     const next = waiting.shift()
     if (next !== undefined) yield* attach(next)
   })
