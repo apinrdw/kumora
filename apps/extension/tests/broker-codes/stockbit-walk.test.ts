@@ -4,6 +4,7 @@ import {
   BrokerCodesProtocolVersion,
   TradeNumber,
   WibDate,
+  decodeBrokerCodesBatch,
   type BrokerCodesBatch,
   type BrokerCodesStatus,
   type TradeCodes,
@@ -12,11 +13,13 @@ import { Clock, Deferred, Effect, Fiber, Option } from "effect"
 import { TestClock } from "effect/testing"
 
 import { makeAjaibWalk } from "../../src/worker/broker-codes/ajaib-walk.ts"
+import { makeExtraTarget } from "../../src/worker/broker-codes/extra-target.ts"
 import type { PostOutcome } from "../../src/worker/broker-codes/poster.ts"
 import { makeRunQueue } from "../../src/worker/broker-codes/run-queue.ts"
 import { makeStockbitWalk } from "../../src/worker/broker-codes/stockbit-walk.ts"
 import type { Answer, TabRequest } from "../../src/worker/broker.ts"
 import { makePacer } from "../../src/worker/pacer.ts"
+import { DashboardOrigin } from "../../src/worker/settings.ts"
 
 const DAY = WibDate.make("2026-11-12")
 const wib = (date: string, time: string) => Date.parse(`${date}T${time}+07:00`)
@@ -610,6 +613,53 @@ describe("Stockbit's walk: stopping and carrying on", () => {
         [1_000, 400]
       )
       assert.deepStrictEqual(production.ends(), [])
+    })
+  )
+})
+
+describe("Stockbit's walk and the extra target", () => {
+  it.effect("tees each of the walk's batches to the extra target", () =>
+    Effect.gen(function* () {
+      yield* TestClock.setTime(wib("2026-11-12", "17:30:00"))
+      const production = fakeProduction()
+      const staging = fakeProduction()
+      const extra = yield* makeExtraTarget({
+        target: Effect.succeed(
+          Option.some({
+            origin: DashboardOrigin.make("https://staging.example"),
+            token: "staging-token",
+          })
+        ),
+        production: Effect.succeedNone,
+        send: ({ body }) =>
+          Effect.as(
+            Effect.flatMap(
+              Effect.orDie(decodeBrokerCodesBatch(body)),
+              (batch) => staging.post(batch)
+            ),
+            200
+          ),
+        get: () => Effect.succeedNone,
+        report: () => Effect.void,
+      })
+      yield* Effect.forkChild(extra.run)
+      const walk = yield* makeStockbitWalk({
+        tab: fakeStockbit(),
+        post: extra.tee(production.post),
+        status: production.status,
+      })
+      assert.deepStrictEqual(yield* walk.walk(DAY), { _tag: "walked" })
+      const sent = production.stockbit().length
+      for (
+        let turn = 0;
+        turn < 1_000 && staging.stockbit().length < sent;
+        turn++
+      )
+        yield* Effect.yieldNow
+      assert.isAbove(sent, 1)
+      assert.deepStrictEqual(staging.stockbit(), production.stockbit())
+      assert.isTrue((yield* staging.status(DAY)).complete)
+      assert.deepStrictEqual(staging.ends(), [{ n: String(N) }])
     })
   )
 })
