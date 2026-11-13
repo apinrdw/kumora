@@ -3,25 +3,37 @@
 // Start. The extension posts a day's batches and asks its status with the
 // ingest token as its bearer; there is no viewer session and no sign-in
 // gate. Each reaches the named day's trading-day Durable Object.
-import {
-  BROKER_CODES_BATCH_LIMIT,
-  decodeBrokerCodesBatch,
-  type WibDate,
-} from "@workspace/relay"
+import { BROKER_CODES_BATCH_LIMIT, type WibDate } from "@workspace/relay"
 import { WorkerEnv } from "@workspace/server"
 import { Effect, Option, Schema } from "effect"
 
+import { acceptBatch, noStoreAnswer } from "./broker-codes.ts"
 import { ingestTokenMatches } from "./ingest-token.ts"
 import { ObjectPath } from "./routes.ts"
 
-const refused = (status: number, text: string, headers = {}) =>
-  Effect.sync(
-    () =>
-      new Response(text, {
-        status,
-        headers: { "Cache-Control": "no-store", ...headers },
-      })
-  )
+// Decision: every answer, a 401, 426 or 400 included, allows any origin, and
+// a preflight is answered before the token check. The extension's manifest
+// grants only Production's host, so an extra target (Staging, a Preview or a
+// Dev stage) is reached cross-origin, and the extension must read the status
+// to tell a rejected token from a network failure. Any origin is safe: the
+// ingest token is a bearer header, never a cookie, so a page can't borrow
+// the owner's credentials. See apinrdw/kumora#244, "The extension: targets".
+const CORS = {
+  "Access-Control-Allow-Origin": "*",
+  "Access-Control-Allow-Headers": "authorization, content-type",
+  "Access-Control-Allow-Methods": "GET, POST, OPTIONS",
+}
+
+const withCors = (response: Response) =>
+  Effect.sync(() => {
+    const headers = new Headers(response.headers)
+    for (const [name, value] of Object.entries(CORS)) headers.set(name, value)
+    return new Response(response.body, {
+      status: response.status,
+      statusText: response.statusText,
+      headers,
+    })
+  })
 
 const BEARER = "Bearer "
 
@@ -85,25 +97,30 @@ const toTradingDay = Effect.fnUntraced(function* (
 const post = Effect.fnUntraced(
   function* (request: Request, day: WibDate) {
     const text = yield* boundedText(request)
-    const batch = yield* decodeBrokerCodesBatch(text)
-    if (batch.day !== day) return yield* refused(400, "Batch of another day")
-    return yield* toTradingDay(day, { method: "POST", body: text })
+    return yield* acceptBatch(text, day, () =>
+      toTradingDay(day, { method: "POST", body: text })
+    )
   },
-  Effect.catchTags({
-    BodyTooLong: () => refused(413, "Batch too long"),
-    BrokerCodesVersionMismatch: () => refused(426, "Reload the extension"),
-    SchemaError: () => refused(400, "Batch not read"),
-  })
+  Effect.catchTag("BodyTooLong", () => noStoreAnswer(413, "Batch too long"))
 )
 
-export const brokerCodesRoute = Effect.fnUntraced(function* (
+const answer = Effect.fnUntraced(function* (
   request: Request,
   day: Option.Option<WibDate>
 ) {
-  if (!(yield* authorized(request))) return yield* refused(401, "Bad token")
-  if (Option.isNone(day)) return yield* refused(400, "No such day")
+  if (request.method === "OPTIONS") return yield* noStoreAnswer(204)
+  if (!(yield* authorized(request)))
+    return yield* noStoreAnswer(401, "Bad token")
+  if (Option.isNone(day)) return yield* noStoreAnswer(400, "No such day")
   if (request.method === "POST") return yield* post(request, day.value)
   if (request.method === "GET")
     return yield* toTradingDay(day.value, { method: "GET" })
-  return yield* refused(405, "GET or POST", { Allow: "GET, POST" })
+  return yield* noStoreAnswer(405, "GET or POST", {
+    Allow: "GET, POST, OPTIONS",
+  })
 })
+
+export const brokerCodesRoute = (
+  request: Request,
+  day: Option.Option<WibDate>
+) => Effect.flatMap(answer(request, day), withCors)

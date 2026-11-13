@@ -188,6 +188,45 @@ describe("the broker codes route", () => {
     })
   )
 
+  // The extension reaches an extra target from its service worker without a
+  // host permission, so every answer carries CORS headers it can read.
+  it.effect(
+    "a preflight answers 204 before the token check, and every answer allows any origin",
+    () =>
+      Effect.gen(function* () {
+        const { reached, send } = yield* Effect.sync(setup)
+        const preflight = yield* send(PATH, { method: "OPTIONS" })
+        assert.strictEqual(preflight.status, 204)
+        const answers = [
+          preflight,
+          yield* send(PATH),
+          yield* send(PATH, {
+            method: "POST",
+            token: TOKEN,
+            body: yield* batch(BrokerCodesProtocolVersion + 1),
+          }),
+          yield* send(PATH, { method: "POST", token: TOKEN, body: "not json" }),
+          yield* send(PATH, { method: "PUT", token: TOKEN }),
+          yield* send(PATH, { token: TOKEN }),
+        ]
+        assert.deepStrictEqual(
+          answers.map((answer) => [
+            answer.status,
+            answer.headers.get("access-control-allow-origin"),
+            answer.headers.get("access-control-allow-headers"),
+            answer.headers.get("access-control-allow-methods"),
+          ]),
+          [204, 401, 426, 400, 405, 200].map((status) => [
+            status,
+            "*",
+            "authorization, content-type",
+            "GET, POST, OPTIONS",
+          ])
+        )
+        assert.strictEqual(reached.length, 1)
+      })
+  )
+
   it.effect("any other method answers 405", () =>
     Effect.gen(function* () {
       const { reached, send } = yield* Effect.sync(setup)
