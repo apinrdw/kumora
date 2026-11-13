@@ -8,6 +8,7 @@ import {
   WibDate,
   ajaibRowCodes,
   ajaibSequence,
+  streamingEndOf,
   type BrokerCodesBatch,
   type TradeCodes,
   type TradeNumber,
@@ -289,7 +290,7 @@ export const makeAjaibWalk = Effect.fnUntraced(function* (options: {
   // could be, or just after now if that is earlier.
   const firstBoundary = Effect.fnUntraced(function* (day: WibDate) {
     const now = yield* Clock.currentTimeMillis
-    const end = Date.parse(`${day}T16:35:00+07:00`)
+    const end = DateTime.toEpochMillis(yield* streamingEndOf(day))
     return Math.floor(Math.min(now, end) / BLOCK) * BLOCK + BLOCK
   })
 
