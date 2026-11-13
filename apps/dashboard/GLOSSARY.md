@@ -30,6 +30,22 @@ _Avoid_: Trade count, ticks
 One executed trade on the exchange's tape: its time, stock code, price and lots, and the buyer and seller brokers when the feed carries them. The running trades of every stock code together make the tape.
 _Avoid_: Done trade, tick
 
+**Broker code**:
+The exchange's code for the member firm on one side of a running trade, such as `YP`. Each running trade has a buyer broker code and a seller broker code.
+_Avoid_: Broker ID, broker name
+
+**Investor type**:
+Whether the investor behind one side of a running trade is domestic or foreign. Each running trade has a buyer investor type and a seller investor type. It describes the investor, not the broker: a foreign broker can trade for a domestic investor.
+_Avoid_: Foreign flag, broker type
+
+**Cross-check**:
+A second broker site's copy of a trading day's broker codes and investor types, compared trade by trade with the copy the terminal keeps. It reports where the two differ and never changes the kept copy.
+_Avoid_: Verification, reconciliation
+
+**History walk**:
+Fetching the broker codes of trading days from before the terminal started keeping them, newest day first, until the broker site stops serving older days.
+_Avoid_: Backfill (that is filling gaps in the live tape)
+
 **Trade number**:
 The exchange's number for a running trade: one sequence across the whole market, restarting each trading day. Every feed that reports the same trade gives it the same trade number.
 _Avoid_: Trade ID, sequence
