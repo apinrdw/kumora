@@ -1,12 +1,11 @@
 // Production's broker codes poster and status reader (spec
 // apinrdw/kumora#244, "The extension: targets").
-import type { BrokerCodesBatch, TradeNumber, WibDate } from "@workspace/relay"
+import type { TradeNumber, WibDate } from "@workspace/relay"
 import { Effect, Option } from "effect"
 
 import {
   makeBrokerCodesPoster,
   type BrokerCodesTarget,
-  type PostOutcome,
   type Send,
 } from "./poster.ts"
 import {
@@ -31,6 +30,7 @@ export const makeProductionTarget = Effect.fnUntraced(function* (options: {
   const poster = yield* makeBrokerCodesPoster({
     ...options,
     refused: options.hold.refused,
+    halted: options.hold.stopOf,
   })
   const reader = yield* makeBrokerCodesStatus({
     ...options,
@@ -43,12 +43,7 @@ export const makeProductionTarget = Effect.fnUntraced(function* (options: {
       : Effect.succeed(Option.none())
   )
   return {
-    post: (batch: BrokerCodesBatch) =>
-      Effect.flatMap(stopped, (stop) =>
-        Option.isSome(stop)
-          ? Effect.succeed<PostOutcome>(stop.value)
-          : poster.post(batch)
-      ),
+    post: poster.post,
     status: (day: WibDate, after?: TradeNumber) =>
       Effect.flatMap(stopped, (stop) =>
         Option.isSome(stop)
