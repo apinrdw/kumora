@@ -2,6 +2,7 @@
 // apinrdw/kumora#244, "The progress truth"): the extension asks it before
 // every run on a day, and a walk resumes from it.
 import {
+  BROKER_CODES_AUTH_SCHEME,
   brokerCodesPath,
   decodeBrokerCodesStatus,
   type BrokerCodesStatus,
@@ -26,7 +27,7 @@ export const fetchGet: Get = ({ url, token }) =>
   Effect.gen(function* () {
     const response = yield* Effect.tryPromise(() =>
       fetch(url, {
-        headers: { authorization: `Bearer ${token}` },
+        headers: { authorization: `${BROKER_CODES_AUTH_SCHEME}${token}` },
         cache: "no-store",
       })
     )

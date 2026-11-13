@@ -20,6 +20,10 @@ const PREFIX = "/api/broker-codes"
 export const brokerCodesPath = (day: WibDate) =>
   Effect.sync(() => `${PREFIX}/${day}`)
 
+// What precedes the ingest token in a batch POST's or a status GET's
+// `authorization` header.
+export const BROKER_CODES_AUTH_SCHEME = "Bearer "
+
 const decodeDate = Schema.decodeUnknownOption(WibDate)
 
 // The day a path names: none for a path outside the prefix, which isn't a

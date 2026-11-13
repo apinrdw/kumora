@@ -2,6 +2,7 @@
 // extension: targets"). Production drives the walks; each batch a walk
 // builds goes through one poster per target.
 import {
+  BROKER_CODES_AUTH_SCHEME,
   brokerCodesPath,
   encodeBrokerCodesBatch,
   type BrokerCodesBatch,
@@ -33,7 +34,7 @@ export const fetchSend: Send = ({ url, token, body }) =>
     fetch(url, {
       method: "POST",
       headers: {
-        authorization: `Bearer ${token}`,
+        authorization: `${BROKER_CODES_AUTH_SCHEME}${token}`,
         "content-type": "application/json",
       },
       body,

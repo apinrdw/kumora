@@ -104,6 +104,7 @@ export { BOOK_DEPTH, BookLevel } from "./order-book.ts"
 export type { IndexHasNoBook, OrderBook } from "./order-book.ts"
 export {
   BROKER_CODES_BATCH_LIMIT,
+  BROKER_CODES_AUTH_SCHEME,
   BrokerCode,
   BrokerCodesProtocolVersion,
   BrokerCodesVersionMismatch,

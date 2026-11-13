@@ -3,7 +3,11 @@
 // Start. The extension posts a day's batches and asks its status with the
 // ingest token as its bearer; there is no viewer session and no sign-in
 // gate. Each reaches the named day's trading-day Durable Object.
-import { BROKER_CODES_BATCH_LIMIT, type WibDate } from "@workspace/relay"
+import {
+  BROKER_CODES_AUTH_SCHEME,
+  BROKER_CODES_BATCH_LIMIT,
+  type WibDate,
+} from "@workspace/relay"
 import { WorkerEnv } from "@workspace/server"
 import { Effect, Option, Schema } from "effect"
 
@@ -33,12 +37,13 @@ const withCors = (response: Response) =>
     })
   })
 
-const BEARER = "Bearer "
-
 const authorized = Effect.fnUntraced(function* (request: Request) {
   const header = request.headers.get("authorization")
-  if (header === null || !header.startsWith(BEARER)) return false
-  return yield* ingestTokenMatches(header.slice(BEARER.length))
+  if (header === null || !header.startsWith(BROKER_CODES_AUTH_SCHEME))
+    return false
+  return yield* ingestTokenMatches(
+    header.slice(BROKER_CODES_AUTH_SCHEME.length)
+  )
 })
 
 class BodyTooLong extends Schema.TaggedError<BodyTooLong>()(
