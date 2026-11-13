@@ -1,6 +1,6 @@
 import { assert, describe, it } from "@effect/vitest"
 import { WibDate, type BrokerCodesBatch } from "@workspace/relay"
-import { Clock, Effect, Fiber, Option } from "effect"
+import { Clock, Effect, Exit, Fiber, Option } from "effect"
 import { TestClock } from "effect/testing"
 
 import {
@@ -385,6 +385,36 @@ describe("Ajaib's walk: stopping and carrying on", () => {
         assert.strictEqual(tab.paths[30], tab.paths[29])
         assert.deepStrictEqual(missingOf(production.held()), [])
       })
+  )
+
+  it.effect("leaves the day to Stockbit when its Ajaib tab goes mid-walk", () =>
+    Effect.gen(function* () {
+      yield* TestClock.setTime(wib("2026-11-12", "17:30:00"))
+      let gone = false
+      // The tab closes during the 40th call: it and any later get no answer.
+      const fake = fakeAjaib({
+        answer: (_, call) =>
+          call >= 40
+            ? Effect.sync(() => {
+                gone = true
+                return undefined
+              })
+            : undefined,
+      })
+      const walk = yield* makeAjaibWalk({
+        tab: { ...fake, attached: Effect.sync(() => !gone) },
+        post: fakeProduction().post,
+        store: memoryStore().store,
+      })
+      const fiber = yield* Effect.forkChild(walk.walk(DAY))
+      yield* settle(fake, 40)
+      yield* TestClock.adjust("10 seconds")
+      assert.deepStrictEqual(
+        fiber.pollUnsafe(),
+        Exit.succeed({ _tag: "unserved", reason: "no-tab" })
+      )
+      assert.lengthOf(fake.paths, 40)
+    })
   )
 
   it.effect("stops in place at 08:40, when market hours start", () =>
