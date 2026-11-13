@@ -16,7 +16,10 @@ import { makeAjaibWalk } from "../../src/worker/broker-codes/ajaib-walk.ts"
 import { makeExtraTarget } from "../../src/worker/broker-codes/extra-target.ts"
 import type { PostOutcome } from "../../src/worker/broker-codes/poster.ts"
 import { makeRunQueue } from "../../src/worker/broker-codes/run-queue.ts"
-import { makeStockbitWalk } from "../../src/worker/broker-codes/stockbit-walk.ts"
+import {
+  makeStockbitWalk,
+  stockbitCatchUp,
+} from "../../src/worker/broker-codes/stockbit-walk.ts"
 import type { Answer, TabRequest } from "../../src/worker/broker.ts"
 import { makePacer } from "../../src/worker/pacer.ts"
 import { DashboardOrigin } from "../../src/worker/settings.ts"
@@ -474,6 +477,8 @@ describe("Stockbit's walk: when it starts and gives up", () => {
           { feed: "Ajaib", walk: ajaib.walk },
           { feed: "Stockbit", walk: stockbit.walk },
         ],
+        incompleteDays: { load: Effect.succeed([]), save: () => Effect.void },
+        gaps: { feed: "Stockbit", walk: stockbit.gaps },
         catchUp: [],
         report: (progress) =>
           progress.state === "idle"
@@ -617,6 +622,129 @@ describe("Stockbit's walk: stopping and carrying on", () => {
   )
 })
 
+// The tape's ASC pages: the trade number each one paged after.
+const cursors = (tape: ReturnType<typeof fakeStockbit>) =>
+  tape
+    .params()
+    .filter((each) => each.get("sort") === "ASC")
+    .map((each) => each.get("trade_number"))
+
+describe("Stockbit's gap walk of an older day", () => {
+  it.effect(
+    "fetches only the day's missing ranges, each from just below it",
+    () =>
+      Effect.gen(function* () {
+        yield* TestClock.setTime(wib("2026-11-13", "17:30:00"))
+        const production = fakeProduction()
+        yield* ajaibServedInPart(production)
+        const tape = fakeStockbit()
+        const walk = yield* walkWith(tape, production)
+        assert.deepStrictEqual(yield* walk.gaps(DAY), { _tag: "walked" })
+        const status = yield* production.status(DAY)
+        assert.isTrue(status.complete)
+        // Trade 500 comes first in its second, before 499: a cursor at 499
+        // would page past it.
+        assert.strictEqual(production.held.get(500)?.source, "stockbit")
+        // Each range from a page below it: 1 page for 500, 12 for
+        // 1,001..2,000. Nothing past 2,000 but the page that finished it.
+        const pages = cursors(tape)
+        assert.deepStrictEqual(pages.slice(0, 2), ["399", "900"])
+        assert.lengthOf(pages, 1 + 12)
+        assert.isFalse(
+          production
+            .stockbit()
+            .some((batch) =>
+              batch.rows.some(([number]) => Number(number) > 2_100)
+            )
+        )
+        assert.deepStrictEqual(production.ends(), [])
+      })
+  )
+
+  it.effect("asks Stockbit nothing for a complete day", () =>
+    Effect.gen(function* () {
+      yield* TestClock.setTime(wib("2026-11-13", "17:30:00"))
+      const production = fakeProduction()
+      yield* walkWith(fakeStockbit(), production).pipe(
+        Effect.flatMap((walk) => walk.walk(DAY))
+      )
+      const tape = fakeStockbit()
+      const walk = yield* walkWith(tape, production)
+      assert.deepStrictEqual(yield* walk.gaps(DAY), { _tag: "walked" })
+      assert.deepStrictEqual(tape.urls, [])
+    })
+  )
+
+  it.effect(
+    "walks a day whose end isn't known on to the end, and posts it",
+    () =>
+      Effect.gen(function* () {
+        yield* TestClock.setTime(wib("2026-11-12", "17:30:00"))
+        const production = fakeProduction()
+        // Stockbit's walk of the day stopped during its 15th call, at 08:40.
+        const first = fakeStockbit({
+          answer: (call) =>
+            call === 15
+              ? Effect.as(
+                  TestClock.setTime(wib("2026-11-13", "08:40:00")),
+                  undefined
+                )
+              : undefined,
+        })
+        yield* walkWith(first, production).pipe(
+          Effect.flatMap((walk) => walk.walk(DAY))
+        )
+        production.held.delete(250)
+        yield* TestClock.setTime(wib("2026-11-13", "17:30:00"))
+        const tape = fakeStockbit()
+        const walk = yield* walkWith(tape, production)
+        assert.deepStrictEqual(yield* walk.gaps(DAY), { _tag: "walked" })
+        assert.isTrue((yield* production.status(DAY)).complete)
+        assert.deepStrictEqual(production.ends(), [{ n: String(N) }])
+        assert.deepStrictEqual(cursors(tape).slice(0, 2), ["149", "1400"])
+      })
+  )
+
+  it.effect(
+    "keeps a day whose gaps Stockbit sends without codes for a later run",
+    () =>
+      Effect.gen(function* () {
+        yield* TestClock.setTime(wib("2026-11-13", "17:30:00"))
+        const production = fakeProduction()
+        yield* ajaibServedInPart(production)
+        const tape = fakeStockbit({ noBrokers: new Set([1_500]) })
+        const walk = yield* walkWith(tape, production)
+        assert.deepStrictEqual(yield* walk.gaps(DAY), {
+          _tag: "unserved",
+          reason: "incomplete",
+        })
+        assert.deepStrictEqual(
+          (yield* production.status(DAY)).missing.map((range) =>
+            range.map(Number)
+          ),
+          [[1_500, 1_500]]
+        )
+        // Trade 1,500 was seen: the walk didn't run on to the day's end.
+        assert.lengthOf(cursors(tape), 1 + 12)
+      })
+  )
+
+  it.effect("gives up a day Stockbit answers with no rows", () =>
+    Effect.gen(function* () {
+      yield* TestClock.setTime(wib("2026-11-13", "17:30:00"))
+      const production = fakeProduction()
+      yield* ajaibServedInPart(production)
+      const tape = fakeStockbit({ n: 0 })
+      const walk = yield* walkWith(tape, production)
+      assert.deepStrictEqual(yield* walk.gaps(DAY), {
+        _tag: "unserved",
+        reason: "no-rows",
+      })
+      assert.lengthOf(tape.urls, 1)
+    })
+  )
+})
+
 describe("Stockbit's walk and the extra target", () => {
   it.effect("tees each of the walk's batches to the extra target", () =>
     Effect.gen(function* () {
@@ -661,5 +789,65 @@ describe("Stockbit's walk and the extra target", () => {
       assert.isTrue((yield* staging.status(DAY)).complete)
       assert.deepStrictEqual(staging.ends(), [{ n: String(N) }])
     })
+  )
+
+  it.effect(
+    "the extra target's catch-up fills its own missing ranges, and only them",
+    () =>
+      Effect.gen(function* () {
+        yield* TestClock.setTime(wib("2026-11-12", "17:30:00"))
+        const production = fakeProduction()
+        yield* walkWith(fakeStockbit(), production).pipe(
+          Effect.flatMap((walk) => walk.walk(DAY))
+        )
+        // The extra target kept Ajaib's batches, and missed Stockbit's.
+        const staging = fakeProduction()
+        yield* ajaibServedInPart(staging)
+        const statusOf = (target: ReturnType<typeof fakeProduction>) =>
+          Effect.map(target.status(DAY), (status) =>
+            Option.some(JSON.stringify(status))
+          )
+        const extra = yield* makeExtraTarget({
+          target: Effect.succeed(
+            Option.some({
+              origin: DashboardOrigin.make("https://staging.example"),
+              token: "staging-token",
+            })
+          ),
+          production: Effect.succeed(
+            Option.some({
+              origin: DashboardOrigin.make("https://production.example"),
+              token: "production-token",
+            })
+          ),
+          send: ({ body }) =>
+            Effect.as(
+              Effect.flatMap(
+                Effect.orDie(decodeBrokerCodesBatch(body)),
+                (batch) => staging.post(batch)
+              ),
+              200
+            ),
+          get: ({ url }) =>
+            statusOf(url.startsWith("https://staging") ? staging : production),
+          report: () => Effect.void,
+        })
+        const tape = fakeStockbit()
+        const catchUp = yield* extra.catchUp("Stockbit", ({ post, status }) =>
+          stockbitCatchUp({ tab: tape, post, status })
+        )
+        assert.deepStrictEqual(yield* catchUp.walk(DAY), { _tag: "walked" })
+        assert.isTrue((yield* staging.status(DAY)).complete)
+        assert.deepStrictEqual(
+          staging
+            .stockbit()
+            .flatMap((batch) => batch.rows.map(([number]) => Number(number)))
+            .filter(
+              (number) => number !== 500 && (number < 1_001 || number > 2_000)
+            ),
+          []
+        )
+        assert.deepStrictEqual(cursors(tape).slice(0, 2), ["399", "900"])
+      })
   )
 })

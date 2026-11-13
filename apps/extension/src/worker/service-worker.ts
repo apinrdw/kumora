@@ -36,12 +36,11 @@ import {
   makeBrokerCodesPoster,
 } from "./broker-codes/poster.ts"
 import { makeRunQueue } from "./broker-codes/run-queue.ts"
+import { fetchGet, makeBrokerCodesStatus } from "./broker-codes/status.ts"
 import {
-  fetchGet,
-  makeBrokerCodesStatus,
-  type StatusOutcome,
-} from "./broker-codes/status.ts"
-import { makeStockbitWalk } from "./broker-codes/stockbit-walk.ts"
+  makeStockbitWalk,
+  stockbitCatchUp,
+} from "./broker-codes/stockbit-walk.ts"
 import { BATCH_INTERVAL, makeBatcher } from "./batch.ts"
 import { ajaib, ajaibOnDemand, stockbit } from "./broker.ts"
 import { makeCodeList } from "./code-list.ts"
@@ -53,6 +52,7 @@ import {
   ajaibCatchUpStore,
   ajaibWalkStore,
   codeListStore,
+  incompleteDaysStore,
   isClockOffsetChange,
   isCodeListRelayAsk,
   isSettingsChange,
@@ -335,8 +335,9 @@ const main = Effect.gen(function* () {
     publish,
   })
   yield* Effect.forkScoped(backfill.run)
-  // Broker codes: the newest closed day's walks post to Production, and
-  // resume from its status. Each batch also goes to the extra target, which
+  // Broker codes: the newest closed day's walks, then Stockbit's gap walk of
+  // older incomplete days, post to Production, and resume from its status.
+  // Each batch also goes to the extra target, which
   // then catches up on what it missed.
   const productionTarget = Effect.map(loadSettings, (settings) =>
     settings.productionToken === ""
@@ -382,26 +383,21 @@ const main = Effect.gen(function* () {
       makeAjaibWalk({ tab: ajaibPacer.tab("walk"), post, store })
     )
   )
-  // Stockbit resumes from the extra target's own status, so it fills what
-  // the Ajaib catch-up left. A status the extra target didn't give stops
-  // the walk as an unset token would, which ends only the catch-up.
-  const stockbitCatchUp = yield* extra.catchUp("Stockbit", ({ post, status }) =>
-    makeStockbitWalk({
-      tab: stockbitPacer.tab("walk"),
-      post,
-      status: (day) =>
-        Effect.map(
-          status(day),
-          Option.getOrElse((): StatusOutcome => "off")
-        ),
-    })
+  // Stockbit fills what the Ajaib catch-up left, from the extra target's
+  // own missing ranges.
+  const stockbitExtraCatchUp = yield* extra.catchUp(
+    "Stockbit",
+    ({ post, status }) =>
+      stockbitCatchUp({ tab: stockbitPacer.tab("walk"), post, status })
   )
   const brokerCodes = yield* makeRunQueue({
     newestDay: [
       { feed: "Ajaib", walk: ajaibWalk.walk },
       { feed: "Stockbit", walk: stockbitWalk.walk },
     ],
-    catchUp: [ajaibCatchUp, stockbitCatchUp],
+    incompleteDays: incompleteDaysStore,
+    gaps: { feed: "Stockbit", walk: stockbitWalk.gaps },
+    catchUp: [ajaibCatchUp, stockbitExtraCatchUp],
     report: saveBrokerCodesProgress,
   })
   yield* Effect.forkScoped(brokerCodes.run)

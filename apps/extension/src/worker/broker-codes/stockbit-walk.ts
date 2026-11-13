@@ -348,12 +348,75 @@ export const makeStockbitWalk = Effect.fnUntraced(function* (options: {
     return { _tag: "walked" } satisfies WalkResult
   })
 
+  // The gap walk of an older incomplete day: each missing range from a page
+  // below it, until every number in it was seen; then, while the day's end
+  // isn't known, on from the highest trade held to the end. Walked once the
+  // day's status is complete.
+  const gapDay = Effect.fnUntraced(function* (day: WibDate) {
+    yield* guard
+    const before = yield* status(day)
+    if (before.complete) return { _tag: "walked" } satisfies WalkResult
+    yield* start(day)
+    for (const [from, to] of before.missing) {
+      const low = BigInt(from)
+      const high = BigInt(to)
+      const seen = new Set<bigint>()
+      // Decision: a range's walk pages after the trade a page (100) below
+      // it, not the one just below: within a second Stockbit sends trades
+      // out of number order, so a range's first trade can come before the
+      // one below it. A trade seen without codes counts as seen, since it
+      // comes only once a walk. See apinrdw/kumora#244, "Gap walk".
+      const below = low - 1n - BigInt(PAGE)
+      yield* forward(
+        day,
+        below > 0n
+          ? Option.some(TradeNumber.make(below.toString()))
+          : Option.none(),
+        (rows) => {
+          for (const row of rows)
+            if (row.value >= low && row.value <= high) seen.add(row.value)
+          return BigInt(seen.size) === high - low + 1n
+        }
+      )
+    }
+    if (before.n === null)
+      yield* finish(day, yield* forward(day, yield* highestHeld(before)))
+    return (yield* status(day)).complete
+      ? ({ _tag: "walked" } satisfies WalkResult)
+      : ({ _tag: "unserved", reason: "incomplete" } satisfies WalkResult)
+  })
+
   return {
     walk: (day: WibDate): Effect.Effect<WalkResult> => settle(walkDay(day)),
+    gaps: (day: WibDate): Effect.Effect<WalkResult> => settle(gapDay(day)),
     start,
     forward,
     finish,
     status,
     settle,
   }
+})
+
+// Decision: the extra target's Stockbit catch-up (extra-target.ts) is the
+// gap walk over the extra target's own status, so it fills the holes inside
+// the day too, not just the tail. A status the extra target didn't give
+// stops the walk as an unset token would, which ends only the catch-up. See
+// apinrdw/kumora#251.
+export const stockbitCatchUp = Effect.fnUntraced(function* (options: {
+  readonly tab: RequestingTab
+  readonly post: (batch: BrokerCodesBatch) => Effect.Effect<PostOutcome>
+  readonly status: (
+    day: WibDate
+  ) => Effect.Effect<Option.Option<BrokerCodesStatus>>
+}) {
+  const walk = yield* makeStockbitWalk({
+    tab: options.tab,
+    post: options.post,
+    status: (day) =>
+      Effect.map(
+        options.status(day),
+        Option.getOrElse((): StatusOutcome => "off")
+      ),
+  })
+  return { walk: walk.gaps }
 })

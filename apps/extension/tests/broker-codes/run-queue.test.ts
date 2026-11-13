@@ -1,11 +1,12 @@
 import { assert, describe, it } from "@effect/vitest"
-import type { Feed, WibDate } from "@workspace/relay"
+import { WibDate, type Feed } from "@workspace/relay"
 import { Deferred, Effect } from "effect"
 import { TestClock } from "effect/testing"
 
 import {
   makeRunQueue,
   type BrokerCodesProgress,
+  type IncompleteDaysStore,
   type WalkResult,
 } from "../../src/worker/broker-codes/run-queue.ts"
 
@@ -41,18 +42,54 @@ const catchUpWalk = (
     }),
 })
 
+// Stockbit's gap walk of older days, kept as `gaps <day>`.
+const gapWalk = (
+  walked: Array<string>,
+  result: (day: WibDate) => Effect.Effect<WalkResult> = () =>
+    Effect.succeed({ _tag: "walked" })
+) => ({
+  feed: "Stockbit" as const,
+  walk: (day: WibDate) =>
+    Effect.suspend(() => {
+      walked.push(`gaps ${day}`)
+      return result(day)
+    }),
+})
+
+// The incomplete-days list as chrome.storage.local keeps it.
+const memoryDays = (days: ReadonlyArray<string> = []) => {
+  let kept = days.map((day) => WibDate.make(day))
+  return {
+    days: () => kept,
+    store: {
+      load: Effect.sync(() => kept),
+      save: (next: ReadonlyArray<WibDate>) =>
+        Effect.sync(() => {
+          kept = [...next]
+        }),
+    } satisfies IncompleteDaysStore,
+  }
+}
+
 type Walks = (
   walked: Array<string>
 ) => ReadonlyArray<ReturnType<typeof fakeWalk>>
 
 const harness = Effect.fnUntraced(function* (
   walks: Walks,
-  catchUp: Walks = () => []
+  catchUp: Walks = () => [],
+  older: {
+    readonly days?: ReturnType<typeof memoryDays>
+    readonly gaps?: (day: WibDate) => Effect.Effect<WalkResult>
+  } = {}
 ) {
   const walked: Array<string> = []
   const progress: Array<BrokerCodesProgress> = []
+  const days = older.days ?? memoryDays()
   const queue = yield* makeRunQueue({
     newestDay: walks(walked),
+    incompleteDays: days.store,
+    gaps: gapWalk(walked, older.gaps),
     catchUp: catchUp(walked),
     report: (each) => Effect.sync(() => progress.push(each)),
   })
@@ -61,6 +98,7 @@ const harness = Effect.fnUntraced(function* (
   return {
     walked,
     progress,
+    days,
     tick: Effect.andThen(queue.tick, settle),
     trigger: Effect.andThen(queue.trigger, settle),
   }
@@ -92,6 +130,7 @@ describe("the broker codes run queue", () => {
         assert.deepStrictEqual(queue.walked, [
           "Ajaib 2026-11-12",
           "Ajaib 2026-11-13",
+          "gaps 2026-11-12",
         ])
       })
   )
@@ -221,6 +260,7 @@ describe("the broker codes run queue", () => {
       yield* queue.tick
       assert.deepStrictEqual(queue.walked.slice(2), [
         "Ajaib 2026-11-13",
+        "gaps 2026-11-12",
         "catch-up Stockbit 2026-11-13",
       ])
     })
@@ -247,5 +287,119 @@ describe("the broker codes run queue", () => {
         ])
         assert.deepStrictEqual(queue.progress.at(-1), { state: "idle" })
       })
+  )
+})
+
+describe("the broker codes run queue: older incomplete days", () => {
+  it.effect(
+    "walks older days' gaps after the new day, oldest first, then the catch-up",
+    () =>
+      Effect.gen(function* () {
+        yield* TestClock.setTime(wib("2026-11-12", "17:00:00"))
+        const queue = yield* harness(
+          (walked) => [fakeWalk("Ajaib", walked), fakeWalk("Stockbit", walked)],
+          (walked) => [catchUpWalk("Stockbit", walked)],
+          { days: memoryDays(["2026-11-10", "2026-11-06", "2026-11-11"]) }
+        )
+        yield* queue.trigger
+        assert.deepStrictEqual(queue.walked, [
+          "Ajaib 2026-11-12",
+          "Stockbit 2026-11-12",
+          "gaps 2026-11-06",
+          "gaps 2026-11-10",
+          "gaps 2026-11-11",
+          "catch-up Stockbit 2026-11-12",
+        ])
+        assert.deepStrictEqual(queue.progress.slice(-2), [
+          {
+            state: "walking",
+            day: WibDate.make("2026-11-11"),
+            feed: "Stockbit",
+          },
+          { state: "idle" },
+        ])
+      })
+  )
+
+  it.effect(
+    "drops a day once complete or given up, and keeps one still incomplete",
+    () =>
+      Effect.gen(function* () {
+        yield* TestClock.setTime(wib("2026-11-12", "17:00:00"))
+        const results: Record<string, WalkResult> = {
+          "2026-11-06": { _tag: "walked" },
+          "2026-11-10": { _tag: "unserved", reason: "no-rows" },
+          "2026-11-11": { _tag: "unserved", reason: "incomplete" },
+        }
+        const queue = yield* harness(
+          (walked) => [fakeWalk("Ajaib", walked)],
+          undefined,
+          {
+            days: memoryDays(["2026-11-06", "2026-11-10", "2026-11-11"]),
+            gaps: (day) => Effect.succeed(results[day] ?? { _tag: "walked" }),
+          }
+        )
+        yield* queue.trigger
+        // The new day is kept too, and checked once it is an older day.
+        assert.deepStrictEqual(queue.days.days(), ["2026-11-11", "2026-11-12"])
+      })
+  )
+
+  it.effect("a gap walk that stops ends the run and keeps its day", () =>
+    Effect.gen(function* () {
+      yield* TestClock.setTime(wib("2026-11-12", "17:00:00"))
+      const queue = yield* harness(
+        (walked) => [fakeWalk("Ajaib", walked)],
+        (walked) => [catchUpWalk("Stockbit", walked)],
+        {
+          days: memoryDays(["2026-11-06", "2026-11-10"]),
+          gaps: () => Effect.succeed({ _tag: "stopped", cause: "no-tab" }),
+        }
+      )
+      yield* queue.trigger
+      assert.deepStrictEqual(queue.walked, [
+        "Ajaib 2026-11-12",
+        "gaps 2026-11-06",
+      ])
+      assert.deepStrictEqual(queue.progress.at(-1), {
+        state: "paused",
+        cause: "no-tab",
+      })
+      assert.deepStrictEqual(queue.days.days(), [
+        "2026-11-06",
+        "2026-11-10",
+        "2026-11-12",
+      ])
+    })
+  )
+
+  it.effect("the list survives a restarted worker", () =>
+    Effect.gen(function* () {
+      yield* TestClock.setTime(wib("2026-11-12", "17:00:00"))
+      const days = memoryDays()
+      const before = yield* harness(
+        (walked) => [fakeWalk("Ajaib", walked)],
+        undefined,
+        {
+          days,
+        }
+      )
+      yield* before.trigger
+      // The next evening, a new worker over the same storage.
+      yield* TestClock.setTime(wib("2026-11-13", "17:00:00"))
+      const after = yield* harness(
+        (walked) => [fakeWalk("Ajaib", walked)],
+        undefined,
+        {
+          days,
+        }
+      )
+      yield* after.trigger
+      assert.deepStrictEqual(after.walked, [
+        "Ajaib 2026-11-13",
+        "gaps 2026-11-12",
+      ])
+      assert.deepStrictEqual(days.days(), ["2026-11-13"])
+    })
   )
 })
