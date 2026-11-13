@@ -2,7 +2,7 @@
 // run queue"): what starts a run, and the order its walks go in. One run at
 // a time; a trigger during a run starts one more after it.
 import { Feed, WibDate } from "@workspace/relay"
-import { DateTime, Effect, Option, Queue, Schema } from "effect"
+import { Data, DateTime, Effect, Option, Queue, Schema } from "effect"
 
 import { isMarketHours, newestClosedDay } from "./hours.ts"
 
@@ -41,6 +41,26 @@ export type WalkResult =
         | "incomplete"
     }
   | { readonly _tag: "stopped"; readonly cause: PauseCause }
+
+// A walk ends before the day does (ajaib-walk.ts, stockbit-walk.ts).
+class Halt extends Data.TaggedError("Halt")<{
+  readonly result: WalkResult
+}> {}
+export const halt = (result: WalkResult) => Effect.fail(new Halt({ result }))
+
+// A target's refusal of a post or a status read halts the walk: no token
+// set, a rejected token, or a version the dashboard no longer takes.
+export const haltOnRefusal = (
+  outcome: "off" | "rejected-token" | "reload-extension"
+) =>
+  halt({
+    _tag: "stopped",
+    cause: outcome === "off" ? "no-token" : outcome,
+  })
+
+// Runs a walk, its halt as the walk's result.
+export const settle = <R>(walk: Effect.Effect<WalkResult, Halt, R>) =>
+  Effect.catchTag(walk, "Halt", (stop) => Effect.succeed(stop.result))
 
 // One site's walk of a day.
 export interface DayWalk {

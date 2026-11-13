@@ -12,13 +12,13 @@ import {
   type TradeCodes,
   type TradeNumber,
 } from "@workspace/relay"
-import { Clock, Data, DateTime, Effect, Option, Schema } from "effect"
+import { Clock, DateTime, Effect, Option, Schema } from "effect"
 
 import type { Answer } from "../broker.ts"
 import type { RequestingTab } from "../pacer.ts"
 import { ajaibWindowEnd, isMarketHours } from "./hours.ts"
 import type { PostOutcome } from "./poster.ts"
-import type { WalkResult } from "./run-queue.ts"
+import { halt, haltOnRefusal, settle, type WalkResult } from "./run-queue.ts"
 
 const STATUS_PATH = "v1/stock/data/trading-day/time/"
 const TAPE_PATH = "v1/stock/detail/running_trades/"
@@ -72,19 +72,16 @@ const MarketStatus = Schema.fromJsonString(
 const TapePage = Schema.fromJsonString(
   Schema.Struct({ results: Schema.Array(Schema.Unknown) })
 )
-// What the walk reads of a row besides its codes.
+// What the walk reads of a row besides its codes. A row whose `date` isn't
+// a WIB date is skipped, so its trade counts as missing.
 const TapeRow = Schema.Struct({
   trade_num: AjaibTradeNum,
-  date: Schema.String,
+  date: WibDate,
   timestamp: Schema.Finite,
 })
 const decodeStatus = Schema.decodeUnknownOption(MarketStatus)
 const decodePage = Schema.decodeUnknownOption(TapePage)
 const decodeRow = Schema.decodeUnknownOption(TapeRow)
-
-// The walk ends before the day does.
-class Halt extends Data.TaggedError("Halt")<{ readonly result: WalkResult }> {}
-const halt = (result: WalkResult) => Effect.fail(new Halt({ result }))
 
 const tapePath = (lastTimestamp: number, page: number, size: number) =>
   Effect.succeed(
@@ -92,7 +89,7 @@ const tapePath = (lastTimestamp: number, page: number, size: number) =>
   )
 
 interface PageRow {
-  readonly date: string
+  readonly date: WibDate
   readonly timestamp: number
   readonly number: TradeNumber
   readonly codes: Option.Option<TradeCodes>
@@ -191,10 +188,7 @@ export const makeAjaibWalk = Effect.fnUntraced(function* (options: {
       feed: "Ajaib",
       ...batch,
     })
-    if (outcome === "off")
-      return yield* halt({ _tag: "stopped", cause: "no-token" })
-    if (outcome !== "sent")
-      return yield* halt({ _tag: "stopped", cause: outcome })
+    if (outcome !== "sent") return yield* haltOnRefusal(outcome)
   })
 
   // A call made while waiting for the close; a tab that doesn't answer
@@ -355,10 +349,7 @@ export const makeAjaibWalk = Effect.fnUntraced(function* (options: {
     return { _tag: "walked" } satisfies WalkResult
   })
 
-  const walk = (day: WibDate): Effect.Effect<WalkResult> =>
-    Effect.catchTag(walkDay(day), "Halt", (error) =>
-      Effect.succeed(error.result)
-    )
+  const walk = (day: WibDate): Effect.Effect<WalkResult> => settle(walkDay(day))
 
   return { walk }
 })
