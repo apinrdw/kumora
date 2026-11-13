@@ -14,6 +14,10 @@ import { TestClock } from "effect/testing"
 
 import { makeAjaibWalk } from "../../src/worker/broker-codes/ajaib-walk.ts"
 import { makeExtraTarget } from "../../src/worker/broker-codes/extra-target.ts"
+import {
+  makeHistoryWalk,
+  type HistoryPosition,
+} from "../../src/worker/broker-codes/history.ts"
 import type { PostOutcome } from "../../src/worker/broker-codes/poster.ts"
 import { makeRunQueue } from "../../src/worker/broker-codes/run-queue.ts"
 import {
@@ -479,6 +483,7 @@ describe("Stockbit's walk: when it starts and gives up", () => {
         ],
         incompleteDays: { load: Effect.succeed([]), save: () => Effect.void },
         gaps: { feed: "Stockbit", walk: stockbit.gaps },
+        history: { walk: () => Effect.succeedNone, catchUp: () => Effect.void },
         catchUp: [],
         report: (progress) =>
           progress.state === "idle"
@@ -742,6 +747,123 @@ describe("Stockbit's gap walk of an older day", () => {
       })
       assert.lengthOf(tape.urls, 1)
     })
+  )
+})
+
+describe("the History walk over Stockbit's walk", () => {
+  // Production holding DAY as the walk leaves it, 2026-11-13 complete, and
+  // nothing of any other day.
+  const historyProduction = () => {
+    const production = fakeProduction()
+    const asked: Array<string> = []
+    const status = (day: WibDate) =>
+      Effect.suspend((): Effect.Effect<BrokerCodesStatus> => {
+        asked.push(day)
+        if (day === DAY) return production.status(day)
+        return Effect.succeed({
+          version: BrokerCodesProtocolVersion,
+          day,
+          n: day === "2026-11-13" ? TradeNumber.make("10") : null,
+          complete: day === "2026-11-13",
+          missing: [],
+          sources: { ajaib: 0, stockbit: day === "2026-11-13" ? 10 : 0 },
+          crossCheck: { state: "none" },
+        })
+      })
+    return { ...production, asked, status }
+  }
+
+  const memoryPosition = () => {
+    let kept = Option.none<HistoryPosition>()
+    return {
+      position: () => kept,
+      lose: () => {
+        kept = Option.none()
+      },
+      store: {
+        load: Effect.sync(() => kept),
+        save: (next: HistoryPosition) =>
+          Effect.sync(() => {
+            kept = Option.some(next)
+          }),
+      },
+    }
+  }
+
+  const historyOver = Effect.fnUntraced(function* (
+    tape: ReturnType<typeof fakeStockbit>,
+    production: ReturnType<typeof historyProduction>,
+    position: ReturnType<typeof memoryPosition>
+  ) {
+    const walk = yield* makeStockbitWalk({
+      tab: tape,
+      post: production.post,
+      status: production.status,
+    })
+    return yield* makeHistoryWalk({
+      walk: { feed: "Stockbit", walk: walk.gaps },
+      store: position.store,
+      catchUp: { feed: "Stockbit", walk: walk.gaps },
+      catchUpStore: { load: Effect.succeedNone, save: () => Effect.void },
+      report: () => Effect.void,
+    })
+  })
+
+  // The 15 weekdays from 2026-11-11 back.
+  const ended = Option.some({
+    oldest: WibDate.make("2026-10-22"),
+    empty: 15,
+    ended: true,
+  })
+
+  it.effect(
+    "skips a complete day from its status, walks a traded day whole, and posts nothing for an untraded one",
+    () =>
+      Effect.gen(function* () {
+        yield* TestClock.setTime(wib("2026-11-16", "17:30:00"))
+        const production = historyProduction()
+        const tape = fakeStockbit()
+        const position = memoryPosition()
+        const history = yield* historyOver(tape, production, position)
+        assert.deepStrictEqual(
+          yield* history.walk(WibDate.make("2026-11-16")),
+          Option.none()
+        )
+        const dates = new Set(tape.params().map((each) => each.get("date")))
+        assert.isFalse(dates.has("2026-11-13"))
+        assert.isTrue(dates.has("2026-11-11"))
+        const status = yield* production.status(DAY)
+        assert.isTrue(status.complete)
+        assert.deepStrictEqual(status.crossCheck, { state: "none" })
+        assert.isTrue(production.batches.every((batch) => batch.day === DAY))
+        assert.deepStrictEqual(production.ends(), [{ n: String(N) }])
+        assert.deepStrictEqual(position.position(), ended)
+      })
+  )
+
+  it.effect(
+    "rebuilds a lost position from each day's status, asking Stockbit only of the empty days",
+    () =>
+      Effect.gen(function* () {
+        yield* TestClock.setTime(wib("2026-11-16", "17:30:00"))
+        const production = historyProduction()
+        const position = memoryPosition()
+        const first = yield* historyOver(fakeStockbit(), production, position)
+        yield* first.walk(WibDate.make("2026-11-16"))
+        const posted = production.batches.length
+        position.lose()
+        production.asked.length = 0
+        const tape = fakeStockbit()
+        const again = yield* historyOver(tape, production, position)
+        yield* again.walk(WibDate.make("2026-11-16"))
+        assert.deepStrictEqual(position.position(), ended)
+        // One status GET a day: 2026-11-13, DAY, and the 15 empty days.
+        assert.lengthOf(production.asked, 2 + 15)
+        // One newest-first call for each empty day, and nothing posted.
+        assert.lengthOf(tape.urls, 15)
+        assert.isFalse(tape.params().some((each) => each.get("date") === DAY))
+        assert.strictEqual(production.batches.length, posted)
+      })
   )
 })
 

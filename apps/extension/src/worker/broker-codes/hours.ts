@@ -37,6 +37,17 @@ const daysFrom = Effect.fnUntraced(function* (date: WibDate, days: number) {
   )
 })
 
+// The weekday before `date`, a holiday or not: the History walk goes back
+// past the baked schedule, where only Stockbit's tape knows a holiday.
+export const weekdayBefore = Effect.fnUntraced(function* (date: WibDate) {
+  let before = yield* daysFrom(date, -1)
+  while (
+    [0, 6].includes(DateTime.toPartsUtc(DateTime.makeUnsafe(before)).weekDay)
+  )
+    before = yield* daysFrom(before, -1)
+  return before
+})
+
 // The trading day the run queue works on at `instant`: today from 16:35 on a
 // trading day, else the latest trading day before. None during market hours
 // or past the baked schedule.
