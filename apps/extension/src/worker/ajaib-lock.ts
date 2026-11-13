@@ -39,11 +39,17 @@ export const makeAjaibLock = Effect.fnUntraced(function* (options: {
 
   // What the page last said: the lock screen showing or not.
   let locked = false
-  let lock: AjaibLock = { state: "unlocked" }
+  // None until this worker saved a state: session storage outlives a worker
+  // restart, so the first state is saved even when it is unlocked.
+  let lock = Option.none<AjaibLock>()
   const record = (next: AjaibLock) =>
     Effect.suspend(() => {
-      if (JSON.stringify(next) === JSON.stringify(lock)) return Effect.void
-      lock = next
+      if (
+        Option.isSome(lock) &&
+        JSON.stringify(next) === JSON.stringify(lock.value)
+      )
+        return Effect.void
+      lock = Option.some(next)
       return options.save(next)
     })
 
@@ -70,7 +76,7 @@ export const makeAjaibLock = Effect.fnUntraced(function* (options: {
   const unlock = Effect.gen(function* () {
     const pin = yield* pins.pin
     if (Option.isNone(pin))
-      return lock.state === "locked"
+      return Option.exists(lock, (each) => each.state === "locked")
         ? undefined
         : yield* record({ state: "locked", reason: "no-pin" })
     yield* record({ state: "unlocking" })
