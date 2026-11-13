@@ -14,6 +14,13 @@ export interface RequestingTab {
   ) => Effect.Effect<Option.Option<Answer>>
 }
 
+// A tab whose REST calls wait for the site's pace: only `makePacer` makes
+// one, so a caller that takes it can't be handed the unpaced tab.
+declare const pacedBrand: unique symbol
+export interface PacedTab extends RequestingTab {
+  readonly [pacedBrand]: true
+}
+
 // Who a call is for. Backfill calls start before any waiting walk call.
 export type Priority = "backfill" | "walk"
 
@@ -121,14 +128,15 @@ export const makePacer = Effect.fnUntraced(function* (options: {
     )
   })
 
-  const tab = (priority: Priority): RequestingTab => ({
-    // A REST call on the broker's API is paced. A cookie or the page's token
-    // is read in the tab and isn't.
-    request: (request) =>
-      request._tag === "fetch" || request._tag === "page-fetch"
-        ? paced(priority, request)
-        : options.tab.request(request),
-  })
+  const tab = (priority: Priority): PacedTab =>
+    ({
+      // A REST call on the broker's API is paced. A cookie or the page's token
+      // is read in the tab and isn't.
+      request: (request) =>
+        request._tag === "fetch" || request._tag === "page-fetch"
+          ? paced(priority, request)
+          : options.tab.request(request),
+    }) as PacedTab
 
   // Starts the next waiting call once the site's pace allows one.
   const dispatch = Effect.gen(function* () {

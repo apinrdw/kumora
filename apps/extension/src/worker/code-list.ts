@@ -20,6 +20,7 @@ import {
 } from "effect"
 
 import { CODE_LIST_PATH, listedCodes } from "./ajaib.ts"
+import type { PacedTab } from "./pacer.ts"
 import type { BrokerTab } from "./tab.ts"
 
 // The day's list with the CodeList envelope it went up as, so a worker that
@@ -66,7 +67,7 @@ export const makeCodeList = Effect.fnUntraced(function* (options: {
   let fetching = false
 
   const fetchList = Effect.fnUntraced(function* (
-    tab: Pick<BrokerTab, "request">,
+    tab: PacedTab,
     today: WibDate
   ) {
     const answer = yield* tab.request({
@@ -114,7 +115,7 @@ export const makeCodeList = Effect.fnUntraced(function* (options: {
   })
 
   // One fetch at a time; a defect is logged and counts as a miss.
-  const fetchOnce = (tab: Pick<BrokerTab, "request">, today: WibDate) => {
+  const fetchOnce = (tab: PacedTab, today: WibDate) => {
     fetching = true
     return fetchList(tab, today).pipe(
       Effect.catchCause((cause) =>
@@ -132,7 +133,7 @@ export const makeCodeList = Effect.fnUntraced(function* (options: {
   // fetch is forked, since the tab's answer comes in as a worker event; the
   // tick gives its fiber, none when it fetched nothing.
   const tick = Effect.fnUntraced(function* (
-    tab: Pick<BrokerTab, "request" | "attached">,
+    tab: PacedTab & Pick<BrokerTab, "attached">,
     now: DateTime.Utc
   ) {
     const none = Option.none<Fiber.Fiber<boolean>>()
@@ -168,7 +169,7 @@ export const makeCodeList = Effect.fnUntraced(function* (options: {
   // next socket. Forked, as the tick's fetch is: the tab's answer comes in
   // as a worker event. `report` hears the outcome.
   const relayNow = Effect.fnUntraced(function* (
-    tab: Pick<BrokerTab, "request">,
+    tab: PacedTab,
     now: DateTime.Utc,
     report: (outcome: RelayOutcome) => Effect.Effect<void>
   ) {
