@@ -73,6 +73,8 @@ const fakeAjaib = (
     readonly codesFrom?: number
     // The page's latest bearer token at a time.
     readonly token?: (now: number) => string
+    // Whether a page's first row comes without a trade number.
+    readonly malformed?: (path: string) => boolean
     // Overrides the tape's answer to a call, by its 1-based index.
     readonly answer?: (
       request: TabRequest,
@@ -97,13 +99,17 @@ const fakeAjaib = (
     const floor = Math.floor(at / (3 * MINUTE)) * 3 * MINUTE
     const before = rows.filter((row) => row.timestamp < floor)
     const offset = (number - 1) * (size + 1)
+    const malformed = options.malformed?.(path) ?? false
     return OK({
       page: number,
       page_size: size,
       total_pages: 2,
-      results: before.slice(offset, offset + size).map((row) => ({
+      results: before.slice(offset, offset + size).map((row, index) => ({
         stock_code: "BBCA",
-        trade_num: `${row.date.replaceAll("-", "")}${String(row.number).padStart(10, "0")}`,
+        trade_num:
+          malformed && index === 0
+            ? "not a trade number"
+            : `${row.date.replaceAll("-", "")}${String(row.number).padStart(10, "0")}`,
         date: row.date,
         timestamp: row.timestamp,
         buyer: valid ? "YP" : "",
@@ -227,6 +233,26 @@ describe("Ajaib's walk of the day", () => {
           assert.strictEqual(batch.feed, "Ajaib")
           assert.strictEqual(batch.day, DAY)
         }
+      })
+  )
+
+  it.effect(
+    "pages on past a full page that holds a malformed row, and repairs its block",
+    () =>
+      Effect.gen(function* () {
+        yield* TestClock.setTime(wib("2026-11-12", "17:30:00"))
+        const production = fakeProduction()
+        // The first pass's first page of the busy 16:00 block leads with a
+        // row without a trade number; the repair pass's pages don't.
+        const tab = fakeAjaib({
+          malformed: (path) =>
+            paramOf(path, "last_timestamp") === wib("2026-11-12", "16:03:00") &&
+            sizeOf(path) === 5_000 &&
+            paramOf(path, "page") === 1,
+        })
+        const walk = yield* walkWith(tab, production)
+        assert.deepStrictEqual(yield* walk.walk(DAY), { _tag: "walked" })
+        assert.deepStrictEqual(missingOf(production.held()), [])
       })
   )
 
