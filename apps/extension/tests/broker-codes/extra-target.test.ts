@@ -553,4 +553,31 @@ describe("the extra target", () => {
         }
       })
   )
+
+  // Codex review round 11: the poster's retries never asked the hold again.
+  it.effect("a refusal recorded while a post retries stops its retries", () =>
+    Effect.gen(function* () {
+      const extra = fakeDashboard({
+        statuses: Array(1000).fill(503),
+        refusal: { status: 401, body: "" },
+      })
+      const target = yield* harness({
+        production: fakeDashboard({ status: COMPLETE }),
+        extra,
+      })
+      yield* target.post(batch([1]))
+      yield* settle
+      assert.lengthOf(extra.posts, 1)
+      const catchUp = yield* target.extra.catchUp("Ajaib", ({ post }) =>
+        Effect.sync(() => fakeWalk(post))
+      )
+      assert.deepStrictEqual(yield* catchUp.walk(DAY), {
+        _tag: "stopped",
+        cause: "rejected-token",
+      })
+      yield* TestClock.adjust("10 minutes")
+      yield* settle
+      assert.lengthOf(extra.posts, 1)
+    })
+  )
 })
