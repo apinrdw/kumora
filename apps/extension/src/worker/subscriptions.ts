@@ -12,6 +12,7 @@ import {
   type OnDemandStream,
 } from "./ajaib.ts"
 import type { SiteName } from "./broker.ts"
+import type { PacedTab } from "./pacer.ts"
 import {
   WEBSOCKET_KEY_URL,
   subscribeFrame,
@@ -39,11 +40,12 @@ export interface OnDemandSubscriptions {
   ) => Effect.Effect<void>
 }
 
-// Stockbit: on each open, a fresh websocket key with the tab's token, then
-// one channel message with every listed code. A changed list resends it in
-// full on every open socket.
+// Stockbit: on each open, a fresh websocket key with the tab's token, fetched
+// through `rest`, the site's pacer, then one channel message with every
+// listed code. A changed list resends it in full on every open socket.
 export const makeStockbitSubscriptions = Effect.fnUntraced(function* (
-  codes: Effect.Effect<ReadonlyArray<StockCode>>
+  codes: Effect.Effect<ReadonlyArray<StockCode>>,
+  rest: Effect.Effect<PacedTab>
 ): Effect.fn.Return<Subscriptions, never, Scope.Scope> {
   const fibers = yield* FiberMap.make<Connection>()
   const sessions = new Map<
@@ -65,10 +67,11 @@ export const makeStockbitSubscriptions = Effect.fnUntraced(function* (
     tab: SocketTab,
     connection: Connection
   ) {
-    const credential = yield* tabCredential(tab)
+    const paced = yield* rest
+    const credential = yield* tabCredential(paced)
     if (Option.isNone(credential))
       return yield* Effect.logWarning("Stockbit tab has no access token")
-    const answer = yield* tab.request({
+    const answer = yield* paced.request({
       _tag: "fetch",
       url: WEBSOCKET_KEY_URL,
       headers: { authorization: `Bearer ${credential.value.accessToken}` },

@@ -289,8 +289,11 @@ const main = Effect.gen(function* () {
     envelopes,
     changed: Effect.suspend(() => stockbitCodes.resubscribe(stockbitTab)),
   })
+  // Decision: the websocket key fetch goes with the backfill, served first:
+  // the live feed has no socket until it answers.
   const stockbitCodes: Subscriptions = yield* makeStockbitSubscriptions(
-    codeList.codes
+    codeList.codes,
+    Effect.sync(() => stockbitPacer.tab("backfill"))
   )
   const onDemandCodes = yield* makeOnDemandCodes({
     changed: (fresh) =>
