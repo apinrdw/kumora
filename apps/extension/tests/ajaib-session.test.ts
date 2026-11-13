@@ -1,5 +1,7 @@
-import { assert, describe, it } from "@effect/vitest"
-import { Effect, Option } from "effect"
+import { afterEach, assert, describe, it, vi } from "@effect/vitest"
+import { Effect, Fiber, Option, Queue } from "effect"
+
+import { makeAjaibLock, type AjaibLock } from "../src/worker/ajaib-lock.ts"
 
 import {
   PIN_VALIDATE_URL,
@@ -11,6 +13,13 @@ import {
 import { AjaibAccountId } from "../src/worker/ajaib.ts"
 import type { Answer, TabRequest } from "../src/worker/broker.ts"
 import type { PacedTab } from "../src/worker/pacer.ts"
+import {
+  AjaibPin,
+  loadSignIn,
+  savePin,
+  sessionPinStore,
+} from "../src/worker/settings.ts"
+import { memorySession } from "./memory-session.ts"
 
 const base64Url = (value: unknown) =>
   btoa(JSON.stringify(value))
@@ -237,6 +246,100 @@ describe("signing in to Ajaib with the PIN", () => {
       yield* session.tick
       assert.deepStrictEqual(signIn(), { state: "failed" })
       assert.strictEqual(pin(), undefined)
+    })
+  )
+})
+
+// The Ajaib tab answers each PIN check with the next reply offered, and the
+// PIN and sign-in live in chrome.storage.session (settings.ts), so the
+// options page can save a new entry while a check is in flight.
+const storedHarness = Effect.fnUntraced(function* () {
+  const storage = memorySession()
+  const replies = yield* Queue.unbounded<Answer>()
+  const requests: Array<TabRequest> = []
+  const tab = {
+    attached: Effect.succeed(true),
+    request: (request: TabRequest) =>
+      Effect.gen(function* () {
+        requests.push(request)
+        if (request._tag !== "page-post") return Option.some(answer(200, ""))
+        return Option.some(yield* Queue.take(replies))
+      }),
+  } as PacedTab & { readonly attached: Effect.Effect<boolean> }
+  const session = yield* makeAjaibSession({ tab, store: sessionPinStore })
+  return {
+    storage,
+    tab,
+    session,
+    requests,
+    reply: (next: Answer) => Effect.asVoid(Queue.offer(replies, next)),
+    pinChecks: () =>
+      requests.flatMap((request) =>
+        request._tag === "page-post" ? [request.body] : []
+      ),
+  }
+})
+
+// Waits for what a forked fiber does over storage answered asynchronously.
+const until = (done: () => boolean) =>
+  Effect.gen(function* () {
+    while (!done()) yield* Effect.sleep("1 millis")
+  })
+
+describe("a PIN entered while an earlier one is checked", () => {
+  afterEach(() => {
+    vi.unstubAllGlobals()
+  })
+
+  it.live("is kept, still waiting, and tried once when the earlier fails", () =>
+    Effect.gen(function* () {
+      const { storage, session, reply, pinChecks } = yield* storedHarness()
+      yield* savePin(AjaibPin.make("111111"))
+      const first = yield* Effect.forkChild(session.tick)
+      yield* until(() => pinChecks().length === 1)
+      yield* savePin(AjaibPin.make("222222"))
+      yield* reply(answer(500, ""))
+      yield* Fiber.join(first)
+      assert.deepStrictEqual(yield* loadSignIn, { state: "waiting" })
+      assert.include(storage.raw(), "222222")
+      yield* reply(answer(200, approved(jwt({ sub: 1 }))))
+      yield* session.tick
+      yield* session.tick
+      assert.deepStrictEqual(pinChecks(), [
+        '{"pin_code":"111111"}',
+        '{"pin_code":"222222"}',
+      ])
+      assert.strictEqual((yield* loadSignIn).state, "signed-in")
+    })
+  )
+
+  it.live("is kept when the lock screen refuses the earlier", () =>
+    Effect.gen(function* () {
+      const { storage, tab, session, requests, reply, pinChecks } =
+        yield* storedHarness()
+      const locks: Array<AjaibLock> = []
+      const lock = yield* makeAjaibLock({
+        tab,
+        pins: sessionPinStore,
+        save: (next) => Effect.sync(() => locks.push(next)),
+      })
+      yield* Effect.forkChild(lock.run)
+      yield* savePin(AjaibPin.make("111111"))
+      yield* reply(answer(200, approved(jwt({ sub: 1 }))))
+      yield* session.tick
+      yield* lock.page({ _tag: "lock", locked: true })
+      yield* until(() => requests.some((each) => each._tag === "type-pin"))
+      yield* savePin(AjaibPin.make("222222"))
+      yield* lock.page({ _tag: "pin-validated", status: 400 })
+      yield* until(() => locks.at(-1)?.state === "locked")
+      assert.include(storage.raw(), "222222")
+      assert.deepStrictEqual(yield* loadSignIn, { state: "waiting" })
+      yield* reply(answer(200, approved(jwt({ sub: 1 }))))
+      yield* session.tick
+      assert.deepStrictEqual(pinChecks(), [
+        '{"pin_code":"111111"}',
+        '{"pin_code":"222222"}',
+      ])
     })
   )
 })
