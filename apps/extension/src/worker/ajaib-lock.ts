@@ -93,8 +93,8 @@ export const makeAjaibLock = Effect.fnUntraced(function* (options: {
 
   // Decision: the lock screen gets the kept PIN once per lock, and only from
   // an entry read whole, last thing before `type-pin`, as `signed-in` and
-  // marked `typing`. The mark is stored first and cleared once the screen
-  // has gone, so a try a restart cut short is found and counts as refused.
+  // marked `typing`. The mark is stored first, and cleared once unlocked or
+  // when nothing was typed, so a try a restart cut short counts as refused.
   // A refused PIN is wiped. See apinrdw/kumora#244, "Unlock".
   const attempt = Effect.fnUntraced(function* (entry: PinEntry) {
     yield* record({ state: "unlocking" })
