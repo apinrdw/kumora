@@ -41,11 +41,12 @@ const CODES = {
 
 // A dashboard answering each POST with the next of `statuses` (then 200),
 // keeping the trade numbers and `end` of every batch it wrote, and
-// answering GET with `status`.
+// answering GET with `status`, or with `refusal` as it stands.
 const fakeDashboard = (
   options: {
     readonly statuses?: ReadonlyArray<number>
     readonly status?: BrokerCodesStatus
+    readonly refusal?: { readonly status: number; readonly body: string }
   } = {}
 ) => {
   const posts: Array<string> = []
@@ -64,12 +65,14 @@ const fakeDashboard = (
         return status
       }),
     get: (_request: { url: string; token: string }) =>
-      options.status === undefined
-        ? Effect.succeed({ status: 0, body: "" })
-        : Effect.map(
-            Effect.orDie(encodeBrokerCodesStatus(options.status)),
-            (body) => ({ status: 200, body })
-          ),
+      options.refusal !== undefined
+        ? Effect.succeed(options.refusal)
+        : options.status === undefined
+          ? Effect.succeed({ status: 0, body: "" })
+          : Effect.map(
+              Effect.orDie(encodeBrokerCodesStatus(options.status)),
+              (body) => ({ status: 200, body })
+            ),
   }
 }
 
@@ -310,6 +313,35 @@ describe("the extra target", () => {
           assert.deepStrictEqual(yield* catchUp.walk(DAY), result)
           assert.strictEqual(walks, 0)
           assert.deepStrictEqual(extra.written, [])
+        }
+      })
+  )
+
+  it.effect(
+    "a status read's 401, 426 or other version stops it as a post's would",
+    () =>
+      Effect.gen(function* () {
+        for (const [refusal, state] of [
+          [{ status: 401, body: "" }, "rejected-token"],
+          [{ status: 426, body: "" }, "reload-extension"],
+          [{ status: 200, body: '{"version":0}' }, "reload-extension"],
+        ] as const) {
+          const extra = fakeDashboard({ refusal })
+          const target = yield* harness({
+            production: fakeDashboard({ status: COMPLETE }),
+            extra,
+          })
+          const catchUp = yield* target.extra.catchUp("Ajaib", ({ post }) =>
+            Effect.sync(() => fakeWalk(post))
+          )
+          assert.deepStrictEqual(yield* catchUp.walk(DAY), {
+            _tag: "stopped",
+            cause: state,
+          })
+          assert.deepStrictEqual(target.reported, [state])
+          yield* fakeWalk(target.post).walk(DAY)
+          yield* settle
+          assert.deepStrictEqual(extra.posts, [])
         }
       })
   )
