@@ -34,6 +34,21 @@ export const fetchGet: Get = ({ url, token }) =>
     return { status: response.status, body }
   }).pipe(Effect.orElseSucceed(() => ({ status: 0, body: "" })))
 
+// A day's status from a target, asked once; none when it answered none.
+export const statusOnce = Effect.fnUntraced(function* (
+  get: Get,
+  target: BrokerCodesTarget,
+  day: WibDate
+) {
+  const path = yield* brokerCodesPath(day)
+  const answer = yield* get({
+    url: `${target.origin}${path}`,
+    token: target.token,
+  })
+  if (answer.status !== 200) return Option.none<BrokerCodesStatus>()
+  return yield* Effect.option(decodeBrokerCodesStatus(answer.body))
+})
+
 export const makeBrokerCodesStatus = Effect.fnUntraced(function* (options: {
   // The target as its settings stand now; none without a token.
   readonly target: Effect.Effect<Option.Option<BrokerCodesTarget>>

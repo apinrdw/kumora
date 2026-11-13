@@ -930,7 +930,7 @@ describe("Stockbit's walk and the extra target", () => {
             ),
             200
           ),
-        get: () => Effect.succeedNone,
+        get: () => Effect.succeed({ status: 0, body: "" }),
         report: () => Effect.void,
       })
       yield* Effect.forkChild(extra.run)
@@ -967,9 +967,10 @@ describe("Stockbit's walk and the extra target", () => {
         const staging = fakeProduction()
         yield* ajaibServedInPart(staging)
         const statusOf = (target: ReturnType<typeof fakeProduction>) =>
-          Effect.map(target.status(DAY), (status) =>
-            Option.some(JSON.stringify(status))
-          )
+          Effect.map(target.status(DAY), (status) => ({
+            status: 200,
+            body: JSON.stringify(status),
+          }))
         const extra = yield* makeExtraTarget({
           target: Effect.succeed(
             Option.some({

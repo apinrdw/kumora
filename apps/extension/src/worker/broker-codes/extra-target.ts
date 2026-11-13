@@ -3,27 +3,30 @@
 // walks: each batch a walk builds goes to Production and is handed to the
 // extra target without waiting on it. Whatever the extra target misses, it
 // catches up from its own status once Production's queue is empty.
-import {
-  brokerCodesPath,
-  decodeBrokerCodesStatus,
-  type BrokerCodesBatch,
-  type BrokerCodesStatus,
-  type Feed,
-  type WibDate,
+import type {
+  BrokerCodesBatch,
+  BrokerCodesStatus,
+  Feed,
+  TradeNumber,
+  WibDate,
 } from "@workspace/relay"
 import { Effect, Option, Queue } from "effect"
 
 import {
   makeBrokerCodesPoster,
   type BrokerCodesTarget,
-  type GetStatus,
   type PostOutcome,
   type Send,
 } from "./poster.ts"
 import type { DayWalk, WalkResult } from "./run-queue.ts"
+import { statusOnce, type Get } from "./status.ts"
 
 // The outcomes that stop a target until its settings change.
 type Stop = Extract<PostOutcome, "rejected-token" | "reload-extension">
+
+// What the extra target's Target state shows over its socket's: a stop, or
+// `retrying` while its requests fail; none once one goes through.
+export type ExtraState = Stop | "retrying"
 
 // Decision: the batches handed to the extra target wait in a lane of 16
 // (~80,000 trades at Ajaib's 5,000 a batch); past that a batch is dropped,
@@ -44,7 +47,7 @@ const lacks = (status: BrokerCodesStatus) =>
       status.n === null
         ? ranges.reduce((sum, [from, to]) => sum + to - from + 1, held)
         : Number(status.n)
-    return (number: string) => {
+    return (number: TradeNumber) => {
       const trade = Number(number)
       return (
         trade > highest ||
@@ -71,11 +74,28 @@ export const makeExtraTarget = Effect.fnUntraced(function* (options: {
   // compares with the extra target's.
   readonly production: Effect.Effect<Option.Option<BrokerCodesTarget>>
   readonly send: Send
-  readonly get: GetStatus
-  // A 401 or a 426 stopped the target: its Target state.
-  readonly report: (state: Stop) => Effect.Effect<void>
+  readonly get: Get
+  // The state shown over the socket's: a 401 or a 426 stopped the target,
+  // or its requests fail; none once one goes through.
+  readonly report: (state: Option.Option<ExtraState>) => Effect.Effect<void>
 }) {
-  const poster = yield* makeBrokerCodesPoster(options)
+  // Decision: a request the extra target fails, by a status other than 401
+  // or 426 or by none (0: a network or CORS failure), shows the target as
+  // retrying until one goes through, so a target the browser can't reach is
+  // never retried unseen. See apinrdw/kumora#244, "Retries".
+  let failing = false
+  const answered = (status: number) =>
+    Effect.suspend(() => {
+      if (status === 401 || status === 426) return Effect.void
+      const fails = status !== 200
+      if (fails === failing) return Effect.void
+      failing = fails
+      return options.report(fails ? Option.some("retrying") : Option.none())
+    })
+  const send: Send = (request) => Effect.tap(options.send(request), answered)
+  const get: Get = (request) =>
+    Effect.tap(options.get(request), ({ status }) => answered(status))
+  const poster = yield* makeBrokerCodesPoster({ target: options.target, send })
   const lane = yield* Queue.dropping<BrokerCodesBatch>(LANE)
 
   // The settings a 401 or 426 came back on, and which.
@@ -108,23 +128,9 @@ export const makeExtraTarget = Effect.fnUntraced(function* (options: {
     const outcome = yield* poster.post(batch)
     if (outcome === "rejected-token" || outcome === "reload-extension") {
       stopped = Option.some({ target: target.value, stop: outcome })
-      yield* options.report(outcome)
+      yield* options.report(Option.some(outcome))
     }
     return outcome
-  })
-
-  // A target's status of a day; none when it didn't answer one.
-  const statusAt = Effect.fnUntraced(function* (
-    target: BrokerCodesTarget,
-    day: WibDate
-  ) {
-    const path = yield* brokerCodesPath(day)
-    const body = yield* options.get({
-      url: `${target.origin}${path}`,
-      token: target.token,
-    })
-    if (Option.isNone(body)) return Option.none<BrokerCodesStatus>()
-    return yield* Effect.option(decodeBrokerCodesStatus(body.value))
   })
 
   // The extra target's status of a day; none when it is unset, stopped or
@@ -133,7 +139,7 @@ export const makeExtraTarget = Effect.fnUntraced(function* (options: {
     const target = yield* options.target
     if (Option.isNone(target) || Option.isSome(yield* stopOf(target.value)))
       return Option.none<BrokerCodesStatus>()
-    return yield* statusAt(target.value, day)
+    return yield* statusOnce(get, target.value, day)
   })
 
   // Whether the extra target, holding `held` of a day, is behind on it: the
@@ -148,7 +154,7 @@ export const makeExtraTarget = Effect.fnUntraced(function* (options: {
     if (held.complete) return false
     const production = yield* options.production
     if (Option.isNone(production)) return true
-    const leading = yield* statusAt(production.value, day)
+    const leading = yield* statusOnce(options.get, production.value, day)
     return !(Option.isSome(leading) && (yield* holdsSame(leading.value, held)))
   })
 
@@ -180,7 +186,7 @@ export const makeExtraTarget = Effect.fnUntraced(function* (options: {
         R
       >
     ) {
-      let wanted = (_number: string) => true
+      let wanted = (_number: TradeNumber) => true
       const walk = yield* make({
         post: (batch) =>
           Effect.suspend(() => {
