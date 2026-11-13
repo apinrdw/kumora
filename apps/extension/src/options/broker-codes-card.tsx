@@ -206,11 +206,12 @@ function RecentDays({
 }: {
   progress: Option.Option<BrokerCodesProgress>
 }) {
-  // The rows, and the progress they were asked for.
-  const [{ rows: days }, setDays] = useState<{
-    readonly asked: string
+  // The rows, and the progress they were asked for. The old rows stay
+  // while the table is busy asking for the current progress's.
+  const [{ asked, rows: days }, setDays] = useState<{
+    readonly asked: string | undefined
     readonly rows: ReadonlyArray<DayRow>
-  }>({ asked: "", rows: [] })
+  }>({ asked: undefined, rows: [] })
   const key = Effect.runSync(progressKey(progress))
   const settings = useStored(
     loadStoredSettings,
@@ -229,7 +230,11 @@ function RecentDays({
     }
   }, [key, settings])
   return (
-    <table aria-label="Last 10 trading days" className="text-sm">
+    <table
+      aria-label="Last 10 trading days"
+      aria-busy={asked !== key}
+      className="text-sm"
+    >
       <thead>
         <tr className="text-left">
           <th>Day</th>
