@@ -370,6 +370,60 @@ describe("the cross-check", () => {
         assert.deepStrictEqual(status.sources, { ajaib: 1_999, stockbit: 1 })
       })
   )
+
+  it.effect(
+    "compares Ajaib's rows against Stockbit's ended walk when Ajaib arrives later, counting only trades both sent",
+    () =>
+      Effect.gen(function* () {
+        const day = yield* tradingDay()
+        // Stockbit's walk ends first, without trade 7.
+        yield* day.post(
+          "Stockbit",
+          numbers(1, 2_000)
+            .filter((number) => number !== 7)
+            .map((number) => [number, YP_CC] as const),
+          2_000
+        )
+        assert.deepStrictEqual((yield* day.status).crossCheck, {
+          state: "none",
+        })
+
+        // Ajaib disagrees on 10 and 1,500 and sends 7, which Stockbit lacked.
+        yield* day.post(
+          "Ajaib",
+          numbers(1, 2_000).map(
+            (number) =>
+              [
+                number,
+                number === 10 || number === 1_500 ? PD_KZ : YP_CC,
+              ] as const
+          ),
+          2_000
+        )
+        const status = yield* day.status
+        assert.deepStrictEqual(status.crossCheck, {
+          state: "compared",
+          covered: 1_997,
+          differences: 2,
+        })
+        assert.deepStrictEqual(status.sources, { ajaib: 2_000, stockbit: 0 })
+        assert.deepStrictEqual(
+          yield* day.held(10),
+          Option.some({ codes: PD_KZ, source: "Ajaib" as const })
+        )
+
+        // A resent Ajaib batch counts nothing twice.
+        yield* day.post("Ajaib", [
+          [10, PD_KZ],
+          [11, YP_CC],
+        ])
+        assert.deepStrictEqual((yield* day.status).crossCheck, {
+          state: "compared",
+          covered: 1_997,
+          differences: 2,
+        })
+      })
+  )
 })
 
 describe("a sealed day", () => {
