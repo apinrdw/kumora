@@ -95,27 +95,28 @@ const sameCodes = (held: Uint8Array, at: number, codes: Uint8Array) =>
     return true
   })
 
-// An Ajaib row replaces what is held. Over a copy Stockbit sent it says
-// whether the two agree, so a day Stockbit walked first is compared too.
+// An Ajaib row replaces what is held. Against Stockbit's copy, the one held
+// or the one a difference recorded, it says whether the two agree, so a day
+// Stockbit walked first is compared too, and so is a replaced Ajaib copy.
 const mergeAjaib = Effect.fnUntraced(function* (
   held: Uint8Array,
   at: number,
-  codes: Uint8Array
+  codes: Uint8Array,
+  recorded: Option.Option<Uint8Array>
 ) {
   const source = held[at + SOURCE]
-  if (source !== Source.stockbit && source !== Source.both) {
-    held.set(codes, at)
+  const stockbit =
+    source === Source.stockbit || source === Source.both
+      ? Option.some(held.slice(at, at + SOURCE))
+      : recorded
+  held.set(codes, at)
+  if (Option.isNone(stockbit)) {
     held[at + SOURCE] = Source.ajaib
     return "kept" as const
   }
-  if (yield* sameCodes(held, at, codes)) {
-    held[at + SOURCE] = Source.both
-    return "agreed" as const
-  }
-  const stockbit = held.slice(at, at + SOURCE)
-  held.set(codes, at)
-  held[at + SOURCE] = Source.ajaib
-  return [codes, stockbit] as const
+  const agrees = yield* sameCodes(stockbit.value, 0, codes)
+  held[at + SOURCE] = agrees ? Source.both : Source.ajaib
+  return agrees ? ("agreed" as const) : ([codes, stockbit.value] as const)
 })
 
 // A Stockbit row fills an absent trade or replaces Stockbit's copy. For one
@@ -177,7 +178,8 @@ const tallyChunk = (tally: Tally, chunk: number, codes: Uint8Array) =>
 // walk ended; pending at its position until then.
 // Decision: covered and differences count only trades both sites sent, in
 // whichever order they came, so a day Stockbit ended before Ajaib's walk
-// reads compared at once and needs no second Stockbit walk.
+// reads compared at once and needs no second Stockbit walk. A replaced
+// Ajaib copy is compared again against the Stockbit copy its difference kept.
 const crossCheckOf = (
   tally: Tally,
   walk: CrossCheckFact,
@@ -285,6 +287,22 @@ export const makeBrokerCodes = Effect.fnUntraced(function* (options: {
     return facts
   })
 
+  // The Stockbit copies that a chunk's recorded differences keep.
+  const recordedOf = (chunk: number) =>
+    Effect.sync(() => {
+      const recorded = new Map<number, Uint8Array>()
+      for (const row of sql.exec(
+        "SELECT number, stockbit FROM cross_check_differences WHERE number BETWEEN ? AND ?",
+        chunk * CHUNK + 1,
+        (chunk + 1) * CHUNK
+      ))
+        recorded.set(
+          Number(row.number),
+          new Uint8Array(row.stockbit as Uint8Array)
+        )
+      return recorded
+    })
+
   const merge = Effect.fnUntraced(function* (batch: BrokerCodesBatch) {
     const merged: Merged = {
       chunks: new Map(),
@@ -292,6 +310,20 @@ export const makeBrokerCodes = Effect.fnUntraced(function* (options: {
       agreed: new Set(),
       facts: [],
     }
+    const recorded = new Map<number, Map<number, Uint8Array>>()
+    // Stockbit's copy of a trade Ajaib's held copy differs on: this batch's
+    // difference, else the stored one this batch hasn't cleared.
+    const stockbitOf = Effect.fnUntraced(function* (
+      number: number,
+      chunk: number
+    ) {
+      const batched = merged.differences.get(number)
+      if (batched !== undefined) return Option.some(batched[1])
+      if (merged.agreed.has(number)) return Option.none<Uint8Array>()
+      const stored = recorded.get(chunk) ?? (yield* recordedOf(chunk))
+      recorded.set(chunk, stored)
+      return Option.fromNullishOr(stored.get(number))
+    })
     let highest = 0
     for (const [tradeNumber, codes] of batch.rows) {
       const number = Number(tradeNumber)
@@ -302,7 +334,7 @@ export const makeBrokerCodes = Effect.fnUntraced(function* (options: {
       const bytes = yield* bytesOf(codes)
       const outcome =
         batch.feed === "Ajaib"
-          ? yield* mergeAjaib(held, at, bytes)
+          ? yield* mergeAjaib(held, at, bytes, yield* stockbitOf(number, chunk))
           : yield* mergeStockbit(held, at, bytes)
       if (outcome === "agreed") {
         merged.agreed.add(number)
