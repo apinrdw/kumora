@@ -9,7 +9,11 @@ import {
 } from "@workspace/relay"
 import { Duration, Effect, Option } from "effect"
 
-import type { DashboardOrigin } from "../settings.ts"
+import {
+  DashboardOrigin,
+  type Settings,
+  type TargetState,
+} from "../settings.ts"
 import { FIRST_RETRY, LAST_RETRY } from "../target.ts"
 
 // Where a target takes batches: its dashboard and its ingest token.
@@ -18,9 +22,25 @@ export interface BrokerCodesTarget {
   readonly token: string
 }
 
+// The targets as `settings` stand: Production and the extra target, each
+// none without a token.
+export const brokerCodesTargets = (settings: Settings) =>
+  Effect.sync(() => ({
+    production: Option.some<BrokerCodesTarget>({
+      origin: DashboardOrigin.make(__PRODUCTION_DASHBOARD__),
+      token: settings.productionToken,
+    }).pipe(Option.filter(({ token }) => token !== "")),
+    extra: Option.filter(
+      Option.fromNullOr(settings.extra),
+      ({ token }) => token !== ""
+    ),
+  }))
+
 // How a batch ended: written, no token set, or stopped on a 401 or 426 until
 // the target's settings change.
-export type PostOutcome = "sent" | "off" | "rejected-token" | "reload-extension"
+export type PostOutcome =
+  | "sent"
+  | Extract<TargetState, "off" | "rejected-token" | "reload-extension">
 
 // One POST's answer status; 0 when it got none.
 export type Send = (request: {

@@ -12,8 +12,8 @@ import { useEffect, useState } from "react"
 
 import { recentClosedDays } from "../worker/broker-codes/hours.ts"
 import type { BrokerCodesProgress } from "../worker/broker-codes/run-queue.ts"
+import { brokerCodesTargets } from "../worker/broker-codes/poster.ts"
 import {
-  DashboardOrigin,
   brokerCodesPausedChange,
   historyStore,
   isAjaibLockChange,
@@ -60,14 +60,7 @@ const loadAsked = Effect.map(loadBrokerCodesRun, (run) =>
 const loadDays = Effect.gen(function* () {
   const settings = yield* loadSettings
   const days = yield* recentClosedDays(yield* DateTime.now, RECENT_DAYS)
-  const production = Option.some({
-    origin: DashboardOrigin.make(__PRODUCTION_DASHBOARD__),
-    token: settings.productionToken,
-  }).pipe(Option.filter(({ token }) => token !== ""))
-  const extra = Option.filter(
-    Option.fromNullOr(settings.extra),
-    ({ token }) => token !== ""
-  )
+  const { production, extra } = yield* brokerCodesTargets(settings)
   const statusFrom = (target: typeof extra, day: WibDate) =>
     Option.isSome(target)
       ? dayStatus(target.value, day)

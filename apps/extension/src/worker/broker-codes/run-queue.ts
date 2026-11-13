@@ -5,6 +5,7 @@ import { Feed, WibDate } from "@workspace/relay"
 import { Data, DateTime, Effect, Option, Queue, Schema } from "effect"
 
 import { isMarketHours, newestClosedDay, tradingDaysBetween } from "./hours.ts"
+import type { PostOutcome } from "./poster.ts"
 
 // Why walks stopped in place until something changes: market hours, no
 // broker tab of the walk's site, the Production target refused the batches
@@ -50,9 +51,7 @@ export const halt = (result: WalkResult) => Effect.fail(new Halt({ result }))
 
 // A target's refusal of a post or a status read halts the walk: no token
 // set, a rejected token, or a version the dashboard no longer takes.
-export const haltOnRefusal = (
-  outcome: "off" | "rejected-token" | "reload-extension"
-) =>
+export const haltOnRefusal = (outcome: Exclude<PostOutcome, "sent">) =>
   halt({
     _tag: "stopped",
     cause: outcome === "off" ? "no-token" : outcome,

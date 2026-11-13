@@ -31,7 +31,11 @@ import { makeBackfill } from "./backfill.ts"
 import { badgeOf } from "./badge.ts"
 import { makeAjaibWalk } from "./broker-codes/ajaib-walk.ts"
 import { makeExtraTarget } from "./broker-codes/extra-target.ts"
-import { fetchSend, makeBrokerCodesPoster } from "./broker-codes/poster.ts"
+import {
+  brokerCodesTargets,
+  fetchSend,
+  makeBrokerCodesPoster,
+} from "./broker-codes/poster.ts"
 import { makeHistoryWalk } from "./broker-codes/history.ts"
 import { makeProgress } from "./broker-codes/progress.ts"
 import { makeRunQueue } from "./broker-codes/run-queue.ts"
@@ -373,14 +377,8 @@ const main = Effect.gen(function* () {
   // resume from its status.
   // Each batch also goes to the extra target, which
   // then catches up on what it missed.
-  const productionTarget = Effect.map(loadSettings, (settings) =>
-    settings.productionToken === ""
-      ? Option.none()
-      : Option.some({
-          origin: DashboardOrigin.make(__PRODUCTION_DASHBOARD__),
-          token: settings.productionToken,
-        })
-  )
+  const targetsNow = Effect.flatMap(loadSettings, brokerCodesTargets)
+  const productionTarget = Effect.map(targetsNow, (now) => now.production)
   const production = yield* makeBrokerCodesPoster({
     target: productionTarget,
     send: fetchSend,
@@ -389,12 +387,7 @@ const main = Effect.gen(function* () {
     target: productionTarget,
     get: fetchGet,
   })
-  const extraTarget = Effect.map(loadSettings, (settings) =>
-    Option.filter(
-      Option.fromNullOr(settings.extra),
-      ({ token }) => token !== ""
-    )
-  )
+  const extraTarget = Effect.map(targetsNow, (now) => now.extra)
   const extra = yield* makeExtraTarget({
     target: extraTarget,
     production: productionTarget,
