@@ -4,7 +4,8 @@ import {
   WibDate,
   type BrokerCodesBatch,
 } from "@workspace/relay"
-import { Effect, Option } from "effect"
+import { Effect, Fiber, Option } from "effect"
+import { TestClock } from "effect/testing"
 
 import type { BrokerCodesTarget } from "../../src/worker/broker-codes/poster.ts"
 import { makeProductionTarget } from "../../src/worker/broker-codes/production-target.ts"
@@ -135,6 +136,29 @@ describe("Production's broker codes target", () => {
       const written = yield* answering(200)
       assert.strictEqual(yield* written.post(BATCH), "sent")
       assert.deepStrictEqual(written.states, [])
+    })
+  )
+
+  // Codex review round 11 named the extra target's; Production's poster
+  // never asked its hold again either.
+  it.effect("a refusal recorded while a post retries stops its retries", () =>
+    Effect.gen(function* () {
+      const hold = yield* makeTargetHold(Effect.void)
+      yield* hold.restart(Option.some(PRODUCTION))
+      let sends = 0
+      const production = yield* makeProductionTarget({
+        target: Effect.succeed(Option.some(PRODUCTION)),
+        send: () => Effect.sync(() => ++sends && 503),
+        get: () => Effect.succeed({ status: 401, body: "" }),
+        hold,
+      })
+      const post = yield* Effect.forkChild(production.post(BATCH))
+      yield* Effect.repeat(Effect.yieldNow, { times: 50 })
+      assert.strictEqual(sends, 1)
+      assert.strictEqual(yield* production.status(DAY), "rejected-token")
+      yield* TestClock.adjust("10 minutes")
+      assert.strictEqual(sends, 1)
+      assert.strictEqual(yield* Fiber.join(post), "rejected-token")
     })
   )
 })
