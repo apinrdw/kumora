@@ -28,6 +28,9 @@ import * as Socket from "effect/socket/Socket"
 import { makeAjaibLock } from "./ajaib-lock.ts"
 import { makeAjaibSession } from "./ajaib-session.ts"
 import { makeBackfill } from "./backfill.ts"
+import { makeAjaibWalk } from "./broker-codes/ajaib-walk.ts"
+import { fetchSend, makeBrokerCodesPoster } from "./broker-codes/poster.ts"
+import { makeRunQueue } from "./broker-codes/run-queue.ts"
 import { BATCH_INTERVAL, makeBatcher } from "./batch.ts"
 import { ajaib, ajaibOnDemand, stockbit } from "./broker.ts"
 import { makeCodeList } from "./code-list.ts"
@@ -36,6 +39,7 @@ import { makeOnDemandCodes } from "./on-demand-codes.ts"
 import { makePacer } from "./pacer.ts"
 import {
   DashboardOrigin,
+  ajaibWalkStore,
   codeListStore,
   isClockOffsetChange,
   isCodeListRelayAsk,
@@ -43,6 +47,7 @@ import {
   loadClockOffset,
   loadSettings,
   saveAjaibLock,
+  saveBrokerCodesProgress,
   saveCodeListRelay,
   saveTargetStates,
   sessionPinStore,
@@ -305,6 +310,28 @@ const main = Effect.gen(function* () {
     publish,
   })
   yield* Effect.forkScoped(backfill.run)
+  // Broker codes: the newest closed day's walks post to Production.
+  const production = yield* makeBrokerCodesPoster({
+    target: Effect.map(loadSettings, (settings) =>
+      settings.productionToken === ""
+        ? Option.none()
+        : Option.some({
+            origin: DashboardOrigin.make(__PRODUCTION_DASHBOARD__),
+            token: settings.productionToken,
+          })
+    ),
+    send: fetchSend,
+  })
+  const ajaibWalk = yield* makeAjaibWalk({
+    tab: ajaibPacer.tab("walk"),
+    post: production.post,
+    store: ajaibWalkStore,
+  })
+  const brokerCodes = yield* makeRunQueue({
+    newestDay: [{ feed: "Ajaib", walk: ajaibWalk.walk }],
+    report: saveBrokerCodesProgress,
+  })
+  yield* Effect.forkScoped(brokerCodes.run)
   // Today's WIB date on the schedule clock, moved on by the tick.
   const day = yield* SubscriptionRef.make(yield* wibDateAt(yield* scheduleNow))
   const targets = yield* makeTargets({
@@ -331,6 +358,7 @@ const main = Effect.gen(function* () {
     for (const tab of tabs) yield* tab.tick(window)
     const session = yield* Effect.forkScoped(ajaibSession.tick)
     yield* ajaibLock.tick
+    yield* brokerCodes.tick
     const fetch = yield* codeList.tick(ajaibRest, schedule)
     const earlier = settled
     settled = Option.some(
@@ -369,8 +397,13 @@ const main = Effect.gen(function* () {
     Scope.Scope | Socket.WebSocketConstructor
   > => {
     switch (event._tag) {
+      // A broker tab connecting starts a broker codes run, as does a
+      // settings change, which may have fixed a token a walk stopped on.
       case "connect":
-        return Effect.forEach(tabs, (tab) => tab.connect(event.port))
+        return Effect.andThen(
+          Effect.forEach(tabs, (tab) => tab.connect(event.port)),
+          brokerCodes.trigger
+        )
       case "message":
         return Effect.forEach(tabs, (tab) =>
           tab.message(event.port, event.message)
@@ -381,7 +414,7 @@ const main = Effect.gen(function* () {
       case "alarm":
         return tick(event._tag === "alarm")
       case "settings":
-        return targets.apply
+        return Effect.andThen(targets.apply, brokerCodes.trigger)
       case "relay-code-list":
         return Effect.flatMap(scheduleNow, (now) =>
           codeList.relayNow(ajaibRest, now, (state) =>

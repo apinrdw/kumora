@@ -4,6 +4,11 @@ import { Effect, Option, Schema } from "effect"
 
 import { AjaibLock } from "./ajaib-lock.ts"
 import { SignIn, type PinStore } from "./ajaib-session.ts"
+import {
+  AjaibWalkPosition,
+  type AjaibWalkStore,
+} from "./broker-codes/ajaib-walk.ts"
+import { BrokerCodesProgress } from "./broker-codes/run-queue.ts"
 import { CodeListCache, RelayOutcome, type CodeListStore } from "./code-list.ts"
 
 // Where a dashboard serves: an origin, `https://host` or `http://host:port`.
@@ -267,5 +272,42 @@ export const saveAjaibLock = Effect.fnUntraced(function* (lock: AjaibLock) {
   const encoded = yield* Effect.orDie(Schema.encodeEffect(AjaibLock)(lock))
   yield* Effect.promise(() =>
     chrome.storage.session.set({ [AJAIB_LOCK_KEY]: encoded })
+  )
+})
+
+// Ajaib's walk position for the day it walks (ajaib-walk.ts), in local
+// storage so a restarted worker or browser carries on: Ajaib can't be asked
+// where a walk stopped.
+const AJAIB_WALK_KEY = "brokerCodesAjaibWalk"
+
+export const ajaibWalkStore: AjaibWalkStore = {
+  load: Effect.gen(function* () {
+    const stored = yield* Effect.promise(() =>
+      chrome.storage.local.get(AJAIB_WALK_KEY)
+    )
+    return Schema.decodeUnknownOption(AjaibWalkPosition)(stored[AJAIB_WALK_KEY])
+  }),
+  save: Effect.fnUntraced(function* (position: AjaibWalkPosition) {
+    const encoded = yield* Effect.orDie(
+      Schema.encodeEffect(AjaibWalkPosition)(position)
+    )
+    yield* Effect.promise(() =>
+      chrome.storage.local.set({ [AJAIB_WALK_KEY]: encoded })
+    )
+  }),
+}
+
+// What the broker codes run queue is doing (run-queue.ts), for the options
+// page, in session storage: it describes this browser session's walks.
+const BROKER_CODES_PROGRESS_KEY = "brokerCodesProgress"
+
+export const saveBrokerCodesProgress = Effect.fnUntraced(function* (
+  progress: BrokerCodesProgress
+) {
+  const encoded = yield* Effect.orDie(
+    Schema.encodeEffect(BrokerCodesProgress)(progress)
+  )
+  yield* Effect.promise(() =>
+    chrome.storage.session.set({ [BROKER_CODES_PROGRESS_KEY]: encoded })
   )
 })
