@@ -16,10 +16,9 @@ import {
   makeBrokerCodesPoster,
   type BrokerCodesTarget,
   type PostOutcome,
-  type PostStop,
   type Send,
 } from "./poster.ts"
-import type { DayWalk, WalkResult } from "./run-queue.ts"
+import type { CatchUpResult, CatchUpWalk, WalkResult } from "./run-queue.ts"
 import { DashboardOrigin } from "../settings.ts"
 import { askStatus, statusOnce, type Get } from "./status.ts"
 import type { TargetHold } from "./target-hold.ts"
@@ -190,7 +189,8 @@ export const makeExtraTarget = Effect.fnUntraced(function* (options: {
     // the post sending only the trades its status, read as the walk starts,
     // says it lacks, and over their origin for the walk's store. The walk is
     // skipped unless the target is behind, and stops, having caught up
-    // nothing, when the target is unset, halted or gave no status.
+    // nothing, when the target is unset, halted or gave no status. A stop,
+    // the site walk's too, is passed on without its cause.
     catchUp: Effect.fnUntraced(function* <E, R>(
       feed: Feed,
       make: (target: {
@@ -206,6 +206,7 @@ export const makeExtraTarget = Effect.fnUntraced(function* (options: {
         R
       >
     ) {
+      const stopped: CatchUpResult = { _tag: "stopped" }
       let walking = Option.none<BrokerCodesTarget>()
       let wanted = (_number: TradeNumber) => true
       const walk = yield* make({
@@ -225,24 +226,14 @@ export const makeExtraTarget = Effect.fnUntraced(function* (options: {
         walk: Effect.fnUntraced(function* (day: WibDate) {
           walking = yield* hold.settings
           const held = yield* statusOn(walking, day)
-          if (Option.isNone(held)) {
-            const halt = Option.isSome(walking)
-              ? yield* hold.haltOf(walking.value)
-              : Option.none<PostStop>()
-            return {
-              _tag: "stopped",
-              cause:
-                Option.isSome(halt) && halt.value !== "off"
-                  ? halt.value
-                  : "no-token",
-            } satisfies WalkResult
-          }
+          if (Option.isNone(held)) return stopped
           if (!(yield* behind(day, held.value)))
-            return { _tag: "walked" } satisfies WalkResult
+            return { _tag: "walked" } satisfies CatchUpResult
           wanted = yield* lacks(held.value)
-          return yield* walk.walk(day)
+          const result = yield* walk.walk(day)
+          return result._tag === "stopped" ? stopped : result
         }),
-      } satisfies DayWalk
+      } satisfies CatchUpWalk
     }),
   }
 })

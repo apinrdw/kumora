@@ -71,6 +71,17 @@ export interface DayWalk {
   readonly walk: (day: WibDate) => Effect.Effect<WalkResult>
 }
 
+// One site's catch-up walk of a day on the extra target (extra-target.ts).
+// Its stop has no cause: it ends the catch-up only, and what stops the
+// extra target shows in its Target state.
+export type CatchUpResult =
+  | Exclude<WalkResult, { readonly _tag: "stopped" }>
+  | { readonly _tag: "stopped" }
+export interface CatchUpWalk {
+  readonly feed: Feed
+  readonly walk: (day: WibDate) => Effect.Effect<CatchUpResult>
+}
+
 // What the queue is doing, for the options page: nothing, walking a day on
 // a site, catching the extra target up, or paused. A walk is of the newest
 // closed day, an older day's gaps, or a History day (history.ts). A walk
@@ -135,9 +146,9 @@ export const makeRunQueue = Effect.fnUntraced(function* (options: {
   // The extra target's catch-up of the newest closed day, in the same order:
   // walks that post only to the extra target, only what it misses
   // (extra-target.ts).
-  readonly catchUp: ReadonlyArray<DayWalk>
+  readonly catchUp: ReadonlyArray<CatchUpWalk>
   // Then its gap walk of each older incomplete day, from its own status.
-  readonly gapsCatchUp: DayWalk
+  readonly gapsCatchUp: CatchUpWalk
   // The owner's Pause switch as it stands now (settings.ts).
   readonly paused: Effect.Effect<boolean>
   readonly report: (progress: BrokerCodesProgress) => Effect.Effect<void>

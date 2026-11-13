@@ -9,6 +9,7 @@ import { weekdayBefore } from "./hours.ts"
 import {
   joinIncomplete,
   type BrokerCodesProgress,
+  type CatchUpWalk,
   type DayWalk,
   type IncompleteDaysStore,
   type PauseCause,
@@ -48,7 +49,7 @@ export const makeHistoryWalk = Effect.fnUntraced(function* (options: {
   readonly store: HistoryStore
   readonly incompleteDays: IncompleteDaysStore
   // The extra target's catch-up of a day (extra-target.ts).
-  readonly catchUp: DayWalk
+  readonly catchUp: CatchUpWalk
   readonly catchUpStore: HistoryCatchUpStore
   readonly report: (progress: BrokerCodesProgress) => Effect.Effect<void>
 }) {

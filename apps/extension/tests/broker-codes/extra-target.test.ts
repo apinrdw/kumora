@@ -18,7 +18,10 @@ import {
   type BrokerCodesTarget,
   type PostOutcome,
 } from "../../src/worker/broker-codes/poster.ts"
-import type { WalkResult } from "../../src/worker/broker-codes/run-queue.ts"
+import type {
+  CatchUpResult,
+  WalkResult,
+} from "../../src/worker/broker-codes/run-queue.ts"
 import { makeTargetHold } from "../../src/worker/broker-codes/target-hold.ts"
 import { DashboardOrigin } from "../../src/worker/settings.ts"
 
@@ -401,10 +404,8 @@ describe("the extra target", () => {
       const catchUp = yield* target.extra.catchUp("Ajaib", ({ post }) =>
         Effect.sync(() => fakeWalk(post))
       )
-      assert.deepStrictEqual(yield* catchUp.walk(DAY), {
-        _tag: "stopped",
-        cause: "rejected-token",
-      })
+      assert.deepStrictEqual(yield* catchUp.walk(DAY), { _tag: "stopped" })
+      assert.deepStrictEqual(target.reported, ["rejected-token"])
       yield* target.switchTo(PREVIEW)
       assert.deepStrictEqual(yield* catchUp.walk(DAY), { _tag: "walked" })
       assert.strictEqual(reads, 2)
@@ -487,9 +488,9 @@ describe("the extra target", () => {
     () =>
       Effect.gen(function* () {
         const gap = holding({ n: 5, missing: [[2, 3]], held: 3 })
-        const walked: WalkResult = { _tag: "walked" }
+        const walked: CatchUpResult = { _tag: "walked" }
         // Nothing caught up: a History catch-up keeps its position.
-        const stopped: WalkResult = { _tag: "stopped", cause: "no-token" }
+        const stopped: CatchUpResult = { _tag: "stopped" }
         const cases = [
           [COMPLETE, COMPLETE, Option.some(STAGING), walked],
           [gap, gap, Option.some(STAGING), walked],
@@ -542,10 +543,7 @@ describe("the extra target", () => {
           const catchUp = yield* target.extra.catchUp("Ajaib", ({ post }) =>
             Effect.sync(() => fakeWalk(post))
           )
-          assert.deepStrictEqual(yield* catchUp.walk(DAY), {
-            _tag: "stopped",
-            cause: state,
-          })
+          assert.deepStrictEqual(yield* catchUp.walk(DAY), { _tag: "stopped" })
           assert.deepStrictEqual(target.reported, [state])
           yield* fakeWalk(target.post).walk(DAY)
           yield* settle
@@ -571,10 +569,8 @@ describe("the extra target", () => {
       const catchUp = yield* target.extra.catchUp("Ajaib", ({ post }) =>
         Effect.sync(() => fakeWalk(post))
       )
-      assert.deepStrictEqual(yield* catchUp.walk(DAY), {
-        _tag: "stopped",
-        cause: "rejected-token",
-      })
+      assert.deepStrictEqual(yield* catchUp.walk(DAY), { _tag: "stopped" })
+      assert.strictEqual(target.reported.at(-1), "rejected-token")
       yield* TestClock.adjust("10 minutes")
       yield* settle
       assert.lengthOf(extra.posts, 1)
