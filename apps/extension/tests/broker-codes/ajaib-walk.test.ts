@@ -15,22 +15,25 @@ const DAY = WibDate.make("2026-11-12")
 const wib = (date: string, time: string) => Date.parse(`${date}T${time}+07:00`)
 const MINUTE = 60_000
 
-// A Thursday's tape: the opening match's 1,000 trades sharing one ms, a busy
-// 09:00 block (12,000 trades, three pages of 5,000), a 10:00 block that
-// takes two pages, and 2,000 quiet trades through session 2. Trade numbers
-// rise with time.
+// A Thursday's tape: the opening match's 100 trades sharing one ms, 100
+// quiet trades through the day, then a busy 16:00 block (12,000 trades, three
+// pages of 5,000) and a 16:15 block that takes two pages. Trade numbers rise
+// with time.
+// The busy blocks come last, so the quiet blocks the walk reaches
+// after them answer only the few older rows. A 5,000-row page for each of the
+// day's ~160 blocks timed this file out on CI's 2 cores.
 const dayTrades = () => {
   const times: Array<number> = []
-  for (let at = 0; at < 1_000; at++) times.push(wib("2026-11-12", "08:58:00"))
+  for (let at = 0; at < 100; at++) times.push(wib("2026-11-12", "08:58:00"))
+  for (let at = 0; at < 100; at++)
+    times.push(wib("2026-11-12", "09:00:00") + at * 4 * MINUTE)
   for (let at = 0; at < 12_000; at++)
-    times.push(wib("2026-11-12", "09:00:00") + at * 10)
+    times.push(wib("2026-11-12", "16:00:00") + at * 10)
   for (let at = 0; at < 6_000; at++)
-    times.push(wib("2026-11-12", "10:00:00") + at * 20)
-  for (let at = 0; at < 2_000; at++)
-    times.push(wib("2026-11-12", "13:30:00") + at * 4_000)
+    times.push(wib("2026-11-12", "16:15:00") + at * 20)
   return times
 }
-const N = 21_000
+const N = 18_200
 
 interface TapeRow {
   readonly number: number
