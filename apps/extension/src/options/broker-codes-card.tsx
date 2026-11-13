@@ -114,16 +114,25 @@ function useStored<A>(
   return value
 }
 
-// Now, moved on when the soonest of `ends` passes, so a throttle shows
-// until it ends.
-function useNowUntil(ends: ReadonlyArray<number>) {
+// Now, moved on when the soonest stored end after it passes, so a throttle
+// shows until it ends. The wait is timed from the clock, not from `now`,
+// which stands still between ends; `stored` keeps its identity until
+// storage changes.
+function useNowUntil(stored: Readonly<Record<string, number | undefined>>) {
   const [now, setNow] = useState(Date.now)
   useEffect(() => {
-    const soonest = Math.min(...ends.filter((end) => end > now))
+    const soonest = Math.min(
+      ...Object.values(stored).filter(
+        (end): end is number => end !== undefined && end > now
+      )
+    )
     if (!Number.isFinite(soonest)) return
-    const timer = setTimeout(() => setNow(Date.now()), soonest - now)
+    const timer = setTimeout(
+      () => setNow(Date.now()),
+      Math.max(0, soonest - Date.now())
+    )
     return () => clearTimeout(timer)
-  }, [ends, now])
+  }, [stored, now])
   return now
 }
 
@@ -173,9 +182,7 @@ function PauseCauses({
 }) {
   const lock = useStored(loadAjaibLock, isAjaibLockChange, Option.none())
   const stored = useStored(loadThrottled, isThrottledChange, {})
-  const now = useNowUntil(
-    Object.values(stored).filter((until) => until !== undefined)
-  )
+  const now = useNowUntil(stored)
   const throttled = Object.entries(stored).filter(
     (entry): entry is [Feed, number] => entry[1] !== undefined && entry[1] > now
   )
