@@ -273,6 +273,25 @@ describe("Ajaib's PIN lock", () => {
   )
 
   it.effect(
+    "a lock screen gone before the page's PIN check answers is no unlock",
+    () =>
+      Effect.gen(function* () {
+        const { page, tick, requests, locks, pin } = yield* harness({
+          pin: "111111",
+        })
+        yield* page(LOCKED)
+        yield* page(UNLOCKED)
+        yield* TestClock.adjust("10 seconds")
+        assert.deepStrictEqual(locks.at(-1), { state: "unlocked" })
+        yield* page({ _tag: "pin-validated", status: 401 })
+        yield* page(LOCKED)
+        yield* tick
+        assert.lengthOf(typings(requests), 1)
+        assert.strictEqual(pin(), undefined)
+      })
+  )
+
+  it.effect(
     "a lock screen the tab can't find types nothing, so it is tried again",
     () =>
       Effect.gen(function* () {
