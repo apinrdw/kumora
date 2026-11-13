@@ -2,7 +2,7 @@
 // apinrdw/kumora#138 "Broker connections"): the account id its SUBSCRIBE
 // frames carry, from the Ajaib tab's own access token, or, until the tab has
 // shown one, from a PIN sign-in the owner starts on the options page.
-import { Effect, Option, Schema } from "effect"
+import { Effect, Option, Schema, Semaphore } from "effect"
 
 import { AjaibAccountId } from "./ajaib.ts"
 import type { Answer } from "./broker.ts"
@@ -111,13 +111,14 @@ export const makeAjaibSession = Effect.fnUntraced(function* (options: {
   readonly store: PinStore
 }) {
   const { tab, store } = options
+  const checking = yield* Semaphore.make(1)
 
-  // Decision: a PIN is tried once, while its sign-in is `waiting` (a new
-  // entry), which moves to `signing-in` before the call, so no retry or
-  // restart sends it again: a wrong PIN tried twice could lock the account.
-  // The PIN stays for the lock screen unless refused or failed, then it is
-  // wiped. See apinrdw/kumora#244, "The PIN's storage".
-  const tick = Effect.gen(function* () {
+  // Decision: a PIN is tried once: its sign-in moves from `waiting` (a new
+  // entry) to `signing-in` before the call, one check at a time, so no
+  // retry, restart or second tick sends it again; a wrong PIN tried twice
+  // could lock the account. It stays for the lock screen only once signed
+  // in, else it is wiped. See apinrdw/kumora#244, "The PIN's storage".
+  const check = Effect.gen(function* () {
     if (!(yield* tab.attached)) return
     const latest = yield* store.latest
     if (Option.isNone(latest)) return
@@ -134,10 +135,11 @@ export const makeAjaibSession = Effect.fnUntraced(function* (options: {
     const outcome: SignIn = Option.isSome(answer)
       ? yield* pinOutcome(answer.value)
       : { state: "failed" }
-    if (outcome.state === "wrong-pin" || outcome.state === "failed")
-      yield* entry.wipePin
+    if (outcome.state !== "signed-in") yield* entry.wipePin
     yield* entry.setSignIn(outcome)
   })
+  // A tick that finds a check in flight does nothing.
+  const tick = Effect.asVoid(checking.withPermitsIfAvailable(1)(check))
 
   // The PIN sign-in's access token, for the tab's REST calls before the page
   // made one of its own.
