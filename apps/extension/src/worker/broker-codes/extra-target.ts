@@ -136,21 +136,20 @@ export const makeExtraTarget = Effect.fnUntraced(function* (options: {
     return yield* statusAt(target.value, day)
   })
 
-  // Whether the extra target is behind on a day: it answered a status that
-  // isn't complete, and Production's status, when it answers one, holds
+  // Whether the extra target, holding `held` of a day, is behind on it: the
+  // day isn't complete, and Production's status, when it answers one, holds
   // trades the extra target lacks. A catch-up can only send what the sites
   // gave Production, so an extra target that lacks exactly what Production
   // lacks has nothing to catch up.
-  const behind = Effect.fnUntraced(function* (day: WibDate) {
-    const held = yield* status(day)
-    if (Option.isNone(held) || held.value.complete)
-      return Option.none<BrokerCodesStatus>()
+  const behind = Effect.fnUntraced(function* (
+    day: WibDate,
+    held: BrokerCodesStatus
+  ) {
+    if (held.complete) return false
     const production = yield* options.production
-    if (Option.isNone(production)) return held
+    if (Option.isNone(production)) return true
     const leading = yield* statusAt(production.value, day)
-    if (Option.isSome(leading) && (yield* holdsSame(leading.value, held.value)))
-      return Option.none<BrokerCodesStatus>()
-    return held
+    return !(Option.isSome(leading) && (yield* holdsSame(leading.value, held)))
   })
 
   return {
@@ -168,7 +167,8 @@ export const makeExtraTarget = Effect.fnUntraced(function* (options: {
     // A site's catch-up walk for the run queue: `make` builds the site's
     // walk over a post that sends the extra target only the trades its
     // status, read as the walk starts, says it lacks. The walk is skipped
-    // unless the target is behind.
+    // unless the target is behind, and stops, having caught up nothing, when
+    // the target is unset, stopped or gave no status.
     catchUp: Effect.fnUntraced(function* <E, R>(
       feed: Feed,
       make: (target: {
@@ -194,8 +194,10 @@ export const makeExtraTarget = Effect.fnUntraced(function* (options: {
       return {
         feed,
         walk: Effect.fnUntraced(function* (day: WibDate) {
-          const held = yield* behind(day)
+          const held = yield* status(day)
           if (Option.isNone(held))
+            return { _tag: "stopped", cause: "no-token" } satisfies WalkResult
+          if (!(yield* behind(day, held.value)))
             return { _tag: "walked" } satisfies WalkResult
           wanted = yield* lacks(held.value)
           return yield* walk.walk(day)

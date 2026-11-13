@@ -253,17 +253,20 @@ describe("the extra target", () => {
   )
 
   it.effect(
-    "skips the catch-up when it is complete, lacks only what Production lacks, is unreachable or not set",
+    "skips the catch-up when it is complete or lacks only what Production lacks, and stops it when unreachable or not set",
     () =>
       Effect.gen(function* () {
         const gap = holding({ n: 5, missing: [[2, 3]], held: 3 })
+        const walked: WalkResult = { _tag: "walked" }
+        // Nothing caught up: a History catch-up keeps its position.
+        const stopped: WalkResult = { _tag: "stopped", cause: "no-token" }
         const cases = [
-          [COMPLETE, COMPLETE, Option.some(STAGING)],
-          [gap, gap, Option.some(STAGING)],
-          [COMPLETE, undefined, Option.some(STAGING)],
-          [COMPLETE, gap, Option.none()],
+          [COMPLETE, COMPLETE, Option.some(STAGING), walked],
+          [gap, gap, Option.some(STAGING), walked],
+          [COMPLETE, undefined, Option.some(STAGING), stopped],
+          [COMPLETE, gap, Option.none(), stopped],
         ] as const
-        for (const [lead, held, settings] of cases) {
+        for (const [lead, held, settings, result] of cases) {
           const extra = fakeDashboard(
             held === undefined ? {} : { status: held }
           )
@@ -285,7 +288,7 @@ describe("the extra target", () => {
               }
             })
           )
-          assert.deepStrictEqual(yield* catchUp.walk(DAY), { _tag: "walked" })
+          assert.deepStrictEqual(yield* catchUp.walk(DAY), result)
           assert.strictEqual(walks, 0)
           assert.deepStrictEqual(extra.written, [])
         }
