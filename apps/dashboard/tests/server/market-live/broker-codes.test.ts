@@ -267,6 +267,36 @@ describe("a day's broker codes", () => {
       )
     })
   )
+
+  // CODING_STANDARDS.md, "Bounded memory on a Worker": a 1.5M-trade day
+  // with every other trade missing, its chunks written straight into the
+  // table, since posting 750,000 rows would take minutes.
+  it.effect(
+    "a day of 750,000 gaps lists its first 1,000 and counts them all",
+    () =>
+      Effect.gen(function* () {
+        const sql = memorySql()
+        const day = yield* tradingDay({ sql })
+        const chunk = new Uint8Array(7_000)
+        const record = new TextEncoder().encode("YPDCCFA")
+        for (let slot = 0; slot < 1_000; slot += 2) chunk.set(record, slot * 7)
+        sql.transaction(() => {
+          for (let index = 0; index < 1_500; index++)
+            sql.exec(
+              "INSERT INTO broker_code_chunks VALUES (?, ?)",
+              index,
+              chunk
+            )
+        })
+        yield* day.post("Ajaib", [], 1_500_000)
+        const status: unknown = JSON.parse(yield* day.statusText)
+        assert.nestedPropertyVal(status, "complete", false)
+        assert.nestedPropertyVal(status, "missingCount", 750_000)
+        assert.deepNestedPropertyVal(status, "missing[0]", ["2", "2"])
+        assert.deepNestedPropertyVal(status, "missing[999]", ["2000", "2000"])
+        assert.notNestedProperty(status, "missing[1000]")
+      })
+  )
 })
 
 describe("the merge rules", () => {
