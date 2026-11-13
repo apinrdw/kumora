@@ -37,9 +37,9 @@ const CALLS_PER_BATCH = 10
 
 // Decision: the walk starts once Stockbit answers `is_open_market: false`
 // (about 16:58 on 2026-11-11), polling one newest-first call a minute until
-// then. A failed call is asked again in place every 10 s; the pacer has
-// already stopped the site on a throttle. See apinrdw/kumora#244, "Stockbit
-// start".
+// then. A failed call is asked again in place every 10 s while the tab stays
+// attached; the pacer has already stopped the site on a throttle. See
+// apinrdw/kumora#244, "Stockbit start".
 const START_POLL = "1 minute"
 const RETRY = "10 seconds"
 
@@ -158,8 +158,11 @@ const highestHeld = Effect.fnUntraced(function* (status: BrokerCodesStatus) {
     : Option.none<TradeNumber>()
 })
 
+// The walk's paced calls, and whether the Stockbit tab is still there.
+type WalkTab = RequestingTab & { readonly attached: Effect.Effect<boolean> }
+
 export const makeStockbitWalk = Effect.fnUntraced(function* (options: {
-  readonly tab: RequestingTab
+  readonly tab: WalkTab
   readonly post: (batch: BrokerCodesBatch) => Effect.Effect<PostOutcome>
   // The day's status on Production.
   readonly status: (day: WibDate) => Effect.Effect<StatusOutcome>
@@ -228,8 +231,12 @@ export const makeStockbitWalk = Effect.fnUntraced(function* (options: {
         url,
         headers: { authorization: `Bearer ${credential.value.accessToken}` },
       })
-      if (Option.isNone(answer))
-        return yield* halt({ _tag: "stopped", cause: "no-tab" })
+      if (Option.isNone(answer)) {
+        if (!(yield* tab.attached))
+          return yield* halt({ _tag: "stopped", cause: "no-tab" })
+        yield* Effect.sleep(RETRY)
+        continue
+      }
       if (answer.value.status === 401) {
         yield* awaitNewCookie(held)
         continue
@@ -411,7 +418,7 @@ export const makeStockbitWalk = Effect.fnUntraced(function* (options: {
 // stops the walk as an unset token would, which ends only the catch-up. See
 // apinrdw/kumora#251.
 export const stockbitCatchUp = Effect.fnUntraced(function* (options: {
-  readonly tab: RequestingTab
+  readonly tab: WalkTab
   readonly post: (batch: BrokerCodesBatch) => Effect.Effect<PostOutcome>
   readonly status: (
     day: WibDate

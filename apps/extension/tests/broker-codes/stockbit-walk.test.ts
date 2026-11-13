@@ -117,6 +117,7 @@ const fakeStockbit = (
   return {
     urls,
     times,
+    attached: Effect.succeed(true),
     // The tape's calls as their query strings.
     params: () => urls.map((url) => new URL(url).searchParams),
     request: (request: TabRequest) =>
@@ -401,7 +402,7 @@ describe("Stockbit's full walk of a day", () => {
       const pacer = yield* makePacer({ feed: "Stockbit", tab: tape })
       yield* Effect.forkChild(pacer.run)
       const walk = yield* makeStockbitWalk({
-        tab: pacer.tab("walk"),
+        tab: { ...pacer.tab("walk"), attached: tape.attached },
         post: production.post,
         status: production.status,
       })
@@ -464,7 +465,10 @@ describe("Stockbit's walk: when it starts and gives up", () => {
         yield* TestClock.setTime(wib("2026-11-12", "17:30:00"))
         const production = fakeProduction()
         const walk = yield* makeStockbitWalk({
-          tab: { request: () => Effect.succeed(Option.none<Answer>()) },
+          tab: {
+            attached: Effect.succeed(false),
+            request: () => Effect.succeed(Option.none<Answer>()),
+          },
           post: production.post,
           status: production.status,
         })

@@ -409,8 +409,13 @@ const main = Effect.gen(function* () {
     store: yield* ajaibWalkStore,
     trades: progress.trades,
   })
+  // The Stockbit walks' paced calls, and whether their tab is still there.
+  const stockbitWalkTab = {
+    ...stockbitPacer.tab("walk"),
+    attached: stockbitTab.attached,
+  }
   const stockbitWalk = yield* makeStockbitWalk({
-    tab: stockbitPacer.tab("walk"),
+    tab: stockbitWalkTab,
     post: extra.tee(production.post),
     status: productionStatus.status,
     trades: progress.trades,
@@ -427,7 +432,7 @@ const main = Effect.gen(function* () {
     "Stockbit",
     ({ post, status }) =>
       stockbitCatchUp({
-        tab: stockbitPacer.tab("walk"),
+        tab: stockbitWalkTab,
         post,
         status,
         signedOut: progress.signedOut,
