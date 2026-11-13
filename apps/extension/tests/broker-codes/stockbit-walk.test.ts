@@ -19,7 +19,10 @@ import {
   type HistoryPosition,
 } from "../../src/worker/broker-codes/history.ts"
 import type { PostOutcome } from "../../src/worker/broker-codes/poster.ts"
-import { makeRunQueue } from "../../src/worker/broker-codes/run-queue.ts"
+import {
+  makeRunQueue,
+  type IncompleteDaysStore,
+} from "../../src/worker/broker-codes/run-queue.ts"
 import {
   makeStockbitWalk,
   stockbitCatchUp,
@@ -29,6 +32,14 @@ import { makePacer } from "../../src/worker/pacer.ts"
 import { DashboardOrigin } from "../../src/worker/settings.ts"
 
 const DAY = WibDate.make("2026-11-12")
+
+// An incomplete-days list that keeps nothing.
+const noIncompleteDays: IncompleteDaysStore = {
+  load: Effect.succeed([]),
+  save: () => Effect.void,
+  lastNewest: Effect.succeedNone,
+  saveLastNewest: () => Effect.void,
+}
 const wib = (date: string, time: string) => Date.parse(`${date}T${time}+07:00`)
 const N = 2_345
 
@@ -481,10 +492,11 @@ describe("Stockbit's walk: when it starts and gives up", () => {
           { feed: "Ajaib", walk: ajaib.walk },
           { feed: "Stockbit", walk: stockbit.walk },
         ],
-        incompleteDays: { load: Effect.succeed([]), save: () => Effect.void },
+        incompleteDays: noIncompleteDays,
         gaps: { feed: "Stockbit", walk: stockbit.gaps },
         history: { walk: () => Effect.succeedNone, catchUp: () => Effect.void },
         catchUp: [],
+        gapsCatchUp: { feed: "Stockbit", walk: stockbit.gaps },
         paused: Effect.succeed(false),
         report: (progress) =>
           progress.state === "idle"
@@ -844,6 +856,7 @@ describe("the History walk over Stockbit's walk", () => {
     return yield* makeHistoryWalk({
       walk: { feed: "Stockbit", walk: walk.gaps },
       store: position.store,
+      incompleteDays: noIncompleteDays,
       catchUp: { feed: "Stockbit", walk: walk.gaps },
       catchUpStore: { load: Effect.succeedNone, save: () => Effect.void },
       report: () => Effect.void,

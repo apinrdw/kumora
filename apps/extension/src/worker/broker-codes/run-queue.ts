@@ -4,7 +4,7 @@
 import { Feed, WibDate } from "@workspace/relay"
 import { Data, DateTime, Effect, Option, Queue, Schema } from "effect"
 
-import { isMarketHours, newestClosedDay } from "./hours.ts"
+import { isMarketHours, newestClosedDay, tradingDaysBetween } from "./hours.ts"
 
 // Why walks stopped in place until something changes: market hours, no
 // broker tab of the walk's site, the Production target refused the batches
@@ -92,12 +92,26 @@ export const BrokerCodesProgress = Schema.Union([
 export type BrokerCodesProgress = typeof BrokerCodesProgress.Type
 
 // The days that may still be incomplete, kept across restarts
-// (settings.ts): each newest closed day joins it, and leaves once its gap
-// walk finds it complete or Stockbit gives it up.
+// (settings.ts): each newest closed day joins it with the evenings missed
+// since the last one, as does a History day left incomplete (history.ts).
+// A day leaves once its gap walk finds it complete or Stockbit gives it up.
 export interface IncompleteDaysStore {
   readonly load: Effect.Effect<ReadonlyArray<WibDate>>
   readonly save: (days: ReadonlyArray<WibDate>) => Effect.Effect<void>
+  // The newest closed day the last run walked.
+  readonly lastNewest: Effect.Effect<Option.Option<WibDate>>
+  readonly saveLastNewest: (day: WibDate) => Effect.Effect<void>
 }
+
+// Adds days to the list, once each.
+export const joinIncomplete = Effect.fnUntraced(function* (
+  store: IncompleteDaysStore,
+  days: ReadonlyArray<WibDate>
+) {
+  const kept = yield* store.load
+  const added = days.filter((day) => !kept.includes(day))
+  if (added.length > 0) yield* store.save([...kept, ...added])
+})
 
 export const makeRunQueue = Effect.fnUntraced(function* (options: {
   // The newest closed day's walks, in order: each runs once the one before
@@ -116,6 +130,8 @@ export const makeRunQueue = Effect.fnUntraced(function* (options: {
   // walks that post only to the extra target, only what it misses
   // (extra-target.ts).
   readonly catchUp: ReadonlyArray<DayWalk>
+  // Then its gap walk of each older incomplete day, from its own status.
+  readonly gapsCatchUp: DayWalk
   // The owner's Pause switch as it stands now (settings.ts).
   readonly paused: Effect.Effect<boolean>
   readonly report: (progress: BrokerCodesProgress) => Effect.Effect<void>
@@ -126,21 +142,46 @@ export const makeRunQueue = Effect.fnUntraced(function* (options: {
 
   // The extra target's walks: a stop ends the catch-up only, since
   // Production isn't paused.
-  const catchUp = Effect.fnUntraced(function* (day: WibDate) {
+  // Decision: after the newest closed day, the extra target walks the gaps
+  // of the older days that were incomplete as the run began, oldest first,
+  // so it also gets the days Production completed in this run. A day
+  // Production completed in an earlier run, while the extra target failed,
+  // isn't walked again. See apinrdw/kumora#244, "Targets".
+  const catchUp = Effect.fnUntraced(function* (
+    day: WibDate,
+    older: ReadonlyArray<WibDate>
+  ) {
     for (const { walk } of options.catchUp) {
       const result = yield* walk(day)
       if (result._tag === "stopped") return
     }
+    for (const each of older) {
+      const result = yield* options.gapsCatchUp.walk(each)
+      if (result._tag === "stopped") return
+    }
+  })
+
+  // Decision: each run's newest closed day joins the list with every
+  // trading day since the last run's newest, so the evenings a closed
+  // browser missed are walked from Stockbit. A first run adds only its own
+  // day; the History walk covers the days before it. See
+  // apinrdw/kumora#244, "Order on each run".
+  const joinNewest = Effect.fnUntraced(function* (newest: WibDate) {
+    const store = options.incompleteDays
+    const last = yield* store.lastNewest
+    const missed = Option.isSome(last)
+      ? yield* tradingDaysBetween(last.value, newest)
+      : []
+    yield* joinIncomplete(store, [...missed, newest])
+    yield* store.saveLastNewest(newest)
   })
 
   // Decision: older incomplete days' gaps go oldest first, each day once a
   // run. A day leaves the list once its gap walk finds it complete or
   // Stockbit answers it with no rows; any other end keeps it for a later
   // run. See apinrdw/kumora#244, "Order on each run".
-  const olderDays = Effect.fnUntraced(function* (newest: WibDate) {
-    const days = [...(yield* options.incompleteDays.load)].sort()
+  const olderDays = Effect.fnUntraced(function* (days: ReadonlyArray<WibDate>) {
     for (const day of days) {
-      if (day >= newest) continue
       yield* options.report({
         state: "walking",
         walk: "gaps",
@@ -166,9 +207,10 @@ export const makeRunQueue = Effect.fnUntraced(function* (options: {
       return yield* options.report({ state: "paused", cause: "market-hours" })
     const day = yield* newestClosedDay(now)
     if (Option.isNone(day)) return yield* options.report({ state: "idle" })
-    const kept = yield* options.incompleteDays.load
-    if (!kept.includes(day.value))
-      yield* options.incompleteDays.save([...kept, day.value])
+    yield* joinNewest(day.value)
+    const older = [...(yield* options.incompleteDays.load)]
+      .filter((each) => each < day.value)
+      .sort()
     for (const { feed, walk } of options.newestDay) {
       yield* options.report({
         state: "walking",
@@ -180,7 +222,7 @@ export const makeRunQueue = Effect.fnUntraced(function* (options: {
       if (result._tag === "stopped")
         return yield* options.report({ state: "paused", cause: result.cause })
     }
-    const stopped = yield* olderDays(day.value)
+    const stopped = yield* olderDays(older)
     if (Option.isSome(stopped))
       return yield* options.report({ state: "paused", cause: stopped.value })
     const history = yield* options.history.walk(day.value)
@@ -193,7 +235,10 @@ export const makeRunQueue = Effect.fnUntraced(function* (options: {
     // restart, and a failing extra target, whose posts retry for ever,
     // holds nothing up. See apinrdw/kumora#250.
     yield* Effect.raceFirst(
-      Effect.andThen(catchUp(day.value), options.history.catchUp(day.value)),
+      Effect.andThen(
+        catchUp(day.value, older),
+        options.history.catchUp(day.value)
+      ),
       Effect.andThen(Queue.take(wakes), trigger)
     )
   })

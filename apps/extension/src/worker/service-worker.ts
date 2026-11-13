@@ -436,8 +436,9 @@ const main = Effect.gen(function* () {
   const history = yield* makeHistoryWalk({
     walk: { feed: "Stockbit", walk: stockbitWalk.gaps },
     store: historyStore,
+    incompleteDays: incompleteDaysStore,
     catchUp: stockbitExtraCatchUp,
-    catchUpStore: historyCatchUpStore(
+    catchUpStore: yield* historyCatchUpStore(
       Effect.map(
         extraTarget,
         Option.map(({ origin }) => origin)
@@ -454,6 +455,7 @@ const main = Effect.gen(function* () {
     gaps: { feed: "Stockbit", walk: stockbitWalk.gaps },
     history,
     catchUp: [ajaibCatchUp, stockbitExtraCatchUp],
+    gapsCatchUp: stockbitExtraCatchUp,
     paused: loadBrokerCodesPaused,
     report: progress.report,
   })
