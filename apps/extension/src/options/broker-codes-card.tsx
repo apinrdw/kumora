@@ -20,6 +20,7 @@ import {
   isBrokerCodesProgressChange,
   isBrokerCodesRunChange,
   isHistoryChange,
+  isSettingsChange,
   isThrottledChange,
   loadAjaibLock,
   loadBrokerCodesPaused,
@@ -29,6 +30,7 @@ import {
   loadThrottled,
   saveBrokerCodesPaused,
   saveBrokerCodesRun,
+  type Settings,
 } from "../worker/settings.ts"
 import {
   causesView,
@@ -57,8 +59,7 @@ const loadAsked = Effect.map(loadBrokerCodesRun, (run) =>
 
 // The last 10 trading days, from Production's status, each with whether
 // the extra target's copy is behind.
-const loadDays = Effect.gen(function* () {
-  const settings = yield* loadSettings
+const loadDays = Effect.fnUntraced(function* (settings: Settings) {
   const days = yield* recentClosedDays(yield* DateTime.now, RECENT_DAYS)
   const { production, extra } = yield* brokerCodesTargets(settings)
   const statusFrom = (target: typeof extra, day: WibDate) =>
@@ -79,8 +80,10 @@ const loadDays = Effect.gen(function* () {
   )
 })
 
+const loadStoredSettings = Effect.map(loadSettings, Option.some)
+
 // The days are asked again when the queue moves to another walk, day or
-// state.
+// state, and when the targets change.
 const progressKey = (progress: Option.Option<BrokerCodesProgress>) =>
   Effect.sync(() =>
     Option.match(progress, {
@@ -209,11 +212,22 @@ function RecentDays({
     readonly rows: ReadonlyArray<DayRow>
   }>({ asked: "", rows: [] })
   const key = Effect.runSync(progressKey(progress))
+  const settings = useStored(
+    loadStoredSettings,
+    isSettingsChange,
+    Option.none<Settings>()
+  )
   useEffect(() => {
-    void optionsRuntime
-      .runPromise(loadDays)
-      .then((rows) => setDays({ asked: key, rows }))
-  }, [key])
+    if (Option.isNone(settings)) return
+    // Only the latest ask's rows show: an earlier one may answer later.
+    let latest = true
+    void optionsRuntime.runPromise(loadDays(settings.value)).then((rows) => {
+      if (latest) setDays({ asked: key, rows })
+    })
+    return () => {
+      latest = false
+    }
+  }, [key, settings])
   return (
     <table aria-label="Last 10 trading days" className="text-sm">
       <thead>
