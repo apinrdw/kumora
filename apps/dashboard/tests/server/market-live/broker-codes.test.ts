@@ -426,6 +426,47 @@ describe("the cross-check", () => {
   )
 })
 
+describe("the cross-check of a replaced Ajaib copy", () => {
+  it.effect(
+    "compares Ajaib's replacement against Stockbit's copy of a trade it differed on",
+    () =>
+      Effect.gen(function* () {
+        const ZZ_AK = codes("ZZ", "AK")
+        const day = yield* tradingDay()
+        yield* day.post("Ajaib", [[1, YP_CC]], 1)
+        yield* day.post("Stockbit", [[1, PD_KZ]], 1)
+        const compared = (covered: number, differences: number) => ({
+          state: "compared" as const,
+          covered,
+          differences,
+        })
+        assert.deepStrictEqual((yield* day.status).crossCheck, compared(0, 1))
+
+        // Another copy that still differs, then Stockbit's own.
+        yield* day.post("Ajaib", [[1, ZZ_AK]])
+        assert.deepStrictEqual((yield* day.status).crossCheck, compared(0, 1))
+        yield* day.post("Ajaib", [[1, PD_KZ]])
+        assert.deepStrictEqual((yield* day.status).crossCheck, compared(1, 0))
+        assert.deepStrictEqual(
+          yield* day.held(1),
+          Option.some({ codes: PD_KZ, source: "Ajaib" as const })
+        )
+
+        // Both in one batch: the last copy is the one compared.
+        yield* day.post("Ajaib", [
+          [1, PD_KZ],
+          [1, YP_CC],
+        ])
+        assert.deepStrictEqual((yield* day.status).crossCheck, compared(0, 1))
+        yield* day.post("Ajaib", [
+          [1, ZZ_AK],
+          [1, PD_KZ],
+        ])
+        assert.deepStrictEqual((yield* day.status).crossCheck, compared(1, 0))
+      })
+  )
+})
+
 describe("a sealed day", () => {
   it.effect(
     "takes broker codes, and every recorded day answer stays byte-identical",
