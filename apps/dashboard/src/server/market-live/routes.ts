@@ -10,6 +10,9 @@ export const ObjectPath = {
   ingest: "/ingest",
   live: "/live",
   endSessions: "/end-sessions",
+  // A broker codes batch (POST) or the day's status (GET), the token already
+  // checked by the entry (broker-codes-route.ts).
+  brokerCodes: "/broker-codes",
 } as const
 
 // The index Durable Object (day-index-object.ts): one, by this name. A day's

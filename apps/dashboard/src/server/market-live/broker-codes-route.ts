@@ -1,0 +1,109 @@
+// The broker codes route in the Worker entry (spec apinrdw/kumora#244,
+// "Dashboard: the route"): `/api/broker-codes/<date>`, ahead of TanStack
+// Start. The extension posts a day's batches and asks its status with the
+// ingest token as its bearer; there is no viewer session and no sign-in
+// gate. Each reaches the named day's trading-day Durable Object.
+import {
+  BROKER_CODES_BATCH_LIMIT,
+  decodeBrokerCodesBatch,
+  type WibDate,
+} from "@workspace/relay"
+import { WorkerEnv } from "@workspace/server"
+import { Effect, Option, Schema } from "effect"
+
+import { ingestTokenMatches } from "./ingest-token.ts"
+import { ObjectPath } from "./routes.ts"
+
+const refused = (status: number, text: string, headers = {}) =>
+  Effect.sync(
+    () =>
+      new Response(text, {
+        status,
+        headers: { "Cache-Control": "no-store", ...headers },
+      })
+  )
+
+const BEARER = "Bearer "
+
+const authorized = Effect.fnUntraced(function* (request: Request) {
+  const header = request.headers.get("authorization")
+  if (header === null || !header.startsWith(BEARER)) return false
+  return yield* ingestTokenMatches(header.slice(BEARER.length))
+})
+
+class BodyTooLong extends Schema.TaggedError<BodyTooLong>()(
+  "BodyTooLong",
+  {}
+) {}
+
+// Decision: the body is read in chunks and dropped once it passes
+// BROKER_CODES_BATCH_LIMIT bytes, before any of it is decoded, so a batch
+// holds at most that much of the Worker's memory. A batch is ASCII JSON, so
+// its bytes are its UTF-16 units.
+const boundedText = Effect.fnUntraced(function* (request: Request) {
+  const reader = request.body?.getReader()
+  if (reader === undefined) return ""
+  const chunks: Array<Uint8Array> = []
+  let length = 0
+  for (;;) {
+    const { done, value } = yield* Effect.promise(() => reader.read())
+    if (done) break
+    length += value.byteLength
+    if (length > BROKER_CODES_BATCH_LIMIT) {
+      yield* Effect.promise(() => reader.cancel())
+      return yield* new BodyTooLong()
+    }
+    chunks.push(value)
+  }
+  const body = new Uint8Array(length)
+  let at = 0
+  for (const chunk of chunks) {
+    body.set(chunk, at)
+    at += chunk.byteLength
+  }
+  return new TextDecoder().decode(body)
+})
+
+const toTradingDay = Effect.fnUntraced(function* (
+  day: WibDate,
+  init: RequestInit
+) {
+  const env = yield* WorkerEnv
+  const object = env.TRADING_DAY.getByName(day)
+  // A new request, so no header the client sent reaches the object.
+  const request = new Request(
+    new URL(ObjectPath.brokerCodes, "https://trading-day.invalid"),
+    init
+  )
+  return yield* Effect.promise((): Promise<Response> => object.fetch(request))
+})
+
+// Checked here before the object is reached: the token (401), the date
+// (400), the method (405), and a POST's batch: its length (413), its version
+// (426), its shape and its day (400). The object answers 200 once the batch
+// is written, and the status with `no-store`.
+const post = Effect.fnUntraced(
+  function* (request: Request, day: WibDate) {
+    const text = yield* boundedText(request)
+    const batch = yield* decodeBrokerCodesBatch(text)
+    if (batch.day !== day) return yield* refused(400, "Batch of another day")
+    return yield* toTradingDay(day, { method: "POST", body: text })
+  },
+  Effect.catchTags({
+    BodyTooLong: () => refused(413, "Batch too long"),
+    BrokerCodesVersionMismatch: () => refused(426, "Reload the extension"),
+    SchemaError: () => refused(400, "Batch not read"),
+  })
+)
+
+export const brokerCodesRoute = Effect.fnUntraced(function* (
+  request: Request,
+  day: Option.Option<WibDate>
+) {
+  if (!(yield* authorized(request))) return yield* refused(401, "Bad token")
+  if (Option.isNone(day)) return yield* refused(400, "No such day")
+  if (request.method === "POST") return yield* post(request, day.value)
+  if (request.method === "GET")
+    return yield* toTradingDay(day.value, { method: "GET" })
+  return yield* refused(405, "GET or POST", { Allow: "GET, POST" })
+})
