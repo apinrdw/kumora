@@ -19,14 +19,14 @@ import {
   websocketKey,
   type StockbitCredential,
 } from "./stockbit.ts"
-import type { BrokerTab, TabHooks } from "./tab.ts"
+import type { SocketTab, TabHooks } from "./tab.ts"
 
 const connections: ReadonlyArray<Connection> = ["A", "B"]
 
 // A tab's subscription keeper: its socket hooks, and a resend after a change.
 export interface Subscriptions {
   readonly hooks: TabHooks
-  readonly resubscribe: (tab: BrokerTab) => Effect.Effect<void>
+  readonly resubscribe: (tab: SocketTab) => Effect.Effect<void>
 }
 
 // Ajaib's on-demand keeper: a resend names the codes a target newly asked
@@ -34,7 +34,7 @@ export interface Subscriptions {
 export interface OnDemandSubscriptions {
   readonly hooks: TabHooks
   readonly resubscribe: (
-    tab: BrokerTab,
+    tab: SocketTab,
     fresh: ReadonlyArray<StockCode>
   ) => Effect.Effect<void>
 }
@@ -52,7 +52,7 @@ export const makeStockbitSubscriptions = Effect.fnUntraced(function* (
   >()
 
   const subscribe = Effect.fnUntraced(function* (
-    tab: BrokerTab,
+    tab: SocketTab,
     connection: Connection
   ) {
     const session = sessions.get(connection)
@@ -62,7 +62,7 @@ export const makeStockbitSubscriptions = Effect.fnUntraced(function* (
   })
 
   const authenticate = Effect.fnUntraced(function* (
-    tab: BrokerTab,
+    tab: SocketTab,
     connection: Connection
   ) {
     const credential = yield* tabCredential(tab)
@@ -103,7 +103,7 @@ export const makeStockbitSubscriptions = Effect.fnUntraced(function* (
       }),
   }
 
-  const resubscribe = (tab: BrokerTab) =>
+  const resubscribe = (tab: SocketTab) =>
     Effect.forEach(connections, (connection) => subscribe(tab, connection), {
       discard: true,
     })
@@ -139,7 +139,7 @@ export const makeAjaibSubscriptions = Effect.fnUntraced(function* (
     Effect.succeed(`${site}/${connection}`)
 
   const update = Effect.fnUntraced(function* (
-    tab: BrokerTab,
+    tab: SocketTab,
     site: SiteName,
     connection: Connection
   ) {
@@ -172,7 +172,7 @@ export const makeAjaibSubscriptions = Effect.fnUntraced(function* (
   })
 
   const opened = Effect.fnUntraced(function* (
-    tab: BrokerTab,
+    tab: SocketTab,
     site: SiteName,
     connection: Connection
   ) {
@@ -187,7 +187,7 @@ export const makeAjaibSubscriptions = Effect.fnUntraced(function* (
 
   const hooks: TabHooks = {
     opened: Effect.fnUntraced(function* (
-      tab: BrokerTab,
+      tab: SocketTab,
       site: SiteName,
       connection: Connection
     ) {
@@ -198,7 +198,7 @@ export const makeAjaibSubscriptions = Effect.fnUntraced(function* (
       )
     }),
     closed: Effect.fnUntraced(function* (
-      _tab: BrokerTab,
+      _tab: SocketTab,
       site: SiteName,
       connection: Connection
     ) {
@@ -209,7 +209,7 @@ export const makeAjaibSubscriptions = Effect.fnUntraced(function* (
     }),
   }
 
-  const resubscribe = (tab: BrokerTab, codes: ReadonlyArray<StockCode>) =>
+  const resubscribe = (tab: SocketTab, codes: ReadonlyArray<StockCode>) =>
     Effect.forEach(
       Object.keys(streams) as ReadonlyArray<SiteName>,
       (site) =>

@@ -5,7 +5,7 @@
 import { Duration, Effect, Option, Queue, Schema } from "effect"
 
 import type { PinStore } from "./ajaib-session.ts"
-import type { Answer, PageEvent, TabRequest } from "./broker.ts"
+import type { Answer, LocalRequest, PageEvent } from "./broker.ts"
 
 // Decision: one synthetic `mousemove` every 10 minutes, all day while an
 // Ajaib tab is relayed, Streaming hours included. Ajaib's lock is a 4 h
@@ -21,7 +21,7 @@ export const makeAjaibLock = Effect.fnUntraced(function* (options: {
   readonly tab: {
     readonly attached: Effect.Effect<boolean>
     readonly request: (
-      request: TabRequest
+      request: LocalRequest
     ) => Effect.Effect<Option.Option<Answer>>
   }
   readonly pins: PinStore

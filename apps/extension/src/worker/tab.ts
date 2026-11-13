@@ -20,6 +20,7 @@ import {
   type BrokerInput,
   type BrokerSite,
   type Links,
+  type LocalRequest,
   type Payload,
   type SiteName,
   type TabCommand,
@@ -38,15 +39,19 @@ export const REQUEST_TIMEOUT = "15 seconds"
 
 const connections: ReadonlyArray<Connection> = ["A", "B"]
 
+// What a socket hook gets of its tab: no REST calls, which go through the
+// site's pacer (pacer.ts).
+export type SocketTab = Omit<BrokerTab, "awaitAnswer">
+
 export interface TabHooks {
   // A site's socket opened, or stopped being open.
   readonly opened: (
-    tab: BrokerTab,
+    tab: SocketTab,
     site: SiteName,
     connection: Connection
   ) => Effect.Effect<void>
   readonly closed: (
-    tab: BrokerTab,
+    tab: SocketTab,
     site: SiteName,
     connection: Connection
   ) => Effect.Effect<void>
@@ -215,8 +220,8 @@ export const makeBrokerTab = Effect.fnUntraced(function* (options: {
     )
   })
 
-  // The same, none too when the tab doesn't answer in time.
-  const request = (tabRequest: TabRequest) =>
+  // A request the tab answers itself, none too when it doesn't in time.
+  const request = (tabRequest: LocalRequest) =>
     Effect.map(
       Effect.timeoutOption(awaitAnswer(tabRequest), REQUEST_TIMEOUT),
       Option.flatten
@@ -261,8 +266,9 @@ export interface BrokerTab {
   readonly disconnect: (port: chrome.runtime.Port) => Effect.Effect<void>
   readonly tick: (window: Window) => Effect.Effect<void>
   readonly request: (
-    request: TabRequest
+    request: LocalRequest
   ) => Effect.Effect<Option.Option<Answer>>
+  // Any request, REST calls too: the pacer's alone (pacer.ts).
   readonly awaitAnswer: (
     request: TabRequest
   ) => Effect.Effect<Option.Option<Answer>>

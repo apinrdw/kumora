@@ -338,7 +338,6 @@ const main = Effect.gen(function* () {
       : Effect.succeed(request)
   const ajaibRest: BrokerTab = {
     ...ajaibTab,
-    request: (request) => Effect.flatMap(withToken(request), ajaibTab.request),
     awaitAnswer: (request) =>
       Effect.flatMap(withToken(request), ajaibTab.awaitAnswer),
   }

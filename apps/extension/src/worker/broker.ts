@@ -82,6 +82,14 @@ export type TabRequest =
   // typed, 404 when no lock screen shows, so nothing was typed.
   | { readonly _tag: "type-pin"; readonly pin: string }
 
+// A REST call on the broker's API, which only the site's pacer (pacer.ts)
+// sends; every other request is answered in the tab itself.
+export type RestRequest = Extract<
+  TabRequest,
+  { readonly _tag: "fetch" | "page-fetch" | "page-post" }
+>
+export type LocalRequest = Exclude<TabRequest, RestRequest>
+
 export type TabCommand =
   | BrokerCommand
   | {

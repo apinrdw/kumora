@@ -5,7 +5,7 @@
 import type { Feed } from "@workspace/relay"
 import { Clock, Deferred, Effect, Fiber, Option, Queue } from "effect"
 
-import type { Answer, TabRequest } from "./broker.ts"
+import type { Answer, LocalRequest, TabRequest } from "./broker.ts"
 import { REQUEST_TIMEOUT } from "./tab.ts"
 
 // What the pacer hands its callers: a call answered, or none when the tab
@@ -16,9 +16,12 @@ export interface RequestingTab {
   ) => Effect.Effect<Option.Option<Answer>>
 }
 
-// What the pacer needs of a broker tab: also a call waited for until the tab
-// answers or goes.
-interface AnsweringTab extends RequestingTab {
+// What the pacer needs of a broker tab: the requests it answers itself, and
+// a call waited for until the tab answers or goes.
+interface AnsweringTab {
+  readonly request: (
+    request: LocalRequest
+  ) => Effect.Effect<Option.Option<Answer>>
   readonly awaitAnswer: (
     request: TabRequest
   ) => Effect.Effect<Option.Option<Answer>>
