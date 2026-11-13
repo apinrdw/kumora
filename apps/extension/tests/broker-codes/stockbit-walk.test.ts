@@ -6,6 +6,7 @@ import {
   TradeNumber,
   WibDate,
   decodeBrokerCodesBatch,
+  encodeBrokerCodesStatus,
   type BrokerCodesBatch,
   type BrokerCodesStatus,
   type TradeCodes,
@@ -20,6 +21,7 @@ import {
   type HistoryPosition,
 } from "../../src/worker/broker-codes/history.ts"
 import type { PostOutcome } from "../../src/worker/broker-codes/poster.ts"
+import { makeProductionTarget } from "../../src/worker/broker-codes/production-target.ts"
 import {
   makeRunQueue,
   type IncompleteDaysStore,
@@ -330,6 +332,28 @@ const walkWith = (
     tab: tape,
     post: production.post,
     status: production.status,
+  })
+
+// The fake's status as Production's target reads it, over a GET of the
+// status path the service worker hands the walk.
+const throughProductionTarget = (
+  production: ReturnType<typeof fakeProduction>
+) =>
+  makeProductionTarget({
+    target: Effect.succeed(
+      Option.some({
+        origin: DashboardOrigin.make("https://production.example"),
+        token: "ingest-token",
+      })
+    ),
+    send: () => Effect.succeed(200),
+    get: ({ url }) =>
+      Effect.gen(function* () {
+        const after = new URL(url).searchParams.get("after") ?? "0"
+        const status = yield* production.status(DAY, TradeNumber.make(after))
+        return { status: 200, body: yield* encodeBrokerCodesStatus(status) }
+      }).pipe(Effect.orDie),
+    stop: () => Effect.void,
   })
 
 describe("Stockbit's full walk of a day", () => {
@@ -866,7 +890,12 @@ describe("Stockbit's gap walk of an older day", () => {
           end: { n: TradeNumber.make(String(N)) },
         })
         const tape = fakeStockbit({ noBrokers: new Set(evens(2_000)) })
-        const walk = yield* walkWith(tape, production)
+        const target = yield* throughProductionTarget(production)
+        const walk = yield* makeStockbitWalk({
+          tab: tape,
+          post: production.post,
+          status: target.status,
+        })
         assert.deepStrictEqual(yield* walk.gaps(DAY), {
           _tag: "unserved",
           reason: "incomplete",
