@@ -68,7 +68,7 @@ export const fetchSend: Send = ({ url, token, body }) =>
   )
 
 export const makeBrokerCodesPoster = Effect.fnUntraced(function* (options: {
-  // The target as its settings stand now; none without a token.
+  // The target, read before each try; none without a token.
   readonly target: Effect.Effect<Option.Option<BrokerCodesTarget>>
   readonly send: Send
   // A 401 or 426 came back on `target`, the settings the refused try used.
@@ -87,9 +87,9 @@ export const makeBrokerCodesPoster = Effect.fnUntraced(function* (options: {
   return {
     // Decision: a POST that fails for any reason but 401 or 426 is resent
     // with target.ts's backoff, 1 s doubling to 30 s; the trading-day object
-    // writes a resent batch idempotently (apinrdw/kumora#193). The settings
-    // are read again before each try, so a fixed token applies at once, and
-    // `halted` is asked, so a refusal recorded meanwhile stops the retries.
+    // writes a resent batch idempotently (apinrdw/kumora#193). Each try asks
+    // `halted` and reads `target` again: Production's fixed token applies at
+    // once; the extra target's settings are captured (target-hold.ts).
     post: Effect.fnUntraced(function* (batch: BrokerCodesBatch) {
       const body = yield* Effect.orDie(encodeBrokerCodesBatch(batch))
       const path = yield* brokerCodesPath(batch.day)
