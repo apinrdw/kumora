@@ -115,7 +115,7 @@ const pageRows = Effect.fnUntraced(function* (answer: Answer) {
 })
 
 export const makeAjaibWalk = Effect.fnUntraced(function* (options: {
-  readonly tab: RequestingTab
+  readonly tab: RequestingTab & { readonly attached: Effect.Effect<boolean> }
   readonly post: (batch: BrokerCodesBatch) => Effect.Effect<PostOutcome>
   readonly store: AjaibWalkStore
   // For the options page (progress.ts): the trades the first pass fetched
@@ -131,13 +131,16 @@ export const makeAjaibWalk = Effect.fnUntraced(function* (options: {
   let dayN = Option.none<number>()
 
   // Before each call: market hours stop the walk in place; past the window,
-  // Ajaib can no longer serve the day.
+  // Ajaib can no longer serve the day; a tab that went leaves it to
+  // Stockbit.
   const guard = Effect.fnUntraced(function* (windowEnd: DateTime.Utc) {
     const now = yield* DateTime.now
     if (yield* isMarketHours(now))
       return yield* halt({ _tag: "stopped", cause: "market-hours" })
     if (DateTime.isGreaterThanOrEqualTo(now, windowEnd))
       return yield* halt({ _tag: "unserved", reason: "window-passed" })
+    if (!(yield* tab.attached))
+      return yield* halt({ _tag: "unserved", reason: "no-tab" })
   })
 
   const pageToken = Effect.map(tab.request({ _tag: "page-token" }), (answer) =>

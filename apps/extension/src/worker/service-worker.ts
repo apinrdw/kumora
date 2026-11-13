@@ -400,8 +400,13 @@ const main = Effect.gen(function* () {
   yield* Effect.forkScoped(extra.run)
   // What the options page and the badge show of the walks (progress.ts).
   const progress = yield* makeProgress(saveBrokerCodesProgress)
+  // The Ajaib walks' paced calls, and whether their tab is still there.
+  const ajaibWalkTab = {
+    ...ajaibPacer.tab("walk"),
+    attached: ajaibTab.attached,
+  }
   const ajaibWalk = yield* makeAjaibWalk({
-    tab: ajaibPacer.tab("walk"),
+    tab: ajaibWalkTab,
     post: extra.tee(production.post),
     store: yield* ajaibWalkStore,
     trades: progress.trades,
@@ -415,7 +420,7 @@ const main = Effect.gen(function* () {
   })
   const ajaibCatchUp = yield* extra.catchUp("Ajaib", ({ post }) =>
     Effect.flatMap(ajaibCatchUpStore, (store) =>
-      makeAjaibWalk({ tab: ajaibPacer.tab("walk"), post, store })
+      makeAjaibWalk({ tab: ajaibWalkTab, post, store })
     )
   )
   // Stockbit fills what the Ajaib catch-up left, from the extra target's

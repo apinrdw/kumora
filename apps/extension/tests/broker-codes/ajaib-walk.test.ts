@@ -119,6 +119,7 @@ const fakeAjaib = (
       : page(path, now)
   return {
     paths,
+    attached: Effect.succeed(true),
     tapeCalls: () => paths.filter((path) => path !== STATUS_PATH),
     request: (request: TabRequest) =>
       Effect.gen(function* () {
@@ -310,7 +311,10 @@ describe("Ajaib's walk: when it starts", () => {
       yield* TestClock.setTime(wib("2026-11-12", "17:30:00"))
       const production = fakeProduction()
       const walk = yield* makeAjaibWalk({
-        tab: { request: () => Effect.succeed(Option.none<Answer>()) },
+        tab: {
+          attached: Effect.succeed(false),
+          request: () => Effect.succeed(Option.none<Answer>()),
+        },
         post: production.post,
         store: memoryStore().store,
       })

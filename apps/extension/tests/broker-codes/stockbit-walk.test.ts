@@ -481,7 +481,10 @@ describe("Stockbit's walk: when it starts and gives up", () => {
       yield* TestClock.setTime(wib("2026-11-12", "17:30:00"))
       const production = fakeProduction()
       const ajaib = yield* makeAjaibWalk({
-        tab: { request: () => Effect.succeed(Option.none<Answer>()) },
+        tab: {
+          attached: Effect.succeed(false),
+          request: () => Effect.succeed(Option.none<Answer>()),
+        },
         post: production.post,
         store: { load: Effect.succeedNone, save: () => Effect.void },
       })
