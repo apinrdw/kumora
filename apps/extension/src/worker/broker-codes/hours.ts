@@ -1,10 +1,11 @@
 // When broker codes walks run (spec apinrdw/kumora#244, "The extension: the
 // run queue"), from the shared IDX schedule.
 import {
-  WIB_UTC_OFFSET_HOURS,
   WibDate,
   isTradingDay,
   marketMomentAt,
+  streamingEndOf,
+  streamingStartOf,
   wibDateAt,
 } from "@workspace/relay"
 import { DateTime, Effect, Option } from "effect"
@@ -22,13 +23,12 @@ export const isMarketHours = Effect.fnUntraced(function* (
   )
 })
 
-const CLOSES_AT = "16:35:00"
-const STREAMING_STARTS_AT = "08:40:00"
-
-const wibTime = Effect.fnUntraced(function* (instant: DateTime.DateTime) {
-  return DateTime.formatIso(
-    DateTime.add(instant, { hours: WIB_UTC_OFFSET_HOURS })
-  ).slice(11, 19)
+// Whether `instant` is past `date`'s Streaming window: its day closed.
+const closedOn = Effect.fnUntraced(function* (
+  instant: DateTime.DateTime,
+  date: WibDate
+) {
+  return DateTime.isGreaterThan(instant, yield* streamingEndOf(date))
 })
 
 const daysFrom = Effect.fnUntraced(function* (date: WibDate, days: number) {
@@ -55,7 +55,7 @@ export const newestClosedDay = Effect.fnUntraced(
   function* (instant: DateTime.DateTime) {
     if (yield* isMarketHours(instant)) return Option.none<WibDate>()
     const today = yield* wibDateAt(instant)
-    if ((yield* isTradingDay(today)) && (yield* wibTime(instant)) >= CLOSES_AT)
+    if ((yield* isTradingDay(today)) && (yield* closedOn(instant, today)))
       return Option.some(today)
     for (let days = 1; days <= 31; days++) {
       const before = yield* daysFrom(today, -days)
@@ -74,7 +74,7 @@ export const newestClosedDay = Effect.fnUntraced(
 export const recentClosedDays = Effect.fnUntraced(
   function* (instant: DateTime.DateTime, count: number) {
     const today = yield* wibDateAt(instant)
-    const closed = (yield* wibTime(instant)) >= CLOSES_AT
+    const closed = yield* closedOn(instant, today)
     const days: Array<WibDate> = []
     for (let back = closed ? 0 : 1; days.length < count && back <= 62; back++) {
       const day = yield* daysFrom(today, -back)
@@ -111,9 +111,7 @@ export const ajaibWindowEnd = Effect.fnUntraced(
     for (let days = 1; days <= 31; days++) {
       const next = yield* daysFrom(day, days)
       if (yield* isTradingDay(next))
-        return Option.some(
-          DateTime.makeUnsafe(`${next}T${STREAMING_STARTS_AT}+07:00`)
-        )
+        return Option.some(yield* streamingStartOf(next))
     }
     return Option.none<DateTime.Utc>()
   },
