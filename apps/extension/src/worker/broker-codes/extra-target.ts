@@ -101,13 +101,14 @@ export const makeExtraTarget = Effect.fnUntraced(function* (options: {
   const poster = yield* makeBrokerCodesPoster({ target: options.target, send })
   const lane = yield* Queue.dropping<BrokerCodesBatch>(LANE)
 
-  // The settings a 401 or 426 came back on, and which.
+  // The settings a refusal came back on, and which.
   let stopped = Option.none<{
     readonly target: BrokerCodesTarget
     readonly stop: StatusRefusal
   }>()
 
-  // Decision: a 401 or 426 stops the extra target until its origin or token
+  // Decision: a 401 or 426, or a status read's 200 whose body isn't this
+  // version's status, stops the extra target until its origin or token
   // changes; nothing is sent to it meanwhile. See apinrdw/kumora#244,
   // "Retries".
   const stopOf = (target: BrokerCodesTarget) =>

@@ -35,8 +35,7 @@ export const fetchGet: Get = ({ url, token }) =>
     return { status: response.status, body }
   }).pipe(Effect.orElseSucceed(() => ({ status: 0, body: "" })))
 
-// What a target refused a status read with: a 401, or a 426 or a 200 whose
-// body isn't this version's status, which means the dashboard moved on.
+// What a target refused a status read with (askStatus).
 export type StatusRefusal = Extract<
   StatusOutcome,
   "rejected-token" | "reload-extension"
@@ -46,6 +45,9 @@ type Asked = BrokerCodesStatus | StatusRefusal
 
 // A day's status from a target, asked once: the status, the target's
 // refusal, or none when it gave no answer worth reading.
+// Decision: a 401 refuses the token. A 426, or a 200 whose body isn't this
+// version's status, means the dashboard moved on and the extension must be
+// reloaded.
 export const askStatus = Effect.fnUntraced(function* (
   get: Get,
   target: BrokerCodesTarget,
