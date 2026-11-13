@@ -8,9 +8,9 @@ import type { PinStore } from "./ajaib-session.ts"
 import type { Answer, PageEvent, TabRequest } from "./broker.ts"
 
 // Decision: one synthetic `mousemove` every 10 minutes, all day while an
-// Ajaib tab is relayed, market hours included. Ajaib's lock is a 4 h idle
-// timeout that a synthetic `mousemove` re-arms, as probed on 2026-11-13. See
-// apinrdw/kumora#243.
+// Ajaib tab is relayed, the Streaming window included. Ajaib's lock is a 4 h
+// idle timeout that a synthetic `mousemove` re-arms, as probed on
+// 2026-11-13. See apinrdw/kumora#243.
 const KEEP_ALIVE = Duration.minutes(10)
 
 // The worker's clock times the refusal, not the tab's: a background tab's

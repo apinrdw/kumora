@@ -10,11 +10,11 @@ import {
 } from "@workspace/relay"
 import { DateTime, Effect, Option } from "effect"
 
-// Decision: walks run only outside 08:40–16:35 WIB on trading days, the
-// relay's streaming hours, so the live relay keeps the tab and the account's
+// Decision: walks run only outside the Streaming window (schedule.ts in
+// @workspace/relay), so the live relay keeps the tab and the account's
 // calls (apinrdw/kumora#196). A year missing from the schedule reads as
-// outside them, as the relay's own window does (gate.ts).
-export const isMarketHours = Effect.fnUntraced(function* (
+// outside it, as the relay's own window does (gate.ts).
+export const inStreamingWindow = Effect.fnUntraced(function* (
   instant: DateTime.DateTime
 ) {
   return yield* marketMomentAt(instant).pipe(
@@ -49,11 +49,11 @@ export const weekdayBefore = Effect.fnUntraced(function* (date: WibDate) {
 })
 
 // The trading day the run queue works on at `instant`: today from 16:35 on a
-// trading day, else the latest trading day before. None during market hours
-// or past the baked schedule.
+// trading day, else the latest trading day before. None in the Streaming
+// window or past the baked schedule.
 export const newestClosedDay = Effect.fnUntraced(
   function* (instant: DateTime.DateTime) {
-    if (yield* isMarketHours(instant)) return Option.none<WibDate>()
+    if (yield* inStreamingWindow(instant)) return Option.none<WibDate>()
     const today = yield* wibDateAt(instant)
     if ((yield* isTradingDay(today)) && (yield* closedOn(instant, today)))
       return Option.some(today)
@@ -68,9 +68,9 @@ export const newestClosedDay = Effect.fnUntraced(
   )
 )
 
-// The last `count` trading days closed at `instant`, newest first, market
-// hours or not: the options page's list of days. Empty past the baked
-// schedule.
+// The last `count` trading days closed at `instant`, newest first, in the
+// Streaming window or not: the options page's list of days. Empty past the
+// baked schedule.
 export const recentClosedDays = Effect.fnUntraced(
   function* (instant: DateTime.DateTime, count: number) {
     const today = yield* wibDateAt(instant)
