@@ -88,14 +88,21 @@ export const pinOutcome = Effect.fnUntraced(function* (answer: Answer) {
   return { state: "signed-in", accessToken: result.access_token } as SignIn
 })
 
-// Where the PIN and the sign-in live: chrome.storage.session (settings.ts).
-export interface PinStore {
-  // The entered PIN, kept for the browser session so the lock screen
+// One PIN the owner entered and its sign-in, in chrome.storage.session
+// (settings.ts). A newer entry is kept apart, so a check or lock screen still
+// busy with this one changes this one only.
+export interface PinEntry {
+  // The PIN, kept for the browser session so the lock screen
   // (ajaib-lock.ts) can type it, until it is wiped.
   readonly pin: Effect.Effect<Option.Option<string>>
   readonly wipePin: Effect.Effect<void>
   readonly signIn: Effect.Effect<SignIn>
   readonly setSignIn: (signIn: SignIn) => Effect.Effect<void>
+}
+
+export interface PinStore {
+  // The owner's newest entry; none before the first.
+  readonly latest: Effect.Effect<Option.Option<PinEntry>>
 }
 
 export const makeAjaibSession = Effect.fnUntraced(function* (options: {
@@ -112,10 +119,13 @@ export const makeAjaibSession = Effect.fnUntraced(function* (options: {
   // wiped. See apinrdw/kumora#244, "The PIN's storage".
   const tick = Effect.gen(function* () {
     if (!(yield* tab.attached)) return
-    if ((yield* store.signIn).state !== "waiting") return
-    const pin = yield* store.pin
-    if (Option.isNone(pin)) return yield* store.setSignIn({ state: "none" })
-    yield* store.setSignIn({ state: "signing-in" })
+    const latest = yield* store.latest
+    if (Option.isNone(latest)) return
+    const entry = latest.value
+    if ((yield* entry.signIn).state !== "waiting") return
+    const pin = yield* entry.pin
+    if (Option.isNone(pin)) return yield* entry.setSignIn({ state: "none" })
+    yield* entry.setSignIn({ state: "signing-in" })
     const answer = yield* tab.request({
       _tag: "page-post",
       url: PIN_VALIDATE_URL,
@@ -125,17 +135,20 @@ export const makeAjaibSession = Effect.fnUntraced(function* (options: {
       ? yield* pinOutcome(answer.value)
       : { state: "failed" }
     if (outcome.state === "wrong-pin" || outcome.state === "failed")
-      yield* store.wipePin
-    yield* store.setSignIn(outcome)
+      yield* entry.wipePin
+    yield* entry.setSignIn(outcome)
   })
 
   // The PIN sign-in's access token, for the tab's REST calls before the page
   // made one of its own.
-  const fallbackToken = Effect.map(store.signIn, (signIn) =>
-    signIn.state === "signed-in"
+  const fallbackToken = Effect.gen(function* () {
+    const latest = yield* store.latest
+    if (Option.isNone(latest)) return Option.none<string>()
+    const signIn = yield* latest.value.signIn
+    return signIn.state === "signed-in"
       ? Option.some(signIn.accessToken)
       : Option.none<string>()
-  )
+  })
 
   // The account id: from the tab's own token, else the PIN sign-in's; none
   // before either.

@@ -72,15 +72,20 @@ export const makeAjaibLock = Effect.fnUntraced(function* (options: {
   // Decision: the lock screen gets the stored PIN once per lock, and only
   // after PIN sign-in has checked it, so a new entry is never sent twice in
   // a row. A refused PIN is wiped (ajaib-session.ts), so no later lock, tick
-  // or restart types it again. See apinrdw/kumora#244, "Unlock".
+  // or restart types it again; an entry made meanwhile is kept. See
+  // apinrdw/kumora#244, "Unlock".
   const unlock = Effect.gen(function* () {
-    const pin = yield* pins.pin
-    if (Option.isNone(pin))
+    const latest = yield* pins.latest
+    const pin = Option.isSome(latest)
+      ? yield* latest.value.pin
+      : Option.none<string>()
+    if (Option.isNone(latest) || Option.isNone(pin))
       return Option.exists(lock, (each) => each.state === "locked")
         ? undefined
         : yield* record({ state: "locked", reason: "no-pin" })
     yield* record({ state: "unlocking" })
-    const signIn = (yield* pins.signIn).state
+    const entry = latest.value
+    const signIn = (yield* entry.signIn).state
     if (signIn === "waiting" || signIn === "signing-in") return
     const typed = yield* tab.request({ _tag: "type-pin", pin: pin.value })
     if (Option.isSome(typed) && typed.value.status !== 200)
@@ -88,7 +93,7 @@ export const makeAjaibLock = Effect.fnUntraced(function* (options: {
     const ended = yield* outcome
     if (Option.isSome(ended) && ended.value === "unlocked")
       return yield* record({ state: "unlocked" })
-    yield* pins.wipePin
+    yield* entry.wipePin
     yield* record({ state: "locked", reason: "refused" })
   })
 

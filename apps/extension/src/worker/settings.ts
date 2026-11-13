@@ -4,7 +4,7 @@ import { WibDate, type Feed } from "@workspace/relay"
 import { Effect, Option, Schema } from "effect"
 
 import { AjaibLock } from "./ajaib-lock.ts"
-import { SignIn, type PinStore } from "./ajaib-session.ts"
+import { SignIn, type PinEntry, type PinStore } from "./ajaib-session.ts"
 import {
   AjaibWalkPosition,
   type AjaibWalkStore,
@@ -223,54 +223,104 @@ export const isClockOffsetChange = Effect.fnUntraced(function* (
 // logged and leaves the worker only for the Ajaib tab's PIN check and lock
 // screen (`type-pin`); a restarted worker finds its sign-in beside it. See
 // https://developer.chrome.com/docs/extensions/reference/api/storage.
-const PIN_KEY = "ajaibPin"
-const SIGN_IN_KEY = "ajaibSignIn"
+//
+// Decision: each entry keeps its PIN and sign-in under keys named by its
+// own id, and ENTRY_KEY names the newest. A check or lock screen still busy
+// with an older entry writes that entry's keys only: chrome.storage has no
+// compare-and-set to guard one shared key.
+const ENTRY_KEY = "ajaibPinEntry"
+const PIN_PREFIX = "ajaibPin."
+const SIGN_IN_PREFIX = "ajaibSignIn."
 
 export const AjaibPin = Schema.String.check(Schema.isPattern(/^\d{6}$/)).pipe(
   Schema.brand("AjaibPin")
 )
 export type AjaibPin = typeof AjaibPin.Type
 
-// A new entry: tried once, on the next tick with an Ajaib tab, then kept for
-// the lock screen until Chrome closes or Ajaib refuses it (ajaib-session.ts).
-export const savePin = Effect.fnUntraced(function* (pin: AjaibPin) {
-  const waiting: SignIn = { state: "waiting" }
-  yield* Effect.promise(() =>
-    chrome.storage.session.set({ [PIN_KEY]: pin, [SIGN_IN_KEY]: waiting })
-  )
-})
-
 const decodePin = Schema.decodeUnknownOption(AjaibPin)
 const decodeSignIn = Schema.decodeUnknownOption(SignIn)
+const decodeEntry = Schema.decodeUnknownOption(Schema.String)
 
-export const loadSignIn = Effect.gen(function* () {
-  const stored = yield* Effect.promise(() =>
-    chrome.storage.session.get(SIGN_IN_KEY)
+// A new entry: tried once, on the next tick with an Ajaib tab, then kept for
+// the lock screen until Chrome closes or Ajaib refuses it (ajaib-session.ts).
+// Older entries go, all but the newest should two saves overlap.
+export const savePin = Effect.fnUntraced(function* (pin: AjaibPin) {
+  const entry = yield* Effect.sync(() => crypto.randomUUID())
+  const waiting: SignIn = { state: "waiting" }
+  yield* Effect.promise(() =>
+    chrome.storage.session.set({
+      [ENTRY_KEY]: entry,
+      [`${PIN_PREFIX}${entry}`]: pin,
+      [`${SIGN_IN_PREFIX}${entry}`]: waiting,
+    })
   )
-  return Option.getOrElse(decodeSignIn(stored[SIGN_IN_KEY]), (): SignIn => ({
-    state: "none",
-  }))
+  const stored = yield* Effect.promise(() => chrome.storage.session.get(null))
+  const newest = Option.getOrElse(decodeEntry(stored[ENTRY_KEY]), () => entry)
+  const older = Object.keys(stored).filter(
+    (key) =>
+      (key.startsWith(PIN_PREFIX) || key.startsWith(SIGN_IN_PREFIX)) &&
+      key !== `${PIN_PREFIX}${newest}` &&
+      key !== `${SIGN_IN_PREFIX}${newest}`
+  )
+  if (older.length > 0)
+    yield* Effect.promise(() => chrome.storage.session.remove(older))
+})
+
+const storedEntry = Effect.fnUntraced(function* (entry: string) {
+  const pinKey = `${PIN_PREFIX}${entry}`
+  const signInKey = `${SIGN_IN_PREFIX}${entry}`
+  return {
+    pin: Effect.gen(function* () {
+      const stored = yield* Effect.promise(() =>
+        chrome.storage.session.get(pinKey)
+      )
+      return decodePin(stored[pinKey])
+    }),
+    wipePin: Effect.promise(() => chrome.storage.session.remove(pinKey)),
+    signIn: Effect.gen(function* () {
+      const stored = yield* Effect.promise(() =>
+        chrome.storage.session.get(signInKey)
+      )
+      return Option.getOrElse(decodeSignIn(stored[signInKey]), (): SignIn => ({
+        state: "none",
+      }))
+    }),
+    setSignIn: (signIn) =>
+      Effect.promise(() => chrome.storage.session.set({ [signInKey]: signIn })),
+  } satisfies PinEntry as PinEntry
+})
+
+export const sessionPinStore: PinStore = {
+  latest: Effect.gen(function* () {
+    const stored = yield* Effect.promise(() =>
+      chrome.storage.session.get(ENTRY_KEY)
+    )
+    const entry = decodeEntry(stored[ENTRY_KEY])
+    return Option.isSome(entry)
+      ? Option.some(yield* storedEntry(entry.value))
+      : Option.none<PinEntry>()
+  }),
+}
+
+// The newest entry's sign-in, for the options page.
+export const loadSignIn = Effect.gen(function* () {
+  const latest = yield* sessionPinStore.latest
+  return Option.isSome(latest)
+    ? yield* latest.value.signIn
+    : ({ state: "none" } satisfies SignIn as SignIn)
 })
 
 export const isSignInChange = Effect.fnUntraced(function* (
   changes: Readonly<Record<string, unknown>>,
   area: string
 ) {
-  return area === "session" && SIGN_IN_KEY in changes
-})
-
-export const sessionPinStore: PinStore = {
-  pin: Effect.gen(function* () {
-    const stored = yield* Effect.promise(() =>
-      chrome.storage.session.get(PIN_KEY)
+  return (
+    area === "session" &&
+    Object.keys(changes).some(
+      (key) => key === ENTRY_KEY || key.startsWith(SIGN_IN_PREFIX)
     )
-    return decodePin(stored[PIN_KEY])
-  }),
-  wipePin: Effect.promise(() => chrome.storage.session.remove(PIN_KEY)),
-  signIn: loadSignIn,
-  setSignIn: (signIn) =>
-    Effect.promise(() => chrome.storage.session.set({ [SIGN_IN_KEY]: signIn })),
-}
+  )
+})
 
 // The relayed Ajaib tab's PIN lock (ajaib-lock.ts), in session storage: it
 // describes this browser session's tab only. A `locked` state is the cause

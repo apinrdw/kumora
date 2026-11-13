@@ -412,13 +412,17 @@ describe("Ajaib's PIN sign-in", () => {
     const session = yield* makeAjaibSession({
       tab: { ...pacer.tab("backfill"), attached: Effect.succeed(true) },
       store: {
-        pin: Effect.succeed(Option.some("123456")),
-        wipePin: Effect.void,
-        signIn: Effect.sync(() => signIn),
-        setSignIn: (next) =>
-          Effect.sync(() => {
-            signIn = next
-          }),
+        latest: Effect.succeed(
+          Option.some({
+            pin: Effect.succeed(Option.some("123456")),
+            wipePin: Effect.void,
+            signIn: Effect.sync(() => signIn),
+            setSignIn: (next) =>
+              Effect.sync(() => {
+                signIn = next
+              }),
+          })
+        ),
       },
     })
     yield* pacer.submit("walk", "w0")

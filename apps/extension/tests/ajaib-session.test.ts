@@ -144,15 +144,19 @@ const harness = Effect.fnUntraced(function* (reply: Answer) {
         }),
     } as PacedTab & { readonly attached: Effect.Effect<boolean> },
     store: {
-      pin: Effect.sync(() => Option.fromNullishOr(pin)),
-      wipePin: Effect.sync(() => {
-        pin = undefined
-      }),
-      signIn: Effect.sync(() => signIn),
-      setSignIn: (next) =>
-        Effect.sync(() => {
-          signIn = next
-        }),
+      latest: Effect.succeed(
+        Option.some({
+          pin: Effect.sync(() => Option.fromNullishOr(pin)),
+          wipePin: Effect.sync(() => {
+            pin = undefined
+          }),
+          signIn: Effect.sync(() => signIn),
+          setSignIn: (next) =>
+            Effect.sync(() => {
+              signIn = next
+            }),
+        })
+      ),
     },
   })
   return {

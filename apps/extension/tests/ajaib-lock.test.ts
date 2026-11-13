@@ -34,15 +34,19 @@ const harness = Effect.fnUntraced(function* (options?: {
         }),
     },
     pins: {
-      pin: Effect.sync(() => Option.fromNullishOr(pin)),
-      wipePin: Effect.sync(() => {
-        pin = undefined
-      }),
-      signIn: Effect.sync(() => signIn),
-      setSignIn: (next) =>
-        Effect.sync(() => {
-          signIn = next
-        }),
+      latest: Effect.succeed(
+        Option.some({
+          pin: Effect.sync(() => Option.fromNullishOr(pin)),
+          wipePin: Effect.sync(() => {
+            pin = undefined
+          }),
+          signIn: Effect.sync(() => signIn),
+          setSignIn: (next) =>
+            Effect.sync(() => {
+              signIn = next
+            }),
+        })
+      ),
     },
     save: (next) => Effect.sync(() => locks.push(next)),
   })
