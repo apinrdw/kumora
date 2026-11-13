@@ -57,13 +57,16 @@ export const makeBrokerTab = Effect.fnUntraced(function* (options: {
   readonly publish: (message: IngestUp) => Effect.Effect<unknown>
   readonly hooks: TabHooks
   // What the page script sees of the page (Ajaib's lock screen). A tab that
-  // goes reports its lock gone.
+  // goes reports its lock gone, or the lock of the tab that takes over.
   readonly page?: (event: PageEvent) => Effect.Effect<void>
 }) {
   const { feed, sites, batcher, publish, hooks } = options
   const page = options.page ?? (() => Effect.void)
   let active: chrome.runtime.Port | undefined
   const waiting: Array<chrome.runtime.Port> = []
+  // The lock each waiting tab's page last reported. Its page reports a lock
+  // only when it changes, so the tab that takes over reports this one.
+  const waitingLocks = new Map<chrome.runtime.Port, boolean>()
   const links = new Map<SiteName, Links>(
     sites.map((site) => [site.name, detached])
   )
@@ -154,7 +157,12 @@ export const makeBrokerTab = Effect.fnUntraced(function* (options: {
     port: chrome.runtime.Port,
     raw: unknown
   ) {
-    if (port !== active) return
+    if (port !== active) {
+      const seen = decodePageEvent(raw)
+      if (Option.isSome(seen) && seen.value._tag === "lock")
+        waitingLocks.set(port, seen.value.locked)
+      return
+    }
     const answer = decodeAnswer(raw)
     if (Option.isSome(answer)) {
       const deferred = pending.get(answer.value.id)
@@ -172,6 +180,7 @@ export const makeBrokerTab = Effect.fnUntraced(function* (options: {
   const disconnect = Effect.fnUntraced(function* (port: chrome.runtime.Port) {
     const at = waiting.indexOf(port)
     if (at !== -1) waiting.splice(at, 1)
+    waitingLocks.delete(port)
     if (port !== active) return
     active = undefined
     const gone: Answer = { _tag: "answer", id: -1, status: 0, body: "" }
@@ -179,9 +188,12 @@ export const makeBrokerTab = Effect.fnUntraced(function* (options: {
       yield* Deferred.succeed(deferred, gone)
     pending.clear()
     yield* driveAll({ _tag: "detach" })
-    yield* page({ _tag: "lock", locked: false })
     const next = waiting.shift()
-    if (next !== undefined) yield* attach(next)
+    if (next === undefined) return yield* page({ _tag: "lock", locked: false })
+    const locked = waitingLocks.get(next) ?? false
+    waitingLocks.delete(next)
+    yield* attach(next)
+    yield* page({ _tag: "lock", locked })
   })
 
   // A request made from the tab's origin; none when the tab goes or doesn't
