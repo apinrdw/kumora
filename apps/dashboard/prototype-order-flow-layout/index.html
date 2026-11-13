@@ -131,7 +131,7 @@
 <div id="parts" hidden>
   <section class="card chartbox" id="box1">
     <header><h2>SINI</h2><span class="num" id="last"></span><span class="legend">Chart 1 · candles, book heatmap (bid green, offer red), sweep bubbles (area ∝ lots, amber ring = big trade ≥ Rp1 B)</span>
-      <span class="noise" title="Hide small sweeps: the lot count at the top N% mark of buy sweeps and of sell sweeps so far today; the lower of the two is the threshold">Show top <button data-top="100">All</button><button data-top="50">50%</button><button data-top="25" class="on">25%</button><button data-top="10">10%</button><button data-top="1">1%</button><input type="range" id="topN" min="1" max="100" step="1" value="25" aria-label="Top N percent of sweeps"><b id="topNLabel">25%</b><span id="noiseMin"></span></span></header>
+      <span class="noise" title="Hide small sweeps: the lot count at the top N% mark of buy sweeps and of sell sweeps so far today; the lower of the two is the threshold">Show top <button data-top="100">All</button><button data-top="50">50%</button><button data-top="25" class="on">25%</button><button data-top="10">10%</button><button data-top="1">1%</button><input type="range" id="topN" min="5" max="100" step="5" value="25" aria-label="Top N percent of sweeps"><b id="topNLabel">25%</b><span id="noiseMin"></span></span></header>
     <div id="c1"></div>
   </section>
   <section class="card chartbox" id="box2">
