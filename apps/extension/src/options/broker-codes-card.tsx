@@ -159,7 +159,10 @@ function WalkLine({
       <p>
         Walking:{" "}
         <output aria-label="Broker codes walk">
-          {walk?.walk ?? "Nothing"}
+          {walk?.walk ??
+            (walking?.state === "catching-up"
+              ? "The extra target's catch-up"
+              : "Nothing")}
         </output>
       </p>
       {details.length > 0 && (

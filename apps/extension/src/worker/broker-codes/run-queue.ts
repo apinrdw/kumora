@@ -72,9 +72,11 @@ export interface DayWalk {
 }
 
 // What the queue is doing, for the options page: nothing, walking a day on
-// a site, or paused. A walk is of the newest closed day, an older day's
-// gaps, or a History day (history.ts). A walk that has fetched trades says
-// how many, of the day's N once known, and its pace (progress.ts).
+// a site, catching the extra target up, or paused. A walk is of the newest
+// closed day, an older day's gaps, or a History day (history.ts). A walk
+// that has fetched trades says how many, of the day's N once known, and its
+// pace (progress.ts). A catch-up's end reports idle, which has the options
+// page ask the days again, so a day it caught up no longer shows Behind.
 export const BrokerCodesProgress = Schema.Union([
   Schema.Struct({ state: Schema.Literal("idle") }),
   Schema.Struct({
@@ -90,6 +92,7 @@ export const BrokerCodesProgress = Schema.Union([
       })
     ),
   }),
+  Schema.Struct({ state: Schema.Literal("catching-up") }),
   Schema.Struct({ state: Schema.Literal("paused"), cause: PauseCause }),
 ])
 export type BrokerCodesProgress = typeof BrokerCodesProgress.Type
@@ -234,17 +237,18 @@ export const makeRunQueue = Effect.fnUntraced(function* (options: {
     const history = yield* options.history.walk(day.value)
     if (Option.isSome(history))
       return yield* options.report({ state: "paused", cause: history.value })
-    yield* options.report({ state: "idle" })
     // Decision: the extra target catches up once Production's queue is
     // empty, and gives way to the next trigger, which interrupts it and is
     // offered again so its run starts at once. The walks resume as after a
     // restart, and a failing extra target, whose posts retry for ever,
     // holds nothing up. See apinrdw/kumora#250.
+    yield* options.report({ state: "catching-up" })
     yield* Effect.raceFirst(
-      Effect.andThen(
+      Effect.all([
         catchUp(day.value, older),
-        options.history.catchUp(day.value)
-      ),
+        options.history.catchUp(day.value),
+        options.report({ state: "idle" }),
+      ]),
       Effect.andThen(Queue.take(wakes), trigger)
     )
   })

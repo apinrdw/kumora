@@ -446,13 +446,14 @@ describe("the broker codes run queue: older incomplete days", () => {
           "catch-up gaps 2026-11-10",
           "catch-up gaps 2026-11-11",
         ])
-        assert.deepStrictEqual(queue.progress.slice(-2), [
+        assert.deepStrictEqual(queue.progress.slice(-3), [
           {
             state: "walking",
             walk: "gaps",
             day: WibDate.make("2026-11-11"),
             feed: "Stockbit",
           },
+          { state: "catching-up" },
           { state: "idle" },
         ])
       })
