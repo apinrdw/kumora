@@ -23,12 +23,19 @@ export type PauseCause = typeof PauseCause.Type
 // - walked: its site served the day to its end;
 // - unserved: its site can't serve the day, and the next walk takes it;
 //   `no-rows` is Stockbit answering the day with no rows, which gives it up;
+//   `incomplete` is a gap walk that fetched every gap and still left the
+//   day incomplete, which a later run walks again;
 // - stopped: it stopped in place, and the run ends until the next trigger.
 export type WalkResult =
   | { readonly _tag: "walked" }
   | {
       readonly _tag: "unserved"
-      readonly reason: "no-tab" | "window-passed" | "other-date" | "no-rows"
+      readonly reason:
+        | "no-tab"
+        | "window-passed"
+        | "other-date"
+        | "no-rows"
+        | "incomplete"
     }
   | { readonly _tag: "stopped"; readonly cause: PauseCause }
 
@@ -47,10 +54,21 @@ export const BrokerCodesProgress = Schema.Union([
 ])
 export type BrokerCodesProgress = typeof BrokerCodesProgress.Type
 
+// The days that may still be incomplete, kept across restarts
+// (settings.ts): each newest closed day joins it, and leaves once its gap
+// walk finds it complete or Stockbit gives it up.
+export interface IncompleteDaysStore {
+  readonly load: Effect.Effect<ReadonlyArray<WibDate>>
+  readonly save: (days: ReadonlyArray<WibDate>) => Effect.Effect<void>
+}
+
 export const makeRunQueue = Effect.fnUntraced(function* (options: {
   // The newest closed day's walks, in order: each runs once the one before
   // it walked the day or couldn't serve it.
   readonly newestDay: ReadonlyArray<DayWalk>
+  readonly incompleteDays: IncompleteDaysStore
+  // Stockbit's gap walk of an older incomplete day (stockbit-walk.ts).
+  readonly gaps: DayWalk
   // The extra target's catch-up of the newest closed day, in the same order:
   // walks that post only to the extra target, only what it misses
   // (extra-target.ts).
@@ -69,18 +87,48 @@ export const makeRunQueue = Effect.fnUntraced(function* (options: {
     }
   })
 
+  // Decision: older incomplete days' gaps go oldest first, each day once a
+  // run. A day leaves the list once its gap walk finds it complete or
+  // Stockbit answers it with no rows; any other end keeps it for a later
+  // run. See apinrdw/kumora#244, "Order on each run".
+  const olderDays = Effect.fnUntraced(function* (newest: WibDate) {
+    const days = [...(yield* options.incompleteDays.load)].sort()
+    for (const day of days) {
+      if (day >= newest) continue
+      yield* options.report({ state: "walking", day, feed: options.gaps.feed })
+      const result = yield* options.gaps.walk(day)
+      if (result._tag === "stopped") return Option.some(result.cause)
+      if (
+        result._tag === "walked" ||
+        (result._tag === "unserved" && result.reason === "no-rows")
+      ) {
+        const kept = yield* options.incompleteDays.load
+        yield* options.incompleteDays.save(kept.filter((each) => each !== day))
+      }
+    }
+    return Option.none<PauseCause>()
+  })
+
   const runOnce = Effect.gen(function* () {
     const now = yield* DateTime.now
     if (yield* isMarketHours(now))
       return yield* options.report({ state: "paused", cause: "market-hours" })
     const day = yield* newestClosedDay(now)
     if (Option.isNone(day)) return yield* options.report({ state: "idle" })
+    const kept = yield* options.incompleteDays.load
+    if (!kept.includes(day.value))
+      yield* options.incompleteDays.save([...kept, day.value])
     for (const { feed, walk } of options.newestDay) {
       yield* options.report({ state: "walking", day: day.value, feed })
       const result = yield* walk(day.value)
       if (result._tag === "stopped")
         return yield* options.report({ state: "paused", cause: result.cause })
     }
+    const stopped = yield* olderDays(day.value)
+    if (Option.isSome(stopped))
+      return yield* options.report({ state: "paused", cause: stopped.value })
+    // apinrdw/kumora#252: the History walk runs here, after the older days'
+    // gaps and before the extra target's catch-up.
     yield* options.report({ state: "idle" })
     // Decision: the extra target catches up once Production's queue is
     // empty, and gives way to the next trigger, which interrupts it and is

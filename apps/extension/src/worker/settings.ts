@@ -1,5 +1,6 @@
 // What the options page sets and what the service worker reports back, both
 // kept in chrome.storage (spec apinrdw/kumora#138, "Batching and targets").
+import { WibDate } from "@workspace/relay"
 import { Effect, Option, Schema } from "effect"
 
 import { AjaibLock } from "./ajaib-lock.ts"
@@ -8,7 +9,10 @@ import {
   AjaibWalkPosition,
   type AjaibWalkStore,
 } from "./broker-codes/ajaib-walk.ts"
-import { BrokerCodesProgress } from "./broker-codes/run-queue.ts"
+import {
+  BrokerCodesProgress,
+  type IncompleteDaysStore,
+} from "./broker-codes/run-queue.ts"
 import { CodeListCache, RelayOutcome, type CodeListStore } from "./code-list.ts"
 
 // Where a dashboard serves: an origin, `https://host` or `http://host:port`.
@@ -295,6 +299,29 @@ const ajaibWalkStoreAt = (key: string) =>
 
 export const ajaibWalkStore = ajaibWalkStoreAt("brokerCodesAjaibWalk")
 export const ajaibCatchUpStore = ajaibWalkStoreAt("brokerCodesAjaibCatchUp")
+
+// The days whose broker codes may still be incomplete (run-queue.ts), in
+// local storage so a restarted worker or browser still walks their gaps. A
+// value that doesn't decode reads as none.
+const INCOMPLETE_DAYS_KEY = "brokerCodesIncompleteDays"
+const IncompleteDays = Schema.Array(WibDate)
+const decodeIncompleteDays = Schema.decodeUnknownOption(IncompleteDays)
+
+export const incompleteDaysStore: IncompleteDaysStore = {
+  load: Effect.gen(function* () {
+    const stored = yield* Effect.promise(() =>
+      chrome.storage.local.get(INCOMPLETE_DAYS_KEY)
+    )
+    return Option.getOrElse(
+      decodeIncompleteDays(stored[INCOMPLETE_DAYS_KEY]),
+      (): ReadonlyArray<WibDate> => []
+    )
+  }),
+  save: (days) =>
+    Effect.promise(() =>
+      chrome.storage.local.set({ [INCOMPLETE_DAYS_KEY]: days })
+    ),
+}
 
 // What the broker codes run queue is doing (run-queue.ts), for the options
 // page, in session storage: it describes this browser session's walks.
