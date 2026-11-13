@@ -155,7 +155,6 @@ const harness = Effect.fnUntraced(function* (options: {
   const hold = yield* makeTargetHold(changed)
   yield* hold.restart(settings)
   const extra = yield* makeExtraTarget({
-    target: Effect.sync(() => settings),
     production: Effect.succeed(Option.some(PRODUCTION)),
     send: options.extra.send,
     get: (request) =>
@@ -264,7 +263,8 @@ describe("the extra target", () => {
         "retrying",
         "cleared",
       ])
-      assert.lengthOf(extra.written, 6)
+      // The batch retrying on the old settings is dropped for the catch-up.
+      assert.deepStrictEqual(extra.written, ["3", "4", "5", "end 5"])
     })
   )
 
@@ -413,7 +413,7 @@ describe("the extra target", () => {
   )
 
   it.effect(
-    "a 401 on settings changed during a retry stops it on those settings",
+    "settings changed during a retry drop it, and their own 401 stops them",
     () =>
       Effect.gen(function* () {
         const extra = fakeDashboard({ statuses: [503, 401] })

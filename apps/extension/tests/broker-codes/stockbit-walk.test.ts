@@ -1051,6 +1051,16 @@ describe("the History walk over Stockbit's walk", () => {
   )
 })
 
+// The extra target's hold, on Staging's settings.
+const stagingHold = Effect.tap(makeTargetHold(Effect.void), (hold) =>
+  hold.restart(
+    Option.some({
+      origin: DashboardOrigin.make("https://staging.example"),
+      token: "staging-token",
+    })
+  )
+)
+
 describe("Stockbit's walk and the extra target", () => {
   it.effect("tees each of the walk's batches to the extra target", () =>
     Effect.gen(function* () {
@@ -1058,12 +1068,6 @@ describe("Stockbit's walk and the extra target", () => {
       const production = fakeProduction()
       const staging = fakeProduction()
       const extra = yield* makeExtraTarget({
-        target: Effect.succeed(
-          Option.some({
-            origin: DashboardOrigin.make("https://staging.example"),
-            token: "staging-token",
-          })
-        ),
         production: Effect.succeedNone,
         send: ({ body }) =>
           Effect.as(
@@ -1074,7 +1078,7 @@ describe("Stockbit's walk and the extra target", () => {
             200
           ),
         get: () => Effect.succeed({ status: 0, body: "" }),
-        hold: yield* makeTargetHold(Effect.void),
+        hold: yield* stagingHold,
       })
       yield* Effect.forkChild(extra.run)
       const walk = yield* makeStockbitWalk({
@@ -1115,12 +1119,6 @@ describe("Stockbit's walk and the extra target", () => {
             body: JSON.stringify(status),
           }))
         const extra = yield* makeExtraTarget({
-          target: Effect.succeed(
-            Option.some({
-              origin: DashboardOrigin.make("https://staging.example"),
-              token: "staging-token",
-            })
-          ),
           production: Effect.succeed(
             Option.some({
               origin: DashboardOrigin.make("https://production.example"),
@@ -1137,7 +1135,7 @@ describe("Stockbit's walk and the extra target", () => {
             ),
           get: ({ url }) =>
             statusOf(url.startsWith("https://staging") ? staging : production),
-          hold: yield* makeTargetHold(Effect.void),
+          hold: yield* stagingHold,
         })
         const tape = fakeStockbit()
         const catchUp = yield* extra.catchUp("Stockbit", ({ post, status }) =>

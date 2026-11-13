@@ -6,7 +6,7 @@
 // nothing while it holds a refusal.
 import { Effect, Option } from "effect"
 
-import type { BrokerCodesTarget } from "./poster.ts"
+import type { BrokerCodesTarget, PostStop } from "./poster.ts"
 import type { StatusRefusal } from "./status.ts"
 
 // A 401 or 426, which stops the target until its settings change, or
@@ -62,6 +62,24 @@ export const makeTargetHold = Effect.fnUntraced(function* (
       }),
 
     state: Effect.sync(() => held.state),
+
+    // The settings held now, for an operation to capture as it starts.
+    settings: Effect.sync(() => held.target),
+
+    // Decision: an operation on the extra target (a catch-up walk, a post, a
+    // status read, a checkpoint load or save) captures the held settings as
+    // it starts and asks `haltOf` before each step, each retry included: on
+    // other settings, or on a refusal, it stops and its result is dropped.
+    // See apinrdw/kumora#244, "Retries".
+    haltOf: (target: BrokerCodesTarget) =>
+      Effect.flatMap(holds(target), (own) =>
+        own
+          ? Effect.map(
+              refusalOf(held.state),
+              (refusal): Option.Option<PostStop> => refusal
+            )
+          : Effect.succeed(Option.some<PostStop>("off"))
+      ),
 
     // The refusal that stops `target`, when its settings hold one.
     stopOf: (target: BrokerCodesTarget) =>

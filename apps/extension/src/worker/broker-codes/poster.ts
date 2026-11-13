@@ -42,6 +42,9 @@ export type PostOutcome =
   | "sent"
   | Extract<TargetState, "off" | "rejected-token" | "reload-extension">
 
+// How a batch ended short of written.
+export type PostStop = Exclude<PostOutcome, "sent">
+
 // One POST's answer status; 0 when it got none.
 export type Send = (request: {
   readonly url: string
@@ -73,13 +76,20 @@ export const makeBrokerCodesPoster = Effect.fnUntraced(function* (options: {
     target: BrokerCodesTarget,
     outcome: Extract<PostOutcome, "rejected-token" | "reload-extension">
   ) => Effect.Effect<void>
+  // Why `target` may not be tried, asked before each try; none when it may.
+  readonly halted?: (
+    target: BrokerCodesTarget
+  ) => Effect.Effect<Option.Option<PostStop>>
 }) {
   const refused = options.refused ?? (() => Effect.void)
+  const halted =
+    options.halted ?? (() => Effect.succeed(Option.none<PostStop>()))
   return {
     // Decision: a POST that fails for any reason but 401 or 426 is resent
     // with target.ts's backoff, 1 s doubling to 30 s; the trading-day object
     // writes a resent batch idempotently (apinrdw/kumora#193). The settings
-    // are read again before each try, so a fixed token applies at once.
+    // are read again before each try, so a fixed token applies at once, and
+    // `halted` is asked, so a refusal recorded meanwhile stops the retries.
     post: Effect.fnUntraced(function* (batch: BrokerCodesBatch) {
       const body = yield* Effect.orDie(encodeBrokerCodesBatch(batch))
       const path = yield* brokerCodesPath(batch.day)
@@ -87,6 +97,8 @@ export const makeBrokerCodesPoster = Effect.fnUntraced(function* (options: {
       while (true) {
         const target = yield* options.target
         if (Option.isNone(target)) return "off" satisfies PostOutcome
+        const halt = yield* halted(target.value)
+        if (Option.isSome(halt)) return halt.value
         const { origin, token } = target.value
         const status = yield* options.send({
           url: `${origin}${path}`,

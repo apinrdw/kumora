@@ -16,6 +16,7 @@ import {
   makeBrokerCodesPoster,
   type BrokerCodesTarget,
   type PostOutcome,
+  type PostStop,
   type Send,
 } from "./poster.ts"
 import type { DayWalk, WalkResult } from "./run-queue.ts"
@@ -70,15 +71,12 @@ export const holdsSame = (a: BrokerCodesStatus, b: BrokerCodesStatus) =>
   )
 
 export const makeExtraTarget = Effect.fnUntraced(function* (options: {
-  // The extra target as its settings stand now; none when unset or without
-  // a token.
-  readonly target: Effect.Effect<Option.Option<BrokerCodesTarget>>
   // Production as its settings stand now, whose status the catch-up
   // compares with the extra target's.
   readonly production: Effect.Effect<Option.Option<BrokerCodesTarget>>
   readonly send: Send
   readonly get: Get
-  // The extra target's state under its settings (target-hold.ts).
+  // The extra target's settings and its state under them (target-hold.ts).
   readonly hold: TargetHold
 }) {
   const { hold } = options
@@ -100,54 +98,55 @@ export const makeExtraTarget = Effect.fnUntraced(function* (options: {
     Effect.tap(options.get(request), ({ status }) => answered(request, status))
   const lane = yield* Queue.dropping<BrokerCodesBatch>(LANE)
 
-  // The poster rereads the settings before each try, so a refusal stops the
-  // settings its try used, not those the post started with.
-  const poster = yield* makeBrokerCodesPoster({
-    target: options.target,
-    send,
-    refused: hold.refused,
-  })
-
   // Decision: a 401 or 426, or a status read's 200 whose body isn't this
   // version's status, stops the extra target until its origin or token
   // changes; nothing is sent to it meanwhile. See apinrdw/kumora#244,
   // "Retries".
-  const post = Effect.fnUntraced(function* (batch: BrokerCodesBatch) {
-    const target = yield* options.target
+  const postTo = Effect.fnUntraced(function* (
+    target: Option.Option<BrokerCodesTarget>,
+    batch: BrokerCodesBatch
+  ) {
     if (Option.isNone(target)) return "off" satisfies PostOutcome
-    const stop = yield* hold.stopOf(target.value)
-    if (Option.isSome(stop)) return stop.value
+    const poster = yield* makeBrokerCodesPoster({
+      target: Effect.succeed(target),
+      send,
+      refused: hold.refused,
+      halted: hold.haltOf,
+    })
     return yield* poster.post(batch)
   })
 
-  // The extra target's status of a day, listing the missing ranges after
-  // `after`; none when it is unset, stopped, refused the read (which stops
-  // it, as a post's refusal does) or didn't answer.
-  const status = Effect.fnUntraced(function* (
+  // The extra target's status of a day on `target`, listing the missing
+  // ranges after `after`; none when it is unset, halted, refused the read
+  // (which stops it, as a post's refusal does), didn't answer, or was halted
+  // while it read.
+  const statusOn = Effect.fnUntraced(function* (
+    target: Option.Option<BrokerCodesTarget>,
     day: WibDate,
     after?: TradeNumber
   ) {
-    const target = yield* options.target
     if (
       Option.isNone(target) ||
-      Option.isSome(yield* hold.stopOf(target.value))
+      Option.isSome(yield* hold.haltOf(target.value))
     )
       return Option.none<BrokerCodesStatus>()
     const asked = yield* askStatus(get, target.value, day, after)
     if (Option.isSome(asked) && typeof asked.value === "string")
       yield* hold.refused(target.value, asked.value)
+    if (Option.isSome(yield* hold.haltOf(target.value)))
+      return Option.none<BrokerCodesStatus>()
     return Option.filter(asked, (held) => typeof held !== "string")
   })
 
-  // Why the catch-up got no status: the target's stop, or no token.
-  const noStatusCause = Effect.gen(function* () {
-    const target = yield* options.target
-    if (Option.isNone(target)) return "no-token" as const
-    return Option.getOrElse(
-      yield* hold.stopOf(target.value),
-      () => "no-token" as const
-    )
-  })
+  // The origin of `target` while the hold lets it go on.
+  const originWhile = (target: Option.Option<BrokerCodesTarget>) =>
+    Option.match(target, {
+      onNone: () => Effect.succeed(Option.none<DashboardOrigin>()),
+      onSome: (own) =>
+        Effect.map(hold.haltOf(own), (halt) =>
+          Option.isSome(halt) ? Option.none() : Option.some(own.origin)
+        ),
+    })
 
   // Whether the extra target, holding `held` of a day, is behind on it: the
   // day isn't complete, and Production's status, when it answers one, holds
@@ -167,8 +166,13 @@ export const makeExtraTarget = Effect.fnUntraced(function* (options: {
 
   return {
     // Sends the lane's batches to the extra target, one at a time, each
-    // resent until it is written or the target stops.
-    run: Effect.forever(Effect.flatMap(Queue.take(lane), post)),
+    // resent until it is written or its settings halt.
+    run: Effect.forever(
+      Effect.gen(function* () {
+        const batch = yield* Queue.take(lane)
+        yield* postTo(yield* hold.settings, batch)
+      })
+    ),
 
     // Production's post, also handing each batch to the extra target. A walk
     // sees only Production's outcome.
@@ -177,22 +181,32 @@ export const makeExtraTarget = Effect.fnUntraced(function* (options: {
       (batch: BrokerCodesBatch) =>
         Effect.andThen(Queue.offer(lane, batch), production(batch)),
 
+    // The extra target's origin while its settings go on, for the History
+    // catch-up's store (settings.ts).
+    origin: Effect.flatMap(hold.settings, originWhile),
+
     // A site's catch-up walk for the run queue: `make` builds the site's
-    // walk over a post that sends the extra target only the trades its
-    // status, read as the walk starts, says it lacks. The walk is skipped
-    // unless the target is behind, and stops, having caught up nothing, when
-    // the target is unset, stopped or gave no status.
+    // walk over a post and a status read on the settings the walk captured,
+    // the post sending only the trades its status, read as the walk starts,
+    // says it lacks, and over their origin for the walk's store. The walk is
+    // skipped unless the target is behind, and stops, having caught up
+    // nothing, when the target is unset, halted or gave no status.
     catchUp: Effect.fnUntraced(function* <E, R>(
       feed: Feed,
       make: (target: {
         readonly post: (batch: BrokerCodesBatch) => Effect.Effect<PostOutcome>
-        readonly status: typeof status
+        readonly status: (
+          day: WibDate,
+          after?: TradeNumber
+        ) => Effect.Effect<Option.Option<BrokerCodesStatus>>
+        readonly origin: Effect.Effect<Option.Option<DashboardOrigin>>
       }) => Effect.Effect<
         { readonly walk: (day: WibDate) => Effect.Effect<WalkResult> },
         E,
         R
       >
     ) {
+      let walking = Option.none<BrokerCodesTarget>()
       let wanted = (_number: TradeNumber) => true
       const walk = yield* make({
         post: (batch) =>
@@ -200,19 +214,29 @@ export const makeExtraTarget = Effect.fnUntraced(function* (options: {
             const rows = batch.rows.filter(([number]) => wanted(number))
             if (rows.length === 0 && batch.end === undefined)
               return Effect.succeed("sent" satisfies PostOutcome)
-            return post({ ...batch, rows })
+            return postTo(walking, { ...batch, rows })
           }),
-        status,
+        status: (day, after) =>
+          Effect.suspend(() => statusOn(walking, day, after)),
+        origin: Effect.suspend(() => originWhile(walking)),
       })
       return {
         feed,
         walk: Effect.fnUntraced(function* (day: WibDate) {
-          const held = yield* status(day)
-          if (Option.isNone(held))
+          walking = yield* hold.settings
+          const held = yield* statusOn(walking, day)
+          if (Option.isNone(held)) {
+            const halt = Option.isSome(walking)
+              ? yield* hold.haltOf(walking.value)
+              : Option.none<PostStop>()
             return {
               _tag: "stopped",
-              cause: yield* noStatusCause,
+              cause:
+                Option.isSome(halt) && halt.value !== "off"
+                  ? halt.value
+                  : "no-token",
             } satisfies WalkResult
+          }
           if (!(yield* behind(day, held.value)))
             return { _tag: "walked" } satisfies WalkResult
           wanted = yield* lacks(held.value)

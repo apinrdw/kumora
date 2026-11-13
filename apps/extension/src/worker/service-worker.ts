@@ -402,9 +402,7 @@ const main = Effect.gen(function* () {
     get: fetchGet,
     hold: holds.production,
   })
-  const extraTarget = Effect.map(targetsNow, (now) => now.extra)
   const extra = yield* makeExtraTarget({
-    target: extraTarget,
     production: productionTarget,
     send: fetchSend,
     get: fetchGet,
@@ -436,12 +434,8 @@ const main = Effect.gen(function* () {
     trades: progress.trades,
     signedOut: progress.signedOut,
   })
-  const extraOrigin = Effect.map(
-    extraTarget,
-    Option.map(({ origin }) => origin)
-  )
-  const ajaibCatchUp = yield* extra.catchUp("Ajaib", ({ post }) =>
-    Effect.flatMap(ajaibCatchUpStore(extraOrigin), (store) =>
+  const ajaibCatchUp = yield* extra.catchUp("Ajaib", ({ post, origin }) =>
+    Effect.flatMap(ajaibCatchUpStore(origin), (store) =>
       makeAjaibWalk({ tab: ajaibWalkTab, post, store })
     )
   )
@@ -465,7 +459,7 @@ const main = Effect.gen(function* () {
     store: historyStore,
     incompleteDays: incompleteDaysStore,
     catchUp: stockbitExtraCatchUp,
-    catchUpStore: yield* historyCatchUpStore(extraOrigin),
+    catchUpStore: yield* historyCatchUpStore(extra.origin),
     report: progress.report,
   })
   const brokerCodes = yield* makeRunQueue({
