@@ -68,7 +68,13 @@ export const makeBrokerCodesPoster = Effect.fnUntraced(function* (options: {
   // The target as its settings stand now; none without a token.
   readonly target: Effect.Effect<Option.Option<BrokerCodesTarget>>
   readonly send: Send
+  // A 401 or 426 came back on `target`, the settings the refused try used.
+  readonly refused?: (
+    target: BrokerCodesTarget,
+    outcome: Extract<PostOutcome, "rejected-token" | "reload-extension">
+  ) => Effect.Effect<void>
 }) {
+  const refused = options.refused ?? (() => Effect.void)
   return {
     // Decision: a POST that fails for any reason but 401 or 426 is resent
     // with target.ts's backoff, 1 s doubling to 30 s; the trading-day object
@@ -88,8 +94,11 @@ export const makeBrokerCodesPoster = Effect.fnUntraced(function* (options: {
           body,
         })
         if (status === 200) return "sent" satisfies PostOutcome
-        if (status === 401) return "rejected-token" satisfies PostOutcome
-        if (status === 426) return "reload-extension" satisfies PostOutcome
+        if (status === 401 || status === 426) {
+          const outcome = status === 401 ? "rejected-token" : "reload-extension"
+          yield* refused(target.value, outcome)
+          return outcome satisfies PostOutcome
+        }
         yield* Effect.sleep(retry)
         retry = Duration.min(Duration.times(retry, 2), LAST_RETRY)
       }

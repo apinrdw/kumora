@@ -101,7 +101,6 @@ export const makeExtraTarget = Effect.fnUntraced(function* (options: {
     Effect.tap(options.send(request), (status) => answered(request, status))
   const get: Get = (request) =>
     Effect.tap(options.get(request), ({ status }) => answered(request, status))
-  const poster = yield* makeBrokerCodesPoster({ target: options.target, send })
   const lane = yield* Queue.dropping<BrokerCodesBatch>(LANE)
 
   // The settings a refusal came back on, and which.
@@ -133,15 +132,20 @@ export const makeExtraTarget = Effect.fnUntraced(function* (options: {
       return options.report(Option.some(stop))
     })
 
+  // The poster rereads the settings before each try, so a refusal stops the
+  // settings its try used, not those the post started with.
+  const poster = yield* makeBrokerCodesPoster({
+    target: options.target,
+    send,
+    refused: stopOn,
+  })
+
   const post = Effect.fnUntraced(function* (batch: BrokerCodesBatch) {
     const target = yield* options.target
     if (Option.isNone(target)) return "off" satisfies PostOutcome
     const stop = yield* stopOf(target.value)
     if (Option.isSome(stop)) return stop.value
-    const outcome = yield* poster.post(batch)
-    if (outcome === "rejected-token" || outcome === "reload-extension")
-      yield* stopOn(target.value, outcome)
-    return outcome
+    return yield* poster.post(batch)
   })
 
   // The extra target's status of a day; none when it is unset, stopped,
