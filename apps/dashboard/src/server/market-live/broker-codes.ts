@@ -29,7 +29,7 @@ const RECORD = 7
 const SOURCE = 6
 
 // Decision: the source byte is `A` for Ajaib's, `S` for Stockbit's, and `B`
-// for Ajaib's that Stockbit's walk agreed with: the cross-check's covered
+// for Ajaib's that Stockbit's copy agreed with: the cross-check's covered
 // trades are counted from it, so a resent Stockbit batch counts none twice.
 const Source = { ajaib: 65, stockbit: 83, both: 66 } as const
 
@@ -95,17 +95,27 @@ const sameCodes = (held: Uint8Array, at: number, codes: Uint8Array) =>
     return true
   })
 
-// An Ajaib row replaces what is held. A resent one keeps what Stockbit's
-// walk agreed.
+// An Ajaib row replaces what is held. Over a copy Stockbit sent it says
+// whether the two agree, so a day Stockbit walked first is compared too.
 const mergeAjaib = Effect.fnUntraced(function* (
   held: Uint8Array,
   at: number,
   codes: Uint8Array
 ) {
-  if (held[at + SOURCE] === Source.both && (yield* sameCodes(held, at, codes)))
-    return
+  const source = held[at + SOURCE]
+  if (source !== Source.stockbit && source !== Source.both) {
+    held.set(codes, at)
+    held[at + SOURCE] = Source.ajaib
+    return "kept" as const
+  }
+  if (yield* sameCodes(held, at, codes)) {
+    held[at + SOURCE] = Source.both
+    return "agreed" as const
+  }
+  const stockbit = held.slice(at, at + SOURCE)
   held.set(codes, at)
   held[at + SOURCE] = Source.ajaib
+  return [codes, stockbit] as const
 })
 
 // A Stockbit row fills an absent trade or replaces Stockbit's copy. For one
@@ -123,7 +133,9 @@ const mergeStockbit = Effect.fnUntraced(function* (
   }
   const agrees = yield* sameCodes(held, at, codes)
   held[at + SOURCE] = agrees ? Source.both : Source.ajaib
-  return agrees ? ("agreed" as const) : ("differs" as const)
+  return agrees
+    ? ("agreed" as const)
+    : ([held.slice(at, at + SOURCE), codes] as const)
 })
 
 // What a batch writes, in one transaction.
@@ -163,6 +175,9 @@ const tallyChunk = (tally: Tally, chunk: number, codes: Uint8Array) =>
 
 // Nothing to compare when Ajaib supplied nothing; compared once Stockbit's
 // walk ended; pending at its position until then.
+// Decision: covered and differences count only trades both sites sent, in
+// whichever order they came, so a day Stockbit ended before Ajaib's walk
+// reads compared at once and needs no second Stockbit walk.
 const crossCheckOf = (
   tally: Tally,
   walk: CrossCheckFact,
@@ -285,17 +300,16 @@ export const makeBrokerCodes = Effect.fnUntraced(function* (options: {
       const held = merged.chunks.get(chunk) ?? (yield* chunkOf(chunk))
       merged.chunks.set(chunk, held)
       const bytes = yield* bytesOf(codes)
-      if (batch.feed === "Ajaib") {
-        yield* mergeAjaib(held, at, bytes)
-        continue
-      }
-      const outcome = yield* mergeStockbit(held, at, bytes)
+      const outcome =
+        batch.feed === "Ajaib"
+          ? yield* mergeAjaib(held, at, bytes)
+          : yield* mergeStockbit(held, at, bytes)
       if (outcome === "agreed") {
         merged.agreed.add(number)
         merged.differences.delete(number)
-      } else if (outcome === "differs") {
+      } else if (outcome !== "kept") {
         merged.agreed.delete(number)
-        merged.differences.set(number, [held.slice(at, at + SOURCE), bytes])
+        merged.differences.set(number, outcome)
       }
     }
     merged.facts.push(...(yield* factsOf(batch, highest)))
