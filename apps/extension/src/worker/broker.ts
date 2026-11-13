@@ -84,11 +84,13 @@ export type TabCommand =
       readonly request: TabRequest
     }
 
-// Status 0: the request failed before any answer.
+// Status 0: the request failed before any answer. `challenge` is set when
+// the answer carried Cloudflare's `cf-mitigated: challenge` header.
 export const Answer = Schema.TaggedStruct("answer", {
   id: Schema.Int,
   status: Schema.Int,
   body: Schema.String,
+  challenge: Schema.optionalKey(Schema.Boolean),
 })
 export type Answer = typeof Answer.Type
 
