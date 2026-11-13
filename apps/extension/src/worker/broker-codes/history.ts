@@ -6,7 +6,13 @@ import { WibDate } from "@workspace/relay"
 import { Effect, Option, Schema } from "effect"
 
 import { weekdayBefore } from "./hours.ts"
-import type { BrokerCodesProgress, DayWalk, PauseCause } from "./run-queue.ts"
+import {
+  joinIncomplete,
+  type BrokerCodesProgress,
+  type DayWalk,
+  type IncompleteDaysStore,
+  type PauseCause,
+} from "./run-queue.ts"
 
 // Decision: 15 empty weekdays in a row end the History walk for good: no
 // IDX holiday runs that long, so Stockbit no longer serves the days. New
@@ -40,6 +46,7 @@ export const makeHistoryWalk = Effect.fnUntraced(function* (options: {
   // whole, and gives up a day with no rows without posting.
   readonly walk: DayWalk
   readonly store: HistoryStore
+  readonly incompleteDays: IncompleteDaysStore
   // The extra target's catch-up of a day (extra-target.ts).
   readonly catchUp: DayWalk
   readonly catchUpStore: HistoryCatchUpStore
@@ -73,9 +80,12 @@ export const makeHistoryWalk = Effect.fnUntraced(function* (options: {
       })
       const result = yield* options.walk.walk(day)
       if (result._tag === "stopped") return Option.some(result.cause)
-      // Decision: a day the walk leaves incomplete stays so; it doesn't join
-      // the incomplete-days list, since a day Stockbit walked whole has
-      // nothing more for a gap walk to find. See apinrdw/kumora#252.
+      // Decision: a day the walk leaves incomplete joins the incomplete-days
+      // list, so later runs refetch its gaps from Stockbit: a gap walk
+      // fetches only the missing ranges, and gives up a day with no rows.
+      // See apinrdw/kumora#244, "Complete".
+      if (result._tag === "unserved" && result.reason === "incomplete")
+        yield* joinIncomplete(options.incompleteDays, [day])
       empty =
         result._tag === "unserved" && result.reason === "no-rows"
           ? empty + 1

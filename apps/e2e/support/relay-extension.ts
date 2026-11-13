@@ -63,7 +63,7 @@ const HOSTS = [
 const BROKER_CODES_PATH = /^\/api\/broker-codes\/(\d{4}-\d{2}-\d{2})$/
 
 // A day's broker codes status, by day; none answers 404.
-export type DayStatuses = (day: WibDate) => BrokerCodesStatus | undefined
+type DayStatuses = (day: WibDate) => BrokerCodesStatus | undefined
 
 // Answers a broker codes status GET from `statuses`.
 const answerStatus = (

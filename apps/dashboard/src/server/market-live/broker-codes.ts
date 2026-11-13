@@ -178,25 +178,39 @@ const crossCheckOf = (
   })
 
 // Decision: no broker codes answer is ever cached: the status changes with
-// every batch.
-const answer = (status: number, text?: string) =>
+// every batch. The route (broker-codes-route.ts) answers through this too.
+export const noStoreAnswer = (
+  status: number,
+  text?: string,
+  headers: Record<string, string> = {}
+) =>
   Effect.sync(
     () =>
       new Response(text ?? null, {
         status,
-        headers: { "Cache-Control": "no-store" },
+        headers: { "Cache-Control": "no-store", ...headers },
       })
   )
 
-const json = (text: string) =>
-  Effect.sync(
-    () =>
-      new Response(text, {
-        headers: {
-          "Content-Type": "application/json",
-          "Cache-Control": "no-store",
-        },
-      })
+// A POSTed batch of `day`, or the answer that refuses it: 426 for another
+// version, 400 for one that doesn't decode or names another day. The route
+// checks a batch before it reaches the object, and the object again, since
+// it takes its own input.
+export const checkedBatch = (
+  text: string,
+  day: WibDate
+): Effect.Effect<BrokerCodesBatch | Response> =>
+  decodeBrokerCodesBatch(text).pipe(
+    Effect.flatMap((batch): Effect.Effect<BrokerCodesBatch | Response> =>
+      batch.day === day
+        ? Effect.succeed(batch)
+        : noStoreAnswer(400, "Batch of another day")
+    ),
+    Effect.catchTags({
+      BrokerCodesVersionMismatch: () =>
+        noStoreAnswer(426, "Reload the extension"),
+      SchemaError: () => noStoreAnswer(400, "Batch not read"),
+    })
   )
 
 // Which site supplied a kept trade, as `held` names it.
@@ -391,24 +405,21 @@ export const makeBrokerCodes = Effect.fnUntraced(function* (options: {
     return day
   })
 
-  // A POSTed batch: 200 once it is written, 426 for another version, 400 for
-  // one that doesn't decode or names another day.
-  const post = Effect.fnUntraced(
-    function* (text: string) {
-      const batch = yield* decodeBrokerCodesBatch(text)
-      if (batch.day !== options.date)
-        return yield* answer(400, "Batch of another day")
-      yield* write(batch)
-      return yield* answer(200)
-    },
-    Effect.catchTags({
-      BrokerCodesVersionMismatch: () => answer(426, "Reload the extension"),
-      SchemaError: () => answer(400, "Batch not read"),
-    })
-  )
+  // A POSTed batch: 200 once it is written, else as `checkedBatch` refuses
+  // it.
+  const post = Effect.fnUntraced(function* (text: string) {
+    const batch = yield* checkedBatch(text, options.date)
+    if (batch instanceof Response) return batch
+    yield* write(batch)
+    return yield* noStoreAnswer(200)
+  })
 
   const statusAnswer = Effect.gen(function* () {
-    return yield* json(yield* encodeBrokerCodesStatus(yield* status))
+    return yield* noStoreAnswer(
+      200,
+      yield* encodeBrokerCodesStatus(yield* status),
+      { "Content-Type": "application/json" }
+    )
   })
 
   return { post, status: statusAnswer, held }

@@ -3,7 +3,7 @@
 // owner can clear.
 import { Effect, Option } from "effect"
 
-import type { AjaibLock } from "./ajaib-lock.ts"
+import { lockReasons, type AjaibLock } from "./ajaib-lock.ts"
 import type { BrokerCodesProgress } from "./broker-codes/run-queue.ts"
 import type { TargetState, TargetStates } from "./settings.ts"
 
@@ -23,15 +23,6 @@ const severity: ReadonlyArray<TargetState> = [
   "connected",
   "off",
 ]
-
-const lockTitles: Record<
-  Extract<AjaibLock, { state: "locked" }>["reason"],
-  string
-> = {
-  "no-pin": "Ajaib locked: no PIN entered",
-  refused: "Ajaib locked: the PIN was refused",
-  "not-typed": "Ajaib locked: the PIN could not be typed",
-}
 
 // Decision: a target state with a badge of its own shows first; only when
 // none does, `PIN` (the Ajaib tab locked) and then `OUT` (the Stockbit tab
@@ -53,7 +44,10 @@ export const badgeOf = Effect.fnUntraced(function* (stored: {
     ([name, state]) => `${name}: ${targetBadges[state].title}`
   )
   const lock = Option.getOrUndefined(stored.lock)
-  const locked = lock?.state === "locked" ? lockTitles[lock.reason] : undefined
+  const locked =
+    lock?.state === "locked"
+      ? `Ajaib locked: ${lockReasons[lock.reason].cause}`
+      : undefined
   const signedOut = Option.exists(
     stored.progress,
     (progress) => progress.state === "paused" && progress.cause === "signed-out"

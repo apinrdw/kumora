@@ -77,9 +77,11 @@ const tagged = (
     }),
 })
 
-// The incomplete-days list as chrome.storage.local keeps it.
-const memoryDays = (days: ReadonlyArray<string> = []) => {
+// The incomplete-days list as chrome.storage.local keeps it, with the
+// newest closed day the last run walked.
+const memoryDays = (days: ReadonlyArray<string> = [], lastNewest?: string) => {
   let kept = days.map((day) => WibDate.make(day))
+  let newest = Option.map(Option.fromUndefinedOr(lastNewest), WibDate.make)
   return {
     days: () => kept,
     store: {
@@ -87,6 +89,11 @@ const memoryDays = (days: ReadonlyArray<string> = []) => {
       save: (next: ReadonlyArray<WibDate>) =>
         Effect.sync(() => {
           kept = [...next]
+        }),
+      lastNewest: Effect.sync(() => newest),
+      saveLastNewest: (day: WibDate) =>
+        Effect.sync(() => {
+          newest = Option.some(day)
         }),
     } satisfies IncompleteDaysStore,
   }
@@ -141,6 +148,9 @@ const harness = Effect.fnUntraced(function* (
   older: {
     readonly days?: ReturnType<typeof memoryDays>
     readonly gaps?: (day: WibDate) => Effect.Effect<WalkResult>
+    // The extra target's gap walk of an older day, kept as
+    // `catch-up gaps <day>`.
+    readonly gapsCatchUp?: (day: WibDate) => Effect.Effect<WalkResult>
     readonly history?: ReturnType<typeof memoryHistory>
     // Production's walk of a History day, kept as `history <day>`.
     readonly historyWalk?: (day: WibDate) => Effect.Effect<WalkResult>
@@ -165,11 +175,13 @@ const harness = Effect.fnUntraced(function* (
     history: yield* makeHistoryWalk({
       walk: tagged("history", walked, older.historyWalk),
       store: history.store,
+      incompleteDays: days.store,
       catchUp: tagged("catch-up history", walked, older.historyCatchUp),
       catchUpStore: history.catchUpStore,
       report,
     }),
     catchUp: catchUp(walked),
+    gapsCatchUp: tagged("catch-up gaps", walked, older.gapsCatchUp),
     paused: Effect.sync(() => paused),
     report,
   })
@@ -228,6 +240,7 @@ describe("the broker codes run queue", () => {
           "Ajaib 2026-11-12",
           "Ajaib 2026-11-13",
           "gaps 2026-11-12",
+          "catch-up gaps 2026-11-12",
         ])
       })
   )
@@ -389,7 +402,7 @@ describe("the broker codes run queue", () => {
 
 describe("the broker codes run queue: older incomplete days", () => {
   it.effect(
-    "walks older days' gaps after the new day, oldest first, then the catch-up",
+    "walks older days' gaps after the new day, oldest first, then the extra target's catch-up of each",
     () =>
       Effect.gen(function* () {
         yield* TestClock.setTime(wib("2026-11-12", "17:00:00"))
@@ -406,6 +419,10 @@ describe("the broker codes run queue: older incomplete days", () => {
           "gaps 2026-11-10",
           "gaps 2026-11-11",
           "catch-up Stockbit 2026-11-12",
+          // Each day the run began with, those Production completed too.
+          "catch-up gaps 2026-11-06",
+          "catch-up gaps 2026-11-10",
+          "catch-up gaps 2026-11-11",
         ])
         assert.deepStrictEqual(queue.progress.slice(-2), [
           {
@@ -471,6 +488,41 @@ describe("the broker codes run queue: older incomplete days", () => {
     })
   )
 
+  it.effect(
+    "a browser closed Monday to Wednesday walks those evenings' days from Stockbit",
+    () =>
+      Effect.gen(function* () {
+        // The last run walked Friday 2026-11-06; the browser opens again on
+        // Thursday 2026-11-12's evening.
+        yield* TestClock.setTime(wib("2026-11-12", "17:00:00"))
+        const queue = yield* harness(
+          (walked) => [fakeWalk("Ajaib", walked)],
+          undefined,
+          {
+            days: memoryDays([], "2026-11-06"),
+            gaps: () =>
+              Effect.succeed({ _tag: "unserved", reason: "incomplete" }),
+          }
+        )
+        yield* queue.trigger
+        assert.deepStrictEqual(queue.walked, [
+          "Ajaib 2026-11-12",
+          "gaps 2026-11-09",
+          "gaps 2026-11-10",
+          "gaps 2026-11-11",
+          "catch-up gaps 2026-11-09",
+          "catch-up gaps 2026-11-10",
+          "catch-up gaps 2026-11-11",
+        ])
+        assert.deepStrictEqual(queue.days.days(), [
+          "2026-11-09",
+          "2026-11-10",
+          "2026-11-11",
+          "2026-11-12",
+        ])
+      })
+  )
+
   it.effect("the list survives a restarted worker", () =>
     Effect.gen(function* () {
       yield* TestClock.setTime(wib("2026-11-12", "17:00:00"))
@@ -496,6 +548,7 @@ describe("the broker codes run queue: older incomplete days", () => {
       assert.deepStrictEqual(after.walked, [
         "Ajaib 2026-11-13",
         "gaps 2026-11-12",
+        "catch-up gaps 2026-11-12",
       ])
       assert.deepStrictEqual(days.days(), ["2026-11-13"])
     })
@@ -578,6 +631,37 @@ describe("the broker codes run queue: the History walk", () => {
             .filter((each) => each.startsWith("history ")),
           []
         )
+      })
+  )
+
+  it.effect(
+    "a History day left incomplete joins the incomplete days, and the next run walks its gaps",
+    () =>
+      Effect.gen(function* () {
+        yield* TestClock.setTime(wib("2026-11-12", "17:00:00"))
+        const days = memoryDays()
+        const queue = yield* harness(
+          (walked) => [fakeWalk("Ajaib", walked)],
+          undefined,
+          {
+            days,
+            history: unpositioned(),
+            historyWalk: (day) =>
+              Effect.succeed(
+                day === "2026-11-11"
+                  ? { _tag: "unserved", reason: "incomplete" }
+                  : { _tag: "unserved", reason: "no-rows" }
+              ),
+          }
+        )
+        yield* queue.trigger
+        assert.deepStrictEqual(days.days(), ["2026-11-12", "2026-11-11"])
+        yield* TestClock.setTime(wib("2026-11-13", "17:00:00"))
+        yield* queue.tick
+        assert.includeMembers(queue.walked, [
+          "gaps 2026-11-11",
+          "gaps 2026-11-12",
+        ])
       })
   )
 

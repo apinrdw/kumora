@@ -10,6 +10,7 @@ import {
   type BrokerCodesStatus,
 } from "@workspace/relay"
 import { Effect, Option } from "effect"
+import { TestClock } from "effect/testing"
 
 import { makeExtraTarget } from "../../src/worker/broker-codes/extra-target.ts"
 import {
@@ -64,10 +65,10 @@ const fakeDashboard = (
       }),
     get: (_request: { url: string; token: string }) =>
       options.status === undefined
-        ? Effect.succeed(Option.none<string>())
+        ? Effect.succeed({ status: 0, body: "" })
         : Effect.map(
             Effect.orDie(encodeBrokerCodesStatus(options.status)),
-            Option.some
+            (body) => ({ status: 200, body })
           ),
   }
 }
@@ -140,7 +141,10 @@ const harness = Effect.fnUntraced(function* (options: {
       request.url.startsWith(PRODUCTION.origin)
         ? production.get(request)
         : options.extra.get(request),
-    report: (state) => Effect.sync(() => reported.push(state)),
+    report: (state) =>
+      Effect.sync(() =>
+        reported.push(Option.getOrElse(state, () => "cleared"))
+      ),
   })
   yield* Effect.forkChild(extra.run)
   const poster = yield* makeBrokerCodesPoster({
@@ -189,7 +193,22 @@ describe("the extra target", () => {
         "end 5",
       ])
       assert.deepStrictEqual(extra.written, [])
-      assert.deepStrictEqual(target.reported, [])
+    })
+  )
+
+  // A target the browser can't reach (status 0: no CORS, DNS, offline) is
+  // retried, and shown as retrying until a batch goes through.
+  it.effect("unreachable, shows retrying until a batch is written", () =>
+    Effect.gen(function* () {
+      const extra = fakeDashboard({ statuses: [0, 0] })
+      const target = yield* harness({ extra })
+      yield* fakeWalk(target.post).walk(DAY)
+      yield* settle
+      assert.deepStrictEqual(target.reported, ["retrying"])
+      yield* TestClock.adjust("1 minute")
+      yield* settle
+      assert.deepStrictEqual(target.reported, ["retrying", "cleared"])
+      assert.lengthOf(extra.written, 6)
     })
   )
 

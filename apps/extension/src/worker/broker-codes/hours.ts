@@ -87,6 +87,22 @@ export const recentClosedDays = Effect.fnUntraced(
   )
 )
 
+// The trading days after `after` and before `before`, oldest first: the
+// evenings a closed browser missed. Empty past the baked schedule.
+export const tradingDaysBetween = Effect.fnUntraced(
+  function* (after: WibDate, before: WibDate) {
+    const days: Array<WibDate> = []
+    for (let day = yield* daysFrom(after, 1); day < before;) {
+      if (yield* isTradingDay(day)) days.push(day)
+      day = yield* daysFrom(day, 1)
+    }
+    return days
+  },
+  Effect.catchTag("ScheduleYearMissing", () =>
+    Effect.succeed<ReadonlyArray<WibDate>>([])
+  )
+)
+
 // Decision: Ajaib's tape holds only the day's own evening, so its window
 // runs from the close until 08:40 WIB on the next trading day
 // (apinrdw/kumora#244, "Ajaib's window"). None past the baked schedule.

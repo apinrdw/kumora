@@ -15,7 +15,7 @@ import {
   type TradeCodes,
   type WibDate,
 } from "@workspace/relay"
-import { Data, DateTime, Effect, Option, Schema } from "effect"
+import { DateTime, Effect, Option, Schema } from "effect"
 
 import type { RequestingTab } from "../pacer.ts"
 import {
@@ -25,7 +25,7 @@ import {
 } from "../stockbit.ts"
 import { isMarketHours } from "./hours.ts"
 import type { PostOutcome } from "./poster.ts"
-import type { WalkResult } from "./run-queue.ts"
+import { halt, haltOnRefusal, settle, type WalkResult } from "./run-queue.ts"
 import type { StatusOutcome } from "./status.ts"
 
 // Decision: 100 rows a call, Stockbit's most, with `date` and no `symbols`
@@ -75,10 +75,6 @@ interface Walked {
   readonly highest: bigint
   readonly cursor: Option.Option<TradeNumber>
 }
-
-// The walk ends before the day does.
-class Halt extends Data.TaggedError("Halt")<{ readonly result: WalkResult }> {}
-const halt = (result: WalkResult) => Effect.fail(new Halt({ result }))
 
 const tapeUrl = (
   day: WibDate,
@@ -254,10 +250,7 @@ export const makeStockbitWalk = Effect.fnUntraced(function* (options: {
       feed: "Stockbit",
       ...batch,
     })
-    if (outcome === "off")
-      return yield* halt({ _tag: "stopped", cause: "no-token" })
-    if (outcome !== "sent")
-      return yield* halt({ _tag: "stopped", cause: outcome })
+    if (outcome !== "sent") return yield* haltOnRefusal(outcome)
   })
 
   // Waits for Stockbit to close the day, then answers the tape's newest row;
@@ -347,16 +340,9 @@ export const makeStockbitWalk = Effect.fnUntraced(function* (options: {
   // The day's status on Production; a refusal stops the walk.
   const status = Effect.fnUntraced(function* (day: WibDate) {
     const outcome = yield* options.status(day)
-    if (outcome === "off")
-      return yield* halt({ _tag: "stopped", cause: "no-token" })
-    if (typeof outcome === "string")
-      return yield* halt({ _tag: "stopped", cause: outcome })
+    if (typeof outcome === "string") return yield* haltOnRefusal(outcome)
     return outcome
   })
-
-  // Runs a walk built from the parts, its stop as the walk's result.
-  const settle = (walk: Effect.Effect<WalkResult, Halt>) =>
-    Effect.catchTag(walk, "Halt", (stop) => Effect.succeed(stop.result))
 
   // The full walk: forward from trade 1, or from where the day's status
   // shows Stockbit reached, to the day's end.
@@ -416,7 +402,6 @@ export const makeStockbitWalk = Effect.fnUntraced(function* (options: {
     forward,
     finish,
     status,
-    settle,
   }
 })
 

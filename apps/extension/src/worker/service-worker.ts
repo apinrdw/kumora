@@ -31,11 +31,7 @@ import { makeBackfill } from "./backfill.ts"
 import { badgeOf } from "./badge.ts"
 import { makeAjaibWalk } from "./broker-codes/ajaib-walk.ts"
 import { makeExtraTarget } from "./broker-codes/extra-target.ts"
-import {
-  fetchSend,
-  fetchStatus,
-  makeBrokerCodesPoster,
-} from "./broker-codes/poster.ts"
+import { fetchSend, makeBrokerCodesPoster } from "./broker-codes/poster.ts"
 import { makeHistoryWalk } from "./broker-codes/history.ts"
 import { makeProgress } from "./broker-codes/progress.ts"
 import { makeRunQueue } from "./broker-codes/run-queue.ts"
@@ -138,24 +134,37 @@ chrome.runtime.onConnect.addListener((port) => {
 chrome.alarms.onAlarm.addListener((alarm) => {
   if (alarm.name === ALARM) queue({ _tag: "alarm" })
 })
-chrome.storage.onChanged.addListener((changes, area) => {
-  if (Effect.runSync(isSettingsChange(changes, area)))
-    queue({ _tag: "settings" })
-  if (Effect.runSync(isCodeListRelayAsk(changes, area)))
-    queue({ _tag: "relay-code-list" })
-  if (Effect.runSync(isClockOffsetChange(changes, area)))
-    queue({ _tag: "tick" })
-  const paused = Effect.runSync(brokerCodesPausedChange(changes, area))
+// Each stored change the worker acts on, and the event it queues. The badge
+// follows the target states, the Ajaib tab's lock and the broker codes
+// progress.
+const storageEvents = Effect.fnUntraced(function* (
+  changes: Record<string, chrome.storage.StorageChange>,
+  area: string
+) {
+  const checks = [
+    [isSettingsChange, { _tag: "settings" }],
+    [isCodeListRelayAsk, { _tag: "relay-code-list" }],
+    [isClockOffsetChange, { _tag: "tick" }],
+    [isBrokerCodesRunAsk, { _tag: "broker-codes-run" }],
+  ] as const
+  const found: Array<WorkerEvent> = []
+  for (const [check, event] of checks)
+    if (yield* check(changes, area)) found.push(event)
+  const paused = yield* brokerCodesPausedChange(changes, area)
   if (Option.isSome(paused))
-    queue({ _tag: "broker-codes-paused", paused: paused.value })
-  if (Effect.runSync(isBrokerCodesRunAsk(changes, area)))
-    queue({ _tag: "broker-codes-run" })
-  if (
-    Effect.runSync(isTargetStatesChange(changes, area)) ||
-    Effect.runSync(isAjaibLockChange(changes, area)) ||
-    Effect.runSync(isBrokerCodesProgressChange(changes, area))
-  )
-    queue({ _tag: "badge" })
+    found.push({ _tag: "broker-codes-paused", paused: paused.value })
+  const badge = [
+    isTargetStatesChange,
+    isAjaibLockChange,
+    isBrokerCodesProgressChange,
+  ]
+  for (const check of badge)
+    if (yield* check(changes, area))
+      return [...found, { _tag: "badge" } as const]
+  return found
+})
+chrome.storage.onChanged.addListener((changes, area) => {
+  for (const event of Effect.runSync(storageEvents(changes, area))) queue(event)
 })
 
 // The toolbar badge follows what the worker stores: the target states, the
@@ -188,8 +197,9 @@ const makeTargets = Effect.fnUntraced(function* (options: {
     production: "off",
     extra: "off",
   }
-  // A 401 or 426 to a broker codes POST: shown over the socket's state until
-  // the target's settings change.
+  // A 401 or 426 to a broker codes POST, or its requests failing
+  // (extra-target.ts): shown over the socket's state until the target's
+  // settings change or a request goes through.
   const stops: Partial<Record<TargetName, TargetState>> = {}
   const shown = Effect.sync((): TargetStates => ({
     production: stops.production ?? states.production,
@@ -204,9 +214,10 @@ const makeTargets = Effect.fnUntraced(function* (options: {
         state === "connected" ? Effect.void : receive(name, undefined)
       )
     })
-  const stop = (name: TargetName, state: TargetState) =>
+  const stop = (name: TargetName, state: Option.Option<TargetState>) =>
     Effect.suspend(() => {
-      stops[name] = state
+      if (Option.isSome(state)) stops[name] = state.value
+      else delete stops[name]
       return Effect.flatMap(shown, saveTargetStates)
     })
   const restart = Effect.fnUntraced(function* (
@@ -383,7 +394,7 @@ const main = Effect.gen(function* () {
     target: extraTarget,
     production: productionTarget,
     send: fetchSend,
-    get: fetchStatus,
+    get: fetchGet,
     report: (state) => Effect.suspend(() => targets.stop("extra", state)),
   })
   yield* Effect.forkScoped(extra.run)
@@ -425,8 +436,9 @@ const main = Effect.gen(function* () {
   const history = yield* makeHistoryWalk({
     walk: { feed: "Stockbit", walk: stockbitWalk.gaps },
     store: historyStore,
+    incompleteDays: incompleteDaysStore,
     catchUp: stockbitExtraCatchUp,
-    catchUpStore: historyCatchUpStore(
+    catchUpStore: yield* historyCatchUpStore(
       Effect.map(
         extraTarget,
         Option.map(({ origin }) => origin)
@@ -443,6 +455,7 @@ const main = Effect.gen(function* () {
     gaps: { feed: "Stockbit", walk: stockbitWalk.gaps },
     history,
     catchUp: [ajaibCatchUp, stockbitExtraCatchUp],
+    gapsCatchUp: stockbitExtraCatchUp,
     paused: loadBrokerCodesPaused,
     report: progress.report,
   })
