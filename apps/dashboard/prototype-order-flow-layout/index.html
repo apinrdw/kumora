@@ -129,7 +129,7 @@
 <div id="parts" hidden>
   <section class="card chartbox" id="box1">
     <header><h2>SINI</h2><span class="num" id="last"></span><span class="legend">Chart 1 · candles, book heatmap (bid green, offer red), sweep bubbles (area ∝ lots, amber ring = big trade ≥ Rp1 B)</span>
-      <span class="noise" title="Hide small sweeps: keep the largest N% of this code's sweeps by value, up to the cursor">Show top <button data-top="100">All</button><button data-top="50">50%</button><button data-top="25" class="on">25%</button><button data-top="10">10%</button><button data-top="1">1%</button><span id="noiseMin"></span></span></header>
+      <span class="noise" title="Hide small sweeps: the lot count at the top N% mark of buy sweeps and of sell sweeps so far today; the lower of the two is the threshold">Show top <button data-top="100">All</button><button data-top="50">50%</button><button data-top="25" class="on">25%</button><button data-top="10">10%</button><button data-top="1">1%</button><span id="noiseMin"></span></span></header>
     <div id="c1"></div>
   </section>
   <section class="card chartbox" id="box2">
@@ -254,17 +254,19 @@ let cursor = (() => { const [h, m] = initCursorHM.split(":").map(Number); return
 let cursorMinute = Math.floor(cursor / MIN) * MIN;
 let selectedId = null;
 let bigOnly = false;
-// Noise filter (owner's call, 2026-11-13): bubbles and the log keep only the largest topPct% of
-// the code's sweeps by value, counted over the sweeps up to the cursor, so every code gets a
-// similar density whatever its price. minValue is that percentile's value.
-let topPct = 25, minValue = 0;
+// Noise filter (owner's call, 2026-11-13): a lot threshold over the day so far. For buy sweeps
+// and sell sweeps separately, the lot count at the top topPct% mark of that side's sweeps up to
+// the cursor; the lower of the two is the one threshold for both sides, so a day dominated by one
+// side never hides the other side's meaningful sweeps. Bubbles and the log hide sweeps below it.
+let topPct = 25, minLots = 0, sideCut = { buy: 0, sell: 0 };
+const cutAt = (lots, pct) => { lots.sort((a, b) => b - a); return lots.length ? lots[Math.max(0, Math.ceil(lots.length * pct / 100) - 1)] : 0; };
 function updateThreshold() {
-  const vals = [];
-  for (const s of sweeps) if (s.time <= cursor) vals.push(s.value);
-  vals.sort((a, b) => b - a);
-  minValue = topPct >= 100 || !vals.length ? 0 : vals[Math.max(0, Math.ceil(vals.length * topPct / 100) - 1)];
+  const buy = [], sell = [];
+  for (const s of sweeps) if (s.time <= cursor) (s.side === "sell" ? sell : buy).push(s.lots);
+  sideCut = { buy: cutAt(buy, topPct), sell: cutAt(sell, topPct) };
+  minLots = topPct >= 100 ? 0 : Math.min(...[sideCut.buy, sideCut.sell].filter((_, k) => (k ? sell : buy).length)) || 0;
   const el = document.getElementById("noiseMin");
-  if (el) el.textContent = minValue ? `≥ Rp${shortLots(minValue).replace(/\.00(?=[KMB])/, "")}` : "";
+  if (el) el.textContent = minLots ? `≥ ${nf.format(minLots)} lots (buy ${nf.format(sideCut.buy)}, sell ${nf.format(sideCut.sell)})` : "";
 }
 let hoverMinute = null;
 const stats = { c1: { full: 0, top: 0, rects: 0, bubbles: 0 }, c2: { full: 0, top: 0, texts: 0, mode: "" } };
@@ -382,7 +384,7 @@ class Bubbles {
       const cx = ts.timeToCoordinate(m / 1000);
       if (cx === null) continue;
       for (const s of list) {
-        if (s.time > cursor || s.value < minValue) continue;
+        if (s.time > cursor || s.lots < minLots) continue;
         const y = series.priceToCoordinate(s.price);
         if (y === null) continue;
         const x = this.xOf(s, cx, bs) * hpr, yy = y * vpr, r = radius(s.lots) * hpr;
@@ -419,7 +421,7 @@ class Bubbles {
       if (!list) continue;
       const cx = ts.timeToCoordinate(minutes[i] / 1000);
       for (const s of list) {
-        if (s.time > cursor || s.value < minValue) continue;
+        if (s.time > cursor || s.lots < minLots) continue;
         const sy = series.priceToCoordinate(s.price);
         const d = Math.hypot(this.xOf(s, cx, bs) - x, sy - y);
         if (d <= radius(s.lots) + 2 && d < bestD) { best = s; bestD = d; }
@@ -880,9 +882,9 @@ function rebuildLog() {
     if (s.time > cursor) continue;
     if (s.side === "buy") buys++; else sells++;
     if (s.big) bigs++;
-    if ((!bigOnly || s.big) && s.value >= minValue) logRows.push(s);
+    if ((!bigOnly || s.big) && s.lots >= minLots) logRows.push(s);
   }
-  $("logCounts").textContent = `${nf.format(buys + sells)} sweeps to ${wib(cursor)} · Buy ${nf.format(buys)} · Sell ${nf.format(sells)} · Big ${bigs}${minValue ? ` · showing ${nf.format(logRows.length)} ≥ Rp${shortLots(minValue).replace(/\.00(?=[KMB])/, "")}` : ""}`;
+  $("logCounts").textContent = `${nf.format(buys + sells)} sweeps to ${wib(cursor)} · Buy ${nf.format(buys)} · Sell ${nf.format(sells)} · Big ${bigs}${minLots ? ` · showing ${nf.format(logRows.length)} ≥ ${nf.format(minLots)} lots` : ""}`;
   spacer.style.height = logRows.length * ROW + "px";
   renderLog();
 }
