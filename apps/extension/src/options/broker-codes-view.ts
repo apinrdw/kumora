@@ -1,25 +1,31 @@
 // What the options page's Broker codes section says (spec
 // apinrdw/kumora#244, "The extension: options page and badge"), from what
 // the worker stores and the targets' day statuses.
-import {
-  brokerCodesPath,
-  decodeBrokerCodesStatus,
-  type BrokerCodesStatus,
-  type WibDate,
-} from "@workspace/relay"
+import type { BrokerCodesStatus, Feed, WibDate } from "@workspace/relay"
 import { Effect, Option } from "effect"
 
+import { lockReasons, type AjaibLock } from "../worker/ajaib-lock.ts"
 import { holdsSame } from "../worker/broker-codes/extra-target.ts"
-import { fetchGet } from "../worker/broker-codes/status.ts"
 import type { HistoryPosition } from "../worker/broker-codes/history.ts"
+import type { BrokerCodesTarget } from "../worker/broker-codes/poster.ts"
 import type {
   BrokerCodesProgress,
   PauseCause,
 } from "../worker/broker-codes/run-queue.ts"
+import { fetchGet, statusOnce } from "../worker/broker-codes/status.ts"
 
-const count = (value: number) => value.toLocaleString("en")
+const count = (value: number) => Effect.sync(() => value.toLocaleString("en"))
 
-export const causeLabels: Record<PauseCause, string> = {
+const wibClock = (epochMs: number) =>
+  Effect.sync(() =>
+    new Date(epochMs).toLocaleTimeString("en-GB", {
+      timeZone: "Asia/Jakarta",
+      hour: "2-digit",
+      minute: "2-digit",
+    })
+  )
+
+const causeLabels: Record<PauseCause, string> = {
   "market-hours": "Market hours: walks resume at 16:35 WIB.",
   "no-tab": "No broker tab: open a signed-in Stockbit or Ajaib tab.",
   "no-token": "No Production ingest token.",
@@ -30,18 +36,69 @@ export const causeLabels: Record<PauseCause, string> = {
   "signed-out": "Stockbit signed out: sign in again in the Stockbit tab.",
 }
 
+// Why the walks wait: the queue's pause, the owner's switch while the
+// worker hasn't yet stopped, the Ajaib tab's lock, and each site's throttle
+// until it ends.
+export const causesView = Effect.fnUntraced(function* (stored: {
+  readonly progress: Option.Option<BrokerCodesProgress>
+  readonly paused: boolean
+  readonly lock: Option.Option<AjaibLock>
+  readonly throttled: ReadonlyArray<readonly [feed: Feed, until: number]>
+}) {
+  const cause = Option.flatMap(stored.progress, (progress) =>
+    progress.state === "paused" ? Option.some(progress.cause) : Option.none()
+  )
+  const causes = Option.toArray(Option.map(cause, (each) => causeLabels[each]))
+  if (stored.paused && !Option.contains(cause, "paused"))
+    causes.push(causeLabels.paused)
+  const lock = Option.getOrUndefined(stored.lock)
+  if (lock?.state === "locked")
+    causes.push(`Ajaib locked: ${lockReasons[lock.reason].fix}`)
+  for (const [feed, until] of stored.throttled)
+    causes.push(`${feed} throttled until ${yield* wibClock(until)} WIB.`)
+  return causes
+})
+
 // A day's status from a target, asked once; none when it gave none.
-export const dayStatus = Effect.fnUntraced(function* (
-  target: { readonly origin: string; readonly token: string },
-  day: WibDate
+export const dayStatus = (target: BrokerCodesTarget, day: WibDate) =>
+  statusOnce(fetchGet, target, day)
+
+const missingCount = (status: BrokerCodesStatus) =>
+  Effect.sync(() =>
+    status.missing.reduce(
+      (sum, [from, to]) => sum + Number(to) - Number(from) + 1,
+      0
+    )
+  )
+
+const heldLabel = Effect.fnUntraced(function* (status: BrokerCodesStatus) {
+  if (status.complete) return "Complete"
+  const missing = yield* missingCount(status)
+  return missing > 0 ? `${yield* count(missing)} missing` : "Incomplete"
+})
+
+const siteNames = {
+  both: "Ajaib and Stockbit",
+  ajaib: "Ajaib",
+  stockbit: "Stockbit",
+  none: "None",
+} as const
+
+const sitesLabel = Effect.fnUntraced(function* ({
+  ajaib,
+  stockbit,
+}: BrokerCodesStatus["sources"]) {
+  if (ajaib > 0) return stockbit > 0 ? siteNames.both : siteNames.ajaib
+  return stockbit > 0 ? siteNames.stockbit : siteNames.none
+})
+
+const crossCheckLabel = Effect.fnUntraced(function* (
+  crossCheck: BrokerCodesStatus["crossCheck"]
 ) {
-  const path = yield* brokerCodesPath(day)
-  const answer = yield* fetchGet({
-    url: `${target.origin}${path}`,
-    token: target.token,
-  })
-  if (answer.status !== 200) return Option.none<BrokerCodesStatus>()
-  return yield* Effect.option(decodeBrokerCodesStatus(answer.body))
+  if (crossCheck.state === "none") return "no cross-check"
+  if (crossCheck.state === "pending") return "checking"
+  if (crossCheck.differences === 0) return "matches"
+  return `${yield* count(crossCheck.differences)} differences`
 })
 
 // One of the last 10 days: complete or how many trades are missing, which
@@ -54,41 +111,14 @@ export const dayView = Effect.fnUntraced(function* (
   if (Option.isNone(production))
     return { held: "Unknown", sites: "", crossCheck: "", behind: false }
   const status = production.value
-  const missing = status.missing.reduce(
-    (sum, [from, to]) => sum + Number(to) - Number(from) + 1,
-    0
-  )
-  const { ajaib, stockbit } = status.sources
-  const sites =
-    ajaib > 0 && stockbit > 0
-      ? "Ajaib and Stockbit"
-      : ajaib > 0
-        ? "Ajaib"
-        : stockbit > 0
-          ? "Stockbit"
-          : "None"
-  const { crossCheck } = status
-  const checked =
-    crossCheck.state === "none"
-      ? "no cross-check"
-      : crossCheck.state === "pending"
-        ? "checking"
-        : crossCheck.differences === 0
-          ? "matches"
-          : `${count(crossCheck.differences)} differences`
-  const behind =
-    Option.isSome(extra) &&
-    !extra.value.complete &&
-    !(yield* holdsSame(status, extra.value))
   return {
-    held: status.complete
-      ? "Complete"
-      : missing > 0
-        ? `${count(missing)} missing`
-        : "Incomplete",
-    sites,
-    crossCheck: checked,
-    behind,
+    held: yield* heldLabel(status),
+    sites: yield* sitesLabel(status.sources),
+    crossCheck: yield* crossCheckLabel(status.crossCheck),
+    behind:
+      Option.isSome(extra) &&
+      !extra.value.complete &&
+      !(yield* holdsSame(status, extra.value)),
   }
 })
 
@@ -112,15 +142,15 @@ export const walkView = Effect.fnUntraced(function* (
   const { fetched, of, perSecond } = trades
   const left =
     of !== null && perSecond !== null && perSecond > 0
-      ? `${count(Math.max(1, Math.ceil((of - fetched) / perSecond / 60)))} min left`
+      ? `${yield* count(Math.max(1, Math.ceil((of - fetched) / perSecond / 60)))} min left`
       : ""
   return {
     walk,
     trades:
       of === null
-        ? `${count(fetched)} trades`
-        : `${count(fetched)} of ${count(of)} trades`,
-    pace: perSecond === null ? "" : `${count(perSecond)} trades/s`,
+        ? `${yield* count(fetched)} trades`
+        : `${yield* count(fetched)} of ${yield* count(of)} trades`,
+    pace: perSecond === null ? "" : `${yield* count(perSecond)} trades/s`,
     left,
   }
 })

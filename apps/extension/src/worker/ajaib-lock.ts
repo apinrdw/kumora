@@ -117,3 +117,24 @@ export const AjaibLock = Schema.Union([
   }),
 ])
 export type AjaibLock = typeof AjaibLock.Type
+
+// Each reason the tab stays locked: the badge's tooltip names its cause,
+// and the options page says what the owner can do. Both follow
+// "Ajaib locked: ".
+export const lockReasons: Record<
+  Extract<AjaibLock, { state: "locked" }>["reason"],
+  { readonly cause: string; readonly fix: string }
+> = {
+  "no-pin": {
+    cause: "no PIN entered",
+    fix: "enter the PIN below, or unlock the Ajaib tab.",
+  },
+  refused: {
+    cause: "the PIN was refused",
+    fix: "Ajaib refused the PIN. Enter it again.",
+  },
+  "not-typed": {
+    cause: "the PIN could not be typed",
+    fix: "the PIN could not be typed. Unlock the Ajaib tab.",
+  },
+}
