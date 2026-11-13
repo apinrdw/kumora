@@ -126,4 +126,27 @@ describe("a broker tab's page events", () => {
         ])
       })
   )
+
+  it.effect(
+    "a waiting tab that takes over reports the lock it already showed",
+    () =>
+      Effect.gen(function* () {
+        const events: Array<PageEvent> = []
+        const tab = yield* makeBrokerTab({
+          feed: "Ajaib",
+          sites: [ajaib, ...ajaibOnDemand],
+          batcher: yield* makeBatcher(),
+          publish: () => Effect.void,
+          hooks,
+          page: (pageEvent) => Effect.sync(() => events.push(pageEvent)),
+        })
+        const second = { ...port }
+        yield* tab.connect(port)
+        yield* tab.connect(second)
+        // The second tab's page reports its lock as its port connects.
+        yield* tab.message(second, { _tag: "lock", locked: true })
+        yield* tab.disconnect(port)
+        assert.deepStrictEqual(events.at(-1), { _tag: "lock", locked: true })
+      })
+  )
 })
