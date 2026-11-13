@@ -1,6 +1,6 @@
 import { assert, describe, it } from "@effect/vitest"
 import type { Feed } from "@workspace/relay"
-import { Clock, Effect, Fiber, Option, type Duration } from "effect"
+import { Clock, Deferred, Effect, Fiber, Option, type Duration } from "effect"
 import { TestClock } from "effect/testing"
 
 import type { Answer, TabRequest } from "../src/worker/broker.ts"
@@ -9,7 +9,10 @@ import { makePacer, type Priority } from "../src/worker/pacer.ts"
 const OK: Answer = { _tag: "answer", id: 0, status: 200, body: "{}" }
 
 // A broker site's tab: each REST call takes `takes`, answers what `answer`
-// gives for it, and is kept with the times it started and ended.
+// gives for it, and is kept with the times it started and ended. A call
+// still running when the tab goes answers none. `request` gives up on the
+// tab's answer after 15 seconds, as the real tab does; `awaitAnswer` waits
+// for it.
 const fakeSite = (
   options: {
     readonly takes?: Duration.Input
@@ -22,19 +25,38 @@ const fakeSite = (
     end?: number
   }
   const calls: Array<Call> = []
+  let gone = Deferred.makeUnsafe<void>()
+  const awaitAnswer = (request: TabRequest) =>
+    Effect.gen(function* () {
+      const call: Call = {
+        path: request._tag === "page-fetch" ? request.path : request._tag,
+        start: yield* Clock.currentTimeMillis,
+      }
+      calls.push(call)
+      const answered = yield* Effect.raceFirst(
+        Effect.as(
+          Effect.sleep(options.takes ?? "0 millis"),
+          Option.some(options.answer?.(request) ?? OK)
+        ),
+        Effect.as(Deferred.await(gone), Option.none<Answer>())
+      )
+      call.end = yield* Clock.currentTimeMillis
+      return answered
+    })
   return {
     calls,
+    awaitAnswer,
     request: (request: TabRequest) =>
-      Effect.gen(function* () {
-        const call: Call = {
-          path: request._tag === "page-fetch" ? request.path : request._tag,
-          start: yield* Clock.currentTimeMillis,
-        }
-        calls.push(call)
-        yield* Effect.sleep(options.takes ?? "0 millis")
-        call.end = yield* Clock.currentTimeMillis
-        return Option.some(options.answer?.(request) ?? OK)
-      }),
+      Effect.map(
+        Effect.timeoutOption(awaitAnswer(request), "15 seconds"),
+        Option.flatten
+      ),
+    // The tab goes: every call still running answers none.
+    detach: Effect.suspend(() => {
+      const was = gone
+      gone = Deferred.makeUnsafe<void>()
+      return Deferred.succeed(was, undefined)
+    }),
   }
 }
 
@@ -148,22 +170,72 @@ describe("the pacer", () => {
     })
   )
 
-  it.effect("frees Ajaib's slot when a call is given up", () =>
+  it.effect(
+    "keeps Ajaib's slot until the tab answers a call given up, and drops a waiting one",
+    () =>
+      Effect.gen(function* () {
+        const site = fakeSite({ takes: "2 seconds" })
+        const pacer = yield* harness("Ajaib", site)
+        const first = yield* pacer.submit("walk", "w0")
+        const second = yield* pacer.submit("walk", "w1")
+        yield* pacer.submit("walk", "w2")
+        yield* TestClock.adjust("500 millis")
+        yield* Fiber.interrupt(second)
+        yield* Fiber.interrupt(first)
+        yield* TestClock.adjust("2 seconds")
+        assert.deepStrictEqual(
+          site.calls.map((call) => [call.path, call.start, call.end]),
+          [
+            ["w0", 0, 2000],
+            ["w2", 2000, undefined],
+          ]
+        )
+        yield* pacer.stop
+      })
+  )
+
+  it.effect(
+    "keeps Ajaib's slot past the caller's 15 seconds until the tab answers",
+    () =>
+      Effect.gen(function* () {
+        const site = fakeSite({ takes: "20 seconds" })
+        const pacer = yield* harness("Ajaib", site)
+        const first = yield* pacer.submit("walk", "w0")
+        yield* pacer.submit("walk", "w1")
+        yield* TestClock.adjust("16 seconds")
+        assert.deepStrictEqual(yield* Fiber.join(first), Option.none())
+        assert.deepStrictEqual(
+          site.calls.map((call) => call.path),
+          ["w0"]
+        )
+        yield* TestClock.adjust("5 seconds")
+        assert.deepStrictEqual(
+          site.calls.map((call) => [call.path, call.start]),
+          [
+            ["w0", 0],
+            ["w1", 20_000],
+          ]
+        )
+        yield* pacer.stop
+      })
+  )
+
+  it.effect("frees Ajaib's slot when the tab goes", () =>
     Effect.gen(function* () {
-      const site = fakeSite({ takes: "2 seconds" })
+      const site = fakeSite({ takes: "10 minutes" })
       const pacer = yield* harness("Ajaib", site)
       const first = yield* pacer.submit("walk", "w0")
-      const second = yield* pacer.submit("walk", "w1")
-      yield* pacer.submit("walk", "w2")
-      yield* TestClock.adjust("500 millis")
-      yield* Fiber.interrupt(second)
+      yield* pacer.submit("walk", "w1")
+      yield* TestClock.adjust("1 second")
       yield* Fiber.interrupt(first)
+      yield* TestClock.adjust("30 seconds")
+      yield* site.detach
       yield* TestClock.adjust("1 second")
       assert.deepStrictEqual(
-        site.calls.map((call) => [call.path, call.start]),
+        site.calls.map((call) => [call.path, call.start, call.end]),
         [
-          ["w0", 0],
-          ["w2", 500],
+          ["w0", 0, 31_000],
+          ["w1", 31_000, undefined],
         ]
       )
       yield* pacer.stop
