@@ -421,7 +421,7 @@ describe("Ajaib's walk: stopping and carrying on", () => {
     })
   )
 
-  it.effect("stops in place at 08:40, when the Streaming window opens", () =>
+  it.effect("stops in place at 08:40, when Streaming hours start", () =>
     Effect.gen(function* () {
       yield* TestClock.setTime(wib("2026-11-12", "17:30:00"))
       const production = fakeProduction()
@@ -439,11 +439,11 @@ describe("Ajaib's walk: stopping and carrying on", () => {
       const fiber = yield* Effect.forkChild(walk.walk(DAY))
       yield* settle(tab, 50)
       // The tab gave no answer, so the walk asks again in 10 s, and finds
-      // the Streaming window open.
+      // Streaming hours started.
       yield* TestClock.adjust("10 seconds")
       assert.deepStrictEqual(yield* Fiber.join(fiber), {
         _tag: "stopped",
-        cause: "streaming-window",
+        cause: "streaming-hours",
       })
       assert.lengthOf(tab.paths, 50)
       assert.deepStrictEqual(production.ends(), [])

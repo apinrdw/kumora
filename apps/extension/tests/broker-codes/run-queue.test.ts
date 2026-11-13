@@ -220,7 +220,7 @@ describe("the broker codes run queue", () => {
       Effect.gen(function* () {
         yield* TestClock.setTime(wib("2026-11-12", "16:00:00"))
         const queue = yield* harness((walked) => [fakeWalk("Ajaib", walked)])
-        // The Streaming window: nothing runs.
+        // Streaming hours: nothing runs.
         yield* queue.tick
         assert.deepStrictEqual(queue.walked, [])
         yield* TestClock.setTime(wib("2026-11-12", "16:35:00"))
@@ -283,7 +283,7 @@ describe("the broker codes run queue", () => {
         yield* TestClock.setTime(wib("2026-11-12", "17:00:00"))
         const queue = yield* harness((walked) => [
           fakeWalk("Ajaib", walked, () =>
-            Effect.succeed({ _tag: "stopped", cause: "streaming-window" })
+            Effect.succeed({ _tag: "stopped", cause: "streaming-hours" })
           ),
           fakeWalk("Stockbit", walked),
         ])
@@ -291,7 +291,7 @@ describe("the broker codes run queue", () => {
         assert.deepStrictEqual(queue.walked, ["Ajaib 2026-11-12"])
         assert.deepStrictEqual(queue.progress.at(-1), {
           state: "paused",
-          cause: "streaming-window",
+          cause: "streaming-hours",
         })
         yield* TestClock.setTime(wib("2026-11-13", "08:40:00"))
         yield* queue.tick
@@ -706,7 +706,7 @@ describe("the broker codes run queue: the History walk", () => {
             history: unpositioned(),
             historyWalk: (day) =>
               day === "2026-11-05" && stops-- > 0
-                ? Effect.succeed({ _tag: "stopped", cause: "streaming-window" })
+                ? Effect.succeed({ _tag: "stopped", cause: "streaming-hours" })
                 : tape(["2026-11-11", "2026-11-10"])(day),
           }
         )
@@ -726,7 +726,7 @@ describe("the broker codes run queue: the History walk", () => {
             day: WibDate.make("2026-11-05"),
             feed: "Stockbit",
           },
-          { state: "paused", cause: "streaming-window" },
+          { state: "paused", cause: "streaming-hours" },
         ])
         assert.deepStrictEqual(
           queue.history.position(),
@@ -736,7 +736,7 @@ describe("the broker codes run queue: the History walk", () => {
             ended: false,
           })
         )
-        // The Streaming window: nothing runs.
+        // Streaming hours: nothing runs.
         yield* TestClock.setTime(wib("2026-11-13", "09:00:00"))
         yield* queue.trigger
         assert.lengthOf(queue.walked, 6)

@@ -5,19 +5,19 @@ import { Feed, WibDate } from "@workspace/relay"
 import { Data, DateTime, Effect, Option, Queue, Schema } from "effect"
 
 import {
-  inStreamingWindow,
+  inStreamingHours,
   newestClosedDay,
   tradingDaysBetween,
 } from "./hours.ts"
 import type { PostOutcome } from "./poster.ts"
 
-// Why walks stopped in place until something changes: the Streaming window,
+// Why walks stopped in place until something changes: Streaming hours,
 // no broker tab of the walk's site, the Production target refused the batches
 // (no token, a rejected token, a version the dashboard no longer takes),
 // the owner's Pause, or Stockbit's tab signed out, which its walk waits on
 // in place (progress.ts).
 const PauseCause = Schema.Literals([
-  "streaming-window",
+  "streaming-hours",
   "no-tab",
   "no-token",
   "rejected-token",
@@ -206,10 +206,10 @@ export const makeRunQueue = Effect.fnUntraced(function* (options: {
 
   const runOnce = Effect.gen(function* () {
     const now = yield* DateTime.now
-    if (yield* inStreamingWindow(now))
+    if (yield* inStreamingHours(now))
       return yield* options.report({
         state: "paused",
-        cause: "streaming-window",
+        cause: "streaming-hours",
       })
     const day = yield* newestClosedDay(now)
     if (Option.isNone(day)) return yield* options.report({ state: "idle" })

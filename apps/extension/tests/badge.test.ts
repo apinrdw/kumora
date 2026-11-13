@@ -62,7 +62,7 @@ describe("the toolbar badge", () => {
   )
 
   it.effect(
-    "shows nothing for progress, the Streaming window, an owner pause or the lock being typed",
+    "shows nothing for progress, Streaming hours, an owner pause or the lock being typed",
     () =>
       Effect.gen(function* () {
         const quiet: ReadonlyArray<[AjaibLock, BrokerCodesProgress]> = [
@@ -76,7 +76,7 @@ describe("the toolbar badge", () => {
               trades: { fetched: 10, of: 100, perSecond: 300 },
             },
           ],
-          [UNLOCKED, { state: "paused", cause: "streaming-window" }],
+          [UNLOCKED, { state: "paused", cause: "streaming-hours" }],
           [UNLOCKED, { state: "paused", cause: "paused" }],
           [UNLOCKED, { state: "paused", cause: "no-tab" }],
           [{ state: "unlocking" }, IDLE],

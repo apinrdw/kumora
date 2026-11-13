@@ -26,7 +26,7 @@ const severity: ReadonlyArray<TargetState> = [
 
 // Decision: a target state with a badge of its own shows first; only when
 // none does, `PIN` (the Ajaib tab locked) and then `OUT` (the Stockbit tab
-// signed out). Progress, throttling, the Streaming window and the owner's pause
+// signed out). Progress, throttling, Streaming hours and the owner's pause
 // never show, since nothing waits on the owner. See apinrdw/kumora#244,
 // "The badge".
 export const badgeOf = Effect.fnUntraced(function* (stored: {

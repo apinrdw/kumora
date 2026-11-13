@@ -10,11 +10,11 @@ import {
 } from "@workspace/relay"
 import { DateTime, Effect, Option } from "effect"
 
-// Decision: walks run only outside the Streaming window (schedule.ts in
+// Decision: walks run only outside Streaming hours (schedule.ts in
 // @workspace/relay), so the live relay keeps the tab and the account's
 // calls (apinrdw/kumora#196). A year missing from the schedule reads as
 // outside it, as the relay's own window does (gate.ts).
-export const inStreamingWindow = Effect.fnUntraced(function* (
+export const inStreamingHours = Effect.fnUntraced(function* (
   instant: DateTime.DateTime
 ) {
   return yield* marketMomentAt(instant).pipe(
@@ -23,7 +23,7 @@ export const inStreamingWindow = Effect.fnUntraced(function* (
   )
 })
 
-// Whether `instant` is past `date`'s Streaming window: its day closed.
+// Whether `instant` is past `date`'s Streaming hours: its day closed.
 const closedOn = Effect.fnUntraced(function* (
   instant: DateTime.DateTime,
   date: WibDate
@@ -49,11 +49,11 @@ export const weekdayBefore = Effect.fnUntraced(function* (date: WibDate) {
 })
 
 // The trading day the run queue works on at `instant`: today from 16:35 on a
-// trading day, else the latest trading day before. None in the Streaming
-// window or past the baked schedule.
+// trading day, else the latest trading day before. None in Streaming
+// hours or past the baked schedule.
 export const newestClosedDay = Effect.fnUntraced(
   function* (instant: DateTime.DateTime) {
-    if (yield* inStreamingWindow(instant)) return Option.none<WibDate>()
+    if (yield* inStreamingHours(instant)) return Option.none<WibDate>()
     const today = yield* wibDateAt(instant)
     if ((yield* isTradingDay(today)) && (yield* closedOn(instant, today)))
       return Option.some(today)
@@ -68,8 +68,8 @@ export const newestClosedDay = Effect.fnUntraced(
   )
 )
 
-// The last `count` trading days closed at `instant`, newest first, in the
-// Streaming window or not: the options page's list of days. Empty past the
+// The last `count` trading days closed at `instant`, newest first, in
+// Streaming hours or not: the options page's list of days. Empty past the
 // baked schedule.
 export const recentClosedDays = Effect.fnUntraced(
   function* (instant: DateTime.DateTime, count: number) {

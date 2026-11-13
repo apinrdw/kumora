@@ -703,7 +703,7 @@ describe("Stockbit's walk: stopping and carrying on", () => {
       const walk = yield* walkWith(tape, production)
       assert.deepStrictEqual(yield* walk.walk(DAY), {
         _tag: "stopped",
-        cause: "streaming-window",
+        cause: "streaming-hours",
       })
       assert.lengthOf(tape.urls, 15)
       assert.deepStrictEqual(

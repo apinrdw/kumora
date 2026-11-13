@@ -23,7 +23,7 @@ import {
   RUNNING_TRADE_URL,
   stockbitCredential,
 } from "../stockbit.ts"
-import { inStreamingWindow } from "./hours.ts"
+import { inStreamingHours } from "./hours.ts"
 import type { PostOutcome } from "./poster.ts"
 import { halt, haltOnRefusal, settle, type WalkResult } from "./run-queue.ts"
 import type { StatusOutcome } from "./status.ts"
@@ -181,8 +181,8 @@ export const makeStockbitWalk = Effect.fnUntraced(function* (options: {
   let dayN = Option.none<number>()
 
   const guard = Effect.gen(function* () {
-    if (yield* inStreamingWindow(yield* DateTime.now))
-      return yield* halt({ _tag: "stopped", cause: "streaming-window" })
+    if (yield* inStreamingHours(yield* DateTime.now))
+      return yield* halt({ _tag: "stopped", cause: "streaming-hours" })
   })
 
   // The credential cookie's value; a tab that doesn't answer stops the walk

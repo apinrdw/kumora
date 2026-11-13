@@ -26,8 +26,8 @@ const wibClock = (epochMs: number) =>
   )
 
 const causeLabels: Record<PauseCause, string> = {
-  "streaming-window":
-    "Streaming window: walks resume when the live relay stops at 16:35 WIB.",
+  "streaming-hours":
+    "Streaming hours: walks resume when the live relay stops at 16:35 WIB.",
   "no-tab": "No broker tab: open a signed-in Stockbit or Ajaib tab.",
   "no-token": "No Production ingest token.",
   "rejected-token": "Production rejected the ingest token. Fix it and save.",

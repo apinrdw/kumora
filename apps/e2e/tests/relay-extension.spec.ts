@@ -435,12 +435,12 @@ test("the options page shows the broker codes walks, and Pause and Run now steer
       .toBe("PIN")
 
     // Resume runs the queue again: with no broker tab, it stops on that, or
-    // on the Streaming window.
+    // on Streaming hours.
     await options.getByRole("button", { name: "Resume" }).click()
     await expect
       .poll(() => stored(worker, "local", "brokerCodesPaused"))
       .toBe(false)
-    await expect(causes).toContainText(/No broker tab|Streaming window/)
+    await expect(causes).toContainText(/No broker tab|Streaming hours/)
     await expect(causes).not.toContainText("Paused by the owner.")
 
     // Run now asks the worker through session storage, and it answers.
