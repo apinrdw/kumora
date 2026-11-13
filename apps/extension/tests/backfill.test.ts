@@ -89,9 +89,16 @@ const harness = Effect.fnUntraced(function* (tabs: {
 }) {
   yield* TestClock.setTime(NEXT_TIME + 5_000)
   const published: Array<IngestUp> = []
-  // Each site's calls go through its pacer, as in the service worker.
-  const stockbit = yield* makePacer({ feed: "Stockbit", tab: tabs.stockbit })
-  const ajaib = yield* makePacer({ feed: "Ajaib", tab: tabs.ajaib })
+  // Each site's calls go through its pacer, as in the service worker. The
+  // fake tabs answer every call at once.
+  const stockbit = yield* makePacer({
+    feed: "Stockbit",
+    tab: { ...tabs.stockbit, awaitAnswer: tabs.stockbit.request },
+  })
+  const ajaib = yield* makePacer({
+    feed: "Ajaib",
+    tab: { ...tabs.ajaib, awaitAnswer: tabs.ajaib.request },
+  })
   const backfill = yield* makeBackfill({
     stockbit: stockbit.tab("backfill"),
     ajaib: ajaib.tab("backfill"),

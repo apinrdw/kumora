@@ -3,13 +3,23 @@
 // a site goes through it: Market Live's backfill first, broker codes walks
 // with what is left.
 import type { Feed } from "@workspace/relay"
-import { Clock, Deferred, Effect, Option, Queue } from "effect"
+import { Clock, Deferred, Effect, Fiber, Option, Queue } from "effect"
 
 import type { Answer, TabRequest } from "./broker.ts"
+import { REQUEST_TIMEOUT } from "./tab.ts"
 
-// What the pacer needs of a broker tab, and what it hands its callers.
+// What the pacer hands its callers: a call answered, or none when the tab
+// goes or doesn't answer in time.
 export interface RequestingTab {
   readonly request: (
+    request: TabRequest
+  ) => Effect.Effect<Option.Option<Answer>>
+}
+
+// What the pacer needs of a broker tab: also a call waited for until the tab
+// answers or goes.
+interface AnsweringTab extends RequestingTab {
+  readonly awaitAnswer: (
     request: TabRequest
   ) => Effect.Effect<Option.Option<Answer>>
 }
@@ -71,16 +81,18 @@ const IN_FLIGHT: Readonly<Record<Feed, number>> = {
 
 export const makePacer = Effect.fnUntraced(function* (options: {
   readonly feed: Feed
-  readonly tab: RequestingTab
+  readonly tab: AnsweringTab
   // A throttle stopped the site until `until` (epoch ms), for the options
   // page.
   readonly throttled?: (until: number) => Effect.Effect<void>
 }) {
   const maxInFlight = IN_FLIGHT[options.feed]
-  // A call waiting for its turn, and whether the dispatcher started it.
+  // A call waiting for its turn, whether the dispatcher started it, and
+  // whether its fetch holds the slot.
   interface Turn {
     readonly start: Deferred.Deferred<void>
     started: boolean
+    handedOff: boolean
   }
   const waiting: Record<Priority, Array<Turn>> = { backfill: [], walk: [] }
   let inFlight = 0
@@ -89,9 +101,13 @@ export const makePacer = Effect.fnUntraced(function* (options: {
   // Wakes the dispatcher: a call arrived or one ended.
   const wakes = yield* Queue.sliding<void>(1)
   const wake = Queue.offer(wakes, undefined)
+  const free = Effect.suspend(() => {
+    inFlight--
+    return wake
+  })
 
   const noteThrottle = Effect.fnUntraced(function* (request: TabRequest) {
-    const answer = yield* options.tab.request(request)
+    const answer = yield* options.tab.awaitAnswer(request)
     if (Option.isSome(answer) && (yield* isThrottle(answer.value))) {
       throttledAt = yield* Clock.currentTimeMillis
       yield* Effect.logWarning(
@@ -103,28 +119,48 @@ export const makePacer = Effect.fnUntraced(function* (options: {
     return answer
   })
 
-  // One paced REST call: it waits for its turn, then runs on the tab.
-  // An interrupted call leaves the queue, or frees its slot if it started.
+  // One paced REST call: it waits for its turn, then runs on the tab. An
+  // interrupted call leaves the queue, or frees its slot if it started.
+  // Decision: a started call's fetch holds its slot until the tab answers or
+  // goes, even once its caller is interrupted or gives up after
+  // REQUEST_TIMEOUT: the content script's fetch can't be cancelled, and
+  // Ajaib allows one in flight. The tab going answers every call.
   const paced = Effect.fnUntraced(function* (
     priority: Priority,
     request: TabRequest
   ) {
-    const turn: Turn = { start: yield* Deferred.make<void>(), started: false }
-    return yield* Effect.ensuring(
+    const turn: Turn = {
+      start: yield* Deferred.make<void>(),
+      started: false,
+      handedOff: false,
+    }
+    const fetch = yield* Effect.ensuring(
       Effect.gen(function* () {
         waiting[priority].push(turn)
         yield* wake
         yield* Deferred.await(turn.start)
-        return yield* noteThrottle(request)
+        return yield* Effect.uninterruptible(
+          Effect.tap(
+            Effect.forkDetach(Effect.ensuring(noteThrottle(request), free), {
+              startImmediately: true,
+            }),
+            () =>
+              Effect.sync(() => {
+                turn.handedOff = true
+              })
+          )
+        )
       }),
       Effect.suspend(() => {
-        if (turn.started) inFlight--
-        else {
-          const at = waiting[priority].indexOf(turn)
-          if (at !== -1) waiting[priority].splice(at, 1)
-        }
+        if (turn.handedOff) return Effect.void
+        if (turn.started) return free
+        const at = waiting[priority].indexOf(turn)
+        if (at !== -1) waiting[priority].splice(at, 1)
         return wake
       })
+    )
+    return Option.flatten(
+      yield* Effect.timeoutOption(Fiber.join(fetch), REQUEST_TIMEOUT)
     )
   })
 

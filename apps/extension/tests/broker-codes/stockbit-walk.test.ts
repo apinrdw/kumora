@@ -399,7 +399,10 @@ describe("Stockbit's full walk of a day", () => {
       yield* TestClock.setTime(wib("2026-11-12", "17:30:00"))
       const production = fakeProduction()
       const tape = fakeStockbit({ n: 1_000 })
-      const pacer = yield* makePacer({ feed: "Stockbit", tab: tape })
+      const pacer = yield* makePacer({
+        feed: "Stockbit",
+        tab: { ...tape, awaitAnswer: tape.request },
+      })
       yield* Effect.forkChild(pacer.run)
       const walk = yield* makeStockbitWalk({
         tab: { ...pacer.tab("walk"), attached: tape.attached },

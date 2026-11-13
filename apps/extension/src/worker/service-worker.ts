@@ -45,7 +45,7 @@ import {
   stockbitCatchUp,
 } from "./broker-codes/stockbit-walk.ts"
 import { BATCH_INTERVAL, makeBatcher } from "./batch.ts"
-import { ajaib, ajaibOnDemand, stockbit } from "./broker.ts"
+import { ajaib, ajaibOnDemand, stockbit, type TabRequest } from "./broker.ts"
 import { makeCodeList } from "./code-list.ts"
 import { windowAt } from "./gate.ts"
 import { makeOnDemandCodes } from "./on-demand-codes.ts"
@@ -335,18 +335,17 @@ const main = Effect.gen(function* () {
   yield* Effect.forkScoped(ajaibLock.keepAlive)
   // The Ajaib tab's REST calls, with the PIN sign-in's token for the page's
   // API before the page made a call of its own.
+  const withToken = (request: TabRequest) =>
+    request._tag === "page-fetch"
+      ? Effect.map(ajaibSession.fallbackToken, (token) =>
+          Option.isSome(token) ? { ...request, token: token.value } : request
+        )
+      : Effect.succeed(request)
   const ajaibRest: BrokerTab = {
     ...ajaibTab,
-    request: (request) =>
-      request._tag === "page-fetch"
-        ? Effect.flatMap(ajaibSession.fallbackToken, (token) =>
-            ajaibTab.request(
-              Option.isSome(token)
-                ? { ...request, token: token.value }
-                : request
-            )
-          )
-        : ajaibTab.request(request),
+    request: (request) => Effect.flatMap(withToken(request), ajaibTab.request),
+    awaitAnswer: (request) =>
+      Effect.flatMap(withToken(request), ajaibTab.awaitAnswer),
   }
   // Every REST call on a site goes through the site's pacer.
   const stockbitPacer = yield* makePacer({

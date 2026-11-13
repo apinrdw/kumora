@@ -23,6 +23,7 @@ const openTab = () => {
     disconnect: () => Effect.void,
     tick: () => Effect.void,
     request: () => Effect.succeed(Option.none()),
+    awaitAnswer: () => Effect.succeed(Option.none()),
     send: (site, connection, payload) =>
       Effect.sync(() => void sent.push({ site, connection, payload })),
     drop: () => Effect.void,

@@ -32,7 +32,9 @@ const decodeAnswer = Schema.decodeUnknownOption(Answer)
 const decodePageEvent = Schema.decodeUnknownOption(PageEvent)
 const decodeFeed = Schema.decodeUnknownOption(Feed)
 
-const REQUEST_TIMEOUT = "15 seconds"
+// How long a caller waits for the tab's answer. The pacer (pacer.ts) gives
+// a caller up after it too, while the call keeps its slot.
+export const REQUEST_TIMEOUT = "15 seconds"
 
 const connections: ReadonlyArray<Connection> = ["A", "B"]
 
@@ -196,21 +198,29 @@ export const makeBrokerTab = Effect.fnUntraced(function* (options: {
     yield* page({ _tag: "lock", locked })
   })
 
-  // A request made from the tab's origin; none when the tab goes or doesn't
-  // answer in time.
-  const request = Effect.fnUntraced(function* (tabRequest: TabRequest) {
+  // A request made from the tab's origin, waited for until the tab answers;
+  // none when the tab goes.
+  const awaitAnswer = Effect.fnUntraced(function* (tabRequest: TabRequest) {
     if (active === undefined) return Option.none<Answer>()
     const id = nextId++
     const deferred = yield* Deferred.make<Answer>()
     pending.set(id, deferred)
-    yield* post({ _tag: "request", id, request: tabRequest })
-    const answer = yield* Effect.timeoutOption(
-      Deferred.await(deferred),
-      REQUEST_TIMEOUT
+    return yield* Effect.ensuring(
+      Effect.gen(function* () {
+        yield* post({ _tag: "request", id, request: tabRequest })
+        const answer = yield* Deferred.await(deferred)
+        return answer.status === 0 ? Option.none<Answer>() : Option.some(answer)
+      }),
+      Effect.sync(() => pending.delete(id))
     )
-    pending.delete(id)
-    return Option.filter(answer, (received) => received.status !== 0)
   })
+
+  // The same, none too when the tab doesn't answer in time.
+  const request = (tabRequest: TabRequest) =>
+    Effect.map(
+      Effect.timeoutOption(awaitAnswer(tabRequest), REQUEST_TIMEOUT),
+      Option.flatten
+    )
 
   const send = (site: SiteName, connection: Connection, payload: Payload) =>
     post({ _tag: "send", site, connection, payload })
@@ -233,6 +243,7 @@ export const makeBrokerTab = Effect.fnUntraced(function* (options: {
     disconnect,
     tick: (window: Window) => driveAll({ _tag: "tick", window }),
     request,
+    awaitAnswer,
     send,
     drop,
     isOpen,
@@ -250,6 +261,9 @@ export interface BrokerTab {
   readonly disconnect: (port: chrome.runtime.Port) => Effect.Effect<void>
   readonly tick: (window: Window) => Effect.Effect<void>
   readonly request: (
+    request: TabRequest
+  ) => Effect.Effect<Option.Option<Answer>>
+  readonly awaitAnswer: (
     request: TabRequest
   ) => Effect.Effect<Option.Option<Answer>>
   readonly send: (
