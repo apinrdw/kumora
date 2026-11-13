@@ -11,13 +11,11 @@ import { checkedBatch, noStoreAnswer } from "./broker-codes.ts"
 import { ingestTokenMatches } from "./ingest-token.ts"
 import { ObjectPath } from "./routes.ts"
 
-// Decision: every answer, a 401, 426 or 400 included, allows any origin, and
-// a preflight is answered before the token check. The extension's manifest
-// grants only Production's host, so an extra target (Staging, a Preview or a
-// Dev stage) is reached cross-origin, and the extension must read the status
-// to tell a rejected token from a network failure. Any origin is safe: the
-// ingest token is a bearer header, never a cookie, so a page can't borrow
-// the owner's credentials. See apinrdw/kumora#244, "The extension: targets".
+// Decision: every answer (401, 426 and 400 too) allows any origin, and a
+// preflight is answered before the token check: the manifest grants only
+// Production's host, so the extension reaches an extra target cross-origin.
+// Safe since the token is a bearer header, never a cookie. See
+// apinrdw/kumora#244, "The extension: targets".
 const CORS = {
   "Access-Control-Allow-Origin": "*",
   "Access-Control-Allow-Headers": "authorization, content-type",
