@@ -21,7 +21,7 @@ A dashboard the relay sends envelopes to over its own ingest socket: always Prod
 _Avoid_: destination, stage (a target names a Stage's dashboard, not the Stage)
 
 **Target state**:
-What a target's ingest socket is doing: off (no token), connecting, connected, retrying, token rejected (`4403`) or reload extension (`4426`). The last two stop retrying until the target's settings change.
+What a target's ingest socket is doing: off (no token), connecting, connected, retrying, token rejected (`4403`) or reload extension (`4426`). The last two stop retrying until the target's settings change. A broker codes POST or status GET refused with a 401 or 426 puts the target in the same two states. On the extra target, a broker codes request that fails for any other reason shows retrying.
 _Avoid_: status
 
 **On-demand codes**:
