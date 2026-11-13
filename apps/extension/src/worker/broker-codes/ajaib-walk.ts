@@ -96,11 +96,17 @@ interface PageRow {
   readonly codes: Option.Option<TradeCodes>
 }
 
+interface TapeAnswer {
+  // How many rows the page answered, valid or not, which paging counts.
+  readonly size: number
+  readonly rows: ReadonlyArray<PageRow>
+}
+
 // A page's rows that carry a trade number and a time; a row without either
 // is skipped, so its trade counts as missing.
 const pageRows = Effect.fnUntraced(function* (answer: Answer) {
   const page = decodePage(answer.body)
-  if (Option.isNone(page)) return Option.none<ReadonlyArray<PageRow>>()
+  if (Option.isNone(page)) return Option.none<TapeAnswer>()
   const rows: Array<PageRow> = []
   for (const raw of page.value.results) {
     const row = decodeRow(raw)
@@ -112,7 +118,7 @@ const pageRows = Effect.fnUntraced(function* (answer: Answer) {
       codes: yield* ajaibRowCodes(raw),
     })
   }
-  return Option.some<ReadonlyArray<PageRow>>(rows)
+  return Option.some<TapeAnswer>({ size: page.value.results.length, rows })
 })
 
 export const makeAjaibWalk = Effect.fnUntraced(function* (options: {
@@ -220,7 +226,10 @@ export const makeAjaibWalk = Effect.fnUntraced(function* (options: {
     const head = yield* startCall(yield* tapePath(now, 1, HEAD_PAGE_SIZE))
     const page =
       head.status === 200 ? yield* pageRows(head) : Option.none<never>()
-    const rows = Option.getOrElse(page, (): ReadonlyArray<PageRow> => [])
+    const rows = Option.match(page, {
+      onNone: (): ReadonlyArray<PageRow> => [],
+      onSome: (answer) => answer.rows,
+    })
     const newest = rows[0]
     if (newest === undefined) return Option.none<TradeNumber>()
     // Decision: the tape's newest row on another date means it moved on
@@ -263,7 +272,7 @@ export const makeAjaibWalk = Effect.fnUntraced(function* (options: {
   ) {
     const from = boundary - BLOCK
     for (let page = 1; ; page++) {
-      const rows = yield* tapePage(
+      const { size: answered, rows } = yield* tapePage(
         windowEnd,
         yield* tapePath(boundary, page, size)
       )
@@ -282,7 +291,7 @@ export const makeAjaibWalk = Effect.fnUntraced(function* (options: {
         yield* trades(fetched, dayN)
       }
       const older = rows.some((row) => row.timestamp < from)
-      if (rows.length < size || older || page >= MAX_PAGES) return page
+      if (answered < size || older || page >= MAX_PAGES) return page
     }
   })
 
