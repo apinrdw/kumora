@@ -1,6 +1,6 @@
 // Production's broker codes poster and status reader (spec
 // apinrdw/kumora#244, "The extension: targets").
-import type { BrokerCodesBatch, WibDate } from "@workspace/relay"
+import type { BrokerCodesBatch, TradeNumber, WibDate } from "@workspace/relay"
 import type { Option } from "effect"
 import { Effect } from "effect"
 
@@ -37,6 +37,7 @@ export const makeProductionTarget = Effect.fnUntraced(function* (options: {
       : Effect.void
   return {
     post: (batch: BrokerCodesBatch) => Effect.tap(poster.post(batch), stopOn),
-    status: (day: WibDate) => Effect.tap(reader.status(day), stopOn),
+    status: (day: WibDate, after?: TradeNumber) =>
+      Effect.tap(reader.status(day, after), stopOn),
   }
 })
