@@ -192,19 +192,18 @@ export const noStoreAnswer = (
       })
   )
 
-// A POSTed batch of `day` handed to `accept`, or the answer that refuses it:
-// 426 for another version, 400 for one that doesn't decode or names another
-// day. The route checks a batch before it reaches the object, and the object
-// again, since it takes its own input.
-export const acceptBatch = <E, R>(
+// A POSTed batch of `day`, or the answer that refuses it: 426 for another
+// version, 400 for one that doesn't decode or names another day. The route
+// checks a batch before it reaches the object, and the object again, since
+// it takes its own input.
+export const checkedBatch = (
   text: string,
-  day: WibDate,
-  accept: (batch: BrokerCodesBatch) => Effect.Effect<Response, E, R>
-) =>
+  day: WibDate
+): Effect.Effect<BrokerCodesBatch | Response> =>
   decodeBrokerCodesBatch(text).pipe(
-    Effect.flatMap((batch) =>
+    Effect.flatMap((batch): Effect.Effect<BrokerCodesBatch | Response> =>
       batch.day === day
-        ? accept(batch)
+        ? Effect.succeed(batch)
         : noStoreAnswer(400, "Batch of another day")
     ),
     Effect.catchTags({
@@ -406,11 +405,14 @@ export const makeBrokerCodes = Effect.fnUntraced(function* (options: {
     return day
   })
 
-  // A POSTed batch: 200 once it is written, else as `acceptBatch` refuses it.
-  const post = (text: string) =>
-    acceptBatch(text, options.date, (batch) =>
-      Effect.andThen(write(batch), noStoreAnswer(200))
-    )
+  // A POSTed batch: 200 once it is written, else as `checkedBatch` refuses
+  // it.
+  const post = Effect.fnUntraced(function* (text: string) {
+    const batch = yield* checkedBatch(text, options.date)
+    if (batch instanceof Response) return batch
+    yield* write(batch)
+    return yield* noStoreAnswer(200)
+  })
 
   const statusAnswer = Effect.gen(function* () {
     return yield* noStoreAnswer(

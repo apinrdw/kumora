@@ -7,7 +7,7 @@ import { BROKER_CODES_BATCH_LIMIT, type WibDate } from "@workspace/relay"
 import { WorkerEnv } from "@workspace/server"
 import { Effect, Option, Schema } from "effect"
 
-import { acceptBatch, noStoreAnswer } from "./broker-codes.ts"
+import { checkedBatch, noStoreAnswer } from "./broker-codes.ts"
 import { ingestTokenMatches } from "./ingest-token.ts"
 import { ObjectPath } from "./routes.ts"
 
@@ -97,9 +97,9 @@ const toTradingDay = Effect.fnUntraced(function* (
 const post = Effect.fnUntraced(
   function* (request: Request, day: WibDate) {
     const text = yield* boundedText(request)
-    return yield* acceptBatch(text, day, () =>
-      toTradingDay(day, { method: "POST", body: text })
-    )
+    const batch = yield* checkedBatch(text, day)
+    if (batch instanceof Response) return batch
+    return yield* toTradingDay(day, { method: "POST", body: text })
   },
   Effect.catchTag("BodyTooLong", () => noStoreAnswer(413, "Batch too long"))
 )
