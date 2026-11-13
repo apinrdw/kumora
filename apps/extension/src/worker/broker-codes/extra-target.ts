@@ -24,9 +24,10 @@ import { askStatus, statusOnce, type Get } from "./status.ts"
 import type { TargetHold } from "./target-hold.ts"
 
 // Decision: the batches handed to the extra target wait in a lane of 16
-// (~80,000 trades at Ajaib's 5,000 a batch); past that a batch is dropped,
-// and the catch-up sends it later. A lane that kept every batch of an
-// unreachable target would hold a whole day's codes. See apinrdw/kumora#250.
+// (~80,000 trades at Ajaib's 5,000 a batch). A batch past that is dropped,
+// as is one being sent when the settings change; the catch-up sends what
+// either left out. A lane that kept every batch of an unreachable target
+// would hold a whole day's codes. See apinrdw/kumora#250.
 const LANE = 16
 
 // Whether the target lacks a trade, from a status that lists from trade 1:

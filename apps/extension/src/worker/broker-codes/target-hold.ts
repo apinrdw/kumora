@@ -70,7 +70,7 @@ export const makeTargetHold = Effect.fnUntraced(function* (
     // status read, a checkpoint load or save) captures the held settings as
     // it starts and asks `haltOf` before each step, each retry included: on
     // other settings, or on a refusal, it stops and its result is dropped.
-    // See apinrdw/kumora#244, "Retries".
+    // See apinrdw/kumora#255.
     haltOf: (target: BrokerCodesTarget) =>
       Effect.flatMap(holds(target), (own) =>
         own
