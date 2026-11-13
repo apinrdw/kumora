@@ -581,6 +581,39 @@ describe("the extra target", () => {
     })
   )
 
+  // Domain pass, review round 12: the walk reported `no-token`, which is
+  // Production's cause for a missing token.
+  it.effect(
+    "a catch-up walk whose settings change mid-run stops with no cause",
+    () =>
+      Effect.gen(function* () {
+        const extra = fakeDashboard({
+          status: holding({ n: null, missing: [], held: 0 }),
+        })
+        const target = yield* harness({
+          production: fakeDashboard({ status: COMPLETE }),
+          extra,
+        })
+        let posted = 0
+        const catchUp = yield* target.extra.catchUp("Ajaib", ({ post }) =>
+          Effect.sync(() =>
+            fakeWalk((each) =>
+              Effect.suspend(() => {
+                posted++
+                return posted === 2
+                  ? Effect.andThen(target.switchTo(PREVIEW), post(each))
+                  : post(each)
+              })
+            )
+          )
+        )
+        const result = yield* catchUp.walk(DAY)
+        assert.strictEqual(result._tag, "stopped")
+        assert.notProperty(result, "cause")
+        assert.deepStrictEqual(extra.written, ["1", "2"])
+      })
+  )
+
   it.effect(
     "a catch-up walk's posts and status reads stay on the settings it began with",
     () =>
