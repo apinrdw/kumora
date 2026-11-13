@@ -84,10 +84,9 @@ export const makeExtraTarget = Effect.fnUntraced(function* (options: {
 }) {
   // Decision: a request the extra target fails, by a status other than 401
   // or 426 or by none (0: a network or CORS failure), shows it as retrying
-  // until one goes through, so a target the browser can't reach is never
-  // retried unseen. See apinrdw/kumora#244, "Retries".
-  // A settings change clears the shown state (makeTargets in
-  // service-worker.ts), so `failing` names the settings it was shown for.
+  // until one goes through, once per settings: a settings change clears the
+  // state (makeTargets in service-worker.ts). So a target the browser can't
+  // reach is never retried unseen. See apinrdw/kumora#244, "Retries".
   let failing = Option.none<string>()
   const answered = (request: { url: string; token: string }, status: number) =>
     Effect.suspend(() => {
