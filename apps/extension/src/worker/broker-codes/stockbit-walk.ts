@@ -167,8 +167,19 @@ export const makeStockbitWalk = Effect.fnUntraced(function* (options: {
   readonly post: (batch: BrokerCodesBatch) => Effect.Effect<PostOutcome>
   // The day's status on Production.
   readonly status: (day: WibDate) => Effect.Effect<StatusOutcome>
+  // For the options page (progress.ts): the highest trade walked of the
+  // day's N once known, and the wait on a signed-out tab.
+  readonly trades?: (
+    fetched: number,
+    of: Option.Option<number>
+  ) => Effect.Effect<void>
+  readonly signedOut?: (out: boolean) => Effect.Effect<void>
 }) {
   const { tab } = options
+  const trades = options.trades ?? (() => Effect.void)
+  const signedOut = options.signedOut ?? (() => Effect.void)
+  // The day's N, as the newest row the walk's start saw.
+  let dayN = Option.none<number>()
 
   const guard = Effect.gen(function* () {
     if (yield* isMarketHours(yield* DateTime.now))
@@ -189,14 +200,22 @@ export const makeStockbitWalk = Effect.fnUntraced(function* (options: {
 
   // Decision: on a 401, or a cookie with no token, the walk waits in place
   // until the tab's `credentialStorage` cookie changes; the extension never
-  // signs in itself. See apinrdw/kumora#244, "A 401".
-  const awaitNewCookie = Effect.fnUntraced(function* (stale: string) {
-    while (true) {
-      yield* Effect.sleep(RETRY)
-      yield* guard
-      if ((yield* cookie) !== stale) return
-    }
-  })
+  // signs in itself. The wait shows as "Stockbit signed out" until it ends.
+  // See apinrdw/kumora#244, "A 401".
+  const awaitNewCookie = (stale: string) =>
+    Effect.ensuring(
+      Effect.andThen(
+        signedOut(true),
+        Effect.gen(function* () {
+          while (true) {
+            yield* Effect.sleep(RETRY)
+            yield* guard
+            if ((yield* cookie) !== stale) return
+          }
+        })
+      ),
+      signedOut(false)
+    )
 
   // One call, asked again in place until it answers a page.
   const call = Effect.fnUntraced(function* (url: string) {
@@ -251,6 +270,7 @@ export const makeStockbitWalk = Effect.fnUntraced(function* (options: {
         const newest = page.rows[0]
         if (newest === undefined)
           return yield* halt({ _tag: "unserved", reason: "no-rows" })
+        dayN = Option.some(Number(newest.value))
         return newest
       }
       yield* Effect.sleep(START_POLL)
@@ -286,6 +306,7 @@ export const makeStockbitWalk = Effect.fnUntraced(function* (options: {
         const next = yield* walkedPast(walked, page.rows)
         if (Option.isNone(next)) return
         walked = next.value
+        yield* trades(Number(walked.highest), dayN)
         for (const row of page.rows)
           if (row.value > 0n && Option.isSome(row.codes))
             held.set(row.number, row.codes.value)
@@ -340,6 +361,7 @@ export const makeStockbitWalk = Effect.fnUntraced(function* (options: {
   // The full walk: forward from trade 1, or from where the day's status
   // shows Stockbit reached, to the day's end.
   const walkDay = Effect.fnUntraced(function* (day: WibDate) {
+    dayN = Option.none()
     yield* guard
     const from = yield* resumeFrom(yield* status(day))
     if (from === "done") return { _tag: "walked" } satisfies WalkResult
@@ -353,6 +375,7 @@ export const makeStockbitWalk = Effect.fnUntraced(function* (options: {
   // isn't known, on from the highest trade held to the end. Walked once the
   // day's status is complete.
   const gapDay = Effect.fnUntraced(function* (day: WibDate) {
+    dayN = Option.none()
     yield* guard
     const before = yield* status(day)
     if (before.complete) return { _tag: "walked" } satisfies WalkResult
@@ -408,10 +431,14 @@ export const stockbitCatchUp = Effect.fnUntraced(function* (options: {
   readonly status: (
     day: WibDate
   ) => Effect.Effect<Option.Option<BrokerCodesStatus>>
+  readonly signedOut?: (out: boolean) => Effect.Effect<void>
 }) {
   const walk = yield* makeStockbitWalk({
     tab: options.tab,
     post: options.post,
+    ...(options.signedOut === undefined
+      ? {}
+      : { signedOut: options.signedOut }),
     status: (day) =>
       Effect.map(
         options.status(day),

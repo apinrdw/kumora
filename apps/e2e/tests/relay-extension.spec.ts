@@ -1,6 +1,13 @@
-import { StockCode, TradeNumber } from "@workspace/relay"
+import {
+  BrokerCodesProtocolVersion,
+  StockCode,
+  TradeNumber,
+  WibDate,
+  isTradingDay,
+  type BrokerCodesStatus,
+} from "@workspace/relay"
 import type { Worker } from "@playwright/test"
-import { DateTime } from "effect"
+import { DateTime, Effect } from "effect"
 
 import { MEMBER } from "../support/accounts"
 import {
@@ -289,6 +296,158 @@ test("the relay fills a requested gap from Stockbit's REST tape, and what Stockb
       brokers.tapes.stockbit(new URLSearchParams("trade_number=22331"))
     )
     expect(JSON.parse(ajaibPage!.body).results[0].stock_code).toBe("TINS")
+  } finally {
+    await context.close()
+    await ingest.close()
+    await brokers.close()
+  }
+})
+
+// The two newest trading days closed now, newest first: the broker codes
+// walks run on the real clock, not the relay's schedule clock.
+const newestClosedDays = () =>
+  Effect.runSync(
+    Effect.gen(function* () {
+      const wib = new Date(Date.now() + 7 * 3_600_000).toISOString()
+      const today = Date.parse(wib.slice(0, 10))
+      const days: Array<WibDate> = []
+      for (
+        let back = wib.slice(11, 19) >= "16:35:00" ? 0 : 1;
+        days.length < 2;
+        back++
+      ) {
+        const day = WibDate.make(
+          new Date(today - back * 86_400_000).toISOString().slice(0, 10)
+        )
+        if (yield* isTradingDay(day)) days.push(day)
+      }
+      return days as [WibDate, WibDate]
+    })
+  )
+
+const completeDay = (day: WibDate): BrokerCodesStatus => ({
+  version: BrokerCodesProtocolVersion,
+  day,
+  n: TradeNumber.make("1000"),
+  complete: true,
+  missing: [],
+  sources: { ajaib: 990, stockbit: 10 },
+  crossCheck: { state: "compared", covered: 1000, differences: 0 },
+})
+
+// Reads a key of the worker's chrome.storage area.
+const stored = (worker: Worker, area: "local" | "session", key: string) =>
+  worker.evaluate(
+    `chrome.storage.${area}.get("${key}").then((all) => all.${key} ?? null)`
+  )
+
+test("the options page shows the broker codes walks, and Pause and Run now steer them", async () => {
+  test.setTimeout(120_000)
+  const brokers = await startFakeBrokers()
+  const ingest = await startFakeIngest()
+  const [newest, before] = newestClosedDays()
+  // Production lacks 6 trades of the newest day, which only Stockbit gave
+  // and nothing has cross-checked; the extra target lacks 10 of the day
+  // before.
+  brokers.production.statuses = (day) =>
+    day === newest
+      ? {
+          ...completeDay(day),
+          complete: false,
+          missing: [[TradeNumber.make("5"), TradeNumber.make("10")]],
+          sources: { ajaib: 0, stockbit: 994 },
+          crossCheck: { state: "none" },
+        }
+      : completeDay(day)
+  ingest.brokerCodes.statuses = (day) =>
+    day === before
+      ? {
+          ...completeDay(day),
+          complete: false,
+          missing: [[TradeNumber.make("1"), TradeNumber.make("10")]],
+          sources: { ajaib: 990, stockbit: 0 },
+        }
+      : brokers.production.statuses(day)
+  const { context, worker, optionsUrl } = await launchWithExtension(
+    brokers.port
+  )
+  try {
+    const options = await context.newPage()
+    await options.goto(optionsUrl)
+    await options.getByLabel("Production ingest token").fill("any")
+    await options.getByLabel("Extra target URL").fill(ingest.origin)
+    await options.getByLabel("Extra target ingest token").fill("any")
+    await options.getByRole("button", { name: "Save" }).click()
+    await expect(options.getByLabel("Production state")).toHaveText("Connected")
+    const causes = options.getByLabel("Broker codes pause causes")
+
+    // Pause is kept in local storage, and the queue stops on it.
+    await options.getByRole("button", { name: "Pause" }).click()
+    await expect
+      .poll(() => stored(worker, "local", "brokerCodesPaused"))
+      .toBe(true)
+    await expect
+      .poll(() => stored(worker, "session", "brokerCodesProgress"))
+      .toEqual({ state: "paused", cause: "paused" })
+    await expect(causes).toContainText("Paused by the owner.")
+    await expect(
+      options.getByRole("button", { name: "Run now" })
+    ).toBeDisabled()
+
+    // The last 10 trading days, from the statuses.
+    await options.reload()
+    const days = options.getByRole("table", { name: "Last 10 trading days" })
+    await expect(days.locator("tbody tr")).toHaveCount(10)
+    await expect(days.locator(`tr[data-day="${newest}"]`)).toHaveText(
+      `${newest}6 missingStockbitno cross-check`
+    )
+    await expect(days.locator(`tr[data-day="${before}"]`)).toHaveText(
+      `${before}CompleteAjaib and StockbitmatchesBehind`
+    )
+
+    // A walk in progress, the History position and an Ajaib lock, as the
+    // worker writes them. The lock shows on the badge.
+    await worker.evaluate(`Promise.all([
+      chrome.storage.session.set({ brokerCodesProgress: {
+        state: "walking", walk: "history", day: "2026-10-02", feed: "Stockbit",
+        trades: { fetched: 460000, of: 1000000, perSecond: 300 } } }),
+      chrome.storage.session.set({ ajaibLock: { state: "locked", reason: "no-pin" } }),
+      chrome.storage.local.set({ brokerCodesHistory: { oldest: "2026-10-05", empty: 0, ended: false } }),
+    ])`)
+    await expect(options.getByLabel("Broker codes walk")).toHaveText(
+      "Stockbit, 2026-10-02 (History)"
+    )
+    await expect(options.getByLabel("Broker codes trades")).toHaveText(
+      "460,000 of 1,000,000 trades"
+    )
+    await expect(options.getByLabel("Broker codes pace")).toHaveText(
+      "300 trades/s"
+    )
+    await expect(options.getByLabel("Broker codes time left")).toHaveText(
+      "30 min left"
+    )
+    await expect(options.getByLabel("History walk")).toHaveText(
+      "Running. Oldest day reached: 2026-10-05."
+    )
+    await expect(causes).toContainText("Ajaib locked: enter the PIN")
+    await expect
+      .poll(() => worker.evaluate("chrome.action.getBadgeText({})"))
+      .toBe("PIN")
+
+    // Resume runs the queue again: with no broker tab, it stops on that, or
+    // on market hours.
+    await options.getByRole("button", { name: "Resume" }).click()
+    await expect
+      .poll(() => stored(worker, "local", "brokerCodesPaused"))
+      .toBe(false)
+    await expect(causes).toContainText(/No broker tab|Market hours/)
+    await expect(causes).not.toContainText("Paused by the owner.")
+
+    // Run now asks the worker through session storage, and it answers.
+    await options.getByRole("button", { name: "Run now" }).click()
+    await expect
+      .poll(() => stored(worker, "session", "brokerCodesRun"))
+      .toBe("started")
   } finally {
     await context.close()
     await ingest.close()

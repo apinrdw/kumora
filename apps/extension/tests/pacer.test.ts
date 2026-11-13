@@ -249,4 +249,31 @@ describe("a throttled site", () => {
       yield* pacer.stop
     })
   )
+
+  it.effect("says until when a throttle stopped the site", () =>
+    Effect.gen(function* () {
+      const site = fakeSite({
+        answer: () =>
+          site.calls.length === 2
+            ? { _tag: "answer", id: 0, status: 429, body: "" }
+            : OK,
+      })
+      const stopped: Array<number> = []
+      const pacer = yield* makePacer({
+        feed: "Ajaib",
+        tab: site,
+        throttled: (until) =>
+          Effect.sync(() => {
+            stopped.push(until)
+          }),
+      })
+      yield* Effect.forkChild(pacer.run)
+      const walk = pacer.tab("walk")
+      yield* walk.request({ _tag: "page-fetch", path: "a" })
+      assert.deepStrictEqual(stopped, [])
+      yield* TestClock.adjust("1 second")
+      yield* walk.request({ _tag: "page-fetch", path: "b" })
+      assert.deepStrictEqual(stopped, [1_000 + 5 * MINUTE])
+    })
+  )
 })

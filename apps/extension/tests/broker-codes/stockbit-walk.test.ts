@@ -485,6 +485,7 @@ describe("Stockbit's walk: when it starts and gives up", () => {
         gaps: { feed: "Stockbit", walk: stockbit.gaps },
         history: { walk: () => Effect.succeedNone, catchUp: () => Effect.void },
         catchUp: [],
+        paused: Effect.succeed(false),
         report: (progress) =>
           progress.state === "idle"
             ? Deferred.succeed(idle, undefined)
@@ -595,6 +596,46 @@ describe("Stockbit's walk: stopping and carrying on", () => {
         // The refused page is asked again once the cookie changed.
         assert.strictEqual(tape.urls[12], tape.urls[11])
         assert.isTrue((yield* production.status(DAY)).complete)
+      })
+  )
+
+  it.effect(
+    "says Stockbit is signed out while it waits on a 401, and its trades of N",
+    () =>
+      Effect.gen(function* () {
+        yield* TestClock.setTime(wib("2026-11-12", "17:30:00"))
+        const renewedAt = wib("2026-11-12", "17:44:00")
+        const production = fakeProduction()
+        const tape = fakeStockbit({
+          cookie: (now) => jwt(now >= renewedAt ? "renewed" : "expired"),
+          refuses: (bearer, call) => bearer === jwt("expired") && call >= 12,
+        })
+        const signedOut: Array<boolean> = []
+        const trades: Array<[number, Option.Option<number>]> = []
+        const walk = yield* makeStockbitWalk({
+          tab: tape,
+          post: production.post,
+          status: production.status,
+          signedOut: (out) =>
+            Effect.sync(() => {
+              signedOut.push(out)
+            }),
+          trades: (fetched, of) =>
+            Effect.sync(() => {
+              trades.push([fetched, of])
+            }),
+        })
+        const fiber = yield* Effect.forkChild(walk.walk(DAY))
+        yield* settle(tape, 12)
+        yield* TestClock.adjust("10 seconds")
+        assert.deepStrictEqual(signedOut, [true])
+        // N is the newest row the start saw: within its second, not the
+        // highest number.
+        assert.deepStrictEqual(trades.at(-1), [1_000, Option.some(N - 3)])
+        yield* TestClock.adjust("14 minutes")
+        assert.deepStrictEqual(yield* Fiber.join(fiber), { _tag: "walked" })
+        assert.deepStrictEqual(signedOut, [true, false])
+        assert.deepStrictEqual(trades.at(-1), [N, Option.some(N - 3)])
       })
   )
 

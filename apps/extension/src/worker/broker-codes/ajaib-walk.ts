@@ -121,8 +121,17 @@ export const makeAjaibWalk = Effect.fnUntraced(function* (options: {
   readonly tab: RequestingTab
   readonly post: (batch: BrokerCodesBatch) => Effect.Effect<PostOutcome>
   readonly store: AjaibWalkStore
+  // For the options page (progress.ts): the trades the first pass fetched
+  // since the walk started, of the day's N.
+  readonly trades?: (
+    fetched: number,
+    of: Option.Option<number>
+  ) => Effect.Effect<void>
 }) {
   const { tab, store } = options
+  const trades = options.trades ?? (() => Effect.void)
+  let fetched = 0
+  let dayN = Option.none<number>()
 
   // Before each call: market hours stop the walk in place; past the window,
   // Ajaib can no longer serve the day.
@@ -270,6 +279,10 @@ export const makeAjaibWalk = Effect.fnUntraced(function* (options: {
           : []
       )
       if (kept.length > 0) yield* post({ day, rows: kept })
+      if (size === PAGE_SIZE) {
+        fetched += kept.length
+        yield* trades(fetched, dayN)
+      }
       const older = rows.some((row) => row.timestamp < from)
       if (rows.length < size || older || page >= MAX_PAGES) return page
     }
@@ -329,6 +342,8 @@ export const makeAjaibWalk = Effect.fnUntraced(function* (options: {
     if (Option.isSome(held) && held.value.pass === "done")
       return { _tag: "walked" } satisfies WalkResult
     const n = yield* awaitClose(day, windowEnd.value)
+    fetched = 0
+    dayN = Option.some(Number(n))
     let position: AjaibWalkPosition = Option.isSome(held)
       ? held.value
       : { day, pass: "first", next: yield* firstBoundary(day), repair: [] }

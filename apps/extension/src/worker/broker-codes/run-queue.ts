@@ -7,15 +7,18 @@ import { DateTime, Effect, Option, Queue, Schema } from "effect"
 import { isMarketHours, newestClosedDay } from "./hours.ts"
 
 // Why walks stopped in place until something changes: market hours, no
-// broker tab of the walk's site, or the Production target refused the
-// batches (no token, a rejected token, a version the dashboard no longer
-// takes).
+// broker tab of the walk's site, the Production target refused the batches
+// (no token, a rejected token, a version the dashboard no longer takes),
+// the owner's Pause, or Stockbit's tab signed out, which its walk waits on
+// in place (progress.ts).
 const PauseCause = Schema.Literals([
   "market-hours",
   "no-tab",
   "no-token",
   "rejected-token",
   "reload-extension",
+  "paused",
+  "signed-out",
 ])
 export type PauseCause = typeof PauseCause.Type
 
@@ -47,7 +50,8 @@ export interface DayWalk {
 
 // What the queue is doing, for the options page: nothing, walking a day on
 // a site, or paused. A walk is of the newest closed day, an older day's
-// gaps, or a History day (history.ts).
+// gaps, or a History day (history.ts). A walk that has fetched trades says
+// how many, of the day's N once known, and its pace (progress.ts).
 export const BrokerCodesProgress = Schema.Union([
   Schema.Struct({ state: Schema.Literal("idle") }),
   Schema.Struct({
@@ -55,6 +59,13 @@ export const BrokerCodesProgress = Schema.Union([
     walk: Schema.Literals(["newest", "gaps", "history"]),
     day: WibDate,
     feed: Feed,
+    trades: Schema.optionalKey(
+      Schema.Struct({
+        fetched: Schema.Finite,
+        of: Schema.NullOr(Schema.Finite),
+        perSecond: Schema.NullOr(Schema.Finite),
+      })
+    ),
   }),
   Schema.Struct({ state: Schema.Literal("paused"), cause: PauseCause }),
 ])
@@ -85,10 +96,13 @@ export const makeRunQueue = Effect.fnUntraced(function* (options: {
   // walks that post only to the extra target, only what it misses
   // (extra-target.ts).
   readonly catchUp: ReadonlyArray<DayWalk>
+  // The owner's Pause switch as it stands now (settings.ts).
+  readonly paused: Effect.Effect<boolean>
   readonly report: (progress: BrokerCodesProgress) => Effect.Effect<void>
 }) {
   const wakes = yield* Queue.sliding<void>(1)
   const trigger = Effect.asVoid(Queue.offer(wakes, undefined))
+  const pauses = yield* Queue.sliding<void>(1)
 
   // The extra target's walks: a stop ends the catch-up only, since
   // Production isn't paused.
@@ -163,7 +177,26 @@ export const makeRunQueue = Effect.fnUntraced(function* (options: {
       Effect.andThen(Queue.take(wakes), trigger)
     )
   })
-  const run = Effect.forever(Effect.andThen(Queue.take(wakes), runOnce))
+  // Decision: Pause interrupts the run in progress, the extra target's
+  // catch-up included, and every trigger after it runs nothing until the
+  // switch is off. Walks stop in place and resume as after a restart.
+  // Resume is a trigger. See apinrdw/kumora#244, "Pause".
+  const ownerPaused = options.report({ state: "paused", cause: "paused" })
+  const run = Effect.forever(
+    Effect.gen(function* () {
+      yield* Queue.take(wakes)
+      yield* Queue.clear(pauses)
+      if (yield* options.paused) return yield* ownerPaused
+      yield* Effect.raceFirst(
+        runOnce,
+        Effect.andThen(Queue.take(pauses), ownerPaused)
+      )
+    })
+  )
+
+  // The switch turned on: stops the run in progress, and reports the pause
+  // when none is.
+  const pause = Effect.andThen(Queue.offer(pauses, undefined), trigger)
 
   // Decision: the first tick on which a new day is the newest closed one
   // starts a run: the first tick after 16:35 on a trading day, and the
@@ -177,5 +210,5 @@ export const makeRunQueue = Effect.fnUntraced(function* (options: {
     yield* trigger
   })
 
-  return { run, trigger, tick }
+  return { run, trigger, pause, tick }
 })
