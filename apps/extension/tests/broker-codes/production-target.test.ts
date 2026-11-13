@@ -62,6 +62,53 @@ describe("Production's broker codes target", () => {
       })
   )
 
+  it.effect("a refusal stops Production until its settings change", () =>
+    Effect.gen(function* () {
+      let sends = 0
+      let reads = 0
+      const stops: Array<StatusRefusal> = []
+      const production = yield* makeProductionTarget({
+        target: Effect.succeed(Option.some(PRODUCTION)),
+        send: () =>
+          Effect.sync(() => {
+            sends++
+            return 401
+          }),
+        get: () =>
+          Effect.sync(() => {
+            reads++
+            return { status: 401, body: "" }
+          }),
+        stop: (state) => Effect.sync(() => void stops.push(state)),
+      })
+      assert.strictEqual(yield* production.post(BATCH), "rejected-token")
+      assert.strictEqual(yield* production.post(BATCH), "rejected-token")
+      assert.strictEqual(yield* production.status(DAY), "rejected-token")
+      assert.strictEqual(sends, 1)
+      assert.strictEqual(reads, 0)
+    })
+  )
+
+  it.effect("a refusal on settings since changed stops nothing", () =>
+    Effect.gen(function* () {
+      let settings = PRODUCTION
+      const stops: Array<StatusRefusal> = []
+      const production = yield* makeProductionTarget({
+        target: Effect.sync(() => Option.some(settings)),
+        // The token changes while the POST is in flight.
+        send: () =>
+          Effect.sync(() => {
+            settings = { ...PRODUCTION, token: "new-token" }
+            return 401
+          }),
+        get: () => Effect.succeed({ status: 200, body: "" }),
+        stop: (state) => Effect.sync(() => void stops.push(state)),
+      })
+      yield* production.post(BATCH)
+      assert.deepStrictEqual(stops, [])
+    })
+  )
+
   it.effect("stops nothing on a batch written", () =>
     Effect.gen(function* () {
       const written = yield* answering(200)

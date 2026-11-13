@@ -282,6 +282,30 @@ describe("the extra target", () => {
       })
   )
 
+  // Codex review round 10: A's refusal came back after A, B, then A again.
+  it.effect("refused on A, then set to B and back to A, sends to A again", () =>
+    Effect.gen(function* () {
+      const extra = fakeDashboard({ statuses: [401] })
+      let settings = STAGING
+      const switchTo = (next: BrokerCodesTarget) =>
+        Effect.sync(() => {
+          settings = next
+        })
+      const target = yield* harness({
+        extra,
+        target: () => Option.some(settings),
+      })
+      yield* fakeWalk(target.post).walk(DAY)
+      yield* settle
+      assert.deepStrictEqual(target.reported, ["rejected-token"])
+      yield* switchTo({ ...STAGING, token: "other-token" })
+      yield* switchTo(STAGING)
+      yield* fakeWalk(target.post).walk(DAY)
+      yield* settle
+      assert.deepStrictEqual(extra.written, ["1", "2", "3", "4", "5", "end 5"])
+    })
+  )
+
   it.effect(
     "a 401 on settings changed during a retry stops it on those settings",
     () =>
