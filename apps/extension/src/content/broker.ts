@@ -23,6 +23,7 @@ type Answer = {
   readonly id: number
   readonly status: number
   readonly body: string
+  readonly challenge?: boolean
 }
 
 // Decision: before the page made a REST call of its own, its API base is
@@ -80,13 +81,24 @@ const cookie = (name: string) => {
   return ""
 }
 
-const answer = async (request: TabRequest): Promise<[number, string]> => {
+// A REST answer's status and body, and whether Cloudflare marked it as a
+// challenge (readable only when the API exposes the header).
+const read = async (
+  response: Response
+): Promise<[number, string, boolean?]> => [
+  response.status,
+  await response.text(),
+  response.headers.get("cf-mitigated") === "challenge" || undefined,
+]
+
+const answer = async (
+  request: TabRequest
+): Promise<[number, string, boolean?]> => {
   switch (request._tag) {
     case "cookie":
       return [200, cookie(request.name)]
     case "fetch": {
-      const response = await fetch(request.url, { headers: request.headers })
-      return [response.status, await response.text()]
+      return read(await fetch(request.url, { headers: request.headers }))
     }
     case "page-fetch": {
       if (pageRequest === undefined && request.token === undefined)
@@ -95,15 +107,16 @@ const answer = async (request: TabRequest): Promise<[number, string]> => {
       // `Access-Control-Allow-Origin: *`, which the browser refuses for a
       // credentialed request (seen 2026-11-11 on `v1/stock/data/list/`); the
       // bearer token in the headers is the session.
-      const response = await fetch(
-        new URL(request.path, pageRequest?.base ?? AJAIB_API_BASE),
-        {
-          headers: pageRequest?.headers ?? {
-            authorization: `Bearer ${request.token}`,
-          },
-        }
+      return read(
+        await fetch(
+          new URL(request.path, pageRequest?.base ?? AJAIB_API_BASE),
+          {
+            headers: pageRequest?.headers ?? {
+              authorization: `Bearer ${request.token}`,
+            },
+          }
+        )
       )
-      return [response.status, await response.text()]
     }
     case "page-post": {
       const response = await fetch(request.url, {
@@ -198,8 +211,14 @@ const relay = () => {
       }
       case "request":
         return void answer(command.request).then(
-          ([status, body]) =>
-            post({ _tag: "answer", id: command.id, status, body }),
+          ([status, body, challenge]) =>
+            post({
+              _tag: "answer",
+              id: command.id,
+              status,
+              body,
+              ...(challenge === undefined ? {} : { challenge }),
+            }),
           () => post({ _tag: "answer", id: command.id, status: 0, body: "" })
         )
     }
