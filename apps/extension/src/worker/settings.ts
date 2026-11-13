@@ -580,6 +580,7 @@ export const isBrokerCodesRunAsk = Effect.fnUntraced(function* (
 // (pacer.ts), in session storage for the options page and for the pacers a
 // restarted service worker builds. Each site has its own key, so two pacers
 // throttled at once never write over each other's.
+// apps/e2e/tests/relay-extension.spec.ts names this key too: it sets a throttle.
 const THROTTLED_PREFIX = "brokerCodesThrottled."
 const decodeUntil = Schema.decodeUnknownOption(Schema.Finite)
 

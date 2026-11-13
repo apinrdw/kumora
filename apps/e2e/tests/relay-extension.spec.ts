@@ -471,6 +471,7 @@ test("the options page drops a throttle when it ends, however long the page was 
     // The page has been open a minute when Stockbit throttles for 5 s.
     await options.clock.fastForward("01:00")
     const until = (await options.evaluate(() => Date.now())) + 5_000
+    // The key is THROTTLED_PREFIX's, in apps/extension/src/worker/settings.ts.
     await worker.evaluate(
       `chrome.storage.session.set({ "brokerCodesThrottled.Stockbit": ${until} })`
     )
