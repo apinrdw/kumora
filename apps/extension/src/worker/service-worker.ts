@@ -32,6 +32,7 @@ import { ajaib, ajaibOnDemand, stockbit } from "./broker.ts"
 import { makeCodeList } from "./code-list.ts"
 import { windowAt } from "./gate.ts"
 import { makeOnDemandCodes } from "./on-demand-codes.ts"
+import { makePacer } from "./pacer.ts"
 import {
   DashboardOrigin,
   codeListStore,
@@ -282,9 +283,14 @@ const main = Effect.gen(function* () {
           )
         : ajaibTab.request(request),
   }
+  // Every REST call on a site goes through the site's pacer.
+  const stockbitPacer = yield* makePacer({ feed: "Stockbit", tab: stockbitTab })
+  const ajaibPacer = yield* makePacer({ feed: "Ajaib", tab: ajaibRest })
+  yield* Effect.forkScoped(stockbitPacer.run)
+  yield* Effect.forkScoped(ajaibPacer.run)
   const backfill = yield* makeBackfill({
-    stockbit: stockbitTab,
-    ajaib: ajaibRest,
+    stockbit: stockbitPacer.tab("backfill"),
+    ajaib: ajaibPacer.tab("backfill"),
     publish,
   })
   yield* Effect.forkScoped(backfill.run)
