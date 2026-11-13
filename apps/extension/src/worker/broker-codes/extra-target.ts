@@ -83,21 +83,25 @@ export const makeExtraTarget = Effect.fnUntraced(function* (options: {
   readonly report: (state: Option.Option<ExtraState>) => Effect.Effect<void>
 }) {
   // Decision: a request the extra target fails, by a status other than 401
-  // or 426 or by none (0: a network or CORS failure), shows the target as
-  // retrying until one goes through, so a target the browser can't reach is
-  // never retried unseen. See apinrdw/kumora#244, "Retries".
-  let failing = false
-  const answered = (status: number) =>
+  // or 426 or by none (0: a network or CORS failure), shows it as retrying
+  // until one goes through, so a target the browser can't reach is never
+  // retried unseen. See apinrdw/kumora#244, "Retries".
+  // A settings change clears the shown state (makeTargets in
+  // service-worker.ts), so `failing` names the settings it was shown for.
+  let failing = Option.none<string>()
+  const answered = (request: { url: string; token: string }, status: number) =>
     Effect.suspend(() => {
       if (status === 401 || status === 426) return Effect.void
+      const settings = `${new URL(request.url).origin} ${request.token}`
       const fails = status !== 200
-      if (fails === failing) return Effect.void
-      failing = fails
+      if (fails === Option.contains(failing, settings)) return Effect.void
+      failing = fails ? Option.some(settings) : Option.none()
       return options.report(fails ? Option.some("retrying") : Option.none())
     })
-  const send: Send = (request) => Effect.tap(options.send(request), answered)
+  const send: Send = (request) =>
+    Effect.tap(options.send(request), (status) => answered(request, status))
   const get: Get = (request) =>
-    Effect.tap(options.get(request), ({ status }) => answered(status))
+    Effect.tap(options.get(request), ({ status }) => answered(request, status))
   const poster = yield* makeBrokerCodesPoster({ target: options.target, send })
   const lane = yield* Queue.dropping<BrokerCodesBatch>(LANE)
 
