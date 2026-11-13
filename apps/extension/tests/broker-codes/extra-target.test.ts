@@ -215,6 +215,34 @@ describe("the extra target", () => {
     })
   )
 
+  // A settings change clears the shown state (makeTargets in
+  // service-worker.ts), so the new settings' first failure shows again.
+  it.effect("shows retrying again when new settings fail too", () =>
+    Effect.gen(function* () {
+      const extra = fakeDashboard({ statuses: [0, 0] })
+      let settings = STAGING
+      const target = yield* harness({
+        extra,
+        target: () => Option.some(settings),
+      })
+      yield* fakeWalk(target.post).walk(DAY)
+      yield* settle
+      assert.deepStrictEqual(target.reported, ["retrying"])
+      settings = { ...STAGING, token: "new-token" }
+      yield* TestClock.adjust("1 second")
+      yield* settle
+      assert.deepStrictEqual(target.reported, ["retrying", "retrying"])
+      yield* TestClock.adjust("2 seconds")
+      yield* settle
+      assert.deepStrictEqual(target.reported, [
+        "retrying",
+        "retrying",
+        "cleared",
+      ])
+      assert.lengthOf(extra.written, 6)
+    })
+  )
+
   it.effect(
     "a 401 or 426 sets its target state and stops it until its settings change",
     () =>
