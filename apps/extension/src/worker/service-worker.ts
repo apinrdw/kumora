@@ -357,6 +357,11 @@ const main = Effect.gen(function* () {
   })
   yield* Effect.forkScoped(stockbitPacer.run)
   yield* Effect.forkScoped(ajaibPacer.run)
+  // The code list feeds Market Live's search, so it goes with the backfill.
+  const codeListTab = {
+    ...ajaibPacer.tab("backfill"),
+    attached: ajaibTab.attached,
+  }
   const backfill = yield* makeBackfill({
     stockbit: stockbitPacer.tab("backfill"),
     ajaib: ajaibPacer.tab("backfill"),
@@ -492,7 +497,7 @@ const main = Effect.gen(function* () {
     const session = yield* Effect.forkScoped(ajaibSession.tick)
     yield* ajaibLock.tick
     yield* brokerCodes.tick
-    const fetch = yield* codeList.tick(ajaibRest, schedule)
+    const fetch = yield* codeList.tick(codeListTab, schedule)
     const earlier = settled
     settled = Option.some(
       yield* Effect.forkScoped(
@@ -560,7 +565,7 @@ const main = Effect.gen(function* () {
         return showBadge
       case "relay-code-list":
         return Effect.flatMap(scheduleNow, (now) =>
-          codeList.relayNow(ajaibRest, now, (state) =>
+          codeList.relayNow(codeListTab, now, (state) =>
             saveCodeListRelay({ state, at: Date.now() })
           )
         )
