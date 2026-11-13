@@ -46,10 +46,16 @@ export interface DayWalk {
 }
 
 // What the queue is doing, for the options page: nothing, walking a day on
-// a site, or paused.
+// a site, or paused. A walk is of the newest closed day, an older day's
+// gaps, or a History day (history.ts).
 export const BrokerCodesProgress = Schema.Union([
   Schema.Struct({ state: Schema.Literal("idle") }),
-  Schema.Struct({ state: Schema.Literal("walking"), day: WibDate, feed: Feed }),
+  Schema.Struct({
+    state: Schema.Literal("walking"),
+    walk: Schema.Literals(["newest", "gaps", "history"]),
+    day: WibDate,
+    feed: Feed,
+  }),
   Schema.Struct({ state: Schema.Literal("paused"), cause: PauseCause }),
 ])
 export type BrokerCodesProgress = typeof BrokerCodesProgress.Type
@@ -69,6 +75,12 @@ export const makeRunQueue = Effect.fnUntraced(function* (options: {
   readonly incompleteDays: IncompleteDaysStore
   // Stockbit's gap walk of an older incomplete day (stockbit-walk.ts).
   readonly gaps: DayWalk
+  // The History walk of the days before the newest closed one, and the
+  // extra target's catch-up of it (history.ts).
+  readonly history: {
+    readonly walk: (newest: WibDate) => Effect.Effect<Option.Option<PauseCause>>
+    readonly catchUp: (newest: WibDate) => Effect.Effect<void>
+  }
   // The extra target's catch-up of the newest closed day, in the same order:
   // walks that post only to the extra target, only what it misses
   // (extra-target.ts).
@@ -95,7 +107,12 @@ export const makeRunQueue = Effect.fnUntraced(function* (options: {
     const days = [...(yield* options.incompleteDays.load)].sort()
     for (const day of days) {
       if (day >= newest) continue
-      yield* options.report({ state: "walking", day, feed: options.gaps.feed })
+      yield* options.report({
+        state: "walking",
+        walk: "gaps",
+        day,
+        feed: options.gaps.feed,
+      })
       const result = yield* options.gaps.walk(day)
       if (result._tag === "stopped") return Option.some(result.cause)
       if (
@@ -119,7 +136,12 @@ export const makeRunQueue = Effect.fnUntraced(function* (options: {
     if (!kept.includes(day.value))
       yield* options.incompleteDays.save([...kept, day.value])
     for (const { feed, walk } of options.newestDay) {
-      yield* options.report({ state: "walking", day: day.value, feed })
+      yield* options.report({
+        state: "walking",
+        walk: "newest",
+        day: day.value,
+        feed,
+      })
       const result = yield* walk(day.value)
       if (result._tag === "stopped")
         return yield* options.report({ state: "paused", cause: result.cause })
@@ -127,8 +149,9 @@ export const makeRunQueue = Effect.fnUntraced(function* (options: {
     const stopped = yield* olderDays(day.value)
     if (Option.isSome(stopped))
       return yield* options.report({ state: "paused", cause: stopped.value })
-    // apinrdw/kumora#252: the History walk runs here, after the older days'
-    // gaps and before the extra target's catch-up.
+    const history = yield* options.history.walk(day.value)
+    if (Option.isSome(history))
+      return yield* options.report({ state: "paused", cause: history.value })
     yield* options.report({ state: "idle" })
     // Decision: the extra target catches up once Production's queue is
     // empty, and gives way to the next trigger, which interrupts it and is
@@ -136,7 +159,7 @@ export const makeRunQueue = Effect.fnUntraced(function* (options: {
     // restart, and a failing extra target, whose posts retry for ever,
     // holds nothing up. See apinrdw/kumora#250.
     yield* Effect.raceFirst(
-      catchUp(day.value),
+      Effect.andThen(catchUp(day.value), options.history.catchUp(day.value)),
       Effect.andThen(Queue.take(wakes), trigger)
     )
   })

@@ -35,6 +35,7 @@ import {
   fetchStatus,
   makeBrokerCodesPoster,
 } from "./broker-codes/poster.ts"
+import { makeHistoryWalk } from "./broker-codes/history.ts"
 import { makeRunQueue } from "./broker-codes/run-queue.ts"
 import { fetchGet, makeBrokerCodesStatus } from "./broker-codes/status.ts"
 import {
@@ -52,6 +53,8 @@ import {
   ajaibCatchUpStore,
   ajaibWalkStore,
   codeListStore,
+  historyCatchUpStore,
+  historyStore,
   incompleteDaysStore,
   isClockOffsetChange,
   isCodeListRelayAsk,
@@ -336,7 +339,8 @@ const main = Effect.gen(function* () {
   })
   yield* Effect.forkScoped(backfill.run)
   // Broker codes: the newest closed day's walks, then Stockbit's gap walk of
-  // older incomplete days, post to Production, and resume from its status.
+  // older incomplete days, then the History walk, post to Production, and
+  // resume from its status.
   // Each batch also goes to the extra target, which
   // then catches up on what it missed.
   const productionTarget = Effect.map(loadSettings, (settings) =>
@@ -355,13 +359,14 @@ const main = Effect.gen(function* () {
     target: productionTarget,
     get: fetchGet,
   })
+  const extraTarget = Effect.map(loadSettings, (settings) =>
+    Option.filter(
+      Option.fromNullOr(settings.extra),
+      ({ token }) => token !== ""
+    )
+  )
   const extra = yield* makeExtraTarget({
-    target: Effect.map(loadSettings, (settings) =>
-      Option.filter(
-        Option.fromNullOr(settings.extra),
-        ({ token }) => token !== ""
-      )
-    ),
+    target: extraTarget,
     production: productionTarget,
     send: fetchSend,
     get: fetchStatus,
@@ -390,6 +395,21 @@ const main = Effect.gen(function* () {
     ({ post, status }) =>
       stockbitCatchUp({ tab: stockbitPacer.tab("walk"), post, status })
   )
+  // The History walk: Stockbit's gap walk of each older day, which walks a
+  // day with nothing held whole. The extra target follows it with the
+  // Stockbit catch-up.
+  const history = yield* makeHistoryWalk({
+    walk: { feed: "Stockbit", walk: stockbitWalk.gaps },
+    store: historyStore,
+    catchUp: stockbitExtraCatchUp,
+    catchUpStore: historyCatchUpStore(
+      Effect.map(
+        extraTarget,
+        Option.map(({ origin }) => origin)
+      )
+    ),
+    report: saveBrokerCodesProgress,
+  })
   const brokerCodes = yield* makeRunQueue({
     newestDay: [
       { feed: "Ajaib", walk: ajaibWalk.walk },
@@ -397,6 +417,7 @@ const main = Effect.gen(function* () {
     ],
     incompleteDays: incompleteDaysStore,
     gaps: { feed: "Stockbit", walk: stockbitWalk.gaps },
+    history,
     catchUp: [ajaibCatchUp, stockbitExtraCatchUp],
     report: saveBrokerCodesProgress,
   })

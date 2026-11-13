@@ -10,6 +10,11 @@ import {
   type AjaibWalkStore,
 } from "./broker-codes/ajaib-walk.ts"
 import {
+  HistoryPosition,
+  type HistoryCatchUpStore,
+  type HistoryStore,
+} from "./broker-codes/history.ts"
+import {
   BrokerCodesProgress,
   type IncompleteDaysStore,
 } from "./broker-codes/run-queue.ts"
@@ -322,6 +327,67 @@ export const incompleteDaysStore: IncompleteDaysStore = {
       chrome.storage.local.set({ [INCOMPLETE_DAYS_KEY]: days })
     ),
 }
+
+// The History walk's positions (history.ts), in local storage so a
+// restarted worker or browser carries on: Production's, and the extra
+// target's, kept with the origin it caught up, so another extra target
+// starts its own. A value that doesn't decode reads as none, which the walk
+// rebuilds.
+const HISTORY_KEY = "brokerCodesHistory"
+const HISTORY_CATCH_UP_KEY = "brokerCodesHistoryCatchUp"
+const HistoryCatchUp = Schema.Struct({
+  origin: DashboardOrigin,
+  oldest: WibDate,
+})
+
+export const historyStore: HistoryStore = {
+  load: Effect.gen(function* () {
+    const stored = yield* Effect.promise(() =>
+      chrome.storage.local.get(HISTORY_KEY)
+    )
+    return Schema.decodeUnknownOption(HistoryPosition)(stored[HISTORY_KEY])
+  }),
+  save: Effect.fnUntraced(function* (position: HistoryPosition) {
+    const encoded = yield* Effect.orDie(
+      Schema.encodeEffect(HistoryPosition)(position)
+    )
+    yield* Effect.promise(() =>
+      chrome.storage.local.set({ [HISTORY_KEY]: encoded })
+    )
+  }),
+}
+
+export const historyCatchUpStore = (
+  // The extra target's origin as its settings stand now.
+  origin: Effect.Effect<Option.Option<DashboardOrigin>>
+): HistoryCatchUpStore => ({
+  load: Effect.gen(function* () {
+    const current = yield* origin
+    if (Option.isNone(current)) return Option.none<WibDate>()
+    const stored = yield* Effect.promise(() =>
+      chrome.storage.local.get(HISTORY_CATCH_UP_KEY)
+    )
+    return Option.map(
+      Option.filter(
+        Schema.decodeUnknownOption(HistoryCatchUp)(
+          stored[HISTORY_CATCH_UP_KEY]
+        ),
+        (kept) => kept.origin === current.value
+      ),
+      ({ oldest }) => oldest
+    )
+  }),
+  save: Effect.fnUntraced(function* (oldest: WibDate) {
+    const current = yield* origin
+    if (Option.isNone(current)) return
+    const encoded = yield* Effect.orDie(
+      Schema.encodeEffect(HistoryCatchUp)({ origin: current.value, oldest })
+    )
+    yield* Effect.promise(() =>
+      chrome.storage.local.set({ [HISTORY_CATCH_UP_KEY]: encoded })
+    )
+  }),
+})
 
 // What the broker codes run queue is doing (run-queue.ts), for the options
 // page, in session storage: it describes this browser session's walks.
