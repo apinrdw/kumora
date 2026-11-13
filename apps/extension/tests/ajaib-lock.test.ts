@@ -23,6 +23,7 @@ const harness = Effect.fnUntraced(function* (options?: {
     state: "signed-in",
     accessToken: "",
   }
+  let typing = false
   const locks: Array<AjaibLock> = []
   const lock = yield* makeAjaibLock({
     tab: {
@@ -34,16 +35,22 @@ const harness = Effect.fnUntraced(function* (options?: {
         }),
     },
     pins: {
-      latest: Effect.succeed(
+      latest: Effect.sync(() =>
         Option.some({
-          pin: Effect.sync(() => Option.fromNullishOr(pin)),
+          pin: Option.fromNullishOr(pin),
+          signIn,
+          typing,
           wipePin: Effect.sync(() => {
             pin = undefined
+            typing = false
           }),
-          signIn: Effect.sync(() => signIn),
           setSignIn: (next) =>
             Effect.sync(() => {
               signIn = next
+            }),
+          setTyping: (next) =>
+            Effect.sync(() => {
+              typing = next
             }),
         })
       ),
@@ -139,6 +146,7 @@ describe("Ajaib's PIN lock", () => {
       const { page, requests } = yield* harness({ pin: "123456" })
       yield* page(LOCKED)
       yield* page(UNLOCKED)
+      yield* TestClock.adjust("4 hours")
       yield* page(LOCKED)
       assert.lengthOf(typings(requests), 2)
     })

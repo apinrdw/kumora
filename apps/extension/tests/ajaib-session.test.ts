@@ -144,17 +144,19 @@ const harness = Effect.fnUntraced(function* (reply: Answer) {
         }),
     } as PacedTab & { readonly attached: Effect.Effect<boolean> },
     store: {
-      latest: Effect.succeed(
+      latest: Effect.sync(() =>
         Option.some({
-          pin: Effect.sync(() => Option.fromNullishOr(pin)),
+          pin: Option.fromNullishOr(pin),
+          signIn,
+          typing: false,
           wipePin: Effect.sync(() => {
             pin = undefined
           }),
-          signIn: Effect.sync(() => signIn),
           setSignIn: (next) =>
             Effect.sync(() => {
               signIn = next
             }),
+          setTyping: () => Effect.void,
         })
       ),
     },
@@ -424,7 +426,9 @@ describe("the lock screen and the stored PIN", () => {
       yield* Fiber.join(check)
       yield* release
       yield* lock.page({ _tag: "lock", locked: false })
-      yield* until(() => locks.at(-1)?.state === "unlocked")
+      yield* until(
+        () => typed().length > 0 || locks.at(-1)?.state === "unlocked"
+      )
       assert.deepStrictEqual(typed(), [])
       assert.deepStrictEqual(yield* loadSignIn, { state: "wrong-pin" })
     })
@@ -444,7 +448,9 @@ describe("the lock screen and the stored PIN", () => {
       yield* savePin(AjaibPin.make("222222"))
       yield* release
       yield* lock.page({ _tag: "lock", locked: false })
-      yield* until(() => locks.at(-1)?.state === "unlocked")
+      yield* until(
+        () => typed().length > 0 || locks.at(-1)?.state === "unlocked"
+      )
       assert.deepStrictEqual(typed(), [])
     })
   )

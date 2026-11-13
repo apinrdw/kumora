@@ -4,7 +4,7 @@
 // anyway, types the owner's PIN into it once.
 import { Duration, Effect, Option, Queue, Schema } from "effect"
 
-import type { PinStore } from "./ajaib-session.ts"
+import type { PinStore, SignIn } from "./ajaib-session.ts"
 import type { Answer, LocalRequest, PageEvent } from "./broker.ts"
 
 // Decision: one synthetic `mousemove` every 10 minutes, all day while an
@@ -16,6 +16,9 @@ const KEEP_ALIVE = Duration.minutes(10)
 // The worker's clock times the refusal, not the tab's: a background tab's
 // timers are throttled.
 const REFUSAL_WAIT = Duration.seconds(10)
+
+// A sign-in still to answer: its PIN is typed once it has signed in.
+const PENDING: ReadonlyArray<SignIn["state"]> = ["waiting", "signing-in"]
 
 export const makeAjaibLock = Effect.fnUntraced(function* (options: {
   readonly tab: {
@@ -53,46 +56,61 @@ export const makeAjaibLock = Effect.fnUntraced(function* (options: {
       return options.save(next)
     })
 
-  // After the PIN is typed: unlocked once the lock screen goes, refused on a
-  // non-200 answer to the page's PIN validate call or once REFUSAL_WAIT has
-  // passed with the screen still showing.
-  const outcome = Effect.timeoutOption(
-    Effect.gen(function* () {
-      while (true) {
-        const event = yield* Queue.take(events)
-        if (event._tag === "lock") locked = event.locked
-        if (!locked) return "unlocked" as const
-        if (event._tag === "pin-validated" && event.status !== 200)
-          return "refused" as const
-      }
-    }),
-    REFUSAL_WAIT
-  )
+  // Decision: after the PIN is typed the lock screen is given the whole
+  // REFUSAL_WAIT: refused at once on a non-200 answer to the page's PIN
+  // validate call, else by whether it still shows at the end. A screen that
+  // goes and comes back sooner is the one just typed into, redrawn, since
+  // Ajaib's idle lock takes 4 h; ending on its going would type again.
+  const refused = Effect.gen(function* () {
+    const answered = yield* Effect.timeoutOption(
+      Effect.gen(function* () {
+        while (true) {
+          const event = yield* Queue.take(events)
+          if (event._tag === "lock") locked = event.locked
+          if (event._tag === "pin-validated" && event.status !== 200) return
+        }
+      }),
+      REFUSAL_WAIT
+    )
+    return Option.isSome(answered) || locked
+  })
 
-  // Decision: the lock screen gets the stored PIN once per lock, and only
-  // after PIN sign-in has checked it, so a new entry is never sent twice in
-  // a row. A refused PIN is wiped (ajaib-session.ts), so no later lock, tick
-  // or restart types it again; an entry made meanwhile is kept. See
-  // apinrdw/kumora#244, "Unlock".
+  // Decision: the lock screen gets the kept PIN once per lock, and only from
+  // an entry read whole, last thing before `type-pin`, as `signed-in` and
+  // marked `typing`. The mark is stored first and cleared once the screen
+  // has gone, so a try a restart cut short is found and counts as refused.
+  // A refused PIN is wiped. See apinrdw/kumora#244, "Unlock".
   const unlock = Effect.gen(function* () {
-    const latest = yield* pins.latest
-    const pin = Option.isSome(latest)
-      ? yield* latest.value.pin
-      : Option.none<string>()
-    if (Option.isNone(latest) || Option.isNone(pin))
+    const kept = Option.filter(yield* pins.latest, (entry) =>
+      Option.isSome(entry.pin)
+    )
+    if (Option.exists(kept, (entry) => PENDING.includes(entry.signIn.state)))
+      return yield* record({ state: "unlocking" })
+    if (Option.isNone(kept) || kept.value.signIn.state !== "signed-in")
       return Option.exists(lock, (each) => each.state === "locked")
         ? undefined
         : yield* record({ state: "locked", reason: "no-pin" })
-    yield* record({ state: "unlocking" })
-    const entry = latest.value
-    const signIn = (yield* entry.signIn).state
-    if (signIn === "waiting" || signIn === "signing-in") return
-    const typed = yield* tab.request({ _tag: "type-pin", pin: pin.value })
-    if (Option.isSome(typed) && typed.value.status !== 200)
-      return yield* record({ state: "locked", reason: "not-typed" })
-    const ended = yield* outcome
-    if (Option.isSome(ended) && ended.value === "unlocked")
-      return yield* record({ state: "unlocked" })
+    const entry = kept.value
+    if (!entry.typing) {
+      yield* record({ state: "unlocking" })
+      yield* entry.setTyping(true)
+      const pin = Option.flatMap(yield* pins.latest, (now) =>
+        now.typing && now.signIn.state === "signed-in"
+          ? now.pin
+          : Option.none<string>()
+      )
+      // A newer entry took its place: that one waits for its own sign-in.
+      if (Option.isNone(pin)) return
+      const typed = yield* tab.request({ _tag: "type-pin", pin: pin.value })
+      if (Option.isSome(typed) && typed.value.status !== 200) {
+        yield* entry.setTyping(false)
+        return yield* record({ state: "locked", reason: "not-typed" })
+      }
+      if (!(yield* refused)) {
+        yield* entry.setTyping(false)
+        return yield* record({ state: "unlocked" })
+      }
+    }
     yield* entry.wipePin
     yield* record({ state: "locked", reason: "refused" })
   })

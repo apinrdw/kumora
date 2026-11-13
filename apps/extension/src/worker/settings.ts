@@ -224,13 +224,16 @@ export const isClockOffsetChange = Effect.fnUntraced(function* (
 // screen (`type-pin`); a restarted worker finds its sign-in beside it. See
 // https://developer.chrome.com/docs/extensions/reference/api/storage.
 //
-// Decision: each entry keeps its PIN and sign-in under keys named by its
-// own id, and ENTRY_KEY names the newest. A check or lock screen still busy
-// with an older entry writes that entry's keys only: chrome.storage has no
-// compare-and-set to guard one shared key.
+// Decision: each entry keeps its PIN, sign-in and `typing` mark under keys
+// named by its own id, ENTRY_KEY names the newest, and one read takes them
+// all. A check or lock screen still busy with an older entry writes that
+// entry's keys only: chrome.storage has no compare-and-set to guard one
+// shared key.
 const ENTRY_KEY = "ajaibPinEntry"
 const PIN_PREFIX = "ajaibPin."
 const SIGN_IN_PREFIX = "ajaibSignIn."
+const TYPING_PREFIX = "ajaibPinTyping."
+const ENTRY_PREFIXES = [PIN_PREFIX, SIGN_IN_PREFIX, TYPING_PREFIX]
 
 export const AjaibPin = Schema.String.check(Schema.isPattern(/^\d{6}$/)).pipe(
   Schema.brand("AjaibPin")
@@ -258,57 +261,52 @@ export const savePin = Effect.fnUntraced(function* (pin: AjaibPin) {
   const newest = Option.getOrElse(decodeEntry(stored[ENTRY_KEY]), () => entry)
   const older = Object.keys(stored).filter(
     (key) =>
-      (key.startsWith(PIN_PREFIX) || key.startsWith(SIGN_IN_PREFIX)) &&
-      key !== `${PIN_PREFIX}${newest}` &&
-      key !== `${SIGN_IN_PREFIX}${newest}`
+      ENTRY_PREFIXES.some((prefix) => key.startsWith(prefix)) &&
+      !ENTRY_PREFIXES.some((prefix) => key === `${prefix}${newest}`)
   )
   if (older.length > 0)
     yield* Effect.promise(() => chrome.storage.session.remove(older))
 })
 
-const storedEntry = Effect.fnUntraced(function* (entry: string) {
-  const pinKey = `${PIN_PREFIX}${entry}`
-  const signInKey = `${SIGN_IN_PREFIX}${entry}`
-  return {
-    pin: Effect.gen(function* () {
-      const stored = yield* Effect.promise(() =>
-        chrome.storage.session.get(pinKey)
-      )
-      return decodePin(stored[pinKey])
-    }),
-    wipePin: Effect.promise(() => chrome.storage.session.remove(pinKey)),
-    signIn: Effect.gen(function* () {
-      const stored = yield* Effect.promise(() =>
-        chrome.storage.session.get(signInKey)
-      )
-      return Option.getOrElse(decodeSignIn(stored[signInKey]), (): SignIn => ({
-        state: "none",
-      }))
-    }),
-    setSignIn: (signIn) =>
-      Effect.promise(() => chrome.storage.session.set({ [signInKey]: signIn })),
-  } satisfies PinEntry as PinEntry
-})
-
 export const sessionPinStore: PinStore = {
   latest: Effect.gen(function* () {
-    const stored = yield* Effect.promise(() =>
-      chrome.storage.session.get(ENTRY_KEY)
-    )
+    const stored = yield* Effect.promise(() => chrome.storage.session.get(null))
     const entry = decodeEntry(stored[ENTRY_KEY])
-    return Option.isSome(entry)
-      ? Option.some(yield* storedEntry(entry.value))
-      : Option.none<PinEntry>()
+    if (Option.isNone(entry)) return Option.none<PinEntry>()
+    const pinKey = `${PIN_PREFIX}${entry.value}`
+    const signInKey = `${SIGN_IN_PREFIX}${entry.value}`
+    const typingKey = `${TYPING_PREFIX}${entry.value}`
+    return Option.some<PinEntry>({
+      pin: decodePin(stored[pinKey]),
+      signIn: Option.getOrElse(decodeSignIn(stored[signInKey]), (): SignIn => ({
+        state: "none",
+      })),
+      typing: stored[typingKey] === true,
+      wipePin: Effect.promise(() =>
+        chrome.storage.session.remove([pinKey, typingKey])
+      ),
+      setSignIn: (signIn) =>
+        Effect.promise(() =>
+          chrome.storage.session.set({ [signInKey]: signIn })
+        ),
+      setTyping: (typing) =>
+        Effect.promise(() =>
+          typing
+            ? chrome.storage.session.set({ [typingKey]: true })
+            : chrome.storage.session.remove(typingKey)
+        ),
+    })
   }),
 }
 
 // The newest entry's sign-in, for the options page.
-export const loadSignIn = Effect.gen(function* () {
-  const latest = yield* sessionPinStore.latest
-  return Option.isSome(latest)
-    ? yield* latest.value.signIn
-    : ({ state: "none" } satisfies SignIn as SignIn)
-})
+export const loadSignIn = Effect.map(
+  sessionPinStore.latest,
+  Option.match({
+    onNone: (): SignIn => ({ state: "none" }),
+    onSome: ({ signIn }) => signIn,
+  })
+)
 
 export const isSignInChange = Effect.fnUntraced(function* (
   changes: Readonly<Record<string, unknown>>,
