@@ -41,5 +41,9 @@ The number Ajaib's subscribe frames carry as `id`, read from the `sub` claim of 
 _Avoid_: user id (Stockbit's subscribe has its own `user_id`)
 
 **PIN sign-in**:
-The owner's 6-digit Ajaib PIN, entered on the options page and kept in `chrome.storage.session` only, which the Ajaib tab checks once with Ajaib's PIN validate call to get an access token. A refused PIN is never tried again; only a new entry is.
+The owner's 6-digit Ajaib PIN, entered on the options page and kept in `chrome.storage.session` only, until Chrome closes. The Ajaib tab checks each entry once with Ajaib's PIN validate call to get an access token; the sign-in's state, not the PIN's removal, keeps it to once. The kept PIN is what the extension types into Ajaib's lock screen, once per lock. A PIN refused by the sign-in or by the lock screen is wiped and never tried again; only a new entry is.
 _Avoid_: login, PIN retry
+
+**Ajaib locked**:
+Ajaib's idle PIN lock showing on the relayed tab with no way for the extension to unlock it: no PIN kept, the kept one refused, or no lock screen boxes found. The extension keeps the lock away with a synthetic `mousemove` every 10 minutes, and records this cause for the options page and badge when it shows anyway.
+_Avoid_: PIN lock (the screen itself), signed out
