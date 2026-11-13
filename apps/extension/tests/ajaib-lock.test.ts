@@ -221,6 +221,49 @@ describe("Ajaib's PIN lock", () => {
       })
   )
 
+  it.effect("a PIN whose sign-in did not succeed is not typed", () =>
+    Effect.gen(function* () {
+      for (const state of [
+        "none",
+        "wrong-pin",
+        "needs-2fa",
+        "failed",
+      ] as const) {
+        const { page, tick, requests, locks } = yield* harness({
+          pin: "123456",
+          signIn: { state },
+        })
+        yield* page(LOCKED)
+        yield* tick
+        assert.lengthOf(typings(requests), 0)
+        assert.deepStrictEqual(locks, [{ state: "locked", reason: "no-pin" }])
+      }
+    })
+  )
+
+  it.effect(
+    "a lock screen that flickers once the PIN is typed does not get it again",
+    () =>
+      Effect.gen(function* () {
+        const { page, tick, requests, locks, pin } = yield* harness({
+          pin: "111111",
+        })
+        yield* page(LOCKED)
+        yield* page(UNLOCKED)
+        yield* page(LOCKED)
+        assert.lengthOf(typings(requests), 1)
+        yield* TestClock.adjust("10 seconds")
+        assert.strictEqual(pin(), undefined)
+        assert.deepStrictEqual(locks.at(-1), {
+          state: "locked",
+          reason: "refused",
+        })
+        yield* page(LOCKED)
+        yield* tick
+        assert.lengthOf(typings(requests), 1)
+      })
+  )
+
   it.effect(
     "a lock screen the tab can't find types nothing, so it is tried again",
     () =>
