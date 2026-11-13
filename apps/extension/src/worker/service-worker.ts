@@ -421,8 +421,12 @@ const main = Effect.gen(function* () {
     trades: progress.trades,
     signedOut: progress.signedOut,
   })
+  const extraOrigin = Effect.map(
+    extraTarget,
+    Option.map(({ origin }) => origin)
+  )
   const ajaibCatchUp = yield* extra.catchUp("Ajaib", ({ post }) =>
-    Effect.flatMap(ajaibCatchUpStore, (store) =>
+    Effect.flatMap(ajaibCatchUpStore(extraOrigin), (store) =>
       makeAjaibWalk({ tab: ajaibWalkTab, post, store })
     )
   )
@@ -446,12 +450,7 @@ const main = Effect.gen(function* () {
     store: historyStore,
     incompleteDays: incompleteDaysStore,
     catchUp: stockbitExtraCatchUp,
-    catchUpStore: yield* historyCatchUpStore(
-      Effect.map(
-        extraTarget,
-        Option.map(({ origin }) => origin)
-      )
-    ),
+    catchUpStore: yield* historyCatchUpStore(extraOrigin),
     report: progress.report,
   })
   const brokerCodes = yield* makeRunQueue({

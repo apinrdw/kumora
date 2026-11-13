@@ -303,7 +303,9 @@ const ajaibWalkStoreAt = (key: string) =>
   }))
 
 export const ajaibWalkStore = ajaibWalkStoreAt("brokerCodesAjaibWalk")
-export const ajaibCatchUpStore = ajaibWalkStoreAt("brokerCodesAjaibCatchUp")
+export const ajaibCatchUpStore = (
+  _origin: Effect.Effect<Option.Option<DashboardOrigin>>
+) => ajaibWalkStoreAt("brokerCodesAjaibCatchUp")
 
 // The days whose broker codes may still be incomplete (run-queue.ts), and
 // the newest closed day the last run walked, in local storage so a
