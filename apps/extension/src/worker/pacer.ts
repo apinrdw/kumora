@@ -88,6 +88,9 @@ export const makePacer = Effect.fnUntraced(function* (options: {
   // A throttle stopped the site until `until` (epoch ms), for the options
   // page.
   readonly throttled?: (until: number) => Effect.Effect<void>
+  // The `until` a throttle stored before the service worker restarted: the
+  // site stays stopped until then, and at half rate after it.
+  readonly stoppedUntil?: number
 }) {
   const maxInFlight = IN_FLIGHT[options.feed]
   // A call waiting for its turn, whether the dispatcher started it, and
@@ -100,7 +103,10 @@ export const makePacer = Effect.fnUntraced(function* (options: {
   const waiting: Record<Priority, Array<Turn>> = { backfill: [], walk: [] }
   let inFlight = 0
   let nextStart = 0
-  let throttledAt: number | undefined
+  let throttledAt =
+    options.stoppedUntil === undefined
+      ? undefined
+      : options.stoppedUntil - STOPPED_FOR
   // Wakes the dispatcher: a call arrived or one ended.
   const wakes = yield* Queue.sliding<void>(1)
   const wake = Queue.offer(wakes, undefined)

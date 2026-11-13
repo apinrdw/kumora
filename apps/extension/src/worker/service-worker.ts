@@ -73,6 +73,7 @@ import {
   saveBrokerCodesProgress,
   saveBrokerCodesRun,
   saveCodeListRelay,
+  loadThrottled,
   saveThrottled,
   saveTargetStates,
   sessionPinStore,
@@ -344,16 +345,20 @@ const main = Effect.gen(function* () {
     awaitAnswer: (request) =>
       Effect.flatMap(withToken(request), ajaibTab.awaitAnswer),
   }
-  // Every REST call on a site goes through the site's pacer.
+  // Every REST call on a site goes through the site's pacer, which keeps a
+  // throttle stored before the service worker restarted.
+  const throttled = yield* loadThrottled
   const stockbitPacer = yield* makePacer({
     feed: "Stockbit",
     tab: stockbitTab,
     throttled: (until) => saveThrottled("Stockbit", until),
+    stoppedUntil: throttled.Stockbit,
   })
   const ajaibPacer = yield* makePacer({
     feed: "Ajaib",
     tab: ajaibRest,
     throttled: (until) => saveThrottled("Ajaib", until),
+    stoppedUntil: throttled.Ajaib,
   })
   yield* Effect.forkScoped(stockbitPacer.run)
   yield* Effect.forkScoped(ajaibPacer.run)

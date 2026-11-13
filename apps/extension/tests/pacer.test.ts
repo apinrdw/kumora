@@ -375,12 +375,11 @@ describe("a throttled site", () => {
         assert.strictEqual(stored, 5 * MINUTE)
         yield* Fiber.interrupt(running)
         yield* TestClock.adjust("1 minute")
-        const restarted = {
-          feed: "Stockbit" as const,
+        const after = yield* makePacer({
+          feed: "Stockbit",
           tab: site,
           stoppedUntil: stored,
-        }
-        const after = yield* makePacer(restarted)
+        })
         yield* Effect.forkChild(after.run)
         for (let at = 0; at < 4; at++) {
           yield* Effect.forkChild(

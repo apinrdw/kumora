@@ -527,7 +527,8 @@ export const isBrokerCodesRunAsk = Effect.fnUntraced(function* (
 })
 
 // Until when (epoch ms) each site's pacer stopped calling after a throttle
-// (pacer.ts), in session storage for the options page.
+// (pacer.ts), in session storage for the options page and for the pacers a
+// restarted service worker builds.
 const THROTTLED_KEY = "brokerCodesThrottled"
 const Throttled = Schema.Struct({
   Stockbit: Schema.optionalKey(Schema.Finite),
