@@ -353,6 +353,28 @@ describe("the broker codes run queue", () => {
       })
   )
 
+  // The options page asks the days again on each new progress, so the
+  // extra target's Behind clears once its catch-up ends.
+  it.effect("publishes a new progress once the catch-up ends", () =>
+    Effect.gen(function* () {
+      yield* TestClock.setTime(wib("2026-11-12", "17:00:00"))
+      const caughtUp = yield* Deferred.make<WalkResult>()
+      const queue = yield* harness(
+        (walked) => [fakeWalk("Ajaib", walked)],
+        (walked) => [
+          catchUpWalk("Ajaib", walked, () => Deferred.await(caughtUp)),
+        ]
+      )
+      yield* queue.trigger
+      assert.deepStrictEqual(queue.walked.at(-1), "catch-up Ajaib 2026-11-12")
+      const during = queue.progress.at(-1)
+      yield* Deferred.succeed(caughtUp, { _tag: "walked" })
+      yield* TestClock.adjust("0 millis")
+      assert.deepStrictEqual(queue.progress.at(-1), { state: "idle" })
+      assert.notDeepEqual(during, queue.progress.at(-1))
+    })
+  )
+
   it.effect("a catch-up gives way to the next run", () =>
     Effect.gen(function* () {
       yield* TestClock.setTime(wib("2026-11-12", "17:00:00"))
