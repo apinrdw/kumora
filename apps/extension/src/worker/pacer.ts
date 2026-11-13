@@ -65,6 +65,9 @@ const IN_FLIGHT: Readonly<Record<Feed, number>> = {
 export const makePacer = Effect.fnUntraced(function* (options: {
   readonly feed: Feed
   readonly tab: RequestingTab
+  // A throttle stopped the site until `until` (epoch ms), for the options
+  // page.
+  readonly throttled?: (until: number) => Effect.Effect<void>
 }) {
   const maxInFlight = IN_FLIGHT[options.feed]
   // A call waiting for its turn, and whether the dispatcher started it.
@@ -87,6 +90,8 @@ export const makePacer = Effect.fnUntraced(function* (options: {
       yield* Effect.logWarning(
         `${options.feed} throttled its REST calls: stopping for 5 minutes`
       )
+      if (options.throttled !== undefined)
+        yield* options.throttled(throttledAt + STOPPED_FOR)
     }
     return answer
   })

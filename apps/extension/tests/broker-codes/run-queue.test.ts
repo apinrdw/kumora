@@ -150,6 +150,8 @@ const harness = Effect.fnUntraced(function* (
 ) {
   const walked: Array<string> = []
   const progress: Array<BrokerCodesProgress> = []
+  // The owner's Pause switch, as chrome.storage.local keeps it.
+  let paused = false
   const days = older.days ?? memoryDays()
   const history = older.history ?? memoryHistory()
   const report = (each: BrokerCodesProgress) =>
@@ -168,6 +170,7 @@ const harness = Effect.fnUntraced(function* (
       report,
     }),
     catchUp: catchUp(walked),
+    paused: Effect.sync(() => paused),
     report,
   })
   yield* Effect.forkChild(queue.run)
@@ -179,6 +182,22 @@ const harness = Effect.fnUntraced(function* (
     history,
     tick: Effect.andThen(queue.tick, settle),
     trigger: Effect.andThen(queue.trigger, settle),
+    // The owner's switch turned on, then off: the worker pauses the queue
+    // on the first, and Resume triggers it.
+    pause: Effect.andThen(
+      Effect.suspend(() => {
+        paused = true
+        return queue.pause
+      }),
+      settle
+    ),
+    resume: Effect.andThen(
+      Effect.suspend(() => {
+        paused = false
+        return queue.trigger
+      }),
+      settle
+    ),
   }
 })
 
@@ -699,5 +718,85 @@ describe("the broker codes run queue: the History walk", () => {
           Option.some(WibDate.make("2026-10-19"))
         )
       })
+  )
+
+  it.effect("Pause stops the walk in progress and every run until Resume", () =>
+    Effect.gen(function* () {
+      yield* TestClock.setTime(wib("2026-11-12", "17:00:00"))
+      const never = yield* Deferred.make<WalkResult>()
+      let first = true
+      const queue = yield* harness((walked) => [
+        fakeWalk("Ajaib", walked, () => {
+          if (!first) return Effect.succeed({ _tag: "walked" })
+          first = false
+          return Deferred.await(never)
+        }),
+        fakeWalk("Stockbit", walked),
+      ])
+      yield* queue.trigger
+      assert.deepStrictEqual(queue.walked, ["Ajaib 2026-11-12"])
+      yield* queue.pause
+      assert.deepStrictEqual(queue.progress.at(-1), {
+        state: "paused",
+        cause: "paused",
+      })
+      // Stockbit's walk never started: the pause ended the run.
+      yield* TestClock.adjust("1 hour")
+      assert.deepStrictEqual(queue.walked, ["Ajaib 2026-11-12"])
+      // Run now, a tab connecting and the next close run nothing.
+      yield* queue.trigger
+      yield* TestClock.setTime(wib("2026-11-13", "16:40:00"))
+      yield* queue.tick
+      assert.deepStrictEqual(queue.walked, ["Ajaib 2026-11-12"])
+      assert.deepStrictEqual(queue.progress.at(-1), {
+        state: "paused",
+        cause: "paused",
+      })
+      // Resume runs the queue at once.
+      yield* queue.resume
+      assert.deepStrictEqual(queue.walked.slice(1, 3), [
+        "Ajaib 2026-11-13",
+        "Stockbit 2026-11-13",
+      ])
+    })
+  )
+
+  it.effect("a worker that starts paused runs nothing", () =>
+    Effect.gen(function* () {
+      yield* TestClock.setTime(wib("2026-11-12", "17:00:00"))
+      const queue = yield* harness((walked) => [fakeWalk("Ajaib", walked)])
+      yield* queue.pause
+      yield* queue.tick
+      assert.deepStrictEqual(queue.walked, [])
+      assert.deepStrictEqual(queue.progress.at(-1), {
+        state: "paused",
+        cause: "paused",
+      })
+    })
+  )
+
+  it.effect("a pause during the extra target's catch-up stops it", () =>
+    Effect.gen(function* () {
+      yield* TestClock.setTime(wib("2026-11-12", "17:00:00"))
+      const never = yield* Deferred.make<WalkResult>()
+      const queue = yield* harness(
+        (walked) => [fakeWalk("Ajaib", walked)],
+        (walked) => [
+          catchUpWalk("Ajaib", walked, () => Deferred.await(never)),
+          catchUpWalk("Stockbit", walked),
+        ]
+      )
+      yield* queue.trigger
+      yield* queue.pause
+      yield* TestClock.adjust("1 hour")
+      assert.deepStrictEqual(queue.walked, [
+        "Ajaib 2026-11-12",
+        "catch-up Ajaib 2026-11-12",
+      ])
+      assert.deepStrictEqual(queue.progress.at(-1), {
+        state: "paused",
+        cause: "paused",
+      })
+    })
   )
 })

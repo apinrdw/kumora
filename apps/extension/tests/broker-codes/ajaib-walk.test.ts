@@ -225,6 +225,25 @@ describe("Ajaib's walk of the day", () => {
         }
       })
   )
+
+  it.effect("says how many trades of N its first pass fetched", () =>
+    Effect.gen(function* () {
+      yield* TestClock.setTime(wib("2026-11-12", "17:30:00"))
+      const trades: Array<[number, Option.Option<number>]> = []
+      const walk = yield* makeAjaibWalk({
+        tab: fakeAjaib(),
+        post: fakeProduction().post,
+        store: memoryStore().store,
+        trades: (fetched, of) =>
+          Effect.sync(() => {
+            trades.push([fetched, of])
+          }),
+      })
+      assert.deepStrictEqual(yield* walk.walk(DAY), { _tag: "walked" })
+      // Each of the first pass's three page seams dropped one trade.
+      assert.deepStrictEqual(trades.at(-1), [N - 3, Option.some(N)])
+    })
+  )
 })
 
 describe("Ajaib's walk: when it starts", () => {

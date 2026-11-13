@@ -28,6 +28,7 @@ import * as Socket from "effect/socket/Socket"
 import { makeAjaibLock } from "./ajaib-lock.ts"
 import { makeAjaibSession } from "./ajaib-session.ts"
 import { makeBackfill } from "./backfill.ts"
+import { badgeOf } from "./badge.ts"
 import { makeAjaibWalk } from "./broker-codes/ajaib-walk.ts"
 import { makeExtraTarget } from "./broker-codes/extra-target.ts"
 import {
@@ -36,6 +37,7 @@ import {
   makeBrokerCodesPoster,
 } from "./broker-codes/poster.ts"
 import { makeHistoryWalk } from "./broker-codes/history.ts"
+import { makeProgress } from "./broker-codes/progress.ts"
 import { makeRunQueue } from "./broker-codes/run-queue.ts"
 import { fetchGet, makeBrokerCodesStatus } from "./broker-codes/status.ts"
 import {
@@ -57,13 +59,24 @@ import {
   historyStore,
   incompleteDaysStore,
   isClockOffsetChange,
+  isAjaibLockChange,
+  isBrokerCodesProgressChange,
+  isBrokerCodesRunAsk,
   isCodeListRelayAsk,
   isSettingsChange,
+  isTargetStatesChange,
+  brokerCodesPausedChange,
+  loadAjaibLock,
+  loadBrokerCodesPaused,
+  loadBrokerCodesProgress,
   loadClockOffset,
   loadSettings,
+  loadTargetStates,
   saveAjaibLock,
   saveBrokerCodesProgress,
+  saveBrokerCodesRun,
   saveCodeListRelay,
+  saveThrottled,
   saveTargetStates,
   sessionPinStore,
   type Settings,
@@ -104,6 +117,9 @@ type WorkerEvent =
   | { readonly _tag: "alarm" }
   | { readonly _tag: "settings" }
   | { readonly _tag: "relay-code-list" }
+  | { readonly _tag: "broker-codes-paused"; readonly paused: boolean }
+  | { readonly _tag: "broker-codes-run" }
+  | { readonly _tag: "badge" }
 
 // Chrome delivers the events that wake a stopped worker only to listeners
 // added synchronously while its script first runs, so they are added here and
@@ -129,39 +145,29 @@ chrome.storage.onChanged.addListener((changes, area) => {
     queue({ _tag: "relay-code-list" })
   if (Effect.runSync(isClockOffsetChange(changes, area)))
     queue({ _tag: "tick" })
+  const paused = Effect.runSync(brokerCodesPausedChange(changes, area))
+  if (Option.isSome(paused))
+    queue({ _tag: "broker-codes-paused", paused: paused.value })
+  if (Effect.runSync(isBrokerCodesRunAsk(changes, area)))
+    queue({ _tag: "broker-codes-run" })
+  if (
+    Effect.runSync(isTargetStatesChange(changes, area)) ||
+    Effect.runSync(isAjaibLockChange(changes, area)) ||
+    Effect.runSync(isBrokerCodesProgressChange(changes, area))
+  )
+    queue({ _tag: "badge" })
 })
 
-// The toolbar badge shows the worst target state.
-const badges: Record<TargetState, { text: string; title: string }> = {
-  off: { text: "", title: "no ingest token" },
-  connected: { text: "", title: "relaying" },
-  connecting: { text: "…", title: "connecting" },
-  retrying: { text: "…", title: "unreachable, retrying" },
-  "rejected-token": { text: "KEY", title: "ingest token rejected" },
-  "reload-extension": { text: "RLD", title: "reload extension" },
-}
-const severity: ReadonlyArray<TargetState> = [
-  "reload-extension",
-  "rejected-token",
-  "retrying",
-  "connecting",
-  "connected",
-  "off",
-]
-
-const showStates = Effect.fnUntraced(function* (states: TargetStates) {
-  yield* saveTargetStates(states)
-  const worst =
-    severity.find((state) => Object.values(states).includes(state)) ?? "off"
-  const title = Object.entries(states)
-    .map(([name, state]) => `${name}: ${badges[state].title}`)
-    .join("\n")
-  yield* Effect.promise(() =>
-    chrome.action.setBadgeText({ text: badges[worst].text })
-  )
-  yield* Effect.promise(() =>
-    chrome.action.setTitle({ title: `Kumora relay\n${title}` })
-  )
+// The toolbar badge follows what the worker stores: the target states, the
+// Ajaib tab's lock and the broker codes progress (badge.ts).
+const showBadge = Effect.gen(function* () {
+  const { text, title } = yield* badgeOf({
+    states: yield* loadTargetStates,
+    lock: yield* loadAjaibLock,
+    progress: yield* loadBrokerCodesProgress,
+  })
+  yield* Effect.promise(() => chrome.action.setBadgeText({ text }))
+  yield* Effect.promise(() => chrome.action.setTitle({ title }))
 })
 
 // Targets: one fiber each, restarted when its settings change.
@@ -194,14 +200,14 @@ const makeTargets = Effect.fnUntraced(function* (options: {
     Effect.suspend(() => {
       states[name] = state
       return Effect.andThen(
-        Effect.flatMap(shown, showStates),
+        Effect.flatMap(shown, saveTargetStates),
         state === "connected" ? Effect.void : receive(name, undefined)
       )
     })
   const stop = (name: TargetName, state: TargetState) =>
     Effect.suspend(() => {
       stops[name] = state
-      return Effect.flatMap(shown, showStates)
+      return Effect.flatMap(shown, saveTargetStates)
     })
   const restart = Effect.fnUntraced(function* (
     name: TargetName,
@@ -237,7 +243,7 @@ const makeTargets = Effect.fnUntraced(function* (options: {
       yield* restart("extra", settings.extra)
     applied = settings
   })
-  yield* Effect.flatMap(shown, showStates)
+  yield* Effect.flatMap(shown, saveTargetStates)
   yield* apply
   return { apply, stop }
 })
@@ -328,8 +334,16 @@ const main = Effect.gen(function* () {
         : ajaibTab.request(request),
   }
   // Every REST call on a site goes through the site's pacer.
-  const stockbitPacer = yield* makePacer({ feed: "Stockbit", tab: stockbitTab })
-  const ajaibPacer = yield* makePacer({ feed: "Ajaib", tab: ajaibRest })
+  const stockbitPacer = yield* makePacer({
+    feed: "Stockbit",
+    tab: stockbitTab,
+    throttled: (until) => saveThrottled("Stockbit", until),
+  })
+  const ajaibPacer = yield* makePacer({
+    feed: "Ajaib",
+    tab: ajaibRest,
+    throttled: (until) => saveThrottled("Ajaib", until),
+  })
   yield* Effect.forkScoped(stockbitPacer.run)
   yield* Effect.forkScoped(ajaibPacer.run)
   const backfill = yield* makeBackfill({
@@ -373,15 +387,20 @@ const main = Effect.gen(function* () {
     report: (state) => Effect.suspend(() => targets.stop("extra", state)),
   })
   yield* Effect.forkScoped(extra.run)
+  // What the options page and the badge show of the walks (progress.ts).
+  const progress = yield* makeProgress(saveBrokerCodesProgress)
   const ajaibWalk = yield* makeAjaibWalk({
     tab: ajaibPacer.tab("walk"),
     post: extra.tee(production.post),
     store: yield* ajaibWalkStore,
+    trades: progress.trades,
   })
   const stockbitWalk = yield* makeStockbitWalk({
     tab: stockbitPacer.tab("walk"),
     post: extra.tee(production.post),
     status: productionStatus.status,
+    trades: progress.trades,
+    signedOut: progress.signedOut,
   })
   const ajaibCatchUp = yield* extra.catchUp("Ajaib", ({ post }) =>
     Effect.flatMap(ajaibCatchUpStore, (store) =>
@@ -393,7 +412,12 @@ const main = Effect.gen(function* () {
   const stockbitExtraCatchUp = yield* extra.catchUp(
     "Stockbit",
     ({ post, status }) =>
-      stockbitCatchUp({ tab: stockbitPacer.tab("walk"), post, status })
+      stockbitCatchUp({
+        tab: stockbitPacer.tab("walk"),
+        post,
+        status,
+        signedOut: progress.signedOut,
+      })
   )
   // The History walk: Stockbit's gap walk of each older day, which walks a
   // day with nothing held whole. The extra target follows it with the
@@ -408,7 +432,7 @@ const main = Effect.gen(function* () {
         Option.map(({ origin }) => origin)
       )
     ),
-    report: saveBrokerCodesProgress,
+    report: progress.report,
   })
   const brokerCodes = yield* makeRunQueue({
     newestDay: [
@@ -419,7 +443,8 @@ const main = Effect.gen(function* () {
     gaps: { feed: "Stockbit", walk: stockbitWalk.gaps },
     history,
     catchUp: [ajaibCatchUp, stockbitExtraCatchUp],
-    report: saveBrokerCodesProgress,
+    paused: loadBrokerCodesPaused,
+    report: progress.report,
   })
   yield* Effect.forkScoped(brokerCodes.run)
   // Today's WIB date on the schedule clock, moved on by the tick.
@@ -505,6 +530,16 @@ const main = Effect.gen(function* () {
         return tick(event._tag === "alarm")
       case "settings":
         return Effect.andThen(targets.apply, brokerCodes.trigger)
+      // The owner's switch: on stops every walk, off (Resume) is a trigger.
+      case "broker-codes-paused":
+        return event.paused ? brokerCodes.pause : brokerCodes.trigger
+      case "broker-codes-run":
+        return Effect.andThen(
+          brokerCodes.trigger,
+          saveBrokerCodesRun("started")
+        )
+      case "badge":
+        return showBadge
       case "relay-code-list":
         return Effect.flatMap(scheduleNow, (now) =>
           codeList.relayNow(ajaibRest, now, (state) =>
@@ -513,6 +548,7 @@ const main = Effect.gen(function* () {
         )
     }
   }
+  yield* showBadge
   return yield* Effect.forever(Effect.flatMap(Queue.take(events), handle))
 })
 

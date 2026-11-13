@@ -68,6 +68,25 @@ export const newestClosedDay = Effect.fnUntraced(
   )
 )
 
+// The last `count` trading days closed at `instant`, newest first, market
+// hours or not: the options page's list of days. Empty past the baked
+// schedule.
+export const recentClosedDays = Effect.fnUntraced(
+  function* (instant: DateTime.DateTime, count: number) {
+    const today = yield* wibDateAt(instant)
+    const closed = (yield* wibTime(instant)) >= CLOSES_AT
+    const days: Array<WibDate> = []
+    for (let back = closed ? 0 : 1; days.length < count && back <= 62; back++) {
+      const day = yield* daysFrom(today, -back)
+      if (yield* isTradingDay(day)) days.push(day)
+    }
+    return days
+  },
+  Effect.catchTag("ScheduleYearMissing", () =>
+    Effect.succeed<ReadonlyArray<WibDate>>([])
+  )
+)
+
 // Decision: Ajaib's tape holds only the day's own evening, so its window
 // runs from the close until 08:40 WIB on the next trading day
 // (apinrdw/kumora#244, "Ajaib's window"). None past the baked schedule.

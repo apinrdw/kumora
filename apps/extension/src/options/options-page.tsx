@@ -31,6 +31,7 @@ import {
   type TargetState,
   type TargetStates,
 } from "../worker/settings.ts"
+import { BrokerCodesCard } from "./broker-codes-card.tsx"
 import { settingsFromForm } from "./form.ts"
 import { optionsRuntime } from "./runtime.ts"
 
@@ -346,6 +347,7 @@ export function OptionsPage() {
           </p>
         </div>
       </form>
+      <BrokerCodesCard />
       <CodeListRelayCard />
       <AjaibSignIn />
     </main>

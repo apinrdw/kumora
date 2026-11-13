@@ -54,7 +54,7 @@ const lacks = (status: BrokerCodesStatus) =>
   })
 
 // Whether two statuses hold the same trades of a day.
-const holdsSame = (a: BrokerCodesStatus, b: BrokerCodesStatus) =>
+export const holdsSame = (a: BrokerCodesStatus, b: BrokerCodesStatus) =>
   Effect.sync(
     () =>
       a.n === b.n &&

@@ -1,6 +1,6 @@
 // What the options page sets and what the service worker reports back, both
 // kept in chrome.storage (spec apinrdw/kumora#138, "Batching and targets").
-import { WibDate } from "@workspace/relay"
+import { WibDate, type Feed } from "@workspace/relay"
 import { Effect, Option, Schema } from "effect"
 
 import { AjaibLock } from "./ajaib-lock.ts"
@@ -402,4 +402,153 @@ export const saveBrokerCodesProgress = Effect.fnUntraced(function* (
   yield* Effect.promise(() =>
     chrome.storage.session.set({ [BROKER_CODES_PROGRESS_KEY]: encoded })
   )
+})
+
+export const loadBrokerCodesProgress = Effect.gen(function* () {
+  const stored = yield* Effect.promise(() =>
+    chrome.storage.session.get(BROKER_CODES_PROGRESS_KEY)
+  )
+  return Schema.decodeUnknownOption(BrokerCodesProgress)(
+    stored[BROKER_CODES_PROGRESS_KEY]
+  )
+})
+
+export const isBrokerCodesProgressChange = Effect.fnUntraced(function* (
+  changes: Readonly<Record<string, unknown>>,
+  area: string
+) {
+  return area === "session" && BROKER_CODES_PROGRESS_KEY in changes
+})
+
+// Decision: the owner's Pause switch lives in chrome.storage.local, so a
+// pause holds across restarts of the worker and of Chrome. It stops every
+// broker codes walk; the live relay and Market Live's backfill go on. See
+// apinrdw/kumora#244, "Pause".
+const BROKER_CODES_PAUSED_KEY = "brokerCodesPaused"
+
+export const loadBrokerCodesPaused = Effect.gen(function* () {
+  const stored = yield* Effect.promise(() =>
+    chrome.storage.local.get(BROKER_CODES_PAUSED_KEY)
+  )
+  return stored[BROKER_CODES_PAUSED_KEY] === true
+})
+
+export const saveBrokerCodesPaused = Effect.fnUntraced(function* (
+  paused: boolean
+) {
+  yield* Effect.promise(() =>
+    chrome.storage.local.set({ [BROKER_CODES_PAUSED_KEY]: paused })
+  )
+})
+
+// A change of the switch: some(true) when it was turned on.
+export const brokerCodesPausedChange = Effect.fnUntraced(function* (
+  changes: Readonly<Record<string, chrome.storage.StorageChange>>,
+  area: string
+) {
+  if (area !== "local" || !(BROKER_CODES_PAUSED_KEY in changes))
+    return Option.none<boolean>()
+  return Option.some(changes[BROKER_CODES_PAUSED_KEY]?.newValue === true)
+})
+
+// Decision: "Run now" asks the worker through session storage, as the code
+// list's relay button does: the page writes `asked`, the change wakes a
+// stopped worker, and the worker answers `started` once it has triggered
+// the run queue, so the next press is a change again. See
+// apinrdw/kumora#244, "Run now".
+const BROKER_CODES_RUN_KEY = "brokerCodesRun"
+const BrokerCodesRun = Schema.Literals(["asked", "started"])
+type BrokerCodesRun = typeof BrokerCodesRun.Type
+
+export const saveBrokerCodesRun = Effect.fnUntraced(function* (
+  run: BrokerCodesRun
+) {
+  yield* Effect.promise(() =>
+    chrome.storage.session.set({ [BROKER_CODES_RUN_KEY]: run })
+  )
+})
+
+export const loadBrokerCodesRun = Effect.gen(function* () {
+  const stored = yield* Effect.promise(() =>
+    chrome.storage.session.get(BROKER_CODES_RUN_KEY)
+  )
+  return Schema.decodeUnknownOption(BrokerCodesRun)(
+    stored[BROKER_CODES_RUN_KEY]
+  )
+})
+
+export const isBrokerCodesRunChange = Effect.fnUntraced(function* (
+  changes: Readonly<Record<string, unknown>>,
+  area: string
+) {
+  return area === "session" && BROKER_CODES_RUN_KEY in changes
+})
+
+export const isBrokerCodesRunAsk = Effect.fnUntraced(function* (
+  changes: Readonly<Record<string, chrome.storage.StorageChange>>,
+  area: string
+) {
+  return (
+    (yield* isBrokerCodesRunChange(changes, area)) &&
+    changes[BROKER_CODES_RUN_KEY]?.newValue === "asked"
+  )
+})
+
+// Until when (epoch ms) each site's pacer stopped calling after a throttle
+// (pacer.ts), in session storage for the options page.
+const THROTTLED_KEY = "brokerCodesThrottled"
+const Throttled = Schema.Struct({
+  Stockbit: Schema.optionalKey(Schema.Finite),
+  Ajaib: Schema.optionalKey(Schema.Finite),
+})
+type Throttled = typeof Throttled.Type
+
+export const loadThrottled = Effect.gen(function* () {
+  const stored = yield* Effect.promise(() =>
+    chrome.storage.session.get(THROTTLED_KEY)
+  )
+  return Option.getOrElse(
+    Schema.decodeUnknownOption(Throttled)(stored[THROTTLED_KEY]),
+    (): Throttled => ({})
+  )
+})
+
+export const saveThrottled = Effect.fnUntraced(function* (
+  feed: Feed,
+  until: number
+) {
+  const throttled = yield* loadThrottled
+  yield* Effect.promise(() =>
+    chrome.storage.session.set({
+      [THROTTLED_KEY]: { ...throttled, [feed]: until },
+    })
+  )
+})
+
+export const isThrottledChange = Effect.fnUntraced(function* (
+  changes: Readonly<Record<string, unknown>>,
+  area: string
+) {
+  return area === "session" && THROTTLED_KEY in changes
+})
+
+export const loadAjaibLock = Effect.gen(function* () {
+  const stored = yield* Effect.promise(() =>
+    chrome.storage.session.get(AJAIB_LOCK_KEY)
+  )
+  return Schema.decodeUnknownOption(AjaibLock)(stored[AJAIB_LOCK_KEY])
+})
+
+export const isAjaibLockChange = Effect.fnUntraced(function* (
+  changes: Readonly<Record<string, unknown>>,
+  area: string
+) {
+  return area === "session" && AJAIB_LOCK_KEY in changes
+})
+
+export const isHistoryChange = Effect.fnUntraced(function* (
+  changes: Readonly<Record<string, unknown>>,
+  area: string
+) {
+  return area === "local" && HISTORY_KEY in changes
 })
