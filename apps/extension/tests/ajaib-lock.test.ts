@@ -145,6 +145,7 @@ describe("Ajaib's PIN lock", () => {
     Effect.gen(function* () {
       const { page, requests } = yield* harness({ pin: "123456" })
       yield* page(LOCKED)
+      yield* page({ _tag: "pin-validated", status: 200 })
       yield* page(UNLOCKED)
       yield* TestClock.adjust("4 hours")
       yield* page(LOCKED)

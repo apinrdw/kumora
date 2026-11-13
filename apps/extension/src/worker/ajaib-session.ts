@@ -121,8 +121,8 @@ export const makeAjaibSession = Effect.fnUntraced(function* (options: {
   // Decision: a PIN is tried once: its sign-in moves from `waiting` (a new
   // entry) to `signing-in` before the call, one check at a time, so no
   // retry, restart or second tick sends it again; a wrong PIN tried twice
-  // could lock the account. It stays for the lock screen only once signed
-  // in, else it is wiped. See apinrdw/kumora#244, "The PIN's storage".
+  // could lock the account. Any answer but `signed-in` wipes it, so the lock
+  // screen types none other. See apinrdw/kumora#244, "The PIN's storage".
   const check = Effect.gen(function* () {
     if (!(yield* tab.attached)) return
     const latest = yield* store.latest

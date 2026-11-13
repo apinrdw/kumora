@@ -56,23 +56,26 @@ export const makeAjaibLock = Effect.fnUntraced(function* (options: {
       return options.save(next)
     })
 
-  // Decision: after the PIN is typed the lock screen is given the whole
-  // REFUSAL_WAIT: refused at once on a non-200 answer to the page's PIN
-  // validate call, else by whether it still shows at the end. A screen that
-  // goes and comes back sooner is the one just typed into, redrawn, since
-  // Ajaib's idle lock takes 4 h; ending on its going would type again.
+  // Decision: after the PIN is typed the lock screen has the whole
+  // REFUSAL_WAIT, and is unlocked only if the page's PIN validate call
+  // answered 200 and the screen is gone at its end; a non-200 refuses at
+  // once. A screen that goes and comes back sooner was redrawn, and one gone
+  // with no answer (a slow check, a closed tab) may yet refuse the PIN.
   const refused = Effect.gen(function* () {
+    let accepted = false
     const answered = yield* Effect.timeoutOption(
       Effect.gen(function* () {
         while (true) {
           const event = yield* Queue.take(events)
           if (event._tag === "lock") locked = event.locked
-          if (event._tag === "pin-validated" && event.status !== 200) return
+          if (event._tag !== "pin-validated") continue
+          if (event.status !== 200) return
+          accepted = true
         }
       }),
       REFUSAL_WAIT
     )
-    return Option.isSome(answered) || locked
+    return Option.isSome(answered) || locked || !accepted
   })
 
   // Decision: the lock screen gets the kept PIN once per lock, and only from
@@ -99,7 +102,8 @@ export const makeAjaibLock = Effect.fnUntraced(function* (options: {
           ? now.pin
           : Option.none<string>()
       )
-      // A newer entry took its place: that one waits for its own sign-in.
+      // A newer entry took its place: it has no mark, and waits for its own
+      // sign-in.
       if (Option.isNone(pin)) return
       const typed = yield* tab.request({ _tag: "type-pin", pin: pin.value })
       if (Option.isSome(typed) && typed.value.status !== 200) {
@@ -112,7 +116,9 @@ export const makeAjaibLock = Effect.fnUntraced(function* (options: {
       }
     }
     yield* entry.wipePin
-    yield* record({ state: "locked", reason: "refused" })
+    yield* record(
+      locked ? { state: "locked", reason: "refused" } : { state: "unlocked" }
+    )
   })
 
   // A lock seen on a page event, or still there on a tick, is unlocked if it
