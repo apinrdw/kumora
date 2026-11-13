@@ -12,6 +12,7 @@ import {
   type BrokerCodesBatch,
   type BrokerCodesStatus,
   type CrossCheck,
+  type Feed,
   type TradeCodes,
   type WibDate,
 } from "@workspace/relay"
@@ -51,7 +52,7 @@ const SCAN_PAGE = 64
 // Stockbit's walk position and whether it ended, kept as the `cross-check`
 // fact. `walkedTo` is the highest trade number Stockbit sent.
 const CrossCheckFact = Schema.fromJsonString(
-  Schema.Struct({ walkedTo: Schema.Number, ended: Schema.Boolean })
+  Schema.Struct({ walkedTo: TradeNumber, ended: Schema.Boolean })
 )
 type CrossCheckFact = typeof CrossCheckFact.Type
 const decodeCrossCheck = Schema.decodeUnknownOption(CrossCheckFact)
@@ -173,7 +174,7 @@ const crossCheckOf = (
       return { state: "compared", covered: tally.covered, differences }
     return {
       state: "pending",
-      walkedTo: TradeNumber.make(String(walk.walkedTo)),
+      walkedTo: walk.walkedTo,
     }
   })
 
@@ -213,9 +214,6 @@ export const checkedBatch = (
     })
   )
 
-// Which site supplied a kept trade, as `held` names it.
-type HeldSource = "Ajaib" | "Stockbit"
-
 export const makeBrokerCodes = Effect.fnUntraced(function* (options: {
   readonly date: WibDate
   // The trading day's database, its facts table made by the day store.
@@ -240,8 +238,8 @@ export const makeBrokerCodes = Effect.fnUntraced(function* (options: {
     })
 
   const crossCheckFact = Effect.map(fact(Fact.crossCheck), (text) =>
-    Option.getOrElse(decodeCrossCheck(text), () => ({
-      walkedTo: 0,
+    Option.getOrElse(decodeCrossCheck(text), (): CrossCheckFact => ({
+      walkedTo: TradeNumber.make("0"),
       ended: false,
     }))
   )
@@ -260,8 +258,11 @@ export const makeBrokerCodes = Effect.fnUntraced(function* (options: {
       facts.push([Fact.brokerCodesN, batch.end.n])
     if (batch.feed !== "Stockbit") return facts
     const before = yield* crossCheckFact
-    const after = {
-      walkedTo: Math.max(before.walkedTo, highest),
+    const after: CrossCheckFact = {
+      walkedTo:
+        Number(before.walkedTo) >= highest
+          ? before.walkedTo
+          : TradeNumber.make(String(highest)),
       ended: before.ended || batch.end !== undefined,
     }
     if (after.walkedTo !== before.walkedTo || after.ended !== before.ended)
@@ -339,7 +340,7 @@ export const makeBrokerCodes = Effect.fnUntraced(function* (options: {
     const record = (yield* chunkOf(chunk)).subarray(at, at + RECORD)
     const source = record[SOURCE]
     if (source === 0 || source === undefined)
-      return Option.none<{ codes: TradeCodes; source: HeldSource }>()
+      return Option.none<{ codes: TradeCodes; source: Feed }>()
     return Option.some({
       codes: yield* codesOf(record),
       source:
