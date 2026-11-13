@@ -19,14 +19,17 @@ import {
   type Send,
 } from "./poster.ts"
 import type { DayWalk, WalkResult } from "./run-queue.ts"
-import { statusOnce, type Get } from "./status.ts"
+import {
+  askStatus,
+  statusOnce,
+  type Get,
+  type StatusRefusal,
+} from "./status.ts"
 
-// The outcomes that stop a target until its settings change.
-type Stop = Extract<PostOutcome, "rejected-token" | "reload-extension">
-
-// What the extra target's Target state shows over its socket's: a stop, or
-// `retrying` while its requests fail; none once one goes through.
-export type ExtraState = Stop | "retrying"
+// What the extra target's Target state shows over its socket's: a refusal
+// that stops it until its settings change, or `retrying` while its requests
+// fail; none once one goes through.
+export type ExtraState = StatusRefusal | "retrying"
 
 // Decision: the batches handed to the extra target wait in a lane of 16
 // (~80,000 trades at Ajaib's 5,000 a batch); past that a batch is dropped,
@@ -101,7 +104,7 @@ export const makeExtraTarget = Effect.fnUntraced(function* (options: {
   // The settings a 401 or 426 came back on, and which.
   let stopped = Option.none<{
     readonly target: BrokerCodesTarget
-    readonly stop: Stop
+    readonly stop: StatusRefusal
   }>()
 
   // Decision: a 401 or 426 stops the extra target until its origin or token
@@ -120,26 +123,44 @@ export const makeExtraTarget = Effect.fnUntraced(function* (options: {
       )
     )
 
+  const stopOn = (target: BrokerCodesTarget, stop: StatusRefusal) =>
+    Effect.suspend(() => {
+      stopped = Option.some({ target, stop })
+      return options.report(Option.some(stop))
+    })
+
   const post = Effect.fnUntraced(function* (batch: BrokerCodesBatch) {
     const target = yield* options.target
     if (Option.isNone(target)) return "off" satisfies PostOutcome
     const stop = yield* stopOf(target.value)
     if (Option.isSome(stop)) return stop.value
     const outcome = yield* poster.post(batch)
-    if (outcome === "rejected-token" || outcome === "reload-extension") {
-      stopped = Option.some({ target: target.value, stop: outcome })
-      yield* options.report(Option.some(outcome))
-    }
+    if (outcome === "rejected-token" || outcome === "reload-extension")
+      yield* stopOn(target.value, outcome)
     return outcome
   })
 
-  // The extra target's status of a day; none when it is unset, stopped or
-  // didn't answer.
+  // The extra target's status of a day; none when it is unset, stopped,
+  // refused the read (which stops it, as a post's refusal does) or didn't
+  // answer.
   const status = Effect.fnUntraced(function* (day: WibDate) {
     const target = yield* options.target
     if (Option.isNone(target) || Option.isSome(yield* stopOf(target.value)))
       return Option.none<BrokerCodesStatus>()
-    return yield* statusOnce(get, target.value, day)
+    const asked = yield* askStatus(get, target.value, day)
+    if (Option.isSome(asked) && typeof asked.value === "string")
+      yield* stopOn(target.value, asked.value)
+    return Option.filter(asked, (held) => typeof held !== "string")
+  })
+
+  // Why the catch-up got no status: the target's stop, or no token.
+  const noStatusCause = Effect.gen(function* () {
+    const target = yield* options.target
+    if (Option.isNone(target)) return "no-token" as const
+    return Option.getOrElse(
+      yield* stopOf(target.value),
+      () => "no-token" as const
+    )
   })
 
   // Whether the extra target, holding `held` of a day, is behind on it: the
@@ -202,7 +223,10 @@ export const makeExtraTarget = Effect.fnUntraced(function* (options: {
         walk: Effect.fnUntraced(function* (day: WibDate) {
           const held = yield* status(day)
           if (Option.isNone(held))
-            return { _tag: "stopped", cause: "no-token" } satisfies WalkResult
+            return {
+              _tag: "stopped",
+              cause: yield* noStatusCause,
+            } satisfies WalkResult
           if (!(yield* behind(day, held.value)))
             return { _tag: "walked" } satisfies WalkResult
           wanted = yield* lacks(held.value)

@@ -34,8 +34,18 @@ export const fetchGet: Get = ({ url, token }) =>
     return { status: response.status, body }
   }).pipe(Effect.orElseSucceed(() => ({ status: 0, body: "" })))
 
-// A day's status from a target, asked once; none when it answered none.
-export const statusOnce = Effect.fnUntraced(function* (
+// What a target refused a status read with: a 401, or a 426 or a 200 whose
+// body isn't this version's status, which means the dashboard moved on.
+export type StatusRefusal = Extract<
+  StatusOutcome,
+  "rejected-token" | "reload-extension"
+>
+
+type Asked = BrokerCodesStatus | StatusRefusal
+
+// A day's status from a target, asked once: the status, the target's
+// refusal, or none when it gave no answer worth reading.
+export const askStatus = Effect.fnUntraced(function* (
   get: Get,
   target: BrokerCodesTarget,
   day: WibDate
@@ -45,9 +55,21 @@ export const statusOnce = Effect.fnUntraced(function* (
     url: `${target.origin}${path}`,
     token: target.token,
   })
-  if (answer.status !== 200) return Option.none<BrokerCodesStatus>()
-  return yield* Effect.option(decodeBrokerCodesStatus(answer.body))
+  if (answer.status === 401) return Option.some<Asked>("rejected-token")
+  if (answer.status === 426) return Option.some<Asked>("reload-extension")
+  if (answer.status !== 200) return Option.none<Asked>()
+  return yield* decodeBrokerCodesStatus(answer.body).pipe(
+    Effect.map(Option.some<Asked>),
+    Effect.orElseSucceed(() => Option.some<Asked>("reload-extension"))
+  )
 })
+
+// A day's status from a target, asked once; none when it answered none.
+export const statusOnce = (get: Get, target: BrokerCodesTarget, day: WibDate) =>
+  Effect.map(
+    askStatus(get, target, day),
+    Option.filter((asked) => typeof asked !== "string")
+  )
 
 export const makeBrokerCodesStatus = Effect.fnUntraced(function* (options: {
   // The target as its settings stand now; none without a token.
@@ -55,27 +77,15 @@ export const makeBrokerCodesStatus = Effect.fnUntraced(function* (options: {
   readonly get: Get
 }) {
   return {
-    // Decision: a GET that fails for any reason but 401 or 426 is asked again
-    // with the poster's backoff, 1 s doubling to 30 s. A 200 whose body isn't
-    // this version's status means the dashboard moved on, as a 426 does.
+    // Decision: a GET that fails for any reason but a refusal is asked again
+    // with the poster's backoff, 1 s doubling to 30 s.
     status: Effect.fnUntraced(function* (day: WibDate) {
-      const path = yield* brokerCodesPath(day)
       let retry = FIRST_RETRY
       while (true) {
         const target = yield* options.target
         if (Option.isNone(target)) return "off" satisfies StatusOutcome
-        const { origin, token } = target.value
-        const answer = yield* options.get({ url: `${origin}${path}`, token })
-        if (answer.status === 200)
-          return yield* decodeBrokerCodesStatus(answer.body).pipe(
-            Effect.orElseSucceed(
-              (): StatusOutcome => "reload-extension" satisfies StatusOutcome
-            )
-          )
-        if (answer.status === 401)
-          return "rejected-token" satisfies StatusOutcome
-        if (answer.status === 426)
-          return "reload-extension" satisfies StatusOutcome
+        const asked = yield* askStatus(options.get, target.value, day)
+        if (Option.isSome(asked)) return asked.value satisfies StatusOutcome
         yield* Effect.sleep(retry)
         retry = Duration.min(Duration.times(retry, 2), LAST_RETRY)
       }
