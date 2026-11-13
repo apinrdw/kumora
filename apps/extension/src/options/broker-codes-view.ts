@@ -64,18 +64,11 @@ export const causesView = Effect.fnUntraced(function* (stored: {
 export const dayStatus = (target: BrokerCodesTarget, day: WibDate) =>
   statusOnce(fetchGet, target, day)
 
-const missingCount = (status: BrokerCodesStatus) =>
-  Effect.sync(() =>
-    status.missing.reduce(
-      (sum, [from, to]) => sum + Number(to) - Number(from) + 1,
-      0
-    )
-  )
-
 const heldLabel = Effect.fnUntraced(function* (status: BrokerCodesStatus) {
   if (status.complete) return "Complete"
-  const missing = yield* missingCount(status)
-  return missing > 0 ? `${yield* count(missing)} missing` : "Incomplete"
+  return status.missingCount > 0
+    ? `${yield* count(status.missingCount)} missing`
+    : "Incomplete"
 })
 
 const siteNames = {

@@ -11,20 +11,46 @@ import { WibDate } from "./schedule.ts"
 // Bump on any change to a batch's or a status's shape. Only this version is
 // accepted: the Worker answers any other with 426, which the extension shows
 // as `reload-extension`. Separate from IngestProtocolVersion.
-export const BrokerCodesProtocolVersion = 1
+// Decision: 2 since the status lists at most MISSING_RANGES ranges and
+// counts the rest. A version 1 extension would read a capped list as all the
+// day lacks; it decodes no version 2 status, so it shows `reload-extension`.
+export const BrokerCodesProtocolVersion = 2
 
 const PREFIX = "/api/broker-codes"
+
+const decodeDate = Schema.decodeUnknownOption(WibDate)
+const decodeTradeNumber = Schema.decodeUnknownOption(TradeNumber)
 
 // Where the dashboard Worker takes a day's batches (POST) and answers its
 // status (GET). Nothing else lives under the prefix.
 export const brokerCodesPath = (day: WibDate) =>
   Effect.sync(() => `${PREFIX}/${day}`)
 
+// The status GET's query naming the trade number its `missing` starts
+// after; absent is 0, so the list starts at trade 1.
+const AFTER = "after"
+
+// Where the extension asks a day's status, listing ranges after `after`.
+export const brokerCodesStatusPath = (day: WibDate, after: TradeNumber) =>
+  Effect.map(brokerCodesPath(day), (path) => `${path}?${AFTER}=${after}`)
+
+// What a status GET's query (its URLSearchParams) names to list after: none
+// when `after` is there but isn't a trade number.
+export const brokerCodesAfter = (search: {
+  readonly get: (name: string) => string | null
+}) =>
+  Effect.sync(() => {
+    const after = search.get(AFTER)
+    if (after === null) return Option.some(0)
+    return Option.filter(
+      Option.map(decodeTradeNumber(after), Number),
+      Number.isSafeInteger
+    )
+  })
+
 // What precedes the ingest token in a batch POST's or a status GET's
 // `authorization` header.
 export const BROKER_CODES_AUTH_SCHEME = "Bearer "
-
-const decodeDate = Schema.decodeUnknownOption(WibDate)
 
 // The day a path names: none for a path outside the prefix, which isn't a
 // broker codes path; some none for one under it that names no valid day,
@@ -98,16 +124,28 @@ const CrossCheck = Schema.Union([
 ])
 export type CrossCheck = typeof CrossCheck.Type
 
+// Decision: a status lists at most 1,000 missing ranges, the first after
+// the GET's `after`, and counts every missing trade in `missingCount`. A
+// 1.5M-trade day missing every other trade has 750,000 ranges, which as one
+// list exhausted a Worker's 128 MiB. A walk pages on with `after`.
+export const MISSING_RANGES = 1_000
+
 // A day's broker codes as its trading-day object holds them. `n` is the
-// highest `end.n` either site sent, null until one did; `missing` is the
-// inclusive ranges of 1..n without valid codes, or of 1..(highest held)
-// while n is unknown; `sources` counts the kept trades each site supplied.
+// highest `end.n` either site sent, null until one did. The day's missing
+// trades are the inclusive ranges of 1..n without valid codes, or of
+// 1..(highest held) while n is unknown: `missingCount` counts them all, and
+// `missing` lists the first MISSING_RANGES ranges of them past the GET's
+// `after`, clipped to start after it. `sources` counts the kept trades each
+// site supplied.
 const BrokerCodesStatus = Schema.Struct({
   version: Schema.Literal(BrokerCodesProtocolVersion),
   day: WibDate,
   n: Schema.NullOr(TradeNumber),
   complete: Schema.Boolean,
-  missing: Schema.Array(Schema.Tuple([TradeNumber, TradeNumber])),
+  missing: Schema.Array(Schema.Tuple([TradeNumber, TradeNumber])).check(
+    Schema.isMaxLength(MISSING_RANGES)
+  ),
+  missingCount: Schema.Int,
   sources: Schema.Struct({ ajaib: Schema.Int, stockbit: Schema.Int }),
   crossCheck: CrossCheck,
 })

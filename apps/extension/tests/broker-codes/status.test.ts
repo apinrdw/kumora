@@ -24,6 +24,7 @@ const STATUS: BrokerCodesStatus = {
   n: null,
   complete: false,
   missing: [[TradeNumber.make("1"), TradeNumber.make("40")]],
+  missingCount: 40,
   sources: { ajaib: 0, stockbit: 60 },
   crossCheck: { state: "none" },
 }
@@ -54,9 +55,17 @@ describe("reading a day's broker codes status", () => {
         get: target.get,
       })
       assert.deepStrictEqual(yield* reader.status(DAY), STATUS)
+      assert.deepStrictEqual(
+        yield* reader.status(DAY, TradeNumber.make("2000")),
+        STATUS
+      )
       assert.deepStrictEqual(target.requests, [
         {
-          url: "https://dashboard.example/api/broker-codes/2026-11-12",
+          url: "https://dashboard.example/api/broker-codes/2026-11-12?after=0",
+          token: "ingest-token",
+        },
+        {
+          url: "https://dashboard.example/api/broker-codes/2026-11-12?after=2000",
           token: "ingest-token",
         },
       ])
@@ -103,7 +112,7 @@ describe("reading a day's broker codes status", () => {
         assert.strictEqual(yield* answering(401), "rejected-token")
         assert.strictEqual(yield* answering(426), "reload-extension")
         assert.strictEqual(
-          yield* answering(200, JSON.stringify({ ...STATUS, version: 2 })),
+          yield* answering(200, JSON.stringify({ ...STATUS, version: 1 })),
           "reload-extension"
         )
       })

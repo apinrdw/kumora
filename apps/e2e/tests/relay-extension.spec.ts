@@ -331,6 +331,7 @@ const completeDay = (day: WibDate): BrokerCodesStatus => ({
   n: TradeNumber.make("1000"),
   complete: true,
   missing: [],
+  missingCount: 0,
   sources: { ajaib: 990, stockbit: 10 },
   crossCheck: { state: "compared", covered: 1000, differences: 0 },
 })
@@ -355,6 +356,7 @@ test("the options page shows the broker codes walks, and Pause and Run now steer
           ...completeDay(day),
           complete: false,
           missing: [[TradeNumber.make("5"), TradeNumber.make("10")]],
+          missingCount: 6,
           sources: { ajaib: 0, stockbit: 994 },
           crossCheck: { state: "none" },
         }
@@ -365,6 +367,7 @@ test("the options page shows the broker codes walks, and Pause and Run now steer
           ...completeDay(day),
           complete: false,
           missing: [[TradeNumber.make("1"), TradeNumber.make("10")]],
+          missingCount: 10,
           sources: { ajaib: 990, stockbit: 0 },
         }
       : brokers.production.statuses(day)
@@ -490,6 +493,7 @@ test("the options page asks the last 10 days again when the targets change", asy
           ...completeDay(day),
           complete: false,
           missing: [[TradeNumber.make("5"), TradeNumber.make("10")]],
+          missingCount: 6,
           sources: { ajaib: 0, stockbit: 994 },
           crossCheck: { state: "none" },
         }
@@ -500,6 +504,7 @@ test("the options page asks the last 10 days again when the targets change", asy
           ...completeDay(day),
           complete: false,
           missing: [[TradeNumber.make("1"), TradeNumber.make("10")]],
+          missingCount: 10,
           sources: { ajaib: 990, stockbit: 0 },
         }
       : brokers.production.statuses(day)

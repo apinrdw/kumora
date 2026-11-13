@@ -6,7 +6,9 @@
 import {
   BrokerCode,
   BrokerCodesProtocolVersion,
+  MISSING_RANGES,
   TradeNumber,
+  brokerCodesAfter,
   decodeBrokerCodesBatch,
   encodeBrokerCodesStatus,
   type BrokerCodesBatch,
@@ -152,27 +154,43 @@ interface Tally {
   // The lowest number not yet accounted for.
   next: number
   readonly limit: number
+  // The highest number the listed ranges start after.
+  readonly after: number
+  // At most MISSING_RANGES, so a fragmented day holds no more in memory.
   readonly missing: Array<readonly [number, number]>
+  missingCount: number
   ajaib: number
   stockbit: number
   covered: number
 }
 
-// One chunk's records into the tally, in trade number order.
-const tallyChunk = (tally: Tally, chunk: number, codes: Uint8Array) =>
+// The missing run first..last into the tally: counted, and listed past
+// `after` while the list has room.
+const tallyGap = (tally: Tally, first: number, last: number) =>
   Effect.sync(() => {
-    for (let slot = 0; slot < CHUNK; slot++) {
-      const source = codes[slot * RECORD + SOURCE]
-      if (source === 0 || source === undefined) continue
-      if (source === Source.stockbit) tally.stockbit++
-      else tally.ajaib++
-      if (source === Source.both) tally.covered++
-      const number = chunk * CHUNK + slot + 1
-      if (number > tally.next && tally.next <= tally.limit)
-        tally.missing.push([tally.next, Math.min(number - 1, tally.limit)])
-      tally.next = number + 1
-    }
+    tally.missingCount += last - first + 1
+    if (last > tally.after && tally.missing.length < MISSING_RANGES)
+      tally.missing.push([Math.max(first, tally.after + 1), last])
   })
+
+// One chunk's records into the tally, in trade number order.
+const tallyChunk = Effect.fnUntraced(function* (
+  tally: Tally,
+  chunk: number,
+  codes: Uint8Array
+) {
+  for (let slot = 0; slot < CHUNK; slot++) {
+    const source = codes[slot * RECORD + SOURCE]
+    if (source === 0 || source === undefined) continue
+    if (source === Source.stockbit) tally.stockbit++
+    else tally.ajaib++
+    if (source === Source.both) tally.covered++
+    const number = chunk * CHUNK + slot + 1
+    if (number > tally.next && tally.next <= tally.limit)
+      yield* tallyGap(tally, tally.next, Math.min(number - 1, tally.limit))
+    tally.next = number + 1
+  }
+})
 
 // Nothing to compare when Ajaib supplied nothing; compared once Stockbit's
 // walk ended; pending at its position until then.
@@ -414,20 +432,24 @@ export const makeBrokerCodes = Effect.fnUntraced(function* (options: {
     }
   })
 
-  // The day's status, from one scan of its chunks.
-  const status = Effect.gen(function* () {
+  // The day's status, from one scan of its chunks, listing the missing
+  // ranges after trade `after`.
+  const status = Effect.fnUntraced(function* (after: number) {
     const storedN = yield* fact(Fact.brokerCodesN)
     const n = storedN === undefined ? undefined : Number(storedN)
     const tally: Tally = {
       next: 1,
       limit: n ?? Number.MAX_SAFE_INTEGER,
+      after,
       missing: [],
+      missingCount: 0,
       ajaib: 0,
       stockbit: 0,
       covered: 0,
     }
     yield* scan(tally)
-    if (n !== undefined && tally.next <= n) tally.missing.push([tally.next, n])
+    if (n !== undefined && tally.next <= n)
+      yield* tallyGap(tally, tally.next, n)
     const differences = yield* Effect.sync(() =>
       Number(
         sql.exec("SELECT count(*) AS count FROM cross_check_differences")[0]
@@ -438,11 +460,12 @@ export const makeBrokerCodes = Effect.fnUntraced(function* (options: {
       version: BrokerCodesProtocolVersion,
       day: options.date,
       n: n === undefined ? null : TradeNumber.make(String(n)),
-      complete: n !== undefined && tally.missing.length === 0,
+      complete: n !== undefined && tally.missingCount === 0,
       missing: tally.missing.map(([first, last]) => [
         TradeNumber.make(String(first)),
         TradeNumber.make(String(last)),
       ]),
+      missingCount: tally.missingCount,
       sources: { ajaib: tally.ajaib, stockbit: tally.stockbit },
       crossCheck: yield* crossCheckOf(
         tally,
@@ -462,10 +485,13 @@ export const makeBrokerCodes = Effect.fnUntraced(function* (options: {
     return yield* noStoreAnswer(200)
   })
 
-  const statusAnswer = Effect.gen(function* () {
+  // A status GET's answer: 400 when its `after` isn't a trade number.
+  const statusAnswer = Effect.fnUntraced(function* (search: URLSearchParams) {
+    const after = yield* brokerCodesAfter(search)
+    if (Option.isNone(after)) return yield* noStoreAnswer(400, "Bad after")
     return yield* noStoreAnswer(
       200,
-      yield* encodeBrokerCodesStatus(yield* status),
+      yield* encodeBrokerCodesStatus(yield* status(after.value)),
       { "Content-Type": "application/json" }
     )
   })

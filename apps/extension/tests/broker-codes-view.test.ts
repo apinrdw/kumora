@@ -21,6 +21,7 @@ const COMPLETE: BrokerCodesStatus = {
   n: TradeNumber.make("1000"),
   complete: true,
   missing: [],
+  missingCount: 0,
   sources: { ajaib: 990, stockbit: 10 },
   crossCheck: { state: "compared", covered: 1000, differences: 0 },
 }
@@ -57,6 +58,7 @@ describe("the options page's broker codes section", () => {
           [TradeNumber.make("5"), TradeNumber.make("9")],
           [TradeNumber.make("20"), TradeNumber.make("20")],
         ],
+        missingCount: 6,
         sources: { ajaib: 0, stockbit: 994 },
         crossCheck: { state: "none" },
       }
@@ -68,6 +70,14 @@ describe("the options page's broker codes section", () => {
           crossCheck: "no cross-check",
           behind: false,
         }
+      )
+      // A list cut short at MISSING_RANGES shows the day's whole count.
+      assert.include(
+        yield* dayView(
+          Option.some({ ...partial, missingCount: 750_000 }),
+          Option.none()
+        ),
+        { held: "750,000 missing" }
       )
       const checking: BrokerCodesStatus = {
         ...COMPLETE,
@@ -100,6 +110,7 @@ describe("the options page's broker codes section", () => {
         ...COMPLETE,
         complete: false,
         missing: [[TradeNumber.make("1"), TradeNumber.make("10")]],
+        missingCount: 10,
         sources: { ajaib: 990, stockbit: 0 },
       }
       assert.isTrue(

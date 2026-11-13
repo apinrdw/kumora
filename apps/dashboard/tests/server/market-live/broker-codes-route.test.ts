@@ -164,7 +164,7 @@ describe("the broker codes route", () => {
       const body = yield* batch()
       const posted = yield* send(PATH, { method: "POST", token: TOKEN, body })
       assert.strictEqual(posted.status, 200)
-      const status = yield* send(PATH, { token: TOKEN })
+      const status = yield* send(`${PATH}?after=2000`, { token: TOKEN })
       assert.strictEqual(status.status, 200)
       assert.strictEqual(status.headers.get("Cache-Control"), "no-store")
       assert.strictEqual(
@@ -181,7 +181,7 @@ describe("the broker codes route", () => {
         {
           name: DAY,
           method: "GET",
-          url: "https://trading-day.invalid/broker-codes",
+          url: "https://trading-day.invalid/broker-codes?after=2000",
           body: "",
         },
       ])

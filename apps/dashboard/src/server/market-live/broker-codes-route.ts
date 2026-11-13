@@ -81,13 +81,18 @@ const boundedText = Effect.fnUntraced(function* (request: Request) {
 
 const toTradingDay = Effect.fnUntraced(function* (
   day: WibDate,
-  init: RequestInit
+  init: RequestInit,
+  search = ""
 ) {
   const env = yield* WorkerEnv
   const object = env.TRADING_DAY.getByName(day)
-  // A new request, so no header the client sent reaches the object.
+  // A new request, so no header the client sent reaches the object. A
+  // GET's query goes on, which the object checks.
   const request = new Request(
-    new URL(ObjectPath.brokerCodes, "https://trading-day.invalid"),
+    new URL(
+      `${ObjectPath.brokerCodes}${search}`,
+      "https://trading-day.invalid"
+    ),
     init
   )
   return yield* Effect.promise((): Promise<Response> => object.fetch(request))
@@ -117,7 +122,11 @@ const answer = Effect.fnUntraced(function* (
   if (Option.isNone(day)) return yield* noStoreAnswer(400, "No such day")
   if (request.method === "POST") return yield* post(request, day.value)
   if (request.method === "GET")
-    return yield* toTradingDay(day.value, { method: "GET" })
+    return yield* toTradingDay(
+      day.value,
+      { method: "GET" },
+      new URL(request.url).search
+    )
   return yield* noStoreAnswer(405, "GET or POST", {
     Allow: "GET, POST, OPTIONS",
   })

@@ -60,7 +60,8 @@ const HOSTS = [
   PRODUCTION_HOST,
 ]
 
-const BROKER_CODES_PATH = /^\/api\/broker-codes\/(\d{4}-\d{2}-\d{2})$/
+// A status GET answers the same status whatever its `?after=` names.
+const BROKER_CODES_PATH = /^\/api\/broker-codes\/(\d{4}-\d{2}-\d{2})(?:\?.*)?$/
 
 // A day's broker codes status, by day; none answers 404.
 type DayStatuses = (day: WibDate) => BrokerCodesStatus | undefined

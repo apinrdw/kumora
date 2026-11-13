@@ -1063,7 +1063,8 @@ export const makeTradingDay = Effect.fnUntraced(function* (options: {
     // apinrdw/kumora#244, "Dashboard: TradingDay's broker codes store".
     brokerCodes: {
       post: (text: string) => turn.withPermit(brokerCodes.post(text)),
-      status: turn.withPermit(brokerCodes.status),
+      status: (search: URLSearchParams) =>
+        turn.withPermit(brokerCodes.status(search)),
       held: (tradeNumber: TradeNumber) =>
         turn.withPermit(brokerCodes.held(tradeNumber)),
     },

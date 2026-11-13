@@ -115,11 +115,21 @@ const tradingDay = Effect.fnUntraced(function* (
     )
     assert.strictEqual(response.status, 200)
   })
-  const statusText = Effect.gen(function* () {
-    const response = yield* day.brokerCodes.status
+  // The status GET's answer, with the GET's query.
+  const statusAnswer = Effect.fnUntraced(function* (search = "") {
+    const response = yield* day.brokerCodes.status(new URLSearchParams(search))
     assert.strictEqual(response.headers.get("Cache-Control"), "no-store")
-    return yield* Effect.promise(() => response.text())
+    return {
+      code: response.status,
+      text: yield* Effect.promise(() => response.text()),
+    }
   })
+  const statusTextAfter = Effect.fnUntraced(function* (search = "") {
+    const answer = yield* statusAnswer(search)
+    assert.strictEqual(answer.code, 200)
+    return answer.text
+  })
+  const statusText = statusTextAfter()
   const status = Effect.flatMap(statusText, decodeBrokerCodesStatus)
   const held = (number: number) =>
     day.brokerCodes.held(TradeNumber.make(String(number)))
@@ -178,6 +188,8 @@ const tradingDay = Effect.fnUntraced(function* (
     post,
     status,
     statusText,
+    statusTextAfter,
+    statusAnswer,
     held,
     missing,
     alarms,
@@ -295,6 +307,50 @@ describe("a day's broker codes", () => {
         assert.deepNestedPropertyVal(status, "missing[0]", ["2", "2"])
         assert.deepNestedPropertyVal(status, "missing[999]", ["2000", "2000"])
         assert.notNestedProperty(status, "missing[1000]")
+
+        const last = yield* decodeBrokerCodesStatus(
+          yield* day.statusTextAfter("after=1499000")
+        )
+        assert.strictEqual(last.missingCount, 750_000)
+        assert.lengthOf(last.missing, 500)
+        assert.deepStrictEqual(last.missing.at(-1), [
+          TradeNumber.make("1500000"),
+          TradeNumber.make("1500000"),
+        ])
+      })
+  )
+
+  it.effect(
+    "after lists the ranges past it, clipped to start after it, and a bad one answers 400",
+    () =>
+      Effect.gen(function* () {
+        const day = yield* tradingDay()
+        yield* day.post(
+          "Stockbit",
+          [1, 10, 20].map((number) => [number, YP_CC] as const),
+          30
+        )
+        const listed = Effect.fnUntraced(function* (search: string) {
+          const status = yield* decodeBrokerCodesStatus(
+            yield* day.statusTextAfter(search)
+          )
+          assert.strictEqual(status.missingCount, 27)
+          assert.isFalse(status.complete)
+          return status.missing.map(([from, to]) => [Number(from), Number(to)])
+        })
+        assert.deepStrictEqual(yield* listed("after=0"), [
+          [2, 9],
+          [11, 19],
+          [21, 30],
+        ])
+        assert.deepStrictEqual(yield* listed("after=5"), [
+          [6, 9],
+          [11, 19],
+          [21, 30],
+        ])
+        assert.deepStrictEqual(yield* listed("after=19"), [[21, 30]])
+        assert.deepStrictEqual(yield* listed("after=30"), [])
+        assert.strictEqual((yield* day.statusAnswer("after=x")).code, 400)
       })
   )
 })

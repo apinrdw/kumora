@@ -85,11 +85,13 @@ const batch = (numbers: ReadonlyArray<number>, n?: number) =>
     ...(n === undefined ? {} : { end: { n: TradeNumber.make(`${n}`) } }),
   }) satisfies BrokerCodesBatch
 
-// A day's status: the trades held, the ranges missing, and n when known.
+// A day's status: the trades held, the ranges missing, and n when known;
+// `missingCount` past what the ranges hold for a list cut short.
 const holding = (options: {
   readonly n: number | null
   readonly missing: ReadonlyArray<readonly [number, number]>
   readonly held: number
+  readonly missingCount?: number
 }): BrokerCodesStatus => ({
   version: BrokerCodesProtocolVersion,
   day: DAY,
@@ -99,6 +101,9 @@ const holding = (options: {
     TradeNumber.make(`${from}`),
     TradeNumber.make(`${to}`),
   ]),
+  missingCount:
+    options.missingCount ??
+    options.missing.reduce((sum, [from, to]) => sum + to - from + 1, 0),
   sources: { ajaib: options.held, stockbit: 0 },
   crossCheck: { state: "none" },
 })
@@ -321,6 +326,31 @@ describe("the extra target", () => {
         assert.deepStrictEqual(extra.written, ["2", "3", "5", "end 5"])
         assert.deepStrictEqual(production.written, [])
         assert.strictEqual(walk?.fetches(), 3)
+      })
+  )
+
+  it.effect(
+    "catching up from a list cut short, sends every trade past its last range",
+    () =>
+      Effect.gen(function* () {
+        // It lacks 2, 4 and 5, but its list stops after 2.
+        const extra = fakeDashboard({
+          status: holding({
+            n: 5,
+            missing: [[2, 2]],
+            held: 2,
+            missingCount: 3,
+          }),
+        })
+        const target = yield* harness({
+          production: fakeDashboard({ status: COMPLETE }),
+          extra,
+        })
+        const catchUp = yield* target.extra.catchUp("Ajaib", ({ post }) =>
+          Effect.sync(() => fakeWalk(post))
+        )
+        assert.deepStrictEqual(yield* catchUp.walk(DAY), { _tag: "walked" })
+        assert.deepStrictEqual(extra.written, ["2", "3", "4", "5", "end 5"])
       })
   )
 

@@ -37,19 +37,24 @@ export type ExtraState = StatusRefusal | "retrying"
 // unreachable target would hold a whole day's codes. See apinrdw/kumora#250.
 const LANE = 16
 
-// Whether the target lacks a trade: one in a missing range, or past the
-// highest it holds. While its `n` is unknown, that is every trade it holds
-// plus the missing ones below it.
+// Whether the target lacks a trade, from a status that lists from trade 1:
+// one in a missing range, or past the highest it holds. While its `n` is
+// unknown, that is every trade it holds plus the missing ones below it. A
+// list cut short at MISSING_RANGES counts every trade past its last range as
+// lacked, so the catch-up resends some the target holds, which changes
+// nothing.
 const lacks = (status: BrokerCodesStatus) =>
   Effect.sync(() => {
     const ranges = status.missing.map(
       ([from, to]) => [Number(from), Number(to)] as const
     )
-    const held = status.sources.ajaib + status.sources.stockbit
+    const listed = ranges.reduce((sum, [from, to]) => sum + to - from + 1, 0)
     const highest =
-      status.n === null
-        ? ranges.reduce((sum, [from, to]) => sum + to - from + 1, held)
-        : Number(status.n)
+      listed < status.missingCount
+        ? (ranges.at(-1)?.[1] ?? 0)
+        : status.n === null
+          ? status.sources.ajaib + status.sources.stockbit + listed
+          : Number(status.n)
     return (number: TradeNumber) => {
       const trade = Number(number)
       return (
@@ -59,13 +64,16 @@ const lacks = (status: BrokerCodesStatus) =>
     }
   })
 
-// Whether two statuses hold the same trades of a day.
+// Whether two statuses, each listing from trade 1, hold the same trades of a
+// day. Two lists cut short at MISSING_RANGES compare by their first ranges
+// and their counts alone.
 export const holdsSame = (a: BrokerCodesStatus, b: BrokerCodesStatus) =>
   Effect.sync(
     () =>
       a.n === b.n &&
       a.sources.ajaib + a.sources.stockbit ===
         b.sources.ajaib + b.sources.stockbit &&
+      a.missingCount === b.missingCount &&
       JSON.stringify(a.missing) === JSON.stringify(b.missing)
   )
 
@@ -148,14 +156,17 @@ export const makeExtraTarget = Effect.fnUntraced(function* (options: {
     return yield* poster.post(batch)
   })
 
-  // The extra target's status of a day; none when it is unset, stopped,
-  // refused the read (which stops it, as a post's refusal does) or didn't
-  // answer.
-  const status = Effect.fnUntraced(function* (day: WibDate) {
+  // The extra target's status of a day, listing the missing ranges after
+  // `after`; none when it is unset, stopped, refused the read (which stops
+  // it, as a post's refusal does) or didn't answer.
+  const status = Effect.fnUntraced(function* (
+    day: WibDate,
+    after?: TradeNumber
+  ) {
     const target = yield* options.target
     if (Option.isNone(target) || Option.isSome(yield* stopOf(target.value)))
       return Option.none<BrokerCodesStatus>()
-    const asked = yield* askStatus(get, target.value, day)
+    const asked = yield* askStatus(get, target.value, day, after)
     if (Option.isSome(asked) && typeof asked.value === "string")
       yield* stopOn(target.value, asked.value)
     return Option.filter(asked, (held) => typeof held !== "string")

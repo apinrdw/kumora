@@ -2,6 +2,7 @@ import { assert, describe, it } from "@effect/vitest"
 import {
   BrokerCode,
   BrokerCodesProtocolVersion,
+  MISSING_RANGES,
   TradeNumber,
   WibDate,
   decodeBrokerCodesBatch,
@@ -227,8 +228,12 @@ const fakeProduction = () => {
     }
     return ranges
   }
-  const status = (day: WibDate) =>
+  // The `after` of each status asked.
+  const afters: Array<number> = []
+  // As the dashboard lists them: at most MISSING_RANGES past `after`.
+  const status = (day: WibDate, after = TradeNumber.make("0")) =>
     Effect.sync((): BrokerCodesStatus => {
+      afters.push(Number(after))
       const sources = { ajaib: 0, stockbit: 0 }
       for (const kept of held.values()) sources[kept.source]++
       const gaps = missing()
@@ -237,7 +242,19 @@ const fakeProduction = () => {
         day,
         n: n === null ? null : TradeNumber.make(String(n)),
         complete: n !== null && gaps.length === 0,
-        missing: gaps,
+        missing: gaps
+          .filter(([, to]) => Number(to) > Number(after))
+          .slice(0, MISSING_RANGES)
+          .map(([from, to]): [TradeNumber, TradeNumber] => [
+            Number(from) > Number(after)
+              ? from
+              : TradeNumber.make(String(Number(after) + 1)),
+            to,
+          ]),
+        missingCount: gaps.reduce(
+          (sum, [from, to]) => sum + Number(to) - Number(from) + 1,
+          0
+        ),
         sources,
         crossCheck:
           sources.ajaib === 0
@@ -254,6 +271,7 @@ const fakeProduction = () => {
     batches,
     held,
     differences,
+    afters,
     post,
     status,
     stockbit: () => batches.filter((batch) => batch.feed === "Stockbit"),
@@ -825,6 +843,47 @@ describe("Stockbit's gap walk of an older day", () => {
       })
   )
 
+  it.effect(
+    "asks the status again after a capped list, past ranges Stockbit can't fill",
+    () =>
+      Effect.gen(function* () {
+        yield* TestClock.setTime(wib("2026-11-13", "17:30:00"))
+        const production = fakeProduction()
+        // Ajaib lacked every even trade to 2,200: 1,100 ranges, past one
+        // status's list. Stockbit sends the first 1,000 without codes.
+        const evens = (to: number) =>
+          Array.from({ length: to / 2 }, (_, at) => 2 * at + 2)
+        const lacked = new Set(evens(2_200))
+        const rows: Array<[TradeNumber, TradeCodes]> = []
+        for (let number = 1; number <= N; number++)
+          if (!lacked.has(number))
+            rows.push([TradeNumber.make(String(number)), YP_PD])
+        yield* production.post({
+          version: BrokerCodesProtocolVersion,
+          feed: "Ajaib",
+          day: DAY,
+          rows,
+          end: { n: TradeNumber.make(String(N)) },
+        })
+        const tape = fakeStockbit({ noBrokers: new Set(evens(2_000)) })
+        const walk = yield* walkWith(tape, production)
+        assert.deepStrictEqual(yield* walk.gaps(DAY), {
+          _tag: "unserved",
+          reason: "incomplete",
+        })
+        // From trade 1, after the 1,000th range's 2,000, whose list of 100
+        // was the last, and from trade 1 to read the day.
+        assert.deepStrictEqual(production.afters, [0, 2_000, 0])
+        const status = yield* production.status(DAY)
+        assert.strictEqual(status.missingCount, 1_000)
+        assert.deepStrictEqual(
+          status.missing.at(-1)?.map(Number),
+          [2_000, 2_000]
+        )
+        assert.strictEqual(production.held.get(2_200)?.source, "stockbit")
+      })
+  )
+
   it.effect("gives up a day Stockbit answers with no rows", () =>
     Effect.gen(function* () {
       yield* TestClock.setTime(wib("2026-11-13", "17:30:00"))
@@ -857,6 +916,7 @@ describe("the History walk over Stockbit's walk", () => {
           n: day === "2026-11-13" ? TradeNumber.make("10") : null,
           complete: day === "2026-11-13",
           missing: [],
+          missingCount: 0,
           sources: { ajaib: 0, stockbit: day === "2026-11-13" ? 10 : 0 },
           crossCheck: { state: "none" },
         })

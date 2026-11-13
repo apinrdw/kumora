@@ -8,6 +8,7 @@
 // gap walk (cursor over missing ranges) and the History walk reuse them.
 import {
   BrokerCodesProtocolVersion,
+  MISSING_RANGES,
   TradeNumber,
   stockbitRowCodes,
   type BrokerCodesBatch,
@@ -141,18 +142,24 @@ const resumeFrom = Effect.fnUntraced(function* (status: BrokerCodesStatus) {
   return yield* highestHeld(status)
 })
 
-// Stockbit's walk alone: the highest trade held. `missing` covers 1..n, or
-// 1..(highest held) while n is unknown.
+// Stockbit's walk alone: the highest trade held, from a status that lists
+// from trade 1. While n is unknown, every trade up to it is held or missing.
+// Once n is known, a list that ends at n names the missing tail; a list cut
+// short at MISSING_RANGES may end before it, so the walk resumes after the
+// last range listed, a trade held, and walks the rest again.
 const highestHeld = Effect.fnUntraced(function* (status: BrokerCodesStatus) {
-  let gaps = 0n
+  let listed = 0n
   for (const [from, to] of status.missing)
-    gaps += BigInt(to) - BigInt(from) + 1n
+    listed += BigInt(to) - BigInt(from) + 1n
+  const last = status.missing.at(-1)
   let top =
     status.n === null
-      ? BigInt(status.sources.ajaib + status.sources.stockbit) + gaps
+      ? BigInt(status.sources.ajaib + status.sources.stockbit) +
+        BigInt(status.missingCount)
       : BigInt(status.n)
-  const last = status.missing.at(-1)
-  if (last !== undefined && BigInt(last[1]) === top) top = BigInt(last[0]) - 1n
+  if (status.n !== null && last !== undefined)
+    if (listed < BigInt(status.missingCount)) top = BigInt(last[1]) + 1n
+    else if (BigInt(last[1]) === top) top = BigInt(last[0]) - 1n
   return top > 0n
     ? Option.some(TradeNumber.make(top.toString()))
     : Option.none<TradeNumber>()
@@ -164,8 +171,12 @@ type WalkTab = RequestingTab & { readonly attached: Effect.Effect<boolean> }
 export const makeStockbitWalk = Effect.fnUntraced(function* (options: {
   readonly tab: WalkTab
   readonly post: (batch: BrokerCodesBatch) => Effect.Effect<PostOutcome>
-  // The day's status on Production.
-  readonly status: (day: WibDate) => Effect.Effect<StatusOutcome>
+  // The day's status on Production, listing the missing ranges after
+  // `after`, from trade 1 when it is left out.
+  readonly status: (
+    day: WibDate,
+    after?: TradeNumber
+  ) => Effect.Effect<StatusOutcome>
   // For the options page (progress.ts): the highest trade walked of the
   // day's N once known, and the wait on a signed-out tab.
   readonly trades?: (
@@ -345,8 +356,11 @@ export const makeStockbitWalk = Effect.fnUntraced(function* (options: {
   })
 
   // The day's status on Production; a refusal stops the walk.
-  const status = Effect.fnUntraced(function* (day: WibDate) {
-    const outcome = yield* options.status(day)
+  const status = Effect.fnUntraced(function* (
+    day: WibDate,
+    after?: TradeNumber
+  ) {
+    const outcome = yield* options.status(day, after)
     if (typeof outcome === "string") return yield* haltOnRefusal(outcome)
     return outcome
   })
@@ -364,36 +378,43 @@ export const makeStockbitWalk = Effect.fnUntraced(function* (options: {
   })
 
   // The gap walk of an older incomplete day: each missing range from a page
-  // below it, until every number in it was seen; then, while the day's end
-  // isn't known, on from the highest trade held to the end. Walked once the
-  // day's status is complete.
+  // below it, until every number in it was seen, a status's list at a time,
+  // each asked after the last range the one before listed; then, while the
+  // day's end isn't known, on from the highest trade held to the end.
+  // Walked once the day's status is complete.
   const gapDay = Effect.fnUntraced(function* (day: WibDate) {
     dayN = Option.none()
     yield* guard
     const before = yield* status(day)
     if (before.complete) return { _tag: "walked" } satisfies WalkResult
     yield* start(day)
-    for (const [from, to] of before.missing) {
-      const low = BigInt(from)
-      const high = BigInt(to)
-      const seen = new Set<bigint>()
-      // Decision: a range's walk pages after the trade a page (100) below
-      // it, not the one just below: within a second Stockbit sends trades
-      // out of number order, so a range's first trade can come before the
-      // one below it. A trade seen without codes counts as seen, since it
-      // comes only once a walk. See apinrdw/kumora#244, "Gap walk".
-      const below = low - 1n - BigInt(PAGE)
-      yield* forward(
-        day,
-        below > 0n
-          ? Option.some(TradeNumber.make(below.toString()))
-          : Option.none(),
-        (rows) => {
-          for (const row of rows)
-            if (row.value >= low && row.value <= high) seen.add(row.value)
-          return BigInt(seen.size) === high - low + 1n
-        }
-      )
+    let listed = before.missing
+    while (true) {
+      for (const [from, to] of listed) {
+        const low = BigInt(from)
+        const high = BigInt(to)
+        const seen = new Set<bigint>()
+        // Decision: a range's walk pages after the trade a page (100) below
+        // it, not the one just below: within a second Stockbit sends trades
+        // out of number order, so a range's first trade can come before the
+        // one below it. A trade seen without codes counts as seen, since it
+        // comes only once a walk. See apinrdw/kumora#244, "Gap walk".
+        const below = low - 1n - BigInt(PAGE)
+        yield* forward(
+          day,
+          below > 0n
+            ? Option.some(TradeNumber.make(below.toString()))
+            : Option.none(),
+          (rows) => {
+            for (const row of rows)
+              if (row.value >= low && row.value <= high) seen.add(row.value)
+            return BigInt(seen.size) === high - low + 1n
+          }
+        )
+      }
+      const last = listed.at(-1)
+      if (last === undefined || listed.length < MISSING_RANGES) break
+      listed = (yield* status(day, last[1])).missing
     }
     if (before.n === null)
       yield* finish(day, yield* forward(day, yield* highestHeld(before)))
@@ -421,7 +442,8 @@ export const stockbitCatchUp = Effect.fnUntraced(function* (options: {
   readonly tab: WalkTab
   readonly post: (batch: BrokerCodesBatch) => Effect.Effect<PostOutcome>
   readonly status: (
-    day: WibDate
+    day: WibDate,
+    after?: TradeNumber
   ) => Effect.Effect<Option.Option<BrokerCodesStatus>>
   readonly signedOut?: (out: boolean) => Effect.Effect<void>
 }) {
@@ -431,9 +453,9 @@ export const stockbitCatchUp = Effect.fnUntraced(function* (options: {
     ...(options.signedOut === undefined
       ? {}
       : { signedOut: options.signedOut }),
-    status: (day) =>
+    status: (day, after) =>
       Effect.map(
-        options.status(day),
+        options.status(day, after),
         Option.getOrElse((): StatusOutcome => "off")
       ),
   })

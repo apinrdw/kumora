@@ -344,7 +344,7 @@ export class TradingDayObject {
                 Effect.promise(() => request.text()),
                 day.brokerCodes.post
               )
-            : day.brokerCodes.status
+            : day.brokerCodes.status(new URL(request.url).searchParams)
         )
       )
     }

@@ -5,11 +5,14 @@ import {
   BROKER_CODES_BATCH_LIMIT,
   BrokerCode,
   BrokerCodesProtocolVersion,
+  MISSING_RANGES,
   TradeNumber,
   WibDate,
   ajaibRowCodes,
+  brokerCodesAfter,
   brokerCodesDay,
   brokerCodesPath,
+  brokerCodesStatusPath,
   decodeBrokerCodesBatch,
   decodeBrokerCodesStatus,
   encodeBrokerCodesBatch,
@@ -66,7 +69,7 @@ describe("a broker codes batch", () => {
     () =>
       Effect.gen(function* () {
         const error = yield* Effect.flip(
-          decodeBrokerCodesBatch('{"version":2,"rows":"not rows"}')
+          decodeBrokerCodesBatch('{"version":1,"rows":"not rows"}')
         )
         assert.strictEqual(error._tag, "BrokerCodesVersionMismatch")
       })
@@ -131,6 +134,7 @@ describe("a broker codes status", () => {
       n: null,
       complete: false,
       missing: [[number("1"), number("20")]],
+      missingCount: 20,
       sources: { ajaib: 0, stockbit: 0 },
       crossCheck: { state: "none" },
     },
@@ -140,6 +144,7 @@ describe("a broker codes status", () => {
       n: number("1500490"),
       complete: false,
       missing: [[number("7"), number("9")]],
+      missingCount: 3,
       sources: { ajaib: 1_500_487, stockbit: 0 },
       crossCheck: { state: "pending", walkedTo: number("0") },
     },
@@ -149,6 +154,7 @@ describe("a broker codes status", () => {
       n: number("1500490"),
       complete: true,
       missing: [],
+      missingCount: 0,
       sources: { ajaib: 1_500_487, stockbit: 3 },
       crossCheck: { state: "compared", covered: 1_500_487, differences: 4 },
     },
@@ -162,6 +168,61 @@ describe("a broker codes status", () => {
           assert.deepStrictEqual(yield* decodeBrokerCodesStatus(wire), status)
         })
     )
+
+  it.effect(`lists at most ${MISSING_RANGES} ranges`, () =>
+    Effect.gen(function* () {
+      const listing = (ranges: number) =>
+        JSON.stringify({
+          ...statuses[0],
+          missing: Array.from({ length: ranges }, (_, at) => [
+            String(2 * at + 2),
+            String(2 * at + 2),
+          ]),
+          missingCount: 750_000,
+        })
+      yield* decodeBrokerCodesStatus(listing(MISSING_RANGES))
+      const error = yield* Effect.flip(
+        decodeBrokerCodesStatus(listing(MISSING_RANGES + 1))
+      )
+      assert.strictEqual(error._tag, "SchemaError")
+    })
+  )
+})
+
+// A query's one `after`, as URLSearchParams reads it; the package has no
+// DOM types.
+const query = (after: string | null) => ({
+  get: (name: string) => (name === "after" ? after : null),
+})
+
+describe("a status GET's after", () => {
+  it.effect("goes on the status path, and is 0 when absent", () =>
+    Effect.gen(function* () {
+      assert.strictEqual(
+        yield* brokerCodesStatusPath(DAY, number("2000")),
+        "/api/broker-codes/2026-11-12?after=2000"
+      )
+      assert.deepStrictEqual(
+        yield* brokerCodesAfter(query("2000")),
+        Option.some(2_000)
+      )
+      assert.deepStrictEqual(
+        yield* brokerCodesAfter(query(null)),
+        Option.some(0)
+      )
+    })
+  )
+
+  it.effect("is none when it isn't a trade number", () =>
+    Effect.gen(function* () {
+      for (const after of ["x", "-1", "1.5", "", "99999999999999999999"])
+        assert.deepStrictEqual(
+          yield* brokerCodesAfter(query(after)),
+          Option.none(),
+          after
+        )
+    })
+  )
 })
 
 describe("the broker codes path", () => {
