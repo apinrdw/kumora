@@ -479,3 +479,59 @@ test("the options page drops a throttle when it ends, however long the page was 
     await brokers.close()
   }
 })
+
+test("the options page asks the last 10 days again when the targets change", async () => {
+  const brokers = await startFakeBrokers()
+  const ingest = await startFakeIngest()
+  const [newest, before] = newestClosedDays()
+  brokers.production.statuses = (day) =>
+    day === newest
+      ? {
+          ...completeDay(day),
+          complete: false,
+          missing: [[TradeNumber.make("5"), TradeNumber.make("10")]],
+          sources: { ajaib: 0, stockbit: 994 },
+          crossCheck: { state: "none" },
+        }
+      : completeDay(day)
+  ingest.brokerCodes.statuses = (day) =>
+    day === before
+      ? {
+          ...completeDay(day),
+          complete: false,
+          missing: [[TradeNumber.make("1"), TradeNumber.make("10")]],
+          sources: { ajaib: 990, stockbit: 0 },
+        }
+      : brokers.production.statuses(day)
+  const { context, worker, optionsUrl } = await launchWithExtension(
+    brokers.port
+  )
+  try {
+    const options = await context.newPage()
+    await options.goto(optionsUrl)
+    await options.getByRole("button", { name: "Pause" }).click()
+    await expect
+      .poll(() => stored(worker, "session", "brokerCodesProgress"))
+      .toEqual({ state: "paused", cause: "paused" })
+    const days = options.getByRole("table", { name: "Last 10 trading days" })
+    await expect(days.locator(`tr[data-day="${newest}"]`)).toHaveText(
+      `${newest}Unknown`
+    )
+
+    // The walks stay paused, and the rows follow the new targets.
+    await options.getByLabel("Production ingest token").fill("any")
+    await options.getByLabel("Extra target URL").fill(ingest.origin)
+    await options.getByLabel("Extra target ingest token").fill("any")
+    await options.getByRole("button", { name: "Save" }).click()
+    await expect(days.locator(`tr[data-day="${newest}"]`)).toHaveText(
+      `${newest}6 missingStockbitno cross-check`
+    )
+    await expect(days.locator(`tr[data-day="${before}"]`)).toHaveText(
+      `${before}CompleteAjaib and StockbitmatchesBehind`
+    )
+  } finally {
+    await context.close()
+    await ingest.close()
+    await brokers.close()
+  }
+})
