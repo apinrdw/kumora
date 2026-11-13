@@ -22,6 +22,7 @@ import {
 } from "../../src/worker/broker-codes/history.ts"
 import type { PostOutcome } from "../../src/worker/broker-codes/poster.ts"
 import { makeProductionTarget } from "../../src/worker/broker-codes/production-target.ts"
+import { makeTargetHold } from "../../src/worker/broker-codes/target-hold.ts"
 import {
   makeRunQueue,
   type IncompleteDaysStore,
@@ -339,22 +340,24 @@ const walkWith = (
 const throughProductionTarget = (
   production: ReturnType<typeof fakeProduction>
 ) =>
-  makeProductionTarget({
-    target: Effect.succeed(
-      Option.some({
-        origin: DashboardOrigin.make("https://production.example"),
-        token: "ingest-token",
-      })
-    ),
-    send: () => Effect.succeed(200),
-    get: ({ url }) =>
-      Effect.gen(function* () {
-        const after = new URL(url).searchParams.get("after") ?? "0"
-        const status = yield* production.status(DAY, TradeNumber.make(after))
-        return { status: 200, body: yield* encodeBrokerCodesStatus(status) }
-      }).pipe(Effect.orDie),
-    stop: () => Effect.void,
-  })
+  Effect.flatMap(makeTargetHold(Effect.void), (hold) =>
+    makeProductionTarget({
+      target: Effect.succeed(
+        Option.some({
+          origin: DashboardOrigin.make("https://production.example"),
+          token: "ingest-token",
+        })
+      ),
+      send: () => Effect.succeed(200),
+      get: ({ url }) =>
+        Effect.gen(function* () {
+          const after = new URL(url).searchParams.get("after") ?? "0"
+          const status = yield* production.status(DAY, TradeNumber.make(after))
+          return { status: 200, body: yield* encodeBrokerCodesStatus(status) }
+        }).pipe(Effect.orDie),
+      hold,
+    })
+  )
 
 describe("Stockbit's full walk of a day", () => {
   it.effect(
@@ -1071,7 +1074,7 @@ describe("Stockbit's walk and the extra target", () => {
             200
           ),
         get: () => Effect.succeed({ status: 0, body: "" }),
-        report: () => Effect.void,
+        hold: yield* makeTargetHold(Effect.void),
       })
       yield* Effect.forkChild(extra.run)
       const walk = yield* makeStockbitWalk({
@@ -1134,7 +1137,7 @@ describe("Stockbit's walk and the extra target", () => {
             ),
           get: ({ url }) =>
             statusOf(url.startsWith("https://staging") ? staging : production),
-          report: () => Effect.void,
+          hold: yield* makeTargetHold(Effect.void),
         })
         const tape = fakeStockbit()
         const catchUp = yield* extra.catchUp("Stockbit", ({ post, status }) =>

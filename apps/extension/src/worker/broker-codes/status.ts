@@ -84,7 +84,13 @@ export const makeBrokerCodesStatus = Effect.fnUntraced(function* (options: {
   // The target as its settings stand now; none without a token.
   readonly target: Effect.Effect<Option.Option<BrokerCodesTarget>>
   readonly get: Get
+  // A 401 or 426 came back on `target`, the settings the refused read used.
+  readonly refused?: (
+    target: BrokerCodesTarget,
+    refusal: StatusRefusal
+  ) => Effect.Effect<void>
 }) {
+  const refused = options.refused ?? (() => Effect.void)
   return {
     // Decision: a GET that fails for any reason but a refusal is asked again
     // with the poster's backoff, 1 s doubling to 30 s.
@@ -97,6 +103,8 @@ export const makeBrokerCodesStatus = Effect.fnUntraced(function* (options: {
         const target = yield* options.target
         if (Option.isNone(target)) return "off" satisfies StatusOutcome
         const asked = yield* askStatus(options.get, target.value, day, after)
+        if (Option.isSome(asked) && typeof asked.value === "string")
+          yield* refused(target.value, asked.value)
         if (Option.isSome(asked)) return asked.value satisfies StatusOutcome
         yield* Effect.sleep(retry)
         retry = Duration.min(Duration.times(retry, 2), LAST_RETRY)

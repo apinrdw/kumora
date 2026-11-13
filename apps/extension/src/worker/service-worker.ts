@@ -33,6 +33,7 @@ import { makeAjaibWalk } from "./broker-codes/ajaib-walk.ts"
 import { makeExtraTarget } from "./broker-codes/extra-target.ts"
 import { brokerCodesTargets, fetchSend } from "./broker-codes/poster.ts"
 import { makeProductionTarget } from "./broker-codes/production-target.ts"
+import { makeTargetHold, type TargetHold } from "./broker-codes/target-hold.ts"
 import { makeHistoryWalk } from "./broker-codes/history.ts"
 import { makeProgress } from "./broker-codes/progress.ts"
 import { makeRunQueue } from "./broker-codes/run-queue.ts"
@@ -192,41 +193,44 @@ const makeTargets = Effect.fnUntraced(function* (options: {
     name: TargetName,
     message: IngestDown | undefined
   ) => Effect.Effect<void>
+  // Each target's broker codes state under its settings (target-hold.ts),
+  // shown over its socket's state.
+  readonly holds: Record<TargetName, TargetHold>
 }) {
-  const { receive } = options
+  const { receive, holds } = options
   const fibers = yield* FiberMap.make<TargetName>()
   const states: Record<TargetName, TargetState> = {
     production: "off",
     extra: "off",
   }
-  // A 401 or 426 to a broker codes POST, or its requests failing
-  // (extra-target.ts): shown over the socket's state until the target's
-  // settings change or a request goes through.
-  const stops: Partial<Record<TargetName, TargetState>> = {}
-  const shown = Effect.sync((): TargetStates => ({
-    production: stops.production ?? states.production,
-    extra: stops.extra ?? states.extra,
-  }))
+  const shown = Effect.gen(function* () {
+    const over = (name: TargetName) =>
+      Effect.map(
+        holds[name].state,
+        Option.getOrElse(() => states[name])
+      )
+    return {
+      production: yield* over("production"),
+      extra: yield* over("extra"),
+    } satisfies TargetStates
+  })
+  const show = Effect.flatMap(shown, saveTargetStates)
   // A target that isn't connected wants no on-demand codes.
   const report = (name: TargetName) => (state: TargetState) =>
     Effect.suspend(() => {
       states[name] = state
       return Effect.andThen(
-        Effect.flatMap(shown, saveTargetStates),
+        show,
         state === "connected" ? Effect.void : receive(name, undefined)
       )
-    })
-  const stop = (name: TargetName, state: Option.Option<TargetState>) =>
-    Effect.suspend(() => {
-      if (Option.isSome(state)) stops[name] = state.value
-      else delete stops[name]
-      return Effect.flatMap(shown, saveTargetStates)
     })
   const restart = Effect.fnUntraced(function* (
     name: TargetName,
     target: Settings["extra"]
   ) {
-    delete stops[name]
+    yield* holds[name].restart(
+      Option.filter(Option.fromNullOr(target), ({ token }) => token !== "")
+    )
     yield* FiberMap.remove(fibers, name)
     if (target === null || target.token === "")
       return yield* report(name)("off")
@@ -256,9 +260,9 @@ const makeTargets = Effect.fnUntraced(function* (options: {
       yield* restart("extra", settings.extra)
     applied = settings
   })
-  yield* Effect.flatMap(shown, saveTargetStates)
+  yield* show
   yield* apply
-  return { apply, stop }
+  return { apply, show }
 })
 
 // Now on the real clock and on the relay's schedule clock, and the offset
@@ -387,12 +391,16 @@ const main = Effect.gen(function* () {
   // then catches up on what it missed.
   const targetsNow = Effect.flatMap(loadSettings, brokerCodesTargets)
   const productionTarget = Effect.map(targetsNow, (now) => now.production)
+  const showTargets: Effect.Effect<void> = Effect.suspend(() => targets.show)
+  const holds = {
+    production: yield* makeTargetHold(showTargets),
+    extra: yield* makeTargetHold(showTargets),
+  }
   const production = yield* makeProductionTarget({
     target: productionTarget,
     send: fetchSend,
     get: fetchGet,
-    stop: (state) =>
-      Effect.suspend(() => targets.stop("production", Option.some(state))),
+    hold: holds.production,
   })
   const extraTarget = Effect.map(targetsNow, (now) => now.extra)
   const extra = yield* makeExtraTarget({
@@ -400,7 +408,7 @@ const main = Effect.gen(function* () {
     production: productionTarget,
     send: fetchSend,
     get: fetchGet,
-    report: (state) => Effect.suspend(() => targets.stop("extra", state)),
+    hold: holds.extra,
   })
   yield* Effect.forkScoped(extra.run)
   // What the options page and the badge show of the walks (progress.ts).
@@ -481,6 +489,7 @@ const main = Effect.gen(function* () {
     day,
     catchUp: codeList.catchUp,
     receive: onDemandCodes.receive,
+    holds,
   })
 
   // The tick, from the worker's own timer and the alarm. Its tab calls are

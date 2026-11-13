@@ -19,17 +19,9 @@ import {
   type Send,
 } from "./poster.ts"
 import type { DayWalk, WalkResult } from "./run-queue.ts"
-import {
-  askStatus,
-  statusOnce,
-  type Get,
-  type StatusRefusal,
-} from "./status.ts"
-
-// What the extra target's Target state shows over its socket's: a refusal
-// that stops it until its settings change, or `retrying` while its requests
-// fail; none once one goes through.
-export type ExtraState = StatusRefusal | "retrying"
+import { DashboardOrigin } from "../settings.ts"
+import { askStatus, statusOnce, type Get } from "./status.ts"
+import type { TargetHold } from "./target-hold.ts"
 
 // Decision: the batches handed to the extra target wait in a lane of 16
 // (~80,000 trades at Ajaib's 5,000 a batch); past that a batch is dropped,
@@ -86,72 +78,44 @@ export const makeExtraTarget = Effect.fnUntraced(function* (options: {
   readonly production: Effect.Effect<Option.Option<BrokerCodesTarget>>
   readonly send: Send
   readonly get: Get
-  // The state shown over the socket's: a 401 or a 426 stopped the target,
-  // or its requests fail; none once one goes through.
-  readonly report: (state: Option.Option<ExtraState>) => Effect.Effect<void>
+  // The extra target's state under its settings (target-hold.ts).
+  readonly hold: TargetHold
 }) {
+  const { hold } = options
   // Decision: a request the extra target fails, by a status other than 401
   // or 426 or by none (0: a network or CORS failure), shows it as retrying
-  // until one goes through, once per settings (makeTargets in
-  // service-worker.ts says when that clears), so a target the browser can't
-  // reach is never retried unseen. See apinrdw/kumora#244, "Retries".
-  let failing = Option.none<string>()
+  // until one goes through, so a target the browser can't reach is never
+  // retried unseen. See apinrdw/kumora#244, "Retries".
   const answered = (request: { url: string; token: string }, status: number) =>
-    Effect.suspend(() => {
-      if (status === 401 || status === 426) return Effect.void
-      const settings = `${new URL(request.url).origin} ${request.token}`
-      const fails = status !== 200
-      if (fails === Option.contains(failing, settings)) return Effect.void
-      failing = fails ? Option.some(settings) : Option.none()
-      return options.report(fails ? Option.some("retrying") : Option.none())
-    })
+    hold.answered(
+      {
+        origin: DashboardOrigin.make(new URL(request.url).origin),
+        token: request.token,
+      },
+      status
+    )
   const send: Send = (request) =>
     Effect.tap(options.send(request), (status) => answered(request, status))
   const get: Get = (request) =>
     Effect.tap(options.get(request), ({ status }) => answered(request, status))
   const lane = yield* Queue.dropping<BrokerCodesBatch>(LANE)
 
-  // The settings a refusal came back on, and which.
-  let stopped = Option.none<{
-    readonly target: BrokerCodesTarget
-    readonly stop: StatusRefusal
-  }>()
-
-  // Decision: a 401 or 426, or a status read's 200 whose body isn't this
-  // version's status, stops the extra target until its origin or token
-  // changes; nothing is sent to it meanwhile. See apinrdw/kumora#244,
-  // "Retries".
-  const stopOf = (target: BrokerCodesTarget) =>
-    Effect.sync(() =>
-      Option.map(
-        Option.filter(
-          stopped,
-          (held) =>
-            held.target.origin === target.origin &&
-            held.target.token === target.token
-        ),
-        (held) => held.stop
-      )
-    )
-
-  const stopOn = (target: BrokerCodesTarget, stop: StatusRefusal) =>
-    Effect.suspend(() => {
-      stopped = Option.some({ target, stop })
-      return options.report(Option.some(stop))
-    })
-
   // The poster rereads the settings before each try, so a refusal stops the
   // settings its try used, not those the post started with.
   const poster = yield* makeBrokerCodesPoster({
     target: options.target,
     send,
-    refused: stopOn,
+    refused: hold.refused,
   })
 
+  // Decision: a 401 or 426, or a status read's 200 whose body isn't this
+  // version's status, stops the extra target until its origin or token
+  // changes; nothing is sent to it meanwhile. See apinrdw/kumora#244,
+  // "Retries".
   const post = Effect.fnUntraced(function* (batch: BrokerCodesBatch) {
     const target = yield* options.target
     if (Option.isNone(target)) return "off" satisfies PostOutcome
-    const stop = yield* stopOf(target.value)
+    const stop = yield* hold.stopOf(target.value)
     if (Option.isSome(stop)) return stop.value
     return yield* poster.post(batch)
   })
@@ -164,11 +128,14 @@ export const makeExtraTarget = Effect.fnUntraced(function* (options: {
     after?: TradeNumber
   ) {
     const target = yield* options.target
-    if (Option.isNone(target) || Option.isSome(yield* stopOf(target.value)))
+    if (
+      Option.isNone(target) ||
+      Option.isSome(yield* hold.stopOf(target.value))
+    )
       return Option.none<BrokerCodesStatus>()
     const asked = yield* askStatus(get, target.value, day, after)
     if (Option.isSome(asked) && typeof asked.value === "string")
-      yield* stopOn(target.value, asked.value)
+      yield* hold.refused(target.value, asked.value)
     return Option.filter(asked, (held) => typeof held !== "string")
   })
 
@@ -177,7 +144,7 @@ export const makeExtraTarget = Effect.fnUntraced(function* (options: {
     const target = yield* options.target
     if (Option.isNone(target)) return "no-token" as const
     return Option.getOrElse(
-      yield* stopOf(target.value),
+      yield* hold.stopOf(target.value),
       () => "no-token" as const
     )
   })

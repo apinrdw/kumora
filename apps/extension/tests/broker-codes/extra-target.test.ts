@@ -19,6 +19,7 @@ import {
   type PostOutcome,
 } from "../../src/worker/broker-codes/poster.ts"
 import type { WalkResult } from "../../src/worker/broker-codes/run-queue.ts"
+import { makeTargetHold } from "../../src/worker/broker-codes/target-hold.ts"
 import { DashboardOrigin } from "../../src/worker/settings.ts"
 
 const DAY = WibDate.make("2026-11-12")
@@ -30,6 +31,10 @@ const PRODUCTION: BrokerCodesTarget = {
 const STAGING: BrokerCodesTarget = {
   origin: DashboardOrigin.make("https://staging.example"),
   token: "staging-token",
+}
+const PREVIEW: BrokerCodesTarget = {
+  origin: DashboardOrigin.make("https://preview.example"),
+  token: "preview-token",
 }
 
 const CODES = {
@@ -137,29 +142,46 @@ const fakeWalk = (
 const harness = Effect.fnUntraced(function* (options: {
   readonly production?: ReturnType<typeof fakeDashboard>
   readonly extra: ReturnType<typeof fakeDashboard>
-  readonly target?: () => Option.Option<BrokerCodesTarget>
+  readonly settings?: Option.Option<BrokerCodesTarget>
 }) {
   const production = options.production ?? fakeDashboard()
+  let settings = options.settings ?? Option.some(STAGING)
   const reported: Array<string> = []
+  const changed: Effect.Effect<void> = Effect.suspend(() =>
+    Effect.map(hold.state, (state) => {
+      reported.push(Option.getOrElse(state, () => "cleared"))
+    })
+  )
+  const hold = yield* makeTargetHold(changed)
+  yield* hold.restart(settings)
   const extra = yield* makeExtraTarget({
-    target: Effect.sync(options.target ?? (() => Option.some(STAGING))),
+    target: Effect.sync(() => settings),
     production: Effect.succeed(Option.some(PRODUCTION)),
     send: options.extra.send,
     get: (request) =>
       request.url.startsWith(PRODUCTION.origin)
         ? production.get(request)
         : options.extra.get(request),
-    report: (state) =>
-      Effect.sync(() =>
-        reported.push(Option.getOrElse(state, () => "cleared"))
-      ),
+    hold,
   })
   yield* Effect.forkChild(extra.run)
   const poster = yield* makeBrokerCodesPoster({
     target: Effect.succeed(Option.some(PRODUCTION)),
     send: production.send,
   })
-  return { production, reported, extra, post: extra.tee(poster.post) }
+  return {
+    production,
+    reported,
+    hold,
+    extra,
+    post: extra.tee(poster.post),
+    // The settings change as makeTargets in service-worker.ts applies them.
+    switchTo: (next: BrokerCodesTarget) =>
+      Effect.suspend(() => {
+        settings = Option.some(next)
+        return hold.restart(settings)
+      }),
+  }
 })
 
 // Lets the extra target's lane send what it holds.
@@ -225,15 +247,13 @@ describe("the extra target", () => {
   it.effect("shows retrying again when new settings fail too", () =>
     Effect.gen(function* () {
       const extra = fakeDashboard({ statuses: [0, 0] })
-      let settings = STAGING
       const target = yield* harness({
         extra,
-        target: () => Option.some(settings),
       })
       yield* fakeWalk(target.post).walk(DAY)
       yield* settle
       assert.deepStrictEqual(target.reported, ["retrying"])
-      settings = { ...STAGING, token: "new-token" }
+      yield* target.switchTo({ ...STAGING, token: "new-token" })
       yield* TestClock.adjust("1 second")
       yield* settle
       assert.deepStrictEqual(target.reported, ["retrying", "retrying"])
@@ -257,17 +277,15 @@ describe("the extra target", () => {
           [426, "reload-extension"],
         ] as const) {
           const extra = fakeDashboard({ statuses: [status] })
-          let settings = STAGING
           const target = yield* harness({
             extra,
-            target: () => Option.some(settings),
           })
           yield* fakeWalk(target.post).walk(DAY)
           yield* settle
           assert.deepStrictEqual(target.reported, [state])
           assert.lengthOf(extra.posts, 1)
           assert.lengthOf(target.production.written, 6)
-          settings = { ...STAGING, token: "new-token" }
+          yield* target.switchTo({ ...STAGING, token: "new-token" })
           yield* fakeWalk(target.post).walk(DAY)
           yield* settle
           assert.deepStrictEqual(extra.written, [
@@ -286,23 +304,111 @@ describe("the extra target", () => {
   it.effect("refused on A, then set to B and back to A, sends to A again", () =>
     Effect.gen(function* () {
       const extra = fakeDashboard({ statuses: [401] })
-      let settings = STAGING
-      const switchTo = (next: BrokerCodesTarget) =>
-        Effect.sync(() => {
-          settings = next
-        })
-      const target = yield* harness({
-        extra,
-        target: () => Option.some(settings),
-      })
+      const target = yield* harness({ extra })
       yield* fakeWalk(target.post).walk(DAY)
       yield* settle
       assert.deepStrictEqual(target.reported, ["rejected-token"])
-      yield* switchTo({ ...STAGING, token: "other-token" })
-      yield* switchTo(STAGING)
+      yield* target.switchTo(PREVIEW)
+      yield* target.switchTo(STAGING)
+      assert.isTrue(Option.isNone(yield* target.hold.state))
       yield* fakeWalk(target.post).walk(DAY)
       yield* settle
       assert.deepStrictEqual(extra.written, ["1", "2", "3", "4", "5", "end 5"])
+    })
+  )
+
+  it.effect("no state of A's settings carries over to B's", () =>
+    Effect.gen(function* () {
+      for (const [status, state] of [
+        [401, "rejected-token"],
+        [426, "reload-extension"],
+        [503, "retrying"],
+      ] as const) {
+        const extra = fakeDashboard({ statuses: [status] })
+        const target = yield* harness({ extra })
+        yield* fakeWalk(target.post).walk(DAY)
+        yield* settle
+        assert.deepStrictEqual(target.reported, [state])
+        yield* target.switchTo(PREVIEW)
+        assert.isTrue(Option.isNone(yield* target.hold.state))
+        yield* fakeWalk(target.post).walk(DAY)
+        yield* TestClock.adjust("1 minute")
+        yield* settle
+        // B's requests all go through: nothing new to show.
+        assert.deepStrictEqual(target.reported, [state])
+        assert.isTrue(
+          extra.posts.slice(1).every((url) => url.startsWith(PREVIEW.origin))
+        )
+        assert.include(extra.written, "end 5")
+      }
+    })
+  )
+
+  it.effect("an answer to A's request, once on B, leaves B's state alone", () =>
+    Effect.gen(function* () {
+      for (const status of [401, 426, 503]) {
+        const dashboard = fakeDashboard({ statuses: [status] })
+        // The settings change while the first POST is in flight.
+        let inFlight: Effect.Effect<void> = Effect.void
+        const target = yield* harness({
+          extra: {
+            ...dashboard,
+            send: (request) =>
+              Effect.andThen(
+                Effect.suspend(() => {
+                  const now = inFlight
+                  inFlight = Effect.void
+                  return now
+                }),
+                dashboard.send(request)
+              ),
+          },
+        })
+        inFlight = target.switchTo(PREVIEW)
+        yield* fakeWalk(target.post).walk(DAY)
+        yield* TestClock.adjust("1 minute")
+        yield* settle
+        assert.deepStrictEqual(target.reported, [])
+        assert.isTrue(Option.isNone(yield* target.hold.state))
+        assert.isTrue(dashboard.posts[0]?.startsWith(STAGING.origin))
+        assert.isTrue(
+          dashboard.posts
+            .slice(1)
+            .every((url) => url.startsWith(PREVIEW.origin))
+        )
+        assert.include(dashboard.written, "end 5")
+      }
+    })
+  )
+
+  it.effect("a status read refused on A leaves B reading again", () =>
+    Effect.gen(function* () {
+      let reads = 0
+      const extra = fakeDashboard({ status: COMPLETE })
+      const target = yield* harness({
+        production: fakeDashboard({ status: COMPLETE }),
+        extra: {
+          ...extra,
+          get: (request) =>
+            Effect.suspend(() => {
+              reads++
+              return reads === 1
+                ? Effect.succeed({ status: 401, body: "" })
+                : extra.get(request)
+            }),
+        },
+      })
+      const catchUp = yield* target.extra.catchUp("Ajaib", ({ post }) =>
+        Effect.sync(() => fakeWalk(post))
+      )
+      assert.deepStrictEqual(yield* catchUp.walk(DAY), {
+        _tag: "stopped",
+        cause: "rejected-token",
+      })
+      yield* target.switchTo(PREVIEW)
+      assert.deepStrictEqual(yield* catchUp.walk(DAY), { _tag: "walked" })
+      assert.strictEqual(reads, 2)
+      assert.isTrue(Option.isNone(yield* target.hold.state))
     })
   )
 
@@ -311,15 +417,13 @@ describe("the extra target", () => {
     () =>
       Effect.gen(function* () {
         const extra = fakeDashboard({ statuses: [503, 401] })
-        let settings = STAGING
         const target = yield* harness({
           extra,
-          target: () => Option.some(settings),
         })
         yield* fakeWalk(target.post).walk(DAY)
         yield* settle
         assert.lengthOf(extra.posts, 1)
-        settings = { ...STAGING, token: "new-token" }
+        yield* target.switchTo({ ...STAGING, token: "new-token" })
         yield* TestClock.adjust("1 minute")
         yield* settle
         assert.deepStrictEqual(target.reported, ["retrying", "rejected-token"])
@@ -399,7 +503,7 @@ describe("the extra target", () => {
           const target = yield* harness({
             production: fakeDashboard({ status: lead }),
             extra,
-            target: () => settings,
+            settings,
           })
           let walks = 0
           const catchUp = yield* target.extra.catchUp("Ajaib", ({ post }) =>
