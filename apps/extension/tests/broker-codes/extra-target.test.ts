@@ -215,8 +215,8 @@ describe("the extra target", () => {
     })
   )
 
-  // A settings change clears the shown state (makeTargets in
-  // service-worker.ts), so the new settings' first failure shows again.
+  // The new settings' first failure shows again; makeTargets in
+  // service-worker.ts says why.
   it.effect("shows retrying again when new settings fail too", () =>
     Effect.gen(function* () {
       const extra = fakeDashboard({ statuses: [0, 0] })

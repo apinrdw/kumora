@@ -179,7 +179,8 @@ const tallyChunk = (tally: Tally, chunk: number, codes: Uint8Array) =>
 // Decision: covered and differences count only trades both sites sent, in
 // whichever order they came, so a day Stockbit ended before Ajaib's walk
 // reads compared at once and needs no second Stockbit walk. A replaced
-// Ajaib copy is compared again against the Stockbit copy its difference kept.
+// Ajaib copy is compared again against the Stockbit copy its difference
+// recorded.
 const crossCheckOf = (
   tally: Tally,
   walk: CrossCheckFact,
@@ -287,7 +288,7 @@ export const makeBrokerCodes = Effect.fnUntraced(function* (options: {
     return facts
   })
 
-  // The Stockbit copies that a chunk's recorded differences keep.
+  // The Stockbit copies that a chunk's differences recorded.
   const recordedOf = (chunk: number) =>
     Effect.sync(() => {
       const recorded = new Map<number, Uint8Array>()
