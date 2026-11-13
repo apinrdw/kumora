@@ -236,3 +236,15 @@ describe("Ajaib's PIN lock", () => {
       })
   )
 })
+
+describe("Ajaib's lock after a worker restart", () => {
+  it.effect(
+    "saves the first unlocked report, over a lock left in session storage",
+    () =>
+      Effect.gen(function* () {
+        const { page, locks } = yield* harness()
+        yield* page(UNLOCKED)
+        assert.deepStrictEqual(locks, [{ state: "unlocked" }])
+      })
+  )
+})
