@@ -589,6 +589,34 @@ describe("Stockbit's walk: stopping and carrying on", () => {
   )
 
   it.effect(
+    "asks a failed call again 10 s later while the tab is still attached",
+    () =>
+      Effect.gen(function* () {
+        yield* TestClock.setTime(wib("2026-11-12", "17:30:00"))
+        const production = fakeProduction()
+        const tape = fakeStockbit()
+        let fetches = 0
+        const tab = {
+          attached: Effect.succeed(true),
+          request: (request: TabRequest) =>
+            request._tag === "fetch" && ++fetches === 5
+              ? Effect.succeed(Option.none<Answer>())
+              : tape.request(request),
+        }
+        const walk = yield* makeStockbitWalk({
+          tab,
+          post: production.post,
+          status: production.status,
+        })
+        const fiber = yield* Effect.forkChild(walk.walk(DAY))
+        yield* settle(tape, 4)
+        yield* TestClock.adjust("10 seconds")
+        assert.deepStrictEqual(yield* Fiber.join(fiber), { _tag: "walked" })
+        assert.isTrue((yield* production.status(DAY)).complete)
+      })
+  )
+
+  it.effect(
     "waits out a 401 in place until the tab's cookie changes, then asks again",
     () =>
       Effect.gen(function* () {
