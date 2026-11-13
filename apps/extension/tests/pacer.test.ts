@@ -3,6 +3,7 @@ import type { Feed } from "@workspace/relay"
 import { Clock, Deferred, Effect, Fiber, Option, type Duration } from "effect"
 import { TestClock } from "effect/testing"
 
+import { makeAjaibSession, type SignIn } from "../src/worker/ajaib-session.ts"
 import type { Answer, TabRequest } from "../src/worker/broker.ts"
 import { makePacer, type Priority } from "../src/worker/pacer.ts"
 
@@ -102,6 +103,7 @@ const harness = Effect.fnUntraced(function* (
       { discard: true }
     )
   return {
+    tab: pacer.tab,
     submit,
     submitMany,
     saturate,
@@ -346,6 +348,62 @@ describe("a throttled site", () => {
       yield* TestClock.adjust("1 second")
       yield* walk.request({ _tag: "page-fetch", path: "b" })
       assert.deepStrictEqual(stopped, [1_000 + 5 * MINUTE])
+    })
+  )
+})
+
+describe("Ajaib's PIN sign-in", () => {
+  // A PIN entered while the walk's call `w0` runs, its sign-in on the
+  // backfill's turn as service-worker.ts gives it.
+  const signInDuring = Effect.fnUntraced(function* (
+    site: ReturnType<typeof fakeSite>
+  ) {
+    const pacer = yield* harness("Ajaib", site)
+    let signIn: SignIn = { state: "waiting" }
+    const session = yield* makeAjaibSession({
+      tab: { ...pacer.tab("backfill"), attached: Effect.succeed(true) },
+      store: {
+        pin: Effect.succeed(Option.some("123456")),
+        wipePin: Effect.void,
+        signIn: Effect.sync(() => signIn),
+        setSignIn: (next) =>
+          Effect.sync(() => {
+            signIn = next
+          }),
+      },
+    })
+    yield* pacer.submit("walk", "w0")
+    yield* Effect.forkChild(session.tick)
+    yield* TestClock.adjust("0 millis")
+    return pacer
+  })
+  const pinStart = (site: ReturnType<typeof fakeSite>) =>
+    site.calls.find((call) => call.path === "page-post")?.start
+
+  it.effect("waits for the Ajaib call in flight", () =>
+    Effect.gen(function* () {
+      const site = fakeSite({ takes: "2 seconds" })
+      const pacer = yield* signInDuring(site)
+      yield* TestClock.adjust("1 second")
+      assert.isUndefined(pinStart(site))
+      yield* TestClock.adjust("2 seconds")
+      assert.strictEqual(pinStart(site), 2000)
+      yield* pacer.stop
+    })
+  )
+
+  it.effect("waits out a throttle's 5 minutes", () =>
+    Effect.gen(function* () {
+      const site = fakeSite({
+        answer: (request) =>
+          request._tag === "page-fetch" ? { ...OK, status: 429 } : OK,
+      })
+      const pacer = yield* signInDuring(site)
+      yield* TestClock.adjust("4 minutes")
+      assert.isUndefined(pinStart(site))
+      yield* TestClock.adjust("2 minutes")
+      assert.strictEqual(pinStart(site), 5 * 60_000)
+      yield* pacer.stop
     })
   )
 })
