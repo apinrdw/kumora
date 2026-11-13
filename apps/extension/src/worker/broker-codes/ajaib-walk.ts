@@ -160,13 +160,17 @@ export const makeAjaibWalk = Effect.fnUntraced(function* (options: {
   // Decision: on a 401 the walk waits in place until the page's own token
   // refresh shows new headers; the extension never calls refresh itself.
   // See apinrdw/kumora#244, "A 401".
-  const awaitNewToken = Effect.fnUntraced(function* (windowEnd: DateTime.Utc) {
-    const stale = yield* pageToken
+  // `stale` is the token read as the refused call was sent: the page may
+  // have refreshed it before the 401 came back.
+  const awaitNewToken = Effect.fnUntraced(function* (
+    windowEnd: DateTime.Utc,
+    stale: Option.Option<string>
+  ) {
     while (true) {
-      yield* Effect.sleep(RETRY)
-      yield* guard(windowEnd)
       const token = yield* pageToken
       if (Option.isSome(token) && !Option.contains(stale, token.value)) return
+      yield* Effect.sleep(RETRY)
+      yield* guard(windowEnd)
     }
   })
 
@@ -177,9 +181,10 @@ export const makeAjaibWalk = Effect.fnUntraced(function* (options: {
   ) {
     while (true) {
       yield* guard(windowEnd)
+      const sent = yield* pageToken
       const answer = yield* tab.request({ _tag: "page-fetch", path })
       if (Option.isSome(answer) && answer.value.status === 401) {
-        yield* awaitNewToken(windowEnd)
+        yield* awaitNewToken(windowEnd, sent)
         continue
       }
       if (Option.isSome(answer) && answer.value.status === 200) {
