@@ -315,8 +315,10 @@ export const makeTradingDay = Effect.fnUntraced(function* (options: {
   let sealed = (yield* store.fact(Fact.sealed)) !== undefined
   const sealAt = yield* sealInstant(options.date)
   // Decision: an object restores the live day from its store unless the day
-  // is sealed and past: a past day's object only answers recorded day GETs,
-  // straight from the store. Today's still serves viewers after the seal.
+  // is sealed and past: a past day's object answers recorded day GETs
+  // straight from the store, and broker codes POSTs and status GETs from its
+  // own tables (broker-codes.ts). Today's still serves viewers after the
+  // seal.
   const todayDate = yield* wibDateAt(yield* DateTime.now)
   const today = todayDate === options.date
   const restoring = !sealed || today
