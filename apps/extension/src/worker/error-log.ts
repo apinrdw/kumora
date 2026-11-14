@@ -34,7 +34,7 @@ const entryOf = Logger.make(
 )
 
 // Starts from the stored ring, so a restarted worker keeps its earlier
-// lines, and saves the newest 50 after each second with a new line, and
+// lines, and saves the newest KEPT after each second with a new line, and
 // when its scope closes.
 export const makeErrorLog = Effect.fnUntraced(function* (store: ErrorLogStore) {
   let ring = yield* store.load

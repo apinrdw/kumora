@@ -19,7 +19,7 @@ export const ScheduleClock = Context.Reference<Effect.Effect<DateTime.Utc>>(
   "extension/ScheduleClock",
   { defaultValue: () => DateTime.now }
 )
-export const scheduleNow = Effect.flatMap(ScheduleClock, (now) => now)
+export const scheduleNow = Effect.flatten(ScheduleClock)
 
 // Decision: walks run only outside Streaming hours (schedule.ts in
 // @workspace/relay), so the live relay keeps the tab and the account's
