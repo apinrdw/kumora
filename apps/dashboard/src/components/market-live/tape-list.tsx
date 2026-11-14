@@ -1,11 +1,9 @@
 import type { RecordedTradeCodes } from "@workspace/client"
 import type {
-  InvestorType,
   RelayGap,
   RunningTrade,
   StockCode,
   TradeCodes,
-  TradeNumber,
   ViewerDown,
 } from "@workspace/relay"
 import { cn } from "@workspace/ui/lib/utils"
@@ -149,36 +147,36 @@ const CELL = "h-[22px] overflow-hidden py-0 leading-[22px] whitespace-nowrap"
 // fold row spans them all.
 const COLUMNS = 8
 
-const INVESTOR_TEXT: Record<InvestorType, string> = {
+const INVESTOR_TEXT: Record<TradeCodes["buyerType"], string> = {
   F: "text-foreign",
   D: "text-domestic",
 }
 
-type BrokerSide = readonly [TradeCodes["buyer"], InvestorType]
+interface BrokerSide {
+  readonly code: TradeCodes["buyer"]
+  readonly type: TradeCodes["buyerType"]
+}
 
 // One side's broker as `AK [F]`, coloured by its investor type; blank while
 // the trade has no stored codes.
 function BrokerCell({ side }: { side: BrokerSide | undefined }) {
   return (
-    <td className={cn(CELL, "pl-2", side && INVESTOR_TEXT[side[1]])}>
-      {side && `${side[0]} [${side[1]}]`}
+    <td className={cn(CELL, "pl-2", side && INVESTOR_TEXT[side.type])}>
+      {side && `${side.code} [${side.type}]`}
     </td>
   )
 }
 
 // The trade's Buyer and Seller cells.
-function BrokerCells({
-  trade,
-  byTrade,
-}: {
-  trade: TradeNumber
-  byTrade: RecordedTradeCodes | undefined
-}) {
-  const codes = byTrade?.get(trade)
+function BrokerCells({ codes }: { codes: TradeCodes | undefined }) {
   return (
     <>
-      <BrokerCell side={codes && [codes.buyer, codes.buyerType]} />
-      <BrokerCell side={codes && [codes.seller, codes.sellerType]} />
+      <BrokerCell
+        side={codes && { code: codes.buyer, type: codes.buyerType }}
+      />
+      <BrokerCell
+        side={codes && { code: codes.seller, type: codes.sellerType }}
+      />
     </>
   )
 }
@@ -191,7 +189,7 @@ const TradeRow = memo(function TradeRow({
   onSelect,
 }: {
   trade: RunningTrade
-  codes: RecordedTradeCodes | undefined
+  codes: TradeCodes | undefined
   selected: boolean
   inFold: boolean
   onSelect: (code: StockCode) => void
@@ -238,7 +236,7 @@ const TradeRow = memo(function TradeRow({
       <td className={cn(CELL, "text-right", side)}>
         Rp{Effect.runSync(compact(Effect.runSync(tradeValue(trade))))}
       </td>
-      <BrokerCells trade={trade.tradeNumber} byTrade={codes} />
+      <BrokerCells codes={codes} />
       <td className={cn(CELL, "pl-2")}>
         <SourceDots feeds={trade.feeds} />
       </td>
@@ -440,7 +438,7 @@ export function TapeList({
                 <TradeRow
                   key={row.trade.tradeNumber}
                   trade={row.trade}
-                  codes={codes}
+                  codes={codes?.get(row.trade.tradeNumber)}
                   selected={row.trade.code === selected}
                   inFold={row.inFold !== undefined}
                   onSelect={onSelect}
