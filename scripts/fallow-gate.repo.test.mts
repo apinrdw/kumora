@@ -90,6 +90,63 @@ layer(NodeServices.layer)("fallow gate hook", (it) => {
       })
   )
 
+  // Spec #263's #266 implementer hand-wrote jq five times to find what blocked:
+  // the one error came 19th, after 18 warnings, cut before its severity.
+  it.effect(
+    "the blocking findings come first, whole, and the refusal says nothing ran",
+    () =>
+      Effect.gen(function* () {
+        const warning = (name: string) => ({
+          path: "apps/dashboard/src/components/market-live/footprint-canvas.tsx",
+          name,
+          line: 276,
+          cyclomatic: 13,
+          cognitive: 15,
+          line_count: 67,
+          param_count: 8,
+          exceeded: "crap",
+          severity: "critical",
+          effective_severity: "warn",
+          crap: 182,
+          coverage_tier: "none",
+          coverage_source: "estimated",
+          introduced: true,
+        })
+        const blocker = {
+          ...warning("MarketLiveDay"),
+          path: "apps/dashboard/src/routes/_app/market-live.tsx",
+          react_hook_count: 12,
+          react_jsx_max_depth: 5,
+          exceeded: "cognitive_crap",
+          effective_severity: "error",
+        }
+        const report = JSON.stringify({
+          verdict: "fail",
+          complexity: {
+            findings: [
+              ...Array.from({ length: 18 }, (_, i) => warning(`cells${i}`)),
+              blocker,
+            ],
+          },
+        })
+        const { exitCode, stderr } = yield* runGate(
+          'sed -i s/a/b/ x.ts && git commit -m "x"',
+          report,
+          1
+        )
+        assert.strictEqual(exitCode, 2)
+        assert.match(stderr, /nothing in this command ran/)
+        assert.match(
+          stderr.split("\n").find((line) => /cells/.test(line)) ?? "",
+          /warn/
+        )
+        const block = stderr.indexOf("MarketLiveDay")
+        assert.isAtLeast(block, 0)
+        assert.isBelow(block, stderr.indexOf("cells0"))
+        assert.match(stderr.slice(block - 200, block + 200), /cognitive_crap/)
+      })
+  )
+
   it.effect("git options before the subcommand still reach the audit", () =>
     Effect.gen(function* () {
       const { exitCode } = yield* runGate("git -C /tmp push", hugeFailure, 1)
