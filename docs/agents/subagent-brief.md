@@ -8,7 +8,7 @@ What every implementer or reviewer brief in this repo carries. Copy the shape; f
 - The spec and ticket by command: `gh issue view <n>`. Name the sections of a spec doc the agent needs (for `docs/specs/*.md`, the config sections and **Gotchas**; the runbooks and provisioning sections are for humans) so it reads those and skips the rest.
 - The exact config: the spec doc under `docs/specs/`, and the `Decision:` comments in the files the ticket touches.
 - Repo rules: `AGENTS.md`. Review rules: `CODING_STANDARDS.md`.
-- Shared notes for later agents: `/tmp/<repo>-notes/`, never the checkout. Ask the agent to leave one short file there with what the next ticket's implementer should reuse.
+- Shared notes for later agents: `~/.t3/notes/<repo>/<spec>/`, never the checkout or `/tmp` (a tmpfs here: a reboot during spec #244 wiped its notes before the retro read them). Ask the agent to leave one short file there with what the next ticket's implementer should reuse.
 
 ## Worktree guard
 

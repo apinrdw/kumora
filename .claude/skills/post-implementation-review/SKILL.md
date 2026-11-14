@@ -13,7 +13,7 @@ Work from a worktree on the integration branch; Codex reviews the `HEAD` of its 
 
 ## 2. Review loop
 
-Each round runs three reviews in parallel from the worktree, each saved to a file:
+Each round runs three reviews in parallel from the worktree, each saved to a file in the spec's notes folder (**Shared notes** in [`subagent-brief.md`](../../../docs/agents/subagent-brief.md)) as `codex-r<n>.md`, `fallow-r<n>.json` and `domain-r<n>.md`, so a retro can still read every round:
 
 1. **Codex.** As a background Bash task, run the Codex plugin's companion script (under `~/.claude/plugins/cache/openai-codex/codex/<version>/scripts/codex-companion.mjs`) with `review --wait --base origin/main`. Read the `# Codex Review` section only.
 2. **fallow.** `fallow audit --format json --quiet --base origin/main`, stdout to the file and stderr apart. Exit 0 is clean; exit 1 has findings; any other code is a setup failure to fix before the round counts. Findings with `introduced: true` go to the fix, inherited ones to the report.
