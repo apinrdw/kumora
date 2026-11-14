@@ -104,6 +104,12 @@ export type {
 export type { CodeKind, ListedCode } from "./code-list.ts"
 export type { DayChange, DayState } from "./day-state.ts"
 export { BOOK_DEPTH, BookLevel } from "./order-book.ts"
+export {
+  HEAT_SLICE_MS,
+  decodeRecordedHeatmap,
+  encodeRecordedHeatmap,
+} from "./heatmap.ts"
+export type { HeatLevel, HeatSlice, RecordedHeatmap } from "./heatmap.ts"
 export type { IndexHasNoBook, OrderBook } from "./order-book.ts"
 export {
   BROKER_CODES_AUTH_SCHEME,
