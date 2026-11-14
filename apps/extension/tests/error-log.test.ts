@@ -10,6 +10,7 @@ const memoryStore = (kept: ReadonlyArray<ErrorLogEntry> = []) => {
     saved,
     store: {
       load: Effect.succeed(kept),
+      secrets: Effect.succeed([]),
       save: (entries: ReadonlyArray<ErrorLogEntry>) =>
         Effect.sync(() => {
           saved.push(entries)

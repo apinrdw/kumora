@@ -19,7 +19,7 @@ import {
   type IncompleteDaysStore,
 } from "./broker-codes/run-queue.ts"
 import { CodeListCache, RelayOutcome, type CodeListStore } from "./code-list.ts"
-import { ErrorLogEntry, type ErrorLogStore } from "./error-log.ts"
+import { ErrorLogEntry, redact, type ErrorLogStore } from "./error-log.ts"
 
 // Where a dashboard serves: an origin, `https://host` or `http://host:port`.
 export const DashboardOrigin = Schema.String.check(
@@ -647,7 +647,28 @@ const ERROR_LOG_KEY = "relayErrors"
 const RELAY_STOPPED_KEY = "relayStopped"
 const ErrorLog = Schema.Array(ErrorLogEntry)
 
+// The PINs and sign-in tokens in session storage and the ingest tokens in
+// local storage, for redact (error-log.ts).
+const knownSecrets = Effect.gen(function* () {
+  const session = yield* Effect.promise(() => chrome.storage.session.get(null))
+  const settings = yield* loadSettings
+  const held = Object.entries(session).flatMap(([key, value]) => {
+    if (key.startsWith(PIN_PREFIX)) return Option.toArray(decodePin(value))
+    if (!key.startsWith(SIGN_IN_PREFIX)) return []
+    const signIn = decodeSignIn(value)
+    return Option.isSome(signIn) && signIn.value.state === "signed-in"
+      ? [signIn.value.accessToken]
+      : []
+  })
+  return [
+    ...held,
+    settings.productionToken,
+    ...(settings.extra === null ? [] : [settings.extra.token]),
+  ]
+})
+
 export const errorLogStore: ErrorLogStore = {
+  secrets: knownSecrets,
   load: Effect.gen(function* () {
     const stored = yield* Effect.promise(() =>
       chrome.storage.session.get(ERROR_LOG_KEY)
@@ -679,8 +700,9 @@ export type RelayStopped = typeof RelayStopped.Type
 export const saveRelayStopped = Effect.fnUntraced(function* (
   stopped: RelayStopped
 ) {
+  const cause = redact(stopped.cause, yield* knownSecrets)
   yield* Effect.promise(() =>
-    chrome.storage.session.set({ [RELAY_STOPPED_KEY]: stopped })
+    chrome.storage.session.set({ [RELAY_STOPPED_KEY]: { ...stopped, cause } })
   )
 })
 

@@ -13,7 +13,23 @@ export type ErrorLogEntry = typeof ErrorLogEntry.Type
 export interface ErrorLogStore {
   readonly load: Effect.Effect<ReadonlyArray<ErrorLogEntry>>
   readonly save: (entries: ReadonlyArray<ErrorLogEntry>) => Effect.Effect<void>
+  // Every credential value the worker holds as it saves.
+  readonly secrets: Effect.Effect<ReadonlyArray<string>>
 }
+
+// Decision: a cause is redacted as text right before it is stored, not by
+// carrying credentials as `Redacted`: the text hides a value however it got
+// there, a message built from an unwrapped one included. It hides each value
+// the worker holds at save time, and any JWT, which covers Stockbit's token
+// read from its cookie and never stored. See apinrdw/kumora#288.
+const JWT = /eyJ[\w-]*\.[\w-]+\.[\w-]*/g
+
+export const redact = (text: string, secrets: ReadonlyArray<string>) =>
+  secrets
+    .filter((secret) => secret !== "")
+    .sort((a, b) => b.length - a.length)
+    .reduce((hidden, secret) => hidden.replaceAll(secret, "<redacted>"), text)
+    .replace(JWT, "<redacted>")
 
 const KEPT = 50
 
@@ -41,11 +57,17 @@ export const makeErrorLog = Effect.fnUntraced(function* (store: ErrorLogStore) {
   return yield* Logger.batched(entryOf, {
     window: "1 second",
     flush: (batch) =>
-      Effect.suspend(() => {
+      Effect.gen(function* () {
         const fresh = batch.filter((entry) => entry !== undefined)
-        if (fresh.length === 0) return Effect.void
-        ring = [...ring, ...fresh].slice(-KEPT)
-        return store.save(ring)
+        if (fresh.length === 0) return
+        const secrets = yield* store.secrets
+        const hidden = fresh.map(({ cause, ...entry }) => ({
+          ...entry,
+          message: redact(entry.message, secrets),
+          ...(cause !== undefined && { cause: redact(cause, secrets) }),
+        }))
+        ring = [...ring, ...hidden].slice(-KEPT)
+        yield* store.save(ring)
       }),
   })
 })
