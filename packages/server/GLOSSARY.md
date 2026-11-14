@@ -5,7 +5,14 @@ The bridge every app's server functions run through, server-only, and the loader
 ## Language
 
 **Bridge**:
-`runServerEffect`, `runServerEffectResult` and the module around them: the per-isolate runtime, `WorkerEnv`, `WaitUntil`, and the mapping from failures to HTTP. The only code that reaches `cloudflare:workers`.
+`runServerEffect`, `runServerEffectResult` and the module around them: the per-isolate runtime, `WorkerEnv`, `WaitUntil`, and the mapping from failures to HTTP. With the Workflow runner, the only code that reaches `cloudflare:workers`.
+
+**Workflow runner**:
+`makeWorkflow` in `@workspace/server/workflow`: it builds a Cloudflare Workflow class whose run is an Effect over **Workflow steps**. It reaches `cloudflare:workers` at the top, since the class must extend `WorkflowEntrypoint`, so only a Worker's entry imports it. A step that still fails after the runtime's retries reaches the run as `StepFailed`, which keeps only the step's name and message. A step fails with `NonRetryable` when no retry can fix it, and the runner throws that as `NonRetryableError`.
+_Avoid_: Workflow bridge
+
+**Workflow steps**:
+`WorkflowSteps`, the steps of one Workflow run as Effects. `do(name, effect)` runs a durable step, whose result must be plain JSON. The Workflow runner provides each step its services; a test runs the steps in-process.
 
 **Result runner**:
 `runServerEffectResult`, the runner beside `runServerEffect` for code that answers an HTTP error itself, such as a custom Worker entry. It resolves to a `Result`: the program's value, its HTTP error, or the bare 500 `Response` for any other failure or defect, which it logs. It never throws.
