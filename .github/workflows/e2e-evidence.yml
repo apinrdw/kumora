@@ -14,9 +14,9 @@ on:
   # while no step checks out or runs PR code and the script takes no ${{ }}.
   # GitHub runs the base branch's copy: the gate starts once this file is on
   # the base, and a PR that adds or edits it runs the old copy or none.
-  # Decision: a draft gets no status, like ci.yml's jobs; ready_for_review
-  # marks the head the PR has when it leaves draft.
   pull_request_target:
+    # Decision: a draft gets no status, like ci.yml's jobs; ready_for_review
+    # marks the head the PR has when it leaves draft.
     types: [opened, synchronize, reopened, labeled, unlabeled, edited, ready_for_review]
 
 # Retargeting a PR changes its files but not its head, and is the one `edited`
