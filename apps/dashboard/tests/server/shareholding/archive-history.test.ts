@@ -2,17 +2,18 @@ import { assert, describe, it } from "@effect/vitest"
 import { Effect, Layer, Schema } from "effect"
 import { TestClock } from "effect/testing"
 
-import { MAX_LISTED_OBJECTS } from "@/server/shareholding/bucket"
-import { archiveTotals, recentRuns } from "@/server/shareholding/history"
+import { MAX_LISTED_OBJECTS } from "@/server/archive/bucket"
+import { RunId } from "@/server/archive/run"
+import { recentRuns } from "@/server/shareholding/runs"
+import { archiveTotals } from "@/server/shareholding/totals"
 import {
-  ArchiveRunId,
   type ArchiveRunResult,
   RunMetadata,
   type RunSummary,
 } from "@/server/shareholding/run-result"
 
-import { fakeWorkflow, type FakeWorkflow } from "./fake-workflow.ts"
-import { type MemoryBucket, memoryBucket } from "./memory-bucket.ts"
+import { fakeWorkflow, type FakeWorkflow } from "../archive/fake-workflow.ts"
+import { type MemoryBucket, memoryBucket } from "../archive/memory-bucket.ts"
 
 const NOW = Date.parse("2026-11-14T14:00:00.000Z")
 const HOUR = 3_600_000
@@ -23,7 +24,7 @@ const run = (
   startedAt: string,
   outcome: ArchiveRunResult["outcome"] = "complete"
 ): ArchiveRunResult => ({
-  id: ArchiveRunId.make(id),
+  id: RunId.make(id),
   trigger: id.startsWith("cron") ? "cron" : "admin",
   startedAt,
   finishedAt: outcome === "running" ? null : startedAt,

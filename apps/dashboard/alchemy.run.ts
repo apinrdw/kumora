@@ -16,7 +16,8 @@ import * as Effect from "effect/Effect"
 import * as Redacted from "effect/Redacted"
 
 import { SENDER, SENDING_SUBDOMAIN } from "./src/server/auth/sender.ts"
-import type { ArchiveParams } from "./src/server/shareholding/run-result.ts"
+import type { RunParams } from "./src/server/archive/run.ts"
+import { KSEI_CRON } from "./src/server/ksei/schedule.ts"
 import { ARCHIVE_CRON } from "./src/server/shareholding/schedule.ts"
 
 // scripts/auth-schema.ts replays the same directory for the drift check and
@@ -114,7 +115,16 @@ export const Website = Cloudflare.Website.Vite(
     // stages start a run with Run now only. See apinrdw/kumora#308.
     const crons: { crons?: Array<string> } =
       (yield* stageKind(stage)) === "production"
-        ? { crons: [ARCHIVE_CRON] }
+        ? {
+            crons: [
+              ARCHIVE_CRON,
+              // Decision: the KSEI archive cron is gated the same way, so only
+              // Production calls ksei.co.id on a schedule; runCron
+              // (src/server/crons.ts) tells the two crons apart by expression.
+              // See apinrdw/kumora#326.
+              KSEI_CRON,
+            ],
+          }
         : {}
     return {
       ...(yield* websiteProps("dashboard", stage)),
@@ -163,10 +173,24 @@ export const Website = Cloudflare.Website.Vite(
           // stops on a bucket a Run now filled. See apinrdw/kumora#305.
           { forceDestroy: (yield* stageKind(stage)) !== "production" }
         ),
-        SHAREHOLDING_ARCHIVE: Cloudflare.Workflow<ArchiveParams>(
+        // Typed as every archive Workflow is, so the shared start
+        // (src/server/archive/runs.ts) can create its runs.
+        SHAREHOLDING_ARCHIVE: Cloudflare.Workflow<RunParams>(
           "ShareholdingArchive",
           { className: "ShareholdingArchive" }
         ),
+        // The KSEI archive and its KSEI archive run, on every stage like the
+        // shareholding archive's, in a bucket of their own.
+        KSEI_ARCHIVE_BUCKET: Cloudflare.R2.Bucket(
+          "KseiArchiveBucket",
+          // Decision: as the shareholding archive's bucket, Production's
+          // survives a stack destroy and every other stage's is emptied with
+          // it. See apinrdw/kumora#305.
+          { forceDestroy: (yield* stageKind(stage)) !== "production" }
+        ),
+        KSEI_ARCHIVE: Cloudflare.Workflow<RunParams>("KseiArchive", {
+          className: "KseiArchive",
+        }),
         ...google,
         ...clockOffset,
       },

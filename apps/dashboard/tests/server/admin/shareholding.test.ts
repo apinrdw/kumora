@@ -8,8 +8,8 @@ import {
   shareholdingArchivePage,
 } from "@/server/admin/shareholding"
 import type { Mail } from "@/server/auth/mailer"
+import { RunId } from "@/server/archive/run"
 import {
-  ArchiveRunId,
   type ArchiveRunResult,
   RunMetadata,
   RunSummary,
@@ -23,14 +23,8 @@ import {
   seam,
   send,
 } from "../auth/seam.ts"
-import {
-  fakeWorkflow,
-  type FakeWorkflow,
-} from "../shareholding/fake-workflow.ts"
-import {
-  type MemoryBucket,
-  memoryBucket,
-} from "../shareholding/memory-bucket.ts"
+import { fakeWorkflow, type FakeWorkflow } from "../archive/fake-workflow.ts"
+import { type MemoryBucket, memoryBucket } from "../archive/memory-bucket.ts"
 
 const headers = (cookie?: string) =>
   new Headers(cookie === undefined ? {} : { cookie })
@@ -47,7 +41,7 @@ const verified = (mails: ReadonlyArray<Mail>) =>
   })
 
 const RUNNING: ArchiveRunResult = {
-  id: ArchiveRunId.make("cron-2026-11-14T13"),
+  id: RunId.make("cron-2026-11-14T13"),
   trigger: "cron",
   startedAt: "2026-11-14T13:00:00.000Z",
   finishedAt: null,
@@ -90,7 +84,7 @@ const createdIds = (workflow: FakeWorkflow) => [...workflow.instances.keys()]
 const runningInstance = (workflow: FakeWorkflow, id: string) =>
   workflow.instances.set(id, {
     options: {
-      id: ArchiveRunId.make(id),
+      id: RunId.make(id),
       params: { trigger: "cron" },
       retention: { successRetention: "30 days", errorRetention: "30 days" },
     },

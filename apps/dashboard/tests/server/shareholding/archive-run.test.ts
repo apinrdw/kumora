@@ -3,22 +3,19 @@ import { StepFailed } from "@workspace/server"
 import { Effect, Layer, Schema } from "effect"
 
 import { archiveRun, MAX_REPORT_BYTES } from "@/server/shareholding/archive-run"
-import {
-  ArchiveRunId,
-  MAX_RUN_ERROR_LENGTH,
-  RunMetadata,
-} from "@/server/shareholding/run-result"
+import { MAX_ETAG_BYTES } from "@/server/archive/head"
+import { RunId, MAX_RUN_ERROR_LENGTH } from "@/server/archive/run"
+import { RunMetadata } from "@/server/shareholding/run-result"
 import {
   LISTING_URL,
-  MAX_ETAG_BYTES,
   MAX_LISTED_REPORT_BYTES,
   MAX_LISTED_REPORTS,
   MAX_LISTING_BYTES,
 } from "@/server/shareholding/listing"
 
 import { fakeIdx, type FakeIdx, idxIdUrl } from "./fake-idx.ts"
-import { localSteps } from "./local-steps.ts"
-import { type MemoryBucket, memoryBucket } from "./memory-bucket.ts"
+import { localSteps } from "../archive/local-steps.ts"
+import { type MemoryBucket, memoryBucket } from "../archive/memory-bucket.ts"
 
 const run = (
   idx: FakeIdx,
@@ -27,7 +24,7 @@ const run = (
   startedAt = new Date("2026-11-14T13:00:00Z")
 ) =>
   archiveRun(localSteps(Layer.merge(idx.layer, bucket.layer)), {
-    id: ArchiveRunId.make(id),
+    id: RunId.make(id),
     trigger: "cron",
     startedAt,
   })
@@ -157,7 +154,7 @@ describe("an archive run", () => {
       )
 
       assert.deepInclude(result, {
-        id: ArchiveRunId.make("cron-2026-11-14T13"),
+        id: RunId.make("cron-2026-11-14T13"),
         trigger: "cron",
         startedAt: "2026-11-14T13:00:00.000Z",
         outcome: "complete",
@@ -690,7 +687,7 @@ describe("an archive run", () => {
                   : steps.do(name, effect),
             },
             {
-              id: ArchiveRunId.make("cron-2026-11-14T06"),
+              id: RunId.make("cron-2026-11-14T06"),
               trigger: "cron",
               startedAt: new Date("2026-11-14T06:00:00Z"),
             }

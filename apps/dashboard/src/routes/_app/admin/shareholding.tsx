@@ -5,8 +5,8 @@ import { loadServerFn, runLoader } from "@workspace/server/loader"
 import {
   ArchiveTotalsCard,
   RecentRunsCard,
-} from "@/components/admin/archive-history"
-import { LastRunCard } from "@/components/admin/last-run-card"
+} from "@/components/admin/shareholding/archive-history"
+import { LastRunCard } from "@/components/admin/shareholding/last-run-card"
 import { shareholdingArchiveFn } from "@/server/admin/shareholding.functions"
 
 export const Route = createFileRoute("/_app/admin/shareholding")({

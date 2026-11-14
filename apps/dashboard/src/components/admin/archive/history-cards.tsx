@@ -1,0 +1,115 @@
+// An archive's view over time: its recent runs and its totals per kind. The
+// archive passes in its own columns: its run counts and its kinds.
+import { Effect } from "effect"
+
+import { KBadge, KDataTable, type KColumn } from "@/components/k"
+import { byteSize, count, dateTime } from "@/lib/format"
+import { RETENTION_DAYS } from "@/server/archive/retention"
+import type { RunSummaryBase } from "@/server/archive/run"
+
+import { ArchiveCard, OUTCOME } from "./archive-card"
+
+const RUN_COLUMNS: ReadonlyArray<KColumn<RunSummaryBase>> = [
+  {
+    key: "startedAt",
+    label: "Started (WIB)",
+    cell: (run) => Effect.runSync(dateTime(run.startedAt)),
+  },
+  {
+    key: "id",
+    label: "Run",
+    cell: (run) => <span className="font-mono text-xs">{run.id}</span>,
+  },
+  {
+    key: "outcome",
+    label: "Outcome",
+    cell: (run) => (
+      <KBadge tone={OUTCOME[run.outcome].tone}>
+        {OUTCOME[run.outcome].label}
+      </KBadge>
+    ),
+  },
+]
+
+/**
+ * The runs of the past 30 days, newest first: each run's start, id and
+ * outcome, then the archive's `counts` columns.
+ */
+export function ArchiveRecentRunsCard<Run extends RunSummaryBase>({
+  runs,
+  counts,
+}: {
+  runs: ReadonlyArray<Run>
+  counts: ReadonlyArray<KColumn<Run>>
+}) {
+  return (
+    <ArchiveCard title="Recent runs" aside={null}>
+      <KDataTable<Run>
+        label="Recent runs"
+        columns={[...RUN_COLUMNS, ...counts]}
+        rows={runs}
+        getRowId={(run) => run.id}
+        state={
+          runs.length === 0
+            ? {
+                status: "empty",
+                title: `No archive run in the past ${RETENTION_DAYS} days.`,
+                description: `Runs show here for ${RETENTION_DAYS} days after they start.`,
+              }
+            : { status: "ready" }
+        }
+      />
+      <p className="text-xs text-muted-foreground">
+        Kept {RETENTION_DAYS} days.
+      </p>
+    </ArchiveCard>
+  )
+}
+
+/**
+ * An archive's stored reports and their size, with a table of `rows`, one
+ * per kind, or `emptyMessage` before any report.
+ */
+export function KindTotalsCard<Row extends object>({
+  title,
+  reports,
+  bytes,
+  emptyMessage,
+  label,
+  columns,
+  rows,
+  getRowId,
+}: {
+  title: string
+  reports: number
+  bytes: number
+  emptyMessage: string
+  // The table's accessible name.
+  label: string
+  columns: ReadonlyArray<KColumn<Row>>
+  rows: ReadonlyArray<Row>
+  getRowId: (row: Row) => string
+}) {
+  return (
+    <ArchiveCard
+      title={title}
+      aside={
+        <span className="text-[13px] text-muted-foreground">
+          {Effect.runSync(count(reports, "report", "reports"))} ·{" "}
+          {Effect.runSync(byteSize(bytes))}
+        </span>
+      }
+    >
+      {reports === 0 ? (
+        <p className="text-[13px] text-muted-foreground">{emptyMessage}</p>
+      ) : (
+        <KDataTable
+          label={label}
+          columns={columns}
+          rows={rows}
+          getRowId={getRowId}
+        />
+      )}
+    </ArchiveCard>
+  )
+}

@@ -1,0 +1,142 @@
+// A fake KSEI for the KSEI archive run: a `fetch` behind the archive's own
+// HTTP layer (kseiHttp), so a test sees the options every request carries.
+// It answers both listings from the recorded fixtures, each listed file at its
+// URL with small zip bytes and KSEI's headers (the ETag is the MD5 of the
+// bytes), and `302 Location: /id` for anything else, as ksei.co.id does.
+// Tests change `files` (a body, an ETag, a status, delete for a 302),
+// `listings`, or `listingResponse` (a 405, a changed shape) between runs.
+import { Effect, Layer } from "effect"
+import { FetchHttpClient, type HttpClient } from "effect/http"
+import { createHash } from "node:crypto"
+
+import { kseiHttp } from "@/server/ksei/http"
+import type { KseiReportKind } from "@/server/ksei/kind"
+import { LISTING_URLS } from "@/server/ksei/listing"
+
+import securitiesHoldings from "./fixtures/securities-ownerships-2026-11-14.json"
+import securitiesStatistics from "./fixtures/static-stocks-2026-11-14.json"
+
+export type ListingEntry = (typeof securitiesStatistics.data)[number]
+
+export interface FakeFile {
+  readonly body: string
+  // Left out of the response when null.
+  readonly etag: string | null
+  readonly lastModified: string
+  // Answered instead of the file, when set: a 3xx carries Location: /id.
+  readonly status?: number
+}
+
+export interface FakeRequest {
+  readonly url: string
+  readonly method: string
+  readonly cache: RequestCache | undefined
+  readonly redirect: RequestRedirect | undefined
+  readonly accept: string | null
+}
+
+export interface FakeKsei {
+  readonly listings: Record<KseiReportKind, Array<ListingEntry>>
+  // Answered instead of a kind's listing, when set.
+  readonly listingResponse: Partial<Record<KseiReportKind, () => Response>>
+  // Keyed by URL.
+  readonly files: Map<string, FakeFile>
+  readonly requests: Array<FakeRequest>
+  readonly layer: Layer.Layer<HttpClient.HttpClient>
+}
+
+export const RECORDED: Record<KseiReportKind, ReadonlyArray<ListingEntry>> = {
+  "securities-statistics": securitiesStatistics.data,
+  "securities-holdings": securitiesHoldings.data,
+}
+
+// A zip's bytes start with PK\x03\x04.
+export const zipBody = (text: string) => `PK\u0003\u0004${text}`
+
+export const md5 = (body: string) =>
+  createHash("md5").update(body).digest("hex")
+
+// KSEI's ETag: the MD5 of the bytes, quoted.
+export const etagOf = (body: string) => `"${md5(body)}"`
+
+export const LAST_MODIFIED = "Mon, 02 Nov 2026 00:09:49 GMT"
+
+export const fileOf = (body: string): FakeFile => ({
+  body,
+  etag: etagOf(body),
+  lastModified: LAST_MODIFIED,
+})
+
+const listingOf = (entries: ReadonlyArray<ListingEntry>) => ({
+  data: entries,
+  links: { first: null, last: null, prev: null, next: null },
+  meta: {
+    current_page: 1,
+    from: 1,
+    last_page: 1,
+    per_page: 100,
+    to: entries.length,
+    total: entries.length,
+  },
+})
+
+export const fakeKsei = (): FakeKsei => {
+  const listings = {
+    "securities-statistics": [...RECORDED["securities-statistics"]],
+    "securities-holdings": [...RECORDED["securities-holdings"]],
+  }
+  const files = new Map<string, FakeFile>(
+    Object.values(listings)
+      .flat()
+      .flatMap((entry) => entry.pdf_en)
+      .map(({ url, filename }) => [url, fileOf(zipBody(`text of ${filename}`))])
+  )
+  const answer = (url: string, method: string): Response => {
+    for (const [kind, listingUrl] of Object.entries(LISTING_URLS) as Array<
+      [KseiReportKind, string]
+    >)
+      if (url === listingUrl)
+        return (
+          ksei.listingResponse[kind]?.() ??
+          Response.json(listingOf(ksei.listings[kind]))
+        )
+    const file = files.get(url)
+    if (file === undefined || (file.status ?? 200) >= 300)
+      return file?.status !== undefined && file.status >= 400
+        ? new Response("KSEI error", { status: file.status })
+        : new Response(null, { status: 302, headers: { location: "/id" } })
+    return new Response(method === "HEAD" ? null : file.body, {
+      headers: {
+        "content-type": "application/zip",
+        "content-length": String(new TextEncoder().encode(file.body).length),
+        "last-modified": file.lastModified,
+        ...(file.etag === null ? {} : { etag: file.etag }),
+      },
+    })
+  }
+  const fetch = ((input: RequestInfo | URL, init?: RequestInit) =>
+    Effect.runPromise(
+      Effect.sync(() => {
+        const url = input instanceof Request ? input.url : String(input)
+        const method = init?.method ?? "GET"
+        ksei.requests.push({
+          url,
+          method,
+          cache: init?.cache,
+          redirect: init?.redirect,
+          accept: new Headers(init?.headers).get("accept"),
+        })
+        return answer(url, method)
+      })
+    )) as typeof globalThis.fetch
+  const ksei: FakeKsei = {
+    listings,
+    listingResponse: {},
+    files,
+    requests: [],
+    layer: kseiHttp.pipe(
+      Layer.provide(Layer.succeed(FetchHttpClient.Fetch, fetch))
+    ),
+  }
+  return ksei
+}

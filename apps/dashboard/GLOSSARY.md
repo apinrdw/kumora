@@ -175,6 +175,10 @@ _Avoid_: Archive run, which is IDX's; sync, scrape
 A KSEI archive run an admin starts that also looks for KSEI reports older than KSEI's lists, by filenames known from elsewhere and by guessing each month's period end. Scheduled runs never do this.
 _Avoid_: History run, full sync
 
+**Run**:
+One pass of either archive: an archive run or a KSEI archive run. What both share (a run id, its outcome, one run in progress at a time) is said of a run.
+_Avoid_: Archive run for both, which is IDX's; job
+
 ### Access
 
 **Account**:

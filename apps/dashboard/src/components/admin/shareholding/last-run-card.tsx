@@ -1,0 +1,112 @@
+import { Effect } from "effect"
+
+import { count } from "@/lib/format"
+import { runArchiveNowFn } from "@/server/admin/shareholding.functions"
+import type { RunView } from "@/server/archive/run-view"
+import type { ArchiveRunResult } from "@/server/shareholding/run-result"
+import { ARCHIVE_TIMES_WIB } from "@/server/shareholding/schedule"
+
+import {
+  ArchiveLastRunCard,
+  RunArchiveButton,
+} from "@/components/admin/archive/last-run-card"
+
+// What a partial run couldn't store, and what it archived under `other`.
+function Detail({ result }: { result: ArchiveRunResult }) {
+  if (result.notStored.length === 0 && result.other.length === 0) return null
+  return (
+    <div className="border-warning bg-elevated flex flex-col gap-2 rounded-xs border-l-[3px] px-3 py-2 text-[13px]">
+      {result.notStored.length > 0 && (
+        <div>
+          <b>
+            {Effect.runSync(
+              count(
+                result.notStored.length,
+                "report could not be stored.",
+                "reports could not be stored."
+              )
+            )}
+          </b>{" "}
+          The next run retries {result.notStored.length === 1 ? "it" : "them"}.
+          <ul aria-label="Not stored" className="mt-1 list-disc pl-5">
+            {result.notStored.map((url) => (
+              <li
+                key={url}
+                className="font-mono text-xs [overflow-wrap:anywhere]"
+              >
+                {url}
+              </li>
+            ))}
+          </ul>
+        </div>
+      )}
+      {result.other.length > 0 && (
+        <div>
+          <b>
+            {Effect.runSync(
+              count(
+                result.other.length,
+                "report of an unknown kind",
+                "reports of an unknown kind"
+              )
+            )}
+          </b>{" "}
+          {result.other.length === 1 ? "was" : "were"} archived under{" "}
+          <span className="font-mono text-xs">other</span>.
+          <ul aria-label="Archived under other" className="mt-1 list-disc pl-5">
+            {result.other.map(({ sourceUrl, description }) => (
+              <li key={sourceUrl} className="[overflow-wrap:anywhere]">
+                {description}{" "}
+                <span className="font-mono text-xs text-muted-foreground">
+                  {sourceUrl}
+                </span>
+              </li>
+            ))}
+          </ul>
+        </div>
+      )}
+    </div>
+  )
+}
+
+/** The last archive run, or the empty state before any, with Run now. */
+export function LastRunCard({
+  lastRun,
+  nextRun,
+  now,
+}: {
+  lastRun: RunView<ArchiveRunResult> | undefined
+  nextRun: string
+  // When the page read the run, for a running run's time so far.
+  now: string
+}) {
+  const result = lastRun?.result
+  return (
+    <ArchiveLastRunCard
+      title="Last archive run"
+      emptyMessage="No archive run has happened yet."
+      lastRun={lastRun}
+      now={now}
+      stats={
+        result === undefined
+          ? []
+          : [
+              { value: result.reportsAdded, label: "Reports added" },
+              { value: result.newVersions, label: "New versions" },
+              { value: result.reportsChecked, label: "Reports checked" },
+              { value: result.notStored.length, label: "Not stored" },
+            ]
+      }
+      details={result === undefined ? null : <Detail result={result} />}
+      actions={
+        <RunArchiveButton
+          inProgress={lastRun?.inProgress ?? false}
+          start={runArchiveNowFn}
+        >
+          Run now
+        </RunArchiveButton>
+      }
+      schedule={{ times: ARCHIVE_TIMES_WIB, nextRun }}
+    />
+  )
+}
