@@ -6,8 +6,8 @@ import { Effect } from "effect"
 import { nextRunOf, timesWib } from "../archive/schedule.ts"
 
 // The KSEI archive cron (UTC): 10:00 WIB every day. alchemy.run.ts sets it
-// on Production only, and src/worker.ts tells it from the shareholding
-// archive's cron by this expression.
+// on Production only, and runCron (../crons.ts) tells it from the
+// shareholding archive's cron by this expression.
 // Decision: daily, after KSEI's uploads at about 07:08 WIB on the first
 // weekday after a period end, so a new month's files are archived the
 // morning they appear. See apinrdw/kumora#322.

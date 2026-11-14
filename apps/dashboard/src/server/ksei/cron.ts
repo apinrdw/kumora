@@ -1,5 +1,5 @@
-// The KSEI archive cron's handler, which the Worker entry's `scheduled`
-// calls (src/worker.ts). It returns a Promise for the reason the shareholding
+// The KSEI archive cron's handler, which runCron (../crons.ts) calls for the
+// Worker entry's `scheduled`. It returns a Promise for the reason the shareholding
 // archive's (../shareholding/cron.ts) does.
 import { runServerEffectResult } from "@workspace/server"
 import { Effect, Layer } from "effect"

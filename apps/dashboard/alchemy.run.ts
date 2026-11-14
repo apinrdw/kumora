@@ -119,8 +119,9 @@ export const Website = Cloudflare.Website.Vite(
             crons: [
               ARCHIVE_CRON,
               // Decision: the KSEI archive cron is gated the same way, so only
-              // Production calls ksei.co.id on a schedule; src/worker.ts tells
-              // the two crons apart by expression. See apinrdw/kumora#326.
+              // Production calls ksei.co.id on a schedule; runCron
+              // (src/server/crons.ts) tells the two crons apart by expression.
+              // See apinrdw/kumora#326.
               KSEI_CRON,
             ],
           }
