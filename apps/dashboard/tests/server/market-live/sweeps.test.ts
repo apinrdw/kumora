@@ -124,6 +124,44 @@ describe("sweeps", () => {
   )
 
   it.effect(
+    "a trade numbered after a minute already stored carries its last sweep on, served and stored",
+    () =>
+      Effect.gen(function* () {
+        yield* at("09:00:12")
+        const sql = memorySql()
+        const day = yield* tradingDay(sql)
+        yield* day.trades([
+          untr(40001, "09:00:10.100", 23300, 2, "buy"),
+          untr(40002, "09:00:10.500", 23300, 1, "sell"),
+          untr(40003, "09:00:10.600", 23325, 3, "buy"),
+        ])
+        // Past the merge window and the minute's flush, which lets it go.
+        yield* TestClock.adjust("2 minutes")
+        // A second feed's late copy of the same second, numbered after.
+        yield* day.trades([
+          untr(40004, "09:00:10.900", 23350, 4, "buy"),
+          untr(40005, "09:00:40.000", 23350, 1, "sell"),
+        ])
+        const carried = [
+          ["buy", "2026-11-09T02:00:10.100Z", 23300, 23300, 2, 1],
+          ["sell", "2026-11-09T02:00:10.500Z", 23300, 23300, 1, 1],
+          ["buy", "2026-11-09T02:00:10.600Z", 23325, 23350, 7, 2],
+          ["sell", "2026-11-09T02:00:40.000Z", 23350, 23350, 1, 1],
+        ]
+        assert.deepStrictEqual(
+          (yield* day.recordedSweeps("UNTR")).answer.sweeps.map(sweepOf),
+          carried
+        )
+        yield* TestClock.adjust("1 minute")
+        const restarted = yield* tradingDay(sql)
+        assert.deepStrictEqual(
+          (yield* restarted.recordedSweeps("UNTR")).answer.sweeps.map(sweepOf),
+          carried
+        )
+      })
+  )
+
+  it.effect(
     "the GET joins the delta tape with no gap or duplicate: a page grouping the trades numbered above its answer builds what a later GET answers",
     () =>
       Effect.gen(function* () {

@@ -16,7 +16,12 @@ import {
 } from "@workspace/relay"
 import { DateTime, Effect } from "effect"
 
-import type { FootprintRow, StoredCandle, StoredFootprint } from "./candles.ts"
+import type {
+  FootprintRow,
+  StoredCandle,
+  StoredFootprint,
+  StoredSweeps,
+} from "./candles.ts"
 import { cellsFromText, cellsOut, cellsText } from "./footprint-cells.ts"
 import type { StoredAjaibBook } from "./order-books.ts"
 import type { LivePrice } from "./stockbit-liveprice.ts"
@@ -94,6 +99,7 @@ const SCHEMA = [
     minute INTEGER NOT NULL,
     cells TEXT NOT NULL,
     sweeps TEXT NOT NULL,
+    last_trade INTEGER NOT NULL,
     PRIMARY KEY (code, minute)
   ) WITHOUT ROWID`,
   `CREATE TABLE IF NOT EXISTS live_prices (
@@ -236,13 +242,14 @@ export const makeDayStore = (sql: Sql) =>
               figures.value,
               figures.frequency
             )
-          for (const [{ code, minute }, cells, sweeps] of footprints)
+          for (const [{ code, minute, lastTrade }, cells, sweeps] of footprints)
             sql.exec(
-              "INSERT OR REPLACE INTO footprints VALUES (?, ?, ?, ?)",
+              "INSERT OR REPLACE INTO footprints VALUES (?, ?, ?, ?, ?)",
               code,
               minute,
               cells,
-              sweeps
+              sweeps,
+              Number(lastTrade)
             )
           for (const price of flush.livePrices)
             sql.exec(
@@ -470,8 +477,8 @@ export const makeDayStore = (sql: Sql) =>
 
     // One stock's regular-board trades in one minute, ascending by trade
     // number. The trades table has no code index (the Decision on SCHEMA), so
-    // this reads the whole market's minute; the book asks only for a minute
-    // it let go of.
+    // this reads the whole market's minute; the book asks only when a late
+    // trade lands in a stored minute (candles.ts, `slotSweeps`).
     const storedMinuteTrades = Effect.fnUntraced(function* (
       code: StockCode,
       minute: number
@@ -480,6 +487,25 @@ export const makeDayStore = (sql: Sql) =>
         DateTime.makeUnsafe(minute - 1),
         DateTime.makeUnsafe(minute + MINUTE - 1)
       )).filter((trade) => trade.code === code && trade.board === "RG")
+    })
+
+    // One stock's sweeps for one minute, with the highest trade number they
+    // were grouped from.
+    const storedSweeps = Effect.fnUntraced(function* (
+      code: StockCode,
+      minute: number
+    ) {
+      const [row] = sql.exec(
+        "SELECT sweeps, last_trade FROM footprints WHERE code = ? AND minute = ?",
+        code,
+        minute
+      )
+      return row === undefined
+        ? undefined
+        : ({
+            sweeps: yield* sweepsFromText(String(row.sweeps)),
+            lastTrade: BigInt(Number(row.last_trade)),
+          } satisfies StoredSweeps)
     })
 
     // One stock's sweeps by minute, ascending.
@@ -578,6 +604,7 @@ export const makeDayStore = (sql: Sql) =>
       storedFootprint,
       storedFootprintsOf,
       storedMinuteTrades,
+      storedSweeps,
       storedSweepsOf,
       footprintsOf,
       livePrices,
