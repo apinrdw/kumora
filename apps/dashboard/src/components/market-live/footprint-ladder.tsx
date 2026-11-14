@@ -5,6 +5,8 @@ import { useSyncExternalStore } from "react"
 
 import type { Ladder } from "@/lib/footprint-ladder"
 
+import type { ListenerStore } from "./listener-store"
+
 // What the ladder shows: a minute's ladder at the pointer (CSS px in the
 // chart), or nothing.
 export type Hovered =
@@ -16,28 +18,7 @@ export type Hovered =
     }
   | undefined
 
-export interface LadderStore {
-  readonly set: (hovered: Hovered) => void
-  readonly get: () => Hovered
-  readonly subscribe: (listener: () => void) => () => void
-}
-
-export const makeLadderStore = (): LadderStore => {
-  let hovered: Hovered
-  const listeners = new Set<() => void>()
-  return {
-    set: (next) => {
-      if (next === hovered) return
-      hovered = next
-      for (const listener of listeners) listener()
-    },
-    get: () => hovered,
-    subscribe: (listener) => {
-      listeners.add(listener)
-      return () => void listeners.delete(listener)
-    },
-  }
-}
+export type LadderStore = ListenerStore<Hovered>
 
 const TONE = {
   up: "text-up",

@@ -239,17 +239,21 @@ export default function ChartCanvas({
       .priceScale()
       .applyOptions({ scaleMargins: { top: 0.08, bottom: 0.08 } })
     const grey = token("--text-muted")
-    const volume = makeVolumePane(chart, {
-      buy: up,
-      sell: down,
-      none: `${grey}aa`,
-      later: `${grey}33`,
-    })
+    const volume = Effect.runSync(
+      makeVolumePane(chart, {
+        buy: up,
+        sell: down,
+        none: `${grey}aa`,
+        later: `${grey}33`,
+      })
+    )
     setSeries(candles)
-    const axis = idxPriceAxis(candles, {
-      text: token("--text-muted"),
-      grid: token("--chart-grid"),
-    })
+    const axis = Effect.runSync(
+      idxPriceAxis(candles, {
+        text: token("--text-muted"),
+        grid: token("--chart-grid"),
+      })
+    )
     const sessions = new SessionLines(token("--border-subtle"))
     candles.attachPrimitive(sessions)
     const shades = new GapShades(`${grey}26`)
@@ -273,7 +277,9 @@ export default function ChartCanvas({
     // Each minute's footprint, by its time: its volume bar's sides.
     let footprints = new Map<number, Footprint>()
     const volumeOf = (candle: Candle, time: UTCTimestamp) =>
-      volumeBar(time, candle, footprints.get(time), later(candle))
+      Effect.runSync(
+        volumeBar(time, candle, footprints.get(time), later(candle))
+      )
     const stopHeatmap =
       heatmap &&
       attachBookHeatmap(

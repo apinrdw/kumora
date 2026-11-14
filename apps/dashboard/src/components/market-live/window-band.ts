@@ -9,6 +9,8 @@ import type {
   Time,
 } from "lightweight-charts"
 
+import { Effect } from "effect"
+
 import type { BarRange } from "@/lib/chart-nav"
 
 class WindowBand implements ISeriesPrimitive<Time> {
@@ -74,5 +76,8 @@ export const makeWindowBand = (
   range: () => BarRange | null,
   shade: string,
   edge: string
-): ISeriesPrimitive<Time> & { readonly update: () => void } =>
-  new WindowBand(range, shade, edge)
+) =>
+  Effect.sync(
+    (): ISeriesPrimitive<Time> & { readonly update: () => void } =>
+      new WindowBand(range, shade, edge)
+  )

@@ -1,7 +1,7 @@
 // The chart settings a browser remembers (spec apinrdw/kumora#263,
 // "Settings"): chart 1's top-N, and chart 2's view mode, imbalance ratio and
 // POC and VWAP toggles.
-import { Effect, Option, Schema } from "effect"
+import { Effect, Schema } from "effect"
 
 import { TOP_N_DEFAULT } from "./sweeps"
 
@@ -41,8 +41,10 @@ const TopN = Schema.Int.check(
 )
 
 // A stored setting if it parses, else its default.
-const kept = <A>(schema: Schema.Decoder<A>, value: unknown, fallback: A): A =>
-  Option.getOrElse(Schema.decodeUnknownOption(schema)(value), () => fallback)
+const storedOr = <A>(schema: Schema.Decoder<A>, value: unknown, fallback: A) =>
+  Schema.decodeUnknownEffect(schema)(value).pipe(
+    Effect.orElseSucceed(() => fallback)
+  )
 
 // The stored text's settings: each that parses is kept, the rest default.
 export const parseChartSettings = Effect.fnUntraced(function* (
@@ -57,14 +59,18 @@ export const parseChartSettings = Effect.fnUntraced(function* (
     (stored as Partial<Record<keyof ChartSettings, unknown>>)[key]
   const fallback = CHART_SETTINGS_DEFAULT
   return {
-    topN: kept(TopN, at("topN"), fallback.topN),
-    mode: kept(Schema.Literals(FOOTPRINT_MODES), at("mode"), fallback.mode),
-    imbalance: kept(
+    topN: yield* storedOr(TopN, at("topN"), fallback.topN),
+    mode: yield* storedOr(
+      Schema.Literals(FOOTPRINT_MODES),
+      at("mode"),
+      fallback.mode
+    ),
+    imbalance: yield* storedOr(
       Schema.Literals(IMBALANCE_RATIOS),
       at("imbalance"),
       fallback.imbalance
     ),
-    poc: kept(Schema.Boolean, at("poc"), fallback.poc),
-    vwap: kept(Schema.Boolean, at("vwap"), fallback.vwap),
+    poc: yield* storedOr(Schema.Boolean, at("poc"), fallback.poc),
+    vwap: yield* storedOr(Schema.Boolean, at("vwap"), fallback.vwap),
   } satisfies ChartSettings
 })

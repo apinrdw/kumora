@@ -171,7 +171,7 @@ export function FootprintChart({
 }) {
   const summary = useFootprintSummary(store, cursor)
   const { settings, change } = useChartSettings()
-  const [header] = useState(makeHeaderStore)
+  const [header] = useState(() => Effect.runSync(makeHeaderStore))
   // Both feeds down: the cells stay, dimmed.
   const stale = useMergedStale()
   return (

@@ -344,22 +344,22 @@ export function attachBookHeatmap(
   candles.attachPrimitive(heatmap)
   const until = () => cursor?.state().at ?? Number.POSITIVE_INFINITY
   let frame = 0
-  const show = () => {
+  const shadeNow = () => {
     frame = 0
     heatmap.setSlices(store.slices(), until())
   }
-  const later = () => {
-    if (frame === 0) frame = requestAnimationFrame(show)
+  const shadeNextFrame = () => {
+    if (frame === 0) frame = requestAnimationFrame(shadeNow)
   }
-  show()
-  const stopStore = store.subscribe(later)
+  shadeNow()
+  const stopStore = store.subscribe(shadeNextFrame)
   // The cursor moved to another slice.
   let slice = Math.floor(until() / HEAT_SLICE_MS)
   const stopCursor = cursor?.subscribe(() => {
     const next = Math.floor(until() / HEAT_SLICE_MS)
     if (next === slice) return
     slice = next
-    later()
+    shadeNextFrame()
   })
   const timer = cursor === undefined ? setInterval(store.tick, 1_000) : 0
   return () => {

@@ -99,30 +99,31 @@ class TickAxis implements ISeriesPrimitive<Time> {
 export const idxPriceAxis = (
   series: ISeriesApi<SeriesType, Time>,
   colors: { readonly text: string; readonly grid: string }
-) => {
-  series
-    .priceScale()
-    .applyOptions({ textColor: "transparent", ticksVisible: false })
-  series.attachPrimitive(new TickAxis(colors.text, colors.grid))
-  let tick = 0
-  const setPrice = (latest: number | undefined) => {
-    const next = Effect.runSync(idxTick(latest ?? 0))
-    if (next === tick) return
-    tick = next
-    // Decision: the series' own price format, never the chart-wide
-    // `localization.priceFormatter`, which would override the footer's
-    // blank one (spec apinrdw/kumora#263, "Further Notes").
-    series.applyOptions({
-      priceFormat: {
-        type: "custom",
-        minMove: tick,
-        formatter: (value: number) => Effect.runSync(priceLabel(value)),
-      },
-    })
-  }
-  setPrice(undefined)
-  return { setPrice }
-}
+) =>
+  Effect.sync(() => {
+    series
+      .priceScale()
+      .applyOptions({ textColor: "transparent", ticksVisible: false })
+    series.attachPrimitive(new TickAxis(colors.text, colors.grid))
+    let tick = 0
+    const setPrice = (latest: number | undefined) => {
+      const next = Effect.runSync(idxTick(latest ?? 0))
+      if (next === tick) return
+      tick = next
+      // Decision: the series' own price format, never the chart-wide
+      // `localization.priceFormatter`, which would override the footer's
+      // blank one (spec apinrdw/kumora#263, "Further Notes").
+      series.applyOptions({
+        priceFormat: {
+          type: "custom",
+          minMove: tick,
+          formatter: (value: number) => Effect.runSync(priceLabel(value)),
+        },
+      })
+    }
+    setPrice(undefined)
+    return { setPrice }
+  })
 
 // Chart 2's autoscale: the visible minutes' range, widened until a row is at
 // most 36 px of `chart`'s first pane (lib/price-axis.ts `rowCappedRange`).

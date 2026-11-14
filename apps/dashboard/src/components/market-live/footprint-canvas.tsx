@@ -50,7 +50,8 @@ import type { CandleStore } from "./candle-store"
 import type { ChartPair } from "./chart-pair"
 import { CHART_SCALE_WIDTH, crosshairTime, tickMark } from "./chart-time"
 import type { HeaderStore } from "./footprint-header"
-import { FootprintLadder, makeLadderStore } from "./footprint-ladder"
+import { FootprintLadder, type Hovered } from "./footprint-ladder"
+import { makeListenerStore } from "./listener-store"
 import { idxPriceAxis, rowCapped } from "./price-axis"
 import type { ReplayCursor } from "./replay-cursor"
 
@@ -801,7 +802,9 @@ export default function FootprintCanvas({
   const shownGaps = useRef(gaps)
   const shownSettings = useRef(settings)
   const redrawNow = useRef<() => void>(undefined)
-  const [ladder] = useState(makeLadderStore)
+  const [ladder] = useState(() =>
+    Effect.runSync(makeListenerStore<Hovered>(undefined))
+  )
 
   useEffect(() => {
     const element = host.current
@@ -871,10 +874,12 @@ export default function FootprintCanvas({
         autoscaleInfoProvider: rowCapped(chart),
       }
     )
-    const axis = idxPriceAxis(footprint, {
-      text: palette.muted,
-      grid: token("--chart-grid"),
-    })
+    const axis = Effect.runSync(
+      idxPriceAxis(footprint, {
+        text: palette.muted,
+        grid: token("--chart-grid"),
+      })
+    )
     footprint
       .priceScale()
       .applyOptions({ scaleMargins: { top: 0.06, bottom: 0.06 } })

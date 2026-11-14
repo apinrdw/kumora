@@ -19,7 +19,6 @@ import { Effect } from "effect"
 import type {
   IChartApi,
   ISeriesApi,
-  Logical,
   LogicalRange,
   MouseEventParams,
   SeriesType,
@@ -64,11 +63,6 @@ type Fit =
   | { readonly _tag: "UpTo"; readonly minute: number }
   | { readonly _tag: "Middle"; readonly logical: number }
 
-const logicalRange = (range: BarRange): LogicalRange => ({
-  from: range.from as Logical,
-  to: range.to as Logical,
-})
-
 const POINTER_EVENTS = [
   "pointerenter",
   "pointerdown",
@@ -82,7 +76,7 @@ export const makeChartPair = () =>
     let footprint:
       | (PairedChart & { readonly minutes: () => ReadonlyArray<number> })
       | undefined
-    let band: ReturnType<typeof makeWindowBand> | undefined
+    let band: Effect.Success<ReturnType<typeof makeWindowBand>> | undefined
     // The chart under the pointer; none after a jump, so the jump's own
     // range change moves only chart 2.
     let leader: IChartApi | undefined
@@ -99,7 +93,7 @@ export const makeChartPair = () =>
     const move = (chart: IChartApi, range: BarRange) => {
       sentTo.set(chart, range)
       echoes.set(chart, range)
-      chart.timeScale().setVisibleLogicalRange(logicalRange(range))
+      chart.timeScale().setVisibleLogicalRange(range)
     }
 
     let pending: Fit | undefined
@@ -223,13 +217,17 @@ export const makeChartPair = () =>
     return {
       attachCandles: (side, colors) => {
         candles = side
-        const shade = makeWindowBand(
-          () => {
-            const shown = footprint?.chart.timeScale().getVisibleLogicalRange()
-            return shown ?? null
-          },
-          colors.shade,
-          colors.edge
+        const shade = Effect.runSync(
+          makeWindowBand(
+            () => {
+              const shown = footprint?.chart
+                .timeScale()
+                .getVisibleLogicalRange()
+              return shown ?? null
+            },
+            colors.shade,
+            colors.edge
+          )
         )
         band = shade
         side.series.attachPrimitive(shade)

@@ -7,6 +7,8 @@ import { useMemo, useSyncExternalStore } from "react"
 import type { FootprintColumn } from "@/lib/footprint"
 import { footprintHeader, type HeaderTone } from "@/lib/footprint-header"
 
+import { makeListenerStore } from "./listener-store"
+
 export interface HeaderStore {
   // The minute the cursor is on, none before any.
   readonly show: (column: FootprintColumn | undefined) => void
@@ -16,31 +18,24 @@ export interface HeaderStore {
   readonly subscribe: (listener: () => void) => () => void
 }
 
-export const makeHeaderStore = (): HeaderStore => {
+// The header reads the hovered minute, else the shown one.
+export const makeHeaderStore = Effect.gen(function* () {
+  const read = yield* makeListenerStore<FootprintColumn | undefined>(undefined)
   let shown: FootprintColumn | undefined
   let hovered: FootprintColumn | undefined
-  const listeners = new Set<() => void>()
-  const emit = () => {
-    for (const listener of listeners) listener()
-  }
   return {
     show: (column) => {
-      if (column === shown) return
       shown = column
-      if (hovered === undefined) emit()
+      read.set(hovered ?? shown)
     },
     hover: (column) => {
-      if (column === hovered) return
       hovered = column
-      emit()
+      read.set(hovered ?? shown)
     },
-    get: () => hovered ?? shown,
-    subscribe: (listener) => {
-      listeners.add(listener)
-      return () => void listeners.delete(listener)
-    },
-  }
-}
+    get: read.get,
+    subscribe: read.subscribe,
+  } satisfies HeaderStore
+})
 
 const TONE: Record<HeaderTone, string> = {
   up: "text-up",
