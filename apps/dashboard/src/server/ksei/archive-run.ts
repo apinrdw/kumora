@@ -49,19 +49,18 @@ type KseiRun = Run<KseiTrigger>
 
 type StepServices = ArchiveBucket | HttpClient.HttpClient
 
-// Decision: a step that asks KSEI times out when the requests it waits on in
-// turn should all have answered. `plan` (both listings at once) and each
+// A step that asks KSEI times out when the requests it waits on in turn
+// should all have answered. `plan` (both listings at once) and each
 // `report:` (one file) wait on one request, and get its 2 minutes
-// (KSEI_REQUEST_TIMEOUT, http.ts) as a step, which also bounds reading the
-// body, past the request's own bound. `head` and `probe:` send
-// their HEADs a few at once: their longest run of HEADs at KSEI's slowest
-// answer, plus one stuck request. Today's 72 held files are 18 HEADs in turn
-// (4.4 minutes), a probe's at most 42 (7.6 minutes). A flat 2 minutes timed
-// out a healthy probe (42 HEADs at 3 s is 126 s), and each retry restarted
-// its year. `seed`, `summary` and `failed` ask KSEI nothing and keep the
-// runtime's 10 minutes. See apinrdw/kumora#327, "Fetching from KSEI".
+// (KSEI_REQUEST_TIMEOUT, http.ts), which as a step also bound reading the
+// body. `seed`, `summary` and `failed` ask KSEI nothing and keep the
+// runtime's 10 minutes.
 const KSEI_STEP: StepConfig = { timeout: KSEI_REQUEST_TIMEOUT }
 
+// Decision: `head` and `probe:` get their longest run of HEADs in turn at
+// KSEI's slowest answer, plus one stuck request: 4.4 minutes for 72 held
+// files, 7.6 for a probe. A flat 2 minutes timed out a healthy probe (42
+// HEADs at 3 s), and each retry restarted its year. See apinrdw/kumora#327.
 const batchStep = (headsInTurn: number) =>
   Effect.sync((): StepConfig => ({
     timeout:
