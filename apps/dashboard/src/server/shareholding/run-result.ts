@@ -1,7 +1,7 @@
 // An archive run's result: written to runs/<id>.json while it runs and when
 // it ends, and returned as the Workflow instance's output. The admin page
 // reads it back with this Schema.
-import { DateTime, Effect, Schema } from "effect"
+import { DateTime, Effect, Schema, Struct } from "effect"
 
 export const ArchiveTrigger = Schema.Literals(["cron", "admin"])
 export type ArchiveTrigger = typeof ArchiveTrigger.Type
@@ -63,6 +63,26 @@ export type ArchiveRunResult = typeof ArchiveRunResult.Type
 export const decodeRunResult = Schema.decodeUnknownEffect(
   Schema.fromJsonString(ArchiveRunResult)
 )
+
+// A run as the recent runs table shows it.
+const RunSummary = ArchiveRunResult.mapFields(
+  Struct.pick([
+    "id",
+    "trigger",
+    "startedAt",
+    "outcome",
+    "reportsAdded",
+    "newVersions",
+  ])
+)
+
+// The custom metadata of runs/<id>.json: the run's summary, so the recent
+// runs table reads the listing of runs/ and no record. A record can hold
+// MAX_LISTED_REPORTS URLs; this stays well under R2's 2 KB. S3 lowercases
+// metadata names, so the one name is lowercase.
+export const RunMetadata = Schema.Struct({
+  run: Schema.fromJsonString(RunSummary),
+})
 
 // The pointer at runs/latest.json.
 export const LatestRun = Schema.Struct({ id: ArchiveRunId })

@@ -1,5 +1,5 @@
 import { assert, describe, it } from "@effect/vitest"
-import { Effect, Layer } from "effect"
+import { Effect, Layer, Schema, Struct } from "effect"
 import { TestClock } from "effect/testing"
 
 import { MAX_LISTED_OBJECTS } from "@/server/shareholding/bucket"
@@ -7,6 +7,7 @@ import { archiveTotals, recentRuns } from "@/server/shareholding/history"
 import {
   ArchiveRunId,
   type ArchiveRunResult,
+  RunMetadata,
 } from "@/server/shareholding/run-result"
 
 import { fakeWorkflow, type FakeWorkflow } from "./fake-workflow.ts"
@@ -38,12 +39,13 @@ const put = (
   bucket: MemoryBucket,
   key: string,
   body: string,
-  uploaded?: number
+  uploaded?: number,
+  customMetadata: Readonly<Record<string, string>> = {}
 ) =>
   bucket.objects.set(key, {
     body,
     contentType: "application/json",
-    customMetadata: {},
+    customMetadata,
     uploaded,
   })
 
@@ -52,8 +54,18 @@ const seedRun = (bucket: MemoryBucket, result: ArchiveRunResult) =>
     bucket,
     `runs/${result.id}.json`,
     JSON.stringify(result),
-    Date.parse(result.finishedAt ?? result.startedAt)
+    Date.parse(result.finishedAt ?? result.startedAt),
+    Schema.encodeSync(RunMetadata)({ run: result })
   )
+
+const summary = Struct.pick([
+  "id",
+  "trigger",
+  "startedAt",
+  "outcome",
+  "reportsAdded",
+  "newVersions",
+] as const)
 
 const provide = (
   bucket: MemoryBucket,
@@ -159,6 +171,53 @@ describe("the recent archive runs", () => {
       assert.isAtMost(bucket.listed.length, recent.length + 2)
     }).pipe(provide(bucket))
   })
+
+  it.effect(
+    "read no record at the most runs the listings of runs/ hold",
+    () => {
+      const bucket = memoryBucket()
+      // Each listing's cap of admin runs and an hourly cron run, all in the
+      // past 30 days, each a partial run whose record lists URLs it couldn't
+      // store.
+      const seeded: Array<ArchiveRunResult> = []
+      for (let index = 0; index < MAX_LISTED_OBJECTS; index++) {
+        const startedAt = NOW - 1000 - index * 250_000
+        seeded.push(
+          run(
+            `admin-${startedAt}`,
+            new Date(startedAt).toISOString(),
+            "partial"
+          )
+        )
+      }
+      for (let hour = 0; hour < 30 * 24; hour++) {
+        const startedAt = new Date(NOW - hour * HOUR).toISOString()
+        seeded.push(run(`cron-${startedAt.slice(0, 13)}`, startedAt, "partial"))
+      }
+      for (const result of seeded)
+        seedRun(bucket, {
+          ...result,
+          notStored: Array.from(
+            { length: 20 },
+            (_, index) => `https://www.idx.id/${result.id}/${index}.xlsx`
+          ),
+        })
+      return Effect.gen(function* () {
+        yield* TestClock.setTime(NOW)
+        const runs = yield* recentRuns
+        assert.strictEqual(bucket.gets.length, 0, "record bodies read")
+        assert.deepStrictEqual(
+          runs,
+          seeded
+            .toSorted(
+              (a, b) => Date.parse(b.startedAt) - Date.parse(a.startedAt)
+            )
+            .map(summary)
+        )
+      }).pipe(provide(bucket))
+    },
+    30_000
+  )
 
   it.effect("include a run that's still running", () => {
     const bucket = memoryBucket()

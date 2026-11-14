@@ -2,7 +2,7 @@
 // so a test can tell a rewrite from an untouched object. An object's ETag is
 // its body, so, as R2's MD5, it changes with the content. `failPut`, when
 // set, fails the next `put` of a key it matches, once, as a transient R2
-// error. `listed` logs every key a listing returned.
+// error. `listed` logs every key a listing returned, `gets` every key read.
 import { Clock, Effect, Layer } from "effect"
 
 import {
@@ -25,6 +25,7 @@ export interface MemoryBucket {
   readonly objects: Map<string, StoredObject>
   readonly puts: Array<string>
   readonly listed: Array<string>
+  readonly gets: Array<string>
   failPut: ((key: string) => boolean) | undefined
   readonly layer: Layer.Layer<ArchiveBucket>
 }
@@ -33,6 +34,7 @@ export const memoryBucket = (): MemoryBucket => {
   const objects = new Map<string, StoredObject>()
   const puts: Array<string> = []
   const listed: Array<string> = []
+  const gets: Array<string> = []
   const write = (
     key: string,
     body: Uint8Array | string,
@@ -51,6 +53,7 @@ export const memoryBucket = (): MemoryBucket => {
     objects,
     puts,
     listed,
+    gets,
     failPut: undefined,
     layer: Layer.succeed(
       ArchiveBucket,
@@ -76,6 +79,7 @@ export const memoryBucket = (): MemoryBucket => {
         exists: (key) => Effect.sync(() => objects.has(key)),
         get: (key) =>
           Effect.map(Clock.currentTimeMillis, (now) => {
+            gets.push(key)
             const object = objects.get(key)
             return object === undefined
               ? undefined
