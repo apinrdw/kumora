@@ -71,6 +71,32 @@ test.describe("on a phone", () => {
     await cdp.detach()
   }
 
+  test("a busy code's sweep log scrolls inside its panel", async ({ page }) => {
+    const relay = await openIngest()
+    const base = freshTradeNumbers()
+    const code = freshCode("PB")
+    const now = marketNow()
+    // 200 sweeps, one a second on alternating sides: 3,200 px of rows.
+    await relay.sendAjaib(
+      Array.from({ length: 200 }, (_, index) =>
+        ajaibTradeToday({
+          seq: base + index + 1,
+          time: wibTime(now - (199 - index) * 1_000),
+          ticker: code,
+          price: 500,
+          lot: 10,
+          type: index % 2 === 0 ? "SELL" : "BUY",
+        })
+      )
+    )
+    await page.goto(`${DASHBOARD}${PAGE}?code=${code}`)
+    const log = page.getByRole("region", { name: "Sweep log" })
+    await expect(log.locator("[data-sweep-id]").first()).toBeVisible()
+    await expect(log).toContainText("200 sweeps")
+    expect((await log.boundingBox())!.height).toBeLessThan(600)
+    relay.close()
+  })
+
   test("the charts stack full width with tabs below them, and a finger drag pans both charts", async ({
     page,
   }) => {
