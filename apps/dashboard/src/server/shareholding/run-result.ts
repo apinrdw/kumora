@@ -65,7 +65,7 @@ export const decodeRunResult = Schema.decodeUnknownEffect(
 )
 
 // A run as the recent runs table shows it.
-const RunSummary = ArchiveRunResult.mapFields(
+export const RunSummary = ArchiveRunResult.mapFields(
   Struct.pick([
     "id",
     "trigger",
@@ -75,11 +75,12 @@ const RunSummary = ArchiveRunResult.mapFields(
     "newVersions",
   ])
 )
+export type RunSummary = typeof RunSummary.Type
 
-// The custom metadata of runs/<id>.json: the run's summary, so the recent
-// runs table reads the listing of runs/ and no record. A record can hold
-// MAX_LISTED_REPORTS URLs; this stays well under R2's 2 KB. S3 lowercases
-// metadata names, so the one name is lowercase.
+// The custom metadata of runs/<id>.json (`putRunRecord`): its summary, so
+// the recent runs table reads the listing of runs/ and no record, whose
+// URLs can take most of a MiB. A summary takes ~150 bytes of R2's 2 KB of
+// custom metadata. S3 lowercases metadata names, hence the lowercase name.
 export const RunMetadata = Schema.Struct({
   run: Schema.fromJsonString(RunSummary),
 })

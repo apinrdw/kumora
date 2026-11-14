@@ -11,15 +11,9 @@ import {
 import { DateTime, Effect, Result, Schema } from "effect"
 import { HttpClient, type HttpClientError } from "effect/http"
 
-import { ArchiveBucket, type BucketError, putJson } from "./bucket.ts"
+import { ArchiveBucket, type BucketError, putRunRecord } from "./bucket.ts"
 import { readCapped } from "./capped-body.ts"
-import {
-  REPORTS_PREFIX,
-  recordKey,
-  reportKey,
-  runKey,
-  sha256Hex,
-} from "./keys.ts"
+import { REPORTS_PREFIX, recordKey, reportKey, sha256Hex } from "./keys.ts"
 import {
   fetchListing,
   ListedReport,
@@ -117,7 +111,7 @@ const plan = Effect.fnUntraced(function* (
 > {
   const listed = yield* fetchListing
   const held = yield* heldRecords()
-  yield* putJson(yield* runKey(run.id), yield* runningResult(run))
+  yield* putRunRecord(yield* runningResult(run))
   return {
     fresh: listed.filter((report) => !held.has(report.sourceUrl)),
     held: listed.filter((report) => held.has(report.sourceUrl)),
@@ -319,7 +313,7 @@ const summary = Effect.fnUntraced(function* (
       .filter(({ kind }) => kind === "other")
       .map(({ sourceUrl, description }) => ({ sourceUrl, description })),
   })
-  yield* putJson(yield* runKey(run.id), result)
+  yield* putRunRecord(result)
   return result
 })
 
@@ -336,7 +330,7 @@ const recordPlanFailure = Effect.fnUntraced(function* (
         ? `${error.slice(0, MAX_RUN_ERROR_LENGTH - 1)}…`
         : error,
   })
-  yield* putJson(yield* runKey(run.id), result)
+  yield* putRunRecord(result)
   return result
 })
 

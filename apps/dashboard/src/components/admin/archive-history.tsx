@@ -6,11 +6,11 @@ import type { ArchiveTotals } from "@/server/shareholding/history"
 import { kindPrefix } from "@/server/shareholding/keys"
 import type { ReportKind } from "@/server/shareholding/listing"
 import { RETENTION_DAYS } from "@/server/shareholding/retention"
-import type { ArchiveRunResult } from "@/server/shareholding/run-result"
+import type { RunSummary } from "@/server/shareholding/run-result"
 
 import { ArchiveCard, OUTCOME } from "./archive-card"
 
-const RUN_COLUMNS: ReadonlyArray<KColumn<ArchiveRunResult>> = [
+const RUN_COLUMNS: ReadonlyArray<KColumn<RunSummary>> = [
   {
     key: "startedAt",
     label: "Started (WIB)",
@@ -35,11 +35,7 @@ const RUN_COLUMNS: ReadonlyArray<KColumn<ArchiveRunResult>> = [
 ]
 
 /** The runs of the past 30 days, newest first. */
-export function RecentRunsCard({
-  runs,
-}: {
-  runs: ReadonlyArray<ArchiveRunResult>
-}) {
+export function RecentRunsCard({ runs }: { runs: ReadonlyArray<RunSummary> }) {
   return (
     <ArchiveCard title="Recent runs" aside={null}>
       <KDataTable

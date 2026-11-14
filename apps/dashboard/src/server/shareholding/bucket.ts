@@ -3,6 +3,9 @@
 // in-memory one.
 import { Context, Effect, Schema } from "effect"
 
+import { runKey } from "./keys.ts"
+import { type ArchiveRunResult, RunMetadata } from "./run-result.ts"
+
 export class BucketError extends Schema.TaggedError<BucketError>()(
   "BucketError",
   { operation: Schema.String, key: Schema.String, cause: Schema.Defect() }
@@ -92,11 +95,16 @@ export class ArchiveBucket extends Context.Service<
   }
 >()("dashboard/shareholding/ArchiveBucket") {}
 
-export const putJson = Effect.fnUntraced(function* (
-  key: string,
-  value: unknown
+// Writes runs/<id>.json, with its summary as custom metadata.
+export const putRunRecord = Effect.fnUntraced(function* (
+  result: ArchiveRunResult
 ) {
-  yield* (yield* ArchiveBucket).put(key, JSON.stringify(value), {
-    contentType: "application/json",
-  })
+  yield* (yield* ArchiveBucket).put(
+    yield* runKey(result.id),
+    JSON.stringify(result),
+    {
+      contentType: "application/json",
+      customMetadata: Schema.encodeSync(RunMetadata)({ run: result }),
+    }
+  )
 })

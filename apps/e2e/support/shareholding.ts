@@ -5,9 +5,11 @@
 // records there, signed with SigV4, as an S3 client would.
 import { TEST, stackName } from "@workspace/deploy"
 import * as Effect from "effect/Effect"
+import * as Schema from "effect/Schema"
 import { createHash, createHmac } from "node:crypto"
 import { readFileSync } from "node:fs"
 
+import { RunMetadata } from "../../dashboard/src/server/shareholding/run-result.ts"
 import { DASHBOARD } from "./accounts"
 
 const S3_PATH = "/cdn-cgi/local/r2/s3"
@@ -35,8 +37,13 @@ const hmac = (key: Buffer | string, data: string) =>
 
 const sha256 = (data: string) => createHash("sha256").update(data).digest("hex")
 
-// One SigV4-signed PUT of an object.
-async function put(key: string, body: string, contentType: string) {
+// One SigV4-signed PUT of an object, with its custom metadata.
+async function put(
+  key: string,
+  body: string,
+  contentType: string,
+  metadata: Readonly<Record<string, string>> = {}
+) {
   const url = new URL(
     `${S3_PATH}/${encodeURIComponent(bucketName())}/${key
       .split("/")
@@ -47,11 +54,17 @@ async function put(key: string, body: string, contentType: string) {
   const amzDate = new Date().toISOString().replace(/[-:]|\.\d{3}/g, "")
   const day = amzDate.slice(0, 8)
   const payloadHash = sha256(body)
-  const headers = {
-    host: url.host,
+  // Sent and signed, in name order as SigV4 signs them; fetch sets host.
+  const sent = {
     "x-amz-content-sha256": payloadHash,
     "x-amz-date": amzDate,
+    ...Object.fromEntries(
+      Object.entries(metadata)
+        .map(([name, value]) => [`x-amz-meta-${name}`, value] as const)
+        .sort(([a], [b]) => (a < b ? -1 : 1))
+    ),
   }
+  const headers = { host: url.host, ...sent }
   const signedHeaders = Object.keys(headers).join(";")
   const canonicalRequest = [
     "PUT",
@@ -77,8 +90,7 @@ async function put(key: string, body: string, contentType: string) {
   const response = await fetch(url, {
     method: "PUT",
     headers: {
-      "x-amz-content-sha256": payloadHash,
-      "x-amz-date": amzDate,
+      ...sent,
       "content-type": contentType,
       authorization: `AWS4-HMAC-SHA256 Credential=${ACCESS_KEY}/${scope}, SignedHeaders=${signedHeaders}, Signature=${signature}`,
     },
@@ -116,7 +128,12 @@ export interface SeededRun {
  * beside the specs that point it at their own run.
  */
 export async function seedRun(run: SeededRun) {
-  await putJson(`runs/${run.id}.json`, run)
+  await put(
+    `runs/${run.id}.json`,
+    JSON.stringify(run),
+    "application/json",
+    Schema.encodeUnknownSync(RunMetadata)({ run })
+  )
 }
 
 /** Writes the run's record and points runs/latest.json at it. */

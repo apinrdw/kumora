@@ -1,11 +1,12 @@
 import { assert, describe, it } from "@effect/vitest"
 import { StepFailed } from "@workspace/server"
-import { Effect, Layer } from "effect"
+import { Effect, Layer, Schema } from "effect"
 
 import { archiveRun, MAX_REPORT_BYTES } from "@/server/shareholding/archive-run"
 import {
   ArchiveRunId,
   MAX_RUN_ERROR_LENGTH,
+  RunMetadata,
 } from "@/server/shareholding/run-result"
 import {
   LISTING_URL,
@@ -41,6 +42,11 @@ const sha256 = (text: string) =>
 
 const json = (bucket: MemoryBucket, key: string) =>
   JSON.parse(bucket.objects.get(key)?.body ?? "null")
+
+// The summary a run record carries as custom metadata.
+const summaryOf = (bucket: MemoryBucket, key: string) =>
+  Schema.decodeUnknownSync(RunMetadata)(bucket.objects.get(key)?.customMetadata)
+    .run
 
 // Every key under reports/ written at most once, across all runs so far.
 const assertNothingOverwritten = (bucket: MemoryBucket) => {
@@ -151,6 +157,17 @@ describe("an archive run", () => {
       assert.deepStrictEqual(
         json(bucket, "runs/cron-2026-11-14T13.json"),
         result
+      )
+      assert.deepStrictEqual(
+        summaryOf(bucket, "runs/cron-2026-11-14T13.json"),
+        {
+          id: result.id,
+          trigger: "cron",
+          startedAt: "2026-11-14T13:00:00.000Z",
+          outcome: "complete",
+          reportsAdded: 145,
+          newVersions: 0,
+        }
       )
       // The run's start points runs/latest.json at it, never the run.
       assert.notInclude(bucket.puts, "runs/latest.json")
@@ -612,6 +629,10 @@ describe("an archive run", () => {
         notStored: [],
       })
       assert.isNotNull(json(bucket, "runs/cron-2026-11-14T06.json").finishedAt)
+      assert.strictEqual(
+        summaryOf(bucket, "runs/cron-2026-11-14T06.json").outcome,
+        "failed"
+      )
       assert.notInclude(bucket.puts, "runs/latest.json")
       assert.deepStrictEqual(keysUnder(bucket, "reports/"), [])
     })

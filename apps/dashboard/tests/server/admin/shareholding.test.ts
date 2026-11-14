@@ -1,6 +1,6 @@
 import { assert, describe, it } from "@effect/vitest"
 import { Conflict, Unauthorized } from "@workspace/server"
-import { Effect, Layer } from "effect"
+import { Effect, Layer, Schema } from "effect"
 import { TestClock } from "effect/testing"
 
 import {
@@ -11,6 +11,8 @@ import type { Mail } from "@/server/auth/mailer"
 import {
   ArchiveRunId,
   type ArchiveRunResult,
+  RunMetadata,
+  RunSummary,
 } from "@/server/shareholding/run-result"
 
 import {
@@ -59,15 +61,16 @@ const RUNNING: ArchiveRunResult = {
 }
 
 const seedLatest = (bucket: MemoryBucket, run: ArchiveRunResult) => {
-  for (const [key, value] of [
-    [`runs/${run.id}.json`, run],
-    ["runs/latest.json", { id: run.id }],
-  ] as const)
-    bucket.objects.set(key, {
-      body: JSON.stringify(value),
-      contentType: "application/json",
-      customMetadata: {},
-    })
+  bucket.objects.set(`runs/${run.id}.json`, {
+    body: JSON.stringify(run),
+    contentType: "application/json",
+    customMetadata: Schema.encodeSync(RunMetadata)({ run }),
+  })
+  bucket.objects.set("runs/latest.json", {
+    body: JSON.stringify({ id: run.id }),
+    contentType: "application/json",
+    customMetadata: {},
+  })
 }
 
 const archive = () => {
@@ -151,7 +154,16 @@ describe("the shareholding archive page", () => {
       yield* TestClock.setTime(Date.parse("2026-11-14T14:00:00.000Z"))
       const cookie = yield* verified(mails)(ADMIN_EMAIL, "Adi")
       const page = yield* shareholdingArchivePage(headers(cookie))
-      assert.deepStrictEqual(page.recentRuns, [finished])
+      assert.deepStrictEqual(page.recentRuns, [
+        RunSummary.make({
+          id: finished.id,
+          trigger: "cron",
+          startedAt: "2026-11-14T13:00:00.000Z",
+          outcome: "complete",
+          reportsAdded: 1,
+          newVersions: 0,
+        }),
+      ])
       assert.deepStrictEqual(
         page.totals.kinds.find(({ kind }) => kind === "above-1"),
         { kind: "above-1", reports: 1 }
@@ -180,6 +192,10 @@ describe("Run now", () => {
       const page = yield* shareholdingArchivePage(headers(cookie))
       assert.strictEqual(page.lastRun?.result.id, "admin-1763125032000")
       assert.isTrue(page.lastRun?.inProgress)
+      assert.deepStrictEqual(
+        page.recentRuns.map(({ id, outcome }) => ({ id, outcome })),
+        [{ id: "admin-1763125032000", outcome: "running" }]
+      )
       const again = yield* Effect.flip(runArchiveNow(headers(cookie)))
       assert.strictEqual(again._tag, "Conflict")
       assert.deepStrictEqual(createdIds(workflow), ["admin-1763125032000"])

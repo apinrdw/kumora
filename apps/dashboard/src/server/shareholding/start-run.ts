@@ -4,7 +4,7 @@
 import { DateTime, Effect, Schema } from "effect"
 
 import { ArchiveWorkflow, DuplicateRunId } from "./archive-workflow.ts"
-import { ArchiveBucket, putJson } from "./bucket.ts"
+import { ArchiveBucket, putRunRecord } from "./bucket.ts"
 import { LATEST_RUN_KEY, runKey } from "./keys.ts"
 import { RETENTION } from "./retention.ts"
 import {
@@ -103,13 +103,12 @@ export const startRun = Effect.fnUntraced(function* (
   trigger: ArchiveTrigger
 ) {
   yield* claim(id)
-  const key = yield* runKey(id)
   const record = yield* runningResult({
     id,
     trigger,
     startedAt: DateTime.toDateUtc(yield* DateTime.now),
   })
-  yield* putJson(key, record)
+  yield* putRunRecord(record)
   yield* (yield* ArchiveWorkflow)
     .create({ id, params: { trigger }, retention: RETENTION })
     .pipe(
@@ -122,8 +121,7 @@ export const startRun = Effect.fnUntraced(function* (
                 "The archive Workflow refused a run",
                 error
               )
-              yield* putJson(
-                key,
+              yield* putRunRecord(
                 ArchiveRunResult.make({
                   ...record,
                   finishedAt: DateTime.formatIso(yield* DateTime.now),

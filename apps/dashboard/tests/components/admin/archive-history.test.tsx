@@ -40,14 +40,9 @@ describe("the recent runs", () => {
               id: ArchiveRunId.make("cron-2026-11-13T06"),
               trigger: "cron",
               startedAt: "2026-11-13T06:00:00.000Z",
-              finishedAt: "2026-11-13T06:00:34.000Z",
               outcome: "partial",
               reportsAdded: 3,
               newVersions: 2,
-              reportsChecked: 147,
-              notStored: ["https://www.idx.co.id/Media/a.xlsx"],
-              other: [],
-              error: null,
             },
           ]}
         />

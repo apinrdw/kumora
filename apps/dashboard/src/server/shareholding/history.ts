@@ -1,18 +1,22 @@
 // The admin page's view of the archive over time: the runs of the past 30
 // days and the archive's totals per report kind (spec apinrdw/kumora#303,
 // "The admin page").
-import { Clock, Effect, Schema } from "effect"
+import { Clock, Effect, Option, Schema } from "effect"
 
 import { ArchiveWorkflow } from "./archive-workflow.ts"
 import { ArchiveBucket } from "./bucket.ts"
 import { kindPrefix, REPORTS_PREFIX, RUNS_PREFIX } from "./keys.ts"
 import { ReportKind } from "./listing.ts"
 import { RETENTION_MS } from "./retention.ts"
-import { ArchiveTrigger, decodeRunResult, runIdAt } from "./run-result.ts"
-import { viewRun } from "./run-view.ts"
+import { ArchiveTrigger, RunMetadata, runIdAt } from "./run-result.ts"
+import { endedRunError } from "./run-view.ts"
 
-// The runs started in the past 30 days, newest first, from runs/<id>.json,
-// each shown as the last run card shows it.
+const decodeRunMetadata = Schema.decodeUnknownOption(RunMetadata)
+
+// The runs started in the past 30 days, newest first, each shown as the last
+// run card shows it. From the summaries the listing of runs/ carries
+// (RunMetadata), so it holds at most MAX_LISTED_OBJECTS of them per trigger
+// and reads no record.
 // Decision: one listing per trigger, starting after the key of a run that
 // trigger would have started 30 days ago. Run ids of one trigger sort as
 // their starts do (`runIdAt`), so the page lists and reads only the past 30
@@ -32,15 +36,14 @@ export const recentRuns = Effect.gen(function* () {
       })
     })
   )
-  const records = yield* Effect.forEach(
-    listings.flat(),
-    ({ key }) => Effect.map(bucket.get(key), (object) => object?.body),
-    { concurrency: 10 }
-  )
-  const runs = yield* Effect.forEach(
-    records.filter((record) => record !== undefined),
-    (record) => decodeRunResult(record)
-  )
+  // A record without the metadata (written before records carried it, in
+  // a dev or test bucket only) is left out.
+  const runs = listings
+    .flat()
+    .flatMap(({ customMetadata }) =>
+      Option.toArray(decodeRunMetadata(customMetadata))
+    )
+    .map(({ run }) => run)
   const recent = runs
     .filter((run) => Date.parse(run.startedAt) >= since)
     .sort((a, b) => Date.parse(b.startedAt) - Date.parse(a.startedAt))
@@ -49,9 +52,12 @@ export const recentRuns = Effect.gen(function* () {
     recent,
     (run) =>
       Effect.gen(function* () {
-        const instance =
-          run.outcome === "running" ? yield* workflow.status(run.id) : undefined
-        return (yield* viewRun(run, instance, now)).result
+        if (run.outcome !== "running") return run
+        const instance = yield* workflow.status(run.id)
+        const ended = yield* endedRunError(run, instance, now)
+        return ended === undefined
+          ? run
+          : { ...run, outcome: "failed" as const }
       }),
     { concurrency: 10 }
   )

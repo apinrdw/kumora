@@ -1,5 +1,5 @@
 import { assert, describe, it } from "@effect/vitest"
-import { Effect, Layer, Option } from "effect"
+import { Effect, Layer, Option, Schema } from "effect"
 import { TestClock } from "effect/testing"
 
 import {
@@ -7,7 +7,7 @@ import {
   scheduledArchiveRun,
   startRun,
 } from "@/server/shareholding/start-run"
-import { ArchiveRunId } from "@/server/shareholding/run-result"
+import { ArchiveRunId, RunMetadata } from "@/server/shareholding/run-result"
 
 import type { ArchiveWorkflow } from "@/server/shareholding/archive-workflow"
 import type { ArchiveBucket } from "@/server/shareholding/bucket"
@@ -289,6 +289,13 @@ describe("starting a run by hand", () => {
           outcome: "failed",
           error: "The Workflow refused to start the run.",
         })
+        // What the recent runs table shows of it.
+        assert.strictEqual(
+          Schema.decodeUnknownSync(RunMetadata)(
+            bucket.objects.get(`runs/${id}.json`)?.customMetadata
+          ).run.outcome,
+          "failed"
+        )
         assert.isTrue(Option.isNone(yield* runInProgress(layer)))
       })
   )
