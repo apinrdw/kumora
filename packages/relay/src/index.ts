@@ -42,6 +42,7 @@ export {
   OnDemandCodes,
   ProtocolVersionMismatch,
   Select,
+  Side,
   StockbitFrames,
   TradeNumber,
   TradeNumberOrder,

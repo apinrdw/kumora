@@ -1,6 +1,6 @@
 // Chart 1's sweep bubbles (spec apinrdw/kumora#263, "Chart 1"), loaded with
 // Lightweight Charts in chart-canvas.tsx's browser-only chunk.
-import type { Sweep } from "@workspace/relay"
+import { Side, type Sweep } from "@workspace/relay"
 import { DateTime, Effect } from "effect"
 import type {
   IChartApi,
@@ -27,10 +27,16 @@ import {
 import type { ReplayCursor } from "./replay-cursor"
 import type { SweepStore } from "./sweep-store"
 
+// The aggressor sides a bubble is drawn for: an auction match has none.
+type BubbleSide = Exclude<typeof Side.Type, "none">
+const BUBBLE_SIDES = Side.literals.filter(
+  (side): side is BubbleSide => side !== "none"
+)
+
 // One bubble, worked out when the sweeps change, so a draw only places it.
 interface Bubble {
   readonly id: number
-  readonly side: "buy" | "sell"
+  readonly side: BubbleSide
   readonly time: number
   readonly lots: number
   readonly price: number
@@ -95,7 +101,10 @@ class SweepBubbles implements ISeriesPrimitive<Time> {
         const placed = this.placed()
         const ratio = scope.horizontalPixelRatio
         const context = scope.context
-        const paths = { buy: new Path2D(), sell: new Path2D() }
+        const paths: Record<BubbleSide, Path2D> = {
+          buy: new Path2D(),
+          sell: new Path2D(),
+        }
         const rings = new Path2D()
         let ring: readonly [number, number, number] | undefined
         for (const { bubble, x, y } of placed) {
@@ -111,7 +120,7 @@ class SweepBubbles implements ISeriesPrimitive<Time> {
           if (bubble.id === this.selected) ring = [bx, by, r]
         }
         context.lineWidth = Math.max(1, ratio)
-        for (const side of ["buy", "sell"] as const) {
+        for (const side of BUBBLE_SIDES) {
           context.fillStyle = `${this.colors[side]}61`
           context.fill(paths[side])
           context.strokeStyle = `${this.colors[side]}e6`
