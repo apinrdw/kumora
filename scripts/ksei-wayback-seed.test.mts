@@ -63,6 +63,33 @@ describe("seedFilenames", () => {
   )
 })
 
+// The same names as the dashboard's deep-backfill.test.ts.
+describe("a KSEI report filename", () => {
+  it.effect("is one only under its kind's own suffixes", () =>
+    Effect.gen(function* () {
+      const captured = (filename: string) => [
+        `https://web.ksei.co.id/Download/${filename}`,
+        "20260131181859",
+        "200",
+      ]
+      const names = yield* seedFilenames([
+        [
+          HEADER,
+          captured("StatisEfek20200131.txt.zip"),
+          captured("BalanceposEfek20200131.zip"),
+          captured("BalanceposEfek20081031.txt.zip"),
+          captured("StatisEfek20200131.zip"),
+        ],
+      ])
+      assert.deepStrictEqual(names, [
+        "BalanceposEfek20081031.txt.zip",
+        "BalanceposEfek20200131.zip",
+        "StatisEfek20200131.txt.zip",
+      ])
+    })
+  )
+})
+
 describe("seedModule", () => {
   it.effect("writes the names as a constant", () =>
     Effect.gen(function* () {

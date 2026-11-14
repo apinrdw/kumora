@@ -91,6 +91,19 @@ describe("the Wayback seed", () => {
       assert.isUndefined(yield* unlistedReport("Nonexistent123.zip"))
     })
   )
+
+  // The same names as scripts/ksei-wayback-seed.test.mts.
+  it.effect("takes a filename only under its kind's own suffixes", () =>
+    Effect.gen(function* () {
+      for (const filename of [
+        "StatisEfek20200131.txt.zip",
+        "BalanceposEfek20200131.zip",
+        "BalanceposEfek20081031.txt.zip",
+      ])
+        assert.isDefined(yield* unlistedReport(filename), filename)
+      assert.isUndefined(yield* unlistedReport("StatisEfek20200131.zip"))
+    })
+  )
 })
 
 describe("a deep backfill", () => {
