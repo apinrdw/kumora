@@ -78,9 +78,8 @@ export const fetchRecordedTape = Effect.fnUntraced(function* (
 })
 
 // The broker codes of the trades the tape at `at` holds, and whether the
-// day's codes are complete; a 404, a date that isn't a recorded day, reads as
-// none. `fresh` asks the Worker past the browser's copy, for the recheck
-// while incomplete.
+// day's codes are complete. `fresh` asks the Worker past the browser's copy,
+// for the recheck while incomplete.
 export const fetchRecordedBrokerCodes = Effect.fnUntraced(function* (
   date: WibDate,
   at: DateTime.Utc,

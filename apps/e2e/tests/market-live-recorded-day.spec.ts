@@ -211,15 +211,15 @@ test("a recorded day's tape shows each trade's Buyer and Seller as the extension
   const day = WibDate.make(wibToday())
   const time = wibTime(marketNow())
   const relay = await openIngest()
-  // Trade base + 1 is as wide as a row gets: a four-figure price, a
-  // five-figure lot count, a value in billions, and bold as a big trade.
+  // Trade base + 1 carries the widest figures tape-list.tsx's COLUMN_PX
+  // promises to fit, and is bold as a big trade.
   await relay.sendAjaib([
     ajaibTradeToday({
       seq: base + 1,
       time,
       ticker: code,
-      price: 9_000,
-      lot: 12_345,
+      price: 45_000,
+      lot: 123_456,
     }),
     ajaibTradeToday({ seq: base + 2, time, ticker: code, price: 505, lot: 2 }),
   ])
@@ -236,7 +236,7 @@ test("a recorded day's tape shows each trade's Buyer and Seller as the extension
   // recorded once the close's flush has run.
   await page.waitForTimeout(untilMarketTime(arrivedBy + MERGE_WINDOW))
   relay.close()
-  await untilRecorded(page, day, code, 12_347)
+  await untilRecorded(page, day, code, 123_458)
 
   // The extension stores the day's codes for trade base + 1 only.
   const posted = await page.request.post(
@@ -272,9 +272,9 @@ test("a recorded day's tape shows each trade's Buyer and Seller as the extension
     page.getByRole("group", { name: "Market conditions" })
   ).toContainText("RECORDED")
   // The price cell keeps its index; Buyer and Seller follow Value.
-  await expect(cells(base + 1).nth(2)).toContainText("9,000")
-  await expect(cells(base + 1).nth(3)).toHaveText("12,345")
-  await expect(cells(base + 1).nth(4)).toHaveText("Rp11.11 B")
+  await expect(cells(base + 1).nth(2)).toContainText("45,000")
+  await expect(cells(base + 1).nth(3)).toHaveText("123,456")
+  await expect(cells(base + 1).nth(4)).toHaveText("Rp555.55 B")
   await expect(cells(base + 1).nth(5)).toHaveText("AK [F]")
   await expect(cells(base + 1).nth(6)).toHaveText("CD [D]")
   // Price, Lot, Value, Buyer and Seller each show their whole text, at the
