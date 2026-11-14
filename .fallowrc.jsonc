@@ -17,7 +17,12 @@
     "webSocketMessage",
     "webSocketClose",
     "webSocketError",
-    "alarm"
+    "alarm",
+    // Lightweight Charts calls a series primitive's hooks; no module does
+    // (apps/dashboard/src/components/market-live/cursor-line.ts).
+    "attached",
+    "detached",
+    "paneViews"
   ],
   // Decision: the root declares the optional peers alchemy and
   // @alchemy.run/cloudflare load at runtime (`alchemy dev` fails without

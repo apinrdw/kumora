@@ -4,6 +4,7 @@ import { describe, expect, it } from "@effect/vitest"
 
 import {
   advance,
+  cursorLogical,
   gapAt,
   gapMinutes,
   minuteEnd,
@@ -184,5 +185,34 @@ describe("a relay gap on the chart", () => {
         [at("15:58:00"), at("15:59:00"), at("16:00:00")],
       ])
     })
+  )
+})
+
+describe("the replay cursor's place among chart 1's bars", () => {
+  // Bars at 10:00, 10:01 and 10:02, in seconds as the chart holds them.
+  const bars = ["10:00:00", "10:01:00", "10:02:00"].map((wib) => at(wib) / 1000)
+
+  it.effect("sits on its minute's bar at the whole minute", () =>
+    Effect.gen(function* () {
+      expect(yield* cursorLogical(bars, at("10:01:00"))).toBe(1)
+    })
+  )
+
+  it.effect(
+    "moves by the fraction of its minute gone, toward the next bar",
+    () =>
+      Effect.gen(function* () {
+        expect(yield* cursorLogical(bars, at("10:01:30"))).toBe(1.5)
+        expect(yield* cursorLogical(bars, at("10:02:45"))).toBe(2.75)
+      })
+  )
+
+  it.effect(
+    "with no bar of its own, sits half a bar past the last before it",
+    () =>
+      Effect.gen(function* () {
+        expect(yield* cursorLogical(bars, at("10:07:20"))).toBe(2.5)
+        expect(yield* cursorLogical(bars, at("09:58:00"))).toBe(-0.5)
+      })
   )
 })
