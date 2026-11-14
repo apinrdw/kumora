@@ -187,7 +187,12 @@ export function LiveChart({
         {stale && <KStatusPill status="stale" />}
         {conditions}
         {search}
-        {sweeps !== undefined && <TopNControl store={sweeps} cursor={cursor} />}
+        {sweeps !== undefined && (
+          // Under the title on a phone.
+          <div className="max-lg:basis-full">
+            <TopNControl store={sweeps} cursor={cursor} />
+          </div>
+        )}
       </header>
       {/* The canvas has no text: this says what it draws. */}
       <p className="sr-only">One-minute candles: {count}</p>

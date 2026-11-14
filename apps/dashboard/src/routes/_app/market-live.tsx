@@ -1,7 +1,12 @@
 import { createFileRoute, useRouter } from "@tanstack/react-router"
 import { Effect } from "effect"
 import { clientRuntime, type StockCode } from "@workspace/client"
-import type { ViewerDown, WibDate } from "@workspace/relay"
+import {
+  INDEX_CODES,
+  type RelayGap,
+  type ViewerDown,
+  type WibDate,
+} from "@workspace/relay"
 import { loadServerFn, runLoader } from "@workspace/server/loader"
 import { useCallback, useEffect, useMemo, useState } from "react"
 
@@ -18,7 +23,10 @@ import {
   useRelayGaps,
 } from "@/components/market-live/market-conditions"
 import { OrderBookPanel } from "@/components/market-live/order-book-panel"
-import { makeOrderBookStore } from "@/components/market-live/order-book-store"
+import {
+  makeOrderBookStore,
+  type OrderBookStore,
+} from "@/components/market-live/order-book-store"
 import { useHeatmap } from "@/components/market-live/use-heatmap"
 import {
   RecordedOrderBook,
@@ -27,6 +35,7 @@ import {
   useRecordedDay,
   useReplayCursor,
 } from "@/components/market-live/recorded-day"
+import type { ReplayCursor } from "@/components/market-live/replay-cursor"
 import { StockCodePalette } from "@/components/market-live/stock-code-palette"
 import { StockCodePicker } from "@/components/market-live/stock-code-picker"
 import { SweepLog, useSweeps } from "@/components/market-live/sweep-log"
@@ -103,6 +112,84 @@ function useCodeStores(
   return { candles, book, heatmap, sweeps }
 }
 
+// The feed pills and market phase: live, or the recorded day's at the cursor.
+function ConditionsBar({
+  cursor,
+  closed,
+}: {
+  cursor: ReplayCursor | undefined
+  closed: ClosedMarket["closed"]
+}) {
+  return cursor === undefined ? (
+    <MarketConditionsBar />
+  ) : (
+    <RecordedConditionsBar cursor={cursor} closed={closed} />
+  )
+}
+
+// Chart 2, or for an index (no `flow`) one muted line in its place.
+function ChartTwo({
+  flow,
+  ...chart
+}: { flow: boolean } & Parameters<typeof FootprintChart>[0]) {
+  return flow ? (
+    <FootprintChart {...chart} />
+  ) : (
+    <p className="text-sm text-muted-foreground">An index has no order flow</p>
+  )
+}
+
+// The selected code's order book: live, or as of the cursor.
+function BookPanel({
+  store,
+  cursor,
+  gaps,
+}: {
+  store: OrderBookStore
+  cursor: ReplayCursor | undefined
+  gaps: ReadonlyArray<RelayGap>
+}) {
+  return cursor === undefined ? (
+    <OrderBookPanel store={store} />
+  ) : (
+    <RecordedOrderBook store={store} cursor={cursor} gaps={gaps} />
+  )
+}
+
+// The running trades: live, whose socket feeds the page through
+// `onMessage`, or as of the cursor.
+function TapePanel({
+  selected,
+  watchlist,
+  cursor,
+  gaps,
+  onSelect,
+  onMessage,
+}: {
+  selected: StockCode
+  watchlist: ReadonlyArray<StockCode>
+  cursor: ReplayCursor | undefined
+  gaps: ReadonlyArray<RelayGap>
+  onSelect: (code: StockCode) => void
+  onMessage: (message: ViewerDown) => void
+}) {
+  return cursor === undefined ? (
+    <LiveTape
+      selected={selected}
+      watchlist={watchlist}
+      onSelect={onSelect}
+      onMessage={onMessage}
+    />
+  ) : (
+    <RecordedTape
+      cursor={cursor}
+      gaps={gaps}
+      selected={selected}
+      onSelect={onSelect}
+    />
+  )
+}
+
 function MarketLiveDay({
   day,
   today,
@@ -117,6 +204,8 @@ function MarketLiveDay({
   const navigate = Route.useNavigate()
   const codes = useStockCodeList(day, today)
   const { candles, book, heatmap, sweeps } = useCodeStores(selected, day, today)
+  // An index has no aggressor sides: plain candles and total volume only.
+  const flow = INDEX_CODES.includes(selected) ? undefined : { heatmap, sweeps }
   // Chart 1 and chart 2 move together; each code's charts attach afresh.
   const [pair] = useState(() => Effect.runSync(makeChartPair()))
   // A sweep picked in the log or on chart 1 moves chart 2 to its minute.
@@ -171,18 +260,12 @@ function MarketLiveDay({
           <>
             <LiveChart
               store={candles}
-              heatmap={heatmap}
-              sweeps={sweeps}
+              heatmap={flow?.heatmap}
+              sweeps={flow?.sweeps}
               pair={pair}
               gaps={shownGaps}
               dayStates={dayStates}
-              conditions={
-                cursor === undefined ? (
-                  <MarketConditionsBar />
-                ) : (
-                  <RecordedConditionsBar cursor={cursor} closed={closed} />
-                )
-              }
+              conditions={<ConditionsBar cursor={cursor} closed={closed} />}
               cursor={cursor}
               footer={cursor && <TransportBar cursor={cursor} gaps={gaps} />}
               search={
@@ -195,7 +278,8 @@ function MarketLiveDay({
                 />
               }
             />
-            <FootprintChart
+            <ChartTwo
+              flow={flow !== undefined}
               store={candles}
               pair={pair}
               gaps={shownGaps}
@@ -203,39 +287,27 @@ function MarketLiveDay({
             />
           </>
         }
-        log={<SweepLog store={sweeps} cursor={cursor} />}
-        side={
-          <>
-            <Watchlist
-              codes={watchlist.codes}
-              list={codes}
-              store={dayStates}
-              onAdd={watchlist.add}
-              onRemove={watchlist.remove}
-              onSelect={select}
-            />
-            {cursor === undefined ? (
-              <>
-                <OrderBookPanel store={book} />
-                <LiveTape
-                  selected={selected}
-                  watchlist={watchlist.codes}
-                  onSelect={select}
-                  onMessage={apply}
-                />
-              </>
-            ) : (
-              <>
-                <RecordedOrderBook store={book} cursor={cursor} gaps={gaps} />
-                <RecordedTape
-                  cursor={cursor}
-                  gaps={gaps}
-                  selected={selected}
-                  onSelect={select}
-                />
-              </>
-            )}
-          </>
+        log={flow && <SweepLog store={flow.sweeps} cursor={cursor} />}
+        watchlist={
+          <Watchlist
+            codes={watchlist.codes}
+            list={codes}
+            store={dayStates}
+            onAdd={watchlist.add}
+            onRemove={watchlist.remove}
+            onSelect={select}
+          />
+        }
+        book={<BookPanel store={book} cursor={cursor} gaps={gaps} />}
+        tape={
+          <TapePanel
+            selected={selected}
+            watchlist={watchlist.codes}
+            cursor={cursor}
+            gaps={gaps}
+            onSelect={select}
+            onMessage={apply}
+          />
         }
       />
       <StockCodePalette list={codes} onPick={select} />

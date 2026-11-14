@@ -89,7 +89,8 @@ function FootprintControls({
       on ? "border-primary text-primary" : "hover:bg-elevated"
     )
   return (
-    <div className="flex flex-wrap items-center gap-2 text-[11px] text-muted-foreground">
+    // Under the title on a phone.
+    <div className="flex flex-wrap items-center gap-2 text-[11px] text-muted-foreground max-lg:basis-full">
       <div
         role="tablist"
         aria-label="Footprint view"
