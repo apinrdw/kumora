@@ -6,7 +6,6 @@ import {
   CandlestickSeries,
   HistogramSeries,
   LineStyle,
-  TickMarkType,
   createChart,
   type IPrimitivePaneRenderer,
   type IPrimitivePaneView,
@@ -22,40 +21,9 @@ import { useEffect, useRef, useState } from "react"
 import { gapMinutes } from "@/lib/replay"
 
 import type { CandleChange, CandleStore } from "./candle-store"
+import { CHART_SCALE_WIDTH, crosshairTime, tickMark } from "./chart-time"
 import { useAuctionIndicative } from "./market-conditions"
 import type { ReplayCursor } from "./replay-cursor"
-
-const WIB = "Asia/Jakarta"
-const wibClock = new Intl.DateTimeFormat("en-US", {
-  hour: "2-digit",
-  minute: "2-digit",
-  hourCycle: "h23",
-  timeZone: WIB,
-})
-const wibDate = new Intl.DateTimeFormat("en-US", {
-  month: "short",
-  day: "numeric",
-  timeZone: WIB,
-})
-const wibYear = new Intl.DateTimeFormat("en-US", {
-  year: "numeric",
-  timeZone: WIB,
-})
-
-// The data is in UTC seconds; every label reads WIB, 24-hour. Lightweight
-// Charts calls these two back, so they are plain.
-const crosshairTime = (time: Time) => {
-  const date = new Date((time as UTCTimestamp) * 1000)
-  return `${wibDate.format(date)}, ${wibClock.format(date)} WIB`
-}
-const tickMark = (time: Time, type: TickMarkType) => {
-  const date = new Date((time as UTCTimestamp) * 1000)
-  return type === TickMarkType.Year
-    ? wibYear.format(date)
-    : type === TickMarkType.Month || type === TickMarkType.DayOfMonth
-      ? wibDate.format(date)
-      : wibClock.format(date)
-}
 
 const timeOf = (candle: Candle) =>
   Effect.sync(
@@ -281,7 +249,10 @@ export default function ChartCanvas({
         vertLines: { color: token("--chart-grid") },
         horzLines: { color: token("--chart-grid") },
       },
-      rightPriceScale: { borderColor: token("--border-subtle") },
+      rightPriceScale: {
+        borderColor: token("--border-subtle"),
+        minimumWidth: CHART_SCALE_WIDTH,
+      },
       timeScale: {
         borderColor: token("--border-subtle"),
         timeVisible: true,
