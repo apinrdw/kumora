@@ -11,6 +11,8 @@ export class BucketError extends Schema.TaggedError<BucketError>()(
 export interface ListedObject {
   readonly key: string
   readonly size: number
+  // When R2 last wrote the object.
+  readonly uploaded: Date
   readonly customMetadata: Readonly<Record<string, string>>
 }
 

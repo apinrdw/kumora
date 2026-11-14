@@ -1,5 +1,5 @@
 // The shareholding archive's admin page, /admin/shareholding: the last archive
-// run and Run now (spec apinrdw/kumora#303, "The admin page").
+// run and Run now, the recent runs and the archive totals (spec apinrdw/kumora#303, "The admin page").
 import { Conflict } from "@workspace/server"
 import { DateTime, Effect, Option } from "effect"
 
@@ -8,6 +8,7 @@ import { Auth } from "@/server/auth/auth"
 import { decide, type Action } from "@/server/auth/policy"
 import { refusal } from "@/server/auth/refusal"
 import { accountOf } from "@/server/auth/session-account"
+import { archiveTotals, recentRuns } from "@/server/shareholding/history"
 import { nextScheduledRun } from "@/server/shareholding/schedule"
 import {
   lastRun,
@@ -35,11 +36,16 @@ const authorize = Effect.fnUntraced(function* (
 export const shareholdingArchivePage = Effect.fn("shareholdingArchivePage")(
   function* (headers: Headers) {
     yield* authorize(headers, "admin.view-shareholding-archive")
-    const run = yield* lastRun
+    const [run, runs, totals] = yield* Effect.all(
+      [lastRun, recentRuns, archiveTotals],
+      { concurrency: "unbounded" }
+    )
     const now = yield* DateTime.now
     return {
       lastRun: run,
       nextRun: (yield* nextScheduledRun(DateTime.toDateUtc(now))).toISOString(),
+      recentRuns: runs,
+      totals,
     }
   }
 )

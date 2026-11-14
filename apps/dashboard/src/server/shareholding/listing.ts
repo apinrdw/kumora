@@ -24,7 +24,7 @@ const ListingResponse = Schema.Struct({
   ),
 })
 
-const ReportKind = Schema.Literals([
+export const ReportKind = Schema.Literals([
   "above-5",
   "above-1",
   "investor-type",

@@ -26,7 +26,7 @@ const RETENTION = {
   successRetention: "30 days",
   errorRetention: "30 days",
 } as const
-const RETENTION_MS = 30 * 24 * 60 * 60 * 1000
+export const RETENTION_MS = 30 * 24 * 60 * 60 * 1000
 
 // Statuses of a run that hasn't ended. `waiting` covers a step's retry
 // backoff, so a run between retries still holds off the next one.

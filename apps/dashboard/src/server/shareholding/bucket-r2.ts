@@ -18,6 +18,7 @@ interface R2Binding {
     readonly objects: ReadonlyArray<{
       readonly key: string
       readonly size: number
+      readonly uploaded: Date
       readonly customMetadata?: Record<string, string>
     }>
     readonly truncated: boolean
@@ -61,6 +62,7 @@ export const archiveBucketR2 = Layer.effect(
           objects.push({
             key: object.key,
             size: object.size,
+            uploaded: object.uploaded,
             customMetadata: object.customMetadata ?? {},
           })
         cursor = page.truncated ? page.cursor : undefined

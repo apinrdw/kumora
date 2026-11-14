@@ -122,10 +122,38 @@ describe("the shareholding archive page", () => {
     return Effect.gen(function* () {
       yield* TestClock.setTime(Date.parse("2026-11-14T07:00:00.000Z"))
       const cookie = yield* verified(mails)(ADMIN_EMAIL, "Adi")
-      assert.deepStrictEqual(yield* shareholdingArchivePage(headers(cookie)), {
-        lastRun: undefined,
-        nextRun: "2026-11-14T13:00:00.000Z",
-      })
+      const page = yield* shareholdingArchivePage(headers(cookie))
+      assert.isUndefined(page.lastRun)
+      assert.strictEqual(page.nextRun, "2026-11-14T13:00:00.000Z")
+      assert.deepStrictEqual(page.recentRuns, [])
+      assert.strictEqual(page.totals.reports, 0)
+    }).pipe(Effect.provide(layer))
+  })
+
+  it.effect("shows an admin the recent runs and the archive totals", () => {
+    const { layer, mails, bucket } = archive()
+    const finished: ArchiveRunResult = {
+      ...RUNNING,
+      finishedAt: "2026-11-14T13:01:12.000Z",
+      outcome: "complete",
+      reportsAdded: 1,
+    }
+    seedLatest(bucket, finished)
+    bucket.objects.set("reports/above-1/2026-10-31/aa.xlsx", {
+      body: "xlsx",
+      contentType: "application/octet-stream",
+      customMetadata: {},
+    })
+    return Effect.gen(function* () {
+      yield* TestClock.setTime(Date.parse("2026-11-14T14:00:00.000Z"))
+      const cookie = yield* verified(mails)(ADMIN_EMAIL, "Adi")
+      const page = yield* shareholdingArchivePage(headers(cookie))
+      assert.deepStrictEqual(page.recentRuns, [finished])
+      assert.deepStrictEqual(
+        page.totals.kinds.find(({ kind }) => kind === "above-1"),
+        { kind: "above-1", reports: 1 }
+      )
+      assert.strictEqual(page.totals.bytes, 4)
     }).pipe(Effect.provide(layer))
   })
 })
