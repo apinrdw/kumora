@@ -245,19 +245,23 @@ const LogRowView = memo(function LogRowView({
 /**
  * The Buy/Sell sweep log (layout B's middle column): the selected code's
  * sweeps up to the cursor, newest first, filtered by the top-N threshold and
- * the Big only toggle, auction matches as neutral rows. Clicking a row
+ * the Big only toggle (`bigOnly`), auction matches as neutral rows. Clicking a row
  * selects its sweep, which jumps chart 1 there; a bubble picked on chart 1
  * scrolls its row into view.
  */
 export function SweepLog({
   store,
   cursor,
+  bigOnly,
+  onBigOnly,
 }: {
   store: SweepStore
   cursor?: ReplayCursor | undefined
+  // The Big only toggle, kept by the page in its URL.
+  bigOnly: boolean
+  onBigOnly: (on: boolean) => void
 }) {
   const view = useSweepView(store, cursor)
-  const [bigOnly, setBigOnly] = useState(false)
   const rows = useMemo(
     () =>
       Effect.runSync(
@@ -338,7 +342,7 @@ export function SweepLog({
           <button
             type="button"
             aria-pressed={bigOnly}
-            onClick={() => setBigOnly((on) => !on)}
+            onClick={() => onBigOnly(!bigOnly)}
             className={cn(
               "ml-auto rounded-md border border-border px-1.5 py-px text-[11px] font-normal",
               bigOnly ? "border-primary text-primary" : "hover:bg-elevated"

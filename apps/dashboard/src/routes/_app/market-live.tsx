@@ -48,6 +48,7 @@ import {
   DEFAULT_CODE,
   parseMarketLiveSearch,
   type MarketLiveSearch,
+  type Panel,
 } from "@/lib/market-live-search"
 import type { ClosedMarket } from "@/server/market-live/closed-market"
 import { closedMarketFn } from "@/server/market-live/closed-market.functions"
@@ -190,6 +191,43 @@ function TapePanel({
   )
 }
 
+// What the page keeps in its URL, so a shared link opens it: the selected
+// code, the phone's panel tab and the sweep log's Big only toggle. Picking
+// a code adds a history entry; switching a view replaces it and keeps the
+// scroll.
+function useMarketLiveSearch() {
+  const { code: selected = DEFAULT_CODE, panel, big } = Route.useSearch()
+  const navigate = Route.useNavigate()
+  const change = useCallback(
+    (patch: MarketLiveSearch, view: boolean) =>
+      void navigate({
+        search: (previous: MarketLiveSearch) => ({ ...previous, ...patch }),
+        replace: view,
+        resetScroll: !view,
+      }),
+    [navigate]
+  )
+  const select = useCallback(
+    (code: StockCode) => change({ code }, false),
+    [change]
+  )
+  const pickPanel = useCallback(
+    (next: Panel) => change({ panel: next }, true),
+    [change]
+  )
+  const setBigOnly = useCallback(
+    (on: boolean) => change({ big: on || undefined }, true),
+    [change]
+  )
+  return {
+    selected,
+    select,
+    panel,
+    pickPanel,
+    log: { bigOnly: big === true, onBigOnly: setBigOnly },
+  }
+}
+
 function MarketLiveDay({
   day,
   today,
@@ -200,8 +238,7 @@ function MarketLiveDay({
   today: WibDate
   closed: ClosedMarket["closed"]
 }) {
-  const { code: selected = DEFAULT_CODE } = Route.useSearch()
-  const navigate = Route.useNavigate()
+  const { selected, select, ...view } = useMarketLiveSearch()
   const codes = useStockCodeList(day, today)
   const { candles, book, heatmap, sweeps } = useCodeStores(selected, day, today)
   // An index has no aggressor sides: plain candles and total volume only.
@@ -245,13 +282,6 @@ function MarketLiveDay({
     },
     [candles, sweeps, book, heatmap, dayStates]
   )
-  const select = useCallback(
-    (code: StockCode) =>
-      void navigate({
-        search: (previous: MarketLiveSearch) => ({ ...previous, code }),
-      }),
-    [navigate]
-  )
   return (
     <>
       <h1 className="text-2xl font-bold">Market Live</h1>
@@ -287,7 +317,11 @@ function MarketLiveDay({
             />
           </>
         }
-        log={flow && <SweepLog store={flow.sweeps} cursor={cursor} />}
+        log={
+          flow && <SweepLog store={flow.sweeps} cursor={cursor} {...view.log} />
+        }
+        panel={view.panel}
+        onPanel={view.pickPanel}
         watchlist={
           <Watchlist
             codes={watchlist.codes}

@@ -141,6 +141,8 @@ test.describe("on a phone", () => {
       await tabs.getByRole("tab", { name }).click()
       await shows(name)
     }
+    // The tab is in the URL, so a shared link opens on it.
+    await expect(page).toHaveURL(/[?&]panel=tape(&|$)/)
 
     // A finger dragged across chart 1 pans chart 2 by the same minutes.
     const range = async (host: Locator) => ({
@@ -192,6 +194,9 @@ test.describe("on a phone", () => {
         return Math.abs(one.from - dragged1.from - (two.from - dragged2.from))
       })
       .toBeLessThan(0.05)
+
+    await page.reload()
+    await shows("Tape")
     relay.close()
   })
 })

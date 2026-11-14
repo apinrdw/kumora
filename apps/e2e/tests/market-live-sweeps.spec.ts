@@ -73,8 +73,11 @@ test("sweeps show as bubbles and log rows; top-N filters them; a row rings its b
   await expect(threshold).toHaveText("≥ 8 lots (buy 20,000, sell 8)")
   await expect(rows).toHaveCount(3)
 
-  await log.getByRole("button", { name: "Big only" }).click()
+  const bigOnly = log.getByRole("button", { name: "Big only" })
+  await bigOnly.click()
   await expect(rows).toHaveCount(1)
+  // The toggle is in the URL, so a shared link opens with it.
+  await expect(page).toHaveURL(/[?&]big=true(&|$)/)
   // Chart 2 opens on the 10 minutes ending at the newest sweep's: its bar
   // index, which counts the relay gaps' minutes drawn before the code's own.
   const footprint = page.locator('[data-chart="footprint"]')
@@ -104,5 +107,9 @@ test("sweeps show as bubbles and log rows; top-N filters them; a row rings its b
     (bigMinute - 4).toFixed(2)
   )
   await expect(footprint).toHaveAttribute("data-to", (bigMinute + 5).toFixed(2))
+
+  await page.reload()
+  await expect(bigOnly).toHaveAttribute("aria-pressed", "true")
+  await expect(rows).toHaveCount(1)
   relay.close()
 })

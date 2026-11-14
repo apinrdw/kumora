@@ -1,5 +1,7 @@
 import { cn } from "@workspace/ui/lib/utils"
-import { useEffect, useId, useRef, useState, type ReactNode } from "react"
+import { useEffect, useId, useRef, type ReactNode } from "react"
+
+import { PANELS, type Panel } from "@/lib/market-live-search"
 
 // The gap kept under the layout, the page's bottom padding.
 const BOTTOM_GAP = 16
@@ -25,16 +27,21 @@ function useFillViewport<E extends HTMLElement>() {
   return ref
 }
 
-// The panels beside the charts on desktop, and under them as tabs on a phone.
-const PANELS = ["Sweeps", "Watchlist", "Order book", "Tape"] as const
-type Panel = (typeof PANELS)[number]
+// Each panel's tab name on a phone.
+const TAB_NAMES: Record<Panel, string> = {
+  sweeps: "Sweeps",
+  watchlist: "Watchlist",
+  book: "Order book",
+  tape: "Tape",
+}
 
 /**
  * Layout B (spec apinrdw/kumora#263, "Layout, settings, indices and
  * phone"). From `lg`: the chart column, the 340 px sweep log and the 400 px
  * right column of `watchlist`, `book` and `tape`, at least as tall as the
  * window below them. Below `lg`: the charts stacked full width, then tabs
- * showing one panel at a time. No `log` (an index): no log column or tab.
+ * showing one panel at a time: `panel`, kept by the page in its URL, else
+ * the first. No `log` (an index): no log column or tab.
  */
 export function LayoutB({
   charts,
@@ -42,24 +49,28 @@ export function LayoutB({
   watchlist,
   book,
   tape,
+  panel: picked,
+  onPanel,
 }: {
   charts: ReactNode
   log: ReactNode | undefined
   watchlist: ReactNode
   book: ReactNode
   tape: ReactNode
+  panel: Panel | undefined
+  onPanel: (panel: Panel) => void
 }) {
   const layout = useFillViewport<HTMLDivElement>()
   const id = useId()
   const content: Record<Panel, ReactNode> = {
-    Sweeps: log,
-    Watchlist: watchlist,
-    "Order book": book,
-    Tape: tape,
+    sweeps: log,
+    watchlist,
+    book,
+    tape,
   }
-  const panels = PANELS.filter((panel) => content[panel] !== undefined)
-  const [picked, pick] = useState<Panel>("Sweeps")
-  const shown = panels.includes(picked) ? picked : panels[0]
+  const panels = PANELS.filter((name) => content[name] !== undefined)
+  const shown =
+    picked !== undefined && panels.includes(picked) ? picked : panels[0]
   // Decision: a hidden tab's panel stays mounted (hidden by CSS), so the
   // tape keeps its socket and every panel its state across tab switches.
   const panel = (name: Panel, className?: string) =>
@@ -96,7 +107,7 @@ export function LayoutB({
             role="tab"
             aria-selected={name === shown}
             aria-controls={`${id}-${name}`}
-            onClick={() => pick(name)}
+            onClick={() => onPanel(name)}
             className={cn(
               "flex-1 rounded-sm px-2 py-1",
               name === shown
@@ -104,16 +115,16 @@ export function LayoutB({
                 : "text-muted-foreground hover:text-foreground"
             )}
           >
-            {name}
+            {TAB_NAMES[name]}
           </button>
         ))}
       </div>
-      {panel("Sweeps", "*:flex-1")}
+      {panel("sweeps", "*:flex-1")}
       {/* Below `lg` its panels are the grid's own rows, under the tabs. */}
       <div className="min-w-0 max-lg:contents lg:flex lg:flex-col lg:gap-4">
-        {panel("Watchlist")}
-        {panel("Order book")}
-        {panel("Tape")}
+        {panel("watchlist")}
+        {panel("book")}
+        {panel("tape")}
       </div>
     </div>
   )
