@@ -42,10 +42,11 @@ export interface ArchiveRun {
 
 type StepServices = ArchiveBucket | HttpClient.HttpClient
 
-// A held URL and the ETags its records hold.
+// A held URL, and the ETags and file hashes its records hold.
 const HeldReport = Schema.Struct({
   report: ListedReport,
   etags: Schema.Array(Schema.String),
+  sha256s: Schema.Array(Schema.String),
 })
 
 const Plan = Schema.Struct({
@@ -65,14 +66,15 @@ const ArchivedReport = Schema.Struct({
   sha256: Schema.String,
   etag: Schema.NullOr(Schema.String),
   recordKey: Schema.String,
-  // Whether these bytes were new, so the step wrote an .xlsx.
-  newFile: Schema.Boolean,
+  // Whether no record of its URL held these bytes when the run planned.
+  newVersion: Schema.Boolean,
 })
 type ArchivedReport = typeof ArchivedReport.Type
 
 // The record's custom metadata keys, which `plan` reads back.
 const SOURCE_URL = "sourceUrl"
 const ETAG = "etag"
+const SHA256 = "sha256"
 
 const nowIso = Effect.map(DateTime.now, DateTime.formatIso)
 
@@ -88,7 +90,10 @@ const plan = Effect.fnUntraced(function* (
 > {
   const listed = yield* fetchListing
   const bucket = yield* ArchiveBucket
-  const etagsByUrl = new Map<string, Array<string>>()
+  const heldByUrl = new Map<
+    string,
+    { readonly etags: Array<string>; readonly sha256s: Array<string> }
+  >()
   // Decision: one listing of reports/ with custom metadata, as the spec's
   // `plan` step says: ~150 files and their records, growing ~2 a day, held
   // for the step alone. A per-URL lookup would cost a request per listed
@@ -96,17 +101,19 @@ const plan = Effect.fnUntraced(function* (
   for (const { customMetadata } of yield* bucket.list(REPORTS_PREFIX)) {
     const url = customMetadata[SOURCE_URL]
     if (url === undefined) continue
-    const etags = etagsByUrl.get(url) ?? []
+    const held = heldByUrl.get(url) ?? { etags: [], sha256s: [] }
     const etag = customMetadata[ETAG]
-    if (etag !== undefined) etags.push(etag)
-    etagsByUrl.set(url, etags)
+    if (etag !== undefined) held.etags.push(etag)
+    const sha256 = customMetadata[SHA256]
+    if (sha256 !== undefined) held.sha256s.push(sha256)
+    heldByUrl.set(url, held)
   }
   yield* putJson(yield* runKey(run.id), yield* runningResult(run))
   return {
-    fresh: listed.filter((report) => !etagsByUrl.has(report.sourceUrl)),
+    fresh: listed.filter((report) => !heldByUrl.has(report.sourceUrl)),
     held: listed.flatMap((report) => {
-      const etags = etagsByUrl.get(report.sourceUrl)
-      return etags === undefined ? [] : [{ report, etags }]
+      const held = heldByUrl.get(report.sourceUrl)
+      return held === undefined ? [] : [{ report, ...held }]
     }),
   }
 })
@@ -209,10 +216,12 @@ const readCapped = Effect.fnUntraced(function* (
 // hash, then its record, whose presence marks the version complete.
 // `headEtag` is what the `head` step saw for a changed held URL. A GET that
 // sends no ETag records it instead, so the next HEAD finds it held rather than
-// downloading the file on every run.
+// downloading the file on every run. `heldSha256s` are the hashes the URL's
+// records held when the run planned.
 const archiveReport = Effect.fnUntraced(function* (
   report: ListedReport,
-  headEtag: string | null
+  headEtag: string | null,
+  heldSha256s: ReadonlyArray<string>
 ): Effect.fn.Return<
   ArchivedReport,
   HttpClientError.HttpClientError | NonRetryable | BucketError,
@@ -236,8 +245,7 @@ const archiveReport = Effect.fnUntraced(function* (
   const etag = response.headers["etag"] ?? headEtag
   const bucket = yield* ArchiveBucket
   const xlsxKey = yield* reportKey(report.kind, report.dataDate, sha256)
-  const newFile = !(yield* bucket.exists(xlsxKey))
-  if (newFile)
+  if (!(yield* bucket.exists(xlsxKey)))
     yield* bucket.put(xlsxKey, bytes, {
       contentType:
         "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
@@ -270,7 +278,7 @@ const archiveReport = Effect.fnUntraced(function* (
       contentType: "application/json",
       customMetadata: {
         [SOURCE_URL]: report.sourceUrl,
-        sha256,
+        [SHA256]: sha256,
         ...(etag === null ? {} : { [ETAG]: etag }),
       },
     }
@@ -282,7 +290,9 @@ const archiveReport = Effect.fnUntraced(function* (
     sha256,
     etag,
     recordKey: key,
-    newFile,
+    // Decided from the plan, not from the .xlsx being there: a retry of this
+    // step finds the .xlsx its first attempt wrote.
+    newVersion: !heldSha256s.includes(sha256),
   }
 })
 
@@ -305,11 +315,11 @@ const summary = Effect.fnUntraced(function* (
     reportsAdded: archived.filter(
       ({ sourceUrl }) => !changedUrls.has(sourceUrl)
     ).length,
-    // Decision: a changed ETag that serves bytes the archive already holds
-    // adds a record but no new version: the file IDX serves didn't change.
-    // See apinrdw/kumora#307.
+    // Decision: a changed ETag that serves bytes a record of its URL already
+    // holds adds a record but no new version: the file IDX serves didn't
+    // change. See apinrdw/kumora#307.
     newVersions: archived.filter(
-      ({ sourceUrl, newFile }) => changedUrls.has(sourceUrl) && newFile
+      ({ sourceUrl, newVersion }) => changedUrls.has(sourceUrl) && newVersion
     ).length,
     reportsChecked: checked.checked,
     notStored,
@@ -349,6 +359,9 @@ export const archiveRun = Effect.fn("archiveRun")(function* (
     )
   )
   const checked = yield* steps.do("head", head(planned.held))
+  const heldSha256s = new Map(
+    planned.held.map(({ report, sha256s }) => [report.sourceUrl, sha256s])
+  )
   const toStore = [
     ...planned.fresh.map((report) => ({ report, etag: null })),
     ...checked.changed,
@@ -356,10 +369,15 @@ export const archiveRun = Effect.fn("archiveRun")(function* (
   // A report that still fails after its step's retries isn't held at that
   // ETag, so the next run retries it; this one carries on.
   const stored = yield* Effect.forEach(toStore, ({ report, etag }) =>
-    steps.do(`report:${report.sourceUrl}`, archiveReport(report, etag)).pipe(
-      Effect.mapError(() => report.sourceUrl),
-      Effect.result
-    )
+    steps
+      .do(
+        `report:${report.sourceUrl}`,
+        archiveReport(report, etag, heldSha256s.get(report.sourceUrl) ?? [])
+      )
+      .pipe(
+        Effect.mapError(() => report.sourceUrl),
+        Effect.result
+      )
   )
   const archived = stored.filter(Result.isSuccess).map(({ success }) => success)
   // A held URL whose HEAD failed may hide a change this run couldn't store.
