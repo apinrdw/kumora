@@ -47,15 +47,17 @@ export const MOST_NAMES_A_DAY = Math.max(
   ...SHAPES.map(({ suffixes }) => suffixes.length)
 )
 
-// A filename of any kind's prefix and any kind's suffix. A filename names
-// its keys in R2, so nothing else passes. scripts/ksei-wayback-seed.mts
-// repeats it for the seed it writes.
+// A filename of a kind's prefix and one of that kind's suffixes, its parts
+// captured as prefix, year, month and day. A filename names its keys in R2,
+// so nothing else passes. scripts/ksei-wayback-seed.mts repeats it for the
+// seed it writes.
+const SHAPE_PATTERNS = SHAPES.map(
+  ({ prefix, suffixes }) =>
+    `${prefix}\\d{8}(?:${suffixes.map((suffix) => suffix.replaceAll(".", "\\.")).join("|")})$`
+).join("|")
 const PREFIXES = SHAPES.map(({ prefix }) => prefix).join("|")
-const SUFFIXES = [...new Set(SHAPES.flatMap(({ suffixes }) => suffixes))]
-  .map((suffix) => suffix.replaceAll(".", "\\."))
-  .join("|")
 const KSEI_FILENAME = new RegExp(
-  `^(${PREFIXES})(\\d{4})(\\d{2})(\\d{2})(?:${SUFFIXES})$`
+  `^(?=${SHAPE_PATTERNS})(${PREFIXES})(\\d{4})(\\d{2})(\\d{2})`
 )
 
 // A KSEI report's filename: at most 30 characters, fit for a step name and

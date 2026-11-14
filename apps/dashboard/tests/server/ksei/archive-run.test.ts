@@ -523,7 +523,7 @@ describe("a KSEI archive run at the largest size it accepts", () => {
     index: number,
     bytes: number
   ): ListingEntry => {
-    const filename = `${kind === STATISTICS ? "StatisEfek" : "BalanceposEfek"}${19000101 + index}.zip`
+    const filename = `${kind === STATISTICS ? "StatisEfek" : "BalanceposEfek"}${19000101 + index}${kind === STATISTICS ? ".txt.zip" : ".zip"}`
     const url = `https://www.ksei.co.id/storage/Download/${filename}`
     const entry = (name: string) => ({
       date: "2026-10-30T10:20:01.000000Z",

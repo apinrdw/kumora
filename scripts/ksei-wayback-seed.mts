@@ -22,7 +22,8 @@ export const SEED_PATH = "apps/dashboard/src/server/ksei/wayback-seed.ts"
 // apps/dashboard/src/server/ksei/listing.ts, which a Node script can't import.
 // A change to one belongs in the other; the dashboard's seed test parses every
 // seeded name with that one.
-const KSEI_FILENAME = /^(?:StatisEfek|BalanceposEfek)\d{8}(?:\.txt)?\.zip$/
+const KSEI_FILENAME =
+  /^(?:StatisEfek\d{8}\.txt\.zip|BalanceposEfek\d{8}(?:\.txt)?\.zip)$/
 
 // A CDX answer with `output=json`: a header row, then one row per capture.
 const CdxRows = Schema.Array(Schema.Array(Schema.String))
