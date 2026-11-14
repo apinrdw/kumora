@@ -62,6 +62,26 @@ _Avoid_: IEP, projected price
 The running trades a pre-opening or pre-closing auction produces when it closes: every stock code at its one matched price, all stamped with the same second. They carry no buy or sell side.
 _Avoid_: Crossing, uncross, opening print
 
+**Aggressor side**:
+Which side of a running trade crossed the spread to make it: a buy aggressor took a resting offer, a sell aggressor hit a resting bid. Auction matches have none.
+_Avoid_: HAKA/HAKI (on the page), trade direction
+
+**Sweep**:
+A stock code's running trades in one second that share an aggressor side, taken together: their lots, value, and first and last price. Another code's trades between them don't break it; this code trading on the other side does.
+_Avoid_: Group, burst
+
+**Footprint**:
+A candle's lots split by price and aggressor side: at each price it traded, the sell-aggressor lots and the buy-aggressor lots.
+_Avoid_: Cluster chart, volume profile (that is the whole day by price)
+
+**Delta**:
+Buy-aggressor lots minus sell-aggressor lots, for one candle or one price in it. Its running sum over the trading day is the cumulative delta.
+_Avoid_: Net volume
+
+**Book heatmap**:
+The order book's resting lots at each price over the trading day, drawn as a shaded band behind the price.
+_Avoid_: Liquidity map, depth chart
+
 **Day state**:
 A stock code's or index's figures for the trading day so far: last price, previous close, change, open, high, low, volume, value and frequency. The previous close and the change are absent until a frame of the code carries a previous close, which an index's never do; a price seen today never stands in for it.
 _Avoid_: Quote, summary
