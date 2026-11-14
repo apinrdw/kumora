@@ -39,10 +39,13 @@ const { series, FakeSeries } = vi.hoisted(() => {
       this.rows.set(row.time, row)
       if (!historical) this.last = row.time
     }
+    readonly options: Record<string, unknown> = {}
     priceScale() {
       return { applyOptions() {} }
     }
-    applyOptions() {}
+    applyOptions(options: Record<string, unknown>) {
+      Object.assign(this.options, options)
+    }
     attachPrimitive() {}
     createPriceLine() {
       return {}
@@ -75,8 +78,8 @@ const minute = (wib: string) =>
   DateTime.makeUnsafe(`2026-11-09T${wib}:00+07:00`)
 const seconds = (wib: string) => DateTime.toEpochMillis(minute(wib)) / 1000
 
-const candle = (wib: string, close: number): Candle => ({
-  code: BBCA,
+const candle = (wib: string, close: number, code = BBCA): Candle => ({
+  code,
   minute: minute(wib),
   open: close,
   high: close,
@@ -134,4 +137,43 @@ test("a candle backfilled into a relay gap after the last candle goes on the cha
   await nextFrame()
   expect(candles!.rows.get(seconds("09:05"))).toMatchObject({ close: 102 })
   await act(() => root.unmount())
+})
+
+// The price a series' axis label and crosshair show for `value`: its custom
+// formatter's, or Lightweight Charts' own at the format's precision.
+const shownPrice = (
+  shown: InstanceType<typeof FakeSeries>,
+  value: number
+): string => {
+  const format = shown.options["priceFormat"] as
+    | { type: string; precision?: number; formatter?: (n: number) => string }
+    | undefined
+  return format?.type === "custom" && format.formatter !== undefined
+    ? format.formatter(value)
+    : value.toFixed(format?.precision ?? 2)
+}
+
+test("an index's price axis keeps its decimals; a stock's snaps to its IDX tick", async () => {
+  const shownOn = async (code: StockCode, close: number) => {
+    series.length = 0
+    const store = Effect.runSync(makeCandleStore(code))
+    store.apply({
+      _tag: "Delta",
+      tape: [],
+      candles: [candle("09:00", close, code)],
+    })
+    const root = createRoot(
+      document.body.appendChild(document.createElement("div"))
+    )
+    await act(() =>
+      root.render(<ChartCanvas store={store} gaps={[]} pair={alone} />)
+    )
+    const shown = shownPrice(series[0]!, close)
+    await act(() => root.unmount())
+    return shown
+  }
+  expect(await shownOn(StockCode.make("IHSG"), 4_971.287)).toMatch(
+    /^4,?971\.29$/
+  )
+  expect(await shownOn(BBCA, 9_012)).toBe("9,000")
 })
