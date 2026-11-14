@@ -3,11 +3,11 @@ import { describe, expect, test } from "vitest"
 import {
   ArchiveTotalsCard,
   RecentRunsCard,
-} from "@/components/admin/archive-history"
-import type { ArchiveTotals } from "@/server/shareholding/history"
-import { ArchiveRunId } from "@/server/shareholding/run-result"
+} from "@/components/admin/shareholding/archive-history"
+import { ArchiveRunId } from "@/server/archive/run"
+import type { ArchiveTotals } from "@/server/shareholding/totals"
 
-import { renderAt } from "../../support/render-at.tsx"
+import { renderAt } from "../../../support/render-at.tsx"
 
 const NO_REPORTS: ArchiveTotals = {
   kinds: [

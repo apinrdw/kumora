@@ -1,6 +1,6 @@
 // How long Cloudflare keeps an archive run's Workflow instance, ended well or
-// not, and so how long the admin page shows the run. Free of server imports,
-// so the admin page's components can word their copy from it.
+// not, and so how long an admin page shows the run. Free of server imports,
+// so the admin pages' components can word their copy from it.
 export const RETENTION_DAYS = 30
 
 const PERIOD = `${RETENTION_DAYS} days` as const

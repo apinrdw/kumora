@@ -1,12 +1,10 @@
 import { describe, expect, test } from "vitest"
 
-import { LastRunCard } from "@/components/admin/last-run-card"
-import {
-  ArchiveRunId,
-  type ArchiveRunResult,
-} from "@/server/shareholding/run-result"
+import { LastRunCard } from "@/components/admin/shareholding/last-run-card"
+import { ArchiveRunId } from "@/server/archive/run"
+import type { ArchiveRunResult } from "@/server/shareholding/run-result"
 
-import { renderAt } from "../../support/render-at.tsx"
+import { renderAt } from "../../../support/render-at.tsx"
 
 const RUNNING: ArchiveRunResult = {
   id: ArchiveRunId.make("admin-1763125032000"),

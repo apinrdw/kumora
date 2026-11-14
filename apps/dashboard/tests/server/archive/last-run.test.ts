@@ -2,11 +2,9 @@ import { assert, describe, it } from "@effect/vitest"
 import { Effect, Layer } from "effect"
 import { TestClock } from "effect/testing"
 
-import {
-  ArchiveRunId,
-  type ArchiveRunResult,
-} from "@/server/shareholding/run-result"
-import { lastRun } from "@/server/shareholding/start-run"
+import { ArchiveRunId } from "@/server/archive/run"
+import type { ArchiveRunResult } from "@/server/shareholding/run-result"
+import { lastRun } from "@/server/shareholding/runs"
 
 import {
   type FakeInstance,

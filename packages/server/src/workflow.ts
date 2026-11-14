@@ -58,7 +58,7 @@ export const makeWorkflow = <Params, Output, R>(
                   // WorkflowSteps asks for plain JSON results, which workers-types
                   // can't check against a generic `A`; tests round-trip every
                   // step result through JSON (apps/dashboard/tests/server/
-                  // shareholding/local-steps.ts).
+                  // archive/local-steps.ts).
                   step.do(
                     name,
                     () =>

@@ -1,10 +1,11 @@
-// The archive run Workflow (SHAREHOLDING_ARCHIVE), as the code that starts
-// and watches runs uses it. archive-workflow-binding.ts adapts the binding;
-// tests provide an in-memory one.
+// An archive's run Workflow, as the code that starts and watches its runs
+// uses it. Each archive has its own Workflow, which it provides as this
+// service: workflow-binding.ts adapts a binding; tests provide an in-memory
+// one.
 import { Context, type Effect, Schema } from "effect"
 
 import type { RETENTION } from "./retention.ts"
-import { type ArchiveParams, ArchiveRunId } from "./run-result.ts"
+import { ArchiveRunId, type RunParams } from "./run.ts"
 
 export class DuplicateRunId extends Schema.TaggedError<DuplicateRunId>()(
   "DuplicateRunId",
@@ -17,7 +18,7 @@ export class WorkflowError extends Schema.TaggedError<WorkflowError>()(
 ) {}
 
 // A Workflow instance's status, as `status()` reports it.
-export const RunStatus = Schema.Literals([
+const RunStatus = Schema.Literals([
   "queued",
   "running",
   "paused",
@@ -39,7 +40,7 @@ export interface InstanceStatus {
 
 export interface CreateRun {
   readonly id: ArchiveRunId
-  readonly params: ArchiveParams
+  readonly params: RunParams
   readonly retention: typeof RETENTION
 }
 
@@ -55,4 +56,4 @@ export class ArchiveWorkflow extends Context.Service<
       id: ArchiveRunId
     ) => Effect.Effect<InstanceStatus | undefined, WorkflowError>
   }
->()("dashboard/shareholding/ArchiveWorkflow") {}
+>()("dashboard/archive/ArchiveWorkflow") {}

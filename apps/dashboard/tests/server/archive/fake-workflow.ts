@@ -1,4 +1,4 @@
-// An in-memory SHAREHOLDING_ARCHIVE binding. `instances` holds every instance
+// An in-memory archive Workflow binding. `instances` holds every instance
 // created, with what `create` was given; a test sets an instance's status.
 // A second `create` with a used id fails the way the runtime does. `onCreate`
 // runs inside `create`, as an instance that runs before `create` returns;
@@ -11,7 +11,7 @@ import {
   DuplicateRunId,
   type RunStatus,
   WorkflowError,
-} from "@/server/shareholding/archive-workflow"
+} from "@/server/archive/workflow"
 
 export interface FakeInstance {
   readonly options: CreateRun

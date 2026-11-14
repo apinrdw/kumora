@@ -3,20 +3,13 @@
 // reads it back with this Schema.
 import { DateTime, Effect, Schema, Struct } from "effect"
 
+import { ArchiveRunId, type RunParams, RunOutcome } from "../archive/run.ts"
+
 export const ArchiveTrigger = Schema.Literals(["cron", "admin"])
 export type ArchiveTrigger = typeof ArchiveTrigger.Type
 
 // What `create` passes the Workflow (SHAREHOLDING_ARCHIVE in alchemy.run.ts).
-export interface ArchiveParams {
-  readonly trigger: ArchiveTrigger
-}
-
-// An archive run's id, which is also its Workflow instance's:
-// `cron-<UTC hour>` or `admin-<epoch ms>`.
-export const ArchiveRunId = Schema.NonEmptyString.pipe(
-  Schema.brand("ArchiveRunId")
-)
-export type ArchiveRunId = typeof ArchiveRunId.Type
+export type ArchiveParams = RunParams<ArchiveTrigger>
 
 // The id of a run `trigger` starts at `epochMs`: `cron-<YYYY-MM-DDTHH>` from
 // the cron's scheduled time, or `admin-<epoch ms>`. Ids of one trigger sort
@@ -32,17 +25,13 @@ export const runIdAt = Effect.fnUntraced(function* (
   )
 })
 
-// The most characters of an error a run record keeps. A failure's message
-// can quote what IDX sent, which IDX decides the size of.
-export const MAX_RUN_ERROR_LENGTH = 1000
-
 export const ArchiveRunResult = Schema.Struct({
   id: ArchiveRunId,
   trigger: ArchiveTrigger,
   // ISO instants.
   startedAt: Schema.String,
   finishedAt: Schema.NullOr(Schema.String),
-  outcome: Schema.Literals(["running", "complete", "partial", "failed"]),
+  outcome: RunOutcome,
   // Reports at a URL the archive didn't hold.
   reportsAdded: Schema.Number,
   // Changed files at a URL it already held.
@@ -59,10 +48,6 @@ export const ArchiveRunResult = Schema.Struct({
   error: Schema.NullOr(Schema.String),
 })
 export type ArchiveRunResult = typeof ArchiveRunResult.Type
-
-export const decodeRunResult = Schema.decodeUnknownEffect(
-  Schema.fromJsonString(ArchiveRunResult)
-)
 
 // A run as the recent runs table shows it.
 export const RunSummary = ArchiveRunResult.mapFields(
@@ -84,9 +69,6 @@ export type RunSummary = typeof RunSummary.Type
 export const RunMetadata = Schema.Struct({
   run: Schema.fromJsonString(RunSummary),
 })
-
-// The pointer at runs/latest.json.
-export const LatestRun = Schema.Struct({ id: ArchiveRunId })
 
 export const runningResult = Effect.fnUntraced(function* (run: {
   readonly id: ArchiveRunId

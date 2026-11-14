@@ -11,8 +11,9 @@ import {
 import { DateTime, Effect, Result, Schema } from "effect"
 import { HttpClient, type HttpClientError } from "effect/http"
 
-import { ArchiveBucket, type BucketError, putRunRecord } from "./bucket.ts"
-import { readCapped } from "./capped-body.ts"
+import { ArchiveBucket, type BucketError } from "../archive/bucket.ts"
+import { readCapped } from "../archive/capped-body.ts"
+import { type ArchiveRunId, MAX_RUN_ERROR_LENGTH } from "../archive/run.ts"
 import { REPORTS_PREFIX, recordKey, reportKey, sha256Hex } from "./keys.ts"
 import {
   fetchListing,
@@ -22,11 +23,10 @@ import {
 } from "./listing.ts"
 import {
   ArchiveRunResult,
-  type ArchiveRunId,
   type ArchiveTrigger,
-  MAX_RUN_ERROR_LENGTH,
   runningResult,
 } from "./run-result.ts"
+import { putRunRecord } from "./runs.ts"
 
 export interface ArchiveRun {
   readonly id: ArchiveRunId
@@ -101,7 +101,7 @@ const heldRecords = Effect.fnUntraced(function* (run?: ArchiveRunId) {
 
 // The listing, split by whether the archive holds each URL, and the run's
 // `running` record. runs/latest.json already names the run: its start
-// claimed it (start-run.ts).
+// claimed it (../archive/runs.ts).
 const plan = Effect.fnUntraced(function* (
   run: ArchiveRun
 ): Effect.fn.Return<

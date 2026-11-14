@@ -1,4 +1,4 @@
-// An in-memory shareholding archive bucket. `puts` logs every write in order,
+// An in-memory archive bucket. `puts` logs every write in order,
 // so a test can tell a rewrite from an untouched object. An object's ETag is
 // its body, so, as R2's MD5, it changes with the content. `failPut`, when
 // set, fails the next `put` of a key it matches, once, as a transient R2
@@ -10,7 +10,7 @@ import {
   BucketError,
   checkListed,
   type PutOptions,
-} from "@/server/shareholding/bucket"
+} from "@/server/archive/bucket"
 
 export interface StoredObject {
   readonly body: string

@@ -1,10 +1,7 @@
-// The shareholding archive bucket (SHAREHOLDING_ARCHIVE_BUCKET), as the
-// archive run uses it. bucket-r2.ts adapts the R2 binding; tests provide an
-// in-memory one.
+// An archive's R2 bucket, as its runs and its admin page use it. Each archive
+// has its own bucket, which it provides as this service: bucket-r2.ts adapts
+// an R2 binding; tests provide an in-memory one.
 import { Context, Effect, Schema } from "effect"
-
-import { runKey } from "./keys.ts"
-import { type ArchiveRunResult, RunMetadata } from "./run-result.ts"
 
 export class BucketError extends Schema.TaggedError<BucketError>()(
   "BucketError",
@@ -93,18 +90,4 @@ export class ArchiveBucket extends Context.Service<
       etag: string | undefined
     ) => Effect.Effect<boolean, BucketError>
   }
->()("dashboard/shareholding/ArchiveBucket") {}
-
-// Writes runs/<id>.json, with its summary as custom metadata.
-export const putRunRecord = Effect.fnUntraced(function* (
-  result: ArchiveRunResult
-) {
-  yield* (yield* ArchiveBucket).put(
-    yield* runKey(result.id),
-    JSON.stringify(result),
-    {
-      contentType: "application/json",
-      customMetadata: Schema.encodeSync(RunMetadata)({ run: result }),
-    }
-  )
-})
+>()("dashboard/archive/ArchiveBucket") {}

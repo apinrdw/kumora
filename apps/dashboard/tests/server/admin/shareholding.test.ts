@@ -8,8 +8,8 @@ import {
   shareholdingArchivePage,
 } from "@/server/admin/shareholding"
 import type { Mail } from "@/server/auth/mailer"
+import { ArchiveRunId } from "@/server/archive/run"
 import {
-  ArchiveRunId,
   type ArchiveRunResult,
   RunMetadata,
   RunSummary,
@@ -23,14 +23,8 @@ import {
   seam,
   send,
 } from "../auth/seam.ts"
-import {
-  fakeWorkflow,
-  type FakeWorkflow,
-} from "../shareholding/fake-workflow.ts"
-import {
-  type MemoryBucket,
-  memoryBucket,
-} from "../shareholding/memory-bucket.ts"
+import { fakeWorkflow, type FakeWorkflow } from "../archive/fake-workflow.ts"
+import { type MemoryBucket, memoryBucket } from "../archive/memory-bucket.ts"
 
 const headers = (cookie?: string) =>
   new Headers(cookie === undefined ? {} : { cookie })

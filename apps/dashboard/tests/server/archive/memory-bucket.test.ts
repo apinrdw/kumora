@@ -1,7 +1,7 @@
 import { assert, describe, it } from "@effect/vitest"
 import { Effect, Result } from "effect"
 
-import { ArchiveBucket, MAX_LISTED_OBJECTS } from "@/server/shareholding/bucket"
+import { ArchiveBucket, MAX_LISTED_OBJECTS } from "@/server/archive/bucket"
 
 import { memoryBucket } from "./memory-bucket.ts"
 

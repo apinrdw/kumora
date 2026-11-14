@@ -1,20 +1,17 @@
-// What the shareholding archive page's cards share: the card frame and how a
-// run's outcome reads.
+// What an archive admin page's cards share: the card frame and how a run's
+// outcome reads.
 import { cn } from "@workspace/ui/lib/utils"
 import { useId, type ReactNode } from "react"
 
 import { kCard, type KBadgeTone } from "@/components/k"
-import type { ArchiveRunResult } from "@/server/shareholding/run-result"
+import type { RunOutcome } from "@/server/archive/run"
 
 export const OUTCOME = {
   running: { label: "Running", tone: "info" },
   complete: { label: "Complete", tone: "up" },
   partial: { label: "Partial", tone: "warning" },
   failed: { label: "Failed", tone: "down" },
-} as const satisfies Record<
-  ArchiveRunResult["outcome"],
-  { label: string; tone: KBadgeTone }
->
+} as const satisfies Record<RunOutcome, { label: string; tone: KBadgeTone }>
 
 export function ArchiveCard({
   title,

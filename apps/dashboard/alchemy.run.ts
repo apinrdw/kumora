@@ -16,7 +16,7 @@ import * as Effect from "effect/Effect"
 import * as Redacted from "effect/Redacted"
 
 import { SENDER, SENDING_SUBDOMAIN } from "./src/server/auth/sender.ts"
-import type { ArchiveParams } from "./src/server/shareholding/run-result.ts"
+import type { RunParams } from "./src/server/archive/run.ts"
 import { ARCHIVE_CRON } from "./src/server/shareholding/schedule.ts"
 
 // scripts/auth-schema.ts replays the same directory for the drift check and
@@ -163,7 +163,9 @@ export const Website = Cloudflare.Website.Vite(
           // stops on a bucket a Run now filled. See apinrdw/kumora#305.
           { forceDestroy: (yield* stageKind(stage)) !== "production" }
         ),
-        SHAREHOLDING_ARCHIVE: Cloudflare.Workflow<ArchiveParams>(
+        // Typed as every archive Workflow is, so the shared start
+        // (src/server/archive/runs.ts) can create its runs.
+        SHAREHOLDING_ARCHIVE: Cloudflare.Workflow<RunParams>(
           "ShareholdingArchive",
           { className: "ShareholdingArchive" }
         ),

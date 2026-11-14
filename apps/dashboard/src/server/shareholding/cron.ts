@@ -4,9 +4,8 @@
 import { runServerEffectResult } from "@workspace/server"
 import { Effect, Layer } from "effect"
 
-import { archiveWorkflowBinding } from "./archive-workflow-binding.ts"
-import { archiveBucketR2 } from "./bucket-r2.ts"
-import { scheduledArchiveRun } from "./start-run.ts"
+import { archiveBucketR2, archiveWorkflowBinding } from "./bindings.ts"
+import { scheduledArchiveRun } from "./runs.ts"
 
 // Decision: returns a Promise, standing in for Cloudflare's `scheduled`,
 // which CODING_STANDARDS exempts and which only calls this. It lives outside

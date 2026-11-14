@@ -1,11 +1,8 @@
 import { assert, describe, it } from "@effect/vitest"
 import { Effect } from "effect"
 
-import {
-  DuplicateRunId,
-  WorkflowError,
-} from "@/server/shareholding/archive-workflow"
-import { runKey } from "@/server/shareholding/keys"
+import { DuplicateRunId, WorkflowError } from "@/server/archive/workflow"
+import { runKey } from "@/server/archive/run"
 
 describe("an archive run's id", () => {
   it.effect("is an ArchiveRunId wherever a run is named", () =>

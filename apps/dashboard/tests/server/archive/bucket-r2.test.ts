@@ -2,8 +2,8 @@ import { assert, describe, it } from "@effect/vitest"
 import { WorkerEnv } from "@workspace/server"
 import { Effect, Layer, Result } from "effect"
 
-import { ArchiveBucket, MAX_LISTED_OBJECTS } from "@/server/shareholding/bucket"
-import { archiveBucketR2 } from "@/server/shareholding/bucket-r2"
+import { ArchiveBucket, MAX_LISTED_OBJECTS } from "@/server/archive/bucket"
+import { archiveBucketR2 } from "@/server/shareholding/bindings"
 
 // An R2 binding that lists `count` keys under reports/, 1000 to a page as R2
 // does.

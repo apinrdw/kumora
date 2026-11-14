@@ -4,8 +4,10 @@ import { runServerEffect } from "@workspace/server"
 import { Effect, Layer } from "effect"
 
 import { Auth } from "@/server/auth/auth"
-import { archiveWorkflowBinding } from "@/server/shareholding/archive-workflow-binding"
-import { archiveBucketR2 } from "@/server/shareholding/bucket-r2"
+import {
+  archiveBucketR2,
+  archiveWorkflowBinding,
+} from "@/server/shareholding/bindings"
 
 import { runArchiveNow, shareholdingArchivePage } from "./shareholding.ts"
 

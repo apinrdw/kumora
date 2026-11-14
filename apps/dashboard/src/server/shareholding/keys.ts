@@ -3,18 +3,15 @@
 //   reports/<kind>/<data-date>/<sha256>.xlsx               written once per hash
 //   reports/<kind>/<data-date>/<sha256>.<fetched-at>.<listing>.json
 //                                                          one per listing seen
-//   runs/<run-id>.json
+//   runs/<run-id>.json                                     (../archive/run.ts)
 //   runs/latest.json                                       { id } of the last run
 //
 // Nothing under reports/ is ever overwritten or deleted.
 import { Effect } from "effect"
 
 import type { ReportKind } from "./listing.ts"
-import type { ArchiveRunId } from "./run-result.ts"
 
 export const REPORTS_PREFIX = "reports/"
-export const RUNS_PREFIX = "runs/"
-export const LATEST_RUN_KEY = `${RUNS_PREFIX}latest.json`
 
 // reports/<kind>/, the prefix of every report of one kind.
 export const kindPrefix = Effect.fnUntraced(function* (kind: ReportKind) {
@@ -64,8 +61,4 @@ export const recordKey = Effect.fnUntraced(function* (
     new TextEncoder().encode(`${listing.sourceUrl}\n${listing.etag ?? ""}`)
   )).slice(0, 16)
   return `${yield* kindPrefix(kind)}${dataDate}/${sha256}.${fetchedAt.replaceAll(":", "")}.${listingDigest}.json`
-})
-
-export const runKey = Effect.fnUntraced(function* (id: ArchiveRunId) {
-  return `${RUNS_PREFIX}${id}.json`
 })

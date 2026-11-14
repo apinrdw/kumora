@@ -3,11 +3,8 @@ import { StepFailed } from "@workspace/server"
 import { Effect, Layer, Schema } from "effect"
 
 import { archiveRun, MAX_REPORT_BYTES } from "@/server/shareholding/archive-run"
-import {
-  ArchiveRunId,
-  MAX_RUN_ERROR_LENGTH,
-  RunMetadata,
-} from "@/server/shareholding/run-result"
+import { ArchiveRunId, MAX_RUN_ERROR_LENGTH } from "@/server/archive/run"
+import { RunMetadata } from "@/server/shareholding/run-result"
 import {
   LISTING_URL,
   MAX_ETAG_BYTES,
@@ -17,8 +14,8 @@ import {
 } from "@/server/shareholding/listing"
 
 import { fakeIdx, type FakeIdx, idxIdUrl } from "./fake-idx.ts"
-import { localSteps } from "./local-steps.ts"
-import { type MemoryBucket, memoryBucket } from "./memory-bucket.ts"
+import { localSteps } from "../archive/local-steps.ts"
+import { type MemoryBucket, memoryBucket } from "../archive/memory-bucket.ts"
 
 const run = (
   idx: FakeIdx,

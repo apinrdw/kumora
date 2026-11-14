@@ -1,22 +1,21 @@
-// How the admin page shows a run: its record, judged against its Workflow
+// How an admin page shows a run: its record, judged against its Workflow
 // instance's status. The last run card and the recent runs table both use
 // `viewRun`, so a run reads the same in both.
-import { Effect, Schema } from "effect"
+import { Effect } from "effect"
 
-import { type InstanceStatus, RunStatus } from "./archive-workflow.ts"
-import { ArchiveRunResult } from "./run-result.ts"
+import type { ArchiveRunBase } from "./run.ts"
+import type { InstanceStatus, RunStatus } from "./workflow.ts"
 
-const RunView = Schema.Struct({
+export interface RunView<Run extends ArchiveRunBase> {
   // The run's record; a run that ended without its summary shows as failed.
-  result: ArchiveRunResult,
-  inProgress: Schema.Boolean,
+  readonly result: Run
+  readonly inProgress: boolean
   // The instance's status while the record says running, when it has one.
-  workflowStatus: Schema.NullOr(RunStatus),
-})
-export type RunView = typeof RunView.Type
+  readonly workflowStatus: RunStatus | null
+}
 
 // What judging a run reads of its record.
-type RunState = Pick<ArchiveRunResult, "outcome" | "startedAt">
+type RunState = Pick<ArchiveRunBase, "outcome" | "startedAt">
 
 // Statuses of a run that has ended. Every other status holds off the next
 // run: a paused or pausing run can resume, a waiting one is between retries,
@@ -75,20 +74,21 @@ export const endedRunError = Effect.fnUntraced(function* (
     : yield* endedUnsummarized(instance)
 })
 
-export const viewRun = Effect.fnUntraced(function* (
-  result: ArchiveRunResult,
+export const viewRun = <Run extends ArchiveRunBase>(
+  result: Run,
   instance: InstanceStatus | undefined,
   now: number
-) {
-  const inProgress = yield* isInProgress(result, instance, now)
-  const error = yield* endedRunError(result, instance, now)
-  return RunView.make({
-    result:
-      error === undefined ? result : { ...result, outcome: "failed", error },
-    inProgress,
-    workflowStatus:
-      result.outcome === "running" && instance !== undefined
-        ? instance.status
-        : null,
+): Effect.Effect<RunView<Run>> =>
+  Effect.gen(function* () {
+    const inProgress = yield* isInProgress(result, instance, now)
+    const error = yield* endedRunError(result, instance, now)
+    return {
+      result:
+        error === undefined ? result : { ...result, outcome: "failed", error },
+      inProgress,
+      workflowStatus:
+        result.outcome === "running" && instance !== undefined
+          ? instance.status
+          : null,
+    }
   })
-})

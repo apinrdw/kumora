@@ -5,7 +5,7 @@ import { jsonBytes, NonRetryable, STEP_RESULT_BYTES } from "@workspace/server"
 import { Effect, Schema } from "effect"
 import { HttpClient } from "effect/http"
 
-import { readCapped } from "./capped-body.ts"
+import { readCapped } from "../archive/capped-body.ts"
 
 // One call returns every year: no `year`, and `length` because it defaults
 // to 25.

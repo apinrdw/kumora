@@ -8,10 +8,10 @@ import { Auth } from "@/server/auth/auth"
 import { decide, type Action } from "@/server/auth/policy"
 import { refusal } from "@/server/auth/refusal"
 import { accountOf } from "@/server/auth/session-account"
-import { archiveTotals, recentRuns } from "@/server/shareholding/history"
+import { lastRun, recentRuns, startRun } from "@/server/shareholding/runs"
+import { archiveTotals } from "@/server/shareholding/totals"
 import { runIdAt } from "@/server/shareholding/run-result"
 import { nextScheduledRun } from "@/server/shareholding/schedule"
-import { lastRun, startRun } from "@/server/shareholding/start-run"
 
 const SHAREHOLDING_PATH =
   "/admin/shareholding" satisfies keyof FileRoutesByFullPath
