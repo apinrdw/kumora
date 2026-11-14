@@ -32,6 +32,10 @@ export const runIdAt = Effect.fnUntraced(function* (
   )
 })
 
+// The most characters of an error a run record keeps. A failure's message
+// can quote what IDX sent, which IDX decides the size of.
+export const MAX_RUN_ERROR_LENGTH = 1000
+
 export const ArchiveRunResult = Schema.Struct({
   id: ArchiveRunId,
   trigger: ArchiveTrigger,
@@ -51,6 +55,7 @@ export const ArchiveRunResult = Schema.Struct({
   other: Schema.Array(
     Schema.Struct({ sourceUrl: Schema.String, description: Schema.String })
   ),
+  // At most MAX_RUN_ERROR_LENGTH characters.
   error: Schema.NullOr(Schema.String),
 })
 export type ArchiveRunResult = typeof ArchiveRunResult.Type

@@ -1,8 +1,12 @@
 import { assert, describe, it } from "@effect/vitest"
+import { StepFailed } from "@workspace/server"
 import { Effect, Layer } from "effect"
 
 import { archiveRun, MAX_REPORT_BYTES } from "@/server/shareholding/archive-run"
-import { ArchiveRunId } from "@/server/shareholding/run-result"
+import {
+  ArchiveRunId,
+  MAX_RUN_ERROR_LENGTH,
+} from "@/server/shareholding/run-result"
 import {
   LISTING_URL,
   MAX_ETAG_BYTES,
@@ -632,6 +636,41 @@ describe("an archive run", () => {
           outcome: "failed",
           error: failure.message,
         })
+      })
+  )
+
+  it.effect(
+    "records the start of a long error, up to its most characters",
+    () =>
+      Effect.gen(function* () {
+        const bucket = memoryBucket()
+        const steps = localSteps(Layer.merge(fakeIdx().layer, bucket.layer))
+        // The runtime's message for a failed step, which it decides the size of.
+        const message = `plan failed: ${"x".repeat(5 * MAX_RUN_ERROR_LENGTH)}`
+
+        const failure = yield* Effect.flip(
+          archiveRun(
+            {
+              do: (name, effect) =>
+                name === "plan"
+                  ? Effect.fail(new StepFailed({ step: name, message }))
+                  : steps.do(name, effect),
+            },
+            {
+              id: ArchiveRunId.make("cron-2026-11-14T06"),
+              trigger: "cron",
+              startedAt: new Date("2026-11-14T06:00:00Z"),
+            }
+          )
+        )
+
+        assert.strictEqual(failure.message, message)
+        const { outcome, error } = json(bucket, "runs/cron-2026-11-14T06.json")
+        assert.strictEqual(outcome, "failed")
+        assert.strictEqual(
+          error,
+          `${message.slice(0, MAX_RUN_ERROR_LENGTH - 1)}…`
+        )
       })
   )
 })
