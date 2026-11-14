@@ -17,10 +17,12 @@ import {
   type RecordedBrokerCodes,
   type RecordedResource,
   type StockCode,
+  type TradeCodes,
+  type TradeNumber,
   type WibDate,
 } from "@workspace/relay"
 import type { DateTime } from "effect"
-import { Effect, Option } from "effect"
+import { Duration, Effect, Option, Predicate } from "effect"
 import * as FetchHttpClient from "effect/http/FetchHttpClient"
 import * as HttpClient from "effect/http/HttpClient"
 import * as HttpClientResponse from "effect/http/HttpClientResponse"
@@ -93,6 +95,61 @@ export const fetchRecordedBrokerCodes = (
       ? Effect.provideService(FetchHttpClient.RequestInit, { cache: "reload" })
       : (effect) => effect
   )
+
+// The broker codes the tape's rows show, by Trade number.
+export type RecordedTradeCodes = ReadonlyMap<TradeNumber, TradeCodes>
+
+// Decision: while the day's codes are incomplete, the page asks again every
+// 30 s (spec apinrdw/kumora#280, "Recheck"); the walks store codes for over
+// an hour after the close.
+const RECHECK = Duration.seconds(30)
+
+/**
+ * Follows a recorded day's broker codes beside its tape. `ask` fetches the
+ * codes for a cursor the tape was just asked for, and shows them unless a
+ * later ask's answer is already shown. `recheck` asks again for the latest
+ * cursor every 30 s, past the browser's copy, until an answer shown says the
+ * day is complete; a failed recheck other than a 401 is logged and the next
+ * one goes ahead.
+ */
+export const makeBrokerCodesFollower = (
+  date: WibDate,
+  show: (codes: RecordedTradeCodes) => void
+) =>
+  Effect.sync(() => {
+    let asked = 0
+    let shown = 0
+    let complete = false
+    let latest: DateTime.Utc | undefined
+    const ask = (at: DateTime.Utc, fresh = false) =>
+      Effect.suspend(() => {
+        latest = at
+        asked += 1
+        const id = asked
+        return Effect.map(
+          fetchRecordedBrokerCodes(date, at, fresh),
+          (answer) => {
+            if (id < shown) return
+            shown = id
+            complete = answer.complete
+            show(new Map(answer.codes))
+          }
+        )
+      })
+    const recheck = Effect.gen(function* () {
+      while (!complete) {
+        yield* Effect.sleep(RECHECK)
+        if (complete || latest === undefined) continue
+        yield* ask(latest, true).pipe(
+          Effect.catchIf(
+            (error) => !Predicate.isTagged(error, "SignInRequired"),
+            (error) => Effect.logWarning("Broker codes not rechecked", error)
+          )
+        )
+      }
+    })
+    return { ask: (at: DateTime.Utc) => ask(at), recheck }
+  })
 
 // The selected code's stored book chunk for `minute`'s minute (or the latest
 // before it); the page replays it to the cursor with `bookAt`. None when the

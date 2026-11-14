@@ -20,4 +20,6 @@ export {
   fetchRecordedCandles,
   fetchRecordedGaps,
   fetchRecordedTape,
+  makeBrokerCodesFollower,
 } from "./recorded-day.ts"
+export type { RecordedTradeCodes } from "./recorded-day.ts"
