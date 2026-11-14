@@ -6,7 +6,11 @@ name: CI
 on:
   push:
     branches: [main]
+  # Decision: drafts run no CI; marking a PR ready runs it on the current head.
+  # A job skipped by its `if` reports skipped, which a required check accepts,
+  # and a draft can't merge anyway.
   pull_request:
+    types: [opened, synchronize, reopened, ready_for_review]
 
 concurrency:
   group: ci-${{ github.ref }}
@@ -16,6 +20,7 @@ jobs:
   # The static checks and the unit tests each get a runner's 2 cores; each
   # job runs one root check:* script, and `pnpm check` runs them all.
   static:
+    if: github.event_name == 'push' || !github.event.pull_request.draft
     runs-on: ubuntu-latest
     timeout-minutes: 15
     steps:
@@ -39,6 +44,7 @@ jobs:
       - run: pnpm check:static
 
   unit-tests:
+    if: github.event_name == 'push' || !github.event.pull_request.draft
     runs-on: ubuntu-latest
     timeout-minutes: 15
     steps:
@@ -58,6 +64,7 @@ jobs:
       - run: pnpm check:test
 
   fallow:
+    if: github.event_name == 'push' || !github.event.pull_request.draft
     runs-on: ubuntu-latest
     timeout-minutes: 10
     steps:
