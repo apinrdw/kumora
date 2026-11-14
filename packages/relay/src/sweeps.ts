@@ -9,14 +9,14 @@ import { DateTime, Effect, Schema } from "effect"
 
 import { StockCode } from "./codes.ts"
 import type { RunningTrade } from "./envelope.ts"
-import { TradeNumber } from "./envelope.ts"
+import { Side, TradeNumber } from "./envelope.ts"
 
 // One sweep: its aggressor side, its first trade's time, its first and last
 // price, and its lots, value and trade count. Side `none` is an auction
 // match's prints in one second: no aggressor, so no sweep, but the sweep log
 // shows it as one neutral row.
 const Sweep = Schema.Struct({
-  side: Schema.Literals(["buy", "sell", "none"]),
+  side: Side,
   time: Schema.DateTimeUtcFromMillis,
   first: Schema.Int,
   last: Schema.Int,

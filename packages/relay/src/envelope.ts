@@ -233,7 +233,7 @@ export const Select = Schema.TaggedStruct("Select", {
 export type ViewerUp = typeof Select.Type
 
 // Who took the aggressor side. Auction matches and negotiated prints have none.
-const Side = Schema.Literals(["buy", "sell", "none"])
+export const Side = Schema.Literals(["buy", "sell", "none"])
 
 // The market board: regular, cash (tunai), or negotiated.
 const Board = Schema.Literals(["RG", "TN", "NG"])
