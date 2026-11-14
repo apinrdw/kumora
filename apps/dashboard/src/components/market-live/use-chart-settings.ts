@@ -1,0 +1,90 @@
+import { clientRuntime } from "@workspace/client"
+import { Effect } from "effect"
+import { useCallback, useEffect, useSyncExternalStore } from "react"
+
+import {
+  CHART_SETTINGS_DEFAULT,
+  parseChartSettings,
+  type ChartSettings,
+} from "@/lib/chart-settings"
+
+import type { SweepStore } from "./sweep-store"
+
+// Decision: like the watchlist (use-watchlist.ts), each browser keeps its
+// own chart settings in localStorage under one key (spec apinrdw/kumora#263,
+// "Settings"). The e2e reloads to read them back
+// (apps/e2e/tests/market-live-footprint-controls.spec.ts).
+const KEY = "kumora:market-live:charts"
+
+// Storage blocked reads as nothing stored: the defaults.
+const read = Effect.try(() => window.localStorage.getItem(KEY)).pipe(
+  Effect.orElseSucceed(() => null)
+)
+
+// The settings as last read, kept while the stored text is unchanged, so
+// React sees the same object.
+let cached: { raw: string | null; settings: ChartSettings } = {
+  raw: null,
+  settings: CHART_SETTINGS_DEFAULT,
+}
+// Settings changed while storage is blocked: they last as long as the page.
+let unstored: ChartSettings | undefined
+const snapshot = () => {
+  if (unstored !== undefined) return unstored
+  const raw = clientRuntime.runSync(read)
+  if (raw !== cached.raw)
+    cached = { raw, settings: clientRuntime.runSync(parseChartSettings(raw)) }
+  return cached.settings
+}
+
+const listeners = new Set<() => void>()
+const subscribe = (listener: () => void) => {
+  listeners.add(listener)
+  // Another tab's change.
+  window.addEventListener("storage", listener)
+  return () => {
+    listeners.delete(listener)
+    window.removeEventListener("storage", listener)
+  }
+}
+
+const write = Effect.fnUntraced(function* (settings: ChartSettings) {
+  yield* Effect.try(() =>
+    window.localStorage.setItem(KEY, JSON.stringify(settings))
+  ).pipe(
+    Effect.orElseSucceed(() => {
+      unstored = settings
+    })
+  )
+  for (const listener of listeners) listener()
+})
+
+// This browser's chart settings and a change to some of them. The server
+// render has the defaults.
+export function useChartSettings() {
+  const settings = useSyncExternalStore(
+    subscribe,
+    snapshot,
+    () => CHART_SETTINGS_DEFAULT
+  )
+  const change = useCallback(
+    (patch: Partial<ChartSettings>) =>
+      clientRuntime.runSync(write({ ...snapshot(), ...patch })),
+    []
+  )
+  return { settings, change }
+}
+
+// Chart 1's top-N, remembered: the code's sweep store opens on the saved
+// percent, and each change the control makes is saved.
+export function useRememberedTopN(sweeps: SweepStore) {
+  const { settings, change } = useChartSettings()
+  useEffect(() => sweeps.setTopN(settings.topN), [sweeps, settings.topN])
+  useEffect(
+    () =>
+      sweeps.subscribe((event) => {
+        if (event._tag === "TopN") change({ topN: sweeps.topN() })
+      }),
+    [sweeps, change]
+  )
+}

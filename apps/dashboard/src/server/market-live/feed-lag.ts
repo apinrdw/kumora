@@ -1,7 +1,7 @@
 // How far behind the exchange each feed's running trades reach the trading
 // day (spec apinrdw/kumora#235, "Feed lag" and "The per-minute log"). Time is
 // read only through Effect's Clock.
-import { type Feed, type RunningTrade } from "@workspace/relay"
+import { type Feed, type RunningTrade, MINUTE_MS } from "@workspace/relay"
 import { Clock, DateTime, Effect } from "effect"
 
 // One running trade's first relayed arrival on a feed.
@@ -26,8 +26,6 @@ export const timeTrades = Effect.fnUntraced(function* (
   }))
 })
 
-const MINUTE = 60_000
-
 // The nearest-rank `p`th percentile of ascending `sorted`, never empty.
 export const percentile = (sorted: ReadonlyArray<number>, p: number) =>
   Effect.sync(() => sorted[Math.ceil((p / 100) * sorted.length) - 1]!)
@@ -41,7 +39,7 @@ export const makeFeedLagLog = Effect.sync(() => {
   const record = (timed: ReadonlyArray<TimedTrade>) =>
     Effect.sync(() => {
       for (const { feed, arrived, lag } of timed) {
-        const minute = arrived - (arrived % MINUTE)
+        const minute = arrived - (arrived % MINUTE_MS)
         const feeds = minutes.get(minute) ?? new Map<Feed, Array<number>>()
         minutes.set(minute, feeds)
         const lags = feeds.get(feed) ?? []
@@ -55,7 +53,7 @@ export const makeFeedLagLog = Effect.sync(() => {
   const logEnded = Effect.gen(function* () {
     const now = yield* Clock.currentTimeMillis
     const ended = [...minutes]
-      .filter(([minute]) => minute + MINUTE <= now)
+      .filter(([minute]) => minute + MINUTE_MS <= now)
       .sort(([a], [b]) => a - b)
     for (const [minute, feeds] of ended) {
       for (const [feed, lags] of feeds) {

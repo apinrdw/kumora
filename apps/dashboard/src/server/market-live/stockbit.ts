@@ -5,6 +5,7 @@
 // indicative.ts reads `iepiev` and stockbit-liveprice.ts `liveprice` with the
 // same reader.
 import {
+  SHARES_PER_LOT,
   StockCode,
   TradeNumber,
   wibDateAt,
@@ -197,8 +198,8 @@ const tradeOf = Effect.fnUntraced(function* (bytes: Uint8Array) {
     time,
     code,
     price,
-    // Volume is in shares; a lot is 100. A negotiated print can be an odd lot.
-    lots: volume / 100,
+    // Volume is in shares; a lot is SHARES_PER_LOT shares. A negotiated print can be an odd lot.
+    lots: volume / SHARES_PER_LOT,
     side: yield* sideOf(yield* numberOf(read.get(Trade.action))),
     board,
     feeds: ["Stockbit"],

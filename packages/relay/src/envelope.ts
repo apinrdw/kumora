@@ -1,4 +1,4 @@
-import { Effect, Option, Order, Schema } from "effect"
+import { Effect, Option, Order, Schema, SchemaGetter } from "effect"
 
 import { StockCode } from "./codes.ts"
 import { IndicativePrice, MarketConditions } from "./market-conditions.ts"
@@ -18,7 +18,9 @@ const acceptedIngestVersions: ReadonlyArray<unknown> = [
 // Bump on any change to a viewer message's shape. Only this version is
 // accepted: a page on another version reloads.
 // 2: market conditions carry delayed freshness and each delayed feed's lag.
-export const ViewerProtocolVersion = 2
+// 3: snapshots and deltas carry footprints, and deltas a selected code's
+// sweeps by minute (spec apinrdw/kumora#263).
+export const ViewerProtocolVersion = 3
 
 // Decision: an extension that hits either code stops retrying that target and
 // shows it; any other close, 1006 included, retries with backoff. The token
@@ -232,7 +234,7 @@ export const Select = Schema.TaggedStruct("Select", {
 export type ViewerUp = typeof Select.Type
 
 // Who took the aggressor side. Auction matches and negotiated prints have none.
-const Side = Schema.Literals(["buy", "sell", "none"])
+export const Side = Schema.Literals(["buy", "sell", "none"])
 
 // The market board: regular, cash (tunai), or negotiated.
 const Board = Schema.Literals(["RG", "TN", "NG"])
@@ -240,9 +242,12 @@ const Board = Schema.Literals(["RG", "TN", "NG"])
 // Where a running trade was seen: a live feed, or a backfill request's answer.
 const TradeSource = Schema.Literals(["Stockbit", "Ajaib", "backfill"])
 
+// The shares in one IDX lot.
+export const SHARES_PER_LOT = 100
+
 // One trade on the whole-market tape, merged across feeds. Its trade number is
 // the bare daily sequence, one market-wide numbering per trading day. Value is
-// price × lots × 100 shares, so it does not travel.
+// price × lots × SHARES_PER_LOT, so it does not travel.
 export const RunningTrade = Schema.Struct({
   tradeNumber: TradeNumber,
   time: Schema.DateTimeUtcFromMillis,
@@ -256,6 +261,10 @@ export const RunningTrade = Schema.Struct({
   feeds: Schema.Array(TradeSource),
 })
 export type RunningTrade = typeof RunningTrade.Type
+
+// A candle's span in ms: one minute. Every module that floors an instant to
+// its minute, or steps a minute, uses this one.
+export const MINUTE_MS = 60_000
 
 // One stock code's or index's 1-minute candle. A stock's is built from its
 // regular-board trades: volume in lots, value in rupiah, frequency in trades.
@@ -275,9 +284,102 @@ export const Candle = Schema.Struct({
 })
 export type Candle = typeof Candle.Type
 
+// One price of a footprint: the lots traded there by sell aggressors, by buy
+// aggressors, and with no aggressor side (auction matches).
+const FootprintCell = Schema.Struct({
+  price: Schema.Int,
+  sell: Schema.Finite,
+  buy: Schema.Finite,
+  none: Schema.Finite,
+})
+export type FootprintCell = typeof FootprintCell.Type
+
+// One stock code's footprint for one minute: its regular-board trades' lots
+// by price and aggressor side, the same trades as its candle. Cells ascend by
+// price. An index has none.
+export const Footprint = Schema.Struct({
+  code: StockCode,
+  // The minute's start.
+  minute: Schema.DateTimeUtcFromMillis,
+  cells: Schema.Array(FootprintCell),
+})
+export type Footprint = typeof Footprint.Type
+
+// One sweep (the rule is in sweeps.ts): its aggressor side, its first trade's
+// number and time, its first and last price, and its lots, value and trade
+// count. A trade is in one sweep, so its first trade's number names a sweep
+// for the day, however a late trade regroups the sweeps around it. Side
+// `none` is an auction match's prints in one second: no aggressor, so no
+// sweep, but the sweep log shows it as one neutral row.
+const SweepFields = Schema.Struct({
+  side: Side,
+  firstTrade: TradeNumber,
+  time: Schema.DateTimeUtc,
+  first: Schema.Int,
+  last: Schema.Int,
+  lots: Schema.Finite,
+  value: Schema.Finite,
+  trades: Schema.Int,
+})
+
+// Decision: a sweep travels as a tuple, [side, first trade, time, first,
+// last, lots, value, trades], not a keyed object. A delta resends a minute's
+// sweeps whole, and a busy code's peak minute of 370 measured 21 KB a delta
+// as tuples against 45 KB with the keys (apinrdw/kumora#279). A footprint
+// row stores the same order (dashboard sweep-rows.ts); change both.
+export const Sweep = Schema.Tuple([
+  Side,
+  TradeNumber,
+  Schema.DateTimeUtcFromMillis,
+  Schema.Int,
+  Schema.Int,
+  Schema.Finite,
+  Schema.Finite,
+  Schema.Int,
+]).pipe(
+  Schema.decodeTo(Schema.toType(SweepFields), {
+    decode: SchemaGetter.transform(
+      ([side, firstTrade, time, first, last, lots, value, trades]) => ({
+        side,
+        firstTrade,
+        time,
+        first,
+        last,
+        lots,
+        value,
+        trades,
+      })
+    ),
+    encode: SchemaGetter.transform(
+      (sweep) =>
+        [
+          sweep.side,
+          sweep.firstTrade,
+          sweep.time,
+          sweep.first,
+          sweep.last,
+          sweep.lots,
+          sweep.value,
+          sweep.trades,
+        ] as const
+    ),
+  })
+)
+export type Sweep = typeof Sweep.Type
+
+// One stock code's sweeps in one minute, whole and in trade order: none once
+// its last regular-board trade left the minute.
+const MinuteSweeps = Schema.Struct({
+  code: StockCode,
+  // The minute's start.
+  minute: Schema.DateTimeUtcFromMillis,
+  sweeps: Schema.Array(Sweep),
+})
+export type MinuteSweeps = typeof MinuteSweeps.Type
+
 // What a viewer starts from after each Select: the 200 newest running trades,
-// ascending by trade number, and the selected code's candles so far,
-// ascending by minute. The selected code's order book once it has one, or
+// ascending by trade number, and the selected code's candles and footprints
+// so far, ascending by minute. The selected code's order book once it has one, or
 // word that it is an index.
 const Snapshot = Schema.TaggedStruct("Snapshot", {
   // The code the Select it answers selected. A snapshot answering an earlier
@@ -286,6 +388,7 @@ const Snapshot = Schema.TaggedStruct("Snapshot", {
   selected: StockCode,
   tape: Schema.Array(RunningTrade),
   candles: Schema.Array(Candle),
+  footprints: Schema.Array(Footprint),
   // The selected and watchlist codes' that have figures; a code missing has
   // none yet. Absent when none has.
   dayStates: Schema.optionalKey(Schema.Array(DayState)),
@@ -304,6 +407,16 @@ const Snapshot = Schema.TaggedStruct("Snapshot", {
 const Delta = Schema.TaggedStruct("Delta", {
   tape: Schema.Array(RunningTrade),
   candles: Schema.Array(Candle),
+  // Every footprint that changed since the last delta of a code some viewer
+  // selected, each whole. One with no cells, sent without its minute's
+  // candle, says the minute's last regular-board trade left it. Absent when
+  // none changed. What the page does with one is in
+  // apps/dashboard/src/components/market-live/candle-store.ts.
+  footprints: Schema.optionalKey(Schema.Array(Footprint)),
+  // Every minute whose sweeps a trade changed since the last delta, of a
+  // code some viewer selected, each whole: the page replaces its copy of
+  // that minute (candles.ts, `takeChanged`). Absent when none changed.
+  sweeps: Schema.optionalKey(Schema.Array(MinuteSweeps)),
   // Every changed Day state of a code some viewer selected or watches, each
   // whole. Absent when none changed.
   dayStates: Schema.optionalKey(Schema.Array(DayState)),

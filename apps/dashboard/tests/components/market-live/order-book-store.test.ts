@@ -21,6 +21,7 @@ const snapshot = (selected: string, orderBook: OrderBook): ViewerDown => ({
   selected: StockCode.make(selected),
   tape: [],
   candles: [],
+  footprints: [],
   orderBook,
   conditions: {
     phase: "session-1",

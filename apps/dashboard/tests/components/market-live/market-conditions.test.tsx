@@ -25,6 +25,7 @@ const snapshot: ViewerDown = {
   selected: StockCode.make("BBCA"),
   tape: [],
   candles: [],
+  footprints: [],
   conditions: conditionsOf("pre-opening"),
 }
 
@@ -32,6 +33,7 @@ const delta: ViewerDown = {
   _tag: "Delta",
   tape: [],
   candles: [],
+  footprints: [],
   conditions: conditionsOf("session-1"),
 }
 

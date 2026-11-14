@@ -5,22 +5,26 @@ import {
   encodeRecordedBrokerCodes,
   encodeRecordedCandles,
   encodeRecordedGaps,
+  encodeRecordedSweeps,
   encodeRecordedTape,
   type RecordedResource,
+  type RecordedSweeps,
   type RelayGap,
+  type StockCode,
   type WibDate,
+  MINUTE_MS,
 } from "@workspace/relay"
-import { DateTime, Effect } from "effect"
+import { Clock, DateTime, Effect } from "effect"
 
 import type { BrokerCodesStore } from "./broker-codes.ts"
 import { codeListAnswer, type CodeListStore } from "./code-list.ts"
 import { Fact, type makeDayStore } from "./day-store.ts"
+import { heatEndOf } from "../../lib/heatmap.ts"
+import { heatmapAnswer, type HeatRow } from "./heat-rows.ts"
 import { SEALED_CACHE } from "./routes.ts"
 
 // The newest trades a viewer's snapshot carries, and a tape GET at a cursor.
 export const SNAPSHOT_TRADES = 200
-
-const MINUTE = 60_000
 
 // Decision: a complete day's codes answer is kept a minute, never immutable:
 // a later Ajaib or Stockbit batch may still rewrite a trade's codes. An
@@ -49,6 +53,15 @@ export const recordedAnswer = Effect.fnUntraced(function* (
     readonly sealed: boolean
     // The gaps so far, while the day isn't sealed.
     readonly liveGaps: Effect.Effect<ReadonlyArray<RelayGap>>
+    // A code's heatmap rows not stored yet, each slice ending by `through`.
+    readonly heldHeat: (
+      code: StockCode,
+      through: number
+    ) => Effect.Effect<ReadonlyArray<HeatRow>>
+    // A code's sweeps so far.
+    readonly sweeps: (
+      code: StockCode
+    ) => Effect.Effect<RecordedSweeps["sweeps"]>
   }
 ) {
   const { store } = day
@@ -87,13 +100,23 @@ export const recordedAnswer = Effect.fnUntraced(function* (
           code: resource.code,
           ...(previous === undefined ? {} : { previousClose: previous }),
           candles: yield* store.candlesOf(resource.code),
+          footprints: yield* store.footprintsOf(resource.code),
         }),
         cacheControl
       )
     }
+    case "Sweeps":
+      return yield* json(
+        yield* encodeRecordedSweeps({
+          code: resource.code,
+          sweeps: yield* day.sweeps(resource.code),
+        }),
+        cacheControl
+      )
     case "Book": {
       const minute =
-        Math.floor(DateTime.toEpochMillis(resource.minute) / MINUTE) * MINUTE
+        Math.floor(DateTime.toEpochMillis(resource.minute) / MINUTE_MS) *
+        MINUTE_MS
       const chunk = yield* store.chunkAt(resource.code, minute)
       return chunk === undefined
         ? yield* json(
@@ -102,6 +125,23 @@ export const recordedAnswer = Effect.fnUntraced(function* (
             404
           )
         : yield* json(chunk, cacheControl)
+    }
+    case "Heatmap": {
+      const { code } = resource
+      return yield* json(
+        yield* heatmapAnswer(
+          code,
+          yield* store.heatmapOf(code),
+          yield* heatEndOf(day.date),
+          day.sealed
+            ? undefined
+            : {
+                now: yield* Clock.currentTimeMillis,
+                held: (through) => day.heldHeat(code, through),
+              }
+        ),
+        cacheControl
+      )
     }
     case "Gaps":
       return yield* json(

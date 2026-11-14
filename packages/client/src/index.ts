@@ -19,6 +19,8 @@ export {
   fetchRecordedBrokerCodes,
   fetchRecordedCandles,
   fetchRecordedGaps,
+  fetchRecordedHeatmap,
+  fetchRecordedSweeps,
   fetchRecordedTape,
   makeBrokerCodesFollower,
   makeNewestWins,

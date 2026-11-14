@@ -7,6 +7,7 @@ import {
   type PhaseInterval,
   type RelayGap,
   type WibDate,
+  MINUTE_MS,
 } from "@workspace/relay"
 import { DateTime, Effect } from "effect"
 
@@ -111,8 +112,6 @@ export const gapAt = (gaps: ReadonlyArray<RelayGap>, at: number) =>
 export const scrubbedTo = (day: ReplayDay, value: number) =>
   Effect.sync(() => (value > day.close - 1_000 ? day.close : value))
 
-const MINUTE = 60_000
-
 /**
  * The minutes the relay gaps touch, as minute starts, in ascending runs: the
  * chart shades them as not recorded. Gaps that touch the same minute, or
@@ -126,7 +125,8 @@ export const gapMinutes = Effect.fnUntraced(function* (
   const runs: Array<Array<number>> = []
   const spans = gaps
     .map((gap) => ({
-      from: Math.floor(DateTime.toEpochMillis(gap.from) / MINUTE) * MINUTE,
+      from:
+        Math.floor(DateTime.toEpochMillis(gap.from) / MINUTE_MS) * MINUTE_MS,
       to: gap.to === undefined ? end + 1 : DateTime.toEpochMillis(gap.to),
     }))
     .sort((a, b) => a.from - b.from)
@@ -136,12 +136,34 @@ export const gapMinutes = Effect.fnUntraced(function* (
     const minutes =
       run !== undefined && last !== undefined && from <= last ? run : []
     for (
-      let minute = Math.max(from, (last ?? from - MINUTE) + MINUTE);
+      let minute = Math.max(from, (last ?? from - MINUTE_MS) + MINUTE_MS);
       minute < to;
-      minute += MINUTE
+      minute += MINUTE_MS
     )
       minutes.push(minute)
     if (minutes !== run && minutes.length > 0) runs.push(minutes)
   }
   return runs
+})
+
+/**
+ * Where the replay cursor `at` sits among the bars chart 1 draws (candles and
+ * gap whitespace, `times` ascending, in seconds), as a logical bar index:
+ * its minute's bar plus the fraction of the minute gone, so a mid-minute
+ * cursor lies between its minute's centre and the next; with no bar of its
+ * own, half a bar past the latest bar before it.
+ */
+export const cursorLogical = Effect.fnUntraced(function* (
+  times: ReadonlyArray<number>,
+  at: number
+) {
+  const minute = Math.floor(at / MINUTE_MS) * MINUTE_MS
+  const before = times.filter((time) => time * 1000 <= minute)
+  const latest = before.at(-1)
+  if (latest === undefined) return -0.5
+  return (
+    before.length -
+    1 +
+    (latest * 1000 === minute ? (at - minute) / MINUTE_MS : 0.5)
+  )
 })

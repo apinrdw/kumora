@@ -5,22 +5,43 @@
 // feeds every inserted or merged trade through `trade` and sends what
 // `takeChanged` returns. The book holds a candle only while it is changing;
 // the day store holds the rest.
+//
+// A stock's candle carries its footprint (spec apinrdw/kumora#263): the same
+// trades' lots by price and aggressor side, kept, changed, resent and stored
+// with it, so a late trade resends both. The footprint row also holds the
+// minute's sweeps, grouped again from its trades whenever it is written, and
+// a trade that changes them resends the minute's, whole.
 import type {
   Candle,
+  Footprint,
+  MinuteSweeps,
   RunningTrade,
   StockCode,
+  Sweep,
   TradeNumber,
+} from "@workspace/relay"
+import {
+  SHARES_PER_LOT,
+  TradeNumberOrder,
+  joinSweeps,
+  sweepsOf,
+  MINUTE_MS,
 } from "@workspace/relay"
 import { Clock, DateTime, Effect } from "effect"
 
+import {
+  addTrade,
+  cellsOut,
+  copyCells,
+  noCells,
+  type Cells,
+} from "./footprint-cells.ts"
 import type { LivePrice } from "./stockbit-liveprice.ts"
-
-const MINUTE = 60_000
 
 // Decision: a trade's part in its candle stays open for 5 s after it first
 // arrived, so a second feed's copy can still move or reprice it; after that a
-// later feed changes only the tape row. The viewer protocol has no removal, so
-// an emptied candle stays on the page until the next snapshot. See spec
+// later feed changes only the tape row. A minute such a copy emptied goes out
+// as a footprint with no cells and no candle (`takeChanged`). See spec
 // apinrdw/kumora#138 ("Merge and dedupe"); apps/e2e/support/clock.ts repeats it.
 const MERGE_WINDOW = 5_000
 
@@ -49,6 +70,23 @@ export interface StoredCandle {
   readonly figures: CandleFigures
 }
 
+// One stock code's footprint for one minute as the day store holds it.
+export interface StoredFootprint {
+  readonly code: StockCode
+  readonly minute: number
+  readonly cells: Cells
+}
+
+// One stock code's sweeps for one minute as the day store holds them, with
+// the highest trade number they were grouped from.
+export interface StoredSweeps {
+  readonly sweeps: ReadonlyArray<Sweep>
+  readonly lastTrade: bigint
+}
+
+// What a flush writes of one stock code's minute: its footprint and sweeps.
+export interface FootprintRow extends StoredFootprint, StoredSweeps {}
+
 // The settled candles the day store holds: the book reads one back when a
 // trade lands in a minute it let go of, and a code's candles so far when a
 // snapshot or the Day state fallback asks for them.
@@ -62,6 +100,31 @@ export interface SettledCandles {
     code: StockCode,
     after?: number
   ) => Effect.Effect<ReadonlyArray<StoredCandle>>
+  // A stock's footprint for one minute, and its footprints so far, ascending.
+  readonly storedFootprint: (
+    code: StockCode,
+    minute: number
+  ) => Effect.Effect<Cells | undefined>
+  readonly storedFootprintsOf: (
+    code: StockCode
+  ) => Effect.Effect<ReadonlyArray<StoredFootprint>>
+  // A stock's sweeps for one minute: a trade numbered above them carries
+  // them on.
+  readonly storedSweeps: (
+    code: StockCode,
+    minute: number
+  ) => Effect.Effect<StoredSweeps | undefined>
+  // A stock's regular-board trades in one minute, ascending by trade number:
+  // the book groups a minute's sweeps again from them when a trade numbered
+  // below its stored sweeps' last lands in it.
+  readonly storedMinuteTrades: (
+    code: StockCode,
+    minute: number
+  ) => Effect.Effect<ReadonlyArray<RunningTrade>>
+  // A stock's sweeps so far by minute, ascending.
+  readonly storedSweepsOf: (
+    code: StockCode
+  ) => Effect.Effect<ReadonlyMap<number, ReadonlyArray<Sweep>>>
 }
 
 interface Print {
@@ -117,37 +180,50 @@ const printOf = (trade: RunningTrade): Print => ({
   price: trade.price,
   time: DateTime.toEpochMillis(trade.time),
   volume: trade.lots,
-  value: trade.price * trade.lots * 100,
+  value: trade.price * trade.lots * SHARES_PER_LOT,
   frequency: 1,
 })
 
-// One code's candle for one minute: what has settled, plus the trades still
-// inside the merge window, by trade number.
+// One code's candle and footprint for one minute: what has settled, plus the
+// trades still inside the merge window, by trade number. Its sweeps are the
+// stored ones (`base`) carried on by the trades settled since the book took
+// the minute (`trades`), the whole minute's once a late trade made the book
+// read them back. An index's footprint and trades stay empty.
 interface Slot {
   readonly code: StockCode
   readonly minute: number
   settled: CandleFigures | undefined
+  readonly settledCells: Cells
+  base: StoredSweeps
+  readonly trades: Map<TradeNumber, RunningTrade>
   readonly open: Map<string, RunningTrade>
 }
+
+const NO_SWEEPS: StoredSweeps = { sweeps: [], lastTrade: -1n }
 
 // The start of `time`'s minute, in epoch ms: a candle's key, which the Day
 // state fallback and the restart's trade scan share.
 export const minuteOf = (time: DateTime.Utc) =>
-  Effect.succeed(Math.floor(DateTime.toEpochMillis(time) / MINUTE) * MINUTE)
+  Effect.succeed(
+    Math.floor(DateTime.toEpochMillis(time) / MINUTE_MS) * MINUTE_MS
+  )
 
 const counts = (trade: RunningTrade) => Effect.succeed(trade.board === "RG")
 
-// Whether two copies of a trade give its candle the same figures.
-const sameCandlePart = Effect.fnUntraced(function* (
+// Whether two copies of a trade give its candle, footprint and sweeps the
+// same part: a side one feed left unspecified moves its footprint lots, and
+// any other time retimes the sweep it starts or regroups its second's.
+const samePart = Effect.fnUntraced(function* (
   a: RunningTrade,
   b: RunningTrade
 ) {
   return (
     (yield* counts(a)) === (yield* counts(b)) &&
     a.code === b.code &&
-    (yield* minuteOf(a.time)) === (yield* minuteOf(b.time)) &&
+    DateTime.toEpochMillis(a.time) === DateTime.toEpochMillis(b.time) &&
     a.price === b.price &&
-    a.lots === b.lots
+    a.lots === b.lots &&
+    a.side === b.side
   )
 })
 
@@ -180,6 +256,25 @@ const candleOf = Effect.fnUntraced(function* (slot: Slot) {
     : yield* candleFrom(slot.code, slot.minute, figures)
 })
 
+// What has settled plus the trades still inside the merge window, by price.
+const cellsOf = Effect.fnUntraced(function* (slot: Slot) {
+  const cells = yield* copyCells(slot.settledCells)
+  for (const trade of slot.open.values()) yield* addTrade(cells, trade)
+  return cells
+})
+
+const footprintFrom = Effect.fnUntraced(function* (
+  code: StockCode,
+  minute: number,
+  cells: Cells
+) {
+  return {
+    code,
+    minute: DateTime.makeUnsafe(minute),
+    cells: yield* cellsOut(cells),
+  } satisfies Footprint
+})
+
 // An index's day totals at its latest frame, so a frame's candle gets only
 // what traded since.
 interface Totals {
@@ -206,6 +301,9 @@ export const makeCandleBook = Effect.fnUntraced(function* (
   >()
   const indexTotals = new Map<StockCode, Totals>()
   let changed = new Set<Slot>()
+  // Those of them a trade changed, whose footprint and sweeps go out: an
+  // index's candle has neither.
+  let regrouped = new Set<Slot>()
   // What the next flush writes: trades whose merge window closed, each once,
   // and the candles whose settled figures changed.
   let settledTrades = new Map<string, RunningTrade>()
@@ -226,12 +324,63 @@ export const makeCandleBook = Effect.fnUntraced(function* (
         code,
         minute,
         settled: yield* store.storedCandle(code, minute),
+        settledCells:
+          (yield* store.storedFootprint(code, minute)) ?? (yield* noCells),
+        base: (yield* store.storedSweeps(code, minute)) ?? NO_SWEEPS,
+        trades: new Map(),
         open: new Map(),
       }
       minutes.set(minute, slot)
     }
     return slot
   })
+
+  // A slot's sweeps: what has settled, plus the trades still inside the
+  // merge window when `withOpen`. A trade numbered at or below the stored
+  // sweeps' last can split one, so the minute's stored trades are read back
+  // once and the sweeps grouped whole from then on.
+  // Decision: the book reads a minute's trades back only for such a late
+  // trade. The trades table has no code index, so that read scans the whole
+  // market's minute; a trade numbered above the stored sweeps carries them
+  // on instead, and the minute a flush let go of reopens from its row. See
+  // spec apinrdw/kumora#263.
+  const slotSweeps = Effect.fnUntraced(function* (
+    slot: Slot,
+    withOpen: boolean
+  ) {
+    const unsettled = withOpen ? [...slot.open.values()] : []
+    const late = (trade: RunningTrade) =>
+      BigInt(trade.tradeNumber) <= slot.base.lastTrade
+    if (
+      slot.base !== NO_SWEEPS &&
+      [...slot.trades.values(), ...unsettled].some(late)
+    ) {
+      for (const trade of yield* store.storedMinuteTrades(
+        slot.code,
+        slot.minute
+      ))
+        if (!slot.trades.has(trade.tradeNumber))
+          slot.trades.set(trade.tradeNumber, trade)
+      slot.base = NO_SWEEPS
+    }
+    const later = yield* sweepsOf(
+      [...slot.trades.values(), ...unsettled].sort((a, b) =>
+        TradeNumberOrder(a.tradeNumber, b.tradeNumber)
+      )
+    )
+    return yield* joinSweeps(slot.base.sweeps, later)
+  })
+
+  // The highest trade number a slot's settled sweeps were grouped from.
+  const lastTradeOf = (slot: Slot) =>
+    Effect.sync(() => {
+      let last = slot.base.lastTrade
+      for (const number of slot.trades.keys()) {
+        const value = BigInt(number)
+        if (value > last) last = value
+      }
+      return last
+    })
 
   // Lets a candle go once nothing in the book still refers to it.
   const release = (slot: Slot) =>
@@ -259,12 +408,15 @@ export const makeCandleBook = Effect.fnUntraced(function* (
       const slot = yield* slotOf(trade.code, yield* minuteOf(trade.time))
       slot.open.delete(tradeNumber)
       slot.settled = add(slot.settled, printOf(trade))
+      yield* addTrade(slot.settledCells, trade)
+      slot.trades.set(trade.tradeNumber, trade)
       unflushed.add(slot)
     }
   })
 
   // A trade as the tape now holds it: new (`held` undefined), or merged from
-  // what it held before.
+  // what it held before. A copy changes its part only inside its merge
+  // window.
   const trade = Effect.fnUntraced(function* (
     held: RunningTrade | undefined,
     current: RunningTrade
@@ -275,11 +427,12 @@ export const makeCandleBook = Effect.fnUntraced(function* (
     if (held !== undefined) {
       if (arrival === undefined) return
       arrival.trade = current
-      if (yield* sameCandlePart(held, current)) return
+      if (yield* samePart(held, current)) return
       if (yield* counts(held)) {
         const before = yield* slotOf(held.code, yield* minuteOf(held.time))
         before.open.delete(held.tradeNumber)
         changed.add(before)
+        regrouped.add(before)
       }
     } else {
       arrivals.set(current.tradeNumber, { arrivedAt: now, trade: current })
@@ -288,6 +441,7 @@ export const makeCandleBook = Effect.fnUntraced(function* (
     const slot = yield* slotOf(current.code, yield* minuteOf(current.time))
     slot.open.set(current.tradeNumber, current)
     changed.add(slot)
+    regrouped.add(slot)
   })
 
   // An index's `liveprice` frame. Its candle moves by the day totals' growth
@@ -316,7 +470,7 @@ export const makeCandleBook = Effect.fnUntraced(function* (
       price: last,
       time,
       // Shares into lots, like a stock's candle.
-      volume: (price.volume - base.volume) / 100,
+      volume: (price.volume - base.volume) / SHARES_PER_LOT,
       value: price.value - base.value,
       frequency: price.frequency - base.frequency,
     })
@@ -364,17 +518,70 @@ export const makeCandleBook = Effect.fnUntraced(function* (
     return folded
   })
 
-  // Every candle changed since the last call, of any code.
-  const takeChanged = Effect.gen(function* () {
+  // One stock's footprints so far, ascending by minute: the store's with the
+  // book's laid over them.
+  const footprintsOf = Effect.fnUntraced(function* (code: StockCode) {
+    const minutes = new Map<number, Cells>()
+    for (const stored of yield* store.storedFootprintsOf(code))
+      minutes.set(stored.minute, stored.cells)
+    for (const slot of series.get(code)?.values() ?? [])
+      minutes.set(slot.minute, yield* cellsOf(slot))
+    const footprints: Array<Footprint> = []
+    for (const [minute, cells] of [...minutes].sort(([a], [b]) => a - b))
+      if (cells.size > 0)
+        footprints.push(yield* footprintFrom(code, minute, cells))
+    return footprints
+  })
+
+  // One stock's sweeps so far, ascending: the store's with the book's
+  // minutes laid over them.
+  const sweepsOfCode = Effect.fnUntraced(function* (code: StockCode) {
+    const minutes = new Map(yield* store.storedSweepsOf(code))
+    for (const slot of series.get(code)?.values() ?? [])
+      minutes.set(slot.minute, yield* slotSweeps(slot, true))
+    return [...minutes]
+      .sort(([a], [b]) => a - b)
+      .flatMap(([, sweeps]) => sweeps)
+  })
+
+  // Every candle changed since the last call, of any code, and of
+  // `selected` each minute a trade changed: its footprint and its sweeps.
+  //
+  // Decision: a minute whose last regular-board trade left it goes out as a
+  // footprint with no cells, as its sweeps go out empty, and with no candle.
+  // The page drops that minute's footprint and candle (candle-store.ts), so
+  // the protocol needs no removal message. See apinrdw/kumora#279.
+  //
+  // Decision: a changed minute's sweeps go out whole in every delta and the
+  // page replaces its copy, so the book is the only grouper and the join
+  // can't gap or double. A peak minute of 370 sweeps measured 21.7 KB in its
+  // last delta, 11.0 KB a delta over its 240 (sweeps.test.ts). If too heavy,
+  // send a minute's sweeps at most once a second. See apinrdw/kumora#279.
+  const takeChanged = Effect.fnUntraced(function* (
+    selected: ReadonlySet<StockCode>
+  ) {
     const slots = changed
+    const resent = regrouped
     changed = new Set()
+    regrouped = new Set()
     const candles: Array<Candle> = []
+    const footprints: Array<Footprint> = []
+    const sweeps: Array<MinuteSweeps> = []
     for (const slot of slots) {
       const candle = yield* candleOf(slot)
       if (candle !== undefined) candles.push(candle)
+      if (!selected.has(slot.code) || !resent.has(slot)) continue
+      footprints.push(
+        yield* footprintFrom(slot.code, slot.minute, yield* cellsOf(slot))
+      )
+      sweeps.push({
+        code: slot.code,
+        minute: DateTime.makeUnsafe(slot.minute),
+        sweeps: yield* slotSweeps(slot, true),
+      })
     }
     for (const slot of slots) yield* release(slot)
-    return candles
+    return { candles, footprints, sweeps }
   })
 
   const hasChanges = Effect.sync(() => changed.size > 0)
@@ -412,7 +619,17 @@ export const makeCandleBook = Effect.fnUntraced(function* (
         ? []
         : [{ code: slot.code, minute: slot.minute, figures: slot.settled }]
     )
-    return { trades: [...flushingTrades.values()], candles }
+    const footprints: Array<FootprintRow> = []
+    for (const slot of flushing)
+      if (slot.settledCells.size > 0)
+        footprints.push({
+          code: slot.code,
+          minute: slot.minute,
+          cells: slot.settledCells,
+          sweeps: yield* slotSweeps(slot, false),
+          lastTrade: yield* lastTradeOf(slot),
+        })
+    return { trades: [...flushingTrades.values()], candles, footprints }
   })
 
   // The flush that took the last `takeSettled` landed: its trades leave the
@@ -461,6 +678,8 @@ export const makeCandleBook = Effect.fnUntraced(function* (
     trade,
     indexPrice,
     candlesOf,
+    footprintsOf,
+    sweepsOf: sweepsOfCode,
     foldAfter,
     takeChanged,
     hasChanges,

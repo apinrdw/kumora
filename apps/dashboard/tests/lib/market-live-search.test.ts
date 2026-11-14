@@ -36,6 +36,8 @@ describe("the Market Live search params", () => {
       expect(yield* parseMarketLiveSearch({})).toStrictEqual({
         code: undefined,
         day: undefined,
+        panel: undefined,
+        big: undefined,
       })
     })
   )
@@ -57,6 +59,23 @@ describe("the Market Live search params", () => {
         "2026-02-30",
       ])
         expect((yield* parseMarketLiveSearch({ day })).day).toBeUndefined()
+    })
+  )
+
+  it.effect("keeps the phone's panel tab and drops an unknown one", () =>
+    Effect.gen(function* () {
+      for (const panel of ["sweeps", "watchlist", "book", "tape"] as const)
+        expect((yield* parseMarketLiveSearch({ panel })).panel).toBe(panel)
+      for (const panel of ["Tape", "order book", 1, ""])
+        expect((yield* parseMarketLiveSearch({ panel })).panel).toBeUndefined()
+    })
+  )
+
+  it.effect("keeps Big only when on, and nothing for off", () =>
+    Effect.gen(function* () {
+      expect((yield* parseMarketLiveSearch({ big: true })).big).toBe(true)
+      for (const big of [false, "yes", 1])
+        expect((yield* parseMarketLiveSearch({ big })).big).toBeUndefined()
     })
   )
 })

@@ -8,12 +8,12 @@ import {
   type BookDelta,
   type OrderBook,
   type StockCode,
+  MINUTE_MS,
 } from "@workspace/relay"
 import { Clock, DateTime, Effect } from "effect"
 
 import type { StoredChunk } from "./day-store.ts"
-
-const MINUTE = 60_000
+import { chunkSlices } from "./heat-rows.ts"
 
 interface Open {
   readonly minute: number
@@ -67,7 +67,7 @@ export const makeBookChunks = Effect.sync(() => {
   // viewers' timeline. See apinrdw/kumora#157.
   const record = Effect.fnUntraced(function* (book: OrderBook) {
     const now = yield* Clock.currentTimeMillis
-    const minute = Math.floor(now / MINUTE) * MINUTE
+    const minute = Math.floor(now / MINUTE_MS) * MINUTE_MS
     let held = open.get(book.code)
     if (held !== undefined && minute > held.minute) {
       yield* close(book.code, held)
@@ -88,7 +88,7 @@ export const makeBookChunks = Effect.sync(() => {
   const take = Effect.fnUntraced(function* (final: boolean) {
     const now = yield* Clock.currentTimeMillis
     for (const [code, held] of open)
-      if (final || held.minute + MINUTE <= now) yield* close(code, held)
+      if (final || held.minute + MINUTE_MS <= now) yield* close(code, held)
     const taken = closed
     closed = []
     const chunks: Array<StoredChunk> = []
@@ -102,9 +102,21 @@ export const makeBookChunks = Effect.sync(() => {
           ...(held.start === undefined ? {} : { start: held.start }),
           deltas: held.deltas,
         }),
+        slices: yield* chunkSlices(held),
       })
     return chunks
   })
+
+  // The chunks of `code` not taken yet, oldest first: closed ones, then the
+  // open one.
+  const held = (code: StockCode) =>
+    Effect.sync(() => {
+      const chunks = closed
+        .filter((entry) => entry.code === code)
+        .map((entry) => entry.open)
+      const current = open.get(code)
+      return current === undefined ? chunks : [...chunks, current]
+    })
 
   const hasOpen = Effect.sync(() => open.size > 0 || closed.length > 0)
 
@@ -115,5 +127,5 @@ export const makeBookChunks = Effect.sync(() => {
       for (const book of books) last.set(book.code, book)
     })
 
-  return { record, take, hasOpen, restore }
+  return { record, take, held, hasOpen, restore }
 })

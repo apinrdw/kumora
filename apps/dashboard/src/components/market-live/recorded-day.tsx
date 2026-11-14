@@ -22,6 +22,7 @@ import {
   type RunningTrade,
   type StockCode,
   type WibDate,
+  MINUTE_MS,
 } from "@workspace/relay"
 import { DateTime, Effect, Fiber, Option, Predicate } from "effect"
 import type { HttpClient } from "effect/http/HttpClient"
@@ -42,7 +43,6 @@ import { makeReplayCursor, useReplay, type ReplayCursor } from "./replay-cursor"
 import { signInAgain } from "./sign-in-again"
 import { TapeList, useFramedTape } from "./tape-list"
 
-const MINUTE = 60_000
 // Decision: the book frame follows the cursor in quarter seconds, the
 // relay's book delta cadence; finer redraws would show the same frame.
 const BOOK_STEP_MS = 250
@@ -74,7 +74,7 @@ function makeLoads() {
 }
 
 // Runs one load until the effect that started it cleans up.
-const runLoad = (load: Effect.Effect<void, unknown, HttpClient>) => {
+export const runLoad = (load: Effect.Effect<void, unknown, HttpClient>) => {
   const loads = makeLoads()
   loads.run(load)
   return loads.stop
@@ -133,7 +133,7 @@ function followBook(
   const loads = makeLoads()
   const show = () => {
     const { at, playing } = cursor.state()
-    const minute = Math.floor(at / MINUTE) * MINUTE
+    const minute = Math.floor(at / MINUTE_MS) * MINUTE_MS
     const chunk = chunks.get(minute)
     book.replace(
       chunk !== undefined && Option.isSome(chunk)
@@ -141,7 +141,7 @@ function followBook(
         : undefined
     )
     if (chunk === undefined) load(minute)
-    if (playing) load(minute + MINUTE)
+    if (playing) load(minute + MINUTE_MS)
   }
   const load = (minute: number) => {
     if (asked.has(minute)) return
@@ -165,12 +165,18 @@ function followBook(
   }
 }
 
-// The selected code's whole-day candles, onto the day's fresh store.
+// The selected code's whole-day candles and footprints, onto the day's fresh
+// store.
 const loadCandles = (day: WibDate, selected: StockCode, candles: CandleStore) =>
   Effect.gen(function* () {
     const answer = yield* fetchRecordedCandles(day, selected)
     if (Option.isSome(answer))
-      candles.apply({ _tag: "Delta", tape: [], candles: answer.value.candles })
+      candles.apply({
+        _tag: "Delta",
+        tape: [],
+        candles: answer.value.candles,
+        footprints: answer.value.footprints ?? [],
+      })
   })
 
 // Each watchlist code's candles once, its row worked out at each minute of
@@ -197,7 +203,7 @@ function followWatchlist(
         { concurrency: 4 }
       )
       answers = fetched.flatMap((answer) => Option.toArray(answer))
-      stop = onCursorKey(cursor, (at) => Math.floor(at / MINUTE), show)
+      stop = onCursorKey(cursor, (at) => Math.floor(at / MINUTE_MS), show)
     })
   )
   return () => {

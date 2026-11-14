@@ -148,7 +148,9 @@ const CELL = "h-[22px] overflow-hidden py-0 leading-[22px] whitespace-nowrap"
 // Each column's width in px, in order.
 // Decision: a bold 45,000 price, 123,456 lots and Rp555.55 B each fit
 // whole, so no figure is clipped. The tape is never narrower than their sum:
-// the page gives it that width on desktop, and a phone scrolls it sideways.
+// layout B's 400 px column (layout-b.tsx) and a phone scroll it sideways,
+// because a column wide enough for the tape would narrow both charts below
+// chart 2's 76 px a minute at 1280 px (spec apinrdw/kumora#263).
 const COLUMN_PX = {
   time: 76,
   code: 84,
@@ -160,9 +162,7 @@ const COLUMN_PX = {
   sources: 36,
 }
 
-export const TAPE_WIDTH_PX = Object.values(COLUMN_PX).reduce(
-  (sum, px) => sum + px
-)
+const TAPE_WIDTH_PX = Object.values(COLUMN_PX).reduce((sum, px) => sum + px)
 
 // A gap or fold row spans every column.
 const COLUMNS = Object.keys(COLUMN_PX).length

@@ -1,61 +1,43 @@
 // Lightweight Charts, loaded only in the browser (live-chart.tsx lazy-loads
 // this module inside ClientOnly), so the Worker never bundles or runs it.
-import { marketMomentAt, type Candle, type RelayGap } from "@workspace/relay"
+import {
+  INDEX_CODES,
+  marketMomentAt,
+  type Candle,
+  type Footprint,
+  type RelayGap,
+  MINUTE_MS,
+} from "@workspace/relay"
 import { DateTime, Effect, Option } from "effect"
 import {
   CandlestickSeries,
-  HistogramSeries,
   LineStyle,
-  TickMarkType,
   createChart,
   type IPrimitivePaneRenderer,
   type IPrimitivePaneView,
   type ISeriesPrimitive,
   type MouseEventParams,
   type SeriesAttachedParameter,
-  type Logical,
   type Time,
   type UTCTimestamp,
 } from "lightweight-charts"
 import { useEffect, useRef, useState } from "react"
 
-import { gapMinutes } from "@/lib/replay"
+import { chartMinutes } from "@/lib/chart-nav"
+import { cursorLogical } from "@/lib/replay"
 
+import { attachBookHeatmap } from "./book-heatmap"
 import type { CandleChange, CandleStore } from "./candle-store"
+import type { ChartPair } from "./chart-pair"
+import { CHART_SCALE_WIDTH, crosshairTime, tickMark } from "./chart-time"
+import { CursorLine } from "./cursor-line"
+import type { HeatmapStore } from "./heatmap-store"
 import { useAuctionIndicative } from "./market-conditions"
+import { idxPriceAxis } from "./price-axis"
 import type { ReplayCursor } from "./replay-cursor"
-
-const WIB = "Asia/Jakarta"
-const wibClock = new Intl.DateTimeFormat("en-US", {
-  hour: "2-digit",
-  minute: "2-digit",
-  hourCycle: "h23",
-  timeZone: WIB,
-})
-const wibDate = new Intl.DateTimeFormat("en-US", {
-  month: "short",
-  day: "numeric",
-  timeZone: WIB,
-})
-const wibYear = new Intl.DateTimeFormat("en-US", {
-  year: "numeric",
-  timeZone: WIB,
-})
-
-// The data is in UTC seconds; every label reads WIB, 24-hour. Lightweight
-// Charts calls these two back, so they are plain.
-const crosshairTime = (time: Time) => {
-  const date = new Date((time as UTCTimestamp) * 1000)
-  return `${wibDate.format(date)}, ${wibClock.format(date)} WIB`
-}
-const tickMark = (time: Time, type: TickMarkType) => {
-  const date = new Date((time as UTCTimestamp) * 1000)
-  return type === TickMarkType.Year
-    ? wibYear.format(date)
-    : type === TickMarkType.Month || type === TickMarkType.DayOfMonth
-      ? wibDate.format(date)
-      : wibClock.format(date)
-}
+import { attachSweepBubbles, clickedSweep } from "./sweep-bubbles"
+import type { SweepStore } from "./sweep-store"
+import { makeVolumePane, volumeBar } from "./volume-pane"
 
 const timeOf = (candle: Candle) =>
   Effect.sync(
@@ -177,82 +159,30 @@ class GapShades implements ISeriesPrimitive<Time> {
   }
 }
 
-// Draws the replay cursor as a 2-pixel vertical line at a logical bar
-// position, over the candles.
-class CursorLine implements ISeriesPrimitive<Time> {
-  private logical: number | undefined
-  private attachedTo: SeriesAttachedParameter<Time> | undefined
-  private readonly renderer: IPrimitivePaneRenderer = {
-    draw: (target) =>
-      target.useBitmapCoordinateSpace((scope) => {
-        const timeScale = this.attachedTo?.chart.timeScale()
-        if (timeScale === undefined || this.logical === undefined) return
-        const x = timeScale.logicalToCoordinate(this.logical as Logical)
-        if (x === null) return
-        scope.context.fillStyle = this.color
-        const width = Math.max(2, Math.floor(2 * scope.horizontalPixelRatio))
-        scope.context.fillRect(
-          Math.round(x * scope.horizontalPixelRatio - width / 2),
-          0,
-          width,
-          scope.bitmapSize.height
-        )
-      }),
-  }
-  private readonly views: ReadonlyArray<IPrimitivePaneView> = [
-    { zOrder: () => "top", renderer: () => this.renderer },
-  ]
-
-  constructor(private readonly color: string) {}
-
-  attached(parameter: SeriesAttachedParameter<Time>) {
-    this.attachedTo = parameter
-  }
-
-  detached() {
-    this.attachedTo = undefined
-  }
-
-  setLogical(logical: number | undefined) {
-    this.logical = logical
-    this.attachedTo?.requestUpdate()
-  }
-
-  paneViews() {
-    return this.views
-  }
-}
-
-// Where the cursor's minute sits among the bars drawn (candles and gap
-// whitespace, `times` ascending, in seconds), as a logical bar index: on its
-// own bar, or half a bar past the latest bar before it.
-const cursorLogical = Effect.fnUntraced(function* (
-  times: ReadonlyArray<number>,
-  minute: number
-) {
-  const before = times.filter((time) => time * 1000 <= minute)
-  const latest = before.at(-1)
-  if (latest === undefined) return -0.5
-  return before.length - 1 + (latest * 1000 === minute ? 0 : 0.5)
-})
-
-const MINUTE = 60_000
-
 // The selected code's candles and volume, drawn from the candle store. A
 // snapshot redraws with `setData`; deltas go through `update`, at most once an
 // animation frame, a closed minute's with the historical flag.
-// With `cursor`, a recorded day: candles after the cursor's minute are
-// greyed under a cursor line, and clicking a candle picks its minute. Each
-// relay gap in `gaps` is shaded; a gap with no end yet is shaded once it
-// ends, or on a recorded day up to the close.
+// With `cursor`, a recorded day: candles and volume after the cursor's minute
+// are greyed under a cursor line at the cursor's second, and clicking a
+// candle picks its minute. Each relay gap in `gaps` is shaded; a gap with no
+// end yet is shaded once it ends, or on a recorded day up to the close. It
+// moves with chart 2 through `pair`.
 export default function ChartCanvas({
   store,
+  heatmap,
+  sweeps,
   cursor,
   gaps,
+  pair,
 }: {
   store: CandleStore
+  // The selected code's book heatmap, shaded behind the candles.
+  heatmap?: HeatmapStore | undefined
+  // The selected code's sweeps, drawn as bubbles; none for an index.
+  sweeps?: SweepStore | undefined
   cursor?: ReplayCursor | undefined
   gaps: ReadonlyArray<RelayGap>
+  pair: ChartPair
 }) {
   const host = useRef<HTMLDivElement>(null)
   const shownGaps = useRef(gaps)
@@ -270,6 +200,9 @@ export default function ChartCanvas({
     const token = (name: string) => css.getPropertyValue(name).trim()
     const up = token("--semantic-up")
     const down = token("--semantic-down")
+    // Decision: an index's values are fractional points, not prices on IDX
+    // ticks, so its chart keeps the library's decimal axis and grid lines.
+    const anIndex = INDEX_CODES.includes(store.code)
     const chart = createChart(element, {
       autoSize: true,
       layout: {
@@ -277,11 +210,17 @@ export default function ChartCanvas({
         textColor: token("--text-muted"),
         fontSize: 11,
       },
+      // A stock's price axis draws the horizontal lines, on IDX ticks.
       grid: {
         vertLines: { color: token("--chart-grid") },
-        horzLines: { color: token("--chart-grid") },
+        horzLines: anIndex
+          ? { color: token("--chart-grid") }
+          : { visible: false },
       },
-      rightPriceScale: { borderColor: token("--border-subtle") },
+      rightPriceScale: {
+        borderColor: token("--border-subtle"),
+        minimumWidth: CHART_SCALE_WIDTH,
+      },
       timeScale: {
         borderColor: token("--border-subtle"),
         timeVisible: true,
@@ -290,6 +229,9 @@ export default function ChartCanvas({
         tickMarkFormatter: tickMark,
       },
       localization: { locale: "en-US", timeFormatter: crosshairTime },
+      // Decision: on a phone a vertical swipe scrolls the page, not the
+      // chart; a horizontal one pans both charts through the pair.
+      handleScroll: { vertTouchDrag: false },
     })
     const candles = chart.addSeries(CandlestickSeries, {
       upColor: up,
@@ -300,25 +242,34 @@ export default function ChartCanvas({
     })
     candles
       .priceScale()
-      .applyOptions({ scaleMargins: { top: 0.08, bottom: 0.26 } })
-    const volume = chart.addSeries(HistogramSeries, {
-      priceScaleId: "volume",
-      priceFormat: { type: "volume" },
-      lastValueVisible: false,
-      priceLineVisible: false,
-    })
-    volume.priceScale().applyOptions({ scaleMargins: { top: 0.8, bottom: 0 } })
+      .applyOptions({ scaleMargins: { top: 0.08, bottom: 0.08 } })
+    const grey = token("--text-muted")
+    const volume = Effect.runSync(
+      makeVolumePane(chart, {
+        buy: up,
+        sell: down,
+        none: `${grey}aa`,
+        later: `${grey}33`,
+      })
+    )
     setSeries(candles)
+    const axis = anIndex
+      ? undefined
+      : Effect.runSync(
+          idxPriceAxis(candles, {
+            text: token("--text-muted"),
+            grid: token("--chart-grid"),
+          })
+        )
     const sessions = new SessionLines(token("--border-subtle"))
     candles.attachPrimitive(sessions)
-    const grey = token("--text-muted")
     const shades = new GapShades(`${grey}26`)
     candles.attachPrimitive(shades)
 
     const cursorMinute = () =>
       cursor === undefined
         ? Number.POSITIVE_INFINITY
-        : Math.floor(cursor.state().at / MINUTE) * MINUTE
+        : Math.floor(cursor.state().at / MINUTE_MS) * MINUTE_MS
     let shownMinute = cursorMinute()
     const later = (candle: Candle) =>
       DateTime.toEpochMillis(candle.minute) > shownMinute
@@ -330,14 +281,40 @@ export default function ChartCanvas({
       close: candle.close,
       ...(later(candle) && { color: `${grey}55`, wickColor: `${grey}55` }),
     })
-    const volumeBar = (candle: Candle, time: UTCTimestamp) => ({
-      time,
-      value: candle.volume,
-      color: later(candle)
-        ? `${grey}33`
-        : `${candle.close >= candle.open ? up : down}66`,
-    })
-    const marker = new CursorLine(token("--text-primary"))
+    // Each minute's footprint, by its time: its volume bar's sides.
+    let footprints = new Map<number, Footprint>()
+    const volumeOf = (candle: Candle, time: UTCTimestamp) =>
+      Effect.runSync(
+        volumeBar(time, candle, footprints.get(time), later(candle))
+      )
+    const stopHeatmap =
+      heatmap &&
+      attachBookHeatmap(
+        candles,
+        heatmap,
+        cursor,
+        { bid: up, offer: down },
+        (slices) => {
+          element.dataset.heatmapSlices = String(slices)
+        }
+      )
+    const stopSweeps =
+      sweeps === undefined
+        ? undefined
+        : attachSweepBubbles({
+            chart,
+            series: candles,
+            store: sweeps,
+            cursor,
+            colors: {
+              buy: up,
+              sell: down,
+              big: token("--semantic-warning"),
+              selected: token("--accent-primary"),
+            },
+            marks: element,
+          })
+    const marker = new CursorLine(token("--text-primary"), element)
     if (cursor !== undefined) candles.attachPrimitive(marker)
 
     // The minutes drawn as candles, so a delta can tell a closed minute from
@@ -345,23 +322,36 @@ export default function ChartCanvas({
     // before it can only go in with the historical flag, or by redrawing.
     let drawn = new Set<number>()
     let latest = 0
+    // Every bar's time, ascending: the cursor line's place among them.
+    let bars: ReadonlyArray<number> = []
+    const placeCursor = () => {
+      if (cursor !== undefined)
+        marker.setLogical(
+          Effect.runSync(cursorLogical(bars, cursor.state().at))
+        )
+    }
     const redraw = () => {
       const all = store.candles()
+      footprints = new Map(
+        store
+          .footprints()
+          .map((footprint) => [
+            DateTime.toEpochMillis(footprint.minute) / 1000,
+            footprint,
+          ])
+      )
       const times = Effect.runSync(Effect.forEach(all, timeOf))
       drawn = new Set(times)
       const newest = times.at(-1) ?? 0
       // Decision: the chart closes gaps up, so a relay gap's minutes go in
       // as whitespace bars, which give it width to shade.
       const runs = Effect.runSync(
-        gapMinutes(
+        chartMinutes(
+          times.map((time) => time * 1000),
           shownGaps.current,
           cursor === undefined ? newest * 1000 : cursor.day.close
         )
-      ).map((run) =>
-        run
-          .map((minute) => (minute / 1000) as UTCTimestamp)
-          .filter((time) => !drawn.has(time))
-      )
+      ).runs.map((run) => run.map((minute) => (minute / 1000) as UTCTimestamp))
       const blank = runs.flat()
       latest = Math.max(newest, blank.at(-1) ?? 0)
       candles.setData(
@@ -371,32 +361,29 @@ export default function ChartCanvas({
         ].sort((a, b) => a.time - b.time)
       )
       volume.setData(
-        all.map((candle, index) => volumeBar(candle, times[index]!))
+        all.map((candle, index) => volumeOf(candle, times[index]!))
       )
       sessions.setTimes(Effect.runSync(sessionStarts(all)))
-      shades.setRuns(runs.filter((run) => run.length > 0))
-      if (cursor !== undefined)
-        marker.setLogical(
-          Effect.runSync(
-            cursorLogical(
-              [...drawn, ...blank].sort((a, b) => a - b),
-              shownMinute
-            )
-          )
-        )
+      shades.setRuns(runs)
+      axis?.setPrice(all.at(-1)?.close)
+      bars = [...drawn, ...blank].sort((a, b) => a - b)
+      placeCursor()
     }
     redraw()
     redrawGaps.current = redraw
 
-    // The cursor moved to another minute: grey again from there.
+    // The cursor moved: its line follows; in another minute, grey again
+    // from there.
     const stopCursor = cursor?.subscribe(() => {
       const minute = cursorMinute()
-      if (minute === shownMinute) return
+      if (minute === shownMinute) return placeCursor()
       shownMinute = minute
       redraw()
     })
     if (cursor !== undefined)
       chart.subscribeClick((parameter: MouseEventParams<Time>) => {
+        // A click on a bubble picks its sweep, not the cursor's minute.
+        if (Effect.runSync(clickedSweep(parameter)) !== undefined) return
         if (parameter.time !== undefined)
           cursor.pickMinute((parameter.time as UTCTimestamp) * 1000)
       })
@@ -423,33 +410,51 @@ export default function ChartCanvas({
       for (const [time, candle] of changed) {
         const historical = time < latest
         candles.update(bar(candle, time), historical)
-        volume.update(volumeBar(candle, time), historical)
-        if (!drawn.has(time)) starts = true
+        volume.update(volumeOf(candle, time), historical)
+        if (!drawn.has(time)) {
+          starts = true
+          if (!bars.includes(time)) bars = [...bars, time].sort((a, b) => a - b)
+        }
         drawn.add(time)
         latest = Math.max(latest, time)
       }
-      if (starts)
+      if (starts) {
         sessions.setTimes(Effect.runSync(sessionStarts(store.candles())))
+        placeCursor()
+      }
+      axis?.setPrice(store.candles().at(-1)?.close)
     }
     const unsubscribe = store.subscribe((change: CandleChange) => {
-      if (change._tag === "Reset") reset = true
+      if (change._tag !== "Update") reset = true
       else {
         const times = Effect.runSync(Effect.forEach(change.candles, timeOf))
         change.candles.forEach((candle, index) =>
           pending.set(times[index]!, candle)
         )
+        for (const footprint of change.footprints)
+          footprints.set(
+            DateTime.toEpochMillis(footprint.minute) / 1000,
+            footprint
+          )
       }
       if (frame === 0) frame = requestAnimationFrame(flush)
     })
+    const unpair = pair.attachCandles(
+      { chart, series: candles, element },
+      { shade: `${token("--text-primary")}1a`, edge: token("--accent-primary") }
+    )
     return () => {
+      unpair()
       redrawGaps.current = undefined
+      stopHeatmap?.()
+      stopSweeps?.()
       unsubscribe()
       stopCursor?.()
       cancelAnimationFrame(frame)
       setSeries(null)
       chart.remove()
     }
-  }, [store, cursor])
+  }, [store, heatmap, sweeps, cursor, pair])
 
   useEffect(() => {
     shownGaps.current = gaps
@@ -472,5 +477,11 @@ export default function ChartCanvas({
     return () => candles.removePriceLine(line)
   }, [indicative, series])
 
-  return <div ref={host} className="h-[420px] w-full" data-chart="candles" />
+  return (
+    <div
+      ref={host}
+      className="h-[420px] w-full lg:h-auto lg:min-h-[420px] lg:flex-1"
+      data-chart="candles"
+    />
+  )
 }

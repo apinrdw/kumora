@@ -10,16 +10,20 @@ import { direction, pct, price, shares, signed } from "@/lib/format"
 import { lastCloseAt } from "@/lib/recorded-day"
 
 import type { CandleStore } from "./candle-store"
+import type { ChartPair } from "./chart-pair"
 import { useDayState, type DayStateStore } from "./day-state-store"
+import type { HeatmapStore } from "./heatmap-store"
 import { useAuctionIndicative, useMergedStale } from "./market-conditions"
 import type { ReplayCursor } from "./replay-cursor"
+import { TopNControl } from "./sweep-log"
+import type { SweepStore } from "./sweep-store"
 
 // Decision: Lightweight Charts runs only in the browser, in its own chunk:
 // the Worker's server render never imports it, and other pages never load it
 // (spec apinrdw/kumora#138, "Chart").
 const ChartCanvas = lazy(() => import("./chart-canvas"))
 
-const CHART_HEIGHT = "h-[420px]"
+const CHART_HEIGHT = "h-[420px] lg:h-auto lg:min-h-[420px] lg:flex-1"
 
 // One figure of the store's candles. It changes at most once a delta, so only
 // the header re-renders, never the chart.
@@ -135,9 +139,13 @@ function ChartHeadline({
 // socket through `store`. `search` sits in the header, to choose the code,
 // and `conditions` with it: the feed pills and the market phase.
 // On a recorded day, the candles after `cursor` are greyed and a clicked
-// candle moves it; `footer` sits under the chart.
+// candle moves it; `footer` sits under the chart. It moves with chart 2
+// through `pair`.
 export function LiveChart({
   store,
+  heatmap,
+  sweeps,
+  pair,
   gaps,
   dayStates,
   conditions,
@@ -146,6 +154,11 @@ export function LiveChart({
   footer,
 }: {
   store: CandleStore
+  // The selected code's book heatmap, behind the candles.
+  heatmap?: HeatmapStore
+  // The selected code's sweeps, as bubbles under a top-N filter.
+  sweeps?: SweepStore | undefined
+  pair: ChartPair
   // The relay gaps to shade as not recorded.
   gaps: ReadonlyArray<RelayGap>
   dayStates: DayStateStore
@@ -162,7 +175,7 @@ export function LiveChart({
     <section
       aria-label="Chart"
       data-stale={stale || undefined}
-      className="flex min-w-0 flex-col gap-2"
+      className="flex min-w-0 flex-col gap-2 lg:flex-[1_1_auto]"
     >
       <header className="flex flex-wrap items-baseline gap-3">
         <h2 className="text-lg font-bold">{store.code}</h2>
@@ -174,13 +187,28 @@ export function LiveChart({
         {stale && <KStatusPill status="stale" />}
         {conditions}
         {search}
+        {sweeps !== undefined && (
+          // Under the title on a phone.
+          <div className="max-lg:basis-full">
+            <TopNControl store={sweeps} cursor={cursor} />
+          </div>
+        )}
       </header>
       {/* The canvas has no text: this says what it draws. */}
       <p className="sr-only">One-minute candles: {count}</p>
-      <div className={stale ? "opacity-50" : undefined}>
+      <div
+        className={`flex min-h-0 flex-1 flex-col ${stale ? "opacity-50" : ""}`}
+      >
         <ClientOnly fallback={<div className={CHART_HEIGHT} />}>
           <Suspense fallback={<div className={CHART_HEIGHT} />}>
-            <ChartCanvas store={store} cursor={cursor} gaps={gaps} />
+            <ChartCanvas
+              store={store}
+              heatmap={heatmap}
+              sweeps={sweeps}
+              cursor={cursor}
+              gaps={gaps}
+              pair={pair}
+            />
           </Suspense>
         </ClientOnly>
       </div>

@@ -7,6 +7,7 @@ import { expect, test, vi } from "vitest"
 
 import { makeCandleStore } from "@/components/market-live/candle-store"
 import ChartCanvas from "@/components/market-live/chart-canvas"
+import type { ChartPair } from "@/components/market-live/chart-pair"
 
 // React's `act` warns outside a test environment that declares itself.
 Object.assign(globalThis, { IS_REACT_ACT_ENVIRONMENT: true })
@@ -38,8 +39,12 @@ const { series, FakeSeries } = vi.hoisted(() => {
       this.rows.set(row.time, row)
       if (!historical) this.last = row.time
     }
+    readonly options: Record<string, unknown> = {}
     priceScale() {
       return { applyOptions() {} }
+    }
+    applyOptions(options: Record<string, unknown>) {
+      Object.assign(this.options, options)
     }
     attachPrimitive() {}
     createPriceLine() {
@@ -62,6 +67,7 @@ vi.mock("lightweight-charts", () => ({
       series.push(added)
       return added
     },
+    panes: () => [{ setStretchFactor() {} }, { setStretchFactor() {} }],
     subscribeClick() {},
     remove() {},
   }),
@@ -72,8 +78,8 @@ const minute = (wib: string) =>
   DateTime.makeUnsafe(`2026-11-09T${wib}:00+07:00`)
 const seconds = (wib: string) => DateTime.toEpochMillis(minute(wib)) / 1000
 
-const candle = (wib: string, close: number): Candle => ({
-  code: BBCA,
+const candle = (wib: string, close: number, code = BBCA): Candle => ({
+  code,
   minute: minute(wib),
   open: close,
   high: close,
@@ -89,6 +95,14 @@ const gap = (from: string, to: string): RelayGap => ({
   to: minute(to),
 })
 
+// Chart 2 isn't drawn here.
+const alone: ChartPair = {
+  attachCandles: () => () => {},
+  attachFootprint: () => () => {},
+  jumpTo: () => {},
+  showUpTo: () => {},
+}
+
 // The animation frame the chart batches deltas into.
 const nextFrame = () =>
   act(() => new Promise<void>((resolve) => setTimeout(resolve, 50)))
@@ -99,7 +113,9 @@ test("a candle backfilled into a relay gap after the last candle goes on the cha
   const container = document.body.appendChild(document.createElement("div"))
   const root = createRoot(container)
   await act(() =>
-    root.render(<ChartCanvas store={store} gaps={[gap("09:01", "09:04")]} />)
+    root.render(
+      <ChartCanvas store={store} gaps={[gap("09:01", "09:04")]} pair={alone} />
+    )
   )
   const [candles, volume] = series
   // The gap's minutes are whitespace after the last candle.
@@ -121,4 +137,79 @@ test("a candle backfilled into a relay gap after the last candle goes on the cha
   await nextFrame()
   expect(candles!.rows.get(seconds("09:05"))).toMatchObject({ close: 102 })
   await act(() => root.unmount())
+})
+
+test("a minute its last regular-board trade left goes off the chart, its volume bar with it", async () => {
+  series.length = 0
+  const store = Effect.runSync(makeCandleStore(BBCA))
+  const cells = [{ price: 100, sell: 0, buy: 1, none: 0 }]
+  store.apply({
+    _tag: "Delta",
+    tape: [],
+    candles: [candle("09:00", 100), candle("09:01", 101)],
+    footprints: [
+      { code: BBCA, minute: minute("09:00"), cells },
+      { code: BBCA, minute: minute("09:01"), cells },
+    ],
+  })
+  const root = createRoot(
+    document.body.appendChild(document.createElement("div"))
+  )
+  await act(() =>
+    root.render(<ChartCanvas store={store} gaps={[]} pair={alone} />)
+  )
+  const [candles, volume] = series
+  expect([...candles!.rows.keys()]).toEqual(["09:00", "09:01"].map(seconds))
+
+  await act(() =>
+    store.apply({
+      _tag: "Delta",
+      tape: [],
+      candles: [],
+      footprints: [{ code: BBCA, minute: minute("09:01"), cells: [] }],
+    })
+  )
+  await nextFrame()
+  expect([...candles!.rows.keys()]).toEqual([seconds("09:00")])
+  expect([...volume!.rows.keys()]).toEqual([seconds("09:00")])
+  await act(() => root.unmount())
+})
+
+// The price a series' axis label and crosshair show for `value`: its custom
+// formatter's, or Lightweight Charts' own at the format's precision.
+const shownPrice = (
+  shown: InstanceType<typeof FakeSeries>,
+  value: number
+): string => {
+  const format = shown.options["priceFormat"] as
+    | { type: string; precision?: number; formatter?: (n: number) => string }
+    | undefined
+  return format?.type === "custom" && format.formatter !== undefined
+    ? format.formatter(value)
+    : value.toFixed(format?.precision ?? 2)
+}
+
+test("an index's price axis keeps its decimals; a stock's snaps to its IDX tick", async () => {
+  const shownOn = async (code: StockCode, close: number) => {
+    series.length = 0
+    const store = Effect.runSync(makeCandleStore(code))
+    store.apply({
+      _tag: "Delta",
+      tape: [],
+      candles: [candle("09:00", close, code)],
+    })
+    const root = createRoot(
+      document.body.appendChild(document.createElement("div"))
+    )
+    await act(() =>
+      root.render(<ChartCanvas store={store} gaps={[]} pair={alone} />)
+    )
+    const shown = shownPrice(series[0]!, close)
+    await act(() => root.unmount())
+    return shown
+  }
+  expect(await shownOn(StockCode.make("IHSG"), 4_971.287)).toMatch(
+    /^4,?971\.29$/
+  )
+  expect(await shownOn(BBCA, 9_012)).toBe("9,000")
 })

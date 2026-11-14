@@ -20,6 +20,7 @@ import type { Page } from "@playwright/test"
 import { Effect } from "effect"
 
 import { DASHBOARD, MEMBER } from "../support/accounts"
+import { cursorPlace, volumeInk } from "../support/chart"
 import {
   MERGE_WINDOW,
   marketNow,
@@ -112,6 +113,8 @@ test("the day strip opens a recorded day at its close, it replays, and Today · 
     ([key, watched]) => window.localStorage.setItem(key, watched),
     [WATCHLIST_KEY, JSON.stringify([code])] as const
   )
+  // A desktop's width: 10 minutes of chart 2 then read as text.
+  await page.setViewportSize({ width: 1920, height: 1080 })
   await page.goto(`${DASHBOARD}${PAGE}?code=${code}`)
   const conditions = page.getByRole("group", { name: "Market conditions" })
   await expect(conditions.getByRole("list", { name: "Feeds" })).toBeVisible()
@@ -147,6 +150,21 @@ test("the day strip opens a recorded day at its close, it replays, and Today · 
   )
 
   await expect(page.getByText("One-minute candles: 1")).toBeAttached()
+  // At the close, chart 1's volume bar shows the 5 lots bought in green.
+  const candles = page.locator('[data-chart="candles"]')
+  await expect
+    .poll(async () => (await volumeInk(candles)).buy)
+    .toBeGreaterThan(0)
+  // Chart 2 draws the recorded footprint: 5 lots bought.
+  const footprint = page.getByRole("region", { name: "Footprint" })
+  const tradedMinute = `${time.slice(0, 5)}:00`
+  await expect(footprint).toContainText(
+    `Footprint minutes: 1. ${tradedMinute}: Vol 5, Δ +5, CVD +5`
+  )
+  await expect(footprint.locator('[data-chart="footprint"]')).toHaveAttribute(
+    "data-draw-mode",
+    "text"
+  )
   const row = page
     .getByRole("region", { name: "Watchlist" })
     .locator(`tr[data-code="${code}"]`)
@@ -171,6 +189,10 @@ test("the day strip opens a recorded day at its close, it replays, and Today · 
     "Not recorded"
   )
   await expect(row).toContainText("no data yet")
+  // The footprint follows the cursor: its minute hasn't come yet.
+  await expect(footprint).toContainText("Footprint minutes: 0")
+  // Chart 1's volume bar is greyed: its minute comes after the cursor.
+  await expect.poll(() => volumeInk(candles)).toEqual({ buy: 0, sell: 0 })
   // The scrubber shades the gap.
   await expect(
     page
@@ -192,6 +214,23 @@ test("the day strip opens a recorded day at its close, it replays, and Today · 
   ).toBeVisible()
   await replay.getByRole("button", { name: "Pause" }).click()
   await expect(replay.getByRole("button", { name: "Play" })).toBeVisible()
+
+  // Half way through the trades' minute, the cursor line sits half way from
+  // that minute's centre to the next.
+  const tradedAt = Math.floor(sentAt / 60_000) * 60_000
+  await scrubber.fill(String(tradedAt + 30_000))
+  await expect(conditions).toContainText(`at ${wibTime(tradedAt + 30_000)}`)
+  await expect
+    .poll(async () => {
+      const { x, minute, spacing } = await cursorPlace(candles)
+      return Math.round(((x - minute) / spacing) * 100) / 100
+    })
+    .toBe(0.5)
+  const { x, minute, spacing } = await cursorPlace(candles)
+  expect(minute).toBeGreaterThan(0)
+  expect(spacing).toBeGreaterThan(0)
+  expect(x).toBeGreaterThan(minute)
+  expect(x).toBeLessThan(minute + spacing)
 
   // Dragged to its end, its last whole-second step, the cursor is at the
   // close, not a second before.
@@ -288,8 +327,10 @@ test("a recorded day's tape shows each trade's Buyer and Seller as the extension
     )
   expect(await clipped()).toEqual([])
   await page.setViewportSize({ width: 390, height: 844 })
-  expect(await clipped()).toEqual([])
+  // A phone shows one panel at a time (layout-b.tsx).
+  await page.getByRole("tab", { name: "Tape" }).click()
   await expect(cells(base + 2).nth(2)).toContainText("505")
+  expect(await clipped()).toEqual([])
   await expect(cells(base + 2).nth(5)).toHaveText("")
   await expect(cells(base + 2).nth(6)).toHaveText("")
 })

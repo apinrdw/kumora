@@ -8,6 +8,7 @@ const FILES = [
   "market-live.spec.ts",
   "market-live-select.spec.ts",
   "relay-load.spec.ts",
+  "repaint-bench.spec.ts",
   "accounts.setup.ts",
 ]
 
@@ -43,6 +44,13 @@ describe("recording", () => {
 
   it("never records the relay-load spec", () => {
     expect(recording("relay-load.spec.ts,account.spec.ts", FILES)).toEqual({
+      chromium: ["account.spec.ts"],
+      tradingDay: false,
+    })
+  })
+
+  it("never records the repaint bench", () => {
+    expect(recording("repaint-bench.spec.ts,account.spec.ts", FILES)).toEqual({
       chromium: ["account.spec.ts"],
       tradingDay: false,
     })

@@ -72,7 +72,7 @@ describe("the candle book over a full day", () => {
               undefined,
               tradeOf(code, ++number, DateTime.add(minute, { seconds: 10 }), 1)
             )
-          yield* book.takeChanged
+          yield* book.takeChanged(new Set())
           most = Math.max(most, yield* book.retained)
           yield* flush(book, store, minute)
         }
@@ -106,7 +106,9 @@ describe("the candle book over a full day", () => {
           3
         )
         yield* book.trade(undefined, late)
-        const [changed] = yield* book.takeChanged
+        const {
+          candles: [changed],
+        } = yield* book.takeChanged(new Set())
         assert.deepStrictEqual(
           { volume: changed?.volume, frequency: changed?.frequency },
           { volume: 4, frequency: 2 }

@@ -12,6 +12,8 @@ import {
   decodeRecordedBrokerCodes,
   decodeRecordedCandles,
   decodeRecordedGaps,
+  decodeRecordedHeatmap,
+  decodeRecordedSweeps,
   decodeRecordedTape,
   recordedDayPath,
   type RecordedBrokerCodes,
@@ -65,6 +67,17 @@ export const fetchRecordedCandles = Effect.fnUntraced(function* (
   const body = yield* getResource(date, { _tag: "Candles", code })
   if (Option.isNone(body)) return Option.none()
   return Option.some(yield* decodeRecordedCandles(body.value))
+})
+
+// One code's sweeps so far and the trade number they were built up to. Not
+// cached while the day is live, so each ask answers to now.
+export const fetchRecordedSweeps = Effect.fnUntraced(function* (
+  date: WibDate,
+  code: StockCode
+) {
+  const body = yield* getResource(date, { _tag: "Sweeps", code })
+  if (Option.isNone(body)) return Option.none()
+  return Option.some(yield* decodeRecordedSweeps(body.value))
 })
 
 // The 200 newest running trades at or before `at`, ascending.
@@ -173,6 +186,17 @@ export const fetchRecordedBookChunk = Effect.fnUntraced(function* (
   const body = yield* getResource(date, { _tag: "Book", code, minute })
   if (Option.isNone(body)) return Option.none()
   return Option.some(yield* decodeBookChunk(body.value))
+})
+
+// One code's book heatmap slices: a sealed day's whole, a live day's up to
+// the slice time the answer names. None when the Worker has none.
+export const fetchRecordedHeatmap = Effect.fnUntraced(function* (
+  date: WibDate,
+  code: StockCode
+) {
+  const body = yield* getResource(date, { _tag: "Heatmap", code })
+  if (Option.isNone(body)) return Option.none()
+  return Option.some(yield* decodeRecordedHeatmap(body.value))
 })
 
 // The day's relay gaps.

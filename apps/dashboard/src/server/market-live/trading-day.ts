@@ -30,6 +30,7 @@ import {
   type RunningTrade,
   type TradeNumber,
   type WibDate,
+  MINUTE_MS,
 } from "@workspace/relay"
 import type { WorkerEnv } from "@workspace/server"
 import {
@@ -65,6 +66,8 @@ import { makeGaps } from "./gaps.ts"
 import { makeMarketConditions } from "./market-conditions.ts"
 import { makeOnDemand } from "./on-demand.ts"
 import { makeOrderBooks } from "./order-books.ts"
+import { chunkSlices, endBookOf, storedEndBook } from "./heat-rows.ts"
+import { buildOrderFlow, orderFlowBuiltAtStart } from "./order-flow-build.ts"
 import { SNAPSHOT_TRADES, recordedAnswer } from "./recorded-answers.ts"
 import { type AccountId, type HeldSessions, type SessionId } from "./routes.ts"
 import { stockbitTrades } from "./stockbit.ts"
@@ -135,7 +138,6 @@ const TIMED_LIMIT = 4 * TAPE_LIMIT
 // windows; only the relay going offline (`ingestClosed`) flushes at once. A
 // failed flush's payload rides the next, so a candle is never stored without
 // its trades. See apinrdw/kumora#138 and apinrdw/kumora#157.
-const MINUTE = 60_000
 const FLUSH_PAST_MINUTE = 5_000
 
 // IHSG's close and change on the strip, from its last `liveprice` frame.
@@ -258,7 +260,7 @@ const restoreLastFrames = Effect.fnUntraced(function* (day: {
   for (const minute of minutes)
     for (const trade of yield* day.store.tradesBetween(
       DateTime.makeUnsafe(minute - 1),
-      DateTime.makeUnsafe(minute + MINUTE - 1)
+      DateTime.makeUnsafe(minute + MINUTE_MS - 1)
     ))
       yield* day.dayStates.trade(undefined, trade)
   for (const text of yield* day.store.latestChunks) {
@@ -313,6 +315,7 @@ export const makeTradingDay = Effect.fnUntraced(function* (options: {
   })
   const setAlarm = options.setAlarm ?? (() => Effect.void)
   let sealed = (yield* store.fact(Fact.sealed)) !== undefined
+  let orderFlowBuilt = yield* orderFlowBuiltAtStart(store)
   const sealAt = yield* sealInstant(options.date)
   // Decision: an object restores the live day from its store unless the day
   // is sealed and past: a past day's object answers recorded day GETs
@@ -535,7 +538,8 @@ export const makeTradingDay = Effect.fnUntraced(function* (options: {
       TradeNumberOrder(a.tradeNumber, b.tradeNumber)
     )
     pending = new Map()
-    const changed = yield* candles.takeChanged
+    const selected = yield* onDemand.selected
+    const changed = yield* candles.takeChanged(selected)
     const live = yield* stockbitLive
     const orderBooks = yield* books.takeChanged(live)
     for (const book of orderBooks) yield* bookChunks.record(book)
@@ -547,7 +551,8 @@ export const makeTradingDay = Effect.fnUntraced(function* (options: {
     const indicative = yield* market.indicativeChanges
     if (
       trades.length === 0 &&
-      changed.length === 0 &&
+      changed.candles.length === 0 &&
+      changed.sweeps.length === 0 &&
       orderBooks.length === 0 &&
       states.length === 0 &&
       !conditionsChanged &&
@@ -557,7 +562,11 @@ export const makeTradingDay = Effect.fnUntraced(function* (options: {
     const text = yield* encodeViewerDown({
       _tag: "Delta",
       tape: trades,
-      candles: changed,
+      candles: changed.candles,
+      ...(changed.footprints.length > 0
+        ? { footprints: changed.footprints }
+        : {}),
+      ...(changed.sweeps.length > 0 ? { sweeps: changed.sweeps } : {}),
       ...(orderBooks.length > 0 ? { orderBooks } : {}),
       ...(states.length === 0 ? {} : { dayStates: states }),
       ...(conditionsChanged ? { conditions } : {}),
@@ -632,6 +641,7 @@ export const makeTradingDay = Effect.fnUntraced(function* (options: {
     const payload: Flush = {
       trades: settled.trades,
       candles: settled.candles,
+      footprints: settled.footprints,
       livePrices: yield* latestByCode(retained?.livePrices ?? [], livePrices),
       chunks: [...(retained?.chunks ?? []), ...chunks],
       ajaibBooks: yield* latestByCode(retained?.ajaibBooks ?? [], ajaibBooks),
@@ -642,6 +652,9 @@ export const makeTradingDay = Effect.fnUntraced(function* (options: {
     }
     unwritten = payload
     yield* store.write(payload)
+    yield* Effect.logInfo("Rows written").pipe(
+      Effect.annotateLogs({ ...(yield* store.takeMeter) })
+    )
     unwritten = undefined
     writtenDowns = payload.facts[Fact.feedDowns]
     yield* candles.written
@@ -672,7 +685,9 @@ export const makeTradingDay = Effect.fnUntraced(function* (options: {
       Effect.flatMap((now) =>
         Effect.sleep(
           Duration.millis(
-            MINUTE - ((((now - FLUSH_PAST_MINUTE) % MINUTE) + MINUTE) % MINUTE)
+            MINUTE_MS -
+              ((((now - FLUSH_PAST_MINUTE) % MINUTE_MS) + MINUTE_MS) %
+                MINUTE_MS)
           )
         )
       ),
@@ -718,12 +733,16 @@ export const makeTradingDay = Effect.fnUntraced(function* (options: {
     yield* store.write({
       trades: [],
       candles: [],
+      footprints: [],
       livePrices: [],
       chunks: [],
       ajaibBooks: [],
       facts: { [Fact.sealed]: DateTime.formatIso(now) },
     })
     sealed = true
+    yield* Effect.logInfo("Order flow storage").pipe(
+      Effect.annotateLogs(yield* store.orderFlowStorage)
+    )
   })
 
   // When the seal next needs the alarm: 17:00 WIB, a minute after a seal
@@ -948,6 +967,7 @@ export const makeTradingDay = Effect.fnUntraced(function* (options: {
       const { selected, watchlist } = yield* decodeViewerUp(text)
       const live = yield* stockbitLive
       const orderBook = yield* books.bookOf(selected, live)
+      // The selected code first: on-demand.ts reads it back as the selection.
       const watching = [...new Set([selected, ...watchlist])]
       const states: Array<DayState> = []
       const indicative: Array<IndicativePrice> = []
@@ -962,6 +982,7 @@ export const makeTradingDay = Effect.fnUntraced(function* (options: {
         selected,
         tape: tape.slice(-SNAPSHOT_TRADES),
         candles: yield* candles.candlesOf(selected),
+        footprints: yield* candles.footprintsOf(selected),
         ...(orderBook === undefined ? {} : { orderBook }),
         ...(states.length === 0 ? {} : { dayStates: states }),
         conditions: yield* market.conditions,
@@ -1017,8 +1038,49 @@ export const makeTradingDay = Effect.fnUntraced(function* (options: {
   })
 
   // A recorded day GET, answered from the store (recorded-answers.ts).
+  // A code's heatmap rows not stored yet: a failed flush's chunks, then the
+  // ones still held, each slice ending by `through`.
+  const heldHeat = Effect.fnUntraced(function* (
+    code: StockCode,
+    through: number
+  ) {
+    const unwrittenRows = (unwritten?.chunks ?? [])
+      .filter((chunk) => chunk.code === code)
+      .map((chunk) => ({
+        minute: chunk.minute,
+        slices: chunk.slices,
+        endBook: storedEndBook(chunk.chunk),
+      }))
+    const heldRows = yield* Effect.forEach(
+      yield* bookChunks.held(code),
+      Effect.fnUntraced(function* (chunk) {
+        return {
+          minute: chunk.minute,
+          slices: yield* chunkSlices(chunk, through),
+          endBook: endBookOf(chunk),
+        }
+      })
+    )
+    return [...unwrittenRows, ...heldRows]
+  })
+
+  // A sealed day's order flow GET builds the rows first, if the day has
+  // none: it never answers empty. GETs take the turn, so a second GET
+  // awaits the first's build.
+  const builtFirst = Effect.fnUntraced(function* (resource: RecordedResource) {
+    if (orderFlowBuilt || !sealed) return
+    if (
+      resource._tag !== "Candles" &&
+      resource._tag !== "Sweeps" &&
+      resource._tag !== "Heatmap"
+    )
+      return
+    yield* buildOrderFlow(store)
+    orderFlowBuilt = true
+  })
+
   const recorded = (resource: RecordedResource) =>
-    Effect.suspend(() =>
+    Effect.andThen(builtFirst(resource), () =>
       recordedAnswer(resource, {
         date: options.date,
         store,
@@ -1029,6 +1091,8 @@ export const makeTradingDay = Effect.fnUntraced(function* (options: {
           market.conditions,
           (conditions) => conditions.gaps
         ),
+        heldHeat,
+        sweeps: candles.sweepsOf,
       })
     )
 

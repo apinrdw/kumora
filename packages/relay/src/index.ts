@@ -35,12 +35,15 @@ export {
   FeedStatus,
   INGEST_TOKEN_MESSAGE_LIMIT,
   IngestCloseCode,
+  MINUTE_MS,
   IngestProtocolVersion,
   IngestToken,
   MarketLivePath,
   OnDemandCodes,
   ProtocolVersionMismatch,
   Select,
+  SHARES_PER_LOT,
+  Side,
   StockbitFrames,
   TradeNumber,
   TradeNumberOrder,
@@ -62,10 +65,14 @@ export {
 export type {
   BackfillPage,
   Candle,
+  Footprint,
+  FootprintCell,
   FrameStream,
   IngestDown,
   IngestUp,
+  MinuteSweeps,
   RunningTrade,
+  Sweep,
   ViewerDown,
   ViewerUp,
 } from "./envelope.ts"
@@ -105,6 +112,12 @@ export type {
 export type { CodeKind, ListedCode } from "./code-list.ts"
 export type { DayChange, DayState } from "./day-state.ts"
 export { BOOK_DEPTH, BookLevel } from "./order-book.ts"
+export {
+  HEAT_SLICE_MS,
+  decodeRecordedHeatmap,
+  encodeRecordedHeatmap,
+} from "./heatmap.ts"
+export type { HeatLevel, HeatSlice, RecordedHeatmap } from "./heatmap.ts"
 export type { IndexHasNoBook, OrderBook } from "./order-book.ts"
 export {
   BROKER_CODES_AUTH_SCHEME,
@@ -131,3 +144,10 @@ export type {
   CrossCheck,
   TradeCodes,
 } from "./broker-codes.ts"
+export type { RecordedSweeps } from "./sweeps.ts"
+export {
+  decodeRecordedSweeps,
+  encodeRecordedSweeps,
+  joinSweeps,
+  sweepsOf,
+} from "./sweeps.ts"

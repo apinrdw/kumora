@@ -35,6 +35,7 @@ const tapeOf = (from: number, count: number) =>
       _tag: "Delta",
       tape: Array.from({ length: count }, (_, i) => trade(from + i)),
       candles: [],
+      footprints: [],
     })
   )
 
@@ -45,6 +46,7 @@ const snapshotOf = (from: number, count: number): ViewerDown => ({
   selected: StockCode.make("BBCA"),
   tape: Array.from({ length: count }, (_, i) => trade(from + i)),
   candles: [],
+  footprints: [],
   conditions: {
     phase: "session-1",
     relayOnline: true,
@@ -162,6 +164,7 @@ test("an odd lot shows its hundredths: 1 share is 0.01 lots, 25 shares 0.25", ()
         { ...trade(4), lots: 12 },
       ],
       candles: [],
+      footprints: [],
     })
   )
   act(() =>

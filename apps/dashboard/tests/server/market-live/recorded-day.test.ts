@@ -354,6 +354,7 @@ describe("a restarted trading day", () => {
         )
         yield* store.write({
           trades: [],
+          footprints: [],
           livePrices: [],
           chunks: [],
           ajaibBooks: [],
