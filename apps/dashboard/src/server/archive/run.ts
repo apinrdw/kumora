@@ -26,6 +26,14 @@ export type RunOutcome = typeof RunOutcome.Type
 // can quote what the source sent, which the source decides the size of.
 export const MAX_RUN_ERROR_LENGTH = 1000
 
+// `error` as a run record keeps it: cut to MAX_RUN_ERROR_LENGTH characters,
+// the last an ellipsis.
+export const runError = Effect.fnUntraced(function* (error: string) {
+  return error.length > MAX_RUN_ERROR_LENGTH
+    ? `${error.slice(0, MAX_RUN_ERROR_LENGTH - 1)}…`
+    : error
+})
+
 // What `create` passes a run's Workflow.
 export interface RunParams<Trigger extends string = string> {
   readonly trigger: Trigger

@@ -6,6 +6,7 @@ import { Effect, Schema } from "effect"
 import { HttpClient } from "effect/http"
 
 import { readCapped } from "../archive/capped-body.ts"
+import { MAX_ETAG_BYTES } from "../archive/head.ts"
 
 // One call returns every year: no `year`, and `length` because it defaults
 // to 25.
@@ -66,10 +67,6 @@ export type ListedReport = typeof ListedReport.Type
 // The most bytes a listed report may take as JSON. The longest of 2026-11-14
 // takes 459.
 export const MAX_LISTED_REPORT_BYTES = 640
-
-// The most bytes an ETag a run keeps may take as JSON. IDX's are like
-// "03a76c15973dd1:0".
-export const MAX_ETAG_BYTES = 64
 
 // Room in a step result for what doesn't grow with the listing: counts,
 // times, the run's id and error message.

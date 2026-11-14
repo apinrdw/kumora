@@ -14,15 +14,14 @@ import { HttpClient, type HttpClientError } from "effect/http"
 import { ArchiveBucket, type BucketError } from "../archive/bucket.ts"
 import { readCapped } from "../archive/capped-body.ts"
 import { sha256Hex } from "../archive/hash.ts"
-import { headHeld } from "../archive/head.ts"
+import { headHeld, MAX_ETAG_BYTES } from "../archive/head.ts"
 import { ETAG, heldRecords, RUN, SHA256 } from "../archive/held.ts"
-import { type ArchiveRunId, MAX_RUN_ERROR_LENGTH } from "../archive/run.ts"
+import { type ArchiveRunId, runError } from "../archive/run.ts"
 import { recordKey, reportKey } from "./keys.ts"
 import {
   fetchListing,
   ListedReport,
   type ListingUnreadable,
-  MAX_ETAG_BYTES,
 } from "./listing.ts"
 import {
   ArchiveRunResult,
@@ -107,8 +106,7 @@ const head = Effect.fnUntraced(function* (
 ): Effect.fn.Return<typeof Checked.Type, BucketError, StepServices> {
   const { checked, changed, unanswered } = yield* headHeld(
     held.map(({ sourceUrl, fetchUrl }) => ({ key: sourceUrl, url: fetchUrl })),
-    yield* recordsByUrl(),
-    MAX_ETAG_BYTES
+    yield* recordsByUrl()
   )
   return {
     checked,
@@ -258,10 +256,7 @@ const recordPlanFailure = Effect.fnUntraced(function* (
   const result = ArchiveRunResult.make({
     ...(yield* finishedResult(run)),
     outcome: "failed",
-    error:
-      error.length > MAX_RUN_ERROR_LENGTH
-        ? `${error.slice(0, MAX_RUN_ERROR_LENGTH - 1)}…`
-        : error,
+    error: yield* runError(error),
   })
   yield* putRunRecord(result)
   return result

@@ -27,6 +27,11 @@ export interface HeadResult {
   readonly unanswered: ReadonlyArray<string>
 }
 
+// The most bytes an ETag a run keeps may take as JSON, in a step's result
+// and a record. IDX's are like "03a76c15973dd1:0"; KSEI's are a quoted MD5,
+// 34.
+export const MAX_ETAG_BYTES = 64
+
 // Concurrent HEADs to a source, kept modest out of courtesy to it.
 const HEAD_CONCURRENCY = 4
 
@@ -38,13 +43,12 @@ export const comparableEtag = (etag: string) =>
 // A HEAD to every held file. A response with no ETag can't show a change, so
 // its file counts as unchanged. A failed HEAD (a status other than 2xx
 // included) doesn't fail the step: its file is recorded, and the next run
-// checks it again. So is one whose ETag is over `maxEtagBytes` as JSON, which
-// the step's result couldn't carry. `records` are what heldRecords (held.ts)
-// read.
+// checks it again. So is one whose ETag is over MAX_ETAG_BYTES as JSON,
+// which the step's result couldn't carry. `records` are what heldRecords
+// (held.ts) read.
 export const headHeld = Effect.fnUntraced(function* (
   held: ReadonlyArray<HeldFile>,
-  records: ReadonlyMap<string, HeldRecords>,
-  maxEtagBytes: number
+  records: ReadonlyMap<string, HeldRecords>
 ): Effect.fn.Return<HeadResult, never, HttpClient.HttpClient> {
   const client = HttpClient.filterStatusOk(yield* HttpClient.HttpClient)
   const answers = yield* Effect.forEach(
@@ -55,7 +59,7 @@ export const headHeld = Effect.fnUntraced(function* (
           Effect.fnUntraced(function* (response) {
             const etag = response.headers["etag"]
             if (etag === undefined) return { key, etag, changed: false }
-            if ((yield* jsonBytes(etag)) > maxEtagBytes)
+            if ((yield* jsonBytes(etag)) > MAX_ETAG_BYTES)
               return yield* Effect.fail(etag)
             const seen = yield* Effect.forEach(
               records.get(key)?.etags ?? [],

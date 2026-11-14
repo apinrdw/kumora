@@ -15,10 +15,10 @@ import { HttpClient, type HttpClientError } from "effect/http"
 import { ArchiveBucket, type BucketError } from "../archive/bucket.ts"
 import { readCapped } from "../archive/capped-body.ts"
 import { sha256Hex } from "../archive/hash.ts"
-import { comparableEtag, headHeld } from "../archive/head.ts"
+import { comparableEtag, headHeld, MAX_ETAG_BYTES } from "../archive/head.ts"
 import { ETAG, RUN, SHA256 } from "../archive/held.ts"
 import { md5Hex } from "../archive/md5.ts"
-import { type ArchiveRunId, MAX_RUN_ERROR_LENGTH } from "../archive/run.ts"
+import { type ArchiveRunId, runError } from "../archive/run.ts"
 import { PROBE_YEARS, probe, type Probed, seed } from "./deep.ts"
 import { FILENAME, recordsByFilename } from "./held.ts"
 import { recordKey, reportKey } from "./keys.ts"
@@ -83,10 +83,6 @@ class NotOnKsei extends Schema.TaggedError<NotOnKsei>()("NotOnKsei", {
   message: Schema.String,
 }) {}
 
-// The most bytes an ETag a run keeps may take as JSON. KSEI's are a quoted
-// MD5, 34.
-const MAX_ETAG_BYTES = 64
-
 const nowIso = Effect.map(DateTime.now, DateTime.formatIso)
 
 // Both listings, split by whether the archive holds each filename, and the
@@ -140,8 +136,7 @@ const head = Effect.fnUntraced(function* (
 ): Effect.fn.Return<typeof Checked.Type, BucketError, StepServices> {
   const { checked, changed, unanswered } = yield* headHeld(
     held.map(({ filename, url }) => ({ key: filename, url })),
-    yield* recordsByFilename(),
-    MAX_ETAG_BYTES
+    yield* recordsByFilename()
   )
   return {
     checked,
@@ -415,10 +410,7 @@ const recordPlanFailure = Effect.fnUntraced(function* (
   const result = KseiRunResult.make({
     ...(yield* finishedResult(run)),
     outcome: "failed",
-    error:
-      error.length > MAX_RUN_ERROR_LENGTH
-        ? `${error.slice(0, MAX_RUN_ERROR_LENGTH - 1)}…`
-        : error,
+    error: yield* runError(error),
   })
   yield* putKseiRunRecord(result)
   return result

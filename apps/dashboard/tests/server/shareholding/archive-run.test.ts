@@ -3,11 +3,11 @@ import { StepFailed } from "@workspace/server"
 import { Effect, Layer, Schema } from "effect"
 
 import { archiveRun, MAX_REPORT_BYTES } from "@/server/shareholding/archive-run"
+import { MAX_ETAG_BYTES } from "@/server/archive/head"
 import { ArchiveRunId, MAX_RUN_ERROR_LENGTH } from "@/server/archive/run"
 import { RunMetadata } from "@/server/shareholding/run-result"
 import {
   LISTING_URL,
-  MAX_ETAG_BYTES,
   MAX_LISTED_REPORT_BYTES,
   MAX_LISTED_REPORTS,
   MAX_LISTING_BYTES,
