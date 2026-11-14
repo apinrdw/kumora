@@ -186,4 +186,29 @@ describe("the book heatmap on chart 1", () => {
         )
       })
   )
+
+  it.effect(
+    "shades no slice and keeps no canvas for a minute the chart does not draw",
+    () =>
+      Effect.gen(function* () {
+        // The book rests through lunch, whose minutes have no candle and no
+        // gap whitespace. 13:30 is the cursor's minute, painted directly.
+        const heatmap = yield* heatmapOf(
+          [
+            slice("11:59:00"),
+            slice("12:00:00"),
+            slice("12:01:00"),
+            slice("13:30:00"),
+          ],
+          { "11:59": 100, "13:30": 160 },
+          "13:30:30"
+        )
+        expect({
+          lefts: heatmap.draw(),
+          shaded: heatmap.shaded(),
+          canvases: Canvas.made,
+        }).toEqual({ lefts: [100, 160], shaded: 2, canvases: 1 })
+        heatmap.detach()
+      })
+  )
 })
