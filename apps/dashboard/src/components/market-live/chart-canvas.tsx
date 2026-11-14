@@ -20,8 +20,10 @@ import { useEffect, useRef, useState } from "react"
 
 import { gapMinutes } from "@/lib/replay"
 
+import { attachBookHeatmap } from "./book-heatmap"
 import type { CandleChange, CandleStore } from "./candle-store"
 import { CHART_SCALE_WIDTH, crosshairTime, tickMark } from "./chart-time"
+import type { HeatmapStore } from "./heatmap-store"
 import { useAuctionIndicative } from "./market-conditions"
 import type { ReplayCursor } from "./replay-cursor"
 
@@ -215,10 +217,13 @@ const MINUTE = 60_000
 // ends, or on a recorded day up to the close.
 export default function ChartCanvas({
   store,
+  heatmap,
   cursor,
   gaps,
 }: {
   store: CandleStore
+  // The selected code's book heatmap, shaded behind the candles.
+  heatmap?: HeatmapStore | undefined
   cursor?: ReplayCursor | undefined
   gaps: ReadonlyArray<RelayGap>
 }) {
@@ -308,6 +313,17 @@ export default function ChartCanvas({
         ? `${grey}33`
         : `${candle.close >= candle.open ? up : down}66`,
     })
+    const stopHeatmap =
+      heatmap &&
+      attachBookHeatmap(
+        candles,
+        heatmap,
+        cursor,
+        { bid: up, offer: down },
+        (slices) => {
+          element.dataset.heatmapSlices = String(slices)
+        }
+      )
     const marker = new CursorLine(token("--text-primary"))
     if (cursor !== undefined) candles.attachPrimitive(marker)
 
@@ -414,13 +430,14 @@ export default function ChartCanvas({
     })
     return () => {
       redrawGaps.current = undefined
+      stopHeatmap?.()
       unsubscribe()
       stopCursor?.()
       cancelAnimationFrame(frame)
       setSeries(null)
       chart.remove()
     }
-  }, [store, cursor])
+  }, [store, heatmap, cursor])
 
   useEffect(() => {
     shownGaps.current = gaps

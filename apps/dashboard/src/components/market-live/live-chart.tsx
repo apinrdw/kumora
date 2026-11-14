@@ -11,6 +11,7 @@ import { lastCloseAt } from "@/lib/recorded-day"
 
 import type { CandleStore } from "./candle-store"
 import { useDayState, type DayStateStore } from "./day-state-store"
+import type { HeatmapStore } from "./heatmap-store"
 import { useAuctionIndicative, useMergedStale } from "./market-conditions"
 import type { ReplayCursor } from "./replay-cursor"
 
@@ -138,6 +139,7 @@ function ChartHeadline({
 // candle moves it; `footer` sits under the chart.
 export function LiveChart({
   store,
+  heatmap,
   gaps,
   dayStates,
   conditions,
@@ -146,6 +148,8 @@ export function LiveChart({
   footer,
 }: {
   store: CandleStore
+  // The selected code's book heatmap, behind the candles.
+  heatmap?: HeatmapStore
   // The relay gaps to shade as not recorded.
   gaps: ReadonlyArray<RelayGap>
   dayStates: DayStateStore
@@ -180,7 +184,12 @@ export function LiveChart({
       <div className={stale ? "opacity-50" : undefined}>
         <ClientOnly fallback={<div className={CHART_HEIGHT} />}>
           <Suspense fallback={<div className={CHART_HEIGHT} />}>
-            <ChartCanvas store={store} cursor={cursor} gaps={gaps} />
+            <ChartCanvas
+              store={store}
+              heatmap={heatmap}
+              cursor={cursor}
+              gaps={gaps}
+            />
           </Suspense>
         </ClientOnly>
       </div>

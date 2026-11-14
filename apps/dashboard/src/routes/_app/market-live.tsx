@@ -17,6 +17,7 @@ import {
 } from "@/components/market-live/market-conditions"
 import { OrderBookPanel } from "@/components/market-live/order-book-panel"
 import { makeOrderBookStore } from "@/components/market-live/order-book-store"
+import { useHeatmap } from "@/components/market-live/use-heatmap"
 import {
   RecordedOrderBook,
   RecordedConditionsBar,
@@ -108,6 +109,7 @@ function MarketLiveDay({
   const [dayStates] = useState(() => clientRuntime.runSync(makeDayStateStore()))
   const watchlist = useWatchlist()
   const cursor = useReplayCursor(day)
+  const heatmap = useHeatmap(selected, day, today)
   const gaps = useRecordedDay({
     day,
     cursor,
@@ -122,9 +124,10 @@ function MarketLiveDay({
     (message: ViewerDown) => {
       candles.apply(message)
       book.apply(message)
+      heatmap.apply(message)
       dayStates.apply(message)
     },
-    [candles, book, dayStates]
+    [candles, book, heatmap, dayStates]
   )
   const select = useCallback(
     (code: StockCode) =>
@@ -140,6 +143,7 @@ function MarketLiveDay({
         <div className="flex min-w-0 flex-col gap-4">
           <LiveChart
             store={candles}
+            heatmap={heatmap}
             gaps={cursor === undefined ? liveGaps : gaps}
             dayStates={dayStates}
             conditions={
