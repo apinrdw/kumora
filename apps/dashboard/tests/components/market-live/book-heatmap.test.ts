@@ -167,8 +167,8 @@ describe("the book heatmap on chart 1", () => {
         )
         expect(heatmap.draw()).toEqual([130, 190])
         heatmap.detach()
-        // The cursor line: the first bar's centre plus its logical position
-        // in bars (cursor-line.ts).
+        // The cursor line: the first minute's centre plus its logical position
+        // in minutes (cursor-line.ts).
         const times = [seconds("09:00"), seconds("09:01")]
         expect(
           100 + (yield* cursorLogical(times, at("09:00:30"))) * SPACING
