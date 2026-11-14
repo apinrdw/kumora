@@ -9,7 +9,7 @@ import {
   runKseiNow,
 } from "@/server/admin/ksei"
 import type { Mail } from "@/server/auth/mailer"
-import { ArchiveRunId } from "@/server/archive/run"
+import { RunId } from "@/server/archive/run"
 import { KseiRunMetadata, type KseiRunResult } from "@/server/ksei/run-result"
 
 import {
@@ -38,7 +38,7 @@ const verified = (mails: ReadonlyArray<Mail>) =>
   })
 
 const RUNNING: KseiRunResult = {
-  id: ArchiveRunId.make("cron-2026-11-14"),
+  id: RunId.make("cron-2026-11-14"),
   trigger: "cron",
   startedAt: "2026-11-14T03:00:00.000Z",
   finishedAt: null,
@@ -232,7 +232,7 @@ describe("KSEI's Deep backfill", () => {
       const { layer, mails, bucket } = archive()
       const ended = (id: string, startedAt: string, notFound: string) => ({
         ...RUNNING,
-        id: ArchiveRunId.make(id),
+        id: RunId.make(id),
         trigger: "deep" as const,
         startedAt,
         finishedAt: startedAt,
@@ -258,7 +258,7 @@ describe("KSEI's Deep backfill", () => {
       // Still running: no finds yet.
       seedRun(bucket, {
         ...RUNNING,
-        id: ArchiveRunId.make("deep-1763125032000"),
+        id: RunId.make("deep-1763125032000"),
         trigger: "deep",
         startedAt: "2026-11-14T13:57:12.000Z",
       })
@@ -272,7 +272,7 @@ describe("KSEI's Deep backfill", () => {
         const cookie = yield* verified(mails)(ADMIN_EMAIL, "Adi")
         const page = yield* kseiArchivePage(headers(cookie))
         assert.deepStrictEqual(page.lastDeepRun, {
-          id: ArchiveRunId.make("deep-1750000000000"),
+          id: RunId.make("deep-1750000000000"),
           finishedAt: "2025-06-15T15:06:40.000Z",
         })
         const statistics = page.coverage[0]
@@ -300,7 +300,7 @@ describe("the KSEI coverage grid", () => {
     "securities-holdings": ReadonlyArray<string>
   }): KseiRunResult => ({
     ...RUNNING,
-    id: ArchiveRunId.make("deep-1763089200000"),
+    id: RunId.make("deep-1763089200000"),
     trigger: "deep",
     finishedAt: RUNNING.startedAt,
     outcome: "complete",

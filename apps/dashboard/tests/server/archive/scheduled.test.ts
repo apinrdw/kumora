@@ -7,7 +7,7 @@ import {
   scheduledArchiveRun,
   startRun,
 } from "@/server/shareholding/runs"
-import { ArchiveRunId } from "@/server/archive/run"
+import { RunId } from "@/server/archive/run"
 import { RunMetadata } from "@/server/shareholding/run-result"
 
 import type { ArchiveWorkflow } from "@/server/archive/workflow"
@@ -221,7 +221,7 @@ describe("starting a run by hand", () => {
       const check = runInProgress(layer)
       assert.isTrue(Option.isNone(yield* check))
 
-      yield* startRun(ArchiveRunId.make("admin-1763125200000"), "admin").pipe(
+      yield* startRun(RunId.make("admin-1763125200000"), "admin").pipe(
         Effect.provide(layer)
       )
       assert.deepStrictEqual(yield* check, Option.some("admin-1763125200000"))
@@ -244,7 +244,7 @@ describe("starting a run by hand", () => {
       Effect.gen(function* () {
         const workflow = fakeWorkflow()
         const bucket = memoryBucket()
-        const id = ArchiveRunId.make("admin-1763125200000")
+        const id = RunId.make("admin-1763125200000")
         const ended = {
           id,
           trigger: "admin",
@@ -278,7 +278,7 @@ describe("starting a run by hand", () => {
         const workflow = fakeWorkflow()
         const bucket = memoryBucket()
         const layer = Layer.merge(workflow.layer, bucket.layer)
-        const id = ArchiveRunId.make("admin-1763125200000")
+        const id = RunId.make("admin-1763125200000")
         workflow.refuseCreate = true
 
         const exit = yield* Effect.exit(
@@ -312,7 +312,7 @@ describe("starting a run by hand", () => {
           })),
           first: ({ workflow, bucket }) => fire(workflow, bucket),
           second: ({ workflow, bucket }) =>
-            startRun(ArchiveRunId.make("admin-1763125200000"), "admin").pipe(
+            startRun(RunId.make("admin-1763125200000"), "admin").pipe(
               Effect.provide(Layer.merge(workflow.layer, bucket.layer)),
               Effect.ignore
             ),
@@ -335,7 +335,7 @@ describe("starting a run by hand", () => {
       Effect.gen(function* () {
         const workflow = fakeWorkflow()
         const bucket = memoryBucket()
-        yield* startRun(ArchiveRunId.make("admin-1763125200000"), "admin").pipe(
+        yield* startRun(RunId.make("admin-1763125200000"), "admin").pipe(
           Effect.provide(Layer.merge(workflow.layer, bucket.layer))
         )
 

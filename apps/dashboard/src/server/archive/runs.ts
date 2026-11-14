@@ -8,8 +8,8 @@ import { DateTime, Effect, Option, Schema } from "effect"
 import { ArchiveBucket, type BucketError } from "./bucket.ts"
 import { RETENTION } from "./retention.ts"
 import {
-  type ArchiveRunBase,
-  ArchiveRunId,
+  type RunBase,
+  RunId,
   type ArchiveSource,
   LATEST_RUN_KEY,
   LatestRun,
@@ -27,7 +27,7 @@ import {
 // The run runs/latest.json names is still in progress.
 class RunInProgress extends Schema.TaggedError<RunInProgress>()(
   "RunInProgress",
-  { id: ArchiveRunId }
+  { id: RunId }
 ) {}
 
 const decodeLatestRun = Schema.decodeUnknownEffect(
@@ -38,10 +38,10 @@ const decodeLatestRun = Schema.decodeUnknownEffect(
 export const writeRunRecord = <
   Trigger extends string,
   Summary extends RunSummaryBase,
-  Run extends ArchiveRunBase & Summary,
+  RunRecord extends RunBase & Summary,
 >(
-  source: ArchiveSource<Trigger, Summary, Run>,
-  result: Run
+  source: ArchiveSource<Trigger, Summary, RunRecord>,
+  result: RunRecord
 ) =>
   Effect.gen(function* () {
     yield* (yield* ArchiveBucket).put(
@@ -59,9 +59,9 @@ export const writeRunRecord = <
 const readLatest = <
   Trigger extends string,
   Summary extends RunSummaryBase,
-  Run extends ArchiveRunBase & Summary,
+  RunRecord extends RunBase & Summary,
 >(
-  source: ArchiveSource<Trigger, Summary, Run>
+  source: ArchiveSource<Trigger, Summary, RunRecord>
 ) =>
   Effect.gen(function* () {
     const bucket = yield* ArchiveBucket
@@ -96,9 +96,9 @@ const readLatest = <
 export const readLastRun = <
   Trigger extends string,
   Summary extends RunSummaryBase,
-  Run extends ArchiveRunBase & Summary,
+  RunRecord extends RunBase & Summary,
 >(
-  source: ArchiveSource<Trigger, Summary, Run>
+  source: ArchiveSource<Trigger, Summary, RunRecord>
 ) =>
   Effect.gen(function* () {
     const latest = yield* readLatest(source)
@@ -113,11 +113,11 @@ export const readLastRun = <
 export const readLatestRunWhere = <
   Trigger extends string,
   Summary extends RunSummaryBase,
-  Run extends ArchiveRunBase & Summary,
+  RunRecord extends RunBase & Summary,
 >(
-  source: ArchiveSource<Trigger, Summary, Run>,
+  source: ArchiveSource<Trigger, Summary, RunRecord>,
   trigger: Trigger,
-  accept: (run: Run) => boolean
+  accept: (run: RunRecord) => boolean
 ) =>
   Effect.gen(function* () {
     const bucket = yield* ArchiveBucket
@@ -147,10 +147,10 @@ export const readLatestRunWhere = <
 const claim = <
   Trigger extends string,
   Summary extends RunSummaryBase,
-  Run extends ArchiveRunBase & Summary,
+  RunRecord extends RunBase & Summary,
 >(
-  source: ArchiveSource<Trigger, Summary, Run>,
-  id: ArchiveRunId
+  source: ArchiveSource<Trigger, Summary, RunRecord>,
+  id: RunId
 ): Effect.Effect<
   void,
   | RunInProgress
@@ -183,13 +183,13 @@ const claim = <
 // Decision: the record is written before `create`: after `create`, the run's
 // own steps may already have ended it, and writing `running` then would
 // never be undone (apinrdw/kumora#309).
-export const startArchiveRun = <
+export const startRunOf = <
   Trigger extends string,
   Summary extends RunSummaryBase,
-  Run extends ArchiveRunBase & Summary,
+  RunRecord extends RunBase & Summary,
 >(
-  source: ArchiveSource<Trigger, Summary, Run>,
-  id: ArchiveRunId,
+  source: ArchiveSource<Trigger, Summary, RunRecord>,
+  id: RunId,
   trigger: Trigger
 ) =>
   Effect.gen(function* () {
@@ -229,14 +229,14 @@ export const startArchiveRun = <
 export const scheduledRun = <
   Trigger extends string,
   Summary extends RunSummaryBase,
-  Run extends ArchiveRunBase & Summary,
+  RunRecord extends RunBase & Summary,
 >(
-  source: ArchiveSource<Trigger | "cron", Summary, Run>,
+  source: ArchiveSource<Trigger | "cron", Summary, RunRecord>,
   scheduledTime: number
 ) =>
   Effect.gen(function* () {
     const id = yield* source.runIdAt("cron", scheduledTime)
-    yield* startArchiveRun(source, id, "cron").pipe(
+    yield* startRunOf(source, id, "cron").pipe(
       Effect.catchTags({
         RunInProgress: ({ id: running }) =>
           Effect.logInfo(

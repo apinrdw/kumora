@@ -3,12 +3,7 @@
 // reads it back with this Schema.
 import { DateTime, Effect, Schema, Struct } from "effect"
 
-import {
-  type ArchiveRun,
-  ArchiveRunId,
-  type RunParams,
-  RunOutcome,
-} from "../archive/run.ts"
+import { type Run, RunId, type RunParams, RunOutcome } from "../archive/run.ts"
 
 export const ArchiveTrigger = Schema.Literals(["cron", "admin"])
 export type ArchiveTrigger = typeof ArchiveTrigger.Type
@@ -23,7 +18,7 @@ export const runIdAt = Effect.fnUntraced(function* (
   trigger: ArchiveTrigger,
   epochMs: number
 ) {
-  return ArchiveRunId.make(
+  return RunId.make(
     trigger === "cron"
       ? `cron-${new Date(epochMs).toISOString().slice(0, 13)}`
       : `admin-${epochMs}`
@@ -31,7 +26,7 @@ export const runIdAt = Effect.fnUntraced(function* (
 })
 
 export const ArchiveRunResult = Schema.Struct({
-  id: ArchiveRunId,
+  id: RunId,
   trigger: ArchiveTrigger,
   // ISO instants.
   startedAt: Schema.String,
@@ -76,7 +71,7 @@ export const RunMetadata = Schema.Struct({
 })
 
 export const runningResult = Effect.fnUntraced(function* (
-  run: ArchiveRun<ArchiveTrigger>
+  run: Run<ArchiveTrigger>
 ) {
   return ArchiveRunResult.make({
     id: run.id,

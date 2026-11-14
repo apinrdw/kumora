@@ -2,7 +2,7 @@ import { assert, describe, it } from "@effect/vitest"
 import type { StepConfig } from "@workspace/server"
 import { Duration, Effect, Layer, Schema } from "effect"
 
-import { ArchiveRunId } from "@/server/archive/run"
+import { RunId } from "@/server/archive/run"
 import { kseiArchiveRun, MAX_REPORT_BYTES } from "@/server/ksei/archive-run"
 import {
   LISTING_URLS,
@@ -33,7 +33,7 @@ const run = (
   startedAt = new Date("2026-11-14T03:00:00Z")
 ) =>
   kseiArchiveRun(localSteps(Layer.merge(ksei.layer, bucket.layer)), {
-    id: ArchiveRunId.make(id),
+    id: RunId.make(id),
     trigger: "cron",
     startedAt,
   })
@@ -134,7 +134,7 @@ describe("a KSEI archive run", () => {
       })
 
       assert.deepInclude(result, {
-        id: ArchiveRunId.make("cron-2026-11-14"),
+        id: RunId.make("cron-2026-11-14"),
         trigger: "cron",
         startedAt: "2026-11-14T03:00:00.000Z",
         outcome: "complete",
@@ -213,7 +213,7 @@ describe("a KSEI archive run", () => {
           },
         },
         {
-          id: ArchiveRunId.make("cron-2026-11-15"),
+          id: RunId.make("cron-2026-11-15"),
           trigger: "cron",
           startedAt: new Date("2026-11-15T03:00:00Z"),
         }

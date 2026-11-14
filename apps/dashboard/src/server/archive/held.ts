@@ -6,7 +6,7 @@
 import { Effect } from "effect"
 
 import { ArchiveBucket } from "./bucket.ts"
-import { type ArchiveRunId, REPORTS_PREFIX } from "./run.ts"
+import { type RunId, REPORTS_PREFIX } from "./run.ts"
 
 // The record metadata keys every archive writes besides its identity. RUN
 // names the run that wrote it, so `summary` can tell its own records from
@@ -29,7 +29,7 @@ export interface HeldRecords {
 // apinrdw/kumora#303 and #305.
 export const heldRecords = Effect.fnUntraced(function* (
   identity: string,
-  run?: ArchiveRunId
+  run?: RunId
 ) {
   const held = new Map<string, HeldRecords>()
   for (const { customMetadata } of yield* (yield* ArchiveBucket).list(

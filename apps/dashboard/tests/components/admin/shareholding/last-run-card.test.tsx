@@ -1,13 +1,13 @@
 import { describe, expect, test } from "vitest"
 
 import { LastRunCard } from "@/components/admin/shareholding/last-run-card"
-import { ArchiveRunId } from "@/server/archive/run"
+import { RunId } from "@/server/archive/run"
 import type { ArchiveRunResult } from "@/server/shareholding/run-result"
 
 import { renderAt } from "../../../support/render-at.tsx"
 
 const RUNNING: ArchiveRunResult = {
-  id: ArchiveRunId.make("admin-1763125032000"),
+  id: RunId.make("admin-1763125032000"),
   trigger: "admin",
   startedAt: "2026-11-14T13:17:12.000Z",
   finishedAt: null,

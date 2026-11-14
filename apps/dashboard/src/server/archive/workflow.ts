@@ -5,16 +5,16 @@
 import { Context, type Effect, Schema } from "effect"
 
 import type { RETENTION } from "./retention.ts"
-import { ArchiveRunId, type RunParams } from "./run.ts"
+import { RunId, type RunParams } from "./run.ts"
 
 export class DuplicateRunId extends Schema.TaggedError<DuplicateRunId>()(
   "DuplicateRunId",
-  { id: ArchiveRunId }
+  { id: RunId }
 ) {}
 
 export class WorkflowError extends Schema.TaggedError<WorkflowError>()(
   "WorkflowError",
-  { operation: Schema.String, id: ArchiveRunId, cause: Schema.Defect() }
+  { operation: Schema.String, id: RunId, cause: Schema.Defect() }
 ) {}
 
 // A Workflow instance's status, as `status()` reports it.
@@ -39,7 +39,7 @@ export interface InstanceStatus {
 }
 
 export interface CreateRun {
-  readonly id: ArchiveRunId
+  readonly id: RunId
   readonly params: RunParams
   readonly retention: typeof RETENTION
 }
@@ -53,7 +53,7 @@ export class ArchiveWorkflow extends Context.Service<
     ) => Effect.Effect<void, DuplicateRunId | WorkflowError>
     // Undefined when no instance has the id, for example past retention.
     readonly status: (
-      id: ArchiveRunId
+      id: RunId
     ) => Effect.Effect<InstanceStatus | undefined, WorkflowError>
   }
 >()("dashboard/archive/ArchiveWorkflow") {}

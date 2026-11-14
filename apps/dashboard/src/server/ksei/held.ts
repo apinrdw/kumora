@@ -1,7 +1,7 @@
 // What the KSEI archive holds, by filename, from its records' custom
 // metadata (../archive/held.ts).
 import { heldRecords } from "../archive/held.ts"
-import type { ArchiveRunId } from "../archive/run.ts"
+import type { RunId } from "../archive/run.ts"
 
 // The record's custom metadata key a run reads its identity from; the others
 // are ../archive/held.ts's. Identity is the filename, not the URL: KSEI moved
@@ -9,5 +9,4 @@ import type { ArchiveRunId } from "../archive/run.ts"
 export const FILENAME = "filename"
 
 // The held filenames' records, leaving out those `run` wrote.
-export const recordsByFilename = (run?: ArchiveRunId) =>
-  heldRecords(FILENAME, run)
+export const recordsByFilename = (run?: RunId) => heldRecords(FILENAME, run)

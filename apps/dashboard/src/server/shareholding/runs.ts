@@ -4,11 +4,11 @@
 import { Effect } from "effect"
 
 import { listRecentRuns } from "../archive/history.ts"
-import type { ArchiveRunId, ArchiveSource } from "../archive/run.ts"
+import type { RunId, ArchiveSource } from "../archive/run.ts"
 import {
   readLastRun,
   scheduledRun,
-  startArchiveRun,
+  startRunOf,
   writeRunRecord,
 } from "../archive/runs.ts"
 import {
@@ -38,8 +38,8 @@ export const lastRun = readLastRun(SHAREHOLDING_RUNS)
 // The runs started in the past 30 days, newest first.
 export const recentRuns = listRecentRuns(SHAREHOLDING_RUNS)
 
-export const startRun = (id: ArchiveRunId, trigger: ArchiveTrigger) =>
-  startArchiveRun(SHAREHOLDING_RUNS, id, trigger)
+export const startRun = (id: RunId, trigger: ArchiveTrigger) =>
+  startRunOf(SHAREHOLDING_RUNS, id, trigger)
 
 // What each cron firing runs (`runArchiveCron`, cron.ts): one run per firing,
 // named after its scheduled hour (UTC), unless a run is still in progress.

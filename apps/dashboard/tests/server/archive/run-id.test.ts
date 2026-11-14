@@ -5,7 +5,7 @@ import { DuplicateRunId, WorkflowError } from "@/server/archive/workflow"
 import { runKey } from "@/server/archive/run"
 
 describe("an archive run's id", () => {
-  it.effect("is an ArchiveRunId wherever a run is named", () =>
+  it.effect("is an RunId wherever a run is named", () =>
     Effect.gen(function* () {
       // @ts-expect-error a bare string is not an archive run's id
       const key = yield* runKey("cron-2026-11-14T06")

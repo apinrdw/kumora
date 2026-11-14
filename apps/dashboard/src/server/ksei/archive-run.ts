@@ -23,7 +23,7 @@ import {
 } from "../archive/head.ts"
 import { ETAG, RUN, SHA256 } from "../archive/held.ts"
 import { md5Hex } from "../archive/md5.ts"
-import { type ArchiveRun, type ArchiveRunId, runError } from "../archive/run.ts"
+import { type Run, type RunId, runError } from "../archive/run.ts"
 import {
   PROBE_HEADS_IN_TURN,
   PROBE_YEARS,
@@ -45,7 +45,7 @@ import {
 } from "./run-result.ts"
 import { putKseiRunRecord } from "./runs.ts"
 
-type KseiRun = ArchiveRun<KseiTrigger>
+type KseiRun = Run<KseiTrigger>
 
 type StepServices = ArchiveBucket | HttpClient.HttpClient
 
@@ -181,7 +181,7 @@ const isZip = (bytes: Uint8Array) =>
 // body that isn't a zip is no file either, which no retry changes. Its
 // record names `run`.
 const archiveReport = Effect.fnUntraced(function* (
-  run: ArchiveRunId,
+  run: RunId,
   report: ListedKseiReport,
   headEtag: string | null
 ): Effect.fn.Return<
@@ -273,7 +273,7 @@ const archiveReport = Effect.fnUntraced(function* (
 // A listed file: a redirect is a file KSEI lists but doesn't serve, which no
 // retry changes.
 const archiveListed = (
-  run: ArchiveRunId,
+  run: RunId,
   report: ListedKseiReport,
   headEtag: string | null
 ) =>
@@ -287,7 +287,7 @@ const archiveListed = (
 // Decision: a seeded file KSEI no longer serves is no failure: Wayback saw it
 // once, and its month is probed like any other missing month. See
 // apinrdw/kumora#330.
-const archiveFind = (run: ArchiveRunId, report: ListedKseiReport) =>
+const archiveFind = (run: RunId, report: ListedKseiReport) =>
   archiveReport(run, report, null).pipe(
     Effect.catchTag("NotOnKsei", () => Effect.succeed(null))
   )

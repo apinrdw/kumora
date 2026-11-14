@@ -5,7 +5,7 @@ import { Clock, Effect, Option, Schema } from "effect"
 import { ArchiveBucket } from "./bucket.ts"
 import { RETENTION_MS } from "./retention.ts"
 import {
-  type ArchiveRunBase,
+  type RunBase,
   type ArchiveSource,
   RUNS_PREFIX,
   type RunSummaryBase,
@@ -25,9 +25,9 @@ import { ArchiveWorkflow, type WorkflowError } from "./workflow.ts"
 export const listRecentRuns = <
   Trigger extends string,
   Summary extends RunSummaryBase,
-  Run extends ArchiveRunBase & Summary,
+  RunRecord extends RunBase & Summary,
 >(
-  source: ArchiveSource<Trigger, Summary, Run>
+  source: ArchiveSource<Trigger, Summary, RunRecord>
 ) =>
   Effect.gen(function* () {
     const bucket = yield* ArchiveBucket

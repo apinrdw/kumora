@@ -15,7 +15,7 @@ import {
 } from "@/components/account/account-section"
 import { KBadge, KButton, type KButtonVariant, KDialog } from "@/components/k"
 import { dateTime, duration } from "@/lib/format"
-import type { ArchiveRunBase } from "@/server/archive/run"
+import type { RunBase } from "@/server/archive/run"
 import type { RunView } from "@/server/archive/run-view"
 
 import { ArchiveCard, OUTCOME } from "./archive-card"
@@ -174,7 +174,7 @@ export function ArchiveLastRunCard({
 }: {
   title: ReactNode
   emptyMessage: string
-  lastRun: RunView<ArchiveRunBase> | undefined
+  lastRun: RunView<RunBase> | undefined
   // When the page read the run, for a running run's time so far.
   now: string
   stats: ReadonlyArray<RunStat>

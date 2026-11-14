@@ -4,12 +4,7 @@
 // shape").
 import { DateTime, Effect, Schema, Struct } from "effect"
 
-import {
-  type ArchiveRun,
-  ArchiveRunId,
-  type RunParams,
-  RunOutcome,
-} from "../archive/run.ts"
+import { type Run, RunId, type RunParams, RunOutcome } from "../archive/run.ts"
 import { KseiReportKind } from "./kind.ts"
 
 // A deep run is a Deep backfill: the scheduled pass, then the files older
@@ -27,7 +22,7 @@ export const kseiRunIdAt = Effect.fnUntraced(function* (
   trigger: KseiTrigger,
   epochMs: number
 ) {
-  return ArchiveRunId.make(
+  return RunId.make(
     trigger === "cron"
       ? `cron-${new Date(epochMs).toISOString().slice(0, 10)}`
       : `${trigger}-${epochMs}`
@@ -63,7 +58,7 @@ const DeepFinds = Schema.Struct({
 export type DeepFinds = typeof DeepFinds.Type
 
 export const KseiRunResult = Schema.Struct({
-  id: ArchiveRunId,
+  id: RunId,
   trigger: KseiTrigger,
   // ISO instants.
   startedAt: Schema.String,
@@ -109,7 +104,7 @@ export const KseiRunMetadata = Schema.Struct({
 })
 
 export const runningKseiResult = Effect.fnUntraced(function* (
-  run: ArchiveRun<KseiTrigger>
+  run: Run<KseiTrigger>
 ) {
   return KseiRunResult.make({
     id: run.id,

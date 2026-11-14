@@ -4,7 +4,7 @@ import {
   ArchiveTotalsCard,
   RecentRunsCard,
 } from "@/components/admin/shareholding/archive-history"
-import { ArchiveRunId } from "@/server/archive/run"
+import { RunId } from "@/server/archive/run"
 import type { ArchiveTotals } from "@/server/shareholding/totals"
 
 import { renderAt } from "../../../support/render-at.tsx"
@@ -37,7 +37,7 @@ describe("the recent runs", () => {
         <RecentRunsCard
           runs={[
             {
-              id: ArchiveRunId.make("cron-2026-11-13T06"),
+              id: RunId.make("cron-2026-11-13T06"),
               trigger: "cron",
               startedAt: "2026-11-13T06:00:00.000Z",
               outcome: "partial",

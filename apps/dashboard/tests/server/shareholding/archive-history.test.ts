@@ -3,7 +3,7 @@ import { Effect, Layer, Schema } from "effect"
 import { TestClock } from "effect/testing"
 
 import { MAX_LISTED_OBJECTS } from "@/server/archive/bucket"
-import { ArchiveRunId } from "@/server/archive/run"
+import { RunId } from "@/server/archive/run"
 import { recentRuns } from "@/server/shareholding/runs"
 import { archiveTotals } from "@/server/shareholding/totals"
 import {
@@ -24,7 +24,7 @@ const run = (
   startedAt: string,
   outcome: ArchiveRunResult["outcome"] = "complete"
 ): ArchiveRunResult => ({
-  id: ArchiveRunId.make(id),
+  id: RunId.make(id),
   trigger: id.startsWith("cron") ? "cron" : "admin",
   startedAt,
   finishedAt: outcome === "running" ? null : startedAt,

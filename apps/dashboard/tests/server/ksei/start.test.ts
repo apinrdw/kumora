@@ -2,7 +2,7 @@ import { assert, describe, it } from "@effect/vitest"
 import { Effect, Layer } from "effect"
 
 import { scheduledKseiRun, startKseiRun } from "@/server/ksei/runs"
-import { ArchiveRunId } from "@/server/archive/run"
+import { RunId } from "@/server/archive/run"
 import { startRun } from "@/server/shareholding/runs"
 
 import { fakeWorkflow, type FakeWorkflow } from "../archive/fake-workflow.ts"
@@ -77,7 +77,7 @@ describe("the KSEI archive cron", () => {
       yield* fire(ksei)
 
       const refused = yield* Effect.flip(
-        startKseiRun(ArchiveRunId.make("admin-1763089200000"), "admin").pipe(
+        startKseiRun(RunId.make("admin-1763089200000"), "admin").pipe(
           Effect.provide(ksei.layer)
         )
       )
@@ -91,7 +91,7 @@ describe("the KSEI archive cron", () => {
     Effect.gen(function* () {
       const idx = archive()
       const ksei = archive()
-      yield* startRun(ArchiveRunId.make("cron-2026-11-14T03"), "cron").pipe(
+      yield* startRun(RunId.make("cron-2026-11-14T03"), "cron").pipe(
         Effect.provide(idx.layer)
       )
 

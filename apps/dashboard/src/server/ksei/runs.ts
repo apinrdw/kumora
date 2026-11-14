@@ -4,12 +4,12 @@
 import { Effect } from "effect"
 
 import { listRecentRuns } from "../archive/history.ts"
-import type { ArchiveRunId, ArchiveSource } from "../archive/run.ts"
+import type { RunId, ArchiveSource } from "../archive/run.ts"
 import {
   readLastRun,
   readLatestRunWhere,
   scheduledRun,
-  startArchiveRun,
+  startRunOf,
   writeRunRecord,
 } from "../archive/runs.ts"
 import {
@@ -48,8 +48,8 @@ export const lastKseiDeepRun = readLatestRunWhere(
   (run) => run.deep !== null
 )
 
-export const startKseiRun = (id: ArchiveRunId, trigger: KseiTrigger) =>
-  startArchiveRun(KSEI_RUNS, id, trigger)
+export const startKseiRun = (id: RunId, trigger: KseiTrigger) =>
+  startRunOf(KSEI_RUNS, id, trigger)
 
 // What each cron firing runs (`runKseiCron`, cron.ts): one run a day, named
 // after its scheduled date (UTC), unless a run is still in progress.

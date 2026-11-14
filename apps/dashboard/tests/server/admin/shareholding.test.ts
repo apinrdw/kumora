@@ -8,7 +8,7 @@ import {
   shareholdingArchivePage,
 } from "@/server/admin/shareholding"
 import type { Mail } from "@/server/auth/mailer"
-import { ArchiveRunId } from "@/server/archive/run"
+import { RunId } from "@/server/archive/run"
 import {
   type ArchiveRunResult,
   RunMetadata,
@@ -41,7 +41,7 @@ const verified = (mails: ReadonlyArray<Mail>) =>
   })
 
 const RUNNING: ArchiveRunResult = {
-  id: ArchiveRunId.make("cron-2026-11-14T13"),
+  id: RunId.make("cron-2026-11-14T13"),
   trigger: "cron",
   startedAt: "2026-11-14T13:00:00.000Z",
   finishedAt: null,
@@ -84,7 +84,7 @@ const createdIds = (workflow: FakeWorkflow) => [...workflow.instances.keys()]
 const runningInstance = (workflow: FakeWorkflow, id: string) =>
   workflow.instances.set(id, {
     options: {
-      id: ArchiveRunId.make(id),
+      id: RunId.make(id),
       params: { trigger: "cron" },
       retention: { successRetention: "30 days", errorRetention: "30 days" },
     },

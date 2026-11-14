@@ -3,19 +3,19 @@
 // `viewRun`, so a run reads the same in both.
 import { Effect } from "effect"
 
-import type { ArchiveRunBase } from "./run.ts"
+import type { RunBase } from "./run.ts"
 import type { InstanceStatus, RunStatus } from "./workflow.ts"
 
-export interface RunView<Run extends ArchiveRunBase> {
+export interface RunView<RunRecord extends RunBase> {
   // The run's record; a run that ended without its summary shows as failed.
-  readonly result: Run
+  readonly result: RunRecord
   readonly inProgress: boolean
   // The instance's status while the record says running, when it has one.
   readonly workflowStatus: RunStatus | null
 }
 
 // What judging a run reads of its record.
-type RunState = Pick<ArchiveRunBase, "outcome" | "startedAt">
+type RunState = Pick<RunBase, "outcome" | "startedAt">
 
 // Statuses of a run that has ended. Every other status holds off the next
 // run: a paused or pausing run can resume, a waiting one is between retries,
@@ -74,11 +74,11 @@ export const endedRunError = Effect.fnUntraced(function* (
     : yield* endedUnsummarized(instance)
 })
 
-export const viewRun = <Run extends ArchiveRunBase>(
-  result: Run,
+export const viewRun = <RunRecord extends RunBase>(
+  result: RunRecord,
   instance: InstanceStatus | undefined,
   now: number
-): Effect.Effect<RunView<Run>> =>
+): Effect.Effect<RunView<RunRecord>> =>
   Effect.gen(function* () {
     const inProgress = yield* isInProgress(result, instance, now)
     const error = yield* endedRunError(result, instance, now)

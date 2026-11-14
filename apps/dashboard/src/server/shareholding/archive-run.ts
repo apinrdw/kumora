@@ -16,7 +16,7 @@ import { readCapped } from "../archive/capped-body.ts"
 import { sha256Hex } from "../archive/hash.ts"
 import { headHeld, MAX_ETAG_BYTES } from "../archive/head.ts"
 import { ETAG, heldRecords, RUN, SHA256 } from "../archive/held.ts"
-import { type ArchiveRun, type ArchiveRunId, runError } from "../archive/run.ts"
+import { type Run, type RunId, runError } from "../archive/run.ts"
 import { recordKey, reportKey } from "./keys.ts"
 import {
   fetchListing,
@@ -30,7 +30,7 @@ import {
 } from "./run-result.ts"
 import { putRunRecord } from "./runs.ts"
 
-type IdxRun = ArchiveRun<ArchiveTrigger>
+type IdxRun = Run<ArchiveTrigger>
 
 type StepServices = ArchiveBucket | HttpClient.HttpClient
 
@@ -64,7 +64,7 @@ const SOURCE_URL = "sourceUrl"
 
 const nowIso = Effect.map(DateTime.now, DateTime.formatIso)
 
-const recordsByUrl = (run?: ArchiveRunId) => heldRecords(SOURCE_URL, run)
+const recordsByUrl = (run?: RunId) => heldRecords(SOURCE_URL, run)
 
 // The listing, split by whether the archive holds each URL, and the run's
 // `running` record. runs/latest.json already names the run: its start
@@ -122,7 +122,7 @@ export const MAX_REPORT_BYTES = 16 * 1024 * 1024
 // downloading the file on every run, and so does a GET whose ETag is over
 // MAX_ETAG_BYTES. Its record names `run`.
 const archiveReport = Effect.fnUntraced(function* (
-  run: ArchiveRunId,
+  run: RunId,
   report: ListedReport,
   headEtag: string | null
 ): Effect.fn.Return<

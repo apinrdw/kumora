@@ -4,7 +4,7 @@ import { Effect } from "effect"
 
 import { ArchiveCard } from "@/components/admin/archive/archive-card"
 import { dateTime } from "@/lib/format"
-import type { ArchiveRunId } from "@/server/archive/run"
+import type { RunId } from "@/server/archive/run"
 import type { CoverageState, KseiCoverage } from "@/server/ksei/coverage"
 import { KIND_LABEL } from "@/server/ksei/kind"
 
@@ -130,7 +130,7 @@ export function KseiCoverageCard({
 }: {
   coverage: KseiCoverage
   lastDeepRun:
-    | { readonly id: ArchiveRunId; readonly finishedAt: string | null }
+    | { readonly id: RunId; readonly finishedAt: string | null }
     | undefined
 }) {
   return (

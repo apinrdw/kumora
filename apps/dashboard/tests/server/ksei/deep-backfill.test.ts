@@ -2,7 +2,7 @@ import { assert, describe, it } from "@effect/vitest"
 import type { StepConfig, WorkflowSteps } from "@workspace/server"
 import { Duration, Effect, Layer } from "effect"
 
-import { ArchiveRunId } from "@/server/archive/run"
+import { RunId } from "@/server/archive/run"
 import { kseiArchiveRun } from "@/server/ksei/archive-run"
 import { unlistedReport } from "@/server/ksei/listing"
 import { WAYBACK_SEED } from "@/server/ksei/wayback-seed"
@@ -50,7 +50,7 @@ const deepRun = (
       configs
     ),
     {
-      id: ArchiveRunId.make(id),
+      id: RunId.make(id),
       trigger: "deep",
       startedAt: new Date("2026-11-14T03:00:00Z"),
     }

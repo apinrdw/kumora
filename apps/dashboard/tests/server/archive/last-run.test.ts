@@ -2,7 +2,7 @@ import { assert, describe, it } from "@effect/vitest"
 import { Effect, Layer } from "effect"
 import { TestClock } from "effect/testing"
 
-import { ArchiveRunId } from "@/server/archive/run"
+import { RunId } from "@/server/archive/run"
 import type { ArchiveRunResult } from "@/server/shareholding/run-result"
 import { lastRun } from "@/server/shareholding/runs"
 
@@ -14,7 +14,7 @@ import {
 import { type MemoryBucket, memoryBucket } from "./memory-bucket.ts"
 
 const RUNNING: ArchiveRunResult = {
-  id: ArchiveRunId.make("admin-1763125032000"),
+  id: RunId.make("admin-1763125032000"),
   trigger: "admin",
   startedAt: "2026-11-14T13:17:12.000Z",
   finishedAt: null,
@@ -29,7 +29,7 @@ const RUNNING: ArchiveRunResult = {
 
 const COMPLETE: ArchiveRunResult = {
   ...RUNNING,
-  id: ArchiveRunId.make("cron-2026-11-14T13"),
+  id: RunId.make("cron-2026-11-14T13"),
   trigger: "cron",
   startedAt: "2026-11-14T13:00:00.000Z",
   finishedAt: "2026-11-14T13:01:12.000Z",
@@ -53,7 +53,7 @@ const seed = (bucket: MemoryBucket, run: ArchiveRunResult) => {
 const instance = (workflow: FakeWorkflow, id: string) => {
   const created: FakeInstance = {
     options: {
-      id: ArchiveRunId.make(id),
+      id: RunId.make(id),
       params: { trigger: "admin" },
       retention: { successRetention: "30 days", errorRetention: "30 days" },
     },
