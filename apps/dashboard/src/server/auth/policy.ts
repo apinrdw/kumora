@@ -41,6 +41,8 @@ type Resources = {
   readonly "market-live.view-live": { readonly feature: "market-live" }
   readonly "market-live.view-recorded-day": { readonly feature: "market-live" }
   readonly "admin.list-accounts": { readonly feature: "admin" }
+  readonly "admin.view-shareholding-archive": { readonly feature: "admin" }
+  readonly "admin.run-shareholding-archive": { readonly feature: "admin" }
   readonly "admin.ban": Target
   readonly "admin.unban": Target
   readonly "admin.set-role": Target
@@ -137,6 +139,10 @@ const rules: Rules = {
   "market-live.view-recorded-day": (account, { feature }) =>
     featureAccess(account, feature),
   "admin.list-accounts": (account, { feature }) =>
+    featureAccess(account, feature),
+  "admin.view-shareholding-archive": (account, { feature }) =>
+    featureAccess(account, feature),
+  "admin.run-shareholding-archive": (account, { feature }) =>
     featureAccess(account, feature),
   "admin.ban": (account, target) =>
     adminOn(account, target.configAdmin || target.isSelf),

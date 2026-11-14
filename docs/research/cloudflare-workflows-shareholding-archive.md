@@ -102,6 +102,8 @@ Never return the xlsx bytes from a step.
 
 **Local dev (`bun alchemy dev`): supported, from reading the source; not run.**
 
+Update, 2026-11-14: run, and it works: a Workflow ran end to end under `bun alchemy dev` ([#305 comment](https://github.com/apinrdw/kumora/issues/305#issuecomment-6873169149)).
+
 - `LocalWorkerProvider` collects host-local `workflow` bindings into the local runtime's `workflows` (`repos/alchemy/packages/cloudflare/src/Workers/LocalWorkerProvider.ts:385-396`).
 - The Workflows plugin persists instance state to disk under the local storage path (`repos/alchemy/packages/cloudflare-runtime/src/core/bindings/workflows/Workflows.ts`).
 - The Vite dev server wraps each configured Workflow class in `createWorkflowEntrypointWrapper` (`cloudflare-runtime/src/vite/export-types.ts:32`, `vite/dev-server.ts:311`, `vite/module-runner/wrapper.worker.ts:330`). The class must be a named export of `main`, and the dev runtime restarts to pick up a new class (`vite/dev-plugin.ts:218-235`).
@@ -165,5 +167,5 @@ run(event):
 - Whether the subrequest limit counts per step invocation or per instance.
 - REST API instance listing and per-step output detail.
 - Effect finalizers on a Workflow step timeout.
-- `bun alchemy dev` running a Workflow end to end: established by reading the source, not by running it.
+- `bun alchemy dev` running a Workflow end to end: established by reading the source, not by running it. Run on 2026-11-14, and it works ([#305 comment](https://github.com/apinrdw/kumora/issues/305#issuecomment-6873169149)).
 - Nothing was deployed for this ticket.
