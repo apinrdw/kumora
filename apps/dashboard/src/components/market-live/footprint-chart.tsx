@@ -1,15 +1,30 @@
 import { ClientOnly } from "@tanstack/react-router"
 import { Effect } from "effect"
-import { Suspense, lazy, useCallback, useSyncExternalStore } from "react"
+import {
+  Suspense,
+  lazy,
+  useCallback,
+  useState,
+  useSyncExternalStore,
+} from "react"
 
+import {
+  FOOTPRINT_MODES,
+  IMBALANCE_RATIOS,
+  type ChartSettings,
+  type FootprintMode,
+} from "@/lib/chart-settings"
 import { footprintSummary } from "@/lib/footprint"
+import { cn } from "@workspace/ui/lib/utils"
 
 import type { RelayGap } from "@workspace/relay"
 
 import type { CandleStore } from "./candle-store"
 import type { ChartPair } from "./chart-pair"
+import { FootprintHeader, makeHeaderStore } from "./footprint-header"
 import { useMergedStale } from "./market-conditions"
 import type { ReplayCursor } from "./replay-cursor"
+import { useChartSettings } from "./use-chart-settings"
 
 // Decision: like chart 1, chart 2 runs Lightweight Charts only in the
 // browser, in its own chunk (live-chart.tsx; spec apinrdw/kumora#138,
@@ -52,10 +67,96 @@ function useFootprintSummary(
   )
 }
 
-// Chart 2: the selected code's footprint, Stacked `sell × buy` lots at each
-// price of each minute, with its Vol / Δ / CVD footer, under chart 1. It
-// draws chart 1's minutes, relay `gaps` included, and moves with it through
-// `pair`.
+const MODE_LABEL: Record<FootprintMode, string> = {
+  stacked: "Stacked",
+  side: "Side by side",
+  profile: "Footprint",
+  candles: "Candles",
+}
+
+// Chart 2's own settings: its view mode tabs, the imbalance ratio, and the
+// POC and VWAP toggles, remembered in this browser.
+function FootprintControls({
+  settings,
+  change,
+}: {
+  settings: ChartSettings
+  change: (patch: Partial<ChartSettings>) => void
+}) {
+  const toggle = (on: boolean) =>
+    cn(
+      "rounded-md border border-border px-1.5 py-px",
+      on ? "border-primary text-primary" : "hover:bg-elevated"
+    )
+  return (
+    <div className="flex flex-wrap items-center gap-2 text-[11px] text-muted-foreground">
+      <div
+        role="tablist"
+        aria-label="Footprint view"
+        className="inline-flex gap-0.5 rounded-md border border-border bg-sidebar p-0.5"
+      >
+        {FOOTPRINT_MODES.map((mode) => (
+          <button
+            key={mode}
+            type="button"
+            role="tab"
+            aria-selected={settings.mode === mode}
+            onClick={() => change({ mode })}
+            className={cn(
+              "rounded-sm px-2 py-px",
+              settings.mode === mode
+                ? "bg-elevated text-foreground"
+                : "hover:text-foreground"
+            )}
+          >
+            {MODE_LABEL[mode]}
+          </button>
+        ))}
+      </div>
+      <label className="flex items-center gap-1">
+        Imbalance
+        <select
+          value={settings.imbalance}
+          onChange={(event) => {
+            const ratio = IMBALANCE_RATIOS.find(
+              (option) => String(option) === event.target.value
+            )
+            if (ratio !== undefined) change({ imbalance: ratio })
+          }}
+          className="bg-surface rounded-md border border-border px-1 py-px text-foreground"
+        >
+          {IMBALANCE_RATIOS.map((ratio) => (
+            <option key={ratio} value={ratio}>
+              {ratio === 0 ? "Off" : `${ratio}×`}
+            </option>
+          ))}
+        </select>
+      </label>
+      <button
+        type="button"
+        aria-pressed={settings.poc}
+        onClick={() => change({ poc: !settings.poc })}
+        className={toggle(settings.poc)}
+      >
+        POC
+      </button>
+      <button
+        type="button"
+        aria-pressed={settings.vwap}
+        onClick={() => change({ vwap: !settings.vwap })}
+        className={toggle(settings.vwap)}
+      >
+        VWAP ±σ
+      </button>
+    </div>
+  )
+}
+
+// Chart 2: the selected code's footprint, each minute's lots at each price
+// in the view mode picked, with imbalances, POC and the day's VWAP bands,
+// its Vol / Δ / CVD footer, and a header reading the hovered minute, under
+// chart 1. It draws chart 1's minutes, relay `gaps` included, and moves with
+// it through `pair`.
 export function FootprintChart({
   store,
   pair,
@@ -68,6 +169,8 @@ export function FootprintChart({
   cursor?: ReplayCursor | undefined
 }) {
   const summary = useFootprintSummary(store, cursor)
+  const { settings, change } = useChartSettings()
+  const [header] = useState(makeHeaderStore)
   // Both feeds down: the cells stay, dimmed.
   const stale = useMergedStale()
   return (
@@ -76,11 +179,12 @@ export function FootprintChart({
       data-stale={stale || undefined}
       className="flex min-w-0 flex-col gap-2 lg:flex-[1.25_1_auto]"
     >
-      <header className="flex flex-wrap items-baseline gap-3">
-        <h2 className="text-[15px] font-bold">Footprint</h2>
-        <span className="text-[12px] text-muted-foreground">
-          Stacked · sell × buy lots
-        </span>
+      <header className="flex flex-col gap-1">
+        <div className="flex flex-wrap items-center gap-3">
+          <h2 className="text-[15px] font-bold">Footprint</h2>
+          <FootprintControls settings={settings} change={change} />
+        </div>
+        <FootprintHeader store={header} />
       </header>
       {/* The canvas has no text: this says what it draws. */}
       <p className="sr-only">{summary}</p>
@@ -93,6 +197,8 @@ export function FootprintChart({
               store={store}
               pair={pair}
               gaps={gaps}
+              settings={settings}
+              header={header}
               cursor={cursor}
             />
           </Suspense>

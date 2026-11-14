@@ -23,6 +23,13 @@
   --chart-vwap: #b3a0ff;
   --chart-volume: #627f9b;
   --chart-grid: #26384b;
+  /* Chart 2 (footprint): diagonal imbalances, and the day VWAP with its ±1σ, ±2σ and ±3σ bands. */
+  --chart-imbalance-buy: #6fe3ff;
+  --chart-imbalance-sell: #ff8cf0;
+  --chart-day-vwap: #7dbcf5;
+  --chart-vwap-band-1: #51dda2;
+  --chart-vwap-band-2: #9ad96c;
+  --chart-vwap-band-3: #f4c36e;
 
   --shadow-popover: 0 4px 16px rgba(4, 10, 18, 0.45);
   --shadow-modal: 0 16px 48px rgba(4, 10, 18, 0.6);
@@ -85,6 +92,10 @@
   --color-vwap: var(--chart-vwap);
   --color-volume: var(--chart-volume);
   --color-grid: var(--chart-grid);
+  --color-day-vwap: var(--chart-day-vwap);
+  --color-vwap-band-1: var(--chart-vwap-band-1);
+  --color-vwap-band-2: var(--chart-vwap-band-2);
+  --color-vwap-band-3: var(--chart-vwap-band-3);
 
   /* Fixed scale; shadcn's calc() radii are overridden on purpose. */
   --radius-xs: 4px;
