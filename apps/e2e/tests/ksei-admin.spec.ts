@@ -3,6 +3,7 @@ import type { Locator, Page } from "@playwright/test"
 import { expect, test } from "../support/test"
 
 import { ADMIN, DASHBOARD, MEMBER } from "../support/accounts"
+import { wibDate } from "../support/clock"
 import {
   seedKseiReport,
   seedKseiRun,
@@ -106,6 +107,30 @@ const stat = (card: Locator, label: string) =>
     })
     .getByRole("definition")
 
+const NEVER = "Never looked for"
+
+const never = (n: number) => Array.from({ length: n }, () => NEVER)
+
+// One kind's coverage table on the page.
+const coverage = (page: Page, kind: string) =>
+  page
+    .getByRole("region", { name: "Coverage" })
+    .getByRole("table", { name: `${kind} coverage` })
+
+// The month cells of `year` in a kind's coverage table, January first.
+const months = (table: Locator, year: number) =>
+  table
+    .getByRole("row")
+    .filter({
+      has: table
+        .page()
+        .getByRole("rowheader", { name: String(year), exact: true }),
+    })
+    .getByRole("cell")
+
+const cellsIn = (table: Locator, state: string) =>
+  table.getByRole("cell", { name: state, exact: true })
+
 test.describe("a member", () => {
   test.use({ storageState: MEMBER.storageState })
 
@@ -123,10 +148,78 @@ test.describe("a member", () => {
   })
 })
 
-// Decision: serial, since every test points the one runs/latest.json of the
-// Test stage's KSEI bucket at its own run.
-test.describe.serial("an admin's last KSEI archive run", () => {
+// Decision: serial, since these tests share the Test stage's KSEI bucket.
+// Each last-run test points its one runs/latest.json at its own run, the
+// totals count all of reports/, and the coverage reads all of reports/ and
+// the newest deep run with finds. So the totals and the coverage before any
+// deep backfill come first, DEEP and the coverage's own deep run after.
+test.describe.serial("an admin's KSEI archive", () => {
   test.use({ storageState: ADMIN.storageState })
+
+  test("the totals count reports, versions and size per kind", async ({
+    page,
+  }) => {
+    const statistics = "securities-statistics"
+    await seedKseiReport(`${statistics}/2026-10-30`, "a".repeat(64), 1_200)
+    // A second version of October counts as a version, not a report.
+    await seedKseiReport(`${statistics}/2026-10-30`, "b".repeat(64), 1_300)
+    await seedKseiReport(`${statistics}/2026-09-30`, "c".repeat(64), 1_400)
+
+    await page.goto(KSEI)
+    const totals = page.getByRole("region", { name: "Archive totals" })
+    // 3,900 bytes of zips and three 77-byte records: 4,131.
+    await expect(totals).toContainText("2 reports · 4.1 KB")
+    await expect(
+      totals.getByRole("table", { name: "Reports per kind" }).getByRole("row")
+    ).toHaveText([
+      "Report kindKey prefixReportsVersionsSize",
+      "Securities statisticsreports/securities-statistics/234.1 KB",
+      "Securities holdingsreports/securities-holdings/000 B",
+    ])
+  })
+
+  test("with no deep backfill yet, every month without a file was never looked for", async ({
+    page,
+  }) => {
+    await seedKseiReport("securities-statistics/2008-01-31", "d".repeat(64), 10)
+    await seedKseiReport("securities-holdings/2008-03-31", "e".repeat(64), 10)
+
+    await page.setViewportSize({ width: 390, height: 844 })
+    await page.goto(KSEI)
+    await expect(page.getByRole("region", { name: "Coverage" })).toContainText(
+      "No deep backfill has run yet"
+    )
+    const statistics = coverage(page, "Securities statistics")
+    const holdings = coverage(page, "Securities holdings")
+    await expect(months(statistics, 2008)).toHaveText(["Held", ...never(11)])
+    await expect(months(holdings, 2008)).toHaveText([
+      ...never(2),
+      "Held",
+      ...never(9),
+    ])
+    // The totals' September and October.
+    await expect(months(statistics, 2026).nth(8)).toHaveText("Held")
+    await expect(months(statistics, 2026).nth(9)).toHaveText("Held")
+    await expect(cellsIn(statistics, "Held")).toHaveCount(3)
+    await expect(cellsIn(holdings, "Held")).toHaveCount(1)
+    for (const table of [statistics, holdings])
+      await expect(cellsIn(table, "Not found")).toHaveCount(0)
+    // From 2008 to the current month in WIB.
+    const today = wibDate(Date.now())
+    const thisYear = Number(today.slice(0, 4))
+    await expect(statistics.getByRole("rowheader")).toHaveCount(
+      thisYear - 2008 + 1
+    )
+    await expect(
+      months(statistics, thisYear).filter({ hasText: /./ })
+    ).toHaveCount(Number(today.slice(5, 7)))
+    // At phone width the grid scrolls inside its card, never the page.
+    expect(
+      await page.evaluate(
+        () => document.documentElement.scrollWidth <= window.innerWidth
+      )
+    ).toBe(true)
+  })
 
   test("a complete run shows its pill, times and counts", async ({ page }) => {
     await seedLatestKseiRun(COMPLETE)
@@ -256,11 +349,61 @@ test.describe.serial("an admin's last KSEI archive run", () => {
       card.getByRole("button", { name: "Deep backfill" })
     ).toBeDisabled()
   })
+
+  test("the coverage shows held, not found and never looked for per kind", async ({
+    page,
+  }) => {
+    // Newer than DEEP, so the coverage reads this run's months not found.
+    const started = Math.floor(Date.now() / 1000) * 1000
+    const id = `deep-${started}`
+    await seedKseiRun({
+      ...DEEP,
+      id,
+      startedAt: new Date(started).toISOString(),
+      finishedAt: new Date(started + 60_000).toISOString(),
+      deep: {
+        foundFromSeed: [],
+        foundByProbing: [],
+        monthsNotFound: {
+          "securities-statistics": ["2008-02", "2008-03"],
+          "securities-holdings": ["2008-01", "2009-12"],
+        },
+        // Its months are neither found nor not found.
+        probeFailures: [
+          { kind: "securities-holdings", year: 2010, message: "timed out" },
+        ],
+      },
+    })
+
+    await page.goto(KSEI)
+    await expect(page.getByRole("region", { name: "Coverage" })).toContainText(
+      `Not found by the latest deep backfill, ${id}, finished`
+    )
+    const statistics = coverage(page, "Securities statistics")
+    const holdings = coverage(page, "Securities holdings")
+    await expect(months(statistics, 2008)).toHaveText([
+      "Held",
+      "Not found",
+      "Not found",
+      ...never(9),
+    ])
+    await expect(months(holdings, 2008)).toHaveText([
+      "Not found",
+      NEVER,
+      "Held",
+      ...never(9),
+    ])
+    await expect(months(holdings, 2009)).toHaveText([...never(11), "Not found"])
+    await expect(months(holdings, 2010)).toHaveText(never(12))
+    await expect(cellsIn(statistics, "Not found")).toHaveCount(2)
+    await expect(cellsIn(holdings, "Not found")).toHaveCount(2)
+    await expect(cellsIn(statistics, "Held")).toHaveCount(3)
+    await expect(cellsIn(holdings, "Held")).toHaveCount(1)
+  })
 })
 
 // Decision: these seed runs/ records without touching runs/latest.json, and
-// this is the only spec writing the KSEI bucket's reports/, so they run beside
-// the serial tests above and the totals they assert are exact.
+// no deep finds, so they run beside the serial tests above.
 test.describe("an admin's KSEI archive history", () => {
   test.use({ storageState: ADMIN.storageState })
 
@@ -273,11 +416,14 @@ test.describe("an admin's KSEI archive history", () => {
     const complete = runAgo(2 * DAY, { reportsAdded: 3, newVersions: 2 })
     const old = runAgo(40 * DAY, {})
     const started = Math.floor((Date.now() - 3 * DAY) / 1000) * 1000
+    // Its plan failed, so it has no finds for the coverage to read.
     const deep = runAgo(3 * DAY, {
-      ...DEEP,
       id: `deep-${started}`,
+      trigger: "deep",
       startedAt: new Date(started).toISOString(),
       finishedAt: new Date(started + 60_000).toISOString(),
+      outcome: "failed",
+      error: "Neither KSEI listing could be read.",
     })
     for (const run of [old, complete, partial, deep]) await seedKseiRun(run)
 
@@ -295,27 +441,5 @@ test.describe("an admin's KSEI archive history", () => {
     await expect(
       table.getByRole("row").filter({ hasText: complete.id })
     ).not.toContainText("Deep backfill")
-  })
-
-  test("the totals count reports, versions and size per kind", async ({
-    page,
-  }) => {
-    const statistics = "securities-statistics"
-    await seedKseiReport(`${statistics}/2026-10-30`, "a".repeat(64), 1_200)
-    // A second version of October counts as a version, not a report.
-    await seedKseiReport(`${statistics}/2026-10-30`, "b".repeat(64), 1_300)
-    await seedKseiReport(`${statistics}/2026-09-30`, "c".repeat(64), 1_400)
-
-    await page.goto(KSEI)
-    const totals = page.getByRole("region", { name: "Archive totals" })
-    // 3,900 bytes of zips and three 77-byte records: 4,131.
-    await expect(totals).toContainText("2 reports · 4.1 KB")
-    await expect(
-      totals.getByRole("table", { name: "Reports per kind" }).getByRole("row")
-    ).toHaveText([
-      "Report kindKey prefixReportsVersionsSize",
-      "Securities statisticsreports/securities-statistics/234.1 KB",
-      "Securities holdingsreports/securities-holdings/000 B",
-    ])
   })
 })

@@ -6,6 +6,7 @@ import {
   KseiRecentRunsCard,
   KseiTotalsCard,
 } from "@/components/admin/ksei/archive-history"
+import { KseiCoverageCard } from "@/components/admin/ksei/coverage-card"
 import { KseiLastRunCard } from "@/components/admin/ksei/last-run-card"
 import { kseiArchiveFn } from "@/server/admin/ksei.functions"
 
@@ -21,13 +22,15 @@ export const Route = createFileRoute("/_app/admin/ksei")({
 })
 
 function KseiPage() {
-  const { recentRuns, totals, ...lastRun } = Route.useLoaderData()
+  const { recentRuns, totals, coverage, lastDeepRun, ...lastRun } =
+    Route.useLoaderData()
   return (
     <div className="flex flex-col gap-5 py-6">
       <h1 className="text-2xl font-bold">KSEI archive</h1>
       <KseiLastRunCard {...lastRun} />
       <KseiRecentRunsCard runs={recentRuns} />
       <KseiTotalsCard totals={totals} />
+      <KseiCoverageCard coverage={coverage} lastDeepRun={lastDeepRun} />
     </div>
   )
 }
