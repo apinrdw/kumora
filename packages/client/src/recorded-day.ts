@@ -80,21 +80,20 @@ export const fetchRecordedTape = Effect.fnUntraced(function* (
 // The broker codes of the trades the tape at `at` holds, and whether the
 // day's codes are complete; a 404 is a day with none yet. `fresh` asks the
 // Worker past the browser's copy, for the recheck while incomplete.
-export const fetchRecordedBrokerCodes = (
+export const fetchRecordedBrokerCodes = Effect.fnUntraced(function* (
   date: WibDate,
   at: DateTime.Utc,
   fresh = false
-) =>
-  Effect.gen(function* () {
-    const body = yield* getResource(date, { _tag: "BrokerCodes", at })
-    if (Option.isNone(body))
-      return { codes: [], complete: false } satisfies RecordedBrokerCodes
-    return yield* decodeRecordedBrokerCodes(body.value)
-  }).pipe(
+) {
+  const body = yield* getResource(date, { _tag: "BrokerCodes", at }).pipe(
     fresh
       ? Effect.provideService(FetchHttpClient.RequestInit, { cache: "reload" })
       : (effect) => effect
   )
+  if (Option.isNone(body))
+    return { codes: [], complete: false } satisfies RecordedBrokerCodes
+  return yield* decodeRecordedBrokerCodes(body.value)
+})
 
 // The broker codes the tape's rows show, by Trade number.
 export type RecordedTradeCodes = ReadonlyMap<TradeNumber, TradeCodes>
