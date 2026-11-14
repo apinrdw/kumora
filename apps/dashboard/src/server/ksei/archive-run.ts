@@ -365,12 +365,10 @@ const summary = Effect.fnUntraced(function* (
   const earlier = yield* recordsByFilename(run.id)
   const result = KseiRunResult.make({
     ...(yield* finishedResult(run)),
-    // Decision: an MD5 mismatch is flagged and counted but stored, and
-    // leaves the run complete: the bytes are what KSEI serves. See
-    // apinrdw/kumora#327.
-    // Decision: a deep run's months not found leave it complete: they are
-    // what KSEI doesn't serve. A probe that failed is partial, like a file
-    // not stored: its months weren't looked at. See apinrdw/kumora#330.
+    // Decision: an MD5 mismatch and a deep run's months not found leave the
+    // run complete: they are what KSEI serves, and doesn't. A probe that
+    // failed is partial, like a file not stored: its months weren't looked
+    // at. See apinrdw/kumora#327 and #330.
     outcome:
       notStored.length === 0 &&
       planned.listingFailures.length === 0 &&
