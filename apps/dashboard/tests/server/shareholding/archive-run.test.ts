@@ -749,6 +749,34 @@ describe("an archive run at the largest size it accepts", () => {
     })
   )
 
+  it.effect("stores reports whose URLs differ only past 250 characters", () =>
+    Effect.gen(function* () {
+      const longUrl = (last: string) => {
+        const head = "https://www.idx.co.id/Media/"
+        return `${head}${"p".repeat(252 - head.length - 6)}${last}.xlsx`
+      }
+      const urls = [longUrl("a"), longUrl("b")]
+      assert.deepStrictEqual(
+        urls.map((url) => url.length),
+        [252, 252]
+      )
+      const idx = fakeIdx(
+        urls.map((Prospectus) => ({
+          Description: "Laporan x",
+          Prospectus,
+          ListingDate: `${dataDate}T12:00:00`,
+        }))
+      )
+      const bucket = memoryBucket()
+
+      const result = yield* run(idx, bucket, "cron-2026-11-14T06")
+
+      assert.deepInclude(result, { outcome: "complete", reportsAdded: 2 })
+      for (const url of urls)
+        assert.strictEqual(recordsOf(bucket, url).length, 1)
+    })
+  )
+
   it.effect("leaves a URL not stored while its HEAD ETag is too long", () =>
     Effect.gen(function* () {
       const idx = fakeIdx(listing(2))

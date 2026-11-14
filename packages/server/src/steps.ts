@@ -19,6 +19,10 @@ export class NonRetryable extends Schema.TaggedError<NonRetryable>()(
 // step result, 1 MiB. A step whose result could outgrow it bounds its input.
 export const STEP_RESULT_BYTES = 2 ** 20
 
+// The most characters a step's name may take: Cloudflare's limit
+// (repos/alchemy, cloudflare-runtime's workflows-shared/lib/validators.ts).
+export const MAX_STEP_NAME_LENGTH = 256
+
 // The bytes `value` takes as JSON, as a step result is measured here.
 export const jsonBytes = (value: unknown) =>
   Effect.sync(() => new TextEncoder().encode(JSON.stringify(value)).length)
