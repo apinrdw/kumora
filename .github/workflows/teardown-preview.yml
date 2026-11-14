@@ -12,7 +12,7 @@ permissions:
 
 jobs:
   stage:
-    # A promotion (staging into main) or a sync (main into staging) PR has no
+    # A PR from a release branch, such as a Sync (main into staging), has no
     # Preview: its head deploys a release stage.
     if: (github.event_name == 'pull_request' && !contains(fromJSON('["main", "staging"]'), github.head_ref)) || github.event.ref_type == 'branch'
     runs-on: ubuntu-latest

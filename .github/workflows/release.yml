@@ -1,0 +1,60 @@
+# Release tags (scripts/release-tag.mts). A Candidate, v<version>-<YYYYMMDD>-<N>,
+# marks a staging commit tried on Staging. A Production tag,
+# v<version>-<YYYYMMDD>, fast-forwards main to its Candidate's commit, and
+# Workers Builds deploys main to Production.
+name: Release
+
+on:
+  push:
+    tags: ["v*"]
+
+concurrency:
+  group: release
+
+permissions:
+  contents: write
+  statuses: write
+
+jobs:
+  release:
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    env:
+      TAG: ${{ github.ref_name }}
+    steps:
+      - uses: actions/checkout@v5
+        with:
+          fetch-depth: 0
+      - uses: pnpm/action-setup@v6
+      - uses: actions/setup-node@v5
+        with:
+          node-version: 24
+          cache: pnpm
+      - run: pnpm install --frozen-lockfile
+      - id: tag
+        run: node scripts/judge-release-tag.mts "$TAG" >> "$GITHUB_OUTPUT"
+      - run: |
+          sha="$(git rev-parse "$TAG^{commit}")"
+          if ! git merge-base --is-ancestor "$sha" origin/staging; then
+            echo "::error::$TAG ($sha) is not on staging."
+            exit 1
+          fi
+      - if: steps.tag.outputs.kind == 'production'
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          sha="$(git rev-parse "$TAG^{commit}")"
+          if ! git merge-base --is-ancestor origin/main "$sha"; then
+            echo "::error::main has commits $TAG lacks. Merge the open Sync PR into staging, then tag a new Candidate."
+            exit 1
+          fi
+          # The release branches' ruleset requires e2e-evidence on main's new
+          # head, and every commit this moves passed it on its own PR.
+          gh api "repos/$GITHUB_REPOSITORY/statuses/$sha" \
+            -f state=success -f context=e2e-evidence \
+            -f description="released as $TAG; its PRs passed this gate"
+          git push origin "$sha:refs/heads/main"
+      # Decision: a refused tag is deleted, so it never counts toward the next
+      # Candidate's N or the version Production must exceed.
+      - if: failure()
+        run: git push origin ":refs/tags/$TAG"
