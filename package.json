@@ -20,6 +20,7 @@
     "test:e2e": "pnpm --filter e2e e2e",
     "ci-timings": "node scripts/report-ci-timings.mts",
     "e2e:evidence": "node scripts/e2e-evidence.mts",
+    "ksei:wayback-seed": "node scripts/write-ksei-wayback-seed.mts",
     "prepare": "git config core.hooksPath .githooks",
     "test:root": "vitest run --dir scripts --exclude \"**/*.repo.test.mts\"",
     "test:repo": "vitest run --dir scripts .repo.test.mts"
