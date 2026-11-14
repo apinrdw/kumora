@@ -43,6 +43,7 @@ export type WalkResult =
         | "no-tab"
         | "window-passed"
         | "other-date"
+        | "empty-tape"
         | "no-rows"
         | "incomplete"
     }

@@ -231,6 +231,12 @@ export const makeAjaibWalk = Effect.fnUntraced(function* (options: {
     const head = yield* startCall(yield* tapePath(now, 1, HEAD_PAGE_SIZE))
     const page =
       head.status === 200 ? yield* pageRows(head) : Option.none<never>()
+    // Decision: a 200 page with no rows once Ajaib says CLOSED means the tape
+    // no longer holds the day (seen Saturday 2026-11-14, after Friday's
+    // evening), so Stockbit takes the day instead of the queue waiting for
+    // Ajaib's window to end. Any other answer is polled again.
+    if (Option.exists(page, (answer) => answer.size === 0))
+      return yield* halt({ _tag: "unserved", reason: "empty-tape" })
     const rows = Option.match(page, {
       onNone: (): ReadonlyArray<PageRow> => [],
       onSome: (answer) => answer.rows,
