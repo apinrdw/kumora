@@ -84,10 +84,12 @@ interface HeldRecords {
 
 // The ETags and hashes the records of each held URL hold, leaving out those
 // `run` wrote.
-// Decision: one listing of reports/ with custom metadata, as the spec's
-// `plan` step says: ~150 files and their records on 2026-11-14, growing
-// ~50 objects a month, held for the step alone. A per-URL lookup would cost
-// a request per listed report. See apinrdw/kumora#303 and #305.
+// Decision: each step that needs them (`plan`, `head`, `summary`) lists
+// reports/ with custom metadata itself, instead of the spec's single listing
+// in `plan`: carried between steps, they would outgrow a step result. ~150
+// files and their records on 2026-11-14, growing ~50 objects a month, held
+// for one step. A per-URL lookup would cost a request per listed report. See
+// apinrdw/kumora#303 and #305.
 const heldRecords = Effect.fnUntraced(function* (run?: ArchiveRunId) {
   const byUrl = new Map<string, HeldRecords>()
   for (const { customMetadata } of yield* (yield* ArchiveBucket).list(
