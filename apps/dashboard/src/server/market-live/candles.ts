@@ -208,16 +208,20 @@ export const minuteOf = (time: DateTime.Utc) =>
 
 const counts = (trade: RunningTrade) => Effect.succeed(trade.board === "RG")
 
-// Whether two copies of a trade give its candle and footprint the same
-// figures: a side one feed left unspecified moves its footprint lots.
-const sameCandlePart = Effect.fnUntraced(function* (
+const secondOf = (time: DateTime.Utc) =>
+  Math.floor(DateTime.toEpochMillis(time) / 1000)
+
+// Whether two copies of a trade give its candle, footprint and sweeps the
+// same part: a side one feed left unspecified moves its footprint lots, and
+// a time in another second of the same minute regroups its sweeps.
+const samePart = Effect.fnUntraced(function* (
   a: RunningTrade,
   b: RunningTrade
 ) {
   return (
     (yield* counts(a)) === (yield* counts(b)) &&
     a.code === b.code &&
-    (yield* minuteOf(a.time)) === (yield* minuteOf(b.time)) &&
+    secondOf(a.time) === secondOf(b.time) &&
     a.price === b.price &&
     a.lots === b.lots &&
     a.side === b.side
@@ -417,7 +421,9 @@ export const makeCandleBook = Effect.fnUntraced(function* (
   })
 
   // A trade as the tape now holds it: new (`held` undefined), or merged from
-  // what it held before.
+  // what it held before. Answers whether it changed a stock's sweeps: a
+  // regular-board trade that is new, or whose part a copy changed inside its
+  // merge window.
   const trade = Effect.fnUntraced(function* (
     held: RunningTrade | undefined,
     current: RunningTrade
@@ -425,22 +431,25 @@ export const makeCandleBook = Effect.fnUntraced(function* (
     const now = yield* Clock.currentTimeMillis
     yield* settle(now)
     const arrival = arrivals.get(current.tradeNumber)
+    let left = false
     if (held !== undefined) {
-      if (arrival === undefined) return
+      if (arrival === undefined) return false
       arrival.trade = current
-      if (yield* sameCandlePart(held, current)) return
+      if (yield* samePart(held, current)) return false
       if (yield* counts(held)) {
         const before = yield* slotOf(held.code, yield* minuteOf(held.time))
         before.open.delete(held.tradeNumber)
         changed.add(before)
+        left = true
       }
     } else {
       arrivals.set(current.tradeNumber, { arrivedAt: now, trade: current })
     }
-    if (!(yield* counts(current))) return
+    if (!(yield* counts(current))) return left
     const slot = yield* slotOf(current.code, yield* minuteOf(current.time))
     slot.open.set(current.tradeNumber, current)
     changed.add(slot)
+    return true
   })
 
   // An index's `liveprice` frame. Its candle moves by the day totals' growth

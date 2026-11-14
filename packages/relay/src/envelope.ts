@@ -337,6 +337,10 @@ const Delta = Schema.TaggedStruct("Delta", {
   // Every footprint that changed since the last delta of a code some viewer
   // selected, each whole. Absent when none changed.
   footprints: Schema.optionalKey(Schema.Array(Footprint)),
+  // The codes some viewer selected whose sweeps changed since the last delta
+  // where a page can't carry its own on from the tape (trading-day.ts): a
+  // page on one asks its sweeps GET again. Absent when none did.
+  staleSweeps: Schema.optionalKey(Schema.Array(StockCode)),
   // Every changed Day state of a code some viewer selected or watches, each
   // whole. Absent when none changed.
   dayStates: Schema.optionalKey(Schema.Array(DayState)),

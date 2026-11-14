@@ -43,10 +43,37 @@ const snapshot: ViewerDown = {
   },
 }
 
-const delta = (tape: ReadonlyArray<RunningTrade>): ViewerDown => ({
+const BBCA = StockCode.make("BBCA")
+
+// A delta's tape, and the codes whose sweeps it names stale.
+const delta = (
+  tape: ReadonlyArray<RunningTrade>,
+  staleSweeps: ReadonlyArray<StockCode> = []
+): ViewerDown => ({
   _tag: "Delta",
   tape,
   candles: [],
+  ...(staleSweeps.length > 0 ? { staleSweeps } : {}),
+})
+
+// The answer's sweeps as the tests write them: [WIB time, side, lots, trades].
+const answerOf = (
+  through: number,
+  sweeps: ReadonlyArray<
+    readonly [time: string, side: Sweep["side"], lots: number, trades: number]
+  >
+) => ({
+  code: UNTR,
+  through: TradeNumber.make(String(through)),
+  sweeps: sweeps.map(([time, side, lots, trades]) => ({
+    side,
+    time: DateTime.makeUnsafe(`2026-11-09T${time}+07:00`),
+    first: 1_000,
+    last: 1_000,
+    lots,
+    value: lots * 100_000,
+    trades,
+  })),
 })
 
 // A sweep as the test compares it: [side, WIB time, lots, trades].
@@ -75,21 +102,7 @@ describe("the selected code's sweeps, live", () => {
           ])
         )
         expect(store.sweeps()).toEqual([])
-        store.answer(asked!, {
-          code: UNTR,
-          through: TradeNumber.make("102"),
-          sweeps: [
-            {
-              side: "buy",
-              time: DateTime.makeUnsafe("2026-11-09T09:00:10.100+07:00"),
-              first: 1_000,
-              last: 1_000,
-              lots: 2,
-              value: 200_000,
-              trades: 1,
-            },
-          ],
-        })
+        store.answer(asked!, answerOf(102, [["09:00:10.100", "buy", 2, 1]]))
         expect(store.awaiting()).toBeUndefined()
         expect(store.sweeps().map(shape)).toEqual([
           ["buy", "2026-11-09T02:00:10.100Z", 5, 2],
@@ -125,83 +138,93 @@ describe("the selected code's sweeps, live", () => {
   )
 
   it.effect(
-    "a late trade numbered inside the answer asks the GET again, and its answer splits the sweep",
+    "a delta naming the code's sweeps stale asks the GET again, and its answer splits the sweep",
     () =>
       Effect.gen(function* () {
         const store = yield* makeSweepStore(UNTR)
         store.apply(snapshot)
-        store.answer(store.awaiting()!, {
-          code: UNTR,
-          through: TradeNumber.make("103"),
-          sweeps: [
-            {
-              side: "buy",
-              time: DateTime.makeUnsafe("2026-11-09T09:00:10.100+07:00"),
-              first: 1_000,
-              last: 1_000,
-              lots: 5,
-              value: 500_000,
-              trades: 2,
-            },
-          ],
-        })
-        store.apply(delta([trade(102, "09:00:10.200", "sell", 4)]))
-        const asked = store.awaiting()
-        expect(asked).toBeDefined()
-        store.answer(asked!, {
-          code: UNTR,
-          through: TradeNumber.make("103"),
-          sweeps: [
-            ["09:00:10.100", "buy", 2],
-            ["09:00:10.200", "sell", 4],
-            ["09:00:10.500", "buy", 3],
-          ].map(([time, side, lots]) => ({
-            side: side as Sweep["side"],
-            time: DateTime.makeUnsafe(`2026-11-09T${time}+07:00`),
-            first: 1_000,
-            last: 1_000,
-            lots: lots as number,
-            value: (lots as number) * 100_000,
-            trades: 1,
-          })),
-        })
+        store.answer(
+          store.awaiting()!,
+          answerOf(103, [["09:00:10.100", "buy", 5, 2]])
+        )
+        // A late 102, and 104 after the answer.
+        store.apply(
+          delta(
+            [
+              trade(102, "09:00:10.200", "sell", 4),
+              trade(104, "09:00:10.900", "buy", 1),
+            ],
+            [UNTR]
+          )
+        )
+        expect(store.awaiting()).toBe(2)
+        // Shown meanwhile: the answer it has, with 104 joined on.
+        expect(store.sweeps().map(shape)).toEqual([
+          ["buy", "2026-11-09T02:00:10.100Z", 6, 3],
+        ])
+        store.answer(
+          2,
+          answerOf(104, [
+            ["09:00:10.100", "buy", 2, 1],
+            ["09:00:10.200", "sell", 4, 1],
+            ["09:00:10.500", "buy", 4, 2],
+          ])
+        )
+        expect(store.awaiting()).toBeUndefined()
         expect(store.sweeps().map(shape)).toEqual([
           ["buy", "2026-11-09T02:00:10.100Z", 2, 1],
           ["sell", "2026-11-09T02:00:10.200Z", 4, 1],
-          ["buy", "2026-11-09T02:00:10.500Z", 3, 1],
+          ["buy", "2026-11-09T02:00:10.500Z", 4, 2],
         ])
       })
   )
 
   it.effect(
-    "a second feed's copy of a trade seen since the snapshot, its side unchanged, asks nothing",
+    "a delta's copy of a trade the answer held, and another code's stale sweeps, ask nothing",
     () =>
       Effect.gen(function* () {
         const store = yield* makeSweepStore(UNTR)
         store.apply(snapshot)
-        const asked = store.awaiting()!
-        store.apply(delta([trade(101, "09:00:10.100", "buy", 2)]))
-        store.answer(asked, {
-          code: UNTR,
-          through: TradeNumber.make("101"),
-          sweeps: [
-            {
-              side: "buy",
-              time: DateTime.makeUnsafe("2026-11-09T09:00:10.100+07:00"),
-              first: 1_000,
-              last: 1_000,
-              lots: 2,
-              value: 200_000,
-              trades: 1,
-            },
-          ],
-        })
-        store.apply(
-          delta([{ ...trade(101, "09:00:10.100", "buy", 2), feeds: ["Ajaib"] }])
+        store.answer(
+          store.awaiting()!,
+          answerOf(101, [["09:00:10.100", "buy", 2, 1]])
+        )
+        // The store never heard 101 before: its answer was given first.
+        store.apply(delta([trade(101, "09:00:10.100", "buy", 2)], [BBCA]))
+        expect(store.awaiting()).toBeUndefined()
+        expect(store.sweeps().map(shape)).toEqual([
+          ["buy", "2026-11-09T02:00:10.100Z", 2, 1],
+        ])
+      })
+  )
+
+  it.effect(
+    "named stale while a GET is in flight, its answer is shown and the GET asked once more",
+    () =>
+      Effect.gen(function* () {
+        const store = yield* makeSweepStore(UNTR)
+        store.apply(snapshot)
+        // A late 102 the answer on its way was given without.
+        store.apply(delta([trade(102, "09:00:10.200", "sell", 4)], [UNTR]))
+        expect(store.awaiting()).toBe(1)
+        store.answer(1, answerOf(103, [["09:00:10.100", "buy", 5, 2]]))
+        expect(store.sweeps().map(shape)).toEqual([
+          ["buy", "2026-11-09T02:00:10.100Z", 5, 2],
+        ])
+        expect(store.awaiting()).toBe(2)
+        store.answer(
+          2,
+          answerOf(103, [
+            ["09:00:10.100", "buy", 2, 1],
+            ["09:00:10.200", "sell", 4, 1],
+            ["09:00:10.500", "buy", 3, 1],
+          ])
         )
         expect(store.awaiting()).toBeUndefined()
         expect(store.sweeps().map(shape)).toEqual([
           ["buy", "2026-11-09T02:00:10.100Z", 2, 1],
+          ["sell", "2026-11-09T02:00:10.200Z", 4, 1],
+          ["buy", "2026-11-09T02:00:10.500Z", 3, 1],
         ])
       })
   )

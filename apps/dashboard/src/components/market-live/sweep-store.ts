@@ -58,10 +58,11 @@ export interface SweepStore {
 // recorded day's come whole from its GET (`answer`). Live, each snapshot of
 // this code asks the GET again: the trades deltas carry meanwhile wait for
 // its answer, and only the trades numbered above the one it names are
-// grouped onto it, so the join has no gap and no duplicate. A trade at or
-// below that number that this store hasn't heard with the same side (a late
-// trade, or a second feed changing its side) can change the answered sweeps,
-// so it asks the GET again too.
+// grouped onto it, so the join has no gap and no duplicate. What changes the
+// answered sweeps the tape can't say: a copy of a trade the answer held looks
+// like a late one it lacked, and a trade off the tape isn't sent. The object
+// names the code in a delta's `staleSweeps` then (trading-day.ts), and the
+// store asks the GET again.
 export const makeSweepStore = (code: StockCode) =>
   Effect.sync((): SweepStore => {
     let answered: ReadonlyArray<Sweep> = []
@@ -72,10 +73,13 @@ export const makeSweepStore = (code: StockCode) =>
     let newest: TradeNumber | undefined
     let laterSweeps: Array<Sweep> = []
     let all: ReadonlyArray<Sweep> = []
-    // Each trade number heard in a delta, with the side it last came with.
-    const heard = new Map<TradeNumber, RunningTrade["side"]>()
     let ask = 0
-    let waiting: Array<RunningTrade> | undefined
+    // The GET in flight: the trades heard since it was asked, and whether the
+    // object named this code's sweeps stale since, a change its answer may
+    // have been given before.
+    let asking:
+      | { readonly held: Array<RunningTrade>; stale: boolean }
+      | undefined
     let topN = TOP_N_DEFAULT
     let selected: number | undefined
     let worked:
@@ -118,9 +122,10 @@ export const makeSweepStore = (code: StockCode) =>
       all = Effect.runSync(joinSweeps(answered, laterSweeps))
       emit({ _tag: "Sweeps" })
     }
-    const askAgain = (held: ReadonlyArray<RunningTrade>) => {
+    // The object holds every trade heard so far, so the answer covers them.
+    const askAgain = () => {
       ask += 1
-      waiting = [...held]
+      asking = { held: [], stale: false }
       emit({ _tag: "Sweeps" })
     }
     return {
@@ -154,39 +159,39 @@ export const makeSweepStore = (code: StockCode) =>
           from,
         })
       },
-      awaiting: () => (waiting === undefined ? undefined : ask),
+      awaiting: () => (asking === undefined ? undefined : ask),
       answer: (asked, answer) => {
         if (answer.code !== code || asked !== ask) return
+        const flight = asking
+        asking = undefined
         answered = answer.sweeps
         through = answer.through
         later = new Map()
         newest = undefined
         laterSweeps = []
         all = answered
-        const held = waiting ?? []
-        waiting = undefined
         selected = undefined
         emit({ _tag: "Sweeps" })
-        add(held)
+        add(flight?.held ?? [])
+        // Shown meanwhile, though it may lack the change the object named.
+        if (flight?.stale) askAgain()
       },
       apply: (message) => {
         if (message._tag === "Snapshot") {
-          if (message.selected === code) askAgain([])
+          if (message.selected === code) askAgain()
           return
         }
         const mine = message.tape.filter(
           (trade) => trade.code === code && trade.board === "RG"
         )
-        if (mine.length === 0) return
-        let revised = false
-        for (const trade of mine) {
-          if (!after(trade) && heard.get(trade.tradeNumber) !== trade.side)
-            revised = true
-          heard.set(trade.tradeNumber, trade.side)
+        const stale = message.staleSweeps?.includes(code) ?? false
+        if (asking !== undefined) {
+          asking.held.push(...mine)
+          asking.stale ||= stale
+          return
         }
-        if (waiting !== undefined) waiting.push(...mine)
-        else if (revised) askAgain(mine)
-        else add(mine)
+        add(mine)
+        if (stale) askAgain()
       },
       subscribe: (listener) => {
         listeners.add(listener)

@@ -432,6 +432,33 @@ describe("sweeps", () => {
       })
   )
 
+  it.effect(
+    "a woken object names a code's sweeps stale for a late trade inside an answer it gave before it slept",
+    () =>
+      Effect.gen(function* () {
+        yield* at("09:01:10")
+        const sql = memorySql()
+        const day = yield* tradingDay(sql)
+        const page = yield* pageOn(day, "UNTR")
+        yield* day.trades([
+          untr(40001, "09:00:10.100", 23300, 2, "buy"),
+          untr(40003, "09:00:10.500", 23325, 3, "buy"),
+        ])
+        yield* page.settle
+        // Past the merge window and the minute's flush.
+        yield* TestClock.adjust("2 minutes")
+        yield* day.evicted
+        const woken = yield* tradingDay(sql, day.viewers)
+        yield* woken.trades([untr(40002, "09:00:10.300", 23300, 4, "sell")])
+        yield* TestClock.adjust("250 millis")
+        const sent = yield* decodeViewerDown(page.socket.sent.at(-1)!)
+        assert.deepStrictEqual(
+          sent._tag === "Delta" ? sent.staleSweeps : undefined,
+          [StockCode.make("UNTR")]
+        )
+      })
+  )
+
   it.effect("a sealed day answers its sweeps whole, cached", () =>
     Effect.gen(function* () {
       yield* at("09:01:10")
