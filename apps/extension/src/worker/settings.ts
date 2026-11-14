@@ -19,6 +19,7 @@ import {
   type IncompleteDaysStore,
 } from "./broker-codes/run-queue.ts"
 import { CodeListCache, RelayOutcome, type CodeListStore } from "./code-list.ts"
+import { ErrorLogEntry, redact, type ErrorLogStore } from "./error-log.ts"
 
 // Where a dashboard serves: an origin, `https://host` or `http://host:port`.
 export const DashboardOrigin = Schema.String.check(
@@ -58,6 +59,16 @@ export type TargetState = typeof TargetState.Type
 const TargetStates = Schema.Record(TargetName, TargetState)
 export type TargetStates = typeof TargetStates.Type
 
+// Decision: every credential the worker reads is remembered in memory for
+// redact (error-log.ts), beside those in storage when it redacts: a PIN a
+// failed check or the lock screen wiped, or a token the owner replaced,
+// can still sit in a line logged just before. See apinrdw/kumora#288.
+const seenSecrets = new Set<string>()
+
+const remember = Effect.fnUntraced(function* (secrets: ReadonlyArray<string>) {
+  for (const secret of secrets) seenSecrets.add(secret)
+})
+
 const SETTINGS_KEY = "settings"
 const STATES_KEY = "targetStates"
 
@@ -66,10 +77,15 @@ export const loadSettings = Effect.gen(function* () {
   const stored = yield* Effect.promise(() =>
     chrome.storage.local.get(SETTINGS_KEY)
   )
-  return Option.getOrElse(
+  const settings = Option.getOrElse(
     Schema.decodeUnknownOption(Settings)(stored[SETTINGS_KEY]),
     () => noSettings
   )
+  yield* remember([
+    settings.productionToken,
+    ...(settings.extra === null ? [] : [settings.extra.token]),
+  ])
+  return settings
 })
 
 export const saveSettings = Effect.fnUntraced(function* (settings: Settings) {
@@ -276,19 +292,28 @@ export const sessionPinStore: PinStore = {
     const pinKey = `${PIN_PREFIX}${entry.value}`
     const signInKey = `${SIGN_IN_PREFIX}${entry.value}`
     const typingKey = `${TYPING_PREFIX}${entry.value}`
+    const pin = decodePin(stored[pinKey])
+    const signIn = Option.getOrElse(
+      decodeSignIn(stored[signInKey]),
+      (): SignIn => ({ state: "none" })
+    )
+    yield* remember([
+      ...Option.toArray(pin),
+      ...(signIn.state === "signed-in" ? [signIn.accessToken] : []),
+    ])
     return Option.some<PinEntry>({
-      pin: decodePin(stored[pinKey]),
-      signIn: Option.getOrElse(decodeSignIn(stored[signInKey]), (): SignIn => ({
-        state: "none",
-      })),
+      pin,
+      signIn,
       typing: stored[typingKey] === true,
       wipePin: Effect.promise(() =>
         chrome.storage.session.remove([pinKey, typingKey])
       ),
-      setSignIn: (signIn) =>
-        Effect.promise(() =>
-          chrome.storage.session.set({ [signInKey]: signIn })
-        ),
+      setSignIn: Effect.fnUntraced(function* (next: SignIn) {
+        if (next.state === "signed-in") yield* remember([next.accessToken])
+        yield* Effect.promise(() =>
+          chrome.storage.session.set({ [signInKey]: next })
+        )
+      }),
       setTyping: (typing) =>
         Effect.promise(() =>
           typing
@@ -635,4 +660,107 @@ export const isHistoryChange = Effect.fnUntraced(function* (
   area: string
 ) {
   return area === "local" && HISTORY_KEY in changes
+})
+
+// Decision: the worker's Error and Fatal lines (error-log.ts) and the cause
+// "Relay stopped" ended on live in chrome.storage.session: they outlive the
+// service worker and the DevTools console, so the owner can still copy them
+// after the relay stopped, yet they are cleared when Chrome closes and never
+// synced. See apinrdw/kumora#274.
+const ERROR_LOG_KEY = "relayErrors"
+const RELAY_STOPPED_KEY = "relayStopped"
+const ErrorLog = Schema.Array(ErrorLogEntry)
+
+// The PINs, sign-in tokens and ingest tokens in storage now, and every one
+// the worker read before.
+const knownSecrets = Effect.gen(function* () {
+  const session = yield* Effect.promise(() => chrome.storage.session.get(null))
+  yield* remember(
+    Object.entries(session).flatMap(([key, value]) => {
+      if (key.startsWith(PIN_PREFIX)) return Option.toArray(decodePin(value))
+      if (!key.startsWith(SIGN_IN_PREFIX)) return []
+      const signIn = decodeSignIn(value)
+      return Option.isSome(signIn) && signIn.value.state === "signed-in"
+        ? [signIn.value.accessToken]
+        : []
+    })
+  )
+  yield* loadSettings
+  return [...seenSecrets]
+})
+
+export const errorLogStore: ErrorLogStore = {
+  secrets: knownSecrets,
+  load: Effect.gen(function* () {
+    const stored = yield* Effect.promise(() =>
+      chrome.storage.session.get(ERROR_LOG_KEY)
+    )
+    return Option.getOrElse(
+      Schema.decodeUnknownOption(ErrorLog)(stored[ERROR_LOG_KEY]),
+      (): ReadonlyArray<ErrorLogEntry> => []
+    )
+  }),
+  save: Effect.fnUntraced(function* (entries) {
+    const encoded = yield* Effect.orDie(Schema.encodeEffect(ErrorLog)(entries))
+    yield* Effect.promise(() =>
+      chrome.storage.session.set({ [ERROR_LOG_KEY]: encoded })
+    )
+  }),
+}
+
+export const isErrorLogChange = Effect.fnUntraced(function* (
+  changes: Readonly<Record<string, unknown>>,
+  area: string
+) {
+  return area === "session" && ERROR_LOG_KEY in changes
+})
+
+// When the worker's main loop ended, and its cause, pretty-printed.
+const RelayStopped = Schema.Struct({ at: Schema.Finite, cause: Schema.String })
+export type RelayStopped = typeof RelayStopped.Type
+
+export const saveRelayStopped = Effect.fnUntraced(function* (
+  stopped: RelayStopped
+) {
+  const cause = yield* redact(stopped.cause, yield* knownSecrets)
+  yield* Effect.promise(() =>
+    chrome.storage.session.set({ [RELAY_STOPPED_KEY]: { ...stopped, cause } })
+  )
+})
+
+// A worker that starts again runs the relay again.
+export const clearRelayStopped = Effect.promise(() =>
+  chrome.storage.session.remove(RELAY_STOPPED_KEY)
+)
+
+export const loadRelayStopped = Effect.gen(function* () {
+  const stored = yield* Effect.promise(() =>
+    chrome.storage.session.get(RELAY_STOPPED_KEY)
+  )
+  return Schema.decodeUnknownOption(RelayStopped)(stored[RELAY_STOPPED_KEY])
+})
+
+export const isRelayStoppedChange = Effect.fnUntraced(function* (
+  changes: Readonly<Record<string, unknown>>,
+  area: string
+) {
+  return area === "session" && RELAY_STOPPED_KEY in changes
+})
+
+// Decision: diagnostics read these session keys by name, never
+// `chrome.storage.session.get(null)`: the session area also holds the Ajaib
+// PIN and its sign-in's tokens. See apinrdw/kumora#274.
+const DIAGNOSTIC_KEYS = [
+  BROKER_CODES_PROGRESS_KEY,
+  BROKER_CODES_RUN_KEY,
+  ...Feed.literals.map((feed) => `${THROTTLED_PREFIX}${feed}`),
+  AJAIB_LOCK_KEY,
+]
+
+// The broker codes keys as stored, a missing one as null, in key order.
+export const loadDiagnosticKeys = Effect.gen(function* () {
+  const stored = yield* Effect.promise(() =>
+    chrome.storage.session.get(DIAGNOSTIC_KEYS)
+  )
+  return DIAGNOSTIC_KEYS.map((key) => [key, stored[key] ?? null] as const)
 })

@@ -10,11 +10,13 @@ import {
   type WibDate,
 } from "@workspace/relay"
 import {
+  Cause,
   DateTime,
   Duration,
   Effect,
   Fiber,
   FiberMap,
+  Logger,
   Option,
   PubSub,
   Queue,
@@ -35,6 +37,7 @@ import { brokerCodesTargets, fetchSend } from "./broker-codes/poster.ts"
 import { makeProductionTarget } from "./broker-codes/production-target.ts"
 import { makeTargetHold, type TargetHold } from "./broker-codes/target-hold.ts"
 import { makeHistoryWalk } from "./broker-codes/history.ts"
+import { ScheduleClock, scheduleNow } from "./broker-codes/hours.ts"
 import { makeProgress } from "./broker-codes/progress.ts"
 import { makeRunQueue } from "./broker-codes/run-queue.ts"
 import { fetchGet } from "./broker-codes/status.ts"
@@ -45,6 +48,7 @@ import {
 import { BATCH_INTERVAL, makeBatcher } from "./batch.ts"
 import { ajaib, ajaibOnDemand, stockbit, type TabRequest } from "./broker.ts"
 import { makeCodeList } from "./code-list.ts"
+import { makeErrorLog } from "./error-log.ts"
 import { windowAt } from "./gate.ts"
 import { makeOnDemandCodes } from "./on-demand-codes.ts"
 import { makePacer } from "./pacer.ts"
@@ -52,7 +56,9 @@ import {
   DashboardOrigin,
   ajaibCatchUpStore,
   ajaibWalkStore,
+  clearRelayStopped,
   codeListStore,
+  errorLogStore,
   historyCatchUpStore,
   historyStore,
   incompleteDaysStore,
@@ -74,6 +80,7 @@ import {
   saveBrokerCodesProgress,
   saveBrokerCodesRun,
   saveCodeListRelay,
+  saveRelayStopped,
   loadThrottled,
   saveThrottled,
   saveTargetStates,
@@ -272,7 +279,6 @@ const clocks = Effect.gen(function* () {
   const offset = yield* loadClockOffset
   return { now, offset, schedule: DateTime.add(now, { milliseconds: offset }) }
 })
-const scheduleNow = Effect.map(clocks, ({ schedule }) => schedule)
 
 const main = Effect.gen(function* () {
   const envelopes = yield* PubSub.sliding<EncodedIngestUp>(1024)
@@ -583,15 +589,29 @@ const main = Effect.gen(function* () {
 })
 
 Effect.runFork(
-  main.pipe(
+  Effect.andThen(clearRelayStopped, main).pipe(
     Effect.scoped,
     Effect.provide(Socket.layerWebSocketConstructorGlobal),
+    Effect.provideService(
+      ScheduleClock,
+      Effect.map(clocks, ({ schedule }) => schedule)
+    ),
+    Effect.tapCause((cause) =>
+      Effect.andThen(
+        Effect.logError("Relay stopped", cause),
+        saveRelayStopped({ at: Date.now(), cause: Cause.pretty(cause) })
+      )
+    ),
+    // Every fiber's Error and Fatal lines, "Relay stopped" included, also go
+    // to session storage for the options page's diagnostics.
+    Effect.provide(
+      Logger.layer([makeErrorLog(errorLogStore)], { mergeWithExisting: true })
+    ),
     // Decision: every fiber runs on the relay scheduler, which yields through a
     // `MessageChannel` message. Effect's default `setTimeout(0)` yields nest
     // under a backlog, and Chrome clamps nested timers to 4 ms: about 250
     // events a second. One provision covers every loop; none gets
     // `disableYield`. See apinrdw/kumora#229.
-    Effect.provideService(Scheduler.Scheduler, relayScheduler),
-    Effect.tapCause((cause) => Effect.logError("Relay stopped", cause))
+    Effect.provideService(Scheduler.Scheduler, relayScheduler)
   )
 )

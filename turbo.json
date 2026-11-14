@@ -77,12 +77,17 @@
         "KUMORA_DASHBOARD_PORT"
       ]
     },
+    // vitest.timeout.ts reads CI to give tests CI's timeout there.
     "test": {
       "dependsOn": [
         "transit"
       ],
+      "passThroughEnv": [
+        "CI"
+      ],
       "inputs": [
         "$TURBO_DEFAULT$",
+        "$TURBO_ROOT$/vitest.timeout.ts",
         "!**/*.md"
       ]
     },
@@ -140,7 +145,8 @@
         "pnpm-workspace.yaml",
         "pnpm-lock.yaml",
         ".github/workflows/**",
-        ".claude/hooks/fallow-gate.sh"
+        ".claude/hooks/fallow-gate.sh",
+        ".claude/hooks/merge-gate.sh"
       ]
     }
   }

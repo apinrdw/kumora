@@ -130,15 +130,17 @@ const runGate = (pr: Pr) =>
     return written
   })
 
-// A retarget is the one `edited` event that carries `changes.base`.
-const notATitleOrBodyEdit =
-  "github.event.action != 'edited' || github.event.changes.base.ref.from != ''"
+// A retarget is the one `edited` event that carries `changes.base`; a draft
+// gets no status until it is marked ready.
+const markingRun =
+  "!github.event.pull_request.draft && (github.event.action != 'edited' || github.event.changes.base.ref.from != '')"
 
 // One pull_request_target event, as the `github` context shows it.
 interface Triggered {
   readonly action: string
   // An `edited` event's `changes`: each field edited, with its old value.
   readonly changes?: Record<string, unknown>
+  readonly draft?: boolean
   readonly pr: number
   readonly runId: number
 }
@@ -146,13 +148,16 @@ interface Triggered {
 // A workflow string with each ${{ }} evaluated for the event by GitHub's own
 // expression library: the workflow runs from the base branch, so a PR that
 // edits it can't try it.
-const expand = (text: string, { action, changes, pr, runId }: Triggered) => {
+const expand = (
+  text: string,
+  { action, changes, draft = false, pr, runId }: Triggered
+) => {
   const github = new data.Dictionary({
     key: "github",
     value: JSON.parse(
       JSON.stringify({
         run_id: runId,
-        event: { action, changes, pull_request: { number: pr } },
+        event: { action, changes, pull_request: { number: pr, draft } },
       }),
       data.reviver
     ),
@@ -188,6 +193,10 @@ const bodyEdit: Triggered = {
   runId: 104,
 }
 
+const ready: Triggered = { action: "ready_for_review", pr: 7, runId: 105 }
+const draftPush: Triggered = { ...push, draft: true, runId: 106 }
+const draftLabel: Triggered = { ...label, draft: true, runId: 107 }
+
 const appFile = { filename: "apps/web/src/routes/index.tsx" }
 const docsFile = { filename: "docs/runbooks/deploy.md" }
 
@@ -204,7 +213,7 @@ layer(NodeServices.layer)("e2e-evidence gate", (it) => {
   )
 
   it.effect(
-    "runs on the six types that change the head, its labels or its base",
+    "runs on the seven types that change the head, its labels, its base or its draft state",
     () =>
       Effect.gen(function* () {
         const workflow = yield* gateWorkflow
@@ -217,6 +226,7 @@ layer(NodeServices.layer)("e2e-evidence gate", (it) => {
               "edited",
               "labeled",
               "opened",
+              "ready_for_review",
               "reopened",
               "synchronize",
               "unlabeled",
@@ -227,11 +237,28 @@ layer(NodeServices.layer)("e2e-evidence gate", (it) => {
   )
 
   it.effect(
-    "skips an edit that leaves the base alone, so a new title or body doesn't rerun it",
+    "skips an edit that leaves the base alone, so a new title or body doesn't rerun it, and any event on a draft",
     () =>
       Effect.gen(function* () {
         const job = yield* gateJob
-        assert.strictEqual(job.if, notATitleOrBodyEdit)
+        assert.strictEqual(job.if, markingRun)
+      })
+  )
+
+  it.effect(
+    "skips a draft's pushes and labels, apart from the PR's group, and marks the head once the PR is ready",
+    () =>
+      Effect.gen(function* () {
+        const { concurrency } = yield* gateWorkflow
+        const job = yield* gateJob
+        const ofPr = expand(concurrency.group, push)
+        for (const event of [draftPush, draftLabel]) {
+          assert.strictEqual(expand(`\${{ ${job.if} }}`, event), "false")
+          assert.notStrictEqual(expand(concurrency.group, event), ofPr)
+        }
+        assert.strictEqual(expand(`\${{ ${job.if} }}`, ready), "true")
+        assert.strictEqual(expand(`\${{ ${job.if} }}`, push), "true")
+        assert.strictEqual(expand(concurrency.group, ready), ofPr)
       })
   )
 

@@ -5,11 +5,13 @@
 // back with `recordedDayRequest`; the page builds it with `recordedDayPath`.
 import { DateTime, Effect, Option, Schema } from "effect"
 
+import { TradeCodes } from "./broker-codes.ts"
 import { StockCode } from "./codes.ts"
 import {
   Candle,
   Footprint,
   RunningTrade,
+  TradeNumber,
   ViewerProtocolVersion,
 } from "./envelope.ts"
 import { RelayGap } from "./market-conditions.ts"
@@ -27,6 +29,8 @@ export type RecordedResource =
   | { readonly _tag: "Codes" }
   // The 200 newest running trades at or before `at`.
   | { readonly _tag: "Tape"; readonly at: DateTime.Utc }
+  // The broker codes of the trades the tape at `at` holds.
+  | { readonly _tag: "BrokerCodes"; readonly at: DateTime.Utc }
   // One code's whole-day candles and its previous close.
   | { readonly _tag: "Candles"; readonly code: StockCode }
   // One code's sweeps for the day so far (sweeps.ts).
@@ -50,6 +54,8 @@ export const recordedDayPath = (date: WibDate, resource: RecordedResource) =>
         return `${base}/codes`
       case "Tape":
         return `${base}/trades?at=${DateTime.toEpochMillis(resource.at)}`
+      case "BrokerCodes":
+        return `${base}/broker-codes?at=${DateTime.toEpochMillis(resource.at)}`
       // Decision: the path carries the viewer protocol's version: the browser
       // caches a sealed answer for a year by its whole URL, so one cached
       // before footprints rode with the candles is never reused. The query is
@@ -111,6 +117,11 @@ const resourceOf = Effect.fnUntraced(function* (
         _tag: "Tape" as const,
         at,
       }))
+    if (kind === "broker-codes")
+      return Option.map(yield* instantOf(search.get("at")), (at) => ({
+        _tag: "BrokerCodes" as const,
+        at,
+      }))
     return Option.none()
   }
   if (kind === "candles")
@@ -163,6 +174,22 @@ export const encodeRecordedTape = Schema.encodeEffect(
 )
 export const decodeRecordedTape = Schema.decodeUnknownEffect(
   Schema.fromJsonString(RecordedTape)
+)
+
+// The broker codes answer: the stored codes of the trades the tape answer at
+// the same `at` holds, ascending by trade number, a trade with none absent;
+// and whether the day's broker codes status is complete.
+const RecordedBrokerCodes = Schema.Struct({
+  codes: Schema.Array(Schema.Tuple([TradeNumber, TradeCodes])),
+  complete: Schema.Boolean,
+})
+export type RecordedBrokerCodes = typeof RecordedBrokerCodes.Type
+
+export const encodeRecordedBrokerCodes = Schema.encodeEffect(
+  Schema.fromJsonString(RecordedBrokerCodes)
+)
+export const decodeRecordedBrokerCodes = Schema.decodeUnknownEffect(
+  Schema.fromJsonString(RecordedBrokerCodes)
 )
 
 // One code's candles and footprints for the whole day, each ascending by

@@ -11,6 +11,8 @@ import {
   TradeNumber,
   WibDate,
   decodeBrokerCodesStatus,
+  decodeRecordedBrokerCodes,
+  decodeRecordedTape,
   encodeBrokerCodesBatch,
   encodeIngestUp,
   type BrokerCodesBatch,
@@ -588,6 +590,11 @@ describe("a sealed day", () => {
           })
         )
         const before = yield* answers
+        const codesAt = day.day.recorded({
+          _tag: "BrokerCodes",
+          at: wib("17:00:00"),
+        })
+        yield* codesAt
 
         yield* TestClock.setTime(wib("17:30:00").epochMilliseconds)
         yield* day.post(
@@ -596,10 +603,106 @@ describe("a sealed day", () => {
           30
         )
         yield* day.post("Stockbit", [[1, PD_KZ]], 30)
+        yield* codesAt
         assert.isTrue((yield* day.status).complete)
         assert.deepStrictEqual(yield* answers, before)
         assert.lengthOf(day.indexed, 1)
       })
+  )
+})
+
+describe("a recorded day's broker codes answer", () => {
+  // A day of 250 Ajaib trades at 15:00, sealed at 17:00.
+  const sealedDay = Effect.gen(function* () {
+    yield* TestClock.setTime(wib("15:00:00").epochMilliseconds)
+    const day = yield* tradingDay()
+    const socket = yield* day.relay
+    yield* day.ajaibTrades(socket, numbers(1, 250), "15:00:00")
+    yield* TestClock.setTime(wib("17:00:00").epochMilliseconds)
+    yield* day.alarm
+    yield* TestClock.setTime(wib("17:30:00").epochMilliseconds)
+    return day
+  })
+  type SealedDay = Effect.Success<typeof sealedDay>
+  const answerOf = Effect.fnUntraced(function* (
+    day: SealedDay,
+    resource: RecordedResource
+  ) {
+    const response = yield* day.day.recorded(resource)
+    assert.strictEqual(response.status, 200)
+    return {
+      cache: response.headers.get("Cache-Control"),
+      text: yield* Effect.promise(() => response.text()),
+    }
+  })
+  const codesAt = Effect.fnUntraced(function* (
+    day: SealedDay,
+    at: DateTime.Utc
+  ) {
+    const answer = yield* answerOf(day, { _tag: "BrokerCodes", at })
+    return { ...answer, body: yield* decodeRecordedBrokerCodes(answer.text) }
+  })
+  const CURSOR = wib("17:00:00")
+
+  it.effect(
+    "holds the codes of the tape's trades at the same cursor, a trade without codes absent",
+    () =>
+      Effect.gen(function* () {
+        const day = yield* sealedDay
+        yield* day.post("Ajaib", [
+          ...numbers(1, 10).map((number) => [number, PD_KZ] as const),
+          ...numbers(51, 60).map((number) => [number, YP_CC] as const),
+        ])
+        yield* day.post("Stockbit", [[250, PD_KZ]])
+        const tape = yield* decodeRecordedTape(
+          (yield* answerOf(day, { _tag: "Tape", at: CURSOR })).text
+        )
+        const shown = new Set(tape.trades.map((trade) => trade.tradeNumber))
+        assert.strictEqual(shown.size, 200)
+
+        const { body } = yield* codesAt(day, CURSOR)
+        assert.deepStrictEqual(body.codes, [
+          ...numbers(51, 60).map(
+            (number) => [TradeNumber.make(String(number)), YP_CC] as const
+          ),
+          [TradeNumber.make("250"), PD_KZ] as const,
+        ])
+        for (const [tradeNumber] of body.codes)
+          assert.isTrue(shown.has(tradeNumber), tradeNumber)
+      })
+  )
+
+  it.effect(
+    "is not stored while the day is incomplete, and never immutable once complete",
+    () =>
+      Effect.gen(function* () {
+        const day = yield* sealedDay
+        yield* day.post(
+          "Ajaib",
+          numbers(1, 249).map((number) => [number, YP_CC] as const),
+          250
+        )
+        const incomplete = yield* codesAt(day, CURSOR)
+        assert.isFalse((yield* day.status).complete)
+        assert.isFalse(incomplete.body.complete)
+        assert.strictEqual(incomplete.cache, "no-store")
+
+        yield* day.post("Ajaib", [[250, YP_CC]])
+        const complete = yield* codesAt(day, CURSOR)
+        assert.isTrue((yield* day.status).complete)
+        assert.isTrue(complete.body.complete)
+        assert.lengthOf(complete.body.codes, 200)
+        assert.notInclude(complete.cache ?? "", "immutable")
+      })
+  )
+
+  it.effect("answers an empty list for a day with no codes", () =>
+    Effect.gen(function* () {
+      const day = yield* sealedDay
+      const answer = yield* codesAt(day, CURSOR)
+      assert.strictEqual(answer.text, '{"codes":[],"complete":false}')
+      assert.strictEqual(answer.cache, "no-store")
+    })
   )
 })
 

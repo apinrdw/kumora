@@ -1073,6 +1073,7 @@ export const makeTradingDay = Effect.fnUntraced(function* (options: {
         date: options.date,
         store,
         codeList: codeListStore,
+        brokerCodes,
         sealed,
         liveGaps: Effect.map(
           market.conditions,

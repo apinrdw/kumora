@@ -20,6 +20,10 @@ No ADRs. A decision lives as a `Decision:` comment on the line that enacts it, a
 
 Alchemy deploys `apps/web` and `apps/dashboard` through Workers Builds: `main` to production, `staging` to staging, every other branch to its own preview stage. Each app's stack is its `alchemy.run.ts`; the stage logic, Worker names and deploy script live in `packages/deploy` (see its `GLOSSARY.md`). `.github/workflows/teardown-preview.yml` destroys a preview when its PR closes or its branch is deleted. Secrets come from the Infisical project `kumora`. `pnpm dev` runs both apps fully locally with `bun alchemy dev`. The human steps are in `docs/runbooks/deploy.md`.
 
+### Production data
+
+Before reading a deployed stage's recorded days (a measurement, a research ticket), read `docs/agents/production-reads.md`: it names the session cookie to ask the owner for.
+
 ### Relay extension
 
 A PR that changes `apps/extension` bumps `version` in its `package.json`, the owner's only way to tell unpacked builds apart; `scripts/check-extension-version.mts` fails it otherwise.
@@ -48,6 +52,8 @@ Before changing `turbo.json` or a turbo command, read `docs/README.md` in the in
 ### Pull requests
 
 Before writing a PR body (opening a PR or rewriting one), invoke the `/mattpocock-skills:pr` skill and follow its template. Keep the attribution line your harness requires at the end.
+
+CI holds a PR that touches `apps/{web,dashboard,extension,e2e}` or `packages/` on its `e2e-evidence` status. After opening one, run `pnpm e2e:evidence <spec...>` naming the specs that show the change, or add the `no-e2e-evidence` label when nothing visible changed. Rules: `.claude/skills/post-implementation-review/workspaces/e2e.md`.
 
 ## Asking the user
 

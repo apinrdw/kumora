@@ -17,7 +17,7 @@ import { Clock, DateTime, Effect, Option, Schema } from "effect"
 
 import type { Answer } from "../broker.ts"
 import type { RequestingTab } from "../pacer.ts"
-import { ajaibWindowEnd, inStreamingHours } from "./hours.ts"
+import { ajaibWindowEnd, inStreamingHours, scheduleNow } from "./hours.ts"
 import type { PostOutcome } from "./poster.ts"
 import { halt, haltOnRefusal, settle, type WalkResult } from "./run-queue.ts"
 
@@ -141,7 +141,7 @@ export const makeAjaibWalk = Effect.fnUntraced(function* (options: {
   // Ajaib's window, it can no longer serve the day; a tab that went leaves
   // the day to Stockbit.
   const guard = Effect.fnUntraced(function* (windowEnd: DateTime.Utc) {
-    const now = yield* DateTime.now
+    const now = yield* scheduleNow
     if (yield* inStreamingHours(now))
       return yield* halt({ _tag: "stopped", cause: "streaming-hours" })
     if (DateTime.isGreaterThanOrEqualTo(now, windowEnd))
@@ -231,6 +231,12 @@ export const makeAjaibWalk = Effect.fnUntraced(function* (options: {
     const head = yield* startCall(yield* tapePath(now, 1, HEAD_PAGE_SIZE))
     const page =
       head.status === 200 ? yield* pageRows(head) : Option.none<never>()
+    // Decision: a 200 page with no rows once Ajaib says CLOSED means the tape
+    // no longer holds the day (seen Saturday 2026-11-14, after Friday's
+    // evening), so Stockbit takes the day instead of the queue waiting for
+    // Ajaib's window to end. Any other answer is polled again.
+    if (Option.exists(page, (answer) => answer.size === 0))
+      return yield* halt({ _tag: "unserved", reason: "empty-tape" })
     const rows = Option.match(page, {
       onNone: (): ReadonlyArray<PageRow> => [],
       onSome: (answer) => answer.rows,

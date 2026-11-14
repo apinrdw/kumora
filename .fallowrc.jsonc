@@ -1,5 +1,7 @@
 {
-  "ignorePatterns": ["repos/**"],
+  // A throwaway prototype folder on a `prototype/*` branch (the prototype
+  // skill's static pages) holds pages and helper scripts that nothing imports.
+  "ignorePatterns": ["repos/**", "apps/*/prototype-*/**"],
   // Workers Builds runs deploy.ts by path (docs/runbooks/deploy.md, step 4),
   // so no module imports it. Chrome loads the extension's entries from its
   // manifest (apps/extension/manifest.ts).

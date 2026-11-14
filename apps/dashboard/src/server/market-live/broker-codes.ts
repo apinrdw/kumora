@@ -214,8 +214,10 @@ const crossCheckOf = (
     }
   })
 
-// Decision: no broker codes answer is ever cached: the status changes with
-// every batch. The route (broker-codes-route.ts) answers through this too.
+// Decision: no status or batch answer is cached: the status changes with
+// every batch. The route (broker-codes-route.ts) answers through this too. A
+// recorded day's codes answer is not one of these: see COMPLETE_CODES_CACHE
+// in recorded-answers.ts.
 export const noStoreAnswer = (
   status: number,
   text?: string,
@@ -393,24 +395,68 @@ export const makeBrokerCodes = Effect.fnUntraced(function* (options: {
       })
     )
 
+  // Decision: the day's `complete`, once a scan found it, is kept until the
+  // next batch: the recorded day's codes answer carries it, and Play asks
+  // for that answer as often as the tape (TAPE_INTERVAL_MS in
+  // apps/dashboard/src/lib/replay.ts), which must not scan every chunk each
+  // time.
+  let complete: boolean | undefined
+
   // A batch merged into its chunks and written in one transaction, so a
   // failed batch writes nothing and the extension resends it.
   const write = (batch: BrokerCodesBatch) =>
-    Effect.flatMap(merge(batch), commit)
+    Effect.flatMap(merge(batch), commit).pipe(
+      Effect.tap(() =>
+        Effect.sync(() => {
+          complete = undefined
+        })
+      )
+    )
+
+  // One trade's record, its chunk read once into `chunks`; none when the day
+  // holds no codes for it.
+  const recordOf = Effect.fnUntraced(function* (
+    tradeNumber: TradeNumber,
+    chunks: Map<number, Uint8Array>
+  ) {
+    const { chunk, at } = yield* placeOf(Number(tradeNumber))
+    const codes = chunks.get(chunk) ?? (yield* chunkOf(chunk))
+    chunks.set(chunk, codes)
+    const record = codes.subarray(at, at + RECORD)
+    const source = record[SOURCE]
+    return source === 0 || source === undefined
+      ? Option.none<Uint8Array>()
+      : Option.some(record)
+  })
 
   // The kept copy of one trade and the site that supplied it; none when the
   // day holds no codes for it.
   const held = Effect.fnUntraced(function* (tradeNumber: TradeNumber) {
-    const { chunk, at } = yield* placeOf(Number(tradeNumber))
-    const record = (yield* chunkOf(chunk)).subarray(at, at + RECORD)
-    const source = record[SOURCE]
-    if (source === 0 || source === undefined)
+    const record = yield* recordOf(tradeNumber, new Map())
+    if (Option.isNone(record))
       return Option.none<{ codes: TradeCodes; source: Feed }>()
     return Option.some({
-      codes: yield* codesOf(record),
+      codes: yield* codesOf(record.value),
       source:
-        source === Source.stockbit ? ("Stockbit" as const) : ("Ajaib" as const),
+        record.value[SOURCE] === Source.stockbit
+          ? ("Stockbit" as const)
+          : ("Ajaib" as const),
     })
+  })
+
+  // The kept codes of each listed trade the day holds codes for, in the
+  // list's order, reading each chunk the list touches once.
+  const heldCodes = Effect.fnUntraced(function* (
+    tradeNumbers: ReadonlyArray<TradeNumber>
+  ) {
+    const chunks = new Map<number, Uint8Array>()
+    const found: Array<readonly [TradeNumber, TradeCodes]> = []
+    for (const tradeNumber of tradeNumbers) {
+      const record = yield* recordOf(tradeNumber, chunks)
+      if (Option.isSome(record))
+        found.push([tradeNumber, yield* codesOf(record.value)])
+    }
+    return found
   })
 
   // Every chunk into the tally, SCAN_PAGE at a time.
@@ -473,8 +519,17 @@ export const makeBrokerCodes = Effect.fnUntraced(function* (options: {
         differences
       ),
     }
+    complete = day.complete
     return day
   })
+
+  // Whether the day's status is complete, scanning only when no scan since
+  // the last batch found it.
+  const isComplete = Effect.suspend(() =>
+    complete === undefined
+      ? Effect.map(status(Number.MAX_SAFE_INTEGER), (day) => day.complete)
+      : Effect.succeed(complete)
+  )
 
   // A POSTed batch: 200 once it is written, else as `checkedBatch` refuses
   // it.
@@ -496,5 +551,9 @@ export const makeBrokerCodes = Effect.fnUntraced(function* (options: {
     )
   })
 
-  return { post, status: statusAnswer, held }
+  return { post, status: statusAnswer, held, heldCodes, isComplete }
 })
+
+export type BrokerCodesStore = Effect.Success<
+  ReturnType<typeof makeBrokerCodes>
+>

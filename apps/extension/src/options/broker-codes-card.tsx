@@ -40,15 +40,11 @@ import {
   walkView,
 } from "./broker-codes-view.ts"
 import { optionsRuntime } from "./runtime.ts"
+import { useStored, type StorageChange } from "./use-stored.ts"
 
 const RECENT_DAYS = 10
 
 type DayRow = { day: WibDate } & Effect.Success<ReturnType<typeof dayView>>
-
-type StorageChange = (
-  changes: Record<string, chrome.storage.StorageChange>,
-  area: string
-) => Effect.Effect<boolean>
 
 const isPausedChange: StorageChange = (changes, area) =>
   Effect.map(brokerCodesPausedChange(changes, area), Option.isSome)
@@ -94,28 +90,6 @@ const progressKey = (progress: Option.Option<BrokerCodesProgress>) =>
           : each.state,
     })
   )
-
-// A stored value, loaded at once and again on each change to it.
-function useStored<A>(
-  load: Effect.Effect<A>,
-  isChange: StorageChange,
-  initial: A
-) {
-  const [value, setValue] = useState(initial)
-  useEffect(() => {
-    const refresh = () => void optionsRuntime.runPromise(load).then(setValue)
-    const onChanged = (
-      changes: Record<string, chrome.storage.StorageChange>,
-      area: string
-    ) => {
-      if (Effect.runSync(isChange(changes, area))) refresh()
-    }
-    refresh()
-    chrome.storage.onChanged.addListener(onChanged)
-    return () => chrome.storage.onChanged.removeListener(onChanged)
-  }, [load, isChange])
-  return value
-}
 
 // Now, moved on when the soonest stored end after it passes, so a throttle
 // shows until it ends. The wait is timed from the clock, not from `now`,

@@ -110,6 +110,16 @@
       "rules": {
         "kumora/restricted-syntax": ["error", {"selector": "MemberExpression[object.name='globalThis'][property.name='process']", "message": "Reach the process through Effect: Config for env, Stdio for argv, and fail with a tagged error instead of exiting."}]
       }
+    },
+    {
+      // Decision: code that never renders React skips rules-of-hooks. The rule
+      // reads an Effect accessor such as `Clock.use((now) => now)` as React's
+      // `use` hook and fails it; agents hit this in three sessions. A new
+      // React-free folder joins this list; until then the rule still runs there.
+      "files": ["scripts/**", "packages/client/**", "packages/deploy/**", "packages/relay/**", "packages/server/**", "apps/extension/src/worker/**", "apps/*/alchemy.run.ts", "apps/*/src/server/**", "apps/*/src/worker.ts", "apps/dashboard/src/routes/api/**"],
+      "rules": {
+        "react/rules-of-hooks": "off"
+      }
     }
   ]
 }

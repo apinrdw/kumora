@@ -332,6 +332,55 @@ describe("Ajaib's walk: when it starts", () => {
       })
   )
 
+  // Seen on Saturday 2026-11-14: Ajaib said CLOSED (category WEEKEND) and its
+  // tape answered `count: 0` for Friday, so the walk polled until Monday.
+  it.effect(
+    "leaves the day to Stockbit when Ajaib is closed and its tape is empty",
+    () =>
+      Effect.gen(function* () {
+        yield* TestClock.setTime(wib("2026-11-14", "10:25:00"))
+        const production = fakeProduction()
+        const tab = fakeAjaib({ rows: [] })
+        const walk = yield* walkWith(tab, production)
+        const fiber = yield* Effect.forkChild(
+          walk.walk(WibDate.make("2026-11-13"))
+        )
+        yield* TestClock.adjust("0 millis")
+        yield* TestClock.adjust("1 minute")
+        assert.deepStrictEqual(
+          fiber.pollUnsafe(),
+          Exit.succeed({
+            _tag: "unserved",
+            reason: "empty-tape",
+          })
+        )
+        assert.lengthOf(tab.tapeCalls(), 1)
+        assert.deepStrictEqual(production.batches, [])
+      })
+  )
+
+  it.effect("keeps polling a closed tape that answers a 401", () =>
+    Effect.gen(function* () {
+      yield* TestClock.setTime(wib("2026-11-14", "10:25:00"))
+      const tab = fakeAjaib({
+        rows: [],
+        answer: (request) =>
+          request._tag === "page-fetch" && request.path !== STATUS_PATH
+            ? Effect.succeed(STATUS(401))
+            : undefined,
+      })
+      const walk = yield* walkWith(tab)
+      const fiber = yield* Effect.forkChild(
+        walk.walk(WibDate.make("2026-11-13"))
+      )
+      yield* TestClock.adjust("0 millis")
+      yield* TestClock.adjust("2 minutes")
+      assert.isUndefined(fiber.pollUnsafe())
+      assert.lengthOf(tab.tapeCalls(), 3)
+      yield* Fiber.interrupt(fiber)
+    })
+  )
+
   it.effect("leaves the day to Stockbit when no Ajaib tab is relayed", () =>
     Effect.gen(function* () {
       yield* TestClock.setTime(wib("2026-11-12", "17:30:00"))
