@@ -1,0 +1,76 @@
+# What a Durable Object can do per second for a hot ingest stream
+
+Research for apinrdw/kumora#221 (map apinrdw/kumora#218). Sources are Cloudflare's docs and blog, read 2026-11-12. The workload is the **trading-day object** in `apps/dashboard/src/server/market-live/`. It is SQLite-backed, uses the WebSocket Hibernation API, and runs on compatibility date `2026-11-02` with `nodejs_compat` (`packages/deploy/src/target.ts`, `packages/deploy/src/stack.ts`).
+
+## Short answer
+
+The platform limits are far above this workload. One object takes about 500 to 1,000 simple requests per second, and each WebSocket message gets a fresh 30 s CPU budget. A few relay messages every 250 ms is tens per second. The wall is serial CPU time. An object runs JavaScript on one thread, so it falls behind for good once the CPU work per second of trades passes one second. A single `Semaphore(1)` adds a queue that Cloudflare's overload protection never sees. Messages that wait on it hold memory and are never shed. Cloudflare's guidance for a hot stream is to batch into fewer, larger messages, keep synchronous work short, and spread hot state across objects.
+
+## Limits that apply
+
+| Limit | Value | Source |
+| --- | --- | --- |
+| CPU time per invocation (SQLite-backed) | 30 s by default, up to 5 min with `limits.cpu_ms` | [DO limits][limits]; [Workers limits][wlimits] |
+| CPU budget reset | "Each incoming HTTP request or WebSocket message resets the remaining available CPU time to 30 seconds." | [DO limits][limits] |
+| CPU time excludes | Waits on network, storage or other I/O | [DO limits][limits] (FAQ) |
+| Requests per object | "soft limit of 1,000 requests per second" | [DO limits][limits] |
+| Realistic throughput | About 500 to 1,000 req/s for simple operations. About 500 to 750 with JSON parsing and validation. About 200 to 500 with transformation and storage writes. "If each call takes ~5ms, that individual Durable Object is limited to approximately 200 requests/second." | [Rules of Durable Objects][rules] |
+| Received WebSocket message | 32 MiB; a larger message closes the socket with 1009 | [DO limits][limits]; [Workers WebSockets][ws-api] |
+| Hibernatable sockets per object | 32,768 | [DurableObjectState][state] |
+| Socket attachment | 16,384 bytes | [WebSockets best practices][ws-bp] |
+| Memory | 128 MB per isolate, and one isolate "can host multiple Durable Objects" | [Workers limits][wlimits]; [In-memory state][mem] |
+| SQLite value, row or BLOB | 8 MB; SQL statement 100 KB; 100 bound parameters | [DO limits][limits] |
+| SQLite storage per object | 10 GB on Workers Paid | [DO limits][limits] |
+| `blockConcurrencyWhile` | 30 s timeout, then the object resets | [DurableObjectState][state] |
+| Hibernatable socket event | Run time is capped by `setHibernatableWebSocketEventTimeout`, at most 7 days | [DurableObjectState][state] |
+
+For this workload, the 30 s CPU limit applies to one event at a time and resets on every relay message. It is not a per-second budget. An object hits it only when one handler or timer body runs 30 s of CPU without a new message arriving.
+
+## How synchronous work blocks the object
+
+- An object runs "in exactly one location, in one single thread, at a time". Events "will be deferred until such a time as the object is no longer executing JavaScript code" ([gates blog][gates]).
+- "Input gates block new events (incoming requests, fetch responses) while synchronous JavaScript execution is in progress" ([Rules][rules]). While a storage operation runs, "no events shall be delivered to the object except for storage completion events" ([gates blog][gates]).
+- SQLite runs as a library on the object's thread. While a synchronous call runs, no other code in the object can run ([SQLite blog][sqlite-blog]). `transactionSync` takes a callback that "must complete synchronously" ([SQLite API][sql-api]).
+- So the once-a-minute flush holds the object for its full duration: one `transactionSync` with every insert, plus `gzipSync` for each closed book chunk inside it (`day-store.ts`). No relay message, viewer message or delta tick runs until it returns. Cloudflare publishes no per-query time. The blog describes queries in microseconds when the data is cached ([SQLite blog][sqlite-blog]). The cost of the gzip calls is the object's own CPU, and only a measurement can give it.
+- Output gate: outgoing messages wait "until pending storage writes complete" ([Rules][rules]), and the system "holds the response until all storage writes relevant to the response have been confirmed" ([SQLite blog][sqlite-blog]). Deltas sent right after a flush wait for that flush to reach durable storage.
+- Writes made with no `await` between them coalesce "into a single atomic implicit transaction" ([Rules][rules]; [gates blog][gates]). Many small writes don't each cost a round trip.
+
+## What happens to queued messages
+
+- **The runtime queue.** When requests exceed capacity, the object tries to queue them. If queuing fails, the caller gets an overloaded error ([DO limits][limits]). The errors are "Too many requests queued.", "Too much data queued." and "Too many requests for the same object within a 10 second window." ([Troubleshooting][trouble]). These errors carry `.overloaded`, and Cloudflare advises not to retry them because a retry "will worsen the overload" ([Error handling][errors]).
+- **Inside the object, with this code.** `webSocketMessage` returns a promise that waits on the Effect semaphore. That wait is neither storage nor JavaScript execution, so the input gate rule does not hold back the next event, and "in the meantime, though, other code can run!" ([gates blog][gates]). Inference, not a documented statement: the runtime hands over each relay message almost at once, and the backlog grows in the semaphore's waiter list instead of the runtime queue. The runtime therefore never reports overload. The relay keeps sending, each waiting envelope holds its text in memory, and nothing sheds or bounds the backlog. The lag grows for as long as arrival outruns service. That matches production falling about 70 min behind while trades kept arriving.
+- **The ceiling of that backlog is memory.** The isolate has 128 MB, shared with any other object in the same isolate ([Workers limits][wlimits]; [In-memory state][mem]). An object that exceeds memory or CPU limits throws an infrastructure exception and resets ([Error handling][errors]). A reset drops the backlog and in-memory state. Hibernated sockets survive, and their attachments survive too ([WebSockets best practices][ws-bp]).
+- **Hibernation.** An object hibernates only when no `setTimeout` or `setInterval` callback is set, no event is running, and no I/O or `waitUntil` promise is pending. Then it hibernates "after 10 seconds of inactivity" ([Lifecycle][lifecycle]). The 250 ms delta sleep and the once-a-minute flush sleep (`Effect.sleep`, which uses timers) keep the object awake all session. So hibernation saves nothing during trading hours, and the object is billed for wall-clock duration while awake ([Pricing][pricing]).
+
+## What Cloudflare recommends for one hot object
+
+1. **Send fewer, larger messages.** "Sending many small messages can overwhelm a single Durable Object." "Batching 10-100 logical messages into a single WebSocket frame reduces context switches proportionally." For high-frequency data: "Batch every 50-100ms or every 50-100 messages, whichever comes first" ([WebSockets best practices][ws-bp]). The relay already batches every 250 ms, so the gain left is fewer connections per feed and less work per envelope, not a longer interval.
+2. **Keep exclusive sections short.** `blockConcurrencyWhile()` "significantly reduces throughput". Reserve it "for initialization and migrations". For atomic read-modify-write, "prefer transaction() over blockConcurrencyWhile()" ([Rules][rules]). A `Semaphore(1)` around every callback has the same throughput cost and gives up the runtime's own queueing and overload signal.
+3. **Split hot state across objects.** Durable Objects "are intended to scale *out*, not *up*". A single object "is inherently limited in throughput since it runs on a single thread of a single machine" ([SQLite blog][sqlite-blog]). Model objects around the "atom" of coordination and "do not create a single 'global' Durable Object that handles all requests" ([Rules][rules]). For a hot counter, the blog suggests a set of objects that each take part of the traffic, or a fan-in/fan-out design around one primary ([SQLite blog][sqlite-blog]). For Market Live that could mean an object per feed, or ingest objects that fold trades and send compact batches to the day object. The map decides which.
+4. **Use alarms for scheduled work across hibernation.** An alarm runs `alarm()` without an incoming request. It must be re-armed each time, and alarms on second-scale intervals cost an invocation each ([Rules][rules]). An alarm can be delayed by up to a minute during failover ([SQLite API][sql-api]). This suits the seal, not the 250 ms delta.
+5. **Use the Hibernation API for many idle viewer sockets** ([Rules][rules]). It helps cost only when the object can go idle, which a live session's timers prevent.
+
+## Budget for this workload
+
+Not measured; this is arithmetic on the limits above. Per wall-clock second, the object has 1 s of single-thread time. That second covers every envelope from every relay connection on both feeds, four delta ticks, the market-condition checks, and, once a minute, the flush transaction with its gzip calls. If an envelope costs about 5 ms, 20 envelopes per second use 100 ms. Costs that grow with the session (the map lists `gapsAt` as O(Stockbit downs × Ajaib downs), per-envelope market-condition recomputes, and `foldAfter` candle queries per watched code) can push that past 1 s by mid-morning. After that the backlog only grows. Instrumenting each callback's duration and the semaphore's waiter count would show which cost crosses the line first. Cloudflare's published numbers give no answer for that.
+
+## Open points the docs don't settle
+
+- Whether the hibernation runtime waits for a returned `webSocketMessage` promise before it delivers the next message on the same socket. The docs don't say. The input-gate rule implies it doesn't, and this file assumes it doesn't. A local `wrangler dev` test with a slow handler would settle it.
+- The CPU cost of `gzipSync` under `nodejs_compat` per chunk size. Only a measurement can give it.
+- The DO limits page lists 10 GB per object, while its FAQ says 1 GB on the Free plan. This doesn't matter on Workers Paid.
+
+[limits]: https://developers.cloudflare.com/durable-objects/platform/limits/
+[wlimits]: https://developers.cloudflare.com/workers/platform/limits/
+[rules]: https://developers.cloudflare.com/durable-objects/best-practices/rules-of-durable-objects/
+[ws-bp]: https://developers.cloudflare.com/durable-objects/best-practices/websockets/
+[ws-api]: https://developers.cloudflare.com/workers/runtime-apis/websockets/
+[state]: https://developers.cloudflare.com/durable-objects/api/state/
+[sql-api]: https://developers.cloudflare.com/durable-objects/api/sqlite-storage-api/
+[lifecycle]: https://developers.cloudflare.com/durable-objects/concepts/durable-object-lifecycle/
+[mem]: https://developers.cloudflare.com/durable-objects/reference/in-memory-state/
+[errors]: https://developers.cloudflare.com/durable-objects/best-practices/error-handling/
+[trouble]: https://developers.cloudflare.com/durable-objects/observability/troubleshooting/
+[pricing]: https://developers.cloudflare.com/durable-objects/platform/pricing/
+[gates]: https://blog.cloudflare.com/durable-objects-easy-fast-correct-choose-three/
+[sqlite-blog]: https://blog.cloudflare.com/sqlite-in-durable-objects/

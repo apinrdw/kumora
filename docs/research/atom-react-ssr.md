@@ -1,0 +1,133 @@
+# @effect/atom-react under TanStack Start SSR
+
+Research for [#99](https://github.com/apinrdw/kumora/issues/99), child of the map [#98](https://github.com/apinrdw/kumora/issues/98). Sources checked on 2026-11-07 against the vendored `repos/effect` (version 4.1.2, the same as the `effect` catalog pin in `pnpm-workspace.yaml`), npm, and TanStack Router `main`.
+
+Paths below that start with `atom-react/` are under `repos/effect/packages/atom/react/`. Paths that start with `reactivity/` are under `repos/effect/packages/effect/src/reactivity/`.
+
+## Answer
+
+- **Atom core is part of `effect`.** You import it from `effect/reactivity/Atom`, `AtomRegistry`, `AsyncResult` and `Hydration`. `@effect/atom-react` holds only the hooks, the registry context, `HydrationBoundary` and `ScopedAtom`. Both are marked `@stability unstable`. `repos/effect/LLMS.md` does not cover atoms, so the source is the reference.
+- **Every Effect atom has the type `Atom<AsyncResult<A, E>>`, including a synchronous one.** If the Effect completes synchronously, the first read already returns `Success`, with no `Initial` step and no extra render. A plain `(get) => A` atom returns `A` directly.
+- **The registry must be per request on the server.** Without a provider, the hooks fall back to one module-level registry. On the server, every request would share it. Create the registry in `getRouter()`, which TanStack Start calls per request. Put it in router context and wrap the app in `RegistryContext.Provider`, through the router's `Wrap` option.
+- **SSR works, but it does not hand data to the client by itself.** Atoms run during server render. `useAtomSuspense` suspends the stream until the Effect settles. The client registry starts empty, though, so to avoid a second fetch and a hydration mismatch you need `Atom.serializable` atoms with `Hydration.dehydrate` on the server, and `HydrationBoundary` or `Hydration.hydrate` on the client. The obvious channel is the router's `dehydrate`/`hydrate` options, the way TanStack's Query integration does it. There is no ready-made TanStack adapter for atoms.
+- **Server functions fit as the Effect inside an atom.** An atom can wrap a `createServerFn` call. On the client the call goes over the network, and during SSR it runs in the same process. Typed errors do not cross the wire by themselves.
+- **The cost per render is a map lookup.** A derived atom recomputes only when one of its dependencies changes. `Atom.family` memoizes by argument. The hazard is an atom built inside a component body: it gets a new identity on every render, so the registry treats it as a new node each time.
+- **Published:** `@effect/atom-react@4.1.2` is npm `latest`. Its peer dependencies are `effect ^4.1.2`, `react >=19 <20` and `scheduler >=0.25 <0.29`. It has no runtime dependencies. Because pnpm is strict, `scheduler` must be declared explicitly.
+
+## 1. How atoms wrap Effects
+
+| Fact | Source |
+| --- | --- |
+| `Atom.make` is overloaded. A plain value gives a `Writable<A>` (state). A `(get) => A` function gives `Atom<A>`. An `Effect`, or a `(get) => Effect`, gives `Atom<AsyncResult<A, E>>`. A `Stream` gives `Atom<AsyncResult<A, E \| NoSuchElementError>>`. The Effect may require `Scope` and `AtomRegistry`, and nothing else. | `reactivity/Atom.ts` `make` (line 435), `makeRead` |
+| A function's return value is checked at run time. If it is an Effect or a Stream, the function is treated as an Effect atom. Otherwise it is a plain derived value. | `reactivity/Atom.ts` `makeRead` |
+| `makeEffect` forks the Effect with `Effect.runForkWith`, flushes the fiber's dispatcher, and polls the fiber. If the fiber has already exited, the atom's first value is `AsyncResult.fromExit(...)`, a synchronous `Success` or `Failure`. Otherwise the first value is `AsyncResult.waiting(Initial)`, and `setSelf` publishes the exit later. An `Exit` passed directly skips the fork. | `reactivity/Atom.ts` `makeEffect` (556), `runCallbackSync` (615) |
+| Each evaluation gets a fresh `Scope`. The registry, `Scope` and the registry's `Scheduler` are provided to it. The scope is closed and the fiber interrupted when the node is invalidated or removed, unless the atom is `uninterruptible`. | `reactivity/Atom.ts` `makeEffect` |
+| `AsyncResult<A, E> = Initial \| Success \| Failure`. Each carries a `waiting` flag, and `Failure` keeps the previous success. Helpers: `match`, `builder`, `getOrThrow`, `value`, `toExit`, plus `AsyncResult.Schema({ success, error })` for serialization. | `reactivity/AsyncResult.ts` (type at line 58, `Schema` at 1037) |
+| `useAtomValue(atom, AsyncResult.getOrThrow)` is the upstream test idiom for unwrapping a synchronous Effect atom in render. | `atom-react/test/index.test.tsx` "can inject test layers" |
+
+For the map's rule that every function returns an Effect: render can use a pure Effect helper (for example `lib/format.ts`) only through an atom, and the value then comes back wrapped in `AsyncResult`. A helper that takes arguments needs `Atom.family(arg => Atom.make(helper(arg)))`. Section 6 covers what that costs.
+
+## 2. Runtime atoms built from a Layer
+
+| Fact | Source |
+| --- | --- |
+| `Atom.runtime(layer)` returns an `AtomRuntime<R, E>`, itself an `Atom<AsyncResult<Context<R>, E>>`. It exposes `.atom`, `.fn`, `.pull` and `.subscriptionRef`, and their Effects may require `R`, plus `Reactivity`, `Scope` and `AtomRegistry`. The layer may require only `AtomRegistry` and `Reactivity`. | `reactivity/Atom.ts` `AtomRuntime` (654), `RuntimeFactory` (742) |
+| The runtime builds the layer with `Layer.buildWithMemoMap` inside `makeEffect`, as an uninterruptible build. Until the layer is built, each `runtime.atom(...)` mirrors the runtime's `Initial` or `Failure` state, and only then runs its Effect. An async layer therefore makes every atom that depends on it async. | `reactivity/Atom.ts` `context()` `read`, `RuntimeProto.atom` (261) |
+| `Atom.runtime` is `Atom.context()`, whose `MemoMap` is **scoped to the registry**: each registry builds its layers once. `Atom.context({ memoMap })` with a concrete `Layer.MemoMap` shares built layers across registries. `factory.addGlobalLayer` adds a layer to every runtime from that factory. `Reactivity.layer` is always included. | `reactivity/Atom.ts` `context` (789–875) |
+| A test or a story can swap the layer: `RegistryProvider initialValues={[Atom.initialValue(runtime.layer, testLayer)]}`. | `atom-react/test/index.test.tsx` "can inject test layers"; `reactivity/Atom.ts` `initialValue` (1721) |
+| Mutations use `runtime.fn((arg, get) => Effect)`, which gives an `AtomResultFn` that you write to. `reactivityKeys` invalidate atoms wrapped in `runtime.withReactivity(keys)`. | `reactivity/Atom.ts` `fn` (1221), `makeFnRuntime`, `withReactivity` |
+
+Combined with a per-request registry (section 3), the registry-scoped default means the server rebuilds the client layer on every request. This is cheap if the layer does no I/O. If it should be built once per isolate, use `Atom.context({ memoMap })`.
+
+## 3. Providing the registry
+
+| Fact | Source |
+| --- | --- |
+| `RegistryContext` is a React context whose **default value is one module-level registry**: `AtomRegistry.make({ scheduleTask, defaultIdleTTL: 400 })`. | `atom-react/src/RegistryContext.ts` line 47 |
+| `RegistryProvider` creates its registry once, in a `useRef`. Option changes after the first render are ignored. On unmount, it disposes the registry after 500 ms, unless the provider remounts first. Its `defaultIdleTTL` is `undefined` unless you pass one, unlike the context default. | `atom-react/src/RegistryContext.ts` lines 79–112 |
+| `scheduleTask` runs registry work, such as node removal, through React's `scheduler` package, at `LowPriority`. | `atom-react/src/RegistryContext.ts` `scheduleTask` |
+| `AtomRegistry.make` options: `initialValues`, `scheduleTask`, `timeoutResolution`, `defaultIdleTTL`. `AtomRegistry.layer` provides a registry as a service, and disposes it when its scope closes. | `reactivity/AtomRegistry.ts` `make` (133), `layerOptions` |
+| Nodes are keyed by the `Atom.serializable` key when there is one, and by atom object identity otherwise. | `reactivity/AtomRegistry.ts` `atomKey` (356) |
+| `ScopedAtom.make(f)` returns a `Provider` that builds one atom instance per mounted provider, and a `use()` hook that reads it. Use it for atoms that belong to one component subtree, such as one per form. | `atom-react/src/ScopedAtom.ts` `make` (131) |
+
+What this means on the server: a Worker isolate serves many requests. If no provider is mounted, or `<RegistryProvider>` is mounted somewhere that renders outside the request tree, all requests share the context-default registry, and so they share state. `useEffect` cleanups do not run during SSR, so `RegistryProvider`'s delayed `dispose()` never fires on the server. The registry is left to garbage collection, along with any fibers still running in it.
+
+The pattern TanStack documents for external caches is to create the cache in `getRouter()`, put it in router `context`, and wrap the tree with the router's `Wrap` option ([external-data-loading.md](https://github.com/TanStack/router/blob/main/docs/router/guide/external-data-loading.md); [integrations/query.md](https://github.com/TanStack/router/blob/main/docs/router/integrations/query.md): "Ensure a fresh `QueryClient` is created per request in SSR environments"). For atoms, that means `const registry = AtomRegistry.make({ scheduleTask })` in `getRouter()`, `Wrap: ({children}) => <RegistryContext.Provider value={registry}>`, and `context: { registry }`. On the server, dispose the registry when the request ends. TanStack's own Query integration hooks `router.serverSsr.onCleanup` for this (see section 4).
+
+## 4. SSR and hydration under React 19 and TanStack Start
+
+### What the package does on the server
+
+| Fact | Source |
+| --- | --- |
+| Every read hook goes through `useSyncExternalStore(subscribe, snapshot, getServerSnapshot)`. `getServerSnapshot` reads `Atom.getServerValue(atom, registry)`. On the client during hydration, it keeps the first snapshot for as long as any reader is subscribed, so a late Suspense boundary still matches the server HTML. | `atom-react/src/Hooks.ts` `makeStore` (60–96), `useStore` (98) |
+| Atoms **run during SSR by default**. A synchronous atom renders its value into the HTML. | `atom-react/test/index.test.tsx` "should run atom's during SSR by default" |
+| `Atom.withServerValue(read)` overrides the value read on the server. `Atom.withServerValueInitial` makes the server read `AsyncResult.initial(true)`, so the Effect never runs during SSR, and the client hydrates against `Initial` before it fetches. | `reactivity/Atom.ts` `withServerValue`, `withServerValueInitial`, `getServerValue` (2704–2757); test "should not execute Atom effects during SSR when using withServerSnapshot" |
+| `useAtomSuspense` throws a promise while the result is `Initial`, or `waiting` with `suspendOnWaiting`. The promise subscribes to the atom, which keeps its node alive, and resolves on the first settled result. A `Failure` is thrown as `Cause.squash(cause)` to the nearest error boundary, unless you pass `includeFailure`. | `atom-react/src/Hooks.ts` `atomToPromise`, `atomResultOrSuspend`, `useAtomSuspense` (397–476) |
+| Under React 19 streaming SSR, a thrown promise holds back that Suspense boundary until it resolves. TanStack Start streams through `defaultStreamHandler` / `renderRouterToStream`. | [router ssr.md](https://github.com/TanStack/router/blob/main/docs/router/guide/ssr.md) |
+| A non-Suspense `useAtomValue` on an async atom renders `Initial` (waiting) into the HTML. Its fiber has started, but no subscriber holds the node, so the low-priority removal task may interrupt it. | `atom-react/src/Hooks.ts`; `reactivity/AtomRegistry.ts` `createNode` → `scheduleAtomRemoval` |
+
+### Moving server values to the client
+
+| Fact | Source |
+| --- | --- |
+| Only `Atom.serializable({ key, schema })` atoms are dehydrated. The schema becomes a JSON codec through `Schema.toCodecJson`. For an Effect atom, the schema is `AsyncResult.Schema({ success, error })`. `skipInitialRun` keeps the hydrated value instead of re-running the Effect when the atom mounts. | `reactivity/Atom.ts` `serializable` (2663) |
+| `Hydration.dehydrate(registry, { encodeInitialAs })` snapshots every serializable node currently in the registry. `"ignore"` (the default) drops atoms that are still `Initial`. `"value-only"` sends them as `Initial`. `"promise"` adds a `resultPromise` that resolves when the atom settles. | `reactivity/Hydration.ts` `dehydrate` (94) |
+| `Hydration.hydrate` stores the encoded values in `registry.preloadedSerializable`. They are decoded when a node with that key is first built. A `resultPromise` updates the node later. | `reactivity/Hydration.ts` `hydrate` (166); `reactivity/AtomRegistry.ts` `ensureNode` |
+| `HydrationBoundary` hydrates atoms that are new to the registry during render, so children read them on the first pass. Values for atoms that already exist wait until commit, so an aborted transition cannot change the current UI. | `atom-react/src/ReactHydration.ts` (51) |
+| Even with `"promise"`, the client starts its own Effect for an atom that was still pending on the server. Whichever result settles first wins. Upstream's test asserts that the Effect starts twice. | `atom-react/test/index.test.tsx` "hydration streaming with resultPromise" |
+| TanStack Router's `dehydrate` option returns serializable data that is merged into the SSR payload. `hydrate` receives it on the client. `Wrap` wraps the provider. Resolved loader data is dehydrated automatically. | [external-data-loading.md](https://github.com/TanStack/router/blob/main/docs/router/guide/external-data-loading.md), [ssr.md](https://github.com/TanStack/router/blob/main/docs/router/guide/ssr.md) |
+| TanStack's Query adapter wraps `router.options.dehydrate`. It returns the initial snapshot plus a `ReadableStream` of queries that resolve later in the render. It closes the stream from `router.serverSsr.onRenderFinished`, and clears the client from `serverSsr.onCleanup`. On the client, it wraps `router.options.hydrate` and reads the stream. | [`packages/router-ssr-query-core/src/index.ts`](https://github.com/TanStack/router/blob/main/packages/router-ssr-query-core/src/index.ts) |
+
+There are two shapes this can take, and both need a prototype:
+
+1. **Prefetch in loaders (simplest).** A route loader calls `Effect.runPromise(AtomRegistry.getResult(context.registry, atom))`, which warms the per-request registry. The router's `dehydrate` returns `Hydration.dehydrate(registry)`, and its `hydrate` calls `Hydration.hydrate(registry, state)`. On client navigation, the same loader warms the client registry. This copies `ensureQueryData` and keeps loaders. `AtomRegistry.getResult` is at `reactivity/AtomRegistry.ts` line 276.
+2. **Stream atoms that resolve during render.** Port the Query adapter: subscribe to the registry's node additions (`onNodeAdded` is internal) and push each serializable atom when it settles. No upstream code does this for atoms yet.
+
+Ways to avoid hydration mismatches without dehydration: `Atom.withServerValueInitial` on atoms that only the client should fetch, the route option `ssr: 'data-only'` or `false` ([selective-ssr.md](https://github.com/TanStack/router/blob/main/docs/start/framework/react/guide/selective-ssr.md)), and `<ClientOnly>` ([hydration-errors.md](https://github.com/TanStack/router/blob/main/docs/start/framework/react/guide/hydration-errors.md)).
+
+The package files carry `"use client"` directives. Start does not use React Server Components here, so the directives have no effect.
+
+## 5. Server functions
+
+| Fact | Source |
+| --- | --- |
+| `createServerFn` results are awaitable functions. You can call them from loaders, components and other server functions. "On the client, calls become `fetch` requests". "The build process replaces server function implementations with RPC stubs in client bundles". Return values must be serializable, and a `Response` is allowed. | [server-functions.md](https://github.com/TanStack/router/blob/main/docs/start/framework/react/guide/server-functions.md) |
+| `runServerEffect` in `packages/server/src/bridge.ts` turns a typed `HttpError` into a thrown `Response` or `redirect`, and any other failure into a 500. Neither app has a `createServerFn` or a loader today. The only Effect-backed route is `apps/web/src/routes/probe.ts`, a server `GET` handler. | `packages/server/src/bridge.ts`; `apps/web/src/routes/probe.ts`; `apps/dashboard/src/routes/` contains only `__root.tsx` |
+| Upstream also ships `AtomRpc` and `AtomHttpApi`, which build atom clients against an `effect/rpc` or `HttpApi` endpoint, as an alternative to server functions. | `reactivity/AtomRpc.ts`, `reactivity/AtomHttpApi.ts` |
+
+The interop is direct: `runtime.atom(Effect.tryPromise(() => getThing({ data })))` for reads, and `runtime.fn((arg) => Effect.tryPromise(() => saveThing({ data: arg })), { reactivityKeys })` for writes. Two gaps remain:
+
+- **Typed errors are lost at the wire.** The bridge throws a `Response`, so on the client the atom sees an unknown rejection. To keep `E`, the server function would need to return an encoded `Exit` (for example through `Schema.Exit`) and the atom would decode it. That is a design choice, not something upstream provides.
+- **The client runtime layer must not pull in server-only modules.** Server functions are stubbed in the client bundle, but anything the atom's layer imports directly is shipped to the browser.
+
+## 6. Cost of a render, a derived atom and a family
+
+| Fact | Source |
+| --- | --- |
+| A read on each render runs `registry.get(atom)`: a `Map` lookup in `ensureNode`, then `node.value()`, which returns the cached value while the node is valid. Nothing is recomputed unless a dependency invalidated the node. | `reactivity/AtomRegistry.ts` `get`, `ensureNode`; `atom-react/src/Hooks.ts` `useStore` |
+| A selector (`useAtomValue(atom, f)`) is memoized on the identity of `f` and on `Object.is` of the source value. An inline arrow function resets the memo on every render. A selector that builds a new object on every call gives `useSyncExternalStore` unstable snapshots. | `atom-react/src/Hooks.ts` `useSelectedStore` (104–122) |
+| `Atom.family(f)` caches by argument in a `MutableHashMap`, which compares with Effect `Equal`/`Hash`, structurally for plain values. Each entry is held through a `WeakRef` and cleaned up by a `FinalizationRegistry`. Each distinct argument costs one atom object, one registry node and one fiber fork per evaluation. | `reactivity/Atom.ts` `family` (1442) |
+| An atom created inside a component body gets a new identity on each render. The registry builds a new node and re-runs the Effect every time. Atoms belong at module scope, in a `family`, or in `ScopedAtom` / `useMemo`. | `reactivity/AtomRegistry.ts` `atomKey`, `ensureNode` |
+| Nodes without subscribers are removed by a low-priority scheduled task. `defaultIdleTTL` or `Atom.setIdleTTL` keeps them for a while, and `Atom.keepAlive` keeps them forever. | `reactivity/AtomRegistry.ts` `scheduleAtomRemoval`, `removeNode`, `setNodeTimeout`; `reactivity/Atom.ts` `keepAlive`, `setIdleTTL` |
+
+The per-render cost is therefore negligible. The real cost is per atom instance: a fiber fork, a scope and a node. For data atoms that is fine. A pure helper turned into a family per formatted value, such as one atom per table cell, pays for a fork and a `Map` entry on every distinct input, and gains nothing over calling a plain function.
+
+## 7. Publish status and peer dependencies
+
+| Fact | Source |
+| --- | --- |
+| `@effect/atom-react@4.1.2` was published 2026-11-02, the same day as `effect@4.1.2`. dist-tags: `latest` and `staging` 4.1.2, `rc` 4.0.0-rc.118, `beta` 4.0.0-beta.0. Unpacked size about 309 KB. | `npm view @effect/atom-react@4.1.2 dist-tags time` |
+| Peer dependencies: `effect ^4.1.2`, `react >=19.0.0 <20.0.0`, `scheduler >=0.25.0 <0.29.0`. No `dependencies`. | `npm view @effect/atom-react@4.1.2 peerDependencies`; `atom-react/package.json` |
+| `react-dom@19.3.1` depends on `scheduler ^0.28.0`. Both apps declare `react`/`react-dom ^19.2.8`. | `npm view react-dom@latest dependencies`; `apps/*/package.json` |
+| Every module in the package is `@stability unstable`, as is `effect/reactivity`. Effect's migration guide says unstable modules can break in minor releases. | `atom-react/src/index.ts`; `reactivity/index.ts`; see [#15 research](https://github.com/apinrdw/kumora/blob/research/effect-version-runtime/docs/research/effect-version-runtime.md) |
+
+To install: add `@effect/atom-react: *effect` to the catalog in `pnpm-workspace.yaml`, so that it moves with `effect`, and add `scheduler` as a direct dependency of `packages/client`. Under pnpm a transitive `scheduler` is not resolvable from the package that imports it.
+
+## Open for grilling
+
+- Whether data loading stays in TanStack loaders that prefetch into the registry (shape 1), or moves fully into atoms with a custom streaming adapter (shape 2).
+- Whether `packages/client` exports a `getRouter` helper that owns the registry, the `Wrap`, `dehydrate`/`hydrate` and the cleanup, and whether its runtime factory uses a shared `MemoMap`.
+- Whether to keep typed errors across server functions by encoding an `Exit`, or accept unknown rejections on the client.
+- Whether "every function returns an Effect" covers render-time formatters, given that each needs an atom or a family to reach render.
+- Whether to pin to the minor version, since both packages are `@stability unstable`.

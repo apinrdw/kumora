@@ -1,0 +1,193 @@
+// [DEBUG-a4f2] Throwaway: blasts fake Stockbit frames at RATE/s on both
+// connections for SECONDS and measures how far behind the relay's envelopes
+// reach a fake ingest socket.
+import { createServer } from "node:http"
+import type { AddressInfo } from "node:net"
+import { WebSocketServer, type WebSocket } from "ws"
+
+import {
+  SESSION_1,
+  STOCKBIT_TAB,
+  TICKS,
+  launchWithExtension,
+  setRelayClock,
+  startFakeBrokers,
+  tickRelay,
+} from "../support/relay-extension"
+import { expect, test } from "../support/test"
+
+const RATE = Number(process.env.RATE ?? 500)
+const SECONDS_DEFAULT = Number(process.env.SECONDS ?? 20)
+const SIZE = Number(process.env.SIZE ?? 600)
+
+import { chromium } from "@playwright/test"
+import { writeFileSync } from "node:fs"
+import { fileURLToPath } from "node:url"
+import { WebSocket as Ws } from "ws"
+const EXT = fileURLToPath(new URL("../../extension/dist", import.meta.url))
+const HOSTS = ["trade.ajaib.co.id","stream.ajaib.co.id","ht2.ajaib.co.id","stockbit.com","exodus.stockbit.com","wss-jkt.trading.stockbit.com"]
+async function launchDebug(port: number) {
+  const rules = HOSTS.map((h) => `MAP ${h} 127.0.0.1:${port}`).join(", ")
+  const context = await chromium.launchPersistentContext("", {
+    channel: "chromium",
+    args: [`--disable-extensions-except=${EXT}`, `--load-extension=${EXT}`, `--host-resolver-rules=${rules}`, "--ignore-certificate-errors", "--remote-debugging-port=9333"],
+  })
+  const worker = context.serviceWorkers()[0] ?? (await context.waitForEvent("serviceworker"))
+  return { context, worker, optionsUrl: `chrome-extension://${new URL(worker.url()).host}/options.html` }
+}
+async function profileWorker(ms: number, out: string) {
+  const targets = (await (await fetch("http://127.0.0.1:9333/json")).json()) as Array<{ type: string; webSocketDebuggerUrl: string }>
+  const sw = targets.find((t) => t.type === "service_worker")!
+  const ws = new Ws(sw.webSocketDebuggerUrl)
+  await new Promise((r) => ws.once("open", r))
+  let id = 0
+  const call = (method: string, params = {}) => new Promise<any>((resolve) => {
+    const my = ++id
+    const on = (data: any) => { const m = JSON.parse(String(data)); if (m.id === my) { ws.off("message", on); resolve(m.result) } }
+    ws.on("message", on)
+    ws.send(JSON.stringify({ id: my, method, params }))
+  })
+  await call("Profiler.enable")
+  await call("Profiler.start")
+  await new Promise((r) => setTimeout(r, ms))
+  const { profile } = await call("Profiler.stop")
+  writeFileSync(out, JSON.stringify(profile))
+  ws.close()
+}
+
+test("relay throughput", async () => {
+  const brokers = await startFakeBrokers()
+  const server = createServer()
+  const sockets: Array<WebSocket> = []
+  const arrivals: Array<{ sentAt: number; at: number }> = []
+  let envelopes = 0
+  new WebSocketServer({ server }).on("connection", (socket) => {
+    sockets.push(socket)
+    socket.on("message", (data) => {
+      const at = Date.now()
+      const message = JSON.parse(String(data))
+      if (message._tag !== "Frames" || message.feed !== "Stockbit") return
+      envelopes++
+      for (const b64 of message.frames as ReadonlyArray<string>) {
+        const frame = Buffer.from(b64.slice(0, 24), "base64")
+        if (frame[0] !== 0x54) continue
+        arrivals.push({ sentAt: Number(frame.subarray(1, 14).toString()), at })
+      }
+    })
+  })
+  await new Promise<void>((resolve) => server.listen(0, "127.0.0.1", resolve))
+  const origin = `http://127.0.0.1:${(server.address() as AddressInfo).port}`
+  const { context, worker, optionsUrl } = await launchDebug(brokers.port)
+  await setRelayClock(worker, SESSION_1)
+  const options = await context.newPage()
+  await options.goto(optionsUrl)
+  await options.getByLabel("Extra target URL").fill(origin)
+  await options.getByLabel("Extra target ingest token").fill("any")
+  await options.getByRole("button", { name: "Save" }).click()
+  await expect.poll(() => sockets.length).toBe(1)
+  const tab = await context.newPage()
+  await tab.goto(STOCKBIT_TAB)
+  const path = "/ws"
+  await expect.poll(() => brokers.on(path).length, TICKS).toBeGreaterThan(0)
+  const frame = (sentAt: number) => {
+    const bytes = new Uint8Array(SIZE).fill(0x41)
+    bytes[0] = 0x54
+    bytes.set(new TextEncoder().encode(String(sentAt)), 1)
+    return bytes
+  }
+  const live = () =>
+    brokers.on(path).filter((s) => s.socket.readyState === 1)
+  for (const s of live()) s.socket.send(frame(Date.now()))
+  await expect
+    .poll(async () => {
+      await tickRelay(worker)
+      return live().length
+    }, TICKS)
+    .toBe(Number(process.env.CONNECTIONS ?? 2))
+  if (process.env.THROTTLE) {
+    const cdp = await context.newCDPSession(tab)
+    await cdp.send("Emulation.setCPUThrottlingRate", { rate: Number(process.env.THROTTLE) })
+  }
+  if (process.env.HIDDEN) await options.bringToFront()
+  console.log("[DEBUG-a4f2] visibility", await tab.evaluate(() => document.visibilityState))
+  arrivals.length = 0
+  envelopes = 0
+
+  const phases = (process.env.PHASES ?? `${RATE}:${SECONDS_DEFAULT}`)
+    .split(",").map((p) => p.split(":").map(Number) as [number, number])
+  const SECONDS = phases.reduce((t, [, d]) => t + d, 0)
+  const dueAt = (ms: number) => {
+    let due = 0, t = 0
+    for (const [r, d] of phases) {
+      const span = Math.min(Math.max(ms - t, 0), d * 1000)
+      due += (span / 1000) * r
+      t += d * 1000
+    }
+    return Math.floor(due)
+  }
+  const start = Date.now()
+  const profiling = process.env.PROFILE
+    ? new Promise((r) => setTimeout(r, (phases[0]![1] + 5) * 1000)).then(async () => {
+        const q = await worker.evaluate(() => Object.values((globalThis as any).dbgA4f2.qmax).reduce((a: number, b: any) => Math.max(a, b), 0))
+        console.log("[DEBUG-a4f2] queue at profile", q)
+        await profileWorker(6000, process.env.PROFILE!)
+      })
+    : Promise.resolve()
+  let sent = 0
+  await new Promise<void>((resolve) => {
+    const timer = setInterval(() => {
+      const elapsed = Date.now() - start
+      const due = dueAt(Math.min(elapsed, SECONDS * 1000))
+      const targets = live()
+      while (sent < due) {
+        const bytes = frame(Date.now())
+        for (const s of targets) s.socket.send(bytes)
+        sent++
+      }
+      if (elapsed >= SECONDS * 1000) {
+        clearInterval(timer)
+        resolve()
+      }
+    }, 5)
+  })
+  const sendEnd = Date.now()
+  await profiling
+  const expected = sent * live().length
+  // Wait for the backlog to drain (or give up after 5 min).
+  const deadline = Date.now() + 300_000
+  while (arrivals.length < expected && Date.now() < deadline)
+    await new Promise((r) => setTimeout(r, 200))
+  const drainedAt = Date.now()
+  const lags = arrivals.map((a) => a.at - a.sentAt).sort((a, b) => a - b)
+  const q = (p: number) => lags[Math.min(lags.length - 1, Math.floor(p * lags.length))]
+  const result = {
+    rate: RATE,
+    phases: process.env.PHASES,
+    size: SIZE,
+    connections: live().length,
+    sentPerConnection: sent,
+    arrived: arrivals.length,
+    expected,
+    envelopes,
+    p50: q(0.5),
+    p99: q(0.99),
+    max: lags.at(-1),
+    drainMsAfterSendEnd: drainedAt - sendEnd,
+    carriedPerSecond: Math.round(arrivals.length / ((drainedAt - start) / 1000)),
+  }
+  console.log("[DEBUG-a4f2]", JSON.stringify(result))
+  const buckets = new Map<number, { n: number; max: number }>()
+  for (const a of arrivals) {
+    const k = Math.floor((a.sentAt - start) / 5000) * 5
+    const b = buckets.get(k) ?? { n: 0, max: 0 }
+    b.n++; b.max = Math.max(b.max, a.at - a.sentAt); buckets.set(k, b)
+  }
+  console.log("[DEBUG-a4f2] by send second", JSON.stringify([...buckets].sort((x, y) => x[0] - y[0]).map(([k, b]) => `${k}s:n=${b.n},maxLag=${b.max}`)))
+  const sw = await worker.evaluate(() => (globalThis as any).dbgA4f2)
+  const rel = (o: Record<string, number>) => Object.entries(o).map(([k, v]) => [Number(k) * 1000 - Math.floor(start / 5000) * 5000, v]).sort((a, b) => a[0] - b[0]).map(([k, v]) => `${Math.round(k / 1000)}s:${v}`).join(" ")
+  console.log("[DEBUG-a4f2] sw enq maxLag", rel(sw.enq))
+  console.log("[DEBUG-a4f2] sw deq maxLag", rel(sw.deq))
+  console.log("[DEBUG-a4f2] sw queue max", rel(sw.qmax))
+  await brokers.close()
+  server.close()
+})
