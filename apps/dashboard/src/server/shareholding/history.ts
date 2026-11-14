@@ -61,7 +61,7 @@ export const recentRuns = Effect.gen(function* () {
   )
 })
 
-export const ArchiveTotals = Schema.Struct({
+const ArchiveTotals = Schema.Struct({
   // Every report kind, in the listing's order, with its stored files.
   kinds: Schema.Array(
     Schema.Struct({ kind: ReportKind, reports: Schema.Number })

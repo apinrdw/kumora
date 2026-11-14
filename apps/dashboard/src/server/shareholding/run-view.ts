@@ -6,7 +6,7 @@ import { Effect, Schema } from "effect"
 import { type InstanceStatus, RunStatus } from "./archive-workflow.ts"
 import { ArchiveRunResult } from "./run-result.ts"
 
-export const RunView = Schema.Struct({
+const RunView = Schema.Struct({
   // The run's record; a run that ended without its summary shows as failed.
   result: ArchiveRunResult,
   inProgress: Schema.Boolean,
