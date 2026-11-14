@@ -74,7 +74,7 @@ class NoListingReadable extends Schema.TaggedError<NoListingReadable>()(
   { message: Schema.String }
 ) {}
 
-// KSEI answered a file with a redirect: it has no such file.
+// KSEI answered a KSEI report's URL with a redirect: it has no such report.
 class NotOnKsei extends Schema.TaggedError<NotOnKsei>()("NotOnKsei", {
   message: Schema.String,
 }) {}
@@ -174,7 +174,7 @@ const archiveReport = Effect.fnUntraced(function* (
       () =>
         Effect.fail(
           new NotOnKsei({
-            message: `KSEI has no file at ${report.url}: it redirects`,
+            message: `KSEI has no report at ${report.url}: it redirects`,
           })
         )
     )
@@ -182,11 +182,11 @@ const archiveReport = Effect.fnUntraced(function* (
   const bytes = yield* readCapped(
     response,
     MAX_REPORT_BYTES,
-    `KSEI's file at ${report.url}`
+    `KSEI's report at ${report.url}`
   )
   if (!(yield* isZip(bytes)))
     return yield* new NonRetryable({
-      message: `KSEI's file at ${report.url} isn't a zip`,
+      message: `KSEI's report at ${report.url} isn't a zip`,
     })
   const fetchedAt = yield* nowIso
   const sha256 = yield* sha256Hex(bytes)
@@ -366,7 +366,7 @@ const summary = Effect.fnUntraced(function* (
   const earlier = yield* recordsByFilename(run.id)
   const result = KseiRunResult.make({
     ...(yield* finishedResult(run)),
-    // Decision: an MD5 mismatch and a deep run's months not found leave the
+    // Decision: an MD5 mismatch and a Deep backfill's months not found leave the
     // run complete: they are what KSEI serves, and doesn't. A probe that
     // failed is partial, like a file not stored: its months weren't looked
     // at. See apinrdw/kumora#327 and #330.

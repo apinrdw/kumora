@@ -32,8 +32,8 @@ function Filenames({
   )
 }
 
-// What a partial run couldn't read or store, and the files whose MD5 isn't
-// their ETag.
+// What a partial run couldn't read or store, and the KSEI reports whose MD5
+// isn't their ETag.
 function Detail({ result }: { result: KseiRunResult }) {
   const { listingFailures, notStored, md5Mismatches } = result
   if (
@@ -55,7 +55,7 @@ function Detail({ result }: { result: KseiRunResult }) {
               )
             )}
           </b>{" "}
-          The run skipped its files; the next run reads it again.
+          The run skipped its KSEI reports; the next run reads it again.
           <ul aria-label="Listings not read" className="mt-1 list-disc pl-5">
             {listingFailures.map(({ kind, message }) => (
               <li key={kind} className="[overflow-wrap:anywhere]">
@@ -134,7 +134,7 @@ function MonthsNotFound({
   )
 }
 
-// What a deep run found beyond the listings, collapsed.
+// What a Deep backfill found beyond the listings, collapsed.
 function DeepDetail({ deep }: { deep: DeepFinds }) {
   const { foundFromSeed, foundByProbing, monthsNotFound, probeFailures } = deep
   const notFound = KseiReportKind.literals.reduce(
@@ -145,8 +145,9 @@ function DeepDetail({ deep }: { deep: DeepFinds }) {
     <details className="bg-elevated rounded-xs px-3 py-2 text-[13px]">
       <summary className="cursor-pointer">
         Deep backfill:{" "}
-        {Effect.runSync(count(foundFromSeed.length, "file", "files"))} from the
-        seed, {Effect.runSync(count(foundByProbing.length, "file", "files"))} by
+        {Effect.runSync(count(foundFromSeed.length, "report", "reports"))} from
+        the seed,{" "}
+        {Effect.runSync(count(foundByProbing.length, "report", "reports"))} by
         probing, {Effect.runSync(count(notFound, "month", "months"))} not found.
       </summary>
       <div className="mt-2 flex flex-col gap-2">

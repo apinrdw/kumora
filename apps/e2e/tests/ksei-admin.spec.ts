@@ -178,7 +178,7 @@ test.describe.serial("an admin's KSEI archive", () => {
     ])
   })
 
-  test("with no deep backfill yet, every month without a file was never looked for", async ({
+  test("with no deep backfill yet, every month without a KSEI report was never looked for", async ({
     page,
   }) => {
     await seedKseiReport("securities-statistics/2008-01-31", "d".repeat(64), 10)
@@ -187,7 +187,7 @@ test.describe.serial("an admin's KSEI archive", () => {
     await page.setViewportSize({ width: 390, height: 844 })
     await page.goto(KSEI)
     await expect(page.getByRole("region", { name: "Coverage" })).toContainText(
-      "No deep backfill has run yet"
+      "No Deep backfill has run yet"
     )
     const statistics = coverage(page, "Securities statistics")
     const holdings = coverage(page, "Securities holdings")
@@ -273,7 +273,7 @@ test.describe.serial("an admin's KSEI archive", () => {
       page.getByRole("region", { name: /Last KSEI archive run.*Deep backfill/ })
     ).toBeVisible()
     const summary = card.getByText(
-      "Deep backfill: 2 files from the seed, 1 file by probing, 3 months not found."
+      "Deep backfill: 2 reports from the seed, 1 report by probing, 3 months not found."
     )
     await expect(
       card.getByRole("list", { name: "Found from the seed" })
@@ -377,7 +377,7 @@ test.describe.serial("an admin's KSEI archive", () => {
 
     await page.goto(KSEI)
     await expect(page.getByRole("region", { name: "Coverage" })).toContainText(
-      `Not found by the latest deep backfill, ${id}, finished`
+      `Not found by the latest Deep backfill, ${id}, finished`
     )
     const statistics = coverage(page, "Securities statistics")
     const holdings = coverage(page, "Securities holdings")

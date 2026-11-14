@@ -122,7 +122,7 @@ function KindGrid({ kind, years }: KseiCoverage[number]) {
 
 /**
  * Each KSEI report kind's months from 2008: held, not found by the latest
- * deep run, or never looked for.
+ * Deep backfill, or never looked for.
  */
 export function KseiCoverageCard({
   coverage,
@@ -148,10 +148,10 @@ export function KseiCoverageCard({
       </ul>
       <p className="text-[13px] text-muted-foreground">
         {lastDeepRun === undefined ? (
-          "No deep backfill has run yet, so no month without a file has been looked for."
+          "No Deep backfill has run yet, so no month without a KSEI report has been looked for."
         ) : (
           <>
-            Not found by the latest deep backfill,{" "}
+            Not found by the latest Deep backfill,{" "}
             <span className="font-mono whitespace-nowrap">
               {lastDeepRun.id}
             </span>

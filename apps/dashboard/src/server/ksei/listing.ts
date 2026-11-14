@@ -202,11 +202,11 @@ export const fetchListing = Effect.fnUntraced(function* (kind: KseiReportKind) {
     )
   if (body.data.length !== body.meta.total)
     return yield* unreadable(
-      `holds ${body.data.length} files of the ${body.meta.total} its meta.total counts`
+      `holds ${body.data.length} KSEI reports of the ${body.meta.total} its meta.total counts`
     )
   if (body.data.length > MAX_LISTED_REPORTS)
     return yield* unreadable(
-      `holds ${body.data.length} files, more than the ${MAX_LISTED_REPORTS} a run can carry`
+      `holds ${body.data.length} KSEI reports, more than the ${MAX_LISTED_REPORTS} a run can carry`
     )
   const reports = yield* Effect.forEach(
     body.data,
@@ -226,7 +226,7 @@ export const fetchListing = Effect.fnUntraced(function* (kind: KseiReportKind) {
       })
       if ((yield* jsonBytes(report)) > MAX_LISTED_REPORT_BYTES)
         return yield* unreadable(
-          `has a file over ${MAX_LISTED_REPORT_BYTES} bytes: ${filename}`
+          `has an entry over ${MAX_LISTED_REPORT_BYTES} bytes: ${filename}`
         )
       return report
     })

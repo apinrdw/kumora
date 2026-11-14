@@ -15,7 +15,7 @@ import type { KseiTotals } from "@/server/ksei/totals"
 const COUNT_COLUMNS: ReadonlyArray<KColumn<KseiRunSummary>> = [
   {
     key: "trigger",
-    label: "Kind",
+    label: "Trigger",
     cell: (run) =>
       run.trigger === "deep" ? (
         <KBadge tone="accent" icon={false}>

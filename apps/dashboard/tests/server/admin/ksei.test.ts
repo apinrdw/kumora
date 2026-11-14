@@ -368,25 +368,30 @@ describe("the KSEI coverage grid", () => {
     }
   )
 
-  it.effect("shows every month without a file as never looked for", () => {
-    const { layer, mails, bucket } = archive()
-    record(bucket, "securities-holdings", "2015-06-30")
-    return Effect.gen(function* () {
-      yield* TestClock.setTime(Date.parse("2026-11-14T14:00:00.000Z"))
-      const cookie = yield* verified(mails)(ADMIN_EMAIL, "Adi")
-      const { coverage, lastDeepRun } = yield* kseiArchivePage(headers(cookie))
-      assert.isUndefined(lastDeepRun)
-      const states = coverage.flatMap(({ years }) =>
-        years.flatMap(({ months }) => months)
-      )
-      assert.strictEqual(states.length, 2 * (18 * 12 + 11))
-      assert.deepStrictEqual(
-        states.filter((state) => state !== NEVER),
-        ["held"]
-      )
-      assert.strictEqual(monthOf(coverage[1], 2015, 6), "held")
-    }).pipe(Effect.provide(layer))
-  })
+  it.effect(
+    "shows every month without a KSEI report as never looked for",
+    () => {
+      const { layer, mails, bucket } = archive()
+      record(bucket, "securities-holdings", "2015-06-30")
+      return Effect.gen(function* () {
+        yield* TestClock.setTime(Date.parse("2026-11-14T14:00:00.000Z"))
+        const cookie = yield* verified(mails)(ADMIN_EMAIL, "Adi")
+        const { coverage, lastDeepRun } = yield* kseiArchivePage(
+          headers(cookie)
+        )
+        assert.isUndefined(lastDeepRun)
+        const states = coverage.flatMap(({ years }) =>
+          years.flatMap(({ months }) => months)
+        )
+        assert.strictEqual(states.length, 2 * (18 * 12 + 11))
+        assert.deepStrictEqual(
+          states.filter((state) => state !== NEVER),
+          ["held"]
+        )
+        assert.strictEqual(monthOf(coverage[1], 2015, 6), "held")
+      }).pipe(Effect.provide(layer))
+    }
+  )
 
   it.effect("ends at the current month in WIB", () => {
     const { layer, mails } = archive()
