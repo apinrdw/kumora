@@ -1,10 +1,13 @@
 // Seam (1) of spec apinrdw/kumora#263 for sweeps (ticket apinrdw/kumora#266):
 // Stockbit trades go in through the ingest socket, time moves only by
 // TestClock, and the test reads the sweeps GET and the deltas a page builds
-// later sweeps from.
+// later sweeps from. The page tests join the two through the page's own sweep
+// store.
 import { assert, describe, it } from "@effect/vitest"
 import {
+  StockCode,
   TradeNumberOrder,
+  decodeViewerDown,
   joinSweeps,
   sweepsOf,
   type RunningTrade,
@@ -12,9 +15,10 @@ import {
 import { DateTime, Effect } from "effect"
 import { TestClock } from "effect/testing"
 
+import { makeSweepStore } from "@/components/market-live/sweep-store"
 import { SEALED_CACHE } from "@/server/market-live/routes"
 
-import { stockbitTrade, sweepOf, tradingDay } from "./day-harness"
+import { ajaibTrade, stockbitTrade, sweepOf, tradingDay } from "./day-harness"
 import { memorySql } from "./sql"
 
 const wib = (time: string) => DateTime.makeUnsafe(`2026-11-09T${time}+07:00`)
@@ -45,6 +49,48 @@ const bbca = (number: number, time: string) =>
     lots: 7,
     side: "sell",
   })
+
+// A Market Live page on `code`: its sweep store hears what the object sends
+// its socket, and the sweeps GET answers what the store asks.
+const pageOn = Effect.fnUntraced(function* (
+  day: Effect.Success<ReturnType<typeof tradingDay>>,
+  code: string
+) {
+  const socket = yield* day.viewer(code)
+  const store = yield* makeSweepStore(StockCode.make(code))
+  let heard = 0
+  let asks = 0
+  // The store reads every message sent since it last heard.
+  const hear = Effect.gen(function* () {
+    for (const text of socket.sent.slice(heard))
+      store.apply(yield* decodeViewerDown(text))
+    heard = socket.sent.length
+  })
+  // The GET answers the store's ask now; the returned call lands the answer.
+  const ask = Effect.gen(function* () {
+    const asked = store.awaiting()
+    assert.isDefined(asked)
+    asks += 1
+    const { answer } = yield* day.recordedSweeps(code)
+    return () => store.answer(asked, answer)
+  })
+  // Hears and asks until the store has nothing left to ask.
+  const settle = Effect.gen(function* () {
+    yield* hear
+    while (store.awaiting() !== undefined) {
+      const land = yield* ask
+      land()
+      yield* hear
+    }
+  })
+  return {
+    hear,
+    ask,
+    settle,
+    asks: () => asks,
+    sweeps: () => store.sweeps().map(sweepOf),
+  }
+})
 
 describe("sweeps", () => {
   it.effect(
@@ -201,6 +247,188 @@ describe("sweeps", () => {
           ["buy", "2026-11-09T02:00:10.100Z", 23300, 23325, 6, 3],
           ["sell", "2026-11-09T02:00:11.100Z", 23300, 23300, 4, 1],
         ])
+      })
+  )
+
+  it.effect(
+    "a page asks the GET once while trades only follow its answer: the delta's copies of answered trades and new trades ask nothing",
+    () =>
+      Effect.gen(function* () {
+        yield* at("09:01:10")
+        const day = yield* tradingDay()
+        const page = yield* pageOn(day, "UNTR")
+        yield* day.trades([
+          untr(40001, "09:00:10.100", 23300, 2, "buy"),
+          untr(40003, "09:00:10.500", 23325, 3, "buy"),
+        ])
+        // Answered before the delta carrying those trades goes out.
+        yield* page.settle
+        for (const [number, time] of [
+          [40004, "09:00:10.900"],
+          [40005, "09:00:11.100"],
+          [40006, "09:00:11.300"],
+        ] as const) {
+          yield* TestClock.adjust("250 millis")
+          yield* day.trades([untr(number, time, 23325, 1, "buy")])
+        }
+        yield* TestClock.adjust("250 millis")
+        yield* page.settle
+        assert.strictEqual(page.asks(), 1)
+        assert.deepStrictEqual(page.sweeps(), [
+          ["buy", "2026-11-09T02:00:10.100Z", 23300, 23325, 6, 3],
+          ["buy", "2026-11-09T02:00:11.100Z", 23325, 23325, 2, 2],
+        ])
+      })
+  )
+
+  it.effect(
+    "a backfilled trade older than a full tape's oldest, which no delta's tape carries, reaches the page's sweeps",
+    () =>
+      Effect.gen(function* () {
+        yield* at("09:01:10")
+        const day = yield* tradingDay()
+        const page = yield* pageOn(day, "UNTR")
+        yield* day.trades([
+          untr(40001, "09:00:10.100", 23300, 2, "buy"),
+          untr(40003, "09:00:10.500", 23325, 3, "buy"),
+        ])
+        // A tape of newer trades evicts UNTR's two.
+        for (let batch = 0; batch < 10; batch++)
+          yield* day.trades(
+            Array.from({ length: 1_000 }, (_, i) =>
+              bbca(50001 + batch * 1_000 + i, "09:00:20.000")
+            )
+          )
+        yield* TestClock.adjust("250 millis")
+        yield* page.settle
+        assert.deepStrictEqual(page.sweeps(), [
+          ["buy", "2026-11-09T02:00:10.100Z", 23300, 23325, 5, 2],
+        ])
+        yield* day.trades([untr(40002, "09:00:10.300", 23300, 4, "sell")])
+        yield* TestClock.adjust("250 millis")
+        yield* page.settle
+        const whole = (yield* day.recordedSweeps("UNTR")).answer
+        assert.deepStrictEqual(whole.sweeps.map(sweepOf), [
+          ["buy", "2026-11-09T02:00:10.100Z", 23300, 23300, 2, 1],
+          ["sell", "2026-11-09T02:00:10.300Z", 23300, 23300, 4, 1],
+          ["buy", "2026-11-09T02:00:10.500Z", 23325, 23325, 3, 1],
+        ])
+        assert.deepStrictEqual(page.sweeps(), whole.sweeps.map(sweepOf))
+      }),
+    60_000
+  )
+
+  it.effect(
+    "a late trade that lands inside an answer still on its way to the page reaches the page's sweeps",
+    () =>
+      Effect.gen(function* () {
+        yield* at("09:01:10")
+        const day = yield* tradingDay()
+        const page = yield* pageOn(day, "UNTR")
+        yield* day.trades([
+          untr(40001, "09:00:10.100", 23300, 2, "buy"),
+          untr(40003, "09:00:10.500", 23325, 3, "buy"),
+        ])
+        yield* page.hear
+        // Answers through 40003, without 40002.
+        const land = yield* page.ask
+        yield* day.trades([untr(40002, "09:00:10.300", 23300, 4, "sell")])
+        yield* TestClock.adjust("250 millis")
+        // The delta carrying 40002 arrives before the answer does.
+        yield* page.hear
+        land()
+        yield* page.settle
+        const whole = (yield* day.recordedSweeps("UNTR")).answer
+        assert.deepStrictEqual(whole.sweeps.map(sweepOf), [
+          ["buy", "2026-11-09T02:00:10.100Z", 23300, 23300, 2, 1],
+          ["sell", "2026-11-09T02:00:10.300Z", 23300, 23300, 4, 1],
+          ["buy", "2026-11-09T02:00:10.500Z", 23325, 23325, 3, 1],
+        ])
+        assert.deepStrictEqual(page.sweeps(), whole.sweeps.map(sweepOf))
+      })
+  )
+
+  it.effect(
+    "Stockbit's time moving an answered trade Ajaib rounded into the next minute, its side unchanged, reaches the page's sweeps",
+    () =>
+      Effect.gen(function* () {
+        yield* at("09:01:10")
+        const day = yield* tradingDay()
+        const page = yield* pageOn(day, "UNTR")
+        yield* day.ajaibTrades([
+          ajaibTrade({
+            number: 40001,
+            time: "09:00:59",
+            price: 23300,
+            lots: 2,
+            side: "buy",
+          }),
+          // Ajaib rounds 09:00:59.900 up.
+          ajaibTrade({
+            number: 40002,
+            time: "09:01:00",
+            price: 23300,
+            lots: 3,
+            side: "buy",
+          }),
+        ])
+        yield* TestClock.adjust("250 millis")
+        // The page hears Ajaib's copies, which its answer includes.
+        yield* page.settle
+        assert.deepStrictEqual(page.sweeps(), [
+          ["buy", "2026-11-09T02:00:59.000Z", 23300, 23300, 2, 1],
+          ["buy", "2026-11-09T02:01:00.000Z", 23300, 23300, 3, 1],
+        ])
+        yield* day.trades([untr(40002, "09:00:59.900", 23300, 3, "buy")])
+        yield* TestClock.adjust("250 millis")
+        yield* page.settle
+        const whole = (yield* day.recordedSweeps("UNTR")).answer
+        assert.deepStrictEqual(whole.sweeps.map(sweepOf), [
+          ["buy", "2026-11-09T02:00:59.000Z", 23300, 23300, 5, 2],
+        ])
+        assert.deepStrictEqual(page.sweeps(), whole.sweeps.map(sweepOf))
+      })
+  )
+
+  it.effect(
+    "Stockbit's time moving an answered trade to another second of its minute regroups the GET's sweeps at once, and the page's",
+    () =>
+      Effect.gen(function* () {
+        yield* at("09:01:10")
+        const day = yield* tradingDay()
+        const page = yield* pageOn(day, "UNTR")
+        yield* day.ajaibTrades([
+          ajaibTrade({
+            number: 40001,
+            time: "09:00:10",
+            price: 23300,
+            lots: 2,
+            side: "buy",
+          }),
+          // Ajaib rounds 09:00:10.600 up.
+          ajaibTrade({
+            number: 40002,
+            time: "09:00:11",
+            price: 23300,
+            lots: 3,
+            side: "buy",
+          }),
+        ])
+        yield* TestClock.adjust("250 millis")
+        yield* page.settle
+        assert.deepStrictEqual(page.sweeps(), [
+          ["buy", "2026-11-09T02:00:10.000Z", 23300, 23300, 2, 1],
+          ["buy", "2026-11-09T02:00:11.000Z", 23300, 23300, 3, 1],
+        ])
+        yield* day.trades([untr(40002, "09:00:10.600", 23300, 3, "buy")])
+        yield* TestClock.adjust("250 millis")
+        yield* page.settle
+        // Still inside 40002's merge window.
+        const whole = (yield* day.recordedSweeps("UNTR")).answer
+        assert.deepStrictEqual(whole.sweeps.map(sweepOf), [
+          ["buy", "2026-11-09T02:00:10.000Z", 23300, 23300, 5, 2],
+        ])
+        assert.deepStrictEqual(page.sweeps(), whole.sweeps.map(sweepOf))
       })
   )
 

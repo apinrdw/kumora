@@ -90,6 +90,25 @@ export const stockbitTrade = (trade: {
   tradeNumber: trade.number,
 })
 
+// Ajaib's copy of a running trade on 2026-11-09, as its trade stream frames
+// it: a whole-second time and a BUY or SELL type.
+export const ajaibTrade = (trade: {
+  readonly number: number
+  readonly time: string
+  readonly code?: string
+  readonly price: number
+  readonly lots: number
+  readonly side: "buy" | "sell"
+}) =>
+  JSON.stringify({
+    ticker: trade.code ?? "UNTR",
+    type: trade.side === "buy" ? "BUY" : "SELL",
+    price: trade.price,
+    lot: trade.lots,
+    tradedAt: `2026-11-09T${trade.time}+07:00`,
+    tradeNum: `20261109${String(trade.number).padStart(10, "0")}`,
+  })
+
 // Stockbit's `order_book` frame (wrapper case 10) of one full side of
 // `code`'s book on 2026-11-09, as of `time` (WIB). Levels are [price, orders,
 // lots], best first.
@@ -154,6 +173,22 @@ export const tradingDay = Effect.fnUntraced(function* (sql: Sql = memorySql()) {
         connection: "A",
         receivedAt: DateTime.makeUnsafe("2026-11-09T02:00:01.000Z"),
         frames: [runningTradeBatch(rows)],
+      })
+    )
+  })
+  // Ajaib's running trades, in one envelope of its trade stream.
+  const ajaibTrades = Effect.fnUntraced(function* (
+    sent: ReadonlyArray<string>
+  ) {
+    yield* ingest(
+      yield* encodeIngestUp({
+        _tag: "Frames",
+        protocolVersion: IngestProtocolVersion,
+        feed: "Ajaib",
+        stream: "trade",
+        connection: "A",
+        receivedAt: DateTime.makeUnsafe("2026-11-09T02:00:01.000Z"),
+        frames: sent,
       })
     )
   })
@@ -227,6 +262,7 @@ export const tradingDay = Effect.fnUntraced(function* (sql: Sql = memorySql()) {
   return {
     day,
     trades,
+    ajaibTrades,
     frames,
     viewer,
     left,
