@@ -1,7 +1,6 @@
 // IDX's Data Kepemilikan Saham listing, read from `www.idx.id`, which serves it
 // without the Cloudflare challenge `www.idx.co.id` answers a Worker with.
-// docs/research/idx-kepemilikan-listing.md (branch research/idx-kepemilikan-listing)
-// has the endpoint's behaviour.
+// docs/research/idx-kepemilikan-listing.md has the endpoint's behaviour.
 import { NonRetryable } from "@workspace/server"
 import { Effect, Schema } from "effect"
 import { HttpClient, HttpClientResponse } from "effect/http"
