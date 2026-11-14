@@ -128,12 +128,11 @@ interface Frame {
   readonly full: number
 }
 
-// Decision: each past minute is painted once into its own offscreen canvas
-// and copied while the bar spacing, pixel ratio and price mapping hold; only
-// the current minute (the newest live, the cursor's on a recorded day) is
-// painted every frame. Minutes scrolled out of view drop their canvas, so
-// the cache holds about one chart's worth of pixels. See spec
-// apinrdw/kumora#263, "Chart 1".
+// Decision: each past minute is painted once into an offscreen canvas and
+// copied while the bar spacing, pixel ratio and price mapping hold; only the
+// current minute (newest live, the cursor's when recorded) paints each frame.
+// Minutes out of view drop their canvas, so the cache holds about one chart's
+// pixels. See spec apinrdw/kumora#263, "Chart 1".
 class BookHeatmap implements ISeriesPrimitive<Time> {
   private minutes: ReadonlyArray<Minute> = []
   private full = 1
