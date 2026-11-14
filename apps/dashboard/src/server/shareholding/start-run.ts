@@ -63,13 +63,12 @@ export const lastRun = Effect.gen(function* () {
 })
 
 // Points runs/latest.json at `id`, unless the run it names is in progress or
-// `id` ran before.
-// Decision: runs/latest.json is the one claim on starting a run, shared by
-// the cron and Run now. The pointer is written only if its ETag is still the
-// one this start judged, in one conditional R2 write, so of two starts that
-// read the same pointer, one claims it, and the other judges again against
-// the run that won. Writing the pointer is a start's alone: no step of the
-// run rewrites it. See apinrdw/kumora#309.
+// `id` ran before. Only a start writes the pointer: no step of a run does.
+// Decision: the pointer is the one claim on starting a run, for the cron and
+// Run now alike, written in one conditional R2 write only while its ETag is
+// the one this start judged. Of two starts that read the same pointer, one
+// claims it and the other judges again against the winner. See
+// apinrdw/kumora#309.
 const claim: (
   id: ArchiveRunId
 ) => Effect.Effect<

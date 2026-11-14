@@ -16,14 +16,13 @@ export interface ListedObject {
   readonly customMetadata: Readonly<Record<string, string>>
 }
 
-// The most objects a listing returns; past it, the listing fails.
-// Decision: a listing is held whole in a Worker's 128 MB, and `plan` hands
-// what it gathers from reports/ on as a step result, at most 1 MiB. Today
-// reports/ holds ~150 files and their records, ~300 objects, growing by ~2
-// files a day; runs/ is read 30 days at a time (history.ts). 10,000 objects
-// is decades of reports/ at that rate, a few MB listed and well under the
-// step limit, and failing past it says the layout needs rethinking instead of
-// a Worker running out of memory. See apinrdw/kumora#303.
+// The most objects a listing returns; past it, the listing fails. Today
+// reports/ holds ~300 objects (~150 files and their records), growing by ~4 a
+// day, and runs/ is read 30 days at a time (history.ts).
+// Decision: 10,000, about six years of reports/ at that rate. A listing is
+// held whole in a Worker's 128 MB, and `plan` hands what it gathers on as a
+// step result of at most 1 MiB; failing here says the layout needs rethinking
+// before either gives out. See apinrdw/kumora#303.
 export const MAX_LISTED_OBJECTS = 10_000
 
 // Fails a listing of `prefix` that has passed MAX_LISTED_OBJECTS.
