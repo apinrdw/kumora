@@ -192,6 +192,12 @@ export const tradingDay = Effect.fnUntraced(function* (sql: Sql = memorySql()) {
     )
     return socket
   })
+  // A viewer's socket closed: the object stops sending it deltas, and with
+  // no viewer left, stops its delta timer.
+  const left = Effect.fnUntraced(function* (socket: FakeSocket) {
+    viewers.splice(viewers.indexOf(socket), 1)
+    yield* day.viewerClosed(socket)
+  })
   const recorded = (resource: RecordedResource) =>
     day.recorded(resource).pipe(Effect.provide(env))
   // A code's recorded day candles answer, decoded, with its Cache-Control.
@@ -223,6 +229,7 @@ export const tradingDay = Effect.fnUntraced(function* (sql: Sql = memorySql()) {
     trades,
     frames,
     viewer,
+    left,
     recorded,
     recordedCandles,
     recordedSweeps,

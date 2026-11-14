@@ -199,6 +199,9 @@ describe("footprints", () => {
           sessionFootprints
         )
 
+        // Gone before the seal: a viewer's 250 ms deltas would replay the
+        // hours to it.
+        yield* restarted.left(page)
         yield* at("17:00:00")
         yield* restarted.alarm
         const sealed = yield* restarted.recordedCandles("UNTR")
