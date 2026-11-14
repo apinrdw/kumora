@@ -74,9 +74,18 @@ jobs:
               (f) =>
                 app.test(f.filename) || app.test(f.previous_filename ?? "")
             )
+            // Decision: a Sync (main into staging) only moves commits whose own
+            // PRs passed this gate. Production is reached by a tag, never a
+            // PR: a merge commit on main would stop release.yml fast-forwarding.
+            const movesRelease =
+              pr.head.repo?.full_name === `${owner}/${repo}` &&
+              pr.head.ref === "main" &&
+              pr.base.ref === "staging"
             const [state, description] = !touchesApp
               ? ["success", "touches no app code (apps/web, dashboard, extension, e2e, packages/*)"]
-              : pr.labels.some((l) => l.name === "no-e2e-evidence")
+              : movesRelease
+                ? ["success", `moves ${pr.head.ref} into ${pr.base.ref}, whose PRs passed this gate`]
+                : pr.labels.some((l) => l.name === "no-e2e-evidence")
                 ? ["success", "opted out with the no-e2e-evidence label"]
                 : ["failure", `no e2e evidence for ${sha.slice(0, 7)}`]
             await github.rest.repos.createCommitStatus({

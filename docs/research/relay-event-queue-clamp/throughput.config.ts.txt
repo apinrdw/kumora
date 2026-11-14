@@ -1,0 +1,10 @@
+import { defineConfig } from "@playwright/test"
+// [DEBUG-a4f2] throwaway throughput harness config, no dashboard needed.
+export default defineConfig({
+  testDir: ".",
+  testMatch: /throughput\.spec\.ts$/,
+  reporter: "list",
+  workers: 1,
+  timeout: 600_000,
+  use: { browserName: "chromium" },
+})

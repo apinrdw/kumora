@@ -135,3 +135,23 @@ Recorded day loads are cached in the browser only (`Cache-Control: private, immu
 
 1. In a throwaway route deployed to Staging, `put` a response under a URL with `caches.default.put(url, response)`, then `match` the same URL in a later request.
 2. Only if `match` returns the stored response does edge caching go in, keyed on the URL alone and checked after the gate. If it returns `undefined`, keep the browser cache as the only cache and record the result, with its date, in this step.
+
+## 14. Staging as the release gate ⬜
+
+PRs land on `staging`, and `main` moves only by a Production tag or a Hotfix (`packages/deploy/GLOSSARY.md`). Do these in order, after the PR that added `.github/workflows/sync-staging.yml` merges into `main`:
+
+1. Fast-forward `staging` to `main`: `git fetch origin && git push origin origin/main:refs/heads/staging`. As observed 2026-11-14, `staging` was 681 commits behind `main` and had none of its own, so this is a fast-forward. The push deploys Staging, which fails until steps 1, 10 and 11 have their `staging` values.
+2. In GitHub, Settings → General → Default branch, choose `staging`.
+3. Retarget each open PR from `main` to `staging`, except a Hotfix.
+4. The ruleset "main requires e2e-evidence" targets the default branch, so step 2 moved it off `main`. Edit it under Settings → Rules → Rulesets: target `refs/heads/main` and `refs/heads/staging` by name in place of the default branch, and rename it "release branches require e2e-evidence". Check with `gh api repos/apinrdw/kumora/rulesets/27094377 --jq .conditions`.
+5. Under Settings → Actions → General → Workflow permissions, tick "Allow GitHub Actions to create and approve pull requests". As of 2026-11-14 it is off, and `sync-staging.yml` can't open a Sync without it.
+
+To release, first tag the `staging` commit you tried on Staging as a Candidate, then tag the same commit for Production. The date is today in WIB, N counts today's Candidates from 1, and the version is yours to choose above Production's last:
+
+```sh
+git fetch origin --tags
+git tag v0.1.10-20261114-1 origin/staging && git push origin v0.1.10-20261114-1
+git tag v0.1.10-20261114 v0.1.10-20261114-1 && git push origin v0.1.10-20261114
+```
+
+`.github/workflows/release.yml` checks each tag with `scripts/release-tag.mts`, deletes one it refuses (its run log says why), and on a Production tag fast-forwards `main` to it, which Workers Builds deploys. It refuses a Production tag while `main` holds a Hotfix that `staging` lacks: merge the open Sync PR, then tag a new Candidate. Push the Production tag after 16:35 WIB or on a non-trading day (step 9.2). Never open a `staging` into `main` PR: its merge commit would stop every later fast-forward.

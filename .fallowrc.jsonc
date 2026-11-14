@@ -4,9 +4,11 @@
   "ignorePatterns": ["repos/**", "apps/*/prototype-*/**"],
   // Workers Builds runs deploy.ts by path (docs/runbooks/deploy.md, step 4),
   // so no module imports it. Chrome loads the extension's entries from its
-  // manifest (apps/extension/manifest.ts).
+  // manifest (apps/extension/manifest.ts). .github/workflows/release.yml runs
+  // judge-release-tag.mts by path.
   "entry": [
     "packages/deploy/src/deploy.ts",
+    "scripts/judge-release-tag.mts",
     "apps/extension/src/worker/service-worker.ts",
     "apps/extension/src/content/broker.ts",
     "apps/extension/src/content/page.ts",

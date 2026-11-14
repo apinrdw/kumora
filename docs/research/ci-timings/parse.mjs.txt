@@ -1,0 +1,34 @@
+import { readFileSync } from "node:fs"
+const strip = (s) => s.replace(/(?:\x1b|\^\[)\[[0-9;]*m/g, "")
+const [kind, file] = process.argv.slice(2)
+const lines = readFileSync(file, "utf8").split("\n").map((l) => strip(l.split("\t").slice(2).join("\t")).replace(/^\S+Z /, ""))
+if (kind === "vitest") {
+  // file-level lines: " ✓ path (N tests) 123ms" ; grouped by turbo ##[group]
+  let group = "", out = {}
+  for (const l of lines) {
+    const g = l.match(/^##\[group\](.+)$/); if (g) { group = g[1]; continue }
+    const m = l.match(/^\s*[✓✗×]\s+(\S+\.(?:test|spec)\.\S+)\s+\((\d+) tests?(?:[^)]*)\)\s+([\d.]+)(ms|s)/)
+    if (m) (out[group] ??= []).push({ file: m[1], tests: +m[2], ms: m[4] === "s" ? +m[3] * 1000 : +m[3] })
+  }
+  for (const [g, fs] of Object.entries(out)) {
+    fs.sort((a, b) => b.ms - a.ms)
+    const sum = fs.reduce((a, f) => a + f.ms, 0)
+    console.log(`\n### ${g}: ${fs.length} files, sum of file times ${(sum / 1000).toFixed(1)} s`)
+    console.log("| file | tests | s |\n|---|---|---|")
+    for (const f of fs.slice(0, g.startsWith("dashboard") ? 25 : 10)) console.log(`| ${f.file} | ${f.tests} | ${(f.ms / 1000).toFixed(2)} |`)
+  }
+} else {
+  const rows = []
+  for (const l of lines) {
+    const m = l.match(/^\s*[✓✘-]\s+\d+\s+\[([\w-]+)\]\s+›\s+(\S+?):\d+:\d+\s+›\s+(.+?)\s+\(([\d.]+)(ms|s|m)\)\s*$/)
+    if (m) rows.push({ project: m[1], file: m[2], title: m[3], s: m[5] === "ms" ? +m[4] / 1000 : m[5] === "m" ? +m[4] * 60 : +m[4] })
+  }
+  const by = (k) => { const o = {}; for (const r of rows) { const x = (o[r[k]] ??= { n: 0, s: 0, project: r.project }); x.n++; x.s += r.s } return o }
+  console.log(`tests parsed: ${rows.length}`)
+  console.log("\n| project | tests | s |\n|---|---|---|")
+  for (const [p, x] of Object.entries(by("project"))) console.log(`| ${p} | ${x.n} | ${x.s.toFixed(1)} |`)
+  console.log("\n| spec | project | tests | s |\n|---|---|---|---|")
+  for (const [f, x] of Object.entries(by("file")).sort((a, b) => b[1].s - a[1].s)) console.log(`| ${f} | ${x.project} | ${x.n} | ${x.s.toFixed(1)} |`)
+  console.log("\n| slowest tests | project | s |\n|---|---|---|")
+  for (const r of rows.sort((a, b) => b.s - a.s).slice(0, 15)) console.log(`| ${r.file} › ${r.title} | ${r.project} | ${r.s.toFixed(1)} |`)
+}

@@ -74,6 +74,8 @@ interface Pr {
     readonly previous_filename?: string
   }>
   readonly labels?: ReadonlyArray<string>
+  readonly head?: { readonly ref: string; readonly repo: string }
+  readonly base?: string
 }
 
 const sha = "abc1234def5678abc1234def5678abc1234def56"
@@ -115,7 +117,12 @@ const runGate = (pr: Pr) =>
       payload: {
         pull_request: {
           number: 7,
-          head: { sha },
+          head: {
+            sha,
+            ref: pr.head?.ref ?? "feat/x",
+            repo: { full_name: pr.head?.repo ?? "apinrdw/kumora" },
+          },
+          base: { ref: pr.base ?? "staging" },
           labels: (pr.labels ?? []).map((name) => ({ name })),
         },
       },
@@ -394,6 +401,31 @@ layer(NodeServices.layer)("e2e-evidence gate", (it) => {
       assert.strictEqual(written.length, 1)
       assert.strictEqual(written[0]?.state, "success")
       assert.match(written[0]?.description ?? "", /no-e2e-evidence label/)
+    })
+  )
+
+  it.effect(
+    "passes a Sync, main into staging, whose commits passed on their own PRs",
+    () =>
+      Effect.gen(function* () {
+        const [status] = yield* runGate({
+          files: [appFile],
+          head: { ref: "main", repo: "apinrdw/kumora" },
+          base: "staging",
+        })
+        assert.strictEqual(status?.state, "success")
+        assert.match(status?.description ?? "", /passed this gate/)
+      })
+  )
+
+  it.effect.each([
+    { head: { ref: "staging", repo: "apinrdw/kumora" }, base: "main" },
+    { head: { ref: "main", repo: "someone/kumora" }, base: "staging" },
+    { head: { ref: "feat/x", repo: "apinrdw/kumora" }, base: "main" },
+  ])("marks an app PR red unless it is a Sync: %o", (pr) =>
+    Effect.gen(function* () {
+      const [status] = yield* runGate({ files: [appFile], ...pr })
+      assert.strictEqual(status?.state, "failure")
     })
   )
 

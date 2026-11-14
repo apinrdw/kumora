@@ -5,7 +5,7 @@ name: CI
 
 on:
   push:
-    branches: [main]
+    branches: [main, staging]
   # Decision: drafts run no CI; marking a PR ready runs it on the current head.
   # A job skipped by its `if` reports skipped, which a required check accepts,
   # and a draft can't merge anyway.

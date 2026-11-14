@@ -12,7 +12,9 @@ permissions:
 
 jobs:
   stage:
-    if: github.event_name == 'pull_request' || github.event.ref_type == 'branch'
+    # A PR from a release branch, such as a Sync (main into staging), has no
+    # Preview: its head deploys a release stage.
+    if: (github.event_name == 'pull_request' && !contains(fromJSON('["main", "staging"]'), github.head_ref)) || github.event.ref_type == 'branch'
     runs-on: ubuntu-latest
     timeout-minutes: 5
     outputs:
