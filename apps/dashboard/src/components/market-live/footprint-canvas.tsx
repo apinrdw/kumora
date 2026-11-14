@@ -14,6 +14,8 @@
 import type { RelayGap } from "@workspace/relay"
 import { Effect } from "effect"
 import {
+  LineSeries,
+  LineStyle,
   createChart,
   customSeriesDefaultOptions,
   type CustomData,
@@ -32,6 +34,7 @@ import {
 import { useEffect, useRef, useState } from "react"
 
 import { chartMinutes } from "@/lib/chart-nav"
+import type { ChartSettings, FootprintMode } from "@/lib/chart-settings"
 import {
   MIN_FONT_PX,
   drawMode,
@@ -39,12 +42,14 @@ import {
   footprintColumns,
   type DrawMode,
   type FootprintColumn,
+  type FootprintRow,
 } from "@/lib/footprint"
 import { footprintLadder } from "@/lib/footprint-ladder"
 
 import type { CandleStore } from "./candle-store"
 import type { ChartPair } from "./chart-pair"
 import { CHART_SCALE_WIDTH, crosshairTime, tickMark } from "./chart-time"
+import type { HeaderStore } from "./footprint-header"
 import { FootprintLadder, makeLadderStore } from "./footprint-ladder"
 import { idxPriceAxis, rowCapped } from "./price-axis"
 import type { ReplayCursor } from "./replay-cursor"
@@ -63,9 +68,28 @@ interface ColumnItem extends CustomData<Time> {
 interface Palette {
   readonly up: string
   readonly down: string
+  readonly neutral: string
   readonly muted: string
   readonly text: string
   readonly border: string
+  readonly warn: string
+  readonly imbalanceBuy: string
+  readonly imbalanceSell: string
+}
+
+// One minute's column to draw as cells, and where: `left` is its left edge
+// and `spacing` its width in CSS px, `px` its font size, and `text` whether
+// it has room for full text rather than compact.
+interface Cell {
+  readonly scope: Scope
+  readonly toY: PriceToCoordinateConverter
+  readonly column: FootprintColumn
+  readonly left: number
+  readonly spacing: number
+  readonly px: number
+  readonly text: boolean
+  readonly color: string
+  readonly poc: boolean
 }
 
 const FONT = "ui-monospace, SFMono-Regular, Menlo, monospace"
@@ -127,10 +151,47 @@ class Drawing {
   }
 }
 
-// The footprint: each minute's lots at every price it traded, as `sell ×
-// buy` cells on a tint of the side that won, compact text, split bars or a
-// candle by width (lib/footprint.ts `drawMode`). A minute after the cursor
-// is a grey candle.
+// What chart 2's view draws by setting: its view mode, and whether it
+// outlines each minute's POC.
+interface ViewOptions {
+  readonly mode: FootprintMode
+  readonly poc: boolean
+}
+
+// What one draw of the footprint showed, for the page to read: its draw mode
+// by width, its view mode, and how many imbalance figures and POC outlines
+// it drew.
+interface FootprintDraw {
+  readonly mode: DrawMode
+  readonly view: FootprintMode
+  readonly imbalances: number
+  readonly pocs: number
+}
+
+// One draw's scale, widths and settings, shared by every minute it draws.
+interface Frame {
+  readonly scope: Scope
+  readonly toY: PriceToCoordinateConverter
+  readonly spacing: number
+  readonly rowHeight: number
+  readonly mode: DrawMode
+  readonly options: ViewOptions
+}
+
+// One price row's place in bitmap px: its top and bottom edges and middle.
+interface RowBox {
+  readonly top: number
+  readonly bottom: number
+  readonly y: number
+}
+
+// The footprint: each minute's lots at every price it traded, in the view
+// mode picked (Stacked `sell × buy` cells, Side by side halves, or a
+// Footprint volume profile) at text and compact widths, split bars or a
+// candle when narrower (lib/footprint.ts `drawMode`), and a plain candle in
+// the Candles view. Imbalanced figures take the imbalance tokens, and each
+// minute's POC is outlined in the warn token. A minute after the cursor is a
+// grey candle.
 class FootprintView
   extends Drawing
   implements ICustomSeriesPaneView<Time, ColumnItem>
@@ -140,11 +201,14 @@ class FootprintView
     draw: (target, toY) =>
       target.useBitmapCoordinateSpace((scope) => this.draw(scope, toY)),
   }
+  private imbalances = 0
+  private pocs = 0
 
   constructor(
     palette: Palette,
-    // Told each draw's mode, for the page to say what it shows.
-    private readonly drawn: (mode: DrawMode) => void
+    private readonly options: () => ViewOptions,
+    // Told what each draw showed, for the page to say what it shows.
+    private readonly drawn: (draw: FootprintDraw) => void
   ) {
     super(palette)
   }
@@ -189,41 +253,113 @@ class FootprintView
     if (this.data?.visibleRange == null) return
     const { bars, barSpacing, visibleRange } = this.data
     const rowHeight = this.rowHeight(toY)
-    const mode = Effect.runSync(drawMode(barSpacing, rowHeight))
-    this.drawn(mode)
+    const frame: Frame = {
+      scope,
+      toY,
+      spacing: barSpacing,
+      rowHeight,
+      mode: Effect.runSync(drawMode(barSpacing, rowHeight)),
+      options: this.options(),
+    }
+    this.imbalances = 0
+    this.pocs = 0
     scope.context.textBaseline = "middle"
     for (let i = visibleRange.from; i < visibleRange.to; i++) {
       const bar = bars[i]
-      if (bar === undefined) continue
-      const { column } = bar.originalData
-      const color = column.later
-        ? this.alpha(this.palette.muted, 0.33)
-        : column.close >= column.open
-          ? this.palette.up
-          : this.palette.down
-      if (column.later || mode === "candles" || column.rows.length === 0)
-        this.candle(
-          scope,
-          toY,
-          column,
-          bar.x,
-          Math.max(1, barSpacing * 0.6),
-          color
-        )
-      else if (mode === "bars")
-        this.bars(scope, toY, column, bar.x, barSpacing, color)
-      else
-        this.cells(
-          scope,
-          toY,
-          column,
-          bar.x,
-          barSpacing,
-          rowHeight,
-          mode,
-          color
-        )
+      if (bar !== undefined) this.minute(frame, bar.originalData.column, bar.x)
     }
+    this.drawn({
+      mode: frame.mode,
+      view: frame.options.mode,
+      imbalances: this.imbalances,
+      pocs: this.pocs,
+    })
+  }
+
+  // One minute's column, centred on `x`: a candle when it has no cells to
+  // show, else split bars or its view mode's cells.
+  private minute(frame: Frame, column: FootprintColumn, x: number) {
+    const { scope, toY, spacing, rowHeight, mode, options } = frame
+    const color = column.later
+      ? this.alpha(this.palette.muted, 0.33)
+      : column.close >= column.open
+        ? this.palette.up
+        : this.palette.down
+    const plain =
+      column.later ||
+      mode === "candles" ||
+      options.mode === "candles" ||
+      column.rows.length === 0
+    if (plain)
+      return this.candle(
+        scope,
+        toY,
+        column,
+        x,
+        Math.max(1, spacing * 0.6),
+        color
+      )
+    if (mode === "bars") return this.bars(scope, toY, column, x, spacing, color)
+    const text = mode === "text"
+    const cell: Cell = {
+      scope,
+      toY,
+      column,
+      left: x - spacing / 2,
+      spacing,
+      px: Math.min(text ? 11 : 9, rowHeight - 1),
+      text,
+      color,
+      poc: options.poc,
+    }
+    if (options.mode === "side") this.side(cell)
+    else if (options.mode === "profile") this.profile(cell)
+    else this.cells(cell)
+  }
+
+  private box(
+    scope: Scope,
+    toY: PriceToCoordinateConverter,
+    row: FootprintRow
+  ) {
+    const v = scope.verticalPixelRatio
+    const top = Math.round((toY(row.price + row.half) ?? 0) * v)
+    const bottom = Math.round((toY(row.price - row.half) ?? 0) * v)
+    return { top, bottom, y: (top + bottom) / 2 } satisfies RowBox
+  }
+
+  // The POC's outline round a row `wide` CSS px from `left`.
+  private outline(
+    cell: Cell,
+    row: FootprintRow,
+    box: RowBox,
+    left: number,
+    wide: number
+  ) {
+    if (!cell.poc || row.price !== cell.column.poc) return
+    const { context, horizontalPixelRatio: h } = cell.scope
+    context.strokeStyle = this.palette.warn
+    context.lineWidth = Math.max(1, h)
+    context.strokeRect(
+      Math.round(left * h) + 0.5,
+      box.top + 0.5,
+      Math.round(wide * h) - 1,
+      Math.max(1, box.bottom - box.top - 2)
+    )
+    this.pocs += 1
+  }
+
+  // A side's figure colour: the imbalance token when it is one.
+  private sellTone(row: FootprintRow) {
+    if (!row.sellImbalance) return this.palette.down
+    this.imbalances += 1
+    return this.palette.imbalanceSell
+  }
+
+  private buyTone(row: FootprintRow) {
+    if (!row.buyImbalance) return this.palette.up
+    this.imbalances += 1
+    return this.palette.imbalanceBuy
   }
 
   // Split bars: a thin candle, then each price's sell, buy and no-side lots
@@ -236,7 +372,7 @@ class FootprintView
     spacing: number,
     color: string
   ) {
-    const { context, horizontalPixelRatio: h, verticalPixelRatio: v } = scope
+    const { context, horizontalPixelRatio: h } = scope
     this.candle(
       scope,
       toY,
@@ -249,8 +385,7 @@ class FootprintView
     const room = spacing * 0.66
     const most = column.most || 1
     for (const row of column.rows) {
-      const top = Math.round((toY(row.price + row.half) ?? 0) * v)
-      const bottom = Math.round((toY(row.price - row.half) ?? 0) * v)
+      const { top, bottom } = this.box(scope, toY, row)
       const tall = Math.max(1, bottom - top - 1)
       let from = left
       for (const [lots, tone] of [
@@ -275,30 +410,17 @@ class FootprintView
   // Stacked cells: `sell × buy` per price (compact: no ×, a smaller font),
   // on a tint of the side with more lots, deeper the more the price traded.
   // A price with only no-side lots shows them alone, muted.
-  private cells(
-    scope: Scope,
-    toY: PriceToCoordinateConverter,
-    column: FootprintColumn,
-    x: number,
-    spacing: number,
-    rowHeight: number,
-    mode: "text" | "compact",
-    color: string
-  ) {
+  private cells(cell: Cell) {
+    const { scope, toY, column, left, spacing, px, text, color } = cell
     const { context, horizontalPixelRatio: h, verticalPixelRatio: v } = scope
-    const text = mode === "text"
-    const left = x - spacing / 2
     const inset = text ? 8 : 4
     this.candle(scope, toY, column, left + inset / 2, text ? 3 : 2, color)
     const centre = left + inset + 1 + (spacing - inset - 3) / 2
     const gap = text ? 5 : 1.5
     const half = ((spacing - inset - 4) / 2 - gap) * h
-    const px = Math.min(text ? 11 : 9, rowHeight - 1)
     const most = column.most || 1
     for (const row of column.rows) {
-      const top = Math.round((toY(row.price + row.half) ?? 0) * v)
-      const bottom = Math.round((toY(row.price - row.half) ?? 0) * v)
-      const y = (top + bottom) / 2
+      const box = this.box(scope, toY, row)
       const tint = 0.06 + (0.3 * (row.sell + row.buy)) / most
       context.fillStyle = this.alpha(
         row.buy >= row.sell ? this.palette.up : this.palette.down,
@@ -306,10 +428,11 @@ class FootprintView
       )
       context.fillRect(
         Math.round((left + inset) * h),
-        top,
+        box.top,
         Math.round((spacing - inset - 2) * h),
-        Math.max(1, bottom - top - 1)
+        Math.max(1, box.bottom - box.top - 1)
       )
+      this.outline(cell, row, box, left + inset, spacing - inset - 2)
       if (row.sell === 0 && row.buy === 0) {
         this.fit(
           context,
@@ -320,7 +443,7 @@ class FootprintView
         )
         context.textAlign = "center"
         context.fillStyle = this.palette.muted
-        context.fillText(row.noneText, centre * h, y)
+        context.fillText(row.noneText, centre * h, box.y)
         continue
       }
       this.fit(context, px, v, half, (c) =>
@@ -330,16 +453,108 @@ class FootprintView
         )
       )
       context.textAlign = "right"
-      context.fillStyle = this.palette.down
-      context.fillText(row.sellText, (centre - gap) * h, y)
+      context.fillStyle = this.sellTone(row)
+      context.fillText(row.sellText, (centre - gap) * h, box.y)
       if (text) {
         context.textAlign = "center"
         context.fillStyle = this.palette.muted
-        context.fillText("×", centre * h, y)
+        context.fillText("×", centre * h, box.y)
       }
       context.textAlign = "left"
-      context.fillStyle = this.palette.up
-      context.fillText(row.buyText, (centre + gap) * h, y)
+      context.fillStyle = this.buyTone(row)
+      context.fillText(row.buyText, (centre + gap) * h, box.y)
+    }
+  }
+
+  // Side by side: a sell half and a buy half per price, each shaded by its
+  // own lots against the minute's largest side.
+  private side(cell: Cell) {
+    const { scope, toY, column, left, spacing, px, color } = cell
+    const { context, horizontalPixelRatio: h, verticalPixelRatio: v } = scope
+    this.candle(scope, toY, column, left + 3, 2, color)
+    const from = left + 6
+    const wide = spacing - 8
+    const half = wide / 2
+    let most = 1
+    for (const row of column.rows) most = Math.max(most, row.sell, row.buy)
+    for (const row of column.rows) {
+      const box = this.box(scope, toY, row)
+      const tall = Math.max(1, box.bottom - box.top - 1)
+      context.fillStyle = this.alpha(
+        this.palette.down,
+        0.06 + (0.5 * row.sell) / most
+      )
+      context.fillRect(
+        Math.round(from * h),
+        box.top,
+        Math.round((half - 1) * h),
+        tall
+      )
+      context.fillStyle = this.alpha(
+        this.palette.up,
+        0.06 + (0.5 * row.buy) / most
+      )
+      context.fillRect(
+        Math.round((from + half) * h),
+        box.top,
+        Math.round((half - 1) * h),
+        tall
+      )
+      this.outline(cell, row, box, from, wide)
+      this.fit(context, px, v, (half - 8) * h, (c) =>
+        Math.max(
+          c.measureText(row.sellText).width,
+          c.measureText(row.buyText).width
+        )
+      )
+      context.textAlign = "center"
+      context.fillStyle = this.sellTone(row)
+      context.fillText(row.sellText, (from + half / 2) * h, box.y)
+      context.fillStyle = this.buyTone(row)
+      context.fillText(row.buyText, (from + half * 1.5) * h, box.y)
+    }
+  }
+
+  // Footprint: the minute's volume profile, one bar per price, its length
+  // set by the price's lots against the busiest's and its colour by the side
+  // that won (grey on a tie), with the total on it.
+  private profile(cell: Cell) {
+    const { scope, toY, column, left, spacing, px, color } = cell
+    const { context, horizontalPixelRatio: h, verticalPixelRatio: v } = scope
+    this.candle(scope, toY, column, left + 3, 2, color)
+    const from = left + 6
+    const wide = spacing - 8
+    const most = column.most || 1
+    for (const row of column.rows) {
+      const box = this.box(scope, toY, row)
+      const total = row.sell + row.buy + row.none
+      context.fillStyle =
+        row.buy > row.sell
+          ? this.alpha(this.palette.up, 0.55)
+          : row.buy < row.sell
+            ? this.alpha(this.palette.down, 0.55)
+            : this.alpha(this.palette.neutral, 0.45)
+      context.fillRect(
+        Math.round(from * h),
+        box.top,
+        Math.round(Math.max(2, ((wide - 2) * total) / most) * h),
+        Math.max(1, box.bottom - box.top - 1)
+      )
+      this.outline(cell, row, box, from, wide)
+      this.fit(
+        context,
+        px,
+        v,
+        (wide - 6) * h,
+        (c) => c.measureText(row.totalText).width
+      )
+      context.textAlign = "left"
+      context.fillStyle = row.buyImbalance
+        ? this.buyTone(row)
+        : row.sellImbalance
+          ? this.sellTone(row)
+          : this.palette.text
+      context.fillText(row.totalText, (from + 4) * h, box.y)
     }
   }
 }
@@ -571,16 +786,21 @@ export default function FootprintCanvas({
   store,
   pair,
   gaps,
+  settings,
+  header,
   cursor,
 }: {
   store: CandleStore
   pair: ChartPair
   gaps: ReadonlyArray<RelayGap>
+  settings: ChartSettings
+  header: HeaderStore
   cursor?: ReplayCursor | undefined
 }) {
   const host = useRef<HTMLDivElement>(null)
   const shownGaps = useRef(gaps)
-  const redrawGaps = useRef<() => void>(undefined)
+  const shownSettings = useRef(settings)
+  const redrawNow = useRef<() => void>(undefined)
   const [ladder] = useState(makeLadderStore)
 
   useEffect(() => {
@@ -591,9 +811,13 @@ export default function FootprintCanvas({
     const palette: Palette = {
       up: token("--semantic-up"),
       down: token("--semantic-down"),
+      neutral: token("--semantic-neutral"),
       muted: token("--text-muted"),
       text: token("--text-primary"),
       border: token("--border-subtle"),
+      warn: token("--semantic-warning"),
+      imbalanceBuy: token("--chart-imbalance-buy"),
+      imbalanceSell: token("--chart-imbalance-sell"),
     }
     const chart = createChart(element, {
       autoSize: true,
@@ -623,11 +847,21 @@ export default function FootprintCanvas({
       localization: { locale: "en-US", timeFormatter: crosshairTime },
     })
     // The page reads what the last draw showed (footprint-chart.tsx).
-    const drawn = (key: "drawMode" | "footer") => (mode: string) => {
-      if (element.dataset[key] !== mode) element.dataset[key] = mode
+    const mark = (key: string, value: string | number) => {
+      if (element.dataset[key] !== String(value))
+        element.dataset[key] = String(value)
     }
     const footprint = chart.addCustomSeries(
-      new FootprintView(palette, drawn("drawMode")),
+      new FootprintView(
+        palette,
+        () => shownSettings.current,
+        (draw) => {
+          mark("drawMode", draw.mode)
+          mark("viewMode", draw.view)
+          mark("imbalances", draw.imbalances)
+          mark("pocs", draw.pocs)
+        }
+      ),
       {
         priceLineVisible: false,
         lastValueVisible: true,
@@ -642,7 +876,7 @@ export default function FootprintCanvas({
       .priceScale()
       .applyOptions({ scaleMargins: { top: 0.06, bottom: 0.06 } })
     const footer = chart.addCustomSeries(
-      new FooterView(palette, drawn("footer")),
+      new FooterView(palette, (mode) => mark("footer", mode)),
       {
         priceLineVisible: false,
         lastValueVisible: false,
@@ -658,6 +892,39 @@ export default function FootprintCanvas({
     chart.panes()[0]?.setStretchFactor(4)
     chart.panes()[1]?.setStretchFactor(1)
 
+    // The day's VWAP, then its +1σ and −1σ bands out to ±3σ. They never
+    // widen the price range, so the rows keep their height, and end at the
+    // cursor.
+    const line = (color: string, lineWidth: 1 | 2, lineStyle: LineStyle) =>
+      chart.addSeries(LineSeries, {
+        color,
+        lineWidth,
+        lineStyle,
+        priceLineVisible: false,
+        lastValueVisible: false,
+        crosshairMarkerVisible: false,
+        autoscaleInfoProvider: () => null,
+      })
+    const vwapLines = [
+      {
+        sigmas: 0,
+        series: line(token("--chart-day-vwap"), 2, LineStyle.Solid),
+      },
+      ...(
+        [
+          [1, "--chart-vwap-band-1", 0.75],
+          [2, "--chart-vwap-band-2", 0.6],
+          [3, "--chart-vwap-band-3", 0.5],
+        ] as const
+      ).flatMap(([sigmas, name, alpha]) => {
+        const color = `${token(name)}${Math.round(alpha * 255).toString(16)}`
+        return [sigmas, -sigmas].map((side) => ({
+          sigmas: side,
+          series: line(color, 1, LineStyle.Dashed),
+        }))
+      }),
+    ]
+
     const cursorMinute = () =>
       cursor === undefined
         ? Number.POSITIVE_INFINITY
@@ -669,8 +936,11 @@ export default function FootprintCanvas({
     let minutes: ReadonlyArray<number> = []
     const redraw = () => {
       const candles = store.candles()
+      const chosen = shownSettings.current
       columns = Effect.runSync(
-        footprintColumns(candles, store.footprints(), shownMinute)
+        footprintColumns(candles, store.footprints(), shownMinute, {
+          imbalance: chosen.imbalance,
+        })
       )
       const shown = Effect.runSync(
         chartMinutes(
@@ -694,12 +964,28 @@ export default function FootprintCanvas({
       footprint.setData(items)
       footer.setData(items)
       axis.setPrice(candles.at(-1)?.close)
+      let points = 0
+      for (const { sigmas, series } of vwapLines) {
+        series.applyOptions({ visible: chosen.vwap })
+        const data = columns.map((column) => {
+          const time = (column.minute / 1000) as UTCTimestamp
+          if (column.later || column.vwap === undefined) return { time }
+          points += 1
+          return {
+            time,
+            value: column.vwap.mean + sigmas * column.vwap.sigma,
+          }
+        })
+        series.setData(data)
+      }
+      mark("vwapPoints", chosen.vwap ? points : 0)
+      header.show(columns.filter((column) => !column.later).at(-1))
     }
     // The 10 minutes up to the cursor's (live: the last ones).
     const showWindow = () => pair.showUpTo(shownMinute)
     redraw()
     showWindow()
-    redrawGaps.current = redraw
+    redrawNow.current = redraw
     const unpair = pair.attachFootprint({
       chart,
       series: footprint,
@@ -711,6 +997,7 @@ export default function FootprintCanvas({
     const hover = (parameter: MouseEventParams<Time>) => {
       const item = parameter.seriesData.get(footprint) as ColumnItem | undefined
       const point = parameter.point
+      header.hover(point === undefined ? undefined : item?.column)
       if (
         item?.column === undefined ||
         point === undefined ||
@@ -756,19 +1043,25 @@ export default function FootprintCanvas({
     return () => {
       chart.unsubscribeCrosshairMove(hover)
       ladder.set(undefined)
+      header.hover(undefined)
       unpair()
-      redrawGaps.current = undefined
+      redrawNow.current = undefined
       unsubscribe()
       stopCursor?.()
       cancelAnimationFrame(frame)
       chart.remove()
     }
-  }, [store, cursor, pair, ladder])
+  }, [store, cursor, pair, ladder, header])
 
   useEffect(() => {
     shownGaps.current = gaps
-    redrawGaps.current?.()
+    redrawNow.current?.()
   }, [gaps])
+
+  useEffect(() => {
+    shownSettings.current = settings
+    redrawNow.current?.()
+  }, [settings])
 
   return (
     <div className="relative flex flex-col lg:flex-1">

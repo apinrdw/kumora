@@ -108,6 +108,8 @@ export interface FootprintRow {
   readonly sellText: string
   readonly buyText: string
   readonly noneText: string
+  // Every lot at the price, for the Footprint view's profile bar.
+  readonly totalText: string
 }
 
 // One minute of chart 2: its candle, its footprint rows ascending by price
@@ -202,6 +204,7 @@ export const footprintColumns = Effect.fnUntraced(function* (
     const cells = byMinute.get(minute)?.cells ?? []
     const byPrice = new Map(cells.map((cell) => [cell.price, cell]))
     for (const cell of cells) {
+      const total = cell.sell + cell.buy + cell.none
       const imbalances = yield* imbalanceOf(byPrice, cell, imbalance)
       rows.push({
         ...cell,
@@ -211,8 +214,8 @@ export const footprintColumns = Effect.fnUntraced(function* (
         sellText: yield* shortLots(cell.sell),
         buyText: yield* shortLots(cell.buy),
         noneText: yield* shortLots(cell.none),
+        totalText: yield* shortLots(total),
       })
-      const total = cell.sell + cell.buy + cell.none
       lots += total
       const from = cell.price - origin
       priced += from * total

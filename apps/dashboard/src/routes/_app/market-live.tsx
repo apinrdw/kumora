@@ -31,6 +31,7 @@ import { StockCodePalette } from "@/components/market-live/stock-code-palette"
 import { StockCodePicker } from "@/components/market-live/stock-code-picker"
 import { SweepLog, useSweeps } from "@/components/market-live/sweep-log"
 import { TransportBar } from "@/components/market-live/transport-bar"
+import { useRememberedTopN } from "@/components/market-live/use-chart-settings"
 import { useStockCodeList } from "@/components/market-live/use-stock-code-list"
 import { useWatchlist } from "@/components/market-live/use-watchlist"
 import { Watchlist } from "@/components/market-live/watchlist"
@@ -98,6 +99,7 @@ function useCodeStores(
   )
   const heatmap = useHeatmap(selected, day, today)
   const sweeps = useSweeps(selected, day, today)
+  useRememberedTopN(sweeps)
   return { candles, book, heatmap, sweeps }
 }
 
