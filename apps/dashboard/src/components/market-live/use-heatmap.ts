@@ -26,7 +26,10 @@ export function useHeatmap(
   const live = day === undefined
   // The page mounts afresh for each day shown, so a code's store is one
   // day's.
-  const store = useMemo(() => Effect.runSync(makeHeatmapStore(code)), [code])
+  const store = useMemo(
+    () => Effect.runSync(makeHeatmapStore(code, date)),
+    [code, date]
+  )
   useEffect(() => {
     if (INDEX_CODES.includes(code)) return
     const fibers: Array<Fiber.Fiber<unknown>> = []

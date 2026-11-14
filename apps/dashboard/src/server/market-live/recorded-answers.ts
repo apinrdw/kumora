@@ -19,6 +19,7 @@ import { Clock, DateTime, Effect } from "effect"
 import type { BrokerCodesStore } from "./broker-codes.ts"
 import { codeListAnswer, type CodeListStore } from "./code-list.ts"
 import { Fact, type makeDayStore } from "./day-store.ts"
+import { heatEndOf } from "../../lib/heatmap.ts"
 import { heatmapAnswer, type HeatRow } from "./heat-rows.ts"
 import { SEALED_CACHE } from "./routes.ts"
 
@@ -131,6 +132,7 @@ export const recordedAnswer = Effect.fnUntraced(function* (
         yield* heatmapAnswer(
           code,
           yield* store.heatmapOf(code),
+          yield* heatEndOf(day.date),
           day.sealed
             ? undefined
             : {

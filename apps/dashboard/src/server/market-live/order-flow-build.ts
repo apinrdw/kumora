@@ -3,9 +3,8 @@
 // (cells and sweeps) from its stored trades and its heatmap rows from its
 // stored book chunks, the same rows the live day writes (candles.ts,
 // book-chunks.ts).
-import { DateTime, Effect } from "effect"
+import { Effect } from "effect"
 import {
-  decodeBookChunk,
   sweepsOf,
   type RunningTrade,
   type StockCode,
@@ -20,7 +19,7 @@ import {
   type makeDayStore,
 } from "./day-store.ts"
 import { addTrade, noCells } from "./footprint-cells.ts"
-import { chunkSlices } from "./heat-rows.ts"
+import { chunkSlices, heldChunkOf } from "./heat-rows.ts"
 
 type DayStore = Effect.Success<ReturnType<typeof makeDayStore>>
 
@@ -65,15 +64,10 @@ const builtMinute = Effect.fnUntraced(function* (
   for (const code of chunkCodes) {
     const text = yield* store.chunkOfMinute(code, minute)
     if (text === undefined) continue
-    const chunk = yield* decodeBookChunk(text)
     heatmaps.push({
       code,
       minute,
-      slices: yield* chunkSlices({
-        minute: DateTime.toEpochMillis(chunk.minute),
-        start: chunk.start,
-        deltas: chunk.deltas,
-      }),
+      slices: yield* chunkSlices(yield* heldChunkOf(text)),
     })
   }
   return { minute, footprints, heatmaps } satisfies BuiltMinute

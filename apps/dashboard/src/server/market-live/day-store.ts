@@ -25,7 +25,7 @@ import type {
   StoredSweeps,
 } from "./candles.ts"
 import { cellsFromText, cellsOut, cellsText } from "./footprint-cells.ts"
-import { slicesFromText, slicesText } from "./heat-rows.ts"
+import { slicesFromText, slicesText, storedEndBook } from "./heat-rows.ts"
 import type { StoredAjaibBook } from "./order-books.ts"
 import type { LivePrice } from "./stockbit-liveprice.ts"
 import { sweepsFromText, sweepsText } from "./sweep-rows.ts"
@@ -816,7 +816,8 @@ export const makeDayStore = (sql: Sql) =>
       return row === undefined ? undefined : yield* chunkOf(row.chunk)
     })
 
-    // One stock's stored book heatmap slices by minute, ascending.
+    // One stock's stored book heatmap slices by minute, ascending, each with
+    // the book its stored chunk ended with.
     const heatmapOf = (code: StockCode) =>
       Effect.suspend(() =>
         Effect.forEach(
@@ -829,6 +830,10 @@ export const makeDayStore = (sql: Sql) =>
             return {
               minute,
               slices: yield* slicesFromText(minute, String(row.slices)),
+              endBook: Effect.flatMap(
+                chunkOfMinute(code, minute),
+                storedEndBook
+              ),
             }
           })
         )

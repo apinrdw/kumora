@@ -2,12 +2,15 @@
 // trading-day Durable Object"): the trading-day Durable Object works each
 // closed book chunk into its six stored slices with it (book-chunks.ts), and
 // a live page the slices after the heatmap GET from the books its deltas
-// carry (heatmap-store.ts).
+// carry (heatmap-store.ts). Both carry a book over the minutes with no frame
+// with it, the object when it answers the GET (heat-rows.ts).
 import {
   HEAT_SLICE_MS,
+  streamingEndOf,
   type BookLevel,
   type HeatLevel,
   type HeatSlice,
+  type WibDate,
 } from "@workspace/relay"
 import { DateTime, Effect } from "effect"
 
@@ -57,6 +60,19 @@ const levelsOf = (weights: ReadonlyMap<number, Weight>) => {
   }
   return levels
 }
+
+// Decision: a book stays in force until the next frame, so a minute with no
+// frame keeps the book before it, the day's last one to the end of the
+// relay's streaming (16:35 WIB): no frame could replace it after. No slice
+// starts from there on, in the GET's answer or on the page. See
+// apinrdw/kumora#279.
+export const heatEndOf = (date: WibDate) =>
+  Effect.map(
+    streamingEndOf(date),
+    (end) =>
+      (Math.floor(DateTime.toEpochMillis(end) / HEAT_SLICE_MS) + 1) *
+      HEAT_SLICE_MS
+  )
 
 // The slices from `from` up to `to`, both on slice starts: each price's
 // resting lots, bid and offer apart, averaged over the slice by how long each

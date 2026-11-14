@@ -66,7 +66,7 @@ import { makeGaps } from "./gaps.ts"
 import { makeMarketConditions } from "./market-conditions.ts"
 import { makeOnDemand } from "./on-demand.ts"
 import { makeOrderBooks } from "./order-books.ts"
-import { chunkSlices, type HeatRow } from "./heat-rows.ts"
+import { chunkSlices, endBookOf, storedEndBook } from "./heat-rows.ts"
 import { buildOrderFlow, orderFlowBuiltAtStart } from "./order-flow-build.ts"
 import { SNAPSHOT_TRADES, recordedAnswer } from "./recorded-answers.ts"
 import { type AccountId, type HeldSessions, type SessionId } from "./routes.ts"
@@ -1044,15 +1044,24 @@ export const makeTradingDay = Effect.fnUntraced(function* (options: {
     code: StockCode,
     through: number
   ) {
-    const rows: Array<HeatRow> = (unwritten?.chunks ?? []).filter(
-      (chunk) => chunk.code === code
-    )
-    for (const chunk of yield* bookChunks.held(code))
-      rows.push({
+    const unwrittenRows = (unwritten?.chunks ?? [])
+      .filter((chunk) => chunk.code === code)
+      .map((chunk) => ({
         minute: chunk.minute,
-        slices: yield* chunkSlices(chunk, through),
+        slices: chunk.slices,
+        endBook: storedEndBook(chunk.chunk),
+      }))
+    const heldRows = yield* Effect.forEach(
+      yield* bookChunks.held(code),
+      Effect.fnUntraced(function* (chunk) {
+        return {
+          minute: chunk.minute,
+          slices: yield* chunkSlices(chunk, through),
+          endBook: endBookOf(chunk),
+        }
       })
-    return rows
+    )
+    return [...unwrittenRows, ...heldRows]
   })
 
   // A sealed day's order flow GET builds the rows first, if the day has

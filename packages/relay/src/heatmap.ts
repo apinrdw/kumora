@@ -25,7 +25,9 @@ export type HeatSlice = typeof HeatSlice.Type
 // One code's slices of the day, ascending, every one that starts before
 // `through` and none from it. A live page builds the slices from `through` on
 // out of the order books its deltas carry, so the two meet with no gap and no
-// overlap. A slice with no book is left out.
+// overlap. A slice with no book is left out; a minute with no frame keeps the
+// book before it, and a sealed day's `through` is where the relay's streaming
+// ended.
 const RecordedHeatmap = Schema.Struct({
   code: StockCode,
   through: Schema.DateTimeUtcFromMillis,

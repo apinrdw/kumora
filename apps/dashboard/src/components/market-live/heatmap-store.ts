@@ -4,10 +4,11 @@ import {
   type RecordedHeatmap,
   type StockCode,
   type ViewerDown,
+  type WibDate,
 } from "@workspace/relay"
 import { DateTime, Effect } from "effect"
 
-import { heatSlices, type BookChange } from "@/lib/heatmap"
+import { heatEndOf, heatSlices, type BookChange } from "@/lib/heatmap"
 
 export interface HeatmapStore {
   readonly code: StockCode
@@ -32,9 +33,11 @@ export interface HeatmapStore {
 // day the slices up to the GET's join come from the Durable Object, and the
 // ones from it on are weighed here from the books the viewer socket sends,
 // each in force from when it arrived; the current slice is weighed as if its
-// book holds to the slice's end. Each snapshot of this code, a reconnect's
-// included, asks the GET again: the books a dropped socket missed are the
-// object's to answer, not the last one heard to stand in for.
+// book holds to the slice's end. A book holds until the next one heard, so a
+// minute with no frame keeps it, up to where `date`'s slices stop
+// (`heatEndOf`), as in the GET's answer. Each snapshot of this code, a
+// reconnect's included, asks the GET again: the books a dropped socket
+// missed are the object's to answer, not the last one heard to stand in for.
 // Decision: "when it arrived" is on the object's clock, not the browser's,
 // which can run minutes off it (and does on the Test stage). The store keeps
 // the browser's clock (`now`) plus the largest offset seen from an instant
@@ -42,9 +45,10 @@ export interface HeatmapStore {
 // as-of. See spec apinrdw/kumora#263, "Viewer protocol".
 export const makeHeatmapStore = (
   code: StockCode,
+  date: WibDate,
   now: () => number = () => Date.now()
 ) =>
-  Effect.sync((): HeatmapStore => {
+  Effect.map(heatEndOf(date), (end): HeatmapStore => {
     // Slices that can't change any more, then the current one.
     let settled: Array<HeatSlice> = []
     let shown: ReadonlyArray<HeatSlice> = []
@@ -77,7 +81,11 @@ export const makeHeatmapStore = (
       if (from === undefined) return
       const current = Math.floor(objectNow() / HEAT_SLICE_MS) * HEAT_SLICE_MS
       const built = Effect.runSync(
-        heatSlices(changes, from, Math.max(from, current) + HEAT_SLICE_MS)
+        heatSlices(
+          changes,
+          from,
+          Math.min(Math.max(from, current) + HEAT_SLICE_MS, end)
+        )
       )
       const settling = built.filter(
         (slice) => DateTime.toEpochMillis(slice.at) < current
@@ -141,7 +149,12 @@ export const makeHeatmapStore = (
       },
       apply: hear,
       tick: () => {
-        if (from !== undefined && objectNow() >= from + HEAT_SLICE_MS) rebuild()
+        if (
+          from !== undefined &&
+          from < end &&
+          objectNow() >= from + HEAT_SLICE_MS
+        )
+          rebuild()
       },
       subscribe: (listener) => {
         listeners.add(listener)

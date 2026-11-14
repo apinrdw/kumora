@@ -1,5 +1,6 @@
 import {
   StockCode,
+  WibDate,
   type OrderBook,
   type RecordedHeatmap,
   type ViewerDown,
@@ -10,6 +11,7 @@ import { describe, expect, it } from "@effect/vitest"
 import { makeHeatmapStore } from "@/components/market-live/heatmap-store"
 
 const UNTR = StockCode.make("UNTR")
+const DAY = WibDate.make("2026-11-09")
 const wib = (time: string) => Date.parse(`2026-11-09T${time}+07:00`)
 
 // A book as of `at`: the instant it was served, near enough.
@@ -76,7 +78,7 @@ describe("the heatmap store", () => {
     () =>
       Effect.gen(function* () {
         let now = wib("14:20:12")
-        const store = yield* makeHeatmapStore(UNTR, () => now)
+        const store = yield* makeHeatmapStore(UNTR, DAY, () => now)
         // The snapshot's book, before the GET answers: in force from its
         // join.
         store.apply(snapshot(book(now, 50, 40)))
@@ -133,7 +135,7 @@ describe("the heatmap store", () => {
         // The browser's clock reads an hour behind.
         const behind = 3_600_000
         let now = wib("14:20:12") - behind
-        const store = yield* makeHeatmapStore(UNTR, () => now)
+        const store = yield* makeHeatmapStore(UNTR, DAY, () => now)
         store.apply(snapshot())
         store.answer(store.awaiting()!, answer)
         store.apply(delta(book(wib("14:20:12"), 50, 40)))
@@ -152,7 +154,7 @@ describe("the heatmap store", () => {
 
   it.effect("a recorded day's answer is the whole day: it builds nothing", () =>
     Effect.gen(function* () {
-      const store = yield* makeHeatmapStore(UNTR, () => wib("16:00:00"))
+      const store = yield* makeHeatmapStore(UNTR, DAY, () => wib("16:00:00"))
       store.seed(answer)
       store.apply(delta(book(wib("16:00:00"), 90, 40)))
       store.tick()

@@ -32,6 +32,7 @@ const at = (time: string) =>
 const SERVED_AFTER = "250 millis"
 
 const UNTR = StockCode.make("UNTR")
+const DAY = WibDate.make("2026-11-09")
 
 type Day = Effect.Success<ReturnType<typeof tradingDay>>
 
@@ -72,7 +73,7 @@ const heatmap = Effect.fnUntraced(function* (day: Day) {
 // the store asks.
 const pageOn = Effect.fnUntraced(function* (day: Day) {
   const clock = yield* Clock.Clock
-  const store = yield* makeHeatmapStore(UNTR, () =>
+  const store = yield* makeHeatmapStore(UNTR, DAY, () =>
     clock.currentTimeMillisUnsafe()
   )
   const socket = yield* day.viewer("UNTR")
@@ -260,7 +261,7 @@ describe("the book heatmap", () => {
   )
 
   it.effect(
-    "a sealed day's GET answers every stored slice, cached immutable",
+    "a sealed day's GET answers every stored slice, then its last book to the end of the relay's streaming, cached immutable",
     () =>
       Effect.gen(function* () {
         const day = yield* bookDay
@@ -268,27 +269,20 @@ describe("the book heatmap", () => {
         yield* day.alarm
         const answer = yield* heatmap(day)
         assert.strictEqual(answer.cacheControl, SEALED_CACHE)
-        // The seal closed 14:21's chunk; no frame came after it.
-        assert.strictEqual(answer.through, "14:22:00")
+        assert.strictEqual(answer.through, "16:35:00")
         assert.deepStrictEqual(answer.slices.slice(0, 6), minute1420)
-        assert.deepStrictEqual(
-          answer.slices.slice(6).map(([time]) => time),
-          [
-            "14:21:00",
-            "14:21:10",
-            "14:21:20",
-            "14:21:30",
-            "14:21:40",
-            "14:21:50",
-          ]
-        )
-        assert.deepStrictEqual(answer.slices.at(-1), [
-          "14:21:50",
-          [
-            [8_000, 90, 0],
-            [8_025, 0, 20],
-          ],
+        // The seal closed 14:21's chunk.
+        assert.deepStrictEqual(answer.slices.slice(6, 12), [
+          ...resting("14:21:00", 2, 40),
+          // 40 lots for 2.5 s, then 20 for 7.5 s.
+          ...resting("14:21:20", 1, 25),
+          ...resting("14:21:30", 3, 20),
         ])
+        // No frame came after it.
+        assert.deepStrictEqual(
+          answer.slices.slice(12),
+          resting("14:22:00", 798, 20)
+        )
       })
   )
 
@@ -328,6 +322,34 @@ describe("the book heatmap", () => {
         ])
         assert.deepStrictEqual(page.slices().slice(0, -1), later.slices)
         assert.deepStrictEqual(joined.slices(), page.slices())
+      })
+  )
+
+  it.effect(
+    "a minute whose flush failed still answers its slices and the quiet minute's after it",
+    () =>
+      Effect.gen(function* () {
+        const sql = memorySql()
+        let down = false
+        const { day, page } = yield* quietDay({
+          ...sql,
+          transaction: (write) => {
+            // The storage API is synchronous and throws.
+            if (down)
+              return Effect.runSync(Effect.fail(new Error("Storage down")))
+            sql.transaction(write)
+          },
+        })
+        // The 14:21:05 flush fails: 14:20's chunk waits for the next one.
+        down = true
+        yield* at("14:21:40.000")
+        yield* page.hear
+        const whole = yield* heatmap(day)
+        assert.deepStrictEqual(whole.slices, [
+          ...minute1420,
+          ...resting("14:21:00", 4, 40),
+        ])
+        assert.deepStrictEqual(page.slices().slice(0, -1), whole.slices)
       })
   )
 
