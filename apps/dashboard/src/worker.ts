@@ -2,7 +2,7 @@
 // sockets first, then TanStack Start. It also exports the Durable Object and
 // Workflow classes the stack declares.
 import startEntry from "@tanstack/react-start/server-entry"
-import { WorkerEnv, type WorkerEnvShape } from "@workspace/server"
+import { runServerEffectResult } from "@workspace/server"
 import { Effect, Layer, Option } from "effect"
 
 import { marketLiveRoute } from "./server/market-live/entry.ts"
@@ -23,12 +23,12 @@ export default {
       onNone: () => startEntry.fetch(request),
       onSome: respond,
     }),
-  // The archive cron, on Production only (alchemy.run.ts).
-  scheduled: (controller: ScheduledController, env: WorkerEnvShape) =>
-    Effect.runPromise(
+  // The archive cron, on Production only (alchemy.run.ts). The bridge's
+  // runner logs a failure, as it does for every other callback.
+  scheduled: (controller: ScheduledController) =>
+    runServerEffectResult(
       scheduledArchiveRun(controller.scheduledTime).pipe(
-        Effect.provide(Layer.merge(archiveBucketR2, archiveWorkflowBinding)),
-        Effect.provideService(WorkerEnv, env)
+        Effect.provide(Layer.merge(archiveBucketR2, archiveWorkflowBinding))
       )
     ),
 }
