@@ -124,6 +124,88 @@ describe("the selected code's sweeps, live", () => {
       })
   )
 
+  it.effect(
+    "a late trade numbered inside the answer asks the GET again, and its answer splits the sweep",
+    () =>
+      Effect.gen(function* () {
+        const store = yield* makeSweepStore(UNTR)
+        store.apply(snapshot)
+        store.answer(store.awaiting()!, {
+          code: UNTR,
+          through: TradeNumber.make("103"),
+          sweeps: [
+            {
+              side: "buy",
+              time: DateTime.makeUnsafe("2026-11-09T09:00:10.100+07:00"),
+              first: 1_000,
+              last: 1_000,
+              lots: 5,
+              value: 500_000,
+              trades: 2,
+            },
+          ],
+        })
+        store.apply(delta([trade(102, "09:00:10.200", "sell", 4)]))
+        const asked = store.awaiting()
+        expect(asked).toBeDefined()
+        store.answer(asked!, {
+          code: UNTR,
+          through: TradeNumber.make("103"),
+          sweeps: [
+            ["09:00:10.100", "buy", 2],
+            ["09:00:10.200", "sell", 4],
+            ["09:00:10.500", "buy", 3],
+          ].map(([time, side, lots]) => ({
+            side: side as Sweep["side"],
+            time: DateTime.makeUnsafe(`2026-11-09T${time}+07:00`),
+            first: 1_000,
+            last: 1_000,
+            lots: lots as number,
+            value: (lots as number) * 100_000,
+            trades: 1,
+          })),
+        })
+        expect(store.sweeps().map(shape)).toEqual([
+          ["buy", "2026-11-09T02:00:10.100Z", 2, 1],
+          ["sell", "2026-11-09T02:00:10.200Z", 4, 1],
+          ["buy", "2026-11-09T02:00:10.500Z", 3, 1],
+        ])
+      })
+  )
+
+  it.effect(
+    "a second feed's copy of a trade seen since the snapshot, its side unchanged, asks nothing",
+    () =>
+      Effect.gen(function* () {
+        const store = yield* makeSweepStore(UNTR)
+        store.apply(snapshot)
+        const asked = store.awaiting()!
+        store.apply(delta([trade(101, "09:00:10.100", "buy", 2)]))
+        store.answer(asked, {
+          code: UNTR,
+          through: TradeNumber.make("101"),
+          sweeps: [
+            {
+              side: "buy",
+              time: DateTime.makeUnsafe("2026-11-09T09:00:10.100+07:00"),
+              first: 1_000,
+              last: 1_000,
+              lots: 2,
+              value: 200_000,
+              trades: 1,
+            },
+          ],
+        })
+        store.apply(
+          delta([{ ...trade(101, "09:00:10.100", "buy", 2), feeds: ["Ajaib"] }])
+        )
+        expect(store.awaiting()).toBeUndefined()
+        expect(store.sweeps().map(shape)).toEqual([
+          ["buy", "2026-11-09T02:00:10.100Z", 2, 1],
+        ])
+      })
+  )
+
   it.effect("an answer for an earlier snapshot is dropped", () =>
     Effect.gen(function* () {
       const store = yield* makeSweepStore(UNTR)
