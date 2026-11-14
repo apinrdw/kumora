@@ -3,12 +3,11 @@
 // session, and fake Durable Object stubs stand in for the day's object and
 // the index, recording what reached them.
 import { assert, describe, it } from "@effect/vitest"
-import { WibDate } from "@workspace/relay"
+import { WibDate, recordedDayRequest } from "@workspace/relay"
 import { WorkerEnv } from "@workspace/server"
 import { Effect, Layer, Option } from "effect"
 
 import { dayStripRoute, recordedDayRoute } from "@/server/market-live/days"
-import { marketLiveRoute } from "@/server/market-live/entry"
 
 import { cookiesFrom, linkIn, seam, send, signUp } from "../auth/seam.ts"
 
@@ -145,16 +144,15 @@ describe("a recorded day GET", () => {
   )
 
   it.effect(
-    "with a bad date or a bad cursor is no Market Live route, for broker codes as for the tape",
+    "with a bad date or a bad cursor is no recorded day GET, for broker codes as for the tape",
     () =>
       Effect.gen(function* () {
+        // The entry's pick (entry.ts `marketLiveRoute`): a path it reads no
+        // day and resource from goes on to TanStack Start.
+        const picked = (path: string) =>
+          recordedDayRequest(new URL(`https://kumora.test${path}`))
         for (const path of [TAPE, BROKER_CODES])
-          assert.isTrue(
-            Option.isSome(
-              yield* marketLiveRoute(new Request(`https://kumora.test${path}`))
-            ),
-            path
-          )
+          assert.isTrue(Option.isSome(yield* picked(path)), path)
         for (const kind of ["trades", "broker-codes"])
           for (const path of [
             `/market-live/days/2026-11-31/${kind}?at=1794194100000`,
@@ -162,14 +160,7 @@ describe("a recorded day GET", () => {
             `/market-live/days/2026-11-06/${kind}?at=soon`,
             `/market-live/days/2026-11-06/${kind}`,
           ])
-            assert.isTrue(
-              Option.isNone(
-                yield* marketLiveRoute(
-                  new Request(`https://kumora.test${path}`)
-                )
-              ),
-              path
-            )
+            assert.isTrue(Option.isNone(yield* picked(path)), path)
       })
   )
 
