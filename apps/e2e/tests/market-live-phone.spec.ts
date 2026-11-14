@@ -18,6 +18,12 @@ test("an index shows candles and total volume, and one line in place of chart 2 
   page,
 }) => {
   await page.setViewportSize({ width: 1920, height: 1080 })
+  // The order flow GETs the page asks, by path.
+  const orderFlow: Array<string> = []
+  page.on("request", (request) => {
+    const path = new URL(request.url()).pathname
+    if (/\/(heatmap|sweeps)\//.test(path)) orderFlow.push(path)
+  })
   await page.goto(`${DASHBOARD}${PAGE}?code=IHSG`)
   const chart = page.getByRole("region", { name: "Chart" })
   await expect(chart.getByRole("heading", { name: "IHSG" })).toBeVisible()
@@ -29,8 +35,16 @@ test("an index shows candles and total volume, and one line in place of chart 2 
   // No top-N filter, as no bubbles are drawn.
   await expect(page.getByLabel("Top N percent of sweeps")).toHaveCount(0)
 
-  // A share again: chart 2 and the log are back.
+  // An index has no order flow to ask for.
+  expect(orderFlow).toEqual([])
+
+  // A share again: chart 2 and the log are back, and their GETs go.
+  const asked = Promise.all([
+    page.waitForRequest(/\/heatmap\/BBCA$/),
+    page.waitForRequest(/\/sweeps\/BBCA$/),
+  ])
   await page.goto(`${DASHBOARD}${PAGE}?code=BBCA`)
+  await asked
   await expect(page.getByRole("region", { name: "Footprint" })).toBeVisible()
   await expect(page.getByRole("region", { name: "Sweep log" })).toBeVisible()
   await expect(page.getByText("An index has no order flow")).toHaveCount(0)

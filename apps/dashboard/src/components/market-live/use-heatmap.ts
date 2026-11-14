@@ -1,5 +1,5 @@
 import { clientRuntime, fetchRecordedHeatmap } from "@workspace/client"
-import type { StockCode, WibDate } from "@workspace/relay"
+import { INDEX_CODES, type StockCode, type WibDate } from "@workspace/relay"
 import { Effect, Fiber, Option, Predicate } from "effect"
 import { useEffect, useMemo } from "react"
 
@@ -9,7 +9,8 @@ import { signInAgain } from "./sign-in-again"
 // The selected code's heatmap store for the recorded `day`, or `today` live,
 // seeded once by its heatmap GET: a recorded day's whole, a live day's up to
 // the join it names, the page feeding the store its socket's messages from
-// then on. A 401 sends the visitor to sign in.
+// then on. An index has no book, so nothing is asked. A 401 sends the
+// visitor to sign in.
 export function useHeatmap(
   code: StockCode,
   day: WibDate | undefined,
@@ -21,6 +22,7 @@ export function useHeatmap(
   // day's.
   const store = useMemo(() => Effect.runSync(makeHeatmapStore(code)), [code])
   useEffect(() => {
+    if (INDEX_CODES.includes(code)) return
     const fiber = clientRuntime.runFork(
       fetchRecordedHeatmap(date, code).pipe(
         Effect.tap((answer) =>

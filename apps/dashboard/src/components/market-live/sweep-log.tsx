@@ -1,5 +1,10 @@
 import { fetchRecordedSweeps } from "@workspace/client"
-import type { StockCode, Sweep, WibDate } from "@workspace/relay"
+import {
+  INDEX_CODES,
+  type StockCode,
+  type Sweep,
+  type WibDate,
+} from "@workspace/relay"
 import { DateTime, Effect, Option } from "effect"
 import {
   memo,
@@ -82,7 +87,7 @@ function useSweepView(store: SweepStore, cursor: ReplayCursor | undefined) {
  * The selected code's sweep store, one per code, loaded from its GET for
  * `day`: undefined live, where it loads today's again after each snapshot of
  * the code, the store holding the delta trades until the answer lands; a
- * recorded day's loads once, whole.
+ * recorded day's loads once, whole. An index asks for none.
  */
 export function useSweeps(
   selected: StockCode,
@@ -96,6 +101,8 @@ export function useSweeps(
   const live = day === undefined
   const date = day ?? today
   useEffect(() => {
+    // An index has no aggressor sides, so no sweeps to ask for.
+    if (INDEX_CODES.includes(store.code)) return
     const stops: Array<() => void> = []
     const ask = (snapshot: number) =>
       stops.push(
