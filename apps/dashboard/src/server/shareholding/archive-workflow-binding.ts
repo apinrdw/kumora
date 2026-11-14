@@ -29,7 +29,7 @@ interface WorkflowBinding {
 // The binding throws plain Errors; the runtime names the case in the message,
 // as `(instance.already_exists) …` and `instance.not_found`.
 const mentions = (cause: unknown, code: string) =>
-  cause instanceof Error && cause.message.includes(code)
+  Effect.sync(() => cause instanceof Error && cause.message.includes(code))
 
 export const archiveWorkflowBinding = Layer.effect(
   ArchiveWorkflow,
@@ -39,15 +39,21 @@ export const archiveWorkflowBinding = Layer.effect(
       create: (options) =>
         Effect.tryPromise({
           try: () => workflow.create(options),
-          catch: (cause) =>
-            mentions(cause, "instance.already_exists")
-              ? new DuplicateRunId({ id: options.id })
-              : new WorkflowError({
-                  operation: "create",
-                  id: options.id,
-                  cause,
-                }),
-        }).pipe(Effect.asVoid),
+          catch: (cause) => cause,
+        }).pipe(
+          Effect.asVoid,
+          Effect.catch(
+            Effect.fnUntraced(function* (cause) {
+              return yield* (yield* mentions(cause, "instance.already_exists"))
+                ? new DuplicateRunId({ id: options.id })
+                : new WorkflowError({
+                    operation: "create",
+                    id: options.id,
+                    cause,
+                  })
+            })
+          )
+        ),
       status: (id) =>
         Effect.tryPromise({
           try: (): Promise<InstanceStatus | undefined> =>
@@ -60,12 +66,15 @@ export const archiveWorkflowBinding = Layer.effect(
               })),
           catch: (cause) => cause,
         }).pipe(
-          Effect.catch((cause) =>
-            mentions(cause, "instance.not_found")
-              ? Effect.succeed(undefined)
-              : Effect.fail(
-                  new WorkflowError({ operation: "status", id, cause })
-                )
+          Effect.catch(
+            Effect.fnUntraced(function* (cause) {
+              if (yield* mentions(cause, "instance.not_found")) return undefined
+              return yield* new WorkflowError({
+                operation: "status",
+                id,
+                cause,
+              })
+            })
           )
         ),
     })

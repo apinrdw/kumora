@@ -1,7 +1,7 @@
 // The shareholding archive bucket (SHAREHOLDING_ARCHIVE_BUCKET), as the
 // archive run uses it. bucket-r2.ts adapts the R2 binding; tests provide an
 // in-memory one.
-import { Context, type Effect, Schema } from "effect"
+import { Context, Effect, Schema } from "effect"
 
 export class BucketError extends Schema.TaggedError<BucketError>()(
   "BucketError",
@@ -40,3 +40,12 @@ export class ArchiveBucket extends Context.Service<
     ) => Effect.Effect<void, BucketError>
   }
 >()("dashboard/shareholding/ArchiveBucket") {}
+
+export const putJson = Effect.fnUntraced(function* (
+  key: string,
+  value: unknown
+) {
+  yield* (yield* ArchiveBucket).put(key, JSON.stringify(value), {
+    contentType: "application/json",
+  })
+})

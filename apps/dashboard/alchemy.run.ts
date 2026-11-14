@@ -17,7 +17,7 @@ import * as Redacted from "effect/Redacted"
 
 import { SENDER, SENDING_SUBDOMAIN } from "./src/server/auth/sender.ts"
 import type { ArchiveParams } from "./src/server/shareholding/run-result.ts"
-import { ARCHIVE_CRON } from "./src/server/shareholding/start-run.ts"
+import { ARCHIVE_CRON } from "./src/server/shareholding/schedule.ts"
 
 // scripts/auth-schema.ts replays the same directory for the drift check and
 // the handler test seam. apps/e2e/reset-test-stage.ts reads this resource's
@@ -160,7 +160,7 @@ export const Website = Cloudflare.Website.Vite(
           "ShareholdingArchiveBucket",
           // Decision: Production's archive survives a stack destroy; any
           // other stage's is emptied with it, so a Preview teardown never
-          // stops on a bucket a Run now filled.
+          // stops on a bucket a Run now filled. See apinrdw/kumora#305.
           { forceDestroy: (yield* stageKind(stage)) !== "production" }
         ),
         SHAREHOLDING_ARCHIVE: Cloudflare.Workflow<ArchiveParams>(

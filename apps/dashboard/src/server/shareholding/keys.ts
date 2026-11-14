@@ -12,14 +12,20 @@ import { Effect } from "effect"
 import type { ReportKind } from "./listing.ts"
 
 export const REPORTS_PREFIX = "reports/"
-export const LATEST_RUN_KEY = "runs/latest.json"
+export const RUNS_PREFIX = "runs/"
+export const LATEST_RUN_KEY = `${RUNS_PREFIX}latest.json`
+
+// reports/<kind>/, the prefix of every report of one kind.
+export const kindPrefix = Effect.fnUntraced(function* (kind: ReportKind) {
+  return `${REPORTS_PREFIX}${kind}/`
+})
 
 export const reportKey = Effect.fnUntraced(function* (
   kind: ReportKind,
   dataDate: string,
   sha256: string
 ) {
-  return `${REPORTS_PREFIX}${kind}/${dataDate}/${sha256}.xlsx`
+  return `${yield* kindPrefix(kind)}${dataDate}/${sha256}.xlsx`
 })
 
 export const sha256Hex = Effect.fnUntraced(function* (
@@ -44,7 +50,8 @@ interface Listing {
 // Decision: the key ends in a digest of the listing, so two listings of the
 // same bytes recorded in the same millisecond (one run storing a file IDX
 // uploaded twice) get two keys instead of one overwriting the other. The
-// spec's `<sha256>.<fetched-at>.json` alone can't tell them apart.
+// spec's `<sha256>.<fetched-at>.json` alone can't tell them apart. See
+// apinrdw/kumora#307.
 export const recordKey = Effect.fnUntraced(function* (
   kind: ReportKind,
   dataDate: string,
@@ -55,9 +62,9 @@ export const recordKey = Effect.fnUntraced(function* (
   const listingDigest = (yield* sha256Hex(
     new TextEncoder().encode(`${listing.sourceUrl}\n${listing.etag ?? ""}`)
   )).slice(0, 16)
-  return `${REPORTS_PREFIX}${kind}/${dataDate}/${sha256}.${fetchedAt.replaceAll(":", "")}.${listingDigest}.json`
+  return `${yield* kindPrefix(kind)}${dataDate}/${sha256}.${fetchedAt.replaceAll(":", "")}.${listingDigest}.json`
 })
 
 export const runKey = Effect.fnUntraced(function* (id: string) {
-  return `runs/${id}.json`
+  return `${RUNS_PREFIX}${id}.json`
 })

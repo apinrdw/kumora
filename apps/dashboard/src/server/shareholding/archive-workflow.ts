@@ -3,7 +3,8 @@
 // tests provide an in-memory one.
 import { Context, type Effect, Schema } from "effect"
 
-import type { ArchiveParams } from "./run-result.ts"
+import type { RETENTION } from "./retention.ts"
+import type { ArchiveParams, ArchiveRunId } from "./run-result.ts"
 
 export class DuplicateRunId extends Schema.TaggedError<DuplicateRunId>()(
   "DuplicateRunId",
@@ -16,17 +17,19 @@ export class WorkflowError extends Schema.TaggedError<WorkflowError>()(
 ) {}
 
 // A Workflow instance's status, as `status()` reports it.
-export type RunStatus =
-  | "queued"
-  | "running"
-  | "paused"
-  | "errored"
-  | "terminated"
-  | "complete"
-  | "waiting"
-  | "waitingForPause"
-  | "rollingBack"
-  | "unknown"
+export const RunStatus = Schema.Literals([
+  "queued",
+  "running",
+  "paused",
+  "errored",
+  "terminated",
+  "complete",
+  "waiting",
+  "waitingForPause",
+  "rollingBack",
+  "unknown",
+])
+export type RunStatus = typeof RunStatus.Type
 
 export interface InstanceStatus {
   readonly status: RunStatus
@@ -35,12 +38,9 @@ export interface InstanceStatus {
 }
 
 export interface CreateRun {
-  readonly id: string
+  readonly id: ArchiveRunId
   readonly params: ArchiveParams
-  readonly retention: {
-    readonly successRetention: "30 days"
-    readonly errorRetention: "30 days"
-  }
+  readonly retention: typeof RETENTION
 }
 
 export class ArchiveWorkflow extends Context.Service<
@@ -52,7 +52,7 @@ export class ArchiveWorkflow extends Context.Service<
     ) => Effect.Effect<void, DuplicateRunId | WorkflowError>
     // Undefined when no instance has the id, for example past retention.
     readonly status: (
-      id: string
+      id: ArchiveRunId
     ) => Effect.Effect<InstanceStatus | undefined, WorkflowError>
   }
 >()("dashboard/shareholding/ArchiveWorkflow") {}

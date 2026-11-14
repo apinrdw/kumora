@@ -3,50 +3,22 @@
 // apinrdw/kumora#303, "Starting a run".
 import { DateTime, Effect, Option, Schema } from "effect"
 
-import {
-  ArchiveWorkflow,
-  type InstanceStatus,
-  type RunStatus,
-} from "./archive-workflow.ts"
-import { ArchiveBucket } from "./bucket.ts"
+import { ArchiveWorkflow } from "./archive-workflow.ts"
+import { ArchiveBucket, putJson } from "./bucket.ts"
 import { LATEST_RUN_KEY, runKey } from "./keys.ts"
+import { RETENTION } from "./retention.ts"
 import {
   ArchiveRunResult,
+  ArchiveRunId,
   type ArchiveTrigger,
+  decodeRunResult,
   LatestRun,
   runningResult,
 } from "./run-result.ts"
-
-// The archive cron (UTC): 13:00 and 20:00 WIB. alchemy.run.ts sets it on
-// Production only.
-export const ARCHIVE_CRON = "0 6,13 * * *"
-
-// How long Cloudflare keeps a run's instance, ended well or not.
-const RETENTION = {
-  successRetention: "30 days",
-  errorRetention: "30 days",
-} as const
-export const RETENTION_MS = 30 * 24 * 60 * 60 * 1000
-
-// Statuses of a run that hasn't ended. `waiting` covers a step's retry
-// backoff, so a run between retries still holds off the next one.
-const IN_PROGRESS: ReadonlySet<RunStatus> = new Set([
-  "queued",
-  "running",
-  "waiting",
-])
-
-// A run that ended before its summary step rewrote its record.
-const ENDED_UNSUMMARIZED: Partial<Record<RunStatus, string>> = {
-  errored: "The archive run's Workflow errored.",
-  terminated: "The archive run's Workflow was terminated.",
-}
+import { isInProgress, viewRun } from "./run-view.ts"
 
 const decodeLatestRun = Schema.decodeUnknownEffect(
   Schema.fromJsonString(LatestRun)
-)
-const decodeResult = Schema.decodeUnknownEffect(
-  Schema.fromJsonString(ArchiveRunResult)
 )
 
 // The run runs/latest.json names: its record and its instance's status.
@@ -58,93 +30,76 @@ const readLatest = Effect.gen(function* () {
   const record = yield* bucket.get(yield* runKey(id))
   return {
     id,
-    result: record === undefined ? undefined : yield* decodeResult(record),
+    result: record === undefined ? undefined : yield* decodeRunResult(record),
     instance: yield* (yield* ArchiveWorkflow).status(id),
     now: DateTime.toEpochMillis(yield* DateTime.now),
   }
 })
 
-type Latest = NonNullable<Effect.Success<typeof readLatest>>
-
-// In progress while its instance is queued, running or waiting. With no
-// instance, the record decides while the instance could still be retained:
-// a record still running past that never ended in a summary.
-const inProgress = ({ result, instance, now }: Latest) =>
-  instance !== undefined
-    ? IN_PROGRESS.has(instance.status)
-    : result?.outcome === "running" &&
-      now - Date.parse(result.startedAt) < RETENTION_MS
-
 // The id of the run runs/latest.json names, while that run is still in
 // progress. Both the cron and Run now check it before starting a run.
-export const runInProgress = Effect.map(readLatest, (latest) =>
-  latest !== undefined && inProgress(latest)
+export const runInProgress = Effect.gen(function* () {
+  const latest = yield* readLatest
+  return latest !== undefined &&
+    (yield* isInProgress(latest.result, latest.instance, latest.now))
     ? Option.some(latest.id)
-    : Option.none<string>()
-)
-
-export interface LastRun {
-  // The run's record; a run that ended without its summary shows as failed.
-  readonly result: ArchiveRunResult
-  readonly inProgress: boolean
-  // The instance's status while the record says running, when it has one.
-  readonly live: RunStatus | null
-}
-
-const endedUnsummarized = (
-  result: ArchiveRunResult,
-  instance: InstanceStatus | undefined,
-  running: boolean
-): string | undefined => {
-  if (result.outcome !== "running" || running) return undefined
-  if (instance === undefined)
-    return "The archive run's Workflow is gone, and it never recorded how the run ended."
-  return ENDED_UNSUMMARIZED[instance.status]
-    ? (instance.error ?? ENDED_UNSUMMARIZED[instance.status])
-    : undefined
-}
-
-// The last run, for the admin page: undefined before any run.
-export const lastRun = Effect.map(readLatest, (latest): LastRun | undefined => {
-  if (latest?.result === undefined) return undefined
-  const { result, instance } = latest
-  const running = inProgress(latest)
-  const error = endedUnsummarized(result, instance, running)
-  return {
-    result:
-      error === undefined ? result : { ...result, outcome: "failed", error },
-    inProgress: running,
-    live:
-      result.outcome === "running" && instance !== undefined
-        ? instance.status
-        : null,
-  }
+    : Option.none<ArchiveRunId>()
 })
 
-// Creates the run's Workflow instance, kept readable for 30 days, then
-// points runs/latest.json at it with a `running` record.
-// Decision: the start writes the pointer and record, not only the run's
-// `plan` step, so the run is in progress from the moment it exists: a second
-// start before `plan` runs is refused too. `plan` writes both again.
+// The last run, for the admin page: undefined before any run.
+export const lastRun = Effect.gen(function* () {
+  const latest = yield* readLatest
+  if (latest?.result === undefined) return undefined
+  return yield* viewRun(latest.result, latest.instance, latest.now)
+})
+
+// Creates the run's Workflow instance, kept for RETENTION, with a
+// `running` record, then points runs/latest.json at it. A second cron firing
+// for the same hour finds the record, and its `create` fails before
+// latest.json moves.
+// Decision: the record is written before `create`, only when the id has none:
+// after `create`, the run's own steps may already have ended it, and writing
+// `running` then would never be undone. Writing it at all refuses a second
+// start before `plan` (apinrdw/kumora#309).
 export const startRun = Effect.fnUntraced(function* (
-  id: string,
+  id: ArchiveRunId,
   trigger: ArchiveTrigger
 ) {
-  const workflow = yield* ArchiveWorkflow
-  yield* workflow.create({ id, params: { trigger }, retention: RETENTION })
-  const bucket = yield* ArchiveBucket
+  const key = yield* runKey(id)
+  const recorded = yield* (yield* ArchiveBucket).exists(key)
   const record = yield* runningResult({
     id,
     trigger,
-    startedAt: DateTime.formatIso(yield* DateTime.now),
+    startedAt: DateTime.toDateUtc(yield* DateTime.now),
   })
-  for (const [key, value] of [
-    [yield* runKey(id), record],
-    [LATEST_RUN_KEY, { id }],
-  ] as const)
-    yield* bucket.put(key, JSON.stringify(value), {
-      contentType: "application/json",
-    })
+  if (!recorded) yield* putJson(key, record)
+  yield* (yield* ArchiveWorkflow)
+    .create({ id, params: { trigger }, retention: RETENTION })
+    .pipe(
+      // No instance will ever rewrite this record: end it here, so it
+      // doesn't hold off runs as in progress.
+      Effect.tapError((error) =>
+        error._tag === "WorkflowError" && !recorded
+          ? Effect.gen(function* () {
+              yield* Effect.logError(
+                "The archive Workflow refused a run",
+                error
+              )
+              yield* putJson(
+                key,
+                ArchiveRunResult.make({
+                  ...record,
+                  finishedAt: DateTime.formatIso(yield* DateTime.now),
+                  outcome: "failed",
+                  error: "The Workflow refused to start the run.",
+                })
+              )
+              yield* putJson(LATEST_RUN_KEY, LatestRun.make({ id }))
+            })
+          : Effect.void
+      )
+    )
+  yield* putJson(LATEST_RUN_KEY, LatestRun.make({ id }))
 })
 
 // The `scheduled` handler's body: one run per firing, named after its
@@ -152,7 +107,9 @@ export const startRun = Effect.fnUntraced(function* (
 export const scheduledArchiveRun = Effect.fn("scheduledArchiveRun")(function* (
   scheduledTime: number
 ) {
-  const id = `cron-${new Date(scheduledTime).toISOString().slice(0, 13)}`
+  const id = ArchiveRunId.make(
+    `cron-${new Date(scheduledTime).toISOString().slice(0, 13)}`
+  )
   const running = yield* runInProgress
   if (Option.isSome(running))
     return yield* Effect.logInfo(

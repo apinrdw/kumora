@@ -2,46 +2,23 @@ import { IconPlayerPlay } from "@tabler/icons-react"
 import { useHydrated } from "@tanstack/react-router"
 import { clientRuntime } from "@workspace/client"
 import { loadServerFn } from "@workspace/server/loader"
-import { cn } from "@workspace/ui/lib/utils"
 import { Effect, Exit } from "effect"
-import { useId, type ReactNode } from "react"
 
 import {
   OutcomeLine,
   useAccountAction,
   type Outcome,
 } from "@/components/account/account-section"
-import { KBadge, KButton, kCard, type KBadgeTone } from "@/components/k"
-import { dateTime } from "@/lib/format"
+import { KBadge, KButton } from "@/components/k"
+import { count, dateTime, duration } from "@/lib/format"
 import { runArchiveNowFn } from "@/server/admin/shareholding.functions"
-import type { LastRun } from "@/server/shareholding/start-run"
 import type { ArchiveRunResult } from "@/server/shareholding/run-result"
+import type { RunView } from "@/server/shareholding/run-view"
+import { ARCHIVE_TIMES_WIB } from "@/server/shareholding/schedule"
+
+import { ArchiveCard, OUTCOME } from "./archive-card"
 
 const IN_PROGRESS = "A run is in progress"
-
-export const OUTCOME = {
-  running: { label: "Running", tone: "info" },
-  complete: { label: "Complete", tone: "up" },
-  partial: { label: "Partial", tone: "warning" },
-  failed: { label: "Failed", tone: "down" },
-} as const satisfies Record<
-  ArchiveRunResult["outcome"],
-  { label: string; tone: KBadgeTone }
->
-
-export const wib = (iso: string) => Effect.runSync(dateTime(iso))
-
-// 1 min 12 s; 34 s
-const duration = (from: string, to: string) => {
-  const seconds = Math.round((Date.parse(to) - Date.parse(from)) / 1000)
-  const minutes = Math.floor(seconds / 60)
-  return minutes === 0
-    ? `${seconds} s`
-    : `${minutes} min ${seconds - minutes * 60} s`
-}
-
-export const plural = (n: number, one: string, many: string) =>
-  `${n} ${n === 1 ? one : many}`
 
 const startRun: Effect.Effect<Outcome> = Effect.map(
   Effect.exit(loadServerFn(() => runArchiveNowFn())),
@@ -85,36 +62,11 @@ function RunNow({ inProgress }: { inProgress: boolean }) {
   )
 }
 
-export function Card({
-  title,
-  aside,
-  children,
-}: {
-  title: ReactNode
-  aside: ReactNode
-  children: ReactNode
-}) {
-  const id = useId()
-  return (
-    <section aria-labelledby={id} className={cn(kCard, "flex flex-col gap-4")}>
-      <header className="flex flex-wrap items-start justify-between gap-3">
-        <h2
-          id={id}
-          className="flex items-center gap-3 text-[15px] font-semibold"
-        >
-          {title}
-        </h2>
-        {aside}
-      </header>
-      {children}
-    </section>
-  )
-}
-
 function Schedule({ nextRun }: { nextRun: string }) {
   return (
     <p className="text-xs text-muted-foreground">
-      Production runs at 13:00 and 20:00 WIB. Next: {wib(nextRun)}.
+      Production runs at {ARCHIVE_TIMES_WIB}. Next:{" "}
+      {Effect.runSync(dateTime(nextRun))}.
     </p>
   )
 }
@@ -147,10 +99,12 @@ function Detail({ result }: { result: ArchiveRunResult }) {
       {result.notStored.length > 0 && (
         <div>
           <b>
-            {plural(
-              result.notStored.length,
-              "report could not be stored.",
-              "reports could not be stored."
+            {Effect.runSync(
+              count(
+                result.notStored.length,
+                "report could not be stored.",
+                "reports could not be stored."
+              )
             )}
           </b>{" "}
           The next run retries {result.notStored.length === 1 ? "it" : "them"}.
@@ -169,10 +123,12 @@ function Detail({ result }: { result: ArchiveRunResult }) {
       {result.other.length > 0 && (
         <div>
           <b>
-            {plural(
-              result.other.length,
-              "report of an unknown kind",
-              "reports of an unknown kind"
+            {Effect.runSync(
+              count(
+                result.other.length,
+                "report of an unknown kind",
+                "reports of an unknown kind"
+              )
             )}
           </b>{" "}
           {result.other.length === 1 ? "was" : "were"} archived under{" "}
@@ -197,24 +153,32 @@ function Detail({ result }: { result: ArchiveRunResult }) {
 export function LastRunCard({
   lastRun,
   nextRun,
+  now,
 }: {
-  lastRun: LastRun | undefined
+  lastRun: RunView | undefined
   nextRun: string
+  // When the page read the run, for a running run's time so far.
+  now: string
 }) {
   const inProgress = lastRun?.inProgress ?? false
   if (lastRun === undefined)
     return (
-      <Card title="Last archive run" aside={<RunNow inProgress={inProgress} />}>
+      <ArchiveCard
+        title="Last archive run"
+        aside={<RunNow inProgress={inProgress} />}
+      >
         <p className="text-[13px] text-muted-foreground">
           No archive run has happened yet.
         </p>
         <Schedule nextRun={nextRun} />
-      </Card>
+      </ArchiveCard>
     )
-  const { result, live } = lastRun
+  const { result, workflowStatus } = lastRun
   const outcome = OUTCOME[result.outcome]
+  const running = result.outcome === "running"
+  const since = Date.parse(result.startedAt)
   return (
-    <Card
+    <ArchiveCard
       title={
         <>
           Last archive run
@@ -224,15 +188,23 @@ export function LastRunCard({
       aside={<RunNow inProgress={inProgress} />}
     >
       <p className="flex flex-wrap gap-x-2 text-[13px] text-muted-foreground">
-        <span>Started {wib(result.startedAt)}</span>
+        <span>Started {Effect.runSync(dateTime(result.startedAt))}</span>
         {result.finishedAt !== null && (
-          <span>· took {duration(result.startedAt, result.finishedAt)}</span>
+          <span>
+            · took{" "}
+            {Effect.runSync(duration(Date.parse(result.finishedAt) - since))}
+          </span>
+        )}
+        {running && (
+          <span>
+            · running for {Effect.runSync(duration(Date.parse(now) - since))}
+          </span>
         )}
         <span>
           · <span className="font-mono text-xs">{result.id}</span>
         </span>
-        {result.outcome === "running" && live !== null && (
-          <span>· Workflow {live}</span>
+        {running && workflowStatus !== null && (
+          <span>· Workflow {workflowStatus}</span>
         )}
       </p>
       <dl className="grid grid-cols-[repeat(auto-fit,minmax(130px,1fr))] gap-3">
@@ -243,6 +215,6 @@ export function LastRunCard({
       </dl>
       <Detail result={result} />
       <Schedule nextRun={nextRun} />
-    </Card>
+    </ArchiveCard>
   )
 }

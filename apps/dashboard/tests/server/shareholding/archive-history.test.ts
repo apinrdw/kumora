@@ -1,10 +1,14 @@
 import { assert, describe, it } from "@effect/vitest"
-import { Effect } from "effect"
+import { Effect, Layer } from "effect"
 import { TestClock } from "effect/testing"
 
 import { archiveTotals, recentRuns } from "@/server/shareholding/history"
-import type { ArchiveRunResult } from "@/server/shareholding/run-result"
+import {
+  ArchiveRunId,
+  type ArchiveRunResult,
+} from "@/server/shareholding/run-result"
 
+import { fakeWorkflow, type FakeWorkflow } from "./fake-workflow.ts"
 import { type MemoryBucket, memoryBucket } from "./memory-bucket.ts"
 
 const NOW = Date.parse("2026-11-14T14:00:00.000Z")
@@ -15,7 +19,7 @@ const run = (
   startedAt: string,
   outcome: ArchiveRunResult["outcome"] = "complete"
 ): ArchiveRunResult => ({
-  id,
+  id: ArchiveRunId.make(id),
   trigger: id.startsWith("cron") ? "cron" : "admin",
   startedAt,
   finishedAt: outcome === "running" ? null : startedAt,
@@ -49,13 +53,51 @@ const seedRun = (bucket: MemoryBucket, result: ArchiveRunResult) =>
     Date.parse(result.finishedAt ?? result.startedAt)
   )
 
+const provide = (
+  bucket: MemoryBucket,
+  workflow: FakeWorkflow = fakeWorkflow()
+) => Effect.provide(Layer.merge(bucket.layer, workflow.layer))
+
 describe("the recent archive runs", () => {
+  it.effect(
+    "show a run whose Workflow errored before its summary as failed, with its error",
+    () => {
+      const bucket = memoryBucket()
+      const workflow = fakeWorkflow()
+      const crashed = run(
+        "cron-2026-11-14T06",
+        "2026-11-14T06:00:00.000Z",
+        "running"
+      )
+      seedRun(bucket, crashed)
+      workflow.instances.set(crashed.id, {
+        options: {
+          id: crashed.id,
+          params: { trigger: "cron" },
+          retention: { successRetention: "30 days", errorRetention: "30 days" },
+        },
+        status: "errored",
+        error: "Worker exceeded its memory limit",
+      })
+      return Effect.gen(function* () {
+        yield* TestClock.setTime(NOW)
+        assert.deepStrictEqual(yield* recentRuns, [
+          {
+            ...crashed,
+            outcome: "failed",
+            error: "Worker exceeded its memory limit",
+          },
+        ])
+      }).pipe(provide(bucket, workflow))
+    }
+  )
+
   it.effect("are none before any run", () => {
     const bucket = memoryBucket()
     return Effect.gen(function* () {
       yield* TestClock.setTime(NOW)
       assert.deepStrictEqual(yield* recentRuns, [])
-    }).pipe(Effect.provide(bucket.layer))
+    }).pipe(provide(bucket))
   })
 
   it.effect("are the past 30 days of runs, newest first", () => {
@@ -82,7 +124,7 @@ describe("the recent archive runs", () => {
     return Effect.gen(function* () {
       yield* TestClock.setTime(NOW)
       assert.deepStrictEqual(yield* recentRuns, [newest, admin, failed, edge])
-    }).pipe(Effect.provide(bucket.layer))
+    }).pipe(provide(bucket))
   })
 
   it.effect("read no record last written before the 30 days", () => {
@@ -93,7 +135,7 @@ describe("the recent archive runs", () => {
     return Effect.gen(function* () {
       yield* TestClock.setTime(NOW)
       assert.deepStrictEqual(yield* recentRuns, [])
-    }).pipe(Effect.provide(bucket.layer))
+    }).pipe(provide(bucket))
   })
 
   it.effect("include a run that's still running", () => {
@@ -107,7 +149,7 @@ describe("the recent archive runs", () => {
     return Effect.gen(function* () {
       yield* TestClock.setTime(NOW)
       assert.deepStrictEqual(yield* recentRuns, [running])
-    }).pipe(Effect.provide(bucket.layer))
+    }).pipe(provide(bucket))
   })
 })
 
@@ -135,7 +177,7 @@ describe("the archive totals", () => {
         reports: 0,
         bytes: 0,
       })
-    }).pipe(Effect.provide(memoryBucket().layer))
+    }).pipe(provide(memoryBucket()))
   )
 
   it.effect(
@@ -161,7 +203,7 @@ describe("the archive totals", () => {
           // 660 bytes of files and five 2-byte records.
           bytes: 670,
         })
-      }).pipe(Effect.provide(bucket.layer))
+      }).pipe(provide(bucket))
     }
   )
 })

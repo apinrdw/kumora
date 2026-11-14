@@ -7,10 +7,14 @@ import {
   type StepFailed,
   type WorkflowSteps,
 } from "@workspace/server"
-import { DateTime, Effect, Result, Schema } from "effect"
-import { HttpClient, type HttpClientError } from "effect/http"
+import { DateTime, Effect, Result, Schema, Stream } from "effect"
+import {
+  HttpClient,
+  type HttpClientError,
+  type HttpClientResponse,
+} from "effect/http"
 
-import { ArchiveBucket, type BucketError } from "./bucket.ts"
+import { ArchiveBucket, type BucketError, putJson } from "./bucket.ts"
 import {
   LATEST_RUN_KEY,
   REPORTS_PREFIX,
@@ -26,13 +30,14 @@ import {
 } from "./listing.ts"
 import {
   ArchiveRunResult,
+  type ArchiveRunId,
   type ArchiveTrigger,
   LatestRun,
   runningResult,
 } from "./run-result.ts"
 
 export interface ArchiveRun {
-  readonly id: string
+  readonly id: ArchiveRunId
   readonly trigger: ArchiveTrigger
   readonly startedAt: Date
 }
@@ -71,13 +76,6 @@ type ArchivedReport = typeof ArchivedReport.Type
 const SOURCE_URL = "sourceUrl"
 const ETAG = "etag"
 
-const writeJson = Effect.fnUntraced(function* (key: string, value: unknown) {
-  const bucket = yield* ArchiveBucket
-  yield* bucket.put(key, JSON.stringify(value), {
-    contentType: "application/json",
-  })
-})
-
 const nowIso = Effect.map(DateTime.now, DateTime.formatIso)
 
 // The listing, the (URL, ETag) pairs the archive holds, and the run's
@@ -92,6 +90,10 @@ const plan = Effect.fnUntraced(function* (
   const listed = yield* fetchListing
   const bucket = yield* ArchiveBucket
   const etagsByUrl = new Map<string, Array<string>>()
+  // Decision: one listing of reports/ with custom metadata, as the spec's
+  // `plan` step says: ~150 files and their records, growing ~2 a day, held
+  // for the step alone. A per-URL lookup would cost a request per listed
+  // report. See apinrdw/kumora#303 and #305.
   for (const { customMetadata } of yield* bucket.list(REPORTS_PREFIX)) {
     const url = customMetadata[SOURCE_URL]
     if (url === undefined) continue
@@ -100,16 +102,8 @@ const plan = Effect.fnUntraced(function* (
     if (etag !== undefined) etags.push(etag)
     etagsByUrl.set(url, etags)
   }
-  const id = run.id
-  yield* writeJson(
-    yield* runKey(id),
-    yield* runningResult({
-      id,
-      trigger: run.trigger,
-      startedAt: DateTime.formatIso(DateTime.fromDateUnsafe(run.startedAt)),
-    })
-  )
-  yield* writeJson(LATEST_RUN_KEY, LatestRun.make({ id }))
+  yield* putJson(yield* runKey(run.id), yield* runningResult(run))
+  yield* putJson(LATEST_RUN_KEY, LatestRun.make({ id: run.id }))
   return {
     fresh: listed.filter((report) => !etagsByUrl.has(report.sourceUrl)),
     held: listed.flatMap((report) => {
@@ -125,11 +119,18 @@ const HEAD_CONCURRENCY = 4
 const Checked = Schema.Struct({
   // How many held URLs answered their HEAD.
   checked: Schema.Number,
-  // Held URLs whose ETag no record has.
-  changed: Schema.Array(ListedReport),
+  // Held URLs whose ETag no record has, with the ETag their HEAD answered.
+  changed: Schema.Array(
+    Schema.Struct({ report: ListedReport, etag: Schema.String })
+  ),
   // Held URLs whose HEAD failed, by source URL.
   unanswered: Schema.Array(Schema.String),
 })
+
+// An ETag as compared: `W/"x"` (weak, as a HEAD may answer) and `"x"` are
+// the same file.
+const comparableEtag = (etag: string) =>
+  Effect.sync(() => etag.replace(/^W\//, "").replace(/^"(.*)"$/, "$1"))
 
 // A HEAD to every held URL. A response with no ETag can't show a change, so
 // its URL counts as unchanged. A failed HEAD doesn't fail the step: its URL
@@ -142,13 +143,18 @@ const head = Effect.fnUntraced(function* (
     held,
     ({ report, etags }) =>
       client.head(report.fetchUrl).pipe(
-        Effect.map((response) => {
-          const etag = response.headers["etag"]
-          return {
-            report,
-            changed: etag !== undefined && !etags.includes(etag),
-          }
-        }),
+        Effect.flatMap(
+          Effect.fnUntraced(function* (response) {
+            const etag = response.headers["etag"]
+            if (etag === undefined) return { report, etag, changed: false }
+            const seen = yield* Effect.forEach(etags, comparableEtag)
+            return {
+              report,
+              etag,
+              changed: !seen.includes(yield* comparableEtag(etag)),
+            }
+          })
+        ),
         Effect.mapError(() => report.sourceUrl),
         Effect.result
       ),
@@ -159,17 +165,56 @@ const head = Effect.fnUntraced(function* (
     .map(({ success }) => success)
   return {
     checked: answered.length,
-    changed: answered
-      .filter(({ changed }) => changed)
-      .map(({ report }) => report),
+    changed: answered.flatMap(({ report, etag, changed }) =>
+      changed && etag !== undefined ? [{ report, etag }] : []
+    ),
     unanswered: answers.filter(Result.isFailure).map(({ failure }) => failure),
   }
 })
 
+// The most a report download may be: IDX's files are ~400 KB, and a Worker
+// has 128 MB. www.idx.id's GET sends no Content-Length, so the body is
+// counted as it streams in.
+export const MAX_REPORT_BYTES = 16 * 1024 * 1024
+
+// The body, read until it passes MAX_REPORT_BYTES. A file that big won't
+// shrink on a retry, so it fails NonRetryable.
+const readCapped = Effect.fnUntraced(function* (
+  response: HttpClientResponse.HttpClientResponse,
+  url: string
+) {
+  const read = yield* Stream.runFoldEffect(
+    response.stream,
+    () => ({ size: 0, chunks: new Array<Uint8Array>() }),
+    (acc, chunk) =>
+      acc.size + chunk.length > MAX_REPORT_BYTES
+        ? Effect.fail(
+            new NonRetryable({
+              message: `IDX's file at ${url} is over ${MAX_REPORT_BYTES} bytes`,
+            })
+          )
+        : Effect.sync(() => {
+            acc.chunks.push(chunk)
+            return { size: acc.size + chunk.length, chunks: acc.chunks }
+          })
+  )
+  const bytes = new Uint8Array(read.size)
+  let offset = 0
+  for (const chunk of read.chunks) {
+    bytes.set(chunk, offset)
+    offset += chunk.length
+  }
+  return bytes
+})
+
 // Downloads one report from www.idx.id and stores it: the .xlsx once per
 // hash, then its record, whose presence marks the version complete.
+// `headEtag` is what the `head` step saw for a changed held URL. A GET that
+// sends no ETag records it instead, so the next HEAD finds it held rather than
+// downloading the file on every run.
 const archiveReport = Effect.fnUntraced(function* (
-  report: ListedReport
+  report: ListedReport,
+  headEtag: string | null
 ): Effect.fn.Return<
   ArchivedReport,
   HttpClientError.HttpClientError | NonRetryable | BucketError,
@@ -187,15 +232,15 @@ const archiveReport = Effect.fnUntraced(function* (
         )
     )
   )
-  const bytes = yield* response.arrayBuffer
+  const bytes = yield* readCapped(response, report.fetchUrl)
   const fetchedAt = yield* nowIso
   const sha256 = yield* sha256Hex(bytes)
-  const etag = response.headers["etag"] ?? null
+  const etag = response.headers["etag"] ?? headEtag
   const bucket = yield* ArchiveBucket
   const xlsxKey = yield* reportKey(report.kind, report.dataDate, sha256)
   const newFile = !(yield* bucket.exists(xlsxKey))
   if (newFile)
-    yield* bucket.put(xlsxKey, new Uint8Array(bytes), {
+    yield* bucket.put(xlsxKey, bytes, {
       contentType:
         "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
     })
@@ -244,14 +289,7 @@ const archiveReport = Effect.fnUntraced(function* (
 })
 
 const finishedResult = Effect.fnUntraced(function* (run: ArchiveRun) {
-  return {
-    ...(yield* runningResult({
-      id: run.id,
-      trigger: run.trigger,
-      startedAt: DateTime.formatIso(DateTime.fromDateUnsafe(run.startedAt)),
-    })),
-    finishedAt: yield* nowIso,
-  }
+  return { ...(yield* runningResult(run)), finishedAt: yield* nowIso }
 })
 
 const summary = Effect.fnUntraced(function* (
@@ -260,7 +298,9 @@ const summary = Effect.fnUntraced(function* (
   archived: ReadonlyArray<ArchivedReport>,
   notStored: ReadonlyArray<string>
 ) {
-  const changedUrls = new Set(checked.changed.map(({ sourceUrl }) => sourceUrl))
+  const changedUrls = new Set(
+    checked.changed.map(({ report }) => report.sourceUrl)
+  )
   const result = ArchiveRunResult.make({
     ...(yield* finishedResult(run)),
     outcome: notStored.length === 0 ? "complete" : "partial",
@@ -269,6 +309,7 @@ const summary = Effect.fnUntraced(function* (
     ).length,
     // Decision: a changed ETag that serves bytes the archive already holds
     // adds a record but no new version: the file IDX serves didn't change.
+    // See apinrdw/kumora#307.
     newVersions: archived.filter(
       ({ sourceUrl, newFile }) => changedUrls.has(sourceUrl) && newFile
     ).length,
@@ -278,20 +319,23 @@ const summary = Effect.fnUntraced(function* (
       .filter(({ kind }) => kind === "other")
       .map(({ sourceUrl, description }) => ({ sourceUrl, description })),
   })
-  yield* writeJson(yield* runKey(run.id), result)
+  yield* putJson(yield* runKey(run.id), result)
   return result
 })
 
 // `plan` failed, so nothing was stored: the run is failed with its message,
 // and runs/latest.json points at it even when `plan` never wrote it.
-const failed = Effect.fnUntraced(function* (run: ArchiveRun, error: string) {
+const recordPlanFailure = Effect.fnUntraced(function* (
+  run: ArchiveRun,
+  error: string
+) {
   const result = ArchiveRunResult.make({
     ...(yield* finishedResult(run)),
     outcome: "failed",
     error,
   })
-  yield* writeJson(yield* runKey(run.id), result)
-  yield* writeJson(LATEST_RUN_KEY, LatestRun.make({ id: run.id }))
+  yield* putJson(yield* runKey(run.id), result)
+  yield* putJson(LATEST_RUN_KEY, LatestRun.make({ id: run.id }))
   return result
 })
 
@@ -304,16 +348,19 @@ export const archiveRun = Effect.fn("archiveRun")(function* (
     // the instance's error.
     Effect.tapError(({ message }) =>
       steps
-        .do("failed", failed(run, message))
+        .do("failed", recordPlanFailure(run, message))
         .pipe(Effect.ignore({ log: "Warn" }))
     )
   )
   const checked = yield* steps.do("head", head(planned.held))
-  const toStore = [...planned.fresh, ...checked.changed]
+  const toStore = [
+    ...planned.fresh.map((report) => ({ report, etag: null })),
+    ...checked.changed,
+  ]
   // A report that still fails after its step's retries isn't held at that
   // ETag, so the next run retries it; this one carries on.
-  const stored = yield* Effect.forEach(toStore, (report) =>
-    steps.do(`report:${report.sourceUrl}`, archiveReport(report)).pipe(
+  const stored = yield* Effect.forEach(toStore, ({ report, etag }) =>
+    steps.do(`report:${report.sourceUrl}`, archiveReport(report, etag)).pipe(
       Effect.mapError(() => report.sourceUrl),
       Effect.result
     )

@@ -9,6 +9,7 @@ import { decide, type Action } from "@/server/auth/policy"
 import { refusal } from "@/server/auth/refusal"
 import { accountOf } from "@/server/auth/session-account"
 import { archiveTotals, recentRuns } from "@/server/shareholding/history"
+import { ArchiveRunId } from "@/server/shareholding/run-result"
 import { nextScheduledRun } from "@/server/shareholding/schedule"
 import {
   lastRun,
@@ -44,6 +45,7 @@ export const shareholdingArchivePage = Effect.fn("shareholdingArchivePage")(
     return {
       lastRun: run,
       nextRun: (yield* nextScheduledRun(DateTime.toDateUtc(now))).toISOString(),
+      now: DateTime.formatIso(now),
       recentRuns: runs,
       totals,
     }
@@ -56,7 +58,9 @@ export const runArchiveNow = Effect.fn("runArchiveNow")(function* (
   yield* authorize(headers, "admin.run-shareholding-archive")
   const refused = new Conflict({ message: "A run is in progress." })
   if (Option.isSome(yield* runInProgress)) return yield* refused
-  const id = `admin-${DateTime.toEpochMillis(yield* DateTime.now)}`
+  const id = ArchiveRunId.make(
+    `admin-${DateTime.toEpochMillis(yield* DateTime.now)}`
+  )
   // Another Run now in the same millisecond took the id.
   yield* startRun(id, "admin").pipe(
     Effect.catchTag("DuplicateRunId", () => Effect.fail(refused))

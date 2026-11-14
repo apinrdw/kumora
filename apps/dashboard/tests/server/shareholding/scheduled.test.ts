@@ -6,6 +6,7 @@ import {
   scheduledArchiveRun,
   startRun,
 } from "@/server/shareholding/start-run"
+import { ArchiveRunId } from "@/server/shareholding/run-result"
 
 import { fakeWorkflow, type FakeWorkflow } from "./fake-workflow.ts"
 import { type MemoryBucket, memoryBucket } from "./memory-bucket.ts"
@@ -22,12 +23,18 @@ const fire = (
     Effect.provide(Layer.merge(workflow.layer, bucket.layer))
   )
 
-const pointLatestAt = (bucket: MemoryBucket, id: string) =>
-  bucket.objects.set("runs/latest.json", {
-    body: JSON.stringify({ id }),
+const setJson = (bucket: MemoryBucket, key: string, value: unknown) =>
+  bucket.objects.set(key, {
+    body: JSON.stringify(value),
     contentType: "application/json",
     customMetadata: {},
   })
+
+const json = (bucket: MemoryBucket, key: string) =>
+  JSON.parse(bucket.objects.get(key)?.body ?? "null")
+
+const pointLatestAt = (bucket: MemoryBucket, id: string) =>
+  setJson(bucket, "runs/latest.json", { id })
 
 describe("the archive cron", () => {
   it.effect("starts a run named after its scheduled hour", () =>
@@ -113,6 +120,27 @@ describe("the archive cron", () => {
     })
   )
 
+  it.effect("leaves the record of the run a second firing finds", () =>
+    Effect.gen(function* () {
+      const workflow = fakeWorkflow()
+      const bucket = memoryBucket()
+      yield* fire(workflow, bucket)
+      const first = workflow.instances.get("cron-2026-11-14T06")
+      assert.isDefined(first)
+      first.status = "complete"
+      // The run ended, and an admin run came after it.
+      const record = { ...json(bucket, "runs/cron-2026-11-14T06.json") }
+      record.outcome = "complete"
+      setJson(bucket, "runs/cron-2026-11-14T06.json", record)
+      pointLatestAt(bucket, "admin-1763125200000")
+      bucket.puts.length = 0
+
+      yield* fire(workflow, bucket)
+
+      assert.deepStrictEqual(bucket.puts, [])
+    })
+  )
+
   it.effect("starts when the latest run is past its retention", () =>
     Effect.gen(function* () {
       const workflow = fakeWorkflow()
@@ -139,7 +167,7 @@ describe("starting a run by hand", () => {
       const check = runInProgress.pipe(Effect.provide(layer))
       assert.isTrue(Option.isNone(yield* check))
 
-      yield* startRun("admin-1763125200000", "admin").pipe(
+      yield* startRun(ArchiveRunId.make("admin-1763125200000"), "admin").pipe(
         Effect.provide(layer)
       )
       assert.deepStrictEqual(yield* check, Option.some("admin-1763125200000"))
@@ -157,12 +185,73 @@ describe("starting a run by hand", () => {
   )
 
   it.effect(
+    "keeps the record of a run that ended before the start returned",
+    () =>
+      Effect.gen(function* () {
+        const workflow = fakeWorkflow()
+        const bucket = memoryBucket()
+        const id = ArchiveRunId.make("admin-1763125200000")
+        const ended = {
+          id,
+          trigger: "admin",
+          startedAt: "2026-11-14T13:00:00.000Z",
+          finishedAt: "2026-11-14T13:00:30.000Z",
+          outcome: "complete",
+          reportsAdded: 0,
+          newVersions: 0,
+          reportsChecked: 145,
+          notStored: [],
+          other: [],
+          error: null,
+        }
+        // The run's steps all ran inside `create`: its summary wrote the
+        // record and pointed runs/latest.json at it.
+        workflow.onCreate = () => {
+          setJson(bucket, `runs/${id}.json`, ended)
+          pointLatestAt(bucket, id)
+        }
+
+        yield* startRun(id, "admin").pipe(
+          Effect.provide(Layer.merge(workflow.layer, bucket.layer))
+        )
+
+        assert.deepStrictEqual(json(bucket, `runs/${id}.json`), ended)
+        assert.deepStrictEqual(json(bucket, "runs/latest.json"), { id })
+      })
+  )
+
+  it.effect(
+    "records a run the Workflow refused to create as failed, and starts the next",
+    () =>
+      Effect.gen(function* () {
+        const workflow = fakeWorkflow()
+        const bucket = memoryBucket()
+        const layer = Layer.merge(workflow.layer, bucket.layer)
+        const id = ArchiveRunId.make("admin-1763125200000")
+        workflow.refuseCreate = true
+
+        const exit = yield* Effect.exit(
+          startRun(id, "admin").pipe(Effect.provide(layer))
+        )
+
+        assert.isTrue(exit._tag === "Failure")
+        assert.deepInclude(json(bucket, `runs/${id}.json`), {
+          outcome: "failed",
+          error: "The Workflow refused to start the run.",
+        })
+        assert.isTrue(
+          Option.isNone(yield* runInProgress.pipe(Effect.provide(layer)))
+        )
+      })
+  )
+
+  it.effect(
     "refuses a cron firing right after a start, before the run's plan step",
     () =>
       Effect.gen(function* () {
         const workflow = fakeWorkflow()
         const bucket = memoryBucket()
-        yield* startRun("admin-1763125200000", "admin").pipe(
+        yield* startRun(ArchiveRunId.make("admin-1763125200000"), "admin").pipe(
           Effect.provide(Layer.merge(workflow.layer, bucket.layer))
         )
 

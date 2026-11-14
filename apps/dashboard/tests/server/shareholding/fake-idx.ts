@@ -13,7 +13,10 @@ export type ListingItem = (typeof recorded.items)[number]
 
 export interface FakeFile {
   readonly body: string
-  readonly etag: string
+  // Left out of the response when null.
+  readonly etag: string | null
+  // Answered to a HEAD instead of `etag`, when set.
+  readonly headEtag?: string
   readonly lastModified: string
   // Answered instead of the file, when set.
   readonly status?: number
@@ -31,6 +34,9 @@ export interface FakeIdx {
   readonly heads: Array<string>
   readonly layer: Layer.Layer<HttpClient.HttpClient>
 }
+
+const etagHeader = (etag: string | null): Record<string, string> =>
+  etag === null ? {} : { etag }
 
 export const idxIdUrl = (prospectus: string) =>
   prospectus.replace("https://www.idx.co.id/", "https://www.idx.id/")
@@ -85,7 +91,11 @@ export const fakeIdx = (
                     headers: {
                       "content-type":
                         "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
-                      etag: file.etag,
+                      ...etagHeader(
+                        request.method === "HEAD"
+                          ? (file.headEtag ?? file.etag)
+                          : file.etag
+                      ),
                       "last-modified": file.lastModified,
                     },
                   })

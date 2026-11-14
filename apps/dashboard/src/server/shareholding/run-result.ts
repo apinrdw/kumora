@@ -1,7 +1,7 @@
 // An archive run's result: written to runs/<id>.json while it runs and when
 // it ends, and returned as the Workflow instance's output. The admin page
 // reads it back with this Schema.
-import { Effect, Schema } from "effect"
+import { DateTime, Effect, Schema } from "effect"
 
 const ArchiveTrigger = Schema.Literals(["cron", "admin"])
 export type ArchiveTrigger = typeof ArchiveTrigger.Type
@@ -11,8 +11,15 @@ export interface ArchiveParams {
   readonly trigger: ArchiveTrigger
 }
 
+// An archive run's id, which is also its Workflow instance's:
+// `cron-<UTC hour>` or `admin-<epoch ms>`.
+export const ArchiveRunId = Schema.NonEmptyString.pipe(
+  Schema.brand("ArchiveRunId")
+)
+export type ArchiveRunId = typeof ArchiveRunId.Type
+
 export const ArchiveRunResult = Schema.Struct({
-  id: Schema.String,
+  id: ArchiveRunId,
   trigger: ArchiveTrigger,
   // ISO instants.
   startedAt: Schema.String,
@@ -34,16 +41,22 @@ export const ArchiveRunResult = Schema.Struct({
 })
 export type ArchiveRunResult = typeof ArchiveRunResult.Type
 
+export const decodeRunResult = Schema.decodeUnknownEffect(
+  Schema.fromJsonString(ArchiveRunResult)
+)
+
 // The pointer at runs/latest.json.
-export const LatestRun = Schema.Struct({ id: Schema.String })
+export const LatestRun = Schema.Struct({ id: ArchiveRunId })
 
 export const runningResult = Effect.fnUntraced(function* (run: {
-  readonly id: string
+  readonly id: ArchiveRunId
   readonly trigger: ArchiveTrigger
-  readonly startedAt: string
+  readonly startedAt: Date
 }) {
   return ArchiveRunResult.make({
-    ...run,
+    id: run.id,
+    trigger: run.trigger,
+    startedAt: DateTime.formatIso(DateTime.fromDateUnsafe(run.startedAt)),
     finishedAt: null,
     outcome: "running",
     reportsAdded: 0,

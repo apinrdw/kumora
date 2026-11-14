@@ -13,6 +13,7 @@ const nf2 = new Intl.NumberFormat("en-US", {
   minimumFractionDigits: 2,
   maximumFractionDigits: 2,
 })
+const nfUpTo1 = new Intl.NumberFormat("en-US", { maximumFractionDigits: 1 })
 const nfUpTo2 = new Intl.NumberFormat("en-US", { maximumFractionDigits: 2 })
 const timeWib = new Intl.DateTimeFormat("en-US", {
   hour: "2-digit",
@@ -121,6 +122,32 @@ export const dateTime = (iso: string) =>
 /** A `YYYY-MM-DD` trading day: Fri, Nov 6 */
 export const dayLabel = (date: WibDate) =>
   Effect.sync(() => dayOfDate.format(new Date(`${date}T00:00:00Z`)))
+
+/** A span of time, to the second: 34 s, 1 min 12 s */
+export const duration = (ms: number) =>
+  Effect.sync(() => {
+    const seconds = Math.round(ms / 1000)
+    const minutes = Math.floor(seconds / 60)
+    return minutes === 0
+      ? `${seconds} s`
+      : `${minutes} min ${seconds - minutes * 60} s`
+  })
+
+/** 1 report, 147 reports */
+export const count = (n: number, one: string, many: string) =>
+  Effect.sync(() => `${n} ${n === 1 ? one : many}`)
+
+const BYTE_UNITS = ["B", "KB", "MB", "GB", "TB"] as const
+
+/** A size in decimal units: 920 B, 56.9 MB */
+export const byteSize = (n: number) =>
+  Effect.sync(() => {
+    const power = Math.min(
+      n < 1000 ? 0 : Math.floor(Math.log10(n) / 3),
+      BYTE_UNITS.length - 1
+    )
+    return `${nfUpTo1.format(n / 1000 ** power)} ${BYTE_UNITS[power]}`
+  })
 
 /** Orca's tape style, whole billions: +Rp318 B */
 export const billionShort = Effect.fnUntraced(function* (n: number) {

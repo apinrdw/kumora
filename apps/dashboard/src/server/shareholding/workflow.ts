@@ -7,10 +7,14 @@ import { FetchHttpClient } from "effect/http"
 
 import { archiveRun } from "./archive-run.ts"
 import { archiveBucketR2 } from "./bucket-r2.ts"
-import type { ArchiveParams } from "./run-result.ts"
+import { type ArchiveParams, ArchiveRunId } from "./run-result.ts"
 
 export const ShareholdingArchive = makeWorkflow(
   Layer.merge(archiveBucketR2, FetchHttpClient.layer),
   ({ id, startedAt, params }: WorkflowRun<ArchiveParams>, steps) =>
-    archiveRun(steps, { id, startedAt, trigger: params.trigger })
+    archiveRun(steps, {
+      id: ArchiveRunId.make(id),
+      startedAt,
+      trigger: params.trigger,
+    })
 )

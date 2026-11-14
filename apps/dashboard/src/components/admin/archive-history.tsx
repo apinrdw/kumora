@@ -1,15 +1,20 @@
+import { Effect } from "effect"
+
 import { KBadge, KDataTable, type KColumn } from "@/components/k"
+import { byteSize, count, dateTime } from "@/lib/format"
 import type { ArchiveTotals } from "@/server/shareholding/history"
+import { kindPrefix } from "@/server/shareholding/keys"
 import type { ReportKind } from "@/server/shareholding/listing"
+import { RETENTION_DAYS } from "@/server/shareholding/retention"
 import type { ArchiveRunResult } from "@/server/shareholding/run-result"
 
-import { Card, OUTCOME, plural, wib } from "./last-run-card"
+import { ArchiveCard, OUTCOME } from "./archive-card"
 
 const RUN_COLUMNS: ReadonlyArray<KColumn<ArchiveRunResult>> = [
   {
     key: "startedAt",
     label: "Started (WIB)",
-    cell: (run) => wib(run.startedAt),
+    cell: (run) => Effect.runSync(dateTime(run.startedAt)),
   },
   {
     key: "id",
@@ -36,7 +41,7 @@ export function RecentRunsCard({
   runs: ReadonlyArray<ArchiveRunResult>
 }) {
   return (
-    <Card title="Recent runs" aside={null}>
+    <ArchiveCard title="Recent runs" aside={null}>
       <KDataTable
         label="Recent runs"
         columns={RUN_COLUMNS}
@@ -46,14 +51,16 @@ export function RecentRunsCard({
           runs.length === 0
             ? {
                 status: "empty",
-                title: "No archive run in the past 30 days.",
-                description: "Runs show here for 30 days after they start.",
+                title: `No archive run in the past ${RETENTION_DAYS} days.`,
+                description: `Runs show here for ${RETENTION_DAYS} days after they start.`,
               }
             : { status: "ready" }
         }
       />
-      <p className="text-xs text-muted-foreground">Kept 30 days.</p>
-    </Card>
+      <p className="text-xs text-muted-foreground">
+        Kept {RETENTION_DAYS} days.
+      </p>
+    </ArchiveCard>
   )
 }
 
@@ -77,27 +84,15 @@ const KIND_COLUMNS: ReadonlyArray<KColumn<KindRow>> = [
   { key: "reports", label: "Reports", align: "right" },
 ]
 
-// 56.9 MB
-const size = new Intl.NumberFormat("en-US", {
-  maximumFractionDigits: 1,
-})
-const UNITS = ["B", "KB", "MB", "GB", "TB"] as const
-const bytes = (n: number) => {
-  const power = Math.min(
-    n < 1000 ? 0 : Math.floor(Math.log10(n) / 3),
-    UNITS.length - 1
-  )
-  return `${size.format(n / 1000 ** power)} ${UNITS[power]}`
-}
-
 /** The archive's stored reports per report kind, with its total and size. */
 export function ArchiveTotalsCard({ totals }: { totals: ArchiveTotals }) {
   return (
-    <Card
+    <ArchiveCard
       title="Archive totals"
       aside={
         <span className="text-[13px] text-muted-foreground">
-          {plural(totals.reports, "report", "reports")} · {bytes(totals.bytes)}
+          {Effect.runSync(count(totals.reports, "report", "reports"))} ·{" "}
+          {Effect.runSync(byteSize(totals.bytes))}
         </span>
       }
     >
@@ -111,11 +106,11 @@ export function ArchiveTotalsCard({ totals }: { totals: ArchiveTotals }) {
           columns={KIND_COLUMNS}
           rows={totals.kinds.map((row) => ({
             ...row,
-            prefix: `reports/${row.kind}/`,
+            prefix: Effect.runSync(kindPrefix(row.kind)),
           }))}
           getRowId={(row) => row.kind}
         />
       )}
-    </Card>
+    </ArchiveCard>
   )
 }

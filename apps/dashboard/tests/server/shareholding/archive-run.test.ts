@@ -1,7 +1,8 @@
 import { assert, describe, it } from "@effect/vitest"
 import { Effect, Layer } from "effect"
 
-import { archiveRun } from "@/server/shareholding/archive-run"
+import { archiveRun, MAX_REPORT_BYTES } from "@/server/shareholding/archive-run"
+import { ArchiveRunId } from "@/server/shareholding/run-result"
 import { LISTING_URL } from "@/server/shareholding/listing"
 
 import { fakeIdx, type FakeIdx, idxIdUrl } from "./fake-idx.ts"
@@ -15,7 +16,7 @@ const run = (
   startedAt = new Date("2026-11-14T13:00:00Z")
 ) =>
   archiveRun(localSteps(Layer.merge(idx.layer, bucket.layer)), {
-    id,
+    id: ArchiveRunId.make(id),
     trigger: "cron",
     startedAt,
   })
@@ -125,7 +126,7 @@ describe("an archive run", () => {
       )
 
       assert.deepInclude(result, {
-        id: "cron-2026-11-14T13",
+        id: ArchiveRunId.make("cron-2026-11-14T13"),
         trigger: "cron",
         startedAt: "2026-11-14T13:00:00.000Z",
         outcome: "complete",
@@ -286,6 +287,92 @@ describe("an archive run", () => {
         yield* run(idx, bucket, "cron-2026-11-15T06")
         assert.deepStrictEqual(keysUnder(bucket, "reports/"), held)
       })
+  )
+
+  it.effect(
+    "stores a report up to the size cap, and gives up on one past it",
+    () =>
+      Effect.gen(function* () {
+        const idx = fakeIdx()
+        const [atCap, pastCap] = idx.listing
+        const urlAt = idxIdUrl(atCap.Prospectus)
+        const urlPast = idxIdUrl(pastCap.Prospectus)
+        for (const [url, size] of [
+          [urlAt, MAX_REPORT_BYTES],
+          [urlPast, MAX_REPORT_BYTES + 1],
+        ] as const) {
+          const file = idx.files.get(url)
+          assert.isDefined(file)
+          idx.files.set(url, { ...file, body: "x".repeat(size) })
+        }
+        const bucket = memoryBucket()
+
+        const result = yield* run(idx, bucket, "cron-2026-11-14T06")
+
+        assert.deepStrictEqual(result.notStored, [pastCap.Prospectus])
+        assert.strictEqual(recordsOf(bucket, atCap.Prospectus).length, 1)
+        assert.deepStrictEqual(recordsOf(bucket, pastCap.Prospectus), [])
+        // Too big is final: no retries.
+        assert.strictEqual(
+          idx.requests.filter((url) => url === urlPast).length,
+          1
+        )
+      }),
+    20_000
+  )
+
+  it.effect("reads a weak HEAD ETag as the same as the GET's strong one", () =>
+    Effect.gen(function* () {
+      const idx = fakeIdx()
+      for (const [url, file] of idx.files)
+        idx.files.set(url, {
+          ...file,
+          headEtag: `W/${file.etag}`,
+        })
+      const bucket = memoryBucket()
+      yield* run(idx, bucket, "cron-2026-11-14T06")
+      idx.requests.length = 0
+
+      const result = yield* run(idx, bucket, "cron-2026-11-14T13")
+
+      assert.sameMembers(
+        idx.requests.filter((url) => url !== LISTING_URL),
+        idx.heads
+      )
+      assert.deepInclude(result, {
+        outcome: "complete",
+        newVersions: 0,
+        reportsChecked: 145,
+      })
+    })
+  )
+
+  it.effect("downloads a report whose GET has no ETag at most once more", () =>
+    Effect.gen(function* () {
+      const idx = fakeIdx()
+      const daily = idx.listing[0]
+      const url = idxIdUrl(daily.Prospectus)
+      const file = idx.files.get(url)
+      assert.isDefined(file)
+      idx.files.set(url, { ...file, etag: null, headEtag: `"etag-0:0"` })
+      const bucket = memoryBucket()
+      yield* run(idx, bucket, "cron-2026-11-14T06")
+
+      const downloads = () =>
+        idx.requests.filter((requested) => requested === url).length -
+        idx.heads.filter((headed) => headed === url).length
+      for (const id of [
+        "cron-2026-11-14T13",
+        "cron-2026-11-15T06",
+        "cron-2026-11-15T13",
+      ]) {
+        idx.requests.length = 0
+        idx.heads.length = 0
+        yield* run(idx, bucket, id)
+        if (id !== "cron-2026-11-14T13") assert.strictEqual(downloads(), 0, id)
+      }
+      assertNothingOverwritten(bucket)
+    })
   )
 
   it.effect(
