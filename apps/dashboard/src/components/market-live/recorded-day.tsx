@@ -8,6 +8,8 @@ import {
   fetchRecordedCandles,
   fetchRecordedGaps,
   fetchRecordedTape,
+  makeBrokerCodesFollower,
+  type RecordedTradeCodes,
 } from "@workspace/client"
 import {
   bookAt,
@@ -203,13 +205,19 @@ function followWatchlist(
   }
 }
 
-// The tape at the cursor. Paused, each move asks at once; during Play at
-// most 4 times a second. The newest answer asked for wins.
+// The tape at the cursor, and its trades' broker codes asked for the same
+// instant. Paused, each move asks at once; during Play at most 4 times a
+// second. The newest answer asked for wins.
 function followTape(
   cursor: ReplayCursor,
-  replace: (trades: ReadonlyArray<RunningTrade>) => void
+  replace: (trades: ReadonlyArray<RunningTrade>) => void,
+  showCodes: (codes: RecordedTradeCodes) => void
 ) {
   const loads = makeLoads()
+  const codes = Effect.runSync(
+    makeBrokerCodesFollower(cursor.day.date, showCodes)
+  )
+  loads.run(codes.recheck)
   let asked = 0
   let shown = 0
   let askedAt = Number.NEGATIVE_INFINITY
@@ -230,6 +238,7 @@ function followTape(
         replace(trades)
       })
     )
+    loads.run(codes.ask(at))
   }
   const moved = () => {
     if (!cursor.state().playing) return ask()
@@ -300,6 +309,7 @@ export function useRecordedDay({
 }
 
 const NO_GAPS: ReadonlyArray<RelayGap> = []
+const NO_CODES: RecordedTradeCodes = new Map()
 
 // The day's newest 200 trades at or before the cursor, with the relay gaps
 // it has reached.
@@ -315,7 +325,8 @@ export function RecordedTape({
   onSelect: (code: StockCode) => void
 }) {
   const { tape, frame, replace } = useFramedTape()
-  useEffect(() => followTape(cursor, replace), [cursor, replace])
+  const [codes, setCodes] = useState<RecordedTradeCodes>(NO_CODES)
+  useEffect(() => followTape(cursor, replace, setCodes), [cursor, replace])
   // The gaps that began by the cursor.
   const reached = useReplay(
     cursor,
@@ -331,6 +342,7 @@ export function RecordedTape({
       <TapeList
         tape={tape}
         frame={frame}
+        codes={codes}
         selected={selected}
         onSelect={onSelect}
         gaps={shownGaps}
