@@ -7,6 +7,7 @@ import { MARKET_CLOCK_OFFSET } from "./support/clock"
 import { TEST_INGEST_TOKEN } from "./support/ingest"
 import {
   RELAY_LOAD_SPEC,
+  REPAINT_BENCH_SPEC,
   recording,
   SWITCH,
   TRADING_DAY_SPECS,
@@ -25,7 +26,12 @@ const projects = [
   {
     name: "chromium",
     dependencies: ["setup"],
-    testIgnore: [TRADING_DAY_SPECS, RELAY_LOAD_SPEC, ...recorded.chromium],
+    testIgnore: [
+      TRADING_DAY_SPECS,
+      RELAY_LOAD_SPEC,
+      REPAINT_BENCH_SPEC,
+      ...recorded.chromium,
+    ],
   },
   // Decision: video is a worker option, so it can vary per project but not
   // per test: the chromium specs an evidence run picks run in a project of
@@ -77,6 +83,16 @@ export default defineConfig({
       name: "relay-load",
       dependencies: projects.map((project) => project.name),
       testMatch: RELAY_LOAD_SPEC,
+      workers: 1,
+    },
+    // Decision: the repaint bench times the charts' paints on the CPU, so it
+    // too runs alone, after relay-load, which it would otherwise share the CPU
+    // with. It sends trades to today's trading day, which no trading-day
+    // spec is reading by then (apinrdw/kumora#272).
+    {
+      name: "repaint-bench",
+      dependencies: [...projects.map((project) => project.name), "relay-load"],
+      testMatch: REPAINT_BENCH_SPEC,
       workers: 1,
     },
   ],
