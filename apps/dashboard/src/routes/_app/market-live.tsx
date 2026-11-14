@@ -6,6 +6,7 @@ import { loadServerFn, runLoader } from "@workspace/server/loader"
 import { useCallback, useEffect, useMemo, useState } from "react"
 
 import { makeCandleStore } from "@/components/market-live/candle-store"
+import { makeChartPair } from "@/components/market-live/chart-pair"
 import { makeDayStateStore } from "@/components/market-live/day-state-store"
 import { DayStrip } from "@/components/market-live/day-strip"
 import { FootprintChart } from "@/components/market-live/footprint-chart"
@@ -96,6 +97,8 @@ function MarketLiveDay({
     () => Effect.runSync(makeCandleStore(selected)),
     [selected]
   )
+  // Chart 1 and chart 2 move together; each code's charts attach afresh.
+  const [pair] = useState(() => Effect.runSync(makeChartPair()))
   const book = useMemo(
     () => Effect.runSync(makeOrderBookStore(selected)),
     [selected]
@@ -118,6 +121,7 @@ function MarketLiveDay({
     dayStates,
   })
   const liveGaps = useRelayGaps()
+  const shownGaps = cursor === undefined ? liveGaps : gaps
   const apply = useCallback(
     (message: ViewerDown) => {
       candles.apply(message)
@@ -140,7 +144,8 @@ function MarketLiveDay({
         <div className="flex min-w-0 flex-col gap-4">
           <LiveChart
             store={candles}
-            gaps={cursor === undefined ? liveGaps : gaps}
+            pair={pair}
+            gaps={shownGaps}
             dayStates={dayStates}
             conditions={
               cursor === undefined ? (
@@ -161,7 +166,12 @@ function MarketLiveDay({
               />
             }
           />
-          <FootprintChart store={candles} cursor={cursor} />
+          <FootprintChart
+            store={candles}
+            pair={pair}
+            gaps={shownGaps}
+            cursor={cursor}
+          />
         </div>
         <div className="flex min-w-0 flex-col gap-4">
           <Watchlist

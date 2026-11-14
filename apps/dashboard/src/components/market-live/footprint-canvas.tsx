@@ -8,8 +8,10 @@
 //   View modes, imbalance and POC (apinrdw/kumora#269) are its options.
 // - pane 1: `FooterView`, the Vol / Δ / CVD cells, with `FooterLabels` in
 //   the price-scale strip.
-// - `showWindow` sets the opening 10-minute window; its own zoom, pan sync
-//   with chart 1 and the IDX tick axis are apinrdw/kumora#268's.
+// - chart-pair.ts opens and refits its 10-minute window and pans it with
+//   chart 1; price-axis.ts labels its IDX ticks and caps its rows; the hover
+//   ladder is footprint-ladder.tsx.
+import type { RelayGap } from "@workspace/relay"
 import { Effect } from "effect"
 import {
   createChart,
@@ -21,33 +23,33 @@ import {
   type ICustomSeriesPaneView,
   type IPrimitivePaneView,
   type ISeriesPrimitive,
-  type Logical,
+  type MouseEventParams,
   type PaneRendererCustomData,
   type PriceToCoordinateConverter,
   type Time,
   type UTCTimestamp,
 } from "lightweight-charts"
-import { useEffect, useRef } from "react"
+import { useEffect, useRef, useState } from "react"
 
+import { chartMinutes } from "@/lib/chart-nav"
 import {
   MIN_FONT_PX,
   drawMode,
   footerLabelled,
   footprintColumns,
-  windowOfLast,
   type DrawMode,
   type FootprintColumn,
 } from "@/lib/footprint"
+import { footprintLadder } from "@/lib/footprint-ladder"
 
 import type { CandleStore } from "./candle-store"
+import type { ChartPair } from "./chart-pair"
 import { CHART_SCALE_WIDTH, crosshairTime, tickMark } from "./chart-time"
+import { FootprintLadder, makeLadderStore } from "./footprint-ladder"
+import { idxPriceAxis, rowCapped } from "./price-axis"
 import type { ReplayCursor } from "./replay-cursor"
 
 const MINUTE = 60_000
-// Decision: chart 2 opens on the last 10 whole minutes (the cursor's on a
-// recorded day), the most whose cells read as text beside the sweep log.
-// See spec apinrdw/kumora#263, "Chart 2".
-const WINDOW_MINUTES = 10
 
 type Target = Parameters<ICustomSeriesPaneRenderer["draw"]>[0]
 type Scope = Parameters<Parameters<Target["useBitmapCoordinateSpace"]>[0]>[0]
@@ -559,18 +561,27 @@ class FooterLabels implements ISeriesPrimitive<Time> {
   }
 }
 
-// The selected code's footprint and footer, drawn from the candle store. A
-// change redraws both series at most once an animation frame; a snapshot (or
-// a cursor on another minute) also reopens the 10-minute window. With
-// `cursor`, a recorded day: the minutes after the cursor's are grey.
+// The selected code's footprint and footer, drawn from the candle store on
+// chart 1's minutes, relay `gaps` as whitespace. A change redraws both
+// series at most once an animation frame; a snapshot (or a cursor on another
+// minute) also reopens the 10-minute window. With `cursor`, a recorded day:
+// the minutes after the cursor's are grey. Hovering a minute shows its
+// ladder.
 export default function FootprintCanvas({
   store,
+  pair,
+  gaps,
   cursor,
 }: {
   store: CandleStore
+  pair: ChartPair
+  gaps: ReadonlyArray<RelayGap>
   cursor?: ReplayCursor | undefined
 }) {
   const host = useRef<HTMLDivElement>(null)
+  const shownGaps = useRef(gaps)
+  const redrawGaps = useRef<() => void>(undefined)
+  const [ladder] = useState(makeLadderStore)
 
   useEffect(() => {
     const element = host.current
@@ -594,9 +605,10 @@ export default function FootprintCanvas({
         attributionLogo: false,
         panes: { separatorColor: palette.border },
       },
+      // The price axis draws the horizontal lines, on IDX ticks.
       grid: {
         vertLines: { color: token("--chart-grid") },
-        horzLines: { color: token("--chart-grid") },
+        horzLines: { visible: false },
       },
       rightPriceScale: {
         borderColor: palette.border,
@@ -619,8 +631,13 @@ export default function FootprintCanvas({
       {
         priceLineVisible: false,
         lastValueVisible: true,
+        autoscaleInfoProvider: rowCapped(chart),
       }
     )
+    const axis = idxPriceAxis(footprint, {
+      text: palette.muted,
+      grid: token("--chart-grid"),
+    })
     footprint
       .priceScale()
       .applyOptions({ scaleMargins: { top: 0.06, bottom: 0.06 } })
@@ -647,37 +664,72 @@ export default function FootprintCanvas({
         : Math.floor(cursor.state().at / MINUTE) * MINUTE
     let shownMinute = cursorMinute()
     let columns: ReadonlyArray<FootprintColumn> = []
+    // Every minute drawn, relay gaps' whitespace included, as chart 1 draws
+    // them.
+    let minutes: ReadonlyArray<number> = []
     const redraw = () => {
+      const candles = store.candles()
       columns = Effect.runSync(
-        footprintColumns(store.candles(), store.footprints(), shownMinute)
+        footprintColumns(candles, store.footprints(), shownMinute)
       )
-      const items: Array<ColumnItem> = columns.map((column) => ({
-        time: (column.minute / 1000) as UTCTimestamp,
-        column,
-      }))
+      const shown = Effect.runSync(
+        chartMinutes(
+          columns.map((column) => column.minute),
+          shownGaps.current,
+          cursor === undefined
+            ? (columns.at(-1)?.minute ?? 0)
+            : cursor.day.close
+        )
+      )
+      minutes = shown.all
+      const items: Array<ColumnItem | { time: UTCTimestamp }> = [
+        ...columns.map((column) => ({
+          time: (column.minute / 1000) as UTCTimestamp,
+          column,
+        })),
+        ...shown.blank.map((minute) => ({
+          time: (minute / 1000) as UTCTimestamp,
+        })),
+      ].sort((a, b) => a.time - b.time)
       footprint.setData(items)
       footer.setData(items)
+      axis.setPrice(candles.at(-1)?.close)
     }
-    // The last 10 minutes up to the cursor's, once the chart has a size:
-    // zooming before then crushes it to the right edge.
-    let windowFrame = 0
-    const showWindow = () => {
-      cancelAnimationFrame(windowFrame)
-      windowFrame = requestAnimationFrame(() => {
-        // The minutes up to the cursor's: columns ascend by minute.
-        const bars = columns.filter(
-          (column) => column.minute <= shownMinute
-        ).length
-        if (bars === 0 || element.clientWidth === 0) return
-        const range = Effect.runSync(windowOfLast(bars, WINDOW_MINUTES))
-        chart.timeScale().setVisibleLogicalRange({
-          from: range.from as Logical,
-          to: range.to as Logical,
-        })
-      })
-    }
+    // The 10 minutes up to the cursor's (live: the last ones).
+    const showWindow = () => pair.showUpTo(shownMinute)
     redraw()
     showWindow()
+    redrawGaps.current = redraw
+    const unpair = pair.attachFootprint({
+      chart,
+      series: footprint,
+      element,
+      minutes: () => minutes,
+    })
+
+    // The hovered minute's ladder, at the pointer.
+    const hover = (parameter: MouseEventParams<Time>) => {
+      const item = parameter.seriesData.get(footprint) as ColumnItem | undefined
+      const point = parameter.point
+      if (
+        item?.column === undefined ||
+        point === undefined ||
+        item.column.later ||
+        item.column.rows.length === 0
+      )
+        return ladder.set(undefined)
+      const pointer =
+        (parameter.paneIndex ?? 0) === 0
+          ? (footprint.coordinateToPrice(point.y) ?? item.column.close)
+          : item.column.close
+      ladder.set({
+        ladder: Effect.runSync(footprintLadder(item.column, pointer)),
+        x: point.x,
+        y: point.y,
+        width: element.clientWidth,
+      })
+    }
+    chart.subscribeCrosshairMove(hover)
 
     const stopCursor = cursor?.subscribe(() => {
       const minute = cursorMinute()
@@ -702,13 +754,26 @@ export default function FootprintCanvas({
       })
     })
     return () => {
+      chart.unsubscribeCrosshairMove(hover)
+      ladder.set(undefined)
+      unpair()
+      redrawGaps.current = undefined
       unsubscribe()
       stopCursor?.()
       cancelAnimationFrame(frame)
-      cancelAnimationFrame(windowFrame)
       chart.remove()
     }
-  }, [store, cursor])
+  }, [store, cursor, pair, ladder])
 
-  return <div ref={host} className="h-[380px] w-full" data-chart="footprint" />
+  useEffect(() => {
+    shownGaps.current = gaps
+    redrawGaps.current?.()
+  }, [gaps])
+
+  return (
+    <div className="relative">
+      <div ref={host} className="h-[380px] w-full" data-chart="footprint" />
+      <FootprintLadder store={ladder} />
+    </div>
+  )
 }

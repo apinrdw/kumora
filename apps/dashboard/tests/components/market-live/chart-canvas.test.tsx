@@ -7,6 +7,7 @@ import { expect, test, vi } from "vitest"
 
 import { makeCandleStore } from "@/components/market-live/candle-store"
 import ChartCanvas from "@/components/market-live/chart-canvas"
+import type { ChartPair } from "@/components/market-live/chart-pair"
 
 // React's `act` warns outside a test environment that declares itself.
 Object.assign(globalThis, { IS_REACT_ACT_ENVIRONMENT: true })
@@ -41,6 +42,7 @@ const { series, FakeSeries } = vi.hoisted(() => {
     priceScale() {
       return { applyOptions() {} }
     }
+    applyOptions() {}
     attachPrimitive() {}
     createPriceLine() {
       return {}
@@ -89,6 +91,14 @@ const gap = (from: string, to: string): RelayGap => ({
   to: minute(to),
 })
 
+// Chart 2 isn't drawn here.
+const alone: ChartPair = {
+  attachCandles: () => () => {},
+  attachFootprint: () => () => {},
+  jumpTo: () => {},
+  showUpTo: () => {},
+}
+
 // The animation frame the chart batches deltas into.
 const nextFrame = () =>
   act(() => new Promise<void>((resolve) => setTimeout(resolve, 50)))
@@ -99,7 +109,9 @@ test("a candle backfilled into a relay gap after the last candle goes on the cha
   const container = document.body.appendChild(document.createElement("div"))
   const root = createRoot(container)
   await act(() =>
-    root.render(<ChartCanvas store={store} gaps={[gap("09:01", "09:04")]} />)
+    root.render(
+      <ChartCanvas store={store} gaps={[gap("09:01", "09:04")]} pair={alone} />
+    )
   )
   const [candles, volume] = series
   // The gap's minutes are whitespace after the last candle.

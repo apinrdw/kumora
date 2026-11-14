@@ -10,6 +10,7 @@ import { direction, pct, price, shares, signed } from "@/lib/format"
 import { lastCloseAt } from "@/lib/recorded-day"
 
 import type { CandleStore } from "./candle-store"
+import type { ChartPair } from "./chart-pair"
 import { useDayState, type DayStateStore } from "./day-state-store"
 import { useAuctionIndicative, useMergedStale } from "./market-conditions"
 import type { ReplayCursor } from "./replay-cursor"
@@ -135,9 +136,11 @@ function ChartHeadline({
 // socket through `store`. `search` sits in the header, to choose the code,
 // and `conditions` with it: the feed pills and the market phase.
 // On a recorded day, the candles after `cursor` are greyed and a clicked
-// candle moves it; `footer` sits under the chart.
+// candle moves it; `footer` sits under the chart. It moves with chart 2
+// through `pair`.
 export function LiveChart({
   store,
+  pair,
   gaps,
   dayStates,
   conditions,
@@ -146,6 +149,7 @@ export function LiveChart({
   footer,
 }: {
   store: CandleStore
+  pair: ChartPair
   // The relay gaps to shade as not recorded.
   gaps: ReadonlyArray<RelayGap>
   dayStates: DayStateStore
@@ -180,7 +184,12 @@ export function LiveChart({
       <div className={stale ? "opacity-50" : undefined}>
         <ClientOnly fallback={<div className={CHART_HEIGHT} />}>
           <Suspense fallback={<div className={CHART_HEIGHT} />}>
-            <ChartCanvas store={store} cursor={cursor} gaps={gaps} />
+            <ChartCanvas
+              store={store}
+              cursor={cursor}
+              gaps={gaps}
+              pair={pair}
+            />
           </Suspense>
         </ClientOnly>
       </div>
