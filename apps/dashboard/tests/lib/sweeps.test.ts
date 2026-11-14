@@ -10,6 +10,7 @@ import {
   sweepThreshold,
   thresholdText,
 } from "@/lib/sweeps"
+import { cursorLogical } from "@/lib/replay"
 
 const sweep = (
   wib: string,
@@ -127,10 +128,15 @@ describe("bubbles", () => {
           value: (1000 * 1 + 1010 * 3) * 100,
         }
         expect(yield* sweepPrice(walked)).toBe(1007.5)
-        // Second 0 sits half a second in; second 59 half a second short.
-        expect(yield* bubbleOffset(sweep("09:00:00", "buy", 1), 60)).toBe(-29.5)
-        expect(yield* bubbleOffset(sweep("09:00:59.900", "buy", 1), 60)).toBe(
-          29.5
+        // Where the cursor line draws its second: the minute's centre plus
+        // the fraction of the minute.
+        const times = [at("09:00:00") / 1000]
+        for (const wib of ["09:00:00", "09:00:50", "09:00:59"])
+          expect(yield* bubbleOffset(sweep(`${wib}.400`, "buy", 1), 60)).toBe(
+            (yield* cursorLogical(times, at(wib))) * 60
+          )
+        expect(yield* bubbleOffset(sweep("09:00:50.400", "buy", 1), 60)).toBe(
+          50
         )
         expect(yield* bubbleRadius(400)).toBe(5)
         expect(yield* bubbleRadius(1600)).toBe(10)

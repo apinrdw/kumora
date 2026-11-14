@@ -117,13 +117,14 @@ export const sweepMinute = (sweep: Sweep) =>
   )
 
 // How far a bubble sits from its minute's centre, in pixels at `barSpacing`:
-// its second within the minute, centred in that second.
+// its second's share of the minute, as the cursor line places that second
+// (lib/replay.ts `cursorLogical`, cursor-line.ts).
 export const bubbleOffset = (sweep: Sweep, barSpacing: number) =>
   Effect.sync(() => {
     const second = Math.floor(
       (DateTime.toEpochMillis(sweep.time) % MINUTE) / 1000
     )
-    return ((second + 0.5) / 60 - 0.5) * barSpacing
+    return (second / 60) * barSpacing
   })
 
 // A bubble's radius in CSS pixels: its area grows with lots, clamped so a
