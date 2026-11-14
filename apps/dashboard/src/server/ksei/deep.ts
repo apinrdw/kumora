@@ -10,7 +10,12 @@ import { REPORTS_PREFIX } from "../archive/run.ts"
 import { FIRST_YEAR, monthsHeld } from "./coverage.ts"
 import { recordsByFilename } from "./held.ts"
 import type { KseiReportKind } from "./kind.ts"
-import { kseiFilenames, ListedKseiReport, unlistedReport } from "./listing.ts"
+import {
+  kseiFilenames,
+  ListedKseiReport,
+  MOST_NAMES_A_DAY,
+  unlistedReport,
+} from "./listing.ts"
 import { WAYBACK_SEED } from "./wayback-seed.ts"
 
 // The years a Deep backfill probes, one step per kind and year.
@@ -28,6 +33,11 @@ const PROBE_DAYS = 7
 // Months probed at once in one step, out of courtesy to KSEI. Within a month
 // the HEADs go one at a time, to stop at the first find.
 const PROBE_CONCURRENCY = 4
+
+// The most HEADs a probe step sends one after another: its months go
+// PROBE_CONCURRENCY at once, each up to PROBE_DAYS days under every name.
+export const PROBE_HEADS_IN_TURN =
+  Math.ceil(12 / PROBE_CONCURRENCY) * PROBE_DAYS * MOST_NAMES_A_DAY
 
 // The seeded filenames the archive doesn't hold, leaving out those this run
 // already tried (`tried`): a step name may name one file only once.

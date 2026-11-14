@@ -33,7 +33,7 @@ export interface HeadResult {
 export const MAX_ETAG_BYTES = 64
 
 // Concurrent HEADs to a source, kept modest out of courtesy to it.
-const HEAD_CONCURRENCY = 4
+export const HEAD_CONCURRENCY = 4
 
 // An ETag as compared: `W/"x"` (weak, as a HEAD may answer) and `"x"` are
 // the same file.

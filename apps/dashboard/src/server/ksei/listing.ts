@@ -42,6 +42,11 @@ const SHAPES = KseiReportKind.literals.map((kind) => ({
   ...FILENAME_SHAPE[kind],
 }))
 
+// The most names any kind has had for one period end.
+export const MOST_NAMES_A_DAY = Math.max(
+  ...SHAPES.map(({ suffixes }) => suffixes.length)
+)
+
 // A filename of any kind's prefix and any kind's suffix. A filename names
 // its keys in R2, so nothing else passes. scripts/ksei-wayback-seed.mts
 // repeats it for the seed it writes.

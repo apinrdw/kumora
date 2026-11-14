@@ -9,18 +9,30 @@ import {
   type StepFailed,
   type WorkflowSteps,
 } from "@workspace/server"
-import { DateTime, Effect, Result, Schema } from "effect"
+import { DateTime, Duration, Effect, Result, Schema } from "effect"
 import { HttpClient, type HttpClientError } from "effect/http"
 
 import { ArchiveBucket, type BucketError } from "../archive/bucket.ts"
 import { readCapped } from "../archive/capped-body.ts"
 import { sha256Hex } from "../archive/hash.ts"
-import { comparableEtag, headHeld, MAX_ETAG_BYTES } from "../archive/head.ts"
+import {
+  comparableEtag,
+  HEAD_CONCURRENCY,
+  headHeld,
+  MAX_ETAG_BYTES,
+} from "../archive/head.ts"
 import { ETAG, RUN, SHA256 } from "../archive/held.ts"
 import { md5Hex } from "../archive/md5.ts"
 import { type ArchiveRun, type ArchiveRunId, runError } from "../archive/run.ts"
-import { PROBE_YEARS, probe, type Probed, seed } from "./deep.ts"
+import {
+  PROBE_HEADS_IN_TURN,
+  PROBE_YEARS,
+  probe,
+  type Probed,
+  seed,
+} from "./deep.ts"
 import { FILENAME, recordsByFilename } from "./held.ts"
+import { KSEI_REQUEST_TIMEOUT, KSEI_SLOWEST_ANSWER } from "./http.ts"
 import { recordKey, reportKey } from "./keys.ts"
 import { KseiReportKind } from "./kind.ts"
 import { fetchListing, KseiFilename, ListedKseiReport } from "./listing.ts"
@@ -37,12 +49,25 @@ type KseiRun = ArchiveRun<KseiTrigger>
 
 type StepServices = ArchiveBucket | HttpClient.HttpClient
 
-// The config of every step that asks KSEI.
-// Decision: 2 minutes an attempt, not the runtime's 10: KSEI's first answer
-// from a Worker takes 6-8 s, so an attempt still waiting at 2 minutes is
-// stuck, and its retry asks again. `summary` and `failed` only write to R2
-// and keep the default. See apinrdw/kumora#327, "Fetching from KSEI".
-const KSEI_STEP: StepConfig = { timeout: "2 minutes" }
+// Decision: a step that asks KSEI times out when the requests it waits on in
+// turn should all have answered. `plan` (both listings at once) and each
+// `report:` (one file) wait on one request, and get its 2 minutes
+// (KSEI_REQUEST_TIMEOUT, http.ts) as a step, which also bounds reading the
+// body, past the request's own bound. `head` and `probe:` send
+// their HEADs a few at once: their longest run of HEADs at KSEI's slowest
+// answer, plus one stuck request. Today's 72 held files are 18 HEADs in turn
+// (4.4 minutes), a probe's at most 42 (7.6 minutes). A flat 2 minutes timed
+// out a healthy probe (42 HEADs at 3 s is 126 s), and each retry restarted
+// its year. `seed`, `summary` and `failed` ask KSEI nothing and keep the
+// runtime's 10 minutes. See apinrdw/kumora#327, "Fetching from KSEI".
+const KSEI_STEP: StepConfig = { timeout: KSEI_REQUEST_TIMEOUT }
+
+const batchStep = (headsInTurn: number) =>
+  Effect.sync((): StepConfig => ({
+    timeout:
+      Duration.toMillis(KSEI_REQUEST_TIMEOUT) +
+      headsInTurn * Duration.toMillis(KSEI_SLOWEST_ANSWER),
+  }))
 
 // Each step result holds at most one ListedKseiReport per listed file, which
 // MAX_LISTED_REPORTS (listing.ts) bounds. The ETags and hashes held grow with
@@ -297,18 +322,19 @@ const deepBackfill = Effect.fnUntraced(function* (
   run: KseiRun,
   tried: ReadonlyArray<string>
 ) {
-  const seeded = yield* steps.do("seed", seed(tried), KSEI_STEP)
+  const seeded = yield* steps.do("seed", seed(tried))
   const fromSeed = yield* storeFinds(steps, run, seeded)
   const triedBefore = new Set([
     ...tried,
     ...seeded.map(({ filename }) => filename),
   ])
+  const probeStep = yield* batchStep(PROBE_HEADS_IN_TURN)
   const probes = yield* Effect.forEach(
     KseiReportKind.literals.flatMap((kind) =>
       PROBE_YEARS.map((year) => ({ kind, year }))
     ),
     ({ kind, year }) =>
-      steps.do(`probe:${kind}:${year}`, probe(kind, year), KSEI_STEP).pipe(
+      steps.do(`probe:${kind}:${year}`, probe(kind, year), probeStep).pipe(
         Effect.map((probed): Probed & { kind: KseiReportKind } => ({
           ...probed,
           kind,
@@ -425,7 +451,11 @@ export const kseiArchiveRun = Effect.fn("kseiArchiveRun")(function* (
         .pipe(Effect.ignore({ log: "Warn" }))
     )
   )
-  const checked = yield* steps.do("head", head(planned.held), KSEI_STEP)
+  const checked = yield* steps.do(
+    "head",
+    head(planned.held),
+    yield* batchStep(Math.ceil(planned.held.length / HEAD_CONCURRENCY))
+  )
   const heldByFilename = new Map<string, ListedKseiReport>(
     planned.held.map((report) => [report.filename, report])
   )
