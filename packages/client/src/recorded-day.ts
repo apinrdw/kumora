@@ -9,10 +9,12 @@ import {
   DayStripPath,
   decodeBookChunk,
   decodeDayStrip,
+  decodeRecordedBrokerCodes,
   decodeRecordedCandles,
   decodeRecordedGaps,
   decodeRecordedTape,
   recordedDayPath,
+  type RecordedBrokerCodes,
   type RecordedResource,
   type StockCode,
   type WibDate,
@@ -72,6 +74,25 @@ export const fetchRecordedTape = Effect.fnUntraced(function* (
   if (Option.isNone(body)) return []
   return (yield* decodeRecordedTape(body.value)).trades
 })
+
+// The broker codes of the trades the tape at `at` holds, and whether the
+// day's codes are complete; a 404 is a day with none yet. `fresh` asks the
+// Worker past the browser's copy, for the recheck while incomplete.
+export const fetchRecordedBrokerCodes = (
+  date: WibDate,
+  at: DateTime.Utc,
+  fresh = false
+) =>
+  Effect.gen(function* () {
+    const body = yield* getResource(date, { _tag: "BrokerCodes", at })
+    if (Option.isNone(body))
+      return { codes: [], complete: false } satisfies RecordedBrokerCodes
+    return yield* decodeRecordedBrokerCodes(body.value)
+  }).pipe(
+    fresh
+      ? Effect.provideService(FetchHttpClient.RequestInit, { cache: "reload" })
+      : (effect) => effect
+  )
 
 // The selected code's stored book chunk for `minute`'s minute (or the latest
 // before it); the page replays it to the cursor with `bookAt`. None when the
