@@ -21,6 +21,7 @@ import { Route as AppSplatRouteImport } from './routes/_app/$'
 import { Route as AppAccountRouteImport } from './routes/_app/account'
 import { Route as AppDeleteAccountRouteImport } from './routes/_app/delete-account'
 import { Route as AppMarketLiveRouteImport } from './routes/_app/market-live'
+import { Route as AppAdminKseiRouteImport } from './routes/_app/admin/ksei'
 import { Route as AppAdminShareholdingRouteImport } from './routes/_app/admin/shareholding'
 import { Route as AppAdminUsersRouteImport } from './routes/_app/admin/users'
 import { Route as ApiAuthSplatRouteImport } from './routes/api/auth/$'
@@ -84,6 +85,11 @@ const AppMarketLiveRoute = AppMarketLiveRouteImport.update({
   path: '/market-live',
   getParentRoute: () => AppRoute,
 } as any)
+const AppAdminKseiRoute = AppAdminKseiRouteImport.update({
+  id: '/admin/ksei',
+  path: '/admin/ksei',
+  getParentRoute: () => AppRoute,
+} as any)
 const AppAdminShareholdingRoute = AppAdminShareholdingRouteImport.update({
   id: '/admin/shareholding',
   path: '/admin/shareholding',
@@ -112,6 +118,7 @@ export interface FileRoutesByFullPath {
   '/account': typeof AppAccountRoute
   '/delete-account': typeof AppDeleteAccountRoute
   '/market-live': typeof AppMarketLiveRoute
+  '/admin/ksei': typeof AppAdminKseiRoute
   '/admin/shareholding': typeof AppAdminShareholdingRoute
   '/admin/users': typeof AppAdminUsersRoute
   '/api/auth/$': typeof ApiAuthSplatRoute
@@ -128,6 +135,7 @@ export interface FileRoutesByTo {
   '/delete-account': typeof AppDeleteAccountRoute
   '/market-live': typeof AppMarketLiveRoute
   '/': typeof AppIndexRoute
+  '/admin/ksei': typeof AppAdminKseiRoute
   '/admin/shareholding': typeof AppAdminShareholdingRoute
   '/admin/users': typeof AppAdminUsersRoute
   '/api/auth/$': typeof ApiAuthSplatRoute
@@ -146,6 +154,7 @@ export interface FileRoutesById {
   '/_app/delete-account': typeof AppDeleteAccountRoute
   '/_app/market-live': typeof AppMarketLiveRoute
   '/_app/': typeof AppIndexRoute
+  '/_app/admin/ksei': typeof AppAdminKseiRoute
   '/_app/admin/shareholding': typeof AppAdminShareholdingRoute
   '/_app/admin/users': typeof AppAdminUsersRoute
   '/api/auth/$': typeof ApiAuthSplatRoute
@@ -164,6 +173,7 @@ export interface FileRouteTypes {
     | '/account'
     | '/delete-account'
     | '/market-live'
+    | '/admin/ksei'
     | '/admin/shareholding'
     | '/admin/users'
     | '/api/auth/$'
@@ -180,6 +190,7 @@ export interface FileRouteTypes {
     | '/delete-account'
     | '/market-live'
     | '/'
+    | '/admin/ksei'
     | '/admin/shareholding'
     | '/admin/users'
     | '/api/auth/$'
@@ -197,6 +208,7 @@ export interface FileRouteTypes {
     | '/_app/delete-account'
     | '/_app/market-live'
     | '/_app/'
+    | '/_app/admin/ksei'
     | '/_app/admin/shareholding'
     | '/_app/admin/users'
     | '/api/auth/$'
@@ -299,6 +311,13 @@ declare module '@tanstack/react-router' {
       preLoaderRoute: typeof AppMarketLiveRouteImport
       parentRoute: typeof AppRoute
     }
+    '/_app/admin/ksei': {
+      id: '/_app/admin/ksei'
+      path: '/admin/ksei'
+      fullPath: '/admin/ksei'
+      preLoaderRoute: typeof AppAdminKseiRouteImport
+      parentRoute: typeof AppRoute
+    }
     '/_app/admin/shareholding': {
       id: '/_app/admin/shareholding'
       path: '/admin/shareholding'
@@ -329,6 +348,7 @@ interface AppRouteChildren {
   AppDeleteAccountRoute: typeof AppDeleteAccountRoute
   AppMarketLiveRoute: typeof AppMarketLiveRoute
   AppIndexRoute: typeof AppIndexRoute
+  AppAdminKseiRoute: typeof AppAdminKseiRoute
   AppAdminShareholdingRoute: typeof AppAdminShareholdingRoute
   AppAdminUsersRoute: typeof AppAdminUsersRoute
 }
@@ -339,6 +359,7 @@ const AppRouteChildren: AppRouteChildren = {
   AppDeleteAccountRoute: AppDeleteAccountRoute,
   AppMarketLiveRoute: AppMarketLiveRoute,
   AppIndexRoute: AppIndexRoute,
+  AppAdminKseiRoute: AppAdminKseiRoute,
   AppAdminShareholdingRoute: AppAdminShareholdingRoute,
   AppAdminUsersRoute: AppAdminUsersRoute,
 }

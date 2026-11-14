@@ -17,6 +17,7 @@ import * as Redacted from "effect/Redacted"
 
 import { SENDER, SENDING_SUBDOMAIN } from "./src/server/auth/sender.ts"
 import type { RunParams } from "./src/server/archive/run.ts"
+import { KSEI_CRON } from "./src/server/ksei/schedule.ts"
 import { ARCHIVE_CRON } from "./src/server/shareholding/schedule.ts"
 
 // scripts/auth-schema.ts replays the same directory for the drift check and
@@ -112,9 +113,12 @@ export const Website = Cloudflare.Website.Vite(
     // Google sign-in: Alchemy's dev runtime fires a Worker's crons, so an
     // ungated cron would make `pnpm dev`, and every Preview, call IDX. Other
     // stages start a run with Run now only. See apinrdw/kumora#308.
+    // Decision: the KSEI archive cron is gated the same way, so only
+    // Production calls ksei.co.id on a schedule; src/worker.ts tells the two
+    // crons apart by expression. See apinrdw/kumora#326.
     const crons: { crons?: Array<string> } =
       (yield* stageKind(stage)) === "production"
-        ? { crons: [ARCHIVE_CRON] }
+        ? { crons: [ARCHIVE_CRON, KSEI_CRON] }
         : {}
     return {
       ...(yield* websiteProps("dashboard", stage)),
@@ -169,6 +173,18 @@ export const Website = Cloudflare.Website.Vite(
           "ShareholdingArchive",
           { className: "ShareholdingArchive" }
         ),
+        // The KSEI archive and its KSEI archive run, on every stage like the
+        // shareholding archive's, in a bucket of their own.
+        KSEI_ARCHIVE_BUCKET: Cloudflare.R2.Bucket(
+          "KseiArchiveBucket",
+          // Decision: as the shareholding archive's bucket, Production's
+          // survives a stack destroy and every other stage's is emptied with
+          // it. See apinrdw/kumora#305.
+          { forceDestroy: (yield* stageKind(stage)) !== "production" }
+        ),
+        KSEI_ARCHIVE: Cloudflare.Workflow<RunParams>("KseiArchive", {
+          className: "KseiArchive",
+        }),
         ...google,
         ...clockOffset,
       },

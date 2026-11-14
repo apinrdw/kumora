@@ -1,0 +1,232 @@
+import type { Locator, Page } from "@playwright/test"
+
+import { expect, test } from "../support/test"
+
+import { ADMIN, DASHBOARD, MEMBER } from "../support/accounts"
+import {
+  seedKseiReport,
+  seedKseiRun,
+  seedLatestKseiRun,
+  type SeededKseiRun,
+} from "../support/ksei"
+
+const KSEI = `${DASHBOARD}/admin/ksei`
+
+const COMPLETE: SeededKseiRun = {
+  id: "cron-2026-11-14",
+  trigger: "cron",
+  startedAt: "2026-11-14T03:00:00.000Z",
+  finishedAt: "2026-11-14T03:01:12.000Z",
+  outcome: "complete",
+  reportsAdded: 2,
+  newVersions: 1,
+  reportsChecked: 70,
+  md5Mismatches: ["BalanceposEfek20260930.zip"],
+  listingFailures: [],
+  notStored: [],
+  error: null,
+}
+
+const LISTING_ERROR =
+  "KSEI's Securities holdings listing answered 405 (https://www.ksei.co.id/api/securities_ownerships?page[size]=100)"
+
+const PARTIAL: SeededKseiRun = {
+  ...COMPLETE,
+  id: "admin-1763089200000",
+  trigger: "admin",
+  outcome: "partial",
+  reportsAdded: 35,
+  newVersions: 0,
+  md5Mismatches: [],
+  listingFailures: [{ kind: "securities-holdings", message: LISTING_ERROR }],
+  notStored: ["StatisEfek20261030.txt.zip"],
+}
+
+const FAILED: SeededKseiRun = {
+  ...COMPLETE,
+  id: "cron-2026-11-13",
+  startedAt: "2026-11-13T03:00:00.000Z",
+  finishedAt: "2026-11-13T03:00:20.000Z",
+  outcome: "failed",
+  reportsAdded: 0,
+  newVersions: 0,
+  reportsChecked: 0,
+  md5Mismatches: [],
+  error: `KSEI's Securities statistics listing answered 405; ${LISTING_ERROR}`,
+}
+
+const DAY = 86_400_000
+
+// A run that started `ago` ms before now, named like Run now's runs.
+const runAgo = (ago: number, run: Partial<SeededKseiRun>): SeededKseiRun => {
+  const started = Math.floor((Date.now() - ago) / 1000) * 1000
+  return {
+    ...COMPLETE,
+    id: `admin-${started}`,
+    trigger: "admin",
+    startedAt: new Date(started).toISOString(),
+    finishedAt: new Date(started + 60_000).toISOString(),
+    ...run,
+  }
+}
+
+const lastRunCard = (page: Page) =>
+  page.getByRole("region", { name: /Last KSEI archive run/ })
+
+// A count on the card, by its label.
+const stat = (card: Locator, label: string) =>
+  card
+    .locator("div")
+    .filter({
+      has: card.page().getByRole("term").getByText(label, { exact: true }),
+    })
+    .getByRole("definition")
+
+test.describe("a member", () => {
+  test.use({ storageState: MEMBER.storageState })
+
+  test("gets no KSEI archive entry and the not-found page", async ({
+    page,
+  }) => {
+    const response = await page.goto(KSEI)
+    expect(response?.status()).toBe(404)
+    await expect(
+      page.getByRole("heading", { name: "Halaman tidak ditemukan" })
+    ).toBeVisible()
+    await expect(page.getByRole("link", { name: "KSEI archive" })).toHaveCount(
+      0
+    )
+  })
+})
+
+// Decision: serial, since every test points the one runs/latest.json of the
+// Test stage's KSEI bucket at its own run.
+test.describe.serial("an admin's last KSEI archive run", () => {
+  test.use({ storageState: ADMIN.storageState })
+
+  test("a complete run shows its pill, times and counts", async ({ page }) => {
+    await seedLatestKseiRun(COMPLETE)
+    await page.goto(DASHBOARD)
+    await page.getByRole("link", { name: "KSEI archive" }).click()
+    await expect(page).toHaveURL(KSEI)
+    await expect(page).toHaveTitle("KSEI archive · KUMORA Terminal")
+    await expect(
+      page.getByRole("heading", { name: "KSEI archive", level: 1 })
+    ).toBeVisible()
+    const card = lastRunCard(page)
+    await expect(card).toContainText("Complete")
+    await expect(card).toContainText("Started Nov 14, 10:00 WIB")
+    await expect(card).toContainText("took 1 min 12 s")
+    await expect(card).toContainText(COMPLETE.id)
+    await expect(stat(card, "Reports added")).toHaveText("2")
+    await expect(stat(card, "New versions")).toHaveText("1")
+    await expect(stat(card, "Reports checked")).toHaveText("70")
+    await expect(stat(card, "Not stored")).toHaveText("0")
+    await expect(stat(card, "MD5 mismatches")).toHaveText("1")
+    await expect(
+      card.getByRole("list", { name: "MD5 mismatches" }).getByRole("listitem")
+    ).toHaveText(["BalanceposEfek20260930.zip"])
+    await expect(card).toContainText(
+      /Production runs at 10:00 WIB\. Next: \w{3} \d{2}, 10:00 WIB\./
+    )
+    await expect(card.getByRole("button", { name: "Run now" })).toBeEnabled()
+  })
+
+  test("a partial run names the listing it couldn't read and the files not stored", async ({
+    page,
+  }) => {
+    await seedLatestKseiRun(PARTIAL)
+    await page.goto(KSEI)
+    const card = lastRunCard(page)
+    await expect(card).toContainText("Partial")
+    await expect(stat(card, "Not stored")).toHaveText("1")
+    await expect(
+      card.getByRole("list", { name: "Listings not read" })
+    ).toHaveText(`Securities holdings: ${LISTING_ERROR}`)
+    await expect(card).toContainText(
+      "1 report could not be stored. The next run retries it."
+    )
+    await expect(
+      card.getByRole("list", { name: "Not stored" }).getByRole("listitem")
+    ).toHaveText(["StatisEfek20261030.txt.zip"])
+  })
+
+  test("a failed run shows its error", async ({ page }) => {
+    await seedLatestKseiRun(FAILED)
+    await page.goto(KSEI)
+    const alert = lastRunCard(page).getByRole("alert")
+    await expect(lastRunCard(page)).toContainText("Failed")
+    await expect(alert).toContainText(`Run failed: ${FAILED.error}`)
+  })
+
+  test("Run now is disabled while the latest run is running", async ({
+    page,
+  }) => {
+    // In progress only while its start is within START_WINDOW_MS: the Test
+    // stage holds no Workflow instance for it.
+    await seedLatestKseiRun(
+      runAgo(0, {
+        finishedAt: null,
+        outcome: "running",
+        reportsAdded: 0,
+        newVersions: 0,
+        reportsChecked: 0,
+        md5Mismatches: [],
+      })
+    )
+    await page.goto(KSEI)
+    const card = lastRunCard(page)
+    await expect(card).toContainText("Running")
+    await expect(card).toContainText("A run is in progress")
+    await expect(card.getByRole("button", { name: "Run now" })).toBeDisabled()
+  })
+})
+
+// Decision: these seed runs/ records without touching runs/latest.json, and
+// this is the only spec writing the KSEI bucket's reports/, so they run beside
+// the serial tests above and the totals they assert are exact.
+test.describe("an admin's KSEI archive history", () => {
+  test.use({ storageState: ADMIN.storageState })
+
+  test("the recent runs table lists the past 30 days", async ({ page }) => {
+    const partial = runAgo(1 * DAY, {
+      outcome: "partial",
+      reportsAdded: 4,
+      newVersions: 0,
+    })
+    const complete = runAgo(2 * DAY, { reportsAdded: 3, newVersions: 2 })
+    const old = runAgo(40 * DAY, {})
+    for (const run of [old, complete, partial]) await seedKseiRun(run)
+
+    await page.goto(KSEI)
+    const table = page.getByRole("table", { name: "Recent runs" })
+    const ours = [partial, complete, old].map(({ id }) => id)
+    await expect(
+      table.getByRole("row").filter({ hasText: new RegExp(ours.join("|")) })
+    ).toHaveCount(2)
+    await expect(table).toContainText(partial.id)
+    await expect(table).toContainText(complete.id)
+  })
+
+  test("the totals count reports, versions and size per kind", async ({
+    page,
+  }) => {
+    const statistics = "securities-statistics"
+    await seedKseiReport(`${statistics}/2026-10-30`, "a".repeat(64), 1_200)
+    // A second version of October counts as a version, not a report.
+    await seedKseiReport(`${statistics}/2026-10-30`, "b".repeat(64), 1_300)
+    await seedKseiReport(`${statistics}/2026-09-30`, "c".repeat(64), 1_400)
+
+    await page.goto(KSEI)
+    const totals = page.getByRole("region", { name: "Archive totals" })
+    // 3,900 bytes of zips and three 77-byte records: 4,131.
+    await expect(totals).toContainText("2 reports · 4.1 KB")
+    await expect(
+      totals.getByRole("table", { name: "Reports per kind" }).getByRole("row")
+    ).toHaveText([
+      "Report kindKey prefixReportsVersionsSize",
+      "Securities statisticsreports/securities-statistics/234.1 KB",
+      "Securities holdingsreports/securities-holdings/000 B",
+    ])
+  })
+})

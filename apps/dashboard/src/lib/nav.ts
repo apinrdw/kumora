@@ -1,6 +1,7 @@
 import {
   IconArchive,
   IconChartCandle,
+  IconFileZip,
   IconUsers,
   type Icon,
 } from "@tabler/icons-react"
@@ -57,6 +58,13 @@ export const NAV: ReadonlyArray<NavGroup> = [
         shortLabel: "Archive",
         icon: IconArchive,
         link: { to: "/admin/shareholding" },
+        feature: "admin",
+      },
+      {
+        label: "KSEI archive",
+        shortLabel: "KSEI",
+        icon: IconFileZip,
+        link: { to: "/admin/ksei" },
         feature: "admin",
       },
     ],
