@@ -160,9 +160,7 @@ const COLUMN_PX = {
   sources: 36,
 }
 
-export const TAPE_WIDTH_PX = Object.values(COLUMN_PX).reduce(
-  (sum, px) => sum + px
-)
+const TAPE_WIDTH_PX = Object.values(COLUMN_PX).reduce((sum, px) => sum + px)
 
 // A gap or fold row spans every column.
 const COLUMNS = Object.keys(COLUMN_PX).length
