@@ -714,6 +714,62 @@ describe("sweeps", () => {
       })
   )
 
+  // The measure behind the Decision on candles.ts `takeChanged`.
+  it.effect(
+    "a busy code's peak minute, 370 sweeps of 2,220 trades, costs its last delta under 24 KB of sweeps and its 240 deltas under 12 KB each on average",
+    () =>
+      Effect.gen(function* () {
+        yield* at("09:00:00")
+        const day = yield* tradingDay()
+        const viewer = yield* day.viewer("UNTR")
+        // Each second's sweeps alternate sides, six trades each: six sweeps
+        // a second, seven in every sixth.
+        let number = 180_000
+        const second = (index: number) =>
+          Array.from({ length: (index % 6 === 0 ? 7 : 6) * 6 }, (_, trade) => {
+            number += 3
+            const side = Math.floor(trade / 6) % 2 === 0 ? "buy" : "sell"
+            return stockbitTrade({
+              number,
+              time: `09:00:${String(index).padStart(2, "0")}.${String(trade * 23).padStart(3, "0")}`,
+              price: side === "buy" ? 1_005 : 1_000,
+              lots: 1 + ((number * 37) % 900),
+              side,
+            })
+          })
+        // The last delta's sweeps, how many and their bytes on the wire,
+        // and the bytes of every delta's.
+        let last = { sweeps: 0, bytes: 0 }
+        let total = 0
+        for (let index = 0; index < 60; index++) {
+          const trades = second(index)
+          for (let tick = 0; tick < 4; tick++) {
+            yield* day.trades(
+              trades.filter(
+                (_, trade) => Math.floor((trade * 23) / 250) === tick
+              )
+            )
+            yield* TestClock.adjust("250 millis")
+            const sent = JSON.parse(viewer.sent.at(-1)!) as {
+              readonly sweeps?: ReadonlyArray<{
+                readonly sweeps: ReadonlyArray<unknown>
+              }>
+            }
+            assert.isDefined(sent.sweeps)
+            last = {
+              sweeps: sent.sweeps[0]!.sweeps.length,
+              bytes: new TextEncoder().encode(JSON.stringify(sent.sweeps))
+                .length,
+            }
+            total += last.bytes
+          }
+        }
+        assert.strictEqual(last.sweeps, 370)
+        assert.isBelow(last.bytes, 24_000)
+        assert.isBelow(total / 240, 12_000)
+      })
+  )
+
   it.effect("a sealed day answers its sweeps whole, cached", () =>
     Effect.gen(function* () {
       yield* at("09:01:10")

@@ -1,6 +1,6 @@
 // Chart 1's sweep bubbles (spec apinrdw/kumora#263, "Chart 1"), loaded with
 // Lightweight Charts in chart-canvas.tsx's browser-only chunk.
-import { Side, type Sweep } from "@workspace/relay"
+import { Side, TradeNumber, type Sweep } from "@workspace/relay"
 import { DateTime, Effect } from "effect"
 import type {
   IChartApi,
@@ -35,7 +35,8 @@ const BUBBLE_SIDES = Side.literals.filter(
 
 // One bubble, worked out when the sweeps change, so a draw only places it.
 interface Bubble {
-  readonly id: number
+  // Its sweep's first trade's number.
+  readonly id: TradeNumber
   readonly side: BubbleSide
   readonly time: number
   readonly lots: number
@@ -59,7 +60,7 @@ const HIT_PREFIX = "sweep:"
 // Each minute's bubbles, largest first, so small ones draw on top.
 const bubblesOf = Effect.fnUntraced(function* (sweeps: ReadonlyArray<Sweep>) {
   const byMinute = new Map<number, Array<Bubble>>()
-  for (const [id, sweep] of sweeps.entries()) {
+  for (const sweep of sweeps) {
     // An auction match forms no sweep and gets no bubble.
     if (sweep.side === "none") continue
     const minute = (yield* sweepMinute(sweep)) / 1000
@@ -69,7 +70,7 @@ const bubblesOf = Effect.fnUntraced(function* (sweeps: ReadonlyArray<Sweep>) {
       byMinute.set(minute, bubbles)
     }
     bubbles.push({
-      id,
+      id: sweep.firstTrade,
       side: sweep.side,
       time: DateTime.toEpochMillis(sweep.time),
       lots: sweep.lots,
@@ -93,7 +94,7 @@ class SweepBubbles implements ISeriesPrimitive<Time> {
   private byMinute = new Map<number, Array<Bubble>>()
   private threshold = 0
   private at = Number.POSITIVE_INFINITY
-  private selected: number | undefined
+  private selected: TradeNumber | undefined
   private attachedTo: SeriesAttachedParameter<Time> | undefined
   private readonly renderer: IPrimitivePaneRenderer = {
     draw: (target) =>
@@ -148,7 +149,7 @@ class SweepBubbles implements ISeriesPrimitive<Time> {
         }
         this.marks.dataset.bubbles = String(placed.length)
         if (ring === undefined) delete this.marks.dataset.ringedSweep
-        else this.marks.dataset.ringedSweep = String(this.selected)
+        else this.marks.dataset.ringedSweep = this.selected
       }),
   }
   private readonly views: ReadonlyArray<IPrimitivePaneView> = [
@@ -176,7 +177,7 @@ class SweepBubbles implements ISeriesPrimitive<Time> {
     readonly byMinute?: Map<number, Array<Bubble>>
     readonly threshold: number
     readonly at: number
-    readonly selected: number | undefined
+    readonly selected: TradeNumber | undefined
   }) {
     if (options.byMinute !== undefined) this.byMinute = options.byMinute
     this.threshold = options.threshold
@@ -206,7 +207,7 @@ class SweepBubbles implements ISeriesPrimitive<Time> {
   }
 
   hitTest(x: number, y: number): PrimitiveHoveredItem | null {
-    let best: { id: number; distance: number } | undefined
+    let best: { id: TradeNumber; distance: number } | undefined
     for (const placed of this.placed()) {
       const distance = Math.hypot(placed.x - x, placed.y - y)
       if (distance > placed.bubble.radius + 2) continue
@@ -230,7 +231,7 @@ export const clickedSweep = (parameter: MouseEventParams<Time>) =>
   Effect.sync(() => {
     const id = parameter.hoveredObjectId
     return typeof id === "string" && id.startsWith(HIT_PREFIX)
-      ? Number(id.slice(HIT_PREFIX.length))
+      ? TradeNumber.make(id.slice(HIT_PREFIX.length))
       : undefined
   })
 

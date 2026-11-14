@@ -39,7 +39,7 @@ test("sweeps show as bubbles and log rows; top-N filters them; a row rings its b
     })
   )
   // Some before the page opens, which its sweeps GET answers; the rest come
-  // by the delta tape.
+  // by the deltas.
   await relay.sendAjaib(sweeps.slice(0, 6))
   await page.setViewportSize({ width: 1920, height: 1080 })
   await page.goto(`${DASHBOARD}${PAGE}?code=${code}`)

@@ -1,4 +1,4 @@
-import { Effect, Option, Order, Schema } from "effect"
+import { Effect, Option, Order, Schema, SchemaGetter } from "effect"
 
 import { StockCode } from "./codes.ts"
 import { IndicativePrice, MarketConditions } from "./market-conditions.ts"
@@ -18,7 +18,8 @@ const acceptedIngestVersions: ReadonlyArray<unknown> = [
 // Bump on any change to a viewer message's shape. Only this version is
 // accepted: a page on another version reloads.
 // 2: market conditions carry delayed freshness and each delayed feed's lag.
-// 3: snapshots and deltas carry footprints (spec apinrdw/kumora#263).
+// 3: snapshots and deltas carry footprints, and deltas a selected code's
+// sweeps by minute (spec apinrdw/kumora#263).
 export const ViewerProtocolVersion = 3
 
 // Decision: an extension that hits either code stops retrying that target and
@@ -304,6 +305,77 @@ export const Footprint = Schema.Struct({
 })
 export type Footprint = typeof Footprint.Type
 
+// One sweep (the rule is in sweeps.ts): its aggressor side, its first trade's
+// number and time, its first and last price, and its lots, value and trade
+// count. A trade is in one sweep, so its first trade's number names a sweep
+// for the day, however a late trade regroups the sweeps around it. Side
+// `none` is an auction match's prints in one second: no aggressor, so no
+// sweep, but the sweep log shows it as one neutral row.
+const SweepFields = Schema.Struct({
+  side: Side,
+  firstTrade: TradeNumber,
+  time: Schema.DateTimeUtc,
+  first: Schema.Int,
+  last: Schema.Int,
+  lots: Schema.Finite,
+  value: Schema.Finite,
+  trades: Schema.Int,
+})
+
+// Decision: a sweep travels as a tuple, [side, first trade, time, first,
+// last, lots, value, trades], not a keyed object. A delta resends a minute's
+// sweeps whole, and a busy code's peak minute of 370 measured 21 KB a delta
+// as tuples against 45 KB with the keys (apinrdw/kumora#279).
+export const Sweep = Schema.Tuple([
+  Side,
+  TradeNumber,
+  Schema.DateTimeUtcFromMillis,
+  Schema.Int,
+  Schema.Int,
+  Schema.Finite,
+  Schema.Finite,
+  Schema.Int,
+]).pipe(
+  Schema.decodeTo(Schema.toType(SweepFields), {
+    decode: SchemaGetter.transform(
+      ([side, firstTrade, time, first, last, lots, value, trades]) => ({
+        side,
+        firstTrade,
+        time,
+        first,
+        last,
+        lots,
+        value,
+        trades,
+      })
+    ),
+    encode: SchemaGetter.transform(
+      (sweep) =>
+        [
+          sweep.side,
+          sweep.firstTrade,
+          sweep.time,
+          sweep.first,
+          sweep.last,
+          sweep.lots,
+          sweep.value,
+          sweep.trades,
+        ] as const
+    ),
+  })
+)
+export type Sweep = typeof Sweep.Type
+
+// One stock code's sweeps in one minute, whole and in trade order: none once
+// its last regular-board trade left the minute.
+const MinuteSweeps = Schema.Struct({
+  code: StockCode,
+  // The minute's start.
+  minute: Schema.DateTimeUtcFromMillis,
+  sweeps: Schema.Array(Sweep),
+})
+export type MinuteSweeps = typeof MinuteSweeps.Type
+
 // What a viewer starts from after each Select: the 200 newest running trades,
 // ascending by trade number, and the selected code's candles and footprints
 // so far, ascending by minute. The selected code's order book once it has one, or
@@ -337,10 +409,10 @@ const Delta = Schema.TaggedStruct("Delta", {
   // Every footprint that changed since the last delta of a code some viewer
   // selected, each whole. Absent when none changed.
   footprints: Schema.optionalKey(Schema.Array(Footprint)),
-  // The codes some viewer selected whose sweeps changed since the last delta
-  // where a page can't carry its own on from the tape (trading-day.ts): a
-  // page on one asks its sweeps GET again. Absent when none did.
-  staleSweeps: Schema.optionalKey(Schema.Array(StockCode)),
+  // Every minute whose sweeps a trade changed since the last delta, of a
+  // code some viewer selected, each whole: the page replaces its copy of
+  // that minute (candles.ts, `takeChanged`). Absent when none changed.
+  sweeps: Schema.optionalKey(Schema.Array(MinuteSweeps)),
   // Every changed Day state of a code some viewer selected or watches, each
   // whole. Absent when none changed.
   dayStates: Schema.optionalKey(Schema.Array(DayState)),

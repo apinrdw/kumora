@@ -9,10 +9,12 @@
 // A stock's candle carries its footprint (spec apinrdw/kumora#263): the same
 // trades' lots by price and aggressor side, kept, changed, resent and stored
 // with it, so a late trade resends both. The footprint row also holds the
-// minute's sweeps, grouped again from its trades whenever it is written.
+// minute's sweeps, grouped again from its trades whenever it is written, and
+// a trade that changes them resends the minute's, whole.
 import type {
   Candle,
   Footprint,
+  MinuteSweeps,
   RunningTrade,
   StockCode,
   Sweep,
@@ -208,12 +210,9 @@ export const minuteOf = (time: DateTime.Utc) =>
 
 const counts = (trade: RunningTrade) => Effect.succeed(trade.board === "RG")
 
-const secondOf = (time: DateTime.Utc) =>
-  Math.floor(DateTime.toEpochMillis(time) / 1000)
-
 // Whether two copies of a trade give its candle, footprint and sweeps the
 // same part: a side one feed left unspecified moves its footprint lots, and
-// a time in another second of the same minute regroups its sweeps.
+// any other time retimes the sweep it starts or regroups its second's.
 const samePart = Effect.fnUntraced(function* (
   a: RunningTrade,
   b: RunningTrade
@@ -221,7 +220,7 @@ const samePart = Effect.fnUntraced(function* (
   return (
     (yield* counts(a)) === (yield* counts(b)) &&
     a.code === b.code &&
-    secondOf(a.time) === secondOf(b.time) &&
+    DateTime.toEpochMillis(a.time) === DateTime.toEpochMillis(b.time) &&
     a.price === b.price &&
     a.lots === b.lots &&
     a.side === b.side
@@ -310,6 +309,8 @@ export const makeCandleBook = Effect.fnUntraced(function* (
   >()
   const indexTotals = new Map<StockCode, Totals>()
   let changed = new Set<Slot>()
+  // Those of them whose sweeps a trade changed: an index's candle has none.
+  let regrouped = new Set<Slot>()
   // What the next flush writes: trades whose merge window closed, each once,
   // and the candles whose settled figures changed.
   let settledTrades = new Map<string, RunningTrade>()
@@ -421,9 +422,8 @@ export const makeCandleBook = Effect.fnUntraced(function* (
   })
 
   // A trade as the tape now holds it: new (`held` undefined), or merged from
-  // what it held before. Answers whether it changed a stock's sweeps: a
-  // regular-board trade that is new, or whose part a copy changed inside its
-  // merge window.
+  // what it held before. A copy changes its part only inside its merge
+  // window.
   const trade = Effect.fnUntraced(function* (
     held: RunningTrade | undefined,
     current: RunningTrade
@@ -431,25 +431,24 @@ export const makeCandleBook = Effect.fnUntraced(function* (
     const now = yield* Clock.currentTimeMillis
     yield* settle(now)
     const arrival = arrivals.get(current.tradeNumber)
-    let left = false
     if (held !== undefined) {
-      if (arrival === undefined) return false
+      if (arrival === undefined) return
       arrival.trade = current
-      if (yield* samePart(held, current)) return false
+      if (yield* samePart(held, current)) return
       if (yield* counts(held)) {
         const before = yield* slotOf(held.code, yield* minuteOf(held.time))
         before.open.delete(held.tradeNumber)
         changed.add(before)
-        left = true
+        regrouped.add(before)
       }
     } else {
       arrivals.set(current.tradeNumber, { arrivedAt: now, trade: current })
     }
-    if (!(yield* counts(current))) return left
+    if (!(yield* counts(current))) return
     const slot = yield* slotOf(current.code, yield* minuteOf(current.time))
     slot.open.set(current.tradeNumber, current)
     changed.add(slot)
-    return true
+    regrouped.add(slot)
   })
 
   // An index's `liveprice` frame. Its candle moves by the day totals' growth
@@ -552,24 +551,40 @@ export const makeCandleBook = Effect.fnUntraced(function* (
       .flatMap(([, sweeps]) => sweeps)
   })
 
-  // Every candle changed since the last call, of any code, and the
-  // footprints among them of `footprintCodes`.
+  // Every candle changed since the last call, of any code, and of
+  // `selected` the footprints among them and each minute's sweeps a trade
+  // changed.
+  //
+  // Decision: a changed minute's sweeps go out whole in every delta and the
+  // page replaces its copy, so the book is the only grouper and the join
+  // can't gap or double. A peak minute of 370 sweeps measured 21.7 KB in its
+  // last delta, 11.0 KB a delta over its 240 (sweeps.test.ts). If too heavy,
+  // send a minute's sweeps at most once a second. See apinrdw/kumora#279.
   const takeChanged = Effect.fnUntraced(function* (
-    footprintCodes: ReadonlySet<StockCode>
+    selected: ReadonlySet<StockCode>
   ) {
     const slots = changed
+    const resent = regrouped
     changed = new Set()
+    regrouped = new Set()
     const candles: Array<Candle> = []
     const footprints: Array<Footprint> = []
+    const sweeps: Array<MinuteSweeps> = []
     for (const slot of slots) {
       const candle = yield* candleOf(slot)
       if (candle !== undefined) candles.push(candle)
-      if (!footprintCodes.has(slot.code)) continue
+      if (!selected.has(slot.code)) continue
       const footprint = yield* footprintOf(slot)
       if (footprint !== undefined) footprints.push(footprint)
+      if (resent.has(slot))
+        sweeps.push({
+          code: slot.code,
+          minute: DateTime.makeUnsafe(slot.minute),
+          sweeps: yield* slotSweeps(slot, true),
+        })
     }
     for (const slot of slots) yield* release(slot)
-    return { candles, footprints }
+    return { candles, footprints, sweeps }
   })
 
   const hasChanges = Effect.sync(() => changed.size > 0)

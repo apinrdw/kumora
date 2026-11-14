@@ -359,12 +359,6 @@ export const makeTradingDay = Effect.fnUntraced(function* (options: {
   // Trades viewers haven't been sent since the last delta, new or changed,
   // by trade number.
   let pending = new Map<string, RunningTrade>()
-  // The highest trade number a sweeps GET answered through, and the codes
-  // whose sweeps changed since the last delta where no page can carry its
-  // own on (`sweepsChanged`). A woken object starts from the tape it restored: a
-  // page may hold an answer through any number on it.
-  let answeredThrough = tape.at(-1)?.tradeNumber
-  let staleSweeps = new Set<StockCode>()
   let deltaScheduled = false
   const candles = yield* makeCandleBook(store)
   const ingests = options.ingests ?? Effect.succeed([])
@@ -433,28 +427,6 @@ export const makeTradingDay = Effect.fnUntraced(function* (options: {
     return mayBeStored && (yield* store.hasTrade(trade.tradeNumber))
   })
 
-  // A trade changed its code's sweeps, new or merged from `held`; `onTape`
-  // when the next delta's tape carries it.
-  //
-  // Decision: the object names a code's sweeps stale only when a trade changes
-  // them off the tape, or at or below the highest number a sweeps GET answered
-  // through; a page carries any other on from the tape. Naming every change
-  // would ask the whole-day GET again each delta, and a page can't tell a copy
-  // its answer held from a change. See apinrdw/kumora#279.
-  const sweepsChanged = (
-    held: RunningTrade | undefined,
-    current: RunningTrade,
-    onTape: boolean
-  ) => {
-    const carried =
-      onTape &&
-      (answeredThrough === undefined ||
-        TradeNumberOrder(current.tradeNumber, answeredThrough) > 0)
-    if (carried) return
-    staleSweeps.add(current.code)
-    if (held !== undefined) staleSweeps.add(held.code)
-  }
-
   const inTape = Effect.fnUntraced(function* (trade: RunningTrade) {
     const at = yield* tradePosition(tape, trade.tradeNumber)
     return tape[at]?.tradeNumber === trade.tradeNumber
@@ -475,8 +447,7 @@ export const makeTradingDay = Effect.fnUntraced(function* (options: {
       tape[slot] = merged
       pending.set(merged.tradeNumber, merged)
     }
-    if (yield* candles.trade(held, merged))
-      sweepsChanged(held, merged, slot !== undefined)
+    yield* candles.trade(held, merged)
     yield* dayStates.trade(held, merged)
   })
 
@@ -509,8 +480,7 @@ export const makeTradingDay = Effect.fnUntraced(function* (options: {
       if (tape.length > TAPE_LIMIT) tape.shift()
       pending.set(trade.tradeNumber, trade)
     }
-    if (yield* candles.trade(undefined, trade))
-      sweepsChanged(undefined, trade, !beforeTape)
+    yield* candles.trade(undefined, trade)
     yield* dayStates.trade(undefined, trade)
     return []
   })
@@ -569,8 +539,6 @@ export const makeTradingDay = Effect.fnUntraced(function* (options: {
     )
     pending = new Map()
     const selected = yield* onDemand.selected
-    const stale = [...staleSweeps].filter((code) => selected.has(code))
-    staleSweeps = new Set()
     const changed = yield* candles.takeChanged(selected)
     const live = yield* stockbitLive
     const orderBooks = yield* books.takeChanged(live)
@@ -584,7 +552,7 @@ export const makeTradingDay = Effect.fnUntraced(function* (options: {
     if (
       trades.length === 0 &&
       changed.candles.length === 0 &&
-      stale.length === 0 &&
+      changed.sweeps.length === 0 &&
       orderBooks.length === 0 &&
       states.length === 0 &&
       !conditionsChanged &&
@@ -598,7 +566,7 @@ export const makeTradingDay = Effect.fnUntraced(function* (options: {
       ...(changed.footprints.length > 0
         ? { footprints: changed.footprints }
         : {}),
-      ...(stale.length > 0 ? { staleSweeps: stale } : {}),
+      ...(changed.sweeps.length > 0 ? { sweeps: changed.sweeps } : {}),
       ...(orderBooks.length > 0 ? { orderBooks } : {}),
       ...(states.length === 0 ? {} : { dayStates: states }),
       ...(conditionsChanged ? { conditions } : {}),
@@ -1115,18 +1083,7 @@ export const makeTradingDay = Effect.fnUntraced(function* (options: {
           (conditions) => conditions.gaps
         ),
         heldHeat,
-        // Every trade the day holds is on the tape at or below its newest,
-        // in the candle book or stored, so the answer covers each one
-        // numbered up to it. A later change at or below it names the code's
-        // sweeps stale (`sweepsChanged`).
-        sweeps: Effect.fnUntraced(function* (code: StockCode) {
-          const through = tape.at(-1)?.tradeNumber
-          answeredThrough = through
-          return {
-            ...(through === undefined ? {} : { through }),
-            sweeps: yield* candles.sweepsOf(code),
-          }
-        }),
+        sweeps: candles.sweepsOf,
       })
     )
 

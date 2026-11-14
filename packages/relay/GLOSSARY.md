@@ -67,6 +67,6 @@ What a viewer starts from after each selection: the selected code the `Select` n
 _Avoid_: initial state
 
 **Delta**:
-The running trades that reached the trading-day Durable Object in the last ~250 ms, ascending by trade number, sent to every viewer that has a snapshot. A late trade can sort below trades the viewer already holds.
+What changed in the trading-day Durable Object in the last ~250 ms, sent as one message to every viewer that has a snapshot. It carries the running trades that arrived, ascending by trade number, where a late trade can sort below trades the viewer already holds. Everything else it carries whole, and the page replaces its own copy: every candle that changed, of any code; the footprint of each changed minute and the sweeps of each minute a trade regrouped, for the codes some viewer selected; every order book and indicative price that changed; the changed Day states of the selected and watchlist codes; and the market conditions when they changed.
 _Avoid_: update, patch
 

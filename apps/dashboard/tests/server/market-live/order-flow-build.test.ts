@@ -167,7 +167,7 @@ describe("the one-off build of a day sealed before order flow", () => {
       Effect.gen(function* () {
         const expected = yield* recordedWithRows
         assert.isTrue(expected.every(([cache]) => cache === SEALED_CACHE))
-        assert.include(expected[0]![1], '"side":"buy"')
+        assert.include(expected[0]![1], '["buy","')
         assert.include(expected[1]![1], '"cells":[{')
         assert.include(expected[2]![1], '"levels":[[')
 
@@ -252,7 +252,7 @@ describe("the one-off build of a day sealed before order flow", () => {
         const recorded = yield* tradingDay(recordedSql)
         const expected = yield* bodies(recorded)
         yield* recorded.evicted
-        assert.include(expected[0]!, '"side":"sell"')
+        assert.include(expected[0]!, '["sell","')
 
         const sql = memorySql()
         yield* skewedDay(sql)

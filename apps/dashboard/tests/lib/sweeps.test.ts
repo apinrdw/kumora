@@ -1,4 +1,4 @@
-import type { Sweep } from "@workspace/relay"
+import { TradeNumber, type Sweep } from "@workspace/relay"
 import { DateTime, Effect } from "effect"
 import { describe, expect, it } from "@effect/vitest"
 
@@ -12,6 +12,8 @@ import {
 } from "@/lib/sweeps"
 import { cursorLogical } from "@/lib/replay"
 
+// Numbered as the tests make them.
+let made = 0
 const sweep = (
   wib: string,
   side: Sweep["side"],
@@ -19,6 +21,7 @@ const sweep = (
   price = 1000
 ): Sweep => ({
   side,
+  firstTrade: TradeNumber.make(String(++made)),
   time: DateTime.makeUnsafe(`2026-11-09T${wib}+07:00`),
   first: price,
   last: price,

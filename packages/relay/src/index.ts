@@ -70,7 +70,9 @@ export type {
   FrameStream,
   IngestDown,
   IngestUp,
+  MinuteSweeps,
   RunningTrade,
+  Sweep,
   ViewerDown,
   ViewerUp,
 } from "./envelope.ts"
@@ -142,9 +144,8 @@ export type {
   CrossCheck,
   TradeCodes,
 } from "./broker-codes.ts"
-export type { RecordedSweeps, Sweep } from "./sweeps.ts"
+export type { RecordedSweeps } from "./sweeps.ts"
 export {
-  addToSweeps,
   decodeRecordedSweeps,
   encodeRecordedSweeps,
   joinSweeps,

@@ -3,6 +3,7 @@ import {
   INDEX_CODES,
   type StockCode,
   type Sweep,
+  type TradeNumber,
   type WibDate,
 } from "@workspace/relay"
 import { DateTime, Effect, Option } from "effect"
@@ -39,7 +40,7 @@ interface SweepView {
   readonly at: number
   readonly threshold: SweepThreshold
   readonly topN: number
-  readonly selected: number | undefined
+  readonly selected: TradeNumber | undefined
 }
 
 // The store's view at the cursor, the same object until something in it
@@ -86,9 +87,8 @@ function useSweepView(store: SweepStore, cursor: ReplayCursor | undefined) {
 /**
  * The selected code's sweep store, one per code, loaded from its GET for
  * `day`: undefined live, where it loads today's again each time the store
- * asks (each snapshot of the code, and a late trade inside the last answer),
- * the store holding the delta trades until the answer lands; a
- * recorded day's loads once, whole. An index asks for none.
+ * asks (each snapshot of the code), the deltas carrying each minute that
+ * changes since; a recorded day's loads once, whole. An index asks for none.
  */
 export function useSweeps(
   selected: StockCode,
@@ -203,7 +203,7 @@ const LogRowView = memo(function LogRowView({
 }: {
   row: LogRow
   selected: boolean
-  onPick: (id: number) => void
+  onPick: (id: TradeNumber) => void
 }) {
   const path =
     row.first === row.last
@@ -213,12 +213,12 @@ const LogRowView = memo(function LogRowView({
     <li style={{ height: ROW_HEIGHT }}>
       <button
         type="button"
-        data-sweep-id={row.id}
+        data-sweep-id={row.firstTrade}
         data-side={row.side}
         data-big={row.big || undefined}
         aria-current={selected || undefined}
         title={`${row.trades} trades`}
-        onClick={() => onPick(row.id)}
+        onClick={() => onPick(row.firstTrade)}
         className={cn(
           "grid h-full w-full grid-cols-[58px_44px_minmax(0,1fr)_64px_10px] items-center gap-1.5 px-2.5 text-left font-mono text-[12px] whitespace-nowrap",
           row.big && "bg-warning/10",
@@ -321,7 +321,9 @@ export function SweepLog({
         const element = scroller.current
         if (change._tag !== "Selected" || change.from !== "chart") return
         if (element === null) return
-        const index = rowsRef.current.findIndex((row) => row.id === change.id)
+        const index = rowsRef.current.findIndex(
+          (row) => row.firstTrade === change.id
+        )
         if (index < 0) return
         element.scrollTop = Math.max(
           0,
@@ -330,7 +332,10 @@ export function SweepLog({
       }),
     [store]
   )
-  const pick = useCallback((id: number) => store.select(id, "log"), [store])
+  const pick = useCallback(
+    (id: TradeNumber) => store.select(id, "log"),
+    [store]
+  )
   const first = Math.max(0, Math.floor(scroll.top / ROW_HEIGHT) - OVERSCAN)
   const last = Math.min(
     rows.length,
@@ -389,9 +394,9 @@ export function SweepLog({
           >
             {rows.slice(first, last).map((row) => (
               <LogRowView
-                key={row.id}
+                key={row.firstTrade}
                 row={row}
-                selected={row.id === view.selected}
+                selected={row.firstTrade === view.selected}
                 onPick={pick}
               />
             ))}

@@ -7,6 +7,7 @@ import { DateTime, Effect } from "effect"
 
 type SweepTuple = readonly [
   side: Sweep["side"],
+  firstTrade: Sweep["firstTrade"],
   time: number,
   first: number,
   last: number,
@@ -16,15 +17,16 @@ type SweepTuple = readonly [
 ]
 
 // Decision: a footprint row stores its sweeps as one JSON text of
-// [side, time, first, last, lots, value, trades] tuples in trade order, like
-// its cells (footprint-cells.ts): a busy code has 10–18 K sweeps a day, a few
-// hundred a minute, and the row is replaced whole. See spec
+// [side, first trade, time, first, last, lots, value, trades] tuples in trade
+// order, like its cells (footprint-cells.ts): a busy code has 10–18 K sweeps
+// a day, a few hundred a minute, and the row is replaced whole. See spec
 // apinrdw/kumora#263.
 export const sweepsText = (sweeps: ReadonlyArray<Sweep>) =>
   Effect.sync(() =>
     JSON.stringify(
       sweeps.map((sweep): SweepTuple => [
         sweep.side,
+        sweep.firstTrade,
         DateTime.toEpochMillis(sweep.time),
         sweep.first,
         sweep.last,
@@ -39,8 +41,9 @@ export const sweepsText = (sweeps: ReadonlyArray<Sweep>) =>
 export const sweepsFromText = (text: string) =>
   Effect.sync((): ReadonlyArray<Sweep> =>
     (JSON.parse(text) as ReadonlyArray<SweepTuple>).map(
-      ([side, time, first, last, lots, value, trades]) => ({
+      ([side, firstTrade, time, first, last, lots, value, trades]) => ({
         side,
+        firstTrade,
         time: DateTime.makeUnsafe(time),
         first,
         last,

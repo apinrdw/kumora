@@ -57,10 +57,10 @@ export const recordedAnswer = Effect.fnUntraced(function* (
       code: StockCode,
       through: number
     ) => Effect.Effect<ReadonlyArray<HeatRow>>
-    // A code's sweeps so far, with the trade number they were built up to.
+    // A code's sweeps so far.
     readonly sweeps: (
       code: StockCode
-    ) => Effect.Effect<Omit<RecordedSweeps, "code">>
+    ) => Effect.Effect<RecordedSweeps["sweeps"]>
   }
 ) {
   const { store } = day
@@ -108,7 +108,7 @@ export const recordedAnswer = Effect.fnUntraced(function* (
       return yield* json(
         yield* encodeRecordedSweeps({
           code: resource.code,
-          ...(yield* day.sweeps(resource.code)),
+          sweeps: yield* day.sweeps(resource.code),
         }),
         cacheControl
       )

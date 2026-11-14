@@ -76,10 +76,9 @@ const shown = (sweep: Sweep, threshold: number) =>
 export const isBigSweep = (sweep: Sweep) =>
   Effect.sync(() => sweep.value >= BIG_TRADE_IDR)
 
-// One row of the sweep log: the sweep, its place in the code's sweeps (the
-// id a bubble and a row share), and whether it is a big trade.
+// One row of the sweep log: the sweep and whether it is a big trade. Its
+// first trade's number is the id its row and its bubble share.
 export interface LogRow extends Sweep {
-  readonly id: number
   readonly big: boolean
 }
 
@@ -94,13 +93,13 @@ export const logRows = Effect.fnUntraced(function* (
   }
 ) {
   const rows: Array<LogRow> = []
-  for (let id = sweeps.length - 1; id >= 0; id--) {
-    const sweep = sweeps[id]!
+  for (let index = sweeps.length - 1; index >= 0; index--) {
+    const sweep = sweeps[index]!
     if (DateTime.toEpochMillis(sweep.time) > options.at) continue
     if (!(yield* shown(sweep, options.threshold))) continue
     const big = yield* isBigSweep(sweep)
     if (options.bigOnly && !big) continue
-    rows.push({ ...sweep, id, big })
+    rows.push({ ...sweep, big })
   }
   return rows
 })
