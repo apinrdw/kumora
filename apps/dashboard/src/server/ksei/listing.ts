@@ -23,12 +23,35 @@ export const LISTING_URLS: Record<KseiReportKind, string> = {
     "https://www.ksei.co.id/api/securities_ownerships?page[size]=100",
 }
 
-// `StatisEfek<YYYYMMDD>.txt.zip` and `BalanceposEfek<YYYYMMDD>.zip`, or
-// `BalanceposEfek<YYYYMMDD>.txt.zip` before 2009, where <YYYYMMDD> is the
-// period end. A filename names its keys in R2, so nothing else passes.
-// scripts/ksei-wayback-seed.mts repeats it for the seed it writes.
-const KSEI_FILENAME =
-  /^(StatisEfek|BalanceposEfek)(\d{4})(\d{2})(\d{2})(?:\.txt)?\.zip$/
+// Each kind's filename: its prefix, the period end as YYYYMMDD, then one of
+// its suffixes, today's first. Before 2009, Kepemilikan Efek files were
+// `.txt.zip`.
+const FILENAME_SHAPE: Record<
+  KseiReportKind,
+  { readonly prefix: string; readonly suffixes: ReadonlyArray<string> }
+> = {
+  "securities-statistics": { prefix: "StatisEfek", suffixes: [".txt.zip"] },
+  "securities-holdings": {
+    prefix: "BalanceposEfek",
+    suffixes: [".zip", ".txt.zip"],
+  },
+}
+
+const SHAPES = KseiReportKind.literals.map((kind) => ({
+  kind,
+  ...FILENAME_SHAPE[kind],
+}))
+
+// A filename of any kind's prefix and any kind's suffix. A filename names
+// its keys in R2, so nothing else passes. scripts/ksei-wayback-seed.mts
+// repeats it for the seed it writes.
+const PREFIXES = SHAPES.map(({ prefix }) => prefix).join("|")
+const SUFFIXES = [...new Set(SHAPES.flatMap(({ suffixes }) => suffixes))]
+  .map((suffix) => suffix.replaceAll(".", "\\."))
+  .join("|")
+const KSEI_FILENAME = new RegExp(
+  `^(${PREFIXES})(\\d{4})(\\d{2})(\\d{2})(?:${SUFFIXES})$`
+)
 
 const KseiFilename = Schema.String.check(Schema.isPattern(KSEI_FILENAME))
 
@@ -106,10 +129,17 @@ const periodEndOf = Effect.fnUntraced(function* (filename: string) {
 const KSEI_DOWNLOAD = `${KSEI_ORIGIN}storage/Download/`
 
 // The kind each filename prefix names.
-const KIND_OF_PREFIX: Record<string, KseiReportKind> = {
-  StatisEfek: "securities-statistics",
-  BalanceposEfek: "securities-holdings",
-}
+const KIND_OF_PREFIX: Partial<Record<string, KseiReportKind>> =
+  Object.fromEntries(SHAPES.map(({ kind, prefix }) => [prefix, kind]))
+
+// Every name `kind` has had for the period end `yyyymmdd`, today's first.
+export const kseiFilenames = Effect.fnUntraced(function* (
+  kind: KseiReportKind,
+  yyyymmdd: string
+) {
+  const { prefix, suffixes } = FILENAME_SHAPE[kind]
+  return suffixes.map((suffix) => `${prefix}${yyyymmdd}${suffix}`)
+})
 
 // A file no listing names, as a Deep backfill fetches it: its kind from its
 // filename's prefix, at KSEI_DOWNLOAD, with `listing: null`. Undefined for a

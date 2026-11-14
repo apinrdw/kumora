@@ -10,7 +10,7 @@ import { REPORTS_PREFIX } from "../archive/run.ts"
 import { FIRST_YEAR, monthsHeld } from "./coverage.ts"
 import { recordsByFilename } from "./held.ts"
 import type { KseiReportKind } from "./kind.ts"
-import { ListedKseiReport, unlistedReport } from "./listing.ts"
+import { kseiFilenames, ListedKseiReport, unlistedReport } from "./listing.ts"
 import { WAYBACK_SEED } from "./wayback-seed.ts"
 
 // The years a Deep backfill probes, one step per kind and year.
@@ -24,16 +24,6 @@ export const PROBE_YEARS = Array.from(
 
 // The calendar days a probe tries per month, from the month's last.
 const PROBE_DAYS = 7
-
-// Every name a kind has had for the period end `yyyymmdd`. Before 2009,
-// Kepemilikan Efek files were `.txt.zip`.
-const NAMES: Record<KseiReportKind, (yyyymmdd: string) => Array<string>> = {
-  "securities-statistics": (date) => [`StatisEfek${date}.txt.zip`],
-  "securities-holdings": (date) => [
-    `BalanceposEfek${date}.zip`,
-    `BalanceposEfek${date}.txt.zip`,
-  ],
-}
 
 // Months probed at once in one step, out of courtesy to KSEI. Within a month
 // the HEADs go one at a time, to stop at the first find.
@@ -76,9 +66,11 @@ const candidates = Effect.fnUntraced(function* (
 ) {
   const last = new Date(Date.UTC(year, month, 0)).getUTCDate()
   const mm = String(month).padStart(2, "0")
-  return Array.from({ length: PROBE_DAYS }, (_, i) =>
-    NAMES[kind](`${year}${mm}${String(last - i).padStart(2, "0")}`)
-  ).flat()
+  const names = yield* Effect.forEach(
+    Array.from({ length: PROBE_DAYS }, (_, i) => last - i),
+    (day) => kseiFilenames(kind, `${year}${mm}${String(day).padStart(2, "0")}`)
+  )
+  return names.flat()
 })
 
 // KSEI answered a probe with neither a file nor its "no file" redirect.
