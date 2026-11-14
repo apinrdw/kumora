@@ -157,22 +157,36 @@ export interface Vwap {
 // The least lots an imbalance's strong side needs.
 const IMBALANCE_MIN_LOTS = 5
 
+// The valid IDX prices next to `price`, across band edges: a band's lowest
+// price is one tick of the band below over the price under it.
+const adjacentPrices = (price: number) =>
+  Effect.sync(() => {
+    let down = IDX_BANDS[0]!.tick
+    let up = down
+    for (const band of IDX_BANDS) {
+      if (price > band.from) down = band.tick
+      if (price >= band.from) up = band.tick
+    }
+    return { below: price - down, above: price + up }
+  })
+
 // Whether a price's buy and sell lots are imbalances at `ratio` (0: off).
 // Compared diagonally, as the book trades: buy at p lifted the offer over
-// the sell at p − 1 tick, sell at p hit the bid under the buy at p + 1 tick.
-// The tick is p's own.
+// the sell at the price below p, sell at p hit the bid under the buy at the
+// price above p. The diagonal is the adjacent valid IDX price, across band
+// edges.
 const imbalanceOf = Effect.fnUntraced(function* (
   cells: ReadonlyMap<number, FootprintCell>,
   cell: FootprintCell,
   ratio: number
 ) {
   if (ratio === 0) return { buy: false, sell: false }
-  const tick = yield* idxTick(cell.price)
+  const { below, above } = yield* adjacentPrices(cell.price)
   const beats = (lots: number, other: number | undefined) =>
     lots >= IMBALANCE_MIN_LOTS && lots >= ratio * (other ?? 0)
   return {
-    buy: beats(cell.buy, cells.get(cell.price - tick)?.sell),
-    sell: beats(cell.sell, cells.get(cell.price + tick)?.buy),
+    buy: beats(cell.buy, cells.get(below)?.sell),
+    sell: beats(cell.sell, cells.get(above)?.buy),
   }
 })
 
