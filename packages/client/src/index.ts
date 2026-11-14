@@ -18,5 +18,6 @@ export {
   fetchRecordedBookChunk,
   fetchRecordedCandles,
   fetchRecordedGaps,
+  fetchRecordedSweeps,
   fetchRecordedTape,
 } from "./recorded-day.ts"

@@ -71,7 +71,7 @@ function makeLoads() {
 }
 
 // Runs one load until the effect that started it cleans up.
-const runLoad = (load: Effect.Effect<void, unknown, HttpClient>) => {
+export const runLoad = (load: Effect.Effect<void, unknown, HttpClient>) => {
   const loads = makeLoads()
   loads.run(load)
   return loads.stop

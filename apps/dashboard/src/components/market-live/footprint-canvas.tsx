@@ -710,5 +710,11 @@ export default function FootprintCanvas({
     }
   }, [store, cursor])
 
-  return <div ref={host} className="h-[380px] w-full" data-chart="footprint" />
+  return (
+    <div
+      ref={host}
+      className="h-[380px] w-full lg:h-auto lg:min-h-[380px] lg:flex-1"
+      data-chart="footprint"
+    />
+  )
 }

@@ -8,6 +8,7 @@ import { useCallback, useEffect, useMemo, useState } from "react"
 import { makeCandleStore } from "@/components/market-live/candle-store"
 import { makeDayStateStore } from "@/components/market-live/day-state-store"
 import { DayStrip } from "@/components/market-live/day-strip"
+import { LayoutB } from "@/components/market-live/layout-b"
 import { FootprintChart } from "@/components/market-live/footprint-chart"
 import { LiveChart } from "@/components/market-live/live-chart"
 import { LiveTape } from "@/components/market-live/live-tape"
@@ -26,6 +27,7 @@ import {
 } from "@/components/market-live/recorded-day"
 import { StockCodePalette } from "@/components/market-live/stock-code-palette"
 import { StockCodePicker } from "@/components/market-live/stock-code-picker"
+import { SweepLog, useSweeps } from "@/components/market-live/sweep-log"
 import { TransportBar } from "@/components/market-live/transport-bar"
 import { useStockCodeList } from "@/components/market-live/use-stock-code-list"
 import { useWatchlist } from "@/components/market-live/use-watchlist"
@@ -117,14 +119,16 @@ function MarketLiveDay({
     book,
     dayStates,
   })
+  const sweeps = useSweeps(selected, day, today)
   const liveGaps = useRelayGaps()
   const apply = useCallback(
     (message: ViewerDown) => {
       candles.apply(message)
+      sweeps.apply(message)
       book.apply(message)
       dayStates.apply(message)
     },
-    [candles, book, dayStates]
+    [candles, sweeps, book, dayStates]
   )
   const select = useCallback(
     (code: StockCode) =>
@@ -136,65 +140,71 @@ function MarketLiveDay({
   return (
     <>
       <h1 className="text-2xl font-bold">Market Live</h1>
-      <div className="grid gap-4 lg:grid-cols-[minmax(0,1fr)_400px]">
-        <div className="flex min-w-0 flex-col gap-4">
-          <LiveChart
-            store={candles}
-            gaps={cursor === undefined ? liveGaps : gaps}
-            dayStates={dayStates}
-            conditions={
-              cursor === undefined ? (
-                <MarketConditionsBar />
-              ) : (
-                <RecordedConditionsBar cursor={cursor} closed={closed} />
-              )
-            }
-            cursor={cursor}
-            footer={cursor && <TransportBar cursor={cursor} gaps={gaps} />}
-            search={
-              <StockCodePicker
-                list={codes}
-                label="Search stock code"
-                shortcut="/"
-                onPick={select}
-                className="ml-auto w-full max-w-xs"
-              />
-            }
-          />
-          <FootprintChart store={candles} cursor={cursor} />
-        </div>
-        <div className="flex min-w-0 flex-col gap-4">
-          <Watchlist
-            codes={watchlist.codes}
-            list={codes}
-            store={dayStates}
-            onAdd={watchlist.add}
-            onRemove={watchlist.remove}
-            onSelect={select}
-          />
-          {cursor === undefined ? (
-            <>
-              <OrderBookPanel store={book} />
-              <LiveTape
-                selected={selected}
-                watchlist={watchlist.codes}
-                onSelect={select}
-                onMessage={apply}
-              />
-            </>
-          ) : (
-            <>
-              <RecordedOrderBook store={book} cursor={cursor} gaps={gaps} />
-              <RecordedTape
-                cursor={cursor}
-                gaps={gaps}
-                selected={selected}
-                onSelect={select}
-              />
-            </>
-          )}
-        </div>
-      </div>
+      <LayoutB
+        charts={
+          <>
+            <LiveChart
+              store={candles}
+              sweeps={sweeps}
+              gaps={cursor === undefined ? liveGaps : gaps}
+              dayStates={dayStates}
+              conditions={
+                cursor === undefined ? (
+                  <MarketConditionsBar />
+                ) : (
+                  <RecordedConditionsBar cursor={cursor} closed={closed} />
+                )
+              }
+              cursor={cursor}
+              footer={cursor && <TransportBar cursor={cursor} gaps={gaps} />}
+              search={
+                <StockCodePicker
+                  list={codes}
+                  label="Search stock code"
+                  shortcut="/"
+                  onPick={select}
+                  className="ml-auto w-full max-w-xs"
+                />
+              }
+            />
+            <FootprintChart store={candles} cursor={cursor} />
+          </>
+        }
+        log={<SweepLog store={sweeps} cursor={cursor} />}
+        side={
+          <>
+            <Watchlist
+              codes={watchlist.codes}
+              list={codes}
+              store={dayStates}
+              onAdd={watchlist.add}
+              onRemove={watchlist.remove}
+              onSelect={select}
+            />
+            {cursor === undefined ? (
+              <>
+                <OrderBookPanel store={book} />
+                <LiveTape
+                  selected={selected}
+                  watchlist={watchlist.codes}
+                  onSelect={select}
+                  onMessage={apply}
+                />
+              </>
+            ) : (
+              <>
+                <RecordedOrderBook store={book} cursor={cursor} gaps={gaps} />
+                <RecordedTape
+                  cursor={cursor}
+                  gaps={gaps}
+                  selected={selected}
+                  onSelect={select}
+                />
+              </>
+            )}
+          </>
+        }
+      />
       <StockCodePalette list={codes} onPick={select} />
     </>
   )

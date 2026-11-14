@@ -24,6 +24,8 @@ import type { CandleChange, CandleStore } from "./candle-store"
 import { CHART_SCALE_WIDTH, crosshairTime, tickMark } from "./chart-time"
 import { useAuctionIndicative } from "./market-conditions"
 import type { ReplayCursor } from "./replay-cursor"
+import { attachSweepBubbles, clickedSweep } from "./sweep-bubbles"
+import type { SweepStore } from "./sweep-store"
 
 const timeOf = (candle: Candle) =>
   Effect.sync(
@@ -215,10 +217,13 @@ const MINUTE = 60_000
 // ends, or on a recorded day up to the close.
 export default function ChartCanvas({
   store,
+  sweeps,
   cursor,
   gaps,
 }: {
   store: CandleStore
+  // The selected code's sweeps, drawn as bubbles; none for an index.
+  sweeps?: SweepStore | undefined
   cursor?: ReplayCursor | undefined
   gaps: ReadonlyArray<RelayGap>
 }) {
@@ -308,6 +313,22 @@ export default function ChartCanvas({
         ? `${grey}33`
         : `${candle.close >= candle.open ? up : down}66`,
     })
+    const stopSweeps =
+      sweeps === undefined
+        ? undefined
+        : attachSweepBubbles({
+            chart,
+            series: candles,
+            store: sweeps,
+            cursor,
+            colors: {
+              buy: up,
+              sell: down,
+              big: token("--semantic-warning"),
+              selected: token("--accent-primary"),
+            },
+            marks: element,
+          })
     const marker = new CursorLine(token("--text-primary"))
     if (cursor !== undefined) candles.attachPrimitive(marker)
 
@@ -368,6 +389,8 @@ export default function ChartCanvas({
     })
     if (cursor !== undefined)
       chart.subscribeClick((parameter: MouseEventParams<Time>) => {
+        // A click on a bubble picks its sweep, not the cursor's minute.
+        if (Effect.runSync(clickedSweep(parameter)) !== undefined) return
         if (parameter.time !== undefined)
           cursor.pickMinute((parameter.time as UTCTimestamp) * 1000)
       })
@@ -414,13 +437,14 @@ export default function ChartCanvas({
     })
     return () => {
       redrawGaps.current = undefined
+      stopSweeps?.()
       unsubscribe()
       stopCursor?.()
       cancelAnimationFrame(frame)
       setSeries(null)
       chart.remove()
     }
-  }, [store, cursor])
+  }, [store, sweeps, cursor])
 
   useEffect(() => {
     shownGaps.current = gaps
@@ -443,5 +467,11 @@ export default function ChartCanvas({
     return () => candles.removePriceLine(line)
   }, [indicative, series])
 
-  return <div ref={host} className="h-[420px] w-full" data-chart="candles" />
+  return (
+    <div
+      ref={host}
+      className="h-[420px] w-full lg:h-auto lg:min-h-[420px] lg:flex-1"
+      data-chart="candles"
+    />
+  )
 }

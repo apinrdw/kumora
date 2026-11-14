@@ -41,7 +41,7 @@ const auctionMatchOf = (trade: RunningTrade) =>
 
 // Decision: a big trade is worth Rp1 B or more on the regular board (spec
 // apinrdw/kumora#138, "Tape"), a fixed line for now.
-const BIG_TRADE_IDR = 1_000_000_000
+export const BIG_TRADE_IDR = 1_000_000_000
 
 export const tradeValue = (trade: RunningTrade) =>
   Effect.sync(() => trade.price * trade.lots * 100)
