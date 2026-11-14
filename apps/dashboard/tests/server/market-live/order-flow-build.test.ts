@@ -298,7 +298,7 @@ describe("the one-off build of a day sealed before order flow", () => {
             yield* day.evicted
           })
         const sampled: ReadonlyArray<RecordedResource> = ["C000", "C599"]
-          .map(StockCode.make)
+          .map((code) => StockCode.make(code))
           .flatMap((code) => [
             { _tag: "Sweeps" as const, code },
             { _tag: "Candles" as const, code },
