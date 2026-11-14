@@ -147,6 +147,72 @@ layer(NodeServices.layer)("fallow gate hook", (it) => {
       })
   )
 
+  // Spec #280's review fixer was blocked five times on one unused export: the
+  // summary dropped the finding's fix and the report's trace command, so it
+  // guessed at type-only re-exports instead of removing the `export`.
+  it.effect(
+    "each finding names its fix, and the report's next steps are printed",
+    () =>
+      Effect.gen(function* () {
+        const report = JSON.stringify({
+          verdict: "fail",
+          dead_code: {
+            unused_exports: [
+              {
+                path: "packages/relay/src/broker-codes.ts",
+                export_name: "InvestorType",
+                is_type_only: false,
+                line: 72,
+                col: 13,
+                span_start: 3108,
+                is_re_export: false,
+                finding_id: "dc1:unused-export:c3412d1803e394e2",
+                actions: [
+                  {
+                    type: "remove-export",
+                    auto_fixable: true,
+                    description: "Remove the unused export from the public API",
+                  },
+                  {
+                    type: "suppress-line",
+                    auto_fixable: false,
+                    description:
+                      "Suppress with an inline comment above the line",
+                    comment: "// fallow-ignore-next-line unused-export",
+                  },
+                ],
+                introduced: true,
+                effective_severity: "error",
+              },
+            ],
+          },
+          next_steps: [
+            {
+              id: "trace-unused-export",
+              command:
+                "fallow dead-code --trace packages/relay/src/broker-codes.ts:InvestorType",
+              reason: "verify an export is truly unused before deleting",
+            },
+          ],
+        })
+        const { exitCode, stderr } = yield* runGate(
+          'git commit -m "x"',
+          report,
+          1
+        )
+        assert.strictEqual(exitCode, 2)
+        assert.match(
+          stderr.split("\n").find((line) => /InvestorType/.test(line)) ?? "",
+          /Remove the unused export/
+        )
+        assert.include(
+          stderr,
+          "fallow dead-code --trace packages/relay/src/broker-codes.ts:InvestorType"
+        )
+        assert.notInclude(stderr, "fallow-ignore")
+      })
+  )
+
   it.effect("git options before the subcommand still reach the audit", () =>
     Effect.gen(function* () {
       const { exitCode } = yield* runGate("git -C /tmp push", hugeFailure, 1)
