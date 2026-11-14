@@ -2,8 +2,7 @@
 // apinrdw/kumora#327, "The admin page").
 import { Effect, Schema } from "effect"
 
-import { ArchiveBucket } from "../archive/bucket.ts"
-import { REPORTS_PREFIX } from "../archive/run.ts"
+import type { ListedObject } from "../archive/bucket.ts"
 import { kindPrefix } from "./keys.ts"
 import { KseiReportKind } from "./kind.ts"
 
@@ -24,10 +23,10 @@ const KseiTotals = Schema.Struct({
 })
 export type KseiTotals = typeof KseiTotals.Type
 
-// One listing of reports/: ~150 objects after the first run, ~1,000 after a
-// deep backfill, far within MAX_LISTED_OBJECTS.
-export const kseiTotals = Effect.gen(function* () {
-  const objects = yield* (yield* ArchiveBucket).list(REPORTS_PREFIX)
+// From a listing of reports/.
+export const kseiTotals = Effect.fnUntraced(function* (
+  objects: ReadonlyArray<ListedObject>
+) {
   const kinds = yield* Effect.forEach(KseiReportKind.literals, (kind) =>
     Effect.map(kindPrefix(kind), (prefix) => {
       const under = objects.filter(({ key }) => key.startsWith(prefix))

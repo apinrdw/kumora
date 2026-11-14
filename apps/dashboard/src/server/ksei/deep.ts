@@ -7,8 +7,8 @@ import { HttpClient } from "effect/http"
 
 import { ArchiveBucket } from "../archive/bucket.ts"
 import { REPORTS_PREFIX } from "../archive/run.ts"
+import { monthsHeld } from "./coverage.ts"
 import { recordsByFilename } from "./held.ts"
-import { kindPrefix } from "./keys.ts"
 import type { KseiReportKind } from "./kind.ts"
 import { ListedKseiReport, unlistedReport } from "./listing.ts"
 import { WAYBACK_SEED } from "./wayback-seed.ts"
@@ -61,13 +61,9 @@ export type Probed = typeof Probed.Type
 
 // The months of `kind` the archive holds a record of, as YYYY-MM.
 const heldMonths = Effect.fnUntraced(function* (kind: KseiReportKind) {
-  const prefix = yield* kindPrefix(kind)
-  const objects = yield* (yield* ArchiveBucket).list(REPORTS_PREFIX)
-  return new Set(
-    objects
-      .filter(({ key }) => key.startsWith(prefix) && key.endsWith(".json"))
-      // reports/<kind>/<YYYY-MM-DD>/<record>.json
-      .map(({ key }) => key.slice(prefix.length, prefix.length + 7))
+  return yield* monthsHeld(
+    yield* (yield* ArchiveBucket).list(REPORTS_PREFIX),
+    kind
   )
 })
 

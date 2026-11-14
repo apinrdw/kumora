@@ -7,7 +7,10 @@ import { DateTime, Effect } from "effect"
 
 import type { FileRoutesByFullPath } from "@/routeTree.gen"
 import { authorizeArchive } from "@/server/admin/archive-access"
+import { ArchiveBucket } from "@/server/archive/bucket"
+import { REPORTS_PREFIX } from "@/server/archive/run"
 import type { Action } from "@/server/auth/policy"
+import { kseiCoverage } from "@/server/ksei/coverage"
 import { type KseiTrigger, kseiRunIdAt } from "@/server/ksei/run-result"
 import {
   lastKseiDeepRun,
@@ -29,8 +32,14 @@ export const kseiArchivePage = Effect.fn("kseiArchivePage")(function* (
   headers: Headers
 ) {
   yield* authorize(headers, "admin.view-ksei-archive")
-  const [run, runs, totals, deep] = yield* Effect.all(
-    [lastKseiRun, recentKseiRuns, kseiTotals, lastKseiDeepRun],
+  // One listing of reports/ gives the totals and the coverage: ~150 objects
+  // after the first run, ~1,000 after a deep backfill, far within
+  // MAX_LISTED_OBJECTS.
+  const reports = Effect.gen(function* () {
+    return yield* (yield* ArchiveBucket).list(REPORTS_PREFIX)
+  })
+  const [run, runs, objects, deep] = yield* Effect.all(
+    [lastKseiRun, recentKseiRuns, reports, lastKseiDeepRun],
     { concurrency: "unbounded" }
   )
   const now = yield* DateTime.now
@@ -39,16 +48,13 @@ export const kseiArchivePage = Effect.fn("kseiArchivePage")(function* (
     nextRun: (yield* nextKseiRun(DateTime.toDateUtc(now))).toISOString(),
     now: DateTime.formatIso(now),
     recentRuns: runs,
-    totals,
-    // For the coverage grid: only what it shows of the run.
+    totals: yield* kseiTotals(objects),
+    // The deep run the coverage's months not found come from.
     lastDeepRun:
       deep?.deep == null
         ? undefined
-        : {
-            id: deep.id,
-            finishedAt: deep.finishedAt,
-            monthsNotFound: deep.deep.monthsNotFound,
-          },
+        : { id: deep.id, finishedAt: deep.finishedAt },
+    coverage: yield* kseiCoverage(objects, deep?.deep?.monthsNotFound, now),
   }
 })
 

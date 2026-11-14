@@ -274,12 +274,128 @@ describe("KSEI's Deep backfill", () => {
         assert.deepStrictEqual(page.lastDeepRun, {
           id: ArchiveRunId.make("deep-1750000000000"),
           finishedAt: "2025-06-15T15:06:40.000Z",
-          monthsNotFound: {
-            "securities-statistics": ["2009-07"],
-            "securities-holdings": [],
-          },
         })
+        const statistics = page.coverage[0]
+        assert.strictEqual(statistics?.kind, "securities-statistics")
+        // The older deep run's month is no longer known as not found.
+        assert.strictEqual(monthOf(statistics, 2008, 5), "never-looked-for")
+        assert.strictEqual(monthOf(statistics, 2009, 7), "not-found")
       }).pipe(Effect.provide(layer))
     }
   )
+})
+
+type Coverage = Effect.Success<
+  ReturnType<typeof kseiArchivePage>
+>["coverage"][number]
+
+const monthOf = (coverage: Coverage | undefined, year: number, month: number) =>
+  coverage?.years.find((row) => row.year === year)?.months[month - 1]
+
+const NEVER = "never-looked-for"
+
+describe("the KSEI coverage grid", () => {
+  const deepRun = (monthsNotFound: {
+    "securities-statistics": ReadonlyArray<string>
+    "securities-holdings": ReadonlyArray<string>
+  }): KseiRunResult => ({
+    ...RUNNING,
+    id: ArchiveRunId.make("deep-1763089200000"),
+    trigger: "deep",
+    finishedAt: RUNNING.startedAt,
+    outcome: "complete",
+    deep: {
+      foundFromSeed: [],
+      foundByProbing: [],
+      monthsNotFound,
+      probeFailures: [],
+    },
+  })
+  const record = (bucket: MemoryBucket, kind: string, periodEnd: string) =>
+    seedObject(bucket, `reports/${kind}/${periodEnd}/aa.t.x.json`, "{}")
+
+  it.effect(
+    "shows each month held, not found by the latest deep run, or never looked for",
+    () => {
+      const { layer, mails, bucket } = archive()
+      record(bucket, "securities-statistics", "2008-01-31")
+      record(bucket, "securities-statistics", "2026-10-30")
+      // Stored after the deep run looked: held wins.
+      record(bucket, "securities-holdings", "2008-03-31")
+      // A zip without its record is not a complete version.
+      seedObject(bucket, "reports/securities-holdings/2008-04-30/bb.zip", "z")
+      seedRun(
+        bucket,
+        deepRun({
+          "securities-statistics": ["2008-02"],
+          "securities-holdings": ["2008-03", "2023-12"],
+        })
+      )
+      return Effect.gen(function* () {
+        yield* TestClock.setTime(Date.parse("2026-11-14T14:00:00.000Z"))
+        const cookie = yield* verified(mails)(ADMIN_EMAIL, "Adi")
+        const { coverage } = yield* kseiArchivePage(headers(cookie))
+        assert.deepStrictEqual(
+          coverage.map(({ kind }) => kind),
+          ["securities-statistics", "securities-holdings"]
+        )
+        const [statistics, holdings] = coverage
+        assert.deepStrictEqual(
+          statistics?.years.map(({ year }) => year),
+          Array.from({ length: 19 }, (_, i) => 2008 + i)
+        )
+        assert.deepStrictEqual(statistics?.years[0]?.months, [
+          "held",
+          "not-found",
+          ...Array.from({ length: 10 }, () => NEVER),
+        ])
+        // 2026 runs to November, the current month.
+        assert.deepStrictEqual(statistics?.years.at(-1)?.months, [
+          ...Array.from({ length: 9 }, () => NEVER),
+          "held",
+          NEVER,
+        ])
+        assert.deepStrictEqual(holdings?.years[0]?.months, [
+          NEVER,
+          NEVER,
+          "held",
+          NEVER,
+          ...Array.from({ length: 8 }, () => NEVER),
+        ])
+        assert.strictEqual(monthOf(holdings, 2023, 12), "not-found")
+        assert.strictEqual(monthOf(statistics, 2023, 12), NEVER)
+      }).pipe(Effect.provide(layer))
+    }
+  )
+
+  it.effect("shows every month without a file as never looked for", () => {
+    const { layer, mails, bucket } = archive()
+    record(bucket, "securities-holdings", "2015-06-30")
+    return Effect.gen(function* () {
+      yield* TestClock.setTime(Date.parse("2026-11-14T14:00:00.000Z"))
+      const cookie = yield* verified(mails)(ADMIN_EMAIL, "Adi")
+      const { coverage, lastDeepRun } = yield* kseiArchivePage(headers(cookie))
+      assert.isUndefined(lastDeepRun)
+      const states = coverage.flatMap(({ years }) =>
+        years.flatMap(({ months }) => months)
+      )
+      assert.strictEqual(states.length, 2 * (18 * 12 + 11))
+      assert.deepStrictEqual(
+        states.filter((state) => state !== NEVER),
+        ["held"]
+      )
+      assert.strictEqual(monthOf(coverage[1], 2015, 6), "held")
+    }).pipe(Effect.provide(layer))
+  })
+
+  it.effect("ends at the current month in WIB", () => {
+    const { layer, mails } = archive()
+    return Effect.gen(function* () {
+      // Nov 30, 18:00 UTC is Dec 1, 01:00 WIB.
+      yield* TestClock.setTime(Date.parse("2026-11-30T18:00:00.000Z"))
+      const cookie = yield* verified(mails)(ADMIN_EMAIL, "Adi")
+      const { coverage } = yield* kseiArchivePage(headers(cookie))
+      assert.strictEqual(coverage[0]?.years.at(-1)?.months.length, 12)
+    }).pipe(Effect.provide(layer))
+  })
 })
