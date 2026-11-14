@@ -93,17 +93,17 @@ describe("baseRef", () => {
 
   it.effect("is the PR's base branch on a pull_request run", () =>
     Effect.gen(function* () {
-      assert.strictEqual(yield* baseRef, "origin/staging")
-    }).pipe(withEnv({ GITHUB_BASE_REF: "staging" }))
+      assert.strictEqual(yield* baseRef, "origin/main")
+    }).pipe(withEnv({ GITHUB_BASE_REF: "main" }))
   )
 
-  it.effect("is main when GITHUB_BASE_REF is empty or unset", () =>
+  it.effect("is staging when GITHUB_BASE_REF is empty or unset", () =>
     Effect.gen(function* () {
       assert.strictEqual(
         yield* baseRef.pipe(withEnv({ GITHUB_BASE_REF: "" })),
-        "origin/main"
+        "origin/staging"
       )
-      assert.strictEqual(yield* baseRef.pipe(withEnv({})), "origin/main")
+      assert.strictEqual(yield* baseRef.pipe(withEnv({})), "origin/staging")
     })
   )
 })
