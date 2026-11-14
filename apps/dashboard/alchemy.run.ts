@@ -16,6 +16,7 @@ import * as Effect from "effect/Effect"
 import * as Redacted from "effect/Redacted"
 
 import { SENDER, SENDING_SUBDOMAIN } from "./src/server/auth/sender.ts"
+import type { ArchiveParams } from "./src/server/shareholding/run-result.ts"
 
 // scripts/auth-schema.ts replays the same directory for the drift check and
 // the handler test seam. apps/e2e/reset-test-stage.ts reads this resource's
@@ -142,6 +143,20 @@ export const Website = Cloudflare.Website.Vite(
         // (src/server/market-live/day-index-object.ts). Untyped, like
         // TRADING_DAY.
         MARKET_LIVE_INDEX: Cloudflare.DurableObject("DayIndex"),
+        // The shareholding archive and its archive run, on every stage, so
+        // the code runs the same everywhere; outside Production the bucket
+        // stays empty. src/worker.ts exports the Workflow class.
+        SHAREHOLDING_ARCHIVE_BUCKET: Cloudflare.R2.Bucket(
+          "ShareholdingArchiveBucket",
+          // Decision: Production's archive survives a stack destroy; any
+          // other stage's is emptied with it, so a Preview teardown never
+          // stops on a bucket a Run now filled.
+          { forceDestroy: (yield* stageKind(stage)) !== "production" }
+        ),
+        SHAREHOLDING_ARCHIVE: Cloudflare.Workflow<ArchiveParams>(
+          "ShareholdingArchive",
+          { className: "ShareholdingArchive" }
+        ),
         ...google,
         ...clockOffset,
       },

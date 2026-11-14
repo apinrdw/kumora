@@ -9,9 +9,13 @@ import { CheckFailed } from "./lib/check.mts"
 const rule = "no-restricted-imports"
 
 // Root paths an override may leave out, and the only files it may do so for.
-// The bridge is the one module that may reach cloudflare:workers.
+// The two bridges (packages/server/src/workflow.ts says why there are two) are
+// the only modules that may reach cloudflare:workers.
 const allowedOmissions: Readonly<Record<string, ReadonlyArray<string>>> = {
-  "cloudflare:workers": ["packages/server/src/bridge.ts"],
+  "cloudflare:workers": [
+    "packages/server/src/bridge.ts",
+    "packages/server/src/workflow.ts",
+  ],
 }
 
 const Pattern = Schema.Struct({
