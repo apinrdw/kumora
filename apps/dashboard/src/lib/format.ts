@@ -99,6 +99,10 @@ export const lots = (n: number) => Effect.sync(() => nfUpTo2.format(n))
 export const shares = (n: number) =>
   Effect.map(compact(n), (figure) => figure + " shares")
 
+/** An instant's WIB clock time, 24-hour: 14:45 */
+export const wibClock = (epochMillis: number) =>
+  Effect.sync(() => timeWib.format(epochMillis))
+
 /** 14:45 WIB */
 export const asOf = (iso: string) =>
   Effect.sync(() => timeWib.format(new Date(iso)) + " WIB")

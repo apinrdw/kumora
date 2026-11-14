@@ -1,7 +1,10 @@
 // What both Market Live charts share (chart-canvas.tsx, footprint-canvas.tsx):
 // WIB time labels and the price scale's width. Both modules load only in the
 // browser.
+import { Effect } from "effect"
 import { TickMarkType, type Time, type UTCTimestamp } from "lightweight-charts"
+
+import { wibClock } from "@/lib/format"
 
 // Decision: both charts' price scales are at least this wide, so their plots
 // share one width and a minute sits at the same x in each (spec
@@ -9,12 +12,6 @@ import { TickMarkType, type Time, type UTCTimestamp } from "lightweight-charts"
 export const CHART_SCALE_WIDTH = 72
 
 const WIB = "Asia/Jakarta"
-const wibClock = new Intl.DateTimeFormat("en-US", {
-  hour: "2-digit",
-  minute: "2-digit",
-  hourCycle: "h23",
-  timeZone: WIB,
-})
 const wibDate = new Intl.DateTimeFormat("en-US", {
   month: "short",
   day: "numeric",
@@ -29,7 +26,7 @@ const wibYear = new Intl.DateTimeFormat("en-US", {
 // Charts calls these two back, so they are plain.
 export const crosshairTime = (time: Time) => {
   const date = new Date((time as UTCTimestamp) * 1000)
-  return `${wibDate.format(date)}, ${wibClock.format(date)} WIB`
+  return `${wibDate.format(date)}, ${Effect.runSync(wibClock(date.getTime()))} WIB`
 }
 export const tickMark = (time: Time, type: TickMarkType) => {
   const date = new Date((time as UTCTimestamp) * 1000)
@@ -37,5 +34,5 @@ export const tickMark = (time: Time, type: TickMarkType) => {
     ? wibYear.format(date)
     : type === TickMarkType.Month || type === TickMarkType.DayOfMonth
       ? wibDate.format(date)
-      : wibClock.format(date)
+      : Effect.runSync(wibClock(date.getTime()))
 }
