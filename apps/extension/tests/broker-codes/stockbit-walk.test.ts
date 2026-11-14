@@ -870,6 +870,9 @@ describe("Stockbit's gap walk of an older day", () => {
       })
   )
 
+  // Slow on purpose: a capped list takes MISSING_RANGES ranges, so the walk
+  // decodes about 1,000 Stockbit pages. It took 1.7 s on CI and three times
+  // that on a slow run (apinrdw/kumora#332), so its timeout leaves 10x.
   it.effect(
     "asks the status again after a capped list, past ranges Stockbit can't fill",
     () =>
@@ -913,7 +916,8 @@ describe("Stockbit's gap walk of an older day", () => {
           [2_000, 2_000]
         )
         assert.strictEqual(production.held.get(2_200)?.source, "stockbit")
-      })
+      }),
+    { timeout: 20_000 }
   )
 
   it.effect("gives up a day Stockbit answers with no rows", () =>
