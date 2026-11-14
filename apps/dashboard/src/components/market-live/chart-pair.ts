@@ -8,9 +8,9 @@
 // - Chart 2 opens and refits at exactly 10 whole minutes: on every jump and
 //   when its width changes, around its current middle.
 // - A pan gesture on either chart (a drag, the coast after a touch, a
-//   horizontal wheel) moves the other by the same bars; a zoom never
+//   horizontal wheel) moves the other by the same minutes; a zoom never
 //   propagates, and neither does a range change no gesture made. The pair
-//   holds the two ranges a fixed number of bars apart through a gesture,
+//   holds the two ranges a fixed number of minutes apart through a gesture,
 //   because range events arrive a frame late.
 // - The crosshair follows the pointer's time on the other chart.
 // - Chart 1 shades chart 2's minutes, and a click on it moves chart 2 there.
@@ -88,7 +88,7 @@ export const makeChartPair = () =>
     let panning: IChartApi | undefined
     // When the coast after a touch on it is over.
     let coastEnds: number | undefined
-    // How many bars the other chart's range starts after the panning one's:
+    // How many minutes the other chart's range starts after the panning one's:
     // the gesture holds it, so a new minute that scrolls both charts
     // mid-gesture moves the other chart once.
     let apart: number | undefined
@@ -96,7 +96,7 @@ export const makeChartPair = () =>
     const reported = new Map<IChartApi, BarRange>()
     // The range this pair last set on each chart. Until the chart reports
     // it, that is where the chart is going: a frame late, or never when the
-    // chart stops short at the end of its bars. A gesture on the chart
+    // chart stops short at the end of its minutes. A gesture on the chart
     // itself forgets it.
     const sentTo = new Map<IChartApi, BarRange>()
     // The same range, kept through such a gesture: its report is the pair's
@@ -147,7 +147,7 @@ export const makeChartPair = () =>
 
     // Follows `side`'s range changes: marks them on its element, moves the
     // band, and through a pan gesture on it, moves the other chart by as
-    // many bars.
+    // many minutes.
     const follow = (
       side: PairedChart,
       other: () => PairedChart | undefined
