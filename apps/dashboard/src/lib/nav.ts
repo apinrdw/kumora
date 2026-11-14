@@ -1,4 +1,9 @@
-import { IconChartCandle, IconUsers, type Icon } from "@tabler/icons-react"
+import {
+  IconArchive,
+  IconChartCandle,
+  IconUsers,
+  type Icon,
+} from "@tabler/icons-react"
 import type { LinkProps } from "@tanstack/react-router"
 import { Effect } from "effect"
 
@@ -46,6 +51,13 @@ export const NAV: ReadonlyArray<NavGroup> = [
         link: { to: "/admin/users" },
         feature: "admin",
         mobile: true,
+      },
+      {
+        label: "Shareholding archive",
+        shortLabel: "Archive",
+        icon: IconArchive,
+        link: { to: "/admin/shareholding" },
+        feature: "admin",
       },
     ],
   },
