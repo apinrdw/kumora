@@ -66,9 +66,10 @@ export const brokerCodesDay = (pathname: string) =>
 export const BrokerCode = Schema.String.check(
   Schema.isPattern(/^[A-Z]{2}$/)
 ).pipe(Schema.brand("BrokerCode"))
+export type BrokerCode = typeof BrokerCode.Type
 
 // Domestic or foreign: the investor behind one side, not the broker.
-export const InvestorType = Schema.Literals(["D", "F"])
+const InvestorType = Schema.Literals(["D", "F"])
 export type InvestorType = typeof InvestorType.Type
 
 // One running trade's broker codes and investor types, both sides.

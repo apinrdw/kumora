@@ -1,5 +1,7 @@
 import type { RecordedTradeCodes } from "@workspace/client"
 import type {
+  BrokerCode,
+  InvestorType,
   RelayGap,
   RunningTrade,
   StockCode,
@@ -165,22 +167,23 @@ export const TAPE_WIDTH_PX = Object.values(COLUMN_PX).reduce(
 // A gap or fold row spans every column.
 const COLUMNS = Object.keys(COLUMN_PX).length
 
-const INVESTOR_TEXT: Record<TradeCodes["buyerType"], string> = {
+const INVESTOR_TEXT: Record<InvestorType, string> = {
   F: "text-foreign",
   D: "text-domestic",
 }
 
-interface BrokerSide {
-  readonly code: TradeCodes["buyer"]
-  readonly type: TradeCodes["buyerType"]
+// One side of a trade: its broker and the investor behind it.
+interface TradeSide {
+  readonly code: BrokerCode
+  readonly investorType: InvestorType
 }
 
-// One side's broker as `AK [F]`, coloured by its investor type; blank while
-// the trade has no stored codes.
-function BrokerCell({ side }: { side: BrokerSide | undefined }) {
+// One side as `AK [F]`, coloured by its investor type; blank while the trade
+// has no stored codes.
+function BrokerCell({ side }: { side: TradeSide | undefined }) {
   return (
-    <td className={cn(CELL, "pl-2", side && INVESTOR_TEXT[side.type])}>
-      {side && `${side.code} [${side.type}]`}
+    <td className={cn(CELL, "pl-2", side && INVESTOR_TEXT[side.investorType])}>
+      {side && `${side.code} [${side.investorType}]`}
     </td>
   )
 }
@@ -190,10 +193,10 @@ function BrokerCells({ codes }: { codes: TradeCodes | undefined }) {
   return (
     <>
       <BrokerCell
-        side={codes && { code: codes.buyer, type: codes.buyerType }}
+        side={codes && { code: codes.buyer, investorType: codes.buyerType }}
       />
       <BrokerCell
-        side={codes && { code: codes.seller, type: codes.sellerType }}
+        side={codes && { code: codes.seller, investorType: codes.sellerType }}
       />
     </>
   )

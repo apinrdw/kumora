@@ -214,8 +214,10 @@ const crossCheckOf = (
     }
   })
 
-// Decision: no broker codes answer is ever cached: the status changes with
-// every batch. The route (broker-codes-route.ts) answers through this too.
+// Decision: no status or batch answer is cached: the status changes with
+// every batch. The route (broker-codes-route.ts) answers through this too. A
+// recorded day's codes answer is not one of these: see COMPLETE_CODES_CACHE
+// in recorded-answers.ts.
 export const noStoreAnswer = (
   status: number,
   text?: string,

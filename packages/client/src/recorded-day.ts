@@ -78,8 +78,9 @@ export const fetchRecordedTape = Effect.fnUntraced(function* (
 })
 
 // The broker codes of the trades the tape at `at` holds, and whether the
-// day's codes are complete; a 404 is a day with none yet. `fresh` asks the
-// Worker past the browser's copy, for the recheck while incomplete.
+// day's codes are complete; a 404, a date that isn't a recorded day, reads as
+// none. `fresh` asks the Worker past the browser's copy, for the recheck
+// while incomplete.
 export const fetchRecordedBrokerCodes = Effect.fnUntraced(function* (
   date: WibDate,
   at: DateTime.Utc,
@@ -120,7 +121,7 @@ export const makeNewestWins = Effect.sync(() => {
 
 // Decision: while the day's codes are incomplete, the page asks again every
 // 30 s (spec apinrdw/kumora#280, "Recheck"); the walks store codes for over
-// an hour after the close.
+// an hour after the seal.
 const RECHECK = Duration.seconds(30)
 
 /**
