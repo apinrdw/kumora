@@ -7,15 +7,17 @@ import { DateTime, Effect, Schema, Struct } from "effect"
 import { ArchiveRunId, type RunParams, RunOutcome } from "../archive/run.ts"
 import { KseiReportKind } from "./kind.ts"
 
-export const KseiTrigger = Schema.Literals(["cron", "admin"])
+// A deep run is a Deep backfill: the scheduled pass, then the files older
+// than the listing (deep.ts).
+export const KseiTrigger = Schema.Literals(["cron", "admin", "deep"])
 export type KseiTrigger = typeof KseiTrigger.Type
 
 // What `create` passes the Workflow (KSEI_ARCHIVE in alchemy.run.ts).
 export type KseiParams = RunParams<KseiTrigger>
 
 // The id of a run `trigger` starts at `epochMs`: `cron-<YYYY-MM-DD>` from the
-// cron's scheduled time (it fires once a day), or `admin-<epoch ms>`. Ids of
-// one trigger sort as their starts do.
+// cron's scheduled time (it fires once a day), or `admin-<epoch ms>` and
+// `deep-<epoch ms>`. Ids of one trigger sort as their starts do.
 export const kseiRunIdAt = Effect.fnUntraced(function* (
   trigger: KseiTrigger,
   epochMs: number
@@ -23,7 +25,7 @@ export const kseiRunIdAt = Effect.fnUntraced(function* (
   return ArchiveRunId.make(
     trigger === "cron"
       ? `cron-${new Date(epochMs).toISOString().slice(0, 10)}`
-      : `admin-${epochMs}`
+      : `${trigger}-${epochMs}`
   )
 })
 
@@ -31,6 +33,32 @@ export const ListingFailure = Schema.Struct({
   kind: KseiReportKind,
   message: Schema.String,
 })
+
+// What a Deep backfill found beyond the scheduled pass.
+const DeepFinds = Schema.Struct({
+  // Seeded filenames stored, each with `listing: null`.
+  foundFromSeed: Schema.Array(Schema.String),
+  // Filenames a probe found and the run stored.
+  foundByProbing: Schema.Array(Schema.String),
+  // Per kind, the months of the probed years (`YYYY-MM`) no probe found a
+  // file for, oldest first. They don't make a run partial. The admin page's
+  // coverage grid reads them from the latest deep run (lastKseiDeepRun,
+  // runs.ts).
+  monthsNotFound: Schema.Struct({
+    "securities-statistics": Schema.Array(Schema.String),
+    "securities-holdings": Schema.Array(Schema.String),
+  }),
+  // Probe steps that still failed after their retries: their months are
+  // neither found nor not found, and the run is partial.
+  probeFailures: Schema.Array(
+    Schema.Struct({
+      kind: KseiReportKind,
+      year: Schema.Number,
+      message: Schema.String,
+    })
+  ),
+})
+export type DeepFinds = typeof DeepFinds.Type
 
 export const KseiRunResult = Schema.Struct({
   id: ArchiveRunId,
@@ -54,6 +82,8 @@ export const KseiRunResult = Schema.Struct({
   notStored: Schema.Array(Schema.String),
   // At most MAX_RUN_ERROR_LENGTH characters.
   error: Schema.NullOr(Schema.String),
+  // A deep run's finds, once it has ended; null for any other run.
+  deep: Schema.NullOr(DeepFinds),
 })
 export type KseiRunResult = typeof KseiRunResult.Type
 
@@ -94,5 +124,6 @@ export const runningKseiResult = Effect.fnUntraced(function* (run: {
     listingFailures: [],
     notStored: [],
     error: null,
+    deep: null,
   })
 })

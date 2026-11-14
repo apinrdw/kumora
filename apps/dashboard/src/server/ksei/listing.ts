@@ -26,8 +26,9 @@ export const LISTING_URLS: Record<KseiReportKind, string> = {
 // `StatisEfek<YYYYMMDD>.txt.zip` and `BalanceposEfek<YYYYMMDD>.zip`, or
 // `BalanceposEfek<YYYYMMDD>.txt.zip` before 2009, where <YYYYMMDD> is the
 // period end. A filename names its keys in R2, so nothing else passes.
+// scripts/ksei-wayback-seed.mts repeats it for the seed it writes.
 const KSEI_FILENAME =
-  /^(?:StatisEfek|BalanceposEfek)(\d{4})(\d{2})(\d{2})(?:\.txt)?\.zip$/
+  /^(StatisEfek|BalanceposEfek)(\d{4})(\d{2})(\d{2})(?:\.txt)?\.zip$/
 
 const KseiFilename = Schema.String.check(Schema.isPattern(KSEI_FILENAME))
 
@@ -97,8 +98,33 @@ class ListingUnreadable extends Schema.TaggedError<ListingUnreadable>()(
 
 // YYYY-MM-DD from a filename KseiFilename passed.
 const periodEndOf = Effect.fnUntraced(function* (filename: string) {
-  const [, year, month, day] = KSEI_FILENAME.exec(filename) ?? []
+  const [, , year, month, day] = KSEI_FILENAME.exec(filename) ?? []
   return `${year}-${month}-${day}`
+})
+
+// Where KSEI serves every file today, the unlisted ones too.
+const KSEI_DOWNLOAD = `${KSEI_ORIGIN}storage/Download/`
+
+// The kind each filename prefix names.
+const KIND_OF_PREFIX: Record<string, KseiReportKind> = {
+  StatisEfek: "securities-statistics",
+  BalanceposEfek: "securities-holdings",
+}
+
+// A file no listing names, as a Deep backfill fetches it: its kind from its
+// filename's prefix, at KSEI_DOWNLOAD, with `listing: null`. Undefined for a
+// name that isn't a KSEI report's.
+export const unlistedReport = Effect.fnUntraced(function* (filename: string) {
+  const [, prefix = "", year, month, day] = KSEI_FILENAME.exec(filename) ?? []
+  const kind = KIND_OF_PREFIX[prefix]
+  if (kind === undefined) return undefined
+  return ListedKseiReport.make({
+    kind,
+    periodEnd: `${year}-${month}-${day}`,
+    filename,
+    url: `${KSEI_DOWNLOAD}${filename}`,
+    listing: null,
+  })
 })
 
 const decodeEntry = Schema.decodeUnknownEffect(ListingEntry)

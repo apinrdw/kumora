@@ -46,6 +46,7 @@ const RUNNING: KseiRunResult = {
   listingFailures: [],
   notStored: [],
   error: null,
+  deep: null,
 }
 
 const seedLatest = (bucket: MemoryBucket, run: KseiRunResult) => {
