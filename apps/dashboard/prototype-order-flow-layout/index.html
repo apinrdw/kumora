@@ -39,6 +39,16 @@
   .chartbox .legend { font-size:11px; color:var(--text-muted); }
   .chartbox .noise { margin-left:auto; display:flex; align-items:center; gap:4px; font-size:11px; color:var(--text-muted); white-space:nowrap; }
   .chartbox .noise button { padding:1px 7px; font-size:11px; }
+  .fpmodes { display:inline-flex; gap:2px; margin-left:8px; background:#0e1a29; border:1px solid var(--border-subtle); border-radius:7px; padding:2px; }
+  .fpmodes button { border:0; background:transparent; padding:2px 9px; font-size:11px; }
+  .fpmodes button.on { background:var(--bg-elevated); color:var(--text-primary); border:0; }
+  .fpopts { margin-left:auto; display:flex; align-items:center; gap:6px; font-size:11px; color:var(--text-muted); }
+  .fpopts select { background:var(--bg-elevated); color:var(--text-primary); border:1px solid var(--border-subtle); border-radius:6px; font-size:11px; padding:1px 4px; }
+  .fpopts button { padding:1px 7px; font-size:11px; }
+  .fphead { font:11px/1.5 ui-monospace,monospace; color:var(--text-secondary); margin:-2px 0 4px; display:flex; flex-wrap:wrap; gap:2px 14px; min-height:34px; }
+  .fphead b { color:var(--text-primary); font-weight:600; }
+  .fphead .vw { color:#7dbcf5; } .fphead .s1 { color:#51dda2; } .fphead .s2 { color:#9ad96c; } .fphead .s3 { color:#f4c36e; }
+  .fphead .row { display:flex; gap:12px; width:100%; }
   .chartbox .noise input[type=range] { width:110px; accent-color:var(--accent); margin:0 2px 0 6px; }
   .chartbox .noise #topNLabel { color:var(--text-primary); min-width:34px; font-variant-numeric:tabular-nums; }
   .chartbox .noise #noiseMin { margin-left:4px; font-variant-numeric:tabular-nums; }
@@ -135,7 +145,11 @@
     <div id="c1"></div>
   </section>
   <section class="card chartbox" id="box2">
-    <header><h2>Footprint</h2><span class="legend">Chart 2 · sell × buy lots per price (Stacked), footer Vol / Δ / CVD</span></header>
+    <header><h2>Footprint</h2>
+      <span class="fpmodes" role="tablist"><button data-fpview="stacked" class="on">Stacked</button><button data-fpview="side">Side by side</button><button data-fpview="profile">Footprint</button><button data-fpview="candles">Candles</button></span>
+      <span class="fpopts">Imbalance <select id="imb"><option value="0">Off</option><option value="2">2×</option><option value="3" selected>3×</option><option value="4">4×</option></select>
+        <button id="pocBtn" class="on">POC</button><button id="vwapBtn" class="on">VWAP ±σ</button></span></header>
+    <div class="fphead" id="fpHead"></div>
     <div id="c2"></div>
   </section>
   <section class="card readout" id="readout"><h3 id="roTitle">Minute</h3><dl id="roBody"></dl></section>
@@ -207,6 +221,31 @@ const fp = candles.map(c => {
   return { levels, buy, sell, delta: buy - sell, max };
 });
 { let cvd = 0; for (const f of fp) { cvd += f.delta; f.cvd = cvd; } }
+// Chart 2 view state (prototype of apinrdw/kumora#261).
+let fpView = "stacked", imbRatio = 3, showPoc = true, showVwap = true;
+const IMB_MIN = 5; // an imbalance needs at least this many lots on the strong side
+// POC: each minute's price with the most lots (all sides).
+for (const f of fp) { let best = -1; f.poc = null; for (const [p, s, b, n] of f.levels) if (s + b + n > best) { best = s + b + n; f.poc = p; } }
+// Imbalance, compared diagonally: buy at p against sell one tick below (the offer was lifted
+// over the bid below it), sell at p against buy one tick above.
+function imbalanceOf(f, p) {
+  if (!imbRatio) return 0;
+  const at = q => f.byPrice.get(q) ?? [0, 0, 0];
+  const t = idxTick(p), [s, b] = at(p);
+  if (b >= IMB_MIN && b >= imbRatio * at(p - t)[0]) return 1;
+  if (s >= IMB_MIN && s >= imbRatio * at(p + t)[1]) return -1;
+  return 0;
+}
+for (const f of fp) f.byPrice = new Map(f.levels.map(([p, s, b, n]) => [p, [s, b, n]]));
+// Day VWAP and its standard deviation, cumulative, from every lot traded at each price.
+const vwap = [];
+{ let pv = 0, v = 0, p2v = 0;
+  for (const f of fp) {
+    for (const [p, s, b, n] of f.levels) { const q = s + b + n; pv += p * q; v += q; p2v += p * p * q; }
+    const m = v ? pv / v : NaN, sd = v ? Math.sqrt(Math.max(0, p2v / v - m * m)) : NaN;
+    vwap.push({ m, sd });
+  } }
+const IMB_BUY = "#6fe3ff", IMB_SELL = "#ff8cf0";
 const maxCell = Math.max(...fp.map(f => f.max));
 
 // heatmap: per minute, six 10 s slots of flat [price, side(0 bid / 1 offer), bucket] triples; plus a per-minute average
@@ -539,7 +578,49 @@ class FootprintView {
       if (!bar) continue;
       const d = bar.originalData, x = bar.x;
       const col = d.later ? "rgba(131,154,174,.33)" : d.close >= d.open ? UP : DOWN;
-      if (d.later || mode === "candle") { drawCandle(ctx, conv, d, x, Math.max(1, bs * 0.7), hpr, vpr, col); continue; }
+      if (d.later || mode === "candle" || fpView === "candles") { drawCandle(ctx, conv, d, x, Math.max(1, bs * (fpView === "candles" ? 0.6 : 0.7)), hpr, vpr, col); continue; }
+      const pocBox = (yt, yb, x0, w) => { if (!showPoc) return; ctx.strokeStyle = WARN; ctx.lineWidth = Math.max(1, hpr); ctx.strokeRect(Math.round(x0 * hpr) + 0.5, yt + 0.5, Math.round(w * hpr) - 1, Math.max(1, yb - yt - 2)); };
+      const sellCol = (p) => imbalanceOf(d.fp, p) < 0 ? IMB_SELL : "#ffb3bb", buyCol = (p) => imbalanceOf(d.fp, p) > 0 ? IMB_BUY : "#a6f0cf";
+      if ((mode === "text" || mode === "compact") && fpView === "side") {
+        // Side by side: a sell half and a buy half per price, each shaded by its own size.
+        const left = x - bs / 2;
+        drawCandle(ctx, conv, d, left + 3, 2, hpr, vpr, col);
+        const x0 = left + 6, w = bs - 8, hw = w / 2, mx = Math.max(1, ...d.fp.levels.map(l => Math.max(l[1], l[2])));
+        const base = Math.min(mode === "text" ? 11 : 9, rowH - 1);
+        for (const [p, s, b, n] of d.fp.levels) {
+          const yt = Math.round(conv(p + TICK / 2) * vpr), yb = Math.round(conv(p - TICK / 2) * vpr), y = (yt + yb) / 2, hh = Math.max(1, yb - yt - 1);
+          ctx.fillStyle = `rgba(255,121,135,${(0.06 + 0.5 * s / mx).toFixed(3)})`; ctx.fillRect(Math.round(x0 * hpr), yt, Math.round((hw - 1) * hpr), hh);
+          ctx.fillStyle = `rgba(81,221,162,${(0.06 + 0.5 * b / mx).toFixed(3)})`; ctx.fillRect(Math.round((x0 + hw) * hpr), yt, Math.round((hw - 1) * hpr), hh);
+          fitFont(ctx, base, vpr, (hw - 8) * hpr, c => Math.max(c.measureText(k(s)).width, c.measureText(k(b)).width));
+          ctx.textAlign = "center";
+          ctx.fillStyle = sellCol(p); ctx.fillText(k(s), (x0 + hw / 2) * hpr, y);
+          ctx.fillStyle = buyCol(p); ctx.fillText(k(b), (x0 + hw * 1.5) * hpr, y);
+          if (p === d.fp.poc) pocBox(yt, yb, x0, w);
+          texts += 2;
+        }
+        continue;
+      }
+      if ((mode === "text" || mode === "compact") && fpView === "profile") {
+        // Footprint as a per-minute volume profile: one bar per price, length by total lots,
+        // coloured by that price's delta, the total at its end.
+        const left = x - bs / 2;
+        drawCandle(ctx, conv, d, left + 3, 2, hpr, vpr, col);
+        const x0 = left + 6, w = bs - 8, mx = Math.max(1, ...d.fp.levels.map(l => l[1] + l[2] + l[3]));
+        const base = Math.min(mode === "text" ? 11 : 9, rowH - 1);
+        for (const [p, s, b, n] of d.fp.levels) {
+          const yt = Math.round(conv(p + TICK / 2) * vpr), yb = Math.round(conv(p - TICK / 2) * vpr), y = (yt + yb) / 2, hh = Math.max(1, yb - yt - 1);
+          const tot = s + b + n, bw = Math.max(2, (w - 2) * tot / mx);
+          ctx.fillStyle = b > s ? "rgba(81,221,162,.55)" : b < s ? "rgba(255,121,135,.55)" : "rgba(168,184,200,.45)";
+          ctx.fillRect(Math.round(x0 * hpr), yt, Math.round(bw * hpr), hh);
+          fitFont(ctx, base, vpr, (w - 6) * hpr, c => c.measureText(k(tot)).width);
+          const im = imbalanceOf(d.fp, p);
+          ctx.textAlign = "left"; ctx.fillStyle = im > 0 ? IMB_BUY : im < 0 ? IMB_SELL : TEXT;
+          ctx.fillText(k(tot), (x0 + 4) * hpr, y);
+          if (p === d.fp.poc) pocBox(yt, yb, x0, w);
+          texts++;
+        }
+        continue;
+      }
       if (mode === "bars") {
         drawCandle(ctx, conv, d, x - bs * 0.32, Math.max(1, bs * 0.12), hpr, vpr, col);
         const xa = x - bs * 0.22, W = bs * 0.66;
@@ -564,8 +645,9 @@ class FootprintView {
           const half = (bs - 8) / 2 * hpr, base = Math.min(9, rowH - 1);
           if (s === 0 && b === 0) { fitFont(ctx, base, vpr, 2 * half, c => c.measureText(k(n)).width); ctx.fillStyle = MUTED; ctx.textAlign = "center"; ctx.fillText(k(n), cx * hpr, y); texts++; continue; }
           fitFont(ctx, base, vpr, half, c => Math.max(c.measureText(k(s)).width, c.measureText(k(b)).width));
-          ctx.textAlign = "right"; ctx.fillStyle = "#ffb3bb"; ctx.fillText(k(s), (cx - 1.5) * hpr, y);
-          ctx.textAlign = "left"; ctx.fillStyle = "#a6f0cf"; ctx.fillText(k(b), (cx + 1.5) * hpr, y);
+          ctx.textAlign = "right"; ctx.fillStyle = sellCol(p); ctx.fillText(k(s), (cx - 1.5) * hpr, y);
+          ctx.textAlign = "left"; ctx.fillStyle = buyCol(p); ctx.fillText(k(b), (cx + 1.5) * hpr, y);
+          if (p === d.fp.poc) pocBox(yt, yb, left + 4, bs - 5);
           texts += 2;
         }
         continue;
@@ -582,9 +664,10 @@ class FootprintView {
         const half = ((bs - 12) / 2 - 5) * hpr, base = Math.min(11, rowH - 1);
         if (s === 0 && b === 0) { fitFont(ctx, base, vpr, 2 * half, c => c.measureText(fmtLots(n)).width); ctx.fillStyle = MUTED; ctx.textAlign = "center"; ctx.fillText(fmtLots(n), cx * hpr, y); texts++; continue; }
         fitFont(ctx, base, vpr, half, c => Math.max(c.measureText(fmtLots(s)).width, c.measureText(fmtLots(b)).width));
-        ctx.textAlign = "right"; ctx.fillStyle = "#ffb3bb"; ctx.fillText(fmtLots(s), (cx - 5) * hpr, y);
+        ctx.textAlign = "right"; ctx.fillStyle = sellCol(p); ctx.fillText(fmtLots(s), (cx - 5) * hpr, y);
         ctx.textAlign = "center"; ctx.fillStyle = MUTED; ctx.fillText("×", cx * hpr, y);
-        ctx.textAlign = "left"; ctx.fillStyle = "#a6f0cf"; ctx.fillText(fmtLots(b), (cx + 5) * hpr, y);
+        ctx.textAlign = "left"; ctx.fillStyle = buyCol(p); ctx.fillText(fmtLots(b), (cx + 5) * hpr, y);
+        if (p === d.fp.poc) pocBox(yt, yb, left + 8, bs - 10);
         texts += 3;
       }
     }
@@ -722,6 +805,24 @@ fps.priceScale().applyOptions({ scaleMargins: { top: 0.06, bottom: 0.06 }, textC
 fps.attachPrimitive(new TickAxis());
 fps.attachPrimitive(new Stamp("c2"));
 const line2 = new CursorLine(false); fps.attachPrimitive(line2);
+// Day VWAP with ±1σ/2σ/3σ bands on chart 2. They never widen the price range (no autoscale
+// info), so the 36 px rows hold; a band off the visible range just isn't drawn.
+const lineOpt = (color, width, style) => ({ color, lineWidth: width, lineStyle: style, priceLineVisible: false, lastValueVisible: false, crosshairMarkerVisible: false, autoscaleInfoProvider: () => null, priceFormat });
+const vwapSeries = [
+  ["m", 0, chart2.addSeries(LW.LineSeries, lineOpt("#7dbcf5", 2, 0))],
+  ...[[1, "rgba(81,221,162,.75)"], [2, "rgba(154,217,108,.6)"], [3, "rgba(244,195,110,.5)"]].flatMap(([k, c]) => [
+    ["u", k, chart2.addSeries(LW.LineSeries, lineOpt(c, 1, 2))], ["d", k, chart2.addSeries(LW.LineSeries, lineOpt(c, 1, 2))]]),
+];
+function setVwapData() {
+  for (const [kind, k, ser] of vwapSeries) {
+    ser.applyOptions({ visible: showVwap });
+    ser.setData(candles.map((c, i) => {
+      const t = c.minute / 1000, w = vwap[i];
+      if (c.minute > cursorMinute || !isFinite(w.m)) return { time: t };
+      return { time: t, value: kind === "m" ? w.m : kind === "u" ? w.m + k * w.sd : w.m - k * w.sd };
+    }));
+  }
+}
 const foot = chart2.addCustomSeries(new FooterView(), { priceLineVisible: false, lastValueVisible: false, priceFormat: { type: "custom", formatter: () => "" } }, 1);
 foot.attachPrimitive(new FooterLabels());
 foot.priceScale().applyOptions({ scaleMargins: { top: 0, bottom: 0 } });
@@ -740,6 +841,7 @@ function setSeriesData() {
   foot.setData(candles.map((c, i) => ({ time: c.minute / 1000, vol: c.volume, buy: fp[i].buy, sell: fp[i].sell, delta: fp[i].delta, cvd: fp[i].cvd, later: c.minute > cursorMinute })));
 }
 setSeriesData();
+setVwapData();
 
 // sync: logical range both ways (same time points in both charts), crosshair both ways (synced crosshair fires no event back)
 let syncing = false;
@@ -866,6 +968,15 @@ function renderReadout() {
     ["Δ", `<span class="${f.delta >= 0 ? "up" : "down"}">${signed(f.delta)}</span>`], ["CVD", `<span class="${f.cvd >= 0 ? "up" : "down"}">${signed(f.cvd)}</span>`],
   ];
   $("roBody").innerHTML = pairs.map(([k, v]) => `<div><dt>${k}</dt><dd>${v}</dd></div>`).join("");
+  // chart 2's own header, like a footprint terminal's: the minute, OHLC, lots and fills, buy,
+  // sell, Δ, CVD; then the VWAP and its bands at that minute.
+  const w = vwap[i], f2 = n => isFinite(n) ? nf.format(Math.round(n * 10) / 10) : "—";
+  $("fpHead").innerHTML = later ? `<div class="row"><b>${wibHM(m)}</b> after the cursor</div>` :
+    `<div class="row"><b>${wibHM(m)}</b><span>O <b>${nf.format(c.open)}</b> H <b>${nf.format(c.high)}</b> L <b>${nf.format(c.low)}</b> C <b class="${c.close >= c.open ? "up" : "down"}">${nf.format(c.close)}</b></span>` +
+    `<span><b>${nf.format(c.volume)}</b> lots, <b>${nf.format(c.frequency)}</b> fills</span><span class="up">Buy ${nf.format(f.buy)}</span><span class="down">Sell ${nf.format(f.sell)}</span>` +
+    `<span class="${f.delta >= 0 ? "up" : "down"}">Δ ${signed(f.delta)}</span><span class="${f.cvd >= 0 ? "up" : "down"}">CVD ${signed(f.cvd)}</span></div>` +
+    (showVwap ? `<div class="row"><span class="vw">VWAP ${f2(w.m)}</span><span class="s1">±1σ ${f2(w.sd)}</span><span class="s2">±2σ ${f2(2 * w.sd)}</span><span class="s3">±3σ ${f2(3 * w.sd)}</span>` +
+    `<span style="color:var(--text-muted)">POC ${f.poc === null ? "—" : nf.format(f.poc)}</span></div>` : "");
 }
 
 // ---------- sweep log (virtual list) ----------
@@ -917,6 +1028,15 @@ function setTop(n) {
 }
 document.querySelectorAll("[data-top]").forEach(b => b.onclick = () => setTop(+b.dataset.top));
 $("topN").addEventListener("input", e => setTop(+e.target.value));
+const redraw2 = () => { chart2.applyOptions({}); fps.applyOptions({}); renderReadout(); };
+document.querySelectorAll("[data-fpview]").forEach(b => b.onclick = () => {
+  fpView = b.dataset.fpview;
+  document.querySelectorAll("[data-fpview]").forEach(x => x.classList.toggle("on", x === b));
+  redraw2();
+});
+$("imb").onchange = e => { imbRatio = +e.target.value; redraw2(); };
+$("pocBtn").onclick = e => { showPoc = !showPoc; e.target.classList.toggle("on", showPoc); redraw2(); };
+$("vwapBtn").onclick = e => { showVwap = !showVwap; e.target.classList.toggle("on", showVwap); setVwapData(); redraw2(); };
 $("bigOnly").onclick = e => { bigOnly = !bigOnly; e.target.classList.toggle("on", bigOnly); rebuildLog(); };
 
 // clicking a row scrolls both charts to its minute (keeping the zoom unless it is wider than 60 bars) and rings its bubble
@@ -951,7 +1071,7 @@ slider.addEventListener("input", () => {
 function setCursor(t) {
   cursor = t;
   const m = Math.floor(t / MIN) * MIN;
-  if (m !== cursorMinute) { cursorMinute = m; setSeriesData(); }
+  if (m !== cursorMinute) { cursorMinute = m; setSeriesData(); setVwapData(); }
   heatmap.p?.requestUpdate(); line2.p?.requestUpdate();
   $("cursorLabel").textContent = wib(cursor) + " WIB";
   updateThreshold(); rebuildLog(); renderReadout(); scheduleState();
