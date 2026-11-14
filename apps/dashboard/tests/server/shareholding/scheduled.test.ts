@@ -8,6 +8,8 @@ import {
 } from "@/server/shareholding/start-run"
 import { ArchiveRunId } from "@/server/shareholding/run-result"
 
+import { everySplit } from "../../interleaved"
+
 import { fakeWorkflow, type FakeWorkflow } from "./fake-workflow.ts"
 import { type MemoryBucket, memoryBucket } from "./memory-bucket.ts"
 
@@ -242,6 +244,34 @@ describe("starting a run by hand", () => {
         assert.isTrue(
           Option.isNone(yield* runInProgress.pipe(Effect.provide(layer)))
         )
+      })
+  )
+
+  it.effect(
+    "starts one run when Run now and the cron start at the same time",
+    () =>
+      Effect.gen(function* () {
+        const operations = yield* everySplit({
+          setup: Effect.sync(() => ({
+            workflow: fakeWorkflow(),
+            bucket: memoryBucket(),
+          })),
+          first: ({ workflow, bucket }) => fire(workflow, bucket),
+          second: ({ workflow, bucket }) =>
+            startRun(ArchiveRunId.make("admin-1763125200000"), "admin").pipe(
+              Effect.provide(Layer.merge(workflow.layer, bucket.layer)),
+              Effect.ignore
+            ),
+          check: ({ workflow, bucket }, at) =>
+            Effect.sync(() => {
+              const started = [...workflow.instances.keys()]
+              assert.strictEqual(started.length, 1, `split at ${at}`)
+              assert.deepStrictEqual(json(bucket, "runs/latest.json"), {
+                id: started[0],
+              })
+            }),
+        })
+        assert.isAbove(operations, 0)
       })
   )
 
