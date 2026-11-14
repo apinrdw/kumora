@@ -1,9 +1,15 @@
 // An in-memory shareholding archive bucket. `puts` logs every write in order,
 // so a test can tell a rewrite from an untouched object. An object's ETag is
-// its body, so, as R2's MD5, it changes with the content.
+// its body, so, as R2's MD5, it changes with the content. `failPut`, when
+// set, fails the next `put` of a key it matches, once, as a transient R2
+// error.
 import { Clock, Effect, Layer } from "effect"
 
-import { ArchiveBucket, type PutOptions } from "@/server/shareholding/bucket"
+import {
+  ArchiveBucket,
+  BucketError,
+  type PutOptions,
+} from "@/server/shareholding/bucket"
 
 export interface StoredObject {
   readonly body: string
@@ -17,6 +23,7 @@ export interface StoredObject {
 export interface MemoryBucket {
   readonly objects: Map<string, StoredObject>
   readonly puts: Array<string>
+  failPut: ((key: string) => boolean) | undefined
   readonly layer: Layer.Layer<ArchiveBucket>
 }
 
@@ -37,9 +44,10 @@ export const memoryBucket = (): MemoryBucket => {
       uploaded,
     })
   }
-  return {
+  const bucket: MemoryBucket = {
     objects,
     puts,
+    failPut: undefined,
     layer: Layer.succeed(
       ArchiveBucket,
       ArchiveBucket.of({
@@ -68,9 +76,20 @@ export const memoryBucket = (): MemoryBucket => {
                 }
           }),
         put: (key, body, options) =>
-          Effect.map(Clock.currentTimeMillis, (now) =>
+          Effect.flatMap(Clock.currentTimeMillis, (now) => {
+            if (bucket.failPut?.(key) === true) {
+              bucket.failPut = undefined
+              return Effect.fail(
+                new BucketError({
+                  operation: "put",
+                  key,
+                  cause: new Error("R2 is unavailable"),
+                })
+              )
+            }
             write(key, body, options, now)
-          ),
+            return Effect.void
+          }),
         // The check and the write in one operation, so no fiber runs
         // between them.
         putIfUnchanged: (key, body, options, etag) =>
@@ -82,4 +101,5 @@ export const memoryBucket = (): MemoryBucket => {
       })
     ),
   }
+  return bucket
 }

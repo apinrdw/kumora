@@ -239,6 +239,32 @@ describe("an archive run", () => {
       })
   )
 
+  it.effect("counts a new version whose record took a retry to write", () =>
+    Effect.gen(function* () {
+      const idx = fakeIdx()
+      const bucket = memoryBucket()
+      yield* run(idx, bucket, "cron-2026-11-14T06")
+
+      const daily = idx.listing[0]
+      idx.files.set(idxIdUrl(daily.Prospectus), {
+        body: `corrected xlsx bytes of ${daily.Prospectus}`,
+        etag: `"etag-0:1"`,
+        lastModified: "Sat, 14 Nov 2026 09:00:00 GMT",
+      })
+      // The .xlsx is written, then its record's first write fails.
+      bucket.failPut = (key) =>
+        key.startsWith("reports/above-5/2026-11-12/") && key.endsWith(".json")
+      const result = yield* run(idx, bucket, "cron-2026-11-14T13")
+
+      assert.strictEqual(recordsOf(bucket, daily.Prospectus).length, 2)
+      assert.deepInclude(result, {
+        outcome: "complete",
+        reportsAdded: 0,
+        newVersions: 1,
+      })
+    })
+  )
+
   it.effect(
     "adds only a record when a changed ETag serves the same bytes",
     () =>
