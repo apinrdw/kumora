@@ -9,8 +9,9 @@ import { kindPrefix } from "./keys.ts"
 import { KseiReportKind } from "./kind.ts"
 import type { DeepFinds } from "./run-result.ts"
 
-// The first year the grid shows: the oldest files KSEI serves (deep.ts).
-const FIRST_YEAR = 2008
+// The oldest year KSEI serves files for: the first year the grid shows, and
+// the first a Deep backfill probes (deep.ts).
+export const FIRST_YEAR = 2008
 
 // held: the archive has a record of a file for the month. not-found: the
 // latest deep run probed the month and found nothing. never-looked-for:

@@ -7,19 +7,19 @@ import { HttpClient } from "effect/http"
 
 import { ArchiveBucket } from "../archive/bucket.ts"
 import { REPORTS_PREFIX } from "../archive/run.ts"
-import { monthsHeld } from "./coverage.ts"
+import { FIRST_YEAR, monthsHeld } from "./coverage.ts"
 import { recordsByFilename } from "./held.ts"
 import type { KseiReportKind } from "./kind.ts"
 import { ListedKseiReport, unlistedReport } from "./listing.ts"
 import { WAYBACK_SEED } from "./wayback-seed.ts"
 
-// The years a deep run probes, one step per kind and year.
-// Decision: 2008 to 2023. KSEI serves files back to 2008, and its listings
-// hold November 2023 onward on 2026-11-14 (a rolling three years), which the
-// daily runs keep from then on. See apinrdw/kumora#324.
+// The years a Deep backfill probes, one step per kind and year.
+// Decision: FIRST_YEAR (2008) to 2023. KSEI serves files back to 2008, and
+// its listings hold November 2023 onward on 2026-11-14 (a rolling three
+// years), which the daily runs keep from then on. See apinrdw/kumora#324.
 export const PROBE_YEARS = Array.from(
-  { length: 2023 - 2008 + 1 },
-  (_, i) => 2008 + i
+  { length: 2023 - FIRST_YEAR + 1 },
+  (_, i) => FIRST_YEAR + i
 )
 
 // The calendar days a probe tries per month, from the month's last.
