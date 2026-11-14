@@ -22,7 +22,7 @@ The lines are per flush, so a restart loses no more than one flush's counts. Add
 
 ## After 17:00 WIB
 
-1. Open `kumora-dashboard-staging`'s logs in the Query Builder. Cloudflare's [Query Builder page](https://developers.cloudflare.com/workers/observability/query-builder/), read 2026-11-14, gives the path: Workers & Pages, the Worker, then Observability. It keeps logs for seven days (read 2026-11-14), so run this within a week of the day.
+1. Open `kumora-dashboard-staging`'s logs in the Query Builder. Cloudflare's [Query Builder page](https://developers.cloudflare.com/workers/observability/query-builder/), read 2026-11-14, gives the path: Workers & Pages, the Worker, then Observability. It keeps logs for seven days, so run this within a week of the day.
 2. Filter on the message `Rows written` (the `$metadata.message` key) and the day, 08:00–17:05 WIB. Sum each field across the lines.
 3. Filter on the message `Order flow storage` and read its one line.
 4. Read the day's trade count, **T_staging**: the day strip's figure for the day on Staging (`trades`), or the `trades` sum from step 2.

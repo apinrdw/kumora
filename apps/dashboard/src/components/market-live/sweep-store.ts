@@ -49,7 +49,7 @@ export interface SweepStore {
   // Live: the ask the sweeps GET must answer next, or undefined once it
   // answered; `answer` hands its answer back for that ask.
   readonly awaiting: () => number | undefined
-  readonly answer: (snapshot: number, answer: RecordedSweeps) => void
+  readonly answer: (asked: number, answer: RecordedSweeps) => void
   readonly apply: (message: ViewerDown) => void
   readonly subscribe: (listener: (change: SweepChange) => void) => () => void
 }

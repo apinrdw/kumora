@@ -63,7 +63,7 @@ The page's `Select` message: its selected stock code and watchlist. Sent on ever
 _Avoid_: subscribe
 
 **Snapshot**:
-What a viewer starts from after each selection: the selected code the `Select` named, the 200 newest running trades ascending by trade number, the selected code's candles, footprints (protocol v3) and order book, the selected and watchlist codes' Day states and indicative prices, and the market conditions. The chart and the order book take only a snapshot of their own code, since one answering an earlier selection can arrive after the page moved on.
+What a viewer starts from after each selection: the selected code the `Select` named, the 200 newest running trades ascending by trade number, the selected code's candles, footprints and order book, the selected and watchlist codes' Day states and indicative prices, and the market conditions. The chart and the order book take only a snapshot of their own code, since one answering an earlier selection can arrive after the page moved on.
 _Avoid_: initial state
 
 **Delta**:

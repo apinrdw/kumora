@@ -92,7 +92,7 @@ export const compactIdr = Effect.fnUntraced(function* (n: number) {
   return (yield* sign(n)) + "Rp" + (yield* compact(n))
 })
 
-/** 1,250 or 0.25: a lot is 100 shares, so an odd lot needs its hundredths */
+/** 1,250 or 0.25: a lot is SHARES_PER_LOT shares, so an odd lot needs its hundredths */
 export const lots = (n: number) => Effect.sync(() => nfUpTo2.format(n))
 
 /** 12.4 M shares */
