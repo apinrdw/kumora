@@ -21,14 +21,17 @@ import {
 } from "lightweight-charts"
 import { useEffect, useRef, useState } from "react"
 
-import { cursorLogical, gapMinutes } from "@/lib/replay"
+import { chartMinutes } from "@/lib/chart-nav"
+import { cursorLogical } from "@/lib/replay"
 
 import { attachBookHeatmap } from "./book-heatmap"
 import type { CandleChange, CandleStore } from "./candle-store"
+import type { ChartPair } from "./chart-pair"
 import { CHART_SCALE_WIDTH, crosshairTime, tickMark } from "./chart-time"
 import { CursorLine } from "./cursor-line"
 import type { HeatmapStore } from "./heatmap-store"
 import { useAuctionIndicative } from "./market-conditions"
+import { idxPriceAxis } from "./price-axis"
 import type { ReplayCursor } from "./replay-cursor"
 import { attachSweepBubbles, clickedSweep } from "./sweep-bubbles"
 import type { SweepStore } from "./sweep-store"
@@ -162,13 +165,15 @@ const MINUTE = 60_000
 // With `cursor`, a recorded day: candles and volume after the cursor's minute
 // are greyed under a cursor line at the cursor's second, and clicking a
 // candle picks its minute. Each relay gap in `gaps` is shaded; a gap with no
-// end yet is shaded once it ends, or on a recorded day up to the close.
+// end yet is shaded once it ends, or on a recorded day up to the close. It
+// moves with chart 2 through `pair`.
 export default function ChartCanvas({
   store,
   heatmap,
   sweeps,
   cursor,
   gaps,
+  pair,
 }: {
   store: CandleStore
   // The selected code's book heatmap, shaded behind the candles.
@@ -177,6 +182,7 @@ export default function ChartCanvas({
   sweeps?: SweepStore | undefined
   cursor?: ReplayCursor | undefined
   gaps: ReadonlyArray<RelayGap>
+  pair: ChartPair
 }) {
   const host = useRef<HTMLDivElement>(null)
   const shownGaps = useRef(gaps)
@@ -201,9 +207,10 @@ export default function ChartCanvas({
         textColor: token("--text-muted"),
         fontSize: 11,
       },
+      // The price axis draws the horizontal lines, on IDX ticks.
       grid: {
         vertLines: { color: token("--chart-grid") },
-        horzLines: { color: token("--chart-grid") },
+        horzLines: { visible: false },
       },
       rightPriceScale: {
         borderColor: token("--border-subtle"),
@@ -236,6 +243,10 @@ export default function ChartCanvas({
       later: `${grey}33`,
     })
     setSeries(candles)
+    const axis = idxPriceAxis(candles, {
+      text: token("--text-muted"),
+      grid: token("--chart-grid"),
+    })
     const sessions = new SessionLines(token("--border-subtle"))
     candles.attachPrimitive(sessions)
     const shades = new GapShades(`${grey}26`)
@@ -319,15 +330,12 @@ export default function ChartCanvas({
       // Decision: the chart closes gaps up, so a relay gap's minutes go in
       // as whitespace bars, which give it width to shade.
       const runs = Effect.runSync(
-        gapMinutes(
+        chartMinutes(
+          times.map((time) => time * 1000),
           shownGaps.current,
           cursor === undefined ? newest * 1000 : cursor.day.close
         )
-      ).map((run) =>
-        run
-          .map((minute) => (minute / 1000) as UTCTimestamp)
-          .filter((time) => !drawn.has(time))
-      )
+      ).runs.map((run) => run.map((minute) => (minute / 1000) as UTCTimestamp))
       const blank = runs.flat()
       latest = Math.max(newest, blank.at(-1) ?? 0)
       candles.setData(
@@ -340,7 +348,8 @@ export default function ChartCanvas({
         all.map((candle, index) => volumeOf(candle, times[index]!))
       )
       sessions.setTimes(Effect.runSync(sessionStarts(all)))
-      shades.setRuns(runs.filter((run) => run.length > 0))
+      shades.setRuns(runs)
+      axis.setPrice(all.at(-1)?.close)
       bars = [...drawn, ...blank].sort((a, b) => a - b)
       placeCursor()
     }
@@ -397,6 +406,7 @@ export default function ChartCanvas({
         sessions.setTimes(Effect.runSync(sessionStarts(store.candles())))
         placeCursor()
       }
+      axis.setPrice(store.candles().at(-1)?.close)
     }
     const unsubscribe = store.subscribe((change: CandleChange) => {
       if (change._tag === "Reset") reset = true
@@ -413,7 +423,12 @@ export default function ChartCanvas({
       }
       if (frame === 0) frame = requestAnimationFrame(flush)
     })
+    const unpair = pair.attachCandles(
+      { chart, series: candles, element },
+      { shade: `${token("--text-primary")}1a`, edge: token("--accent-primary") }
+    )
     return () => {
+      unpair()
       redrawGaps.current = undefined
       stopHeatmap?.()
       stopSweeps?.()
@@ -423,7 +438,7 @@ export default function ChartCanvas({
       setSeries(null)
       chart.remove()
     }
-  }, [store, heatmap, sweeps, cursor])
+  }, [store, heatmap, sweeps, cursor, pair])
 
   useEffect(() => {
     shownGaps.current = gaps

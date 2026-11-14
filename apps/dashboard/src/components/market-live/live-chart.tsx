@@ -10,6 +10,7 @@ import { direction, pct, price, shares, signed } from "@/lib/format"
 import { lastCloseAt } from "@/lib/recorded-day"
 
 import type { CandleStore } from "./candle-store"
+import type { ChartPair } from "./chart-pair"
 import { useDayState, type DayStateStore } from "./day-state-store"
 import type { HeatmapStore } from "./heatmap-store"
 import { useAuctionIndicative, useMergedStale } from "./market-conditions"
@@ -138,11 +139,13 @@ function ChartHeadline({
 // socket through `store`. `search` sits in the header, to choose the code,
 // and `conditions` with it: the feed pills and the market phase.
 // On a recorded day, the candles after `cursor` are greyed and a clicked
-// candle moves it; `footer` sits under the chart.
+// candle moves it; `footer` sits under the chart. It moves with chart 2
+// through `pair`.
 export function LiveChart({
   store,
   heatmap,
   sweeps,
+  pair,
   gaps,
   dayStates,
   conditions,
@@ -155,6 +158,7 @@ export function LiveChart({
   heatmap?: HeatmapStore
   // The selected code's sweeps, as bubbles under a top-N filter.
   sweeps?: SweepStore | undefined
+  pair: ChartPair
   // The relay gaps to shade as not recorded.
   gaps: ReadonlyArray<RelayGap>
   dayStates: DayStateStore
@@ -198,6 +202,7 @@ export function LiveChart({
               sweeps={sweeps}
               cursor={cursor}
               gaps={gaps}
+              pair={pair}
             />
           </Suspense>
         </ClientOnly>

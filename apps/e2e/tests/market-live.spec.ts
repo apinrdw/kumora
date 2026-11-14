@@ -154,6 +154,146 @@ test.describe("signed in", () => {
     relay.close()
   })
 
+  test("chart 2 opens on 10 minutes, pans with chart 1 both ways, zooms alone and shows a ladder of exact lots", async ({
+    page,
+  }) => {
+    const relay = await openIngest()
+    const base = freshTradeNumbers()
+    const code = freshCode("NV")
+    const now = marketNow()
+    // 20 minutes up to now, each 12,345 lots sold and 1,500 bought.
+    await relay.sendAjaib(
+      Array.from({ length: 20 }, (_, index) => {
+        const time = wibTime(now - (19 - index) * 60_000)
+        const price = 500 + (index % 4) * 5
+        return [
+          ajaibTradeToday({
+            seq: base + 2 * index + 1,
+            time,
+            ticker: code,
+            price,
+            lot: 12_345,
+            type: "SELL",
+          }),
+          ajaibTradeToday({
+            seq: base + 2 * index + 2,
+            time,
+            ticker: code,
+            price: price + 5,
+            lot: 1_500,
+          }),
+        ]
+      }).flat()
+    )
+    await page.setViewportSize({ width: 1920, height: 1080 })
+    await page.goto(`${DASHBOARD}${PAGE}?code=${code}`)
+    const footprint = page.getByRole("region", { name: "Footprint" })
+    await expect(footprint).toContainText("Footprint minutes: 20")
+    const chart1 = page.locator('[data-chart="candles"]')
+    const chart2 = page.locator('[data-chart="footprint"]')
+    // Each chart's visible logical range, in bars.
+    const range = async (chart: typeof chart1) => {
+      const [from, to] = await Promise.all([
+        chart.getAttribute("data-from"),
+        chart.getAttribute("data-to"),
+      ])
+      return { from: Number(from), to: Number(to) }
+    }
+    const width = async (chart: typeof chart1) => {
+      const { from, to } = await range(chart)
+      return to - from
+    }
+
+    // Both charts' ranges, once neither has moved for a moment: a pan is
+    // measured from there.
+    const settled = async () => {
+      let last = ""
+      await expect
+        .poll(
+          async () => {
+            const current = JSON.stringify([
+              await range(chart1),
+              await range(chart2),
+            ])
+            const still = current === last
+            last = current
+            return still
+          },
+          { intervals: [250] }
+        )
+        .toBe(true)
+      return [await range(chart1), await range(chart2)] as const
+    }
+
+    // Exactly 10 whole minutes: a range 9 bars wide.
+    await expect.poll(() => width(chart2)).toBe(9)
+    const [opened1, opened2] = await settled()
+    expect(Number.isInteger(opened2.from)).toBe(true)
+
+    // Dragging chart 1 moves chart 2 by the same minutes, and back.
+    const box1 = (await chart1.boundingBox())!
+    const drag = async (dx: number) => {
+      const y = box1.y + box1.height * 0.4
+      await page.mouse.move(box1.x + box1.width / 2, y)
+      await page.mouse.down()
+      await page.mouse.move(box1.x + box1.width / 2 + dx, y, { steps: 8 })
+      await page.mouse.up()
+    }
+    await drag(240)
+    await expect
+      .poll(async () => (await range(chart1)).from)
+      .toBeLessThan(opened1.from - 1)
+    await expect
+      .poll(async () => {
+        const [one, two] = await Promise.all([range(chart1), range(chart2)])
+        return Math.abs(two.from - opened2.from - (one.from - opened1.from))
+      })
+      .toBeLessThan(0.05)
+    await drag(-240)
+    await expect
+      .poll(async () => (await range(chart2)).from.toFixed(1))
+      .toBe(opened2.from.toFixed(1))
+    expect((await range(chart1)).from).toBeCloseTo(opened1.from, 1)
+
+    // Hovering a minute on chart 2: its ladder of exact lots.
+    const box2 = (await chart2.boundingBox())!
+    await page.mouse.move(box2.x + (box2.width - 72) / 2, box2.y + 120)
+    const ladder = page.getByRole("tooltip", { name: "Footprint ladder" })
+    await expect(ladder).toContainText("12,345")
+    await expect(ladder).toContainText("1,500")
+    await expect(ladder).toContainText("Vol13,845")
+    await expect(ladder).toContainText("Δ−10,845")
+    await expect(ladder.locator("tr[data-here]")).toHaveCount(1)
+
+    // Dragging chart 2 moves chart 1 by the same minutes.
+    const [dragged1, dragged2] = await settled()
+    const y2 = box2.y + 120
+    await page.mouse.move(box2.x + box2.width / 2, y2)
+    await page.mouse.down()
+    await page.mouse.move(box2.x + box2.width / 2 + 300, y2, { steps: 8 })
+    await page.mouse.up()
+    await expect
+      .poll(async () => (await range(chart2)).from)
+      .toBeLessThan(dragged2.from - 1)
+    await expect
+      .poll(async () => {
+        const [one, two] = await Promise.all([range(chart1), range(chart2)])
+        return Math.abs(one.from - dragged1.from - (two.from - dragged2.from))
+      })
+      .toBeLessThan(0.05)
+
+    // The wheel zooms chart 2 alone.
+    const before1 = await range(chart1)
+    await page.mouse.wheel(0, -600)
+    await expect.poll(() => width(chart2)).toBeLessThan(9)
+    expect(await range(chart1)).toEqual(before1)
+
+    // A click on chart 1 jumps chart 2 there, back at 10 minutes.
+    await page.mouse.click(box1.x + box1.width * 0.6, box1.y + box1.height / 2)
+    await expect.poll(() => width(chart2)).toBe(9)
+    relay.close()
+  })
+
   test("chart 1's volume pane splits each minute into buy and sell lots", async ({
     page,
   }) => {
