@@ -130,10 +130,8 @@ interface Frame {
 // Decision: each past minute is painted once into an offscreen canvas and
 // copied while the bar spacing, pixel ratio and price mapping hold; only the
 // current minute (newest live, the cursor's when recorded) paints each frame.
-// Minutes out of view drop their canvas, and a minute the chart does not draw
-// (no candle and no gap whitespace, so no coordinate) never gets one, so the
-// cache holds about one chart's pixels. See spec apinrdw/kumora#263,
-// "Chart 1".
+// Minutes out of view drop their canvas, so the cache holds about one chart's
+// pixels. See spec apinrdw/kumora#263, "Chart 1".
 class BookHeatmap implements ISeriesPrimitive<Time> {
   private minutes: ReadonlyArray<Minute> = []
   private full = 1
@@ -280,6 +278,8 @@ class BookHeatmap implements ISeriesPrimitive<Time> {
       // `cursorLogical`, lib/sweeps.ts `bubbleOffset`). See
       // apinrdw/kumora#279.
       const x = xOf(minute.time)
+      // No coordinate: the chart does not draw the minute (it has no candle
+      // and no gap whitespace), so it is not in view and gets no canvas.
       if (x === null) continue
       const left = Math.round(x * frame.ratio)
       if (left + width < 0 || left > bitmap.width) continue

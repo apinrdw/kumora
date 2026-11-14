@@ -135,7 +135,7 @@ const heatmapOf = Effect.fnUntraced(function* (
               verticalPixelRatio: 1,
             }),
         } as unknown as Parameters<IPrimitivePaneRenderer["draw"]>[0])
-      return context.lefts.toSorted((a, b) => a - b)
+      return context.lefts.sort((a, b) => a - b)
     },
     shaded: () => shaded,
     detach,
