@@ -324,10 +324,13 @@ export function SweepLog({
     rows.length,
     Math.ceil((scroll.top + scroll.height) / ROW_HEIGHT) + OVERSCAN
   )
+  // Decision: `contain: size` in layout B, so the log adds no height to its
+  // grid row: a busy code's thousands of rows scroll inside it instead of
+  // stretching both charts beside it to thousands of px (apinrdw/kumora#272).
   return (
     <section
       aria-label="Sweep log"
-      className="flex min-h-[420px] min-w-0 flex-col overflow-hidden rounded-lg border border-border bg-card"
+      className="flex min-h-[420px] min-w-0 flex-col overflow-hidden rounded-lg border border-border bg-card lg:contain-size"
     >
       <header className="border-b border-border px-2.5 pt-2 pb-1.5">
         <div className="flex items-center gap-2 text-[13px] font-semibold">
