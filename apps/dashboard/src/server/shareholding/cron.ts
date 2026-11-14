@@ -11,7 +11,8 @@ import { scheduledArchiveRun } from "./start-run.ts"
 // Decision: returns a Promise, standing in for Cloudflare's `scheduled`,
 // which CODING_STANDARDS exempts and which only calls this. It lives outside
 // worker.ts so a test can run it without TanStack Start; returning the Effect
-// would leave the runner the test covers in untested worker.ts (#308).
+// would leave the runner the test covers in untested worker.ts. See
+// apinrdw/kumora#308.
 export const runArchiveCron = (scheduledTime: number) =>
   runServerEffectResult(
     scheduledArchiveRun(scheduledTime).pipe(
