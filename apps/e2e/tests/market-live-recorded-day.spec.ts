@@ -12,6 +12,7 @@ import {
 import { Effect } from "effect"
 
 import { DASHBOARD, MEMBER } from "../support/accounts"
+import { cursorPlace, volumeInk } from "../support/chart"
 import {
   MERGE_WINDOW,
   marketNow,
@@ -129,6 +130,11 @@ test("the day strip opens a recorded day at its close, it replays, and Today · 
   )
 
   await expect(page.getByText("One-minute candles: 1")).toBeAttached()
+  // At the close, chart 1's volume bar shows the 5 lots bought in green.
+  const candles = page.locator('[data-chart="candles"]')
+  await expect
+    .poll(async () => (await volumeInk(candles)).buy)
+    .toBeGreaterThan(0)
   // Chart 2 draws the recorded footprint: 5 lots bought.
   const footprint = page.getByRole("region", { name: "Footprint" })
   const tradedMinute = `${time.slice(0, 5)}:00`
@@ -165,6 +171,8 @@ test("the day strip opens a recorded day at its close, it replays, and Today · 
   await expect(row).toContainText("no data yet")
   // The footprint follows the cursor: its minute hasn't come yet.
   await expect(footprint).toContainText("Footprint minutes: 0")
+  // Chart 1's volume bar is greyed: its minute comes after the cursor.
+  await expect.poll(() => volumeInk(candles)).toEqual({ buy: 0, sell: 0 })
   // The scrubber shades the gap.
   await expect(
     page
@@ -186,6 +194,23 @@ test("the day strip opens a recorded day at its close, it replays, and Today · 
   ).toBeVisible()
   await replay.getByRole("button", { name: "Pause" }).click()
   await expect(replay.getByRole("button", { name: "Play" })).toBeVisible()
+
+  // Half way through the trades' minute, the cursor line sits half way from
+  // that minute's centre to the next.
+  const tradedAt = Math.floor(sentAt / 60_000) * 60_000
+  await scrubber.fill(String(tradedAt + 30_000))
+  await expect(conditions).toContainText(`at ${wibTime(tradedAt + 30_000)}`)
+  await expect
+    .poll(async () => {
+      const { x, minute, spacing } = await cursorPlace(candles)
+      return Math.round(((x - minute) / spacing) * 100) / 100
+    })
+    .toBe(0.5)
+  const { x, minute, spacing } = await cursorPlace(candles)
+  expect(minute).toBeGreaterThan(0)
+  expect(spacing).toBeGreaterThan(0)
+  expect(x).toBeGreaterThan(minute)
+  expect(x).toBeLessThan(minute + spacing)
 
   // Dragged to its end, its last whole-second step, the cursor is at the
   // close, not a second before.
