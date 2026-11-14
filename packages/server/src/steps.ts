@@ -1,0 +1,21 @@
+import type { Effect } from "effect"
+import { Schema } from "effect"
+
+// A Workflow step that still failed after the step's own retries. Only its
+// name and message survive: the runtime keeps no more of a step's error.
+export class StepFailed extends Schema.TaggedError<StepFailed>()("StepFailed", {
+  step: Schema.String,
+  message: Schema.String,
+}) {}
+
+// The steps of one Workflow run, as Effects. `do` runs `effect` as a durable
+// step named `name`: the runtime replays a finished step's result instead of
+// running it again, so the result must be plain JSON, and the effect must
+// not rely on anything outside it. The Workflow bridge (./workflow.ts)
+// provides `R` to each step; a test provides it in-process.
+export interface WorkflowSteps<R> {
+  readonly do: <A, E>(
+    name: string,
+    effect: Effect.Effect<A, E, R>
+  ) => Effect.Effect<A, StepFailed>
+}
