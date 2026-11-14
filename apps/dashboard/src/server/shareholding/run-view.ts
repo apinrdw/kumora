@@ -15,12 +15,13 @@ const RunView = Schema.Struct({
 })
 export type RunView = typeof RunView.Type
 
-// Statuses of a run that hasn't ended. `waiting` covers a step's retry
-// backoff, so a run between retries still holds off the next one.
-const IN_PROGRESS: ReadonlySet<RunStatus> = new Set([
-  "queued",
-  "running",
-  "waiting",
+// Statuses of a run that has ended. Every other status holds off the next
+// run: a paused or pausing run can resume, a waiting one is between retries,
+// and a status Cloudflare adds later blocks until it is known to end.
+const ENDED: ReadonlySet<RunStatus> = new Set([
+  "complete",
+  "errored",
+  "terminated",
 ])
 
 // A run that ended before its summary step rewrote its record.
@@ -33,7 +34,7 @@ const ENDED_UNSUMMARIZED: Partial<Record<RunStatus, string>> = {
 // `create` returning: two R2 writes and the call to Workflows.
 export const START_WINDOW_MS = 5 * 60 * 1000
 
-// In progress while its instance is queued, running or waiting. With no
+// In progress until its instance has ended. With no
 // instance, a record still running is a start not yet through `create`, for
 // START_WINDOW_MS; past that, its start died before the instance existed, or
 // the instance outlived its retention.
@@ -43,7 +44,7 @@ export const isInProgress = Effect.fnUntraced(function* (
   now: number
 ) {
   return instance !== undefined
-    ? IN_PROGRESS.has(instance.status)
+    ? !ENDED.has(instance.status)
     : result?.outcome === "running" &&
         now - Date.parse(result.startedAt) < START_WINDOW_MS
 })
