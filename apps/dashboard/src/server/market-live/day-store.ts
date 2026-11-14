@@ -80,7 +80,7 @@ interface Meter {
   billedMinuteRereadRows?: number
 }
 
-const emptyMeter = (): Meter => ({
+const emptyMeter = Effect.sync((): Meter => ({
   trades: 0,
   candles: 0,
   footprints: 0,
@@ -90,7 +90,7 @@ const emptyMeter = (): Meter => ({
   ajaibBooks: 0,
   facts: 0,
   minuteRereads: 0,
-})
+}))
 
 // One code's order book chunk for one minute, encoded, and its book heatmap
 // slices (heat-rows.ts).
@@ -273,10 +273,10 @@ const chunkOf = (blob: SqlValue | undefined) =>
   Effect.sync(() => new TextDecoder().decode(gunzipSync(blob as Uint8Array)))
 
 export const makeDayStore = (sql: Sql) =>
-  Effect.sync(() => {
+  Effect.gen(function* () {
     for (const statement of SCHEMA) sql.exec(statement)
 
-    let meter = emptyMeter()
+    let meter = yield* emptyMeter
     // Runs `work`, adding the rows the database counted meanwhile to the
     // meter's billed `field`, when the database counts them.
     const metered = <A, E, R>(
@@ -300,9 +300,9 @@ export const makeDayStore = (sql: Sql) =>
       )
 
     // The meter's counts since it was last taken.
-    const takeMeter = Effect.sync(() => {
+    const takeMeter = Effect.gen(function* () {
       const taken = meter
-      meter = emptyMeter()
+      meter = yield* emptyMeter
       return taken
     })
 
