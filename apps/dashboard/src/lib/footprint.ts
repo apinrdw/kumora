@@ -6,18 +6,23 @@ import { DateTime, Effect } from "effect"
 
 import { lots as exactLots, signed, tapeTime } from "./format"
 
+// The IDX price bands (fraksi harga), ascending: each band's lowest price
+// and its tick, up to the next band's lowest.
+export const IDX_BANDS: ReadonlyArray<{
+  readonly from: number
+  readonly tick: number
+}> = [
+  { from: 0, tick: 1 },
+  { from: 200, tick: 2 },
+  { from: 500, tick: 5 },
+  { from: 2_000, tick: 10 },
+  { from: 5_000, tick: 25 },
+]
+
 // The IDX tick (fraksi harga) of a price.
 export const idxTick = (price: number) =>
   Effect.succeed(
-    price < 200
-      ? 1
-      : price < 500
-        ? 2
-        : price < 2_000
-          ? 5
-          : price < 5_000
-            ? 10
-            : 25
+    IDX_BANDS.findLast((band) => price >= band.from)?.tick ?? IDX_BANDS[0]!.tick
   )
 
 // Lots as the footprint writes them: exact under 1,000, then always 2

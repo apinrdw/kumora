@@ -4,7 +4,7 @@
 // out.
 import { Effect } from "effect"
 
-import { idxTick } from "./footprint"
+import { IDX_BANDS, idxTick } from "./footprint"
 import { price } from "./format"
 
 // The valid price nearest `value`, on the tick of its own band.
@@ -22,25 +22,38 @@ export const priceLabel = Effect.fnUntraced(function* (value: number) {
 // labels every tick from rows 13 px tall and every 2nd, 4th, 8th… below.
 const LABEL_PX = 13
 
-// The prices the axis labels between `bottom` and `top`, ascending, with
-// rows (one tick) `rowPx` tall: every tick of the middle's band, thinned
-// until labels are 13 px apart.
+// The prices the axis labels between `bottom` and `top`, ascending, on a
+// pane `height` px tall: every tick of each band in view, thinned within
+// the band to every 2nd, 4th, 8th… until labels are 13 px apart. A label
+// closer than that under the next band's first one is dropped.
 export const labelPrices = Effect.fnUntraced(function* ({
   bottom,
   top,
-  rowPx,
+  height,
 }: {
   readonly bottom: number
   readonly top: number
-  readonly rowPx: number
+  readonly height: number
 }) {
-  const tick = yield* idxTick((top + bottom) / 2)
-  let step = tick
-  while (rowPx > 0 && (rowPx * step) / tick < LABEL_PX) step *= 2
+  const pxPerPrice = height / (top - bottom)
+  if (!(pxPerPrice > 0)) return []
   const prices: Array<number> = []
-  for (let at = Math.ceil(bottom / step) * step; at <= top; at += step)
-    prices.push(at)
-  return prices
+  for (const [index, band] of IDX_BANDS.entries()) {
+    const below = IDX_BANDS[index + 1]?.from ?? Number.POSITIVE_INFINITY
+    const from = Math.max(bottom, band.from)
+    let step = band.tick
+    while (pxPerPrice * step < LABEL_PX) step *= 2
+    const first = Math.ceil(from / step) * step
+    for (let at = first; at <= top && at < below; at += step) prices.push(at)
+  }
+  // Walk down from the top so each band's first price beats a label below.
+  const kept: Array<number> = []
+  for (const at of prices.toReversed()) {
+    const above = kept.at(-1)
+    if (above === undefined || (above - at) * pxPerPrice >= LABEL_PX)
+      kept.push(at)
+  }
+  return kept.toReversed()
 })
 
 // Decision: chart 2's rows are at most 36 px a tick, so a quiet window's few

@@ -1,6 +1,6 @@
 // Both charts' price axis on IDX ticks (spec apinrdw/kumora#263, "IDX tick
 // axis"): the library's own labels are hidden and `TickAxis` draws a label
-// and a gridline at every tick, thinned below 13 px a row
+// and a gridline at every tick of each band in view, thinned below 13 px a row
 // (lib/price-axis.ts). Loaded only in the browser, by the chart canvases.
 import { Effect } from "effect"
 import type {
@@ -65,13 +65,9 @@ class TickAxis implements ISeriesPrimitive<Time> {
       this.lines = []
       return
     }
-    const tick = Effect.runSync(idxTick((top + bottom) / 2))
-    const from = series.priceToCoordinate(bottom)
-    const to = series.priceToCoordinate(bottom + tick)
-    const rowPx = from === null || to === null ? 0 : Math.abs(from - to)
     const labels: Array<ISeriesPrimitiveAxisView> = []
     const lines: Array<number> = []
-    for (const at of Effect.runSync(labelPrices({ bottom, top, rowPx }))) {
+    for (const at of Effect.runSync(labelPrices({ bottom, top, height }))) {
       const y = series.priceToCoordinate(at)
       if (y === null || y < EDGE_PX || y > height - EDGE_PX) continue
       const text = Effect.runSync(priceLabel(at))

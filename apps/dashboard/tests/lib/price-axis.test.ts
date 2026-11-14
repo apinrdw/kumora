@@ -34,19 +34,90 @@ describe("the price axis labels", () => {
       Effect.gen(function* () {
         // 25-wide ticks 20 px tall: 10,500 to 10,600.
         expect(
-          yield* labelPrices({ bottom: 10_490, top: 10_610, rowPx: 20 })
+          yield* labelPrices({ bottom: 10_490, top: 10_610, height: 96 })
         ).toEqual([10_500, 10_525, 10_550, 10_575, 10_600])
       })
   )
 
   it.effect("thin to every 2nd, 4th, 8th tick below 13 px a row", () =>
     Effect.gen(function* () {
+      // 25-wide ticks 12 px tall, then 3.5 px tall.
       expect(
-        yield* labelPrices({ bottom: 10_490, top: 10_610, rowPx: 12 })
+        yield* labelPrices({ bottom: 10_490, top: 10_610, height: 57.6 })
       ).toEqual([10_500, 10_550, 10_600])
       expect(
-        yield* labelPrices({ bottom: 10_390, top: 10_610, rowPx: 3.5 })
+        yield* labelPrices({ bottom: 10_390, top: 10_610, height: 30.8 })
       ).toEqual([10_400, 10_500, 10_600])
+    })
+  )
+
+  // The labels for `view`: `off` lists those that aren't a valid price of
+  // their own band, `cramped` those less than 13 px over the one below.
+  const onTicks = Effect.fnUntraced(function* (view: {
+    readonly bottom: number
+    readonly top: number
+    readonly height: number
+  }) {
+    const prices = yield* labelPrices(view)
+    const pxPerPrice = view.height / (view.top - view.bottom)
+    const off = yield* Effect.filter(prices, (at) =>
+      Effect.map(snapToTick(at), (snapped) => snapped !== at)
+    )
+    const cramped = prices.filter(
+      (at, index) => index > 0 && (at - prices[index - 1]!) * pxPerPrice < 13
+    )
+    return { prices, off, cramped }
+  })
+
+  const clean = (prices: ReadonlyArray<number>) => ({
+    prices,
+    off: [],
+    cramped: [],
+  })
+
+  it.effect("step by each band's own tick across a band edge", () =>
+    Effect.gen(function* () {
+      // 2 px a rupiah: 10-wide rows below 5,000, 25-wide from it.
+      expect(
+        yield* onTicks({ bottom: 4_950, top: 5_040, height: 180 })
+      ).toEqual(clean([4_950, 4_960, 4_970, 4_980, 4_990, 5_000, 5_025]))
+      expect(yield* onTicks({ bottom: 190, top: 210, height: 400 })).toEqual(
+        clean([
+          190, 191, 192, 193, 194, 195, 196, 197, 198, 199, 200, 202, 204, 206,
+          208, 210,
+        ])
+      )
+      expect(yield* onTicks({ bottom: 490, top: 510, height: 200 })).toEqual(
+        clean([490, 492, 494, 496, 498, 500, 505, 510])
+      )
+      expect(yield* onTicks({ bottom: 1_990, top: 2_010, height: 80 })).toEqual(
+        clean([1_990, 1_995, 2_000, 2_010])
+      )
+    })
+  )
+
+  it.effect("thin each band on its own ticks across a band edge", () =>
+    Effect.gen(function* () {
+      // Half a px a rupiah: every 4th 10-wide tick, every 2nd 25-wide one.
+      expect(yield* onTicks({ bottom: 4_950, top: 5_040, height: 45 })).toEqual(
+        clean([4_960, 5_000])
+      )
+      expect(yield* onTicks({ bottom: 190, top: 210, height: 40 })).toEqual(
+        clean([192, 200, 208])
+      )
+      expect(yield* onTicks({ bottom: 1_990, top: 2_010, height: 40 })).toEqual(
+        clean([1_990, 2_000, 2_010])
+      )
+    })
+  )
+
+  it.effect("keep a band's first price over a closer label below it", () =>
+    Effect.gen(function* () {
+      // 3 px a rupiah: every 4th 2-wide tick below 500 puts 496 12 px under
+      // 500, every 5-wide tick from it.
+      expect(yield* onTicks({ bottom: 490, top: 510, height: 60 })).toEqual(
+        clean([500, 505, 510])
+      )
     })
   )
 })
