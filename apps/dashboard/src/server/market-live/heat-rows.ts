@@ -119,11 +119,11 @@ export interface HeatRow {
 // Each row's slices, ascending by minute, and over the minutes with no row
 // after it the book it ended with, up to the next row and `through` at most.
 // Decision: the answer works those slices out from each row's stored chunk,
-// one read a quiet stretch, with the page's own weighting (`heatSlices`); a
-// minute with no frame stores no row. A sealed day of 209 stretches answered
-// in 59 ms, one with none in 56 ms (median of 7, Node 26, 2 cores, measured
-// 2026-11-14). See apinrdw/kumora#279.
-const withQuietMinutes = Effect.fnUntraced(function* (
+// one read a stretch with no frame, with the page's own weighting
+// (`heatSlices`); a minute with no frame stores no row. A sealed day of 209
+// stretches answered in 59 ms, one with none in 56 ms (median of 7, Node 26,
+// 2 cores, measured 2026-11-14). See apinrdw/kumora#279.
+const withFramelessMinutes = Effect.fnUntraced(function* (
   rows: ReadonlyArray<HeatRow>,
   through: number
 ) {
@@ -165,7 +165,7 @@ export const heatmapAnswer = Effect.fnUntraced(function* (
   const rows = new Map(stored.map((row) => [row.minute, row]))
   if (live !== undefined)
     for (const row of yield* live.held(through)) rows.set(row.minute, row)
-  const slices = yield* withQuietMinutes(
+  const slices = yield* withFramelessMinutes(
     [...rows.values()].sort((a, b) => a.minute - b.minute),
     through
   )

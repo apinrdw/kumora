@@ -62,9 +62,9 @@ const levelsOf = (weights: ReadonlyMap<number, Weight>) => {
 }
 
 // Decision: a book stays in force until the next frame, so a minute with no
-// frame keeps the book before it, the day's last one to the end of the
-// relay's streaming (16:35 WIB): no frame could replace it after. No slice
-// starts from there on, in the GET's answer or on the page. See
+// frame keeps the book before it, the day's last one to the end of
+// streaming hours (`streamingEndOf`): no frame could replace it after. No
+// slice starts from there on, in the GET's answer or on the page. See
 // apinrdw/kumora#279.
 export const heatEndOf = (date: WibDate) =>
   Effect.map(
