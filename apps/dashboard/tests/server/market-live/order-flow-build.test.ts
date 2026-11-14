@@ -213,6 +213,53 @@ describe("the one-off build of a day sealed before order flow", () => {
   )
 
   it.effect(
+    "builds the minute of a trade stored up to a second before the first-numbered trade",
+    () =>
+      Effect.gen(function* () {
+        // Ajaib rounds to the second: 50002 is stored a second before 50001,
+        // across the minute, and the day stored no book chunk.
+        const skewedDay = (sql: Sql) =>
+          Effect.gen(function* () {
+            yield* onDay("10:00:00.500")
+            const day = yield* tradingDay(sql)
+            yield* day.trades([
+              trade(50001, "10:00:00.000", "UNTR", 23300, 2, "buy"),
+              trade(50002, "09:59:59.000", "UNTR", 23325, 3, "sell"),
+              trade(50003, "10:01:00.000", "UNTR", 23300, 4, "buy"),
+            ])
+            yield* onDay("17:00:00")
+            yield* day.alarm
+            yield* day.evicted
+          })
+        const untr: ReadonlyArray<RecordedResource> = [
+          { _tag: "Sweeps", code: UNTR },
+          { _tag: "Candles", code: UNTR },
+        ]
+        const bodies = (day: Day) =>
+          Effect.forEach(untr, (resource) =>
+            Effect.flatMap(day.recorded(resource), (response) =>
+              Effect.promise(() => response.text())
+            )
+          )
+
+        const recordedSql = memorySql()
+        yield* skewedDay(recordedSql)
+        yield* nextDay
+        const recorded = yield* tradingDay(recordedSql)
+        const expected = yield* bodies(recorded)
+        yield* recorded.evicted
+        assert.include(expected[0]!, '"side":"sell"')
+
+        const sql = memorySql()
+        yield* skewedDay(sql)
+        yield* sealedBeforeOrderFlow(sql)
+        yield* nextDay
+        assert.deepStrictEqual(yield* bodies(yield* tradingDay(sql)), expected)
+      }),
+    REPLAYS_A_DAY
+  )
+
+  it.effect(
     "a build that dies halfway reruns, on the next GET, to the same answers",
     () =>
       Effect.gen(function* () {
