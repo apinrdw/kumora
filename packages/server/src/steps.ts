@@ -8,6 +8,14 @@ export class StepFailed extends Schema.TaggedError<StepFailed>()("StepFailed", {
   message: Schema.String,
 }) {}
 
+// A step failure no retry can fix, such as a file that's gone. The Workflow
+// bridge throws it as `NonRetryableError`, so the runtime skips the step's
+// retries.
+export class NonRetryable extends Schema.TaggedError<NonRetryable>()(
+  "NonRetryable",
+  { message: Schema.String }
+) {}
+
 // The steps of one Workflow run, as Effects. `do` runs `effect` as a durable
 // step named `name`: the runtime replays a finished step's result instead of
 // running it again, so the result must be plain JSON, and the effect must
