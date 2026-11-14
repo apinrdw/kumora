@@ -18,7 +18,16 @@ A parameter or field that holds a glossary term (an Environment, a Preview) carr
 
 ## Bounded memory on a Worker
 
-Code that handles an uploaded file or a whole table on a Worker has a bound that holds at the largest accepted size, and a test at that size. A size check after the body is read is no bound. Three separate review rounds of spec #133 found this class.
+Code on a Worker whose memory grows with stored or uploaded data (an uploaded file, a whole table, a list built from stored rows) has a bound that holds at the largest accepted size, and a test at that size. A size check after the body is read is no bound. Three separate review rounds of spec #133 found this class, and spec #244's status endpoint built 750,000 ranges from one day's stored trades.
+
+## State in the extension worker
+
+The relay extension's service worker restarts, its settings change mid-run, and its requests overlap. Spec #244's review found 13 bugs in this class over 13 rounds, and they stopped only when the code took the shapes below.
+
+- **State from settings is one value, replaced whole when the settings change.** Progress, refusals, failure dedup and checkpoints that belong to a target live in that one value (`broker-codes/target-hold.ts`).
+- **An async result is judged by what it ran under.** A response is checked against the settings, token or entry the request was sent with, never against whatever is current when it returns.
+- **State that must survive a restart is loaded when it is built.** A copy kept in memory starts from storage, as `makePacer`'s `stoppedUntil` does.
+- **One writer per `chrome.storage` key.** Two writers that read, change and write one key overwrite each other, so each gets its own key, or the writes are serialized.
 
 ## Claims about third-party dashboards
 
