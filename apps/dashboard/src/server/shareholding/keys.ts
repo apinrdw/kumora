@@ -9,9 +9,9 @@
 // Nothing under reports/ is ever overwritten or deleted.
 import { Effect } from "effect"
 
+import { sha256Hex } from "../archive/hash.ts"
+import { REPORTS_PREFIX } from "../archive/run.ts"
 import type { ReportKind } from "./listing.ts"
-
-export const REPORTS_PREFIX = "reports/"
 
 // reports/<kind>/, the prefix of every report of one kind.
 export const kindPrefix = Effect.fnUntraced(function* (kind: ReportKind) {
@@ -24,17 +24,6 @@ export const reportKey = Effect.fnUntraced(function* (
   sha256: string
 ) {
   return `${yield* kindPrefix(kind)}${dataDate}/${sha256}.xlsx`
-})
-
-export const sha256Hex = Effect.fnUntraced(function* (
-  bytes: ArrayBuffer | Uint8Array<ArrayBuffer>
-) {
-  const digest = yield* Effect.promise(() =>
-    crypto.subtle.digest("SHA-256", bytes)
-  )
-  return Array.from(new Uint8Array(digest), (byte) =>
-    byte.toString(16).padStart(2, "0")
-  ).join("")
 })
 
 // A record is one per listing, a (source URL, ETag) pair.

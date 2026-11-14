@@ -31,6 +31,10 @@ export interface RunParams<Trigger extends string = string> {
   readonly trigger: Trigger
 }
 
+// Every stored file and its records, under reports/<kind>/ (each archive's
+// keys.ts).
+export const REPORTS_PREFIX = "reports/"
+
 export const RUNS_PREFIX = "runs/"
 export const LATEST_RUN_KEY = `${RUNS_PREFIX}latest.json`
 

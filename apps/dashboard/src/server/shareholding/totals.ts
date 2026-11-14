@@ -3,7 +3,8 @@
 import { Effect, Schema } from "effect"
 
 import { ArchiveBucket } from "../archive/bucket.ts"
-import { kindPrefix, REPORTS_PREFIX } from "./keys.ts"
+import { REPORTS_PREFIX } from "../archive/run.ts"
+import { kindPrefix } from "./keys.ts"
 import { ReportKind } from "./listing.ts"
 
 const ArchiveTotals = Schema.Struct({

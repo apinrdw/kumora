@@ -4,10 +4,8 @@ import { Conflict } from "@workspace/server"
 import { DateTime, Effect } from "effect"
 
 import type { FileRoutesByFullPath } from "@/routeTree.gen"
-import { Auth } from "@/server/auth/auth"
-import { decide, type Action } from "@/server/auth/policy"
-import { refusal } from "@/server/auth/refusal"
-import { accountOf } from "@/server/auth/session-account"
+import { authorizeArchive } from "@/server/admin/archive-access"
+import type { Action } from "@/server/auth/policy"
 import { lastRun, recentRuns, startRun } from "@/server/shareholding/runs"
 import { archiveTotals } from "@/server/shareholding/totals"
 import { runIdAt } from "@/server/shareholding/run-result"
@@ -16,19 +14,10 @@ import { nextScheduledRun } from "@/server/shareholding/schedule"
 const SHAREHOLDING_PATH =
   "/admin/shareholding" satisfies keyof FileRoutesByFullPath
 
-const authorize = Effect.fnUntraced(function* (
+const authorize = (
   headers: Headers,
   action: Extract<Action, `admin.${string}-shareholding-archive`>
-) {
-  const auth = yield* Auth
-  // Admin server functions read past the cookie cache.
-  const session = yield* auth.getSession(headers, { fresh: true })
-  const decision = yield* decide(yield* accountOf(session), action, {
-    feature: "admin",
-  })
-  if (decision._tag === "Deny")
-    return yield* refusal(decision.reason, SHAREHOLDING_PATH)
-})
+) => authorizeArchive(headers, action, SHAREHOLDING_PATH)
 
 export const shareholdingArchivePage = Effect.fn("shareholdingArchivePage")(
   function* (headers: Headers) {

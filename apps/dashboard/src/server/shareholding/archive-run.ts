@@ -13,8 +13,11 @@ import { HttpClient, type HttpClientError } from "effect/http"
 
 import { ArchiveBucket, type BucketError } from "../archive/bucket.ts"
 import { readCapped } from "../archive/capped-body.ts"
+import { sha256Hex } from "../archive/hash.ts"
+import { headHeld } from "../archive/head.ts"
+import { ETAG, heldRecords, RUN, SHA256 } from "../archive/held.ts"
 import { type ArchiveRunId, MAX_RUN_ERROR_LENGTH } from "../archive/run.ts"
-import { REPORTS_PREFIX, recordKey, reportKey, sha256Hex } from "./keys.ts"
+import { recordKey, reportKey } from "./keys.ts"
 import {
   fetchListing,
   ListedReport,
@@ -60,44 +63,13 @@ const ArchivedReport = Schema.Struct({
 })
 type ArchivedReport = typeof ArchivedReport.Type
 
-// The record's custom metadata keys, which a run reads back. RUN names the
-// run that wrote it, so `summary` can tell its own records from earlier ones.
+// The record's custom metadata key a run reads its identity from; the others
+// are ../archive/held.ts's.
 const SOURCE_URL = "sourceUrl"
-const ETAG = "etag"
-const SHA256 = "sha256"
-const RUN = "run"
 
 const nowIso = Effect.map(DateTime.now, DateTime.formatIso)
 
-interface HeldRecords {
-  readonly etags: Array<string>
-  readonly sha256s: Array<string>
-}
-
-// The ETags and hashes the records of each held URL hold, leaving out those
-// `run` wrote.
-// Decision: `plan`, `head` and `summary` each list reports/ with custom
-// metadata, not `plan` alone as the spec says: carried between steps, it
-// would outgrow a step result. ~150 files and records on 2026-11-14, ~50
-// more a month. A per-URL lookup costs a request per listed report. See
-// apinrdw/kumora#303 and #305.
-const heldRecords = Effect.fnUntraced(function* (run?: ArchiveRunId) {
-  const byUrl = new Map<string, HeldRecords>()
-  for (const { customMetadata } of yield* (yield* ArchiveBucket).list(
-    REPORTS_PREFIX
-  )) {
-    const url = customMetadata[SOURCE_URL]
-    if (url === undefined || (run !== undefined && customMetadata[RUN] === run))
-      continue
-    const held = byUrl.get(url) ?? { etags: [], sha256s: [] }
-    const etag = customMetadata[ETAG]
-    if (etag !== undefined) held.etags.push(etag)
-    const sha256 = customMetadata[SHA256]
-    if (sha256 !== undefined) held.sha256s.push(sha256)
-    byUrl.set(url, held)
-  }
-  return byUrl
-})
+const recordsByUrl = (run?: ArchiveRunId) => heldRecords(SOURCE_URL, run)
 
 // The listing, split by whether the archive holds each URL, and the run's
 // `running` record. runs/latest.json already names the run: its start
@@ -110,16 +82,13 @@ const plan = Effect.fnUntraced(function* (
   StepServices
 > {
   const listed = yield* fetchListing
-  const held = yield* heldRecords()
+  const held = yield* recordsByUrl()
   yield* putRunRecord(yield* runningResult(run))
   return {
     fresh: listed.filter((report) => !held.has(report.sourceUrl)),
     held: listed.filter((report) => held.has(report.sourceUrl)),
   }
 })
-
-// Concurrent HEADs to www.idx.id, kept modest out of courtesy to IDX.
-const HEAD_CONCURRENCY = 4
 
 const Checked = Schema.Struct({
   // How many held URLs answered their HEAD.
@@ -132,55 +101,19 @@ const Checked = Schema.Struct({
   unanswered: Schema.Array(Schema.String),
 })
 
-// An ETag as compared: `W/"x"` (weak, as a HEAD may answer) and `"x"` are
-// the same file.
-const comparableEtag = (etag: string) =>
-  Effect.sync(() => etag.replace(/^W\//, "").replace(/^"(.*)"$/, "$1"))
-
-// A HEAD to every held URL. A response with no ETag can't show a change, so
-// its URL counts as unchanged. A failed HEAD doesn't fail the step: its URL
-// is recorded, and the next run checks it again. So is one whose ETag is over
-// MAX_ETAG_BYTES, which the step's result couldn't carry.
+// A HEAD to every held URL, at its www.idx.id URL (../archive/head.ts).
 const head = Effect.fnUntraced(function* (
   held: Plan["held"]
 ): Effect.fn.Return<typeof Checked.Type, BucketError, StepServices> {
-  const client = HttpClient.filterStatusOk(yield* HttpClient.HttpClient)
-  const records = yield* heldRecords()
-  const answers = yield* Effect.forEach(
-    held,
-    ({ sourceUrl, fetchUrl }) =>
-      client.head(fetchUrl).pipe(
-        Effect.flatMap(
-          Effect.fnUntraced(function* (response) {
-            const etag = response.headers["etag"]
-            if (etag === undefined) return { sourceUrl, etag, changed: false }
-            if ((yield* jsonBytes(etag)) > MAX_ETAG_BYTES)
-              return yield* Effect.fail(etag)
-            const seen = yield* Effect.forEach(
-              records.get(sourceUrl)?.etags ?? [],
-              comparableEtag
-            )
-            return {
-              sourceUrl,
-              etag,
-              changed: !seen.includes(yield* comparableEtag(etag)),
-            }
-          })
-        ),
-        Effect.mapError(() => sourceUrl),
-        Effect.result
-      ),
-    { concurrency: HEAD_CONCURRENCY }
+  const { checked, changed, unanswered } = yield* headHeld(
+    held.map(({ sourceUrl, fetchUrl }) => ({ key: sourceUrl, url: fetchUrl })),
+    yield* recordsByUrl(),
+    MAX_ETAG_BYTES
   )
-  const answered = answers
-    .filter(Result.isSuccess)
-    .map(({ success }) => success)
   return {
-    checked: answered.length,
-    changed: answered.flatMap(({ sourceUrl, etag, changed }) =>
-      changed && etag !== undefined ? [{ sourceUrl, etag }] : []
-    ),
-    unanswered: answers.filter(Result.isFailure).map(({ failure }) => failure),
+    checked,
+    changed: changed.map(({ key, etag }) => ({ sourceUrl: key, etag })),
+    unanswered,
   }
 })
 
@@ -292,7 +225,7 @@ const summary = Effect.fnUntraced(function* (
   // Decided from earlier runs' records, not from the .xlsx being there: a
   // retry of a `report:` step finds the .xlsx, and maybe the record, its
   // first attempt wrote.
-  const earlier = yield* heldRecords(run.id)
+  const earlier = yield* recordsByUrl(run.id)
   const result = ArchiveRunResult.make({
     ...(yield* finishedResult(run)),
     outcome: notStored.length === 0 ? "complete" : "partial",
