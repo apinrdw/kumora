@@ -151,6 +151,10 @@ _Avoid_: KSEI mirror, shareholding archive
 One pass that compares KSEI's lists of reports with the KSEI archive and stores any report, or new version of one, that the archive lacks.
 _Avoid_: Archive run, which is IDX's; sync, scrape
 
+**Deep backfill**:
+A KSEI archive run an admin starts that also looks for KSEI reports older than KSEI's lists, by filenames known from elsewhere and by guessing each month's period end. Scheduled runs never do this.
+_Avoid_: History run, full sync
+
 ### Access
 
 **Account**:
