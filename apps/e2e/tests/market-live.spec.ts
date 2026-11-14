@@ -94,6 +94,65 @@ test.describe("signed in", () => {
     relay.close()
   })
 
+  test("chart 2 draws the selected code's footprint cells and footer as trades arrive", async ({
+    page,
+  }) => {
+    const relay = await openIngest()
+    const base = freshTradeNumbers()
+    // A code of its own: today's object keeps every code's footprints.
+    const code = freshCode("FP")
+    const sentAt = marketNow()
+    const time = wibTime(sentAt)
+    await relay.sendAjaib([
+      ajaibTradeToday({
+        seq: base + 1,
+        time,
+        ticker: code,
+        price: 500,
+        lot: 3,
+      }),
+      ajaibTradeToday({
+        seq: base + 2,
+        time,
+        ticker: code,
+        price: 505,
+        lot: 2,
+        type: "SELL",
+      }),
+    ])
+    // A desktop's width: 10 minutes of chart 2 then read as text.
+    await page.setViewportSize({ width: 1920, height: 1080 })
+    await page.goto(`${DASHBOARD}${PAGE}?code=${code}`)
+    const footprint = page.getByRole("region", { name: "Footprint" })
+    const minute = (at: number) => `${wibTime(at).slice(0, 5)}:00`
+    // 3 lots bought at 500, 2 sold at 505.
+    await expect(footprint).toContainText(
+      `Footprint minutes: 1. ${minute(sentAt)}: Vol 5, Δ +1, CVD +1`
+    )
+    // The opening window is 10 minutes wide: each reads as `sell × buy`
+    // text, with a labelled footer.
+    const canvas = footprint.locator('[data-chart="footprint"]')
+    await expect(canvas).toHaveAttribute("data-draw-mode", "text")
+    await expect(canvas).toHaveAttribute("data-footer", "labelled")
+
+    // A delta: the next minute's sell runs CVD below zero.
+    const next = sentAt + 60_000
+    await relay.sendAjaib([
+      ajaibTradeToday({
+        seq: base + 3,
+        time: wibTime(next),
+        ticker: code,
+        price: 500,
+        lot: 4,
+        type: "SELL",
+      }),
+    ])
+    await expect(footprint).toContainText(
+      `Footprint minutes: 2. ${minute(next)}: Vol 4, Δ −4, CVD −3`
+    )
+    relay.close()
+  })
+
   test("a feed drop flips its pill, and both down dims the tape with STALE", async ({
     page,
   }) => {

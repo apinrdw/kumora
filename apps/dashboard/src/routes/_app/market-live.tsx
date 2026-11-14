@@ -8,6 +8,7 @@ import { useCallback, useEffect, useMemo, useState } from "react"
 import { makeCandleStore } from "@/components/market-live/candle-store"
 import { makeDayStateStore } from "@/components/market-live/day-state-store"
 import { DayStrip } from "@/components/market-live/day-strip"
+import { FootprintChart } from "@/components/market-live/footprint-chart"
 import { LiveChart } from "@/components/market-live/live-chart"
 import { LiveTape } from "@/components/market-live/live-tape"
 import {
@@ -136,29 +137,32 @@ function MarketLiveDay({
     <>
       <h1 className="text-2xl font-bold">Market Live</h1>
       <div className="grid gap-4 lg:grid-cols-[minmax(0,1fr)_400px]">
-        <LiveChart
-          store={candles}
-          gaps={cursor === undefined ? liveGaps : gaps}
-          dayStates={dayStates}
-          conditions={
-            cursor === undefined ? (
-              <MarketConditionsBar />
-            ) : (
-              <RecordedConditionsBar cursor={cursor} closed={closed} />
-            )
-          }
-          cursor={cursor}
-          footer={cursor && <TransportBar cursor={cursor} gaps={gaps} />}
-          search={
-            <StockCodePicker
-              list={codes}
-              label="Search stock code"
-              shortcut="/"
-              onPick={select}
-              className="ml-auto w-full max-w-xs"
-            />
-          }
-        />
+        <div className="flex min-w-0 flex-col gap-4">
+          <LiveChart
+            store={candles}
+            gaps={cursor === undefined ? liveGaps : gaps}
+            dayStates={dayStates}
+            conditions={
+              cursor === undefined ? (
+                <MarketConditionsBar />
+              ) : (
+                <RecordedConditionsBar cursor={cursor} closed={closed} />
+              )
+            }
+            cursor={cursor}
+            footer={cursor && <TransportBar cursor={cursor} gaps={gaps} />}
+            search={
+              <StockCodePicker
+                list={codes}
+                label="Search stock code"
+                shortcut="/"
+                onPick={select}
+                className="ml-auto w-full max-w-xs"
+              />
+            }
+          />
+          <FootprintChart store={candles} cursor={cursor} />
+        </div>
         <div className="flex min-w-0 flex-col gap-4">
           <Watchlist
             codes={watchlist.codes}

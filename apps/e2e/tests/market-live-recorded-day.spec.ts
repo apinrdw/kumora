@@ -77,6 +77,8 @@ test("the day strip opens a recorded day at its close, it replays, and Today · 
     ([key, watched]) => window.localStorage.setItem(key, watched),
     [WATCHLIST_KEY, JSON.stringify([code])] as const
   )
+  // A desktop's width: 10 minutes of chart 2 then read as text.
+  await page.setViewportSize({ width: 1920, height: 1080 })
   await page.goto(`${DASHBOARD}${PAGE}?code=${code}`)
   const conditions = page.getByRole("group", { name: "Market conditions" })
   await expect(conditions.getByRole("list", { name: "Feeds" })).toBeVisible()
@@ -127,6 +129,16 @@ test("the day strip opens a recorded day at its close, it replays, and Today · 
   )
 
   await expect(page.getByText("One-minute candles: 1")).toBeAttached()
+  // Chart 2 draws the recorded footprint: 5 lots bought.
+  const footprint = page.getByRole("region", { name: "Footprint" })
+  const tradedMinute = `${time.slice(0, 5)}:00`
+  await expect(footprint).toContainText(
+    `Footprint minutes: 1. ${tradedMinute}: Vol 5, Δ +5, CVD +5`
+  )
+  await expect(footprint.locator('[data-chart="footprint"]')).toHaveAttribute(
+    "data-draw-mode",
+    "text"
+  )
   const row = page
     .getByRole("region", { name: "Watchlist" })
     .locator(`tr[data-code="${code}"]`)
@@ -151,6 +163,8 @@ test("the day strip opens a recorded day at its close, it replays, and Today · 
     "Not recorded"
   )
   await expect(row).toContainText("no data yet")
+  // The footprint follows the cursor: its minute hasn't come yet.
+  await expect(footprint).toContainText("Footprint minutes: 0")
   // The scrubber shades the gap.
   await expect(
     page
