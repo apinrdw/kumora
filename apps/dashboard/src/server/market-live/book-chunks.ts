@@ -12,6 +12,7 @@ import {
 import { Clock, DateTime, Effect } from "effect"
 
 import type { StoredChunk } from "./day-store.ts"
+import { chunkSlices } from "./heat-rows.ts"
 
 const MINUTE = 60_000
 
@@ -102,9 +103,21 @@ export const makeBookChunks = Effect.sync(() => {
           ...(held.start === undefined ? {} : { start: held.start }),
           deltas: held.deltas,
         }),
+        slices: yield* chunkSlices(held),
       })
     return chunks
   })
+
+  // The chunks of `code` not taken yet, oldest first: closed ones, then the
+  // open one.
+  const held = (code: StockCode) =>
+    Effect.sync(() => {
+      const chunks = closed
+        .filter((entry) => entry.code === code)
+        .map((entry) => entry.open)
+      const current = open.get(code)
+      return current === undefined ? chunks : [...chunks, current]
+    })
 
   const hasOpen = Effect.sync(() => open.size > 0 || closed.length > 0)
 
@@ -115,5 +128,5 @@ export const makeBookChunks = Effect.sync(() => {
       for (const book of books) last.set(book.code, book)
     })
 
-  return { record, take, hasOpen, restore }
+  return { record, take, held, hasOpen, restore }
 })

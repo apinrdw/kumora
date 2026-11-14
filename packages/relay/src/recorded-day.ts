@@ -32,6 +32,8 @@ export type RecordedResource =
     }
   // The day's relay gaps.
   | { readonly _tag: "Gaps" }
+  // One code's book heatmap slices so far (heatmap.ts).
+  | { readonly _tag: "Heatmap"; readonly code: StockCode }
 
 export const recordedDayPath = (date: WibDate, resource: RecordedResource) =>
   Effect.sync(() => {
@@ -47,6 +49,8 @@ export const recordedDayPath = (date: WibDate, resource: RecordedResource) =>
         return `${base}/books/${resource.code}?minute=${DateTime.toEpochMillis(resource.minute)}`
       case "Gaps":
         return `${base}/gaps`
+      case "Heatmap":
+        return `${base}/heatmap/${resource.code}`
     }
   })
 
@@ -98,6 +102,11 @@ const resourceOf = Effect.fnUntraced(function* (
   if (kind === "candles")
     return Option.map(decodeCode(code), (stock) => ({
       _tag: "Candles" as const,
+      code: stock,
+    }))
+  if (kind === "heatmap")
+    return Option.map(decodeCode(code), (stock) => ({
+      _tag: "Heatmap" as const,
       code: stock,
     }))
   if (kind === "books")

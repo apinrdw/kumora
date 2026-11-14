@@ -25,7 +25,12 @@ import {
   type PeerState,
 } from "@/server/market-live/trading-day"
 
-import { runningTradeBatch, type StockbitRow } from "./protobuf"
+import {
+  messageField,
+  runningTradeBatch,
+  stringField,
+  type StockbitRow,
+} from "./protobuf"
 import { memorySql } from "./sql"
 
 const TOKEN = "e2e-ingest-token"
@@ -83,6 +88,37 @@ export const stockbitTrade = (trade: {
   tradeNumber: trade.number,
 })
 
+// Stockbit's `order_book` frame (wrapper case 10) of one full side of
+// `code`'s book on 2026-11-09, as of `time` (WIB). Levels are [price, orders,
+// lots], best first.
+export const stockbitBook = (book: {
+  readonly code?: string
+  readonly side: "BID" | "OFFER"
+  readonly levels: ReadonlyArray<
+    readonly [price: number, orders: number, lots: number]
+  >
+  readonly time: string
+}) => {
+  const code = book.code ?? "UNTR"
+  const shares = book.levels.reduce((sum, [, , lots]) => sum + lots * 100, 0)
+  const body = [
+    "#O",
+    code,
+    book.side,
+    ...book.levels.map(
+      ([price, orders, lots]) => `${price};${orders};${lots * 100}`
+    ),
+    `0-${book.levels.length}&${shares}`,
+  ].join("|")
+  return Uint8Array.from(
+    messageField(10, [
+      ...stringField(1, code),
+      ...stringField(2, body),
+      ...stringField(5, `2026-11-09T${book.time}+07:00`),
+    ])
+  )
+}
+
 // A trading day on `sql` (a fresh database by default; the same one again is
 // the object restarting), with a relay that sent the right token.
 export const tradingDay = Effect.fnUntraced(function* (sql: Sql = memorySql()) {
@@ -116,6 +152,19 @@ export const tradingDay = Effect.fnUntraced(function* (sql: Sql = memorySql()) {
         connection: "A",
         receivedAt: DateTime.makeUnsafe("2026-11-09T02:00:01.000Z"),
         frames: [runningTradeBatch(rows)],
+      })
+    )
+  })
+  // Stockbit frames other than running trades, received now.
+  const frames = Effect.fnUntraced(function* (sent: ReadonlyArray<Uint8Array>) {
+    yield* ingest(
+      yield* encodeIngestUp({
+        _tag: "Frames",
+        protocolVersion: IngestProtocolVersion,
+        feed: "Stockbit",
+        connection: "A",
+        receivedAt: yield* DateTime.now,
+        frames: sent,
       })
     )
   })
@@ -158,6 +207,7 @@ export const tradingDay = Effect.fnUntraced(function* (sql: Sql = memorySql()) {
   return {
     day,
     trades,
+    frames,
     viewer,
     recorded,
     recordedCandles,

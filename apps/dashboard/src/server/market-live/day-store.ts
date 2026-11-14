@@ -11,12 +11,14 @@ import {
   TradeNumberValue,
   type Candle,
   type Footprint,
+  type HeatSlice,
   type RunningTrade,
 } from "@workspace/relay"
 import { DateTime, Effect } from "effect"
 
 import type { StoredCandle, StoredFootprint } from "./candles.ts"
 import { cellsFromText, cellsOut, cellsText } from "./footprint-cells.ts"
+import { slicesFromText, slicesText } from "./heat-rows.ts"
 import type { StoredAjaibBook } from "./order-books.ts"
 import type { LivePrice } from "./stockbit-liveprice.ts"
 
@@ -36,11 +38,13 @@ export interface Sql {
   readonly transaction: (write: () => void) => void
 }
 
-// One code's order book chunk for one minute, encoded.
+// One code's order book chunk for one minute, encoded, and its book heatmap
+// slices (heat-rows.ts).
 export interface StoredChunk {
   readonly code: StockCode
   readonly minute: number
   readonly chunk: string
+  readonly slices: ReadonlyArray<HeatSlice>
 }
 
 // What one flush writes.
@@ -101,6 +105,14 @@ const SCHEMA = [
     code TEXT NOT NULL,
     minute INTEGER NOT NULL,
     chunk BLOB NOT NULL,
+    PRIMARY KEY (code, minute)
+  ) WITHOUT ROWID`,
+  // A stock's book heatmap slices for one minute (heat-rows.ts), written
+  // with its book chunk.
+  `CREATE TABLE IF NOT EXISTS heatmaps (
+    code TEXT NOT NULL,
+    minute INTEGER NOT NULL,
+    slices TEXT NOT NULL,
     PRIMARY KEY (code, minute)
   ) WITHOUT ROWID`,
   `CREATE TABLE IF NOT EXISTS ajaib_books (
@@ -196,6 +208,9 @@ export const makeDayStore = (sql: Sql) =>
       const footprints: Array<readonly [StoredFootprint, string]> = []
       for (const footprint of flush.footprints)
         footprints.push([footprint, yield* cellsText(footprint.cells)])
+      const heatmaps: Array<readonly [StoredChunk, string]> = []
+      for (const chunk of flush.chunks)
+        heatmaps.push([chunk, yield* slicesText(chunk.minute, chunk.slices)])
       yield* Effect.sync(() =>
         sql.transaction(() => {
           for (const trade of flush.trades)
@@ -249,6 +264,13 @@ export const makeDayStore = (sql: Sql) =>
               code,
               minute,
               new Uint8Array(gzipSync(chunk))
+            )
+          for (const [{ code, minute }, slices] of heatmaps)
+            sql.exec(
+              "INSERT OR REPLACE INTO heatmaps VALUES (?, ?, ?)",
+              code,
+              minute,
+              slices
             )
           for (const { code, book } of flush.ajaibBooks)
             sql.exec(
@@ -498,6 +520,24 @@ export const makeDayStore = (sql: Sql) =>
       return row === undefined ? undefined : yield* chunkOf(row.chunk)
     })
 
+    // One stock's stored book heatmap slices by minute, ascending.
+    const heatmapOf = (code: StockCode) =>
+      Effect.suspend(() =>
+        Effect.forEach(
+          sql.exec(
+            "SELECT minute, slices FROM heatmaps WHERE code = ? ORDER BY minute",
+            code
+          ),
+          Effect.fnUntraced(function* (row) {
+            const minute = Number(row.minute)
+            return {
+              minute,
+              slices: yield* slicesFromText(minute, String(row.slices)),
+            }
+          })
+        )
+      )
+
     // Every code's latest chunk: the books a restarted object starts from.
     const latestChunks = Effect.suspend(() =>
       Effect.forEach(
@@ -543,6 +583,7 @@ export const makeDayStore = (sql: Sql) =>
       livePrices,
       livePrice,
       chunkAt,
+      heatmapOf,
       latestChunks,
       ajaibBooks,
       fact,

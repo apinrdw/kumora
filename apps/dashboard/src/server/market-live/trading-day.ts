@@ -65,6 +65,7 @@ import { makeGaps } from "./gaps.ts"
 import { makeMarketConditions } from "./market-conditions.ts"
 import { makeOnDemand } from "./on-demand.ts"
 import { makeOrderBooks } from "./order-books.ts"
+import { chunkSlices, type HeatRow } from "./heat-rows.ts"
 import { SNAPSHOT_TRADES, recordedAnswer } from "./recorded-answers.ts"
 import { type AccountId, type HeldSessions, type SessionId } from "./routes.ts"
 import { stockbitTrades } from "./stockbit.ts"
@@ -1024,6 +1025,23 @@ export const makeTradingDay = Effect.fnUntraced(function* (options: {
   })
 
   // A recorded day GET, answered from the store (recorded-answers.ts).
+  // A code's heatmap rows not stored yet: a failed flush's chunks, then the
+  // ones still held, each slice ending by `through`.
+  const heldHeat = Effect.fnUntraced(function* (
+    code: StockCode,
+    through: number
+  ) {
+    const rows: Array<HeatRow> = (unwritten?.chunks ?? []).filter(
+      (chunk) => chunk.code === code
+    )
+    for (const chunk of yield* bookChunks.held(code))
+      rows.push({
+        minute: chunk.minute,
+        slices: yield* chunkSlices(chunk, through),
+      })
+    return rows
+  })
+
   const recorded = (resource: RecordedResource) =>
     Effect.suspend(() =>
       recordedAnswer(resource, {
@@ -1035,6 +1053,7 @@ export const makeTradingDay = Effect.fnUntraced(function* (options: {
           market.conditions,
           (conditions) => conditions.gaps
         ),
+        heldHeat,
       })
     )
 

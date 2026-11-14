@@ -7,12 +7,14 @@ import {
   encodeRecordedTape,
   type RecordedResource,
   type RelayGap,
+  type StockCode,
   type WibDate,
 } from "@workspace/relay"
-import { DateTime, Effect } from "effect"
+import { Clock, DateTime, Effect } from "effect"
 
 import { codeListAnswer, type CodeListStore } from "./code-list.ts"
 import { Fact, type makeDayStore } from "./day-store.ts"
+import { heatmapAnswer, type HeatRow } from "./heat-rows.ts"
 import { SEALED_CACHE } from "./routes.ts"
 
 // The newest trades a viewer's snapshot carries, and a tape GET at a cursor.
@@ -41,6 +43,11 @@ export const recordedAnswer = Effect.fnUntraced(function* (
     readonly sealed: boolean
     // The gaps so far, while the day isn't sealed.
     readonly liveGaps: Effect.Effect<ReadonlyArray<RelayGap>>
+    // A code's heatmap rows not stored yet, each slice ending by `through`.
+    readonly heldHeat: (
+      code: StockCode,
+      through: number
+    ) => Effect.Effect<ReadonlyArray<HeatRow>>
   }
 ) {
   const { store } = day
@@ -78,6 +85,22 @@ export const recordedAnswer = Effect.fnUntraced(function* (
             404
           )
         : yield* json(chunk, cacheControl)
+    }
+    case "Heatmap": {
+      const { code } = resource
+      return yield* json(
+        yield* heatmapAnswer(
+          code,
+          yield* store.heatmapOf(code),
+          day.sealed
+            ? undefined
+            : {
+                now: yield* Clock.currentTimeMillis,
+                held: (through) => day.heldHeat(code, through),
+              }
+        ),
+        cacheControl
+      )
     }
     case "Gaps":
       return yield* json(
