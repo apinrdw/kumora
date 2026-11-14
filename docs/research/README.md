@@ -19,6 +19,10 @@ Findings from research tickets, one file per question. Each records what was tru
 - [How IDX serves the Data Kepemilikan Saham listing and its files](idx-kepemilikan-listing.md)
 - [Cloudflare Workflows for a shareholding archive run](cloudflare-workflows-shareholding-archive.md)
 
+## KSEI
+
+- [How KSEI serves the Statistik Efek and Kepemilikan Efek listings and their files](ksei-statistik-kepemilikan-listing.md)
+
 ## Relay extension
 
 - [Capturing a page's WebSocket frames in an MV3 extension and relaying them](mv3-websocket-relay.md)
