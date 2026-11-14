@@ -641,10 +641,13 @@ export const makeDayStore = (sql: Sql) =>
         )
       )
 
-    // The first and last minute holding a stored trade or book chunk, and
-    // the codes with a book chunk; none when the day stored neither. The
-    // trades' minutes come off the primary key's ends, the chunks' from one
-    // pass grouped by code, so memory holds a row per code, never per chunk.
+    // The first and last minute that can hold a stored trade or book chunk,
+    // and the codes with a book chunk; none when the day stored neither. The
+    // trades' minutes come off the primary key's ends, widened by
+    // TIME_SKEW_MS: a later-numbered trade can be stored up to that much
+    // before the first, and an earlier one that much after the last. The
+    // chunks' come from one pass grouped by code, so memory holds a row per
+    // code, never per chunk.
     const orderFlowMinutes = Effect.gen(function* () {
       let first = Number.POSITIVE_INFINITY
       let last = Number.NEGATIVE_INFINITY
@@ -652,14 +655,17 @@ export const makeDayStore = (sql: Sql) =>
         first = Math.min(first, minute)
         last = Math.max(last, minute)
       }
-      for (const bound of ["min", "max"] as const) {
+      for (const [bound, skew] of [
+        ["min", -TIME_SKEW_MS],
+        ["max", TIME_SKEW_MS],
+      ] as const) {
         const number = yield* boundTrade(bound)
         if (number === undefined) continue
         const [row] = sql.exec(
           "SELECT time FROM trades WHERE number = ?",
           number
         )
-        add(Math.floor(Number(row?.time) / MINUTE_MS) * MINUTE_MS)
+        add(Math.floor((Number(row?.time) + skew) / MINUTE_MS) * MINUTE_MS)
       }
       const chunkCodes: Array<StockCode> = []
       for (const row of sql.exec(
