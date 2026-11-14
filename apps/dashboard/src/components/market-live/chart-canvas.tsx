@@ -1,6 +1,7 @@
 // Lightweight Charts, loaded only in the browser (live-chart.tsx lazy-loads
 // this module inside ClientOnly), so the Worker never bundles or runs it.
 import {
+  INDEX_CODES,
   marketMomentAt,
   type Candle,
   type Footprint,
@@ -199,6 +200,9 @@ export default function ChartCanvas({
     const token = (name: string) => css.getPropertyValue(name).trim()
     const up = token("--semantic-up")
     const down = token("--semantic-down")
+    // Decision: an index's values are fractional points, not prices on IDX
+    // ticks, so its chart keeps the library's decimal axis and grid lines.
+    const anIndex = INDEX_CODES.includes(store.code)
     const chart = createChart(element, {
       autoSize: true,
       layout: {
@@ -206,10 +210,12 @@ export default function ChartCanvas({
         textColor: token("--text-muted"),
         fontSize: 11,
       },
-      // The price axis draws the horizontal lines, on IDX ticks.
+      // A stock's price axis draws the horizontal lines, on IDX ticks.
       grid: {
         vertLines: { color: token("--chart-grid") },
-        horzLines: { visible: false },
+        horzLines: anIndex
+          ? { color: token("--chart-grid") }
+          : { visible: false },
       },
       rightPriceScale: {
         borderColor: token("--border-subtle"),
@@ -247,12 +253,14 @@ export default function ChartCanvas({
       })
     )
     setSeries(candles)
-    const axis = Effect.runSync(
-      idxPriceAxis(candles, {
-        text: token("--text-muted"),
-        grid: token("--chart-grid"),
-      })
-    )
+    const axis = anIndex
+      ? undefined
+      : Effect.runSync(
+          idxPriceAxis(candles, {
+            text: token("--text-muted"),
+            grid: token("--chart-grid"),
+          })
+        )
     const sessions = new SessionLines(token("--border-subtle"))
     candles.attachPrimitive(sessions)
     const shades = new GapShades(`${grey}26`)
@@ -357,7 +365,7 @@ export default function ChartCanvas({
       )
       sessions.setTimes(Effect.runSync(sessionStarts(all)))
       shades.setRuns(runs)
-      axis.setPrice(all.at(-1)?.close)
+      axis?.setPrice(all.at(-1)?.close)
       bars = [...drawn, ...blank].sort((a, b) => a - b)
       placeCursor()
     }
@@ -414,7 +422,7 @@ export default function ChartCanvas({
         sessions.setTimes(Effect.runSync(sessionStarts(store.candles())))
         placeCursor()
       }
-      axis.setPrice(store.candles().at(-1)?.close)
+      axis?.setPrice(store.candles().at(-1)?.close)
     }
     const unsubscribe = store.subscribe((change: CandleChange) => {
       if (change._tag === "Reset") reset = true
