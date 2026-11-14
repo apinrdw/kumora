@@ -32,6 +32,20 @@ const run = (
     startedAt,
   })
 
+// The error a run fails with. A run that ends without one fails the test
+// with its outcome.
+const runFailure = (idx: FakeIdx, bucket: MemoryBucket, id: string) =>
+  run(idx, bucket, id).pipe(
+    Effect.flatMap(({ outcome, reportsAdded }) =>
+      Effect.sync(() =>
+        assert.fail(
+          `expected the run to fail, but it ended ${outcome} with ${reportsAdded} reports added`
+        )
+      )
+    ),
+    Effect.flip
+  )
+
 const keysUnder = (bucket: MemoryBucket, prefix: string) =>
   [...bucket.objects.keys()].filter((key) => key.startsWith(prefix)).sort()
 
@@ -619,7 +633,7 @@ describe("an archive run", () => {
       const bucket = memoryBucket()
       idx.listingResponse = () => new Response("Forbidden", { status: 403 })
 
-      const failure = yield* Effect.flip(run(idx, bucket, "cron-2026-11-14T06"))
+      const failure = yield* runFailure(idx, bucket, "cron-2026-11-14T06")
 
       assert.include(failure.message, "403")
       assert.deepInclude(json(bucket, "runs/cron-2026-11-14T06.json"), {
@@ -647,9 +661,7 @@ describe("an archive run", () => {
         idx.listingResponse = () =>
           Response.json({ data: [{ Title: "Pemegang Saham di Atas 5%" }] })
 
-        const failure = yield* Effect.flip(
-          run(idx, bucket, "cron-2026-11-14T06")
-        )
+        const failure = yield* runFailure(idx, bucket, "cron-2026-11-14T06")
 
         assert.strictEqual(idx.requests.length, 1)
         assert.include(failure.message, "listing")
@@ -779,7 +791,7 @@ describe("an archive run at the largest size it accepts", () => {
       const idx = fakeIdx(listing(MAX_LISTED_REPORTS + 1, 300))
       const bucket = memoryBucket()
 
-      const failure = yield* Effect.flip(run(idx, bucket, "cron-2026-11-14T06"))
+      const failure = yield* runFailure(idx, bucket, "cron-2026-11-14T06")
 
       assert.strictEqual(idx.requests.length, 1)
       assert.include(failure.message, `more than the ${MAX_LISTED_REPORTS}`)
@@ -808,9 +820,7 @@ describe("an archive run at the largest size it accepts", () => {
       pastCap.listingResponse = () =>
         new Response(listingOf(MAX_LISTING_BYTES + 1))
       const bucket = memoryBucket()
-      const failure = yield* Effect.flip(
-        run(pastCap, bucket, "cron-2026-11-14T06")
-      )
+      const failure = yield* runFailure(pastCap, bucket, "cron-2026-11-14T06")
       assert.strictEqual(pastCap.requests.length, 1)
       assert.include(failure.message, `over ${MAX_LISTING_BYTES} bytes`)
       assert.deepInclude(json(bucket, "runs/cron-2026-11-14T06.json"), {
@@ -828,7 +838,7 @@ describe("an archive run at the largest size it accepts", () => {
       ])
       const bucket = memoryBucket()
 
-      const failure = yield* Effect.flip(run(idx, bucket, "cron-2026-11-14T06"))
+      const failure = yield* runFailure(idx, bucket, "cron-2026-11-14T06")
 
       assert.strictEqual(idx.requests.length, 1)
       assert.include(failure.message, "kelompok-1.xlsx")

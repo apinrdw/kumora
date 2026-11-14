@@ -215,7 +215,16 @@ describe("Run now", () => {
       if (previous !== undefined) previous.status = status
       return Effect.gen(function* () {
         const cookie = yield* verified(mails)(ADMIN_EMAIL, "Adi")
-        const error = yield* Effect.flip(runArchiveNow(headers(cookie)))
+        const error = yield* runArchiveNow(headers(cookie)).pipe(
+          Effect.flatMap(({ id }) =>
+            Effect.sync(() =>
+              assert.fail(
+                `expected Run now to be refused, but it started ${id}`
+              )
+            )
+          ),
+          Effect.flip
+        )
         assert.deepStrictEqual(
           error,
           new Conflict({ message: "A run is in progress." })
