@@ -135,8 +135,8 @@ export const startRun = Effect.fnUntraced(function* (
     )
 })
 
-// The `scheduled` handler's body: one run per firing, named after its
-// scheduled hour (UTC), unless a run is still in progress.
+// What each cron firing runs (`runArchiveCron`, cron.ts): one run per firing,
+// named after its scheduled hour (UTC), unless a run is still in progress.
 export const scheduledArchiveRun = Effect.fn("scheduledArchiveRun")(function* (
   scheduledTime: number
 ) {
