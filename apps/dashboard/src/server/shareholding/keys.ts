@@ -10,6 +10,7 @@
 import { Effect } from "effect"
 
 import type { ReportKind } from "./listing.ts"
+import type { ArchiveRunId } from "./run-result.ts"
 
 export const REPORTS_PREFIX = "reports/"
 export const RUNS_PREFIX = "runs/"
@@ -65,6 +66,6 @@ export const recordKey = Effect.fnUntraced(function* (
   return `${yield* kindPrefix(kind)}${dataDate}/${sha256}.${fetchedAt.replaceAll(":", "")}.${listingDigest}.json`
 })
 
-export const runKey = Effect.fnUntraced(function* (id: string) {
+export const runKey = Effect.fnUntraced(function* (id: ArchiveRunId) {
   return `${RUNS_PREFIX}${id}.json`
 })

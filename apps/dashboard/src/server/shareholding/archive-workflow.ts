@@ -4,16 +4,16 @@
 import { Context, type Effect, Schema } from "effect"
 
 import type { RETENTION } from "./retention.ts"
-import type { ArchiveParams, ArchiveRunId } from "./run-result.ts"
+import { type ArchiveParams, ArchiveRunId } from "./run-result.ts"
 
 export class DuplicateRunId extends Schema.TaggedError<DuplicateRunId>()(
   "DuplicateRunId",
-  { id: Schema.String }
+  { id: ArchiveRunId }
 ) {}
 
 export class WorkflowError extends Schema.TaggedError<WorkflowError>()(
   "WorkflowError",
-  { operation: Schema.String, id: Schema.String, cause: Schema.Defect() }
+  { operation: Schema.String, id: ArchiveRunId, cause: Schema.Defect() }
 ) {}
 
 // A Workflow instance's status, as `status()` reports it.
