@@ -8,6 +8,7 @@ import { Clock, Effect, Layer } from "effect"
 import {
   ArchiveBucket,
   BucketError,
+  checkListed,
   type PutOptions,
 } from "@/server/shareholding/bucket"
 
@@ -54,21 +55,24 @@ export const memoryBucket = (): MemoryBucket => {
     layer: Layer.succeed(
       ArchiveBucket,
       ArchiveBucket.of({
-        list: (prefix) =>
-          Effect.map(Clock.currentTimeMillis, (now) =>
-            [...objects]
-              .filter(([key]) => key.startsWith(prefix))
-              .sort(([a], [b]) => a.localeCompare(b))
-              .map(([key, object]) => {
-                listed.push(key)
-                return {
-                  key,
-                  size: object.body.length,
-                  uploaded: new Date(object.uploaded ?? now),
-                  customMetadata: object.customMetadata,
-                }
-              })
-          ),
+        list: (prefix, { startAfter = "" } = {}) =>
+          Effect.gen(function* () {
+            const now = yield* Clock.currentTimeMillis
+            const matching = [...objects]
+              .filter(([key]) => key.startsWith(prefix) && key > startAfter)
+              // In key order, as R2 lists.
+              .sort(([a], [b]) => (a < b ? -1 : 1))
+            yield* checkListed(prefix, matching.length)
+            return matching.map(([key, object]) => {
+              listed.push(key)
+              return {
+                key,
+                size: object.body.length,
+                uploaded: new Date(object.uploaded ?? now),
+                customMetadata: object.customMetadata,
+              }
+            })
+          }),
         exists: (key) => Effect.sync(() => objects.has(key)),
         get: (key) =>
           Effect.map(Clock.currentTimeMillis, (now) => {

@@ -5,41 +5,37 @@ import { Clock, Effect, Schema } from "effect"
 
 import { ArchiveWorkflow } from "./archive-workflow.ts"
 import { ArchiveBucket } from "./bucket.ts"
-import {
-  kindPrefix,
-  LATEST_RUN_KEY,
-  REPORTS_PREFIX,
-  RUNS_PREFIX,
-} from "./keys.ts"
+import { kindPrefix, REPORTS_PREFIX, RUNS_PREFIX } from "./keys.ts"
 import { ReportKind } from "./listing.ts"
 import { RETENTION_MS } from "./retention.ts"
-import { decodeRunResult } from "./run-result.ts"
+import { ArchiveTrigger, decodeRunResult, runIdAt } from "./run-result.ts"
 import { viewRun } from "./run-view.ts"
 
 // The runs started in the past 30 days, newest first, from runs/<id>.json,
 // each shown as the last run card shows it.
-// Decision: a record R2 last wrote before the 30 days is never read. Each
-// run rewrites its record when it ends, so that write is no earlier than its
-// start: the listing alone rules out old runs, so the page reads at most 30
-// days of records. The key listing itself grows by ~2 keys a day, about 730
-// a year of 0.1 KB entries, and stays one paged list. See apinrdw/kumora#310.
+// Decision: one listing per trigger, starting after the key of a run that
+// trigger would have started 30 days ago. Run ids of one trigger sort as
+// their starts do (`runIdAt`), so the page lists and reads only the past 30
+// days of runs, and runs/ can grow without the page listing more of it. See
+// apinrdw/kumora#310.
 export const recentRuns = Effect.gen(function* () {
   const bucket = yield* ArchiveBucket
   const workflow = yield* ArchiveWorkflow
   const now = yield* Clock.currentTimeMillis
   const since = now - RETENTION_MS
-  const keys = (yield* bucket.list(RUNS_PREFIX))
-    .filter(
-      ({ key, uploaded }) =>
-        key !== LATEST_RUN_KEY && uploaded.getTime() >= since
-    )
-    .map(({ key }) => key)
+  const listings = yield* Effect.forEach(ArchiveTrigger.literals, (trigger) =>
+    Effect.gen(function* () {
+      const oldest = yield* runIdAt(trigger, since)
+      return yield* bucket.list(`${RUNS_PREFIX}${trigger}-`, {
+        // runs/<id> sorts just before runs/<id>.json, so that run is listed.
+        startAfter: `${RUNS_PREFIX}${oldest}`,
+      })
+    })
+  )
   const records = yield* Effect.forEach(
-    keys,
-    (key) => Effect.map(bucket.get(key), (object) => object?.body),
-    {
-      concurrency: 10,
-    }
+    listings.flat(),
+    ({ key }) => Effect.map(bucket.get(key), (object) => object?.body),
+    { concurrency: 10 }
   )
   const runs = yield* Effect.forEach(
     records.filter((record) => record !== undefined),

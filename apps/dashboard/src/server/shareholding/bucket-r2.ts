@@ -1,9 +1,15 @@
-// ArchiveBucket over the R2 binding. Kept apart from bucket.ts, so a test
-// never loads it.
+// ArchiveBucket over the R2 binding. Kept apart from bucket.ts, so code that
+// only uses the bucket never loads it.
 import { WorkerEnv } from "@workspace/server"
 import { Effect, Layer } from "effect"
 
-import { ArchiveBucket, BucketError, type ListedObject } from "./bucket.ts"
+import {
+  ArchiveBucket,
+  BucketError,
+  checkListed,
+  type ListedObject,
+  type ListOptions,
+} from "./bucket.ts"
 
 // The binding's members this layer uses. The admin page's server functions
 // provide this layer, so the tests' typecheck, which has no Workers types,
@@ -13,6 +19,7 @@ interface R2Binding {
   readonly list: (options: {
     readonly prefix: string
     readonly cursor?: string
+    readonly startAfter?: string
     readonly include: Array<"customMetadata">
   }) => Promise<{
     readonly objects: ReadonlyArray<{
@@ -55,12 +62,20 @@ export const archiveBucketR2 = Layer.effect(
         try: () => run(),
         catch: (cause) => new BucketError({ operation, key, cause }),
       })
-    const list = Effect.fnUntraced(function* (prefix: string) {
+    const list = Effect.fnUntraced(function* (
+      prefix: string,
+      { startAfter }: ListOptions = {}
+    ) {
       const objects: Array<ListedObject> = []
       let cursor: string | undefined
       do {
         const page = yield* attempt("list", prefix, () =>
-          bucket.list({ prefix, cursor, include: ["customMetadata"] })
+          bucket.list({
+            prefix,
+            cursor,
+            ...(startAfter === undefined ? {} : { startAfter }),
+            include: ["customMetadata"],
+          })
         )
         for (const object of page.objects)
           objects.push({
@@ -69,6 +84,7 @@ export const archiveBucketR2 = Layer.effect(
             uploaded: object.uploaded,
             customMetadata: object.customMetadata ?? {},
           })
+        yield* checkListed(prefix, objects.length)
         cursor = page.truncated ? page.cursor : undefined
       } while (cursor !== undefined)
       return objects

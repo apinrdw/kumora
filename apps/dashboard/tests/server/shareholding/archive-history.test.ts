@@ -2,6 +2,7 @@ import { assert, describe, it } from "@effect/vitest"
 import { Effect, Layer } from "effect"
 import { TestClock } from "effect/testing"
 
+import { MAX_LISTED_OBJECTS } from "@/server/shareholding/bucket"
 import { archiveTotals, recentRuns } from "@/server/shareholding/history"
 import {
   ArchiveRunId,
@@ -110,7 +111,7 @@ describe("the recent archive runs", () => {
       "failed"
     )
     const admin = run(
-      "admin-1763025544000",
+      "admin-1794561544000",
       "2026-11-13T09:19:04.000Z",
       "partial"
     )
@@ -162,7 +163,7 @@ describe("the recent archive runs", () => {
   it.effect("include a run that's still running", () => {
     const bucket = memoryBucket()
     const running = run(
-      "admin-1763128632000",
+      "admin-1794664632000",
       "2026-11-14T13:57:12.000Z",
       "running"
     )
@@ -227,4 +228,15 @@ describe("the archive totals", () => {
       }).pipe(provide(bucket))
     }
   )
+
+  it.effect("count the largest archive the bucket lists", () => {
+    const bucket = memoryBucket()
+    for (let index = 0; index < MAX_LISTED_OBJECTS / 2; index++)
+      report(bucket, "above-5/2026-11-13", String(index).padStart(64, "0"), 1)
+    return Effect.gen(function* () {
+      const totals = yield* archiveTotals
+      assert.strictEqual(totals.reports, MAX_LISTED_OBJECTS / 2)
+      assert.strictEqual(totals.bytes, (MAX_LISTED_OBJECTS / 2) * 3)
+    }).pipe(provide(bucket))
+  })
 })

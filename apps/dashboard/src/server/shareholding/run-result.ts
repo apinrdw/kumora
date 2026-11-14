@@ -3,7 +3,7 @@
 // reads it back with this Schema.
 import { DateTime, Effect, Schema } from "effect"
 
-const ArchiveTrigger = Schema.Literals(["cron", "admin"])
+export const ArchiveTrigger = Schema.Literals(["cron", "admin"])
 export type ArchiveTrigger = typeof ArchiveTrigger.Type
 
 // What `create` passes the Workflow (SHAREHOLDING_ARCHIVE in alchemy.run.ts).
@@ -17,6 +17,20 @@ export const ArchiveRunId = Schema.NonEmptyString.pipe(
   Schema.brand("ArchiveRunId")
 )
 export type ArchiveRunId = typeof ArchiveRunId.Type
+
+// The id of a run `trigger` starts at `epochMs`: `cron-<YYYY-MM-DDTHH>` from
+// the cron's scheduled time, or `admin-<epoch ms>`. Ids of one trigger sort
+// as their starts do (epoch ms keep 13 digits until 2286).
+export const runIdAt = Effect.fnUntraced(function* (
+  trigger: ArchiveTrigger,
+  epochMs: number
+) {
+  return ArchiveRunId.make(
+    trigger === "cron"
+      ? `cron-${new Date(epochMs).toISOString().slice(0, 13)}`
+      : `admin-${epochMs}`
+  )
+})
 
 export const ArchiveRunResult = Schema.Struct({
   id: ArchiveRunId,

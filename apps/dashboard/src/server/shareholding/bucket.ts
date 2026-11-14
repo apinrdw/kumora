@@ -16,6 +16,36 @@ export interface ListedObject {
   readonly customMetadata: Readonly<Record<string, string>>
 }
 
+// The most objects a listing returns; past it, the listing fails.
+// Decision: a listing is held whole in a Worker's 128 MB, and `plan` hands
+// what it gathers from reports/ on as a step result, at most 1 MiB. Today
+// reports/ holds ~150 files and their records, ~300 objects, growing by ~2
+// files a day; runs/ is read 30 days at a time (history.ts). 10,000 objects
+// is decades of reports/ at that rate, a few MB listed and well under the
+// step limit, and failing past it says the layout needs rethinking instead of
+// a Worker running out of memory. See apinrdw/kumora#303.
+export const MAX_LISTED_OBJECTS = 10_000
+
+// Fails a listing of `prefix` that has passed MAX_LISTED_OBJECTS.
+export const checkListed = Effect.fnUntraced(function* (
+  prefix: string,
+  count: number
+) {
+  if (count > MAX_LISTED_OBJECTS)
+    return yield* new BucketError({
+      operation: "list",
+      key: prefix,
+      cause: new Error(
+        `More than ${MAX_LISTED_OBJECTS} objects under ${prefix}`
+      ),
+    })
+})
+
+export interface ListOptions {
+  // Only keys after this one.
+  readonly startAfter?: string
+}
+
 // An object as `get` reads it.
 interface StoredObject {
   readonly body: string
@@ -32,9 +62,11 @@ export interface PutOptions {
 export class ArchiveBucket extends Context.Service<
   ArchiveBucket,
   {
-    // Every object under `prefix`, with its custom metadata, across pages.
+    // Every object under `prefix`, with its custom metadata, across pages,
+    // in key order. Fails past MAX_LISTED_OBJECTS.
     readonly list: (
-      prefix: string
+      prefix: string,
+      options?: ListOptions
     ) => Effect.Effect<ReadonlyArray<ListedObject>, BucketError>
     readonly exists: (key: string) => Effect.Effect<boolean, BucketError>
     // Undefined when there is no object at `key`.

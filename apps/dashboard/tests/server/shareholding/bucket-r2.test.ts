@@ -2,11 +2,8 @@ import { assert, describe, it } from "@effect/vitest"
 import { WorkerEnv } from "@workspace/server"
 import { Effect, Layer, Result } from "effect"
 
-import { ArchiveBucket } from "@/server/shareholding/bucket"
+import { ArchiveBucket, MAX_LISTED_OBJECTS } from "@/server/shareholding/bucket"
 import { archiveBucketR2 } from "@/server/shareholding/bucket-r2"
-
-// The largest listing the bucket accepts.
-const MAX_LISTED = 10_000
 
 // An R2 binding that lists `count` keys under reports/, 1000 to a page as R2
 // does.
@@ -52,9 +49,9 @@ describe("the R2 archive bucket", () => {
   it.effect("lists every page of the largest listing it accepts", () =>
     Effect.gen(function* () {
       const objects = yield* list("reports/").pipe(
-        Effect.provide(listingOf(MAX_LISTED))
+        Effect.provide(listingOf(MAX_LISTED_OBJECTS))
       )
-      assert.strictEqual(objects.length, MAX_LISTED)
+      assert.strictEqual(objects.length, MAX_LISTED_OBJECTS)
       assert.strictEqual(objects.at(-1)?.key, "reports/above-5/009999.json")
     })
   )
@@ -62,11 +59,11 @@ describe("the R2 archive bucket", () => {
   it.effect("fails a listing past the largest it accepts", () =>
     Effect.gen(function* () {
       const listed = yield* Effect.result(
-        list("reports/").pipe(Effect.provide(listingOf(MAX_LISTED + 1)))
+        list("reports/").pipe(Effect.provide(listingOf(MAX_LISTED_OBJECTS + 1)))
       )
       assert.isTrue(Result.isFailure(listed), "the listing failed")
       if (Result.isFailure(listed))
-        assert.include(String(listed.failure.cause), String(MAX_LISTED))
+        assert.include(String(listed.failure.cause), String(MAX_LISTED_OBJECTS))
     })
   )
 })

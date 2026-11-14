@@ -9,7 +9,7 @@ import { decide, type Action } from "@/server/auth/policy"
 import { refusal } from "@/server/auth/refusal"
 import { accountOf } from "@/server/auth/session-account"
 import { archiveTotals, recentRuns } from "@/server/shareholding/history"
-import { ArchiveRunId } from "@/server/shareholding/run-result"
+import { runIdAt } from "@/server/shareholding/run-result"
 import { nextScheduledRun } from "@/server/shareholding/schedule"
 import { lastRun, startRun } from "@/server/shareholding/start-run"
 
@@ -52,8 +52,9 @@ export const runArchiveNow = Effect.fn("runArchiveNow")(function* (
   headers: Headers
 ) {
   yield* authorize(headers, "admin.run-shareholding-archive")
-  const id = ArchiveRunId.make(
-    `admin-${DateTime.toEpochMillis(yield* DateTime.now)}`
+  const id = yield* runIdAt(
+    "admin",
+    DateTime.toEpochMillis(yield* DateTime.now)
   )
   const refused = () =>
     Effect.fail(new Conflict({ message: "A run is in progress." }))

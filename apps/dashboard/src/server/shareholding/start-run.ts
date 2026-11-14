@@ -13,6 +13,7 @@ import {
   type ArchiveTrigger,
   decodeRunResult,
   LatestRun,
+  runIdAt,
   runningResult,
 } from "./run-result.ts"
 import { isInProgress, START_WINDOW_MS, viewRun } from "./run-view.ts"
@@ -142,9 +143,7 @@ export const startRun = Effect.fnUntraced(function* (
 export const scheduledArchiveRun = Effect.fn("scheduledArchiveRun")(function* (
   scheduledTime: number
 ) {
-  const id = ArchiveRunId.make(
-    `cron-${new Date(scheduledTime).toISOString().slice(0, 13)}`
-  )
+  const id = yield* runIdAt("cron", scheduledTime)
   yield* startRun(id, "cron").pipe(
     Effect.catchTags({
       RunInProgress: ({ id: running }) =>
