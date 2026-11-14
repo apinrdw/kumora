@@ -224,6 +224,9 @@ export default function ChartCanvas({
         tickMarkFormatter: tickMark,
       },
       localization: { locale: "en-US", timeFormatter: crosshairTime },
+      // Decision: on a phone a vertical swipe scrolls the page, not the
+      // chart; a horizontal one pans both charts through the pair.
+      handleScroll: { vertTouchDrag: false },
     })
     const candles = chart.addSeries(CandlestickSeries, {
       upColor: up,
