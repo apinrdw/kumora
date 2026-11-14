@@ -54,18 +54,19 @@ const FAILED: SeededRun = {
   error: "www.idx.id answered 403 for the shareholding report list",
 }
 
-// A run whose record says running and whose Workflow instance the Test stage
-// doesn't hold: the page trusts the record, so the run stays in progress.
-const RUNNING: SeededRun = {
-  ...COMPLETE,
-  id: "admin-1763125032000",
-  trigger: "admin",
-  startedAt: "2026-11-14T13:17:12.000Z",
-  finishedAt: null,
-  outcome: "running",
-  reportsAdded: 0,
-  newVersions: 0,
-  reportsChecked: 0,
+const DAY = 86_400_000
+
+// A run that started `ago` ms before now, named like Run now's runs.
+const runAgo = (ago: number, run: Partial<SeededRun>): SeededRun => {
+  const started = Math.floor((Date.now() - ago) / 1000) * 1000
+  return {
+    ...COMPLETE,
+    id: `admin-${started}`,
+    trigger: "admin",
+    startedAt: new Date(started).toISOString(),
+    finishedAt: new Date(started + 60_000).toISOString(),
+    ...run,
+  }
 }
 
 const lastRunCard = (page: Page) =>
@@ -158,7 +159,18 @@ test.describe.serial("an admin's last archive run", () => {
   test("Run now is disabled while the latest run is running", async ({
     page,
   }) => {
-    await seedLatestRun(RUNNING)
+    // Its record says running and the Test stage holds no Workflow instance
+    // for it, so it is in progress only while its start is within
+    // START_WINDOW_MS (run-view.ts): it starts as it is seeded.
+    await seedLatestRun(
+      runAgo(0, {
+        finishedAt: null,
+        outcome: "running",
+        reportsAdded: 0,
+        newVersions: 0,
+        reportsChecked: 0,
+      })
+    )
     await page.goto(SHAREHOLDING)
     const card = lastRunCard(page)
     await expect(card).toContainText("Running")
@@ -166,21 +178,6 @@ test.describe.serial("an admin's last archive run", () => {
     await expect(card.getByRole("button", { name: "Run now" })).toBeDisabled()
   })
 })
-
-const DAY = 86_400_000
-
-// A run that started `ago` ms before now, named like Run now's runs.
-const runAgo = (ago: number, run: Partial<SeededRun>): SeededRun => {
-  const started = Math.floor((Date.now() - ago) / 1000) * 1000
-  return {
-    ...COMPLETE,
-    id: `admin-${started}`,
-    trigger: "admin",
-    startedAt: new Date(started).toISOString(),
-    finishedAt: new Date(started + 60_000).toISOString(),
-    ...run,
-  }
-}
 
 // A start time as the page writes it: Nov 13, 20:00 WIB.
 const wib = (iso: string) =>
