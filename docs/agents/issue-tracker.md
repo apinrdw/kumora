@@ -16,7 +16,7 @@ Infer the repo from `git remote -v`; `gh` does this automatically when run insid
 
 ## Claiming an issue
 
-Every agent session shares one GitHub login, so an assignee cannot tell sessions apart, and a stacked PR never links its issue (GitHub links closing keywords only on PRs into `main`). The `in-progress` label is the claim.
+Every agent session shares one GitHub login, so an assignee cannot tell sessions apart, and a stacked PR never links its issue (GitHub links closing keywords only on PRs into the default branch, `staging`, so an issue closes when its work reaches Staging, not Production). The `in-progress` label is the claim.
 
 - **Pick**: take a `ready-for-agent` issue only if it lacks `in-progress`: `gh issue list --label ready-for-agent --json number,title,labels --jq '[.[] | select(all(.labels[]; .name != "in-progress"))]'` (the jq filter, not `--search`: search lags a fresh label by up to a minute). A named issue that has `in-progress` is taken: read its claim comment and stop unless the user says to take it over.
 - **Claim**: before the first code change, `gh issue edit <n> --add-label in-progress`, then `gh issue comment <n> --body "Claimed on branch <branch>."`. The orchestrator claims for each subagent it starts, before starting it.

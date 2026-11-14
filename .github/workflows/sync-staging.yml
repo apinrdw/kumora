@@ -1,0 +1,43 @@
+# Opens a main into staging PR when a hotfix lands on main, so staging, where
+# every other PR lands, never drifts behind Production.
+name: Sync staging
+
+on:
+  push:
+    branches: [main]
+
+concurrency:
+  group: sync-staging
+
+permissions:
+  contents: read
+  pull-requests: write
+  statuses: write
+
+jobs:
+  sync:
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - uses: actions/checkout@v5
+        with:
+          fetch-depth: 0
+      - env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          # Decision: a promotion leaves only its merge commit on main, which
+          # staging needs no copy of; a hotfix leaves commits of its own.
+          if [ -z "$(git rev-list --no-merges origin/staging..origin/main)" ]; then
+            echo "staging has every commit on main."
+            exit 0
+          fi
+          if [ -z "$(gh pr list --base staging --head main --state open --json number --jq '.[].number')" ]; then
+            gh pr create --base staging --head main \
+              --title "Sync main into staging" \
+              --body "main has commits staging lacks, most likely a hotfix. Merge with a merge commit, never a squash, so the next promotion carries no duplicate."
+          fi
+          # A PR this token opens or updates starts no workflow, so the
+          # e2e-evidence gate never marks its head.
+          gh api "repos/$GITHUB_REPOSITORY/statuses/$GITHUB_SHA" \
+            -f state=success -f context=e2e-evidence \
+            -f description="moves main into staging, whose PRs passed this gate"

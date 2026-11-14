@@ -74,6 +74,8 @@ interface Pr {
     readonly previous_filename?: string
   }>
   readonly labels?: ReadonlyArray<string>
+  readonly head?: { readonly ref: string; readonly repo: string }
+  readonly base?: string
 }
 
 const sha = "abc1234def5678abc1234def5678abc1234def56"
@@ -115,7 +117,12 @@ const runGate = (pr: Pr) =>
       payload: {
         pull_request: {
           number: 7,
-          head: { sha },
+          head: {
+            sha,
+            ref: pr.head?.ref ?? "feat/x",
+            repo: { full_name: pr.head?.repo ?? "apinrdw/kumora" },
+          },
+          base: { ref: pr.base ?? "staging" },
           labels: (pr.labels ?? []).map((name) => ({ name })),
         },
       },
@@ -395,6 +402,36 @@ layer(NodeServices.layer)("e2e-evidence gate", (it) => {
       assert.strictEqual(written[0]?.state, "success")
       assert.match(written[0]?.description ?? "", /no-e2e-evidence label/)
     })
+  )
+
+  it.effect.each([
+    ["staging", "main"],
+    ["main", "staging"],
+  ])(
+    "passes a %s into %s PR, whose commits passed on their own PRs",
+    ([head, base]) =>
+      Effect.gen(function* () {
+        const [status] = yield* runGate({
+          files: [appFile],
+          head: { ref: head ?? "", repo: "apinrdw/kumora" },
+          base,
+        })
+        assert.strictEqual(status?.state, "success")
+        assert.match(status?.description ?? "", /passed this gate/)
+      })
+  )
+
+  it.effect.each([
+    { head: { ref: "staging", repo: "someone/kumora" }, base: "main" },
+    { head: { ref: "feat/x", repo: "apinrdw/kumora" }, base: "main" },
+    { head: { ref: "staging", repo: "apinrdw/kumora" }, base: "staging" },
+  ])(
+    "marks an app PR red unless it moves one release branch into the other: %o",
+    (pr) =>
+      Effect.gen(function* () {
+        const [status] = yield* runGate({ files: [appFile], ...pr })
+        assert.strictEqual(status?.state, "failure")
+      })
   )
 
   it.effect("leaves posted evidence's success alone", () =>
