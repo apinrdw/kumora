@@ -143,9 +143,27 @@ function SourceDots({ feeds }: { feeds: ReadonlyArray<Source> }) {
 
 const CELL = "h-[22px] overflow-hidden py-0 leading-[22px] whitespace-nowrap"
 
-// Time, Code, Price, Lot, Value, Buyer, Seller and the feeds' dots: a gap or
-// fold row spans them all.
-const COLUMNS = 8
+// Each column's width in px, in order.
+// Decision: a bold 45,000 price, 123,456 lots and Rp555.55 B each fit
+// whole, so no figure is clipped. The tape is never narrower than their sum:
+// the page gives it that width on desktop, and a phone scrolls it sideways.
+const COLUMN_PX = {
+  time: 76,
+  code: 84,
+  price: 52,
+  lot: 56,
+  value: 76,
+  buyer: 56,
+  seller: 56,
+  sources: 36,
+}
+
+export const TAPE_WIDTH_PX = Object.values(COLUMN_PX).reduce(
+  (sum, px) => sum + px
+)
+
+// A gap or fold row spans every column.
+const COLUMNS = Object.keys(COLUMN_PX).length
 
 const INVESTOR_TEXT: Record<TradeCodes["buyerType"], string> = {
   F: "text-foreign",
@@ -392,18 +410,16 @@ export function TapeList({
       <div
         ref={scroller}
         onScroll={onScroll}
-        className="h-full overflow-y-auto overscroll-contain"
+        className="h-full overflow-auto overscroll-contain"
       >
-        <table className="w-full table-fixed text-[13px] tabular-nums">
+        <table
+          className="w-full table-fixed text-[13px] tabular-nums"
+          style={{ minWidth: TAPE_WIDTH_PX }}
+        >
           <colgroup>
-            <col className="w-[76px]" />
-            <col className="w-[84px]" />
-            <col />
-            <col />
-            <col />
-            <col className="w-[60px]" />
-            <col className="w-[60px]" />
-            <col className="w-[36px]" />
+            {Object.entries(COLUMN_PX).map(([column, px]) => (
+              <col key={column} style={{ width: px }} />
+            ))}
           </colgroup>
           <thead className="sticky top-0 z-10 bg-card text-left text-muted-foreground">
             <tr>
