@@ -133,6 +133,24 @@ _Avoid_: Ownership archive, IDX archive
 One pass that compares IDX's list of shareholding reports with the shareholding archive and stores any report, or new version of one, that the archive lacks. The schedule starts one twice a day, and an admin can start one when none is in progress. It ends **complete**, **partial** (some reports could not be stored and wait for the next run) or **failed**.
 _Avoid_: Sync, scrape, job
 
+### KSEI
+
+**KSEI report**:
+One monthly zip KSEI publishes on its Statistik Efek or Kepemilikan Efek page, covering one month up to its period end. It is kept exactly as published.
+_Avoid_: KSEI file, Balancepos file
+
+**KSEI report kind**:
+Which of KSEI's two monthly reports a file is: **Securities statistics** (Statistik Efek) or **Securities holdings** (Kepemilikan Efek, holdings by investor type).
+_Avoid_: Report kind, which is IDX's
+
+**KSEI archive**:
+Every KSEI report the dashboard has kept, each version of it included. Nothing in it is ever overwritten or removed. It is separate from the shareholding archive.
+_Avoid_: KSEI mirror, shareholding archive
+
+**KSEI archive run**:
+One pass that compares KSEI's lists of reports with the KSEI archive and stores any report, or new version of one, that the archive lacks.
+_Avoid_: Archive run, which is IDX's; sync, scrape
+
 ### Access
 
 **Account**:
