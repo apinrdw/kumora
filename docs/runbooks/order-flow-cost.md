@@ -22,11 +22,11 @@ The lines are per flush, so a restart loses no more than one flush's counts. Add
 
 ## After 17:00 WIB
 
-1. In the Cloudflare dashboard, open Workers & Pages, then `kumora-dashboard-staging`, then Observability. The exact menu names are unverified; Cloudflare calls the query view the Query Builder.
-2. Filter on the message `Rows written` and the day, 08:00–17:05 WIB. Sum each field across the lines.
+1. Open `kumora-dashboard-staging`'s logs in the Query Builder. Cloudflare's [Query Builder page](https://developers.cloudflare.com/workers/observability/query-builder/), read 2026-11-14, gives the path: Workers & Pages, the Worker, then Observability. It keeps logs for seven days, so run this within a week of the day.
+2. Filter on the message `Rows written` (the `$metadata.message` key) and the day, 08:00–17:05 WIB. Sum each field across the lines.
 3. Filter on the message `Order flow storage` and read its one line.
 4. Read the day's trade count, **T_staging**: the day strip's figure for the day on Staging (`trades`), or the `trades` sum from step 2.
-5. Optional cross-check: the Durable Objects metrics page for the `TradingDay` namespace shows rows read, rows written and storage per day. The menu path is unverified. Its rows written should be close to the sum of `billedRowsWritten`.
+5. Optional cross-check: the `TradingDay` namespace's Metrics tab. Cloudflare's [Durable Objects metrics page](https://developers.cloudflare.com/durable-objects/observability/metrics-and-analytics/), read 2026-11-14, gives the path: Durable Objects, the namespace, then Metrics. That page does not list the tab's charts, so whether it shows SQL rows written is unconfirmed. If it does, they should be close to the sum of `billedRowsWritten`.
 
 ## The estimate model
 
