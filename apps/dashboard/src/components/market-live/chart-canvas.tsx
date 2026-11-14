@@ -1,10 +1,14 @@
 // Lightweight Charts, loaded only in the browser (live-chart.tsx lazy-loads
 // this module inside ClientOnly), so the Worker never bundles or runs it.
-import { marketMomentAt, type Candle, type RelayGap } from "@workspace/relay"
+import {
+  marketMomentAt,
+  type Candle,
+  type Footprint,
+  type RelayGap,
+} from "@workspace/relay"
 import { DateTime, Effect, Option } from "effect"
 import {
   CandlestickSeries,
-  HistogramSeries,
   LineStyle,
   createChart,
   type IPrimitivePaneRenderer,
@@ -12,20 +16,21 @@ import {
   type ISeriesPrimitive,
   type MouseEventParams,
   type SeriesAttachedParameter,
-  type Logical,
   type Time,
   type UTCTimestamp,
 } from "lightweight-charts"
 import { useEffect, useRef, useState } from "react"
 
-import { gapMinutes } from "@/lib/replay"
+import { cursorLogical, gapMinutes } from "@/lib/replay"
 
 import { attachBookHeatmap } from "./book-heatmap"
 import type { CandleChange, CandleStore } from "./candle-store"
 import { CHART_SCALE_WIDTH, crosshairTime, tickMark } from "./chart-time"
+import { CursorLine } from "./cursor-line"
 import type { HeatmapStore } from "./heatmap-store"
 import { useAuctionIndicative } from "./market-conditions"
 import type { ReplayCursor } from "./replay-cursor"
+import { makeVolumePane, volumeBar } from "./volume-pane"
 
 const timeOf = (candle: Candle) =>
   Effect.sync(
@@ -147,74 +152,15 @@ class GapShades implements ISeriesPrimitive<Time> {
   }
 }
 
-// Draws the replay cursor as a 2-pixel vertical line at a logical bar
-// position, over the candles.
-class CursorLine implements ISeriesPrimitive<Time> {
-  private logical: number | undefined
-  private attachedTo: SeriesAttachedParameter<Time> | undefined
-  private readonly renderer: IPrimitivePaneRenderer = {
-    draw: (target) =>
-      target.useBitmapCoordinateSpace((scope) => {
-        const timeScale = this.attachedTo?.chart.timeScale()
-        if (timeScale === undefined || this.logical === undefined) return
-        const x = timeScale.logicalToCoordinate(this.logical as Logical)
-        if (x === null) return
-        scope.context.fillStyle = this.color
-        const width = Math.max(2, Math.floor(2 * scope.horizontalPixelRatio))
-        scope.context.fillRect(
-          Math.round(x * scope.horizontalPixelRatio - width / 2),
-          0,
-          width,
-          scope.bitmapSize.height
-        )
-      }),
-  }
-  private readonly views: ReadonlyArray<IPrimitivePaneView> = [
-    { zOrder: () => "top", renderer: () => this.renderer },
-  ]
-
-  constructor(private readonly color: string) {}
-
-  attached(parameter: SeriesAttachedParameter<Time>) {
-    this.attachedTo = parameter
-  }
-
-  detached() {
-    this.attachedTo = undefined
-  }
-
-  setLogical(logical: number | undefined) {
-    this.logical = logical
-    this.attachedTo?.requestUpdate()
-  }
-
-  paneViews() {
-    return this.views
-  }
-}
-
-// Where the cursor's minute sits among the bars drawn (candles and gap
-// whitespace, `times` ascending, in seconds), as a logical bar index: on its
-// own bar, or half a bar past the latest bar before it.
-const cursorLogical = Effect.fnUntraced(function* (
-  times: ReadonlyArray<number>,
-  minute: number
-) {
-  const before = times.filter((time) => time * 1000 <= minute)
-  const latest = before.at(-1)
-  if (latest === undefined) return -0.5
-  return before.length - 1 + (latest * 1000 === minute ? 0 : 0.5)
-})
-
 const MINUTE = 60_000
 
 // The selected code's candles and volume, drawn from the candle store. A
 // snapshot redraws with `setData`; deltas go through `update`, at most once an
 // animation frame, a closed minute's with the historical flag.
-// With `cursor`, a recorded day: candles after the cursor's minute are
-// greyed under a cursor line, and clicking a candle picks its minute. Each
-// relay gap in `gaps` is shaded; a gap with no end yet is shaded once it
-// ends, or on a recorded day up to the close.
+// With `cursor`, a recorded day: candles and volume after the cursor's minute
+// are greyed under a cursor line at the cursor's second, and clicking a
+// candle picks its minute. Each relay gap in `gaps` is shaded; a gap with no
+// end yet is shaded once it ends, or on a recorded day up to the close.
 export default function ChartCanvas({
   store,
   heatmap,
@@ -276,18 +222,17 @@ export default function ChartCanvas({
     })
     candles
       .priceScale()
-      .applyOptions({ scaleMargins: { top: 0.08, bottom: 0.26 } })
-    const volume = chart.addSeries(HistogramSeries, {
-      priceScaleId: "volume",
-      priceFormat: { type: "volume" },
-      lastValueVisible: false,
-      priceLineVisible: false,
+      .applyOptions({ scaleMargins: { top: 0.08, bottom: 0.08 } })
+    const grey = token("--text-muted")
+    const volume = makeVolumePane(chart, {
+      buy: up,
+      sell: down,
+      none: `${grey}aa`,
+      later: `${grey}33`,
     })
-    volume.priceScale().applyOptions({ scaleMargins: { top: 0.8, bottom: 0 } })
     setSeries(candles)
     const sessions = new SessionLines(token("--border-subtle"))
     candles.attachPrimitive(sessions)
-    const grey = token("--text-muted")
     const shades = new GapShades(`${grey}26`)
     candles.attachPrimitive(shades)
 
@@ -306,13 +251,10 @@ export default function ChartCanvas({
       close: candle.close,
       ...(later(candle) && { color: `${grey}55`, wickColor: `${grey}55` }),
     })
-    const volumeBar = (candle: Candle, time: UTCTimestamp) => ({
-      time,
-      value: candle.volume,
-      color: later(candle)
-        ? `${grey}33`
-        : `${candle.close >= candle.open ? up : down}66`,
-    })
+    // Each minute's footprint, by its time: its volume bar's sides.
+    let footprints = new Map<number, Footprint>()
+    const volumeOf = (candle: Candle, time: UTCTimestamp) =>
+      volumeBar(time, candle, footprints.get(time), later(candle))
     const stopHeatmap =
       heatmap &&
       attachBookHeatmap(
@@ -324,7 +266,7 @@ export default function ChartCanvas({
           element.dataset.heatmapSlices = String(slices)
         }
       )
-    const marker = new CursorLine(token("--text-primary"))
+    const marker = new CursorLine(token("--text-primary"), element)
     if (cursor !== undefined) candles.attachPrimitive(marker)
 
     // The minutes drawn as candles, so a delta can tell a closed minute from
@@ -332,8 +274,24 @@ export default function ChartCanvas({
     // before it can only go in with the historical flag, or by redrawing.
     let drawn = new Set<number>()
     let latest = 0
+    // Every bar's time, ascending: the cursor line's place among them.
+    let bars: ReadonlyArray<number> = []
+    const placeCursor = () => {
+      if (cursor !== undefined)
+        marker.setLogical(
+          Effect.runSync(cursorLogical(bars, cursor.state().at))
+        )
+    }
     const redraw = () => {
       const all = store.candles()
+      footprints = new Map(
+        store
+          .footprints()
+          .map((footprint) => [
+            DateTime.toEpochMillis(footprint.minute) / 1000,
+            footprint,
+          ])
+      )
       const times = Effect.runSync(Effect.forEach(all, timeOf))
       drawn = new Set(times)
       const newest = times.at(-1) ?? 0
@@ -358,27 +316,21 @@ export default function ChartCanvas({
         ].sort((a, b) => a.time - b.time)
       )
       volume.setData(
-        all.map((candle, index) => volumeBar(candle, times[index]!))
+        all.map((candle, index) => volumeOf(candle, times[index]!))
       )
       sessions.setTimes(Effect.runSync(sessionStarts(all)))
       shades.setRuns(runs.filter((run) => run.length > 0))
-      if (cursor !== undefined)
-        marker.setLogical(
-          Effect.runSync(
-            cursorLogical(
-              [...drawn, ...blank].sort((a, b) => a - b),
-              shownMinute
-            )
-          )
-        )
+      bars = [...drawn, ...blank].sort((a, b) => a - b)
+      placeCursor()
     }
     redraw()
     redrawGaps.current = redraw
 
-    // The cursor moved to another minute: grey again from there.
+    // The cursor moved: its line follows; in another minute, grey again
+    // from there.
     const stopCursor = cursor?.subscribe(() => {
       const minute = cursorMinute()
-      if (minute === shownMinute) return
+      if (minute === shownMinute) return placeCursor()
       shownMinute = minute
       redraw()
     })
@@ -410,13 +362,18 @@ export default function ChartCanvas({
       for (const [time, candle] of changed) {
         const historical = time < latest
         candles.update(bar(candle, time), historical)
-        volume.update(volumeBar(candle, time), historical)
-        if (!drawn.has(time)) starts = true
+        volume.update(volumeOf(candle, time), historical)
+        if (!drawn.has(time)) {
+          starts = true
+          if (!bars.includes(time)) bars = [...bars, time].sort((a, b) => a - b)
+        }
         drawn.add(time)
         latest = Math.max(latest, time)
       }
-      if (starts)
+      if (starts) {
         sessions.setTimes(Effect.runSync(sessionStarts(store.candles())))
+        placeCursor()
+      }
     }
     const unsubscribe = store.subscribe((change: CandleChange) => {
       if (change._tag === "Reset") reset = true
@@ -425,6 +382,11 @@ export default function ChartCanvas({
         change.candles.forEach((candle, index) =>
           pending.set(times[index]!, candle)
         )
+        for (const footprint of change.footprints)
+          footprints.set(
+            DateTime.toEpochMillis(footprint.minute) / 1000,
+            footprint
+          )
       }
       if (frame === 0) frame = requestAnimationFrame(flush)
     })

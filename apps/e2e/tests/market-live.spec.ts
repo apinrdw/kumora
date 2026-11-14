@@ -1,4 +1,5 @@
 import { DASHBOARD, MEMBER } from "../support/accounts"
+import { volumeInk } from "../support/chart"
 import { marketNow, wibTime } from "../support/clock"
 import { signInUrl } from "../support/flows"
 import {
@@ -150,6 +151,45 @@ test.describe("signed in", () => {
     await expect(footprint).toContainText(
       `Footprint minutes: 2. ${minute(next)}: Vol 4, Δ −4, CVD −3`
     )
+    relay.close()
+  })
+
+  test("chart 1's volume pane splits each minute into buy and sell lots", async ({
+    page,
+  }) => {
+    const relay = await openIngest()
+    const base = freshTradeNumbers()
+    const code = freshCode("VP")
+    const time = wibTime(marketNow())
+    // 3 lots bought, then 2 sold, in one minute.
+    await relay.sendAjaib([
+      ajaibTradeToday({
+        seq: base + 1,
+        time,
+        ticker: code,
+        price: 500,
+        lot: 3,
+      }),
+      ajaibTradeToday({
+        seq: base + 2,
+        time,
+        ticker: code,
+        price: 495,
+        lot: 2,
+        type: "SELL",
+      }),
+    ])
+    await page.goto(`${DASHBOARD}${PAGE}?code=${code}`)
+    await expect(page.getByText("One-minute candles: 1")).toBeAttached()
+    const chart = page.locator('[data-chart="candles"]')
+    // Its bar is green at the bottom and red above, 3 lots to 2: more
+    // green than red.
+    await expect
+      .poll(async () => {
+        const ink = await volumeInk(chart)
+        return ink.sell > 0 && ink.buy > ink.sell
+      })
+      .toBe(true)
     relay.close()
   })
 

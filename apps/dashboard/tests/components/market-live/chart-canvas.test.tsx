@@ -62,6 +62,7 @@ vi.mock("lightweight-charts", () => ({
       series.push(added)
       return added
     },
+    panes: () => [{ setStretchFactor() {} }, { setStretchFactor() {} }],
     subscribeClick() {},
     remove() {},
   }),
