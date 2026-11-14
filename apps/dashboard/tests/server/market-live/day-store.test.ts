@@ -68,6 +68,7 @@ describe("the recorded tape's query plan", () => {
           trade(3, "09:00:03"),
         ],
         candles: [],
+        footprints: [],
         livePrices: [],
         chunks: [],
         ajaibBooks: [],
@@ -103,6 +104,7 @@ describe("the recorded tape with mixed feed precision", () => {
       yield* store.write({
         trades: [trade(1, "09:00:00.900"), trade(2, "09:00:00.000")],
         candles: [],
+        footprints: [],
         livePrices: [],
         chunks: [],
         ajaibBooks: [],
@@ -133,6 +135,7 @@ describe("the recorded tape with mixed feed precision", () => {
           trade(5, "09:00:00.200"),
         ],
         candles: [],
+        footprints: [],
         livePrices: [],
         chunks: [],
         ajaibBooks: [],

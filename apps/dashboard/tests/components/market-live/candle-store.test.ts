@@ -28,6 +28,7 @@ const snapshot = (
   selected: StockCode.make(selected),
   tape: [],
   candles,
+  footprints: [],
   conditions: {
     phase: "session-1",
     relayOnline: true,

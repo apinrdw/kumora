@@ -6,7 +6,7 @@
 import { DateTime, Effect, Option, Schema } from "effect"
 
 import { StockCode } from "./codes.ts"
-import { Candle, RunningTrade } from "./envelope.ts"
+import { Candle, Footprint, RunningTrade } from "./envelope.ts"
 import { RelayGap } from "./market-conditions.ts"
 import { BookLevel, OrderBook } from "./order-book.ts"
 import { WibDate } from "./schedule.ts"
@@ -137,12 +137,18 @@ export const decodeRecordedTape = Schema.decodeUnknownEffect(
   Schema.fromJsonString(RecordedTape)
 )
 
-// One code's candles for the whole day, ascending by minute, and the previous
-// close a `liveprice` frame carried, the watchlist's base at any cursor.
+// One code's candles and footprints for the whole day, each ascending by
+// minute, and the previous close a `liveprice` frame carried, the
+// watchlist's base at any cursor.
 const RecordedCandles = Schema.Struct({
   code: StockCode,
   previousClose: Schema.optionalKey(Schema.Finite),
   candles: Schema.Array(Candle),
+  // Decision: optional, read as none when absent. A sealed day's answer is
+  // cached immutable for a year (SEALED_CACHE), so a browser can still hold
+  // one sent before footprints were, and it must keep decoding. See spec
+  // apinrdw/kumora#263.
+  footprints: Schema.optionalKey(Schema.Array(Footprint)),
 })
 export type RecordedCandles = typeof RecordedCandles.Type
 

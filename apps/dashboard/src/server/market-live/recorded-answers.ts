@@ -62,6 +62,7 @@ export const recordedAnswer = Effect.fnUntraced(function* (
           code: resource.code,
           ...(previous === undefined ? {} : { previousClose: previous }),
           candles: yield* store.candlesOf(resource.code),
+          footprints: yield* store.footprintsOf(resource.code),
         }),
         cacheControl
       )

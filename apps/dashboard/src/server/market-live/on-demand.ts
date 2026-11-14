@@ -22,6 +22,17 @@ export const makeOnDemand = Effect.fnUntraced(function* (options: {
     return codes
   })
 
+  // Every code some viewer selected: the first of its codes (trading-day.ts
+  // keeps the selected code ahead of the watchlist).
+  const selected = Effect.gen(function* () {
+    const codes = new Set<StockCode>()
+    for (const viewer of yield* options.viewers) {
+      const [code] = yield* viewer.watching ?? Effect.succeed([])
+      if (code !== undefined) codes.add(code)
+    }
+    return codes
+  })
+
   const message = Effect.gen(function* () {
     const codes = [...(yield* watched)].sort()
     return {
@@ -47,5 +58,5 @@ export const makeOnDemand = Effect.fnUntraced(function* (options: {
     if (!empty) yield* ingest.send(text)
   })
 
-  return { watched, update, greet }
+  return { watched, selected, update, greet }
 })

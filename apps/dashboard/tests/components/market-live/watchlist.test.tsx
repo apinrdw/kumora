@@ -45,6 +45,7 @@ test("a code with an indicative price before any Day state shows the indicative 
         selected: BBCA,
         tape: [],
         candles: [],
+        footprints: [],
         conditions: {
           phase: "pre-opening",
           relayOnline: true,
@@ -105,6 +106,7 @@ test("an indicative price from pre-opening is not shown in pre-closing: only one
         selected: BBCA,
         tape: [],
         candles: [],
+        footprints: [],
         conditions: conditions("pre-opening"),
         indicative: [indicative(5_325, "08:50:01")],
       })
@@ -118,6 +120,7 @@ test("an indicative price from pre-opening is not shown in pre-closing: only one
         _tag: "Delta",
         tape: [],
         candles: [],
+        footprints: [],
         conditions: conditions("pre-closing"),
       })
     )
@@ -129,6 +132,7 @@ test("an indicative price from pre-opening is not shown in pre-closing: only one
         _tag: "Delta",
         tape: [],
         candles: [],
+        footprints: [],
         indicative: [indicative(5_400, "15:50:02")],
       })
     )
@@ -205,6 +209,7 @@ test("both feeds delayed leave the watchlist live; both silent dim it", () => {
           selected: BBCA,
           tape: [],
           candles: [],
+          footprints: [],
           conditions: {
             phase: "session-2",
             relayOnline: true,

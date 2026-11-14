@@ -25,6 +25,7 @@ const snapshot: ViewerDown = {
   selected: StockCode.make("BBCA"),
   tape: [trade],
   candles: [],
+  footprints: [],
   conditions: {
     phase: "session-1",
     relayOnline: true,

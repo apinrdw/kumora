@@ -2,7 +2,7 @@
 // "Storage and cost"): the trading-day Durable Object's SQLite database. The
 // object hands its `ctx.storage.sql`; the tests hand Node's SQLite. Every
 // write of a flush lands in one transaction, so a restart finds the trades,
-// candles, last frames and book chunks of the same instant.
+// candles, footprints, last frames and book chunks of the same instant.
 import { gunzipSync, gzipSync } from "node:zlib"
 
 import {
@@ -10,11 +10,13 @@ import {
   TradeNumber,
   TradeNumberValue,
   type Candle,
+  type Footprint,
   type RunningTrade,
 } from "@workspace/relay"
 import { DateTime, Effect } from "effect"
 
-import type { StoredCandle } from "./candles.ts"
+import type { StoredCandle, StoredFootprint } from "./candles.ts"
+import { cellsFromText, cellsOut, cellsText } from "./footprint-cells.ts"
 import type { StoredAjaibBook } from "./order-books.ts"
 import type { LivePrice } from "./stockbit-liveprice.ts"
 
@@ -45,6 +47,7 @@ export interface StoredChunk {
 export interface Flush {
   readonly trades: ReadonlyArray<RunningTrade>
   readonly candles: ReadonlyArray<StoredCandle>
+  readonly footprints: ReadonlyArray<StoredFootprint>
   readonly livePrices: ReadonlyArray<LivePrice>
   readonly chunks: ReadonlyArray<StoredChunk>
   readonly ajaibBooks: ReadonlyArray<StoredAjaibBook>
@@ -80,6 +83,14 @@ const SCHEMA = [
     volume REAL NOT NULL,
     value REAL NOT NULL,
     frequency REAL NOT NULL,
+    PRIMARY KEY (code, minute)
+  ) WITHOUT ROWID`,
+  // A stock's footprint for one minute (footprint-cells.ts), beside its
+  // candle. Apinrdw/kumora#266 adds the minute's sweeps to this row.
+  `CREATE TABLE IF NOT EXISTS footprints (
+    code TEXT NOT NULL,
+    minute INTEGER NOT NULL,
+    cells TEXT NOT NULL,
     PRIMARY KEY (code, minute)
   ) WITHOUT ROWID`,
   `CREATE TABLE IF NOT EXISTS live_prices (
@@ -180,8 +191,12 @@ export const makeDayStore = (sql: Sql) =>
   Effect.sync(() => {
     for (const statement of SCHEMA) sql.exec(statement)
 
-    const write = (flush: Flush) =>
-      Effect.sync(() =>
+    const write = Effect.fnUntraced(function* (flush: Flush) {
+      // Encoded before the transaction, where an Effect can't run.
+      const footprints: Array<readonly [StoredFootprint, string]> = []
+      for (const footprint of flush.footprints)
+        footprints.push([footprint, yield* cellsText(footprint.cells)])
+      yield* Effect.sync(() =>
         sql.transaction(() => {
           for (const trade of flush.trades)
             // A number is written once: a copy can't replace it.
@@ -212,6 +227,13 @@ export const makeDayStore = (sql: Sql) =>
               figures.value,
               figures.frequency
             )
+          for (const [{ code, minute }, cells] of footprints)
+            sql.exec(
+              "INSERT OR REPLACE INTO footprints VALUES (?, ?, ?)",
+              code,
+              minute,
+              cells
+            )
           for (const price of flush.livePrices)
             sql.exec(
               "INSERT OR REPLACE INTO live_prices VALUES (?, ?)",
@@ -238,6 +260,7 @@ export const makeDayStore = (sql: Sql) =>
             sql.exec("INSERT OR REPLACE INTO facts VALUES (?, ?)", key, value)
         })
       )
+    })
 
     const hasTrade = (tradeNumber: TradeNumber) =>
       Effect.sync(
@@ -402,6 +425,51 @@ export const makeDayStore = (sql: Sql) =>
         )
       )
 
+    // One stock's footprint for one minute.
+    const storedFootprint = Effect.fnUntraced(function* (
+      code: StockCode,
+      minute: number
+    ) {
+      const [row] = sql.exec(
+        "SELECT cells FROM footprints WHERE code = ? AND minute = ?",
+        code,
+        minute
+      )
+      return row === undefined
+        ? undefined
+        : yield* cellsFromText(String(row.cells))
+    })
+
+    // One stock's footprints, ascending by minute.
+    const storedFootprintsOf = (code: StockCode) =>
+      Effect.suspend(() =>
+        Effect.forEach(
+          sql.exec(
+            "SELECT minute, cells FROM footprints WHERE code = ? ORDER BY minute",
+            code
+          ),
+          Effect.fnUntraced(function* (row) {
+            return {
+              code,
+              minute: Number(row.minute),
+              cells: yield* cellsFromText(String(row.cells)),
+            } satisfies StoredFootprint
+          })
+        )
+      )
+
+    // One stock's footprints as viewers get them, ascending by minute.
+    const footprintsOf = Effect.fnUntraced(function* (code: StockCode) {
+      const footprints: Array<Footprint> = []
+      for (const stored of yield* storedFootprintsOf(code))
+        footprints.push({
+          code,
+          minute: DateTime.makeUnsafe(stored.minute),
+          cells: yield* cellsOut(stored.cells),
+        })
+      return footprints
+    })
+
     const livePrices = Effect.suspend(() =>
       Effect.forEach(sql.exec("SELECT frame FROM live_prices"), (row) =>
         livePriceOf(row.frame)
@@ -469,6 +537,9 @@ export const makeDayStore = (sql: Sql) =>
       storedCandle,
       storedCandlesOf,
       candlesOf,
+      storedFootprint,
+      storedFootprintsOf,
+      footprintsOf,
       livePrices,
       livePrice,
       chunkAt,

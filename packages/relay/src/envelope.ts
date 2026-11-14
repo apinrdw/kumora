@@ -18,7 +18,8 @@ const acceptedIngestVersions: ReadonlyArray<unknown> = [
 // Bump on any change to a viewer message's shape. Only this version is
 // accepted: a page on another version reloads.
 // 2: market conditions carry delayed freshness and each delayed feed's lag.
-export const ViewerProtocolVersion = 2
+// 3: snapshots and deltas carry footprints (spec apinrdw/kumora#263).
+export const ViewerProtocolVersion = 3
 
 // Decision: an extension that hits either code stops retrying that target and
 // shows it; any other close, 1006 included, retries with backoff. The token
@@ -275,9 +276,30 @@ export const Candle = Schema.Struct({
 })
 export type Candle = typeof Candle.Type
 
+// One price of a footprint: the lots traded there by sell aggressors, by buy
+// aggressors, and with no aggressor side (auction matches).
+const FootprintCell = Schema.Struct({
+  price: Schema.Int,
+  sell: Schema.Finite,
+  buy: Schema.Finite,
+  none: Schema.Finite,
+})
+export type FootprintCell = typeof FootprintCell.Type
+
+// One stock code's footprint for one minute: its regular-board trades' lots
+// by price and aggressor side, the same trades as its candle. Cells ascend by
+// price. An index has none.
+export const Footprint = Schema.Struct({
+  code: StockCode,
+  // The minute's start.
+  minute: Schema.DateTimeUtcFromMillis,
+  cells: Schema.Array(FootprintCell),
+})
+export type Footprint = typeof Footprint.Type
+
 // What a viewer starts from after each Select: the 200 newest running trades,
-// ascending by trade number, and the selected code's candles so far,
-// ascending by minute. The selected code's order book once it has one, or
+// ascending by trade number, and the selected code's candles and footprints
+// so far, ascending by minute. The selected code's order book once it has one, or
 // word that it is an index.
 const Snapshot = Schema.TaggedStruct("Snapshot", {
   // The code the Select it answers selected. A snapshot answering an earlier
@@ -286,6 +308,7 @@ const Snapshot = Schema.TaggedStruct("Snapshot", {
   selected: StockCode,
   tape: Schema.Array(RunningTrade),
   candles: Schema.Array(Candle),
+  footprints: Schema.Array(Footprint),
   // The selected and watchlist codes' that have figures; a code missing has
   // none yet. Absent when none has.
   dayStates: Schema.optionalKey(Schema.Array(DayState)),
@@ -304,6 +327,9 @@ const Snapshot = Schema.TaggedStruct("Snapshot", {
 const Delta = Schema.TaggedStruct("Delta", {
   tape: Schema.Array(RunningTrade),
   candles: Schema.Array(Candle),
+  // Every footprint that changed since the last delta of a code some viewer
+  // selected, each whole. Absent when none changed.
+  footprints: Schema.optionalKey(Schema.Array(Footprint)),
   // Every changed Day state of a code some viewer selected or watches, each
   // whole. Absent when none changed.
   dayStates: Schema.optionalKey(Schema.Array(DayState)),

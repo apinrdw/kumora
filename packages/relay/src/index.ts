@@ -62,6 +62,8 @@ export {
 export type {
   BackfillPage,
   Candle,
+  Footprint,
+  FootprintCell,
   FrameStream,
   IngestDown,
   IngestUp,

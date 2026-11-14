@@ -39,12 +39,14 @@ const delta = (...tape: Array<RunningTrade>): ViewerDown => ({
   _tag: "Delta",
   tape,
   candles: [],
+  footprints: [],
 })
 const snapshot = (...tape: Array<RunningTrade>): ViewerDown => ({
   _tag: "Snapshot",
   selected: StockCode.make("BBCA"),
   tape,
   candles: [],
+  footprints: [],
   conditions: {
     phase: "session-1",
     relayOnline: true,

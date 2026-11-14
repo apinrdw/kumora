@@ -5,14 +5,26 @@
 // feeds every inserted or merged trade through `trade` and sends what
 // `takeChanged` returns. The book holds a candle only while it is changing;
 // the day store holds the rest.
+//
+// A stock's candle carries its footprint (spec apinrdw/kumora#263): the same
+// trades' lots by price and aggressor side, kept, changed, resent and stored
+// with it, so a late trade resends both.
 import type {
   Candle,
+  Footprint,
   RunningTrade,
   StockCode,
   TradeNumber,
 } from "@workspace/relay"
 import { Clock, DateTime, Effect } from "effect"
 
+import {
+  addTrade,
+  cellsOut,
+  copyCells,
+  noCells,
+  type Cells,
+} from "./footprint-cells.ts"
 import type { LivePrice } from "./stockbit-liveprice.ts"
 
 const MINUTE = 60_000
@@ -49,6 +61,13 @@ export interface StoredCandle {
   readonly figures: CandleFigures
 }
 
+// One stock code's footprint for one minute as the day store holds it.
+export interface StoredFootprint {
+  readonly code: StockCode
+  readonly minute: number
+  readonly cells: Cells
+}
+
 // The settled candles the day store holds: the book reads one back when a
 // trade lands in a minute it let go of, and a code's candles so far when a
 // snapshot or the Day state fallback asks for them.
@@ -62,6 +81,14 @@ export interface SettledCandles {
     code: StockCode,
     after?: number
   ) => Effect.Effect<ReadonlyArray<StoredCandle>>
+  // A stock's footprint for one minute, and its footprints so far, ascending.
+  readonly storedFootprint: (
+    code: StockCode,
+    minute: number
+  ) => Effect.Effect<Cells | undefined>
+  readonly storedFootprintsOf: (
+    code: StockCode
+  ) => Effect.Effect<ReadonlyArray<StoredFootprint>>
 }
 
 interface Print {
@@ -121,12 +148,14 @@ const printOf = (trade: RunningTrade): Print => ({
   frequency: 1,
 })
 
-// One code's candle for one minute: what has settled, plus the trades still
-// inside the merge window, by trade number.
+// One code's candle and footprint for one minute: what has settled, plus the
+// trades still inside the merge window, by trade number. An index's
+// footprint stays empty.
 interface Slot {
   readonly code: StockCode
   readonly minute: number
   settled: CandleFigures | undefined
+  readonly settledCells: Cells
   readonly open: Map<string, RunningTrade>
 }
 
@@ -137,7 +166,8 @@ export const minuteOf = (time: DateTime.Utc) =>
 
 const counts = (trade: RunningTrade) => Effect.succeed(trade.board === "RG")
 
-// Whether two copies of a trade give its candle the same figures.
+// Whether two copies of a trade give its candle and footprint the same
+// figures: a side one feed left unspecified moves its footprint lots.
 const sameCandlePart = Effect.fnUntraced(function* (
   a: RunningTrade,
   b: RunningTrade
@@ -147,7 +177,8 @@ const sameCandlePart = Effect.fnUntraced(function* (
     a.code === b.code &&
     (yield* minuteOf(a.time)) === (yield* minuteOf(b.time)) &&
     a.price === b.price &&
-    a.lots === b.lots
+    a.lots === b.lots &&
+    a.side === b.side
   )
 })
 
@@ -178,6 +209,33 @@ const candleOf = Effect.fnUntraced(function* (slot: Slot) {
   return figures === undefined
     ? undefined
     : yield* candleFrom(slot.code, slot.minute, figures)
+})
+
+// What has settled plus the trades still inside the merge window, by price.
+const cellsOf = Effect.fnUntraced(function* (slot: Slot) {
+  const cells = yield* copyCells(slot.settledCells)
+  for (const trade of slot.open.values()) yield* addTrade(cells, trade)
+  return cells
+})
+
+const footprintFrom = Effect.fnUntraced(function* (
+  code: StockCode,
+  minute: number,
+  cells: Cells
+) {
+  return {
+    code,
+    minute: DateTime.makeUnsafe(minute),
+    cells: yield* cellsOut(cells),
+  } satisfies Footprint
+})
+
+// A slot's footprint, none while no stock trade made it.
+const footprintOf = Effect.fnUntraced(function* (slot: Slot) {
+  const cells = yield* cellsOf(slot)
+  return cells.size === 0
+    ? undefined
+    : yield* footprintFrom(slot.code, slot.minute, cells)
 })
 
 // An index's day totals at its latest frame, so a frame's candle gets only
@@ -226,6 +284,8 @@ export const makeCandleBook = Effect.fnUntraced(function* (
         code,
         minute,
         settled: yield* store.storedCandle(code, minute),
+        settledCells:
+          (yield* store.storedFootprint(code, minute)) ?? (yield* noCells),
         open: new Map(),
       }
       minutes.set(minute, slot)
@@ -259,6 +319,7 @@ export const makeCandleBook = Effect.fnUntraced(function* (
       const slot = yield* slotOf(trade.code, yield* minuteOf(trade.time))
       slot.open.delete(tradeNumber)
       slot.settled = add(slot.settled, printOf(trade))
+      yield* addTrade(slot.settledCells, trade)
       unflushed.add(slot)
     }
   })
@@ -364,17 +425,39 @@ export const makeCandleBook = Effect.fnUntraced(function* (
     return folded
   })
 
-  // Every candle changed since the last call, of any code.
-  const takeChanged = Effect.gen(function* () {
+  // One stock's footprints so far, ascending by minute: the store's with the
+  // book's laid over them.
+  const footprintsOf = Effect.fnUntraced(function* (code: StockCode) {
+    const minutes = new Map<number, Cells>()
+    for (const stored of yield* store.storedFootprintsOf(code))
+      minutes.set(stored.minute, stored.cells)
+    for (const slot of series.get(code)?.values() ?? [])
+      minutes.set(slot.minute, yield* cellsOf(slot))
+    const footprints: Array<Footprint> = []
+    for (const [minute, cells] of [...minutes].sort(([a], [b]) => a - b))
+      if (cells.size > 0)
+        footprints.push(yield* footprintFrom(code, minute, cells))
+    return footprints
+  })
+
+  // Every candle changed since the last call, of any code, and the
+  // footprints among them of `footprintCodes`.
+  const takeChanged = Effect.fnUntraced(function* (
+    footprintCodes: ReadonlySet<StockCode>
+  ) {
     const slots = changed
     changed = new Set()
     const candles: Array<Candle> = []
+    const footprints: Array<Footprint> = []
     for (const slot of slots) {
       const candle = yield* candleOf(slot)
       if (candle !== undefined) candles.push(candle)
+      if (!footprintCodes.has(slot.code)) continue
+      const footprint = yield* footprintOf(slot)
+      if (footprint !== undefined) footprints.push(footprint)
     }
     for (const slot of slots) yield* release(slot)
-    return candles
+    return { candles, footprints }
   })
 
   const hasChanges = Effect.sync(() => changed.size > 0)
@@ -412,7 +495,12 @@ export const makeCandleBook = Effect.fnUntraced(function* (
         ? []
         : [{ code: slot.code, minute: slot.minute, figures: slot.settled }]
     )
-    return { trades: [...flushingTrades.values()], candles }
+    const footprints = [...flushing].flatMap((slot) =>
+      slot.settledCells.size === 0
+        ? []
+        : [{ code: slot.code, minute: slot.minute, cells: slot.settledCells }]
+    )
+    return { trades: [...flushingTrades.values()], candles, footprints }
   })
 
   // The flush that took the last `takeSettled` landed: its trades leave the
@@ -461,6 +549,7 @@ export const makeCandleBook = Effect.fnUntraced(function* (
     trade,
     indexPrice,
     candlesOf,
+    footprintsOf,
     foldAfter,
     takeChanged,
     hasChanges,

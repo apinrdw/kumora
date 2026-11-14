@@ -535,7 +535,7 @@ export const makeTradingDay = Effect.fnUntraced(function* (options: {
       TradeNumberOrder(a.tradeNumber, b.tradeNumber)
     )
     pending = new Map()
-    const changed = yield* candles.takeChanged
+    const changed = yield* candles.takeChanged(yield* onDemand.selected)
     const live = yield* stockbitLive
     const orderBooks = yield* books.takeChanged(live)
     for (const book of orderBooks) yield* bookChunks.record(book)
@@ -547,7 +547,7 @@ export const makeTradingDay = Effect.fnUntraced(function* (options: {
     const indicative = yield* market.indicativeChanges
     if (
       trades.length === 0 &&
-      changed.length === 0 &&
+      changed.candles.length === 0 &&
       orderBooks.length === 0 &&
       states.length === 0 &&
       !conditionsChanged &&
@@ -557,7 +557,10 @@ export const makeTradingDay = Effect.fnUntraced(function* (options: {
     const text = yield* encodeViewerDown({
       _tag: "Delta",
       tape: trades,
-      candles: changed,
+      candles: changed.candles,
+      ...(changed.footprints.length > 0
+        ? { footprints: changed.footprints }
+        : {}),
       ...(orderBooks.length > 0 ? { orderBooks } : {}),
       ...(states.length === 0 ? {} : { dayStates: states }),
       ...(conditionsChanged ? { conditions } : {}),
@@ -632,6 +635,7 @@ export const makeTradingDay = Effect.fnUntraced(function* (options: {
     const payload: Flush = {
       trades: settled.trades,
       candles: settled.candles,
+      footprints: settled.footprints,
       livePrices: yield* latestByCode(retained?.livePrices ?? [], livePrices),
       chunks: [...(retained?.chunks ?? []), ...chunks],
       ajaibBooks: yield* latestByCode(retained?.ajaibBooks ?? [], ajaibBooks),
@@ -718,6 +722,7 @@ export const makeTradingDay = Effect.fnUntraced(function* (options: {
     yield* store.write({
       trades: [],
       candles: [],
+      footprints: [],
       livePrices: [],
       chunks: [],
       ajaibBooks: [],
@@ -948,6 +953,7 @@ export const makeTradingDay = Effect.fnUntraced(function* (options: {
       const { selected, watchlist } = yield* decodeViewerUp(text)
       const live = yield* stockbitLive
       const orderBook = yield* books.bookOf(selected, live)
+      // The selected code first: on-demand.ts reads it back as the selection.
       const watching = [...new Set([selected, ...watchlist])]
       const states: Array<DayState> = []
       const indicative: Array<IndicativePrice> = []
@@ -962,6 +968,7 @@ export const makeTradingDay = Effect.fnUntraced(function* (options: {
         selected,
         tape: tape.slice(-SNAPSHOT_TRADES),
         candles: yield* candles.candlesOf(selected),
+        footprints: yield* candles.footprintsOf(selected),
         ...(orderBook === undefined ? {} : { orderBook }),
         ...(states.length === 0 ? {} : { dayStates: states }),
         conditions: yield* market.conditions,
