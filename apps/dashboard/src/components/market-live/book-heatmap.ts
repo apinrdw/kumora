@@ -272,8 +272,13 @@ class BookHeatmap implements ISeriesPrimitive<Time> {
     let shaded = 0
     for (const minute of this.minutes) {
       if (minute.minute > current) break
+      // Decision: a minute starts at its coordinate, the centre of its
+      // candle, and each slice a sixth of the bar spacing further on: where
+      // the cursor line and a sweep bubble of that second sit (lib/replay.ts
+      // `cursorLogical`, lib/sweeps.ts `bubbleOffset`). See
+      // apinrdw/kumora#279.
       const x = xOf(minute.time)
-      const left = x === null ? -width : Math.round(x * frame.ratio - width / 2)
+      const left = x === null ? -width : Math.round(x * frame.ratio)
       if (left + width < 0 || left > bitmap.width) continue
       seen.add(minute.minute)
       if (minute.minute === current)
