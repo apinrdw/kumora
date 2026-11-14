@@ -1,5 +1,5 @@
-// One archive run: `plan`, `head`, then one `report:<url>` step per report
-// to store, then `summary`. Each step's body is an Effect; the run itself
+// One archive run: `plan`, `head`, then one `report:` step per report to
+// store, then `summary`. Each step's body is an Effect; the run itself
 // only orders the steps, so it holds nothing a Workflow replay could change.
 // Spec apinrdw/kumora#303, "The archive run".
 import {
@@ -56,8 +56,8 @@ const Plan = Schema.Struct({
 })
 type Plan = typeof Plan.Type
 
-// What a `report:<url>` step stored. Never the file's bytes: a step's result
-// is at most 1 MiB.
+// What a `report:` step stored. Never the file's bytes: a step's result is
+// at most 1 MiB.
 const ArchivedReport = Schema.Struct({
   sourceUrl: Schema.String,
   description: Schema.String,
@@ -325,7 +325,7 @@ const summary = Effect.fnUntraced(function* (
 ) {
   const changedUrls = new Set(checked.changed.map(({ sourceUrl }) => sourceUrl))
   // Decided from earlier runs' records, not from the .xlsx being there: a
-  // retry of a `report:<url>` step finds the .xlsx, and maybe the record, its
+  // retry of a `report:` step finds the .xlsx, and maybe the record, its
   // first attempt wrote.
   const earlier = yield* heldRecords(run.id)
   const result = ArchiveRunResult.make({
@@ -366,6 +366,14 @@ const recordPlanFailure = Effect.fnUntraced(function* (
   return result
 })
 
+// The `report:` step's name for a report: `report:<kind>/<data date>/<SHA-256
+// of its source URL>`, at most 106 characters whatever the URL's length, and
+// one per URL: two URLs share a name only if their full SHA-256s collide.
+const reportStepName = Effect.fnUntraced(function* (report: ListedReport) {
+  const digest = yield* sha256Hex(new TextEncoder().encode(report.sourceUrl))
+  return `report:${report.kind}/${report.dataDate}/${digest}`
+})
+
 export const archiveRun = Effect.fn("archiveRun")(function* (
   steps: WorkflowSteps<StepServices>,
   run: ArchiveRun
@@ -393,12 +401,12 @@ export const archiveRun = Effect.fn("archiveRun")(function* (
   // A report that still fails after its step's retries isn't held at that
   // ETag, so the next run retries it; this one carries on.
   const stored = yield* Effect.forEach(toStore, ({ report, etag }) =>
-    steps
-      .do(`report:${report.sourceUrl}`, archiveReport(run.id, report, etag))
-      .pipe(
-        Effect.mapError(() => report.sourceUrl),
-        Effect.result
-      )
+    Effect.flatMap(reportStepName(report), (name) =>
+      steps.do(name, archiveReport(run.id, report, etag))
+    ).pipe(
+      Effect.mapError(() => report.sourceUrl),
+      Effect.result
+    )
   )
   const archived = stored.filter(Result.isSuccess).map(({ success }) => success)
   // A held URL whose HEAD failed may hide a change this run couldn't store.

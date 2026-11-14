@@ -11,7 +11,12 @@ import { NonRetryableError } from "cloudflare:workflows"
 import { Effect, type Layer } from "effect"
 
 import { WorkerEnv, type WorkerEnvShape } from "./bridge.ts"
-import { NonRetryable, StepFailed, type WorkflowSteps } from "./steps.ts"
+import {
+  MAX_STEP_NAME_LENGTH,
+  NonRetryable,
+  StepFailed,
+  type WorkflowSteps,
+} from "./steps.ts"
 
 export interface WorkflowRun<Params> {
   readonly id: string
@@ -39,39 +44,51 @@ export const makeWorkflow = <Params, Output, R>(
     override run(event: Readonly<WorkflowEvent<Params>>, step: WorkflowStep) {
       const env = Effect.provideService(WorkerEnv, this.env)
       const steps: WorkflowSteps<R> = {
+        // A name over the limit is a bug, never a step's failure: the run
+        // dies, rather than the runtime's refusal reading as a failed step.
         do: <A, E>(name: string, effect: Effect.Effect<A, E, R>) =>
-          Effect.tryPromise({
-            try: () =>
-              // WorkflowSteps asks for plain JSON results, which workers-types
-              // can't check against a generic `A`; tests round-trip every
-              // step result through JSON (apps/dashboard/tests/server/
-              // shareholding/local-steps.ts).
-              step.do(
-                name,
-                () =>
-                  Effect.runPromise(
-                    effect.pipe(
-                      // As the bridge logs a failed request: the runtime
-                      // keeps only the message.
-                      Effect.tapCause((cause) =>
-                        Effect.logError(`Workflow step ${name} failed`, cause)
-                      ),
-                      Effect.provide(layer),
-                      env,
-                      Effect.mapError((error) =>
-                        error instanceof NonRetryable
-                          ? new NonRetryableError(error.message)
-                          : error
-                      )
-                    )
-                  ) as Promise<Rpc.Serializable<A>>
-              ) as Promise<A>,
-            catch: (cause) =>
-              new StepFailed({
-                step: name,
-                message: cause instanceof Error ? cause.message : String(cause),
+          name.length > MAX_STEP_NAME_LENGTH
+            ? Effect.die(
+                new Error(
+                  `Step ${name} is ${name.length} characters, over ${MAX_STEP_NAME_LENGTH}`
+                )
+              )
+            : Effect.tryPromise({
+                try: () =>
+                  // WorkflowSteps asks for plain JSON results, which workers-types
+                  // can't check against a generic `A`; tests round-trip every
+                  // step result through JSON (apps/dashboard/tests/server/
+                  // shareholding/local-steps.ts).
+                  step.do(
+                    name,
+                    () =>
+                      Effect.runPromise(
+                        effect.pipe(
+                          // As the bridge logs a failed request: the runtime
+                          // keeps only the message.
+                          Effect.tapCause((cause) =>
+                            Effect.logError(
+                              `Workflow step ${name} failed`,
+                              cause
+                            )
+                          ),
+                          Effect.provide(layer),
+                          env,
+                          Effect.mapError((error) =>
+                            error instanceof NonRetryable
+                              ? new NonRetryableError(error.message)
+                              : error
+                          )
+                        )
+                      ) as Promise<Rpc.Serializable<A>>
+                  ) as Promise<A>,
+                catch: (cause) =>
+                  new StepFailed({
+                    step: name,
+                    message:
+                      cause instanceof Error ? cause.message : String(cause),
+                  }),
               }),
-          }),
       }
       return Effect.runPromise(
         run(
