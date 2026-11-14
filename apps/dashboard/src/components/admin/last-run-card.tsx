@@ -19,7 +19,7 @@ import type { ArchiveRunResult } from "@/server/shareholding/run-result"
 
 const IN_PROGRESS = "A run is in progress"
 
-const OUTCOME = {
+export const OUTCOME = {
   running: { label: "Running", tone: "info" },
   complete: { label: "Complete", tone: "up" },
   partial: { label: "Partial", tone: "warning" },
@@ -29,7 +29,7 @@ const OUTCOME = {
   { label: string; tone: KBadgeTone }
 >
 
-const wib = (iso: string) => Effect.runSync(dateTime(iso))
+export const wib = (iso: string) => Effect.runSync(dateTime(iso))
 
 // 1 min 12 s; 34 s
 const duration = (from: string, to: string) => {
@@ -40,7 +40,7 @@ const duration = (from: string, to: string) => {
     : `${minutes} min ${seconds - minutes * 60} s`
 }
 
-const plural = (n: number, one: string, many: string) =>
+export const plural = (n: number, one: string, many: string) =>
   `${n} ${n === 1 ? one : many}`
 
 const startRun: Effect.Effect<Outcome> = Effect.map(
@@ -85,7 +85,7 @@ function RunNow({ inProgress }: { inProgress: boolean }) {
   )
 }
 
-function Card({
+export function Card({
   title,
   aside,
   children,
