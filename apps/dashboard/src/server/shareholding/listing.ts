@@ -86,6 +86,14 @@ export const MAX_LISTED_REPORTS = Math.floor(
     (MAX_LISTED_REPORT_BYTES + MAX_ETAG_BYTES)
 )
 
+// The most bytes the listing's response may take; past it, the run fails at
+// `plan` before decoding it. An entry within MAX_LISTED_REPORT_BYTES lists
+// its description and URL once, where its ListedReport holds both twice;
+// doubling that leaves room for JSON escapes, whitespace and new fields.
+// 1,898,240 bytes; the listing of 2026-11-14 takes 28 KB.
+export const MAX_LISTING_BYTES =
+  MAX_LISTED_REPORTS * 2 * MAX_LISTED_REPORT_BYTES
+
 const reportKind = Effect.fnUntraced(function* (description: string) {
   return (
     KIND_PREFIXES.find(([prefix]) => description.startsWith(prefix))?.[1] ??

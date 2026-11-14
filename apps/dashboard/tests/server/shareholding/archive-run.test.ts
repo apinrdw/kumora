@@ -8,6 +8,7 @@ import {
   MAX_ETAG_BYTES,
   MAX_LISTED_REPORT_BYTES,
   MAX_LISTED_REPORTS,
+  MAX_LISTING_BYTES,
 } from "@/server/shareholding/listing"
 
 import { fakeIdx, type FakeIdx, idxIdUrl } from "./fake-idx.ts"
@@ -727,6 +728,35 @@ describe("an archive run at the largest size it accepts", () => {
         error: failure.message,
       })
       assert.deepStrictEqual(keysUnder(bucket, "reports/"), [])
+    })
+  )
+
+  it.effect("reads a listing of the most bytes, and fails past it", () =>
+    Effect.gen(function* () {
+      // A listing that takes `bytes`, padded past its items.
+      const listingOf = (bytes: number) => {
+        const items = listing(2, 300)
+        const base = JSON.stringify({ items, pad: "" })
+        return JSON.stringify({ items, pad: "x".repeat(bytes - base.length) })
+      }
+      const atCap = fakeIdx(listing(2, 300))
+      atCap.listingResponse = () => new Response(listingOf(MAX_LISTING_BYTES))
+      const stored = yield* run(atCap, memoryBucket(), "cron-2026-11-14T06")
+      assert.deepInclude(stored, { outcome: "complete", reportsAdded: 2 })
+
+      const pastCap = fakeIdx(listing(2, 300))
+      pastCap.listingResponse = () =>
+        new Response(listingOf(MAX_LISTING_BYTES + 1))
+      const bucket = memoryBucket()
+      const failure = yield* Effect.flip(
+        run(pastCap, bucket, "cron-2026-11-14T06")
+      )
+      assert.strictEqual(pastCap.requests.length, 1)
+      assert.include(failure.message, `over ${MAX_LISTING_BYTES} bytes`)
+      assert.deepInclude(json(bucket, "runs/cron-2026-11-14T06.json"), {
+        outcome: "failed",
+        error: failure.message,
+      })
     })
   )
 
