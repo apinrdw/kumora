@@ -48,12 +48,12 @@ export const labelPrices = Effect.fnUntraced(function* ({
   }
   // Walk down from the top so each band's first price beats a label below.
   const kept: Array<number> = []
-  for (const at of prices.toReversed()) {
+  for (const at of prices.reverse()) {
     const above = kept.at(-1)
     if (above === undefined || (above - at) * pxPerPrice >= LABEL_PX)
       kept.push(at)
   }
-  return kept.toReversed()
+  return kept.reverse()
 })
 
 // Decision: chart 2's rows are at most 36 px a tick, so a quiet window's few

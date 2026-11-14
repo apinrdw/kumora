@@ -21,9 +21,11 @@ export const IDX_BANDS: ReadonlyArray<{
 
 // The IDX tick (fraksi harga) of a price.
 export const idxTick = (price: number) =>
-  Effect.succeed(
-    IDX_BANDS.findLast((band) => price >= band.from)?.tick ?? IDX_BANDS[0]!.tick
-  )
+  Effect.sync(() => {
+    let tick = IDX_BANDS[0]!.tick
+    for (const band of IDX_BANDS) if (price >= band.from) tick = band.tick
+    return tick
+  })
 
 // Lots as the footprint writes them: exact under 1,000, then always 2
 // decimals with K, M or B. A figure that would round up to the next unit's
