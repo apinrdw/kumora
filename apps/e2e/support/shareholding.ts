@@ -35,8 +35,8 @@ const hmac = (key: Buffer | string, data: string) =>
 
 const sha256 = (data: string) => createHash("sha256").update(data).digest("hex")
 
-// One SigV4-signed PUT of a JSON object.
-async function putJson(key: string, value: unknown) {
+// One SigV4-signed PUT of an object.
+async function put(key: string, body: string, contentType: string) {
   const url = new URL(
     `${S3_PATH}/${encodeURIComponent(bucketName())}/${key
       .split("/")
@@ -44,7 +44,6 @@ async function putJson(key: string, value: unknown) {
       .join("/")}`,
     DASHBOARD
   )
-  const body = JSON.stringify(value)
   const amzDate = new Date().toISOString().replace(/[-:]|\.\d{3}/g, "")
   const day = amzDate.slice(0, 8)
   const payloadHash = sha256(body)
@@ -80,7 +79,7 @@ async function putJson(key: string, value: unknown) {
     headers: {
       "x-amz-content-sha256": payloadHash,
       "x-amz-date": amzDate,
-      "content-type": "application/json",
+      "content-type": contentType,
       authorization: `AWS4-HMAC-SHA256 Credential=${ACCESS_KEY}/${scope}, SignedHeaders=${signedHeaders}, Signature=${signature}`,
     },
     body,
@@ -90,6 +89,9 @@ async function putJson(key: string, value: unknown) {
       `Seeding ${key} answered ${response.status}: ${await response.text()}`
     )
 }
+
+const putJson = (key: string, value: unknown) =>
+  put(key, JSON.stringify(value), "application/json")
 
 /** An archive run's result, as runs/<id>.json holds it. */
 export interface SeededRun {
@@ -109,8 +111,31 @@ export interface SeededRun {
   readonly error: string | null
 }
 
+/**
+ * Writes the run's record and leaves runs/latest.json alone, so it can run
+ * beside the specs that point it at their own run.
+ */
+export async function seedRun(run: SeededRun) {
+  await putJson(`runs/${run.id}.json`, run)
+}
+
 /** Writes the run's record and points runs/latest.json at it. */
 export async function seedLatestRun(run: SeededRun) {
-  await putJson(`runs/${run.id}.json`, run)
+  await seedRun(run)
   await putJson("runs/latest.json", { id: run.id })
+}
+
+/**
+ * Stores a report under `reports/<kind>/<data date>/` as an archive run
+ * would: `bytes` bytes of file, then its listing record.
+ */
+export async function seedReport(prefix: string, hash: string, bytes: number) {
+  await put(
+    `reports/${prefix}/${hash}.xlsx`,
+    "x".repeat(bytes),
+    "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"
+  )
+  await putJson(`reports/${prefix}/${hash}.20261114T060000000Z.0000.json`, {
+    sha256: hash,
+  })
 }

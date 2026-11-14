@@ -3,7 +3,12 @@ import type { Locator, Page } from "@playwright/test"
 import { expect, test } from "../support/test"
 
 import { ADMIN, DASHBOARD, MEMBER } from "../support/accounts"
-import { seedLatestRun, type SeededRun } from "../support/shareholding"
+import {
+  seedLatestRun,
+  seedReport,
+  seedRun,
+  type SeededRun,
+} from "../support/shareholding"
 
 const SHAREHOLDING = `${DASHBOARD}/admin/shareholding`
 
@@ -159,5 +164,93 @@ test.describe.serial("an admin's last archive run", () => {
     await expect(card).toContainText("Running")
     await expect(card).toContainText("A run is in progress")
     await expect(card.getByRole("button", { name: "Run now" })).toBeDisabled()
+  })
+})
+
+const DAY = 86_400_000
+
+// A run that started `ago` ms before now, named like Run now's runs.
+const runAgo = (ago: number, run: Partial<SeededRun>): SeededRun => {
+  const started = Math.floor((Date.now() - ago) / 1000) * 1000
+  return {
+    ...COMPLETE,
+    id: `admin-${started}`,
+    trigger: "admin",
+    startedAt: new Date(started).toISOString(),
+    finishedAt: new Date(started + 60_000).toISOString(),
+    ...run,
+  }
+}
+
+// A start time as the page writes it: Nov 13, 20:00 WIB.
+const wib = (iso: string) =>
+  `${new Intl.DateTimeFormat("en-US", {
+    day: "2-digit",
+    month: "short",
+    hour: "2-digit",
+    minute: "2-digit",
+    timeZone: "Asia/Jakarta",
+    hourCycle: "h23",
+  }).format(new Date(iso))} WIB`
+
+// Decision: these seed runs/ records without touching runs/latest.json, and
+// they are the only spec writing reports/, so they run beside the serial
+// last-run tests above and the totals they assert are exact.
+test.describe("an admin's archive history", () => {
+  test.use({ storageState: ADMIN.storageState })
+
+  test("the recent runs table lists the past 30 days, newest first", async ({
+    page,
+  }) => {
+    const partial = runAgo(1 * DAY, {
+      outcome: "partial",
+      reportsAdded: 4,
+      newVersions: 0,
+      notStored: [NOT_STORED],
+    })
+    const complete = runAgo(2 * DAY, { reportsAdded: 3, newVersions: 2 })
+    const failed = runAgo(3 * DAY, {
+      outcome: "failed",
+      reportsAdded: 0,
+      newVersions: 0,
+      error: "www.idx.id answered 403 for the shareholding report list",
+    })
+    const old = runAgo(40 * DAY, {})
+    for (const run of [old, failed, complete, partial]) await seedRun(run)
+
+    await page.goto(SHAREHOLDING)
+    const table = page.getByRole("table", { name: "Recent runs" })
+    const ours = [partial, complete, failed, old].map(({ id }) => id)
+    await expect(
+      table.getByRole("row").filter({ hasText: new RegExp(ours.join("|")) })
+    ).toHaveText([
+      `${wib(partial.startedAt)}${partial.id}Partial40`,
+      `${wib(complete.startedAt)}${complete.id}Complete32`,
+      `${wib(failed.startedAt)}${failed.id}Failed00`,
+    ])
+  })
+
+  test("the archive totals count the reports per kind and the size", async ({
+    page,
+  }) => {
+    await seedReport("above-5/2026-11-13", "a".repeat(64), 1_200)
+    // A second version of a report counts too.
+    await seedReport("above-5/2026-11-13", "b".repeat(64), 1_300)
+    await seedReport("investor-type/2026-10-31", "c".repeat(64), 2_400)
+
+    await page.goto(SHAREHOLDING)
+    const totals = page.getByRole("region", { name: "Archive totals" })
+    // 4,900 bytes of files and three 77-byte records.
+    await expect(totals).toContainText("3 reports · 5.1 KB")
+    await expect(
+      totals.getByRole("table", { name: "Reports per kind" }).getByRole("row")
+    ).toHaveText([
+      "Report kindKey prefixReports",
+      "Holders above 5%reports/above-5/2",
+      "Holders above 1%reports/above-1/0",
+      "By investor typereports/investor-type/1",
+      "By investor classificationreports/investor-classification/0",
+      "Otherreports/other/0",
+    ])
   })
 })
