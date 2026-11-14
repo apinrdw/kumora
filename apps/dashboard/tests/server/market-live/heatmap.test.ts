@@ -1,21 +1,29 @@
 // Seam (1) of spec apinrdw/kumora#263 for the book heatmap (ticket
 // apinrdw/kumora#267): Stockbit order book frames go in through the ingest
 // socket, time moves only by TestClock, and the test reads the heatmap GET's
-// answers.
+// answers. The page tests join them to the socket's order books through the
+// page's own heatmap store: whatever the book did, the page's slices are a
+// fresh GET's.
 import { assert, describe, it } from "@effect/vitest"
 import {
+  HEAT_SLICE_MS,
   StockCode,
   WibDate,
   decodeRecordedHeatmap,
+  decodeViewerDown,
   recordedDayPath,
   recordedDayRequest,
+  type HeatSlice,
 } from "@workspace/relay"
-import { DateTime, Effect, Option } from "effect"
+import { Clock, DateTime, Effect, Option } from "effect"
 import { TestClock } from "effect/testing"
 
+import { makeHeatmapStore } from "@/components/market-live/heatmap-store"
+import type { Sql } from "@/server/market-live/day-store"
 import { SEALED_CACHE } from "@/server/market-live/routes"
 
-import { stockbitBook, tradingDay } from "./day-harness"
+import { sealedBeforeOrderFlow, stockbitBook, tradingDay } from "./day-harness"
+import { memorySql } from "./sql"
 
 const wib = (time: string) => DateTime.makeUnsafe(`2026-11-09T${time}+07:00`)
 const at = (time: string) =>
@@ -27,23 +35,64 @@ const UNTR = StockCode.make("UNTR")
 
 type Day = Effect.Success<ReturnType<typeof tradingDay>>
 
-// The heatmap GET's answer for UNTR: its Cache-Control, the slice time it
-// answers up to, and each slice as [WIB time, levels].
-const heatmap = Effect.fnUntraced(function* (day: Day) {
+const wibTime = (instant: DateTime.Utc) =>
+  DateTime.formatIso(DateTime.add(instant, { hours: 7 })).slice(11, 19)
+
+// A slice as a test compares it: [WIB time, levels].
+const sliceOf = (slice: HeatSlice): ReadonlyArray<unknown> => [
+  wibTime(slice.at),
+  slice.levels.map((level) => [...level]),
+]
+
+// The heatmap GET's answer for UNTR, with its Cache-Control.
+const answerOf = Effect.fnUntraced(function* (day: Day) {
   const response = yield* day.recorded({ _tag: "Heatmap", code: UNTR })
-  const answer = yield* decodeRecordedHeatmap(
-    yield* Effect.promise(() => response.text())
-  )
-  const time = (instant: DateTime.Utc) =>
-    DateTime.formatIso(DateTime.add(instant, { hours: 7 })).slice(11, 19)
   return {
     cacheControl: response.headers.get("Cache-Control"),
+    answer: yield* decodeRecordedHeatmap(
+      yield* Effect.promise(() => response.text())
+    ),
+  }
+})
+
+// That answer as a test compares it: its Cache-Control, the slice time it
+// answers up to, and each slice.
+const heatmap = Effect.fnUntraced(function* (day: Day) {
+  const { cacheControl, answer } = yield* answerOf(day)
+  return {
+    cacheControl,
     code: answer.code,
-    through: time(answer.through),
-    slices: answer.slices.map((slice): ReadonlyArray<unknown> => [
-      time(slice.at),
-      slice.levels.map((level) => [...level]),
-    ]),
+    through: wibTime(answer.through),
+    slices: answer.slices.map(sliceOf),
+  }
+})
+
+// A Market Live page on UNTR: its heatmap store hears what the object sends
+// its socket and reads the object's clock, and the heatmap GET answers what
+// the store asks.
+const pageOn = Effect.fnUntraced(function* (day: Day) {
+  const clock = yield* Clock.Clock
+  const store = yield* makeHeatmapStore(UNTR, () =>
+    clock.currentTimeMillisUnsafe()
+  )
+  const socket = yield* day.viewer("UNTR")
+  let heard = 0
+  // The store reads every message sent since it last heard, gets the answer
+  // it asked for, and its timer ticks.
+  const hear = Effect.gen(function* () {
+    for (const text of socket.sent.slice(heard))
+      store.apply(yield* decodeViewerDown(text))
+    heard = socket.sent.length
+    const asked = store.awaiting()
+    if (asked !== undefined) store.answer(asked, (yield* answerOf(day)).answer)
+    store.tick()
+  })
+  yield* hear
+  return {
+    hear,
+    // Its socket closes; its timer still ticks.
+    leave: day.left(socket),
+    slices: () => store.slices().map(sliceOf),
   }
 })
 
@@ -103,6 +152,53 @@ const minute1420 = [
     ],
   ]),
 ]
+
+// `count` slices from `from`, each the book resting 90 lots bid at 8,000 and
+// `offer` at 8,025.
+const resting = (from: string, count: number, offer: number) =>
+  Array.from({ length: count }, (_, index) => [
+    wibTime(
+      DateTime.makeUnsafe(
+        DateTime.toEpochMillis(wib(from)) + index * HEAT_SLICE_MS
+      )
+    ),
+    [
+      [8_000, 90, 0],
+      [8_025, 0, offer],
+    ],
+  ])
+
+// A page watching UNTR from 14:20:00, a slice start, so its estimate of the
+// object's clock is exact. The book is served at 14:20:04 and its bid grows
+// at 14:20:15, as in `bookMinute1420`; then no frame comes.
+const quietDay = Effect.fnUntraced(function* (sql: Sql = memorySql()) {
+  yield* at("14:20:00.000")
+  const day = yield* tradingDay(sql)
+  const page = yield* pageOn(day)
+  yield* at("14:20:03.750")
+  yield* day.frames([
+    stockbitBook({ side: "BID", levels: [[8_000, 3, 50]], time: "14:20:03" }),
+    stockbitBook({ side: "OFFER", levels: [[8_025, 2, 40]], time: "14:20:03" }),
+  ])
+  yield* TestClock.adjust(SERVED_AFTER)
+  yield* page.hear
+  yield* at("14:20:14.750")
+  yield* day.frames([
+    stockbitBook({ side: "BID", levels: [[8_000, 5, 90]], time: "14:20:14" }),
+  ])
+  yield* TestClock.adjust(SERVED_AFTER)
+  yield* page.hear
+  return { day, page }
+})
+
+// At 14:23:45, after two minutes with no frame, the offer drops to 20.
+const offerDrops = Effect.fnUntraced(function* (day: Day) {
+  yield* at("14:23:44.750")
+  yield* day.frames([
+    stockbitBook({ side: "OFFER", levels: [[8_025, 1, 20]], time: "14:23:44" }),
+  ])
+  yield* TestClock.adjust(SERVED_AFTER)
+})
 
 describe("the book heatmap", () => {
   it.effect(
@@ -193,6 +289,84 @@ describe("the book heatmap", () => {
             [8_025, 0, 20],
           ],
         ])
+      })
+  )
+
+  it.effect(
+    "a minute with no frame keeps the book before it: a page that watched it, a page that joins after it and a fresh GET show the same slices",
+    () =>
+      Effect.gen(function* () {
+        const { day, page } = yield* quietDay()
+        // 14:21 and 14:22 passed with no frame. A slice start again.
+        yield* at("14:23:40.000")
+        yield* page.hear
+        const joined = yield* pageOn(day)
+        const whole = yield* heatmap(day)
+        assert.strictEqual(whole.through, "14:23:40")
+        assert.deepStrictEqual(whole.slices, [
+          ...minute1420,
+          ...resting("14:21:00", 16, 40),
+        ])
+        // A page's last slice is the one still running.
+        assert.deepStrictEqual(page.slices().slice(0, -1), whole.slices)
+        assert.deepStrictEqual(joined.slices(), page.slices())
+
+        yield* offerDrops(day)
+        yield* page.hear
+        yield* joined.hear
+        // 14:24 passed with no frame.
+        yield* at("14:25:10.000")
+        yield* page.hear
+        yield* joined.hear
+        const later = yield* heatmap(day)
+        assert.strictEqual(later.through, "14:25:10")
+        assert.deepStrictEqual(later.slices, [
+          ...whole.slices,
+          // 40 lots for 5 s, then 20 for 5 s.
+          ...resting("14:23:40", 1, 30),
+          ...resting("14:23:50", 8, 20),
+        ])
+        assert.deepStrictEqual(page.slices().slice(0, -1), later.slices)
+        assert.deepStrictEqual(joined.slices(), page.slices())
+      })
+  )
+
+  it.effect(
+    "a sealed day answers its quiet minutes to the end of the relay's streaming, as the page that watched them showed and as the one-off build answers",
+    () =>
+      Effect.gen(function* () {
+        const sql = memorySql()
+        const { day, page } = yield* quietDay(sql)
+        yield* offerDrops(day)
+        yield* page.hear
+        // Gone before the seal: a viewer's 250 ms deltas would replay the
+        // hours to it.
+        yield* page.leave
+        yield* at("17:00:00")
+        yield* page.hear
+        yield* day.alarm
+        const sealed = yield* heatmap(day)
+        assert.strictEqual(sealed.cacheControl, SEALED_CACHE)
+        assert.strictEqual(sealed.through, "16:35:00")
+        assert.deepStrictEqual(sealed.slices, [
+          ...minute1420,
+          ...resting("14:21:00", 16, 40),
+          ...resting("14:23:40", 1, 30),
+          // To 16:35, where the relay stops streaming.
+          ...resting("14:23:50", 787, 20),
+        ])
+        assert.deepStrictEqual(sealed.slices.at(-1)?.[0], "16:34:50")
+        assert.deepStrictEqual(page.slices(), sealed.slices)
+
+        yield* day.evicted
+        yield* sealedBeforeOrderFlow(sql)
+        yield* TestClock.setTime(
+          DateTime.toEpochMillis(
+            DateTime.makeUnsafe("2026-11-10T10:00:00+07:00")
+          )
+        )
+        const built = yield* heatmap(yield* tradingDay(sql))
+        assert.deepStrictEqual(built, sealed)
       })
   )
 

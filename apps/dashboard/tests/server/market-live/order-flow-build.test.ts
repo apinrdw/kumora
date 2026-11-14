@@ -11,7 +11,12 @@ import { TestClock } from "effect/testing"
 import type { Sql } from "@/server/market-live/day-store"
 import { SEALED_CACHE } from "@/server/market-live/routes"
 
-import { stockbitBook, stockbitTrade, tradingDay } from "./day-harness"
+import {
+  sealedBeforeOrderFlow,
+  stockbitBook,
+  stockbitTrade,
+  tradingDay,
+} from "./day-harness"
 import { memorySql } from "./sql"
 
 const at = (date: string, time: string) =>
@@ -109,15 +114,6 @@ const answers = (day: Day) =>
       ]
     })
   )
-
-// What a day sealed before order flow shipped holds: no footprint or heatmap
-// table, and no mark that its rows were built.
-const sealedBeforeOrderFlow = (sql: Sql) =>
-  Effect.sync(() => {
-    sql.exec("DROP TABLE footprints")
-    sql.exec("DROP TABLE heatmaps")
-    sql.exec("DELETE FROM facts WHERE key = 'order-flow-built'")
-  })
 
 // `sql` counting its writes. The transaction numbered `crashAt` never lands:
 // SQLite fails it before it writes, as an object evicted mid-build.

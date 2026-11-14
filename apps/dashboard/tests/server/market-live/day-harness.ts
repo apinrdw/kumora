@@ -279,6 +279,15 @@ export const tradingDay = Effect.fnUntraced(function* (
   }
 })
 
+// What a day sealed before order flow shipped holds: no footprint or heatmap
+// table, and no mark that its rows were built.
+export const sealedBeforeOrderFlow = (sql: Sql) =>
+  Effect.sync(() => {
+    sql.exec("DROP TABLE footprints")
+    sql.exec("DROP TABLE heatmaps")
+    sql.exec("DELETE FROM facts WHERE key = 'order-flow-built'")
+  })
+
 // The footprints a viewer was sent of `code`, snapshot and deltas in order.
 export const footprintsOf = (
   messages: ReadonlyArray<ViewerDown>,
