@@ -18,7 +18,7 @@ import {
   type ViewerDown,
 } from "@workspace/relay"
 import { WorkerEnv } from "@workspace/server"
-import { DateTime, Effect, Layer, Scope } from "effect"
+import { DateTime, Effect, Exit, Layer, Scope } from "effect"
 
 import type { Sql } from "@/server/market-live/day-store"
 import {
@@ -227,6 +227,8 @@ export const tradingDay = Effect.fnUntraced(function* (sql: Sql = memorySql()) {
     recordedCandles,
     recordedSweeps,
     alarm: day.alarm.pipe(Effect.provide(env)),
+    // The object evicted: its timers stop, so the clock can move days on.
+    evicted: Scope.close(scope, Exit.void),
   }
 })
 

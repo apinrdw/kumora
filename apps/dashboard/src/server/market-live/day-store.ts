@@ -143,7 +143,24 @@ export const Fact = {
   // cross-check walk.
   brokerCodesN: "broker-codes-n",
   crossCheck: "cross-check",
+  // The one-off build of a day's order flow rows (order-flow-build.ts): the
+  // last minute it wrote, then ORDER_FLOW_BUILT.
+  orderFlowBuilt: "order-flow-built",
 } as const
+
+export const ORDER_FLOW_BUILT = "built"
+
+// What the one-off build writes of one minute: every stock's footprint row
+// and every code's heatmap row, and the minute as its progress.
+export interface BuiltMinute {
+  readonly minute: number
+  readonly footprints: ReadonlyArray<FootprintRow>
+  readonly heatmaps: ReadonlyArray<{
+    readonly code: StockCode
+    readonly minute: number
+    readonly slices: ReadonlyArray<HeatSlice>
+  }>
+}
 
 const MINUTE = 60_000
 
@@ -214,18 +231,58 @@ export const makeDayStore = (sql: Sql) =>
   Effect.sync(() => {
     for (const statement of SCHEMA) sql.exec(statement)
 
-    const write = Effect.fnUntraced(function* (flush: Flush) {
-      // Encoded before the transaction, where an Effect can't run.
-      const footprints: Array<readonly [FootprintRow, string, string]> = []
-      for (const footprint of flush.footprints)
-        footprints.push([
-          footprint,
-          yield* cellsText(footprint.cells),
-          yield* sweepsText(footprint.sweeps),
+    // Footprint and heatmap rows are encoded before the transaction, where an
+    // Effect can't run.
+    const footprintTexts = Effect.fnUntraced(function* (
+      rows: ReadonlyArray<FootprintRow>
+    ) {
+      const texts: Array<readonly [FootprintRow, string, string]> = []
+      for (const row of rows)
+        texts.push([
+          row,
+          yield* cellsText(row.cells),
+          yield* sweepsText(row.sweeps),
         ])
-      const heatmaps: Array<readonly [StoredChunk, string]> = []
-      for (const chunk of flush.chunks)
-        heatmaps.push([chunk, yield* slicesText(chunk.minute, chunk.slices)])
+      return texts
+    })
+    const heatmapTexts = Effect.fnUntraced(function* (
+      rows: ReadonlyArray<Pick<StoredChunk, "code" | "minute" | "slices">>
+    ) {
+      const texts: Array<readonly [StockCode, number, string]> = []
+      for (const { code, minute, slices } of rows)
+        texts.push([code, minute, yield* slicesText(minute, slices)])
+      return texts
+    })
+    const insertFootprints = (
+      texts: ReadonlyArray<readonly [FootprintRow, string, string]>
+    ) => {
+      for (const [{ code, minute, lastTrade }, cells, sweeps] of texts)
+        sql.exec(
+          "INSERT OR REPLACE INTO footprints VALUES (?, ?, ?, ?, ?)",
+          code,
+          minute,
+          cells,
+          sweeps,
+          Number(lastTrade)
+        )
+    }
+    const insertHeatmaps = (
+      texts: ReadonlyArray<readonly [StockCode, number, string]>
+    ) => {
+      for (const [code, minute, slices] of texts)
+        sql.exec(
+          "INSERT OR REPLACE INTO heatmaps VALUES (?, ?, ?)",
+          code,
+          minute,
+          slices
+        )
+    }
+    const insertFact = (key: string, value: string) =>
+      sql.exec("INSERT OR REPLACE INTO facts VALUES (?, ?)", key, value)
+
+    const write = Effect.fnUntraced(function* (flush: Flush) {
+      const footprints = yield* footprintTexts(flush.footprints)
+      const heatmaps = yield* heatmapTexts(flush.chunks)
       yield* Effect.sync(() =>
         sql.transaction(() => {
           for (const trade of flush.trades)
@@ -257,15 +314,7 @@ export const makeDayStore = (sql: Sql) =>
               figures.value,
               figures.frequency
             )
-          for (const [{ code, minute, lastTrade }, cells, sweeps] of footprints)
-            sql.exec(
-              "INSERT OR REPLACE INTO footprints VALUES (?, ?, ?, ?, ?)",
-              code,
-              minute,
-              cells,
-              sweeps,
-              Number(lastTrade)
-            )
+          insertFootprints(footprints)
           for (const price of flush.livePrices)
             sql.exec(
               "INSERT OR REPLACE INTO live_prices VALUES (?, ?)",
@@ -282,13 +331,7 @@ export const makeDayStore = (sql: Sql) =>
               minute,
               new Uint8Array(gzipSync(chunk))
             )
-          for (const [{ code, minute }, slices] of heatmaps)
-            sql.exec(
-              "INSERT OR REPLACE INTO heatmaps VALUES (?, ?, ?)",
-              code,
-              minute,
-              slices
-            )
+          insertHeatmaps(heatmaps)
           for (const { code, book } of flush.ajaibBooks)
             sql.exec(
               "INSERT OR REPLACE INTO ajaib_books VALUES (?, ?)",
@@ -296,10 +339,29 @@ export const makeDayStore = (sql: Sql) =>
               book
             )
           for (const [key, value] of Object.entries(flush.facts))
-            sql.exec("INSERT OR REPLACE INTO facts VALUES (?, ?)", key, value)
+            insertFact(key, value)
         })
       )
     })
+
+    // One minute of the one-off build, with its progress, in one
+    // transaction: a build that dies reruns from the minute after the last
+    // one that landed.
+    const writeBuiltMinute = Effect.fnUntraced(function* (built: BuiltMinute) {
+      const footprints = yield* footprintTexts(built.footprints)
+      const heatmaps = yield* heatmapTexts(built.heatmaps)
+      yield* Effect.sync(() =>
+        sql.transaction(() => {
+          insertFootprints(footprints)
+          insertHeatmaps(heatmaps)
+          insertFact(Fact.orderFlowBuilt, String(built.minute))
+        })
+      )
+    })
+
+    const markOrderFlowBuilt = Effect.sync(() =>
+      insertFact(Fact.orderFlowBuilt, ORDER_FLOW_BUILT)
+    )
 
     const hasTrade = (tradeNumber: TradeNumber) =>
       Effect.sync(
@@ -497,6 +559,65 @@ export const makeDayStore = (sql: Sql) =>
         )
       )
 
+    // The first and last minute holding a stored trade or book chunk; none
+    // when the day stored neither. The trades' come off the primary key's
+    // ends, the chunks' from one read of the chunk keys.
+    const orderFlowMinutes = Effect.gen(function* () {
+      const minutes: Array<number> = []
+      for (const bound of ["min", "max"] as const) {
+        const number = yield* boundTrade(bound)
+        if (number === undefined) continue
+        const [row] = sql.exec(
+          "SELECT time FROM trades WHERE number = ?",
+          number
+        )
+        minutes.push(Math.floor(Number(row?.time) / MINUTE) * MINUTE)
+      }
+      const chunks = new Map<number, Array<StockCode>>()
+      for (const row of sql.exec("SELECT code, minute FROM book_chunks")) {
+        const minute = Number(row.minute)
+        const codes = chunks.get(minute) ?? []
+        codes.push(StockCode.make(String(row.code)))
+        chunks.set(minute, codes)
+        minutes.push(minute)
+      }
+      return minutes.length === 0
+        ? undefined
+        : {
+            first: Math.min(...minutes),
+            last: Math.max(...minutes),
+            chunks: chunks as ReadonlyMap<number, ReadonlyArray<StockCode>>,
+          }
+    })
+
+    // Every stock's regular-board trades in one minute, ascending by trade
+    // number: one read of the whole market's minute.
+    const minuteTrades = Effect.fnUntraced(function* (minute: number) {
+      return (yield* tradesBetween(
+        DateTime.makeUnsafe(minute - 1),
+        DateTime.makeUnsafe(minute + MINUTE - 1)
+      )).filter((trade) => trade.board === "RG")
+    })
+
+    // One code's stored book chunk for exactly `minute`, as stored.
+    const chunkOfMinute = Effect.fnUntraced(function* (
+      code: StockCode,
+      minute: number
+    ) {
+      const [row] = sql.exec(
+        "SELECT chunk FROM book_chunks WHERE code = ? AND minute = ?",
+        code,
+        minute
+      )
+      return row === undefined ? undefined : yield* chunkOf(row.chunk)
+    })
+
+    // Whether the day stored neither a trade nor a book chunk.
+    const storedNothing = Effect.gen(function* () {
+      if ((yield* boundTrade("max")) !== undefined) return false
+      return sql.exec("SELECT 1 FROM book_chunks LIMIT 1").length === 0
+    })
+
     // One stock's regular-board trades in one minute, ascending by trade
     // number. The trades table has no code index (the Decision on SCHEMA), so
     // this reads the whole market's minute; the book asks only when a late
@@ -505,10 +626,9 @@ export const makeDayStore = (sql: Sql) =>
       code: StockCode,
       minute: number
     ) {
-      return (yield* tradesBetween(
-        DateTime.makeUnsafe(minute - 1),
-        DateTime.makeUnsafe(minute + MINUTE - 1)
-      )).filter((trade) => trade.code === code && trade.board === "RG")
+      return (yield* minuteTrades(minute)).filter(
+        (trade) => trade.code === code
+      )
     })
 
     // One stock's sweeps for one minute, with the highest trade number they
@@ -632,6 +752,12 @@ export const makeDayStore = (sql: Sql) =>
 
     return {
       write,
+      writeBuiltMinute,
+      markOrderFlowBuilt,
+      orderFlowMinutes,
+      minuteTrades,
+      chunkOfMinute,
+      storedNothing,
       hasTrade,
       highestTrade,
       storedTrades,

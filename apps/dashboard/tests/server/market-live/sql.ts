@@ -26,10 +26,16 @@ export const memorySql = (): Sql => {
       statement(query).all(...(bindings as Array<SQLInputValue>)) as Array<
         Record<string, SqlValue>
       >,
+    // A write that fails rolls back, as the Durable Object's
+    // `transactionSync` does.
     transaction: (write) => {
       database.exec("BEGIN")
-      write()
-      database.exec("COMMIT")
+      try {
+        write()
+        database.exec("COMMIT")
+      } finally {
+        if (database.isTransaction) database.exec("ROLLBACK")
+      }
     },
   }
 }

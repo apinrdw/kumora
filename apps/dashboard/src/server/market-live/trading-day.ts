@@ -66,6 +66,7 @@ import { makeMarketConditions } from "./market-conditions.ts"
 import { makeOnDemand } from "./on-demand.ts"
 import { makeOrderBooks } from "./order-books.ts"
 import { chunkSlices, type HeatRow } from "./heat-rows.ts"
+import { buildOrderFlow, orderFlowBuiltAtStart } from "./order-flow-build.ts"
 import { SNAPSHOT_TRADES, recordedAnswer } from "./recorded-answers.ts"
 import { type AccountId, type HeldSessions, type SessionId } from "./routes.ts"
 import { stockbitTrades } from "./stockbit.ts"
@@ -314,6 +315,7 @@ export const makeTradingDay = Effect.fnUntraced(function* (options: {
   })
   const setAlarm = options.setAlarm ?? (() => Effect.void)
   let sealed = (yield* store.fact(Fact.sealed)) !== undefined
+  let orderFlowBuilt = yield* orderFlowBuiltAtStart(store)
   const sealAt = yield* sealInstant(options.date)
   // Decision: an object restores the live day from its store unless the day
   // is sealed and past: a past day's object answers recorded day GETs
@@ -1042,8 +1044,23 @@ export const makeTradingDay = Effect.fnUntraced(function* (options: {
     return rows
   })
 
+  // A sealed day's order flow GET builds the rows first, if the day has
+  // none: it never answers empty. GETs take the turn, so a second GET
+  // awaits the first's build.
+  const builtFirst = Effect.fnUntraced(function* (resource: RecordedResource) {
+    if (orderFlowBuilt || !sealed) return
+    if (
+      resource._tag !== "Candles" &&
+      resource._tag !== "Sweeps" &&
+      resource._tag !== "Heatmap"
+    )
+      return
+    yield* buildOrderFlow(store)
+    orderFlowBuilt = true
+  })
+
   const recorded = (resource: RecordedResource) =>
-    Effect.suspend(() =>
+    Effect.andThen(builtFirst(resource), () =>
       recordedAnswer(resource, {
         date: options.date,
         store,
