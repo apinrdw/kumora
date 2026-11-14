@@ -7,6 +7,10 @@ import { ArchiveWorkflow, type RunStatus } from "./archive-workflow.ts"
 import { LATEST_RUN_KEY } from "./keys.ts"
 import { type ArchiveTrigger, LatestRun } from "./run-result.ts"
 
+// The archive cron (UTC): 13:00 and 20:00 WIB. alchemy.run.ts sets it on
+// Production only.
+export const ARCHIVE_CRON = "0 6,13 * * *"
+
 // Statuses of a run that hasn't ended. `waiting` covers a step's retry
 // backoff, so a run between retries still holds off the next one.
 const IN_PROGRESS: ReadonlySet<RunStatus> = new Set([

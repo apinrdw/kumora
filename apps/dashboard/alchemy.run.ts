@@ -17,6 +17,7 @@ import * as Redacted from "effect/Redacted"
 
 import { SENDER, SENDING_SUBDOMAIN } from "./src/server/auth/sender.ts"
 import type { ArchiveParams } from "./src/server/shareholding/run-result.ts"
+import { ARCHIVE_CRON } from "./src/server/shareholding/start-run.ts"
 
 // scripts/auth-schema.ts replays the same directory for the drift check and
 // the handler test seam. apps/e2e/reset-test-stage.ts reads this resource's
@@ -107,8 +108,17 @@ export const Website = Cloudflare.Website.Vite(
             ).pipe(Config.withDefault(Redacted.make("0"))),
           }
         : {}
+    // Decision: the archive cron is set by stage, on Production only, like
+    // Google sign-in: Alchemy's dev runtime fires a Worker's crons, so an
+    // ungated cron would make `pnpm dev`, and every Preview, call IDX. Other
+    // stages start a run with Run now only. See apinrdw/kumora#308.
+    const crons: { crons?: Array<string> } =
+      (yield* stageKind(stage)) === "production"
+        ? { crons: [ARCHIVE_CRON] }
+        : {}
     return {
       ...(yield* websiteProps("dashboard", stage)),
+      ...crons,
       rootDir: import.meta.dirname,
       // Market Live's sockets ahead of TanStack Start, and the Durable Object
       // classes (spec apinrdw/kumora#138, "The custom Worker entry and the gate").
