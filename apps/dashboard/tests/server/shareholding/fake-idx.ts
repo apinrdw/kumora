@@ -22,6 +22,8 @@ export interface FakeIdx {
   readonly files: Map<string, FakeFile>
   // Every URL requested, in order.
   readonly requests: Array<string>
+  // The URLs requested with HEAD, in order.
+  readonly heads: Array<string>
   readonly layer: Layer.Layer<HttpClient.HttpClient>
 }
 
@@ -45,11 +47,13 @@ export const fakeIdx = (
     listing,
     files,
     requests: [],
+    heads: [],
     layer: Layer.succeed(
       HttpClient.HttpClient,
       HttpClient.make((request, url) =>
         Effect.sync(() => {
           idx.requests.push(url.href)
+          if (request.method === "HEAD") idx.heads.push(url.href)
           if (url.href === LISTING_URL)
             return HttpClientResponse.fromWeb(
               request,

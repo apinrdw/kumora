@@ -2,6 +2,7 @@ import { assert, describe, it } from "@effect/vitest"
 import { Effect, Layer } from "effect"
 
 import { archiveRun } from "@/server/shareholding/archive-run"
+import { LISTING_URL } from "@/server/shareholding/listing"
 
 import { fakeIdx, type FakeIdx, idxIdUrl } from "./fake-idx.ts"
 import { localSteps } from "./local-steps.ts"
@@ -29,6 +30,22 @@ const sha256 = (text: string) =>
 
 const json = (bucket: MemoryBucket, key: string) =>
   JSON.parse(bucket.objects.get(key)?.body ?? "null")
+
+// Every key under reports/ written at most once, across all runs so far.
+const assertNothingOverwritten = (bucket: MemoryBucket) => {
+  const reportPuts = bucket.puts.filter((key) => key.startsWith("reports/"))
+  assert.deepStrictEqual(
+    reportPuts.filter((key, index) => reportPuts.indexOf(key) !== index),
+    []
+  )
+}
+
+const recordsOf = (bucket: MemoryBucket, sourceUrl: string) =>
+  keysUnder(bucket, "reports/").filter(
+    (key) =>
+      key.endsWith(".json") &&
+      bucket.objects.get(key)?.customMetadata.sourceUrl === sourceUrl
+  )
 
 describe("an archive run", () => {
   it.effect("stores every listed report once on the first run", () =>
@@ -136,6 +153,7 @@ describe("an archive run", () => {
       yield* run(idx, bucket, "cron-2026-11-14T06")
       const before = keysUnder(bucket, "reports/")
       bucket.puts.length = 0
+      idx.requests.length = 0
 
       const result = yield* run(
         idx,
@@ -144,6 +162,13 @@ describe("an archive run", () => {
         new Date("2026-11-14T13:00:00Z")
       )
 
+      // A HEAD to every held URL, and no download.
+      const heldUrls = idx.listing.map((item) => idxIdUrl(item.Prospectus))
+      assert.sameMembers(idx.heads, heldUrls)
+      assert.sameMembers(
+        idx.requests.filter((url) => url !== LISTING_URL),
+        heldUrls
+      )
       assert.deepStrictEqual(keysUnder(bucket, "reports/"), before)
       assert.deepStrictEqual(
         bucket.puts.filter((key) => key.startsWith("reports/")),
@@ -153,6 +178,7 @@ describe("an archive run", () => {
         outcome: "complete",
         reportsAdded: 0,
         newVersions: 0,
+        reportsChecked: 145,
       })
       assert.deepStrictEqual(json(bucket, "runs/latest.json"), {
         id: "cron-2026-11-14T13",
@@ -162,5 +188,150 @@ describe("an archive run", () => {
         "complete"
       )
     })
+  )
+
+  it.effect(
+    "keeps a report IDX replaced in place as a new version beside the old one",
+    () =>
+      Effect.gen(function* () {
+        const idx = fakeIdx()
+        const bucket = memoryBucket()
+        yield* run(idx, bucket, "cron-2026-11-14T06")
+        const before = new Map(bucket.objects)
+
+        const daily = idx.listing[0]
+        const url = idxIdUrl(daily.Prospectus)
+        idx.files.set(url, {
+          body: `corrected xlsx bytes of ${daily.Prospectus}`,
+          etag: `"etag-0:1"`,
+          lastModified: "Sat, 14 Nov 2026 09:00:00 GMT",
+        })
+        const result = yield* run(idx, bucket, "cron-2026-11-14T13")
+
+        const oldHash = yield* sha256(`xlsx bytes of ${daily.Prospectus}`)
+        const newHash = yield* sha256(
+          `corrected xlsx bytes of ${daily.Prospectus}`
+        )
+        const dir = "reports/above-5/2026-11-12/"
+        assert.includeMembers(keysUnder(bucket, dir), [
+          `${dir}${oldHash}.xlsx`,
+          `${dir}${newHash}.xlsx`,
+        ])
+        assert.strictEqual(
+          bucket.objects.get(`${dir}${newHash}.xlsx`)?.body,
+          `corrected xlsx bytes of ${daily.Prospectus}`
+        )
+        const records = recordsOf(bucket, daily.Prospectus)
+        assert.deepStrictEqual(
+          records.map((key) => json(bucket, key).etag).sort(),
+          [`"etag-0:0"`, `"etag-0:1"`]
+        )
+
+        // Every object of the first run is still there, unchanged.
+        for (const [key, object] of before)
+          if (key.startsWith("reports/"))
+            assert.deepStrictEqual(bucket.objects.get(key), object)
+        assertNothingOverwritten(bucket)
+
+        assert.deepInclude(result, {
+          outcome: "complete",
+          reportsAdded: 0,
+          newVersions: 1,
+          reportsChecked: 145,
+        })
+      })
+  )
+
+  it.effect(
+    "adds only a record when a changed ETag serves the same bytes",
+    () =>
+      Effect.gen(function* () {
+        const idx = fakeIdx()
+        const bucket = memoryBucket()
+        yield* run(idx, bucket, "cron-2026-11-14T06")
+        const before = keysUnder(bucket, "reports/")
+
+        const daily = idx.listing[0]
+        const url = idxIdUrl(daily.Prospectus)
+        const file = idx.files.get(url)
+        assert.isDefined(file)
+        idx.files.set(url, { ...file, etag: `"etag-0:1"` })
+        const result = yield* run(idx, bucket, "cron-2026-11-14T13")
+
+        const added = keysUnder(bucket, "reports/").filter(
+          (key) => !before.includes(key)
+        )
+        const hash = yield* sha256(file.body)
+        assert.strictEqual(added.length, 1)
+        assert.match(
+          added[0],
+          new RegExp(`^reports/above-5/2026-11-12/${hash}\\..+\\.json$`)
+        )
+        assert.deepInclude(json(bucket, added[0]), {
+          sourceUrl: daily.Prospectus,
+          etag: `"etag-0:1"`,
+          sha256: hash,
+        })
+        assertNothingOverwritten(bucket)
+
+        // The file itself didn't change: no new version.
+        assert.deepInclude(result, {
+          reportsAdded: 0,
+          newVersions: 0,
+          reportsChecked: 145,
+        })
+
+        // The new ETag is held now: the next run stores nothing.
+        const held = keysUnder(bucket, "reports/")
+        yield* run(idx, bucket, "cron-2026-11-15T06")
+        assert.deepStrictEqual(keysUnder(bucket, "reports/"), held)
+      })
+  )
+
+  it.effect(
+    "adds only a record for the same bytes under a new URL, even within one run",
+    () =>
+      Effect.gen(function* () {
+        // IDX lists the daily report twice, under two URLs, with the same
+        // bytes. One run stores both in the same millisecond (the test
+        // clock is frozen).
+        const [daily, ...rest] = fakeIdx().listing
+        const reupload = {
+          ...daily,
+          Prospectus: daily.Prospectus.replace(".xlsx", "-reupload.xlsx"),
+        }
+        const idx = fakeIdx([daily, reupload, ...rest])
+        const body = `xlsx bytes of ${daily.Prospectus}`
+        const reuploadFile = idx.files.get(idxIdUrl(reupload.Prospectus))
+        assert.isDefined(reuploadFile)
+        idx.files.set(idxIdUrl(reupload.Prospectus), { ...reuploadFile, body })
+        const bucket = memoryBucket()
+
+        const result = yield* run(idx, bucket, "cron-2026-11-14T13")
+
+        const hash = yield* sha256(body)
+        const dir = "reports/above-5/2026-11-12/"
+        assert.deepStrictEqual(
+          keysUnder(bucket, dir).filter((key) => key.endsWith(".xlsx")),
+          [`${dir}${hash}.xlsx`]
+        )
+        const records = [
+          ...recordsOf(bucket, daily.Prospectus),
+          ...recordsOf(bucket, reupload.Prospectus),
+        ]
+        assert.strictEqual(records.length, 2)
+        for (const key of records)
+          assert.strictEqual(
+            bucket.objects.get(key)?.customMetadata.sha256,
+            hash
+          )
+        assertNothingOverwritten(bucket)
+        assert.deepInclude(result, { reportsAdded: 146, newVersions: 0 })
+
+        // Both listings are held now: the next run stores nothing.
+        const held = keysUnder(bucket, "reports/")
+        yield* run(idx, bucket, "cron-2026-11-15T06")
+        assert.deepStrictEqual(keysUnder(bucket, "reports/"), held)
+      })
   )
 })
