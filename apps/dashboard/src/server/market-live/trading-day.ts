@@ -649,6 +649,9 @@ export const makeTradingDay = Effect.fnUntraced(function* (options: {
     }
     unwritten = payload
     yield* store.write(payload)
+    yield* Effect.logInfo("Rows written").pipe(
+      Effect.annotateLogs({ ...(yield* store.takeMeter) })
+    )
     unwritten = undefined
     writtenDowns = payload.facts[Fact.feedDowns]
     yield* candles.written
@@ -732,6 +735,9 @@ export const makeTradingDay = Effect.fnUntraced(function* (options: {
       facts: { [Fact.sealed]: DateTime.formatIso(now) },
     })
     sealed = true
+    yield* Effect.logInfo("Order flow storage").pipe(
+      Effect.annotateLogs(yield* store.orderFlowStorage)
+    )
   })
 
   // When the seal next needs the alarm: 17:00 WIB, a minute after a seal

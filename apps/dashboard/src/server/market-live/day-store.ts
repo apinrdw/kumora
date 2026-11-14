@@ -43,7 +43,47 @@ export interface Sql {
     ...bindings: ReadonlyArray<SqlValue>
   ) => ReadonlyArray<Record<string, SqlValue>>
   readonly transaction: (write: () => void) => void
+  // What the database counted so far, when it counts: the rows every
+  // statement read and wrote, as Cloudflare bills them, and its size.
+  readonly usage?: () => {
+    readonly rowsRead: number
+    readonly rowsWritten: number
+    readonly bytes: number
+  }
 }
+
+// What the store wrote since the meter was last taken, by table, and the
+// late trades that read a stored minute back (candles.ts, `slotSweeps`).
+// Billed figures come from the database's own count, when it keeps one.
+// Decision: the Staging cost check reads these from Workers Logs, one line a
+// flush, like the feed lag lines (apinrdw/kumora#231): no binding or route,
+// and a restart loses at most one flush's counts. See ticket
+// apinrdw/kumora#270 and docs/runbooks/order-flow-cost.md.
+interface Meter {
+  trades: number
+  candles: number
+  footprints: number
+  heatmaps: number
+  bookChunks: number
+  livePrices: number
+  ajaibBooks: number
+  facts: number
+  minuteRereads: number
+  billedRowsWritten?: number
+  billedMinuteRereadRows?: number
+}
+
+const emptyMeter = (): Meter => ({
+  trades: 0,
+  candles: 0,
+  footprints: 0,
+  heatmaps: 0,
+  bookChunks: 0,
+  livePrices: 0,
+  ajaibBooks: 0,
+  facts: 0,
+  minuteRereads: 0,
+})
 
 // One code's order book chunk for one minute, encoded, and its book heatmap
 // slices (heat-rows.ts).
@@ -231,6 +271,27 @@ export const makeDayStore = (sql: Sql) =>
   Effect.sync(() => {
     for (const statement of SCHEMA) sql.exec(statement)
 
+    let meter = emptyMeter()
+    // Writes in one transaction, adding the rows the database counted to
+    // the meter.
+    const meteredTransaction = (write: () => void) => {
+      const before = sql.usage?.()
+      sql.transaction(write)
+      const after = sql.usage?.()
+      if (before !== undefined && after !== undefined)
+        meter.billedRowsWritten =
+          (meter.billedRowsWritten ?? 0) +
+          after.rowsWritten -
+          before.rowsWritten
+    }
+
+    // The meter's counts since it was last taken.
+    const takeMeter = Effect.sync(() => {
+      const taken = meter
+      meter = emptyMeter()
+      return taken
+    })
+
     // Footprint and heatmap rows are encoded before the transaction, where an
     // Effect can't run.
     const footprintTexts = Effect.fnUntraced(function* (
@@ -284,7 +345,7 @@ export const makeDayStore = (sql: Sql) =>
       const footprints = yield* footprintTexts(flush.footprints)
       const heatmaps = yield* heatmapTexts(flush.chunks)
       yield* Effect.sync(() =>
-        sql.transaction(() => {
+        meteredTransaction(() => {
           for (const trade of flush.trades)
             // A number is written once: a copy can't replace it.
             sql.exec(
@@ -342,6 +403,14 @@ export const makeDayStore = (sql: Sql) =>
             insertFact(key, value)
         })
       )
+      meter.trades += flush.trades.length
+      meter.candles += flush.candles.length
+      meter.footprints += flush.footprints.length
+      meter.heatmaps += flush.chunks.length
+      meter.bookChunks += flush.chunks.length
+      meter.livePrices += flush.livePrices.length
+      meter.ajaibBooks += flush.ajaibBooks.length
+      meter.facts += Object.keys(flush.facts).length
     })
 
     // One minute of the one-off build, with its progress, in one
@@ -351,12 +420,15 @@ export const makeDayStore = (sql: Sql) =>
       const footprints = yield* footprintTexts(built.footprints)
       const heatmaps = yield* heatmapTexts(built.heatmaps)
       yield* Effect.sync(() =>
-        sql.transaction(() => {
+        meteredTransaction(() => {
           insertFootprints(footprints)
           insertHeatmaps(heatmaps)
           insertFact(Fact.orderFlowBuilt, String(built.minute))
         })
       )
+      meter.footprints += built.footprints.length
+      meter.heatmaps += built.heatmaps.length
+      meter.facts += 1
     })
 
     const markOrderFlowBuilt = Effect.sync(() =>
@@ -626,9 +698,33 @@ export const makeDayStore = (sql: Sql) =>
       code: StockCode,
       minute: number
     ) {
-      return (yield* minuteTrades(minute)).filter(
-        (trade) => trade.code === code
+      meter.minuteRereads += 1
+      const before = sql.usage?.()
+      const trades = yield* minuteTrades(minute)
+      const after = sql.usage?.()
+      if (before !== undefined && after !== undefined)
+        meter.billedMinuteRereadRows =
+          (meter.billedMinuteRereadRows ?? 0) + after.rowsRead - before.rowsRead
+      return trades.filter((trade) => trade.code === code)
+    })
+
+    // How many order flow rows the day holds, their payload bytes, and the
+    // whole database's bytes when the database counts them.
+    const orderFlowStorage = Effect.sync(() => {
+      const [footprints] = sql.exec(
+        "SELECT count(*) AS rows, coalesce(sum(length(cells) + length(sweeps)), 0) AS bytes FROM footprints"
       )
+      const [heatmaps] = sql.exec(
+        "SELECT count(*) AS rows, coalesce(sum(length(slices)), 0) AS bytes FROM heatmaps"
+      )
+      const bytes = sql.usage?.().bytes
+      return {
+        footprintRows: Number(footprints?.rows),
+        footprintBytes: Number(footprints?.bytes),
+        heatmapRows: Number(heatmaps?.rows),
+        heatmapBytes: Number(heatmaps?.bytes),
+        ...(bytes === undefined ? {} : { databaseBytes: bytes }),
+      }
     })
 
     // One stock's sweeps for one minute, with the highest trade number they
@@ -758,6 +854,8 @@ export const makeDayStore = (sql: Sql) =>
       minuteTrades,
       chunkOfMinute,
       storedNothing,
+      takeMeter,
+      orderFlowStorage,
       hasTrade,
       highestTrade,
       storedTrades,

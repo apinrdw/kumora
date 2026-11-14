@@ -50,14 +50,11 @@ export const recordedDayPath = (date: WibDate, resource: RecordedResource) =>
         return `${base}/codes`
       case "Tape":
         return `${base}/trades?at=${DateTime.toEpochMillis(resource.at)}`
-      // Decision: the candles path carries the viewer protocol's version. A
-      // sealed answer is cached for a year (SEALED_CACHE), and the browser
-      // keys its cache on the whole URL, so an answer cached before
-      // footprints rode with the candles is never reused: a day recorded
-      // before order flow shipped still shows its footprint. A later change
-      // to the answer comes with a protocol bump, so it moves the path too.
-      // The query is ignored when read, so a tab on an older build still
-      // loads. See spec apinrdw/kumora#263, ticket apinrdw/kumora#270.
+      // Decision: the path carries the viewer protocol's version: the browser
+      // caches a sealed answer for a year by its whole URL, so one cached
+      // before footprints rode with the candles is never reused. The query is
+      // ignored when read, so an older build's tab still loads. See ticket
+      // apinrdw/kumora#270.
       case "Candles":
         return `${base}/candles/${resource.code}?v=${ViewerProtocolVersion}`
       case "Sweeps":

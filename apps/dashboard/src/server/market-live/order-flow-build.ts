@@ -80,14 +80,11 @@ const builtMinute = Effect.fnUntraced(function* (
   return { minute, footprints, heatmaps } satisfies BuiltMinute
 })
 
-// Decision: the build goes minute by minute, each minute's rows and its
-// progress in one transaction. A minute's rows are whole (a footprint row
-// needs every trade of its minute, a heatmap row its one chunk), so a build
-// that dies reruns from the minute after the last that landed, to the same
-// rows; a minute written twice is replaced by the same row. One minute holds
-// the whole market's trades of that minute, at most ~30 K on the busiest
-// measured day, so the build's memory stays a minute's worth. See spec
-// apinrdw/kumora#263, "One-off build of sealed days".
+// Decision: the build goes minute by minute, each minute's whole rows and
+// its progress in one transaction, so a build that dies reruns from the
+// minute after the last that landed, to the same rows, and holds one
+// minute's trades at a time. See spec apinrdw/kumora#263, "One-off build of
+// sealed days".
 export const buildOrderFlow = Effect.fnUntraced(function* (store: DayStore) {
   const progress = yield* store.fact(Fact.orderFlowBuilt)
   if (progress === ORDER_FLOW_BUILT) return
