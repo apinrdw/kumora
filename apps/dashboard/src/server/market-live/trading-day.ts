@@ -30,6 +30,7 @@ import {
   type RunningTrade,
   type TradeNumber,
   type WibDate,
+  MINUTE_MS,
 } from "@workspace/relay"
 import type { WorkerEnv } from "@workspace/server"
 import {
@@ -137,7 +138,6 @@ const TIMED_LIMIT = 4 * TAPE_LIMIT
 // windows; only the relay going offline (`ingestClosed`) flushes at once. A
 // failed flush's payload rides the next, so a candle is never stored without
 // its trades. See apinrdw/kumora#138 and apinrdw/kumora#157.
-const MINUTE = 60_000
 const FLUSH_PAST_MINUTE = 5_000
 
 // IHSG's close and change on the strip, from its last `liveprice` frame.
@@ -260,7 +260,7 @@ const restoreLastFrames = Effect.fnUntraced(function* (day: {
   for (const minute of minutes)
     for (const trade of yield* day.store.tradesBetween(
       DateTime.makeUnsafe(minute - 1),
-      DateTime.makeUnsafe(minute + MINUTE - 1)
+      DateTime.makeUnsafe(minute + MINUTE_MS - 1)
     ))
       yield* day.dayStates.trade(undefined, trade)
   for (const text of yield* day.store.latestChunks) {
@@ -682,7 +682,9 @@ export const makeTradingDay = Effect.fnUntraced(function* (options: {
       Effect.flatMap((now) =>
         Effect.sleep(
           Duration.millis(
-            MINUTE - ((((now - FLUSH_PAST_MINUTE) % MINUTE) + MINUTE) % MINUTE)
+            MINUTE_MS -
+              ((((now - FLUSH_PAST_MINUTE) % MINUTE_MS) + MINUTE_MS) %
+                MINUTE_MS)
           )
         )
       ),

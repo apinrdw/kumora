@@ -1,5 +1,6 @@
 // What a recorded day shows at its replay cursor, worked out in the browser
 // from the day's GETs (spec apinrdw/kumora#138, "Recorded day loads").
+import { MINUTE_MS } from "@workspace/relay"
 import type {
   Candle,
   DayState,
@@ -7,8 +8,6 @@ import type {
   WibDate,
 } from "@workspace/relay"
 import { DateTime, Effect } from "effect"
-
-const MINUTE = 60_000
 
 // Where a recorded day opens: the end of the close's minute, 16:15 WIB, when
 // post-trading ends. Every regular-board trade of the day is at or before
@@ -56,7 +55,9 @@ export const dayStateAt = Effect.fnUntraced(function* (
     volume: upTo.reduce((sum, candle) => sum + candle.volume, 0),
     value: upTo.reduce((sum, candle) => sum + candle.value, 0),
     frequency: upTo.reduce((sum, candle) => sum + candle.frequency, 0),
-    asOf: DateTime.makeUnsafe(DateTime.toEpochMillis(latest.minute) + MINUTE),
+    asOf: DateTime.makeUnsafe(
+      DateTime.toEpochMillis(latest.minute) + MINUTE_MS
+    ),
     // The candles are built from the merged tape, with Stockbit's fields.
     provenance: "Stockbit",
   }

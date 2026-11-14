@@ -35,6 +35,7 @@ export {
   FeedStatus,
   INGEST_TOKEN_MESSAGE_LIMIT,
   IngestCloseCode,
+  MINUTE_MS,
   IngestProtocolVersion,
   IngestToken,
   MarketLivePath,

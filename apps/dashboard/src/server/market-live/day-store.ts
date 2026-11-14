@@ -14,6 +14,7 @@ import {
   type HeatSlice,
   type RunningTrade,
   type Sweep,
+  MINUTE_MS,
 } from "@workspace/relay"
 import { DateTime, Effect } from "effect"
 
@@ -201,8 +202,6 @@ export interface BuiltMinute {
     readonly slices: ReadonlyArray<HeatSlice>
   }>
 }
-
-const MINUTE = 60_000
 
 // The most a stored trade's time can run before the time of the trade
 // numbered before it: Ajaib's and the backfill's rounding to the second.
@@ -643,7 +642,7 @@ export const makeDayStore = (sql: Sql) =>
           "SELECT time FROM trades WHERE number = ?",
           number
         )
-        minutes.push(Math.floor(Number(row?.time) / MINUTE) * MINUTE)
+        minutes.push(Math.floor(Number(row?.time) / MINUTE_MS) * MINUTE_MS)
       }
       const chunks = new Map<number, Array<StockCode>>()
       for (const row of sql.exec("SELECT code, minute FROM book_chunks")) {
@@ -667,7 +666,7 @@ export const makeDayStore = (sql: Sql) =>
     const minuteTrades = Effect.fnUntraced(function* (minute: number) {
       return (yield* tradesBetween(
         DateTime.makeUnsafe(minute - 1),
-        DateTime.makeUnsafe(minute + MINUTE - 1)
+        DateTime.makeUnsafe(minute + MINUTE_MS - 1)
       )).filter((trade) => trade.board === "RG")
     })
 

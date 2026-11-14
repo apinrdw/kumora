@@ -1,12 +1,11 @@
 // The selected code's sweeps as chart 1's bubbles and the sweep log show them
 // (spec apinrdw/kumora#263, "Chart 1"): the top-N filter, the log's rows, and
 // where a bubble sits. Pure, so the renderers only draw.
+import { MINUTE_MS } from "@workspace/relay"
 import type { Sweep } from "@workspace/relay"
 import { DateTime, Effect } from "effect"
 
 import { BIG_TRADE_IDR } from "./tape"
-
-const MINUTE = 60_000
 
 // The top-N presets, All first; the slider steps by 5 between them.
 export const TOP_N_PRESETS = [100, 50, 25, 10, 1] as const
@@ -113,7 +112,7 @@ export const sweepPrice = (sweep: Sweep) =>
 // The start of a sweep's minute, in epoch ms: its candle's.
 export const sweepMinute = (sweep: Sweep) =>
   Effect.sync(
-    () => Math.floor(DateTime.toEpochMillis(sweep.time) / MINUTE) * MINUTE
+    () => Math.floor(DateTime.toEpochMillis(sweep.time) / MINUTE_MS) * MINUTE_MS
   )
 
 // How far a bubble sits from its minute's centre, in pixels at `barSpacing`:
@@ -122,7 +121,7 @@ export const sweepMinute = (sweep: Sweep) =>
 export const bubbleOffset = (sweep: Sweep, barSpacing: number) =>
   Effect.sync(() => {
     const second = Math.floor(
-      (DateTime.toEpochMillis(sweep.time) % MINUTE) / 1000
+      (DateTime.toEpochMillis(sweep.time) % MINUTE_MS) / 1000
     )
     return (second / 60) * barSpacing
   })

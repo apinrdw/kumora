@@ -1,3 +1,4 @@
+import { MINUTE_MS } from "@workspace/relay"
 import { ClientOnly } from "@tanstack/react-router"
 import { Effect } from "effect"
 import {
@@ -32,7 +33,6 @@ import { useChartSettings } from "./use-chart-settings"
 const FootprintCanvas = lazy(() => import("./footprint-canvas"))
 
 const CHART_HEIGHT = "h-[380px] lg:h-auto lg:min-h-[380px] lg:flex-1"
-const MINUTE = 60_000
 
 // What the canvas shows, in words: how many footprint minutes there are, and
 // the exact Vol, Δ and CVD of the latest one (at or before the cursor on a
@@ -60,7 +60,7 @@ function useFootprintSummary(
           store.footprints(),
           cursor === undefined
             ? Number.POSITIVE_INFINITY
-            : Math.floor(cursor.state().at / MINUTE) * MINUTE
+            : Math.floor(cursor.state().at / MINUTE_MS) * MINUTE_MS
         )
       ),
     () => "Footprint minutes: 0"

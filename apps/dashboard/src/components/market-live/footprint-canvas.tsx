@@ -11,6 +11,7 @@
 // - chart-pair.ts opens and refits its 10-minute window and pans it with
 //   chart 1; price-axis.ts labels its IDX ticks and caps its rows; the hover
 //   ladder is footprint-ladder.tsx.
+import { MINUTE_MS } from "@workspace/relay"
 import type { RelayGap } from "@workspace/relay"
 import { Effect } from "effect"
 import {
@@ -54,8 +55,6 @@ import { FootprintLadder, type Hovered } from "./footprint-ladder"
 import { makeListenerStore } from "./listener-store"
 import { idxPriceAxis, rowCapped } from "./price-axis"
 import type { ReplayCursor } from "./replay-cursor"
-
-const MINUTE = 60_000
 
 type Target = Parameters<ICustomSeriesPaneRenderer["draw"]>[0]
 type Scope = Parameters<Parameters<Target["useBitmapCoordinateSpace"]>[0]>[0]
@@ -936,7 +935,7 @@ export default function FootprintCanvas({
     const cursorMinute = () =>
       cursor === undefined
         ? Number.POSITIVE_INFINITY
-        : Math.floor(cursor.state().at / MINUTE) * MINUTE
+        : Math.floor(cursor.state().at / MINUTE_MS) * MINUTE_MS
     let shownMinute = cursorMinute()
     let columns: ReadonlyArray<FootprintColumn> = []
     // Every minute drawn, relay gaps' whitespace included, as chart 1 draws

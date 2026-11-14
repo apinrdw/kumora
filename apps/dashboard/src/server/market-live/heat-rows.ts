@@ -10,12 +10,11 @@ import {
   type HeatSlice,
   type OrderBook,
   type StockCode,
+  MINUTE_MS,
 } from "@workspace/relay"
 import { DateTime, Effect } from "effect"
 
 import { heatSlices, type BookChange } from "../../lib/heatmap.ts"
-
-const MINUTE = 60_000
 
 // One code's chunk for one minute before it is encoded: the book in force
 // when the minute began, if any, then each served frame's changed parts.
@@ -48,9 +47,9 @@ const changesOf = (chunk: HeldChunk) =>
 // A chunk's slices that end by `through`, all six by default.
 export const chunkSlices = Effect.fnUntraced(function* (
   chunk: HeldChunk,
-  through = chunk.minute + MINUTE
+  through = chunk.minute + MINUTE_MS
 ) {
-  const end = Math.min(chunk.minute + MINUTE, through)
+  const end = Math.min(chunk.minute + MINUTE_MS, through)
   return yield* heatSlices(yield* changesOf(chunk), chunk.minute, end)
 })
 
@@ -107,7 +106,9 @@ export const heatmapAnswer = Effect.fnUntraced(function* (
   if (live === undefined)
     return yield* encodeRecordedHeatmap({
       code,
-      through: DateTime.makeUnsafe((stored.at(-1)?.minute ?? -MINUTE) + MINUTE),
+      through: DateTime.makeUnsafe(
+        (stored.at(-1)?.minute ?? -MINUTE_MS) + MINUTE_MS
+      ),
       slices: stored.flatMap((row) => row.slices),
     })
   const through = Math.floor(live.now / HEAT_SLICE_MS) * HEAT_SLICE_MS

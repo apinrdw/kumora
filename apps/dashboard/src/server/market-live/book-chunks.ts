@@ -8,13 +8,12 @@ import {
   type BookDelta,
   type OrderBook,
   type StockCode,
+  MINUTE_MS,
 } from "@workspace/relay"
 import { Clock, DateTime, Effect } from "effect"
 
 import type { StoredChunk } from "./day-store.ts"
 import { chunkSlices } from "./heat-rows.ts"
-
-const MINUTE = 60_000
 
 interface Open {
   readonly minute: number
@@ -68,7 +67,7 @@ export const makeBookChunks = Effect.sync(() => {
   // viewers' timeline. See apinrdw/kumora#157.
   const record = Effect.fnUntraced(function* (book: OrderBook) {
     const now = yield* Clock.currentTimeMillis
-    const minute = Math.floor(now / MINUTE) * MINUTE
+    const minute = Math.floor(now / MINUTE_MS) * MINUTE_MS
     let held = open.get(book.code)
     if (held !== undefined && minute > held.minute) {
       yield* close(book.code, held)
@@ -89,7 +88,7 @@ export const makeBookChunks = Effect.sync(() => {
   const take = Effect.fnUntraced(function* (final: boolean) {
     const now = yield* Clock.currentTimeMillis
     for (const [code, held] of open)
-      if (final || held.minute + MINUTE <= now) yield* close(code, held)
+      if (final || held.minute + MINUTE_MS <= now) yield* close(code, held)
     const taken = closed
     closed = []
     const chunks: Array<StoredChunk> = []

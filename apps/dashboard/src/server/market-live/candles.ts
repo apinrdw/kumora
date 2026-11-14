@@ -18,7 +18,12 @@ import type {
   Sweep,
   TradeNumber,
 } from "@workspace/relay"
-import { TradeNumberOrder, joinSweeps, sweepsOf } from "@workspace/relay"
+import {
+  TradeNumberOrder,
+  joinSweeps,
+  sweepsOf,
+  MINUTE_MS,
+} from "@workspace/relay"
 import { Clock, DateTime, Effect } from "effect"
 
 import {
@@ -29,8 +34,6 @@ import {
   type Cells,
 } from "./footprint-cells.ts"
 import type { LivePrice } from "./stockbit-liveprice.ts"
-
-const MINUTE = 60_000
 
 // Decision: a trade's part in its candle stays open for 5 s after it first
 // arrived, so a second feed's copy can still move or reprice it; after that a
@@ -198,7 +201,9 @@ const NO_SWEEPS: StoredSweeps = { sweeps: [], lastTrade: -1n }
 // The start of `time`'s minute, in epoch ms: a candle's key, which the Day
 // state fallback and the restart's trade scan share.
 export const minuteOf = (time: DateTime.Utc) =>
-  Effect.succeed(Math.floor(DateTime.toEpochMillis(time) / MINUTE) * MINUTE)
+  Effect.succeed(
+    Math.floor(DateTime.toEpochMillis(time) / MINUTE_MS) * MINUTE_MS
+  )
 
 const counts = (trade: RunningTrade) => Effect.succeed(trade.board === "RG")
 

@@ -1,3 +1,4 @@
+import { MINUTE_MS } from "@workspace/relay"
 import { wibTime } from "./clock"
 import { ajaibTradeToday } from "./ingest"
 
@@ -31,8 +32,6 @@ const seeded = (seed: number) => () => {
   return ((t ^ (t >>> 14)) >>> 0) / 4_294_967_296
 }
 
-const MINUTE = 60_000
-
 /**
  * VKTR_OPEN's tape as Ajaib TRADE frames for `code`, moved to the 10 minutes
  * that end with the market clock's current minute, numbered from `base` + 1.
@@ -44,12 +43,12 @@ const MINUTE = 60_000
 export function vktrOpenTape(code: string, base: number, now: number) {
   const random = seeded(272)
   const { tick } = VKTR_OPEN
-  const lastMinute = Math.floor(now / MINUTE) * MINUTE
+  const lastMinute = Math.floor(now / MINUTE_MS) * MINUTE_MS
   const frames: Array<string> = []
   let mid = VKTR_OPEN.firstPrice
   let side: "BUY" | "SELL" = "BUY"
   VKTR_OPEN.tradesPerMinute.forEach((count, index) => {
-    const minute = lastMinute - (VKTR_OPEN.minutes - 1 - index) * MINUTE
+    const minute = lastMinute - (VKTR_OPEN.minutes - 1 - index) * MINUTE_MS
     const seconds = Math.min(60, Math.floor((now - minute) / 1_000) + 1)
     let left = count
     for (let second = 0; second < 60; second++) {

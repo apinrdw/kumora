@@ -6,6 +6,7 @@ import {
   WibDate,
   type BookChunk,
   type OrderBook,
+  MINUTE_MS,
 } from "@workspace/relay"
 import { DateTime, Effect, Option } from "effect"
 import { act } from "react"
@@ -43,7 +44,6 @@ vi.mock("@workspace/client", async (importOriginal) => ({
 
 const BBCA = StockCode.make("BBCA")
 const DAY = WibDate.make("2026-11-09")
-const MINUTE = 60_000
 
 const bookOf = (minute: number): OrderBook => ({
   _tag: "OrderBook",
@@ -93,7 +93,7 @@ test("a book chunk whose load failed is asked for again when the cursor visits i
   const cursor = Effect.runSync(
     Effect.flatMap(replayDay(DAY, []), makeReplayCursor)
   )
-  const closeMinute = Math.floor(cursor.state().at / MINUTE) * MINUTE
+  const closeMinute = Math.floor(cursor.state().at / MINUTE_MS) * MINUTE_MS
   // The close minute's chunk: the relay's first answer fails, the next is the
   // chunk; any other minute has no book.
   let closeAsked = 0
@@ -111,7 +111,7 @@ test("a book chunk whose load failed is asked for again when the cursor visits i
   expect(book.book()).toBeUndefined()
 
   // Away to the minute before, then back.
-  act(() => cursor.seek(closeMinute - MINUTE))
+  act(() => cursor.seek(closeMinute - MINUTE_MS))
   act(() => cursor.seek(closeMinute))
   await vi.waitFor(() => expect(book.book()?._tag).toBe("OrderBook"))
   expect(closeAsked).toBe(2)
@@ -122,8 +122,8 @@ test("the cursor on a minute whose chunk hasn't answered shows no book, the last
   const cursor = Effect.runSync(
     Effect.flatMap(replayDay(DAY, []), makeReplayCursor)
   )
-  const closeMinute = Math.floor(cursor.state().at / MINUTE) * MINUTE
-  const earlier = closeMinute - MINUTE
+  const closeMinute = Math.floor(cursor.state().at / MINUTE_MS) * MINUTE_MS
+  const earlier = closeMinute - MINUTE_MS
   // The close minute's chunk answers; the minute before never does.
   let earlierAsked = 0
   mocks.bookChunk.mockImplementation((minute) => {

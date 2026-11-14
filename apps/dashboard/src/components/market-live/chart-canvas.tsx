@@ -5,6 +5,7 @@ import {
   type Candle,
   type Footprint,
   type RelayGap,
+  MINUTE_MS,
 } from "@workspace/relay"
 import { DateTime, Effect, Option } from "effect"
 import {
@@ -157,8 +158,6 @@ class GapShades implements ISeriesPrimitive<Time> {
   }
 }
 
-const MINUTE = 60_000
-
 // The selected code's candles and volume, drawn from the candle store. A
 // snapshot redraws with `setData`; deltas go through `update`, at most once an
 // animation frame, a closed minute's with the historical flag.
@@ -262,7 +261,7 @@ export default function ChartCanvas({
     const cursorMinute = () =>
       cursor === undefined
         ? Number.POSITIVE_INFINITY
-        : Math.floor(cursor.state().at / MINUTE) * MINUTE
+        : Math.floor(cursor.state().at / MINUTE_MS) * MINUTE_MS
     let shownMinute = cursorMinute()
     const later = (candle: Candle) =>
       DateTime.toEpochMillis(candle.minute) > shownMinute

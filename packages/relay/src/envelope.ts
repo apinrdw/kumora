@@ -258,6 +258,10 @@ export const RunningTrade = Schema.Struct({
 })
 export type RunningTrade = typeof RunningTrade.Type
 
+// A candle's span in ms: one minute. Every module that floors an instant to
+// its minute, or steps a minute, uses this one.
+export const MINUTE_MS = 60_000
+
 // One stock code's or index's 1-minute candle. A stock's is built from its
 // regular-board trades: volume in lots, value in rupiah, frequency in trades.
 // An index's is built from its `liveprice` frames, its volume, value and

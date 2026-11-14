@@ -11,6 +11,7 @@ import {
   type RelayGap,
   type StockCode,
   type WibDate,
+  MINUTE_MS,
 } from "@workspace/relay"
 import { Clock, DateTime, Effect } from "effect"
 
@@ -21,8 +22,6 @@ import { SEALED_CACHE } from "./routes.ts"
 
 // The newest trades a viewer's snapshot carries, and a tape GET at a cursor.
 export const SNAPSHOT_TRADES = 200
-
-const MINUTE = 60_000
 
 const json = (text: string, cacheControl: string, status = 200) =>
   Effect.sync(
@@ -90,7 +89,8 @@ export const recordedAnswer = Effect.fnUntraced(function* (
       )
     case "Book": {
       const minute =
-        Math.floor(DateTime.toEpochMillis(resource.minute) / MINUTE) * MINUTE
+        Math.floor(DateTime.toEpochMillis(resource.minute) / MINUTE_MS) *
+        MINUTE_MS
       const chunk = yield* store.chunkAt(resource.code, minute)
       return chunk === undefined
         ? yield* json(

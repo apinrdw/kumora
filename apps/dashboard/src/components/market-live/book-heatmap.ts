@@ -2,7 +2,7 @@
 // primitive on the candles that shades each 10-second slice's resting lots
 // behind them, bid in the up colour and offer in the down colour. Loaded only
 // with chart-canvas.tsx, in the browser.
-import { HEAT_SLICE_MS, type HeatSlice } from "@workspace/relay"
+import { HEAT_SLICE_MS, type HeatSlice, MINUTE_MS } from "@workspace/relay"
 import { DateTime, Effect } from "effect"
 import type {
   IPrimitivePaneRenderer,
@@ -20,8 +20,7 @@ import { idxTick } from "@/lib/footprint"
 import type { HeatmapStore } from "./heatmap-store"
 import type { ReplayCursor } from "./replay-cursor"
 
-const MINUTE = 60_000
-const SLICES = MINUTE / HEAT_SLICE_MS
+const SLICES = MINUTE_MS / HEAT_SLICE_MS
 // Shades a side, from faint to full: opacity by the square root of lots.
 const BUCKETS = 8
 const MAX_ALPHA = 0.6
@@ -86,7 +85,7 @@ const minutesOf = Effect.fnUntraced(function* (
   const byMinute = new Map<number, Array<HeatSlice>>()
   for (const slice of slices) {
     const minute =
-      Math.floor(DateTime.toEpochMillis(slice.at) / MINUTE) * MINUTE
+      Math.floor(DateTime.toEpochMillis(slice.at) / MINUTE_MS) * MINUTE_MS
     const held = byMinute.get(minute) ?? []
     held.push(slice)
     byMinute.set(minute, held)
@@ -266,7 +265,7 @@ class BookHeatmap implements ISeriesPrimitive<Time> {
   ) {
     const current = Math.min(
       this.minutes.at(-1)?.minute ?? 0,
-      Math.floor(this.until / MINUTE) * MINUTE
+      Math.floor(this.until / MINUTE_MS) * MINUTE_MS
     )
     const width = frame.barSpacing * frame.ratio
     const seen = new Set<number>()

@@ -9,6 +9,7 @@ import {
   sweepsOf,
   type RunningTrade,
   type StockCode,
+  MINUTE_MS,
 } from "@workspace/relay"
 
 import type { FootprintRow } from "./candles.ts"
@@ -20,8 +21,6 @@ import {
 } from "./day-store.ts"
 import { addTrade, noCells } from "./footprint-cells.ts"
 import { chunkSlices } from "./heat-rows.ts"
-
-const MINUTE = 60_000
 
 type DayStore = Effect.Success<ReturnType<typeof makeDayStore>>
 
@@ -93,8 +92,8 @@ export const buildOrderFlow = Effect.fnUntraced(function* (store: DayStore) {
     const from =
       progress === undefined
         ? span.first
-        : Math.max(span.first, Number(progress) + MINUTE)
-    for (let minute = from; minute <= span.last; minute += MINUTE) {
+        : Math.max(span.first, Number(progress) + MINUTE_MS)
+    for (let minute = from; minute <= span.last; minute += MINUTE_MS) {
       const built = yield* builtMinute(
         store,
         minute,
