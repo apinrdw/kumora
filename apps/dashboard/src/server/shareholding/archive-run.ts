@@ -2,8 +2,12 @@
 // then `summary`. Each step's body is an Effect; the run itself only orders
 // the steps, so it holds nothing a Workflow replay could change. Spec
 // apinrdw/kumora#303, "The archive run".
-import type { StepFailed, WorkflowSteps } from "@workspace/server"
-import { DateTime, Effect, Schema } from "effect"
+import {
+  NonRetryable,
+  type StepFailed,
+  type WorkflowSteps,
+} from "@workspace/server"
+import { DateTime, Effect, Result, Schema } from "effect"
 import { HttpClient, type HttpClientError } from "effect/http"
 
 import { ArchiveBucket, type BucketError } from "./bucket.ts"
@@ -14,7 +18,11 @@ import {
   reportKey,
   runKey,
 } from "./keys.ts"
-import { fetchListing, ListedReport } from "./listing.ts"
+import {
+  fetchListing,
+  ListedReport,
+  type ListingUnreadable,
+} from "./listing.ts"
 import {
   ArchiveRunResult,
   type ArchiveTrigger,
@@ -75,7 +83,7 @@ const plan = Effect.fnUntraced(function* (
   run: ArchiveRun
 ): Effect.fn.Return<
   Plan,
-  HttpClientError.HttpClientError | Schema.SchemaError | BucketError,
+  ListingUnreadable | NonRetryable | BucketError,
   StepServices
 > {
   const listed = yield* fetchListing
@@ -123,11 +131,21 @@ const archiveReport = Effect.fnUntraced(function* (
   report: ListedReport
 ): Effect.fn.Return<
   ArchivedReport,
-  HttpClientError.HttpClientError | BucketError,
+  HttpClientError.HttpClientError | NonRetryable | BucketError,
   StepServices
 > {
   const client = HttpClient.filterStatusOk(yield* HttpClient.HttpClient)
-  const response = yield* client.get(report.fetchUrl)
+  const response = yield* client.get(report.fetchUrl).pipe(
+    // IDX removed the file: retrying won't bring it back.
+    Effect.catchIf(
+      ({ reason }) =>
+        reason._tag === "StatusCodeError" && reason.response.status === 404,
+      () =>
+        Effect.fail(
+          new NonRetryable({ message: `IDX has no file at ${report.fetchUrl}` })
+        )
+    )
+  )
   const bytes = yield* response.arrayBuffer
   const fetchedAt = yield* nowIso
   const sha256 = yield* sha256Hex(bytes)
@@ -173,24 +191,32 @@ const archiveReport = Effect.fnUntraced(function* (
   }
 })
 
-const summary = Effect.fnUntraced(function* (
-  run: ArchiveRun,
-  planned: Plan,
-  archived: ReadonlyArray<ArchivedReport>
-) {
-  const heldUrls = new Set(planned.held.map(({ report }) => report.sourceUrl))
-  const result = ArchiveRunResult.make({
+const finishedResult = Effect.fnUntraced(function* (run: ArchiveRun) {
+  return {
     ...(yield* runningResult({
       id: run.id,
       trigger: run.trigger,
       startedAt: DateTime.formatIso(DateTime.fromDateUnsafe(run.startedAt)),
     })),
     finishedAt: yield* nowIso,
-    outcome: "complete",
+  }
+})
+
+const summary = Effect.fnUntraced(function* (
+  run: ArchiveRun,
+  planned: Plan,
+  archived: ReadonlyArray<ArchivedReport>,
+  notStored: ReadonlyArray<string>
+) {
+  const heldUrls = new Set(planned.held.map(({ report }) => report.sourceUrl))
+  const result = ArchiveRunResult.make({
+    ...(yield* finishedResult(run)),
+    outcome: notStored.length === 0 ? "complete" : "partial",
     reportsAdded: archived.filter(({ sourceUrl }) => !heldUrls.has(sourceUrl))
       .length,
     newVersions: archived.filter(({ sourceUrl }) => heldUrls.has(sourceUrl))
       .length,
+    notStored,
     other: archived
       .filter(({ kind }) => kind === "other")
       .map(({ sourceUrl, description }) => ({ sourceUrl, description })),
@@ -199,16 +225,46 @@ const summary = Effect.fnUntraced(function* (
   return result
 })
 
+// `plan` failed, so nothing was stored: the run is failed with its message,
+// and runs/latest.json points at it even when `plan` never wrote it.
+const failed = Effect.fnUntraced(function* (run: ArchiveRun, error: string) {
+  const result = ArchiveRunResult.make({
+    ...(yield* finishedResult(run)),
+    outcome: "failed",
+    error,
+  })
+  yield* writeJson(yield* runKey(run.id), result)
+  yield* writeJson(LATEST_RUN_KEY, LatestRun.make({ id: run.id }))
+  return result
+})
+
 export const archiveRun = Effect.fn("archiveRun")(function* (
   steps: WorkflowSteps<StepServices>,
   run: ArchiveRun
 ): Effect.fn.Return<ArchiveRunResult, StepFailed> {
-  const planned = yield* steps.do("plan", plan(run))
+  const planned = yield* steps.do("plan", plan(run)).pipe(
+    // The run still fails with `plan`'s message, which the Workflow keeps as
+    // the instance's error.
+    Effect.tapError(({ message }) =>
+      steps
+        .do("failed", failed(run, message))
+        .pipe(Effect.ignore({ log: "Warn" }))
+    )
+  )
   // The `head` step (apinrdw/kumora#307) adds the held URLs whose ETag
   // changed.
   const toStore = planned.fresh
-  const archived = yield* Effect.forEach(toStore, (report) =>
-    steps.do(`report:${report.sourceUrl}`, archiveReport(report))
+  // A report that still fails after its step's retries isn't held, so the
+  // next run retries it; this one carries on.
+  const stored = yield* Effect.forEach(toStore, (report) =>
+    steps.do(`report:${report.sourceUrl}`, archiveReport(report)).pipe(
+      Effect.mapError(() => report.sourceUrl),
+      Effect.result
+    )
   )
-  return yield* steps.do("summary", summary(run, planned, archived))
+  const archived = stored.filter(Result.isSuccess).map(({ success }) => success)
+  const notStored = stored
+    .filter(Result.isFailure)
+    .map(({ failure }) => failure)
+  return yield* steps.do("summary", summary(run, planned, archived, notStored))
 })
