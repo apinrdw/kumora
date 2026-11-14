@@ -19,8 +19,8 @@ const decodeRunMetadata = Schema.decodeUnknownOption(RunMetadata)
 // and reads no record.
 // Decision: one listing per trigger, starting after the key of a run that
 // trigger would have started 30 days ago. Run ids of one trigger sort as
-// their starts do (`runIdAt`), so the page lists and reads only the past 30
-// days of runs, and runs/ can grow without the page listing more of it. See
+// their starts do (`runIdAt`), so the page lists only the past 30 days of
+// runs, and runs/ can grow without the page listing more of it. See
 // apinrdw/kumora#310.
 export const recentRuns = Effect.gen(function* () {
   const bucket = yield* ArchiveBucket
