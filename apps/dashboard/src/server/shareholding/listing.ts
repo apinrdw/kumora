@@ -2,6 +2,7 @@
 // without the Cloudflare challenge `www.idx.co.id` answers a Worker with.
 // docs/research/idx-kepemilikan-listing.md (branch research/idx-kepemilikan-listing)
 // has the endpoint's behaviour.
+import { NonRetryable } from "@workspace/server"
 import { Effect, Schema } from "effect"
 import { HttpClient, HttpClientResponse } from "effect/http"
 
@@ -75,11 +76,36 @@ const fetchUrlOf = Effect.fnUntraced(function* (sourceUrl: string) {
   return url.href
 })
 
+// The listing couldn't be read: an archive run fails with this message, which
+// the admin page shows.
+export class ListingUnreadable extends Schema.TaggedError<ListingUnreadable>()(
+  "ListingUnreadable",
+  { message: Schema.String }
+) {}
+
 export const fetchListing = Effect.gen(function* () {
   const client = HttpClient.filterStatusOk(yield* HttpClient.HttpClient)
-  const { items } = yield* client
-    .get(LISTING_URL)
-    .pipe(Effect.flatMap(HttpClientResponse.schemaBodyJson(ListingResponse)))
+  const { items } = yield* client.get(LISTING_URL).pipe(
+    Effect.flatMap(HttpClientResponse.schemaBodyJson(ListingResponse)),
+    Effect.catchTags({
+      HttpClientError: ({ reason }) =>
+        Effect.fail(
+          new ListingUnreadable({
+            message:
+              reason._tag === "StatusCodeError"
+                ? `The IDX listing answered ${reason.response.status} (${LISTING_URL})`
+                : `The IDX listing couldn't be read: ${reason.message}`,
+          })
+        ),
+      // IDX changed the listing: retrying won't fix it.
+      SchemaError: (error) =>
+        Effect.fail(
+          new NonRetryable({
+            message: `The IDX listing no longer matches its Schema: ${error.message}`,
+          })
+        ),
+    })
+  )
   return yield* Effect.forEach(
     items,
     Effect.fnUntraced(function* (item) {

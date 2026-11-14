@@ -2,8 +2,12 @@
 // to store, then `summary`. Each step's body is an Effect; the run itself
 // only orders the steps, so it holds nothing a Workflow replay could change.
 // Spec apinrdw/kumora#303, "The archive run".
-import type { StepFailed, WorkflowSteps } from "@workspace/server"
-import { DateTime, Effect, Schema } from "effect"
+import {
+  NonRetryable,
+  type StepFailed,
+  type WorkflowSteps,
+} from "@workspace/server"
+import { DateTime, Effect, Result, Schema } from "effect"
 import { HttpClient, type HttpClientError } from "effect/http"
 
 import { ArchiveBucket, type BucketError } from "./bucket.ts"
@@ -15,7 +19,11 @@ import {
   runKey,
   sha256Hex,
 } from "./keys.ts"
-import { fetchListing, ListedReport } from "./listing.ts"
+import {
+  fetchListing,
+  ListedReport,
+  type ListingUnreadable,
+} from "./listing.ts"
 import {
   ArchiveRunResult,
   type ArchiveTrigger,
@@ -78,7 +86,7 @@ const plan = Effect.fnUntraced(function* (
   run: ArchiveRun
 ): Effect.fn.Return<
   Plan,
-  HttpClientError.HttpClientError | Schema.SchemaError | BucketError,
+  ListingUnreadable | NonRetryable | BucketError,
   StepServices
 > {
   const listed = yield* fetchListing
@@ -115,34 +123,46 @@ const plan = Effect.fnUntraced(function* (
 const HEAD_CONCURRENCY = 4
 
 const Checked = Schema.Struct({
-  // How many held URLs got a HEAD.
+  // How many held URLs answered their HEAD.
   checked: Schema.Number,
   // Held URLs whose ETag no record has.
   changed: Schema.Array(ListedReport),
+  // Held URLs whose HEAD failed, by source URL.
+  unanswered: Schema.Array(Schema.String),
 })
 
 // A HEAD to every held URL. A response with no ETag can't show a change, so
-// its URL counts as unchanged.
+// its URL counts as unchanged. A failed HEAD doesn't fail the step: its URL
+// is recorded, and the next run checks it again.
 const head = Effect.fnUntraced(function* (
   held: Plan["held"]
-): Effect.fn.Return<
-  typeof Checked.Type,
-  HttpClientError.HttpClientError,
-  StepServices
-> {
+): Effect.fn.Return<typeof Checked.Type, never, StepServices> {
   const client = HttpClient.filterStatusOk(yield* HttpClient.HttpClient)
-  const changed = yield* Effect.filter(
+  const answers = yield* Effect.forEach(
     held,
     ({ report, etags }) =>
-      Effect.map(client.head(report.fetchUrl), (response) => {
-        const etag = response.headers["etag"]
-        return etag !== undefined && !etags.includes(etag)
-      }),
+      client.head(report.fetchUrl).pipe(
+        Effect.map((response) => {
+          const etag = response.headers["etag"]
+          return {
+            report,
+            changed: etag !== undefined && !etags.includes(etag),
+          }
+        }),
+        Effect.mapError(() => report.sourceUrl),
+        Effect.result
+      ),
     { concurrency: HEAD_CONCURRENCY }
   )
+  const answered = answers
+    .filter(Result.isSuccess)
+    .map(({ success }) => success)
   return {
-    checked: held.length,
-    changed: changed.map(({ report }) => report),
+    checked: answered.length,
+    changed: answered
+      .filter(({ changed }) => changed)
+      .map(({ report }) => report),
+    unanswered: answers.filter(Result.isFailure).map(({ failure }) => failure),
   }
 })
 
@@ -152,11 +172,21 @@ const archiveReport = Effect.fnUntraced(function* (
   report: ListedReport
 ): Effect.fn.Return<
   ArchivedReport,
-  HttpClientError.HttpClientError | BucketError,
+  HttpClientError.HttpClientError | NonRetryable | BucketError,
   StepServices
 > {
   const client = HttpClient.filterStatusOk(yield* HttpClient.HttpClient)
-  const response = yield* client.get(report.fetchUrl)
+  const response = yield* client.get(report.fetchUrl).pipe(
+    // IDX removed the file: retrying won't bring it back.
+    Effect.catchIf(
+      ({ reason }) =>
+        reason._tag === "StatusCodeError" && reason.response.status === 404,
+      () =>
+        Effect.fail(
+          new NonRetryable({ message: `IDX has no file at ${report.fetchUrl}` })
+        )
+    )
+  )
   const bytes = yield* response.arrayBuffer
   const fetchedAt = yield* nowIso
   const sha256 = yield* sha256Hex(bytes)
@@ -213,20 +243,27 @@ const archiveReport = Effect.fnUntraced(function* (
   }
 })
 
-const summary = Effect.fnUntraced(function* (
-  run: ArchiveRun,
-  checked: typeof Checked.Type,
-  archived: ReadonlyArray<ArchivedReport>
-) {
-  const changedUrls = new Set(checked.changed.map(({ sourceUrl }) => sourceUrl))
-  const result = ArchiveRunResult.make({
+const finishedResult = Effect.fnUntraced(function* (run: ArchiveRun) {
+  return {
     ...(yield* runningResult({
       id: run.id,
       trigger: run.trigger,
       startedAt: DateTime.formatIso(DateTime.fromDateUnsafe(run.startedAt)),
     })),
     finishedAt: yield* nowIso,
-    outcome: "complete",
+  }
+})
+
+const summary = Effect.fnUntraced(function* (
+  run: ArchiveRun,
+  checked: typeof Checked.Type,
+  archived: ReadonlyArray<ArchivedReport>,
+  notStored: ReadonlyArray<string>
+) {
+  const changedUrls = new Set(checked.changed.map(({ sourceUrl }) => sourceUrl))
+  const result = ArchiveRunResult.make({
+    ...(yield* finishedResult(run)),
+    outcome: notStored.length === 0 ? "complete" : "partial",
     reportsAdded: archived.filter(
       ({ sourceUrl }) => !changedUrls.has(sourceUrl)
     ).length,
@@ -236,6 +273,7 @@ const summary = Effect.fnUntraced(function* (
       ({ sourceUrl, newFile }) => changedUrls.has(sourceUrl) && newFile
     ).length,
     reportsChecked: checked.checked,
+    notStored,
     other: archived
       .filter(({ kind }) => kind === "other")
       .map(({ sourceUrl, description }) => ({ sourceUrl, description })),
@@ -244,15 +282,47 @@ const summary = Effect.fnUntraced(function* (
   return result
 })
 
+// `plan` failed, so nothing was stored: the run is failed with its message,
+// and runs/latest.json points at it even when `plan` never wrote it.
+const failed = Effect.fnUntraced(function* (run: ArchiveRun, error: string) {
+  const result = ArchiveRunResult.make({
+    ...(yield* finishedResult(run)),
+    outcome: "failed",
+    error,
+  })
+  yield* writeJson(yield* runKey(run.id), result)
+  yield* writeJson(LATEST_RUN_KEY, LatestRun.make({ id: run.id }))
+  return result
+})
+
 export const archiveRun = Effect.fn("archiveRun")(function* (
   steps: WorkflowSteps<StepServices>,
   run: ArchiveRun
 ): Effect.fn.Return<ArchiveRunResult, StepFailed> {
-  const planned = yield* steps.do("plan", plan(run))
+  const planned = yield* steps.do("plan", plan(run)).pipe(
+    // The run still fails with `plan`'s message, which the Workflow keeps as
+    // the instance's error.
+    Effect.tapError(({ message }) =>
+      steps
+        .do("failed", failed(run, message))
+        .pipe(Effect.ignore({ log: "Warn" }))
+    )
+  )
   const checked = yield* steps.do("head", head(planned.held))
   const toStore = [...planned.fresh, ...checked.changed]
-  const archived = yield* Effect.forEach(toStore, (report) =>
-    steps.do(`report:${report.sourceUrl}`, archiveReport(report))
+  // A report that still fails after its step's retries isn't held at that
+  // ETag, so the next run retries it; this one carries on.
+  const stored = yield* Effect.forEach(toStore, (report) =>
+    steps.do(`report:${report.sourceUrl}`, archiveReport(report)).pipe(
+      Effect.mapError(() => report.sourceUrl),
+      Effect.result
+    )
   )
-  return yield* steps.do("summary", summary(run, checked, archived))
+  const archived = stored.filter(Result.isSuccess).map(({ success }) => success)
+  // A held URL whose HEAD failed may hide a change this run couldn't store.
+  const notStored = [
+    ...checked.unanswered,
+    ...stored.filter(Result.isFailure).map(({ failure }) => failure),
+  ]
+  return yield* steps.do("summary", summary(run, checked, archived, notStored))
 })

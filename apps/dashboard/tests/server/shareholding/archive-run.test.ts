@@ -334,4 +334,190 @@ describe("an archive run", () => {
         assert.deepStrictEqual(keysUnder(bucket, "reports/"), held)
       })
   )
+
+  it.effect(
+    "ends partial when a report is gone, without retrying it, and the next run stores it",
+    () =>
+      Effect.gen(function* () {
+        const idx = fakeIdx()
+        const bucket = memoryBucket()
+        const gone = idx.listing[1]
+        const goneUrl = idxIdUrl(gone.Prospectus)
+        const file = idx.files.get(goneUrl)
+        assert.isDefined(file)
+        idx.files.delete(goneUrl)
+        const goneKey = `reports/above-5/2026-11-11/${yield* sha256(file.body)}.xlsx`
+
+        const result = yield* run(idx, bucket, "cron-2026-11-14T06")
+
+        assert.strictEqual(
+          idx.requests.filter((url) => url === goneUrl).length,
+          1
+        )
+        assert.isFalse(bucket.objects.has(goneKey))
+        assert.deepInclude(result, {
+          outcome: "partial",
+          reportsAdded: 144,
+          notStored: [gone.Prospectus],
+          error: null,
+        })
+        assert.deepStrictEqual(
+          json(bucket, "runs/cron-2026-11-14T06.json"),
+          result
+        )
+
+        idx.files.set(goneUrl, file)
+        const next = yield* run(idx, bucket, "cron-2026-11-14T13")
+
+        assert.isTrue(bucket.objects.has(goneKey))
+        assert.deepInclude(next, {
+          outcome: "complete",
+          reportsAdded: 1,
+          notStored: [],
+        })
+      })
+  )
+
+  it.effect(
+    "ends partial when a held report's HEAD fails, and still stores other changes",
+    () =>
+      Effect.gen(function* () {
+        const idx = fakeIdx()
+        const bucket = memoryBucket()
+        yield* run(idx, bucket, "cron-2026-11-14T06")
+
+        const unanswered = idx.listing[3]
+        const unansweredUrl = idxIdUrl(unanswered.Prospectus)
+        const unansweredFile = idx.files.get(unansweredUrl)
+        assert.isDefined(unansweredFile)
+        idx.files.set(unansweredUrl, { ...unansweredFile, status: 503 })
+        const changed = idx.listing[0]
+        const changedUrl = idxIdUrl(changed.Prospectus)
+        idx.files.set(changedUrl, {
+          body: `corrected xlsx bytes of ${changed.Prospectus}`,
+          etag: `"etag-0:1"`,
+          lastModified: "Sat, 14 Nov 2026 09:00:00 GMT",
+        })
+
+        const result = yield* run(idx, bucket, "cron-2026-11-14T13")
+
+        assert.deepInclude(result, {
+          outcome: "partial",
+          newVersions: 1,
+          reportsChecked: 144,
+          notStored: [unanswered.Prospectus],
+        })
+        assert.deepStrictEqual(
+          json(bucket, "runs/cron-2026-11-14T13.json"),
+          result
+        )
+
+        idx.files.set(unansweredUrl, unansweredFile)
+        const next = yield* run(idx, bucket, "cron-2026-11-15T06")
+        assert.deepInclude(next, {
+          outcome: "complete",
+          reportsChecked: 145,
+          notStored: [],
+        })
+      })
+  )
+
+  it.effect("retries a report IDX fails to serve, then ends partial", () =>
+    Effect.gen(function* () {
+      const idx = fakeIdx()
+      const bucket = memoryBucket()
+      const failing = idx.listing[2]
+      const failingUrl = idxIdUrl(failing.Prospectus)
+      const file = idx.files.get(failingUrl)
+      assert.isDefined(file)
+      idx.files.set(failingUrl, { ...file, status: 500 })
+
+      const result = yield* run(idx, bucket, "cron-2026-11-14T06")
+
+      // A Workflow step's default: 5 retries after the first attempt.
+      assert.strictEqual(
+        idx.requests.filter((url) => url === failingUrl).length,
+        6
+      )
+      assert.deepInclude(result, {
+        outcome: "partial",
+        reportsAdded: 144,
+        notStored: [failing.Prospectus],
+      })
+    })
+  )
+
+  it.effect("stores a report of an unknown kind under other and flags it", () =>
+    Effect.gen(function* () {
+      const idx = fakeIdx()
+      const bucket = memoryBucket()
+      const [first] = idx.listing
+      idx.listing = [
+        {
+          ...first,
+          Description: " Laporan Kepemilikan Baru per 12 November 2026 ",
+        },
+      ]
+
+      const result = yield* run(idx, bucket, "cron-2026-11-14T06")
+
+      const hash = yield* sha256(`xlsx bytes of ${first.Prospectus}`)
+      assert.isTrue(bucket.objects.has(`reports/other/2026-11-12/${hash}.xlsx`))
+      assert.deepInclude(result, {
+        outcome: "complete",
+        reportsAdded: 1,
+        other: [
+          {
+            sourceUrl: first.Prospectus,
+            description: "Laporan Kepemilikan Baru per 12 November 2026",
+          },
+        ],
+      })
+    })
+  )
+
+  it.effect("fails when IDX refuses the listing, and says so", () =>
+    Effect.gen(function* () {
+      const idx = fakeIdx()
+      const bucket = memoryBucket()
+      idx.listingResponse = () => new Response("Forbidden", { status: 403 })
+
+      const failure = yield* Effect.flip(run(idx, bucket, "cron-2026-11-14T06"))
+
+      assert.include(failure.message, "403")
+      assert.deepInclude(json(bucket, "runs/cron-2026-11-14T06.json"), {
+        id: "cron-2026-11-14T06",
+        outcome: "failed",
+        error: failure.message,
+        notStored: [],
+      })
+      assert.isNotNull(json(bucket, "runs/cron-2026-11-14T06.json").finishedAt)
+      assert.deepStrictEqual(json(bucket, "runs/latest.json"), {
+        id: "cron-2026-11-14T06",
+      })
+      assert.deepStrictEqual(keysUnder(bucket, "reports/"), [])
+    })
+  )
+
+  it.effect(
+    "fails without retrying when the listing's shape changed, and says so",
+    () =>
+      Effect.gen(function* () {
+        const idx = fakeIdx()
+        const bucket = memoryBucket()
+        idx.listingResponse = () =>
+          Response.json({ data: [{ Title: "Pemegang Saham di Atas 5%" }] })
+
+        const failure = yield* Effect.flip(
+          run(idx, bucket, "cron-2026-11-14T06")
+        )
+
+        assert.strictEqual(idx.requests.length, 1)
+        assert.include(failure.message, "listing")
+        assert.deepInclude(json(bucket, "runs/cron-2026-11-14T06.json"), {
+          outcome: "failed",
+          error: failure.message,
+        })
+      })
+  )
 })

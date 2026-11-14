@@ -1,6 +1,7 @@
 // A fake IDX for the archive run: an HttpClient that answers the listing
 // from the recorded fixture and each file from `www.idx.id` with small bytes.
-// Tests change `files` (an ETag, a 404) or `listing` between runs.
+// Tests change `files` (an ETag, a status, delete for a 404), `listing`, or
+// `listingResponse` (a 403, a changed shape) between runs.
 import { Effect, Layer } from "effect"
 import { HttpClient, HttpClientResponse } from "effect/http"
 
@@ -14,10 +15,14 @@ export interface FakeFile {
   readonly body: string
   readonly etag: string
   readonly lastModified: string
+  // Answered instead of the file, when set.
+  readonly status?: number
 }
 
 export interface FakeIdx {
   listing: ReadonlyArray<ListingItem>
+  // Answered instead of `listing`, when set.
+  listingResponse: (() => Response) | undefined
   // Keyed by the `www.idx.id` URL a run downloads.
   readonly files: Map<string, FakeFile>
   // Every URL requested, in order.
@@ -33,7 +38,7 @@ export const idxIdUrl = (prospectus: string) =>
 export const fakeIdx = (
   listing: ReadonlyArray<ListingItem> = recorded.items
 ): FakeIdx => {
-  const files = new Map(
+  const files = new Map<string, FakeFile>(
     listing.map((item, index) => [
       idxIdUrl(item.Prospectus),
       {
@@ -45,6 +50,7 @@ export const fakeIdx = (
   )
   const idx: FakeIdx = {
     listing,
+    listingResponse: undefined,
     files,
     requests: [],
     heads: [],
@@ -57,29 +63,32 @@ export const fakeIdx = (
           if (url.href === LISTING_URL)
             return HttpClientResponse.fromWeb(
               request,
-              Response.json({
-                items: idx.listing,
-                meta: {
-                  startIndex: 0,
-                  pageSize: 9999,
-                  pageTotal: 1,
-                  search: "",
-                },
-              })
+              idx.listingResponse?.() ??
+                Response.json({
+                  items: idx.listing,
+                  meta: {
+                    startIndex: 0,
+                    pageSize: 9999,
+                    pageTotal: 1,
+                    search: "",
+                  },
+                })
             )
           const file = files.get(url.href)
           return HttpClientResponse.fromWeb(
             request,
             file === undefined
               ? new Response("Not Found", { status: 404 })
-              : new Response(file.body, {
-                  headers: {
-                    "content-type":
-                      "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
-                    etag: file.etag,
-                    "last-modified": file.lastModified,
-                  },
-                })
+              : file.status !== undefined
+                ? new Response("IDX error", { status: file.status })
+                : new Response(file.body, {
+                    headers: {
+                      "content-type":
+                        "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+                      etag: file.etag,
+                      "last-modified": file.lastModified,
+                    },
+                  })
           )
         })
       )

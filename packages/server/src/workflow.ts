@@ -7,10 +7,11 @@ import {
   type WorkflowStep,
   WorkflowEntrypoint,
 } from "cloudflare:workers"
+import { NonRetryableError } from "cloudflare:workflows"
 import { Effect, type Layer } from "effect"
 
 import { WorkerEnv, type WorkerEnvShape } from "./bridge.ts"
-import { StepFailed, type WorkflowSteps } from "./steps.ts"
+import { NonRetryable, StepFailed, type WorkflowSteps } from "./steps.ts"
 
 export interface WorkflowRun<Params> {
   readonly id: string
@@ -20,8 +21,9 @@ export interface WorkflowRun<Params> {
 
 // A Workflow class whose run is an Effect over `WorkflowSteps`. Each step
 // runs its Effect with `layer` and the Worker's env, rejects with the step's
-// failure as is (a failure named NonRetryableError skips the step's
-// retries), and keeps the step's default retries: no Effect retry on top.
+// failure as is, except `NonRetryable`, thrown as `NonRetryableError` to skip
+// the step's retries, and keeps the step's default retries: no Effect retry
+// on top.
 export const makeWorkflow = <Params, Output, R>(
   layer: Layer.Layer<R, never, WorkerEnv>,
   run: (
@@ -44,7 +46,15 @@ export const makeWorkflow = <Params, Output, R>(
                 name,
                 () =>
                   Effect.runPromise(
-                    effect.pipe(Effect.provide(layer), env)
+                    effect.pipe(
+                      Effect.provide(layer),
+                      env,
+                      Effect.mapError((error) =>
+                        error instanceof NonRetryable
+                          ? new NonRetryableError(error.message)
+                          : error
+                      )
+                    )
                   ) as Promise<Rpc.Serializable<A>>
               ) as Promise<A>,
             catch: (cause) =>
