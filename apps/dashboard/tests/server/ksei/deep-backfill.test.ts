@@ -1,6 +1,6 @@
 import { assert, describe, it } from "@effect/vitest"
 import type { StepConfig, WorkflowSteps } from "@workspace/server"
-import { Effect, Layer } from "effect"
+import { Duration, Effect, Layer } from "effect"
 
 import { ArchiveRunId } from "@/server/archive/run"
 import { kseiArchiveRun } from "@/server/ksei/archive-run"
@@ -266,7 +266,7 @@ describe("a deep backfill", () => {
   )
 
   it.effect(
-    "gives every step that asks KSEI a 2 minute timeout",
+    "gives each step time for the KSEI requests it sends in turn",
     () =>
       Effect.gen(function* () {
         const ksei = fakeKsei()
@@ -282,26 +282,27 @@ describe("a deep backfill", () => {
           configs
         )
 
-        const timed = [...configs]
-          .filter(([, config]) => config?.timeout === "2 minutes")
-          .map(([name]) => name)
+        const timeoutOf = (name: string) => {
+          const timeout = configs.get(name)?.timeout
+          return timeout === undefined ? undefined : Duration.toMillis(timeout)
+        }
+        // One request at a time: 2 minutes.
         for (const name of [
           "plan",
-          "head",
-          "seed",
-          "probe:securities-holdings:2008",
           `report:${SEEDED_STATIS}`,
           `report:${PROBED_BALANCEPOS}`,
         ])
-          assert.include(timed, name)
-        assert.isTrue(
-          timed.some((name) => name.startsWith("report:StatisEfek2026")),
-          "a listed file's report step"
-        )
-        assert.deepStrictEqual(
-          [...configs.keys()].filter((name) => !timed.includes(name)),
-          ["summary"]
-        )
+          assert.strictEqual(timeoutOf(name), 120_000, name)
+        // Twelve months, four at once, each up to seven days under two names:
+        // 42 HEADs in turn at KSEI's slowest 8 s, and one stuck request's 2
+        // minutes.
+        for (const name of [...configs.keys()].filter((step) =>
+          step.startsWith("probe:")
+        ))
+          assert.isAtLeast(timeoutOf(name) ?? 0, 42 * 8_000 + 120_000, name)
+        // `seed` and `summary` ask KSEI nothing.
+        assert.isUndefined(configs.get("seed"))
+        assert.isUndefined(configs.get("summary"))
       }),
     30_000
   )

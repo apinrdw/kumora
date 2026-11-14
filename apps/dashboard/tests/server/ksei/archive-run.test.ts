@@ -1,5 +1,6 @@
 import { assert, describe, it } from "@effect/vitest"
-import { Effect, Layer, Schema } from "effect"
+import type { StepConfig } from "@workspace/server"
+import { Duration, Effect, Layer, Schema } from "effect"
 
 import { ArchiveRunId } from "@/server/archive/run"
 import { kseiArchiveRun, MAX_REPORT_BYTES } from "@/server/ksei/archive-run"
@@ -193,6 +194,38 @@ describe("a KSEI archive run", () => {
         reportsChecked: 72,
         notStored: [],
       })
+    })
+  )
+
+  it.effect("gives `head` time for its HEADs at KSEI's slowest answer", () =>
+    Effect.gen(function* () {
+      const ksei = fakeKsei()
+      const bucket = memoryBucket()
+      yield* run(ksei, bucket, "cron-2026-11-14")
+      const steps = localSteps(Layer.merge(ksei.layer, bucket.layer))
+      const configs = new Map<string, StepConfig | undefined>()
+
+      yield* kseiArchiveRun(
+        {
+          do: (name, effect, config) => {
+            configs.set(name, config)
+            return steps.do(name, effect, config)
+          },
+        },
+        {
+          id: ArchiveRunId.make("cron-2026-11-15"),
+          trigger: "cron",
+          startedAt: new Date("2026-11-15T03:00:00Z"),
+        }
+      )
+
+      // 72 HEADs four at once: 18 in turn at 8 s, and one stuck request's 2
+      // minutes.
+      const timeout = configs.get("head")?.timeout
+      assert.isAtLeast(
+        timeout === undefined ? 0 : Duration.toMillis(timeout),
+        18 * 8_000 + 120_000
+      )
     })
   )
 
