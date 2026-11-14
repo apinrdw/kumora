@@ -145,7 +145,8 @@
         "pnpm-workspace.yaml",
         "pnpm-lock.yaml",
         ".github/workflows/**",
-        ".claude/hooks/fallow-gate.sh"
+        ".claude/hooks/fallow-gate.sh",
+        ".claude/hooks/merge-gate.sh"
       ]
     }
   }
