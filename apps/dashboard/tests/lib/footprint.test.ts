@@ -194,6 +194,100 @@ describe("chart 2's columns", () => {
         ])
       })
   )
+
+  it.effect(
+    "mark imbalances diagonally: buy at p against sell one tick below, sell at p against buy one tick above",
+    () =>
+      Effect.gen(function* () {
+        // UNTR trades in 25s. 23,175: buy 15 is 3× the sell 5 at 23,150,
+        // and sell 20 is 3.3× the buy 6 at 23,200. 23,150's buy 4 and
+        // 23,200's sell 1 are under the 5-lot minimum.
+        const cells = footprint("09:00", [
+          [23150, 5, 4, 0],
+          [23175, 20, 15, 0],
+          [23200, 1, 6, 0],
+        ])
+        const marks = (ratio: number) =>
+          Effect.map(
+            footprintColumns([candle("09:00", 23175)], [cells], Infinity, {
+              imbalance: ratio,
+            }),
+            ([column]) =>
+              column!.rows.map((row) => [
+                row.price,
+                row.buyImbalance,
+                row.sellImbalance,
+              ])
+          )
+        expect(yield* marks(3)).toEqual([
+          [23150, false, false],
+          [23175, true, true],
+          [23200, false, false],
+        ])
+        // At 4×: 15 < 4 × 5 and 20 < 4 × 6.
+        expect(yield* marks(4)).toEqual([
+          [23150, false, false],
+          [23175, false, false],
+          [23200, false, false],
+        ])
+        // Off marks nothing.
+        expect(yield* marks(0)).toEqual([
+          [23150, false, false],
+          [23175, false, false],
+          [23200, false, false],
+        ])
+      })
+  )
+
+  it.effect("outline the busiest price as the POC, no-side lots counted", () =>
+    Effect.gen(function* () {
+      const columns = yield* footprintColumns(
+        [candle("09:00", 23175), candle("09:01", 23175)],
+        [
+          footprint("09:00", [
+            [23150, 5, 4, 0],
+            [23175, 2, 3, 10],
+            [23200, 1, 6, 0],
+          ]),
+        ],
+        Infinity
+      )
+      expect(columns.map((column) => column.poc)).toEqual([23175, undefined])
+    })
+  )
+  it.effect(
+    "carry the day's VWAP and volume-weighted σ so far, every lot counted",
+    () =>
+      Effect.gen(function* () {
+        const columns = yield* footprintColumns(
+          [candle("09:00", 100), candle("09:01", 110), candle("09:02", 110)],
+          [
+            footprint("09:00", [[100, 4, 3, 3]]),
+            footprint("09:01", [[110, 0, 10, 0]]),
+            footprint("09:02", [
+              [100, 5, 0, 0],
+              [120, 0, 0, 5],
+            ]),
+          ],
+          Infinity
+        )
+        // 10 lots at 100, then 10 at 110, then 5 at 100 and 5 at 120.
+        expect(columns.slice(0, 2).map((column) => column.vwap)).toEqual([
+          { mean: 100, sigma: 0 },
+          { mean: 105, sigma: 5 },
+        ])
+        // 3,200 / 30, and √(1,666.67 / 30).
+        expect(columns[2]!.vwap!.mean).toBeCloseTo(106.667, 3)
+        expect(columns[2]!.vwap!.sigma).toBeCloseTo(7.4536, 4)
+      })
+  )
+
+  it.effect("have no VWAP before any lot trades", () =>
+    Effect.gen(function* () {
+      const [column] = yield* footprintColumns([candle("09:00", 100)], [], 0)
+      expect(column!.vwap).toBeUndefined()
+    })
+  )
 })
 
 describe("chart 2 in words", () => {
