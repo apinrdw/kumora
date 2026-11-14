@@ -53,6 +53,8 @@ Before changing `turbo.json` or a turbo command, read `docs/README.md` in the in
 
 Before writing a PR body (opening a PR or rewriting one), invoke the `/mattpocock-skills:pr` skill and follow its template. Keep the attribution line your harness requires at the end.
 
+CI holds every PR on its `e2e-evidence` status. After opening one, run `pnpm e2e:evidence <spec...>` naming the specs that show the change, or add the `no-e2e-evidence` label when nothing visible changed. Rules: `.claude/skills/post-implementation-review/workspaces/e2e.md`.
+
 ## Asking the user
 
 - Always ask through the harness's selection prompt (such as `AskUserQuestion`) when it has one. This overrides any skill's own question format: a skill like `grilling` that prescribes numbered rounds in chat still asks each round through the selection prompt.
