@@ -1,15 +1,7 @@
 import { cn } from "@workspace/ui/lib/utils"
-import {
-  type CSSProperties,
-  type ReactNode,
-  useEffect,
-  useId,
-  useRef,
-} from "react"
+import { useEffect, useId, useRef, type ReactNode } from "react"
 
 import { PANELS, type Panel } from "@/lib/market-live-search"
-
-import { TAPE_WIDTH_PX } from "./tape-list"
 
 // The gap kept under the layout, the page's bottom padding.
 const BOTTOM_GAP = 16
@@ -45,9 +37,9 @@ const TAB_NAMES: Record<Panel, string> = {
 
 /**
  * Layout B (spec apinrdw/kumora#263, "Layout, settings, indices and
- * phone"). From `lg`: the chart column, the 340 px sweep log and the right
- * column of `watchlist`, `book` and `tape`, as wide as the tape's columns
- * (`TAPE_WIDTH_PX`), at least as tall as the window below them. Below `lg`: the charts stacked full width, then tabs
+ * phone"). From `lg`: the chart column, the 340 px sweep log and the 400 px
+ * right column of `watchlist`, `book` and `tape`, at least as tall as the
+ * window below them. The tape scrolls sideways in it (tape-list.tsx). Below `lg`: the charts stacked full width, then tabs
  * showing one panel at a time: `panel`, kept by the page in its URL, else
  * the first. No `log` (an index): no log column or tab.
  */
@@ -95,12 +87,11 @@ export function LayoutB({
   return (
     <div
       ref={layout}
-      style={{ "--tape-w": `${TAPE_WIDTH_PX}px` } as CSSProperties}
       className={cn(
         "grid gap-4 lg:min-h-(--fill)",
         log === undefined
-          ? "lg:grid-cols-[minmax(0,1fr)_var(--tape-w)]"
-          : "lg:grid-cols-[minmax(0,1fr)_340px_var(--tape-w)]"
+          ? "lg:grid-cols-[minmax(0,1fr)_400px]"
+          : "lg:grid-cols-[minmax(0,1fr)_340px_400px]"
       )}
     >
       <div className="flex min-w-0 flex-col gap-4">{charts}</div>

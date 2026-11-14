@@ -327,8 +327,10 @@ test("a recorded day's tape shows each trade's Buyer and Seller as the extension
     )
   expect(await clipped()).toEqual([])
   await page.setViewportSize({ width: 390, height: 844 })
-  expect(await clipped()).toEqual([])
+  // A phone shows one panel at a time (layout-b.tsx).
+  await page.getByRole("tab", { name: "Tape" }).click()
   await expect(cells(base + 2).nth(2)).toContainText("505")
+  expect(await clipped()).toEqual([])
   await expect(cells(base + 2).nth(5)).toHaveText("")
   await expect(cells(base + 2).nth(6)).toHaveText("")
 })
