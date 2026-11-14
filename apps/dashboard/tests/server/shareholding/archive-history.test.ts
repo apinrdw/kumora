@@ -12,7 +12,8 @@ import { fakeWorkflow, type FakeWorkflow } from "./fake-workflow.ts"
 import { type MemoryBucket, memoryBucket } from "./memory-bucket.ts"
 
 const NOW = Date.parse("2026-11-14T14:00:00.000Z")
-const DAY = 86_400_000
+const HOUR = 3_600_000
+const DAY = 24 * HOUR
 
 const run = (
   id: string,
@@ -127,14 +128,34 @@ describe("the recent archive runs", () => {
     }).pipe(provide(bucket))
   })
 
-  it.effect("read no record last written before the 30 days", () => {
+  it.effect("list and read only the runs of the past 30 days", () => {
     const bucket = memoryBucket()
-    // A record whose body claims a recent start but that R2 last wrote long
-    // ago is never read: the listing alone rules it out.
-    put(bucket, "runs/cron-2026-11-14T06.json", "not json", NOW - 31 * DAY)
+    // Two cron runs and an admin run a day since 2025. A record older than
+    // the 30 days isn't JSON, so reading one fails the test.
+    const recent: Array<ArchiveRunResult> = []
+    for (let day = Date.parse("2025-01-01"); day < NOW; day += DAY)
+      for (const [id, startedAt] of [
+        [`cron-${new Date(day).toISOString().slice(0, 10)}T06`, day + 6 * HOUR],
+        [`admin-${day + 9 * HOUR}`, day + 9 * HOUR],
+        [
+          `cron-${new Date(day).toISOString().slice(0, 10)}T13`,
+          day + 13 * HOUR,
+        ],
+      ] as const) {
+        if (startedAt > NOW) continue
+        if (startedAt < NOW - 30 * DAY) {
+          put(bucket, `runs/${id}.json`, "not json", startedAt)
+          continue
+        }
+        const result = run(id, new Date(startedAt).toISOString())
+        seedRun(bucket, result)
+        recent.unshift(result)
+      }
     return Effect.gen(function* () {
       yield* TestClock.setTime(NOW)
-      assert.deepStrictEqual(yield* recentRuns, [])
+      assert.deepStrictEqual(yield* recentRuns, recent)
+      // At most a key per trigger past the 30 days, where a listing starts.
+      assert.isAtMost(bucket.listed.length, recent.length + 2)
     }).pipe(provide(bucket))
   })
 

@@ -2,7 +2,7 @@
 // so a test can tell a rewrite from an untouched object. An object's ETag is
 // its body, so, as R2's MD5, it changes with the content. `failPut`, when
 // set, fails the next `put` of a key it matches, once, as a transient R2
-// error.
+// error. `listed` logs every key a listing returned.
 import { Clock, Effect, Layer } from "effect"
 
 import {
@@ -23,6 +23,7 @@ export interface StoredObject {
 export interface MemoryBucket {
   readonly objects: Map<string, StoredObject>
   readonly puts: Array<string>
+  readonly listed: Array<string>
   failPut: ((key: string) => boolean) | undefined
   readonly layer: Layer.Layer<ArchiveBucket>
 }
@@ -30,6 +31,7 @@ export interface MemoryBucket {
 export const memoryBucket = (): MemoryBucket => {
   const objects = new Map<string, StoredObject>()
   const puts: Array<string> = []
+  const listed: Array<string> = []
   const write = (
     key: string,
     body: Uint8Array | string,
@@ -47,6 +49,7 @@ export const memoryBucket = (): MemoryBucket => {
   const bucket: MemoryBucket = {
     objects,
     puts,
+    listed,
     failPut: undefined,
     layer: Layer.succeed(
       ArchiveBucket,
@@ -56,12 +59,15 @@ export const memoryBucket = (): MemoryBucket => {
             [...objects]
               .filter(([key]) => key.startsWith(prefix))
               .sort(([a], [b]) => a.localeCompare(b))
-              .map(([key, object]) => ({
-                key,
-                size: object.body.length,
-                uploaded: new Date(object.uploaded ?? now),
-                customMetadata: object.customMetadata,
-              }))
+              .map(([key, object]) => {
+                listed.push(key)
+                return {
+                  key,
+                  size: object.body.length,
+                  uploaded: new Date(object.uploaded ?? now),
+                  customMetadata: object.customMetadata,
+                }
+              })
           ),
         exists: (key) => Effect.sync(() => objects.has(key)),
         get: (key) =>
