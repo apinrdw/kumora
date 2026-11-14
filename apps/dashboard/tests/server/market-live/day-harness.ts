@@ -141,9 +141,12 @@ export const stockbitBook = (book: {
 }
 
 // A trading day on `sql` (a fresh database by default; the same one again is
-// the object restarting), with a relay that sent the right token.
-export const tradingDay = Effect.fnUntraced(function* (sql: Sql = memorySql()) {
-  const viewers: Array<FakeSocket> = []
+// the object restarting, and its `viewers` again the sockets that outlived
+// it), with a relay that sent the right token.
+export const tradingDay = Effect.fnUntraced(function* (
+  sql: Sql = memorySql(),
+  viewers: Array<FakeSocket> = []
+) {
   const scope = yield* Scope.make()
   const day = yield* makeTradingDay({
     sql,
@@ -264,6 +267,7 @@ export const tradingDay = Effect.fnUntraced(function* (sql: Sql = memorySql()) {
     trades,
     ajaibTrades,
     frames,
+    viewers,
     viewer,
     left,
     recorded,

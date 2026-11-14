@@ -84,6 +84,7 @@ const pageOn = Effect.fnUntraced(function* (
     }
   })
   return {
+    socket,
     hear,
     ask,
     settle,
@@ -251,7 +252,7 @@ describe("sweeps", () => {
   )
 
   it.effect(
-    "a page asks the GET once while trades only follow its answer: the delta's copies of answered trades and new trades ask nothing",
+    "a page asks the GET once while trades only follow its answer: the delta's copies of answered trades and new trades, in any order, ask nothing",
     () =>
       Effect.gen(function* () {
         yield* at("09:01:10")
@@ -263,10 +264,11 @@ describe("sweeps", () => {
         ])
         // Answered before the delta carrying those trades goes out.
         yield* page.settle
+        // 40006 arrives before 40005.
         for (const [number, time] of [
           [40004, "09:00:10.900"],
-          [40005, "09:00:11.100"],
           [40006, "09:00:11.300"],
+          [40005, "09:00:11.100"],
         ] as const) {
           yield* TestClock.adjust("250 millis")
           yield* day.trades([untr(number, time, 23325, 1, "buy")])
@@ -282,7 +284,7 @@ describe("sweeps", () => {
   )
 
   it.effect(
-    "a backfilled trade older than a full tape's oldest, which no delta's tape carries, reaches the page's sweeps",
+    "a backfilled trade numbered after the page's answer but older than a full tape's oldest, which no delta's tape carries, reaches the page's sweeps",
     () =>
       Effect.gen(function* () {
         yield* at("09:01:10")
@@ -292,6 +294,8 @@ describe("sweeps", () => {
           untr(40001, "09:00:10.100", 23300, 2, "buy"),
           untr(40003, "09:00:10.500", 23325, 3, "buy"),
         ])
+        // Answers through 40003.
+        yield* page.settle
         // A tape of newer trades evicts UNTR's two.
         for (let batch = 0; batch < 10; batch++)
           yield* day.trades(
@@ -301,17 +305,13 @@ describe("sweeps", () => {
           )
         yield* TestClock.adjust("250 millis")
         yield* page.settle
-        assert.deepStrictEqual(page.sweeps(), [
-          ["buy", "2026-11-09T02:00:10.100Z", 23300, 23325, 5, 2],
-        ])
-        yield* day.trades([untr(40002, "09:00:10.300", 23300, 4, "sell")])
+        yield* day.trades([untr(45000, "09:00:10.700", 23300, 4, "sell")])
         yield* TestClock.adjust("250 millis")
         yield* page.settle
         const whole = (yield* day.recordedSweeps("UNTR")).answer
         assert.deepStrictEqual(whole.sweeps.map(sweepOf), [
-          ["buy", "2026-11-09T02:00:10.100Z", 23300, 23300, 2, 1],
-          ["sell", "2026-11-09T02:00:10.300Z", 23300, 23300, 4, 1],
-          ["buy", "2026-11-09T02:00:10.500Z", 23325, 23325, 3, 1],
+          ["buy", "2026-11-09T02:00:10.100Z", 23300, 23325, 5, 2],
+          ["sell", "2026-11-09T02:00:10.700Z", 23300, 23300, 4, 1],
         ])
         assert.deepStrictEqual(page.sweeps(), whole.sweeps.map(sweepOf))
       }),
