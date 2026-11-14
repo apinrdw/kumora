@@ -8,14 +8,11 @@ import {
   type StepFailed,
   type WorkflowSteps,
 } from "@workspace/server"
-import { DateTime, Effect, Result, Schema, Stream } from "effect"
-import {
-  HttpClient,
-  type HttpClientError,
-  type HttpClientResponse,
-} from "effect/http"
+import { DateTime, Effect, Result, Schema } from "effect"
+import { HttpClient, type HttpClientError } from "effect/http"
 
 import { ArchiveBucket, type BucketError, putJson } from "./bucket.ts"
+import { readCapped } from "./capped-body.ts"
 import {
   REPORTS_PREFIX,
   recordKey,
@@ -193,39 +190,8 @@ const head = Effect.fnUntraced(function* (
 })
 
 // The most a report download may be: IDX's files are ~400 KB, and a Worker
-// has 128 MB. www.idx.id's GET sends no Content-Length, so the body is
-// counted as it streams in.
+// has 128 MB.
 export const MAX_REPORT_BYTES = 16 * 1024 * 1024
-
-// The body, read until it passes MAX_REPORT_BYTES. A file that big won't
-// shrink on a retry, so it fails NonRetryable.
-const readCapped = Effect.fnUntraced(function* (
-  response: HttpClientResponse.HttpClientResponse,
-  url: string
-) {
-  const read = yield* Stream.runFoldEffect(
-    response.stream,
-    () => ({ size: 0, chunks: new Array<Uint8Array>() }),
-    (acc, chunk) =>
-      acc.size + chunk.length > MAX_REPORT_BYTES
-        ? Effect.fail(
-            new NonRetryable({
-              message: `IDX's file at ${url} is over ${MAX_REPORT_BYTES} bytes`,
-            })
-          )
-        : Effect.sync(() => {
-            acc.chunks.push(chunk)
-            return { size: acc.size + chunk.length, chunks: acc.chunks }
-          })
-  )
-  const bytes = new Uint8Array(read.size)
-  let offset = 0
-  for (const chunk of read.chunks) {
-    bytes.set(chunk, offset)
-    offset += chunk.length
-  }
-  return bytes
-})
 
 // Downloads one report from www.idx.id and stores it: the .xlsx once per
 // hash, then its record, whose presence marks the version complete.
@@ -254,7 +220,11 @@ const archiveReport = Effect.fnUntraced(function* (
         )
     )
   )
-  const bytes = yield* readCapped(response, report.fetchUrl)
+  const bytes = yield* readCapped(
+    response,
+    MAX_REPORT_BYTES,
+    `IDX's file at ${report.fetchUrl}`
+  )
   const fetchedAt = yield* nowIso
   const sha256 = yield* sha256Hex(bytes)
   const getEtag = response.headers["etag"]

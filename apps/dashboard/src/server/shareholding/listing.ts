@@ -3,7 +3,9 @@
 // docs/research/idx-kepemilikan-listing.md has the endpoint's behaviour.
 import { jsonBytes, NonRetryable, STEP_RESULT_BYTES } from "@workspace/server"
 import { Effect, Schema } from "effect"
-import { HttpClient, HttpClientResponse } from "effect/http"
+import { HttpClient } from "effect/http"
+
+import { readCapped } from "./capped-body.ts"
 
 // One call returns every year: no `year`, and `length` because it defaults
 // to 25.
@@ -118,7 +120,19 @@ export class ListingUnreadable extends Schema.TaggedError<ListingUnreadable>()(
 export const fetchListing = Effect.gen(function* () {
   const client = HttpClient.filterStatusOk(yield* HttpClient.HttpClient)
   const { items } = yield* client.get(LISTING_URL).pipe(
-    Effect.flatMap(HttpClientResponse.schemaBodyJson(ListingResponse)),
+    Effect.flatMap((response) =>
+      readCapped(response, MAX_LISTING_BYTES, "The IDX listing")
+    ),
+    Effect.flatMap((bytes) =>
+      Effect.try({
+        try: (): unknown => JSON.parse(new TextDecoder().decode(bytes)),
+        catch: () =>
+          new ListingUnreadable({
+            message: "The IDX listing couldn't be read: it isn't JSON",
+          }),
+      })
+    ),
+    Effect.flatMap(Schema.decodeUnknownEffect(ListingResponse)),
     Effect.catchTags({
       HttpClientError: ({ reason }) =>
         Effect.fail(
