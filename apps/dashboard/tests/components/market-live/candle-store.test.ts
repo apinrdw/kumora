@@ -108,7 +108,7 @@ describe("the selected code's footprints", () => {
   )
 
   it.effect(
-    "a delta's footprint with no cells drops its minute's footprint and candle, heard as a reset; a candle the same delta carries stays",
+    "a delta's footprint with no cells drops its minute's footprint and candle; a candle the same delta carries stays",
     () =>
       Effect.gen(function* () {
         const store = yield* makeCandleStore(StockCode.make("BBRI"))
@@ -136,7 +136,7 @@ describe("the selected code's footprints", () => {
         })
         expect(store.candles()).toEqual([])
         expect(store.footprints()).toEqual([])
-        expect(heard).toEqual([{ _tag: "Reset" }, { _tag: "Reset" }])
+        expect(heard).toEqual([{ _tag: "Dropped" }, { _tag: "Dropped" }])
       })
   )
 })

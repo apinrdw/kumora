@@ -425,7 +425,7 @@ export default function ChartCanvas({
       axis?.setPrice(store.candles().at(-1)?.close)
     }
     const unsubscribe = store.subscribe((change: CandleChange) => {
-      if (change._tag === "Reset") reset = true
+      if (change._tag !== "Update") reset = true
       else {
         const times = Effect.runSync(Effect.forEach(change.candles, timeOf))
         change.candles.forEach((candle, index) =>

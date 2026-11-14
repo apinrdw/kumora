@@ -408,7 +408,9 @@ const Delta = Schema.TaggedStruct("Delta", {
   tape: Schema.Array(RunningTrade),
   candles: Schema.Array(Candle),
   // Every footprint that changed since the last delta of a code some viewer
-  // selected, each whole. Absent when none changed.
+  // selected, each whole. One with no cells, sent without its minute's
+  // candle, says the minute's last regular-board trade left it: the page
+  // drops both. Absent when none changed.
   footprints: Schema.optionalKey(Schema.Array(Footprint)),
   // Every minute whose sweeps a trade changed since the last delta, of a
   // code some viewer selected, each whole: the page replaces its copy of

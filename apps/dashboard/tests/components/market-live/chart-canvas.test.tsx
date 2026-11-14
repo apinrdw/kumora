@@ -139,6 +139,42 @@ test("a candle backfilled into a relay gap after the last candle goes on the cha
   await act(() => root.unmount())
 })
 
+test("a minute its last regular-board trade left goes off the chart, its volume bar with it", async () => {
+  series.length = 0
+  const store = Effect.runSync(makeCandleStore(BBCA))
+  const cells = [{ price: 100, sell: 0, buy: 1, none: 0 }]
+  store.apply({
+    _tag: "Delta",
+    tape: [],
+    candles: [candle("09:00", 100), candle("09:01", 101)],
+    footprints: [
+      { code: BBCA, minute: minute("09:00"), cells },
+      { code: BBCA, minute: minute("09:01"), cells },
+    ],
+  })
+  const root = createRoot(
+    document.body.appendChild(document.createElement("div"))
+  )
+  await act(() =>
+    root.render(<ChartCanvas store={store} gaps={[]} pair={alone} />)
+  )
+  const [candles, volume] = series
+  expect([...candles!.rows.keys()]).toEqual(["09:00", "09:01"].map(seconds))
+
+  await act(() =>
+    store.apply({
+      _tag: "Delta",
+      tape: [],
+      candles: [],
+      footprints: [{ code: BBCA, minute: minute("09:01"), cells: [] }],
+    })
+  )
+  await nextFrame()
+  expect([...candles!.rows.keys()]).toEqual([seconds("09:00")])
+  expect([...volume!.rows.keys()]).toEqual([seconds("09:00")])
+  await act(() => root.unmount())
+})
+
 // The price a series' axis label and crosshair show for `value`: its custom
 // formatter's, or Lightweight Charts' own at the format's precision.
 const shownPrice = (

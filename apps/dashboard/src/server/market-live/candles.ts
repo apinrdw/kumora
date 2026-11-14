@@ -40,8 +40,8 @@ import type { LivePrice } from "./stockbit-liveprice.ts"
 
 // Decision: a trade's part in its candle stays open for 5 s after it first
 // arrived, so a second feed's copy can still move or reprice it; after that a
-// later feed changes only the tape row. The viewer protocol has no removal, so
-// an emptied candle stays on the page until the next snapshot. See spec
+// later feed changes only the tape row. A minute such a copy emptied goes out
+// as a footprint with no cells and no candle (`takeChanged`). See spec
 // apinrdw/kumora#138 ("Merge and dedupe"); apps/e2e/support/clock.ts repeats it.
 const MERGE_WINDOW = 5_000
 
@@ -275,14 +275,6 @@ const footprintFrom = Effect.fnUntraced(function* (
   } satisfies Footprint
 })
 
-// A slot's footprint, none while no stock trade made it.
-const footprintOf = Effect.fnUntraced(function* (slot: Slot) {
-  const cells = yield* cellsOf(slot)
-  return cells.size === 0
-    ? undefined
-    : yield* footprintFrom(slot.code, slot.minute, cells)
-})
-
 // An index's day totals at its latest frame, so a frame's candle gets only
 // what traded since.
 interface Totals {
@@ -309,7 +301,8 @@ export const makeCandleBook = Effect.fnUntraced(function* (
   >()
   const indexTotals = new Map<StockCode, Totals>()
   let changed = new Set<Slot>()
-  // Those of them whose sweeps a trade changed: an index's candle has none.
+  // Those of them a trade changed, whose footprint and sweeps go out: an
+  // index's candle has neither.
   let regrouped = new Set<Slot>()
   // What the next flush writes: trades whose merge window closed, each once,
   // and the candles whose settled figures changed.
@@ -552,8 +545,12 @@ export const makeCandleBook = Effect.fnUntraced(function* (
   })
 
   // Every candle changed since the last call, of any code, and of
-  // `selected` the footprints among them and each minute's sweeps a trade
-  // changed.
+  // `selected` each minute a trade changed: its footprint and its sweeps.
+  //
+  // Decision: a minute whose last regular-board trade left it goes out as a
+  // footprint with no cells, as its sweeps go out empty, and with no candle.
+  // The page drops that minute's footprint and candle (candle-store.ts), so
+  // the protocol needs no removal message. See apinrdw/kumora#279.
   //
   // Decision: a changed minute's sweeps go out whole in every delta and the
   // page replaces its copy, so the book is the only grouper and the join
@@ -573,15 +570,15 @@ export const makeCandleBook = Effect.fnUntraced(function* (
     for (const slot of slots) {
       const candle = yield* candleOf(slot)
       if (candle !== undefined) candles.push(candle)
-      if (!selected.has(slot.code)) continue
-      const footprint = yield* footprintOf(slot)
-      if (footprint !== undefined) footprints.push(footprint)
-      if (resent.has(slot))
-        sweeps.push({
-          code: slot.code,
-          minute: DateTime.makeUnsafe(slot.minute),
-          sweeps: yield* slotSweeps(slot, true),
-        })
+      if (!selected.has(slot.code) || !resent.has(slot)) continue
+      footprints.push(
+        yield* footprintFrom(slot.code, slot.minute, yield* cellsOf(slot))
+      )
+      sweeps.push({
+        code: slot.code,
+        minute: DateTime.makeUnsafe(slot.minute),
+        sweeps: yield* slotSweeps(slot, true),
+      })
     }
     for (const slot of slots) yield* release(slot)
     return { candles, footprints, sweeps }

@@ -2,9 +2,11 @@ import type { Candle, Footprint, StockCode, ViewerDown } from "@workspace/relay"
 import { DateTime, Effect } from "effect"
 
 // What changed since the listener last heard: everything (a fresh snapshot),
-// or these candles and footprints, each whole.
+// these candles and footprints, each whole, or a minute dropped with whatever
+// else its delta carried, which a chart redraws whole for, its view kept.
 export type CandleChange =
   | { readonly _tag: "Reset" }
+  | { readonly _tag: "Dropped" }
   | {
       readonly _tag: "Update"
       readonly candles: ReadonlyArray<Candle>
@@ -27,6 +29,11 @@ export interface CandleStore {
 // replaces them, and one answering an earlier Select of another code changes
 // nothing; a delta's candles and footprints of this code replace theirs by
 // minute.
+//
+// Decision: a footprint with no cells says its minute's last regular-board
+// trade left it (candles.ts, `takeChanged`). The store drops that minute's
+// footprint, and its candle unless the same delta carries one, and says
+// Dropped: a chart can't take one bar back. See apinrdw/kumora#279.
 export const makeCandleStore = (code: StockCode) =>
   Effect.sync((): CandleStore => {
     const byMinuteOf = <A extends { readonly minute: DateTime.Utc }>(
@@ -57,11 +64,22 @@ export const makeCandleStore = (code: StockCode) =>
           (footprint) => footprint.code === code
         )
         if (mine.length === 0 && cells.length === 0) return
-        for (const [minute, candle] of byMinuteOf(mine))
-          candles.set(minute, candle)
+        const carried = byMinuteOf(mine)
+        for (const [minute, candle] of carried) candles.set(minute, candle)
         for (const [minute, footprint] of byMinuteOf(cells))
           footprints.set(minute, footprint)
-        emit({ _tag: "Update", candles: mine, footprints: cells })
+        const emptied = cells.filter(
+          (footprint) => footprint.cells.length === 0
+        )
+        for (const minute of byMinuteOf(emptied).keys()) {
+          footprints.delete(minute)
+          if (!carried.has(minute)) candles.delete(minute)
+        }
+        emit(
+          emptied.length > 0
+            ? { _tag: "Dropped" }
+            : { _tag: "Update", candles: mine, footprints: cells }
+        )
       },
       subscribe: (listener) => {
         listeners.add(listener)
