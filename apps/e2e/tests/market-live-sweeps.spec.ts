@@ -19,7 +19,10 @@ test("sweeps show as bubbles and log rows; top-N filters them; a row rings its b
   const base = freshTradeNumbers()
   // A code of its own: today's object keeps every code's sweeps.
   const code = freshCode("SW")
-  const start = marketNow() - 30_000
+  // Decision: the sweeps are over a minute old, so the relay gap that ends
+  // when this relay opens always draws a minute after theirs. 30 seconds
+  // back drew one only when a minute turned in between, 4 runs in 25.
+  const start = marketNow() - 90_000
   // Each trade in a second of its own, so each is one sweep: buys of 1–8
   // lots, a big buy (20,000 lots at 500, Rp1 B), sells of 2, 4, 6 and 8.
   const sweeps = [
