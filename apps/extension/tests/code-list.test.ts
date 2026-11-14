@@ -17,6 +17,7 @@ import {
   type RelayOutcome,
 } from "../src/worker/code-list.ts"
 import type { Answer, TabRequest } from "../src/worker/broker.ts"
+import type { PacedTab } from "../src/worker/pacer.ts"
 
 // An instant written as a WIB wall-clock time.
 const wib = (dateTime: string) => DateTime.makeUnsafe(`${dateTime}+07:00`)
@@ -75,7 +76,7 @@ const harness = Effect.fnUntraced(function* (options: {
         requests.push(request)
         return Option.some(options.answer)
       }),
-  }
+  } as PacedTab & { readonly attached: Effect.Effect<boolean> }
   const tick = (dateTime: string) => codeList.tick(tab, wib(dateTime))
   const outcomes: Array<RelayOutcome> = []
   const relayNow = (dateTime: string) =>

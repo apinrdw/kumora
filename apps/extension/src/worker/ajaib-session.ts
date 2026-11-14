@@ -2,11 +2,13 @@
 // apinrdw/kumora#138 "Broker connections"): the account id its SUBSCRIBE
 // frames carry, from the Ajaib tab's own access token, or, until the tab has
 // shown one, from a PIN sign-in the owner starts on the options page.
-import { Effect, Option, Schema } from "effect"
+import { Effect, Option, Schema, Semaphore } from "effect"
 
 import { AjaibAccountId } from "./ajaib.ts"
-import type { Answer, TabRequest } from "./broker.ts"
+import type { Answer } from "./broker.ts"
 import { jwtPayloadText } from "./jwt.ts"
+import type { PacedTab } from "./pacer.ts"
+import type { BrokerTab } from "./tab.ts"
 
 // Ajaib's PIN check, which the web app calls to get its tokens. Called from
 // the Ajaib tab, so the page's cookies and headers apply.
@@ -86,53 +88,74 @@ export const pinOutcome = Effect.fnUntraced(function* (answer: Answer) {
   return { state: "signed-in", accessToken: result.access_token } as SignIn
 })
 
-// Where the PIN and the sign-in live: chrome.storage.session (settings.ts).
-export interface PinStore {
-  // The entered PIN, removed as it is read.
-  readonly takePin: Effect.Effect<Option.Option<string>>
-  readonly signIn: Effect.Effect<SignIn>
+// One PIN the owner entered and its sign-in, as one read of
+// chrome.storage.session (settings.ts) found them. A newer entry is kept
+// apart, so a check or lock screen still busy with this one changes this one
+// only.
+export interface PinEntry {
+  // The PIN, kept for the browser session so the lock screen
+  // (ajaib-lock.ts) can type it, until it is wiped.
+  readonly pin: Option.Option<string>
+  readonly signIn: SignIn
+  // The lock screen was handed the PIN, and has not been seen to go since.
+  readonly typing: boolean
+  // Wipes the PIN, and with it the `typing` mark.
+  readonly wipePin: Effect.Effect<void>
   readonly setSignIn: (signIn: SignIn) => Effect.Effect<void>
+  readonly setTyping: (typing: boolean) => Effect.Effect<void>
+}
+
+export interface PinStore {
+  // The owner's newest entry, read whole; none before the first.
+  readonly latest: Effect.Effect<Option.Option<PinEntry>>
 }
 
 export const makeAjaibSession = Effect.fnUntraced(function* (options: {
-  readonly tab: {
-    readonly attached: Effect.Effect<boolean>
-    readonly request: (
-      request: TabRequest
-    ) => Effect.Effect<Option.Option<Answer>>
-  }
+  // The Ajaib pacer's tab, so the PIN check waits for the site's pace.
+  readonly tab: PacedTab & Pick<BrokerTab, "attached">
   readonly store: PinStore
 }) {
   const { tab, store } = options
+  const checking = yield* Semaphore.make(1)
 
-  // Decision: a PIN is tried once, on the first tick with an Ajaib tab, and
-  // taken out of storage before the call, so no retry, restart or later tick
-  // can send it again: a wrong PIN tried twice could lock the account. Only a
-  // new entry on the options page is tried again.
-  const tick = Effect.gen(function* () {
+  // Decision: a PIN is tried once: its sign-in moves from `waiting` (a new
+  // entry) to `signing-in` before the call, one check at a time, so no
+  // retry, restart or second tick sends it again; a wrong PIN tried twice
+  // could lock the account. Any answer but `signed-in` wipes it, so the lock
+  // screen types none other. See apinrdw/kumora#244, "The PIN's storage".
+  const check = Effect.gen(function* () {
     if (!(yield* tab.attached)) return
-    const pin = yield* store.takePin
-    if (Option.isNone(pin)) return
-    yield* store.setSignIn({ state: "signing-in" })
+    const latest = yield* store.latest
+    if (Option.isNone(latest)) return
+    const entry = latest.value
+    if (entry.signIn.state !== "waiting") return
+    if (Option.isNone(entry.pin))
+      return yield* entry.setSignIn({ state: "none" })
+    yield* entry.setSignIn({ state: "signing-in" })
     const answer = yield* tab.request({
       _tag: "page-post",
       url: PIN_VALIDATE_URL,
-      body: JSON.stringify({ pin_code: pin.value }),
+      body: JSON.stringify({ pin_code: entry.pin.value }),
     })
-    yield* store.setSignIn(
-      Option.isSome(answer)
-        ? yield* pinOutcome(answer.value)
-        : { state: "failed" }
-    )
+    const outcome: SignIn = Option.isSome(answer)
+      ? yield* pinOutcome(answer.value)
+      : { state: "failed" }
+    if (outcome.state !== "signed-in") yield* entry.wipePin
+    yield* entry.setSignIn(outcome)
   })
+  // A tick that finds a check in flight does nothing.
+  const tick = Effect.asVoid(checking.withPermitsIfAvailable(1)(check))
 
   // The PIN sign-in's access token, for the tab's REST calls before the page
   // made one of its own.
-  const fallbackToken = Effect.map(store.signIn, (signIn) =>
-    signIn.state === "signed-in"
-      ? Option.some(signIn.accessToken)
-      : Option.none<string>()
-  )
+  const fallbackToken = Effect.gen(function* () {
+    const latest = yield* store.latest
+    return Option.flatMap(latest, ({ signIn }) =>
+      signIn.state === "signed-in"
+        ? Option.some(signIn.accessToken)
+        : Option.none<string>()
+    )
+  })
 
   // The account id: from the tab's own token, else the PIN sign-in's; none
   // before either.

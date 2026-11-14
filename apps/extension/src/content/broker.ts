@@ -12,6 +12,7 @@ import type { Connection, Feed } from "@workspace/relay"
 import type {
   BrokerCommand,
   BrokerEvent,
+  PageEvent,
   Payload,
   SiteName,
   TabCommand,
@@ -23,6 +24,7 @@ type Answer = {
   readonly id: number
   readonly status: number
   readonly body: string
+  readonly challenge?: boolean
 }
 
 // Decision: before the page made a REST call of its own, its API base is
@@ -59,6 +61,58 @@ window.addEventListener("message", (event) => {
 
 window.postMessage({ kumoraRelay: "ask-page-request" }, location.origin)
 
+// Ajaib's lock screen (spec apinrdw/kumora#244, "The extension: Ajaib
+// keep-alive and the PIN lock"): page.ts reports it and the page's PIN check,
+// which go to the worker over the current port, and answers `type-pin`.
+let forward: (event: PageEvent) => void = () => {}
+const typing = new Map<number, (typed: boolean) => void>()
+let nextTyping = 0
+
+const fromPage = (event: MessageEvent): Record<string, unknown> | undefined => {
+  const data: unknown = event.data
+  if (event.source !== window || typeof data !== "object" || data === null)
+    return undefined
+  return data as Record<string, unknown>
+}
+
+const lockMessages: Record<string, (data: Record<string, unknown>) => void> = {
+  lock: ({ locked }) => {
+    if (typeof locked === "boolean") forward({ _tag: "lock", locked })
+  },
+  "pin-validated": ({ status }) => {
+    if (typeof status === "number") forward({ _tag: "pin-validated", status })
+  },
+  "pin-typed": ({ id, typed }) => {
+    if (typeof id !== "number") return
+    typing.get(id)?.(typed === true)
+    typing.delete(id)
+  },
+}
+
+window.addEventListener("message", (event) => {
+  const data = fromPage(event)
+  if (typeof data?.kumoraRelay === "string")
+    lockMessages[data.kumoraRelay]?.(data)
+})
+
+type LockRequest = Extract<TabRequest, { _tag: "activity" | "type-pin" }>
+
+// Asks page.ts to type the PIN: whether it found the lock screen's boxes.
+const typePin = (pin: string) =>
+  new Promise<boolean>((resolve) => {
+    const id = nextTyping++
+    typing.set(id, resolve)
+    window.postMessage({ kumoraRelay: "type-pin", id, pin }, location.origin)
+  })
+
+const lockAnswer = async (request: LockRequest): Promise<[number, string]> => {
+  if (request._tag === "activity") {
+    window.postMessage({ kumoraRelay: "activity" }, location.origin)
+    return [200, ""]
+  }
+  return (await typePin(request.pin)) ? [200, ""] : [404, ""]
+}
+
 const toBase64 = (buffer: ArrayBuffer) => {
   const bytes = new Uint8Array(buffer)
   let binary = ""
@@ -80,13 +134,24 @@ const cookie = (name: string) => {
   return ""
 }
 
-const answer = async (request: TabRequest): Promise<[number, string]> => {
+// A REST answer's status and body, and whether Cloudflare marked it as a
+// challenge (readable only when the API exposes the header).
+const read = async (
+  response: Response
+): Promise<[number, string, boolean?]> => [
+  response.status,
+  await response.text(),
+  response.headers.get("cf-mitigated") === "challenge" || undefined,
+]
+
+const answer = async (
+  request: Exclude<TabRequest, LockRequest>
+): Promise<[number, string, boolean?]> => {
   switch (request._tag) {
     case "cookie":
       return [200, cookie(request.name)]
     case "fetch": {
-      const response = await fetch(request.url, { headers: request.headers })
-      return [response.status, await response.text()]
+      return read(await fetch(request.url, { headers: request.headers }))
     }
     case "page-fetch": {
       if (pageRequest === undefined && request.token === undefined)
@@ -95,15 +160,16 @@ const answer = async (request: TabRequest): Promise<[number, string]> => {
       // `Access-Control-Allow-Origin: *`, which the browser refuses for a
       // credentialed request (seen 2026-11-11 on `v1/stock/data/list/`); the
       // bearer token in the headers is the session.
-      const response = await fetch(
-        new URL(request.path, pageRequest?.base ?? AJAIB_API_BASE),
-        {
-          headers: pageRequest?.headers ?? {
-            authorization: `Bearer ${request.token}`,
-          },
-        }
+      return read(
+        await fetch(
+          new URL(request.path, pageRequest?.base ?? AJAIB_API_BASE),
+          {
+            headers: pageRequest?.headers ?? {
+              authorization: `Bearer ${request.token}`,
+            },
+          }
+        )
       )
-      return [response.status, await response.text()]
     }
     case "page-post": {
       const response = await fetch(request.url, {
@@ -127,6 +193,11 @@ const answer = async (request: TabRequest): Promise<[number, string]> => {
   }
 }
 
+const reply = (request: TabRequest) =>
+  request._tag === "activity" || request._tag === "type-pin"
+    ? lockAnswer(request)
+    : answer(request)
+
 type SocketKey = `${SiteName}/${Connection}`
 
 const sockets = new Map<SocketKey, WebSocket>()
@@ -144,13 +215,16 @@ const relay = () => {
     // the tab reloads.
     return
   }
-  const post = (event: BrokerEvent | Answer) => {
+  const post = (event: BrokerEvent | PageEvent | Answer) => {
     try {
       port.postMessage(event)
     } catch {
       // The port closed; onDisconnect reconnects.
     }
   }
+  // A new port's worker learns the lock as it stands.
+  forward = post
+  window.postMessage({ kumoraRelay: "ask-lock" }, location.origin)
 
   const open = (command: Extract<BrokerCommand, { _tag: "open" }>) => {
     const { site, connection } = command
@@ -197,9 +271,15 @@ const relay = () => {
         return socket?.close()
       }
       case "request":
-        return void answer(command.request).then(
-          ([status, body]) =>
-            post({ _tag: "answer", id: command.id, status, body }),
+        return void reply(command.request).then(
+          ([status, body, challenge]) =>
+            post({
+              _tag: "answer",
+              id: command.id,
+              status,
+              body,
+              ...(challenge === undefined ? {} : { challenge }),
+            }),
           () => post({ _tag: "answer", id: command.id, status: 0, body: "" })
         )
     }

@@ -14,11 +14,13 @@ import type { makeBatcher } from "./batch.ts"
 import {
   Answer,
   BrokerEvent,
+  PageEvent,
   detached,
   step,
   type BrokerInput,
   type BrokerSite,
   type Links,
+  type LocalRequest,
   type Payload,
   type SiteName,
   type TabCommand,
@@ -28,21 +30,28 @@ import {
 
 const decodeBrokerEvent = Schema.decodeUnknownOption(BrokerEvent)
 const decodeAnswer = Schema.decodeUnknownOption(Answer)
+const decodePageEvent = Schema.decodeUnknownOption(PageEvent)
 const decodeFeed = Schema.decodeUnknownOption(Feed)
 
-const REQUEST_TIMEOUT = "15 seconds"
+// How long a caller waits for the tab's answer. The pacer (pacer.ts) gives
+// a caller up after it too, while the call keeps its slot.
+export const REQUEST_TIMEOUT = "15 seconds"
 
 const connections: ReadonlyArray<Connection> = ["A", "B"]
+
+// What a socket hook gets of its tab: no REST calls, which go through the
+// site's pacer (pacer.ts).
+export type SocketTab = Omit<BrokerTab, "awaitAnswer">
 
 export interface TabHooks {
   // A site's socket opened, or stopped being open.
   readonly opened: (
-    tab: BrokerTab,
+    tab: SocketTab,
     site: SiteName,
     connection: Connection
   ) => Effect.Effect<void>
   readonly closed: (
-    tab: BrokerTab,
+    tab: SocketTab,
     site: SiteName,
     connection: Connection
   ) => Effect.Effect<void>
@@ -54,10 +63,17 @@ export const makeBrokerTab = Effect.fnUntraced(function* (options: {
   readonly batcher: Effect.Success<ReturnType<typeof makeBatcher>>
   readonly publish: (message: IngestUp) => Effect.Effect<unknown>
   readonly hooks: TabHooks
+  // What the page script sees of the page (Ajaib's lock screen). A tab that
+  // goes reports its lock gone, or the lock of the tab that takes over.
+  readonly page?: (event: PageEvent) => Effect.Effect<void>
 }) {
   const { feed, sites, batcher, publish, hooks } = options
+  const page = options.page ?? (() => Effect.void)
   let active: chrome.runtime.Port | undefined
   const waiting: Array<chrome.runtime.Port> = []
+  // The lock each waiting tab's page last reported. Its page reports a lock
+  // only when it changes, so the tab that takes over reports this one.
+  const waitingLocks = new Map<chrome.runtime.Port, boolean>()
   const links = new Map<SiteName, Links>(
     sites.map((site) => [site.name, detached])
   )
@@ -148,7 +164,12 @@ export const makeBrokerTab = Effect.fnUntraced(function* (options: {
     port: chrome.runtime.Port,
     raw: unknown
   ) {
-    if (port !== active) return
+    if (port !== active) {
+      const seen = decodePageEvent(raw)
+      if (Option.isSome(seen) && seen.value._tag === "lock")
+        waitingLocks.set(port, seen.value.locked)
+      return
+    }
     const answer = decodeAnswer(raw)
     if (Option.isSome(answer)) {
       const deferred = pending.get(answer.value.id)
@@ -158,12 +179,15 @@ export const makeBrokerTab = Effect.fnUntraced(function* (options: {
       return
     }
     const event = decodeBrokerEvent(raw)
-    if (Option.isSome(event)) yield* onEvent(event.value)
+    if (Option.isSome(event)) return yield* onEvent(event.value)
+    const seen = decodePageEvent(raw)
+    if (Option.isSome(seen)) yield* page(seen.value)
   })
 
   const disconnect = Effect.fnUntraced(function* (port: chrome.runtime.Port) {
     const at = waiting.indexOf(port)
     if (at !== -1) waiting.splice(at, 1)
+    waitingLocks.delete(port)
     if (port !== active) return
     active = undefined
     const gone: Answer = { _tag: "answer", id: -1, status: 0, body: "" }
@@ -172,24 +196,36 @@ export const makeBrokerTab = Effect.fnUntraced(function* (options: {
     pending.clear()
     yield* driveAll({ _tag: "detach" })
     const next = waiting.shift()
-    if (next !== undefined) yield* attach(next)
+    if (next === undefined) return yield* page({ _tag: "lock", locked: false })
+    const locked = waitingLocks.get(next) ?? false
+    waitingLocks.delete(next)
+    yield* attach(next)
+    yield* page({ _tag: "lock", locked })
   })
 
-  // A request made from the tab's origin; none when the tab goes or doesn't
-  // answer in time.
-  const request = Effect.fnUntraced(function* (tabRequest: TabRequest) {
+  // A request made from the tab's origin, waited for until the tab answers;
+  // none when the tab goes.
+  const awaitAnswer = Effect.fnUntraced(function* (tabRequest: TabRequest) {
     if (active === undefined) return Option.none<Answer>()
     const id = nextId++
     const deferred = yield* Deferred.make<Answer>()
     pending.set(id, deferred)
-    yield* post({ _tag: "request", id, request: tabRequest })
-    const answer = yield* Effect.timeoutOption(
-      Deferred.await(deferred),
-      REQUEST_TIMEOUT
+    return yield* Effect.ensuring(
+      Effect.gen(function* () {
+        yield* post({ _tag: "request", id, request: tabRequest })
+        const answer = yield* Deferred.await(deferred)
+        return answer.status === 0 ? Option.none<Answer>() : Option.some(answer)
+      }),
+      Effect.sync(() => pending.delete(id))
     )
-    pending.delete(id)
-    return Option.filter(answer, (received) => received.status !== 0)
   })
+
+  // A request the tab answers itself, none too when it doesn't in time.
+  const request = (tabRequest: LocalRequest) =>
+    Effect.map(
+      Effect.timeoutOption(awaitAnswer(tabRequest), REQUEST_TIMEOUT),
+      Option.flatten
+    )
 
   const send = (site: SiteName, connection: Connection, payload: Payload) =>
     post({ _tag: "send", site, connection, payload })
@@ -212,6 +248,7 @@ export const makeBrokerTab = Effect.fnUntraced(function* (options: {
     disconnect,
     tick: (window: Window) => driveAll({ _tag: "tick", window }),
     request,
+    awaitAnswer,
     send,
     drop,
     isOpen,
@@ -229,6 +266,10 @@ export interface BrokerTab {
   readonly disconnect: (port: chrome.runtime.Port) => Effect.Effect<void>
   readonly tick: (window: Window) => Effect.Effect<void>
   readonly request: (
+    request: LocalRequest
+  ) => Effect.Effect<Option.Option<Answer>>
+  // Any request, REST calls too: the pacer's alone (pacer.ts).
+  readonly awaitAnswer: (
     request: TabRequest
   ) => Effect.Effect<Option.Option<Answer>>
   readonly send: (

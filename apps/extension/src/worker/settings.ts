@@ -1,8 +1,23 @@
 // What the options page sets and what the service worker reports back, both
 // kept in chrome.storage (spec apinrdw/kumora#138, "Batching and targets").
+import { Feed, WibDate } from "@workspace/relay"
 import { Effect, Option, Schema } from "effect"
 
-import { SignIn, type PinStore } from "./ajaib-session.ts"
+import { AjaibLock } from "./ajaib-lock.ts"
+import { SignIn, type PinEntry, type PinStore } from "./ajaib-session.ts"
+import {
+  AjaibWalkPosition,
+  type AjaibWalkStore,
+} from "./broker-codes/ajaib-walk.ts"
+import {
+  HistoryPosition,
+  type HistoryCatchUpStore,
+  type HistoryStore,
+} from "./broker-codes/history.ts"
+import {
+  BrokerCodesProgress,
+  type IncompleteDaysStore,
+} from "./broker-codes/run-queue.ts"
 import { CodeListCache, RelayOutcome, type CodeListStore } from "./code-list.ts"
 
 // Where a dashboard serves: an origin, `https://host` or `http://host:port`.
@@ -205,53 +220,419 @@ export const isClockOffsetChange = Effect.fnUntraced(function* (
 
 // Decision: the Ajaib PIN lives in chrome.storage.session alone: in memory,
 // cleared when Chrome closes, out of content scripts' reach. It is never
-// logged and leaves the extension only for the Ajaib tab's PIN check. The
-// sign-in and its token sit beside it, so a restarted worker keeps them. See
+// logged and leaves the worker only for the Ajaib tab's PIN check and lock
+// screen (`type-pin`); a restarted worker finds its sign-in beside it. See
 // https://developer.chrome.com/docs/extensions/reference/api/storage.
-const PIN_KEY = "ajaibPin"
-const SIGN_IN_KEY = "ajaibSignIn"
+//
+// Decision: each entry keeps its PIN, sign-in and `typing` mark under keys
+// named by its own id, ENTRY_KEY names the newest, and one read takes them
+// all. A check or lock screen still busy with an older entry writes that
+// entry's keys only: chrome.storage has no compare-and-set to guard one
+// shared key.
+const ENTRY_KEY = "ajaibPinEntry"
+const PIN_PREFIX = "ajaibPin."
+const SIGN_IN_PREFIX = "ajaibSignIn."
+const TYPING_PREFIX = "ajaibPinTyping."
+const ENTRY_PREFIXES = [PIN_PREFIX, SIGN_IN_PREFIX, TYPING_PREFIX]
 
 export const AjaibPin = Schema.String.check(Schema.isPattern(/^\d{6}$/)).pipe(
   Schema.brand("AjaibPin")
 )
 export type AjaibPin = typeof AjaibPin.Type
 
-// A new entry: tried once, on the next tick with an Ajaib tab.
-export const savePin = Effect.fnUntraced(function* (pin: AjaibPin) {
-  const waiting: SignIn = { state: "waiting" }
-  yield* Effect.promise(() =>
-    chrome.storage.session.set({ [PIN_KEY]: pin, [SIGN_IN_KEY]: waiting })
-  )
-})
-
 const decodePin = Schema.decodeUnknownOption(AjaibPin)
 const decodeSignIn = Schema.decodeUnknownOption(SignIn)
+const decodeEntry = Schema.decodeUnknownOption(Schema.String)
 
-export const loadSignIn = Effect.gen(function* () {
-  const stored = yield* Effect.promise(() =>
-    chrome.storage.session.get(SIGN_IN_KEY)
+// A new entry: tried once, on the next tick with an Ajaib tab, then kept for
+// the lock screen until Chrome closes or Ajaib refuses it (ajaib-session.ts).
+// Older entries go, all but the newest should two saves overlap.
+export const savePin = Effect.fnUntraced(function* (pin: AjaibPin) {
+  const entry = yield* Effect.sync(() => crypto.randomUUID())
+  const waiting: SignIn = { state: "waiting" }
+  yield* Effect.promise(() =>
+    chrome.storage.session.set({
+      [ENTRY_KEY]: entry,
+      [`${PIN_PREFIX}${entry}`]: pin,
+      [`${SIGN_IN_PREFIX}${entry}`]: waiting,
+    })
   )
-  return Option.getOrElse(decodeSignIn(stored[SIGN_IN_KEY]), (): SignIn => ({
-    state: "none",
-  }))
+  const stored = yield* Effect.promise(() => chrome.storage.session.get(null))
+  const newest = Option.getOrElse(decodeEntry(stored[ENTRY_KEY]), () => entry)
+  const older = Object.keys(stored).filter(
+    (key) =>
+      ENTRY_PREFIXES.some((prefix) => key.startsWith(prefix)) &&
+      !ENTRY_PREFIXES.some((prefix) => key === `${prefix}${newest}`)
+  )
+  if (older.length > 0)
+    yield* Effect.promise(() => chrome.storage.session.remove(older))
 })
+
+export const sessionPinStore: PinStore = {
+  latest: Effect.gen(function* () {
+    const stored = yield* Effect.promise(() => chrome.storage.session.get(null))
+    const entry = decodeEntry(stored[ENTRY_KEY])
+    if (Option.isNone(entry)) return Option.none<PinEntry>()
+    const pinKey = `${PIN_PREFIX}${entry.value}`
+    const signInKey = `${SIGN_IN_PREFIX}${entry.value}`
+    const typingKey = `${TYPING_PREFIX}${entry.value}`
+    return Option.some<PinEntry>({
+      pin: decodePin(stored[pinKey]),
+      signIn: Option.getOrElse(decodeSignIn(stored[signInKey]), (): SignIn => ({
+        state: "none",
+      })),
+      typing: stored[typingKey] === true,
+      wipePin: Effect.promise(() =>
+        chrome.storage.session.remove([pinKey, typingKey])
+      ),
+      setSignIn: (signIn) =>
+        Effect.promise(() =>
+          chrome.storage.session.set({ [signInKey]: signIn })
+        ),
+      setTyping: (typing) =>
+        Effect.promise(() =>
+          typing
+            ? chrome.storage.session.set({ [typingKey]: true })
+            : chrome.storage.session.remove(typingKey)
+        ),
+    })
+  }),
+}
+
+// The newest entry's sign-in, for the options page.
+export const loadSignIn = Effect.map(
+  sessionPinStore.latest,
+  Option.match({
+    onNone: (): SignIn => ({ state: "none" }),
+    onSome: ({ signIn }) => signIn,
+  })
+)
 
 export const isSignInChange = Effect.fnUntraced(function* (
   changes: Readonly<Record<string, unknown>>,
   area: string
 ) {
-  return area === "session" && SIGN_IN_KEY in changes
+  return (
+    area === "session" &&
+    Object.keys(changes).some(
+      (key) => key === ENTRY_KEY || key.startsWith(SIGN_IN_PREFIX)
+    )
+  )
 })
 
-export const sessionPinStore: PinStore = {
-  takePin: Effect.gen(function* () {
+// The relayed Ajaib tab's PIN lock (ajaib-lock.ts), in session storage: it
+// describes this browser session's tab only. A `locked` state is the cause
+// "Ajaib locked" the options page and badge show.
+const AJAIB_LOCK_KEY = "ajaibLock"
+
+export const saveAjaibLock = Effect.fnUntraced(function* (lock: AjaibLock) {
+  const encoded = yield* Effect.orDie(Schema.encodeEffect(AjaibLock)(lock))
+  yield* Effect.promise(() =>
+    chrome.storage.session.set({ [AJAIB_LOCK_KEY]: encoded })
+  )
+})
+
+// A value the extra target's catch-up keeps in local storage beside the
+// origin it was kept for. A load captures the origin as it stands, and reads
+// as none for another origin, while none is set, or when it doesn't decode.
+// A save is kept for the origin its load captured, and dropped once `origin`
+// stands elsewhere (target-hold.ts).
+const keptForOrigin = <A, I>(
+  key: string,
+  value: Schema.Codec<A, I>,
+  // The extra target's origin while its operation's settings hold.
+  origin: Effect.Effect<Option.Option<DashboardOrigin>>
+) =>
+  Effect.sync(() => {
+    const Kept = Schema.Struct({ origin: DashboardOrigin, value })
+    let loaded = Option.none<DashboardOrigin>()
+    return {
+      load: Effect.gen(function* () {
+        loaded = yield* origin
+        const current = loaded
+        if (Option.isNone(current)) return Option.none<A>()
+        const stored = yield* Effect.promise(() =>
+          chrome.storage.local.get(key)
+        )
+        return Option.map(
+          Option.filter(
+            Schema.decodeUnknownOption(Kept)(stored[key]),
+            (kept) => kept.origin === current.value
+          ),
+          (kept) => kept.value
+        )
+      }),
+      save: Effect.fnUntraced(function* (kept: A) {
+        const current = yield* origin
+        if (Option.isNone(loaded) || !Option.contains(current, loaded.value))
+          return
+        const encoded = yield* Effect.orDie(
+          Schema.encodeEffect(Kept)({ origin: loaded.value, value: kept })
+        )
+        yield* Effect.promise(() =>
+          chrome.storage.local.set({ [key]: encoded })
+        )
+      }),
+    }
+  })
+
+// Ajaib's walk position for the day it walks (ajaib-walk.ts), in local
+// storage so a restarted worker or browser carries on: Ajaib can't be asked
+// where a walk stopped. Production's walk and the extra target's catch-up
+// (extra-target.ts) each keep their own, the catch-up's with the origin it
+// caught up, so another extra target starts its own.
+const ajaibWalkStoreAt = (key: string) =>
+  Effect.sync((): AjaibWalkStore => ({
+    load: Effect.gen(function* () {
+      const stored = yield* Effect.promise(() => chrome.storage.local.get(key))
+      return Schema.decodeUnknownOption(AjaibWalkPosition)(stored[key])
+    }),
+    save: Effect.fnUntraced(function* (position: AjaibWalkPosition) {
+      const encoded = yield* Effect.orDie(
+        Schema.encodeEffect(AjaibWalkPosition)(position)
+      )
+      yield* Effect.promise(() => chrome.storage.local.set({ [key]: encoded }))
+    }),
+  }))
+
+export const ajaibWalkStore = ajaibWalkStoreAt("brokerCodesAjaibWalk")
+export const ajaibCatchUpStore = (
+  origin: Effect.Effect<Option.Option<DashboardOrigin>>
+) =>
+  keptForOrigin(
+    "brokerCodesAjaibCatchUp",
+    AjaibWalkPosition,
+    origin
+  ) satisfies Effect.Effect<AjaibWalkStore>
+
+// The days whose broker codes may still be incomplete (run-queue.ts), and
+// the newest closed day the last run walked, in local storage so a
+// restarted worker or browser still walks their gaps and the evenings it
+// missed. A value that doesn't decode reads as none.
+const INCOMPLETE_DAYS_KEY = "brokerCodesIncompleteDays"
+const LAST_NEWEST_DAY_KEY = "brokerCodesLastNewestDay"
+const IncompleteDays = Schema.Array(WibDate)
+const decodeIncompleteDays = Schema.decodeUnknownOption(IncompleteDays)
+
+export const incompleteDaysStore: IncompleteDaysStore = {
+  load: Effect.gen(function* () {
     const stored = yield* Effect.promise(() =>
-      chrome.storage.session.get(PIN_KEY)
+      chrome.storage.local.get(INCOMPLETE_DAYS_KEY)
     )
-    yield* Effect.promise(() => chrome.storage.session.remove(PIN_KEY))
-    return decodePin(stored[PIN_KEY])
+    return Option.getOrElse(
+      decodeIncompleteDays(stored[INCOMPLETE_DAYS_KEY]),
+      (): ReadonlyArray<WibDate> => []
+    )
   }),
-  signIn: loadSignIn,
-  setSignIn: (signIn) =>
-    Effect.promise(() => chrome.storage.session.set({ [SIGN_IN_KEY]: signIn })),
+  save: (days) =>
+    Effect.promise(() =>
+      chrome.storage.local.set({ [INCOMPLETE_DAYS_KEY]: days })
+    ),
+  lastNewest: Effect.gen(function* () {
+    const stored = yield* Effect.promise(() =>
+      chrome.storage.local.get(LAST_NEWEST_DAY_KEY)
+    )
+    return Schema.decodeUnknownOption(WibDate)(stored[LAST_NEWEST_DAY_KEY])
+  }),
+  saveLastNewest: (day) =>
+    Effect.promise(() =>
+      chrome.storage.local.set({ [LAST_NEWEST_DAY_KEY]: day })
+    ),
 }
+
+// The History walk's positions (history.ts), in local storage so a
+// restarted worker or browser carries on: Production's, and the extra
+// target's, kept with the origin it caught up, so another extra target
+// starts its own. A value that doesn't decode reads as none, which the walk
+// rebuilds.
+const HISTORY_KEY = "brokerCodesHistory"
+
+export const historyStore: HistoryStore = {
+  load: Effect.gen(function* () {
+    const stored = yield* Effect.promise(() =>
+      chrome.storage.local.get(HISTORY_KEY)
+    )
+    return Schema.decodeUnknownOption(HistoryPosition)(stored[HISTORY_KEY])
+  }),
+  save: Effect.fnUntraced(function* (position: HistoryPosition) {
+    const encoded = yield* Effect.orDie(
+      Schema.encodeEffect(HistoryPosition)(position)
+    )
+    yield* Effect.promise(() =>
+      chrome.storage.local.set({ [HISTORY_KEY]: encoded })
+    )
+  }),
+}
+
+export const historyCatchUpStore = (
+  origin: Effect.Effect<Option.Option<DashboardOrigin>>
+) =>
+  keptForOrigin(
+    "brokerCodesHistoryCatchUp",
+    WibDate,
+    origin
+  ) satisfies Effect.Effect<HistoryCatchUpStore>
+
+// What the broker codes run queue is doing (run-queue.ts), for the options
+// page, in session storage: it describes this browser session's walks.
+const BROKER_CODES_PROGRESS_KEY = "brokerCodesProgress"
+
+export const saveBrokerCodesProgress = Effect.fnUntraced(function* (
+  progress: BrokerCodesProgress
+) {
+  const encoded = yield* Effect.orDie(
+    Schema.encodeEffect(BrokerCodesProgress)(progress)
+  )
+  yield* Effect.promise(() =>
+    chrome.storage.session.set({ [BROKER_CODES_PROGRESS_KEY]: encoded })
+  )
+})
+
+export const loadBrokerCodesProgress = Effect.gen(function* () {
+  const stored = yield* Effect.promise(() =>
+    chrome.storage.session.get(BROKER_CODES_PROGRESS_KEY)
+  )
+  return Schema.decodeUnknownOption(BrokerCodesProgress)(
+    stored[BROKER_CODES_PROGRESS_KEY]
+  )
+})
+
+export const isBrokerCodesProgressChange = Effect.fnUntraced(function* (
+  changes: Readonly<Record<string, unknown>>,
+  area: string
+) {
+  return area === "session" && BROKER_CODES_PROGRESS_KEY in changes
+})
+
+// Decision: the owner's Pause switch lives in chrome.storage.local, so a
+// pause holds across restarts of the worker and of Chrome. It stops every
+// broker codes walk; the live relay and Market Live's backfill go on. See
+// apinrdw/kumora#244, "Pause".
+const BROKER_CODES_PAUSED_KEY = "brokerCodesPaused"
+
+export const loadBrokerCodesPaused = Effect.gen(function* () {
+  const stored = yield* Effect.promise(() =>
+    chrome.storage.local.get(BROKER_CODES_PAUSED_KEY)
+  )
+  return stored[BROKER_CODES_PAUSED_KEY] === true
+})
+
+export const saveBrokerCodesPaused = Effect.fnUntraced(function* (
+  paused: boolean
+) {
+  yield* Effect.promise(() =>
+    chrome.storage.local.set({ [BROKER_CODES_PAUSED_KEY]: paused })
+  )
+})
+
+// A change of the switch: some(true) when it was turned on.
+export const brokerCodesPausedChange = Effect.fnUntraced(function* (
+  changes: Readonly<Record<string, chrome.storage.StorageChange>>,
+  area: string
+) {
+  if (area !== "local" || !(BROKER_CODES_PAUSED_KEY in changes))
+    return Option.none<boolean>()
+  return Option.some(changes[BROKER_CODES_PAUSED_KEY]?.newValue === true)
+})
+
+// Decision: "Run now" asks the worker through session storage, as the code
+// list's relay button does: the page writes `asked`, the change wakes a
+// stopped worker, and the worker answers `started` once it has triggered
+// the run queue, so the next press is a change again. See
+// apinrdw/kumora#244, "Run now".
+const BROKER_CODES_RUN_KEY = "brokerCodesRun"
+const BrokerCodesRun = Schema.Literals(["asked", "started"])
+type BrokerCodesRun = typeof BrokerCodesRun.Type
+
+export const saveBrokerCodesRun = Effect.fnUntraced(function* (
+  run: BrokerCodesRun
+) {
+  yield* Effect.promise(() =>
+    chrome.storage.session.set({ [BROKER_CODES_RUN_KEY]: run })
+  )
+})
+
+export const loadBrokerCodesRun = Effect.gen(function* () {
+  const stored = yield* Effect.promise(() =>
+    chrome.storage.session.get(BROKER_CODES_RUN_KEY)
+  )
+  return Schema.decodeUnknownOption(BrokerCodesRun)(
+    stored[BROKER_CODES_RUN_KEY]
+  )
+})
+
+export const isBrokerCodesRunChange = Effect.fnUntraced(function* (
+  changes: Readonly<Record<string, unknown>>,
+  area: string
+) {
+  return area === "session" && BROKER_CODES_RUN_KEY in changes
+})
+
+export const isBrokerCodesRunAsk = Effect.fnUntraced(function* (
+  changes: Readonly<Record<string, chrome.storage.StorageChange>>,
+  area: string
+) {
+  return (
+    (yield* isBrokerCodesRunChange(changes, area)) &&
+    changes[BROKER_CODES_RUN_KEY]?.newValue === "asked"
+  )
+})
+
+// Until when (epoch ms) each site's pacer stopped calling after a throttle
+// (pacer.ts), in session storage for the options page and for the pacers a
+// restarted service worker builds. Each site has its own key, so two pacers
+// throttled at once never write over each other's.
+// apps/e2e/tests/relay-extension.spec.ts names this key too: it sets a throttle.
+const THROTTLED_PREFIX = "brokerCodesThrottled."
+const decodeUntil = Schema.decodeUnknownOption(Schema.Finite)
+
+export const loadThrottled = Effect.gen(function* () {
+  const keys = Feed.literals.map((feed) => `${THROTTLED_PREFIX}${feed}`)
+  const stored = yield* Effect.promise(() => chrome.storage.session.get(keys))
+  const throttled: Partial<Record<Feed, number>> = {}
+  for (const feed of Feed.literals) {
+    const until = decodeUntil(stored[`${THROTTLED_PREFIX}${feed}`])
+    if (Option.isSome(until)) throttled[feed] = until.value
+  }
+  return throttled
+})
+
+export const saveThrottled = Effect.fnUntraced(function* (
+  feed: Feed,
+  until: number
+) {
+  yield* Effect.promise(() =>
+    chrome.storage.session.set({ [`${THROTTLED_PREFIX}${feed}`]: until })
+  )
+})
+
+export const isThrottledChange = Effect.fnUntraced(function* (
+  changes: Readonly<Record<string, unknown>>,
+  area: string
+) {
+  return (
+    area === "session" &&
+    Object.keys(changes).some((key) => key.startsWith(THROTTLED_PREFIX))
+  )
+})
+
+export const loadAjaibLock = Effect.gen(function* () {
+  const stored = yield* Effect.promise(() =>
+    chrome.storage.session.get(AJAIB_LOCK_KEY)
+  )
+  return Schema.decodeUnknownOption(AjaibLock)(stored[AJAIB_LOCK_KEY])
+})
+
+export const isAjaibLockChange = Effect.fnUntraced(function* (
+  changes: Readonly<Record<string, unknown>>,
+  area: string
+) {
+  return area === "session" && AJAIB_LOCK_KEY in changes
+})
+
+export const isHistoryChange = Effect.fnUntraced(function* (
+  changes: Readonly<Record<string, unknown>>,
+  area: string
+) {
+  return area === "local" && HISTORY_KEY in changes
+})

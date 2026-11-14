@@ -107,6 +107,10 @@ export const Fact = {
   sealed: "sealed",
   gaps: "gaps",
   feedDowns: "feed-downs",
+  // The broker codes store's (broker-codes.ts): the day's N and Stockbit's
+  // cross-check walk.
+  brokerCodesN: "broker-codes-n",
+  crossCheck: "cross-check",
 } as const
 
 // The most a stored trade's time can run before the time of the trade

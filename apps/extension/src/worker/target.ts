@@ -27,8 +27,8 @@ import type { DashboardOrigin, TargetState } from "./settings.ts"
 // socket opens, so a deploy during streaming hours costs one quick reconnect.
 // 4403 and 4426 stop retrying until the target's settings change. See
 // apinrdw/kumora#45.
-const FIRST_RETRY = Duration.seconds(1)
-const LAST_RETRY = Duration.seconds(30)
+export const FIRST_RETRY = Duration.seconds(1)
+export const LAST_RETRY = Duration.seconds(30)
 
 // The WIB date moved on while the socket was open.
 class DayChanged extends Schema.TaggedError<DayChanged>()("DayChanged", {}) {}

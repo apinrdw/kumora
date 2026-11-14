@@ -16,20 +16,15 @@ import {
 } from "@workspace/relay"
 import { Clock, DateTime, Effect, Option, Schema } from "effect"
 
-import type { Answer, TabRequest } from "./broker.ts"
+import type { Answer } from "./broker.ts"
+import type { RequestingTab } from "./pacer.ts"
 import type { TargetName } from "./settings.ts"
 import { RUNNING_TRADE_URL, tabCredential } from "./stockbit.ts"
 
-// What backfill needs of a broker tab (tab.ts).
-interface RequestingTab {
-  readonly request: (
-    request: TabRequest
-  ) => Effect.Effect<Option.Option<Answer>>
-}
-
-// Decision: each site gets about one REST call a second, the pace
-// apinrdw/kumora#61 set until the brokers' limits are measured: Stockbit's
-// Cloudflare answers a burst with a challenge no content script can solve.
+// Decision: backfill makes about one REST call a second per site, the pace
+// apinrdw/kumora#61 set. It calls through the site's pacer (pacer.ts), which
+// caps the site at 3/s, starts backfill's calls before a walk's, and stops
+// the site when it throttles.
 const CALL_INTERVAL = "1 second"
 
 // Stockbit's REST tape answers at most 100 rows a call. Gaps this close

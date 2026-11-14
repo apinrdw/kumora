@@ -31,7 +31,7 @@ import {
   type TradeNumber,
   type WibDate,
 } from "@workspace/relay"
-import { WorkerEnv } from "@workspace/server"
+import type { WorkerEnv } from "@workspace/server"
 import {
   Clock,
   DateTime,
@@ -47,6 +47,8 @@ import { tradePosition } from "../../lib/trade-position.ts"
 import { ajaibTrades } from "./ajaib.ts"
 import { ajaibPrices } from "./ajaib-price.ts"
 import { backfillTrades } from "./backfill-page.ts"
+import { makeBrokerCodes } from "./broker-codes.ts"
+import { ingestTokenMatches } from "./ingest-token.ts"
 import { makeBookChunks } from "./book-chunks.ts"
 import { makeCandleBook, minuteOf } from "./candles.ts"
 import { newerThanHeld } from "./late-frames.ts"
@@ -229,11 +231,6 @@ const encodeConditions = Schema.encodeEffect(
   Schema.fromJsonString(MarketConditions)
 )
 
-const sha256 = (text: string) =>
-  Effect.promise(() =>
-    crypto.subtle.digest("SHA-256", new TextEncoder().encode(text))
-  ).pipe(Effect.map((digest) => new Uint8Array(digest).toString()))
-
 // The last-frame cache, rebuilt from the store after a restart: each code's
 // last `liveprice` frame and its last served order book. Returns the frames.
 const restoreLastFrames = Effect.fnUntraced(function* (day: {
@@ -309,13 +306,21 @@ export const makeTradingDay = Effect.fnUntraced(function* (options: {
   const turn = yield* Semaphore.make(1)
   const codeListStore = options.codeList ?? (yield* memoryCodeListStore)
   const store = yield* makeDayStore(options.sql)
+  const brokerCodes = yield* makeBrokerCodes({
+    date: options.date,
+    sql: options.sql,
+    fact: store.fact,
+  })
   const setAlarm = options.setAlarm ?? (() => Effect.void)
   let sealed = (yield* store.fact(Fact.sealed)) !== undefined
   const sealAt = yield* sealInstant(options.date)
   // Decision: an object restores the live day from its store unless the day
-  // is sealed and past: a past day's object only answers recorded day GETs,
-  // straight from the store. Today's still serves viewers after the seal.
-  const today = (yield* wibDateAt(yield* DateTime.now)) === options.date
+  // is sealed and past: a past day's object answers recorded day GETs
+  // straight from the store, and broker codes POSTs and status GETs from its
+  // own tables (broker-codes.ts). Today's still serves viewers after the
+  // seal.
+  const todayDate = yield* wibDateAt(yield* DateTime.now)
+  const today = todayDate === options.date
   const restoring = !sealed || today
   // Decision: a viewer is served only until the object's day ends: past it,
   // the socket is closed with 1001 when it would next be served, and the page
@@ -723,7 +728,14 @@ export const makeTradingDay = Effect.fnUntraced(function* (options: {
 
   // When the seal next needs the alarm: 17:00 WIB, a minute after a seal
   // that didn't land, none once sealed.
-  let sealWake: DateTime.Utc | undefined = sealed ? undefined : sealAt
+  // Decision: a past day with no tape never arms the seal: its object holds
+  // only broker codes (a History walk day, or one the relay missed), and it
+  // never writes an index row, so the day strip never lists it. See spec
+  // apinrdw/kumora#244, "Dashboard: TradingDay's broker codes store".
+  //
+  // A WIB date is ISO, so an earlier one reads less.
+  const noTape = options.date < todayDate && storedHighest === undefined
+  let sealWake: DateTime.Utc | undefined = sealed || noTape ? undefined : sealAt
   // What the alarm is armed for since it last fired, so a later wake never
   // displaces an earlier one. The Durable Object keeps the alarm itself
   // across hibernation; the day's start arms it again from what it finds.
@@ -805,11 +817,6 @@ export const makeTradingDay = Effect.fnUntraced(function* (options: {
     yield* sweepIngests
   })
 
-  const tokenMatches = Effect.fnUntraced(function* (token: string) {
-    const { INGEST_TOKEN } = yield* WorkerEnv
-    return (yield* sha256(token)) === (yield* sha256(INGEST_TOKEN))
-  })
-
   // Ajaib's `PRICE` frames, for the Day state fallback.
   const ajaibPriceFrames = Effect.fnUntraced(function* (
     frames: ReadonlyArray<string>
@@ -877,7 +884,7 @@ export const makeTradingDay = Effect.fnUntraced(function* (options: {
     function* (socket: Peer, text: string) {
       if ((yield* socket.state) === "new") {
         const token = yield* firstToken(text)
-        if (token !== undefined && (yield* tokenMatches(token))) {
+        if (token !== undefined && (yield* ingestTokenMatches(token))) {
           yield* socket.setState("ready")
           yield* market.relayOnline
           yield* scheduleDelta
@@ -1050,5 +1057,16 @@ export const makeTradingDay = Effect.fnUntraced(function* (options: {
     recorded: (resource: RecordedResource) =>
       turn.withPermit(recorded(resource)),
     alarm: turn.withPermit(alarm),
+    // Decision: broker codes touch none of the day's recorded state: their
+    // own tables, no flush, no seal and no index row, so a sealed day takes
+    // them and its recorded answers stay byte-identical. See spec
+    // apinrdw/kumora#244, "Dashboard: TradingDay's broker codes store".
+    brokerCodes: {
+      post: (text: string) => turn.withPermit(brokerCodes.post(text)),
+      status: (search: URLSearchParams) =>
+        turn.withPermit(brokerCodes.status(search)),
+      held: (tradeNumber: TradeNumber) =>
+        turn.withPermit(brokerCodes.held(tradeNumber)),
+    },
   }
 })

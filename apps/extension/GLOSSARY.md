@@ -21,7 +21,7 @@ A dashboard the relay sends envelopes to over its own ingest socket: always Prod
 _Avoid_: destination, stage (a target names a Stage's dashboard, not the Stage)
 
 **Target state**:
-What a target's ingest socket is doing: off (no token), connecting, connected, retrying, token rejected (`4403`) or reload extension (`4426`). The last two stop retrying until the target's settings change.
+What a target's ingest socket is doing: off (no token), connecting, connected, retrying, token rejected (`4403`) or reload extension (`4426`). The last two stop retrying until the target's settings change. A broker codes POST or status GET refused with a 401 or 426 puts the target in the same two states. On the extra target, a broker codes request that fails for any other reason shows retrying.
 _Avoid_: status
 
 **On-demand codes**:
@@ -41,5 +41,9 @@ The number Ajaib's subscribe frames carry as `id`, read from the `sub` claim of 
 _Avoid_: user id (Stockbit's subscribe has its own `user_id`)
 
 **PIN sign-in**:
-The owner's 6-digit Ajaib PIN, entered on the options page and kept in `chrome.storage.session` only, which the Ajaib tab checks once with Ajaib's PIN validate call to get an access token. A refused PIN is never tried again; only a new entry is.
+The owner's 6-digit Ajaib PIN, entered on the options page and kept in `chrome.storage.session` only, until Chrome closes. The Ajaib tab checks each entry once with Ajaib's PIN validate call to get an access token; the sign-in's state, not the PIN's removal, keeps it to once. The extension types the kept PIN into Ajaib's lock screen, once per lock, and only after its sign-in succeeded. A PIN whose sign-in ended any other way, or that the lock screen was not seen to accept, is wiped and never tried again; only a new entry is.
 _Avoid_: login, PIN retry
+
+**Ajaib locked**:
+Ajaib's idle PIN lock showing on the relayed tab with no way for the extension to unlock it: no PIN kept, the kept one refused, or no lock screen boxes found. The extension keeps the lock away with a synthetic `mousemove` every 10 minutes, and records this cause for the options page and badge when it shows anyway.
+_Avoid_: PIN lock (the screen itself), signed out

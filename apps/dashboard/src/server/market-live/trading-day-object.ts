@@ -316,7 +316,8 @@ export class TradingDayObject {
   // Accepts the socket the Worker entry routed here, a viewer's already
   // gated and the relay's tagged with the instant on Market Live's clock its
   // token deadline counts from; answers the sessions a user still holds
-  // (live-viewers.ts) and the recorded day GETs, also gated.
+  // (live-viewers.ts) and the recorded day GETs, also gated; and takes the
+  // broker codes route's batches and status GETs, their token checked.
   fetch(request: Request): Response | Promise<Response> {
     const url = new URL(request.url)
     const { pathname } = url
@@ -334,6 +335,19 @@ export class TradingDayObject {
           Effect.as(new Response(null, { status: 204 }))
         )
       )
+    if (pathname === ObjectPath.brokerCodes) {
+      const { day } = this
+      return respond(
+        withMarketClock(
+          request.method === "POST"
+            ? Effect.flatMap(
+                Effect.promise(() => request.text()),
+                day.brokerCodes.post
+              )
+            : day.brokerCodes.status(new URL(request.url).searchParams)
+        )
+      )
+    }
     if (pathname === ObjectPath.ingest) {
       const { ctx, day } = this
       return respond(

@@ -5,6 +5,7 @@ import { TestClock } from "effect/testing"
 
 import { makeBackfill } from "../src/worker/backfill.ts"
 import type { Answer, TabRequest } from "../src/worker/broker.ts"
+import { makePacer } from "../src/worker/pacer.ts"
 import type { TargetName } from "../src/worker/settings.ts"
 
 const base64Url = (value: unknown) =>
@@ -88,11 +89,26 @@ const harness = Effect.fnUntraced(function* (tabs: {
 }) {
   yield* TestClock.setTime(NEXT_TIME + 5_000)
   const published: Array<IngestUp> = []
+  // Each site's calls go through its pacer, as in the service worker. The
+  // fake tabs answer every call at once.
+  const stockbit = yield* makePacer({
+    feed: "Stockbit",
+    tab: { ...tabs.stockbit, awaitAnswer: tabs.stockbit.request },
+  })
+  const ajaib = yield* makePacer({
+    feed: "Ajaib",
+    tab: { ...tabs.ajaib, awaitAnswer: tabs.ajaib.request },
+  })
   const backfill = yield* makeBackfill({
-    ...tabs,
+    stockbit: stockbit.tab("backfill"),
+    ajaib: ajaib.tab("backfill"),
     publish: (message) => Effect.sync(() => published.push(message)),
   })
-  const fiber = yield* Effect.forkChild(backfill.run)
+  const fiber = yield* Effect.forkChild(
+    Effect.all([stockbit.run, ajaib.run, backfill.run], {
+      concurrency: "unbounded",
+    })
+  )
   // The calls start idle, so a request waits for the next call.
   yield* TestClock.adjust("0 millis")
   const ask = (target: TargetName, from: number, to: number) =>

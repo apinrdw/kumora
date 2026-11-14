@@ -141,6 +141,12 @@ const auctionMatchMinutes: ReadonlyArray<Span> = [
 // included. A narrower window loses auction data; a wider one costs little.
 const streaming: Span = { first: "08:40:00", last: "16:34:59" }
 
+// The first instant the relay streams on `date`: where Ajaib's broker codes
+// window ends.
+export const streamingStartOf = Effect.fnUntraced(function* (date: WibDate) {
+  return DateTime.makeUnsafe(`${date}T${streaming.first}+07:00`)
+})
+
 // The last instant the relay streams on `date`, the last a trade can be
 // recorded at: a recorded day's tape at the close reads there.
 export const streamingEndOf = Effect.fnUntraced(function* (date: WibDate) {

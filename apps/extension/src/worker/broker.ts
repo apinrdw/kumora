@@ -75,6 +75,20 @@ export type TabRequest =
   // The bearer token of the page's latest REST request; status 0 before it
   // made one.
   | { readonly _tag: "page-token" }
+  // Ajaib: one synthetic `mousemove` on the page's document, which re-arms
+  // its idle PIN lock (ajaib-lock.ts).
+  | { readonly _tag: "activity" }
+  // Ajaib: type the PIN into the lock screen's six boxes. Status 200 once
+  // typed, 404 when no lock screen shows, so nothing was typed.
+  | { readonly _tag: "type-pin"; readonly pin: string }
+
+// A REST call on the broker's API, which only the site's pacer (pacer.ts)
+// sends; every other request is answered in the tab itself.
+export type RestRequest = Extract<
+  TabRequest,
+  { readonly _tag: "fetch" | "page-fetch" | "page-post" }
+>
+export type LocalRequest = Exclude<TabRequest, RestRequest>
 
 export type TabCommand =
   | BrokerCommand
@@ -84,11 +98,13 @@ export type TabCommand =
       readonly request: TabRequest
     }
 
-// Status 0: the request failed before any answer.
+// Status 0: the request failed before any answer. `challenge` is set when
+// the answer carried Cloudflare's `cf-mitigated: challenge` header.
 export const Answer = Schema.TaggedStruct("answer", {
   id: Schema.Int,
   status: Schema.Int,
   body: Schema.String,
+  challenge: Schema.optionalKey(Schema.Boolean),
 })
 export type Answer = typeof Answer.Type
 
@@ -100,6 +116,15 @@ export const BrokerEvent = Schema.Union([
   Schema.TaggedStruct("closed", { ...socket, code: Schema.Int }),
 ])
 export type BrokerEvent = typeof BrokerEvent.Type
+
+// What Ajaib's page script (page.ts) sees of the page, by way of the content
+// script: the PIN lock screen showing or gone, and the answer status of the
+// page's own PIN validate call.
+export const PageEvent = Schema.Union([
+  Schema.TaggedStruct("lock", { locked: Schema.Boolean }),
+  Schema.TaggedStruct("pin-validated", { status: Schema.Int }),
+])
+export type PageEvent = typeof PageEvent.Type
 
 // How the relay talks to one broker socket.
 export interface BrokerSite {

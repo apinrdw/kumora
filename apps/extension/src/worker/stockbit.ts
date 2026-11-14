@@ -5,7 +5,7 @@
 import { INDEX_CODES, type StockCode } from "@workspace/relay"
 import { Effect, Option, Schema } from "effect"
 
-import type { Answer, TabRequest } from "./broker.ts"
+import type { Answer, LocalRequest } from "./broker.ts"
 import { jwtPayloadText } from "./jwt.ts"
 
 // Decision: the key comes from Stockbit's REST host, called from the tab with
@@ -14,7 +14,7 @@ import { jwtPayloadText } from "./jwt.ts"
 // whatever the page last refreshed. See apinrdw/kumora#43.
 export const WEBSOCKET_KEY_URL =
   "https://exodus.stockbit.com/auth/websocket/key"
-const CREDENTIAL_COOKIE = "credentialStorage"
+export const CREDENTIAL_COOKIE = "credentialStorage"
 
 // Stockbit's REST running-trade tape, which backfill pages by trade number.
 export const RUNNING_TRADE_URL =
@@ -55,7 +55,7 @@ export const stockbitCredential = Effect.fnUntraced(function* (cookie: string) {
 // The tab's current credential, read from its cookie at call time.
 export const tabCredential = Effect.fnUntraced(function* (tab: {
   readonly request: (
-    request: TabRequest
+    request: LocalRequest
   ) => Effect.Effect<Option.Option<Answer>>
 }) {
   const cookie = yield* tab.request({ _tag: "cookie", name: CREDENTIAL_COOKIE })

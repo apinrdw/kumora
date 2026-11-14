@@ -1,6 +1,10 @@
+import { parseStage, stageUrl } from "@workspace/deploy"
 import {
+  WibDate,
   decodeIngestUp,
+  encodeBrokerCodesStatus,
   encodeIngestDown,
+  type BrokerCodesStatus,
   type IngestDown,
   type IngestUp,
 } from "@workspace/relay"
@@ -8,7 +12,10 @@ import { chromium, expect, type Worker } from "@playwright/test"
 import { Effect } from "effect"
 import { execFileSync } from "node:child_process"
 import { mkdtempSync, readFileSync } from "node:fs"
-import { createServer as createHttpServer } from "node:http"
+import {
+  createServer as createHttpServer,
+  type ServerResponse,
+} from "node:http"
 import { createServer, type Server } from "node:https"
 import type { AddressInfo } from "node:net"
 import { tmpdir } from "node:os"
@@ -28,7 +35,21 @@ const EXTENSION = fileURLToPath(
 export const AJAIB_TAB = "https://trade.ajaib.co.id/"
 export const STOCKBIT_TAB = "https://stockbit.com/"
 
-/** Every broker host the fakes answer for, all on one local port. */
+/** Production's dashboard, as the built extension names it. */
+const PRODUCTION_HOST = new URL(
+  Effect.runSync(
+    Effect.orDie(
+      Effect.flatMap(parseStage("production"), (stage) =>
+        stageUrl("dashboard", stage)
+      )
+    )
+  )
+).host
+
+/**
+ * Every host the fakes answer for, all on one local port: the brokers', and
+ * Production's dashboard, whose broker codes statuses a test sets.
+ */
 const HOSTS = [
   "trade.ajaib.co.id",
   "stream.ajaib.co.id",
@@ -36,7 +57,30 @@ const HOSTS = [
   "stockbit.com",
   "exodus.stockbit.com",
   "wss-jkt.trading.stockbit.com",
+  PRODUCTION_HOST,
 ]
+
+// A status GET answers the same status whatever its `?after=` names.
+const BROKER_CODES_PATH = /^\/api\/broker-codes\/(\d{4}-\d{2}-\d{2})(?:\?.*)?$/
+
+// A day's broker codes status, by day; none answers 404.
+type DayStatuses = (day: WibDate) => BrokerCodesStatus | undefined
+
+// Answers a broker codes status GET from `statuses`.
+const answerStatus = (
+  statuses: DayStatuses,
+  path: string,
+  response: ServerResponse
+) => {
+  const day = BROKER_CODES_PATH.exec(path)?.[1]
+  const status = day === undefined ? undefined : statuses(WibDate.make(day))
+  if (status === undefined) {
+    response.writeHead(404)
+    return response.end()
+  }
+  response.writeHead(200, { "content-type": "application/json" })
+  response.end(Effect.runSync(encodeBrokerCodesStatus(status)))
+}
 
 /** One socket the relay opened to a fake broker, and what it sent. */
 export interface BrokerSocket {
@@ -163,6 +207,8 @@ export async function startFakeBrokers() {
     answer: PIN_ANSWERS.approved,
     bodies: [],
   }
+  // Production's broker codes statuses; a test sets them.
+  const production: { statuses: DayStatuses } = { statuses: () => undefined }
   const sockets: Array<BrokerSocket> = []
   const requests: Array<{ path: string; headers: Record<string, unknown> }> = []
   const server: Server = createServer(
@@ -171,6 +217,8 @@ export async function startFakeBrokers() {
       const host = request.headers.host?.split(":")[0]
       const path = request.url ?? "/"
       requests.push({ path, headers: request.headers })
+      if (host === PRODUCTION_HOST)
+        return answerStatus(production.statuses, path, response)
       if (host === "exodus.stockbit.com") {
         response.setHeader(
           "access-control-allow-origin",
@@ -271,6 +319,7 @@ export async function startFakeBrokers() {
   return {
     port: (server.address() as AddressInfo).port,
     tapes,
+    production,
     pin,
     sockets,
     requests,
@@ -289,7 +338,15 @@ export async function startFakeBrokers() {
  * what the test tells it.
  */
 export async function startFakeIngest() {
-  const server = createHttpServer()
+  // Its broker codes statuses; a test sets them. The extension holds no
+  // host permission for an extra target, so the fake allows its origin.
+  const brokerCodes: { statuses: DayStatuses } = { statuses: () => undefined }
+  const server = createHttpServer((request, response) => {
+    response.setHeader("access-control-allow-origin", "*")
+    response.setHeader("access-control-allow-headers", "authorization")
+    if (request.method === "OPTIONS") return response.end()
+    answerStatus(brokerCodes.statuses, request.url ?? "/", response)
+  })
   const sockets: Array<WebSocket> = []
   // Stamped on arrival and decoded only when read, each once, so a busy
   // relay's envelopes are timed as they arrive.
@@ -319,6 +376,7 @@ export async function startFakeIngest() {
   }
   return {
     origin: `http://127.0.0.1:${(server.address() as AddressInfo).port}`,
+    brokerCodes,
     sockets,
     messages,
     /** Every BackfillPage the relay sent up: feed, range and body. */
