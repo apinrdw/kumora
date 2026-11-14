@@ -115,6 +115,24 @@ _Avoid_: Market status, status bar
 The moment of a recorded day the page shows: the chart, watchlist, order book and tape all read as of it.
 _Avoid_: Playhead, timestamp
 
+### Shareholding
+
+**Shareholding report**:
+One file IDX publishes on its Data Kepemilikan Saham page, as of one date. It is kept exactly as published.
+_Avoid_: Ownership filing, kepemilikan file
+
+**Report kind**:
+Which of IDX's four shareholding reports a file is: holders above 5% (daily), holders above 1%, holdings by investor type, or holdings by investor classification (each month-end).
+_Avoid_: Report type, category
+
+**Shareholding archive**:
+Every shareholding report the dashboard has kept, each version of it included. Nothing in it is ever overwritten or removed.
+_Avoid_: Ownership archive, IDX archive
+
+**Archive run**:
+One pass that compares IDX's list of shareholding reports with the shareholding archive and stores any report, or new version of one, that the archive lacks. The schedule starts one twice a day, and an admin can start one when none is in progress. It ends **complete**, **partial** (some reports could not be stored and wait for the next run) or **failed**.
+_Avoid_: Sync, scrape, job
+
 ### Access
 
 **Account**:
