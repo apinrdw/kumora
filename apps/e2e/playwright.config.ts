@@ -13,6 +13,16 @@ import {
   video,
 } from "./support/video"
 
+// Decision: refuse a `--` in the arguments. `pnpm test:e2e -- <spec>` hands it
+// to Playwright, which then drops every filter after it and runs the whole
+// suite: 7 agent sessions waited minutes for a one-spec run that way.
+if (process.argv.includes("--")) {
+  console.error(
+    "e2e: drop the `--`. Playwright ignores the spec files and -g after it and runs every test. Run `pnpm test:e2e tests/<file>.spec.ts -g <title>`."
+  )
+  process.exit(2)
+}
+
 const recorded = recording(
   process.env[SWITCH],
   readdirSync(new URL("tests", import.meta.url))

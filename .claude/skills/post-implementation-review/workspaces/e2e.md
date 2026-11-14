@@ -3,7 +3,7 @@
 Running the Playwright suite against the Test stage.
 
 - **Parallel runs share only the CPU.** Ports are per run unless both runs export the same one (`apps/e2e/support/ports.ts` says how a preset one is treated); give each run `--workers=<cores / runs>`: two runs at 8 workers on 16 cores time out sign-in specs.
-- **`pnpm test:e2e -- <file>` still runs the setup project**, which signs up and verifies the shared accounts from `.eml` files first, so a one-spec run takes about 40 s.
+- **`pnpm test:e2e tests/<file>.spec.ts` still runs the setup project**, which signs up and verifies the shared accounts from `.eml` files first, so a one-spec run takes about 40 s.
 - **Each browser context needs its own client IP.** Import `test` and `newClientContext` from `support/test.ts`: it sends a random `cf-connecting-ip` per context, so the per-IP rate limits stay on without specs eating each other's budget. A spec that builds a context with `browser.newContext` directly shares one IP.
 - **e2e runs only on the dev machine, and CI checks for its evidence.** Run `pnpm e2e:evidence <spec...>`, naming the specs whose videos show the change. It needs a gh recent enough for `gh pr comment --attach` (`GH_MINIMUM` in `scripts/e2e-evidence-plan.mts`). A PR with no visible behaviour change takes the `no-e2e-evidence` label instead.
 - **A red run posts nothing.** Fix the failure it prints and run it again. What else it refuses, and why, is in `scripts/e2e-evidence-plan.mts`.
