@@ -83,6 +83,12 @@
   --color-secondary-text: var(--text-secondary);
   --color-accent-hover: var(--accent-hover);
   --color-vwap: var(--chart-vwap);
+  /* Decision: the tape's broker codes by investor type, foreign amber and
+     domestic blue: neither is up or down, which mean buy and sell on the
+     tape, and the [F] or [D] beside the code is the cue that needs no
+     colour. Dark is the only theme. */
+  --color-foreign: var(--semantic-warning);
+  --color-domestic: var(--semantic-info);
   --color-volume: var(--chart-volume);
   --color-grid: var(--chart-grid);
 

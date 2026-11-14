@@ -1,5 +1,6 @@
 // @vitest-environment happy-dom
 import {
+  BrokerCode,
   StockCode,
   TradeNumber,
   type RunningTrade,
@@ -183,5 +184,108 @@ test("an odd lot shows its hundredths: 1 share is 0.01 lots, 25 shares 0.25", ()
     "0.5",
     "12",
   ])
+  act(() => root.unmount())
+})
+
+// Trade 1 bought by a foreign AK from a domestic CD; trade 2 with no codes.
+const CODES = new Map([
+  [
+    TradeNumber.make("1"),
+    {
+      buyer: BrokerCode.make("AK"),
+      buyerType: "F",
+      seller: BrokerCode.make("CD"),
+      sellerType: "D",
+    },
+  ],
+] as const)
+
+const cellsOf = (container: Element, n: number) =>
+  [
+    ...container
+      .querySelector(`tr[data-trade-number="${n}"]`)!
+      .querySelectorAll("td"),
+  ].map((cell) => cell.textContent)
+
+const headers = (container: Element) =>
+  [...container.querySelectorAll("thead th")].map((cell) => cell.textContent)
+
+test("a trade's Buyer and Seller show each broker code and investor type, after Value", () => {
+  const container = document.body.appendChild(document.createElement("div"))
+  const root = createRoot(container)
+  act(() =>
+    root.render(
+      <TapeList
+        tape={tapeOf(1, 2)}
+        frame={1}
+        codes={CODES}
+        selected={StockCode.make("BBCA")}
+        onSelect={() => {}}
+      />
+    )
+  )
+  expect(headers(container)).toEqual([
+    "Time",
+    "Code",
+    "Price",
+    "Lot",
+    "Value",
+    "Buyer",
+    "Seller",
+    "Source",
+  ])
+  const [, , price, , , buyer, seller] = cellsOf(container, 1)
+  expect([price, buyer, seller]).toEqual(["9,000 buy", "AK [F]", "CD [D]"])
+  act(() => root.unmount())
+})
+
+test("a trade without codes shows blank Buyer and Seller cells", () => {
+  const container = document.body.appendChild(document.createElement("div"))
+  const root = createRoot(container)
+  act(() =>
+    root.render(
+      <TapeList
+        tape={tapeOf(1, 2)}
+        frame={1}
+        codes={CODES}
+        selected={StockCode.make("BBCA")}
+        onSelect={() => {}}
+      />
+    )
+  )
+  const [, , , , , buyer, seller] = cellsOf(container, 2)
+  expect([buyer, seller]).toEqual(["", ""])
+  act(() => root.unmount())
+})
+
+test("gap and fold rows span every column", () => {
+  const container = document.body.appendChild(document.createElement("div"))
+  const root = createRoot(container)
+  // Trade 1 is the opening match's print, which folds.
+  const tape = Effect.runSync(
+    applyViewerMessage(Effect.runSync(emptyTape()), {
+      _tag: "Delta",
+      tape: [
+        { ...trade(1), time: DateTime.makeUnsafe("2026-11-09T08:58:00+07:00") },
+        trade(2),
+      ],
+      candles: [],
+    })
+  )
+  act(() =>
+    root.render(
+      <TapeList
+        tape={tape}
+        frame={1}
+        selected={StockCode.make("BBCA")}
+        onSelect={() => {}}
+        gaps={[{ from: DateTime.makeUnsafe("2026-11-09T08:30:00+07:00") }]}
+      />
+    )
+  )
+  const span = (row: string) =>
+    container.querySelector(`tr[${row}] td`)?.getAttribute("colspan")
+  expect(container.querySelectorAll("thead th")).toHaveLength(8)
+  expect([span("data-fold"), span("data-relay-gap")]).toEqual(["8", "8"])
   act(() => root.unmount())
 })

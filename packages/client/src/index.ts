@@ -16,7 +16,11 @@ export { fetchStockCodeList, searchStockCodes } from "./stock-code-list.ts"
 export {
   fetchDayStrip,
   fetchRecordedBookChunk,
+  fetchRecordedBrokerCodes,
   fetchRecordedCandles,
   fetchRecordedGaps,
   fetchRecordedTape,
+  makeBrokerCodesFollower,
+  makeNewestWins,
 } from "./recorded-day.ts"
+export type { RecordedTradeCodes } from "./recorded-day.ts"

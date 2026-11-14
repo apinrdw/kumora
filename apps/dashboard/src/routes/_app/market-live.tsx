@@ -3,7 +3,13 @@ import { Effect } from "effect"
 import { clientRuntime, type StockCode } from "@workspace/client"
 import type { ViewerDown, WibDate } from "@workspace/relay"
 import { loadServerFn, runLoader } from "@workspace/server/loader"
-import { useCallback, useEffect, useMemo, useState } from "react"
+import {
+  type CSSProperties,
+  useCallback,
+  useEffect,
+  useMemo,
+  useState,
+} from "react"
 
 import { makeCandleStore } from "@/components/market-live/candle-store"
 import { makeDayStateStore } from "@/components/market-live/day-state-store"
@@ -25,6 +31,7 @@ import {
 } from "@/components/market-live/recorded-day"
 import { StockCodePalette } from "@/components/market-live/stock-code-palette"
 import { StockCodePicker } from "@/components/market-live/stock-code-picker"
+import { TAPE_WIDTH_PX } from "@/components/market-live/tape-list"
 import { TransportBar } from "@/components/market-live/transport-bar"
 import { useStockCodeList } from "@/components/market-live/use-stock-code-list"
 import { useWatchlist } from "@/components/market-live/use-watchlist"
@@ -135,7 +142,10 @@ function MarketLiveDay({
   return (
     <>
       <h1 className="text-2xl font-bold">Market Live</h1>
-      <div className="grid gap-4 lg:grid-cols-[minmax(0,1fr)_400px]">
+      <div
+        style={{ "--tape-w": `${TAPE_WIDTH_PX}px` } as CSSProperties}
+        className="grid gap-4 lg:grid-cols-[minmax(0,1fr)_var(--tape-w)]"
+      >
         <LiveChart
           store={candles}
           gaps={cursor === undefined ? liveGaps : gaps}

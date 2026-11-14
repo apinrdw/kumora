@@ -2,6 +2,7 @@
 // loads"), answered from its day store. A day not sealed yet answers what it
 // flushed, not cached; a sealed day's answers never change.
 import {
+  encodeRecordedBrokerCodes,
   encodeRecordedCandles,
   encodeRecordedGaps,
   encodeRecordedTape,
@@ -11,6 +12,7 @@ import {
 } from "@workspace/relay"
 import { DateTime, Effect } from "effect"
 
+import type { BrokerCodesStore } from "./broker-codes.ts"
 import { codeListAnswer, type CodeListStore } from "./code-list.ts"
 import { Fact, type makeDayStore } from "./day-store.ts"
 import { SEALED_CACHE } from "./routes.ts"
@@ -19,6 +21,11 @@ import { SEALED_CACHE } from "./routes.ts"
 export const SNAPSHOT_TRADES = 200
 
 const MINUTE = 60_000
+
+// Decision: a complete day's codes answer is kept a minute, never immutable:
+// a later Ajaib or Stockbit batch may still rewrite a trade's codes. An
+// incomplete day's is not stored, so the page's recheck sees new codes.
+const COMPLETE_CODES_CACHE = "private, max-age=60"
 
 const json = (text: string, cacheControl: string, status = 200) =>
   Effect.sync(
@@ -38,6 +45,7 @@ export const recordedAnswer = Effect.fnUntraced(function* (
     readonly date: WibDate
     readonly store: Effect.Success<ReturnType<typeof makeDayStore>>
     readonly codeList: CodeListStore
+    readonly brokerCodes: BrokerCodesStore
     readonly sealed: boolean
     // The gaps so far, while the day isn't sealed.
     readonly liveGaps: Effect.Effect<ReadonlyArray<RelayGap>>
@@ -55,6 +63,23 @@ export const recordedAnswer = Effect.fnUntraced(function* (
         }),
         cacheControl
       )
+    // Decision: the codes of the trades the tape answer at `at` holds, picked
+    // the same way, so the page sends no trade numbers. Codes arrive after
+    // the seal, so they are their own resource and the tape's answer stays
+    // byte-identical.
+    case "BrokerCodes": {
+      const trades = yield* store.tradesAt(resource.at, SNAPSHOT_TRADES)
+      const complete = yield* day.brokerCodes.isComplete
+      return yield* json(
+        yield* encodeRecordedBrokerCodes({
+          codes: yield* day.brokerCodes.heldCodes(
+            trades.map((trade) => trade.tradeNumber)
+          ),
+          complete,
+        }),
+        complete ? COMPLETE_CODES_CACHE : "no-store"
+      )
+    }
     case "Candles": {
       const previous = (yield* store.livePrice(resource.code))?.previous
       return yield* json(

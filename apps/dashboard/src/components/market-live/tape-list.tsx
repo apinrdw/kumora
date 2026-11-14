@@ -1,7 +1,11 @@
+import type { RecordedTradeCodes } from "@workspace/client"
 import type {
+  BrokerCode,
+  InvestorType,
   RelayGap,
   RunningTrade,
   StockCode,
+  TradeCodes,
   ViewerDown,
 } from "@workspace/relay"
 import { cn } from "@workspace/ui/lib/utils"
@@ -141,13 +145,72 @@ function SourceDots({ feeds }: { feeds: ReadonlyArray<Source> }) {
 
 const CELL = "h-[22px] overflow-hidden py-0 leading-[22px] whitespace-nowrap"
 
+// Each column's width in px, in order.
+// Decision: a bold 45,000 price, 123,456 lots and Rp555.55 B each fit
+// whole, so no figure is clipped. The tape is never narrower than their sum:
+// the page gives it that width on desktop, and a phone scrolls it sideways.
+const COLUMN_PX = {
+  time: 76,
+  code: 84,
+  price: 52,
+  lot: 56,
+  value: 76,
+  buyer: 56,
+  seller: 56,
+  sources: 36,
+}
+
+export const TAPE_WIDTH_PX = Object.values(COLUMN_PX).reduce(
+  (sum, px) => sum + px
+)
+
+// A gap or fold row spans every column.
+const COLUMNS = Object.keys(COLUMN_PX).length
+
+const INVESTOR_TEXT: Record<InvestorType, string> = {
+  F: "text-foreign",
+  D: "text-domestic",
+}
+
+// One side of a trade: its broker and the investor behind it.
+interface TradeSide {
+  readonly code: BrokerCode
+  readonly investorType: InvestorType
+}
+
+// One side as `AK [F]`, coloured by its investor type; blank while the trade
+// has no stored codes.
+function BrokerCell({ side }: { side: TradeSide | undefined }) {
+  return (
+    <td className={cn(CELL, "pl-2", side && INVESTOR_TEXT[side.investorType])}>
+      {side && `${side.code} [${side.investorType}]`}
+    </td>
+  )
+}
+
+// The trade's Buyer and Seller cells.
+function BrokerCells({ codes }: { codes: TradeCodes | undefined }) {
+  return (
+    <>
+      <BrokerCell
+        side={codes && { code: codes.buyer, investorType: codes.buyerType }}
+      />
+      <BrokerCell
+        side={codes && { code: codes.seller, investorType: codes.sellerType }}
+      />
+    </>
+  )
+}
+
 const TradeRow = memo(function TradeRow({
   trade,
+  codes,
   selected,
   inFold,
   onSelect,
 }: {
   trade: RunningTrade
+  codes: TradeCodes | undefined
   selected: boolean
   inFold: boolean
   onSelect: (code: StockCode) => void
@@ -194,6 +257,7 @@ const TradeRow = memo(function TradeRow({
       <td className={cn(CELL, "text-right", side)}>
         Rp{Effect.runSync(compact(Effect.runSync(tradeValue(trade))))}
       </td>
+      <BrokerCells codes={codes} />
       <td className={cn(CELL, "pl-2")}>
         <SourceDots feeds={trade.feeds} />
       </td>
@@ -215,7 +279,7 @@ function FoldRow({
 }) {
   return (
     <tr data-fold={row.match} className="bg-info/10 text-info">
-      <td colSpan={6} className={cn(CELL, "px-0")}>
+      <td colSpan={COLUMNS} className={cn(CELL, "px-0")}>
         <button
           type="button"
           aria-expanded={open}
@@ -244,7 +308,7 @@ function FoldRow({
 function GapRow({ gap }: { gap: RelayGap }) {
   return (
     <tr data-relay-gap className="text-muted-foreground">
-      <td colSpan={6} className={cn(CELL, "text-center")}>
+      <td colSpan={COLUMNS} className={cn(CELL, "text-center")}>
         Not recorded ·{" "}
         {Effect.runSync(tapeTime(DateTime.toEpochMillis(gap.from)))}–
         {gap.to === undefined
@@ -253,6 +317,13 @@ function GapRow({ gap }: { gap: RelayGap }) {
       </td>
     </tr>
   )
+}
+
+// Stands in for `rows` rows outside the view, so the list scrolls the whole
+// tape.
+function Spacer({ rows }: { rows: number }) {
+  if (rows <= 0) return null
+  return <tr aria-hidden style={{ height: rows * ROW_PX }} />
 }
 
 // The tape as a virtual list: only the rows in view are DOM. A live tape
@@ -264,6 +335,7 @@ export function TapeList({
   tape,
   frame,
   live = false,
+  codes,
   selected,
   onSelect,
   gaps = [],
@@ -273,6 +345,8 @@ export function TapeList({
   // Changes once per drawn frame: the tape is mutated in place.
   frame: number
   live?: boolean
+  // Each trade's broker codes, by Trade number; the live tape has none.
+  codes?: RecordedTradeCodes
   selected: StockCode
   // Stable across renders, or every visible row re-renders.
   onSelect: (code: StockCode) => void
@@ -339,16 +413,16 @@ export function TapeList({
       <div
         ref={scroller}
         onScroll={onScroll}
-        className="h-full overflow-y-auto overscroll-contain"
+        className="h-full overflow-auto overscroll-contain"
       >
-        <table className="w-full table-fixed text-[13px] tabular-nums">
+        <table
+          className="w-full table-fixed text-[13px] tabular-nums"
+          style={{ minWidth: TAPE_WIDTH_PX }}
+        >
           <colgroup>
-            <col className="w-[76px]" />
-            <col className="w-[84px]" />
-            <col />
-            <col />
-            <col />
-            <col className="w-[36px]" />
+            {Object.entries(COLUMN_PX).map(([column, px]) => (
+              <col key={column} style={{ width: px }} />
+            ))}
           </colgroup>
           <thead className="sticky top-0 z-10 bg-card text-left text-muted-foreground">
             <tr>
@@ -357,13 +431,15 @@ export function TapeList({
               <th className="text-right font-normal">Price</th>
               <th className="text-right font-normal">Lot</th>
               <th className="text-right font-normal">Value</th>
+              <th className="pl-2 font-normal">Buyer</th>
+              <th className="pl-2 font-normal">Seller</th>
               <th className="font-normal">
                 <span className="sr-only">Source</span>
               </th>
             </tr>
           </thead>
           <tbody>
-            {first > 0 && <tr aria-hidden style={{ height: first * ROW_PX }} />}
+            <Spacer rows={first} />
             {rows.map((row) =>
               row.kind === "gap" ? (
                 <GapRow
@@ -381,15 +457,14 @@ export function TapeList({
                 <TradeRow
                   key={row.trade.tradeNumber}
                   trade={row.trade}
+                  codes={codes?.get(row.trade.tradeNumber)}
                   selected={row.trade.code === selected}
                   inFold={row.inFold !== undefined}
                   onSelect={onSelect}
                 />
               )
             )}
-            {last < total && (
-              <tr aria-hidden style={{ height: (total - last) * ROW_PX }} />
-            )}
+            <Spacer rows={total - last} />
           </tbody>
         </table>
       </div>

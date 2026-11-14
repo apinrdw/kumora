@@ -15,11 +15,14 @@ import {
   brokerCodesStatusPath,
   decodeBrokerCodesBatch,
   decodeBrokerCodesStatus,
+  decodeRecordedBrokerCodes,
   encodeBrokerCodesBatch,
   encodeBrokerCodesStatus,
+  encodeRecordedBrokerCodes,
   stockbitRowCodes,
   type BrokerCodesBatch,
   type BrokerCodesStatus,
+  type RecordedBrokerCodes,
   type TradeCodes,
 } from "@workspace/relay"
 
@@ -123,6 +126,37 @@ describe("a broker codes batch", () => {
           assert.strictEqual(error._tag, "SchemaError", JSON.stringify(row))
         }
       })
+  )
+})
+
+describe("a recorded day's broker codes answer", () => {
+  it.effect(
+    "travels as trade number and codes pairs, and comes back equal",
+    () =>
+      Effect.gen(function* () {
+        const answer: RecordedBrokerCodes = {
+          codes: [
+            [number("1"), codes],
+            [number("1500490"), codes],
+          ],
+          complete: true,
+        }
+        const wire = yield* encodeRecordedBrokerCodes(answer)
+        assert.strictEqual(
+          wire,
+          '{"codes":[["1",{"buyer":"YP","buyerType":"D","seller":"CC","sellerType":"F"}],["1500490",{"buyer":"YP","buyerType":"D","seller":"CC","sellerType":"F"}]],"complete":true}'
+        )
+        assert.deepStrictEqual(yield* decodeRecordedBrokerCodes(wire), answer)
+      })
+  )
+
+  it.effect("may list no trades", () =>
+    Effect.gen(function* () {
+      assert.deepStrictEqual(
+        yield* decodeRecordedBrokerCodes('{"codes":[],"complete":false}'),
+        { codes: [], complete: false }
+      )
+    })
   )
 })
 
