@@ -5,6 +5,7 @@
 import type { Sweep } from "@workspace/relay"
 import { DateTime, Effect } from "effect"
 
+// The wire tuple's order (@workspace/relay envelope.ts `Sweep`); change both.
 type SweepTuple = readonly [
   side: Sweep["side"],
   firstTrade: Sweep["firstTrade"],

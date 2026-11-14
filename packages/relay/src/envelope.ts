@@ -325,7 +325,8 @@ const SweepFields = Schema.Struct({
 // Decision: a sweep travels as a tuple, [side, first trade, time, first,
 // last, lots, value, trades], not a keyed object. A delta resends a minute's
 // sweeps whole, and a busy code's peak minute of 370 measured 21 KB a delta
-// as tuples against 45 KB with the keys (apinrdw/kumora#279).
+// as tuples against 45 KB with the keys (apinrdw/kumora#279). A footprint
+// row stores the same order (dashboard sweep-rows.ts); change both.
 export const Sweep = Schema.Tuple([
   Side,
   TradeNumber,
