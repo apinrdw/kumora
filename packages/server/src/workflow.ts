@@ -23,7 +23,11 @@ export interface WorkflowRun<Params> {
 // runs its Effect with `layer` and the Worker's env, rejects with the step's
 // failure as is, except `NonRetryable`, thrown as `NonRetryableError` to skip
 // the step's retries, and keeps the step's default retries: no Effect retry
-// on top.
+// on top. A step's failure or defect is logged with its cause first.
+// Decision: each step runs with its own `Effect.runPromise`, as spec
+// apinrdw/kumora#303 ("Effect inside steps") asks, since the runtime calls a
+// step's callback for each attempt. This module is the runner CODING_STANDARDS
+// names for a Workflow, and it logs failures as the bridge does.
 export const makeWorkflow = <Params, Output, R>(
   layer: Layer.Layer<R, never, WorkerEnv>,
   run: (
@@ -47,6 +51,11 @@ export const makeWorkflow = <Params, Output, R>(
                 () =>
                   Effect.runPromise(
                     effect.pipe(
+                      // As the bridge logs a failed request: the runtime
+                      // keeps only the message.
+                      Effect.tapCause((cause) =>
+                        Effect.logError(`Workflow step ${name} failed`, cause)
+                      ),
                       Effect.provide(layer),
                       env,
                       Effect.mapError((error) =>
@@ -72,6 +81,10 @@ export const makeWorkflow = <Params, Output, R>(
             params: event.payload as Params,
           },
           steps
+        ).pipe(
+          Effect.tapDefect((defect) =>
+            Effect.logError("Workflow run died", defect)
+          )
         )
       )
     }
