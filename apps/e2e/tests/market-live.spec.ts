@@ -294,6 +294,90 @@ test.describe("signed in", () => {
     relay.close()
   })
 
+  test("a new minute scrolls chart 1 on and leaves chart 2 where it was dragged, the pointer resting on chart 1", async ({
+    page,
+  }) => {
+    const relay = await openIngest()
+    const base = freshTradeNumbers()
+    const code = freshCode("NM")
+    const now = marketNow()
+    const trade = (seq: number, at: number) =>
+      ajaibTradeToday({
+        seq: base + seq,
+        time: wibTime(at),
+        ticker: code,
+        price: 500,
+        lot: 10,
+      })
+    // 20 minutes up to now.
+    await relay.sendAjaib(
+      Array.from({ length: 20 }, (_, index) =>
+        trade(index + 1, now - (19 - index) * 60_000)
+      )
+    )
+    await page.setViewportSize({ width: 1920, height: 1080 })
+    await page.goto(`${DASHBOARD}${PAGE}?code=${code}`)
+    await expect(page.getByRole("region", { name: "Footprint" })).toContainText(
+      "Footprint minutes: 20"
+    )
+    const chart1 = page.locator('[data-chart="candles"]')
+    const chart2 = page.locator('[data-chart="footprint"]')
+    const range = async (chart: typeof chart1) => ({
+      from: Number(await chart.getAttribute("data-from")),
+      to: Number(await chart.getAttribute("data-to")),
+    })
+    // Both charts' ranges, once neither has moved for a moment.
+    const settled = async () => {
+      let last = ""
+      await expect
+        .poll(
+          async () => {
+            const current = JSON.stringify([
+              await range(chart1),
+              await range(chart2),
+            ])
+            const still = current === last
+            last = current
+            return still
+          },
+          { intervals: [250] }
+        )
+        .toBe(true)
+      return [await range(chart1), await range(chart2)] as const
+    }
+    await expect
+      .poll(async () => {
+        const { from, to } = await range(chart2)
+        return to - from
+      })
+      .toBe(9)
+    const [, opened2] = await settled()
+
+    // Chart 2 dragged back, its newest minute out of view; then the pointer
+    // rests on chart 1.
+    const box1 = (await chart1.boundingBox())!
+    const box2 = (await chart2.boundingBox())!
+    await page.mouse.move(box2.x + box2.width / 2, box2.y + 120)
+    await page.mouse.down()
+    await page.mouse.move(box2.x + box2.width / 2 + 300, box2.y + 120, {
+      steps: 8,
+    })
+    await page.mouse.up()
+    await expect
+      .poll(async () => (await range(chart2)).from)
+      .toBeLessThan(opened2.from - 1)
+    await page.mouse.move(box1.x + box1.width / 2, box1.y + box1.height * 0.4)
+    const [rested1, rested2] = await settled()
+
+    // A minute after every one drawn: chart 1 scrolls on a bar by itself.
+    await relay.sendAjaib([trade(21, now + 2 * 60_000)])
+    await expect
+      .poll(async () => (await range(chart1)).from)
+      .toBeCloseTo(rested1.from + 1, 1)
+    expect((await settled())[1]).toEqual(rested2)
+    relay.close()
+  })
+
   test("chart 1's volume pane splits each minute into buy and sell lots", async ({
     page,
   }) => {
