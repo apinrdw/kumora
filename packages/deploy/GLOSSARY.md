@@ -12,7 +12,7 @@ _Avoid_: Environment (Infisical's word for `prod` and `staging`)
 The Stage `production`, deployed from `main`. Its Workers are `kumora-web` and `kumora-dashboard`, and it alone reads Infisical `prod`.
 
 **Staging**:
-The Stage `staging`, deployed from the `staging` branch, GitHub's default branch, where every PR but a Hotfix lands. A Production tag takes one of its Candidates to Production.
+The Stage `staging`, deployed from the `staging` branch, GitHub's default branch, where every PR but a Hotfix lands. A published Release takes one of its Candidates to Production.
 
 **Release stage**:
 Production or Staging: the two Stages with a fixed URL that outside services, such as the Google OAuth client and a Turnstile widget, are set up for.
@@ -32,15 +32,15 @@ _Avoid_: Build trigger, pipeline
 A tag `v<version>-<YYYYMMDD>-<N>` on a `staging` commit tried on Staging. The date is the day it is pushed in WIB, and N counts that day's Candidates from 1, whatever their version. Its version is above Production's. `scripts/release-tag.mts` holds these rules; `.github/workflows/release.yml` deletes a tag that breaks one.
 _Avoid_: RC, staging tag
 
-**Production tag**:
-A tag `v<version>-<YYYYMMDD>` on a commit carrying a Candidate of the same version. `.github/workflows/release.yml` fast-forwards `main` to it, which deploys Production. Production is never reached through a PR from `staging`: a merge commit on `main` would stop the next fast-forward.
-_Avoid_: Promotion PR, release PR
+**Release**:
+A published GitHub Release, not a pre-release, whose tag, the Production tag `v<version>-<YYYYMMDD>`, sits on a commit carrying a Candidate of the same version. Publishing it makes `.github/workflows/release.yml` fast-forward `main` to that commit, which deploys Production. A Production tag pushed without a Release is deleted. Production is never reached through a PR from `staging`: a merge commit on `main` would stop the next fast-forward.
+_Avoid_: Promotion PR, release PR, deploy
 
 **Hotfix**:
 A PR into `main` that skips Staging. Once it lands, `.github/workflows/sync-staging.yml` opens a Sync.
 
 **Sync**:
-A PR from `main` into `staging` carrying a Hotfix's commits, merged with a merge commit. Until it merges, a Production tag is refused.
+A PR from `main` into `staging` carrying a Hotfix's commits, merged with a merge commit. Until it merges, a Release is refused.
 
 **Test stage**:
 The local Stage `test` that e2e runs on. It reads no Infisical environment, so its values come from the process environment.

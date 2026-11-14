@@ -34,7 +34,7 @@ jobs:
           if [ -z "$(gh pr list --base staging --head main --state open --json number --jq '.[].number')" ]; then
             gh pr create --base staging --head main \
               --title "Sync main into staging" \
-              --body "main has commits staging lacks, most likely a hotfix. Merge with a merge commit, never a squash: a Production tag can fast-forward main only once staging contains it."
+              --body "main has commits staging lacks, most likely a hotfix. Merge with a merge commit, never a squash: a Release can fast-forward main only once staging contains it."
           fi
           # A PR this token opens or updates starts no workflow, so the
           # e2e-evidence gate never marks its head.

@@ -1,6 +1,7 @@
-// Judges a pushed release tag for .github/workflows/release.yml. A Candidate,
+// Judges a release tag for .github/workflows/release.yml. A Candidate,
 // v<version>-<YYYYMMDD>-<N>, marks a staging commit tried on Staging; a
-// Production tag, v<version>-<YYYYMMDD>, promotes a Candidate's commit.
+// Production tag, v<version>-<YYYYMMDD>, is the tag of a Release, which
+// promotes a Candidate's commit.
 import { Console, Effect } from "effect"
 
 import { CheckFailed } from "./lib/check.mts"
