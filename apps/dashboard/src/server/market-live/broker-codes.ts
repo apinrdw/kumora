@@ -395,7 +395,9 @@ export const makeBrokerCodes = Effect.fnUntraced(function* (options: {
 
   // Decision: the day's `complete`, once a scan found it, is kept until the
   // next batch: the recorded day's codes answer carries it, and Play asks
-  // that up to 4 times a second, which must not scan every chunk each time.
+  // for that answer as often as the tape (TAPE_INTERVAL_MS in
+  // apps/dashboard/src/lib/replay.ts), which must not scan every chunk each
+  // time.
   let complete: boolean | undefined
 
   // A batch merged into its chunks and written in one transaction, so a
@@ -409,18 +411,34 @@ export const makeBrokerCodes = Effect.fnUntraced(function* (options: {
       )
     )
 
+  // One trade's record, its chunk read once into `chunks`; none when the day
+  // holds no codes for it.
+  const recordOf = Effect.fnUntraced(function* (
+    tradeNumber: TradeNumber,
+    chunks: Map<number, Uint8Array>
+  ) {
+    const { chunk, at } = yield* placeOf(Number(tradeNumber))
+    const codes = chunks.get(chunk) ?? (yield* chunkOf(chunk))
+    chunks.set(chunk, codes)
+    const record = codes.subarray(at, at + RECORD)
+    const source = record[SOURCE]
+    return source === 0 || source === undefined
+      ? Option.none<Uint8Array>()
+      : Option.some(record)
+  })
+
   // The kept copy of one trade and the site that supplied it; none when the
   // day holds no codes for it.
   const held = Effect.fnUntraced(function* (tradeNumber: TradeNumber) {
-    const { chunk, at } = yield* placeOf(Number(tradeNumber))
-    const record = (yield* chunkOf(chunk)).subarray(at, at + RECORD)
-    const source = record[SOURCE]
-    if (source === 0 || source === undefined)
+    const record = yield* recordOf(tradeNumber, new Map())
+    if (Option.isNone(record))
       return Option.none<{ codes: TradeCodes; source: Feed }>()
     return Option.some({
-      codes: yield* codesOf(record),
+      codes: yield* codesOf(record.value),
       source:
-        source === Source.stockbit ? ("Stockbit" as const) : ("Ajaib" as const),
+        record.value[SOURCE] === Source.stockbit
+          ? ("Stockbit" as const)
+          : ("Ajaib" as const),
     })
   })
 
@@ -432,12 +450,9 @@ export const makeBrokerCodes = Effect.fnUntraced(function* (options: {
     const chunks = new Map<number, Uint8Array>()
     const found: Array<readonly [TradeNumber, TradeCodes]> = []
     for (const tradeNumber of tradeNumbers) {
-      const { chunk, at } = yield* placeOf(Number(tradeNumber))
-      const codes = chunks.get(chunk) ?? (yield* chunkOf(chunk))
-      chunks.set(chunk, codes)
-      const source = codes[at + SOURCE]
-      if (source === 0 || source === undefined) continue
-      found.push([tradeNumber, yield* codesOf(codes.subarray(at, at + RECORD))])
+      const record = yield* recordOf(tradeNumber, chunks)
+      if (Option.isSome(record))
+        found.push([tradeNumber, yield* codesOf(record.value)])
     }
     return found
   })
