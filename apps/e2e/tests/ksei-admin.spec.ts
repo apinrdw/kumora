@@ -25,6 +25,7 @@ const COMPLETE: SeededKseiRun = {
   listingFailures: [],
   notStored: [],
   error: null,
+  deep: null,
 }
 
 const LISTING_ERROR =
@@ -53,6 +54,29 @@ const FAILED: SeededKseiRun = {
   reportsChecked: 0,
   md5Mismatches: [],
   error: `KSEI's Securities statistics listing answered 405; ${LISTING_ERROR}`,
+}
+
+const DEEP: SeededKseiRun = {
+  ...COMPLETE,
+  id: "deep-1763089200000",
+  trigger: "deep",
+  startedAt: "2026-11-14T03:00:00.000Z",
+  finishedAt: "2026-11-14T03:42:00.000Z",
+  reportsAdded: 3,
+  newVersions: 0,
+  md5Mismatches: [],
+  deep: {
+    foundFromSeed: [
+      "StatisEfek20080131.txt.zip",
+      "BalanceposEfek20080131.txt.zip",
+    ],
+    foundByProbing: ["BalanceposEfek20080627.txt.zip"],
+    monthsNotFound: {
+      "securities-statistics": ["2008-05", "2008-07", "2009-03"],
+      "securities-holdings": [],
+    },
+    probeFailures: [],
+  },
 }
 
 const DAY = 86_400_000
@@ -130,6 +154,55 @@ test.describe.serial("an admin's last KSEI archive run", () => {
       /Production runs at 10:00 WIB\. Next: \w{3} \d{2}, 10:00 WIB\./
     )
     await expect(card.getByRole("button", { name: "Run now" })).toBeEnabled()
+    await expect(card).not.toContainText("Deep backfill:")
+  })
+
+  test("Deep backfill asks before it starts", async ({ page }) => {
+    await seedLatestKseiRun(COMPLETE)
+    await page.goto(KSEI)
+    await lastRunCard(page)
+      .getByRole("button", { name: "Deep backfill" })
+      .click()
+    const dialog = page.getByRole("dialog", { name: "Start a deep backfill?" })
+    await expect(dialog).toContainText("Probes about 2,000 URLs on ksei.co.id.")
+    await dialog.getByRole("button", { name: "Cancel" }).click()
+    await expect(dialog).toBeHidden()
+    await expect(lastRunCard(page)).not.toContainText("Started deep-")
+  })
+
+  test("a deep run shows what it found and the months not found", async ({
+    page,
+  }) => {
+    await seedLatestKseiRun(DEEP)
+    await page.goto(KSEI)
+    const card = lastRunCard(page)
+    await expect(
+      page.getByRole("region", { name: /Last KSEI archive run.*Deep backfill/ })
+    ).toBeVisible()
+    const summary = card.getByText(
+      "Deep backfill: 2 files from the seed, 1 file by probing, 3 months not found."
+    )
+    await expect(
+      card.getByRole("list", { name: "Found from the seed" })
+    ).toBeHidden()
+    await summary.click()
+    await expect(
+      card
+        .getByRole("list", { name: "Found from the seed" })
+        .getByRole("listitem")
+    ).toHaveText([
+      "StatisEfek20080131.txt.zip",
+      "BalanceposEfek20080131.txt.zip",
+    ])
+    await expect(
+      card.getByRole("list", { name: "Found by probing" }).getByRole("listitem")
+    ).toHaveText(["BalanceposEfek20080627.txt.zip"])
+    await expect(
+      card
+        .getByRole("list", { name: "Securities statistics months not found" })
+        .getByRole("listitem")
+    ).toHaveText(["2008: 05, 07", "2009: 03"])
+    await expect(card).toContainText("Securities holdings: 0 months not found.")
   })
 
   test("a partial run names the listing it couldn't read and the files not stored", async ({
@@ -179,6 +252,9 @@ test.describe.serial("an admin's last KSEI archive run", () => {
     await expect(card).toContainText("Running")
     await expect(card).toContainText("A run is in progress")
     await expect(card.getByRole("button", { name: "Run now" })).toBeDisabled()
+    await expect(
+      card.getByRole("button", { name: "Deep backfill" })
+    ).toBeDisabled()
   })
 })
 
@@ -196,7 +272,14 @@ test.describe("an admin's KSEI archive history", () => {
     })
     const complete = runAgo(2 * DAY, { reportsAdded: 3, newVersions: 2 })
     const old = runAgo(40 * DAY, {})
-    for (const run of [old, complete, partial]) await seedKseiRun(run)
+    const started = Math.floor((Date.now() - 3 * DAY) / 1000) * 1000
+    const deep = runAgo(3 * DAY, {
+      ...DEEP,
+      id: `deep-${started}`,
+      startedAt: new Date(started).toISOString(),
+      finishedAt: new Date(started + 60_000).toISOString(),
+    })
+    for (const run of [old, complete, partial, deep]) await seedKseiRun(run)
 
     await page.goto(KSEI)
     const table = page.getByRole("table", { name: "Recent runs" })
@@ -206,6 +289,12 @@ test.describe("an admin's KSEI archive history", () => {
     ).toHaveCount(2)
     await expect(table).toContainText(partial.id)
     await expect(table).toContainText(complete.id)
+    await expect(
+      table.getByRole("row").filter({ hasText: deep.id })
+    ).toContainText("Deep backfill")
+    await expect(
+      table.getByRole("row").filter({ hasText: complete.id })
+    ).not.toContainText("Deep backfill")
   })
 
   test("the totals count reports, versions and size per kind", async ({

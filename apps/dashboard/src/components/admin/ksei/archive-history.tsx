@@ -1,5 +1,6 @@
 import { Effect } from "effect"
 
+import { KBadge } from "@/components/k"
 import {
   ArchiveRecentRunsCard,
   KindTotalsCard,
@@ -12,6 +13,16 @@ import type { KseiRunSummary } from "@/server/ksei/run-result"
 import type { KseiTotals } from "@/server/ksei/totals"
 
 const COUNT_COLUMNS: ReadonlyArray<KColumn<KseiRunSummary>> = [
+  {
+    key: "trigger",
+    label: "Kind",
+    cell: (run) =>
+      run.trigger === "deep" ? (
+        <KBadge tone="accent" icon={false}>
+          Deep backfill
+        </KBadge>
+      ) : null,
+  },
   { key: "reportsAdded", label: "Added", align: "right" },
   { key: "newVersions", label: "New versions", align: "right" },
 ]

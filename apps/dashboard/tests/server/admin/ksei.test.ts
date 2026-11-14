@@ -3,7 +3,11 @@ import { Conflict, Unauthorized } from "@workspace/server"
 import { Effect, Layer, Schema } from "effect"
 import { TestClock } from "effect/testing"
 
-import { kseiArchivePage, runKseiNow } from "@/server/admin/ksei"
+import {
+  deepBackfillKsei,
+  kseiArchivePage,
+  runKseiNow,
+} from "@/server/admin/ksei"
 import type { Mail } from "@/server/auth/mailer"
 import { ArchiveRunId } from "@/server/archive/run"
 import { KseiRunMetadata, type KseiRunResult } from "@/server/ksei/run-result"
@@ -49,12 +53,15 @@ const RUNNING: KseiRunResult = {
   deep: null,
 }
 
-const seedLatest = (bucket: MemoryBucket, run: KseiRunResult) => {
+const seedRun = (bucket: MemoryBucket, run: KseiRunResult) =>
   bucket.objects.set(`runs/${run.id}.json`, {
     body: JSON.stringify(run),
     contentType: "application/json",
     customMetadata: Schema.encodeSync(KseiRunMetadata)({ run }),
   })
+
+const seedLatest = (bucket: MemoryBucket, run: KseiRunResult) => {
+  seedRun(bucket, run)
   bucket.objects.set("runs/latest.json", {
     body: JSON.stringify({ id: run.id }),
     contentType: "application/json",
@@ -103,6 +110,8 @@ describe("the KSEI archive page", () => {
       assert.strictEqual(page._tag, "NotFound")
       const run = yield* Effect.flip(runKseiNow(headers(cookie)))
       assert.strictEqual(run._tag, "NotFound")
+      const deep = yield* Effect.flip(deepBackfillKsei(headers(cookie)))
+      assert.strictEqual(deep._tag, "NotFound")
       assert.deepStrictEqual(createdIds(workflow), [])
     }).pipe(Effect.provide(layer))
   })
@@ -117,6 +126,7 @@ describe("the KSEI archive page", () => {
       assert.strictEqual(page.nextRun, "2026-11-15T03:00:00.000Z")
       assert.deepStrictEqual(page.recentRuns, [])
       assert.strictEqual(page.totals.reports, 0)
+      assert.isUndefined(page.lastDeepRun)
     }).pipe(Effect.provide(layer))
   })
 
@@ -185,4 +195,91 @@ describe("KSEI's Run now", () => {
       assert.deepStrictEqual(createdIds(workflow), [])
     }).pipe(Effect.provide(layer))
   })
+})
+
+describe("KSEI's Deep backfill", () => {
+  it.effect(
+    "starts a deep run, then refuses either start while it runs",
+    () => {
+      const { layer, mails, workflow } = archive()
+      return Effect.gen(function* () {
+        const cookie = yield* verified(mails)(ADMIN_EMAIL, "Adi")
+        yield* TestClock.setTime(1_763_125_032_000)
+        assert.deepStrictEqual(yield* deepBackfillKsei(headers(cookie)), {
+          id: "deep-1763125032000",
+        })
+        assert.deepStrictEqual(
+          workflow.instances.get("deep-1763125032000")?.options.params,
+          { trigger: "deep" }
+        )
+        const conflict = new Conflict({ message: "A run is in progress." })
+        assert.deepStrictEqual(
+          yield* Effect.flip(deepBackfillKsei(headers(cookie))),
+          conflict
+        )
+        assert.deepStrictEqual(
+          yield* Effect.flip(runKseiNow(headers(cookie))),
+          conflict
+        )
+        assert.deepStrictEqual(createdIds(workflow), ["deep-1763125032000"])
+      }).pipe(Effect.provide(layer))
+    }
+  )
+
+  it.effect(
+    "gives the page the latest ended deep run's months not found, however old",
+    () => {
+      const { layer, mails, bucket } = archive()
+      const ended = (id: string, startedAt: string, notFound: string) => ({
+        ...RUNNING,
+        id: ArchiveRunId.make(id),
+        trigger: "deep" as const,
+        startedAt,
+        finishedAt: startedAt,
+        outcome: "complete" as const,
+        deep: {
+          foundFromSeed: [],
+          foundByProbing: [],
+          monthsNotFound: {
+            "securities-statistics": [notFound],
+            "securities-holdings": [],
+          },
+          probeFailures: [],
+        },
+      })
+      seedRun(
+        bucket,
+        ended("deep-1700000000000", "2023-11-14T22:13:20.000Z", "2008-05")
+      )
+      seedRun(
+        bucket,
+        ended("deep-1750000000000", "2025-06-15T15:06:40.000Z", "2009-07")
+      )
+      // Still running: no finds yet.
+      seedRun(bucket, {
+        ...RUNNING,
+        id: ArchiveRunId.make("deep-1763125032000"),
+        trigger: "deep",
+        startedAt: "2026-11-14T13:57:12.000Z",
+      })
+      seedRun(bucket, {
+        ...RUNNING,
+        finishedAt: RUNNING.startedAt,
+        outcome: "complete",
+      })
+      return Effect.gen(function* () {
+        yield* TestClock.setTime(Date.parse("2026-11-14T14:00:00.000Z"))
+        const cookie = yield* verified(mails)(ADMIN_EMAIL, "Adi")
+        const page = yield* kseiArchivePage(headers(cookie))
+        assert.deepStrictEqual(page.lastDeepRun, {
+          id: ArchiveRunId.make("deep-1750000000000"),
+          finishedAt: "2025-06-15T15:06:40.000Z",
+          monthsNotFound: {
+            "securities-statistics": ["2009-07"],
+            "securities-holdings": [],
+          },
+        })
+      }).pipe(Effect.provide(layer))
+    }
+  )
 })

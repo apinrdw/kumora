@@ -6,14 +6,14 @@ import { useHydrated } from "@tanstack/react-router"
 import { clientRuntime } from "@workspace/client"
 import { loadServerFn } from "@workspace/server/loader"
 import { Effect, Exit } from "effect"
-import type { ReactNode } from "react"
+import { type ReactNode, useState } from "react"
 
 import {
   OutcomeLine,
   useAccountAction,
   type Outcome,
 } from "@/components/account/account-section"
-import { KBadge, KButton } from "@/components/k"
+import { KBadge, KButton, type KButtonVariant, KDialog } from "@/components/k"
 import { dateTime, duration } from "@/lib/format"
 import type { ArchiveRunBase } from "@/server/archive/run"
 import type { RunView } from "@/server/archive/run-view"
@@ -22,23 +22,38 @@ import { ArchiveCard, OUTCOME } from "./archive-card"
 
 const IN_PROGRESS = "A run is in progress"
 
+/** What a button asks before it starts a run. */
+interface RunConfirm {
+  readonly title: string
+  readonly description: string
+  readonly confirmLabel: string
+}
+
 /**
  * A button that starts a run with `start`, a server function, disabled while
  * a run is in progress. A Conflict from the server reads as a run in
- * progress.
+ * progress. With `confirm`, it asks first. `note` says beside it that a run
+ * is in progress; a second button beside the first leaves it to the first.
  */
 export function RunArchiveButton({
   inProgress,
   start,
   icon = IconPlayerPlay,
+  variant = "primary",
+  confirm,
+  note = true,
   children,
 }: {
   inProgress: boolean
   start: () => Promise<{ readonly id: string }>
   icon?: TablerIcon
+  variant?: KButtonVariant
+  confirm?: RunConfirm
+  note?: boolean
   children: ReactNode
 }) {
   const hydrated = useHydrated()
+  const [asking, setAsking] = useState(false)
   const { pending, outcome, run } = useAccountAction()
   const started: Effect.Effect<Outcome> = Effect.map(
     Effect.exit(loadServerFn(start)),
@@ -59,22 +74,42 @@ export function RunArchiveButton({
   return (
     <div className="flex flex-col items-end gap-1">
       <div className="flex items-center gap-3">
-        {inProgress && (
+        {note && inProgress && (
           <span className="text-[13px] text-muted-foreground">
             {IN_PROGRESS}
           </span>
         )}
         <KButton
           icon={icon}
+          variant={variant}
           disabled={!hydrated || inProgress}
           loading={pending}
           title={inProgress ? IN_PROGRESS : undefined}
-          onClick={() => clientRuntime.runFork(run(started))}
+          onClick={() =>
+            confirm === undefined
+              ? clientRuntime.runFork(run(started))
+              : setAsking(true)
+          }
         >
           {children}
         </KButton>
       </div>
       <OutcomeLine outcome={outcome} />
+      {confirm !== undefined && (
+        <KDialog
+          open={asking}
+          onOpenChange={setAsking}
+          kind="warning"
+          title={confirm.title}
+          description={confirm.description}
+          confirmLabel={confirm.confirmLabel}
+          cancelLabel="Cancel"
+          onConfirm={() => {
+            setAsking(false)
+            clientRuntime.runFork(run(started))
+          }}
+        />
+      )}
     </div>
   )
 }

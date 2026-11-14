@@ -3,7 +3,7 @@
 // admin page, and the last run the page shows. Spec apinrdw/kumora#303,
 // "Starting a run". Each archive passes its ArchiveSource (run.ts) and
 // provides its own ArchiveBucket and ArchiveWorkflow.
-import { DateTime, Effect, Schema } from "effect"
+import { DateTime, Effect, Option, Schema } from "effect"
 
 import { ArchiveBucket, type BucketError } from "./bucket.ts"
 import { RETENTION } from "./retention.ts"
@@ -14,6 +14,7 @@ import {
   LATEST_RUN_KEY,
   LatestRun,
   runKey,
+  RUNS_PREFIX,
   type RunSummaryBase,
 } from "./run.ts"
 import { isInProgress, START_WINDOW_MS, viewRun } from "./run-view.ts"
@@ -103,6 +104,37 @@ export const readLastRun = <
     const latest = yield* readLatest(source)
     if (latest?.result === undefined) return undefined
     return yield* viewRun(latest.result, latest.instance, latest.now)
+  })
+
+// The newest record of `trigger`'s runs that `accept` takes, however old:
+// undefined when none does. Ids of one trigger sort as their starts do
+// (`runIdAt`), so it reads records newest first and stops at the first
+// taken. A record that no longer decodes is passed over.
+export const readLatestRunWhere = <
+  Trigger extends string,
+  Summary extends RunSummaryBase,
+  Run extends ArchiveRunBase & Summary,
+>(
+  source: ArchiveSource<Trigger, Summary, Run>,
+  trigger: Trigger,
+  accept: (run: Run) => boolean
+) =>
+  Effect.gen(function* () {
+    const bucket = yield* ArchiveBucket
+    const decode = Schema.decodeUnknownOption(
+      Schema.fromJsonString(source.result)
+    )
+    const keys = (yield* bucket.list(`${RUNS_PREFIX}${trigger}-`))
+      .map(({ key }) => key)
+      .filter((key) => key.endsWith(".json"))
+      .reverse()
+    for (const key of keys) {
+      const record = yield* bucket.get(key)
+      if (record === undefined) continue
+      const run = Option.getOrUndefined(decode(record.body))
+      if (run !== undefined && accept(run)) return run
+    }
+    return undefined
   })
 
 // Points runs/latest.json at `id`, unless the run it names is in progress or

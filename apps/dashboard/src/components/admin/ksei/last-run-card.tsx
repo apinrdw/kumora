@@ -1,10 +1,12 @@
+import { IconHistory } from "@tabler/icons-react"
 import { Effect } from "effect"
 
+import { KBadge } from "@/components/k"
 import { count } from "@/lib/format"
-import { runKseiNowFn } from "@/server/admin/ksei.functions"
+import { deepBackfillKseiFn, runKseiNowFn } from "@/server/admin/ksei.functions"
 import type { RunView } from "@/server/archive/run-view"
-import { KIND_LABEL } from "@/server/ksei/kind"
-import type { KseiRunResult } from "@/server/ksei/run-result"
+import { KIND_LABEL, KseiReportKind } from "@/server/ksei/kind"
+import type { DeepFinds, KseiRunResult } from "@/server/ksei/run-result"
 import { KSEI_TIMES_WIB } from "@/server/ksei/schedule"
 
 import {
@@ -98,7 +100,108 @@ function Detail({ result }: { result: KseiRunResult }) {
   )
 }
 
-/** The last KSEI archive run, or the empty state before any, with Run now. */
+// The months of one kind no probe found, a line per year: "2008: 05, 07".
+function MonthsNotFound({
+  kind,
+  months,
+}: {
+  kind: KseiReportKind
+  months: ReadonlyArray<string>
+}) {
+  const years = new Map<string, Array<string>>()
+  for (const month of months)
+    years.set(month.slice(0, 4), [
+      ...(years.get(month.slice(0, 4)) ?? []),
+      month,
+    ])
+  return (
+    <div>
+      <b>{KIND_LABEL[kind]}:</b>{" "}
+      {Effect.runSync(count(months.length, "month", "months"))} not found.
+      {months.length > 0 && (
+        <ul
+          aria-label={`${KIND_LABEL[kind]} months not found`}
+          className="mt-1 list-disc pl-5"
+        >
+          {[...years].map(([year, ofYear]) => (
+            <li key={year} className="num text-xs">
+              {year}: {ofYear.map((month) => month.slice(5)).join(", ")}
+            </li>
+          ))}
+        </ul>
+      )}
+    </div>
+  )
+}
+
+// What a deep run found beyond the listings, collapsed.
+function DeepDetail({ deep }: { deep: DeepFinds }) {
+  const { foundFromSeed, foundByProbing, monthsNotFound, probeFailures } = deep
+  const notFound = KseiReportKind.literals.reduce(
+    (sum, kind) => sum + monthsNotFound[kind].length,
+    0
+  )
+  return (
+    <details className="bg-elevated rounded-xs px-3 py-2 text-[13px]">
+      <summary className="cursor-pointer">
+        Deep backfill:{" "}
+        {Effect.runSync(count(foundFromSeed.length, "file", "files"))} from the
+        seed, {Effect.runSync(count(foundByProbing.length, "file", "files"))} by
+        probing, {Effect.runSync(count(notFound, "month", "months"))} not found.
+      </summary>
+      <div className="mt-2 flex flex-col gap-2">
+        {foundFromSeed.length > 0 && (
+          <div>
+            <b>Found from the seed</b>
+            <Filenames label="Found from the seed" filenames={foundFromSeed} />
+          </div>
+        )}
+        {foundByProbing.length > 0 && (
+          <div>
+            <b>Found by probing</b>
+            <Filenames label="Found by probing" filenames={foundByProbing} />
+          </div>
+        )}
+        {KseiReportKind.literals.map((kind) => (
+          <MonthsNotFound
+            key={kind}
+            kind={kind}
+            months={monthsNotFound[kind]}
+          />
+        ))}
+        {probeFailures.length > 0 && (
+          <div>
+            <b>
+              {Effect.runSync(
+                count(probeFailures.length, "probe failed.", "probes failed.")
+              )}
+            </b>{" "}
+            Their months weren't looked at; the next deep backfill probes them
+            again.
+            <ul aria-label="Probes failed" className="mt-1 list-disc pl-5">
+              {probeFailures.map(({ kind, year, message }) => (
+                <li
+                  key={`${kind}-${year}`}
+                  className="[overflow-wrap:anywhere]"
+                >
+                  <b>
+                    {KIND_LABEL[kind]} {year}:
+                  </b>{" "}
+                  {message}
+                </li>
+              ))}
+            </ul>
+          </div>
+        )}
+      </div>
+    </details>
+  )
+}
+
+/**
+ * The last KSEI archive run, or the empty state before any, with Run now and
+ * Deep backfill.
+ */
 export function KseiLastRunCard({
   lastRun,
   nextRun,
@@ -110,9 +213,19 @@ export function KseiLastRunCard({
   now: string
 }) {
   const result = lastRun?.result
+  const inProgress = lastRun?.inProgress ?? false
   return (
     <ArchiveLastRunCard
-      title="Last KSEI archive run"
+      title={
+        <>
+          Last KSEI archive run
+          {result?.trigger === "deep" && (
+            <KBadge tone="accent" icon={false}>
+              Deep backfill
+            </KBadge>
+          )}
+        </>
+      }
       emptyMessage="No KSEI archive run has happened yet."
       lastRun={lastRun}
       now={now}
@@ -127,14 +240,34 @@ export function KseiLastRunCard({
               { value: result.md5Mismatches.length, label: "MD5 mismatches" },
             ]
       }
-      details={result === undefined ? null : <Detail result={result} />}
+      details={
+        result === undefined ? null : (
+          <>
+            <Detail result={result} />
+            {result.deep !== null && <DeepDetail deep={result.deep} />}
+          </>
+        )
+      }
       actions={
-        <RunArchiveButton
-          inProgress={lastRun?.inProgress ?? false}
-          start={runKseiNowFn}
-        >
-          Run now
-        </RunArchiveButton>
+        <div className="flex flex-wrap items-start gap-2">
+          <RunArchiveButton inProgress={inProgress} start={runKseiNowFn}>
+            Run now
+          </RunArchiveButton>
+          <RunArchiveButton
+            inProgress={inProgress}
+            start={deepBackfillKseiFn}
+            icon={IconHistory}
+            variant="secondary"
+            note={false}
+            confirm={{
+              title: "Start a deep backfill?",
+              description: "Probes about 2,000 URLs on ksei.co.id.",
+              confirmLabel: "Deep backfill",
+            }}
+          >
+            Deep backfill
+          </RunArchiveButton>
+        </div>
       }
       schedule={{ times: KSEI_TIMES_WIB, nextRun }}
     />
