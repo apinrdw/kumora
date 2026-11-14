@@ -130,3 +130,11 @@ export type {
   CrossCheck,
   TradeCodes,
 } from "./broker-codes.ts"
+export type { RecordedSweeps, Sweep } from "./sweeps.ts"
+export {
+  addToSweeps,
+  decodeRecordedSweeps,
+  encodeRecordedSweeps,
+  joinSweeps,
+  sweepsOf,
+} from "./sweeps.ts"

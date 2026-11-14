@@ -1035,6 +1035,16 @@ export const makeTradingDay = Effect.fnUntraced(function* (options: {
           market.conditions,
           (conditions) => conditions.gaps
         ),
+        // Every trade the day holds is on the tape at or below its newest,
+        // in the candle book or stored, so the answer covers each one
+        // numbered up to it.
+        sweeps: Effect.fnUntraced(function* (code: StockCode) {
+          const through = tape.at(-1)?.tradeNumber
+          return {
+            ...(through === undefined ? {} : { through }),
+            sweeps: yield* candles.sweepsOf(code),
+          }
+        }),
       })
     )
 

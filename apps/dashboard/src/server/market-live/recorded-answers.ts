@@ -4,9 +4,12 @@
 import {
   encodeRecordedCandles,
   encodeRecordedGaps,
+  encodeRecordedSweeps,
   encodeRecordedTape,
   type RecordedResource,
+  type RecordedSweeps,
   type RelayGap,
+  type StockCode,
   type WibDate,
 } from "@workspace/relay"
 import { DateTime, Effect } from "effect"
@@ -41,6 +44,10 @@ export const recordedAnswer = Effect.fnUntraced(function* (
     readonly sealed: boolean
     // The gaps so far, while the day isn't sealed.
     readonly liveGaps: Effect.Effect<ReadonlyArray<RelayGap>>
+    // A code's sweeps so far, with the trade number they were built up to.
+    readonly sweeps: (
+      code: StockCode
+    ) => Effect.Effect<Omit<RecordedSweeps, "code">>
   }
 ) {
   const { store } = day
@@ -67,6 +74,14 @@ export const recordedAnswer = Effect.fnUntraced(function* (
         cacheControl
       )
     }
+    case "Sweeps":
+      return yield* json(
+        yield* encodeRecordedSweeps({
+          code: resource.code,
+          ...(yield* day.sweeps(resource.code)),
+        }),
+        cacheControl
+      )
     case "Book": {
       const minute =
         Math.floor(DateTime.toEpochMillis(resource.minute) / MINUTE) * MINUTE
