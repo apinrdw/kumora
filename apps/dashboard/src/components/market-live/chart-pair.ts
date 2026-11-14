@@ -179,6 +179,12 @@ export const makeChartPair = () =>
         if (from === null) return
         move(follower.chart, { from: from.from + shift, to: from.to + shift })
       }
+      // Decision: the pair reads a chart's range when the chart attaches.
+      // Lightweight Charts 5.2.1 reports a range only when it changes, and a
+      // chart whose data was in the store when it mounted has its range
+      // before the pair subscribes: with no report to measure from, the
+      // first step of its first pan would not move the other chart.
+      moved(chart.timeScale().getVisibleLogicalRange())
       chart.timeScale().subscribeVisibleLogicalRangeChange(moved)
       // The crosshair at the pointer's time and price on the other chart.
       const crosshair = (parameter: MouseEventParams<Time>) => {
