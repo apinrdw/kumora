@@ -39,7 +39,11 @@ export function KseiRecentRunsCard({
 type KindRow = KseiTotals["kinds"][number] & { readonly prefix: string }
 
 const KIND_COLUMNS: ReadonlyArray<KColumn<KindRow>> = [
-  { key: "kind", label: "Report kind", cell: (row) => KIND_LABEL[row.kind] },
+  {
+    key: "kind",
+    label: "KSEI report kind",
+    cell: (row) => KIND_LABEL[row.kind],
+  },
   {
     key: "prefix",
     label: "Key prefix",

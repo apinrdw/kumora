@@ -172,7 +172,7 @@ test.describe.serial("an admin's KSEI archive", () => {
     await expect(
       totals.getByRole("table", { name: "Reports per kind" }).getByRole("row")
     ).toHaveText([
-      "Report kindKey prefixReportsVersionsSize",
+      "KSEI report kindKey prefixReportsVersionsSize",
       "Securities statisticsreports/securities-statistics/234.1 KB",
       "Securities holdingsreports/securities-holdings/000 B",
     ])
