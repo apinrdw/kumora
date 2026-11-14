@@ -292,7 +292,7 @@ type Coverage = Effect.Success<
 const monthOf = (coverage: Coverage | undefined, year: number, month: number) =>
   coverage?.years.find((row) => row.year === year)?.months[month - 1]
 
-const NEVER = "never-looked-for"
+const NEVER = "never-looked-for" as const
 
 describe("the KSEI coverage grid", () => {
   const deepRun = (monthsNotFound: {
