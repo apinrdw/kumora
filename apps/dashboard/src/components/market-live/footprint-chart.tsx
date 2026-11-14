@@ -4,7 +4,10 @@ import { Suspense, lazy, useCallback, useSyncExternalStore } from "react"
 
 import { footprintSummary } from "@/lib/footprint"
 
+import type { RelayGap } from "@workspace/relay"
+
 import type { CandleStore } from "./candle-store"
+import type { ChartPair } from "./chart-pair"
 import { useMergedStale } from "./market-conditions"
 import type { ReplayCursor } from "./replay-cursor"
 
@@ -50,12 +53,18 @@ function useFootprintSummary(
 }
 
 // Chart 2: the selected code's footprint, Stacked `sell × buy` lots at each
-// price of each minute, with its Vol / Δ / CVD footer, under chart 1.
+// price of each minute, with its Vol / Δ / CVD footer, under chart 1. It
+// draws chart 1's minutes, relay `gaps` included, and moves with it through
+// `pair`.
 export function FootprintChart({
   store,
+  pair,
+  gaps,
   cursor,
 }: {
   store: CandleStore
+  pair: ChartPair
+  gaps: ReadonlyArray<RelayGap>
   cursor?: ReplayCursor | undefined
 }) {
   const summary = useFootprintSummary(store, cursor)
@@ -80,7 +89,12 @@ export function FootprintChart({
       >
         <ClientOnly fallback={<div className={CHART_HEIGHT} />}>
           <Suspense fallback={<div className={CHART_HEIGHT} />}>
-            <FootprintCanvas store={store} cursor={cursor} />
+            <FootprintCanvas
+              store={store}
+              pair={pair}
+              gaps={gaps}
+              cursor={cursor}
+            />
           </Suspense>
         </ClientOnly>
       </div>

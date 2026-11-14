@@ -6,6 +6,7 @@ import { loadServerFn, runLoader } from "@workspace/server/loader"
 import { useCallback, useEffect, useMemo, useState } from "react"
 
 import { makeCandleStore } from "@/components/market-live/candle-store"
+import { makeChartPair } from "@/components/market-live/chart-pair"
 import { makeDayStateStore } from "@/components/market-live/day-state-store"
 import { DayStrip } from "@/components/market-live/day-strip"
 import { LayoutB } from "@/components/market-live/layout-b"
@@ -114,6 +115,16 @@ function MarketLiveDay({
   const navigate = Route.useNavigate()
   const codes = useStockCodeList(day, today)
   const { candles, book, heatmap, sweeps } = useCodeStores(selected, day, today)
+  // Chart 1 and chart 2 move together; each code's charts attach afresh.
+  const [pair] = useState(() => Effect.runSync(makeChartPair()))
+  // A sweep picked in the log or on chart 1 moves chart 2 to its minute.
+  useEffect(
+    () =>
+      sweeps.subscribe((change) => {
+        if (change._tag === "Selected") pair.jumpTo(change.minute)
+      }),
+    [sweeps, pair]
+  )
   // Decision: the watchlist's Day state store starts empty on the server, and
   // the loader gives it no server snapshot. The watchlist's codes live in the
   // browser's localStorage (use-watchlist.ts), so the server can't know which
@@ -132,6 +143,7 @@ function MarketLiveDay({
     dayStates,
   })
   const liveGaps = useRelayGaps()
+  const shownGaps = cursor === undefined ? liveGaps : gaps
   const apply = useCallback(
     (message: ViewerDown) => {
       candles.apply(message)
@@ -159,7 +171,8 @@ function MarketLiveDay({
               store={candles}
               heatmap={heatmap}
               sweeps={sweeps}
-              gaps={cursor === undefined ? liveGaps : gaps}
+              pair={pair}
+              gaps={shownGaps}
               dayStates={dayStates}
               conditions={
                 cursor === undefined ? (
@@ -180,7 +193,12 @@ function MarketLiveDay({
                 />
               }
             />
-            <FootprintChart store={candles} cursor={cursor} />
+            <FootprintChart
+              store={candles}
+              pair={pair}
+              gaps={shownGaps}
+              cursor={cursor}
+            />
           </>
         }
         log={<SweepLog store={sweeps} cursor={cursor} />}
