@@ -106,4 +106,37 @@ describe("the selected code's footprints", () => {
         expect(heard).toHaveLength(2)
       })
   )
+
+  it.effect(
+    "a delta's footprint with no cells drops its minute's footprint and candle, heard as a reset; a candle the same delta carries stays",
+    () =>
+      Effect.gen(function* () {
+        const store = yield* makeCandleStore(StockCode.make("BBRI"))
+        const heard: Array<CandleChange> = []
+        const emptied: Footprint = { ...footprint("BBRI", 0), cells: [] }
+        store.apply(
+          snapshot("BBRI", [candle("BBRI", 4_000)], [footprint("BBRI", 1)])
+        )
+        store.subscribe((change) => heard.push(change))
+        // The minute's candle still has its figures: only its cells went.
+        store.apply({
+          _tag: "Delta",
+          tape: [],
+          candles: [candle("BBRI", 4_025)],
+          footprints: [emptied],
+        })
+        expect(store.candles()).toEqual([candle("BBRI", 4_025)])
+        expect(store.footprints()).toEqual([])
+        // Its last regular-board trade left the minute.
+        store.apply({
+          _tag: "Delta",
+          tape: [],
+          candles: [],
+          footprints: [emptied],
+        })
+        expect(store.candles()).toEqual([])
+        expect(store.footprints()).toEqual([])
+        expect(heard).toEqual([{ _tag: "Reset" }, { _tag: "Reset" }])
+      })
+  )
 })
