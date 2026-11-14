@@ -72,7 +72,7 @@ export const InvestorType = Schema.Literals(["D", "F"])
 export type InvestorType = typeof InvestorType.Type
 
 // One running trade's broker codes and investor types, both sides.
-const TradeCodes = Schema.Struct({
+export const TradeCodes = Schema.Struct({
   buyer: BrokerCode,
   buyerType: InvestorType,
   seller: BrokerCode,

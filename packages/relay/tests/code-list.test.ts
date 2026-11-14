@@ -30,6 +30,7 @@ describe("recorded day paths", () => {
       const resources: ReadonlyArray<RecordedResource> = [
         { _tag: "Codes" },
         { _tag: "Tape", at },
+        { _tag: "BrokerCodes", at },
         { _tag: "Candles", code },
         { _tag: "Book", code, minute: at },
         { _tag: "Gaps" },
@@ -41,6 +42,10 @@ describe("recorded day paths", () => {
       assert.strictEqual(
         yield* recordedDayPath(day, { _tag: "Tape", at }),
         "/market-live/days/2026-11-09/trades?at=1794194100000"
+      )
+      assert.strictEqual(
+        yield* recordedDayPath(day, { _tag: "BrokerCodes", at }),
+        "/market-live/days/2026-11-09/broker-codes?at=1794194100000"
       )
       for (const resource of resources) {
         const path = yield* recordedDayPath(day, resource)
@@ -61,6 +66,9 @@ describe("recorded day paths", () => {
         "/market-live/days/2026-11-09/tape",
         "/market-live/days/2026-11-09/trades",
         "/market-live/days/2026-11-09/trades?at=soon",
+        "/market-live/days/2026-11-09/broker-codes",
+        "/market-live/days/2026-11-09/broker-codes?at=soon",
+        "/market-live/days/2026-11-31/broker-codes?at=1794194100000",
         "/market-live/days/2026-11-09/books/BBCA",
         "/market-live/days/2026-11-09/codes/more",
         "/market-live/days//codes",
