@@ -6,7 +6,12 @@
 import { DateTime, Effect, Option, Schema } from "effect"
 
 import { StockCode } from "./codes.ts"
-import { Candle, Footprint, RunningTrade } from "./envelope.ts"
+import {
+  Candle,
+  Footprint,
+  RunningTrade,
+  ViewerProtocolVersion,
+} from "./envelope.ts"
 import { RelayGap } from "./market-conditions.ts"
 import { BookLevel, OrderBook } from "./order-book.ts"
 import { WibDate } from "./schedule.ts"
@@ -45,8 +50,16 @@ export const recordedDayPath = (date: WibDate, resource: RecordedResource) =>
         return `${base}/codes`
       case "Tape":
         return `${base}/trades?at=${DateTime.toEpochMillis(resource.at)}`
+      // Decision: the candles path carries the viewer protocol's version. A
+      // sealed answer is cached for a year (SEALED_CACHE), and the browser
+      // keys its cache on the whole URL, so an answer cached before
+      // footprints rode with the candles is never reused: a day recorded
+      // before order flow shipped still shows its footprint. A later change
+      // to the answer comes with a protocol bump, so it moves the path too.
+      // The query is ignored when read, so a tab on an older build still
+      // loads. See spec apinrdw/kumora#263, ticket apinrdw/kumora#270.
       case "Candles":
-        return `${base}/candles/${resource.code}`
+        return `${base}/candles/${resource.code}?v=${ViewerProtocolVersion}`
       case "Sweeps":
         return `${base}/sweeps/${resource.code}`
       case "Book":

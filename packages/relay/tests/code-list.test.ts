@@ -54,6 +54,26 @@ describe("recorded day paths", () => {
     })
   )
 
+  it.effect(
+    "a recorded day's candles are asked at a path a browser never cached an answer without footprints at; the bare path still reads",
+    () =>
+      Effect.gen(function* () {
+        const day = WibDate.make("2026-11-09")
+        const resource = {
+          _tag: "Candles",
+          code: StockCode.make("BBCA"),
+        } as const
+        const beforeFootprints = "/market-live/days/2026-11-09/candles/BBCA"
+        const path = yield* recordedDayPath(day, resource)
+        assert.notStrictEqual(path, beforeFootprints)
+        assert.isTrue(path.startsWith(beforeFootprints))
+        assert.deepStrictEqual(
+          yield* recordedDayRequest(locationOf(beforeFootprints)),
+          Option.some({ date: day, resource })
+        )
+      })
+  )
+
   it.effect("read nothing from any other path", () =>
     Effect.gen(function* () {
       for (const path of [
