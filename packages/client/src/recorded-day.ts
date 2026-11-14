@@ -98,6 +98,26 @@ export const fetchRecordedBrokerCodes = Effect.fnUntraced(function* (
 // The broker codes the tape's rows show, by Trade number.
 export type RecordedTradeCodes = ReadonlyMap<TradeNumber, TradeCodes>
 
+/**
+ * Shows the newest answer: the function this makes runs `answer` and hands
+ * what it returns to `show`, unless the answer to a later run is already
+ * shown.
+ */
+export const makeNewestWins = Effect.sync(() => {
+  let asked = 0
+  let shown = 0
+  return <A, E, R>(answer: Effect.Effect<A, E, R>, show: (value: A) => void) =>
+    Effect.suspend(() => {
+      asked += 1
+      const id = asked
+      return Effect.map(answer, (value) => {
+        if (id < shown) return
+        shown = id
+        show(value)
+      })
+    })
+})
+
 // Decision: while the day's codes are incomplete, the page asks again every
 // 30 s (spec apinrdw/kumora#280, "Recheck"); the walks store codes for over
 // an hour after the close.
@@ -115,25 +135,17 @@ export const makeBrokerCodesFollower = (
   date: WibDate,
   show: (codes: RecordedTradeCodes) => void
 ) =>
-  Effect.sync(() => {
-    let asked = 0
-    let shown = 0
+  Effect.gen(function* () {
+    const newest = yield* makeNewestWins
     let complete = false
     let latest: DateTime.Utc | undefined
     const ask = (at: DateTime.Utc, fresh = false) =>
       Effect.suspend(() => {
         latest = at
-        asked += 1
-        const id = asked
-        return Effect.map(
-          fetchRecordedBrokerCodes(date, at, fresh),
-          (answer) => {
-            if (id < shown) return
-            shown = id
-            complete = answer.complete
-            show(new Map(answer.codes))
-          }
-        )
+        return newest(fetchRecordedBrokerCodes(date, at, fresh), (answer) => {
+          complete = answer.complete
+          show(new Map(answer.codes))
+        })
       })
     const recheck = Effect.gen(function* () {
       while (!complete) {

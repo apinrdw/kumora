@@ -9,6 +9,7 @@ import {
   fetchRecordedGaps,
   fetchRecordedTape,
   makeBrokerCodesFollower,
+  makeNewestWins,
   type RecordedTradeCodes,
 } from "@workspace/client"
 import {
@@ -218,26 +219,17 @@ function followTape(
     makeBrokerCodesFollower(cursor.day.date, showCodes)
   )
   loads.run(codes.recheck)
-  let asked = 0
-  let shown = 0
+  const newest = Effect.runSync(makeNewestWins)
   let askedAt = Number.NEGATIVE_INFINITY
   let timer: ReturnType<typeof setTimeout> | undefined
   const ask = () => {
     clearTimeout(timer)
     timer = undefined
     askedAt = performance.now()
-    asked += 1
-    const id = asked
     const at = DateTime.makeUnsafe(
       Effect.runSync(tapeInstant(cursor.day, cursor.state().at))
     )
-    loads.run(
-      Effect.map(fetchRecordedTape(cursor.day.date, at), (trades) => {
-        if (id < shown) return
-        shown = id
-        replace(trades)
-      })
-    )
+    loads.run(newest(fetchRecordedTape(cursor.day.date, at), replace))
     loads.run(codes.ask(at))
   }
   const moved = () => {
