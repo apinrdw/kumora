@@ -3,7 +3,12 @@
 // reads it back with this Schema.
 import { DateTime, Effect, Schema, Struct } from "effect"
 
-import { ArchiveRunId, type RunParams, RunOutcome } from "../archive/run.ts"
+import {
+  type ArchiveRun,
+  ArchiveRunId,
+  type RunParams,
+  RunOutcome,
+} from "../archive/run.ts"
 
 export const ArchiveTrigger = Schema.Literals(["cron", "admin"])
 export type ArchiveTrigger = typeof ArchiveTrigger.Type
@@ -70,11 +75,9 @@ export const RunMetadata = Schema.Struct({
   run: Schema.fromJsonString(RunSummary),
 })
 
-export const runningResult = Effect.fnUntraced(function* (run: {
-  readonly id: ArchiveRunId
-  readonly trigger: ArchiveTrigger
-  readonly startedAt: Date
-}) {
+export const runningResult = Effect.fnUntraced(function* (
+  run: ArchiveRun<ArchiveTrigger>
+) {
   return ArchiveRunResult.make({
     id: run.id,
     trigger: run.trigger,

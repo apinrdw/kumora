@@ -16,7 +16,7 @@ import { readCapped } from "../archive/capped-body.ts"
 import { sha256Hex } from "../archive/hash.ts"
 import { headHeld, MAX_ETAG_BYTES } from "../archive/head.ts"
 import { ETAG, heldRecords, RUN, SHA256 } from "../archive/held.ts"
-import { type ArchiveRunId, runError } from "../archive/run.ts"
+import { type ArchiveRun, type ArchiveRunId, runError } from "../archive/run.ts"
 import { recordKey, reportKey } from "./keys.ts"
 import {
   fetchListing,
@@ -30,11 +30,7 @@ import {
 } from "./run-result.ts"
 import { putRunRecord } from "./runs.ts"
 
-export interface ArchiveRun {
-  readonly id: ArchiveRunId
-  readonly trigger: ArchiveTrigger
-  readonly startedAt: Date
-}
+type IdxRun = ArchiveRun<ArchiveTrigger>
 
 type StepServices = ArchiveBucket | HttpClient.HttpClient
 
@@ -74,7 +70,7 @@ const recordsByUrl = (run?: ArchiveRunId) => heldRecords(SOURCE_URL, run)
 // `running` record. runs/latest.json already names the run: its start
 // claimed it (../archive/runs.ts).
 const plan = Effect.fnUntraced(function* (
-  run: ArchiveRun
+  run: IdxRun
 ): Effect.fn.Return<
   Plan,
   ListingUnreadable | NonRetryable | BucketError,
@@ -209,12 +205,12 @@ const archiveReport = Effect.fnUntraced(function* (
   }
 })
 
-const finishedResult = Effect.fnUntraced(function* (run: ArchiveRun) {
+const finishedResult = Effect.fnUntraced(function* (run: IdxRun) {
   return { ...(yield* runningResult(run)), finishedAt: yield* nowIso }
 })
 
 const summary = Effect.fnUntraced(function* (
-  run: ArchiveRun,
+  run: IdxRun,
   checked: typeof Checked.Type,
   archived: ReadonlyArray<ArchivedReport>,
   notStored: ReadonlyArray<string>
@@ -250,7 +246,7 @@ const summary = Effect.fnUntraced(function* (
 
 // `plan` failed, so nothing was stored: the run is failed with its message.
 const recordPlanFailure = Effect.fnUntraced(function* (
-  run: ArchiveRun,
+  run: IdxRun,
   error: string
 ) {
   const result = ArchiveRunResult.make({
@@ -272,7 +268,7 @@ const reportStepName = Effect.fnUntraced(function* (report: ListedReport) {
 
 export const archiveRun = Effect.fn("archiveRun")(function* (
   steps: WorkflowSteps<StepServices>,
-  run: ArchiveRun
+  run: IdxRun
 ): Effect.fn.Return<ArchiveRunResult, StepFailed> {
   const planned = yield* steps.do("plan", plan(run)).pipe(
     // The run still fails with `plan`'s message, which the Workflow keeps as

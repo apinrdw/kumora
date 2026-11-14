@@ -53,7 +53,11 @@ const KSEI_FILENAME = new RegExp(
   `^(${PREFIXES})(\\d{4})(\\d{2})(\\d{2})(?:${SUFFIXES})$`
 )
 
-const KseiFilename = Schema.String.check(Schema.isPattern(KSEI_FILENAME))
+// A KSEI report's filename: at most 30 characters, fit for a step name and
+// an R2 key.
+export const KseiFilename = Schema.String.check(
+  Schema.isPattern(KSEI_FILENAME)
+).pipe(Schema.brand("KseiFilename"))
 
 // Every file KSEI lists is under this origin; a run fetches nothing else.
 const KSEI_ORIGIN = "https://www.ksei.co.id/"
@@ -84,7 +88,7 @@ export const ListedKseiReport = Schema.Struct({
   kind: KseiReportKind,
   // YYYY-MM-DD, from the filename.
   periodEnd: Schema.String,
-  filename: Schema.String,
+  filename: KseiFilename,
   // The URL listed, which a run fetches.
   url: Schema.String,
   // The listing's entry as returned.
@@ -138,7 +142,9 @@ export const kseiFilenames = Effect.fnUntraced(function* (
   yyyymmdd: string
 ) {
   const { prefix, suffixes } = FILENAME_SHAPE[kind]
-  return suffixes.map((suffix) => `${prefix}${yyyymmdd}${suffix}`)
+  return suffixes.map((suffix) =>
+    KseiFilename.make(`${prefix}${yyyymmdd}${suffix}`)
+  )
 })
 
 // A file no listing names, as a Deep backfill fetches it: its kind from its
@@ -151,7 +157,7 @@ export const unlistedReport = Effect.fnUntraced(function* (filename: string) {
   return ListedKseiReport.make({
     kind,
     periodEnd: `${year}-${month}-${day}`,
-    filename,
+    filename: KseiFilename.make(filename),
     url: `${KSEI_DOWNLOAD}${filename}`,
     listing: null,
   })

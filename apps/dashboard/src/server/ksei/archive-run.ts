@@ -18,12 +18,12 @@ import { sha256Hex } from "../archive/hash.ts"
 import { comparableEtag, headHeld, MAX_ETAG_BYTES } from "../archive/head.ts"
 import { ETAG, RUN, SHA256 } from "../archive/held.ts"
 import { md5Hex } from "../archive/md5.ts"
-import { type ArchiveRunId, runError } from "../archive/run.ts"
+import { type ArchiveRun, type ArchiveRunId, runError } from "../archive/run.ts"
 import { PROBE_YEARS, probe, type Probed, seed } from "./deep.ts"
 import { FILENAME, recordsByFilename } from "./held.ts"
 import { recordKey, reportKey } from "./keys.ts"
 import { KseiReportKind } from "./kind.ts"
-import { fetchListing, ListedKseiReport } from "./listing.ts"
+import { fetchListing, KseiFilename, ListedKseiReport } from "./listing.ts"
 import {
   type DeepFinds,
   KseiRunResult,
@@ -33,11 +33,7 @@ import {
 } from "./run-result.ts"
 import { putKseiRunRecord } from "./runs.ts"
 
-export interface KseiRun {
-  readonly id: ArchiveRunId
-  readonly trigger: KseiTrigger
-  readonly startedAt: Date
-}
+type KseiRun = ArchiveRun<KseiTrigger>
 
 type StepServices = ArchiveBucket | HttpClient.HttpClient
 
@@ -63,7 +59,7 @@ type Plan = typeof Plan.Type
 // What a `report:` step stored. Never the file's bytes: a step's result is
 // at most 1 MiB.
 const ArchivedReport = Schema.Struct({
-  filename: Schema.String,
+  filename: KseiFilename,
   kind: KseiReportKind,
   sha256: Schema.String,
   etag: Schema.NullOr(Schema.String),
@@ -430,7 +426,7 @@ export const kseiArchiveRun = Effect.fn("kseiArchiveRun")(function* (
     )
   )
   const checked = yield* steps.do("head", head(planned.held), KSEI_STEP)
-  const heldByFilename = new Map(
+  const heldByFilename = new Map<string, ListedKseiReport>(
     planned.held.map((report) => [report.filename, report])
   )
   const toStore = [

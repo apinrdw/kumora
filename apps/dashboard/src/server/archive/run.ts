@@ -34,6 +34,14 @@ export const runError = Effect.fnUntraced(function* (error: string) {
     : error
 })
 
+// A run as its Workflow starts it: its instance's id and start, and the
+// trigger `create` passed.
+export interface ArchiveRun<Trigger extends string = string> {
+  readonly id: ArchiveRunId
+  readonly trigger: Trigger
+  readonly startedAt: Date
+}
+
 // What `create` passes a run's Workflow.
 export interface RunParams<Trigger extends string = string> {
   readonly trigger: Trigger
@@ -97,9 +105,5 @@ export interface ArchiveSource<
     Readonly<Record<string, string>>
   >
   // A run's record from its start until it ends.
-  readonly running: (run: {
-    readonly id: ArchiveRunId
-    readonly trigger: Trigger
-    readonly startedAt: Date
-  }) => Effect.Effect<Run>
+  readonly running: (run: ArchiveRun<Trigger>) => Effect.Effect<Run>
 }

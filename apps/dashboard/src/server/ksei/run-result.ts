@@ -4,7 +4,12 @@
 // shape").
 import { DateTime, Effect, Schema, Struct } from "effect"
 
-import { ArchiveRunId, type RunParams, RunOutcome } from "../archive/run.ts"
+import {
+  type ArchiveRun,
+  ArchiveRunId,
+  type RunParams,
+  RunOutcome,
+} from "../archive/run.ts"
 import { KseiReportKind } from "./kind.ts"
 
 // A deep run is a Deep backfill: the scheduled pass, then the files older
@@ -44,10 +49,7 @@ const DeepFinds = Schema.Struct({
   // file for, oldest first. They don't make a run partial. The admin page's
   // coverage grid reads them from the latest deep run (lastKseiDeepRun,
   // runs.ts).
-  monthsNotFound: Schema.Struct({
-    "securities-statistics": Schema.Array(Schema.String),
-    "securities-holdings": Schema.Array(Schema.String),
-  }),
+  monthsNotFound: Schema.Record(KseiReportKind, Schema.Array(Schema.String)),
   // Probe steps that still failed after their retries: their months are
   // neither found nor not found, and the run is partial.
   probeFailures: Schema.Array(
@@ -106,11 +108,9 @@ export const KseiRunMetadata = Schema.Struct({
   run: Schema.fromJsonString(KseiRunSummary),
 })
 
-export const runningKseiResult = Effect.fnUntraced(function* (run: {
-  readonly id: ArchiveRunId
-  readonly trigger: KseiTrigger
-  readonly startedAt: Date
-}) {
+export const runningKseiResult = Effect.fnUntraced(function* (
+  run: ArchiveRun<KseiTrigger>
+) {
   return KseiRunResult.make({
     id: run.id,
     trigger: run.trigger,
