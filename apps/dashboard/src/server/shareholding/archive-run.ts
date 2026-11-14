@@ -123,34 +123,46 @@ const plan = Effect.fnUntraced(function* (
 const HEAD_CONCURRENCY = 4
 
 const Checked = Schema.Struct({
-  // How many held URLs got a HEAD.
+  // How many held URLs answered their HEAD.
   checked: Schema.Number,
   // Held URLs whose ETag no record has.
   changed: Schema.Array(ListedReport),
+  // Held URLs whose HEAD failed, by source URL.
+  unanswered: Schema.Array(Schema.String),
 })
 
 // A HEAD to every held URL. A response with no ETag can't show a change, so
-// its URL counts as unchanged.
+// its URL counts as unchanged. A failed HEAD doesn't fail the step: its URL
+// is recorded, and the next run checks it again.
 const head = Effect.fnUntraced(function* (
   held: Plan["held"]
-): Effect.fn.Return<
-  typeof Checked.Type,
-  HttpClientError.HttpClientError,
-  StepServices
-> {
+): Effect.fn.Return<typeof Checked.Type, never, StepServices> {
   const client = HttpClient.filterStatusOk(yield* HttpClient.HttpClient)
-  const changed = yield* Effect.filter(
+  const answers = yield* Effect.forEach(
     held,
     ({ report, etags }) =>
-      Effect.map(client.head(report.fetchUrl), (response) => {
-        const etag = response.headers["etag"]
-        return etag !== undefined && !etags.includes(etag)
-      }),
+      client.head(report.fetchUrl).pipe(
+        Effect.map((response) => {
+          const etag = response.headers["etag"]
+          return {
+            report,
+            changed: etag !== undefined && !etags.includes(etag),
+          }
+        }),
+        Effect.mapError(() => report.sourceUrl),
+        Effect.result
+      ),
     { concurrency: HEAD_CONCURRENCY }
   )
+  const answered = answers
+    .filter(Result.isSuccess)
+    .map(({ success }) => success)
   return {
-    checked: held.length,
-    changed: changed.map(({ report }) => report),
+    checked: answered.length,
+    changed: answered
+      .filter(({ changed }) => changed)
+      .map(({ report }) => report),
+    unanswered: answers.filter(Result.isFailure).map(({ failure }) => failure),
   }
 })
 
@@ -307,8 +319,10 @@ export const archiveRun = Effect.fn("archiveRun")(function* (
     )
   )
   const archived = stored.filter(Result.isSuccess).map(({ success }) => success)
-  const notStored = stored
-    .filter(Result.isFailure)
-    .map(({ failure }) => failure)
+  // A held URL whose HEAD failed may hide a change this run couldn't store.
+  const notStored = [
+    ...checked.unanswered,
+    ...stored.filter(Result.isFailure).map(({ failure }) => failure),
+  ]
   return yield* steps.do("summary", summary(run, checked, archived, notStored))
 })

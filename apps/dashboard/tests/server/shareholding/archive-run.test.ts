@@ -378,6 +378,50 @@ describe("an archive run", () => {
       })
   )
 
+  it.effect(
+    "ends partial when a held report's HEAD fails, and still stores other changes",
+    () =>
+      Effect.gen(function* () {
+        const idx = fakeIdx()
+        const bucket = memoryBucket()
+        yield* run(idx, bucket, "cron-2026-11-14T06")
+
+        const unanswered = idx.listing[3]
+        const unansweredUrl = idxIdUrl(unanswered.Prospectus)
+        const unansweredFile = idx.files.get(unansweredUrl)
+        assert.isDefined(unansweredFile)
+        idx.files.set(unansweredUrl, { ...unansweredFile, status: 503 })
+        const changed = idx.listing[0]
+        const changedUrl = idxIdUrl(changed.Prospectus)
+        idx.files.set(changedUrl, {
+          body: `corrected xlsx bytes of ${changed.Prospectus}`,
+          etag: `"etag-0:1"`,
+          lastModified: "Sat, 14 Nov 2026 09:00:00 GMT",
+        })
+
+        const result = yield* run(idx, bucket, "cron-2026-11-14T13")
+
+        assert.deepInclude(result, {
+          outcome: "partial",
+          newVersions: 1,
+          reportsChecked: 144,
+          notStored: [unanswered.Prospectus],
+        })
+        assert.deepStrictEqual(
+          json(bucket, "runs/cron-2026-11-14T13.json"),
+          result
+        )
+
+        idx.files.set(unansweredUrl, unansweredFile)
+        const next = yield* run(idx, bucket, "cron-2026-11-15T06")
+        assert.deepInclude(next, {
+          outcome: "complete",
+          reportsChecked: 145,
+          notStored: [],
+        })
+      })
+  )
+
   it.effect("retries a report IDX fails to serve, then ends partial", () =>
     Effect.gen(function* () {
       const idx = fakeIdx()
