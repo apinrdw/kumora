@@ -156,6 +156,10 @@ const recordedWithRows = Effect.gen(function* () {
 // when the suite runs its files side by side.
 const REPLAYS_A_DAY = 30_000
 
+// The whole market's trades in its busiest minute, about what a busy day
+// peaks at (CODING_STANDARDS.md, "Bounded memory on a Worker").
+const BUSIEST_MINUTE = 30_000
+
 describe("the one-off build of a day sealed before order flow", () => {
   it.effect(
     "answers every footprint, sweeps and heatmap GET as the day recorded with the rows did, cached",
@@ -255,6 +259,82 @@ describe("the one-off build of a day sealed before order flow", () => {
         yield* sealedBeforeOrderFlow(sql)
         yield* nextDay
         assert.deepStrictEqual(yield* bodies(yield* tradingDay(sql)), expected)
+      }),
+    REPLAYS_A_DAY
+  )
+
+  it.effect(
+    "builds a day whose busiest minute holds 30,000 trades, reading at most that minute's at once",
+    () =>
+      Effect.gen(function* () {
+        // The whole market's busiest minute, 30,000 regular-board trades over
+        // 600 codes, then a quieter one.
+        const busyDay = (sql: Sql) =>
+          Effect.gen(function* () {
+            yield* onDay("10:01:59.500")
+            const day = yield* tradingDay(sql)
+            for (const [minute, count] of [
+              ["10:00", BUSIEST_MINUTE],
+              ["10:01", 5_000],
+            ] as const) {
+              const start = minute === "10:00" ? 60_000 : 90_000
+              for (let from = 0; from < count; from += 1_000)
+                yield* day.trades(
+                  Array.from({ length: 1_000 }, (_, i) => {
+                    const n = from + i
+                    return trade(
+                      start + n,
+                      `${minute}:${String(Math.floor((n * 60) / count)).padStart(2, "0")}.000`,
+                      `C${String(n % 600).padStart(3, "0")}`,
+                      1_000 + (n % 7) * 5,
+                      1 + (n % 9),
+                      n % 3 === 0 ? "sell" : "buy"
+                    )
+                  })
+                )
+            }
+            yield* onDay("17:00:00")
+            yield* day.alarm
+            yield* day.evicted
+          })
+        const sampled: ReadonlyArray<RecordedResource> = ["C000", "C599"]
+          .map(StockCode.make)
+          .flatMap((code) => [
+            { _tag: "Sweeps" as const, code },
+            { _tag: "Candles" as const, code },
+          ])
+        const bodies = (day: Day) =>
+          Effect.forEach(sampled, (resource) =>
+            Effect.flatMap(day.recorded(resource), (response) =>
+              Effect.promise(() => response.text())
+            )
+          )
+
+        const recordedSql = memorySql()
+        yield* busyDay(recordedSql)
+        yield* nextDay
+        const recorded = yield* tradingDay(recordedSql)
+        const expected = yield* bodies(recorded)
+        yield* recorded.evicted
+
+        const sql = memorySql()
+        yield* busyDay(sql)
+        yield* sealedBeforeOrderFlow(sql)
+        yield* nextDay
+        let largestRead = 0
+        const measured: Sql = {
+          ...sql,
+          exec: (query, ...bindings) => {
+            const rows = sql.exec(query, ...bindings)
+            largestRead = Math.max(largestRead, rows.length)
+            return rows
+          },
+        }
+        assert.deepStrictEqual(
+          yield* bodies(yield* tradingDay(measured)),
+          expected
+        )
+        assert.isAtMost(largestRead, BUSIEST_MINUTE)
       }),
     REPLAYS_A_DAY
   )
