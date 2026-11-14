@@ -59,6 +59,16 @@ export type TargetState = typeof TargetState.Type
 const TargetStates = Schema.Record(TargetName, TargetState)
 export type TargetStates = typeof TargetStates.Type
 
+// Decision: every credential the worker reads is remembered in memory for
+// redact (error-log.ts), beside those in storage when it redacts: a PIN a
+// failed check or the lock screen wiped, or a token the owner replaced,
+// can still sit in a line logged just before. See apinrdw/kumora#288.
+const seenSecrets = new Set<string>()
+
+const remember = Effect.fnUntraced(function* (secrets: ReadonlyArray<string>) {
+  for (const secret of secrets) seenSecrets.add(secret)
+})
+
 const SETTINGS_KEY = "settings"
 const STATES_KEY = "targetStates"
 
@@ -67,10 +77,15 @@ export const loadSettings = Effect.gen(function* () {
   const stored = yield* Effect.promise(() =>
     chrome.storage.local.get(SETTINGS_KEY)
   )
-  return Option.getOrElse(
+  const settings = Option.getOrElse(
     Schema.decodeUnknownOption(Settings)(stored[SETTINGS_KEY]),
     () => noSettings
   )
+  yield* remember([
+    settings.productionToken,
+    ...(settings.extra === null ? [] : [settings.extra.token]),
+  ])
+  return settings
 })
 
 export const saveSettings = Effect.fnUntraced(function* (settings: Settings) {
@@ -277,19 +292,28 @@ export const sessionPinStore: PinStore = {
     const pinKey = `${PIN_PREFIX}${entry.value}`
     const signInKey = `${SIGN_IN_PREFIX}${entry.value}`
     const typingKey = `${TYPING_PREFIX}${entry.value}`
+    const pin = decodePin(stored[pinKey])
+    const signIn = Option.getOrElse(
+      decodeSignIn(stored[signInKey]),
+      (): SignIn => ({ state: "none" })
+    )
+    yield* remember([
+      ...Option.toArray(pin),
+      ...(signIn.state === "signed-in" ? [signIn.accessToken] : []),
+    ])
     return Option.some<PinEntry>({
-      pin: decodePin(stored[pinKey]),
-      signIn: Option.getOrElse(decodeSignIn(stored[signInKey]), (): SignIn => ({
-        state: "none",
-      })),
+      pin,
+      signIn,
       typing: stored[typingKey] === true,
       wipePin: Effect.promise(() =>
         chrome.storage.session.remove([pinKey, typingKey])
       ),
-      setSignIn: (signIn) =>
-        Effect.promise(() =>
-          chrome.storage.session.set({ [signInKey]: signIn })
-        ),
+      setSignIn: Effect.fnUntraced(function* (next: SignIn) {
+        if (next.state === "signed-in") yield* remember([next.accessToken])
+        yield* Effect.promise(() =>
+          chrome.storage.session.set({ [signInKey]: next })
+        )
+      }),
       setTyping: (typing) =>
         Effect.promise(() =>
           typing
@@ -647,24 +671,22 @@ const ERROR_LOG_KEY = "relayErrors"
 const RELAY_STOPPED_KEY = "relayStopped"
 const ErrorLog = Schema.Array(ErrorLogEntry)
 
-// The PINs and sign-in tokens in session storage and the ingest tokens in
-// local storage, for redact (error-log.ts).
+// The PINs, sign-in tokens and ingest tokens in storage now, and every one
+// the worker read before.
 const knownSecrets = Effect.gen(function* () {
   const session = yield* Effect.promise(() => chrome.storage.session.get(null))
-  const settings = yield* loadSettings
-  const held = Object.entries(session).flatMap(([key, value]) => {
-    if (key.startsWith(PIN_PREFIX)) return Option.toArray(decodePin(value))
-    if (!key.startsWith(SIGN_IN_PREFIX)) return []
-    const signIn = decodeSignIn(value)
-    return Option.isSome(signIn) && signIn.value.state === "signed-in"
-      ? [signIn.value.accessToken]
-      : []
-  })
-  return [
-    ...held,
-    settings.productionToken,
-    ...(settings.extra === null ? [] : [settings.extra.token]),
-  ]
+  yield* remember(
+    Object.entries(session).flatMap(([key, value]) => {
+      if (key.startsWith(PIN_PREFIX)) return Option.toArray(decodePin(value))
+      if (!key.startsWith(SIGN_IN_PREFIX)) return []
+      const signIn = decodeSignIn(value)
+      return Option.isSome(signIn) && signIn.value.state === "signed-in"
+        ? [signIn.value.accessToken]
+        : []
+    })
+  )
+  yield* loadSettings
+  return [...seenSecrets]
 })
 
 export const errorLogStore: ErrorLogStore = {
@@ -700,7 +722,7 @@ export type RelayStopped = typeof RelayStopped.Type
 export const saveRelayStopped = Effect.fnUntraced(function* (
   stopped: RelayStopped
 ) {
-  const cause = redact(stopped.cause, yield* knownSecrets)
+  const cause = yield* redact(stopped.cause, yield* knownSecrets)
   yield* Effect.promise(() =>
     chrome.storage.session.set({ [RELAY_STOPPED_KEY]: { ...stopped, cause } })
   )

@@ -20,16 +20,22 @@ export interface ErrorLogStore {
 // Decision: a cause is redacted as text right before it is stored, not by
 // carrying credentials as `Redacted`: the text hides a value however it got
 // there, a message built from an unwrapped one included. It hides each value
-// the worker holds at save time, and any JWT, which covers Stockbit's token
+// the worker has read (settings.ts), and any JWT, which covers Stockbit's token
 // read from its cookie and never stored. See apinrdw/kumora#288.
 const JWT = /eyJ[\w-]*\.[\w-]+\.[\w-]*/g
 
-export const redact = (text: string, secrets: ReadonlyArray<string>) =>
-  secrets
+export const REDACTED = "<redacted>"
+
+export const redact = Effect.fnUntraced(function* (
+  text: string,
+  secrets: ReadonlyArray<string>
+) {
+  return secrets
     .filter((secret) => secret !== "")
     .sort((a, b) => b.length - a.length)
-    .reduce((hidden, secret) => hidden.replaceAll(secret, "<redacted>"), text)
-    .replace(JWT, "<redacted>")
+    .reduce((hidden, secret) => hidden.replaceAll(secret, REDACTED), text)
+    .replace(JWT, REDACTED)
+})
 
 const KEPT = 50
 
@@ -61,11 +67,13 @@ export const makeErrorLog = Effect.fnUntraced(function* (store: ErrorLogStore) {
         const fresh = batch.filter((entry) => entry !== undefined)
         if (fresh.length === 0) return
         const secrets = yield* store.secrets
-        const hidden = fresh.map(({ cause, ...entry }) => ({
-          ...entry,
-          message: redact(entry.message, secrets),
-          ...(cause !== undefined && { cause: redact(cause, secrets) }),
-        }))
+        const hidden = yield* Effect.forEach(fresh, ({ cause, ...entry }) =>
+          Effect.gen(function* () {
+            const message = yield* redact(entry.message, secrets)
+            if (cause === undefined) return { ...entry, message }
+            return { ...entry, message, cause: yield* redact(cause, secrets) }
+          })
+        )
         ring = [...ring, ...hidden].slice(-KEPT)
         yield* store.save(ring)
       }),
