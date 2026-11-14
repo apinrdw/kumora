@@ -6,7 +6,7 @@ A human does these steps. An agent cannot deploy, run the relay or read Workers 
 
 ## What the day measures
 
-The trading-day Durable Object logs two kinds of structured lines, which Workers Logs keeps (`observability` is on for every stack, `packages/deploy/src/stack.ts`):
+The trading-day Durable Object logs two kinds of structured lines (`trading-day.ts` logs them, from the meter `day-store.ts` keeps), which Workers Logs keeps (`observability` is on for every stack, `packages/deploy/src/stack.ts`):
 
 - **`Rows written`**: one line for each flush, about once a minute. Each field is the number of rows that flush wrote to one table. The fields are `trades`, `candles`, `footprints`, `heatmaps`, `bookChunks`, `livePrices`, `ajaibBooks` and `facts`. `billedRowsWritten` is what the SQLite cursors counted, which is the figure Cloudflare bills. `minuteRereads` counts the late trades that read a stored minute back (#266's re-read). `billedMinuteRereadRows` is the number of rows those re-reads read.
 - **`Order flow storage`**: one line at the seal, at 17:00 WIB. The fields are `footprintRows`, `footprintBytes`, `heatmapRows` and `heatmapBytes` (the payload bytes of the two new tables), and `databaseBytes` (the whole day's database).
@@ -17,12 +17,12 @@ The lines are per flush, so a restart loses no more than one flush's counts. Add
 
 1. Push the spec's branch to `staging`. Workers Builds deploys it to Staging (`docs/runbooks/deploy.md`, section 4). The dashboard Worker is `kumora-dashboard-staging`.
 2. On a trading day, before 08:45 WIB, set the relay extension's target to Staging with Staging's `INGEST_TOKEN`. Keep it relaying until after 16:15 WIB.
-3. Open Market Live on Staging, and select and watch the codes you watch on Production. Book chunks, and so heatmap rows, are recorded only for codes some viewer selected or watches. Write down how many codes that is. This is **K_staging**.
+3. Open Market Live on Staging, and select and watch the codes you watch on Production. Book chunks, and so heatmap rows, are recorded only for some codes: `book-chunks.ts` and `order-books.ts` decide which. Write down how many codes that is. This is **K_staging**.
 4. Do not deploy Staging during the day. A deploy restarts the object and costs a reconnect and a backfill. The backfill is a burst of late trades, which inflates `minuteRereads`.
 
 ## After 17:00 WIB
 
-1. Open `kumora-dashboard-staging`'s logs in the Query Builder. Cloudflare's [Query Builder page](https://developers.cloudflare.com/workers/observability/query-builder/), read 2026-11-14, gives the path: Workers & Pages, the Worker, then Observability. It keeps logs for seven days, so run this within a week of the day.
+1. Open `kumora-dashboard-staging`'s logs in the Query Builder. Cloudflare's [Query Builder page](https://developers.cloudflare.com/workers/observability/query-builder/), read 2026-11-14, gives the path: Workers & Pages, the Worker, then Observability. It keeps logs for seven days (read 2026-11-14), so run this within a week of the day.
 2. Filter on the message `Rows written` (the `$metadata.message` key) and the day, 08:00–17:05 WIB. Sum each field across the lines.
 3. Filter on the message `Order flow storage` and read its one line.
 4. Read the day's trade count, **T_staging**: the day strip's figure for the day on Staging (`trades`), or the `trades` sum from step 2.
@@ -52,7 +52,7 @@ If `billedRowsWritten` is well above the plain row counts, a replaced row bills 
 
 Storage only grows, because no day is ever deleted. Report the cost for month 1 and month 12.
 
-The one-off build of the days sealed before the ship runs once per day, on that day's first order flow GET. It writes about one footprint row per stock-minute plus one heatmap row per book chunk. That is roughly one day's footprint and heatmap writes for each such day, once.
+The one-off build of the days sealed before the ship runs once per day, on that day's first order flow GET. `order-flow-build.ts` builds it, and its `orderFlowBuiltAtStart` decides which days need it. It writes about one footprint row per stock-minute plus one heatmap row per book chunk. That is roughly one day's footprint and heatmap writes for each such day, once.
 
 ## First estimate, before Staging (2026-11-14)
 
