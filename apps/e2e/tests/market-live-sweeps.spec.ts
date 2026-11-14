@@ -75,6 +75,20 @@ test("sweeps show as bubbles and log rows; top-N filters them; a row rings its b
 
   await log.getByRole("button", { name: "Big only" }).click()
   await expect(rows).toHaveCount(1)
+  // Chart 2 opens on the 10 minutes ending at the newest sweep's: its bar
+  // index, which counts the relay gaps' minutes drawn before the code's own.
+  const footprint = page.locator('[data-chart="footprint"]')
+  const range = async () => ({
+    from: Number(await footprint.getAttribute("data-from")),
+    to: Number(await footprint.getAttribute("data-to")),
+  })
+  await expect
+    .poll(async () => {
+      const { from, to } = await range()
+      return to - from
+    })
+    .toBe(9)
+  const newest = (await range()).to
   const big = rows.first()
   await big.click()
   await expect(big).toHaveAttribute("aria-current", "true")
@@ -82,5 +96,13 @@ test("sweeps show as bubbles and log rows; top-N filters them; a row rings its b
     "data-ringed-sweep",
     (await big.getAttribute("data-sweep-id"))!
   )
+  // The row moves chart 2 to the 10 minutes around the big buy's.
+  const minute = (at: number) => Math.floor(at / 60_000)
+  const bigMinute = newest - (minute(start + 12_000) - minute(start + 8_000))
+  await expect(footprint).toHaveAttribute(
+    "data-from",
+    (bigMinute - 4).toFixed(2)
+  )
+  await expect(footprint).toHaveAttribute("data-to", (bigMinute + 5).toFixed(2))
   relay.close()
 })

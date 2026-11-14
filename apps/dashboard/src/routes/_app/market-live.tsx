@@ -117,6 +117,14 @@ function MarketLiveDay({
   const { candles, book, heatmap, sweeps } = useCodeStores(selected, day, today)
   // Chart 1 and chart 2 move together; each code's charts attach afresh.
   const [pair] = useState(() => Effect.runSync(makeChartPair()))
+  // A sweep picked in the log or on chart 1 moves chart 2 to its minute.
+  useEffect(
+    () =>
+      sweeps.subscribe((change) => {
+        if (change._tag === "Selected") pair.jumpTo(change.minute)
+      }),
+    [sweeps, pair]
+  )
   // Decision: the watchlist's Day state store starts empty on the server, and
   // the loader gives it no server snapshot. The watchlist's codes live in the
   // browser's localStorage (use-watchlist.ts), so the server can't know which

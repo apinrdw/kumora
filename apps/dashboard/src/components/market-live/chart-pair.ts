@@ -1,7 +1,7 @@
 // How chart 1 and chart 2 move together (spec apinrdw/kumora#263, "Own
 // zoom", "Pan sync" and "Window band"). The page makes one pair per selected
-// code; each chart canvas attaches its chart once drawn, and the sweep log
-// calls `jumpTo`. Both charts draw the same minutes (lib/chart-nav.ts
+// code; each chart canvas attaches its chart once drawn, and the page calls
+// `jumpTo` when a sweep is picked, in the log or on chart 1. Both charts draw the same minutes (lib/chart-nav.ts
 // `chartMinutes`), so a logical bar index is the same minute on each.
 //
 // - Chart 2 opens and refits at exactly 10 whole minutes: on every jump and
@@ -52,7 +52,7 @@ export interface ChartPair {
   readonly attachFootprint: (
     side: PairedChart & { readonly minutes: () => ReadonlyArray<number> }
   ) => () => void
-  // Chart 2 to the 10 minutes around `minute` (a sweep log row).
+  // Chart 2 to the 10 minutes around `minute` (a picked sweep's).
   readonly jumpTo: (minute: number) => void
   // Chart 2 to the 10 minutes ending at the last one at or before `minute`:
   // its opening window, and a recorded day's cursor.
@@ -233,9 +233,13 @@ export const makeChartPair = () =>
         )
         band = shade
         side.series.attachPrimitive(shade)
-        // A click on a minute moves chart 2 there.
+        // A click on a minute moves chart 2 there. A click on a drawn object,
+        // a sweep bubble, is the object's: selecting the sweep moves chart 2.
         const click = (parameter: MouseEventParams<Time>) => {
-          if (parameter.logical !== undefined)
+          if (
+            parameter.logical !== undefined &&
+            parameter.hoveredObjectId === undefined
+          )
             fit({ _tag: "Middle", logical: parameter.logical })
         }
         side.chart.subscribeClick(click)
