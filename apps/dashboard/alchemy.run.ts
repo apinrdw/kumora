@@ -113,12 +113,17 @@ export const Website = Cloudflare.Website.Vite(
     // Google sign-in: Alchemy's dev runtime fires a Worker's crons, so an
     // ungated cron would make `pnpm dev`, and every Preview, call IDX. Other
     // stages start a run with Run now only. See apinrdw/kumora#308.
-    // Decision: the KSEI archive cron is gated the same way, so only
-    // Production calls ksei.co.id on a schedule; src/worker.ts tells the two
-    // crons apart by expression. See apinrdw/kumora#326.
     const crons: { crons?: Array<string> } =
       (yield* stageKind(stage)) === "production"
-        ? { crons: [ARCHIVE_CRON, KSEI_CRON] }
+        ? {
+            crons: [
+              ARCHIVE_CRON,
+              // Decision: the KSEI archive cron is gated the same way, so only
+              // Production calls ksei.co.id on a schedule; src/worker.ts tells
+              // the two crons apart by expression. See apinrdw/kumora#326.
+              KSEI_CRON,
+            ],
+          }
         : {}
     return {
       ...(yield* websiteProps("dashboard", stage)),

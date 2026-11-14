@@ -11,12 +11,11 @@ import { KIND_LABEL, KseiReportKind } from "./kind.ts"
 
 // One call returns a whole listing: `page[size]` defaults to 30, and KSEI
 // lists 36 per kind.
-// Decision: no `locale` or `append`, so each entry names its file `pdf_en`,
-// as the recorded fixtures (tests/server/ksei/fixtures/) do. The research
-// note's `pdf_id` needs `locale=id&append=pdf_id`; both name the same file
-// URLs, and only `name` changes language. The Schema pins `pdf_en`, so a
-// change of field fails the listing instead of reading no files. See
-// apinrdw/kumora#327.
+// Decision: no `locale` or `append`, so an entry names its file `pdf_en`, as
+// in the recorded fixtures. `pdf_id` needs `locale=id&append=pdf_id` and
+// names the same file URLs; only `name` changes language. The Schema pins
+// `pdf_en`, so a renamed field fails the listing instead of reading no
+// files. See apinrdw/kumora#327.
 export const LISTING_URLS: Record<KseiReportKind, string> = {
   "securities-statistics":
     "https://www.ksei.co.id/api/static_stocks?page[size]=100",
