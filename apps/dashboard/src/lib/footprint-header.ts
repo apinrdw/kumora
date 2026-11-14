@@ -22,17 +22,16 @@ export interface HeaderPart {
 
 export type HeaderLine = ReadonlyArray<HeaderPart>
 
-const part = (text: string, tone: HeaderTone = "flat"): HeaderPart => ({
-  text,
-  tone,
-})
-
 // Line 1: time, OHLC, lots and fills, Buy, Sell, Δ and CVD. Line 2: the
 // day's VWAP so far, its ±1σ, ±2σ and ±3σ widths, and the POC. A minute after
 // the cursor gives only its time.
 export const footprintHeader = Effect.fnUntraced(function* (
   column: FootprintColumn
 ) {
+  const part = (text: string, tone: HeaderTone = "flat"): HeaderPart => ({
+    text,
+    tone,
+  })
   const time = (yield* tapeTime(column.minute)).slice(0, 5)
   if (column.later) return [[part(`${time} after the cursor`)]]
   const { buy, sell, delta, cvd } = column.totals
