@@ -75,7 +75,13 @@ describe("the archive cron", () => {
     })
   )
 
-  for (const status of ["queued", "running", "waiting"] as const)
+  for (const status of [
+    "queued",
+    "running",
+    "waiting",
+    "waitingForPause",
+    "paused",
+  ] as const)
     it.effect(`skips while the latest run is ${status}`, () =>
       Effect.gen(function* () {
         const workflow = fakeWorkflow()

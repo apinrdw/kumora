@@ -190,20 +190,23 @@ describe("Run now", () => {
     }).pipe(Effect.provide(layer))
   })
 
-  it.effect("is refused while the latest run is running", () => {
-    const { layer, mails, workflow, bucket } = archive()
-    seedLatest(bucket, RUNNING)
-    runningInstance(workflow, RUNNING.id)
-    return Effect.gen(function* () {
-      const cookie = yield* verified(mails)(ADMIN_EMAIL, "Adi")
-      const error = yield* Effect.flip(runArchiveNow(headers(cookie)))
-      assert.deepStrictEqual(
-        error,
-        new Conflict({ message: "A run is in progress." })
-      )
-      assert.deepStrictEqual(createdIds(workflow), [RUNNING.id])
-    }).pipe(Effect.provide(layer))
-  })
+  for (const status of ["running", "waitingForPause", "paused"] as const)
+    it.effect(`is refused while the latest run is ${status}`, () => {
+      const { layer, mails, workflow, bucket } = archive()
+      seedLatest(bucket, RUNNING)
+      runningInstance(workflow, RUNNING.id)
+      const previous = workflow.instances.get(RUNNING.id)
+      if (previous !== undefined) previous.status = status
+      return Effect.gen(function* () {
+        const cookie = yield* verified(mails)(ADMIN_EMAIL, "Adi")
+        const error = yield* Effect.flip(runArchiveNow(headers(cookie)))
+        assert.deepStrictEqual(
+          error,
+          new Conflict({ message: "A run is in progress." })
+        )
+        assert.deepStrictEqual(createdIds(workflow), [RUNNING.id])
+      }).pipe(Effect.provide(layer))
+    })
 
   it.effect("starts a run once the running one's Workflow errored", () => {
     const { layer, mails, workflow, bucket } = archive()
