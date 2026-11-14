@@ -19,5 +19,6 @@ export {
   fetchRecordedCandles,
   fetchRecordedGaps,
   fetchRecordedHeatmap,
+  fetchRecordedSweeps,
   fetchRecordedTape,
 } from "./recorded-day.ts"

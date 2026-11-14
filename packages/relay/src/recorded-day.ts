@@ -24,6 +24,8 @@ export type RecordedResource =
   | { readonly _tag: "Tape"; readonly at: DateTime.Utc }
   // One code's whole-day candles and its previous close.
   | { readonly _tag: "Candles"; readonly code: StockCode }
+  // One code's sweeps for the day so far (sweeps.ts).
+  | { readonly _tag: "Sweeps"; readonly code: StockCode }
   // One code's stored order book chunk for the minute holding `minute`.
   | {
       readonly _tag: "Book"
@@ -45,6 +47,8 @@ export const recordedDayPath = (date: WibDate, resource: RecordedResource) =>
         return `${base}/trades?at=${DateTime.toEpochMillis(resource.at)}`
       case "Candles":
         return `${base}/candles/${resource.code}`
+      case "Sweeps":
+        return `${base}/sweeps/${resource.code}`
       case "Book":
         return `${base}/books/${resource.code}?minute=${DateTime.toEpochMillis(resource.minute)}`
       case "Gaps":
@@ -107,6 +111,11 @@ const resourceOf = Effect.fnUntraced(function* (
   if (kind === "heatmap")
     return Option.map(decodeCode(code), (stock) => ({
       _tag: "Heatmap" as const,
+      code: stock,
+    }))
+  if (kind === "sweeps")
+    return Option.map(decodeCode(code), (stock) => ({
+      _tag: "Sweeps" as const,
       code: stock,
     }))
   if (kind === "books")

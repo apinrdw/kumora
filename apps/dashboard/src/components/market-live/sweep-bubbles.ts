@@ -1,0 +1,299 @@
+// Chart 1's sweep bubbles (spec apinrdw/kumora#263, "Chart 1"), loaded with
+// Lightweight Charts in chart-canvas.tsx's browser-only chunk.
+import type { Sweep } from "@workspace/relay"
+import { DateTime, Effect } from "effect"
+import type {
+  IChartApi,
+  IPrimitivePaneRenderer,
+  IPrimitivePaneView,
+  ISeriesApi,
+  ISeriesPrimitive,
+  Logical,
+  MouseEventParams,
+  PrimitiveHoveredItem,
+  SeriesAttachedParameter,
+  SeriesType,
+  Time,
+} from "lightweight-charts"
+
+import {
+  bubbleOffset,
+  bubbleRadius,
+  isBigSweep,
+  sweepMinute,
+  sweepPrice,
+} from "@/lib/sweeps"
+
+import type { ReplayCursor } from "./replay-cursor"
+import type { SweepStore } from "./sweep-store"
+
+// One bubble, worked out when the sweeps change, so a draw only places it.
+interface Bubble {
+  readonly id: number
+  readonly side: "buy" | "sell"
+  readonly time: number
+  readonly lots: number
+  readonly price: number
+  readonly radius: number
+  readonly big: boolean
+  // The bubble's offset from its minute's centre at a bar spacing of 1.
+  readonly offset: number
+}
+
+export interface BubbleColors {
+  readonly buy: string
+  readonly sell: string
+  readonly big: string
+  readonly selected: string
+}
+
+// A sweep's bubble id in the chart's hit test.
+const HIT_PREFIX = "sweep:"
+
+// Each minute's bubbles, largest first, so small ones draw on top.
+const bubblesOf = Effect.fnUntraced(function* (sweeps: ReadonlyArray<Sweep>) {
+  const byMinute = new Map<number, Array<Bubble>>()
+  for (const [id, sweep] of sweeps.entries()) {
+    // An auction match forms no sweep and gets no bubble.
+    if (sweep.side === "none") continue
+    const minute = (yield* sweepMinute(sweep)) / 1000
+    let bubbles = byMinute.get(minute)
+    if (bubbles === undefined) {
+      bubbles = []
+      byMinute.set(minute, bubbles)
+    }
+    bubbles.push({
+      id,
+      side: sweep.side,
+      time: DateTime.toEpochMillis(sweep.time),
+      lots: sweep.lots,
+      price: yield* sweepPrice(sweep),
+      radius: yield* bubbleRadius(sweep.lots),
+      big: yield* isBigSweep(sweep),
+      offset: yield* bubbleOffset(sweep, 1),
+    })
+  }
+  for (const bubbles of byMinute.values())
+    bubbles.sort((a, b) => b.lots - a.lots)
+  return byMinute
+})
+
+// Draws each shown sweep as a bubble at its average price, x at its minute's
+// centre plus its second: green buy, red sell, area by lots, an amber ring on
+// a big trade, and a ring and guide on the selected one. A bubble is a hit
+// target, so a click picks its sweep. The last draw's bubble count and
+// selection go on `marks` for the page e2e.
+class SweepBubbles implements ISeriesPrimitive<Time> {
+  private byMinute = new Map<number, Array<Bubble>>()
+  private threshold = 0
+  private at = Number.POSITIVE_INFINITY
+  private selected: number | undefined
+  private attachedTo: SeriesAttachedParameter<Time> | undefined
+  private readonly renderer: IPrimitivePaneRenderer = {
+    draw: (target) =>
+      target.useBitmapCoordinateSpace((scope) => {
+        const placed = this.placed()
+        const ratio = scope.horizontalPixelRatio
+        const context = scope.context
+        const paths = { buy: new Path2D(), sell: new Path2D() }
+        const rings = new Path2D()
+        let ring: readonly [number, number, number] | undefined
+        for (const { bubble, x, y } of placed) {
+          const bx = x * ratio
+          const by = y * scope.verticalPixelRatio
+          const r = bubble.radius * ratio
+          paths[bubble.side].moveTo(bx + r, by)
+          paths[bubble.side].arc(bx, by, r, 0, Math.PI * 2)
+          if (bubble.big) {
+            rings.moveTo(bx + r + 2 * ratio, by)
+            rings.arc(bx, by, r + 2 * ratio, 0, Math.PI * 2)
+          }
+          if (bubble.id === this.selected) ring = [bx, by, r]
+        }
+        context.lineWidth = Math.max(1, ratio)
+        for (const side of ["buy", "sell"] as const) {
+          context.fillStyle = `${this.colors[side]}61`
+          context.fill(paths[side])
+          context.strokeStyle = `${this.colors[side]}e6`
+          context.stroke(paths[side])
+        }
+        context.lineWidth = 1.5 * ratio
+        context.strokeStyle = this.colors.big
+        context.stroke(rings)
+        if (ring !== undefined) {
+          const [x, y, r] = ring
+          context.lineWidth = 2.5 * ratio
+          context.strokeStyle = this.colors.selected
+          context.beginPath()
+          context.arc(x, y, r + 5 * ratio, 0, Math.PI * 2)
+          context.stroke()
+          context.setLineDash([3 * ratio, 3 * ratio])
+          context.lineWidth = ratio
+          context.beginPath()
+          context.moveTo(x, 0)
+          context.lineTo(x, y - r - 6 * ratio)
+          context.moveTo(x, y + r + 6 * ratio)
+          context.lineTo(x, scope.bitmapSize.height)
+          context.stroke()
+          context.setLineDash([])
+        }
+        this.marks.dataset.bubbles = String(placed.length)
+        if (ring === undefined) delete this.marks.dataset.ringedSweep
+        else this.marks.dataset.ringedSweep = String(this.selected)
+      }),
+  }
+  private readonly views: ReadonlyArray<IPrimitivePaneView> = [
+    { zOrder: () => "normal", renderer: () => this.renderer },
+  ]
+
+  constructor(
+    private readonly colors: BubbleColors,
+    private readonly marks: HTMLElement
+  ) {}
+
+  attached(parameter: SeriesAttachedParameter<Time>) {
+    this.attachedTo = parameter
+  }
+
+  detached() {
+    this.attachedTo = undefined
+  }
+
+  paneViews() {
+    return this.views
+  }
+
+  show(options: {
+    readonly byMinute?: Map<number, Array<Bubble>>
+    readonly threshold: number
+    readonly at: number
+    readonly selected: number | undefined
+  }) {
+    if (options.byMinute !== undefined) this.byMinute = options.byMinute
+    this.threshold = options.threshold
+    this.at = options.at
+    this.selected = options.selected
+    this.attachedTo?.requestUpdate()
+  }
+
+  // The bubbles shown at the chart's current scale, in CSS pixels.
+  private placed() {
+    const attached = this.attachedTo
+    if (attached === undefined) return []
+    const timeScale = attached.chart.timeScale()
+    const spacing = timeScale.options().barSpacing
+    const placed: Array<{ bubble: Bubble; x: number; y: number }> = []
+    for (const [minute, bubbles] of this.byMinute) {
+      const centre = timeScale.timeToCoordinate(minute as Time)
+      if (centre === null) continue
+      for (const bubble of bubbles) {
+        if (bubble.time > this.at || bubble.lots < this.threshold) continue
+        const y = attached.series.priceToCoordinate(bubble.price)
+        if (y === null) continue
+        placed.push({ bubble, x: centre + bubble.offset * spacing, y })
+      }
+    }
+    return placed
+  }
+
+  hitTest(x: number, y: number): PrimitiveHoveredItem | null {
+    let best: { id: number; distance: number } | undefined
+    for (const placed of this.placed()) {
+      const distance = Math.hypot(placed.x - x, placed.y - y)
+      if (distance > placed.bubble.radius + 2) continue
+      if (best === undefined || distance < best.distance)
+        best = { id: placed.bubble.id, distance }
+    }
+    return best === undefined
+      ? null
+      : {
+          externalId: `${HIT_PREFIX}${best.id}`,
+          zOrder: "normal",
+          distance: best.distance,
+          hitTestPriority: 2,
+          cursorStyle: "pointer",
+        }
+  }
+}
+
+// The sweep a click on chart 1 hit, if any.
+export const clickedSweep = (parameter: MouseEventParams<Time>) =>
+  Effect.sync(() => {
+    const id = parameter.hoveredObjectId
+    return typeof id === "string" && id.startsWith(HIT_PREFIX)
+      ? Number(id.slice(HIT_PREFIX.length))
+      : undefined
+  })
+
+// Puts the store's sweeps on chart 1's candle series as bubbles, redrawn at
+// most once a frame when the sweeps, the top-N or the cursor change. A click
+// on a bubble selects its sweep; a sweep picked in the log scrolls chart 1 to
+// its minute, keeping the zoom unless it is wider than an hour. Returns the
+// cleanup.
+export function attachSweepBubbles({
+  chart,
+  series,
+  store,
+  cursor,
+  colors,
+  marks,
+}: {
+  chart: IChartApi
+  series: ISeriesApi<SeriesType>
+  store: SweepStore
+  cursor: ReplayCursor | undefined
+  colors: BubbleColors
+  marks: HTMLElement
+}) {
+  const bubbles = new SweepBubbles(colors, marks)
+  series.attachPrimitive(bubbles)
+  let shownSweeps: ReadonlyArray<Sweep> | undefined
+  let frame = 0
+  const redraw = () => {
+    frame = 0
+    const sweeps = store.sweeps()
+    const at =
+      cursor === undefined ? Number.POSITIVE_INFINITY : cursor.state().at
+    const byMinute =
+      sweeps === shownSweeps ? undefined : Effect.runSync(bubblesOf(sweeps))
+    shownSweeps = sweeps
+    bubbles.show({
+      ...(byMinute === undefined ? {} : { byMinute }),
+      threshold: store.threshold(at).lots,
+      at,
+      selected: store.selected(),
+    })
+  }
+  const schedule = () => {
+    if (frame === 0) frame = requestAnimationFrame(redraw)
+  }
+  redraw()
+  const jump = (minute: number) => {
+    const timeScale = chart.timeScale()
+    const index = timeScale.timeToIndex((minute / 1000) as Time, true)
+    const range = timeScale.getVisibleLogicalRange()
+    if (index === null || range === null) return
+    const width = range.to - range.from > 60 ? 30 : range.to - range.from
+    timeScale.setVisibleLogicalRange({
+      from: (index - width / 2) as Logical,
+      to: (index + width / 2) as Logical,
+    })
+  }
+  const stopStore = store.subscribe((change) => {
+    if (change._tag === "Selected" && change.from === "log") jump(change.minute)
+    schedule()
+  })
+  const stopCursor = cursor?.subscribe(schedule)
+  const click = (parameter: MouseEventParams<Time>) => {
+    const id = Effect.runSync(clickedSweep(parameter))
+    if (id !== undefined) store.select(id, "chart")
+  }
+  chart.subscribeClick(click)
+  return () => {
+    cancelAnimationFrame(frame)
+    chart.unsubscribeClick(click)
+    stopStore()
+    stopCursor?.()
+    series.detachPrimitive(bubbles)
+  }
+}

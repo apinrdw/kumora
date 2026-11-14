@@ -4,8 +4,10 @@
 import {
   encodeRecordedCandles,
   encodeRecordedGaps,
+  encodeRecordedSweeps,
   encodeRecordedTape,
   type RecordedResource,
+  type RecordedSweeps,
   type RelayGap,
   type StockCode,
   type WibDate,
@@ -48,6 +50,10 @@ export const recordedAnswer = Effect.fnUntraced(function* (
       code: StockCode,
       through: number
     ) => Effect.Effect<ReadonlyArray<HeatRow>>
+    // A code's sweeps so far, with the trade number they were built up to.
+    readonly sweeps: (
+      code: StockCode
+    ) => Effect.Effect<Omit<RecordedSweeps, "code">>
   }
 ) {
   const { store } = day
@@ -74,6 +80,14 @@ export const recordedAnswer = Effect.fnUntraced(function* (
         cacheControl
       )
     }
+    case "Sweeps":
+      return yield* json(
+        yield* encodeRecordedSweeps({
+          code: resource.code,
+          ...(yield* day.sweeps(resource.code)),
+        }),
+        cacheControl
+      )
     case "Book": {
       const minute =
         Math.floor(DateTime.toEpochMillis(resource.minute) / MINUTE) * MINUTE

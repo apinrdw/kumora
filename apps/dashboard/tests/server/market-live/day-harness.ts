@@ -8,11 +8,13 @@ import {
   ViewerProtocolVersion,
   WibDate,
   decodeRecordedCandles,
+  decodeRecordedSweeps,
   decodeViewerDown,
   encodeIngestUp,
   encodeViewerUp,
   type Footprint,
   type RecordedResource,
+  type Sweep,
   type ViewerDown,
 } from "@workspace/relay"
 import { WorkerEnv } from "@workspace/server"
@@ -204,6 +206,18 @@ export const tradingDay = Effect.fnUntraced(function* (sql: Sql = memorySql()) {
       answer: yield* decodeRecordedCandles(text),
     }
   })
+  // A code's sweeps answer, decoded, with its Cache-Control.
+  const recordedSweeps = Effect.fnUntraced(function* (code: string) {
+    const response = yield* recorded({
+      _tag: "Sweeps",
+      code: StockCode.make(code),
+    })
+    const text = yield* Effect.promise(() => response.text())
+    return {
+      cacheControl: response.headers.get("Cache-Control"),
+      answer: yield* decodeRecordedSweeps(text),
+    }
+  })
   return {
     day,
     trades,
@@ -211,6 +225,7 @@ export const tradingDay = Effect.fnUntraced(function* (sql: Sql = memorySql()) {
     viewer,
     recorded,
     recordedCandles,
+    recordedSweeps,
     alarm: day.alarm.pipe(Effect.provide(env)),
   }
 })
@@ -236,3 +251,14 @@ export const cellsOf = (footprint: Footprint | undefined) =>
       cell.none,
     ]),
   }
+
+// A sweep as a test compares it: [side, time in ISO, first, last, lots,
+// trades].
+export const sweepOf = (sweep: Sweep) => [
+  sweep.side,
+  DateTime.formatIso(sweep.time),
+  sweep.first,
+  sweep.last,
+  sweep.lots,
+  sweep.trades,
+]

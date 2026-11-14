@@ -13,7 +13,7 @@ import type { ReplayCursor } from "./replay-cursor"
 // "Chart").
 const FootprintCanvas = lazy(() => import("./footprint-canvas"))
 
-const CHART_HEIGHT = "h-[380px]"
+const CHART_HEIGHT = "h-[380px] lg:h-auto lg:min-h-[380px] lg:flex-1"
 const MINUTE = 60_000
 
 // What the canvas shows, in words: how many footprint minutes there are, and
@@ -65,7 +65,7 @@ export function FootprintChart({
     <section
       aria-label="Footprint"
       data-stale={stale || undefined}
-      className="flex min-w-0 flex-col gap-2"
+      className="flex min-w-0 flex-col gap-2 lg:flex-[1.25_1_auto]"
     >
       <header className="flex flex-wrap items-baseline gap-3">
         <h2 className="text-[15px] font-bold">Footprint</h2>
@@ -75,7 +75,9 @@ export function FootprintChart({
       </header>
       {/* The canvas has no text: this says what it draws. */}
       <p className="sr-only">{summary}</p>
-      <div className={stale ? "opacity-50" : undefined}>
+      <div
+        className={`flex min-h-0 flex-1 flex-col ${stale ? "opacity-50" : ""}`}
+      >
         <ClientOnly fallback={<div className={CHART_HEIGHT} />}>
           <Suspense fallback={<div className={CHART_HEIGHT} />}>
             <FootprintCanvas store={store} cursor={cursor} />

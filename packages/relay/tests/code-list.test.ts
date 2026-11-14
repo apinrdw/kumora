@@ -31,6 +31,7 @@ describe("recorded day paths", () => {
         { _tag: "Codes" },
         { _tag: "Tape", at },
         { _tag: "Candles", code },
+        { _tag: "Sweeps", code },
         { _tag: "Book", code, minute: at },
         { _tag: "Gaps" },
       ]
