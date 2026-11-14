@@ -393,10 +393,21 @@ export const makeBrokerCodes = Effect.fnUntraced(function* (options: {
       })
     )
 
+  // Decision: the day's `complete`, once a scan found it, is kept until the
+  // next batch: the recorded day's codes answer carries it, and Play asks
+  // that up to 4 times a second, which must not scan every chunk each time.
+  let complete: boolean | undefined
+
   // A batch merged into its chunks and written in one transaction, so a
   // failed batch writes nothing and the extension resends it.
   const write = (batch: BrokerCodesBatch) =>
-    Effect.flatMap(merge(batch), commit)
+    Effect.flatMap(merge(batch), commit).pipe(
+      Effect.tap(() =>
+        Effect.sync(() => {
+          complete = undefined
+        })
+      )
+    )
 
   // The kept copy of one trade and the site that supplied it; none when the
   // day holds no codes for it.
@@ -411,6 +422,24 @@ export const makeBrokerCodes = Effect.fnUntraced(function* (options: {
       source:
         source === Source.stockbit ? ("Stockbit" as const) : ("Ajaib" as const),
     })
+  })
+
+  // The kept codes of each listed trade the day holds codes for, in the
+  // list's order, reading each chunk the list touches once.
+  const heldCodes = Effect.fnUntraced(function* (
+    tradeNumbers: ReadonlyArray<TradeNumber>
+  ) {
+    const chunks = new Map<number, Uint8Array>()
+    const found: Array<readonly [TradeNumber, TradeCodes]> = []
+    for (const tradeNumber of tradeNumbers) {
+      const { chunk, at } = yield* placeOf(Number(tradeNumber))
+      const codes = chunks.get(chunk) ?? (yield* chunkOf(chunk))
+      chunks.set(chunk, codes)
+      const source = codes[at + SOURCE]
+      if (source === 0 || source === undefined) continue
+      found.push([tradeNumber, yield* codesOf(codes.subarray(at, at + RECORD))])
+    }
+    return found
   })
 
   // Every chunk into the tally, SCAN_PAGE at a time.
@@ -473,8 +502,17 @@ export const makeBrokerCodes = Effect.fnUntraced(function* (options: {
         differences
       ),
     }
+    complete = day.complete
     return day
   })
+
+  // Whether the day's status is complete, scanning only when no scan since
+  // the last batch found it.
+  const isComplete = Effect.suspend(() =>
+    complete === undefined
+      ? Effect.map(status(Number.MAX_SAFE_INTEGER), (day) => day.complete)
+      : Effect.succeed(complete)
+  )
 
   // A POSTed batch: 200 once it is written, else as `checkedBatch` refuses
   // it.
@@ -496,5 +534,9 @@ export const makeBrokerCodes = Effect.fnUntraced(function* (options: {
     )
   })
 
-  return { post, status: statusAnswer, held }
+  return { post, status: statusAnswer, held, heldCodes, isComplete }
 })
+
+export type BrokerCodesStore = Effect.Success<
+  ReturnType<typeof makeBrokerCodes>
+>
