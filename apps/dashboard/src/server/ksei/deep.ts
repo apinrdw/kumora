@@ -87,12 +87,14 @@ class ProbeUnanswered extends Schema.TaggedError<ProbeUnanswered>()(
   { message: Schema.String }
 ) {}
 
-// Whether KSEI serves `url`: a 2xx is a file. A 3xx (KSEI's `302 /id`) or a
-// 4xx is none. Anything else fails the step, whose retries ask again.
+// Whether KSEI serves `url`: a 2xx is a file, a 3xx (KSEI's `302 /id`) none.
+// Anything else, a 4xx such as a 429 included, fails the step, whose retries
+// ask again; a step that still fails is a probe failure, not a month not
+// found.
 const served = Effect.fnUntraced(function* (url: string) {
   const response = yield* (yield* HttpClient.HttpClient).head(url)
   if (response.status >= 200 && response.status < 300) return true
-  if (response.status >= 300 && response.status < 500) return false
+  if (response.status >= 300 && response.status < 400) return false
   return yield* new ProbeUnanswered({
     message: `KSEI answered ${response.status} to HEAD ${url}`,
   })

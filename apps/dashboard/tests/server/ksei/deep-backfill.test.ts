@@ -291,4 +291,31 @@ describe("a deep backfill", () => {
       }),
     30_000
   )
+
+  it.effect(
+    "fails a probe KSEI answers 429, rather than finding its month absent",
+    () =>
+      Effect.gen(function* () {
+        const ksei = fakeKsei()
+        ksei.files.set(`${DOWNLOAD}BalanceposEfek20150331.zip`, {
+          ...fileOf(zipBody("March 2015")),
+          status: 429,
+        })
+        const bucket = memoryBucket()
+
+        const result = yield* deepRun(ksei, bucket, "deep-1763089200000")
+
+        assert.strictEqual(result.outcome, "partial")
+        assert.deepStrictEqual(
+          result.deep?.probeFailures.map(({ kind, year }) => ({ kind, year })),
+          [{ kind: "securities-holdings", year: 2015 }]
+        )
+        assert.include(result.deep?.probeFailures[0]?.message ?? "", "429")
+        assert.notInclude(
+          result.deep?.monthsNotFound["securities-holdings"] ?? [],
+          "2015-03"
+        )
+      }),
+    30_000
+  )
 })
