@@ -13,9 +13,14 @@ export interface HeatmapStore {
   readonly code: StockCode
   // The selected code's slices, ascending.
   readonly slices: () => ReadonlyArray<HeatSlice>
-  // The heatmap GET's answer. A live day's goes on from the slice time it
-  // names, built from the books this store hears; a recorded day's is whole.
-  readonly seed: (answer: RecordedHeatmap, live?: boolean) => void
+  // A recorded day's heatmap GET answer, the whole day.
+  readonly seed: (answer: RecordedHeatmap) => void
+  // Live: the ask the heatmap GET must answer next, or undefined once it
+  // answered; `answer` hands its answer back for that ask, and the slices
+  // go on from the slice time it names, built from the books this store
+  // hears.
+  readonly awaiting: () => number | undefined
+  readonly answer: (asked: number, answer: RecordedHeatmap) => void
   readonly apply: (message: ViewerDown) => void
   // A new slice may have started: it is built from the book in force.
   readonly tick: () => void
@@ -27,7 +32,9 @@ export interface HeatmapStore {
 // day the slices up to the GET's join come from the Durable Object, and the
 // ones from it on are weighed here from the books the viewer socket sends,
 // each in force from when it arrived; the current slice is weighed as if its
-// book holds to the slice's end.
+// book holds to the slice's end. Each snapshot of this code, a reconnect's
+// included, asks the GET again: the books a dropped socket missed are the
+// object's to answer, not the last one heard to stand in for.
 // Decision: "when it arrived" is on the object's clock, not the browser's,
 // which can run minutes off it (and does on the Test stage). The store keeps
 // the browser's clock (`now`) plus the largest offset seen from an instant
@@ -45,6 +52,8 @@ export const makeHeatmapStore = (
     // slice. None until a live day's GET answers.
     let from: number | undefined
     let live = true
+    let ask = 0
+    let waiting = false
     // The books heard, ascending: from the one in force at `from` on.
     let changes: Array<BookChange> = []
     // The index of the last book heard at or before `at`; -1 for none.
@@ -83,38 +92,52 @@ export const makeHeatmapStore = (
       emit()
     }
     const hear = (message: ViewerDown) => {
+      if (!live) return
+      if (message._tag === "Snapshot") {
+        if (message.selected !== code) return
+        ask += 1
+        waiting = true
+        from = undefined
+        changes = []
+      }
       const held =
         message._tag === "Snapshot"
-          ? message.selected === code && message.orderBook?._tag === "OrderBook"
+          ? message.orderBook?._tag === "OrderBook"
             ? message.orderBook
             : undefined
           : message.orderBooks?.find((book) => book.code === code)
-      if (held === undefined || !live) return
-      passed(DateTime.toEpochMillis(held.at))
-      changes.push({ at: objectNow(), book: held })
-      rebuild()
+      if (held !== undefined) {
+        passed(DateTime.toEpochMillis(held.at))
+        changes.push({ at: objectNow(), book: held })
+      }
+      if (from === undefined) emit()
+      else rebuild()
     }
     return {
       code,
       slices: () => shown,
-      seed: (answer, isLive = true) => {
-        live = isLive
+      seed: (answer) => {
+        live = false
         settled = [...answer.slices]
         shown = settled
-        if (live) {
-          const through = DateTime.toEpochMillis(answer.through)
-          passed(through)
-          from = through
-          // The books heard before the answer: the one in force at the join,
-          // the earliest standing in for any before it.
-          changes = changes.slice(Math.max(0, inForceAt(through)))
-          if (changes[0] !== undefined && changes[0].at > through)
-            changes[0] = { ...changes[0], at: through }
-          rebuild()
-        } else {
-          changes = []
-          emit()
-        }
+        changes = []
+        emit()
+      },
+      awaiting: () => (waiting ? ask : undefined),
+      answer: (asked, answer) => {
+        if (!live || answer.code !== code || asked !== ask) return
+        waiting = false
+        settled = [...answer.slices]
+        shown = settled
+        const through = DateTime.toEpochMillis(answer.through)
+        passed(through)
+        from = through
+        // The books heard before the answer: the one in force at the join,
+        // the earliest standing in for any before it.
+        changes = changes.slice(Math.max(0, inForceAt(through)))
+        if (changes[0] !== undefined && changes[0].at > through)
+          changes[0] = { ...changes[0], at: through }
+        rebuild()
       },
       apply: hear,
       tick: () => {

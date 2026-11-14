@@ -36,6 +36,22 @@ const delta = (...orderBooks: ReadonlyArray<OrderBook>): ViewerDown => ({
   orderBooks,
 })
 
+// The snapshot of UNTR, with its book when it has one.
+const snapshot = (orderBook?: OrderBook): ViewerDown => ({
+  _tag: "Snapshot",
+  selected: UNTR,
+  tape: [],
+  candles: [],
+  footprints: [],
+  ...(orderBook === undefined ? {} : { orderBook }),
+  conditions: {
+    phase: "session-1",
+    relayOnline: true,
+    feeds: { Stockbit: "live", Ajaib: "live" },
+    gaps: [],
+  },
+})
+
 // The GET's answer: one slice at 14:20:00, up to 14:20:10.
 const answer: RecordedHeatmap = {
   code: UNTR,
@@ -63,21 +79,8 @@ describe("the heatmap store", () => {
         const store = yield* makeHeatmapStore(UNTR, () => now)
         // The snapshot's book, before the GET answers: in force from its
         // join.
-        store.apply({
-          _tag: "Snapshot",
-          selected: UNTR,
-          tape: [],
-          candles: [],
-          footprints: [],
-          orderBook: book(now, 50, 40),
-          conditions: {
-            phase: "session-1",
-            relayOnline: true,
-            feeds: { Stockbit: "live", Ajaib: "live" },
-            gaps: [],
-          },
-        })
-        store.seed(answer)
+        store.apply(snapshot(book(now, 50, 40)))
+        store.answer(store.awaiting()!, answer)
         expect(shown(store)).toEqual([
           ["14:20:00", [[8_000, 7, 0]]],
           [
@@ -131,7 +134,8 @@ describe("the heatmap store", () => {
         const behind = 3_600_000
         let now = wib("14:20:12") - behind
         const store = yield* makeHeatmapStore(UNTR, () => now)
-        store.seed(answer)
+        store.apply(snapshot())
+        store.answer(store.awaiting()!, answer)
         store.apply(delta(book(wib("14:20:12"), 50, 40)))
         now = wib("14:20:15") - behind
         store.apply(delta(book(wib("14:20:15"), 90, 40)))
@@ -149,7 +153,7 @@ describe("the heatmap store", () => {
   it.effect("a recorded day's answer is the whole day: it builds nothing", () =>
     Effect.gen(function* () {
       const store = yield* makeHeatmapStore(UNTR, () => wib("16:00:00"))
-      store.seed(answer, false)
+      store.seed(answer)
       store.apply(delta(book(wib("16:00:00"), 90, 40)))
       store.tick()
       expect(shown(store)).toEqual([["14:20:00", [[8_000, 7, 0]]]])
