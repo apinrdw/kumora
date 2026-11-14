@@ -1,0 +1,140 @@
+<title>Shareholding Archive Admin</title>
+<meta name="claude:viewport-fit-sides" content="cover">
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&family=JetBrains+Mono:wght@400;500&display=swap">
+<style>
+/* Layout: dashboard shell (sidebar + content) mocked flat; a floating bar switches variant and run state. */
+:root{
+  --bg:#f7f8fa; --panel:#ffffff; --fg:#14171c; --muted:#6a7280; --line:#e3e6eb; --accent:#2f6fe4;
+  --ok:#1d8a4e; --ok-bg:#e3f4ea; --warn:#a86400; --warn-bg:#fdf0db; --bad:#c23434; --bad-bg:#fbe5e5; --run:#2f6fe4; --run-bg:#e4edfc;
+  --font:"Inter",system-ui,sans-serif; --mono:"JetBrains Mono",ui-monospace,monospace;
+}
+@media (prefers-color-scheme:dark){:root:not([data-theme="light"]){
+  --bg:#0e1116; --panel:#161a21; --fg:#e6e9ee; --muted:#8b93a1; --line:#262c36; --accent:#6a9cff;
+  --ok:#4cc883; --ok-bg:#12301f; --warn:#f0a840; --warn-bg:#33240c; --bad:#ff7070; --bad-bg:#3a1515; --run:#6a9cff; --run-bg:#152340; color-scheme:dark}}
+:root[data-theme="dark"]{
+  --bg:#0e1116; --panel:#161a21; --fg:#e6e9ee; --muted:#8b93a1; --line:#262c36; --accent:#6a9cff;
+  --ok:#4cc883; --ok-bg:#12301f; --warn:#f0a840; --warn-bg:#33240c; --bad:#ff7070; --bad-bg:#3a1515; --run:#6a9cff; --run-bg:#152340; color-scheme:dark}
+body{background:var(--bg);color:var(--fg);font-family:var(--font);font-size:14px}
+.wrap{max-width:1040px;margin:0 auto;padding-block:20px 120px;padding-left:max(16px,env(safe-area-inset-left,0px));padding-right:max(16px,env(safe-area-inset-right,0px));display:flex;flex-direction:column;gap:18px}
+.proto{font-size:12px;color:var(--muted);border:1px dashed var(--line);border-radius:6px;padding:8px 10px}
+.crumbs{font-size:12px;color:var(--muted)}
+h1{font-size:24px;font-weight:700;margin:0}
+h2{font-size:14px;font-weight:600;margin:0}
+.row{display:flex;gap:12px;align-items:center;flex-wrap:wrap}
+.spread{justify-content:space-between}
+.card{background:var(--panel);border:1px solid var(--line);border-radius:8px;padding:16px;display:flex;flex-direction:column;gap:12px;min-width:0}
+.pill{display:inline-flex;align-items:center;gap:6px;font-size:12px;font-weight:600;padding:3px 9px;border-radius:999px}
+.pill::before{content:"";width:7px;height:7px;border-radius:50%;background:currentColor}
+.complete{color:var(--ok);background:var(--ok-bg)} .partial{color:var(--warn);background:var(--warn-bg)}
+.failed{color:var(--bad);background:var(--bad-bg)} .running{color:var(--run);background:var(--run-bg)}
+.muted{color:var(--muted)} .mono{font-family:var(--mono);font-size:12px}
+.btn{font:inherit;font-weight:600;font-size:13px;padding:7px 14px;border-radius:6px;border:1px solid var(--accent);background:var(--accent);color:var(--panel);cursor:pointer}
+.btn:disabled{opacity:.45;cursor:not-allowed}
+.btn:focus-visible,.seg button:focus-visible{outline:2px solid var(--accent);outline-offset:2px}
+.stats{display:grid;grid-template-columns:repeat(auto-fit,minmax(130px,1fr));gap:12px}
+.stat{display:flex;flex-direction:column;gap:2px}
+.stat b{font-size:20px;font-variant-numeric:tabular-nums}
+.stat span{font-size:12px;color:var(--muted)}
+.tbl{overflow-x:auto}
+table{border-collapse:collapse;width:100%;font-variant-numeric:tabular-nums}
+th,td{text-align:left;padding:8px 10px;border-bottom:1px solid var(--line);white-space:nowrap}
+th{font-size:11px;text-transform:uppercase;letter-spacing:.06em;color:var(--muted);font-weight:600}
+.err{border-left:3px solid var(--bad);padding:8px 12px;background:var(--bad-bg);border-radius:4px;font-size:13px;overflow-wrap:anywhere}
+.warnbox{border-left:3px solid var(--warn);padding:8px 12px;background:var(--warn-bg);border-radius:4px;font-size:13px}
+.warnbox ul{margin:6px 0 0;padding-left:18px} .warnbox li{overflow-wrap:anywhere}
+.strip{background:var(--panel);border:1px solid var(--line);border-radius:8px;padding:10px 14px;display:flex;gap:12px;align-items:center;flex-wrap:wrap}
+.fake{height:220px;border:1px solid var(--line);border-radius:8px;background:var(--panel);display:grid;place-items:center;color:var(--muted)}
+.bar{position:fixed;left:0;right:0;bottom:0;padding-block:10px calc(10px + env(safe-area-inset-bottom,0px));padding-left:max(16px,env(safe-area-inset-left,0px));padding-right:max(16px,env(safe-area-inset-right,0px));background:var(--panel);border-top:1px solid var(--line);display:flex;gap:14px;flex-wrap:wrap;justify-content:center;align-items:center;z-index:5}
+.seg{display:flex;border:1px solid var(--line);border-radius:6px;overflow:hidden;flex-wrap:wrap}
+.seg button{font:inherit;font-size:12px;padding:6px 10px;background:transparent;color:var(--fg);border:0;cursor:pointer}
+.seg button[aria-pressed="true"]{background:var(--accent);color:var(--panel)}
+.lbl{font-size:11px;text-transform:uppercase;letter-spacing:.06em;color:var(--muted)}
+</style>
+
+<div class="wrap" id="app"></div>
+<div class="bar">
+  <span class="lbl">Variant</span><div class="seg" id="variants"></div>
+  <span class="lbl">Last run</span><div class="seg" id="states"></div>
+</div>
+
+<script>
+const VARIANTS={
+  page:"A · Own page /admin/shareholding",
+  panel:"B · Panel on /admin/users",
+  minimal:"C · Own page, last run only",
+};
+const STATES={complete:"Complete",partial:"Partial",failed:"Failed",running:"Running"};
+const RUNS={
+  complete:{id:"cron-2026-11-14T13",started:"14 Nov 2026, 20:00 WIB",took:"1 min 12 s",added:2,versions:0,unknown:0,checked:147,failed:[]},
+  partial:{id:"cron-2026-11-14T13",started:"14 Nov 2026, 20:00 WIB",took:"6 min 40 s",added:1,versions:0,unknown:1,checked:147,failed:["https://www.idx.id/Media/x7qp21ab/peng-2026-11-13-00117-lima-persen.xlsx"]},
+  failed:{id:"cron-2026-11-14T13",started:"14 Nov 2026, 20:00 WIB",took:"34 s",added:0,versions:0,unknown:0,checked:0,failed:[],error:"ListingUnavailable: www.idx.id returned 403 for the shareholding report list"},
+  running:{id:"admin-1763125032",started:"14 Nov 2026, 20:17 WIB",took:"running for 48 s",added:0,versions:0,unknown:0,checked:92,failed:[]},
+};
+const HISTORY=[
+  ["cron-2026-11-14T13","14 Nov 20:00","complete",2,0],
+  ["cron-2026-11-14T06","14 Nov 13:00","complete",0,0],
+  ["cron-2026-11-13T13","13 Nov 20:00","complete",1,0],
+  ["admin-1763025544","13 Nov 16:19","partial",3,0],
+  ["cron-2026-11-13T06","13 Nov 13:00","failed",0,0],
+  ["cron-2026-11-12T13","12 Nov 20:00","complete",1,1],
+];
+const ARCHIVE={reports:147,size:"56.9 MB",kinds:[["above-5","Holders above 5%",128],["above-1","Holders above 1%",6],["investor-type","By investor type",6],["investor-classification","By investor classification",6],["other","Other",1]]};
+
+let variant="page",state="partial";
+try{const h=location.hash.slice(1);if(VARIANTS[h])variant=h}catch(e){}
+
+const pill=s=>`<span class="pill ${s}">${STATES[s]}</span>`;
+const runBtn=s=>`<button class="btn" id="run-now" ${s==="running"?"disabled title='A run is in progress'":""}>Run now</button>`;
+const detail=r=>r.error?`<div class="err"><b>Run failed.</b> ${r.error}. The next run at 13:00 WIB will try again.</div>`
+  : r.failed.length||r.unknown?`<div class="warnbox">${r.failed.length?`<b>${r.failed.length} report could not be stored.</b> The next run retries it.<ul>${r.failed.map(u=>`<li class="mono">${u}</li>`).join("")}</ul>`:""}${r.unknown?`<div style="margin-top:6px"><b>${r.unknown} report of an unknown kind</b> was archived under <span class="mono">other</span>.</div>`:""}</div>`:"";
+
+function lastRunCard(full){
+  const r=RUNS[state];
+  return `<div class="card">
+    <div class="row spread"><div class="row"><h2>Last archive run</h2>${pill(state)}</div>${runBtn(state)}</div>
+    <div class="row muted"><span>${r.started}</span><span>·</span><span>${r.took}</span><span>·</span><span class="mono">${r.id}</span></div>
+    ${full?`<div class="stats">
+      <div class="stat"><b>${r.added}</b><span>Reports added</span></div>
+      <div class="stat"><b>${r.versions}</b><span>New versions</span></div>
+      <div class="stat"><b>${r.checked}</b><span>Reports checked</span></div>
+      <div class="stat"><b>${r.failed.length}</b><span>Not stored</span></div></div>`:""}
+    ${detail(r)}
+    <div class="muted" style="font-size:12px">Runs at 13:00 and 20:00 WIB. Next: 15 Nov 2026, 13:00 WIB.</div>
+  </div>`;
+}
+function runHistory(){
+  return `<div class="card"><h2>Recent runs</h2><div class="tbl"><table>
+    <thead><tr><th>Started (WIB)</th><th>Run</th><th>Outcome</th><th>Added</th><th>New versions</th></tr></thead>
+    <tbody>${HISTORY.map(h=>`<tr><td>${h[1]}</td><td class="mono">${h[0]}</td><td>${pill(h[2])}</td><td>${h[3]}</td><td>${h[4]}</td></tr>`).join("")}</tbody>
+  </table></div><div class="muted" style="font-size:12px">Kept 30 days.</div></div>`;
+}
+function archive(){
+  return `<div class="card"><div class="row spread"><h2>Shareholding archive</h2><span class="muted">${ARCHIVE.reports} reports · ${ARCHIVE.size}</span></div>
+  <div class="tbl"><table><thead><tr><th>Report kind</th><th>Key prefix</th><th>Reports</th></tr></thead>
+  <tbody>${ARCHIVE.kinds.map(k=>`<tr><td>${k[1]}</td><td class="mono">reports/${k[0]}/</td><td>${k[2]}</td></tr>`).join("")}</tbody></table></div></div>`;
+}
+function render(){
+  let body;
+  if(variant==="page") body=`<div class="crumbs">Admin / Shareholding archive</div><h1>Shareholding archive</h1>${lastRunCard(true)}${runHistory()}${archive()}`;
+  else if(variant==="panel"){const r=RUNS[state];body=`<div class="crumbs">Admin / Accounts</div>
+    <div class="strip"><b>Shareholding archive</b>${pill(state)}<span class="muted">${r.started}</span><span class="muted">+${r.added} reports</span><span style="flex:1"></span>${runBtn(state)}</div>
+    ${detail(r)}
+    <h1>Accounts</h1><div class="fake">Existing accounts table</div>`}
+  else body=`<div class="crumbs">Admin / Shareholding archive</div><h1>Shareholding archive</h1>${lastRunCard(false)}`;
+  document.getElementById("app").innerHTML=`<div class="proto">Prototype for the ticket "Where the shareholding archive's last run shows on the admin pages". Example data, not real runs.</div>`+body;
+  const b=document.getElementById("run-now");
+  if(b) b.onclick=()=>{state="running";render();sync()};
+}
+function seg(el,map,get,set){
+  el.innerHTML=Object.entries(map).map(([k,v])=>`<button type="button" data-k="${k}">${v}</button>`).join("");
+  el.onclick=e=>{const k=e.target.dataset&&e.target.dataset.k;if(k){set(k);render();sync()}};
+}
+function sync(){
+  document.querySelectorAll("#variants button").forEach(b=>b.setAttribute("aria-pressed",b.dataset.k===variant));
+  document.querySelectorAll("#states button").forEach(b=>b.setAttribute("aria-pressed",b.dataset.k===state));
+}
+seg(document.getElementById("variants"),VARIANTS,()=>variant,k=>{variant=k;try{history.replaceState(null,"","#"+k)}catch(e){location.hash=k}});
+seg(document.getElementById("states"),STATES,()=>state,k=>state=k);
+window.addEventListener("hashchange",()=>{const h=location.hash.slice(1);if(VARIANTS[h]){variant=h;render();sync()}});
+render();sync();
+</script>
