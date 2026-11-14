@@ -239,6 +239,60 @@ describe("chart 2's columns", () => {
       })
   )
 
+  // Each IDX band's lowest price with the valid price under it, one tick of
+  // the band below away.
+  for (const [under, edge] of [
+    [199, 200],
+    [498, 500],
+    [1_995, 2_000],
+    [4_990, 5_000],
+  ] as const)
+    it.effect(
+      `compare ${edge} diagonally with ${under}, the valid price under the band's edge`,
+      () =>
+        Effect.gen(function* () {
+          const marks = (
+            cells: ReadonlyArray<readonly [number, number, number, number]>
+          ) =>
+            Effect.map(
+              footprintColumns(
+                [candle("09:00", edge)],
+                [footprint("09:00", cells)],
+                Infinity,
+                { imbalance: 3 }
+              ),
+              ([column]) =>
+                column!.rows.map((row) => [
+                  row.price,
+                  row.buyImbalance,
+                  row.sellImbalance,
+                ])
+            )
+          // The edge's buy 10 is under 3× the sell 100 below it, which is
+          // 3× that buy.
+          expect(
+            yield* marks([
+              [under, 100, 0, 0],
+              [edge, 0, 10, 0],
+            ])
+          ).toEqual([
+            [under, false, true],
+            [edge, false, false],
+          ])
+          // The edge's buy 30 is 3× the sell 10 below it, which is under
+          // 3× that buy.
+          expect(
+            yield* marks([
+              [under, 10, 0, 0],
+              [edge, 0, 30, 0],
+            ])
+          ).toEqual([
+            [under, false, false],
+            [edge, true, false],
+          ])
+        })
+    )
+
   it.effect("outline the busiest price as the POC, no-side lots counted", () =>
     Effect.gen(function* () {
       const columns = yield* footprintColumns(
