@@ -2,6 +2,7 @@ import { assert, describe, it } from "@effect/vitest"
 import { Effect, Layer } from "effect"
 
 import { archiveRun, MAX_REPORT_BYTES } from "@/server/shareholding/archive-run"
+import { MAX_LISTED_OBJECTS } from "@/server/shareholding/bucket"
 import { ArchiveRunId } from "@/server/shareholding/run-result"
 import { LISTING_URL } from "@/server/shareholding/listing"
 
@@ -626,5 +627,42 @@ describe("an archive run", () => {
           error: failure.message,
         })
       })
+  )
+})
+
+describe("an archive run at the largest size it accepts", () => {
+  // As many reports as the bucket listing accepts, one file and one record
+  // each, every one of an unknown kind, so `summary` lists them all as other.
+  const largestListing = () =>
+    Array.from({ length: MAX_LISTED_OBJECTS / 2 }, (_, index) => ({
+      Description: `Data Kepemilikan Saham Perusahaan Tercatat Berdasarkan Kelompok ${index}`,
+      Prospectus: `https://www.idx.co.id/Media/${String(index).padStart(8, "0")}/peng-2026-11-00000-kelompok-${index}.xlsx`,
+      ListingDate: "2026-11-13T12:00:00",
+    }))
+
+  it.effect(
+    "keeps every step's result under the step limit, first run and after",
+    () =>
+      Effect.gen(function* () {
+        const idx = fakeIdx(largestListing())
+        const bucket = memoryBucket()
+
+        const first = yield* run(idx, bucket, "cron-2026-11-14T06")
+        assert.deepInclude(first, {
+          outcome: "complete",
+          reportsAdded: idx.listing.length,
+        })
+        assert.strictEqual(first.other.length, idx.listing.length)
+
+        // Every held URL answers its HEAD with a new ETag.
+        for (const [url, file] of idx.files)
+          idx.files.set(url, { ...file, headEtag: `"${url}:1"` })
+        const second = yield* run(idx, bucket, "cron-2026-11-14T13")
+        assert.deepInclude(second, {
+          outcome: "complete",
+          reportsChecked: idx.listing.length,
+        })
+      }),
+    120_000
   )
 })

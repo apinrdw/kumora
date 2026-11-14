@@ -16,6 +16,10 @@ export class NonRetryable extends Schema.TaggedError<NonRetryable>()(
   { message: Schema.String }
 ) {}
 
+// The most bytes a step's result may take: Cloudflare's limit on a non-stream
+// step result, 1 MiB. A step whose result could outgrow it bounds its input.
+export const STEP_RESULT_BYTES = 2 ** 20
+
 // The steps of one Workflow run, as Effects. `do` runs `effect` as a durable
 // step named `name`: the runtime replays a finished step's result instead of
 // running it again, so the result must be plain JSON, and the effect must
