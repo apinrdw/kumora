@@ -75,8 +75,9 @@ jobs:
                 app.test(f.filename) || app.test(f.previous_filename ?? "")
             )
             // Decision: a Sync (main into staging) only moves commits whose own
-            // PRs passed this gate. Production is reached by a tag, never a
-            // PR: a merge commit on main would stop release.yml fast-forwarding.
+            // PRs passed this gate. Production is reached by a Release, never
+            // a PR: a merge commit on main would stop release.yml
+            // fast-forwarding.
             const movesRelease =
               pr.head.repo?.full_name === `${owner}/${repo}` &&
               pr.head.ref === "main" &&

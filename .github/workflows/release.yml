@@ -1,12 +1,15 @@
-# Release tags (scripts/release-tag.mts). A Candidate, v<version>-<YYYYMMDD>-<N>,
-# marks a staging commit tried on Staging. A Production tag,
-# v<version>-<YYYYMMDD>, fast-forwards main to its Candidate's commit, and
-# Workers Builds deploys main to Production.
+# Release tags (scripts/release-tag.mts). Pushing a Candidate tag,
+# v<version>-<YYYYMMDD>-<N>, marks a staging commit tried on Staging.
+# Publishing a GitHub Release on a Production tag, v<version>-<YYYYMMDD>,
+# fast-forwards main to its Candidate's commit, and Workers Builds deploys
+# main to Production.
 name: Release
 
 on:
   push:
     tags: ["v*"]
+  release:
+    types: [published]
 
 concurrency:
   group: release
@@ -17,10 +20,13 @@ permissions:
 
 jobs:
   release:
+    # A pre-release is a note on a Candidate, never a release.
+    if: github.event_name == 'push' || !github.event.release.prerelease
     runs-on: ubuntu-latest
     timeout-minutes: 10
     env:
-      TAG: ${{ github.ref_name }}
+      TAG: ${{ github.event_name == 'release' && github.event.release.tag_name || github.ref_name }}
+      GH_TOKEN: ${{ github.token }}
     steps:
       - uses: actions/checkout@v5
         with:
@@ -33,15 +39,32 @@ jobs:
       - run: pnpm install --frozen-lockfile
       - id: tag
         run: node scripts/judge-release-tag.mts "$TAG" >> "$GITHUB_OUTPUT"
-      - run: |
+      - env:
+          KIND: ${{ steps.tag.outputs.kind }}
+        run: |
+          case "$GITHUB_EVENT_NAME:$KIND" in
+            push:candidate | release:production) ;;
+            release:candidate)
+              echo "::error::A Release is published on a Production tag, v<version>-<YYYYMMDD>; $TAG is a Candidate."
+              exit 1
+              ;;
+            # Decision: publishing a Release, not pushing a tag, is what
+            # releases. Publishing creates the tag too; that push passes here
+            # and the release run moves main.
+            push:production)
+              published="$(gh release view "$TAG" --json isDraft,isPrerelease --jq '(.isDraft or .isPrerelease) | not' 2>/dev/null || true)"
+              if [ "$published" != "true" ]; then
+                echo "::error::Publish a GitHub Release for $TAG instead of pushing the tag alone."
+                exit 1
+              fi
+              ;;
+          esac
           sha="$(git rev-parse "$TAG^{commit}")"
           if ! git merge-base --is-ancestor "$sha" origin/staging; then
             echo "::error::$TAG ($sha) is not on staging."
             exit 1
           fi
-      - if: steps.tag.outputs.kind == 'production'
-        env:
-          GH_TOKEN: ${{ github.token }}
+      - if: github.event_name == 'release'
         run: |
           sha="$(git rev-parse "$TAG^{commit}")"
           if ! git merge-base --is-ancestor origin/main "$sha"; then
@@ -54,7 +77,16 @@ jobs:
             -f state=success -f context=e2e-evidence \
             -f description="released as $TAG; its PRs passed this gate"
           git push origin "$sha:refs/heads/main"
-      # Decision: a refused tag is deleted, so it never counts toward the next
-      # Candidate's N or the version Production must exceed.
+      # Decision: a refused Release or tag is deleted, so it never counts
+      # toward the next Candidate's N or the version Production must exceed.
+      # A Release refused on a Candidate keeps that Candidate's tag.
       - if: failure()
-        run: git push origin ":refs/tags/$TAG"
+        env:
+          KIND: ${{ steps.tag.outputs.kind }}
+        run: |
+          if [ "$GITHUB_EVENT_NAME" = release ]; then
+            gh release delete "$TAG" --yes
+          fi
+          if [ "$KIND" != candidate ] || [ "$GITHUB_EVENT_NAME" = push ]; then
+            git push origin ":refs/tags/$TAG"
+          fi
