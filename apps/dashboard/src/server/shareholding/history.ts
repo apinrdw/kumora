@@ -72,8 +72,9 @@ export type ArchiveTotals = typeof ArchiveTotals.Type
 // version of it counts.
 // Decision: the totals list every object under reports/, as the spec asks
 // ("one bucket listing of reports/ with custom metadata"): about 150 files
-// and their records, plus ~2 a day, a few hundred KB of keys, held only for
-// the count. See apinrdw/kumora#303 and #310.
+// and their records on 2026-11-14, plus ~50 objects a month (~24 files,
+// docs/research/idx-kepemilikan-listing.md), a few hundred KB of keys, held
+// only for the count. See apinrdw/kumora#303 and #310.
 export const archiveTotals = Effect.gen(function* () {
   const objects = yield* (yield* ArchiveBucket).list(REPORTS_PREFIX)
   const files = objects.filter(({ key }) => key.endsWith(".xlsx"))

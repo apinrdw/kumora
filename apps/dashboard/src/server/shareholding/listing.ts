@@ -1,7 +1,7 @@
 // IDX's Data Kepemilikan Saham listing, read from `www.idx.id`, which serves it
 // without the Cloudflare challenge `www.idx.co.id` answers a Worker with.
 // docs/research/idx-kepemilikan-listing.md has the endpoint's behaviour.
-import { NonRetryable } from "@workspace/server"
+import { jsonBytes, NonRetryable, STEP_RESULT_BYTES } from "@workspace/server"
 import { Effect, Schema } from "effect"
 import { HttpClient, HttpClientResponse } from "effect/http"
 
@@ -61,6 +61,31 @@ export const ListedReport = Schema.Struct({
 })
 export type ListedReport = typeof ListedReport.Type
 
+// The most bytes a listed report may take as JSON. The longest of 2026-11-14
+// takes 459.
+export const MAX_LISTED_REPORT_BYTES = 640
+
+// The most bytes an ETag a run keeps may take as JSON. IDX's are like
+// "03a76c15973dd1:0".
+export const MAX_ETAG_BYTES = 64
+
+// Room in a step result for what doesn't grow with the listing: counts,
+// times, the run's id and error message.
+const FIXED_RESULT_BYTES = 4096
+
+// The most reports a listing may hold; past it, the run fails at `plan`. A
+// step result holds at most, per listed report, its ListedReport (`plan`;
+// `summary` holds less) or its URL and an ETag (`head`), so this many fit:
+// 1,483. The held ETags and hashes grow with every record, so no step
+// result carries them.
+// Decision: IDX lists 145 on 2026-11-14 and adds ~24 a month
+// (docs/research/idx-kepemilikan-listing.md): about four and a half years
+// before the run must split its steps. See apinrdw/kumora#303.
+export const MAX_LISTED_REPORTS = Math.floor(
+  (STEP_RESULT_BYTES - FIXED_RESULT_BYTES) /
+    (MAX_LISTED_REPORT_BYTES + MAX_ETAG_BYTES)
+)
+
 const reportKind = Effect.fnUntraced(function* (description: string) {
   return (
     KIND_PREFIXES.find(([prefix]) => description.startsWith(prefix))?.[1] ??
@@ -105,11 +130,16 @@ export const fetchListing = Effect.gen(function* () {
         ),
     })
   )
+  // Too many or too big won't change on a retry.
+  if (items.length > MAX_LISTED_REPORTS)
+    return yield* new NonRetryable({
+      message: `The IDX listing holds ${items.length} reports, more than the ${MAX_LISTED_REPORTS} an archive run's steps can carry`,
+    })
   return yield* Effect.forEach(
     items,
     Effect.fnUntraced(function* (item) {
       const description = item.Description.trim()
-      return ListedReport.make({
+      const report = ListedReport.make({
         description,
         rawDescription: item.Description,
         kind: yield* reportKind(description),
@@ -117,6 +147,11 @@ export const fetchListing = Effect.gen(function* () {
         sourceUrl: item.Prospectus,
         fetchUrl: yield* fetchUrlOf(item.Prospectus),
       })
+      if ((yield* jsonBytes(report)) > MAX_LISTED_REPORT_BYTES)
+        return yield* new NonRetryable({
+          message: `The IDX listing has a report over ${MAX_LISTED_REPORT_BYTES} bytes: ${item.Prospectus.slice(0, 200)}`,
+        })
+      return report
     })
   )
 })

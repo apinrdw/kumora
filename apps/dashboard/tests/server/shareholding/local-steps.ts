@@ -5,6 +5,7 @@
 // step that returns something a Workflow can't persist, or more than
 // STEP_RESULT_BYTES of it, fails here too.
 import {
+  jsonBytes,
   NonRetryable,
   STEP_RESULT_BYTES,
   StepFailed,
@@ -20,17 +21,17 @@ export const localSteps = <R>(layer: Layer.Layer<R>): WorkflowSteps<R> => ({
         times: 5,
         while: (error) => !(error instanceof NonRetryable),
       }),
-      Effect.flatMap((value) => {
-        const json = JSON.stringify(value)
-        const bytes = new TextEncoder().encode(json).length
-        return bytes > STEP_RESULT_BYTES
-          ? Effect.die(
-              new Error(
-                `Step ${name}'s result is ${bytes} bytes, over ${STEP_RESULT_BYTES}`
+      Effect.flatMap((value) =>
+        Effect.flatMap(jsonBytes(value), (bytes) =>
+          bytes > STEP_RESULT_BYTES
+            ? Effect.die(
+                new Error(
+                  `Step ${name}'s result is ${bytes} bytes, over ${STEP_RESULT_BYTES}`
+                )
               )
-            )
-          : Effect.succeed(JSON.parse(json))
-      }),
+            : Effect.succeed(JSON.parse(JSON.stringify(value)))
+        )
+      ),
       Effect.catchCause((cause) => {
         const error = Cause.squash(cause)
         return Effect.fail(

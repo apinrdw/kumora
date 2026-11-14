@@ -16,13 +16,16 @@ export interface ListedObject {
   readonly customMetadata: Readonly<Record<string, string>>
 }
 
-// The most objects a listing returns; past it, the listing fails. Today
-// reports/ holds ~300 objects (~150 files and their records), growing by ~4 a
-// day, and runs/ is read 30 days at a time (history.ts).
-// Decision: 10,000, about six years of reports/ at that rate. A listing is
-// held whole in a Worker's 128 MB, and `plan` hands what it gathers on as a
-// step result of at most 1 MiB; failing here says the layout needs rethinking
-// before either gives out. See apinrdw/kumora#303.
+// The most objects a listing returns; past it, the listing fails. On
+// 2026-11-14 reports/ holds ~300 objects (~150 files and their records). IDX
+// adds ~24 files a month (docs/research/idx-kepemilikan-listing.md), so
+// reports/ grows ~50 objects a month; runs/ is read 30 days at a time
+// (history.ts).
+// Decision: 10,000, about sixteen years of reports/ at that rate. A listing
+// is held whole in a Worker's 128 MB, a few MB at the cap, and only for the
+// step that lists it: no step result carries it (MAX_LISTED_REPORTS bounds
+// those, listing.ts). Failing here says the layout needs rethinking before
+// memory gives out. See apinrdw/kumora#303.
 export const MAX_LISTED_OBJECTS = 10_000
 
 // Fails a listing of `prefix` that has passed MAX_LISTED_OBJECTS.

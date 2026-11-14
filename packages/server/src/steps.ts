@@ -1,5 +1,4 @@
-import type { Effect } from "effect"
-import { Schema } from "effect"
+import { Effect, Schema } from "effect"
 
 // A Workflow step that still failed after the step's own retries. Only its
 // name and message survive: the runtime keeps no more of a step's error.
@@ -19,6 +18,10 @@ export class NonRetryable extends Schema.TaggedError<NonRetryable>()(
 // The most bytes a step's result may take: Cloudflare's limit on a non-stream
 // step result, 1 MiB. A step whose result could outgrow it bounds its input.
 export const STEP_RESULT_BYTES = 2 ** 20
+
+// The bytes `value` takes as JSON, as a step result is measured here.
+export const jsonBytes = (value: unknown) =>
+  Effect.sync(() => new TextEncoder().encode(JSON.stringify(value)).length)
 
 // The steps of one Workflow run, as Effects. `do` runs `effect` as a durable
 // step named `name`: the runtime replays a finished step's result instead of

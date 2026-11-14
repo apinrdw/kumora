@@ -2,9 +2,13 @@ import { assert, describe, it } from "@effect/vitest"
 import { Effect, Layer } from "effect"
 
 import { archiveRun, MAX_REPORT_BYTES } from "@/server/shareholding/archive-run"
-import { MAX_LISTED_OBJECTS } from "@/server/shareholding/bucket"
 import { ArchiveRunId } from "@/server/shareholding/run-result"
-import { LISTING_URL } from "@/server/shareholding/listing"
+import {
+  LISTING_URL,
+  MAX_ETAG_BYTES,
+  MAX_LISTED_REPORT_BYTES,
+  MAX_LISTED_REPORTS,
+} from "@/server/shareholding/listing"
 
 import { fakeIdx, type FakeIdx, idxIdUrl } from "./fake-idx.ts"
 import { localSteps } from "./local-steps.ts"
@@ -110,6 +114,7 @@ describe("an archive run", () => {
           sourceUrl: typeReport.Prospectus,
           etag: idx.files.get(idxIdUrl(typeReport.Prospectus))?.etag ?? "",
           sha256: typeHash,
+          run: "cron-2026-11-14T13",
         }
       )
 
@@ -631,38 +636,143 @@ describe("an archive run", () => {
 })
 
 describe("an archive run at the largest size it accepts", () => {
-  // As many reports as the bucket listing accepts, one file and one record
-  // each, every one of an unknown kind, so `summary` lists them all as other.
-  const largestListing = () =>
-    Array.from({ length: MAX_LISTED_OBJECTS / 2 }, (_, index) => ({
-      Description: `Data Kepemilikan Saham Perusahaan Tercatat Berdasarkan Kelompok ${index}`,
-      Prospectus: `https://www.idx.co.id/Media/${String(index).padStart(8, "0")}/peng-2026-11-00000-kelompok-${index}.xlsx`,
-      ListingDate: "2026-11-13T12:00:00",
-    }))
+  const dataDate = "2026-11-13"
+
+  // A report of an unknown kind whose ListedReport takes `bytes` as JSON.
+  const listedAt = (index: number, bytes: number) => {
+    const sourceUrl = `https://www.idx.co.id/Media/${String(index).padStart(8, "0")}/kelompok-${index}.xlsx`
+    const listedBytes = (description: string, rawDescription: string) =>
+      new TextEncoder().encode(
+        JSON.stringify({
+          description,
+          rawDescription,
+          kind: "other",
+          dataDate,
+          sourceUrl,
+          fetchUrl: idxIdUrl(sourceUrl),
+        })
+      ).length
+    const base = `Laporan ${index}`
+    // The description is listed twice, trimmed and raw; a trailing space
+    // adds a byte to the raw one alone.
+    const padding = bytes - listedBytes(base, base)
+    const description = base + "x".repeat(Math.floor(padding / 2))
+    const rawDescription = padding % 2 === 0 ? description : `${description} `
+    assert.strictEqual(listedBytes(description, rawDescription), bytes)
+    return {
+      Description: rawDescription,
+      Prospectus: sourceUrl,
+      ListingDate: `${dataDate}T12:00:00`,
+    }
+  }
+
+  const listing = (count: number, bytes = MAX_LISTED_REPORT_BYTES) =>
+    Array.from({ length: count }, (_, index) => listedAt(index, bytes))
+
+  // An ETag that takes `bytes` as JSON, quotes escaped.
+  const etagAt = (index: number, bytes: number) =>
+    `"${String(index).padEnd(bytes - 6, "1")}"`
 
   it.effect(
     "keeps every step's result under the step limit, first run and after",
     () =>
       Effect.gen(function* () {
-        const idx = fakeIdx(largestListing())
+        const idx = fakeIdx(listing(MAX_LISTED_REPORTS))
         const bucket = memoryBucket()
 
+        // Everything is fresh, and `summary` lists every report as other.
         const first = yield* run(idx, bucket, "cron-2026-11-14T06")
         assert.deepInclude(first, {
           outcome: "complete",
-          reportsAdded: idx.listing.length,
+          reportsAdded: MAX_LISTED_REPORTS,
         })
-        assert.strictEqual(first.other.length, idx.listing.length)
+        assert.strictEqual(first.other.length, MAX_LISTED_REPORTS)
 
-        // Every held URL answers its HEAD with a new ETag.
+        // Every held URL now serves a new ETag of the most bytes a run
+        // keeps, so `head` lists every one as changed.
+        let index = 0
         for (const [url, file] of idx.files)
-          idx.files.set(url, { ...file, headEtag: `"${url}:1"` })
+          idx.files.set(url, {
+            ...file,
+            etag: etagAt(index++, MAX_ETAG_BYTES),
+          })
         const second = yield* run(idx, bucket, "cron-2026-11-14T13")
         assert.deepInclude(second, {
           outcome: "complete",
-          reportsChecked: idx.listing.length,
+          reportsAdded: 0,
+          newVersions: 0,
+          reportsChecked: MAX_LISTED_REPORTS,
         })
+        assert.strictEqual(
+          bucket.puts.filter(
+            (key) => key.startsWith("reports/") && key.endsWith(".json")
+          ).length,
+          2 * MAX_LISTED_REPORTS
+        )
       }),
     120_000
+  )
+
+  it.effect("fails without retrying past the most reports a run holds", () =>
+    Effect.gen(function* () {
+      const idx = fakeIdx(listing(MAX_LISTED_REPORTS + 1, 300))
+      const bucket = memoryBucket()
+
+      const failure = yield* Effect.flip(run(idx, bucket, "cron-2026-11-14T06"))
+
+      assert.strictEqual(idx.requests.length, 1)
+      assert.include(failure.message, `more than the ${MAX_LISTED_REPORTS}`)
+      assert.deepInclude(json(bucket, "runs/cron-2026-11-14T06.json"), {
+        outcome: "failed",
+        error: failure.message,
+      })
+      assert.deepStrictEqual(keysUnder(bucket, "reports/"), [])
+    })
+  )
+
+  it.effect("fails without retrying on a report past the most bytes", () =>
+    Effect.gen(function* () {
+      const idx = fakeIdx([
+        listedAt(0, MAX_LISTED_REPORT_BYTES),
+        listedAt(1, MAX_LISTED_REPORT_BYTES + 1),
+      ])
+      const bucket = memoryBucket()
+
+      const failure = yield* Effect.flip(run(idx, bucket, "cron-2026-11-14T06"))
+
+      assert.strictEqual(idx.requests.length, 1)
+      assert.include(failure.message, "kelompok-1.xlsx")
+      assert.deepInclude(json(bucket, "runs/cron-2026-11-14T06.json"), {
+        outcome: "failed",
+        error: failure.message,
+      })
+    })
+  )
+
+  it.effect("leaves a URL not stored while its HEAD ETag is too long", () =>
+    Effect.gen(function* () {
+      const idx = fakeIdx(listing(2))
+      const bucket = memoryBucket()
+      yield* run(idx, bucket, "cron-2026-11-14T06")
+      const [atCap, pastCap] = idx.listing.map(({ Prospectus }) => Prospectus)
+      for (const [url, bytes] of [
+        [atCap, MAX_ETAG_BYTES],
+        [pastCap, MAX_ETAG_BYTES + 1],
+      ] as const) {
+        const file = idx.files.get(idxIdUrl(url))
+        assert.isDefined(file)
+        idx.files.set(idxIdUrl(url), { ...file, etag: etagAt(0, bytes) })
+      }
+
+      const result = yield* run(idx, bucket, "cron-2026-11-14T13")
+
+      assert.deepInclude(result, {
+        outcome: "partial",
+        reportsChecked: 1,
+        notStored: [pastCap],
+      })
+      assert.strictEqual(recordsOf(bucket, atCap).length, 2)
+      assert.strictEqual(recordsOf(bucket, pastCap).length, 1)
+    })
   )
 })
