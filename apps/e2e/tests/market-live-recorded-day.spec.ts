@@ -3,12 +3,20 @@
 // rows worked out in the browser, its tape and the RECORDED pill; the replay
 // cursor scrubs back, plays forward and reads "Not recorded" in a relay gap;
 // Today · live goes back to the live page; a 401 answer sends the viewer to
-// sign in.
+// sign in. The tape's Buyer and Seller show the broker codes the extension
+// posted (spec apinrdw/kumora#280).
 import {
+  BROKER_CODES_AUTH_SCHEME,
+  BrokerCode,
+  BrokerCodesProtocolVersion,
+  TradeNumber,
+  type StockCode,
   WibDate,
   decodeRecordedCandles,
+  encodeBrokerCodesBatch,
   recordedDayPath,
 } from "@workspace/relay"
+import type { Page } from "@playwright/test"
 import { Effect } from "effect"
 
 import { DASHBOARD, MEMBER } from "../support/accounts"
@@ -20,6 +28,7 @@ import {
 } from "../support/clock"
 import { signInUrl } from "../support/flows"
 import {
+  TEST_INGEST_TOKEN,
   ajaibTradeToday,
   freshCode,
   freshTradeNumbers,
@@ -32,6 +41,32 @@ const PAGE = "/market-live"
 const WATCHLIST_KEY = "kumora:market-live:watchlist"
 
 test.use({ storageState: MEMBER.storageState })
+
+// Waits until `day`'s recorded candles of `code` hold `volume` lots: the
+// relay's close flushed its trades.
+const untilRecorded = (
+  page: Page,
+  day: WibDate,
+  code: StockCode,
+  volume: number
+) => {
+  const candlesUrl = `${DASHBOARD}${Effect.runSync(
+    recordedDayPath(day, { _tag: "Candles", code })
+  )}`
+  return expect
+    .poll(
+      async () => {
+        const answer = await page.request.get(candlesUrl)
+        if (answer.status() !== 200) return 0
+        const { candles } = await Effect.runPromise(
+          decodeRecordedCandles(await answer.text())
+        )
+        return candles.reduce((sum, candle) => sum + candle.volume, 0)
+      },
+      { timeout: 15_000, intervals: [500] }
+    )
+    .toBe(volume)
+}
 
 test("the day strip opens a recorded day at its close, it replays, and Today · live returns", async ({
   page,
@@ -98,22 +133,7 @@ test("the day strip opens a recorded day at its close, it replays, and Today · 
   relay.close()
 
   // Recorded once the close's flush has run.
-  const candlesUrl = `${DASHBOARD}${Effect.runSync(
-    recordedDayPath(day, { _tag: "Candles", code })
-  )}`
-  await expect
-    .poll(
-      async () => {
-        const answer = await page.request.get(candlesUrl)
-        if (answer.status() !== 200) return 0
-        const { candles } = await Effect.runPromise(
-          decodeRecordedCandles(await answer.text())
-        )
-        return candles.reduce((sum, candle) => sum + candle.volume, 0)
-      },
-      { timeout: 15_000, intervals: [500] }
-    )
-    .toBe(5)
+  await untilRecorded(page, day, code, 5)
 
   const strip = page.getByRole("navigation", { name: "Trading days" })
   await strip.getByRole("link", { name: /IHSG \+0\.50%/ }).click()
@@ -181,6 +201,75 @@ test("the day strip opens a recorded day at its close, it replays, and Today · 
   await strip.getByRole("link", { name: "Today · live" }).click()
   await expect(page).not.toHaveURL(/[?&]day=/)
   await expect(conditions.getByRole("list", { name: "Feeds" })).toBeVisible()
+})
+
+test("a recorded day's tape shows each trade's Buyer and Seller as the extension stored them", async ({
+  page,
+}) => {
+  const base = freshTradeNumbers()
+  const code = freshCode("BK")
+  const day = WibDate.make(wibToday())
+  const time = wibTime(marketNow())
+  const relay = await openIngest()
+  await relay.sendAjaib([
+    ajaibTradeToday({ seq: base + 1, time, ticker: code, price: 500, lot: 3 }),
+    ajaibTradeToday({ seq: base + 2, time, ticker: code, price: 505, lot: 2 }),
+  ])
+  await page.goto(`${DASHBOARD}${PAGE}?code=${code}`)
+  const tape = page.getByRole("region", { name: "Running trades" })
+  const cells = (n: number) =>
+    tape.locator(`tr[data-trade-number="${n}"]`).locator("td")
+  // The live tape has no codes: its Buyer and Seller are blank.
+  await expect(cells(base + 2).nth(2)).toContainText("505")
+  await expect(cells(base + 2).nth(5)).toHaveText("")
+  await expect(cells(base + 2).nth(6)).toHaveText("")
+  const arrivedBy = marketNow()
+  // As the first test: closed once the trades left the merge window, and
+  // recorded once the close's flush has run.
+  await page.waitForTimeout(untilMarketTime(arrivedBy + MERGE_WINDOW))
+  relay.close()
+  await untilRecorded(page, day, code, 5)
+
+  // The extension stores the day's codes for trade base + 1 only.
+  const posted = await page.request.post(
+    `${DASHBOARD}/api/broker-codes/${day}`,
+    {
+      headers: {
+        authorization: `${BROKER_CODES_AUTH_SCHEME}${TEST_INGEST_TOKEN}`,
+      },
+      data: Effect.runSync(
+        encodeBrokerCodesBatch({
+          version: BrokerCodesProtocolVersion,
+          feed: "Ajaib",
+          day,
+          rows: [
+            [
+              TradeNumber.make(String(base + 1)),
+              {
+                buyer: BrokerCode.make("AK"),
+                buyerType: "F",
+                seller: BrokerCode.make("CD"),
+                sellerType: "D",
+              },
+            ],
+          ],
+        })
+      ),
+    }
+  )
+  expect(posted.status()).toBe(200)
+
+  await page.goto(`${DASHBOARD}${PAGE}?code=${code}&day=${day}`)
+  await expect(
+    page.getByRole("group", { name: "Market conditions" })
+  ).toContainText("RECORDED")
+  // The price cell keeps its index; Buyer and Seller follow Value.
+  await expect(cells(base + 1).nth(2)).toContainText("500")
+  await expect(cells(base + 1).nth(5)).toHaveText("AK [F]")
+  await expect(cells(base + 1).nth(6)).toHaveText("CD [D]")
+  await expect(cells(base + 2).nth(2)).toContainText("505")
+  await expect(cells(base + 2).nth(5)).toHaveText("")
+  await expect(cells(base + 2).nth(6)).toHaveText("")
 })
 
 test("a 401 recorded day answer sends the viewer to sign in", async ({
