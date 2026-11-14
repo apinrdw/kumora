@@ -1,6 +1,6 @@
 #!/usr/bin/env bash
 # Blocks `gh pr merge` until every check on the PR has finished green.
-# Decision: main's ruleset requires only e2e-evidence, which the
+# Decision: the release branches' ruleset requires only e2e-evidence, which the
 # no-e2e-evidence label passes at once, so `gh pr merge --auto` merged #291
 # while static, unit-tests and fallow were still pending. Gh problems allow the
 # command, with a notice.
@@ -68,7 +68,7 @@ if [ -n "$UNFINISHED" ]; then
   {
     echo "merge gate: blocked, and nothing in this command ran. These checks have not passed:"
     echo "$UNFINISHED"
-    echo "main requires only e2e-evidence, so GitHub would merge now, --auto included. Fix failures; wait for pending checks to finish, then merge."
+    echo "main and staging require only e2e-evidence, so GitHub would merge now, --auto included. Fix failures; wait for pending checks to finish, then merge."
   } >&2
   exit 2
 fi

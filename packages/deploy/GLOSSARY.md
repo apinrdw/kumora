@@ -12,7 +12,7 @@ _Avoid_: Environment (Infisical's word for `prod` and `staging`)
 The Stage `production`, deployed from `main`. Its Workers are `kumora-web` and `kumora-dashboard`, and it alone reads Infisical `prod`.
 
 **Staging**:
-The Stage `staging`, deployed from the `staging` branch to try a release on real Cloudflare before merging.
+The Stage `staging`, deployed from the `staging` branch, GitHub's default branch, where every PR but a Hotfix lands. It is the release a Promotion takes to Production.
 
 **Release stage**:
 Production or Staging: the two Stages with a fixed URL that outside services, such as the Google OAuth client and a Turnstile widget, are set up for.
@@ -27,6 +27,16 @@ A developer's local Stage, `dev_$USER`, run by `bun alchemy dev` with local emul
 **Builds connection**:
 An app's Workers Builds connection, on its anchor Worker (`kumora-web-builds`, `kumora-dashboard-builds`) that Alchemy never deploys. It runs this package's deploy script for every push whose changes touch its watch paths: its own app's directory (`apps/web/**` or `apps/dashboard/**`), `packages/**`, `pnpm-lock.yaml`, `pnpm-workspace.yaml`, `package.json` and `.bun-version`. A connection watching the other app's directory deploys nothing when only its own app changes: on 2026-11-11 `kumora-dashboard-builds` watched `apps/web/**`, so three merges to `main` (#161, #162, #172) never reached Production.
 _Avoid_: Build trigger, pipeline
+
+**Promotion**:
+A PR from `staging` into `main`, merged with a merge commit, never a squash, so the next Promotion carries no duplicate commits. Merging it deploys Production.
+_Avoid_: Release PR, deploy PR
+
+**Hotfix**:
+A PR into `main` that skips Staging. Once it lands, `.github/workflows/sync-staging.yml` opens a Sync.
+
+**Sync**:
+A PR from `main` into `staging` carrying a Hotfix's commits, merged with a merge commit.
 
 **Test stage**:
 The local Stage `test` that e2e runs on. It reads no Infisical environment, so its values come from the process environment.

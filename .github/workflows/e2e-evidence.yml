@@ -74,9 +74,19 @@ jobs:
               (f) =>
                 app.test(f.filename) || app.test(f.previous_filename ?? "")
             )
+            // Decision: a promotion (staging into main) or a sync (main into
+            // staging) only moves commits whose own PRs passed this gate.
+            const release = ["main", "staging"]
+            const movesRelease =
+              pr.head.repo?.full_name === `${owner}/${repo}` &&
+              release.includes(pr.head.ref) &&
+              release.includes(pr.base.ref) &&
+              pr.head.ref !== pr.base.ref
             const [state, description] = !touchesApp
               ? ["success", "touches no app code (apps/web, dashboard, extension, e2e, packages/*)"]
-              : pr.labels.some((l) => l.name === "no-e2e-evidence")
+              : movesRelease
+                ? ["success", `moves ${pr.head.ref} into ${pr.base.ref}, whose PRs passed this gate`]
+                : pr.labels.some((l) => l.name === "no-e2e-evidence")
                 ? ["success", "opted out with the no-e2e-evidence label"]
                 : ["failure", `no e2e evidence for ${sha.slice(0, 7)}`]
             await github.rest.repos.createCommitStatus({
