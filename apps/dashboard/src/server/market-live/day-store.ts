@@ -60,6 +60,12 @@ export interface Sql {
 // flush, like the feed lag lines (apinrdw/kumora#231): no binding or route,
 // and a restart loses at most one flush's counts. See ticket
 // apinrdw/kumora#270 and docs/runbooks/order-flow-cost.md.
+// Each billed meter figure, and the database count it adds up.
+const BILLED = {
+  billedRowsWritten: "rowsWritten",
+  billedMinuteRereadRows: "rowsRead",
+} as const
+
 interface Meter {
   trades: number
   candles: number
@@ -271,18 +277,27 @@ export const makeDayStore = (sql: Sql) =>
     for (const statement of SCHEMA) sql.exec(statement)
 
     let meter = emptyMeter()
-    // Writes in one transaction, adding the rows the database counted to
-    // the meter.
-    const meteredTransaction = (write: () => void) => {
-      const before = sql.usage?.()
-      sql.transaction(write)
-      const after = sql.usage?.()
-      if (before !== undefined && after !== undefined)
-        meter.billedRowsWritten =
-          (meter.billedRowsWritten ?? 0) +
-          after.rowsWritten -
-          before.rowsWritten
-    }
+    // Runs `work`, adding the rows the database counted meanwhile to the
+    // meter's billed `field`, when the database counts them.
+    const metered = <A, E, R>(
+      field: keyof typeof BILLED,
+      work: Effect.Effect<A, E, R>
+    ) =>
+      Effect.gen(function* () {
+        const before = sql.usage?.()
+        const result = yield* work
+        const after = sql.usage?.()
+        if (before !== undefined && after !== undefined)
+          meter[field] =
+            (meter[field] ?? 0) + after[BILLED[field]] - before[BILLED[field]]
+        return result
+      })
+    // Writes in one transaction, metering the rows it wrote.
+    const meteredTransaction = (write: () => void) =>
+      metered(
+        "billedRowsWritten",
+        Effect.sync(() => sql.transaction(write))
+      )
 
     // The meter's counts since it was last taken.
     const takeMeter = Effect.sync(() => {
@@ -343,65 +358,63 @@ export const makeDayStore = (sql: Sql) =>
     const write = Effect.fnUntraced(function* (flush: Flush) {
       const footprints = yield* footprintTexts(flush.footprints)
       const heatmaps = yield* heatmapTexts(flush.chunks)
-      yield* Effect.sync(() =>
-        meteredTransaction(() => {
-          for (const trade of flush.trades)
-            // A number is written once: a copy can't replace it.
-            sql.exec(
-              "INSERT OR IGNORE INTO trades VALUES (?, ?, ?, ?, ?, ?, ?, ?)",
-              Number(trade.tradeNumber),
-              DateTime.toEpochMillis(trade.time),
-              trade.code,
-              trade.price,
-              trade.lots,
-              trade.side,
-              trade.board,
-              trade.feeds.join(",")
-            )
-          for (const { code, minute, figures } of flush.candles)
-            sql.exec(
-              "INSERT OR REPLACE INTO candles VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
-              code,
-              minute,
-              Number(figures.openOrder),
-              figures.open,
-              Number(figures.closeOrder),
-              figures.close,
-              figures.closeTime,
-              figures.high,
-              figures.low,
-              figures.volume,
-              figures.value,
-              figures.frequency
-            )
-          insertFootprints(footprints)
-          for (const price of flush.livePrices)
-            sql.exec(
-              "INSERT OR REPLACE INTO live_prices VALUES (?, ?)",
-              price.code,
-              JSON.stringify({
-                ...price,
-                time: DateTime.toEpochMillis(price.time),
-              })
-            )
-          for (const { code, minute, chunk } of flush.chunks)
-            sql.exec(
-              "INSERT OR REPLACE INTO book_chunks VALUES (?, ?, ?)",
-              code,
-              minute,
-              new Uint8Array(gzipSync(chunk))
-            )
-          insertHeatmaps(heatmaps)
-          for (const { code, book } of flush.ajaibBooks)
-            sql.exec(
-              "INSERT OR REPLACE INTO ajaib_books VALUES (?, ?)",
-              code,
-              book
-            )
-          for (const [key, value] of Object.entries(flush.facts))
-            insertFact(key, value)
-        })
-      )
+      yield* meteredTransaction(() => {
+        for (const trade of flush.trades)
+          // A number is written once: a copy can't replace it.
+          sql.exec(
+            "INSERT OR IGNORE INTO trades VALUES (?, ?, ?, ?, ?, ?, ?, ?)",
+            Number(trade.tradeNumber),
+            DateTime.toEpochMillis(trade.time),
+            trade.code,
+            trade.price,
+            trade.lots,
+            trade.side,
+            trade.board,
+            trade.feeds.join(",")
+          )
+        for (const { code, minute, figures } of flush.candles)
+          sql.exec(
+            "INSERT OR REPLACE INTO candles VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
+            code,
+            minute,
+            Number(figures.openOrder),
+            figures.open,
+            Number(figures.closeOrder),
+            figures.close,
+            figures.closeTime,
+            figures.high,
+            figures.low,
+            figures.volume,
+            figures.value,
+            figures.frequency
+          )
+        insertFootprints(footprints)
+        for (const price of flush.livePrices)
+          sql.exec(
+            "INSERT OR REPLACE INTO live_prices VALUES (?, ?)",
+            price.code,
+            JSON.stringify({
+              ...price,
+              time: DateTime.toEpochMillis(price.time),
+            })
+          )
+        for (const { code, minute, chunk } of flush.chunks)
+          sql.exec(
+            "INSERT OR REPLACE INTO book_chunks VALUES (?, ?, ?)",
+            code,
+            minute,
+            new Uint8Array(gzipSync(chunk))
+          )
+        insertHeatmaps(heatmaps)
+        for (const { code, book } of flush.ajaibBooks)
+          sql.exec(
+            "INSERT OR REPLACE INTO ajaib_books VALUES (?, ?)",
+            code,
+            book
+          )
+        for (const [key, value] of Object.entries(flush.facts))
+          insertFact(key, value)
+      })
       meter.trades += flush.trades.length
       meter.candles += flush.candles.length
       meter.footprints += flush.footprints.length
@@ -418,13 +431,11 @@ export const makeDayStore = (sql: Sql) =>
     const writeBuiltMinute = Effect.fnUntraced(function* (built: BuiltMinute) {
       const footprints = yield* footprintTexts(built.footprints)
       const heatmaps = yield* heatmapTexts(built.heatmaps)
-      yield* Effect.sync(() =>
-        meteredTransaction(() => {
-          insertFootprints(footprints)
-          insertHeatmaps(heatmaps)
-          insertFact(Fact.orderFlowBuilt, String(built.minute))
-        })
-      )
+      yield* meteredTransaction(() => {
+        insertFootprints(footprints)
+        insertHeatmaps(heatmaps)
+        insertFact(Fact.orderFlowBuilt, String(built.minute))
+      })
       meter.footprints += built.footprints.length
       meter.heatmaps += built.heatmaps.length
       meter.facts += 1
@@ -630,11 +641,17 @@ export const makeDayStore = (sql: Sql) =>
         )
       )
 
-    // The first and last minute holding a stored trade or book chunk; none
-    // when the day stored neither. The trades' come off the primary key's
-    // ends, the chunks' from one read of the chunk keys.
+    // The first and last minute holding a stored trade or book chunk, and
+    // the codes with a book chunk; none when the day stored neither. The
+    // trades' minutes come off the primary key's ends, the chunks' from one
+    // pass grouped by code, so memory holds a row per code, never per chunk.
     const orderFlowMinutes = Effect.gen(function* () {
-      const minutes: Array<number> = []
+      let first = Number.POSITIVE_INFINITY
+      let last = Number.NEGATIVE_INFINITY
+      const add = (minute: number) => {
+        first = Math.min(first, minute)
+        last = Math.max(last, minute)
+      }
       for (const bound of ["min", "max"] as const) {
         const number = yield* boundTrade(bound)
         if (number === undefined) continue
@@ -642,23 +659,19 @@ export const makeDayStore = (sql: Sql) =>
           "SELECT time FROM trades WHERE number = ?",
           number
         )
-        minutes.push(Math.floor(Number(row?.time) / MINUTE_MS) * MINUTE_MS)
+        add(Math.floor(Number(row?.time) / MINUTE_MS) * MINUTE_MS)
       }
-      const chunks = new Map<number, Array<StockCode>>()
-      for (const row of sql.exec("SELECT code, minute FROM book_chunks")) {
-        const minute = Number(row.minute)
-        const codes = chunks.get(minute) ?? []
-        codes.push(StockCode.make(String(row.code)))
-        chunks.set(minute, codes)
-        minutes.push(minute)
+      const chunkCodes: Array<StockCode> = []
+      for (const row of sql.exec(
+        "SELECT code, min(minute) AS first, max(minute) AS last FROM book_chunks GROUP BY code"
+      )) {
+        chunkCodes.push(StockCode.make(String(row.code)))
+        add(Number(row.first))
+        add(Number(row.last))
       }
-      return minutes.length === 0
+      return first > last
         ? undefined
-        : {
-            first: Math.min(...minutes),
-            last: Math.max(...minutes),
-            chunks: chunks as ReadonlyMap<number, ReadonlyArray<StockCode>>,
-          }
+        : { first, last, chunkCodes: chunkCodes as ReadonlyArray<StockCode> }
     })
 
     // Every stock's regular-board trades in one minute, ascending by trade
@@ -698,12 +711,10 @@ export const makeDayStore = (sql: Sql) =>
       minute: number
     ) {
       meter.minuteRereads += 1
-      const before = sql.usage?.()
-      const trades = yield* minuteTrades(minute)
-      const after = sql.usage?.()
-      if (before !== undefined && after !== undefined)
-        meter.billedMinuteRereadRows =
-          (meter.billedMinuteRereadRows ?? 0) + after.rowsRead - before.rowsRead
+      const trades = yield* metered(
+        "billedMinuteRereadRows",
+        minuteTrades(minute)
+      )
       return trades.filter((trade) => trade.code === code)
     })
 

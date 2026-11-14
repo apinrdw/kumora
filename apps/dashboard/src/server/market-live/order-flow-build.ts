@@ -94,11 +94,7 @@ export const buildOrderFlow = Effect.fnUntraced(function* (store: DayStore) {
         ? span.first
         : Math.max(span.first, Number(progress) + MINUTE_MS)
     for (let minute = from; minute <= span.last; minute += MINUTE_MS) {
-      const built = yield* builtMinute(
-        store,
-        minute,
-        span.chunks.get(minute) ?? []
-      )
+      const built = yield* builtMinute(store, minute, span.chunkCodes)
       if (built.footprints.length > 0 || built.heatmaps.length > 0)
         yield* store.writeBuiltMinute(built)
     }
