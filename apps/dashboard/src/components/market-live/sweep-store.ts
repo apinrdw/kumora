@@ -46,8 +46,8 @@ export interface SweepStore {
   readonly threshold: (at: number) => SweepThreshold
   readonly selected: () => number | undefined
   readonly select: (id: number, from: "chart" | "log") => void
-  // Live: the snapshot the sweeps GET must answer next, or undefined once it
-  // answered; `answer` hands its answer back for that snapshot.
+  // Live: the ask the sweeps GET must answer next, or undefined once it
+  // answered; `answer` hands its answer back for that ask.
   readonly awaiting: () => number | undefined
   readonly answer: (snapshot: number, answer: RecordedSweeps) => void
   readonly apply: (message: ViewerDown) => void
@@ -58,7 +58,10 @@ export interface SweepStore {
 // recorded day's come whole from its GET (`answer`). Live, each snapshot of
 // this code asks the GET again: the trades deltas carry meanwhile wait for
 // its answer, and only the trades numbered above the one it names are
-// grouped onto it, so the join has no gap and no duplicate.
+// grouped onto it, so the join has no gap and no duplicate. A trade at or
+// below that number that this store hasn't heard with the same side (a late
+// trade, or a second feed changing its side) can change the answered sweeps,
+// so it asks the GET again too.
 export const makeSweepStore = (code: StockCode) =>
   Effect.sync((): SweepStore => {
     let answered: ReadonlyArray<Sweep> = []
@@ -69,7 +72,9 @@ export const makeSweepStore = (code: StockCode) =>
     let newest: TradeNumber | undefined
     let laterSweeps: Array<Sweep> = []
     let all: ReadonlyArray<Sweep> = []
-    let snapshot = 0
+    // Each trade number heard in a delta, with the side it last came with.
+    const heard = new Map<TradeNumber, RunningTrade["side"]>()
+    let ask = 0
     let waiting: Array<RunningTrade> | undefined
     let topN = TOP_N_DEFAULT
     let selected: number | undefined
@@ -113,6 +118,11 @@ export const makeSweepStore = (code: StockCode) =>
       all = Effect.runSync(joinSweeps(answered, laterSweeps))
       emit({ _tag: "Sweeps" })
     }
+    const askAgain = (held: ReadonlyArray<RunningTrade>) => {
+      ask += 1
+      waiting = [...held]
+      emit({ _tag: "Sweeps" })
+    }
     return {
       code,
       sweeps: () => all,
@@ -144,9 +154,9 @@ export const makeSweepStore = (code: StockCode) =>
           from,
         })
       },
-      awaiting: () => (waiting === undefined ? undefined : snapshot),
+      awaiting: () => (waiting === undefined ? undefined : ask),
       answer: (asked, answer) => {
-        if (answer.code !== code || asked !== snapshot) return
+        if (answer.code !== code || asked !== ask) return
         answered = answer.sweeps
         through = answer.through
         later = new Map()
@@ -161,17 +171,21 @@ export const makeSweepStore = (code: StockCode) =>
       },
       apply: (message) => {
         if (message._tag === "Snapshot") {
-          if (message.selected !== code) return
-          snapshot += 1
-          waiting = []
-          emit({ _tag: "Sweeps" })
+          if (message.selected === code) askAgain([])
           return
         }
         const mine = message.tape.filter(
           (trade) => trade.code === code && trade.board === "RG"
         )
         if (mine.length === 0) return
+        let revised = false
+        for (const trade of mine) {
+          if (!after(trade) && heard.get(trade.tradeNumber) !== trade.side)
+            revised = true
+          heard.set(trade.tradeNumber, trade.side)
+        }
         if (waiting !== undefined) waiting.push(...mine)
+        else if (revised) askAgain(mine)
         else add(mine)
       },
       subscribe: (listener) => {

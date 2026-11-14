@@ -85,8 +85,9 @@ function useSweepView(store: SweepStore, cursor: ReplayCursor | undefined) {
 
 /**
  * The selected code's sweep store, one per code, loaded from its GET for
- * `day`: undefined live, where it loads today's again after each snapshot of
- * the code, the store holding the delta trades until the answer lands; a
+ * `day`: undefined live, where it loads today's again each time the store
+ * asks (each snapshot of the code, and a late trade inside the last answer),
+ * the store holding the delta trades until the answer lands; a
  * recorded day's loads once, whole. An index asks for none.
  */
 export function useSweeps(
@@ -104,11 +105,11 @@ export function useSweeps(
     // An index has no aggressor sides, so no sweeps to ask for.
     if (INDEX_CODES.includes(store.code)) return
     const stops: Array<() => void> = []
-    const ask = (snapshot: number) =>
+    const ask = (asking: number) =>
       stops.push(
         runLoad(
           Effect.map(fetchRecordedSweeps(date, store.code), (answer) => {
-            if (Option.isSome(answer)) store.answer(snapshot, answer.value)
+            if (Option.isSome(answer)) store.answer(asking, answer.value)
           })
         )
       )
@@ -116,10 +117,10 @@ export function useSweeps(
     let asked: number | undefined
     const stopStore = live
       ? store.subscribe(() => {
-          const snapshot = store.awaiting()
-          if (snapshot === undefined || snapshot === asked) return
-          asked = snapshot
-          ask(snapshot)
+          const asking = store.awaiting()
+          if (asking === undefined || asking === asked) return
+          asked = asking
+          ask(asking)
         })
       : undefined
     return () => {
