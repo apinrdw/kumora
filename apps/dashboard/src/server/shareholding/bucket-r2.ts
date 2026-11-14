@@ -25,15 +25,19 @@ interface R2Binding {
     readonly cursor?: string
   }>
   readonly head: (key: string) => Promise<unknown>
-  readonly get: (
-    key: string
-  ) => Promise<{ readonly text: () => Promise<string> } | null>
+  readonly get: (key: string) => Promise<{
+    readonly httpEtag: string
+    readonly uploaded: Date
+    readonly text: () => Promise<string>
+  } | null>
+  // Null when `onlyIf` doesn't hold.
   readonly put: (
     key: string,
     body: Uint8Array | string,
     options: {
       readonly httpMetadata: { readonly contentType: string }
       readonly customMetadata: Record<string, string>
+      readonly onlyIf?: Headers
     }
   ) => Promise<unknown>
 }
@@ -80,7 +84,13 @@ export const archiveBucketR2 = Layer.effect(
           Effect.flatMap((object) =>
             object === null
               ? Effect.succeed(undefined)
-              : attempt("get", key, () => object.text())
+              : attempt("get", key, () => object.text()).pipe(
+                  Effect.map((body) => ({
+                    body,
+                    etag: object.httpEtag,
+                    uploaded: object.uploaded,
+                  }))
+                )
           )
         ),
       put: (key, body, { contentType, customMetadata }) =>
@@ -90,6 +100,20 @@ export const archiveBucketR2 = Layer.effect(
             customMetadata: customMetadata ?? {},
           })
         ).pipe(Effect.asVoid),
+      // R2 checks the condition and writes in one step, and answers null
+      // when it doesn't hold.
+      putIfUnchanged: (key, body, { contentType, customMetadata }, etag) =>
+        attempt("put", key, () =>
+          bucket.put(key, body, {
+            httpMetadata: { contentType },
+            customMetadata: customMetadata ?? {},
+            onlyIf: new Headers(
+              etag === undefined
+                ? { "if-none-match": "*" }
+                : { "if-match": etag }
+            ),
+          })
+        ).pipe(Effect.map((object) => object !== null)),
     })
   })
 )

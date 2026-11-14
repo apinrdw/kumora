@@ -16,7 +16,6 @@ import {
 
 import { ArchiveBucket, type BucketError, putJson } from "./bucket.ts"
 import {
-  LATEST_RUN_KEY,
   REPORTS_PREFIX,
   recordKey,
   reportKey,
@@ -32,7 +31,6 @@ import {
   ArchiveRunResult,
   type ArchiveRunId,
   type ArchiveTrigger,
-  LatestRun,
   runningResult,
 } from "./run-result.ts"
 
@@ -79,7 +77,8 @@ const ETAG = "etag"
 const nowIso = Effect.map(DateTime.now, DateTime.formatIso)
 
 // The listing, the (URL, ETag) pairs the archive holds, and the run's
-// `running` record.
+// `running` record. runs/latest.json already names the run: its start
+// claimed it (start-run.ts).
 const plan = Effect.fnUntraced(function* (
   run: ArchiveRun
 ): Effect.fn.Return<
@@ -103,7 +102,6 @@ const plan = Effect.fnUntraced(function* (
     etagsByUrl.set(url, etags)
   }
   yield* putJson(yield* runKey(run.id), yield* runningResult(run))
-  yield* putJson(LATEST_RUN_KEY, LatestRun.make({ id: run.id }))
   return {
     fresh: listed.filter((report) => !etagsByUrl.has(report.sourceUrl)),
     held: listed.flatMap((report) => {
@@ -323,8 +321,7 @@ const summary = Effect.fnUntraced(function* (
   return result
 })
 
-// `plan` failed, so nothing was stored: the run is failed with its message,
-// and runs/latest.json points at it even when `plan` never wrote it.
+// `plan` failed, so nothing was stored: the run is failed with its message.
 const recordPlanFailure = Effect.fnUntraced(function* (
   run: ArchiveRun,
   error: string
@@ -335,7 +332,6 @@ const recordPlanFailure = Effect.fnUntraced(function* (
     error,
   })
   yield* putJson(yield* runKey(run.id), result)
-  yield* putJson(LATEST_RUN_KEY, LatestRun.make({ id: run.id }))
   return result
 })
 

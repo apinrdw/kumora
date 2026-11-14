@@ -1,12 +1,16 @@
 import { assert, describe, it } from "@effect/vitest"
 import { Effect, Layer, Option } from "effect"
+import { TestClock } from "effect/testing"
 
 import {
-  runInProgress,
+  lastRun,
   scheduledArchiveRun,
   startRun,
 } from "@/server/shareholding/start-run"
 import { ArchiveRunId } from "@/server/shareholding/run-result"
+
+import type { ArchiveWorkflow } from "@/server/shareholding/archive-workflow"
+import type { ArchiveBucket } from "@/server/shareholding/bucket"
 
 import { everySplit } from "../../interleaved"
 
@@ -37,6 +41,15 @@ const json = (bucket: MemoryBucket, key: string) =>
 
 const pointLatestAt = (bucket: MemoryBucket, id: string) =>
   setJson(bucket, "runs/latest.json", { id })
+
+// The id of the last run while it is in progress.
+const runInProgress = (layer: Layer.Layer<ArchiveBucket | ArchiveWorkflow>) =>
+  lastRun.pipe(
+    Effect.map((view) =>
+      view?.inProgress === true ? Option.some(view.result.id) : Option.none()
+    ),
+    Effect.provide(layer)
+  )
 
 describe("the archive cron", () => {
   it.effect("starts a run named after its scheduled hour", () =>
@@ -143,11 +156,43 @@ describe("the archive cron", () => {
     })
   )
 
+  for (const [label, minutesAgo, started] of [
+    ["skips while a start that claimed runs/latest.json", 4, []],
+    [
+      "starts once a start that died after claiming runs/latest.json",
+      6,
+      ["cron-2026-11-14T06"],
+    ],
+  ] as const)
+    it.effect(`${label} is ${minutesAgo} minutes old`, () =>
+      Effect.gen(function* () {
+        const workflow = fakeWorkflow()
+        const bucket = memoryBucket()
+        // The claim, with no record and no instance yet.
+        bucket.objects.set("runs/latest.json", {
+          body: JSON.stringify({ id: "admin-1763125200000" }),
+          contentType: "application/json",
+          customMetadata: {},
+          uploaded: AFTERNOON - minutesAgo * 60 * 1000,
+        })
+        yield* TestClock.setTime(AFTERNOON)
+
+        yield* fire(workflow, bucket)
+
+        assert.deepStrictEqual([...workflow.instances.keys()], [...started])
+      })
+    )
+
   it.effect("starts when the latest run is past its retention", () =>
     Effect.gen(function* () {
       const workflow = fakeWorkflow()
       const bucket = memoryBucket()
-      pointLatestAt(bucket, "cron-2026-10-01T06")
+      // It never recorded how it ended, and its instance is gone.
+      const started = Date.parse("2026-10-01T06:00:00Z")
+      yield* TestClock.setTime(started)
+      yield* fire(workflow, bucket, started)
+      workflow.instances.clear()
+      yield* TestClock.setTime(AFTERNOON)
 
       yield* fire(workflow, bucket)
 
@@ -166,7 +211,7 @@ describe("starting a run by hand", () => {
       const workflow = fakeWorkflow()
       const bucket = memoryBucket()
       const layer = Layer.merge(workflow.layer, bucket.layer)
-      const check = runInProgress.pipe(Effect.provide(layer))
+      const check = runInProgress(layer)
       assert.isTrue(Option.isNone(yield* check))
 
       yield* startRun(ArchiveRunId.make("admin-1763125200000"), "admin").pipe(
@@ -207,11 +252,8 @@ describe("starting a run by hand", () => {
           error: null,
         }
         // The run's steps all ran inside `create`: its summary wrote the
-        // record and pointed runs/latest.json at it.
-        workflow.onCreate = () => {
-          setJson(bucket, `runs/${id}.json`, ended)
-          pointLatestAt(bucket, id)
-        }
+        // record.
+        workflow.onCreate = () => setJson(bucket, `runs/${id}.json`, ended)
 
         yield* startRun(id, "admin").pipe(
           Effect.provide(Layer.merge(workflow.layer, bucket.layer))
@@ -241,9 +283,7 @@ describe("starting a run by hand", () => {
           outcome: "failed",
           error: "The Workflow refused to start the run.",
         })
-        assert.isTrue(
-          Option.isNone(yield* runInProgress.pipe(Effect.provide(layer)))
-        )
+        assert.isTrue(Option.isNone(yield* runInProgress(layer)))
       })
   )
 

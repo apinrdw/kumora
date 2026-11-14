@@ -34,9 +34,13 @@ export const recentRuns = Effect.gen(function* () {
         key !== LATEST_RUN_KEY && uploaded.getTime() >= since
     )
     .map(({ key }) => key)
-  const records = yield* Effect.forEach(keys, (key) => bucket.get(key), {
-    concurrency: 10,
-  })
+  const records = yield* Effect.forEach(
+    keys,
+    (key) => Effect.map(bucket.get(key), (object) => object?.body),
+    {
+      concurrency: 10,
+    }
+  )
   const runs = yield* Effect.forEach(
     records.filter((record) => record !== undefined),
     (record) => decodeRunResult(record)

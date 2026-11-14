@@ -4,7 +4,6 @@
 import { Effect, Schema } from "effect"
 
 import { type InstanceStatus, RunStatus } from "./archive-workflow.ts"
-import { RETENTION_MS } from "./retention.ts"
 import { ArchiveRunResult } from "./run-result.ts"
 
 export const RunView = Schema.Struct({
@@ -30,9 +29,14 @@ const ENDED_UNSUMMARIZED: Partial<Record<RunStatus, string>> = {
   terminated: "The archive run's Workflow was terminated.",
 }
 
+// How long a start may take between claiming runs/latest.json and its
+// `create` returning: two R2 writes and the call to Workflows.
+export const START_WINDOW_MS = 5 * 60 * 1000
+
 // In progress while its instance is queued, running or waiting. With no
-// instance, the record decides while the instance could still be retained:
-// a record still running past that never ended in a summary.
+// instance, a record still running is a start not yet through `create`, for
+// START_WINDOW_MS; past that, its start died before the instance existed, or
+// the instance outlived its retention.
 export const isInProgress = Effect.fnUntraced(function* (
   result: ArchiveRunResult | undefined,
   instance: InstanceStatus | undefined,
@@ -41,7 +45,7 @@ export const isInProgress = Effect.fnUntraced(function* (
   return instance !== undefined
     ? IN_PROGRESS.has(instance.status)
     : result?.outcome === "running" &&
-        now - Date.parse(result.startedAt) < RETENTION_MS
+        now - Date.parse(result.startedAt) < START_WINDOW_MS
 })
 
 // Why a run whose record still says running has ended, or undefined while

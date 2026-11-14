@@ -1,9 +1,9 @@
 // Starting an archive run, from the cron's `scheduled` handler (src/worker.ts)
-// or from the admin page's Run now, and the last run both check first. Spec
+// or from the admin page's Run now, and the last run the page shows. Spec
 // apinrdw/kumora#303, "Starting a run".
-import { DateTime, Effect, Option, Schema } from "effect"
+import { DateTime, Effect, Schema } from "effect"
 
-import { ArchiveWorkflow } from "./archive-workflow.ts"
+import { ArchiveWorkflow, DuplicateRunId } from "./archive-workflow.ts"
 import { ArchiveBucket, putJson } from "./bucket.ts"
 import { LATEST_RUN_KEY, runKey } from "./keys.ts"
 import { RETENTION } from "./retention.ts"
@@ -15,35 +15,43 @@ import {
   LatestRun,
   runningResult,
 } from "./run-result.ts"
-import { isInProgress, viewRun } from "./run-view.ts"
+import { isInProgress, START_WINDOW_MS, viewRun } from "./run-view.ts"
+
+// The run runs/latest.json names is still in progress.
+class RunInProgress extends Schema.TaggedError<RunInProgress>()(
+  "RunInProgress",
+  { id: ArchiveRunId }
+) {}
 
 const decodeLatestRun = Schema.decodeUnknownEffect(
   Schema.fromJsonString(LatestRun)
 )
 
-// The run runs/latest.json names: its record and its instance's status.
+// The run runs/latest.json names: its record, its instance's status, and
+// the pointer's ETag, which a start that claims it must still find.
 const readLatest = Effect.gen(function* () {
   const bucket = yield* ArchiveBucket
-  const latest = yield* bucket.get(LATEST_RUN_KEY)
-  if (latest === undefined) return undefined
-  const { id } = yield* decodeLatestRun(latest)
+  const pointer = yield* bucket.get(LATEST_RUN_KEY)
+  if (pointer === undefined) return undefined
+  const { id } = yield* decodeLatestRun(pointer.body)
   const record = yield* bucket.get(yield* runKey(id))
+  const result =
+    record === undefined ? undefined : yield* decodeRunResult(record.body)
+  const instance = yield* (yield* ArchiveWorkflow).status(id)
+  const now = DateTime.toEpochMillis(yield* DateTime.now)
   return {
     id,
-    result: record === undefined ? undefined : yield* decodeRunResult(record),
-    instance: yield* (yield* ArchiveWorkflow).status(id),
-    now: DateTime.toEpochMillis(yield* DateTime.now),
+    etag: pointer.etag,
+    result,
+    instance,
+    now,
+    // With neither a record nor an instance, a start has just claimed the
+    // pointer and is still writing them.
+    inProgress:
+      result === undefined && instance === undefined
+        ? now - pointer.uploaded.getTime() < START_WINDOW_MS
+        : yield* isInProgress(result, instance, now),
   }
-})
-
-// The id of the run runs/latest.json names, while that run is still in
-// progress. Both the cron and Run now check it before starting a run.
-export const runInProgress = Effect.gen(function* () {
-  const latest = yield* readLatest
-  return latest !== undefined &&
-    (yield* isInProgress(latest.result, latest.instance, latest.now))
-    ? Option.some(latest.id)
-    : Option.none<ArchiveRunId>()
 })
 
 // The last run, for the admin page: undefined before any run.
@@ -53,33 +61,62 @@ export const lastRun = Effect.gen(function* () {
   return yield* viewRun(latest.result, latest.instance, latest.now)
 })
 
-// Creates the run's Workflow instance, kept for RETENTION, with a
-// `running` record, then points runs/latest.json at it. A second cron firing
-// for the same hour finds the record, and its `create` fails before
-// latest.json moves.
-// Decision: the record is written before `create`, only when the id has none:
-// after `create`, the run's own steps may already have ended it, and writing
-// `running` then would never be undone. Writing it at all refuses a second
-// start before `plan` (apinrdw/kumora#309).
+// Points runs/latest.json at `id`, unless the run it names is in progress or
+// `id` ran before.
+// Decision: runs/latest.json is the one claim on starting a run, shared by
+// the cron and Run now. The pointer is written only if its ETag is still the
+// one this start judged, in one conditional R2 write, so of two starts that
+// read the same pointer, one claims it, and the other judges again against
+// the run that won. Writing the pointer is a start's alone: no step of the
+// run rewrites it. See apinrdw/kumora#309.
+const claim: (
+  id: ArchiveRunId
+) => Effect.Effect<
+  void,
+  RunInProgress | DuplicateRunId | Effect.Error<typeof readLatest>,
+  Effect.Services<typeof readLatest>
+> = Effect.fnUntraced(function* (id) {
+  const latest = yield* readLatest
+  if (latest?.id === id) return yield* new DuplicateRunId({ id })
+  if (latest?.inProgress) return yield* new RunInProgress({ id: latest.id })
+  const bucket = yield* ArchiveBucket
+  // A start claiming the same id claims from this same pointer, so only one
+  // gets past the write below.
+  if (yield* bucket.exists(yield* runKey(id)))
+    return yield* new DuplicateRunId({ id })
+  const claimed = yield* bucket.putIfUnchanged(
+    LATEST_RUN_KEY,
+    JSON.stringify(LatestRun.make({ id })),
+    { contentType: "application/json" },
+    latest?.etag
+  )
+  if (!claimed) return yield* claim(id)
+})
+
+// Claims the start, then creates the run's Workflow instance, kept for
+// RETENTION, with a `running` record.
+// Decision: the record is written before `create`: after `create`, the run's
+// own steps may already have ended it, and writing `running` then would
+// never be undone (apinrdw/kumora#309).
 export const startRun = Effect.fnUntraced(function* (
   id: ArchiveRunId,
   trigger: ArchiveTrigger
 ) {
+  yield* claim(id)
   const key = yield* runKey(id)
-  const recorded = yield* (yield* ArchiveBucket).exists(key)
   const record = yield* runningResult({
     id,
     trigger,
     startedAt: DateTime.toDateUtc(yield* DateTime.now),
   })
-  if (!recorded) yield* putJson(key, record)
+  yield* putJson(key, record)
   yield* (yield* ArchiveWorkflow)
     .create({ id, params: { trigger }, retention: RETENTION })
     .pipe(
       // No instance will ever rewrite this record: end it here, so it
       // doesn't hold off runs as in progress.
       Effect.tapError((error) =>
-        error._tag === "WorkflowError" && !recorded
+        error._tag === "WorkflowError"
           ? Effect.gen(function* () {
               yield* Effect.logError(
                 "The archive Workflow refused a run",
@@ -94,12 +131,10 @@ export const startRun = Effect.fnUntraced(function* (
                   error: "The Workflow refused to start the run.",
                 })
               )
-              yield* putJson(LATEST_RUN_KEY, LatestRun.make({ id }))
             })
           : Effect.void
       )
     )
-  yield* putJson(LATEST_RUN_KEY, LatestRun.make({ id }))
 })
 
 // The `scheduled` handler's body: one run per firing, named after its
@@ -110,16 +145,12 @@ export const scheduledArchiveRun = Effect.fn("scheduledArchiveRun")(function* (
   const id = ArchiveRunId.make(
     `cron-${new Date(scheduledTime).toISOString().slice(0, 13)}`
   )
-  const running = yield* runInProgress
-  if (Option.isSome(running))
-    return yield* Effect.logInfo(
-      `Archive run ${id} skipped: ${running.value} is in progress`
-    )
-  // A second firing for the same hour (a retried invocation) finds the id
-  // taken.
   yield* startRun(id, "cron").pipe(
-    Effect.catchTag("DuplicateRunId", () =>
-      Effect.logInfo(`Archive run ${id} already started`)
-    )
+    Effect.catchTags({
+      RunInProgress: ({ id: running }) =>
+        Effect.logInfo(`Archive run ${id} skipped: ${running} is in progress`),
+      // A second firing for the same hour (a retried invocation).
+      DuplicateRunId: () => Effect.logInfo(`Archive run ${id} already started`),
+    })
   )
 })

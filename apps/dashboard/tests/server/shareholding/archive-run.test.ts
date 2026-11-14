@@ -141,9 +141,8 @@ describe("an archive run", () => {
         json(bucket, "runs/cron-2026-11-14T13.json"),
         result
       )
-      assert.deepStrictEqual(json(bucket, "runs/latest.json"), {
-        id: "cron-2026-11-14T13",
-      })
+      // The run's start points runs/latest.json at it, never the run.
+      assert.notInclude(bucket.puts, "runs/latest.json")
     })
   )
 
@@ -180,9 +179,6 @@ describe("an archive run", () => {
         reportsAdded: 0,
         newVersions: 0,
         reportsChecked: 145,
-      })
-      assert.deepStrictEqual(json(bucket, "runs/latest.json"), {
-        id: "cron-2026-11-14T13",
       })
       assert.strictEqual(
         json(bucket, "runs/cron-2026-11-14T06.json").outcome,
@@ -579,9 +575,7 @@ describe("an archive run", () => {
         notStored: [],
       })
       assert.isNotNull(json(bucket, "runs/cron-2026-11-14T06.json").finishedAt)
-      assert.deepStrictEqual(json(bucket, "runs/latest.json"), {
-        id: "cron-2026-11-14T06",
-      })
+      assert.notInclude(bucket.puts, "runs/latest.json")
       assert.deepStrictEqual(keysUnder(bucket, "reports/"), [])
     })
   )

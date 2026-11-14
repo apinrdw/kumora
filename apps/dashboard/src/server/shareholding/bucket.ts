@@ -16,7 +16,15 @@ export interface ListedObject {
   readonly customMetadata: Readonly<Record<string, string>>
 }
 
-interface PutOptions {
+// An object as `get` reads it.
+interface StoredObject {
+  readonly body: string
+  // What `putIfUnchanged` compares.
+  readonly etag: string
+  readonly uploaded: Date
+}
+
+export interface PutOptions {
   readonly contentType: string
   readonly customMetadata?: Readonly<Record<string, string>>
 }
@@ -29,15 +37,24 @@ export class ArchiveBucket extends Context.Service<
       prefix: string
     ) => Effect.Effect<ReadonlyArray<ListedObject>, BucketError>
     readonly exists: (key: string) => Effect.Effect<boolean, BucketError>
-    // The object's body as text, or undefined when there is none.
+    // Undefined when there is no object at `key`.
     readonly get: (
       key: string
-    ) => Effect.Effect<string | undefined, BucketError>
+    ) => Effect.Effect<StoredObject | undefined, BucketError>
     readonly put: (
       key: string,
       body: Uint8Array | string,
       options: PutOptions
     ) => Effect.Effect<void, BucketError>
+    // Writes only while the object's ETag is still `etag`, or, with `etag`
+    // undefined, while there is no object; in one step, so of two writers
+    // that read the same ETag, one writes. Whether it wrote.
+    readonly putIfUnchanged: (
+      key: string,
+      body: string,
+      options: PutOptions,
+      etag: string | undefined
+    ) => Effect.Effect<boolean, BucketError>
   }
 >()("dashboard/shareholding/ArchiveBucket") {}
 
