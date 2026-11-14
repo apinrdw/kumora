@@ -8,10 +8,16 @@ import {
   type IngestDown,
   type IngestUp,
 } from "@workspace/relay"
-import { chromium, expect, type Worker } from "@playwright/test"
+import {
+  chromium,
+  expect,
+  test,
+  type BrowserContext,
+  type Worker,
+} from "@playwright/test"
 import { Effect } from "effect"
 import { execFileSync } from "node:child_process"
-import { mkdtempSync, readFileSync } from "node:fs"
+import { appendFileSync, mkdtempSync, readFileSync } from "node:fs"
 import {
   createServer as createHttpServer,
   type ServerResponse,
@@ -434,6 +440,30 @@ export async function tickRelay(worker: Worker, count = 1) {
   }
 }
 
+/** The file in a test's output directory with its service workers' console. */
+export const WORKER_CONSOLE = "service-worker-console.txt"
+
+// Writes every console message of the context's service workers, the one it
+// has and any that start later, to the test's WORKER_CONSOLE, one line each
+// with its type, so a failed test keeps the worker's logs.
+function writeWorkerConsole(context: BrowserContext) {
+  const file = test.info().outputPath(WORKER_CONSOLE)
+  appendFileSync(file, "")
+  const heard = new Set<Worker>()
+  const listen = (worker: Worker) => {
+    if (heard.has(worker)) return
+    heard.add(worker)
+    worker.on("console", (message) =>
+      appendFileSync(
+        file,
+        `[${message.type()}] ${message.text().replaceAll("\n", "\\n")}\n`
+      )
+    )
+  }
+  context.on("serviceworker", listen)
+  for (const worker of context.serviceWorkers()) listen(worker)
+}
+
 /**
  * Chromium with the built extension loaded, and every broker host (any port)
  * mapped to the fakes on `port`. `test` closes it when the test ends.
@@ -452,6 +482,7 @@ export async function launchWithExtension(port: number) {
       ...recordVideo(),
     })
   )
+  writeWorkerConsole(context)
   const worker =
     context.serviceWorkers()[0] ?? (await context.waitForEvent("serviceworker"))
   const extensionId = new URL(worker.url()).host
