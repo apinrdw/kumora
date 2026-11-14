@@ -30,6 +30,7 @@ import {
   ArchiveRunResult,
   type ArchiveRunId,
   type ArchiveTrigger,
+  MAX_RUN_ERROR_LENGTH,
   runningResult,
 } from "./run-result.ts"
 
@@ -330,7 +331,10 @@ const recordPlanFailure = Effect.fnUntraced(function* (
   const result = ArchiveRunResult.make({
     ...(yield* finishedResult(run)),
     outcome: "failed",
-    error,
+    error:
+      error.length > MAX_RUN_ERROR_LENGTH
+        ? `${error.slice(0, MAX_RUN_ERROR_LENGTH - 1)}…`
+        : error,
   })
   yield* putJson(yield* runKey(run.id), result)
   return result
