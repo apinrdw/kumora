@@ -14,6 +14,7 @@ import { WorkerEnv, type WorkerEnvShape } from "./bridge.ts"
 import {
   MAX_STEP_NAME_LENGTH,
   NonRetryable,
+  type StepConfig,
   StepFailed,
   type WorkflowSteps,
 } from "./steps.ts"
@@ -46,7 +47,11 @@ export const makeWorkflow = <Params, Output, R>(
       const steps: WorkflowSteps<R> = {
         // A name over the limit is a bug, never a step's failure: the run
         // dies, rather than the runtime's refusal reading as a failed step.
-        do: <A, E>(name: string, effect: Effect.Effect<A, E, R>) =>
+        do: <A, E>(
+          name: string,
+          effect: Effect.Effect<A, E, R>,
+          config?: StepConfig
+        ) =>
           name.length > MAX_STEP_NAME_LENGTH
             ? Effect.die(
                 new Error(
@@ -61,6 +66,7 @@ export const makeWorkflow = <Params, Output, R>(
                   // archive/local-steps.ts).
                   step.do(
                     name,
+                    { ...config },
                     () =>
                       Effect.runPromise(
                         effect.pipe(

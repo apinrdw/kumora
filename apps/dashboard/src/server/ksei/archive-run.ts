@@ -5,6 +5,7 @@
 import {
   jsonBytes,
   NonRetryable,
+  type StepConfig,
   type StepFailed,
   type WorkflowSteps,
 } from "@workspace/server"
@@ -39,6 +40,13 @@ export interface KseiRun {
 }
 
 type StepServices = ArchiveBucket | HttpClient.HttpClient
+
+// The config of every step that asks KSEI.
+// Decision: 2 minutes an attempt, not the runtime's 10: KSEI's first answer
+// from a Worker takes 6-8 s, so an attempt still waiting at 2 minutes is
+// stuck, and its retry asks again. `summary` and `failed` only write to R2
+// and keep the default. See apinrdw/kumora#327, "Fetching from KSEI".
+const KSEI_STEP: StepConfig = { timeout: "2 minutes" }
 
 // Each step result holds at most one ListedKseiReport per listed file, which
 // MAX_LISTED_REPORTS (listing.ts) bounds. The ETags and hashes held grow with
@@ -275,10 +283,12 @@ const storeFinds = Effect.fnUntraced(function* (
   finds: ReadonlyArray<ListedKseiReport>
 ) {
   const stored = yield* Effect.forEach(finds, (report) =>
-    steps.do(`report:${report.filename}`, archiveFind(run.id, report)).pipe(
-      Effect.mapError(() => report.filename),
-      Effect.result
-    )
+    steps
+      .do(`report:${report.filename}`, archiveFind(run.id, report), KSEI_STEP)
+      .pipe(
+        Effect.mapError(() => report.filename),
+        Effect.result
+      )
   )
   return {
     archived: stored
@@ -296,7 +306,7 @@ const deepBackfill = Effect.fnUntraced(function* (
   run: KseiRun,
   tried: ReadonlyArray<string>
 ) {
-  const seeded = yield* steps.do("seed", seed(tried))
+  const seeded = yield* steps.do("seed", seed(tried), KSEI_STEP)
   const fromSeed = yield* storeFinds(steps, run, seeded)
   const triedBefore = new Set([
     ...tried,
@@ -307,7 +317,7 @@ const deepBackfill = Effect.fnUntraced(function* (
       PROBE_YEARS.map((year) => ({ kind, year }))
     ),
     ({ kind, year }) =>
-      steps.do(`probe:${kind}:${year}`, probe(kind, year)).pipe(
+      steps.do(`probe:${kind}:${year}`, probe(kind, year), KSEI_STEP).pipe(
         Effect.map((probed): Probed & { kind: KseiReportKind } => ({
           ...probed,
           kind,
@@ -418,7 +428,7 @@ export const kseiArchiveRun = Effect.fn("kseiArchiveRun")(function* (
   steps: WorkflowSteps<StepServices>,
   run: KseiRun
 ): Effect.fn.Return<KseiRunResult, StepFailed> {
-  const planned = yield* steps.do("plan", plan(run)).pipe(
+  const planned = yield* steps.do("plan", plan(run), KSEI_STEP).pipe(
     // The run still fails with `plan`'s message, which the Workflow keeps as
     // the instance's error.
     Effect.tapError(({ message }) =>
@@ -427,7 +437,7 @@ export const kseiArchiveRun = Effect.fn("kseiArchiveRun")(function* (
         .pipe(Effect.ignore({ log: "Warn" }))
     )
   )
-  const checked = yield* steps.do("head", head(planned.held))
+  const checked = yield* steps.do("head", head(planned.held), KSEI_STEP)
   const heldByFilename = new Map(
     planned.held.map((report) => [report.filename, report])
   )
@@ -443,7 +453,11 @@ export const kseiArchiveRun = Effect.fn("kseiArchiveRun")(function* (
   // one step: KseiFilename keeps it short and fit for a step name.
   const stored = yield* Effect.forEach(toStore, ({ report, etag }) =>
     steps
-      .do(`report:${report.filename}`, archiveListed(run.id, report, etag))
+      .do(
+        `report:${report.filename}`,
+        archiveListed(run.id, report, etag),
+        KSEI_STEP
+      )
       .pipe(
         Effect.mapError(() => report.filename),
         Effect.result

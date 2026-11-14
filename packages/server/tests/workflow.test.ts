@@ -36,12 +36,14 @@ const capturing = () => {
 }
 
 // Runs a Workflow whose run is `body`, with each step run at once. `ran`
-// logs the name of every step the runtime was asked to run.
+// logs the name of every step the runtime was asked to run, `configs` the
+// config each was given.
 const runWorkflow = (
   layer: Layer.Layer<never>,
   body: (steps: WorkflowSteps<never>) => Effect.Effect<unknown, StepFailed>
 ) => {
   const ran: Array<string> = []
+  const configs: Array<unknown> = []
   const Workflow = makeWorkflow(layer, (_, steps) =>
     body(steps).pipe(Effect.asVoid)
   )
@@ -55,15 +57,20 @@ const runWorkflow = (
           payload: {},
         } as never,
         {
-          do: (name: string, callback: () => Promise<unknown>) => {
+          do: (
+            name: string,
+            config: unknown,
+            callback: () => Promise<unknown>
+          ) => {
             ran.push(name)
+            configs.push(config)
             return callback()
           },
         } as never
       ),
     catch: (error) => error,
   })
-  return { ran, result }
+  return { ran, configs, result }
 }
 
 const runOneStep = (
@@ -140,6 +147,20 @@ describe("the Workflow runner", () => {
       )
       yield* result
       assert.deepStrictEqual(ran, [name])
+    })
+  )
+
+  it.effect("gives the runtime each step's own config", () =>
+    Effect.gen(function* () {
+      const { layer } = capturing()
+      const { configs, result } = runWorkflow(layer, (steps) =>
+        Effect.andThen(
+          steps.do("timed", Effect.succeed(1), { timeout: "2 minutes" }),
+          steps.do("default", Effect.succeed(2))
+        )
+      )
+      yield* result
+      assert.deepStrictEqual(configs, [{ timeout: "2 minutes" }, {}])
     })
   )
 

@@ -27,6 +27,16 @@ export const MAX_STEP_NAME_LENGTH = 256
 export const jsonBytes = (value: unknown) =>
   Effect.sync(() => new TextEncoder().encode(JSON.stringify(value)).length)
 
+// A step's own limits, passed to Cloudflare's `step.do(name, config, fn)`.
+// What it leaves out keeps the runtime's default: 5 retries, and a timeout of
+// 10 minutes per attempt.
+export interface StepConfig {
+  // How long one attempt may take, as "2 minutes" or milliseconds.
+  readonly timeout?:
+    | `${number} ${"second" | "minute" | "hour"}${"s" | ""}`
+    | number
+}
+
 // The steps of one Workflow run, as Effects. `do` runs `effect` as a durable
 // step named `name`: the runtime replays a finished step's result instead of
 // running it again, so the result must be plain JSON, and the effect must
@@ -35,6 +45,7 @@ export const jsonBytes = (value: unknown) =>
 export interface WorkflowSteps<R> {
   readonly do: <A, E>(
     name: string,
-    effect: Effect.Effect<A, E, R>
+    effect: Effect.Effect<A, E, R>,
+    config?: StepConfig
   ) => Effect.Effect<A, StepFailed>
 }

@@ -1,5 +1,5 @@
 import { assert, describe, it } from "@effect/vitest"
-import type { WorkflowSteps } from "@workspace/server"
+import type { StepConfig, WorkflowSteps } from "@workspace/server"
 import { Effect, Layer } from "effect"
 
 import { ArchiveRunId } from "@/server/archive/run"
@@ -13,17 +13,20 @@ import { type FakeKsei, fakeKsei, fileOf, zipBody } from "./fake-ksei.ts"
 
 const DOWNLOAD = "https://www.ksei.co.id/storage/Download/"
 
-// The KSEI requests each step sent, by step name. Steps run one at a time.
+// The KSEI requests each step sent, by step name, and each step's config.
+// Steps run one at a time.
 const countingSteps = <R>(
   ksei: FakeKsei,
   steps: WorkflowSteps<R>,
-  counts: Map<string, number>
+  counts: Map<string, number>,
+  configs = new Map<string, StepConfig | undefined>()
 ): WorkflowSteps<R> => ({
-  do: (name, effect) =>
+  do: (name, effect, config) =>
     Effect.suspend(() => {
       const before = ksei.requests.length
+      configs.set(name, config)
       return steps
-        .do(name, effect)
+        .do(name, effect, config)
         .pipe(
           Effect.ensuring(
             Effect.sync(() => counts.set(name, ksei.requests.length - before))
@@ -36,13 +39,15 @@ const deepRun = (
   ksei: FakeKsei,
   bucket: MemoryBucket,
   id: string,
-  counts = new Map<string, number>()
+  counts = new Map<string, number>(),
+  configs = new Map<string, StepConfig | undefined>()
 ) =>
   kseiArchiveRun(
     countingSteps(
       ksei,
       localSteps(Layer.merge(ksei.layer, bucket.layer)),
-      counts
+      counts,
+      configs
     ),
     {
       id: ArchiveRunId.make(id),
@@ -256,6 +261,47 @@ describe("a deep backfill", () => {
         assert.isBelow(counts.size, 1_000)
         assert.strictEqual(result.outcome, "complete")
         assert.deepStrictEqual(result.deep?.foundFromSeed, [])
+      }),
+    30_000
+  )
+
+  it.effect(
+    "gives every step that asks KSEI a 2 minute timeout",
+    () =>
+      Effect.gen(function* () {
+        const ksei = fakeKsei()
+        serve(ksei, SEEDED_STATIS)
+        serve(ksei, PROBED_BALANCEPOS)
+        const configs = new Map<string, StepConfig | undefined>()
+
+        yield* deepRun(
+          ksei,
+          memoryBucket(),
+          "deep-1763089200000",
+          new Map(),
+          configs
+        )
+
+        const timed = [...configs]
+          .filter(([, config]) => config?.timeout === "2 minutes")
+          .map(([name]) => name)
+        for (const name of [
+          "plan",
+          "head",
+          "seed",
+          "probe:securities-holdings:2008",
+          `report:${SEEDED_STATIS}`,
+          `report:${PROBED_BALANCEPOS}`,
+        ])
+          assert.include(timed, name)
+        assert.isTrue(
+          timed.some((name) => name.startsWith("report:StatisEfek2026")),
+          "a listed file's report step"
+        )
+        assert.deepStrictEqual(
+          [...configs.keys()].filter((name) => !timed.includes(name)),
+          ["summary"]
+        )
       }),
     30_000
   )
