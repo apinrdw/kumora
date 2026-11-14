@@ -101,6 +101,16 @@ const chartShowing = (opening: BarRange | null) => {
         own,
         new PointerEvent("pointerdown", { pointerType: "mouse", bubbles: true })
       ),
+    // A right click, whose button the page may never hear come up.
+    rightClick: () =>
+      fire(
+        own,
+        new PointerEvent("pointerdown", {
+          pointerType: "mouse",
+          button: 2,
+          bubbles: true,
+        })
+      ),
     // The button comes up wherever the pointer is by then: off the chart.
     release: () =>
       fire(
@@ -294,6 +304,7 @@ describe("a zoom", () => {
 // What the pointer did last on chart 1 before the range changed.
 const BEFORE: Record<string, (charts: ReturnType<typeof paired>) => void> = {
   "the pointer resting on chart 1": ({ candles }) => candles.rest(),
+  "a right click on chart 1": ({ candles }) => candles.rightClick(),
   "a finished drag on chart 1": ({ candles, drag }) => drag(candles, -4),
   "a finished wheel pan on chart 1": ({ candles, frame }) => {
     candles.wheel({ x: -4 })
@@ -415,6 +426,24 @@ describe("chart 2's own refit moves chart 2 alone", () => {
 
     expect(footprint.range()).toEqual({ from: 26, to: 35 })
     expect(candles.range()).toEqual({ from: -65, to: 65 })
+  })
+})
+
+describe("a drag on chart 2 begun before its jump is painted", () => {
+  it("moves chart 1 by the drag alone, not by the jump", () => {
+    const { pair, candles, footprint, frame } = paired()
+    pair.jumpTo(30 * 60_000)
+    vi.advanceTimersToNextFrame()
+
+    footprint.press()
+    frame()
+    footprint.shift(-2)
+    frame()
+    footprint.release()
+    frame()
+
+    expect(footprint.range()).toEqual({ from: 24, to: 33 })
+    expect(candles.range()).toEqual({ from: -67, to: 63 })
   })
 })
 

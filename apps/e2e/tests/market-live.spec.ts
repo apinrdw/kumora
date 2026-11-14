@@ -255,6 +255,23 @@ test.describe("signed in", () => {
       .toBe(opened2.from.toFixed(1))
     expect((await range(chart1)).from).toBeCloseTo(opened1.from, 1)
 
+    // A horizontal wheel on chart 1 pans chart 2 too, and back.
+    await page.mouse.wheel(-150, 0)
+    await page.mouse.wheel(-150, 0)
+    await expect
+      .poll(async () => (await range(chart1)).from)
+      .toBeLessThan(opened1.from - 1)
+    await expect
+      .poll(async () => {
+        const [one, two] = await Promise.all([range(chart1), range(chart2)])
+        return Math.abs(two.from - opened2.from - (one.from - opened1.from))
+      })
+      .toBeLessThan(0.05)
+    await page.mouse.wheel(300, 0)
+    await expect
+      .poll(async () => (await range(chart2)).from.toFixed(1))
+      .toBe(opened2.from.toFixed(1))
+
     // Hovering a minute on chart 2: its ladder of exact lots.
     const box2 = (await chart2.boundingBox())!
     await page.mouse.move(box2.x + (box2.width - 72) / 2, box2.y + 120)
