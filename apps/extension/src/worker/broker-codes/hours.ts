@@ -8,7 +8,18 @@ import {
   streamingStartOf,
   wibDateAt,
 } from "@workspace/relay"
-import { DateTime, Effect, Option } from "effect"
+import { Context, DateTime, Effect, Option } from "effect"
+
+// Decision: the walks read Streaming hours, the newest closed day and
+// Ajaib's window on the relay's schedule clock, which the test clock offset
+// moves (settings.ts), so an e2e spec walks a closed day at any hour. The
+// service worker provides it; anywhere else it is the real clock. Tape
+// queries keep the real time. See apinrdw/kumora#273.
+export const ScheduleClock = Context.Reference<Effect.Effect<DateTime.Utc>>(
+  "extension/ScheduleClock",
+  { defaultValue: () => DateTime.now }
+)
+export const scheduleNow = Effect.flatMap(ScheduleClock, (now) => now)
 
 // Decision: walks run only outside Streaming hours (schedule.ts in
 // @workspace/relay), so the live relay keeps the tab and the account's

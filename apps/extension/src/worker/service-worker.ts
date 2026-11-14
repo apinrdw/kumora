@@ -37,6 +37,7 @@ import { brokerCodesTargets, fetchSend } from "./broker-codes/poster.ts"
 import { makeProductionTarget } from "./broker-codes/production-target.ts"
 import { makeTargetHold, type TargetHold } from "./broker-codes/target-hold.ts"
 import { makeHistoryWalk } from "./broker-codes/history.ts"
+import { ScheduleClock } from "./broker-codes/hours.ts"
 import { makeProgress } from "./broker-codes/progress.ts"
 import { makeRunQueue } from "./broker-codes/run-queue.ts"
 import { fetchGet } from "./broker-codes/status.ts"
@@ -592,6 +593,7 @@ Effect.runFork(
   Effect.andThen(clearRelayStopped, main).pipe(
     Effect.scoped,
     Effect.provide(Socket.layerWebSocketConstructorGlobal),
+    Effect.provideService(ScheduleClock, scheduleNow),
     Effect.tapCause((cause) =>
       Effect.andThen(
         Effect.logError("Relay stopped", cause),

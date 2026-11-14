@@ -16,7 +16,7 @@ import {
   type TradeCodes,
   type WibDate,
 } from "@workspace/relay"
-import { DateTime, Effect, Option, Schema } from "effect"
+import { Effect, Option, Schema } from "effect"
 
 import type { RequestingTab } from "../pacer.ts"
 import {
@@ -24,7 +24,7 @@ import {
   RUNNING_TRADE_URL,
   stockbitCredential,
 } from "../stockbit.ts"
-import { inStreamingHours } from "./hours.ts"
+import { inStreamingHours, scheduleNow } from "./hours.ts"
 import type { PostOutcome } from "./poster.ts"
 import { halt, haltOnRefusal, settle, type WalkResult } from "./run-queue.ts"
 import type { StatusOutcome } from "./status.ts"
@@ -192,7 +192,7 @@ export const makeStockbitWalk = Effect.fnUntraced(function* (options: {
   let dayN = Option.none<number>()
 
   const guard = Effect.gen(function* () {
-    if (yield* inStreamingHours(yield* DateTime.now))
+    if (yield* inStreamingHours(yield* scheduleNow))
       return yield* halt({ _tag: "stopped", cause: "streaming-hours" })
   })
 

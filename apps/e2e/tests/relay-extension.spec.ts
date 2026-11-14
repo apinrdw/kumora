@@ -305,8 +305,8 @@ test("the relay fills a requested gap from Stockbit's REST tape, and what Stockb
   }
 })
 
-// The two newest trading days closed now, newest first: the broker codes
-// walks run on the real clock, not the relay's schedule clock.
+// The two newest trading days closed now, newest first: the options page's
+// last 10 days follow the real clock, not the relay's schedule clock.
 const newestClosedDays = () =>
   Effect.runSync(
     Effect.gen(function* () {
@@ -456,6 +456,88 @@ test("the options page shows the broker codes walks, and Pause and Run now steer
   } finally {
     await context.close()
     await ingest.close()
+    await brokers.close()
+  }
+})
+
+// The evening after SESSION_1's close, on the relay's schedule clock, which
+// the broker codes walks also read.
+const EVENING = "2026-11-10T20:00:00"
+const EVENING_DAY = WibDate.make("2026-11-10")
+
+test("Run now with a Stockbit tab open starts a broker codes walk, at any hour", async () => {
+  test.setTimeout(120_000)
+  const brokers = await startFakeBrokers()
+  // Production holds nothing of the evening's day yet.
+  brokers.production.statuses = (day) =>
+    day === EVENING_DAY
+      ? {
+          ...completeDay(day),
+          n: null,
+          complete: false,
+          sources: { ajaib: 0, stockbit: 0 },
+          crossCheck: { state: "none" },
+        }
+      : completeDay(day)
+  // Stockbit has closed the day, and its tape pages on well past the test.
+  brokers.tapes.stockbit = (query) => {
+    const after = Number(query.get("trade_number") ?? 0)
+    return {
+      data: {
+        is_open_market: false,
+        running_trade:
+          query.get("sort") === "DESC"
+            ? [{ trade_number: "1000000" }]
+            : Array.from({ length: 100 }, (_, at) => ({
+                trade_number: String(after + at + 1),
+              })),
+      },
+    }
+  }
+  const { context, worker, optionsUrl } = await launchWithExtension(
+    brokers.port
+  )
+  try {
+    // A tick in the evening makes its day the one the queue last ticked a
+    // run for, so coming back to the evening later starts none.
+    await setRelayClock(worker, EVENING)
+    await setRelayClock(worker, SESSION_1)
+    const options = await context.newPage()
+    await options.goto(optionsUrl)
+    await options.getByLabel("Production ingest token").fill("any")
+    await options.getByRole("button", { name: "Save" }).click()
+    await expect(options.getByLabel("Production state")).toHaveText("Connected")
+    const stockbitTab = await context.newPage()
+    await stockbitTab.goto(STOCKBIT_TAB)
+    await expect.poll(() => brokers.on("/ws").length, TICKS).toBe(1)
+    await expect
+      .poll(() => stored(worker, "session", "brokerCodesProgress"))
+      .toEqual({ state: "paused", cause: "streaming-hours" })
+
+    await setRelayClock(worker, EVENING)
+    expect(await stored(worker, "session", "brokerCodesProgress")).toEqual({
+      state: "paused",
+      cause: "streaming-hours",
+    })
+    const runNow = options.getByRole("button", { name: "Run now" })
+    await runNow.click()
+    await expect
+      .poll(() => stored(worker, "session", "brokerCodesRun"))
+      .toBe("started")
+    await expect(runNow).toBeEnabled()
+    await expect
+      .poll(() => stored(worker, "session", "brokerCodesProgress"))
+      .toMatchObject({
+        state: "walking",
+        walk: "newest",
+        day: EVENING_DAY,
+        feed: "Stockbit",
+      })
+    await expect(options.getByLabel("Broker codes walk")).toHaveText(
+      `Stockbit, ${EVENING_DAY} (newest closed day)`
+    )
+  } finally {
+    await context.close()
     await brokers.close()
   }
 })
