@@ -162,12 +162,18 @@ function followBook(
   }
 }
 
-// The selected code's whole-day candles, onto the day's fresh store.
+// The selected code's whole-day candles and footprints, onto the day's fresh
+// store.
 const loadCandles = (day: WibDate, selected: StockCode, candles: CandleStore) =>
   Effect.gen(function* () {
     const answer = yield* fetchRecordedCandles(day, selected)
     if (Option.isSome(answer))
-      candles.apply({ _tag: "Delta", tape: [], candles: answer.value.candles })
+      candles.apply({
+        _tag: "Delta",
+        tape: [],
+        candles: answer.value.candles,
+        footprints: answer.value.footprints ?? [],
+      })
   })
 
 // Each watchlist code's candles once, its row worked out at each minute of
