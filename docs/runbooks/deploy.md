@@ -145,6 +145,7 @@ PRs land on `staging`, and `main` moves only by a published Release or a Hotfix 
 3. Retarget each open PR from `main` to `staging`, except a Hotfix.
 4. The ruleset "main requires e2e-evidence" targets the default branch, so step 2 moved it off `main`. Edit it under Settings → Rules → Rulesets: target `refs/heads/main` and `refs/heads/staging` by name in place of the default branch, and rename it "release branches require e2e-evidence". Check with `gh api repos/apinrdw/kumora/rulesets/27094377 --jq .conditions`.
 5. Under Settings → Actions → General → Workflow permissions, tick "Allow GitHub Actions to create and approve pull requests". As of 2026-11-14 it is off, and `sync-staging.yml` can't open a Sync without it.
+6. In each existing clone, run `git remote set-head origin -a`. A clone keeps the default branch it was cloned with as `origin/HEAD`, and `fallow audit` compares a branch with no upstream, such as a T3 worktree's `t3/*`, against it. As observed 2026-11-14, the main clone still pointed at `main` after step 2, so the commit gate audited `staging`'s unreleased commits as the branch's own. Check with `git symbolic-ref refs/remotes/origin/HEAD`, which prints `refs/remotes/origin/staging`.
 
 To release, first tag the `staging` commit you tried on Staging as a Candidate. Then publish a GitHub Release on the same commit, with the Production tag as its tag. The date is today in WIB, N counts today's Candidates from 1, and the version is yours to choose above Production's last:
 

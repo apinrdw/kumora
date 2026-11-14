@@ -67,7 +67,7 @@ const projects = [
   },
 ]
 
-export default defineConfig({
+const config = defineConfig({
   testDir: "tests",
   // Decision: tests, not files, are the unit of parallelism, so one file's
   // tests can run on different workers (apinrdw/kumora#168). A
@@ -128,3 +128,31 @@ export default defineConfig({
     },
   ],
 })
+
+// Decision: refuse a run that names only specs of a project waiting on other
+// projects. Playwright runs every test of those projects first, so naming
+// relay-load's spec ran all 64 tests, and #272's implementer waited minutes
+// for its one bench. `--no-deps` with the projects named runs it alone.
+const named = process.argv.filter((arg) => arg.endsWith(".spec.ts"))
+const waitingFor = (file: string) =>
+  (config.projects ?? []).find(
+    ({ dependencies = [], testMatch }) =>
+      dependencies.some((name) => name !== "setup") &&
+      testMatch instanceof RegExp &&
+      testMatch.test(file)
+  )
+if (
+  named.length > 0 &&
+  named.every(waitingFor) &&
+  !process.argv.some(
+    (arg) => arg === "--no-deps" || arg.startsWith("--project")
+  )
+) {
+  const only = [...new Set(named.map((file) => waitingFor(file)?.name))]
+  console.error(
+    `e2e: ${only.join(", ")} first waits for every other project, so this would run the whole suite. Run it alone: \`pnpm test:e2e ${["setup", ...only].map((name) => `--project=${name}`).join(" ")} --no-deps --workers=1\`.`
+  )
+  process.exit(2)
+}
+
+export default config

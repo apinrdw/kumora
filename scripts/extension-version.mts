@@ -32,12 +32,14 @@ const versionAt = Effect.fn("versionAt")(function* (root: string, rev: string) {
 })
 
 // GitHub sets GITHUB_BASE_REF to the PR's base branch on pull_request runs and
-// leaves it empty on a push; a push to main then diffs main against itself.
+// leaves it empty on a push and locally. Staging is where every PR but a
+// Hotfix lands, so a local branch diffs against it, and a push to `staging`
+// or a Release's fast-forward of `main` diffs against nothing new.
 export const baseRef = Effect.gen(function* () {
   const branch = yield* Config.String("GITHUB_BASE_REF").pipe(
     Config.withDefault("")
   )
-  return `origin/${branch === "" ? "main" : branch}`
+  return `origin/${branch === "" ? "staging" : branch}`
 })
 
 export const checkExtensionVersion = Effect.fn("checkExtensionVersion")(
