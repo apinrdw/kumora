@@ -81,8 +81,7 @@ test("sweeps show as bubbles and log rows; top-N filters them; a row rings its b
   await expect(rows).toHaveCount(1)
   // The toggle is in the URL, so a shared link opens with it.
   await expect(page).toHaveURL(/[?&]big=true(&|$)/)
-  // Chart 2 opens on the 10 minutes ending at the newest sweep's: its bar
-  // index, which counts the relay gaps' minutes drawn before the code's own.
+  // Chart 2 opens on the last 10 minutes drawn.
   const footprint = page.locator('[data-chart="footprint"]')
   const range = async () => ({
     from: Number(await footprint.getAttribute("data-from")),
@@ -94,7 +93,7 @@ test("sweeps show as bubbles and log rows; top-N filters them; a row rings its b
       return to - from
     })
     .toBe(9)
-  const newest = (await range()).to
+  const opened = await range()
   const big = rows.first()
   await big.click()
   await expect(big).toHaveAttribute("aria-current", "true")
@@ -102,14 +101,20 @@ test("sweeps show as bubbles and log rows; top-N filters them; a row rings its b
     "data-ringed-sweep",
     (await big.getAttribute("data-sweep-id"))!
   )
-  // The row moves chart 2 to the 10 minutes around the big buy's.
-  const minute = (at: number) => Math.floor(at / 60_000)
-  const bigMinute = newest - (minute(start + 12_000) - minute(start + 8_000))
-  await expect(footprint).toHaveAttribute(
-    "data-from",
-    (bigMinute - 4).toFixed(2)
-  )
-  await expect(footprint).toHaveAttribute("data-to", (bigMinute + 5).toFixed(2))
+  // The row moves chart 2 to the 10 minutes around the big buy's: its minute
+  // is the 5th column, whose ladder names it.
+  // Decision: the spec finds the minute by hovering, not by its bar index.
+  // Relay gaps' minutes are drawn after the code's own as well as before
+  // them, so no data-from or data-to tells which bar the newest sweep's is.
+  await expect.poll(async () => (await range()).from).not.toBe(opened.from)
+  const moved = await range()
+  expect(moved.to - moved.from).toBe(9)
+  const box = (await footprint.boundingBox())!
+  // The price scale is 72 px wide.
+  await page.mouse.move(box.x + ((box.width - 72) / 10) * 4.5, box.y + 120)
+  await expect(
+    page.getByRole("tooltip", { name: "Footprint ladder" })
+  ).toContainText(`${wibTime(start + 8_000).slice(0, 5)} WIB`)
 
   await page.reload()
   await expect(bigOnly).toHaveAttribute("aria-pressed", "true")
