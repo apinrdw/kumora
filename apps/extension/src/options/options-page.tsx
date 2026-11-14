@@ -32,6 +32,7 @@ import {
   type TargetStates,
 } from "../worker/settings.ts"
 import { BrokerCodesCard } from "./broker-codes-card.tsx"
+import { DiagnosticsCard, RelayStoppedAlert } from "./diagnostics.tsx"
 import { settingsFromForm } from "./form.ts"
 import { optionsRuntime } from "./runtime.ts"
 
@@ -297,6 +298,7 @@ export function OptionsPage() {
   return (
     <main className="mx-auto grid max-w-xl gap-6 p-6">
       <h1 className="text-xl font-semibold">Kumora relay</h1>
+      <RelayStoppedAlert />
       <form className="grid gap-6" onSubmit={save}>
         <Card>
           <CardHeader>
@@ -350,6 +352,7 @@ export function OptionsPage() {
       <BrokerCodesCard />
       <CodeListRelayCard />
       <AjaibSignIn />
+      <DiagnosticsCard />
     </main>
   )
 }

@@ -17,7 +17,7 @@ import { Clock, DateTime, Effect, Option, Schema } from "effect"
 
 import type { Answer } from "../broker.ts"
 import type { RequestingTab } from "../pacer.ts"
-import { ajaibWindowEnd, inStreamingHours } from "./hours.ts"
+import { ajaibWindowEnd, inStreamingHours, scheduleNow } from "./hours.ts"
 import type { PostOutcome } from "./poster.ts"
 import { halt, haltOnRefusal, settle, type WalkResult } from "./run-queue.ts"
 
@@ -141,7 +141,7 @@ export const makeAjaibWalk = Effect.fnUntraced(function* (options: {
   // Ajaib's window, it can no longer serve the day; a tab that went leaves
   // the day to Stockbit.
   const guard = Effect.fnUntraced(function* (windowEnd: DateTime.Utc) {
-    const now = yield* DateTime.now
+    const now = yield* scheduleNow
     if (yield* inStreamingHours(now))
       return yield* halt({ _tag: "stopped", cause: "streaming-hours" })
     if (DateTime.isGreaterThanOrEqualTo(now, windowEnd))

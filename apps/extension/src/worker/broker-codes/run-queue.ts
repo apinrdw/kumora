@@ -2,11 +2,12 @@
 // run queue"): what starts a run, and the order its walks go in. One run at
 // a time; a trigger during a run starts one more after it.
 import { Feed, WibDate } from "@workspace/relay"
-import { Data, DateTime, Effect, Option, Queue, Schema } from "effect"
+import { Data, Effect, Option, Queue, Schema } from "effect"
 
 import {
   inStreamingHours,
   newestClosedDay,
+  scheduleNow,
   tradingDaysBetween,
 } from "./hours.ts"
 import type { PostOutcome } from "./poster.ts"
@@ -220,7 +221,7 @@ export const makeRunQueue = Effect.fnUntraced(function* (options: {
   })
 
   const runOnce = Effect.gen(function* () {
-    const now = yield* DateTime.now
+    const now = yield* scheduleNow
     if (yield* inStreamingHours(now))
       return yield* options.report({
         state: "paused",
@@ -290,7 +291,7 @@ export const makeRunQueue = Effect.fnUntraced(function* (options: {
   // worker's first tick after it starts. See apinrdw/kumora#244, "Triggers".
   let ticked = Option.none<WibDate>()
   const tick = Effect.gen(function* () {
-    const day = yield* newestClosedDay(yield* DateTime.now)
+    const day = yield* newestClosedDay(yield* scheduleNow)
     if (Option.isNone(day)) return
     if (Option.isSome(ticked) && ticked.value === day.value) return
     ticked = day

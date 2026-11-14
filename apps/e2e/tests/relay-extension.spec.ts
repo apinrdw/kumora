@@ -8,6 +8,7 @@ import {
 } from "@workspace/relay"
 import type { Worker } from "@playwright/test"
 import { DateTime, Effect } from "effect"
+import { readFileSync } from "node:fs"
 
 import { MEMBER } from "../support/accounts"
 import {
@@ -18,6 +19,7 @@ import {
   STOCKBIT_TAB,
   STOCKBIT_TOKEN,
   TICKS,
+  WORKER_CONSOLE,
   launchWithExtension,
   sent,
   setRelayClock,
@@ -303,8 +305,8 @@ test("the relay fills a requested gap from Stockbit's REST tape, and what Stockb
   }
 })
 
-// The two newest trading days closed now, newest first: the broker codes
-// walks run on the real clock, not the relay's schedule clock.
+// The two newest trading days closed now, newest first: the options page's
+// last 10 days follow the real clock, not the relay's schedule clock.
 const newestClosedDays = () =>
   Effect.runSync(
     Effect.gen(function* () {
@@ -458,6 +460,88 @@ test("the options page shows the broker codes walks, and Pause and Run now steer
   }
 })
 
+// The evening after SESSION_1's close, on the relay's schedule clock, which
+// the broker codes walks also read.
+const EVENING = "2026-11-10T20:00:00"
+const EVENING_DAY = WibDate.make("2026-11-10")
+
+test("Run now with a Stockbit tab open starts a broker codes walk, at any hour", async () => {
+  test.setTimeout(120_000)
+  const brokers = await startFakeBrokers()
+  // Production holds nothing of the evening's day yet.
+  brokers.production.statuses = (day) =>
+    day === EVENING_DAY
+      ? {
+          ...completeDay(day),
+          n: null,
+          complete: false,
+          sources: { ajaib: 0, stockbit: 0 },
+          crossCheck: { state: "none" },
+        }
+      : completeDay(day)
+  // Stockbit has closed the day, and its tape pages on well past the test.
+  brokers.tapes.stockbit = (query) => {
+    const after = Number(query.get("trade_number") ?? 0)
+    return {
+      data: {
+        is_open_market: false,
+        running_trade:
+          query.get("sort") === "DESC"
+            ? [{ trade_number: "1000000" }]
+            : Array.from({ length: 100 }, (_, at) => ({
+                trade_number: String(after + at + 1),
+              })),
+      },
+    }
+  }
+  const { context, worker, optionsUrl } = await launchWithExtension(
+    brokers.port
+  )
+  try {
+    // A tick in the evening makes its day the one the queue last ticked a
+    // run for, so coming back to the evening later starts none.
+    await setRelayClock(worker, EVENING)
+    await setRelayClock(worker, SESSION_1)
+    const options = await context.newPage()
+    await options.goto(optionsUrl)
+    await options.getByLabel("Production ingest token").fill("any")
+    await options.getByRole("button", { name: "Save" }).click()
+    await expect(options.getByLabel("Production state")).toHaveText("Connected")
+    const stockbitTab = await context.newPage()
+    await stockbitTab.goto(STOCKBIT_TAB)
+    await expect.poll(() => brokers.on("/ws").length, TICKS).toBe(1)
+    await expect
+      .poll(() => stored(worker, "session", "brokerCodesProgress"))
+      .toEqual({ state: "paused", cause: "streaming-hours" })
+
+    await setRelayClock(worker, EVENING)
+    expect(await stored(worker, "session", "brokerCodesProgress")).toEqual({
+      state: "paused",
+      cause: "streaming-hours",
+    })
+    const runNow = options.getByRole("button", { name: "Run now" })
+    await runNow.click()
+    await expect
+      .poll(() => stored(worker, "session", "brokerCodesRun"))
+      .toBe("started")
+    await expect(runNow).toBeEnabled()
+    await expect
+      .poll(() => stored(worker, "session", "brokerCodesProgress"))
+      .toMatchObject({
+        state: "walking",
+        walk: "newest",
+        day: EVENING_DAY,
+        feed: "Stockbit",
+      })
+    await expect(options.getByLabel("Broker codes walk")).toHaveText(
+      `Stockbit, ${EVENING_DAY} (newest closed day)`
+    )
+  } finally {
+    await context.close()
+    await brokers.close()
+  }
+})
+
 test("the options page drops a throttle when it ends, however long the page was open", async () => {
   const brokers = await startFakeBrokers()
   const { context, worker, optionsUrl } = await launchWithExtension(
@@ -478,6 +562,75 @@ test("the options page drops a throttle when it ends, however long the page was 
     await expect(causes).toContainText("Stockbit throttled until")
     await options.clock.fastForward(6_000)
     await expect(causes).not.toContainText("Stockbit throttled")
+  } finally {
+    await context.close()
+    await brokers.close()
+  }
+})
+
+test("the service worker's console lands in the test's output", async () => {
+  const brokers = await startFakeBrokers()
+  const { worker } = await launchWithExtension(brokers.port)
+  try {
+    await worker.evaluate(`console.warn("worker console check")`)
+    await expect
+      .poll(() => readFileSync(test.info().outputPath(WORKER_CONSOLE), "utf8"))
+      .toContain("[warning] worker console check\n")
+  } finally {
+    await brokers.close()
+  }
+})
+
+test("the options page shows a stopped relay, and copies diagnostics without the PIN or tokens", async () => {
+  const brokers = await startFakeBrokers()
+  const { context, worker, optionsUrl } = await launchWithExtension(
+    brokers.port
+  )
+  try {
+    await context.grantPermissions(["clipboard-read", "clipboard-write"])
+    const options = await context.newPage()
+    await options.goto(optionsUrl)
+    await options.getByLabel("Production ingest token").fill("prod-token-41")
+    await options.getByLabel("Extra target URL").fill("http://127.0.0.1:9")
+    await options.getByLabel("Extra target ingest token").fill("extra-token-42")
+    await options.getByRole("button", { name: "Save" }).click()
+    await expect(options.getByLabel("Production state")).not.toHaveText(
+      "Unknown"
+    )
+    await options.getByLabel("Ajaib PIN").fill("654321")
+    await options.getByRole("button", { name: "Sign in" }).click()
+    await expect(options.getByLabel("Ajaib sign-in state")).toContainText(
+      "PIN saved"
+    )
+    await expect(options.getByRole("alert")).toHaveCount(0)
+
+    // The keys as the worker's error log and its stopped main loop write them.
+    await worker.evaluate(`chrome.storage.session.set({
+      relayErrors: [{ at: 1794300000000, level: "Error",
+        message: "Code list fetch failed", cause: "Error: no tab" }],
+      relayStopped: { at: 1794300001000, cause: "Error: main died" },
+      brokerCodesRun: "started",
+      brokerCodesProgress: { state: "paused", cause: "no-tab" },
+    })`)
+    await expect(options.getByLabel("Errors kept")).toHaveText("1")
+    await expect(options.getByRole("alert")).toContainText("Relay stopped")
+    await expect(options.getByRole("alert")).toContainText(
+      "reload the extension"
+    )
+
+    await options.getByRole("button", { name: "Copy diagnostics" }).click()
+    await expect(options.getByText("Copied.")).toBeVisible()
+    const copied = await options.evaluate(() => navigator.clipboard.readText())
+    expect(copied).toContain("Kumora relay ")
+    expect(copied).toContain("Relay stopped: 2026-11-10T")
+    expect(copied).toContain("Error: main died")
+    expect(copied).toContain("Error Code list fetch failed\nError: no tab")
+    expect(copied).toContain('brokerCodesRun: "started"')
+    expect(copied).toMatch(/^brokerCodesProgress: \{.*"state":/m)
+    expect(copied).toContain("brokerCodesThrottled.Stockbit: null")
+    expect(copied).toContain("ajaibLock: ")
+    for (const secret of ["654321", "prod-token-41", "extra-token-42"])
+      expect(copied).not.toContain(secret)
   } finally {
     await context.close()
     await brokers.close()
