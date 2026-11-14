@@ -148,7 +148,7 @@ Every KSEI report the dashboard has kept, each version of it included. Nothing i
 _Avoid_: KSEI mirror, shareholding archive
 
 **KSEI archive run**:
-One pass that compares KSEI's lists of reports with the KSEI archive and stores any report, or new version of one, that the archive lacks.
+One pass that compares KSEI's lists of reports with the KSEI archive and stores any report, or new version of one, that the archive lacks. The schedule starts one each day, and an admin can start one when no KSEI archive run is in progress. It ends **complete**, **partial** (a list or some reports could not be read or stored, and wait for the next run) or **failed** (neither list could be read).
 _Avoid_: Archive run, which is IDX's; sync, scrape
 
 **Deep backfill**:
