@@ -79,12 +79,17 @@ if [ "$(jq -r '.verdict // empty' "$REPORT" 2>/dev/null)" = "fail" ]; then
     # location and severity: a complexity finding's metrics once pushed the one
     # blocker past the cut, and agents hand-wrote jq to find it.
     # Scalars only: a clone group's nested instances are what make the report huge.
+    # `fix` is fallow's first action that is not a suppression (AGENTS.md bans
+    # inline ignores): without it, spec #280's fixer guessed five times at one
+    # unused export before removing the `export`.
     jq -c '[.. | objects | select(.introduced == true)
-      | with_entries(select(.value | type | IN("string", "number")))]
+      | {fix: ([.actions[]? | select(.type != "suppress-line") | .description][0])}
+        + with_entries(select(.value | type | IN("string", "number")))]
       | sort_by(.effective_severity != "error") | .[]
-      | {effective_severity, path, line, name, export_name, exceeded} + .
+      | {effective_severity, path, line, name, export_name, exceeded, fix} + .
       | with_entries(select(.value != null))' "$REPORT" |
-      head -n "$MAX_FINDINGS" | cut -c1-300
+      head -n "$MAX_FINDINGS" | cut -c1-400
+    jq -r '.next_steps[]? | "next: \(.command)  # \(.reason)"' "$REPORT"
     echo "Full report: $REPORT (can be megabytes; query it with jq, do not print it)."
   } >&2
   exit 2
