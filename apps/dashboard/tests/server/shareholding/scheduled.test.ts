@@ -135,15 +135,13 @@ describe("starting a run by hand", () => {
     Effect.gen(function* () {
       const workflow = fakeWorkflow()
       const bucket = memoryBucket()
-      const check = runInProgress.pipe(
-        Effect.provide(Layer.merge(workflow.layer, bucket.layer))
-      )
+      const layer = Layer.merge(workflow.layer, bucket.layer)
+      const check = runInProgress.pipe(Effect.provide(layer))
       assert.isTrue(Option.isNone(yield* check))
 
       yield* startRun("admin-1763125200000", "admin").pipe(
-        Effect.provide(workflow.layer)
+        Effect.provide(layer)
       )
-      pointLatestAt(bucket, "admin-1763125200000")
       assert.deepStrictEqual(yield* check, Option.some("admin-1763125200000"))
 
       const run = workflow.instances.get("admin-1763125200000")
@@ -156,5 +154,30 @@ describe("starting a run by hand", () => {
       run.status = "complete"
       assert.isTrue(Option.isNone(yield* check))
     })
+  )
+
+  it.effect(
+    "refuses a cron firing right after a start, before the run's plan step",
+    () =>
+      Effect.gen(function* () {
+        const workflow = fakeWorkflow()
+        const bucket = memoryBucket()
+        yield* startRun("admin-1763125200000", "admin").pipe(
+          Effect.provide(Layer.merge(workflow.layer, bucket.layer))
+        )
+
+        yield* fire(workflow, bucket)
+
+        assert.deepStrictEqual(
+          [...workflow.instances.keys()],
+          ["admin-1763125200000"]
+        )
+        assert.strictEqual(
+          JSON.parse(
+            bucket.objects.get("runs/admin-1763125200000.json")?.body ?? "null"
+          ).outcome,
+          "running"
+        )
+      })
   )
 })

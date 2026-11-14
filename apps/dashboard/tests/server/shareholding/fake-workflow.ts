@@ -13,6 +13,7 @@ import {
 export interface FakeInstance {
   readonly options: CreateRun
   status: RunStatus
+  error?: string
 }
 
 export interface FakeWorkflow {
@@ -33,7 +34,13 @@ export const fakeWorkflow = (): FakeWorkflow => {
             : Effect.sync(() => {
                 instances.set(options.id, { options, status: "queued" })
               }),
-        status: (id) => Effect.sync(() => instances.get(id)?.status),
+        status: (id) =>
+          Effect.sync(() => {
+            const instance = instances.get(id)
+            return instance === undefined
+              ? undefined
+              : { status: instance.status, error: instance.error ?? null }
+          }),
       })
     ),
   }

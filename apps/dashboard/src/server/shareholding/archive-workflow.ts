@@ -28,6 +28,12 @@ export type RunStatus =
   | "rollingBack"
   | "unknown"
 
+export interface InstanceStatus {
+  readonly status: RunStatus
+  // The instance's error message, once it has errored.
+  readonly error: string | null
+}
+
 export interface CreateRun {
   readonly id: string
   readonly params: ArchiveParams
@@ -47,6 +53,6 @@ export class ArchiveWorkflow extends Context.Service<
     // Undefined when no instance has the id, for example past retention.
     readonly status: (
       id: string
-    ) => Effect.Effect<RunStatus | undefined, WorkflowError>
+    ) => Effect.Effect<InstanceStatus | undefined, WorkflowError>
   }
 >()("dashboard/shareholding/ArchiveWorkflow") {}
