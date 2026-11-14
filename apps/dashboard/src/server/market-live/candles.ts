@@ -19,6 +19,7 @@ import type {
   TradeNumber,
 } from "@workspace/relay"
 import {
+  SHARES_PER_LOT,
   TradeNumberOrder,
   joinSweeps,
   sweepsOf,
@@ -177,7 +178,7 @@ const printOf = (trade: RunningTrade): Print => ({
   price: trade.price,
   time: DateTime.toEpochMillis(trade.time),
   volume: trade.lots,
-  value: trade.price * trade.lots * 100,
+  value: trade.price * trade.lots * SHARES_PER_LOT,
   frequency: 1,
 })
 
@@ -468,7 +469,7 @@ export const makeCandleBook = Effect.fnUntraced(function* (
       price: last,
       time,
       // Shares into lots, like a stock's candle.
-      volume: (price.volume - base.volume) / 100,
+      volume: (price.volume - base.volume) / SHARES_PER_LOT,
       value: price.value - base.value,
       frequency: price.frequency - base.frequency,
     })

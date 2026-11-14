@@ -42,6 +42,7 @@ export {
   OnDemandCodes,
   ProtocolVersionMismatch,
   Select,
+  SHARES_PER_LOT,
   Side,
   StockbitFrames,
   TradeNumber,

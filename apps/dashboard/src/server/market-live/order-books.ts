@@ -5,6 +5,7 @@
 // is served while Stockbit is live, Ajaib's otherwise, each falling back to
 // the other when it has none. Time is read only through Effect's Clock.
 import {
+  SHARES_PER_LOT,
   BOOK_DEPTH,
   BookLevel,
   StockCode,
@@ -57,9 +58,13 @@ const sideBookOf = (body: string) =>
       )
         return undefined
       if (shares! > 0)
-        levels.push({ price: price!, lots: shares! / 100, orders: orders! })
+        levels.push({
+          price: price!,
+          lots: shares! / SHARES_PER_LOT,
+          orders: orders!,
+        })
     }
-    return { side, book: { levels, lots: Number(totals[1]) / 100 } }
+    return { side, book: { levels, lots: Number(totals[1]) / SHARES_PER_LOT } }
   })
 
 const stockbitSideOf = Effect.fnUntraced(function* (bytes: Uint8Array) {

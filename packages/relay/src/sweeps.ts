@@ -9,7 +9,7 @@ import { DateTime, Effect, Schema } from "effect"
 
 import { StockCode } from "./codes.ts"
 import type { RunningTrade } from "./envelope.ts"
-import { Side, TradeNumber } from "./envelope.ts"
+import { SHARES_PER_LOT, Side, TradeNumber } from "./envelope.ts"
 
 // One sweep: its aggressor side, its first trade's time, its first and last
 // price, and its lots, value and trade count. Side `none` is an auction
@@ -70,7 +70,7 @@ export const addToSweeps = (
       first: trade.price,
       last: trade.price,
       lots: trade.lots,
-      value: trade.price * trade.lots * 100,
+      value: trade.price * trade.lots * SHARES_PER_LOT,
       trades: 1,
     }))
   )

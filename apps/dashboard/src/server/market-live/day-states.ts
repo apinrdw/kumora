@@ -3,6 +3,7 @@
 // day's totals so far, and, while Stockbit's feed is lost, those figures
 // carried on by the merged tape's regular-board trades and Ajaib's `PRICE`.
 import {
+  SHARES_PER_LOT,
   type DayChange,
   type DayState,
   type RunningTrade,
@@ -114,7 +115,7 @@ const baseOf = Effect.fnUntraced(function* (
     open: price.open ?? held?.open ?? last,
     high: price.high ?? held?.high ?? last,
     low: price.low ?? held?.low ?? last,
-    volume: price.volume / 100,
+    volume: price.volume / SHARES_PER_LOT,
     value: price.value,
     frequency: price.frequency,
     time: price.time,
@@ -162,7 +163,7 @@ const sinceOf = (tail: ReadonlyArray<Kept>, later: CandleFigures | undefined) =>
         high: Math.max(since.high, trade.price),
         low: Math.min(since.low, trade.price),
         volume: since.volume + trade.lots,
-        value: since.value + trade.price * trade.lots * 100,
+        value: since.value + trade.price * trade.lots * SHARES_PER_LOT,
         frequency: since.frequency + 1,
         last: trade.price,
         time: trade.time,
@@ -220,7 +221,7 @@ const priceBase = (price: AjaibPrice) =>
     open: price.open,
     high: price.high,
     low: price.low,
-    volume: price.volume / 100,
+    volume: price.volume / SHARES_PER_LOT,
     value: 0,
     frequency: 0,
     time: price.time,

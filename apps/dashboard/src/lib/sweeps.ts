@@ -1,7 +1,7 @@
 // The selected code's sweeps as chart 1's bubbles and the sweep log show them
 // (spec apinrdw/kumora#263, "Chart 1"): the top-N filter, the log's rows, and
 // where a bubble sits. Pure, so the renderers only draw.
-import { MINUTE_MS } from "@workspace/relay"
+import { MINUTE_MS, SHARES_PER_LOT } from "@workspace/relay"
 import type { Sweep } from "@workspace/relay"
 import { DateTime, Effect } from "effect"
 
@@ -107,7 +107,7 @@ export const logRows = Effect.fnUntraced(function* (
 
 // A sweep's average price: its value over its shares.
 export const sweepPrice = (sweep: Sweep) =>
-  Effect.sync(() => sweep.value / (sweep.lots * 100))
+  Effect.sync(() => sweep.value / (sweep.lots * SHARES_PER_LOT))
 
 // The start of a sweep's minute, in epoch ms: its candle's.
 export const sweepMinute = (sweep: Sweep) =>

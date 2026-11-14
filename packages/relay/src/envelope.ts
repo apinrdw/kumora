@@ -241,9 +241,12 @@ const Board = Schema.Literals(["RG", "TN", "NG"])
 // Where a running trade was seen: a live feed, or a backfill request's answer.
 const TradeSource = Schema.Literals(["Stockbit", "Ajaib", "backfill"])
 
+// The shares in one IDX lot.
+export const SHARES_PER_LOT = 100
+
 // One trade on the whole-market tape, merged across feeds. Its trade number is
 // the bare daily sequence, one market-wide numbering per trading day. Value is
-// price × lots × 100 shares, so it does not travel.
+// price × lots × SHARES_PER_LOT, so it does not travel.
 export const RunningTrade = Schema.Struct({
   tradeNumber: TradeNumber,
   time: Schema.DateTimeUtcFromMillis,

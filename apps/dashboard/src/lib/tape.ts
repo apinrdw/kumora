@@ -7,6 +7,7 @@
 // here. That costs about 1 µs a trade on node (50k trades: 161 ms against
 // 101 ms as plain functions); a 1,278-trade delta still takes about 3.6 ms.
 import {
+  SHARES_PER_LOT,
   TradeNumberOrder,
   type RunningTrade,
   type StockCode,
@@ -44,7 +45,7 @@ const auctionMatchOf = (trade: RunningTrade) =>
 export const BIG_TRADE_IDR = 1_000_000_000
 
 export const tradeValue = (trade: RunningTrade) =>
-  Effect.sync(() => trade.price * trade.lots * 100)
+  Effect.sync(() => trade.price * trade.lots * SHARES_PER_LOT)
 
 export const isBigTrade = (trade: RunningTrade) =>
   Effect.map(
