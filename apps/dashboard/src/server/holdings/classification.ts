@@ -4,6 +4,8 @@
 // classification xlsx".
 import { Effect, Schema } from "effect"
 
+import type { Classification } from "@/domain/holdings"
+
 import { HoldingsDb, type SqlValue } from "./db.ts"
 import { replaceMonth } from "./month-replace.ts"
 import { type Cell, readSheet } from "./xlsx.ts"
@@ -57,8 +59,7 @@ const CLASSIFICATIONS = {
   insurance: "insurance (is)",
   foundation: "foundation (fd)",
   individual: "individual (id)",
-} as const
-type Classification = keyof typeof CLASSIFICATIONS
+} as const satisfies Record<Classification, string>
 
 const BY_LABEL = new Map<string, Classification>(
   Object.entries(CLASSIFICATIONS).map(([slug, label]) => [
