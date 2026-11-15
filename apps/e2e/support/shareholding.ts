@@ -25,6 +25,7 @@ export interface SeededRun {
   readonly newVersions: number
   readonly reportsChecked: number
   readonly notStored: ReadonlyArray<string>
+  readonly monthsParsed: number
   readonly other: ReadonlyArray<{
     readonly sourceUrl: string
     readonly description: string

@@ -22,6 +22,7 @@ const COMPLETE: SeededRun = {
   newVersions: 1,
   reportsChecked: 147,
   notStored: [],
+  monthsParsed: 4,
   other: [],
   error: null,
 }
@@ -121,6 +122,7 @@ test.describe.serial("an admin's last archive run", () => {
     await expect(stat(card, "New versions")).toHaveText("1")
     await expect(stat(card, "Reports checked")).toHaveText("147")
     await expect(stat(card, "Not stored")).toHaveText("0")
+    await expect(stat(card, "Months parsed")).toHaveText("4")
     await expect(card).toContainText(
       /Production runs at 13:00 and 20:00 WIB\. Next: \w{3} \d{2}, (13|20):00 WIB\./
     )

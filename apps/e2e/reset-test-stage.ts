@@ -1,5 +1,5 @@
 // Runs before the apps start (playwright.config.ts). Each e2e run starts with
-// an empty local D1: without the Test stage's Alchemy state, `alchemy dev`
+// empty local D1s (the auth and parsed holdings databases): without the Test stage's Alchemy state, `alchemy dev`
 // creates a new local database (and signing secret) and applies the
 // migrations to it. It also starts with empty Market Live Durable Objects.
 // The Dev stage's state is left alone.
@@ -14,12 +14,12 @@ const STATE = new URL(
   ALCHEMY
 )
 
-// The previous run's database id, from the state about to be deleted. The
-// file is named by the D1 resource's id in apps/dashboard/alchemy.run.ts.
-function previousDatabaseId(): string | undefined {
+// The previous run's id of a database, from the state about to be deleted.
+// The file is named by the D1 resource's id in apps/dashboard/alchemy.run.ts.
+function previousDatabaseId(resource: string): string | undefined {
   try {
     const state = JSON.parse(
-      readFileSync(new URL("AuthDb.json", STATE), "utf8")
+      readFileSync(new URL(`${resource}.json`, STATE), "utf8")
     ) as { attr?: { databaseId?: unknown } }
     const id = state.attr?.databaseId
     return typeof id === "string" ? id : undefined
@@ -44,8 +44,9 @@ function durableObjectFile(databaseId: string) {
   return Buffer.concat([head, tail]).toString("hex")
 }
 
-const databaseId = previousDatabaseId()
-if (databaseId !== undefined) {
+for (const resource of ["AuthDb", "HoldingsDb"]) {
+  const databaseId = previousDatabaseId(resource)
+  if (databaseId === undefined) continue
   const file = durableObjectFile(databaseId)
   for (const suffix of ["", "-wal", "-shm"])
     rmSync(
