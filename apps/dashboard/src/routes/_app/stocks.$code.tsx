@@ -4,10 +4,13 @@ import { Effect } from "effect"
 import { useCallback, useEffect } from "react"
 
 import { StockCodePicker } from "@/components/market-live/stock-code-picker"
+import { HoldingComposition } from "@/components/stocks/holding-composition"
 import { ShareholdersComposition } from "@/components/stocks/shareholders-composition"
 import { useStockList } from "@/components/stocks/use-stock-list"
 import { rememberStock } from "@/lib/last-stock"
 import {
+  type ChartOrigin,
+  type ChartView,
   type PanelOrigin,
   parseStockSearch,
   type StockSearch,
@@ -40,7 +43,7 @@ export const Route = createFileRoute("/_app/stocks/$code")({
 
 function StockPageView() {
   const page: StockPage = Route.useLoaderData()
-  const { panel = "all" } = Route.useSearch()
+  const { panel = "all", chart = "all", view = "bars" } = Route.useSearch()
   const navigate = Route.useNavigate()
   const list = useStockList(`/stocks/${page.code}`)
   // Bare /stocks opens it next time.
@@ -64,6 +67,30 @@ function StockPageView() {
         search: (previous: StockSearch) => ({
           ...previous,
           panel: origin === "all" ? undefined : origin,
+        }),
+        replace: true,
+        resetScroll: false,
+      }),
+    [navigate]
+  )
+  const onChart = useCallback(
+    (origin: ChartOrigin) =>
+      void navigate({
+        search: (previous: StockSearch) => ({
+          ...previous,
+          chart: origin === "all" ? undefined : origin,
+        }),
+        replace: true,
+        resetScroll: false,
+      }),
+    [navigate]
+  )
+  const onView = useCallback(
+    (next: ChartView) =>
+      void navigate({
+        search: (previous: StockSearch) => ({
+          ...previous,
+          view: next === "bars" ? undefined : next,
         }),
         replace: true,
         resetScroll: false,
@@ -103,6 +130,16 @@ function StockPageView() {
           origin={panel}
           onMonth={onMonth}
           onOrigin={onOrigin}
+        />
+      )}
+      {page.series.length > 0 && (
+        <HoldingComposition
+          key={page.code}
+          series={page.series}
+          origin={chart}
+          view={view}
+          onOrigin={onChart}
+          onView={onView}
         />
       )}
     </div>

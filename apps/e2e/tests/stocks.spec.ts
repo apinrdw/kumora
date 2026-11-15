@@ -66,12 +66,95 @@ const MONTHS = {
   },
 }
 
-// Listed shares from KSEI: October's date matches the report's, so BBCA's
-// 19 B scripless shares are 38% of its 50 B listed; KSEI has no September.
-// Only KSEI has APOL.
+// BBCA's rows in KSEI's May, Sep and Oct 2026 files: Jun to Aug is a gap.
+// October's date matches the report's, so BBCA's 19 B scripless shares are
+// 15.41% of its listed shares; KSEI has no March. Only KSEI has APOL.
 const KSEI_MONTHS = {
-  "2026-08-31": { BBCA: 50e9, APOL: 16e9 },
-  "2026-10-30": { BBCA: 50e9, APOL: 16e9 },
+  "2026-05-29": {
+    BBCA: {
+      listedShares: 123_275_050_000,
+      price: 5700,
+      local: {
+        IS: 2_233_048_535,
+        CP: 602_033_335,
+        PF: 314_872_400,
+        IB: 436_320_900,
+        ID: 10_600_358_384,
+        MF: 1_162_747_459,
+        SC: 117_039_473,
+        FD: 66_741_160,
+        OT: 12_495_900,
+      },
+      foreign: {
+        IS: 600_834_357,
+        CP: 1_315_044_503,
+        PF: 5_137_965_177,
+        IB: 2_649_194_950,
+        ID: 323_497_180,
+        MF: 19_474_983_937,
+        SC: 530_018_307,
+        FD: 300_789_505,
+        OT: 6_575_705_658,
+      },
+    },
+  },
+  "2026-09-30": {
+    BBCA: {
+      listedShares: 123_275_050_000,
+      price: 6075,
+      local: {
+        IS: 2_443_936_090,
+        CP: 671_347_885,
+        PF: 325_321_300,
+        IB: 437_363_600,
+        ID: 11_035_044_652,
+        MF: 1_210_601_063,
+        SC: 106_939_090,
+        FD: 73_781_960,
+        OT: 14_333_700,
+      },
+      foreign: {
+        IS: 649_668_050,
+        CP: 623_633_631,
+        PF: 5_028_638_519,
+        IB: 2_276_862_272,
+        ID: 328_344_780,
+        MF: 20_806_195_113,
+        SC: 409_080_321,
+        FD: 325_704_405,
+        OT: 5_686_894_689,
+      },
+    },
+  },
+  "2026-10-30": {
+    BBCA: {
+      listedShares: 123_275_050_000,
+      price: 4980,
+      local: {
+        IS: 2_310_613_490,
+        CP: 752_250_260,
+        PF: 302_459_300,
+        IB: 517_672_400,
+        ID: 12_030_567_470,
+        MF: 1_072_720_030,
+        SC: 119_977_978,
+        FD: 72_753_960,
+        OT: 15_254_200,
+      },
+      foreign: {
+        IS: 666_444_425,
+        CP: 575_351_467,
+        PF: 4_718_402_998,
+        IB: 2_382_605_437,
+        ID: 324_800_480,
+        MF: 20_393_323_810,
+        SC: 457_281_188,
+        FD: 320_342_605,
+        OT: 5_420_869_622,
+      },
+    },
+    APOL: { listedShares: 16e9, price: 0, local: {}, foreign: {} },
+  },
 }
 
 const panel = (page: Page) =>
@@ -93,6 +176,23 @@ const origin = (page: Page, label: string) =>
     name: label,
     exact: true,
   })
+
+const chart = (page: Page) =>
+  page.getByRole("region", { name: "Holding composition (scripless)" })
+
+const chartChoice = (page: Page, group: string, label: string) =>
+  chart(page).getByRole("group", { name: group }).getByRole("button", {
+    name: label,
+    exact: true,
+  })
+
+const legendEntry = (page: Page, label: string) =>
+  chartChoice(page, "Legend", label)
+
+const column = (page: Page, label: string) =>
+  chart(page)
+    .getByRole("group", { name: "Holding chart" })
+    .getByRole("button", { name: label })
 
 const stockSearch = (page: Page) =>
   page
@@ -236,10 +336,10 @@ test.describe.serial("the stock page", () => {
     }) => {
       await page.goto(`${DASHBOARD}/stocks/BBCA`)
       const bar = panel(page).getByRole("group", { name: "Scrip vs Scripless" })
-      await expect(bar).toHaveText(/Scrip\s*Scripless\s*62\.00%\s*38\.00%/)
-      await page.goto(`${DASHBOARD}/stocks/BBCA?month=2026-09`)
+      await expect(bar).toHaveText(/Scrip\s*Scripless\s*84\.59%\s*15\.41%/)
+      await page.goto(`${DASHBOARD}/stocks/BBCA?month=2026-03`)
       await expect(bar).toContainText(
-        "Unavailable: KSEI has no listed shares for Sep 2026."
+        "Unavailable: KSEI has no listed shares for Mar 2026."
       )
     })
 
@@ -253,7 +353,7 @@ test.describe.serial("the stock page", () => {
       await expect(panel(page)).toHaveCount(0)
       // The picker offers it, though no report names its issuer.
       await page.goto(`${DASHBOARD}/stocks/BBCA`)
-      const picker = page.getByRole("combobox", { name: "Stock" })
+      const picker = page.getByRole("combobox", { name: "Stock", exact: true })
       await expect(async () => {
         await picker.blur()
         await picker.fill("AP")
@@ -268,7 +368,9 @@ test.describe.serial("the stock page", () => {
       await expect(
         page.getByText("No holdings data for ZZZZ. Pick another stock.")
       ).toBeVisible()
-      await expect(page.getByRole("combobox", { name: "Stock" })).toBeVisible()
+      await expect(
+        page.getByRole("combobox", { name: "Stock", exact: true })
+      ).toBeVisible()
     })
 
     test("answers not found to a code that isn't a stock code", async ({
@@ -279,6 +381,102 @@ test.describe.serial("the stock page", () => {
       await expect(
         page.getByRole("heading", { name: "Halaman tidak ditemukan" })
       ).toBeVisible()
+    })
+  })
+
+  test.describe("Holding composition, for a member", () => {
+    test.use({ storageState: MEMBER.storageState })
+
+    test("stacks local vs foreign from KSEI, a gap marked", async ({
+      page,
+    }) => {
+      await page.goto(`${DASHBOARD}/stocks/BBCA`)
+      await expect(chart(page)).toContainText("KSEI")
+      await expect(chart(page).getByLabel("Local share")).toHaveText("32.78%")
+      await expect(chart(page).getByLabel("Foreign share")).toHaveText("67.22%")
+      await expect(chart(page)).toContainText("As of Oct 2026.")
+      await expect(column(page, "Jul 2026")).toContainText("No data")
+      // The page has just loaded: retry until hydration shows the tooltip.
+      await expect(async () => {
+        await page.mouse.move(0, 0)
+        await column(page, "Oct 2026").hover()
+        await expect(page.getByText("Share of scripless shares.")).toBeVisible({
+          timeout: 1000,
+        })
+      }).toPass()
+      await expect(
+        page.getByRole("definition").filter({ hasText: "67.22%" })
+      ).toBeVisible()
+    })
+
+    test("keeps a series' % of its origin when the legend hides the rest", async ({
+      page,
+    }) => {
+      await page.goto(`${DASHBOARD}/stocks/BBCA`)
+      await expect(async () => {
+        await chartChoice(page, "Chart origin", "Foreign").click()
+        await expect(page).toHaveURL(/\/stocks\/BBCA\?chart=foreign$/, {
+          timeout: 1000,
+        })
+      }).toPass()
+      await legendEntry(page, "Mutual fund").click()
+      await expect(legendEntry(page, "Mutual fund")).toHaveAttribute(
+        "aria-pressed",
+        "false"
+      )
+      await legendEntry(page, "Individual").dblclick()
+      for (const label of ["Mutual fund", "Corporate", "Others"])
+        await expect(legendEntry(page, label)).toHaveAttribute(
+          "aria-pressed",
+          "false"
+        )
+      await expect(legendEntry(page, "Individual")).toHaveAttribute(
+        "aria-pressed",
+        "true"
+      )
+      // Individual alone is 0.92% of BBCA's foreign holdings, not 100%: the
+      // axis zooms to 1%.
+      // Tab reaches October from September, as a keyboard user would.
+      await column(page, "Sep 2026").focus()
+      await page.keyboard.press("Tab")
+      await expect(column(page, "Oct 2026")).toBeFocused()
+      await expect(
+        page.getByText("Share of all foreign holdings.")
+      ).toBeVisible()
+      await expect(
+        page.getByRole("definition").filter({ hasText: "0.92%" })
+      ).toBeVisible()
+      await expect(chart(page).getByText("1%", { exact: true })).toBeVisible()
+
+      await legendEntry(page, "Individual").dblclick()
+      await expect(legendEntry(page, "Mutual fund")).toHaveAttribute(
+        "aria-pressed",
+        "true"
+      )
+    })
+
+    test("switches to a table, kept in the URL on reload", async ({ page }) => {
+      await page.goto(`${DASHBOARD}/stocks/BBCA?chart=foreign`)
+      await expect(async () => {
+        await chartChoice(page, "View", "Table").click()
+        await expect(page).toHaveURL(
+          /\/stocks\/BBCA\?chart=foreign&view=table$/,
+          { timeout: 1000 }
+        )
+      }).toPass()
+      await page.reload()
+      const table = chart(page).getByRole("table", {
+        name: "Holding composition by month",
+      })
+      await expect(table.getByRole("row", { name: /Oct 2026/ })).toContainText(
+        "57.84%"
+      )
+      await expect(table.getByRole("row", { name: /Jul 2026/ })).toHaveText(
+        /No data/
+      )
+      await expect(
+        chartChoice(page, "Chart origin", "Foreign")
+      ).toHaveAttribute("aria-pressed", "true")
     })
   })
 

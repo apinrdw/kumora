@@ -66,6 +66,26 @@ export interface StockPage {
         readonly previous: CompositionMonth | undefined
       }
     | undefined
+  // KSEI's holdings of the stock, one entry per month from its first period
+  // end to its last, oldest first.
+  readonly series: ReadonlyArray<SeriesMonth>
+}
+
+// Shares each KSEI investor type holds, 0 for a type holding none.
+export type TypeHoldings = Readonly<Record<KseiType, number>>
+
+// A month of the KSEI series. `holdings` is undefined for a month whose file
+// has no row for the stock, or that no parsed file covers: a gap.
+export interface SeriesMonth {
+  // `YYYY-MM`.
+  readonly month: string
+  readonly holdings:
+    | {
+        readonly periodEnd: string
+        readonly local: TypeHoldings
+        readonly foreign: TypeHoldings
+      }
+    | undefined
 }
 
 const MonthRow = Schema.Struct({
@@ -119,8 +139,59 @@ const MONTHS = `
     ON k.period_end = m.data_date AND k.stock_code = ?1
   ORDER BY m.data_date`
 
-const IN_KSEI = `
-  SELECT EXISTS(SELECT 1 FROM ksei_stock_month WHERE stock_code = ?1) AS held`
+// The stock's KSEI period ends, and its holdings in each. ?1 is the code.
+const SERIES_MONTHS = `
+  SELECT period_end FROM ksei_stock_month WHERE stock_code = ?1
+  ORDER BY period_end`
+const SERIES_HOLDINGS = `
+  SELECT period_end, origin, investor_type, shares FROM ksei_holding
+  WHERE stock_code = ?1`
+
+const SeriesMonthRow = Schema.Struct({ period_end: Schema.String })
+const SeriesHoldingRow = Schema.Struct({
+  period_end: Schema.String,
+  origin: Schema.Literals(["local", "foreign"]),
+  investor_type: Schema.Literals(KSEI_TYPES),
+  shares: Schema.Number,
+})
+
+const noHoldings = (): Record<KseiType, number> =>
+  Object.fromEntries(KSEI_TYPES.map((type) => [type, 0])) as Record<
+    KseiType,
+    number
+  >
+
+/** `2026-12` → `2027-01` */
+const nextMonth = (month: string) => {
+  const year = Number(month.slice(0, 4))
+  const index = Number(month.slice(5, 7))
+  return index === 12
+    ? `${year + 1}-01`
+    : `${year}-${String(index + 1).padStart(2, "0")}`
+}
+
+const kseiSeries = (
+  monthRows: ReadonlyArray<typeof SeriesMonthRow.Type>,
+  holdingRows: ReadonlyArray<typeof SeriesHoldingRow.Type>
+): ReadonlyArray<SeriesMonth> => {
+  const byMonth = new Map(
+    monthRows.map(({ period_end }) => [
+      period_end.slice(0, 7),
+      { periodEnd: period_end, local: noHoldings(), foreign: noHoldings() },
+    ])
+  )
+  for (const { period_end, origin, investor_type, shares } of holdingRows) {
+    const held = byMonth.get(period_end.slice(0, 7))
+    if (held !== undefined) held[origin][investor_type] = shares
+  }
+  const first = monthRows.at(0)?.period_end.slice(0, 7)
+  const last = monthRows.at(-1)?.period_end.slice(0, 7)
+  if (first === undefined || last === undefined) return []
+  const months: Array<SeriesMonth> = []
+  for (let month = first; month <= last; month = nextMonth(month))
+    months.push({ month, holdings: byMonth.get(month) })
+  return months
+}
 
 const addShares = (
   into: OriginShares,
@@ -170,12 +241,17 @@ export const stockPage = Effect.fnUntraced(function* (
   code: StockCode,
   month: string | undefined
 ) {
-  const [monthRows = [], holdingRows = [], kseiRows = []] =
-    yield* (yield* HoldingsDb).batch([
-      { sql: MONTHS, params: [code] },
-      { sql: HOLDINGS, params: [code, month ?? null] },
-      { sql: IN_KSEI, params: [code] },
-    ])
+  const [
+    monthRows = [],
+    holdingRows = [],
+    seriesMonthRows = [],
+    seriesHoldingRows = [],
+  ] = yield* (yield* HoldingsDb).batch([
+    { sql: MONTHS, params: [code] },
+    { sql: HOLDINGS, params: [code, month ?? null] },
+    { sql: SERIES_MONTHS, params: [code] },
+    { sql: SERIES_HOLDINGS, params: [code] },
+  ])
   const months = Schema.decodeUnknownSync(Schema.Array(MonthRow))(monthRows)
   const holdings = Schema.decodeUnknownSync(Schema.Array(HoldingRow))(
     holdingRows
@@ -199,14 +275,16 @@ export const stockPage = Effect.fnUntraced(function* (
       row.listed_shares ?? undefined,
       holdings.filter(({ data_date }) => data_date === row.data_date)
     )
-  const [inKsei] = Schema.decodeUnknownSync(
-    Schema.Tuple([Schema.Struct({ held: Schema.Number })])
-  )(kseiRows)
   const previous = held.find(({ data_date }) => data_date === before?.data_date)
+  const series = kseiSeries(
+    Schema.decodeUnknownSync(Schema.Array(SeriesMonthRow))(seriesMonthRows),
+    Schema.decodeUnknownSync(Schema.Array(SeriesHoldingRow))(seriesHoldingRows)
+  )
   return {
     code,
     issuerName: held.at(-1)?.issuer_name ?? undefined,
-    inKsei: inKsei.held === 1,
+    // The series is empty only when no KSEI file has the stock.
+    inKsei: series.length > 0,
     months: months.map(({ data_date, total_scripless }) => ({
       dataDate: data_date,
       held: total_scripless !== null,
@@ -218,6 +296,7 @@ export const stockPage = Effect.fnUntraced(function* (
             month: read(selected),
             previous: previous === undefined ? undefined : read(previous),
           },
+    series,
   } satisfies StockPage
 })
 

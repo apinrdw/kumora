@@ -1,5 +1,6 @@
 // Seeds the Test stage's parsed holdings (the HoldingsDb local D1) with a
-// few classification months, as the archive run's parse would leave them.
+// few classification and KSEI months, as the archive run's parse would leave
+// them.
 // The stock page only reads these rows.
 import { DatabaseSync } from "node:sqlite"
 
@@ -100,27 +101,45 @@ export function seedClassificationMonths(months: SeededMonths) {
   )
 }
 
-/** Listed shares by KSEI period end, then by stock code. */
+/** A stock's KSEI period end: shares by investor type, in each origin. */
+export interface SeededKseiStockMonth {
+  readonly listedShares: number
+  readonly price: number
+  readonly local: Shares
+  readonly foreign: Shares
+}
+
+/** KSEI stock-months by period end, then by stock code. */
 export type SeededKseiMonths = Readonly<
-  Record<string, Readonly<Record<string, number>>>
+  Record<string, Readonly<Record<string, SeededKseiStockMonth>>>
 >
 
-/**
- * Replaces every parsed KSEI month with `months`: a stock-month per stock
- * with its listed shares, unpriced, and no holdings.
- */
+/** Replaces every parsed KSEI month with `months`. */
 export function seedKseiMonths(months: SeededKseiMonths) {
   replaceTables(["ksei_holding", "ksei_stock_month", "ksei_month"], (db) => {
     const record = db.prepare(
       "INSERT INTO ksei_month VALUES (?, ?, 1, '2026-11-14T04:00:00.000Z')"
     )
     const stock = db.prepare(
-      "INSERT INTO ksei_stock_month VALUES (?, ?, ?, 0, 0)"
+      "INSERT INTO ksei_stock_month VALUES (?, ?, ?, ?, ?)"
+    )
+    const holding = db.prepare(
+      "INSERT INTO ksei_holding VALUES (?, ?, ?, ?, ?)"
     )
     for (const [periodEnd, stocks] of Object.entries(months)) {
       record.run(periodEnd, `sha-${periodEnd}`)
-      for (const [code, listed] of Object.entries(stocks))
-        stock.run(periodEnd, code, listed)
+      for (const [code, month] of Object.entries(stocks)) {
+        stock.run(
+          periodEnd,
+          code,
+          month.listedShares,
+          month.price,
+          sum(month.local) + sum(month.foreign)
+        )
+        for (const origin of ["local", "foreign"] as const)
+          for (const [type, shares] of Object.entries(month[origin]))
+            if (shares > 0) holding.run(periodEnd, code, origin, type, shares)
+      }
     }
   })
 }
