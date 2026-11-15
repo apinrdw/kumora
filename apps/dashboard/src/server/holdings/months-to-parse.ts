@@ -6,13 +6,8 @@
 import { Effect, Schema } from "effect"
 
 import { ArchiveBucket } from "../archive/bucket.ts"
+import { parseRecordName } from "../archive/record-key.ts"
 import { HoldingsDb } from "./db.ts"
-
-// A record's key under its kind's prefix, in both archives (each keys.ts):
-// <date>/<sha256>.<fetched-at>.<digest>.json, its fetched-at an ISO instant
-// without colons, so it sorts.
-const RECORD =
-  /^(\d{4}-\d{2}-\d{2})\/([0-9a-f]{64})\.([^.]+\.\d{3}Z)\.[0-9a-f]+\.json$/
 
 export interface ParsedMonth {
   readonly sha256: string
@@ -57,10 +52,9 @@ export const newestUnparsed = Effect.fnUntraced(function* (
 ) {
   const newest = new Map<string, { sha256: string; fetchedAt: string }>()
   for (const { key } of yield* (yield* ArchiveBucket).list(prefix)) {
-    const [, date, sha256, fetchedAt] =
-      RECORD.exec(key.slice(prefix.length)) ?? []
-    if (date === undefined || sha256 === undefined || fetchedAt === undefined)
-      continue
+    const record = yield* parseRecordName(key.slice(prefix.length))
+    if (record === undefined) continue
+    const { date, sha256, fetchedAt } = record
     const held = newest.get(date)
     if (held === undefined || fetchedAt > held.fetchedAt)
       newest.set(date, { sha256, fetchedAt })

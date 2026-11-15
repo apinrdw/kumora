@@ -9,7 +9,7 @@
 // Nothing under reports/ is ever overwritten or deleted.
 import { Effect } from "effect"
 
-import { sha256Hex } from "../archive/hash.ts"
+import { recordName } from "../archive/record-key.ts"
 import { REPORTS_PREFIX } from "../archive/run.ts"
 import type { ReportKind } from "./listing.ts"
 
@@ -46,8 +46,5 @@ export const recordKey = Effect.fnUntraced(function* (
   fetchedAt: string,
   listing: Listing
 ) {
-  const listingDigest = (yield* sha256Hex(
-    new TextEncoder().encode(`${listing.sourceUrl}\n${listing.etag ?? ""}`)
-  )).slice(0, 16)
-  return `${yield* kindPrefix(kind)}${dataDate}/${sha256}.${fetchedAt.replaceAll(":", "")}.${listingDigest}.json`
+  return `${yield* kindPrefix(kind)}${yield* recordName(dataDate, sha256, fetchedAt, `${listing.sourceUrl}\n${listing.etag ?? ""}`)}`
 })
