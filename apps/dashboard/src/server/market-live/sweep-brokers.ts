@@ -9,13 +9,14 @@ import {
   BrokerCode,
   TradeNumber,
   type InvestorType,
+  type RunningTrade,
   type StockCode,
   type SweepBroker,
   type SweepBrokers,
   type TradeCodes,
   MINUTE_MS,
 } from "@workspace/relay"
-import { Effect } from "effect"
+import { DateTime, Effect } from "effect"
 
 import type { BrokerCodesStore, HeldCodes } from "./broker-codes.ts"
 import {
@@ -380,6 +381,43 @@ export const makeSweepBrokers = Effect.fnUntraced(function* (options: {
     yield* logged
   })
 
+  // The fact a flush of `trades` writes with them: the build's progress
+  // moved back before the earliest minute holding one whose codes the day
+  // already holds; none when no flushed trade has codes.
+  // Decision: a trade stored after its codes landed (late, backfilled, or
+  // still in its merge window when the batch came) is missed by that
+  // batch's recompute, which reads stored trades. Its flush moves the
+  // build back in the trades' own transaction, so the sealed day's next
+  // sweep brokers GET rebuilds from that minute, writing only changed rows.
+  // See spec apinrdw/kumora#343, "The one-off build".
+  const persisting = Effect.fnUntraced(function* (
+    trades: ReadonlyArray<RunningTrade>
+  ) {
+    const none: Readonly<Record<string, string>> = {}
+    if (trades.length === 0 || (yield* brokerCodes.holdsNone)) return none
+    const held = new Set(
+      (yield* brokerCodes.heldCodes(
+        trades.map((trade) => trade.tradeNumber)
+      )).map(([tradeNumber]) => tradeNumber)
+    )
+    let earliest = Infinity
+    for (const trade of trades)
+      if (held.has(trade.tradeNumber))
+        earliest = Math.min(earliest, DateTime.toEpochMillis(trade.time))
+    const reached = yield* store.fact(Fact.sweepBrokersBuilt)
+    if (earliest === Infinity || reached === undefined) return none
+    const before = Math.floor(earliest / MINUTE_MS) * MINUTE_MS - MINUTE_MS
+    built = false
+    const facts: Record<string, string> = {
+      [Fact.sweepBrokersBuilt]: String(
+        reached === SWEEP_BROKERS_BUILT
+          ? before
+          : Math.min(Number(reached), before)
+      ),
+    }
+    return facts
+  })
+
   // One code's whole sweeps with their brokers, in trade order.
   const brokersOf = Effect.fnUntraced(function* (code: StockCode) {
     const sweeps: Array<SweepBrokers> = []
@@ -391,7 +429,7 @@ export const makeSweepBrokers = Effect.fnUntraced(function* (options: {
     return sweeps
   })
 
-  return { recompute, builtFirst, storage, brokersOf }
+  return { recompute, persisting, builtFirst, storage, brokersOf }
 })
 
 export type SweepBrokersStore = Effect.Success<

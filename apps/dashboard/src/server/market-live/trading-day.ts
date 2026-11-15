@@ -653,6 +653,7 @@ export const makeTradingDay = Effect.fnUntraced(function* (options: {
       ajaibBooks: yield* latestByCode(retained?.ajaibBooks ?? [], ajaibBooks),
       facts: {
         [Fact.feedDowns]: JSON.stringify(yield* market.record),
+        ...(yield* sweepBrokers.persisting(settled.trades)),
         ...facts,
       },
     }
