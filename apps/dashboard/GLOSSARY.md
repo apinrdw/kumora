@@ -225,6 +225,10 @@ _Avoid_: Ownership page, stock detail
 The stock page's panel of one classification report month: the stock's total scripless shares, retail against institution, and each KSEI investor type's share of an origin, against the month before.
 _Avoid_: Ownership mix, holder breakdown
 
+**Stock search**:
+The search in the Shell header, on every page, that opens a stock page. It offers the stocks parsed holdings have, code matches before issuer-name matches, and `/` focuses it. Bare `/stocks` opens the stock page this browser last opened.
+_Avoid_: Code picker, which picks Market Live's code
+
 ### Access
 
 **Account**:
@@ -278,4 +282,4 @@ _Avoid_: Act as, sudo
 ### Shell
 
 **Shell**:
-The frame around every page: sidebar, header, and mobile bottom bar. It reads no market data.
+The frame around every page: sidebar, header, and mobile bottom bar. It reads no market data except the stock search's list of stocks.
