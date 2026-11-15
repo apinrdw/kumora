@@ -22,7 +22,12 @@ export type {
   IndicativePrice,
   RelayGap,
 } from "./market-conditions.ts"
-export { INDEX_CODES, INDICES, StockCode } from "./codes.ts"
+export {
+  INDEX_CODES,
+  INDICES,
+  STOCK_CODE_MAX_LENGTH,
+  StockCode,
+} from "./codes.ts"
 export {
   AjaibFrames,
   AjaibTradeNum,

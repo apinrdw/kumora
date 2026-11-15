@@ -3,9 +3,9 @@ import { Schema } from "effect"
 // Decision: a stock code is capitals, digits and dashes (`BBCA`, `BUMI-W2`),
 // optionally after a two-letter board and a dot (`TN.IHSG`), at most 16
 // characters (the longest listed is 10); every decoder shares this one shape.
-// The trading-day object's storage and the watchlist cap (envelope.ts) count
-// on the length. See apinrdw/kumora#157.
-const STOCK_CODE_MAX_LENGTH = 16
+// The trading-day object's storage, the watchlist cap (envelope.ts) and the
+// holdings parsers count on the length. See apinrdw/kumora#157.
+export const STOCK_CODE_MAX_LENGTH = 16
 
 // The stock code of one listed instrument, such as `BBCA`; the three indices
 // travel as stock codes too (INDICES).

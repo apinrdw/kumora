@@ -1,11 +1,13 @@
 // KSEI's monthly Securities holdings report (BalanceposEfek<YYYYMMDD>.zip),
 // parsed into parsed holdings (holdings-migrations/0002_ksei.sql). Spec
 // apinrdw/kumora#363, "Reading KSEI's BalanceposEfek".
+import { STOCK_CODE_MAX_LENGTH } from "@workspace/relay"
 import { Effect, Schema } from "effect"
 
 import type { KseiType, SplitOrigin } from "@/domain/holdings"
 
 import type { SqlValue } from "./db.ts"
+import { excerpt } from "./excerpt.ts"
 import {
   MAX_STOCKS,
   monthRows,
@@ -78,7 +80,9 @@ const shareCount = Effect.fnUntraced(function* (
 ) {
   const count = /^\d+$/.test(field ?? "") ? Number(field) : Number.NaN
   if (Number.isSafeInteger(count)) return count
-  return yield* unreadable(`${where} isn't a share count: ${String(field)}`)
+  return yield* unreadable(
+    `${where} isn't a share count: ${yield* excerpt(String(field))}`
+  )
 })
 
 type Holding = [string, SplitOrigin, KseiType, number]
@@ -138,7 +142,9 @@ const parseRows = Effect.fnUntraced(function* (text: string) {
   const lines = text.matchAll(LINE)
   const header = lines.next().value?.[1]
   if (header !== HEADER)
-    return yield* unreadable(`The header isn't the known one: ${header}`)
+    return yield* unreadable(
+      `The header isn't the known one: ${yield* excerpt(String(header))}`
+    )
   const stocks = yield* monthRows("ksei_stock_month", [
     "stock_code",
     "listed_shares",
@@ -160,6 +166,10 @@ const parseRows = Effect.fnUntraced(function* (text: string) {
     const [, code = "", type] = fields
     if (type !== "EQUITY") continue
     const stock = code.trim()
+    if (stock.length > STOCK_CODE_MAX_LENGTH)
+      return yield* unreadable(
+        `Line ${lineNumber}'s Code is over ${STOCK_CODE_MAX_LENGTH} characters: ${yield* excerpt(stock)}`
+      )
     const of = `${stock} (line ${lineNumber})`
     if (seen.has(stock)) return yield* unreadable(`${of} is listed twice`)
     if (seen.size === MAX_STOCKS) return yield* unreadable(TOO_MANY_STOCKS)

@@ -1,11 +1,13 @@
 // IDX's month-end "holdings by investor classification" report, parsed into
 // parsed holdings (holdings-migrations/0001_classification.sql). Spec
 // apinrdw/kumora#363, "Reading the IDX classification xlsx".
+import { STOCK_CODE_MAX_LENGTH } from "@workspace/relay"
 import { Effect, Schema } from "effect"
 
 import { CLASSIFICATIONS, Classification, type Origin } from "@/domain/holdings"
 
 import type { SqlValue } from "./db.ts"
+import { excerpt } from "./excerpt.ts"
 import {
   MAX_STOCKS,
   monthRows,
@@ -31,11 +33,20 @@ class ClassificationUnreadable extends Schema.TaggedError<ClassificationUnreadab
 const unreadable = (message: string) =>
   new ClassificationUnreadable({ message })
 
+// Decision: a header label or issuer name is at most 256 characters, about
+// 4× the longest in Oct 2026 (a 62-character label, a 47-character name).
+// Any number of cells may name one shared string: a 1 MiB string as every
+// stock's issuer would go into the month's rows 2,000 times.
+const MAX_TEXT_LENGTH = 256
+
 // A header cell's label and origin: `Local_Bank` is ("bank", local), `BANK`
-// ("bank", combined), `SHARE_CODE` ("share code", combined).
+// ("bank", combined), `SHARE_CODE` ("share code", combined). Undefined for
+// a cell over MAX_TEXT_LENGTH, which names no label.
 const headerLabel = (cell: Cell) =>
   Effect.sync(() => {
-    const text = typeof cell === "string" ? cell.trim().toLowerCase() : ""
+    const trimmed = typeof cell === "string" ? cell.trim() : ""
+    if (trimmed.length > MAX_TEXT_LENGTH) return undefined
+    const text = trimmed.toLowerCase()
     const split = /^(local|foreign)_(.*)$/.exec(text)
     const label = (split?.[2] ?? text.replaceAll("_", " "))
       .replaceAll(/\s+/g, " ")
@@ -69,13 +80,15 @@ const classificationColumns = Effect.fnUntraced(function* (
   const columns: Array<Layout["classifications"][number]> = []
   const seen = new Set<string>()
   for (const [column, cell] of cells) {
-    const { label, origin } = yield* headerLabel(cell)
-    if (label === "" || known.has(column)) continue
-    const classification = BY_LABEL.get(label)
-    if (classification === undefined)
+    const named = yield* headerLabel(cell)
+    if (named?.label === "" || known.has(column)) continue
+    const classification =
+      named === undefined ? undefined : BY_LABEL.get(named.label)
+    if (named === undefined || classification === undefined)
       return yield* unreadable(
-        `Header row ${headerRow} names an unknown classification: ${String(cell).trim()}`
+        `Header row ${headerRow} names an unknown classification: ${yield* excerpt(String(cell).trim())}`
       )
+    const { origin } = named
     if (seen.has(`${origin}:${classification}`))
       return yield* unreadable(
         `Header row ${headerRow} names ${String(cell).trim()} twice`
@@ -111,8 +124,8 @@ const headerLayout = Effect.fnUntraced(function* (
   // Each label's first column.
   const labels = new Map<string, number>()
   for (const [column, cell] of cells) {
-    const { label } = yield* headerLabel(cell)
-    if (!labels.has(label)) labels.set(label, column)
+    const label = (yield* headerLabel(cell))?.label
+    if (label !== undefined && !labels.has(label)) labels.set(label, column)
   }
   const code = labels.get("share code")
   if (code === undefined) return undefined
@@ -139,7 +152,9 @@ const shareCount = Effect.fnUntraced(function* (
   if (cell === null || cell === undefined) return 0
   if (typeof cell === "number" && Number.isSafeInteger(cell) && cell >= 0)
     return cell
-  return yield* unreadable(`${where} isn't a share count: ${String(cell)}`)
+  return yield* unreadable(
+    `${where} isn't a share count: ${yield* excerpt(String(cell))}`
+  )
 })
 
 type Holding = [string, Classification, Origin, number]
@@ -177,6 +192,29 @@ const rowHoldings = Effect.fnUntraced(function* (
   return holdings
 })
 
+// The stock a row below the header row names, by its code and issuer name,
+// or undefined for a row naming none.
+const rowStock = Effect.fnUntraced(function* (
+  rowNumber: number,
+  cells: Row,
+  layout: Layout
+) {
+  const code = cells.get(layout.code)
+  if (rowNumber <= layout.headerRow || typeof code !== "string") return
+  const stock = code.trim()
+  if (stock === "") return
+  if (stock.length > STOCK_CODE_MAX_LENGTH)
+    return yield* unreadable(
+      `Row ${rowNumber}'s SHARE CODE is over ${STOCK_CODE_MAX_LENGTH} characters: ${yield* excerpt(stock)}`
+    )
+  const issuer = String(cells.get(layout.issuer) ?? "").trim()
+  if (issuer.length > MAX_TEXT_LENGTH)
+    return yield* unreadable(
+      `${stock} (row ${rowNumber})'s ISSUER NAME is over ${MAX_TEXT_LENGTH} characters`
+    )
+  return { stock, issuer }
+})
+
 // One month's rows, read a row at a time: the header row's layout, then a
 // stock-month per stock below it, and its holdings.
 const parseSheet = Effect.fnUntraced(function* (bytes: Uint8Array) {
@@ -199,10 +237,9 @@ const parseSheet = Effect.fnUntraced(function* (bytes: Uint8Array) {
         layout = yield* headerLayout(rowNumber, cells)
         return
       }
-      const code = cells.get(layout.code)
-      if (rowNumber <= layout.headerRow || typeof code !== "string") return
-      const stock = code.trim()
-      if (stock === "") return
+      const named = yield* rowStock(rowNumber, cells, layout)
+      if (named === undefined) return
+      const { stock, issuer } = named
       if (stockCount === MAX_STOCKS) return yield* unreadable(TOO_MANY_STOCKS)
       stockCount++
       const where = `${stock} (row ${rowNumber})`
@@ -210,11 +247,7 @@ const parseSheet = Effect.fnUntraced(function* (bytes: Uint8Array) {
         cells.get(layout.total),
         `${where}'s total`
       )
-      yield* stocks.add([
-        stock,
-        String(cells.get(layout.issuer) ?? "").trim(),
-        total,
-      ])
+      yield* stocks.add([stock, issuer, total])
       for (const holding of yield* rowHoldings(
         stock,
         cells,
