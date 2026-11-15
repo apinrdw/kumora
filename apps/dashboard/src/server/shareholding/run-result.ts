@@ -45,6 +45,13 @@ export const ArchiveRunResult = Schema.Struct({
   monthsParsed: Schema.Number.pipe(
     Schema.withDecodingDefaultKey(Effect.succeed(0))
   ),
+  // Classification months that failed to parse, by data date, each with why
+  // (at most MAX_RUN_ERROR_LENGTH characters). Each keeps its earlier parsed
+  // holdings, and the next run parses it again. Records written before the
+  // reconcile existed have none.
+  parseFailures: Schema.Array(
+    Schema.Struct({ dataDate: Schema.String, reason: Schema.String })
+  ).pipe(Schema.withDecodingDefaultKey(Effect.succeed([]))),
   // Reports archived under `other`: an unknown description prefix.
   other: Schema.Array(
     Schema.Struct({ sourceUrl: Schema.String, description: Schema.String })
@@ -89,6 +96,7 @@ export const runningResult = Effect.fnUntraced(function* (
     reportsChecked: 0,
     notStored: [],
     monthsParsed: 0,
+    parseFailures: [],
     other: [],
     error: null,
   })

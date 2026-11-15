@@ -59,7 +59,8 @@ export const monthsToParse = Effect.gen(function* () {
 })
 
 // Parses one month's archived version into parsed holdings. A file the
-// reader can't read fails without retries: its bytes won't change.
+// reader can't read fails without retries, with why as its message: its
+// bytes won't change.
 export const parseMonth = Effect.fnUntraced(function* ({
   dataDate,
   sha256,
@@ -76,9 +77,9 @@ export const parseMonth = Effect.fnUntraced(function* ({
   ).pipe(
     Effect.catchTags({
       XlsxUnreadable: ({ message }) =>
-        Effect.fail(new NonRetryable({ message: `${key}: ${message}` })),
+        Effect.fail(new NonRetryable({ message })),
       ClassificationUnreadable: ({ message }) =>
-        Effect.fail(new NonRetryable({ message: `${key}: ${message}` })),
+        Effect.fail(new NonRetryable({ message })),
     })
   )
   return { dataDate, stocks }
