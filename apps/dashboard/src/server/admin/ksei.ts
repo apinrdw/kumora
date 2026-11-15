@@ -1,7 +1,8 @@
 // The KSEI archive's admin page, /admin/ksei: the last KSEI archive run,
-// Run now and Deep backfill, the recent runs, the totals per kind and the
-// latest deep run's months not found (spec apinrdw/kumora#327, "The admin
-// page").
+// Run now and Deep backfill, the last KSEI parse run and Parse now, the
+// recent runs, the totals per kind and the latest deep run's months not
+// found (spec apinrdw/kumora#327, "The admin page", and #363, "KSEI parse
+// run").
 import { Conflict } from "@workspace/server"
 import { DateTime, Effect } from "effect"
 
@@ -11,6 +12,7 @@ import { ArchiveBucket } from "@/server/archive/bucket"
 import { REPORTS_PREFIX } from "@/server/archive/run"
 import type { Action } from "@/server/auth/policy"
 import { kseiCoverage } from "@/server/ksei/coverage"
+import { lastKseiParseRun, startKseiParseRun } from "@/server/ksei/parse-runs"
 import { type KseiTrigger, kseiRunIdAt } from "@/server/ksei/run-result"
 import {
   lastKseiDeepRun,
@@ -18,14 +20,16 @@ import {
   recentKseiRuns,
   startKseiRun,
 } from "@/server/ksei/runs"
-import { nextKseiRun } from "@/server/ksei/schedule"
+import { nextKseiParseRun, nextKseiRun } from "@/server/ksei/schedule"
 import { kseiTotals } from "@/server/ksei/totals"
 
 const KSEI_PATH = "/admin/ksei" satisfies keyof FileRoutesByFullPath
 
 const authorize = (
   headers: Headers,
-  action: Extract<Action, `admin.${string}-ksei-archive`>
+  action:
+    | Extract<Action, `admin.${string}-ksei-archive`>
+    | "admin.run-ksei-parse"
 ) => authorizeArchive(headers, action, KSEI_PATH)
 
 export const kseiArchivePage = Effect.fn("kseiArchivePage")(function* (
@@ -38,14 +42,18 @@ export const kseiArchivePage = Effect.fn("kseiArchivePage")(function* (
   const reports = Effect.gen(function* () {
     return yield* (yield* ArchiveBucket).list(REPORTS_PREFIX)
   })
-  const [run, runs, objects, deep] = yield* Effect.all(
-    [lastKseiRun, recentKseiRuns, reports, lastKseiDeepRun],
+  const [run, runs, objects, deep, parseRun] = yield* Effect.all(
+    [lastKseiRun, recentKseiRuns, reports, lastKseiDeepRun, lastKseiParseRun],
     { concurrency: "unbounded" }
   )
   const now = yield* DateTime.now
   return {
     lastRun: run,
     nextRun: (yield* nextKseiRun(DateTime.toDateUtc(now))).toISOString(),
+    lastParseRun: parseRun,
+    nextParseRun: (yield* nextKseiParseRun(
+      DateTime.toDateUtc(now)
+    )).toISOString(),
     now: DateTime.formatIso(now),
     recentRuns: runs,
     totals: yield* kseiTotals(objects),
@@ -85,4 +93,22 @@ export const deepBackfillKsei = Effect.fn("deepBackfillKsei")(function* (
 ) {
   yield* authorize(headers, "admin.deep-backfill-ksei-archive")
   return yield* startNow("deep")
+})
+
+// Starts a KSEI parse run now, refused while one is queued or running.
+export const parseKseiNow = Effect.fn("parseKseiNow")(function* (
+  headers: Headers
+) {
+  yield* authorize(headers, "admin.run-ksei-parse")
+  const id = yield* kseiRunIdAt(
+    "admin",
+    DateTime.toEpochMillis(yield* DateTime.now)
+  )
+  const refused = () =>
+    Effect.fail(new Conflict({ message: "A parse run is in progress." }))
+  // DuplicateRunId: another start in the same millisecond took the id.
+  yield* startKseiParseRun(id, "admin").pipe(
+    Effect.catchTags({ RunInProgress: refused, DuplicateRunId: refused })
+  )
+  return { id }
 })

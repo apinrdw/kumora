@@ -9,7 +9,7 @@ import { accountOf } from "@/server/auth/session-account"
 
 export const authorizeArchive = Effect.fnUntraced(function* (
   headers: Headers,
-  action: Extract<Action, `admin.${string}-archive`>,
+  action: Extract<Action, `admin.${string}-archive`> | "admin.run-ksei-parse",
   path: string
 ) {
   const auth = yield* Auth

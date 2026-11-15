@@ -33,7 +33,8 @@ const bucketName = (resource: string) => {
 const hmac = (key: Buffer | string, data: string) =>
   createHmac("sha256", key).update(data).digest()
 
-const sha256 = (data: string) => createHash("sha256").update(data).digest("hex")
+const sha256 = (data: string | Uint8Array) =>
+  createHash("sha256").update(data).digest("hex")
 
 /**
  * One SigV4-signed PUT of an object, with its custom metadata, into the
@@ -42,7 +43,7 @@ const sha256 = (data: string) => createHash("sha256").update(data).digest("hex")
 export async function putObject(
   resource: string,
   key: string,
-  body: string,
+  body: string | Uint8Array<ArrayBuffer>,
   contentType: string,
   metadata: Readonly<Record<string, string>> = {}
 ) {

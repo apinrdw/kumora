@@ -24,6 +24,7 @@ const RUNNING: ArchiveRunResult = {
   reportsChecked: 0,
   notStored: [],
   monthsParsed: 0,
+  parseFailures: [],
   other: [],
   error: null,
 }
@@ -94,12 +95,13 @@ describe("the last archive run", () => {
     "reads a run recorded before runs parsed months as none parsed",
     () => {
       const bucket = memoryBucket()
-      const { monthsParsed: _, ...recordedBefore } = COMPLETE
+      const { monthsParsed: _, parseFailures: __, ...recordedBefore } = COMPLETE
       seed(bucket, recordedBefore as ArchiveRunResult)
       return Effect.gen(function* () {
         assert.deepStrictEqual((yield* lastRun)?.result, {
           ...COMPLETE,
           monthsParsed: 0,
+          parseFailures: [],
         })
       }).pipe(provide(bucket, fakeWorkflow()))
     }

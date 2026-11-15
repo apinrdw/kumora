@@ -1,5 +1,5 @@
-// An archive's run store and starting its runs: runs/<id>.json and the
-// runs/latest.json pointer, the one-run-at-a-time start from its cron or an
+// An archive's run store and starting its runs: <prefix><id>.json and the
+// <prefix>latest.json pointer, the one-run-at-a-time start from its cron or an
 // admin page, and the last run the page shows. Spec apinrdw/kumora#303,
 // "Starting a run". Each archive passes its ArchiveSource (run.ts) and
 // provides its own ArchiveBucket and ArchiveWorkflow.
@@ -11,10 +11,9 @@ import {
   type RunBase,
   RunId,
   type ArchiveSource,
-  LATEST_RUN_KEY,
   LatestRun,
+  latestRunKey,
   runKey,
-  RUNS_PREFIX,
   type RunSummaryBase,
 } from "./run.ts"
 import { isInProgress, START_WINDOW_MS, viewRun } from "./run-view.ts"
@@ -45,7 +44,7 @@ export const writeRunRecord = <
 ) =>
   Effect.gen(function* () {
     yield* (yield* ArchiveBucket).put(
-      yield* runKey(result.id),
+      yield* runKey(result.id, source.runsPrefix),
       JSON.stringify(result),
       {
         contentType: "application/json",
@@ -65,10 +64,10 @@ const readLatest = <
 ) =>
   Effect.gen(function* () {
     const bucket = yield* ArchiveBucket
-    const pointer = yield* bucket.get(LATEST_RUN_KEY)
+    const pointer = yield* bucket.get(yield* latestRunKey(source.runsPrefix))
     if (pointer === undefined) return undefined
     const { id } = yield* decodeLatestRun(pointer.body)
-    const record = yield* bucket.get(yield* runKey(id))
+    const record = yield* bucket.get(yield* runKey(id, source.runsPrefix))
     const result =
       record === undefined
         ? undefined
@@ -124,7 +123,7 @@ export const readLatestRunWhere = <
     const decode = Schema.decodeUnknownOption(
       Schema.fromJsonString(source.result)
     )
-    const keys = (yield* bucket.list(`${RUNS_PREFIX}${trigger}-`))
+    const keys = (yield* bucket.list(`${source.runsPrefix}${trigger}-`))
       .map(({ key }) => key)
       .filter((key) => key.endsWith(".json"))
       .reverse()
@@ -167,10 +166,10 @@ const claim = <
     const bucket = yield* ArchiveBucket
     // A start claiming the same id claims from this same pointer, so only one
     // gets past the write below.
-    if (yield* bucket.exists(yield* runKey(id)))
+    if (yield* bucket.exists(yield* runKey(id, source.runsPrefix)))
       return yield* new DuplicateRunId({ id })
     const claimed = yield* bucket.putIfUnchanged(
-      LATEST_RUN_KEY,
+      yield* latestRunKey(source.runsPrefix),
       JSON.stringify(LatestRun.make({ id })),
       { contentType: "application/json" },
       latest?.etag

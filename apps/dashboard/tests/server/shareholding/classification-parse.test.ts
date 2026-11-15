@@ -1,17 +1,20 @@
 // The archive run's reconcile: classification reports parsed into parsed
 // holdings, read back as the stock page reads a stock's month.
 import { assert, describe, it } from "@effect/vitest"
-import { Effect, Layer } from "effect"
+import { Effect, Layer, Schema } from "effect"
 import { TestClock } from "effect/testing"
 
 import { classificationStockMonth } from "@/server/holdings/classification"
 import { RunId } from "@/server/archive/run"
 import { archiveRun } from "@/server/shareholding/archive-run"
+import { ArchiveRunResult } from "@/server/shareholding/run-result"
 
 import {
+  type BrokenFixture,
   classificationFixture,
   classificationIdx,
   classificationItem,
+  type ClassificationFixture,
   type FakeIdx,
   idxIdUrl,
 } from "./fake-idx.ts"
@@ -50,15 +53,28 @@ const run = ({ idx, bucket, holdings }: World, id: string) =>
     )
   )
 
-// IDX replaces October's report in place with September's bytes.
-const republishOctober = ({ idx }: World) => {
-  const url = idxIdUrl(classificationItem("2026-10-30").Prospectus)
+// IDX replaces a month's report in place with a fixture's bytes.
+const republish = (
+  { idx }: World,
+  dataDate: ClassificationFixture,
+  fixture: ClassificationFixture | BrokenFixture
+) => {
+  const url = idxIdUrl(classificationItem(dataDate).Prospectus)
   idx.files.set(url, {
-    body: classificationFixture("2026-09-30"),
-    etag: `"etag-october:1"`,
+    body: classificationFixture(fixture),
+    etag: `"etag-${dataDate}:${fixture}"`,
     lastModified: "Sat, 14 Nov 2026 09:00:00 GMT",
   })
 }
+
+// IDX replaces October's report in place with September's bytes.
+const republishOctober = (w: World) => republish(w, "2026-10-30", "2026-09-30")
+
+// A run's record as the admin page reads it.
+const runRecord = ({ bucket }: World, id: string) =>
+  Schema.decodeUnknownSync(Schema.fromJsonString(ArchiveRunResult))(
+    bucket.objects.get(`runs/${id}.json`)?.body
+  )
 
 const read = ({ holdings }: World, dataDate: string, code: string) =>
   classificationStockMonth(dataDate, code).pipe(Effect.provide(holdings.layer))
@@ -170,12 +186,25 @@ describe("an archive run's reconcile", () => {
             statement.startsWith("DELETE FROM classification_holding")
           )
         const failed = yield* run(w, "cron-2026-11-14T13")
-        assert.deepInclude(failed, { newVersions: 1, monthsParsed: 0 })
+        assert.deepInclude(failed, {
+          outcome: "partial",
+          newVersions: 1,
+          monthsParsed: 0,
+        })
+        assert.deepStrictEqual(
+          failed.parseFailures.map(({ dataDate }) => dataDate),
+          ["2026-10-30"]
+        )
         assert.deepStrictEqual(yield* read(w, "2026-10-30", "BBCA"), october)
 
         w.holdings.failBatch = undefined
         const retried = yield* run(w, "cron-2026-11-14T20")
-        assert.deepInclude(retried, { newVersions: 0, monthsParsed: 1 })
+        assert.deepInclude(retried, {
+          outcome: "complete",
+          newVersions: 0,
+          monthsParsed: 1,
+          parseFailures: [],
+        })
         assert.deepStrictEqual(
           sharesOf(yield* read(w, "2026-10-30", "BBCA")),
           sharesOf(yield* read(w, "2026-09-30", "BBCA"))
@@ -183,17 +212,123 @@ describe("an archive run's reconcile", () => {
       })
   )
 
-  it.effect("parses a month again when an older parser parsed it", () =>
+  it.effect("parses every month again when the parser's version changes", () =>
     Effect.gen(function* () {
       const w = world()
       yield* run(w, "cron-2026-11-14T06")
       w.holdings.database
         .prepare(
-          "UPDATE classification_month SET parser_version = parser_version - 1 WHERE data_date = '2026-05-29'"
+          "UPDATE classification_month SET parser_version = parser_version - 1"
         )
         .run()
       const result = yield* run(w, "cron-2026-11-14T13")
-      assert.deepInclude(result, { monthsParsed: 1 })
+      assert.deepInclude(result, { outcome: "complete", monthsParsed: 4 })
+    })
+  )
+
+  it.effect("parses held reports when IDX's listing can't be read", () =>
+    Effect.gen(function* () {
+      const w = world()
+      // Every month's replace fails: the reports are held, none parsed.
+      w.holdings.failBatch = (sql) =>
+        sql.some((statement) =>
+          statement.startsWith("DELETE FROM classification_holding")
+        )
+      const first = yield* run(w, "cron-2026-11-14T06")
+      assert.deepInclude(first, { outcome: "partial", monthsParsed: 0 })
+      assert.isUndefined(yield* read(w, "2026-10-30", "BBCA"))
+
+      w.holdings.failBatch = undefined
+      w.idx.listingResponse = () => new Response("Forbidden", { status: 403 })
+      const failure = yield* Effect.flip(run(w, "cron-2026-11-14T13"))
+      assert.include(failure.message, "403")
+      assert.deepInclude(runRecord(w, "cron-2026-11-14T13"), {
+        outcome: "failed",
+        error: failure.message,
+        monthsParsed: 4,
+        parseFailures: [],
+      })
+      assert.deepInclude(yield* read(w, "2026-10-30", "BBCA"), {
+        totalScripless: 52_453_691_120,
+      })
+    })
+  )
+})
+
+describe("a classification report that doesn't match what's expected", () => {
+  const cases: ReadonlyArray<{
+    readonly what: string
+    readonly fixture: BrokenFixture
+    readonly reason: string
+  }> = [
+    {
+      what: "a header that matches neither layout",
+      fixture: "unknown-header",
+      reason: "Header row 4 has no TOTAL SCRIPLESS",
+    },
+    {
+      what: "a classification column twice",
+      fixture: "repeated-column",
+      reason: "Header row 4 names Local_Bank twice",
+    },
+    {
+      what: "a classification outside the 39",
+      fixture: "unknown-classification",
+      reason: "Header row 6 names an unknown classification: BANKS",
+    },
+    {
+      what: "a row whose classifications don't sum to its total",
+      fixture: "unsummed",
+      reason:
+        "BBCA (row 9)'s classifications sum to 52,453,691,121, not its TOTAL SCRIPLESS of 52,453,691,120",
+    },
+    {
+      what: "no stock rows",
+      fixture: "empty",
+      reason: "The report has no stocks",
+    },
+  ]
+
+  for (const { what, fixture, reason } of cases)
+    it.effect(
+      `fails its month with ${what}, keeps the month's rows, and tries it again next run`,
+      () =>
+        Effect.gen(function* () {
+          const w = world()
+          yield* run(w, "cron-2026-11-14T06")
+          const october = yield* read(w, "2026-10-30", "BBCA")
+
+          republish(w, "2026-10-30", fixture)
+          const failed = yield* run(w, "cron-2026-11-14T13")
+          assert.deepInclude(failed, {
+            outcome: "partial",
+            newVersions: 1,
+            monthsParsed: 0,
+          })
+          assert.deepStrictEqual(failed.parseFailures, [
+            { dataDate: "2026-10-30", reason },
+          ])
+          assert.deepStrictEqual(runRecord(w, "cron-2026-11-14T13"), failed)
+          assert.deepStrictEqual(yield* read(w, "2026-10-30", "BBCA"), october)
+
+          const retried = yield* run(w, "cron-2026-11-14T20")
+          assert.deepInclude(retried, { outcome: "partial", monthsParsed: 0 })
+          assert.deepStrictEqual(retried.parseFailures, failed.parseFailures)
+        })
+    )
+
+  it.effect("leaves a month it never parsed absent", () =>
+    Effect.gen(function* () {
+      const w = world()
+      republish(w, "2026-05-29", "unsummed")
+      const result = yield* run(w, "cron-2026-11-14T06")
+      assert.deepInclude(result, { outcome: "partial", monthsParsed: 3 })
+      assert.deepStrictEqual(
+        result.parseFailures.map(({ dataDate }) => dataDate),
+        ["2026-05-29"]
+      )
+      assert.isUndefined(yield* read(w, "2026-05-29", "BBCA"))
+      assert.isDefined(yield* read(w, "2026-03-31", "BBCA"))
     })
   )
 })

@@ -8,6 +8,7 @@ import type { Classification } from "@/domain/holdings"
 
 import { HoldingsDb, type SqlValue } from "./db.ts"
 import { replaceMonth } from "./month-replace.ts"
+import { parsedMonths } from "./months-to-parse.ts"
 import { type Cell, readSheet } from "./xlsx.ts"
 
 // Bumped whenever parsing changes what it stores: the archive run's
@@ -102,33 +103,53 @@ interface Layout {
   }>
 }
 
-// The header row is found by its labels: row 6 in the Mar–Aug 2026 layout
-// (`DATE`, `SHARE CODE`, `ISSUER NAME`, 39 classifications, `TOTAL
-// SCRIPLESS`), row 4 from Sep 2026 (`DATE`, `SHARE_CODE`, `ISSUER_NAME`,
-// `Local_<class>` × 39, `Foreign_<class>` × 39, `Total Scripless`). Cells
-// past the labelled columns, such as May 2026's empty trailing one, are
-// never read.
 // Every classification column of a header row: each labelled column but
-// `known` (DATE, SHARE CODE, ISSUER NAME, TOTAL SCRIPLESS).
+// `known` (DATE, SHARE CODE, ISSUER NAME, TOTAL SCRIPLESS). A layout names
+// each of the 39 once, all `combined` (Mar–Aug) or each as `local` and as
+// `foreign` (Sep+).
 const classificationColumns = Effect.fnUntraced(function* (
   headerRow: number,
   cells: ReadonlyArray<Cell>,
   known: ReadonlySet<number>
 ) {
   const columns: Array<Layout["classifications"][number]> = []
+  const seen = new Set<string>()
   for (const [column, cell] of cells.entries()) {
     const { label, origin } = headerLabel(cell)
     if (label === "" || known.has(column)) continue
     const classification = BY_LABEL.get(label)
     if (classification === undefined)
       return yield* unreadable(
-        `Header row ${headerRow} names an unknown classification: ${String(cell)}`
+        `Header row ${headerRow} names an unknown classification: ${String(cell).trim()}`
       )
+    if (seen.has(`${origin}:${classification}`))
+      return yield* unreadable(
+        `Header row ${headerRow} names ${String(cell).trim()} twice`
+      )
+    seen.add(`${origin}:${classification}`)
     columns.push({ column, classification, origin })
   }
+  const count = Object.keys(CLASSIFICATIONS).length
+  const ofOrigin = (origin: Origin) =>
+    columns.filter((column) => column.origin === origin).length
+  const combined = ofOrigin("combined") === count && columns.length === count
+  const split =
+    ofOrigin("local") === count &&
+    ofOrigin("foreign") === count &&
+    columns.length === 2 * count
+  if (!combined && !split)
+    return yield* unreadable(
+      `Header row ${headerRow} matches neither layout: it names ${columns.length} classification columns, not the ${count} classifications once each, or once each as Local_ and as Foreign_`
+    )
   return columns
 })
 
+// The header row is found by its labels: row 6 in the Mar–Aug 2026 layout
+// (`DATE`, `SHARE CODE`, `ISSUER NAME`, 39 classifications, `TOTAL
+// SCRIPLESS`), row 4 from Sep 2026 (`DATE`, `SHARE_CODE`, `ISSUER_NAME`,
+// `Local_<class>` × 39, `Foreign_<class>` × 39, `Total Scripless`). Cells
+// past the labelled columns, such as May 2026's empty trailing one, are
+// never read.
 const findLayout = Effect.fnUntraced(function* (
   rows: ReadonlyMap<number, ReadonlyArray<Cell>>
 ) {
@@ -137,11 +158,11 @@ const findLayout = Effect.fnUntraced(function* (
     const code = labels.indexOf("share code")
     if (code === -1) continue
     const issuer = labels.indexOf("issuer name")
+    if (issuer === -1)
+      return yield* unreadable(`Header row ${headerRow} has no ISSUER NAME`)
     const total = labels.indexOf("total scripless")
-    if (issuer === -1 || total === -1)
-      return yield* unreadable(
-        `Header row ${headerRow} has no ISSUER NAME or TOTAL SCRIPLESS`
-      )
+    if (total === -1)
+      return yield* unreadable(`Header row ${headerRow} has no TOTAL SCRIPLESS`)
     const known = new Set([labels.indexOf("date"), code, issuer, total])
     return {
       headerRow,
@@ -166,23 +187,33 @@ const shareCount = Effect.fnUntraced(function* (
 
 type Holding = [string, Classification, Origin, number]
 
+const formatShares = (count: number) => count.toLocaleString("en-US")
+
 // One stock row's non-zero holdings, and in a split month each
-// classification's `combined` sum of local and foreign.
+// classification's `combined` sum of local and foreign. Its classifications
+// must sum to its total.
 const rowHoldings = Effect.fnUntraced(function* (
   stock: string,
   cells: ReadonlyArray<Cell>,
   layout: Layout,
+  total: number,
   where: string
 ) {
   const holdings: Array<Holding> = []
   const combined = new Map<Classification, number>()
+  let sum = 0
   for (const { column, classification, origin } of layout.classifications) {
     const shares = yield* shareCount(cells[column], where)
+    sum += shares
     if (shares === 0) continue
     holdings.push([stock, classification, origin, shares])
     if (origin !== "combined")
       combined.set(classification, (combined.get(classification) ?? 0) + shares)
   }
+  if (sum !== total)
+    return yield* unreadable(
+      `${where}'s classifications sum to ${formatShares(sum)}, not its TOTAL SCRIPLESS of ${formatShares(total)}`
+    )
   for (const [classification, shares] of combined)
     holdings.push([stock, classification, "combined", shares])
   return holdings
@@ -201,12 +232,9 @@ const parseRows = Effect.fnUntraced(function* (
     const stock = code.trim()
     if (stock === "") continue
     const where = `${stock} (row ${rowNumber})`
-    stocks.push([
-      stock,
-      String(cells[layout.issuer] ?? "").trim(),
-      yield* shareCount(cells[layout.total], `${where}'s total`),
-    ])
-    holdings.push(...(yield* rowHoldings(stock, cells, layout, where)))
+    const total = yield* shareCount(cells[layout.total], `${where}'s total`)
+    stocks.push([stock, String(cells[layout.issuer] ?? "").trim(), total])
+    holdings.push(...(yield* rowHoldings(stock, cells, layout, total, where)))
   }
   if (stocks.length === 0) return yield* unreadable("The report has no stocks")
   return { stocks, holdings }
@@ -249,29 +277,10 @@ export const parseClassificationMonth = Effect.fnUntraced(function* (
 })
 
 // The version each parsed month came from, by data date.
-export const parsedClassificationMonths = Effect.gen(function* () {
-  const [rows = []] = yield* (yield* HoldingsDb).batch([
-    {
-      sql: "SELECT data_date, sha256, parser_version FROM classification_month",
-      params: [],
-    },
-  ])
-  const months = Schema.decodeUnknownSync(
-    Schema.Array(
-      Schema.Struct({
-        data_date: Schema.String,
-        sha256: Schema.String,
-        parser_version: Schema.Number,
-      })
-    )
-  )(rows)
-  return new Map(
-    months.map(({ data_date, sha256, parser_version }) => [
-      data_date,
-      { sha256, parserVersion: parser_version },
-    ])
-  )
-})
+export const parsedClassificationMonths = parsedMonths(
+  "classification_month",
+  "data_date"
+)
 
 const StockMonthRow = Schema.Struct({
   issuer_name: Schema.String,

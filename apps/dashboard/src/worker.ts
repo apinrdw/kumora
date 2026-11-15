@@ -11,6 +11,7 @@ import { respond } from "./server/market-live/respond.ts"
 export { DayIndexObject as DayIndex } from "./server/market-live/day-index-object.ts"
 export { TradingDayObject as TradingDay } from "./server/market-live/trading-day-object.ts"
 export { KseiArchive } from "./server/ksei/workflow.ts"
+export { KseiParse } from "./server/ksei/parse-workflow.ts"
 export { ShareholdingArchive } from "./server/shareholding/workflow.ts"
 
 export default {

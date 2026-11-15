@@ -12,25 +12,31 @@ import {
   RunArchiveButton,
 } from "@/components/admin/archive/last-run-card"
 
-// What a partial run couldn't store, and what it archived under `other`.
+// What a run couldn't store or parse, and what it archived under `other`.
 function Detail({ result }: { result: ArchiveRunResult }) {
-  if (result.notStored.length === 0 && result.other.length === 0) return null
+  const { notStored, parseFailures, other } = result
+  if (
+    notStored.length === 0 &&
+    parseFailures.length === 0 &&
+    other.length === 0
+  )
+    return null
   return (
     <div className="border-warning bg-elevated flex flex-col gap-2 rounded-xs border-l-[3px] px-3 py-2 text-[13px]">
-      {result.notStored.length > 0 && (
+      {notStored.length > 0 && (
         <div>
           <b>
             {Effect.runSync(
               count(
-                result.notStored.length,
+                notStored.length,
                 "report could not be stored.",
                 "reports could not be stored."
               )
             )}
           </b>{" "}
-          The next run retries {result.notStored.length === 1 ? "it" : "them"}.
+          The next run retries {notStored.length === 1 ? "it" : "them"}.
           <ul aria-label="Not stored" className="mt-1 list-disc pl-5">
-            {result.notStored.map((url) => (
+            {notStored.map((url) => (
               <li
                 key={url}
                 className="font-mono text-xs [overflow-wrap:anywhere]"
@@ -41,21 +47,43 @@ function Detail({ result }: { result: ArchiveRunResult }) {
           </ul>
         </div>
       )}
-      {result.other.length > 0 && (
+      {parseFailures.length > 0 && (
         <div>
           <b>
             {Effect.runSync(
               count(
-                result.other.length,
+                parseFailures.length,
+                "month could not be parsed.",
+                "months could not be parsed."
+              )
+            )}
+          </b>{" "}
+          {parseFailures.length === 1 ? "It keeps its" : "Each keeps its"}{" "}
+          earlier parsed holdings, and the next run tries again.
+          <ul aria-label="Parse failures" className="mt-1 list-disc pl-5">
+            {parseFailures.map(({ dataDate, reason }) => (
+              <li key={dataDate} className="[overflow-wrap:anywhere]">
+                <span className="font-mono text-xs">{dataDate}</span> {reason}
+              </li>
+            ))}
+          </ul>
+        </div>
+      )}
+      {other.length > 0 && (
+        <div>
+          <b>
+            {Effect.runSync(
+              count(
+                other.length,
                 "report of an unknown kind",
                 "reports of an unknown kind"
               )
             )}
           </b>{" "}
-          {result.other.length === 1 ? "was" : "were"} archived under{" "}
+          {other.length === 1 ? "was" : "were"} archived under{" "}
           <span className="font-mono text-xs">other</span>.
           <ul aria-label="Archived under other" className="mt-1 list-disc pl-5">
-            {result.other.map(({ sourceUrl, description }) => (
+            {other.map(({ sourceUrl, description }) => (
               <li key={sourceUrl} className="[overflow-wrap:anywhere]">
                 {description}{" "}
                 <span className="font-mono text-xs text-muted-foreground">
@@ -94,6 +122,7 @@ export function LastRunCard({
           : [
               ...archiveRunStats(result),
               { value: result.monthsParsed, label: "Months parsed" },
+              { value: result.parseFailures.length, label: "Parse failures" },
             ]
       }
       details={result === undefined ? null : <Detail result={result} />}
