@@ -226,6 +226,29 @@ describe("an archive run's reconcile", () => {
     })
   )
 
+  it.effect(
+    "fails, keeping what it stored, when it can't read which months were parsed",
+    () =>
+      Effect.gen(function* () {
+        const w = world()
+        w.holdings.failBatch = (sql) =>
+          sql.some((statement) =>
+            statement.includes("FROM classification_month")
+          )
+        const failure = yield* Effect.flip(run(w, "cron-2026-11-14T06"))
+        assert.strictEqual(failure._tag, "StepFailed")
+        const record = runRecord(w, "cron-2026-11-14T06")
+        assert.deepInclude(record, {
+          outcome: "failed",
+          error: failure.message,
+          reportsAdded: 4,
+          monthsParsed: 0,
+          parseFailures: [],
+        })
+        assert.isNotNull(record.finishedAt)
+      })
+  )
+
   it.effect("parses held reports when IDX's listing can't be read", () =>
     Effect.gen(function* () {
       const w = world()

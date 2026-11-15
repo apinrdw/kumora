@@ -224,7 +224,9 @@ const summary = Effect.fnUntraced(function* (
   checked: typeof Checked.Type,
   archived: ReadonlyArray<ArchivedReport>,
   notStored: ReadonlyArray<string>,
-  parses: Parses
+  parses: Parses,
+  // The reconcile's failure: the run is failed, keeping what it stored.
+  error?: string
 ) {
   const changedUrls = new Set(checked.changed.map(({ sourceUrl }) => sourceUrl))
   // Decided from earlier runs' records, not from the .xlsx being there: a
@@ -234,9 +236,11 @@ const summary = Effect.fnUntraced(function* (
   const result = ArchiveRunResult.make({
     ...(yield* finishedResult(run)),
     outcome:
-      notStored.length === 0 && parses.parseFailures.length === 0
-        ? "complete"
-        : "partial",
+      error !== undefined
+        ? "failed"
+        : notStored.length === 0 && parses.parseFailures.length === 0
+          ? "complete"
+          : "partial",
     reportsAdded: archived.filter(
       ({ sourceUrl }) => !changedUrls.has(sourceUrl)
     ).length,
@@ -254,6 +258,7 @@ const summary = Effect.fnUntraced(function* (
     other: archived
       .filter(({ kind }) => kind === "other")
       .map(({ sourceUrl, description }) => ({ sourceUrl, description })),
+    error: error === undefined ? null : yield* runError(error),
   })
   yield* putRunRecord(result)
   return result
@@ -347,7 +352,25 @@ export const archiveRun = Effect.fn("archiveRun")(function* (
     )
   )
   const { archived, notStored } = storedReports(stored, checked.unanswered)
-  const parses = yield* parseMonths(steps)
+  const parses = yield* parseMonths(steps).pipe(
+    // The run still fails with `reconcile`'s message, which the Workflow
+    // keeps as the instance's error.
+    Effect.tapError(({ message }) =>
+      steps
+        .do(
+          "failed",
+          summary(
+            run,
+            checked,
+            archived,
+            notStored,
+            { monthsParsed: 0, parseFailures: [] },
+            message
+          )
+        )
+        .pipe(Effect.ignore({ log: "Warn" }))
+    )
+  )
   return yield* steps.do(
     "summary",
     summary(run, checked, archived, notStored, parses)
