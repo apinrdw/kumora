@@ -394,6 +394,8 @@ function BrokerFilter({
       className="bg-surface ml-auto max-w-40 rounded-md border border-border px-1 py-px font-mono text-[11px] font-normal text-foreground disabled:opacity-50"
     >
       <option value="">
+        {/* Decision: "after the close" is the owner's approved copy for what
+            arrives after the Seal: spec apinrdw/kumora#343, story 32. */}
         {withBrokers ? "All brokers" : "Brokers after the close"}
       </option>
       {!listed && <option value={view.picked}>{view.picked}</option>}

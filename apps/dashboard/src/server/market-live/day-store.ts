@@ -57,9 +57,10 @@ export interface Sql {
 // late trades that read a stored minute back (candles.ts, `slotSweeps`).
 // Billed figures come from the database's own count, when it keeps one.
 // Decision: the Staging cost check reads these from Workers Logs, one line a
-// flush, like the feed lag lines (apinrdw/kumora#231): no binding or route,
-// and a restart loses at most one flush's counts. See ticket
-// apinrdw/kumora#270 and docs/runbooks/order-flow-cost.md.
+// flush, and after the seal one line a sweep brokers recompute
+// (sweep-brokers.ts), like the feed lag lines (apinrdw/kumora#231): no
+// binding or route, and a restart loses at most one line's counts. See
+// ticket apinrdw/kumora#270 and docs/runbooks/order-flow-cost.md.
 // Each billed meter figure, and the database count it adds up.
 const BILLED = {
   billedRowsWritten: "rowsWritten",

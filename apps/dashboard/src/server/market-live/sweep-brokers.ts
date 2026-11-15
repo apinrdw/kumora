@@ -244,13 +244,14 @@ export const makeSweepBrokers = Effect.fnUntraced(function* (options: {
     }
   })
 
-  // Decision: after the seal no flush logs the meter, so each recompute
-  // logs its own line; before it, the counts ride the next `Rows written`.
-  // The storage line is logged again, with this table, the first time a
-  // sealed day's codes are complete. See spec apinrdw/kumora#343, "Cost".
-  // The Staging check reads both: docs/runbooks/order-flow-cost.md.
-  // `completed` runs after every accepted codes batch, one that changed no
-  // codes included: the walks' final batch carries only the day's N.
+  // Decision: after the seal no flush logs the meter, so each recompute,
+  // and the one-off build as it ends, logs its own line; before it, the
+  // counts ride the next `Rows written`. The storage line is logged again,
+  // with this table, the first time an object finds the sealed day's codes
+  // complete, so again after a restart. `completed` checks after every
+  // accepted codes batch, one that changed no codes included: the walks'
+  // final batch carries only the day's N. See spec apinrdw/kumora#343,
+  // "Cost". The Staging check reads both: docs/runbooks/order-flow-cost.md.
   let storageLogged = false
   const recomputeLogged = Effect.gen(function* () {
     if ((yield* store.fact(Fact.sealed)) === undefined) return

@@ -1140,11 +1140,12 @@ export const makeTradingDay = Effect.fnUntraced(function* (options: {
     // them and its recorded answers stay byte-identical. See spec
     // apinrdw/kumora#244, "Dashboard: TradingDay's broker codes store".
     brokerCodes: {
-      // Decision: the sweep brokers of the trades a batch changed are worked
-      // out again in the same turn and written with the codes, before the
-      // batch is answered, so a GET after a 200 reads them. A batch that
-      // changes no codes recomputes nothing. See spec apinrdw/kumora#343,
-      // "When it is recomputed".
+      // Decision: a batch that changes codes also rewrites the sweep brokers
+      // rows of the trades it changed, reading their minutes' stored trades,
+      // in the codes' turn and transaction, before the batch is answered, so
+      // a GET after a 200 reads them. A batch that changes no codes
+      // recomputes nothing. See spec apinrdw/kumora#343, "When it is
+      // recomputed".
       post: (text: string) =>
         turn.withPermit(
           brokerCodes.post(text, sweepBrokers.recompute, sweepBrokers.completed)

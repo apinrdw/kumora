@@ -81,13 +81,12 @@ Both columns stay under $40 a month for the first year. The storage term never s
 
 ## Sweep brokers: one Staging evening
 
-Spec [apinrdw/kumora#343](https://github.com/apinrdw/kumora/issues/343), ticket [apinrdw/kumora#348](https://github.com/apinrdw/kumora/issues/348). The sweep brokers table (`sweep-brokers.ts`) holds one row per stock code and minute with sweeps. A broker codes batch that changes codes reads back the minutes its trades fall in and writes only the rows whose bytes changed (the Decision on `minuteRows` in `sweep-brokers.ts`). Its cost comes after the close, while the evening walk runs. Before the spec's branch reaches Production, run one Staging evening through the walk to `complete`. Then report the figures and the extended estimate on the spec's PR. The stop is the same: the order flow tables plus the sweep brokers table must stay under **$40 a month**. If the estimate is above it, stop. Do not merge to Production until the owner decides.
+Spec [apinrdw/kumora#343](https://github.com/apinrdw/kumora/issues/343), ticket [apinrdw/kumora#348](https://github.com/apinrdw/kumora/issues/348). The sweep brokers table, and when a batch reads and writes it, are in the `Decision:` comments of `sweep-brokers.ts`. Its cost comes after the seal, while the evening walk runs. Before the spec's branch reaches Production, run one Staging evening through the walk to `complete`. Then report the figures and the extended estimate on the spec's PR. The stop is the same: the order flow tables plus the sweep brokers table must stay under **$40 a month**. If the estimate is above it, stop. Do not merge to Production until the owner decides.
 
 ### What the evening measures
 
-- **`Rows written`** gains `sweepBrokers` (sweep brokers rows replaced or deleted), `sweepBrokerMinutes` (minutes a recompute read back) and `billedSweepBrokerReadRows` (the rows those recomputes read, as billed). A batch that lands before the 17:00 seal adds these to the next flush's line.
-- **`Sweep brokers recomputed`**: one line for each batch after the seal, with the same fields as `Rows written`. Its `billedRowsWritten` is that batch's billed writes, which include the batch's own broker codes rows: they share one transaction. The one-off build of a day whose codes landed before this shipped logs one such line when it ends.
-- **`Order flow storage`** gains `sweepBrokerRows` and `sweepBrokerBytes` (the table's rows and payload bytes). The seal's line shows them near 0, because codes arrive after it. The object logs the line again the first time it finds the sealed day's codes complete. Read that later line. If the object restarted during the walk, it logs the line again: take the last one.
+- **`Rows written`** and **`Sweep brokers recomputed`** carry the sweep brokers meter's fields, `sweepBrokers`, `sweepBrokerMinutes` and `billedSweepBrokerReadRows` (the `Meter` in `day-store.ts`). Which of the two lines carries a batch's counts is the Decision above `recomputeLogged` in `sweep-brokers.ts`.
+- **`Order flow storage`** gains `sweepBrokerRows` and `sweepBrokerBytes` (`storage` in `sweep-brokers.ts`). When it is logged again is the same Decision. Read the day's last such line.
 
 ### The evening
 
@@ -110,7 +109,7 @@ The monthly cost in month `m` after shipping becomes:
 
 Report it for month 1 and month 12, beside the order flow figures alone.
 
-The one-off build (`builtFirst` in `sweep-brokers.ts`) runs once for each day whose codes landed before this shipped, on that day's first sweep brokers GET. It reads the whole day's tape once and writes about one row per stock-minute with a sided sweep. That costs about one evening's `sweepBrokerRows` of writes, once for each such day.
+The one-off build (the Decisions on `build` and `builtFirst` in `sweep-brokers.ts`) costs at most about one evening's `sweepBrokerRows` of writes, for each day it builds.
 
 ### First estimate, before Staging (2026-11-15)
 
