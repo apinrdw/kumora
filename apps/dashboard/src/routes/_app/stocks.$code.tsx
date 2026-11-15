@@ -1,11 +1,12 @@
 import { createFileRoute } from "@tanstack/react-router"
 import { loadServerFn, runLoader } from "@workspace/server/loader"
 import { Effect } from "effect"
-import { useCallback } from "react"
+import { useCallback, useEffect } from "react"
 
 import { StockCodePicker } from "@/components/market-live/stock-code-picker"
 import { ShareholdersComposition } from "@/components/stocks/shareholders-composition"
 import { useStockList } from "@/components/stocks/use-stock-list"
+import { rememberStock } from "@/lib/last-stock"
 import {
   type PanelOrigin,
   parseStockSearch,
@@ -42,6 +43,8 @@ function StockPageView() {
   const { panel = "all" } = Route.useSearch()
   const navigate = Route.useNavigate()
   const list = useStockList(`/stocks/${page.code}`)
+  // Bare /stocks opens it next time.
+  useEffect(() => Effect.runSync(rememberStock(page.code)), [page.code])
   const newest = page.months.filter(({ held }) => held).at(-1)?.dataDate
   const onMonth = useCallback(
     (dataDate: string) =>
