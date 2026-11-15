@@ -11,6 +11,8 @@ import {
 } from "@/domain/holdings"
 import type { CompositionMonth } from "@/server/holdings/stock-page"
 
+import { type Split, split } from "./split.ts"
+
 import type { OriginShown } from "./stock-search.ts"
 
 export interface CompositionRow {
@@ -29,9 +31,9 @@ export interface Composition {
   readonly total: number
   // Largest first; only rows holding shares this month or the month before.
   readonly rows: ReadonlyArray<CompositionRow>
-  // The Individual type's share: retail. The rest is institution. Undefined
-  // when the origin holds no shares, which is neither.
-  readonly retail: number | undefined
+  // Retail, the Individual type's shares, vs institution, the rest.
+  // Undefined when the origin holds no shares, which is neither.
+  readonly retail: Split | undefined
 }
 
 export type Level = "types" | "classifications"
@@ -114,34 +116,32 @@ export const composition = Effect.fnUntraced(function* (
   rows.sort((a, b) => b.shares - a.shares)
   const retail = rows
     .filter(({ type }) => type === "ID")
-    .reduce((sum, { share }) => sum + share, 0)
+    .reduce((sum, { shares }) => sum + shares, 0)
   return {
     total: current.total,
     rows,
-    retail: current.total === 0 ? undefined : retail,
+    retail: yield* split(retail, current.total - retail),
   }
 })
 
-// The share of the stock's listed shares held as scrip (listed − scripless),
-// 0 to 1, or why there is none: KSEI has no listed shares for the month's
-// date, or fewer than its scripless shares, so a wrong scrip share is never
-// shown.
+// The stock's listed shares split into scrip (listed − scripless) and
+// scripless, or why there is none: KSEI has no listed shares for the
+// month's date, or fewer than its scripless shares, so a wrong scrip share
+// is never shown.
 export type Scrip =
-  | { readonly _tag: "Share"; readonly share: number }
+  | { readonly _tag: "Share"; readonly split: Split }
   | { readonly _tag: "NoListedShares" }
   | { readonly _tag: "FewerListed"; readonly listedShares: number }
 
-export const scrip = ({
+export const scrip = Effect.fnUntraced(function* ({
   listedShares,
   totalScripless,
-}: CompositionMonth): Effect.Effect<Scrip> =>
-  Effect.succeed(
-    listedShares === undefined
-      ? { _tag: "NoListedShares" }
-      : listedShares < totalScripless
-        ? { _tag: "FewerListed", listedShares }
-        : {
-            _tag: "Share",
-            share: (listedShares - totalScripless) / listedShares,
-          }
-  )
+}: CompositionMonth): Effect.fn.Return<Scrip> {
+  if (listedShares === undefined) return { _tag: "NoListedShares" }
+  if (listedShares < totalScripless)
+    return { _tag: "FewerListed", listedShares }
+  const shown = yield* split(listedShares - totalScripless, totalScripless)
+  return shown === undefined
+    ? { _tag: "NoListedShares" }
+    : { _tag: "Share", split: shown }
+})

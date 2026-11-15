@@ -98,7 +98,7 @@ describe("the scrip share", () => {
           ...month("2026-10-30", { ID: 60, CP: 20 }),
           listedShares: 100,
         })
-      ).toEqual({ _tag: "Share", share: 0.2 })
+      ).toEqual({ _tag: "Share", split: { left: 0.2, right: 0.8 } })
     })
   )
 

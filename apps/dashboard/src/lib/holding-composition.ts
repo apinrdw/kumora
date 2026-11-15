@@ -5,6 +5,7 @@ import { Effect } from "effect"
 import { KSEI_TYPE_LABELS, KSEI_TYPES, type KseiType } from "@/domain/holdings"
 import type { SeriesMonth, TypeHoldings } from "@/server/holdings/stock-page"
 
+import { split } from "./split.ts"
 import type { OriginShown } from "./stock-search.ts"
 
 export type SeriesKey = "local" | "foreign" | KseiType
@@ -96,13 +97,19 @@ export const holdingChart = Effect.fnUntraced(function* (
   } satisfies HoldingChart
 })
 
-// The newest month's local share of scripless, for the summary boxes. The
+// The newest month's scripless split into local and foreign, for the
+// summary boxes; `split` is undefined when neither holds a share. The
 // series ends on a month KSEI has data for.
 export const latestOriginSplit = Effect.fnUntraced(function* (
   months: ReadonlyArray<SeriesMonth>
 ) {
   const holdings = months.at(-1)?.holdings
   if (holdings === undefined) return undefined
-  const [local = 0] = yield* columnShares(holdings, "all")
-  return { periodEnd: holdings.periodEnd, local }
+  return {
+    periodEnd: holdings.periodEnd,
+    split: yield* split(
+      yield* total(holdings.local),
+      yield* total(holdings.foreign)
+    ),
+  }
 })

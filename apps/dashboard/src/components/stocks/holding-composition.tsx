@@ -160,15 +160,22 @@ function Picks<Value extends string>({
 
 // The newest month's local and foreign shares of scripless.
 function OriginSummary({ series }: { series: ReadonlyArray<SeriesMonth> }) {
-  const split = Effect.runSync(latestOriginSplit(series))
-  if (split === undefined) return null
+  const latest = Effect.runSync(latestOriginSplit(series))
+  if (latest === undefined) return null
+  const month = Effect.runSync(monthLabel(latest.periodEnd))
+  if (latest.split === undefined)
+    return (
+      <p className="text-[12px] text-muted-foreground">
+        Unavailable: KSEI lists no scripless shares for {month}.
+      </p>
+    )
   return (
     <div className="flex flex-col gap-1">
       <div className="grid grid-cols-2 gap-2">
         {(
           [
-            { key: "local", label: "Local", share: split.local },
-            { key: "foreign", label: "Foreign", share: 1 - split.local },
+            { key: "local", label: "Local", share: latest.split.left },
+            { key: "foreign", label: "Foreign", share: latest.split.right },
           ] as const
         ).map(({ key, label, share }) => (
           <div
@@ -186,9 +193,7 @@ function OriginSummary({ series }: { series: ReadonlyArray<SeriesMonth> }) {
           </div>
         ))}
       </div>
-      <span className="text-[12px] text-muted-foreground">
-        As of {Effect.runSync(monthLabel(split.periodEnd))}.
-      </span>
+      <span className="text-[12px] text-muted-foreground">As of {month}.</span>
     </div>
   )
 }

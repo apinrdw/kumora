@@ -15,6 +15,7 @@ import {
   type Level,
   scrip,
 } from "@/lib/stock-composition"
+import type { Split } from "@/lib/split"
 import { monthLabel, percent, TYPE_COLOR } from "@/lib/stock-page-display"
 import type { OriginShown } from "@/lib/stock-search"
 import type { CompositionMonth, StockPage } from "@/server/holdings/stock-page"
@@ -181,11 +182,11 @@ function MonthTabs({
 function SplitBar({
   left,
   right,
-  share,
+  split,
 }: {
   left: { label: string; color: string }
   right: { label: string; color: string }
-  share: number
+  split: Split
 }) {
   return (
     <div
@@ -203,19 +204,19 @@ function SplitBar({
       >
         <i
           className="block h-full"
-          style={{ width: `${share * 100}%`, background: left.color }}
+          style={{ width: `${split.left * 100}%`, background: left.color }}
         />
         <i
           className="block h-full"
-          style={{ width: `${(1 - share) * 100}%`, background: right.color }}
+          style={{ width: `${split.right * 100}%`, background: right.color }}
         />
       </div>
       <div className="num flex justify-between text-[13px] font-semibold">
         <span style={{ color: left.color }}>
-          {Effect.runSync(percent(share))}
+          {Effect.runSync(percent(split.left))}
         </span>
         <span style={{ color: right.color }}>
-          {Effect.runSync(percent(1 - share))}
+          {Effect.runSync(percent(split.right))}
         </span>
       </div>
     </div>
@@ -230,7 +231,7 @@ const SCRIPLESS = { label: "Scripless", color: "var(--semantic-info)" }
 function ScripBar({ month }: { month: CompositionMonth }) {
   const shown = Effect.runSync(scrip(month))
   if (shown._tag === "Share")
-    return <SplitBar left={SCRIP} right={SCRIPLESS} share={shown.share} />
+    return <SplitBar left={SCRIP} right={SCRIPLESS} split={shown.split} />
   return (
     <UnavailableSplit
       left={SCRIP}
@@ -300,7 +301,7 @@ function Totals({
             why={`no ${origin === "all" ? "scripless" : origin} shares in ${Effect.runSync(monthLabel(month.dataDate))}.`}
           />
         ) : (
-          <SplitBar left={RETAIL} right={INSTITUTION} share={shown.retail} />
+          <SplitBar left={RETAIL} right={INSTITUTION} split={shown.retail} />
         )}
       </div>
     </div>

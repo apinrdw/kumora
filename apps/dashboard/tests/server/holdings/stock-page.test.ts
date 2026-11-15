@@ -208,7 +208,7 @@ describe("the stock page read", () => {
       assert.isDefined(previous)
       const october = yield* scrip(month)
       assert.strictEqual(
-        october._tag === "Share" ? october.share.toFixed(4) : october._tag,
+        october._tag === "Share" ? october.split.left.toFixed(4) : october._tag,
         "0.5745"
       )
       assert.strictEqual((yield* scrip(previous))._tag, "Share")
