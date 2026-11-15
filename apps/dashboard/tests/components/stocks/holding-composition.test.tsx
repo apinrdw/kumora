@@ -33,11 +33,11 @@ document.body.append(container)
 const root = createRoot(container)
 afterEach(() => act(() => root.render(null)))
 
-const render = (origin: OriginShown) =>
+const render = (origin: OriginShown, series = SERIES) =>
   act(() =>
     root.render(
       <HoldingComposition
-        series={SERIES}
+        series={series}
         origin={origin}
         view="table"
         onOrigin={() => {}}
@@ -58,4 +58,22 @@ test("another chart origin shows every series again", async () => {
   expect(legend("Individual")?.getAttribute("aria-pressed")).toBe("false")
   await render("foreign")
   expect(legend("Individual")?.getAttribute("aria-pressed")).toBe("true")
+})
+
+test("the origin summary is unavailable when the newest month holds no shares", async () => {
+  const none = Object.fromEntries(Object.keys(HELD).map((type) => [type, 0]))
+  await render("all", [
+    {
+      month: "2026-10",
+      holdings: {
+        periodEnd: "2026-10-30",
+        local: none as typeof HELD,
+        foreign: none as typeof HELD,
+      },
+    },
+  ])
+  expect(container.querySelector('[aria-label="Foreign share"]')).toBeNull()
+  expect(container.textContent).toContain(
+    "Unavailable: KSEI lists no scripless shares for Oct 2026."
+  )
 })

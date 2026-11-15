@@ -122,4 +122,15 @@ describe("the scrip share", () => {
         ).toEqual({ _tag: "FewerListed", listedShares: 70 })
       })
   )
+
+  it.effect("is unavailable when KSEI lists no shares at all", () =>
+    Effect.gen(function* () {
+      expect(
+        yield* scrip({
+          ...month("2026-10-30", { ID: 0, CP: 0 }),
+          listedShares: 0,
+        })
+      ).toEqual({ _tag: "NoListedShares" })
+    })
+  )
 })
