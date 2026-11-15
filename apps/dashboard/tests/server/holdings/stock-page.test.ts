@@ -1,24 +1,44 @@
 // The stock page's read model, read after a real archive run parsed the
-// classification fixtures (Mar, May, Sep and Oct 2026).
+// classification fixtures (Mar, May, Sep and Oct 2026) and a real KSEI parse
+// run parsed the KSEI fixtures (May, Aug, Sep and Oct 2026).
 import { assert, describe, it } from "@effect/vitest"
 import { StockCode } from "@workspace/relay"
 import { Effect, Layer } from "effect"
 
+import { scripShare } from "@/lib/stock-composition"
 import { RunId } from "@/server/archive/run"
 import {
   type CompositionMonth,
   stockList,
   stockPage,
 } from "@/server/holdings/stock-page"
+import { kseiArchiveRun } from "@/server/ksei/archive-run"
+import { kseiParseRun } from "@/server/ksei/parse-run"
 import { archiveRun } from "@/server/shareholding/archive-run"
 
 import { classificationIdx } from "../shareholding/fake-idx.ts"
 import { localSteps } from "../archive/local-steps.ts"
+import { holdingsKsei } from "../ksei/fake-ksei.ts"
 import { memoryBucket } from "../archive/memory-bucket.ts"
 import { memoryHoldingsDb } from "./memory-holdings-db.ts"
 
+const run = (id: string, startedAt: string) => ({
+  id: RunId.make(id),
+  trigger: "cron" as const,
+  startedAt: new Date(startedAt),
+})
+
 const parsed = Effect.gen(function* () {
   const holdings = memoryHoldingsDb()
+  const kseiBucket = memoryBucket()
+  yield* kseiArchiveRun(
+    localSteps(Layer.merge(holdingsKsei().layer, kseiBucket.layer)),
+    run("cron-2026-11-14T03", "2026-11-14T03:00:00Z")
+  )
+  yield* kseiParseRun(
+    localSteps(Layer.merge(kseiBucket.layer, holdings.layer)),
+    run("cron-2026-11-14T04", "2026-11-14T04:00:00Z")
+  )
   yield* archiveRun(
     localSteps(
       Layer.mergeAll(
@@ -27,11 +47,7 @@ const parsed = Effect.gen(function* () {
         holdings.layer
       )
     ),
-    {
-      id: RunId.make("cron-2026-11-14T13"),
-      trigger: "cron",
-      startedAt: new Date("2026-11-14T13:00:00Z"),
-    }
+    run("cron-2026-11-14T13", "2026-11-14T13:00:00Z")
   )
   return holdings.layer
 })
@@ -170,22 +186,63 @@ describe("the stock page read", () => {
     })
   )
 
-  it.effect(
-    "reads no composition for a stock without classification rows",
-    () =>
-      Effect.gen(function* () {
-        const page = yield* read("ZZZZ")
-        assert.isUndefined(page.composition)
-        assert.isTrue(page.months.every(({ held }) => !held))
-      })
+  it.effect("reads listed shares from KSEI's file of the same date", () =>
+    Effect.gen(function* () {
+      const october = (yield* read("BBCA")).composition
+      assert.strictEqual(october?.month.listedShares, 123_275_050_000)
+      assert.strictEqual(october?.previous?.listedShares, 123_275_050_000)
+      // KSEI's May file is dated 2026-05-29, as the report; it has no
+      // March file, and its August file has no report month.
+      const may = (yield* read("WBSA", "2026-05")).composition
+      assert.strictEqual(may?.month.listedShares, 8_675_000_000)
+      const march = (yield* read("BBCA", "2026-03")).composition
+      assert.isUndefined(march?.month.listedShares)
+    })
   )
 
-  it.effect("lists the stocks of the newest month, with their issuer", () =>
+  it.effect("shows BBCA's Oct 2026 shares as 57.45% scrip", () =>
+    Effect.gen(function* () {
+      const { month, previous } = (yield* read("BBCA")).composition ?? {}
+      assert.strictEqual(month?.dataDate, "2026-10-30")
+      const scrip = month === undefined ? undefined : scripShare(month)
+      assert.strictEqual(scrip?.toFixed(4), "0.5745")
+      assert.isDefined(previous && scripShare(previous))
+      // No KSEI file of March's date: scrip is unavailable, never a guess.
+      const { month: march } =
+        (yield* read("BBCA", "2026-03")).composition ?? {}
+      assert.isUndefined(march && scripShare(march))
+    })
+  )
+
+  it.effect("reads a stock only KSEI has with no composition", () =>
+    Effect.gen(function* () {
+      // APOL is unpriced: in every KSEI file, in no classification report.
+      const page = yield* read("APOL")
+      assert.isUndefined(page.composition)
+      assert.isUndefined(page.issuerName)
+      assert.isTrue(page.months.every(({ held }) => !held))
+      assert.isTrue(page.inKsei)
+      assert.isTrue((yield* read("BBCA")).inKsei)
+    })
+  )
+
+  it.effect("reads a stock neither source has as in neither", () =>
+    Effect.gen(function* () {
+      const page = yield* read("ZZZZ")
+      assert.isUndefined(page.composition)
+      assert.isTrue(page.months.every(({ held }) => !held))
+      assert.isFalse(page.inKsei)
+    })
+  )
+
+  it.effect("lists the stocks of either source's newest month", () =>
     Effect.gen(function* () {
       const layer = yield* parsed
       assert.deepStrictEqual(yield* stockList.pipe(Effect.provide(layer)), [
         { code: "AADI", issuerName: "ADARO ANDALAN INDONESIA Tbk" },
         { code: "ACRO", issuerName: "SAMCRO HYOSUNG ADILESTARI Tbk" },
+        // Only KSEI has APOL, and KSEI's file names no issuer.
+        { code: "APOL", issuerName: undefined },
         { code: "BBCA", issuerName: "BANK CENTRAL ASIA Tbk" },
         { code: "WBSA", issuerName: "BSA LOGISTICS INDONESIA Tbk" },
       ])

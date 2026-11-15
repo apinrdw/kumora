@@ -105,3 +105,16 @@ export const composition = (
       .reduce((sum, { share }) => sum + share, 0)
     return { total: current.total, rows, retail }
   })
+
+/**
+ * The share of the stock's listed shares held as scrip (listed − scripless),
+ * 0 to 1. Undefined when KSEI has no listed shares for the month's date, or
+ * fewer than its scripless shares, so a wrong scrip share is never shown.
+ */
+export const scripShare = ({
+  listedShares,
+  totalScripless,
+}: CompositionMonth): number | undefined =>
+  listedShares === undefined || listedShares < totalScripless
+    ? undefined
+    : (listedShares - totalScripless) / listedShares

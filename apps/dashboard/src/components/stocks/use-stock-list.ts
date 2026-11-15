@@ -16,7 +16,7 @@ export function useStockList(href: string): StockCodeList {
             _tag: "Ready",
             codes: stocks.map(({ code, issuerName }) => ({
               code,
-              name: issuerName,
+              name: issuerName ?? "",
               kind: "share",
             })),
           })

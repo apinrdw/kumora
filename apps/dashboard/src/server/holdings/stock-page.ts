@@ -36,6 +36,9 @@ export interface TypeShares extends OriginShares {
 export interface CompositionMonth {
   readonly dataDate: string
   readonly totalScripless: number
+  // KSEI's `Sec. Num` for the stock on the same date; undefined when KSEI has
+  // no file of that date, or no row for the stock in it.
+  readonly listedShares: number | undefined
   // Whether the report splits local and foreign (Sep 2026 onward).
   readonly split: boolean
   // All 9 types, in KSEI_TYPES order, zeros included.
@@ -52,6 +55,9 @@ export interface StockPage {
     readonly dataDate: string
     readonly held: boolean
   }>
+  // Whether any parsed KSEI file has the stock. A stock KSEI has and no
+  // classification report does (unpriced or suspended) has no composition.
+  readonly inKsei: boolean
   // The selected month and the parsed month before it, when the stock has a
   // row there; undefined when no classification report has the stock.
   readonly composition:
@@ -66,6 +72,7 @@ const MonthRow = Schema.Struct({
   data_date: Schema.String,
   issuer_name: Schema.NullOr(Schema.String),
   total_scripless: Schema.NullOr(Schema.Number),
+  listed_shares: Schema.NullOr(Schema.Number),
 })
 const HoldingRow = Schema.Struct({
   data_date: Schema.String,
@@ -104,11 +111,16 @@ const HOLDINGS = `
   )`
 
 const MONTHS = `
-  SELECT m.data_date, s.issuer_name, s.total_scripless
+  SELECT m.data_date, s.issuer_name, s.total_scripless, k.listed_shares
   FROM classification_month m
   LEFT JOIN classification_stock_month s
     ON s.data_date = m.data_date AND s.stock_code = ?1
+  LEFT JOIN ksei_stock_month k
+    ON k.period_end = m.data_date AND k.stock_code = ?1
   ORDER BY m.data_date`
+
+const IN_KSEI = `
+  SELECT EXISTS(SELECT 1 FROM ksei_stock_month WHERE stock_code = ?1) AS held`
 
 const addShares = (
   into: OriginShares,
@@ -123,6 +135,7 @@ const addShares = (
 const compositionMonth = (
   dataDate: string,
   totalScripless: number,
+  listedShares: number | undefined,
   rows: ReadonlyArray<HoldingRow>
 ): CompositionMonth => {
   const split = rows.some(({ origin }) => origin !== "combined")
@@ -146,7 +159,7 @@ const compositionMonth = (
       classifications,
     }
   })
-  return { dataDate, totalScripless, split, types }
+  return { dataDate, totalScripless, listedShares, split, types }
 }
 
 // Everything the stock page shows for a code. `month` is the URL's
@@ -157,10 +170,12 @@ export const stockPage = Effect.fnUntraced(function* (
   code: StockCode,
   month: string | undefined
 ) {
-  const [monthRows = [], holdingRows = []] = yield* (yield* HoldingsDb).batch([
-    { sql: MONTHS, params: [code] },
-    { sql: HOLDINGS, params: [code, month ?? null] },
-  ])
+  const [monthRows = [], holdingRows = [], kseiRows = []] =
+    yield* (yield* HoldingsDb).batch([
+      { sql: MONTHS, params: [code] },
+      { sql: HOLDINGS, params: [code, month ?? null] },
+      { sql: IN_KSEI, params: [code] },
+    ])
   const months = Schema.decodeUnknownSync(Schema.Array(MonthRow))(monthRows)
   const holdings = Schema.decodeUnknownSync(Schema.Array(HoldingRow))(
     holdingRows
@@ -181,12 +196,17 @@ export const stockPage = Effect.fnUntraced(function* (
     compositionMonth(
       row.data_date,
       row.total_scripless,
+      row.listed_shares ?? undefined,
       holdings.filter(({ data_date }) => data_date === row.data_date)
     )
+  const [inKsei] = Schema.decodeUnknownSync(
+    Schema.Tuple([Schema.Struct({ held: Schema.Number })])
+  )(kseiRows)
   const previous = held.find(({ data_date }) => data_date === before?.data_date)
   return {
     code,
     issuerName: held.at(-1)?.issuer_name ?? undefined,
+    inKsei: inKsei.held === 1,
     months: months.map(({ data_date, total_scripless }) => ({
       dataDate: data_date,
       held: total_scripless !== null,
@@ -202,25 +222,36 @@ export const stockPage = Effect.fnUntraced(function* (
 })
 
 const ListRow = Schema.Struct({
-  stock_code: StockCode,
-  issuer_name: Schema.String,
+  stock_code: Schema.String,
+  issuer_name: Schema.NullOr(Schema.String),
 })
 
-// The stocks the page's picker offers: those in the newest classification
-// month, by code, with their issuer name.
+const isStockCode = Schema.is(StockCode)
+
+// The stocks the page's picker offers: those in the newest month of either
+// source, by code, with the classification report's issuer name. KSEI's
+// file names no issuer. A KSEI code that isn't a stock code's shape is left
+// out, as no page could open it.
 export const stockList = Effect.gen(function* () {
   const [rows = []] = yield* (yield* HoldingsDb).batch([
     {
-      sql: `SELECT stock_code, issuer_name FROM classification_stock_month
-        WHERE data_date = (SELECT MAX(data_date) FROM classification_month)
+      sql: `WITH classified AS (
+          SELECT stock_code, issuer_name FROM classification_stock_month
+          WHERE data_date = (SELECT MAX(data_date) FROM classification_month)
+        )
+        SELECT stock_code, issuer_name FROM classified
+        UNION
+        SELECT stock_code, NULL FROM ksei_stock_month
+        WHERE period_end = (SELECT MAX(period_end) FROM ksei_month)
+          AND stock_code NOT IN (SELECT stock_code FROM classified)
         ORDER BY stock_code`,
       params: [],
     },
   ])
-  return Schema.decodeUnknownSync(Schema.Array(ListRow))(rows).map(
-    ({ stock_code, issuer_name }) => ({
-      code: stock_code,
-      issuerName: issuer_name,
-    })
+  return Schema.decodeUnknownSync(Schema.Array(ListRow))(rows).flatMap(
+    ({ stock_code, issuer_name }) =>
+      isStockCode(stock_code)
+        ? [{ code: stock_code, issuerName: issuer_name ?? undefined }]
+        : []
   )
 })
