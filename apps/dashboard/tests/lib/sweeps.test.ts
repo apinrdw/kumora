@@ -365,6 +365,42 @@ describe("the broker filter", () => {
   )
 
   it.effect(
+    "lists a broker at the investor type of its larger summed aggressor lots, the first on a tie",
+    () =>
+      Effect.gen(function* () {
+        const three = [
+          sweep("09:00:00", "buy", 40),
+          sweep("09:01:00", "buy", 100),
+          sweep("09:02:00", "sell", 50),
+        ]
+        const typed = new Map([
+          whole(three[0]!, [broker("AK", "F", 40), broker("BK", "D", 30)]),
+          whole(three[1]!, [broker("AK", "D", 60), broker("BK", "F", 70)]),
+          whole(three[2]!, [broker("AK", "F", 50)]),
+        ])
+        // AK: F 90 against D 60. BK: F 70 against D 30, though its first
+        // sweep was D.
+        expect(yield* brokerPicks(three, typed, at("09:10:00"))).toEqual([
+          { code: "AK", investorType: "F", lots: 150 },
+          { code: "BK", investorType: "F", lots: 100 },
+        ])
+        // Up to 09:01, AK's D 60 is the larger.
+        expect(yield* brokerPicks(three, typed, at("09:01:30"))).toEqual([
+          { code: "AK", investorType: "D", lots: 100 },
+          { code: "BK", investorType: "F", lots: 100 },
+        ])
+        // A tie keeps the first type.
+        const tied = new Map([
+          whole(three[0]!, [broker("AK", "F", 40)]),
+          whole(three[1]!, [broker("AK", "D", 40)]),
+        ])
+        expect(yield* brokerPicks(three, tied, at("09:10:00"))).toEqual([
+          { code: "AK", investorType: "F", lots: 80 },
+        ])
+      })
+  )
+
+  it.effect(
     "cuts each side at its top-N mark of the picked broker's own lots, over its sweeps up to the cursor, and names the broker",
     () =>
       Effect.gen(function* () {

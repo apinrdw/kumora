@@ -4,6 +4,7 @@
 import { MINUTE_MS, SHARES_PER_LOT } from "@workspace/relay"
 import type {
   BrokerCode,
+  InvestorType,
   Sweep,
   SweepBroker,
   SweepBrokers,
@@ -181,25 +182,54 @@ export const emptyNote = (
       : `No sweeps where ${picked} was an aggressor.`
   )
 
+// One of the broker filter's choices: a broker with its aggressor lots
+// summed over the sweeps, at the investor type of the larger of them.
+interface BrokerPick {
+  readonly code: BrokerCode
+  readonly investorType: InvestorType
+  readonly lots: number
+}
+
+const OTHER_TYPE = { D: "F", F: "D" } as const
+
 // The broker filter's choices: the aggressor brokers of the whole sweeps up
-// to `at` (epoch ms), each with its summed aggressor lots, largest first.
-// A broker's investor type is the one it had in its first sweep.
+// to `at` (epoch ms), largest summed aggressor lots first. A broker's
+// investor type is the one with its larger summed lots, the first it had
+// on a tie, as within one sweep (apinrdw/kumora#343, story 5).
 export const brokerPicks = (
   sweeps: ReadonlyArray<Sweep>,
   brokers: ReadonlyMap<TradeNumber, SweepBrokers>,
   at: number
 ) =>
-  Effect.sync((): ReadonlyArray<SweepBroker> => {
-    const picks = new Map<BrokerCode, SweepBroker>()
+  Effect.sync((): ReadonlyArray<BrokerPick> => {
+    const held = new Map<
+      BrokerCode,
+      {
+        readonly first: InvestorType
+        readonly lots: Record<InvestorType, number>
+      }
+    >()
     for (const sweep of sweeps) {
       if (DateTime.toEpochMillis(sweep.time) > at) continue
-      for (const broker of brokers.get(sweep.firstTrade)?.aggressor ?? [])
-        picks.set(broker.code, {
-          ...(picks.get(broker.code) ?? broker),
-          lots: (picks.get(broker.code)?.lots ?? 0) + broker.lots,
-        })
+      for (const broker of brokers.get(sweep.firstTrade)?.aggressor ?? []) {
+        const entry = held.get(broker.code) ?? {
+          first: broker.investorType,
+          lots: { D: 0, F: 0 },
+        }
+        entry.lots[broker.investorType] += broker.lots
+        held.set(broker.code, entry)
+      }
     }
-    return [...picks.values()].sort((a, b) => b.lots - a.lots)
+    return [...held]
+      .map(([code, { first, lots }]): BrokerPick => {
+        const other = OTHER_TYPE[first]
+        return {
+          code,
+          investorType: lots[other] > lots[first] ? other : first,
+          lots: lots.D + lots.F,
+        }
+      })
+      .sort((a, b) => b.lots - a.lots)
   })
 
 // The prices a sweep walked, `500→510`, or `500` when it stayed at one.
