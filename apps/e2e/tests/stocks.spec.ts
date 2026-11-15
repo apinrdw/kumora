@@ -3,7 +3,7 @@ import type { Page } from "@playwright/test"
 import { expect, test } from "../support/test"
 
 import { ADMIN, DASHBOARD, MEMBER } from "../support/accounts"
-import { seedClassificationMonths } from "../support/holdings"
+import { seedClassificationMonths, seedKseiMonths } from "../support/holdings"
 
 const BBCA = "BANK CENTRAL ASIA Tbk"
 const WBSA = "BSA LOGISTICS INDONESIA Tbk"
@@ -61,6 +61,14 @@ const MONTHS = {
   },
 }
 
+// Listed shares from KSEI: October's date matches the report's, so BBCA's
+// 19 B scripless shares are 38% of its 50 B listed; KSEI has no September.
+// Only KSEI has APOL.
+const KSEI_MONTHS = {
+  "2026-08-31": { BBCA: 50e9, APOL: 16e9 },
+  "2026-10-30": { BBCA: 50e9, APOL: 16e9 },
+}
+
 const panel = (page: Page) =>
   page.getByRole("region", { name: "Shareholders composition" })
 
@@ -83,7 +91,10 @@ const origin = (page: Page, label: string) =>
 
 // Serial: every test reads the one seeded HoldingsDb.
 test.describe.serial("the stock page", () => {
-  test.beforeAll(() => seedClassificationMonths(MONTHS))
+  test.beforeAll(() => {
+    seedClassificationMonths(MONTHS)
+    seedKseiMonths(KSEI_MONTHS)
+  })
 
   test.describe("for a member", () => {
     test.use({ storageState: MEMBER.storageState })
@@ -208,6 +219,46 @@ test.describe.serial("the stock page", () => {
       await expect(page.getByRole("heading", { level: 1 })).toHaveText(
         `WBSA ${WBSA}`
       )
+    })
+
+    test("shows scrip vs scripless from KSEI's listed shares", async ({
+      page,
+    }) => {
+      await page.goto(`${DASHBOARD}/stocks/BBCA`)
+      const bar = panel(page).getByRole("group", { name: "Scrip vs Scripless" })
+      await expect(bar).toHaveText(/Scrip\s*Scripless\s*62\.00%\s*38\.00%/)
+      await page.goto(`${DASHBOARD}/stocks/BBCA?month=2026-09`)
+      await expect(bar).toContainText(
+        "Unavailable: KSEI has no listed shares for Sep 2026."
+      )
+    })
+
+    test("says a stock only KSEI has isn't in the report", async ({ page }) => {
+      await page.goto(`${DASHBOARD}/stocks/APOL`)
+      await expect(
+        page.getByText(
+          "APOL isn't in IDX's classification report, so its shareholders composition isn't shown."
+        )
+      ).toBeVisible()
+      await expect(panel(page)).toHaveCount(0)
+      // The picker offers it, though no report names its issuer.
+      await page.goto(`${DASHBOARD}/stocks/BBCA`)
+      const picker = page.getByRole("combobox", { name: "Stock" })
+      await expect(async () => {
+        await picker.blur()
+        await picker.fill("AP")
+        await expect(page.getByRole("option", { name: /APOL/ })).toBeVisible({
+          timeout: 1000,
+        })
+      }).toPass()
+    })
+
+    test("says a stock neither source has has no data", async ({ page }) => {
+      await page.goto(`${DASHBOARD}/stocks/ZZZZ`)
+      await expect(
+        page.getByText("No holdings data for ZZZZ. Pick another stock.")
+      ).toBeVisible()
+      await expect(page.getByRole("combobox", { name: "Stock" })).toBeVisible()
     })
 
     test("answers not found to a code that isn't a stock code", async ({

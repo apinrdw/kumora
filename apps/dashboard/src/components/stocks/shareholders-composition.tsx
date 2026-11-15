@@ -14,9 +14,10 @@ import {
   type Composition,
   composition,
   type Level,
+  scripShare,
 } from "@/lib/stock-composition"
 import type { PanelOrigin } from "@/lib/stock-search"
-import type { StockPage } from "@/server/holdings/stock-page"
+import type { CompositionMonth, StockPage } from "@/server/holdings/stock-page"
 
 const NOT_SPLIT = "not reported before Sep 2026"
 
@@ -115,7 +116,7 @@ export function ShareholdersComposition({
           </Choice>
         ))}
       </div>
-      <Totals shown={rows} origin={shown} />
+      <Totals month={month} shown={rows} origin={shown} />
       <ul aria-label="Holders" className="flex flex-col">
         {rows.rows.map((row) => (
           <HolderRow key={row.key} row={row} />
@@ -220,7 +221,11 @@ function SplitBar({
   share: number
 }) {
   return (
-    <div className="flex flex-col gap-1">
+    <div
+      role="group"
+      aria-label={`${left.label} vs ${right.label}`}
+      className="flex flex-col gap-1"
+    >
       <div className="flex justify-between text-[12px] text-muted-foreground">
         <span>{left.label}</span>
         <span>{right.label}</span>
@@ -246,10 +251,38 @@ function SplitBar({
   )
 }
 
+const SCRIP = { label: "Scrip", color: "var(--semantic-warning)" }
+const SCRIPLESS = { label: "Scripless", color: "var(--semantic-info)" }
+
+// Of the stock's listed shares, whatever the origin shown: listed shares
+// aren't split by origin.
+function ScripBar({ month }: { month: CompositionMonth }) {
+  const share = scripShare(month)
+  if (share !== undefined)
+    return <SplitBar left={SCRIP} right={SCRIPLESS} share={share} />
+  return (
+    <div
+      role="group"
+      aria-label="Scrip vs Scripless"
+      className="flex flex-col gap-1 text-[12px] text-muted-foreground"
+    >
+      <div className="flex justify-between">
+        <span>Scrip</span>
+        <span>Scripless</span>
+      </div>
+      <p>
+        Unavailable: KSEI has no listed shares for {monthLabel(month.dataDate)}.
+      </p>
+    </div>
+  )
+}
+
 function Totals({
+  month,
   shown,
   origin,
 }: {
+  month: CompositionMonth
   shown: Composition
   origin: PanelOrigin
 }) {
@@ -264,6 +297,7 @@ function Totals({
         </span>
       </div>
       <div className="grid gap-3 sm:grid-cols-2">
+        <ScripBar month={month} />
         <SplitBar
           left={{ label: "Retail", color: "var(--investor-id)" }}
           right={{ label: "Institution", color: "var(--semantic-info)" }}
