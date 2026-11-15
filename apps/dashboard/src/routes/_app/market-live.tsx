@@ -243,6 +243,9 @@ function MarketLiveDay({
   const { candles, book, heatmap, sweeps } = useCodeStores(selected, day, today)
   // An index has no aggressor sides: plain candles and total volume only.
   const flow = INDEX_CODES.includes(selected) ? undefined : { heatmap, sweeps }
+  // A recorded day's sweeps can have broker codes: its log gains the broker
+  // columns and the width for them.
+  const withBrokers = day !== undefined
   // Chart 1 and chart 2 move together; each code's charts attach afresh.
   const [pair] = useState(() => Effect.runSync(makeChartPair()))
   // A sweep picked in the log or on chart 1 moves chart 2 to its minute.
@@ -322,12 +325,12 @@ function MarketLiveDay({
             <SweepLog
               store={flow.sweeps}
               cursor={cursor}
-              withBrokers={day !== undefined}
+              withBrokers={withBrokers}
               {...view.log}
             />
           )
         }
-        wideLog={day !== undefined}
+        withBrokers={withBrokers}
         panel={view.panel}
         onPanel={view.pickPanel}
         watchlist={

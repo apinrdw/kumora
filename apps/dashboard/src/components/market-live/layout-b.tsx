@@ -46,7 +46,7 @@ const TAB_NAMES: Record<Panel, string> = {
 export function LayoutB({
   charts,
   log,
-  wideLog,
+  withBrokers,
   watchlist,
   book,
   tape,
@@ -56,7 +56,7 @@ export function LayoutB({
   charts: ReactNode
   log: ReactNode | undefined
   // Whether the log has its broker columns: a recorded day's.
-  wideLog: boolean
+  withBrokers: boolean
   watchlist: ReactNode
   book: ReactNode
   tape: ReactNode
@@ -98,7 +98,7 @@ export function LayoutB({
         // spec apinrdw/kumora#343, "Log layout A".
         log === undefined
           ? "lg:grid-cols-[minmax(0,1fr)_400px]"
-          : wideLog
+          : withBrokers
             ? "lg:grid-cols-[minmax(0,1fr)_530px_400px]"
             : "lg:grid-cols-[minmax(0,1fr)_340px_400px]"
       )}
