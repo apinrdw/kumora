@@ -197,6 +197,22 @@ _Avoid_: Domicile
 One stock's scripless shares held by one investor classification and origin, as of a classification report's data date. A classification and origin with no holding holds 0.
 _Avoid_: Ownership row, class holding
 
+**KSEI investor type**:
+One of KSEI's 9 parent categories of investor: ID (Individual), CP (Corporate), MF (Mutual fund), IB (Financial institution), IS (Insurance), SC (Securities company), PF (Pension fund), FD (Foundation) and OT (Others). The stock page groups investor classifications into them by a fixed mapping, which never matches KSEI's own type totals exactly.
+_Avoid_: Investor group, category
+
+**Retail / institution**:
+Retail is the holdings of the Individual KSEI investor type; institution is every other type's.
+_Avoid_: Retail investors meaning any small holder
+
+**Stock page**:
+The page of one stock, `/stocks/<code>`, open to every signed-in member: who holds the stock, from parsed holdings.
+_Avoid_: Ownership page, stock detail
+
+**Shareholders composition**:
+The stock page's panel of one classification report month: the stock's total scripless shares, retail against institution, and each KSEI investor type's share of an origin, against the month before.
+_Avoid_: Ownership mix, holder breakdown
+
 ### Access
 
 **Account**:
