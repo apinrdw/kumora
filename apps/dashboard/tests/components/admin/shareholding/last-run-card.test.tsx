@@ -99,8 +99,8 @@ describe("the last run card", () => {
               monthsParsed: 3,
               parseFailures: [
                 {
-                  dataDate: "2026-10-30",
-                  reason: "Header row 4 has no TOTAL SCRIPLESS",
+                  date: "2026-10-30",
+                  message: "Header row 4 has no TOTAL SCRIPLESS",
                 },
               ],
             },
@@ -129,8 +129,8 @@ describe("the last run card", () => {
               finishedAt: "2026-11-14T13:18:24.000Z",
               monthsParsed: 2,
               parseFailures: [
-                { dataDate: "2026-05-29", reason: "The report has no stocks" },
-                { dataDate: "2026-10-30", reason: "The report has no stocks" },
+                { date: "2026-05-29", message: "The report has no stocks" },
+                { date: "2026-10-30", message: "The report has no stocks" },
               ],
               error: "IDX answered 403",
             },

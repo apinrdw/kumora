@@ -20,6 +20,15 @@ export const RunOutcome = Schema.Literals([
 ])
 export type RunOutcome = typeof RunOutcome.Type
 
+// A month a parse run couldn't parse, by its date (a classification
+// report's data date, a KSEI file's period end), and why, in at most
+// MAX_RUN_ERROR_LENGTH characters. It keeps its earlier parsed holdings, and
+// the next run tries it again.
+export const ParseFailure = Schema.Struct({
+  date: Schema.String,
+  message: Schema.String,
+})
+
 // The most characters of an error a run record keeps. A failure's message
 // can quote what the source sent, which the source decides the size of.
 export const MAX_RUN_ERROR_LENGTH = 1000

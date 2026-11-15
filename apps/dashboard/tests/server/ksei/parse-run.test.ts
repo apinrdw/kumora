@@ -205,7 +205,7 @@ describe("a KSEI parse run", () => {
           const result = yield* parse(w, "cron-2026-11-15")
           assert.deepInclude(result, { outcome: "partial", monthsParsed: 3 })
           assert.lengthOf(result.parseFailures, 1)
-          assert.strictEqual(result.parseFailures[0]?.periodEnd, "2026-10-30")
+          assert.strictEqual(result.parseFailures[0]?.date, "2026-10-30")
           assert.include(result.parseFailures[0]?.message, reason)
           assert.deepStrictEqual(yield* read(w, "2026-10-30", "BBCA"), october)
 

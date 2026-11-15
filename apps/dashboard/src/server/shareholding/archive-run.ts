@@ -24,7 +24,8 @@ import {
   storedReports,
 } from "../archive/run.ts"
 import type { HoldingsDb } from "../holdings/db.ts"
-import { monthsToParse, parseMonth } from "./classification-parse.ts"
+import { type Parses, parseMonths } from "../holdings/parse-steps.ts"
+import { classificationMonths } from "./classification-parse.ts"
 import { recordKey, reportKey } from "./keys.ts"
 import {
   fetchListing,
@@ -217,8 +218,6 @@ const finishedResult = Effect.fnUntraced(function* (run: IdxRun) {
   return { ...(yield* runningResult(run)), finishedAt: yield* nowIso }
 })
 
-type Parses = Pick<ArchiveRunResult, "monthsParsed" | "parseFailures">
-
 const summary = Effect.fnUntraced(function* (
   run: IdxRun,
   checked: typeof Checked.Type,
@@ -289,29 +288,6 @@ const reportStepName = Effect.fnUntraced(function* (report: ListedReport) {
   return `report:${report.kind}/${report.dataDate}/${digest}`
 })
 
-// `reconcile`, then a `parse:` step per classification month it picked.
-// Decision: a month that fails to parse doesn't stop the run; its parsed
-// holdings stay as they were, and the next run's reconcile picks it again.
-const parseMonths = Effect.fnUntraced(function* (
-  steps: WorkflowSteps<StepServices>
-): Effect.fn.Return<Parses, StepFailed> {
-  const months = yield* steps.do("reconcile", monthsToParse)
-  const parsed = yield* Effect.forEach(months, ({ dataDate, sha256 }) =>
-    steps.do(`parse:${dataDate}`, parseMonth({ dataDate, sha256 })).pipe(
-      Effect.mapError(({ message }) => ({ dataDate, message })),
-      Effect.result
-    )
-  )
-  return {
-    monthsParsed: parsed.filter(Result.isSuccess).length,
-    parseFailures: yield* Effect.forEach(
-      parsed.filter(Result.isFailure),
-      ({ failure: { dataDate, message } }) =>
-        Effect.map(runError(message), (reason) => ({ dataDate, reason }))
-    ),
-  }
-})
-
 export const archiveRun = Effect.fn("archiveRun")(function* (
   steps: WorkflowSteps<StepServices>,
   run: IdxRun
@@ -321,7 +297,7 @@ export const archiveRun = Effect.fn("archiveRun")(function* (
     // Decision: the reconcile reads only R2 and D1, so a run whose listing
     // can't be read still parses what the archive holds. The run still fails
     // with `plan`'s message, which the Workflow keeps as the instance's error.
-    const parses = yield* parseMonths(steps).pipe(
+    const parses = yield* parseMonths(steps, classificationMonths).pipe(
       Effect.orElseSucceed(() => ({ monthsParsed: 0, parseFailures: [] }))
     )
     yield* steps
@@ -352,7 +328,7 @@ export const archiveRun = Effect.fn("archiveRun")(function* (
     )
   )
   const { archived, notStored } = storedReports(stored, checked.unanswered)
-  const parses = yield* parseMonths(steps).pipe(
+  const parses = yield* parseMonths(steps, classificationMonths).pipe(
     // The run still fails with `reconcile`'s message, which the Workflow
     // keeps as the instance's error.
     Effect.tapError(({ message }) =>

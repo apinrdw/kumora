@@ -209,7 +209,7 @@ describe("an archive run's reconcile", () => {
           monthsParsed: 0,
         })
         assert.deepStrictEqual(
-          failed.parseFailures.map(({ dataDate }) => dataDate),
+          failed.parseFailures.map(({ date }) => date),
           ["2026-10-30"]
         )
         assert.deepStrictEqual(yield* read(w, "2026-10-30", "BBCA"), october)
@@ -346,7 +346,7 @@ describe("a classification report that doesn't match what's expected", () => {
             monthsParsed: 0,
           })
           assert.deepStrictEqual(failed.parseFailures, [
-            { dataDate: "2026-10-30", reason },
+            { date: "2026-10-30", message: reason },
           ])
           assert.deepStrictEqual(runRecord(w, "cron-2026-11-14T13"), failed)
           assert.deepStrictEqual(yield* read(w, "2026-10-30", "BBCA"), october)
@@ -364,7 +364,7 @@ describe("a classification report that doesn't match what's expected", () => {
       const result = yield* run(w, "cron-2026-11-14T06")
       assert.deepInclude(result, { outcome: "partial", monthsParsed: 3 })
       assert.deepStrictEqual(
-        result.parseFailures.map(({ dataDate }) => dataDate),
+        result.parseFailures.map(({ date }) => date),
         ["2026-05-29"]
       )
       assert.isUndefined(yield* read(w, "2026-05-29", "BBCA"))

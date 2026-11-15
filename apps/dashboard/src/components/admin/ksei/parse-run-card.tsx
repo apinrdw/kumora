@@ -30,9 +30,9 @@ function Failures({ result }: { result: KseiParseRunResult }) {
       {parseFailures.length === 1 ? "It keeps its" : "They keep their"} earlier
       parsed holdings; the next run tries again.
       <ul aria-label="Parse failures" className="mt-1 list-disc pl-5">
-        {parseFailures.map(({ periodEnd, message }) => (
-          <li key={periodEnd} className="[overflow-wrap:anywhere]">
-            <b className="num">{periodEnd}:</b> {message}
+        {parseFailures.map(({ date, message }) => (
+          <li key={date} className="[overflow-wrap:anywhere]">
+            <b className="num">{date}:</b> {message}
           </li>
         ))}
       </ul>

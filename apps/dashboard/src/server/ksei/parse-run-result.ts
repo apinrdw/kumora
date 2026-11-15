@@ -3,7 +3,13 @@
 // admin page's Last parse run card reads it back with this Schema.
 import { DateTime, Effect, Schema, Struct } from "effect"
 
-import { type Run, RunId, type RunParams, RunOutcome } from "../archive/run.ts"
+import {
+  ParseFailure,
+  type Run,
+  RunId,
+  type RunParams,
+  RunOutcome,
+} from "../archive/run.ts"
 
 export const KseiParseTrigger = Schema.Literals(["cron", "admin"])
 export type KseiParseTrigger = typeof KseiParseTrigger.Type
@@ -20,11 +26,8 @@ export const KseiParseRunResult = Schema.Struct({
   outcome: RunOutcome,
   // Period ends parsed into parsed holdings.
   monthsParsed: Schema.Number,
-  // Period ends whose parse failed, each with why; the next run tries them
-  // again. Any makes the run partial.
-  parseFailures: Schema.Array(
-    Schema.Struct({ periodEnd: Schema.String, message: Schema.String })
-  ),
+  // Period ends that failed to parse; any makes the run partial.
+  parseFailures: Schema.Array(ParseFailure),
   // At most MAX_RUN_ERROR_LENGTH characters.
   error: Schema.NullOr(Schema.String),
 })

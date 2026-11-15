@@ -32,8 +32,8 @@ const NOT_STORED =
   "https://www.idx.co.id/Media/x7qp21ab/peng-2026-11-13-00117-lima-persen.xlsx"
 const OTHER = "https://www.idx.co.id/Media/k2m9/pengumuman-lain.xlsx"
 const PARSE_FAILURE = {
-  dataDate: "2026-10-30",
-  reason:
+  date: "2026-10-30",
+  message:
     "BBCA (row 7)'s classifications sum to 52,453,691,121, not its TOTAL SCRIPLESS of 52,453,691,120",
 }
 
@@ -159,7 +159,7 @@ test.describe.serial("an admin's last archive run", () => {
     )
     await expect(
       card.getByRole("list", { name: "Parse failures" }).getByRole("listitem")
-    ).toHaveText([`${PARSE_FAILURE.dataDate} ${PARSE_FAILURE.reason}`])
+    ).toHaveText([`${PARSE_FAILURE.date} ${PARSE_FAILURE.message}`])
     await expect(
       card.getByRole("list", { name: "Archived under other" })
     ).toContainText(`Laporan Kepemilikan Lainnya ${OTHER}`)
@@ -178,7 +178,7 @@ test.describe.serial("an admin's last archive run", () => {
     await expect(stat(card, "Months parsed")).toHaveText("1")
     await expect(
       card.getByRole("list", { name: "Parse failures" }).getByRole("listitem")
-    ).toHaveText([`${PARSE_FAILURE.dataDate} ${PARSE_FAILURE.reason}`])
+    ).toHaveText([`${PARSE_FAILURE.date} ${PARSE_FAILURE.message}`])
   })
 
   test("Run now is disabled while the latest run is running", async ({

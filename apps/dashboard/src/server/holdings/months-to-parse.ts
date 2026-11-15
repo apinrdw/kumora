@@ -14,7 +14,7 @@ import { HoldingsDb } from "./db.ts"
 const RECORD =
   /^(\d{4}-\d{2}-\d{2})\/([0-9a-f]{64})\.([^.]+\.\d{3}Z)\.[0-9a-f]+\.json$/
 
-interface ParsedMonth {
+export interface ParsedMonth {
   readonly sha256: string
   readonly parserVersion: number
 }

@@ -61,9 +61,9 @@ function Detail({ result }: { result: ArchiveRunResult }) {
           {parseFailures.length === 1 ? "It keeps its" : "Each keeps its"}{" "}
           earlier parsed holdings, and the next run tries again.
           <ul aria-label="Parse failures" className="mt-1 list-disc pl-5">
-            {parseFailures.map(({ dataDate, reason }) => (
-              <li key={dataDate} className="[overflow-wrap:anywhere]">
-                <span className="font-mono text-xs">{dataDate}</span> {reason}
+            {parseFailures.map(({ date, message }) => (
+              <li key={date} className="[overflow-wrap:anywhere]">
+                <span className="font-mono text-xs">{date}</span> {message}
               </li>
             ))}
           </ul>
