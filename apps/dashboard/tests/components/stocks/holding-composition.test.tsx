@@ -1,7 +1,7 @@
 // @vitest-environment happy-dom
 import { act } from "react"
 import { createRoot } from "react-dom/client"
-import { afterEach, expect, test } from "vitest"
+import { afterEach, expect, test, vi } from "vitest"
 
 import { HoldingComposition } from "@/components/stocks/holding-composition"
 import type { OriginShown } from "@/lib/stock-search"
@@ -58,6 +58,27 @@ test("another chart origin shows every series again", async () => {
   expect(legend("Individual")?.getAttribute("aria-pressed")).toBe("false")
   await render("foreign")
   expect(legend("Individual")?.getAttribute("aria-pressed")).toBe("true")
+})
+
+test("clicks on two legend entries in quick succession hide both", async () => {
+  vi.useFakeTimers()
+  try {
+    await render("local")
+    // A mouse click, which waits out a double-click.
+    const click = (label: string) =>
+      act(() => {
+        legend(label)?.dispatchEvent(
+          new MouseEvent("click", { bubbles: true, detail: 1 })
+        )
+      })
+    await click("Individual")
+    await click("Corporate")
+    await act(() => vi.advanceTimersByTime(1_000))
+    expect(legend("Individual")?.getAttribute("aria-pressed")).toBe("false")
+    expect(legend("Corporate")?.getAttribute("aria-pressed")).toBe("false")
+  } finally {
+    vi.useRealTimers()
+  }
 })
 
 test("the origin summary is unavailable when the newest month holds no shares", async () => {
