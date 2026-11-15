@@ -14,7 +14,7 @@ import {
   type Composition,
   composition,
   type Level,
-  scripShare,
+  scrip,
 } from "@/lib/stock-composition"
 import type { PanelOrigin } from "@/lib/stock-search"
 import type { CompositionMonth, StockPage } from "@/server/holdings/stock-page"
@@ -258,9 +258,9 @@ const SCRIPLESS = { label: "Scripless", color: "var(--semantic-info)" }
 // Of the stock's listed shares, whatever the origin shown: listed shares
 // aren't split by origin.
 function ScripBar({ month }: { month: CompositionMonth }) {
-  const share = scripShare(month)
-  if (share !== undefined)
-    return <SplitBar left={SCRIP} right={SCRIPLESS} share={share} />
+  const shown = Effect.runSync(scrip(month))
+  if (shown._tag === "Share")
+    return <SplitBar left={SCRIP} right={SCRIPLESS} share={shown.share} />
   return (
     <div
       role="group"
@@ -272,7 +272,9 @@ function ScripBar({ month }: { month: CompositionMonth }) {
         <span>Scripless</span>
       </div>
       <p>
-        Unavailable: KSEI has no listed shares for {monthLabel(month.dataDate)}.
+        {shown._tag === "NoListedShares"
+          ? `Unavailable: KSEI has no listed shares for ${monthLabel(month.dataDate)}.`
+          : `Unavailable: KSEI lists ${Effect.runSync(compact(shown.listedShares))} shares for ${monthLabel(month.dataDate)}, fewer than the ${Effect.runSync(compact(month.totalScripless))} scripless.`}
       </p>
     </div>
   )

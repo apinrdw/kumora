@@ -2,7 +2,7 @@ import { describe, expect, it } from "@effect/vitest"
 import { Effect } from "effect"
 
 import { KSEI_TYPES } from "@/domain/holdings"
-import { composition } from "@/lib/stock-composition"
+import { composition, scrip } from "@/lib/stock-composition"
 import type { CompositionMonth } from "@/server/holdings/stock-page"
 
 // An unsplit month in which Individual and Corporate hold `held`, each
@@ -46,5 +46,39 @@ describe("the Shareholders composition rows", () => {
         { key: "CP", share: 0, previousShare: 0.03 },
       ])
     })
+  )
+})
+
+describe("the scrip share", () => {
+  it.effect("is listed less scripless, of listed", () =>
+    Effect.gen(function* () {
+      expect(
+        yield* scrip({
+          ...month("2026-10-30", { ID: 60, CP: 20 }),
+          listedShares: 100,
+        })
+      ).toEqual({ _tag: "Share", share: 0.2 })
+    })
+  )
+
+  it.effect("is unavailable when KSEI has no listed shares", () =>
+    Effect.gen(function* () {
+      expect(yield* scrip(month("2026-10-30", { ID: 60, CP: 20 }))).toEqual({
+        _tag: "NoListedShares",
+      })
+    })
+  )
+
+  it.effect(
+    "is unavailable when KSEI lists fewer shares than are scripless",
+    () =>
+      Effect.gen(function* () {
+        expect(
+          yield* scrip({
+            ...month("2026-10-30", { ID: 60, CP: 20 }),
+            listedShares: 70,
+          })
+        ).toEqual({ _tag: "FewerListed", listedShares: 70 })
+      })
   )
 })

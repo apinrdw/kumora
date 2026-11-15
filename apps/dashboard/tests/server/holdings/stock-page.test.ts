@@ -5,7 +5,7 @@ import { assert, describe, it } from "@effect/vitest"
 import { StockCode } from "@workspace/relay"
 import { Effect, Layer } from "effect"
 
-import { scripShare } from "@/lib/stock-composition"
+import { scrip } from "@/lib/stock-composition"
 import { RunId } from "@/server/archive/run"
 import {
   type CompositionMonth,
@@ -204,13 +204,19 @@ describe("the stock page read", () => {
     Effect.gen(function* () {
       const { month, previous } = (yield* read("BBCA")).composition ?? {}
       assert.strictEqual(month?.dataDate, "2026-10-30")
-      const scrip = month === undefined ? undefined : scripShare(month)
-      assert.strictEqual(scrip?.toFixed(4), "0.5745")
-      assert.isDefined(previous && scripShare(previous))
+      assert.isDefined(month)
+      assert.isDefined(previous)
+      const october = yield* scrip(month)
+      assert.strictEqual(
+        october._tag === "Share" ? october.share.toFixed(4) : october._tag,
+        "0.5745"
+      )
+      assert.strictEqual((yield* scrip(previous))._tag, "Share")
       // No KSEI file of March's date: scrip is unavailable, never a guess.
       const { month: march } =
         (yield* read("BBCA", "2026-03")).composition ?? {}
-      assert.isUndefined(march && scripShare(march))
+      assert.isDefined(march)
+      assert.strictEqual((yield* scrip(march))._tag, "NoListedShares")
     })
   )
 

@@ -109,15 +109,26 @@ export const composition = (
     return { total: current.total, rows, retail }
   })
 
-/**
- * The share of the stock's listed shares held as scrip (listed − scripless),
- * 0 to 1. Undefined when KSEI has no listed shares for the month's date, or
- * fewer than its scripless shares, so a wrong scrip share is never shown.
- */
-export const scripShare = ({
+// The share of the stock's listed shares held as scrip (listed − scripless),
+// 0 to 1, or why there is none: KSEI has no listed shares for the month's
+// date, or fewer than its scripless shares, so a wrong scrip share is never
+// shown.
+export type Scrip =
+  | { readonly _tag: "Share"; readonly share: number }
+  | { readonly _tag: "NoListedShares" }
+  | { readonly _tag: "FewerListed"; readonly listedShares: number }
+
+export const scrip = ({
   listedShares,
   totalScripless,
-}: CompositionMonth): number | undefined =>
-  listedShares === undefined || listedShares < totalScripless
-    ? undefined
-    : (listedShares - totalScripless) / listedShares
+}: CompositionMonth): Effect.Effect<Scrip> =>
+  Effect.succeed(
+    listedShares === undefined
+      ? { _tag: "NoListedShares" }
+      : listedShares < totalScripless
+        ? { _tag: "FewerListed", listedShares }
+        : {
+            _tag: "Share",
+            share: (listedShares - totalScripless) / listedShares,
+          }
+  )
