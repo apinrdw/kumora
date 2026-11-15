@@ -63,6 +63,14 @@ tr.sub td:first-child{padding-left:26px;color:var(--muted)}
 .bar{position:fixed;left:0;right:0;bottom:0;padding-block:10px calc(10px + env(safe-area-inset-bottom,0px));padding-left:max(16px,env(safe-area-inset-left,0px));padding-right:max(16px,env(safe-area-inset-right,0px));background:var(--panel);border-top:1px solid var(--line);display:flex;gap:12px;flex-wrap:wrap;justify-content:center;align-items:center;z-index:5;box-shadow:0 -4px 16px rgba(0,0,0,.06)}
 .lbl{font-size:11px;text-transform:uppercase;letter-spacing:.06em;color:var(--muted)}
 .note{font-size:12px;color:var(--muted)}
+.mtabs{display:grid;grid-template-columns:repeat(8,minmax(0,1fr));gap:6px}
+.mt,.chip{font:inherit;font-size:12px;padding:6px 4px;border:1px solid var(--line);border-radius:6px;background:transparent;color:var(--fg);cursor:pointer}
+.chip{padding:5px 12px;border-radius:999px}
+.mt[aria-pressed="true"],.chip[aria-pressed="true"]{border-color:var(--g3);color:var(--g3);font-weight:600}
+.chip:disabled{opacity:.4;cursor:not-allowed}
+.cbox{border:1px solid var(--line);border-radius:8px;padding:12px;display:flex;flex-direction:column;gap:10px}
+.crow{display:flex;flex-direction:column;gap:6px;padding:8px 0}
+.split.comp{grid-template-columns:minmax(0,1fr) 460px}
 </style>
 <div class="wrap" id="app"></div>
 <div class="bar">
@@ -97,8 +105,8 @@ const sgn=(n,f)=>n===0?"0":(n>0?"+":"−")+f(Math.abs(n));
 const pct=x=>(x*100).toFixed(x<0.001&&x>0?2:1)+"%";
 const pp=x=>sgn(+(x*100).toFixed(2),v=>v.toFixed(2)+"%");
 
-let S={variant:"combo",code:"BBCA",date:DATES[DATES.length-1],grouped:true,tdate:DATES[DATES.length-1]};
-const VARIANTS={combo:"A+B · Table with monthly bars",table:"A · Table, own page",timeline:"B · Monthly timeline, own page",panel:"C · Panel on Market Live"};
+let S={variant:"comp",origin:"all",all39:false,code:"BBCA",date:DATES[DATES.length-1],grouped:true,tdate:DATES[DATES.length-1]};
+const VARIANTS={comp:"D · Shareholders composition, /stocks/BBCA",combo:"A+B · Table with monthly bars",table:"A · Table, own page",timeline:"B · Monthly timeline, own page",panel:"C · Panel on Market Live"};
 try{const h=location.hash.slice(1);if(VARIANTS[h])S.variant=h}catch(e){}
 
 function month(code,date){
@@ -183,6 +191,48 @@ function vCombo(){
   return t.slice(0,cut)+tl+t.slice(cut);
 }
 
+function originTotals(code,date,origin,byGroup){
+  const m=month(code,date); if(!m) return null;
+  if(origin!=="all"&&!m.split) return {m,rows:null};
+  const pick=x=>origin==="all"?x.combined:origin==="local"?x.local:x.foreign;
+  const rows=agg(m,byGroup).map(x=>({...x,v:pick(x)}));
+  const tot=rows.reduce((s,x)=>s+x.v,0)||1;
+  rows.forEach(x=>x.p=x.v/tot);
+  return {m,rows,tot};
+}
+function vComp(){
+  const o=S.origin||"all",cur=originTotals(S.code,S.date,o,!S.all39),pd=prevDate(S.date),prev=pd&&originTotals(S.code,pd,o,!S.all39);
+  const pm=prev&&prev.rows?Object.fromEntries(prev.rows.map(x=>[x.key,x.p])):null;
+  const tabs=DATES.map(d=>`<button type="button" class="mt" data-d="${d}" aria-pressed="${d===S.date}">${MONTHS[+d.slice(5,7)-1]}</button>`).join("");
+  const ob=(k,l)=>{const dis=k!=="all"&&!cur.m.split;return `<button type="button" class="chip" data-o="${k}" aria-pressed="${o===k}" ${dis?`disabled title="${NA}"`:""}>${l}</button>`};
+  let body;
+  if(!cur.rows) body=`<div class="note" style="padding:12px 0">${o==="local"?"Local":"Foreign"} holdings: ${NA}.</div>`;
+  else{
+    const retail=(cur.rows.find(x=>x.key==="ID"||x.key==="INDIVIDUAL (ID)")||{p:0}).p;
+    const list=[...cur.rows].sort((a,b)=>b.v-a.v).filter(x=>x.v>0).map(x=>{
+      const was=pm&&pm[x.key]!==undefined?pm[x.key]:(pm?0:null);
+      const same=was!==null&&Math.abs(was-x.p)<0.00005;
+      const cls=was===null||same?"":x.p>was?"up":"down";
+      return `<div class="crow"><div class="row spread" style="gap:6px"><span><span class="sw" style="background:${x.color}"></span>${x.label} <span class="muted">${fmt(x.v)}</span></span>
+        <span class="num">${was===null||same?"":`<span class="muted">${(was*100).toFixed(2)}% → </span>`}<b class="${cls}">${(x.p*100).toFixed(2)}%</b></span></div>
+        <div class="pctbar" style="width:100%;height:5px"><i style="width:${x.p*100}%;background:${x.color}"></i></div></div>`}).join("");
+    body=`<div class="cbox"><div class="row spread"><b>Total scripless shares${o==="all"?"":" ("+o+")"}</b><b class="num">${fmt(cur.tot)}</b></div>
+      <div><div class="row spread note"><span>Retail</span><span>Institution</span></div>
+      <div class="lf" style="width:100%;height:6px"><i style="width:${retail*100}%;background:var(--g9)"></i><i style="width:${(1-retail)*100}%;background:var(--g3)"></i></div>
+      <div class="row spread"><b style="color:var(--g9)">${(retail*100).toFixed(2)}%</b><b style="color:var(--g3)">${((1-retail)*100).toFixed(2)}%</b></div></div></div>
+      <div>${list}</div>
+      <div class="row spread note"><span>${pd?(prev&&prev.rows?"Arrows compare with "+mlabel(pd)+".":mlabel(pd)+" has no local/foreign split, so no change is shown."):"No earlier month in the archive."}</span>
+      <button type="button" class="chip" id="all39" aria-pressed="${!!S.all39}">${S.all39?"Show 9 KSEI types":"Show all 39 classes"}</button></div>`;
+  }
+  return `<div class="crumbs">Stocks / ${S.code}</div>
+  <div class="row spread"><h1>${S.code} <span class="muted" style="font-weight:500">${cur.m.r.name}</span></h1>${stockSel()}</div>
+  <div class="split comp"><div class="fake">Other ${S.code} sections (price, Market Live link, …)</div>
+  <div class="card" style="gap:12px"><div class="row spread"><h2>Shareholders composition</h2><span class="muted">${mlabel(S.date)}</span></div>
+   <div class="mtabs">${tabs}</div>
+   <div class="row" style="gap:8px">${ob("all","All scripless")}${ob("local","Local")}${ob("foreign","Foreign")}</div>
+   ${body}</div></div>`;
+}
+
 function vPanel(){
   const D=withDelta(S.code,S.date,false),m=D.m,o=origins(m);
   const top=D.rows.slice(0,6);
@@ -200,12 +250,15 @@ function vPanel(){
 }
 
 function render(){
-  const body=S.variant==="combo"?vCombo():S.variant==="table"?vTable():S.variant==="timeline"?vTimeline():vPanel();
+  const body=S.variant==="comp"?vComp():S.variant==="combo"?vCombo():S.variant==="table"?vTable():S.variant==="timeline"?vTimeline():vPanel();
   document.getElementById("app").innerHTML=`<div class="proto">Prototype for "What a stock's ownership mix by investor classification looks like in the dashboard". Real numbers from the 8 archived IDX classification reports (Mar–Oct 2026), 8 stocks. The 39 classes are grouped into KSEI's 9 investor types by the owner's mapping; against IDX's own "by investor type" report, ID, PF and FD match within 1% of shares for every stock, while CP and OT do for about 70% of stocks.</div>`+body;
   const q=id=>document.getElementById(id);
   if(q("code")) q("code").onchange=e=>{S.code=e.target.value;render()};
   if(q("date")) q("date").onchange=e=>{S.date=e.target.value;render()};
   if(q("grp")) q("grp").onclick=e=>{const g=e.target.dataset&&e.target.dataset.g;if(g){S.grouped=g==="1";render()}};
+  document.querySelectorAll(".mt").forEach(b=>b.onclick=()=>{S.date=b.dataset.d;if(S.origin!=="all"&&!DATA[S.code][S.date].split)S.origin="all";render()});
+  document.querySelectorAll(".chip[data-o]").forEach(b=>b.onclick=()=>{S.origin=b.dataset.o;render()});
+  if(q("all39")) q("all39").onclick=()=>{S.all39=!S.all39;render()};
   document.querySelectorAll(".trow").forEach(t=>{const f=()=>{if(t.dataset.pick==="date")S.date=t.dataset.d;else S.tdate=t.dataset.d;render()};t.onclick=f;t.onkeydown=e=>{if(e.key==="Enter"||e.key===" "){e.preventDefault();f()}}});
   document.querySelectorAll("#variants button").forEach(b=>b.setAttribute("aria-pressed",b.dataset.k===S.variant));
 }
