@@ -1,15 +1,17 @@
 import { MAX_ENTRY_BYTES } from "@/server/holdings/zip"
 
-// A part's text, or a byte written as is, such as 0xff, which no UTF-8 text
-// holds and which decodes as U+FFFD, a two-byte character.
-type Part = string | number
+// A part's text, its bytes, or a byte written as is, such as 0xff, which no
+// UTF-8 text holds and which decodes as U+FFFD, a two-byte character.
+type Part = string | Uint8Array | number
 
 // `parts` as bytes, in order.
 export const bytesOf = (...parts: ReadonlyArray<Part>) => {
   const encoded = parts.map((part) =>
     typeof part === "number"
       ? Uint8Array.of(part)
-      : new TextEncoder().encode(part)
+      : typeof part === "string"
+        ? new TextEncoder().encode(part)
+        : part
   )
   const bytes = new Uint8Array(
     encoded.reduce((sum, part) => sum + part.length, 0)
