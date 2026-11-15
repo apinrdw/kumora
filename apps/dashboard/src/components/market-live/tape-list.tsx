@@ -34,6 +34,7 @@ import {
 } from "@/lib/tape"
 
 import { withGapRows } from "./gap-rows"
+import { INVESTOR_TEXT } from "./investor-text"
 
 // The page's tape as an external store, drawn at most once per animation
 // frame however many deltas arrive in it: each message goes into the tape at
@@ -166,12 +167,6 @@ const TAPE_WIDTH_PX = Object.values(COLUMN_PX).reduce((sum, px) => sum + px)
 
 // A gap or fold row spans every column.
 const COLUMNS = Object.keys(COLUMN_PX).length
-
-// An investor type's colour, as the tape and the sweep log show it.
-export const INVESTOR_TEXT: Record<InvestorType, string> = {
-  F: "text-foreign",
-  D: "text-domestic",
-}
 
 // One side of a trade: its broker and the investor behind it.
 interface TradeSide {

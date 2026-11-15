@@ -32,6 +32,7 @@ import {
   leadBroker,
   logRows,
   pricePath,
+  sweepsUpTo,
   thresholdText,
   type KeptSweep,
   type LogRow,
@@ -42,7 +43,7 @@ import { runLoad } from "./recorded-day"
 import type { ReplayCursor } from "./replay-cursor"
 import { makeSweepStore, type SweepStore } from "./sweep-store"
 import { SweepTip } from "./sweep-tip"
-import { INVESTOR_TEXT } from "./tape-list"
+import { INVESTOR_TEXT } from "./investor-text"
 
 // The sweeps and the instant the page shows them at: a recorded day's
 // cursor, or live the end of time.
@@ -460,8 +461,7 @@ export function SweepLog({
     let buy = 0
     let sell = 0
     let big = 0
-    for (const sweep of view.kept) {
-      if (DateTime.toEpochMillis(sweep.time) > view.at) continue
+    for (const sweep of Effect.runSync(sweepsUpTo(view.kept, view.at))) {
       if (sweep.side === "buy") buy += 1
       else if (sweep.side === "sell") sell += 1
       else continue

@@ -10,7 +10,7 @@ import { lots } from "@/lib/format"
 import { sweepTip } from "@/lib/sweeps"
 
 import type { SweepStore } from "./sweep-store"
-import { INVESTOR_TEXT } from "./tape-list"
+import { INVESTOR_TEXT } from "./investor-text"
 
 // The tooltip sits this far from its point, on the side with more room.
 const GAP_PX = 12

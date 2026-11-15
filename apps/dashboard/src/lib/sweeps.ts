@@ -28,6 +28,16 @@ export interface SweepThreshold {
   readonly sell?: number
 }
 
+// The sweeps up to `at` (epoch ms), the replay cursor (live, the end of
+// time), in their order: the ones the page shows as of then.
+export const sweepsUpTo = <S extends Sweep>(
+  sweeps: ReadonlyArray<S>,
+  at: number
+) =>
+  Effect.sync(() =>
+    sweeps.filter((sweep) => DateTime.toEpochMillis(sweep.time) <= at)
+  )
+
 // The top-N rule: of the kept sweeps up to `at` (epoch ms), each side's own
 // lots at its top `percent`% mark (sorted by own lots, descending, the
 // ⌈n·N/100⌉-th); the lower of the two is the threshold for both. All
@@ -37,12 +47,11 @@ export const sweepThreshold = (
   percent: number,
   at: number
 ) =>
-  Effect.sync((): SweepThreshold => {
+  Effect.map(sweepsUpTo(sweeps, at), (upTo): SweepThreshold => {
     if (percent >= 100) return { lots: 0 }
     const buy: Array<number> = []
     const sell: Array<number> = []
-    for (const sweep of sweeps) {
-      if (DateTime.toEpochMillis(sweep.time) > at) continue
+    for (const sweep of upTo) {
       if (sweep.side === "buy") buy.push(sweep.own)
       else if (sweep.side === "sell") sell.push(sweep.own)
     }
@@ -106,9 +115,9 @@ export const logRows = Effect.fnUntraced(function* (
   }
 ) {
   const rows: Array<LogRow> = []
-  for (let index = sweeps.length - 1; index >= 0; index--) {
-    const sweep = sweeps[index]!
-    if (DateTime.toEpochMillis(sweep.time) > options.at) continue
+  const upTo = yield* sweepsUpTo(sweeps, options.at)
+  for (let index = upTo.length - 1; index >= 0; index--) {
+    const sweep = upTo[index]!
     if (!(yield* shown(sweep, options.threshold))) continue
     const big = yield* isBigSweep(sweep)
     if (options.bigOnly && !big) continue
@@ -176,9 +185,8 @@ export const emptyNote = (
   picked: BrokerCode | undefined,
   at: number
 ) =>
-  Effect.sync(() =>
-    picked === undefined ||
-    kept.some((sweep) => DateTime.toEpochMillis(sweep.time) <= at)
+  Effect.map(sweepsUpTo(kept, at), (upTo) =>
+    picked === undefined || upTo.length > 0
       ? undefined
       : `No sweeps where ${picked} was an aggressor.`
   )
@@ -202,7 +210,7 @@ export const brokerPicks = (
   brokers: ReadonlyMap<TradeNumber, SweepBrokers>,
   at: number
 ) =>
-  Effect.sync((): ReadonlyArray<BrokerPick> => {
+  Effect.map(sweepsUpTo(sweeps, at), (upTo): ReadonlyArray<BrokerPick> => {
     const held = new Map<
       BrokerCode,
       {
@@ -210,8 +218,7 @@ export const brokerPicks = (
         readonly lots: Record<InvestorType, number>
       }
     >()
-    for (const sweep of sweeps) {
-      if (DateTime.toEpochMillis(sweep.time) > at) continue
+    for (const sweep of upTo) {
       for (const broker of brokers.get(sweep.firstTrade)?.aggressor ?? []) {
         const entry = held.get(broker.code) ?? {
           first: broker.investorType,
@@ -285,12 +292,11 @@ export const arrivingNote = (
   brokers: ReadonlyMap<TradeNumber, SweepBrokers>,
   at: number
 ) =>
-  Effect.sync(() => {
+  Effect.map(sweepsUpTo(sweeps, at), (upTo) => {
     let all = 0
     let whole = 0
-    for (const sweep of sweeps) {
-      if (sweep.side === "none" || DateTime.toEpochMillis(sweep.time) > at)
-        continue
+    for (const sweep of upTo) {
+      if (sweep.side === "none") continue
       all += 1
       if (brokers.has(sweep.firstTrade)) whole += 1
     }
