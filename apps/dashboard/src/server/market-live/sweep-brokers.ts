@@ -83,14 +83,14 @@ const sweepsFromText = (text: string) =>
     )
   })
 
-// One side of a sweep: each member trade's broker on that side, with its
-// investor type and the trade's lots.
-type SideTrade = SweepBroker
+// One member trade's broker on one side of a sweep, with its investor type
+// and the trade's lots.
+type MemberBroker = SweepBroker
 
 // One side's brokers, largest lots first, ties by code. A broker that traded
 // both investor types in the sweep carries the one with more of its lots,
 // the first it traded on a tie.
-const sideOf = (trades: ReadonlyArray<SideTrade>) =>
+const sideOf = (trades: ReadonlyArray<MemberBroker>) =>
   Effect.sync((): ReadonlyArray<SweepBroker> => {
     const byCode = new Map<
       SweepBroker["code"],
@@ -133,8 +133,8 @@ const wholeSweeps = Effect.fnUntraced(function* (
     const members = trades.slice(next, next + sweep.trades)
     next += sweep.trades
     if (sweep.side === "none") continue
-    const buyers: Array<SideTrade> = []
-    const sellers: Array<SideTrade> = []
+    const buyers: Array<MemberBroker> = []
+    const sellers: Array<MemberBroker> = []
     for (const trade of members) {
       const held = codes.get(trade.tradeNumber)
       if (held === undefined) break
@@ -381,7 +381,7 @@ export const makeSweepBrokers = Effect.fnUntraced(function* (options: {
   })
 
   // One code's whole sweeps with their brokers, in trade order.
-  const sweepsOf = Effect.fnUntraced(function* (code: StockCode) {
+  const brokersOf = Effect.fnUntraced(function* (code: StockCode) {
     const sweeps: Array<SweepBrokers> = []
     for (const row of sql.exec(
       "SELECT sweeps FROM sweep_brokers WHERE code = ? ORDER BY minute",
@@ -391,7 +391,7 @@ export const makeSweepBrokers = Effect.fnUntraced(function* (options: {
     return sweeps
   })
 
-  return { recompute, builtFirst, storage, sweepsOf }
+  return { recompute, builtFirst, storage, brokersOf }
 })
 
 export type SweepBrokersStore = Effect.Success<

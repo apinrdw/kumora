@@ -125,7 +125,7 @@ export const recordedAnswer = Effect.fnUntraced(function* (
       return yield* json(
         yield* encodeRecordedSweepBrokers({
           code: resource.code,
-          sweeps: yield* day.sweepBrokers.sweepsOf(resource.code),
+          sweeps: yield* day.sweepBrokers.brokersOf(resource.code),
           complete,
         }),
         complete ? COMPLETE_CODES_CACHE : "no-store"
