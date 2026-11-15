@@ -53,11 +53,10 @@ interface Element {
 
 // Each <`name`> of `xml`, in order, or null in place of the first one never
 // closed, which ends the walk.
-// Decision: tags are found by indexOf, not by a lazy `[\s\S]*?` regex, and
-// walked one at a time, never gathered: an unclosed tag ends the walk after
-// one scan to the end, where the regex rescanned from each later tag, and a
-// walk keeps nothing per tag. A shared string of 600,000 empty rich-text
-// runs, matched at once, took past 48 MiB.
+// Decision: tags are found by indexOf and walked one at a time, never
+// gathered: a lazy `[\s\S]*?` regex rescanned to the end from each unclosed
+// tag, and a shared string of 600,000 empty rich-text runs, matched at once,
+// took past 48 MiB.
 // Decision: the walk stays plain, an Effect around each row and each cell's
 // value: Oct 2026's sheet reads in 55 ms so, and in 157 ms with an Effect
 // per tag as well (Node 26, median of 30, measured 2026-11-15).
