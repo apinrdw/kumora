@@ -18,28 +18,47 @@ const unreadable = (message: string) => new ZipUnreadable({ message })
 // Balancepos .txt at 530 KB (Sep and Oct 2026).
 export const MAX_ENTRY_BYTES = 8 * 1024 * 1024
 
+// Decision: a zip's central directory takes at most 64 KiB, which bounds
+// the entries and names it decodes whatever their count. IDX's .xlsx lists
+// 23 files in about 2 KB, KSEI's .zip one (Oct 2026).
+const MAX_DIRECTORY_BYTES = 64 * 1024
+
 interface Entry {
   readonly method: number
   readonly size: number
   readonly offset: number
 }
 
-// The zip's entries by name, from the End of Central Directory record back.
+// The zip's entries by name, from the End of Central Directory record back,
+// which a zip comment of at most 64 KiB may follow.
 export const zipEntries = Effect.fnUntraced(function* (bytes: Uint8Array) {
   const view = new DataView(bytes.buffer, bytes.byteOffset, bytes.byteLength)
+  const last = Math.max(0, bytes.length - 22 - 0xffff)
   let eocd = bytes.length - 22
-  while (eocd >= 0 && view.getUint32(eocd, true) !== 0x06054b50) eocd--
-  if (eocd < 0) return yield* unreadable("The file isn't a zip")
+  while (eocd >= last && view.getUint32(eocd, true) !== 0x06054b50) eocd--
+  if (eocd < last) return yield* unreadable("The file isn't a zip")
+  const directoryBytes = view.getUint32(eocd + 12, true)
+  if (directoryBytes > MAX_DIRECTORY_BYTES)
+    return yield* unreadable(
+      `The zip's directory is over ${MAX_DIRECTORY_BYTES.toLocaleString("en-US")} bytes`
+    )
   const entries = new Map<string, Entry>()
   let at = view.getUint32(eocd + 16, true)
+  const end = Math.min(at + directoryBytes, bytes.length)
   const count = view.getUint16(eocd + 10, true)
   const names = new TextDecoder()
   for (let index = 0; index < count; index++) {
-    if (at + 46 > bytes.length || view.getUint32(at, true) !== 0x02014b50)
+    if (at + 46 > end || view.getUint32(at, true) !== 0x02014b50)
       return yield* unreadable("The file isn't a zip")
     const nameLength = view.getUint16(at + 28, true)
+    const next =
+      at +
+      46 +
+      nameLength +
+      view.getUint16(at + 30, true) +
+      view.getUint16(at + 32, true)
     const local = view.getUint32(at + 42, true)
-    if (local + 30 > bytes.length)
+    if (next > end || local + 30 > bytes.length)
       return yield* unreadable("The file isn't a zip")
     entries.set(names.decode(bytes.subarray(at + 46, at + 46 + nameLength)), {
       method: view.getUint16(at + 10, true),
@@ -50,20 +69,17 @@ export const zipEntries = Effect.fnUntraced(function* (bytes: Uint8Array) {
         view.getUint16(local + 26, true) +
         view.getUint16(local + 28, true),
     })
-    at +=
-      46 +
-      nameLength +
-      view.getUint16(at + 30, true) +
-      view.getUint16(at + 32, true)
+    at = next
   }
   return entries as ReadonlyMap<string, Entry>
 })
 
-// The text of the entry `name`, inflated, refused past MAX_ENTRY_BYTES.
+// The text of the entry `name`, inflated, refused past `maxBytes`.
 export const entryText = Effect.fnUntraced(function* (
   bytes: Uint8Array,
   entries: ReadonlyMap<string, Entry>,
-  name: string
+  name: string,
+  maxBytes = MAX_ENTRY_BYTES
 ) {
   const entry = entries.get(name)
   if (entry === undefined) return yield* unreadable(`The file has no ${name}`)
@@ -82,8 +98,8 @@ export const entryText = Effect.fnUntraced(function* (
               .pipeThrough(new DecompressionStream("deflate-raw")),
           onError: () => unreadable(`${name} doesn't inflate`),
         }),
-    MAX_ENTRY_BYTES,
-    () => unreadable(`${name} inflates past ${MAX_ENTRY_BYTES} bytes`)
+    maxBytes,
+    () => unreadable(`${name} inflates past ${maxBytes} bytes`)
   )
   return new TextDecoder().decode(inflated)
 })
