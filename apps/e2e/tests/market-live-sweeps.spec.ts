@@ -2,6 +2,7 @@ import {
   BROKER_CODES_AUTH_SCHEME,
   BrokerCode,
   BrokerCodesProtocolVersion,
+  MINUTE_MS,
   TradeNumber,
   WibDate,
   decodeRecordedCandles,
@@ -9,6 +10,7 @@ import {
   recordedDayPath,
   type TradeCodes,
 } from "@workspace/relay"
+import type { Locator } from "@playwright/test"
 import { Effect } from "effect"
 
 import { DASHBOARD, MEMBER } from "../support/accounts"
@@ -165,7 +167,10 @@ test("a recorded day's sweep log shows each sweep's lead brokers, wider, with th
   const code = freshCode("SB")
   const day = WibDate.make(wibToday())
   // As the first test: a minute and more back, so no relay gap draws in it.
-  const start = marketNow() - 90_000
+  // Both sweeps share a minute, so selecting either never pans chart 1 and
+  // a bubble stays where it was read.
+  const start =
+    Math.floor((marketNow() - 90_000) / MINUTE_MS) * MINUTE_MS + 5_000
   // A buy sweep of two trades in one second, then a sell sweep of one.
   const second = (offset: number) => wibTime(start + offset * 1_000)
   await relay.sendAjaib([
@@ -275,21 +280,22 @@ test("a recorded day's sweep log shows each sweep's lead brokers, wider, with th
   // A bubble on chart 1 shows the same tooltip on hover, and a click on it
   // still selects its row.
   const candles = page.locator('[data-chart="candles"]')
-  const bubbleOf = async (row: typeof rows) => {
-    await row.click()
-    const id = (await row.getAttribute("data-sweep-id"))!
-    await expect(candles).toHaveAttribute("data-ringed-sweep", id)
-    const [x, y] = (await candles.getAttribute("data-ringed-at"))!
-      .split(",")
-      .map(Number)
-    const box = (await candles.boundingBox())!
-    return { x: box.x + x!, y: box.y + y! }
-  }
-  const buyBubble = await bubbleOf(rows.nth(1))
+  // The first selection pans chart 1 to the sweeps' minute, at times a draw
+  // after its ring; a selection in that minute then never moves it.
   await rows.first().click()
-  await expect(rows.first()).toHaveAttribute("aria-current", "true")
+  await ringedBubble(
+    candles,
+    (await rows.first().getAttribute("data-sweep-id"))!
+  )
+  await rows.nth(1).click()
+  const buyBubble = await ringedBubble(
+    candles,
+    (await rows.nth(1).getAttribute("data-sweep-id"))!
+  )
   await page.mouse.move(buyBubble.x, buyBubble.y)
   await expect(tip.getByRole("row")).toHaveText(buyTip)
+  await rows.first().click()
+  await expect(rows.first()).toHaveAttribute("aria-current", "true")
   await page.mouse.click(buyBubble.x, buyBubble.y)
   await expect(rows.nth(1)).toHaveAttribute("aria-current", "true")
 
@@ -311,20 +317,40 @@ test("a recorded day's sweep log shows each sweep's lead brokers, wider, with th
   await expect(phoneRows).toHaveCount(2)
   await expect(phoneLog.getByText("Aggressor", { exact: true })).toBeVisible()
   await expect(phoneLog.getByText("Other side")).toBeVisible()
+  // As above: one selection first, so chart 1 has panned once read.
+  await phoneRows.first().getByText("Sell").tap()
+  await expect(phoneRows.first()).toHaveAttribute("aria-current", "true")
   await phoneRows.nth(1).getByText("AK [F]").tap()
   await expect(phoneTip.getByRole("row")).toHaveText(buyTip)
   await phoneLog.getByRole("heading").tap()
   await expect(phoneTip).toBeHidden()
   const phoneCandles = phone.locator('[data-chart="candles"]')
-  await expect(phoneCandles).toHaveAttribute(
-    "data-ringed-sweep",
+  await phoneCandles.scrollIntoViewIfNeeded()
+  const phoneBubble = await ringedBubble(
+    phoneCandles,
     (await phoneRows.nth(1).getAttribute("data-sweep-id"))!
   )
-  await phoneCandles.scrollIntoViewIfNeeded()
-  const [x, y] = (await phoneCandles.getAttribute("data-ringed-at"))!
-    .split(",")
-    .map(Number)
-  const box = (await phoneCandles.boundingBox())!
-  await phone.touchscreen.tap(box.x + x!, box.y + y!)
+  await phone.touchscreen.tap(phoneBubble.x, phoneBubble.y)
   await expect(phoneTip.getByRole("row")).toHaveText(buyTip)
 })
+
+// The ringed bubble's centre in the viewport, once it is `id`'s and a
+// redraw no longer moves it (a selection can pan chart 1 a frame later).
+async function ringedBubble(candles: Locator, id: string) {
+  await expect(candles).toHaveAttribute("data-ringed-sweep", id)
+  let last: string | null = null
+  await expect
+    .poll(
+      async () => {
+        const at = await candles.getAttribute("data-ringed-at")
+        const settled = at === last
+        last = at
+        return settled
+      },
+      { intervals: [100] }
+    )
+    .toBe(true)
+  const [x, y] = last!.split(",").map(Number)
+  const box = (await candles.boundingBox())!
+  return { x: box.x + x!, y: box.y + y! }
+}
