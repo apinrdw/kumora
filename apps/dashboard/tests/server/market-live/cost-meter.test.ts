@@ -2,34 +2,18 @@
 // apinrdw/kumora#270): what a day's flushes write and what its order flow
 // tables hold, read from the log lines Workers Logs keeps.
 import { assert, describe, it } from "@effect/vitest"
-import { DateTime, Effect, Logger, References } from "effect"
+import { DateTime, Effect } from "effect"
 import { TestClock } from "effect/testing"
 
 import type { Sql } from "@/server/market-live/day-store"
 
-import { stockbitTrade, tradingDay } from "./day-harness"
+import { stockbitTrade, tradingDay, withLines, type Line } from "./day-harness"
 import { memorySql } from "./sql"
 
 const at = (time: string) =>
   TestClock.setTime(
     DateTime.toEpochMillis(DateTime.makeUnsafe(`2026-11-09T${time}+07:00`))
   )
-
-type Line = Readonly<Record<string, unknown>>
-
-// Runs `test` with the annotations of every line logged with `message`.
-const withLines = <A, E, R>(
-  message: string,
-  test: (lines: ReadonlyArray<Line>) => Effect.Effect<A, E, R>
-) => {
-  const lines: Array<Line> = []
-  const capture = Logger.make(({ message: logged, fiber }) => {
-    const [text] = Array.isArray(logged) ? logged : [logged]
-    if (text === message)
-      lines.push(fiber.getRef(References.CurrentLogAnnotations) as Line)
-  })
-  return test(lines).pipe(Effect.provide(Logger.layer([capture])))
-}
 
 const sum = (lines: ReadonlyArray<Line>, field: string) =>
   lines.reduce((total, line) => total + Number(line[field] ?? 0), 0)

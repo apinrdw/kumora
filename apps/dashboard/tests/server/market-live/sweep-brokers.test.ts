@@ -21,6 +21,7 @@ import {
   codesBeforeSweepBrokers,
   stockbitTrade,
   tradingDay,
+  withLines,
 } from "./day-harness"
 import { memorySql } from "./sql"
 
@@ -518,4 +519,67 @@ describe("the one-off build of a day whose codes landed before sweep brokers", (
         assert.strictEqual(resumed.counts.transactions, 2)
       })
   )
+
+  it.effect(
+    "a build cut off after a run of minutes with no whole sweep resumes past them",
+    () =>
+      withLines("Sweep brokers recomputed", (lines) =>
+        Effect.gen(function* () {
+          const sql = memorySql()
+          yield* at("09:05:10")
+          const sealed = yield* tradingDay(sql)
+          // A whole sweep at 09:00 and at 09:04, and between them a minute
+          // each of sweeps whose trades have no codes.
+          yield* sealed.trades([
+            untr(1, "09:00:10.000", 3, "buy"),
+            untr(2, "09:00:10.200", 5, "buy", 23325),
+            untr(3, "09:01:10.000", 1, "buy"),
+            untr(4, "09:02:10.000", 1, "buy"),
+            untr(5, "09:03:10.000", 1, "buy"),
+            untr(6, "09:04:10.000", 2, "buy"),
+            untr(7, "09:04:10.200", 6, "buy", 23325),
+          ])
+          yield* at("17:00:00")
+          yield* sealed.alarm
+          yield* at("17:30:00")
+          yield* sealed.brokerCodes("Ajaib", [
+            [1, "AK F CC D"],
+            [2, "AK D YP D"],
+            [6, "BK D ZP F"],
+            [7, "YP D ZP F"],
+          ])
+          yield* sealed.evicted
+          yield* codesBeforeSweepBrokers(sql)
+          yield* nextDay
+
+          // The build's 09:04 rows never land.
+          const crashed = yield* tradingDay(evictedWriting(sql, "09:04:00"))
+          const exit = yield* Effect.exit(crashed.recordedSweepBrokers("UNTR"))
+          assert.isTrue(Exit.isFailure(exit))
+          yield* crashed.evicted
+
+          const day = yield* tradingDay(sql)
+          const { answer } = yield* day.recordedSweepBrokers("UNTR")
+          assert.deepStrictEqual(answer.sweeps.map(brokersOf), [
+            [1, ["AK D 8"], ["YP D 5", "CC D 3"]],
+            [6, ["YP D 6", "BK D 2"], ["ZP F 8"]],
+          ])
+          // The resumed build reads only 09:04 again.
+          assert.strictEqual(lines.at(-1)!.sweepBrokerMinutes, 1)
+        })
+      )
+  )
 })
+
+// `sql` whose transaction writing sweep brokers rows for the minute at `time`
+// never lands, as an object evicted mid-build.
+const evictedWriting = (sql: Sql, time: string): Sql => {
+  const minute = DateTime.toEpochMillis(wib(time))
+  return {
+    exec: (query, ...bindings) =>
+      /INTO sweep_brokers/.test(query) && bindings[1] === minute
+        ? sql.exec("SELECT * FROM object_evicted_mid_build")
+        : sql.exec(query, ...bindings),
+    transaction: (write) => sql.transaction(write),
+  }
+}
