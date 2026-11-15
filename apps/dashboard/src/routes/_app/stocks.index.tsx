@@ -1,5 +1,6 @@
 import { createFileRoute, useNavigate } from "@tanstack/react-router"
-import { Effect } from "effect"
+import { clientRuntime } from "@workspace/client"
+import { Effect, Fiber } from "effect"
 import { useEffect } from "react"
 
 import { lastStock } from "@/lib/last-stock"
@@ -18,11 +19,21 @@ export const Route = createFileRoute("/_app/stocks/")({
 function StocksIndex() {
   const navigate = useNavigate()
   useEffect(() => {
-    void navigate({
-      to: "/stocks/$code",
-      params: { code: Effect.runSync(lastStock) },
-      replace: true,
-    })
+    const fiber = clientRuntime.runFork(
+      Effect.flatMap(lastStock, (code) =>
+        Effect.sync(
+          () =>
+            void navigate({
+              to: "/stocks/$code",
+              params: { code },
+              replace: true,
+            })
+        )
+      )
+    )
+    return () => {
+      clientRuntime.runFork(Fiber.interrupt(fiber))
+    }
   }, [navigate])
   return null
 }

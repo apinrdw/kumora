@@ -1,4 +1,5 @@
 import { createFileRoute } from "@tanstack/react-router"
+import { clientRuntime } from "@workspace/client"
 import { loadServerFn, runLoader } from "@workspace/server/loader"
 import { Effect } from "effect"
 import { useCallback, useEffect } from "react"
@@ -8,13 +9,7 @@ import { HoldingComposition } from "@/components/stocks/holding-composition"
 import { ShareholdersComposition } from "@/components/stocks/shareholders-composition"
 import { useStockList } from "@/components/stocks/use-stock-list"
 import { rememberStock } from "@/lib/last-stock"
-import {
-  type ChartOrigin,
-  type ChartView,
-  type PanelOrigin,
-  parseStockSearch,
-  type StockSearch,
-} from "@/lib/stock-search"
+import { parseStockSearch, type StockSearch } from "@/lib/stock-search"
 import type { StockPage } from "@/server/holdings/stock-page"
 import { stockPageFn } from "@/server/stocks/stocks.functions"
 
@@ -47,51 +42,15 @@ function StockPageView() {
   const navigate = Route.useNavigate()
   const list = useStockList(`/stocks/${page.code}`)
   // Bare /stocks opens it next time.
-  useEffect(() => Effect.runSync(rememberStock(page.code)), [page.code])
+  useEffect(() => {
+    clientRuntime.runFork(rememberStock(page.code))
+  }, [page.code])
   const newest = page.months.filter(({ held }) => held).at(-1)?.dataDate
-  const onMonth = useCallback(
-    (dataDate: string) =>
+  // Each control changes its own search param, at its default left out.
+  const setSearch = useCallback(
+    (change: StockSearch) =>
       void navigate({
-        search: (previous: StockSearch) => ({
-          ...previous,
-          month: dataDate === newest ? undefined : dataDate.slice(0, 7),
-        }),
-        replace: true,
-        resetScroll: false,
-      }),
-    [navigate, newest]
-  )
-  const onOrigin = useCallback(
-    (origin: PanelOrigin) =>
-      void navigate({
-        search: (previous: StockSearch) => ({
-          ...previous,
-          panel: origin === "all" ? undefined : origin,
-        }),
-        replace: true,
-        resetScroll: false,
-      }),
-    [navigate]
-  )
-  const onChart = useCallback(
-    (origin: ChartOrigin) =>
-      void navigate({
-        search: (previous: StockSearch) => ({
-          ...previous,
-          chart: origin === "all" ? undefined : origin,
-        }),
-        replace: true,
-        resetScroll: false,
-      }),
-    [navigate]
-  )
-  const onView = useCallback(
-    (next: ChartView) =>
-      void navigate({
-        search: (previous: StockSearch) => ({
-          ...previous,
-          view: next === "bars" ? undefined : next,
-        }),
+        search: (previous: StockSearch) => ({ ...previous, ...change }),
         replace: true,
         resetScroll: false,
       }),
@@ -128,8 +87,14 @@ function StockPageView() {
         <ShareholdersComposition
           page={{ ...page, composition: page.composition }}
           origin={panel}
-          onMonth={onMonth}
-          onOrigin={onOrigin}
+          onMonth={(dataDate) =>
+            setSearch({
+              month: dataDate === newest ? undefined : dataDate.slice(0, 7),
+            })
+          }
+          onOrigin={(origin) =>
+            setSearch({ panel: origin === "all" ? undefined : origin })
+          }
         />
       )}
       {page.series.length > 0 && (
@@ -138,8 +103,12 @@ function StockPageView() {
           series={page.series}
           origin={chart}
           view={view}
-          onOrigin={onChart}
-          onView={onView}
+          onOrigin={(origin) =>
+            setSearch({ chart: origin === "all" ? undefined : origin })
+          }
+          onView={(next) =>
+            setSearch({ view: next === "bars" ? undefined : next })
+          }
         />
       )}
     </div>
