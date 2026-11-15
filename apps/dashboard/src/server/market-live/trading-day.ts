@@ -1146,7 +1146,9 @@ export const makeTradingDay = Effect.fnUntraced(function* (options: {
       // changes no codes recomputes nothing. See spec apinrdw/kumora#343,
       // "When it is recomputed".
       post: (text: string) =>
-        turn.withPermit(brokerCodes.post(text, sweepBrokers.recompute)),
+        turn.withPermit(
+          brokerCodes.post(text, sweepBrokers.recompute, sweepBrokers.completed)
+        ),
       status: (search: URLSearchParams) =>
         turn.withPermit(brokerCodes.status(search)),
       held: (tradeNumber: TradeNumber) =>

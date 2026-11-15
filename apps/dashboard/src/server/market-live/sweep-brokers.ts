@@ -288,13 +288,18 @@ export const makeSweepBrokers = Effect.fnUntraced(function* (options: {
   // The storage line is logged again, with this table, the first time a
   // sealed day's codes are complete. See spec apinrdw/kumora#343, "Cost".
   // The Staging check reads both: docs/runbooks/order-flow-cost.md.
+  // `completed` runs after every accepted codes batch, one that changed no
+  // codes included: the walks' final batch carries only the day's N.
   let storageLogged = false
-  const logged = Effect.gen(function* () {
+  const recomputeLogged = Effect.gen(function* () {
     if ((yield* store.fact(Fact.sealed)) === undefined) return
     yield* Effect.logInfo("Sweep brokers recomputed").pipe(
       Effect.annotateLogs({ ...(yield* store.takeMeter) })
     )
-    if (storageLogged || !(yield* brokerCodes.isComplete)) return
+  })
+  const completed = Effect.gen(function* () {
+    if (storageLogged || (yield* store.fact(Fact.sealed)) === undefined) return
+    if (!(yield* brokerCodes.isComplete)) return
     storageLogged = true
     yield* Effect.logInfo("Order flow storage").pipe(
       Effect.annotateLogs({
@@ -324,7 +329,8 @@ export const makeSweepBrokers = Effect.fnUntraced(function* (options: {
         })
     }
     yield* store.markSweepBrokersBuilt
-    yield* logged
+    yield* recomputeLogged
+    yield* completed
   })
 
   // Decision: a day holding no codes as its object starts gets each batch's
@@ -378,7 +384,7 @@ export const makeSweepBrokers = Effect.fnUntraced(function* (options: {
       writeCodes()
       for (const [minute, changed] of rows) writeRows(minute, changed)
     })
-    yield* logged
+    yield* recomputeLogged
   })
 
   // The fact a flush of `trades` writes with them: the build's progress
@@ -429,7 +435,14 @@ export const makeSweepBrokers = Effect.fnUntraced(function* (options: {
     return sweeps
   })
 
-  return { recompute, persisting, builtFirst, storage, brokersOf }
+  return {
+    recompute,
+    completed,
+    persisting,
+    builtFirst,
+    storage,
+    brokersOf,
+  }
 })
 
 export type SweepBrokersStore = Effect.Success<
