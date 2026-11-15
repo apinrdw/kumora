@@ -5,6 +5,7 @@
 // hangs a reused isolate. See apinrdw/kumora#351.
 import { Effect, Schema } from "effect"
 
+import { excerpt } from "./excerpt.ts"
 import { entryText, zipEntries } from "./zip.ts"
 
 class XlsxUnreadable extends Schema.TaggedError<XlsxUnreadable>()(
@@ -23,6 +24,12 @@ const unreadable = (message: string) => new XlsxUnreadable({ message })
 const SHEET = "xl/worksheets/sheet1.xml"
 const SHARED_STRINGS = "xl/sharedStrings.xml"
 
+// Decision: the shared strings inflate to at most 1 MiB, 16× Oct 2026's
+// 64 KB, and the sheet to MAX_ENTRY_BYTES. A parse holds both as text at
+// once, each up to twice its bytes when a character takes two: two 8 MiB
+// parts took past 48 MiB.
+export const MAX_SHARED_STRINGS_BYTES = 1024 * 1024
+
 const decodeXml = (text: string) =>
   Effect.sync(() =>
     text.replace(
@@ -38,48 +45,99 @@ const decodeXml = (text: string) =>
     )
   )
 
+// A tag's attributes, and its content: undefined when it closes itself.
+interface Element {
+  readonly attributes: string
+  readonly content: string | undefined
+}
+
+// Each <`name`> of `xml`, in order, or null in place of the first one never
+// closed, which ends the walk.
+// Decision: tags are found by indexOf, not by a lazy `[\s\S]*?` regex, and
+// walked one at a time, never gathered: an unclosed tag ends the walk after
+// one scan to the end, where the regex rescanned from each later tag, and a
+// walk keeps nothing per tag. A shared string of 600,000 empty rich-text
+// runs, matched at once, took past 48 MiB.
+// Decision: the walk stays plain, an Effect around each row and each cell's
+// value: Oct 2026's sheet reads in 55 ms so, and in 157 ms with an Effect
+// per tag as well (Node 26, median of 30, measured 2026-11-15).
+function* elements(xml: string, name: string): Generator<Element | null, void> {
+  const open = `<${name}`
+  const close = `</${name}>`
+  for (let at = xml.indexOf(open); at !== -1; at = xml.indexOf(open, at)) {
+    at += open.length
+    // `<c` opens a cell, not a `<col`.
+    if (!/[\s/>]/.test(xml.charAt(at))) continue
+    const tagEnd = xml.indexOf(">", at)
+    if (tagEnd === -1) {
+      yield null
+      return
+    }
+    const attributes = xml.slice(at, tagEnd)
+    at = tagEnd + 1
+    if (attributes.endsWith("/")) {
+      yield { attributes, content: undefined }
+      continue
+    }
+    const end = xml.indexOf(close, at)
+    if (end === -1) {
+      yield null
+      return
+    }
+    yield { attributes, content: xml.slice(at, end) }
+    at = end + close.length
+  }
+}
+
+const neverClosed = (name: string) =>
+  Effect.fail(unreadable(`A <${name}> is never closed`))
+
 // Every <si>'s text, its rich-text runs' <t>s joined.
 const sharedStrings = Effect.fnUntraced(function* (xml: string) {
   const strings: Array<string> = []
-  for (const [, item = ""] of xml.matchAll(/<si>([\s\S]*?)<\/si>/g))
-    strings.push(
-      yield* decodeXml(
-        [...item.matchAll(/<t(?:\s[^>]*)?>([\s\S]*?)<\/t>/g)]
-          .map(([, text]) => text)
-          .join("")
-      )
-    )
+  for (const item of elements(xml, "si")) {
+    if (item === null) return yield* neverClosed("si")
+    let text = ""
+    for (const run of elements(item.content ?? "", "t")) {
+      if (run === null) return yield* neverClosed("t")
+      text += run.content ?? ""
+    }
+    strings.push(yield* decodeXml(text))
+  }
   return strings
 })
 
-// "AB" → 27, the 0-based column of a cell reference's letters.
-const columnIndex = (letters: string) =>
-  Effect.sync(() => {
-    let index = 0
-    for (const letter of letters) index = index * 26 + letter.charCodeAt(0) - 64
-    return index - 1
-  })
+// Decision: a cell's column is at most XFD, Excel's last, so a row holds at
+// most 16,384 cells however many its XML spells out.
+const LAST_COLUMN = { letters: "XFD", index: 16_383 }
 
-const ROW = /<row\b[^>]*?\br="(\d+)"[^>]*?(?:\/>|>([\s\S]*?)<\/row>)/g
-const CELL = /<c\b([^>]*?)(?:\/>|>([\s\S]*?)<\/c>)/g
-const REF = /\br="([A-Z]+)\d+"/
-const VALUE = /<v>([\s\S]*?)<\/v>/
+// "AB" → 27, the 0-based column of a cell reference's letters; past
+// LAST_COLUMN for more letters than it has.
+const columnIndex = (letters: string) => {
+  if (letters.length > LAST_COLUMN.letters.length) return LAST_COLUMN.index + 1
+  let index = 0
+  for (const letter of letters) index = index * 26 + letter.charCodeAt(0) - 64
+  return index - 1
+}
 
-// One cell's value: a shared string (`t="s"`), other typed text, a number,
-// or undefined when it has none.
+const ROW_NUMBER = /\br="(\d+)"/
+const REF = /\br="(([A-Z]+)\d+)"/
+
+// One cell's value from its <v> `text`: a shared string (`t="s"`), other
+// typed text, or a number.
 const cellValue = Effect.fnUntraced(function* (
   attributes: string,
-  content: string,
+  text: string,
   strings: ReadonlyArray<string>
 ) {
-  const value = VALUE.exec(content)?.[1]
-  if (value === undefined) return undefined
-  if (!/\bt="/.test(attributes)) return Number(value)
-  if (!/\bt="s"/.test(attributes)) return yield* decodeXml(value)
-  const text = strings[Number(value)]
-  if (text === undefined)
-    return yield* unreadable(`A cell names no shared string: ${attributes}`)
-  return text
+  if (!/\bt="/.test(attributes)) return Number(text)
+  if (!/\bt="s"/.test(attributes)) return yield* decodeXml(text)
+  const shared = strings[Number(text)]
+  if (shared === undefined)
+    return yield* unreadable(
+      `A cell names no shared string: ${yield* excerpt(attributes)}`
+    )
+  return shared
 })
 
 // A row's cells with a value.
@@ -92,13 +150,23 @@ const rowCells = Effect.fnUntraced(function* (
   strings: ReadonlyArray<string>
 ) {
   const cells = new Map<number, Cell>()
-  for (const [, attributes = "", content = ""] of inner.matchAll(CELL)) {
-    const ref = REF.exec(attributes)
-    if (ref === null)
+  for (const cell of elements(inner, "c")) {
+    if (cell === null) return yield* neverClosed("c")
+    const [, ref, letters = ""] = REF.exec(cell.attributes) ?? []
+    if (ref === undefined)
       return yield* unreadable(`A cell in row ${rowNumber} has no reference`)
-    const column = yield* columnIndex(ref[1] ?? "")
-    const value = yield* cellValue(attributes, content, strings)
-    if (value !== undefined) cells.set(column, value)
+    const column = columnIndex(letters)
+    if (column > LAST_COLUMN.index)
+      return yield* unreadable(
+        `Cell ${yield* excerpt(ref)} is past column ${LAST_COLUMN.letters}`
+      )
+    const value = elements(cell.content ?? "", "v").next().value
+    if (value === null) return yield* neverClosed("v")
+    if (value?.content !== undefined)
+      cells.set(
+        column,
+        yield* cellValue(cell.attributes, value.content, strings)
+      )
   }
   return cells as Row
 })
@@ -116,7 +184,12 @@ export const forEachRow = Effect.fnUntraced(function* <E, R>(
     const entries = yield* zipEntries(bytes)
     return {
       strings: yield* sharedStrings(
-        yield* entryText(bytes, entries, SHARED_STRINGS)
+        yield* entryText(
+          bytes,
+          entries,
+          SHARED_STRINGS,
+          MAX_SHARED_STRINGS_BYTES
+        )
       ),
       sheet: yield* entryText(bytes, entries, SHEET),
     }
@@ -125,8 +198,11 @@ export const forEachRow = Effect.fnUntraced(function* <E, R>(
       Effect.fail(unreadable(message))
     )
   )
-  for (const [, rowNumber = "", inner = ""] of sheet.matchAll(ROW)) {
-    const cells = yield* rowCells(rowNumber, inner, strings)
+  for (const row of elements(sheet, "row")) {
+    if (row === null) return yield* neverClosed("row")
+    const rowNumber = ROW_NUMBER.exec(row.attributes)?.[1]
+    if (rowNumber === undefined || row.content === undefined) continue
+    const cells = yield* rowCells(rowNumber, row.content, strings)
     if (cells.size > 0) yield* onRow(Number(rowNumber), cells)
   }
 })

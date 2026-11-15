@@ -22,14 +22,19 @@ export const bytesOf = (...parts: ReadonlyArray<Part>) => {
   return bytes
 }
 
-// `head`, then `unit` as many times as fit in the largest zip entry, then
-// `tail`.
-export const atCap = (head: Part, unit: Part, tail: Part) => {
+// `head`, then `unit` as many times as fit in `cap` bytes, the largest zip
+// entry unless given, then `tail`.
+export const atCap = (
+  head: Part,
+  unit: Part,
+  tail: Part,
+  cap = MAX_ENTRY_BYTES
+) => {
   const [headBytes, unitBytes, tailBytes] = [head, unit, tail].map((part) =>
     bytesOf(part)
   ) as [Uint8Array, Uint8Array, Uint8Array]
   const times = Math.floor(
-    (MAX_ENTRY_BYTES - headBytes.length - tailBytes.length) / unitBytes.length
+    (cap - headBytes.length - tailBytes.length) / unitBytes.length
   )
   const bytes = new Uint8Array(
     headBytes.length + times * unitBytes.length + tailBytes.length

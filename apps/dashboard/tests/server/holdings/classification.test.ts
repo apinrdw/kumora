@@ -2,6 +2,7 @@ import { assert, describe, it } from "@effect/vitest"
 import { Effect } from "effect"
 
 import { MAX_REPORT_BYTES } from "@/server/shareholding/archive-run"
+import { MAX_SHARED_STRINGS_BYTES } from "@/server/holdings/xlsx"
 import { MAX_ENTRY_BYTES } from "@/server/holdings/zip"
 
 import { atCap, bytesOf, longNamedFiles } from "./at-cap.ts"
@@ -46,17 +47,21 @@ const SHEET_TAIL = "</sheetData></worksheet>"
 const sheet = (rows: string) => bytesOf(SHEET_HEAD, rows, SHEET_TAIL)
 
 const LABELS = `<sst>${sharedItems(SPLIT_LABELS)}`
+
+// `atCap` at the shared strings' cap.
+const sharedAtCap = (...[head, unit, tail]: Parameters<typeof atCap>) =>
+  atCap(head, unit, tail, MAX_SHARED_STRINGS_BYTES)
 const labelsOnly = bytesOf(LABELS, "</sst>")
 
-// The shared string after SPLIT_LABELS, of `A`s to the largest entry.
+// The shared string after SPLIT_LABELS, of `A`s to the shared strings' cap.
 const LONG = SPLIT_LABELS.length
-const longString = atCap(`${LABELS}<si><t>`, "A", "</t></si></sst>")
+const longString = sharedAtCap(`${LABELS}<si><t>`, "A", "</t></si></sst>")
 
 // The header row and one stock.
 const ONE_STOCK = SPLIT_HEADER_ROW + stockRow(2)
 
-// SPLIT_LABELS, then distinct strings until the shared strings are the
-// largest a zip entry inflates to.
+// SPLIT_LABELS, then distinct strings until the shared strings reach their
+// cap.
 const paddedStrings = () => {
   const strings = [...SPLIT_LABELS]
   const entryBytes = (string: string) => `<si><t>${string}</t></si>`.length
@@ -65,7 +70,7 @@ const paddedStrings = () => {
     strings.reduce((sum, string) => sum + entryBytes(string), 0)
   for (
     let index = 0;
-    size + entryBytes(`S${index}`) <= MAX_ENTRY_BYTES;
+    size + entryBytes(`S${index}`) <= MAX_SHARED_STRINGS_BYTES;
     index++
   ) {
     strings.push(`S${index}`)
@@ -105,8 +110,8 @@ const cellsPastXfd = () => {
   return sheet(`${ONE_STOCK}<row r="9">${cells.join("")}</row>`)
 }
 
-// Each shape at the largest a zip entry inflates to, and what parsing it
-// in PARSE_HEAP_MIB posts.
+// Each shape with its parts at their caps, and what parsing it in
+// PARSE_HEAP_MIB posts.
 const SHAPES: ReadonlyArray<{
   readonly shape: string
   readonly report: () => Effect.Effect<Uint8Array>
@@ -137,7 +142,7 @@ const SHAPES: ReadonlyArray<{
       zipOf([
         [
           SHARED_STRINGS,
-          atCap(`${LABELS}<si>`, "<r><t></t></r>", "</si></sst>"),
+          sharedAtCap(`${LABELS}<si>`, "<r><t></t></r>", "</si></sst>"),
         ],
         [SHEET, sheet(ONE_STOCK)],
       ]),
@@ -149,7 +154,7 @@ const SHAPES: ReadonlyArray<{
       zipOf([
         [
           SHARED_STRINGS,
-          atCap(`${LABELS}<si>`, "<r><t>a</t></r>", "</si></sst>"),
+          sharedAtCap(`${LABELS}<si>`, "<r><t>a</t></r>", "</si></sst>"),
         ],
         [SHEET, sheet(ONE_STOCK)],
       ]),
@@ -159,10 +164,19 @@ const SHAPES: ReadonlyArray<{
     shape: "empty shared strings",
     report: () =>
       zipOf([
-        [SHARED_STRINGS, atCap(LABELS, "<si></si>", "</sst>")],
+        [SHARED_STRINGS, sharedAtCap(LABELS, "<si></si>", "</sst>")],
         [SHEET, sheet(ONE_STOCK)],
       ]),
     posts: "Parsed 1 stocks",
+  },
+  {
+    shape: "empty shared strings past their cap",
+    report: () =>
+      zipOf([
+        [SHARED_STRINGS, atCap(LABELS, "<si></si>", "</sst>")],
+        [SHEET, sheet(ONE_STOCK)],
+      ]),
+    posts: `xl/sharedStrings.xml inflates past ${MAX_SHARED_STRINGS_BYTES} bytes`,
   },
   {
     shape: "shared strings of one two-byte character",
@@ -170,7 +184,7 @@ const SHAPES: ReadonlyArray<{
       zipOf([
         [
           SHARED_STRINGS,
-          atCap(LABELS, bytesOf("<si><t>", 0xff, "</t></si>"), "</sst>"),
+          sharedAtCap(LABELS, bytesOf("<si><t>", 0xff, "</t></si>"), "</sst>"),
         ],
         [SHEET, sheet(ONE_STOCK)],
       ]),
@@ -180,7 +194,10 @@ const SHAPES: ReadonlyArray<{
     shape: "a shared string and a cell of two-byte characters",
     report: () =>
       zipOf([
-        [SHARED_STRINGS, atCap(`${LABELS}<si><t>`, 0xff, "</t></si></sst>")],
+        [
+          SHARED_STRINGS,
+          sharedAtCap(`${LABELS}<si><t>`, 0xff, "</t></si></sst>"),
+        ],
         [
           SHEET,
           atCap(
