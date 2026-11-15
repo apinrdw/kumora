@@ -58,18 +58,18 @@ export const monthRows = (table: string, columns: ReadonlyArray<string>) =>
     let rows: Array<string> = []
     // The bytes of `rows` as one JSON array.
     let bytes = 2
-    const close = () => {
-      if (rows.length > 0) chunks.push(`[${rows.join(",")}]`)
-      rows = []
-      bytes = 2
-    }
     return {
       add: (row: ReadonlyArray<SqlValue>) =>
         Effect.sync(() => {
           const json = JSON.stringify(row)
           const rowBytes = encoder.encode(json).length + 1
-          if (rows.length === CHUNK_ROWS || bytes + rowBytes > CHUNK_BYTES)
-            close()
+          const full =
+            rows.length === CHUNK_ROWS || bytes + rowBytes > CHUNK_BYTES
+          if (full && rows.length > 0) {
+            chunks.push(`[${rows.join(",")}]`)
+            rows = []
+            bytes = 2
+          }
           rows.push(json)
           bytes += rowBytes
         }),
