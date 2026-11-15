@@ -49,6 +49,9 @@ const DOUBLE_CLICK_MS = 220
 
 const NONE_HIDDEN: ReadonlySet<SeriesKey> = new Set()
 
+// The next hidden set, from the newest.
+type HiddenUpdate = (latest: ReadonlySet<SeriesKey>) => ReadonlySet<SeriesKey>
+
 const ofWhat = (origin: OriginShown) =>
   Effect.succeed(
     origin === "all" ? "scripless shares" : `all ${origin} holdings`
@@ -83,8 +86,13 @@ export function HoldingComposition({
     readonly hidden: ReadonlySet<SeriesKey>
   }>({ origin, hidden: NONE_HIDDEN })
   const hidden = hiding.origin === origin ? hiding.hidden : NONE_HIDDEN
-  const setHidden = (next: ReadonlySet<SeriesKey>) =>
-    setHiding({ origin, hidden: next })
+  // Applied to the newest hidden set, so toggles a timer applies later
+  // keep the ones before them.
+  const updateHidden = (update: HiddenUpdate) =>
+    setHiding((latest) => ({
+      origin,
+      hidden: update(latest.origin === origin ? latest.hidden : NONE_HIDDEN),
+    }))
   const chart = Effect.runSync(holdingChart(series, origin, hidden))
   const shown = chart.series.flatMap((each, index) =>
     hidden.has(each.key) ? [] : [{ ...each, index }]
@@ -117,7 +125,7 @@ export function HoldingComposition({
           series={chart.series}
           hidden={hidden}
           origin={origin}
-          onHidden={setHidden}
+          onHidden={updateHidden}
         />
       </div>
       <p className="text-[12px] text-muted-foreground">
@@ -419,27 +427,33 @@ function Legend({
   series: ReadonlyArray<ChartSeries>
   hidden: ReadonlySet<SeriesKey>
   origin: OriginShown
-  onHidden: (hidden: ReadonlySet<SeriesKey>) => void
+  onHidden: (update: HiddenUpdate) => void
 }) {
-  const pending = useRef<ReturnType<typeof setTimeout>>(undefined)
-  const toggle = (key: SeriesKey) => {
-    const next = new Set(hidden)
-    if (!next.delete(key)) next.add(key)
-    onHidden(next)
+  // Each entry's click waiting out a double-click: only a second click on
+  // the same entry makes one.
+  const pending = useRef(new Map<SeriesKey, ReturnType<typeof setTimeout>>())
+  const settle = (key: SeriesKey) => {
+    clearTimeout(pending.current.get(key))
+    pending.current.delete(key)
   }
+  const toggle = (key: SeriesKey) =>
+    onHidden((latest) => {
+      const next = new Set(latest)
+      if (!next.delete(key)) next.add(key)
+      return next
+    })
   // Shows only `key`, or everything when it already is the only one shown.
-  const only = (key: SeriesKey) => {
-    const alone =
-      !hidden.has(key) &&
-      series.every((each) => each.key === key || hidden.has(each.key))
-    onHidden(
-      new Set(
+  const only = (key: SeriesKey) =>
+    onHidden((latest) => {
+      const alone =
+        !latest.has(key) &&
+        series.every((each) => each.key === key || latest.has(each.key))
+      return new Set(
         alone
           ? []
           : series.flatMap((each) => (each.key === key ? [] : [each.key]))
       )
-    )
-  }
+    })
   return (
     <div className="flex flex-col gap-0.5">
       <div role="group" aria-label="Legend" className="flex flex-col gap-0.5">
@@ -449,17 +463,20 @@ function Legend({
             type="button"
             aria-pressed={!hidden.has(each.key)}
             onClick={(event) => {
-              clearTimeout(pending.current)
+              settle(each.key)
               // A keyboard press has no double-click to wait for.
               if (event.detail === 0) toggle(each.key)
               else
-                pending.current = setTimeout(
-                  () => toggle(each.key),
-                  DOUBLE_CLICK_MS
+                pending.current.set(
+                  each.key,
+                  setTimeout(() => {
+                    pending.current.delete(each.key)
+                    toggle(each.key)
+                  }, DOUBLE_CLICK_MS)
                 )
             }}
             onDoubleClick={() => {
-              clearTimeout(pending.current)
+              settle(each.key)
               only(each.key)
             }}
             className={cn(

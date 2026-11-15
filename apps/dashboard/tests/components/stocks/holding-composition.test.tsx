@@ -60,22 +60,47 @@ test("another chart origin shows every series again", async () => {
   expect(legend("Individual")?.getAttribute("aria-pressed")).toBe("true")
 })
 
+// Fires a mouse click, which waits out a double-click, `detail` its click
+// count.
+const click = (label: string, detail: number) =>
+  act(() => {
+    legend(label)?.dispatchEvent(
+      new MouseEvent("click", { bubbles: true, detail })
+    )
+  })
+
 test("clicks on two legend entries in quick succession hide both", async () => {
   vi.useFakeTimers()
   try {
     await render("local")
-    // A mouse click, which waits out a double-click.
-    const click = (label: string) =>
-      act(() => {
-        legend(label)?.dispatchEvent(
-          new MouseEvent("click", { bubbles: true, detail: 1 })
-        )
-      })
-    await click("Individual")
-    await click("Corporate")
+    await click("Individual", 1)
+    await click("Corporate", 1)
     await act(() => vi.advanceTimersByTime(1_000))
     expect(legend("Individual")?.getAttribute("aria-pressed")).toBe("false")
     expect(legend("Corporate")?.getAttribute("aria-pressed")).toBe("false")
+  } finally {
+    vi.useRealTimers()
+  }
+})
+
+test("a double-click on a legend entry shows only that one", async () => {
+  vi.useFakeTimers()
+  try {
+    await render("local")
+    await click("Individual", 1)
+    await click("Individual", 2)
+    await act(() => {
+      legend("Individual")?.dispatchEvent(
+        new MouseEvent("dblclick", { bubbles: true, detail: 2 })
+      )
+    })
+    await act(() => vi.advanceTimersByTime(1_000))
+    const pressed = [
+      ...container.querySelectorAll('[aria-label="Legend"] button'),
+    ].flatMap((button) =>
+      button.getAttribute("aria-pressed") === "true" ? [button.textContent] : []
+    )
+    expect(pressed).toEqual(["Individual"])
   } finally {
     vi.useRealTimers()
   }
