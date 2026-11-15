@@ -17,78 +17,85 @@ import { HoldingsDb } from "./db.ts"
 
 // Shares held, by origin. `local` and `foreign` are absent in a month whose
 // report doesn't split them, never 0.
-export interface OriginShares {
-  readonly combined: number
-  readonly local?: number | undefined
-  readonly foreign?: number | undefined
+const ORIGIN_SHARES = {
+  combined: Schema.Number,
+  local: Schema.optional(Schema.Number),
+  foreign: Schema.optional(Schema.Number),
 }
+type OriginShares = Schema.Struct.Type<typeof ORIGIN_SHARES>
 
-export interface ClassificationShares extends OriginShares {
-  readonly classification: Classification
-}
+const ClassificationShares = Schema.Struct({
+  classification: Classification,
+  ...ORIGIN_SHARES,
+})
 
 // A KSEI investor type's shares: the sum of its classifications' (the owner's
 // 39 → 9 mapping). Only classifications holding shares are listed.
-export interface TypeShares extends OriginShares {
-  readonly type: KseiType
-  readonly classifications: ReadonlyArray<ClassificationShares>
-}
+const TypeShares = Schema.Struct({
+  type: KseiType,
+  ...ORIGIN_SHARES,
+  classifications: Schema.Array(ClassificationShares),
+})
+type TypeShares = typeof TypeShares.Type
 
 // A stock's month in the classification report.
-export interface CompositionMonth {
-  readonly dataDate: string
-  readonly totalScripless: number
+const CompositionMonth = Schema.Struct({
+  dataDate: Schema.String,
+  totalScripless: Schema.Number,
   // KSEI's `Sec. Num` for the stock on the same date; undefined when KSEI has
   // no file of that date, or no row for the stock in it.
-  readonly listedShares: number | undefined
+  listedShares: Schema.UndefinedOr(Schema.Number),
   // Whether the report splits local and foreign (Sep 2026 onward).
-  readonly split: boolean
+  split: Schema.Boolean,
   // All 9 types, in KSEI_TYPES order, zeros included.
-  readonly types: ReadonlyArray<TypeShares>
-}
-
-export interface StockPage {
-  readonly code: StockCode
-  // As the newest classification report holding the stock prints it.
-  readonly issuerName: string | undefined
-  // Every parsed classification month, oldest first, and whether the stock
-  // has a row in it.
-  readonly months: ReadonlyArray<{
-    readonly dataDate: string
-    readonly held: boolean
-  }>
-  // Whether any parsed KSEI file has the stock. A stock KSEI has and no
-  // classification report does (unpriced or suspended) has no composition.
-  readonly inKsei: boolean
-  // The selected month and the parsed month before it, when the stock has a
-  // row there; undefined when no classification report has the stock.
-  readonly composition:
-    | {
-        readonly month: CompositionMonth
-        readonly previous: CompositionMonth | undefined
-      }
-    | undefined
-  // KSEI's holdings of the stock, one entry per month from its first period
-  // end to its last, oldest first.
-  readonly series: ReadonlyArray<SeriesMonth>
-}
+  types: Schema.Array(TypeShares),
+})
+export type CompositionMonth = typeof CompositionMonth.Type
 
 // Shares each KSEI investor type holds, 0 for a type holding none.
-export type TypeHoldings = Readonly<Record<KseiType, number>>
+const TypeHoldings = Schema.Record(KseiType, Schema.Number)
+export type TypeHoldings = typeof TypeHoldings.Type
 
 // A month of the KSEI series. `holdings` is undefined for a month whose file
 // has no row for the stock, or that no parsed file covers: a gap.
-export interface SeriesMonth {
+const SeriesMonth = Schema.Struct({
   // `YYYY-MM`.
-  readonly month: string
-  readonly holdings:
-    | {
-        readonly periodEnd: string
-        readonly local: TypeHoldings
-        readonly foreign: TypeHoldings
-      }
-    | undefined
-}
+  month: Schema.String,
+  holdings: Schema.UndefinedOr(
+    Schema.Struct({
+      periodEnd: Schema.String,
+      local: TypeHoldings,
+      foreign: TypeHoldings,
+    })
+  ),
+})
+export type SeriesMonth = typeof SeriesMonth.Type
+
+const StockPage = Schema.Struct({
+  code: StockCode,
+  // As the newest classification report holding the stock prints it.
+  issuerName: Schema.UndefinedOr(Schema.String),
+  // Every parsed classification month, oldest first, and whether the stock
+  // has a row in it.
+  months: Schema.Array(
+    Schema.Struct({ dataDate: Schema.String, held: Schema.Boolean })
+  ),
+  // Whether any parsed KSEI file has the stock. A stock KSEI has and no
+  // classification report does (unpriced or suspended) has no composition.
+  inKsei: Schema.Boolean,
+  // The selected month and the parsed month before it, when the stock has a
+  // row there; undefined when no classification report has the stock.
+  composition: Schema.UndefinedOr(
+    Schema.Struct({
+      month: CompositionMonth,
+      previous: Schema.UndefinedOr(CompositionMonth),
+    })
+  ),
+  // KSEI's holdings of the stock, one entry per month from its first period
+  // end to its last, oldest first.
+  series: Schema.Array(SeriesMonth),
+})
+export type StockPage = typeof StockPage.Type
 
 const MonthRow = Schema.Struct({
   data_date: Schema.String,
@@ -280,7 +287,7 @@ export const stockPage = Effect.fnUntraced(function* (
     Schema.decodeUnknownSync(Schema.Array(SeriesMonthRow))(seriesMonthRows),
     Schema.decodeUnknownSync(Schema.Array(SeriesHoldingRow))(seriesHoldingRows)
   )
-  return {
+  return StockPage.make({
     code,
     issuerName: held.at(-1)?.issuer_name ?? undefined,
     // The series is empty only when no KSEI file has the stock.
@@ -297,7 +304,7 @@ export const stockPage = Effect.fnUntraced(function* (
             previous: previous === undefined ? undefined : read(previous),
           },
     series,
-  } satisfies StockPage
+  })
 })
 
 const ListRow = Schema.Struct({
