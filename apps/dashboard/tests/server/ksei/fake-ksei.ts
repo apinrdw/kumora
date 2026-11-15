@@ -158,12 +158,14 @@ const HOLDINGS_FIXTURES = [
 ] as const
 export type HoldingsFixture = (typeof HOLDINGS_FIXTURES)[number]
 
-// October's report broken three ways: Local IS and Local CP swapped in the
-// header, BBCA's local ID one share over its local Total, and no EQUITY row.
+// October's report broken four ways: Local IS and Local CP swapped in the
+// header, BBCA's local ID one share over its local Total, no EQUITY row, and
+// BBCA's EQUITY line with no Code.
 export type BrokenHoldingsFixture =
   | "BalanceposEfek20261030-header.zip"
   | "BalanceposEfek20261030-sum.zip"
   | "BalanceposEfek20261030-no-equity.zip"
+  | "BalanceposEfek20261030-no-code.zip"
 
 // Each fixture as a base64 data URL, by path (vitest.config.ts).
 const FIXTURE_FILES = import.meta.glob<string>("./fixtures/**/*.zip", {

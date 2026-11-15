@@ -18,6 +18,7 @@ import {
   type ClassificationFixture,
   type FakeIdx,
   idxIdUrl,
+  type InlineFixture,
 } from "./fake-idx.ts"
 import { localSteps } from "../archive/local-steps.ts"
 import { type MemoryBucket, memoryBucket } from "../archive/memory-bucket.ts"
@@ -58,7 +59,7 @@ const run = ({ idx, bucket, holdings }: World, id: string) =>
 const republish = (
   { idx }: World,
   dataDate: ClassificationFixture,
-  fixture: ClassificationFixture | BrokenFixture
+  fixture: ClassificationFixture | BrokenFixture | InlineFixture
 ) => {
   const url = idxIdUrl(classificationItem(dataDate).Prospectus)
   idx.files.set(url, {
@@ -185,6 +186,19 @@ describe("an archive run's reconcile", () => {
         sharesOf(yield* read(w, "2026-10-30", "WBSA")),
         sharesOf(yield* read(w, "2026-09-30", "WBSA"))
       )
+    })
+  )
+
+  it.effect("reads a SHARE_CODE written as an inline string", () =>
+    Effect.gen(function* () {
+      const w = world()
+      yield* run(w, "cron-2026-11-14T06")
+      const october = yield* read(w, "2026-10-30", "BBCA")
+
+      republish(w, "2026-10-30", "inline-code")
+      const result = yield* run(w, "cron-2026-11-14T13")
+      assert.deepInclude(result, { outcome: "complete", monthsParsed: 1 })
+      assert.deepStrictEqual(yield* read(w, "2026-10-30", "BBCA"), october)
     })
   )
 
@@ -326,6 +340,22 @@ describe("a classification report that doesn't match what's expected", () => {
       what: "no stock rows",
       fixture: "empty",
       reason: "The report has no stocks",
+    },
+    {
+      what: "a cell of a type it doesn't read",
+      fixture: "error-code",
+      reason:
+        'Cell B7\'s type is "e": a cell is read only as a shared string, a string, an inline string or a number',
+    },
+    {
+      what: "a stock row whose SHARE_CODE is a number",
+      fixture: "numeric-code",
+      reason: "Row 7's SHARE CODE isn't text: 277",
+    },
+    {
+      what: "a stock row with no SHARE_CODE",
+      fixture: "no-code",
+      reason: "Row 7 has no SHARE CODE",
     },
   ]
 

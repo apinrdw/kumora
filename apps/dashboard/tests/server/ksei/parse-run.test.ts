@@ -183,6 +183,7 @@ describe("a KSEI parse run", () => {
     ["BalanceposEfek20261030-header.zip", "header"],
     ["BalanceposEfek20261030-sum.zip", "BBCA"],
     ["BalanceposEfek20261030-no-equity.zip", "no EQUITY"],
+    ["BalanceposEfek20261030-no-code.zip", "Line 5 has no Code"],
   ]
   for (const [broken, reason] of BROKEN)
     it.effect(

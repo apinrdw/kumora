@@ -59,13 +59,21 @@ export type ClassificationFixture = keyof typeof CLASSIFICATION_FIXTURES
 // (~/.t3/notes/kumora/363/break-classification-xlsx.py): October's with its
 // `Total Scripless` renamed, March's naming a classification `BANKS`, May's
 // with BBCA's bank holding one share past its total, September's with no
-// stock rows, and October's with its Foreign_Bank column named Local_Bank.
+// stock rows, October's with its Foreign_Bank column named Local_Bank, and
+// October's with BBCA's SHARE_CODE an error, a number, or no cell.
 export type BrokenFixture =
   | "unknown-header"
   | "unknown-classification"
   | "unsummed"
   | "empty"
   | "repeated-column"
+  | "error-code"
+  | "numeric-code"
+  | "no-code"
+
+// October's report with BBCA's SHARE_CODE an inline string of two
+// rich-text runs, which reads as the original.
+export type InlineFixture = "inline-code"
 
 // Each fixture as a base64 data URL, by path (vitest.config.ts).
 const FIXTURE_FILES = import.meta.glob<string>("./fixtures/*.xlsx", {
@@ -76,7 +84,7 @@ const FIXTURE_FILES = import.meta.glob<string>("./fixtures/*.xlsx", {
 
 // A fixture's bytes, fresh for each call.
 export const classificationFixture = (
-  name: ClassificationFixture | BrokenFixture
+  name: ClassificationFixture | BrokenFixture | InlineFixture
 ) => {
   const dataUrl = FIXTURE_FILES[`./fixtures/classification-${name}.xlsx`]
   assert.isDefined(dataUrl)

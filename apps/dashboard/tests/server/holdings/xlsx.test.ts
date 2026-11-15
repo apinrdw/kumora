@@ -38,6 +38,69 @@ describe("a worksheet", () => {
       )
     })
   )
+
+  it.effect("refuses a row with no number", () =>
+    Effect.gen(function* () {
+      const error = yield* Effect.flip(
+        read('<row><c r="A1"><v>7</v></c></row>')
+      )
+      assert.strictEqual(error.message, "A row has no number")
+    })
+  )
+})
+
+describe("a cell's type", () => {
+  // A1 holding `cell`'s XML, typed `type`.
+  const cellOf = (type: string, content: string) =>
+    `<row r="1"><c r="A1" ${type}>${content}</c></row>`
+
+  for (const [type, content, value] of [
+    ['t="inlineStr"', "<is><t>BBCA</t></is>", "BBCA"],
+    [
+      't="inlineStr"',
+      '<is><r><rPr><b/></rPr><t>BB</t></r><r><t xml:space="preserve">CA &amp; </t></r></is>',
+      "BBCA & ",
+    ],
+    ['t="str"', "<v>BBCA</v>", "BBCA"],
+    ['t="n"', "<v>7</v>", 7],
+    ["", "<v>7</v>", 7],
+  ] as const)
+    it.effect(`reads ${type || "no type"} as ${JSON.stringify(value)}`, () =>
+      Effect.gen(function* () {
+        assert.deepStrictEqual(yield* read(cellOf(type, content)), [
+          [1, new Map([[0, value]])],
+        ])
+      })
+    )
+
+  for (const type of ["b", "e", "d", "x"])
+    it.effect(`refuses t="${type}"`, () =>
+      Effect.gen(function* () {
+        const error = yield* Effect.flip(
+          read(cellOf(`t="${type}"`, "<v>1</v>"))
+        )
+        assert.strictEqual(
+          error.message,
+          `Cell A1's type is "${type}": a cell is read only as a shared string, a string, an inline string or a number`
+        )
+      })
+    )
+
+  it.effect("refuses an inline string never closed", () =>
+    Effect.gen(function* () {
+      const error = yield* Effect.flip(
+        read(cellOf('t="inlineStr"', "<is><t>BBCA</t>"))
+      )
+      assert.strictEqual(error.message, "A <is> is never closed")
+    })
+  )
+
+  it.effect("refuses a cell that holds something but no value", () =>
+    Effect.gen(function* () {
+      const error = yield* Effect.flip(read(cellOf("", "<f>1+1</f>")))
+      assert.strictEqual(error.message, "Cell A1 holds no value it can read")
+    })
+  )
 })
 
 describe("a cell's character references", () => {
