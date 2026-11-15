@@ -518,7 +518,7 @@ export function SweepLog({
         empty={empty}
         withBrokers={withBrokers}
       />
-      <SweepTip store={store} withBrokers={withBrokers} />
+      <SweepTip store={store} cursor={cursor} withBrokers={withBrokers} />
     </section>
   )
 }

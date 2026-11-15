@@ -2,10 +2,10 @@
 // (spec apinrdw/kumora#343, "One tooltip"): the sweep, then every broker of
 // each side with its lots, uncapped, the picked broker marked. A bubble or
 // a cell sets where it shows (`SweepStore.tip`); a press outside it hides
-// it.
-import type { BrokerCode, SweepBroker } from "@workspace/relay"
+// it, and so does the replay cursor moving back before its sweep.
+import type { BrokerCode, Sweep, SweepBroker } from "@workspace/relay"
 import { cn } from "@workspace/ui/lib/utils"
-import { Effect } from "effect"
+import { DateTime, Effect } from "effect"
 import {
   useCallback,
   useEffect,
@@ -18,6 +18,7 @@ import { createPortal } from "react-dom"
 import { lots } from "@/lib/format"
 import { sweepTip } from "@/lib/sweeps"
 
+import type { ReplayCursor } from "./replay-cursor"
 import type { SweepStore, TipAt } from "./sweep-store"
 import { INVESTOR_TEXT } from "./investor-text"
 
@@ -95,11 +96,39 @@ function TipBrokers({
   )
 }
 
+// Whether the shown sweep is after the cursor, as the bubbles and the log
+// leave it out.
+// Decision: a tooltip whose sweep the cursor moved back before hides for
+// good, rather than following the cursor to another sweep or showing again
+// as the cursor passes it. See apinrdw/kumora#371.
+function useHiddenByCursor(
+  store: SweepStore,
+  cursor: ReplayCursor | undefined,
+  sweep: Sweep | undefined
+) {
+  const subscribe = useCallback(
+    (listener: () => void) => cursor?.subscribe(listener) ?? (() => {}),
+    [cursor]
+  )
+  const past = () =>
+    sweep !== undefined &&
+    cursor !== undefined &&
+    DateTime.toEpochMillis(sweep.time) > cursor.state().at
+  const hidden = useSyncExternalStore(subscribe, past, past)
+  useEffect(() => {
+    if (hidden) store.tip.set(undefined)
+  }, [store, hidden])
+  return hidden
+}
+
 export function SweepTip({
   store,
+  cursor,
   withBrokers,
 }: {
   store: SweepStore
+  // A recorded day's replay cursor; none live.
+  cursor?: ReplayCursor | undefined
   // Whether the shown day can have broker codes: a recorded day.
   withBrokers: boolean
 }) {
@@ -117,6 +146,11 @@ export function SweepTip({
   const sweeps = useSyncExternalStore(subscribe, store.sweeps, store.sweeps)
   const brokers = useSyncExternalStore(subscribe, store.brokers, store.brokers)
   const picked = useSyncExternalStore(subscribe, store.picked, store.picked)
+  const sweep =
+    at === undefined
+      ? undefined
+      : sweeps.find((held) => held.firstTrade === at.id)
+  const hidden = useHiddenByCursor(store, cursor, sweep)
   const from = at?.from
   const box = useRef<HTMLDivElement>(null)
   useEffect(() => {
@@ -135,9 +169,7 @@ export function SweepTip({
       window.removeEventListener("scroll", hide, { capture: true })
     }
   }, [store, from])
-  if (at === undefined) return null
-  const sweep = sweeps.find((held) => held.firstTrade === at.id)
-  if (sweep === undefined) return null
+  if (at === undefined || sweep === undefined || hidden) return null
   const tip = Effect.runSync(sweepTip(sweep, brokers.get(at.id)))
   return createPortal(
     <div
