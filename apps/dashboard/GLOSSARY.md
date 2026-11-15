@@ -217,12 +217,16 @@ _Avoid_: KSEI archive run, which stores reports; import, sync
 Retail is the holdings of the Individual KSEI investor type; institution is every other type's.
 _Avoid_: Retail investors meaning any small holder
 
+**Scripless / scrip shares**:
+Scripless shares are a stock's shares held electronically in KSEI accounts, the shares every holding counts. Scrip shares are the rest of its listed shares, still held as paper certificates: listed shares from KSEI's Securities holdings report of the same date, less the scripless shares. Without such a report, scrip is unavailable.
+_Avoid_: Free float, which is a different measure
+
 **Stock page**:
 The page of one stock, `/stocks/<code>`, open to every signed-in member: who holds the stock, from parsed holdings.
 _Avoid_: Ownership page, stock detail
 
 **Shareholders composition**:
-The stock page's panel of one classification report month: the stock's total scripless shares, retail against institution, and each KSEI investor type's share of an origin, against the month before.
+The stock page's panel of one classification report month: the stock's total scripless shares, scrip against scripless, retail against institution, and each KSEI investor type's share of an origin, against the month before.
 _Avoid_: Ownership mix, holder breakdown
 
 **Stock search**:

@@ -93,7 +93,9 @@ function StockPageView() {
       </header>
       {page.composition === undefined ? (
         <p className="text-muted-foreground">
-          {page.code} isn't in IDX's classification report.
+          {page.inKsei
+            ? `${page.code} isn't in IDX's classification report, so its shareholders composition isn't shown.`
+            : `No holdings data for ${page.code}. Pick another stock.`}
         </p>
       ) : (
         <ShareholdersComposition

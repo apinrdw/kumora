@@ -50,39 +50,77 @@ const total = (month: SeededStockMonth) =>
     ? sum(month.combined)
     : sum(month.local) + sum(month.foreign)
 
-/** Replaces every parsed classification month with `months`. */
-export function seedClassificationMonths(months: SeededMonths) {
+// Empties `tables` of the Test stage's HoldingsDb, then runs `fill`, in one
+// transaction.
+function replaceTables(
+  tables: ReadonlyArray<string>,
+  fill: (db: DatabaseSync) => void
+) {
   const id = databaseId("HoldingsDb")
   if (id === undefined) throw new Error("The Test stage has no HoldingsDb yet")
   // The dashboard holds the file open too: wait out its locks.
   const db = new DatabaseSync(databaseFile(id).pathname, { timeout: 5000 })
   try {
     db.exec("BEGIN")
-    for (const table of [
-      "classification_holding",
-      "classification_stock_month",
-      "classification_month",
-    ])
-      db.exec(`DELETE FROM ${table}`)
-    const record = db.prepare(
-      "INSERT INTO classification_month VALUES (?, ?, 1, '2026-11-14T13:00:00.000Z')"
-    )
-    const stock = db.prepare(
-      "INSERT INTO classification_stock_month VALUES (?, ?, ?, ?)"
-    )
-    const holding = db.prepare(
-      "INSERT INTO classification_holding VALUES (?, ?, ?, ?, ?)"
-    )
-    for (const [dataDate, stocks] of Object.entries(months)) {
-      record.run(dataDate, `sha-${dataDate}`)
-      for (const [code, month] of Object.entries(stocks)) {
-        stock.run(dataDate, code, month.issuer, total(month))
-        for (const [classification, origin, shares] of holdingRows(month))
-          holding.run(dataDate, code, classification, origin, shares)
-      }
-    }
+    for (const table of tables) db.exec(`DELETE FROM ${table}`)
+    fill(db)
     db.exec("COMMIT")
   } finally {
     db.close()
   }
+}
+
+/** Replaces every parsed classification month with `months`. */
+export function seedClassificationMonths(months: SeededMonths) {
+  replaceTables(
+    [
+      "classification_holding",
+      "classification_stock_month",
+      "classification_month",
+    ],
+    (db) => {
+      const record = db.prepare(
+        "INSERT INTO classification_month VALUES (?, ?, 1, '2026-11-14T13:00:00.000Z')"
+      )
+      const stock = db.prepare(
+        "INSERT INTO classification_stock_month VALUES (?, ?, ?, ?)"
+      )
+      const holding = db.prepare(
+        "INSERT INTO classification_holding VALUES (?, ?, ?, ?, ?)"
+      )
+      for (const [dataDate, stocks] of Object.entries(months)) {
+        record.run(dataDate, `sha-${dataDate}`)
+        for (const [code, month] of Object.entries(stocks)) {
+          stock.run(dataDate, code, month.issuer, total(month))
+          for (const [classification, origin, shares] of holdingRows(month))
+            holding.run(dataDate, code, classification, origin, shares)
+        }
+      }
+    }
+  )
+}
+
+/** Listed shares by KSEI period end, then by stock code. */
+export type SeededKseiMonths = Readonly<
+  Record<string, Readonly<Record<string, number>>>
+>
+
+/**
+ * Replaces every parsed KSEI month with `months`: a stock-month per stock
+ * with its listed shares, unpriced, and no holdings.
+ */
+export function seedKseiMonths(months: SeededKseiMonths) {
+  replaceTables(["ksei_holding", "ksei_stock_month", "ksei_month"], (db) => {
+    const record = db.prepare(
+      "INSERT INTO ksei_month VALUES (?, ?, 1, '2026-11-14T04:00:00.000Z')"
+    )
+    const stock = db.prepare(
+      "INSERT INTO ksei_stock_month VALUES (?, ?, ?, 0, 0)"
+    )
+    for (const [periodEnd, stocks] of Object.entries(months)) {
+      record.run(periodEnd, `sha-${periodEnd}`)
+      for (const [code, listed] of Object.entries(stocks))
+        stock.run(periodEnd, code, listed)
+    }
+  })
 }

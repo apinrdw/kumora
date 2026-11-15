@@ -12,7 +12,7 @@ const loadStockList = (href: string) =>
     _tag: "Ready",
     codes: stocks.map(({ code, issuerName }) => ({
       code,
-      name: issuerName,
+      name: issuerName ?? "",
       kind: "share",
     })),
   }))
