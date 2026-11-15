@@ -77,6 +77,11 @@ test("sweeps show as bubbles and log rows; top-N filters them; a row rings its b
   await expect(log).toContainText("Lots @ price")
   await expect(log).not.toContainText("Aggressor")
   expect((await log.boundingBox())?.width).toBe(340)
+  const filter = log.getByLabel("Broker filter")
+  await expect(filter).toBeDisabled()
+  await expect(filter.getByRole("option")).toHaveText([
+    "Brokers after the close",
+  ])
   await relay.sendAjaib(sweeps.slice(6))
 
   const chart = page.getByRole("region", { name: "Chart" })
@@ -326,6 +331,60 @@ test("a recorded day's sweep log shows each sweep's lead brokers, wider, filling
   await expect(rows.first()).toHaveAttribute("aria-current", "true")
   await page.mouse.click(buyBubble.x, buyBubble.y)
   await expect(rows.nth(1)).toHaveAttribute("aria-current", "true")
+
+  // The broker filter lists the aggressors by their summed lots. Picking AK
+  // keeps only the sweeps AK was an aggressor of, each read as AK's lots of
+  // the whole, in the log and in chart 1's bubbles; the top-N cuts by AK's
+  // lots, and the tooltip marks AK.
+  const filter = log.getByLabel("Broker filter")
+  await expect(filter.getByRole("option")).toHaveText([
+    "All brokers",
+    "AK [F] · 30",
+    "BK [D] · 10",
+    "KZ [F] · 5",
+  ])
+  // The sell sweep, which AK has no part in, selected first.
+  await rows.first().click()
+  await filter.selectOption("AK")
+  await expect(rows).toHaveCount(1)
+  await expect(rows.first()).not.toHaveAttribute("aria-current", "true")
+  await expect(rows.first()).toContainText("30/40 @ 500→505")
+  await expect(candles).toHaveAttribute("data-bubbles", "1")
+  await expect(page.getByLabel("Sweep threshold")).toHaveText(
+    "≥ 30 lots of AK (buy 30)"
+  )
+  await page.mouse.move(buyBubble.x, buyBubble.y)
+  await expect(tip.getByRole("row")).toHaveText([
+    "Buyers · aggressor",
+    /^AK \[F\] ◂\s*30$/,
+    /^BK \[D\]\s*10$/,
+    "Sellers",
+    /^CC \[D\]\s*40$/,
+  ])
+  // Selecting works with the filter on, from a row and from a bubble.
+  await rows.first().click()
+  await expect(rows.first()).toHaveAttribute("aria-current", "true")
+  await filter.selectOption("")
+  await expect(rows).toHaveCount(2)
+  await rows.first().click()
+  await expect(rows.first()).toHaveAttribute("aria-current", "true")
+  await filter.selectOption("AK")
+  await expect(rows).toHaveCount(1)
+  // Decision: the pointer rests on the bubble before the click. A click
+  // whose press came straight from the log never reached chart 1's click
+  // subscribers in 4 runs out of 4; the bubble's tooltip shows it arrived.
+  await page.mouse.move(buyBubble.x, buyBubble.y)
+  await expect(tip).toBeVisible()
+  await page.mouse.click(buyBubble.x, buyBubble.y)
+  await expect(rows.first()).toHaveAttribute("aria-current", "true")
+  await expect(candles).toHaveAttribute(
+    "data-ringed-sweep",
+    (await rows.first().getAttribute("data-sweep-id"))!
+  )
+  await filter.selectOption("")
+  await expect(rows).toHaveCount(2)
+  await expect(rows.nth(1)).toContainText("40 @ 500→505")
+  await expect(rows.nth(1)).not.toContainText("/")
 
   // On a phone the Sweeps tab shows both broker columns, and a tap on a
   // broker cell or a bubble shows the tooltip.
