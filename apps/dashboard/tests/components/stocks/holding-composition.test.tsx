@@ -78,8 +78,7 @@ test.each([{ foreignLegend: false }, { foreignLegend: true }])(
   }
 )
 
-// Fires a mouse click, which waits out a double-click, `detail` its click
-// count.
+// Fires a mouse click, `detail` its click count.
 const click = (label: string, detail: number) =>
   act(() => {
     legend(label)?.dispatchEvent(
@@ -87,51 +86,63 @@ const click = (label: string, detail: number) =>
     )
   })
 
-test("clicks on two legend entries in quick succession hide both", async () => {
+// A browser's double-click: two clicks `gap` ms apart, then a dblclick.
+const doubleClick = async (label: string, gap: number) => {
+  await click(label, 1)
+  await act(() => vi.advanceTimersByTime(gap))
+  await click(label, 2)
+  await act(() => {
+    legend(label)?.dispatchEvent(
+      new MouseEvent("dblclick", { bubbles: true, detail: 2 })
+    )
+  })
+}
+
+// Fires a keyboard press: a click with no click count.
+const press = (label: string) =>
+  act(() => (legend(label) as HTMLButtonElement).click())
+
+const hiddenOf = () => allSeries().filter((label) => !pressed().includes(label))
+
+test("clicks on two legend entries in quick succession hide both at once", async () => {
+  await render("local")
+  await click("Individual", 1)
+  await click("Corporate", 1)
+  expect(hiddenOf()).toEqual(["Individual", "Corporate"])
+})
+
+for (const gap of [0, 300])
+  test(`a double-click ${gap} ms apart shows only that entry, and another shows all`, async () => {
+    vi.useFakeTimers()
+    try {
+      await render("local")
+      await doubleClick("Individual", gap)
+      expect(pressed()).toEqual(["Individual"])
+      await doubleClick("Individual", gap)
+      expect(pressed()).toEqual(allSeries())
+    } finally {
+      vi.useRealTimers()
+    }
+  })
+
+test("a double-click on a hidden entry shows only that one", async () => {
   vi.useFakeTimers()
   try {
     await render("local")
-    await click("Individual", 1)
     await click("Corporate", 1)
-    await act(() => vi.advanceTimersByTime(1_000))
-    expect(legend("Individual")?.getAttribute("aria-pressed")).toBe("false")
-    expect(legend("Corporate")?.getAttribute("aria-pressed")).toBe("false")
+    await doubleClick("Corporate", 300)
+    expect(pressed()).toEqual(["Corporate"])
   } finally {
     vi.useRealTimers()
   }
 })
 
-test("a click still waiting when the origin changes hides nothing", async () => {
-  vi.useFakeTimers()
-  try {
-    await render("local")
-    await click("Individual", 1)
-    await render("foreign")
-    await act(() => vi.advanceTimersByTime(1_000))
-    expect(pressed()).toEqual(allSeries())
-    await render("local")
-    expect(pressed()).toEqual(allSeries())
-  } finally {
-    vi.useRealTimers()
-  }
-})
-
-test("a double-click on a legend entry shows only that one", async () => {
-  vi.useFakeTimers()
-  try {
-    await render("local")
-    await click("Individual", 1)
-    await click("Individual", 2)
-    await act(() => {
-      legend("Individual")?.dispatchEvent(
-        new MouseEvent("dblclick", { bubbles: true, detail: 2 })
-      )
-    })
-    await act(() => vi.advanceTimersByTime(1_000))
-    expect(pressed()).toEqual(["Individual"])
-  } finally {
-    vi.useRealTimers()
-  }
+test("two keyboard presses hide an entry and show it again", async () => {
+  await render("local")
+  await press("Individual")
+  expect(hiddenOf()).toEqual(["Individual"])
+  await press("Individual")
+  expect(pressed()).toEqual(allSeries())
 })
 
 test("the origin summary is unavailable when the newest month holds no shares", async () => {
