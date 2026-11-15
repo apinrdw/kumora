@@ -210,16 +210,16 @@ const SHAPES: ReadonlyArray<{
     posts: "Parsed 1 stocks",
   },
   {
-    shape: "rows holding a value in every column",
+    shape: "rows holding a value in every column, above the header row",
     report: () =>
       zipOf([
         [SHARED_STRINGS, labelsOnly],
         [
           SHEET,
           atCap(
-            SHEET_HEAD + ONE_STOCK,
-            rowOf(9, XFD + 1, (ref) => `<c r="${ref}"><v>0</v></c>`),
-            SHEET_TAIL
+            SHEET_HEAD,
+            rowOf(1, XFD + 1, (ref) => `<c r="${ref}"><v>0</v></c>`),
+            ONE_STOCK + SHEET_TAIL
           ),
         ],
       ]),

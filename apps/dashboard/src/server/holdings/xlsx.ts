@@ -1,6 +1,6 @@
 // Reads the first worksheet of an .xlsx by hand: its two XML parts out of
-// the zip (zip.ts), then regexes, since workerd has no DOMParser. It handles what IDX's classification reports
-// hold: shared strings and plain numbers, no formulas or inline strings.
+// the zip (zip.ts), then regexes, since workerd has no DOMParser. It reads
+// text and numbers, and refuses any other cell.
 // Decision: no dependency. SheetJS adds 380 KiB and is 5× slower; exceljs
 // hangs a reused isolate. See apinrdw/kumora#351.
 import { Effect, Schema } from "effect"
@@ -102,17 +102,22 @@ function* elements(xml: string, name: string): Generator<Element | null, void> {
 const neverClosed = (name: string) =>
   Effect.fail(unreadable(`A <${name}> is never closed`))
 
-// Every <si>'s text, its rich-text runs' <t>s joined.
+// A <si> or <is>'s text: its rich-text runs' <t>s joined.
+const stringText = Effect.fnUntraced(function* (content: string) {
+  let text = ""
+  for (const run of elements(content, "t")) {
+    if (run === null) return yield* neverClosed("t")
+    text += run.content ?? ""
+  }
+  return yield* decodeXml(text)
+})
+
+// Every <si>'s text.
 const sharedStrings = Effect.fnUntraced(function* (xml: string) {
   const strings: Array<string> = []
   for (const item of elements(xml, "si")) {
     if (item === null) return yield* neverClosed("si")
-    let text = ""
-    for (const run of elements(item.content ?? "", "t")) {
-      if (run === null) return yield* neverClosed("t")
-      text += run.content ?? ""
-    }
-    strings.push(yield* decodeXml(text))
+    strings.push(yield* stringText(item.content ?? ""))
   }
   return strings
 })
@@ -132,16 +137,42 @@ const columnIndex = (letters: string) => {
 
 const ROW_NUMBER = /\br="(\d+)"/
 const REF = /\br="(([A-Z]+)\d+)"/
+const TYPE = /\bt="([^"]*)"/
 
-// One cell's value from its <v> `text`: a shared string (`t="s"`), other
-// typed text, or a number.
+// The cell types read.
+const READ_TYPES: ReadonlySet<string> = new Set(["s", "str", "inlineStr", "n"])
+
+// One cell's value, undefined when it holds none: a shared string (`t="s"`),
+// text (`t="str"`, or `t="inlineStr"` from its <is>), or a number (`t="n"`,
+// or no type).
+// Decision: a cell of any other type, or one holding something but no value,
+// fails the report: a boolean, error or date names no stock or share count,
+// an error read as text stored `#N/A` as a stock, and an inline string read
+// as no value dropped a stock while its month was replaced.
 const cellValue = Effect.fnUntraced(function* (
+  ref: string,
   attributes: string,
-  text: string,
+  content: string,
   strings: ReadonlyArray<string>
 ) {
-  if (!/\bt="/.test(attributes)) return Number(text)
-  if (!/\bt="s"/.test(attributes)) return yield* decodeXml(text)
+  const type = TYPE.exec(attributes)?.[1] ?? "n"
+  if (!READ_TYPES.has(type))
+    return yield* unreadable(
+      `Cell ${yield* excerpt(ref)}'s type is "${yield* excerpt(type)}": a cell is read only as a shared string, a string, an inline string or a number`
+    )
+  const name = type === "inlineStr" ? "is" : "v"
+  const element = elements(content, name).next().value
+  if (element === null) return yield* neverClosed(name)
+  const text = element?.content
+  if (text === undefined) {
+    if (content.trim() === "") return undefined
+    return yield* unreadable(
+      `Cell ${yield* excerpt(ref)} holds no value it can read`
+    )
+  }
+  if (type === "n") return Number(text)
+  if (type === "str") return yield* decodeXml(text)
+  if (type === "inlineStr") return yield* stringText(text)
   const shared = strings[Number(text)]
   if (shared === undefined)
     return yield* unreadable(
@@ -170,13 +201,9 @@ const rowCells = Effect.fnUntraced(function* (
       return yield* unreadable(
         `Cell ${yield* excerpt(ref)} is past column ${LAST_COLUMN.letters}`
       )
-    const value = elements(cell.content ?? "", "v").next().value
-    if (value === null) return yield* neverClosed("v")
-    if (value?.content !== undefined)
-      cells.set(
-        column,
-        yield* cellValue(cell.attributes, value.content, strings)
-      )
+    if (cell.content === undefined) continue
+    const value = yield* cellValue(ref, cell.attributes, cell.content, strings)
+    if (value !== undefined) cells.set(column, value)
   }
   return cells as Row
 })
@@ -210,8 +237,9 @@ export const forEachRow = Effect.fnUntraced(function* <E, R>(
   )
   for (const row of elements(sheet, "row")) {
     if (row === null) return yield* neverClosed("row")
+    if (row.content === undefined) continue
     const rowNumber = ROW_NUMBER.exec(row.attributes)?.[1]
-    if (rowNumber === undefined || row.content === undefined) continue
+    if (rowNumber === undefined) return yield* unreadable("A row has no number")
     const cells = yield* rowCells(rowNumber, row.content, strings)
     if (cells.size > 0) yield* onRow(Number(rowNumber), cells)
   }

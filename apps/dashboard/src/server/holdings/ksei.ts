@@ -134,6 +134,20 @@ const lineFields = Effect.fnUntraced(function* (
   return fields
 })
 
+// The stock an EQUITY line names by its Code.
+const lineStock = Effect.fnUntraced(function* (
+  code: string,
+  lineNumber: number
+) {
+  const stock = code.trim()
+  if (stock === "") return yield* unreadable(`Line ${lineNumber} has no Code`)
+  if (stock.length > STOCK_CODE_MAX_LENGTH)
+    return yield* unreadable(
+      `Line ${lineNumber}'s Code is over ${STOCK_CODE_MAX_LENGTH} characters: ${yield* excerpt(stock)}`
+    )
+  return stock
+})
+
 // One month's EQUITY rows: a stock-month per stock, and its holdings.
 // Decision: lines are read one at a time, so what parsing keeps grows with
 // the stocks read, never with the lines a file holds: splitting a file of
@@ -165,11 +179,7 @@ const parseRows = Effect.fnUntraced(function* (text: string) {
     const fields = yield* lineFields(line, lineNumber)
     const [, code = "", type] = fields
     if (type !== "EQUITY") continue
-    const stock = code.trim()
-    if (stock.length > STOCK_CODE_MAX_LENGTH)
-      return yield* unreadable(
-        `Line ${lineNumber}'s Code is over ${STOCK_CODE_MAX_LENGTH} characters: ${yield* excerpt(stock)}`
-      )
+    const stock = yield* lineStock(code, lineNumber)
     const of = `${stock} (line ${lineNumber})`
     if (seen.has(stock)) return yield* unreadable(`${of} is listed twice`)
     if (seen.size === MAX_STOCKS) return yield* unreadable(TOO_MANY_STOCKS)

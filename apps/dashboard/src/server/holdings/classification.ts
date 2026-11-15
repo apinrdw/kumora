@@ -192,17 +192,31 @@ const rowHoldings = Effect.fnUntraced(function* (
   return holdings
 })
 
-// The stock a row below the header row names, by its code and issuer name,
-// or undefined for a row naming none.
+// The stock a row below the header row names, by its code and issuer name;
+// undefined for a row holding nothing a month stores, such as a DATE alone.
+// Decision: a row holding a value under any other label must name its stock
+// by a SHARE CODE of text, or the month fails: a row whose code wasn't read
+// was skipped while the month was replaced without it.
 const rowStock = Effect.fnUntraced(function* (
   rowNumber: number,
   cells: Row,
   layout: Layout
 ) {
   const code = cells.get(layout.code)
-  if (rowNumber <= layout.headerRow || typeof code !== "string") return
-  const stock = code.trim()
-  if (stock === "") return
+  if (typeof code === "number")
+    return yield* unreadable(
+      `Row ${rowNumber}'s SHARE CODE isn't text: ${yield* excerpt(String(code))}`
+    )
+  const stock = code?.trim() ?? ""
+  if (stock === "") {
+    const holds =
+      code !== undefined ||
+      cells.has(layout.issuer) ||
+      cells.has(layout.total) ||
+      layout.classifications.some(({ column }) => cells.has(column))
+    if (holds) return yield* unreadable(`Row ${rowNumber} has no SHARE CODE`)
+    return undefined
+  }
   if (stock.length > STOCK_CODE_MAX_LENGTH)
     return yield* unreadable(
       `Row ${rowNumber}'s SHARE CODE is over ${STOCK_CODE_MAX_LENGTH} characters: ${yield* excerpt(stock)}`
