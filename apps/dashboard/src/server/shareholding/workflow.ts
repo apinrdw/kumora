@@ -6,12 +6,13 @@ import { Layer } from "effect"
 import { FetchHttpClient } from "effect/http"
 
 import { RunId } from "../archive/run.ts"
+import { holdingsDbD1 } from "../holdings/db.ts"
 import { archiveRun } from "./archive-run.ts"
 import { archiveBucketR2 } from "./bindings.ts"
 import type { ArchiveParams } from "./run-result.ts"
 
 export const ShareholdingArchive = makeWorkflow(
-  Layer.merge(archiveBucketR2, FetchHttpClient.layer),
+  Layer.mergeAll(archiveBucketR2, FetchHttpClient.layer, holdingsDbD1),
   ({ id, startedAt, params }: WorkflowRun<ArchiveParams>, steps) =>
     archiveRun(steps, {
       id: RunId.make(id),

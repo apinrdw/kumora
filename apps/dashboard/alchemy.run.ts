@@ -25,6 +25,18 @@ import { ARCHIVE_CRON } from "./src/server/shareholding/schedule.ts"
 // state file, AuthDb.json, by this id.
 const AuthDb = Cloudflare.D1.Database("AuthDb", { migrations: "./migrations" })
 
+// Parsed holdings: the archive runs parse reports into it, the stock page
+// reads it. Bound on every stage like the archive buckets; only
+// Production's fills, since only Production's buckets hold reports.
+// Decision: a D1 of its own, apart from AuthDb, with its own migrations.
+// Read replication stays off (Alchemy's default): a replica could serve a
+// month mid-replace. See apinrdw/kumora#353.
+// apps/e2e/reset-test-stage.ts reads its state file, HoldingsDb.json, by
+// this id.
+const HoldingsDb = Cloudflare.D1.Database("HoldingsDb", {
+  migrations: "./holdings-migrations",
+})
+
 // Decision: Production alone owns the mailer.pusat.ai sending subdomain; every
 // other stage only binds EMAIL with this sender, so destroying a Preview never
 // removes it, and their mail fails until Production has deployed it. Message
@@ -136,6 +148,7 @@ export const Website = Cloudflare.Website.Vite(
       dev: { port: yield* devPort("dashboard"), strictPort: true },
       env: {
         AUTH_DB: AuthDb,
+        HOLDINGS_DB: HoldingsDb,
         AUTH_BASE_URL: yield* stageUrl("dashboard", stage),
         BETTER_AUTH_SECRET: Alchemy.makeRandom("BetterAuthSecret"),
         EMAIL: Cloudflare.Email.SendEmail("Email", {

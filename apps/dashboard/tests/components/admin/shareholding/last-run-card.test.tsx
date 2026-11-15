@@ -16,6 +16,7 @@ const RUNNING: ArchiveRunResult = {
   newVersions: 0,
   reportsChecked: 92,
   notStored: [],
+  monthsParsed: 0,
   other: [],
   error: null,
 }
@@ -61,5 +62,27 @@ describe("the last run card", () => {
     )
     expect(html).toContain("Started Nov 14, 20:17 WIB · took 1 min 12 s")
     expect(html).toContain("Production runs at 13:00 and 20:00 WIB.")
+  })
+
+  test("shows how many classification months a run parsed", async () => {
+    const html = text(
+      await renderAt("/", () => (
+        <LastRunCard
+          lastRun={{
+            result: {
+              ...RUNNING,
+              outcome: "complete",
+              finishedAt: "2026-11-14T13:18:24.000Z",
+              monthsParsed: 8,
+            },
+            inProgress: false,
+            workflowStatus: null,
+          }}
+          nextRun="2026-11-15T06:00:00.000Z"
+          now="2026-11-14T14:00:00.000Z"
+        />
+      ))
+    )
+    expect(html).toContain("Months parsed 8")
   })
 })

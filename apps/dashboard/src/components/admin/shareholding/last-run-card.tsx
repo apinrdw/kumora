@@ -8,6 +8,7 @@ import { ARCHIVE_TIMES_WIB } from "@/server/shareholding/schedule"
 
 import {
   ArchiveLastRunCard,
+  archiveRunStats,
   RunArchiveButton,
 } from "@/components/admin/archive/last-run-card"
 
@@ -91,10 +92,8 @@ export function LastRunCard({
         result === undefined
           ? []
           : [
-              { value: result.reportsAdded, label: "Reports added" },
-              { value: result.newVersions, label: "New versions" },
-              { value: result.reportsChecked, label: "Reports checked" },
-              { value: result.notStored.length, label: "Not stored" },
+              ...archiveRunStats(result),
+              { value: result.monthsParsed, label: "Months parsed" },
             ]
       }
       details={result === undefined ? null : <Detail result={result} />}

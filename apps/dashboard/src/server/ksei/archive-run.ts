@@ -23,7 +23,12 @@ import {
 } from "../archive/head.ts"
 import { ETAG, RUN, SHA256 } from "../archive/held.ts"
 import { md5Hex } from "../archive/md5.ts"
-import { type Run, type RunId, runError } from "../archive/run.ts"
+import {
+  type Run,
+  type RunId,
+  runError,
+  storedReports,
+} from "../archive/run.ts"
 import { inArchive } from "./coverage.ts"
 import {
   PROBE_HEADS_IN_TURN,
@@ -483,12 +488,7 @@ export const kseiArchiveRun = Effect.fn("kseiArchiveRun")(function* (
         Effect.result
       )
   )
-  const archived = stored.filter(Result.isSuccess).map(({ success }) => success)
-  // A held file whose HEAD failed may hide a change this run couldn't store.
-  const notStored = [
-    ...checked.unanswered,
-    ...stored.filter(Result.isFailure).map(({ failure }) => failure),
-  ]
+  const { archived, notStored } = storedReports(stored, checked.unanswered)
   const deep =
     run.trigger === "deep"
       ? yield* deepBackfill(

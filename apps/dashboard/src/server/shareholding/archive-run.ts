@@ -1,5 +1,6 @@
 // One archive run: `plan`, `head`, then one `report:` step per report to
-// store, then `summary`. Each step's body is an Effect; the run itself
+// store, then `reconcile` and one `parse:` step per classification month to
+// parse, then `summary`. Each step's body is an Effect; the run itself
 // only orders the steps, so it holds nothing a Workflow replay could change.
 // Spec apinrdw/kumora#303, "The archive run".
 import {
@@ -16,7 +17,14 @@ import { readCapped } from "../archive/capped-body.ts"
 import { sha256Hex } from "../archive/hash.ts"
 import { headHeld, MAX_ETAG_BYTES } from "../archive/head.ts"
 import { ETAG, heldRecords, RUN, SHA256 } from "../archive/held.ts"
-import { type Run, type RunId, runError } from "../archive/run.ts"
+import {
+  type Run,
+  type RunId,
+  runError,
+  storedReports,
+} from "../archive/run.ts"
+import type { HoldingsDb } from "../holdings/db.ts"
+import { monthsToParse, parseMonth } from "./classification-parse.ts"
 import { recordKey, reportKey } from "./keys.ts"
 import {
   fetchListing,
@@ -32,7 +40,7 @@ import { putRunRecord } from "./runs.ts"
 
 type IdxRun = Run<ArchiveTrigger>
 
-type StepServices = ArchiveBucket | HttpClient.HttpClient
+type StepServices = ArchiveBucket | HttpClient.HttpClient | HoldingsDb
 
 // Each step result holds at most one ListedReport, or less, per listed
 // report, which MAX_LISTED_REPORTS (listing.ts) bounds. The ETags and hashes
@@ -213,7 +221,8 @@ const summary = Effect.fnUntraced(function* (
   run: IdxRun,
   checked: typeof Checked.Type,
   archived: ReadonlyArray<ArchivedReport>,
-  notStored: ReadonlyArray<string>
+  notStored: ReadonlyArray<string>,
+  monthsParsed: number
 ) {
   const changedUrls = new Set(checked.changed.map(({ sourceUrl }) => sourceUrl))
   // Decided from earlier runs' records, not from the .xlsx being there: a
@@ -236,6 +245,7 @@ const summary = Effect.fnUntraced(function* (
     ).length,
     reportsChecked: checked.checked,
     notStored,
+    monthsParsed,
     other: archived
       .filter(({ kind }) => kind === "other")
       .map(({ sourceUrl, description }) => ({ sourceUrl, description })),
@@ -300,11 +310,21 @@ export const archiveRun = Effect.fn("archiveRun")(function* (
       Effect.result
     )
   )
-  const archived = stored.filter(Result.isSuccess).map(({ success }) => success)
-  // A held URL whose HEAD failed may hide a change this run couldn't store.
-  const notStored = [
-    ...checked.unanswered,
-    ...stored.filter(Result.isFailure).map(({ failure }) => failure),
-  ]
-  return yield* steps.do("summary", summary(run, checked, archived, notStored))
+  const { archived, notStored } = storedReports(stored, checked.unanswered)
+  // Decision: a month that fails to parse doesn't stop the run; its parsed
+  // holdings stay as they were, and the next run's reconcile picks it again.
+  const months = yield* steps.do("reconcile", monthsToParse)
+  const parsed = yield* Effect.forEach(months, (month) =>
+    steps.do(`parse:${month.dataDate}`, parseMonth(month)).pipe(Effect.result)
+  )
+  return yield* steps.do(
+    "summary",
+    summary(
+      run,
+      checked,
+      archived,
+      notStored,
+      parsed.filter(Result.isSuccess).length
+    )
+  )
 })

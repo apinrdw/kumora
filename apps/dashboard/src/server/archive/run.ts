@@ -5,7 +5,7 @@
 //
 //   runs/<run-id>.json                                     one per run
 //   runs/latest.json                                       { id } of the last run
-import { Effect, Schema } from "effect"
+import { Effect, Result, Schema } from "effect"
 
 // A run's id, which is also its Workflow instance's: `<trigger>-<when>`, as
 // the archive's `runIdAt` names it.
@@ -39,6 +39,19 @@ export interface Run<Trigger extends string = string> {
   readonly trigger: Trigger
   readonly startedAt: Date
 }
+
+// What a run's `report:` steps stored, and what it couldn't: the held files
+// whose HEAD failed, which may hide a change, then each failed step's file.
+export const storedReports = <A>(
+  stored: ReadonlyArray<Result.Result<A, string>>,
+  unanswered: ReadonlyArray<string>
+) => ({
+  archived: stored.filter(Result.isSuccess).map(({ success }) => success),
+  notStored: [
+    ...unanswered,
+    ...stored.filter(Result.isFailure).map(({ failure }) => failure),
+  ],
+})
 
 // What `create` passes a run's Workflow.
 export interface RunParams<Trigger extends string = string> {

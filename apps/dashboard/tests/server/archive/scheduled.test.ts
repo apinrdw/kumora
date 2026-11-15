@@ -255,6 +255,7 @@ describe("starting a run by hand", () => {
           newVersions: 0,
           reportsChecked: 145,
           notStored: [],
+          monthsParsed: 0,
           other: [],
           error: null,
         }

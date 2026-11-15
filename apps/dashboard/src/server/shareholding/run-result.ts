@@ -40,6 +40,11 @@ export const ArchiveRunResult = Schema.Struct({
   reportsChecked: Schema.Number,
   // URLs the run couldn't store; the next run retries them.
   notStored: Schema.Array(Schema.String),
+  // Classification months parsed into parsed holdings. Records written
+  // before the reconcile existed have none: 0.
+  monthsParsed: Schema.Number.pipe(
+    Schema.withDecodingDefaultKey(Effect.succeed(0))
+  ),
   // Reports archived under `other`: an unknown description prefix.
   other: Schema.Array(
     Schema.Struct({ sourceUrl: Schema.String, description: Schema.String })
@@ -83,6 +88,7 @@ export const runningResult = Effect.fnUntraced(function* (
     newVersions: 0,
     reportsChecked: 0,
     notStored: [],
+    monthsParsed: 0,
     other: [],
     error: null,
   })

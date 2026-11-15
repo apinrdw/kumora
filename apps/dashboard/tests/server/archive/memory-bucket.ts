@@ -14,6 +14,8 @@ import {
 
 export interface StoredObject {
   readonly body: string
+  // The bytes written, when they were bytes; `body` is their UTF-8 reading.
+  readonly bytes?: Uint8Array | undefined
   readonly contentType: string
   readonly customMetadata: Readonly<Record<string, string>>
   // When it was written, in epoch ms; an object seeded without one lists as
@@ -44,6 +46,7 @@ export const memoryBucket = (): MemoryBucket => {
     puts.push(key)
     objects.set(key, {
       body: typeof body === "string" ? body : new TextDecoder().decode(body),
+      bytes: typeof body === "string" ? undefined : body,
       contentType,
       customMetadata,
       uploaded,
@@ -88,6 +91,14 @@ export const memoryBucket = (): MemoryBucket => {
                   etag: object.body,
                   uploaded: new Date(object.uploaded ?? now),
                 }
+          }),
+        getBytes: (key) =>
+          Effect.sync(() => {
+            gets.push(key)
+            const object = objects.get(key)
+            return object === undefined
+              ? undefined
+              : (object.bytes ?? new TextEncoder().encode(object.body))
           }),
         put: (key, body, options) =>
           Effect.flatMap(Clock.currentTimeMillis, (now) => {
