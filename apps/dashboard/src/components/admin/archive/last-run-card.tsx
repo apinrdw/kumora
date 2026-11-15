@@ -173,7 +173,7 @@ export interface ArchiveSchedule {
 /**
  * An archive's last run, or the empty state before any, with its actions.
  * `stats` and `details` describe the last run: `details` shows below the
- * counts unless the run failed, when its error shows instead.
+ * counts, after the error of a run that failed.
  */
 export function ArchiveLastRunCard({
   title,
@@ -241,7 +241,8 @@ export function ArchiveLastRunCard({
           <Stat key={stat.label} {...stat} />
         ))}
       </dl>
-      {result.outcome === "failed" ? <Failed error={result.error} /> : details}
+      {result.outcome === "failed" && <Failed error={result.error} />}
+      {details}
       <Schedule {...schedule} />
     </ArchiveCard>
   )
