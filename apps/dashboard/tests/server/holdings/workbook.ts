@@ -1,3 +1,5 @@
+import { CLASSIFICATIONS } from "@/domain/holdings"
+
 import { zipOf } from "./zip-of.ts"
 
 const text = (xml: string) => new TextEncoder().encode(xml)
@@ -28,3 +30,21 @@ export const columnLetters = (column: number) => {
     letters = String.fromCharCode(65 + ((rest - 1) % 26)) + letters
   return letters
 }
+
+const HEADERS = Object.values(CLASSIFICATIONS).map(({ header }) => header)
+
+// Sep 2026's layout: each classification as Local_ and as Foreign_, as
+// `workbook`'s shared strings.
+export const SPLIT_LABELS = [
+  "DATE",
+  "SHARE_CODE",
+  "ISSUER_NAME",
+  ...HEADERS.map((header) => `Local_${header}`),
+  ...HEADERS.map((header) => `Foreign_${header}`),
+  "Total Scripless",
+]
+
+// Row 1, naming SPLIT_LABELS by their shared string.
+export const SPLIT_HEADER_ROW = `<row r="1">${SPLIT_LABELS.map(
+  (_, column) => `<c r="${columnLetters(column)}1" t="s"><v>${column}</v></c>`
+).join("")}</row>`

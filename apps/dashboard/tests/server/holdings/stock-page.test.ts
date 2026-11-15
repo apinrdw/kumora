@@ -7,6 +7,7 @@ import { Effect, Layer } from "effect"
 
 import { scrip } from "@/lib/stock-composition"
 import { RunId } from "@/server/archive/run"
+import { parseClassificationMonth } from "@/server/holdings/classification"
 import {
   type CompositionMonth,
   stockList,
@@ -21,6 +22,12 @@ import { localSteps } from "../archive/local-steps.ts"
 import { holdingsKsei } from "../ksei/fake-ksei.ts"
 import { memoryBucket } from "../archive/memory-bucket.ts"
 import { memoryHoldingsDb } from "./memory-holdings-db.ts"
+import {
+  columnLetters,
+  SPLIT_HEADER_ROW,
+  SPLIT_LABELS,
+  workbook,
+} from "./workbook.ts"
 
 const run = (id: string, startedAt: string) => ({
   id: RunId.make(id),
@@ -153,6 +160,38 @@ describe("the stock page read", () => {
       assert.isTrue(october?.split)
       assert.isTrue(october?.types.every(({ local }) => local !== undefined))
     })
+  )
+
+  it.effect(
+    "reads a split month's local and foreign as 0 for a stock holding no scripless shares",
+    () =>
+      Effect.gen(function* () {
+        // The report's one stock, every column empty and its total 0: the
+        // parse stores no holding for it.
+        const total = columnLetters(SPLIT_LABELS.length - 1)
+        const bytes = yield* workbook(
+          `${SPLIT_HEADER_ROW}<row r="2"><c r="B2" t="str"><v>ZERO</v></c><c r="C2" t="str"><v>ZERO Tbk</v></c><c r="${total}2"><v>0</v></c></row>`,
+          SPLIT_LABELS
+        )
+        const holdings = memoryHoldingsDb()
+        yield* parseClassificationMonth(
+          "2026-10-30",
+          "sha",
+          bytes,
+          "2026-11-15T00:00:00Z"
+        ).pipe(Effect.provide(holdings.layer))
+        const { month } =
+          (yield* stockPage(StockCode.make("ZERO"), undefined).pipe(
+            Effect.provide(holdings.layer)
+          )).composition ?? {}
+        assert.strictEqual(month?.totalScripless, 0)
+        assert.isTrue(month?.split)
+        assert.isTrue(
+          month?.types.every(
+            ({ local, foreign }) => local === 0 && foreign === 0
+          )
+        )
+      })
   )
 
   it.effect("has no previous month in the stock's first month", () =>
