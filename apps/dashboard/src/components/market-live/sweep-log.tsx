@@ -1,7 +1,4 @@
-import {
-  fetchRecordedSweepBrokers,
-  fetchRecordedSweeps,
-} from "@workspace/client"
+import { fetchRecordedSweeps, followSweepBrokers } from "@workspace/client"
 import {
   INDEX_CODES,
   type StockCode,
@@ -27,6 +24,7 @@ import { cn } from "@workspace/ui/lib/utils"
 import { compact, lots, plain, tapeTime } from "@/lib/format"
 import {
   TOP_N_PRESETS,
+  arrivingNote,
   isBigSweep,
   leadBroker,
   logRows,
@@ -47,6 +45,9 @@ import { INVESTOR_TEXT } from "./tape-list"
 interface SweepView {
   readonly sweeps: ReadonlyArray<Sweep>
   readonly brokers: ReadonlyMap<TradeNumber, SweepBrokers>
+  // Whether the day's codes are complete; each answer that says so brings
+  // new `brokers` too.
+  readonly brokersComplete: boolean
   readonly at: number
   readonly threshold: SweepThreshold
   readonly topN: number
@@ -87,6 +88,7 @@ function useSweepView(store: SweepStore, cursor: ReplayCursor | undefined) {
     cached.current = {
       sweeps,
       brokers,
+      brokersComplete: store.brokersComplete(),
       at,
       threshold: store.threshold(at),
       topN,
@@ -129,11 +131,7 @@ export function useSweeps(
     if (!live) {
       ask(0)
       stops.push(
-        runLoad(
-          Effect.map(fetchRecordedSweepBrokers(date, store.code), (answer) => {
-            if (Option.isSome(answer)) store.answerBrokers(answer.value)
-          })
-        )
+        runLoad(followSweepBrokers(date, store.code, store.answerBrokers))
       )
     }
     let asked: number | undefined
@@ -345,6 +343,21 @@ const LogRowView = memo(function LogRowView({
   )
 })
 
+// While the day's codes are incomplete, how many sweeps up to the cursor
+// have their brokers yet.
+function ArrivingNote({ view }: { view: SweepView }) {
+  const note = useMemo(
+    () => Effect.runSync(arrivingNote(view.sweeps, view.brokers, view.at)),
+    [view.sweeps, view.brokers, view.at]
+  )
+  if (view.brokersComplete) return null
+  return (
+    <p className="mt-0.5 text-[11px] text-muted-foreground tabular-nums">
+      {note}
+    </p>
+  )
+}
+
 /**
  * The Buy/Sell sweep log (layout B's middle column): the selected code's
  * sweeps up to the cursor, newest first, filtered by the top-N threshold and
@@ -426,6 +439,7 @@ export function SweepLog({
             showing {Effect.runSync(plain(rows.length))}
           </span>
         </p>
+        {withBrokers && <ArrivingNote view={view} />}
       </header>
       <LogColumns
         store={store}

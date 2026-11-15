@@ -8,6 +8,7 @@ import { DateTime, Effect } from "effect"
 import { describe, expect, it } from "@effect/vitest"
 
 import {
+  arrivingNote,
   bubbleRadius,
   bubbleOffset,
   leadBroker,
@@ -243,5 +244,30 @@ describe("a sweep's tooltip", () => {
     Effect.gen(function* () {
       expect((yield* sweepTip(buy, undefined)).sides).toBeUndefined()
     })
+  )
+})
+
+describe("the note while a day's codes arrive", () => {
+  it.effect(
+    "counts the sweeps up to the cursor that have their brokers against all of them, auction matches left out",
+    () =>
+      Effect.gen(function* () {
+        const sweeps = [
+          sweep("09:00:00", "none", 40),
+          sweep("09:01:00", "buy", 10),
+          sweep("09:02:00", "sell", 20),
+          sweep("09:03:00", "buy", 30),
+          sweep("09:04:00", "buy", 50),
+        ]
+        const brokers = new Map(
+          [sweeps[1]!, sweeps[3]!, sweeps[4]!].map(({ firstTrade }) => [
+            firstTrade,
+            { firstTrade, aggressor: [], other: [] },
+          ])
+        )
+        expect(yield* arrivingNote(sweeps, brokers, at("09:03:30"))).toBe(
+          "Codes still arriving: 2 of 3 sweeps have their brokers. Updates every 30 s."
+        )
+      })
   )
 })

@@ -37,9 +37,9 @@ const untr = (
 
 // UNTR's three sweeps, sealed: buys 1–2 (another code's trade 3 between
 // them doesn't break it), sell 4, and buys 5–6.
-const sealedDay = Effect.gen(function* () {
+const sealedDay = Effect.fnUntraced(function* (sql: Sql = memorySql()) {
   yield* at("09:01:10")
-  const day = yield* tradingDay()
+  const day = yield* tradingDay(sql)
   yield* day.trades([
     untr(1, "09:00:10.100", 3, "buy"),
     untr(2, "09:00:10.300", 5, "buy", 23325),
@@ -90,7 +90,7 @@ describe("a sealed day's sweep brokers", () => {
     "answer each whole sweep with both sides' brokers in lead order, each at its larger-lot investor type",
     () =>
       Effect.gen(function* () {
-        const day = yield* sealedDay
+        const day = yield* sealedDay()
         yield* at("17:30:00")
         yield* day.brokerCodes("Ajaib", CODES, 6)
         const { answer } = yield* day.recordedSweepBrokers("UNTR")
@@ -108,7 +108,7 @@ describe("a sealed day's sweep brokers", () => {
     "leave out a sweep until every member trade has codes, from whichever batch brings them",
     () =>
       Effect.gen(function* () {
-        const day = yield* sealedDay
+        const day = yield* sealedDay()
         yield* at("17:30:00")
         yield* day.brokerCodes(
           "Ajaib",
@@ -129,7 +129,7 @@ describe("a sealed day's sweep brokers", () => {
 
   it.effect("follow a replacement batch that changes a trade's codes", () =>
     Effect.gen(function* () {
-      const day = yield* sealedDay
+      const day = yield* sealedDay()
       yield* at("17:30:00")
       yield* day.brokerCodes("Ajaib", CODES, 6)
       yield* day.brokerCodes("Ajaib", [[6, "AK F ZP F"]])
@@ -161,7 +161,7 @@ describe("a sealed day's sweep brokers", () => {
 
   it.effect("leave every other recorded day answer byte-identical", () =>
     Effect.gen(function* () {
-      const day = yield* sealedDay
+      const day = yield* sealedDay()
       const code = StockCode.make("UNTR")
       const resources: ReadonlyArray<RecordedResource> = [
         { _tag: "Codes" },
@@ -191,6 +191,107 @@ describe("a sealed day's sweep brokers", () => {
       )
       assert.deepStrictEqual(yield* answers, before)
     })
+  )
+})
+
+// The day's database, counting each statement that writes the sweep brokers
+// table, and failing the next `failures` of them as storage would.
+const brokersSql = () => {
+  const sql = memorySql()
+  const watch = { writes: 0, failures: 0 }
+  const exec: Sql["exec"] = (query, ...bindings) => {
+    if (/^\s*(INSERT|DELETE)\b[^;]*\bsweep_brokers\b/i.test(query)) {
+      if (watch.failures > 0) {
+        watch.failures -= 1
+        // SQLite fails it, as storage can.
+        return sql.exec("SELECT * FROM storage_failed_the_write")
+      }
+      watch.writes += 1
+    }
+    return sql.exec(query, ...bindings)
+  }
+  return { sql: { ...sql, exec }, watch }
+}
+
+describe("a sealed day's sweep brokers while its codes arrive", () => {
+  it.effect(
+    "answer incomplete and uncached until the final batch, then complete and kept a minute",
+    () =>
+      Effect.gen(function* () {
+        const day = yield* sealedDay()
+        yield* at("17:30:00")
+        yield* day.brokerCodes("Ajaib", CODES.slice(0, 3))
+        const partial = yield* day.recordedSweepBrokers("UNTR")
+        assert.isFalse(partial.answer.complete)
+        assert.strictEqual(partial.cacheControl, "no-store")
+        yield* day.brokerCodes("Ajaib", CODES.slice(3), 6)
+        const whole = yield* day.recordedSweepBrokers("UNTR")
+        assert.isTrue(whole.answer.complete)
+        assert.strictEqual(whole.cacheControl, "private, max-age=60")
+      })
+  )
+
+  it.effect(
+    "rewrite only the rows a batch changes, not every code's row of the minutes it touches",
+    () =>
+      Effect.gen(function* () {
+        const { sql, watch } = brokersSql()
+        const day = yield* sealedDay(sql)
+        yield* at("17:30:00")
+        yield* day.brokerCodes("Ajaib", CODES, 6)
+        const before = watch.writes
+        // BBCA's trade 3 shares 09:00 with UNTR's first sweep.
+        yield* day.brokerCodes("Ajaib", [[3, "PD F KZ F"]])
+        assert.strictEqual(watch.writes, before + 1)
+        assert.deepStrictEqual(
+          (yield* day.recordedSweepBrokers("BBCA")).answer.sweeps.map(
+            brokersOf
+          ),
+          [[3, ["KZ F 7"], ["PD F 7"]]]
+        )
+      })
+  )
+
+  it.effect(
+    "write no rows for a batch identical to the stored codes, from either site",
+    () =>
+      Effect.gen(function* () {
+        const { sql, watch } = brokersSql()
+        const day = yield* sealedDay(sql)
+        yield* at("17:30:00")
+        yield* day.brokerCodes("Ajaib", CODES, 6)
+        assert.isAbove(watch.writes, 0)
+        const before = watch.writes
+        yield* day.brokerCodes("Ajaib", CODES, 6)
+        yield* day.brokerCodes("Stockbit", CODES, 6)
+        assert.strictEqual(watch.writes, before)
+        assert.deepStrictEqual(
+          (yield* day.recordedSweepBrokers("UNTR")).answer.sweeps.map(
+            brokersOf
+          ),
+          ALL_WHOLE
+        )
+      })
+  )
+
+  it.effect(
+    "store neither the codes nor the rows when the rows fail to write, so the resent batch fills them in",
+    () =>
+      Effect.gen(function* () {
+        const { sql, watch } = brokersSql()
+        const day = yield* sealedDay(sql)
+        yield* at("17:30:00")
+        watch.failures = 1
+        const failed = yield* Effect.exit(day.brokerCodes("Ajaib", CODES, 6))
+        assert.isTrue(Exit.isFailure(failed))
+        assert.isFalse(
+          (yield* day.recordedSweepBrokers("UNTR")).answer.complete
+        )
+        yield* day.brokerCodes("Ajaib", CODES, 6)
+        const { answer } = yield* day.recordedSweepBrokers("UNTR")
+        assert.isTrue(answer.complete)
+        assert.deepStrictEqual(answer.sweeps.map(brokersOf), ALL_WHOLE)
+      })
   )
 })
 
