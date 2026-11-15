@@ -16,6 +16,8 @@ import {
   type SweepThreshold,
 } from "@/lib/sweeps"
 
+import { makeListenerStore, type ListenerStore } from "./listener-store"
+
 // What changed since the listener last heard: the sweeps, their brokers,
 // the top-N, or the selected sweep. A selection carries its minute, so whatever shows it can
 // jump there: chart 1 scrolls to it, the sweep log scrolls to its row, and
@@ -32,8 +34,20 @@ export type SweepChange =
       readonly from: "chart" | "log"
     }
 
+// Where the sweep tooltip shows, for which sweep: at a point of the
+// viewport, from a bubble on chart 1 or a broker cell of the log.
+export interface TipAt {
+  readonly id: TradeNumber
+  readonly x: number
+  readonly y: number
+  readonly from: "chart" | "log"
+}
+
 export interface SweepStore {
   readonly code: StockCode
+  // The sweep tooltip's place, apart from the changes below so a hover
+  // redraws no bubble; none while it is hidden.
+  readonly tip: ListenerStore<TipAt | undefined>
   // The selected code's sweeps and auction matches so far, in trade order.
   // A sweep's first trade's number is its id.
   readonly sweeps: () => ReadonlyArray<Sweep>
@@ -70,7 +84,8 @@ export interface SweepStore {
 // duplicate, and the page groups nothing. The minutes heard before a
 // snapshot are dropped, since the socket may have missed changes to them.
 export const makeSweepStore = (code: StockCode) =>
-  Effect.sync((): SweepStore => {
+  Effect.gen(function* () {
+    const tip = yield* makeListenerStore<TipAt | undefined>(undefined)
     // Each minute's sweeps: the last answer's, and those deltas carried
     // since the last snapshot.
     let answered: ReadonlyMap<number, ReadonlyArray<Sweep>> = new Map()
@@ -99,8 +114,9 @@ export const makeSweepStore = (code: StockCode) =>
         .flatMap(([, sweeps]) => sweeps)
       emit({ _tag: "Sweeps" })
     }
-    return {
+    const store: SweepStore = {
       code,
+      tip,
       sweeps: () => all,
       brokers: () => brokers,
       answerBrokers: (answer) => {
@@ -176,4 +192,5 @@ export const makeSweepStore = (code: StockCode) =>
         return () => void listeners.delete(listener)
       },
     }
+    return store
   })

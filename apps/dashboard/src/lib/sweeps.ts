@@ -2,9 +2,10 @@
 // (spec apinrdw/kumora#263, "Chart 1"): the top-N filter, the log's rows, and
 // where a bubble sits. Pure, so the renderers only draw.
 import { MINUTE_MS, SHARES_PER_LOT } from "@workspace/relay"
-import type { Sweep, SweepBroker } from "@workspace/relay"
+import type { Sweep, SweepBroker, SweepBrokers } from "@workspace/relay"
 import { DateTime, Effect } from "effect"
 
+import { lots as lotsText, plain, tapeTime } from "./format"
 import { BIG_TRADE_IDR } from "./tape"
 
 // The top-N presets, All first; the slider steps by 5 between them.
@@ -127,6 +128,50 @@ export const leadBroker = (side: ReadonlyArray<SweepBroker>) =>
       }
     )
   })
+
+// The prices a sweep walked, `500→510`, or `500` when it stayed at one.
+export const pricePath = Effect.fnUntraced(function* (sweep: Sweep) {
+  const first = yield* plain(sweep.first)
+  return sweep.first === sweep.last
+    ? first
+    : `${first}→${yield* plain(sweep.last)}`
+})
+
+// What the tooltip on a sweep's bubble and broker cells shows: a title, then
+// each side's brokers as stored, largest first, the aggressor side first;
+// no sides while the sweep is not yet whole.
+interface SweepTip {
+  readonly title: string
+  readonly sides:
+    | ReadonlyArray<{
+        readonly label: string
+        readonly brokers: ReadonlyArray<SweepBroker>
+      }>
+    | undefined
+}
+
+const SIDE_WORDS = {
+  buy: { side: "Buy", aggressors: "Buyers", others: "Sellers" },
+  sell: { side: "Sell", aggressors: "Sellers", others: "Buyers" },
+  none: { side: "Auction", aggressors: "Buyers", others: "Sellers" },
+} as const
+
+export const sweepTip = Effect.fnUntraced(function* (
+  sweep: Sweep,
+  brokers: SweepBrokers | undefined
+) {
+  const words = SIDE_WORDS[sweep.side]
+  const trades = `${yield* plain(sweep.trades)} ${sweep.trades === 1 ? "trade" : "trades"}`
+  const time = yield* tapeTime(DateTime.toEpochMillis(sweep.time))
+  const tip: SweepTip = {
+    title: `${words.side} ${yield* lotsText(sweep.lots)} lots @ ${yield* pricePath(sweep)} · ${trades} · ${time}`,
+    sides: brokers && [
+      { label: `${words.aggressors} · aggressor`, brokers: brokers.aggressor },
+      { label: words.others, brokers: brokers.other },
+    ],
+  }
+  return tip
+})
 
 // A sweep's average price: its value over its shares.
 export const sweepPrice = (sweep: Sweep) =>

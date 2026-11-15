@@ -26,7 +26,7 @@ import {
   openIngest,
   wibToday,
 } from "../support/ingest"
-import { expect, test } from "../support/test"
+import { expect, newClientContext, test } from "../support/test"
 
 const PAGE = "/market-live"
 
@@ -156,8 +156,9 @@ const tradeCodes = (text: string): TradeCodes => {
   }
 }
 
-test("a recorded day's sweep log shows each sweep's aggressor lead broker, wider", async ({
+test("a recorded day's sweep log shows each sweep's lead brokers, wider, with their tooltip on a cell and a bubble", async ({
   page,
+  browser,
 }) => {
   const relay = await openIngest()
   const base = freshTradeNumbers()
@@ -250,4 +251,80 @@ test("a recorded day's sweep log shows each sweep's aggressor lead broker, wider
   await expect(rows.first()).toContainText("KZ [F]")
   await expect(rows.nth(1)).toContainText("AK [F] +1")
   await expect(rows.nth(1).getByText("AK [F]")).toHaveClass(/text-foreign/)
+  // Other side: YP bought the sell sweep, CC sold the buy sweep.
+  await expect(log).toContainText("Other side")
+  await expect(rows.first()).toContainText("YP [D]")
+  await expect(rows.nth(1)).toContainText("CC [D]")
+
+  // A broker cell's tooltip lists every broker of the sweep with its lots,
+  // the aggressors first.
+  const tip = page.getByRole("tooltip", { name: "Sweep brokers" })
+  const buyTip = [
+    "Buyers · aggressor",
+    /^AK \[F\]\s*30$/,
+    /^BK \[D\]\s*10$/,
+    "Sellers",
+    /^CC \[D\]\s*40$/,
+  ]
+  await rows.nth(1).getByText("CC [D]").hover()
+  await expect(tip).toContainText("Buy 40 lots @ 500→505 · 2 trades")
+  await expect(tip.getByRole("row")).toHaveText(buyTip)
+  await page.mouse.move(0, 0)
+  await expect(tip).toBeHidden()
+
+  // A bubble on chart 1 shows the same tooltip on hover, and a click on it
+  // still selects its row.
+  const candles = page.locator('[data-chart="candles"]')
+  const bubbleOf = async (row: typeof rows) => {
+    await row.click()
+    const id = (await row.getAttribute("data-sweep-id"))!
+    await expect(candles).toHaveAttribute("data-ringed-sweep", id)
+    const [x, y] = (await candles.getAttribute("data-ringed-at"))!
+      .split(",")
+      .map(Number)
+    const box = (await candles.boundingBox())!
+    return { x: box.x + x!, y: box.y + y! }
+  }
+  const buyBubble = await bubbleOf(rows.nth(1))
+  await rows.first().click()
+  await expect(rows.first()).toHaveAttribute("aria-current", "true")
+  await page.mouse.move(buyBubble.x, buyBubble.y)
+  await expect(tip.getByRole("row")).toHaveText(buyTip)
+  await page.mouse.click(buyBubble.x, buyBubble.y)
+  await expect(rows.nth(1)).toHaveAttribute("aria-current", "true")
+
+  // On a phone the Sweeps tab shows both broker columns, and a tap on a
+  // broker cell or a bubble shows the tooltip.
+  const phone = await (
+    await newClientContext(browser, {
+      context: {
+        storageState: MEMBER.storageState,
+        viewport: { width: 390, height: 844 },
+        hasTouch: true,
+      },
+    })
+  ).newPage()
+  await phone.goto(`${DASHBOARD}${PAGE}?code=${code}&day=${day}&panel=sweeps`)
+  const phoneLog = phone.getByRole("region", { name: "Sweep log" })
+  const phoneRows = phoneLog.locator("[data-sweep-id]")
+  const phoneTip = phone.getByRole("tooltip", { name: "Sweep brokers" })
+  await expect(phoneRows).toHaveCount(2)
+  await expect(phoneLog.getByText("Aggressor", { exact: true })).toBeVisible()
+  await expect(phoneLog.getByText("Other side")).toBeVisible()
+  await phoneRows.nth(1).getByText("AK [F]").tap()
+  await expect(phoneTip.getByRole("row")).toHaveText(buyTip)
+  await phoneLog.getByRole("heading").tap()
+  await expect(phoneTip).toBeHidden()
+  const phoneCandles = phone.locator('[data-chart="candles"]')
+  await expect(phoneCandles).toHaveAttribute(
+    "data-ringed-sweep",
+    (await phoneRows.nth(1).getAttribute("data-sweep-id"))!
+  )
+  await phoneCandles.scrollIntoViewIfNeeded()
+  const [x, y] = (await phoneCandles.getAttribute("data-ringed-at"))!
+    .split(",")
+    .map(Number)
+  const box = (await phoneCandles.boundingBox())!
+  await phone.touchscreen.tap(box.x + x!, box.y + y!)
+  await expect(phoneTip.getByRole("row")).toHaveText(buyTip)
 })

@@ -14,6 +14,7 @@ import {
   logRows,
   sweepPrice,
   sweepThreshold,
+  sweepTip,
   thresholdText,
 } from "@/lib/sweeps"
 import { cursorLogical } from "@/lib/replay"
@@ -184,6 +185,63 @@ describe("a side's lead broker", () => {
   it.effect("is none for a side with no brokers", () =>
     Effect.gen(function* () {
       expect(yield* leadBroker([])).toBeUndefined()
+    })
+  )
+})
+
+describe("a sweep's tooltip", () => {
+  const buy: Sweep = {
+    ...sweep("09:01:02", "buy", 1_240),
+    first: 500,
+    last: 510,
+    trades: 3,
+  }
+  const sell = sweep("10:15:09", "sell", 7, 2_150)
+  const aggressor = [
+    broker("AK", "F", 1_000),
+    broker("BK", "D", 200),
+    broker("YP", "D", 40),
+  ]
+  const other = [broker("CC", "D", 1_240)]
+
+  it.effect(
+    "heads with the side, lots, price path, trade count and time, then lists the aggressor side's brokers before the other side's",
+    () =>
+      Effect.gen(function* () {
+        expect(
+          yield* sweepTip(buy, {
+            firstTrade: buy.firstTrade,
+            aggressor,
+            other,
+          })
+        ).toEqual({
+          title: "Buy 1,240 lots @ 500→510 · 3 trades · 09:01:02",
+          sides: [
+            { label: "Buyers · aggressor", brokers: aggressor },
+            { label: "Sellers", brokers: other },
+          ],
+        })
+      })
+  )
+
+  it.effect("names a sell sweep's sellers as its aggressors", () =>
+    Effect.gen(function* () {
+      const tip = yield* sweepTip(sell, {
+        firstTrade: sell.firstTrade,
+        aggressor: other,
+        other: aggressor,
+      })
+      expect(tip.title).toBe("Sell 7 lots @ 2,150 · 1 trade · 10:15:09")
+      expect(tip.sides?.map((side) => side.label)).toEqual([
+        "Sellers · aggressor",
+        "Buyers",
+      ])
+    })
+  )
+
+  it.effect("lists no brokers for a sweep not yet whole", () =>
+    Effect.gen(function* () {
+      expect((yield* sweepTip(buy, undefined)).sides).toBeUndefined()
     })
   )
 })

@@ -30,6 +30,7 @@ import {
   isBigSweep,
   leadBroker,
   logRows,
+  pricePath,
   thresholdText,
   type LogRow,
   type SweepThreshold,
@@ -38,6 +39,7 @@ import {
 import { runLoad } from "./recorded-day"
 import type { ReplayCursor } from "./replay-cursor"
 import { makeSweepStore, type SweepStore } from "./sweep-store"
+import { SweepTip } from "./sweep-tip"
 import { INVESTOR_TEXT } from "./tape-list"
 
 // The sweeps and the instant the page shows them at: a recorded day's
@@ -217,22 +219,49 @@ const SIDE = {
 } as const
 
 // The log's columns: live, and on a recorded day, whose sweeps can have
-// brokers, with Value wide enough for `Rp325.91 M` and the Aggressor column.
+// brokers, with Value wide enough for `Rp325.91 M` and the Aggressor and
+// Other side columns.
 const COLUMNS = {
   live: "grid-cols-[58px_44px_minmax(0,1fr)_64px_10px]",
-  brokers: "grid-cols-[58px_44px_minmax(0,1fr)_76px_80px_10px]",
+  brokers: "grid-cols-[58px_44px_minmax(0,1fr)_76px_80px_80px_10px]",
 } as const
+
+// Decision: below lg a recorded day's columns scroll sideways inside the
+// log, never narrower than at lg's 530 px (layout-b.tsx), as the tape does
+// (tape-list.tsx): Time to Other side need about 520 px with the lots and
+// price path whole, and a phone's Sweeps tab is about 360 px wide.
+const BROKER_COLUMNS_MIN = "min-w-[528px]"
+
+// Shows the sweep tooltip at a broker cell, or hides it.
+type OnTip = (id: TradeNumber, cell: HTMLElement | undefined) => void
 
 // One side's Lead broker as `AK [F]` in its investor type's colour, and a
 // muted `+N` for the others on that side; blank for a sweep not yet whole.
+// Hovering it, or tapping it, shows the sweep's tooltip.
 function LeadBrokerCell({
+  id,
   side,
+  onTip,
 }: {
+  id: TradeNumber
   side: ReadonlyArray<SweepBroker> | undefined
+  onTip: OnTip
 }) {
   const lead = side && Effect.runSync(leadBroker(side))
   return (
-    <span className="truncate">
+    <span
+      className="truncate"
+      onPointerEnter={(event) => {
+        if (event.pointerType === "mouse") onTip(id, event.currentTarget)
+      }}
+      onPointerLeave={(event) => {
+        if (event.pointerType === "mouse") onTip(id, undefined)
+      }}
+      // A tap shows it as the press lifts, after the press hid the last one.
+      onPointerUp={(event) => {
+        if (event.pointerType !== "mouse") onTip(id, event.currentTarget)
+      }}
+    >
       {lead && (
         <>
           <span className={INVESTOR_TEXT[lead.investorType]}>
@@ -253,6 +282,7 @@ const LogRowView = memo(function LogRowView({
   brokers,
   selected,
   onPick,
+  onTip,
 }: {
   row: LogRow
   // Whether the log has broker columns: on a recorded day, not live.
@@ -261,11 +291,16 @@ const LogRowView = memo(function LogRowView({
   brokers: SweepBrokers | undefined
   selected: boolean
   onPick: (id: TradeNumber) => void
+  onTip: OnTip
 }) {
-  const path =
-    row.first === row.last
-      ? Effect.runSync(plain(row.first))
-      : `${Effect.runSync(plain(row.first))}→${Effect.runSync(plain(row.last))}`
+  const path = Effect.runSync(pricePath(row))
+  // An auction match forms no sweep, so it never has brokers.
+  const brokerCell = (side: ReadonlyArray<SweepBroker> | undefined) =>
+    row.side === "none" ? (
+      <span />
+    ) : (
+      <LeadBrokerCell id={row.firstTrade} side={side} onTip={onTip} />
+    )
   return (
     <li style={{ height: ROW_HEIGHT }}>
       <button
@@ -295,7 +330,8 @@ const LogRowView = memo(function LogRowView({
         <span className="text-right">
           Rp{Effect.runSync(compact(row.value))}
         </span>
-        {withBrokers && <LeadBrokerCell side={brokers?.aggressor} />}
+        {withBrokers && brokerCell(brokers?.aggressor)}
+        {withBrokers && brokerCell(brokers?.other)}
         <span className="text-warning">
           {row.big && (
             <>
@@ -357,6 +393,65 @@ export function SweepLog({
     }
     return { buy, sell, big }
   }, [view.sweeps, view.at])
+  // Decision: `contain: size` at every width, so the log adds no height to
+  // its grid row: a busy code's thousands of rows scroll inside it instead
+  // of stretching both charts beside it (from lg, apinrdw/kumora#272) or
+  // its phone tab (below lg) to thousands of px. Below lg it is its
+  // 420 px minimum.
+  return (
+    <section
+      aria-label="Sweep log"
+      className="flex min-h-[420px] min-w-0 flex-col overflow-hidden rounded-lg border border-border bg-card contain-size"
+    >
+      <header className="border-b border-border px-2.5 pt-2 pb-1.5">
+        <div className="flex items-center gap-2 text-[13px] font-semibold">
+          <h2>Buy/Sell sweeps · {store.code}</h2>
+          <button
+            type="button"
+            aria-pressed={bigOnly}
+            onClick={() => onBigOnly(!bigOnly)}
+            className={cn(
+              "ml-auto rounded-md border border-border px-1.5 py-px text-[11px] font-normal",
+              bigOnly ? "border-primary text-primary" : "hover:bg-elevated"
+            )}
+          >
+            Big only
+          </button>
+        </div>
+        <p className="mt-0.5 text-[11px] text-muted-foreground tabular-nums">
+          {Effect.runSync(plain(counts.buy + counts.sell))} sweeps · Buy{" "}
+          {Effect.runSync(plain(counts.buy))} · Sell{" "}
+          {Effect.runSync(plain(counts.sell))} · Big {counts.big} ·{" "}
+          <span aria-label="Rows shown">
+            showing {Effect.runSync(plain(rows.length))}
+          </span>
+        </p>
+      </header>
+      <LogColumns
+        store={store}
+        view={view}
+        rows={rows}
+        withBrokers={withBrokers}
+      />
+      <SweepTip store={store} withBrokers={withBrokers} />
+    </section>
+  )
+}
+
+// The log's column heads and its rows, drawn only around the visible ones.
+// Clicking a row selects its sweep; a bubble picked on chart 1 scrolls its
+// row to the middle.
+function LogColumns({
+  store,
+  view,
+  rows,
+  withBrokers,
+}: {
+  store: SweepStore
+  view: SweepView
+  rows: ReadonlyArray<LogRow>
+  withBrokers: boolean
+}) {
   const scroller = useRef<HTMLDivElement>(null)
   const [scroll, setScroll] = useState({ top: 0, height: 0 })
   useEffect(() => {
@@ -399,79 +494,67 @@ export function SweepLog({
     (id: TradeNumber) => store.select(id, "log"),
     [store]
   )
+  const showTip = useCallback<OnTip>(
+    (id, cell) => {
+      if (cell === undefined) return store.tip.set(undefined)
+      const box = cell.getBoundingClientRect()
+      store.tip.set({ id, x: box.left, y: box.bottom, from: "log" })
+    },
+    [store]
+  )
   const first = Math.max(0, Math.floor(scroll.top / ROW_HEIGHT) - OVERSCAN)
   const last = Math.min(
     rows.length,
     Math.ceil((scroll.top + scroll.height) / ROW_HEIGHT) + OVERSCAN
   )
-  // Decision: `contain: size` at every width, so the log adds no height to
-  // its grid row: a busy code's thousands of rows scroll inside it instead
-  // of stretching both charts beside it (from lg, apinrdw/kumora#272) or
-  // its phone tab (below lg) to thousands of px. Below lg it is its
-  // 420 px minimum.
   return (
-    <section
-      aria-label="Sweep log"
-      className="flex min-h-[420px] min-w-0 flex-col overflow-hidden rounded-lg border border-border bg-card contain-size"
-    >
-      <header className="border-b border-border px-2.5 pt-2 pb-1.5">
-        <div className="flex items-center gap-2 text-[13px] font-semibold">
-          <h2>Buy/Sell sweeps · {store.code}</h2>
-          <button
-            type="button"
-            aria-pressed={bigOnly}
-            onClick={() => onBigOnly(!bigOnly)}
-            className={cn(
-              "ml-auto rounded-md border border-border px-1.5 py-px text-[11px] font-normal",
-              bigOnly ? "border-primary text-primary" : "hover:bg-elevated"
-            )}
-          >
-            Big only
-          </button>
-        </div>
-        <p className="mt-0.5 text-[11px] text-muted-foreground tabular-nums">
-          {Effect.runSync(plain(counts.buy + counts.sell))} sweeps · Buy{" "}
-          {Effect.runSync(plain(counts.buy))} · Sell{" "}
-          {Effect.runSync(plain(counts.sell))} · Big {counts.big} ·{" "}
-          <span aria-label="Rows shown">
-            showing {Effect.runSync(plain(rows.length))}
-          </span>
-        </p>
-      </header>
+    <div className="flex min-h-0 flex-1 overflow-x-auto">
       <div
-        aria-hidden
         className={cn(
-          "grid gap-1.5 border-b border-border px-2.5 py-1 text-[10px] tracking-[0.06em] text-muted-foreground uppercase",
-          withBrokers ? COLUMNS.brokers : COLUMNS.live
+          "flex min-w-0 flex-1 flex-col",
+          withBrokers && BROKER_COLUMNS_MIN
         )}
       >
-        <span>Time</span>
-        <span>Side</span>
-        <span>Lots @ price</span>
-        <span className="text-right">Value</span>
-        {withBrokers && <span>Aggressor</span>}
-        <span />
-      </div>
-      <div ref={scroller} className="relative min-h-0 flex-1 overflow-y-auto">
-        <div className="relative" style={{ height: rows.length * ROW_HEIGHT }}>
-          <ol
-            aria-label="Sweeps, newest first"
-            className="absolute inset-x-0"
-            style={{ transform: `translateY(${first * ROW_HEIGHT}px)` }}
+        <div
+          aria-hidden
+          className={cn(
+            "grid gap-1.5 border-b border-border px-2.5 py-1 text-[10px] tracking-[0.06em] text-muted-foreground uppercase",
+            withBrokers ? COLUMNS.brokers : COLUMNS.live
+          )}
+        >
+          <span>Time</span>
+          <span>Side</span>
+          <span>Lots @ price</span>
+          <span className="text-right">Value</span>
+          {withBrokers && <span>Aggressor</span>}
+          {withBrokers && <span>Other side</span>}
+          <span />
+        </div>
+        <div ref={scroller} className="relative min-h-0 flex-1 overflow-y-auto">
+          <div
+            className="relative"
+            style={{ height: rows.length * ROW_HEIGHT }}
           >
-            {rows.slice(first, last).map((row) => (
-              <LogRowView
-                key={row.firstTrade}
-                row={row}
-                withBrokers={withBrokers}
-                brokers={view.brokers.get(row.firstTrade)}
-                selected={row.firstTrade === view.selected}
-                onPick={pick}
-              />
-            ))}
-          </ol>
+            <ol
+              aria-label="Sweeps, newest first"
+              className="absolute inset-x-0"
+              style={{ transform: `translateY(${first * ROW_HEIGHT}px)` }}
+            >
+              {rows.slice(first, last).map((row) => (
+                <LogRowView
+                  key={row.firstTrade}
+                  row={row}
+                  withBrokers={withBrokers}
+                  brokers={view.brokers.get(row.firstTrade)}
+                  selected={row.firstTrade === view.selected}
+                  onPick={pick}
+                  onTip={showTip}
+                />
+              ))}
+            </ol>
+          </div>
         </div>
       </div>
-    </section>
+    </div>
   )
 }

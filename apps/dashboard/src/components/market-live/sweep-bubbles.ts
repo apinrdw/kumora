@@ -88,8 +88,9 @@ const bubblesOf = Effect.fnUntraced(function* (sweeps: ReadonlyArray<Sweep>) {
 // Draws each shown sweep as a bubble at its average price, x at its minute's
 // centre plus its second: green buy, red sell, area by lots, an amber ring on
 // a big trade, and a ring and guide on the selected one. A bubble is a hit
-// target, so a click picks its sweep. The last draw's bubble count and
-// selection go on `marks` for the page e2e.
+// target, so a click picks its sweep and a hover shows its tooltip. The
+// last draw's bubble count and selection, with the selected bubble's centre
+// in CSS px, go on `marks` for the page e2e.
 class SweepBubbles implements ISeriesPrimitive<Time> {
   private byMinute = new Map<number, Array<Bubble>>()
   private threshold = 0
@@ -148,8 +149,13 @@ class SweepBubbles implements ISeriesPrimitive<Time> {
           context.setLineDash([])
         }
         this.marks.dataset.bubbles = String(placed.length)
-        if (ring === undefined) delete this.marks.dataset.ringedSweep
-        else this.marks.dataset.ringedSweep = this.selected
+        if (ring === undefined) {
+          delete this.marks.dataset.ringedSweep
+          delete this.marks.dataset.ringedAt
+        } else {
+          this.marks.dataset.ringedSweep = this.selected
+          this.marks.dataset.ringedAt = `${ring[0] / ratio},${ring[1] / scope.verticalPixelRatio}`
+        }
       }),
   }
   private readonly views: ReadonlyArray<IPrimitivePaneView> = [
@@ -206,7 +212,8 @@ class SweepBubbles implements ISeriesPrimitive<Time> {
     return placed
   }
 
-  hitTest(x: number, y: number): PrimitiveHoveredItem | null {
+  // The shown bubble nearest a point of the pane, among those it is on.
+  nearest(x: number, y: number) {
     let best: { id: TradeNumber; distance: number } | undefined
     for (const placed of this.placed()) {
       const distance = Math.hypot(placed.x - x, placed.y - y)
@@ -214,6 +221,11 @@ class SweepBubbles implements ISeriesPrimitive<Time> {
       if (best === undefined || distance < best.distance)
         best = { id: placed.bubble.id, distance }
     }
+    return best
+  }
+
+  hitTest(x: number, y: number): PrimitiveHoveredItem | null {
+    const best = this.nearest(x, y)
     return best === undefined
       ? null
       : {
@@ -294,14 +306,39 @@ export function attachSweepBubbles({
     schedule()
   })
   const stopCursor = cursor?.subscribe(schedule)
+  // The tooltip of the bubble at the pointer, or none once it is on no
+  // bubble; a log cell's tooltip is left alone.
+  // Decision: the bubbles' own hit test finds the bubble, since a tap's
+  // click carries no hovered object (the library hit-tests where the
+  // crosshair was, and a tap moved none there).
+  const tip = (parameter: MouseEventParams<Time>) => {
+    const point = parameter.point
+    const id = point && bubbles.nearest(point.x, point.y)?.id
+    if (id === undefined || point === undefined) {
+      if (store.tip.get()?.from === "chart") store.tip.set(undefined)
+      return id
+    }
+    const box = chart.chartElement().getBoundingClientRect()
+    store.tip.set({
+      id,
+      x: box.left + point.x,
+      y: box.top + point.y,
+      from: "chart",
+    })
+    return id
+  }
+  // A click or a tap on a bubble selects its sweep and shows its tooltip:
+  // a tap has no hover.
   const click = (parameter: MouseEventParams<Time>) => {
-    const id = Effect.runSync(clickedSweep(parameter))
+    const id = tip(parameter)
     if (id !== undefined) store.select(id, "chart")
   }
   chart.subscribeClick(click)
+  chart.subscribeCrosshairMove(tip)
   return () => {
     cancelAnimationFrame(frame)
     chart.unsubscribeClick(click)
+    chart.unsubscribeCrosshairMove(tip)
     stopStore()
     stopCursor?.()
     series.detachPrimitive(bubbles)
