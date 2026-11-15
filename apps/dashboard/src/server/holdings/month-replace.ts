@@ -7,6 +7,13 @@ import { Effect } from "effect"
 
 import { HoldingsDb, type SqlValue, type Statement } from "./db.ts"
 
+// Decision: a month lists at most 2,000 stocks in either report, about 2×
+// the 962 IDX's classification report and the 1,005 KSEI's file listed in
+// Sep and Oct 2026, so a parsed month's rows stay under 48 MiB on the heap
+// (tests/server/holdings/classification.test.ts). Each report refuses a
+// file listing more.
+export const MAX_STOCKS = 2_000
+
 // A month's rows for one table, each row its `columns` in order, without
 // the date. Table and column names come from code, never from a file.
 export interface MonthRows {

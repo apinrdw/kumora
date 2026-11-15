@@ -6,7 +6,7 @@ import { Effect, Schema } from "effect"
 import type { KseiType, SplitOrigin } from "@/domain/holdings"
 
 import type { SqlValue } from "./db.ts"
-import { replaceMonth } from "./month-replace.ts"
+import { MAX_STOCKS, replaceMonth } from "./month-replace.ts"
 import { parsedMonths } from "./months-to-parse.ts"
 import { entryText, zipEntries } from "./zip.ts"
 
@@ -106,12 +106,6 @@ const originHoldings = Effect.fnUntraced(function* (
     )
   return { holdings, total }
 })
-
-// Decision: a file lists at most 5,000 EQUITY stocks, about 5× the 900 or
-// so IDX lists (docs/runbooks/order-flow-cost.md), so a month's holdings
-// stay under 90,000 rows: each `1|` of a line is a holding, and a file of
-// such lines would build 2.1 million before anything is written.
-const MAX_STOCKS = 5_000
 
 // A line of `text`, without its `\n` or `\r\n`.
 const LINE = /([^\n]*?)\r?(?:\n|$)/g

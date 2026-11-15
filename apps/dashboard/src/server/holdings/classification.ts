@@ -6,7 +6,7 @@ import { Effect, Schema } from "effect"
 import { CLASSIFICATIONS, Classification, type Origin } from "@/domain/holdings"
 
 import type { SqlValue } from "./db.ts"
-import { replaceMonth } from "./month-replace.ts"
+import { MAX_STOCKS, replaceMonth } from "./month-replace.ts"
 import { parsedMonths } from "./months-to-parse.ts"
 import { type Cell, type Row, readSheet } from "./xlsx.ts"
 
@@ -182,6 +182,10 @@ const parseRows = Effect.fnUntraced(function* (rows: ReadonlyMap<number, Row>) {
     if (rowNumber <= layout.headerRow || typeof code !== "string") continue
     const stock = code.trim()
     if (stock === "") continue
+    if (stocks.length === MAX_STOCKS)
+      return yield* unreadable(
+        `The report lists more than ${MAX_STOCKS.toLocaleString("en-US")} stocks`
+      )
     const where = `${stock} (row ${rowNumber})`
     const total = yield* shareCount(cells.get(layout.total), `${where}'s total`)
     stocks.push([stock, String(cells.get(layout.issuer) ?? "").trim(), total])
