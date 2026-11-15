@@ -5,7 +5,10 @@ import { assert, describe, it } from "@effect/vitest"
 import { DateTime, Effect, Logger, References } from "effect"
 import { TestClock } from "effect/testing"
 
+import type { Sql } from "@/server/market-live/day-store"
+
 import { stockbitTrade, tradingDay } from "./day-harness"
+import { memorySql } from "./sql"
 
 const at = (time: string) =>
   TestClock.setTime(
@@ -92,6 +95,113 @@ describe("the cost meter", () => {
           assert.strictEqual(lines[0]!.footprintRows, 3)
           assert.strictEqual(lines[0]!.heatmapRows, 0)
           assert.isAbove(Number(lines[0]!.footprintBytes), 0)
+          assert.strictEqual(lines[0]!.sweepBrokerRows, 0)
+        })
+      )
+  )
+})
+
+// `sql` counting as Cloudflare's does: every row a statement returned as
+// read, and every write statement as one row written.
+const counted = (sql: Sql): Sql => {
+  const usage = { rowsRead: 0, rowsWritten: 0, bytes: 0 }
+  return {
+    ...sql,
+    exec: (query, ...bindings) => {
+      const rows = sql.exec(query, ...bindings)
+      usage.rowsRead += rows.length
+      if (/^\s*(INSERT|DELETE|UPDATE|REPLACE)/i.test(query))
+        usage.rowsWritten += 1
+      return rows
+    },
+    usage: () => ({ ...usage }),
+  }
+}
+
+// UNTR's two sweeps over two minutes and BBCA's one, each trade's codes,
+// buyer then seller: the day's whole tape, so its codes can be complete.
+const SWEPT = [
+  untr(1, "09:00:10.100", 2),
+  bbca(2, "09:00:10.200"),
+  untr(3, "09:01:00.000", 3),
+]
+const CODES = [
+  [1, "AK F CC D"],
+  [2, "PD F KZ D"],
+  [3, "YP D ZP F"],
+] as const
+
+describe("the sweep brokers meter", () => {
+  it.effect(
+    "a recompute after the seal logs the minutes it read, the rows it read and the rows it wrote",
+    () =>
+      withLines("Sweep brokers recomputed", (lines) =>
+        Effect.gen(function* () {
+          yield* at("09:00:12")
+          const day = yield* tradingDay(counted(memorySql()))
+          yield* day.trades(SWEPT)
+          yield* at("17:00:00")
+          yield* day.alarm
+          assert.lengthOf(lines, 0)
+
+          yield* at("17:30:00")
+          yield* day.brokerCodes("Ajaib", CODES.slice(0, 2))
+          yield* day.brokerCodes("Ajaib", CODES.slice(2))
+          assert.lengthOf(lines, 2)
+          assert.strictEqual(lines[0]!.sweepBrokerMinutes, 1)
+          assert.strictEqual(lines[0]!.sweepBrokers, 2)
+          assert.strictEqual(lines[1]!.sweepBrokerMinutes, 1)
+          assert.strictEqual(lines[1]!.sweepBrokers, 1)
+          // Each minute's whole market of trades, at least.
+          assert.isAtLeast(Number(lines[0]!.billedSweepBrokerReadRows), 2)
+          assert.isAtLeast(Number(lines[1]!.billedRowsWritten), 1)
+        })
+      )
+  )
+
+  it.effect(
+    "a recompute before the seal adds its rows to the next flush's line",
+    () =>
+      withLines("Rows written", (lines) =>
+        Effect.gen(function* () {
+          yield* at("09:00:12")
+          const day = yield* tradingDay()
+          yield* day.trades(SWEPT)
+          yield* TestClock.adjust("2 minutes")
+          assert.strictEqual(sum(lines, "sweepBrokers"), 0)
+          yield* at("16:30:00")
+          yield* day.brokerCodes("Ajaib", CODES)
+          yield* at("17:00:00")
+          yield* day.alarm
+          assert.strictEqual(sum(lines, "sweepBrokers"), 3)
+          assert.strictEqual(sum(lines, "sweepBrokerMinutes"), 2)
+        })
+      )
+  )
+
+  it.effect(
+    "logs the day's storage again, with the table's rows and bytes, once its codes are complete",
+    () =>
+      withLines("Order flow storage", (lines) =>
+        Effect.gen(function* () {
+          yield* at("09:00:12")
+          const day = yield* tradingDay()
+          yield* day.trades(SWEPT)
+          yield* at("17:00:00")
+          yield* day.alarm
+          assert.lengthOf(lines, 1)
+
+          yield* at("17:30:00")
+          yield* day.brokerCodes("Ajaib", CODES.slice(0, 2), 3)
+          assert.lengthOf(lines, 1)
+          yield* day.brokerCodes("Ajaib", CODES.slice(2))
+          assert.lengthOf(lines, 2)
+          assert.strictEqual(lines[1]!.sweepBrokerRows, 3)
+          assert.isAbove(Number(lines[1]!.sweepBrokerBytes), 0)
+          assert.strictEqual(lines[1]!.footprintRows, 3)
+          // A batch after the day was complete logs no more.
+          yield* day.brokerCodes("Stockbit", CODES.slice(2))
+          assert.lengthOf(lines, 2)
         })
       )
   )

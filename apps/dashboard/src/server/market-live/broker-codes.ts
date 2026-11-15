@@ -555,7 +555,19 @@ export const makeBrokerCodes = Effect.fnUntraced(function* (options: {
     )
   })
 
-  return { post, status: statusAnswer, held, heldCodes, isComplete }
+  // Whether the day holds no trade's codes yet.
+  const holdsNone = Effect.sync(
+    () => sql.exec("SELECT 1 FROM broker_code_chunks LIMIT 1").length === 0
+  )
+
+  return {
+    post,
+    status: statusAnswer,
+    held,
+    heldCodes,
+    isComplete,
+    holdsNone,
+  }
 })
 
 export type BrokerCodesStore = Effect.Success<

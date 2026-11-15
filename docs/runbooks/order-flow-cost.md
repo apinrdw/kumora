@@ -78,3 +78,55 @@ This estimate comes from the measured scale alone. Its inputs are assumptions un
 | **Month 12** | **about $13** | **about $35** |
 
 Both columns stay under $40 a month for the first year. The storage term never stops growing, and heatmap rows are most of it. Heatmap rows are stored as plain JSON. Book chunks are gzipped (the Decision on `chunkOf` in `day-store.ts`), and a gzipped heatmap row would be about a tenth of the size. At the upper bound, the estimate crosses $40 around month 15. If a replaced row bills as two row writes, the footprint term doubles, and the upper column reaches about $26 in month 1.
+
+## Sweep brokers: one Staging evening
+
+Spec [apinrdw/kumora#343](https://github.com/apinrdw/kumora/issues/343), ticket [apinrdw/kumora#348](https://github.com/apinrdw/kumora/issues/348). The sweep brokers table (`sweep-brokers.ts`) holds one row per stock code and minute with sweeps. Each broker codes batch rewrites the rows of every minute it touches, so its cost comes after the close, while the evening walk runs. Before the spec's branch reaches Production, run one Staging evening through the walk to `complete`. Then report the figures and the extended estimate on the spec's PR. The stop is the same: the order flow tables plus the sweep brokers table must stay under **$40 a month**. If the estimate is above it, stop. Do not merge to Production until the owner decides.
+
+### What the evening measures
+
+- **`Rows written`** gains `sweepBrokers` (sweep brokers rows replaced or deleted), `sweepBrokerMinutes` (minutes a recompute read back) and `billedSweepBrokerReadRows` (the rows those recomputes read, as billed). A batch that lands before the 17:00 seal adds these to the next flush's line.
+- **`Sweep brokers recomputed`**: one line for each batch after the seal, with the same fields as `Rows written`. Its `billedRowsWritten` is that batch's billed writes. The one-off build of a day whose codes landed before this shipped logs one such line when it ends.
+- **`Order flow storage`** gains `sweepBrokerRows` and `sweepBrokerBytes` (the table's rows and payload bytes). The seal's line shows them near 0, because codes arrive after it. The object logs the line again the first time it finds the sealed day's codes complete. Read that later line. If the object restarted during the walk, it logs the line again: take the last one.
+
+### The evening
+
+1. Run the order flow day above on the same Staging deploy, or any Staging trading day with a tape.
+2. After 17:00 WIB, point the relay extension's broker codes walk at Staging and let it run. Keep it running until the day's broker codes status reads `complete`. Let Stockbit's cross-check walk finish too, if it runs, because its batches also recompute.
+3. In the Query Builder, filter on the day's `Rows written` lines from 16:00 WIB on, and on its `Sweep brokers recomputed` lines. Sum `sweepBrokers`, `sweepBrokerMinutes`, `billedSweepBrokerReadRows` and `billedRowsWritten` across both.
+4. Read the last `Order flow storage` line for `sweepBrokerRows` and `sweepBrokerBytes`.
+
+### The extended estimate
+
+Use the same `s = T_prod / T_staging`, 22 trading days and prices as in [The estimate model](#the-estimate-model). Add these terms:
+
+- Sweep brokers writes a month: `W = 22 × s × ΣsweepBrokers`. If `ΣbilledRowsWritten` over the `Sweep brokers recomputed` lines is well above their `ΣsweepBrokers`, scale `W` by that ratio.
+- Sweep brokers rows read a month: `B = 22 × s × ΣbilledSweepBrokerReadRows`
+- Storage added a month, in GB: `G_sb = 22 × s × sweepBrokerBytes / 10⁹`
+
+The monthly cost in month `m` after shipping becomes:
+
+`(F + H + W) × $1/M + (R + B) × $0.001/M + m × (G + G_sb) × $0.20`
+
+Report it for month 1 and month 12, beside the order flow figures alone.
+
+The one-off build (`builtFirst` in `sweep-brokers.ts`) runs once for each day whose codes landed before this shipped, on that day's first sweep brokers GET. It reads the whole day's tape once and writes about one row per stock-minute with a sided sweep. That costs about one evening's `ΣsweepBrokers` divided by the rewrite factor `r_sb` below, once for each such day.
+
+### First estimate, before Staging (2026-11-15)
+
+| Input | Value | Basis |
+| --- | --- | --- |
+| Stock-minutes with a sided sweep, P_sb | 150 K a day; upper bound 270 K | as P above: no more than the footprint rows |
+| Rewrites per row, r_sb | 2; upper bound 4 | each batch rewrites every row of the minutes it touches. Ajaib's walk pages 5,000 trades, so a busy minute of 30 K trades is rewritten about 6 times and a quiet one once or twice. Stockbit's cross-check batches add more. |
+| Row bytes | about 30–45 MB a day | 0.3 sweeps per trade × 1.46 M, at about 70–100 B of JSON for each sweep's brokers |
+| Rows read for each batch | the touched minutes' whole market | about 300 Ajaib batches a day × up to 30 K rows |
+
+| | Expected (P_sb 150 K, r_sb 2) | Upper (P_sb 270 K, r_sb 4) |
+| --- | --- | --- |
+| Sweep brokers writes | 6.6 M → $6.60 | 23.8 M → $23.76 |
+| Rows read | about 0.2 B → $0.00 | about 0.4 B → $0.00 |
+| Storage added a month | 0.7–1.0 GB → +$0.20 | 1.0 GB → +$0.20 |
+| **Order flow plus sweep brokers, month 1** | **about $13** | **about $38** |
+| **Order flow plus sweep brokers, month 12** | **about $22** | **about $61** |
+
+The expected column stays under $40 for the first year. The upper column crosses it in month 2, because the rewrite factor multiplies the writes. The Staging evening measures `r_sb` directly: it is `ΣsweepBrokers / sweepBrokerRows`. If the measured estimate is above $40, the lever is to skip a row whose bytes did not change. A batch then writes only the codes whose sweeps it completed or changed.

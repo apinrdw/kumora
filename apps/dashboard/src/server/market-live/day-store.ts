@@ -64,6 +64,7 @@ export interface Sql {
 const BILLED = {
   billedRowsWritten: "rowsWritten",
   billedMinuteRereadRows: "rowsRead",
+  billedSweepBrokerReadRows: "rowsRead",
 } as const
 
 interface Meter {
@@ -76,8 +77,13 @@ interface Meter {
   ajaibBooks: number
   facts: number
   minuteRereads: number
+  // The sweep brokers rows (sweep-brokers.ts) replaced or deleted, and the
+  // minutes their recomputes read back.
+  sweepBrokers: number
+  sweepBrokerMinutes: number
   billedRowsWritten?: number
   billedMinuteRereadRows?: number
+  billedSweepBrokerReadRows?: number
 }
 
 const emptyMeter = Effect.sync((): Meter => ({
@@ -90,6 +96,8 @@ const emptyMeter = Effect.sync((): Meter => ({
   ajaibBooks: 0,
   facts: 0,
   minuteRereads: 0,
+  sweepBrokers: 0,
+  sweepBrokerMinutes: 0,
 }))
 
 // One code's order book chunk for one minute, encoded, and its book heatmap
@@ -193,9 +201,13 @@ export const Fact = {
   // The one-off build of a day's order flow rows (order-flow-build.ts): the
   // last minute it wrote, then ORDER_FLOW_BUILT.
   orderFlowBuilt: "order-flow-built",
+  // The one-off build of a day's sweep brokers rows (sweep-brokers.ts): the
+  // last minute it wrote, then SWEEP_BROKERS_BUILT.
+  sweepBrokersBuilt: "sweep-brokers-built",
 } as const
 
 export const ORDER_FLOW_BUILT = "built"
+export const SWEEP_BROKERS_BUILT = "built"
 
 // What the one-off build writes of one minute: every stock's footprint row
 // and every code's heatmap row, and the minute as its progress.
@@ -444,6 +456,33 @@ export const makeDayStore = (sql: Sql) =>
     const markOrderFlowBuilt = Effect.sync(() =>
       insertFact(Fact.orderFlowBuilt, ORDER_FLOW_BUILT)
     )
+    const markSweepBrokersBuilt = Effect.sync(() =>
+      insertFact(Fact.sweepBrokersBuilt, SWEEP_BROKERS_BUILT)
+    )
+
+    // One minute of a sweep brokers recompute (sweep-brokers.ts), metering
+    // the rows it read.
+    const sweepBrokerMinute = <A, E, R>(recompute: Effect.Effect<A, E, R>) =>
+      Effect.suspend(() => {
+        meter.sweepBrokerMinutes += 1
+        return metered("billedSweepBrokerReadRows", recompute)
+      })
+
+    // A sweep brokers write of `rows` rows, and `facts`, in one transaction.
+    const writeSweepBrokers = (
+      rows: number,
+      facts: Readonly<Record<string, string>>,
+      writeRows: () => void
+    ) =>
+      Effect.gen(function* () {
+        yield* meteredTransaction(() => {
+          writeRows()
+          for (const [key, value] of Object.entries(facts))
+            insertFact(key, value)
+        })
+        meter.sweepBrokers += rows
+        meter.facts += Object.keys(facts).length
+      })
 
     const hasTrade = (tradeNumber: TradeNumber) =>
       Effect.sync(
@@ -891,6 +930,9 @@ export const makeDayStore = (sql: Sql) =>
       write,
       writeBuiltMinute,
       markOrderFlowBuilt,
+      sweepBrokerMinute,
+      writeSweepBrokers,
+      markSweepBrokersBuilt,
       orderFlowMinutes,
       minuteTrades,
       minutesOfTrades,
