@@ -242,7 +242,7 @@ describe("a sealed day's sweep brokers", () => {
           ),
           [{ code: BrokerCode.make("AK"), investorType: "D", lots: 18 }]
         )
-        // Only a broker of both types carries the other type's lots.
+        // Only a broker of both types carries its minor type's lots.
         const response = yield* day.recorded({
           _tag: "SweepBrokers",
           code: StockCode.make("UNTR"),

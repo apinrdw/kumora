@@ -203,17 +203,17 @@ export const decodeRecordedBrokerCodes = Schema.decodeUnknownEffect(
 
 // One broker on one side of a sweep: its code, the investor type it traded
 // the most lots as in the sweep, its lots on that side, and, when it traded
-// both types, how many of those lots were the other type.
+// both types, how many of those lots were its minor type (the smaller).
 const SweepBrokerFields = Schema.Struct({
   code: BrokerCode,
   investorType: InvestorType,
   lots: Schema.Finite,
-  otherTypeLots: Schema.optionalKey(Schema.Finite),
+  minorTypeLots: Schema.optionalKey(Schema.Finite),
 })
 
 // Decision: a sweep's brokers travel, and are stored, as tuples: [first
 // trade, aggressor side, other side], each broker [code, investor type,
-// lots, other type's lots only when nonzero], not keyed objects: a busy
+// lots, minor type's lots only when nonzero], not keyed objects: a busy
 // code's 10–18 K sweeps a day answer 1–2 MB as tuples. See spec
 // apinrdw/kumora#343, "The sweep brokers answer", and PR apinrdw/kumora#349.
 const SweepBroker = Schema.Tuple([
@@ -224,21 +224,21 @@ const SweepBroker = Schema.Tuple([
 ]).pipe(
   Schema.decodeTo(Schema.toType(SweepBrokerFields), {
     decode: SchemaGetter.transform(
-      ([code, investorType, lots, otherTypeLots]) => ({
+      ([code, investorType, lots, minorTypeLots]) => ({
         code,
         investorType,
         lots,
-        ...(otherTypeLots === undefined ? {} : { otherTypeLots }),
+        ...(minorTypeLots === undefined ? {} : { minorTypeLots }),
       })
     ),
     encode: SchemaGetter.transform((broker) =>
-      broker.otherTypeLots === undefined
+      broker.minorTypeLots === undefined
         ? ([broker.code, broker.investorType, broker.lots] as const)
         : ([
             broker.code,
             broker.investorType,
             broker.lots,
-            broker.otherTypeLots,
+            broker.minorTypeLots,
           ] as const)
     ),
   })

@@ -199,7 +199,7 @@ interface BrokerPick {
   readonly lots: number
 }
 
-const OTHER_TYPE = { D: "F", F: "D" } as const
+const OPPOSITE_TYPE = { D: "F", F: "D" } as const
 
 // The broker filter's choices: the aggressor brokers of the whole sweeps up
 // to `at` (epoch ms), largest summed aggressor lots first. A broker's
@@ -224,18 +224,18 @@ export const brokerPicks = (
           first: broker.investorType,
           lots: { D: 0, F: 0 },
         }
-        const otherTypeLots = broker.otherTypeLots ?? 0
-        entry.lots[broker.investorType] += broker.lots - otherTypeLots
-        entry.lots[OTHER_TYPE[broker.investorType]] += otherTypeLots
+        const minorTypeLots = broker.minorTypeLots ?? 0
+        entry.lots[broker.investorType] += broker.lots - minorTypeLots
+        entry.lots[OPPOSITE_TYPE[broker.investorType]] += minorTypeLots
         held.set(broker.code, entry)
       }
     }
     return [...held]
       .map(([code, { first, lots }]): BrokerPick => {
-        const other = OTHER_TYPE[first]
+        const opposite = OPPOSITE_TYPE[first]
         return {
           code,
-          investorType: lots[other] > lots[first] ? other : first,
+          investorType: lots[opposite] > lots[first] ? opposite : first,
           lots: lots.D + lots.F,
         }
       })
