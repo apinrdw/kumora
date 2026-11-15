@@ -198,8 +198,8 @@ export const makeBrokerCodesFollower = (
  * Follows one code's sweep brokers on a recorded day: shows the answer, then
  * while it says the day's codes are incomplete asks again every 30 s, past
  * the browser's copy, showing each answer, until one is complete. None
- * answered (a day not recorded) ends it. A failed recheck other than a 401
- * is logged and the next one goes ahead.
+ * answered (a day not recorded) ends it. A failed ask other than a 401, the
+ * first one included, is logged and the next one goes ahead 30 s later.
  */
 export const followSweepBrokers = (
   date: WibDate,
@@ -209,19 +209,20 @@ export const followSweepBrokers = (
   Effect.gen(function* () {
     let done = false
     const ask = (fresh: boolean) =>
-      Effect.map(fetchRecordedSweepBrokers(date, code, fresh), (answer) => {
-        done = Option.isNone(answer) || answer.value.complete
-        if (Option.isSome(answer)) show(answer.value)
-      })
+      fetchRecordedSweepBrokers(date, code, fresh).pipe(
+        Effect.map((answer) => {
+          done = Option.isNone(answer) || answer.value.complete
+          if (Option.isSome(answer)) show(answer.value)
+        }),
+        Effect.catchIf(
+          (error) => !Predicate.isTagged(error, "SignInRequired"),
+          (error) => Effect.logWarning("Sweep brokers not loaded", error)
+        )
+      )
     yield* ask(false)
     while (!done) {
       yield* Effect.sleep(CODES_RECHECK)
-      yield* ask(true).pipe(
-        Effect.catchIf(
-          (error) => !Predicate.isTagged(error, "SignInRequired"),
-          (error) => Effect.logWarning("Sweep brokers not rechecked", error)
-        )
-      )
+      yield* ask(true)
     }
   })
 
