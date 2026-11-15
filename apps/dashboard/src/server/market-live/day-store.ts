@@ -901,3 +901,5 @@ export const makeDayStore = (sql: Sql) =>
       fact,
     }
   })
+
+export type DayStore = Effect.Success<ReturnType<typeof makeDayStore>>
