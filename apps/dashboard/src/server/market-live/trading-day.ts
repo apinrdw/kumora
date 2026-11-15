@@ -317,7 +317,7 @@ export const makeTradingDay = Effect.fnUntraced(function* (options: {
   const sweepBrokers = yield* makeSweepBrokers({
     sql: options.sql,
     store,
-    heldCodes: brokerCodes.heldCodes,
+    brokerCodes,
   })
   const setAlarm = options.setAlarm ?? (() => Effect.void)
   let sealed = (yield* store.fact(Fact.sealed)) !== undefined
@@ -747,7 +747,10 @@ export const makeTradingDay = Effect.fnUntraced(function* (options: {
     })
     sealed = true
     yield* Effect.logInfo("Order flow storage").pipe(
-      Effect.annotateLogs(yield* store.orderFlowStorage)
+      Effect.annotateLogs({
+        ...(yield* store.orderFlowStorage),
+        ...(yield* sweepBrokers.storage),
+      })
     )
   })
 
@@ -1070,11 +1073,13 @@ export const makeTradingDay = Effect.fnUntraced(function* (options: {
     return [...unwrittenRows, ...heldRows]
   })
 
-  // A sealed day's order flow GET builds the rows first, if the day has
-  // none: it never answers empty. GETs take the turn, so a second GET
-  // awaits the first's build.
+  // A sealed day's order flow or sweep brokers GET builds the rows first, if
+  // the day has none: it never answers empty. GETs take the turn, so a
+  // second GET awaits the first's build.
   const builtFirst = Effect.fnUntraced(function* (resource: RecordedResource) {
-    if (orderFlowBuilt || !sealed) return
+    if (!sealed) return
+    if (resource._tag === "SweepBrokers") return yield* sweepBrokers.builtFirst
+    if (orderFlowBuilt) return
     if (
       resource._tag !== "Candles" &&
       resource._tag !== "Sweeps" &&
