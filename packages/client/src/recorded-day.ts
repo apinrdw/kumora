@@ -151,8 +151,9 @@ export const makeNewestWins = Effect.sync(() => {
 
 // Decision: while the day's codes are incomplete, the page asks again every
 // 30 s (spec apinrdw/kumora#280, "Recheck"); the walks store codes for over
-// an hour after the seal.
-const RECHECK = Duration.seconds(30)
+// an hour after the seal. The sweep log's note names it (`arrivingNote` in
+// apps/dashboard/src/lib/sweeps.ts).
+export const CODES_RECHECK = Duration.seconds(30)
 
 /**
  * Follows a recorded day's broker codes beside its tape. `ask` fetches the
@@ -180,7 +181,7 @@ export const makeBrokerCodesFollower = (
       })
     const recheck = Effect.gen(function* () {
       while (!complete) {
-        yield* Effect.sleep(RECHECK)
+        yield* Effect.sleep(CODES_RECHECK)
         if (complete || latest === undefined) continue
         yield* ask(latest, true).pipe(
           Effect.catchIf(
@@ -214,7 +215,7 @@ export const followSweepBrokers = (
       })
     yield* ask(false)
     while (!done) {
-      yield* Effect.sleep(RECHECK)
+      yield* Effect.sleep(CODES_RECHECK)
       yield* ask(true).pipe(
         Effect.catchIf(
           (error) => !Predicate.isTagged(error, "SignInRequired"),

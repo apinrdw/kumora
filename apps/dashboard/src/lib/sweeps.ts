@@ -1,6 +1,7 @@
 // The selected code's sweeps as chart 1's bubbles and the sweep log show them
 // (spec apinrdw/kumora#263, "Chart 1"): the top-N filter, the log's rows, and
 // where a bubble sits. Pure, so the renderers only draw.
+import { CODES_RECHECK } from "@workspace/client"
 import { MINUTE_MS, SHARES_PER_LOT } from "@workspace/relay"
 import type {
   BrokerCode,
@@ -10,7 +11,7 @@ import type {
   SweepBrokers,
   TradeNumber,
 } from "@workspace/relay"
-import { DateTime, Effect } from "effect"
+import { DateTime, Duration, Effect } from "effect"
 
 import { lots as lotsText, plain, tapeTime } from "./format"
 import { BIG_TRADE_IDR } from "./tape"
@@ -293,7 +294,7 @@ export const arrivingNote = (
       all += 1
       if (brokers.has(sweep.firstTrade)) whole += 1
     }
-    return `Codes still arriving: ${count.format(whole)} of ${count.format(all)} sweeps have their brokers. Updates every 30 s.`
+    return `Codes still arriving: ${count.format(whole)} of ${count.format(all)} sweeps have their brokers. Updates every ${count.format(Duration.toSeconds(CODES_RECHECK))} s.`
   })
 
 // A sweep's average price: its value over its shares.
