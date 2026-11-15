@@ -66,7 +66,7 @@ const MONTHS = {
   },
 }
 
-// BBCA's rows in KSEI's May, Sep and Oct 2026 files: Jun to Aug is a gap.
+// BBCA's rows in KSEI's May, Sep and Oct 2026 reports: Jun to Aug is a gap.
 // October's date matches the report's, so BBCA's 19 B scripless shares are
 // 15.41% of its listed shares; KSEI has no March. Only KSEI has APOL.
 const KSEI_MONTHS = {

@@ -413,12 +413,14 @@ test.describe.serial("an admin's KSEI archive", () => {
     await expect(cellsIn(holdings, "Held")).toHaveCount(1)
   })
 
-  // Last: its Kepemilikan Efek files would change the totals and coverage
-  // above.
+  // Last: its Securities holdings reports would change the totals and
+  // coverage above.
   // Decision: its parse writes the Test stage's one HoldingsDb, which
   // stocks.spec.ts seeds and reads, unserialized: it replaces only KSEI's
   // 2026-09-30 and 2026-10-30, whose BBCA rows equal that spec's seed.
-  test("Parse now parses the held Kepemilikan Efek files", async ({ page }) => {
+  test("Parse now parses the held Securities holdings reports", async ({
+    page,
+  }) => {
     await seedKseiHoldingsFixture("BalanceposEfek20260930.zip")
     await seedKseiHoldingsFixture("BalanceposEfek20261030.zip")
 

@@ -2,7 +2,8 @@
 // when its newest archived version (by fetched-at) or the parser's version
 // differs from the version its parsed holdings came from, or when it has
 // none. Both archives' reconciles use it: the IDX archive run's for
-// classification reports, the KSEI parse run's for Kepemilikan Efek files.
+// classification reports, the KSEI parse run's for Securities holdings
+// reports.
 import { Effect, Schema } from "effect"
 
 import { ArchiveBucket } from "../archive/bucket.ts"

@@ -1,5 +1,5 @@
-// The KSEI parse run: the KSEI archive's Kepemilikan Efek files parsed into
-// parsed holdings, read back as the stock page reads a stock's series.
+// The KSEI parse run: the KSEI archive's Securities holdings reports parsed
+// into parsed holdings, read back as the stock page reads a stock's series.
 import { assert, describe, it } from "@effect/vitest"
 import { StockCode } from "@workspace/relay"
 import { Effect, Layer } from "effect"

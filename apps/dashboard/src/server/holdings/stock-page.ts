@@ -43,7 +43,7 @@ const CompositionMonth = Schema.Struct({
   dataDate: Schema.String,
   totalScripless: Schema.Number,
   // KSEI's `Sec. Num` for the stock on the same date; undefined when KSEI has
-  // no file of that date, or no row for the stock in it.
+  // no Securities holdings report of that date, or no row for the stock in it.
   listedShares: Schema.UndefinedOr(Schema.Number),
   // Whether the report splits local and foreign (Sep 2026 onward).
   split: Schema.Boolean,
@@ -56,8 +56,8 @@ export type CompositionMonth = typeof CompositionMonth.Type
 const TypeHoldings = Schema.Record(KseiType, Schema.Number)
 export type TypeHoldings = typeof TypeHoldings.Type
 
-// A month of the KSEI series. `holdings` is undefined for a month whose file
-// has no row for the stock, or that no parsed file covers: a gap.
+// A month of the KSEI series. `holdings` is undefined for a month whose
+// report has no row for the stock, or that no parsed report covers: a gap.
 const SeriesMonth = Schema.Struct({
   // `YYYY-MM`.
   month: Schema.String,
@@ -80,7 +80,7 @@ const StockPage = Schema.Struct({
   months: Schema.Array(
     Schema.Struct({ dataDate: Schema.String, held: Schema.Boolean })
   ),
-  // Whether any parsed KSEI file has the stock. A stock KSEI has and no
+  // Whether any parsed KSEI report has the stock. A stock KSEI has and no
   // classification report does (unpriced or suspended) has no composition.
   inKsei: Schema.Boolean,
   // The selected month and the parsed month before it, when the stock has a
@@ -309,7 +309,7 @@ export const stockPage = Effect.fnUntraced(function* (
   return StockPage.make({
     code,
     issuerName: held.at(-1)?.issuer_name ?? undefined,
-    // The series is empty only when no KSEI file has the stock.
+    // The series is empty only when no KSEI report has the stock.
     inKsei: series.length > 0,
     months: months.map(({ data_date, total_scripless }) => ({
       dataDate: data_date,
@@ -336,7 +336,7 @@ const isStockCode = Schema.is(StockCode)
 
 // The stocks the page's picker offers: those in the newest month of either
 // source, by code, with the classification report's issuer name. KSEI's
-// file names no issuer. A KSEI code that isn't a stock code's shape is left
+// report names no issuer. A KSEI code that isn't a stock code's shape is left
 // out, as no page could open it.
 export const stockList = Effect.gen(function* () {
   const [rows = []] = yield* (yield* HoldingsDb).batch([

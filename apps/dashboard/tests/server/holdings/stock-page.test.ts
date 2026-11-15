@@ -225,12 +225,12 @@ describe("the stock page read", () => {
     })
   )
 
-  it.effect("reads listed shares from KSEI's file of the same date", () =>
+  it.effect("reads listed shares from KSEI's report of the same date", () =>
     Effect.gen(function* () {
       const october = (yield* read("BBCA")).composition
       assert.strictEqual(october?.month.listedShares, 123_275_050_000)
       assert.strictEqual(october?.previous?.listedShares, 123_275_050_000)
-      // KSEI's May file is dated 2026-05-29, as the report; it has no
+      // KSEI's May report is dated 2026-05-29, as the report; it has no
       // March file, and its August file has no report month.
       const may = (yield* read("WBSA", "2026-05")).composition
       assert.strictEqual(may?.month.listedShares, 8_675_000_000)
@@ -251,7 +251,7 @@ describe("the stock page read", () => {
         "0.5745"
       )
       assert.strictEqual((yield* scrip(previous))._tag, "Share")
-      // No KSEI file of March's date: scrip is unavailable, never a guess.
+      // No KSEI report of March's date: scrip is unavailable, never a guess.
       const { month: march } =
         (yield* read("BBCA", "2026-03")).composition ?? {}
       assert.isDefined(march)
@@ -261,7 +261,7 @@ describe("the stock page read", () => {
 
   it.effect("reads a stock only KSEI has with no composition", () =>
     Effect.gen(function* () {
-      // APOL is unpriced: in every KSEI file, in no classification report.
+      // APOL is unpriced: in every KSEI report, in no classification report.
       const page = yield* read("APOL")
       assert.isUndefined(page.composition)
       assert.isUndefined(page.issuerName)
@@ -286,7 +286,7 @@ describe("the stock page read", () => {
       assert.deepStrictEqual(yield* stockList.pipe(Effect.provide(layer)), [
         { code: "AADI", issuerName: "ADARO ANDALAN INDONESIA Tbk" },
         { code: "ACRO", issuerName: "SAMCRO HYOSUNG ADILESTARI Tbk" },
-        // Only KSEI has APOL, and KSEI's file names no issuer.
+        // Only KSEI has APOL, and KSEI's report names no issuer.
         { code: "APOL", issuerName: undefined },
         { code: "BBCA", issuerName: "BANK CENTRAL ASIA Tbk" },
         { code: "WBSA", issuerName: "BSA LOGISTICS INDONESIA Tbk" },

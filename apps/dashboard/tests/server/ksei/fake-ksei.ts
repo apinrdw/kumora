@@ -146,8 +146,8 @@ export const fakeKsei = (): FakeKsei => {
   return ksei
 }
 
-// Real Kepemilikan Efek files, trimmed to the header and the equities AADI,
-// ACRO, APOL (unpriced: in KSEI's file, not in IDX's classification report),
+// Real Securities holdings reports, trimmed to the header and the equities AADI,
+// ACRO, APOL (unpriced: in KSEI's report, not in IDX's classification report),
 // BBCA and WBSA, a government bond and, in October, a warrant. May, then
 // August to October: June and July are a gap.
 const HOLDINGS_FIXTURES = [
@@ -186,7 +186,7 @@ export const holdingsFixture = (
 export const holdingsUrl = (filename: HoldingsFixture) =>
   `https://www.ksei.co.id/storage/Download/${filename}`
 
-// A fake KSEI that lists only the fixtures' Kepemilikan Efek files, each
+// A fake KSEI that lists only the fixtures' Securities holdings reports, each
 // serving its fixture's bytes, and no Statistik Efek file.
 export const holdingsKsei = () => {
   const ksei = fakeKsei()

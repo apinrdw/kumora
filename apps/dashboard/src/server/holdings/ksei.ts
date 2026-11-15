@@ -1,4 +1,4 @@
-// KSEI's monthly Kepemilikan Efek file (BalanceposEfek<YYYYMMDD>.zip),
+// KSEI's monthly Securities holdings report (BalanceposEfek<YYYYMMDD>.zip),
 // parsed into parsed holdings (holdings-migrations/0002_ksei.sql). Spec
 // apinrdw/kumora#363, "Reading KSEI's BalanceposEfek".
 import { Effect, Schema } from "effect"
@@ -6,7 +6,7 @@ import { Effect, Schema } from "effect"
 import type { KseiType, SplitOrigin } from "@/domain/holdings"
 
 import type { SqlValue } from "./db.ts"
-import { MAX_STOCKS, replaceMonth } from "./month-replace.ts"
+import { MAX_STOCKS, replaceMonth, TOO_MANY_STOCKS } from "./month-replace.ts"
 import { parsedMonths } from "./months-to-parse.ts"
 import { entryText, zipEntries } from "./zip.ts"
 
@@ -147,10 +147,7 @@ const parseRows = Effect.fnUntraced(function* (text: string) {
     const stock = code.trim()
     const of = `${stock} (line ${lineNumber})`
     if (seen.has(stock)) return yield* unreadable(`${of} is listed twice`)
-    if (seen.size === MAX_STOCKS)
-      return yield* unreadable(
-        `The file lists more than ${MAX_STOCKS.toLocaleString("en-US")} EQUITY stocks`
-      )
+    if (seen.size === MAX_STOCKS) return yield* unreadable(TOO_MANY_STOCKS)
     seen.add(stock)
     const local = yield* originHoldings(stock, fields, "local", of)
     const foreign = yield* originHoldings(stock, fields, "foreign", of)
@@ -167,7 +164,7 @@ const parseRows = Effect.fnUntraced(function* (text: string) {
   return { stocks, holdings }
 })
 
-// Parses one archived file and replaces its period end's parsed holdings
+// Parses one archived report and replaces its period end's parsed holdings
 // with it, recording the version it came from. The number of stocks parsed.
 export const parseKseiMonth = Effect.fnUntraced(function* (
   periodEnd: string,

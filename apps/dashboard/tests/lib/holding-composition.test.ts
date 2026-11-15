@@ -8,7 +8,7 @@ import {
 } from "@/lib/holding-composition"
 import type { SeriesMonth } from "@/server/holdings/stock-page"
 
-// BBCA's September and October rows in KSEI's file, with June as a gap.
+// BBCA's September and October rows in KSEI's report, with June as a gap.
 const BBCA: ReadonlyArray<SeriesMonth> = [
   { month: "2026-08", holdings: undefined },
   {

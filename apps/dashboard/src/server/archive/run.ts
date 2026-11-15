@@ -21,7 +21,7 @@ export const RunOutcome = Schema.Literals([
 export type RunOutcome = typeof RunOutcome.Type
 
 // A month a parse run couldn't parse, by its date (a classification
-// report's data date, a KSEI file's period end), and why, in at most
+// report's data date, a KSEI report's period end), and why, in at most
 // MAX_RUN_ERROR_LENGTH characters. It keeps its earlier parsed holdings, and
 // the next run tries it again.
 export const ParseFailure = Schema.Struct({

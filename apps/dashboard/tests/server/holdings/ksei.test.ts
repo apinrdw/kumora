@@ -7,7 +7,7 @@ import { MAX_ENTRY_BYTES } from "@/server/holdings/zip"
 
 import { zipOf } from "./zip-of.ts"
 
-// Decision: parsing a KSEI file takes at most 48 MiB of heap, so the
+// Decision: parsing a KSEI report takes at most 48 MiB of heap, so the
 // Worker's 128 MiB still holds the archived file and the run around it.
 const PARSE_HEAP_MIB = 48
 
@@ -55,7 +55,7 @@ const parseInBoundedHeap = (bytes: Uint8Array) =>
     return Effect.promise(() => worker.terminate())
   })
 
-describe(`the largest KSEI file, parsed in ${PARSE_HEAP_MIB} MiB of heap`, () => {
+describe(`the largest Securities holdings report, parsed in ${PARSE_HEAP_MIB} MiB of heap`, () => {
   it.effect(
     "is refused at its first line of two-letter lines",
     () =>
@@ -80,7 +80,7 @@ describe(`the largest KSEI file, parsed in ${PARSE_HEAP_MIB} MiB of heap`, () =>
         )
         assert.strictEqual(
           yield* parseInBoundedHeap(bytes),
-          "The file lists more than 2,000 EQUITY stocks"
+          "The report lists more than 2,000 stocks"
         )
       }),
     { timeout: 30_000 }

@@ -65,7 +65,7 @@ describe("the stock page's KSEI series", () => {
   it.effect("reads each month's holdings by origin and investor type", () =>
     Effect.gen(function* () {
       const october = (yield* series("BBCA")).at(-1)?.holdings
-      // BBCA's October row in KSEI's file.
+      // BBCA's October row in KSEI's report.
       assert.deepStrictEqual(october?.local, {
         ID: 12_030_567_470,
         CP: 752_250_260,
@@ -85,7 +85,7 @@ describe("the stock page's KSEI series", () => {
     })
   )
 
-  it.effect("reads no series for a stock KSEI's files don't have", () =>
+  it.effect("reads no series for a stock KSEI's reports don't have", () =>
     Effect.gen(function* () {
       assert.deepStrictEqual(yield* series("ZZZZ"), [])
     })

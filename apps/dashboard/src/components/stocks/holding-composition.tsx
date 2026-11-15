@@ -129,8 +129,8 @@ export function HoldingComposition({
         />
       </div>
       <p className="text-[12px] text-muted-foreground">
-        Source: KSEI's monthly holdings file. KSEI's local/foreign split can
-        differ from IDX's in Shareholders composition.
+        Source: KSEI's monthly Securities holdings report. KSEI's local/foreign
+        split can differ from IDX's in Shareholders composition.
       </p>
     </section>
   )
@@ -307,7 +307,7 @@ function Column({
         <div className="flex flex-col gap-1.5">
           <b>{label}</b>
           {shares === undefined ? (
-            <span>{NO_DATA}: KSEI's file has no row for this month.</span>
+            <span>{NO_DATA}: KSEI's report has no row for this month.</span>
           ) : (
             <>
               <dl className="grid grid-cols-[1fr_auto] gap-x-3 gap-y-0.5">
