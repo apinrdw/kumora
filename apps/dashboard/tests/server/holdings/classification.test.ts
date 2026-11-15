@@ -6,6 +6,7 @@ import { HoldingsDb } from "@/server/holdings/db"
 import { MAX_ENTRY_BYTES } from "@/server/holdings/zip"
 
 import { retainedHeap } from "../../support/retained-heap.ts"
+import { PARSE_HEAP_MIB, parseInBoundedHeap } from "./bounded-heap.ts"
 import {
   columnLetters,
   SPLIT_HEADER_ROW,
@@ -30,15 +31,24 @@ const stockRow = (row: number) => {
   return `<row r="${row}">${cells.join("")}</row>`
 }
 
-// The header row, then `stocks` stock rows, or as many as fit the largest
-// sheet a zip entry inflates to.
+// Row `row`, one cell in A holding 0: a row's shortest XML with a value.
+const shortRow = (row: number) =>
+  `<row r="${row}"><c r="A${row}"><v>0</v></c></row>`
+
+// The largest sheet a zip entry inflates to: the header row, then `stocks`
+// stock rows, or as many as fit, then as many `shortRow`s as fit.
 const report = (stocks: number) => {
   const rows = [SPLIT_HEADER_ROW]
   let size = WORKSHEET_BYTES + SPLIT_HEADER_ROW.length
-  for (let row = 2; row <= stocks + 1; row++) {
+  let row = 2
+  for (; row <= stocks + 1; row++) {
     if (size + stockRow(row).length > MAX_ENTRY_BYTES) break
     rows.push(stockRow(row))
     size += stockRow(row).length
+  }
+  for (; size + shortRow(row).length <= MAX_ENTRY_BYTES; row++) {
+    rows.push(shortRow(row))
+    size += shortRow(row).length
   }
   return workbook(rows.join(""), SPLIT_LABELS)
 }
@@ -90,6 +100,18 @@ describe("the largest classification report", () => {
           atWrite,
           WRITE_HEAP_LIMIT,
           `${(atWrite / 2 ** 20).toFixed(0)} MiB retained`
+        )
+      }),
+    { timeout: 30_000 }
+  )
+
+  it.effect(
+    `parses the most stocks a month can list, each holding in every column and padded to the largest sheet, in ${PARSE_HEAP_MIB} MiB of heap`,
+    () =>
+      Effect.gen(function* () {
+        assert.strictEqual(
+          yield* parseInBoundedHeap("classification", yield* report(2_000)),
+          "Parsed 2000 stocks"
         )
       }),
     { timeout: 30_000 }

@@ -1,15 +1,10 @@
-import { Worker } from "node:worker_threads"
-
 import { assert, describe, it } from "@effect/vitest"
 import { Effect } from "effect"
 
 import { MAX_ENTRY_BYTES } from "@/server/holdings/zip"
 
+import { PARSE_HEAP_MIB, parseInBoundedHeap } from "./bounded-heap.ts"
 import { zipOf } from "./zip-of.ts"
-
-// Decision: parsing a KSEI report takes at most 48 MiB of heap, so the
-// Worker's 128 MiB still holds the archived file and the run around it.
-const PARSE_HEAP_MIB = 48
 
 const TYPES = ["IS", "CP", "PF", "IB", "ID", "MF", "SC", "FD", "OT"]
 
@@ -39,22 +34,6 @@ const largestFile = (line: (number: number) => string) => {
   ])
 }
 
-// What parsing `bytes` fails with, parsed in a worker thread whose heap
-// stops at PARSE_HEAP_MIB.
-const parseInBoundedHeap = (bytes: Uint8Array) =>
-  Effect.callback<string, Error>((resume) => {
-    const worker = new Worker(
-      new URL("./parse-ksei-worker.ts", import.meta.url),
-      {
-        workerData: bytes,
-        resourceLimits: { maxOldGenerationSizeMb: PARSE_HEAP_MIB },
-      }
-    )
-    worker.once("message", (message: string) => resume(Effect.succeed(message)))
-    worker.once("error", (error) => resume(Effect.fail(error)))
-    return Effect.promise(() => worker.terminate())
-  })
-
 describe(`the largest Securities holdings report, parsed in ${PARSE_HEAP_MIB} MiB of heap`, () => {
   it.effect(
     "is refused at its first line of two-letter lines",
@@ -62,7 +41,7 @@ describe(`the largest Securities holdings report, parsed in ${PARSE_HEAP_MIB} Mi
       Effect.gen(function* () {
         const bytes = yield* largestFile(() => "ab")
         assert.strictEqual(
-          yield* parseInBoundedHeap(bytes),
+          yield* parseInBoundedHeap("ksei", bytes),
           "Line 2 has 1 fields"
         )
       }),
@@ -79,7 +58,7 @@ describe(`the largest Securities holdings report, parsed in ${PARSE_HEAP_MIB} Mi
             `30-Oct-2026|S${number}|EQUITY|1|1|${"1|".repeat(9)}9|${"1|".repeat(9)}9`
         )
         assert.strictEqual(
-          yield* parseInBoundedHeap(bytes),
+          yield* parseInBoundedHeap("ksei", bytes),
           "The report lists more than 2,000 stocks"
         )
       }),
