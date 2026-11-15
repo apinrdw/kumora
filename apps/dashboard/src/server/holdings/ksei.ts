@@ -107,25 +107,56 @@ const originHoldings = Effect.fnUntraced(function* (
   return { holdings, total }
 })
 
+// Decision: a file lists at most 5,000 EQUITY stocks, about 5× the 900 or
+// so IDX lists (docs/runbooks/order-flow-cost.md), so a month's holdings
+// stay under 90,000 rows: each `1|` of a line is a holding, and a file of
+// such lines would build 2.1 million before anything is written.
+const MAX_STOCKS = 5_000
+
+// A line of `text`, without its `\n` or `\r\n`.
+const LINE = /([^\n]*?)\r?(?:\n|$)/g
+
+// A line's fields, split no further than one past the header's.
+const lineFields = Effect.fnUntraced(function* (
+  line: string,
+  lineNumber: number
+) {
+  const fields = line.split("|", COLUMNS + 1)
+  if (fields.length > COLUMNS)
+    return yield* unreadable(
+      `Line ${lineNumber} has more than ${COLUMNS} fields`
+    )
+  if (fields.length < COLUMNS)
+    return yield* unreadable(`Line ${lineNumber} has ${fields.length} fields`)
+  return fields
+})
+
 // One month's EQUITY rows: a stock-month per stock, and its holdings.
+// Decision: lines are read one at a time, so what parsing keeps grows with
+// the stocks read, never with the lines a file holds: splitting a file of
+// 2.8 million short lines took 93 MiB at once.
 const parseRows = Effect.fnUntraced(function* (text: string) {
-  const [header, ...lines] = text.split(/\r?\n/)
+  const lines = text.matchAll(LINE)
+  const header = lines.next().value?.[1]
   if (header !== HEADER)
     return yield* unreadable(`The header isn't the known one: ${header}`)
   const stocks: Array<[string, number, number, number]> = []
   const holdings: Array<Holding> = []
   const seen = new Set<string>()
-  for (const [index, line] of lines.entries()) {
+  let lineNumber = 1
+  for (const [, line = ""] of lines) {
+    lineNumber++
     if (line === "") continue
-    const fields = line.split("|")
-    const where = `Line ${index + 2}`
-    if (fields.length !== COLUMNS)
-      return yield* unreadable(`${where} has ${fields.length} fields`)
+    const fields = yield* lineFields(line, lineNumber)
     const [, code = "", type] = fields
     if (type !== "EQUITY") continue
     const stock = code.trim()
-    const of = `${stock} (line ${index + 2})`
+    const of = `${stock} (line ${lineNumber})`
     if (seen.has(stock)) return yield* unreadable(`${of} is listed twice`)
+    if (seen.size === MAX_STOCKS)
+      return yield* unreadable(
+        `The file lists more than ${MAX_STOCKS.toLocaleString("en-US")} EQUITY stocks`
+      )
     seen.add(stock)
     const local = yield* originHoldings(stock, fields, "local", of)
     const foreign = yield* originHoldings(stock, fields, "foreign", of)
