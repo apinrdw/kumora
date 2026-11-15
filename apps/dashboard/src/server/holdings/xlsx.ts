@@ -53,13 +53,10 @@ interface Element {
 
 // Each <`name`> of `xml`, in order, or null in place of the first one never
 // closed, which ends the walk.
-// Decision: tags are found by indexOf and walked one at a time, never
-// gathered: a lazy `[\s\S]*?` regex rescanned to the end from each unclosed
-// tag, and a shared string of 600,000 empty rich-text runs, matched at once,
-// took past 48 MiB.
-// Decision: the walk stays plain, an Effect around each row and each cell's
-// value: Oct 2026's sheet reads in 55 ms so, and in 157 ms with an Effect
-// per tag as well (Node 26, median of 30, measured 2026-11-15).
+// Decision: tags are found by indexOf and walked plainly, one at a time: a
+// lazy `[\s\S]*?` regex rescanned to the end from each unclosed tag, 600,000
+// rich-text runs matched at once took past 48 MiB, and an Effect per tag read
+// Oct 2026's sheet in 157 ms, not 55 (Node 26, median of 30, 2026-11-15).
 function* elements(xml: string, name: string): Generator<Element | null, void> {
   const open = `<${name}`
   const close = `</${name}>`
