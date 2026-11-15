@@ -20,6 +20,15 @@ A parameter or field that holds a glossary term (an Environment, a Preview) carr
 
 Code on a Worker whose memory grows with stored or uploaded data (an uploaded file, a whole table, a list built from stored rows) has a bound that holds at the largest accepted size, and a test at that size. A size check after the body is read is no bound. Three separate review rounds of spec #133 found this class, and spec #244's status endpoint built 750,000 ranges from one day's stored trades.
 
+## Cloudflare Workflow steps
+
+A Workflow step is retried whole, replayed from its stored result, and cut off by Cloudflare's limits. Spec #303's Codex rounds found four bugs in this class and spec #327's found a sixth, each only at review. A step holds to these at the largest input the run accepts:
+
+- **A retry decides as the first attempt did.** What a step decides comes from state it did not write itself (the plan, earlier runs' records), so an attempt that finds its own half-written output decides the same (`shareholding/archive-run.ts` counts new versions from earlier records).
+- **Its result and name fit.** `localSteps` (`apps/dashboard/tests/server/archive/local-steps.ts`) fails a test whose step result passes `STEP_RESULT_BYTES` or whose name passes `MAX_STEP_NAME_LENGTH`, so a test at the largest accepted input proves the bound. A name built from input (a URL, a filename) is bounded by its type or a digest.
+- **Its timeout covers its slowest healthy attempt.** Requests sent in turn, times the remote's slowest healthy answer, plus one stuck request, fit the step's `timeout`; `localSteps` doesn't check time, so the reviewer does the sum (`batchStep` in `ksei/archive-run.ts`).
+- **A run blocks the next until its status has ended.** Paused, pausing and waiting runs can still write (`ENDED` in `archive/run-view.ts`).
+
 ## State in the extension worker
 
 The relay extension's service worker restarts, its settings change mid-run, and its requests overlap. Spec #244's review found 13 bugs in this class over 13 rounds, and they stopped only when the code took the shapes below.
