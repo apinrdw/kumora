@@ -27,7 +27,7 @@ export interface CompositionRow {
 export interface Composition {
   // The origin's total scripless shares.
   readonly total: number
-  // Largest first; only rows holding shares.
+  // Largest first; only rows holding shares this month or the month before.
   readonly rows: ReadonlyArray<CompositionRow>
   // The Individual type's share: retail. The rest is institution.
   readonly retail: number
@@ -86,8 +86,11 @@ export const composition = (
     const previousShares = new Map(
       before?.rows.map(({ key, shares }) => [key, shares])
     )
+    // A row that sold out since the month before stays, to read `3% → 0%`.
     const rows = current.rows
-      .filter(({ shares }) => shares > 0)
+      .filter(
+        ({ key, shares }) => shares > 0 || (previousShares.get(key) ?? 0) > 0
+      )
       .map(({ key, label, type, shares }): CompositionRow => ({
         key,
         label,
