@@ -24,6 +24,7 @@ import {
 import { ETAG, RUN, SHA256 } from "../archive/held.ts"
 import { md5Hex } from "../archive/md5.ts"
 import { type Run, type RunId, runError } from "../archive/run.ts"
+import { inArchive } from "./coverage.ts"
 import {
   PROBE_HEADS_IN_TURN,
   PROBE_YEARS,
@@ -124,9 +125,11 @@ const plan = Effect.fnUntraced(function* (
     return yield* new NoListingReadable({
       message: listingFailures.map(({ message }) => message).join("; "),
     })
-  const listed = listings
-    .filter(Result.isSuccess)
-    .flatMap(({ success }) => success)
+  // A listed file before the archive's first month isn't stored.
+  const listed = yield* Effect.filter(
+    listings.filter(Result.isSuccess).flatMap(({ success }) => success),
+    ({ periodEnd }) => inArchive(periodEnd)
+  )
   const held = yield* recordsByFilename()
   yield* putKseiRunRecord(yield* runningKseiResult(run))
   return {
