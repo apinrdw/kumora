@@ -1,6 +1,7 @@
 // Chart 1's sweep bubbles (spec apinrdw/kumora#263, "Chart 1"), loaded with
 // Lightweight Charts in chart-canvas.tsx's browser-only chunk.
-import { Side, TradeNumber } from "@workspace/relay"
+import type { TradeNumber } from "@workspace/relay"
+import { Side } from "@workspace/relay"
 import { DateTime, Effect } from "effect"
 import type {
   IChartApi,
@@ -242,20 +243,11 @@ class SweepBubbles implements ISeriesPrimitive<Time> {
   }
 }
 
-// The sweep a click on chart 1 hit, if any.
-export const clickedSweep = (parameter: MouseEventParams<Time>) =>
-  Effect.sync(() => {
-    const id = parameter.hoveredObjectId
-    return typeof id === "string" && id.startsWith(HIT_PREFIX)
-      ? TradeNumber.make(id.slice(HIT_PREFIX.length))
-      : undefined
-  })
-
 // Puts the store's kept sweeps on chart 1's candle series as bubbles, redrawn at
-// most once a frame when the kept sweeps, the top-N or the cursor change. A click
-// on a bubble selects its sweep; a sweep picked in the log scrolls chart 1 to
-// its minute, keeping the zoom unless it is wider than an hour. Returns the
-// cleanup.
+// most once a frame when the kept sweeps, the top-N or the cursor change. A sweep
+// picked in the log scrolls chart 1 to its minute, keeping the zoom unless it
+// is wider than an hour. Returns `click`, which chart 1's click handler calls
+// first, and the cleanup.
 export function attachSweepBubbles({
   chart,
   series,
@@ -331,20 +323,21 @@ export function attachSweepBubbles({
     })
     return id
   }
-  // A click or a tap on a bubble selects its sweep and shows its tooltip:
-  // a tap has no hover.
-  const click = (parameter: MouseEventParams<Time>) => {
-    const id = tip(parameter)
-    if (id !== undefined) store.select(id, "chart")
-  }
-  chart.subscribeClick(click)
   chart.subscribeCrosshairMove(tip)
-  return () => {
-    cancelAnimationFrame(frame)
-    chart.unsubscribeClick(click)
-    chart.unsubscribeCrosshairMove(tip)
-    stopStore()
-    stopCursor?.()
-    series.detachPrimitive(bubbles)
+  return {
+    // A click or a tap on a bubble selects its sweep and shows its tooltip
+    // (a tap has no hover); says whether it was on one.
+    click: (parameter: MouseEventParams<Time>) => {
+      const id = tip(parameter)
+      if (id !== undefined) store.select(id, "chart")
+      return id !== undefined
+    },
+    detach: () => {
+      cancelAnimationFrame(frame)
+      chart.unsubscribeCrosshairMove(tip)
+      stopStore()
+      stopCursor?.()
+      series.detachPrimitive(bubbles)
+    },
   }
 }

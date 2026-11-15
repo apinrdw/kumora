@@ -370,14 +370,6 @@ test("a recorded day's sweep log shows each sweep's lead brokers, wider, filling
   await expect(rows.first()).toHaveAttribute("aria-current", "true")
   await filter.selectOption("AK")
   await expect(rows).toHaveCount(1)
-  // Decision: the pointer rests on the bubble for 700 ms before the click.
-  // Clicked at once, with or without the hover first, Lightweight Charts
-  // took the press (the canvas got mousedown, mouseup and click) but called
-  // no click subscriber, in 8 runs of 8; after the rest it did, 6 of 6. The
-  // cause wasn't found in its mouse handler (apinrdw/kumora#347).
-  await page.mouse.move(buyBubble.x, buyBubble.y)
-  await expect(tip).toBeVisible()
-  await page.waitForTimeout(700)
   await page.mouse.click(buyBubble.x, buyBubble.y)
   await expect(rows.first()).toHaveAttribute("aria-current", "true")
   await expect(candles).toHaveAttribute(
