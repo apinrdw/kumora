@@ -30,20 +30,34 @@ const SHARED_STRINGS = "xl/sharedStrings.xml"
 // parts took past 48 MiB.
 export const MAX_SHARED_STRINGS_BYTES = 1024 * 1024
 
+const NAMED = { amp: "&", lt: "<", gt: ">", quot: '"', apos: "'" }
+
+// `text` with its references replaced by their characters, refused when one
+// names no character: past U+10FFFF, or a UTF-16 surrogate.
 const decodeXml = (text: string) =>
-  Effect.sync(() =>
-    text.replace(
+  Effect.suspend(() => {
+    let unnamed: string | undefined
+    const decoded = text.replace(
       /&(?:#x([0-9a-f]+)|#(\d+)|(amp|lt|gt|quot|apos));/gi,
-      (_, hex, dec, name) =>
-        hex !== undefined
-          ? String.fromCodePoint(Number.parseInt(hex, 16))
-          : dec !== undefined
-            ? String.fromCodePoint(Number.parseInt(dec, 10))
-            : { amp: "&", lt: "<", gt: ">", quot: '"', apos: "'" }[
-                (name as string).toLowerCase() as "amp"
-              ]
+      (reference, hex, dec, name) => {
+        if (name !== undefined)
+          return NAMED[(name as string).toLowerCase() as keyof typeof NAMED]
+        const point =
+          hex !== undefined
+            ? Number.parseInt(hex, 16)
+            : Number.parseInt(dec, 10)
+        if (point <= 0x10ffff && (point < 0xd800 || point > 0xdfff))
+          return String.fromCodePoint(point)
+        unnamed ??= reference
+        return ""
+      }
     )
-  )
+    return unnamed === undefined
+      ? Effect.succeed(decoded)
+      : Effect.flatMap(excerpt(unnamed), (quoted) =>
+          Effect.fail(unreadable(`${quoted} names no character`))
+        )
+  })
 
 // A tag's attributes, and its content: undefined when it closes itself.
 interface Element {
