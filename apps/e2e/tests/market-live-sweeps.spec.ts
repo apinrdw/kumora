@@ -2,7 +2,6 @@ import {
   BROKER_CODES_AUTH_SCHEME,
   BrokerCode,
   BrokerCodesProtocolVersion,
-  MINUTE_MS,
   TradeNumber,
   WibDate,
   decodeRecordedCandles,
@@ -181,23 +180,24 @@ test("a recorded day's sweep log shows each sweep's lead brokers, wider, filling
   const base = earlier + 1_000
   const code = freshCode("SB")
   const day = WibDate.make(wibToday())
-  // As the first test: a minute and more back, so no relay gap draws in it.
-  // Both sweeps share a minute, so selecting either never pans chart 1 and
-  // a bubble stays where it was read.
-  const start =
-    Math.floor((marketNow() - 90_000) / MINUTE_MS) * MINUTE_MS + 5_000
-  // A buy sweep of two trades in one second, then a sell sweep of one.
-  const second = (offset: number) => wibTime(start + offset * 1_000)
-  // Decision: another code's trades, stamped now and numbered below this
-  // test's as an earlier spec's are, at the numbers the day store's search
-  // for a minute's trades reads (`highestWithin`, day-store.ts). Whatever
-  // ran before, the search then meets a lower number stamped later.
+  // Decision: the sweeps are stamped now, not a minute back as the first
+  // test's. A codes batch reads their minute through the day store's search
+  // on trade numbers (`highestWithin`, day-store.ts), which takes numbers
+  // to run in time order: stamped back, they lost their brokers once it
+  // read an earlier spec's lower-numbered, later trade. PR apinrdw/kumora#349.
+  const time = wibTime(marketNow())
+  // Another code's trades, numbered below this test's as an earlier spec's
+  // are, where that search reads them whatever ran before: sweeps stamped
+  // before them lose their brokers every run.
   const earlierCode = freshCode("SE")
+  // A buy sweep of two trades, then a sell sweep of one, in one second: they
+  // share a minute, so selecting either never pans chart 1 and a bubble
+  // stays where it was read.
   await relay.sendAjaib([
     ...[1, 600].map((seq) =>
       ajaibTradeToday({
         seq: earlier + seq,
-        time: wibTime(marketNow()),
+        time,
         ticker: earlierCode,
         price: 500,
         lot: 1,
@@ -205,7 +205,7 @@ test("a recorded day's sweep log shows each sweep's lead brokers, wider, filling
     ),
     ajaibTradeToday({
       seq: base + 1,
-      time: second(0),
+      time,
       ticker: code,
       price: 500,
       lot: 10,
@@ -213,7 +213,7 @@ test("a recorded day's sweep log shows each sweep's lead brokers, wider, filling
     }),
     ajaibTradeToday({
       seq: base + 2,
-      time: second(0),
+      time,
       ticker: code,
       price: 505,
       lot: 30,
@@ -221,7 +221,7 @@ test("a recorded day's sweep log shows each sweep's lead brokers, wider, filling
     }),
     ajaibTradeToday({
       seq: base + 3,
-      time: second(2),
+      time,
       ticker: code,
       price: 500,
       lot: 5,
