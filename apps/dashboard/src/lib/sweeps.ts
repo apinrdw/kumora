@@ -2,7 +2,12 @@
 // (spec apinrdw/kumora#263, "Chart 1"): the top-N filter, the log's rows, and
 // where a bubble sits. Pure, so the renderers only draw.
 import { MINUTE_MS, SHARES_PER_LOT } from "@workspace/relay"
-import type { Sweep, SweepBroker } from "@workspace/relay"
+import type {
+  Sweep,
+  SweepBroker,
+  SweepBrokers,
+  TradeNumber,
+} from "@workspace/relay"
 import { DateTime, Effect } from "effect"
 
 import { BIG_TRADE_IDR } from "./tape"
@@ -126,6 +131,26 @@ export const leadBroker = (side: ReadonlyArray<SweepBroker>) =>
         more: side.length - 1,
       }
     )
+  })
+
+// The note under the log header while a day's codes are incomplete: how
+// many sweeps up to `at` (epoch ms) have their brokers, of all of them. An
+// auction match forms no sweep, so it counts in neither.
+export const arrivingNote = (
+  sweeps: ReadonlyArray<Sweep>,
+  brokers: ReadonlyMap<TradeNumber, SweepBrokers>,
+  at: number
+) =>
+  Effect.sync(() => {
+    let all = 0
+    let whole = 0
+    for (const sweep of sweeps) {
+      if (sweep.side === "none" || DateTime.toEpochMillis(sweep.time) > at)
+        continue
+      all += 1
+      if (brokers.has(sweep.firstTrade)) whole += 1
+    }
+    return `Codes still arriving: ${count.format(whole)} of ${count.format(all)} sweeps have their brokers. Updates every 30 s.`
   })
 
 // A sweep's average price: its value over its shares.

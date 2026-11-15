@@ -20,7 +20,7 @@ export {
   fetchRecordedCandles,
   fetchRecordedGaps,
   fetchRecordedHeatmap,
-  fetchRecordedSweepBrokers,
+  followSweepBrokers,
   fetchRecordedSweeps,
   fetchRecordedTape,
   makeBrokerCodesFollower,

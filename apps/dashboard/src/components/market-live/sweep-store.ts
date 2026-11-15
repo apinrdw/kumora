@@ -41,6 +41,9 @@ export interface SweepStore {
   // as its sweep brokers GET last answered; the page cuts them at the
   // cursor as it does the sweeps. Empty live and until the GET answers.
   readonly brokers: () => ReadonlyMap<TradeNumber, SweepBrokers>
+  // Whether the day's codes are complete, as the sweep brokers GET last
+  // answered; true until it answers otherwise, so live shows no note.
+  readonly brokersComplete: () => boolean
   readonly answerBrokers: (answer: RecordedSweepBrokers) => void
   readonly topN: () => number
   readonly setTopN: (percent: number) => void
@@ -77,6 +80,7 @@ export const makeSweepStore = (code: StockCode) =>
     const carried = new Map<number, ReadonlyArray<Sweep>>()
     let all: ReadonlyArray<Sweep> = []
     let brokers: ReadonlyMap<TradeNumber, SweepBrokers> = new Map()
+    let brokersComplete = true
     let ask = 0
     let asking = false
     let topN = TOP_N_DEFAULT
@@ -103,8 +107,10 @@ export const makeSweepStore = (code: StockCode) =>
       code,
       sweeps: () => all,
       brokers: () => brokers,
+      brokersComplete: () => brokersComplete,
       answerBrokers: (answer) => {
         if (answer.code !== code) return
+        brokersComplete = answer.complete
         brokers = new Map(
           answer.sweeps.map((sweep) => [sweep.firstTrade, sweep])
         )

@@ -61,6 +61,12 @@ test("sweeps show as bubbles and log rows; top-N filters them; a row rings its b
   // Some before the page opens, which its sweeps GET answers; the rest come
   // by the deltas.
   await relay.sendAjaib(sweeps.slice(0, 6))
+  // Live, no sweep can have brokers: the page never asks for them.
+  const brokersAsked: Array<string> = []
+  page.on("request", (request) => {
+    if (request.url().includes("/sweep-brokers/"))
+      brokersAsked.push(request.url())
+  })
   await page.setViewportSize({ width: 1920, height: 1080 })
   await page.goto(`${DASHBOARD}${PAGE}?code=${code}`)
   const log = page.getByRole("region", { name: "Sweep log" })
@@ -143,6 +149,7 @@ test("sweeps show as bubbles and log rows; top-N filters them; a row rings its b
   await page.reload()
   await expect(bigOnly).toHaveAttribute("aria-pressed", "true")
   await expect(rows).toHaveCount(1)
+  expect(brokersAsked).toEqual([])
   relay.close()
 })
 
@@ -156,9 +163,11 @@ const tradeCodes = (text: string): TradeCodes => {
   }
 }
 
-test("a recorded day's sweep log shows each sweep's aggressor lead broker, wider", async ({
+test("a recorded day's sweep log shows each sweep's aggressor lead broker, wider, filling in as codes arrive", async ({
   page,
 }) => {
+  // The recheck runs every 30 s.
+  test.setTimeout(90_000)
   const relay = await openIngest()
   const base = freshTradeNumbers()
   const code = freshCode("SB")
@@ -215,29 +224,35 @@ test("a recorded day's sweep log shows each sweep's aggressor lead broker, wider
     )
     .toBe(45)
 
-  // The extension stores every trade's codes. AK bought more of the buy
-  // sweep than BK did; KZ sold the sell sweep.
-  const posted = await page.request.post(
-    `${DASHBOARD}/api/broker-codes/${day}`,
-    {
-      headers: {
-        authorization: `${BROKER_CODES_AUTH_SCHEME}${TEST_INGEST_TOKEN}`,
-      },
-      data: Effect.runSync(
-        encodeBrokerCodesBatch({
-          version: BrokerCodesProtocolVersion,
-          feed: "Ajaib",
-          day,
-          rows: [
-            [TradeNumber.make(String(base + 1)), tradeCodes("BK D CC D")],
-            [TradeNumber.make(String(base + 2)), tradeCodes("AK F CC D")],
-            [TradeNumber.make(String(base + 3)), tradeCodes("YP D KZ F")],
-          ],
-        })
-      ),
-    }
-  )
-  expect(posted.status()).toBe(200)
+  // The extension stores the trades' codes in batches, as a walk does.
+  const storeCodes = async (rows: ReadonlyArray<[number, string]>) => {
+    const posted = await page.request.post(
+      `${DASHBOARD}/api/broker-codes/${day}`,
+      {
+        headers: {
+          authorization: `${BROKER_CODES_AUTH_SCHEME}${TEST_INGEST_TOKEN}`,
+        },
+        data: Effect.runSync(
+          encodeBrokerCodesBatch({
+            version: BrokerCodesProtocolVersion,
+            feed: "Ajaib",
+            day,
+            rows: rows.map(([offset, text]) => [
+              TradeNumber.make(String(base + offset)),
+              tradeCodes(text),
+            ]),
+          })
+        ),
+      }
+    )
+    expect(posted.status()).toBe(200)
+  }
+  // AK bought more of the buy sweep than BK did; KZ sold the sell sweep.
+  // The buy sweep's first trade has no codes yet.
+  await storeCodes([
+    [2, "AK F CC D"],
+    [3, "YP D KZ F"],
+  ])
 
   await page.setViewportSize({ width: 1920, height: 1080 })
   await page.goto(`${DASHBOARD}${PAGE}?code=${code}&day=${day}`)
@@ -246,8 +261,21 @@ test("a recorded day's sweep log shows each sweep's aggressor lead broker, wider
   expect((await log.boundingBox())?.width).toBe(530)
   const rows = log.locator("[data-sweep-id]")
   await expect(rows).toHaveCount(2)
-  // Newest first: the sell sweep, then the buy sweep.
+  // Newest first: the sell sweep, then the buy sweep, not yet whole, blank.
   await expect(rows.first()).toContainText("KZ [F]")
-  await expect(rows.nth(1)).toContainText("AK [F] +1")
+  await expect(rows.nth(1)).not.toContainText("[")
+  // The test day's codes stay incomplete: every spec's trades share it.
+  const note = log.getByText(/^Codes still arriving/)
+  await expect(note).toHaveText(
+    "Codes still arriving: 1 of 2 sweeps have their brokers. Updates every 30 s."
+  )
+
+  // The walk stores the last trade's codes; the page's recheck fills the
+  // buy sweep in within 30 s, with no reload.
+  await storeCodes([[1, "BK D CC D"]])
+  await expect(rows.nth(1)).toContainText("AK [F] +1", { timeout: 40_000 })
   await expect(rows.nth(1).getByText("AK [F]")).toHaveClass(/text-foreign/)
+  await expect(note).toHaveText(
+    "Codes still arriving: 2 of 2 sweeps have their brokers. Updates every 30 s."
+  )
 })

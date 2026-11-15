@@ -13,6 +13,7 @@ import { TestClock } from "effect/testing"
 import {
   fetchRecordedBookChunk,
   fetchRecordedBrokerCodes,
+  followSweepBrokers,
   makeBrokerCodesFollower,
   type RecordedTradeCodes,
 } from "@workspace/client"
@@ -234,6 +235,72 @@ describe("following a recorded day's broker codes", () => {
       }).pipe(Effect.provideService(HttpClient.HttpClient, codesFrom.client))
     }
   )
+})
+
+// A Worker answering each sweep brokers GET of BBCA with one more whole sweep
+// than the last, the day complete from the `completeFrom`th GET on; it
+// records whether each GET went past the browser's copy.
+const sweepBrokersWorker = (completeFrom: number) => {
+  const asked: Array<boolean> = []
+  const client = HttpClient.make((request) =>
+    Effect.gen(function* () {
+      asked.push(
+        Option.isSome(yield* Effect.serviceOption(FetchHttpClient.RequestInit))
+      )
+      const sweeps = asked.map((_, index) => [String(index + 1), [], []])
+      return HttpClientResponse.fromWeb(
+        request,
+        new Response(
+          JSON.stringify({
+            code: "BBCA",
+            sweeps,
+            complete: asked.length >= completeFrom,
+          })
+        )
+      )
+    })
+  ).pipe(
+    HttpClient.mapRequest(HttpClientRequest.prependUrl("http://dashboard.test"))
+  )
+  return { asked, client }
+}
+
+describe("following a recorded day's sweep brokers", () => {
+  it.effect(
+    "while incomplete, asks again every 30 s past the browser's copy, and stops once complete",
+    () => {
+      const brokersFrom = sweepBrokersWorker(3)
+      return Effect.gen(function* () {
+        const shown: Array<[sweeps: number, complete: boolean]> = []
+        yield* Effect.forkChild(
+          followSweepBrokers(DAY, BBCA, (answer) =>
+            shown.push([answer.sweeps.length, answer.complete])
+          )
+        )
+        yield* TestClock.adjust("29 seconds")
+        assert.deepStrictEqual(brokersFrom.asked, [false])
+        yield* TestClock.adjust("1 second")
+        assert.deepStrictEqual(brokersFrom.asked, [false, true])
+        yield* TestClock.adjust("30 seconds")
+        yield* TestClock.adjust("5 minutes")
+        assert.deepStrictEqual(brokersFrom.asked, [false, true, true])
+        assert.deepStrictEqual(shown, [
+          [1, false],
+          [2, false],
+          [3, true],
+        ])
+      }).pipe(Effect.provideService(HttpClient.HttpClient, brokersFrom.client))
+    }
+  )
+
+  it.effect("asks once for a day already complete", () => {
+    const brokersFrom = sweepBrokersWorker(1)
+    return Effect.gen(function* () {
+      yield* Effect.forkChild(followSweepBrokers(DAY, BBCA, () => {}))
+      yield* TestClock.adjust("5 minutes")
+      assert.deepStrictEqual(brokersFrom.asked, [false])
+    }).pipe(Effect.provideService(HttpClient.HttpClient, brokersFrom.client))
+  })
 })
 
 describe("a recorded day's GETs", () => {

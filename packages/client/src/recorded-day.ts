@@ -18,6 +18,7 @@ import {
   decodeRecordedTape,
   recordedDayPath,
   type RecordedBrokerCodes,
+  type RecordedSweepBrokers,
   type RecordedResource,
   type StockCode,
   type TradeCodes,
@@ -82,12 +83,17 @@ export const fetchRecordedSweeps = Effect.fnUntraced(function* (
 })
 
 // The brokers of one code's whole sweeps for the day, and whether the day's
-// codes are complete.
-export const fetchRecordedSweepBrokers = Effect.fnUntraced(function* (
+// codes are complete. `fresh` asks the Worker past the browser's copy.
+const fetchRecordedSweepBrokers = Effect.fnUntraced(function* (
   date: WibDate,
-  code: StockCode
+  code: StockCode,
+  fresh: boolean
 ) {
-  const body = yield* getResource(date, { _tag: "SweepBrokers", code })
+  const body = yield* getResource(date, { _tag: "SweepBrokers", code }).pipe(
+    fresh
+      ? Effect.provideService(FetchHttpClient.RequestInit, { cache: "reload" })
+      : (effect) => effect
+  )
   if (Option.isNone(body)) return Option.none()
   return Option.some(yield* decodeRecordedSweepBrokers(body.value))
 })
@@ -185,6 +191,37 @@ export const makeBrokerCodesFollower = (
       }
     })
     return { ask: (at: DateTime.Utc) => ask(at), recheck }
+  })
+
+/**
+ * Follows one code's sweep brokers on a recorded day: shows the answer, then
+ * while it says the day's codes are incomplete asks again every 30 s, past
+ * the browser's copy, showing each answer, until one is complete. None
+ * answered (a day not recorded) ends it. A failed recheck other than a 401
+ * is logged and the next one goes ahead.
+ */
+export const followSweepBrokers = (
+  date: WibDate,
+  code: StockCode,
+  show: (answer: RecordedSweepBrokers) => void
+) =>
+  Effect.gen(function* () {
+    let done = false
+    const ask = (fresh: boolean) =>
+      Effect.map(fetchRecordedSweepBrokers(date, code, fresh), (answer) => {
+        done = Option.isNone(answer) || answer.value.complete
+        if (Option.isSome(answer)) show(answer.value)
+      })
+    yield* ask(false)
+    while (!done) {
+      yield* Effect.sleep(RECHECK)
+      yield* ask(true).pipe(
+        Effect.catchIf(
+          (error) => !Predicate.isTagged(error, "SignInRequired"),
+          (error) => Effect.logWarning("Sweep brokers not rechecked", error)
+        )
+      )
+    }
   })
 
 // The selected code's stored book chunk for `minute`'s minute (or the latest
