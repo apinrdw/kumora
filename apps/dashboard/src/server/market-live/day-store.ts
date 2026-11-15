@@ -730,12 +730,12 @@ export const makeDayStore = (sql: Sql) =>
 
     // The minutes the stored trades numbered `first` to `last` fall in,
     // ascending; none when it holds none of them.
-    const minutesOfTrades = (first: number, last: number) =>
+    const minutesOfTrades = (first: TradeNumber, last: TradeNumber) =>
       Effect.sync(() => {
         const [row] = sql.exec(
           "SELECT min(time) AS first, max(time) AS last FROM trades WHERE number BETWEEN ? AND ?",
-          first,
-          last
+          Number(first),
+          Number(last)
         )
         if (row === undefined || row.first === null) return []
         const minutes: Array<number> = []

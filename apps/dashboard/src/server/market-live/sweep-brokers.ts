@@ -161,17 +161,23 @@ const wholeSweeps = Effect.fnUntraced(function* (
   return whole
 })
 
-// The runs of consecutive numbers in `numbers`, each [first, last].
-const runsOf = (numbers: ReadonlyArray<number>) =>
+// The runs of consecutive trade numbers in `numbers`, each [first, last].
+const runsOf = (numbers: ReadonlyArray<TradeNumber>) =>
   Effect.sync(() => {
-    const sorted = [...new Set(numbers)].sort((a, b) => a - b)
+    const sorted = [...new Set(numbers.map(Number))].sort((a, b) => a - b)
     const runs: Array<[number, number]> = []
     for (const number of sorted) {
       const last = runs.at(-1)
       if (last !== undefined && number === last[1] + 1) last[1] = number
       else runs.push([number, number])
     }
-    return runs
+    return runs.map(
+      ([first, last]) =>
+        [
+          TradeNumber.make(String(first)),
+          TradeNumber.make(String(last)),
+        ] as const
+    )
   })
 
 // The rows of one minute to write: each code's whole sweeps' text, or none
@@ -352,7 +358,7 @@ export const makeSweepBrokers = Effect.fnUntraced(function* (options: {
   // so a sparse Stockbit fill recomputes only the minutes it touched. See
   // spec apinrdw/kumora#343, "When it is recomputed".
   const recompute = Effect.fnUntraced(function* (
-    numbers: ReadonlyArray<number>,
+    numbers: ReadonlyArray<TradeNumber>,
     heldCodes: HeldCodes,
     writeCodes: () => void
   ) {

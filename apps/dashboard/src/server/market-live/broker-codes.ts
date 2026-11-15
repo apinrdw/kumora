@@ -149,7 +149,7 @@ interface Merged {
   readonly facts: Array<readonly [string, string]>
   // The trades whose kept codes the batch changed. A trade whose source
   // byte alone changed, as the cross-check marks it, is not one.
-  readonly changed: Array<number>
+  readonly changed: Array<TradeNumber>
 }
 
 // The kept codes of each listed trade the day holds codes for, in the
@@ -163,7 +163,7 @@ export type HeldCodes = (
 // and `heldCodes` reads the codes the batch holds. It writes its own rows
 // and `writeCodes`, the batch's, in one transaction.
 type Alongside = (
-  changed: ReadonlyArray<number>,
+  changed: ReadonlyArray<TradeNumber>,
   heldCodes: HeldCodes,
   writeCodes: () => void
 ) => Effect.Effect<void>
@@ -379,7 +379,7 @@ export const makeBrokerCodes = Effect.fnUntraced(function* (options: {
           ? yield* mergeAjaib(held, at, bytes, yield* stockbitOf(number, chunk))
           : yield* mergeStockbit(held, at, bytes)
       if (!(yield* sameCodes(before, 0, held.subarray(at, at + SOURCE))))
-        merged.changed.push(number)
+        merged.changed.push(tradeNumber)
       if (outcome === "agreed") {
         merged.agreed.add(number)
         merged.differences.delete(number)
