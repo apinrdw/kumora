@@ -1,0 +1,316 @@
+<title>Sweep Brokers Prototype</title>
+<meta name="claude:viewport-fit-sides" content="cover">
+<style>
+/* Layout: Market Live's chart 1 beside the Buy/Sell sweep log, three log variants switched from a bottom bar.
+   Single dark look on purpose: the dashboard is dark-only, and these are its tokens. */
+:root {
+  color-scheme: dark;
+  --bg-canvas: #0b1421; --bg-surface: #142234; --bg-elevated: #1b2c40; --bg-selected: #173a43;
+  --border: #26394e; --border-strong: #3e566b;
+  --fg: #edf4fb; --fg-2: #b0c2d2; --muted: #839aae;
+  --accent: #55d9c7; --up: #51dda2; --down: #ff7987;
+  --warning: #f4c36e; --info: #7dbcf5; --grid: #26384b;
+  --foreign: var(--warning); --domestic: var(--info);
+  --big-bg: rgba(244,195,110,.10);
+  --mono: ui-monospace, "JetBrains Mono", "SF Mono", Menlo, Consolas, monospace;
+  --sans: Inter, ui-sans-serif, system-ui, -apple-system, "Segoe UI", sans-serif;
+}
+html, body { background: var(--bg-canvas); color: var(--fg); font-family: var(--sans); }
+body { padding-left: max(16px, env(safe-area-inset-left, 0px)); padding-right: max(16px, env(safe-area-inset-right, 0px)); padding-block: 16px 96px; }
+h1 { font-size: 15px; margin: 0; font-weight: 600; }
+.lede { color: var(--muted); font-size: 12px; margin: 4px 0 12px; max-width: 70ch; }
+.controls { display: flex; flex-wrap: wrap; gap: 8px 16px; align-items: center; font-size: 12px; margin-bottom: 12px; color: var(--fg-2); }
+.seg { display: inline-flex; border: 1px solid var(--border); border-radius: 6px; overflow: hidden; }
+.seg button { background: transparent; color: var(--fg-2); border: 0; padding: 4px 9px; font: inherit; cursor: pointer; }
+.seg button[aria-pressed="true"] { background: var(--bg-selected); color: var(--accent); }
+.seg button + button { border-left: 1px solid var(--border); }
+.stage { display: flex; gap: 12px; align-items: stretch; flex-wrap: wrap; }
+.card { background: var(--bg-surface); border: 1px solid var(--border); border-radius: 8px; min-width: 0; }
+.chart { flex: 1 1 420px; display: flex; flex-direction: column; }
+.chart header, .log header { padding: 8px 10px 6px; border-bottom: 1px solid var(--border); font-size: 13px; font-weight: 600; display: flex; gap: 8px; align-items: center; flex-wrap: wrap; }
+.sub { font-size: 11px; color: var(--muted); font-weight: 400; font-variant-numeric: tabular-nums; }
+svg { display: block; width: 100%; height: auto; }
+.log { display: flex; flex-direction: column; height: 560px; flex: 0 0 auto; max-width: 100%; }
+.log .rows { overflow-y: auto; flex: 1; min-height: 0; }
+.cols, .row { display: grid; gap: 6px; padding: 0 10px; align-items: center; font-family: var(--mono); font-size: 12px; white-space: nowrap; }
+.cols { font-family: var(--sans); font-size: 10px; letter-spacing: .06em; text-transform: uppercase; color: var(--muted); padding-block: 4px; border-bottom: 1px solid var(--border); }
+.row { height: 26px; cursor: pointer; border: 0; background: transparent; color: var(--fg); width: 100%; text-align: left; }
+.row:hover { background: var(--bg-elevated); }
+.row.big { background: var(--big-bg); }
+.row.sel { background: var(--bg-selected); box-shadow: inset 3px 0 0 var(--accent); }
+.row:focus-visible, button:focus-visible, select:focus-visible { outline: 2px solid var(--accent); outline-offset: -2px; }
+.trunc { overflow: hidden; text-overflow: ellipsis; }
+.r { text-align: right; }
+.buy { color: var(--up); } .sell { color: var(--down); }
+.F { color: var(--foreign); } .D { color: var(--domestic); }
+.more { color: var(--muted); }
+.bk { cursor: help; }
+.bk.pick { cursor: pointer; text-decoration: underline dotted var(--border-strong); text-underline-offset: 3px; }
+.bigmark { color: var(--warning); }
+.pending { color: var(--muted); opacity: .55; }
+.v-b .row { height: 40px; grid-template-rows: 1fr 1fr; align-content: center; row-gap: 0; }
+.v-b .line2 { grid-column: 1 / -1; font-size: 11px; color: var(--fg-2); display: flex; gap: 6px; overflow: hidden; }
+.chips { display: flex; gap: 4px; overflow-x: auto; padding: 6px 10px; border-bottom: 1px solid var(--border); }
+.chip { font: 11px var(--mono); padding: 2px 7px; border-radius: 999px; border: 1px solid var(--border); background: transparent; color: var(--fg-2); cursor: pointer; white-space: nowrap; }
+.chip[aria-pressed="true"] { border-color: var(--accent); color: var(--accent); }
+.chip:disabled { opacity: .45; cursor: not-allowed; }
+select { background: var(--bg-elevated); color: var(--fg); border: 1px solid var(--border); border-radius: 6px; font: 11px var(--mono); padding: 2px 4px; }
+select:disabled { opacity: .5; }
+.note { font-size: 11px; color: var(--muted); padding: 4px 10px; border-bottom: 1px solid var(--border); }
+.tip { position: fixed; z-index: 20; pointer-events: none; background: var(--bg-elevated); border: 1px solid var(--border-strong); border-radius: 6px; box-shadow: 0 4px 16px rgba(4,10,18,.45); padding: 7px 9px; font: 11px/1.45 var(--mono); color: var(--fg); min-width: 200px; max-width: 300px; }
+.tip h4 { margin: 0 0 4px; font: 600 11px var(--sans); }
+.tip table { border-collapse: collapse; width: 100%; }
+.tip td { padding: 0 6px 0 0; }
+.tip .grp { color: var(--muted); font-family: var(--sans); font-size: 10px; text-transform: uppercase; letter-spacing: .06em; padding-top: 4px; }
+.state { margin-top: 12px; font: 11px/1.5 var(--mono); color: var(--fg-2); padding: 8px 10px; }
+.state b { color: var(--fg); font-weight: 600; }
+.bar { position: fixed; left: 50%; transform: translateX(-50%); bottom: calc(14px + env(safe-area-inset-bottom, 0px)); z-index: 30; display: flex; align-items: center; gap: 4px; background: #f5f7fa; color: #0b1421; border-radius: 999px; padding: 4px; box-shadow: 0 6px 24px rgba(0,0,0,.5); font: 600 12px var(--sans); }
+.bar button { background: transparent; border: 0; color: inherit; font: inherit; width: 30px; height: 30px; border-radius: 999px; cursor: pointer; }
+.bar button:hover { background: #dfe5ec; }
+.bar span { padding: 0 8px; white-space: nowrap; }
+@media (max-width: 520px) { .log { height: 480px; } }
+</style>
+
+<h1>Sweep brokers on Market Live · prototype for #340</h1>
+<p class="lede">Throwaway mock of chart 1 and the Buy/Sell sweep log for BBCA, with made-up sweeps and brokers. Three log layouts are switched from the bar at the bottom (or ← →). Hover a bubble or a broker for the full list. Pick a broker to filter: a sweep stays when that broker was among its aggressors, and its bubble, lots and top-N cut use that broker's own lots.</p>
+
+<div class="controls">
+  <label>Day state
+    <span class="seg" id="mode">
+      <button data-v="complete">Codes complete</button>
+      <button data-v="walking">Evening walk running</button>
+      <button data-v="live">Market hours</button>
+    </span>
+  </label>
+  <label>Top
+    <span class="seg" id="topn">
+      <button data-v="100">All</button><button data-v="50">50%</button><button data-v="25">25%</button><button data-v="10">10%</button>
+    </span>
+  </label>
+</div>
+
+<div class="stage">
+  <section class="card chart" aria-label="Chart 1">
+    <header>BBCA · 1m <span class="sub" id="chartSub"></span></header>
+    <div id="chart"></div>
+  </section>
+  <section class="card log" id="log" aria-label="Sweep log"></section>
+</div>
+<div class="card state" id="state"></div>
+
+<div class="tip" id="tip" hidden></div>
+<nav class="bar" aria-label="Prototype variant">
+  <button id="prev" aria-label="Previous variant">←</button>
+  <span id="vlabel"></span>
+  <button id="next" aria-label="Next variant">→</button>
+</nav>
+
+<script>
+(() => {
+  // ---- fake day -------------------------------------------------------
+  let seed = 7;
+  const rnd = () => (seed = (seed * 16807) % 2147483647) / 2147483647;
+  const pick = (a) => a[Math.floor(rnd() * a.length)];
+  const BROKERS = { AK:"F", BK:"F", ZP:"F", YU:"F", RX:"F", CC:"D", YP:"D", PD:"D", NI:"D", XL:"D", KK:"D", LG:"D", MG:"D", DX:"D", EP:"D" };
+  const AGG = ["AK","AK","AK","BK","ZP","CC","YP","YP","PD","NI","XL","KK","RX","LG"];
+  const ALL = Object.keys(BROKERS);
+  const split = (lots, n, pool) => {
+    const names = []; while (names.length < n) { const b = pick(pool); if (!names.includes(b)) names.push(b); }
+    let w = names.map(() => rnd() ** 2 + 0.05), s = w.reduce((a, b) => a + b, 0), left = lots;
+    const out = names.map((b, i) => { const l = i === n - 1 ? left : Math.max(1, Math.round(lots * w[i] / s)); left -= l; return { b, l }; })
+      .filter((e) => e.l > 0).map((e) => ({ code: e.b, type: rnd() < 0.08 ? (BROKERS[e.b] === "F" ? "D" : "F") : BROKERS[e.b], lots: e.l }));
+    return out.sort((a, b) => b.lots - a.lots);
+  };
+  const MIN0 = 10 * 60, MINUTES = 12, TICK = 25;
+  let price = 9850, trade = 412000;
+  const candles = [], sweeps = [];
+  for (let m = 0; m < MINUTES; m++) {
+    const open = price; let hi = open, lo = open;
+    const n = 10 + Math.floor(rnd() * 12);
+    const secs = Array.from({ length: n }, () => Math.floor(rnd() * 60)).sort((a, b) => a - b);
+    for (const s of secs) {
+      const side = rnd() < 0.52 ? "buy" : "sell";
+      const lots = Math.round(Math.exp(rnd() * 6.2)) + 1;
+      const steps = lots > 150 ? Math.floor(rnd() * 3) : 0;
+      const first = price, last = price + (side === "buy" ? steps : -steps) * TICK;
+      price = last; hi = Math.max(hi, first, last); lo = Math.min(lo, first, last);
+      const nAgg = rnd() < 0.6 ? 1 : rnd() < 0.75 ? 2 : 3;
+      const nPas = 1 + Math.floor(rnd() * Math.min(7, 1 + lots / 40));
+      trade += 3 + Math.floor(rnd() * 40);
+      sweeps.push({ id: trade, side, minute: m, sec: s, first, last, lots, value: lots * 100 * (first + last) / 2,
+        trades: nAgg + nPas + Math.floor(rnd() * 4), agg: split(lots, nAgg, AGG), pas: split(lots, nPas, ALL), whole: rnd() > 0.38 });
+    }
+    candles.push({ m, open, close: price, hi, lo });
+  }
+
+  // ---- state ----------------------------------------------------------
+  const VARIANTS = [
+    { key: "A", name: "Columns in a wider log" },
+    { key: "B", name: "Two-line rows" },
+    { key: "C", name: "Lead buyer in the side cell" },
+  ];
+  const st = { v: 0, mode: "complete", topN: 25, broker: null, sel: null };
+  try { const h = location.hash.slice(1); const i = VARIANTS.findIndex((x) => x.key === h); if (i >= 0) st.v = i; } catch {}
+
+  // ---- helpers --------------------------------------------------------
+  const nf = new Intl.NumberFormat("en-US");
+  const lotsText = (l) => l >= 1e6 ? (l / 1e6).toFixed(2) + "M" : l >= 1e4 ? (l / 1e3).toFixed(2) + "K" : nf.format(l);
+  const compact = (v) => v >= 1e9 ? (v / 1e9).toFixed(1) + "B" : v >= 1e6 ? (v / 1e6).toFixed(1) + "M" : (v / 1e3).toFixed(0) + "K";
+  const time = (s) => { const t = (MIN0 + s.minute) * 60 + s.sec; return [Math.floor(t / 3600) + 0, Math.floor(t / 60) % 60, t % 60].map((x) => String(x).padStart(2, "0")).join(":"); };
+  const esc = (s) => String(s).replace(/[&<>"]/g, (c) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;" })[c]);
+  const known = (s) => st.mode === "complete" || (st.mode === "walking" && s.whole);
+  const brokerTag = (e) => `<span class="${e.type}">${e.code} [${e.type}]</span>`;
+  const lead = (list, cls = "") => list.length ? `<span class="bk ${cls}" data-bk="${list[0].code}">${brokerTag(list[0])}${list.length > 1 ? ` <span class="more">+${list.length - 1}</span>` : ""}</span>` : "";
+  const sideWord = (s, aggressor) => (s.side === "buy") === aggressor ? "Buyer" : "Seller";
+  const own = (s) => st.broker ? s.agg.filter((e) => e.code === st.broker).reduce((a, e) => a + e.lots, 0) : s.lots;
+
+  const filtered = () => sweeps.filter((s) => !st.broker || (known(s) && s.agg.some((e) => e.code === st.broker)));
+  const threshold = (list) => {
+    if (st.topN >= 100) return { lots: 0 };
+    const cut = (side) => { const l = list.filter((s) => s.side === side).map(own).sort((a, b) => b - a); return l.length ? l[Math.max(0, Math.ceil(l.length * st.topN / 100) - 1)] : undefined; };
+    const buy = cut("buy"), sell = cut("sell"); const c = [buy, sell].filter((x) => x !== undefined);
+    return { lots: c.length ? Math.min(...c) : 0, buy, sell };
+  };
+  const thresholdText = (t) => t.lots ? `≥ ${nf.format(t.lots)} lots${st.broker ? ` of ${st.broker}` : ""} (buy ${t.buy ?? "–"}, sell ${t.sell ?? "–"})` : "";
+  const aggressorBrokers = () => {
+    const m = new Map();
+    for (const s of sweeps) if (known(s)) for (const e of s.agg) m.set(e.code, (m.get(e.code) || { code: e.code, type: BROKERS[e.code], lots: 0 })), m.get(e.code).lots += e.lots;
+    return [...m.values()].sort((a, b) => b.lots - a.lots);
+  };
+
+  // ---- tooltip --------------------------------------------------------
+  const tip = document.getElementById("tip");
+  const tipFor = (s) => {
+    const head = `<h4><span class="${s.side}">${s.side === "buy" ? "Buy" : "Sell"}</span> ${nf.format(s.lots)} lots @ ${nf.format(s.first)}${s.first !== s.last ? "→" + nf.format(s.last) : ""} · ${s.trades} trades · ${time(s)}</h4>`;
+    if (st.mode === "live") return head + `<div class="more">Broker codes arrive after the close.</div>`;
+    if (!known(s)) return head + `<div class="more">Brokers show once every trade in this sweep has its codes.</div>`;
+    const rows = (title, list) => `<tr><td class="grp" colspan="2">${title}</td></tr>` + list.map((e) => `<tr><td>${brokerTag(e)}${e.code === st.broker ? " ◂" : ""}</td><td class="r">${nf.format(e.lots)}</td></tr>`).join("");
+    return head + `<table>${rows(sideWord(s, true) + "s · aggressor", s.agg)}${rows(sideWord(s, false) + "s", s.pas)}</table>`;
+  };
+  const showTip = (html, x, y) => { tip.innerHTML = html; tip.hidden = false; const r = tip.getBoundingClientRect(); tip.style.left = Math.min(innerWidth - r.width - 8, x + 14) + "px"; tip.style.top = Math.min(innerHeight - r.height - 8, y + 14) + "px"; };
+  const hideTip = () => (tip.hidden = true);
+
+  // ---- chart ----------------------------------------------------------
+  const W = 640, H = 520, PADL = 8, PADR = 56, PADT = 12, PADB = 22;
+  const lo = Math.min(...candles.map((c) => c.lo)) - 2 * TICK, hi = Math.max(...candles.map((c) => c.hi)) + 2 * TICK;
+  const xOf = (m, sec = 30) => PADL + (m + sec / 60) * ((W - PADL - PADR) / MINUTES);
+  const yOf = (p) => PADT + (hi - p) * ((H - PADT - PADB) / (hi - lo));
+  const drawChart = (list, t) => {
+    const bw = (W - PADL - PADR) / MINUTES * 0.55;
+    let g = "";
+    for (let p = Math.ceil(lo / 50) * 50; p <= hi; p += 50) g += `<line x1="${PADL}" x2="${W - PADR}" y1="${yOf(p)}" y2="${yOf(p)}" stroke="var(--grid)"/><text x="${W - PADR + 6}" y="${yOf(p) + 4}" fill="var(--muted)" font-size="10" font-family="var(--mono)">${nf.format(p)}</text>`;
+    for (let m = 0; m < MINUTES; m += 2) g += `<text x="${xOf(m, 30)}" y="${H - 6}" fill="var(--muted)" font-size="10" text-anchor="middle" font-family="var(--mono)">10:${String(m).padStart(2, "0")}</text>`;
+    for (const c of candles) {
+      const col = c.close >= c.open ? "var(--up)" : "var(--down)";
+      g += `<line x1="${xOf(c.m)}" x2="${xOf(c.m)}" y1="${yOf(c.hi)}" y2="${yOf(c.lo)}" stroke="${col}" opacity=".7"/>`;
+      g += `<rect x="${xOf(c.m) - bw / 2}" width="${bw}" y="${yOf(Math.max(c.open, c.close))}" height="${Math.max(1.5, Math.abs(yOf(c.open) - yOf(c.close)))}" fill="${col}" opacity=".35"/>`;
+    }
+    const shown = list.filter((s) => own(s) >= t.lots);
+    const maxL = Math.max(1, ...shown.map(own));
+    for (const s of shown) {
+      const r = 3 + 15 * Math.sqrt(own(s) / maxL);
+      const col = s.side === "buy" ? "var(--up)" : "var(--down)";
+      const sel = s.id === st.sel;
+      g += `<circle data-id="${s.id}" cx="${xOf(s.minute, s.sec)}" cy="${yOf((s.first + s.last) / 2)}" r="${r.toFixed(1)}" fill="${col}" fill-opacity="${sel ? .7 : .32}" stroke="${sel ? "var(--fg)" : col}" stroke-width="${sel ? 2 : 1}" style="cursor:pointer"/>`;
+    }
+    document.getElementById("chart").innerHTML = `<svg viewBox="0 0 ${W} ${H}" role="img" aria-label="BBCA one-minute candles with sweep bubbles">${g}</svg>`;
+    document.getElementById("chartSub").textContent = `${shown.length} bubbles${st.broker ? ` · ${st.broker} aggressor only, sized by ${st.broker}'s lots` : ""}`;
+  };
+
+  // ---- log variants ---------------------------------------------------
+  const filterUnavailable = () => st.mode === "live";
+  const picker = () => {
+    const list = aggressorBrokers();
+    return `<select id="bkSelect" aria-label="Broker filter" ${filterUnavailable() ? "disabled" : ""}>
+      <option value="">${filterUnavailable() ? "Brokers after the close" : "All brokers"}</option>
+      ${list.map((b) => `<option value="${b.code}" ${b.code === st.broker ? "selected" : ""}>${b.code} [${b.type}] · ${lotsText(b.lots)}</option>`).join("")}
+    </select>`;
+  };
+  const walkingNote = () => st.mode === "walking" ? `<div class="note">Codes still arriving: ${sweeps.filter((s) => s.whole).length} of ${sweeps.length} sweeps have every trade's brokers. Updates every 30 s.</div>` : st.mode === "live" ? `<div class="note">Broker codes arrive after the close.</div>` : "";
+  const counts = (rows) => `${rows.length} sweeps · Buy ${rows.filter((s) => s.side === "buy").length} · Sell ${rows.filter((s) => s.side === "sell").length}`;
+  const pathText = (s) => s.first === s.last ? nf.format(s.first) : `${nf.format(s.first)}→${nf.format(s.last)}`;
+  const big = (s) => s.value >= 1e9;
+  const blank = (s) => known(s) ? null : (st.mode === "walking" ? `<span class="pending">·</span>` : "");
+
+  const VIEW = {
+    A: {
+      width: 530,
+      cols: "58px 34px minmax(0,1fr) 64px 80px 80px 10px",
+      head: () => `<div class="cols"><span>Time</span><span>Side</span><span>Lots @ price</span><span class="r">Value</span><span>Aggressor</span><span>Other side</span><span></span></div>`,
+      header: (rows, t) => `<header>Buy/Sell sweeps · BBCA <span style="margin-left:auto"></span>${picker()}</header><div class="note">${counts(rows)} · ${thresholdText(t) || "showing all"}</div>`,
+      row: (s) => `<span>${time(s)}</span><span class="${s.side}">${s.side === "buy" ? "Buy" : "Sell"}</span><span class="trunc">${lotsText(own(s))}${st.broker ? `<span class="more">/${lotsText(s.lots)}</span>` : ""} @ ${pathText(s)}</span><span class="r">Rp${compact(s.value)}</span><span>${blank(s) ?? lead(s.agg)}</span><span>${blank(s) ?? lead(s.pas)}</span><span class="bigmark">${big(s) ? "◆" : ""}</span>`,
+    },
+    B: {
+      width: 350,
+      cols: "58px 34px minmax(0,1fr) 64px 10px",
+      head: () => `<div class="cols"><span>Time</span><span>Side</span><span>Lots @ price</span><span class="r">Value</span><span></span></div>`,
+      header: (rows, t) => {
+        const list = aggressorBrokers().slice(0, 10);
+        const chips = `<div class="chips" role="group" aria-label="Broker filter"><button class="chip" data-chip="" aria-pressed="${!st.broker}" ${filterUnavailable() ? "disabled" : ""}>All</button>${list.map((b) => `<button class="chip" data-chip="${b.code}" aria-pressed="${b.code === st.broker}"><span class="${b.type}">${b.code}</span> ${lotsText(b.lots)}</button>`).join("")}</div>`;
+        return `<header>Buy/Sell sweeps · BBCA</header>${chips}<div class="note">${counts(rows)} · ${thresholdText(t) || "showing all"}</div>`;
+      },
+      row: (s) => {
+        const b = blank(s);
+        const l2 = b !== null ? `<span class="line2">${b}</span>` : `<span class="line2"><span class="more">${sideWord(s, true)}</span> ${lead(s.agg)} <span class="more">· ${sideWord(s, false)}s</span> ${lead(s.pas)}</span>`;
+        return `<span>${time(s)}</span><span class="${s.side}">${s.side === "buy" ? "Buy" : "Sell"}</span><span class="trunc">${lotsText(own(s))}${st.broker ? `<span class="more">/${lotsText(s.lots)}</span>` : ""} @ ${pathText(s)}</span><span class="r">Rp${compact(s.value)}</span><span class="bigmark">${big(s) ? "◆" : ""}</span>${l2}`;
+      },
+    },
+    C: {
+      width: 400,
+      cols: "58px 112px minmax(0,1fr) 64px 10px",
+      head: () => `<div class="cols"><span>Time</span><span>Side · lead</span><span>Lots @ price</span><span class="r">Value</span><span></span></div>`,
+      header: (rows, t) => `<header>Buy/Sell sweeps · BBCA <span style="margin-left:auto"></span>${st.broker ? `<button class="chip" aria-pressed="true" data-chip="">${st.broker} ×</button>` : `<span class="sub">${filterUnavailable() ? "Brokers after the close" : "Click a broker to filter"}</span>`}</header><div class="note">${counts(rows)} · ${thresholdText(t) || "showing all"}</div>`,
+      row: (s) => `<span>${time(s)}</span><span><span class="${s.side}">${s.side === "buy" ? "Buy" : "Sell"}</span> ${blank(s) ?? lead(s.agg, "pick")}</span><span class="trunc">${lotsText(own(s))}${st.broker ? `<span class="more">/${lotsText(s.lots)}</span>` : ""} @ ${pathText(s)}</span><span class="r">Rp${compact(s.value)}</span><span class="bigmark">${big(s) ? "◆" : ""}</span>`,
+    },
+  };
+
+  const render = () => {
+    if (st.mode === "live") st.broker = null;
+    const v = VARIANTS[st.v], view = VIEW[v.key];
+    const list = filtered(), t = threshold(list);
+    const rows = list.filter((s) => own(s) >= t.lots).sort((a, b) => b.id - a.id);
+    const log = document.getElementById("log");
+    log.className = `card log v-${v.key.toLowerCase()}`;
+    log.style.width = view.width + "px";
+    log.innerHTML = view.header(rows, t) + walkingNote() + view.head() + `<div class="rows">${rows.map((s) => `<button type="button" class="row${big(s) ? " big" : ""}${s.id === st.sel ? " sel" : ""}" data-id="${s.id}" style="grid-template-columns:${view.cols}">${view.row(s)}</button>`).join("") || `<div class="note">No sweeps where ${st.broker} was an aggressor.</div>`}</div>`;
+    log.querySelectorAll(".cols").forEach((c) => (c.style.gridTemplateColumns = view.cols));
+    drawChart(list, t);
+    document.getElementById("vlabel").textContent = `${v.key} · ${v.name}`;
+    for (const [id, val] of [["mode", st.mode], ["topn", String(st.topN)]]) document.querySelectorAll(`#${id} button`).forEach((b) => b.setAttribute("aria-pressed", String(b.dataset.v === val)));
+    const selS = sweeps.find((s) => s.id === st.sel);
+    document.getElementById("state").innerHTML = `<b>State</b> variant=${v.key} · day=${st.mode} · top=${st.topN}% · broker=${st.broker ?? "none"} · threshold=${t.lots} lots · rows=${rows.length} · selected=${selS ? `${time(selS)} ${selS.side} (trade ${selS.id})` : "none"}`;
+    try { history.replaceState(null, "", "#" + v.key); } catch {}
+  };
+
+  // ---- events ---------------------------------------------------------
+  const setBroker = (b) => { if (st.mode !== "live") { st.broker = b || null; render(); } };
+  document.getElementById("mode").addEventListener("click", (e) => { const b = e.target.closest("button"); if (b) { st.mode = b.dataset.v; render(); } });
+  document.getElementById("topn").addEventListener("click", (e) => { const b = e.target.closest("button"); if (b) { st.topN = +b.dataset.v; render(); } });
+  const log = document.getElementById("log");
+  log.addEventListener("change", (e) => { if (e.target.id === "bkSelect") setBroker(e.target.value); });
+  log.addEventListener("click", (e) => {
+    const chip = e.target.closest("[data-chip]"); if (chip) return setBroker(chip.dataset.chip);
+    const bk = e.target.closest(".bk.pick"); if (bk) { e.stopPropagation(); return setBroker(bk.dataset.bk); }
+    const row = e.target.closest(".row"); if (row) { st.sel = +row.dataset.id; render(); }
+  });
+  log.addEventListener("mouseover", (e) => {
+    const bk = e.target.closest(".bk"); const row = e.target.closest(".row");
+    if (bk && row) { const s = sweeps.find((x) => x.id === +row.dataset.id); const r = bk.getBoundingClientRect(); showTip(tipFor(s), r.left, r.bottom); }
+  });
+  log.addEventListener("mouseout", (e) => { if (e.target.closest(".bk")) hideTip(); });
+  const chart = document.getElementById("chart");
+  chart.addEventListener("mousemove", (e) => { const c = e.target.closest("circle[data-id]"); if (c) showTip(tipFor(sweeps.find((s) => s.id === +c.dataset.id)), e.clientX, e.clientY); else hideTip(); });
+  chart.addEventListener("mouseleave", hideTip);
+  chart.addEventListener("click", (e) => {
+    const c = e.target.closest("circle[data-id]"); if (!c) return;
+    st.sel = +c.dataset.id; render();
+    const row = log.querySelector(`.row[data-id="${st.sel}"]`); if (row) row.scrollIntoView({ block: "center" });
+  });
+  const cycle = (d) => { st.v = (st.v + d + VARIANTS.length) % VARIANTS.length; render(); };
+  document.getElementById("prev").onclick = () => cycle(-1);
+  document.getElementById("next").onclick = () => cycle(1);
+  addEventListener("keydown", (e) => { if (e.target.closest("input,textarea,select,[contenteditable]")) return; if (e.key === "ArrowLeft") cycle(-1); if (e.key === "ArrowRight") cycle(1); });
+  addEventListener("hashchange", () => { const i = VARIANTS.findIndex((x) => x.key === location.hash.slice(1)); if (i >= 0 && i !== st.v) { st.v = i; render(); } });
+  render();
+})();
+</script>
