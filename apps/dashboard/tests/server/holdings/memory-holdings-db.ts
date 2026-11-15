@@ -1,4 +1,4 @@
-// The parsed holdings database for tests: Node's SQLite, in memory, with
+// Parsed holdings for tests: Node's SQLite, in memory, with
 // holdings-migrations/ applied in order, behind the HoldingsDb service the
 // code uses. A batch runs in one transaction, as D1's does. `failBatch`, when
 // set, fails every batch it matches after running its statements, so the

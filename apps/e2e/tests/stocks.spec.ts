@@ -199,7 +199,11 @@ const stockSearch = (page: Page) =>
     .getByRole("banner")
     .getByRole("combobox", { name: "Open a stock", exact: true })
 
-// Serial: every test reads the one seeded HoldingsDb.
+// Decision: serial, since every test reads the one HoldingsDb this block
+// seeds. ksei-admin.spec.ts's Parse now test, which can run beside it,
+// replaces the same HoldingsDb's KSEI months 2026-09-30 and 2026-10-30 with
+// its fixtures: their BBCA rows equal KSEI_MONTHS', and no test here reads
+// their other stocks' KSEI holdings, so either order reads the same.
 test.describe.serial("the stock page", () => {
   test.beforeAll(() => {
     seedClassificationMonths(MONTHS)

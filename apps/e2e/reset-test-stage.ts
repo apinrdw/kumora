@@ -1,7 +1,7 @@
 // Runs before the apps start (playwright.config.ts). Each e2e run starts with
-// empty local D1s (the auth and parsed holdings databases): without the Test stage's Alchemy state, `alchemy dev`
-// creates a new local database (and signing secret) and applies the
-// migrations to it. It also starts with empty Market Live Durable Objects.
+// empty local D1s, for auth and for parsed holdings: without the Test stage's
+// Alchemy state, `alchemy dev` creates a new local database (and signing
+// secret) and applies the migrations to it. It also starts with empty Market Live Durable Objects.
 // The Dev stage's state is left alone.
 import { TEST, stageTarget } from "@workspace/deploy"
 import * as Effect from "effect/Effect"
