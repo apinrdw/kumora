@@ -12,6 +12,7 @@ import {
   bubbleRadius,
   bubbleOffset,
   brokerPicks,
+  emptyNote,
   keptSweeps,
   leadBroker,
   logRows,
@@ -387,6 +388,21 @@ describe("the broker filter", () => {
           [90, 80],
           [500, 400],
         ])
+      })
+  )
+
+  it.effect(
+    "says the picked broker was in no sweep only when it has no kept sweep up to the cursor",
+    () =>
+      Effect.gen(function* () {
+        const kept = yield* keptSweeps(sweeps, brokers, ak)
+        // Before AK's first sweep.
+        expect(yield* emptyNote(kept, ak, at("08:00:00"))).toBe(
+          "No sweeps where AK was an aggressor."
+        )
+        // AK has sweeps the top-N or Big only may hide: no note of its own.
+        expect(yield* emptyNote(kept, ak, at("09:10:00"))).toBeUndefined()
+        expect(yield* emptyNote(day, undefined, at("08:00:00"))).toBeUndefined()
       })
   )
 })

@@ -27,6 +27,7 @@ import {
   TOP_N_PRESETS,
   arrivingNote,
   brokerPicks,
+  emptyNote,
   isBigSweep,
   leadBroker,
   logRows,
@@ -440,6 +441,10 @@ export function SweepLog({
   onBigOnly: (on: boolean) => void
 }) {
   const view = useSweepView(store, cursor)
+  const empty = useMemo(
+    () => Effect.runSync(emptyNote(view.kept, view.picked, view.at)),
+    [view.kept, view.picked, view.at]
+  )
   const rows = useMemo(
     () =>
       Effect.runSync(
@@ -504,6 +509,7 @@ export function SweepLog({
         store={store}
         view={view}
         rows={rows}
+        empty={empty}
         withBrokers={withBrokers}
       />
       <SweepTip store={store} withBrokers={withBrokers} />
@@ -511,18 +517,20 @@ export function SweepLog({
   )
 }
 
-// The log's column heads and its rows, drawn only around the visible ones.
-// Clicking a row selects its sweep; a bubble picked on chart 1 scrolls its
-// row to the middle.
+// The log's column heads and its rows, drawn only around the visible ones,
+// or `empty` when none shows. Clicking a row selects its sweep; a bubble
+// picked on chart 1 scrolls its row to the middle.
 function LogColumns({
   store,
   view,
   rows,
+  empty,
   withBrokers,
 }: {
   store: SweepStore
   view: SweepView
   rows: ReadonlyArray<LogRow>
+  empty: string | undefined
   withBrokers: boolean
 }) {
   const scroller = useRef<HTMLDivElement>(null)
@@ -604,9 +612,9 @@ function LogColumns({
           <span />
         </div>
         <div ref={scroller} className="relative min-h-0 flex-1 overflow-y-auto">
-          {view.picked !== undefined && rows.length === 0 && (
+          {empty !== undefined && rows.length === 0 && (
             <p className="px-2.5 py-2 text-[12px] text-muted-foreground">
-              No sweeps where {view.picked} was an aggressor.
+              {empty}
             </p>
           )}
           <div

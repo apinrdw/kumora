@@ -166,6 +166,21 @@ export const keptSweeps = (
     return kept
   })
 
+// The log's note when it shows no row: with a broker picked that was an
+// aggressor in no kept sweep up to `at` (epoch ms), it says so. None when
+// the broker has sweeps the top-N or Big only hide, nor with none picked.
+export const emptyNote = (
+  kept: ReadonlyArray<KeptSweep>,
+  picked: BrokerCode | undefined,
+  at: number
+) =>
+  Effect.sync(() =>
+    picked === undefined ||
+    kept.some((sweep) => DateTime.toEpochMillis(sweep.time) <= at)
+      ? undefined
+      : `No sweeps where ${picked} was an aggressor.`
+  )
+
 // The broker filter's choices: the aggressor brokers of the whole sweeps up
 // to `at` (epoch ms), each with its summed aggressor lots, largest first.
 // A broker's investor type is the one it had in its first sweep.
