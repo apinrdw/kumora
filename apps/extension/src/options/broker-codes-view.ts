@@ -71,6 +71,24 @@ const heldLabel = Effect.fnUntraced(function* (status: BrokerCodesStatus) {
     : "Incomplete"
 })
 
+// The listed missing ranges as "262,370" or "5–9", and how many trades
+// `missingCount` counts past them: the list stops at MISSING_RANGES.
+const missingLabels = Effect.fnUntraced(function* (status: BrokerCodesStatus) {
+  const missing: Array<string> = []
+  let listed = 0
+  for (const [from, to] of status.missing) {
+    const first = Number(from)
+    const last = Number(to)
+    listed += last - first + 1
+    missing.push(
+      first === last
+        ? yield* count(first)
+        : `${yield* count(first)}–${yield* count(last)}`
+    )
+  }
+  return { missing, more: Math.max(0, status.missingCount - listed) }
+})
+
 const siteNames = {
   both: "Ajaib and Stockbit",
   ajaib: "Ajaib",
@@ -95,18 +113,26 @@ const crossCheckLabel = Effect.fnUntraced(function* (
   return `${yield* count(crossCheck.differences)} differences`
 })
 
-// One of the last 10 days: complete or how many trades are missing, which
-// site supplied it, its cross-check, and whether the extra target's copy is
-// behind Production's.
+// One of the last 10 days: complete or how many trades are missing and
+// which, which site supplied it, its cross-check, and whether the extra
+// target's copy is behind Production's.
 export const dayView = Effect.fnUntraced(function* (
   production: Option.Option<BrokerCodesStatus>,
   extra: Option.Option<BrokerCodesStatus>
 ) {
   if (Option.isNone(production))
-    return { held: "Unknown", sites: "", crossCheck: "", behind: false }
+    return {
+      held: "Unknown",
+      missing: [],
+      more: 0,
+      sites: "",
+      crossCheck: "",
+      behind: false,
+    }
   const status = production.value
   return {
     held: yield* heldLabel(status),
+    ...(yield* missingLabels(status)),
     sites: yield* sitesLabel(status.sources),
     crossCheck: yield* crossCheckLabel(status.crossCheck),
     behind:

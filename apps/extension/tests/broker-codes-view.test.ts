@@ -46,6 +46,8 @@ describe("the options page's broker codes section", () => {
         yield* dayView(Option.some(COMPLETE), Option.none()),
         {
           held: "Complete",
+          missing: [],
+          more: 0,
           sites: "Ajaib and Stockbit",
           crossCheck: "matches",
           behind: false,
@@ -56,7 +58,7 @@ describe("the options page's broker codes section", () => {
         complete: false,
         missing: [
           [TradeNumber.make("5"), TradeNumber.make("9")],
-          [TradeNumber.make("20"), TradeNumber.make("20")],
+          [TradeNumber.make("262370"), TradeNumber.make("262370")],
         ],
         missingCount: 6,
         sources: { ajaib: 0, stockbit: 994 },
@@ -66,6 +68,8 @@ describe("the options page's broker codes section", () => {
         yield* dayView(Option.some(partial), Option.none()),
         {
           held: "6 missing",
+          missing: ["5–9", "262,370"],
+          more: 0,
           sites: "Stockbit",
           crossCheck: "no cross-check",
           behind: false,
@@ -77,7 +81,7 @@ describe("the options page's broker codes section", () => {
           Option.some({ ...partial, missingCount: 750_000 }),
           Option.none()
         ),
-        { held: "750,000 missing" }
+        { held: "750,000 missing", more: 749_994 }
       )
       const checking: BrokerCodesStatus = {
         ...COMPLETE,
@@ -97,6 +101,8 @@ describe("the options page's broker codes section", () => {
       })
       assert.deepStrictEqual(yield* dayView(Option.none(), Option.none()), {
         held: "Unknown",
+        missing: [],
+        more: 0,
         sites: "",
         crossCheck: "",
         behind: false,
