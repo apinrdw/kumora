@@ -274,12 +274,11 @@ const restoreLastFrames = Effect.fnUntraced(function* (day: {
   return prices
 })
 
-// Decision: a day whose broker codes were stored before the broker trades
-// index rebuilds it from the alarm, a page a wake, armed again after each
-// page, never inside a request. A day still to seal waits for its seal
-// wake, so no page holds the turn while the market streams; any other
-// starts now. Through `arm`, so it never displaces the seal's wake. See
-// spec apinrdw/kumora#335.
+// Decision: the broker trades index rebuilds from the alarm, a page a wake,
+// never inside a request. A day still to seal waits for its seal wake, so
+// no page holds the turn while the market streams; any other starts now.
+// Through `arm`, so it never displaces the seal's wake. See
+// apinrdw/kumora#342.
 //
 // When the index rebuild first needs the alarm: none once built.
 const indexWakeAtStart = (

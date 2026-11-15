@@ -46,11 +46,10 @@ const SCHEMA = [
     stockbit BLOB NOT NULL
   )`,
   // Decision: the broker trades index, one row per side of each trade the
-  // chunks keep codes for, derived from them, so a whole day filters by
-  // broker as a key lookup in Data Studio. WITHOUT ROWID makes the primary
-  // key the only B-tree, one row write a side. It holds the kept copy's codes
-  // only: the source and the cross-check stay in the chunks and
-  // `cross_check_differences`. See spec apinrdw/kumora#335.
+  // chunks keep codes for, so a whole day filters by broker as a key lookup
+  // in Data Studio. WITHOUT ROWID makes the key the only B-tree, one row
+  // write a side. The source and the cross-check stay in the chunks. See
+  // apinrdw/kumora#342.
   `CREATE TABLE IF NOT EXISTS broker_trades (
     broker TEXT NOT NULL,
     investor_type TEXT NOT NULL,
@@ -638,14 +637,11 @@ export const makeBrokerCodes = Effect.fnUntraced(function* (options: {
     )
   })
 
-  // Decision: a day whose codes were stored before the index rebuilds it from
-  // its chunks, SCAN_PAGE chunks a call, each page's rows and its progress in
-  // one transaction, so a rebuild cut off resumes from the next page. A page
-  // only inserts: a batch since the release moved the rows of the trades it
-  // changed, so an unrebuilt chunk's rows are already a subset of its
-  // derived rows, and a page rerun writes the same rows. A day with no
-  // chunks at its object's start indexes every batch live, so it is built
-  // from the start. See spec apinrdw/kumora#335.
+  // Decision: a day stored before the index rebuilds it SCAN_PAGE chunks a
+  // call, rows and progress in one transaction, so a cut-off rebuild resumes.
+  // A page only inserts: live batches already moved the rows they changed.
+  // A day with no chunks at start is built from the start. See
+  // apinrdw/kumora#342.
   const indexBuilt = yield* Effect.gen(function* () {
     const progress = yield* fact(Fact.brokerTrades)
     if (progress === BROKER_TRADES_BUILT) return true
