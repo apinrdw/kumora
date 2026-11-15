@@ -28,14 +28,15 @@ const unreadable = (message: string) =>
 
 // A header cell's label and origin: `Local_Bank` is ("bank", local), `BANK`
 // ("bank", combined), `SHARE_CODE` ("share code", combined).
-const headerLabel = (cell: Cell) => {
-  const text = typeof cell === "string" ? cell.trim().toLowerCase() : ""
-  const split = /^(local|foreign)_(.*)$/.exec(text)
-  const label = (split?.[2] ?? text.replaceAll("_", " "))
-    .replaceAll(/\s+/g, " ")
-    .trim()
-  return { label, origin: (split?.[1] ?? "combined") as Origin }
-}
+const headerLabel = (cell: Cell) =>
+  Effect.sync(() => {
+    const text = typeof cell === "string" ? cell.trim().toLowerCase() : ""
+    const split = /^(local|foreign)_(.*)$/.exec(text)
+    const label = (split?.[2] ?? text.replaceAll("_", " "))
+      .replaceAll(/\s+/g, " ")
+      .trim()
+    return { label, origin: (split?.[1] ?? "combined") as Origin }
+  })
 
 interface Layout {
   readonly headerRow: number
@@ -61,7 +62,7 @@ const classificationColumns = Effect.fnUntraced(function* (
   const columns: Array<Layout["classifications"][number]> = []
   const seen = new Set<string>()
   for (const [column, cell] of cells.entries()) {
-    const { label, origin } = headerLabel(cell)
+    const { label, origin } = yield* headerLabel(cell)
     if (label === "" || known.has(column)) continue
     const classification = BY_LABEL.get(label)
     if (classification === undefined)
@@ -100,7 +101,8 @@ const findLayout = Effect.fnUntraced(function* (
   rows: ReadonlyMap<number, ReadonlyArray<Cell>>
 ) {
   for (const [headerRow, cells] of rows) {
-    const labels = cells.map((cell) => headerLabel(cell).label)
+    const labels: Array<string> = []
+    for (const cell of cells) labels.push((yield* headerLabel(cell)).label)
     const code = labels.indexOf("share code")
     if (code === -1) continue
     const issuer = labels.indexOf("issuer name")
@@ -133,7 +135,8 @@ const shareCount = Effect.fnUntraced(function* (
 
 type Holding = [string, Classification, Origin, number]
 
-const formatShares = (count: number) => count.toLocaleString("en-US")
+const formatShares = (count: number) =>
+  Effect.sync(() => count.toLocaleString("en-US"))
 
 // One stock row's non-zero holdings, and in a split month each
 // classification's `combined` sum of local and foreign. Its classifications
@@ -158,7 +161,7 @@ const rowHoldings = Effect.fnUntraced(function* (
   }
   if (sum !== total)
     return yield* unreadable(
-      `${where}'s classifications sum to ${formatShares(sum)}, not its TOTAL SCRIPLESS of ${formatShares(total)}`
+      `${where}'s classifications sum to ${yield* formatShares(sum)}, not its TOTAL SCRIPLESS of ${yield* formatShares(total)}`
     )
   for (const [classification, shares] of combined)
     holdings.push([stock, classification, "combined", shares])

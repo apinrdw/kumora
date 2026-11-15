@@ -20,34 +20,41 @@ const SHEET = "xl/worksheets/sheet1.xml"
 const SHARED_STRINGS = "xl/sharedStrings.xml"
 
 const decodeXml = (text: string) =>
-  text.replace(
-    /&(?:#x([0-9a-f]+)|#(\d+)|(amp|lt|gt|quot|apos));/gi,
-    (_, hex, dec, name) =>
-      hex !== undefined
-        ? String.fromCodePoint(Number.parseInt(hex, 16))
-        : dec !== undefined
-          ? String.fromCodePoint(Number.parseInt(dec, 10))
-          : { amp: "&", lt: "<", gt: ">", quot: '"', apos: "'" }[
-              (name as string).toLowerCase() as "amp"
-            ]
-  )
-
-// Every <si>'s text, its rich-text runs' <t>s joined.
-const sharedStrings = (xml: string) =>
-  [...xml.matchAll(/<si>([\s\S]*?)<\/si>/g)].map(([, item]) =>
-    decodeXml(
-      [...(item ?? "").matchAll(/<t(?:\s[^>]*)?>([\s\S]*?)<\/t>/g)]
-        .map(([, text]) => text)
-        .join("")
+  Effect.sync(() =>
+    text.replace(
+      /&(?:#x([0-9a-f]+)|#(\d+)|(amp|lt|gt|quot|apos));/gi,
+      (_, hex, dec, name) =>
+        hex !== undefined
+          ? String.fromCodePoint(Number.parseInt(hex, 16))
+          : dec !== undefined
+            ? String.fromCodePoint(Number.parseInt(dec, 10))
+            : { amp: "&", lt: "<", gt: ">", quot: '"', apos: "'" }[
+                (name as string).toLowerCase() as "amp"
+              ]
     )
   )
 
+// Every <si>'s text, its rich-text runs' <t>s joined.
+const sharedStrings = Effect.fnUntraced(function* (xml: string) {
+  const strings: Array<string> = []
+  for (const [, item = ""] of xml.matchAll(/<si>([\s\S]*?)<\/si>/g))
+    strings.push(
+      yield* decodeXml(
+        [...item.matchAll(/<t(?:\s[^>]*)?>([\s\S]*?)<\/t>/g)]
+          .map(([, text]) => text)
+          .join("")
+      )
+    )
+  return strings
+})
+
 // "AB" → 27, the 0-based column of a cell reference's letters.
-const columnIndex = (letters: string) => {
-  let index = 0
-  for (const letter of letters) index = index * 26 + letter.charCodeAt(0) - 64
-  return index - 1
-}
+const columnIndex = (letters: string) =>
+  Effect.sync(() => {
+    let index = 0
+    for (const letter of letters) index = index * 26 + letter.charCodeAt(0) - 64
+    return index - 1
+  })
 
 const ROW = /<row\b[^>]*?\br="(\d+)"[^>]*?(?:\/>|>([\s\S]*?)<\/row>)/g
 const CELL = /<c\b([^>]*?)(?:\/>|>([\s\S]*?)<\/c>)/g
@@ -64,7 +71,7 @@ const cellValue = Effect.fnUntraced(function* (
   const value = VALUE.exec(content)?.[1]
   if (value === undefined) return null
   if (!/\bt="/.test(attributes)) return Number(value)
-  if (!/\bt="s"/.test(attributes)) return decodeXml(value)
+  if (!/\bt="s"/.test(attributes)) return yield* decodeXml(value)
   const text = strings[Number(value)]
   if (text === undefined)
     return yield* unreadable(`A cell names no shared string: ${attributes}`)
@@ -82,7 +89,7 @@ const rowCells = Effect.fnUntraced(function* (
     const ref = REF.exec(attributes)
     if (ref === null)
       return yield* unreadable(`A cell in row ${rowNumber} has no reference`)
-    const column = columnIndex(ref[1] ?? "")
+    const column = yield* columnIndex(ref[1] ?? "")
     while (cells.length < column) cells.push(null)
     cells[column] = yield* cellValue(attributes, content, strings)
   }
@@ -95,7 +102,9 @@ export const readSheet = Effect.fnUntraced(function* (bytes: Uint8Array) {
   const { strings, sheet } = yield* Effect.gen(function* () {
     const entries = yield* zipEntries(bytes)
     return {
-      strings: sharedStrings(yield* entryText(bytes, entries, SHARED_STRINGS)),
+      strings: yield* sharedStrings(
+        yield* entryText(bytes, entries, SHARED_STRINGS)
+      ),
       sheet: yield* entryText(bytes, entries, SHEET),
     }
   }).pipe(

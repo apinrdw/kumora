@@ -162,31 +162,42 @@ const SeriesHoldingRow = Schema.Struct({
   shares: Schema.Number,
 })
 
-const noHoldings = (): Record<KseiType, number> =>
-  Object.fromEntries(KSEI_TYPES.map((type) => [type, 0])) as Record<
-    KseiType,
-    number
-  >
+const noHoldings = Effect.sync(
+  () =>
+    Object.fromEntries(KSEI_TYPES.map((type) => [type, 0])) as Record<
+      KseiType,
+      number
+    >
+)
 
 /** `2026-12` → `2027-01` */
-const nextMonth = (month: string) => {
-  const year = Number(month.slice(0, 4))
-  const index = Number(month.slice(5, 7))
-  return index === 12
-    ? `${year + 1}-01`
-    : `${year}-${String(index + 1).padStart(2, "0")}`
-}
+const nextMonth = (month: string) =>
+  Effect.sync(() => {
+    const year = Number(month.slice(0, 4))
+    const index = Number(month.slice(5, 7))
+    return index === 12
+      ? `${year + 1}-01`
+      : `${year}-${String(index + 1).padStart(2, "0")}`
+  })
 
-const kseiSeries = (
+const kseiSeries = Effect.fnUntraced(function* (
   monthRows: ReadonlyArray<typeof SeriesMonthRow.Type>,
   holdingRows: ReadonlyArray<typeof SeriesHoldingRow.Type>
-): ReadonlyArray<SeriesMonth> => {
-  const byMonth = new Map(
-    monthRows.map(({ period_end }) => [
-      period_end.slice(0, 7),
-      { periodEnd: period_end, local: noHoldings(), foreign: noHoldings() },
-    ])
-  )
+) {
+  const byMonth = new Map<
+    string,
+    {
+      periodEnd: string
+      local: Record<KseiType, number>
+      foreign: Record<KseiType, number>
+    }
+  >()
+  for (const { period_end } of monthRows)
+    byMonth.set(period_end.slice(0, 7), {
+      periodEnd: period_end,
+      local: yield* noHoldings,
+      foreign: yield* noHoldings,
+    })
   for (const { period_end, origin, investor_type, shares } of holdingRows) {
     const held = byMonth.get(period_end.slice(0, 7))
     if (held !== undefined) held[origin][investor_type] = shares
@@ -195,27 +206,28 @@ const kseiSeries = (
   const last = monthRows.at(-1)?.period_end.slice(0, 7)
   if (first === undefined || last === undefined) return []
   const months: Array<SeriesMonth> = []
-  for (let month = first; month <= last; month = nextMonth(month))
+  for (let month = first; month <= last; month = yield* nextMonth(month))
     months.push({ month, holdings: byMonth.get(month) })
   return months
-}
+})
 
 const addShares = (
   into: OriginShares,
   { combined, local, foreign }: OriginShares
-): OriginShares => ({
-  combined: into.combined + combined,
-  local: into.local === undefined ? undefined : into.local + (local ?? 0),
-  foreign:
-    into.foreign === undefined ? undefined : into.foreign + (foreign ?? 0),
-})
+) =>
+  Effect.succeed<OriginShares>({
+    combined: into.combined + combined,
+    local: into.local === undefined ? undefined : into.local + (local ?? 0),
+    foreign:
+      into.foreign === undefined ? undefined : into.foreign + (foreign ?? 0),
+  })
 
-const compositionMonth = (
+const compositionMonth = Effect.fnUntraced(function* (
   dataDate: string,
   totalScripless: number,
   listedShares: number | undefined,
   rows: ReadonlyArray<HoldingRow>
-): CompositionMonth => {
+) {
   const split = rows.some(({ origin }) => origin !== "combined")
   const empty: OriginShares = split
     ? { combined: 0, local: 0, foreign: 0 }
@@ -225,20 +237,25 @@ const compositionMonth = (
     const held = byClassification.get(classification) ?? empty
     byClassification.set(classification, { ...held, [origin]: shares })
   }
-  const types = KSEI_TYPES.map((type): TypeShares => {
+  const types: Array<TypeShares> = []
+  for (const type of KSEI_TYPES) {
     const classifications = [...byClassification]
       .filter(
         ([classification]) => CLASSIFICATIONS[classification].type === type
       )
       .map(([classification, held]) => ({ classification, ...held }))
-    return {
-      type,
-      ...classifications.reduce(addShares, empty),
-      classifications,
-    }
+    let sum = empty
+    for (const held of classifications) sum = yield* addShares(sum, held)
+    types.push({ type, ...sum, classifications })
+  }
+  return CompositionMonth.make({
+    dataDate,
+    totalScripless,
+    listedShares,
+    split,
+    types,
   })
-  return { dataDate, totalScripless, listedShares, split, types }
-}
+})
 
 // Everything the stock page shows for a code. `month` is the URL's
 // `YYYY-MM`; a month the stock has no row in falls back to its newest.
@@ -283,7 +300,7 @@ export const stockPage = Effect.fnUntraced(function* (
       holdings.filter(({ data_date }) => data_date === row.data_date)
     )
   const previous = held.find(({ data_date }) => data_date === before?.data_date)
-  const series = kseiSeries(
+  const series = yield* kseiSeries(
     Schema.decodeUnknownSync(Schema.Array(SeriesMonthRow))(seriesMonthRows),
     Schema.decodeUnknownSync(Schema.Array(SeriesHoldingRow))(seriesHoldingRows)
   )
@@ -300,8 +317,9 @@ export const stockPage = Effect.fnUntraced(function* (
       selected === undefined
         ? undefined
         : {
-            month: read(selected),
-            previous: previous === undefined ? undefined : read(previous),
+            month: yield* read(selected),
+            previous:
+              previous === undefined ? undefined : yield* read(previous),
           },
     series,
   })

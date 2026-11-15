@@ -32,22 +32,23 @@ export interface MonthReplace {
 // parameters and 100 KB per statement. See apinrdw/kumora#355.
 const CHUNK_ROWS = 1000
 
-const inserts = (dateColumn: string, date: string, rows: MonthRows) => {
-  const sql =
-    `INSERT INTO ${rows.table} (${[dateColumn, ...rows.columns].join(", ")}) ` +
-    `SELECT ?, ${rows.columns.map((_, index) => `value->>${index}`).join(", ")} ` +
-    "FROM json_each(?)"
-  const statements: Array<Statement> = []
-  for (let start = 0; start < rows.rows.length; start += CHUNK_ROWS)
-    statements.push({
-      sql,
-      params: [
-        date,
-        JSON.stringify(rows.rows.slice(start, start + CHUNK_ROWS)),
-      ],
-    })
-  return statements
-}
+const inserts = (dateColumn: string, date: string, rows: MonthRows) =>
+  Effect.sync(() => {
+    const sql =
+      `INSERT INTO ${rows.table} (${[dateColumn, ...rows.columns].join(", ")}) ` +
+      `SELECT ?, ${rows.columns.map((_, index) => `value->>${index}`).join(", ")} ` +
+      "FROM json_each(?)"
+    const statements: Array<Statement> = []
+    for (let start = 0; start < rows.rows.length; start += CHUNK_ROWS)
+      statements.push({
+        sql,
+        params: [
+          date,
+          JSON.stringify(rows.rows.slice(start, start + CHUNK_ROWS)),
+        ],
+      })
+    return statements
+  })
 
 export const replaceMonth = Effect.fnUntraced(function* ({
   dateColumn,
@@ -56,12 +57,15 @@ export const replaceMonth = Effect.fnUntraced(function* ({
   record,
 }: MonthReplace) {
   const recordColumns = Object.keys(record.values)
+  const rowInserts: Array<Statement> = []
+  for (const rows of tables)
+    rowInserts.push(...(yield* inserts(dateColumn, date, rows)))
   yield* (yield* HoldingsDb).batch([
     ...tables.map(({ table }) => ({
       sql: `DELETE FROM ${table} WHERE ${dateColumn} = ?`,
       params: [date],
     })),
-    ...tables.flatMap((rows) => inserts(dateColumn, date, rows)),
+    ...rowInserts,
     {
       sql:
         `INSERT INTO ${record.table} (${[dateColumn, ...recordColumns].join(", ")}) ` +
