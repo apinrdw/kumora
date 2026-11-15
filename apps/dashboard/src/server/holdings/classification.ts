@@ -8,7 +8,7 @@ import { CLASSIFICATIONS, Classification, type Origin } from "@/domain/holdings"
 import type { SqlValue } from "./db.ts"
 import { replaceMonth } from "./month-replace.ts"
 import { parsedMonths } from "./months-to-parse.ts"
-import { type Cell, readSheet } from "./xlsx.ts"
+import { type Cell, type Row, readSheet } from "./xlsx.ts"
 
 // Bumped whenever parsing changes what it stores: the archive run's
 // reconcile then parses every month again.
@@ -56,12 +56,12 @@ interface Layout {
 // `foreign` (Sep+).
 const classificationColumns = Effect.fnUntraced(function* (
   headerRow: number,
-  cells: ReadonlyArray<Cell>,
+  cells: Row,
   known: ReadonlySet<number>
 ) {
   const columns: Array<Layout["classifications"][number]> = []
   const seen = new Set<string>()
-  for (const [column, cell] of cells.entries()) {
+  for (const [column, cell] of cells) {
     const { label, origin } = yield* headerLabel(cell)
     if (label === "" || known.has(column)) continue
     const classification = BY_LABEL.get(label)
@@ -98,20 +98,24 @@ const classificationColumns = Effect.fnUntraced(function* (
 // past the labelled columns, such as May 2026's empty trailing one, are
 // never read.
 const findLayout = Effect.fnUntraced(function* (
-  rows: ReadonlyMap<number, ReadonlyArray<Cell>>
+  rows: ReadonlyMap<number, Row>
 ) {
   for (const [headerRow, cells] of rows) {
-    const labels: Array<string> = []
-    for (const cell of cells) labels.push((yield* headerLabel(cell)).label)
-    const code = labels.indexOf("share code")
-    if (code === -1) continue
-    const issuer = labels.indexOf("issuer name")
-    if (issuer === -1)
+    // Each label's first column.
+    const labels = new Map<string, number>()
+    for (const [column, cell] of cells) {
+      const { label } = yield* headerLabel(cell)
+      if (!labels.has(label)) labels.set(label, column)
+    }
+    const code = labels.get("share code")
+    if (code === undefined) continue
+    const issuer = labels.get("issuer name")
+    if (issuer === undefined)
       return yield* unreadable(`Header row ${headerRow} has no ISSUER NAME`)
-    const total = labels.indexOf("total scripless")
-    if (total === -1)
+    const total = labels.get("total scripless")
+    if (total === undefined)
       return yield* unreadable(`Header row ${headerRow} has no TOTAL SCRIPLESS`)
-    const known = new Set([labels.indexOf("date"), code, issuer, total])
+    const known = new Set([labels.get("date") ?? -1, code, issuer, total])
     return {
       headerRow,
       code,
@@ -143,7 +147,7 @@ const formatShares = (count: number) =>
 // must sum to its total.
 const rowHoldings = Effect.fnUntraced(function* (
   stock: string,
-  cells: ReadonlyArray<Cell>,
+  cells: Row,
   layout: Layout,
   total: number,
   where: string
@@ -152,7 +156,7 @@ const rowHoldings = Effect.fnUntraced(function* (
   const combined = new Map<Classification, number>()
   let sum = 0
   for (const { column, classification, origin } of layout.classifications) {
-    const shares = yield* shareCount(cells[column], where)
+    const shares = yield* shareCount(cells.get(column), where)
     sum += shares
     if (shares === 0) continue
     holdings.push([stock, classification, origin, shares])
@@ -169,20 +173,18 @@ const rowHoldings = Effect.fnUntraced(function* (
 })
 
 // One month's rows: a stock-month per stock, and its holdings.
-const parseRows = Effect.fnUntraced(function* (
-  rows: ReadonlyMap<number, ReadonlyArray<Cell>>
-) {
+const parseRows = Effect.fnUntraced(function* (rows: ReadonlyMap<number, Row>) {
   const layout = yield* findLayout(rows)
   const stocks: Array<[string, string, number]> = []
   const holdings: Array<Holding> = []
   for (const [rowNumber, cells] of rows) {
-    const code = cells[layout.code]
+    const code = cells.get(layout.code)
     if (rowNumber <= layout.headerRow || typeof code !== "string") continue
     const stock = code.trim()
     if (stock === "") continue
     const where = `${stock} (row ${rowNumber})`
-    const total = yield* shareCount(cells[layout.total], `${where}'s total`)
-    stocks.push([stock, String(cells[layout.issuer] ?? "").trim(), total])
+    const total = yield* shareCount(cells.get(layout.total), `${where}'s total`)
+    stocks.push([stock, String(cells.get(layout.issuer) ?? "").trim(), total])
     holdings.push(...(yield* rowHoldings(stock, cells, layout, total, where)))
   }
   if (stocks.length === 0) return yield* unreadable("The report has no stocks")

@@ -12,7 +12,11 @@ class XlsxUnreadable extends Schema.TaggedError<XlsxUnreadable>()(
   { message: Schema.String }
 ) {}
 
-export type Cell = string | number | null
+export type Cell = string | number
+
+// A row's cells by 0-based column. A column with no value has no entry, so
+// a row holds only what its XML spells out.
+export type Row = ReadonlyMap<number, Cell>
 
 const unreadable = (message: string) => new XlsxUnreadable({ message })
 
@@ -62,14 +66,14 @@ const REF = /\br="([A-Z]+)\d+"/
 const VALUE = /<v>([\s\S]*?)<\/v>/
 
 // One cell's value: a shared string (`t="s"`), other typed text, a number,
-// or null when it has none.
+// or undefined when it has none.
 const cellValue = Effect.fnUntraced(function* (
   attributes: string,
   content: string,
   strings: ReadonlyArray<string>
 ) {
   const value = VALUE.exec(content)?.[1]
-  if (value === undefined) return null
+  if (value === undefined) return undefined
   if (!/\bt="/.test(attributes)) return Number(value)
   if (!/\bt="s"/.test(attributes)) return yield* decodeXml(value)
   const text = strings[Number(value)]
@@ -78,26 +82,28 @@ const cellValue = Effect.fnUntraced(function* (
   return text
 })
 
-// A row's cells, dense by column: a column with no cell is null.
+// A row's cells with a value.
 const rowCells = Effect.fnUntraced(function* (
   rowNumber: string,
   inner: string,
   strings: ReadonlyArray<string>
 ) {
-  const cells: Array<Cell> = []
+  const cells = new Map<number, Cell>()
   for (const [, attributes = "", content = ""] of inner.matchAll(CELL)) {
     const ref = REF.exec(attributes)
     if (ref === null)
       return yield* unreadable(`A cell in row ${rowNumber} has no reference`)
     const column = yield* columnIndex(ref[1] ?? "")
-    while (cells.length < column) cells.push(null)
-    cells[column] = yield* cellValue(attributes, content, strings)
+    const value = yield* cellValue(attributes, content, strings)
+    if (value !== undefined) cells.set(column, value)
   }
-  return cells
+  return cells as Row
 })
 
-// The first worksheet's rows by 1-based row number, each a dense array of
-// its cells by column: a shared string, a number, or null for no value.
+// The first worksheet's rows with a value, by 1-based row number.
+// Decision: only cells with a value are kept, so what a read sheet keeps
+// grows with the bytes of its values, never with the column or row numbers
+// a cell names: dense rows held 1,200 XFD cells as 19.6 million slots.
 export const readSheet = Effect.fnUntraced(function* (bytes: Uint8Array) {
   const { strings, sheet } = yield* Effect.gen(function* () {
     const entries = yield* zipEntries(bytes)
@@ -112,8 +118,10 @@ export const readSheet = Effect.fnUntraced(function* (bytes: Uint8Array) {
       Effect.fail(unreadable(message))
     )
   )
-  const rows = new Map<number, Array<Cell>>()
-  for (const [, rowNumber = "", inner = ""] of sheet.matchAll(ROW))
-    rows.set(Number(rowNumber), yield* rowCells(rowNumber, inner, strings))
-  return rows
+  const rows = new Map<number, Row>()
+  for (const [, rowNumber = "", inner = ""] of sheet.matchAll(ROW)) {
+    const cells = yield* rowCells(rowNumber, inner, strings)
+    if (cells.size > 0) rows.set(Number(rowNumber), cells)
+  }
+  return rows as ReadonlyMap<number, Row>
 })
