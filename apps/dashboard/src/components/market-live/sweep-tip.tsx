@@ -1,7 +1,7 @@
 // The one tooltip of chart 1's bubbles and the sweep log's broker cells
 // (spec apinrdw/kumora#343, "One tooltip"): the sweep, then every broker of
-// each side with its lots, uncapped. A bubble or a cell sets where it shows
-// (`SweepStore.tip`); a press anywhere hides it.
+// each side with its lots, uncapped, the picked broker marked. A bubble or
+// a cell sets where it shows (`SweepStore.tip`); a press anywhere hides it.
 import { Effect } from "effect"
 import { useEffect, useSyncExternalStore } from "react"
 import { createPortal } from "react-dom"
@@ -47,6 +47,8 @@ export function SweepTip({
   const sweep = store.sweeps().find((held) => held.firstTrade === at.id)
   if (sweep === undefined) return null
   const tip = Effect.runSync(sweepTip(sweep, store.brokers().get(at.id)))
+  // The broker filter's pick, marked ` ◂` wherever it is listed.
+  const picked = store.picked()
   const right = at.x > window.innerWidth / 2
   const below = at.y < window.innerHeight / 2
   return createPortal(
@@ -87,6 +89,7 @@ export function SweepTip({
                 <tr key={`${side.label} ${broker.code}`}>
                   <td className={INVESTOR_TEXT[broker.investorType]}>
                     {broker.code} [{broker.investorType}]
+                    {broker.code === picked && " ◂"}
                   </td>
                   <td className="text-right">
                     {Effect.runSync(lots(broker.lots))}

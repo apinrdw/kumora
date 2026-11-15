@@ -1,6 +1,7 @@
 import { fetchRecordedSweeps, followSweepBrokers } from "@workspace/client"
 import {
   INDEX_CODES,
+  type BrokerCode,
   type StockCode,
   type Sweep,
   type SweepBroker,
@@ -25,11 +26,13 @@ import { compact, lots, plain, tapeTime } from "@/lib/format"
 import {
   TOP_N_PRESETS,
   arrivingNote,
+  brokerPicks,
   isBigSweep,
   leadBroker,
   logRows,
   pricePath,
   thresholdText,
+  type KeptSweep,
   type LogRow,
   type SweepThreshold,
 } from "@/lib/sweeps"
@@ -44,6 +47,9 @@ import { INVESTOR_TEXT } from "./tape-list"
 // cursor, or live the end of time.
 interface SweepView {
   readonly sweeps: ReadonlyArray<Sweep>
+  // The sweeps the broker filter keeps, with their own lots.
+  readonly kept: ReadonlyArray<KeptSweep>
+  readonly picked: BrokerCode | undefined
   readonly brokers: ReadonlyMap<TradeNumber, SweepBrokers>
   // Whether the day's codes are complete; each answer that says so brings
   // new `brokers` too.
@@ -73,12 +79,14 @@ function useSweepView(store: SweepStore, cursor: ReplayCursor | undefined) {
     const at =
       cursor === undefined ? Number.POSITIVE_INFINITY : cursor.state().at
     const sweeps = store.sweeps()
+    const kept = store.kept()
     const brokers = store.brokers()
     const topN = store.topN()
     const selected = store.selected()
     const before = cached.current
     if (
       before?.sweeps === sweeps &&
+      before.kept === kept &&
       before.brokers === brokers &&
       before.at === at &&
       before.topN === topN &&
@@ -87,6 +95,8 @@ function useSweepView(store: SweepStore, cursor: ReplayCursor | undefined) {
       return before
     cached.current = {
       sweeps,
+      kept,
+      picked: store.picked(),
       brokers,
       brokersComplete: store.brokersComplete(),
       at,
@@ -200,7 +210,7 @@ export function TopNControl({
         {view.topN === 100 ? "All" : `${view.topN}%`}
       </b>
       <span aria-label="Sweep threshold" className="tabular-nums">
-        {Effect.runSync(thresholdText(view.threshold))}
+        {Effect.runSync(thresholdText(view.threshold, view.picked))}
       </span>
     </div>
   )
@@ -277,6 +287,7 @@ function LeadBrokerCell({
 const LogRowView = memo(function LogRowView({
   row,
   withBrokers,
+  filtered,
   brokers,
   selected,
   onPick,
@@ -285,6 +296,8 @@ const LogRowView = memo(function LogRowView({
   row: LogRow
   // Whether the log has broker columns: on a recorded day, not live.
   withBrokers: boolean
+  // Whether a broker is picked: the lots read `own/whole`.
+  filtered: boolean
   // The sweep's brokers, undefined until it is whole.
   brokers: SweepBrokers | undefined
   selected: boolean
@@ -323,6 +336,7 @@ const LogRowView = memo(function LogRowView({
         </span>
         <span className={SIDE[row.side].tone}>{SIDE[row.side].label}</span>
         <span className="truncate">
+          {filtered && <>{Effect.runSync(lots(row.own))}/</>}
           {Effect.runSync(lots(row.lots))} @ {path}
         </span>
         <span className="text-right">
@@ -343,6 +357,50 @@ const LogRowView = memo(function LogRowView({
   )
 })
 
+// The broker filter: All brokers, then the aggressor brokers up to the
+// cursor as `AK [F] · 12.4 K`, largest first. Live no sweep has brokers, so
+// it is disabled.
+function BrokerFilter({
+  store,
+  view,
+  withBrokers,
+}: {
+  store: SweepStore
+  view: SweepView
+  withBrokers: boolean
+}) {
+  const picks = useMemo(
+    () => Effect.runSync(brokerPicks(view.sweeps, view.brokers, view.at)),
+    [view.sweeps, view.brokers, view.at]
+  )
+  // A picked broker the cursor moved back before stays listed, so the
+  // control still names it.
+  const listed =
+    view.picked === undefined || picks.some((pick) => pick.code === view.picked)
+  return (
+    <select
+      aria-label="Broker filter"
+      disabled={!withBrokers}
+      value={view.picked ?? ""}
+      onChange={(event) =>
+        store.pick(picks.find((pick) => pick.code === event.target.value)?.code)
+      }
+      className="bg-surface ml-auto max-w-40 rounded-md border border-border px-1 py-px font-mono text-[11px] font-normal text-foreground disabled:opacity-50"
+    >
+      <option value="">
+        {withBrokers ? "All brokers" : "Brokers after the close"}
+      </option>
+      {!listed && <option value={view.picked}>{view.picked}</option>}
+      {picks.map((pick) => (
+        <option key={pick.code} value={pick.code}>
+          {pick.code} [{pick.investorType}] ·{" "}
+          {Effect.runSync(compact(pick.lots))}
+        </option>
+      ))}
+    </select>
+  )
+}
+
 // While the day's codes are incomplete, how many sweeps up to the cursor
 // have their brokers yet.
 function ArrivingNote({ view }: { view: SweepView }) {
@@ -360,10 +418,10 @@ function ArrivingNote({ view }: { view: SweepView }) {
 
 /**
  * The Buy/Sell sweep log (layout B's middle column): the selected code's
- * sweeps up to the cursor, newest first, filtered by the top-N threshold and
- * the Big only toggle (`bigOnly`), auction matches as neutral rows. Clicking a row
- * selects its sweep, which jumps chart 1 there; a bubble picked on chart 1
- * scrolls its row into view.
+ * sweeps up to the cursor, newest first, filtered by the picked broker, the
+ * top-N threshold and the Big only toggle (`bigOnly`), auction matches as
+ * neutral rows. Clicking a row selects its sweep, which jumps chart 1 there;
+ * a bubble picked on chart 1 scrolls its row into view.
  */
 export function SweepLog({
   store,
@@ -385,19 +443,19 @@ export function SweepLog({
   const rows = useMemo(
     () =>
       Effect.runSync(
-        logRows(view.sweeps, {
+        logRows(view.kept, {
           threshold: view.threshold.lots,
           bigOnly,
           at: view.at,
         })
       ),
-    [view.sweeps, view.threshold, view.at, bigOnly]
+    [view.kept, view.threshold, view.at, bigOnly]
   )
   const counts = useMemo(() => {
     let buy = 0
     let sell = 0
     let big = 0
-    for (const sweep of view.sweeps) {
+    for (const sweep of view.kept) {
       if (DateTime.toEpochMillis(sweep.time) > view.at) continue
       if (sweep.side === "buy") buy += 1
       else if (sweep.side === "sell") sell += 1
@@ -405,7 +463,7 @@ export function SweepLog({
       if (Effect.runSync(isBigSweep(sweep))) big += 1
     }
     return { buy, sell, big }
-  }, [view.sweeps, view.at])
+  }, [view.kept, view.at])
   // Decision: `contain: size` at every width, so the log adds no height to
   // its grid row: a busy code's thousands of rows scroll inside it instead
   // of stretching both charts beside it (from lg, apinrdw/kumora#272) or
@@ -417,14 +475,15 @@ export function SweepLog({
       className="flex min-h-[420px] min-w-0 flex-col overflow-hidden rounded-lg border border-border bg-card contain-size"
     >
       <header className="border-b border-border px-2.5 pt-2 pb-1.5">
-        <div className="flex items-center gap-2 text-[13px] font-semibold">
+        <div className="flex flex-wrap items-center gap-2 text-[13px] font-semibold">
           <h2>Buy/Sell sweeps · {store.code}</h2>
+          <BrokerFilter store={store} view={view} withBrokers={withBrokers} />
           <button
             type="button"
             aria-pressed={bigOnly}
             onClick={() => onBigOnly(!bigOnly)}
             className={cn(
-              "ml-auto rounded-md border border-border px-1.5 py-px text-[11px] font-normal",
+              "rounded-md border border-border px-1.5 py-px text-[11px] font-normal",
               bigOnly ? "border-primary text-primary" : "hover:bg-elevated"
             )}
           >
@@ -545,6 +604,11 @@ function LogColumns({
           <span />
         </div>
         <div ref={scroller} className="relative min-h-0 flex-1 overflow-y-auto">
+          {view.picked !== undefined && rows.length === 0 && (
+            <p className="px-2.5 py-2 text-[12px] text-muted-foreground">
+              No sweeps where {view.picked} was an aggressor.
+            </p>
+          )}
           <div
             className="relative"
             style={{ height: rows.length * ROW_HEIGHT }}
@@ -559,6 +623,7 @@ function LogColumns({
                   key={row.firstTrade}
                   row={row}
                   withBrokers={withBrokers}
+                  filtered={view.picked !== undefined}
                   brokers={view.brokers.get(row.firstTrade)}
                   selected={row.firstTrade === view.selected}
                   onPick={pick}

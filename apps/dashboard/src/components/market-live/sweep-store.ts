@@ -1,4 +1,5 @@
 import type {
+  BrokerCode,
   RecordedSweepBrokers,
   RecordedSweeps,
   StockCode,
@@ -11,21 +12,24 @@ import { DateTime, Effect } from "effect"
 
 import {
   TOP_N_DEFAULT,
+  keptSweeps,
   sweepMinute,
   sweepThreshold,
+  type KeptSweep,
   type SweepThreshold,
 } from "@/lib/sweeps"
 
 import { makeListenerStore, type ListenerStore } from "./listener-store"
 
 // What changed since the listener last heard: the sweeps, their brokers,
-// the top-N, or the selected sweep. A selection carries its minute, so whatever shows it can
+// the top-N, the picked broker, or the selected sweep. A selection carries its minute, so whatever shows it can
 // jump there: chart 1 scrolls to it, the sweep log scrolls to its row, and
 // chart 2 can move to it (apinrdw/kumora#268).
 export type SweepChange =
   | { readonly _tag: "Sweeps" }
   | { readonly _tag: "Brokers" }
   | { readonly _tag: "TopN" }
+  | { readonly _tag: "Picked" }
   | {
       readonly _tag: "Selected"
       readonly id: TradeNumber
@@ -59,10 +63,20 @@ export interface SweepStore {
   // answered; true until it answers otherwise, so live shows no note.
   readonly brokersComplete: () => boolean
   readonly answerBrokers: (answer: RecordedSweepBrokers) => void
+  // The broker the log and chart 1's bubbles are filtered to, none for all.
+  // Decision: it lives here, per code and per page, not in the URL or the
+  // chart settings: the spec keeps it across neither a code switch nor a
+  // reload (apinrdw/kumora#343, "The filter control").
+  readonly picked: () => BrokerCode | undefined
+  readonly pick: (broker: BrokerCode | undefined) => void
+  // The sweeps the picked broker's filter keeps, with their own lots: all
+  // of them when none is picked.
+  readonly kept: () => ReadonlyArray<KeptSweep>
   readonly topN: () => number
   readonly setTopN: (percent: number) => void
-  // The top-N threshold over the sweeps up to `at` (epoch ms; live, the end
-  // of time), worked out once for the bubbles, the log and the control.
+  // The top-N threshold over the kept sweeps up to `at` (epoch ms; live,
+  // the end of time), worked out once for the bubbles, the log and the
+  // control.
   readonly threshold: (at: number) => SweepThreshold
   // The selected sweep's id. It names that sweep or, once a late trade took
   // its first trade's place, none: never another.
@@ -99,10 +113,33 @@ export const makeSweepStore = (code: StockCode) =>
     let ask = 0
     let asking = false
     let topN = TOP_N_DEFAULT
+    let picked: BrokerCode | undefined
     let selected: TradeNumber | undefined
-    let worked:
+    let keeping:
       | {
           readonly sweeps: ReadonlyArray<Sweep>
+          readonly brokers: ReadonlyMap<TradeNumber, SweepBrokers>
+          readonly picked: BrokerCode | undefined
+          readonly kept: ReadonlyArray<KeptSweep>
+        }
+      | undefined
+    const kept = () => {
+      if (
+        keeping?.sweeps !== all ||
+        keeping.brokers !== brokers ||
+        keeping.picked !== picked
+      )
+        keeping = {
+          sweeps: all,
+          brokers,
+          picked,
+          kept: Effect.runSync(keptSweeps(all, brokers, picked)),
+        }
+      return keeping.kept
+    }
+    let worked:
+      | {
+          readonly sweeps: ReadonlyArray<KeptSweep>
           readonly topN: number
           readonly at: number
           readonly threshold: SweepThreshold
@@ -132,6 +169,13 @@ export const makeSweepStore = (code: StockCode) =>
         )
         emit({ _tag: "Brokers" })
       },
+      picked: () => picked,
+      pick: (broker) => {
+        if (broker === picked) return
+        picked = broker
+        emit({ _tag: "Picked" })
+      },
+      kept,
       topN: () => topN,
       setTopN: (percent) => {
         if (percent === topN) return
@@ -139,12 +183,17 @@ export const makeSweepStore = (code: StockCode) =>
         emit({ _tag: "TopN" })
       },
       threshold: (at) => {
-        if (worked?.sweeps !== all || worked.topN !== topN || worked.at !== at)
+        const sweeps = kept()
+        if (
+          worked?.sweeps !== sweeps ||
+          worked.topN !== topN ||
+          worked.at !== at
+        )
           worked = {
-            sweeps: all,
+            sweeps,
             topN,
             at,
-            threshold: Effect.runSync(sweepThreshold(all, topN, at)),
+            threshold: Effect.runSync(sweepThreshold(sweeps, topN, at)),
           }
         return worked.threshold
       },

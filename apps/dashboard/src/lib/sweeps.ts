@@ -3,6 +3,7 @@
 // where a bubble sits. Pure, so the renderers only draw.
 import { MINUTE_MS, SHARES_PER_LOT } from "@workspace/relay"
 import type {
+  BrokerCode,
   Sweep,
   SweepBroker,
   SweepBrokers,
@@ -25,12 +26,12 @@ export interface SweepThreshold {
   readonly sell?: number
 }
 
-// The top-N rule: of the sweeps up to `at` (epoch ms), each side's lot count
-// at its top `percent`% mark (sorted by lots, descending, the
+// The top-N rule: of the kept sweeps up to `at` (epoch ms), each side's own
+// lots at its top `percent`% mark (sorted by own lots, descending, the
 // ⌈n·N/100⌉-th); the lower of the two is the threshold for both. All
 // (100%) hides nothing.
 export const sweepThreshold = (
-  sweeps: ReadonlyArray<Sweep>,
+  sweeps: ReadonlyArray<KeptSweep>,
   percent: number,
   at: number
 ) =>
@@ -40,8 +41,8 @@ export const sweepThreshold = (
     const sell: Array<number> = []
     for (const sweep of sweeps) {
       if (DateTime.toEpochMillis(sweep.time) > at) continue
-      if (sweep.side === "buy") buy.push(sweep.lots)
-      else if (sweep.side === "sell") sell.push(sweep.lots)
+      if (sweep.side === "buy") buy.push(sweep.own)
+      else if (sweep.side === "sell") sell.push(sweep.own)
     }
     const cut = (lots: Array<number>) => {
       if (lots.length === 0) return undefined
@@ -60,9 +61,12 @@ export const sweepThreshold = (
 
 const count = new Intl.NumberFormat("en-US")
 
-// The threshold beside the control, `≥ 26 lots (buy 26, sell 34)`; nothing
-// while it hides nothing.
-export const thresholdText = (threshold: SweepThreshold) =>
+// The threshold beside the control, `≥ 26 lots (buy 26, sell 34)`, or
+// `≥ 26 lots of AK (…)` with AK picked; nothing while it hides nothing.
+export const thresholdText = (
+  threshold: SweepThreshold,
+  picked?: BrokerCode | undefined
+) =>
   Effect.sync(() => {
     if (threshold.lots === 0) return ""
     const sides = [
@@ -71,27 +75,28 @@ export const thresholdText = (threshold: SweepThreshold) =>
         ? []
         : [`sell ${count.format(threshold.sell)}`],
     ].flat()
-    return `≥ ${count.format(threshold.lots)} lots (${sides.join(", ")})`
+    const of = picked === undefined ? "" : ` of ${picked}`
+    return `≥ ${count.format(threshold.lots)} lots${of} (${sides.join(", ")})`
   })
 
-// Whether a sweep shows under the threshold. An auction match forms no
-// sweep, so the filter never hides its row.
-const shown = (sweep: Sweep, threshold: number) =>
-  Effect.sync(() => sweep.side === "none" || sweep.lots >= threshold)
+// Whether a kept sweep shows under the threshold, by its own lots. An
+// auction match forms no sweep, so the top-N never hides its row.
+const shown = (sweep: KeptSweep, threshold: number) =>
+  Effect.sync(() => sweep.side === "none" || sweep.own >= threshold)
 
 export const isBigSweep = (sweep: Sweep) =>
   Effect.sync(() => sweep.value >= BIG_TRADE_IDR)
 
-// One row of the sweep log: the sweep and whether it is a big trade. Its
-// first trade's number is the id its row and its bubble share.
-export interface LogRow extends Sweep {
+// One row of the sweep log: the kept sweep and whether it is a big trade.
+// Its first trade's number is the id its row and its bubble share.
+export interface LogRow extends KeptSweep {
   readonly big: boolean
 }
 
-// The sweep log's rows: the sweeps up to `at`, newest first, that the
+// The sweep log's rows: the kept sweeps up to `at`, newest first, that the
 // threshold shows, only big trades when `bigOnly`.
 export const logRows = Effect.fnUntraced(function* (
-  sweeps: ReadonlyArray<Sweep>,
+  sweeps: ReadonlyArray<KeptSweep>,
   options: {
     readonly threshold: number
     readonly bigOnly: boolean
@@ -132,6 +137,54 @@ export const leadBroker = (side: ReadonlyArray<SweepBroker>) =>
         more: side.length - 1,
       }
     )
+  })
+
+// A sweep the broker filter keeps, with its own lots: the picked broker's
+// aggressor lots in it, or its whole lots when no broker is picked.
+export interface KeptSweep extends Sweep {
+  readonly own: number
+}
+
+// The sweeps the broker filter keeps: those where the picked broker was any
+// of the aggressor-side brokers, so none not yet whole and no auction
+// match; every sweep when none is picked.
+export const keptSweeps = (
+  sweeps: ReadonlyArray<Sweep>,
+  brokers: ReadonlyMap<TradeNumber, SweepBrokers>,
+  picked: BrokerCode | undefined
+) =>
+  Effect.sync((): ReadonlyArray<KeptSweep> => {
+    if (picked === undefined)
+      return sweeps.map((sweep) => ({ ...sweep, own: sweep.lots }))
+    const kept: Array<KeptSweep> = []
+    for (const sweep of sweeps) {
+      let own = 0
+      for (const broker of brokers.get(sweep.firstTrade)?.aggressor ?? [])
+        if (broker.code === picked) own += broker.lots
+      if (own > 0) kept.push({ ...sweep, own })
+    }
+    return kept
+  })
+
+// The broker filter's choices: the aggressor brokers of the whole sweeps up
+// to `at` (epoch ms), each with its summed aggressor lots, largest first.
+// A broker's investor type is the one it had in its first sweep.
+export const brokerPicks = (
+  sweeps: ReadonlyArray<Sweep>,
+  brokers: ReadonlyMap<TradeNumber, SweepBrokers>,
+  at: number
+) =>
+  Effect.sync((): ReadonlyArray<SweepBroker> => {
+    const picks = new Map<BrokerCode, SweepBroker>()
+    for (const sweep of sweeps) {
+      if (DateTime.toEpochMillis(sweep.time) > at) continue
+      for (const broker of brokers.get(sweep.firstTrade)?.aggressor ?? [])
+        picks.set(broker.code, {
+          ...(picks.get(broker.code) ?? broker),
+          lots: (picks.get(broker.code)?.lots ?? 0) + broker.lots,
+        })
+    }
+    return [...picks.values()].sort((a, b) => b.lots - a.lots)
   })
 
 // The prices a sweep walked, `500→510`, or `500` when it stayed at one.

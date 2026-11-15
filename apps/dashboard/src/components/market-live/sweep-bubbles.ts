@@ -1,6 +1,6 @@
 // Chart 1's sweep bubbles (spec apinrdw/kumora#263, "Chart 1"), loaded with
 // Lightweight Charts in chart-canvas.tsx's browser-only chunk.
-import { Side, TradeNumber, type Sweep } from "@workspace/relay"
+import { Side, TradeNumber } from "@workspace/relay"
 import { DateTime, Effect } from "effect"
 import type {
   IChartApi,
@@ -22,6 +22,7 @@ import {
   isBigSweep,
   sweepMinute,
   sweepPrice,
+  type KeptSweep,
 } from "@/lib/sweeps"
 
 import type { ReplayCursor } from "./replay-cursor"
@@ -39,6 +40,7 @@ interface Bubble {
   readonly id: TradeNumber
   readonly side: BubbleSide
   readonly time: number
+  // Its sweep's own lots: the picked broker's, or the whole sweep's.
   readonly lots: number
   readonly price: number
   readonly radius: number
@@ -58,7 +60,9 @@ export interface BubbleColors {
 const HIT_PREFIX = "sweep:"
 
 // Each minute's bubbles, largest first, so small ones draw on top.
-const bubblesOf = Effect.fnUntraced(function* (sweeps: ReadonlyArray<Sweep>) {
+const bubblesOf = Effect.fnUntraced(function* (
+  sweeps: ReadonlyArray<KeptSweep>
+) {
   const byMinute = new Map<number, Array<Bubble>>()
   for (const sweep of sweeps) {
     // An auction match forms no sweep and gets no bubble.
@@ -73,9 +77,9 @@ const bubblesOf = Effect.fnUntraced(function* (sweeps: ReadonlyArray<Sweep>) {
       id: sweep.firstTrade,
       side: sweep.side,
       time: DateTime.toEpochMillis(sweep.time),
-      lots: sweep.lots,
+      lots: sweep.own,
       price: yield* sweepPrice(sweep),
-      radius: yield* bubbleRadius(sweep.lots),
+      radius: yield* bubbleRadius(sweep.own),
       big: yield* isBigSweep(sweep),
       offset: yield* bubbleOffset(sweep, 1),
     })
@@ -86,7 +90,7 @@ const bubblesOf = Effect.fnUntraced(function* (sweeps: ReadonlyArray<Sweep>) {
 })
 
 // Draws each shown sweep as a bubble at its average price, x at its minute's
-// centre plus its second: green buy, red sell, area by lots, an amber ring on
+// centre plus its second: green buy, red sell, area by own lots, an amber ring on
 // a big trade, and a ring and guide on the selected one. A bubble is a hit
 // target, so a click picks its sweep and a hover shows its tooltip. The
 // last draw's bubble count and selection, with the selected bubble's centre
@@ -247,8 +251,8 @@ export const clickedSweep = (parameter: MouseEventParams<Time>) =>
       : undefined
   })
 
-// Puts the store's sweeps on chart 1's candle series as bubbles, redrawn at
-// most once a frame when the sweeps, the top-N or the cursor change. A click
+// Puts the store's kept sweeps on chart 1's candle series as bubbles, redrawn at
+// most once a frame when the kept sweeps, the top-N or the cursor change. A click
 // on a bubble selects its sweep; a sweep picked in the log scrolls chart 1 to
 // its minute, keeping the zoom unless it is wider than an hour. Returns the
 // cleanup.
@@ -269,11 +273,11 @@ export function attachSweepBubbles({
 }) {
   const bubbles = new SweepBubbles(colors, marks)
   series.attachPrimitive(bubbles)
-  let shownSweeps: ReadonlyArray<Sweep> | undefined
+  let shownSweeps: ReadonlyArray<KeptSweep> | undefined
   let frame = 0
   const redraw = () => {
     frame = 0
-    const sweeps = store.sweeps()
+    const sweeps = store.kept()
     const at =
       cursor === undefined ? Number.POSITIVE_INFINITY : cursor.state().at
     const byMinute =
