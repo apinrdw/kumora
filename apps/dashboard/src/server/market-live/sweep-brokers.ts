@@ -226,14 +226,14 @@ export const makeSweepBrokers = Effect.fnUntraced(function* (options: {
 
   // One minute of the build: its rows replaced in one transaction with
   // `facts`.
-  // Decision: a minute whose rows are all stored still writes `facts`, the
-  // build's progress, so a build cut off after a long run of such minutes
-  // resumes past them. See apinrdw/kumora#371.
   const buildMinute = Effect.fnUntraced(function* (
     minute: number,
     facts: Readonly<Record<string, string>>
   ) {
     const rows = yield* minuteRows(minute, brokerCodes.heldCodes)
+    // Decision: a minute whose rows are all stored still writes `facts`, the
+    // build's progress, so a build cut off after a long run of such minutes
+    // resumes past them. See apinrdw/kumora#371.
     yield* store.writeSweepBrokers(rows.length, facts, () =>
       writeRows(minute, rows)
     )

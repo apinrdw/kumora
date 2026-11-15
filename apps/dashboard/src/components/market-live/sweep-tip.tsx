@@ -98,9 +98,6 @@ function TipBrokers({
 
 // Whether the shown sweep is after the cursor, as the bubbles and the log
 // leave it out.
-// Decision: a tooltip whose sweep the cursor moved back before hides for
-// good, rather than following the cursor to another sweep or showing again
-// as the cursor passes it. See apinrdw/kumora#371.
 function useHiddenByCursor(
   store: SweepStore,
   cursor: ReplayCursor | undefined,
@@ -116,6 +113,9 @@ function useHiddenByCursor(
     DateTime.toEpochMillis(sweep.time) > cursor.state().at
   const hidden = useSyncExternalStore(subscribe, past, past)
   useEffect(() => {
+    // Decision: a tooltip whose sweep the cursor moved back before hides
+    // for good, rather than following the cursor to another sweep or
+    // showing again as the cursor passes it. See apinrdw/kumora#371.
     if (hidden) store.tip.set(undefined)
   }, [store, hidden])
   return hidden
