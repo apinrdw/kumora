@@ -4,7 +4,7 @@
 import { Effect } from "effect"
 
 import { listRecentRuns } from "../archive/history.ts"
-import type { RunId, ArchiveSource } from "../archive/run.ts"
+import { type ArchiveSource, type RunId, RUNS_PREFIX } from "../archive/run.ts"
 import {
   readLastRun,
   scheduledRun,
@@ -22,6 +22,7 @@ import {
 
 const SHAREHOLDING_RUNS = {
   runName: "Archive run",
+  runsPrefix: RUNS_PREFIX,
   triggers: ArchiveTrigger.literals,
   runIdAt,
   result: ArchiveRunResult,

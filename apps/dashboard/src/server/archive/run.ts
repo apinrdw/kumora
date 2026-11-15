@@ -62,14 +62,25 @@ export interface RunParams<Trigger extends string = string> {
 // keys.ts).
 export const REPORTS_PREFIX = "reports/"
 
+// Where an archive run's records live. A run that isn't an archive run, such
+// as the KSEI parse run, keeps its own under another prefix in the same
+// bucket (`ArchiveSource.runsPrefix`).
 export const RUNS_PREFIX = "runs/"
-export const LATEST_RUN_KEY = `${RUNS_PREFIX}latest.json`
 
-export const runKey = Effect.fnUntraced(function* (id: RunId) {
-  return `${RUNS_PREFIX}${id}.json`
+// <prefix><id>.json, a run's record.
+export const runKey = Effect.fnUntraced(function* (
+  id: RunId,
+  prefix: string = RUNS_PREFIX
+) {
+  return `${prefix}${id}.json`
 })
 
-// The pointer at runs/latest.json.
+// <prefix>latest.json, the pointer at the last run started.
+export const latestRunKey = Effect.fnUntraced(function* (prefix: string) {
+  return `${prefix}latest.json`
+})
+
+// The pointer at <prefix>latest.json.
 export const LatestRun = Schema.Struct({ id: RunId })
 
 // What every archive's run summary holds: the recent runs table's row.
@@ -99,6 +110,9 @@ export interface ArchiveSource<
 > {
   // How a log line names one of its runs, as "Archive run".
   readonly runName: string
+  // Where its run records and latest pointer live in the bucket, as
+  // RUNS_PREFIX.
+  readonly runsPrefix: string
   // Every trigger that starts its runs.
   readonly triggers: ReadonlyArray<Trigger>
   // The id of the run `trigger` starts at `epochMs`. Ids of one trigger must
