@@ -3,7 +3,7 @@
 // each side with its lots, uncapped, the picked broker marked. A bubble or
 // a cell sets where it shows (`SweepStore.tip`); a press anywhere hides it.
 import { Effect } from "effect"
-import { useEffect, useSyncExternalStore } from "react"
+import { useCallback, useEffect, useSyncExternalStore } from "react"
 import { createPortal } from "react-dom"
 
 import { lots } from "@/lib/format"
@@ -28,6 +28,15 @@ export function SweepTip({
     store.tip.get,
     () => undefined
   )
+  // What it shows of the sweep, redrawn while open as a recheck brings
+  // its brokers or the filter's pick changes.
+  const subscribe = useCallback(
+    (listener: () => void) => store.subscribe(listener),
+    [store]
+  )
+  const sweeps = useSyncExternalStore(subscribe, store.sweeps, store.sweeps)
+  const brokers = useSyncExternalStore(subscribe, store.brokers, store.brokers)
+  const picked = useSyncExternalStore(subscribe, store.picked, store.picked)
   const from = at?.from
   useEffect(() => {
     if (from === undefined) return
@@ -44,11 +53,9 @@ export function SweepTip({
     }
   }, [store, from])
   if (at === undefined) return null
-  const sweep = store.sweeps().find((held) => held.firstTrade === at.id)
+  const sweep = sweeps.find((held) => held.firstTrade === at.id)
   if (sweep === undefined) return null
-  const tip = Effect.runSync(sweepTip(sweep, store.brokers().get(at.id)))
-  // The broker filter's pick, marked ` ◂` wherever it is listed.
-  const picked = store.picked()
+  const tip = Effect.runSync(sweepTip(sweep, brokers.get(at.id)))
   const right = at.x > window.innerWidth / 2
   const below = at.y < window.innerHeight / 2
   return createPortal(
@@ -89,6 +96,7 @@ export function SweepTip({
                 <tr key={`${side.label} ${broker.code}`}>
                   <td className={INVESTOR_TEXT[broker.investorType]}>
                     {broker.code} [{broker.investorType}]
+                    {/* The broker filter's pick, marked wherever listed. */}
                     {broker.code === picked && " ◂"}
                   </td>
                   <td className="text-right">
