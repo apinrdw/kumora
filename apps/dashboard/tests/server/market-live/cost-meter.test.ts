@@ -205,4 +205,24 @@ describe("the sweep brokers meter", () => {
         })
       )
   )
+
+  it.effect(
+    "logs the day's storage again when the walk's empty final batch completes its codes",
+    () =>
+      withLines("Order flow storage", (lines) =>
+        Effect.gen(function* () {
+          yield* at("09:00:12")
+          const day = yield* tradingDay()
+          yield* day.trades(SWEPT)
+          yield* at("17:00:00")
+          yield* day.alarm
+          yield* at("17:30:00")
+          yield* day.brokerCodes("Ajaib", CODES)
+          assert.lengthOf(lines, 1)
+          yield* day.brokerCodes("Ajaib", [], 3)
+          assert.lengthOf(lines, 2)
+          assert.strictEqual(lines[1]!.sweepBrokerRows, 3)
+        })
+      )
+  )
 })
