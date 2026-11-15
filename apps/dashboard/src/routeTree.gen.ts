@@ -24,6 +24,7 @@ import { Route as AppMarketLiveRouteImport } from './routes/_app/market-live'
 import { Route as AppAdminKseiRouteImport } from './routes/_app/admin/ksei'
 import { Route as AppAdminShareholdingRouteImport } from './routes/_app/admin/shareholding'
 import { Route as AppAdminUsersRouteImport } from './routes/_app/admin/users'
+import { Route as AppStocksCodeRouteImport } from './routes/_app/stocks.$code'
 import { Route as ApiAuthSplatRouteImport } from './routes/api/auth/$'
 
 const AppRoute = AppRouteImport.update({
@@ -100,6 +101,11 @@ const AppAdminUsersRoute = AppAdminUsersRouteImport.update({
   path: '/admin/users',
   getParentRoute: () => AppRoute,
 } as any)
+const AppStocksCodeRoute = AppStocksCodeRouteImport.update({
+  id: '/stocks/$code',
+  path: '/stocks/$code',
+  getParentRoute: () => AppRoute,
+} as any)
 const ApiAuthSplatRoute = ApiAuthSplatRouteImport.update({
   id: '/api/auth/$',
   path: '/api/auth/$',
@@ -121,6 +127,7 @@ export interface FileRoutesByFullPath {
   '/admin/ksei': typeof AppAdminKseiRoute
   '/admin/shareholding': typeof AppAdminShareholdingRoute
   '/admin/users': typeof AppAdminUsersRoute
+  '/stocks/$code': typeof AppStocksCodeRoute
   '/api/auth/$': typeof ApiAuthSplatRoute
 }
 export interface FileRoutesByTo {
@@ -138,6 +145,7 @@ export interface FileRoutesByTo {
   '/admin/ksei': typeof AppAdminKseiRoute
   '/admin/shareholding': typeof AppAdminShareholdingRoute
   '/admin/users': typeof AppAdminUsersRoute
+  '/stocks/$code': typeof AppStocksCodeRoute
   '/api/auth/$': typeof ApiAuthSplatRoute
 }
 export interface FileRoutesById {
@@ -157,6 +165,7 @@ export interface FileRoutesById {
   '/_app/admin/ksei': typeof AppAdminKseiRoute
   '/_app/admin/shareholding': typeof AppAdminShareholdingRoute
   '/_app/admin/users': typeof AppAdminUsersRoute
+  '/_app/stocks/$code': typeof AppStocksCodeRoute
   '/api/auth/$': typeof ApiAuthSplatRoute
 }
 export interface FileRouteTypes {
@@ -176,6 +185,7 @@ export interface FileRouteTypes {
     | '/admin/ksei'
     | '/admin/shareholding'
     | '/admin/users'
+    | '/stocks/$code'
     | '/api/auth/$'
   fileRoutesByTo: FileRoutesByTo
   to:
@@ -193,6 +203,7 @@ export interface FileRouteTypes {
     | '/admin/ksei'
     | '/admin/shareholding'
     | '/admin/users'
+    | '/stocks/$code'
     | '/api/auth/$'
   id:
     | '__root__'
@@ -211,6 +222,7 @@ export interface FileRouteTypes {
     | '/_app/admin/ksei'
     | '/_app/admin/shareholding'
     | '/_app/admin/users'
+    | '/_app/stocks/$code'
     | '/api/auth/$'
   fileRoutesById: FileRoutesById
 }
@@ -332,6 +344,13 @@ declare module '@tanstack/react-router' {
       preLoaderRoute: typeof AppAdminUsersRouteImport
       parentRoute: typeof AppRoute
     }
+    '/_app/stocks/$code': {
+      id: '/_app/stocks/$code'
+      path: '/stocks/$code'
+      fullPath: '/stocks/$code'
+      preLoaderRoute: typeof AppStocksCodeRouteImport
+      parentRoute: typeof AppRoute
+    }
     '/api/auth/$': {
       id: '/api/auth/$'
       path: '/api/auth/$'
@@ -351,6 +370,7 @@ interface AppRouteChildren {
   AppAdminKseiRoute: typeof AppAdminKseiRoute
   AppAdminShareholdingRoute: typeof AppAdminShareholdingRoute
   AppAdminUsersRoute: typeof AppAdminUsersRoute
+  AppStocksCodeRoute: typeof AppStocksCodeRoute
 }
 
 const AppRouteChildren: AppRouteChildren = {
@@ -362,6 +382,7 @@ const AppRouteChildren: AppRouteChildren = {
   AppAdminKseiRoute: AppAdminKseiRoute,
   AppAdminShareholdingRoute: AppAdminShareholdingRoute,
   AppAdminUsersRoute: AppAdminUsersRoute,
+  AppStocksCodeRoute: AppStocksCodeRoute,
 }
 
 const AppRouteWithChildren = AppRoute._addFileChildren(AppRouteChildren)

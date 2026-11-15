@@ -4,6 +4,7 @@ import type { Feature } from "@/server/auth/policy"
 
 const NAME = {
   "market-live": "Market Live",
+  stocks: "stock pages",
   account: "your account",
   admin: "the admin pages",
 } as const satisfies Record<Feature, string>
