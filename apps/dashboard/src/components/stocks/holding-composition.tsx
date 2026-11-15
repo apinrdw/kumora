@@ -47,6 +47,8 @@ const COLUMN = "w-9"
 // A click waits this long in case it is the first of a double-click.
 const DOUBLE_CLICK_MS = 220
 
+const NONE_HIDDEN: ReadonlySet<SeriesKey> = new Set()
+
 const ofWhat = (origin: ChartOrigin) =>
   origin === "all" ? "scripless shares" : `all ${origin} holdings`
 
@@ -69,7 +71,15 @@ export function HoldingComposition({
   onOrigin,
   onView,
 }: HoldingCompositionProps) {
-  const [hidden, setHidden] = useState<ReadonlySet<string>>(new Set())
+  // Hidden series belong to the origin they were hidden in: another origin
+  // shows every series again.
+  const [hiding, setHiding] = useState<{
+    readonly origin: ChartOrigin
+    readonly hidden: ReadonlySet<SeriesKey>
+  }>({ origin, hidden: NONE_HIDDEN })
+  const hidden = hiding.origin === origin ? hiding.hidden : NONE_HIDDEN
+  const setHidden = (next: ReadonlySet<SeriesKey>) =>
+    setHiding({ origin, hidden: next })
   const chart = holdingChart(series, origin, hidden)
   const shown = chart.series.flatMap((each, index) =>
     hidden.has(each.key) ? [] : [{ ...each, index }]
@@ -150,10 +160,12 @@ function OriginSummary({ series }: { series: ReadonlyArray<SeriesMonth> }) {
   return (
     <div className="flex flex-col gap-1">
       <div className="grid grid-cols-2 gap-2">
-        {[
-          { key: "local", label: "Local", share: split.local },
-          { key: "foreign", label: "Foreign", share: 1 - split.local },
-        ].map(({ key, label, share }) => (
+        {(
+          [
+            { key: "local", label: "Local", share: split.local },
+            { key: "foreign", label: "Foreign", share: 1 - split.local },
+          ] as const
+        ).map(({ key, label, share }) => (
           <div
             key={key}
             className="flex items-center justify-between rounded-sm border border-border px-3 py-2"
@@ -162,7 +174,7 @@ function OriginSummary({ series }: { series: ReadonlyArray<SeriesMonth> }) {
             <b
               className="num"
               aria-label={`${label} share`}
-              style={{ color: SERIES_COLOR[key as SeriesKey] }}
+              style={{ color: SERIES_COLOR[key] }}
             >
               {percent(share)}
             </b>
@@ -394,18 +406,18 @@ function Legend({
   onHidden,
 }: {
   series: ReadonlyArray<ChartSeries>
-  hidden: ReadonlySet<string>
+  hidden: ReadonlySet<SeriesKey>
   origin: ChartOrigin
-  onHidden: (hidden: ReadonlySet<string>) => void
+  onHidden: (hidden: ReadonlySet<SeriesKey>) => void
 }) {
   const pending = useRef<ReturnType<typeof setTimeout>>(undefined)
-  const toggle = (key: string) => {
+  const toggle = (key: SeriesKey) => {
     const next = new Set(hidden)
     if (!next.delete(key)) next.add(key)
     onHidden(next)
   }
   // Shows only `key`, or everything when it already is the only one shown.
-  const only = (key: string) => {
+  const only = (key: SeriesKey) => {
     const alone =
       !hidden.has(key) &&
       series.every((each) => each.key === key || hidden.has(each.key))

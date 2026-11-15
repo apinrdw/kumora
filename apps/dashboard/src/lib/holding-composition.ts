@@ -51,7 +51,7 @@ const ofTotal = (values: ReadonlyArray<number>) => {
 export const holdingChart = (
   months: ReadonlyArray<SeriesMonth>,
   origin: ChartOrigin,
-  hidden: ReadonlySet<string>
+  hidden: ReadonlySet<SeriesKey>
 ): HoldingChart => {
   const series = origin === "all" ? ORIGIN_SERIES : TYPE_SERIES
   const columns = months.map(({ month, holdings }) => ({
@@ -68,7 +68,9 @@ export const holdingChart = (
     ...columns.map(({ shares = [] }) =>
       shares.reduce(
         (sum, share, index) =>
-          hidden.has(series[index]?.key ?? "") ? sum : sum + share,
+          series[index] !== undefined && hidden.has(series[index].key)
+            ? sum
+            : sum + share,
         0
       )
     )
