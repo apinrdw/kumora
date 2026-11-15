@@ -270,6 +270,14 @@ test("a recorded day's sweep log shows each sweep's lead brokers, wider, filling
   const log = page.getByRole("region", { name: "Sweep log" })
   await expect(log).toContainText("Aggressor")
   expect((await log.boundingBox())?.width).toBe(530)
+  // At 1280 px, beside the sidebar, the log gives way down to 340 px before
+  // the charts do, and its broker columns scroll sideways.
+  await page.setViewportSize({ width: 1280, height: 800 })
+  await expect.poll(async () => (await log.boundingBox())?.width).toBe(340)
+  const charts = page.getByRole("region", { name: "Chart" })
+  expect((await charts.boundingBox())?.width).toBeGreaterThanOrEqual(200)
+  await page.setViewportSize({ width: 1920, height: 1080 })
+  await expect.poll(async () => (await log.boundingBox())?.width).toBe(530)
   const rows = log.locator("[data-sweep-id]")
   await expect(rows).toHaveCount(2)
   // Newest first: the sell sweep, then the buy sweep, not yet whole, blank.
