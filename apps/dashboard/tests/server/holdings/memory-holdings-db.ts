@@ -2,7 +2,8 @@
 // holdings-migrations/ applied in order, behind the HoldingsDb service the
 // code uses. A batch runs in one transaction, as D1's does. `failBatch`, when
 // set, fails every batch it matches after running its statements, so the
-// batch rolls back as a D1 batch whose last statement failed.
+// batch rolls back as a D1 batch whose last statement failed. `statements`
+// holds every statement a batch was given, in order.
 import {
   DatabaseSync,
   type SQLInputValue,
@@ -11,7 +12,11 @@ import {
 
 import { Effect, Layer } from "effect"
 
-import { HoldingsDb, HoldingsDbError } from "@/server/holdings/db"
+import {
+  HoldingsDb,
+  HoldingsDbError,
+  type Statement,
+} from "@/server/holdings/db"
 
 const MIGRATIONS = import.meta.glob<string>(
   "../../../holdings-migrations/*.sql",
@@ -21,6 +26,7 @@ const MIGRATIONS = import.meta.glob<string>(
 export interface MemoryHoldingsDb {
   readonly database: DatabaseSync
   failBatch: ((sql: ReadonlyArray<string>) => boolean) | undefined
+  readonly statements: Array<Statement>
   readonly layer: Layer.Layer<HoldingsDb>
 }
 
@@ -41,12 +47,14 @@ export const memoryHoldingsDb = (): MemoryHoldingsDb => {
   const db: MemoryHoldingsDb = {
     database,
     failBatch: undefined,
+    statements: [],
     layer: Layer.succeed(
       HoldingsDb,
       HoldingsDb.of({
         batch: (batch) =>
           Effect.try({
             try: () => {
+              db.statements.push(...batch)
               database.exec("BEGIN")
               return batch.map(({ sql, params }) =>
                 statement(sql).all(...(params as Array<SQLInputValue>))
