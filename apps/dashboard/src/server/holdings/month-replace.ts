@@ -17,7 +17,7 @@ export const MAX_STOCKS = 2_000
 export const TOO_MANY_STOCKS = `The report lists more than ${MAX_STOCKS.toLocaleString("en-US")} stocks`
 
 // A month's rows for one table, without the date, as JSON arrays of at most
-// CHUNK_ROWS rows, each row its `columns` in order. Table and column names
+// CHUNK_ROWS rows and CHUNK_BYTES bytes, each row its `columns` in order. Table and column names
 // come from code, never from a file.
 export interface MonthRows {
   readonly table: string
@@ -37,33 +37,47 @@ export interface MonthReplace {
   }
 }
 
-// Decision: rows go in 1,000 at a time, each chunk one INSERT … SELECT over
-// json_each of one bound JSON array (~45 KB), under D1's 100 bound
-// parameters and 100 KB per statement. See apinrdw/kumora#355.
+// Decision: rows go in at most 1,000 and 90,000 bytes of JSON at a time,
+// each chunk one INSERT … SELECT over json_each of one bound JSON array,
+// under D1's 100 bound parameters and 100 KB per statement: 1,000 rows of
+// issuer names at their 256 characters, each written as \u0001, took 1.55 MB.
+// See apinrdw/kumora#355.
 const CHUNK_ROWS = 1000
+const CHUNK_BYTES = 90_000
 
-// Gathers a table's rows as a parse reads them, each CHUNK_ROWS of them
-// turned into one JSON array as soon as they are read.
+const encoder = new TextEncoder()
+
+// Gathers a table's rows as a parse reads them, each chunk of them turned
+// into one JSON array as soon as it is full.
 // Decision: a parse holds its month as JSON text, about 35 bytes a row,
 // not as an array a row, about 100: a classification report's 234,000
 // holdings took 8 MiB as JSON and 22 MiB as arrays.
 export const monthRows = (table: string, columns: ReadonlyArray<string>) =>
   Effect.sync(() => {
     const chunks: Array<string> = []
-    let rows: Array<ReadonlyArray<SqlValue>> = []
+    let rows: Array<string> = []
+    // The bytes of `rows` as one JSON array.
+    let bytes = 2
+    const close = () => {
+      if (rows.length > 0) chunks.push(`[${rows.join(",")}]`)
+      rows = []
+      bytes = 2
+    }
     return {
       add: (row: ReadonlyArray<SqlValue>) =>
         Effect.sync(() => {
-          rows.push(row)
-          if (rows.length < CHUNK_ROWS) return
-          chunks.push(JSON.stringify(rows))
-          rows = []
+          const json = JSON.stringify(row)
+          const rowBytes = encoder.encode(json).length + 1
+          if (rows.length === CHUNK_ROWS || bytes + rowBytes > CHUNK_BYTES)
+            close()
+          rows.push(json)
+          bytes += rowBytes
         }),
       // The rows added so far.
       gathered: Effect.sync((): MonthRows => ({
         table,
         columns,
-        chunks: rows.length === 0 ? chunks : [...chunks, JSON.stringify(rows)],
+        chunks: rows.length === 0 ? chunks : [...chunks, `[${rows.join(",")}]`],
       })),
     }
   })
