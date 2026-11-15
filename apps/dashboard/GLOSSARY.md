@@ -70,6 +70,10 @@ _Avoid_: HAKA/HAKI (on the page), trade direction
 A stock code's running trades in one second that share an aggressor side, taken together: their lots, value, and first and last price. Another code's trades between them don't break it; this code trading on the other side does.
 _Avoid_: Group, burst
 
+**Lead broker**:
+The broker code with the most lots on one side of a sweep, summed over the sweep's trades. The sweep log shows each side's lead broker with its investor type, and how many other brokers were on that side.
+_Avoid_: Top broker (top names the top-N filter), main broker
+
 **Footprint**:
 A candle's lots split by price and aggressor side: at each price it traded, the sell-aggressor lots and the buy-aggressor lots.
 _Avoid_: Cluster chart, volume profile (that is the whole day by price)

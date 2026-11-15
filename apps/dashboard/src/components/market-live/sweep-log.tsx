@@ -1,8 +1,13 @@
-import { fetchRecordedSweeps } from "@workspace/client"
+import {
+  fetchRecordedSweepBrokers,
+  fetchRecordedSweeps,
+} from "@workspace/client"
 import {
   INDEX_CODES,
   type StockCode,
   type Sweep,
+  type SweepBroker,
+  type SweepBrokers,
   type TradeNumber,
   type WibDate,
 } from "@workspace/relay"
@@ -23,6 +28,7 @@ import { compact, lots, plain, tapeTime } from "@/lib/format"
 import {
   TOP_N_PRESETS,
   isBigSweep,
+  leadBroker,
   logRows,
   thresholdText,
   type LogRow,
@@ -32,11 +38,13 @@ import {
 import { runLoad } from "./recorded-day"
 import type { ReplayCursor } from "./replay-cursor"
 import { makeSweepStore, type SweepStore } from "./sweep-store"
+import { INVESTOR_TEXT } from "./tape-list"
 
 // The sweeps and the instant the page shows them at: a recorded day's
 // cursor, or live the end of time.
 interface SweepView {
   readonly sweeps: ReadonlyArray<Sweep>
+  readonly brokers: ReadonlyMap<TradeNumber, SweepBrokers>
   readonly at: number
   readonly threshold: SweepThreshold
   readonly topN: number
@@ -62,11 +70,13 @@ function useSweepView(store: SweepStore, cursor: ReplayCursor | undefined) {
     const at =
       cursor === undefined ? Number.POSITIVE_INFINITY : cursor.state().at
     const sweeps = store.sweeps()
+    const brokers = store.brokers()
     const topN = store.topN()
     const selected = store.selected()
     const before = cached.current
     if (
       before?.sweeps === sweeps &&
+      before.brokers === brokers &&
       before.at === at &&
       before.topN === topN &&
       before.selected === selected
@@ -74,6 +84,7 @@ function useSweepView(store: SweepStore, cursor: ReplayCursor | undefined) {
       return before
     cached.current = {
       sweeps,
+      brokers,
       at,
       threshold: store.threshold(at),
       topN,
@@ -113,7 +124,16 @@ export function useSweeps(
           })
         )
       )
-    if (!live) ask(0)
+    if (!live) {
+      ask(0)
+      stops.push(
+        runLoad(
+          Effect.map(fetchRecordedSweepBrokers(date, store.code), (answer) => {
+            if (Option.isSome(answer)) store.answerBrokers(answer.value)
+          })
+        )
+      )
+    }
     let asked: number | undefined
     const stopStore = live
       ? store.subscribe(() => {
@@ -196,12 +216,49 @@ const SIDE = {
   none: { label: "Auction", tone: "text-muted-foreground" },
 } as const
 
+// The log's columns: live, and on a recorded day, whose sweeps can have
+// brokers, with Value wide enough for `Rp325.91 M` and the Aggressor column.
+const COLUMNS = {
+  live: "grid-cols-[58px_44px_minmax(0,1fr)_64px_10px]",
+  brokers: "grid-cols-[58px_44px_minmax(0,1fr)_76px_80px_10px]",
+} as const
+
+// One side's Lead broker as `AK [F]` in its investor type's colour, and a
+// muted `+N` for the others on that side; blank for a sweep not yet whole.
+function LeadBrokerCell({
+  side,
+}: {
+  side: ReadonlyArray<SweepBroker> | undefined
+}) {
+  const lead = side && Effect.runSync(leadBroker(side))
+  return (
+    <span className="truncate">
+      {lead && (
+        <>
+          <span className={INVESTOR_TEXT[lead.investorType]}>
+            {lead.code} [{lead.investorType}]
+          </span>
+          {lead.more > 0 && (
+            <span className="text-muted-foreground"> +{lead.more}</span>
+          )}
+        </>
+      )}
+    </span>
+  )
+}
+
 const LogRowView = memo(function LogRowView({
   row,
+  withBrokers,
+  brokers,
   selected,
   onPick,
 }: {
   row: LogRow
+  // Whether the log has broker columns: on a recorded day, not live.
+  withBrokers: boolean
+  // The sweep's brokers, undefined until it is whole.
+  brokers: SweepBrokers | undefined
   selected: boolean
   onPick: (id: TradeNumber) => void
 }) {
@@ -220,7 +277,8 @@ const LogRowView = memo(function LogRowView({
         title={`${row.trades} trades`}
         onClick={() => onPick(row.firstTrade)}
         className={cn(
-          "grid h-full w-full grid-cols-[58px_44px_minmax(0,1fr)_64px_10px] items-center gap-1.5 px-2.5 text-left font-mono text-[12px] whitespace-nowrap",
+          "grid h-full w-full items-center gap-1.5 px-2.5 text-left font-mono text-[12px] whitespace-nowrap",
+          withBrokers ? COLUMNS.brokers : COLUMNS.live,
           row.big && "bg-warning/10",
           selected
             ? "bg-selected shadow-[inset_3px_0_0_var(--accent-primary)]"
@@ -237,6 +295,7 @@ const LogRowView = memo(function LogRowView({
         <span className="text-right">
           Rp{Effect.runSync(compact(row.value))}
         </span>
+        {withBrokers && <LeadBrokerCell side={brokers?.aggressor} />}
         <span className="text-warning">
           {row.big && (
             <>
@@ -260,11 +319,15 @@ const LogRowView = memo(function LogRowView({
 export function SweepLog({
   store,
   cursor,
+  withBrokers,
   bigOnly,
   onBigOnly,
 }: {
   store: SweepStore
   cursor?: ReplayCursor | undefined
+  // Whether the shown day can have broker codes: a recorded day. Its log
+  // gains the broker columns.
+  withBrokers: boolean
   // The Big only toggle, kept by the page in its URL.
   bigOnly: boolean
   onBigOnly: (on: boolean) => void
@@ -377,12 +440,16 @@ export function SweepLog({
       </header>
       <div
         aria-hidden
-        className="grid grid-cols-[58px_44px_minmax(0,1fr)_64px_10px] gap-1.5 border-b border-border px-2.5 py-1 text-[10px] tracking-[0.06em] text-muted-foreground uppercase"
+        className={cn(
+          "grid gap-1.5 border-b border-border px-2.5 py-1 text-[10px] tracking-[0.06em] text-muted-foreground uppercase",
+          withBrokers ? COLUMNS.brokers : COLUMNS.live
+        )}
       >
         <span>Time</span>
         <span>Side</span>
         <span>Lots @ price</span>
         <span className="text-right">Value</span>
+        {withBrokers && <span>Aggressor</span>}
         <span />
       </div>
       <div ref={scroller} className="relative min-h-0 flex-1 overflow-y-auto">
@@ -396,6 +463,8 @@ export function SweepLog({
               <LogRowView
                 key={row.firstTrade}
                 row={row}
+                withBrokers={withBrokers}
+                brokers={view.brokers.get(row.firstTrade)}
                 selected={row.firstTrade === view.selected}
                 onPick={pick}
               />

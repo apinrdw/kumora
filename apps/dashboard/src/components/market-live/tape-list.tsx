@@ -167,7 +167,8 @@ const TAPE_WIDTH_PX = Object.values(COLUMN_PX).reduce((sum, px) => sum + px)
 // A gap or fold row spans every column.
 const COLUMNS = Object.keys(COLUMN_PX).length
 
-const INVESTOR_TEXT: Record<InvestorType, string> = {
+// An investor type's colour, as the tape and the sweep log show it.
+export const INVESTOR_TEXT: Record<InvestorType, string> = {
   F: "text-foreign",
   D: "text-domestic",
 }

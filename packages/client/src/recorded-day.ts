@@ -13,6 +13,7 @@ import {
   decodeRecordedCandles,
   decodeRecordedGaps,
   decodeRecordedHeatmap,
+  decodeRecordedSweepBrokers,
   decodeRecordedSweeps,
   decodeRecordedTape,
   recordedDayPath,
@@ -78,6 +79,17 @@ export const fetchRecordedSweeps = Effect.fnUntraced(function* (
   const body = yield* getResource(date, { _tag: "Sweeps", code })
   if (Option.isNone(body)) return Option.none()
   return Option.some(yield* decodeRecordedSweeps(body.value))
+})
+
+// The brokers of one code's whole sweeps for the day, and whether the day's
+// codes are complete.
+export const fetchRecordedSweepBrokers = Effect.fnUntraced(function* (
+  date: WibDate,
+  code: StockCode
+) {
+  const body = yield* getResource(date, { _tag: "SweepBrokers", code })
+  if (Option.isNone(body)) return Option.none()
+  return Option.some(yield* decodeRecordedSweepBrokers(body.value))
 })
 
 // The 200 newest running trades at or before `at`, ascending.

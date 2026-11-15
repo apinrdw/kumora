@@ -1,7 +1,9 @@
 import type {
+  RecordedSweepBrokers,
   RecordedSweeps,
   StockCode,
   Sweep,
+  SweepBrokers,
   TradeNumber,
   ViewerDown,
 } from "@workspace/relay"
@@ -14,12 +16,13 @@ import {
   type SweepThreshold,
 } from "@/lib/sweeps"
 
-// What changed since the listener last heard: the sweeps, the top-N, or the
-// selected sweep. A selection carries its minute, so whatever shows it can
+// What changed since the listener last heard: the sweeps, their brokers,
+// the top-N, or the selected sweep. A selection carries its minute, so whatever shows it can
 // jump there: chart 1 scrolls to it, the sweep log scrolls to its row, and
 // chart 2 can move to it (apinrdw/kumora#268).
 export type SweepChange =
   | { readonly _tag: "Sweeps" }
+  | { readonly _tag: "Brokers" }
   | { readonly _tag: "TopN" }
   | {
       readonly _tag: "Selected"
@@ -34,6 +37,11 @@ export interface SweepStore {
   // The selected code's sweeps and auction matches so far, in trade order.
   // A sweep's first trade's number is its id.
   readonly sweeps: () => ReadonlyArray<Sweep>
+  // A recorded day's whole sweeps' brokers by first trade, the whole day's
+  // as its sweep brokers GET last answered; the page cuts them at the
+  // cursor as it does the sweeps. Empty live and until the GET answers.
+  readonly brokers: () => ReadonlyMap<TradeNumber, SweepBrokers>
+  readonly answerBrokers: (answer: RecordedSweepBrokers) => void
   readonly topN: () => number
   readonly setTopN: (percent: number) => void
   // The top-N threshold over the sweeps up to `at` (epoch ms; live, the end
@@ -68,6 +76,7 @@ export const makeSweepStore = (code: StockCode) =>
     let answered: ReadonlyMap<number, ReadonlyArray<Sweep>> = new Map()
     const carried = new Map<number, ReadonlyArray<Sweep>>()
     let all: ReadonlyArray<Sweep> = []
+    let brokers: ReadonlyMap<TradeNumber, SweepBrokers> = new Map()
     let ask = 0
     let asking = false
     let topN = TOP_N_DEFAULT
@@ -93,6 +102,14 @@ export const makeSweepStore = (code: StockCode) =>
     return {
       code,
       sweeps: () => all,
+      brokers: () => brokers,
+      answerBrokers: (answer) => {
+        if (answer.code !== code) return
+        brokers = new Map(
+          answer.sweeps.map((sweep) => [sweep.firstTrade, sweep])
+        )
+        emit({ _tag: "Brokers" })
+      },
       topN: () => topN,
       setTopN: (percent) => {
         if (percent === topN) return

@@ -2,7 +2,7 @@
 // (spec apinrdw/kumora#263, "Chart 1"): the top-N filter, the log's rows, and
 // where a bubble sits. Pure, so the renderers only draw.
 import { MINUTE_MS, SHARES_PER_LOT } from "@workspace/relay"
-import type { Sweep } from "@workspace/relay"
+import type { Sweep, SweepBroker } from "@workspace/relay"
 import { DateTime, Effect } from "effect"
 
 import { BIG_TRADE_IDR } from "./tape"
@@ -103,6 +103,30 @@ export const logRows = Effect.fnUntraced(function* (
   }
   return rows
 })
+
+// What a broker cell shows of one side of a sweep: its Lead broker, the
+// broker with the most lots on that side (the first listed on a tie), and
+// how many other brokers were on it, the cell's `+N`.
+interface LeadBroker {
+  readonly code: SweepBroker["code"]
+  readonly investorType: SweepBroker["investorType"]
+  readonly more: number
+}
+
+// A side's Lead broker; none for a side with no brokers.
+export const leadBroker = (side: ReadonlyArray<SweepBroker>) =>
+  Effect.sync((): LeadBroker | undefined => {
+    let lead: SweepBroker | undefined
+    for (const broker of side)
+      if (lead === undefined || broker.lots > lead.lots) lead = broker
+    return (
+      lead && {
+        code: lead.code,
+        investorType: lead.investorType,
+        more: side.length - 1,
+      }
+    )
+  })
 
 // A sweep's average price: its value over its shares.
 export const sweepPrice = (sweep: Sweep) =>

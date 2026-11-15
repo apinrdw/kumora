@@ -1,10 +1,16 @@
-import { TradeNumber, type Sweep } from "@workspace/relay"
+import {
+  BrokerCode,
+  TradeNumber,
+  type Sweep,
+  type SweepBroker,
+} from "@workspace/relay"
 import { DateTime, Effect } from "effect"
 import { describe, expect, it } from "@effect/vitest"
 
 import {
   bubbleRadius,
   bubbleOffset,
+  leadBroker,
   logRows,
   sweepPrice,
   sweepThreshold,
@@ -146,5 +152,38 @@ describe("bubbles", () => {
         expect(yield* bubbleRadius(1)).toBe(1.5)
         expect(yield* bubbleRadius(10_000_000)).toBe(24)
       })
+  )
+})
+
+const broker = (
+  code: string,
+  investorType: "D" | "F",
+  lots: number
+): SweepBroker => ({ code: BrokerCode.make(code), investorType, lots })
+
+describe("a side's lead broker", () => {
+  it.effect(
+    "is the broker with the most lots, the first on a tie, and +N counts the others",
+    () =>
+      Effect.gen(function* () {
+        expect(
+          yield* leadBroker([
+            broker("BK", "D", 20),
+            broker("AK", "F", 120),
+            broker("YP", "D", 120),
+          ])
+        ).toEqual({ code: "AK", investorType: "F", more: 2 })
+        expect(yield* leadBroker([broker("CC", "D", 4)])).toEqual({
+          code: "CC",
+          investorType: "D",
+          more: 0,
+        })
+      })
+  )
+
+  it.effect("is none for a side with no brokers", () =>
+    Effect.gen(function* () {
+      expect(yield* leadBroker([])).toBeUndefined()
+    })
   )
 })

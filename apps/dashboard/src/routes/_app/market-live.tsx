@@ -318,8 +318,16 @@ function MarketLiveDay({
           </>
         }
         log={
-          flow && <SweepLog store={flow.sweeps} cursor={cursor} {...view.log} />
+          flow && (
+            <SweepLog
+              store={flow.sweeps}
+              cursor={cursor}
+              withBrokers={day !== undefined}
+              {...view.log}
+            />
+          )
         }
+        wideLog={day !== undefined}
         panel={view.panel}
         onPanel={view.pickPanel}
         watchlist={
