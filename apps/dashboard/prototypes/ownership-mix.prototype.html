@@ -70,7 +70,9 @@ tr.sub td:first-child{padding-left:26px;color:var(--muted)}
 .chip:disabled{opacity:.4;cursor:not-allowed}
 .cbox{border:1px solid var(--line);border-radius:8px;padding:12px;display:flex;flex-direction:column;gap:10px}
 .crow{display:flex;flex-direction:column;gap:6px;padding:8px 0}
-.split.comp{grid-template-columns:minmax(0,1fr) 460px}
+.tip{position:absolute;z-index:3;width:220px;background:var(--panel);border:1px solid var(--line);border-radius:8px;padding:10px 12px;box-shadow:0 6px 20px rgba(0,0,0,.15);font-size:12px;display:flex;flex-direction:column;gap:6px;pointer-events:none}
+.tipgrid{display:grid;grid-template-columns:1fr auto;gap:3px 10px}
+.seg button[data-hm]{padding:4px 10px}
 .hchart{position:relative;padding-left:40px}
 .hgl{position:absolute;left:40px;right:0;border-top:1px dashed var(--line)}
 .hgl span{position:absolute;left:-40px;top:-8px;font-size:11px;color:var(--muted);font-variant-numeric:tabular-nums}
@@ -241,11 +243,11 @@ function vComp(){
   }
   return `<div class="crumbs">Stocks / ${S.code}</div>
   <div class="row spread"><h1>${S.code} <span class="muted" style="font-weight:500">${cur.m.r.name}</span></h1>${stockSel()}</div>
-  <div class="split comp">${holdingComp()}
+  <div style="display:flex;flex-direction:column;gap:16px">
   <div class="card" style="gap:12px"><div class="row spread"><h2>Shareholders composition</h2><span class="muted">${mlabel(S.date)}</span></div>
    <div class="mtabs">${tabs}</div>
    <div class="row" style="gap:8px">${ob("all","All scripless")}${ob("local","Local")}${ob("foreign","Foreign")}</div>
-   ${body}</div></div>`;
+   ${body}</div>${holdingComp()}</div>`;
 }
 
 // Per month: local and foreign shares by KSEI type, from either source; null when the source has no split that month.
@@ -255,32 +257,34 @@ function originByType(code,date,src){
   const L={},F={}; agg(m,true).forEach(x=>{L[x.key]=x.local;F[x.key]=x.foreign}); return {L,F};
 }
 function holdingComp(){
-  const o=S.hc||"all",src=S.src||"type",sel=S.hcDate||DATES[DATES.length-1];
+  const o=S.hc||"all",src="class",mode=S.hcMode||"bars";
   const cols=DATES.map(d=>{const m=month(S.code,d),t=originByType(S.code,d,src),tot=m.total;
-    let segs,na=!t;
+    let segs=null;
     if(t){const l=Object.values(t.L).reduce((a,b)=>a+b,0),f=Object.values(t.F).reduce((a,b)=>a+b,0);
       segs=o==="all"?[["Local",l,"var(--g4)"],["Foreign",f,"var(--g5)"]]
         :GROUPS.map(g=>[g[1],(o==="local"?t.L:t.F)[g[0]]||0,`var(${g[2]})`]);}
-    return {d,tot,segs,na};});
-  const H=220;
-  const bars=cols.map(c=>`<div class="hcol" data-hd="${c.d}" aria-pressed="${c.d===sel}" role="button" tabindex="0" title="${mlabel(c.d)}">
+    return {d,tot,segs,na:!t};});
+  window.__tips=Object.fromEntries(cols.map(c=>[c.d,c.na?`<b>${mlabel(c.d)}</b><div>Local / foreign ${NA}.</div>`
+    :`<b>${mlabel(c.d)}</b><div class="tipgrid">${[...c.segs].sort((a,b)=>b[1]-a[1]).map(s=>`<span><span class="sw" style="background:${s[2]}"></span>${s[0]}</span><span class="num">${(s[1]/c.tot*100).toFixed(2)}%</span>`).join("")}</div>`]));
+  const H=240;
+  const bars=cols.map(c=>`<div class="hcol" data-hd="${c.d}" tabindex="0" aria-label="${mlabel(c.d)}">
      <div class="hstack" style="height:${H}px">${c.na?`<span class="hna">no split</span>`:c.segs.map(s=>`<i style="height:${s[1]/c.tot*H}px;background:${s[2]}"></i>`).join("")}</div>
-     <span class="mono note">${MONTHS[+c.d.slice(5,7)-1]}</span></div>`).join("");
-  const grid=[100,75,50,25,0].map(p=>`<div class="hgl" style="bottom:${p/100*H}px"><span>${p}%</span></div>`).join("");
-  const sc=cols.find(c=>c.d===sel);
-  const detail=sc.na?`<div class="note">${mlabel(sel)}: ${src==="class"?NA:"no investor-type report"}.</div>`
-    :`<div class="note" style="display:grid;grid-template-columns:1fr auto;gap:2px 12px"><b style="grid-column:1/-1;color:var(--fg)">${mlabel(sel)}</b>${[...sc.segs].sort((a,b)=>b[1]-a[1]).map(s=>`<span><span class="sw" style="background:${s[2]}"></span>${s[0]}</span><span class="num">${(s[1]/sc.tot*100).toFixed(2)}%</span>`).join("")}</div>`;
-  const last=cols[cols.length-1],lt=originByType(S.code,last.d,src);
-  const lsum=lt?Object.values(lt.L).reduce((a,b)=>a+b,0)/last.tot:null;
+     <span class="mono note">${MONTHS[+c.d.slice(5,7)-1]} ${c.d.slice(2,4)}</span></div>`).join("");
+  const grid=[100,75,50,25,0].map(p=>`<div class="hgl" style="bottom:${24+p/100*H}px"><span>${p}%</span></div>`).join("");
+  const heads=o==="all"?[["Local","var(--g4)"],["Foreign","var(--g5)"]]:GROUPS.map(g=>[g[1],`var(${g[2]})`]);
+  const table=`<div class="tbl"><table><thead><tr><th>Month</th>${heads.map(h=>`<th class="num"><span class="sw" style="background:${h[1]}"></span>${h[0]}</th>`).join("")}</tr></thead>
+    <tbody>${[...cols].reverse().map(c=>`<tr><td class="mono">${mlabel(c.d)}</td>${c.na?`<td class="na" colspan="${heads.length}">${NA}</td>`:c.segs.map(s=>`<td class="num">${(s[1]/c.tot*100).toFixed(2)}%</td>`).join("")}</tr>`).join("")}</tbody></table></div>`;
+  const lastSplit=[...cols].reverse().find(c=>!c.na);
+  const lt=lastSplit&&originByType(S.code,lastSplit.d,src);
+  const lsum=lt?Object.values(lt.L).reduce((a,b)=>a+b,0)/lastSplit.tot:null;
   const hb=(k,l)=>`<button type="button" class="chip" data-hc="${k}" aria-pressed="${o===k}">${l}</button>`;
-  const sb=(k,l)=>`<button type="button" class="chip" data-src="${k}" aria-pressed="${src===k}">${l}</button>`;
-  return `<div class="card" style="gap:12px"><div class="row spread"><h2>Holding composition (scripless)</h2><span class="note">Click a month</span></div>
+  const mb=(k,l,t)=>`<button type="button" data-hm="${k}" aria-pressed="${mode===k}" aria-label="${t}" title="${t}">${l}</button>`;
+  return `<div class="card" style="gap:12px"><div class="row spread"><h2>Holding composition (scripless)</h2><div class="seg">${mb("bars","▮▮","Bars")}${mb("list","☰","Table")}</div></div>
    <div class="row" style="gap:8px">${hb("all","All")}${hb("local","Local")}${hb("foreign","Foreign")}</div>
-   <div class="row note" style="gap:8px">Local/foreign by type from: ${sb("type","Investor-type report")}${sb("class","Classification report")}</div>
-   ${lsum===null?"":`<div style="display:grid;grid-template-columns:1fr 1fr;gap:8px"><div class="cbox row spread" style="flex-direction:row"><span>Local</span><b style="color:var(--g4)">${(lsum*100).toFixed(2)}%</b></div><div class="cbox row spread" style="flex-direction:row"><span>Foreign</span><b style="color:var(--g5)">${((1-lsum)*100).toFixed(2)}%</b></div></div>`}
-   <div class="hchart" style="height:${H+24}px">${grid}<div class="hcols">${bars}</div></div>
-   <div class="legend">${o==="all"?`<span><span class="sw" style="background:var(--g4)"></span>Local</span><span><span class="sw" style="background:var(--g5)"></span>Foreign</span>`:GROUPS.map(g=>`<span><span class="sw" style="background:var(${g[2]})"></span>${g[1]}</span>`).join("")}</div>
-   ${detail}</div>`;
+   ${lsum===null?"":`<div style="display:grid;grid-template-columns:1fr 1fr;gap:8px"><div class="cbox row spread" style="flex-direction:row"><span>Local</span><b style="color:var(--g4)">${(lsum*100).toFixed(2)}%</b></div><div class="cbox row spread" style="flex-direction:row"><span>Foreign</span><b style="color:var(--g5)">${((1-lsum)*100).toFixed(2)}%</b></div></div><div class="note" style="margin-top:-6px">As of ${mlabel(lastSplit.d)}.</div>`}
+   ${mode==="list"?table:`<div class="hchart" style="height:${H+24}px">${grid}<div class="hcols">${bars}</div><div class="tip" id="tip" hidden></div></div>
+   <div class="legend">${heads.map(h=>`<span><span class="sw" style="background:${h[1]}"></span>${h[0]}</span>`).join("")}</div>`}
+   <div class="note">Every archived month. Local and foreign are ${NA}, so those months show no split.</div></div>`;
 }
 
 function vPanel(){
@@ -310,7 +314,9 @@ function render(){
   document.querySelectorAll(".chip[data-o]").forEach(b=>b.onclick=()=>{S.origin=b.dataset.o;render()});
   document.querySelectorAll(".chip[data-hc]").forEach(b=>b.onclick=()=>{S.hc=b.dataset.hc;render()});
   document.querySelectorAll(".chip[data-src]").forEach(b=>b.onclick=()=>{S.src=b.dataset.src;render()});
-  document.querySelectorAll(".hcol").forEach(b=>{const f=()=>{S.hcDate=b.dataset.hd;render()};b.onclick=f;b.onkeydown=e=>{if(e.key==="Enter"||e.key===" "){e.preventDefault();f()}}});
+  document.querySelectorAll("[data-hm]").forEach(b=>b.onclick=()=>{S.hcMode=b.dataset.hm;render()});
+  const tip=q("tip");
+  document.querySelectorAll(".hcol").forEach(b=>{const show=()=>{if(!tip)return;tip.innerHTML=window.__tips[b.dataset.hd];tip.hidden=false;const ch=b.closest(".hchart").getBoundingClientRect(),r=b.getBoundingClientRect();let x=r.left-ch.left+r.width+8;if(x+220>ch.width)x=r.left-ch.left-228;tip.style.left=Math.max(0,x)+"px";tip.style.top="0px"};const hide=()=>{if(tip)tip.hidden=true};b.onmouseenter=show;b.onfocus=show;b.onclick=show;b.onmouseleave=hide;b.onblur=hide});
   if(q("all39")) q("all39").onclick=()=>{S.all39=!S.all39;render()};
   document.querySelectorAll(".trow").forEach(t=>{const f=()=>{if(t.dataset.pick==="date")S.date=t.dataset.d;else S.tdate=t.dataset.d;render()};t.onclick=f;t.onkeydown=e=>{if(e.key==="Enter"||e.key===" "){e.preventDefault();f()}}});
   document.querySelectorAll("#variants button").forEach(b=>b.setAttribute("aria-pressed",b.dataset.k===S.variant));
