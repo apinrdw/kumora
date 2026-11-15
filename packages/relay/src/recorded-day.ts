@@ -212,8 +212,9 @@ const SweepBrokerFields = Schema.Struct({
 // Decision: a sweep's brokers travel as tuples, [first trade, aggressor
 // side, other side], each side's brokers as [code, investor type, lots], not
 // keyed objects: a busy code's 10–18 K sweeps a day answer 1–2 MB as tuples.
-// The trading-day object stores the same order (dashboard sweep-brokers.ts);
-// change both. See spec apinrdw/kumora#343, "The sweep brokers answer".
+// The trading-day object stores each row's sweeps in this encoding too
+// (`encodeSweepBrokersText`). See spec apinrdw/kumora#343, "The sweep
+// brokers answer".
 const SweepBroker = Schema.Tuple([
   BrokerCode,
   InvestorType,
@@ -275,6 +276,13 @@ export const encodeRecordedSweepBrokers = Schema.encodeEffect(
 export const decodeRecordedSweepBrokers = Schema.decodeUnknownEffect(
   Schema.fromJsonString(RecordedSweepBrokers)
 )
+
+// A list of whole sweeps' brokers as JSON, as the answer's `sweeps` holds
+// them: the trading-day object's sweep brokers row.
+const SweepBrokersText = Schema.fromJsonString(Schema.Array(SweepBrokers))
+export const encodeSweepBrokersText = Schema.encodeEffect(SweepBrokersText)
+export const decodeSweepBrokersText =
+  Schema.decodeUnknownEffect(SweepBrokersText)
 
 // One code's candles and footprints for the whole day, each ascending by
 // minute, and the previous close a `liveprice` frame carried, the

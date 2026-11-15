@@ -6,8 +6,9 @@
 // touched minute of the whole market and regroups it as the footprint rows
 // do (minute-regroup.ts). No other recorded day answer reads the table.
 import {
-  BrokerCode,
   TradeNumber,
+  decodeSweepBrokersText,
+  encodeSweepBrokersText,
   type InvestorType,
   type RunningTrade,
   type StockCode,
@@ -37,52 +38,12 @@ const SCHEMA = `CREATE TABLE IF NOT EXISTS sweep_brokers (
   PRIMARY KEY (code, minute)
 ) WITHOUT ROWID`
 
-// The wire tuples' order (@workspace/relay recorded-day.ts `SweepBrokers`);
-// change both.
-type BrokerTuple = readonly [
-  code: SweepBroker["code"],
-  investorType: InvestorType,
-  lots: number,
-]
-type SweepTuple = readonly [
-  firstTrade: TradeNumber,
-  aggressor: ReadonlyArray<BrokerTuple>,
-  other: ReadonlyArray<BrokerTuple>,
-]
-
-const brokerTuple = (broker: SweepBroker): BrokerTuple => [
-  broker.code,
-  broker.investorType,
-  broker.lots,
-]
-
+// A row's sweeps as stored, in the answer's encoding. Rows are the table's
+// own writes, so a row that fails to encode or decode is a defect.
 const sweepsText = (sweeps: ReadonlyArray<SweepBrokers>) =>
-  Effect.sync(() =>
-    JSON.stringify(
-      sweeps.map((sweep): SweepTuple => [
-        sweep.firstTrade,
-        sweep.aggressor.map(brokerTuple),
-        sweep.other.map(brokerTuple),
-      ])
-    )
-  )
-
-// Rows are the table's own writes, so they are read back without a decode.
+  Effect.orDie(encodeSweepBrokersText(sweeps))
 const sweepsFromText = (text: string) =>
-  Effect.sync((): ReadonlyArray<SweepBrokers> => {
-    const broker = ([code, investorType, lots]: BrokerTuple): SweepBroker => ({
-      code: BrokerCode.make(code),
-      investorType,
-      lots,
-    })
-    return (JSON.parse(text) as ReadonlyArray<SweepTuple>).map(
-      ([firstTrade, aggressor, other]) => ({
-        firstTrade: TradeNumber.make(firstTrade),
-        aggressor: aggressor.map(broker),
-        other: other.map(broker),
-      })
-    )
-  })
+  Effect.orDie(decodeSweepBrokersText(text))
 
 // One member trade's broker on one side of a sweep, with its investor type
 // and the trade's lots.
