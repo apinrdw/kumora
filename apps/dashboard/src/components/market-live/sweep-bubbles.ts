@@ -303,19 +303,22 @@ export function attachSweepBubbles({
   })
   const stopCursor = cursor?.subscribe(schedule)
   // The tooltip of the bubble at the pointer, or none once it is on no
-  // bubble; a log cell's tooltip is left alone.
+  // bubble; a log cell's tooltip, and a pinned one, are left alone.
+  // `pin` pins it, for a click or a tap.
   // Decision: the bubbles' own hit test finds the bubble, since a tap's
   // click carries no hovered object (the library hit-tests where the
   // crosshair was, and a tap moved none there). Its point is pane-local, so
   // a point in another pane (chart 1's volume) is on no bubble.
-  const tip = (parameter: MouseEventParams<Time>) => {
+  const tip = (parameter: MouseEventParams<Time>, pin = false) => {
     const point =
       parameter.paneIndex === series.getPane().paneIndex()
         ? parameter.point
         : undefined
     const id = point && bubbles.nearest(point.x, point.y)?.id
+    const shown = store.tip.get()
+    if (!pin && shown?.pinned) return id
     if (id === undefined || point === undefined) {
-      if (store.tip.get()?.from === "chart") store.tip.set(undefined)
+      if (shown?.from === "chart") store.tip.set(undefined)
       return id
     }
     const box = chart.chartElement().getBoundingClientRect()
@@ -324,6 +327,7 @@ export function attachSweepBubbles({
       x: box.left + point.x,
       y: box.top + point.y,
       from: "chart",
+      pinned: pin,
     })
     return id
   }
@@ -332,7 +336,7 @@ export function attachSweepBubbles({
     // A click or a tap on a bubble selects its sweep and shows its tooltip
     // (a tap has no hover); says whether it was on one.
     click: (parameter: MouseEventParams<Time>) => {
-      const id = tip(parameter)
+      const id = tip(parameter, true)
       if (id !== undefined) store.select(id, "chart")
       return id !== undefined
     },

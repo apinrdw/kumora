@@ -45,7 +45,8 @@ export interface TipAt {
   readonly x: number
   readonly y: number
   readonly from: "chart" | "log"
-  readonly pinned?: boolean
+  // Shown by a click or a tap, not a hover: a hover leaves it be.
+  readonly pinned: boolean
 }
 
 export interface SweepStore {

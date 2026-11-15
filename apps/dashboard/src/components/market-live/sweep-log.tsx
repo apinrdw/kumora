@@ -242,8 +242,13 @@ const COLUMNS = {
 // price path whole, and a phone's Sweeps tab is about 360 px wide.
 const BROKER_COLUMNS_MIN = "min-w-[528px]"
 
-// Shows the sweep tooltip at a broker cell, or hides it.
-type OnTip = (id: TradeNumber, cell: HTMLElement | undefined) => void
+// Shows the sweep tooltip at a broker cell, pinned for a click or a tap, or
+// hides it.
+type OnTip = (
+  id: TradeNumber,
+  cell: HTMLElement | undefined,
+  pin?: boolean
+) => void
 
 // One side's Lead broker as `AK [F]` in its investor type's colour, and a
 // muted `+N` for the others on that side; blank for a sweep not yet whole.
@@ -267,10 +272,9 @@ function LeadBrokerCell({
       onPointerLeave={(event) => {
         if (event.pointerType === "mouse") onTip(id, undefined)
       }}
-      // A tap shows it as the press lifts, after the press hid the last one.
-      onPointerUp={(event) => {
-        if (event.pointerType !== "mouse") onTip(id, event.currentTarget)
-      }}
+      // A click or a tap pins it as the press lifts, after the press hid
+      // the last one.
+      onPointerUp={(event) => onTip(id, event.currentTarget, true)}
     >
       {lead && (
         <>
@@ -576,10 +580,17 @@ function LogColumns({
     [store]
   )
   const showTip = useCallback<OnTip>(
-    (id, cell) => {
+    (id, cell, pin = false) => {
+      if (!pin && store.tip.get()?.pinned) return
       if (cell === undefined) return store.tip.set(undefined)
       const box = cell.getBoundingClientRect()
-      store.tip.set({ id, x: box.left, y: box.bottom, from: "log" })
+      store.tip.set({
+        id,
+        x: box.left,
+        y: box.bottom,
+        from: "log",
+        pinned: pin,
+      })
     },
     [store]
   )
