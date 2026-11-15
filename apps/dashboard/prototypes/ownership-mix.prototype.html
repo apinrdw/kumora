@@ -71,6 +71,14 @@ tr.sub td:first-child{padding-left:26px;color:var(--muted)}
 .cbox{border:1px solid var(--line);border-radius:8px;padding:12px;display:flex;flex-direction:column;gap:10px}
 .crow{display:flex;flex-direction:column;gap:6px;padding:8px 0}
 .tip{position:absolute;z-index:3;width:220px;background:var(--panel);border:1px solid var(--line);border-radius:8px;padding:10px 12px;box-shadow:0 6px 20px rgba(0,0,0,.15);font-size:12px;display:flex;flex-direction:column;gap:6px;pointer-events:none}
+.hwrap{display:grid;grid-template-columns:minmax(0,1fr) 210px;gap:16px;align-items:start}
+@media (max-width:700px){.hwrap{grid-template-columns:minmax(0,1fr)}}
+.hlegend{display:flex;flex-direction:column;gap:2px}
+.lg{font:inherit;font-size:12px;text-align:left;background:transparent;border:0;color:var(--fg);padding:4px 6px;border-radius:4px;cursor:pointer;user-select:none}
+.lg:hover{background:var(--soft)}
+.lg[aria-pressed="false"]{opacity:.4;text-decoration:line-through}
+.hcol>.mono{height:20px;line-height:20px}
+.tip[hidden]{display:none}
 .tipgrid{display:grid;grid-template-columns:1fr auto;gap:3px 10px}
 .seg button[data-hm]{padding:4px 10px}
 .hchart{position:relative;padding-left:40px}
@@ -257,7 +265,7 @@ function originByType(code,date,src){
   const L={},F={}; agg(m,true).forEach(x=>{L[x.key]=x.local;F[x.key]=x.foreign}); return {L,F};
 }
 function holdingComp(){
-  const o=S.hc||"all",src="class",mode=S.hcMode||"bars";
+  const o=S.hc||"all",src="class",mode=S.hcMode||"bars",hid=S.hid||(S.hid=new Set()),vis=s=>!hid.has(s[0]);
   const cols=DATES.map(d=>{const m=month(S.code,d),t=originByType(S.code,d,src),tot=m.total;
     let segs=null;
     if(t){const l=Object.values(t.L).reduce((a,b)=>a+b,0),f=Object.values(t.F).reduce((a,b)=>a+b,0);
@@ -265,15 +273,16 @@ function holdingComp(){
         :GROUPS.map(g=>[g[1],(o==="local"?t.L:t.F)[g[0]]||0,`var(${g[2]})`]);}
     return {d,tot,segs,na:!t};});
   window.__tips=Object.fromEntries(cols.map(c=>[c.d,c.na?`<b>${mlabel(c.d)}</b><div>Local / foreign ${NA}.</div>`
-    :`<b>${mlabel(c.d)}</b><div class="tipgrid">${[...c.segs].sort((a,b)=>b[1]-a[1]).map(s=>`<span><span class="sw" style="background:${s[2]}"></span>${s[0]}</span><span class="num">${(s[1]/c.tot*100).toFixed(2)}%</span>`).join("")}</div>`]));
+    :`<b>${mlabel(c.d)}</b><div class="tipgrid">${[...c.segs].filter(vis).sort((a,b)=>b[1]-a[1]).map(s=>`<span><span class="sw" style="background:${s[2]}"></span>${s[0]}</span><span class="num">${(s[1]/c.tot*100).toFixed(2)}%</span>`).join("")}</div>`]));
   const H=240;
   const bars=cols.map(c=>`<div class="hcol" data-hd="${c.d}" tabindex="0" aria-label="${mlabel(c.d)}">
-     <div class="hstack" style="height:${H}px">${c.na?`<span class="hna">no split</span>`:c.segs.map(s=>`<i style="height:${s[1]/c.tot*H}px;background:${s[2]}"></i>`).join("")}</div>
+     <div class="hstack" style="height:${H}px">${c.na?`<span class="hna">no split</span>`:c.segs.filter(vis).map(s=>`<i style="height:${s[1]/c.tot*H}px;background:${s[2]}"></i>`).join("")}</div>
      <span class="mono note">${MONTHS[+c.d.slice(5,7)-1]} ${c.d.slice(2,4)}</span></div>`).join("");
   const grid=[100,75,50,25,0].map(p=>`<div class="hgl" style="bottom:${24+p/100*H}px"><span>${p}%</span></div>`).join("");
   const heads=o==="all"?[["Local","var(--g4)"],["Foreign","var(--g5)"]]:GROUPS.map(g=>[g[1],`var(${g[2]})`]);
-  const table=`<div class="tbl"><table><thead><tr><th>Month</th>${heads.map(h=>`<th class="num"><span class="sw" style="background:${h[1]}"></span>${h[0]}</th>`).join("")}</tr></thead>
-    <tbody>${[...cols].reverse().map(c=>`<tr><td class="mono">${mlabel(c.d)}</td>${c.na?`<td class="na" colspan="${heads.length}">${NA}</td>`:c.segs.map(s=>`<td class="num">${(s[1]/c.tot*100).toFixed(2)}%</td>`).join("")}</tr>`).join("")}</tbody></table></div>`;
+  const table=`<div class="tbl"><table><thead><tr><th>Month</th>${heads.filter(vis).map(h=>`<th class="num"><span class="sw" style="background:${h[1]}"></span>${h[0]}</th>`).join("")}</tr></thead>
+    <tbody>${[...cols].reverse().map(c=>`<tr><td class="mono">${mlabel(c.d)}</td>${c.na?`<td class="na" colspan="${heads.filter(vis).length}">${NA}</td>`:c.segs.filter(vis).map(s=>`<td class="num">${(s[1]/c.tot*100).toFixed(2)}%</td>`).join("")}</tr>`).join("")}</tbody></table></div>`;
+  const legend=`<div class="hlegend" role="group" aria-label="Legend: click hides, double-click shows only that one">${heads.map(h=>`<button type="button" class="lg" data-lg="${h[0]}" aria-pressed="${!hid.has(h[0])}"><span class="sw" style="background:${h[1]}"></span>${h[0]}</button>`).join("")}<span class="note">Click hides · double-click shows only that one</span></div>`;
   const lastSplit=[...cols].reverse().find(c=>!c.na);
   const lt=lastSplit&&originByType(S.code,lastSplit.d,src);
   const lsum=lt?Object.values(lt.L).reduce((a,b)=>a+b,0)/lastSplit.tot:null;
@@ -282,8 +291,7 @@ function holdingComp(){
   return `<div class="card" style="gap:12px"><div class="row spread"><h2>Holding composition (scripless)</h2><div class="seg">${mb("bars","▮▮","Bars")}${mb("list","☰","Table")}</div></div>
    <div class="row" style="gap:8px">${hb("all","All")}${hb("local","Local")}${hb("foreign","Foreign")}</div>
    ${lsum===null?"":`<div style="display:grid;grid-template-columns:1fr 1fr;gap:8px"><div class="cbox row spread" style="flex-direction:row"><span>Local</span><b style="color:var(--g4)">${(lsum*100).toFixed(2)}%</b></div><div class="cbox row spread" style="flex-direction:row"><span>Foreign</span><b style="color:var(--g5)">${((1-lsum)*100).toFixed(2)}%</b></div></div><div class="note" style="margin-top:-6px">As of ${mlabel(lastSplit.d)}.</div>`}
-   ${mode==="list"?table:`<div class="hchart" style="height:${H+24}px">${grid}<div class="hcols">${bars}</div><div class="tip" id="tip" hidden></div></div>
-   <div class="legend">${heads.map(h=>`<span><span class="sw" style="background:${h[1]}"></span>${h[0]}</span>`).join("")}</div>`}
+   ${mode==="list"?`<div class="hwrap"><div style="min-width:0">${table}</div>${legend}</div>`:`<div class="hwrap"><div class="hchart" style="height:${H+24}px">${grid}<div class="hcols">${bars}</div><div class="tip" id="tip" hidden></div></div>${legend}</div>`}
    <div class="note">Every archived month. Local and foreign are ${NA}, so those months show no split.</div></div>`;
 }
 
@@ -314,6 +322,9 @@ function render(){
   document.querySelectorAll(".chip[data-o]").forEach(b=>b.onclick=()=>{S.origin=b.dataset.o;render()});
   document.querySelectorAll(".chip[data-hc]").forEach(b=>b.onclick=()=>{S.hc=b.dataset.hc;render()});
   document.querySelectorAll(".chip[data-src]").forEach(b=>b.onclick=()=>{S.src=b.dataset.src;render()});
+  document.querySelectorAll(".lg").forEach(b=>{let t=null;const k=b.dataset.lg;
+    b.onclick=()=>{clearTimeout(t);t=setTimeout(()=>{S.hid.has(k)?S.hid.delete(k):S.hid.add(k);render()},220)};
+    b.ondblclick=()=>{clearTimeout(t);const all=[...document.querySelectorAll(".lg")].map(x=>x.dataset.lg);const only=all.every(x=>x===k||S.hid.has(x))&&!S.hid.has(k);S.hid=new Set(only?[]:all.filter(x=>x!==k));render()}});
   document.querySelectorAll("[data-hm]").forEach(b=>b.onclick=()=>{S.hcMode=b.dataset.hm;render()});
   const tip=q("tip");
   document.querySelectorAll(".hcol").forEach(b=>{const show=()=>{if(!tip)return;tip.innerHTML=window.__tips[b.dataset.hd];tip.hidden=false;const ch=b.closest(".hchart").getBoundingClientRect(),r=b.getBoundingClientRect();let x=r.left-ch.left+r.width+8;if(x+220>ch.width)x=r.left-ch.left-228;tip.style.left=Math.max(0,x)+"px";tip.style.top="0px"};const hide=()=>{if(tip)tip.hidden=true};b.onmouseenter=show;b.onfocus=show;b.onclick=show;b.onmouseleave=hide;b.onblur=hide});
