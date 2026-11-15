@@ -236,10 +236,10 @@ const COLUMNS = {
   brokers: "grid-cols-[58px_44px_minmax(0,1fr)_76px_80px_80px_10px]",
 } as const
 
-// Decision: below lg a recorded day's columns scroll sideways inside the
-// log, never narrower than at lg's 530 px (layout-b.tsx), as the tape does
-// (tape-list.tsx): Time to Other side need about 520 px with the lots and
-// price path whole, and a phone's Sweeps tab is about 360 px wide.
+// Decision: a recorded day's columns scroll sideways inside a log narrower
+// than they need, as the tape does (tape-list.tsx): a phone's Sweeps tab
+// (about 360 px), and from lg a log given way below 530 px (layout-b.tsx).
+// Time to Other side need about 520 px with the lots and price path whole.
 const BROKER_COLUMNS_MIN = "min-w-[528px]"
 
 // Shows the sweep tooltip at a broker cell, pinned for a click or a tap, or

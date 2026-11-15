@@ -92,14 +92,18 @@ export function LayoutB({
       ref={layout}
       className={cn(
         "grid gap-4 lg:min-h-(--fill)",
-        // Decision: the sweep log is 340 px live and 530 px on a recorded
-        // day, whose sweeps can have brokers: the broker columns need the
-        // room, and live they would stay blank, so the charts keep it. See
-        // spec apinrdw/kumora#343, "Log layout A".
+        // Decision: the sweep log is 340 px live. On a recorded day, whose
+        // sweeps can have brokers, it flexes from 340 px up to 530 px and
+        // gives way first: the charts keep 480 px, or all the room the 340
+        // px log and the 400 px column leave when that is less (772 px is
+        // those two and the grid's two 16 px gaps). Narrower than its broker
+        // columns, the log scrolls them sideways (sweep-log.tsx). Live the
+        // columns would stay blank, so the charts keep the room. See spec
+        // apinrdw/kumora#343, "Log layout A".
         log === undefined
           ? "lg:grid-cols-[minmax(0,1fr)_400px]"
           : withBrokers
-            ? "lg:grid-cols-[minmax(0,1fr)_530px_400px]"
+            ? "lg:grid-cols-[minmax(min(480px,calc(100%-772px)),1fr)_minmax(340px,530px)_400px]"
             : "lg:grid-cols-[minmax(0,1fr)_340px_400px]"
       )}
     >
