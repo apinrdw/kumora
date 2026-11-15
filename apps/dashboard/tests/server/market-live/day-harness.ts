@@ -24,7 +24,15 @@ import {
   type ViewerDown,
 } from "@workspace/relay"
 import { WorkerEnv } from "@workspace/server"
-import { DateTime, Effect, Exit, Layer, Scope } from "effect"
+import {
+  DateTime,
+  Effect,
+  Exit,
+  Layer,
+  Logger,
+  References,
+  Scope,
+} from "effect"
 
 import type { Sql } from "@/server/market-live/day-store"
 import {
@@ -380,3 +388,20 @@ export const sweepOf = (sweep: Sweep) => [
   sweep.lots,
   sweep.trades,
 ]
+
+// A logged line's annotations.
+export type Line = Readonly<Record<string, unknown>>
+
+// Runs `test` with the annotations of every line logged with `message`.
+export const withLines = <A, E, R>(
+  message: string,
+  test: (lines: ReadonlyArray<Line>) => Effect.Effect<A, E, R>
+) => {
+  const lines: Array<Line> = []
+  const capture = Logger.make(({ message: logged, fiber }) => {
+    const [text] = Array.isArray(logged) ? logged : [logged]
+    if (text === message)
+      lines.push(fiber.getRef(References.CurrentLogAnnotations) as Line)
+  })
+  return test(lines).pipe(Effect.provide(Logger.layer([capture])))
+}

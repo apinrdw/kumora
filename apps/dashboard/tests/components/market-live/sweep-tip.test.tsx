@@ -3,6 +3,8 @@ import {
   BrokerCode,
   StockCode,
   TradeNumber,
+  WibDate,
+  marketPhases,
   type Sweep,
 } from "@workspace/relay"
 import { DateTime, Effect } from "effect"
@@ -10,8 +12,10 @@ import { act } from "react"
 import { createRoot } from "react-dom/client"
 import { expect, test } from "vitest"
 
+import { makeReplayCursor } from "@/components/market-live/replay-cursor"
 import { makeSweepStore } from "@/components/market-live/sweep-store"
 import { SweepTip } from "@/components/market-live/sweep-tip"
+import { replayDay } from "@/lib/replay"
 
 // React's `act` warns outside a test environment that declares itself.
 Object.assign(globalThis, { IS_REACT_ACT_ENVIRONMENT: true })
@@ -108,5 +112,59 @@ test("a sweep with more brokers than fit stays inside the viewport, and pinned, 
     )
   )
   expect(tip()).toBeNull()
+  await act(() => root.unmount())
+})
+
+test("a tooltip open on a sweep the replay cursor moves back before hides, and stays hidden as the cursor passes it again", async () => {
+  const DAY = WibDate.make("2026-11-09")
+  const late: Sweep = {
+    ...buy,
+    firstTrade: TradeNumber.make("9"),
+    time: DateTime.makeUnsafe("2026-11-09T15:00:00+07:00"),
+  }
+  const store = Effect.runSync(makeSweepStore(BBCA))
+  store.answer(0, { code: BBCA, sweeps: [buy, late] })
+  store.answerBrokers({
+    code: BBCA,
+    sweeps: [
+      {
+        firstTrade: late.firstTrade,
+        aggressor: [
+          { code: BrokerCode.make("AK"), investorType: "F", lots: 30 },
+        ],
+        other: [{ code: BrokerCode.make("CC"), investorType: "D", lots: 30 }],
+      },
+    ],
+    complete: true,
+  })
+  const cursor = await Effect.runPromise(
+    Effect.flatMap(marketPhases(DAY), (phases) =>
+      Effect.flatMap(replayDay(DAY, phases), makeReplayCursor)
+    )
+  )
+  const root = createRoot(
+    document.body.appendChild(document.createElement("div"))
+  )
+  await act(() =>
+    root.render(<SweepTip store={store} cursor={cursor} withBrokers />)
+  )
+  await act(() =>
+    store.tip.set({
+      id: late.firstTrade,
+      x: 10,
+      y: 10,
+      from: "chart",
+      pinned: true,
+    })
+  )
+  const tip = () => document.querySelector('[role="tooltip"]')
+  expect(tip()?.textContent).toContain("AK [F]")
+
+  // Play from the close jumps back to the day's start, before the sweep.
+  await act(() => cursor.seek(cursor.day.start))
+  expect(tip()).toBeNull()
+  await act(() => cursor.seek(cursor.day.close))
+  expect(tip()).toBeNull()
+  cursor.dispose()
   await act(() => root.unmount())
 })

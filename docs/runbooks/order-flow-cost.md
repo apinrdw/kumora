@@ -99,7 +99,7 @@ Spec [apinrdw/kumora#343](https://github.com/apinrdw/kumora/issues/343), ticket 
 
 Use the same `s = T_prod / T_staging`, 22 trading days and prices as in [The estimate model](#the-estimate-model). Add these terms:
 
-- Sweep brokers writes a month: `W = 22 × s × ΣsweepBrokers`. If `ΣbilledRowsWritten` over the `Sweep brokers recomputed` lines is well above their `ΣsweepBrokers`, scale `W` by that ratio.
+- Sweep brokers writes a month: `W = 22 × s × ΣsweepBrokers`. If `ΣbilledRowsWritten` over the `Sweep brokers recomputed` lines is well above their `ΣsweepBrokers`, scale `W` by that ratio. Leave a one-off build's line out of that ratio: it writes a progress fact for every minute it reads, rows or none, so its `billedRowsWritten` runs far above its `sweepBrokers`.
 - Sweep brokers rows read a month: `B = 22 × s × ΣbilledSweepBrokerReadRows`
 - Storage added a month, in GB: `G_sb = 22 × s × sweepBrokerBytes / 10⁹`
 
