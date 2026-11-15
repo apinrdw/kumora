@@ -4,7 +4,7 @@
 // hides series.
 import { cn } from "@workspace/ui/lib/utils"
 import { Effect } from "effect"
-import { useEffect, useLayoutEffect, useRef, useState } from "react"
+import { useLayoutEffect, useRef, useState } from "react"
 
 import { KChip } from "@/components/k/chip"
 import { kCard, kFocus } from "@/components/k/styles"
@@ -44,14 +44,7 @@ const VIEWS: ReadonlyArray<{ value: ChartView; label: string }> = [
 const HEIGHT = 240
 const COLUMN = "w-9"
 
-// A click waits this long in case it is the first of a double-click.
-const DOUBLE_CLICK_MS = 220
-
 const NONE_HIDDEN: ReadonlySet<SeriesKey> = new Set()
-
-// The next hidden set, from the newest, so toggles a timer applies later
-// keep the ones before them.
-type HiddenUpdate = (latest: ReadonlySet<SeriesKey>) => ReadonlySet<SeriesKey>
 
 const ofWhat = (origin: OriginShown) =>
   Effect.succeed(
@@ -117,10 +110,7 @@ export function HoldingComposition({
         ) : (
           <Table chart={chart} shown={shown} />
         )}
-        {/* Keyed by origin, so a click still waiting out a double-click
-            dies with the origin it was made in. */}
         <Legend
-          key={origin}
           series={chart.series}
           hidden={hidden}
           origin={origin}
@@ -426,37 +416,37 @@ function Legend({
   series: ReadonlyArray<ChartSeries>
   hidden: ReadonlySet<SeriesKey>
   origin: OriginShown
-  onHidden: (update: HiddenUpdate) => void
+  onHidden: (hidden: ReadonlySet<SeriesKey>) => void
 }) {
-  // Each entry's click waiting out a double-click: only a second click on
-  // the same entry makes one.
-  const pending = useRef(new Map<SeriesKey, ReturnType<typeof setTimeout>>())
-  useEffect(() => {
-    const timers = pending.current
-    return () => timers.forEach(clearTimeout)
-  }, [])
-  const settle = (key: SeriesKey) => {
-    clearTimeout(pending.current.get(key))
-    pending.current.delete(key)
-  }
-  const toggle = (key: SeriesKey) =>
-    onHidden((latest) => {
-      const next = new Set(latest)
-      if (!next.delete(key)) next.add(key)
-      return next
-    })
-  // Shows only `key`, or everything when it already is the only one shown.
-  const only = (key: SeriesKey) =>
-    onHidden((latest) => {
+  // The hidden set as it was before the last click, which a double-click's
+  // second click decides from.
+  // Decision: a click hides or shows its series at once, and a double-click
+  // replaces whatever its first click did: a click that waited out a timer
+  // for a double-click was applied anyway when the browser counted a
+  // slower one, so double-clicking an entry shown alone isolated it again.
+  const beforeClick = useRef(hidden)
+  const onClick = (key: SeriesKey, clicks: number) => {
+    if (clicks === 2) {
+      const before = beforeClick.current
       const alone =
-        !latest.has(key) &&
-        series.every((each) => each.key === key || latest.has(each.key))
-      return new Set(
-        alone
-          ? []
-          : series.flatMap((each) => (each.key === key ? [] : [each.key]))
+        !before.has(key) &&
+        series.every((each) => each.key === key || before.has(each.key))
+      onHidden(
+        new Set(
+          alone
+            ? []
+            : series.flatMap((each) => (each.key === key ? [] : [each.key]))
+        )
       )
-    })
+      return
+    }
+    // A keyboard press counts no clicks; a third click does nothing.
+    if (clicks > 2) return
+    beforeClick.current = hidden
+    const next = new Set(hidden)
+    if (!next.delete(key)) next.add(key)
+    onHidden(next)
+  }
   return (
     <div className="flex flex-col gap-0.5">
       <div role="group" aria-label="Legend" className="flex flex-col gap-0.5">
@@ -465,23 +455,7 @@ function Legend({
             key={each.key}
             type="button"
             aria-pressed={!hidden.has(each.key)}
-            onClick={(event) => {
-              settle(each.key)
-              // A keyboard press has no double-click to wait for.
-              if (event.detail === 0) toggle(each.key)
-              else
-                pending.current.set(
-                  each.key,
-                  setTimeout(() => {
-                    pending.current.delete(each.key)
-                    toggle(each.key)
-                  }, DOUBLE_CLICK_MS)
-                )
-            }}
-            onDoubleClick={() => {
-              settle(each.key)
-              only(each.key)
-            }}
+            onClick={(event) => onClick(each.key, event.detail)}
             className={cn(
               "hover:bg-elevated flex items-center rounded-xs px-1.5 py-1 text-left text-[12px] select-none",
               "aria-[pressed=false]:line-through aria-[pressed=false]:opacity-40",
