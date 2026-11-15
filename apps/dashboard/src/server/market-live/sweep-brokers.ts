@@ -13,11 +13,17 @@ import {
   type SweepBroker,
   type SweepBrokers,
   type TradeCodes,
+  MINUTE_MS,
 } from "@workspace/relay"
 import { Effect } from "effect"
 
-import type { HeldCodes } from "./broker-codes.ts"
-import type { DayStore, Sql } from "./day-store.ts"
+import type { BrokerCodesStore, HeldCodes } from "./broker-codes.ts"
+import {
+  Fact,
+  SWEEP_BROKERS_BUILT,
+  type DayStore,
+  type Sql,
+} from "./day-store.ts"
 import { regroupMinute, type CodeMinute } from "./minute-regroup.ts"
 
 // Decision: keyed by (code, minute) WITHOUT ROWID like the footprint rows:
@@ -168,42 +174,65 @@ const runsOf = (numbers: ReadonlyArray<number>) =>
     return runs
   })
 
-// One minute's rows: each code with sweeps, with its whole sweeps' text, or
-// none when none of its sweeps is whole.
+// The rows of one minute to write: each code's whole sweeps' text, or none
+// to delete its row.
 type MinuteRows = ReadonlyArray<readonly [StockCode, string | undefined]>
 
 export const makeSweepBrokers = Effect.fnUntraced(function* (options: {
   // The trading day's database, shared with the day store.
   readonly sql: Sql
   readonly store: DayStore
+  readonly brokerCodes: Pick<
+    BrokerCodesStore,
+    "heldCodes" | "isComplete" | "holdsNone"
+  >
 }) {
-  const { sql, store } = options
+  const { sql, store, brokerCodes } = options
   yield* Effect.sync(() => sql.exec(SCHEMA))
 
-  // One minute's rows worked out again from the codes `heldCodes` reads.
-  const minuteRows = Effect.fnUntraced(function* (
-    minute: number,
-    heldCodes: HeldCodes
-  ) {
-    const codeMinutes = yield* regroupMinute(yield* store.minuteTrades(minute))
-    const codes = new Map(
-      yield* heldCodes(
-        codeMinutes.flatMap(({ trades }) =>
-          trades.map((trade) => trade.tradeNumber)
-        )
+  // The stored text of one code's row for one minute, if any.
+  const storedText = (code: StockCode, minute: number) =>
+    Effect.sync(() => {
+      const [row] = sql.exec(
+        "SELECT sweeps FROM sweep_brokers WHERE code = ? AND minute = ?",
+        code,
+        minute
       )
+      return row === undefined ? undefined : String(row.sweeps)
+    })
+
+  // One minute's rows worked out again from the codes `heldCodes` reads,
+  // metering the rows it read: for each code with a sided sweep, its whole
+  // sweeps' text, or none when none is whole.
+  // Decision: a row whose bytes are already stored is left out, and so is
+  // a delete of a row never stored, so a batch writes only the rows it
+  // changes, not every code's row of each minute it touches. See
+  // docs/runbooks/order-flow-cost.md, "Sweep brokers: one Staging evening".
+  const minuteRows = (minute: number, heldCodes: HeldCodes) =>
+    store.sweepBrokerMinute(
+      Effect.gen(function* () {
+        const codeMinutes = yield* regroupMinute(
+          yield* store.minuteTrades(minute)
+        )
+        const codes = new Map(
+          yield* heldCodes(
+            codeMinutes.flatMap(({ trades }) =>
+              trades.map((trade) => trade.tradeNumber)
+            )
+          )
+        )
+        const rows: Array<MinuteRows[number]> = []
+        for (const codeMinute of codeMinutes) {
+          if (codeMinute.sweeps.every((sweep) => sweep.side === "none"))
+            continue
+          const whole = yield* wholeSweeps(codeMinute, codes)
+          const text = whole.length === 0 ? undefined : yield* sweepsText(whole)
+          if (text !== (yield* storedText(codeMinute.code, minute)))
+            rows.push([codeMinute.code, text])
+        }
+        return rows
+      })
     )
-    const rows: Array<MinuteRows[number]> = []
-    for (const codeMinute of codeMinutes) {
-      if (codeMinute.sweeps.every((sweep) => sweep.side === "none")) continue
-      const whole = yield* wholeSweeps(codeMinute, codes)
-      rows.push([
-        codeMinute.code,
-        whole.length === 0 ? undefined : yield* sweepsText(whole),
-      ])
-    }
-    return rows
-  })
 
   // Replaces one minute's rows, inside the caller's transaction.
   const writeRows = (minute: number, rows: MinuteRows) => {
@@ -223,27 +252,126 @@ export const makeSweepBrokers = Effect.fnUntraced(function* (options: {
         )
   }
 
-  // The rows of the minutes `numbers` fall in, worked out again from the
-  // codes `heldCodes` reads, as the writes that replace them inside the
-  // caller's transaction (broker-codes.ts, `write`).
+  // One minute of the build: its rows replaced in one transaction with
+  // `facts`. A minute whose rows are all stored writes nothing.
+  const buildMinute = Effect.fnUntraced(function* (
+    minute: number,
+    facts: Readonly<Record<string, string>>
+  ) {
+    const rows = yield* minuteRows(minute, brokerCodes.heldCodes)
+    if (rows.length === 0) return
+    yield* store.writeSweepBrokers(rows.length, facts, () =>
+      writeRows(minute, rows)
+    )
+  })
+
+  // How many rows the table holds and their payload bytes.
+  const storage = Effect.sync(() => {
+    const [row] = sql.exec(
+      "SELECT count(*) AS rows, coalesce(sum(length(sweeps)), 0) AS bytes FROM sweep_brokers"
+    )
+    return {
+      sweepBrokerRows: Number(row?.rows),
+      sweepBrokerBytes: Number(row?.bytes),
+    }
+  })
+
+  // Decision: after the seal no flush logs the meter, so each recompute
+  // logs its own line; before it, the counts ride the next `Rows written`.
+  // The storage line is logged again, with this table, the first time a
+  // sealed day's codes are complete. See spec apinrdw/kumora#343, "Cost".
+  // The Staging check reads both: docs/runbooks/order-flow-cost.md.
+  let storageLogged = false
+  const logged = Effect.gen(function* () {
+    if ((yield* store.fact(Fact.sealed)) === undefined) return
+    yield* Effect.logInfo("Sweep brokers recomputed").pipe(
+      Effect.annotateLogs({ ...(yield* store.takeMeter) })
+    )
+    if (storageLogged || !(yield* brokerCodes.isComplete)) return
+    storageLogged = true
+    yield* Effect.logInfo("Order flow storage").pipe(
+      Effect.annotateLogs({
+        ...(yield* store.orderFlowStorage),
+        ...(yield* storage),
+      })
+    )
+  })
+
+  // Decision: the build goes minute by minute, each minute's rows and its
+  // progress in one transaction, as the order flow build does
+  // (order-flow-build.ts): a build that dies reruns from the minute after
+  // the last that landed. A day with no tape has no minute and builds
+  // nothing. See spec apinrdw/kumora#343, "The one-off build".
+  const build = Effect.gen(function* () {
+    const progress = yield* store.fact(Fact.sweepBrokersBuilt)
+    if (progress === SWEEP_BROKERS_BUILT) return
+    const span = yield* store.orderFlowMinutes
+    if (span !== undefined) {
+      const from =
+        progress === undefined
+          ? span.first
+          : Math.max(span.first, Number(progress) + MINUTE_MS)
+      for (let minute = from; minute <= span.last; minute += MINUTE_MS)
+        yield* buildMinute(minute, {
+          [Fact.sweepBrokersBuilt]: String(minute),
+        })
+    }
+    yield* store.markSweepBrokersBuilt
+    yield* logged
+  })
+
+  // Decision: a day holding no codes as its object starts gets each batch's
+  // rows as it lands, so it is marked built from the start. A day already
+  // holding codes without the mark took them, whole or in part, before
+  // sweep brokers shipped: once sealed, its first sweep brokers GET builds
+  // the rows. See spec apinrdw/kumora#343, "The one-off build".
+  const progress = yield* store.fact(Fact.sweepBrokersBuilt)
+  let built = progress === SWEEP_BROKERS_BUILT
+  if (progress === undefined && (yield* brokerCodes.holdsNone)) {
+    yield* store.markSweepBrokersBuilt
+    built = true
+  }
+
+  // The rows built first, if the day still needs its one-off build.
+  const builtFirst = Effect.suspend(() =>
+    built
+      ? Effect.void
+      : Effect.tap(build, () =>
+          Effect.sync(() => {
+            built = true
+          })
+        )
+  )
+
+  // The rows are worked out from the codes `heldCodes` reads, the batch's,
+  // and written with `writeCodes` in one transaction (broker-codes.ts,
+  // `write`), so the meter's billed rows written count the batch's own
+  // chunk and fact writes too: a few rows per batch.
   // Decision: a batch recomputes the minutes its trade numbers fall in,
   // found per run of consecutive numbers (trade numbers run in time order),
   // so a sparse Stockbit fill recomputes only the minutes it touched. See
   // spec apinrdw/kumora#343, "When it is recomputed".
   const recompute = Effect.fnUntraced(function* (
     numbers: ReadonlyArray<number>,
-    heldCodes: HeldCodes
+    heldCodes: HeldCodes,
+    writeCodes: () => void
   ) {
     const minutes = new Set<number>()
     for (const [first, last] of yield* runsOf(numbers))
       for (const minute of yield* store.minutesOfTrades(first, last))
         minutes.add(minute)
     const rows: Array<readonly [number, MinuteRows]> = []
-    for (const minute of [...minutes].sort((a, b) => a - b))
-      rows.push([minute, yield* minuteRows(minute, heldCodes)])
-    return () => {
-      for (const [minute, written] of rows) writeRows(minute, written)
+    let count = 0
+    for (const minute of [...minutes].sort((a, b) => a - b)) {
+      const changed = yield* minuteRows(minute, heldCodes)
+      rows.push([minute, changed])
+      count += changed.length
     }
+    yield* store.writeSweepBrokers(count, {}, () => {
+      writeCodes()
+      for (const [minute, changed] of rows) writeRows(minute, changed)
+    })
+    yield* logged
   })
 
   // One code's whole sweeps with their brokers, in trade order.
@@ -257,7 +385,7 @@ export const makeSweepBrokers = Effect.fnUntraced(function* (options: {
     return sweeps
   })
 
-  return { recompute, sweepsOf }
+  return { recompute, builtFirst, storage, sweepsOf }
 })
 
 export type SweepBrokersStore = Effect.Success<

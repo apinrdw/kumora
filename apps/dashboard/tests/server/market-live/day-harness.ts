@@ -340,6 +340,14 @@ export const sealedBeforeOrderFlow = (sql: Sql) =>
     sql.exec("DELETE FROM facts WHERE key = 'order-flow-built'")
   })
 
+// What a day whose codes landed before sweep brokers shipped holds: no sweep
+// brokers rows, and no mark that they were built.
+export const codesBeforeSweepBrokers = (sql: Sql) =>
+  Effect.sync(() => {
+    sql.exec("DELETE FROM sweep_brokers")
+    sql.exec("DELETE FROM facts WHERE key = 'sweep-brokers-built'")
+  })
+
 // The footprints a viewer was sent of `code`, snapshot and deltas in order.
 export const footprintsOf = (
   messages: ReadonlyArray<ViewerDown>,

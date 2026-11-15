@@ -158,14 +158,15 @@ export type HeldCodes = (
   tradeNumbers: ReadonlyArray<TradeNumber>
 ) => Effect.Effect<ReadonlyArray<readonly [TradeNumber, TradeCodes]>>
 
-// What else a batch writes in its own transaction, worked out from the codes
-// as the batch leaves them: `changed` lists the trades whose codes it
-// changed, and `heldCodes` reads the codes the batch holds. Its writes run
-// inside the transaction, synchronously.
+// What else a batch that changed codes writes, worked out from the codes as
+// the batch leaves them: `changed` lists the trades whose codes it changed,
+// and `heldCodes` reads the codes the batch holds. It writes its own rows
+// and `writeCodes`, the batch's, in one transaction.
 type Alongside = (
   changed: ReadonlyArray<number>,
-  heldCodes: HeldCodes
-) => Effect.Effect<() => void>
+  heldCodes: HeldCodes,
+  writeCodes: () => void
+) => Effect.Effect<void>
 
 // What the status scan has counted so far.
 interface Tally {
@@ -391,32 +392,26 @@ export const makeBrokerCodes = Effect.fnUntraced(function* (options: {
     return merged
   })
 
-  const commit = (merged: Merged, alongside: () => void) =>
-    Effect.sync(() =>
-      sql.transaction(() => {
-        alongside()
-        for (const [chunk, codes] of merged.chunks)
-          sql.exec(
-            "INSERT OR REPLACE INTO broker_code_chunks VALUES (?, ?)",
-            chunk,
-            codes
-          )
-        for (const [number, [ajaib, stockbit]] of merged.differences)
-          sql.exec(
-            "INSERT OR REPLACE INTO cross_check_differences VALUES (?, ?, ?)",
-            number,
-            ajaib,
-            stockbit
-          )
-        for (const number of merged.agreed)
-          sql.exec(
-            "DELETE FROM cross_check_differences WHERE number = ?",
-            number
-          )
-        for (const [key, value] of merged.facts)
-          sql.exec("INSERT OR REPLACE INTO facts VALUES (?, ?)", key, value)
-      })
-    )
+  // A batch's writes, to run inside a transaction.
+  const writesOf = (merged: Merged) => () => {
+    for (const [chunk, codes] of merged.chunks)
+      sql.exec(
+        "INSERT OR REPLACE INTO broker_code_chunks VALUES (?, ?)",
+        chunk,
+        codes
+      )
+    for (const [number, [ajaib, stockbit]] of merged.differences)
+      sql.exec(
+        "INSERT OR REPLACE INTO cross_check_differences VALUES (?, ?, ?)",
+        number,
+        ajaib,
+        stockbit
+      )
+    for (const number of merged.agreed)
+      sql.exec("DELETE FROM cross_check_differences WHERE number = ?", number)
+    for (const [key, value] of merged.facts)
+      sql.exec("INSERT OR REPLACE INTO facts VALUES (?, ?)", key, value)
+  }
 
   // Decision: the day's `complete`, once a scan found it, is kept until the
   // next batch: the recorded day's codes answer carries it, and Play asks
@@ -425,9 +420,9 @@ export const makeBrokerCodes = Effect.fnUntraced(function* (options: {
   // time.
   let complete: boolean | undefined
 
-  // A batch merged into its chunks and written in one transaction with what
-  // `alongside` writes for the trades it changed, so a failed batch writes
-  // nothing and the extension resends it.
+  // A batch merged into its chunks and written in one transaction, with
+  // what `alongside` writes for the trades it changed, so a failed batch
+  // writes nothing and the extension resends it.
   // Decision: the sweep brokers rows land in the codes' own transaction.
   // Once a batch that changes no codes recomputes nothing, rows written in a
   // later transaction that failed would stay stale for good: the resent
@@ -438,13 +433,15 @@ export const makeBrokerCodes = Effect.fnUntraced(function* (options: {
     alongside: Alongside
   ) {
     const merged = yield* merge(batch)
-    const writes =
-      merged.changed.length === 0
-        ? () => {}
-        : yield* alongside(merged.changed, (tradeNumbers) =>
-            heldCodes(tradeNumbers, new Map(merged.chunks))
-          )
-    yield* commit(merged, writes)
+    const writeCodes = writesOf(merged)
+    if (merged.changed.length === 0)
+      yield* Effect.sync(() => sql.transaction(writeCodes))
+    else
+      yield* alongside(
+        merged.changed,
+        (tradeNumbers) => heldCodes(tradeNumbers, new Map(merged.chunks)),
+        writeCodes
+      )
     complete = undefined
   })
 
@@ -590,7 +587,19 @@ export const makeBrokerCodes = Effect.fnUntraced(function* (options: {
     )
   })
 
-  return { post, status: statusAnswer, held, heldCodes, isComplete }
+  // Whether the day holds no trade's codes yet.
+  const holdsNone = Effect.sync(
+    () => sql.exec("SELECT 1 FROM broker_code_chunks LIMIT 1").length === 0
+  )
+
+  return {
+    post,
+    status: statusAnswer,
+    held,
+    heldCodes,
+    isComplete,
+    holdsNone,
+  }
 })
 
 export type BrokerCodesStore = Effect.Success<
