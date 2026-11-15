@@ -271,19 +271,21 @@ function holdingComp(){
     if(t){const l=Object.values(t.L).reduce((a,b)=>a+b,0),f=Object.values(t.F).reduce((a,b)=>a+b,0);
       segs=o==="all"?[["Local",l,"var(--g4)"],["Foreign",f,"var(--g5)"]]
         :GROUPS.map(g=>[g[1],(o==="local"?t.L:t.F)[g[0]]||0,`var(${g[2]})`]);}
-    const vt=segs?segs.filter(vis).reduce((a,x)=>a+x[1],0):0;
-    return {d,tot:vt||1,segs,na:!t};});
+    const all=segs?segs.reduce((a,x)=>a+x[1],0):0,shown=segs?segs.filter(vis).reduce((a,x)=>a+x[1],0):0;
+    return {d,tot:all||1,frac:all?shown/all:0,segs,na:!t};});
+  // Decision: % is always of the whole origin; hiding series only rescales the axis to the tallest shown column.
+  const peak=Math.max(0.0001,...cols.map(c=>c.frac)),nice=[0.01,0.02,0.025,0.05,0.1,0.2,0.25,0.5,1],ymax=nice.find(n=>n>=peak-1e-9)||1;
   window.__tips=Object.fromEntries(cols.map(c=>[c.d,c.na?`<b>${mlabel(c.d)}</b><div>Local / foreign ${NA}.</div>`
-    :`<b>${mlabel(c.d)}</b><div class="tipgrid">${[...c.segs].filter(vis).sort((a,b)=>b[1]-a[1]).map(s=>`<span><span class="sw" style="background:${s[2]}"></span>${s[0]}</span><span class="num">${(s[1]/c.tot*100).toFixed(2)}%</span>`).join("")}</div><div class="note">Share of ${o==="all"?"scripless shares":o+" holdings"}${hid.size?" (shown series only)":""}.</div>`]));
+    :`<b>${mlabel(c.d)}</b><div class="tipgrid">${[...c.segs].filter(vis).sort((a,b)=>b[1]-a[1]).map(s=>`<span><span class="sw" style="background:${s[2]}"></span>${s[0]}</span><span class="num">${(s[1]/c.tot*100).toFixed(2)}%</span>`).join("")}</div><div class="note">Share of ${o==="all"?"scripless shares":"all "+o+" holdings"}.</div>`]));
   const H=240;
   const bars=cols.map(c=>`<div class="hcol" data-hd="${c.d}" tabindex="0" aria-label="${mlabel(c.d)}">
-     <div class="hstack" style="height:${H}px">${c.na?`<span class="hna">no split</span>`:c.segs.filter(vis).map(s=>`<i style="height:${s[1]/c.tot*H}px;background:${s[2]}"></i>`).join("")}</div>
+     <div class="hstack" style="height:${H}px">${c.na?`<span class="hna">no split</span>`:c.segs.filter(vis).map(s=>`<i style="height:${s[1]/c.tot/ymax*H}px;background:${s[2]}"></i>`).join("")}</div>
      <span class="mono note">${MONTHS[+c.d.slice(5,7)-1]} ${c.d.slice(2,4)}</span></div>`).join("");
-  const grid=[100,75,50,25,0].map(p=>`<div class="hgl" style="bottom:${24+p/100*H}px"><span>${p}%</span></div>`).join("");
+  const grid=[1,0.75,0.5,0.25,0].map(f=>`<div class="hgl" style="bottom:${24+f*H}px"><span>${+(f*ymax*100).toFixed(2)}%</span></div>`).join("");
   const heads=o==="all"?[["Local","var(--g4)"],["Foreign","var(--g5)"]]:GROUPS.map(g=>[g[1],`var(${g[2]})`]);
   const table=`<div class="tbl"><table><thead><tr><th>Month</th>${heads.filter(vis).map(h=>`<th class="num"><span class="sw" style="background:${h[1]}"></span>${h[0]}</th>`).join("")}</tr></thead>
     <tbody>${[...cols].reverse().map(c=>`<tr><td class="mono">${mlabel(c.d)}</td>${c.na?`<td class="na" colspan="${heads.filter(vis).length}">${NA}</td>`:c.segs.filter(vis).map(s=>`<td class="num">${(s[1]/c.tot*100).toFixed(2)}%</td>`).join("")}</tr>`).join("")}</tbody></table></div>`;
-  const legend=`<div class="hlegend" role="group" aria-label="Legend: click hides, double-click shows only that one">${heads.map(h=>`<button type="button" class="lg" data-lg="${h[0]}" aria-pressed="${!hid.has(h[0])}"><span class="sw" style="background:${h[1]}"></span>${h[0]}</button>`).join("")}<span class="note">Click hides · double-click shows only that one. Each column is 100% of ${o==="all"?"scripless shares":o+" holdings"}${hid.size?" in the shown series":""}.</span></div>`;
+  const legend=`<div class="hlegend" role="group" aria-label="Legend: click hides, double-click shows only that one">${heads.map(h=>`<button type="button" class="lg" data-lg="${h[0]}" aria-pressed="${!hid.has(h[0])}"><span class="sw" style="background:${h[1]}"></span>${h[0]}</button>`).join("")}<span class="note">Click hides · double-click shows only that one. Columns are % of ${o==="all"?"scripless shares":"all "+o+" holdings"}${hid.size?"; the axis zooms to the shown series":""}.</span></div>`;
   const lastSplit=[...cols].reverse().find(c=>!c.na);
   const lt=lastSplit&&originByType(S.code,lastSplit.d,src);
   const lsum=lt?Object.values(lt.L).reduce((a,b)=>a+b,0)/month(S.code,lastSplit.d).total:null;
