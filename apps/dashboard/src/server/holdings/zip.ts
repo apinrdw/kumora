@@ -1,7 +1,9 @@
 // Reads a zip's entries by hand: its central directory, then workerd's
 // DecompressionStream for a deflated entry. It handles what IDX's .xlsx
 // reports and KSEI's .zip files are: stored or deflated entries, no ZIP64.
-import { Effect, Schema } from "effect"
+import { Effect, Schema, Stream } from "effect"
+
+import { collectCapped } from "../archive/capped-body.ts"
 
 class ZipUnreadable extends Schema.TaggedError<ZipUnreadable>()(
   "ZipUnreadable",
@@ -10,6 +12,10 @@ class ZipUnreadable extends Schema.TaggedError<ZipUnreadable>()(
 
 const unreadable = (message: string) => new ZipUnreadable({ message })
 
+// Decision: an entry inflates to at most 8 MiB, counted as it inflates, so a
+// small archived file can't expand past the Worker's 128 MiB. The largest
+// real entries are about 3× under it: IDX's sheet1.xml at 2.6 MB and KSEI's
+// Balancepos .txt at 530 KB (Sep and Oct 2026).
 export const MAX_ENTRY_BYTES = 8 * 1024 * 1024
 
 interface Entry {
@@ -53,7 +59,7 @@ export const zipEntries = Effect.fnUntraced(function* (bytes: Uint8Array) {
   return entries as ReadonlyMap<string, Entry>
 })
 
-// The text of the entry `name`, inflated.
+// The text of the entry `name`, inflated, refused past MAX_ENTRY_BYTES.
 export const entryText = Effect.fnUntraced(function* (
   bytes: Uint8Array,
   entries: ReadonlyMap<string, Entry>,
@@ -62,18 +68,22 @@ export const entryText = Effect.fnUntraced(function* (
   const entry = entries.get(name)
   if (entry === undefined) return yield* unreadable(`The file has no ${name}`)
   const raw = bytes.slice(entry.offset, entry.offset + entry.size)
-  if (entry.method === 0) return new TextDecoder().decode(raw)
-  if (entry.method !== 8)
+  if (entry.method !== 0 && entry.method !== 8)
     return yield* unreadable(
       `${name} uses zip compression method ${entry.method}`
     )
-  return yield* Effect.tryPromise({
-    try: () =>
-      new Response(
-        new Blob([raw])
-          .stream()
-          .pipeThrough(new DecompressionStream("deflate-raw"))
-      ).text(),
-    catch: () => unreadable(`${name} doesn't inflate`),
-  })
+  const inflated = yield* collectCapped(
+    entry.method === 0
+      ? Stream.make(raw)
+      : Stream.fromReadableStream({
+          evaluate: () =>
+            new Blob([raw])
+              .stream()
+              .pipeThrough(new DecompressionStream("deflate-raw")),
+          onError: () => unreadable(`${name} doesn't inflate`),
+        }),
+    MAX_ENTRY_BYTES,
+    () => unreadable(`${name} inflates past ${MAX_ENTRY_BYTES} bytes`)
+  )
+  return new TextDecoder().decode(inflated)
 })
