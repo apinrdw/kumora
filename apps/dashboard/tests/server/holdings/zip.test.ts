@@ -5,7 +5,7 @@ import { entryText, MAX_ENTRY_BYTES, zipEntries } from "@/server/holdings/zip"
 
 const NAME = "Balancepos20261030.txt"
 
-const deflated = (bytes: Uint8Array) =>
+const deflated = (bytes: Uint8Array<ArrayBuffer>) =>
   Effect.promise(() =>
     new Response(
       new Blob([bytes])
