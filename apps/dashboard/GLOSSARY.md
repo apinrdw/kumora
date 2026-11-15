@@ -229,6 +229,10 @@ _Avoid_: Ownership mix, holder breakdown
 The stock page's chart of the stock's KSEI holdings, one column per month from its first period end to its last, with a month KSEI has no data for marked: local against foreign, or one origin's KSEI investor types. Every share is of the whole origin, even with some types hidden. Its local/foreign split can differ from Shareholders composition's, which is IDX's.
 _Avoid_: Ownership chart, holding history
 
+**Stock search**:
+The search in the Shell header, on every page, that opens a stock page. It offers the stocks parsed holdings have, code matches before issuer-name matches, and `/` focuses it. Bare `/stocks` opens the stock page this browser last opened.
+_Avoid_: Code picker, which picks Market Live's code
+
 ### Access
 
 **Account**:
@@ -282,4 +286,4 @@ _Avoid_: Act as, sudo
 ### Shell
 
 **Shell**:
-The frame around every page: sidebar, header, and mobile bottom bar. It reads no market data.
+The frame around every page: sidebar, header, and mobile bottom bar. It reads no market data except the stock search's list of stocks.

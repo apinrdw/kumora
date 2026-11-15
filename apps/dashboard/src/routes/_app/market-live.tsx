@@ -302,7 +302,7 @@ function MarketLiveDay({
                 <StockCodePicker
                   list={codes}
                   label="Search stock code"
-                  shortcut="/"
+                  shortcut="Ctrl K"
                   onPick={select}
                   className="ml-auto w-full max-w-xs"
                 />

@@ -4,7 +4,7 @@ import type { ListedCode } from "@workspace/relay"
 import { cn } from "@workspace/ui/lib/utils"
 import { Effect } from "effect"
 import { useId, useMemo, useState } from "react"
-import type { KeyboardEvent } from "react"
+import type { KeyboardEvent, Ref } from "react"
 
 import { KInput } from "@/components/k/input"
 
@@ -36,6 +36,9 @@ export type StockCodePickerProps = {
   shortcut?: string
   placeholder?: string
   className?: string
+  inputRef?: Ref<HTMLInputElement>
+  /** Called as the input takes focus, before the list shows. */
+  onFocus?: () => void
 }
 
 // A combobox over the day's stock codes: type to filter, arrows to move,
@@ -48,6 +51,8 @@ export function StockCodePicker({
   shortcut,
   placeholder = "Search code or name",
   className,
+  inputRef,
+  onFocus,
 }: StockCodePickerProps) {
   const listId = useId()
   const [query, setQuery] = useState("")
@@ -89,6 +94,7 @@ export function StockCodePicker({
   return (
     <div className={cn("relative", className)}>
       <KInput
+        ref={inputRef}
         label={label}
         hideLabel
         icon={IconSearch}
@@ -108,7 +114,10 @@ export function StockCodePicker({
           setQuery(event.target.value)
           setActive(0)
         }}
-        onFocus={() => setFocused(true)}
+        onFocus={() => {
+          onFocus?.()
+          setFocused(true)
+        }}
         onBlur={() => setFocused(false)}
         onKeyDown={onKeyDown}
       />

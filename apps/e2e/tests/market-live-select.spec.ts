@@ -94,12 +94,12 @@ test("the chart header's search selects a code, shares above rights", async ({
   await expect.poll(() => selected).toEqual(["BBCA", "WIFI", "AMAG-W2"])
 })
 
-test("the / and Ctrl+K palette selects a code", async ({ page }) => {
+test("the Ctrl+K palette selects a code", async ({ page }) => {
   const selected = await recordSelects(page)
   await page.goto(`${DASHBOARD}${PAGE}`)
   await expect.poll(() => selected).toEqual(["BBCA"])
 
-  await page.keyboard.press("/")
+  await page.keyboard.press("Control+k")
   const palette = page.getByRole("dialog", { name: "Go to code" })
   await expect(palette).toBeVisible()
   await page.keyboard.type("bbri")
