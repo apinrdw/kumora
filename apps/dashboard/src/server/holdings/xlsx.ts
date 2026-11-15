@@ -83,6 +83,9 @@ const cellValue = Effect.fnUntraced(function* (
 })
 
 // A row's cells with a value.
+// Decision: only cells with a value are kept, so a row grows with the bytes
+// of its values, never with the column a cell names: dense rows held 1,200
+// XFD cells as 19.6 million slots.
 const rowCells = Effect.fnUntraced(function* (
   rowNumber: string,
   inner: string,
@@ -104,10 +107,7 @@ const rowCells = Effect.fnUntraced(function* (
 // the sheet's order, by its 1-based row number.
 // Decision: a row at a time, kept by nothing here, so a parse keeps only
 // what it takes from each row: a report padded to the largest sheet held
-// its every row and the month's holdings at once. Only cells with a value
-// are kept, so a row grows with the bytes of its values, never with the
-// column a cell names: dense rows held 1,200 XFD cells as 19.6 million
-// slots.
+// its every row and the month's holdings at once.
 export const forEachRow = Effect.fnUntraced(function* <E, R>(
   bytes: Uint8Array,
   onRow: (rowNumber: number, cells: Row) => Effect.Effect<void, E, R>

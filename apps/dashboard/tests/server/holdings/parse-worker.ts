@@ -7,6 +7,8 @@ import { parentPort, workerData } from "node:worker_threads"
 
 import { Effect } from "effect"
 
+import { HoldingsDb } from "../../../src/server/holdings/db.ts"
+
 const SRC = new URL("../../../src/", import.meta.url)
 
 registerHooks({
@@ -24,8 +26,12 @@ const { report, bytes } = workerData as {
   readonly bytes: Uint8Array
 }
 
-const { HoldingsDb } = await import("../../../src/server/holdings/db.ts")
-const parse =
+const parse: (
+  date: string,
+  sha256: string,
+  bytes: Uint8Array,
+  parsedAt: string
+) => Effect.Effect<number, { readonly message: string }, HoldingsDb> =
   report === "ksei"
     ? (await import("../../../src/server/holdings/ksei.ts")).parseKseiMonth
     : (await import("../../../src/server/holdings/classification.ts"))
@@ -37,7 +43,9 @@ Effect.runFork(
       onSuccess: (stocks) => `Parsed ${stocks} stocks`,
       onFailure: (error) => error.message,
     }),
-    Effect.tap((message) => parentPort?.postMessage(message)),
+    Effect.tap((message) =>
+      Effect.sync(() => parentPort?.postMessage(message))
+    ),
     Effect.provideService(HoldingsDb, { batch: () => Effect.succeed([]) })
   )
 )

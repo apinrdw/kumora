@@ -8,13 +8,12 @@ import { Effect } from "effect"
 import { HoldingsDb, type SqlValue, type Statement } from "./db.ts"
 
 // Decision: a month lists at most 2,000 stocks in either report, about 2×
-// the 962 stocks IDX's classification report listed and the 1,005 KSEI's
-// Securities holdings report listed in Sep and Oct 2026, so parsing either
-// report stays under 48 MiB of heap (PARSE_HEAP_MIB in
-// tests/server/holdings/bounded-heap.ts). A parse refuses a report listing
-// more, with TOO_MANY_STOCKS.
+// what each listed in Sep and Oct 2026 (962 in IDX's classification
+// report, 1,005 in KSEI's Securities holdings report), so either parse
+// stays under PARSE_HEAP_MIB (tests/server/holdings/bounded-heap.ts).
 export const MAX_STOCKS = 2_000
 
+// Why a parse refuses a report listing more.
 export const TOO_MANY_STOCKS = `The report lists more than ${MAX_STOCKS.toLocaleString("en-US")} stocks`
 
 // A month's rows for one table, without the date, as JSON arrays of at most
