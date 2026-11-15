@@ -128,12 +128,14 @@ const LAST_COLUMN = { letters: "XFD", index: 16_383 }
 
 // "AB" → 27, the 0-based column of a cell reference's letters; past
 // LAST_COLUMN for more letters than it has.
-const columnIndex = (letters: string) => {
-  if (letters.length > LAST_COLUMN.letters.length) return LAST_COLUMN.index + 1
-  let index = 0
-  for (const letter of letters) index = index * 26 + letter.charCodeAt(0) - 64
-  return index - 1
-}
+const columnIndex = (letters: string) =>
+  Effect.sync(() => {
+    if (letters.length > LAST_COLUMN.letters.length)
+      return LAST_COLUMN.index + 1
+    let index = 0
+    for (const letter of letters) index = index * 26 + letter.charCodeAt(0) - 64
+    return index - 1
+  })
 
 const ROW_NUMBER = /\br="(\d+)"/
 const REF = /\br="(([A-Z]+)\d+)"/
@@ -196,7 +198,7 @@ const rowCells = Effect.fnUntraced(function* (
     const [, ref, letters = ""] = REF.exec(cell.attributes) ?? []
     if (ref === undefined)
       return yield* unreadable(`A cell in row ${rowNumber} has no reference`)
-    const column = columnIndex(letters)
+    const column = yield* columnIndex(letters)
     if (column > LAST_COLUMN.index)
       return yield* unreadable(
         `Cell ${yield* excerpt(ref)} is past column ${LAST_COLUMN.letters}`
