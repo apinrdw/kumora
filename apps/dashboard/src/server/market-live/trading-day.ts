@@ -317,7 +317,6 @@ export const makeTradingDay = Effect.fnUntraced(function* (options: {
   const sweepBrokers = yield* makeSweepBrokers({
     sql: options.sql,
     store,
-    heldCodes: brokerCodes.heldCodes,
   })
   const setAlarm = options.setAlarm ?? (() => Effect.void)
   let sealed = (yield* store.fact(Fact.sealed)) !== undefined
@@ -1134,17 +1133,13 @@ export const makeTradingDay = Effect.fnUntraced(function* (options: {
     // them and its recorded answers stay byte-identical. See spec
     // apinrdw/kumora#244, "Dashboard: TradingDay's broker codes store".
     brokerCodes: {
-      // Decision: a written batch's sweep brokers are worked out again in
-      // the same turn, before the batch is answered, so a GET after a 200
-      // reads them. See spec apinrdw/kumora#343, "When it is recomputed".
+      // Decision: the sweep brokers of the trades a batch changed are worked
+      // out again in the same turn and written with the codes, before the
+      // batch is answered, so a GET after a 200 reads them. A batch that
+      // changes no codes recomputes nothing. See spec apinrdw/kumora#343,
+      // "When it is recomputed".
       post: (text: string) =>
-        turn.withPermit(
-          Effect.gen(function* () {
-            const { answer, written } = yield* brokerCodes.post(text)
-            if (written.length > 0) yield* sweepBrokers.recompute(written)
-            return answer
-          })
-        ),
+        turn.withPermit(brokerCodes.post(text, sweepBrokers.recompute)),
       status: (search: URLSearchParams) =>
         turn.withPermit(brokerCodes.status(search)),
       held: (tradeNumber: TradeNumber) =>

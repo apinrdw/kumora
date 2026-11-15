@@ -16,7 +16,7 @@ import {
 } from "@workspace/relay"
 import { Effect } from "effect"
 
-import type { BrokerCodesStore } from "./broker-codes.ts"
+import type { HeldCodes } from "./broker-codes.ts"
 import type { DayStore, Sql } from "./day-store.ts"
 import { regroupMinute, type CodeMinute } from "./minute-regroup.ts"
 
@@ -168,27 +168,32 @@ const runsOf = (numbers: ReadonlyArray<number>) =>
     return runs
   })
 
+// One minute's rows: each code with sweeps, with its whole sweeps' text, or
+// none when none of its sweeps is whole.
+type MinuteRows = ReadonlyArray<readonly [StockCode, string | undefined]>
+
 export const makeSweepBrokers = Effect.fnUntraced(function* (options: {
   // The trading day's database, shared with the day store.
   readonly sql: Sql
   readonly store: DayStore
-  readonly heldCodes: BrokerCodesStore["heldCodes"]
 }) {
   const { sql, store } = options
   yield* Effect.sync(() => sql.exec(SCHEMA))
 
-  // One minute's rows worked out again and replaced in one transaction: a
-  // code's whole sweeps, or no row when none of its sweeps is whole.
-  const recomputeMinute = Effect.fnUntraced(function* (minute: number) {
+  // One minute's rows worked out again from the codes `heldCodes` reads.
+  const minuteRows = Effect.fnUntraced(function* (
+    minute: number,
+    heldCodes: HeldCodes
+  ) {
     const codeMinutes = yield* regroupMinute(yield* store.minuteTrades(minute))
     const codes = new Map(
-      yield* options.heldCodes(
+      yield* heldCodes(
         codeMinutes.flatMap(({ trades }) =>
           trades.map((trade) => trade.tradeNumber)
         )
       )
     )
-    const rows: Array<readonly [StockCode, string | undefined]> = []
+    const rows: Array<MinuteRows[number]> = []
     for (const codeMinute of codeMinutes) {
       if (codeMinute.sweeps.every((sweep) => sweep.side === "none")) continue
       const whole = yield* wholeSweeps(codeMinute, codes)
@@ -197,39 +202,48 @@ export const makeSweepBrokers = Effect.fnUntraced(function* (options: {
         whole.length === 0 ? undefined : yield* sweepsText(whole),
       ])
     }
-    yield* Effect.sync(() =>
-      sql.transaction(() => {
-        for (const [code, text] of rows)
-          if (text === undefined)
-            sql.exec(
-              "DELETE FROM sweep_brokers WHERE code = ? AND minute = ?",
-              code,
-              minute
-            )
-          else
-            sql.exec(
-              "INSERT OR REPLACE INTO sweep_brokers VALUES (?, ?, ?)",
-              code,
-              minute,
-              text
-            )
-      })
-    )
+    return rows
   })
 
+  // Replaces one minute's rows, inside the caller's transaction.
+  const writeRows = (minute: number, rows: MinuteRows) => {
+    for (const [code, text] of rows)
+      if (text === undefined)
+        sql.exec(
+          "DELETE FROM sweep_brokers WHERE code = ? AND minute = ?",
+          code,
+          minute
+        )
+      else
+        sql.exec(
+          "INSERT OR REPLACE INTO sweep_brokers VALUES (?, ?, ?)",
+          code,
+          minute,
+          text
+        )
+  }
+
+  // The rows of the minutes `numbers` fall in, worked out again from the
+  // codes `heldCodes` reads, as the writes that replace them inside the
+  // caller's transaction (broker-codes.ts, `write`).
   // Decision: a batch recomputes the minutes its trade numbers fall in,
   // found per run of consecutive numbers (trade numbers run in time order),
   // so a sparse Stockbit fill recomputes only the minutes it touched. See
   // spec apinrdw/kumora#343, "When it is recomputed".
   const recompute = Effect.fnUntraced(function* (
-    numbers: ReadonlyArray<number>
+    numbers: ReadonlyArray<number>,
+    heldCodes: HeldCodes
   ) {
     const minutes = new Set<number>()
     for (const [first, last] of yield* runsOf(numbers))
       for (const minute of yield* store.minutesOfTrades(first, last))
         minutes.add(minute)
+    const rows: Array<readonly [number, MinuteRows]> = []
     for (const minute of [...minutes].sort((a, b) => a - b))
-      yield* recomputeMinute(minute)
+      rows.push([minute, yield* minuteRows(minute, heldCodes)])
+    return () => {
+      for (const [minute, written] of rows) writeRows(minute, written)
+    }
   })
 
   // One code's whole sweeps with their brokers, in trade order.
