@@ -6,9 +6,11 @@ import { StockCode } from "@workspace/relay"
 
 import {
   CLASSIFICATIONS,
-  type Classification,
+  Classification,
   KSEI_TYPES,
-  type KseiType,
+  KseiType,
+  Origin,
+  SplitOrigin,
 } from "@/domain/holdings"
 
 import { HoldingsDb } from "./db.ts"
@@ -96,10 +98,8 @@ const MonthRow = Schema.Struct({
 })
 const HoldingRow = Schema.Struct({
   data_date: Schema.String,
-  classification: Schema.Literals(
-    Object.keys(CLASSIFICATIONS) as ReadonlyArray<Classification>
-  ),
-  origin: Schema.Literals(["local", "foreign", "combined"]),
+  classification: Classification,
+  origin: Origin,
   shares: Schema.Number,
 })
 type HoldingRow = typeof HoldingRow.Type
@@ -150,8 +150,8 @@ const SERIES_HOLDINGS = `
 const SeriesMonthRow = Schema.Struct({ period_end: Schema.String })
 const SeriesHoldingRow = Schema.Struct({
   period_end: Schema.String,
-  origin: Schema.Literals(["local", "foreign"]),
-  investor_type: Schema.Literals(KSEI_TYPES),
+  origin: SplitOrigin,
+  investor_type: KseiType,
   shares: Schema.Number,
 })
 

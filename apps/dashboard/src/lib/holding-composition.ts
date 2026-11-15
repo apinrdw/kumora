@@ -3,7 +3,7 @@
 import { KSEI_TYPE_LABELS, KSEI_TYPES, type KseiType } from "@/domain/holdings"
 import type { SeriesMonth, TypeHoldings } from "@/server/holdings/stock-page"
 
-import type { ChartOrigin } from "./stock-search.ts"
+import type { OriginShown } from "./stock-search.ts"
 
 export type SeriesKey = "local" | "foreign" | KseiType
 
@@ -50,7 +50,7 @@ const ofTotal = (values: ReadonlyArray<number>) => {
 // inflates one; hiding only zooms the axis to the tallest shown column.
 export const holdingChart = (
   months: ReadonlyArray<SeriesMonth>,
-  origin: ChartOrigin,
+  origin: OriginShown,
   hidden: ReadonlySet<SeriesKey>
 ): HoldingChart => {
   const series = origin === "all" ? ORIGIN_SERIES : TYPE_SERIES

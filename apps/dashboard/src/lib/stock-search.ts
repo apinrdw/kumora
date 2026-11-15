@@ -4,16 +4,13 @@
 // default, so a plain link stays short.
 import { Effect, Option, Schema } from "effect"
 
+import { SplitOrigin } from "@/domain/holdings"
+
 // `YYYY-MM`; absent for the stock's newest month.
 const Month = Schema.String.check(Schema.isPattern(/^\d{4}-(0[1-9]|1[0-2])$/))
 
-// The panel's origin; absent for all scripless.
-const PanelOrigin = Schema.Literals(["local", "foreign"])
-export type PanelOrigin = typeof PanelOrigin.Type | "all"
-
-// The chart's origin; absent for all.
-const ChartOrigin = Schema.Literals(["local", "foreign"])
-export type ChartOrigin = typeof ChartOrigin.Type | "all"
+// The origin the panel or the chart shows: one, or all holdings.
+export type OriginShown = SplitOrigin | "all"
 
 // The chart's view; absent for bars.
 const ChartView = Schema.Literals(["table"])
@@ -21,8 +18,10 @@ export type ChartView = typeof ChartView.Type | "bars"
 
 export interface StockSearch {
   readonly month?: string | undefined
-  readonly panel?: typeof PanelOrigin.Type | undefined
-  readonly chart?: typeof ChartOrigin.Type | undefined
+  // The panel's origin; absent for all scripless.
+  readonly panel?: SplitOrigin | undefined
+  // The chart's origin; absent for all.
+  readonly chart?: SplitOrigin | undefined
   readonly view?: typeof ChartView.Type | undefined
 }
 
@@ -37,10 +36,10 @@ export const parseStockSearch = (
   Effect.sync(() => ({
     month: Option.getOrUndefined(Schema.decodeUnknownOption(Month)(raw.month)),
     panel: Option.getOrUndefined(
-      Schema.decodeUnknownOption(PanelOrigin)(raw.panel)
+      Schema.decodeUnknownOption(SplitOrigin)(raw.panel)
     ),
     chart: Option.getOrUndefined(
-      Schema.decodeUnknownOption(ChartOrigin)(raw.chart)
+      Schema.decodeUnknownOption(SplitOrigin)(raw.chart)
     ),
     view: Option.getOrUndefined(
       Schema.decodeUnknownOption(ChartView)(raw.view)

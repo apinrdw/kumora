@@ -3,6 +3,8 @@
 // apinrdw/kumora#363, "Reading KSEI's BalanceposEfek".
 import { Effect, Schema } from "effect"
 
+import type { KseiType, SplitOrigin } from "@/domain/holdings"
+
 import type { SqlValue } from "./db.ts"
 import { replaceMonth } from "./month-replace.ts"
 import { parsedMonths } from "./months-to-parse.ts"
@@ -13,8 +15,17 @@ import { entryText, zipEntries } from "./zip.ts"
 export const KSEI_PARSER_VERSION = 1
 
 // The 9 KSEI investor types, in the order each origin's columns list them.
-const TYPES = ["IS", "CP", "PF", "IB", "ID", "MF", "SC", "FD", "OT"] as const
-type InvestorType = (typeof TYPES)[number]
+const TYPES = [
+  "IS",
+  "CP",
+  "PF",
+  "IB",
+  "ID",
+  "MF",
+  "SC",
+  "FD",
+  "OT",
+] as const satisfies ReadonlyArray<KseiType>
 
 // Decision: the one header a file may have, byte for byte. Every file from
 // Jan 2008 to Oct 2026 has it; a file with any other is rejected whole, so a
@@ -36,9 +47,6 @@ const COLUMNS = HEADER.split("|").length
 // Where each origin's 9 types start; its Total follows them.
 const LOCAL = 5
 const FOREIGN = LOCAL + TYPES.length + 1
-
-const Origin = Schema.Literals(["local", "foreign"])
-type Origin = typeof Origin.Type
 
 class KseiUnreadable extends Schema.TaggedError<KseiUnreadable>()(
   "KseiUnreadable",
@@ -68,13 +76,13 @@ const shareCount = Effect.fnUntraced(function* (
   return yield* unreadable(`${where} isn't a share count: ${String(field)}`)
 })
 
-type Holding = [string, Origin, InvestorType, number]
+type Holding = [string, SplitOrigin, KseiType, number]
 
 // One origin's non-zero holdings of a row, checked against its Total.
 const originHoldings = Effect.fnUntraced(function* (
   stock: string,
   fields: ReadonlyArray<string>,
-  origin: Origin,
+  origin: SplitOrigin,
   where: string
 ) {
   const start = origin === "local" ? LOCAL : FOREIGN

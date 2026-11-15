@@ -16,7 +16,7 @@ import {
   type Level,
   scrip,
 } from "@/lib/stock-composition"
-import type { PanelOrigin } from "@/lib/stock-search"
+import type { OriginShown } from "@/lib/stock-search"
 import type { CompositionMonth, StockPage } from "@/server/holdings/stock-page"
 
 const NOT_SPLIT = "not reported before Sep 2026"
@@ -52,7 +52,7 @@ export const TYPE_COLOR: Record<KseiType, string> = {
   OT: "var(--investor-ot)",
 }
 
-const ORIGINS: ReadonlyArray<{ value: PanelOrigin; label: string }> = [
+const ORIGINS: ReadonlyArray<{ value: OriginShown; label: string }> = [
   { value: "all", label: "All scripless" },
   { value: "local", label: "Local" },
   { value: "foreign", label: "Foreign" },
@@ -65,9 +65,9 @@ type Composed = NonNullable<StockPage["composition"]>
 
 export type ShareholdersCompositionProps = {
   page: StockPage & { readonly composition: Composed }
-  origin: PanelOrigin
+  origin: OriginShown
   onMonth: (dataDate: string) => void
-  onOrigin: (origin: PanelOrigin) => void
+  onOrigin: (origin: OriginShown) => void
 }
 
 export function ShareholdersComposition({
@@ -287,7 +287,7 @@ function Totals({
 }: {
   month: CompositionMonth
   shown: Composition
-  origin: PanelOrigin
+  origin: OriginShown
 }) {
   return (
     <div className="flex flex-col gap-3 rounded-sm border border-border p-3">
@@ -364,7 +364,7 @@ function ComparisonNote({
   origin,
 }: {
   page: StockPage & { readonly composition: Composed }
-  origin: PanelOrigin
+  origin: OriginShown
 }) {
   const { month, previous } = page.composition
   const index = page.months.findIndex(

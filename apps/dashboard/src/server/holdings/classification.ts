@@ -3,7 +3,7 @@
 // apinrdw/kumora#363, "Reading the IDX classification xlsx".
 import { Effect, Schema } from "effect"
 
-import type { Classification } from "@/domain/holdings"
+import { CLASSIFICATIONS, Classification, type Origin } from "@/domain/holdings"
 
 import type { SqlValue } from "./db.ts"
 import { replaceMonth } from "./month-replace.ts"
@@ -14,62 +14,9 @@ import { type Cell, readSheet } from "./xlsx.ts"
 // reconcile then parses every month again.
 export const PARSER_VERSION = 1
 
-// The 39 investor classifications, by the slug parsed holdings store, with
-// their header label as both layouts print it, once lowercased and with any
-// `Local_`/`Foreign_` prefix dropped.
-const CLASSIFICATIONS = {
-  bank: "bank",
-  government: "government",
-  private_equity: "private equity",
-  trustee_bank: "trustee bank",
-  venture_capital: "venture capital",
-  private_bank: "private bank",
-  exchange_traded_funds: "exchange traded funds",
-  investment_manager: "investment manager",
-  investment_advisors: "investment advisors",
-  brokerage_firms: "brokerage firms",
-  hedge_fund: "hedge fund",
-  sovereign_wealth_fund: "sovereign wealth fund",
-  capital_market_supporting:
-    "capital market supporting institutions and professions",
-  cv_limited_partnership:
-    "commanditaire vennootschap (cv) or limited partnership",
-  firm: "firm",
-  investment_fund_selling_agent: "investment fund selling agent",
-  peer_to_peer_lending: "peer to peer lending",
-  permanent_establishment: "permanent establishment",
-  sole_proprietorship: "sole proprietorship",
-  corporate: "corporate",
-  association: "association/social organizations",
-  state_owned_enterprises: "state owned enterprises",
-  central_bank: "central bank",
-  state_owned_company: "state owned company",
-  diocese: "diocese",
-  conference: "conference",
-  congregation: "congregation",
-  cooperatives: "cooperatives",
-  international_organization: "international organization",
-  political_parties: "political parties",
-  partnership: "partnership",
-  educational_institution: "educational institution",
-  mutual_funds: "mutual funds (mf)",
-  securities_company: "securities company (sc)",
-  pension_funds: "pension funds (pf)",
-  financial_institutional: "financial institutional (ib)",
-  insurance: "insurance (is)",
-  foundation: "foundation (fd)",
-  individual: "individual (id)",
-} as const satisfies Record<Classification, string>
-
 const BY_LABEL = new Map<string, Classification>(
-  Object.entries(CLASSIFICATIONS).map(([slug, label]) => [
-    label,
-    slug as Classification,
-  ])
+  Classification.literals.map((slug) => [CLASSIFICATIONS[slug].header, slug])
 )
-
-const Origin = Schema.Literals(["local", "foreign", "combined"])
-type Origin = typeof Origin.Type
 
 class ClassificationUnreadable extends Schema.TaggedError<ClassificationUnreadable>()(
   "ClassificationUnreadable",

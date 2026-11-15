@@ -11,7 +11,7 @@ import {
 } from "@/domain/holdings"
 import type { CompositionMonth } from "@/server/holdings/stock-page"
 
-import type { PanelOrigin } from "./stock-search.ts"
+import type { OriginShown } from "./stock-search.ts"
 
 export interface CompositionRow {
   readonly key: string
@@ -47,7 +47,7 @@ const keyed = (month: CompositionMonth, level: Level) =>
         classifications.map((held) => ({
           key: held.classification as string,
           label: CLASSIFICATIONS[held.classification].label,
-          type: CLASSIFICATIONS[held.classification].type as KseiType,
+          type: CLASSIFICATIONS[held.classification].type,
           held,
         }))
       )
@@ -55,7 +55,7 @@ const keyed = (month: CompositionMonth, level: Level) =>
 // Each row's shares of the origin, and their total.
 const sharesOf = (
   month: CompositionMonth,
-  origin: PanelOrigin,
+  origin: OriginShown,
   level: Level
 ) => {
   const rows = keyed(month, level).map(({ held, ...row }) => ({
@@ -73,7 +73,7 @@ const ratio = (shares: number, total: number) =>
 export const composition = (
   month: CompositionMonth,
   previous: CompositionMonth | undefined,
-  origin: PanelOrigin,
+  origin: OriginShown,
   level: Level
 ): Effect.Effect<Composition> =>
   Effect.sync(() => {

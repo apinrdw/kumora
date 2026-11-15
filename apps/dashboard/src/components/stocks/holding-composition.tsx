@@ -16,7 +16,7 @@ import {
   latestOriginSplit,
   type SeriesKey,
 } from "@/lib/holding-composition"
-import type { ChartOrigin, ChartView } from "@/lib/stock-search"
+import type { OriginShown, ChartView } from "@/lib/stock-search"
 import type { SeriesMonth } from "@/server/holdings/stock-page"
 
 import { monthLabel, percent, TYPE_COLOR } from "./shareholders-composition"
@@ -29,7 +29,7 @@ const SERIES_COLOR: Record<SeriesKey, string> = {
   ...TYPE_COLOR,
 }
 
-const ORIGINS: ReadonlyArray<{ value: ChartOrigin; label: string }> = [
+const ORIGINS: ReadonlyArray<{ value: OriginShown; label: string }> = [
   { value: "all", label: "All" },
   { value: "local", label: "Local" },
   { value: "foreign", label: "Foreign" },
@@ -49,7 +49,7 @@ const DOUBLE_CLICK_MS = 220
 
 const NONE_HIDDEN: ReadonlySet<SeriesKey> = new Set()
 
-const ofWhat = (origin: ChartOrigin) =>
+const ofWhat = (origin: OriginShown) =>
   origin === "all" ? "scripless shares" : `all ${origin} holdings`
 
 /** `2026-10` → `Oct 26` */
@@ -58,9 +58,9 @@ const shortMonth = (month: string) =>
 
 export type HoldingCompositionProps = {
   series: ReadonlyArray<SeriesMonth>
-  origin: ChartOrigin
+  origin: OriginShown
   view: ChartView
-  onOrigin: (origin: ChartOrigin) => void
+  onOrigin: (origin: OriginShown) => void
   onView: (view: ChartView) => void
 }
 
@@ -74,7 +74,7 @@ export function HoldingComposition({
   // Hidden series belong to the origin they were hidden in: another origin
   // shows every series again.
   const [hiding, setHiding] = useState<{
-    readonly origin: ChartOrigin
+    readonly origin: OriginShown
     readonly hidden: ReadonlySet<SeriesKey>
   }>({ origin, hidden: NONE_HIDDEN })
   const hidden = hiding.origin === origin ? hiding.hidden : NONE_HIDDEN
@@ -207,7 +207,7 @@ function Bars({
 }: {
   chart: HoldingChart
   shown: Shown
-  origin: ChartOrigin
+  origin: OriginShown
 }) {
   const scroller = useRef<HTMLDivElement>(null)
   // Opens at the newest month. The page keys the chart by stock, so another
@@ -277,7 +277,7 @@ function Column({
   column: ChartColumn
   shown: Shown
   axisMax: number
-  origin: ChartOrigin
+  origin: OriginShown
 }) {
   const { shares } = column
   const label = monthLabel(column.month)
@@ -407,7 +407,7 @@ function Legend({
 }: {
   series: ReadonlyArray<ChartSeries>
   hidden: ReadonlySet<SeriesKey>
-  origin: ChartOrigin
+  origin: OriginShown
   onHidden: (hidden: ReadonlySet<SeriesKey>) => void
 }) {
   const pending = useRef<ReturnType<typeof setTimeout>>(undefined)

@@ -4,7 +4,7 @@ import { createRoot } from "react-dom/client"
 import { afterEach, expect, test } from "vitest"
 
 import { HoldingComposition } from "@/components/stocks/holding-composition"
-import type { ChartOrigin } from "@/lib/stock-search"
+import type { OriginShown } from "@/lib/stock-search"
 import type { SeriesMonth } from "@/server/holdings/stock-page"
 
 // React's `act` warns outside a test environment that declares itself.
@@ -33,7 +33,7 @@ document.body.append(container)
 const root = createRoot(container)
 afterEach(() => act(() => root.render(null)))
 
-const render = (origin: ChartOrigin) =>
+const render = (origin: OriginShown) =>
   act(() =>
     root.render(
       <HoldingComposition
