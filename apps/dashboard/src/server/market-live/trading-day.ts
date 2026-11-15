@@ -274,6 +274,22 @@ const restoreLastFrames = Effect.fnUntraced(function* (day: {
   return prices
 })
 
+// Decision: a day whose broker codes were stored before the broker trades
+// index rebuilds it from the alarm, a page a wake, armed again after each
+// page, never inside a request. A day still to seal waits for its seal
+// wake, so no page holds the turn while the market streams; any other
+// starts now. Through `arm`, so it never displaces the seal's wake. See
+// spec apinrdw/kumora#335.
+//
+// When the index rebuild first needs the alarm: none once built.
+const indexWakeAtStart = (
+  built: boolean,
+  sealWake: DateTime.Utc | undefined
+): Effect.Effect<DateTime.Utc | undefined> => {
+  if (built) return Effect.succeed(undefined)
+  return sealWake === undefined ? DateTime.now : Effect.succeed(sealWake)
+}
+
 export const makeTradingDay = Effect.fnUntraced(function* (options: {
   readonly date: WibDate
   // Every viewer socket the object holds, ready or not.
@@ -755,6 +771,7 @@ export const makeTradingDay = Effect.fnUntraced(function* (options: {
   // A WIB date is ISO, so an earlier one reads less.
   const noTape = options.date < todayDate && storedHighest === undefined
   let sealWake: DateTime.Utc | undefined = sealed || noTape ? undefined : sealAt
+  let indexWake = yield* indexWakeAtStart(brokerCodes.indexBuilt, sealWake)
   // What the alarm is armed for since it last fired, so a later wake never
   // displaces an earlier one. The Durable Object keeps the alarm itself
   // across hibernation; the day's start arms it again from what it finds.
@@ -797,6 +814,7 @@ export const makeTradingDay = Effect.fnUntraced(function* (options: {
   const sweepIngests = Effect.gen(function* () {
     const now = yield* DateTime.now
     const withTime = yield* closeOverdueIngests(DateTime.toEpochMillis(now))
+    if (indexWake !== undefined) yield* arm(indexWake)
     if (sealWake !== undefined) yield* arm(sealWake)
     // A deadline on, not at each socket's instant: a trickle of openings then
     // wakes the object once a deadline, and a silent socket lives two at most.
@@ -816,7 +834,9 @@ export const makeTradingDay = Effect.fnUntraced(function* (options: {
   const alarm = Effect.gen(function* () {
     armed = undefined
     const now = yield* DateTime.now
-    if (!sealed && !DateTime.isLessThan(now, sealAt))
+    // Only a day that armed the seal seals: a no-tape day's alarm runs for
+    // its index rebuild alone.
+    if (sealWake !== undefined && !sealed && !DateTime.isLessThan(now, sealAt))
       yield* seal(now).pipe(
         Effect.andThen(
           Effect.sync(() => {
@@ -828,6 +848,22 @@ export const makeTradingDay = Effect.fnUntraced(function* (options: {
             Effect.andThen(
               Effect.sync(() => {
                 sealWake = DateTime.add(now, { minutes: 1 })
+              })
+            )
+          )
+        )
+      )
+    // A page that failed is tried again a minute later, as a seal is.
+    if (indexWake !== undefined && !DateTime.isLessThan(now, indexWake))
+      yield* brokerCodes.indexPage.pipe(
+        Effect.map((built) => {
+          indexWake = built ? undefined : now
+        }),
+        Effect.catchCause((cause) =>
+          Effect.logError("Broker trades not indexed", cause).pipe(
+            Effect.andThen(
+              Effect.sync(() => {
+                indexWake = DateTime.add(now, { minutes: 1 })
               })
             )
           )

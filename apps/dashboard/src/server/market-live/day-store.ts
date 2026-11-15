@@ -193,7 +193,12 @@ export const Fact = {
   // The one-off build of a day's order flow rows (order-flow-build.ts): the
   // last minute it wrote, then ORDER_FLOW_BUILT.
   orderFlowBuilt: "order-flow-built",
+  // The broker trades index's rebuild (broker-codes.ts): the last chunk it
+  // indexed, then BROKER_TRADES_BUILT.
+  brokerTrades: "broker-trades",
 } as const
+
+export const BROKER_TRADES_BUILT = "built"
 
 export const ORDER_FLOW_BUILT = "built"
 
