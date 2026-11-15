@@ -12,7 +12,7 @@ import { type Cell, type Row, readSheet } from "./xlsx.ts"
 
 // Bumped whenever parsing changes what it stores: the archive run's
 // reconcile then parses every month again.
-export const PARSER_VERSION = 1
+export const PARSER_VERSION = 2
 
 const BY_LABEL = new Map<string, Classification>(
   Classification.literals.map((slug) => [CLASSIFICATIONS[slug].header, slug])
@@ -43,6 +43,8 @@ interface Layout {
   readonly code: number
   readonly issuer: number
   readonly total: number
+  // Each classification as `local` and `foreign` (Sep+), not `combined`.
+  readonly split: boolean
   readonly classifications: ReadonlyArray<{
     readonly column: number
     readonly classification: Classification
@@ -88,7 +90,7 @@ const classificationColumns = Effect.fnUntraced(function* (
     return yield* unreadable(
       `Header row ${headerRow} matches neither layout: it names ${columns.length} classification columns, not the ${count} classifications once each, or once each as Local_ and as Foreign_`
     )
-  return columns
+  return { split, classifications: columns }
 })
 
 // The header row is found by its labels: row 6 in the Mar–Aug 2026 layout
@@ -121,7 +123,7 @@ const findLayout = Effect.fnUntraced(function* (
       code,
       issuer,
       total,
-      classifications: yield* classificationColumns(headerRow, cells, known),
+      ...(yield* classificationColumns(headerRow, cells, known)),
     } satisfies Layout
   }
   return yield* unreadable("No header row names SHARE CODE")
@@ -192,7 +194,7 @@ const parseRows = Effect.fnUntraced(function* (rows: ReadonlyMap<number, Row>) {
     holdings.push(...(yield* rowHoldings(stock, cells, layout, total, where)))
   }
   if (stocks.length === 0) return yield* unreadable("The report has no stocks")
-  return { stocks, holdings }
+  return { split: layout.split, stocks, holdings }
 })
 
 // Parses one archived report and replaces its data date's parsed holdings
@@ -203,7 +205,7 @@ export const parseClassificationMonth = Effect.fnUntraced(function* (
   bytes: Uint8Array,
   parsedAt: string
 ) {
-  const { stocks, holdings } = yield* parseRows(yield* readSheet(bytes))
+  const { split, stocks, holdings } = yield* parseRows(yield* readSheet(bytes))
   yield* replaceMonth({
     dateColumn: "data_date",
     date: dataDate,
@@ -225,6 +227,7 @@ export const parseClassificationMonth = Effect.fnUntraced(function* (
         sha256,
         parser_version: PARSER_VERSION,
         parsed_at: parsedAt,
+        split: split ? 1 : 0,
       } satisfies Record<string, SqlValue>,
     },
   })

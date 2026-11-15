@@ -81,7 +81,7 @@ export function seedClassificationMonths(months: SeededMonths) {
     ],
     (db) => {
       const record = db.prepare(
-        "INSERT INTO classification_month VALUES (?, ?, 1, '2026-11-14T13:00:00.000Z')"
+        "INSERT INTO classification_month (data_date, sha256, parser_version, parsed_at, split) VALUES (?, ?, 2, '2026-11-14T13:00:00.000Z', ?)"
       )
       const stock = db.prepare(
         "INSERT INTO classification_stock_month VALUES (?, ?, ?, ?)"
@@ -90,7 +90,11 @@ export function seedClassificationMonths(months: SeededMonths) {
         "INSERT INTO classification_holding VALUES (?, ?, ?, ?, ?)"
       )
       for (const [dataDate, stocks] of Object.entries(months)) {
-        record.run(dataDate, `sha-${dataDate}`)
+        // A month's report splits when its stocks do.
+        const split = Object.values(stocks).some(
+          (month) => !("combined" in month)
+        )
+        record.run(dataDate, `sha-${dataDate}`, split ? 1 : 0)
         for (const [code, month] of Object.entries(stocks)) {
           stock.run(dataDate, code, month.issuer, total(month))
           for (const [classification, origin, shares] of holdingRows(month))

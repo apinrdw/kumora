@@ -99,6 +99,7 @@ export type StockPage = typeof StockPage.Type
 
 const MonthRow = Schema.Struct({
   data_date: Schema.String,
+  split: Schema.BooleanFromBit,
   issuer_name: Schema.NullOr(Schema.String),
   total_scripless: Schema.NullOr(Schema.Number),
   listed_shares: Schema.NullOr(Schema.Number),
@@ -138,7 +139,7 @@ const HOLDINGS = `
   )`
 
 const MONTHS = `
-  SELECT m.data_date, s.issuer_name, s.total_scripless, k.listed_shares
+  SELECT m.data_date, m.split, s.issuer_name, s.total_scripless, k.listed_shares
   FROM classification_month m
   LEFT JOIN classification_stock_month s
     ON s.data_date = m.data_date AND s.stock_code = ?1
@@ -224,11 +225,11 @@ const addShares = (
 
 const compositionMonth = Effect.fnUntraced(function* (
   dataDate: string,
+  split: boolean,
   totalScripless: number,
   listedShares: number | undefined,
   rows: ReadonlyArray<HoldingRow>
 ) {
-  const split = rows.some(({ origin }) => origin !== "combined")
   const empty: OriginShares = split
     ? { combined: 0, local: 0, foreign: 0 }
     : { combined: 0 }
@@ -295,6 +296,7 @@ export const stockPage = Effect.fnUntraced(function* (
   const read = (row: (typeof held)[number]) =>
     compositionMonth(
       row.data_date,
+      row.split,
       row.total_scripless,
       row.listed_shares ?? undefined,
       holdings.filter(({ data_date }) => data_date === row.data_date)
