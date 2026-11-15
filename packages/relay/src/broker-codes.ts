@@ -69,7 +69,7 @@ export const BrokerCode = Schema.String.check(
 export type BrokerCode = typeof BrokerCode.Type
 
 // Domestic or foreign: the investor behind one side, not the broker.
-const InvestorType = Schema.Literals(["D", "F"])
+export const InvestorType = Schema.Literals(["D", "F"])
 export type InvestorType = typeof InvestorType.Type
 
 // One running trade's broker codes and investor types, both sides.

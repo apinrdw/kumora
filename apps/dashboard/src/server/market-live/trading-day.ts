@@ -71,6 +71,7 @@ import { buildOrderFlow, orderFlowBuiltAtStart } from "./order-flow-build.ts"
 import { SNAPSHOT_TRADES, recordedAnswer } from "./recorded-answers.ts"
 import { type AccountId, type HeldSessions, type SessionId } from "./routes.ts"
 import { stockbitTrades } from "./stockbit.ts"
+import { makeSweepBrokers } from "./sweep-brokers.ts"
 import {
   mergedLivePrice,
   stockbitLivePrices,
@@ -312,6 +313,11 @@ export const makeTradingDay = Effect.fnUntraced(function* (options: {
     date: options.date,
     sql: options.sql,
     fact: store.fact,
+  })
+  const sweepBrokers = yield* makeSweepBrokers({
+    sql: options.sql,
+    store,
+    heldCodes: brokerCodes.heldCodes,
   })
   const setAlarm = options.setAlarm ?? (() => Effect.void)
   let sealed = (yield* store.fact(Fact.sealed)) !== undefined
@@ -1086,6 +1092,7 @@ export const makeTradingDay = Effect.fnUntraced(function* (options: {
         store,
         codeList: codeListStore,
         brokerCodes,
+        sweepBrokers,
         sealed,
         liveGaps: Effect.map(
           market.conditions,
@@ -1127,7 +1134,17 @@ export const makeTradingDay = Effect.fnUntraced(function* (options: {
     // them and its recorded answers stay byte-identical. See spec
     // apinrdw/kumora#244, "Dashboard: TradingDay's broker codes store".
     brokerCodes: {
-      post: (text: string) => turn.withPermit(brokerCodes.post(text)),
+      // Decision: a written batch's sweep brokers are worked out again in
+      // the same turn, before the batch is answered, so a GET after a 200
+      // reads them. See spec apinrdw/kumora#343, "When it is recomputed".
+      post: (text: string) =>
+        turn.withPermit(
+          Effect.gen(function* () {
+            const { answer, written } = yield* brokerCodes.post(text)
+            if (written.length > 0) yield* sweepBrokers.recompute(written)
+            return answer
+          })
+        ),
       status: (search: URLSearchParams) =>
         turn.withPermit(brokerCodes.status(search)),
       held: (tradeNumber: TradeNumber) =>

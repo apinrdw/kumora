@@ -689,6 +689,26 @@ export const makeDayStore = (sql: Sql) =>
       )).filter((trade) => trade.board === "RG")
     })
 
+    // The minutes the stored trades numbered `first` to `last` fall in,
+    // ascending; none when it holds none of them.
+    const minutesOfTrades = (first: number, last: number) =>
+      Effect.sync(() => {
+        const [row] = sql.exec(
+          "SELECT min(time) AS first, max(time) AS last FROM trades WHERE number BETWEEN ? AND ?",
+          first,
+          last
+        )
+        if (row === undefined || row.first === null) return []
+        const minutes: Array<number> = []
+        for (
+          let minute = Math.floor(Number(row.first) / MINUTE_MS) * MINUTE_MS;
+          minute <= Number(row.last);
+          minute += MINUTE_MS
+        )
+          minutes.push(minute)
+        return minutes
+      })
+
     // One code's stored book chunk for exactly `minute`, as stored.
     const chunkOfMinute = Effect.fnUntraced(function* (
       code: StockCode,
@@ -873,6 +893,7 @@ export const makeDayStore = (sql: Sql) =>
       markOrderFlowBuilt,
       orderFlowMinutes,
       minuteTrades,
+      minutesOfTrades,
       chunkOfMinute,
       storedNothing,
       takeMeter,

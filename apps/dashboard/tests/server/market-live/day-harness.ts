@@ -3,15 +3,21 @@
 // Stockbit running trade batches. Time moves only by TestClock: a delta goes
 // out 250 ms after what it carries arrived, a flush 5 s past each minute.
 import {
+  BrokerCode,
+  BrokerCodesProtocolVersion,
   IngestProtocolVersion,
   StockCode,
+  TradeNumber,
   ViewerProtocolVersion,
   WibDate,
   decodeRecordedCandles,
+  decodeRecordedSweepBrokers,
   decodeRecordedSweeps,
   decodeViewerDown,
+  encodeBrokerCodesBatch,
   encodeIngestUp,
   encodeViewerUp,
+  type Feed,
   type Footprint,
   type RecordedResource,
   type Sweep,
@@ -262,9 +268,55 @@ export const tradingDay = Effect.fnUntraced(function* (
       answer: yield* decodeRecordedSweeps(text),
     }
   })
+  // A code's sweep brokers answer, decoded, with its Cache-Control.
+  const recordedSweepBrokers = Effect.fnUntraced(function* (code: string) {
+    const response = yield* recorded({
+      _tag: "SweepBrokers",
+      code: StockCode.make(code),
+    })
+    const text = yield* Effect.promise(() => response.text())
+    return {
+      cacheControl: response.headers.get("Cache-Control"),
+      answer: yield* decodeRecordedSweepBrokers(text),
+    }
+  })
+  // A broker codes batch of the day from `feed`, as the Worker hands it over,
+  // each row [trade number, "AK F CD D"]: buyer and type, seller and type.
+  const brokerCodes = Effect.fnUntraced(function* (
+    feed: Feed,
+    rows: ReadonlyArray<readonly [number, string]>,
+    end?: number
+  ) {
+    const response = yield* day.brokerCodes.post(
+      yield* encodeBrokerCodesBatch({
+        version: BrokerCodesProtocolVersion,
+        feed,
+        day: DAY,
+        rows: rows.map(([number, text]) => {
+          const [buyer, buyerType, seller, sellerType] = text.split(" ")
+          return [
+            TradeNumber.make(String(number)),
+            {
+              buyer: BrokerCode.make(buyer!),
+              buyerType: buyerType === "F" ? "F" : "D",
+              seller: BrokerCode.make(seller!),
+              sellerType: sellerType === "F" ? "F" : "D",
+            },
+          ]
+        }),
+        ...(end === undefined
+          ? {}
+          : { end: { n: TradeNumber.make(String(end)) } }),
+      })
+    )
+    if (response.status !== 200)
+      return yield* Effect.die(`Batch answered ${response.status}`)
+  })
   return {
     day,
     trades,
+    brokerCodes,
+    recordedSweepBrokers,
     ajaibTrades,
     frames,
     viewers,

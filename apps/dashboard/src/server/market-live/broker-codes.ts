@@ -532,12 +532,16 @@ export const makeBrokerCodes = Effect.fnUntraced(function* (options: {
   )
 
   // A POSTed batch: 200 once it is written, else as `checkedBatch` refuses
-  // it.
+  // it, with the trade numbers it wrote, none for a refused batch.
   const post = Effect.fnUntraced(function* (text: string) {
     const batch = yield* checkedBatch(text, options.date)
-    if (batch instanceof Response) return batch
+    if (batch instanceof Response)
+      return { answer: batch, written: [] as ReadonlyArray<number> }
     yield* write(batch)
-    return yield* noStoreAnswer(200)
+    return {
+      answer: yield* noStoreAnswer(200),
+      written: batch.rows.map(([tradeNumber]) => Number(tradeNumber)),
+    }
   })
 
   // A status GET's answer: 400 when its `after` isn't a trade number.

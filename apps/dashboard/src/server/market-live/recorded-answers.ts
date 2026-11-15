@@ -5,6 +5,7 @@ import {
   encodeRecordedBrokerCodes,
   encodeRecordedCandles,
   encodeRecordedGaps,
+  encodeRecordedSweepBrokers,
   encodeRecordedSweeps,
   encodeRecordedTape,
   type RecordedResource,
@@ -22,6 +23,7 @@ import { Fact, type makeDayStore } from "./day-store.ts"
 import { heatEndOf } from "../../lib/heatmap.ts"
 import { heatmapAnswer, type HeatRow } from "./heat-rows.ts"
 import { SEALED_CACHE } from "./routes.ts"
+import type { SweepBrokersStore } from "./sweep-brokers.ts"
 
 // The newest trades a viewer's snapshot carries, and a tape GET at a cursor.
 export const SNAPSHOT_TRADES = 200
@@ -50,6 +52,7 @@ export const recordedAnswer = Effect.fnUntraced(function* (
     readonly store: Effect.Success<ReturnType<typeof makeDayStore>>
     readonly codeList: CodeListStore
     readonly brokerCodes: BrokerCodesStore
+    readonly sweepBrokers: SweepBrokersStore
     readonly sealed: boolean
     // The gaps so far, while the day isn't sealed.
     readonly liveGaps: Effect.Effect<ReadonlyArray<RelayGap>>
@@ -113,6 +116,21 @@ export const recordedAnswer = Effect.fnUntraced(function* (
         }),
         cacheControl
       )
+    // Decision: its own resource, cached as the codes answer is, never
+    // immutable: a later batch may still change a sweep's brokers, while the
+    // sweeps answer of a sealed day is cached for a year. See spec
+    // apinrdw/kumora#343, "The sweep brokers answer".
+    case "SweepBrokers": {
+      const complete = yield* day.brokerCodes.isComplete
+      return yield* json(
+        yield* encodeRecordedSweepBrokers({
+          code: resource.code,
+          sweeps: yield* day.sweepBrokers.sweepsOf(resource.code),
+          complete,
+        }),
+        complete ? COMPLETE_CODES_CACHE : "no-store"
+      )
+    }
     case "Book": {
       const minute =
         Math.floor(DateTime.toEpochMillis(resource.minute) / MINUTE_MS) *
