@@ -37,7 +37,13 @@ test("an open tooltip shows a sweep's brokers once a recheck brings them", async
   )
   await act(() => root.render(<SweepTip store={store} withBrokers />))
   await act(() =>
-    store.tip.set({ id: buy.firstTrade, x: 10, y: 10, from: "chart" })
+    store.tip.set({
+      id: buy.firstTrade,
+      x: 10,
+      y: 10,
+      from: "chart",
+      pinned: false,
+    })
   )
   const tip = () => document.querySelector('[role="tooltip"]')?.textContent
   expect(tip()).toContain("Brokers show once every trade")

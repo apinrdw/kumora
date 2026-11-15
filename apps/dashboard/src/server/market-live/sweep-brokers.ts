@@ -244,14 +244,11 @@ export const makeSweepBrokers = Effect.fnUntraced(function* (options: {
     }
   })
 
-  // Decision: after the seal no flush logs the meter, so each recompute,
-  // and the one-off build as it ends, logs its own line; before it, the
-  // counts ride the next `Rows written`. The storage line is logged again,
-  // with this table, the first time an object finds the sealed day's codes
-  // complete, so again after a restart. `completed` checks after every
-  // accepted codes batch, one that changed no codes included: the walks'
-  // final batch carries only the day's N. See spec apinrdw/kumora#343,
-  // "Cost". The Staging check reads both: docs/runbooks/order-flow-cost.md.
+  // Decision: after the seal each recompute, and the build as it ends, logs
+  // its own line; before it, the counts ride the next `Rows written`. The
+  // storage line is logged again the first time an object finds the sealed
+  // day's codes complete, checked after every accepted batch. See spec
+  // apinrdw/kumora#343, "Cost", and PR apinrdw/kumora#349.
   let storageLogged = false
   const recomputeLogged = Effect.gen(function* () {
     if ((yield* store.fact(Fact.sealed)) === undefined) return
@@ -352,12 +349,11 @@ export const makeSweepBrokers = Effect.fnUntraced(function* (options: {
   // The fact a flush of `trades` writes with them: the build's progress
   // moved back before the earliest minute holding one whose codes the day
   // already holds; none when no flushed trade has codes.
-  // Decision: a trade stored after its codes landed (late, backfilled, or
-  // still in its merge window when the batch came) is missed by that
-  // batch's recompute, which reads stored trades. Its flush moves the
-  // build back in the trades' own transaction, so the sealed day's next
-  // sweep brokers GET rebuilds from that minute, writing only changed rows.
-  // See spec apinrdw/kumora#343, "The one-off build".
+  // Decision: a batch's recompute reads stored trades only, so a trade
+  // stored after its codes moves the build back in its flush's transaction:
+  // the sealed day's next GET rebuilds from that minute, writing only
+  // changed rows. See spec apinrdw/kumora#343, "The one-off build", and PR
+  // apinrdw/kumora#349.
   const persisting = Effect.fnUntraced(function* (
     trades: ReadonlyArray<RunningTrade>
   ) {

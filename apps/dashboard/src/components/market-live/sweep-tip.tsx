@@ -153,12 +153,11 @@ export function SweepTip({
       <p className="mb-1 font-sans font-semibold">{tip.title}</p>
       {tip.sides === undefined ? (
         <p className="text-muted-foreground">
+          {/* Decision: "after the close" is the owner's approved copy for
+              what arrives after the Seal: spec apinrdw/kumora#343, story 32. */}
           {withBrokers
             ? "Brokers show once every trade in this sweep has its codes."
-            : // Decision: "after the close" is the owner's approved copy for
-              // what arrives after the Seal (spec apinrdw/kumora#343, story
-              // 32's "Brokers after the close").
-              "Broker codes arrive after the close."}
+            : "Broker codes arrive after the close."}
         </p>
       ) : (
         <TipBrokers sides={tip.sides} picked={picked} />
