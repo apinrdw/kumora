@@ -306,9 +306,13 @@ export function attachSweepBubbles({
   // bubble; a log cell's tooltip is left alone.
   // Decision: the bubbles' own hit test finds the bubble, since a tap's
   // click carries no hovered object (the library hit-tests where the
-  // crosshair was, and a tap moved none there).
+  // crosshair was, and a tap moved none there). Its point is pane-local, so
+  // a point in another pane (chart 1's volume) is on no bubble.
   const tip = (parameter: MouseEventParams<Time>) => {
-    const point = parameter.point
+    const point =
+      parameter.paneIndex === series.getPane().paneIndex()
+        ? parameter.point
+        : undefined
     const id = point && bubbles.nearest(point.x, point.y)?.id
     if (id === undefined || point === undefined) {
       if (store.tip.get()?.from === "chart") store.tip.set(undefined)
