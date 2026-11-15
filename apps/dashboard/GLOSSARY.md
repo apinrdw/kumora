@@ -186,7 +186,7 @@ What the dashboard has read out of its archived holdings reports, one set of row
 _Avoid_: Holdings database, parsed data
 
 **Parse failure**:
-A month whose archived report doesn't match what the parser expects, such as an unknown header or a row whose classifications don't add up to its total. Nothing of it is stored: the month keeps its earlier parsed holdings, or stays absent, and the next run tries it again.
+A month a run picked to parse but couldn't: most often its archived report doesn't match what the parser expects, such as an unknown header or a row whose classifications don't add up to its total, but also its report missing from the archive, or the parsed holdings unwritable after retries. Nothing of it is stored: the month keeps its earlier parsed holdings, or stays absent, and the next run tries it again.
 _Avoid_: Parse error, bad month
 
 **Investor classification**:
