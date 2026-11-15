@@ -51,14 +51,32 @@ const legend = (label: string) =>
     (button) => button.textContent === label
   )
 
-test("another chart origin shows every series again", async () => {
-  await render("local")
-  // A keyboard press hides at once; a click waits out a double-click.
-  await act(() => (legend("Individual") as HTMLButtonElement).click())
-  expect(legend("Individual")?.getAttribute("aria-pressed")).toBe("false")
-  await render("foreign")
-  expect(legend("Individual")?.getAttribute("aria-pressed")).toBe("true")
-})
+const pressed = () =>
+  [...container.querySelectorAll('[aria-label="Legend"] button')].flatMap(
+    (button) =>
+      button.getAttribute("aria-pressed") === "true" ? [button.textContent] : []
+  )
+
+const allSeries = () =>
+  [...container.querySelectorAll('[aria-label="Legend"] button')].map(
+    (button) => button.textContent
+  )
+
+test.each([{ foreignLegend: false }, { foreignLegend: true }])(
+  "switching origin away and back shows every series (Foreign legend used: $foreignLegend)",
+  async ({ foreignLegend }) => {
+    await render("local")
+    // A keyboard press hides at once; a click waits out a double-click.
+    await act(() => (legend("Individual") as HTMLButtonElement).click())
+    expect(legend("Individual")?.getAttribute("aria-pressed")).toBe("false")
+    await render("foreign")
+    expect(pressed()).toEqual(allSeries())
+    if (foreignLegend)
+      await act(() => (legend("Corporate") as HTMLButtonElement).click())
+    await render("local")
+    expect(pressed()).toEqual(allSeries())
+  }
+)
 
 // Fires a mouse click, which waits out a double-click, `detail` its click
 // count.
@@ -83,6 +101,21 @@ test("clicks on two legend entries in quick succession hide both", async () => {
   }
 })
 
+test("a click still waiting when the origin changes hides nothing", async () => {
+  vi.useFakeTimers()
+  try {
+    await render("local")
+    await click("Individual", 1)
+    await render("foreign")
+    await act(() => vi.advanceTimersByTime(1_000))
+    expect(pressed()).toEqual(allSeries())
+    await render("local")
+    expect(pressed()).toEqual(allSeries())
+  } finally {
+    vi.useRealTimers()
+  }
+})
+
 test("a double-click on a legend entry shows only that one", async () => {
   vi.useFakeTimers()
   try {
@@ -95,12 +128,7 @@ test("a double-click on a legend entry shows only that one", async () => {
       )
     })
     await act(() => vi.advanceTimersByTime(1_000))
-    const pressed = [
-      ...container.querySelectorAll('[aria-label="Legend"] button'),
-    ].flatMap((button) =>
-      button.getAttribute("aria-pressed") === "true" ? [button.textContent] : []
-    )
-    expect(pressed).toEqual(["Individual"])
+    expect(pressed()).toEqual(["Individual"])
   } finally {
     vi.useRealTimers()
   }
