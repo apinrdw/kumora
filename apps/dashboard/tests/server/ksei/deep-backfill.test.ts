@@ -76,11 +76,15 @@ const reportPuts = (bucket: MemoryBucket) =>
   bucket.puts.filter((key) => key.startsWith("reports/"))
 
 // Seeded from Wayback: both are in the committed seed.
-const SEEDED_STATIS = "StatisEfek20080131.txt.zip"
-const SEEDED_BALANCEPOS = "BalanceposEfek20080131.txt.zip"
-// June 2008's Kepemilikan Efek is in no seed: its period end is Friday the
-// 27th, under the name Kepemilikan Efek had before 2009.
-const PROBED_BALANCEPOS = "BalanceposEfek20080627.txt.zip"
+const SEEDED_STATIS = "StatisEfek20230131.txt.zip"
+const SEEDED_BALANCEPOS = "BalanceposEfek20210730.zip"
+// June 2019's Kepemilikan Efek is in no seed: its period end is Friday the
+// 28th.
+const PROBED_BALANCEPOS = "BalanceposEfek20190628.zip"
+// Before the archive's first month, November 2018: one seeded, one a probe
+// would find.
+const OLD_SEEDED = "StatisEfek20080131.txt.zip"
+const OLD_UNSEEDED = "BalanceposEfek20181031.zip"
 
 describe("the Wayback seed", () => {
   it.effect("names only KSEI reports, each once", () =>
@@ -127,23 +131,23 @@ describe("a deep backfill", () => {
 
         const seeded = recordOf(bucket, SEEDED_BALANCEPOS)
         assert.isTrue(
-          seeded.key.startsWith("reports/securities-holdings/2008-01-31/")
+          seeded.key.startsWith("reports/securities-holdings/2021-07-30/")
         )
         assert.deepInclude(seeded.record, {
           kind: "securities-holdings",
-          periodEnd: "2008-01-31",
+          periodEnd: "2021-07-30",
           filename: SEEDED_BALANCEPOS,
           url: `${DOWNLOAD}${SEEDED_BALANCEPOS}`,
           listing: null,
         })
         assert.deepInclude(recordOf(bucket, SEEDED_STATIS).record, {
           kind: "securities-statistics",
-          periodEnd: "2008-01-31",
+          periodEnd: "2023-01-31",
           listing: null,
         })
         const probed = recordOf(bucket, PROBED_BALANCEPOS)
         assert.isTrue(
-          probed.key.startsWith("reports/securities-holdings/2008-06-27/")
+          probed.key.startsWith("reports/securities-holdings/2019-06-28/")
         )
         assert.deepInclude(probed.record, {
           url: `${DOWNLOAD}${PROBED_BALANCEPOS}`,
@@ -154,18 +158,15 @@ describe("a deep backfill", () => {
           ksei.requests
             .filter(
               ({ method, url }) =>
-                method === "HEAD" && url.includes("BalanceposEfek200806")
+                method === "HEAD" && url.includes("BalanceposEfek201906")
             )
             .map(({ url }) => url.slice(DOWNLOAD.length)),
           [
-            "BalanceposEfek20080630.zip",
-            "BalanceposEfek20080630.txt.zip",
-            "BalanceposEfek20080629.zip",
-            "BalanceposEfek20080629.txt.zip",
-            "BalanceposEfek20080628.zip",
-            "BalanceposEfek20080628.txt.zip",
-            "BalanceposEfek20080627.zip",
-            "BalanceposEfek20080627.txt.zip",
+            "BalanceposEfek20190630.zip",
+            "BalanceposEfek20190630.txt.zip",
+            "BalanceposEfek20190629.zip",
+            "BalanceposEfek20190629.txt.zip",
+            "BalanceposEfek20190628.zip",
           ]
         )
 
@@ -184,18 +185,64 @@ describe("a deep backfill", () => {
         )
         assert.deepStrictEqual(deep.foundByProbing, [PROBED_BALANCEPOS])
         const notFound = deep.monthsNotFound
-        // Nothing serves May 2008's Statistik Efek.
-        assert.include(notFound["securities-statistics"], "2008-05")
-        for (const held of ["2008-01", "2008-06", "2023-11"])
+        // Nothing serves May 2019's Statistik Efek.
+        assert.include(notFound["securities-statistics"], "2019-05")
+        for (const held of ["2021-07", "2019-06", "2023-11"])
           assert.notInclude(notFound["securities-holdings"], held)
-        assert.notInclude(notFound["securities-statistics"], "2008-01")
-        // Every month of 2008–2023 but those held: the listing holds Nov and
-        // Dec 2023.
-        assert.strictEqual(
-          notFound["securities-statistics"].length,
-          16 * 12 - 3
+        assert.notInclude(notFound["securities-statistics"], "2023-01")
+        // Every month from November 2018 to 2023 but those held: the listing
+        // holds Nov and Dec 2023.
+        assert.strictEqual(notFound["securities-statistics"][0], "2018-11")
+        assert.strictEqual(notFound["securities-statistics"].length, 62 - 3)
+        assert.strictEqual(notFound["securities-holdings"].length, 62 - 4)
+      }),
+    30_000
+  )
+
+  it.effect(
+    "asks KSEI for nothing before the archive's first month",
+    () =>
+      Effect.gen(function* () {
+        assert.include(WAYBACK_SEED, OLD_SEEDED)
+        const ksei = fakeKsei()
+        serve(ksei, OLD_SEEDED)
+        serve(ksei, OLD_UNSEEDED)
+        const bucket = memoryBucket()
+        const counts = new Map<string, number>()
+
+        const result = yield* deepRun(
+          ksei,
+          bucket,
+          "deep-1763089200000",
+          counts
         )
-        assert.strictEqual(notFound["securities-holdings"].length, 16 * 12 - 4)
+
+        const asked = ksei.requests.map(({ url }) => url)
+        assert.notInclude(asked, `${DOWNLOAD}${OLD_SEEDED}`)
+        assert.notInclude(asked, `${DOWNLOAD}${OLD_UNSEEDED}`)
+        assert.deepStrictEqual(
+          asked.filter((url) => /Efek(?:2017|20180)/.test(url)),
+          []
+        )
+        assert.isFalse(
+          reportPuts(bucket).some((key) =>
+            /^reports\/[a-z-]+\/(?:200|201[0-7]|2018-(?:0|10))/.test(key)
+          )
+        )
+        assert.deepInclude(result, { outcome: "complete", reportsAdded: 72 })
+        // 2018 is probed for November and December only.
+        assert.isAtMost(
+          counts.get("probe:securities-holdings:2018") ?? 0,
+          2 * 7 * 2
+        )
+        for (const kind of [
+          "securities-statistics",
+          "securities-holdings",
+        ] as const)
+          assert.deepStrictEqual(
+            result.deep?.monthsNotFound[kind].slice(0, 3),
+            ["2018-11", "2018-12", "2019-01"]
+          )
       }),
     30_000
   )
@@ -226,7 +273,7 @@ describe("a deep backfill", () => {
         // Held months aren't probed again.
         assert.notInclude(
           ksei.requests.map(({ url }) => url),
-          `${DOWNLOAD}BalanceposEfek20080630.zip`
+          `${DOWNLOAD}BalanceposEfek20190630.zip`
         )
         assert.deepInclude(second, {
           outcome: "complete",
@@ -259,11 +306,11 @@ describe("a deep backfill", () => {
         )
 
         const probes = [...counts].filter(([name]) => name.startsWith("probe:"))
-        // One probe step per kind and year, 2008 to 2023.
-        assert.strictEqual(probes.length, 2 * 16)
+        // One probe step per kind and year, 2018 to 2023.
+        assert.strictEqual(probes.length, 2 * 6)
         assert.include(
           probes.map(([name]) => name),
-          "probe:securities-holdings:2008"
+          "probe:securities-holdings:2018"
         )
         // Twelve months of seven days under two names, at most.
         for (const [name, sent] of probes)
@@ -325,8 +372,8 @@ describe("a deep backfill", () => {
     () =>
       Effect.gen(function* () {
         const ksei = fakeKsei()
-        ksei.files.set(`${DOWNLOAD}StatisEfek20120531.txt.zip`, {
-          ...fileOf(zipBody("May 2012")),
+        ksei.files.set(`${DOWNLOAD}StatisEfek20200531.txt.zip`, {
+          ...fileOf(zipBody("May 2020")),
           status: 503,
         })
         const bucket = memoryBucket()
@@ -336,17 +383,17 @@ describe("a deep backfill", () => {
         assert.strictEqual(result.outcome, "partial")
         assert.deepStrictEqual(
           result.deep?.probeFailures.map(({ kind, year }) => ({ kind, year })),
-          [{ kind: "securities-statistics", year: 2012 }]
+          [{ kind: "securities-statistics", year: 2020 }]
         )
         assert.include(result.deep?.probeFailures[0]?.message ?? "", "503")
         const statistics =
           result.deep?.monthsNotFound["securities-statistics"] ?? []
-        assert.notInclude(statistics, "2012-05")
-        assert.notInclude(statistics, "2012-02")
-        assert.include(statistics, "2011-12")
+        assert.notInclude(statistics, "2020-05")
+        assert.notInclude(statistics, "2020-02")
+        assert.include(statistics, "2019-12")
         assert.include(
           result.deep?.monthsNotFound["securities-holdings"] ?? [],
-          "2012-05"
+          "2020-05"
         )
       }),
     30_000
@@ -357,8 +404,8 @@ describe("a deep backfill", () => {
     () =>
       Effect.gen(function* () {
         const ksei = fakeKsei()
-        ksei.files.set(`${DOWNLOAD}BalanceposEfek20150331.zip`, {
-          ...fileOf(zipBody("March 2015")),
+        ksei.files.set(`${DOWNLOAD}BalanceposEfek20200331.zip`, {
+          ...fileOf(zipBody("March 2020")),
           status: 429,
         })
         const bucket = memoryBucket()
@@ -368,12 +415,12 @@ describe("a deep backfill", () => {
         assert.strictEqual(result.outcome, "partial")
         assert.deepStrictEqual(
           result.deep?.probeFailures.map(({ kind, year }) => ({ kind, year })),
-          [{ kind: "securities-holdings", year: 2015 }]
+          [{ kind: "securities-holdings", year: 2020 }]
         )
         assert.include(result.deep?.probeFailures[0]?.message ?? "", "429")
         assert.notInclude(
           result.deep?.monthsNotFound["securities-holdings"] ?? [],
-          "2015-03"
+          "2020-03"
         )
       }),
     30_000

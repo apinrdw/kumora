@@ -7,7 +7,7 @@ import { HttpClient } from "effect/http"
 
 import { ArchiveBucket } from "../archive/bucket.ts"
 import { REPORTS_PREFIX } from "../archive/run.ts"
-import { FIRST_YEAR, monthsHeld } from "./coverage.ts"
+import { FIRST_YEAR, inArchive, monthsHeld } from "./coverage.ts"
 import { recordsByFilename } from "./held.ts"
 import type { KseiReportKind } from "./kind.ts"
 import {
@@ -18,10 +18,13 @@ import {
 } from "./listing.ts"
 import { WAYBACK_SEED } from "./wayback-seed.ts"
 
-// The years a Deep backfill probes, one step per kind and year.
-// Decision: FIRST_YEAR (2008) to 2023. KSEI serves files back to 2008, and
-// its listings hold November 2023 onward on 2026-11-14 (a rolling three
-// years), which the daily runs keep from then on. See apinrdw/kumora#324.
+// The years a Deep backfill probes, one step per kind and year; the first
+// year's step probes only its months from FIRST_MONTH.
+// Decision: FIRST_MONTH's year (2018) to 2023. KSEI serves files back to
+// 2008, but the owner chose on 2026-11-15 to archive November 2018 onward
+// only (coverage.ts). KSEI's listings hold November 2023 onward on
+// 2026-11-14 (a rolling three years), which the daily runs keep from then
+// on. See apinrdw/kumora#324.
 export const PROBE_YEARS = Array.from(
   { length: 2023 - FIRST_YEAR + 1 },
   (_, i) => FIRST_YEAR + i
@@ -39,8 +42,9 @@ const PROBE_CONCURRENCY = 4
 export const PROBE_HEADS_IN_TURN =
   Math.ceil(12 / PROBE_CONCURRENCY) * PROBE_DAYS * MOST_NAMES_A_DAY
 
-// The seeded filenames the archive doesn't hold, leaving out those this run
-// already tried (`tried`): a step name may name one file only once.
+// The seeded filenames from FIRST_MONTH on that the archive doesn't hold,
+// leaving out those this run already tried (`tried`): a step name may name
+// one file only once.
 export const seed = Effect.fnUntraced(function* (tried: ReadonlyArray<string>) {
   const held = yield* recordsByFilename()
   const skip = new Set(tried)
@@ -48,7 +52,10 @@ export const seed = Effect.fnUntraced(function* (tried: ReadonlyArray<string>) {
     WAYBACK_SEED.filter((name) => !held.has(name) && !skip.has(name)),
     unlistedReport
   )
-  return reports.filter((report) => report !== undefined)
+  return yield* Effect.filter(
+    reports.filter((report) => report !== undefined),
+    ({ periodEnd }) => inArchive(periodEnd)
+  )
 })
 
 const Probed = Schema.Struct({
@@ -102,16 +109,20 @@ const served = Effect.fnUntraced(function* (url: string) {
   })
 })
 
-// One step's probe: for each month of `year` that `kind` still lacks, a HEAD
-// to each candidate name until the first file. At most 12 months of
-// PROBE_DAYS days under two names, 168 HEADs.
+// One step's probe: for each month of `year` from FIRST_MONTH that `kind`
+// still lacks, a HEAD to each candidate name until the first file. At most
+// 12 months of PROBE_DAYS days under two names, 168 HEADs.
 export const probe = Effect.fnUntraced(function* (
   kind: KseiReportKind,
   year: number
 ) {
   const held = yield* heldMonths(kind)
-  const months = Array.from({ length: 12 }, (_, i) => i + 1).filter(
-    (month) => !held.has(`${year}-${String(month).padStart(2, "0")}`)
+  const months = yield* Effect.filter(
+    Array.from({ length: 12 }, (_, i) => i + 1),
+    Effect.fnUntraced(function* (month) {
+      const yyyymm = `${year}-${String(month).padStart(2, "0")}`
+      return !held.has(yyyymm) && (yield* inArchive(yyyymm))
+    })
   )
   const answers = yield* Effect.forEach(
     months,

@@ -100,7 +100,7 @@ function Detail({ result }: { result: KseiRunResult }) {
   )
 }
 
-// The months of one kind no probe found, a line per year: "2008: 05, 07".
+// The months of one kind no probe found, a line per year: "2019: 05, 07".
 function MonthsNotFound({
   kind,
   months,

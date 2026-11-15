@@ -1,5 +1,5 @@
 // The KSEI archive's coverage: for each KSEI report kind, every month from
-// 2008 to the current one, held, not found or never looked for (spec
+// FIRST_MONTH to the current one, held, not found or never looked for (spec
 // apinrdw/kumora#327, "The admin page").
 import { wibDateAt } from "@workspace/relay"
 import { type DateTime, Effect, Schema } from "effect"
@@ -9,9 +9,22 @@ import { kindPrefix } from "./keys.ts"
 import { KseiReportKind } from "./kind.ts"
 import type { DeepFinds } from "./run-result.ts"
 
-// The oldest year KSEI serves files for: the first year the grid shows, and
-// the first a Deep backfill probes (deep.ts).
-export const FIRST_YEAR = 2008
+// The archive's first month, as YYYY-MM: the first the grid shows, the first
+// a Deep backfill probes (deep.ts), and the first whose reports a run stores
+// (archive-run.ts, deep.ts).
+// Decision: November 2018 for both kinds. The owner chose on 2026-11-15 to
+// keep 2018-11 onward only; Production then held Statistik Efek 2008-01 to
+// 2013-04 and Kepemilikan Efek 2008-04 to 2013-04 and 2018-01 to 2018-10,
+// then a gap, and those earlier reports were deleted once by hand.
+const FIRST_MONTH = "2018-11"
+
+export const FIRST_YEAR = Number(FIRST_MONTH.slice(0, 4))
+
+// Whether `period`, a period end (YYYY-MM-DD) or a month (YYYY-MM), is in
+// the archive: from FIRST_MONTH on. Both compare as text.
+export const inArchive = Effect.fnUntraced(function* (period: string) {
+  return period >= FIRST_MONTH
+})
 
 // held: the archive has a record of a file for the month. not-found: the
 // latest deep run probed the month and found nothing. never-looked-for:
@@ -26,8 +39,8 @@ const KseiCoverage = Schema.Array(
     years: Schema.Array(
       Schema.Struct({
         year: Schema.Number,
-        // January first.
-        months: Schema.Array(CoverageState),
+        // January first; null before FIRST_MONTH.
+        months: Schema.Array(Schema.NullOr(CoverageState)),
       })
     ),
   })
@@ -59,28 +72,36 @@ export const kseiCoverage = Effect.fnUntraced(function* (
   const today = yield* wibDateAt(now)
   const lastYear = Number(today.slice(0, 4))
   const lastMonth = Number(today.slice(5, 7))
-  const kinds = yield* Effect.forEach(KseiReportKind.literals, (kind) =>
-    Effect.map(monthsHeld(objects, kind), (held) => {
+  const kinds = yield* Effect.forEach(
+    KseiReportKind.literals,
+    Effect.fnUntraced(function* (kind) {
+      const held = yield* monthsHeld(objects, kind)
       const notFound = new Set(monthsNotFound?.[kind])
-      const state = (month: string): CoverageState =>
-        held.has(month)
+      const state = Effect.fnUntraced(function* (month: string) {
+        if (!(yield* inArchive(month))) return null
+        return held.has(month)
           ? "held"
           : notFound.has(month)
             ? "not-found"
             : "never-looked-for"
-      return {
-        kind,
-        years: Array.from(
+      })
+      const years = yield* Effect.forEach(
+        Array.from(
           { length: lastYear - FIRST_YEAR + 1 },
           (_, i) => FIRST_YEAR + i
-        ).map((year) => ({
-          year,
-          months: Array.from(
-            { length: year === lastYear ? lastMonth : 12 },
-            (_, m) => state(`${year}-${String(m + 1).padStart(2, "0")}`)
-          ),
-        })),
-      }
+        ),
+        Effect.fnUntraced(function* (year) {
+          const months = yield* Effect.forEach(
+            Array.from(
+              { length: year === lastYear ? lastMonth : 12 },
+              (_, m) => `${year}-${String(m + 1).padStart(2, "0")}`
+            ),
+            state
+          )
+          return { year, months }
+        })
+      )
+      return { kind, years }
     })
   )
   return KseiCoverage.make(kinds)
