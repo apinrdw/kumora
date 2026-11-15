@@ -88,8 +88,13 @@ export const composition = Effect.fnUntraced(function* (
   const previousShares = new Map(
     before?.rows.map(({ key, shares }) => [key, shares])
   )
+  // The read model lists no classification holding nothing, so one the
+  // month before held comes from that month, at 0 shares now.
+  const shown = new Map(current.rows.map((row) => [row.key, row]))
+  for (const row of before?.rows ?? [])
+    if (!shown.has(row.key)) shown.set(row.key, { ...row, shares: 0 })
   const rows: Array<CompositionRow> = []
-  for (const { key, label, type, shares } of current.rows) {
+  for (const { key, label, type, shares } of shown.values()) {
     const previousHeld = previousShares.get(key) ?? 0
     // A row that sold out since the month before stays, to read `3% → 0%`.
     if (shares === 0 && previousHeld === 0) continue
