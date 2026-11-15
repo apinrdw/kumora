@@ -120,7 +120,7 @@ export function LastRunCard({
         result === undefined
           ? []
           : [
-              ...archiveRunStats(result),
+              ...Effect.runSync(archiveRunStats(result)),
               { value: result.monthsParsed, label: "Months parsed" },
               { value: result.parseFailures.length, label: "Parse failures" },
             ]

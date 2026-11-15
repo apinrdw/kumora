@@ -54,13 +54,14 @@ export interface Run<Trigger extends string = string> {
 export const storedReports = <A>(
   stored: ReadonlyArray<Result.Result<A, string>>,
   unanswered: ReadonlyArray<string>
-) => ({
-  archived: stored.filter(Result.isSuccess).map(({ success }) => success),
-  notStored: [
-    ...unanswered,
-    ...stored.filter(Result.isFailure).map(({ failure }) => failure),
-  ],
-})
+) =>
+  Effect.succeed({
+    archived: stored.filter(Result.isSuccess).map(({ success }) => success),
+    notStored: [
+      ...unanswered,
+      ...stored.filter(Result.isFailure).map(({ failure }) => failure),
+    ],
+  })
 
 // What `create` passes a run's Workflow.
 export interface RunParams<Trigger extends string = string> {

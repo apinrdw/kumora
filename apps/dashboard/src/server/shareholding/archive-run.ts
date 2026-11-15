@@ -327,7 +327,10 @@ export const archiveRun = Effect.fn("archiveRun")(function* (
       Effect.result
     )
   )
-  const { archived, notStored } = storedReports(stored, checked.unanswered)
+  const { archived, notStored } = yield* storedReports(
+    stored,
+    checked.unanswered
+  )
   const parses = yield* parseMonths(steps, classificationMonths).pipe(
     // The run still fails with `reconcile`'s message, which the Workflow
     // keeps as the instance's error.

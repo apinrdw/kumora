@@ -488,7 +488,10 @@ export const kseiArchiveRun = Effect.fn("kseiArchiveRun")(function* (
         Effect.result
       )
   )
-  const { archived, notStored } = storedReports(stored, checked.unanswered)
+  const { archived, notStored } = yield* storedReports(
+    stored,
+    checked.unanswered
+  )
   const deep =
     run.trigger === "deep"
       ? yield* deepBackfill(

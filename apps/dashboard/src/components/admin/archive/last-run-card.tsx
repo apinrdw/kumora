@@ -151,12 +151,13 @@ export const archiveRunStats = (result: {
   readonly newVersions: number
   readonly reportsChecked: number
   readonly notStored: ReadonlyArray<string>
-}): Array<RunStat> => [
-  { value: result.reportsAdded, label: "Reports added" },
-  { value: result.newVersions, label: "New versions" },
-  { value: result.reportsChecked, label: "Reports checked" },
-  { value: result.notStored.length, label: "Not stored" },
-]
+}): Effect.Effect<Array<RunStat>> =>
+  Effect.succeed([
+    { value: result.reportsAdded, label: "Reports added" },
+    { value: result.newVersions, label: "New versions" },
+    { value: result.reportsChecked, label: "Reports checked" },
+    { value: result.notStored.length, label: "Not stored" },
+  ])
 
 export interface RunStat {
   readonly label: string

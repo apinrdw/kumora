@@ -235,7 +235,7 @@ export function KseiLastRunCard({
         result === undefined
           ? []
           : [
-              ...archiveRunStats(result),
+              ...Effect.runSync(archiveRunStats(result)),
               { value: result.md5Mismatches.length, label: "MD5 mismatches" },
             ]
       }
