@@ -404,6 +404,14 @@ test("a recorded day's sweep log shows each sweep's lead brokers, wider, filling
   await expect(rows.nth(1)).toContainText("40 @ 500→505")
   await expect(rows.nth(1)).not.toContainText("/")
 
+  // A tooltip pinned on a bubble hides once Play jumps the cursor back
+  // before its sweep (apinrdw/kumora#371).
+  await page.mouse.click(buyBubble.x, buyBubble.y)
+  await expect(tip.getByRole("row")).toHaveText(buyTip)
+  await page.keyboard.press("Space")
+  await expect(page.getByRole("button", { name: "Pause" })).toBeVisible()
+  await expect(tip).toBeHidden()
+
   // On a phone the Sweeps tab shows both broker columns, and a tap on a
   // broker cell or a bubble shows the tooltip.
   const phone = await (
