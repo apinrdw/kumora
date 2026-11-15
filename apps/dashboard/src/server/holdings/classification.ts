@@ -194,9 +194,9 @@ const rowHoldings = Effect.fnUntraced(function* (
 
 // The stock a row below the header row names, by its code and issuer name;
 // undefined for a row holding nothing a month stores, such as a DATE alone.
-// Decision: a row holding a value under any other label must name its stock
-// by a SHARE CODE of text, or the month fails: a row whose code wasn't read
-// was skipped while the month was replaced without it.
+// Decision: a row holding a value under any label but DATE must name its
+// stock by a SHARE CODE of text, or the month fails: a row whose code wasn't
+// read was skipped while the month was replaced without it.
 const rowStock = Effect.fnUntraced(function* (
   rowNumber: number,
   cells: Row,
