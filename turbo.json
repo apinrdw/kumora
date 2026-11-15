@@ -77,7 +77,7 @@
         "KUMORA_DASHBOARD_PORT"
       ]
     },
-    // vitest.timeout.ts reads CI to give tests CI's timeout there.
+    // vitest.timeout.mts reads CI to give tests CI's timeout there.
     "test": {
       "dependsOn": [
         "transit"
@@ -87,7 +87,7 @@
       ],
       "inputs": [
         "$TURBO_DEFAULT$",
-        "$TURBO_ROOT$/vitest.timeout.ts",
+        "$TURBO_ROOT$/vitest.timeout.mts",
         "!**/*.md"
       ]
     },
