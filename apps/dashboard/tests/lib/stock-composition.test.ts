@@ -47,6 +47,29 @@ describe("the Shareholders composition rows", () => {
       ])
     })
   )
+
+  it.effect(
+    "keep a classification that sold out since the month before, at 0%",
+    () =>
+      Effect.gen(function* () {
+        const rows = yield* composition(
+          month("2026-10-30", { ID: 100, CP: 0 }),
+          month("2026-09-30", { ID: 97, CP: 3 }),
+          "all",
+          "classifications"
+        )
+        expect(
+          rows.rows.map(({ key, share, previousShare }) => ({
+            key,
+            share,
+            previousShare,
+          }))
+        ).toEqual([
+          { key: "individual", share: 1, previousShare: 0.97 },
+          { key: "corporate", share: 0, previousShare: 0.03 },
+        ])
+      })
+  )
 })
 
 describe("the scrip share", () => {
