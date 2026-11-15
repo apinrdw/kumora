@@ -45,6 +45,7 @@ export interface TipAt {
   readonly x: number
   readonly y: number
   readonly from: "chart" | "log"
+  readonly pinned?: boolean
 }
 
 export interface SweepStore {

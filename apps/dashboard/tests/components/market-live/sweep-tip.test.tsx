@@ -61,3 +61,46 @@ test("an open tooltip shows a sweep's brokers once a recheck brings them", async
   expect(tip()).toContain("CC [D]")
   await act(() => root.unmount())
 })
+
+test("a sweep with more brokers than fit stays inside the viewport, and pinned, scrolls to every broker", async () => {
+  const store = Effect.runSync(makeSweepStore(BBCA))
+  store.answer(0, { code: BBCA, sweeps: [buy] })
+  const many = Array.from({ length: 60 }, (_, at) => ({
+    code: BrokerCode.make(
+      String.fromCodePoint(65 + Math.floor(at / 26), 65 + (at % 26))
+    ),
+    investorType: "D" as const,
+    lots: 60 - at,
+  }))
+  store.answerBrokers({
+    code: BBCA,
+    sweeps: [{ firstTrade: buy.firstTrade, aggressor: many, other: many }],
+    complete: true,
+  })
+  const root = createRoot(
+    document.body.appendChild(document.createElement("div"))
+  )
+  await act(() => root.render(<SweepTip store={store} withBrokers />))
+  // Below the middle, so it opens upwards into the room above the point.
+  const y = window.innerHeight - 100
+  await act(() =>
+    store.tip.set({ id: buy.firstTrade, x: 10, y, from: "chart", pinned: true })
+  )
+  const tip = () => document.querySelector<HTMLElement>('[role="tooltip"]')
+  expect(tip()?.textContent).toContain("CH [D]")
+  expect(Number.parseFloat(tip()!.style.maxHeight)).toBeLessThanOrEqual(y - 12)
+  expect(tip()!.className).toContain("overflow-y-auto")
+  expect(tip()!.className).not.toContain("pointer-events-none")
+  // A press inside the pinned tooltip, to scroll it, leaves it open.
+  await act(() =>
+    tip()!.dispatchEvent(new PointerEvent("pointerdown", { bubbles: true }))
+  )
+  expect(tip()).not.toBeNull()
+  await act(() =>
+    document.body.dispatchEvent(
+      new PointerEvent("pointerdown", { bubbles: true })
+    )
+  )
+  expect(tip()).toBeNull()
+  await act(() => root.unmount())
+})
