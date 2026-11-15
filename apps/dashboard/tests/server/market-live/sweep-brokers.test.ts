@@ -141,6 +141,27 @@ describe("a sealed day's sweep brokers", () => {
     })
   )
 
+  it.effect(
+    "answer a sweep whose codes landed before the tape stored its trades",
+    () =>
+      Effect.gen(function* () {
+        yield* at("09:00:30")
+        const day = yield* tradingDay()
+        yield* day.trades([
+          untr(1, "09:00:10.100", 3, "buy"),
+          untr(2, "09:00:10.300", 5, "buy", 23325),
+        ])
+        yield* day.brokerCodes("Ajaib", CODES.slice(0, 2), 2)
+        yield* at("17:00:00")
+        yield* day.alarm
+        const { answer } = yield* day.recordedSweepBrokers("UNTR")
+        assert.isTrue(answer.complete)
+        assert.deepStrictEqual(answer.sweeps.map(brokersOf), [
+          [1, ["AK D 8"], ["YP D 5", "CC D 3"]],
+        ])
+      })
+  )
+
   it.effect("answer no sweeps on a day that held codes but no tape", () =>
     Effect.gen(function* () {
       const sql = memorySql()
