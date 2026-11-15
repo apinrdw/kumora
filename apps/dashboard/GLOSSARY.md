@@ -176,7 +176,7 @@ A KSEI archive run an admin starts that also looks for KSEI reports older than K
 _Avoid_: History run, full sync
 
 **Run**:
-One pass of either archive: an archive run or a KSEI archive run. What both share (a run id, its outcome, one run in progress at a time) is said of a run.
+One pass of either archive, an archive run or a KSEI archive run, or a KSEI parse run. What they share (a run id, its outcome, one run of each in progress at a time) is said of a run.
 _Avoid_: Archive run for both, which is IDX's; job
 
 ### Holdings
@@ -196,6 +196,14 @@ _Avoid_: Domicile
 **Classification holding**:
 One stock's scripless shares held by one investor classification and origin, as of a classification report's data date. A classification and origin with no holding holds 0.
 _Avoid_: Ownership row, class holding
+
+**KSEI holding**:
+One stock's scripless shares held by one of KSEI's 9 investor types and one origin, local or foreign, as of a Securities holdings report's period end. Every equity in the report has them, priced or not. A type and origin with no holding holds 0.
+_Avoid_: Balancepos row, type holding
+
+**KSEI parse run**:
+One pass that parses each Securities holdings report in the KSEI archive whose newest version, or the parser's version, hasn't been parsed into KSEI holdings, from November 2018 on. The schedule starts one each day, an hour after the KSEI archive run, and an admin can start one when no KSEI parse run is in progress. A report that doesn't read exactly as expected is rejected whole and keeps the month's earlier holdings. It ends **complete**, **partial** (some months could not be parsed and wait for the next run) or **failed**.
+_Avoid_: KSEI archive run, which stores reports; import, sync
 
 ### Access
 
