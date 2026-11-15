@@ -232,23 +232,45 @@ function ScripBar({ month }: { month: CompositionMonth }) {
   if (shown._tag === "Share")
     return <SplitBar left={SCRIP} right={SCRIPLESS} share={shown.share} />
   return (
+    <UnavailableSplit
+      left={SCRIP}
+      right={SCRIPLESS}
+      why={
+        shown._tag === "NoListedShares"
+          ? `KSEI has no listed shares for ${Effect.runSync(monthLabel(month.dataDate))}.`
+          : `KSEI lists ${Effect.runSync(compact(shown.listedShares))} shares for ${Effect.runSync(monthLabel(month.dataDate))}, fewer than the ${Effect.runSync(compact(month.totalScripless))} scripless.`
+      }
+    />
+  )
+}
+
+// A SplitBar with no share to show, and why.
+function UnavailableSplit({
+  left,
+  right,
+  why,
+}: {
+  left: { label: string }
+  right: { label: string }
+  why: string
+}) {
+  return (
     <div
       role="group"
-      aria-label="Scrip vs Scripless"
+      aria-label={`${left.label} vs ${right.label}`}
       className="flex flex-col gap-1 text-[12px] text-muted-foreground"
     >
       <div className="flex justify-between">
-        <span>Scrip</span>
-        <span>Scripless</span>
+        <span>{left.label}</span>
+        <span>{right.label}</span>
       </div>
-      <p>
-        {shown._tag === "NoListedShares"
-          ? `Unavailable: KSEI has no listed shares for ${Effect.runSync(monthLabel(month.dataDate))}.`
-          : `Unavailable: KSEI lists ${Effect.runSync(compact(shown.listedShares))} shares for ${Effect.runSync(monthLabel(month.dataDate))}, fewer than the ${Effect.runSync(compact(month.totalScripless))} scripless.`}
-      </p>
+      <p>Unavailable: {why}</p>
     </div>
   )
 }
+
+const RETAIL = { label: "Retail", color: "var(--investor-id)" }
+const INSTITUTION = { label: "Institution", color: "var(--semantic-info)" }
 
 function Totals({
   month,
@@ -271,11 +293,15 @@ function Totals({
       </div>
       <div className="grid gap-3 sm:grid-cols-2">
         <ScripBar month={month} />
-        <SplitBar
-          left={{ label: "Retail", color: "var(--investor-id)" }}
-          right={{ label: "Institution", color: "var(--semantic-info)" }}
-          share={shown.retail}
-        />
+        {shown.retail === undefined ? (
+          <UnavailableSplit
+            left={RETAIL}
+            right={INSTITUTION}
+            why={`no ${origin === "all" ? "scripless" : origin} shares in ${Effect.runSync(monthLabel(month.dataDate))}.`}
+          />
+        ) : (
+          <SplitBar left={RETAIL} right={INSTITUTION} share={shown.retail} />
+        )}
       </div>
     </div>
   )

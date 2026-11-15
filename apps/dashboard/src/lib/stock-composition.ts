@@ -29,8 +29,9 @@ export interface Composition {
   readonly total: number
   // Largest first; only rows holding shares this month or the month before.
   readonly rows: ReadonlyArray<CompositionRow>
-  // The Individual type's share: retail. The rest is institution.
-  readonly retail: number
+  // The Individual type's share: retail. The rest is institution. Undefined
+  // when the origin holds no shares, which is neither.
+  readonly retail: number | undefined
 }
 
 export type Level = "types" | "classifications"
@@ -114,7 +115,11 @@ export const composition = Effect.fnUntraced(function* (
   const retail = rows
     .filter(({ type }) => type === "ID")
     .reduce((sum, { share }) => sum + share, 0)
-  return { total: current.total, rows, retail }
+  return {
+    total: current.total,
+    rows,
+    retail: current.total === 0 ? undefined : retail,
+  }
 })
 
 // The share of the stock's listed shares held as scrip (listed − scripless),
