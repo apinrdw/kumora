@@ -177,7 +177,8 @@ test("a recorded day's sweep log shows each sweep's lead brokers, wider, filling
   // The recheck runs every 30 s.
   test.setTimeout(90_000)
   const relay = await openIngest()
-  const base = freshTradeNumbers()
+  const earlier = freshTradeNumbers()
+  const base = earlier + 1_000
   const code = freshCode("SB")
   const day = WibDate.make(wibToday())
   // As the first test: a minute and more back, so no relay gap draws in it.
@@ -187,7 +188,21 @@ test("a recorded day's sweep log shows each sweep's lead brokers, wider, filling
     Math.floor((marketNow() - 90_000) / MINUTE_MS) * MINUTE_MS + 5_000
   // A buy sweep of two trades in one second, then a sell sweep of one.
   const second = (offset: number) => wibTime(start + offset * 1_000)
+  // Decision: another code's trades, stamped now and numbered below this
+  // test's as an earlier spec's are, at the numbers the day store's search
+  // for a minute's trades reads (`highestWithin`, day-store.ts). Whatever
+  // ran before, the search then meets a lower number stamped later.
+  const earlierCode = freshCode("SE")
   await relay.sendAjaib([
+    ...[1, 600].map((seq) =>
+      ajaibTradeToday({
+        seq: earlier + seq,
+        time: wibTime(marketNow()),
+        ticker: earlierCode,
+        price: 500,
+        lot: 1,
+      })
+    ),
     ajaibTradeToday({
       seq: base + 1,
       time: second(0),
