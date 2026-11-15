@@ -7,6 +7,9 @@ import { seedClassificationMonths } from "../support/holdings"
 
 const BBCA = "BANK CENTRAL ASIA Tbk"
 const WBSA = "BSA LOGISTICS INDONESIA Tbk"
+const BBRI = "BANK RAKYAT INDONESIA (PERSERO) Tbk"
+// An issuer name with "bb" in it, under a code that doesn't start with BB.
+const HOBI = "HOBBY NUSANTARA Tbk"
 
 // Mar and May 2026 don't split local and foreign; Sep and Oct do. WBSA
 // lists in May.
@@ -58,6 +61,8 @@ const MONTHS = {
       local: { individual: 11e8, corporate: 6e8 },
       foreign: { corporate: 1e8 },
     },
+    BBRI: { issuer: BBRI, local: { individual: 9e9 }, foreign: { bank: 3e9 } },
+    HOBI: { issuer: HOBI, local: { individual: 5e8 }, foreign: {} },
   },
 }
 
@@ -80,6 +85,11 @@ const origin = (page: Page, label: string) =>
     name: label,
     exact: true,
   })
+
+const stockSearch = (page: Page) =>
+  page
+    .getByRole("banner")
+    .getByRole("combobox", { name: "Open a stock", exact: true })
 
 // Serial: every test reads the one seeded HoldingsDb.
 test.describe.serial("the stock page", () => {
@@ -193,7 +203,7 @@ test.describe.serial("the stock page", () => {
 
     test("switches stock with the picker", async ({ page }) => {
       await page.goto(`${DASHBOARD}/stocks/BBCA`)
-      const picker = page.getByRole("combobox", { name: "Stock" })
+      const picker = page.getByRole("combobox", { name: "Stock", exact: true })
       // The list loads once the page has hydrated.
       await expect(async () => {
         // A focus before hydration never opens the list: focus it again.
@@ -227,6 +237,107 @@ test.describe.serial("the stock page", () => {
     test("opens too", async ({ page }) => {
       await page.goto(`${DASHBOARD}/stocks/BBCA`)
       await expect(holder(page, "Individual")).toContainText("65.79%")
+    })
+  })
+
+  test.describe("the Shell header's stock search", () => {
+    test.use({ storageState: MEMBER.storageState })
+
+    test("lists code matches before issuer names and opens the highlighted stock", async ({
+      page,
+    }) => {
+      await page.setViewportSize({ width: 1280, height: 800 })
+      await page.goto(`${DASHBOARD}/account`)
+      const search = stockSearch(page)
+      await expect(search).toBeVisible()
+      // The list loads once the page has hydrated and the search has focus.
+      await expect(async () => {
+        await search.blur()
+        await search.fill("bb")
+        await expect(page.getByRole("option")).toHaveCount(3, {
+          timeout: 1000,
+        })
+      }).toPass()
+      await expect(page.getByRole("option")).toHaveText([
+        /^BBCA/,
+        /^BBRI/,
+        /^HOBI/,
+      ])
+      await search.press("ArrowDown")
+      await search.press("Enter")
+      await expect(page).toHaveURL(/\/stocks\/BBRI$/)
+      await expect(page.getByRole("heading", { level: 1 })).toHaveText(
+        `BBRI ${BBRI}`
+      )
+    })
+
+    test("/ focuses it from Market Live", async ({ page }) => {
+      await page.setViewportSize({ width: 1280, height: 800 })
+      await page.goto(`${DASHBOARD}/market-live`)
+      await expect(async () => {
+        await page.locator("body").press("/")
+        await expect(stockSearch(page)).toBeFocused({ timeout: 1000 })
+      }).toPass()
+      // Typed into the search, not the page's own palette.
+      await expect(
+        page.getByRole("dialog", { name: "Go to code" })
+      ).toHaveCount(0)
+    })
+
+    test("collapses to an icon on a phone that opens a full-width search", async ({
+      page,
+    }) => {
+      await page.setViewportSize({ width: 390, height: 844 })
+      await page.goto(`${DASHBOARD}/account`)
+      await expect(stockSearch(page)).toBeHidden()
+      const open = page.getByRole("button", { name: "Search stocks" })
+      await expect(async () => {
+        await open.click()
+        await expect(stockSearch(page)).toBeFocused({ timeout: 1000 })
+      }).toPass()
+      const box = await stockSearch(page).boundingBox()
+      // Full width, less the header's 16px gutters.
+      expect(box?.width).toBeGreaterThanOrEqual(390 - 2 * 16 - 1)
+      await stockSearch(page).fill("wb")
+      await page.getByRole("option", { name: /WBSA/ }).click()
+      await expect(page).toHaveURL(/\/stocks\/WBSA$/)
+      await expect(stockSearch(page)).toBeHidden()
+      await expect(open).toBeVisible()
+    })
+
+    test("/stocks opens Market Live's default, then the last stock viewed", async ({
+      page,
+    }) => {
+      await page.goto(`${DASHBOARD}/stocks`)
+      await expect(page).toHaveURL(/\/stocks\/BBCA$/)
+      await expect(page.getByRole("heading", { level: 1 })).toHaveText(
+        `BBCA ${BBCA}`
+      )
+      // The redirect ran in the browser, so the page has hydrated.
+      await stockSearch(page).fill("wbsa")
+      await expect(page.getByRole("option", { name: /WBSA/ })).toBeVisible()
+      await stockSearch(page).press("Enter")
+      await expect(page.getByRole("heading", { level: 1 })).toHaveText(
+        `WBSA ${WBSA}`
+      )
+      await page.goto(`${DASHBOARD}/stocks`)
+      await expect(page).toHaveURL(/\/stocks\/WBSA$/)
+    })
+  })
+
+  test.describe("the stock search for an admin", () => {
+    test.use({ storageState: ADMIN.storageState })
+
+    test("/ focuses it from an admin page", async ({ page }) => {
+      await page.goto(`${DASHBOARD}/admin/users`)
+      await expect(async () => {
+        await page.locator("body").press("/")
+        await expect(stockSearch(page)).toBeFocused({ timeout: 1000 })
+      }).toPass()
+      await page.keyboard.type("wbsa")
+      await expect(page.getByRole("option", { name: /WBSA/ })).toBeVisible()
+      await page.keyboard.press("Enter")
+      await expect(page).toHaveURL(/\/stocks\/WBSA$/)
     })
   })
 
