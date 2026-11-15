@@ -72,6 +72,24 @@ describe("the Shareholders composition rows", () => {
   )
 })
 
+describe("the retail share", () => {
+  it.effect("is none for an origin that holds no shares", () =>
+    Effect.gen(function* () {
+      const foreignOnly: CompositionMonth = {
+        ...month("2026-10-30", { ID: 60, CP: 40 }),
+        split: true,
+        types: month("2026-10-30", { ID: 60, CP: 40 }).types.map((held) => ({
+          ...held,
+          local: 0,
+          foreign: held.combined,
+        })),
+      }
+      const local = yield* composition(foreignOnly, undefined, "local", "types")
+      expect(local.retail).toBeUndefined()
+    })
+  )
+})
+
 describe("the scrip share", () => {
   it.effect("is listed less scripless, of listed", () =>
     Effect.gen(function* () {
