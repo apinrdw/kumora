@@ -27,8 +27,28 @@ const stockRow = (row: number) => {
 const shortRow = (row: number) =>
   `<row r="${row}"><c r="A${row}"><v>0</v></c></row>`
 
-// The largest sheet a zip entry inflates to: the header row, then `stocks`
-// stock rows, or as many as fit, then as many `shortRow`s as fit.
+// SPLIT_LABELS, then distinct strings until the shared strings are the
+// largest a zip entry inflates to.
+const paddedStrings = () => {
+  const strings = [...SPLIT_LABELS]
+  const entryBytes = (string: string) => `<si><t>${string}</t></si>`.length
+  let size =
+    "<sst></sst>".length +
+    strings.reduce((sum, string) => sum + entryBytes(string), 0)
+  for (
+    let index = 0;
+    size + entryBytes(`S${index}`) <= MAX_ENTRY_BYTES;
+    index++
+  ) {
+    strings.push(`S${index}`)
+    size += entryBytes(`S${index}`)
+  }
+  return strings
+}
+
+// The largest sheet and shared strings a zip entry inflates to: the header
+// row, then `stocks` stock rows, or as many as fit, then as many `shortRow`s
+// as fit.
 const report = (stocks: number) => {
   const rows = [SPLIT_HEADER_ROW]
   let size = WORKSHEET_BYTES + SPLIT_HEADER_ROW.length
@@ -42,7 +62,7 @@ const report = (stocks: number) => {
     rows.push(shortRow(row))
     size += shortRow(row).length
   }
-  return workbook(rows.join(""), SPLIT_LABELS)
+  return workbook(rows.join(""), paddedStrings())
 }
 
 describe(`the largest classification report, parsed in ${PARSE_HEAP_MIB} MiB of heap`, () => {
@@ -62,7 +82,7 @@ describe(`the largest classification report, parsed in ${PARSE_HEAP_MIB} MiB of 
   )
 
   it.effect(
-    "parses the most stocks a month can list, each holding in every column, padded with value rows",
+    "parses the most stocks a month can list, each holding in every column, padded with value rows and shared strings",
     () =>
       Effect.gen(function* () {
         assert.strictEqual(
