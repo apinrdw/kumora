@@ -62,13 +62,13 @@ const parse = ({ bucket, holdings }: World, id: string) =>
     )
   )
 
-// KSEI replaces October's file in place with `body`.
+// KSEI replaces October's report in place with `body`.
 const republishOctober = ({ ksei }: World, body: Uint8Array<ArrayBuffer>) => {
   ksei.files.set(holdingsUrl("BalanceposEfek20261030.zip"), fileOf(body))
 }
 
-// The stock's holdings in the file of `periodEnd`, from its stock page's
-// series; undefined when that file has no EQUITY row for it.
+// The stock's holdings in the report of `periodEnd`, from its stock page's
+// series; undefined when that report has no EQUITY row for it.
 const read = ({ holdings }: World, periodEnd: string, code: string) =>
   stockPage(StockCode.make(code), undefined).pipe(
     Effect.provide(holdings.layer),
@@ -137,7 +137,7 @@ describe("a KSEI parse run", () => {
       // Only EQUITY rows: no bond, no warrant.
       assert.isUndefined(yield* read(w, "2026-10-30", "FR0042"))
       assert.isUndefined(yield* read(w, "2026-10-30", "BRNA-W"))
-      // No file for July.
+      // No report for July.
       assert.isUndefined(yield* read(w, "2026-07-31", "BBCA"))
     })
   )
@@ -167,7 +167,7 @@ describe("a KSEI parse run", () => {
       yield* archive(w, "cron-2026-11-15")
       const result = yield* parse(w, "cron-2026-11-15")
       assert.deepInclude(result, { outcome: "complete", monthsParsed: 1 })
-      // October now reads exactly as the republished file: no old row left.
+      // October now reads exactly as the republished report: no old row left.
       assert.deepStrictEqual(
         sharesOf(yield* read(w, "2026-10-30", "BBCA")),
         sharesOf(september)

@@ -230,8 +230,9 @@ describe("the stock page read", () => {
       const october = (yield* read("BBCA")).composition
       assert.strictEqual(october?.month.listedShares, 123_275_050_000)
       assert.strictEqual(october?.previous?.listedShares, 123_275_050_000)
-      // KSEI's May report is dated 2026-05-29, as the report; it has no
-      // March file, and its August file has no report month.
+      // KSEI's May Securities holdings report is dated 2026-05-29, as IDX's
+      // classification report is; KSEI has no March report, and its August
+      // report has no classification month.
       const may = (yield* read("WBSA", "2026-05")).composition
       assert.strictEqual(may?.month.listedShares, 8_675_000_000)
       const march = (yield* read("BBCA", "2026-03")).composition

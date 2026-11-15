@@ -187,7 +187,7 @@ export const holdingsUrl = (filename: HoldingsFixture) =>
   `https://www.ksei.co.id/storage/Download/${filename}`
 
 // A fake KSEI that lists only the fixtures' Securities holdings reports, each
-// serving its fixture's bytes, and no Statistik Efek file.
+// serving its fixture's bytes, and no Securities statistics report.
 export const holdingsKsei = () => {
   const ksei = fakeKsei()
   ksei.listings["securities-statistics"].length = 0
