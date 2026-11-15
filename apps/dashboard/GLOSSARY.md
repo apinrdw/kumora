@@ -150,7 +150,7 @@ Every shareholding report the dashboard has kept, each version of it included. N
 _Avoid_: Ownership archive, IDX archive
 
 **Archive run**:
-One pass that compares IDX's list of shareholding reports with the shareholding archive and stores any report, or new version of one, that the archive lacks. The schedule starts one twice a day, and an admin can start one when none is in progress. It ends **complete**, **partial** (some reports could not be stored and wait for the next run) or **failed**.
+One pass that compares IDX's list of shareholding reports with the shareholding archive and stores any report, or new version of one, that the archive lacks. The schedule starts one twice a day, and an admin can start one when none is in progress. It ends **complete**, **partial** (some reports could not be stored and wait for the next run) or **failed**. As its last step it also parses each holdings-by-investor-classification report whose newest version, or the parser's version, hasn't been parsed into parsed holdings, and counts the months it parsed.
 _Avoid_: Sync, scrape, job
 
 ### KSEI
@@ -178,6 +178,24 @@ _Avoid_: History run, full sync
 **Run**:
 One pass of either archive: an archive run or a KSEI archive run. What both share (a run id, its outcome, one run in progress at a time) is said of a run.
 _Avoid_: Archive run for both, which is IDX's; job
+
+### Holdings
+
+**Parsed holdings**:
+What the dashboard has read out of its archived holdings reports, one set of rows per report date: the newest archived version of a month replaces the older one whole, so a month is never read half old and half new.
+_Avoid_: Holdings database, parsed data
+
+**Investor classification**:
+One of the 39 categories a KSEI account holder assigns an investor through know-your-customer checks, such as Mutual funds, Pension funds or Individual.
+_Avoid_: Investor type, which is KSEI's 9
+
+**Origin**:
+Whether holdings are **local**, **foreign**, or **combined**. A month whose report doesn't split local from foreign (IDX's classification reports before September 2026) has combined holdings only; a split month also has combined, their sum.
+_Avoid_: Domicile
+
+**Classification holding**:
+One stock's scripless shares held by one investor classification and origin, as of a classification report's data date. A classification and origin with no holding holds 0.
+_Avoid_: Ownership row, class holding
 
 ### Access
 
