@@ -225,7 +225,23 @@ function RecentDays({
         {days.map((row) => (
           <tr key={row.day} data-day={row.day}>
             <td>{row.day}</td>
-            <td>{row.held}</td>
+            <td>
+              {row.missing.length > 0 ? (
+                <details>
+                  <summary className="cursor-pointer">{row.held}</summary>
+                  <p
+                    aria-label={`Missing trades on ${row.day}`}
+                    className="max-h-40 max-w-md overflow-auto text-muted-foreground"
+                  >
+                    {row.missing.join(", ")}
+                    {row.more > 0 &&
+                      ` and ${row.more.toLocaleString("en")} more`}
+                  </p>
+                </details>
+              ) : (
+                row.held
+              )}
+            </td>
             <td>{row.sites}</td>
             <td>{row.crossCheck}</td>
             <td>{row.behind ? "Behind" : ""}</td>

@@ -404,11 +404,15 @@ test("the options page shows the broker codes walks, and Pause and Run now steer
     const days = options.getByRole("table", { name: "Last 10 trading days" })
     await expect(days.locator("tbody tr")).toHaveCount(10)
     await expect(days.locator(`tr[data-day="${newest}"]`)).toHaveText(
-      `${newest}6 missingStockbitno cross-check`
+      `${newest}6 missing5–10Stockbitno cross-check`
     )
     await expect(days.locator(`tr[data-day="${before}"]`)).toHaveText(
       `${before}CompleteAjaib and StockbitmatchesBehind`
     )
+    const missing = days.getByLabel(`Missing trades on ${newest}`)
+    await expect(missing).toBeHidden()
+    await days.getByText("6 missing").click()
+    await expect(missing).toHaveText("5–10")
 
     // A walk in progress, the History position and an Ajaib lock, as the
     // worker writes them. The lock shows on the badge.
@@ -683,7 +687,7 @@ test("the options page asks the last 10 days again when the targets change", asy
     await options.getByLabel("Extra target ingest token").fill("any")
     await options.getByRole("button", { name: "Save" }).click()
     await expect(days.locator(`tr[data-day="${newest}"]`)).toHaveText(
-      `${newest}6 missingStockbitno cross-check`
+      `${newest}6 missing5–10Stockbitno cross-check`
     )
     await expect(days.locator(`tr[data-day="${before}"]`)).toHaveText(
       `${before}CompleteAjaib and StockbitmatchesBehind`
