@@ -6,6 +6,7 @@ import { Effect, Schema } from "effect"
 
 import { HoldingsDb, type SqlValue } from "./db.ts"
 import { replaceMonth } from "./month-replace.ts"
+import { parsedMonths } from "./months-to-parse.ts"
 import { type Cell, readSheet } from "./xlsx.ts"
 
 // Bumped whenever parsing changes what it stores: the archive run's
@@ -248,29 +249,10 @@ export const parseClassificationMonth = Effect.fnUntraced(function* (
 })
 
 // The version each parsed month came from, by data date.
-export const parsedClassificationMonths = Effect.gen(function* () {
-  const [rows = []] = yield* (yield* HoldingsDb).batch([
-    {
-      sql: "SELECT data_date, sha256, parser_version FROM classification_month",
-      params: [],
-    },
-  ])
-  const months = Schema.decodeUnknownSync(
-    Schema.Array(
-      Schema.Struct({
-        data_date: Schema.String,
-        sha256: Schema.String,
-        parser_version: Schema.Number,
-      })
-    )
-  )(rows)
-  return new Map(
-    months.map(({ data_date, sha256, parser_version }) => [
-      data_date,
-      { sha256, parserVersion: parser_version },
-    ])
-  )
-})
+export const parsedClassificationMonths = parsedMonths(
+  "classification_month",
+  "data_date"
+)
 
 const StockMonthRow = Schema.Struct({
   issuer_name: Schema.String,
