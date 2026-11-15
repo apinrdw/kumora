@@ -192,7 +192,7 @@ export const emptyNote = (
   )
 
 // One of the broker filter's choices: a broker with its aggressor lots
-// summed over the sweeps, at the investor type of the larger of them.
+// summed over the sweeps, at the investor type it has more of them as.
 interface BrokerPick {
   readonly code: BrokerCode
   readonly investorType: InvestorType
@@ -224,7 +224,9 @@ export const brokerPicks = (
           first: broker.investorType,
           lots: { D: 0, F: 0 },
         }
-        entry.lots[broker.investorType] += broker.lots
+        const otherTypeLots = broker.otherTypeLots ?? 0
+        entry.lots[broker.investorType] += broker.lots - otherTypeLots
+        entry.lots[OTHER_TYPE[broker.investorType]] += otherTypeLots
         held.set(broker.code, entry)
       }
     }

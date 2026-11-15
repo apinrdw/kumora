@@ -47,11 +47,11 @@ const sweepsFromText = (text: string) =>
 
 // One member trade's broker on one side of a sweep, with its investor type
 // and the trade's lots.
-type MemberBroker = SweepBroker
+type MemberBroker = Omit<SweepBroker, "otherTypeLots">
 
 // One side's brokers, largest lots first, ties by code. A broker that traded
 // both investor types in the sweep carries the one with more of its lots,
-// the first it traded on a tie.
+// the first it traded on a tie, and its lots of the other.
 const sideOf = (trades: ReadonlyArray<MemberBroker>) =>
   Effect.sync((): ReadonlyArray<SweepBroker> => {
     const byCode = new Map<
@@ -76,7 +76,11 @@ const sideOf = (trades: ReadonlyArray<MemberBroker>) =>
           investorType = type
           most = typeLots
         }
-      brokers.push({ code, investorType, lots })
+      brokers.push(
+        most === lots
+          ? { code, investorType, lots }
+          : { code, investorType, lots, otherTypeLots: lots - most }
+      )
     }
     return brokers.sort((a, b) => b.lots - a.lots || (a.code < b.code ? -1 : 1))
   })

@@ -4,7 +4,10 @@
 // the test reads the sweep brokers GET.
 import { assert, describe, it } from "@effect/vitest"
 import {
+  BrokerCode,
   StockCode,
+  TradeNumber,
+  decodeSweepBrokersText,
   type RecordedResource,
   type SweepBrokers,
 } from "@workspace/relay"
@@ -237,7 +240,28 @@ describe("a sealed day's sweep brokers", () => {
             new Map(brokers.sweeps.map((sweep) => [sweep.firstTrade, sweep])),
             Infinity
           ),
-          [{ code: "AK", investorType: "D", lots: 18 }]
+          [{ code: BrokerCode.make("AK"), investorType: "D", lots: 18 }]
+        )
+        // Only a broker of both types carries the other type's lots.
+        const response = yield* day.recorded({
+          _tag: "SweepBrokers",
+          code: StockCode.make("UNTR"),
+        })
+        const text = yield* Effect.promise(() => response.text())
+        assert.include(text, `[["AK","F",11,5]]`)
+        assert.include(text, `[["AK","D",7]]`)
+        // A row stored before both types were carried still reads.
+        assert.deepStrictEqual(
+          yield* decodeSweepBrokersText(`[["1",[["AK","F",11]],[]]]`),
+          [
+            {
+              firstTrade: TradeNumber.make("1"),
+              aggressor: [
+                { code: BrokerCode.make("AK"), investorType: "F", lots: 11 },
+              ],
+              other: [],
+            },
+          ]
         )
       })
   )
