@@ -36,78 +36,81 @@ export interface Composition {
 export type Level = "types" | "classifications"
 
 const keyed = (month: CompositionMonth, level: Level) =>
-  level === "types"
-    ? month.types.map((held) => ({
-        key: held.type as string,
-        label: KSEI_TYPE_LABELS[held.type],
-        type: held.type,
-        held,
-      }))
-    : month.types.flatMap(({ classifications }) =>
-        classifications.map((held) => ({
-          key: held.classification as string,
-          label: CLASSIFICATIONS[held.classification].label,
-          type: CLASSIFICATIONS[held.classification].type,
+  Effect.succeed(
+    level === "types"
+      ? month.types.map((held) => ({
+          key: held.type as string,
+          label: KSEI_TYPE_LABELS[held.type],
+          type: held.type,
           held,
         }))
-      )
+      : month.types.flatMap(({ classifications }) =>
+          classifications.map((held) => ({
+            key: held.classification as string,
+            label: CLASSIFICATIONS[held.classification].label,
+            type: CLASSIFICATIONS[held.classification].type,
+            held,
+          }))
+        )
+  )
 
 // Each row's shares of the origin, and their total.
-const sharesOf = (
+const sharesOf = Effect.fnUntraced(function* (
   month: CompositionMonth,
   origin: OriginShown,
   level: Level
-) => {
-  const rows = keyed(month, level).map(({ held, ...row }) => ({
+) {
+  const rows = (yield* keyed(month, level)).map(({ held, ...row }) => ({
     ...row,
     shares: (origin === "all" ? held.combined : held[origin]) ?? 0,
   }))
   const total = rows.reduce((sum, { shares }) => sum + shares, 0)
   return { rows, total }
-}
+})
 
+// `shares` of `total`, 0 to 1; 0 of none.
 const ratio = (shares: number, total: number) =>
-  total === 0 ? 0 : shares / total
+  Effect.succeed(total === 0 ? 0 : shares / total)
 
 /** `origin` is local or foreign only for a month that splits them. */
-export const composition = (
+export const composition = Effect.fnUntraced(function* (
   month: CompositionMonth,
   previous: CompositionMonth | undefined,
   origin: OriginShown,
   level: Level
-): Effect.Effect<Composition> =>
-  Effect.sync(() => {
-    const current = sharesOf(month, origin, level)
-    // The month before has no figure for local or foreign before the split.
-    const before =
-      previous === undefined || (origin !== "all" && !previous.split)
-        ? undefined
-        : sharesOf(previous, origin, level)
-    const previousShares = new Map(
-      before?.rows.map(({ key, shares }) => [key, shares])
-    )
+): Effect.fn.Return<Composition> {
+  const current = yield* sharesOf(month, origin, level)
+  // The month before has no figure for local or foreign before the split.
+  const before =
+    previous === undefined || (origin !== "all" && !previous.split)
+      ? undefined
+      : yield* sharesOf(previous, origin, level)
+  const previousShares = new Map(
+    before?.rows.map(({ key, shares }) => [key, shares])
+  )
+  const rows: Array<CompositionRow> = []
+  for (const { key, label, type, shares } of current.rows) {
+    const previousHeld = previousShares.get(key) ?? 0
     // A row that sold out since the month before stays, to read `3% → 0%`.
-    const rows = current.rows
-      .filter(
-        ({ key, shares }) => shares > 0 || (previousShares.get(key) ?? 0) > 0
-      )
-      .map(({ key, label, type, shares }): CompositionRow => ({
-        key,
-        label,
-        type,
-        shares,
-        share: ratio(shares, current.total),
-        previousShare:
-          before === undefined
-            ? undefined
-            : ratio(previousShares.get(key) ?? 0, before.total),
-      }))
-      .sort((a, b) => b.shares - a.shares)
-    const retail = rows
-      .filter(({ type }) => type === "ID")
-      .reduce((sum, { share }) => sum + share, 0)
-    return { total: current.total, rows, retail }
-  })
+    if (shares === 0 && previousHeld === 0) continue
+    rows.push({
+      key,
+      label,
+      type,
+      shares,
+      share: yield* ratio(shares, current.total),
+      previousShare:
+        before === undefined
+          ? undefined
+          : yield* ratio(previousHeld, before.total),
+    })
+  }
+  rows.sort((a, b) => b.shares - a.shares)
+  const retail = rows
+    .filter(({ type }) => type === "ID")
+    .reduce((sum, { share }) => sum + share, 0)
+  return { total: current.total, rows, retail }
+})
 
 // The share of the stock's listed shares held as scrip (listed − scripless),
 // 0 to 1, or why there is none: KSEI has no listed shares for the month's

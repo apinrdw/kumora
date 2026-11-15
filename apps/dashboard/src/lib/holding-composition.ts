@@ -1,5 +1,7 @@
 // The Holding composition chart's columns (spec apinrdw/kumora#363, stories
 // 29–42): KSEI's holdings of a stock per month, as shares of one origin.
+import { Effect } from "effect"
+
 import { KSEI_TYPE_LABELS, KSEI_TYPES, type KseiType } from "@/domain/holdings"
 import type { SeriesMonth, TypeHoldings } from "@/server/holdings/stock-page"
 
@@ -39,31 +41,43 @@ const TYPE_SERIES: ReadonlyArray<ChartSeries> = KSEI_TYPES.map((type) => ({
 const AXIS_STEPS = [0.01, 0.02, 0.025, 0.05, 0.1, 0.2, 0.25, 0.5, 1]
 
 const total = (holdings: TypeHoldings) =>
-  KSEI_TYPES.reduce((sum, type) => sum + holdings[type], 0)
+  Effect.succeed(KSEI_TYPES.reduce((sum, type) => sum + holdings[type], 0))
 
-const ofTotal = (values: ReadonlyArray<number>) => {
-  const whole = values.reduce((sum, value) => sum + value, 0)
-  return values.map((value) => (whole === 0 ? 0 : value / whole))
-}
+const ofTotal = (values: ReadonlyArray<number>) =>
+  Effect.sync(() => {
+    const whole = values.reduce((sum, value) => sum + value, 0)
+    return values.map((value) => (whole === 0 ? 0 : value / whole))
+  })
+
+// One month's shares of the origin, in the chart's series order.
+const columnShares = Effect.fnUntraced(function* (
+  holdings: NonNullable<SeriesMonth["holdings"]>,
+  origin: OriginShown
+) {
+  return yield* ofTotal(
+    origin === "all"
+      ? [yield* total(holdings.local), yield* total(holdings.foreign)]
+      : KSEI_TYPES.map((type) => holdings[origin][type])
+  )
+})
 
 // Decision: a share is always of the whole origin, so hiding series never
 // inflates one; hiding only zooms the axis to the tallest shown column.
-export const holdingChart = (
+export const holdingChart = Effect.fnUntraced(function* (
   months: ReadonlyArray<SeriesMonth>,
   origin: OriginShown,
   hidden: ReadonlySet<SeriesKey>
-): HoldingChart => {
+) {
   const series = origin === "all" ? ORIGIN_SERIES : TYPE_SERIES
-  const columns = months.map(({ month, holdings }) => ({
-    month,
-    shares:
-      holdings &&
-      ofTotal(
-        origin === "all"
-          ? [total(holdings.local), total(holdings.foreign)]
-          : KSEI_TYPES.map((type) => holdings[origin][type])
-      ),
-  }))
+  const columns: Array<ChartColumn> = []
+  for (const { month, holdings } of months)
+    columns.push({
+      month,
+      shares:
+        holdings === undefined
+          ? undefined
+          : yield* columnShares(holdings, origin),
+    })
   const tallest = Math.max(
     ...columns.map(({ shares = [] }) =>
       shares.reduce(
@@ -79,14 +93,16 @@ export const holdingChart = (
     series,
     columns,
     axisMax: AXIS_STEPS.find((step) => step >= tallest - 1e-9) ?? 1,
-  }
-}
+  } satisfies HoldingChart
+})
 
 // The newest month's local share of scripless, for the summary boxes. The
 // series ends on a month KSEI has data for.
-export const latestOriginSplit = (months: ReadonlyArray<SeriesMonth>) => {
+export const latestOriginSplit = Effect.fnUntraced(function* (
+  months: ReadonlyArray<SeriesMonth>
+) {
   const holdings = months.at(-1)?.holdings
   if (holdings === undefined) return undefined
-  const [local = 0] = ofTotal([total(holdings.local), total(holdings.foreign)])
+  const [local = 0] = yield* columnShares(holdings, "all")
   return { periodEnd: holdings.periodEnd, local }
-}
+})

@@ -8,58 +8,24 @@ import { type ReactNode, useState } from "react"
 import { KChip } from "@/components/k/chip"
 import { kCard, kFocus } from "@/components/k/styles"
 import { KTooltip } from "@/components/k/tooltip"
-import type { KseiType } from "@/domain/holdings"
-import { compact, plain } from "@/lib/format"
+import { compact } from "@/lib/format"
 import {
   type Composition,
   composition,
   type Level,
   scrip,
 } from "@/lib/stock-composition"
+import { monthLabel, percent, TYPE_COLOR } from "@/lib/stock-page-display"
 import type { OriginShown } from "@/lib/stock-search"
 import type { CompositionMonth, StockPage } from "@/server/holdings/stock-page"
 
 const NOT_SPLIT = "not reported before Sep 2026"
-
-const MONTHS = [
-  "Jan",
-  "Feb",
-  "Mar",
-  "Apr",
-  "May",
-  "Jun",
-  "Jul",
-  "Aug",
-  "Sep",
-  "Oct",
-  "Nov",
-  "Dec",
-] as const
-
-/** `2026-10-30` → `Oct 2026` */
-export const monthLabel = (dataDate: string) =>
-  `${MONTHS[Number(dataDate.slice(5, 7)) - 1]} ${dataDate.slice(0, 4)}`
-
-export const TYPE_COLOR: Record<KseiType, string> = {
-  ID: "var(--investor-id)",
-  CP: "var(--investor-cp)",
-  MF: "var(--investor-mf)",
-  IB: "var(--investor-ib)",
-  IS: "var(--investor-is)",
-  SC: "var(--investor-sc)",
-  PF: "var(--investor-pf)",
-  FD: "var(--investor-fd)",
-  OT: "var(--investor-ot)",
-}
 
 const ORIGINS: ReadonlyArray<{ value: OriginShown; label: string }> = [
   { value: "all", label: "All scripless" },
   { value: "local", label: "Local" },
   { value: "foreign", label: "Foreign" },
 ]
-
-export const percent = (share: number) =>
-  Effect.runSync(plain(share * 100, 2)) + "%"
 
 type Composed = NonNullable<StockPage["composition"]>
 
@@ -92,7 +58,7 @@ export function ShareholdersComposition({
           Shareholders composition
         </h2>
         <span className="text-[13px] text-muted-foreground">
-          {monthLabel(month.dataDate)}
+          {Effect.runSync(monthLabel(month.dataDate))}
         </span>
       </div>
       <MonthTabs page={page} selected={month.dataDate} onMonth={onMonth} />
@@ -200,12 +166,12 @@ function MonthTabs({
           unavailable={
             held
               ? undefined
-              : `${page.code} isn't in ${monthLabel(dataDate)}'s report.`
+              : `${page.code} isn't in ${Effect.runSync(monthLabel(dataDate))}'s report.`
           }
           onPick={() => onMonth(dataDate)}
           className="rounded-sm px-1 py-1.5 text-[12px]"
         >
-          {monthLabel(dataDate)}
+          {Effect.runSync(monthLabel(dataDate))}
         </Choice>
       ))}
     </div>
@@ -245,8 +211,12 @@ function SplitBar({
         />
       </div>
       <div className="num flex justify-between text-[13px] font-semibold">
-        <span style={{ color: left.color }}>{percent(share)}</span>
-        <span style={{ color: right.color }}>{percent(1 - share)}</span>
+        <span style={{ color: left.color }}>
+          {Effect.runSync(percent(share))}
+        </span>
+        <span style={{ color: right.color }}>
+          {Effect.runSync(percent(1 - share))}
+        </span>
       </div>
     </div>
   )
@@ -273,8 +243,8 @@ function ScripBar({ month }: { month: CompositionMonth }) {
       </div>
       <p>
         {shown._tag === "NoListedShares"
-          ? `Unavailable: KSEI has no listed shares for ${monthLabel(month.dataDate)}.`
-          : `Unavailable: KSEI lists ${Effect.runSync(compact(shown.listedShares))} shares for ${monthLabel(month.dataDate)}, fewer than the ${Effect.runSync(compact(month.totalScripless))} scripless.`}
+          ? `Unavailable: KSEI has no listed shares for ${Effect.runSync(monthLabel(month.dataDate))}.`
+          : `Unavailable: KSEI lists ${Effect.runSync(compact(shown.listedShares))} shares for ${Effect.runSync(monthLabel(month.dataDate))}, fewer than the ${Effect.runSync(compact(month.totalScripless))} scripless.`}
       </p>
     </div>
   )
@@ -314,7 +284,8 @@ function Totals({
 function HolderRow({ row }: { row: Composition["rows"][number] }) {
   const was =
     row.previousShare === undefined ||
-    percent(row.previousShare) === percent(row.share)
+    Effect.runSync(percent(row.previousShare)) ===
+      Effect.runSync(percent(row.share))
       ? undefined
       : row.previousShare
   return (
@@ -333,14 +304,16 @@ function HolderRow({ row }: { row: Composition["rows"][number] }) {
         </span>
         <span className="num shrink-0 text-[13px]">
           {was !== undefined && (
-            <span className="text-muted-foreground">{percent(was)} → </span>
+            <span className="text-muted-foreground">
+              {Effect.runSync(percent(was))} →{" "}
+            </span>
           )}
           <b
             className={cn(
               was !== undefined && (row.share > was ? "text-up" : "text-down")
             )}
           >
-            {percent(row.share)}
+            {Effect.runSync(percent(row.share))}
           </b>
         </span>
       </div>
@@ -377,8 +350,8 @@ function ComparisonNote({
   )
     return "First month in the report."
   if (previous === undefined)
-    return `${page.code} isn't in ${monthLabel(before.dataDate)}'s report, so no change is shown.`
+    return `${page.code} isn't in ${Effect.runSync(monthLabel(before.dataDate))}'s report, so no change is shown.`
   if (origin !== "all" && !previous.split)
-    return `${monthLabel(previous.dataDate)} has no local/foreign split, so no change is shown.`
-  return `Changes are from ${monthLabel(previous.dataDate)}.`
+    return `${Effect.runSync(monthLabel(previous.dataDate))} has no local/foreign split, so no change is shown.`
+  return `Changes are from ${Effect.runSync(monthLabel(previous.dataDate))}.`
 }

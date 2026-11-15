@@ -3,6 +3,7 @@
 // of the stock per month, as stacked columns or a table, with a legend that
 // hides series.
 import { cn } from "@workspace/ui/lib/utils"
+import { Effect } from "effect"
 import { useLayoutEffect, useRef, useState } from "react"
 
 import { KChip } from "@/components/k/chip"
@@ -16,10 +17,9 @@ import {
   latestOriginSplit,
   type SeriesKey,
 } from "@/lib/holding-composition"
-import type { OriginShown, ChartView } from "@/lib/stock-search"
+import { monthLabel, percent, TYPE_COLOR } from "@/lib/stock-page-display"
+import type { ChartView, OriginShown } from "@/lib/stock-search"
 import type { SeriesMonth } from "@/server/holdings/stock-page"
-
-import { monthLabel, percent, TYPE_COLOR } from "./shareholders-composition"
 
 const NO_DATA = "No data"
 
@@ -50,11 +50,16 @@ const DOUBLE_CLICK_MS = 220
 const NONE_HIDDEN: ReadonlySet<SeriesKey> = new Set()
 
 const ofWhat = (origin: OriginShown) =>
-  origin === "all" ? "scripless shares" : `all ${origin} holdings`
+  Effect.succeed(
+    origin === "all" ? "scripless shares" : `all ${origin} holdings`
+  )
 
 /** `2026-10` → `Oct 26` */
 const shortMonth = (month: string) =>
-  `${monthLabel(month).slice(0, 4)}${month.slice(2, 4)}`
+  Effect.map(
+    monthLabel(month),
+    (label) => `${label.slice(0, 4)}${month.slice(2, 4)}`
+  )
 
 export type HoldingCompositionProps = {
   series: ReadonlyArray<SeriesMonth>
@@ -80,7 +85,7 @@ export function HoldingComposition({
   const hidden = hiding.origin === origin ? hiding.hidden : NONE_HIDDEN
   const setHidden = (next: ReadonlySet<SeriesKey>) =>
     setHiding({ origin, hidden: next })
-  const chart = holdingChart(series, origin, hidden)
+  const chart = Effect.runSync(holdingChart(series, origin, hidden))
   const shown = chart.series.flatMap((each, index) =>
     hidden.has(each.key) ? [] : [{ ...each, index }]
   )
@@ -155,7 +160,7 @@ function Picks<Value extends string>({
 
 // The newest month's local and foreign shares of scripless.
 function OriginSummary({ series }: { series: ReadonlyArray<SeriesMonth> }) {
-  const split = latestOriginSplit(series)
+  const split = Effect.runSync(latestOriginSplit(series))
   if (split === undefined) return null
   return (
     <div className="flex flex-col gap-1">
@@ -176,13 +181,13 @@ function OriginSummary({ series }: { series: ReadonlyArray<SeriesMonth> }) {
               aria-label={`${label} share`}
               style={{ color: SERIES_COLOR[key] }}
             >
-              {percent(share)}
+              {Effect.runSync(percent(share))}
             </b>
           </div>
         ))}
       </div>
       <span className="text-[12px] text-muted-foreground">
-        As of {monthLabel(split.periodEnd)}.
+        As of {Effect.runSync(monthLabel(split.periodEnd))}.
       </span>
     </div>
   )
@@ -230,7 +235,7 @@ function Bars({
             className="num absolute right-2 -translate-y-1/2"
             style={{ top: (1 - tick) * HEIGHT }}
           >
-            {percentTick(tick * chart.axisMax)}
+            {Effect.runSync(percentTick(tick * chart.axisMax))}
           </span>
         ))}
       </div>
@@ -254,7 +259,7 @@ function Bars({
                   origin={origin}
                 />
                 <span className="num h-5 text-[11px] leading-5 whitespace-nowrap text-muted-foreground">
-                  {shortMonth(column.month)}
+                  {Effect.runSync(shortMonth(column.month))}
                 </span>
               </li>
             ))}
@@ -266,7 +271,8 @@ function Bars({
 }
 
 /** 0.025 → `2.5%` */
-const percentTick = (share: number) => `${Number((share * 100).toFixed(2))}%`
+const percentTick = (share: number) =>
+  Effect.succeed(`${Number((share * 100).toFixed(2))}%`)
 
 function Column({
   column,
@@ -280,7 +286,7 @@ function Column({
   origin: OriginShown
 }) {
   const { shares } = column
-  const label = monthLabel(column.month)
+  const label = Effect.runSync(monthLabel(column.month))
   return (
     <KTooltip
       side="right"
@@ -303,13 +309,13 @@ function Column({
                         {each.label}
                       </dt>
                       <dd className="num text-right">
-                        {percent(shares[each.index] ?? 0)}
+                        {Effect.runSync(percent(shares[each.index] ?? 0))}
                       </dd>
                     </div>
                   ))}
               </dl>
               <span className="text-muted-foreground">
-                Share of {ofWhat(origin)}.
+                Share of {Effect.runSync(ofWhat(origin))}.
               </span>
             </>
           )}
@@ -375,7 +381,7 @@ function Table({ chart, shown }: { chart: HoldingChart; shown: Shown }) {
                 scope="row"
                 className="num px-2 py-1.5 text-left font-normal whitespace-nowrap"
               >
-                {monthLabel(month)}
+                {Effect.runSync(monthLabel(month))}
               </th>
               {shares === undefined ? (
                 <td
@@ -387,7 +393,7 @@ function Table({ chart, shown }: { chart: HoldingChart; shown: Shown }) {
               ) : (
                 shown.map((each) => (
                   <td key={each.key} className="num px-2 py-1.5 text-right">
-                    {percent(shares[each.index] ?? 0)}
+                    {Effect.runSync(percent(shares[each.index] ?? 0))}
                   </td>
                 ))
               )}
@@ -464,7 +470,7 @@ function Legend({
       </div>
       <p className="px-1.5 text-[12px] text-muted-foreground">
         Click hides · double-click shows only that one. Columns are % of{" "}
-        {ofWhat(origin)}
+        {Effect.runSync(ofWhat(origin))}
         {hidden.size > 0 && "; the axis zooms to the shown series"}.
       </p>
     </div>
