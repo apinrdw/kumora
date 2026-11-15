@@ -1,37 +1,16 @@
-import { setFlagsFromString } from "node:v8"
-import { runInNewContext } from "node:vm"
 import { assert, describe, it } from "@effect/vitest"
 import { Effect } from "effect"
 
 import { readSheet } from "@/server/holdings/xlsx"
 import { MAX_ENTRY_BYTES } from "@/server/holdings/zip"
 
-import { zipOf } from "./zip-of.ts"
+import { retainedHeap } from "../../support/retained-heap.ts"
+import { WORKSHEET_BYTES, workbook } from "./workbook.ts"
 
 // Decision: a read sheet keeps at most 48 MiB on the heap, so the Worker's
 // 128 MiB still holds the archived file, its inflated XML and the parsed
 // holdings.
 const SHEET_HEAP_LIMIT = 48 * 2 ** 20
-
-// The heap after a full collection: what is retained, not what is garbage.
-const retainedHeap = Effect.sync(() => {
-  setFlagsFromString("--expose-gc")
-  const collect = runInNewContext("gc") as () => void
-  collect()
-  return process.memoryUsage().heapUsed
-})
-
-const text = (xml: string) => new TextEncoder().encode(xml)
-
-// An .xlsx whose first worksheet holds `rows`, with no shared strings.
-const workbook = (rows: string) =>
-  zipOf([
-    ["xl/sharedStrings.xml", text("<sst></sst>")],
-    [
-      "xl/worksheets/sheet1.xml",
-      text(`<worksheet><sheetData>${rows}</sheetData></worksheet>`),
-    ],
-  ])
 
 const XFD = 16_383
 
@@ -51,7 +30,7 @@ const shortRow = (row: number) =>
 // row each with a value is the most a sheet's bytes can make it keep.
 const largestSheet = () => {
   const rows: Array<string> = []
-  let size = "<worksheet><sheetData></sheetData></worksheet>".length
+  let size = WORKSHEET_BYTES
   for (let row = 1; size + shortRow(row).length <= MAX_ENTRY_BYTES; row++) {
     rows.push(shortRow(row))
     size += shortRow(row).length

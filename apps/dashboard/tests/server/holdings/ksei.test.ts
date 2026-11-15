@@ -80,7 +80,7 @@ describe(`the largest KSEI file, parsed in ${PARSE_HEAP_MIB} MiB of heap`, () =>
         )
         assert.strictEqual(
           yield* parseInBoundedHeap(bytes),
-          "The file lists more than 5,000 EQUITY stocks"
+          "The file lists more than 2,000 EQUITY stocks"
         )
       }),
     { timeout: 30_000 }

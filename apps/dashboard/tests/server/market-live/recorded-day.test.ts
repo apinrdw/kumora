@@ -3,8 +3,6 @@
 // TestClock, and the test reads what viewers, the relay, the recorded day GETs
 // and the index of days receive. Handing a second trading day the first's
 // database is the object restarting after a deploy.
-import { setFlagsFromString } from "node:v8"
-import { runInNewContext } from "node:vm"
 
 import { assert, describe, it } from "@effect/vitest"
 import {
@@ -39,6 +37,7 @@ import {
 } from "@/server/market-live/trading-day"
 
 import recorded from "./fixtures/ajaib-trades-2026-11-09.json"
+import { retainedHeap } from "../../support/retained-heap.ts"
 import { FULL_DAY_CODES, FULL_DAY_MINUTES } from "./full-day"
 import { doubleField, messageField, stringField, varintField } from "./protobuf"
 import { memorySql } from "./sql"
@@ -331,14 +330,6 @@ const range = (from: number, to: number) =>
 // read 2026-11-10): the whole day's candles kept as objects take about
 // 180 MiB (measured 2026-11-10).
 const RESTART_HEAP_LIMIT = 32 * 2 ** 20
-
-// The heap after a full collection: what is retained, not what is garbage.
-const retainedHeap = Effect.sync(() => {
-  setFlagsFromString("--expose-gc")
-  const collect = runInNewContext("gc") as () => void
-  collect()
-  return process.memoryUsage().heapUsed
-})
 
 describe("a restarted trading day", () => {
   it.effect(
