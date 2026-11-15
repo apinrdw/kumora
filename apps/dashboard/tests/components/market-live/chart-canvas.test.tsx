@@ -29,7 +29,7 @@ Object.assign(globalThis, { IS_REACT_ACT_ENVIRONMENT: true })
 // whitespace included, needs the historical flag, and the historical flag
 // needs a bar at that time. Its chart keeps its click and double-click
 // subscribers, and places every minute's centre at x 100 and every price at
-// y 50, a minute 60 px wide.
+// y 50, a minute 60 px wide. Each series knows the pane it was added to.
 const { series, FakeSeries, mouse } = vi.hoisted(() => {
   type Row = { readonly time: number } & Record<string, unknown>
   type Listener = (parameter: unknown) => void
@@ -45,6 +45,7 @@ const { series, FakeSeries, mouse } = vi.hoisted(() => {
     chartElement: () => document.body,
   }
   class Series {
+    constructor(readonly pane: number) {}
     readonly rows = new Map<number, Row>()
     last: number | undefined
     setData(rows: ReadonlyArray<Row>) {
@@ -77,6 +78,9 @@ const { series, FakeSeries, mouse } = vi.hoisted(() => {
       primitive.attached?.({ chart, series: this, requestUpdate() {} })
     }
     detachPrimitive() {}
+    getPane() {
+      return { paneIndex: () => this.pane }
+    }
     priceToCoordinate() {
       return 50
     }
@@ -95,8 +99,8 @@ vi.mock("lightweight-charts", () => ({
   LineStyle: { Dashed: 2 },
   TickMarkType: { Year: 0, Month: 1, DayOfMonth: 2 },
   createChart: () => ({
-    addSeries: () => {
-      const added = new FakeSeries()
+    addSeries: (_type: unknown, _options: unknown, paneIndex = 0) => {
+      const added = new FakeSeries(paneIndex)
       series.push(added)
       return added
     },
@@ -280,14 +284,19 @@ describe("a click on chart 1 of a recorded day", () => {
   // The click parameters Lightweight Charts hands its subscribers. A tap's
   // carries no hovered object: the library hit-tests where the crosshair
   // was, and a tap moved none there.
-  const at = (x: number) => ({
+  const at = (x: number, paneIndex: number) => ({
     time: seconds("09:00"),
     point: { x, y: 50 },
+    paneIndex,
     hoveredObjectId: undefined,
   })
-  const fire = (listeners: Set<(parameter: unknown) => void>, x: number) =>
+  const fire = (
+    listeners: Set<(parameter: unknown) => void>,
+    x: number,
+    paneIndex = 0
+  ) =>
     act(() => {
-      for (const listener of listeners) listener(at(x))
+      for (const listener of listeners) listener(at(x, paneIndex))
     })
 
   const shown = async () => {
@@ -329,6 +338,15 @@ describe("a click on chart 1 of a recorded day", () => {
     expect(cursor.state().at).toBe(before)
     // Off every bubble, a click still moves the cursor to its minute.
     await fire(mouse.clicks, 300)
+    expect(cursor.state().at).not.toBe(before)
+    await act(() => root.unmount())
+  })
+
+  test("a click in the volume pane, below a bubble, moves the cursor and selects no sweep", async () => {
+    const { sweeps, cursor, root } = await shown()
+    const before = cursor.state().at
+    await fire(mouse.clicks, 130, 1)
+    expect(sweeps.selected()).toBeUndefined()
     expect(cursor.state().at).not.toBe(before)
     await act(() => root.unmount())
   })
