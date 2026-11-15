@@ -5,6 +5,8 @@
 //                                                          one per (filename, ETag)
 //   runs/<run-id>.json                                     (../archive/run.ts)
 //   runs/latest.json                                       { id } of the last run
+//   parse-runs/<run-id>.json, parse-runs/latest.json       the KSEI parse runs'
+//                                                          (parse-runs.ts)
 //
 // Nothing under reports/ is ever overwritten or deleted.
 // Decision: one exception, by hand. The owner chose on 2026-11-15 to start
@@ -12,7 +14,7 @@
 // it were deleted once by hand. The code still deletes nothing.
 import { Effect } from "effect"
 
-import { sha256Hex } from "../archive/hash.ts"
+import { recordName } from "../archive/record-key.ts"
 import { REPORTS_PREFIX } from "../archive/run.ts"
 import type { KseiReportKind } from "./kind.ts"
 
@@ -48,8 +50,5 @@ export const recordKey = Effect.fnUntraced(function* (
   fetchedAt: string,
   seen: Seen
 ) {
-  const seenDigest = (yield* sha256Hex(
-    new TextEncoder().encode(`${seen.filename}\n${seen.etag ?? ""}`)
-  )).slice(0, 16)
-  return `${yield* kindPrefix(kind)}${periodEnd}/${sha256}.${fetchedAt.replaceAll(":", "")}.${seenDigest}.json`
+  return `${yield* kindPrefix(kind)}${yield* recordName(periodEnd, sha256, fetchedAt, `${seen.filename}\n${seen.etag ?? ""}`)}`
 })

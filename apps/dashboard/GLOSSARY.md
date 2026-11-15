@@ -166,7 +166,7 @@ Every shareholding report the dashboard has kept, each version of it included. N
 _Avoid_: Ownership archive, IDX archive
 
 **Archive run**:
-One pass that compares IDX's list of shareholding reports with the shareholding archive and stores any report, or new version of one, that the archive lacks. The schedule starts one twice a day, and an admin can start one when none is in progress. It ends **complete**, **partial** (some reports could not be stored and wait for the next run) or **failed**.
+One pass that compares IDX's list of shareholding reports with the shareholding archive and stores any report, or new version of one, that the archive lacks. The schedule starts one twice a day, and an admin can start one when none is in progress. It ends **complete**, **partial** (some reports could not be stored, or some months had a parse failure, and wait for the next run) or **failed** (IDX's list could not be read). As its last step it also parses each holdings-by-investor-classification report whose newest version, or the parser's version, hasn't been parsed into parsed holdings, even when it failed, and counts the months it parsed.
 _Avoid_: Sync, scrape, job
 
 ### KSEI
@@ -192,8 +192,66 @@ A KSEI archive run an admin starts that also looks for KSEI reports older than K
 _Avoid_: History run, full sync
 
 **Run**:
-One pass of either archive: an archive run or a KSEI archive run. What both share (a run id, its outcome, one run in progress at a time) is said of a run.
+One pass of either archive, an archive run or a KSEI archive run, or a KSEI parse run. What they share (a run id, its outcome, one run of each in progress at a time) is said of a run.
 _Avoid_: Archive run for both, which is IDX's; job
+
+### Holdings
+
+**Parsed holdings**:
+What the dashboard has read out of its archived holdings reports, one set of rows per report date: the newest archived version of a month replaces the older one whole, so a month is never read half old and half new.
+_Avoid_: Holdings database, parsed data
+
+**Parse failure**:
+A month a run picked to parse but couldn't: most often its archived report doesn't match what the parser expects, such as an unknown header or a row whose classifications don't add up to its total, but also its report missing from the archive, or the parsed holdings unwritable after retries. Nothing of it is stored: the month keeps its earlier parsed holdings, or stays absent, and the next run tries it again.
+_Avoid_: Parse error, bad month
+
+**Investor classification**:
+One of the 39 categories a KSEI account holder assigns an investor through know-your-customer checks, such as Mutual funds, Pension funds or Individual.
+_Avoid_: Investor type, which is KSEI's 9
+
+**Origin**:
+Whether holdings are **local**, **foreign**, or **combined**. A month whose report doesn't split local from foreign (IDX's classification reports before September 2026) has combined holdings only; a split month also has combined, their sum.
+_Avoid_: Domicile
+
+**Classification holding**:
+One stock's scripless shares held by one investor classification and origin, as of a classification report's data date. A classification and origin with no holding holds 0.
+_Avoid_: Ownership row, class holding
+
+**KSEI holding**:
+One stock's scripless shares held by one of KSEI's 9 investor types and one origin, local or foreign, as of a Securities holdings report's period end. Every equity in the report has them, priced or not. A type and origin with no holding holds 0.
+_Avoid_: Balancepos row, type holding
+
+**KSEI investor type**:
+One of KSEI's 9 parent categories of investor: ID (Individual), CP (Corporate), MF (Mutual fund), IB (Financial institution), IS (Insurance), SC (Securities company), PF (Pension fund), FD (Foundation) and OT (Others). The stock page groups investor classifications into them by a fixed mapping, which never matches KSEI's own type totals exactly.
+_Avoid_: Investor group, category
+
+**KSEI parse run**:
+One pass that parses each Securities holdings report in the KSEI archive whose newest version, or the parser's version, hasn't been parsed into KSEI holdings, from November 2018 on. The schedule starts one each day, an hour after the KSEI archive run, and an admin can start one when no KSEI parse run is in progress. A report that doesn't read exactly as expected is rejected whole and keeps the month's earlier holdings. It ends **complete**, **partial** (some months could not be parsed and wait for the next run) or **failed**.
+_Avoid_: KSEI archive run, which stores reports; import, sync
+
+**Retail / institution**:
+Retail is the holdings of the Individual KSEI investor type; institution is every other type's.
+_Avoid_: Retail investors meaning any small holder
+
+**Scripless / scrip shares**:
+Scripless shares are a stock's shares held electronically in KSEI accounts, the shares every holding counts. Scrip shares are the rest of its listed shares, still held as paper certificates: listed shares from KSEI's Securities holdings report of the same date, less the scripless shares. Without such a report, scrip is unavailable.
+_Avoid_: Free float, which is a different measure
+
+**Stock page**:
+The page of one stock, `/stocks/<code>`, open to every signed-in member: who holds the stock, from parsed holdings.
+_Avoid_: Ownership page, stock detail
+
+**Shareholders composition**:
+The stock page's panel of one classification report month: the stock's total scripless shares, scrip against scripless, retail against institution, and each KSEI investor type's share of an origin, against the month before.
+_Avoid_: Ownership mix, holder breakdown
+
+**Holding composition**:
+The stock page's chart of the stock's KSEI holdings, one column per month from its first period end to its last, with a month KSEI has no data for marked: local against foreign, or one origin's KSEI investor types. Every share is of the whole origin, even with some types hidden. Its local/foreign split can differ from Shareholders composition's, which is IDX's.
+_Avoid_: Ownership chart, holding history
+
+**Stock search**:
+The search in the Shell header, on every page, that opens a stock page. It offers the stocks parsed holdings have, code matches before issuer-name matches, and `/` focuses it. Bare `/stocks` opens the stock page this browser last opened.
+_Avoid_: Code picker, which picks Market Live's code
 
 ### Access
 
@@ -248,4 +306,4 @@ _Avoid_: Act as, sudo
 ### Shell
 
 **Shell**:
-The frame around every page: sidebar, header, and mobile bottom bar. It reads no market data.
+The frame around every page: sidebar, header, and mobile bottom bar. It reads no market data except the stock search's list of stocks.

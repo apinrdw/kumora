@@ -30,6 +30,19 @@
   --chart-vwap-band-1: #51dda2;
   --chart-vwap-band-2: #9ad96c;
   --chart-vwap-band-3: #f4c36e;
+  /* KSEI's 9 investor types on the stock page, from the ownership prototype. */
+  --investor-id: #4cc883;
+  --investor-cp: #f0a840;
+  --investor-mf: #6a9cff;
+  --investor-ib: #f07a9a;
+  --investor-is: #a78bfa;
+  --investor-sc: #3cc4d6;
+  --investor-pf: #d9a35a;
+  --investor-fd: #a3c45e;
+  --investor-ot: #8b93a1;
+  /* Local vs foreign in the stock page's Holding composition chart. */
+  --origin-local: #a78bfa;
+  --origin-foreign: #f07a9a;
 
   --shadow-popover: 0 4px 16px rgba(4, 10, 18, 0.45);
   --shadow-modal: 0 16px 48px rgba(4, 10, 18, 0.6);

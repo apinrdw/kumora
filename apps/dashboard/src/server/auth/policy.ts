@@ -22,7 +22,7 @@ export type SignedOut = { readonly _tag: "SignedOut" }
 
 export const signedOut: SignedOut = { _tag: "SignedOut" }
 
-export const FEATURES = ["market-live", "account", "admin"] as const
+export const FEATURES = ["market-live", "stocks", "account", "admin"] as const
 
 export type Feature = (typeof FEATURES)[number]
 
@@ -40,12 +40,14 @@ type Resources = {
   readonly "page.view": { readonly feature: Feature }
   readonly "market-live.view-live": { readonly feature: "market-live" }
   readonly "market-live.view-recorded-day": { readonly feature: "market-live" }
+  readonly "stocks.view": { readonly feature: "stocks" }
   readonly "admin.list-accounts": { readonly feature: "admin" }
   readonly "admin.view-shareholding-archive": { readonly feature: "admin" }
   readonly "admin.run-shareholding-archive": { readonly feature: "admin" }
   readonly "admin.view-ksei-archive": { readonly feature: "admin" }
   readonly "admin.run-ksei-archive": { readonly feature: "admin" }
   readonly "admin.deep-backfill-ksei-archive": { readonly feature: "admin" }
+  readonly "admin.run-ksei-parse": { readonly feature: "admin" }
   readonly "admin.ban": Target
   readonly "admin.unban": Target
   readonly "admin.set-role": Target
@@ -92,6 +94,7 @@ const featureAccess = (
 ): Effect.Effect<Decision> => {
   switch (feature) {
     case "market-live":
+    case "stocks":
     case "account":
       return allow
     // An impersonation session views as a member, whatever role the member
@@ -141,6 +144,7 @@ const rules: Rules = {
     featureAccess(account, feature),
   "market-live.view-recorded-day": (account, { feature }) =>
     featureAccess(account, feature),
+  "stocks.view": (account, { feature }) => featureAccess(account, feature),
   "admin.list-accounts": (account, { feature }) =>
     featureAccess(account, feature),
   "admin.view-shareholding-archive": (account, { feature }) =>
@@ -150,6 +154,8 @@ const rules: Rules = {
   "admin.run-ksei-archive": (account, { feature }) =>
     featureAccess(account, feature),
   "admin.deep-backfill-ksei-archive": (account, { feature }) =>
+    featureAccess(account, feature),
+  "admin.run-ksei-parse": (account, { feature }) =>
     featureAccess(account, feature),
   "admin.run-shareholding-archive": (account, { feature }) =>
     featureAccess(account, feature),

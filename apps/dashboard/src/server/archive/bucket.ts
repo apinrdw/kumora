@@ -75,6 +75,11 @@ export class ArchiveBucket extends Context.Service<
     readonly get: (
       key: string
     ) => Effect.Effect<StoredObject | undefined, BucketError>
+    // A stored file's bytes, such as a report's .xlsx; undefined when there
+    // is no object at `key`.
+    readonly getBytes: (
+      key: string
+    ) => Effect.Effect<Uint8Array | undefined, BucketError>
     readonly put: (
       key: string,
       body: Uint8Array | string,

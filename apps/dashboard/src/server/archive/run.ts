@@ -5,7 +5,7 @@
 //
 //   runs/<run-id>.json                                     one per run
 //   runs/latest.json                                       { id } of the last run
-import { Effect, Schema } from "effect"
+import { Effect, Result, Schema } from "effect"
 
 // A run's id, which is also its Workflow instance's: `<trigger>-<when>`, as
 // the archive's `runIdAt` names it.
@@ -19,6 +19,15 @@ export const RunOutcome = Schema.Literals([
   "failed",
 ])
 export type RunOutcome = typeof RunOutcome.Type
+
+// A month a parse run couldn't parse, by its date (a classification
+// report's data date, a KSEI report's period end), and why, in at most
+// MAX_RUN_ERROR_LENGTH characters. It keeps its earlier parsed holdings, and
+// the next run tries it again.
+export const ParseFailure = Schema.Struct({
+  date: Schema.String,
+  message: Schema.String,
+})
 
 // The most characters of an error a run record keeps. A failure's message
 // can quote what the source sent, which the source decides the size of.
@@ -40,6 +49,20 @@ export interface Run<Trigger extends string = string> {
   readonly startedAt: Date
 }
 
+// What a run's `report:` steps stored, and what it couldn't: the held files
+// whose HEAD failed, which may hide a change, then each failed step's file.
+export const storedReports = <A>(
+  stored: ReadonlyArray<Result.Result<A, string>>,
+  unanswered: ReadonlyArray<string>
+) =>
+  Effect.succeed({
+    archived: stored.filter(Result.isSuccess).map(({ success }) => success),
+    notStored: [
+      ...unanswered,
+      ...stored.filter(Result.isFailure).map(({ failure }) => failure),
+    ],
+  })
+
 // What `create` passes a run's Workflow.
 export interface RunParams<Trigger extends string = string> {
   readonly trigger: Trigger
@@ -49,14 +72,25 @@ export interface RunParams<Trigger extends string = string> {
 // keys.ts).
 export const REPORTS_PREFIX = "reports/"
 
+// Where an archive run's records live. A run that isn't an archive run, such
+// as the KSEI parse run, keeps its own under another prefix in the same
+// bucket (`ArchiveSource.runsPrefix`).
 export const RUNS_PREFIX = "runs/"
-export const LATEST_RUN_KEY = `${RUNS_PREFIX}latest.json`
 
-export const runKey = Effect.fnUntraced(function* (id: RunId) {
-  return `${RUNS_PREFIX}${id}.json`
+// <prefix><id>.json, a run's record.
+export const runKey = Effect.fnUntraced(function* (
+  id: RunId,
+  prefix: string = RUNS_PREFIX
+) {
+  return `${prefix}${id}.json`
 })
 
-// The pointer at runs/latest.json.
+// <prefix>latest.json, the pointer at the last run started.
+export const latestRunKey = Effect.fnUntraced(function* (prefix: string) {
+  return `${prefix}latest.json`
+})
+
+// The pointer at <prefix>latest.json.
 export const LatestRun = Schema.Struct({ id: RunId })
 
 // What every archive's run summary holds: the recent runs table's row.
@@ -86,6 +120,9 @@ export interface ArchiveSource<
 > {
   // How a log line names one of its runs, as "Archive run".
   readonly runName: string
+  // Where its run records and latest pointer live in the bucket, as
+  // RUNS_PREFIX.
+  readonly runsPrefix: string
   // Every trigger that starts its runs.
   readonly triggers: ReadonlyArray<Trigger>
   // The id of the run `trigger` starts at `epochMs`. Ids of one trigger must

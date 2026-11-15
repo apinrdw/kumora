@@ -1,5 +1,6 @@
 // One archive run: `plan`, `head`, then one `report:` step per report to
-// store, then `summary`. Each step's body is an Effect; the run itself
+// store, then `reconcile` and one `parse:` step per classification month to
+// parse, then `summary`. Each step's body is an Effect; the run itself
 // only orders the steps, so it holds nothing a Workflow replay could change.
 // Spec apinrdw/kumora#303, "The archive run".
 import {
@@ -16,7 +17,15 @@ import { readCapped } from "../archive/capped-body.ts"
 import { sha256Hex } from "../archive/hash.ts"
 import { headHeld, MAX_ETAG_BYTES } from "../archive/head.ts"
 import { ETAG, heldRecords, RUN, SHA256 } from "../archive/held.ts"
-import { type Run, type RunId, runError } from "../archive/run.ts"
+import {
+  type Run,
+  type RunId,
+  runError,
+  storedReports,
+} from "../archive/run.ts"
+import type { HoldingsDb } from "../holdings/db.ts"
+import { type Parses, parseMonths } from "../holdings/parse-steps.ts"
+import { classificationMonths } from "./classification-parse.ts"
 import { recordKey, reportKey } from "./keys.ts"
 import {
   fetchListing,
@@ -32,7 +41,7 @@ import { putRunRecord } from "./runs.ts"
 
 type IdxRun = Run<ArchiveTrigger>
 
-type StepServices = ArchiveBucket | HttpClient.HttpClient
+type StepServices = ArchiveBucket | HttpClient.HttpClient | HoldingsDb
 
 // Each step result holds at most one ListedReport, or less, per listed
 // report, which MAX_LISTED_REPORTS (listing.ts) bounds. The ETags and hashes
@@ -213,7 +222,10 @@ const summary = Effect.fnUntraced(function* (
   run: IdxRun,
   checked: typeof Checked.Type,
   archived: ReadonlyArray<ArchivedReport>,
-  notStored: ReadonlyArray<string>
+  notStored: ReadonlyArray<string>,
+  parses: Parses,
+  // The reconcile's failure: the run is failed, keeping what it stored.
+  error?: string
 ) {
   const changedUrls = new Set(checked.changed.map(({ sourceUrl }) => sourceUrl))
   // Decided from earlier runs' records, not from the .xlsx being there: a
@@ -222,7 +234,12 @@ const summary = Effect.fnUntraced(function* (
   const earlier = yield* recordsByUrl(run.id)
   const result = ArchiveRunResult.make({
     ...(yield* finishedResult(run)),
-    outcome: notStored.length === 0 ? "complete" : "partial",
+    outcome:
+      error !== undefined
+        ? "failed"
+        : notStored.length === 0 && parses.parseFailures.length === 0
+          ? "complete"
+          : "partial",
     reportsAdded: archived.filter(
       ({ sourceUrl }) => !changedUrls.has(sourceUrl)
     ).length,
@@ -236,22 +253,27 @@ const summary = Effect.fnUntraced(function* (
     ).length,
     reportsChecked: checked.checked,
     notStored,
+    ...parses,
     other: archived
       .filter(({ kind }) => kind === "other")
       .map(({ sourceUrl, description }) => ({ sourceUrl, description })),
+    error: error === undefined ? null : yield* runError(error),
   })
   yield* putRunRecord(result)
   return result
 })
 
-// `plan` failed, so nothing was stored: the run is failed with its message.
+// `plan` failed, so nothing was stored: the run is failed with its message,
+// and what its reconcile parsed.
 const recordPlanFailure = Effect.fnUntraced(function* (
   run: IdxRun,
-  error: string
+  error: string,
+  parses: Parses
 ) {
   const result = ArchiveRunResult.make({
     ...(yield* finishedResult(run)),
     outcome: "failed",
+    ...parses,
     error: yield* runError(error),
   })
   yield* putRunRecord(result)
@@ -270,15 +292,20 @@ export const archiveRun = Effect.fn("archiveRun")(function* (
   steps: WorkflowSteps<StepServices>,
   run: IdxRun
 ): Effect.fn.Return<ArchiveRunResult, StepFailed> {
-  const planned = yield* steps.do("plan", plan(run)).pipe(
-    // The run still fails with `plan`'s message, which the Workflow keeps as
-    // the instance's error.
-    Effect.tapError(({ message }) =>
-      steps
-        .do("failed", recordPlanFailure(run, message))
-        .pipe(Effect.ignore({ log: "Warn" }))
+  const planResult = yield* Effect.result(steps.do("plan", plan(run)))
+  if (Result.isFailure(planResult)) {
+    // Decision: the reconcile reads only R2 and D1, so a run whose listing
+    // can't be read still parses what the archive holds. The run still fails
+    // with `plan`'s message, which the Workflow keeps as the instance's error.
+    const parses = yield* parseMonths(steps, classificationMonths).pipe(
+      Effect.orElseSucceed(() => ({ monthsParsed: 0, parseFailures: [] }))
     )
-  )
+    yield* steps
+      .do("failed", recordPlanFailure(run, planResult.failure.message, parses))
+      .pipe(Effect.ignore({ log: "Warn" }))
+    return yield* planResult.failure
+  }
+  const planned = planResult.success
   const checked = yield* steps.do("head", head(planned.held))
   const heldByUrl = new Map(
     planned.held.map((report) => [report.sourceUrl, report])
@@ -300,11 +327,31 @@ export const archiveRun = Effect.fn("archiveRun")(function* (
       Effect.result
     )
   )
-  const archived = stored.filter(Result.isSuccess).map(({ success }) => success)
-  // A held URL whose HEAD failed may hide a change this run couldn't store.
-  const notStored = [
-    ...checked.unanswered,
-    ...stored.filter(Result.isFailure).map(({ failure }) => failure),
-  ]
-  return yield* steps.do("summary", summary(run, checked, archived, notStored))
+  const { archived, notStored } = yield* storedReports(
+    stored,
+    checked.unanswered
+  )
+  const parses = yield* parseMonths(steps, classificationMonths).pipe(
+    // The run still fails with `reconcile`'s message, which the Workflow
+    // keeps as the instance's error.
+    Effect.tapError(({ message }) =>
+      steps
+        .do(
+          "failed",
+          summary(
+            run,
+            checked,
+            archived,
+            notStored,
+            { monthsParsed: 0, parseFailures: [] },
+            message
+          )
+        )
+        .pipe(Effect.ignore({ log: "Warn" }))
+    )
+  )
+  return yield* steps.do(
+    "summary",
+    summary(run, checked, archived, notStored, parses)
+  )
 })

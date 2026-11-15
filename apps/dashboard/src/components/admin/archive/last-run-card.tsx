@@ -145,6 +145,20 @@ function Failed({ error }: { error: string | null }) {
   )
 }
 
+// The counts every archive's run shows first.
+export const archiveRunStats = (result: {
+  readonly reportsAdded: number
+  readonly newVersions: number
+  readonly reportsChecked: number
+  readonly notStored: ReadonlyArray<string>
+}): Effect.Effect<Array<RunStat>> =>
+  Effect.succeed([
+    { value: result.reportsAdded, label: "Reports added" },
+    { value: result.newVersions, label: "New versions" },
+    { value: result.reportsChecked, label: "Reports checked" },
+    { value: result.notStored.length, label: "Not stored" },
+  ])
+
 export interface RunStat {
   readonly label: string
   readonly value: number
@@ -160,7 +174,7 @@ export interface ArchiveSchedule {
 /**
  * An archive's last run, or the empty state before any, with its actions.
  * `stats` and `details` describe the last run: `details` shows below the
- * counts unless the run failed, when its error shows instead.
+ * counts, after the error of a run that failed.
  */
 export function ArchiveLastRunCard({
   title,
@@ -228,7 +242,8 @@ export function ArchiveLastRunCard({
           <Stat key={stat.label} {...stat} />
         ))}
       </dl>
-      {result.outcome === "failed" ? <Failed error={result.error} /> : details}
+      {result.outcome === "failed" && <Failed error={result.error} />}
+      {details}
       <Schedule {...schedule} />
     </ArchiveCard>
   )

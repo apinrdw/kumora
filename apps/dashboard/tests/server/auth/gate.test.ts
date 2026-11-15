@@ -75,7 +75,7 @@ describe("gatePage", () => {
         viewer: {
           name: "Ayu",
           email: "ayu@example.com",
-          features: ["market-live", "account"],
+          features: ["market-live", "stocks", "account"],
           impersonating: false,
         },
       })
@@ -95,7 +95,7 @@ describe("gatePage", () => {
         viewer: {
           name: "Ayu",
           email: "ayu@example.com",
-          features: ["market-live", "account"],
+          features: ["market-live", "stocks", "account"],
           impersonating: false,
         },
       })
@@ -118,7 +118,7 @@ describe("gatePage", () => {
           viewer: {
             name: "Ayu",
             email: ADMIN_EMAIL,
-            features: ["market-live", "account", "admin"],
+            features: ["market-live", "stocks", "account", "admin"],
             impersonating: false,
           },
         })

@@ -15,6 +15,7 @@ import {
 
 import { fakeIdx, type FakeIdx, idxIdUrl } from "./fake-idx.ts"
 import { localSteps } from "../archive/local-steps.ts"
+import { memoryHoldingsDb } from "../holdings/memory-holdings-db.ts"
 import { type MemoryBucket, memoryBucket } from "../archive/memory-bucket.ts"
 
 const run = (
@@ -23,11 +24,16 @@ const run = (
   id: string,
   startedAt = new Date("2026-11-14T13:00:00Z")
 ) =>
-  archiveRun(localSteps(Layer.merge(idx.layer, bucket.layer)), {
-    id: RunId.make(id),
-    trigger: "cron",
-    startedAt,
-  })
+  archiveRun(
+    localSteps(
+      Layer.mergeAll(idx.layer, bucket.layer, memoryHoldingsDb().layer)
+    ),
+    {
+      id: RunId.make(id),
+      trigger: "cron",
+      startedAt,
+    }
+  )
 
 // The error a run fails with. A run that ends without one fails the test
 // with its outcome.
@@ -46,9 +52,12 @@ const runFailure = (idx: FakeIdx, bucket: MemoryBucket, id: string) =>
 const keysUnder = (bucket: MemoryBucket, prefix: string) =>
   [...bucket.objects.keys()].filter((key) => key.startsWith(prefix)).sort()
 
-const sha256 = (text: string) =>
+const sha256 = (body: string | Uint8Array<ArrayBuffer>) =>
   Effect.promise(() =>
-    crypto.subtle.digest("SHA-256", new TextEncoder().encode(text))
+    crypto.subtle.digest(
+      "SHA-256",
+      typeof body === "string" ? new TextEncoder().encode(body) : body
+    )
   ).pipe(Effect.map((digest) => Buffer.from(digest).toString("hex")))
 
 const json = (bucket: MemoryBucket, key: string) =>
@@ -674,7 +683,13 @@ describe("an archive run", () => {
     () =>
       Effect.gen(function* () {
         const bucket = memoryBucket()
-        const steps = localSteps(Layer.merge(fakeIdx().layer, bucket.layer))
+        const steps = localSteps(
+          Layer.mergeAll(
+            fakeIdx().layer,
+            bucket.layer,
+            memoryHoldingsDb().layer
+          )
+        )
         // The runtime's message for a failed step, which it decides the size of.
         const message = `plan failed: ${"x".repeat(5 * MAX_RUN_ERROR_LENGTH)}`
 

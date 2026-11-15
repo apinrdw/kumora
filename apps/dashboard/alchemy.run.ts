@@ -17,13 +17,25 @@ import * as Redacted from "effect/Redacted"
 
 import { SENDER, SENDING_SUBDOMAIN } from "./src/server/auth/sender.ts"
 import type { RunParams } from "./src/server/archive/run.ts"
-import { KSEI_CRON } from "./src/server/ksei/schedule.ts"
+import { KSEI_CRON, KSEI_PARSE_CRON } from "./src/server/ksei/schedule.ts"
 import { ARCHIVE_CRON } from "./src/server/shareholding/schedule.ts"
 
 // scripts/auth-schema.ts replays the same directory for the drift check and
 // the handler test seam. apps/e2e/reset-test-stage.ts reads this resource's
 // state file, AuthDb.json, by this id.
 const AuthDb = Cloudflare.D1.Database("AuthDb", { migrations: "./migrations" })
+
+// Parsed holdings: the archive runs parse reports into it, the stock page
+// reads it. Bound on every stage like the archive buckets; only
+// Production's fills, since only Production's buckets hold reports.
+// Decision: a D1 of its own, apart from AuthDb, with its own migrations.
+// Read replication stays off (Alchemy's default): a replica could serve a
+// month mid-replace. See apinrdw/kumora#353.
+// apps/e2e/reset-test-stage.ts reads its state file, HoldingsDb.json, by
+// this id.
+const HoldingsDb = Cloudflare.D1.Database("HoldingsDb", {
+  migrations: "./holdings-migrations",
+})
 
 // Decision: Production alone owns the mailer.pusat.ai sending subdomain; every
 // other stage only binds EMAIL with this sender, so destroying a Preview never
@@ -123,6 +135,10 @@ export const Website = Cloudflare.Website.Vite(
               // (src/server/crons.ts) tells the two crons apart by expression.
               // See apinrdw/kumora#326.
               KSEI_CRON,
+              // Decision: the KSEI parse cron too, so only Production's
+              // HoldingsDb fills on a schedule, from the only bucket that
+              // holds reports. See apinrdw/kumora#359.
+              KSEI_PARSE_CRON,
             ],
           }
         : {}
@@ -136,6 +152,7 @@ export const Website = Cloudflare.Website.Vite(
       dev: { port: yield* devPort("dashboard"), strictPort: true },
       env: {
         AUTH_DB: AuthDb,
+        HOLDINGS_DB: HoldingsDb,
         AUTH_BASE_URL: yield* stageUrl("dashboard", stage),
         BETTER_AUTH_SECRET: Alchemy.makeRandom("BetterAuthSecret"),
         EMAIL: Cloudflare.Email.SendEmail("Email", {
@@ -190,6 +207,11 @@ export const Website = Cloudflare.Website.Vite(
         ),
         KSEI_ARCHIVE: Cloudflare.Workflow<RunParams>("KseiArchive", {
           className: "KseiArchive",
+        }),
+        // The KSEI parse run, which parses the KSEI archive's Kepemilikan
+        // Efek files into HoldingsDb, on every stage like the archive runs.
+        KSEI_PARSE: Cloudflare.Workflow<RunParams>("KseiParse", {
+          className: "KseiParse",
         }),
         ...google,
         ...clockOffset,

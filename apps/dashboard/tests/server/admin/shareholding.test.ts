@@ -50,6 +50,8 @@ const RUNNING: ArchiveRunResult = {
   newVersions: 0,
   reportsChecked: 0,
   notStored: [],
+  monthsParsed: 0,
+  parseFailures: [],
   other: [],
   error: null,
 }

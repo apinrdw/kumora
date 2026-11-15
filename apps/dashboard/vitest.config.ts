@@ -6,6 +6,9 @@ import { testTimeout } from "../../vitest.timeout.mts"
 // Vite transforms JSX on its own, so the suites need only the path aliases.
 export default defineConfig({
   resolve: { tsconfigPaths: true },
+  // Report fixtures load as base64 data URLs (`?inline`): lint keeps node:fs
+  // out of tests.
+  assetsInclude: ["**/*.xlsx", "**/*.zip"],
   test: {
     // Decision: two workers, isolation kept on. Vitest's default on CI's
     // 2 vCPU is one worker, which ran the files one at a time. Turning

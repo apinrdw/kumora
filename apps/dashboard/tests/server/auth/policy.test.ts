@@ -78,6 +78,7 @@ describe("decide", () => {
         decision: allow,
       },
       { who: "a member", account: member, feature: "account", decision: allow },
+      { who: "a member", account: member, feature: "stocks", decision: allow },
       {
         who: "a member",
         account: member,
@@ -91,6 +92,7 @@ describe("decide", () => {
         decision: allow,
       },
       { who: "an admin", account: admin, feature: "account", decision: allow },
+      { who: "an admin", account: admin, feature: "stocks", decision: allow },
       { who: "an admin", account: admin, feature: "admin", decision: allow },
       {
         who: "a config admin",

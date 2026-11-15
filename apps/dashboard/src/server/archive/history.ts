@@ -4,12 +4,7 @@ import { Clock, Effect, Option, Schema } from "effect"
 
 import { ArchiveBucket } from "./bucket.ts"
 import { RETENTION_MS } from "./retention.ts"
-import {
-  type RunBase,
-  type ArchiveSource,
-  RUNS_PREFIX,
-  type RunSummaryBase,
-} from "./run.ts"
+import { type RunBase, type ArchiveSource, type RunSummaryBase } from "./run.ts"
 import { endedRunError } from "./run-view.ts"
 import { ArchiveWorkflow, type WorkflowError } from "./workflow.ts"
 
@@ -38,9 +33,9 @@ export const listRecentRuns = <
     const listings = yield* Effect.forEach(source.triggers, (trigger) =>
       Effect.gen(function* () {
         const oldest = yield* source.runIdAt(trigger, since)
-        return yield* bucket.list(`${RUNS_PREFIX}${trigger}-`, {
+        return yield* bucket.list(`${source.runsPrefix}${trigger}-`, {
           // runs/<id> sorts just before runs/<id>.json, so that run is listed.
-          startAfter: `${RUNS_PREFIX}${oldest}`,
+          startAfter: `${source.runsPrefix}${oldest}`,
         })
       })
     )

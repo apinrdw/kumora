@@ -3,7 +3,13 @@
 // reads it back with this Schema.
 import { DateTime, Effect, Schema, Struct } from "effect"
 
-import { type Run, RunId, type RunParams, RunOutcome } from "../archive/run.ts"
+import {
+  ParseFailure,
+  type Run,
+  RunId,
+  type RunParams,
+  RunOutcome,
+} from "../archive/run.ts"
 
 export const ArchiveTrigger = Schema.Literals(["cron", "admin"])
 export type ArchiveTrigger = typeof ArchiveTrigger.Type
@@ -40,6 +46,16 @@ export const ArchiveRunResult = Schema.Struct({
   reportsChecked: Schema.Number,
   // URLs the run couldn't store; the next run retries them.
   notStored: Schema.Array(Schema.String),
+  // Classification months parsed into parsed holdings. Records written
+  // before the reconcile existed have none: 0.
+  monthsParsed: Schema.Number.pipe(
+    Schema.withDecodingDefaultKey(Effect.succeed(0))
+  ),
+  // Classification months that failed to parse; any makes the run partial.
+  // Records written before the reconcile existed have none.
+  parseFailures: Schema.Array(ParseFailure).pipe(
+    Schema.withDecodingDefaultKey(Effect.succeed([]))
+  ),
   // Reports archived under `other`: an unknown description prefix.
   other: Schema.Array(
     Schema.Struct({ sourceUrl: Schema.String, description: Schema.String })
@@ -83,6 +99,8 @@ export const runningResult = Effect.fnUntraced(function* (
     newVersions: 0,
     reportsChecked: 0,
     notStored: [],
+    monthsParsed: 0,
+    parseFailures: [],
     other: [],
     error: null,
   })

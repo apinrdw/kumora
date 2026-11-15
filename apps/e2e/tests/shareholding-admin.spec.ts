@@ -22,6 +22,8 @@ const COMPLETE: SeededRun = {
   newVersions: 1,
   reportsChecked: 147,
   notStored: [],
+  monthsParsed: 4,
+  parseFailures: [],
   other: [],
   error: null,
 }
@@ -29,6 +31,11 @@ const COMPLETE: SeededRun = {
 const NOT_STORED =
   "https://www.idx.co.id/Media/x7qp21ab/peng-2026-11-13-00117-lima-persen.xlsx"
 const OTHER = "https://www.idx.co.id/Media/k2m9/pengumuman-lain.xlsx"
+const PARSE_FAILURE = {
+  date: "2026-10-30",
+  message:
+    "BBCA (row 7)'s classifications sum to 52,453,691,121, not its TOTAL SCRIPLESS of 52,453,691,120",
+}
 
 const PARTIAL: SeededRun = {
   ...COMPLETE,
@@ -39,6 +46,8 @@ const PARTIAL: SeededRun = {
   reportsAdded: 1,
   newVersions: 0,
   notStored: [NOT_STORED],
+  monthsParsed: 3,
+  parseFailures: [PARSE_FAILURE],
   other: [{ sourceUrl: OTHER, description: "Laporan Kepemilikan Lainnya" }],
 }
 
@@ -51,6 +60,8 @@ const FAILED: SeededRun = {
   reportsAdded: 0,
   newVersions: 0,
   reportsChecked: 0,
+  monthsParsed: 1,
+  parseFailures: [PARSE_FAILURE],
   error: "www.idx.id answered 403 for the shareholding report list",
 }
 
@@ -121,13 +132,14 @@ test.describe.serial("an admin's last archive run", () => {
     await expect(stat(card, "New versions")).toHaveText("1")
     await expect(stat(card, "Reports checked")).toHaveText("147")
     await expect(stat(card, "Not stored")).toHaveText("0")
+    await expect(stat(card, "Months parsed")).toHaveText("4")
     await expect(card).toContainText(
       /Production runs at 13:00 and 20:00 WIB\. Next: \w{3} \d{2}, (13|20):00 WIB\./
     )
     await expect(card.getByRole("button", { name: "Run now" })).toBeEnabled()
   })
 
-  test("a partial run lists the URLs not stored and the other reports", async ({
+  test("a partial run lists the URLs not stored, the months not parsed and the other reports", async ({
     page,
   }) => {
     await seedLatestRun(PARTIAL)
@@ -141,12 +153,21 @@ test.describe.serial("an admin's last archive run", () => {
     await expect(
       card.getByRole("list", { name: "Not stored" }).getByRole("listitem")
     ).toHaveText([NOT_STORED])
+    await expect(stat(card, "Parse failures")).toHaveText("1")
+    await expect(card).toContainText(
+      "1 month could not be parsed. It keeps its earlier parsed holdings, and the next run tries again."
+    )
+    await expect(
+      card.getByRole("list", { name: "Parse failures" }).getByRole("listitem")
+    ).toHaveText([`${PARSE_FAILURE.date} ${PARSE_FAILURE.message}`])
     await expect(
       card.getByRole("list", { name: "Archived under other" })
     ).toContainText(`Laporan Kepemilikan Lainnya ${OTHER}`)
   })
 
-  test("a failed run shows its error", async ({ page }) => {
+  test("a failed run shows its error and what its reconcile parsed", async ({
+    page,
+  }) => {
     await seedLatestRun(FAILED)
     await page.goto(SHAREHOLDING)
     const card = lastRunCard(page)
@@ -154,6 +175,10 @@ test.describe.serial("an admin's last archive run", () => {
     const alert = card.getByRole("alert")
     await expect(alert).toContainText(`Run failed: ${FAILED.error}`)
     await expect(alert).toContainText("The next run will try again.")
+    await expect(stat(card, "Months parsed")).toHaveText("1")
+    await expect(
+      card.getByRole("list", { name: "Parse failures" }).getByRole("listitem")
+    ).toHaveText([`${PARSE_FAILURE.date} ${PARSE_FAILURE.message}`])
   })
 
   test("Run now is disabled while the latest run is running", async ({

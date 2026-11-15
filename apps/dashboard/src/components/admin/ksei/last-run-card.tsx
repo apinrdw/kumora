@@ -11,6 +11,7 @@ import { KSEI_TIMES_WIB } from "@/server/ksei/schedule"
 
 import {
   ArchiveLastRunCard,
+  archiveRunStats,
   RunArchiveButton,
 } from "@/components/admin/archive/last-run-card"
 
@@ -234,10 +235,7 @@ export function KseiLastRunCard({
         result === undefined
           ? []
           : [
-              { value: result.reportsAdded, label: "Reports added" },
-              { value: result.newVersions, label: "New versions" },
-              { value: result.reportsChecked, label: "Reports checked" },
-              { value: result.notStored.length, label: "Not stored" },
+              ...Effect.runSync(archiveRunStats(result)),
               { value: result.md5Mismatches.length, label: "MD5 mismatches" },
             ]
       }

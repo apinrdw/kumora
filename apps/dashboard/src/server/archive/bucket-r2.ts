@@ -36,6 +36,7 @@ interface R2Binding {
     readonly httpEtag: string
     readonly uploaded: Date
     readonly text: () => Promise<string>
+    readonly arrayBuffer: () => Promise<ArrayBuffer>
   } | null>
   // Null when `onlyIf` doesn't hold.
   readonly put: (
@@ -92,6 +93,20 @@ export const r2ArchiveBucket = (binding: (env: WorkerEnvShape) => R2Binding) =>
         } while (cursor !== undefined)
         return objects
       })
+      // The object at `key` read by `read`, or undefined when there is none.
+      const readObject = <A>(
+        key: string,
+        read: (
+          object: NonNullable<Awaited<ReturnType<R2Binding["get"]>>>
+        ) => PromiseLike<A>
+      ) =>
+        attempt("get", key, () => bucket.get(key)).pipe(
+          Effect.flatMap((object) =>
+            object === null
+              ? Effect.succeed(undefined)
+              : attempt("get", key, () => read(object))
+          )
+        )
       return ArchiveBucket.of({
         list,
         exists: (key) =>
@@ -99,18 +114,16 @@ export const r2ArchiveBucket = (binding: (env: WorkerEnvShape) => R2Binding) =>
             Effect.map((object) => object !== null)
           ),
         get: (key) =>
-          attempt("get", key, () => bucket.get(key)).pipe(
-            Effect.flatMap((object) =>
-              object === null
-                ? Effect.succeed(undefined)
-                : attempt("get", key, () => object.text()).pipe(
-                    Effect.map((body) => ({
-                      body,
-                      etag: object.httpEtag,
-                      uploaded: object.uploaded,
-                    }))
-                  )
-            )
+          readObject(key, (object) =>
+            object.text().then((body) => ({
+              body,
+              etag: object.httpEtag,
+              uploaded: object.uploaded,
+            }))
+          ),
+        getBytes: (key) =>
+          readObject(key, (object) =>
+            object.arrayBuffer().then((buffer) => new Uint8Array(buffer))
           ),
         put: (key, body, { contentType, customMetadata }) =>
           attempt("put", key, () =>

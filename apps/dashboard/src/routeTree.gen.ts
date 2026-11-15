@@ -24,6 +24,8 @@ import { Route as AppMarketLiveRouteImport } from './routes/_app/market-live'
 import { Route as AppAdminKseiRouteImport } from './routes/_app/admin/ksei'
 import { Route as AppAdminShareholdingRouteImport } from './routes/_app/admin/shareholding'
 import { Route as AppAdminUsersRouteImport } from './routes/_app/admin/users'
+import { Route as AppStocksIndexRouteImport } from './routes/_app/stocks.index'
+import { Route as AppStocksCodeRouteImport } from './routes/_app/stocks.$code'
 import { Route as ApiAuthSplatRouteImport } from './routes/api/auth/$'
 
 const AppRoute = AppRouteImport.update({
@@ -100,6 +102,16 @@ const AppAdminUsersRoute = AppAdminUsersRouteImport.update({
   path: '/admin/users',
   getParentRoute: () => AppRoute,
 } as any)
+const AppStocksIndexRoute = AppStocksIndexRouteImport.update({
+  id: '/stocks/',
+  path: '/stocks/',
+  getParentRoute: () => AppRoute,
+} as any)
+const AppStocksCodeRoute = AppStocksCodeRouteImport.update({
+  id: '/stocks/$code',
+  path: '/stocks/$code',
+  getParentRoute: () => AppRoute,
+} as any)
 const ApiAuthSplatRoute = ApiAuthSplatRouteImport.update({
   id: '/api/auth/$',
   path: '/api/auth/$',
@@ -121,7 +133,9 @@ export interface FileRoutesByFullPath {
   '/admin/ksei': typeof AppAdminKseiRoute
   '/admin/shareholding': typeof AppAdminShareholdingRoute
   '/admin/users': typeof AppAdminUsersRoute
+  '/stocks/$code': typeof AppStocksCodeRoute
   '/api/auth/$': typeof ApiAuthSplatRoute
+  '/stocks/': typeof AppStocksIndexRoute
 }
 export interface FileRoutesByTo {
   '/account-deleted': typeof AccountDeletedRoute
@@ -138,7 +152,9 @@ export interface FileRoutesByTo {
   '/admin/ksei': typeof AppAdminKseiRoute
   '/admin/shareholding': typeof AppAdminShareholdingRoute
   '/admin/users': typeof AppAdminUsersRoute
+  '/stocks/$code': typeof AppStocksCodeRoute
   '/api/auth/$': typeof ApiAuthSplatRoute
+  '/stocks': typeof AppStocksIndexRoute
 }
 export interface FileRoutesById {
   __root__: typeof rootRouteImport
@@ -157,7 +173,9 @@ export interface FileRoutesById {
   '/_app/admin/ksei': typeof AppAdminKseiRoute
   '/_app/admin/shareholding': typeof AppAdminShareholdingRoute
   '/_app/admin/users': typeof AppAdminUsersRoute
+  '/_app/stocks/$code': typeof AppStocksCodeRoute
   '/api/auth/$': typeof ApiAuthSplatRoute
+  '/_app/stocks/': typeof AppStocksIndexRoute
 }
 export interface FileRouteTypes {
   fileRoutesByFullPath: FileRoutesByFullPath
@@ -176,7 +194,9 @@ export interface FileRouteTypes {
     | '/admin/ksei'
     | '/admin/shareholding'
     | '/admin/users'
+    | '/stocks/$code'
     | '/api/auth/$'
+    | '/stocks/'
   fileRoutesByTo: FileRoutesByTo
   to:
     | '/account-deleted'
@@ -193,7 +213,9 @@ export interface FileRouteTypes {
     | '/admin/ksei'
     | '/admin/shareholding'
     | '/admin/users'
+    | '/stocks/$code'
     | '/api/auth/$'
+    | '/stocks'
   id:
     | '__root__'
     | '/_app'
@@ -211,7 +233,9 @@ export interface FileRouteTypes {
     | '/_app/admin/ksei'
     | '/_app/admin/shareholding'
     | '/_app/admin/users'
+    | '/_app/stocks/$code'
     | '/api/auth/$'
+    | '/_app/stocks/'
   fileRoutesById: FileRoutesById
 }
 export interface RootRouteChildren {
@@ -332,6 +356,20 @@ declare module '@tanstack/react-router' {
       preLoaderRoute: typeof AppAdminUsersRouteImport
       parentRoute: typeof AppRoute
     }
+    '/_app/stocks/': {
+      id: '/_app/stocks/'
+      path: '/stocks'
+      fullPath: '/stocks/'
+      preLoaderRoute: typeof AppStocksIndexRouteImport
+      parentRoute: typeof AppRoute
+    }
+    '/_app/stocks/$code': {
+      id: '/_app/stocks/$code'
+      path: '/stocks/$code'
+      fullPath: '/stocks/$code'
+      preLoaderRoute: typeof AppStocksCodeRouteImport
+      parentRoute: typeof AppRoute
+    }
     '/api/auth/$': {
       id: '/api/auth/$'
       path: '/api/auth/$'
@@ -351,6 +389,8 @@ interface AppRouteChildren {
   AppAdminKseiRoute: typeof AppAdminKseiRoute
   AppAdminShareholdingRoute: typeof AppAdminShareholdingRoute
   AppAdminUsersRoute: typeof AppAdminUsersRoute
+  AppStocksCodeRoute: typeof AppStocksCodeRoute
+  AppStocksIndexRoute: typeof AppStocksIndexRoute
 }
 
 const AppRouteChildren: AppRouteChildren = {
@@ -362,6 +402,8 @@ const AppRouteChildren: AppRouteChildren = {
   AppAdminKseiRoute: AppAdminKseiRoute,
   AppAdminShareholdingRoute: AppAdminShareholdingRoute,
   AppAdminUsersRoute: AppAdminUsersRoute,
+  AppStocksCodeRoute: AppStocksCodeRoute,
+  AppStocksIndexRoute: AppStocksIndexRoute,
 }
 
 const AppRouteWithChildren = AppRoute._addFileChildren(AppRouteChildren)

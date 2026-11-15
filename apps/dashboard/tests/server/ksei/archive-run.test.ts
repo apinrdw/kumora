@@ -3,7 +3,10 @@ import type { StepConfig } from "@workspace/server"
 import { Duration, Effect, Layer, Schema } from "effect"
 
 import { RunId } from "@/server/archive/run"
-import { kseiArchiveRun, MAX_REPORT_BYTES } from "@/server/ksei/archive-run"
+import {
+  kseiArchiveRun,
+  MAX_KSEI_REPORT_BYTES,
+} from "@/server/ksei/archive-run"
 import {
   LISTING_URLS,
   MAX_LISTED_REPORT_BYTES,
@@ -652,7 +655,7 @@ describe("a KSEI archive run at the largest size it accepts", () => {
       const ksei = fakeKsei()
       ksei.files.set(
         STATIS_OCT_URL,
-        fileOf(zipBody("x".repeat(MAX_REPORT_BYTES)))
+        fileOf(zipBody("x".repeat(MAX_KSEI_REPORT_BYTES)))
       )
       const bucket = memoryBucket()
 

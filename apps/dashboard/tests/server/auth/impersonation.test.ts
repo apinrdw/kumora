@@ -312,7 +312,7 @@ describe("pages while impersonating", () => {
         viewer: {
           name: "ayu",
           email: MEMBER,
-          features: ["market-live", "account"],
+          features: ["market-live", "stocks", "account"],
           impersonating: true,
         },
       })
