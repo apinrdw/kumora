@@ -162,6 +162,48 @@ describe("a sealed day's sweep brokers", () => {
       })
   )
 
+  it.effect(
+    "leave out a sweep a late trade without codes joins after its brokers were worked out",
+    () =>
+      Effect.gen(function* () {
+        yield* at("09:00:30")
+        const day = yield* tradingDay()
+        yield* day.trades([untr(1, "09:00:10.100", 3, "buy")])
+        yield* at("09:01:10")
+        yield* day.brokerCodes("Ajaib", CODES.slice(0, 1))
+        yield* at("09:01:20")
+        yield* day.trades([untr(2, "09:00:10.300", 5, "buy", 23325)])
+        yield* at("17:00:00")
+        yield* day.alarm
+        const { answer } = yield* day.recordedSweepBrokers("UNTR")
+        assert.deepStrictEqual(answer.sweeps.map(brokersOf), [])
+      })
+  )
+
+  it.effect(
+    "split a sweep a late trade without codes breaks after its brokers were worked out",
+    () =>
+      Effect.gen(function* () {
+        yield* at("09:00:30")
+        const day = yield* tradingDay()
+        yield* day.trades([
+          untr(1, "09:00:10.100", 3, "buy"),
+          untr(3, "09:00:10.500", 5, "buy"),
+        ])
+        yield* at("09:01:10")
+        yield* day.brokerCodes("Ajaib", [CODES[0], [3, "PD F KZ D"]])
+        yield* at("09:01:20")
+        yield* day.trades([untr(2, "09:00:10.300", 4, "sell")])
+        yield* at("17:00:00")
+        yield* day.alarm
+        const { answer } = yield* day.recordedSweepBrokers("UNTR")
+        assert.deepStrictEqual(answer.sweeps.map(brokersOf), [
+          [1, ["AK F 3"], ["CC D 3"]],
+          [3, ["PD F 5"], ["KZ D 5"]],
+        ])
+      })
+  )
+
   it.effect("answer no sweeps on a day that held codes but no tape", () =>
     Effect.gen(function* () {
       const sql = memorySql()
