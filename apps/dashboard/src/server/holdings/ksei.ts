@@ -6,7 +6,12 @@ import { Effect, Schema } from "effect"
 import type { KseiType, SplitOrigin } from "@/domain/holdings"
 
 import type { SqlValue } from "./db.ts"
-import { MAX_STOCKS, replaceMonth, TOO_MANY_STOCKS } from "./month-replace.ts"
+import {
+  MAX_STOCKS,
+  monthRows,
+  replaceMonth,
+  TOO_MANY_STOCKS,
+} from "./month-replace.ts"
 import { parsedMonths } from "./months-to-parse.ts"
 import { entryText, zipEntries } from "./zip.ts"
 
@@ -134,8 +139,18 @@ const parseRows = Effect.fnUntraced(function* (text: string) {
   const header = lines.next().value?.[1]
   if (header !== HEADER)
     return yield* unreadable(`The header isn't the known one: ${header}`)
-  const stocks: Array<[string, number, number, number]> = []
-  const holdings: Array<Holding> = []
+  const stocks = yield* monthRows("ksei_stock_month", [
+    "stock_code",
+    "listed_shares",
+    "price",
+    "total_scripless",
+  ])
+  const holdings = yield* monthRows("ksei_holding", [
+    "stock_code",
+    "origin",
+    "investor_type",
+    "shares",
+  ])
   const seen = new Set<string>()
   let lineNumber = 1
   for (const [, line = ""] of lines) {
@@ -151,17 +166,20 @@ const parseRows = Effect.fnUntraced(function* (text: string) {
     seen.add(stock)
     const local = yield* originHoldings(stock, fields, "local", of)
     const foreign = yield* originHoldings(stock, fields, "foreign", of)
-    stocks.push([
+    yield* stocks.add([
       stock,
       yield* shareCount(fields[3], `${of}'s Sec. Num`),
       yield* shareCount(fields[4], `${of}'s Price`),
       local.total + foreign.total,
     ])
-    holdings.push(...local.holdings, ...foreign.holdings)
+    for (const holding of [...local.holdings, ...foreign.holdings])
+      yield* holdings.add(holding)
   }
-  if (stocks.length === 0)
-    return yield* unreadable("The file has no EQUITY rows")
-  return { stocks, holdings }
+  if (seen.size === 0) return yield* unreadable("The file has no EQUITY rows")
+  return {
+    stockCount: seen.size,
+    tables: [yield* holdings.gathered, yield* stocks.gathered],
+  }
 })
 
 // Parses one archived report and replaces its period end's parsed holdings
@@ -172,7 +190,7 @@ export const parseKseiMonth = Effect.fnUntraced(function* (
   bytes: Uint8Array,
   parsedAt: string
 ) {
-  const { stocks, holdings } = yield* parseRows(
+  const { stockCount, tables } = yield* parseRows(
     yield* fileText(bytes).pipe(
       Effect.catchTag("ZipUnreadable", ({ message }) =>
         Effect.fail(unreadable(message))
@@ -182,18 +200,7 @@ export const parseKseiMonth = Effect.fnUntraced(function* (
   yield* replaceMonth({
     dateColumn: "period_end",
     date: periodEnd,
-    tables: [
-      {
-        table: "ksei_holding",
-        columns: ["stock_code", "origin", "investor_type", "shares"],
-        rows: holdings,
-      },
-      {
-        table: "ksei_stock_month",
-        columns: ["stock_code", "listed_shares", "price", "total_scripless"],
-        rows: stocks,
-      },
-    ],
+    tables,
     record: {
       table: "ksei_month",
       values: {
@@ -203,7 +210,7 @@ export const parseKseiMonth = Effect.fnUntraced(function* (
       } satisfies Record<string, SqlValue>,
     },
   })
-  return stocks.length
+  return stockCount
 })
 
 // The version each parsed period end came from.

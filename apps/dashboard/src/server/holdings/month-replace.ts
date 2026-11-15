@@ -9,20 +9,21 @@ import { HoldingsDb, type SqlValue, type Statement } from "./db.ts"
 
 // Decision: a month lists at most 2,000 stocks in either report, about 2×
 // the 962 stocks IDX's classification report listed and the 1,005 KSEI's
-// Securities holdings report listed in Sep and Oct 2026, so a parsed
-// month's rows stay under 48 MiB on the heap
-// (tests/server/holdings/classification.test.ts). A parse refuses a report
-// listing more, with TOO_MANY_STOCKS.
+// Securities holdings report listed in Sep and Oct 2026, so parsing either
+// report stays under 48 MiB of heap (PARSE_HEAP_MIB in
+// tests/server/holdings/bounded-heap.ts). A parse refuses a report listing
+// more, with TOO_MANY_STOCKS.
 export const MAX_STOCKS = 2_000
 
 export const TOO_MANY_STOCKS = `The report lists more than ${MAX_STOCKS.toLocaleString("en-US")} stocks`
 
-// A month's rows for one table, each row its `columns` in order, without
-// the date. Table and column names come from code, never from a file.
+// A month's rows for one table, without the date, as JSON arrays of at most
+// CHUNK_ROWS rows, each row its `columns` in order. Table and column names
+// come from code, never from a file.
 export interface MonthRows {
   readonly table: string
   readonly columns: ReadonlyArray<string>
-  readonly rows: ReadonlyArray<ReadonlyArray<SqlValue>>
+  readonly chunks: ReadonlyArray<string>
 }
 
 export interface MonthReplace {
@@ -42,22 +43,42 @@ export interface MonthReplace {
 // parameters and 100 KB per statement. See apinrdw/kumora#355.
 const CHUNK_ROWS = 1000
 
+// Gathers a table's rows as a parse reads them, each CHUNK_ROWS of them
+// turned into one JSON array as soon as they are read.
+// Decision: a parse holds its month as JSON text, about 35 bytes a row,
+// not as an array a row, about 100: a classification report's 234,000
+// holdings took 8 MiB as JSON and 22 MiB as arrays.
+export const monthRows = (table: string, columns: ReadonlyArray<string>) =>
+  Effect.sync(() => {
+    const chunks: Array<string> = []
+    let rows: Array<ReadonlyArray<SqlValue>> = []
+    return {
+      add: (row: ReadonlyArray<SqlValue>) =>
+        Effect.sync(() => {
+          rows.push(row)
+          if (rows.length < CHUNK_ROWS) return
+          chunks.push(JSON.stringify(rows))
+          rows = []
+        }),
+      // The rows added so far.
+      gathered: Effect.sync((): MonthRows => ({
+        table,
+        columns,
+        chunks: rows.length === 0 ? chunks : [...chunks, JSON.stringify(rows)],
+      })),
+    }
+  })
+
 const inserts = (dateColumn: string, date: string, rows: MonthRows) =>
   Effect.sync(() => {
     const sql =
       `INSERT INTO ${rows.table} (${[dateColumn, ...rows.columns].join(", ")}) ` +
       `SELECT ?, ${rows.columns.map((_, index) => `value->>${index}`).join(", ")} ` +
       "FROM json_each(?)"
-    const statements: Array<Statement> = []
-    for (let start = 0; start < rows.rows.length; start += CHUNK_ROWS)
-      statements.push({
-        sql,
-        params: [
-          date,
-          JSON.stringify(rows.rows.slice(start, start + CHUNK_ROWS)),
-        ],
-      })
-    return statements
+    return rows.chunks.map((chunk): Statement => ({
+      sql,
+      params: [date, chunk],
+    }))
   })
 
 export const replaceMonth = Effect.fnUntraced(function* ({

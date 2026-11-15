@@ -6,9 +6,14 @@ import { Effect, Schema } from "effect"
 import { CLASSIFICATIONS, Classification, type Origin } from "@/domain/holdings"
 
 import type { SqlValue } from "./db.ts"
-import { MAX_STOCKS, replaceMonth, TOO_MANY_STOCKS } from "./month-replace.ts"
+import {
+  MAX_STOCKS,
+  monthRows,
+  replaceMonth,
+  TOO_MANY_STOCKS,
+} from "./month-replace.ts"
 import { parsedMonths } from "./months-to-parse.ts"
-import { type Cell, type Row, readSheet } from "./xlsx.ts"
+import { type Cell, forEachRow, type Row } from "./xlsx.ts"
 
 // Bumped whenever parsing changes what it stores: the archive run's
 // reconcile then parses every month again.
@@ -98,35 +103,33 @@ const classificationColumns = Effect.fnUntraced(function* (
 // SCRIPLESS`), row 4 from Sep 2026 (`DATE`, `SHARE_CODE`, `ISSUER_NAME`,
 // `Local_<class>` × 39, `Foreign_<class>` × 39, `Total Scripless`). Cells
 // past the labelled columns, such as May 2026's empty trailing one, are
-// never read.
-const findLayout = Effect.fnUntraced(function* (
-  rows: ReadonlyMap<number, Row>
+// never read. A row naming no SHARE CODE is not the header row: undefined.
+const headerLayout = Effect.fnUntraced(function* (
+  headerRow: number,
+  cells: Row
 ) {
-  for (const [headerRow, cells] of rows) {
-    // Each label's first column.
-    const labels = new Map<string, number>()
-    for (const [column, cell] of cells) {
-      const { label } = yield* headerLabel(cell)
-      if (!labels.has(label)) labels.set(label, column)
-    }
-    const code = labels.get("share code")
-    if (code === undefined) continue
-    const issuer = labels.get("issuer name")
-    if (issuer === undefined)
-      return yield* unreadable(`Header row ${headerRow} has no ISSUER NAME`)
-    const total = labels.get("total scripless")
-    if (total === undefined)
-      return yield* unreadable(`Header row ${headerRow} has no TOTAL SCRIPLESS`)
-    const known = new Set([labels.get("date") ?? -1, code, issuer, total])
-    return {
-      headerRow,
-      code,
-      issuer,
-      total,
-      ...(yield* classificationColumns(headerRow, cells, known)),
-    } satisfies Layout
+  // Each label's first column.
+  const labels = new Map<string, number>()
+  for (const [column, cell] of cells) {
+    const { label } = yield* headerLabel(cell)
+    if (!labels.has(label)) labels.set(label, column)
   }
-  return yield* unreadable("No header row names SHARE CODE")
+  const code = labels.get("share code")
+  if (code === undefined) return undefined
+  const issuer = labels.get("issuer name")
+  if (issuer === undefined)
+    return yield* unreadable(`Header row ${headerRow} has no ISSUER NAME`)
+  const total = labels.get("total scripless")
+  if (total === undefined)
+    return yield* unreadable(`Header row ${headerRow} has no TOTAL SCRIPLESS`)
+  const known = new Set([labels.get("date") ?? -1, code, issuer, total])
+  return {
+    headerRow,
+    code,
+    issuer,
+    total,
+    ...(yield* classificationColumns(headerRow, cells, known)),
+  } satisfies Layout
 })
 
 const shareCount = Effect.fnUntraced(function* (
@@ -174,24 +177,62 @@ const rowHoldings = Effect.fnUntraced(function* (
   return holdings
 })
 
-// One month's rows: a stock-month per stock, and its holdings.
-const parseRows = Effect.fnUntraced(function* (rows: ReadonlyMap<number, Row>) {
-  const layout = yield* findLayout(rows)
-  const stocks: Array<[string, string, number]> = []
-  const holdings: Array<Holding> = []
-  for (const [rowNumber, cells] of rows) {
-    const code = cells.get(layout.code)
-    if (rowNumber <= layout.headerRow || typeof code !== "string") continue
-    const stock = code.trim()
-    if (stock === "") continue
-    if (stocks.length === MAX_STOCKS) return yield* unreadable(TOO_MANY_STOCKS)
-    const where = `${stock} (row ${rowNumber})`
-    const total = yield* shareCount(cells.get(layout.total), `${where}'s total`)
-    stocks.push([stock, String(cells.get(layout.issuer) ?? "").trim(), total])
-    holdings.push(...(yield* rowHoldings(stock, cells, layout, total, where)))
+// One month's rows, read a row at a time: the header row's layout, then a
+// stock-month per stock below it, and its holdings.
+const parseSheet = Effect.fnUntraced(function* (bytes: Uint8Array) {
+  let layout: Layout | undefined
+  let stockCount = 0
+  const stocks = yield* monthRows("classification_stock_month", [
+    "stock_code",
+    "issuer_name",
+    "total_scripless",
+  ])
+  const holdings = yield* monthRows("classification_holding", [
+    "stock_code",
+    "classification",
+    "origin",
+    "shares",
+  ])
+  yield* forEachRow(bytes, (rowNumber, cells) =>
+    Effect.gen(function* () {
+      if (layout === undefined) {
+        layout = yield* headerLayout(rowNumber, cells)
+        return
+      }
+      const code = cells.get(layout.code)
+      if (rowNumber <= layout.headerRow || typeof code !== "string") return
+      const stock = code.trim()
+      if (stock === "") return
+      if (stockCount === MAX_STOCKS) return yield* unreadable(TOO_MANY_STOCKS)
+      stockCount++
+      const where = `${stock} (row ${rowNumber})`
+      const total = yield* shareCount(
+        cells.get(layout.total),
+        `${where}'s total`
+      )
+      yield* stocks.add([
+        stock,
+        String(cells.get(layout.issuer) ?? "").trim(),
+        total,
+      ])
+      for (const holding of yield* rowHoldings(
+        stock,
+        cells,
+        layout,
+        total,
+        where
+      ))
+        yield* holdings.add(holding)
+    })
+  )
+  if (layout === undefined)
+    return yield* unreadable("No header row names SHARE CODE")
+  if (stockCount === 0) return yield* unreadable("The report has no stocks")
+  return {
+    split: layout.split,
+    stockCount,
+    tables: [yield* holdings.gathered, yield* stocks.gathered],
   }
-  if (stocks.length === 0) return yield* unreadable("The report has no stocks")
-  return { split: layout.split, stocks, holdings }
 })
 
 // Parses one archived report and replaces its data date's parsed holdings
@@ -202,22 +243,11 @@ export const parseClassificationMonth = Effect.fnUntraced(function* (
   bytes: Uint8Array,
   parsedAt: string
 ) {
-  const { split, stocks, holdings } = yield* parseRows(yield* readSheet(bytes))
+  const { split, stockCount, tables } = yield* parseSheet(bytes)
   yield* replaceMonth({
     dateColumn: "data_date",
     date: dataDate,
-    tables: [
-      {
-        table: "classification_holding",
-        columns: ["stock_code", "classification", "origin", "shares"],
-        rows: holdings,
-      },
-      {
-        table: "classification_stock_month",
-        columns: ["stock_code", "issuer_name", "total_scripless"],
-        rows: stocks,
-      },
-    ],
+    tables,
     record: {
       table: "classification_month",
       values: {
@@ -228,7 +258,7 @@ export const parseClassificationMonth = Effect.fnUntraced(function* (
       } satisfies Record<string, SqlValue>,
     },
   })
-  return stocks.length
+  return stockCount
 })
 
 // The version each parsed month came from, by data date.

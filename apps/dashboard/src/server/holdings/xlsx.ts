@@ -100,11 +100,18 @@ const rowCells = Effect.fnUntraced(function* (
   return cells as Row
 })
 
-// The first worksheet's rows with a value, by 1-based row number.
-// Decision: only cells with a value are kept, so what a read sheet keeps
-// grows with the bytes of its values, never with the column or row numbers
-// a cell names: dense rows held 1,200 XFD cells as 19.6 million slots.
-export const readSheet = Effect.fnUntraced(function* (bytes: Uint8Array) {
+// Calls `onRow` with each of the first worksheet's rows with a value, in
+// the sheet's order, by its 1-based row number.
+// Decision: a row at a time, kept by nothing here, so a parse keeps only
+// what it takes from each row: a report padded to the largest sheet held
+// its every row and the month's holdings at once. Only cells with a value
+// are kept, so a row grows with the bytes of its values, never with the
+// column a cell names: dense rows held 1,200 XFD cells as 19.6 million
+// slots.
+export const forEachRow = Effect.fnUntraced(function* <E, R>(
+  bytes: Uint8Array,
+  onRow: (rowNumber: number, cells: Row) => Effect.Effect<void, E, R>
+) {
   const { strings, sheet } = yield* Effect.gen(function* () {
     const entries = yield* zipEntries(bytes)
     return {
@@ -118,10 +125,8 @@ export const readSheet = Effect.fnUntraced(function* (bytes: Uint8Array) {
       Effect.fail(unreadable(message))
     )
   )
-  const rows = new Map<number, Row>()
   for (const [, rowNumber = "", inner = ""] of sheet.matchAll(ROW)) {
     const cells = yield* rowCells(rowNumber, inner, strings)
-    if (cells.size > 0) rows.set(Number(rowNumber), cells)
+    if (cells.size > 0) yield* onRow(Number(rowNumber), cells)
   }
-  return rows as ReadonlyMap<number, Row>
 })
