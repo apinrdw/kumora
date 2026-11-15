@@ -4,7 +4,7 @@
 // hides series.
 import { cn } from "@workspace/ui/lib/utils"
 import { Effect } from "effect"
-import { useLayoutEffect, useRef, useState } from "react"
+import { useEffect, useLayoutEffect, useRef, useState } from "react"
 
 import { KChip } from "@/components/k/chip"
 import { kCard, kFocus } from "@/components/k/styles"
@@ -49,7 +49,8 @@ const DOUBLE_CLICK_MS = 220
 
 const NONE_HIDDEN: ReadonlySet<SeriesKey> = new Set()
 
-// The next hidden set, from the newest.
+// The next hidden set, from the newest, so toggles a timer applies later
+// keep the ones before them.
 type HiddenUpdate = (latest: ReadonlySet<SeriesKey>) => ReadonlySet<SeriesKey>
 
 const ofWhat = (origin: OriginShown) =>
@@ -79,20 +80,15 @@ export function HoldingComposition({
   onOrigin,
   onView,
 }: HoldingCompositionProps) {
-  // Hidden series belong to the origin they were hidden in: another origin
-  // shows every series again.
-  const [hiding, setHiding] = useState<{
-    readonly origin: OriginShown
-    readonly hidden: ReadonlySet<SeriesKey>
-  }>({ origin, hidden: NONE_HIDDEN })
-  const hidden = hiding.origin === origin ? hiding.hidden : NONE_HIDDEN
-  // Applied to the newest hidden set, so toggles a timer applies later
-  // keep the ones before them.
-  const updateHidden = (update: HiddenUpdate) =>
-    setHiding((latest) => ({
-      origin,
-      hidden: update(latest.origin === origin ? latest.hidden : NONE_HIDDEN),
-    }))
+  // Decision: hidden series last one origin view. Every origin change shows
+  // every series again, reset during render rather than keying the chart by
+  // origin, which would remount the bars and lose their scroll.
+  const [hidden, setHidden] = useState(NONE_HIDDEN)
+  const [hiddenIn, setHiddenIn] = useState(origin)
+  if (hiddenIn !== origin) {
+    setHiddenIn(origin)
+    setHidden(NONE_HIDDEN)
+  }
   const chart = Effect.runSync(holdingChart(series, origin, hidden))
   const shown = chart.series.flatMap((each, index) =>
     hidden.has(each.key) ? [] : [{ ...each, index }]
@@ -121,11 +117,14 @@ export function HoldingComposition({
         ) : (
           <Table chart={chart} shown={shown} />
         )}
+        {/* Keyed by origin, so a click still waiting out a double-click
+            dies with the origin it was made in. */}
         <Legend
+          key={origin}
           series={chart.series}
           hidden={hidden}
           origin={origin}
-          onHidden={updateHidden}
+          onHidden={setHidden}
         />
       </div>
       <p className="text-[12px] text-muted-foreground">
@@ -432,6 +431,10 @@ function Legend({
   // Each entry's click waiting out a double-click: only a second click on
   // the same entry makes one.
   const pending = useRef(new Map<SeriesKey, ReturnType<typeof setTimeout>>())
+  useEffect(() => {
+    const timers = pending.current
+    return () => timers.forEach(clearTimeout)
+  }, [])
   const settle = (key: SeriesKey) => {
     clearTimeout(pending.current.get(key))
     pending.current.delete(key)
