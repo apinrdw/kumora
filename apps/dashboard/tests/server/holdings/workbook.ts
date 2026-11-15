@@ -4,24 +4,20 @@ import { zipOf } from "./zip-of.ts"
 
 const text = (xml: string) => new TextEncoder().encode(xml)
 
+// The paths of an .xlsx's shared strings and first worksheet.
+export const SHARED_STRINGS = "xl/sharedStrings.xml"
+export const SHEET = "xl/worksheets/sheet1.xml"
+
+// `<si>` items sharing each of `strings` as one plain run.
+export const sharedItems = (strings: ReadonlyArray<string>) =>
+  strings.map((string) => `<si><t>${string}</t></si>`).join("")
+
 // An .xlsx whose first worksheet holds `rows`, with `strings` shared.
 export const workbook = (rows: string, strings: ReadonlyArray<string> = []) =>
   zipOf([
-    [
-      "xl/sharedStrings.xml",
-      text(
-        `<sst>${strings.map((string) => `<si><t>${string}</t></si>`).join("")}</sst>`
-      ),
-    ],
-    [
-      "xl/worksheets/sheet1.xml",
-      text(`<worksheet><sheetData>${rows}</sheetData></worksheet>`),
-    ],
+    [SHARED_STRINGS, text(`<sst>${sharedItems(strings)}</sst>`)],
+    [SHEET, text(`<worksheet><sheetData>${rows}</sheetData></worksheet>`)],
   ])
-
-// The bytes `workbook` adds around its rows.
-export const WORKSHEET_BYTES = "<worksheet><sheetData></sheetData></worksheet>"
-  .length
 
 // 27 → "AB", a 0-based column's letters.
 export const columnLetters = (column: number) => {

@@ -9,16 +9,20 @@ const deflated = (bytes: Uint8Array<ArrayBuffer>) =>
     ).bytes()
   )
 
-// A zip of each `[name, bytes]` entry, deflated, in order.
+// A zip of each `[name, bytes]` entry, deflated, in order. A name given as
+// bytes is written as is.
 export const zipOf = Effect.fnUntraced(function* (
-  files: ReadonlyArray<readonly [string, Uint8Array<ArrayBuffer>]>
+  files: ReadonlyArray<readonly [string | Uint8Array, Uint8Array<ArrayBuffer>]>
 ) {
   const locals: Array<Uint8Array> = []
   const centrals: Array<Uint8Array> = []
   let offset = 0
   for (const [fileName, bytes] of files) {
     const data = yield* deflated(bytes)
-    const name = new TextEncoder().encode(fileName)
+    const name =
+      typeof fileName === "string"
+        ? new TextEncoder().encode(fileName)
+        : fileName
     const local = new Uint8Array(30 + name.length + data.length)
     const localView = new DataView(local.buffer)
     localView.setUint32(0, 0x04034b50, true)
