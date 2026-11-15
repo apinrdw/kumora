@@ -128,21 +128,21 @@ describe("the Holding composition chart", () => {
       const mf = yield* holdingChart(
         BBCA,
         "foreign",
-        new Set<SeriesKey>([...ALL_BUT_ID, "ID"].filter((key) => key !== "MF"))
+        new Set([...ALL_BUT_ID, "ID" as const].filter((key) => key !== "MF"))
       )
       expect(mf.axisMax).toBe(1)
       // Local IS: 15.0% and 13.4%.
       const is = yield* holdingChart(
         BBCA,
         "local",
-        new Set<SeriesKey>([...ALL_BUT_ID, "ID"].filter((key) => key !== "IS"))
+        new Set([...ALL_BUT_ID, "ID" as const].filter((key) => key !== "IS"))
       )
       expect(is.axisMax).toBe(0.2)
       // Local IB: 2.68% and 3.01%.
       const ib = yield* holdingChart(
         BBCA,
         "local",
-        new Set<SeriesKey>([...ALL_BUT_ID, "ID"].filter((key) => key !== "IB"))
+        new Set([...ALL_BUT_ID, "ID" as const].filter((key) => key !== "IB"))
       )
       expect(ib.axisMax).toBe(0.05)
     })

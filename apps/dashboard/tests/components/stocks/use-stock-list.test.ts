@@ -2,6 +2,7 @@
 // whose session ended sent to sign in again.
 import { assert, describe, it } from "@effect/vitest"
 import { redirect } from "@tanstack/react-router"
+import { StockCode } from "@workspace/relay"
 import { Effect } from "effect"
 import { beforeEach, vi } from "vitest"
 
@@ -35,8 +36,12 @@ describe("the stock pickers' list", () => {
       assert.deepStrictEqual(yield* loadStockList("/stocks/BBCA"), {
         _tag: "Ready",
         codes: [
-          { code: "APOL", name: "", kind: "share" },
-          { code: "BBCA", name: "BANK CENTRAL ASIA Tbk", kind: "share" },
+          { code: StockCode.make("APOL"), name: "", kind: "share" },
+          {
+            code: StockCode.make("BBCA"),
+            name: "BANK CENTRAL ASIA Tbk",
+            kind: "share",
+          },
         ],
       })
     })
