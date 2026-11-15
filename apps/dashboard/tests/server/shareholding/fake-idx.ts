@@ -13,7 +13,7 @@ import recorded from "./fixtures/idx-listing-2026-11-14.json"
 
 export type ListingItem = (typeof recorded.items)[number]
 
-export interface FakeFile {
+interface FakeFile {
   readonly body: string | Uint8Array<ArrayBuffer>
   // Left out of the response when null.
   readonly etag: string | null

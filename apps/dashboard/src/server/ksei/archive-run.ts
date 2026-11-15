@@ -175,7 +175,7 @@ const head = Effect.fnUntraced(function* (
 
 // The most a file download may be: KSEI's are 104–158 KB, and a Worker has
 // 128 MB.
-export const MAX_REPORT_BYTES = 8 * 1024 * 1024
+export const MAX_KSEI_REPORT_BYTES = 8 * 1024 * 1024
 
 // A zip starts with PK.
 const isZip = (bytes: Uint8Array) =>
@@ -213,7 +213,7 @@ const archiveReport = Effect.fnUntraced(function* (
   )
   const bytes = yield* readCapped(
     response,
-    MAX_REPORT_BYTES,
+    MAX_KSEI_REPORT_BYTES,
     `KSEI's report at ${report.url}`
   )
   if (!(yield* isZip(bytes)))

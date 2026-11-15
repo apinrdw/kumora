@@ -19,7 +19,7 @@ import securitiesStatistics from "./fixtures/static-stocks-2026-11-14.json"
 
 export type ListingEntry = (typeof securitiesStatistics.data)[number]
 
-export interface FakeFile {
+interface FakeFile {
   readonly body: string | Uint8Array<ArrayBuffer>
   // Left out of the response when null.
   readonly etag: string | null
