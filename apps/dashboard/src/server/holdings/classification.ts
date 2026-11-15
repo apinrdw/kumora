@@ -1,12 +1,11 @@
 // IDX's month-end "holdings by investor classification" report, parsed into
-// parsed holdings (holdings-migrations/0001_classification.sql) and read
-// back a stock-month at a time. Spec apinrdw/kumora#363, "Reading the IDX
-// classification xlsx".
+// parsed holdings (holdings-migrations/0001_classification.sql). Spec
+// apinrdw/kumora#363, "Reading the IDX classification xlsx".
 import { Effect, Schema } from "effect"
 
 import type { Classification } from "@/domain/holdings"
 
-import { HoldingsDb, type SqlValue } from "./db.ts"
+import type { SqlValue } from "./db.ts"
 import { replaceMonth } from "./month-replace.ts"
 import { parsedMonths } from "./months-to-parse.ts"
 import { type Cell, readSheet } from "./xlsx.ts"
@@ -281,41 +280,3 @@ export const parsedClassificationMonths = parsedMonths(
   "classification_month",
   "data_date"
 )
-
-const StockMonthRow = Schema.Struct({
-  issuer_name: Schema.String,
-  total_scripless: Schema.Number,
-})
-const HoldingRow = Schema.Struct({
-  classification: Schema.String,
-  origin: Origin,
-  shares: Schema.Number,
-})
-
-// A stock's month in the classification report: its stock-month and its
-// holdings, read in one batch so a month being replaced reads whole.
-// Undefined when the month's report has no row for the stock.
-export const classificationStockMonth = Effect.fnUntraced(function* (
-  dataDate: string,
-  code: string
-) {
-  const [stockRows = [], holdingRows = []] = yield* (yield* HoldingsDb).batch([
-    {
-      sql: "SELECT issuer_name, total_scripless FROM classification_stock_month WHERE data_date = ? AND stock_code = ?",
-      params: [dataDate, code],
-    },
-    {
-      sql: "SELECT classification, origin, shares FROM classification_holding WHERE data_date = ? AND stock_code = ?",
-      params: [dataDate, code],
-    },
-  ])
-  const [stock] = Schema.decodeUnknownSync(Schema.Array(StockMonthRow))(
-    stockRows
-  )
-  if (stock === undefined) return undefined
-  return {
-    issuerName: stock.issuer_name,
-    totalScripless: stock.total_scripless,
-    holdings: Schema.decodeUnknownSync(Schema.Array(HoldingRow))(holdingRows),
-  }
-})

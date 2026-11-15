@@ -1,10 +1,11 @@
 // The archive run's reconcile: classification reports parsed into parsed
 // holdings, read back as the stock page reads a stock's month.
 import { assert, describe, it } from "@effect/vitest"
+import { StockCode } from "@workspace/relay"
 import { Effect, Layer, Schema } from "effect"
 import { TestClock } from "effect/testing"
 
-import { classificationStockMonth } from "@/server/holdings/classification"
+import { stockPage } from "@/server/holdings/stock-page"
 import { RunId } from "@/server/archive/run"
 import { archiveRun } from "@/server/shareholding/archive-run"
 import { ArchiveRunResult } from "@/server/shareholding/run-result"
@@ -76,18 +77,29 @@ const runRecord = ({ bucket }: World, id: string) =>
     bucket.objects.get(`runs/${id}.json`)?.body
   )
 
-const read = ({ holdings }: World, dataDate: string, code: string) =>
-  classificationStockMonth(dataDate, code).pipe(Effect.provide(holdings.layer))
+const page = ({ holdings }: World, code: string, month?: string) =>
+  stockPage(StockCode.make(code), month).pipe(Effect.provide(holdings.layer))
 
-// A stock-month's shares by `<origin>:<classification>`.
-const sharesOf = (
-  month: Effect.Success<ReturnType<typeof classificationStockMonth>>
-) =>
+// The stock's month of `dataDate` on its stock page; undefined when that
+// month's report has no row for it.
+const read = (w: World, dataDate: string, code: string) =>
+  Effect.map(page(w, code, dataDate.slice(0, 7)), ({ composition }) =>
+    composition?.month.dataDate === dataDate ? composition.month : undefined
+  )
+
+// A stock-month's non-zero shares by `<origin>:<classification>`.
+const sharesOf = (month: Effect.Success<ReturnType<typeof read>>) =>
   Object.fromEntries(
-    (month?.holdings ?? []).map(({ origin, classification, shares }) => [
-      `${origin}:${classification}`,
-      shares,
-    ])
+    (month?.types ?? []).flatMap(({ classifications }) =>
+      classifications.flatMap((held) =>
+        (["combined", "local", "foreign"] as const).flatMap((origin) => {
+          const shares = held[origin] ?? 0
+          return shares > 0
+            ? [[`${origin}:${held.classification}`, shares]]
+            : []
+        })
+      )
+    )
   )
 
 describe("an archive run's reconcile", () => {
@@ -101,10 +113,11 @@ describe("an archive run's reconcile", () => {
 
         // Sep 2026+: split into local and foreign, with their combined sum.
         const october = yield* read(w, "2026-10-30", "BBCA")
-        assert.deepInclude(october, {
-          issuerName: "BANK CENTRAL ASIA Tbk",
-          totalScripless: 52_453_691_120,
-        })
+        assert.strictEqual(october?.totalScripless, 52_453_691_120)
+        assert.strictEqual(
+          (yield* page(w, "BBCA")).issuerName,
+          "BANK CENTRAL ASIA Tbk"
+        )
         const oct = sharesOf(october)
         assert.strictEqual(oct["local:bank"], 513_627_500)
         assert.strictEqual(oct["foreign:bank"], 1_001_934_435)
@@ -133,10 +146,14 @@ describe("an archive run's reconcile", () => {
 
         // WBSA isn't in March's report.
         assert.isUndefined(yield* read(w, "2026-03-31", "WBSA"))
-        assert.deepInclude(yield* read(w, "2026-05-29", "WBSA"), {
-          issuerName: "BSA LOGISTICS INDONESIA Tbk",
-          totalScripless: 1_800_000_000,
-        })
+        assert.strictEqual(
+          (yield* read(w, "2026-05-29", "WBSA"))?.totalScripless,
+          1_800_000_000
+        )
+        assert.strictEqual(
+          (yield* page(w, "WBSA")).issuerName,
+          "BSA LOGISTICS INDONESIA Tbk"
+        )
       })
   )
 

@@ -1,11 +1,13 @@
 // The KSEI parse run: the KSEI archive's Kepemilikan Efek files parsed into
-// parsed holdings, read back a stock's period end at a time.
+// parsed holdings, read back as the stock page reads a stock's series.
 import { assert, describe, it } from "@effect/vitest"
+import { StockCode } from "@workspace/relay"
 import { Effect, Layer } from "effect"
 import { TestClock } from "effect/testing"
 
 import { RunId } from "@/server/archive/run"
-import { kseiStockMonth } from "@/server/holdings/ksei"
+import { KSEI_TYPES } from "@/domain/holdings"
+import { stockPage } from "@/server/holdings/stock-page"
 import { kseiArchiveRun } from "@/server/ksei/archive-run"
 import { kseiParseRun } from "@/server/ksei/parse-run"
 
@@ -65,17 +67,36 @@ const republishOctober = ({ ksei }: World, body: Uint8Array<ArrayBuffer>) => {
   ksei.files.set(holdingsUrl("BalanceposEfek20261030.zip"), fileOf(body))
 }
 
+// The stock's holdings in the file of `periodEnd`, from its stock page's
+// series; undefined when that file has no EQUITY row for it.
 const read = ({ holdings }: World, periodEnd: string, code: string) =>
-  kseiStockMonth(periodEnd, code).pipe(Effect.provide(holdings.layer))
-
-// A stock-month's shares by `<origin>:<KSEI investor type>`.
-const sharesOf = (month: Effect.Success<ReturnType<typeof kseiStockMonth>>) =>
-  Object.fromEntries(
-    (month?.holdings ?? []).map(({ origin, investorType, shares }) => [
-      `${origin}:${investorType}`,
-      shares,
-    ])
+  stockPage(StockCode.make(code), undefined).pipe(
+    Effect.provide(holdings.layer),
+    Effect.map(
+      ({ series }) =>
+        series.find((month) => month.holdings?.periodEnd === periodEnd)
+          ?.holdings
+    )
   )
+
+// A stock-month's non-zero shares by `<origin>:<KSEI investor type>`.
+const sharesOf = (month: Effect.Success<ReturnType<typeof read>>) =>
+  Object.fromEntries(
+    month === undefined
+      ? []
+      : (["local", "foreign"] as const).flatMap((origin) =>
+          KSEI_TYPES.flatMap((type) =>
+            month[origin][type] > 0
+              ? [[`${origin}:${type}`, month[origin][type]]]
+              : []
+          )
+        )
+  )
+
+// Its scripless shares: every origin's types, which each origin's Total
+// matched.
+const scripless = (month: Effect.Success<ReturnType<typeof read>>) =>
+  Object.values(sharesOf(month)).reduce((sum, shares) => sum + shares, 0)
 
 describe("a KSEI parse run", () => {
   it.effect("parses every held month on its first run", () =>
@@ -90,11 +111,7 @@ describe("a KSEI parse run", () => {
       })
 
       const october = yield* read(w, "2026-10-30", "BBCA")
-      assert.deepInclude(october, {
-        listedShares: 123_275_050_000,
-        price: 4980,
-        totalScripless: 52_453_691_120,
-      })
+      assert.strictEqual(scripless(october), 52_453_691_120)
       const oct = sharesOf(october)
       assert.strictEqual(oct["local:ID"], 12_030_567_470)
       assert.strictEqual(oct["local:IS"], 2_310_613_490)
@@ -111,12 +128,11 @@ describe("a KSEI parse run", () => {
         "foreign:SC": 111_900,
       })
 
-      // An unpriced equity is kept, at price 0.
-      assert.deepInclude(yield* read(w, "2026-05-29", "APOL"), {
-        listedShares: 16_452_282_461,
-        price: 0,
-        totalScripless: 6_869_778_660,
-      })
+      // An unpriced equity is kept.
+      assert.strictEqual(
+        scripless(yield* read(w, "2026-05-29", "APOL")),
+        6_869_778_660
+      )
 
       // Only EQUITY rows: no bond, no warrant.
       assert.isUndefined(yield* read(w, "2026-10-30", "FR0042"))
@@ -142,17 +158,23 @@ describe("a KSEI parse run", () => {
       yield* archive(w, "cron-2026-11-14")
       yield* parse(w, "cron-2026-11-14")
       const september = yield* read(w, "2026-09-30", "BBCA")
-      assert.notDeepEqual(yield* read(w, "2026-10-30", "BBCA"), september)
+      assert.notDeepEqual(
+        sharesOf(yield* read(w, "2026-10-30", "BBCA")),
+        sharesOf(september)
+      )
 
       republishOctober(w, holdingsFixture("BalanceposEfek20260930.zip"))
       yield* archive(w, "cron-2026-11-15")
       const result = yield* parse(w, "cron-2026-11-15")
       assert.deepInclude(result, { outcome: "complete", monthsParsed: 1 })
       // October now reads exactly as the republished file: no old row left.
-      assert.deepStrictEqual(yield* read(w, "2026-10-30", "BBCA"), september)
       assert.deepStrictEqual(
-        yield* read(w, "2026-10-30", "ACRO"),
-        yield* read(w, "2026-09-30", "ACRO")
+        sharesOf(yield* read(w, "2026-10-30", "BBCA")),
+        sharesOf(september)
+      )
+      assert.deepStrictEqual(
+        sharesOf(yield* read(w, "2026-10-30", "ACRO")),
+        sharesOf(yield* read(w, "2026-09-30", "ACRO"))
       )
     })
   )

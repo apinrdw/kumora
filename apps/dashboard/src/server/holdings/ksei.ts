@@ -1,10 +1,9 @@
 // KSEI's monthly Kepemilikan Efek file (BalanceposEfek<YYYYMMDD>.zip),
-// parsed into parsed holdings (holdings-migrations/0002_ksei.sql) and read
-// back a stock's period end at a time. Spec apinrdw/kumora#363, "Reading
-// KSEI's BalanceposEfek".
+// parsed into parsed holdings (holdings-migrations/0002_ksei.sql). Spec
+// apinrdw/kumora#363, "Reading KSEI's BalanceposEfek".
 import { Effect, Schema } from "effect"
 
-import { HoldingsDb, type SqlValue } from "./db.ts"
+import type { SqlValue } from "./db.ts"
 import { replaceMonth } from "./month-replace.ts"
 import { parsedMonths } from "./months-to-parse.ts"
 import { entryText, zipEntries } from "./zip.ts"
@@ -179,49 +178,3 @@ export const parseKseiMonth = Effect.fnUntraced(function* (
 
 // The version each parsed period end came from.
 export const parsedKseiMonths = parsedMonths("ksei_month", "period_end")
-
-const StockMonthRow = Schema.Struct({
-  listed_shares: Schema.Number,
-  price: Schema.Number,
-  total_scripless: Schema.Number,
-})
-const HoldingRow = Schema.Struct({
-  origin: Origin,
-  investor_type: Schema.Literals(TYPES),
-  shares: Schema.Number,
-})
-
-// A stock's period end in KSEI's file: its stock-month and its holdings,
-// read in one batch so a month being replaced reads whole. Undefined when
-// the file has no EQUITY row for the stock.
-export const kseiStockMonth = Effect.fnUntraced(function* (
-  periodEnd: string,
-  code: string
-) {
-  const [stockRows = [], holdingRows = []] = yield* (yield* HoldingsDb).batch([
-    {
-      sql: "SELECT listed_shares, price, total_scripless FROM ksei_stock_month WHERE period_end = ? AND stock_code = ?",
-      params: [periodEnd, code],
-    },
-    {
-      sql: "SELECT origin, investor_type, shares FROM ksei_holding WHERE period_end = ? AND stock_code = ?",
-      params: [periodEnd, code],
-    },
-  ])
-  const [stock] = Schema.decodeUnknownSync(Schema.Array(StockMonthRow))(
-    stockRows
-  )
-  if (stock === undefined) return undefined
-  return {
-    listedShares: stock.listed_shares,
-    price: stock.price,
-    totalScripless: stock.total_scripless,
-    holdings: Schema.decodeUnknownSync(Schema.Array(HoldingRow))(
-      holdingRows
-    ).map(({ origin, investor_type, shares }) => ({
-      origin,
-      investorType: investor_type,
-      shares,
-    })),
-  }
-})
