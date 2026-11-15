@@ -10,6 +10,8 @@ class ZipUnreadable extends Schema.TaggedError<ZipUnreadable>()(
 
 const unreadable = (message: string) => new ZipUnreadable({ message })
 
+export const MAX_ENTRY_BYTES = 8 * 1024 * 1024
+
 interface Entry {
   readonly method: number
   readonly size: number
