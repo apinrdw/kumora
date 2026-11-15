@@ -13,10 +13,12 @@ import {
   decodeRecordedCandles,
   decodeRecordedGaps,
   decodeRecordedHeatmap,
+  decodeRecordedSweepBrokers,
   decodeRecordedSweeps,
   decodeRecordedTape,
   recordedDayPath,
   type RecordedBrokerCodes,
+  type RecordedSweepBrokers,
   type RecordedResource,
   type StockCode,
   type TradeCodes,
@@ -80,6 +82,22 @@ export const fetchRecordedSweeps = Effect.fnUntraced(function* (
   return Option.some(yield* decodeRecordedSweeps(body.value))
 })
 
+// The brokers of one code's whole sweeps for the day, and whether the day's
+// codes are complete. `fresh` asks the Worker past the browser's copy.
+const fetchRecordedSweepBrokers = Effect.fnUntraced(function* (
+  date: WibDate,
+  code: StockCode,
+  fresh: boolean
+) {
+  const body = yield* getResource(date, { _tag: "SweepBrokers", code }).pipe(
+    fresh
+      ? Effect.provideService(FetchHttpClient.RequestInit, { cache: "reload" })
+      : (effect) => effect
+  )
+  if (Option.isNone(body)) return Option.none()
+  return Option.some(yield* decodeRecordedSweepBrokers(body.value))
+})
+
 // The 200 newest running trades at or before `at`, ascending.
 export const fetchRecordedTape = Effect.fnUntraced(function* (
   date: WibDate,
@@ -133,8 +151,9 @@ export const makeNewestWins = Effect.sync(() => {
 
 // Decision: while the day's codes are incomplete, the page asks again every
 // 30 s (spec apinrdw/kumora#280, "Recheck"); the walks store codes for over
-// an hour after the seal.
-const RECHECK = Duration.seconds(30)
+// an hour after the seal. The sweep log's note names it (`arrivingNote` in
+// apps/dashboard/src/lib/sweeps.ts).
+export const CODES_RECHECK = Duration.seconds(30)
 
 /**
  * Follows a recorded day's broker codes beside its tape. `ask` fetches the
@@ -162,7 +181,7 @@ export const makeBrokerCodesFollower = (
       })
     const recheck = Effect.gen(function* () {
       while (!complete) {
-        yield* Effect.sleep(RECHECK)
+        yield* Effect.sleep(CODES_RECHECK)
         if (complete || latest === undefined) continue
         yield* ask(latest, true).pipe(
           Effect.catchIf(
@@ -173,6 +192,38 @@ export const makeBrokerCodesFollower = (
       }
     })
     return { ask: (at: DateTime.Utc) => ask(at), recheck }
+  })
+
+/**
+ * Follows one code's sweep brokers on a recorded day: shows the answer, then
+ * while it says the day's codes are incomplete asks again every 30 s, past
+ * the browser's copy, showing each answer, until one is complete. None
+ * answered (a day not recorded) ends it. A failed ask other than a 401, the
+ * first one included, is logged and the next one goes ahead 30 s later.
+ */
+export const followSweepBrokers = (
+  date: WibDate,
+  code: StockCode,
+  show: (answer: RecordedSweepBrokers) => void
+) =>
+  Effect.gen(function* () {
+    let done = false
+    const ask = (fresh: boolean) =>
+      fetchRecordedSweepBrokers(date, code, fresh).pipe(
+        Effect.map((answer) => {
+          done = Option.isNone(answer) || answer.value.complete
+          if (Option.isSome(answer)) show(answer.value)
+        }),
+        Effect.catchIf(
+          (error) => !Predicate.isTagged(error, "SignInRequired"),
+          (error) => Effect.logWarning("Sweep brokers not loaded", error)
+        )
+      )
+    yield* ask(false)
+    while (!done) {
+      yield* Effect.sleep(CODES_RECHECK)
+      yield* ask(true)
+    }
   })
 
 // The selected code's stored book chunk for `minute`'s minute (or the latest

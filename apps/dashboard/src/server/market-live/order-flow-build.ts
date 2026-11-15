@@ -4,31 +4,23 @@
 // stored book chunks, the same rows the live day writes (candles.ts,
 // book-chunks.ts).
 import { Effect } from "effect"
-import {
-  sweepsOf,
-  type RunningTrade,
-  type StockCode,
-  MINUTE_MS,
-} from "@workspace/relay"
+import { type StockCode, MINUTE_MS } from "@workspace/relay"
 
 import type { FootprintRow } from "./candles.ts"
 import {
   Fact,
   ORDER_FLOW_BUILT,
   type BuiltMinute,
-  type makeDayStore,
+  type DayStore,
 } from "./day-store.ts"
 import { addTrade, noCells } from "./footprint-cells.ts"
 import { chunkSlices, heldChunkOf } from "./heat-rows.ts"
+import { regroupMinute, type CodeMinute } from "./minute-regroup.ts"
 
-type DayStore = Effect.Success<ReturnType<typeof makeDayStore>>
-
-// One stock's footprint row from its regular-board trades in one minute,
-// ascending by trade number.
+// One stock's footprint row from its trades and sweeps in one minute.
 const footprintRow = Effect.fnUntraced(function* (
-  code: StockCode,
   minute: number,
-  trades: ReadonlyArray<RunningTrade>
+  { code, trades, sweeps }: CodeMinute
 ) {
   const cells = yield* noCells
   let lastTrade = -1n
@@ -37,13 +29,7 @@ const footprintRow = Effect.fnUntraced(function* (
     const number = BigInt(trade.tradeNumber)
     if (number > lastTrade) lastTrade = number
   }
-  return {
-    code,
-    minute,
-    cells,
-    sweeps: yield* sweepsOf(trades),
-    lastTrade,
-  } satisfies FootprintRow
+  return { code, minute, cells, sweeps, lastTrade } satisfies FootprintRow
 })
 
 const builtMinute = Effect.fnUntraced(function* (
@@ -51,15 +37,11 @@ const builtMinute = Effect.fnUntraced(function* (
   minute: number,
   chunkCodes: ReadonlyArray<StockCode>
 ) {
-  const byCode = new Map<StockCode, Array<RunningTrade>>()
-  for (const trade of yield* store.minuteTrades(minute)) {
-    const trades = byCode.get(trade.code) ?? []
-    trades.push(trade)
-    byCode.set(trade.code, trades)
-  }
   const footprints: Array<FootprintRow> = []
-  for (const [code, trades] of byCode)
-    footprints.push(yield* footprintRow(code, minute, trades))
+  for (const codeMinute of yield* regroupMinute(
+    yield* store.minuteTrades(minute)
+  ))
+    footprints.push(yield* footprintRow(minute, codeMinute))
   const heatmaps: Array<BuiltMinute["heatmaps"][number]> = []
   for (const code of chunkCodes) {
     const text = yield* store.chunkOfMinute(code, minute)

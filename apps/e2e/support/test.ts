@@ -2,6 +2,7 @@ import {
   test as base,
   type Browser,
   type BrowserContext,
+  type BrowserContextOptions,
 } from "@playwright/test"
 import { randomInt } from "node:crypto"
 
@@ -62,18 +63,26 @@ export function closeWhenTestEnds(context: BrowserContext) {
   return context
 }
 
-async function newHandBuiltContext(browser: Browser) {
-  return closeWhenTestEnds(await browser.newContext(recordVideo()))
+async function newHandBuiltContext(
+  browser: Browser,
+  options: BrowserContextOptions = {}
+) {
+  return closeWhenTestEnds(
+    await browser.newContext({ ...options, ...recordVideo() })
+  )
 }
 
 /**
- * `browser.newContext()`, sending from its own client address, with
+ * `browser.newContext(context)`, sending from its own client address, with
  * Turnstile stubbed unless `turnstile` is `"cloudflare"`.
  */
 export const newClientContext = async (
   browser: Browser,
-  options: { turnstile?: Turnstile } = {}
-) => asOwnClient(await newHandBuiltContext(browser), options)
+  {
+    context,
+    ...options
+  }: { turnstile?: Turnstile; context?: BrowserContextOptions } = {}
+) => asOwnClient(await newHandBuiltContext(browser, context), options)
 
 /**
  * `browser.newContext()`, sending from an address no other context draws, for

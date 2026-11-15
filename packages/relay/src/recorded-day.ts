@@ -3,9 +3,9 @@
 // each answered by the named day's trading-day Durable Object, and the day
 // strip, answered by the index Durable Object. The Worker entry reads a path
 // back with `recordedDayRequest`; the page builds it with `recordedDayPath`.
-import { DateTime, Effect, Option, Schema } from "effect"
+import { DateTime, Effect, Option, Schema, SchemaGetter } from "effect"
 
-import { TradeCodes } from "./broker-codes.ts"
+import { BrokerCode, InvestorType, TradeCodes } from "./broker-codes.ts"
 import { StockCode } from "./codes.ts"
 import {
   Candle,
@@ -35,6 +35,8 @@ export type RecordedResource =
   | { readonly _tag: "Candles"; readonly code: StockCode }
   // One code's sweeps for the day so far (sweeps.ts).
   | { readonly _tag: "Sweeps"; readonly code: StockCode }
+  // The brokers of one code's whole sweeps (RecordedSweepBrokers).
+  | { readonly _tag: "SweepBrokers"; readonly code: StockCode }
   // One code's stored order book chunk for the minute holding `minute`.
   | {
       readonly _tag: "Book"
@@ -65,6 +67,8 @@ export const recordedDayPath = (date: WibDate, resource: RecordedResource) =>
         return `${base}/candles/${resource.code}?v=${ViewerProtocolVersion}`
       case "Sweeps":
         return `${base}/sweeps/${resource.code}`
+      case "SweepBrokers":
+        return `${base}/sweep-brokers/${resource.code}`
       case "Book":
         return `${base}/books/${resource.code}?minute=${DateTime.toEpochMillis(resource.minute)}`
       case "Gaps":
@@ -139,6 +143,11 @@ const resourceOf = Effect.fnUntraced(function* (
       _tag: "Sweeps" as const,
       code: stock,
     }))
+  if (kind === "sweep-brokers")
+    return Option.map(decodeCode(code), (stock) => ({
+      _tag: "SweepBrokers" as const,
+      code: stock,
+    }))
   if (kind === "books")
     return Option.zipWith(
       decodeCode(code),
@@ -191,6 +200,101 @@ export const encodeRecordedBrokerCodes = Schema.encodeEffect(
 export const decodeRecordedBrokerCodes = Schema.decodeUnknownEffect(
   Schema.fromJsonString(RecordedBrokerCodes)
 )
+
+// One broker on one side of a sweep: its code, the investor type it traded
+// the most lots as in the sweep, its lots on that side, and, when it traded
+// both types, how many of those lots were its minor type (the smaller).
+const SweepBrokerFields = Schema.Struct({
+  code: BrokerCode,
+  investorType: InvestorType,
+  lots: Schema.Finite,
+  minorTypeLots: Schema.optionalKey(Schema.Finite),
+})
+
+// Decision: a sweep's brokers travel, and are stored, as tuples: [first
+// trade, aggressor side, other side], each broker [code, investor type,
+// lots, minor type's lots only when nonzero], not keyed objects: a busy
+// code's 10–18 K sweeps a day answer 1–2 MB as tuples. See spec
+// apinrdw/kumora#343, "The sweep brokers answer", and PR apinrdw/kumora#349.
+const SweepBroker = Schema.Tuple([
+  BrokerCode,
+  InvestorType,
+  Schema.Finite,
+  Schema.optionalKey(Schema.Finite),
+]).pipe(
+  Schema.decodeTo(Schema.toType(SweepBrokerFields), {
+    decode: SchemaGetter.transform(
+      ([code, investorType, lots, minorTypeLots]) => ({
+        code,
+        investorType,
+        lots,
+        ...(minorTypeLots === undefined ? {} : { minorTypeLots }),
+      })
+    ),
+    encode: SchemaGetter.transform((broker) =>
+      broker.minorTypeLots === undefined
+        ? ([broker.code, broker.investorType, broker.lots] as const)
+        : ([
+            broker.code,
+            broker.investorType,
+            broker.lots,
+            broker.minorTypeLots,
+          ] as const)
+    ),
+  })
+)
+export type SweepBroker = typeof SweepBroker.Type
+
+// One whole sweep's brokers, named by its first trade's number: each side's
+// brokers, largest lots first.
+const SweepBrokersFields = Schema.Struct({
+  firstTrade: TradeNumber,
+  aggressor: Schema.Array(Schema.toType(SweepBroker)),
+  other: Schema.Array(Schema.toType(SweepBroker)),
+})
+
+const SweepBrokers = Schema.Tuple([
+  TradeNumber,
+  Schema.Array(SweepBroker),
+  Schema.Array(SweepBroker),
+]).pipe(
+  Schema.decodeTo(Schema.toType(SweepBrokersFields), {
+    decode: SchemaGetter.transform(([firstTrade, aggressor, other]) => ({
+      firstTrade,
+      aggressor,
+      other,
+    })),
+    encode: SchemaGetter.transform(
+      (sweep) => [sweep.firstTrade, sweep.aggressor, sweep.other] as const
+    ),
+  })
+)
+export type SweepBrokers = typeof SweepBrokers.Type
+
+// The sweep brokers answer: the brokers of every whole sweep of one code
+// (one whose every trade has stored codes), in trade order, and whether the
+// day's broker codes status is complete. Never inside the sweeps answer,
+// which a sealed day caches for a year.
+const RecordedSweepBrokers = Schema.Struct({
+  code: StockCode,
+  sweeps: Schema.Array(SweepBrokers),
+  complete: Schema.Boolean,
+})
+export type RecordedSweepBrokers = typeof RecordedSweepBrokers.Type
+
+export const encodeRecordedSweepBrokers = Schema.encodeEffect(
+  Schema.fromJsonString(RecordedSweepBrokers)
+)
+export const decodeRecordedSweepBrokers = Schema.decodeUnknownEffect(
+  Schema.fromJsonString(RecordedSweepBrokers)
+)
+
+// A list of whole sweeps' brokers as JSON, as the answer's `sweeps` holds
+// them: the trading-day object's sweep brokers row.
+const SweepBrokersText = Schema.fromJsonString(Schema.Array(SweepBrokers))
+export const encodeSweepBrokersText = Schema.encodeEffect(SweepBrokersText)
+export const decodeSweepBrokersText =
+  Schema.decodeUnknownEffect(SweepBrokersText)
 
 // One code's candles and footprints for the whole day, each ascending by
 // minute, and the previous close a `liveprice` frame carried, the

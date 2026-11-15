@@ -14,12 +14,14 @@ export {
 } from "./market-live-socket.ts"
 export { fetchStockCodeList, searchStockCodes } from "./stock-code-list.ts"
 export {
+  CODES_RECHECK,
   fetchDayStrip,
   fetchRecordedBookChunk,
   fetchRecordedBrokerCodes,
   fetchRecordedCandles,
   fetchRecordedGaps,
   fetchRecordedHeatmap,
+  followSweepBrokers,
   fetchRecordedSweeps,
   fetchRecordedTape,
   makeBrokerCodesFollower,

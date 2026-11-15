@@ -56,14 +56,15 @@ export interface Sql {
 // What the store wrote since the meter was last taken, by table, and the
 // late trades that read a stored minute back (candles.ts, `slotSweeps`).
 // Billed figures come from the database's own count, when it keeps one.
-// Decision: the Staging cost check reads these from Workers Logs, one line a
-// flush, like the feed lag lines (apinrdw/kumora#231): no binding or route,
-// and a restart loses at most one flush's counts. See ticket
-// apinrdw/kumora#270 and docs/runbooks/order-flow-cost.md.
+// Decision: the Staging cost check reads these from Workers Logs, a line a
+// flush or, after the seal, a sweep brokers recompute, as the feed lag lines
+// (apinrdw/kumora#231): no binding or route, and a restart loses at most
+// one line's counts. See apinrdw/kumora#270, docs/runbooks/order-flow-cost.md.
 // Each billed meter figure, and the database count it adds up.
 const BILLED = {
   billedRowsWritten: "rowsWritten",
   billedMinuteRereadRows: "rowsRead",
+  billedSweepBrokerReadRows: "rowsRead",
 } as const
 
 interface Meter {
@@ -76,8 +77,13 @@ interface Meter {
   ajaibBooks: number
   facts: number
   minuteRereads: number
+  // The sweep brokers rows (sweep-brokers.ts) replaced or deleted, and the
+  // minutes their recomputes read back.
+  sweepBrokers: number
+  sweepBrokerMinutes: number
   billedRowsWritten?: number
   billedMinuteRereadRows?: number
+  billedSweepBrokerReadRows?: number
 }
 
 const emptyMeter = Effect.sync((): Meter => ({
@@ -90,6 +96,8 @@ const emptyMeter = Effect.sync((): Meter => ({
   ajaibBooks: 0,
   facts: 0,
   minuteRereads: 0,
+  sweepBrokers: 0,
+  sweepBrokerMinutes: 0,
 }))
 
 // One code's order book chunk for one minute, encoded, and its book heatmap
@@ -193,6 +201,9 @@ export const Fact = {
   // The one-off build of a day's order flow rows (order-flow-build.ts): the
   // last minute it wrote, then ORDER_FLOW_BUILT.
   orderFlowBuilt: "order-flow-built",
+  // The one-off build of a day's sweep brokers rows (sweep-brokers.ts): the
+  // last minute it wrote, then SWEEP_BROKERS_BUILT.
+  sweepBrokersBuilt: "sweep-brokers-built",
   // The broker trades index's rebuild (broker-codes.ts): the last chunk it
   // indexed, then BROKER_TRADES_BUILT.
   brokerTrades: "broker-trades",
@@ -201,6 +212,7 @@ export const Fact = {
 export const BROKER_TRADES_BUILT = "built"
 
 export const ORDER_FLOW_BUILT = "built"
+export const SWEEP_BROKERS_BUILT = "built"
 
 // What the one-off build writes of one minute: every stock's footprint row
 // and every code's heatmap row, and the minute as its progress.
@@ -449,6 +461,33 @@ export const makeDayStore = (sql: Sql) =>
     const markOrderFlowBuilt = Effect.sync(() =>
       insertFact(Fact.orderFlowBuilt, ORDER_FLOW_BUILT)
     )
+    const markSweepBrokersBuilt = Effect.sync(() =>
+      insertFact(Fact.sweepBrokersBuilt, SWEEP_BROKERS_BUILT)
+    )
+
+    // One minute of a sweep brokers recompute (sweep-brokers.ts), metering
+    // the rows it read.
+    const sweepBrokerMinute = <A, E, R>(recompute: Effect.Effect<A, E, R>) =>
+      Effect.suspend(() => {
+        meter.sweepBrokerMinutes += 1
+        return metered("billedSweepBrokerReadRows", recompute)
+      })
+
+    // A sweep brokers write of `rows` rows, and `facts`, in one transaction.
+    const writeSweepBrokers = (
+      rows: number,
+      facts: Readonly<Record<string, string>>,
+      writeRows: () => void
+    ) =>
+      Effect.gen(function* () {
+        yield* meteredTransaction(() => {
+          writeRows()
+          for (const [key, value] of Object.entries(facts))
+            insertFact(key, value)
+        })
+        meter.sweepBrokers += rows
+        meter.facts += Object.keys(facts).length
+      })
 
     const hasTrade = (tradeNumber: TradeNumber) =>
       Effect.sync(
@@ -694,6 +733,26 @@ export const makeDayStore = (sql: Sql) =>
       )).filter((trade) => trade.board === "RG")
     })
 
+    // The minutes the stored trades numbered `first` to `last` fall in,
+    // ascending; none when it holds none of them.
+    const minutesOfTrades = (first: TradeNumber, last: TradeNumber) =>
+      Effect.sync(() => {
+        const [row] = sql.exec(
+          "SELECT min(time) AS first, max(time) AS last FROM trades WHERE number BETWEEN ? AND ?",
+          Number(first),
+          Number(last)
+        )
+        if (row === undefined || row.first === null) return []
+        const minutes: Array<number> = []
+        for (
+          let minute = Math.floor(Number(row.first) / MINUTE_MS) * MINUTE_MS;
+          minute <= Number(row.last);
+          minute += MINUTE_MS
+        )
+          minutes.push(minute)
+        return minutes
+      })
+
     // One code's stored book chunk for exactly `minute`, as stored.
     const chunkOfMinute = Effect.fnUntraced(function* (
       code: StockCode,
@@ -876,8 +935,12 @@ export const makeDayStore = (sql: Sql) =>
       write,
       writeBuiltMinute,
       markOrderFlowBuilt,
+      sweepBrokerMinute,
+      writeSweepBrokers,
+      markSweepBrokersBuilt,
       orderFlowMinutes,
       minuteTrades,
+      minutesOfTrades,
       chunkOfMinute,
       storedNothing,
       takeMeter,
@@ -906,3 +969,5 @@ export const makeDayStore = (sql: Sql) =>
       fact,
     }
   })
+
+export type DayStore = Effect.Success<ReturnType<typeof makeDayStore>>

@@ -71,6 +71,7 @@ import { buildOrderFlow, orderFlowBuiltAtStart } from "./order-flow-build.ts"
 import { SNAPSHOT_TRADES, recordedAnswer } from "./recorded-answers.ts"
 import { type AccountId, type HeldSessions, type SessionId } from "./routes.ts"
 import { stockbitTrades } from "./stockbit.ts"
+import { makeSweepBrokers } from "./sweep-brokers.ts"
 import {
   mergedLivePrice,
   stockbitLivePrices,
@@ -327,6 +328,11 @@ export const makeTradingDay = Effect.fnUntraced(function* (options: {
     date: options.date,
     sql: options.sql,
     fact: store.fact,
+  })
+  const sweepBrokers = yield* makeSweepBrokers({
+    sql: options.sql,
+    store,
+    brokerCodes,
   })
   const setAlarm = options.setAlarm ?? (() => Effect.void)
   let sealed = (yield* store.fact(Fact.sealed)) !== undefined
@@ -662,6 +668,7 @@ export const makeTradingDay = Effect.fnUntraced(function* (options: {
       ajaibBooks: yield* latestByCode(retained?.ajaibBooks ?? [], ajaibBooks),
       facts: {
         [Fact.feedDowns]: JSON.stringify(yield* market.record),
+        ...(yield* sweepBrokers.persisting(settled.trades)),
         ...facts,
       },
     }
@@ -756,7 +763,10 @@ export const makeTradingDay = Effect.fnUntraced(function* (options: {
     })
     sealed = true
     yield* Effect.logInfo("Order flow storage").pipe(
-      Effect.annotateLogs(yield* store.orderFlowStorage)
+      Effect.annotateLogs({
+        ...(yield* store.orderFlowStorage),
+        ...(yield* sweepBrokers.storage),
+      })
     )
   })
 
@@ -1099,11 +1109,13 @@ export const makeTradingDay = Effect.fnUntraced(function* (options: {
     return [...unwrittenRows, ...heldRows]
   })
 
-  // A sealed day's order flow GET builds the rows first, if the day has
-  // none: it never answers empty. GETs take the turn, so a second GET
-  // awaits the first's build.
+  // A sealed day's order flow or sweep brokers GET builds the rows first, if
+  // the day has none: it never answers empty. GETs take the turn, so a
+  // second GET awaits the first's build.
   const builtFirst = Effect.fnUntraced(function* (resource: RecordedResource) {
-    if (orderFlowBuilt || !sealed) return
+    if (!sealed) return
+    if (resource._tag === "SweepBrokers") return yield* sweepBrokers.builtFirst
+    if (orderFlowBuilt) return
     if (
       resource._tag !== "Candles" &&
       resource._tag !== "Sweeps" &&
@@ -1121,6 +1133,7 @@ export const makeTradingDay = Effect.fnUntraced(function* (options: {
         store,
         codeList: codeListStore,
         brokerCodes,
+        sweepBrokers,
         sealed,
         liveGaps: Effect.map(
           market.conditions,
@@ -1162,7 +1175,14 @@ export const makeTradingDay = Effect.fnUntraced(function* (options: {
     // them and its recorded answers stay byte-identical. See spec
     // apinrdw/kumora#244, "Dashboard: TradingDay's broker codes store".
     brokerCodes: {
-      post: (text: string) => turn.withPermit(brokerCodes.post(text)),
+      // Decision: a batch that changes codes rewrites its trades' sweep
+      // brokers rows from their minutes' stored trades, in the codes' turn
+      // and transaction, before its 200; one that changes none recomputes
+      // nothing. See spec apinrdw/kumora#343, "When it is recomputed".
+      post: (text: string) =>
+        turn.withPermit(
+          brokerCodes.post(text, sweepBrokers.recompute, sweepBrokers.completed)
+        ),
       status: (search: URLSearchParams) =>
         turn.withPermit(brokerCodes.status(search)),
       held: (tradeNumber: TradeNumber) =>

@@ -37,7 +37,7 @@ const TAB_NAMES: Record<Panel, string> = {
 
 /**
  * Layout B (spec apinrdw/kumora#263, "Layout, settings, indices and
- * phone"). From `lg`: the chart column, the 340 px sweep log and the 400 px
+ * phone"). From `lg`: the chart column, the sweep log and the 400 px
  * right column of `watchlist`, `book` and `tape`, at least as tall as the
  * window below them. The tape scrolls sideways in it (tape-list.tsx). Below `lg`: the charts stacked full width, then tabs
  * showing one panel at a time: `panel`, kept by the page in its URL, else
@@ -46,6 +46,7 @@ const TAB_NAMES: Record<Panel, string> = {
 export function LayoutB({
   charts,
   log,
+  withBrokers,
   watchlist,
   book,
   tape,
@@ -54,6 +55,8 @@ export function LayoutB({
 }: {
   charts: ReactNode
   log: ReactNode | undefined
+  // Whether the log has its broker columns: a recorded day's.
+  withBrokers: boolean
   watchlist: ReactNode
   book: ReactNode
   tape: ReactNode
@@ -89,9 +92,16 @@ export function LayoutB({
       ref={layout}
       className={cn(
         "grid gap-4 lg:min-h-(--fill)",
+        // Decision: the log is 340 px live. On a recorded day it flexes from
+        // 340 to 530 px and gives way first: the charts keep 480 px, or what
+        // a 340 px log, the 400 px column and two 16 px gaps (772 px) leave.
+        // A narrower log scrolls its broker columns. See spec
+        // apinrdw/kumora#343, "Log layout A", and PR apinrdw/kumora#349.
         log === undefined
           ? "lg:grid-cols-[minmax(0,1fr)_400px]"
-          : "lg:grid-cols-[minmax(0,1fr)_340px_400px]"
+          : withBrokers
+            ? "lg:grid-cols-[minmax(min(480px,calc(100%-772px)),1fr)_minmax(340px,530px)_400px]"
+            : "lg:grid-cols-[minmax(0,1fr)_340px_400px]"
       )}
     >
       <div className="flex min-w-0 flex-col gap-4">{charts}</div>

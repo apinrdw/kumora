@@ -13,6 +13,7 @@ import { TestClock } from "effect/testing"
 import {
   fetchRecordedBookChunk,
   fetchRecordedBrokerCodes,
+  followSweepBrokers,
   makeBrokerCodesFollower,
   type RecordedTradeCodes,
 } from "@workspace/client"
@@ -133,14 +134,16 @@ describe("a recorded day's broker codes GET", () => {
 
 // A Worker answering each broker codes GET after `delay`, with trade 51's
 // buyer named by the cursor's second (BK at second 1, CK at 2) and the day complete from the
-// `completeFrom`th GET on; it records each cursor asked and whether the GET
-// went past the browser's copy.
+// `completeFrom`th GET on, its first `failing` GETs answered 503; it records
+// each cursor asked and whether the GET went past the browser's copy.
 const codesWorker = ({
   delay = () => Duration.zero,
   completeFrom = Number.POSITIVE_INFINITY,
+  failing = 0,
 }: {
   delay?: (at: number) => Duration.Duration
   completeFrom?: number
+  failing?: number
 }) => {
   const asked: Array<{ readonly at: number; readonly fresh: boolean }> = []
   const client = HttpClient.make((request, url) =>
@@ -152,6 +155,11 @@ const codesWorker = ({
       asked.push({ at, fresh })
       const complete = asked.length >= completeFrom
       yield* Effect.sleep(delay(at))
+      if (asked.length <= failing)
+        return HttpClientResponse.fromWeb(
+          request,
+          new Response("Worker failing", { status: 503 })
+        )
       return HttpClientResponse.fromWeb(
         request,
         new Response(
@@ -234,6 +242,120 @@ describe("following a recorded day's broker codes", () => {
       }).pipe(Effect.provideService(HttpClient.HttpClient, codesFrom.client))
     }
   )
+
+  it.effect("a failed first ask is asked again by the recheck", () => {
+    const codesFrom = codesWorker({ completeFrom: 2, failing: 1 })
+    return Effect.gen(function* () {
+      const shown: Array<RecordedTradeCodes> = []
+      const codes = yield* makeBrokerCodesFollower(DAY, (answer) =>
+        shown.push(answer)
+      )
+      yield* Effect.forkChild(codes.recheck)
+      yield* Effect.exit(codes.ask(second(1)))
+      yield* TestClock.adjust("30 seconds")
+      yield* TestClock.adjust("5 minutes")
+      assert.deepStrictEqual(codesFrom.asked, [
+        { at: DateTime.toEpochMillis(second(1)), fresh: false },
+        { at: DateTime.toEpochMillis(second(1)), fresh: true },
+      ])
+      assert.deepStrictEqual(buyersShown(shown), ["BK"])
+    }).pipe(Effect.provideService(HttpClient.HttpClient, codesFrom.client))
+  })
+})
+
+// A Worker answering each sweep brokers GET of BBCA with one more whole sweep
+// than the last, the day complete from the `completeFrom`th GET on, and its
+// first `failing` GETs answered 503; it records whether each GET went past
+// the browser's copy.
+const sweepBrokersWorker = (completeFrom: number, failing = 0) => {
+  const asked: Array<boolean> = []
+  const client = HttpClient.make((request) =>
+    Effect.gen(function* () {
+      asked.push(
+        Option.isSome(yield* Effect.serviceOption(FetchHttpClient.RequestInit))
+      )
+      if (asked.length <= failing)
+        return HttpClientResponse.fromWeb(
+          request,
+          new Response("Worker failing", { status: 503 })
+        )
+      const sweeps = asked.map((_, index) => [String(index + 1), [], []])
+      return HttpClientResponse.fromWeb(
+        request,
+        new Response(
+          JSON.stringify({
+            code: "BBCA",
+            sweeps,
+            complete: asked.length >= completeFrom,
+          })
+        )
+      )
+    })
+  ).pipe(
+    HttpClient.mapRequest(HttpClientRequest.prependUrl("http://dashboard.test"))
+  )
+  return { asked, client }
+}
+
+describe("following a recorded day's sweep brokers", () => {
+  it.effect(
+    "while incomplete, asks again every 30 s past the browser's copy, and stops once complete",
+    () => {
+      const brokersFrom = sweepBrokersWorker(3)
+      return Effect.gen(function* () {
+        const shown: Array<[sweeps: number, complete: boolean]> = []
+        yield* Effect.forkChild(
+          followSweepBrokers(DAY, BBCA, (answer) =>
+            shown.push([answer.sweeps.length, answer.complete])
+          )
+        )
+        yield* TestClock.adjust("29 seconds")
+        assert.deepStrictEqual(brokersFrom.asked, [false])
+        yield* TestClock.adjust("1 second")
+        assert.deepStrictEqual(brokersFrom.asked, [false, true])
+        yield* TestClock.adjust("30 seconds")
+        yield* TestClock.adjust("5 minutes")
+        assert.deepStrictEqual(brokersFrom.asked, [false, true, true])
+        assert.deepStrictEqual(shown, [
+          [1, false],
+          [2, false],
+          [3, true],
+        ])
+      }).pipe(Effect.provideService(HttpClient.HttpClient, brokersFrom.client))
+    }
+  )
+
+  it.effect("a failed first ask is asked again 30 s later", () => {
+    const brokersFrom = sweepBrokersWorker(2, 1)
+    return Effect.gen(function* () {
+      const shown: Array<[sweeps: number, complete: boolean]> = []
+      yield* Effect.forkChild(
+        followSweepBrokers(DAY, BBCA, (answer) =>
+          shown.push([answer.sweeps.length, answer.complete])
+        )
+      )
+      yield* TestClock.adjust("30 seconds")
+      yield* TestClock.adjust("5 minutes")
+      assert.deepStrictEqual(brokersFrom.asked, [false, true])
+      assert.deepStrictEqual(shown, [[2, true]])
+    }).pipe(Effect.provideService(HttpClient.HttpClient, brokersFrom.client))
+  })
+
+  it.effect("a 401 on the first ask ends it with SignInRequired", () =>
+    Effect.gen(function* () {
+      const error = yield* Effect.flip(followSweepBrokers(DAY, BBCA, () => {}))
+      assert.strictEqual(error._tag, "SignInRequired")
+    }).pipe(Effect.provideService(HttpClient.HttpClient, worker(401)))
+  )
+
+  it.effect("asks once for a day already complete", () => {
+    const brokersFrom = sweepBrokersWorker(1)
+    return Effect.gen(function* () {
+      yield* Effect.forkChild(followSweepBrokers(DAY, BBCA, () => {}))
+      yield* TestClock.adjust("5 minutes")
+      assert.deepStrictEqual(brokersFrom.asked, [false])
+    }).pipe(Effect.provideService(HttpClient.HttpClient, brokersFrom.client))
+  })
 })
 
 describe("a recorded day's GETs", () => {

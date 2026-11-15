@@ -35,7 +35,7 @@ import type { HeatmapStore } from "./heatmap-store"
 import { useAuctionIndicative } from "./market-conditions"
 import { idxPriceAxis } from "./price-axis"
 import type { ReplayCursor } from "./replay-cursor"
-import { attachSweepBubbles, clickedSweep } from "./sweep-bubbles"
+import { attachSweepBubbles } from "./sweep-bubbles"
 import type { SweepStore } from "./sweep-store"
 import { makeVolumePane, volumeBar } from "./volume-pane"
 
@@ -298,7 +298,7 @@ export default function ChartCanvas({
           element.dataset.heatmapSlices = String(slices)
         }
       )
-    const stopSweeps =
+    const bubbles =
       sweeps === undefined
         ? undefined
         : attachSweepBubbles({
@@ -380,13 +380,19 @@ export default function ChartCanvas({
       shownMinute = minute
       redraw()
     })
-    if (cursor !== undefined)
-      chart.subscribeClick((parameter: MouseEventParams<Time>) => {
-        // A click on a bubble picks its sweep, not the cursor's minute.
-        if (Effect.runSync(clickedSweep(parameter)) !== undefined) return
-        if (parameter.time !== undefined)
-          cursor.pickMinute((parameter.time as UTCTimestamp) * 1000)
-      })
+    // A click or a tap on a bubble picks its sweep, found by the bubbles'
+    // own hit test; anywhere else, a recorded day's minute.
+    const click = (parameter: MouseEventParams<Time>) => {
+      if (bubbles?.click(parameter) === true) return
+      if (cursor !== undefined && parameter.time !== undefined)
+        cursor.pickMinute((parameter.time as UTCTimestamp) * 1000)
+    }
+    chart.subscribeClick(click)
+    // Decision: a double click counts as a click. Lightweight Charts 5.2.1
+    // calls no click subscriber for a second click within 500 ms and 5 px
+    // of the first (MouseEventHandler's mouseup handler), so a quick second
+    // click on a bubble would select nothing.
+    chart.subscribeDblClick(click)
 
     let reset = false
     // Each changed minute's candle, by its time.
@@ -447,7 +453,7 @@ export default function ChartCanvas({
       unpair()
       redrawGaps.current = undefined
       stopHeatmap?.()
-      stopSweeps?.()
+      bubbles?.detach()
       unsubscribe()
       stopCursor?.()
       cancelAnimationFrame(frame)
