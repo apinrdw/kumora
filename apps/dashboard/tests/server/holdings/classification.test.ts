@@ -5,7 +5,12 @@ import { MAX_REPORT_BYTES } from "@/server/shareholding/archive-run"
 import { MAX_SHARED_STRINGS_BYTES } from "@/server/holdings/xlsx"
 import { MAX_ENTRY_BYTES } from "@/server/holdings/zip"
 
-import { atCap, bytesOf, longNamedFiles } from "./at-cap.ts"
+import {
+  atCap,
+  bytesOf,
+  filesToDirectoryCap,
+  longNamedFiles,
+} from "./at-cap.ts"
 import { PARSE_HEAP_MIB, parseInBoundedHeap } from "./bounded-heap.ts"
 import {
   columnLetters,
@@ -315,6 +320,16 @@ const SHAPES: ReadonlyArray<{
         ],
       ]),
     posts: "No header row names SHARE CODE",
+  },
+  {
+    shape: "a zip whose directory is at its cap, of as many files as fit",
+    report: () =>
+      zipOf([
+        [SHARED_STRINGS, labelsOnly],
+        [SHEET, sheet(ONE_STOCK)],
+        ...filesToDirectoryCap([SHARED_STRINGS, SHEET]),
+      ]),
+    posts: "Parsed 1 stocks",
   },
   {
     shape: "a zip of as many files under the longest names as IDX's file holds",

@@ -1,4 +1,4 @@
-import { MAX_ENTRY_BYTES } from "@/server/holdings/zip"
+import { MAX_DIRECTORY_BYTES, MAX_ENTRY_BYTES } from "@/server/holdings/zip"
 
 // A part's text, its bytes, or a byte written as is, such as 0xff, which no
 // UTF-8 text holds and which decodes as U+FFFD, a two-byte character.
@@ -52,6 +52,30 @@ export const atCap = (
 }
 
 const LONGEST_NAME = 0xffff
+
+// A directory entry's bytes besides its name.
+const ENTRY_BYTES = 46
+
+// Empty files under the shortest distinct names, as many as fit, the last
+// name padded, so that beside files named `names` a zip's directory takes
+// exactly MAX_DIRECTORY_BYTES.
+export const filesToDirectoryCap = (names: ReadonlyArray<string>) => {
+  let left =
+    MAX_DIRECTORY_BYTES -
+    names.reduce((sum, name) => sum + ENTRY_BYTES + bytesOf(name).length, 0)
+  const files: Array<readonly [string, Uint8Array<ArrayBuffer>]> = []
+  for (let index = 0; left > 0; index++) {
+    let name = String(index)
+    if (
+      left - ENTRY_BYTES - name.length <
+      ENTRY_BYTES + String(index + 1).length
+    )
+      name = name.padEnd(left - ENTRY_BYTES, "_")
+    files.push([name, new Uint8Array(0)])
+    left -= ENTRY_BYTES + name.length
+  }
+  return files
+}
 
 // Empty files under distinct names of the longest length a zip entry holds,
 // 0xff bytes after an index, as many as a zip of `zipBytes` holds besides

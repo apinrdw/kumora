@@ -4,7 +4,7 @@ import { Effect } from "effect"
 import { MAX_KSEI_REPORT_BYTES } from "@/server/ksei/archive-run"
 import { MAX_ENTRY_BYTES } from "@/server/holdings/zip"
 
-import { atCap, longNamedFiles } from "./at-cap.ts"
+import { atCap, filesToDirectoryCap, longNamedFiles } from "./at-cap.ts"
 import { PARSE_HEAP_MIB, parseInBoundedHeap } from "./bounded-heap.ts"
 import { zipOf } from "./zip-of.ts"
 
@@ -98,8 +98,17 @@ const SHAPES: ReadonlyArray<{
     posts: `The header isn't the known one: ${HEADER.slice(0, 40)}…`,
   },
   {
+    shape: "a zip whose directory is at its cap, of as many files as fit",
+    report: () =>
+      zipOf([
+        [NAME, new TextEncoder().encode(`${HEADER}\n${stockLine("BBCA")}`)],
+        ...filesToDirectoryCap([NAME]),
+      ]),
+    posts: "The zip holds 1332 files, not one",
+  },
+  {
     shape:
-      "a zip of as many files under the longest names as KSEI's file holds",
+      "a zip of as many files under the longest names as a KSEI report holds",
     report: () =>
       zipOf([
         [NAME, new TextEncoder().encode(`${HEADER}\n${stockLine("BBCA")}`)],

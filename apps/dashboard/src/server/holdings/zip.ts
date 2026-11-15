@@ -21,7 +21,7 @@ export const MAX_ENTRY_BYTES = 8 * 1024 * 1024
 // Decision: a zip's central directory takes at most 64 KiB, which bounds
 // the entries and names it decodes whatever their count. IDX's .xlsx lists
 // 23 files in about 2 KB, KSEI's .zip one (Oct 2026).
-const MAX_DIRECTORY_BYTES = 64 * 1024
+export const MAX_DIRECTORY_BYTES = 64 * 1024
 
 interface Entry {
   readonly method: number
