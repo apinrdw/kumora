@@ -9,6 +9,8 @@
     "strict": true,
     "noUncheckedIndexedAccess": true,
     "noEmit": true,
+    // vitest.config.ts imports the repo's ../../vitest.timeout.mts.
+    "allowImportingTsExtensions": true,
     "paths": {
       "@workspace/ui/*": ["./src/*"]
     }
