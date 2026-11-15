@@ -17,7 +17,7 @@ import * as Redacted from "effect/Redacted"
 
 import { SENDER, SENDING_SUBDOMAIN } from "./src/server/auth/sender.ts"
 import type { RunParams } from "./src/server/archive/run.ts"
-import { KSEI_CRON } from "./src/server/ksei/schedule.ts"
+import { KSEI_CRON, KSEI_PARSE_CRON } from "./src/server/ksei/schedule.ts"
 import { ARCHIVE_CRON } from "./src/server/shareholding/schedule.ts"
 
 // scripts/auth-schema.ts replays the same directory for the drift check and
@@ -135,6 +135,10 @@ export const Website = Cloudflare.Website.Vite(
               // (src/server/crons.ts) tells the two crons apart by expression.
               // See apinrdw/kumora#326.
               KSEI_CRON,
+              // Decision: the KSEI parse cron too, so only Production's
+              // HoldingsDb fills on a schedule, from the only bucket that
+              // holds reports. See apinrdw/kumora#359.
+              KSEI_PARSE_CRON,
             ],
           }
         : {}
@@ -203,6 +207,11 @@ export const Website = Cloudflare.Website.Vite(
         ),
         KSEI_ARCHIVE: Cloudflare.Workflow<RunParams>("KseiArchive", {
           className: "KseiArchive",
+        }),
+        // The KSEI parse run, which parses the KSEI archive's Kepemilikan
+        // Efek files into HoldingsDb, on every stage like the archive runs.
+        KSEI_PARSE: Cloudflare.Workflow<RunParams>("KseiParse", {
+          className: "KseiParse",
         }),
         ...google,
         ...clockOffset,

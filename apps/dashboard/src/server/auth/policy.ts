@@ -46,6 +46,7 @@ type Resources = {
   readonly "admin.view-ksei-archive": { readonly feature: "admin" }
   readonly "admin.run-ksei-archive": { readonly feature: "admin" }
   readonly "admin.deep-backfill-ksei-archive": { readonly feature: "admin" }
+  readonly "admin.run-ksei-parse": { readonly feature: "admin" }
   readonly "admin.ban": Target
   readonly "admin.unban": Target
   readonly "admin.set-role": Target
@@ -150,6 +151,8 @@ const rules: Rules = {
   "admin.run-ksei-archive": (account, { feature }) =>
     featureAccess(account, feature),
   "admin.deep-backfill-ksei-archive": (account, { feature }) =>
+    featureAccess(account, feature),
+  "admin.run-ksei-parse": (account, { feature }) =>
     featureAccess(account, feature),
   "admin.run-shareholding-archive": (account, { feature }) =>
     featureAccess(account, feature),

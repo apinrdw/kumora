@@ -6,10 +6,13 @@ import { TestClock } from "effect/testing"
 import {
   deepBackfillKsei,
   kseiArchivePage,
+  parseKseiNow,
   runKseiNow,
 } from "@/server/admin/ksei"
 import type { Mail } from "@/server/auth/mailer"
 import { RunId } from "@/server/archive/run"
+import { ArchiveWorkflow } from "@/server/archive/workflow"
+import { KseiParseWorkflow } from "@/server/ksei/parse-runs"
 import { KseiRunMetadata, type KseiRunResult } from "@/server/ksei/run-result"
 
 import {
@@ -80,11 +83,21 @@ const archive = () => {
   const auth = seam()
   const bucket = memoryBucket()
   const workflow = fakeWorkflow()
+  // The KSEI parse run's own Workflow.
+  const parseWorkflow = fakeWorkflow()
   return {
     ...auth,
     bucket,
     workflow,
-    layer: Layer.mergeAll(auth.layer, bucket.layer, workflow.layer),
+    parseWorkflow,
+    layer: Layer.mergeAll(
+      auth.layer,
+      bucket.layer,
+      workflow.layer,
+      Layer.effect(KseiParseWorkflow, Effect.service(ArchiveWorkflow)).pipe(
+        Layer.provide(parseWorkflow.layer)
+      )
+    ),
   }
 }
 
@@ -103,7 +116,7 @@ describe("the KSEI archive page", () => {
   })
 
   it.effect("answers not found to a member, and starts no run for one", () => {
-    const { layer, mails, workflow } = archive()
+    const { layer, mails, workflow, parseWorkflow } = archive()
     return Effect.gen(function* () {
       const cookie = yield* verified(mails)("ayu@example.com", "Ayu")
       const page = yield* Effect.flip(kseiArchivePage(headers(cookie)))
@@ -112,7 +125,10 @@ describe("the KSEI archive page", () => {
       assert.strictEqual(run._tag, "NotFound")
       const deep = yield* Effect.flip(deepBackfillKsei(headers(cookie)))
       assert.strictEqual(deep._tag, "NotFound")
+      const parse = yield* Effect.flip(parseKseiNow(headers(cookie)))
+      assert.strictEqual(parse._tag, "NotFound")
       assert.deepStrictEqual(createdIds(workflow), [])
+      assert.deepStrictEqual(createdIds(parseWorkflow), [])
     }).pipe(Effect.provide(layer))
   })
 
@@ -124,6 +140,9 @@ describe("the KSEI archive page", () => {
       const page = yield* kseiArchivePage(headers(cookie))
       assert.isUndefined(page.lastRun)
       assert.strictEqual(page.nextRun, "2026-11-15T03:00:00.000Z")
+      assert.isUndefined(page.lastParseRun)
+      // An hour after the KSEI archive run.
+      assert.strictEqual(page.nextParseRun, "2026-11-15T04:00:00.000Z")
       assert.deepStrictEqual(page.recentRuns, [])
       assert.strictEqual(page.totals.reports, 0)
       assert.isUndefined(page.lastDeepRun)
@@ -195,6 +214,59 @@ describe("KSEI's Run now", () => {
       assert.deepStrictEqual(createdIds(workflow), [])
     }).pipe(Effect.provide(layer))
   })
+})
+
+describe("KSEI's Parse now", () => {
+  it.effect(
+    "starts a parse run, then refuses while it runs, apart from Run now",
+    () => {
+      const { layer, mails, workflow, parseWorkflow } = archive()
+      return Effect.gen(function* () {
+        const cookie = yield* verified(mails)(ADMIN_EMAIL, "Adi")
+        yield* TestClock.setTime(1_763_125_032_000)
+        assert.deepStrictEqual(yield* parseKseiNow(headers(cookie)), {
+          id: "admin-1763125032000",
+        })
+        assert.deepStrictEqual(
+          parseWorkflow.instances.get("admin-1763125032000")?.options.params,
+          { trigger: "admin" }
+        )
+        const page = yield* kseiArchivePage(headers(cookie))
+        assert.isTrue(page.lastParseRun?.inProgress)
+        assert.deepInclude(page.lastParseRun?.result, {
+          trigger: "admin",
+          outcome: "running",
+          monthsParsed: 0,
+          parseFailures: [],
+        })
+        // The archive run has a run store of its own.
+        assert.isUndefined(page.lastRun)
+
+        yield* TestClock.adjust("1 second")
+        assert.deepStrictEqual(
+          yield* Effect.flip(parseKseiNow(headers(cookie))),
+          new Conflict({ message: "A parse run is in progress." })
+        )
+        assert.deepStrictEqual(createdIds(parseWorkflow), [
+          "admin-1763125032000",
+        ])
+        // An archive run starts while the parse run runs.
+        assert.deepStrictEqual(yield* runKseiNow(headers(cookie)), {
+          id: "admin-1763125033000",
+        })
+        assert.deepStrictEqual(createdIds(workflow), ["admin-1763125033000"])
+
+        // Once the parse run's instance has ended, Parse now starts another.
+        const instance = parseWorkflow.instances.get("admin-1763125032000")
+        assert.isDefined(instance)
+        instance.status = "complete"
+        yield* TestClock.adjust("1 second")
+        assert.deepStrictEqual(yield* parseKseiNow(headers(cookie)), {
+          id: "admin-1763125034000",
+        })
+      }).pipe(Effect.provide(layer))
+    }
+  )
 })
 
 describe("KSEI's Deep backfill", () => {

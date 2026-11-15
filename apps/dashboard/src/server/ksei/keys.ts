@@ -5,6 +5,8 @@
 //                                                          one per (filename, ETag)
 //   runs/<run-id>.json                                     (../archive/run.ts)
 //   runs/latest.json                                       { id } of the last run
+//   parse-runs/<run-id>.json, parse-runs/latest.json       the KSEI parse runs'
+//                                                          (parse-runs.ts)
 //
 // Nothing under reports/ is ever overwritten or deleted.
 // Decision: one exception, by hand. The owner chose on 2026-11-15 to start

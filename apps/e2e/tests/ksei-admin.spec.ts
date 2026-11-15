@@ -5,6 +5,7 @@ import { expect, test } from "../support/test"
 import { ADMIN, DASHBOARD, MEMBER } from "../support/accounts"
 import { wibDate } from "../support/clock"
 import {
+  seedKseiHoldingsFixture,
   seedKseiReport,
   seedKseiRun,
   seedLatestKseiRun,
@@ -94,6 +95,9 @@ const runAgo = (ago: number, run: Partial<SeededKseiRun>): SeededKseiRun => {
 
 const lastRunCard = (page: Page) =>
   page.getByRole("region", { name: /Last KSEI archive run/ })
+
+const parseRunCard = (page: Page) =>
+  page.getByRole("region", { name: /Last parse run/ })
 
 // A count on the card, by its label.
 const stat = (card: Locator, label: string) =>
@@ -407,6 +411,35 @@ test.describe.serial("an admin's KSEI archive", () => {
     await expect(cellsIn(holdings, "Not found")).toHaveCount(2)
     await expect(cellsIn(statistics, "Held")).toHaveCount(3)
     await expect(cellsIn(holdings, "Held")).toHaveCount(1)
+  })
+
+  // Last: its Kepemilikan Efek files would change the totals and coverage
+  // above.
+  test("Parse now parses the held Kepemilikan Efek files", async ({ page }) => {
+    await seedKseiHoldingsFixture("BalanceposEfek20260930.zip")
+    await seedKseiHoldingsFixture("BalanceposEfek20261030.zip")
+
+    await page.goto(KSEI)
+    const card = parseRunCard(page)
+    await expect(card).toContainText("No KSEI parse run has happened yet.")
+    await expect(card).toContainText(
+      /Production runs at 11:00 WIB\. Next: \w{3} \d{2}, 11:00 WIB\./
+    )
+    await card.getByRole("button", { name: "Parse now" }).click()
+    await expect(card).toContainText(/Started admin-\d+\./)
+
+    // The run ends on its own; the page shows it once reloaded.
+    await expect(async () => {
+      await page.reload()
+      await expect(parseRunCard(page)).toContainText("Complete", {
+        timeout: 1000,
+      })
+    }).toPass({ timeout: 30_000 })
+    await expect(stat(parseRunCard(page), "Months parsed")).toHaveText("2")
+    await expect(stat(parseRunCard(page), "Parse failures")).toHaveText("0")
+    await expect(
+      parseRunCard(page).getByRole("button", { name: "Parse now" })
+    ).toBeEnabled()
   })
 })
 

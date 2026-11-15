@@ -17,3 +17,17 @@ export const KSEI_CRON = "0 3 * * *"
 export const KSEI_TIMES_WIB = Effect.runSync(timesWib(KSEI_CRON))
 
 export const nextKseiRun = (now: Date) => nextRunOf(KSEI_CRON, now)
+
+// The KSEI parse cron (UTC): 11:00 WIB every day, one hour after the KSEI
+// archive cron, so a file archived that morning is parsed the same morning.
+// alchemy.run.ts sets it on Production only, and runCron (../crons.ts) tells
+// it from the archive crons by this expression.
+// Decision: its own cron an hour later, not a step of the archive run: the
+// parse run reads only R2 and HoldingsDb, and runs apart from KSEI's
+// availability. See apinrdw/kumora#359.
+export const KSEI_PARSE_CRON = "0 4 * * *"
+
+// "11:00 WIB"
+export const KSEI_PARSE_TIMES_WIB = Effect.runSync(timesWib(KSEI_PARSE_CRON))
+
+export const nextKseiParseRun = (now: Date) => nextRunOf(KSEI_PARSE_CRON, now)

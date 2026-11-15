@@ -5,6 +5,7 @@
 // bytes), and `302 Location: /id` for anything else, as ksei.co.id does.
 // Tests change `files` (a body, an ETag, a status, delete for a 302),
 // `listings`, or `listingResponse` (a 405, a changed shape) between runs.
+import { assert } from "@effect/vitest"
 import { Effect, Layer } from "effect"
 import { FetchHttpClient, type HttpClient } from "effect/http"
 import { createHash } from "node:crypto"
@@ -19,7 +20,7 @@ import securitiesStatistics from "./fixtures/static-stocks-2026-11-14.json"
 export type ListingEntry = (typeof securitiesStatistics.data)[number]
 
 export interface FakeFile {
-  readonly body: string
+  readonly body: string | Uint8Array<ArrayBuffer>
   // Left out of the response when null.
   readonly etag: string | null
   readonly lastModified: string
@@ -53,15 +54,15 @@ export const RECORDED: Record<KseiReportKind, ReadonlyArray<ListingEntry>> = {
 // A zip's bytes start with PK\x03\x04.
 export const zipBody = (text: string) => `PK\u0003\u0004${text}`
 
-export const md5 = (body: string) =>
+export const md5 = (body: string | Uint8Array) =>
   createHash("md5").update(body).digest("hex")
 
 // KSEI's ETag: the MD5 of the bytes, quoted.
-export const etagOf = (body: string) => `"${md5(body)}"`
+export const etagOf = (body: string | Uint8Array) => `"${md5(body)}"`
 
 export const LAST_MODIFIED = "Mon, 02 Nov 2026 00:09:49 GMT"
 
-export const fileOf = (body: string): FakeFile => ({
+export const fileOf = (body: FakeFile["body"]): FakeFile => ({
   body,
   etag: etagOf(body),
   lastModified: LAST_MODIFIED,
@@ -108,7 +109,11 @@ export const fakeKsei = (): FakeKsei => {
     return new Response(method === "HEAD" ? null : file.body, {
       headers: {
         "content-type": "application/zip",
-        "content-length": String(new TextEncoder().encode(file.body).length),
+        "content-length": String(
+          typeof file.body === "string"
+            ? new TextEncoder().encode(file.body).length
+            : file.body.length
+        ),
         "last-modified": file.lastModified,
         ...(file.etag === null ? {} : { etag: file.etag }),
       },
@@ -138,5 +143,64 @@ export const fakeKsei = (): FakeKsei => {
       Layer.provide(Layer.succeed(FetchHttpClient.Fetch, fetch))
     ),
   }
+  return ksei
+}
+
+// Real Kepemilikan Efek files, trimmed to the header and the equities AADI,
+// ACRO, APOL (unpriced: in KSEI's file, not in IDX's classification report),
+// BBCA and WBSA, a government bond and, in October, a warrant. May, then
+// August to October: June and July are a gap.
+const HOLDINGS_FIXTURES = [
+  "BalanceposEfek20260529.zip",
+  "BalanceposEfek20260831.zip",
+  "BalanceposEfek20260930.zip",
+  "BalanceposEfek20261030.zip",
+] as const
+export type HoldingsFixture = (typeof HOLDINGS_FIXTURES)[number]
+
+// October's file broken three ways: Local IS and Local CP swapped in the
+// header, BBCA's local ID one share over its local Total, and no EQUITY row.
+export type BrokenHoldingsFixture =
+  | "BalanceposEfek20261030-header.zip"
+  | "BalanceposEfek20261030-sum.zip"
+  | "BalanceposEfek20261030-no-equity.zip"
+
+// Each fixture as a base64 data URL, by path (vitest.config.ts).
+const FIXTURE_FILES = import.meta.glob<string>("./fixtures/**/*.zip", {
+  query: "?inline",
+  import: "default",
+  eager: true,
+})
+
+// A fixture's bytes, fresh for each call.
+export const holdingsFixture = (
+  filename: HoldingsFixture | BrokenHoldingsFixture
+) => {
+  const dataUrl =
+    FIXTURE_FILES[`./fixtures/${filename}`] ??
+    FIXTURE_FILES[`./fixtures/broken/${filename}`]
+  assert.isDefined(dataUrl)
+  return new Uint8Array(Buffer.from(dataUrl.split(",")[1] ?? "", "base64"))
+}
+
+export const holdingsUrl = (filename: HoldingsFixture) =>
+  `https://www.ksei.co.id/storage/Download/${filename}`
+
+// A fake KSEI that lists only the fixtures' Kepemilikan Efek files, each
+// serving its fixture's bytes, and no Statistik Efek file.
+export const holdingsKsei = () => {
+  const ksei = fakeKsei()
+  ksei.listings["securities-statistics"].length = 0
+  const holdings = ksei.listings["securities-holdings"]
+  holdings.splice(
+    0,
+    holdings.length,
+    ...holdings.filter(({ pdf_en: [{ filename }] }) =>
+      (HOLDINGS_FIXTURES as ReadonlyArray<string>).includes(filename)
+    )
+  )
+  assert.strictEqual(holdings.length, HOLDINGS_FIXTURES.length)
+  for (const filename of HOLDINGS_FIXTURES)
+    ksei.files.set(holdingsUrl(filename), fileOf(holdingsFixture(filename)))
   return ksei
 }
