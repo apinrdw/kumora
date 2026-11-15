@@ -1,5 +1,6 @@
 import { assert, describe, it } from "@effect/vitest"
 import { Effect } from "effect"
+import { vi } from "vitest"
 
 import { entryText, MAX_ENTRY_BYTES, zipEntries } from "@/server/holdings/zip"
 
@@ -33,6 +34,36 @@ describe("a zip entry", () => {
         error.message,
         `${NAME} inflates past ${MAX_ENTRY_BYTES} bytes`
       )
+    })
+  )
+
+  it.effect("stops inflating soon after it passes the largest size", () =>
+    Effect.gen(function* () {
+      const bytes = yield* zipOfSpaces(8 * MAX_ENTRY_BYTES)
+      const Inflate = globalThis.DecompressionStream
+      let inflated = 0
+      vi.stubGlobal("DecompressionStream", function (format: "deflate-raw") {
+        const inflate = new Inflate(format)
+        return {
+          writable: inflate.writable,
+          readable: inflate.readable.pipeThrough(
+            new TransformStream<Uint8Array, Uint8Array>({
+              transform: (chunk, out) => {
+                inflated += chunk.byteLength
+                out.enqueue(chunk)
+              },
+            })
+          ),
+        }
+      })
+      const error = yield* Effect.flip(
+        Effect.map(read(bytes), (text) => text.length)
+      ).pipe(Effect.ensuring(Effect.sync(() => vi.unstubAllGlobals())))
+      assert.strictEqual(
+        error.message,
+        `${NAME} inflates past ${MAX_ENTRY_BYTES} bytes`
+      )
+      assert.isBelow(inflated, 2 * MAX_ENTRY_BYTES)
     })
   )
 })
