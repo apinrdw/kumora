@@ -67,13 +67,10 @@ const DEEP: SeededKseiRun = {
   newVersions: 0,
   md5Mismatches: [],
   deep: {
-    foundFromSeed: [
-      "StatisEfek20080131.txt.zip",
-      "BalanceposEfek20080131.txt.zip",
-    ],
-    foundByProbing: ["BalanceposEfek20080627.txt.zip"],
+    foundFromSeed: ["StatisEfek20230131.txt.zip", "BalanceposEfek20210730.zip"],
+    foundByProbing: ["BalanceposEfek20190628.zip"],
     monthsNotFound: {
-      "securities-statistics": ["2008-05", "2008-07", "2009-03"],
+      "securities-statistics": ["2019-05", "2019-07", "2020-03"],
       "securities-holdings": [],
     },
     probeFailures: [],
@@ -110,6 +107,9 @@ const stat = (card: Locator, label: string) =>
 const NEVER = "Never looked for"
 
 const never = (n: number) => Array.from({ length: n }, () => NEVER)
+
+// Blank cells: the months of 2018 before the archive's first, November.
+const BEFORE_FIRST = Array.from({ length: 10 }, () => "")
 
 // One kind's coverage table on the page.
 const coverage = (page: Page, kind: string) =>
@@ -181,8 +181,8 @@ test.describe.serial("an admin's KSEI archive", () => {
   test("with no deep backfill yet, every month without a KSEI report was never looked for", async ({
     page,
   }) => {
-    await seedKseiReport("securities-statistics/2008-01-31", "d".repeat(64), 10)
-    await seedKseiReport("securities-holdings/2008-03-31", "e".repeat(64), 10)
+    await seedKseiReport("securities-statistics/2018-11-30", "d".repeat(64), 10)
+    await seedKseiReport("securities-holdings/2019-03-29", "e".repeat(64), 10)
 
     await page.setViewportSize({ width: 390, height: 844 })
     await page.goto(KSEI)
@@ -191,8 +191,16 @@ test.describe.serial("an admin's KSEI archive", () => {
     )
     const statistics = coverage(page, "Securities statistics")
     const holdings = coverage(page, "Securities holdings")
-    await expect(months(statistics, 2008)).toHaveText(["Held", ...never(11)])
-    await expect(months(holdings, 2008)).toHaveText([
+    await expect(months(statistics, 2018)).toHaveText([
+      ...BEFORE_FIRST,
+      "Held",
+      NEVER,
+    ])
+    await expect(months(holdings, 2018)).toHaveText([
+      ...BEFORE_FIRST,
+      ...never(2),
+    ])
+    await expect(months(holdings, 2019)).toHaveText([
       ...never(2),
       "Held",
       ...never(9),
@@ -204,11 +212,11 @@ test.describe.serial("an admin's KSEI archive", () => {
     await expect(cellsIn(holdings, "Held")).toHaveCount(1)
     for (const table of [statistics, holdings])
       await expect(cellsIn(table, "Not found")).toHaveCount(0)
-    // From 2008 to the current month in WIB.
+    // From November 2018 to the current month in WIB.
     const today = wibDate(Date.now())
     const thisYear = Number(today.slice(0, 4))
     await expect(statistics.getByRole("rowheader")).toHaveCount(
-      thisYear - 2008 + 1
+      thisYear - 2018 + 1
     )
     await expect(
       months(statistics, thisYear).filter({ hasText: /./ })
@@ -283,18 +291,15 @@ test.describe.serial("an admin's KSEI archive", () => {
       card
         .getByRole("list", { name: "Found from the seed" })
         .getByRole("listitem")
-    ).toHaveText([
-      "StatisEfek20080131.txt.zip",
-      "BalanceposEfek20080131.txt.zip",
-    ])
+    ).toHaveText(["StatisEfek20230131.txt.zip", "BalanceposEfek20210730.zip"])
     await expect(
       card.getByRole("list", { name: "Found by probing" }).getByRole("listitem")
-    ).toHaveText(["BalanceposEfek20080627.txt.zip"])
+    ).toHaveText(["BalanceposEfek20190628.zip"])
     await expect(
       card
         .getByRole("list", { name: "Securities statistics months not found" })
         .getByRole("listitem")
-    ).toHaveText(["2008: 05, 07", "2009: 03"])
+    ).toHaveText(["2019: 05, 07", "2020: 03"])
     await expect(card).toContainText("Securities holdings: 0 months not found.")
   })
 
@@ -365,12 +370,12 @@ test.describe.serial("an admin's KSEI archive", () => {
         foundFromSeed: [],
         foundByProbing: [],
         monthsNotFound: {
-          "securities-statistics": ["2008-02", "2008-03"],
-          "securities-holdings": ["2008-01", "2009-12"],
+          "securities-statistics": ["2018-12", "2019-01"],
+          "securities-holdings": ["2019-01", "2020-12"],
         },
         // Its months are neither found nor not found.
         probeFailures: [
-          { kind: "securities-holdings", year: 2010, message: "timed out" },
+          { kind: "securities-holdings", year: 2021, message: "timed out" },
         ],
       },
     })
@@ -381,20 +386,23 @@ test.describe.serial("an admin's KSEI archive", () => {
     )
     const statistics = coverage(page, "Securities statistics")
     const holdings = coverage(page, "Securities holdings")
-    await expect(months(statistics, 2008)).toHaveText([
+    await expect(months(statistics, 2018)).toHaveText([
+      ...BEFORE_FIRST,
       "Held",
       "Not found",
-      "Not found",
-      ...never(9),
     ])
-    await expect(months(holdings, 2008)).toHaveText([
+    await expect(months(statistics, 2019)).toHaveText([
+      "Not found",
+      ...never(11),
+    ])
+    await expect(months(holdings, 2019)).toHaveText([
       "Not found",
       NEVER,
       "Held",
       ...never(9),
     ])
-    await expect(months(holdings, 2009)).toHaveText([...never(11), "Not found"])
-    await expect(months(holdings, 2010)).toHaveText(never(12))
+    await expect(months(holdings, 2020)).toHaveText([...never(11), "Not found"])
+    await expect(months(holdings, 2021)).toHaveText(never(12))
     await expect(cellsIn(statistics, "Not found")).toHaveCount(2)
     await expect(cellsIn(holdings, "Not found")).toHaveCount(2)
     await expect(cellsIn(statistics, "Held")).toHaveCount(3)

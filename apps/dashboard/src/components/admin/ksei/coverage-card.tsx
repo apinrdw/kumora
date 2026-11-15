@@ -96,7 +96,8 @@ function KindGrid({ kind, years }: KseiCoverage[number]) {
                   {year}
                 </th>
                 {MONTHS.map((month, i) => {
-                  const state = months[i]
+                  // Blank before the archive's first month and after today's.
+                  const state = months[i] ?? undefined
                   return (
                     <td
                       key={month}
@@ -121,7 +122,8 @@ function KindGrid({ kind, years }: KseiCoverage[number]) {
 }
 
 /**
- * Each KSEI report kind's months from 2008: held, not found by the latest
+ * Each KSEI report kind's months from the archive's first (FIRST_MONTH,
+ * server/ksei/coverage.ts): held, not found by the latest
  * Deep backfill, or never looked for.
  */
 export function KseiCoverageCard({

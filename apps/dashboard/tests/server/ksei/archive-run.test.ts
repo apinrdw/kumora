@@ -159,6 +159,33 @@ describe("a KSEI archive run", () => {
     })
   )
 
+  it.effect("stores no listed file before the archive's first month", () =>
+    Effect.gen(function* () {
+      const ksei = fakeKsei()
+      const old = "StatisEfek20181031.txt.zip"
+      const oldUrl = `https://www.ksei.co.id/storage/Download/${old}`
+      ksei.listings["securities-statistics"].push({
+        ...RECORDED["securities-statistics"][0],
+        pdf_en: [{ url: oldUrl, filename: old }],
+      })
+      ksei.files.set(oldUrl, fileOf(zipBody(old)))
+      const bucket = memoryBucket()
+
+      const result = yield* run(ksei, bucket, "cron-2026-11-14")
+
+      assert.notInclude(
+        ksei.requests.map(({ url }) => url),
+        oldUrl
+      )
+      assert.deepStrictEqual(recordsOf(bucket, old), [])
+      assert.deepStrictEqual(
+        keysUnder(bucket, "reports/securities-statistics/2018-10-31/"),
+        []
+      )
+      assert.deepInclude(result, { outcome: "complete", reportsAdded: 72 })
+    })
+  )
+
   it.effect("writes nothing when nothing changed", () =>
     Effect.gen(function* () {
       const ksei = fakeKsei()
@@ -523,7 +550,7 @@ describe("a KSEI archive run at the largest size it accepts", () => {
     index: number,
     bytes: number
   ): ListingEntry => {
-    const filename = `${kind === STATISTICS ? "StatisEfek" : "BalanceposEfek"}${19000101 + index}${kind === STATISTICS ? ".txt.zip" : ".zip"}`
+    const filename = `${kind === STATISTICS ? "StatisEfek" : "BalanceposEfek"}${20190101 + index}${kind === STATISTICS ? ".txt.zip" : ".zip"}`
     const url = `https://www.ksei.co.id/storage/Download/${filename}`
     const entry = (name: string) => ({
       date: "2026-10-30T10:20:01.000000Z",
@@ -534,7 +561,7 @@ describe("a KSEI archive run at the largest size it accepts", () => {
       new TextEncoder().encode(
         JSON.stringify({
           kind,
-          periodEnd: "1900-01-01",
+          periodEnd: "2019-01-01",
           filename,
           url,
           listing: entry(name),

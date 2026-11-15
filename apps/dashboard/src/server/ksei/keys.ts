@@ -7,6 +7,9 @@
 //   runs/latest.json                                       { id } of the last run
 //
 // Nothing under reports/ is ever overwritten or deleted.
+// Decision: one exception, by hand. The owner chose on 2026-11-15 to start
+// the archive at FIRST_MONTH (coverage.ts), and Production's reports before
+// it were deleted once by hand. The code still deletes nothing.
 import { Effect } from "effect"
 
 import { sha256Hex } from "../archive/hash.ts"

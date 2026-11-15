@@ -249,11 +249,11 @@ describe("KSEI's Deep backfill", () => {
       })
       seedRun(
         bucket,
-        ended("deep-1700000000000", "2023-11-14T22:13:20.000Z", "2008-05")
+        ended("deep-1700000000000", "2023-11-14T22:13:20.000Z", "2019-05")
       )
       seedRun(
         bucket,
-        ended("deep-1750000000000", "2025-06-15T15:06:40.000Z", "2009-07")
+        ended("deep-1750000000000", "2025-06-15T15:06:40.000Z", "2020-07")
       )
       // Still running: no finds yet.
       seedRun(bucket, {
@@ -278,8 +278,8 @@ describe("KSEI's Deep backfill", () => {
         const statistics = page.coverage[0]
         assert.strictEqual(statistics?.kind, "securities-statistics")
         // The older deep run's month is no longer known as not found.
-        assert.strictEqual(monthOf(statistics, 2008, 5), "never-looked-for")
-        assert.strictEqual(monthOf(statistics, 2009, 7), "not-found")
+        assert.strictEqual(monthOf(statistics, 2019, 5), "never-looked-for")
+        assert.strictEqual(monthOf(statistics, 2020, 7), "not-found")
       }).pipe(Effect.provide(layer))
     }
   )
@@ -318,17 +318,19 @@ describe("the KSEI coverage grid", () => {
     "shows each month held, not found by the latest deep run, or never looked for",
     () => {
       const { layer, mails, bucket } = archive()
-      record(bucket, "securities-statistics", "2008-01-31")
+      record(bucket, "securities-statistics", "2018-11-30")
       record(bucket, "securities-statistics", "2026-10-30")
       // Stored after the deep run looked: held wins.
-      record(bucket, "securities-holdings", "2008-03-31")
+      record(bucket, "securities-holdings", "2019-03-29")
       // A zip without its record is not a complete version.
-      seedObject(bucket, "reports/securities-holdings/2008-04-30/bb.zip", "z")
+      seedObject(bucket, "reports/securities-holdings/2019-04-30/bb.zip", "z")
+      // Before the archive's first month: not shown, though held.
+      record(bucket, "securities-holdings", "2018-10-31")
       seedRun(
         bucket,
         deepRun({
-          "securities-statistics": ["2008-02"],
-          "securities-holdings": ["2008-03", "2023-12"],
+          "securities-statistics": ["2018-12"],
+          "securities-holdings": ["2019-03", "2023-12"],
         })
       )
       return Effect.gen(function* () {
@@ -342,12 +344,13 @@ describe("the KSEI coverage grid", () => {
         const [statistics, holdings] = coverage
         assert.deepStrictEqual(
           statistics?.years.map(({ year }) => year),
-          Array.from({ length: 19 }, (_, i) => 2008 + i)
+          Array.from({ length: 9 }, (_, i) => 2018 + i)
         )
+        // 2018 starts at November, the archive's first month.
         assert.deepStrictEqual(statistics?.years[0]?.months, [
+          ...Array.from({ length: 10 }, () => null),
           "held",
           "not-found",
-          ...Array.from({ length: 10 }, () => NEVER),
         ])
         // 2026 runs to November, the current month.
         assert.deepStrictEqual(statistics?.years.at(-1)?.months, [
@@ -356,6 +359,11 @@ describe("the KSEI coverage grid", () => {
           NEVER,
         ])
         assert.deepStrictEqual(holdings?.years[0]?.months, [
+          ...Array.from({ length: 10 }, () => null),
+          NEVER,
+          NEVER,
+        ])
+        assert.deepStrictEqual(holdings?.years[1]?.months, [
           NEVER,
           NEVER,
           "held",
@@ -372,7 +380,7 @@ describe("the KSEI coverage grid", () => {
     "shows every month without a KSEI report as never looked for",
     () => {
       const { layer, mails, bucket } = archive()
-      record(bucket, "securities-holdings", "2015-06-30")
+      record(bucket, "securities-holdings", "2020-06-30")
       return Effect.gen(function* () {
         yield* TestClock.setTime(Date.parse("2026-11-14T14:00:00.000Z"))
         const cookie = yield* verified(mails)(ADMIN_EMAIL, "Adi")
@@ -383,12 +391,13 @@ describe("the KSEI coverage grid", () => {
         const states = coverage.flatMap(({ years }) =>
           years.flatMap(({ months }) => months)
         )
-        assert.strictEqual(states.length, 2 * (18 * 12 + 11))
+        // All of 2018, its first ten null, to November 2026.
+        assert.strictEqual(states.length, 2 * (12 + 7 * 12 + 11))
         assert.deepStrictEqual(
-          states.filter((state) => state !== NEVER),
+          states.filter((state) => state !== NEVER && state !== null),
           ["held"]
         )
-        assert.strictEqual(monthOf(coverage[1], 2015, 6), "held")
+        assert.strictEqual(monthOf(coverage[1], 2020, 6), "held")
       }).pipe(Effect.provide(layer))
     }
   )

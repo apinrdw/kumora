@@ -2,7 +2,8 @@
 // from the Wayback Machine's CDX index. Do not edit by hand.
 
 // Every KSEI report filename Wayback captured under KSEI's old download
-// paths: what a Deep backfill fetches before it probes.
+// paths. A Deep backfill fetches those from the archive's first month on
+// (FIRST_MONTH, coverage.ts) before it probes.
 export const WAYBACK_SEED: ReadonlyArray<string> = [
   "BalanceposEfek20080131.txt.zip",
   "BalanceposEfek20080229.txt.zip",
