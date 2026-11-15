@@ -158,7 +158,7 @@ const HOLDINGS_FIXTURES = [
 ] as const
 export type HoldingsFixture = (typeof HOLDINGS_FIXTURES)[number]
 
-// October's file broken three ways: Local IS and Local CP swapped in the
+// October's report broken three ways: Local IS and Local CP swapped in the
 // header, BBCA's local ID one share over its local Total, and no EQUITY row.
 export type BrokenHoldingsFixture =
   | "BalanceposEfek20261030-header.zip"
