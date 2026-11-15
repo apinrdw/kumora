@@ -58,8 +58,8 @@ export interface Sql {
 // Billed figures come from the database's own count, when it keeps one.
 // Decision: the Staging cost check reads these from Workers Logs, a line a
 // flush or, after the seal, a sweep brokers recompute, as the feed lag lines
-// (#231): no binding or route, and a restart loses at most one line's
-// counts. See apinrdw/kumora#270 and docs/runbooks/order-flow-cost.md.
+// (apinrdw/kumora#231): no binding or route, and a restart loses at most
+// one line's counts. See apinrdw/kumora#270, docs/runbooks/order-flow-cost.md.
 // Each billed meter figure, and the database count it adds up.
 const BILLED = {
   billedRowsWritten: "rowsWritten",

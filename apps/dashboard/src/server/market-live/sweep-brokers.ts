@@ -293,9 +293,9 @@ export const makeSweepBrokers = Effect.fnUntraced(function* (options: {
   })
 
   // Decision: a day holding no codes as its object starts gets each batch's
-  // rows as it lands, so it is marked built from the start. A day already
-  // holding codes without the mark took them, whole or in part, before
-  // sweep brokers shipped: once sealed, its first sweep brokers GET builds
+  // rows as it lands, so it is marked built from the start. A day holding
+  // codes without the mark took them before sweep brokers shipped, or a
+  // late trade after them (`persisting`): once sealed, its next GET builds
   // the rows. See spec apinrdw/kumora#343, "The one-off build".
   const progress = yield* store.fact(Fact.sweepBrokersBuilt)
   let built = progress === SWEEP_BROKERS_BUILT
@@ -347,29 +347,27 @@ export const makeSweepBrokers = Effect.fnUntraced(function* (options: {
   })
 
   // The fact a flush of `trades` writes with them: the build's progress
-  // moved back before the earliest minute holding one whose codes the day
-  // already holds; none when no flushed trade has codes.
-  // Decision: a batch's recompute reads stored trades only, so a trade
-  // stored after its codes moves the build back in its flush's transaction:
-  // the sealed day's next GET rebuilds from that minute, writing only
-  // changed rows. See spec apinrdw/kumora#343, "The one-off build", and PR
-  // apinrdw/kumora#349.
+  // moved back before the earliest minute holding one; none while the day
+  // holds no codes.
+  // Decision: once the day holds codes, every flushed trade, coded or not,
+  // moves the build back in its flush's transaction: a trade stored after a
+  // recompute can bring codes, join a sweep or split one, and a sweep never
+  // crosses a minute, so the sealed day's next GET rebuilds from its minute.
+  // See spec apinrdw/kumora#343, "The one-off build", apinrdw/kumora#349.
   const persisting = Effect.fnUntraced(function* (
     trades: ReadonlyArray<RunningTrade>
   ) {
     const none: Readonly<Record<string, string>> = {}
-    if (trades.length === 0 || (yield* brokerCodes.holdsNone)) return none
-    const held = new Set(
-      (yield* brokerCodes.heldCodes(
-        trades.map((trade) => trade.tradeNumber)
-      )).map(([tradeNumber]) => tradeNumber)
+    const reached = yield* store.fact(Fact.sweepBrokersBuilt)
+    if (
+      trades.length === 0 ||
+      reached === undefined ||
+      (yield* brokerCodes.holdsNone)
     )
+      return none
     let earliest = Infinity
     for (const trade of trades)
-      if (held.has(trade.tradeNumber))
-        earliest = Math.min(earliest, DateTime.toEpochMillis(trade.time))
-    const reached = yield* store.fact(Fact.sweepBrokersBuilt)
-    if (earliest === Infinity || reached === undefined) return none
+      earliest = Math.min(earliest, DateTime.toEpochMillis(trade.time))
     const before = Math.floor(earliest / MINUTE_MS) * MINUTE_MS - MINUTE_MS
     built = false
     const facts: Record<string, string> = {
