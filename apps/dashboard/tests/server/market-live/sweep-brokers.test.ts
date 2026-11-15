@@ -11,6 +11,7 @@ import {
 import { DateTime, Effect, Exit } from "effect"
 import { TestClock } from "effect/testing"
 
+import { brokerPicks } from "@/lib/sweeps"
 import type { Sql } from "@/server/market-live/day-store"
 
 import {
@@ -201,6 +202,43 @@ describe("a sealed day's sweep brokers", () => {
           [1, ["AK F 3"], ["CC D 3"]],
           [3, ["PD F 5"], ["KZ D 5"]],
         ])
+      })
+  )
+
+  it.effect(
+    "carry a broker's lots of both investor types, so the broker filter lists it at the type of its larger lots over the sweeps",
+    () =>
+      Effect.gen(function* () {
+        yield* at("09:01:10")
+        const day = yield* tradingDay()
+        yield* day.trades([
+          untr(1, "09:00:10.100", 6, "buy"),
+          untr(2, "09:00:10.300", 5, "buy", 23325),
+          untr(3, "09:00:30.000", 7, "buy"),
+        ])
+        yield* at("17:00:00")
+        yield* day.alarm
+        yield* at("17:30:00")
+        yield* day.brokerCodes(
+          "Ajaib",
+          [
+            [1, "AK F CC D"],
+            [2, "AK D YP D"],
+            [3, "AK D CC D"],
+          ],
+          3
+        )
+        const { sweeps } = (yield* day.recordedSweeps("UNTR")).answer
+        const brokers = (yield* day.recordedSweepBrokers("UNTR")).answer
+        // AK swept F 6 and D 5, then D 7: D leads 12–6.
+        assert.deepStrictEqual(
+          yield* brokerPicks(
+            sweeps,
+            new Map(brokers.sweeps.map((sweep) => [sweep.firstTrade, sweep])),
+            Infinity
+          ),
+          [{ code: "AK", investorType: "D", lots: 18 }]
+        )
       })
   )
 
