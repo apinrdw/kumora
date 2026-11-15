@@ -39,3 +39,33 @@ describe("a worksheet", () => {
     })
   )
 })
+
+describe("a cell's character references", () => {
+  // A text cell in A1 holding `text`.
+  const textCell = (text: string) =>
+    `<row r="1"><c r="A1" t="str"><v>${text}</v></c></row>`
+
+  for (const [reference, refused] of [
+    ["&#x110000;", "&#x110000;"],
+    ["&#1114112;", "&#1114112;"],
+    ["&#xD800;", "&#xD800;"],
+    [`&#${"9".repeat(400)};`, `&#${"9".repeat(38)}…`],
+  ])
+    it.effect(`refuses ${refused}, which names no character`, () =>
+      Effect.gen(function* () {
+        const error = yield* Effect.flip(read(textCell(reference)))
+        assert.deepStrictEqual(
+          [error._tag, error.message],
+          ["XlsxUnreadable", `${refused} names no character`]
+        )
+      })
+    )
+
+  it.effect("keeps &#; as text, since it is no reference", () =>
+    Effect.gen(function* () {
+      assert.deepStrictEqual(yield* read(textCell("&#;&#x10FFFF;")), [
+        [1, new Map([[0, `&#;${String.fromCodePoint(0x10ffff)}`]])],
+      ])
+    })
+  )
+})
