@@ -40,6 +40,9 @@
   --investor-pf: #d9a35a;
   --investor-fd: #a3c45e;
   --investor-ot: #8b93a1;
+  /* Local vs foreign in the stock page's Holding composition chart. */
+  --origin-local: #a78bfa;
+  --origin-foreign: #f07a9a;
 
   --shadow-popover: 0 4px 16px rgba(4, 10, 18, 0.45);
   --shadow-modal: 0 16px 48px rgba(4, 10, 18, 0.6);

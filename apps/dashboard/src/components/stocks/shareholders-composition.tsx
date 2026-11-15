@@ -36,10 +36,10 @@ const MONTHS = [
 ] as const
 
 /** `2026-10-30` → `Oct 2026` */
-const monthLabel = (dataDate: string) =>
+export const monthLabel = (dataDate: string) =>
   `${MONTHS[Number(dataDate.slice(5, 7)) - 1]} ${dataDate.slice(0, 4)}`
 
-const TYPE_COLOR: Record<KseiType, string> = {
+export const TYPE_COLOR: Record<KseiType, string> = {
   ID: "var(--investor-id)",
   CP: "var(--investor-cp)",
   MF: "var(--investor-mf)",
@@ -57,7 +57,8 @@ const ORIGINS: ReadonlyArray<{ value: PanelOrigin; label: string }> = [
   { value: "foreign", label: "Foreign" },
 ]
 
-const percent = (share: number) => Effect.runSync(plain(share * 100, 2)) + "%"
+export const percent = (share: number) =>
+  Effect.runSync(plain(share * 100, 2)) + "%"
 
 type Composed = NonNullable<StockPage["composition"]>
 
