@@ -217,12 +217,14 @@ const finishedResult = Effect.fnUntraced(function* (run: IdxRun) {
   return { ...(yield* runningResult(run)), finishedAt: yield* nowIso }
 })
 
+type Parses = Pick<ArchiveRunResult, "monthsParsed" | "parseFailures">
+
 const summary = Effect.fnUntraced(function* (
   run: IdxRun,
   checked: typeof Checked.Type,
   archived: ReadonlyArray<ArchivedReport>,
   notStored: ReadonlyArray<string>,
-  monthsParsed: number
+  parses: Parses
 ) {
   const changedUrls = new Set(checked.changed.map(({ sourceUrl }) => sourceUrl))
   // Decided from earlier runs' records, not from the .xlsx being there: a
@@ -231,7 +233,10 @@ const summary = Effect.fnUntraced(function* (
   const earlier = yield* recordsByUrl(run.id)
   const result = ArchiveRunResult.make({
     ...(yield* finishedResult(run)),
-    outcome: notStored.length === 0 ? "complete" : "partial",
+    outcome:
+      notStored.length === 0 && parses.parseFailures.length === 0
+        ? "complete"
+        : "partial",
     reportsAdded: archived.filter(
       ({ sourceUrl }) => !changedUrls.has(sourceUrl)
     ).length,
@@ -245,7 +250,7 @@ const summary = Effect.fnUntraced(function* (
     ).length,
     reportsChecked: checked.checked,
     notStored,
-    monthsParsed,
+    ...parses,
     other: archived
       .filter(({ kind }) => kind === "other")
       .map(({ sourceUrl, description }) => ({ sourceUrl, description })),
@@ -254,14 +259,17 @@ const summary = Effect.fnUntraced(function* (
   return result
 })
 
-// `plan` failed, so nothing was stored: the run is failed with its message.
+// `plan` failed, so nothing was stored: the run is failed with its message,
+// and what its reconcile parsed.
 const recordPlanFailure = Effect.fnUntraced(function* (
   run: IdxRun,
-  error: string
+  error: string,
+  parses: Parses
 ) {
   const result = ArchiveRunResult.make({
     ...(yield* finishedResult(run)),
     outcome: "failed",
+    ...parses,
     error: yield* runError(error),
   })
   yield* putRunRecord(result)
@@ -276,19 +284,47 @@ const reportStepName = Effect.fnUntraced(function* (report: ListedReport) {
   return `report:${report.kind}/${report.dataDate}/${digest}`
 })
 
+// `reconcile`, then a `parse:` step per classification month it picked.
+// Decision: a month that fails to parse doesn't stop the run; its parsed
+// holdings stay as they were, and the next run's reconcile picks it again.
+const parseMonths = Effect.fnUntraced(function* (
+  steps: WorkflowSteps<StepServices>
+): Effect.fn.Return<Parses, StepFailed> {
+  const months = yield* steps.do("reconcile", monthsToParse)
+  const parsed = yield* Effect.forEach(months, ({ dataDate, sha256 }) =>
+    steps.do(`parse:${dataDate}`, parseMonth({ dataDate, sha256 })).pipe(
+      Effect.mapError(({ message }) => ({ dataDate, message })),
+      Effect.result
+    )
+  )
+  return {
+    monthsParsed: parsed.filter(Result.isSuccess).length,
+    parseFailures: yield* Effect.forEach(
+      parsed.filter(Result.isFailure),
+      ({ failure: { dataDate, message } }) =>
+        Effect.map(runError(message), (reason) => ({ dataDate, reason }))
+    ),
+  }
+})
+
 export const archiveRun = Effect.fn("archiveRun")(function* (
   steps: WorkflowSteps<StepServices>,
   run: IdxRun
 ): Effect.fn.Return<ArchiveRunResult, StepFailed> {
-  const planned = yield* steps.do("plan", plan(run)).pipe(
-    // The run still fails with `plan`'s message, which the Workflow keeps as
-    // the instance's error.
-    Effect.tapError(({ message }) =>
-      steps
-        .do("failed", recordPlanFailure(run, message))
-        .pipe(Effect.ignore({ log: "Warn" }))
+  const planResult = yield* Effect.result(steps.do("plan", plan(run)))
+  if (Result.isFailure(planResult)) {
+    // Decision: the reconcile reads only R2 and D1, so a run whose listing
+    // can't be read still parses what the archive holds. The run still fails
+    // with `plan`'s message, which the Workflow keeps as the instance's error.
+    const parses = yield* parseMonths(steps).pipe(
+      Effect.orElseSucceed(() => ({ monthsParsed: 0, parseFailures: [] }))
     )
-  )
+    yield* steps
+      .do("failed", recordPlanFailure(run, planResult.failure.message, parses))
+      .pipe(Effect.ignore({ log: "Warn" }))
+    return yield* planResult.failure
+  }
+  const planned = planResult.success
   const checked = yield* steps.do("head", head(planned.held))
   const heldByUrl = new Map(
     planned.held.map((report) => [report.sourceUrl, report])
@@ -311,20 +347,9 @@ export const archiveRun = Effect.fn("archiveRun")(function* (
     )
   )
   const { archived, notStored } = storedReports(stored, checked.unanswered)
-  // Decision: a month that fails to parse doesn't stop the run; its parsed
-  // holdings stay as they were, and the next run's reconcile picks it again.
-  const months = yield* steps.do("reconcile", monthsToParse)
-  const parsed = yield* Effect.forEach(months, (month) =>
-    steps.do(`parse:${month.dataDate}`, parseMonth(month)).pipe(Effect.result)
-  )
+  const parses = yield* parseMonths(steps)
   return yield* steps.do(
     "summary",
-    summary(
-      run,
-      checked,
-      archived,
-      notStored,
-      parsed.filter(Result.isSuccess).length
-    )
+    summary(run, checked, archived, notStored, parses)
   )
 })

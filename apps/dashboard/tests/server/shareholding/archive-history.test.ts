@@ -34,6 +34,7 @@ const run = (
   reportsChecked: 147,
   notStored: [],
   monthsParsed: 0,
+  parseFailures: [],
   other: [],
   error: null,
 })

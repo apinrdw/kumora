@@ -1,5 +1,6 @@
 // A fake IDX for the archive run: an HttpClient that answers the listing
-// from the recorded fixture and each file from `www.idx.id` with small bytes.
+// from the recorded fixture and each file from `www.idx.id`: a classification
+// report with a real one's bytes, any other with small bytes.
 // Tests change `files` (an ETag, a status, delete for a 404), `listing`, or
 // `listingResponse` (a 403, a changed shape) between runs.
 import { assert } from "@effect/vitest"
@@ -54,6 +55,18 @@ const CLASSIFICATION_FIXTURES = {
 } as const
 export type ClassificationFixture = keyof typeof CLASSIFICATION_FIXTURES
 
+// Copies of the real reports, each broken one way
+// (~/.t3/notes/kumora/363/break-classification-xlsx.py): October's with its
+// `Total Scripless` renamed, March's naming a classification `BANKS`, May's
+// with BBCA's bank holding one share past its total, September's with no
+// stock rows, and October's with its Foreign_Bank column named Local_Bank.
+export type BrokenFixture =
+  | "unknown-header"
+  | "unknown-classification"
+  | "unsummed"
+  | "empty"
+  | "repeated-column"
+
 // Each fixture as a base64 data URL, by path (vitest.config.ts).
 const FIXTURE_FILES = import.meta.glob<string>("./fixtures/*.xlsx", {
   query: "?inline",
@@ -62,8 +75,10 @@ const FIXTURE_FILES = import.meta.glob<string>("./fixtures/*.xlsx", {
 })
 
 // A fixture's bytes, fresh for each call.
-export const classificationFixture = (dataDate: ClassificationFixture) => {
-  const dataUrl = FIXTURE_FILES[`./fixtures/classification-${dataDate}.xlsx`]
+export const classificationFixture = (
+  name: ClassificationFixture | BrokenFixture
+) => {
+  const dataUrl = FIXTURE_FILES[`./fixtures/classification-${name}.xlsx`]
   assert.isDefined(dataUrl)
   return new Uint8Array(Buffer.from(dataUrl.split(",")[1] ?? "", "base64"))
 }
@@ -77,20 +92,24 @@ export const classificationItem = (dataDate: ClassificationFixture) => {
   return item
 }
 
-// A fake IDX that lists only the fixtures' classification reports, each
-// serving its fixture's bytes.
-export const classificationIdx = () => {
-  const dates = Object.keys(
-    CLASSIFICATION_FIXTURES
-  ) as Array<ClassificationFixture>
-  const idx = fakeIdx(dates.map(classificationItem))
-  for (const dataDate of dates) {
-    const url = idxIdUrl(classificationItem(dataDate).Prospectus)
-    const file = idx.files.get(url)
-    if (file !== undefined)
-      idx.files.set(url, { ...file, body: classificationFixture(dataDate) })
-  }
-  return idx
+// A fake IDX that lists only the fixtures' classification reports.
+export const classificationIdx = () =>
+  fakeIdx(
+    (Object.keys(CLASSIFICATION_FIXTURES) as Array<ClassificationFixture>).map(
+      classificationItem
+    )
+  )
+
+// What IDX serves at a listed URL: a classification report its fixture's
+// bytes, or the Mar–Aug layout's May fixture for a month with none.
+const fileBody = (prospectus: string) => {
+  if (!prospectus.endsWith("-klasifikasi.xlsx"))
+    return `xlsx bytes of ${prospectus}`
+  const [dataDate = "2026-05-29"] =
+    Object.entries(CLASSIFICATION_FIXTURES).find(([, file]) =>
+      prospectus.endsWith(`/${file}`)
+    ) ?? []
+  return classificationFixture(dataDate as ClassificationFixture)
 }
 
 export const fakeIdx = (
@@ -100,7 +119,7 @@ export const fakeIdx = (
     listing.map((item, index) => [
       idxIdUrl(item.Prospectus),
       {
-        body: `xlsx bytes of ${item.Prospectus}`,
+        body: fileBody(item.Prospectus),
         etag: `"etag-${index}:0"`,
         lastModified: "Fri, 13 Nov 2026 10:28:42 GMT",
       },
