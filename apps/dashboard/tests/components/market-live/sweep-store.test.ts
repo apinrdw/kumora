@@ -329,9 +329,9 @@ describe("a recorded day's sweeps as their brokers land", () => {
           from: "log",
           pinned: true,
         })
-        expect(store.brokers().get(TradeNumber.make("101"))?.aggressor).toEqual(
-          [{ code: "FZ", investorType: "D", lots: 6 }]
-        )
+        expect(store.pieces().get(TradeNumber.make("101"))?.aggressor).toEqual([
+          { code: "FZ", investorType: "D", lots: 6 },
+        ])
       })
   )
 

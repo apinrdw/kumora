@@ -67,8 +67,8 @@ export interface SweepStore {
   // whole day's as its sweep brokers GET last answered; the page cuts them
   // at the cursor as it does the sweeps. Empty live and until it answers.
   readonly entries: () => ReadonlyMap<TradeNumber, SweepBrokers>
-  // The shown pieces, with their brokers, by id.
-  readonly brokers: () => ReadonlyMap<TradeNumber, SweepPiece>
+  // The shown pieces by id.
+  readonly pieces: () => ReadonlyMap<TradeNumber, SweepPiece>
   // Whether the day's codes are complete, as the sweep brokers GET last
   // answered; true until it answers otherwise, so live shows no note.
   readonly brokersComplete: () => boolean
@@ -120,7 +120,7 @@ export const makeSweepStore = (code: StockCode) =>
     let all: ReadonlyArray<Sweep> = []
     let entries: ReadonlyMap<TradeNumber, SweepBrokers> = new Map()
     let shown: ReadonlyArray<Sweep> = []
-    let brokers: ReadonlyMap<TradeNumber, SweepPiece> = new Map()
+    let pieces: ReadonlyMap<TradeNumber, SweepPiece> = new Map()
     let brokersComplete = true
     let ask = 0
     let asking = false
@@ -130,7 +130,7 @@ export const makeSweepStore = (code: StockCode) =>
     let keeping:
       | {
           readonly sweeps: ReadonlyArray<Sweep>
-          readonly brokers: ReadonlyMap<TradeNumber, SweepPiece>
+          readonly pieces: ReadonlyMap<TradeNumber, SweepPiece>
           readonly picked: BrokerCode | undefined
           readonly kept: ReadonlyArray<KeptSweep>
         }
@@ -138,14 +138,14 @@ export const makeSweepStore = (code: StockCode) =>
     const kept = () => {
       if (
         keeping?.sweeps !== shown ||
-        keeping.brokers !== brokers ||
+        keeping.pieces !== pieces ||
         keeping.picked !== picked
       )
         keeping = {
           sweeps: shown,
-          brokers,
+          pieces,
           picked,
-          kept: Effect.runSync(keptSweeps(shown, brokers, picked)),
+          kept: Effect.runSync(keptSweeps(shown, pieces, picked)),
         }
       return keeping.kept
     }
@@ -164,7 +164,7 @@ export const makeSweepStore = (code: StockCode) =>
     const split = () => {
       const swapped = Effect.runSync(splitSweeps(all, entries))
       shown = swapped.sweeps
-      brokers = swapped.pieces
+      pieces = swapped.pieces
     }
     const show = () => {
       all = [...new Map([...answered, ...carried])]
@@ -190,12 +190,12 @@ export const makeSweepStore = (code: StockCode) =>
       sweeps: () => shown,
       grouped: () => all,
       entries: () => entries,
-      brokers: () => brokers,
+      pieces: () => pieces,
       brokersComplete: () => brokersComplete,
       answerBrokers: (answer) => {
         if (answer.code !== code) return
         brokersComplete = answer.complete
-        const before = brokers
+        const before = pieces
         entries = new Map(
           answer.sweeps.map((sweep) => [sweep.firstTrade, sweep])
         )

@@ -144,7 +144,7 @@ export function SweepTip({
     [store]
   )
   const sweeps = useSyncExternalStore(subscribe, store.sweeps, store.sweeps)
-  const brokers = useSyncExternalStore(subscribe, store.brokers, store.brokers)
+  const pieces = useSyncExternalStore(subscribe, store.pieces, store.pieces)
   const picked = useSyncExternalStore(subscribe, store.picked, store.picked)
   const sweep =
     at === undefined
@@ -170,7 +170,7 @@ export function SweepTip({
     }
   }, [store, from])
   if (at === undefined || sweep === undefined || hidden) return null
-  const tip = Effect.runSync(sweepTip(sweep, brokers.get(at.id)))
+  const tip = Effect.runSync(sweepTip(sweep, pieces.get(at.id)))
   return createPortal(
     <div
       ref={box}

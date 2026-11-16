@@ -199,7 +199,7 @@ export const largestPiece = (entry: SweepBrokers) =>
 // whole; every sweep when none is picked.
 export const keptSweeps = (
   sweeps: ReadonlyArray<Sweep>,
-  brokers: ReadonlyMap<TradeNumber, SweepSides>,
+  pieces: ReadonlyMap<TradeNumber, SweepSides>,
   picked: BrokerCode | undefined
 ) =>
   Effect.sync((): ReadonlyArray<KeptSweep> => {
@@ -212,7 +212,7 @@ export const keptSweeps = (
     }
     const kept: Array<KeptSweep> = []
     for (const sweep of sweeps) {
-      const held = brokers.get(sweep.firstTrade)
+      const held = pieces.get(sweep.firstTrade)
       if (held === undefined) continue
       const own =
         sweep.side === "none"
@@ -256,7 +256,7 @@ const OPPOSITE_TYPE = { D: "F", F: "D" } as const
 // (apinrdw/kumora#343, story 5).
 export const brokerPicks = (
   sweeps: ReadonlyArray<Sweep>,
-  brokers: ReadonlyMap<TradeNumber, SweepSides>,
+  pieces: ReadonlyMap<TradeNumber, SweepSides>,
   at: number
 ) =>
   Effect.map(sweepsUpTo(sweeps, at), (upTo): ReadonlyArray<BrokerPick> => {
@@ -269,7 +269,7 @@ export const brokerPicks = (
     >()
     for (const sweep of upTo) {
       if (sweep.side === "none") continue
-      for (const broker of brokers.get(sweep.firstTrade)?.aggressor ?? []) {
+      for (const broker of pieces.get(sweep.firstTrade)?.aggressor ?? []) {
         const entry = held.get(broker.code) ?? {
           first: broker.investorType,
           lots: { D: 0, F: 0 },

@@ -54,12 +54,12 @@ interface SweepView {
   // The sweeps the broker filter keeps, with their own lots.
   readonly kept: ReadonlyArray<KeptSweep>
   readonly picked: BrokerCode | undefined
-  readonly brokers: ReadonlyMap<TradeNumber, SweepPiece>
+  readonly pieces: ReadonlyMap<TradeNumber, SweepPiece>
   // The sweeps as grouped before any split, and the entries of those whole.
   readonly grouped: ReadonlyArray<Sweep>
   readonly entries: ReadonlyMap<TradeNumber, SweepBrokers>
   // Whether the day's codes are complete; each answer that says so brings
-  // new `brokers` too.
+  // new `pieces` too.
   readonly brokersComplete: boolean
   readonly at: number
   readonly threshold: SweepThreshold
@@ -87,14 +87,14 @@ function useSweepView(store: SweepStore, cursor: ReplayCursor | undefined) {
       cursor === undefined ? Number.POSITIVE_INFINITY : cursor.state().at
     const sweeps = store.sweeps()
     const kept = store.kept()
-    const brokers = store.brokers()
+    const pieces = store.pieces()
     const topN = store.topN()
     const selected = store.selected()
     const before = cached.current
     if (
       before?.sweeps === sweeps &&
       before.kept === kept &&
-      before.brokers === brokers &&
+      before.pieces === pieces &&
       before.at === at &&
       before.topN === topN &&
       before.selected === selected
@@ -104,7 +104,7 @@ function useSweepView(store: SweepStore, cursor: ReplayCursor | undefined) {
       sweeps,
       kept,
       picked: store.picked(),
-      brokers,
+      pieces,
       grouped: store.grouped(),
       entries: store.entries(),
       brokersComplete: store.brokersComplete(),
@@ -301,7 +301,7 @@ const LogRowView = memo(function LogRowView({
   row,
   withBrokers,
   filtered,
-  brokers,
+  piece,
   selected,
   onPick,
   onTip,
@@ -311,8 +311,8 @@ const LogRowView = memo(function LogRowView({
   withBrokers: boolean
   // Whether a broker is picked: the lots read `own/whole`.
   filtered: boolean
-  // The piece's brokers, undefined until its sweep is whole.
-  brokers: SweepPiece | undefined
+  // The row's piece, with its brokers; undefined until its sweep is whole.
+  piece: SweepPiece | undefined
   selected: boolean
   onPick: (id: TradeNumber) => void
   onTip: OnTip
@@ -351,8 +351,8 @@ const LogRowView = memo(function LogRowView({
         <span className="text-right">
           Rp{Effect.runSync(compact(row.value))}
         </span>
-        {withBrokers && brokerCell(brokers?.aggressor)}
-        {withBrokers && brokerCell(brokers?.other)}
+        {withBrokers && brokerCell(piece?.aggressor)}
+        {withBrokers && brokerCell(piece?.other)}
         <span className="text-warning">
           {row.big && (
             <>
@@ -379,8 +379,8 @@ function BrokerFilter({
   withBrokers: boolean
 }) {
   const picks = useMemo(
-    () => Effect.runSync(brokerPicks(view.sweeps, view.brokers, view.at)),
-    [view.sweeps, view.brokers, view.at]
+    () => Effect.runSync(brokerPicks(view.sweeps, view.pieces, view.at)),
+    [view.sweeps, view.pieces, view.at]
   )
   // A picked broker the cursor moved back before stays listed, so the
   // control still names it.
@@ -648,7 +648,7 @@ function LogColumns({
                   row={row}
                   withBrokers={withBrokers}
                   filtered={view.picked !== undefined}
-                  brokers={view.brokers.get(row.firstTrade)}
+                  piece={view.pieces.get(row.firstTrade)}
                   selected={row.firstTrade === view.selected}
                   onPick={pick}
                   onTip={showTip}

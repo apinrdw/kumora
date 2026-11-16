@@ -78,6 +78,10 @@ _Avoid_: Top broker (top names the top-N filter), main broker
 A sweep every one of whose trades has stored broker codes. Only a whole sweep shows brokers, and a whole sweep is the one that splits by aggressor broker; a sweep missing any trade's codes shows none and stays unsplit, rather than read from part of it.
 _Avoid_: Complete sweep (complete names the day's broker codes status), coded sweep
 
+**Piece**:
+One of the sweeps a whole sweep splits into: one aggressor broker's trades of it, with its own lots, value, first and last price, trade count and time, and its first trade's number as its id. A whole sweep with one aggressor broker is one piece, and so is an auction match. The sweep log's rows and chart 1's bubbles show pieces in place of the whole sweeps they came from.
+_Avoid_: Split sweep (in code), sub-sweep, part
+
 **Other side**:
 The side of a sweep opposite its aggressor side: the sellers a buy sweep took from, or the buyers a sell sweep hit. The sweep log's Other side column shows its lead broker.
 _Avoid_: Passive side, counterparty
