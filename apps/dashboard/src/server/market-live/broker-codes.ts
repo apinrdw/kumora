@@ -809,18 +809,29 @@ export const makeBrokerCodes = Effect.fnUntraced(function* (options: {
       : Effect.succeed(keptCodesComplete)
   )
 
-  // A POSTed batch: 200 once it is written with what `alongside` writes for
-  // it and `written` has run, else as `checkedBatch` refuses it. `written`
-  // runs after every accepted batch, one that changed no codes included.
+  // Whether every trade 1..N is held, codes and fields, from one scan.
+  const complete = Effect.map(
+    status(Number.MAX_SAFE_INTEGER),
+    (each) => each.day.complete
+  )
+
+  // A POSTed batch: 200 once `taken` took it, it is written with what
+  // `alongside` writes for it and `written` has run, else as `checkedBatch`
+  // refuses it. `written` runs after every accepted batch, one that changed
+  // no codes included.
   const post = Effect.fnUntraced(function* (
     text: string,
-    alongside: Alongside,
-    written: Effect.Effect<void>
+    hooks: {
+      readonly taken: (batch: BrokerCodesBatch) => Effect.Effect<void>
+      readonly alongside: Alongside
+      readonly written: Effect.Effect<void>
+    }
   ) {
     const batch = yield* checkedBatch(text, options.date)
     if (batch instanceof Response) return batch
-    yield* write(batch, alongside)
-    yield* written
+    yield* hooks.taken(batch)
+    yield* write(batch, hooks.alongside)
+    yield* hooks.written
     return yield* noStoreAnswer(200)
   })
 
@@ -903,6 +914,7 @@ export const makeBrokerCodes = Effect.fnUntraced(function* (options: {
     held,
     heldCodes,
     codesComplete,
+    complete,
     holdsNone,
     indexBuilt,
     indexPage,

@@ -51,7 +51,7 @@ A running trade's time, stock code, price, lots, board and aggressor side: what 
 _Avoid_: Trade details, trade row
 
 **Held trade**:
-A trade of a trading day that has its broker codes and its trade fields. The fields come from the day's tape, or, for a trade the tape lacks, from a walk after the close; a trade the tape holds always uses the tape's fields, and for one it lacks, the first walk's fields are kept. Fields from a walk never join the tape or anything Market Live shows.
+A trade of a trading day that has its broker codes and its trade fields. The fields come from the day's tape, or, for a trade the tape lacks, from a walk after the close; a trade the tape holds always uses the tape's fields, and for one it lacks, the first walk's fields are kept. On a day the relay recorded, fields from a walk never join the tape or anything Market Live shows; a day with no relay tape takes the walks' fields as its tape, and once complete becomes a recorded day.
 _Avoid_: Covered trade (covered counts the cross-check's agreements)
 
 **Complete** (a day's broker codes):

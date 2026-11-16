@@ -2,11 +2,15 @@
 // apinrdw/kumora#263, "One-off build of sealed days"): its footprint rows
 // (cells and sweeps) from its stored trades and its heatmap rows from its
 // stored book chunks, the same rows the live day writes (candles.ts,
-// book-chunks.ts).
+// book-chunks.ts). A walked day's build writes its candles as well.
 import { Effect } from "effect"
 import { type StockCode, MINUTE_MS } from "@workspace/relay"
 
-import type { FootprintRow } from "./candles.ts"
+import {
+  figuresOfTrades,
+  type FootprintRow,
+  type StoredCandle,
+} from "./candles.ts"
 import {
   Fact,
   ORDER_FLOW_BUILT,
@@ -35,13 +39,21 @@ const footprintRow = Effect.fnUntraced(function* (
 const builtMinute = Effect.fnUntraced(function* (
   store: DayStore,
   minute: number,
-  chunkCodes: ReadonlyArray<StockCode>
+  chunkCodes: ReadonlyArray<StockCode>,
+  withCandles: boolean
 ) {
   const footprints: Array<FootprintRow> = []
+  const candles: Array<StoredCandle> = []
   for (const codeMinute of yield* regroupMinute(
     yield* store.minuteTrades(minute)
-  ))
+  )) {
     footprints.push(yield* footprintRow(minute, codeMinute))
+    const figures = withCandles
+      ? yield* figuresOfTrades(codeMinute.trades)
+      : undefined
+    if (figures !== undefined)
+      candles.push({ code: codeMinute.code, minute, figures })
+  }
   const heatmaps: Array<BuiltMinute["heatmaps"][number]> = []
   for (const code of chunkCodes) {
     const text = yield* store.chunkOfMinute(code, minute)
@@ -52,7 +64,7 @@ const builtMinute = Effect.fnUntraced(function* (
       slices: yield* chunkSlices(yield* heldChunkOf(text)),
     })
   }
-  return { minute, footprints, heatmaps } satisfies BuiltMinute
+  return { minute, candles, footprints, heatmaps } satisfies BuiltMinute
 })
 
 // Decision: the build goes minute by minute, each minute's whole rows and
@@ -63,20 +75,46 @@ const builtMinute = Effect.fnUntraced(function* (
 export const buildOrderFlow = Effect.fnUntraced(function* (store: DayStore) {
   const progress = yield* store.fact(Fact.orderFlowBuilt)
   if (progress === ORDER_FLOW_BUILT) return
+  yield* buildFrom(
+    store,
+    progress === undefined ? undefined : Number(progress) + MINUTE_MS,
+    false
+  )
+})
+
+// Every minute's rows from `from` (the day's first when undefined) on, then
+// the mark that they are built.
+const buildFrom = Effect.fnUntraced(function* (
+  store: DayStore,
+  from: number | undefined,
+  withCandles: boolean
+) {
   const span = yield* store.orderFlowMinutes
-  if (span !== undefined) {
-    const from =
-      progress === undefined
-        ? span.first
-        : Math.max(span.first, Number(progress) + MINUTE_MS)
-    for (let minute = from; minute <= span.last; minute += MINUTE_MS) {
-      const built = yield* builtMinute(store, minute, span.chunkCodes)
+  if (span !== undefined)
+    for (
+      let minute = Math.max(span.first, from ?? span.first);
+      minute <= span.last;
+      minute += MINUTE_MS
+    ) {
+      const built = yield* builtMinute(
+        store,
+        minute,
+        span.chunkCodes,
+        withCandles
+      )
       if (built.footprints.length > 0 || built.heatmaps.length > 0)
         yield* store.writeBuiltMinute(built)
     }
-  }
   yield* store.markOrderFlowBuilt
 })
+
+// Decision: a walked day's candles, footprints and sweeps are built from its
+// tape at its seal, from its first minute, as the one-off build goes: its
+// trades came out of time order, so the candle book would reread a stored
+// minute for nearly each. A seal that dies rebuilds it whole, to the same
+// rows. See spec apinrdw/kumora#437, "A History walk day becomes a recorded day".
+export const buildWalkedDay = (store: DayStore) =>
+  buildFrom(store, undefined, true)
 
 // Whether the day's order flow rows are built, as its object starts.
 // Decision: a day that stored nothing yet writes its order flow rows live,

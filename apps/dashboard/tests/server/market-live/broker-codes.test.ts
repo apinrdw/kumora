@@ -12,6 +12,7 @@ import {
   WibDate,
   decodeBrokerCodesStatus,
   decodeRecordedBrokerCodes,
+  decodeRecordedCandles,
   decodeRecordedTape,
   encodeBrokerCodesBatch,
   encodeIngestUp,
@@ -879,19 +880,247 @@ describe("a recorded day's broker codes answer", () => {
   )
 })
 
+// Spec apinrdw/kumora#437, "A History walk day becomes a recorded day".
 describe("a day with no tape", () => {
+  const HISTORY = WibDate.make("2026-10-01")
+  const at = (time: string) => wib(time, HISTORY)
+  // Three trades of the History day as a walk sends them: two BBCA in one
+  // minute, a buy and a sell, and a TLKM print a minute later.
+  const WALKED: ReadonlyArray<readonly [number, TradeCodes, TradeFields]> = [
+    [
+      1,
+      YP_CC,
+      {
+        time: at("10:00:00"),
+        code: StockCode.make("BBCA"),
+        price: 8_000,
+        lots: 2,
+        board: "RG",
+        side: "buy",
+      },
+    ],
+    [
+      2,
+      PD_KZ,
+      {
+        time: at("10:00:30"),
+        code: StockCode.make("BBCA"),
+        price: 8_025,
+        lots: 1,
+        board: "RG",
+        side: "sell",
+      },
+    ],
+    [
+      3,
+      YP_CC,
+      {
+        time: at("10:01:00"),
+        code: StockCode.make("TLKM"),
+        price: 3_500,
+        lots: 5,
+        board: "RG",
+        side: "buy",
+      },
+    ],
+  ]
+  const historyDay = (sql = memorySql()) =>
+    Effect.gen(function* () {
+      yield* TestClock.setTime(wib("19:00:00").epochMilliseconds)
+      return yield* tradingDay({ sql, date: HISTORY })
+    })
+  type HistoryDay = Effect.Success<ReturnType<typeof historyDay>>
+  const answerText = Effect.fnUntraced(function* (
+    day: HistoryDay,
+    resource: RecordedResource
+  ) {
+    const response = yield* day.day.recorded(resource)
+    return {
+      status: response.status,
+      text: yield* Effect.promise(() => response.text()),
+    }
+  })
+
   it.effect(
-    "is made by its broker codes, arms no seal and writes no index row",
+    "takes a walk's fields as its tape, seals once complete and writes its index row",
     () =>
       Effect.gen(function* () {
-        const history = WibDate.make("2026-10-01")
-        yield* TestClock.setTime(wib("19:00:00").epochMilliseconds)
-        const day = yield* tradingDay({ date: history })
-        yield* day.post("Stockbit", [[1, YP_CC]], 1)
+        const day = yield* historyDay()
+        yield* day.post("Stockbit", WALKED.slice(0, 2))
         yield* day.alarm
         assert.deepStrictEqual(day.alarms, [])
         assert.deepStrictEqual(day.indexed, [])
+
+        yield* day.post("Stockbit", WALKED.slice(2), 3)
         assert.isTrue((yield* day.status).complete)
+        assert.lengthOf(day.alarms, 1)
+        yield* day.alarm
+        assert.deepStrictEqual(day.indexed, [
+          { day: HISTORY, trades: 3, gap: false },
+        ])
+        assert.isTrue((yield* day.status).complete)
+      })
+  )
+
+  it.effect(
+    "replays as a recorded day: its trades, candles and broker codes, and no order book",
+    () =>
+      Effect.gen(function* () {
+        const day = yield* historyDay()
+        yield* day.post("Stockbit", WALKED, 3)
+        yield* day.alarm
+
+        const tape = yield* answerText(day, {
+          _tag: "Tape",
+          at: at("17:00:00"),
+        })
+        assert.deepStrictEqual(
+          (yield* decodeRecordedTape(tape.text)).trades,
+          WALKED.map(([number, , fields]) => ({
+            tradeNumber: TradeNumber.make(String(number)),
+            ...fields,
+            feeds: ["backfill" as const],
+          }))
+        )
+        const candles = yield* answerText(day, {
+          _tag: "Candles",
+          code: StockCode.make("BBCA"),
+        })
+        const answer = yield* decodeRecordedCandles(candles.text)
+        assert.deepStrictEqual(answer.candles, [
+          {
+            code: StockCode.make("BBCA"),
+            minute: at("10:00:00"),
+            open: 8_000,
+            high: 8_025,
+            low: 8_000,
+            close: 8_025,
+            volume: 3,
+            value: 8_000 * 200 + 8_025 * 100,
+            frequency: 2,
+          },
+        ])
+        assert.lengthOf(answer.footprints ?? [], 1)
+        const brokerCodes = yield* answerText(day, {
+          _tag: "BrokerCodes",
+          at: at("17:00:00"),
+        })
+        assert.deepStrictEqual(
+          yield* decodeRecordedBrokerCodes(brokerCodes.text),
+          {
+            codes: WALKED.map(
+              ([number, each]) =>
+                [TradeNumber.make(String(number)), each] as const
+            ),
+            complete: true,
+          }
+        )
+        const book = yield* answerText(day, {
+          _tag: "Book",
+          code: StockCode.make("BBCA"),
+          minute: at("10:00:00"),
+        })
+        assert.strictEqual(book.status, 404)
+      })
+  )
+
+  it.effect(
+    "settles an auction match's side as a relayed trade's, and keeps the walk's side on a day past the baked schedule",
+    () =>
+      Effect.gen(function* () {
+        const sideOf = Effect.fnUntraced(function* (date: WibDate) {
+          const day = yield* tradingDay({ date })
+          const match: TradeFields = {
+            ...WALKED[0]![2],
+            time: wib("08:58:00", date),
+          }
+          yield* day.post("Stockbit", [[1, YP_CC, match]], 1)
+          yield* day.alarm
+          assert.lengthOf(day.indexed, 1)
+          const tape = yield* answerText(day, {
+            _tag: "Tape",
+            at: wib("17:00:00", date),
+          })
+          return (yield* decodeRecordedTape(tape.text)).trades.map(
+            (trade) => trade.side
+          )
+        })
+        yield* TestClock.setTime(wib("19:00:00").epochMilliseconds)
+        assert.deepStrictEqual(yield* sideOf(HISTORY), ["none"])
+        assert.deepStrictEqual(yield* sideOf(WibDate.make("2025-10-01")), [
+          "buy",
+        ])
+      })
+  )
+
+  it.effect(
+    "lists a codes-only day's trades as missing their fields until a walk fills them",
+    () =>
+      Effect.gen(function* () {
+        const sql = memorySql()
+        const stored = yield* historyDay(sql)
+        yield* stored.post(
+          "Stockbit",
+          WALKED.map(([number, each]) => [number, each, null] as const),
+          3
+        )
+        const codesOnly = yield* stored.status
+        assert.isFalse(codesOnly.complete)
+        assert.strictEqual(codesOnly.missingCount, 3)
+
+        const day = yield* historyDay(sql)
+        assert.deepStrictEqual(day.alarms, [])
+        yield* day.post("Stockbit", WALKED)
+        assert.lengthOf(day.alarms, 1)
+        yield* day.alarm
+        assert.lengthOf(day.indexed, 1)
+      })
+  )
+
+  it.effect(
+    "restarted before it completes, seals only once complete, and restarted complete, seals",
+    () =>
+      Effect.gen(function* () {
+        const sql = memorySql()
+        const first = yield* historyDay(sql)
+        yield* first.post("Stockbit", WALKED.slice(0, 2), 3)
+        const restarted = yield* historyDay(sql)
+        yield* restarted.alarm
+        assert.deepStrictEqual(restarted.alarms, [])
+        assert.deepStrictEqual(restarted.indexed, [])
+
+        yield* restarted.post("Stockbit", WALKED.slice(2))
+        // Evicted before its alarm rang: the next start arms the seal.
+        const again = yield* historyDay(sql)
+        assert.lengthOf(again.alarms, 1)
+        yield* again.alarm
+        assert.lengthOf(again.indexed, 1)
+      })
+  )
+
+  it.effect(
+    "a day the relay missed, sealed empty, takes the walk's tape and seals again",
+    () =>
+      Effect.gen(function* () {
+        yield* TestClock.setTime(wib("12:00:00").epochMilliseconds)
+        const day = yield* tradingDay()
+        yield* TestClock.setTime(wib("17:00:00").epochMilliseconds)
+        yield* day.alarm
+        assert.deepStrictEqual(day.indexed, [])
+
+        yield* TestClock.setTime(wib("17:30:00").epochMilliseconds)
+        yield* day.post(
+          "Stockbit",
+          [
+            [1, YP_CC],
+            [2, PD_KZ],
+          ],
+          2
+        )
+        yield* day.alarm
+        assert.deepStrictEqual(day.indexed, [
+          { day: DAY, trades: 2, gap: false },
+        ])
       })
   )
 
