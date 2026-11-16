@@ -173,16 +173,25 @@ export const makeSweepStore = (code: StockCode) =>
       split()
       emit({ _tag: "Sweeps" })
     }
-    // Where a pin or selection on `id` goes once the sweeps split: a whole
-    // sweep's moves to its largest piece; one already on a piece stays.
+    // Where a pin or selection on `id` goes as a brokers answer replaces
+    // `before`'s entries: one on a piece still held stays; otherwise it goes
+    // to its whole sweep's largest piece, or to the whole sweep while it is
+    // unsplit; none once neither is shown.
     const moved = (
       id: TradeNumber,
-      before: ReadonlyMap<TradeNumber, unknown>
+      before: ReadonlyMap<TradeNumber, SweepBrokers>
     ) => {
-      const entry = entries.get(id)
-      return entry === undefined || before.has(id)
-        ? id
-        : Effect.runSync(largestPiece(entry))
+      let whole = id
+      for (const [first, entry] of before)
+        if (entry.pieces.some((piece) => piece.firstTrade === id)) {
+          if (pieces.has(id) && entries.has(first)) return id
+          whole = first
+        }
+      const entry = entries.get(whole)
+      if (entry !== undefined) return Effect.runSync(largestPiece(entry))
+      return shown.some((sweep) => sweep.firstTrade === whole)
+        ? whole
+        : undefined
     }
     const store: SweepStore = {
       code,
@@ -195,7 +204,7 @@ export const makeSweepStore = (code: StockCode) =>
       answerBrokers: (answer) => {
         if (answer.code !== code) return
         brokersComplete = answer.complete
-        const before = pieces
+        const before = entries
         entries = new Map(
           answer.sweeps.map((sweep) => [sweep.firstTrade, sweep])
         )
@@ -204,7 +213,8 @@ export const makeSweepStore = (code: StockCode) =>
         const pinned = tip.get()
         if (pinned !== undefined) {
           const id = moved(pinned.id, before)
-          if (id !== pinned.id) tip.set({ ...pinned, id })
+          if (id !== pinned.id)
+            tip.set(id === undefined ? undefined : { ...pinned, id })
         }
         emit({ _tag: "Brokers" })
       },
