@@ -2,6 +2,7 @@
 // Shareholders composition and Holder size, and the chip groups Holding
 // composition and Holder size switch their view with.
 import { cn } from "@workspace/ui/lib/utils"
+import type { StockCode } from "@workspace/relay"
 import { Effect } from "effect"
 import type { ReactNode } from "react"
 
@@ -87,7 +88,7 @@ export function MonthTabs({
   selected,
   onMonth,
 }: {
-  code: string
+  code: StockCode
   months: ReadonlyArray<{ readonly dataDate: string; readonly held: boolean }>
   selected: string
   onMonth: (dataDate: string) => void

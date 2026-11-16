@@ -5,6 +5,7 @@
 // holders and a table of the 9 KSEI investor types, each against the month
 // before. Table shows every month as a stacked column, then the types
 // holding ≥5% month by month.
+import type { StockCode } from "@workspace/relay"
 import { cn } from "@workspace/ui/lib/utils"
 import { Effect } from "effect"
 
@@ -63,7 +64,7 @@ const HEIGHT = 200
 type HeldMonth = HolderSizeMonth & { readonly holding: Holding }
 
 export type HolderSizeProps = {
-  code: string
+  code: StockCode
   months: ReadonlyArray<HolderSizeMonth>
   // The URL's `YYYY-MM`; a month the stock has no row in shows its newest.
   month: string | undefined
@@ -147,7 +148,7 @@ function Month({
   onOrigin,
   onDenominator,
 }: Shown & {
-  code: string
+  code: StockCode
   months: ReadonlyArray<HolderSizeMonth>
   selected: HeldMonth
 }) {
@@ -189,7 +190,7 @@ function Months({
   denominator,
   onOrigin,
   onDenominator,
-}: Shown & { code: string; months: ReadonlyArray<HolderSizeMonth> }) {
+}: Shown & { code: StockCode; months: ReadonlyArray<HolderSizeMonth> }) {
   const table = Effect.runSync(holderSizeTable(months, origin, denominator))
   return (
     <>
@@ -396,7 +397,7 @@ function Change({ change }: { change: number | undefined }) {
 
 // What the changes compare with, or why there are none.
 const comparison = (
-  code: string,
+  code: StockCode,
   months: ReadonlyArray<HolderSizeMonth>,
   index: number,
   origin: OriginShown
@@ -515,7 +516,7 @@ function AtLeast5Table({
   code,
   table,
 }: {
-  code: string
+  code: StockCode
   table: HolderSizeTable
 }) {
   if (table.atLeast5Types.length === 0)
