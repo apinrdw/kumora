@@ -1,14 +1,19 @@
 import { createFileRoute } from "@tanstack/react-router"
 import type { MarketPhase, StockCode } from "@workspace/relay"
+import { clientRuntime } from "@workspace/client"
 import { loadServerFn, runLoader } from "@workspace/server/loader"
 import { cn } from "@workspace/ui/lib/utils"
 import { Effect } from "effect"
-import { useCallback, useEffect, useMemo, useState } from "react"
+import { IconCamera, IconSearch } from "@tabler/icons-react"
+import { useCallback, useEffect, useMemo, useRef, useState } from "react"
 
 import { KButton } from "@/components/k/button"
 import { KEmptyState } from "@/components/k/empty-state"
+import { KInput } from "@/components/k/input"
 import { KSelect } from "@/components/k/select"
 import { BubbleCanvas } from "@/components/market-bubbles/bubble-canvas"
+import { MarketStripBar } from "@/components/market-bubbles/market-strip-bar"
+import { snapshotMap } from "@/components/market-bubbles/snapshot"
 import { useMarketFlow } from "@/components/market-bubbles/use-market-flow"
 import { useMarketPhase } from "@/components/market-live/market-conditions"
 import { useStockCodeList } from "@/components/market-live/use-stock-code-list"
@@ -125,8 +130,21 @@ function MarketBubblesPage() {
       void navigate({ to: "/market-live", search: { code } }),
     [navigate]
   )
-  const { flow, status } = useMarketFlow(today)
+  const { flow, status, ihsg } = useMarketFlow(today)
   const phase = useMarketPhase()
+  const [find, setFind] = useState("")
+  const map = useRef<HTMLDivElement>(null)
+  const snapshot = useCallback(() => {
+    const canvas = map.current?.querySelector("canvas")
+    if (canvas === null || canvas === undefined) return
+    clientRuntime.runFork(
+      snapshotMap(canvas, view, Date.now() + clockOffset).pipe(
+        Effect.catchTag("SnapshotFailed", (error) =>
+          Effect.logWarning("Snapshot not saved", error)
+        )
+      )
+    )
+  }, [view, clockOffset])
   const frame = useBubbleFrame(flow, view, phase, clockOffset)
   const list = useStockCodeList(undefined, today)
   const names = useMemo(
@@ -150,6 +168,13 @@ function MarketBubblesPage() {
         </div>
         <SessionLabel frame={frame} />
       </header>
+      <MarketStripBar
+        flow={flow}
+        ihsg={ihsg}
+        today={today}
+        phase={phase}
+        clockOffset={clockOffset}
+      />
       {status === "new-version" && (
         <div role="alert" className="flex items-center gap-3 text-[13px]">
           <span>
@@ -160,7 +185,14 @@ function MarketBubblesPage() {
           </KButton>
         </div>
       )}
-      <Controls view={view} onChange={change} frame={frame} />
+      <Controls
+        view={view}
+        onChange={change}
+        frame={frame}
+        find={find}
+        onFind={setFind}
+        onSnapshot={snapshot}
+      />
       {frame._tag === "Empty" ? (
         <KEmptyState
           kind="no-data"
@@ -169,13 +201,17 @@ function MarketBubblesPage() {
           className="mx-auto"
         />
       ) : (
-        <BubbleCanvas
-          bubbles={frame._tag === "Shown" ? frame.bubbles : []}
-          view={view}
-          names={names}
-          onPick={openLive}
-          className="h-[calc(100dvh-15rem)] min-h-[420px] border-t border-border"
-        />
+        // The snapshot reads the map's canvas from here.
+        <div ref={map}>
+          <BubbleCanvas
+            bubbles={frame._tag === "Shown" ? frame.bubbles : []}
+            view={view}
+            names={names}
+            search={find}
+            onPick={openLive}
+            className="h-[calc(100dvh-15rem)] min-h-[420px] border-t border-border"
+          />
+        </div>
       )}
     </div>
   )
@@ -195,10 +231,16 @@ function Controls({
   view,
   onChange,
   frame,
+  find,
+  onFind,
+  onSnapshot,
 }: {
   view: BubbleView
   onChange: (patch: MarketBubblesSearch) => void
   frame: Frame
+  find: string
+  onFind: (find: string) => void
+  onSnapshot: () => void
 }) {
   return (
     <div className="flex flex-wrap items-end gap-x-3 gap-y-2 text-xs">
@@ -233,11 +275,31 @@ function Controls({
         value={view.top}
         onPick={(top) => onChange({ top })}
       />
+      <KInput
+        type="search"
+        label="Find a stock code"
+        hideLabel
+        icon={IconSearch}
+        placeholder="Find a code"
+        value={find}
+        onChange={(event) => onFind(event.target.value)}
+        className="w-36"
+      />
       {frame._tag === "Shown" && (
         <span className="pb-2 text-muted-foreground">
           {frame.bubbles.length} codes
         </span>
       )}
+      <KButton
+        variant="secondary"
+        size="sm"
+        icon={IconCamera}
+        onClick={onSnapshot}
+        disabled={frame._tag !== "Shown"}
+        className="ml-auto"
+      >
+        Snapshot
+      </KButton>
     </div>
   )
 }

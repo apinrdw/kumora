@@ -14,20 +14,18 @@ const PAGE = "/market-bubbles"
 
 test.use({ storageState: MEMBER.storageState })
 
-// The largest bubble's centre in the viewport, once it is `code`'s and the
-// layout has about stopped moving it.
-async function largestBubble(canvas: Locator, code: string) {
-  await expect(canvas).toHaveAttribute("data-largest", code)
+// The viewport point of a canvas centre the `attribute` names, once the
+// layout has about stopped moving it: within 2 px of where it was a poll ago.
+async function settledAt(canvas: Locator, attribute: string) {
   let last: string | null = null
-  // Settled: within 2 px of where it was a poll ago.
   await expect
     .poll(
       async () => {
-        const at = await canvas.getAttribute("data-largest-at")
+        const at = await canvas.getAttribute(attribute)
         const [x = 0, y = 0] = (at ?? "").split(",").map(Number)
         const [px = 1e9, py = 1e9] = (last ?? "").split(",").map(Number)
         last = at
-        return Math.hypot(x - px, y - py) <= 2
+        return at !== null && Math.hypot(x - px, y - py) <= 2
       },
       { intervals: [300], timeout: 15_000 }
     )
@@ -36,6 +34,19 @@ async function largestBubble(canvas: Locator, code: string) {
   const box = (await canvas.boundingBox())!
   return { x: box.x + x!, y: box.y + y! }
 }
+
+// The largest bubble's centre in the viewport, once it is `code`'s and the
+// layout has about stopped moving it.
+async function largestBubble(canvas: Locator, code: string) {
+  await expect(canvas).toHaveAttribute("data-largest", code)
+  return settledAt(canvas, "data-largest-at")
+}
+
+// A PNG's width and height, from its IHDR chunk.
+const pngSize = (png: Buffer) => ({
+  width: png.readUInt32BE(16),
+  height: png.readUInt32BE(20),
+})
 
 // A 1 × 1 PNG, answered for every logo.
 const LOGO = Buffer.from(
@@ -172,4 +183,91 @@ test("a large bubble draws its logo from the dashboard's own origin, and the map
       )
   )
   expect(exported).toMatch(/^data:image\/png;base64,/)
+})
+
+test("search rings a code without moving the map, a drag lets it go home, and the snapshot saves the map with its caption", async ({
+  page,
+}) => {
+  await page.setViewportSize({ width: 1600, height: 1000 })
+  await page.goto(`${DASHBOARD}${PAGE}`)
+  await expect(page.locator('[data-flow="live"]')).toHaveCount(1)
+
+  // Big enough to hover and drag, yet smaller than the first test's code,
+  // which leads the map: this test finds its code by search, not by size.
+  const code = freshCode("BS")
+  const relay = await openIngest()
+  await relay.sendAjaib([
+    ajaibTradeToday({
+      seq: freshTradeNumbers() + 1,
+      time: wibTime(marketNow()),
+      ticker: code,
+      price: 50_000,
+      lot: 50_000,
+    }),
+  ])
+  relay.close()
+
+  // The header strip counts the day so far.
+  const strip = page.getByRole("group", { name: "Market figures" })
+  await expect(strip.getByLabel("Value")).toContainText("Rp")
+  await expect(strip.getByLabel("Market clock")).toContainText("WIB")
+
+  const canvas = page.getByRole("img", { name: /^Market Bubbles:/ })
+  await expect(canvas).toHaveAttribute("data-matches", "0")
+  await settledAt(canvas, "data-largest-at")
+  const shown = await canvas.getAttribute("data-bubbles")
+  await page.getByRole("searchbox", { name: "Find a stock code" }).fill(code)
+  await expect(canvas).toHaveAttribute("data-matches", "1")
+  // Search only highlights: every bubble stays on the map.
+  expect(await canvas.getAttribute("data-bubbles")).toBe(shown)
+  const found = await settledAt(canvas, "data-match-at")
+
+  // Hovering shows its figures; its bubble grows without moving away from
+  // under the pointer, so the tooltip stays.
+  await page.mouse.move(found.x, found.y)
+  const tip = page.getByRole("tooltip", { name: `${code} figures` })
+  await expect(tip).toBeVisible()
+  await page.waitForTimeout(1000)
+  await expect(tip).toBeVisible()
+
+  // A drag holds it under the pointer, opens nothing, and on release it eases
+  // back toward the cluster.
+  await page.mouse.down()
+  const to = { x: found.x - 240, y: found.y + 60 }
+  await page.mouse.move(to.x, to.y, { steps: 12 })
+  await expect
+    .poll(async () => {
+      const box = (await canvas.boundingBox())!
+      const [x = 0, y = 0] = (await canvas.getAttribute("data-match-at"))!
+        .split(",")
+        .map(Number)
+      return Math.hypot(box.x + x - to.x, box.y + y - to.y)
+    })
+    .toBeLessThan(3)
+  await expect(page.getByRole("tooltip")).toHaveCount(0)
+  await page.mouse.up()
+  const home = await settledAt(canvas, "data-match-at")
+  expect(Math.hypot(home.x - to.x, home.y - to.y)).toBeGreaterThan(60)
+  await expect(page).toHaveURL(`${DASHBOARD}${PAGE}`)
+
+  // The snapshot: the canvas at its pixel ratio, with the caption strip
+  // under it, named for the time in WIB.
+  const ratio = await page.evaluate(() => Math.min(2, window.devicePixelRatio))
+  const box = (await canvas.boundingBox())!
+  const saved = page.waitForEvent("download")
+  await page.getByRole("button", { name: "Snapshot" }).click()
+  const download = await saved
+  expect(download.suggestedFilename()).toMatch(
+    /^market-bubbles-\d{8}-\d{6}\.png$/
+  )
+  const chunks: Array<Buffer> = []
+  for await (const chunk of await download.createReadStream())
+    chunks.push(chunk as Buffer)
+  const png = Buffer.concat(chunks)
+  expect(png.subarray(1, 4).toString()).toBe("PNG")
+  const size = pngSize(png)
+  expect(size.width).toBe(Math.round(box.width * ratio))
+  expect(size.height).toBe(
+    Math.round(box.height * ratio) + Math.round(34 * ratio)
+  )
 })

@@ -7,6 +7,7 @@ import {
 import {
   MarketLivePath,
   ViewerProtocolVersion,
+  type ViewerDown,
   type ViewerUp,
   type WibDate,
 } from "@workspace/relay"
@@ -38,10 +39,11 @@ import {
 // every code's changed candles and the whole tape whatever is selected, and
 // an index has no book or sweeps to send; the header strip reads IHSG's Day
 // state from it (spec apinrdw/kumora#427, "The header strip").
+const IHSG = StockCode.make("IHSG")
 const SELECT: ViewerUp = {
   _tag: "Select",
   protocolVersion: ViewerProtocolVersion,
-  selected: StockCode.make("IHSG"),
+  selected: IHSG,
   watchlist: [],
 }
 
@@ -50,6 +52,18 @@ const BACKFILL_RETRY = Schedule.spaced("15 seconds")
 // `live` once a snapshot came; `new-version` when the Worker runs a newer
 // viewer protocol and the page must reload.
 export type FlowStatus = "connecting" | "live" | "new-version"
+
+interface FlowListeners {
+  readonly setStatus: (status: FlowStatus) => void
+  // IHSG's last price, each time a message carries its Day state.
+  readonly setIhsg: (last: number) => void
+}
+
+const noteIhsg = (message: ViewerDown, setIhsg: (last: number) => void) =>
+  Effect.sync(() => {
+    const state = message.dayStates?.find(({ code }) => code === IHSG)
+    if (state !== undefined) setIhsg(state.last)
+  })
 
 // The backfill of `today` into `flow`; none once the day is sealed. A failed
 // ask retries; a 401 sends the visitor to sign in and back.
@@ -75,7 +89,7 @@ const followMarketFlow = Effect.fnUntraced(
   function* (
     flow: MarketFlow,
     today: WibDate,
-    setStatus: (status: FlowStatus) => void
+    { setStatus, setIhsg }: FlowListeners
   ) {
     const scheme = window.location.protocol === "https:" ? "wss" : "ws"
     const select = yield* SubscriptionRef.make(SELECT)
@@ -87,6 +101,7 @@ const followMarketFlow = Effect.fnUntraced(
     yield* Stream.runForEach(messages, (message) =>
       Effect.gen(function* () {
         yield* applyConditions(message)
+        yield* noteIhsg(message, setIhsg)
         yield* applyTrades(flow, message.tape)
         if (message._tag === "Delta")
           return yield* applyCandles(flow, message.candles)
@@ -95,7 +110,7 @@ const followMarketFlow = Effect.fnUntraced(
       })
     )
   },
-  (effect, _flow, _today, setStatus) =>
+  (effect, _flow, _today, { setStatus }) =>
     effect.pipe(
       Effect.catchTags({
         SignInRequired: () => signInAgain,
@@ -104,16 +119,19 @@ const followMarketFlow = Effect.fnUntraced(
     )
 )
 
-// The live day's market flow, and the socket's status.
+// The live day's market flow, the socket's status, and IHSG's last price;
+// none before its first Day state.
 export function useMarketFlow(today: WibDate): {
   readonly flow: MarketFlow
   readonly status: FlowStatus
+  readonly ihsg: number | undefined
 } {
   const [flow] = useState(() => Effect.runSync(makeMarketFlow()))
   const [status, setStatus] = useState<FlowStatus>("connecting")
+  const [ihsg, setIhsg] = useState<number | undefined>(undefined)
   useEffect(() => {
     const fiber = clientRuntime.runFork(
-      followMarketFlow(flow, today, setStatus)
+      followMarketFlow(flow, today, { setStatus, setIhsg })
     )
     return () => {
       clientRuntime.runFork(
@@ -121,5 +139,5 @@ export function useMarketFlow(today: WibDate): {
       )
     }
   }, [flow, today])
-  return { flow, status }
+  return { flow, status, ihsg }
 }
