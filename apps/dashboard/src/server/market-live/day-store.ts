@@ -211,6 +211,9 @@ export const Fact = {
   // Set with the first walk trades a day with no relay tape stored as its
   // tape (trading-day.ts): the day's tape is the walks'.
   walkTape: "walk-tape",
+  // The day's broker totals build (broker-totals.ts): BROKER_TOTALS_DUE once
+  // the sealed day is complete, then the build version that wrote them.
+  brokerTotals: "broker-totals",
 } as const
 
 export const BROKER_TRADES_BUILT = "built"
@@ -488,6 +491,8 @@ export const makeDayStore = (sql: Sql) =>
     const markSweepBrokersBuilt = Effect.sync(() =>
       insertFact(Fact.sweepBrokersBuilt, SWEEP_BROKERS_BUILT)
     )
+    const markBrokerTotals = (value: string) =>
+      Effect.sync(() => insertFact(Fact.brokerTotals, value))
 
     // One minute of a sweep brokers recompute (sweep-brokers.ts), metering
     // the rows it read.
@@ -963,6 +968,7 @@ export const makeDayStore = (sql: Sql) =>
       sweepBrokerMinute,
       writeSweepBrokers,
       markSweepBrokersBuilt,
+      markBrokerTotals,
       orderFlowMinutes,
       minuteTrades,
       minutesOfTrades,

@@ -5,12 +5,7 @@
 import { WorkerEnv } from "@workspace/server"
 import { Context, Effect, Layer, Schema } from "effect"
 
-export type SqlValue = string | number | null
-
-export interface Statement {
-  readonly sql: string
-  readonly params: ReadonlyArray<SqlValue>
-}
+import { d1Batch, type D1Binding, type Statement } from "../d1.ts"
 
 export class HoldingsDbError extends Schema.TaggedError<HoldingsDbError>()(
   "HoldingsDbError",
@@ -31,34 +26,12 @@ export class HoldingsDb extends Context.Service<
   }
 >()("dashboard/holdings/HoldingsDb") {}
 
-// The binding's members this layer uses, over its own statement type. The
-// tests' typecheck has no Workers types; D1Database meets this shape under
-// them.
-interface D1Binding<Prepared> {
-  readonly prepare: (query: string) => {
-    readonly bind: (...values: Array<unknown>) => Prepared
-  }
-  readonly batch: (
-    statements: Array<Prepared>
-  ) => Promise<ReadonlyArray<{ readonly results: ReadonlyArray<unknown> }>>
-}
-
 const overD1 = <Prepared>(db: D1Binding<Prepared>) =>
   HoldingsDb.of({
     batch: (statements) =>
-      Effect.tryPromise({
-        try: () =>
-          db.batch(
-            statements.map(({ sql, params }) => db.prepare(sql).bind(...params))
-          ),
-        catch: (cause) => new HoldingsDbError({ cause }),
-      }).pipe(
-        Effect.map((results) =>
-          results.map(
-            ({ results: rows }) =>
-              rows as ReadonlyArray<Record<string, unknown>>
-          )
-        )
+      Effect.map(
+        d1Batch(db, statements, (cause) => new HoldingsDbError({ cause })),
+        ({ rows }) => rows
       ),
   })
 

@@ -8,6 +8,7 @@ import {
   BrokerCode,
   BrokerCodesProtocolVersion,
   MISSING_RANGES,
+  StockCode,
   TradeNumber,
   brokerCodesAfter,
   decodeBrokerCodesBatch,
@@ -237,6 +238,15 @@ interface Merged {
 export type HeldCodes = (
   tradeNumbers: ReadonlyArray<TradeNumber>
 ) => Effect.Effect<ReadonlyArray<readonly [TradeNumber, TradeCodes]>>
+
+// A trade the day holds codes and fields for.
+interface HeldTrade {
+  readonly code: StockCode
+  readonly price: number
+  readonly lots: number
+  readonly board: string
+  readonly codes: TradeCodes
+}
 
 // What else a batch that changed codes writes, worked out from the codes as
 // the batch leaves them: `changed` lists the trades whose codes it changed,
@@ -533,31 +543,35 @@ export const makeBrokerCodes = Effect.fnUntraced(function* (options: {
   // Decision: a batch's fields land only for the trades the tape lacks as
   // it is written, in the codes' transaction: one statement over the rows,
   // checked against one range read of the tape's numbers the batch spans.
-  // A trade already in walk_trades keeps its first row.
+  // A trade already in walk_trades keeps its first row. Whether it filled
+  // any trade's fields.
   const writeFields = (fields: Merged["fields"]) => {
-    if (fields.length === 0) return
+    if (fields.length === 0) return false
     let low = Number.MAX_SAFE_INTEGER
     let high = 0
     for (const [number] of fields) {
       low = Math.min(low, number)
       high = Math.max(high, number)
     }
-    sql.exec(
+    const filled = sql.exec(
       `INSERT OR IGNORE INTO walk_trades (number, code, price, lots, board)
       SELECT row.value ->> 0, row.value ->> 1, row.value ->> 2,
         row.value ->> 3, row.value ->> 4
       FROM json_each(?) AS row
       WHERE row.value ->> 0 NOT IN
-        (SELECT number FROM trades WHERE number BETWEEN ? AND ?)`,
+        (SELECT number FROM trades WHERE number BETWEEN ? AND ?)
+      RETURNING number`,
       JSON.stringify(fields),
       low,
       high
     )
+    return filled.length > 0
   }
 
-  // A batch's writes, to run inside a transaction.
-  const writesOf = (merged: Merged) => () => {
-    writeFields(merged.fields)
+  // A batch's writes, to run inside a transaction; `filled` runs when they
+  // filled a trade's fields.
+  const writesOf = (merged: Merged, filled: () => void) => () => {
+    if (writeFields(merged.fields)) filled()
     for (const [chunk, codes] of merged.chunks)
       sql.exec(
         "INSERT OR REPLACE INTO broker_code_chunks VALUES (?, ?)",
@@ -607,7 +621,10 @@ export const makeBrokerCodes = Effect.fnUntraced(function* (options: {
     alongside: Alongside
   ) {
     const merged = yield* merge(batch)
-    const writeCodes = writesOf(merged)
+    let filled = false
+    const writeCodes = writesOf(merged, () => {
+      filled = true
+    })
     if (merged.changed.length === 0)
       yield* Effect.sync(() => sql.transaction(writeCodes))
     else
@@ -617,6 +634,9 @@ export const makeBrokerCodes = Effect.fnUntraced(function* (options: {
         writeCodes
       )
     keptCodesComplete = undefined
+    // Whether the batch corrected the day: changed a trade's kept codes or
+    // filled its fields.
+    return merged.changed.length > 0 || filled
   })
 
   // One trade's record, its chunk read once into `chunks`; none when the day
@@ -815,23 +835,69 @@ export const makeBrokerCodes = Effect.fnUntraced(function* (options: {
     (each) => each.day.complete
   )
 
+  // Decision: a held trade's fields are the tape's, else its walk row's: the
+  // tape can gain a trade after a walk row was stored for it, and walk rows
+  // are never deleted. See apinrdw/kumora#425.
+  const FIELDS_BETWEEN = `SELECT number, code, price, lots, board FROM trades
+    WHERE number BETWEEN ? AND ?
+    UNION ALL
+    SELECT number, code, price, lots, board FROM walk_trades
+    WHERE number BETWEEN ? AND ?
+      AND number NOT IN (SELECT number FROM trades WHERE number BETWEEN ? AND ?)
+    ORDER BY number`
+
+  // The trades of the SCAN_PAGE chunks after chunk `after` that the day
+  // holds codes and fields for, in trade number order, and the last chunk
+  // read; none past the last chunk.
+  const heldTradesPage = Effect.fnUntraced(function* (after: number) {
+    const rows = yield* Effect.sync(() =>
+      sql.exec(
+        "SELECT chunk, codes FROM broker_code_chunks WHERE chunk > ? ORDER BY chunk LIMIT ?",
+        after,
+        SCAN_PAGE
+      )
+    )
+    if (rows.length === 0) return undefined
+    const chunks = new Map(
+      rows.map((row) => [Number(row.chunk), row.codes as Uint8Array])
+    )
+    const last = Number(rows.at(-1)!.chunk)
+    const span = [Number(rows[0]!.chunk) * CHUNK + 1, (last + 1) * CHUNK]
+    const fields = yield* Effect.sync(() =>
+      sql.exec(FIELDS_BETWEEN, ...span, ...span, ...span)
+    )
+    const trades: Array<HeldTrade> = []
+    for (const row of fields) {
+      const { chunk, at } = yield* placeOf(Number(row.number))
+      const record = chunks.get(chunk)?.subarray(at, at + RECORD)
+      if (record === undefined || !record[SOURCE]) continue
+      trades.push({
+        code: StockCode.make(String(row.code)),
+        price: Number(row.price),
+        lots: Number(row.lots),
+        board: String(row.board),
+        codes: yield* codesOf(record),
+      })
+    }
+    return { trades, last }
+  })
+
   // A POSTed batch: 200 once `taken` took it, it is written with what
   // `alongside` writes for it and `written` has run, else as `checkedBatch`
   // refuses it. `written` runs after every accepted batch, one that changed
-  // no codes included.
+  // no codes included, and hears whether the batch corrected the day.
   const post = Effect.fnUntraced(function* (
     text: string,
     hooks: {
       readonly taken: (batch: BrokerCodesBatch) => Effect.Effect<void>
       readonly alongside: Alongside
-      readonly written: Effect.Effect<void>
+      readonly written: (corrected: boolean) => Effect.Effect<void>
     }
   ) {
     const batch = yield* checkedBatch(text, options.date)
     if (batch instanceof Response) return batch
     yield* hooks.taken(batch)
-    yield* write(batch, hooks.alongside)
-    yield* hooks.written
+    yield* hooks.written(yield* write(batch, hooks.alongside))
     return yield* noStoreAnswer(200)
   })
 
@@ -915,6 +981,7 @@ export const makeBrokerCodes = Effect.fnUntraced(function* (options: {
     heldCodes,
     codesComplete,
     complete,
+    heldTradesPage,
     holdsNone,
     indexBuilt,
     indexPage,

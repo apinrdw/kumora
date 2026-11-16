@@ -16,6 +16,7 @@ import {
 } from "@workspace/server"
 import { Clock, DateTime, Effect, Layer, Option, Schema, Scope } from "effect"
 
+import { brokerTotalsDbD1 } from "../broker-totals/db.ts"
 import { durableSql } from "./durable-sql.ts"
 import { marketClockOffset, withMarketClock } from "./market-clock.ts"
 import type { CodeListStore } from "./code-list.ts"
@@ -297,6 +298,7 @@ export class TradingDayObject {
                 void ctx.storage.setAlarm(DateTime.toEpochMillis(at) - offset)
             ),
           recordDay,
+          brokerTotalsDb: brokerTotalsDbD1,
         })
       )
       return { day, peerFor }
@@ -317,7 +319,8 @@ export class TradingDayObject {
   // gated and the relay's tagged with the instant on Market Live's clock its
   // token deadline counts from; answers the sessions a user still holds
   // (live-viewers.ts) and the recorded day GETs, also gated; and takes the
-  // broker codes route's batches and status GETs, their token checked.
+  // broker codes route's batches and status GETs, their token checked, and
+  // the reconcile cron's pokes.
   fetch(request: Request): Response | Promise<Response> {
     const url = new URL(request.url)
     const { pathname } = url
@@ -348,6 +351,16 @@ export class TradingDayObject {
         )
       )
     }
+    // The reconcile cron's poke: 202 when the day will build, else 204.
+    if (pathname === ObjectPath.brokerTotals)
+      return respond(
+        withMarketClock(
+          Effect.map(
+            this.day.brokerTotals.reconcile,
+            (builds) => new Response(null, { status: builds ? 202 : 204 })
+          )
+        )
+      )
     if (pathname === ObjectPath.ingest) {
       const { ctx, day } = this
       return respond(
