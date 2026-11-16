@@ -1,0 +1,221 @@
+<title>Broker Inventory Prototype</title>
+<meta name="claude:viewport-fit-sides" content="cover">
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600&family=JetBrains+Mono:wght@400;500&display=swap">
+<style>
+/* Layout: three placements of the same broker inventory chart and broker summary, one shown at a time, switched from a floating bar. Tokens follow the dashboard's shadcn neutrals. */
+:root {
+  --bg: oklch(0.985 0.002 197); --panel: oklch(1 0 0); --fg: oklch(0.148 0.004 228.8);
+  --muted: oklch(0.56 0.021 213.5); --border: oklch(0.91 0.005 214.3); --soft: oklch(0.963 0.002 197.1);
+  --buy: oklch(0.58 0.15 155); --sell: oklch(0.58 0.19 25); --gap: oklch(0.6 0.02 214 / 0.14);
+  --bar-bg: oklch(0.22 0.01 224); --bar-fg: oklch(0.98 0 0); --warn: oklch(0.62 0.14 75);
+  --font: "Inter", system-ui, sans-serif; --mono: "JetBrains Mono", ui-monospace, monospace;
+}
+@media (prefers-color-scheme: dark) { :root:not([data-theme="light"]) {
+  --bg: oklch(0.148 0.004 228.8); --panel: oklch(0.19 0.006 224); --fg: oklch(0.96 0.003 197);
+  --muted: oklch(0.70 0.014 214.4); --border: oklch(1 0 0 / 10%); --soft: oklch(0.24 0.009 220);
+  --buy: oklch(0.72 0.15 155); --sell: oklch(0.70 0.17 25); --gap: oklch(0.8 0.02 214 / 0.10);
+  --bar-bg: oklch(0.93 0.005 214); --bar-fg: oklch(0.15 0.004 228); --warn: oklch(0.78 0.13 80); color-scheme: dark } }
+:root[data-theme="dark"] {
+  --bg: oklch(0.148 0.004 228.8); --panel: oklch(0.19 0.006 224); --fg: oklch(0.96 0.003 197);
+  --muted: oklch(0.70 0.014 214.4); --border: oklch(1 0 0 / 10%); --soft: oklch(0.24 0.009 220);
+  --buy: oklch(0.72 0.15 155); --sell: oklch(0.70 0.17 25); --gap: oklch(0.8 0.02 214 / 0.10);
+  --bar-bg: oklch(0.93 0.005 214); --bar-fg: oklch(0.15 0.004 228); --warn: oklch(0.78 0.13 80); color-scheme: dark }
+* { box-sizing: border-box }
+body { background: var(--bg); color: var(--fg); font-family: var(--font); font-size: 13px;
+  padding-left: max(16px, env(safe-area-inset-left, 0px)); padding-right: max(16px, env(safe-area-inset-right, 0px)); padding-block: 12px 96px }
+.num { font-family: var(--mono); font-variant-numeric: tabular-nums }
+.proto-note { font-size: 12px; color: var(--muted); border: 1px dashed var(--border); border-radius: 6px; padding: 8px 10px; margin-bottom: 12px; line-height: 1.5 }
+.proto-note b { color: var(--fg) }
+.shell { display: grid; grid-template-columns: 180px minmax(0,1fr); gap: 16px }
+.side { border: 1px solid var(--border); border-radius: 8px; background: var(--panel); padding: 10px; display: flex; flex-direction: column; gap: 4px; align-self: start }
+.side a { color: var(--muted); text-decoration: none; padding: 5px 8px; border-radius: 5px }
+.side a.on { background: var(--soft); color: var(--fg); font-weight: 500 }
+.panel { border: 1px solid var(--border); border-radius: 8px; background: var(--panel); min-width: 0 }
+.ph { display: flex; flex-wrap: wrap; align-items: center; gap: 8px; padding: 8px 10px; border-bottom: 1px solid var(--border) }
+.ph h3 { margin: 0; font-size: 13px; font-weight: 600 }
+.ph .sp { flex: 1 }
+.seg { display: inline-flex; border: 1px solid var(--border); border-radius: 6px; padding: 2px; gap: 2px; background: var(--soft) }
+.seg button { border: 0; background: none; color: var(--muted); font: inherit; font-size: 12px; padding: 3px 8px; border-radius: 4px; cursor: pointer }
+.seg button.on { background: var(--panel); color: var(--fg); box-shadow: 0 1px 2px oklch(0 0 0 / .12) }
+.pick { display: inline-flex; gap: 6px; align-items: center; font-size: 12px; color: var(--muted) }
+.pick input { font: inherit; font-size: 12px; background: var(--soft); color: var(--fg); border: 1px solid var(--border); border-radius: 5px; padding: 3px 6px }
+.chip { display: inline-flex; align-items: center; gap: 5px; border: 1px solid var(--border); border-radius: 999px; padding: 2px 8px 2px 6px; font-size: 12px; cursor: pointer; background: var(--panel); color: var(--fg) }
+.chip .dot { width: 8px; height: 8px; border-radius: 50% }
+.chip.off { opacity: .4 }
+.chips { display: flex; flex-wrap: wrap; gap: 6px; padding: 8px 10px }
+.pending { font-size: 11px; color: var(--warn) }
+svg text { fill: var(--muted); font-family: var(--mono); font-size: 10px }
+.tbl-wrap { overflow-x: auto }
+table { border-collapse: collapse; width: 100%; font-size: 12px }
+th, td { padding: 4px 8px; text-align: right; white-space: nowrap; border-bottom: 1px solid var(--border) }
+th { color: var(--muted); font-weight: 500; position: sticky; top: 0; background: var(--panel) }
+th:first-child, td:first-child { text-align: left }
+tr.plotted td:first-child { font-weight: 600 }
+tbody tr { cursor: pointer }
+tbody tr:hover { background: var(--soft) }
+.pos { color: var(--buy) } .neg { color: var(--sell) }
+.tag { font-size: 10px; color: var(--muted); margin-left: 4px }
+.swatch { display: inline-block; width: 8px; height: 8px; border-radius: 2px; margin-right: 6px; vertical-align: 0 }
+/* Variant A: Market Live */
+.ml { display: grid; grid-template-columns: minmax(0,1fr) 360px; gap: 16px }
+.ml-head { display: flex; flex-wrap: wrap; gap: 12px; align-items: baseline; margin-bottom: 12px }
+.ml-head .code { font-size: 18px; font-weight: 600 }
+.ml-tabs { display: flex; gap: 2px }
+.ghost { height: 150px; display: grid; place-items: center; color: var(--muted); font-size: 12px; background: repeating-linear-gradient(135deg, transparent 0 8px, var(--soft) 8px 9px) }
+/* Variant B: stock page */
+.sp-head { display: flex; flex-wrap: wrap; align-items: baseline; gap: 10px; margin-bottom: 12px }
+.sp-head .code { font-size: 22px; font-weight: 600 }
+.sp-tabs { display: flex; gap: 16px; border-bottom: 1px solid var(--border); margin-bottom: 16px }
+.sp-tabs span { padding: 8px 0; color: var(--muted) } .sp-tabs span.on { color: var(--fg); border-bottom: 2px solid var(--fg); font-weight: 500 }
+.stack { display: flex; flex-direction: column; gap: 16px }
+/* Variant C: workbench */
+.wb { display: grid; grid-template-columns: 330px minmax(0,1fr); gap: 16px }
+.div-list { display: flex; flex-direction: column }
+.div-row { display: grid; grid-template-columns: 22px 34px minmax(0,1fr) 64px; gap: 6px; align-items: center; padding: 3px 10px; cursor: pointer }
+.div-row:hover { background: var(--soft) }
+.div-row .bar { position: relative; height: 12px }
+.div-row .bar::before { content: ""; position: absolute; left: 50%; top: -3px; bottom: -3px; border-left: 1px solid var(--border) }
+.div-row .bar i { position: absolute; top: 0; bottom: 0; border-radius: 2px }
+.div-row input { margin: 0 }
+.agg-row { font-style: italic }
+.detail { padding: 10px; display: grid; grid-template-columns: repeat(auto-fit, minmax(110px, 1fr)); gap: 10px; border-top: 1px solid var(--border) }
+.detail div { display: flex; flex-direction: column; gap: 2px } .detail small { color: var(--muted) }
+/* Switcher */
+.switcher { position: fixed; left: 50%; transform: translateX(-50%); bottom: calc(16px + env(safe-area-inset-bottom, 0px)); display: flex; align-items: center; gap: 4px;
+  background: var(--bar-bg); color: var(--bar-fg); border-radius: 999px; padding: 4px; box-shadow: 0 6px 24px oklch(0 0 0 / .3); z-index: 20; max-width: calc(100% - 32px) }
+.switcher button { background: none; border: 0; color: inherit; font: inherit; font-size: 16px; width: 32px; height: 32px; border-radius: 50%; cursor: pointer }
+.switcher button:hover, .switcher button:focus-visible { background: oklch(0.5 0 0 / .25); outline: none }
+.switcher span { font-size: 12px; font-weight: 500; padding: 0 8px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis }
+@media (max-width: 900px) { .shell, .ml, .wb { grid-template-columns: minmax(0,1fr) } .side { display: none } }
+</style>
+
+<div class="proto-note"><b>PROTOTYPE, throwaway.</b> Mock data for BBCA, 6 Oct to 14 Nov 2026. It answers one question: where should the broker inventory chart and broker summary live, and how should they look? Two days (21 Oct and 4 Nov) are incomplete gaps that the running sum carries across. Click a broker in any summary to add or remove its line. Use ← → or the bar below to switch variants.</div>
+<div id="app"></div>
+<div class="switcher" role="navigation" aria-label="Prototype variants">
+  <button id="prev" aria-label="Previous variant">‹</button><span id="vlabel"></span><button id="next" aria-label="Next variant">›</button>
+</div>
+
+<script>
+// ---------- mock data ----------
+let seed = 7; const rnd = () => (seed = (seed * 16807) % 2147483647) / 2147483647;
+const days = []; for (let d = new Date(Date.UTC(2026,9,6)); d <= new Date(Date.UTC(2026,10,14)); d.setUTCDate(d.getUTCDate()+1)) { const w = d.getUTCDay(); if (w && w < 6) days.push(d.toISOString().slice(0,10)) }
+const GAPS = new Set(["2026-10-21","2026-11-04"]);
+const BROKERS = [["YP",.05,1.6,.9],["PD",.05,1.2,-.6],["CC",.1,1.1,.3],["KZ",.85,1.4,1.1],["AK",.9,1.8,-1.3],["BK",.9,1.3,.8],["ZP",.9,1.5,-.9],["RX",.85,1.0,.7],["CS",.9,.9,-.5],["DX",.8,.7,.4],["NI",.1,.8,-.4],["LG",.1,.7,.2],["MG",.1,.9,-.3],["XL",.05,1.0,.1],["KK",.1,.6,-.2],["SQ",.2,.5,.3],["GR",.1,.4,-.1],["OD",.1,.5,.15],["BB",.05,.4,-.15],["YU",.1,.6,.05]];
+const price = []; let p = 9400; for (const _ of days) { p = Math.round((p + (rnd()-.48)*160)/25)*25; price.push(p) }
+// per day per broker {buy, sell, buyVal, sellVal}; nets sum to zero each day
+const flow = days.map((day, i) => {
+  if (GAPS.has(day)) return null;
+  const buys = BROKERS.map(([, , v, bias]) => Math.max(200, Math.round(v * 9000 * (0.6 + rnd()) * (1 + bias * .25))));
+  const sells0 = BROKERS.map(([, , v, bias]) => Math.max(200, v * 9000 * (0.6 + rnd()) * (1 - bias * .25)));
+  const tb = buys.reduce((a,b)=>a+b,0), ts = sells0.reduce((a,b)=>a+b,0);
+  return BROKERS.map(([code,f], k) => { const sell = Math.round(sells0[k] * tb / ts); const bp = price[i] + Math.round((rnd()-.5)*4)*25, sp = price[i] + Math.round((rnd()-.5)*4)*25;
+    return { code, f, buy: buys[k], sell, buyVal: buys[k]*100*bp, sellVal: sell*100*sp } });
+});
+const PALETTE = ["#2f9e6a","#3b82c4","#c7862a","#8b5cc4","#c4497a","#d4543a","#5f7f1e","#2aa1a8","#7a6a55","#b34fb0"];
+const state = { measure: "lots", start: days[0], end: days[days.length-1], plotted: null, focus: null, variant: "a" };
+
+function summary() {
+  const s = Object.fromEntries(BROKERS.map(([c,f]) => [c, { code: c, f, buy: 0, sell: 0, buyVal: 0, sellVal: 0 }]));
+  days.forEach((d, i) => { if (d < state.start || d > state.end || !flow[i]) return; for (const r of flow[i]) { const t = s[r.code]; t.buy += r.buy; t.sell += r.sell; t.buyVal += r.buyVal; t.sellVal += r.sellVal } });
+  return Object.values(s).map(t => ({ ...t, net: t.buy - t.sell, netVal: t.buyVal - t.sellVal, avgBuy: t.buyVal/(t.buy*100), avgSell: t.sellVal/(t.sell*100) })).sort((a,b) => b.net - a.net);
+}
+function defaultPlotted(rows) { return [...rows.slice(0,5), ...rows.slice(-5)].map(r => r.code) }
+function inRange() { return days.map((d,i) => ({ d, i })).filter(x => x.d >= state.start && x.d <= state.end) }
+function series(code) { // cumulative per day; gap days carry the sum and are flagged
+  let acc = 0; return inRange().map(({ d, i }) => { const f = flow[i]; if (!f) return { d, v: acc, gap: true };
+    let n = 0; for (const r of f) { const m = state.measure === "lots" ? r.buy - r.sell : r.buyVal - r.sellVal;
+      if (code === "FOREIGN") n += m * r.f; else if (code === "DOMESTIC") n += m * (1 - r.f); else if (r.code === code) n += m }
+    acc += n; return { d, v: acc, gap: false } });
+}
+const colorOf = code => code === "FOREIGN" ? "var(--fg)" : code === "DOMESTIC" ? "var(--muted)" : PALETTE[(state.plotted.indexOf(code) % PALETTE.length + PALETTE.length) % PALETTE.length];
+const fmt = (v, m = state.measure) => { const a = Math.abs(v), s = v < 0 ? "−" : v > 0 ? "+" : "";
+  if (m === "value") return s + (a >= 1e12 ? (a/1e12).toFixed(2)+" T" : (a/1e9).toFixed(1)+" B"); return s + (a >= 1e6 ? (a/1e6).toFixed(2)+" M" : a >= 1e3 ? (a/1e3).toFixed(1)+" K" : a.toFixed(0)) };
+const fmtLots = v => v >= 1e6 ? (v/1e6).toFixed(2)+" M" : (v/1e3).toFixed(1)+" K";
+
+// ---------- chart ----------
+function chart(height, opts = {}) {
+  const W = 900, H = height, L = 56, R = 46, T = 12, B = 22;
+  const codes = [...state.plotted, ...(opts.noAgg ? [] : ["FOREIGN","DOMESTIC"])];
+  const all = codes.map(c => ({ c, s: series(c) })); const pts = all[0]?.s ?? [];
+  let lo = 0, hi = 0; for (const { s } of all) for (const x of s) { lo = Math.min(lo, x.v); hi = Math.max(hi, x.v) }
+  const pad = (hi - lo) * .06 || 1; lo -= pad; hi += pad;
+  const n = pts.length, x = i => L + (n <= 1 ? 0 : i * (W - L - R) / (n - 1)), y = v => T + (hi - v) * (H - T - B) / (hi - lo);
+  let g = "";
+  pts.forEach((p, i) => { if (p.gap) { const w = (W-L-R)/Math.max(1,n-1); g += `<rect x="${x(i)-w/2}" y="${T}" width="${w}" height="${H-T-B}" fill="var(--gap)"/><text x="${x(i)}" y="${T+10}" text-anchor="middle">incomplete</text>` } });
+  for (let k = 0; k <= 4; k++) { const v = lo + (hi - lo) * k / 4; g += `<line x1="${L}" x2="${W-R}" y1="${y(v)}" y2="${y(v)}" stroke="var(--border)"/><text x="${L-6}" y="${y(v)+3}" text-anchor="end">${fmt(v)}</text>` }
+  g += `<line x1="${L}" x2="${W-R}" y1="${y(0)}" y2="${y(0)}" stroke="var(--muted)" stroke-width="1"/>`;
+  pts.forEach((p, i) => { if (i % Math.ceil(n / 8) === 0) g += `<text x="${x(i)}" y="${H-6}" text-anchor="middle">${p.d.slice(5).replace("-","/")}</text>` });
+  for (const { c, s } of all) { const col = colorOf(c), agg = c === "FOREIGN" || c === "DOMESTIC", focus = state.focus && state.focus !== c ? .25 : 1;
+    let solid = "", dashed = "";
+    s.forEach((p, i) => { if (i === 0) return; const seg = `M${x(i-1)},${y(s[i-1].v)}L${x(i)},${y(p.v)}`; (p.gap || s[i-1].gap ? (dashed += seg) : (solid += seg)) });
+    g += `<path d="${solid}" fill="none" stroke="${col}" stroke-width="${agg ? 1.5 : 1.8}" ${agg ? 'stroke-dasharray="6 3"' : ""} opacity="${focus}"/>`;
+    g += `<path d="${dashed}" fill="none" stroke="${col}" stroke-width="1.2" stroke-dasharray="2 3" opacity="${focus * .7}"/>`;
+    const last = s[s.length-1]; if (last) g += `<text x="${W-R+4}" y="${y(last.v)+3}" style="fill:${col}" opacity="${focus}">${agg ? (c === "FOREIGN" ? "FOR" : "DOM") : c}</text>` }
+  return `<svg viewBox="0 0 ${W} ${H}" width="100%" role="img" aria-label="Broker inventory chart">${g}</svg>`;
+}
+function controls(extra = "") {
+  return `<div class="seg" role="group" aria-label="Measure"><button data-m="lots" class="${state.measure==="lots"?"on":""}">Net lots</button><button data-m="value" class="${state.measure==="value"?"on":""}">Net value</button></div>
+  <label class="pick">From <input id="from-${state.variant}" type="date" value="${state.start}" min="${days[0]}" max="${state.end}"></label>
+  <label class="pick">to <input id="to-${state.variant}" type="date" value="${state.end}" min="${state.start}" max="${days[days.length-1]}"></label>
+  <span class="pending">Today (16 Nov) pending: broker codes arrive after the close</span>${extra}`;
+}
+function chips() { return `<div class="chips">${state.plotted.map(c => `<span class="chip" data-b="${c}"><span class="dot" style="background:${colorOf(c)}"></span>${c} ✕</span>`).join("")}
+  <span class="chip" title="Foreign and domestic net"><span class="dot" style="background:var(--fg)"></span>FOR / DOM</span></div>` }
+function table(rows, compact) {
+  const tot = { lots: rows.reduce((a,r)=>a+r.buy,0) };
+  return `<div class="tbl-wrap"><table><thead><tr><th>Broker</th>${compact ? "" : "<th>Buy lots</th>"}<th>Avg buy</th>${compact ? "" : "<th>Sell lots</th>"}<th>Avg sell</th><th>Net ${state.measure==="lots"?"lots":"value"}</th></tr></thead><tbody>${rows.map(r => { const on = state.plotted.includes(r.code), net = state.measure==="lots"?r.net:r.netVal;
+    return `<tr class="${on?"plotted":""}" data-b="${r.code}"><td>${on?`<span class="swatch" style="background:${colorOf(r.code)}"></span>`:'<span class="swatch" style="background:transparent;border:1px solid var(--border)"></span>'}${r.code}<span class="tag">${r.f > .5 ? "F" : "D"}</span></td>${compact ? "" : `<td class="num">${fmtLots(r.buy)}</td>`}<td class="num">${Math.round(r.avgBuy).toLocaleString("en")}</td>${compact ? "" : `<td class="num">${fmtLots(r.sell)}</td>`}<td class="num">${Math.round(r.avgSell).toLocaleString("en")}</td><td class="num ${net>0?"pos":"neg"}">${fmt(net)}</td></tr>` }).join("")}</tbody></table></div>
+  <div style="padding:6px 10px;color:var(--muted);font-size:11px">${rows.length} brokers · ${fmtLots(tot.lots)} lots traded · regular board + auction matches · 2 incomplete days skipped</div>`;
+}
+
+// ---------- variants ----------
+const VARIANTS = {
+  a: ["A", "Market Live: Inventory tab beside the candle chart", rows => `
+    <div class="shell"><nav class="side"><a>Overview</a><a class="on">Market Live</a><a>Stocks</a><a>Account</a></nav><div>
+    <div class="ml-head"><span class="code">BBCA</span><span class="num">${price[price.length-1].toLocaleString("en")}</span><span style="color:var(--muted)">Recorded day 14 Nov · closed</span></div>
+    <div class="ml"><div style="display:flex;flex-direction:column;gap:16px;min-width:0">
+      <div class="panel"><div class="ph"><h3>Footprint</h3></div><div class="ghost">existing footprint chart</div></div>
+      <div class="panel"><div class="ph"><div class="seg ml-tabs"><button>Candles</button><button class="on">Inventory</button></div><span class="sp"></span>${controls()}</div>${chips()}${chart(300)}</div>
+    </div><div class="panel" style="align-self:start"><div class="ph"><div class="seg"><button>Sweeps</button><button class="on">Brokers</button></div><span class="sp"></span><span style="color:var(--muted);font-size:11px">6 Oct – 14 Nov</span></div>${table(rows, true)}</div></div>
+    </div></div>`],
+  b: ["B", "Stock page: Broker inventory section under the stock", rows => `
+    <div class="shell"><nav class="side"><a>Overview</a><a>Market Live</a><a class="on">Stocks</a><a>Account</a></nav><div>
+    <div class="sp-head"><span class="code">BBCA</span><span style="color:var(--muted)">Bank Central Asia Tbk.</span></div>
+    <div class="sp-tabs"><span>Holders</span><span>Holding composition</span><span class="on">Broker inventory</span></div>
+    <div class="stack"><div class="panel"><div class="ph"><h3>Broker inventory</h3><span class="sp"></span>${controls()}</div>${chips()}${chart(340)}</div>
+    <div class="panel"><div class="ph"><h3>Broker summary</h3><span class="sp"></span><span style="color:var(--muted);font-size:11px">Click a row to add or remove its line</span></div>${table(rows, false)}</div></div>
+    </div></div>`],
+  c: ["C", "Own page: summary as diverging-bar picker, chart beside it", rows => {
+    const max = Math.max(...rows.map(r => Math.abs(state.measure==="lots"?r.net:r.netVal)));
+    const row = r => { const v = state.measure==="lots"?r.net:r.netVal, w = Math.abs(v)/max*50, on = state.plotted.includes(r.code);
+      return `<label class="div-row" data-b="${r.code}"><input type="checkbox" ${on?"checked":""} tabindex="-1"><b style="color:${on?colorOf(r.code):"var(--fg)"}">${r.code}</b><span class="bar"><i style="${v>=0?`left:50%`:`right:50%`};width:${w}%;background:${v>=0?"var(--buy)":"var(--sell)"}"></i></span><span class="num ${v>0?"pos":"neg"}" style="text-align:right">${fmt(v)}</span></label>` };
+    const f = state.focus && rows.find(r => r.code === state.focus);
+    return `<div class="shell"><nav class="side"><a>Overview</a><a>Market Live</a><a>Stocks</a><a class="on">Broker inventory</a><a>Account</a></nav><div>
+    <div class="ph" style="border:0;padding:0 0 12px"><span style="font-size:18px;font-weight:600">Broker inventory</span><label class="pick">Stock <input value="BBCA" size="6" aria-label="Stock code"></label><span class="sp"></span>${controls()}</div>
+    <div class="wb"><div class="panel" style="align-self:start"><div class="ph"><h3>Net by broker</h3><span class="sp"></span><span style="font-size:11px;color:var(--muted)">top 5 each side plotted</span></div><div class="div-list">${rows.map(row).join("")}</div></div>
+    <div class="panel"><div class="ph"><h3>Running net per day</h3><span class="sp"></span><span style="font-size:11px;color:var(--muted)">Hover a broker on the left to focus its line</span></div>${chart(380)}
+    ${f ? `<div class="detail"><div><small>Broker</small><b>${f.code} ${f.f>.5?"(mostly foreign)":"(mostly domestic)"}</b></div><div><small>Bought</small><span class="num">${fmtLots(f.buy)} lots @ ${Math.round(f.avgBuy).toLocaleString("en")}</span></div><div><small>Sold</small><span class="num">${fmtLots(f.sell)} lots @ ${Math.round(f.avgSell).toLocaleString("en")}</span></div><div><small>Net</small><span class="num ${f.net>0?"pos":"neg"}">${fmt(state.measure==="lots"?f.net:f.netVal)}</span></div></div>` : `<div class="detail"><div><small>Hover or tap a broker for its buy, sell and average prices</small></div></div>`}
+    </div></div></div></div>` }],
+};
+const KEYS = Object.keys(VARIANTS);
+
+function render() {
+  const rows = summary(); if (!state.plotted) state.plotted = defaultPlotted(rows);
+  const [k, name, view] = VARIANTS[state.variant];
+  document.getElementById("app").innerHTML = view(rows);
+  document.getElementById("vlabel").textContent = `${k} · ${name}`;
+}
+function go(d) { const i = (KEYS.indexOf(state.variant) + d + KEYS.length) % KEYS.length; location.hash = KEYS[i] }
+function fromHash() { const h = location.hash.slice(1); state.variant = KEYS.includes(h) ? h : "a"; render() }
+document.getElementById("prev").onclick = () => go(-1);
+document.getElementById("next").onclick = () => go(1);
+addEventListener("hashchange", fromHash);
+addEventListener("keydown", e => { if (e.target.closest("input,textarea,[contenteditable]")) return; if (e.key === "ArrowLeft") go(-1); if (e.key === "ArrowRight") go(1) });
+document.addEventListener("click", e => {
+  const m = e.target.closest("[data-m]"); if (m) { state.measure = m.dataset.m; render(); return }
+  const b = e.target.closest("[data-b]"); if (b) { e.preventDefault(); const c = b.dataset.b; state.plotted = state.plotted.includes(c) ? state.plotted.filter(x => x !== c) : [...state.plotted, c]; render() }
+});
+document.addEventListener("mouseover", e => { const r = e.target.closest(".div-row"); const c = r ? r.dataset.b : null; if (c !== state.focus && state.variant === "c") { state.focus = c && state.plotted.includes(c) ? c : (c ? state.focus : state.focus); if (c) { state.focus = c; render() } } });
+document.addEventListener("change", e => { const id = e.target.id || ""; if (id.startsWith("from-")) state.start = e.target.value || days[0]; else if (id.startsWith("to-")) state.end = e.target.value || days[days.length-1]; else return; render() });
+fromHash();
+</script>
