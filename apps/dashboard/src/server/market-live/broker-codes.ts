@@ -259,7 +259,8 @@ type Alongside = (
 ) => Effect.Effect<void>
 
 // What the status scan has counted so far. A trade is held once the day has
-// its codes and its fields, from the tape or a walk's row.
+// its codes and its fields, from the tape or, when walk rows hold, a walk's
+// row.
 interface Tally {
   // The lowest number not yet accounted for as held.
   next: number
@@ -393,6 +394,9 @@ export const makeBrokerCodes = Effect.fnUntraced(function* (options: {
   readonly sql: Sql
   // A fact the day store holds.
   readonly fact: (key: string) => Effect.Effect<string | undefined>
+  // Whether a walk_trades row holds its trade: not on a day whose tape the
+  // walks fill, which holds a trade only once its tape does.
+  readonly walkRowsHold: Effect.Effect<boolean>
 }) {
   const { sql, fact } = options
   yield* Effect.sync(() => {
@@ -686,14 +690,15 @@ export const makeBrokerCodes = Effect.fnUntraced(function* (options: {
     return found
   })
 
-  // The trades of chunks first..last that neither the tape nor walk_trades
-  // holds, marked 1 from the first chunk's first trade. walk_trades holds
-  // only trades that were holes, so its numbers are read one by one.
+  // The trades of chunks first..last that neither the tape nor, when
+  // `walkRowsHold`, walk_trades holds, marked 1 from the first chunk's first
+  // trade. walk_trades holds only trades that were holes, so its numbers are
+  // read one by one.
   // Decision: a span the tape holds whole is known from its count; any other
   // reads the runs between the tape's numbers, so no row per taped trade sits
   // in memory. A 1.5M-trade day's status scan took 152 ms in Node's SQLite,
   // against 118 ms for codes alone and 850 ms reading the runs everywhere.
-  const unfieldedOf = (first: number, last: number) =>
+  const unfieldedOf = (first: number, last: number, walkRowsHold: boolean) =>
     Effect.sync(() => {
       const low = first * CHUNK + 1
       const high = (last + 1) * CHUNK
@@ -720,6 +725,7 @@ export const makeBrokerCodes = Effect.fnUntraced(function* (options: {
         high
       )
       unfielded.fill(1, Number(tapeHigh?.number ?? low - 1) - low + 1)
+      if (!walkRowsHold) return unfielded
       for (const row of sql.exec(
         "SELECT number FROM walk_trades WHERE number BETWEEN ? AND ?",
         low,
@@ -732,6 +738,7 @@ export const makeBrokerCodes = Effect.fnUntraced(function* (options: {
   // Every chunk into the tally, SCAN_PAGE at a time, each run of adjacent
   // chunks of a page with its unfielded trades.
   const scan = Effect.fnUntraced(function* (tally: Tally) {
+    const walkRowsHold = yield* options.walkRowsHold
     let after = -1
     for (;;) {
       const rows = yield* Effect.sync(() =>
@@ -749,7 +756,11 @@ export const makeBrokerCodes = Effect.fnUntraced(function* (options: {
         )
           end++
         const first = Number(rows[start]!.chunk)
-        const unfielded = yield* unfieldedOf(first, Number(rows[end]!.chunk))
+        const unfielded = yield* unfieldedOf(
+          first,
+          Number(rows[end]!.chunk),
+          walkRowsHold
+        )
         for (let at = start; at <= end; at++) {
           after = Number(rows[at]!.chunk)
           yield* tallyChunk(
