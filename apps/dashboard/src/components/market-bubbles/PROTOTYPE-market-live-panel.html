@@ -1,0 +1,275 @@
+<title>Bubble panel prototype</title>
+<meta name="claude:viewport-fit-sides" content="cover">
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Manrope:wght@400;500;600;700;800&display=swap">
+<style>
+/* PROTOTYPE, throw away. Layout: a mock of Market Live's layout B (charts | 340 px sweep log | 400 px right column)
+   with the compact bubble panel mounted in one of four places. Kumora is dark-only, so this page commits to its tokens. */
+:root {
+  color-scheme: dark;
+  --bg: #0b1421; --sidebar: #0e1a29; --surface: #142234; --elevated: #1b2c40; --selected: #173a43;
+  --border: #26394e; --border-strong: #3e566b;
+  --fg: #edf4fb; --fg2: #b0c2d2; --muted: #839aae;
+  --accent: #55d9c7; --accent-on: #09242a; --up: #51dda2; --down: #ff7987; --warning: #f4c36e;
+  --font: "Manrope", Arial, sans-serif;
+}
+html, body { height: 100%; }
+body { background: var(--bg); color: var(--fg); font-family: var(--font); font-size: 12px; font-variant-numeric: tabular-nums;
+  padding-left: max(16px, env(safe-area-inset-left, 0px)); padding-right: max(16px, env(safe-area-inset-right, 0px)); padding-block: 12px 80px; }
+.top { display: flex; flex-wrap: wrap; gap: 8px 16px; align-items: center; margin-bottom: 12px; }
+.top h1 { font-size: 18px; margin: 0; font-weight: 800; }
+.chip { background: var(--surface); border: 1px solid var(--border); border-radius: 6px; padding: 4px 9px; font-weight: 700; }
+.chip.code { color: var(--accent); }
+.muted { color: var(--muted); }
+.sim { padding: 1px 7px; border-radius: 4px; background: var(--elevated); color: var(--warning); font-size: 10px; font-weight: 800; letter-spacing: .05em; text-transform: uppercase; }
+button.drawerbtn { font: inherit; font-weight: 700; color: var(--accent-on); background: var(--accent); border: 0; border-radius: 6px; padding: 5px 10px; cursor: pointer; }
+.grid { display: grid; gap: 16px; grid-template-columns: minmax(0, 1fr) 340px 400px; min-height: 760px; }
+@media (max-width: 1200px) { .grid { grid-template-columns: minmax(0, 1fr) 400px; } .log { display: none; } }
+@media (max-width: 760px) { .grid { grid-template-columns: minmax(0, 1fr); } }
+.col { display: flex; flex-direction: column; gap: 16px; min-width: 0; }
+.card { background: var(--surface); border: 1px solid var(--border); border-radius: 8px; min-width: 0; display: flex; flex-direction: column; }
+.card h2 { font-size: 12px; margin: 0; padding: 8px 10px; border-bottom: 1px solid var(--border); font-weight: 800; display: flex; align-items: center; gap: 8px; }
+.card h2 .sp { flex: 1; }
+.chart { height: 330px; position: relative; }
+.chart canvas, .ph canvas { position: absolute; inset: 0; width: 100%; height: 100%; }
+.rows { padding: 4px 10px; overflow: hidden; }
+.r { display: flex; justify-content: space-between; gap: 8px; padding: 2px 0; border-bottom: 1px solid rgba(38,57,78,.5); white-space: nowrap; }
+.up { color: var(--up); } .down { color: var(--down); }
+.tabs { display: flex; gap: 2px; background: var(--sidebar); border: 1px solid var(--border); border-radius: 6px; padding: 2px; margin: 6px 8px 0; }
+.tabs button { flex: 1; font: inherit; font-weight: 700; border: 0; border-radius: 4px; padding: 4px; background: transparent; color: var(--muted); cursor: pointer; }
+.tabs button[aria-selected=true] { background: var(--elevated); color: var(--fg); }
+/* bubble panel */
+.bp { position: relative; }
+.bp .ph { position: relative; flex: 1; min-height: 0; }
+.bp .ctrl { display: flex; gap: 6px; align-items: center; padding: 6px 8px 0; flex-wrap: wrap; }
+.seg { display: flex; border: 1px solid var(--border); border-radius: 5px; overflow: hidden; }
+.seg button { font: inherit; font-size: 11px; font-weight: 700; border: 0; background: var(--surface); color: var(--fg2); padding: 3px 7px; cursor: pointer; }
+.seg button + button { border-left: 1px solid var(--border); }
+.seg button[aria-pressed=true] { background: var(--accent); color: var(--accent-on); }
+a.full { color: var(--accent); font-weight: 700; text-decoration: none; font-size: 11px; }
+a.full:hover { text-decoration: underline; }
+button:focus-visible, a:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; }
+#tip { position: fixed; pointer-events: none; background: var(--elevated); border: 1px solid var(--border-strong); border-radius: 6px; padding: 6px 8px; z-index: 30; font-size: 11px; }
+.drawer { position: fixed; top: 0; right: 0; bottom: 0; width: min(560px, 100vw); background: var(--sidebar); border-left: 1px solid var(--border-strong); box-shadow: -16px 0 48px rgba(4,10,18,.6); z-index: 20; display: flex; flex-direction: column; padding: calc(10px + env(safe-area-inset-top, 0px)) calc(10px + env(safe-area-inset-right, 0px)) 70px 10px; }
+.drawer .card { flex: 1; }
+.drawer .x { font: inherit; font-weight: 800; background: var(--elevated); color: var(--fg); border: 0; border-radius: 4px; padding: 2px 8px; cursor: pointer; }
+/* prototype-only chrome */
+#bar { position: fixed; left: 50%; transform: translateX(-50%); bottom: calc(14px + env(safe-area-inset-bottom, 0px)); background: var(--warning); color: #1a1406; border-radius: 999px; box-shadow: 0 6px 24px rgba(0,0,0,.5); display: flex; align-items: center; gap: 4px; padding: 4px; font-size: 13px; font-weight: 800; z-index: 40; max-width: calc(100vw - 32px); }
+#bar button { font: inherit; background: transparent; border: 0; color: inherit; cursor: pointer; padding: 4px 10px; border-radius: 999px; }
+#bar .lbl { padding: 0 6px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+</style>
+
+<div class="top">
+  <h1>Market Live</h1>
+  <span class="chip code" id="sel">BBCA</span>
+  <span class="muted">Bank Central Asia · 9,800 <span class="up">+1.03%</span></span>
+  <span class="sim">Simulated data</span>
+  <span style="flex:1"></span>
+  <button class="drawerbtn" id="drawerBtn" hidden>Bubbles</button>
+</div>
+<div id="ribbonSlot"></div>
+<div class="grid">
+  <div class="col" id="chartsCol">
+    <div class="card"><h2>Chart 1 · candles, sweeps, book heatmap</h2><div class="chart"><canvas id="c1"></canvas></div></div>
+    <div class="card"><h2>Chart 2 · footprint</h2><div class="chart"><canvas id="c2"></canvas></div></div>
+  </div>
+  <div class="card log"><h2>Buy/Sell sweeps</h2><div class="rows" id="log"></div></div>
+  <div class="col" id="right"></div>
+</div>
+<div id="bottomSlot"></div>
+<div id="tip" hidden></div>
+<div id="bar" role="toolbar" aria-label="Prototype variant"><button id="prev" aria-label="Previous variant">←</button><span class="lbl" id="vlabel"></span><button id="next" aria-label="Next variant">→</button></div>
+
+<script>
+// PROTOTYPE for "How the compact bubble panel sits on Market Live" (apinrdw/kumora). Throwaway.
+// Variants: #card (top of the right column), #tab (a tab beside the watchlist), #ribbon (a strip above the charts), #drawer (a slide-over).
+const VARIANTS = [
+  { key: 'card', name: 'Card on top of the right column' },
+  { key: 'tab', name: 'Tab beside the watchlist' },
+  { key: 'ribbon', name: 'Ribbon above the charts' },
+  { key: 'drawer', name: 'Drawer from a Bubbles button' },
+  { key: 'bottom', name: 'Bottom, full width under the layout' },
+  { key: 'under', name: 'Bottom of the charts column, under chart 2' },
+];
+const SECTORS = ['Energy','Basic Materials','Industrials','Non-Cyclicals','Cyclicals','Healthcare','Financials','Property','Technology','Infrastructures','Transport','Unclassified'];
+const REAL = [['BBCA','Financials',9800,60],['BBRI','Financials',4300,55],['BMRI','Financials',6100,45],['BBNI','Financials',4700,25],['TLKM','Infrastructures',3100,35],['ASII','Industrials',5000,30],['GOTO','Technology',70,28],['BRPT','Basic Materials',1100,22],['ADRO','Energy',2400,20],['ANTM','Basic Materials',1500,18],['MDKA','Basic Materials',2200,16],['UNVR','Non-Cyclicals',1900,10],['ICBP','Non-Cyclicals',11000,9],['INDF','Non-Cyclicals',7600,8],['AMRT','Non-Cyclicals',2700,10],['CPIN','Non-Cyclicals',4900,7],['KLBF','Healthcare',1400,8],['MIKA','Healthcare',2600,5],['UNTR','Industrials',26000,14],['PGAS','Energy',1600,12],['PTBA','Energy',2700,10],['ITMG','Energy',25000,6],['MEDC','Energy',1200,11],['INCO','Basic Materials',3800,9],['TPIA','Basic Materials',7500,12],['SMGR','Basic Materials',3400,5],['BUKA','Technology',130,7],['EMTK','Technology',500,6],['ISAT','Infrastructures',2200,8],['EXCL','Infrastructures',2300,8],['TOWR','Infrastructures',650,7],['BSDE','Property',1000,6],['CTRA','Property',1100,6],['ACES','Cyclicals',800,5],['MAPI','Cyclicals',1500,6],['BRIS','Financials',2800,14],['ARTO','Financials',2300,8],['BBTN','Financials',1200,8],['AMMN','Basic Materials',8500,18],['BREN','Infrastructures',7000,15],['CUAN','Energy',1300,14],['PANI','Property',14000,9],['BUMI','Energy',130,16],['ENRG','Energy',350,8],['NCKL','Basic Materials',900,7],['MBMA','Basic Materials',450,8],['ASSA','Transport',800,3],['SMDR','Transport',300,3],['TINS','Basic Materials',1100,9],['HMSP','Non-Cyclicals',700,4],['SIDO','Healthcare',600,3],['JPFA','Non-Cyclicals',1900,5],['DCII','Technology',40000,3],['MTEL','Infrastructures',600,4],['EMAS','Basic Materials',2900,9]];
+const WATCH = ['BBCA','BBRI','TLKM','GOTO','ANTM','ADRO','BREN','AMMN','PANI','UNTR'];
+let seed = 11; const rnd = () => { seed = (seed * 16807) % 2147483647; return (seed - 1) / 2147483646; };
+const gauss = () => { let u = 0, v = 0; while (!u) u = rnd(); while (!v) v = rnd(); return Math.sqrt(-2 * Math.log(u)) * Math.cos(2 * Math.PI * v); };
+const codes = REAL.map(([code, sector, price, w]) => ({ code, sector, price, w, bias: gauss() * .5, mins: [] }));
+// per code: last 15 minutes of {value, buy, sell}; good enough for 1m/5m/15m
+for (const c of codes) for (let m = 0; m < 16; m++) c.mins.push(row(c));
+function row(c) { c.bias = c.bias * .9 + gauss() * .25; const v = c.w * 1e8 * Math.exp(gauss() * .5); const p = 1 / (1 + Math.exp(-c.bias * 2)); return { value: v, buy: v * p * .96, sell: v * (1 - p) * .96 }; }
+setInterval(() => { for (const c of codes) { const r = c.mins[c.mins.length - 1], add = row(c); for (const k in r) r[k] = r[k] * .97 + add[k] * .03 * 4; } }, 1000);
+const P = { win: '5m', set: 'top', selected: 'BBCA', variant: 'card' };
+function figures(c) { const n = P.win === '1m' ? 1 : P.win === '5m' ? 5 : 15; const f = { value: 0, buy: 0, sell: 0 }; for (const r of c.mins.slice(-n)) { f.value += r.value; f.buy += r.buy; f.sell += r.sell; } f.delta = (f.buy - f.sell) / (f.buy + f.sell) * 100; return f; }
+
+// ---------- one bubble panel (sector clusters, as decided on the page) ----------
+const panels = [];
+function makePanel(host, opts) {
+  host.innerHTML = '';
+  const card = document.createElement('div'); card.className = 'card bp'; card.style.flex = '1';
+  card.innerHTML = `<h2>Bubbles <span class="muted" style="font-weight:600">Top by value · colour Buy/Sell delta</span><span class="sp"></span>${opts.close ? '<button class="x" aria-label="Close bubbles">×</button>' : ''}<a class="full" href="#" data-full>Open Market Bubbles ↗</a></h2>
+    <div class="ctrl"><div class="seg" data-g="win">${['1m','5m','15m'].map(w => `<button data-v="${w}">${w}</button>`).join('')}</div>
+    <div class="seg" data-g="set"><button data-v="top">Market top ${opts.n}</button><button data-v="watch">Watchlist</button><button data-v="sector">Sector of selected</button></div></div>
+    <div class="ph"><canvas></canvas></div>`;
+  card.style.height = opts.height ? opts.height + 'px' : '';
+  host.appendChild(card);
+  const cv = card.querySelector('canvas'), ctx = cv.getContext('2d');
+  const p = { card, cv, ctx, n: opts.n, bubbles: new Map(), W: 0, H: 0, anchors: {} };
+  card.querySelectorAll('.seg').forEach(seg => seg.addEventListener('click', e => { const v = e.target.dataset.v; if (!v) return; P[seg.dataset.g] = v; syncSegs(); recomputeAll(); }));
+  card.querySelector('[data-full]').addEventListener('click', e => { e.preventDefault(); toast(card, 'Would open Market Bubbles (full page)'); });
+  if (opts.close) card.querySelector('.x').addEventListener('click', () => setVariant('drawer', false, true));
+  // Drag: grab a bubble, pull it through the others (they get shoved aside); on release it is flung and drifts back to its sector.
+  cv.style.touchAction = 'none';
+  cv.addEventListener('pointerdown', e => { const b = hit(p, e); if (!b) return; const r = cv.getBoundingClientRect(); p.drag = { b, sx: e.clientX, sy: e.clientY, x: e.clientX - r.left, y: e.clientY - r.top, moved: false, t: performance.now() }; cv.setPointerCapture(e.pointerId); });
+  cv.addEventListener('pointermove', e => { const d = p.drag; if (!d) return; const r = cv.getBoundingClientRect(), x = e.clientX - r.left, y = e.clientY - r.top; if (Math.hypot(e.clientX - d.sx, e.clientY - d.sy) > 4) d.moved = true; const now = performance.now(), dt = Math.max(1, now - d.t); d.vx = (x - d.x) / dt * 16; d.vy = (y - d.y) / dt * 16; d.x = x; d.y = y; d.t = now; cv.style.cursor = 'grabbing'; document.getElementById('tip').hidden = true; });
+  cv.addEventListener('pointerup', e => { const d = p.drag; if (!d) return; p.drag = null; cv.style.cursor = 'pointer'; if (d.moved) { const s = Math.hypot(d.vx || 0, d.vy || 0), k = s > 0 ? Math.min(.2, 2.5 / s) : 0; d.b.vx = (d.vx || 0) * k; d.b.vy = (d.vy || 0) * k; d.b.returning = 90; p.justDragged = true; } });
+  cv.addEventListener('click', e => { if (p.justDragged) { p.justDragged = false; return; } const b = hit(p, e); if (b) { P.selected = b.c.code; document.getElementById('sel').textContent = b.c.code; recomputeAll(); toast(card, `Selected ${b.c.code} in place: charts, log and order book switch to it`); } });
+  cv.addEventListener('mousemove', e => { if (p.drag && p.drag.moved) return; const b = hit(p, e), tip = document.getElementById('tip'); if (b !== p.hover) { p.hover = b; p.hs = 1; } cv.style.cursor = b ? 'pointer' : 'default'; if (!b) { tip.hidden = true; return; } tip.innerHTML = `<b>${b.c.code}</b> · ${b.c.sector}<br>Value ${fmtRp(b.f.value)} · Delta <span class="${b.f.delta >= 0 ? 'up' : 'down'}">${fmtPct(b.f.delta)}</span>`; tip.hidden = false; tip.style.left = e.clientX + 12 + 'px'; tip.style.top = e.clientY + 12 + 'px'; });
+  cv.addEventListener('mouseleave', () => { document.getElementById('tip').hidden = true; p.hover = null; });
+  new ResizeObserver(() => { const r = cv.getBoundingClientRect(); p.W = r.width; p.H = r.height; const d = Math.min(2, devicePixelRatio || 1); p.dpr = d; cv.width = r.width * d; cv.height = r.height * d; recompute(p); }).observe(card.querySelector('.ph'));
+  panels.push(p); syncSegs();
+  return p;
+}
+function syncSegs() { document.querySelectorAll('.seg').forEach(seg => seg.querySelectorAll('button').forEach(b => b.setAttribute('aria-pressed', String(b.dataset.v === P[seg.dataset.g])))); }
+function toast(card, text) { let t = card.querySelector('.toast'); if (!t) { t = document.createElement('div'); t.className = 'toast'; t.style.cssText = 'position:absolute;left:50%;bottom:8px;transform:translateX(-50%);background:var(--elevated);border:1px solid var(--accent);padding:4px 8px;border-radius:5px;font-size:11px;white-space:nowrap;z-index:3'; card.appendChild(t); } t.textContent = text; t.hidden = false; clearTimeout(t._t); t._t = setTimeout(() => t.hidden = true, 2200); }
+function hit(p, e) {
+  const r = p.cv.getBoundingClientRect(), x = e.clientX - r.left, y = e.clientY - r.top;
+  // the hovered bubble keeps the pointer while it stays inside its enlarged circle
+  if (p.hover && !p.hover.dying && Math.hypot(p.hover.x - x, p.hover.y - y) < p.hover.r * (p.hs || 1)) return p.hover;
+  let best = null; for (const b of p.bubbles.values()) if (!b.dying && Math.hypot(b.x - x, b.y - y) < b.r && (!best || b.r < best.r)) best = b; return best;
+}
+// Hovering grows a bubble to 1.7× its radius, at least 34 px, so a small code becomes readable.
+const hoverR = b => Math.max(34, b.r * 1.7);
+function recompute(p) {
+  if (!p.W) return;
+  const selSector = codes.find(c => c.code === P.selected).sector;
+  let list = codes.map(c => ({ c, f: figures(c) }));
+  if (P.set === 'watch') list = list.filter(x => WATCH.includes(x.c.code));
+  if (P.set === 'sector') list = list.filter(x => x.c.sector === selSector);
+  list.sort((a, b) => b.f.value - a.f.value); list = list.slice(0, p.n);
+  const total = list.reduce((s, x) => s + x.f.value, 0) || 1, k = Math.sqrt(.42 * p.W * p.H / (Math.PI * total));
+  const keep = new Set();
+  for (const { c, f } of list) { keep.add(c.code); let b = p.bubbles.get(c.code); if (!b) { b = { c, x: p.W / 2 + gauss() * 40, y: p.H / 2 + gauss() * 30, vx: 0, vy: 0, r: 0, col: 0 }; p.bubbles.set(c.code, b); } b.tr = Math.max(6, k * Math.sqrt(f.value)); b.tc = Math.max(-1, Math.min(1, f.delta / 100)); b.f = f; b.dying = false; }
+  for (const [code, b] of p.bubbles) if (!keep.has(code)) b.dying = true;
+  // sector circles
+  const area = {}; for (const b of p.bubbles.values()) if (!b.dying) area[b.c.sector] = (area[b.c.sector] || 0) + Math.PI * b.tr * b.tr;
+  const cs = Object.keys(area).map((s, i) => ({ s, r: Math.sqrt(area[s] * 1.45 / Math.PI) + 8, x: (p.anchors[s] || {}).x ?? p.W / 2 + Math.cos(i) * p.W * .3, y: (p.anchors[s] || {}).y ?? p.H / 2 + Math.sin(i) * p.H * .3 }));
+  for (let it = 0; it < 200; it++) { for (const c of cs) { c.x += (p.W / 2 - c.x) * .02 * (p.H / p.W); c.y += (p.H / 2 - c.y) * .02; } for (let i = 0; i < cs.length; i++) for (let j = i + 1; j < cs.length; j++) { const a = cs[i], b = cs[j], dx = b.x - a.x, dy = b.y - a.y, d = Math.hypot(dx, dy) || 1, o = a.r + b.r + 14 - d; if (o > 0) { const w = b.r / (a.r + b.r), q = o / d; a.x -= dx * q * w; a.y -= dy * q * w; b.x += dx * q * (1 - w); b.y += dy * q * (1 - w); } } }
+  p.target = {}; for (const c of cs) p.target[c.s] = { x: Math.max(c.r, Math.min(p.W - c.r, c.x)), y: Math.max(c.r + 14, Math.min(p.H - c.r, c.y)) };
+}
+const recomputeAll = () => panels.forEach(recompute);
+setInterval(recomputeAll, 1000);
+function step(p) {
+  for (const [s, t] of Object.entries(p.target || {})) { const a = p.anchors[s] || (p.anchors[s] = { ...t }); a.x += (t.x - a.x) * .02; a.y += (t.y - a.y) * .02; }
+  const arr = [...p.bubbles.values()];
+  const held = p.drag && p.drag.moved ? p.drag.b : null;
+  for (const b of arr) {
+    b.r += ((b.dying ? 0 : b.tr) - b.r) * .12; b.col += (b.tc - b.col) * .1;
+    if (b === held) { b.x = p.drag.x; b.y = p.drag.y; b.vx = b.vy = 0; continue; }
+    const a = p.anchors[b.c.sector] || { x: p.W / 2, y: p.H / 2 };
+    // a released bubble eases home on a soft, heavily damped pull, capped at 2.5 px a frame, so it never swings round its cluster
+    const pull = b.returning > 0 ? .004 : .012, damp = b.returning > 0 ? .82 : .75;
+    if (b.returning > 0) b.returning--;
+    b.vx = (b.vx + (a.x - b.x) * pull) * damp; b.vy = (b.vy + (a.y - b.y) * pull) * damp;
+    const sp = Math.hypot(b.vx, b.vy); if (sp > 2.5) { b.vx *= 2.5 / sp; b.vy *= 2.5 / sp; }
+    b.x += b.vx; b.y += b.vy;
+  }
+  for (let it = 0; it < 2; it++) for (let i = 0; i < arr.length; i++) for (let j = i + 1; j < arr.length; j++) {
+    const a = arr[i], b = arr[j], dx = b.x - a.x, dy = b.y - a.y, rr = a.r + b.r + 1.5, d2 = dx * dx + dy * dy; if (d2 >= rr * rr || !d2) continue;
+    const d = Math.sqrt(d2), o = (rr - d) / d * .5;
+    // the held bubble never yields: its neighbours take the whole push
+    let w = b.r * b.r / (a.r * a.r + b.r * b.r + 1e-6); if (a === held) w = 0; if (b === held) w = 1;
+    a.x -= dx * o * w * 2 * (a === held || b === held ? 1 : .5); a.y -= dy * o * w * 2 * (a === held || b === held ? 1 : .5);
+    b.x += dx * o * (1 - w) * 2 * (a === held || b === held ? 1 : .5); b.y += dy * o * (1 - w) * 2 * (a === held || b === held ? 1 : .5);
+  }
+  for (const b of arr) { b.x = Math.max(b.r, Math.min(p.W - b.r, b.x)); b.y = Math.max(b.r, Math.min(p.H - b.r, b.y)); if (b.dying && b.r < .5) p.bubbles.delete(b.c.code); }
+}
+const UP = [81,221,162], DOWN = [255,121,135], NEU = [168,184,200];
+const colourOf = t => { const s = Math.pow(Math.abs(t), .6), to = t >= 0 ? UP : DOWN; return NEU.map((n, i) => Math.round(n + (to[i] - n) * s)); };
+const fmtRp = v => v >= 1e12 ? `Rp ${(v / 1e12).toFixed(2)} T` : v >= 1e9 ? `Rp ${(v / 1e9).toFixed(2)} B` : `Rp ${(v / 1e6).toFixed(1)} M`;
+const fmtPct = v => `${v >= 0 ? '+' : '−'}${Math.abs(v).toFixed(2)}%`;
+function draw(p) {
+  const { ctx } = p; ctx.setTransform(p.dpr, 0, 0, p.dpr, 0, 0); ctx.clearRect(0, 0, p.W, p.H);
+  const arr = [...p.bubbles.values()].sort((a, b) => a.r - b.r);
+  const drawOne = (b, R, lifted) => {
+    const [r, g, bl] = colourOf(b.col), a = .35 + .65 * Math.pow(Math.abs(b.col), .6);
+    // keep an enlarged bubble inside the panel
+    const x = Math.max(R, Math.min(p.W - R, b.x)), y = Math.max(R, Math.min(p.H - R, b.y));
+    const grad = ctx.createRadialGradient(x, y, R * .2, x, y, R); grad.addColorStop(0, lifted ? 'rgba(14,26,41,1)' : 'rgba(11,20,33,.95)'); grad.addColorStop(1, `rgba(${r},${g},${bl},${(lifted ? .45 : .3) * a})`);
+    if (lifted) { ctx.shadowBlur = 24; ctx.shadowColor = 'rgba(4,10,18,.8)'; ctx.beginPath(); ctx.arc(x, y, R, 0, 7); ctx.fillStyle = '#0e1a29'; ctx.fill(); ctx.shadowBlur = 0; }
+    ctx.beginPath(); ctx.arc(x, y, R, 0, 7); ctx.fillStyle = grad; ctx.fill();
+    if (R > 14) { ctx.shadowBlur = Math.min(16, R * .3); ctx.shadowColor = `rgba(${r},${g},${bl},${.8 * a})`; }
+    ctx.lineWidth = R > 30 ? 2.5 : 1.5; ctx.strokeStyle = `rgba(${r},${g},${bl},${.55 + .45 * a})`;
+    if (b.c.code === P.selected || lifted) { ctx.lineWidth = 3; ctx.strokeStyle = '#edf4fb'; }
+    ctx.stroke(); ctx.shadowBlur = 0;
+    if (R > 10) {
+      const fs = Math.max(8, Math.min(lifted ? 24 : 18, R * .38)); ctx.font = `800 ${fs}px Manrope, Arial`; ctx.fillStyle = '#edf4fb'; ctx.textAlign = 'center'; ctx.textBaseline = 'middle';
+      const lines = R > 32 ? 3 : R > 20 ? 2 : 1, y0 = y - (lines - 1) * fs * .45;
+      ctx.fillText(b.c.code, x, y0);
+      if (lines >= 2) { ctx.font = `700 ${fs * .6}px Manrope, Arial`; ctx.fillStyle = '#d8e4ee'; ctx.fillText(fmtPct(b.f.delta), x, y0 + fs * .85); }
+      if (lines >= 3) { ctx.font = `600 ${fs * .5}px Manrope, Arial`; ctx.fillStyle = 'rgba(176,194,210,.9)'; ctx.fillText(fmtRp(b.f.value), x, y0 + fs * 1.55); }
+    }
+  };
+  for (const b of arr) if (b.r >= .6 && b !== p.hover) drawOne(b, b.r, false);
+  if (p.hover && !p.hover.dying) { const target = hoverR(p.hover) / p.hover.r; p.hs = (p.hs || 1) + (target - (p.hs || 1)) * .25; drawOne(p.hover, p.hover.r * p.hs, true); }
+  // sector labels
+  const box = {}; for (const b of arr) { if (b.dying) continue; const o = box[b.c.sector] || (box[b.c.sector] = { y: 1e9, x: 0, n: 0 }); o.y = Math.min(o.y, b.y - b.r); o.x += b.x; o.n++; }
+  ctx.font = '700 10px Manrope, Arial'; ctx.fillStyle = '#839aae'; ctx.textAlign = 'center'; ctx.textBaseline = 'bottom';
+  for (const [s, o] of Object.entries(box)) ctx.fillText(s, o.x / o.n, Math.max(11, o.y - 2));
+}
+(function frame() { for (const p of panels) { step(p); draw(p); } requestAnimationFrame(frame); })();
+
+// ---------- the rest of Market Live, as static placeholders ----------
+function fakeChart(id) {
+  const cv = document.getElementById(id), r = cv.getBoundingClientRect(), d = Math.min(2, devicePixelRatio || 1);
+  cv.width = r.width * d; cv.height = r.height * d; const ctx = cv.getContext('2d'); ctx.scale(d, d);
+  let p = 160; const n = Math.floor(r.width / 9);
+  for (let i = 0; i < n; i++) { const o = p, c = p + gauss() * 3, h = Math.max(o, c) + Math.abs(gauss()) * 2, l = Math.min(o, c) - Math.abs(gauss()) * 2; p = c; const y = v => r.height - v; ctx.strokeStyle = ctx.fillStyle = c >= o ? '#51dda2' : '#ff7987'; ctx.globalAlpha = .55; ctx.beginPath(); ctx.moveTo(i * 9 + 4, y(h)); ctx.lineTo(i * 9 + 4, y(l)); ctx.stroke(); ctx.fillRect(i * 9 + 1, y(Math.max(o, c)), 6, Math.max(1, Math.abs(c - o))); }
+  ctx.globalAlpha = 1;
+}
+document.getElementById('log').innerHTML = Array.from({ length: 34 }, (_, i) => { const b = rnd() < .55; return `<div class="r"><span class="muted">14:0${Math.floor(i / 6)}:${String(59 - i % 60).padStart(2, '0')}</span><span class="${b ? 'up' : 'down'}">${b ? 'Buy' : 'Sell'}</span><span>${(9775 + Math.round(rnd() * 4) * 25).toLocaleString('en-US')}</span><span>${(rnd() * 900 + 20).toFixed(0)} lots</span></div>`; }).join('');
+const watchHtml = () => `<div class="rows">${WATCH.map(c => { const ch = gauss() * 2; return `<div class="r"><b>${c}</b><span>${(codes.find(x => x.code === c).price).toLocaleString('en-US')}</span><span class="${ch >= 0 ? 'up' : 'down'}">${fmtPct(ch)}</span></div>`; }).join('')}</div>`;
+const bookHtml = () => `<div class="rows">${Array.from({ length: 10 }, (_, i) => `<div class="r"><span class="up">${(9775 - i * 25).toLocaleString('en-US')}</span><span>${Math.round(rnd() * 9000)}</span><span>${Math.round(rnd() * 9000)}</span><span class="down">${(9800 + i * 25).toLocaleString('en-US')}</span></div>`).join('')}</div>`;
+const tapeHtml = () => `<div class="rows">${Array.from({ length: 12 }, () => { const c = codes[Math.floor(rnd() * codes.length)], b = rnd() < .5; return `<div class="r"><span class="muted">14:05:${String(Math.floor(rnd() * 60)).padStart(2, '0')}</span><b>${c.code}</b><span class="${b ? 'up' : 'down'}">${c.price.toLocaleString('en-US')}</span><span>${Math.round(rnd() * 300)} lots</span></div>`; }).join('')}</div>`;
+function card(title, html) { const d = document.createElement('div'); d.className = 'card'; d.innerHTML = `<h2>${title}</h2>${html}`; return d; }
+
+function setVariant(key, push, closeDrawer) {
+  if (!VARIANTS.some(v => v.key === key)) key = 'card';
+  P.variant = key; panels.length = 0;
+  const i = VARIANTS.findIndex(v => v.key === key);
+  document.getElementById('vlabel').textContent = `${'ABCDEF'[i]} · ${VARIANTS[i].name}`;
+  if (push) history.replaceState(null, '', '#' + key);
+  const right = document.getElementById('right'), ribbon = document.getElementById('ribbonSlot');
+  right.innerHTML = ''; ribbon.innerHTML = ''; ribbon.style.marginBottom = '0';
+  const bottomSlot = document.getElementById('bottomSlot'), chartsCol = document.getElementById('chartsCol');
+  bottomSlot.innerHTML = ''; bottomSlot.style.marginTop = '0'; chartsCol.querySelector('[data-under]')?.remove();
+  if (key === 'bottom') { bottomSlot.style.marginTop = '16px'; const h = document.createElement('div'); h.style.display = 'flex'; bottomSlot.appendChild(h); makePanel(h, { n: 60, height: 380 }); right.append(card('Watchlist', watchHtml()), card('Order book · BBCA', bookHtml()), card('Tape', tapeHtml())); }
+  if (key === 'under') { const h = document.createElement('div'); h.dataset.under = ''; h.style.display = 'flex'; chartsCol.appendChild(h); makePanel(h, { n: 40, height: 300 }); right.append(card('Watchlist', watchHtml()), card('Order book · BBCA', bookHtml()), card('Tape', tapeHtml())); }
+  document.querySelector('.drawer')?.remove();
+  const btn = document.getElementById('drawerBtn'); btn.hidden = key !== 'drawer';
+  if (key === 'card') { const h = document.createElement('div'); h.style.display = 'flex'; right.appendChild(h); makePanel(h, { n: 30, height: 320 }); right.append(card('Watchlist', watchHtml()), card('Order book · BBCA', bookHtml()), card('Tape', tapeHtml())); }
+  if (key === 'tab') {
+    const t = document.createElement('div'); t.className = 'card'; t.style.height = '320px';
+    t.innerHTML = `<div class="tabs" role="tablist"><button role="tab" aria-selected="false" data-t="w">Watchlist</button><button role="tab" aria-selected="true" data-t="b">Bubbles</button></div><div data-body style="flex:1;display:flex;min-height:0"></div>`;
+    right.appendChild(t);
+    const body = t.querySelector('[data-body]');
+    const show = which => { t.querySelectorAll('[role=tab]').forEach(b => b.setAttribute('aria-selected', String(b.dataset.t === which))); panels.length = 0; body.innerHTML = ''; if (which === 'b') { const h = document.createElement('div'); h.style.cssText = 'flex:1;display:flex;margin:6px'; body.appendChild(h); makePanel(h, { n: 30 }); h.firstChild.style.border = '0'; } else body.innerHTML = watchHtml(); };
+    t.querySelector('.tabs').addEventListener('click', e => e.target.dataset.t && show(e.target.dataset.t));
+    show('b'); right.append(card('Order book · BBCA', bookHtml()), card('Tape', tapeHtml()));
+  }
+  if (key === 'ribbon') { ribbon.style.marginBottom = '16px'; const h = document.createElement('div'); h.style.display = 'flex'; ribbon.appendChild(h); makePanel(h, { n: 40, height: 230 }); right.append(card('Watchlist', watchHtml()), card('Order book · BBCA', bookHtml()), card('Tape', tapeHtml())); }
+  if (key === 'drawer') {
+    right.append(card('Watchlist', watchHtml()), card('Order book · BBCA', bookHtml()), card('Tape', tapeHtml()));
+    if (!closeDrawer) openDrawer();
+  }
+  requestAnimationFrame(() => { fakeChart('c1'); fakeChart('c2'); });
+}
+function openDrawer() { const d = document.createElement('div'); d.className = 'drawer'; document.body.appendChild(d); makePanel(d, { n: 60, close: true }); }
+document.getElementById('drawerBtn').onclick = () => { if (!document.querySelector('.drawer')) openDrawer(); };
+const cycle = d => { const i = VARIANTS.findIndex(v => v.key === P.variant); setVariant(VARIANTS[(i + d + VARIANTS.length) % VARIANTS.length].key, true); };
+document.getElementById('prev').onclick = () => cycle(-1); document.getElementById('next').onclick = () => cycle(1);
+document.addEventListener('keydown', e => { if (e.target.closest && e.target.closest('input,textarea,select,[contenteditable]')) return; if (e.key === 'ArrowLeft') cycle(-1); if (e.key === 'ArrowRight') cycle(1); });
+window.addEventListener('hashchange', () => setVariant(location.hash.slice(1), false));
+setVariant(location.hash.slice(1) || 'card', false);
+</script>
