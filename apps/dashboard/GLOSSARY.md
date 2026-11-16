@@ -67,15 +67,15 @@ Which side of a running trade crossed the spread to make it: a buy aggressor too
 _Avoid_: HAKA/HAKI (on the page), trade direction
 
 **Sweep**:
-A stock code's running trades in one second that share an aggressor side, taken together: their lots, value, and first and last price. Another code's trades between them don't break it; this code trading on the other side does.
+A stock code's running trades in one second that share an aggressor side, taken together: their lots, value, and first and last price. Another code's trades between them don't break it; this code trading on the other side does. Once every trade of the sweep has stored broker codes, it is also split by aggressor broker (the seller of a sell sweep, the buyer of a buy sweep), so each sweep has one aggressor broker; all of one broker's trades in it are one sweep, however interleaved with other brokers' trades.
 _Avoid_: Group, burst
 
 **Lead broker**:
-The broker code with the most lots on one side of a sweep, or of an auction match, summed over its trades. The sweep log shows each side's lead broker with its investor type, and how many other brokers were on that side.
+The broker code with the most lots on a sweep's Other side, or on each side of an auction match, summed over its trades. The sweep log shows it with its investor type, and how many other brokers were on that side. A sweep's aggressor side has one broker, shown alone.
 _Avoid_: Top broker (top names the top-N filter), main broker
 
 **Whole sweep**:
-A sweep every one of whose trades has stored broker codes. Only a whole sweep shows brokers; a sweep missing any trade's codes shows none, rather than a lead broker read from part of it.
+A sweep every one of whose trades has stored broker codes. Only a whole sweep shows brokers, and a whole sweep is the one that splits by aggressor broker; a sweep missing any trade's codes shows none and stays unsplit, rather than read from part of it.
 _Avoid_: Complete sweep (complete names the day's broker codes status), coded sweep
 
 **Other side**:
@@ -83,7 +83,7 @@ The side of a sweep opposite its aggressor side: the sellers a buy sweep took fr
 _Avoid_: Passive side, counterparty
 
 **Own lots**:
-A sweep's lots as the broker filter counts them: the picked broker's aggressor lots in it, or the whole sweep's lots when no broker is picked. An auction match's own lots are the larger of what the picked broker bought or sold in it. Bubbles are sized, and the top-N filter cuts, by own lots.
+A sweep's lots as the broker filter counts them: its whole lots when the picked broker is its aggressor, or when no broker is picked. An auction match's own lots are the larger of what the picked broker bought or sold in it. Bubbles are sized, and the top-N filter cuts, by own lots.
 _Avoid_: Broker lots, filtered lots
 
 **Footprint**:
