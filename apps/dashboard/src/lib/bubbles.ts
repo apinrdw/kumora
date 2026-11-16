@@ -99,6 +99,8 @@ interface CodeFlow {
   // socket's did since its snapshot or an earlier socket's: `minutes` holds
   // the candle book's latest copy of each.
   readonly carried: Map<number, CarriedBy>
+  // The backfills that came after it traded, without its previous close.
+  closeMisses: number
 }
 
 type CarriedBy = "this socket" | "an earlier one"
@@ -165,6 +167,7 @@ const codeFlowOf = (flow: MarketFlow, code: StockCode): CodeFlow => {
     previousClose: undefined,
     closeBefore: undefined,
     carried: new Map(),
+    closeMisses: 0,
   }
   flow.codes.set(code, fresh)
   return fresh
@@ -324,6 +327,8 @@ export const applyBubbles = (
       code.day = rows.day
       closeDay(flow, code)
       code.previousClose = entry.previousClose ?? code.previousClose
+      if (code.previousClose === undefined && code.day.frequency > 0)
+        code.closeMisses++
       pruneMinutes(flow, code)
     }
   })
@@ -336,10 +341,21 @@ export const missingFromBackfill = (flow: MarketFlow) =>
   Effect.sync(() => {
     if (flow.recount) return true
     for (const code of flow.codes.values())
-      if (code.day.frequency > 0 && code.previousClose === undefined)
+      if (
+        code.day.frequency > 0 &&
+        code.previousClose === undefined &&
+        code.closeMisses < CLOSE_MISSES
+      )
         return true
     return false
   })
+
+// Decision: a code's previous close is asked for in at most CLOSE_MISSES
+// backfills after it traded, then given up on for the day: each ask GETs
+// the whole backfill, up to about 3.5 MB, and a code whose `liveprice`
+// frame never came would ask once a minute all day. Its day change and its
+// place in the up / down counts stay unknown. A recount has no bound.
+const CLOSE_MISSES = 3
 
 // `row` as the book's copy of `code`'s minute `at`; none when its last
 // trade left it. Plain, per candle (the Decision at isIndex).
