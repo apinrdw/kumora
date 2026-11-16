@@ -152,13 +152,19 @@ const resumeFrom = Effect.fnUntraced(function* (status: BrokerCodesStatus) {
 })
 
 // Stockbit's walk alone: the trade to resume after, from a status that lists
-// from trade 1. While n is unknown it is no further than the walks reached:
-// each trade with codes is one they posted, and a listed range ends below a
-// trade held. A codes-only row counts in both `sources` and `missingCount`,
-// so their sum would pass trades never walked. Once n is known, a list that
-// ends at n names the missing tail; a list cut short at MISSING_RANGES may
-// end before it, so the walk resumes after the last range listed, a trade
-// held, and walks the rest again.
+// from trade 1. While n is unknown the top is the higher of the trades with
+// codes and the trade past the last listed range. A codes-only row counts in
+// both `sources` and `missingCount`, so their sum would pass trades never
+// walked. Once n is known, a list that ends at n names the missing tail; a
+// list cut short at MISSING_RANGES may end before it, so the top is the
+// trade past the last range listed, a trade held, and the walk walks the
+// rest again.
+// Decision: the walk resumes a page (100) below that top, as the gap walk
+// pages from below a range. A codes-only row the walk posted last before a
+// cut counts with codes, so the top can name a trade above ones it never
+// saw, and Stockbit sends a second's trades out of number order. Walking a
+// page again costs one call; skipping a trade costs a run. See
+// apinrdw/kumora#437.
 const highestHeld = Effect.fnUntraced(function* (status: BrokerCodesStatus) {
   let listed = 0n
   for (const [from, to] of status.missing)
@@ -175,8 +181,9 @@ const highestHeld = Effect.fnUntraced(function* (status: BrokerCodesStatus) {
   if (status.n !== null && last !== undefined)
     if (listed < BigInt(status.missingCount)) top = BigInt(last[1]) + 1n
     else if (BigInt(last[1]) === top) top = BigInt(last[0]) - 1n
-  return top > 0n
-    ? Option.some(TradeNumber.make(top.toString()))
+  const resume = top - BigInt(PAGE)
+  return resume > 0n
+    ? Option.some(TradeNumber.make(resume.toString()))
     : Option.none<TradeNumber>()
 })
 

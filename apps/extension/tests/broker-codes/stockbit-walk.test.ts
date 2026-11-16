@@ -707,7 +707,7 @@ describe("Stockbit's walk: stopping and carrying on", () => {
   )
 
   it.effect(
-    "a day Stockbit walked alone resumes from the highest trade it holds",
+    "a day Stockbit walked alone resumes a page below the highest trade it holds",
     () =>
       Effect.gen(function* () {
         yield* TestClock.setTime(wib("2026-11-12", "17:30:00"))
@@ -723,7 +723,7 @@ describe("Stockbit's walk: stopping and carrying on", () => {
         const second = fakeStockbit()
         const after = yield* walkWith(second, production)
         assert.deepStrictEqual(yield* after.walk(DAY), { _tag: "walked" })
-        assert.strictEqual(second.params()[1]?.get("trade_number"), "1000")
+        assert.strictEqual(second.params()[1]?.get("trade_number"), "900")
         assert.isTrue((yield* production.status(DAY)).complete)
 
         // A complete day Stockbit walked alone isn't walked again.
@@ -735,7 +735,7 @@ describe("Stockbit's walk: stopping and carrying on", () => {
   )
 
   it.effect(
-    "a day Stockbit walked alone, a row of it posted without fields, resumes no further than it walked",
+    "a day Stockbit walked alone, a row of it posted without fields, resumes a page below where it walked",
     () =>
       Effect.gen(function* () {
         yield* TestClock.setTime(wib("2026-11-12", "17:30:00"))
@@ -752,7 +752,7 @@ describe("Stockbit's walk: stopping and carrying on", () => {
         const second = fakeStockbit({ badLots: new Set([5]) })
         const after = yield* walkWith(second, production)
         yield* after.walk(DAY)
-        assert.strictEqual(second.params()[1]?.get("trade_number"), "1000")
+        assert.strictEqual(second.params()[1]?.get("trade_number"), "900")
         assert.deepStrictEqual(
           (yield* production.status(DAY)).missing.map((range) =>
             range.map(Number)
@@ -999,9 +999,9 @@ describe("Stockbit's gap walk of an older day", () => {
         assert.deepStrictEqual(yield* walk.gaps(DAY), { _tag: "walked" })
         assert.isTrue((yield* production.status(DAY)).complete)
         assert.deepStrictEqual(production.ends(), [{ n: String(N) }])
-        // On from the trades with codes: a trade missing them, as 250 is,
-        // reads as one a codes-only row could be, so 1400 is walked again.
-        assert.deepStrictEqual(cursors(tape).slice(0, 2), ["149", "1399"])
+        // On from a page below the trades with codes: a trade missing them,
+        // as 250 is, reads as one a codes-only row could be.
+        assert.deepStrictEqual(cursors(tape).slice(0, 2), ["149", "1299"])
       })
   )
 
