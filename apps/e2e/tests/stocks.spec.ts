@@ -467,6 +467,39 @@ test.describe.serial("the stock page", () => {
       await expect(barsTooltip(page)).toContainText("Sep 2026")
     })
 
+    test("styles the Bars tooltip as KTooltip", async ({ page }) => {
+      const look = (element: Element) => {
+        const style = getComputedStyle(element)
+        return [
+          "border-radius",
+          "border-top-color",
+          "border-top-width",
+          "padding",
+          "min-width",
+          "max-width",
+          "font-size",
+          "line-height",
+          "font-weight",
+          "color",
+          "background-color",
+          "box-shadow",
+        ].map((property) => `${property}: ${style.getPropertyValue(property)}`)
+      }
+      // May doesn't split, so the Local origin is a KTooltip trigger.
+      await page.goto(`${DASHBOARD}/stocks/BBCA?month=2026-05`)
+      const kTooltip = page.locator('[data-slot="tooltip-content"]')
+      await expect(async () => {
+        await page.mouse.move(0, 0)
+        await origin(page, "Local").hover()
+        await expect(kTooltip).toBeVisible({ timeout: 1000 })
+      }).toPass()
+      const kLook = await kTooltip.evaluate(look)
+      await page.mouse.move(0, 0)
+      await focusNewest(page, "Oct 2026")
+      const body = barsTooltip(page).locator(".ts-chart-tooltip__body")
+      expect(await body.evaluate(look)).toEqual(kLook)
+    })
+
     test("keeps its scroll when the pointer hovers a column at the edge", async ({
       page,
     }) => {
