@@ -528,37 +528,54 @@ describe("a reconcile poke", () => {
   )
 
   it.effect(
-    "does nothing on an unsealed, an incomplete or a current-version built day",
+    "rebuilds a day its own fact calls built at this version, once the broker totals DB lost it",
     () =>
-      withLines("Broker totals built", (lines) =>
-        Effect.gen(function* () {
-          const unsealedDb = memoryBrokerTotalsDb()
-          yield* at("09:01:10")
-          const unsealed = yield* tradingDay(memorySql(), [], unsealedDb.layer)
-          yield* unsealed.trades(TAPE)
-          yield* at("16:00:00")
-          yield* unsealed.brokerCodes("Ajaib", CODES, 7)
-          assert.isFalse(yield* unsealed.reconcile)
-          yield* unsealed.alarm
-          assert.deepStrictEqual(yield* read(unsealedDb, UNTR), NOTHING)
+      Effect.gen(function* () {
+        const sql = memorySql()
+        const built = yield* builtDay(memoryBrokerTotalsDb(), sql)
+        yield* built.evicted
 
-          const incompleteDb = memoryBrokerTotalsDb()
-          const incomplete = yield* sealedDay(incompleteDb)
-          yield* at("17:30:00")
-          yield* incomplete.brokerCodes("Ajaib", CODES.slice(0, 6), 7)
-          assert.isFalse(yield* incomplete.reconcile)
-          yield* incomplete.alarm
-          assert.deepStrictEqual(yield* read(incompleteDb, UNTR), NOTHING)
-
-          const builtDb = memoryBrokerTotalsDb()
-          const built = yield* builtDay(builtDb)
-          yield* at("18:00:00")
-          assert.isFalse(yield* built.reconcile)
-          yield* built.alarm
-          assert.deepStrictEqual(yield* read(builtDb, UNTR), UNTR_BUILT)
-          assert.lengthOf(lines, 1)
+        yield* at("18:00:00")
+        const reset = memoryBrokerTotalsDb()
+        const day = yield* tradingDay(sql, [], reset.layer)
+        assert.isTrue(yield* day.reconcile)
+        yield* day.alarm
+        assert.deepStrictEqual(yield* read(reset, UNTR), {
+          ...UNTR_BUILT,
+          builtDays: [
+            {
+              day: DAY,
+              buildVersion: BROKER_TOTALS_VERSION,
+              builtAt: "2026-11-09T11:00:00.000Z",
+            },
+          ],
         })
-      )
+      })
+  )
+
+  it.effect("does nothing on an unsealed or an incomplete day", () =>
+    withLines("Broker totals built", (lines) =>
+      Effect.gen(function* () {
+        const unsealedDb = memoryBrokerTotalsDb()
+        yield* at("09:01:10")
+        const unsealed = yield* tradingDay(memorySql(), [], unsealedDb.layer)
+        yield* unsealed.trades(TAPE)
+        yield* at("16:00:00")
+        yield* unsealed.brokerCodes("Ajaib", CODES, 7)
+        assert.isFalse(yield* unsealed.reconcile)
+        yield* unsealed.alarm
+        assert.deepStrictEqual(yield* read(unsealedDb, UNTR), NOTHING)
+
+        const incompleteDb = memoryBrokerTotalsDb()
+        const incomplete = yield* sealedDay(incompleteDb)
+        yield* at("17:30:00")
+        yield* incomplete.brokerCodes("Ajaib", CODES.slice(0, 6), 7)
+        assert.isFalse(yield* incomplete.reconcile)
+        yield* incomplete.alarm
+        assert.deepStrictEqual(yield* read(incompleteDb, UNTR), NOTHING)
+        assert.lengthOf(lines, 0)
+      })
+    )
   )
 })
 

@@ -159,7 +159,7 @@ A built day that a later batch corrected, by changing a trade's kept broker code
 _Avoid_: Dirty day, outdated day
 
 **Reconcile**:
-The daily pass after the seal that pokes each listed day not built at the current build version, newest first and about 20 a day. A poke builds only a sealed, complete day that is unbuilt, stale or built by an older version.
+The daily pass after the seal that pokes each listed day the broker totals DB holds unbuilt or built by an older build version, newest first, until about 20 a day have accepted. A poke builds a sealed, complete day; a day that answers it won't takes no slot.
 _Avoid_: Backfill (that is the relay's REST fetch of missed trades)
 
 ### Freshness

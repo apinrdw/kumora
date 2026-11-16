@@ -1082,18 +1082,17 @@ export const makeTradingDay = Effect.fnUntraced(function* (options: {
     yield* arm(buildWake)
   })
 
-  // Decision: the reconcile cron's poke builds the day on the alarm at once
-  // only when it is sealed, complete, and unbuilt, stale or built by another
-  // build version; it marks an unbuilt or older one due, so a restart builds
-  // it too. Any other day it leaves alone. See spec apinrdw/kumora#437, "On
-  // request".
+  // Decision: the reconcile cron's poke builds a sealed, complete day on the
+  // alarm at once, marked due, whatever its own fact says: the cron pokes
+  // only days the broker totals DB holds unbuilt or older, as a DB reset
+  // leaves a day this version built. Other days it leaves alone. See spec
+  // apinrdw/kumora#437, "On request".
   //
   // Whether the day will build.
   const reconcile = Effect.gen(function* () {
     if (!sealed || options.brokerTotalsDb === undefined) return false
-    const fact = yield* store.fact(Fact.brokerTotals)
-    if (fact === String(BROKER_TOTALS_VERSION)) return false
     if (!(yield* brokerCodes.complete)) return false
+    const fact = yield* store.fact(Fact.brokerTotals)
     if (fact !== BROKER_TOTALS_DUE && fact !== BROKER_TOTALS_STALE)
       yield* store.markBrokerTotals(BROKER_TOTALS_DUE)
     buildWake = yield* DateTime.now
