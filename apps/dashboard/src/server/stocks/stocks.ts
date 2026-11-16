@@ -5,11 +5,14 @@ import { StockCode } from "@workspace/relay"
 import { NotFound } from "@workspace/server"
 import { Effect, Option, Schema } from "effect"
 
+import type { InventoryWindow } from "@/lib/broker-inventory"
 import { Auth } from "@/server/auth/auth"
 import { decide } from "@/server/auth/policy"
 import { refusal } from "@/server/auth/refusal"
 import { accountOf } from "@/server/auth/session-account"
+import { brokerInventory } from "@/server/broker-totals/inventory"
 import { stockList, stockPage } from "@/server/holdings/stock-page"
+import { marketToday } from "@/server/market-live/market-clock"
 
 const authorize = Effect.fnUntraced(function* (headers: Headers, href: string) {
   const session = yield* (yield* Auth).getSession(headers)
@@ -20,16 +23,35 @@ const authorize = Effect.fnUntraced(function* (headers: Headers, href: string) {
 })
 
 // A code that isn't a stock code is not found, so a typo never reads as a
-// stock with no data. `month` is the URL's, `YYYY-MM`.
+// stock with no data.
+const stockCode = Effect.fnUntraced(function* (code: string) {
+  const stock = Schema.decodeUnknownOption(StockCode)(code)
+  if (Option.isNone(stock)) return yield* new NotFound({ message: "" })
+  return stock.value
+})
+
+// `month` is the URL's, `YYYY-MM`.
 export const stockPageView = Effect.fn("stockPageView")(function* (
   headers: Headers,
   code: string,
   month: string | undefined
 ) {
   yield* authorize(headers, `/stocks/${encodeURIComponent(code)}`)
-  const stock = Schema.decodeUnknownOption(StockCode)(code)
-  if (Option.isNone(stock)) return yield* new NotFound({ message: "" })
-  return yield* stockPage(stock.value, month)
+  return yield* stockPage(yield* stockCode(code), month)
+})
+
+// The Broker inventory tab's read, as of today on Market Live's clock.
+export const brokerInventoryView = Effect.fn("brokerInventoryView")(function* (
+  headers: Headers,
+  code: string,
+  window: InventoryWindow
+) {
+  yield* authorize(headers, `/stocks/${encodeURIComponent(code)}?tab=brokers`)
+  return yield* brokerInventory(
+    yield* stockCode(code),
+    window,
+    yield* marketToday
+  )
 })
 
 export const stockListView = Effect.fn("stockListView")(function* (
