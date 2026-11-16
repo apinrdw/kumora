@@ -320,7 +320,7 @@ export const makeCandleBook = Effect.fnUntraced(function* (
     minute: number,
     candle: CandleFigures,
     print: CandleFigures
-  ) => void = () => {}
+  ) => void
 ) {
   const series = new Map<StockCode, Map<number, Slot>>()
   // Trades still inside the merge window, in arrival order.

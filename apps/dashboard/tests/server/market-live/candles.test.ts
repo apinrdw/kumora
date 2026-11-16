@@ -63,7 +63,7 @@ describe("the candle book over a full day", () => {
     () =>
       Effect.gen(function* () {
         const store = yield* makeDayStore(memorySql())
-        const book = yield* makeCandleBook(store)
+        const book = yield* makeCandleBook(store, () => {})
         const first = wib("08:58:00")
         let number = 0
         let most = 0
@@ -149,7 +149,7 @@ describe("a candle's buy value and sell value", () => {
     () =>
       Effect.gen(function* () {
         const store = yield* makeDayStore(memorySql())
-        const book = yield* makeCandleBook(store)
+        const book = yield* makeCandleBook(store, () => {})
         const minute = wib("09:00:00")
         yield* TestClock.setTime(DateTime.toEpochMillis(minute) + 10_000)
         const code = StockCode.make("BBCA")
