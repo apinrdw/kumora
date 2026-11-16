@@ -212,3 +212,25 @@ test("asks the backfill again after the next build for a code it hasn't carried,
   expect(mocks.bubbles).toHaveBeenCalledTimes(3)
   await page.unmount()
 })
+
+test("gives up on a code's previous close after three backfills without it", async () => {
+  vi.useFakeTimers({ now: wib("10:00:30") })
+  mocks.bubbles.mockReturnValue(Effect.succeed(Option.some(answer([BBCA]))))
+  const page = await mount(MONDAY)
+  act(() => page.held.apply!(snapshot))
+  await settle()
+  await act(() => vi.advanceTimersByTimeAsync(wib("10:01:06") - Date.now()))
+  expect(mocks.bubbles).toHaveBeenCalledTimes(2)
+
+  // BBRI trades at 10:01, and no backfill ever carries its previous close.
+  act(() => page.held.apply!(delta([candle(BBRI, wib("10:01:00"))])))
+  await act(() => vi.advanceTimersByTimeAsync(10 * 60_000))
+  expect(mocks.bubbles).toHaveBeenCalledTimes(5)
+  expect(page.held.flow!.codes.get(BBRI)?.previousClose).toBeUndefined()
+
+  // A reconnect asks again, as each snapshot does, but no more for BBRI.
+  act(() => page.held.apply!(snapshot))
+  await act(() => vi.advanceTimersByTimeAsync(10 * 60_000))
+  expect(mocks.bubbles).toHaveBeenCalledTimes(7)
+  await page.unmount()
+})
