@@ -540,7 +540,7 @@ function Bars({
     })
   }, [chart, shown, origin, rows, views])
   return (
-    <div className="flex min-w-0" role="group" aria-label="Holding chart">
+    <div className="flex min-w-0">
       <div
         aria-hidden
         className="relative w-12 shrink-0 text-[11px] text-muted-foreground"
