@@ -651,6 +651,29 @@ describe("recompute time", () => {
   )
 })
 
+describe("day totals a backfill recounts", () => {
+  it.effect("wait for one when a candle older than the kept hour changes", () =>
+    Effect.gen(function* () {
+      const flow = yield* makeMarketFlow()
+      const minutes = [minute(T0 - 2 * 60 * MIN, 1_000, 100)]
+      for (let m = 60; m >= 0; m--) minutes.push(minute(T0 - m * MIN, 1, 100))
+      yield* applyBubbles(flow, body([{ code: "BBCA", minutes }]))
+      expect(yield* missingFromBackfill(flow)).toBe(false)
+      // A relay backfill page brings a trade two hours back.
+      yield* applyCandles(flow, [
+        candle("BBCA", T0 - 2 * 60 * MIN, {
+          value: 2_000,
+          close: 100,
+          frequency: 2,
+        }),
+      ])
+      expect(yield* missingFromBackfill(flow)).toBe(true)
+      yield* applyBubbles(flow, body([{ code: "BBCA", minutes }]))
+      expect(yield* missingFromBackfill(flow)).toBe(false)
+    })
+  )
+})
+
 describe("codes the backfill hasn't carried", () => {
   it.effect(
     "are the codes first seen in a delta or the tape, until a backfill carries them",
