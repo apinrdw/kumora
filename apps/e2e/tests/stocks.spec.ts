@@ -1123,6 +1123,13 @@ const plotted = (page: Page) =>
       lines.map((line) => line.getAttribute("data-broker"))
     )
 
+// The chart's candle bodies, each a link to its day in Market Live.
+const candles = (page: Page) =>
+  inventoryChart(page).getByRole("link", { name: /in Market Live$/ })
+
+const candleOf = (page: Page, day: string) =>
+  candles(page).and(page.locator(`[href$="day=${day}"]`))
+
 const rangePreset = (page: Page, label: string) =>
   brokerInventory(page)
     .getByRole("group", { name: "Range" })
@@ -1311,5 +1318,42 @@ test.describe.serial("the Broker inventory tab", () => {
     await page.reload()
     await expect(page).toHaveURL(/[?&]brokers=$/)
     await expect.poll(() => plotted(page)).toStrictEqual([])
+  })
+
+  test("opens a candle's day in Market Live, and Back restores the view", async ({
+    page,
+  }) => {
+    const newest = BROKER_DAYS.at(-1)?.day ?? ""
+    const gap = tradingDaysBeforeToday(80)[55] ?? ""
+    await page.goto(`${DASHBOARD}/stocks/BBCA?tab=brokers`)
+    // 3M's built days each have a candle and a volume bar; its gap has none.
+    await expect(candleOf(page, newest)).toHaveCount(1)
+    const built = await candles(page).count()
+    await expect(inventoryChart(page).locator("[data-volume]")).toHaveCount(
+      built
+    )
+    await expect(inventoryChart(page).locator("[data-gap]")).toHaveCount(1)
+    await expect(candleOf(page, gap)).toHaveCount(0)
+    await expect(async () => {
+      await rangePreset(page, "2W").click()
+      await expect(page).toHaveURL(/[?&]range=2W/, { timeout: 1000 })
+    }).toPass()
+    await expect.poll(() => plotted(page)).toContain("NI")
+    const shown = await candles(page).count()
+    const twoWeeks = await plotted(page)
+    await candleOf(page, newest).click()
+    await expect(page).toHaveURL(
+      `${DASHBOARD}/market-live?code=BBCA&day=${newest}`
+    )
+    await page.goBack()
+    await expect(page).toHaveURL(
+      `${DASHBOARD}/stocks/BBCA?tab=brokers&range=2W`
+    )
+    await expect(rangePreset(page, "2W")).toHaveAttribute(
+      "aria-pressed",
+      "true"
+    )
+    await expect.poll(() => plotted(page)).toStrictEqual(twoWeeks)
+    await expect(candles(page)).toHaveCount(shown)
   })
 })

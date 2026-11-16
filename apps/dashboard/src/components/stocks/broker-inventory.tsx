@@ -235,8 +235,10 @@ export function BrokerInventory({
       ) : (
         <>
           <BrokerInventoryChart
+            code={code}
             days={read.days}
             built={read.built}
+            candles={read.candles}
             lines={view.lines}
           />
           <div className="flex flex-wrap gap-x-6 gap-y-1 text-[12px]">
