@@ -412,19 +412,6 @@ function WasNow({ now, move }: { now: number; move: Move | undefined }) {
 
 const TICKS = [1, 0.75, 0.5, 0.25, 0]
 
-// The month index each key moves the Bars chart's keyboard month to, from
-// the current one among `count` months.
-const MONTH_KEYS: Partial<
-  Record<string, (index: number, count: number) => number>
-> = {
-  ArrowLeft: (index) => Math.max(0, index - 1),
-  ArrowUp: (index) => Math.max(0, index - 1),
-  ArrowRight: (index, count) => Math.min(count - 1, index + 1),
-  ArrowDown: (index, count) => Math.min(count - 1, index + 1),
-  Home: () => 0,
-  End: (_, count) => count - 1,
-}
-
 function Bars({
   chart,
   shown,
@@ -620,12 +607,21 @@ function Bars({
         ref={scroller}
         className="min-w-0 flex-1 overflow-x-auto pb-1"
         onKeyDownCapture={(event) => {
-          const index = MONTH_KEYS[event.key]?.(at.current, stops.length)
-          if (index === undefined) return
+          const last = stops.length - 1
+          const step: Partial<Record<string, number>> = {
+            ArrowLeft: at.current - 1,
+            ArrowUp: at.current - 1,
+            ArrowRight: at.current + 1,
+            ArrowDown: at.current + 1,
+            Home: 0,
+            End: last,
+          }
+          const to = step[event.key]
+          if (to === undefined) return
           // The library's own arrow keys would step from its focused point.
           event.preventDefault()
           event.stopPropagation()
-          focusMonth(index)
+          focusMonth(Math.min(last, Math.max(0, to)))
         }}
         onFocusCapture={(event) => {
           if (event.target.matches(":focus-visible")) focusMonth(at.current)
