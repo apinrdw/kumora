@@ -5,6 +5,7 @@
 import {
   type BrokerCode,
   type InvestorType,
+  type RunningTrade,
   SHARES_PER_LOT,
   type StockCode,
 } from "@workspace/relay"
@@ -28,7 +29,7 @@ export const BROKER_TOTALS_STALE = "stale"
 // Decision: the build keeps the regular board, which holds the auction
 // matches too; negotiated (NG) and cash (TN) trades count in neither totals
 // nor candles. See spec apinrdw/kumora#437, "The build".
-const KEPT_BOARD = "RG"
+const KEPT_BOARD = "RG" satisfies RunningTrade["board"]
 
 interface Side {
   shares: number

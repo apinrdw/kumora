@@ -17,6 +17,7 @@ import {
   type BrokerCodesStatus,
   type CrossCheck,
   type Feed,
+  type RunningTrade,
   type TradeCodes,
   type TradeFields,
   type WibDate,
@@ -244,7 +245,7 @@ interface HeldTrade {
   readonly code: StockCode
   readonly price: number
   readonly lots: number
-  readonly board: string
+  readonly board: RunningTrade["board"]
   readonly codes: TradeCodes
 }
 
@@ -886,7 +887,7 @@ export const makeBrokerCodes = Effect.fnUntraced(function* (options: {
         code: StockCode.make(String(row.code)),
         price: Number(row.price),
         lots: Number(row.lots),
-        board: String(row.board),
+        board: String(row.board) as RunningTrade["board"],
         codes: yield* codesOf(record),
       })
     }
