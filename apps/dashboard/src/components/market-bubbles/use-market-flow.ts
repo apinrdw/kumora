@@ -102,8 +102,8 @@ const untilBuilt = (clockOffset: number) =>
   })
 
 // The backfill into `flow` after a snapshot, then again after the next
-// build, and after each later build while a code first seen since waits
-// for its previous close, which only the backfill carries.
+// build, and after each later build while the flow waits for one
+// (missingFromBackfill): a code's previous close, or day totals to recount.
 // Decision: the second ask, past the browser's 60 s copy, brings the trades
 // between the last build and the page's load, which no delta carries until
 // their code trades again; "more trades wins" merges it. One more GET a

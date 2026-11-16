@@ -103,6 +103,10 @@ export interface MarketFlow {
   lastTrade: number | undefined
   // The newest minute any code traded in.
   newestMinute: number
+  // Whether a candle older than the kept minutes changed since the last
+  // backfill: its earlier figures are gone, so only a backfill recounts the
+  // day totals.
+  recount: boolean
   // The tape's trade numbers already counted → what each added, so a
   // snapshot's tape, which repeats trades a delta brought, counts each once,
   // and a later copy with another side or time replaces it.
@@ -199,6 +203,7 @@ export const makeMarketFlow = () =>
     codes: new Map(),
     lastTrade: undefined,
     newestMinute: 0,
+    recount: false,
     seen: new Map(),
   }))
 
@@ -261,12 +266,15 @@ export const applyBubbles = (flow: MarketFlow, body: RecordedBubbles) =>
       code.backfilled = true
       pruneMinutes(flow, code)
     }
+    flow.recount = false
   })
 
-// Whether a code first seen in a delta or the tape waits for a backfill to
-// carry its previous close: only the backfill does.
+// Whether the flow waits for a backfill: to carry the previous close of a
+// code first seen in a delta or the tape, or to recount the day totals after
+// an old candle changed. Only the backfill does either.
 export const missingFromBackfill = (flow: MarketFlow) =>
   Effect.sync(() => {
+    if (flow.recount) return true
     for (const code of flow.codes.values()) if (!code.backfilled) return true
     return false
   })
@@ -282,9 +290,11 @@ export const applyCandles = (
       if (isIndex(candle.code)) continue
       const at = DateTime.toEpochMillis(candle.minute)
       const code = codeFlowOf(flow, candle.code)
-      // Older than any window: its trades are already in the day's totals.
+      // Older than any window: a late trade changed it, whose figures only a
+      // backfill brings into the day's totals.
       if (at < oldestKept(flow)) {
         noteBefore(code, at, candle.close)
+        flow.recount = true
         continue
       }
       const old = code.minutes.get(at)
