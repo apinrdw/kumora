@@ -3,13 +3,13 @@
 // broker totals over a range of days, in columns, for the browser's math
 // (src/lib/broker-inventory.ts) to sum.
 import {
-  type BrokerCode,
-  type InvestorType,
+  BrokerCode,
+  InvestorType,
   isTradingDay,
   type StockCode,
-  type WibDate,
+  WibDate,
 } from "@workspace/relay"
-import { DateTime, Effect } from "effect"
+import { DateTime, Effect, Schema } from "effect"
 
 import {
   customFrom,
@@ -20,53 +20,57 @@ import {
 
 import { readBrokerTotals, readBuiltSpan } from "./db.ts"
 
+const Column = Schema.Array(Schema.Number)
+
 // Each column is indexed alike: entry k of every array is one row.
-export interface CandleColumns {
+const CandleColumns = Schema.Struct({
   // Index into `days`.
-  readonly day: ReadonlyArray<number>
-  readonly open: ReadonlyArray<number>
-  readonly high: ReadonlyArray<number>
-  readonly low: ReadonlyArray<number>
-  readonly close: ReadonlyArray<number>
+  day: Column,
+  open: Column,
+  high: Column,
+  low: Column,
+  close: Column,
   // Lots.
-  readonly volume: ReadonlyArray<number>
-  readonly value: ReadonlyArray<number>
+  volume: Column,
+  value: Column,
   // Regular-board trades counted.
-  readonly trades: ReadonlyArray<number>
-}
+  trades: Column,
+})
+export type CandleColumns = typeof CandleColumns.Type
 
 // One row per (day, broker, investor type) the code traded through.
-export interface TotalColumns {
+const TotalColumns = Schema.Struct({
   // Index into `days`.
-  readonly day: ReadonlyArray<number>
+  day: Column,
   // Index into `brokers`.
-  readonly broker: ReadonlyArray<number>
-  readonly investorType: ReadonlyArray<InvestorType>
-  readonly buyLots: ReadonlyArray<number>
-  readonly buyValue: ReadonlyArray<number>
-  readonly sellLots: ReadonlyArray<number>
-  readonly sellValue: ReadonlyArray<number>
-}
+  broker: Column,
+  investorType: Schema.Array(InvestorType),
+  buyLots: Column,
+  buyValue: Column,
+  sellLots: Column,
+  sellValue: Column,
+})
 
-export interface BrokerInventoryRead {
+export const BrokerInventoryRead = Schema.Struct({
   // The range asked for, clamped: `to` is the newest built day at or before
   // the asked end. With no built day yet, both are the asked ones.
-  readonly from: WibDate
-  readonly to: WibDate
+  from: WibDate,
+  to: WibDate,
   // The first built day there is, for the picker; none before any build.
-  readonly earliest: WibDate | undefined
+  earliest: Schema.UndefinedOr(WibDate),
   // Today, when it is a trading day not built yet.
-  readonly pending: WibDate | undefined
+  pending: Schema.UndefinedOr(WibDate),
   // The chart's day axis: every trading day and built day from `from` (or
   // `earliest`, if later) to `to`, in order.
-  readonly days: ReadonlyArray<WibDate>
+  days: Schema.Array(WibDate),
   // Per day: built, or a gap the sums carry across.
-  readonly built: ReadonlyArray<boolean>
-  readonly candles: CandleColumns
+  built: Schema.Array(Schema.Boolean),
+  candles: CandleColumns,
   // The brokers `totals` names, in code order.
-  readonly brokers: ReadonlyArray<BrokerCode>
-  readonly totals: TotalColumns
-}
+  brokers: Schema.Array(BrokerCode),
+  totals: TotalColumns,
+})
+export type BrokerInventoryRead = typeof BrokerInventoryRead.Type
 
 // A day the axis shows when it isn't built: a trading day. A year the
 // schedule doesn't have yet counts its weekdays.
