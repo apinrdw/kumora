@@ -22,6 +22,9 @@ export const kindPrefix = Effect.fnUntraced(function* (kind: ReportKind) {
   return `${REPORTS_PREFIX}${kind}/`
 })
 
+// seedReportFixture (apps/e2e/support/shareholding.ts) writes this key and
+// recordKey's by hand, since it can't load this module: a change here
+// changes it too.
 export const reportKey = Effect.fnUntraced(function* (
   kind: ReportKind,
   dataDate: string,
