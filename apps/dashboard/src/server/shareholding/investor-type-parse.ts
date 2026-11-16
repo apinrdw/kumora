@@ -1,0 +1,40 @@
+// The Investor-type parse run: it parses the shareholding archive's
+// investor-type reports into investor-type holdings
+// (../holdings/parse-runs.ts), apart from the classification parse run: its
+// own records and its own one run in progress. A data date is parsed when
+// its newest archived version (by fetched-at) or the parser's version
+// differs from the version its holdings came from, or when it has none. Spec
+// apinrdw/kumora#402, "Parse runs".
+import { Context } from "effect"
+
+import type { ArchiveWorkflow } from "../archive/workflow.ts"
+import {
+  PARSER_VERSION,
+  parseInvestorTypeMonth,
+  parsedInvestorTypeMonths,
+} from "../holdings/investor-type.ts"
+import { parseRunsOf } from "../holdings/parse-runs.ts"
+import { kindPrefix, reportKey } from "./keys.ts"
+
+const KIND = "investor-type"
+
+// The Investor-type parse run's Workflow, INVESTOR_TYPE_PARSE
+// (alchemy.run.ts).
+export class InvestorTypeParseWorkflow extends Context.Service<
+  InvestorTypeParseWorkflow,
+  Context.Service.Shape<typeof ArchiveWorkflow>
+>()("dashboard/shareholding/InvestorTypeParseWorkflow") {}
+
+export const investorTypeParseRuns = parseRunsOf({
+  runName: "Investor-type parse run",
+  // parse-runs/<kind>/, as keys.ts lays out.
+  runsPrefix: `parse-runs/${KIND}/`,
+  months: {
+    prefix: kindPrefix(KIND),
+    reportKey: (dataDate, sha256) => reportKey(KIND, dataDate, sha256),
+    parsed: parsedInvestorTypeMonths,
+    parserVersion: PARSER_VERSION,
+    parse: parseInvestorTypeMonth,
+  },
+  workflow: InvestorTypeParseWorkflow,
+})

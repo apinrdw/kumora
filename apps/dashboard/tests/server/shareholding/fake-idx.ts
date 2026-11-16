@@ -1,6 +1,7 @@
 // A fake IDX for the archive run: an HttpClient that answers the listing
 // from the recorded fixture and each file from `www.idx.id`: a classification
-// report with a real one's bytes, any other with small bytes.
+// or investor-type report with a fixture's real bytes, any other with small
+// bytes.
 // Tests change `files` (an ETag, a status, delete for a 404), `listing`, or
 // `listingResponse` (a 403, a changed shape) between runs.
 import { assert } from "@effect/vitest"
@@ -108,9 +109,62 @@ export const classificationIdx = () =>
     )
   )
 
-// What IDX serves at a listed URL: a classification report its fixture's
-// bytes, or the Mar–Aug layout's May fixture for a month with none.
+// Real investor-type reports, trimmed to their title and header rows and the
+// stocks AADI, BBCA, TRUE and WBSA (WBSA lists from April 2026), by data
+// date (~/.t3/notes/kumora/402/trim-investor-type-xlsx.py): Nov 2025's
+// unsplit layout with blank cells, Apr 2026's split layout with blank cells,
+// TRUE's code a boolean cell and empty styled cells past its header's total
+// column, and Oct 2026's split layout writing no holding as 0.
+const INVESTOR_TYPE_FIXTURES = {
+  "2025-11-28": "peng-11-00004-tipe.xlsx",
+  "2026-04-30": "peng-04-00009-tipe.xlsx",
+  "2026-10-30": "peng-2026-10-00027-tipe.xlsx",
+} as const
+export type InvestorTypeFixture = keyof typeof INVESTOR_TYPE_FIXTURES
+
+// Copies of the real reports, each broken one way
+// (~/.t3/notes/kumora/402/break-investor-type-xlsx.py): October's with its
+// `TOTAL SCRIPLESS` renamed, April's with BBCA's domestic CP one share past
+// its total, November's with BBCA coded AADI, and October's with no stock
+// rows.
+export type BrokenInvestorTypeFixture =
+  | "unknown-header"
+  | "unsummed"
+  | "duplicate-code"
+  | "empty"
+
+export const investorTypeFixture = (
+  name: InvestorTypeFixture | BrokenInvestorTypeFixture
+) => {
+  const dataUrl = FIXTURE_FILES[`./fixtures/investor-type-${name}.xlsx`]
+  assert.isDefined(dataUrl)
+  return new Uint8Array(Buffer.from(dataUrl.split(",")[1] ?? "", "base64"))
+}
+
+export const investorTypeItem = (dataDate: InvestorTypeFixture) => {
+  const item = recorded.items.find((listed) =>
+    listed.Prospectus.endsWith(`/${INVESTOR_TYPE_FIXTURES[dataDate]}`)
+  )
+  assert.isDefined(item)
+  return item
+}
+
+// The listing items of every investor-type fixture's report.
+export const investorTypeItems = () =>
+  (Object.keys(INVESTOR_TYPE_FIXTURES) as Array<InvestorTypeFixture>).map(
+    investorTypeItem
+  )
+
+// What IDX serves at a listed URL: an investor-type report with a fixture
+// its fixture's bytes, a classification report its fixture's bytes, or the
+// Mar–Aug layout's May fixture for a month with none.
 const fileBody = (prospectus: string) => {
+  const [investorType] =
+    Object.entries(INVESTOR_TYPE_FIXTURES).find(([, file]) =>
+      prospectus.endsWith(`/${file}`)
+    ) ?? []
+  if (investorType !== undefined)
+    return investorTypeFixture(investorType as InvestorTypeFixture)
   if (!prospectus.endsWith("-klasifikasi.xlsx"))
     return `xlsx bytes of ${prospectus}`
   const [dataDate = "2026-05-29"] =
