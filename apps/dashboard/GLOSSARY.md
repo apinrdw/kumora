@@ -200,7 +200,7 @@ A KSEI archive run an admin starts that also looks for KSEI reports older than K
 _Avoid_: History run, full sync
 
 **Run**:
-One pass of either archive (an archive run or a KSEI archive run) or one parse run (a classification parse run or a KSEI parse run). What they share (a run id, its outcome, one run of each in progress at a time) is said of a run.
+One pass of either archive (an archive run or a KSEI archive run) or one parse run (a classification parse run, an investor-type parse run or a KSEI parse run). What they share (a run id, its outcome, one run of each in progress at a time) is said of a run.
 _Avoid_: Archive run for both, which is IDX's; job
 
 ### Holdings
@@ -229,6 +229,10 @@ _Avoid_: Ownership row, class holding
 One stock's scripless shares held by one of KSEI's 9 investor types and one origin, local or foreign, as of a Securities holdings report's period end. Every equity in the report has them, priced or not. A type and origin with no holding holds 0.
 _Avoid_: Balancepos row, type holding
 
+**Investor-type holding**:
+One stock's scripless shares held by one KSEI investor type and origin, split into ≥5% holders and <5% holders, as of an investor-type report's data date. A type and origin with no holding holds 0 in both.
+_Avoid_: Type holding, which reads as KSEI's; band row
+
 **KSEI investor type**:
 One of KSEI's 9 parent categories of investor: ID (Individual), CP (Corporate), MF (Mutual fund), IB (Financial institution), IS (Insurance), SC (Securities company), PF (Pension fund), FD (Foundation) and OT (Others). The stock page groups investor classifications into them by a fixed mapping, which never matches KSEI's own type totals exactly.
 _Avoid_: Investor group, category
@@ -236,6 +240,10 @@ _Avoid_: Investor group, category
 **Classification parse run**:
 One pass that parses each holdings-by-investor-classification report in the shareholding archive whose newest version, or the parser's version, hasn't been parsed into classification holdings. The schedule starts one each day, an hour after the evening archive run, and an admin can start one when none is in progress. It ends **complete**, **partial** (some months could not be parsed and wait for the next run) or **failed**.
 _Avoid_: Archive run, which stores reports; import, sync
+
+**Investor-type parse run**:
+The same pass for holdings-by-investor-type reports, parsed into investor-type holdings, on its own schedule and in its own progress. It ends **complete**, **partial** or **failed** as a classification parse run does.
+_Avoid_: Archive run; IDX parse run
 
 **KSEI parse run**:
 One pass that parses each Securities holdings report in the KSEI archive whose newest version, or the parser's version, hasn't been parsed into KSEI holdings, from November 2018 on. The schedule starts one each day, an hour after the KSEI archive run, and an admin can start one when no KSEI parse run is in progress. A report that doesn't read exactly as expected is rejected whole and keeps the month's earlier holdings. It ends **complete**, **partial** (some months could not be parsed and wait for the next run) or **failed**.
