@@ -224,6 +224,10 @@ const fakeProduction = () => {
   >()
   // The trades a row with fields came for.
   const fielded = new Set<number>()
+  const takeFields = (batch: BrokerCodesBatch) => {
+    for (const [text, , fields] of batch.rows)
+      if (fields !== undefined) fielded.add(Number(text))
+  }
   const differences = new Set<number>()
   const batches: Array<BrokerCodesBatch> = []
   let covered = 0
@@ -233,9 +237,9 @@ const fakeProduction = () => {
   const post = (batch: BrokerCodesBatch) =>
     Effect.sync((): PostOutcome => {
       batches.push(batch)
-      for (const [text, codes, fields] of batch.rows) {
+      takeFields(batch)
+      for (const [text, codes] of batch.rows) {
         const number = Number(text)
-        if (fields !== undefined) fielded.add(number)
         const kept = held.get(number)
         if (batch.feed === "Ajaib") held.set(number, { codes, source: "ajaib" })
         else {

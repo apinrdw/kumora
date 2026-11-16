@@ -236,6 +236,42 @@ describe("a complete sealed day's broker totals", () => {
       })
   )
 
+  it.effect("of a day with no relay tape build in its seal's wake", () =>
+    Effect.gen(function* () {
+      const db = memoryBrokerTotalsDb()
+      yield* at("17:30:00")
+      const day = yield* tradingDay(memorySql(), [], db.layer)
+      yield* day.brokerCodes(
+        "Stockbit",
+        [
+          [1, "AK F CC D", WALKED],
+          [2, "YP D AK F", { ...WALKED, side: "sell" }],
+        ],
+        2
+      )
+      yield* day.alarm
+      assert.deepStrictEqual(yield* read(db, UNTR), {
+        builtDays: UNTR_BUILT.builtDays,
+        candles: [
+          {
+            day: DAY,
+            open: 23_100,
+            high: 23_100,
+            low: 23_100,
+            close: 23_100,
+            volume: 8,
+            value: 18_480_000,
+          },
+        ],
+        totals: [
+          untrTotal("AK", "F", [4, 9_240_000, 4, 9_240_000]),
+          untrTotal("CC", "D", [0, 0, 4, 9_240_000]),
+          untrTotal("YP", "D", [4, 9_240_000, 0, 0]),
+        ],
+      })
+    })
+  )
+
   it.effect("build after the object restarts before its alarm", () =>
     Effect.gen(function* () {
       const db = memoryBrokerTotalsDb()
