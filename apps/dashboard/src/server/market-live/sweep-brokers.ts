@@ -9,11 +9,15 @@ import {
   TradeNumber,
   decodeSweepBrokersText,
   encodeSweepBrokersText,
+  sweepsOf,
+  type BrokerCode,
   type InvestorType,
   type RunningTrade,
+  type Sweep,
   type StockCode,
   type SweepBroker,
   type SweepBrokers,
+  type SweepPiece,
   type TradeCodes,
   MINUTE_MS,
 } from "@workspace/relay"
@@ -23,6 +27,7 @@ import type { BrokerCodesStore, HeldCodes } from "./broker-codes.ts"
 import {
   Fact,
   SWEEP_BROKERS_BUILT,
+  SWEEP_BROKERS_SHAPE,
   type DayStore,
   type Sql,
 } from "./day-store.ts"
@@ -85,10 +90,53 @@ const sideOf = (trades: ReadonlyArray<MemberBroker>) =>
     return brokers.sort((a, b) => b.lots - a.lots || (a.code < b.code ? -1 : 1))
   })
 
-// One code's whole sweeps in a minute with their brokers, in trade order. A
-// sweep's members are the next `trades` of the code's trades; an auction
-// match has no aggressor side, and a sweep with any member lacking codes is
-// left out.
+// Which party of a trade each side of a sweep holds, as `SweepPiece`
+// names them.
+type TradeParty = "buyer" | "seller"
+const PARTIES = {
+  buy: { aggressor: "buyer", other: "seller" },
+  sell: { aggressor: "seller", other: "buyer" },
+  none: { aggressor: "buyer", other: "seller" },
+} as const satisfies Record<
+  Sweep["side"],
+  { aggressor: TradeParty; other: TradeParty }
+>
+
+// One piece of a whole sweep: its member trades, in trade order, as a sweep
+// of their own, with each side's brokers.
+const pieceOf = Effect.fnUntraced(function* (
+  trades: ReadonlyArray<RunningTrade>,
+  codes: ReadonlyMap<TradeNumber, TradeCodes>
+) {
+  // One side and one second: one sweep.
+  const [sweep] = yield* sweepsOf(trades)
+  const partyOf = (party: TradeParty) =>
+    sideOf(
+      trades.map((trade) => {
+        const held = codes.get(trade.tradeNumber)!
+        return {
+          code: held[party],
+          investorType: held[`${party}Type`],
+          lots: trade.lots,
+        }
+      })
+    )
+  const parties = PARTIES[sweep!.side]
+  const piece: SweepPiece = {
+    ...sweep!,
+    aggressor: yield* partyOf(parties.aggressor),
+    other: yield* partyOf(parties.other),
+  }
+  return piece
+})
+
+// One code's whole sweeps and auction matches in a minute with their
+// pieces, in trade order. A sweep's members are the next `trades` of the
+// code's trades, and one with any member lacking codes is left out.
+// Decision: a whole sweep splits by aggressor broker, each broker's
+// members one piece however interleaved. An auction match has no
+// aggressor: one piece. See spec apinrdw/kumora#384, "Where the split
+// happens".
 const wholeSweeps = Effect.fnUntraced(function* (
   { trades, sweeps }: CodeMinute,
   codes: ReadonlyMap<TradeNumber, TradeCodes>
@@ -98,31 +146,26 @@ const wholeSweeps = Effect.fnUntraced(function* (
   for (const sweep of sweeps) {
     const members = trades.slice(next, next + sweep.trades)
     next += sweep.trades
-    if (sweep.side === "none") continue
-    const buyers: Array<MemberBroker> = []
-    const sellers: Array<MemberBroker> = []
-    for (const trade of members) {
-      const held = codes.get(trade.tradeNumber)
-      if (held === undefined) break
-      buyers.push({
-        code: held.buyer,
-        investorType: held.buyerType,
-        lots: trade.lots,
+    if (members.some((trade) => !codes.has(trade.tradeNumber))) continue
+    if (sweep.side === "none") {
+      whole.push({
+        firstTrade: sweep.firstTrade,
+        pieces: [yield* pieceOf(members, codes)],
       })
-      sellers.push({
-        code: held.seller,
-        investorType: held.sellerType,
-        lots: trade.lots,
-      })
+      continue
     }
-    if (buyers.length < members.length) continue
-    const [aggressor, other] =
-      sweep.side === "buy" ? [buyers, sellers] : [sellers, buyers]
-    whole.push({
-      firstTrade: sweep.firstTrade,
-      aggressor: yield* sideOf(aggressor),
-      other: yield* sideOf(other),
-    })
+    const aggressor = PARTIES[sweep.side].aggressor
+    const byAggressor = new Map<BrokerCode, Array<RunningTrade>>()
+    for (const trade of members) {
+      const code = codes.get(trade.tradeNumber)![aggressor]
+      const piece = byAggressor.get(code) ?? []
+      piece.push(trade)
+      byAggressor.set(code, piece)
+    }
+    const pieces: Array<SweepPiece> = []
+    for (const piece of byAggressor.values())
+      pieces.push(yield* pieceOf(piece, codes))
+    whole.push({ firstTrade: sweep.firstTrade, pieces })
   }
   return whole
 })
@@ -145,6 +188,12 @@ const runsOf = (numbers: ReadonlyArray<TradeNumber>) =>
         ] as const
     )
   })
+
+// The build's progress fact once it wrote `minute`, under the rows' shape.
+const reachedFact = (minute: number): Readonly<Record<string, string>> => ({
+  [Fact.sweepBrokersBuilt]: `${SWEEP_BROKERS_SHAPE}:${minute}`,
+})
+const REACHED = new RegExp(`^${SWEEP_BROKERS_SHAPE}:(\\d+)$`)
 
 // The rows of one minute to write: each code's whole sweeps' text, or none
 // to delete its row.
@@ -174,8 +223,8 @@ export const makeSweepBrokers = Effect.fnUntraced(function* (options: {
     })
 
   // One minute's rows worked out again from the codes `heldCodes` reads,
-  // metering the rows it read: for each code with a sided sweep, its whole
-  // sweeps' text, or none when none is whole.
+  // metering the rows it read: for each code, its whole sweeps' and auction
+  // matches' text, or none when none is whole.
   // Decision: a row whose bytes are already stored is left out, and so is
   // a delete of a row never stored, so a batch writes only the rows it
   // changes, not every code's row of each minute it touches. See
@@ -195,8 +244,6 @@ export const makeSweepBrokers = Effect.fnUntraced(function* (options: {
         )
         const rows: Array<MinuteRows[number]> = []
         for (const codeMinute of codeMinutes) {
-          if (codeMinute.sweeps.every((sweep) => sweep.side === "none"))
-            continue
           const whole = yield* wholeSweeps(codeMinute, codes)
           const text = whole.length === 0 ? undefined : yield* sweepsText(whole)
           if (text !== (yield* storedText(codeMinute.code, minute)))
@@ -274,6 +321,16 @@ export const makeSweepBrokers = Effect.fnUntraced(function* (options: {
     )
   })
 
+  // The build's progress as the last minute it wrote; none while it has
+  // not started, once it finished, or under an older shape (the Decision on
+  // SWEEP_BROKERS_SHAPE), whose build starts again from the day's first
+  // minute.
+  const minuteOf = (progress: string | undefined) =>
+    Effect.sync(() => {
+      const reached = progress?.match(REACHED)?.[1]
+      return reached === undefined ? undefined : Number(reached)
+    })
+
   // Decision: the build goes minute by minute, each minute's rows and its
   // progress in one transaction, as the order flow build does
   // (order-flow-build.ts): a build that dies reruns from the minute after
@@ -282,16 +339,15 @@ export const makeSweepBrokers = Effect.fnUntraced(function* (options: {
   const build = Effect.gen(function* () {
     const progress = yield* store.fact(Fact.sweepBrokersBuilt)
     if (progress === SWEEP_BROKERS_BUILT) return
+    const reached = yield* minuteOf(progress)
     const span = yield* store.orderFlowMinutes
     if (span !== undefined) {
       const from =
-        progress === undefined
+        reached === undefined
           ? span.first
-          : Math.max(span.first, Number(progress) + MINUTE_MS)
+          : Math.max(span.first, reached + MINUTE_MS)
       for (let minute = from; minute <= span.last; minute += MINUTE_MS)
-        yield* buildMinute(minute, {
-          [Fact.sweepBrokersBuilt]: String(minute),
-        })
+        yield* buildMinute(minute, reachedFact(minute))
     }
     yield* store.markSweepBrokersBuilt
     yield* recomputeLogged
@@ -300,12 +356,16 @@ export const makeSweepBrokers = Effect.fnUntraced(function* (options: {
 
   // Decision: a day holding no codes as its object starts gets each batch's
   // rows as it lands, so it is marked built from the start. A day holding
-  // codes without the mark took them before sweep brokers shipped, or a
-  // late trade after them (`persisting`): once sealed, its next GET builds
-  // the rows. See spec apinrdw/kumora#343, "The one-off build".
+  // codes without the current mark (sweep brokers or their shape came after
+  // them, or a late trade did) is built by its next sweep brokers GET.
+  // See spec apinrdw/kumora#343, "The one-off build", and #384, "Old days".
   const progress = yield* store.fact(Fact.sweepBrokersBuilt)
   let built = progress === SWEEP_BROKERS_BUILT
-  if (progress === undefined && (yield* brokerCodes.holdsNone)) {
+  if (
+    !built &&
+    (yield* minuteOf(progress)) === undefined &&
+    (yield* brokerCodes.holdsNone)
+  ) {
     yield* store.markSweepBrokersBuilt
     built = true
   }
@@ -354,20 +414,22 @@ export const makeSweepBrokers = Effect.fnUntraced(function* (options: {
 
   // The fact a flush of `trades` writes with them: the build's progress
   // moved back before the earliest minute holding one; none while the day
-  // holds no codes.
+  // holds no codes, or while its build is still to start from its first
+  // minute.
   // Decision: once the day holds codes, every flushed trade, coded or not,
   // moves the build back in its flush's transaction: a trade stored after a
   // recompute can bring codes, join a sweep or split one, and a sweep never
-  // crosses a minute, so the sealed day's next GET rebuilds from its minute.
+  // crosses a minute, so the day's next GET rebuilds from its minute.
   // See spec apinrdw/kumora#343, "The one-off build", apinrdw/kumora#349.
   const persisting = Effect.fnUntraced(function* (
     trades: ReadonlyArray<RunningTrade>
   ) {
     const none: Readonly<Record<string, string>> = {}
-    const reached = yield* store.fact(Fact.sweepBrokersBuilt)
+    const stored = yield* store.fact(Fact.sweepBrokersBuilt)
+    const reached = yield* minuteOf(stored)
     if (
       trades.length === 0 ||
-      reached === undefined ||
+      (stored !== SWEEP_BROKERS_BUILT && reached === undefined) ||
       (yield* brokerCodes.holdsNone)
     )
       return none
@@ -376,17 +438,13 @@ export const makeSweepBrokers = Effect.fnUntraced(function* (options: {
       earliest = Math.min(earliest, DateTime.toEpochMillis(trade.time))
     const before = Math.floor(earliest / MINUTE_MS) * MINUTE_MS - MINUTE_MS
     built = false
-    const facts: Record<string, string> = {
-      [Fact.sweepBrokersBuilt]: String(
-        reached === SWEEP_BROKERS_BUILT
-          ? before
-          : Math.min(Number(reached), before)
-      ),
-    }
-    return facts
+    return reachedFact(
+      reached === undefined ? before : Math.min(reached, before)
+    )
   })
 
-  // One code's whole sweeps with their brokers, in trade order.
+  // One code's whole sweeps and auction matches with their pieces, in
+  // trade order.
   const brokersOf = Effect.fnUntraced(function* (code: StockCode) {
     const sweeps: Array<SweepBrokers> = []
     for (const row of sql.exec(

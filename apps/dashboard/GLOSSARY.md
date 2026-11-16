@@ -59,7 +59,7 @@ The price, and the volume with it, that an auction would match at if it closed n
 _Avoid_: IEP, projected price
 
 **Auction match**:
-The running trades a pre-opening or pre-closing auction produces when it closes: every stock code at its one matched price, all stamped with the same second. They carry no buy or sell side.
+The running trades a pre-opening or pre-closing auction produces when it closes: every stock code at its one matched price, all stamped with the same second. They carry no buy or sell side. After the close, once all of a code's match trades have stored broker codes, its Auction row in the sweep log shows its buyers and sellers. It is never split.
 _Avoid_: Crossing, uncross, opening print
 
 **Aggressor side**:
@@ -67,23 +67,27 @@ Which side of a running trade crossed the spread to make it: a buy aggressor too
 _Avoid_: HAKA/HAKI (on the page), trade direction
 
 **Sweep**:
-A stock code's running trades in one second that share an aggressor side, taken together: their lots, value, and first and last price. Another code's trades between them don't break it; this code trading on the other side does.
+A stock code's running trades in one second that share an aggressor side, taken together: their lots, value, and first and last price. Another code's trades between them don't break it; this code trading on the other side does. Once every trade of the sweep has stored broker codes, it is also split by aggressor broker (the seller of a sell sweep, the buyer of a buy sweep), so each sweep has one aggressor broker; all of one broker's trades in it are one sweep, however interleaved with other brokers' trades.
 _Avoid_: Group, burst
 
 **Lead broker**:
-The broker code with the most lots on one side of a sweep, summed over the sweep's trades. The sweep log shows each side's lead broker with its investor type, and how many other brokers were on that side.
+The broker code with the most lots on a sweep's Other side, or on each side of an auction match, summed over its trades. The sweep log shows it with its investor type, and how many other brokers were on that side. A sweep's aggressor side has one broker, shown alone.
 _Avoid_: Top broker (top names the top-N filter), main broker
 
 **Whole sweep**:
-A sweep every one of whose trades has stored broker codes. Only a whole sweep shows brokers; a sweep missing any trade's codes shows none, rather than a lead broker read from part of it.
+A sweep every one of whose trades has stored broker codes. Only a whole sweep shows brokers, and a whole sweep is the one that splits by aggressor broker; a sweep missing any trade's codes shows none and stays unsplit, rather than read from part of it.
 _Avoid_: Complete sweep (complete names the day's broker codes status), coded sweep
+
+**Piece**:
+One of the sweeps a whole sweep splits into: one aggressor broker's trades of it, with its own lots, value, first and last price, trade count and time, and its first trade's number as its id. A whole sweep with one aggressor broker is one piece; an auction match's entry also holds one piece, though it is no sweep. The sweep log's rows and the candle chart's bubbles show pieces in place of the whole sweeps they came from.
+_Avoid_: Split sweep (in code), sub-sweep, part
 
 **Other side**:
 The side of a sweep opposite its aggressor side: the sellers a buy sweep took from, or the buyers a sell sweep hit. The sweep log's Other side column shows its lead broker.
 _Avoid_: Passive side, counterparty
 
 **Own lots**:
-A sweep's lots as the broker filter counts them: the picked broker's aggressor lots in it, or the whole sweep's lots when no broker is picked. Bubbles are sized, and the top-N filter cuts, by own lots.
+A sweep's lots as the broker filter counts them: its whole lots when the picked broker is its aggressor, or when no broker is picked. An auction match's own lots are the larger of what the picked broker bought or sold in it. Bubbles are sized, and the top-N filter cuts, by own lots.
 _Avoid_: Broker lots, filtered lots
 
 **Footprint**:

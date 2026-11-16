@@ -1,6 +1,6 @@
 // The candle chart's sweep bubbles (spec apinrdw/kumora#263, "Chart 1"), loaded
 // with Lightweight Charts in chart-canvas.tsx's browser-only chunk.
-import type { TradeNumber } from "@workspace/relay"
+import type { Sweep, TradeNumber } from "@workspace/relay"
 import { Side } from "@workspace/relay"
 import { DateTime, Effect } from "effect"
 import type {
@@ -60,8 +60,10 @@ export interface BubbleColors {
 // A sweep's bubble id in the chart's hit test.
 const HIT_PREFIX = "sweep:"
 
-// Each minute's bubbles, largest first, so small ones draw on top.
-const bubblesOf = Effect.fnUntraced(function* (
+// Each minute's bubbles, one per shown sweep or piece, largest first, so
+// small ones of a side draw on top (sells fill after buys), a whole sweep's
+// pieces in one second included.
+export const bubblesOf = Effect.fnUntraced(function* (
   sweeps: ReadonlyArray<KeptSweep>
 ) {
   const byMinute = new Map<number, Array<Bubble>>()
@@ -96,7 +98,7 @@ const bubblesOf = Effect.fnUntraced(function* (
 // target, so a click picks its sweep and a hover shows its tooltip. The
 // last draw's bubble count and selection, with the selected bubble's centre
 // in CSS px, go on `marks` for the page e2e.
-class SweepBubbles implements ISeriesPrimitive<Time> {
+export class SweepBubbles implements ISeriesPrimitive<Time> {
   private byMinute = new Map<number, Array<Bubble>>()
   private threshold = 0
   private at = Number.POSITIVE_INFINITY
@@ -217,20 +219,45 @@ class SweepBubbles implements ISeriesPrimitive<Time> {
     return placed
   }
 
-  // The shown bubble nearest a point of the pane, among those it is on.
-  nearest(x: number, y: number) {
-    let best: { id: TradeNumber; distance: number } | undefined
-    for (const placed of this.placed()) {
-      const distance = Math.hypot(placed.x - x, placed.y - y)
-      if (distance > placed.bubble.radius + 2) continue
-      if (best === undefined || distance < best.distance)
-        best = { id: placed.bubble.id, distance }
+  // Where `sweep`'s bubble sits on the pane, in CSS pixels, drawn or not;
+  // none off the chart.
+  centreOf(sweep: Sweep) {
+    const attached = this.attachedTo
+    if (attached === undefined) return undefined
+    const timeScale = attached.chart.timeScale()
+    const centre = timeScale.timeToCoordinate(
+      (Effect.runSync(sweepMinute(sweep)) / 1000) as Time
+    )
+    const y = attached.series.priceToCoordinate(
+      Effect.runSync(sweepPrice(sweep))
+    )
+    if (centre === null || y === null) return undefined
+    const offset = Effect.runSync(
+      bubbleOffset(sweep, timeScale.options().barSpacing)
+    )
+    return { x: centre + offset, y }
+  }
+
+  // The shown bubble a point of the pane is on: the one of fewest lots, so
+  // a piece sharing a larger one's centre can still be picked, even when
+  // both sit at the smallest radius; the nearest of equal ones.
+  topmost(x: number, y: number) {
+    let best: { id: TradeNumber; lots: number; distance: number } | undefined
+    for (const { bubble, ...at } of this.placed()) {
+      const distance = Math.hypot(at.x - x, at.y - y)
+      if (distance > bubble.radius + 2) continue
+      if (
+        best === undefined ||
+        bubble.lots < best.lots ||
+        (bubble.lots === best.lots && distance < best.distance)
+      )
+        best = { id: bubble.id, lots: bubble.lots, distance }
     }
     return best
   }
 
   hitTest(x: number, y: number): PrimitiveHoveredItem | null {
-    const best = this.nearest(x, y)
+    const best = this.topmost(x, y)
     return best === undefined
       ? null
       : {
@@ -297,8 +324,32 @@ export function attachSweepBubbles({
       to: (index + width / 2) as Logical,
     })
   }
+  // The place of the pin this layer last placed: its sweep's id, time and
+  // average price, which set its bubble. A pinned tooltip whose sweep
+  // split, into a piece of another id or one keeping its id at another
+  // price, goes to that piece's bubble, as a click on it would pin it.
+  let placed: string | undefined
+  const placeOf = (id: TradeNumber) => {
+    const sweep = store.sweeps().find((held) => held.firstTrade === id)
+    const key =
+      sweep &&
+      `${id} ${DateTime.toEpochMillis(sweep.time)} ${Effect.runSync(sweepPrice(sweep))}`
+    return { sweep, key }
+  }
+  const repin = () => {
+    const shown = store.tip.get()
+    if (!shown?.pinned || shown.from !== "chart") return
+    const { sweep, key } = placeOf(shown.id)
+    if (key === placed) return
+    placed = key
+    const centre = sweep && bubbles.centreOf(sweep)
+    if (centre === undefined) return
+    const box = chart.chartElement().getBoundingClientRect()
+    store.tip.set({ ...shown, x: box.left + centre.x, y: box.top + centre.y })
+  }
   const stopStore = store.subscribe((change) => {
     if (change._tag === "Selected" && change.from === "log") jump(change.minute)
+    if (change._tag === "Brokers") repin()
     schedule()
   })
   const stopCursor = cursor?.subscribe(schedule)
@@ -314,7 +365,7 @@ export function attachSweepBubbles({
       parameter.paneIndex === series.getPane().paneIndex()
         ? parameter.point
         : undefined
-    const id = point && bubbles.nearest(point.x, point.y)?.id
+    const id = point && bubbles.topmost(point.x, point.y)?.id
     const shown = store.tip.get()
     if (!pin && shown?.pinned) return id
     if (id === undefined || point === undefined) {
@@ -322,6 +373,7 @@ export function attachSweepBubbles({
       return id
     }
     const box = chart.chartElement().getBoundingClientRect()
+    if (pin) placed = placeOf(id).key
     store.tip.set({
       id,
       x: box.left + point.x,

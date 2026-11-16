@@ -1,8 +1,10 @@
 import {
+  BrokerCode,
   MINUTE_MS,
   StockCode,
   TradeNumber,
   type Sweep,
+  type SweepPiece,
   type ViewerDown,
 } from "@workspace/relay"
 import { DateTime, Effect } from "effect"
@@ -266,5 +268,117 @@ describe("the selected code's sweeps, live", () => {
       store.select(TradeNumber.make("999"), "chart")
       expect(store.selected()).toBeUndefined()
     })
+  )
+})
+
+describe("a recorded day's sweeps as their brokers land", () => {
+  // 101's sell sweep of FZ 6 lots (101, 103) and XL 8 (102), then 104's
+  // buy, not yet whole.
+  const whole = sweep(101, "09:00:10.100", "sell", 14, 3)
+  const after = sweep(104, "09:00:20.000", "buy", 2)
+  const piece = (
+    firstTrade: number,
+    time: string,
+    lots: number,
+    aggressor: string
+  ): SweepPiece => ({
+    ...sweep(firstTrade, time, "sell", lots),
+    aggressor: [{ code: BrokerCode.make(aggressor), investorType: "D", lots }],
+    other: [],
+  })
+  const split = {
+    code: UNTR,
+    sweeps: [
+      {
+        firstTrade: whole.firstTrade,
+        pieces: [
+          piece(101, "09:00:10.100", 6, "FZ"),
+          piece(102, "09:00:10.200", 8, "XL"),
+        ],
+      },
+    ],
+    complete: false,
+  }
+
+  it.effect(
+    "swaps a whole sweep for its pieces, and moves a pin and a selection on it to its largest piece",
+    () =>
+      Effect.gen(function* () {
+        const store = yield* makeSweepStore(UNTR)
+        store.answer(0, answerOf([whole, after]))
+        store.answerBrokers({ code: UNTR, sweeps: [], complete: false })
+        store.select(whole.firstTrade, "log")
+        store.tip.set({
+          id: whole.firstTrade,
+          x: 1,
+          y: 2,
+          from: "log",
+          pinned: true,
+        })
+        store.answerBrokers(split)
+        expect(store.sweeps().map(shape)).toEqual([
+          ["101", "sell", 6, 1],
+          ["102", "sell", 8, 1],
+          ["104", "buy", 2, 1],
+        ])
+        expect(store.selected()).toBe("102")
+        expect(store.tip.get()).toEqual({
+          id: "102",
+          x: 1,
+          y: 2,
+          from: "log",
+          pinned: true,
+        })
+        expect(store.pieces().get(TradeNumber.make("101"))?.aggressor).toEqual([
+          { code: "FZ", investorType: "D", lots: 6 },
+        ])
+      })
+  )
+
+  it.effect(
+    "leaves a pin on a piece where it is as the next recheck lands",
+    () =>
+      Effect.gen(function* () {
+        const store = yield* makeSweepStore(UNTR)
+        store.answer(0, answerOf([whole, after]))
+        store.answerBrokers(split)
+        store.select(whole.firstTrade, "chart")
+        store.answerBrokers({ ...split, complete: true })
+        expect(store.selected()).toBe("101")
+      })
+  )
+
+  it.effect(
+    "moves a pin and a selection on a piece a corrected batch merged away to its sweep's largest piece",
+    () =>
+      Effect.gen(function* () {
+        const store = yield* makeSweepStore(UNTR)
+        store.answer(0, answerOf([whole, after]))
+        store.answerBrokers(split)
+        store.select(TradeNumber.make("102"), "chart")
+        store.tip.set({
+          id: TradeNumber.make("102"),
+          x: 1,
+          y: 2,
+          from: "chart",
+          pinned: true,
+        })
+        // A cross-check finds 102 was FZ's too, so the sweep is one piece.
+        store.answerBrokers({
+          ...split,
+          sweeps: [
+            {
+              firstTrade: whole.firstTrade,
+              pieces: [piece(101, "09:00:10.100", 14, "FZ")],
+            },
+          ],
+        })
+        expect(store.sweeps().map(shape)).toEqual([
+          ["101", "sell", 14, 1],
+          ["104", "buy", 2, 1],
+        ])
+        expect(store.selected()).toBe("101")
+        expect(store.tip.get()?.id).toBe("101")
+      })
   )
 })

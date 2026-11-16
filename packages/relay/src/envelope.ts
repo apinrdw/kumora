@@ -311,7 +311,7 @@ export type Footprint = typeof Footprint.Type
 // for the day, however a late trade regroups the sweeps around it. Side
 // `none` is an auction match's prints in one second: no aggressor, so no
 // sweep, but the sweep log shows it as one neutral row.
-const SweepFields = Schema.Struct({
+export const SweepFields = Schema.Struct({
   side: Side,
   firstTrade: TradeNumber,
   time: Schema.DateTimeUtc,
@@ -325,8 +325,12 @@ const SweepFields = Schema.Struct({
 // Decision: a sweep travels as a tuple, [side, first trade, time, first,
 // last, lots, value, trades], not a keyed object. A delta resends a minute's
 // sweeps whole, and a busy code's peak minute of 370 measured 21 KB a delta
-// as tuples against 45 KB with the keys (apinrdw/kumora#279). A footprint
-// row stores the same order (dashboard sweep-rows.ts); change both.
+// as tuples against 45 KB with the keys (apinrdw/kumora#279).
+//
+// A footprint row (dashboard sweep-rows.ts) and a sweep brokers piece
+// (recorded-day.ts) store the same order; change all three. A stored sweep
+// brokers row decodes only in its own order, so a change also needs a new
+// SWEEP_BROKERS_SHAPE (dashboard day-store.ts) to rebuild the stored rows.
 export const Sweep = Schema.Tuple([
   Side,
   TradeNumber,

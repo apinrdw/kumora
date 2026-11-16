@@ -119,6 +119,7 @@ export type {
   RecordedSweepBrokers,
   SweepBroker,
   SweepBrokers,
+  SweepPiece,
   RecordedResource,
 } from "./recorded-day.ts"
 export type { CodeKind, ListedCode } from "./code-list.ts"

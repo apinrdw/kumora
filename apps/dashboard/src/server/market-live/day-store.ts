@@ -202,7 +202,8 @@ export const Fact = {
   // last minute it wrote, then ORDER_FLOW_BUILT.
   orderFlowBuilt: "order-flow-built",
   // The one-off build of a day's sweep brokers rows (sweep-brokers.ts): the
-  // last minute it wrote, then SWEEP_BROKERS_BUILT.
+  // last minute it wrote, then SWEEP_BROKERS_BUILT, each under
+  // SWEEP_BROKERS_SHAPE.
   sweepBrokersBuilt: "sweep-brokers-built",
   // The broker trades index's rebuild (broker-codes.ts): the last chunk it
   // indexed, then BROKER_TRADES_BUILT.
@@ -212,7 +213,13 @@ export const Fact = {
 export const BROKER_TRADES_BUILT = "built"
 
 export const ORDER_FLOW_BUILT = "built"
-export const SWEEP_BROKERS_BUILT = "built"
+// Decision: the build's progress and finished value both name the rows'
+// shape, a new one whenever their content changes, so a day holding either
+// under an older shape (`built`, a bare minute) counts as unbuilt and its
+// next sweep brokers GET rebuilds every row from its first minute. See spec
+// apinrdw/kumora#384, "Old days".
+export const SWEEP_BROKERS_SHAPE = "split"
+export const SWEEP_BROKERS_BUILT = `${SWEEP_BROKERS_SHAPE}:built`
 
 // What the one-off build writes of one minute: every stock's footprint row
 // and every code's heatmap row, and the minute as its progress.

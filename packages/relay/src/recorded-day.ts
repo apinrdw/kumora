@@ -11,6 +11,8 @@ import {
   Candle,
   Footprint,
   RunningTrade,
+  Sweep,
+  SweepFields,
   TradeNumber,
   ViewerProtocolVersion,
 } from "./envelope.ts"
@@ -211,11 +213,15 @@ const SweepBrokerFields = Schema.Struct({
   minorTypeLots: Schema.optionalKey(Schema.Finite),
 })
 
-// Decision: a sweep's brokers travel, and are stored, as tuples: [first
-// trade, aggressor side, other side], each broker [code, investor type,
-// lots, minor type's lots only when nonzero], not keyed objects: a busy
-// code's 10–18 K sweeps a day answer 1–2 MB as tuples. See spec
-// apinrdw/kumora#343, "The sweep brokers answer", and PR apinrdw/kumora#349.
+// Decision: sweep brokers travel, and are stored, as tuples: an entry [first
+// trade, pieces], a piece [sweep tuple, aggressor side, other side], a broker
+// [code, investor type, lots, minor type's lots only when nonzero], not keyed
+// objects: a busy code's 10–18 K sweeps a day answered 1–2 MB as tuples when
+// an entry was [first trade, aggressor, other]. See apinrdw/kumora#343, #349.
+//
+// The stored rows decode only in these tuples' order, so a change to it, or
+// to the sweep tuple's, needs a new SWEEP_BROKERS_SHAPE (dashboard
+// day-store.ts) to rebuild them.
 const SweepBroker = Schema.Tuple([
   BrokerCode,
   InvestorType,
@@ -245,36 +251,59 @@ const SweepBroker = Schema.Tuple([
 )
 export type SweepBroker = typeof SweepBroker.Type
 
-// One whole sweep's brokers, named by its first trade's number: each side's
-// brokers, largest lots first.
-const SweepBrokersFields = Schema.Struct({
-  firstTrade: TradeNumber,
+// One piece of a whole sweep: one aggressor broker's trades of it, a sweep
+// of their own (named by their first trade's number), with each side's
+// brokers, largest lots first. A sided piece has one broker in `aggressor`;
+// an auction match's one piece holds its buyers there and its sellers in
+// `other`.
+const SweepPieceFields = Schema.Struct({
+  ...SweepFields.fields,
   aggressor: Schema.Array(Schema.toType(SweepBroker)),
   other: Schema.Array(Schema.toType(SweepBroker)),
 })
 
-const SweepBrokers = Schema.Tuple([
-  TradeNumber,
+const SweepPiece = Schema.Tuple([
+  Sweep,
   Schema.Array(SweepBroker),
   Schema.Array(SweepBroker),
 ]).pipe(
-  Schema.decodeTo(Schema.toType(SweepBrokersFields), {
-    decode: SchemaGetter.transform(([firstTrade, aggressor, other]) => ({
-      firstTrade,
+  Schema.decodeTo(Schema.toType(SweepPieceFields), {
+    decode: SchemaGetter.transform(([sweep, aggressor, other]) => ({
+      ...sweep,
       aggressor,
       other,
     })),
     encode: SchemaGetter.transform(
-      (sweep) => [sweep.firstTrade, sweep.aggressor, sweep.other] as const
+      ({ aggressor, other, ...sweep }) => [sweep, aggressor, other] as const
+    ),
+  })
+)
+export type SweepPiece = typeof SweepPiece.Type
+
+// One whole sweep or auction match, named by its first trade's number, and
+// its pieces in trade order.
+const SweepBrokersFields = Schema.Struct({
+  firstTrade: TradeNumber,
+  pieces: Schema.Array(Schema.toType(SweepPiece)),
+})
+
+const SweepBrokers = Schema.Tuple([TradeNumber, Schema.Array(SweepPiece)]).pipe(
+  Schema.decodeTo(Schema.toType(SweepBrokersFields), {
+    decode: SchemaGetter.transform(([firstTrade, pieces]) => ({
+      firstTrade,
+      pieces,
+    })),
+    encode: SchemaGetter.transform(
+      (sweep) => [sweep.firstTrade, sweep.pieces] as const
     ),
   })
 )
 export type SweepBrokers = typeof SweepBrokers.Type
 
-// The sweep brokers answer: the brokers of every whole sweep of one code
-// (one whose every trade has stored codes), in trade order, and whether the
-// day's broker codes status is complete. Never inside the sweeps answer,
-// which a sealed day caches for a year.
+// The sweep brokers answer: every whole sweep and auction match of one code
+// (one whose every trade has stored codes) with its pieces, in trade order,
+// and whether the day's broker codes status is complete. Never inside the
+// sweeps answer, which a sealed day caches for a year.
 const RecordedSweepBrokers = Schema.Struct({
   code: StockCode,
   sweeps: Schema.Array(SweepBrokers),
