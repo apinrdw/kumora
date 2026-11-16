@@ -132,13 +132,11 @@ const WINDOW_MINUTES: Record<Exclude<BubbleWindow, "30s" | "D">, number> = {
 // The phases whose windows end now; any other ends at the day's last trade.
 const SESSIONS: ReadonlySet<MarketPhase> = new Set(["session-1", "session-2"])
 
-// Decision: the applies' per-trade and per-candle helpers (isIndex to
-// newestKey here, secondOf to countTrade below) are plain functions, not
-// Effects: one delta can carry thousands of trades and candles. Measured
-// 2026-11-16 on the dev machine over 900 codes: 100,000 trades took 53 ms
-// plain, 71 ms with one Effect per trade; 100,000 candles 69 ms and 85 ms.
-// The Effects around their loops stay (applyTrades, applyCandles,
-// applyBubbles).
+// Decision: the per-trade and per-candle helpers (isIndex to newestKey,
+// secondOf to countTrade) stay plain; the applies' loops stay Effects.
+// Measured 2026-11-16 on the dev machine, 900 codes: 100,000 trades took
+// 53 ms plain, 71 ms with an Effect per trade; 100,000 candles 69 ms, 85 ms.
+// One delta can carry thousands of each.
 const isIndex = (code: StockCode) => INDEX_CODES.includes(code)
 
 const emptyRow = (): Row => ({
