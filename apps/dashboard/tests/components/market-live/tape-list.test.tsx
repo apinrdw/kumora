@@ -33,6 +33,7 @@ const tapeOf = (from: number, count: number) =>
   Effect.runSync(
     applyViewerMessage(Effect.runSync(emptyTape()), {
       _tag: "Delta",
+      at: DateTime.makeUnsafe(0),
       tape: Array.from({ length: count }, (_, i) => trade(from + i)),
       candles: [],
       footprints: [],
@@ -43,6 +44,7 @@ const tapeOf = (from: number, count: number) =>
 // numbered from `from`.
 const snapshotOf = (from: number, count: number): ViewerDown => ({
   _tag: "Snapshot",
+  at: DateTime.makeUnsafe(0),
   selected: StockCode.make("BBCA"),
   tape: Array.from({ length: count }, (_, i) => trade(from + i)),
   candles: [],
@@ -157,6 +159,7 @@ test("an odd lot shows its hundredths: 1 share is 0.01 lots, 25 shares 0.25", ()
   const tape = Effect.runSync(
     applyViewerMessage(Effect.runSync(emptyTape()), {
       _tag: "Delta",
+      at: DateTime.makeUnsafe(0),
       tape: [
         { ...trade(1), lots: 0.01, board: "NG", side: "none" },
         { ...trade(2), lots: 0.25, board: "NG", side: "none" },
@@ -268,6 +271,7 @@ test("gap and fold rows span every column", () => {
   const tape = Effect.runSync(
     applyViewerMessage(Effect.runSync(emptyTape()), {
       _tag: "Delta",
+      at: DateTime.makeUnsafe(0),
       tape: [
         { ...trade(1), time: DateTime.makeUnsafe("2026-11-09T08:58:00+07:00") },
         trade(2),

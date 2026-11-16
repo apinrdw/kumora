@@ -590,6 +590,7 @@ export const makeTradingDay = Effect.fnUntraced(function* (options: {
       return
     const text = yield* encodeViewerDown({
       _tag: "Delta",
+      at: yield* DateTime.now,
       tape: trades,
       candles: changed.candles,
       ...(changed.footprints.length > 0
@@ -697,6 +698,7 @@ export const makeTradingDay = Effect.fnUntraced(function* (options: {
   // computes (bubbles.test.ts). See spec apinrdw/kumora#427, "When it is built".
   const buildBubbles = Effect.gen(function* () {
     const built = yield* bubbles.build(
+      yield* candles.settledBefore,
       (code) => lastLivePrices.get(code)?.previous
     )
     bubblesBody = built.text
@@ -1053,6 +1055,7 @@ export const makeTradingDay = Effect.fnUntraced(function* (options: {
       }
       const snapshot = yield* encodeViewerDown({
         _tag: "Snapshot",
+        at: yield* DateTime.now,
         selected,
         tape: tape.slice(-SNAPSHOT_TRADES),
         candles: yield* candles.candlesOf(selected),

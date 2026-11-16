@@ -124,8 +124,12 @@ export const makeBubbleBook = (stored: StoredBubbles) =>
     }
 
     // The answer: every code, ascending, its minutes ascending, with the
-    // previous close a `liveprice` frame carried.
-    const build = (previousClose: (code: StockCode) => number | undefined) =>
+    // previous close a `liveprice` frame carried, settled before
+    // `settledBefore` (candles.ts).
+    const build = (
+      settledBefore: number,
+      previousClose: (code: StockCode) => number | undefined
+    ) =>
       Effect.suspend(() => {
         const answer: Array<RecordedBubbles["codes"][number]> = []
         for (const code of [...codes.keys()].sort()) {
@@ -155,10 +159,13 @@ export const makeBubbleBook = (stored: StoredBubbles) =>
               ]),
           })
         }
-        return Effect.map(encodeRecordedBubbles({ codes: answer }), (text) => ({
-          text,
-          codes: answer.length,
-        }))
+        return Effect.map(
+          encodeRecordedBubbles({ settledBefore, codes: answer }),
+          (text) => ({
+            text,
+            codes: answer.length,
+          })
+        )
       })
 
     return { settled, build }

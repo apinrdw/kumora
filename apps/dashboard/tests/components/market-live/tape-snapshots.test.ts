@@ -22,6 +22,7 @@ const trade: RunningTrade = {
 
 const snapshot: ViewerDown = {
   _tag: "Snapshot",
+  at: DateTime.makeUnsafe(0),
   selected: StockCode.make("BBCA"),
   tape: [trade],
   candles: [],
@@ -34,7 +35,12 @@ const snapshot: ViewerDown = {
   },
 }
 
-const delta: ViewerDown = { _tag: "Delta", tape: [trade], candles: [] }
+const delta: ViewerDown = {
+  _tag: "Delta",
+  at: DateTime.makeUnsafe(0),
+  tape: [trade],
+  candles: [],
+}
 
 describe("what a viewer message changes on the tape", () => {
   it.effect("a socket's first snapshot starts the tape over", () =>
@@ -50,11 +56,13 @@ describe("what a viewer message changes on the tape", () => {
         // Two selections changed before either answer arrived: both merge.
         expect(yield* tapeChangeOf(snapshot, false)).toEqual({
           _tag: "Delta",
+          at: DateTime.makeUnsafe(0),
           tape: [trade],
           candles: [],
         })
         expect(yield* tapeChangeOf(snapshot, false)).toEqual({
           _tag: "Delta",
+          at: DateTime.makeUnsafe(0),
           tape: [trade],
           candles: [],
         })

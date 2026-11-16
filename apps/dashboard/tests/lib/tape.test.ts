@@ -37,12 +37,14 @@ function trade(
 
 const delta = (...tape: Array<RunningTrade>): ViewerDown => ({
   _tag: "Delta",
+  at: DateTime.makeUnsafe(0),
   tape,
   candles: [],
   footprints: [],
 })
 const snapshot = (...tape: Array<RunningTrade>): ViewerDown => ({
   _tag: "Snapshot",
+  at: DateTime.makeUnsafe(0),
   selected: StockCode.make("BBCA"),
   tape,
   candles: [],

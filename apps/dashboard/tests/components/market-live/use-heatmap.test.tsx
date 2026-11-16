@@ -49,6 +49,7 @@ const book = (at: number, bid: number): OrderBook => ({
 
 const snapshot = (orderBook: OrderBook): ViewerDown => ({
   _tag: "Snapshot",
+  at: DateTime.makeUnsafe(0),
   selected: UNTR,
   tape: [],
   candles: [],

@@ -99,7 +99,13 @@ const mounted = Effect.gen(function* () {
       yield* inAct(frames.step)
     })
   const update = (states: ReadonlyArray<DayState>) =>
-    send({ _tag: "Delta", tape: [], candles: [], dayStates: states })
+    send({
+      _tag: "Delta",
+      at: DateTime.makeUnsafe(0),
+      tape: [],
+      candles: [],
+      dayStates: states,
+    })
   store.replace(INITIAL)
   yield* settle
   yield* inAct(frames.step)
@@ -131,6 +137,7 @@ describe("the watchlist on the Day state store", () => {
         // Queued before the render: only a started source would apply it.
         store.apply({
           _tag: "Delta",
+          at: DateTime.makeUnsafe(0),
           tape: [],
           candles: [],
           dayStates: INITIAL,

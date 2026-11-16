@@ -1,6 +1,6 @@
 import type { MarketConditions, ViewerDown } from "@workspace/relay"
 import { StockCode } from "@workspace/relay"
-import { Effect } from "effect"
+import { DateTime, Effect } from "effect"
 import { renderToString } from "react-dom/server"
 import { expect, test } from "vitest"
 
@@ -22,6 +22,7 @@ const conditionsOf = (phase: MarketConditions["phase"]): MarketConditions => ({
 
 const snapshot: ViewerDown = {
   _tag: "Snapshot",
+  at: DateTime.makeUnsafe(0),
   selected: StockCode.make("BBCA"),
   tape: [],
   candles: [],
@@ -31,6 +32,7 @@ const snapshot: ViewerDown = {
 
 const delta: ViewerDown = {
   _tag: "Delta",
+  at: DateTime.makeUnsafe(0),
   tape: [],
   candles: [],
   footprints: [],

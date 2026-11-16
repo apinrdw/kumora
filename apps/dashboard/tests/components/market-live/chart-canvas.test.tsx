@@ -159,7 +159,12 @@ const nextFrame = () =>
 
 test("a candle backfilled into a relay gap after the last candle goes on the chart", async () => {
   const store = Effect.runSync(makeCandleStore(BBCA))
-  store.apply({ _tag: "Delta", tape: [], candles: [candle("09:00", 100)] })
+  store.apply({
+    _tag: "Delta",
+    at: DateTime.makeUnsafe(0),
+    tape: [],
+    candles: [candle("09:00", 100)],
+  })
   const container = document.body.appendChild(document.createElement("div"))
   const root = createRoot(container)
   await act(() =>
@@ -174,7 +179,12 @@ test("a candle backfilled into a relay gap after the last candle goes on the cha
   )
 
   await act(() =>
-    store.apply({ _tag: "Delta", tape: [], candles: [candle("09:02", 101)] })
+    store.apply({
+      _tag: "Delta",
+      at: DateTime.makeUnsafe(0),
+      tape: [],
+      candles: [candle("09:02", 101)],
+    })
   )
   await nextFrame()
   expect(candles!.rows.get(seconds("09:02"))).toMatchObject({ close: 101 })
@@ -182,7 +192,12 @@ test("a candle backfilled into a relay gap after the last candle goes on the cha
 
   // A live candle after the gap still goes in as the newest bar.
   await act(() =>
-    store.apply({ _tag: "Delta", tape: [], candles: [candle("09:05", 102)] })
+    store.apply({
+      _tag: "Delta",
+      at: DateTime.makeUnsafe(0),
+      tape: [],
+      candles: [candle("09:05", 102)],
+    })
   )
   await nextFrame()
   expect(candles!.rows.get(seconds("09:05"))).toMatchObject({ close: 102 })
@@ -195,6 +210,7 @@ test("a minute its last regular-board trade left goes off the chart, its volume 
   const cells = [{ price: 100, sell: 0, buy: 1, none: 0 }]
   store.apply({
     _tag: "Delta",
+    at: DateTime.makeUnsafe(0),
     tape: [],
     candles: [candle("09:00", 100), candle("09:01", 101)],
     footprints: [
@@ -214,6 +230,7 @@ test("a minute its last regular-board trade left goes off the chart, its volume 
   await act(() =>
     store.apply({
       _tag: "Delta",
+      at: DateTime.makeUnsafe(0),
       tape: [],
       candles: [],
       footprints: [{ code: BBCA, minute: minute("09:01"), cells: [] }],
@@ -245,6 +262,7 @@ test("an index's price axis keeps its decimals; a stock's snaps to its IDX tick"
     const store = Effect.runSync(makeCandleStore(code))
     store.apply({
       _tag: "Delta",
+      at: DateTime.makeUnsafe(0),
       tape: [],
       candles: [candle("09:00", close, code)],
     })
@@ -307,7 +325,12 @@ describe("a click on the candle chart of a recorded day", () => {
     mouse.clicks.clear()
     mouse.dblClicks.clear()
     const store = Effect.runSync(makeCandleStore(BBCA))
-    store.apply({ _tag: "Delta", tape: [], candles: [candle("09:00", 1_000)] })
+    store.apply({
+      _tag: "Delta",
+      at: DateTime.makeUnsafe(0),
+      tape: [],
+      candles: [candle("09:00", 1_000)],
+    })
     const sweeps = Effect.runSync(makeSweepStore(BBCA))
     sweeps.answer(0, { code: BBCA, sweeps: [buy, sell] })
     const cursor = Effect.runSync(

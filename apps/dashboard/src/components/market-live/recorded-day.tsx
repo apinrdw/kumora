@@ -173,6 +173,7 @@ const loadCandles = (day: WibDate, selected: StockCode, candles: CandleStore) =>
     if (Option.isSome(answer))
       candles.apply({
         _tag: "Delta",
+        at: yield* DateTime.now,
         tape: [],
         candles: answer.value.candles,
         footprints: answer.value.footprints ?? [],

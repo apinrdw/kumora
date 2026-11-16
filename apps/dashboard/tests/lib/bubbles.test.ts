@@ -5,12 +5,14 @@ import {
   type Candle,
   type RecordedBubbles,
   type RunningTrade,
+  type ViewerDown,
 } from "@workspace/relay"
 import { DateTime, Effect } from "effect"
 
 import {
   applyBubbles,
   applyCandles,
+  applyMessage,
   applyTrades,
   BUBBLE_WINDOWS,
   bubbleScale,
@@ -58,8 +60,10 @@ const body = (
     code: string
     previousClose?: number
     minutes: RecordedBubbles["codes"][number]["minutes"]
-  }>
+  }>,
+  settledBefore = T0
 ): RecordedBubbles => ({
+  settledBefore,
   codes: codes.map(({ code, previousClose, minutes }) => {
     const sum = (i: 1 | 2 | 3 | 4 | 5) =>
       minutes.reduce((total, row) => total + row[i], 0)
@@ -149,6 +153,29 @@ const trade = (
   side: figures.side ?? "buy",
   board: figures.board ?? "RG",
   feeds: ["Ajaib"],
+})
+
+// A delta the Worker sent `at`, carrying `candles`.
+const delta = (at: number, candles: ReadonlyArray<Candle>): ViewerDown => ({
+  _tag: "Delta",
+  at: DateTime.makeUnsafe(at),
+  tape: [],
+  candles,
+})
+
+const snapshot = (at: number): ViewerDown => ({
+  _tag: "Snapshot",
+  at: DateTime.makeUnsafe(at),
+  selected: StockCode.make("IHSG"),
+  tape: [],
+  candles: [],
+  footprints: [],
+  conditions: {
+    phase: "session-1",
+    relayOnline: true,
+    feeds: { Stockbit: "live", Ajaib: "live" },
+    gaps: [],
+  },
 })
 
 const valuesAt = (flow: MarketFlow, view: BubbleView, end: number) =>
@@ -714,9 +741,101 @@ describe("day totals a backfill recounts", () => {
       expect(yield* missingFromBackfill(flow)).toBe(true)
       yield* applyBubbles(
         flow,
-        body([{ code: "BBCA", previousClose: 100, minutes }])
+        body([{ code: "BBCA", previousClose: 100, minutes }], T0 + MIN)
       )
       expect(yield* missingFromBackfill(flow)).toBe(false)
+    })
+  )
+
+  it.effect(
+    "keep waiting through a backfill settled before the delta that changed one",
+    () =>
+      Effect.gen(function* () {
+        const flow = yield* makeMarketFlow()
+        const minutes = [minute(T0 - 2 * 60 * MIN, 1_000, 100)]
+        for (let m = 60; m >= 0; m--) minutes.push(minute(T0 - m * MIN, 1, 100))
+        yield* applyBubbles(
+          flow,
+          body([{ code: "BBCA", previousClose: 100, minutes }])
+        )
+        yield* applyMessage(
+          flow,
+          delta(T0 + MIN + 3_000, [
+            candle("BBCA", T0 - 2 * 60 * MIN, {
+              value: 2_000,
+              close: 100,
+              frequency: 2,
+            }),
+          ])
+        )
+        // Built at 10:01:05, while the late trade was in its merge window.
+        yield* applyBubbles(
+          flow,
+          body([{ code: "BBCA", previousClose: 100, minutes }], T0 + MIN)
+        )
+        expect(yield* missingFromBackfill(flow)).toBe(true)
+        yield* applyBubbles(
+          flow,
+          body([{ code: "BBCA", previousClose: 100, minutes }], T0 + 2 * MIN)
+        )
+        expect(yield* missingFromBackfill(flow)).toBe(false)
+      })
+  )
+})
+
+describe("a backfill after a snapshot", () => {
+  it.effect(
+    "leaves an earlier socket's minutes until one settled past the snapshot takes them back",
+    () =>
+      Effect.gen(function* () {
+        const flow = yield* makeMarketFlow()
+        yield* applyMessage(
+          flow,
+          delta(T0 + 1_000, [
+            candle("BBCA", T0, { value: 2_000, close: 100, frequency: 2 }),
+          ])
+        )
+        yield* applyMessage(flow, snapshot(T0 + 3_000))
+        const D = { ...VIEW, window: "D" } as const
+        // Settled before the trades the deltas carried.
+        yield* applyBubbles(flow, body([], T0 + 500))
+        expect(yield* valuesAt(flow, D, T0 + MIN)).toEqual([["BBCA", 2_000]])
+        expect(yield* missingFromBackfill(flow)).toBe(true)
+        // Settled past the snapshot: a correction the old socket missed
+        // took one trade out.
+        yield* applyBubbles(
+          flow,
+          body(
+            [
+              {
+                code: "BBCA",
+                previousClose: 100,
+                minutes: [minute(T0, 1_000, 100)],
+              },
+            ],
+            T0 + 5_000
+          )
+        )
+        expect(yield* valuesAt(flow, D, T0 + MIN)).toEqual([["BBCA", 1_000]])
+        expect(yield* missingFromBackfill(flow)).toBe(false)
+      })
+  )
+
+  it.effect("leaves out a copy older than one the flow took", () =>
+    Effect.gen(function* () {
+      const flow = yield* makeMarketFlow()
+      yield* applyBubbles(
+        flow,
+        body([{ code: "BBCA", minutes: [minute(T0, 1_000, 100)] }], T0 + MIN)
+      )
+      // The browser's copy, from the build before.
+      yield* applyBubbles(
+        flow,
+        body([{ code: "BBCA", minutes: [minute(T0, 500, 100)] }], T0)
+      )
+      expect(yield* valuesAt(flow, { ...VIEW, window: "D" }, T0 + MIN)).toEqual(
+        [["BBCA", 1_000]]
+      )
     })
   )
 })

@@ -197,6 +197,7 @@ it.live(
             storeStates = next.all
             store.apply({
               _tag: "Delta",
+              at: DateTime.makeUnsafe(0),
               tape: [],
               candles: [],
               dayStates: next.moved,

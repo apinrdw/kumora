@@ -179,6 +179,7 @@ describe("bubbles", () => {
         assert.strictEqual(status, 200)
         assert.strictEqual(cacheControl, "private, max-age=60")
         assert.deepStrictEqual(answer, {
+          settledBefore: DateTime.toEpochMillis(wib("09:02:05")),
           codes: [
             {
               code: StockCode.make("BBCA"),
@@ -264,6 +265,30 @@ describe("bubbles", () => {
   )
 
   it.effect(
+    "settled before the oldest trade still in its merge window at the build, or the build with none",
+    () =>
+      Effect.gen(function* () {
+        yield* at("09:01:02")
+        const day = yield* tradingDay()
+        yield* day.trades([trade(40001, "09:01:02", "UNTR", 23300, 2, "buy")])
+        yield* at("09:01:06")
+        const first = (yield* bubbles(day)).answer
+        assert.strictEqual(
+          first?.settledBefore,
+          DateTime.toEpochMillis(wib("09:01:02"))
+        )
+        assert.isUndefined(codeOf(first, "UNTR"))
+        yield* at("09:02:06")
+        const next = (yield* bubbles(day)).answer
+        assert.strictEqual(
+          next?.settledBefore,
+          DateTime.toEpochMillis(wib("09:02:05"))
+        )
+        assert.isDefined(codeOf(next, "UNTR"))
+      })
+  )
+
+  it.effect(
     "carry the close before the hour of a code that traded every minute of it, so a fresh page's 1h change is against it",
     () =>
       Effect.gen(function* () {
@@ -337,7 +362,7 @@ describe("bubbles", () => {
         yield* day.evicted
         const restarted = yield* tradingDay(sql)
         const after = (yield* bubbles(restarted)).answer
-        assert.deepStrictEqual(after, before)
+        assert.deepStrictEqual(after?.codes, before?.codes)
         // The day totals match a re-sum of the stored candles.
         for (const entry of after!.codes) {
           const { candles } = (yield* restarted.recordedCandles(entry.code))
@@ -680,7 +705,7 @@ describe("bubbles", () => {
             )
           }
         const start = performance.now()
-        const built = yield* book.build(() => 12_000)
+        const built = yield* book.build(first, () => 12_000)
         const buildMs = performance.now() - start
         yield* Effect.logInfo("Full day bubbles").pipe(
           Effect.annotateLogs({ bytes: built.text.length, buildMs })

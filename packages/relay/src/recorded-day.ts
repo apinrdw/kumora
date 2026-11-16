@@ -385,6 +385,10 @@ const BubbleDay = Schema.Tuple([
   Schema.Finite,
 ])
 const RecordedBubbles = Schema.Struct({
+  // In epoch ms on the trading-day object's clock: the answer holds every
+  // regular-board trade that reached the object before it (dashboard
+  // candles.ts, `settledBefore`).
+  settledBefore: Schema.Finite,
   codes: Schema.Array(
     Schema.Struct({
       code: StockCode,

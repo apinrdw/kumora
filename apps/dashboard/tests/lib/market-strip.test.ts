@@ -34,6 +34,7 @@ describe("the header strip's market figures", () => {
       Effect.gen(function* () {
         const flow = yield* makeMarketFlow()
         yield* applyBubbles(flow, {
+          settledBefore: T0,
           codes: [
             traded("BBCA", 5e9, 120, 9_300, 9_250),
             traded("BBRI", 2e9, 80, 4_100, 4_150),

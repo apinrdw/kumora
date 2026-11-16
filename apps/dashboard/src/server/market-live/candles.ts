@@ -632,6 +632,16 @@ export const makeCandleBook = Effect.fnUntraced(function* (
     return arrivals.get(tradeNumber)?.trade
   })
 
+  // The instant, in epoch ms, every trade that reached the book before has
+  // settled, and `settled` heard it: the oldest arrival still in its merge
+  // window, or now with none. Arrivals settle in arrival order.
+  const settledBefore = Effect.gen(function* () {
+    const now = yield* Clock.currentTimeMillis
+    yield* settle(now)
+    for (const { arrivedAt } of arrivals.values()) return arrivedAt
+    return now
+  })
+
   // Whether the book holds a trade the store doesn't have yet: inside its
   // merge window, settled since the last flush, or taken by a flush that
   // hasn't landed.
@@ -723,6 +733,7 @@ export const makeCandleBook = Effect.fnUntraced(function* (
     takeChanged,
     hasChanges,
     openTrade,
+    settledBefore,
     holds,
     takeSettled,
     written,

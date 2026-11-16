@@ -20,7 +20,8 @@ const acceptedIngestVersions: ReadonlyArray<unknown> = [
 // 2: market conditions carry delayed freshness and each delayed feed's lag.
 // 3: snapshots and deltas carry footprints, and deltas a selected code's
 // sweeps by minute (spec apinrdw/kumora#263).
-// 4: candles carry their buy value and sell value (spec apinrdw/kumora#427).
+// 4: candles carry their buy value and sell value, and snapshots and deltas
+// the instant they were sent (spec apinrdw/kumora#427).
 export const ViewerProtocolVersion = 4
 
 // Decision: an extension that hits either code stops retrying that target and
@@ -387,11 +388,18 @@ const MinuteSweeps = Schema.Struct({
 })
 export type MinuteSweeps = typeof MinuteSweeps.Type
 
+// When the trading-day object sent a message, on its clock: what the
+// message holds came from the trades that reached it before then. Market
+// Bubbles takes a backfill settled past it as holding them too
+// (apps/dashboard/src/lib/bubbles.ts, `applyBubbles`).
+const SentAt = Schema.DateTimeUtcFromMillis
+
 // What a viewer starts from after each Select: the 200 newest running trades,
 // ascending by trade number, and the selected code's candles and footprints
 // so far, ascending by minute. The selected code's order book once it has one, or
 // word that it is an index.
 const Snapshot = Schema.TaggedStruct("Snapshot", {
+  at: SentAt,
   // The code the Select it answers selected. A snapshot answering an earlier
   // Select can arrive after the page moved to another code, so the chart and
   // the order book take only a snapshot of their own code.
@@ -415,6 +423,7 @@ const Snapshot = Schema.TaggedStruct("Snapshot", {
 // page keeps its selected code's. Order books likewise: every code's whose
 // served book changed, each whole.
 const Delta = Schema.TaggedStruct("Delta", {
+  at: SentAt,
   tape: Schema.Array(RunningTrade),
   candles: Schema.Array(Candle),
   // Every footprint that changed since the last delta of a code some viewer

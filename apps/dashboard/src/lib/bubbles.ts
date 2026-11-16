@@ -96,8 +96,8 @@ interface CodeFlow {
   // any window when the code traded in none of the minutes kept before it.
   closeBefore: { minute: number; close: number } | undefined
   // The minutes a delta carried, emptied ones included, and whether this
-  // socket's did since its snapshot or an earlier socket's: `minutes` holds
-  // the candle book's latest copy of each.
+  // socket's did since its snapshot or an earlier socket's (MarketFlow's
+  // `socketFrom`): `minutes` holds the candle book's latest copy of each.
   readonly carried: Map<number, CarriedBy>
   // The backfills that came after it traded, without its previous close.
   closeMisses: number
@@ -112,11 +112,21 @@ export interface MarketFlow {
   lastTrade: number | undefined
   // The newest minute any code traded in.
   newestMinute: number
-  // Whether a candle older than the kept minutes changed since the last
-  // backfill: its earlier figures are gone, so only a backfill recounts the
-  // day totals. Or a code lost its last price, with no minute left to take
-  // one from (closeDay).
-  recount: boolean
+  // Instants on the Worker's clock, in epoch ms: a viewer message's `at`,
+  // a backfill's `settledBefore`.
+  // The newest the flow heard of.
+  heard: number
+  // The newest backfill's: an older copy, as the browser's can be, is left
+  // out.
+  settledBefore: number
+  // The snapshot that started this socket, until a backfill settled past
+  // it: an earlier socket may have missed deltas, so until then its minutes
+  // stay as it left them.
+  socketFrom: number | undefined
+  // When a candle older than the kept minutes changed, its earlier figures
+  // gone, or a code lost its last price with no minute left to take one
+  // from (closeDay), until a backfill settled past it recounts the day.
+  recountFrom: number | undefined
   // The tape's trade numbers already counted → what each added, so a
   // snapshot's tape, which repeats trades a delta brought, counts each once,
   // and a later copy with another side or time replaces it.
@@ -226,7 +236,10 @@ export const makeMarketFlow = () =>
     codes: new Map(),
     lastTrade: undefined,
     newestMinute: 0,
-    recount: false,
+    heard: Number.NEGATIVE_INFINITY,
+    settledBefore: Number.NEGATIVE_INFINITY,
+    socketFrom: undefined,
+    recountFrom: undefined,
     seen: new Map(),
   }))
 
@@ -259,25 +272,25 @@ const closeDay = (flow: MarketFlow, code: CodeFlow) => {
   if (newest !== undefined) code.day.close = code.minutes.get(newest)!.close
   else if (code.closeBefore !== undefined)
     code.day.close = code.closeBefore.close
-  else if (code.day.frequency > 0) flow.recount = true
+  else if (code.day.frequency > 0) flow.recountFrom = flow.heard
 }
 
 // The minutes deltas carried laid over a body's, the day totals moved by
-// what each changes over the body's copy. A `fresh` body takes back those an
-// earlier socket's carried. A body that holds a code's full BUBBLE_MINUTES
-// knows none older than its first: such a minute is older than every
-// window, so the body's copy stands.
+// what each changes over the body's copy. A body that `takesBack` an
+// earlier socket's minutes has every trade they held. A body that holds a
+// code's full BUBBLE_MINUTES knows none older than its first: such a minute
+// is older than every window, so the body's copy stands.
 const keepCarried = (
   code: CodeFlow,
   body: { readonly day: Row; readonly minutes: Map<number, Row> },
   oldest: number,
-  fresh: boolean
+  takesBack: boolean
 ) =>
   Effect.sync(() => {
     for (const [at, by] of code.carried) {
       const bodyRow = body.minutes.get(at)
       if (
-        (fresh && by === "an earlier one") ||
+        (takesBack && by === "an earlier one") ||
         (bodyRow === undefined && at < oldest)
       ) {
         code.carried.delete(at)
@@ -290,22 +303,37 @@ const keepCarried = (
     }
   })
 
+// A body settled before `settledBefore` taken: whether it takes back an
+// earlier socket's minutes.
+// Decision: a body holds every trade that reached the Worker before its
+// `settledBefore`, the clock the messages' `at` is on. Only one settled past
+// this socket's snapshot takes back an earlier socket's minutes, and only
+// one past a recount's trigger recounts; one settled short, however early
+// it was asked for, leaves both waiting. See apinrdw/kumora#436.
+const takeSettled = (flow: MarketFlow, settledBefore: number) =>
+  Effect.sync(() => {
+    flow.settledBefore = settledBefore
+    flow.heard = Math.max(flow.heard, settledBefore)
+    if (flow.recountFrom !== undefined && settledBefore > flow.recountFrom)
+      flow.recountFrom = undefined
+    const takesBack =
+      flow.socketFrom === undefined || settledBefore > flow.socketFrom
+    if (takesBack) flow.socketFrom = undefined
+    return takesBack
+  })
+
 // Decision: a minute is the candle book's latest copy (candles.ts): a
 // delta's candle, or footprint with no cells, replaces it, smaller too. The
 // body has only settled trades, which never leave a minute, so it fills the
-// minutes no delta carried, and after a snapshot a fresh body takes back an
-// earlier socket's. See apinrdw/kumora#436 and spec #427, "Reconnects".
+// minutes no delta carried. See apinrdw/kumora#436 and spec #427,
+// "Reconnects".
 //
-// `fresh` when the Worker answered past the browser's copy, which can be
-// older than an earlier socket's deltas. A code the flow holds that the
-// body doesn't has no settled trade: its minutes no delta carried are none.
-export const applyBubbles = (
-  flow: MarketFlow,
-  body: RecordedBubbles,
-  fresh = true
-) =>
+// A code the flow holds that the body doesn't has no settled trade: its
+// minutes no delta carried are none.
+export const applyBubbles = (flow: MarketFlow, body: RecordedBubbles) =>
   Effect.gen(function* () {
-    flow.recount = false
+    if (body.settledBefore < flow.settledBefore) return
+    const takesBack = yield* takeSettled(flow, body.settledBefore)
     const inBody = new Set(body.codes.map(({ code }) => code))
     const entries = [...body.codes]
     for (const code of flow.codes.keys())
@@ -320,7 +348,7 @@ export const applyBubbles = (
         entry.minutes.length < BUBBLE_MINUTES
           ? Number.NEGATIVE_INFINITY
           : entry.minutes[0]![0],
-        fresh
+        takesBack
       )
       code.minutes.clear()
       for (const [at, row] of rows.minutes) code.minutes.set(at, row)
@@ -333,13 +361,16 @@ export const applyBubbles = (
     }
   })
 
-// Whether the flow waits for a backfill: to carry the previous close of a
-// code that traded today and has none, as one first seen in a delta or the
-// tape, or one the body carried before its `liveprice` frame came; or to
-// recount (MarketFlow's `recount`). Only the backfill does either.
+// Whether the flow waits for a backfill: one settled past this socket's
+// snapshot or a recount's trigger (MarketFlow's `socketFrom` and
+// `recountFrom`), or one that carries the previous close of a code that
+// traded today and has none, as one first seen in a delta or the tape, or
+// one the body carried before its `liveprice` frame came. Only the backfill
+// does any of them.
 export const missingFromBackfill = (flow: MarketFlow) =>
   Effect.sync(() => {
-    if (flow.recount) return true
+    if (flow.socketFrom !== undefined || flow.recountFrom !== undefined)
+      return true
     for (const code of flow.codes.values())
       if (
         code.day.frequency > 0 &&
@@ -370,7 +401,7 @@ const takeMinute = (
   // backfill brings into the day's totals.
   if (at < oldestKept(flow)) {
     if (row !== undefined) noteBefore(code, at, row.close)
-    flow.recount = true
+    flow.recountFrom = flow.heard
     return
   }
   replaceInDay(code.day, row, code.minutes.get(at))
@@ -418,10 +449,13 @@ const applyEmptied = (flow: MarketFlow, footprints: ReadonlyArray<Footprint>) =>
         )
   })
 
-// A snapshot starts a socket, which may have missed deltas: the minutes
-// the deltas before it carried go back to the next fresh body.
-const startSocket = (flow: MarketFlow) =>
+// A snapshot sent at `sentAt` starts a socket, which may have missed
+// deltas: the minutes the deltas before it carried go back to the first
+// body settled past it. A snapshot that answers a Select on the same socket
+// looks the same, and waits for that body too.
+const startSocket = (flow: MarketFlow, sentAt: number) =>
   Effect.sync(() => {
+    flow.socketFrom = sentAt
     for (const code of flow.codes.values())
       for (const at of code.carried.keys())
         code.carried.set(at, "an earlier one")
@@ -546,7 +580,9 @@ export const applyTrades = (
 // emptied minutes.
 export const applyMessage = (flow: MarketFlow, message: ViewerDown) =>
   Effect.gen(function* () {
-    if (message._tag === "Snapshot") yield* startSocket(flow)
+    const at = DateTime.toEpochMillis(message.at)
+    flow.heard = Math.max(flow.heard, at)
+    if (message._tag === "Snapshot") yield* startSocket(flow, at)
     yield* applyTrades(flow, message.tape)
     if (message._tag === "Snapshot") return
     yield* applyCandles(flow, message.candles)

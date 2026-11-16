@@ -42,6 +42,7 @@ const snapshot = (
   footprints: ReadonlyArray<Footprint> = []
 ): ViewerDown => ({
   _tag: "Snapshot",
+  at: DateTime.makeUnsafe(0),
   selected: StockCode.make(selected),
   tape: [],
   candles,
@@ -86,6 +87,7 @@ describe("the selected code's footprints", () => {
         )
         store.apply({
           _tag: "Delta",
+          at: DateTime.makeUnsafe(0),
           tape: [],
           candles: [],
           footprints: [footprint("BBCA", 9), footprint("BBRI", 5)],
@@ -101,6 +103,7 @@ describe("the selected code's footprints", () => {
         // A delta with nothing of this code is not heard.
         store.apply({
           _tag: "Delta",
+          at: DateTime.makeUnsafe(0),
           tape: [],
           candles: [],
           footprints: [footprint("BBCA", 3)],
@@ -123,6 +126,7 @@ describe("the selected code's footprints", () => {
         // The minute's candle still has its figures: only its cells went.
         store.apply({
           _tag: "Delta",
+          at: DateTime.makeUnsafe(0),
           tape: [],
           candles: [candle("BBRI", 4_025)],
           footprints: [emptied],
@@ -132,6 +136,7 @@ describe("the selected code's footprints", () => {
         // Its last regular-board trade left the minute.
         store.apply({
           _tag: "Delta",
+          at: DateTime.makeUnsafe(0),
           tape: [],
           candles: [],
           footprints: [emptied],

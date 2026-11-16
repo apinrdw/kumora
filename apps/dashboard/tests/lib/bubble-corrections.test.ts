@@ -49,11 +49,13 @@ const random = (seed: number) => {
 }
 
 // A trade as the book holds it: its latest copy, and the copy its candle
-// counts, which follows the latest only while the merge window is open.
+// counts, which follows the latest only while the merge window is open; and
+// when it reached the book.
 interface Held {
   copy: RunningTrade
   part: RunningTrade
   open: boolean
+  readonly arrivedAt: number
 }
 
 const minuteOf = (trade: RunningTrade) =>
@@ -113,6 +115,9 @@ const makeServer = (next: () => number) => {
   let tape = new Map<number, RunningTrade>()
   let changed = new Set<string>()
   let number = 1
+  // The book's clock: each step is a millisecond on.
+  let now = 0
+  const tick = () => ++now
 
   const parts = () =>
     [...trades.values()].flatMap((held) =>
@@ -139,6 +144,7 @@ const makeServer = (next: () => number) => {
       copy: trade,
       part: trade,
       open: true,
+      arrivedAt: tick(),
     })
     tape.set(Number(trade.tradeNumber), trade)
     touch(trade)
@@ -216,6 +222,7 @@ const makeServer = (next: () => number) => {
     }
     const sent: ViewerDown = {
       _tag: "Delta",
+      at: DateTime.makeUnsafe(tick()),
       tape: [...tape.values()].sort(
         (a, b) => Number(a.tradeNumber) - Number(b.tradeNumber)
       ),
@@ -232,6 +239,7 @@ const makeServer = (next: () => number) => {
     changed = new Set()
     return {
       _tag: "Snapshot",
+      at: DateTime.makeUnsafe(tick()),
       selected: StockCode.make("IHSG"),
       tape: [...trades.values()]
         .map((held) => held.copy)
@@ -247,8 +255,12 @@ const makeServer = (next: () => number) => {
     }
   }
 
-  // The backfill: the settled parts only.
+  // The backfill: the settled parts only, settled before the oldest trade
+  // still open.
   const body = (): RecordedBubbles => {
+    let settledBefore = tick()
+    for (const held of trades.values())
+      if (held.open) settledBefore = Math.min(settledBefore, held.arrivedAt)
     const settled = [...trades.values()].flatMap((held) =>
       held.open || held.part.board !== "RG" ? [] : [held.part]
     )
@@ -287,7 +299,7 @@ const makeServer = (next: () => number) => {
         minutes,
       })
     }
-    return { codes }
+    return { settledBefore, codes }
   }
 
   return {
@@ -390,20 +402,22 @@ const candle = (
 
 describe("figures under feed corrections", () => {
   it.effect(
-    "a snapshot hands an earlier socket's minutes back to a fresh body, not to the browser's older copy",
+    "a snapshot hands an earlier socket's minutes back to a body settled past it, not to one settled before it",
     () =>
       Effect.gen(function* () {
         const flow = yield* makeMarketFlow()
         const [code] = CODES
         yield* applyCandles(flow, [candle(code!, T0, 2)])
-        // Market Live's Select answers a snapshot on the same socket.
+        // Market Live's Select answers a snapshot on the same socket, sent
+        // at 1 ms on the book's clock.
         const server = makeServer(random(1))
         yield* applyMessage(flow, server.snapshot())
         // The browser's copy, built before the minute's trades.
-        yield* applyBubbles(flow, { codes: [] }, false)
+        yield* applyBubbles(flow, { settledBefore: 0, codes: [] })
         expect((yield* shown(flow, "D", END))[code!]?.frequency).toBe(2)
         // The Worker's, after they settled: one moved off the minute.
         yield* applyBubbles(flow, {
+          settledBefore: 2,
           codes: [
             {
               code: code!,
@@ -424,6 +438,7 @@ describe("figures under feed corrections", () => {
         const flow = yield* makeMarketFlow()
         const [code, other] = CODES
         yield* applyBubbles(flow, {
+          settledBefore: T0,
           codes: [
             {
               code: code!,
@@ -441,6 +456,7 @@ describe("figures under feed corrections", () => {
         // A correction moves that trade off the regular board.
         yield* applyMessage(flow, {
           _tag: "Delta",
+          at: DateTime.makeUnsafe(later),
           tape: [],
           candles: [],
           footprints: [
@@ -465,6 +481,7 @@ describe("figures under feed corrections", () => {
         // The day holds a trade from before the body's minutes, as a code
         // that traded in more minutes than the body carries does.
         yield* applyBubbles(flow, {
+          settledBefore: T0,
           codes: [
             {
               code: code!,
@@ -477,6 +494,7 @@ describe("figures under feed corrections", () => {
         expect(yield* missingFromBackfill(flow)).toBe(false)
         yield* applyMessage(flow, {
           _tag: "Delta",
+          at: DateTime.makeUnsafe(T0 + 1_000),
           tape: [],
           candles: [],
           footprints: [
@@ -540,14 +558,20 @@ describe("figures under feed corrections", () => {
               yield* matches(flow, server, `${at} body`)
               continue
             } else {
-              // A reconnect: what changed meanwhile settles before the
-              // snapshot's backfill answers.
+              // A reconnect: what changed meanwhile, then the snapshot's
+              // backfill, which may be built while trades are still open,
+              // and one built once they settled.
               server.newTrade()
               server.correct()
-              server.settle(true)
               yield* applyMessage(flow, server.snapshot())
               yield* applyBubbles(flow, server.body())
+              server.settle(true)
+              yield* applyBubbles(flow, server.body())
               yield* matches(flow, server, `${at} reconnect`)
+              expect({ at, waits: yield* missingFromBackfill(flow) }).toEqual({
+                at,
+                waits: false,
+              })
               continue
             }
             yield* applyMessage(flow, server.delta())

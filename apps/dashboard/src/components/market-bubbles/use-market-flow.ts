@@ -77,7 +77,7 @@ const loadBackfill = (flow: MarketFlow, today: WibDate, fresh: boolean) =>
     Effect.flatMap(
       Option.match({
         onNone: () => Effect.succeed(false),
-        onSome: (body) => Effect.as(applyBubbles(flow, body, fresh), true),
+        onSome: (body) => Effect.as(applyBubbles(flow, body), true),
       })
     ),
     Effect.catchTag("SignInRequired", () => Effect.as(signInAgain, false)),
@@ -100,25 +100,25 @@ const untilBuilt = (clockOffset: number) =>
     )
   })
 
-// The backfill into `flow` after a snapshot, then again after the next
-// build, and after each later build while the flow waits for one
-// (missingFromBackfill): a code's previous close, at most CLOSE_MISSES
-// times a code (bubbles.ts), or day totals to recount.
-// Decision: the second ask, past the browser's 60 s copy, brings the
-// trades between the last build and the page's load, which no delta
-// carries until their code trades again; applyBubbles lays this socket's
-// deltas over it. One more GET a load, a two-way door (spec
-// apinrdw/kumora#427, #435's staleness note).
+// The backfill into `flow` after a snapshot: the browser's copy, then a
+// fresh one after each build while the flow waits for one
+// (missingFromBackfill).
+// Decision: the asks are timed by the browser's clock and `clockOffset`,
+// and nothing rests on that timing: a body settled short of the snapshot or
+// a recount (applyBubbles), as one asked for before its build, costs one
+// more GET a minute later, never a trade. See apinrdw/kumora#436 and spec
+// #427.
 const followBackfill = Effect.fnUntraced(function* (
   flow: MarketFlow,
   today: WibDate,
   clockOffset: number
 ) {
-  if (!(yield* loadBackfill(flow, today, false))) return
-  yield* untilBuilt(clockOffset)
-  while (yield* loadBackfill(flow, today, true))
-    do yield* untilBuilt(clockOffset)
-    while (!(yield* missingFromBackfill(flow)))
+  let following = yield* loadBackfill(flow, today, false)
+  while (following) {
+    yield* untilBuilt(clockOffset)
+    if (yield* missingFromBackfill(flow))
+      following = yield* loadBackfill(flow, today, true)
+  }
 })
 
 // The live day's market flow into `flow`: the viewer socket's deltas and

@@ -279,11 +279,12 @@ describe("viewer protocol", () => {
 
 describe("viewer protocol, down", () => {
   it.effect(
-    "a delta's running trades and candles round trip with their time",
+    "a delta's running trades and candles round trip with their time, and its own",
     () =>
       Effect.gen(function* () {
         const message: ViewerDown = {
           _tag: "Delta",
+          at: DateTime.makeUnsafe("2026-11-09T07:15:00.250Z"),
           tape: [
             {
               tradeNumber: TradeNumber.make("2350"),
