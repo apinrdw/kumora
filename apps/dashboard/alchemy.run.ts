@@ -42,6 +42,9 @@ const HoldingsDb = Cloudflare.D1.Database("HoldingsDb", {
 // so it can be reset or rebuilt alone. Read replication stays off
 // (Alchemy's default), as HoldingsDb's: a replica could serve a day
 // mid-write. See apinrdw/kumora#419.
+// apps/e2e/reset-test-stage.ts reads its state file, BrokerTotalsDb.json, by
+// this id, and apps/e2e/support/broker-totals.ts seeds its tables by it, in
+// the migration's column order.
 const BrokerTotalsDb = Cloudflare.D1.Database("BrokerTotalsDb", {
   migrations: "./broker-totals-migrations",
 })
