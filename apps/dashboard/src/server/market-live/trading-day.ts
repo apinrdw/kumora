@@ -394,9 +394,12 @@ export const makeTradingDay = Effect.fnUntraced(function* (options: {
   const sealAt = yield* sealInstant(options.date)
   // Decision: a day's tape source is unknown until its first relay trade
   // before 17:00 makes it relay or a walk's first fields make it walk, kept
-  // as a fact for good. Walk rows hold only on a relay day, which seals at
-  // 17:00; a walk day seals once complete, from 17:00, taking no relay trade;
-  // an unknown day never seals and takes no ingest from 17:00.
+  // as a fact for good. A relay day seals at 17:00; a walk day seals once
+  // complete, from 17:00, taking no relay trade; an unknown day never seals
+  // and takes no ingest from 17:00. Walk rows hold on a relay day, and on any
+  // day once sealed: a walk day's rows become its tape only before its seal,
+  // and a later, higher `end` (another site's walk on a tape that grew)
+  // names trades its walk rows then hold, for completeness and totals alone.
   //
   // So a sealed day never changes, and its answers are immutable. A day an
   // older revision sealed holding no trade, as it sealed a History day, is
@@ -412,7 +415,7 @@ export const makeTradingDay = Effect.fnUntraced(function* (options: {
     date: options.date,
     sql: options.sql,
     fact: store.fact,
-    walkRowsHold: Effect.sync(() => source === "relay"),
+    walkRowsHold: Effect.sync(() => source === "relay" || sealed),
   })
   const sweepBrokers = yield* makeSweepBrokers({
     sql: options.sql,
@@ -1433,11 +1436,11 @@ export const makeTradingDay = Effect.fnUntraced(function* (options: {
     recorded: (resource: RecordedResource) =>
       turn.withPermit(recorded(resource)),
     alarm: turn.withPermit(alarm),
-    // Decision: on a day the relay recorded, broker codes touch no recorded
-    // day state (no flush, seal or index row), so its answers stay
-    // byte-identical (#244). A walk day takes their fields as its tape
-    // (`walkTapeOf`), and its completing batch arms its seal
-    // (`walkSealDue`). See spec apinrdw/kumora#437.
+    // Decision: on a day the relay recorded, and on any sealed day, broker
+    // codes touch no recorded day state (no flush, seal or index row), so its
+    // answers stay byte-identical (#244). A walk day before its seal takes
+    // their fields as its tape (`walkTapeOf`), and its completing batch arms
+    // its seal (`walkSealDue`). See spec apinrdw/kumora#437.
     brokerCodes: {
       // Decision: a batch that changes codes rewrites its trades' sweep
       // brokers rows from their minutes' stored trades, in the codes' turn

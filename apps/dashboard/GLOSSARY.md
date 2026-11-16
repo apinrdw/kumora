@@ -51,11 +51,11 @@ A running trade's time, stock code, price, lots, board and aggressor side: what 
 _Avoid_: Trade details, trade row
 
 **Held trade**:
-A trade of a trading day that has its broker codes and its trade fields. The fields come from the day's tape, or, for a trade the tape lacks, from a walk after the close; a trade the tape holds always uses the tape's fields, and for one it lacks, the first walk's fields are kept. On a day the relay recorded, fields from a walk never join the tape or anything Market Live shows; a day whose tape source is the walks takes their fields as its tape, and once complete becomes a recorded day.
+A trade of a trading day that has its broker codes and its trade fields. The fields come from the day's tape, or, for a trade the tape lacks, from a walk after the close; a trade the tape holds always uses the tape's fields, and for one it lacks, the first walk's fields are kept. On a day the relay recorded, fields from a walk never join the tape or anything Market Live shows; a day whose tape source is the walks takes their fields as its tape until it is sealed, and once complete becomes a recorded day. Once a day is sealed, whatever its tape source, a walk's fields of a trade its tape lacks hold that trade without joining the tape, as on a day the relay recorded.
 _Avoid_: Covered trade (covered counts the cross-check's agreements)
 
 **Tape source**:
-Where a trading day's tape comes from, set once and never changed: the relay, when its first trade of the day arrives before 17:00 WIB, or the walks, when a walk sends trade fields for a day the relay sent no trade of. Until either happens it is unknown, and a day whose tape source is unknown is never sealed.
+Where a trading day's tape comes from, set once and never changed: the relay, when its first trade of the day arrives before 17:00 WIB, or the walks, when a walk sends trade fields for a day the relay sent no trade of. Until either happens it is unknown, and a day whose tape source is unknown is never sealed. The walks fill a day's tape only until it is sealed; a sealed day's tape never changes.
 _Avoid_: Tape mode, feed (a feed is one broker site's stream)
 
 **Complete** (a day's broker codes):

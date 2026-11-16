@@ -64,8 +64,9 @@ const SCHEMA = [
   // Decision: a walk's fields of each trade the tape lacked, the first row
   // kept. On a day the relay recorded they never fill the tape, so its
   // recorded answers don't change; only the build reads them (#425). A day
-  // whose tape source is the walks takes a batch's fields as its tape, and
-  // a row here holds none of its trades (`walkRowsHold`). See #437.
+  // whose tape source is the walks takes a batch's fields as its tape until
+  // its seal, and until then a row here holds none of its trades
+  // (`walkRowsHold`). See #437.
   `CREATE TABLE IF NOT EXISTS walk_trades (
     number INTEGER PRIMARY KEY,
     code TEXT NOT NULL,
@@ -395,8 +396,8 @@ export const makeBrokerCodes = Effect.fnUntraced(function* (options: {
   readonly sql: Sql
   // A fact the day store holds.
   readonly fact: (key: string) => Effect.Effect<string | undefined>
-  // Whether a walk_trades row holds its trade: not on a day whose tape the
-  // walks fill, which holds a trade only once its tape does.
+  // Whether a walk_trades row holds its trade: not on an unsealed day whose
+  // tape the walks fill, which holds a trade only once its tape does.
   readonly walkRowsHold: Effect.Effect<boolean>
 }) {
   const { sql, fact } = options
