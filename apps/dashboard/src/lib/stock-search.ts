@@ -17,8 +17,11 @@ export type OriginShown = SplitOrigin | "all"
 const ChartView = Schema.Literals(["table"])
 export type ChartView = typeof ChartView.Type | "bars"
 
-// What Holder size's shares are of; absent for shares outstanding.
+// What Holder size's shares are of; absent for shares outstanding. Scrip
+// isn't split by origin, so local and foreign are always of their own
+// scripless shares.
 const SizeBase = Schema.Literals(["scripless"])
+export type SizeBase = typeof SizeBase.Type | "outstanding"
 
 export interface StockSearch {
   readonly month?: string | undefined

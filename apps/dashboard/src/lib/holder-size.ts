@@ -10,13 +10,9 @@ import type {
   InvestorTypeHoldings,
 } from "@/server/holdings/stock-page"
 
-import type { OriginShown } from "./stock-search.ts"
+import type { OriginShown, SizeBase } from "./stock-search.ts"
 
 export type Holding = NonNullable<HolderSizeMonth["holding"]>
-
-// What the shares are of. Scrip isn't split by origin, so local and foreign
-// are always of their own scripless shares.
-export type Denominator = "outstanding" | "scripless"
 
 export interface HolderSizeParts {
   // Undefined unless of shares outstanding.
@@ -43,7 +39,7 @@ export interface HolderSize {
   // The origin and denominator shown: an unsplit month shows all, and local
   // or foreign are of scripless.
   readonly origin: OriginShown
-  readonly denominator: Denominator
+  readonly denominator: SizeBase
   // The denominator's shares.
   readonly base: number
   readonly bar: HolderSizeParts
@@ -70,7 +66,7 @@ export interface HolderSizeFigures {
 export interface HolderSizeTable {
   // As in `HolderSize`; local or foreign only when some month splits.
   readonly origin: OriginShown
-  readonly denominator: Denominator
+  readonly denominator: SizeBase
   readonly columns: ReadonlyArray<HolderSizeColumn>
   // The types holding ≥5% in any column, in KSEI's order.
   readonly atLeast5Types: ReadonlyArray<{
@@ -87,7 +83,7 @@ const ratio = (shares: number, total: number) =>
 const shares = Effect.fnUntraced(function* (
   holding: Holding,
   holdings: InvestorTypeHoldings,
-  denominator: Denominator
+  denominator: SizeBase
 ) {
   const sum = (holders: "under5" | "atLeast5") =>
     KSEI_TYPES.reduce((total, type) => total + holdings[type][holders], 0)
@@ -128,7 +124,7 @@ export const holderSize = Effect.fnUntraced(function* (
   holding: Holding,
   previous: Holding | undefined,
   asked: OriginShown,
-  askedDenominator: Denominator
+  askedDenominator: SizeBase
 ): Effect.fn.Return<HolderSize> {
   const origin = holding.local === undefined ? "all" : asked
   const denominator = origin === "all" ? askedDenominator : "scripless"
@@ -180,7 +176,7 @@ export const holderSize = Effect.fnUntraced(function* (
 const column = Effect.fnUntraced(function* (
   { dataDate, holding }: HolderSizeMonth,
   origin: OriginShown,
-  denominator: Denominator
+  denominator: SizeBase
 ): Effect.fn.Return<HolderSizeColumn> {
   if (holding === undefined) return { dataDate, shown: "no data" }
   if (origin !== "all" && holding.local === undefined)
@@ -200,7 +196,7 @@ const column = Effect.fnUntraced(function* (
 export const holderSizeTable = Effect.fnUntraced(function* (
   months: ReadonlyArray<HolderSizeMonth>,
   asked: OriginShown,
-  askedDenominator: Denominator
+  askedDenominator: SizeBase
 ): Effect.fn.Return<HolderSizeTable> {
   const origin = months.some(({ split }) => split) ? asked : "all"
   const denominator = origin === "all" ? askedDenominator : "scripless"

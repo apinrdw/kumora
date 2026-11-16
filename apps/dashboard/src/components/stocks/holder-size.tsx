@@ -15,7 +15,6 @@ import { Choice, MonthTabs, Picks } from "@/components/stocks/choice"
 import type { KseiType } from "@/domain/holdings"
 import { compact, plain } from "@/lib/format"
 import {
-  type Denominator,
   type HolderSize as Figures,
   type HolderSizeColumn,
   type HolderSizeFigures,
@@ -25,7 +24,7 @@ import {
   holderSizeTable,
 } from "@/lib/holder-size"
 import { monthLabel, percent, shortMonth } from "@/lib/stock-page-display"
-import type { ChartView, OriginShown } from "@/lib/stock-search"
+import type { ChartView, OriginShown, SizeBase } from "@/lib/stock-search"
 import type { HolderSizeMonth } from "@/server/holdings/stock-page"
 
 const ORIGINS: ReadonlyArray<{ value: OriginShown; label: string }> = [
@@ -34,7 +33,7 @@ const ORIGINS: ReadonlyArray<{ value: OriginShown; label: string }> = [
   { value: "foreign", label: "Foreign" },
 ]
 
-const DENOMINATORS: ReadonlyArray<{ value: Denominator; label: string }> = [
+const DENOMINATORS: ReadonlyArray<{ value: SizeBase; label: string }> = [
   { value: "outstanding", label: "Shares outstanding" },
   { value: "scripless", label: "Scripless" },
 ]
@@ -69,11 +68,11 @@ export type HolderSizeProps = {
   // The URL's `YYYY-MM`; a month the stock has no row in shows its newest.
   month: string | undefined
   origin: OriginShown
-  denominator: Denominator
+  denominator: SizeBase
   view: ChartView
   onMonth: (dataDate: string) => void
   onOrigin: (origin: OriginShown) => void
-  onDenominator: (denominator: Denominator) => void
+  onDenominator: (denominator: SizeBase) => void
   onView: (view: ChartView) => void
 }
 
@@ -217,7 +216,7 @@ function Controls({
   figures: Pick<Figures, "origin" | "denominator">
   split: boolean
   onOrigin: (origin: OriginShown) => void
-  onDenominator: (denominator: Denominator) => void
+  onDenominator: (denominator: SizeBase) => void
 }) {
   return (
     <div className="flex flex-wrap items-center gap-x-4 gap-y-2">
