@@ -112,7 +112,8 @@ export interface MarketFlow {
   newestMinute: number
   // Whether a candle older than the kept minutes changed since the last
   // backfill: its earlier figures are gone, so only a backfill recounts the
-  // day totals.
+  // day totals. Or a code lost its last price, with no minute left to take
+  // one from (closeDay).
   recount: boolean
   // The tape's trade numbers already counted → what each added, so a
   // snapshot's tape, which repeats trades a delta brought, counts each once,
@@ -246,10 +247,16 @@ const bodyRows = (flow: MarketFlow, entry: RecordedBubbles["codes"][number]) =>
     return { day, minutes }
   })
 
-// The day's last price: its newest minute's close.
-const closeDay = (code: CodeFlow) => {
+// The day's last price: its newest minute's close. With none kept, as when
+// a correction took a code's only kept minute away, the close of the minute
+// let go before them; with none of that either, a day that still has trades
+// waits for a backfill to bring its close.
+const closeDay = (flow: MarketFlow, code: CodeFlow) => {
   const newest = newestKey(code.minutes, Number.POSITIVE_INFINITY)
   if (newest !== undefined) code.day.close = code.minutes.get(newest)!.close
+  else if (code.closeBefore !== undefined)
+    code.day.close = code.closeBefore.close
+  else if (code.day.frequency > 0) flow.recount = true
 }
 
 // The minutes deltas carried laid over a body's, the day totals moved by
@@ -295,6 +302,7 @@ export const applyBubbles = (
   fresh = true
 ) =>
   Effect.gen(function* () {
+    flow.recount = false
     const carried = new Set(body.codes.map(({ code }) => code))
     const entries = [...body.codes]
     for (const code of flow.codes.keys())
@@ -314,17 +322,16 @@ export const applyBubbles = (
       code.minutes.clear()
       for (const [at, row] of rows.minutes) code.minutes.set(at, row)
       code.day = rows.day
-      closeDay(code)
+      closeDay(flow, code)
       code.previousClose = entry.previousClose ?? code.previousClose
       pruneMinutes(flow, code)
     }
-    flow.recount = false
   })
 
 // Whether the flow waits for a backfill: to carry the previous close of a
-// code that traded today and has none, as one first seen in a delta or the tape, or one the
-// body carried before its `liveprice` frame came; or to recount the day
-// totals after an old candle changed. Only the backfill does either.
+// code that traded today and has none, as one first seen in a delta or the
+// tape, or one the body carried before its `liveprice` frame came; or to
+// recount (MarketFlow's `recount`). Only the backfill does either.
 export const missingFromBackfill = (flow: MarketFlow) =>
   Effect.sync(() => {
     if (flow.recount) return true
@@ -357,7 +364,7 @@ const takeMinute = (
     code.minutes.set(at, row)
     noteMinute(flow, at)
   }
-  closeDay(code)
+  closeDay(flow, code)
   pruneMinutes(flow, code)
 }
 
