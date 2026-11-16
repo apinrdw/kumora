@@ -137,7 +137,8 @@ interface Fed {
 }
 
 // Each message of the tape's viewer socket, into `stores` and the bubble
-// panel's market flow of `today`.
+// panel's market flow of `today`, on the market clock `clockOffset` ms ahead
+// of the browser's.
 // Decision: the bubble panel reads the tape's socket, not one of its own:
 // every delta carries every code's changed candles and the whole tape,
 // whatever is selected.
@@ -149,9 +150,10 @@ function useViewerFeed(
     heatmap,
     dayStates,
   }: Record<"candles" | "sweeps" | "book" | "heatmap" | "dayStates", Fed>,
-  today: WibDate
+  today: WibDate,
+  clockOffset: number
 ) {
-  const { flow, apply: feedMarket } = useFedMarketFlow(today)
+  const { flow, apply: feedMarket } = useFedMarketFlow(today, clockOffset)
   const apply = useCallback(
     (message: ViewerDown) => {
       for (const store of [candles, sweeps, book, heatmap, dayStates])
@@ -309,7 +311,8 @@ function MarketLiveDay({
   const shownGaps = cursor === undefined ? liveGaps : gaps
   const { market, apply } = useViewerFeed(
     { candles, sweeps, book, heatmap, dayStates },
-    today
+    today,
+    clockOffset
   )
   return (
     <>

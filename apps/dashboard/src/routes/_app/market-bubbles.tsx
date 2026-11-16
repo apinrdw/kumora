@@ -213,7 +213,7 @@ function MarketBubblesPage() {
       void navigate({ to: "/market-live", search: { code } }),
     [navigate]
   )
-  const { flow, status, ihsg } = useMarketFlow(today)
+  const { flow, status, ihsg } = useMarketFlow(today, clockOffset)
   const phase = useMarketPhase()
   const sectors = useSectors()
   const frame = useBubbleFrame(flow, view, sectors, phase, clockOffset)

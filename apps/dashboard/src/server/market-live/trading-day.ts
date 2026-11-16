@@ -31,6 +31,7 @@ import {
   type TradeNumber,
   type WibDate,
   BUBBLE_MINUTES,
+  FLUSH_PAST_MINUTE,
   MINUTE_MS,
 } from "@workspace/relay"
 import type { WorkerEnv } from "@workspace/server"
@@ -139,13 +140,6 @@ const TAPE_LIMIT = 10_000
 // trades; connection B trails A by seconds, far inside 30,000 more of the
 // feed's trades. Two sets of 40,000 short strings cost a few MB.
 const TIMED_LIMIT = 4 * TAPE_LIMIT
-
-// Decision: the day's state is written to the day store once a minute, 5 s
-// past it, so each flush closes the minute's book chunks and 5 s merge
-// windows; only the relay going offline (`ingestClosed`) flushes at once. A
-// failed flush's payload rides the next, so a candle is never stored without
-// its trades. See apinrdw/kumora#138 and apinrdw/kumora#157.
-const FLUSH_PAST_MINUTE = 5_000
 
 // IHSG's close and change on the strip, from its last `liveprice` frame.
 // Decision: an index's frames carry no previous close and, so far observed,

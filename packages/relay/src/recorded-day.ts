@@ -400,6 +400,14 @@ export type RecordedBubbles = typeof RecordedBubbles.Type
 // longest minute window, 1h.
 export const BUBBLE_MINUTES = 60
 
+// Decision: the day's state is written to the day store once a minute, 5 s
+// past it, so each flush closes the minute's book chunks and 5 s merge
+// windows; only the relay going offline (`ingestClosed`) flushes at once. A
+// failed flush's payload rides the next, so a candle is never stored without
+// its trades. See apinrdw/kumora#138 and apinrdw/kumora#157.
+// The bubbles answer is built at that flush (trading-day.ts `armFlush`).
+export const FLUSH_PAST_MINUTE = 5_000
+
 export const encodeRecordedBubbles = Schema.encodeEffect(
   Schema.fromJsonString(RecordedBubbles)
 )

@@ -88,6 +88,7 @@ export {
 } from "./code-list.ts"
 export {
   BUBBLE_MINUTES,
+  FLUSH_PAST_MINUTE,
   DayStripPath,
   bookAt,
   decodeBookChunk,

@@ -100,9 +100,17 @@ const fetchRecordedSweepBrokers = Effect.fnUntraced(function* (
 })
 
 // The live day's bubbles backfill: every code's newest minutes and day
-// totals; none once the day is sealed (404).
-export const fetchBubbles = Effect.fnUntraced(function* (date: WibDate) {
-  const body = yield* getResource(date, { _tag: "Bubbles" })
+// totals; none once the day is sealed (404). `fresh` asks the Worker past
+// the browser's copy, which it keeps a minute.
+export const fetchBubbles = Effect.fnUntraced(function* (
+  date: WibDate,
+  fresh: boolean
+) {
+  const body = yield* getResource(date, { _tag: "Bubbles" }).pipe(
+    fresh
+      ? Effect.provideService(FetchHttpClient.RequestInit, { cache: "reload" })
+      : (effect) => effect
+  )
   if (Option.isNone(body)) return Option.none()
   return Option.some(yield* decodeRecordedBubbles(body.value))
 })

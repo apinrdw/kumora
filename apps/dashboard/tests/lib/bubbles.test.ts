@@ -17,6 +17,7 @@ import {
   bubbleTone,
   bubblesOf,
   makeMarketFlow,
+  missingFromBackfill,
   sizeFigure,
   windowEnd,
   type BubbleView,
@@ -583,5 +584,43 @@ describe("recompute time", () => {
         expect(median).toBeLessThan(2)
       }),
     10_000
+  )
+})
+
+describe("codes the backfill hasn't carried", () => {
+  it.effect(
+    "are the codes first seen in a delta or the tape, until a backfill carries them",
+    () =>
+      Effect.gen(function* () {
+        const flow = yield* makeMarketFlow()
+        yield* applyBubbles(
+          flow,
+          body([{ code: "BBCA", minutes: [minute(T0, 1_000, 100)] }])
+        )
+        expect(yield* missingFromBackfill(flow)).toBe(false)
+        // BBRI first trades after the backfill loaded: no previous close yet.
+        yield* applyCandles(flow, [
+          candle("BBRI", T0 + MIN, { value: 500, close: 100, frequency: 1 }),
+        ])
+        expect(yield* missingFromBackfill(flow)).toBe(true)
+        yield* applyBubbles(
+          flow,
+          body([
+            { code: "BBCA", minutes: [minute(T0, 1_000, 100)] },
+            {
+              code: "BBRI",
+              previousClose: 98,
+              minutes: [minute(T0 + MIN, 500, 100)],
+            },
+          ])
+        )
+        expect(yield* missingFromBackfill(flow)).toBe(false)
+        const [bubble] = yield* bubblesOf(
+          flow,
+          { ...VIEW, window: "D", top: "all" },
+          T0 + MIN
+        ).pipe(Effect.map((shown) => shown.filter((b) => b.code === "BBRI")))
+        expect(bubble?.dayChange).toBeCloseTo(2.041, 2)
+      })
   )
 })
