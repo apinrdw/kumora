@@ -9,7 +9,6 @@ import {
 } from "@workspace/relay"
 import { clientRuntime } from "@workspace/client"
 import { loadServerFn, runLoader } from "@workspace/server/loader"
-import { cn } from "@workspace/ui/lib/utils"
 import { Effect } from "effect"
 import { IconCamera, IconSearch } from "@tabler/icons-react"
 import { useCallback, useEffect, useMemo, useRef, useState } from "react"
@@ -20,6 +19,7 @@ import { KInput } from "@/components/k/input"
 import { KSelect } from "@/components/k/select"
 import { BubbleCanvas } from "@/components/market-bubbles/bubble-canvas"
 import { MarketStripBar } from "@/components/market-bubbles/market-strip-bar"
+import { Pressed } from "@/components/market-bubbles/pressed"
 import { snapshotMap } from "@/components/market-bubbles/snapshot"
 import { useMarketFlow } from "@/components/market-bubbles/use-market-flow"
 import { useSectors } from "@/components/market-bubbles/use-sectors"
@@ -355,44 +355,6 @@ function Controls({
       >
         Snapshot
       </KButton>
-    </div>
-  )
-}
-
-// A row of buttons, one of them pressed.
-function Pressed<T extends string | number>({
-  label,
-  options,
-  value,
-  onPick,
-}: {
-  label: string
-  options: ReadonlyArray<{ value: T; label: string }>
-  value: T
-  onPick: (value: T) => void
-}) {
-  return (
-    <div
-      role="group"
-      aria-label={label}
-      className="flex overflow-hidden rounded-md border border-border"
-    >
-      {options.map((option) => (
-        <button
-          key={option.value}
-          type="button"
-          aria-pressed={option.value === value}
-          onClick={() => onPick(option.value)}
-          className={cn(
-            "border-border px-2.5 py-1.5 font-semibold not-first:border-l",
-            option.value === value
-              ? "bg-primary text-primary-foreground"
-              : "bg-surface text-secondary-text hover:bg-elevated"
-          )}
-        >
-          {option.label}
-        </button>
-      ))}
     </div>
   )
 }

@@ -19,7 +19,7 @@ import {
   Stream,
   SubscriptionRef,
 } from "effect"
-import { useEffect, useState } from "react"
+import { useCallback, useEffect, useRef, useState } from "react"
 
 import {
   applyConditions,
@@ -82,6 +82,13 @@ const loadBackfill = (flow: MarketFlow, today: WibDate) =>
     Effect.retry(BACKFILL_RETRY)
   )
 
+// A viewer message's tape and, in a delta, its candles into `flow`.
+const feedFlow = (flow: MarketFlow, message: ViewerDown) =>
+  Effect.andThen(
+    applyTrades(flow, message.tape),
+    message._tag === "Delta" ? applyCandles(flow, message.candles) : Effect.void
+  )
+
 // The live day's market flow into `flow`: the viewer socket's deltas and
 // tape, and the backfill after each snapshot, a reconnect's included;
 // applyBubbles merges it without counting a minute twice.
@@ -102,9 +109,8 @@ const followMarketFlow = Effect.fnUntraced(
       Effect.gen(function* () {
         yield* applyConditions(message)
         yield* noteIhsg(message, setIhsg)
-        yield* applyTrades(flow, message.tape)
-        if (message._tag === "Delta")
-          return yield* applyCandles(flow, message.candles)
+        yield* feedFlow(flow, message)
+        if (message._tag === "Delta") return
         yield* Effect.sync(() => setStatus("live"))
         yield* Effect.forkChild(loadBackfill(flow, today))
       })
@@ -140,4 +146,31 @@ export function useMarketFlow(today: WibDate): {
     }
   }, [flow, today])
   return { flow, status, ihsg }
+}
+
+// The live day's market flow fed by a viewer socket the caller already has:
+// `apply` takes each of its messages, and each snapshot asks the backfill
+// again, the last ask dropped.
+export function useFedMarketFlow(today: WibDate): {
+  readonly flow: MarketFlow
+  readonly apply: (message: ViewerDown) => void
+} {
+  const [flow] = useState(() => Effect.runSync(makeMarketFlow()))
+  const backfill = useRef<Fiber.Fiber<void, unknown> | undefined>(undefined)
+  const drop = useCallback(() => {
+    const last = backfill.current
+    backfill.current = undefined
+    if (last !== undefined) clientRuntime.runFork(Fiber.interrupt(last))
+  }, [])
+  useEffect(() => drop, [drop])
+  const apply = useCallback(
+    (message: ViewerDown) => {
+      Effect.runSync(feedFlow(flow, message))
+      if (message._tag !== "Snapshot") return
+      drop()
+      backfill.current = clientRuntime.runFork(loadBackfill(flow, today))
+    },
+    [flow, today, drop]
+  )
+  return { flow, apply }
 }
