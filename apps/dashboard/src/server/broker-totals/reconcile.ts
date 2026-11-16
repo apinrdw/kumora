@@ -9,16 +9,18 @@ import { Effect } from "effect"
 import { BROKER_TOTALS_VERSION } from "../market-live/broker-totals.ts"
 import { readBuiltDays } from "./db.ts"
 
-// Decision: at most this many pokes a run, newest first, so a build version
-// bump or a backlog re-derives history at about 20 days a day and never
-// bursts D1's writes. See apinrdw/kumora#420.
+// Decision: at most this many accepted pokes a run, newest first, so a
+// build version bump or a backlog re-derives history at about 20 days a
+// day and never bursts D1's writes. A day that answers it won't build (an
+// incomplete day, 204) or whose poke fails takes no slot, so days that
+// never complete cannot starve older ones. See apinrdw/kumora#420.
 const POKES_PER_RUN = 20
 
 export const reconcileBrokerTotals = Effect.fnUntraced(function* <E, R>(
   // The day index's days.
   listed: Effect.Effect<ReadonlyArray<WibDate>, E, R>,
-  // Asks one day's trading day to build.
-  poke: (day: WibDate) => Effect.Effect<void, unknown, R>
+  // Asks one day's trading day to build; whether it will.
+  poke: (day: WibDate) => Effect.Effect<boolean, unknown, R>
 ) {
   const days = yield* listed
   const versions = new Map(
@@ -28,17 +30,29 @@ export const reconcileBrokerTotals = Effect.fnUntraced(function* <E, R>(
   const due = days
     .filter((day) => (versions.get(day) ?? -1) < BROKER_TOTALS_VERSION)
     .sort((a, b) => (a < b ? 1 : -1))
-    .slice(0, POKES_PER_RUN)
-  // A day whose poke failed is listed again tomorrow.
-  for (const day of due)
-    yield* poke(day).pipe(
-      Effect.catchCause((cause) =>
-        Effect.logError("Broker totals not poked", cause).pipe(
-          Effect.annotateLogs({ day })
+  let poked = 0
+  let accepted = 0
+  for (const day of due) {
+    if (accepted === POKES_PER_RUN) break
+    poked++
+    // A day whose poke failed is listed again tomorrow.
+    if (
+      yield* poke(day).pipe(
+        Effect.catchCause((cause) =>
+          Effect.logError("Broker totals not poked", cause).pipe(
+            Effect.annotateLogs({ day }),
+            Effect.as(false)
+          )
         )
       )
     )
+      accepted++
+  }
   yield* Effect.logInfo("Broker totals reconciled").pipe(
-    Effect.annotateLogs({ listedDays: days.length, pokedDays: due.length })
+    Effect.annotateLogs({
+      listedDays: days.length,
+      pokedDays: poked,
+      buildingDays: accepted,
+    })
   )
 })

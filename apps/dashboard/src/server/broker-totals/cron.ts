@@ -34,7 +34,9 @@ const poke = Effect.fnUntraced(function* (day: WibDate) {
       { method: "POST" }
     )
   )
-  if (!response.ok) return yield* new PokeRefused({ status: response.status })
+  if (response.status === 202) return true
+  if (response.status === 204) return false
+  return yield* new PokeRefused({ status: response.status })
 })
 
 export const runReconcileCron = () =>
