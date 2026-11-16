@@ -454,6 +454,19 @@ test.describe.serial("the stock page", () => {
       await expect(bars(page)).toContainText("No data")
     })
 
+    test("Escape hides the Bars tooltip and the next arrow key brings it back", async ({
+      page,
+    }) => {
+      await page.goto(`${DASHBOARD}/stocks/BBCA`)
+      await focusNewest(page, "Oct 2026")
+      await page.keyboard.press("Escape")
+      await expect(barsTooltip(page)).toBeHidden()
+      await expect(bars(page)).toBeFocused()
+      // The arrow steps from the month Escape hid, not from the first.
+      await page.keyboard.press("ArrowLeft")
+      await expect(barsTooltip(page)).toContainText("Sep 2026")
+    })
+
     test("keeps its scroll when the pointer hovers a column at the edge", async ({
       page,
     }) => {
