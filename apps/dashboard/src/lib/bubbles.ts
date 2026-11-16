@@ -354,6 +354,7 @@ const sameCount = (a: Counted, b: Counted) =>
 // Takes `counted`, trade `number`'s earlier copy, out of its second. A second
 // it closed closes at its newest other trade still counted.
 const removeTrade = (flow: MarketFlow, number: number, counted: Counted) => {
+  flow.seen.delete(number)
   const code = flow.codes.get(counted.code)
   const row = code?.seconds.get(counted.second)
   if (code === undefined || row === undefined) return
@@ -371,7 +372,6 @@ const removeTrade = (flow: MarketFlow, number: number, counted: Counted) => {
   row.order = -1
   for (const [other, held] of flow.seen)
     if (
-      other !== number &&
       other > row.order &&
       held.code === counted.code &&
       held.second === counted.second
@@ -396,6 +396,8 @@ const addTrade = (flow: MarketFlow, number: number, counted: Counted) => {
   }
 }
 
+// A copy of a trade: one off the regular board takes out what an earlier
+// copy of its number counted, and counts nothing.
 const countTrade = (flow: MarketFlow, trade: RunningTrade) => {
   const number = Number(trade.tradeNumber)
   const time = DateTime.toEpochMillis(trade.time)
@@ -406,11 +408,13 @@ const countTrade = (flow: MarketFlow, trade: RunningTrade) => {
     lots: trade.lots,
     side: trade.side,
   }
+  const regular = trade.board === "RG"
   const held = flow.seen.get(number)
   if (held !== undefined) {
-    if (sameCount(held, counted)) return
+    if (regular && sameCount(held, counted)) return
     removeTrade(flow, number, held)
   }
+  if (!regular) return
   if (flow.lastTrade === undefined || time > flow.lastTrade)
     flow.lastTrade = time
   addTrade(flow, number, counted)
@@ -418,14 +422,15 @@ const countTrade = (flow: MarketFlow, trade: RunningTrade) => {
 
 // The tape's regular-board trades into their seconds, each trade once: a
 // repeated trade number whose copy differs, as when Stockbit's copy settles
-// the side or time of Ajaib's, replaces the first.
+// the side, time or board of Ajaib's, replaces the first, before the board
+// is filtered.
 export const applyTrades = (
   flow: MarketFlow,
   trades: ReadonlyArray<RunningTrade>
 ) =>
   Effect.sync(() => {
     for (const trade of trades)
-      if (trade.board === "RG" && !isIndex(trade.code)) countTrade(flow, trade)
+      if (!isIndex(trade.code)) countTrade(flow, trade)
     // Insertion order is about time order: drop from the front.
     const newest = flow.lastTrade ?? 0
     for (const [number, { second }] of flow.seen) {
