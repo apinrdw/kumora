@@ -308,11 +308,11 @@ const seriesMove = (
 const moveText = (move: Move) =>
   Effect.map(percent(move.was), (was) => `${move.direction} from ${was}`)
 
-// Which month the changes are from, or why there are none.
+// Why a month shows no changes, when there is no month before to compare.
 const changeNote = Effect.fnUntraced(function* (change: MonthChange) {
   switch (change._tag) {
     case "From":
-      return `Changes are from ${yield* monthLabel(change.month)}.`
+      return undefined
     case "NoData":
       return `${yield* monthLabel(change.month)} has no data, so no change is shown.`
     case "First":
