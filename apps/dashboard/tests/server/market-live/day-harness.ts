@@ -347,6 +347,8 @@ export const tradingDay = Effect.fnUntraced(function* (
     recordedSweeps,
     alarm: day.alarm.pipe(Effect.provide(env)),
     alarms,
+    // The reconcile cron's poke: whether the day will build.
+    reconcile: day.brokerTotals.reconcile,
     // The object evicted: its timers stop, so the clock can move days on.
     evicted: Scope.close(scope, Exit.void),
   }

@@ -543,31 +543,35 @@ export const makeBrokerCodes = Effect.fnUntraced(function* (options: {
   // Decision: a batch's fields land only for the trades the tape lacks as
   // it is written, in the codes' transaction: one statement over the rows,
   // checked against one range read of the tape's numbers the batch spans.
-  // A trade already in walk_trades keeps its first row.
+  // A trade already in walk_trades keeps its first row. Whether it filled
+  // any trade's fields.
   const writeFields = (fields: Merged["fields"]) => {
-    if (fields.length === 0) return
+    if (fields.length === 0) return false
     let low = Number.MAX_SAFE_INTEGER
     let high = 0
     for (const [number] of fields) {
       low = Math.min(low, number)
       high = Math.max(high, number)
     }
-    sql.exec(
+    const filled = sql.exec(
       `INSERT OR IGNORE INTO walk_trades (number, code, price, lots, board)
       SELECT row.value ->> 0, row.value ->> 1, row.value ->> 2,
         row.value ->> 3, row.value ->> 4
       FROM json_each(?) AS row
       WHERE row.value ->> 0 NOT IN
-        (SELECT number FROM trades WHERE number BETWEEN ? AND ?)`,
+        (SELECT number FROM trades WHERE number BETWEEN ? AND ?)
+      RETURNING number`,
       JSON.stringify(fields),
       low,
       high
     )
+    return filled.length > 0
   }
 
-  // A batch's writes, to run inside a transaction.
-  const writesOf = (merged: Merged) => () => {
-    writeFields(merged.fields)
+  // A batch's writes, to run inside a transaction; `filled` runs when they
+  // filled a trade's fields.
+  const writesOf = (merged: Merged, filled: () => void) => () => {
+    if (writeFields(merged.fields)) filled()
     for (const [chunk, codes] of merged.chunks)
       sql.exec(
         "INSERT OR REPLACE INTO broker_code_chunks VALUES (?, ?)",
@@ -617,7 +621,10 @@ export const makeBrokerCodes = Effect.fnUntraced(function* (options: {
     alongside: Alongside
   ) {
     const merged = yield* merge(batch)
-    const writeCodes = writesOf(merged)
+    let filled = false
+    const writeCodes = writesOf(merged, () => {
+      filled = true
+    })
     if (merged.changed.length === 0)
       yield* Effect.sync(() => sql.transaction(writeCodes))
     else
@@ -627,6 +634,9 @@ export const makeBrokerCodes = Effect.fnUntraced(function* (options: {
         writeCodes
       )
     keptCodesComplete = undefined
+    // Whether the batch corrected the day: changed a trade's kept codes or
+    // filled its fields.
+    return merged.changed.length > 0 || filled
   })
 
   // One trade's record, its chunk read once into `chunks`; none when the day
@@ -874,16 +884,16 @@ export const makeBrokerCodes = Effect.fnUntraced(function* (options: {
 
   // A POSTed batch: 200 once it is written with what `alongside` writes for
   // it and `written` has run, else as `checkedBatch` refuses it. `written`
-  // runs after every accepted batch, one that changed no codes included.
+  // runs after every accepted batch, one that changed no codes included, and
+  // hears whether the batch corrected the day.
   const post = Effect.fnUntraced(function* (
     text: string,
     alongside: Alongside,
-    written: Effect.Effect<void>
+    written: (corrected: boolean) => Effect.Effect<void>
   ) {
     const batch = yield* checkedBatch(text, options.date)
     if (batch instanceof Response) return batch
-    yield* write(batch, alongside)
-    yield* written
+    yield* written(yield* write(batch, alongside))
     return yield* noStoreAnswer(200)
   })
 
