@@ -156,6 +156,7 @@ test.describe("on a phone", () => {
       "Watchlist",
       "Order book",
       "Tape",
+      "Bubbles",
     ])
     expect((await tabs.boundingBox())!.y).toBeGreaterThan(box2.y + box2.height)
     const panels = {
@@ -163,6 +164,7 @@ test.describe("on a phone", () => {
       Watchlist: page.getByRole("region", { name: "Watchlist" }),
       "Order book": page.getByRole("region", { name: "Order book" }),
       Tape: page.getByRole("region", { name: "Running trades" }),
+      Bubbles: page.getByRole("region", { name: "Bubbles", exact: true }),
     }
     const shows = async (name: keyof typeof panels) => {
       await expect(tabs.getByRole("tab", { name })).toHaveAttribute(
@@ -174,10 +176,25 @@ test.describe("on a phone", () => {
         else await expect(panel).toBeHidden()
     }
     await shows("Sweeps")
-    for (const name of ["Watchlist", "Order book", "Tape"] as const) {
+    for (const name of [
+      "Watchlist",
+      "Order book",
+      "Tape",
+      "Bubbles",
+    ] as const) {
       await tabs.getByRole("tab", { name }).click()
       await shows(name)
     }
+    // The bubble panel stays mounted behind another tab.
+    await tabs.getByRole("tab", { name: "Tape" }).click()
+    await shows("Tape")
+    await expect(
+      page.getByRole("region", {
+        name: "Bubbles",
+        exact: true,
+        includeHidden: true,
+      })
+    ).toHaveCount(1)
     // The tab is in the URL, so a shared link opens on it.
     await expect(page).toHaveURL(/[?&]panel=tape(&|$)/)
 
