@@ -4,6 +4,7 @@ import { Effect } from "effect"
 import {
   type HoldingChart,
   holdingChart,
+  monthChange,
   type SeriesKey,
 } from "@/lib/holding-composition"
 import type { SeriesMonth } from "@/server/holdings/stock-page"
@@ -145,6 +146,73 @@ describe("the Holding composition chart", () => {
         new Set([...ALL_BUT_ID, "ID" as const].filter((key) => key !== "IB"))
       )
       expect(ib.axisMax).toBe(0.05)
+    })
+  )
+})
+
+describe("a month's change against the month before it", () => {
+  it.effect("gives each shown series' previous share", () =>
+    Effect.gen(function* () {
+      const chart = yield* holdingChart(BBCA, "local", new Set())
+      const change = yield* monthChange(chart, "2026-10", ["IS", "IB"])
+      // September's local IS: 2,443,936,090 of 16,318,669,340; IB:
+      // 437,363,600.
+      expect(change._tag).toBe("From")
+      if (change._tag !== "From") return
+      expect(change.month).toBe("2026-09")
+      expect([...change.was.keys()]).toEqual(["IS", "IB"])
+      expect(change.was.get("IS")).toBeCloseTo(0.1498, 4)
+      expect(change.was.get("IB")).toBeCloseTo(0.0268, 4)
+    })
+  )
+
+  it.effect("names the month before when it is a gap", () =>
+    Effect.gen(function* () {
+      // July holds September's shares, before August's gap.
+      const chart = yield* holdingChart(
+        [{ month: "2026-07", holdings: BBCA[1]?.holdings }, ...BBCA],
+        "local",
+        new Set()
+      )
+      expect(yield* monthChange(chart, "2026-09", ["IS"])).toEqual({
+        _tag: "NoData",
+        month: "2026-08",
+      })
+    })
+  )
+
+  it.effect("is the first month when no month before it has data", () =>
+    Effect.gen(function* () {
+      const chart = yield* holdingChart(BBCA, "local", new Set())
+      // August, a gap, is the series' only month before September.
+      expect(yield* monthChange(chart, "2026-09", ["IS"])).toEqual({
+        _tag: "First",
+      })
+    })
+  )
+
+  it.effect("leaves out a share that prints the same as the month before", () =>
+    Effect.gen(function* () {
+      const held = BBCA[2]?.holdings
+      if (held === undefined) return
+      // November is October with 1 more local individual share: ID prints
+      // 69.97% of local both months, and IS 13.44%.
+      const chart = yield* holdingChart(
+        [
+          ...BBCA,
+          {
+            month: "2026-11",
+            holdings: {
+              ...held,
+              local: { ...held.local, ID: held.local.ID + 1 },
+            },
+          },
+        ],
+        "local",
+        new Set()
+      )
+      const change = yield* monthChange(chart, "2026-11", ["ID", "IS"])
+      expect(change).toEqual({ _tag: "From", month: "2026-10", was: new Map() })
     })
   )
 })

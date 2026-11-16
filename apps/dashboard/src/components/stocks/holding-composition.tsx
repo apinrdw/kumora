@@ -15,6 +15,7 @@ import {
   type HoldingChart,
   holdingChart,
   latestOriginSplit,
+  monthChange,
   type SeriesKey,
 } from "@/lib/holding-composition"
 import { monthLabel, percent, TYPE_COLOR } from "@/lib/stock-page-display"
@@ -377,33 +378,67 @@ function Table({ chart, shown }: { chart: HoldingChart; shown: Shown }) {
           </tr>
         </thead>
         <tbody>
-          {[...chart.columns].reverse().map(({ month, shares }) => (
-            <tr key={month} className="border-b border-border">
-              <th
-                scope="row"
-                className="num px-2 py-1.5 text-left font-normal whitespace-nowrap"
-              >
-                {Effect.runSync(monthLabel(month))}
-              </th>
-              {shares === undefined ? (
-                <td
-                  colSpan={shown.length}
-                  className="px-2 py-1.5 text-muted-foreground italic"
+          {[...chart.columns].reverse().map(({ month, shares }) => {
+            const change = Effect.runSync(
+              monthChange(
+                chart,
+                month,
+                shown.map(({ key }) => key)
+              )
+            )
+            return (
+              <tr key={month} className="border-b border-border">
+                <th
+                  scope="row"
+                  className="num px-2 py-1.5 text-left font-normal whitespace-nowrap"
                 >
-                  {NO_DATA}
-                </td>
-              ) : (
-                shown.map((each) => (
-                  <td key={each.key} className="num px-2 py-1.5 text-right">
-                    {Effect.runSync(percent(shares[each.index] ?? 0))}
+                  {Effect.runSync(monthLabel(month))}
+                </th>
+                {shares === undefined ? (
+                  <td
+                    colSpan={shown.length}
+                    className="px-2 py-1.5 text-muted-foreground italic"
+                  >
+                    {NO_DATA}
                   </td>
-                ))
-              )}
-            </tr>
-          ))}
+                ) : (
+                  shown.map((each) => (
+                    <td key={each.key} className="num px-2 py-1.5 text-right">
+                      <ShareChange
+                        now={shares[each.index] ?? 0}
+                        was={
+                          change._tag === "From"
+                            ? change.was.get(each.key)
+                            : undefined
+                        }
+                      />
+                    </td>
+                  ))
+                )}
+              </tr>
+            )
+          })}
         </tbody>
       </table>
     </div>
+  )
+}
+
+// A share, with an arrow and color when it moved from `was`.
+function ShareChange({ now, was }: { now: number; was: number | undefined }) {
+  const shown = Effect.runSync(percent(now))
+  if (was === undefined) return shown
+  const up = now > was
+  return (
+    <span className={up ? "text-up" : "text-down"}>
+      <span aria-hidden className="mr-1 text-[10px]">
+        {up ? "▲" : "▼"}
+      </span>
+      {shown}
+      <span className="sr-only">
+        , {up ? "up" : "down"} from {Effect.runSync(percent(was))}
+      </span>
+    </span>
   )
 }
 
