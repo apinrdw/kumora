@@ -17,8 +17,7 @@ import * as Redacted from "effect/Redacted"
 
 import { SENDER, SENDING_SUBDOMAIN } from "./src/server/auth/sender.ts"
 import type { RunParams } from "./src/server/archive/run.ts"
-import { KSEI_CRON, KSEI_PARSE_CRON } from "./src/server/ksei/schedule.ts"
-import { ARCHIVE_CRON, PARSE_CRON } from "./src/server/shareholding/schedule.ts"
+import { stageCrons } from "./src/server/stage-crons.ts"
 
 // scripts/auth-schema.ts replays the same directory for the drift check and
 // the handler test seam. apps/e2e/reset-test-stage.ts reads this resource's
@@ -131,33 +130,11 @@ export const Website = Cloudflare.Website.Vite(
             ).pipe(Config.withDefault(Redacted.make("0"))),
           }
         : {}
-    // Decision: the archive cron is set by stage, on Production only, like
-    // Google sign-in: Alchemy's dev runtime fires a Worker's crons, so an
-    // ungated cron would make `pnpm dev`, and every Preview, call IDX. Other
-    // stages start a run with Run now only. See apinrdw/kumora#308.
-    const crons: { crons?: Array<string> } =
-      (yield* stageKind(stage)) === "production"
-        ? {
-            crons: [
-              ARCHIVE_CRON,
-              // Decision: the KSEI archive cron is gated the same way, so only
-              // Production calls ksei.co.id on a schedule; runCron
-              // (src/server/crons.ts) tells the two crons apart by expression.
-              // See apinrdw/kumora#326.
-              KSEI_CRON,
-              // Decision: the KSEI parse cron too, so only Production's
-              // HoldingsDb fills on a schedule, from the only bucket that
-              // holds reports. See apinrdw/kumora#359.
-              KSEI_PARSE_CRON,
-              // Decision: the shareholding parse cron too, for the KSEI
-              // parse cron's reason. See apinrdw/kumora#397.
-              PARSE_CRON,
-            ],
-          }
-        : {}
+    // The stage's crons and their Decisions: src/server/stage-crons.ts.
+    const crons = stageCrons((yield* stageKind(stage)) === "production")
     return {
       ...(yield* websiteProps("dashboard", stage)),
-      ...crons,
+      crons,
       rootDir: import.meta.dirname,
       // Market Live's sockets ahead of TanStack Start, and the Durable Object
       // classes (spec apinrdw/kumora#138, "The custom Worker entry and the gate").
