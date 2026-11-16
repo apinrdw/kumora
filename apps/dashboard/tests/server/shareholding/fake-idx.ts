@@ -115,9 +115,9 @@ export const classificationIdx = () =>
 // unsplit layout with blank cells, Apr 2026's split layout with blank cells,
 // TRUE's code a boolean cell and empty styled cells past its header's total
 // column, and Oct 2026's split layout writing no holding as 0.
-// Decision: Nov 2025's holds only AADI and TRUE, neither of which
-// stocks.spec.ts opens, so shareholding-admin.spec.ts's Parse now can parse
-// it into the Test stage's HoldingsDb beside that spec.
+// Decision: Nov 2025's holds only AADI, which stocks.spec.ts seeds with the
+// same rows, and TRUE, which it never opens, so shareholding-admin.spec.ts's
+// Parse now can parse it into the Test stage's HoldingsDb beside that spec.
 const INVESTOR_TYPE_FIXTURES = {
   "2025-11-28": "peng-11-00004-tipe.xlsx",
   "2026-04-30": "peng-04-00009-tipe.xlsx",
