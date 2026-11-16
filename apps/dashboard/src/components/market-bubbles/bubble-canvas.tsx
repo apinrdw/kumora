@@ -397,9 +397,13 @@ export function BubbleCanvas({
       for (const body of list) move(body)
       collide(list)
       collide(list)
+      // The held bubble stays under the pointer, past the canvas's edge too.
+      const held = dragging()?.code
       for (const body of list) {
-        body.x = Math.min(Math.max(body.x, body.r), width - body.r)
-        body.y = Math.min(Math.max(body.y, body.r), height - body.r)
+        if (body.code !== held) {
+          body.x = Math.min(Math.max(body.x, body.r), width - body.r)
+          body.y = Math.min(Math.max(body.y, body.r), height - body.r)
+        }
         if (body.leaving && body.r < 0.5) scene.current.bodies.delete(body.code)
       }
     }
