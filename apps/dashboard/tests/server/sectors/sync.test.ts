@@ -181,6 +181,28 @@ describe("the sector run", () => {
     }
   )
 
+  it.effect(
+    "skips a profile whose code isn't a stock code, and replaces the table with the rest",
+    () => {
+      const { idx, db, layer } = setup()
+      return Effect.gen(function* () {
+        idx.profiles = [
+          profile("AADI"),
+          profile("bad code"),
+          profile("BBCA", "Financials"),
+        ]
+        assert.deepStrictEqual(yield* syncSectors(today), {
+          _tag: "Replaced",
+          rows: 2,
+        })
+        assert.deepStrictEqual(
+          rows(db).map((row) => row.code),
+          ["AADI", "BBCA"]
+        )
+      }).pipe(Effect.provide(layer))
+    }
+  )
+
   // At the most profiles a run accepts; IDX listed 944 on 2026-11-16.
   it.effect("fills an empty table from the first run", () => {
     const { idx, db, layer } = setup()

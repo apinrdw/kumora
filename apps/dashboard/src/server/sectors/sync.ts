@@ -94,17 +94,16 @@ const rowsOf = Effect.fnUntraced(function* (
     return yield* new NonRetryable({
       message: `IDX lists ${data.length.toLocaleString("en-US")} company profiles, more than the ${MAX_PROFILES.toLocaleString("en-US")} the sector table holds`,
     })
-  if (data.length < stored * MIN_KEPT_SHARE)
-    return {
-      _tag: "Kept",
-      reason: `IDX lists ${data.length} company profiles, under 90 % of the ${stored} stored`,
-    } as const
   const rows = new Array<readonly [StockCode, Sector, string, string, string]>()
+  const skipped = new Array<string>()
   for (const profile of data) {
     const code = profile.KodeEmiten.trim()
     const sector = profile.Sektor.trim()
-    if (!isStockCode(code))
-      return { _tag: "Kept", reason: `"${code}" is not a stock code` } as const
+    // A code the table can't key leaves its profile out, not the run.
+    if (!isStockCode(code)) {
+      skipped.push(code)
+      continue
+    }
     if (!isSector(sector))
       return {
         _tag: "Kept",
@@ -118,6 +117,15 @@ const rowsOf = Effect.fnUntraced(function* (
       profile.SubIndustri.trim(),
     ])
   }
+  if (skipped.length > 0)
+    yield* Effect.logWarning("Sector run skipped profiles with no stock code", {
+      codes: skipped,
+    })
+  if (rows.length < stored * MIN_KEPT_SHARE)
+    return {
+      _tag: "Kept",
+      reason: `IDX lists ${rows.length} company profiles with a stock code, under 90 % of the ${stored} stored`,
+    } as const
   return { _tag: "Rows", rows } as const
 })
 
