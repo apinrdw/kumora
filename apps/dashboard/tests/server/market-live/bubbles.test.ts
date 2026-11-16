@@ -6,7 +6,9 @@ import { assert, describe, it } from "@effect/vitest"
 import {
   BUBBLE_MINUTES,
   StockCode,
+  ViewerProtocolVersion,
   decodeRecordedBubbles,
+  encodeViewerUp,
 } from "@workspace/relay"
 import { DateTime, Effect } from "effect"
 import { TestClock } from "effect/testing"
@@ -16,6 +18,7 @@ import {
   applyMessage,
   bubblesOf,
   makeMarketFlow,
+  missingFromBackfill,
   type BubbleWindow,
 } from "@/lib/bubbles"
 import { makeBubbleBook } from "@/server/market-live/bubble-book"
@@ -92,10 +95,11 @@ const bubbles = Effect.fnUntraced(function* (day: Day) {
   }
 })
 
-// A Market Bubbles page on `day`: an IHSG viewer whose messages feed a
-// market flow, which takes the backfill when asked.
-const bubblesPage = Effect.fnUntraced(function* (day: Day) {
-  const socket = yield* day.viewer("IHSG")
+// A Market Bubbles page on `day`: a viewer of `selected` (IHSG, as Market
+// Bubbles selects) whose messages feed a market flow, which takes the
+// backfill when asked.
+const bubblesPage = Effect.fnUntraced(function* (day: Day, selected = "IHSG") {
+  const socket = yield* day.viewer(selected)
   const flow = yield* makeMarketFlow()
   let fed = 0
   const settle = Effect.gen(function* () {
@@ -107,7 +111,39 @@ const bubblesPage = Effect.fnUntraced(function* (day: Day) {
   const backfill = Effect.gen(function* () {
     yield* applyBubbles(flow, (yield* bubbles(day)).answer!)
   })
-  return { flow, settle, backfill }
+  // Market Live's code switch: a Select on the same socket.
+  const select = Effect.fnUntraced(function* (code: string) {
+    yield* day.day.viewerMessage(
+      socket,
+      yield* encodeViewerUp({
+        _tag: "Select",
+        protocolVersion: ViewerProtocolVersion,
+        selected: StockCode.make(code),
+        watchlist: [],
+      })
+    )
+  })
+  // The page's backfill follow-up: at each of `times`, on the Worker's
+  // clock, it asks again while the flow waits for a backfill.
+  const follow = Effect.fnUntraced(function* (times: ReadonlyArray<string>) {
+    for (const time of times) {
+      yield* at(time)
+      yield* settle
+      if (yield* missingFromBackfill(flow)) yield* backfill
+    }
+    yield* settle
+  })
+  // A code's day value the page shows, and the one the Worker's backfill
+  // carries once everything settled.
+  const dayValue = Effect.fnUntraced(function* (code: string, end: number) {
+    const shown = yield* bubblesOf(
+      flow,
+      { size: "value", colour: "delta", window: "D", top: "all" },
+      end
+    )
+    return shown.find((bubble) => bubble.code === code)?.value
+  })
+  return { flow, settle, backfill, select, follow, dayValue }
 })
 
 const codeOf = (
@@ -455,6 +491,143 @@ describe("bubbles", () => {
         yield* page.settle
         yield* page.backfill
         yield* book
+      })
+  )
+
+  it.effect(
+    "a page opened 2 s after a trade counts it once a build settled past its snapshot",
+    () =>
+      Effect.gen(function* () {
+        yield* at("09:10:01")
+        const day = yield* tradingDay()
+        yield* day.frames([stockPrice("UNTR", 23300, 23000)])
+        yield* day.trades([trade(40001, "09:10:01", "UNTR", 23300, 2, "buy")])
+        yield* at("09:10:03")
+        const page = yield* bubblesPage(day)
+        yield* page.settle
+        yield* page.backfill
+        // A second past the 09:10:05 build, which the trade's merge window
+        // missed.
+        yield* at("09:10:06")
+        yield* page.settle
+        yield* page.backfill
+        yield* page.follow(["09:11:06", "09:12:06"])
+        assert.strictEqual(
+          yield* page.dayValue("UNTR", minute("09:12")),
+          4_660_000
+        )
+        assert.isFalse(yield* missingFromBackfill(page.flow))
+      })
+  )
+
+  it.effect(
+    "Market Live's code switch keeps a trade its socket carried until a build settled past the switch",
+    () =>
+      Effect.gen(function* () {
+        yield* at("09:09:50")
+        const day = yield* tradingDay()
+        yield* day.frames([stockPrice("UNTR", 23300, 23000)])
+        const page = yield* bubblesPage(day, "BBCA")
+        yield* page.settle
+        yield* page.backfill
+        yield* at("09:10:01")
+        yield* day.trades([trade(40001, "09:10:01", "UNTR", 23300, 2, "buy")])
+        yield* at("09:10:02")
+        yield* page.settle
+        assert.strictEqual(
+          yield* page.dayValue("UNTR", minute("09:10")),
+          4_660_000
+        )
+        yield* at("09:10:03")
+        yield* page.select("TLKM")
+        yield* page.settle
+        yield* page.backfill
+        assert.strictEqual(
+          yield* page.dayValue("UNTR", minute("09:10")),
+          4_660_000
+        )
+        yield* at("09:10:06")
+        yield* page.settle
+        yield* page.backfill
+        assert.strictEqual(
+          yield* page.dayValue("UNTR", minute("09:10")),
+          4_660_000
+        )
+        yield* page.follow(["09:11:06", "09:12:06"])
+        assert.strictEqual(
+          yield* page.dayValue("UNTR", minute("09:12")),
+          4_660_000
+        )
+        assert.isFalse(yield* missingFromBackfill(page.flow))
+      })
+  )
+
+  it.effect(
+    "a page whose clock runs 2 s fast, asking before the build, asks again until a build settled past its snapshot",
+    () =>
+      Effect.gen(function* () {
+        yield* at("09:09:50")
+        const day = yield* tradingDay()
+        yield* day.frames([
+          stockPrice("BBCA", 8000, 7900),
+          stockPrice("UNTR", 23300, 23000),
+        ])
+        yield* day.trades([trade(40000, "09:09:50", "BBCA", 8000, 1, "buy")])
+        yield* at("09:10:20")
+        yield* day.trades([trade(40001, "09:10:20", "UNTR", 23300, 2, "buy")])
+        yield* at("09:10:30")
+        const page = yield* bubblesPage(day)
+        yield* page.settle
+        yield* page.backfill
+        // 09:11:06 on the browser's clock is 09:11:04 on the Worker's: the
+        // 09:10:05 build is still the newest.
+        yield* at("09:11:04")
+        yield* page.settle
+        yield* page.backfill
+        yield* page.follow(["09:12:04", "09:13:04"])
+        assert.strictEqual(
+          yield* page.dayValue("UNTR", minute("09:13")),
+          4_660_000
+        )
+        assert.isFalse(yield* missingFromBackfill(page.flow))
+      })
+  )
+
+  it.effect(
+    "a recount a late trade asks for 3 s before a build waits for a build settled past it",
+    () =>
+      Effect.gen(function* () {
+        yield* at("10:29:00")
+        const day = yield* tradingDay()
+        yield* day.frames([
+          stockPrice("BBCA", 8000, 7900),
+          stockPrice("UNTR", 23300, 23000),
+        ])
+        yield* day.trades([
+          trade(40001, "09:05:00", "UNTR", 23300, 2, "buy"),
+          trade(40002, "10:29:00", "BBCA", 8000, 1, "buy"),
+        ])
+        yield* at("10:29:30")
+        const page = yield* bubblesPage(day)
+        yield* page.settle
+        yield* page.backfill
+        yield* page.follow(["10:30:06"])
+        assert.isFalse(yield* missingFromBackfill(page.flow))
+        // A late trade in 09:05, older than the hour the page keeps.
+        yield* at("10:31:02")
+        yield* day.trades([trade(40000, "09:05:30", "UNTR", 23200, 1, "sell")])
+        yield* at("10:31:03")
+        yield* page.settle
+        assert.isTrue(yield* missingFromBackfill(page.flow))
+        yield* at("10:31:06")
+        yield* page.settle
+        yield* page.backfill
+        yield* page.follow(["10:32:06", "10:33:06"])
+        assert.strictEqual(
+          yield* page.dayValue("UNTR", minute("10:33")),
+          4_660_000 + 2_320_000
+        )
+        assert.isFalse(yield* missingFromBackfill(page.flow))
       })
   )
 
