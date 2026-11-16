@@ -76,10 +76,10 @@ export interface StockSearch {
   readonly to?: WibDate | undefined
   readonly measure?: typeof MeasureParam.Type | undefined
   readonly investor?: typeof InvestorParam.Type | undefined
-  // The chips, in order, comma-separated: `buy` and `sell` are the groups,
-  // a broker code a single broker. Empty for no chips; absent for both
-  // groups.
-  readonly brokers?: string | undefined
+  // The chips, in order: `buy` and `sell` are the groups, a broker code a
+  // single broker. Empty for no chips; absent for both groups. The URL
+  // holds them comma-separated (lib/search-url.ts).
+  readonly brokers?: ReadonlyArray<Chip> | undefined
   // The drag selection's first and last days, both or neither. The pinned
   // hover day is never in the URL.
   readonly selFrom?: WibDate | undefined
@@ -110,12 +110,9 @@ const datePair = (rawFrom: unknown, rawTo: unknown) =>
 
 // The `brokers` param that names `chips`.
 export const chipsSearch = (chips: ReadonlyArray<Chip>) =>
-  Effect.sync((): StockSearch => {
-    const brokers = chips.join(",")
-    return {
-      brokers: brokers === DEFAULT_CHIPS.join(",") ? undefined : brokers,
-    }
-  })
+  Effect.sync((): StockSearch => ({
+    brokers: chips.join(",") === DEFAULT_CHIPS.join(",") ? undefined : chips,
+  }))
 
 // The chips a `brokers` list names, in order, unknown entries and repeats
 // dropped.
@@ -130,11 +127,11 @@ const chipsIn = (brokers: string) =>
     return chips
   })
 
-// A raw `brokers` as the list of the chips it names; dropped whole when
-// none of a non-empty list parses.
+// A raw `brokers`, as the URL holds it comma-separated, as the chips it
+// names; dropped whole when none of a non-empty list parses.
 const parseChips = Effect.fnUntraced(function* (raw: unknown) {
   if (typeof raw !== "string") return undefined
-  if (raw === "") return ""
+  if (raw === "") return []
   const chips = yield* chipsIn(raw)
   return chips.length === 0 ? undefined : (yield* chipsSearch(chips)).brokers
 })
@@ -259,9 +256,7 @@ export const lensSearch = ({ measure, investor }: Lens) =>
 
 // The chips the tab plots, in order.
 export const chipsOf = (search: StockSearch) =>
-  search.brokers === undefined
-    ? Effect.succeed(DEFAULT_CHIPS)
-    : chipsIn(search.brokers)
+  Effect.succeed(search.brokers ?? DEFAULT_CHIPS)
 
 // What the Stock picker carries to the next stock: the tab, the range, the
 // measure, the filter and the group chips. Single brokers, the selection
