@@ -151,20 +151,26 @@ const resumeFrom = Effect.fnUntraced(function* (status: BrokerCodesStatus) {
   return yield* highestHeld(status)
 })
 
-// Stockbit's walk alone: the highest trade held, from a status that lists
-// from trade 1. While n is unknown, every trade up to it is held or missing.
-// Once n is known, a list that ends at n names the missing tail; a list cut
-// short at MISSING_RANGES may end before it, so the walk resumes after the
-// last range listed, a trade held, and walks the rest again.
+// Stockbit's walk alone: the trade to resume after, from a status that lists
+// from trade 1. While n is unknown it is no further than the walks reached:
+// each trade with codes is one they posted, and a listed range ends below a
+// trade held. A codes-only row counts in both `sources` and `missingCount`,
+// so their sum would pass trades never walked. Once n is known, a list that
+// ends at n names the missing tail; a list cut short at MISSING_RANGES may
+// end before it, so the walk resumes after the last range listed, a trade
+// held, and walks the rest again.
 const highestHeld = Effect.fnUntraced(function* (status: BrokerCodesStatus) {
   let listed = 0n
   for (const [from, to] of status.missing)
     listed += BigInt(to) - BigInt(from) + 1n
   const last = status.missing.at(-1)
+  const withCodes = BigInt(status.sources.ajaib + status.sources.stockbit)
+  const pastLast = last === undefined ? 0n : BigInt(last[1]) + 1n
   let top =
     status.n === null
-      ? BigInt(status.sources.ajaib + status.sources.stockbit) +
-        BigInt(status.missingCount)
+      ? withCodes > pastLast
+        ? withCodes
+        : pastLast
       : BigInt(status.n)
   if (status.n !== null && last !== undefined)
     if (listed < BigInt(status.missingCount)) top = BigInt(last[1]) + 1n

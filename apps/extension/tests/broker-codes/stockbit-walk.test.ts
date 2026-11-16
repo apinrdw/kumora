@@ -961,7 +961,9 @@ describe("Stockbit's gap walk of an older day", () => {
         assert.deepStrictEqual(yield* walk.gaps(DAY), { _tag: "walked" })
         assert.isTrue((yield* production.status(DAY)).complete)
         assert.deepStrictEqual(production.ends(), [{ n: String(N) }])
-        assert.deepStrictEqual(cursors(tape).slice(0, 2), ["149", "1400"])
+        // On from the trades with codes: a trade missing them, as 250 is,
+        // reads as one a codes-only row could be, so 1400 is walked again.
+        assert.deepStrictEqual(cursors(tape).slice(0, 2), ["149", "1399"])
       })
   )
 
