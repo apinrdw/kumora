@@ -1,6 +1,7 @@
 // One value outside React that components read with useSyncExternalStore:
 // the sweep tooltip's place, which a bubble or a broker cell sets, and
-// chart 2's header and hover ladder, which its canvas sets on each hover.
+// the footprint chart's header and hover ladder, which its canvas sets on each
+// hover.
 import { Effect } from "effect"
 
 export interface ListenerStore<T> {

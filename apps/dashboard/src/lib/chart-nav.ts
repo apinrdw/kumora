@@ -1,6 +1,7 @@
 // How Market Live's two charts move together (spec apinrdw/kumora#263,
 // "Chart 2", "Own zoom" and "Pan sync"), apart from Lightweight Charts: the
-// minutes both draw, chart 2's 10-minute window and what counts as a pan.
+// minutes both draw, the footprint chart's 10-minute window and what counts as
+// a pan.
 import type { RelayGap } from "@workspace/relay"
 import { Effect } from "effect"
 

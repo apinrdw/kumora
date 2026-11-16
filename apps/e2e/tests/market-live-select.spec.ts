@@ -74,7 +74,9 @@ test("the chart header's search selects a code, shares above rights", async ({
 
   const search = chart.getByRole("combobox", { name: "Search stock code" })
   await search.fill("wifi")
-  const options = chart.getByRole("option")
+  const options = chart
+    .getByRole("listbox", { name: "Search stock code" })
+    .getByRole("option")
   await expect(options).toHaveCount(2)
   await expect(options.nth(0)).toContainText("WIFI")
   await expect(options.nth(0)).not.toContainText("Right")

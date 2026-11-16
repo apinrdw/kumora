@@ -27,9 +27,9 @@ import { useMergedStale } from "./market-conditions"
 import type { ReplayCursor } from "./replay-cursor"
 import { useChartSettings } from "./use-chart-settings"
 
-// Decision: like chart 1, chart 2 runs Lightweight Charts only in the
-// browser, in its own chunk (live-chart.tsx; spec apinrdw/kumora#138,
-// "Chart").
+// Decision: like the candle chart, the footprint chart runs Lightweight Charts
+// only in the browser, in its own chunk (live-chart.tsx; spec
+// apinrdw/kumora#138, "Chart").
 const FootprintCanvas = lazy(() => import("./footprint-canvas"))
 
 const CHART_HEIGHT = "h-[380px] lg:h-auto lg:min-h-[380px] lg:flex-1"
@@ -74,8 +74,8 @@ const MODE_LABEL: Record<FootprintMode, string> = {
   candles: "Candles",
 }
 
-// Chart 2's own settings: its view mode tabs, the imbalance ratio, and the
-// POC and VWAP toggles, remembered in this browser.
+// The footprint chart's own settings: its view mode tabs, the imbalance ratio,
+// and the POC and VWAP toggles, remembered in this browser.
 function FootprintControls({
   settings,
   change,
@@ -153,11 +153,11 @@ function FootprintControls({
   )
 }
 
-// Chart 2: the selected code's footprint, each minute's lots at each price
-// in the view mode picked, with imbalances, POC and the day's VWAP bands,
-// its Vol / Δ / CVD footer, and a header reading the hovered minute, under
-// chart 1. It draws chart 1's minutes, relay `gaps` included, and moves with
-// it through `pair`.
+// The footprint chart: the selected code's footprint, each minute's lots at
+// each price in the view mode picked, with imbalances, POC and the day's VWAP
+// bands, its Vol / Δ / CVD footer, and a header reading the hovered minute,
+// above the candle chart. It draws the candle chart's minutes, relay `gaps`
+// included, and moves with it through `pair`.
 export function FootprintChart({
   store,
   pair,
@@ -182,7 +182,7 @@ export function FootprintChart({
     >
       <header className="flex flex-col gap-1">
         <div className="flex flex-wrap items-center gap-3">
-          <h2 className="text-[15px] font-bold">Footprint</h2>
+          <h3 className="text-[15px] font-bold">Footprint</h3>
           <FootprintControls settings={settings} change={change} />
         </div>
         <FootprintHeader store={header} />

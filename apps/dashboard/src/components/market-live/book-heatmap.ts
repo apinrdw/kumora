@@ -1,7 +1,7 @@
-// Chart 1's book heatmap (spec apinrdw/kumora#263, "Chart 1"): a series
-// primitive on the candles that shades each 10-second slice's resting lots
-// behind them, bid in the up colour and offer in the down colour. Loaded only
-// with chart-canvas.tsx, in the browser.
+// The candle chart's book heatmap (spec apinrdw/kumora#263, "Chart 1"): a
+// series primitive on the candles that shades each 10-second slice's resting
+// lots behind them, bid in the up colour and offer in the down colour. Loaded
+// only with chart-canvas.tsx, in the browser.
 import { HEAT_SLICE_MS, type HeatSlice, MINUTE_MS } from "@workspace/relay"
 import { DateTime, Effect } from "effect"
 import type {

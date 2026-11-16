@@ -1,19 +1,20 @@
-// How chart 1 and chart 2 move together (spec apinrdw/kumora#263, "Own
-// zoom", "Pan sync" and "Window band"). The page makes one pair per selected
-// code; each chart canvas attaches its chart once drawn, and the page calls
-// `jumpTo` when a sweep is picked, in the log or on chart 1. Both charts draw
-// the same minutes (lib/chart-nav.ts `chartMinutes`), so a logical bar index
-// is the same minute on each.
+// How the candle chart and the footprint chart move together (spec
+// apinrdw/kumora#263, "Own zoom", "Pan sync" and "Window band"). The page makes
+// one pair per selected code; each chart canvas attaches its chart once drawn,
+// and the page calls `jumpTo` when a sweep is picked, in the log or on the
+// candle chart. Both charts draw the same minutes (lib/chart-nav.ts
+// `chartMinutes`), so a logical bar index is the same minute on each.
 //
-// - Chart 2 opens and refits at exactly 10 whole minutes: on every jump and
-//   when its width changes, around its current middle.
+// - The footprint chart opens and refits at exactly 10 whole minutes: on every
+//   jump and when its width changes, around its current middle.
 // - A pan gesture on either chart (a drag, the coast after a touch, a
 //   horizontal wheel) moves the other by the same minutes; a zoom never
 //   propagates, and neither does a range change no gesture made. The pair
 //   holds the two ranges a fixed number of minutes apart through a gesture,
 //   because range events arrive a frame late.
 // - The crosshair follows the pointer's time on the other chart.
-// - Chart 1 shades chart 2's minutes, and a click on it moves chart 2 there.
+// - The candle chart shades the footprint chart's minutes, and a click on it
+//   moves the footprint chart there.
 //
 // The module imports Lightweight Charts' types only, so the page can make a
 // pair on the server.
@@ -32,8 +33,8 @@ import { windowOfLast } from "@/lib/footprint"
 
 import { makeWindowBand } from "./window-band"
 
-// Decision: chart 2 opens on 10 whole minutes, the most whose cells read as
-// text beside the sweep log. See spec apinrdw/kumora#263, "Chart 2".
+// Decision: the footprint chart opens on 10 whole minutes, the most whose cells
+// read as text beside the sweep log. See spec apinrdw/kumora#263, "Chart 2".
 const WINDOW_MINUTES = 10
 
 export interface PairedChart {
@@ -44,19 +45,20 @@ export interface PairedChart {
 }
 
 export interface ChartPair {
-  // Chart 1, which shades chart 2's minutes in `colors`. Returns the detach.
+  // The candle chart, which shades the footprint chart's minutes in `colors`.
+  // Returns the detach.
   readonly attachCandles: (
     side: PairedChart,
     colors: { readonly shade: string; readonly edge: string }
   ) => () => void
-  // Chart 2, with the minutes it draws, ascending (epoch ms).
+  // The footprint chart, with the minutes it draws, ascending (epoch ms).
   readonly attachFootprint: (
     side: PairedChart & { readonly minutes: () => ReadonlyArray<number> }
   ) => () => void
-  // Chart 2 to the 10 minutes around `minute` (a picked sweep's).
+  // The footprint chart to the 10 minutes around `minute` (a picked sweep's).
   readonly jumpTo: (minute: number) => void
-  // Chart 2 to the 10 minutes ending at the last one at or before `minute`:
-  // its opening window, and a recorded day's cursor.
+  // The footprint chart to the 10 minutes ending at the last one at or before
+  // `minute`: its opening window, and a recorded day's cursor.
   readonly showUpTo: (minute: number) => void
 }
 
@@ -79,12 +81,12 @@ export const makeChartPair = () =>
       | undefined
     let band: Effect.Success<ReturnType<typeof makeWindowBand>> | undefined
     // The chart a gesture is panning; none after a fit, so a refit under a
-    // held pointer stays chart 2's own.
+    // held pointer stays the footprint chart's own.
     // Decision: only a pan gesture moves the other chart, not every range
     // change on the chart the pointer last touched (spec apinrdw/kumora#263,
     // "Pan sync"). Lightweight Charts also moves a range, its width kept,
     // with no gesture: a new minute scrolls it on, a redraw shifts it, a
-    // picked sweep centres chart 1. See apinrdw/kumora#279.
+    // picked sweep centres the candle chart. See apinrdw/kumora#279.
     let panning: IChartApi | undefined
     // When the coast after a touch on it is over.
     let coastEnds: number | undefined
@@ -110,7 +112,7 @@ export const makeChartPair = () =>
 
     let pending: Fit | undefined
     let frame = 0
-    // The bar range a fit shows on chart 2, once it has minutes.
+    // The bar range a fit shows on the footprint chart, once it has minutes.
     const rangeOf = (fit: Fit) => {
       if (fit._tag === "Middle")
         return Effect.runSync(windowAround(fit.logical, WINDOW_MINUTES))
@@ -127,8 +129,8 @@ export const makeChartPair = () =>
           : windowOfLast(at + 1, WINDOW_MINUTES)
       )
     }
-    // Fits chart 2 on the next frame, the last fit asked winning. A chart
-    // without a width or minutes keeps the fit until it has them: zooming
+    // Fits the footprint chart on the next frame, the last fit asked winning. A
+    // chart without a width or minutes keeps the fit until it has them: zooming
     // before the chart has a size crushes it to the right edge.
     const fit = (next: Fit) => {
       pending = next
@@ -305,8 +307,9 @@ export const makeChartPair = () =>
         )
         band = shade
         side.series.attachPrimitive(shade)
-        // A click on a minute moves chart 2 there. A click on a drawn object,
-        // a sweep bubble, is the object's: selecting the sweep moves chart 2.
+        // A click on a minute moves the footprint chart there. A click on a
+        // drawn object, a sweep bubble, is the object's: selecting the sweep
+        // moves the footprint chart.
         const click = (parameter: MouseEventParams<Time>) => {
           if (
             parameter.logical !== undefined &&

@@ -1,7 +1,7 @@
 // The book heatmap (spec apinrdw/kumora#263, "The trading-day Durable
 // Object" and "Viewer protocol"): a stock code's order book over the day as
 // 10-second slices of the time-weighted resting lots at each price, bid and
-// offer apart. The page draws them behind chart 1's candles.
+// offer apart. The page draws them behind the candle chart's candles.
 import { Schema } from "effect"
 
 import { StockCode } from "./codes.ts"

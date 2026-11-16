@@ -30,7 +30,7 @@ const footprint: Footprint = {
 const read = (lines: ReadonlyArray<HeaderLine>) =>
   lines.map((line) => line.map((part) => [part.text, part.tone]))
 
-describe("chart 2's header", () => {
+describe("the footprint chart's header", () => {
   it.effect(
     "reads the minute's time, OHLC, lots and fills, Buy, Sell, Δ and CVD, then the VWAP, its bands and the POC",
     () =>

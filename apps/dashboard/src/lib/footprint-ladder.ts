@@ -1,5 +1,5 @@
-// Chart 2's hover ladder (spec apinrdw/kumora#263, "Hover ladder"): the
-// hovered minute's exact figures, readable at any zoom.
+// The footprint chart's hover ladder (spec apinrdw/kumora#263, "Hover ladder"):
+// the hovered minute's exact figures, readable at any zoom.
 import { Effect } from "effect"
 
 import type { FootprintColumn } from "./footprint"

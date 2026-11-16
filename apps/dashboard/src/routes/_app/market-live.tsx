@@ -15,7 +15,6 @@ import { makeChartPair } from "@/components/market-live/chart-pair"
 import { makeDayStateStore } from "@/components/market-live/day-state-store"
 import { DayStrip } from "@/components/market-live/day-strip"
 import { LayoutB } from "@/components/market-live/layout-b"
-import { FootprintChart } from "@/components/market-live/footprint-chart"
 import { LiveChart } from "@/components/market-live/live-chart"
 import { LiveTape } from "@/components/market-live/live-tape"
 import {
@@ -128,18 +127,6 @@ function ConditionsBar({
   )
 }
 
-// Chart 2, or for an index (no `flow`) one muted line in its place.
-function ChartTwo({
-  flow,
-  ...chart
-}: { flow: boolean } & Parameters<typeof FootprintChart>[0]) {
-  return flow ? (
-    <FootprintChart {...chart} />
-  ) : (
-    <p className="text-sm text-muted-foreground">An index has no order flow</p>
-  )
-}
-
 // The selected code's order book: live, or as of the cursor.
 function BookPanel({
   store,
@@ -246,9 +233,11 @@ function MarketLiveDay({
   // A recorded day's sweeps can have broker codes: its log gains the broker
   // columns and the width for them.
   const withBrokers = day !== undefined
-  // Chart 1 and chart 2 move together; each code's charts attach afresh.
+  // The candle chart and the footprint chart move together; each code's charts
+  // attach afresh.
   const [pair] = useState(() => Effect.runSync(makeChartPair()))
-  // A sweep picked in the log or on chart 1 moves chart 2 to its minute.
+  // A sweep picked in the log or on the candle chart moves the footprint chart
+  // to its minute.
   useEffect(
     () =>
       sweeps.subscribe((change) => {
@@ -290,35 +279,26 @@ function MarketLiveDay({
       <h1 className="text-2xl font-bold">Market Live</h1>
       <LayoutB
         charts={
-          <>
-            <LiveChart
-              store={candles}
-              heatmap={flow?.heatmap}
-              sweeps={flow?.sweeps}
-              pair={pair}
-              gaps={shownGaps}
-              dayStates={dayStates}
-              conditions={<ConditionsBar cursor={cursor} closed={closed} />}
-              cursor={cursor}
-              footer={cursor && <TransportBar cursor={cursor} gaps={gaps} />}
-              search={
-                <StockCodePicker
-                  list={codes}
-                  label="Search stock code"
-                  shortcut="Ctrl K"
-                  onPick={select}
-                  className="ml-auto w-full max-w-xs"
-                />
-              }
-            />
-            <ChartTwo
-              flow={flow !== undefined}
-              store={candles}
-              pair={pair}
-              gaps={shownGaps}
-              cursor={cursor}
-            />
-          </>
+          <LiveChart
+            store={candles}
+            heatmap={flow?.heatmap}
+            sweeps={flow?.sweeps}
+            pair={pair}
+            gaps={shownGaps}
+            dayStates={dayStates}
+            conditions={<ConditionsBar cursor={cursor} closed={closed} />}
+            cursor={cursor}
+            transport={cursor && <TransportBar cursor={cursor} gaps={gaps} />}
+            search={
+              <StockCodePicker
+                list={codes}
+                label="Search stock code"
+                shortcut="Ctrl K"
+                onPick={select}
+                className="ml-auto w-full max-w-xs"
+              />
+            }
+          />
         }
         log={
           flow && (

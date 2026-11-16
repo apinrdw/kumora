@@ -122,7 +122,7 @@ describe("the price axis labels", () => {
   )
 })
 
-describe("chart 2's rows", () => {
+describe("the footprint chart's rows", () => {
   it.effect(
     "are capped at 36 px a tick: a quiet range widens around its middle",
     () =>

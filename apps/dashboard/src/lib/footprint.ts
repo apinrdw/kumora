@@ -1,6 +1,7 @@
 // The footprint chart's arithmetic (spec apinrdw/kumora#263, "Chart 2" and
-// "Both charts"), apart from Lightweight Charts: chart 2 (footprint-canvas.tsx)
-// works its bars out with these once per change, so its renderers only draw.
+// "Both charts"), apart from Lightweight Charts: the footprint chart
+// (footprint-canvas.tsx) works its bars out with these once per change, so its
+// renderers only draw.
 import type { Candle, Footprint, FootprintCell } from "@workspace/relay"
 import { DateTime, Effect } from "effect"
 
@@ -119,9 +120,9 @@ export interface FootprintRow {
   readonly totalText: string
 }
 
-// One minute of chart 2: its candle, its footprint rows ascending by price
-// with the largest row's lots and the price with the most (its POC, none
-// without rows), and its footer figures with their texts. `later` marks a
+// One minute of the footprint chart: its candle, its footprint rows ascending
+// by price with the largest row's lots and the price with the most (its POC,
+// none without rows), and its footer figures with their texts. `later` marks a
 // minute after a recorded day's replay cursor, drawn grey.
 export interface FootprintColumn {
   readonly minute: number
@@ -190,10 +191,10 @@ const imbalanceOf = Effect.fnUntraced(function* (
   }
 })
 
-// Chart 2's columns: one per candle, with the footprint of its minute (none
-// for a minute without one, as an index's). Minutes after `shownMinute` are
-// later; CVD still runs over every minute of the day. `imbalance` is the
-// imbalance ratio, 0 for off.
+// The footprint chart's columns: one per candle, with the footprint of its
+// minute (none for a minute without one, as an index's). Minutes after
+// `shownMinute` are later; CVD still runs over every minute of the day.
+// `imbalance` is the imbalance ratio, 0 for off.
 export const footprintColumns = Effect.fnUntraced(function* (
   candles: ReadonlyArray<Candle>,
   footprints: ReadonlyArray<Footprint>,
@@ -284,8 +285,8 @@ export const footprintColumns = Effect.fnUntraced(function* (
   return columns
 })
 
-// Chart 2 in words, for a screen reader: how many footprint minutes there
-// are up to `shownMinute`, and the exact Vol, Δ and CVD of the latest.
+// The footprint chart in words, for a screen reader: how many footprint minutes
+// there are up to `shownMinute`, and the exact Vol, Δ and CVD of the latest.
 export const footprintSummary = Effect.fnUntraced(function* (
   footprints: ReadonlyArray<Footprint>,
   shownMinute: number

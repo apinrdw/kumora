@@ -1,8 +1,8 @@
-// The one tooltip of chart 1's bubbles and the sweep log's broker cells
-// (spec apinrdw/kumora#343, "One tooltip"): the sweep, then every broker of
-// each side with its lots, uncapped, the picked broker marked. A bubble or
-// a cell sets where it shows (`SweepStore.tip`); a press outside it hides
-// it, and so does the replay cursor moving back before its sweep.
+// The one tooltip of the candle chart's bubbles and the sweep log's broker
+// cells (spec apinrdw/kumora#343, "One tooltip"): the sweep, then every broker
+// of each side with its lots, uncapped, the picked broker marked. A bubble or a
+// cell sets where it shows (`SweepStore.tip`); a press outside it hides it, and
+// so does the replay cursor moving back before its sweep.
 import type { BrokerCode, Sweep, SweepBroker } from "@workspace/relay"
 import { cn } from "@workspace/ui/lib/utils"
 import { DateTime, Effect } from "effect"

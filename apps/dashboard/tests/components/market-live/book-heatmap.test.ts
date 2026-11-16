@@ -153,7 +153,7 @@ const sweepAt = (wib: string): Sweep => ({
   trades: 1,
 })
 
-describe("the book heatmap on chart 1", () => {
+describe("the book heatmap on the candle chart", () => {
   it.effect(
     "starts a slice where the cursor line and a sweep bubble of its second sit",
     () =>

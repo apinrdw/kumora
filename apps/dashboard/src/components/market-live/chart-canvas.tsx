@@ -166,7 +166,7 @@ class GapShades implements ISeriesPrimitive<Time> {
 // are greyed under a cursor line at the cursor's second, and clicking a
 // candle picks its minute. Each relay gap in `gaps` is shaded; a gap with no
 // end yet is shaded once it ends, or on a recorded day up to the close. It
-// moves with chart 2 through `pair`.
+// moves with the footprint chart through `pair`.
 export default function ChartCanvas({
   store,
   heatmap,

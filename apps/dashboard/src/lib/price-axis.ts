@@ -56,15 +56,16 @@ export const labelPrices = Effect.fnUntraced(function* ({
   return kept.reverse()
 })
 
-// Decision: chart 2's rows are at most 36 px a tick, so a quiet window's few
-// prices don't stretch into giant cells (spec apinrdw/kumora#263, "Rows").
+// Decision: the footprint chart's rows are at most 36 px a tick, so a quiet
+// window's few prices don't stretch into giant cells (spec apinrdw/kumora#263,
+// "Rows").
 const ROW_PX = 36
 // The footprint's scale margins leave this share of the pane for prices.
 const PLOT_SHARE = 0.88
 
-// Chart 2's price range for the visible minutes' `minValue` to `maxValue`:
-// widened around its middle until one tick is at most 36 px of a pane
-// `paneHeight` tall. A wider range is kept, its rows shrinking to fit.
+// The footprint chart's price range for the visible minutes' `minValue` to
+// `maxValue`: widened around its middle until one tick is at most 36 px of a
+// pane `paneHeight` tall. A wider range is kept, its rows shrinking to fit.
 export const rowCappedRange = Effect.fnUntraced(function* ({
   minValue,
   maxValue,

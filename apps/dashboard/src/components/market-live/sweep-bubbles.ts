@@ -1,5 +1,5 @@
-// Chart 1's sweep bubbles (spec apinrdw/kumora#263, "Chart 1"), loaded with
-// Lightweight Charts in chart-canvas.tsx's browser-only chunk.
+// The candle chart's sweep bubbles (spec apinrdw/kumora#263, "Chart 1"), loaded
+// with Lightweight Charts in chart-canvas.tsx's browser-only chunk.
 import type { TradeNumber } from "@workspace/relay"
 import { Side } from "@workspace/relay"
 import { DateTime, Effect } from "effect"
@@ -243,11 +243,11 @@ class SweepBubbles implements ISeriesPrimitive<Time> {
   }
 }
 
-// Puts the store's kept sweeps on chart 1's candle series as bubbles, redrawn at
-// most once a frame when the kept sweeps, the top-N or the cursor change. A sweep
-// picked in the log scrolls chart 1 to its minute, keeping the zoom unless it
-// is wider than an hour. Returns `click`, which chart 1's click handler calls
-// first, and the cleanup.
+// Puts the store's kept sweeps on the candle chart's candle series as bubbles,
+// redrawn at most once a frame when the kept sweeps, the top-N or the cursor
+// change. A sweep picked in the log scrolls the candle chart to its minute,
+// keeping the zoom unless it is wider than an hour. Returns `click`, which the
+// candle chart's click handler calls first, and the cleanup.
 export function attachSweepBubbles({
   chart,
   series,
@@ -308,7 +308,7 @@ export function attachSweepBubbles({
   // Decision: the bubbles' own hit test finds the bubble, since a tap's
   // click carries no hovered object (the library hit-tests where the
   // crosshair was, and a tap moved none there). Its point is pane-local, so
-  // a point in another pane (chart 1's volume) is on no bubble.
+  // a point in another pane (the candle chart's volume) is on no bubble.
   const tip = (parameter: MouseEventParams<Time>, pin = false) => {
     const point =
       parameter.paneIndex === series.getPane().paneIndex()
