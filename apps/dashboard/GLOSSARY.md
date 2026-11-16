@@ -47,7 +47,7 @@ Fetching the running trades and broker codes of trading days from before the ter
 _Avoid_: Backfill (that is filling gaps in the live tape)
 
 **Trade fields**:
-A running trade's stock code, price, lots and board: what the tape holds for it, but its time and aggressor side. The walks that fetch a day's broker codes after the close send each trade's fields with its codes.
+A running trade's time, stock code, price, lots, board and aggressor side: what the tape holds for it. The walks that fetch a day's broker codes after the close send each trade's fields with its codes, or its codes alone when its row's fields aren't valid.
 _Avoid_: Trade details, trade row
 
 **Held trade**:
