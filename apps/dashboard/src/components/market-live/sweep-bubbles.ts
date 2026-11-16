@@ -61,7 +61,7 @@ export interface BubbleColors {
 const HIT_PREFIX = "sweep:"
 
 // Each minute's bubbles, one per shown sweep or piece, largest first, so
-// small ones draw on top, a split sweep's pieces in one second included.
+// small ones draw on top, a whole sweep's pieces in one second included.
 export const bubblesOf = Effect.fnUntraced(function* (
   sweeps: ReadonlyArray<KeptSweep>
 ) {

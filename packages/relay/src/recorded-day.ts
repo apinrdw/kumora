@@ -216,8 +216,12 @@ const SweepBrokerFields = Schema.Struct({
 // Decision: sweep brokers travel, and are stored, as tuples: an entry [first
 // trade, pieces], a piece [sweep tuple, aggressor side, other side], a broker
 // [code, investor type, lots, minor type's lots only when nonzero], not keyed
-// objects: a busy code's 10–18 K sweeps a day answer 1–2 MB as tuples. See
-// spec apinrdw/kumora#343, "The sweep brokers answer", and #349.
+// objects: a busy code's 10–18 K sweeps a day answered 1–2 MB as tuples when
+// an entry was [first trade, aggressor, other]. See apinrdw/kumora#343, #349.
+//
+// The stored rows decode only in these tuples' order, so a change to it, or
+// to the sweep tuple's, needs a new SWEEP_BROKERS_SHAPE (dashboard
+// day-store.ts) to rebuild them.
 const SweepBroker = Schema.Tuple([
   BrokerCode,
   InvestorType,
