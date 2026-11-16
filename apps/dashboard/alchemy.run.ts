@@ -37,6 +37,16 @@ const HoldingsDb = Cloudflare.D1.Database("HoldingsDb", {
   migrations: "./holdings-migrations",
 })
 
+// Each complete day's broker totals and candles: every stage's trading-day
+// objects write their own stage's, and its stock page reads them by range.
+// Decision: a D1 of its own, apart from HoldingsDb, with its own migrations,
+// so it can be reset or rebuilt alone. Read replication stays off
+// (Alchemy's default), as HoldingsDb's: a replica could serve a day
+// mid-write. See apinrdw/kumora#419.
+const BrokerTotalsDb = Cloudflare.D1.Database("BrokerTotalsDb", {
+  migrations: "./broker-totals-migrations",
+})
+
 // Decision: Production alone owns the mailer.pusat.ai sending subdomain; every
 // other stage only binds EMAIL with this sender, so destroying a Preview never
 // removes it, and their mail fails until Production has deployed it. Message
@@ -156,6 +166,7 @@ export const Website = Cloudflare.Website.Vite(
       env: {
         AUTH_DB: AuthDb,
         HOLDINGS_DB: HoldingsDb,
+        BROKER_TOTALS_DB: BrokerTotalsDb,
         AUTH_BASE_URL: yield* stageUrl("dashboard", stage),
         BETTER_AUTH_SECRET: Alchemy.makeRandom("BetterAuthSecret"),
         EMAIL: Cloudflare.Email.SendEmail("Email", {

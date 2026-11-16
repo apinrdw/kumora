@@ -21,6 +21,7 @@ import {
   type Footprint,
   type RecordedResource,
   type Sweep,
+  type TradeFields,
   type ViewerDown,
 } from "@workspace/relay"
 import { WorkerEnv } from "@workspace/server"
@@ -34,6 +35,7 @@ import {
   Scope,
 } from "effect"
 
+import type { BrokerTotalsDb } from "@/server/broker-totals/db"
 import type { Sql } from "@/server/market-live/day-store"
 import {
   makeTradingDay,
@@ -156,17 +158,23 @@ export const stockbitBook = (book: {
 
 // A trading day on `sql` (a fresh database by default; the same one again is
 // the object restarting, and its `viewers` again the sockets that outlived
-// it), with a relay that sent the right token.
+// it), with a relay that sent the right token. Its builds write to
+// `brokerTotalsDb` when given, and `alarms` lists every instant it set the
+// alarm for.
 export const tradingDay = Effect.fnUntraced(function* (
   sql: Sql = memorySql(),
-  viewers: Array<FakeSocket> = []
+  viewers: Array<FakeSocket> = [],
+  brokerTotalsDb?: Layer.Layer<BrokerTotalsDb>
 ) {
   const scope = yield* Scope.make()
+  const alarms: Array<DateTime.Utc> = []
   const day = yield* makeTradingDay({
     sql,
     date: DAY,
     viewers: Effect.sync(() => viewers),
     viewersOf: () => Effect.succeed([]),
+    setAlarm: (at) => Effect.sync(() => void alarms.push(at)),
+    ...(brokerTotalsDb === undefined ? {} : { brokerTotalsDb }),
   }).pipe(Scope.provide(scope))
   const relay = new FakeSocket()
   const ingest = (text: string) =>
@@ -290,10 +298,12 @@ export const tradingDay = Effect.fnUntraced(function* (
   })
   // A broker codes batch of the day from `feed`, as the Worker hands it over,
   // each row [trade number, "AK F CD D"]: buyer and type, seller and type,
-  // with one BBCA lot at 8,000 on the regular board as its fields.
+  // with its fields, by default one BBCA lot at 8,000 on the regular board.
   const brokerCodes = Effect.fnUntraced(function* (
     feed: Feed,
-    rows: ReadonlyArray<readonly [number, string]>,
+    rows: ReadonlyArray<
+      readonly [number, string] | readonly [number, string, TradeFields]
+    >,
     end?: number
   ) {
     const response = yield* day.brokerCodes.post(
@@ -301,7 +311,7 @@ export const tradingDay = Effect.fnUntraced(function* (
         version: BrokerCodesProtocolVersion,
         feed,
         day: DAY,
-        rows: rows.map(([number, text]) => {
+        rows: rows.map(([number, text, fields]) => {
           const [buyer, buyerType, seller, sellerType] = text.split(" ")
           return [
             TradeNumber.make(String(number)),
@@ -311,7 +321,7 @@ export const tradingDay = Effect.fnUntraced(function* (
               seller: BrokerCode.make(seller!),
               sellerType: sellerType === "F" ? "F" : "D",
             },
-            {
+            fields ?? {
               code: StockCode.make("BBCA"),
               price: 8_000,
               lots: 1,
@@ -341,6 +351,7 @@ export const tradingDay = Effect.fnUntraced(function* (
     recordedCandles,
     recordedSweeps,
     alarm: day.alarm.pipe(Effect.provide(env)),
+    alarms,
     // The object evicted: its timers stop, so the clock can move days on.
     evicted: Scope.close(scope, Exit.void),
   }
