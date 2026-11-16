@@ -496,7 +496,7 @@ test.describe.serial("the stock page", () => {
       const kLook = await kTooltip.evaluate(look)
       await page.mouse.move(0, 0)
       await focusNewest(page, "Oct 2026")
-      const body = barsTooltip(page).locator(".ts-chart-tooltip__body")
+      const body = barsTooltip(page).locator(".ts-chart-tooltip__body > *")
       expect(await body.evaluate(look)).toEqual(kLook)
     })
 

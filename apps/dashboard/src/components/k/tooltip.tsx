@@ -6,6 +6,8 @@ import {
 import { cn } from "@workspace/ui/lib/utils"
 import type { ReactElement, ReactNode } from "react"
 
+import { kTooltip } from "./styles"
+
 export type KTooltipProps = {
   /** One focusable element; it becomes the trigger. */
   children: ReactElement
@@ -36,7 +38,8 @@ export function KTooltip({
         side={side}
         sideOffset={8}
         className={cn(
-          "bg-elevated block max-w-[280px] min-w-40 rounded-xs border border-border px-3 py-2 text-xs leading-[18px] font-normal text-foreground shadow-popover *:data-side:hidden",
+          kTooltip,
+          "block *:data-side:hidden",
           explain && "border-l-info border-l-2",
           className
         )}

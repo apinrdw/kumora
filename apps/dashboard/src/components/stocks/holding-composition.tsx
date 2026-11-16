@@ -22,7 +22,7 @@ import { Effect } from "effect"
 import { useLayoutEffect, useMemo, useRef, useState } from "react"
 
 import { KChip } from "@/components/k/chip"
-import { kCard, kFocus } from "@/components/k/styles"
+import { kCard, kFocus, kTooltip } from "@/components/k/styles"
 import {
   type ChartSeries,
   type HoldingChart,
@@ -359,7 +359,7 @@ function MonthBody({ view, origin }: { view: MonthView; origin: OriginShown }) {
       ? undefined
       : Effect.runSync(changeNote(view.change))
   return (
-    <div className="flex flex-col gap-1.5">
+    <div className={cn(kTooltip, "flex flex-col gap-1.5")}>
       <b>{Effect.runSync(monthLabel(view.month))}</b>
       {view.rows === undefined ? (
         <span>{NO_DATA}: KSEI's report has no row for this month.</span>
