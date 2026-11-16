@@ -61,7 +61,8 @@ export interface BubbleColors {
 const HIT_PREFIX = "sweep:"
 
 // Each minute's bubbles, one per shown sweep or piece, largest first, so
-// small ones draw on top, a whole sweep's pieces in one second included.
+// small ones of a side draw on top (sells fill after buys), a whole sweep's
+// pieces in one second included.
 export const bubblesOf = Effect.fnUntraced(function* (
   sweeps: ReadonlyArray<KeptSweep>
 ) {
@@ -237,10 +238,9 @@ export class SweepBubbles implements ISeriesPrimitive<Time> {
     return { x: centre + offset, y }
   }
 
-  // The shown bubble a point of the pane is on: the one of fewest lots, as
-  // a minute's bubbles draw largest first, so a piece sharing a larger one's
-  // centre can still be picked, even when both sit at the smallest radius;
-  // the nearest of equal ones.
+  // The shown bubble a point of the pane is on: the one of fewest lots, so
+  // a piece sharing a larger one's centre can still be picked, even when
+  // both sit at the smallest radius; the nearest of equal ones.
   topmost(x: number, y: number) {
     let best: { id: TradeNumber; lots: number; distance: number } | undefined
     for (const { bubble, ...at } of this.placed()) {
