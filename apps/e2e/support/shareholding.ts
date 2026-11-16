@@ -79,13 +79,14 @@ export async function seedReport(prefix: string, hash: string, bytes: number) {
 }
 
 /**
- * Stores one of the dashboard's trimmed classification report fixtures
+ * Stores one of the dashboard's trimmed report fixtures
  * (apps/dashboard/tests/server/shareholding/fixtures/), such as
- * `classification-2026-03-31.xlsx`, under `dataDate` as an archive run
- * would: the .xlsx under its SHA-256, then a record whose key the
- * classification parse run reads.
+ * `classification-2026-03-31.xlsx` of kind `investor-classification`, under
+ * `dataDate` as an archive run would: the .xlsx under its SHA-256, then a
+ * record whose key the kind's parse run reads.
  */
-export async function seedClassificationFixture(
+export async function seedReportFixture(
+  kind: "investor-classification" | "investor-type",
   filename: string,
   dataDate: string
 ) {
@@ -99,7 +100,7 @@ export async function seedClassificationFixture(
   )
   // The keys shareholding/keys.ts writes, which can't be loaded here: its
   // report kinds come from a module that needs the Workers types.
-  const prefix = "reports/investor-classification/"
+  const prefix = `reports/${kind}/`
   const keys = await Effect.runPromise(
     Effect.gen(function* () {
       const sha256 = yield* sha256Hex(bytes)

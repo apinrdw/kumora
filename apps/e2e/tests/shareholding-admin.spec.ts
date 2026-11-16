@@ -4,9 +4,9 @@ import { expect, test } from "../support/test"
 
 import { ADMIN, DASHBOARD, MEMBER } from "../support/accounts"
 import {
-  seedClassificationFixture,
   seedLatestRun,
   seedReport,
+  seedReportFixture,
   seedRun,
   type SeededRun,
 } from "../support/shareholding"
@@ -74,6 +74,9 @@ const lastRunCard = (page: Page) =>
 
 const classificationParseCard = (page: Page) =>
   page.getByRole("region", { name: /Last classification parse run/ })
+
+const investorTypeParseCard = (page: Page) =>
+  page.getByRole("region", { name: /Last investor-type parse run/ })
 
 // A count on the card, by its label.
 const stat = (card: Locator, label: string) =>
@@ -254,12 +257,13 @@ test.describe("an admin's archive history", () => {
 })
 
 // Decision: serial, and the only spec writing reports/, so the totals are
-// exact before the parse run's test stores its report. That test's parse
-// writes the Test stage's one HoldingsDb, which stocks.spec.ts seeds and
-// reads, unserialized: its report is stored as Dec 2025, before every month
-// that spec seeds, and no test there opens or compares against it.
-test.describe
-  .serial("an admin's archive totals and classification parse run", () => {
+// exact before the parse runs' tests store their reports. Those tests' parses
+// write the Test stage's one HoldingsDb, which stocks.spec.ts seeds and
+// reads, unserialized: the classification report is stored as Dec 2025,
+// before every month that spec seeds, and no test there opens or compares
+// against it; the investor-type report holds only AADI and TRUE, stocks that
+// spec never opens.
+test.describe.serial("an admin's archive totals and parse runs", () => {
   test.use({ storageState: ADMIN.storageState })
 
   test("the archive totals count the reports per kind and the size", async ({
@@ -268,7 +272,9 @@ test.describe
     await seedReport("above-5/2026-11-13", "a".repeat(64), 1_200)
     // A second version of a report counts too.
     await seedReport("above-5/2026-11-13", "b".repeat(64), 1_300)
-    await seedReport("investor-type/2026-10-31", "c".repeat(64), 2_400)
+    // Not an investor-type report, which the investor-type parse run below
+    // would fail to parse.
+    await seedReport("above-1/2026-10-31", "c".repeat(64), 2_400)
 
     await page.goto(SHAREHOLDING)
     const totals = page.getByRole("region", { name: "Archive totals" })
@@ -279,15 +285,16 @@ test.describe
     ).toHaveText([
       "Report kindKey prefixReports",
       "Holders above 5%reports/above-5/2",
-      "Holders above 1%reports/above-1/0",
-      "By investor typereports/investor-type/1",
+      "Holders above 1%reports/above-1/1",
+      "By investor typereports/investor-type/0",
       "By investor classificationreports/investor-classification/0",
       "Otherreports/other/0",
     ])
   })
 
   test("Parse now parses the held classification reports", async ({ page }) => {
-    await seedClassificationFixture(
+    await seedReportFixture(
+      "investor-classification",
       "classification-2026-03-31.xlsx",
       "2025-12-31"
     )
@@ -318,6 +325,42 @@ test.describe
     ).toHaveText("0")
     await expect(
       classificationParseCard(page).getByRole("button", { name: "Parse now" })
+    ).toBeEnabled()
+  })
+
+  test("Parse now parses the held investor-type reports", async ({ page }) => {
+    await seedReportFixture(
+      "investor-type",
+      "investor-type-2025-11-28.xlsx",
+      "2025-11-28"
+    )
+
+    await page.goto(SHAREHOLDING)
+    const card = investorTypeParseCard(page)
+    await expect(card).toContainText(
+      "No investor-type parse run has happened yet."
+    )
+    await expect(card).toContainText(
+      /Production runs at 21:00 WIB\. Next: \w{3} \d{2}, 21:00 WIB\./
+    )
+    await card.getByRole("button", { name: "Parse now" }).click()
+    await expect(card).toContainText(/Started admin-\d+\./)
+
+    // The run ends on its own; the page shows it once reloaded.
+    await expect(async () => {
+      await page.reload()
+      await expect(investorTypeParseCard(page)).toContainText("Complete", {
+        timeout: 1000,
+      })
+    }).toPass({ timeout: 30_000 })
+    await expect(stat(investorTypeParseCard(page), "Months parsed")).toHaveText(
+      "1"
+    )
+    await expect(
+      stat(investorTypeParseCard(page), "Parse failures")
+    ).toHaveText("0")
+    await expect(
+      investorTypeParseCard(page).getByRole("button", { name: "Parse now" })
     ).toBeEnabled()
   })
 })
