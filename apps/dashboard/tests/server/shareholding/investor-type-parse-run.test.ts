@@ -4,8 +4,11 @@ import { assert, describe, it } from "@effect/vitest"
 import { Effect, Layer, Schema } from "effect"
 import { TestClock } from "effect/testing"
 
+import { StockCode } from "@workspace/relay"
+
 import { RunId } from "@/server/archive/run"
 import { ParseRunResult } from "@/server/holdings/parse-run-result"
+import { stockPage } from "@/server/holdings/stock-page"
 import { archiveRun } from "@/server/shareholding/archive-run"
 import { classificationParseRuns } from "@/server/shareholding/classification-parse"
 import { investorTypeParseRuns } from "@/server/shareholding/investor-type-parse"
@@ -104,39 +107,32 @@ interface StockMonth {
   readonly holdings: Readonly<Record<string, readonly [number, number]>>
 }
 
-// A stock's parsed month of `dataDate`; undefined when that month's report
-// has no row for it.
-// Decision: read from HoldingsDb's tables, not the stock page read: its
-// Holder size part comes with apinrdw/kumora#405, which moves these
-// assertions onto it.
-const read = (
-  { holdings: { database } }: World,
-  dataDate: string,
-  code: string
-): StockMonth | undefined => {
-  const stock = database
-    .prepare(
-      "SELECT s.shares_outstanding, s.total_scripless, m.split FROM investor_type_stock_month s JOIN investor_type_month m USING (data_date) WHERE data_date = ? AND stock_code = ?"
-    )
-    .get(dataDate, code)
-  if (stock === undefined) return undefined
-  const rows = database
-    .prepare(
-      "SELECT origin, investor_type, under_5, at_least_5 FROM investor_type_holding WHERE data_date = ? AND stock_code = ?"
-    )
-    .all(dataDate, code)
-  return {
-    split: stock.split === 1,
-    sharesOutstanding: Number(stock.shares_outstanding),
-    totalScripless: Number(stock.total_scripless),
-    holdings: Object.fromEntries(
-      rows.map((row) => [
-        `${String(row.origin)}:${String(row.investor_type)}`,
-        [Number(row.under_5), Number(row.at_least_5)] as const,
-      ])
-    ),
-  }
-}
+// A stock's month of `dataDate` as the stock page reads it; undefined when
+// that month's report has no row for it.
+const read = ({ holdings }: World, dataDate: string, code: string) =>
+  stockPage(StockCode.make(code), undefined).pipe(
+    Effect.provide(holdings.layer),
+    Effect.map(({ holderSize }): StockMonth | undefined => {
+      const month = holderSize.find((each) => each.dataDate === dataDate)
+      const holding = month?.holding
+      if (month === undefined || holding === undefined) return undefined
+      return {
+        split: month.split,
+        sharesOutstanding: holding.sharesOutstanding,
+        totalScripless: holding.totalScripless,
+        holdings: Object.fromEntries(
+          (["local", "foreign", "combined"] as const).flatMap((origin) =>
+            Object.entries(holding[origin] ?? {}).flatMap(
+              ([type, { under5, atLeast5 }]) =>
+                under5 + atLeast5 === 0
+                  ? []
+                  : [[`${origin}:${type}`, [under5, atLeast5] as const]]
+            )
+          )
+        ),
+      }
+    })
+  )
 
 const sum = (values: ReadonlyArray<number>) =>
   values.reduce((total, value) => total + value, 0)
@@ -158,7 +154,7 @@ describe("an investor-type parse run", () => {
       )
 
       // Nov 2025: unsplit, so combined only; every pair of AADI's is written.
-      assert.deepStrictEqual(read(w, "2025-11-28", "AADI"), {
+      assert.deepStrictEqual(yield* read(w, "2025-11-28", "AADI"), {
         split: false,
         sharesOutstanding: 7_786_891_760,
         totalScripless: 7_786_891_760,
@@ -175,18 +171,18 @@ describe("an investor-type parse run", () => {
         },
       })
       // Blank cells hold nothing: TRUE's FD, IS, MF, OT and PF.
-      assert.deepStrictEqual(read(w, "2025-11-28", "TRUE")?.holdings, {
+      assert.deepStrictEqual((yield* read(w, "2025-11-28", "TRUE"))?.holdings, {
         "combined:CP": [1_903_100, 4_000_000_000],
         "combined:IB": [100, 0],
         "combined:ID": [1_340_985_636, 385_000_000],
         "combined:SC": [2_500_000, 0],
       })
       // WBSA lists from April 2026.
-      assert.isUndefined(read(w, "2025-11-28", "WBSA"))
+      assert.isUndefined(yield* read(w, "2025-11-28", "WBSA"))
 
       // Apr 2026: split, TRUE's code a boolean cell, blanks skipped, and
       // combined the sum of local and foreign.
-      assert.deepStrictEqual(read(w, "2026-04-30", "TRUE"), {
+      assert.deepStrictEqual(yield* read(w, "2026-04-30", "TRUE"), {
         split: true,
         sharesOutstanding: 7_571_107_860,
         totalScripless: 6_160_688_792,
@@ -204,8 +200,8 @@ describe("an investor-type parse run", () => {
         },
       })
 
-      // Oct 2026: a 0/0 pair is skipped as a blank one is.
-      const wbsa = read(w, "2026-10-30", "WBSA")
+      // Oct 2026: a 0/0 pair holds nothing, as a blank one does.
+      const wbsa = yield* read(w, "2026-10-30", "WBSA")
       assert.deepStrictEqual(wbsa?.holdings, {
         "local:CP": [20_197_200, 0],
         "local:ID": [479_851_400, 0],
@@ -224,7 +220,7 @@ describe("an investor-type parse run", () => {
       // Every split month's combined rows sum to its total scripless, as its
       // local and foreign rows do.
       for (const code of ["AADI", "BBCA", "TRUE", "WBSA"]) {
-        const month = read(w, "2026-10-30", code)
+        const month = yield* read(w, "2026-10-30", code)
         assert.isDefined(month)
         const of = (origin: string) =>
           sum(
@@ -240,7 +236,7 @@ describe("an investor-type parse run", () => {
         )
       }
       assert.strictEqual(
-        read(w, "2026-10-30", "BBCA")?.sharesOutstanding,
+        (yield* read(w, "2026-10-30", "BBCA"))?.sharesOutstanding,
         123_275_050_000
       )
     })
@@ -269,8 +265,8 @@ describe("an investor-type parse run", () => {
       // October now reads exactly as the republished file: no old row left.
       for (const code of ["AADI", "BBCA", "TRUE", "WBSA"])
         assert.deepStrictEqual(
-          read(w, "2026-10-30", code),
-          read(w, "2026-04-30", code)
+          yield* read(w, "2026-10-30", code),
+          yield* read(w, "2026-04-30", code)
         )
     })
   )
@@ -349,7 +345,7 @@ describe("an investor-type report that doesn't match what's expected", () => {
           const w = world()
           yield* archive(w, "cron-2026-11-14T06")
           yield* parse(w, "cron-2026-11-14")
-          const before = read(w, month, "AADI")
+          const before = yield* read(w, month, "AADI")
           assert.isDefined(before)
 
           republish(w, month, fixture)
@@ -363,7 +359,7 @@ describe("an investor-type report that doesn't match what's expected", () => {
             runRecord(w, "investor-type", "cron-2026-11-15"),
             failed
           )
-          assert.deepStrictEqual(read(w, month, "AADI"), before)
+          assert.deepStrictEqual(yield* read(w, month, "AADI"), before)
 
           const retried = yield* parse(w, "cron-2026-11-16")
           assert.deepInclude(retried, { outcome: "partial", monthsParsed: 0 })
@@ -378,8 +374,8 @@ describe("an investor-type report that doesn't match what's expected", () => {
       yield* archive(w, "cron-2026-11-14T06")
       const result = yield* parse(w, "cron-2026-11-14")
       assert.deepInclude(result, { outcome: "partial", monthsParsed: 2 })
-      assert.isUndefined(read(w, "2026-04-30", "AADI"))
-      assert.isDefined(read(w, "2026-10-30", "AADI"))
+      assert.isUndefined(yield* read(w, "2026-04-30", "AADI"))
+      assert.isDefined(yield* read(w, "2026-10-30", "AADI"))
     })
   )
 })
@@ -436,7 +432,7 @@ describe("the two parse run kinds", () => {
         )
         // October's classification failure left its investor-type month
         // parsed.
-        assert.isDefined(read(w, "2026-10-30", "BBCA"))
+        assert.isDefined(yield* read(w, "2026-10-30", "BBCA"))
       })
   )
 })
