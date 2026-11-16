@@ -430,6 +430,39 @@ describe("a built day's correction", () => {
   )
 
   it.effect(
+    "rebuilds once at the deadline the correction set, however often the object starts before it",
+    () =>
+      withLines("Broker totals built", (lines) =>
+        Effect.gen(function* () {
+          const db = memoryBrokerTotalsDb()
+          const sql = memorySql()
+          const day = yield* builtDay(db, sql)
+          yield* at("18:00:00")
+          yield* day.brokerCodes("Ajaib", [[2, "KZ D YP D"]])
+          yield* day.evicted
+
+          for (const time of ["18:02:00", "18:03:30", "18:04:59"]) {
+            yield* at(time)
+            const restarted = yield* tradingDay(sql, [], db.layer)
+            assert.deepStrictEqual(restarted.alarms, [wib("18:05:00")])
+            yield* restarted.alarm
+            yield* restarted.evicted
+          }
+          assert.deepStrictEqual(yield* read(db, UNTR), UNTR_BUILT)
+
+          // The alarm rings on an evicted object: it starts, then fires.
+          yield* at("18:05:00")
+          const woken = yield* tradingDay(sql, [], db.layer)
+          yield* woken.alarm
+          assert.deepStrictEqual((yield* read(db, UNTR)).totals, UNTR_CORRECTED)
+          yield* at("18:30:00")
+          yield* woken.alarm
+          assert.lengthOf(lines, 2)
+        })
+      )
+  )
+
+  it.effect(
     "that fills a trade's fields alone rebuilds the day, which waited out its codes-only trade",
     () =>
       Effect.gen(function* () {
