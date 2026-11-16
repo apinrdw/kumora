@@ -11,7 +11,21 @@ import {
   type BubbleFigures,
   type BubbleView,
 } from "@/lib/bubbles"
+import {
+  RETURN_DAMPING,
+  RETURN_MAX_SPEED,
+  RETURN_PULL,
+} from "@/lib/bubble-drag"
 import { compact, lots, pct, price } from "@/lib/format"
+
+import {
+  draggedOf,
+  followPointer,
+  NO_POINTER,
+  type Hovered,
+  type Pointer,
+  type PointerView,
+} from "./bubble-pointer"
 
 // The figures a bubble writes, made once a recompute, not each frame.
 interface Labels {
@@ -36,16 +50,8 @@ interface Body {
   figures: BubbleFigures
   labels: Labels
   leaving: boolean
-}
-
-// What a pointer is over, for the tooltip.
-interface Hovered {
-  readonly figures: BubbleFigures
-  readonly x: number
-  readonly y: number
-  // The canvas's size, to keep the tooltip inside it.
-  readonly width: number
-  readonly height: number
+  // Frames left of its soft return home after a drag; 0 when not returning.
+  returning: number
 }
 
 type Rgb = readonly [number, number, number]
@@ -71,9 +77,9 @@ const HOVER_SCALE = 1.7
 const HOVER_MIN_RADIUS = 34
 // Only this many of the largest bubbles get a blurred glow.
 const GLOWING = 120
-// A press that moves no further than this is a click.
-const CLICK_SLOP = 4
 const GAP = 1.5
+// What a search leaves of a code that doesn't match it.
+const DIMMED = 0.18
 
 const NO_NAMES: ReadonlyMap<StockCode, string> = new Map()
 
@@ -91,34 +97,39 @@ const logoPath = (code: StockCode) => `/logos/${encodeURIComponent(code)}`
 // Every bubble of `bubbles` on one canvas, sized by `view`'s size metric and
 // toned by its colour metric, easing between the figures each recompute
 // brings. A code that leaves shrinks out and one that joins grows in.
-// Hovering a bubble grows it and shows its figures; a click hands its code to
-// `onPick`. The page and Market Live's panel both draw with it.
+// Hovering a bubble grows it and shows its figures; dragging one shoves its
+// neighbours aside; a click hands its code to `onPick`. A `search` rings the
+// codes that contain it and dims the rest, without moving any. The page and
+// Market Live's panel both draw with it.
 export function BubbleCanvas({
   bubbles,
   view,
   names = NO_NAMES,
+  search = "",
   onPick,
   className,
 }: {
   bubbles: ReadonlyArray<BubbleFigures>
   view: BubbleView
   names?: ReadonlyMap<StockCode, string>
+  search?: string
   onPick: (code: StockCode) => void
   className?: string
 }) {
   const host = useRef<HTMLDivElement>(null)
   const canvas = useRef<HTMLCanvasElement>(null)
   const bodies = useRef(new Map<StockCode, Body>())
-  const hoveredCode = useRef<StockCode | undefined>(undefined)
+  const pointer = useRef<Pointer>({ hovered: undefined, press: undefined })
+  const [pointerView, showPointer] = useState<PointerView>(NO_POINTER)
+  // The latest props the frame loop reads: who a click goes to, and the
+  // search, as a code would contain it.
+  const latest = useRef({ onPick, query: "" })
+  useEffect(() => {
+    latest.current = { onPick, query: search.trim().toUpperCase() }
+  }, [onPick, search])
   // Each code's logo once asked for: loading or loaded, or null once it
   // failed (no logo for the code), so it is asked for once a page.
   const logos = useRef(new Map<StockCode, HTMLImageElement | null>())
-  const pick = useRef(onPick)
-  const [hovered, setHovered] = useState<Hovered | undefined>(undefined)
-
-  useEffect(() => {
-    pick.current = onPick
-  }, [onPick])
 
   // Each recompute: new targets, joining bubbles in, leaving ones out.
   useEffect(() => {
@@ -165,6 +176,7 @@ export function BubbleCanvas({
           figures,
           labels,
           leaving: false,
+          returning: 0,
         })
         continue
       }
@@ -176,12 +188,12 @@ export function BubbleCanvas({
     }
     for (const [code, body] of held) if (!shown.has(code)) body.leaving = true
     // The tooltip follows its bubble's new figures.
-    setHovered((last) => {
-      const code = hoveredCode.current
+    showPointer((last) => {
+      const code = pointer.current.hovered
       const body = code === undefined ? undefined : held.get(code)
-      if (last === undefined || body === undefined || body.leaving)
-        return undefined
-      return { ...last, figures: body.figures }
+      if (last.tip === undefined || body === undefined || body.leaving)
+        return last.tip === undefined ? last : NO_POINTER
+      return { ...last, tip: { ...last.tip, figures: body.figures } }
     })
   }, [bubbles, view])
 
@@ -235,25 +247,65 @@ export function BubbleCanvas({
       ) as unknown as Rgb
     }
 
-    // One body's frame: its radius, tone and hover ease, and the pull toward
-    // the centre. A wide canvas pulls less across, so the cluster fills it.
-    const move = (body: Body) => {
+    // One body's radius, tone and hover ease.
+    const ease = (body: Body) => {
       body.r += ((body.leaving ? 0 : body.targetR) - body.r) * RADIUS_EASE
       body.tone += (body.targetTone - body.tone) * TONE_EASE
       const shown =
-        body.code === hoveredCode.current
+        body.code === pointer.current.hovered
           ? Math.max(body.r * HOVER_SCALE, HOVER_MIN_RADIUS)
           : body.r
       body.shownR += (shown - body.shownR) * HOVER_EASE
-      body.vx += (width / 2 - body.x) * 0.0016 * (height / Math.max(width, 1))
-      body.vy += (height / 2 - body.y) * 0.0016
-      body.vx *= 0.82
-      body.vy *= 0.82
+    }
+
+    const dragging = () => Effect.runSync(draggedOf(pointer.current))
+
+    // A released bubble's way home: a soft, damped pull, capped in speed, so
+    // it never swings round its cluster.
+    const returnHome = (body: Body, pullX: number, pullY: number) => {
+      body.returning--
+      body.vx = (body.vx + pullX * RETURN_PULL) * RETURN_DAMPING
+      body.vy = (body.vy + pullY * RETURN_PULL) * RETURN_DAMPING
+      const speed = Math.hypot(body.vx, body.vy)
+      if (speed <= RETURN_MAX_SPEED) return
+      body.vx *= RETURN_MAX_SPEED / speed
+      body.vy *= RETURN_MAX_SPEED / speed
+    }
+
+    // One body's frame: its eases, then the pull toward the centre, or the
+    // pointer while it is dragged. A wide canvas pulls less across, so the
+    // cluster fills it.
+    const move = (body: Body) => {
+      ease(body)
+      const held = dragging()
+      if (held?.code === body.code) {
+        body.x = held.x
+        body.y = held.y
+        body.vx = 0
+        body.vy = 0
+        return
+      }
+      const pullX = (width / 2 - body.x) * (height / Math.max(width, 1))
+      const pullY = height / 2 - body.y
+      if (body.returning > 0) returnHome(body, pullX, pullY)
+      else {
+        body.vx = (body.vx + pullX * 0.0016) * 0.82
+        body.vy = (body.vy + pullY * 0.0016) * 0.82
+      }
       body.x += body.vx
       body.y += body.vy
     }
 
-    // Pushes two overlapping bodies apart, the smaller further.
+    // How much of an overlap `a` takes: the smaller body moves further, and
+    // the dragged one never yields.
+    const yieldOf = (a: Body, b: Body, held: StockCode | undefined) => {
+      if (a.code === held) return 0
+      if (b.code === held) return 1
+      return (b.r * b.r) / (a.r * a.r + b.r * b.r + 1e-6)
+    }
+
+    // Pushes two overlapping bodies apart, half the overlap a pass; a
+    // dragged body's neighbours take all of it at once.
     const separate = (a: Body, b: Body) => {
       const dx = b.x - a.x
       const dy = b.y - a.y
@@ -261,8 +313,10 @@ export function BubbleCanvas({
       const squared = dx * dx + dy * dy
       if (squared >= touching * touching || squared === 0) return
       const distance = Math.sqrt(squared)
-      const push = ((touching - distance) / distance) * 0.5
-      const weightA = (b.r * b.r) / (a.r * a.r + b.r * b.r + 1e-6)
+      const held = dragging()?.code
+      const share = a.code === held || b.code === held ? 1 : 0.5
+      const push = ((touching - distance) / distance) * share
+      const weightA = yieldOf(a, b, held)
       a.x -= dx * push * weightA
       a.y -= dy * push * weightA
       b.x += dx * push * (1 - weightA)
@@ -381,6 +435,66 @@ export function BubbleCanvas({
       context.shadowBlur = 0
     }
 
+    // A white ring round a bubble: the hovered one's, or a search match's.
+    const ring = (x: number, y: number, radius: number, thickness: number) => {
+      context.beginPath()
+      context.arc(x, y, radius, 0, Math.PI * 2)
+      context.lineWidth = thickness
+      context.strokeStyle = palette.ring
+      context.stroke()
+    }
+
+    // A bubble as the search leaves it: ringed when its code contains the
+    // search, dimmed and unlit when it doesn't, as it is with no search.
+    const searched = (body: Body, glow: boolean) => {
+      const searching = latest.current.query !== ""
+      const match = searching && body.code.includes(latest.current.query)
+      context.globalAlpha = searching && !match ? DIMMED : 1
+      disc(body, body.r, glow && (!searching || match))
+      if (match) ring(body.x, body.y, body.r, body.r > 16 ? 3 : 2)
+      label(body, body.r)
+    }
+
+    // The hovered bubble, grown, ringed and over its neighbours, kept inside
+    // the canvas; the layout under it doesn't move.
+    const lifted = (body: Body) => {
+      const radius = body.shownR
+      const x = Math.min(Math.max(body.x, radius), width - radius)
+      const y = Math.min(Math.max(body.y, radius), height - radius)
+      const shown = { ...body, x, y }
+      // Opaque, so the neighbours it covers don't show through.
+      const [coreRed, coreGreen, coreBlue] = palette.core
+      context.beginPath()
+      context.arc(x, y, radius, 0, Math.PI * 2)
+      context.fillStyle = `rgb(${coreRed},${coreGreen},${coreBlue})`
+      context.fill()
+      disc(shown, radius, true)
+      ring(x, y, radius, 2.5)
+      label(shown, radius)
+    }
+
+    // What the e2e reads: the count, the largest bubble's code and centre,
+    // and the search's match count and its largest match's centre.
+    const centre = (body: Body | undefined) =>
+      body && `${Math.round(body.x)},${Math.round(body.y)}`
+    const mark = (name: string, value: string | undefined) => {
+      if (value === undefined) delete surface.dataset[name]
+      else surface.dataset[name] = value
+    }
+    const expose = (list: ReadonlyArray<Body>) => {
+      const staying = list.filter((body) => !body.leaving)
+      const largest = staying.at(-1)
+      const matches =
+        latest.current.query === ""
+          ? []
+          : staying.filter((body) => body.code.includes(latest.current.query))
+      mark("bubbles", String(staying.length))
+      mark("largest", largest?.code)
+      mark("largestAt", centre(largest))
+      mark("matches", String(matches.length))
+      mark("matchAt", centre(matches.at(-1)))
+    }
+
     let frame = 0
     let tick = 0
     const draw = () => {
@@ -393,73 +507,31 @@ export function BubbleCanvas({
         list.length > GLOWING ? list[list.length - GLOWING]!.r : 0
       let top: Body | undefined
       for (const body of list) {
-        if (body.code === hoveredCode.current) {
+        if (body.code === pointer.current.hovered) {
           top = body
           continue
         }
-        if (body.r < 0.6) continue
-        disc(body, body.r, body.r >= glowFrom && body.r > 14)
-        label(body, body.r)
+        if (body.r >= 0.6) searched(body, body.r >= glowFrom && body.r > 14)
       }
-      // The hovered bubble, grown and ringed, over its neighbours.
-      if (top !== undefined) {
-        // Opaque, so the neighbours it covers don't show through.
-        const [coreRed, coreGreen, coreBlue] = palette.core
-        context.beginPath()
-        context.arc(top.x, top.y, top.shownR, 0, Math.PI * 2)
-        context.fillStyle = `rgb(${coreRed},${coreGreen},${coreBlue})`
-        context.fill()
-        disc(top, top.shownR, true)
-        context.beginPath()
-        context.arc(top.x, top.y, top.shownR, 0, Math.PI * 2)
-        context.lineWidth = 2.5
-        context.strokeStyle = palette.ring
-        context.stroke()
-        label(top, top.shownR)
-      }
-      // What the e2e reads: the count, and the largest bubble's centre.
-      if (tick++ % 10 === 0) {
-        const staying = list.filter((body) => !body.leaving)
-        const largest = staying.at(-1)
-        surface.dataset.bubbles = String(staying.length)
-        if (largest === undefined) {
-          delete surface.dataset.largest
-          delete surface.dataset.largestAt
-        } else {
-          surface.dataset.largest = largest.code
-          surface.dataset.largestAt = `${Math.round(largest.x)},${Math.round(largest.y)}`
-        }
-      }
+      context.globalAlpha = 1
+      if (top !== undefined) lifted(top)
+      if (tick++ % 10 === 0) expose(list)
       frame = requestAnimationFrame(draw)
     }
     frame = requestAnimationFrame(draw)
+    const unfollow = followPointer({
+      surface,
+      bodies: bodies.current,
+      pointer: pointer.current,
+      show: showPointer,
+      pick: (code) => latest.current.onPick(code),
+    })
     return () => {
       cancelAnimationFrame(frame)
       observer.disconnect()
+      unfollow()
     }
   }, [])
-
-  // The bubble under a point, the smallest when they overlap.
-  const hit = (x: number, y: number) => {
-    let found: Body | undefined
-    for (const body of bodies.current.values()) {
-      if (body.leaving) continue
-      const reach = body.code === hoveredCode.current ? body.shownR : body.r
-      if (Math.hypot(body.x - x, body.y - y) > reach) continue
-      if (found === undefined || body.r < found.r) found = body
-    }
-    return found
-  }
-  const pointAt = (event: React.PointerEvent) => {
-    const box = canvas.current!.getBoundingClientRect()
-    return {
-      x: event.clientX - box.left,
-      y: event.clientY - box.top,
-      width: box.width,
-      height: box.height,
-    }
-  }
-  const pressedAt = useRef<{ x: number; y: number } | undefined>(undefined)
 
   return (
     <div ref={host} className={cn("relative overflow-hidden", className)}>
@@ -467,36 +539,14 @@ export function BubbleCanvas({
         ref={canvas}
         role="img"
         aria-label={`Market Bubbles: ${bubbles.length} stock codes`}
-        className="absolute inset-0 size-full"
-        style={{ cursor: hovered === undefined ? "default" : "pointer" }}
-        onPointerMove={(event) => {
-          const at = pointAt(event)
-          const body = hit(at.x, at.y)
-          hoveredCode.current = body?.code
-          setHovered(body && { figures: body.figures, ...at })
-        }}
-        onPointerLeave={() => {
-          hoveredCode.current = undefined
-          setHovered(undefined)
-        }}
-        onPointerDown={(event) => {
-          pressedAt.current = pointAt(event)
-        }}
-        onPointerUp={(event) => {
-          const from = pressedAt.current
-          pressedAt.current = undefined
-          if (from === undefined) return
-          const at = pointAt(event)
-          if (Math.hypot(at.x - from.x, at.y - from.y) > CLICK_SLOP) return
-          const body = hit(at.x, at.y)
-          if (body !== undefined) pick.current(body.code)
-        }}
+        className="absolute inset-0 size-full touch-none"
+        style={{ cursor: pointerView.cursor }}
       />
-      {hovered && (
+      {pointerView.tip && (
         <BubbleTip
-          hovered={hovered}
+          hovered={pointerView.tip}
           view={view}
-          name={names.get(hovered.figures.code)}
+          name={names.get(pointerView.tip.figures.code)}
         />
       )}
     </div>
