@@ -93,8 +93,6 @@ interface CodeFlow {
   // The close of the newest minute let go from `minutes`: the price before
   // any window when the code traded in none of the minutes kept before it.
   closeBefore: { minute: number; close: number } | undefined
-  // Whether a backfill carried the code, and with it its previous close.
-  backfilled: boolean
 }
 
 export interface MarketFlow {
@@ -157,7 +155,6 @@ const codeFlowOf = (flow: MarketFlow, code: StockCode): CodeFlow => {
     day: emptyRow(),
     previousClose: undefined,
     closeBefore: undefined,
-    backfilled: false,
   }
   flow.codes.set(code, fresh)
   return fresh
@@ -273,19 +270,20 @@ export const applyBubbles = (flow: MarketFlow, body: RecordedBubbles) =>
       if (newest !== undefined) rows.day.close = code.minutes.get(newest)!.close
       code.day = rows.day
       code.previousClose = entry.previousClose ?? code.previousClose
-      code.backfilled = true
       pruneMinutes(flow, code)
     }
     flow.recount = false
   })
 
 // Whether the flow waits for a backfill: to carry the previous close of a
-// code first seen in a delta or the tape, or to recount the day totals after
-// an old candle changed. Only the backfill does either.
+// code that has none, as one first seen in a delta or the tape, or one the
+// body carried before its `liveprice` frame came; or to recount the day
+// totals after an old candle changed. Only the backfill does either.
 export const missingFromBackfill = (flow: MarketFlow) =>
   Effect.sync(() => {
     if (flow.recount) return true
-    for (const code of flow.codes.values()) if (!code.backfilled) return true
+    for (const code of flow.codes.values())
+      if (code.previousClose === undefined) return true
     return false
   })
 

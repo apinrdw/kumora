@@ -659,7 +659,10 @@ describe("day totals a backfill recounts", () => {
       const flow = yield* makeMarketFlow()
       const minutes = [minute(T0 - 2 * 60 * MIN, 1_000, 100)]
       for (let m = 60; m >= 0; m--) minutes.push(minute(T0 - m * MIN, 1, 100))
-      yield* applyBubbles(flow, body([{ code: "BBCA", minutes }]))
+      yield* applyBubbles(
+        flow,
+        body([{ code: "BBCA", previousClose: 100, minutes }])
+      )
       expect(yield* missingFromBackfill(flow)).toBe(false)
       // A relay backfill page brings a trade two hours back.
       yield* applyCandles(flow, [
@@ -670,7 +673,10 @@ describe("day totals a backfill recounts", () => {
         }),
       ])
       expect(yield* missingFromBackfill(flow)).toBe(true)
-      yield* applyBubbles(flow, body([{ code: "BBCA", minutes }]))
+      yield* applyBubbles(
+        flow,
+        body([{ code: "BBCA", previousClose: 100, minutes }])
+      )
       expect(yield* missingFromBackfill(flow)).toBe(false)
     })
   )
@@ -684,7 +690,13 @@ describe("codes the backfill hasn't carried", () => {
         const flow = yield* makeMarketFlow()
         yield* applyBubbles(
           flow,
-          body([{ code: "BBCA", minutes: [minute(T0, 1_000, 100)] }])
+          body([
+            {
+              code: "BBCA",
+              previousClose: 100,
+              minutes: [minute(T0, 1_000, 100)],
+            },
+          ])
         )
         expect(yield* missingFromBackfill(flow)).toBe(false)
         // BBRI first trades after the backfill loaded: no previous close yet.
@@ -695,7 +707,11 @@ describe("codes the backfill hasn't carried", () => {
         yield* applyBubbles(
           flow,
           body([
-            { code: "BBCA", minutes: [minute(T0, 1_000, 100)] },
+            {
+              code: "BBCA",
+              previousClose: 100,
+              minutes: [minute(T0, 1_000, 100)],
+            },
             {
               code: "BBRI",
               previousClose: 98,
