@@ -6,7 +6,7 @@ import { chartMinutes, panShift, windowAround } from "@/lib/chart-nav"
 const at = (wib: string) =>
   DateTime.toEpochMillis(DateTime.makeUnsafe(`2026-11-09T${wib}+07:00`))
 
-describe("chart 2's 10-minute window", () => {
+describe("the footprint chart's 10-minute window", () => {
   it.effect(
     "shows exactly 10 whole minutes around a minute: a range 9 wide on whole indices",
     () =>

@@ -1,5 +1,6 @@
-// Chart 1's shade over the minutes chart 2 shows, with teal edges (spec
-// apinrdw/kumora#263, "Window band"). Loaded only in the browser.
+// The candle chart's shade over the minutes the footprint chart shows, with
+// teal edges (spec apinrdw/kumora#263, "Window band"). Loaded only in the
+// browser.
 import type {
   IPrimitivePaneRenderer,
   IPrimitivePaneView,
@@ -47,7 +48,8 @@ class WindowBand implements ISeriesPrimitive<Time> {
   ]
 
   constructor(
-    // Chart 2's visible logical range: both charts draw the same minutes.
+    // The footprint chart's visible logical range: both charts draw the same
+    // minutes.
     private readonly range: () => BarRange | null,
     private readonly shade: string,
     private readonly edge: string
@@ -61,7 +63,7 @@ class WindowBand implements ISeriesPrimitive<Time> {
     this.attachedTo = undefined
   }
 
-  // Chart 2 moved.
+  // The footprint chart moved.
   update() {
     this.attachedTo?.requestUpdate()
   }
@@ -71,7 +73,8 @@ class WindowBand implements ISeriesPrimitive<Time> {
   }
 }
 
-// The band for chart 1's candle series, drawn over `range`'s whole bars.
+// The band for the candle chart's candle series, drawn over `range`'s whole
+// bars.
 export const makeWindowBand = (
   range: () => BarRange | null,
   shade: string,

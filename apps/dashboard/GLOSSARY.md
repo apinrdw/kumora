@@ -90,6 +90,14 @@ _Avoid_: Broker lots, filtered lots
 A candle's lots split by price and aggressor side: at each price it traded, the sell-aggressor lots and the buy-aggressor lots.
 _Avoid_: Cluster chart, volume profile (that is the whole day by price)
 
+**Footprint chart**:
+Market Live's upper chart: the selected stock code's footprint for each minute, with its delta. It shows a short window of minutes that the candle chart shades.
+_Avoid_: Chart 2
+
+**Candle chart**:
+Market Live's lower chart: the selected stock code's one-minute candles and volume, its sweeps drawn as bubbles over its book heatmap.
+_Avoid_: Chart 1, bubble chart
+
 **Delta**:
 Buy-aggressor lots minus sell-aggressor lots, for one candle or one price in it. Its running sum over the trading day is the cumulative delta.
 _Avoid_: Net volume

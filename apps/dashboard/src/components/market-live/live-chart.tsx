@@ -12,6 +12,7 @@ import { lastCloseAt } from "@/lib/recorded-day"
 import type { CandleStore } from "./candle-store"
 import type { ChartPair } from "./chart-pair"
 import { useDayState, type DayStateStore } from "./day-state-store"
+import { FootprintChart } from "./footprint-chart"
 import type { HeatmapStore } from "./heatmap-store"
 import { useAuctionIndicative, useMergedStale } from "./market-conditions"
 import type { ReplayCursor } from "./replay-cursor"
@@ -135,12 +136,14 @@ function ChartHeadline({
   )
 }
 
-// The selected code's 1-minute candles with volume, live from the viewer
-// socket through `store`. `search` sits in the header, to choose the code,
-// and `conditions` with it: the feed pills and the market phase.
-// On a recorded day, the candles after `cursor` are greyed and a clicked
-// candle moves it; `footer` sits under the chart. It moves with chart 2
-// through `pair`.
+// The selected code's chart column: its header, then `transport` on a
+// recorded day, then the footprint chart (only with `sweeps`: an index has
+// none), then the candle chart: the 1-minute candles with volume, live from the
+// viewer socket through `store`, with the sweep bubbles and the book heatmap.
+// `search` sits in the header, to choose the code, and `conditions` with it:
+// the feed pills and the market phase. On a recorded day, the candles after
+// `cursor` are greyed and a clicked candle moves it. The candle chart moves
+// with the footprint chart through `pair`.
 export function LiveChart({
   store,
   heatmap,
@@ -151,7 +154,7 @@ export function LiveChart({
   conditions,
   search,
   cursor,
-  footer,
+  transport,
 }: {
   store: CandleStore
   // The selected code's book heatmap, behind the candles.
@@ -165,7 +168,7 @@ export function LiveChart({
   conditions?: ReactNode
   search?: ReactNode
   cursor?: ReplayCursor | undefined
-  footer?: ReactNode
+  transport?: ReactNode
 }) {
   const count = useCandles(store, (candles) => candles.length, 0)
   const last = useLastClose(store, cursor)
@@ -175,55 +178,68 @@ export function LiveChart({
     <section
       aria-label="Chart"
       data-stale={stale || undefined}
-      className="flex min-w-0 flex-col gap-2 lg:flex-[1_1_auto]"
+      className="flex min-w-0 flex-col gap-4 lg:flex-[1_1_auto]"
     >
-      <header className="flex flex-wrap items-baseline gap-3">
-        <h2 className="text-lg font-bold">{store.code}</h2>
-        <ChartHeadline
-          code={store.code}
-          dayStates={dayStates}
-          lastClose={last}
-        />
-        {stale && <KStatusPill status="stale" />}
-        {conditions}
-        {search}
+      <div className="flex flex-col gap-2">
+        <header className="flex flex-wrap items-baseline gap-3">
+          <h2 className="text-lg font-bold">{store.code}</h2>
+          <ChartHeadline
+            code={store.code}
+            dayStates={dayStates}
+            lastClose={last}
+          />
+          {stale && <KStatusPill status="stale" />}
+          {conditions}
+          {search}
+        </header>
+        {transport}
+      </div>
+      {sweeps !== undefined && (
+        <FootprintChart store={store} pair={pair} gaps={gaps} cursor={cursor} />
+      )}
+      <section
+        aria-label="Candles"
+        className="flex min-w-0 flex-col gap-2 lg:flex-[1_1_auto]"
+      >
         {sweeps !== undefined && (
-          // Under the title on a phone.
-          <div className="max-lg:basis-full">
-            <TopNControl store={sweeps} cursor={cursor} />
+          <div className="flex flex-wrap items-center gap-3">
+            <h3 className="text-[15px] font-bold">Candles</h3>
+            {/* Under the title on a phone. */}
+            <div className="max-lg:basis-full">
+              <TopNControl store={sweeps} cursor={cursor} />
+            </div>
           </div>
         )}
-      </header>
-      {/* The canvas has no text: this says what it draws. */}
-      <p className="sr-only">One-minute candles: {count}</p>
-      <div
-        className={`flex min-h-0 flex-1 flex-col ${stale ? "opacity-50" : ""}`}
-      >
-        <ClientOnly fallback={<div className={CHART_HEIGHT} />}>
-          <Suspense fallback={<div className={CHART_HEIGHT} />}>
-            <ChartCanvas
-              store={store}
-              heatmap={heatmap}
-              sweeps={sweeps}
-              cursor={cursor}
-              gaps={gaps}
-              pair={pair}
-            />
-          </Suspense>
-        </ClientOnly>
-      </div>
-      {footer}
-      <p className="text-[11px] text-muted-foreground">
-        <a
-          href="https://www.tradingview.com/"
-          className="underline"
-          target="_blank"
-          rel="noreferrer"
+        {/* The canvas has no text: this says what it draws. */}
+        <p className="sr-only">One-minute candles: {count}</p>
+        <div
+          className={`flex min-h-0 flex-1 flex-col ${stale ? "opacity-50" : ""}`}
         >
-          TradingView Lightweight Charts™
-        </a>{" "}
-        / Copyright (с) 2025 TradingView, Inc.
-      </p>
+          <ClientOnly fallback={<div className={CHART_HEIGHT} />}>
+            <Suspense fallback={<div className={CHART_HEIGHT} />}>
+              <ChartCanvas
+                store={store}
+                heatmap={heatmap}
+                sweeps={sweeps}
+                cursor={cursor}
+                gaps={gaps}
+                pair={pair}
+              />
+            </Suspense>
+          </ClientOnly>
+        </div>
+        <p className="text-[11px] text-muted-foreground">
+          <a
+            href="https://www.tradingview.com/"
+            className="underline"
+            target="_blank"
+            rel="noreferrer"
+          >
+            TradingView Lightweight Charts™
+          </a>{" "}
+          / Copyright (с) 2025 TradingView, Inc.
+        </p>
+      </section>
     </section>
   )
 }

@@ -1,8 +1,8 @@
 import type { Locator } from "@playwright/test"
 
 /**
- * The pixels chart 1's volume pane draws in green (buy lots) and in red
- * (sell lots): its canvases are the wide ones in the lower half of the
+ * The pixels the candle chart's volume pane draws in green (buy lots) and in
+ * red (sell lots): its canvases are the wide ones in the lower half of the
  * chart, below the candles' pane. Greyed and no-side bars count in neither.
  */
 export const volumeInk = (chart: Locator) =>
@@ -28,8 +28,8 @@ export const volumeInk = (chart: Locator) =>
   })
 
 /**
- * Where chart 1 last drew the replay cursor line, in CSS px from the plot's
- * left edge: `x`, its minute's centre and the bar spacing.
+ * Where the candle chart last drew the replay cursor line, in CSS px from the
+ * plot's left edge: `x`, its minute's centre and the bar spacing.
  */
 export const cursorPlace = async (chart: Locator) => {
   const read = async (name: string) =>

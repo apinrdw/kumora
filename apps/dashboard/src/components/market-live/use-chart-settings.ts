@@ -75,8 +75,8 @@ export function useChartSettings() {
   return { settings, change }
 }
 
-// Chart 1's top-N, remembered: the code's sweep store opens on the saved
-// percent, and each change the control makes is saved.
+// The candle chart's top-N, remembered: the code's sweep store opens on the
+// saved percent, and each change the control makes is saved.
 export function useRememberedTopN(sweeps: SweepStore) {
   const { settings, change } = useChartSettings()
   useEffect(() => sweeps.setTopN(settings.topN), [sweeps, settings.topN])

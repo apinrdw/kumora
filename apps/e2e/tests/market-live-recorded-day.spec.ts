@@ -113,7 +113,7 @@ test("the day strip opens a recorded day at its close, it replays, and Today · 
     ([key, watched]) => window.localStorage.setItem(key, watched),
     [WATCHLIST_KEY, JSON.stringify([code])] as const
   )
-  // A desktop's width: 10 minutes of chart 2 then read as text.
+  // A desktop's width: 10 minutes of the footprint chart then read as text.
   await page.setViewportSize({ width: 1920, height: 1080 })
   await page.goto(`${DASHBOARD}${PAGE}?code=${code}`)
   const conditions = page.getByRole("group", { name: "Market conditions" })
@@ -150,12 +150,13 @@ test("the day strip opens a recorded day at its close, it replays, and Today · 
   )
 
   await expect(page.getByText("One-minute candles: 1")).toBeAttached()
-  // At the close, chart 1's volume bar shows the 5 lots bought in green.
+  // At the close, the candle chart's volume bar shows the 5 lots bought in
+  // green.
   const candles = page.locator('[data-chart="candles"]')
   await expect
     .poll(async () => (await volumeInk(candles)).buy)
     .toBeGreaterThan(0)
-  // Chart 2 draws the recorded footprint: 5 lots bought.
+  // The footprint chart draws the recorded footprint: 5 lots bought.
   const footprint = page.getByRole("region", { name: "Footprint" })
   const tradedMinute = `${time.slice(0, 5)}:00`
   await expect(footprint).toContainText(
@@ -191,7 +192,7 @@ test("the day strip opens a recorded day at its close, it replays, and Today · 
   await expect(row).toContainText("no data yet")
   // The footprint follows the cursor: its minute hasn't come yet.
   await expect(footprint).toContainText("Footprint minutes: 0")
-  // Chart 1's volume bar is greyed: its minute comes after the cursor.
+  // The candle chart's volume bar is greyed: its minute comes after the cursor.
   await expect.poll(() => volumeInk(candles)).toEqual({ buy: 0, sell: 0 })
   // The scrubber shades the gap.
   await expect(

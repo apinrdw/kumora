@@ -29,15 +29,15 @@ export interface HeatmapStore {
 }
 
 // The selected code's book heatmap outside React, like the candle store:
-// chart 1 reads it once when it mounts and then hears each change. On a live
-// day the slices up to the GET's join come from the Durable Object, and the
-// ones from it on are weighed here from the books the viewer socket sends,
+// the candle chart reads it once when it mounts and then hears each change. On
+// a live day the slices up to the GET's join come from the Durable Object, and
+// the ones from it on are weighed here from the books the viewer socket sends,
 // each in force from when it arrived; the current slice is weighed as if its
 // book holds to the slice's end. A book holds until the next one heard, so a
 // minute with no frame keeps it, up to where `date`'s slices stop
 // (`heatEndOf`), as in the GET's answer. Each snapshot of this code, a
-// reconnect's included, asks the GET again: the books a dropped socket
-// missed are the object's to answer, not the last one heard to stand in for.
+// reconnect's included, asks the GET again: the books a dropped socket missed
+// are the object's to answer, not the last one heard to stand in for.
 // Decision: "when it arrived" is on the object's clock, not the browser's,
 // which can run minutes off it (and does on the Test stage). The store keeps
 // the browser's clock (`now`) plus the largest offset seen from an instant

@@ -95,7 +95,7 @@ test.describe("signed in", () => {
     relay.close()
   })
 
-  test("chart 2 draws the selected code's footprint cells and footer as trades arrive", async ({
+  test("the footprint chart draws the selected code's footprint cells and footer as trades arrive", async ({
     page,
   }) => {
     const relay = await openIngest()
@@ -121,7 +121,7 @@ test.describe("signed in", () => {
         type: "SELL",
       }),
     ])
-    // A desktop's width: 10 minutes of chart 2 then read as text.
+    // A desktop's width: 10 minutes of the footprint chart then read as text.
     await page.setViewportSize({ width: 1920, height: 1080 })
     await page.goto(`${DASHBOARD}${PAGE}?code=${code}`)
     const footprint = page.getByRole("region", { name: "Footprint" })
@@ -154,7 +154,7 @@ test.describe("signed in", () => {
     relay.close()
   })
 
-  test("chart 2 opens on 10 minutes, pans with chart 1 both ways, zooms alone and shows a ladder of exact lots", async ({
+  test("the footprint chart opens on 10 minutes, pans with the candle chart both ways, zooms alone and shows a ladder of exact lots", async ({
     page,
   }) => {
     const relay = await openIngest()
@@ -189,17 +189,17 @@ test.describe("signed in", () => {
     await page.goto(`${DASHBOARD}${PAGE}?code=${code}`)
     const footprint = page.getByRole("region", { name: "Footprint" })
     await expect(footprint).toContainText("Footprint minutes: 20")
-    const chart1 = page.locator('[data-chart="candles"]')
-    const chart2 = page.locator('[data-chart="footprint"]')
+    const candleChart = page.locator('[data-chart="candles"]')
+    const footprintChart = page.locator('[data-chart="footprint"]')
     // Each chart's visible logical range, in bars.
-    const range = async (chart: typeof chart1) => {
+    const range = async (chart: typeof candleChart) => {
       const [from, to] = await Promise.all([
         chart.getAttribute("data-from"),
         chart.getAttribute("data-to"),
       ])
       return { from: Number(from), to: Number(to) }
     }
-    const width = async (chart: typeof chart1) => {
+    const width = async (chart: typeof candleChart) => {
       const { from, to } = await range(chart)
       return to - from
     }
@@ -212,8 +212,8 @@ test.describe("signed in", () => {
         .poll(
           async () => {
             const current = JSON.stringify([
-              await range(chart1),
-              await range(chart2),
+              await range(candleChart),
+              await range(footprintChart),
             ])
             const still = current === last
             last = current
@@ -222,16 +222,17 @@ test.describe("signed in", () => {
           { intervals: [250] }
         )
         .toBe(true)
-      return [await range(chart1), await range(chart2)] as const
+      return [await range(candleChart), await range(footprintChart)] as const
     }
 
     // Exactly 10 whole minutes: a range 9 bars wide.
-    await expect.poll(() => width(chart2)).toBe(9)
+    await expect.poll(() => width(footprintChart)).toBe(9)
     const [opened1, opened2] = await settled()
     expect(Number.isInteger(opened2.from)).toBe(true)
 
-    // Dragging chart 1 moves chart 2 by the same minutes, and back.
-    const box1 = (await chart1.boundingBox())!
+    // Dragging the candle chart moves the footprint chart by the same minutes,
+    // and back.
+    const box1 = (await candleChart.boundingBox())!
     const drag = async (dx: number) => {
       const y = box1.y + box1.height * 0.4
       await page.mouse.move(box1.x + box1.width / 2, y)
@@ -241,39 +242,46 @@ test.describe("signed in", () => {
     }
     await drag(240)
     await expect
-      .poll(async () => (await range(chart1)).from)
+      .poll(async () => (await range(candleChart)).from)
       .toBeLessThan(opened1.from - 1)
     await expect
       .poll(async () => {
-        const [one, two] = await Promise.all([range(chart1), range(chart2)])
+        const [one, two] = await Promise.all([
+          range(candleChart),
+          range(footprintChart),
+        ])
         return Math.abs(two.from - opened2.from - (one.from - opened1.from))
       })
       .toBeLessThan(0.05)
     await drag(-240)
     await expect
-      .poll(async () => (await range(chart2)).from.toFixed(1))
+      .poll(async () => (await range(footprintChart)).from.toFixed(1))
       .toBe(opened2.from.toFixed(1))
-    expect((await range(chart1)).from).toBeCloseTo(opened1.from, 1)
+    expect((await range(candleChart)).from).toBeCloseTo(opened1.from, 1)
 
-    // A horizontal wheel on chart 1 pans chart 2 too, and back.
+    // A horizontal wheel on the candle chart pans the footprint chart too, and
+    // back.
     await page.mouse.wheel(-150, 0)
     await page.mouse.wheel(-150, 0)
     await expect
-      .poll(async () => (await range(chart1)).from)
+      .poll(async () => (await range(candleChart)).from)
       .toBeLessThan(opened1.from - 1)
     await expect
       .poll(async () => {
-        const [one, two] = await Promise.all([range(chart1), range(chart2)])
+        const [one, two] = await Promise.all([
+          range(candleChart),
+          range(footprintChart),
+        ])
         return Math.abs(two.from - opened2.from - (one.from - opened1.from))
       })
       .toBeLessThan(0.05)
     await page.mouse.wheel(300, 0)
     await expect
-      .poll(async () => (await range(chart2)).from.toFixed(1))
+      .poll(async () => (await range(footprintChart)).from.toFixed(1))
       .toBe(opened2.from.toFixed(1))
 
-    // Hovering a minute on chart 2: its ladder of exact lots.
-    const box2 = (await chart2.boundingBox())!
+    // Hovering a minute on the footprint chart: its ladder of exact lots.
+    const box2 = (await footprintChart.boundingBox())!
     await page.mouse.move(box2.x + (box2.width - 72) / 2, box2.y + 120)
     const ladder = page.getByRole("tooltip", { name: "Footprint ladder" })
     await expect(ladder).toContainText("12,345")
@@ -282,7 +290,7 @@ test.describe("signed in", () => {
     await expect(ladder).toContainText("Δ−10,845")
     await expect(ladder.locator("tr[data-here]")).toHaveCount(1)
 
-    // Dragging chart 2 moves chart 1 by the same minutes.
+    // Dragging the footprint chart moves the candle chart by the same minutes.
     const [dragged1, dragged2] = await settled()
     const y2 = box2.y + 120
     await page.mouse.move(box2.x + box2.width / 2, y2)
@@ -290,28 +298,32 @@ test.describe("signed in", () => {
     await page.mouse.move(box2.x + box2.width / 2 + 300, y2, { steps: 8 })
     await page.mouse.up()
     await expect
-      .poll(async () => (await range(chart2)).from)
+      .poll(async () => (await range(footprintChart)).from)
       .toBeLessThan(dragged2.from - 1)
     await expect
       .poll(async () => {
-        const [one, two] = await Promise.all([range(chart1), range(chart2)])
+        const [one, two] = await Promise.all([
+          range(candleChart),
+          range(footprintChart),
+        ])
         return Math.abs(one.from - dragged1.from - (two.from - dragged2.from))
       })
       .toBeLessThan(0.05)
 
-    // The wheel zooms chart 2 alone.
-    const before1 = await range(chart1)
+    // The wheel zooms the footprint chart alone.
+    const before1 = await range(candleChart)
     await page.mouse.wheel(0, -600)
-    await expect.poll(() => width(chart2)).toBeLessThan(9)
-    expect(await range(chart1)).toEqual(before1)
+    await expect.poll(() => width(footprintChart)).toBeLessThan(9)
+    expect(await range(candleChart)).toEqual(before1)
 
-    // A click on chart 1 jumps chart 2 there, back at 10 minutes.
+    // A click on the candle chart jumps the footprint chart there, back at 10
+    // minutes.
     await page.mouse.click(box1.x + box1.width * 0.6, box1.y + box1.height / 2)
-    await expect.poll(() => width(chart2)).toBe(9)
+    await expect.poll(() => width(footprintChart)).toBe(9)
     relay.close()
   })
 
-  test("a new minute scrolls chart 1 on and leaves chart 2 where it was dragged, the pointer resting on chart 1", async ({
+  test("a new minute scrolls the candle chart on and leaves the footprint chart where it was dragged, the pointer resting on the candle chart", async ({
     page,
   }) => {
     const relay = await openIngest()
@@ -337,9 +349,9 @@ test.describe("signed in", () => {
     await expect(page.getByRole("region", { name: "Footprint" })).toContainText(
       "Footprint minutes: 20"
     )
-    const chart1 = page.locator('[data-chart="candles"]')
-    const chart2 = page.locator('[data-chart="footprint"]')
-    const range = async (chart: typeof chart1) => ({
+    const candleChart = page.locator('[data-chart="candles"]')
+    const footprintChart = page.locator('[data-chart="footprint"]')
+    const range = async (chart: typeof candleChart) => ({
       from: Number(await chart.getAttribute("data-from")),
       to: Number(await chart.getAttribute("data-to")),
     })
@@ -350,8 +362,8 @@ test.describe("signed in", () => {
         .poll(
           async () => {
             const current = JSON.stringify([
-              await range(chart1),
-              await range(chart2),
+              await range(candleChart),
+              await range(footprintChart),
             ])
             const still = current === last
             last = current
@@ -360,20 +372,20 @@ test.describe("signed in", () => {
           { intervals: [250] }
         )
         .toBe(true)
-      return [await range(chart1), await range(chart2)] as const
+      return [await range(candleChart), await range(footprintChart)] as const
     }
     await expect
       .poll(async () => {
-        const { from, to } = await range(chart2)
+        const { from, to } = await range(footprintChart)
         return to - from
       })
       .toBe(9)
     const [, opened2] = await settled()
 
-    // Chart 2 dragged back, its newest minute out of view; then the pointer
-    // rests on chart 1.
-    const box1 = (await chart1.boundingBox())!
-    const box2 = (await chart2.boundingBox())!
+    // The footprint chart dragged back, its newest minute out of view; then the
+    // pointer rests on the candle chart.
+    const box1 = (await candleChart.boundingBox())!
+    const box2 = (await footprintChart.boundingBox())!
     await page.mouse.move(box2.x + box2.width / 2, box2.y + 120)
     await page.mouse.down()
     await page.mouse.move(box2.x + box2.width / 2 + 300, box2.y + 120, {
@@ -381,21 +393,22 @@ test.describe("signed in", () => {
     })
     await page.mouse.up()
     await expect
-      .poll(async () => (await range(chart2)).from)
+      .poll(async () => (await range(footprintChart)).from)
       .toBeLessThan(opened2.from - 1)
     await page.mouse.move(box1.x + box1.width / 2, box1.y + box1.height * 0.4)
     const [rested1, rested2] = await settled()
 
-    // A minute after every one drawn: chart 1 scrolls on a bar by itself.
+    // A minute after every one drawn: the candle chart scrolls on a bar by
+    // itself.
     await relay.sendAjaib([trade(21, now + 2 * 60_000)])
     await expect
-      .poll(async () => (await range(chart1)).from)
+      .poll(async () => (await range(candleChart)).from)
       .toBeCloseTo(rested1.from + 1, 1)
     expect((await settled())[1]).toEqual(rested2)
     relay.close()
   })
 
-  test("chart 1's volume pane splits each minute into buy and sell lots", async ({
+  test("the candle chart's volume pane splits each minute into buy and sell lots", async ({
     page,
   }) => {
     const relay = await openIngest()

@@ -1,6 +1,6 @@
 // The chart settings a browser remembers (spec apinrdw/kumora#263,
-// "Settings"): chart 1's top-N, and chart 2's view mode, imbalance ratio and
-// POC and VWAP toggles.
+// "Settings"): the candle chart's top-N, and the footprint chart's view mode,
+// imbalance ratio and POC and VWAP toggles.
 import { Effect, Schema } from "effect"
 
 import { TOP_N_DEFAULT } from "./sweeps"

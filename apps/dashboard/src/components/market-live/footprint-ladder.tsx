@@ -1,6 +1,6 @@
-// Chart 2's hover ladder (spec apinrdw/kumora#263, "Hover ladder"): over
-// the chart, beside the pointer, the hovered minute's exact sell, price and
-// buy per level, then Vol, Δ and CVD. The canvas sets what is hovered.
+// The footprint chart's hover ladder (spec apinrdw/kumora#263, "Hover ladder"):
+// over the chart, beside the pointer, the hovered minute's exact sell, price
+// and buy per level, then Vol, Δ and CVD. The canvas sets what is hovered.
 import { useSyncExternalStore } from "react"
 
 import type { Ladder } from "@/lib/footprint-ladder"

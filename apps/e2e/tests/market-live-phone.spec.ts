@@ -14,7 +14,7 @@ const PAGE = "/market-live"
 
 test.use({ storageState: MEMBER.storageState })
 
-test("an index shows candles and total volume, and one line in place of chart 2 and the sweep log", async ({
+test("an index shows candles and total volume, and one line in place of the footprint chart and the sweep log", async ({
   page,
 }) => {
   await page.setViewportSize({ width: 1920, height: 1080 })
@@ -28,8 +28,6 @@ test("an index shows candles and total volume, and one line in place of chart 2 
   const chart = page.getByRole("region", { name: "Chart" })
   await expect(chart.getByRole("heading", { name: "IHSG" })).toBeVisible()
   await expect(chart.locator('[data-chart="candles"]')).toBeVisible()
-  await expect(page.getByText("An index has no order flow")).toHaveCount(1)
-  await expect(page.getByText("An index has no order flow")).toBeVisible()
   await expect(page.getByRole("region", { name: "Footprint" })).toHaveCount(0)
   await expect(page.getByRole("region", { name: "Sweep log" })).toHaveCount(0)
   // No top-N filter, as no bubbles are drawn.
@@ -38,7 +36,7 @@ test("an index shows candles and total volume, and one line in place of chart 2 
   // An index has no order flow to ask for.
   expect(orderFlow).toEqual([])
 
-  // A share again: chart 2 and the log are back, and their GETs go.
+  // A share again: the footprint chart and the log are back, and their GETs go.
   const asked = Promise.all([
     page.waitForRequest(/\/heatmap\/BBCA$/),
     page.waitForRequest(/\/sweeps\/BBCA$/),
@@ -47,7 +45,6 @@ test("an index shows candles and total volume, and one line in place of chart 2 
   await asked
   await expect(page.getByRole("region", { name: "Footprint" })).toBeVisible()
   await expect(page.getByRole("region", { name: "Sweep log" })).toBeVisible()
-  await expect(page.getByText("An index has no order flow")).toHaveCount(0)
 })
 
 test.describe("on a phone", () => {
@@ -121,12 +118,12 @@ test.describe("on a phone", () => {
     const chart = page.getByRole("region", { name: "Chart" })
     const footprint = page.getByRole("region", { name: "Footprint" })
     await expect(footprint).toContainText("Footprint minutes: 20")
-    const chart1 = page.locator('[data-chart="candles"]')
-    const chart2 = page.locator('[data-chart="footprint"]')
+    const candleChart = page.locator('[data-chart="candles"]')
+    const footprintChart = page.locator('[data-chart="footprint"]')
 
-    // Chart 1, then chart 2, each across the page.
-    const box1 = (await chart1.boundingBox())!
-    const box2 = (await chart2.boundingBox())!
+    // The footprint chart, then the candle chart, each across the page.
+    const box1 = (await footprintChart.boundingBox())!
+    const box2 = (await candleChart.boundingBox())!
     expect(box1.width).toBeGreaterThan(300)
     expect(Math.abs(box2.width - box1.width)).toBeLessThan(2)
     expect(box2.y).toBeGreaterThan(box1.y + box1.height)
@@ -142,7 +139,7 @@ test.describe("on a phone", () => {
     expect(
       await below(
         chart.getByLabel("Top N percent of sweeps"),
-        chart.getByRole("heading", { name: code })
+        chart.getByRole("heading", { name: "Candles" })
       )
     ).toBe(true)
     expect(
@@ -184,7 +181,8 @@ test.describe("on a phone", () => {
     // The tab is in the URL, so a shared link opens on it.
     await expect(page).toHaveURL(/[?&]panel=tape(&|$)/)
 
-    // A finger dragged across chart 1 pans chart 2 by the same minutes.
+    // A finger dragged across the candle chart pans the footprint chart by the
+    // same minutes.
     const range = async (host: Locator) => ({
       from: Number(await host.getAttribute("data-from")),
       to: Number(await host.getAttribute("data-to")),
@@ -195,8 +193,8 @@ test.describe("on a phone", () => {
         .poll(
           async () => {
             const current = JSON.stringify([
-              await range(chart1),
-              await range(chart2),
+              await range(candleChart),
+              await range(footprintChart),
             ])
             const still = current === last
             last = current
@@ -205,32 +203,40 @@ test.describe("on a phone", () => {
           { intervals: [250] }
         )
         .toBe(true)
-      return [await range(chart1), await range(chart2)] as const
+      return [await range(candleChart), await range(footprintChart)] as const
     }
-    await expect.poll(async () => (await range(chart2)).to).toBeGreaterThan(0)
-    const [opened1, opened2] = await settled()
-    await chart1.scrollIntoViewIfNeeded()
-    await touchDrag(page, chart1, 150)
     await expect
-      .poll(async () => (await range(chart1)).from)
+      .poll(async () => (await range(footprintChart)).to)
+      .toBeGreaterThan(0)
+    const [opened1, opened2] = await settled()
+    await candleChart.scrollIntoViewIfNeeded()
+    await touchDrag(page, candleChart, 150)
+    await expect
+      .poll(async () => (await range(candleChart)).from)
       .toBeLessThan(opened1.from - 1)
     await expect
       .poll(async () => {
-        const [one, two] = await Promise.all([range(chart1), range(chart2)])
+        const [one, two] = await Promise.all([
+          range(candleChart),
+          range(footprintChart),
+        ])
         return Math.abs(two.from - opened2.from - (one.from - opened1.from))
       })
       .toBeLessThan(0.05)
 
-    // And a finger on chart 2 pans chart 1.
+    // And a finger on the footprint chart pans the candle chart.
     const [dragged1, dragged2] = await settled()
-    await chart2.scrollIntoViewIfNeeded()
-    await touchDrag(page, chart2, -150)
+    await footprintChart.scrollIntoViewIfNeeded()
+    await touchDrag(page, footprintChart, -150)
     await expect
-      .poll(async () => (await range(chart2)).from)
+      .poll(async () => (await range(footprintChart)).from)
       .toBeGreaterThan(dragged2.from + 1)
     await expect
       .poll(async () => {
-        const [one, two] = await Promise.all([range(chart1), range(chart2)])
+        const [one, two] = await Promise.all([
+          range(candleChart),
+          range(footprintChart),
+        ])
         return Math.abs(one.from - dragged1.from - (two.from - dragged2.from))
       })
       .toBeLessThan(0.05)

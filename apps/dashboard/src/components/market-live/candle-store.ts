@@ -17,7 +17,8 @@ export interface CandleStore {
   readonly code: StockCode
   // The selected code's candles, ascending by minute.
   readonly candles: () => ReadonlyArray<Candle>
-  // The selected code's footprints, ascending by minute: chart 2's cells.
+  // The selected code's footprints, ascending by minute: the footprint chart's
+  // cells.
   readonly footprints: () => ReadonlyArray<Footprint>
   readonly apply: (message: ViewerDown) => void
   readonly subscribe: (listener: (change: CandleChange) => void) => () => void

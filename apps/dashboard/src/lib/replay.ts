@@ -147,11 +147,11 @@ export const gapMinutes = Effect.fnUntraced(function* (
 })
 
 /**
- * Where the replay cursor `at` sits among the bars chart 1 draws (candles and
- * gap whitespace, `times` ascending, in seconds), as a logical bar index:
- * its minute's bar plus the fraction of the minute gone, so a mid-minute
- * cursor lies between its minute's centre and the next; with no bar of its
- * own, half a bar past the latest bar before it.
+ * Where the replay cursor `at` sits among the bars the candle chart draws
+ * (candles and gap whitespace, `times` ascending, in seconds), as a logical bar
+ * index: its minute's bar plus the fraction of the minute gone, so a mid-minute
+ * cursor lies between its minute's centre and the next; with no bar of its own,
+ * half a bar past the latest bar before it.
  */
 export const cursorLogical = Effect.fnUntraced(function* (
   times: ReadonlyArray<number>,

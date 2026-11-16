@@ -1,5 +1,6 @@
-// Chart 2's two-line header (spec apinrdw/kumora#263, "Header readout"): one
-// minute's whole picture in exact figures, the hovered one or the cursor's.
+// The footprint chart's two-line header (spec apinrdw/kumora#263, "Header
+// readout"): one minute's whole picture in exact figures, the hovered one or
+// the cursor's.
 import { Effect } from "effect"
 
 import type { FootprintColumn } from "./footprint"

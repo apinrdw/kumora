@@ -1,6 +1,7 @@
-// Chart 2, the selected code's footprint (spec apinrdw/kumora#263, "Chart
-// 2"): Lightweight Charts, loaded only in the browser (footprint-chart.tsx
-// lazy-loads this module inside ClientOnly), so the Worker never bundles it.
+// The footprint chart, the selected code's footprint (spec apinrdw/kumora#263,
+// "Chart 2"): Lightweight Charts, loaded only in the browser
+// (footprint-chart.tsx lazy-loads this module inside ClientOnly), so the Worker
+// never bundles it.
 //
 // Layout for the tickets after apinrdw/kumora#264:
 // - pane 0: `FootprintView`, a custom series of one `FootprintColumn` per
@@ -9,8 +10,8 @@
 // - pane 1: `FooterView`, the Vol / Δ / CVD cells, with `FooterLabels` in
 //   the price-scale strip.
 // - chart-pair.ts opens and refits its 10-minute window and pans it with
-//   chart 1; price-axis.ts labels its IDX ticks and caps its rows; the hover
-//   ladder is footprint-ladder.tsx.
+//   the candle chart; price-axis.ts labels its IDX ticks and caps its rows; the
+//   hover ladder is footprint-ladder.tsx.
 import { MINUTE_MS } from "@workspace/relay"
 import type { RelayGap } from "@workspace/relay"
 import { Effect } from "effect"
@@ -59,12 +60,12 @@ import type { ReplayCursor } from "./replay-cursor"
 type Target = Parameters<ICustomSeriesPaneRenderer["draw"]>[0]
 type Scope = Parameters<Parameters<Target["useBitmapCoordinateSpace"]>[0]>[0]
 
-// One minute of chart 2 as both its series hold it.
+// One minute of the footprint chart as both its series hold it.
 interface ColumnItem extends CustomData<Time> {
   readonly column: FootprintColumn
 }
 
-// The theme tokens chart 2 draws with.
+// The theme tokens the footprint chart draws with.
 interface Palette {
   readonly up: string
   readonly down: string
@@ -151,8 +152,8 @@ class Drawing {
   }
 }
 
-// What chart 2's view draws by setting: its view mode, and whether it
-// outlines each minute's POC.
+// What the footprint chart's view draws by setting: its view mode, and whether
+// it outlines each minute's POC.
 interface ViewOptions {
   readonly mode: FootprintMode
   readonly poc: boolean
@@ -777,7 +778,7 @@ class FooterLabels implements ISeriesPrimitive<Time> {
 }
 
 // The selected code's footprint and footer, drawn from the candle store on
-// chart 1's minutes, relay `gaps` as whitespace. A change redraws both
+// the candle chart's minutes, relay `gaps` as whitespace. A change redraws both
 // series at most once an animation frame; a snapshot (or a cursor on another
 // minute) also reopens the 10-minute window. With `cursor`, a recorded day:
 // the minutes after the cursor's are grey. Hovering a minute shows its
@@ -827,7 +828,7 @@ export default function FootprintCanvas({
         background: { color: "transparent" },
         textColor: palette.muted,
         fontSize: 11,
-        // Chart 1 carries the attribution, with the link under it.
+        // The candle chart carries the attribution, with the link under it.
         attributionLogo: false,
         panes: { separatorColor: palette.border },
       },
@@ -938,8 +939,8 @@ export default function FootprintCanvas({
         : Math.floor(cursor.state().at / MINUTE_MS) * MINUTE_MS
     let shownMinute = cursorMinute()
     let columns: ReadonlyArray<FootprintColumn> = []
-    // Every minute drawn, relay gaps' whitespace included, as chart 1 draws
-    // them.
+    // Every minute drawn, relay gaps' whitespace included, as the candle chart
+    // draws them.
     let minutes: ReadonlyArray<number> = []
     const redraw = () => {
       const candles = store.candles()

@@ -173,10 +173,11 @@ afterEach(() => {
 })
 
 const COLORS = { shade: "#0001", edge: "#000" }
-// Chart 2 draws 70 minutes, a bar each.
+// The footprint chart draws 70 minutes, a bar each.
 const MINUTES = Array.from({ length: 70 }, (_, index) => index * 60_000)
 
-// Chart 1 on 131 bars and chart 2 on its 10 minutes, attached to one pair.
+// The candle chart on 131 bars and the footprint chart on its 10 minutes,
+// attached to one pair.
 const paired = (
   candles = chartShowing({ from: -65, to: 65 }),
   footprint = chartShowing({ from: 52, to: 61 })
@@ -206,7 +207,7 @@ const paired = (
 }
 
 describe("a pan gesture on one chart moves the other by the same bars", () => {
-  it("a mouse drag on chart 1 whose data arrived after it attached", () => {
+  it("a mouse drag on the candle chart whose data arrived after it attached", () => {
     const { candles, footprint, frame, drag } = paired(chartShowing(null))
     candles.show({ from: -65, to: 65 })
     frame()
@@ -216,7 +217,7 @@ describe("a pan gesture on one chart moves the other by the same bars", () => {
     expect(footprint.range()).toEqual({ from: 44, to: 53 })
   })
 
-  it("a mouse drag on chart 1, from its first bar, when chart 1 was drawn before it attached", () => {
+  it("a mouse drag on the candle chart, from its first bar, when the candle chart was drawn before it attached", () => {
     const { candles, footprint, drag } = paired()
 
     drag(candles, -5)
@@ -238,7 +239,7 @@ describe("a pan gesture on one chart moves the other by the same bars", () => {
     expect(footprint.range()).toEqual({ from: 44, to: 53 })
   })
 
-  it("a horizontal wheel on chart 1, each notch before the last one is painted", () => {
+  it("a horizontal wheel on the candle chart, each notch before the last one is painted", () => {
     const { candles, footprint, frame } = paired()
 
     candles.wheel({ x: 2 })
@@ -251,7 +252,7 @@ describe("a pan gesture on one chart moves the other by the same bars", () => {
     expect(footprint.range()).toEqual({ from: 57, to: 66 })
   })
 
-  it("a touch drag on chart 2, and its coast after the finger lifts", () => {
+  it("a touch drag on the footprint chart, and its coast after the finger lifts", () => {
     const { candles, footprint, frame } = paired()
 
     footprint.touch()
@@ -289,7 +290,7 @@ describe("a pan gesture on one chart moves the other by the same bars", () => {
 })
 
 describe("a zoom", () => {
-  it("by a vertical wheel on chart 2 leaves chart 1 where it was", () => {
+  it("by a vertical wheel on the footprint chart leaves the candle chart where it was", () => {
     const { candles, footprint, frame } = paired()
 
     footprint.wheel({ y: -100 })
@@ -301,17 +302,21 @@ describe("a zoom", () => {
   })
 })
 
-// What the pointer did last on chart 1 before the range changed.
+// What the pointer did last on the candle chart before the range changed.
 const BEFORE: Record<string, (charts: ReturnType<typeof paired>) => void> = {
-  "the pointer resting on chart 1": ({ candles }) => candles.rest(),
-  "a right click on chart 1": ({ candles }) => candles.rightClick(),
-  "a finished drag on chart 1": ({ candles, drag }) => drag(candles, -4),
-  "a finished wheel pan on chart 1": ({ candles, frame }) => {
+  "the pointer resting on the candle chart": ({ candles }) => candles.rest(),
+  "a right click on the candle chart": ({ candles }) => candles.rightClick(),
+  "a finished drag on the candle chart": ({ candles, drag }) =>
+    drag(candles, -4),
+  "a finished wheel pan on the candle chart": ({ candles, frame }) => {
     candles.wheel({ x: -4 })
     frame()
     frame()
   },
-  "a touch pan on chart 1 that has coasted to a stop": ({ candles, frame }) => {
+  "a touch pan on the candle chart that has coasted to a stop": ({
+    candles,
+    frame,
+  }) => {
     candles.touch()
     candles.shift(-4)
     frame()
@@ -321,12 +326,18 @@ const BEFORE: Record<string, (charts: ReturnType<typeof paired>) => void> = {
   },
 }
 
-// Each way chart 1's range moves, its width kept, with no gesture on it.
+// Each way the candle chart's range moves, its width kept, with no gesture on
+// it.
 const UNPANNED: Record<string, (candles: FakeChart) => void> = {
-  "a new minute scrolls chart 1 a bar on": (candles) => candles.shift(1),
-  "a dropped minute redraws chart 1 a bar back": (candles) => candles.shift(-1),
-  "a relay gap's minutes appear in chart 1": (candles) => candles.shift(3),
-  "a sweep picked in the log centres chart 1 on its minute": (candles) => {
+  "a new minute scrolls the candle chart a bar on": (candles) =>
+    candles.shift(1),
+  "a dropped minute redraws the candle chart a bar back": (candles) =>
+    candles.shift(-1),
+  "a relay gap's minutes appear in the candle chart": (candles) =>
+    candles.shift(3),
+  "a sweep picked in the log centres the candle chart on its minute": (
+    candles
+  ) => {
     const { from, to } = candles.range()!
     candles.side.chart
       .timeScale()
@@ -337,7 +348,7 @@ const UNPANNED: Record<string, (candles: FakeChart) => void> = {
 describe("a range change with no gesture moves its own chart alone", () => {
   for (const [before, pointer] of Object.entries(BEFORE))
     for (const [change, apply] of Object.entries(UNPANNED))
-      it(`${change}, after ${before}: chart 2 stays`, () => {
+      it(`${change}, after ${before}: the footprint chart stays`, () => {
         const charts = paired()
         pointer(charts)
         const settled = charts.footprint.range()
@@ -349,7 +360,7 @@ describe("a range change with no gesture moves its own chart alone", () => {
         expect(charts.footprint.range()).toEqual(settled)
       })
 
-  it("a new minute scrolls both charts a bar on, chart 2 having led last and the pointer resting on chart 1: chart 2 goes on one bar", () => {
+  it("a new minute scrolls both charts a bar on, the footprint chart having led last and the pointer resting on the candle chart: the footprint chart goes on one bar", () => {
     const { candles, footprint, frame, drag } = paired()
     drag(footprint, -3)
     candles.rest()
@@ -362,7 +373,7 @@ describe("a range change with no gesture moves its own chart alone", () => {
     expect(footprint.range()).toEqual({ from: 50, to: 59 })
   })
 
-  it("new minutes scrolled both charts on since chart 2's window was set: the next drag on chart 1 moves chart 2 from where it is", () => {
+  it("new minutes scrolled both charts on since the footprint chart's window was set: the next drag on the candle chart moves the footprint chart from where it is", () => {
     const { pair, candles, footprint, frame, drag } = paired()
     pair.jumpTo(57 * 60_000)
     frame()
@@ -379,8 +390,9 @@ describe("a range change with no gesture moves its own chart alone", () => {
   })
 })
 
-describe("chart 2's own refit moves chart 2 alone", () => {
-  // Each with a gesture on chart 2 just before, so chart 2 led last.
+describe("the footprint chart's own refit moves the footprint chart alone", () => {
+  // Each with a gesture on the footprint chart just before, so the footprint
+  // chart led last.
   const REFITS: Record<
     string,
     (charts: ReturnType<typeof paired>) => BarRange
@@ -401,7 +413,7 @@ describe("chart 2's own refit moves chart 2 alone", () => {
     },
   }
   for (const [refit, apply] of Object.entries(REFITS))
-    it(`${refit}, after a drag on chart 2: chart 1 stays`, () => {
+    it(`${refit}, after a drag on the footprint chart: the candle chart stays`, () => {
       const charts = paired()
       charts.drag(charts.footprint, -3)
       const settled = charts.candles.range()
@@ -414,7 +426,7 @@ describe("chart 2's own refit moves chart 2 alone", () => {
       expect(charts.candles.range()).toEqual(settled)
     })
 
-  it("a jump painted after the pointer went down on chart 2: chart 1 stays", () => {
+  it("a jump painted after the pointer went down on the footprint chart: the candle chart stays", () => {
     const { pair, candles, footprint, frame } = paired()
     pair.jumpTo(30 * 60_000)
     vi.advanceTimersToNextFrame()
@@ -429,8 +441,8 @@ describe("chart 2's own refit moves chart 2 alone", () => {
   })
 })
 
-describe("a drag on chart 2 begun before its jump is painted", () => {
-  it("moves chart 1 by the drag alone, not by the jump", () => {
+describe("a drag on the footprint chart begun before its jump is painted", () => {
+  it("moves the candle chart by the drag alone, not by the jump", () => {
     const { pair, candles, footprint, frame } = paired()
     pair.jumpTo(30 * 60_000)
     vi.advanceTimersToNextFrame()
