@@ -1,8 +1,9 @@
 // The steps that parse an archive's months into parsed holdings: `reconcile`
 // picks the months to parse (months-to-parse.ts), then one `parse:<date>`
 // step per month. Every parse run (parse-runs.ts) runs them: the
-// classification parse run on classification reports, the KSEI parse run on
-// Securities holdings reports.
+// classification parse run on classification reports, the investor-type
+// parse run on holdings by investor type reports, the KSEI parse run on Securities
+// holdings reports.
 import {
   NonRetryable,
   type StepFailed,
