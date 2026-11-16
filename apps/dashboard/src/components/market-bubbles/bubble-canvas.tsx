@@ -77,6 +77,17 @@ const GAP = 1.5
 
 const NO_NAMES: ReadonlyMap<StockCode, string> = new Map()
 
+// A logo's width, as a share of its bubble's radius up to a cap, and the
+// gap below it, as a share of its width.
+const LOGO_SHARE = 0.55
+const LOGO_MAX = 64
+const LOGO_GAP = 0.12
+
+// A code's logo, served by the dashboard itself (src/routes/logos/$code.ts).
+// Decision: same origin, so drawing it never taints the canvas and the
+// snapshot still exports. See apinrdw/kumora#432.
+const logoPath = (code: StockCode) => `/logos/${encodeURIComponent(code)}`
+
 // Every bubble of `bubbles` on one canvas, sized by `view`'s size metric and
 // toned by its colour metric, easing between the figures each recompute
 // brings. A code that leaves shrinks out and one that joins grows in.
@@ -99,6 +110,9 @@ export function BubbleCanvas({
   const canvas = useRef<HTMLCanvasElement>(null)
   const bodies = useRef(new Map<StockCode, Body>())
   const hoveredCode = useRef<StockCode | undefined>(undefined)
+  // Each code's logo once asked for: loading or loaded, or null once it
+  // failed (no logo for the code), so it is asked for once a page.
+  const logos = useRef(new Map<StockCode, HTMLImageElement | null>())
   const pick = useRef(onPick)
   const [hovered, setHovered] = useState<Hovered | undefined>(undefined)
 
@@ -279,13 +293,45 @@ export function BubbleCanvas({
       }
     }
 
+    // The code's logo, once it has loaded; the first ask starts the load.
+    const logoOf = (code: StockCode) => {
+      const held = logos.current
+      if (!held.has(code)) {
+        const image = new Image()
+        image.addEventListener("error", () => held.set(code, null))
+        image.src = logoPath(code)
+        held.set(code, image)
+      }
+      const image = held.get(code)
+      return image?.complete === true && image.naturalWidth > 0
+        ? image
+        : undefined
+    }
+
+    // How wide a bubble draws its logo, or 0 without one.
+    const logoWidth = (body: Body, radius: number) =>
+      radius >= LABEL_RADII.logo && logoOf(body.code) !== undefined
+        ? Math.min(radius * LOGO_SHARE, LOGO_MAX)
+        : 0
+
     const label = (body: Body, radius: number) => {
       if (radius < LABEL_RADII.code) return
       const lines =
         radius >= LABEL_RADII.figure ? 3 : radius >= LABEL_RADII.metric ? 2 : 1
       const size = Math.max(8, Math.min(30, radius * 0.36))
       const lineHeight = size * 0.95
-      const top = body.y - (lines - 1) * lineHeight * 0.5
+      // The logo sits above the code, and the whole block stays centred.
+      const across = logoWidth(body, radius)
+      const room = across * (1 + LOGO_GAP)
+      const top = body.y - (lines - 1) * lineHeight * 0.5 + room / 2
+      if (across > 0)
+        context.drawImage(
+          logoOf(body.code)!,
+          body.x - across / 2,
+          top - lineHeight * 0.5 - room,
+          across,
+          across
+        )
       context.textAlign = "center"
       context.textBaseline = "middle"
       context.fillStyle = palette.label
