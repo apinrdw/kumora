@@ -7,12 +7,15 @@ import {
   BrokerCode,
   StockCode,
   WibDate,
+  type RunningTrade,
   type TradeFields,
 } from "@workspace/relay"
 import { DateTime, Effect } from "effect"
 import { TestClock } from "effect/testing"
+import { expectTypeOf } from "vitest"
 
 import { readBrokerTotals } from "@/server/broker-totals/db"
+import type { BrokerCodesStore } from "@/server/market-live/broker-codes"
 import { BROKER_TOTALS_VERSION } from "@/server/market-live/broker-totals"
 
 import { memoryBrokerTotalsDb } from "../broker-totals/memory-broker-totals-db"
@@ -611,4 +614,13 @@ describe("a failed broker totals build", () => {
       })
     })
   )
+})
+
+describe("a held trade", () => {
+  it("carries its board as the tape's Board, not a bare string", () => {
+    type Page = Effect.Success<ReturnType<BrokerCodesStore["heldTradesPage"]>>
+    expectTypeOf<NonNullable<Page>["trades"][number]["board"]>().toEqualTypeOf<
+      RunningTrade["board"]
+    >()
+  })
 })
