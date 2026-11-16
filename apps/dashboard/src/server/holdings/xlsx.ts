@@ -151,6 +151,9 @@ const READ_TYPES: ReadonlySet<string> = new Set([
 ])
 
 // A boolean cell's value as Excel shows it.
+// Decision: read, not refused: Excel's autocorrect wrote the stock code TRUE
+// as a boolean in IDX's Apr 2026 investor-type report. As text, a boolean in
+// a share column still fails as no share count. See apinrdw/kumora#395.
 const BOOLEAN_TEXT = new Map([
   ["0", "FALSE"],
   ["1", "TRUE"],
@@ -163,10 +166,6 @@ const BOOLEAN_TEXT = new Map([
 // fails the report: an error or date names no stock or share count, an error
 // read as text stored `#N/A` as a stock, and an inline string read as no
 // value dropped a stock while its month was replaced.
-// Decision: a boolean reads as the text Excel shows, not refused: Excel's
-// autocorrect wrote the stock code TRUE as one in IDX's Apr 2026
-// investor-type report, so refusing it failed the month. As text, a boolean
-// in a share column still fails as no share count. See apinrdw/kumora#395.
 const cellValue = Effect.fnUntraced(function* (
   ref: string,
   attributes: string,

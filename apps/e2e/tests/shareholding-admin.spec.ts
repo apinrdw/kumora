@@ -257,12 +257,10 @@ test.describe("an admin's archive history", () => {
 })
 
 // Decision: serial, and the only spec writing reports/, so the totals are
-// exact before the parse runs' tests store their reports. Those tests' parses
-// write the Test stage's one HoldingsDb, which stocks.spec.ts seeds and
-// reads, unserialized: the classification report is stored as Dec 2025,
-// before every month that spec seeds, and no test there opens or compares
-// against it; the investor-type report holds only AADI and TRUE, stocks that
-// spec never opens.
+// exact before the parse runs store reports into the HoldingsDb that
+// stocks.spec.ts seeds, unserialized: the classification report as Dec 2025,
+// before that spec's months, and the investor-type report holding only AADI
+// and TRUE, which it never opens. See apinrdw/kumora#404.
 test.describe.serial("an admin's archive totals and parse runs", () => {
   test.use({ storageState: ADMIN.storageState })
 
