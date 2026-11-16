@@ -374,14 +374,11 @@ export const makeTradingDay = Effect.fnUntraced(function* (options: {
   const store = yield* makeDayStore(options.sql)
   let sealed = (yield* store.fact(Fact.sealed)) !== undefined
   const sealAt = yield* sealInstant(options.date)
-  // Decision: a day the relay stored no trade of by its seal instant (a
-  // History walk day, or one the relay missed) takes each walk batch's
-  // fields as its tape, before the batch's codes. The walk-tape fact, written
-  // with its first walk trades, keeps it such a day until its seal. Such a
-  // day holds a trade only once its tape does: a walk_trades row the base
-  // revision stored (a History day walked before #437) is no tape, so its
-  // trade reads missing and the gap walk fetches it again. See spec
-  // apinrdw/kumora#437, "A History walk day becomes a recorded day".
+  // Decision: a day the relay stored no trade of by its seal (a History
+  // day, or one the relay missed) takes each walk batch's fields as its
+  // tape; the walk-tape fact keeps it such a day until its seal. It holds a
+  // trade only once its tape does, so a History day walked before #437,
+  // walk_trades rows alone, is fetched again. See spec apinrdw/kumora#437.
   const takesWalkTape = Effect.gen(function* () {
     if ((yield* store.fact(Fact.walkTape)) !== undefined) return !sealed
     if ((yield* store.highestTrade) !== undefined) return false
@@ -1395,14 +1392,11 @@ export const makeTradingDay = Effect.fnUntraced(function* (options: {
     recorded: (resource: RecordedResource) =>
       turn.withPermit(recorded(resource)),
     alarm: turn.withPermit(alarm),
-    // Decision: on a day the relay recorded, broker codes touch none of a
-    // recorded day's state: their own tables, no flush, no seal and no index
-    // row, so a sealed day takes them and its recorded answers stay
-    // byte-identical. See spec apinrdw/kumora#244, "Dashboard: TradingDay's
-    // broker codes store". Since #437 a day with no relay tape is the
-    // exception: a batch's fields become its tape (`walkTapeOf`, which
-    // unseals a day sealed empty), and the batch that completes it arms its
-    // seal (`walkSealDue`), which writes its index row.
+    // Decision: on a day the relay recorded, broker codes touch no recorded
+    // day state (no flush, seal or index row), so its answers stay
+    // byte-identical (#244). A day with no relay tape takes their fields as
+    // its tape (`walkTapeOf`, unsealing one sealed empty), and its completing
+    // batch arms its seal (`walkSealDue`). See spec apinrdw/kumora#437.
     brokerCodes: {
       // Decision: a batch that changes codes rewrites its trades' sweep
       // brokers rows from their minutes' stored trades, in the codes' turn

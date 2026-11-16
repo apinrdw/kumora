@@ -20,13 +20,11 @@ import { WibDate } from "./schedule.ts"
 // Bump on any change to a batch's or a status's shape. Only this version is
 // accepted: the Worker answers any other with 426, which the extension shows
 // as `reload-extension`. Separate from IngestProtocolVersion.
-// Decision: 2 since the status lists at most MISSING_RANGES ranges, which a
-// version 1 extension would read as all the day lacks; 3 since each row
-// carries its trade fields, which a day's trades the tape lacks need
-// (apinrdw/kumora#425); 4 since those fields carry the trade's time and
-// side too, which a day with no relay tape takes as its tape, and a
-// version 3 extension (0.0.29) sends fields without them (#437). An older
-// extension gets 426 and shows `reload-extension`.
+// Decision: 2 since the status lists at most MISSING_RANGES ranges; 3 since
+// each row carries its trade fields (apinrdw/kumora#425); 4 since those
+// fields carry time and side, which a day with no relay tape takes as its
+// tape, and 0.0.29 sends version 3 without them (#437). An older extension
+// gets 426 and shows `reload-extension`.
 export const BrokerCodesProtocolVersion = 4
 
 const PREFIX = "/api/broker-codes"
