@@ -10,8 +10,10 @@ import {
   decodeSweepBrokersText,
   encodeSweepBrokersText,
   sweepsOf,
+  type BrokerCode,
   type InvestorType,
   type RunningTrade,
+  type Sweep,
   type StockCode,
   type SweepBroker,
   type SweepBrokers,
@@ -87,35 +89,42 @@ const sideOf = (trades: ReadonlyArray<MemberBroker>) =>
     return brokers.sort((a, b) => b.lots - a.lots || (a.code < b.code ? -1 : 1))
   })
 
+// Which party of a trade each side of a sweep holds, as `SweepPiece`
+// names them.
+type TradeParty = "buyer" | "seller"
+const PARTIES = {
+  buy: { aggressor: "buyer", other: "seller" },
+  sell: { aggressor: "seller", other: "buyer" },
+  none: { aggressor: "buyer", other: "seller" },
+} as const satisfies Record<
+  Sweep["side"],
+  { aggressor: TradeParty; other: TradeParty }
+>
+
 // One piece of a whole sweep: its member trades, in trade order, as a sweep
 // of their own, with each side's brokers.
 const pieceOf = Effect.fnUntraced(function* (
   trades: ReadonlyArray<RunningTrade>,
   codes: ReadonlyMap<TradeNumber, TradeCodes>
 ) {
-  const buyers: Array<MemberBroker> = []
-  const sellers: Array<MemberBroker> = []
-  for (const trade of trades) {
-    const held = codes.get(trade.tradeNumber)!
-    buyers.push({
-      code: held.buyer,
-      investorType: held.buyerType,
-      lots: trade.lots,
-    })
-    sellers.push({
-      code: held.seller,
-      investorType: held.sellerType,
-      lots: trade.lots,
-    })
-  }
   // One side and one second: one sweep.
   const [sweep] = yield* sweepsOf(trades)
-  const [aggressor, other] =
-    sweep!.side === "sell" ? [sellers, buyers] : [buyers, sellers]
+  const partyOf = (party: TradeParty) =>
+    sideOf(
+      trades.map((trade) => {
+        const held = codes.get(trade.tradeNumber)!
+        return {
+          code: held[party],
+          investorType: held[`${party}Type`],
+          lots: trade.lots,
+        }
+      })
+    )
+  const parties = PARTIES[sweep!.side]
   const piece: SweepPiece = {
     ...sweep!,
-    aggressor: yield* sideOf(aggressor),
-    other: yield* sideOf(other),
+    aggressor: yield* partyOf(parties.aggressor),
+    other: yield* partyOf(parties.other),
   }
   return piece
 })
@@ -123,10 +132,10 @@ const pieceOf = Effect.fnUntraced(function* (
 // One code's whole sweeps and auction matches in a minute with their
 // pieces, in trade order. A sweep's members are the next `trades` of the
 // code's trades, and one with any member lacking codes is left out.
-// Decision: a whole sweep splits by aggressor broker (the seller of a sell
-// sweep, the buyer of a buy sweep), each broker's members one piece however
-// interleaved. An auction match has no aggressor: one piece, its buyers in
-// `aggressor`. See spec apinrdw/kumora#384, "Where the split happens".
+// Decision: a whole sweep splits by aggressor broker, each broker's
+// members one piece however interleaved. An auction match has no
+// aggressor: one piece. See spec apinrdw/kumora#384, "Where the split
+// happens".
 const wholeSweeps = Effect.fnUntraced(function* (
   { trades, sweeps }: CodeMinute,
   codes: ReadonlyMap<TradeNumber, TradeCodes>
@@ -137,18 +146,20 @@ const wholeSweeps = Effect.fnUntraced(function* (
     const members = trades.slice(next, next + sweep.trades)
     next += sweep.trades
     if (members.some((trade) => !codes.has(trade.tradeNumber))) continue
-    const byAggressor = new Map<string, Array<RunningTrade>>()
+    if (sweep.side === "none") {
+      whole.push({
+        firstTrade: sweep.firstTrade,
+        pieces: [yield* pieceOf(members, codes)],
+      })
+      continue
+    }
+    const aggressor = PARTIES[sweep.side].aggressor
+    const byAggressor = new Map<BrokerCode, Array<RunningTrade>>()
     for (const trade of members) {
-      const held = codes.get(trade.tradeNumber)!
-      const aggressor =
-        sweep.side === "none"
-          ? ""
-          : sweep.side === "sell"
-            ? held.seller
-            : held.buyer
-      const piece = byAggressor.get(aggressor) ?? []
+      const code = codes.get(trade.tradeNumber)![aggressor]
+      const piece = byAggressor.get(code) ?? []
       piece.push(trade)
-      byAggressor.set(aggressor, piece)
+      byAggressor.set(code, piece)
     }
     const pieces: Array<SweepPiece> = []
     for (const piece of byAggressor.values())
