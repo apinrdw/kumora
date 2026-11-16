@@ -1,8 +1,8 @@
 import { Link } from "@tanstack/react-router"
-import type { MarketPhase, StockCode } from "@workspace/relay"
+import type { StockCode } from "@workspace/relay"
 import { INDEX_CODES } from "@workspace/relay"
 import { Effect } from "effect"
-import { useEffect, useMemo, useState } from "react"
+import { useCallback, useMemo } from "react"
 
 import { useMarketPhase } from "@/components/market-live/market-conditions"
 import { useChartSettings } from "@/components/market-live/use-chart-settings"
@@ -13,78 +13,19 @@ import {
   panelSetOf,
   panelView,
   type PanelSet,
-  type PanelWindow,
 } from "@/lib/bubble-panel"
-import type { SectorLookup } from "@/lib/bubble-sectors"
-import {
-  bubblesOf,
-  windowEnd,
-  type BubbleFigures,
-  type MarketFlow,
-} from "@/lib/bubbles"
+import type { BubbleFigures, MarketFlow } from "@/lib/bubbles"
 import { searchOfView } from "@/lib/market-bubbles-search"
 
 import { BubbleCanvas } from "./bubble-canvas"
 import { Pressed } from "./pressed"
+import { useBubbleFrame, useCodeNames } from "./use-bubble-frame"
 import { useSectors } from "./use-sectors"
-
-// Figures recompute every second, as on the page.
-const RECOMPUTE_MS = 1000
 
 const WINDOW_OPTIONS = PANEL_WINDOWS.map((window) => ({
   value: window,
   label: window,
 }))
-
-// What the panel shows around the selected code.
-interface Around {
-  readonly selected: StockCode
-  readonly watchlist: ReadonlyArray<StockCode>
-  readonly sectors: SectorLookup
-}
-
-// The set's bubbles over `window` each RECOMPUTE_MS, and at once when either
-// changes; none before the day's first trade. The windows end at now on
-// Market Live's clock, `clockOffset` ms ahead of the browser's, or at the
-// day's last trade out of session.
-function usePanelBubbles(
-  flow: MarketFlow,
-  { set, window }: { set: PanelSet; window: PanelWindow },
-  around: Around,
-  phase: MarketPhase | undefined,
-  clockOffset: number
-): ReadonlyArray<BubbleFigures> | undefined {
-  const [bubbles, setBubbles] = useState<ReadonlyArray<BubbleFigures>>()
-  const { selected, watchlist, sectors } = around
-  useEffect(() => {
-    if (phase === undefined) return
-    const view = panelView(window)
-    const recompute = () => {
-      const ends = Effect.runSync(
-        windowEnd(flow, phase, Date.now() + clockOffset)
-      )
-      if (ends === undefined) return setBubbles(undefined)
-      const ranked = Effect.runSync(bubblesOf(flow, view, ends.end))
-      setBubbles(
-        Effect.runSync(
-          panelBubbles(ranked, set, { selected, watchlist, sectors })
-        )
-      )
-    }
-    recompute()
-    const timer = setInterval(recompute, RECOMPUTE_MS)
-    return () => clearInterval(timer)
-  }, [flow, set, window, selected, watchlist, sectors, phase, clockOffset])
-  return bubbles
-}
-
-// Each listed code's company name, for the tooltip.
-const namesOf = (list: StockCodeList) =>
-  new Map(
-    list._tag === "Ready"
-      ? list.codes.map(({ code, name }) => [code, name] as const)
-      : []
-  )
 
 /**
  * Market Live's bubble panel (spec apinrdw/kumora#427, "The Market Live
@@ -112,19 +53,15 @@ export function BubblePanel({
   const sectors = useSectors()
   const set = Effect.runSync(panelSetOf(settings.bubbles.set, selected))
   const shown = { set, window: settings.bubbles.window }
-  const around = useMemo(
-    () => ({ selected, watchlist, sectors }),
-    [selected, watchlist, sectors]
-  )
-  const bubbles = usePanelBubbles(
-    flow,
-    shown,
-    around,
-    useMarketPhase(),
-    clockOffset
-  )
-  const names = useMemo(() => namesOf(list), [list])
   const view = useMemo(() => panelView(shown.window), [shown.window])
+  const cut = useCallback(
+    (ranked: ReadonlyArray<BubbleFigures>) =>
+      panelBubbles(ranked, set, { selected, watchlist, sectors }),
+    [set, selected, watchlist, sectors]
+  )
+  const frame = useBubbleFrame(flow, view, cut, useMarketPhase(), clockOffset)
+  const bubbles = frame._tag === "Shown" ? frame.bubbles : undefined
+  const names = useCodeNames(list)
   const pick = (patch: Partial<typeof shown>) =>
     change({ bubbles: { ...settings.bubbles, ...patch } })
   return (

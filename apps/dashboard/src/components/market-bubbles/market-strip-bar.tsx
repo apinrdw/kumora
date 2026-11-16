@@ -7,15 +7,13 @@ import { useEffect, useState } from "react"
 import { PhaseLabel } from "@/components/market-live/market-conditions"
 import { stripLoad } from "@/components/market-live/day-strip"
 import { sizeFigure, type MarketFlow } from "@/lib/bubbles"
-import { compact, direction, pct, price, tapeTime } from "@/lib/format"
+import { compact, pct, price, tapeTime, toneClass } from "@/lib/format"
 import { ihsgChange, marketStrip, type MarketStrip } from "@/lib/market-strip"
 
 // The strip's figures refresh as often as the map's.
 const REFRESH_MS = 1000
 
 const NO_DAYS: ReadonlyArray<RecordedDay> = []
-
-const TONE = { up: "text-up", down: "text-down", flat: "" } as const
 
 // The sealed days, for IHSG's last close; none while they don't load.
 function useSealedDays() {
@@ -96,12 +94,7 @@ export function MarketStripBar({
         <b className="num">
           {ihsg === undefined ? "—" : Effect.runSync(price(ihsg))}
         </b>{" "}
-        <span
-          className={cn(
-            "num",
-            change !== undefined && TONE[Effect.runSync(direction(change))]
-          )}
-        >
+        <span className={cn("num", Effect.runSync(toneClass(change)))}>
           {change === undefined ? "" : Effect.runSync(pct(change))}
         </span>
       </Figure>

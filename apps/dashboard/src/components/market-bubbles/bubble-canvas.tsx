@@ -1,4 +1,4 @@
-import { UNCLASSIFIED, type SectorName, type StockCode } from "@workspace/relay"
+import type { SectorName, StockCode } from "@workspace/relay"
 import { cn } from "@workspace/ui/lib/utils"
 import { Effect } from "effect"
 import { useEffect, useRef, useState } from "react"
@@ -6,6 +6,7 @@ import { useEffect, useRef, useState } from "react"
 import {
   packSectors,
   sectorGroups,
+  sectorOf,
   type SectorLookup,
 } from "@/lib/bubble-sectors"
 import {
@@ -21,7 +22,7 @@ import {
   RETURN_MAX_SPEED,
   RETURN_PULL,
 } from "@/lib/bubble-drag"
-import { compact, lots, pct, price } from "@/lib/format"
+import { compact, lots, pct, price, toneClass } from "@/lib/format"
 
 import {
   draggedOf,
@@ -223,7 +224,7 @@ export function BubbleCanvas({
     const shown = new Set<StockCode>()
     for (const figures of bubbles) {
       shown.add(figures.code)
-      const sector = sectors.get(figures.code) ?? UNCLASSIFIED
+      const sector = sectorOf(sectors, figures.code)
       Effect.runSync(
         retarget(held, figures, {
           sector,
@@ -805,9 +806,6 @@ const labelsOf = Effect.fnUntraced(function* (
   return labels
 })
 
-const TONE_CLASS = (n: number | undefined) =>
-  n === undefined || n === 0 ? "" : n > 0 ? "text-up" : "text-down"
-
 // The hovered bubble's figures: its code and day change, its company and
 // sector, its price, then the window's value, volume, frequency, Buy/Sell delta and
 // change.
@@ -823,7 +821,7 @@ function BubbleTip({
   sectors: SectorLookup
 }) {
   const { figures } = hovered
-  const sector = sectors.get(figures.code) ?? UNCLASSIFIED
+  const sector = sectorOf(sectors, figures.code)
   const percent = (n: number | undefined) =>
     n === undefined ? "—" : Effect.runSync(pct(n))
   const rows: ReadonlyArray<readonly [string, string, string?]> = [
@@ -834,11 +832,15 @@ function BubbleTip({
     ],
     ["Volume", `${Effect.runSync(lots(Math.round(figures.volume)))} lots`],
     ["Frequency", Effect.runSync(compact(figures.frequency))],
-    ["Buy/Sell delta", percent(figures.delta), TONE_CLASS(figures.delta)],
+    [
+      "Buy/Sell delta",
+      percent(figures.delta),
+      Effect.runSync(toneClass(figures.delta)),
+    ],
     [
       `Change (${view.window})`,
       percent(figures.change),
-      TONE_CLASS(figures.change),
+      Effect.runSync(toneClass(figures.change)),
     ],
   ]
   const width = 200
@@ -853,7 +855,9 @@ function BubbleTip({
     >
       <div className="flex items-baseline justify-between gap-2 text-[13px] font-extrabold">
         <span>{figures.code}</span>
-        <span className={cn("num", TONE_CLASS(figures.dayChange))}>
+        <span
+          className={cn("num", Effect.runSync(toneClass(figures.dayChange)))}
+        >
           {percent(figures.dayChange)}
         </span>
       </div>

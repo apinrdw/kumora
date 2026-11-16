@@ -50,6 +50,16 @@ export type Direction = "up" | "down" | "flat"
 export const direction = (n: number) =>
   Effect.sync((): Direction => (n > 0 ? "up" : n < 0 ? "down" : "flat"))
 
+const TONE_CLASSES: Record<Direction, string> = {
+  up: "text-up",
+  down: "text-down",
+  flat: "",
+}
+
+// A figure's colour class: up or down, none when it is flat or absent.
+export const toneClass = (n: number | undefined) =>
+  Effect.map(direction(n ?? 0), (towards) => TONE_CLASSES[towards])
+
 export const sign = (n: number) =>
   Effect.sync(() => (n > 0 ? "+" : n < 0 ? MINUS : ""))
 

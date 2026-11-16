@@ -2,10 +2,8 @@ import { createFileRoute } from "@tanstack/react-router"
 import {
   IDX_SECTORS,
   UNCLASSIFIED,
-  type MarketPhase,
   type SectorName,
   type StockCode,
-  type WibDate,
 } from "@workspace/relay"
 import { clientRuntime } from "@workspace/client"
 import { loadServerFn, runLoader } from "@workspace/server/loader"
@@ -32,16 +30,19 @@ import { BubbleCanvas } from "@/components/market-bubbles/bubble-canvas"
 import { MarketStripBar } from "@/components/market-bubbles/market-strip-bar"
 import { Pressed } from "@/components/market-bubbles/pressed"
 import { snapshotMap } from "@/components/market-bubbles/snapshot"
+import {
+  useBubbleFrame,
+  useCodeNames,
+  type BubbleFrame,
+} from "@/components/market-bubbles/use-bubble-frame"
 import { useMarketFlow } from "@/components/market-bubbles/use-market-flow"
 import { usePhone } from "@/components/market-bubbles/use-phone"
 import { useSectors } from "@/components/market-bubbles/use-sectors"
 import { useMarketPhase } from "@/components/market-live/market-conditions"
 import { useStockCodeList } from "@/components/market-live/use-stock-code-list"
-import { inSector, type SectorLookup } from "@/lib/bubble-sectors"
+import { inSector } from "@/lib/bubble-sectors"
 import {
   BUBBLE_WINDOWS,
-  bubblesOf,
-  windowEnd,
   type BubbleFigures,
   type BubbleView,
   type ColourMetric,
@@ -72,10 +73,6 @@ export const Route = createFileRoute("/_app/market-bubbles")({
   component: MarketBubblesPage,
 })
 
-// Figures recompute and bubbles re-target this often (spec
-// apinrdw/kumora#427, "Cadence").
-const RECOMPUTE_MS = 1000
-
 const SIZE_OPTIONS: ReadonlyArray<{ value: SizeMetric; label: string }> = [
   { value: "value", label: "Value" },
   { value: "volume", label: "Volume" },
@@ -104,62 +101,21 @@ const SECTOR_OPTIONS: ReadonlyArray<{
   })),
 ]
 
-// What the map shows each second: the bubbles and where the windows end, or
-// none before the day's first trade.
-type Frame =
-  | { readonly _tag: "Waiting" }
-  | {
-      readonly _tag: "Shown"
-      readonly bubbles: ReadonlyArray<BubbleFigures>
-      readonly end: number
-      readonly closed: boolean
-    }
-  | { readonly _tag: "Empty" }
-
-const WAITING: Frame = { _tag: "Waiting" }
-
-// The bubbles of `view` each RECOMPUTE_MS, and at once when the view changes.
-// The windows end at now on Market Live's clock, `clockOffset` ms ahead of
-// the browser's, or at the day's last trade out of session. The view's
-// sector filters the ranked bubbles.
-function useBubbleFrame(
+// The map's bubbles each second, the view's sector cut from the ranked ones.
+function useSectorFrame(
   flow: MarketFlow,
   view: BubbleView,
-  sectors: SectorLookup,
-  phase: MarketPhase | undefined,
   clockOffset: number
-): Frame {
-  const [frame, setFrame] = useState<Frame>(WAITING)
-  useEffect(() => {
-    if (phase === undefined) return
-    const recompute = () => {
-      const ends = Effect.runSync(
-        windowEnd(flow, phase, Date.now() + clockOffset)
-      )
-      if (ends === undefined) return setFrame({ _tag: "Empty" })
-      const ranked = Effect.runSync(bubblesOf(flow, view, ends.end))
-      const bubbles = Effect.runSync(inSector(ranked, sectors, view.sector))
-      setFrame({ _tag: "Shown", bubbles, ...ends })
-    }
-    recompute()
-    const timer = setInterval(recompute, RECOMPUTE_MS)
-    return () => clearInterval(timer)
-  }, [flow, view, sectors, phase, clockOffset])
-  return frame
-}
-
-// Each listed code's company name, for the tooltip.
-function useCodeNames(today: WibDate) {
-  const list = useStockCodeList(undefined, today)
-  return useMemo(
-    () =>
-      new Map(
-        list._tag === "Ready"
-          ? list.codes.map(({ code, name }) => [code, name] as const)
-          : []
-      ),
-    [list]
+) {
+  const sectors = useSectors()
+  const { sector } = view
+  const cut = useCallback(
+    (ranked: ReadonlyArray<BubbleFigures>) => inSector(ranked, sectors, sector),
+    [sectors, sector]
   )
+  const phase = useMarketPhase()
+  const frame = useBubbleFrame(flow, view, cut, phase, clockOffset)
+  return { frame, sectors, phase }
 }
 
 // The snapshot button's handler, and the ref of the box that holds the
@@ -221,16 +177,14 @@ function MarketBubblesPage() {
     [navigate]
   )
   const { flow, status, ihsg } = useMarketFlow(today, clockOffset)
-  const phase = useMarketPhase()
-  const sectors = useSectors()
-  const frame = useBubbleFrame(flow, view, sectors, phase, clockOffset)
+  const { frame, sectors, phase } = useSectorFrame(flow, view, clockOffset)
   const showSector = useCallback(
     (sector: SectorName) => change({ sector }),
     [change]
   )
   const [find, setFind] = useState("")
   const { map, snapshot } = useSnapshot(view, clockOffset)
-  const names = useCodeNames(today)
+  const names = useCodeNames(useStockCodeList(undefined, today))
   return (
     <div data-flow={status} className="flex flex-col gap-3">
       <header className="flex flex-wrap items-end justify-between gap-2">
@@ -295,7 +249,7 @@ function MarketBubblesPage() {
 }
 
 // "Session closed, showing up to 15:49:58" while no session runs.
-function SessionLabel({ frame }: { frame: Frame }) {
+function SessionLabel({ frame }: { frame: BubbleFrame }) {
   if (frame._tag !== "Shown" || !frame.closed) return null
   return (
     <p role="status" className="text-warning text-xs">
@@ -307,7 +261,7 @@ function SessionLabel({ frame }: { frame: Frame }) {
 interface ControlsProps {
   view: BubbleView
   onChange: (patch: MarketBubblesSearch) => void
-  frame: Frame
+  frame: BubbleFrame
   find: string
   onFind: (find: string) => void
   onSnapshot: () => void

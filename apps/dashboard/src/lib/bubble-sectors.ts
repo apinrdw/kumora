@@ -25,7 +25,8 @@ export const sectorLookup = (map: SectorMap) =>
       )
   )
 
-const sectorOf = (lookup: SectorLookup, code: StockCode) =>
+// A code's sector: Unclassified when the lookup has none.
+export const sectorOf = (lookup: SectorLookup, code: StockCode) =>
   lookup.get(code) ?? UNCLASSIFIED
 
 // The ranked bubbles of one sector, or all of them with none. It filters

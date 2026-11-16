@@ -1,10 +1,10 @@
 // Market Live's bubble panel (spec apinrdw/kumora#427, "The Market Live
 // panel"): which codes it shows, over which windows, sized by value and
 // coloured by Buy/Sell delta %.
-import { INDEX_CODES, UNCLASSIFIED, type StockCode } from "@workspace/relay"
+import { INDEX_CODES, type StockCode } from "@workspace/relay"
 import { Effect } from "effect"
 
-import type { SectorLookup } from "./bubble-sectors"
+import { sectorOf, type SectorLookup } from "./bubble-sectors"
 import type { BubbleFigures, BubbleView, BubbleWindow } from "./bubbles"
 
 export const PANEL_SETS = ["top", "watchlist", "sector"] as const
@@ -52,12 +52,12 @@ export const panelBubbles = (
 ) =>
   Effect.gen(function* () {
     const shown = yield* panelSetOf(set, selected)
-    const sectorOf = (code: StockCode) => sectors.get(code) ?? UNCLASSIFIED
     const keep =
       shown === "watchlist"
         ? (code: StockCode) => watchlist.includes(code)
         : shown === "sector"
-          ? (code: StockCode) => sectorOf(code) === sectorOf(selected)
+          ? (code: StockCode) =>
+              sectorOf(sectors, code) === sectorOf(sectors, selected)
           : () => true
     return ranked.filter(({ code }) => keep(code)).slice(0, PANEL_BUBBLES)
   })
