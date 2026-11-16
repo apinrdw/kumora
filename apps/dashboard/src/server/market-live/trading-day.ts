@@ -1106,26 +1106,29 @@ export const makeTradingDay = Effect.fnUntraced(function* (options: {
     )
   })
 
-  // Decision: the batch that makes a sealed day complete marks it due and
-  // arms the alarm to build at once; its answer never waits on the build.
-  // A day due already is left to its own wake; a batch that corrects a
-  // built or stale day marks it stale and moves its rebuild REBUILD_QUIET
-  // past the batch. See spec apinrdw/kumora#437, "When it runs".
+  // Decision: a batch that corrects a built or stale day marks it stale and
+  // moves its rebuild REBUILD_QUIET past the batch. Otherwise the batch that
+  // leaves a sealed day complete, its built state not current (unbuilt, due
+  // or stale) and no build wake set, arms the alarm to build at once, an
+  // unbuilt day marked due first: a build wake that found the day incomplete
+  // was dropped, and nothing else would build it. Its answer never waits on
+  // the build. See spec apinrdw/kumora#437, "When it runs".
   const totalsWritten = Effect.fnUntraced(function* (corrected: boolean) {
     if (!sealed || options.brokerTotalsDb === undefined) return
     const fact = yield* store.fact(Fact.brokerTotals)
-    if (fact === undefined) {
-      if (!(yield* brokerCodes.complete)) return
-      yield* store.markBrokerTotals(BROKER_TOTALS_DUE)
-      yield* wakes.set("build", yield* DateTime.now)
-    } else if (corrected && fact !== BROKER_TOTALS_DUE) {
+    if (corrected && fact !== undefined && fact !== BROKER_TOTALS_DUE) {
       if (fact !== BROKER_TOTALS_STALE)
         yield* store.markBrokerTotals(BROKER_TOTALS_STALE)
-      yield* wakes.set(
+      return yield* wakes.set(
         "build",
         DateTime.addDuration(yield* DateTime.now, REBUILD_QUIET)
       )
     }
+    if (fact === String(BROKER_TOTALS_VERSION)) return
+    if ((yield* wakes.deadline("build")) !== undefined) return
+    if (!(yield* brokerCodes.complete)) return
+    if (fact === undefined) yield* store.markBrokerTotals(BROKER_TOTALS_DUE)
+    yield* wakes.set("build", yield* DateTime.now)
   })
 
   // Decision: the reconcile cron's poke builds a sealed, complete day on the
