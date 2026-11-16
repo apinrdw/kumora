@@ -587,8 +587,10 @@ test.describe.serial("the stock page", () => {
       await chartChoice(page, "Chart origin", "Foreign").focus()
       await page.keyboard.press("Tab")
       await expect(bars(page)).toBeFocused()
+      await expect(barsTooltip(page)).toBeVisible()
       await page.keyboard.press("Tab")
       await expect(legendEntry(page, "Individual")).toBeFocused()
+      await expect(barsTooltip(page)).toBeHidden()
       // Individual alone is 0.92% of BBCA's foreign holdings, not 100%: the
       // axis zooms to 1%.
       await focusNewest(page, "Oct 2026")

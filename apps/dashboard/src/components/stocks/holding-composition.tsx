@@ -412,6 +412,19 @@ function WasNow({ now, move }: { now: number; move: Move | undefined }) {
 
 const TICKS = [1, 0.75, 0.5, 0.25, 0]
 
+// The month index each key moves the Bars chart's keyboard month to, from
+// the current one among `count` months.
+const MONTH_KEYS: Partial<
+  Record<string, (index: number, count: number) => number>
+> = {
+  ArrowLeft: (index) => Math.max(0, index - 1),
+  ArrowUp: (index) => Math.max(0, index - 1),
+  ArrowRight: (index, count) => Math.min(count - 1, index + 1),
+  ArrowDown: (index, count) => Math.min(count - 1, index + 1),
+  Home: () => 0,
+  End: (_, count) => count - 1,
+}
+
 function Bars({
   chart,
   shown,
@@ -428,19 +441,21 @@ function Bars({
     const element = scroller.current
     if (element) element.scrollLeft = element.scrollWidth
   }, [])
-  // Whether the last input in the chart was a key, not the pointer: the
-  // library reports hover and keyboard focus through the same callback.
-  const keyboard = useRef(false)
-  // Decision: Escape hides the tooltip and keeps focus on the chart, as
-  // KTooltip did; the next arrow key steps from the month it hid. The
-  // library dismisses on Escape only a pinned tooltip, and this one never
-  // pins, so the chart clears and restores its focus itself.
   const interaction =
     useRef<ChartInteractionController<HoldingRow | MonthStop, string, number>>(
       null
     )
-  const focused = useRef<BarsPoint>(null)
-  const hid = useRef<BarsPoint>(null)
+  const scenePoints = useRef<ReadonlyArray<BarsPoint>>([])
+  // Decision: the keyboard month is our index into the months, set by
+  // month on hover, not the library's focused point: the library stepped
+  // from a hovered segment, which its month navigation lacks, to the first
+  // month. Keys and keyboard focus move the index and focus that month's
+  // own stop.
+  const at = useRef(0)
+  const stops = useMemo(
+    () => chart.columns.map(({ month }): MonthStop => ({ month })),
+    [chart]
+  )
   const rows = useMemo(
     () => Effect.runSync(holdingRows(chart, shown)),
     [chart, shown]
@@ -450,8 +465,7 @@ function Bars({
     [chart, rows]
   )
   const definition = useMemo(() => {
-    const months = chart.columns.map(({ month }) => month)
-    const stops: Array<MonthStop> = months.map((month) => ({ month }))
+    const months = stops.map(({ month }) => month)
     const gaps: Array<MonthStop> = chart.columns.flatMap(({ month, shares }) =>
       shares === undefined ? [{ month }] : []
     )
@@ -551,7 +565,26 @@ function Bars({
         },
       },
     })
-  }, [chart, shown, origin, rows, views])
+  }, [chart, stops, shown, origin, rows, views])
+  // Decision: a month focused by key near or past the scroller's edge
+  // scrolls to the middle; a hovered one never scrolls. The library scrolls
+  // nothing itself, and following hover as well jumped the columns half a
+  // view under the pointer.
+  const focusMonth = (index: number) => {
+    const point = scenePoints.current.find(
+      (each) => each.datum === stops[index]
+    )
+    if (point === undefined) return
+    at.current = index
+    interaction.current?.setControlledFocus(point)
+    const element = scroller.current
+    if (
+      element &&
+      (point.x < element.scrollLeft + PITCH ||
+        point.x > element.scrollLeft + element.clientWidth - PITCH)
+    )
+      element.scrollLeft = point.x - element.clientWidth / 2
+  }
   return (
     <div className="flex min-w-0">
       <div
@@ -572,23 +605,31 @@ function Bars({
       <div
         ref={scroller}
         className="min-w-0 flex-1 overflow-x-auto pb-1"
+        // Decision: Escape hides the tooltip and keeps focus on the chart,
+        // as KTooltip did; the next arrow key steps from the month it hid.
+        // The library dismisses on Escape only a pinned tooltip, and this
+        // one never pins.
         onKeyDownCapture={(event) => {
-          keyboard.current = true
-          if (event.key === "Escape" && focused.current) {
-            hid.current = focused.current
+          if (event.key === "Escape") {
             interaction.current?.setControlledFocus(null)
-          } else if (hid.current && event.key.startsWith("Arrow")) {
-            interaction.current?.setControlledFocus(hid.current)
+            return
           }
+          const index = MONTH_KEYS[event.key]?.(at.current, stops.length)
+          if (index === undefined) return
+          // The library's own arrow keys would step from its focused point.
+          event.preventDefault()
+          event.stopPropagation()
+          focusMonth(index)
         }}
         onFocusCapture={(event) => {
-          keyboard.current = event.target.matches(":focus-visible")
+          if (event.target.matches(":focus-visible")) focusMonth(at.current)
         }}
-        onPointerMoveCapture={() => {
-          keyboard.current = false
-        }}
-        onPointerDownCapture={() => {
-          keyboard.current = false
+        // The library clears on blur only a month its own keys focused, so
+        // the chart clears the one it focused, and the tooltip goes with
+        // focus.
+        onBlurCapture={(event) => {
+          if (!event.currentTarget.contains(event.relatedTarget))
+            interaction.current?.setControlledFocus(null)
         }}
       >
         <Chart
@@ -599,22 +640,13 @@ function Bars({
           className="text-muted-foreground"
           onRender={(context) => {
             interaction.current = context.interaction
+            scenePoints.current = context.scene.points
           }}
-          // Decision: a month focused by key near or past the scroller's
-          // edge scrolls to the middle; a hovered one never scrolls. The
-          // library scrolls nothing itself, and following hover as well
-          // jumped the columns half a view under the pointer.
-          onFocusGroupChange={(points) => {
-            focused.current = points[0] ?? null
-            if (focused.current) hid.current = null
-            const element = scroller.current
-            const x = points[0]?.x
-            if (!keyboard.current || !element || x === undefined) return
-            if (
-              x < element.scrollLeft + PITCH ||
-              x > element.scrollLeft + element.clientWidth - PITCH
+          onFocusGroupChange={(group) => {
+            const index = stops.findIndex(
+              ({ month }) => month === group[0]?.xValue
             )
-              element.scrollLeft = x - element.clientWidth / 2
+            if (index >= 0) at.current = index
           }}
           renderTooltipBody={({ points }) => {
             const view = views.get(String(points[0]?.xValue))
