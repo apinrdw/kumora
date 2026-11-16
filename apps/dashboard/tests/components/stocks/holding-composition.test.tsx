@@ -203,8 +203,8 @@ test("the origin summary is unavailable when the newest month holds no shares", 
   )
 })
 
-// Local holds 40 of 100 in August and 30 of 100 in October; September is a
-// gap.
+// Local holds 40 of 100 in August, 30 in October and 25 in November;
+// September is a gap.
 const held = (local: number, foreign: number) => ({
   ...Object.fromEntries(Object.keys(HELD).map((type) => [type, 0])),
   ID: local,
@@ -228,6 +228,14 @@ const BARS: ReadonlyArray<SeriesMonth> = [
       foreign: held(0, 70) as typeof HELD,
     },
   },
+  {
+    month: "2026-11",
+    holdings: {
+      periodEnd: "2026-11-30",
+      local: held(25, 0) as typeof HELD,
+      foreign: held(0, 75) as typeof HELD,
+    },
+  },
 ]
 
 const barsChart = () =>
@@ -243,15 +251,58 @@ const key = (name: string) =>
     )
   })
 
-test("the Bars chart announces the month a keyboard user steps to", async () => {
+test("the Bars chart announces the month a keyboard user steps to, with its changes", async () => {
   await render("all", BARS, "bars")
   await act(() => barsChart().focus())
   await key("End")
   expect(announced()).toBe(
-    "Oct 2026\nForeign 70.00%\nLocal 30.00%\nShare of scripless shares."
+    "Nov 2026\nForeign 75.00%, up from 70.00%\nLocal 25.00%, down from 30.00%\nShare of scripless shares.\nChanges are from Oct 2026."
+  )
+  const body = document.querySelector(".holding-tooltip")
+  expect(body?.textContent).toContain("70.00% → 75.00%")
+  expect(body?.querySelector(".text-up")?.textContent).toBe("75.00%")
+  expect(body?.querySelector(".text-down")?.textContent).toBe("25.00%")
+  await key("ArrowLeft")
+  expect(announced()).toBe(
+    "Oct 2026\nForeign 70.00%\nLocal 30.00%\nShare of scripless shares.\nSep 2026 has no data, so no change is shown."
+  )
+  expect(document.querySelector(".holding-tooltip")?.textContent).not.toContain(
+    "→"
   )
   await key("ArrowLeft")
   expect(announced()).toBe(
     "Sep 2026: No data, KSEI's report has no row for this month."
   )
+  await key("Home")
+  expect(announced()).toBe(
+    "Aug 2026\nForeign 60.00%\nLocal 40.00%\nShare of scripless shares.\nThis is the first month KSEI has for this stock."
+  )
+})
+
+test("the Bars tooltip shows no change for a share that prints the same as last month's", async () => {
+  await render(
+    "all",
+    [
+      ...BARS,
+      {
+        month: "2026-12",
+        holdings: {
+          periodEnd: "2026-12-31",
+          local: held(25.001, 0) as typeof HELD,
+          foreign: held(0, 74.999) as typeof HELD,
+        },
+      },
+    ],
+    "bars"
+  )
+  await act(() => barsChart().focus())
+  await key("End")
+  expect(announced()).toBe(
+    "Dec 2026\nForeign 75.00%\nLocal 25.00%\nShare of scripless shares.\nChanges are from Nov 2026."
+  )
+  expect(
+    document.querySelector(
+      ".holding-tooltip .text-up, .holding-tooltip .text-down"
+    )
+  ).toBeNull()
 })

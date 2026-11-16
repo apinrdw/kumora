@@ -432,11 +432,18 @@ test.describe.serial("the stock page", () => {
       await focusNewest(page, "Oct 2026")
       await expect(barsTooltip(page)).toHaveAttribute(
         "aria-label",
-        "Oct 2026\nForeign 67.22%\nLocal 32.78%\nShare of scripless shares."
+        "Oct 2026\nForeign 67.22%, down from 68.89%\nLocal 32.78%, up from 31.11%\nShare of scripless shares.\nChanges are from Sep 2026."
       )
-      // Back from October past September to July, a month KSEI has no data
-      // for.
-      for (let step = 0; step < 3; step++)
+      await expect(barsTooltip(page)).toContainText("68.89% → 67.22%")
+      // September follows August, a month KSEI has no data for.
+      await page.keyboard.press("ArrowLeft")
+      await expect(barsTooltip(page)).toContainText("Sep 2026")
+      await expect(barsTooltip(page)).toContainText(
+        "Aug 2026 has no data, so no change is shown."
+      )
+      await expect(barsTooltip(page)).not.toContainText("→")
+      // Back past August to July, another such month.
+      for (let step = 0; step < 2; step++)
         await page.keyboard.press("ArrowLeft")
       await expect(barsTooltip(page)).toContainText("Jul 2026")
       await expect(barsTooltip(page)).toContainText("No data")
