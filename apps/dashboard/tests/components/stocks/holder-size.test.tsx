@@ -1,4 +1,5 @@
 // @vitest-environment happy-dom
+import { StockCode } from "@workspace/relay"
 import { act } from "react"
 import { createRoot } from "react-dom/client"
 import { afterEach, describe, expect, test } from "vitest"
@@ -57,7 +58,7 @@ const render = (props: Partial<HolderSizeProps>) =>
   act(() =>
     root.render(
       <HolderSize
-        code="BBCA"
+        code={StockCode.make("BBCA")}
         months={[]}
         month={undefined}
         origin="all"
