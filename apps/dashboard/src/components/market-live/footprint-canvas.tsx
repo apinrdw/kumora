@@ -9,9 +9,9 @@
 //   View modes, imbalance and POC (apinrdw/kumora#269) are its options.
 // - pane 1: `FooterView`, the Vol / Δ / CVD cells, with `FooterLabels` in
 //   the price-scale strip.
-// - chart-pair.ts opens and refits its 10-minute window and pans it with
-//   the candle chart; price-axis.ts labels its IDX ticks and caps its rows; the
-//   hover ladder is footprint-ladder.tsx.
+// - chart-pair.ts opens and refits its window and pans it with the candle
+//   chart; chart-zoom.ts hears the viewer zoom it; price-axis.ts labels its
+//   IDX ticks and caps its rows; the hover ladder is footprint-ladder.tsx.
 import { MINUTE_MS } from "@workspace/relay"
 import type { RelayGap } from "@workspace/relay"
 import { Effect } from "effect"
@@ -51,11 +51,13 @@ import { footprintLadder } from "@/lib/footprint-ladder"
 import type { CandleStore } from "./candle-store"
 import type { ChartPair } from "./chart-pair"
 import { CHART_SCALE_WIDTH, crosshairTime, tickMark } from "./chart-time"
+import { watchZoom } from "./chart-zoom"
 import type { HeaderStore } from "./footprint-header"
 import { FootprintLadder, type Hovered } from "./footprint-ladder"
 import { makeListenerStore } from "./listener-store"
 import { idxPriceAxis, rowCapped } from "./price-axis"
 import type { ReplayCursor } from "./replay-cursor"
+import { savedZoom, saveZoom } from "./use-chart-settings"
 
 type Target = Parameters<ICustomSeriesPaneRenderer["draw"]>[0]
 type Scope = Parameters<Parameters<Target["useBitmapCoordinateSpace"]>[0]>[0]
@@ -780,7 +782,7 @@ class FooterLabels implements ISeriesPrimitive<Time> {
 // The selected code's footprint and footer, drawn from the candle store on
 // the candle chart's minutes, relay `gaps` as whitespace. A change redraws both
 // series at most once an animation frame; a snapshot (or a cursor on another
-// minute) also reopens the 10-minute window. With `cursor`, a recorded day:
+// minute) also reopens its window. With `cursor`, a recorded day:
 // the minutes after the cursor's are grey. Hovering a minute shows its
 // ladder.
 export default function FootprintCanvas({
@@ -851,6 +853,9 @@ export default function FootprintCanvas({
       // Decision: on a phone a vertical swipe scrolls the page, not the
       // chart; a horizontal one pans both charts through the pair.
       handleScroll: { vertTouchDrag: false },
+      // The chart's own reset would not refit the window: `watchZoom` hears
+      // the double click instead.
+      handleScale: { axisDoubleClickReset: { time: false } },
     })
     // The page reads what the last draw showed (footprint-chart.tsx).
     const mark = (key: string, value: string | number) => {
@@ -868,12 +873,33 @@ export default function FootprintCanvas({
           mark("pocs", draw.pocs)
         }
       ),
-      {
-        priceLineVisible: false,
-        lastValueVisible: true,
-        autoscaleInfoProvider: rowCapped(chart),
-      }
+      { priceLineVisible: false, lastValueVisible: true }
     )
+    const zoom = savedZoom("footprint")
+    // The window's minutes; none for the pair's default.
+    let windowMinutes = zoom.minutes
+    const unzoom = watchZoom({
+      chart,
+      element,
+      series: footprint,
+      base: rowCapped(chart),
+      stretch: zoom.priceStretch,
+      zoomed: (change) => {
+        switch (change._tag) {
+          case "Time":
+            windowMinutes = chart.timeScale().width() / change.barSpacing
+            return saveZoom("footprint", { minutes: windowMinutes })
+          case "TimeReset":
+            windowMinutes = undefined
+            pair.refit()
+            return saveZoom("footprint", { minutes: undefined })
+          case "Price":
+            return saveZoom("footprint", { priceStretch: change.stretch })
+          case "PriceReset":
+            return saveZoom("footprint", { priceStretch: undefined })
+        }
+      },
+    })
     const axis = Effect.runSync(
       idxPriceAxis(footprint, {
         text: palette.muted,
@@ -989,7 +1015,7 @@ export default function FootprintCanvas({
       mark("vwapPoints", chosen.vwap ? points : 0)
       header.show(columns.filter((column) => !column.later).at(-1))
     }
-    // The 10 minutes up to the cursor's (live: the last ones).
+    // The window up to the cursor's minute (live: the last ones).
     const showWindow = () => pair.showUpTo(shownMinute)
     redraw()
     showWindow()
@@ -999,6 +1025,7 @@ export default function FootprintCanvas({
       series: footprint,
       element,
       minutes: () => minutes,
+      windowMinutes: () => windowMinutes,
     })
 
     // The hovered minute's ladder, at the pointer.
@@ -1053,6 +1080,7 @@ export default function FootprintCanvas({
       ladder.set(undefined)
       header.hover(undefined)
       unpair()
+      unzoom()
       redrawNow.current = undefined
       unsubscribe()
       stopCursor?.()

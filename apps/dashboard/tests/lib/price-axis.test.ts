@@ -6,6 +6,8 @@ import {
   priceLabel,
   rowCappedRange,
   snapToTick,
+  stretchAfter,
+  stretchedRange,
 } from "@/lib/price-axis"
 
 describe("a price on the IDX tick axis", () => {
@@ -148,5 +150,36 @@ describe("the footprint chart's rows", () => {
         })
       ).toEqual({ minValue: 9_987.5, maxValue: 11_012.5 })
     })
+  )
+})
+
+describe("a stretched price axis", () => {
+  it.effect("shows its fit's prices tightened about their middle", () =>
+    Effect.gen(function* () {
+      expect(
+        yield* stretchedRange({ minValue: 100, maxValue: 140 }, 2)
+      ).toEqual({ minValue: 110, maxValue: 130 })
+      expect(
+        yield* stretchedRange({ minValue: 10_000, maxValue: 14_000 }, 0.5)
+      ).toEqual({ minValue: 8_000, maxValue: 16_000 })
+    })
+  )
+
+  it.effect(
+    "keeps a drag's zoom as a stretch, and shows what the drag showed",
+    () =>
+      Effect.gen(function* () {
+        // An axis already 2× tight showed 20 prices; the drag left 5.
+        const stretch = yield* stretchAfter(2, 20, 5)
+        expect(stretch).toBe(8)
+        // Its fit of 40 prices, stretched, shows the drag's 5.
+        const shown = yield* stretchedRange(
+          { minValue: 100, maxValue: 140 },
+          stretch
+        )
+        expect(shown.maxValue - shown.minValue).toBe(5)
+        // A drag the other way loosens it below its fit.
+        expect(yield* stretchAfter(1, 20, 80)).toBe(0.25)
+      })
   )
 })

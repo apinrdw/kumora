@@ -148,6 +148,7 @@ const alone: ChartPair = {
   attachFootprint: () => () => {},
   jumpTo: () => {},
   showUpTo: () => {},
+  refit: () => {},
 }
 
 // The animation frame the chart batches deltas into.
