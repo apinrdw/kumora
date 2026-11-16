@@ -1078,6 +1078,51 @@ describe("a day with no tape", () => {
   )
 
   it.effect(
+    "stored with walk rows and no tape, sealed or not, lists its trades as missing until a walk's rows become its tape, then seals",
+    () =>
+      Effect.gen(function* () {
+        for (const sealedEmpty of [true, false]) {
+          // What the base revision stored: codes, every trade's fields in
+          // walk_trades, an empty tape, and an empty seal at the walk.
+          const sql = memorySql()
+          const stored = yield* historyDay(sql)
+          yield* stored.post(
+            "Stockbit",
+            WALKED.map(([number, each]) => [number, each, null] as const),
+            3
+          )
+          for (const [number, , fields] of WALKED)
+            sql.exec(
+              "INSERT INTO walk_trades VALUES (?, ?, ?, ?, ?)",
+              number,
+              fields.code,
+              fields.price,
+              fields.lots,
+              fields.board
+            )
+          if (sealedEmpty)
+            sql.exec(
+              "INSERT INTO facts VALUES ('sealed', '2026-10-01T10:00:00.000Z')"
+            )
+
+          const day = yield* historyDay(sql)
+          const legacy = yield* day.status
+          assert.isFalse(legacy.complete)
+          assert.strictEqual(legacy.missingCount, 3)
+          yield* day.alarm
+          assert.deepStrictEqual(day.indexed, [])
+
+          yield* day.post("Stockbit", WALKED)
+          assert.isTrue((yield* day.status).complete)
+          yield* day.alarm
+          assert.deepStrictEqual(day.indexed, [
+            { day: HISTORY, trades: 3, gap: false },
+          ])
+        }
+      })
+  )
+
+  it.effect(
     "restarted before it completes, seals only once complete, and restarted complete, seals",
     () =>
       Effect.gen(function* () {
