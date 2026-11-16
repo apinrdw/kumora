@@ -607,6 +607,14 @@ describe("radii and labels", () => {
     })
   )
 
+  it.effect("scales every bubble to nothing on a canvas with no room", () =>
+    Effect.gen(function* () {
+      // A hidden tab's canvas, under the label band.
+      expect((yield* bubbleScale([400, 100], 0, -32)).k).toBe(0)
+      expect((yield* bubbleScale([400, 100], 390, 0)).k).toBe(0)
+    })
+  )
+
   it.effect("writes rupiah as M, B or T and lots and trades as K or M", () =>
     Effect.gen(function* () {
       expect(yield* sizeFigure("value", 2_345_000)).toBe("Rp2.35 M")

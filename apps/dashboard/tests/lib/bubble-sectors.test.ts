@@ -178,6 +178,42 @@ describe("the sector pack", () => {
     })
   )
 
+  it.effect(
+    "places no sector on a canvas with no room, as a hidden tab's",
+    () =>
+      Effect.gen(function* () {
+        const areas = [
+          { sector: "Energy" as const, area: 4000 },
+          { sector: "Financials" as const, area: 9000 },
+        ]
+        // A hidden panel's canvas under the label band, then a collapsed one.
+        expect(yield* packSectors(areas, 0, -32)).toEqual([])
+        expect(yield* packSectors(areas, 390, 0)).toEqual([])
+      })
+  )
+
+  it.effect(
+    "places every sector at a finite point on a tall, narrow canvas, and from a broken earlier pack",
+    () =>
+      Effect.gen(function* () {
+        const areas = [
+          { sector: "Energy" as const, area: 4000 },
+          { sector: "Financials" as const, area: 9000 },
+          { sector: "Technology" as const, area: 2000 },
+        ]
+        const finite = (circles: ReadonlyArray<SectorCircle>) =>
+          circles.every((c) => Number.isFinite(c.x) && Number.isFinite(c.y))
+        expect(finite(yield* packSectors(areas, 10, 2000))).toBe(true)
+        const broken = new Map([
+          ["Energy" as const, { x: Number.NaN, y: Number.NaN }],
+          ["Financials" as const, { x: Infinity, y: -Infinity }],
+        ])
+        const repacked = yield* packSectors(areas, 800, 600, broken)
+        expect(repacked).toHaveLength(3)
+        expect(finite(repacked)).toBe(true)
+      })
+  )
+
   it.effect("puts the largest sector nearest the centre", () =>
     Effect.gen(function* () {
       const circles = yield* packSectors(

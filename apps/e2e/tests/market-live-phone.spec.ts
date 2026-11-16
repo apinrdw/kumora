@@ -2,6 +2,7 @@ import type { Locator, Page } from "@playwright/test"
 
 import { DASHBOARD, MEMBER } from "../support/accounts"
 import { marketNow, wibTime } from "../support/clock"
+import { seedStockSectors } from "../support/holdings"
 import {
   ajaibTradeToday,
   freshCode,
@@ -67,6 +68,75 @@ test.describe("on a phone", () => {
     await touch("touchEnd", x + dx)
     await cdp.detach()
   }
+
+  test("the bubble panel, packed while its tab was hidden, draws its bubbles once shown", async ({
+    page,
+  }) => {
+    // Two sectors, so the pack parts them while the panel has no size.
+    const energy = freshCode("PE")
+    const banks = freshCode("PF")
+    seedStockSectors({ [energy]: "Energy", [banks]: "Financials" })
+    await page.goto(`${DASHBOARD}${PAGE}?code=${energy}`)
+    // The socket's snapshot came: the trades below reach the page as deltas.
+    await expect(
+      page
+        .getByRole("group", { name: "Market conditions" })
+        .getByRole("list", { name: "Feeds" })
+    ).toBeVisible()
+    const panel = page.getByRole("region", {
+      name: "Bubbles",
+      exact: true,
+      includeHidden: true,
+    })
+    await expect(panel).toBeHidden()
+    // A trade of each code every half second: each changes their figures,
+    // so the panel recomputes, and packs, behind the Sweeps tab.
+    const relay = await openIngest()
+    const base = freshTradeNumbers()
+    for (let round = 0; round < 12; round++) {
+      // Large enough for the market top, smaller than the panel spec's largest.
+      const trade = (seq: number, ticker: string) =>
+        ajaibTradeToday({
+          seq,
+          time: wibTime(marketNow()),
+          ticker,
+          price: 10_000,
+          lot: 200_000,
+        })
+      await relay.sendAjaib([
+        trade(base + 2 * round + 1, energy),
+        trade(base + 2 * round + 2, banks),
+      ])
+      await page.waitForTimeout(500)
+    }
+    relay.close()
+    await expect
+      .poll(async () => (await panel.getAttribute("data-codes")) ?? "")
+      .toContain(banks)
+
+    await page
+      .getByRole("tablist", { name: "Panels" })
+      .getByRole("tab", { name: "Bubbles" })
+      .click()
+    const canvas = panel.getByRole("img", { name: /^Market Bubbles:/ })
+    await expect(canvas).toBeVisible()
+    const box = (await canvas.boundingBox())!
+    await expect
+      .poll(async () => {
+        const [x, y] = ((await canvas.getAttribute("data-largest-at")) ?? "")
+          .split(",")
+          .map(Number)
+        return (
+          x !== undefined &&
+          y !== undefined &&
+          x > 0 &&
+          x < box.width &&
+          y > 0 &&
+          y < box.height
+        )
+      })
+      .toBe(true)
+  })
 
   test("a busy code's sweep log scrolls inside its panel", async ({ page }) => {
     const relay = await openIngest()
