@@ -44,6 +44,11 @@ type ParseWorkflow<Self> = Context.Key<
   Context.Service.Shape<typeof ArchiveWorkflow>
 >
 
+// Decision: a plain function, not an Effect: each kind calls it once at
+// module load, and it only returns the kind's run, last run and starts as
+// Effects, doing no work and never failing. As an Effect, each caller would
+// only Effect.runSync it at module load, the reason CODING_STANDARDS spares
+// a Layer's `make`.
 export const parseRunsOf = <Self>(kind: {
   // How a log line names one of its runs, as "KSEI parse run".
   readonly runName: string
