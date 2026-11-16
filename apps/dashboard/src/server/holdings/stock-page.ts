@@ -219,53 +219,53 @@ const HolderSizeHoldingRow = Schema.Struct({
   at_least_5: Schema.Number,
 })
 
-const noBands = Effect.sync(
-  () =>
-    Object.fromEntries(
+type HolderSizeHoldingRow = typeof HolderSizeHoldingRow.Type
+
+// A month's bands of one origin, 0/0 for a type with no row.
+const typeBands = (
+  holdingRows: ReadonlyArray<HolderSizeHoldingRow>,
+  dataDate: string,
+  origin: Origin
+) =>
+  Effect.sync(() => {
+    const bands = Object.fromEntries(
       KSEI_TYPES.map((type) => [type, { under5: 0, atLeast5: 0 }])
     ) as Record<KseiType, Bands>
-)
-
-const holderSize = Effect.fnUntraced(function* (
-  monthRows: ReadonlyArray<typeof HolderSizeMonthRow.Type>,
-  holdingRows: ReadonlyArray<typeof HolderSizeHoldingRow.Type>
-) {
-  const months: Array<HolderSizeMonth> = []
-  for (const row of monthRows) {
-    if (row.shares_outstanding === null || row.total_scripless === null) {
-      months.push({
-        dataDate: row.data_date,
-        split: row.split,
-        holding: undefined,
-      })
-      continue
-    }
-    const combined = yield* noBands
-    const local = row.split ? yield* noBands : undefined
-    const foreign = row.split ? yield* noBands : undefined
-    const byOrigin = { combined, local, foreign }
-    for (const held of holdingRows) {
-      const bands =
-        held.data_date === row.data_date ? byOrigin[held.origin] : undefined
-      if (bands !== undefined)
+    for (const held of holdingRows)
+      if (held.data_date === dataDate && held.origin === origin)
         bands[held.investor_type] = {
           under5: held.under_5,
           atLeast5: held.at_least_5,
         }
-    }
-    months.push({
-      dataDate: row.data_date,
-      split: row.split,
-      holding: {
-        sharesOutstanding: row.shares_outstanding,
-        totalScripless: row.total_scripless,
-        combined,
-        ...(local && foreign && { local, foreign }),
-      },
-    })
-  }
-  return months
+    return bands
+  })
+
+const holderSizeMonth = Effect.fnUntraced(function* (
+  row: typeof HolderSizeMonthRow.Type,
+  holdingRows: ReadonlyArray<HolderSizeHoldingRow>
+) {
+  const { data_date: dataDate, split } = row
+  if (row.shares_outstanding === null || row.total_scripless === null)
+    return { dataDate, split, holding: undefined } satisfies HolderSizeMonth
+  return {
+    dataDate,
+    split,
+    holding: {
+      sharesOutstanding: row.shares_outstanding,
+      totalScripless: row.total_scripless,
+      combined: yield* typeBands(holdingRows, dataDate, "combined"),
+      ...(split && {
+        local: yield* typeBands(holdingRows, dataDate, "local"),
+        foreign: yield* typeBands(holdingRows, dataDate, "foreign"),
+      }),
+    },
+  } satisfies HolderSizeMonth
 })
+
+const holderSize = (
+  monthRows: ReadonlyArray<typeof HolderSizeMonthRow.Type>,
+  holdingRows: ReadonlyArray<HolderSizeHoldingRow>
+) => Effect.forEach(monthRows, (row) => holderSizeMonth(row, holdingRows))
 
 const noHoldings = Effect.sync(
   () =>
