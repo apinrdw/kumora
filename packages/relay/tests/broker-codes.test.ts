@@ -113,6 +113,30 @@ describe("a broker codes batch", () => {
   )
 
   it.effect(
+    "of version 3, fields without time or side, fails as a version mismatch",
+    () =>
+      Effect.gen(function* () {
+        const error = yield* Effect.flip(
+          decodeBrokerCodesBatch(
+            JSON.stringify({
+              version: 3,
+              feed: "Ajaib",
+              day: DAY,
+              rows: [
+                [
+                  "1",
+                  codes,
+                  { code: "BBCA", price: 9_000, lots: 10, board: "RG" },
+                ],
+              ],
+            })
+          )
+        )
+        assert.strictEqual(error._tag, "BrokerCodesVersionMismatch")
+      })
+  )
+
+  it.effect(
     "of the most rows, at the longest trade numbers, codes, prices and lots, fits the body limit, and one row more fails",
     () =>
       Effect.gen(function* () {
