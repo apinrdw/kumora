@@ -97,6 +97,39 @@ export const holdingChart = Effect.fnUntraced(function* (
   } satisfies HoldingChart
 })
 
+// One month's share of one shown series, a row for the Bars' stacked
+// columns.
+export interface HoldingRow {
+  // `YYYY-MM`.
+  readonly month: string
+  readonly key: SeriesKey
+  readonly label: string
+  readonly share: number
+}
+
+// The chart as long rows, months in order and the shown series in their
+// given order within each: a hidden series or a gap month gives none.
+export const holdingRows = (
+  chart: HoldingChart,
+  shown: ReadonlyArray<ChartSeries>
+) =>
+  Effect.sync(() => {
+    const indexed = shown.map((each) => ({
+      ...each,
+      index: chart.series.findIndex(({ key }) => key === each.key),
+    }))
+    return chart.columns.flatMap(({ month, shares }) =>
+      shares === undefined
+        ? []
+        : indexed.map(({ key, label, index }): HoldingRow => ({
+            month,
+            key,
+            label,
+            share: shares[index] ?? 0,
+          }))
+    )
+  })
+
 // The newest month's scripless split into local and foreign, for the
 // summary boxes; `split` is undefined when neither holds a share. The
 // series ends on a month KSEI has data for.

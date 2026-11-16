@@ -2,18 +2,31 @@
 // apinrdw/kumora#363, stories 29–42; prototype variant D): KSEI's holdings
 // of the stock per month, as stacked columns or a table, with a legend that
 // hides series.
+import {
+  bandX,
+  barY,
+  defineChart,
+  stack,
+  text,
+  whenFocused,
+} from "@tanstack/charts"
+import { Chart } from "@tanstack/charts/react/tooltip"
+import { scaleBand } from "@tanstack/charts/scales/band"
+import { scaleLinear } from "@tanstack/charts/scales/linear"
+import { tooltip } from "@tanstack/charts/tooltip"
+import { portal } from "@tanstack/charts/tooltip/portal"
 import { cn } from "@workspace/ui/lib/utils"
 import { Effect } from "effect"
-import { useLayoutEffect, useRef, useState } from "react"
+import { useLayoutEffect, useMemo, useRef, useState } from "react"
 
 import { KChip } from "@/components/k/chip"
 import { kCard, kFocus } from "@/components/k/styles"
-import { KTooltip } from "@/components/k/tooltip"
 import {
-  type ChartColumn,
   type ChartSeries,
   type HoldingChart,
   holdingChart,
+  type HoldingRow,
+  holdingRows,
   latestOriginSplit,
   type SeriesKey,
 } from "@/lib/holding-composition"
@@ -40,9 +53,12 @@ const VIEWS: ReadonlyArray<{ value: ChartView; label: string }> = [
   { value: "table", label: "Table" },
 ]
 
-// The bars' height in px, and a column's width.
+// The bars' height in px, the month labels' below them, and a column's
+// width and pitch: 36 px wide with an 8 px gap.
 const HEIGHT = 240
-const COLUMN = "w-9"
+const X_AXIS = 20
+const COLUMN = 36
+const PITCH = 44
 
 const NONE_HIDDEN: ReadonlySet<SeriesKey> = new Set()
 
@@ -82,9 +98,17 @@ export function HoldingComposition({
     setHiddenIn(origin)
     setHidden(NONE_HIDDEN)
   }
-  const chart = Effect.runSync(holdingChart(series, origin, hidden))
-  const shown = chart.series.flatMap((each, index) =>
-    hidden.has(each.key) ? [] : [{ ...each, index }]
+  // Memoized so the Bars' chart definition is rebuilt only when these change.
+  const chart = useMemo(
+    () => Effect.runSync(holdingChart(series, origin, hidden)),
+    [series, origin, hidden]
+  )
+  const shown = useMemo(
+    () =>
+      chart.series.flatMap((each, index) =>
+        hidden.has(each.key) ? [] : [{ ...each, index }]
+      ),
+    [chart, hidden]
   )
   return (
     <section
@@ -207,6 +231,86 @@ function Swatch({ color }: { color: string }) {
   )
 }
 
+// A month's column for the chart's hover and keyboard stops.
+type MonthStop = { readonly month: string }
+
+/** 0.025 → `2.5%` */
+const percentTick = (share: number) =>
+  Effect.succeed(`${Number((share * 100).toFixed(2))}%`)
+
+// What the tooltip shows for one month: its shown series largest first, or
+// nothing for a month KSEI has no data for.
+type MonthView =
+  | { readonly month: string; readonly rows: undefined }
+  | { readonly month: string; readonly rows: ReadonlyArray<HoldingRow> }
+
+const monthView = (
+  chart: HoldingChart,
+  rows: ReadonlyArray<HoldingRow>,
+  month: string
+) =>
+  Effect.sync((): MonthView => ({
+    month,
+    rows:
+      chart.columns.find((column) => column.month === month)?.shares ===
+      undefined
+        ? undefined
+        : rows
+            .filter((row) => row.month === month)
+            .sort((a, b) => b.share - a.share),
+  }))
+
+// One series' line in the tooltip's screen-reader text.
+const rowText = (row: HoldingRow) =>
+  Effect.map(percent(row.share), (share) => `${row.label} ${share}`)
+
+// The tooltip as plain text, for its `role="status"` label: the React body
+// is inert while the tooltip is transient, so a screen reader hears this.
+const monthText = Effect.fnUntraced(function* (
+  view: MonthView,
+  origin: OriginShown
+) {
+  const label = yield* monthLabel(view.month)
+  if (view.rows === undefined)
+    return `${label}: ${NO_DATA}, KSEI's report has no row for this month.`
+  const lines = [label]
+  for (const row of view.rows) lines.push(yield* rowText(row))
+  lines.push(`Share of ${yield* ofWhat(origin)}.`)
+  return lines.join("\n")
+})
+
+function MonthBody({ view, origin }: { view: MonthView; origin: OriginShown }) {
+  return (
+    <div className="flex flex-col gap-1.5">
+      <b>{Effect.runSync(monthLabel(view.month))}</b>
+      {view.rows === undefined ? (
+        <span>{NO_DATA}: KSEI's report has no row for this month.</span>
+      ) : (
+        <>
+          <dl className="grid grid-cols-[1fr_auto] gap-x-3 gap-y-0.5">
+            {view.rows.map((row) => (
+              <div key={row.key} className="contents">
+                <dt className="flex items-center">
+                  <Swatch color={SERIES_COLOR[row.key]} />
+                  {row.label}
+                </dt>
+                <dd className="num text-right">
+                  {Effect.runSync(percent(row.share))}
+                </dd>
+              </div>
+            ))}
+          </dl>
+          <span className="text-muted-foreground">
+            Share of {Effect.runSync(ofWhat(origin))}.
+          </span>
+        </>
+      )}
+    </div>
+  )
+}
+
+const TICKS = [1, 0.75, 0.5, 0.25, 0]
+
 function Bars({
   chart,
   shown,
@@ -223,15 +327,122 @@ function Bars({
     const element = scroller.current
     if (element) element.scrollLeft = element.scrollWidth
   }, [])
-  const ticks = [1, 0.75, 0.5, 0.25, 0]
+  const rows = useMemo(
+    () => Effect.runSync(holdingRows(chart, shown)),
+    [chart, shown]
+  )
+  const definition = useMemo(() => {
+    const months = chart.columns.map(({ month }) => month)
+    const stops: Array<MonthStop> = months.map((month) => ({ month }))
+    const gaps: Array<MonthStop> = chart.columns.flatMap(({ month, shares }) =>
+      shares === undefined ? [{ month }] : []
+    )
+    const keys = shown.map(({ key }) => key)
+    return defineChart({
+      marks: [
+        // An invisible band per month, so a month with no bars is a hover
+        // and keyboard stop too.
+        bandX(stops, { x: "month", fillOpacity: 0 }),
+        whenFocused(
+          bandX(stops, {
+            x: "month",
+            fill: "var(--text-muted)",
+            fillOpacity: 0.12,
+            inset: -3,
+            radius: 2,
+          }),
+          { match: "x" }
+        ),
+        // The first shown series sits at the bottom.
+        barY(rows, {
+          x: "month",
+          y: "share",
+          color: "key",
+          layout: stack({ order: keys }),
+        }),
+        text(gaps, {
+          x: "month",
+          y: () => chart.axisMax / 2,
+          text: () => NO_DATA,
+          rotate: -90,
+          fontSize: 10,
+          fill: "var(--text-muted)",
+        }),
+      ],
+      scales: {
+        x: {
+          scale: scaleBand<string>()
+            .domain(months)
+            .paddingInner((PITCH - COLUMN) / PITCH)
+            .paddingOuter((PITCH - COLUMN) / 2 / PITCH),
+          axis: {
+            line: false,
+            ticks: {
+              size: 0,
+              format: (month: string) => Effect.runSync(shortMonth(month)),
+            },
+            tickLabels: { thin: false, fontSize: 11, opacity: 1 },
+          },
+        },
+        y: {
+          scale: scaleLinear().domain([0, chart.axisMax]),
+          // Decision: the y-axis labels are our own rail beside the
+          // scroller, so they stay put while the columns scroll. The chart's
+          // axis draws no line or labels; its tick values only place the
+          // gridlines level with the rail's.
+          axis: {
+            line: false,
+            ticks: {
+              values: TICKS.map((tick) => tick * chart.axisMax),
+              size: 0,
+            },
+            tickLabels: false,
+          },
+          grid: {
+            strokeDasharray: "3 3",
+            stroke: "var(--border-subtle)",
+            strokeOpacity: 1,
+          },
+        },
+      },
+      color: {
+        domain: keys,
+        range: shown.map(({ key }) => SERIES_COLOR[key]),
+      },
+      margin: { left: 0, right: 0, top: 0, bottom: X_AXIS },
+      // Decision: the chart is one tab stop whose arrow keys step the
+      // months, not a button per month; the Table view lists every exact
+      // value for anyone who wants them as cells.
+      focus: "group-x",
+      focusRing: false,
+      keyboard: true,
+      tooltip: {
+        use: tooltip,
+        portal,
+        anchor: "group-center",
+        placement: ["right", "left"],
+        // Decision: a click or Enter never pins the tooltip. It shows on
+        // hover, focus and tap and goes when they leave, as KTooltip did.
+        sticky: false,
+        className: "holding-tooltip",
+        formatGroup: (points) =>
+          Effect.runSync(
+            Effect.flatMap(
+              monthView(chart, rows, String(points[0]?.xValue ?? "")),
+              (view) => monthText(view, origin)
+            )
+          ),
+      },
+    })
+  }, [chart, shown, origin, rows])
   return (
     <div className="flex min-w-0" role="group" aria-label="Holding chart">
       <div
         aria-hidden
         className="relative w-12 shrink-0 text-[11px] text-muted-foreground"
-        style={{ height: HEIGHT + 20 }}
+        style={{ height: HEIGHT + X_AXIS }}
       >
-        {ticks.map((tick) => (
+        {TICKS.map((tick) => (
           <span
             key={tick}
             className="num absolute right-2 -translate-y-1/2"
@@ -242,116 +453,36 @@ function Bars({
         ))}
       </div>
       <div ref={scroller} className="min-w-0 flex-1 overflow-x-auto pb-1">
-        <div className="relative w-max min-w-full">
-          {ticks.map((tick) => (
-            <div
-              key={tick}
-              aria-hidden
-              className="absolute inset-x-0 border-t border-dashed border-border"
-              style={{ top: (1 - tick) * HEIGHT }}
+        <Chart
+          definition={definition}
+          ariaLabel="Holding composition by month. Arrow keys step through the months; the Table view lists every value."
+          width={chart.columns.length * PITCH}
+          height={HEIGHT + X_AXIS}
+          className="text-muted-foreground"
+          // Decision: our code scrolls a keyboard-focused month into view
+          // when it is near or past the scroller's edge; the library does
+          // not scroll its overflow container.
+          onFocusGroupChange={(points) => {
+            const element = scroller.current
+            const x = points[0]?.x
+            if (!element || x === undefined) return
+            if (
+              x < element.scrollLeft + PITCH ||
+              x > element.scrollLeft + element.clientWidth - PITCH
+            )
+              element.scrollLeft = x - element.clientWidth / 2
+          }}
+          renderTooltipBody={({ points }) => (
+            <MonthBody
+              view={Effect.runSync(
+                monthView(chart, rows, String(points[0]?.xValue ?? ""))
+              )}
+              origin={origin}
             />
-          ))}
-          <ol className="relative flex gap-2 px-1">
-            {chart.columns.map((column) => (
-              <li key={column.month} className="flex flex-col items-center">
-                <Column
-                  column={column}
-                  shown={shown}
-                  axisMax={chart.axisMax}
-                  origin={origin}
-                />
-                <span className="num h-5 text-[11px] leading-5 whitespace-nowrap text-muted-foreground">
-                  {Effect.runSync(shortMonth(column.month))}
-                </span>
-              </li>
-            ))}
-          </ol>
-        </div>
+          )}
+        />
       </div>
     </div>
-  )
-}
-
-/** 0.025 → `2.5%` */
-const percentTick = (share: number) =>
-  Effect.succeed(`${Number((share * 100).toFixed(2))}%`)
-
-function Column({
-  column,
-  shown,
-  axisMax,
-  origin,
-}: {
-  column: ChartColumn
-  shown: Shown
-  axisMax: number
-  origin: OriginShown
-}) {
-  const { shares } = column
-  const label = Effect.runSync(monthLabel(column.month))
-  return (
-    <KTooltip
-      side="right"
-      content={
-        <div className="flex flex-col gap-1.5">
-          <b>{label}</b>
-          {shares === undefined ? (
-            <span>{NO_DATA}: KSEI's report has no row for this month.</span>
-          ) : (
-            <>
-              <dl className="grid grid-cols-[1fr_auto] gap-x-3 gap-y-0.5">
-                {[...shown]
-                  .sort(
-                    (a, b) => (shares[b.index] ?? 0) - (shares[a.index] ?? 0)
-                  )
-                  .map((each) => (
-                    <div key={each.key} className="contents">
-                      <dt className="flex items-center">
-                        <Swatch color={SERIES_COLOR[each.key]} />
-                        {each.label}
-                      </dt>
-                      <dd className="num text-right">
-                        {Effect.runSync(percent(shares[each.index] ?? 0))}
-                      </dd>
-                    </div>
-                  ))}
-              </dl>
-              <span className="text-muted-foreground">
-                Share of {Effect.runSync(ofWhat(origin))}.
-              </span>
-            </>
-          )}
-        </div>
-      }
-    >
-      <button
-        type="button"
-        aria-label={label}
-        className={cn(
-          "flex flex-col-reverse justify-start rounded-xs",
-          COLUMN,
-          kFocus
-        )}
-        style={{ height: HEIGHT }}
-      >
-        {shares === undefined ? (
-          <span className="m-auto rotate-180 text-[10px] whitespace-nowrap text-muted-foreground [writing-mode:vertical-rl]">
-            {NO_DATA}
-          </span>
-        ) : (
-          shown.map((each) => (
-            <i
-              key={each.key}
-              className="block w-full shrink-0"
-              style={{
-                height: ((shares[each.index] ?? 0) / axisMax) * HEIGHT,
-                background: SERIES_COLOR[each.key],
-              }}
-            />
-          ))
-        )}
-      </button>
-    </KTooltip>
   )
 }
 
