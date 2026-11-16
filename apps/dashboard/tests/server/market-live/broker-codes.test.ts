@@ -1169,6 +1169,36 @@ describe("a day with no tape", () => {
       })
   )
 
+  it.effect(
+    "a day the relay missed, its first walk batch in before its 17:00 alarm rang, seals and is listed only once complete",
+    () =>
+      Effect.gen(function* () {
+        const sql = memorySql()
+        yield* TestClock.setTime(wib("12:00:00").epochMilliseconds)
+        const day = yield* tradingDay({ sql })
+        yield* TestClock.setTime(wib("17:05:00").epochMilliseconds)
+        yield* day.post("Stockbit", [[1, YP_CC]], 3)
+        yield* day.alarm
+        assert.deepStrictEqual(day.indexed, [])
+        assert.isFalse((yield* day.status).complete)
+
+        const restarted = yield* tradingDay({ sql })
+        assert.deepStrictEqual(restarted.alarms, [])
+        yield* restarted.post("Stockbit", [[2, PD_KZ]])
+        yield* restarted.alarm
+        assert.deepStrictEqual(restarted.indexed, [])
+
+        yield* restarted.post("Stockbit", [[3, YP_CC]])
+        yield* restarted.alarm
+        assert.deepStrictEqual(restarted.indexed, [
+          { day: DAY, trades: 3, gap: false },
+        ])
+        yield* TestClock.setTime(wib("17:30:00").epochMilliseconds)
+        yield* restarted.alarm
+        assert.lengthOf(restarted.indexed, 1)
+      })
+  )
+
   it.effect("a past day with a tape still arms its seal", () =>
     Effect.gen(function* () {
       yield* TestClock.setTime(wib("15:00:00").epochMilliseconds)
