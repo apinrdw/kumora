@@ -8,14 +8,13 @@ import { runArchiveCron, runParseCron } from "./shareholding/cron.ts"
 import { PARSE_CRON } from "./shareholding/schedule.ts"
 
 // The archive crons and the parse crons, on Production only (alchemy.run.ts).
-// Each firing names its expression: the KSEI archive's starts a KSEI archive
-// run, the KSEI parse cron a KSEI parse run, the shareholding parse cron its
-// parse runs, the other the shareholding archive's.
+// Each firing names its expression, which picks its handler here; any other
+// expression is the shareholding archive's.
+const HANDLERS = new Map([
+  [KSEI_CRON, runKseiCron],
+  [KSEI_PARSE_CRON, runKseiParseCron],
+  [PARSE_CRON, runParseCron],
+])
+
 export const runCron = (cron: string, scheduledTime: number) =>
-  cron === KSEI_CRON
-    ? runKseiCron(scheduledTime)
-    : cron === KSEI_PARSE_CRON
-      ? runKseiParseCron(scheduledTime)
-      : cron === PARSE_CRON
-        ? runParseCron(scheduledTime)
-        : runArchiveCron(scheduledTime)
+  (HANDLERS.get(cron) ?? runArchiveCron)(scheduledTime)
