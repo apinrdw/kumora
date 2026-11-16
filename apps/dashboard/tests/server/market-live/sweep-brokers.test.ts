@@ -36,9 +36,10 @@ const untr = (
   number: number,
   time: string,
   lots: number,
-  side: "buy" | "sell",
+  // None for an auction match's print.
+  side?: "buy" | "sell",
   price = 23300
-) => stockbitTrade({ number, time, price, lots, side })
+) => stockbitTrade({ number, time, price, lots, ...(side && { side }) })
 
 // UNTR's three sweeps, sealed: buys 1–2 (another code's trade 3 between
 // them doesn't break it), sell 4, and buys 5–6.
@@ -263,6 +264,72 @@ describe("a sealed day's sweep brokers", () => {
               other: [],
             },
           ]
+        )
+      })
+  )
+
+  it.effect(
+    "answer an auction match whose trades all have codes with its buyers as `aggressor` and its sellers as `other`, and none with a trade uncoded",
+    () =>
+      Effect.gen(function* () {
+        yield* at("09:01:10")
+        const day = yield* tradingDay()
+        // The opening match: UNTR's three prints, then BBCA's two, in a
+        // minute that holds no sweep. A sweep of UNTR follows at 09:00.
+        yield* day.trades([
+          untr(1, "08:58:00.000", 3),
+          untr(2, "08:58:00.000", 5),
+          untr(3, "08:58:00.000", 4),
+          stockbitTrade({
+            number: 4,
+            time: "08:58:00.000",
+            code: "BBCA",
+            price: 8000,
+            lots: 7,
+          }),
+          stockbitTrade({
+            number: 5,
+            time: "08:58:00.000",
+            code: "BBCA",
+            price: 8000,
+            lots: 2,
+          }),
+          untr(6, "09:00:10.000", 6, "buy"),
+        ])
+        yield* at("17:00:00")
+        yield* day.alarm
+        yield* at("17:30:00")
+        const { sweeps } = (yield* day.recordedSweeps("UNTR")).answer
+        assert.deepStrictEqual(
+          sweeps.map((sweep) => [sweep.side, sweep.trades]),
+          [
+            ["none", 3],
+            ["buy", 1],
+          ]
+        )
+        // BBCA's trade 5 has no codes yet.
+        yield* day.brokerCodes("Ajaib", [
+          [1, "AK F CC D"],
+          [2, "YP D CC D"],
+          [3, "AK F KZ F"],
+          [4, "PD F KZ D"],
+          [6, "BK D ZP F"],
+        ])
+        const { answer } = yield* day.recordedSweepBrokers("UNTR")
+        assert.deepStrictEqual(answer.sweeps.map(brokersOf), [
+          [1, ["AK F 7", "YP D 5"], ["CC D 8", "KZ F 4"]],
+          [6, ["BK D 6"], ["ZP F 6"]],
+        ])
+        assert.deepStrictEqual(
+          (yield* day.recordedSweepBrokers("BBCA")).answer.sweeps,
+          []
+        )
+        yield* day.brokerCodes("Ajaib", [[5, "AK F KZ D"]])
+        assert.deepStrictEqual(
+          (yield* day.recordedSweepBrokers("BBCA")).answer.sweeps.map(
+            brokersOf
+          ),
+          [[4, ["PD F 7", "AK F 2"], ["KZ D 9"]]]
         )
       })
   )

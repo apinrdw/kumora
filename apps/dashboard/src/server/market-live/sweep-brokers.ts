@@ -85,10 +85,13 @@ const sideOf = (trades: ReadonlyArray<MemberBroker>) =>
     return brokers.sort((a, b) => b.lots - a.lots || (a.code < b.code ? -1 : 1))
   })
 
-// One code's whole sweeps in a minute with their brokers, in trade order. A
-// sweep's members are the next `trades` of the code's trades; an auction
-// match has no aggressor side, and a sweep with any member lacking codes is
-// left out.
+// One code's whole sweeps and auction matches in a minute with their
+// brokers, in trade order. A sweep's members are the next `trades` of the
+// code's trades, and one with any member lacking codes is left out.
+// Decision: an auction match has no aggressor side, so its entry keeps the
+// sweep's shape with its buyers in `aggressor` and its sellers in `other`;
+// the page names them from its side. See spec apinrdw/kumora#384, "Auction
+// matches in the build".
 const wholeSweeps = Effect.fnUntraced(function* (
   { trades, sweeps }: CodeMinute,
   codes: ReadonlyMap<TradeNumber, TradeCodes>
@@ -98,7 +101,6 @@ const wholeSweeps = Effect.fnUntraced(function* (
   for (const sweep of sweeps) {
     const members = trades.slice(next, next + sweep.trades)
     next += sweep.trades
-    if (sweep.side === "none") continue
     const buyers: Array<MemberBroker> = []
     const sellers: Array<MemberBroker> = []
     for (const trade of members) {
@@ -117,7 +119,7 @@ const wholeSweeps = Effect.fnUntraced(function* (
     }
     if (buyers.length < members.length) continue
     const [aggressor, other] =
-      sweep.side === "buy" ? [buyers, sellers] : [sellers, buyers]
+      sweep.side === "sell" ? [sellers, buyers] : [buyers, sellers]
     whole.push({
       firstTrade: sweep.firstTrade,
       aggressor: yield* sideOf(aggressor),
@@ -174,8 +176,8 @@ export const makeSweepBrokers = Effect.fnUntraced(function* (options: {
     })
 
   // One minute's rows worked out again from the codes `heldCodes` reads,
-  // metering the rows it read: for each code with a sided sweep, its whole
-  // sweeps' text, or none when none is whole.
+  // metering the rows it read: for each code, its whole sweeps' and auction
+  // matches' text, or none when none is whole.
   // Decision: a row whose bytes are already stored is left out, and so is
   // a delete of a row never stored, so a batch writes only the rows it
   // changes, not every code's row of each minute it touches. See
@@ -195,8 +197,6 @@ export const makeSweepBrokers = Effect.fnUntraced(function* (options: {
         )
         const rows: Array<MinuteRows[number]> = []
         for (const codeMinute of codeMinutes) {
-          if (codeMinute.sweeps.every((sweep) => sweep.side === "none"))
-            continue
           const whole = yield* wholeSweeps(codeMinute, codes)
           const text = whole.length === 0 ? undefined : yield* sweepsText(whole)
           if (text !== (yield* storedText(codeMinute.code, minute)))
