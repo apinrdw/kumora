@@ -2,7 +2,7 @@
 // few classification and KSEI months, as the parse runs would leave
 // them.
 // The stock page only reads these rows.
-import { DatabaseSync } from "node:sqlite"
+import { DatabaseSync, type StatementSync } from "node:sqlite"
 
 import { databaseFile, databaseId } from "./local-d1"
 
@@ -71,6 +71,22 @@ function replaceTables(
   }
 }
 
+// Writes each month's record through `record`, split when its stocks are,
+// then hands each of its stock-months to `stockMonth`.
+function insertMonths<M extends object>(
+  record: StatementSync,
+  months: Readonly<Record<string, Readonly<Record<string, M>>>>,
+  stockMonth: (dataDate: string, code: string, month: M) => void
+) {
+  for (const [dataDate, stocks] of Object.entries(months)) {
+    // A month's report splits when its stocks do.
+    const split = Object.values(stocks).some((month) => !("combined" in month))
+    record.run(dataDate, `sha-${dataDate}`, split ? 1 : 0)
+    for (const [code, month] of Object.entries(stocks))
+      stockMonth(dataDate, code, month)
+  }
+}
+
 /** Replaces every parsed classification month with `months`. */
 export function seedClassificationMonths(months: SeededMonths) {
   replaceTables(
@@ -89,18 +105,11 @@ export function seedClassificationMonths(months: SeededMonths) {
       const holding = db.prepare(
         "INSERT INTO classification_holding VALUES (?, ?, ?, ?, ?)"
       )
-      for (const [dataDate, stocks] of Object.entries(months)) {
-        // A month's report splits when its stocks do.
-        const split = Object.values(stocks).some(
-          (month) => !("combined" in month)
-        )
-        record.run(dataDate, `sha-${dataDate}`, split ? 1 : 0)
-        for (const [code, month] of Object.entries(stocks)) {
-          stock.run(dataDate, code, month.issuer, total(month))
-          for (const [classification, origin, shares] of holdingRows(month))
-            holding.run(dataDate, code, classification, origin, shares)
-        }
-      }
+      insertMonths(record, months, (dataDate, code, month) => {
+        stock.run(dataDate, code, month.issuer, total(month))
+        for (const [classification, origin, shares] of holdingRows(month))
+          holding.run(dataDate, code, classification, origin, shares)
+      })
     }
   )
 }
@@ -164,25 +173,18 @@ export function seedInvestorTypeMonths(months: SeededInvestorTypeMonths) {
       const holding = db.prepare(
         "INSERT INTO investor_type_holding VALUES (?, ?, ?, ?, ?, ?)"
       )
-      for (const [dataDate, stocks] of Object.entries(months)) {
-        // A month's report splits when its stocks do.
-        const split = Object.values(stocks).some(
-          (month) => !("combined" in month)
-        )
-        record.run(dataDate, `sha-${dataDate}`, split ? 1 : 0)
-        for (const [code, month] of Object.entries(stocks)) {
-          const rows = bandRows(month)
-          const scripless = rows
-            .filter(([, origin]) => origin === "combined")
-            .reduce(
-              (held, [, , [under5, atLeast5]]) => held + under5 + atLeast5,
-              0
-            )
-          stock.run(dataDate, code, month.sharesOutstanding, scripless)
-          for (const [type, origin, [under5, atLeast5]] of rows)
-            holding.run(dataDate, code, origin, type, under5, atLeast5)
-        }
-      }
+      insertMonths(record, months, (dataDate, code, month) => {
+        const rows = bandRows(month)
+        const scripless = rows
+          .filter(([, origin]) => origin === "combined")
+          .reduce(
+            (held, [, , [under5, atLeast5]]) => held + under5 + atLeast5,
+            0
+          )
+        stock.run(dataDate, code, month.sharesOutstanding, scripless)
+        for (const [type, origin, [under5, atLeast5]] of rows)
+          holding.run(dataDate, code, origin, type, under5, atLeast5)
+      })
     }
   )
 }
