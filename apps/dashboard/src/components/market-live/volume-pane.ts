@@ -1,8 +1,8 @@
-// Chart 1's volume pane (spec apinrdw/kumora#263, "Volume pane"): pane 1,
-// about a fifth of the chart, one bar a minute split by aggressor side. Buy
+// The candle chart's volume pane (spec apinrdw/kumora#263, "Volume pane"): pane
+// 1, about a fifth of the chart, one bar a minute split by aggressor side. Buy
 // lots sit at the bottom in green, sell lots above them in red, and no-side
-// lots (auction matches) cap the bar in grey. A minute after the replay
-// cursor is all grey.
+// lots (auction matches) cap the bar in grey. A minute after the replay cursor
+// is all grey.
 import type { Candle, Footprint } from "@workspace/relay"
 import { Effect } from "effect"
 import {

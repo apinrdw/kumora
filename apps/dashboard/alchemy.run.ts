@@ -18,14 +18,14 @@ import * as Redacted from "effect/Redacted"
 import { SENDER, SENDING_SUBDOMAIN } from "./src/server/auth/sender.ts"
 import type { RunParams } from "./src/server/archive/run.ts"
 import { KSEI_CRON, KSEI_PARSE_CRON } from "./src/server/ksei/schedule.ts"
-import { ARCHIVE_CRON } from "./src/server/shareholding/schedule.ts"
+import { ARCHIVE_CRON, PARSE_CRON } from "./src/server/shareholding/schedule.ts"
 
 // scripts/auth-schema.ts replays the same directory for the drift check and
 // the handler test seam. apps/e2e/reset-test-stage.ts reads this resource's
 // state file, AuthDb.json, by this id.
 const AuthDb = Cloudflare.D1.Database("AuthDb", { migrations: "./migrations" })
 
-// Parsed holdings: the archive runs parse reports into it, the stock page
+// Parsed holdings: the parse runs parse reports into it, the stock page
 // reads it. Bound on every stage like the archive buckets; only
 // Production's fills, since only Production's buckets hold reports.
 // Decision: a D1 of its own, apart from AuthDb, with its own migrations.
@@ -139,6 +139,9 @@ export const Website = Cloudflare.Website.Vite(
               // HoldingsDb fills on a schedule, from the only bucket that
               // holds reports. See apinrdw/kumora#359.
               KSEI_PARSE_CRON,
+              // Decision: the shareholding parse cron too, for the KSEI
+              // parse cron's reason. See apinrdw/kumora#397.
+              PARSE_CRON,
             ],
           }
         : {}
@@ -213,6 +216,20 @@ export const Website = Cloudflare.Website.Vite(
         KSEI_PARSE: Cloudflare.Workflow<RunParams>("KseiParse", {
           className: "KseiParse",
         }),
+        // The classification parse run, which parses the shareholding
+        // archive's classification reports into HoldingsDb, on every stage
+        // like the archive runs.
+        CLASSIFICATION_PARSE: Cloudflare.Workflow<RunParams>(
+          "ClassificationParse",
+          { className: "ClassificationParse" }
+        ),
+        // The investor-type parse run, which parses the shareholding
+        // archive's investor-type reports into HoldingsDb, on every stage
+        // like the classification parse run.
+        INVESTOR_TYPE_PARSE: Cloudflare.Workflow<RunParams>(
+          "InvestorTypeParse",
+          { className: "InvestorTypeParse" }
+        ),
         ...google,
         ...clockOffset,
       },

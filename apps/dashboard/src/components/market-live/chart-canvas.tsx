@@ -23,13 +23,14 @@ import {
 } from "lightweight-charts"
 import { useEffect, useRef, useState } from "react"
 
-import { chartMinutes } from "@/lib/chart-nav"
+import { chartMinutes, windowAround } from "@/lib/chart-nav"
 import { cursorLogical } from "@/lib/replay"
 
 import { attachBookHeatmap } from "./book-heatmap"
 import type { CandleChange, CandleStore } from "./candle-store"
 import type { ChartPair } from "./chart-pair"
 import { CHART_SCALE_WIDTH, crosshairTime, tickMark } from "./chart-time"
+import { watchZoom } from "./chart-zoom"
 import { CursorLine } from "./cursor-line"
 import type { HeatmapStore } from "./heatmap-store"
 import { useAuctionIndicative } from "./market-conditions"
@@ -37,7 +38,12 @@ import { idxPriceAxis } from "./price-axis"
 import type { ReplayCursor } from "./replay-cursor"
 import { attachSweepBubbles } from "./sweep-bubbles"
 import type { SweepStore } from "./sweep-store"
+import { savedZoom, saveZoom } from "./use-chart-settings"
 import { makeVolumePane, volumeBar } from "./volume-pane"
+
+// Lightweight Charts 5.2.1's own bar spacing, px a minute: the candle chart's
+// time zoom until the viewer zooms it.
+const BAR_SPACING_DEFAULT = 6
 
 const timeOf = (candle: Candle) =>
   Effect.sync(
@@ -166,7 +172,7 @@ class GapShades implements ISeriesPrimitive<Time> {
 // are greyed under a cursor line at the cursor's second, and clicking a
 // candle picks its minute. Each relay gap in `gaps` is shaded; a gap with no
 // end yet is shaded once it ends, or on a recorded day up to the close. It
-// moves with chart 2 through `pair`.
+// moves with the footprint chart through `pair`.
 export default function ChartCanvas({
   store,
   heatmap,
@@ -203,6 +209,7 @@ export default function ChartCanvas({
     // Decision: an index's values are fractional points, not prices on IDX
     // ticks, so its chart keeps the library's decimal axis and grid lines.
     const anIndex = INDEX_CODES.includes(store.code)
+    const zoom = savedZoom("candles")
     const chart = createChart(element, {
       autoSize: true,
       layout: {
@@ -227,11 +234,15 @@ export default function ChartCanvas({
         secondsVisible: false,
         rightOffset: 4,
         tickMarkFormatter: tickMark,
+        barSpacing: zoom.barSpacing ?? BAR_SPACING_DEFAULT,
       },
       localization: { locale: "en-US", timeFormatter: crosshairTime },
       // Decision: on a phone a vertical swipe scrolls the page, not the
       // chart; a horizontal one pans both charts through the pair.
       handleScroll: { vertTouchDrag: false },
+      // The chart's own reset would go back to the saved zoom, and jump to
+      // the latest minute: `watchZoom` hears the double click instead.
+      handleScale: { axisDoubleClickReset: { time: false } },
     })
     const candles = chart.addSeries(CandlestickSeries, {
       upColor: up,
@@ -243,6 +254,37 @@ export default function ChartCanvas({
     candles
       .priceScale()
       .applyOptions({ scaleMargins: { top: 0.08, bottom: 0.08 } })
+    const unzoom = watchZoom({
+      chart,
+      element,
+      series: candles,
+      base: (original) => original(),
+      stretch: zoom.priceStretch,
+      zoomed: (change) => {
+        switch (change._tag) {
+          case "Time":
+            return saveZoom("candles", { barSpacing: change.barSpacing })
+          case "TimeReset": {
+            const timeScale = chart.timeScale()
+            const shown = timeScale.getVisibleLogicalRange()
+            if (shown !== null)
+              timeScale.setVisibleLogicalRange(
+                Effect.runSync(
+                  windowAround(
+                    (shown.from + shown.to) / 2,
+                    timeScale.width() / BAR_SPACING_DEFAULT
+                  )
+                )
+              )
+            return saveZoom("candles", { barSpacing: undefined })
+          }
+          case "Price":
+            return saveZoom("candles", { priceStretch: change.stretch })
+          case "PriceReset":
+            return saveZoom("candles", { priceStretch: undefined })
+        }
+      },
+    })
     const grey = token("--text-muted")
     const volume = Effect.runSync(
       makeVolumePane(chart, {
@@ -451,6 +493,7 @@ export default function ChartCanvas({
     )
     return () => {
       unpair()
+      unzoom()
       redrawGaps.current = undefined
       stopHeatmap?.()
       bubbles?.detach()

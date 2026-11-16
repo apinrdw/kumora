@@ -1,7 +1,7 @@
 // ArchiveWorkflow over an archive's Workflow binding. Kept apart from
 // workflow.ts, so a test never loads it.
 import { WorkerEnv, type WorkerEnvShape } from "@workspace/server"
-import { Effect, Layer } from "effect"
+import { type Context, Effect, Layer } from "effect"
 
 import {
   ArchiveWorkflow,
@@ -88,4 +88,14 @@ export const boundArchiveWorkflow = (
           ),
       })
     })
+  )
+
+// The Workflow over `binding` as `service`, a run's own name for it, such as
+// a parse run's (../holdings/parse-runs.ts), so one layer can hold several.
+export const boundWorkflowAs = <Self>(
+  service: Context.Key<Self, Context.Service.Shape<typeof ArchiveWorkflow>>,
+  binding: (env: WorkerEnvShape) => WorkflowBinding
+) =>
+  Layer.effect(service, Effect.service(ArchiveWorkflow)).pipe(
+    Layer.provide(boundArchiveWorkflow(binding))
   )

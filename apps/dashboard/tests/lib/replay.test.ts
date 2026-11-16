@@ -188,7 +188,7 @@ describe("a relay gap on the chart", () => {
   )
 })
 
-describe("the replay cursor's place among chart 1's bars", () => {
+describe("the replay cursor's place among the candle chart's bars", () => {
   // Bars at 10:00, 10:01 and 10:02, in seconds as the chart holds them.
   const bars = ["10:00:00", "10:01:00", "10:02:00"].map((wib) => at(wib) / 1000)
 

@@ -11,7 +11,7 @@ import { expect, test } from "../support/test"
 const CPU_SLOWDOWN = 4
 const FRAMES = 120
 const P95_BAR_MS = 16
-// Chart 2 draws its widest view, `sell × buy` text, at this size.
+// The footprint chart draws its widest view, `sell × buy` text, at this size.
 const VIEWPORT = { width: 1920, height: 1080 }
 // Frames a send carries: about 200 KB of Ajaib JSON.
 const BATCH = 1_000
@@ -97,32 +97,32 @@ test("both charts repaint within 16 ms at p95 on VKTR's open at 4× CPU slowdown
     `Footprint minutes: ${VKTR_OPEN.minutes}`,
     { timeout: 30_000 }
   )
-  const chart1 = page.locator('[data-chart="candles"]')
-  const chart2 = page.locator('[data-chart="footprint"]')
-  await expect(chart1).toHaveAttribute("data-bubbles", /^[1-9]\d*$/)
-  await expect(chart2).toHaveAttribute("data-draw-mode", "text")
+  const candleChart = page.locator('[data-chart="candles"]')
+  const footprintChart = page.locator('[data-chart="footprint"]')
+  await expect(candleChart).toHaveAttribute("data-bubbles", /^[1-9]\d*$/)
+  await expect(footprintChart).toHaveAttribute("data-draw-mode", "text")
   await books
   relay.close()
-  await expect(chart1).toHaveAttribute("data-heatmap-slices", /^[1-9]\d*$/)
+  await expect(candleChart).toHaveAttribute("data-heatmap-slices", /^[1-9]\d*$/)
   const drawn = {
-    bubbles: await chart1.getAttribute("data-bubbles"),
-    heatSlices: await chart1.getAttribute("data-heatmap-slices"),
-    imbalances: await chart2.getAttribute("data-imbalances"),
-    vwapPoints: await chart2.getAttribute("data-vwap-points"),
+    bubbles: await candleChart.getAttribute("data-bubbles"),
+    heatSlices: await candleChart.getAttribute("data-heatmap-slices"),
+    imbalances: await footprintChart.getAttribute("data-imbalances"),
+    vwapPoints: await footprintChart.getAttribute("data-vwap-points"),
   }
 
   // A day's thousands of sweeps scroll inside the log: they never stretch
   // the charts beside it past the window.
-  for (const chart of [chart1, chart2])
+  for (const chart of [candleChart, footprintChart])
     expect((await chart.boundingBox())!.height).toBeLessThan(VIEWPORT.height)
 
   const cdp = await page.context().newCDPSession(page)
   await cdp.send("Emulation.setCPUThrottlingRate", { rate: CPU_SLOWDOWN })
-  // Chart 2 leads: a sine of ±1.5 of its bars, which chart 1 follows minute
-  // for minute through the pair. Each step is one mouse move, then two
-  // frames, so each frame paints both charts once.
-  await chart2.scrollIntoViewIfNeeded()
-  const box = (await chart2.boundingBox())!
+  // The footprint chart leads: a sine of ±1.5 of its bars, which the candle
+  // chart follows minute for minute through the pair. Each step is one mouse
+  // move, then two frames, so each frame paints both charts once.
+  await footprintChart.scrollIntoViewIfNeeded()
+  const box = (await footprintChart.boundingBox())!
   const amplitude = (box.width / VKTR_OPEN.minutes) * 1.5
   const x = box.x + box.width / 2
   const y = box.y + box.height * 0.4

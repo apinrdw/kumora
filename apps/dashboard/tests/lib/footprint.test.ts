@@ -143,7 +143,7 @@ describe("the window of the last minutes", () => {
   )
 })
 
-describe("chart 2's columns", () => {
+describe("the footprint chart's columns", () => {
   const candle = (wib: string, close: number): Candle => ({
     code: StockCode.make("UNTR"),
     minute: DateTime.makeUnsafe(`2026-11-09T${wib}:00+07:00`),
@@ -344,7 +344,7 @@ describe("chart 2's columns", () => {
   )
 })
 
-describe("chart 2 in words", () => {
+describe("the footprint chart in words", () => {
   it.effect(
     "counts the minutes up to the cursor's and gives the latest one's exact Vol, Δ and CVD",
     () =>

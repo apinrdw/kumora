@@ -4,11 +4,16 @@ import { Effect, Layer, Schema } from "effect"
 import { TestClock } from "effect/testing"
 
 import {
+  parseClassificationNow,
+  parseInvestorTypeNow,
   runArchiveNow,
   shareholdingArchivePage,
 } from "@/server/admin/shareholding"
 import type { Mail } from "@/server/auth/mailer"
 import { RunId } from "@/server/archive/run"
+import { ArchiveWorkflow } from "@/server/archive/workflow"
+import { ClassificationParseWorkflow } from "@/server/shareholding/classification-parse"
+import { InvestorTypeParseWorkflow } from "@/server/shareholding/investor-type-parse"
 import {
   type ArchiveRunResult,
   RunMetadata,
@@ -50,8 +55,6 @@ const RUNNING: ArchiveRunResult = {
   newVersions: 0,
   reportsChecked: 0,
   notStored: [],
-  monthsParsed: 0,
-  parseFailures: [],
   other: [],
   error: null,
 }
@@ -73,11 +76,28 @@ const archive = () => {
   const auth = seam()
   const bucket = memoryBucket()
   const workflow = fakeWorkflow()
+  // Each parse run's own Workflow.
+  const classificationWorkflow = fakeWorkflow()
+  const investorTypeWorkflow = fakeWorkflow()
   return {
     ...auth,
     bucket,
     workflow,
-    layer: Layer.mergeAll(auth.layer, bucket.layer, workflow.layer),
+    classificationWorkflow,
+    investorTypeWorkflow,
+    layer: Layer.mergeAll(
+      auth.layer,
+      bucket.layer,
+      workflow.layer,
+      Layer.effect(
+        ClassificationParseWorkflow,
+        Effect.service(ArchiveWorkflow)
+      ).pipe(Layer.provide(classificationWorkflow.layer)),
+      Layer.effect(
+        InvestorTypeParseWorkflow,
+        Effect.service(ArchiveWorkflow)
+      ).pipe(Layer.provide(investorTypeWorkflow.layer))
+    ),
   }
 }
 
@@ -108,18 +128,32 @@ describe("the shareholding archive page", () => {
   })
 
   it.effect("answers not found to a member, and starts no run for one", () => {
-    const { layer, mails, workflow } = archive()
+    const {
+      layer,
+      mails,
+      workflow,
+      classificationWorkflow,
+      investorTypeWorkflow,
+    } = archive()
     return Effect.gen(function* () {
       const cookie = yield* verified(mails)("ayu@example.com", "Ayu")
       const page = yield* Effect.flip(shareholdingArchivePage(headers(cookie)))
       assert.strictEqual(page._tag, "NotFound")
       const run = yield* Effect.flip(runArchiveNow(headers(cookie)))
       assert.strictEqual(run._tag, "NotFound")
+      const parse = yield* Effect.flip(parseClassificationNow(headers(cookie)))
+      assert.strictEqual(parse._tag, "NotFound")
+      const parseTypes = yield* Effect.flip(
+        parseInvestorTypeNow(headers(cookie))
+      )
+      assert.strictEqual(parseTypes._tag, "NotFound")
       assert.deepStrictEqual(createdIds(workflow), [])
+      assert.deepStrictEqual(createdIds(classificationWorkflow), [])
+      assert.deepStrictEqual(createdIds(investorTypeWorkflow), [])
     }).pipe(Effect.provide(layer))
   })
 
-  it.effect("shows an admin no run yet, and the next scheduled run", () => {
+  it.effect("shows an admin no run yet, and the next scheduled runs", () => {
     const { layer, mails } = archive()
     return Effect.gen(function* () {
       yield* TestClock.setTime(Date.parse("2026-11-14T07:00:00.000Z"))
@@ -127,6 +161,10 @@ describe("the shareholding archive page", () => {
       const page = yield* shareholdingArchivePage(headers(cookie))
       assert.isUndefined(page.lastRun)
       assert.strictEqual(page.nextRun, "2026-11-14T13:00:00.000Z")
+      assert.isUndefined(page.lastClassificationParseRun)
+      assert.isUndefined(page.lastInvestorTypeParseRun)
+      // 21:00 WIB, an hour after the evening archive run.
+      assert.strictEqual(page.nextParseRun, "2026-11-14T14:00:00.000Z")
       assert.deepStrictEqual(page.recentRuns, [])
       assert.strictEqual(page.totals.reports, 0)
     }).pipe(Effect.provide(layer))
@@ -241,4 +279,108 @@ describe("Run now", () => {
       assert.strictEqual(createdIds(workflow).length, 2)
     }).pipe(Effect.provide(layer))
   })
+})
+
+describe("Parse now on the classification parse run", () => {
+  it.effect(
+    "starts a classification parse run, then refuses while it runs, apart from Run now",
+    () => {
+      const { layer, mails, workflow, classificationWorkflow } = archive()
+      return Effect.gen(function* () {
+        const cookie = yield* verified(mails)(ADMIN_EMAIL, "Adi")
+        yield* TestClock.setTime(1_763_125_032_000)
+        assert.deepStrictEqual(yield* parseClassificationNow(headers(cookie)), {
+          id: "admin-1763125032000",
+        })
+        assert.deepStrictEqual(
+          classificationWorkflow.instances.get("admin-1763125032000")?.options
+            .params,
+          { trigger: "admin" }
+        )
+        const page = yield* shareholdingArchivePage(headers(cookie))
+        assert.isTrue(page.lastClassificationParseRun?.inProgress)
+        assert.deepInclude(page.lastClassificationParseRun?.result, {
+          trigger: "admin",
+          outcome: "running",
+          monthsParsed: 0,
+          parseFailures: [],
+        })
+        // The archive run has a run store of its own.
+        assert.isUndefined(page.lastRun)
+
+        yield* TestClock.adjust("1 second")
+        assert.deepStrictEqual(
+          yield* Effect.flip(parseClassificationNow(headers(cookie))),
+          new Conflict({ message: "A parse run is in progress." })
+        )
+        assert.deepStrictEqual(createdIds(classificationWorkflow), [
+          "admin-1763125032000",
+        ])
+        // An archive run starts while the parse run runs.
+        assert.deepStrictEqual(yield* runArchiveNow(headers(cookie)), {
+          id: "admin-1763125033000",
+        })
+        assert.deepStrictEqual(createdIds(workflow), ["admin-1763125033000"])
+
+        // Once the parse run's instance has ended, Parse now starts another.
+        const instance = classificationWorkflow.instances.get(
+          "admin-1763125032000"
+        )
+        assert.isDefined(instance)
+        instance.status = "complete"
+        yield* TestClock.adjust("1 second")
+        assert.deepStrictEqual(yield* parseClassificationNow(headers(cookie)), {
+          id: "admin-1763125034000",
+        })
+      }).pipe(Effect.provide(layer))
+    }
+  )
+})
+
+describe("Parse now on the investor-type parse run", () => {
+  it.effect(
+    "starts an investor-type parse run, then refuses while it runs, apart from the classification parse run",
+    () => {
+      const { layer, mails, classificationWorkflow, investorTypeWorkflow } =
+        archive()
+      return Effect.gen(function* () {
+        const cookie = yield* verified(mails)(ADMIN_EMAIL, "Adi")
+        yield* TestClock.setTime(1_763_125_032_000)
+        assert.deepStrictEqual(yield* parseInvestorTypeNow(headers(cookie)), {
+          id: "admin-1763125032000",
+        })
+        assert.deepStrictEqual(
+          investorTypeWorkflow.instances.get("admin-1763125032000")?.options
+            .params,
+          { trigger: "admin" }
+        )
+        const page = yield* shareholdingArchivePage(headers(cookie))
+        assert.isTrue(page.lastInvestorTypeParseRun?.inProgress)
+        assert.deepInclude(page.lastInvestorTypeParseRun?.result, {
+          trigger: "admin",
+          outcome: "running",
+          monthsParsed: 0,
+          parseFailures: [],
+        })
+        // The classification parse run has a run store of its own.
+        assert.isUndefined(page.lastClassificationParseRun)
+
+        yield* TestClock.adjust("1 second")
+        assert.deepStrictEqual(
+          yield* Effect.flip(parseInvestorTypeNow(headers(cookie))),
+          new Conflict({ message: "A parse run is in progress." })
+        )
+        assert.deepStrictEqual(createdIds(investorTypeWorkflow), [
+          "admin-1763125032000",
+        ])
+        // A classification parse run starts while it runs.
+        assert.deepStrictEqual(yield* parseClassificationNow(headers(cookie)), {
+          id: "admin-1763125033000",
+        })
+        assert.deepStrictEqual(createdIds(classificationWorkflow), [
+          "admin-1763125033000",
+        ])
+      }).pipe(Effect.provide(layer))
+    }
+  )
 })

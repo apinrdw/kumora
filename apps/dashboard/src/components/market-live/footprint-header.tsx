@@ -1,6 +1,6 @@
-// Chart 2's two-line header (spec apinrdw/kumora#263, "Header readout"): the
-// hovered minute's figures, else the cursor's (live: the latest minute's).
-// The canvas tells it both.
+// The footprint chart's two-line header (spec apinrdw/kumora#263, "Header
+// readout"): the hovered minute's figures, else the cursor's (live: the latest
+// minute's). The canvas tells it both.
 import { Effect } from "effect"
 import { useMemo, useSyncExternalStore } from "react"
 

@@ -118,7 +118,7 @@ test("sweeps show as bubbles and log rows; top-N filters them; a row rings its b
   await expect(rows).toHaveCount(1)
   // The toggle is in the URL, so a shared link opens with it.
   await expect(page).toHaveURL(/[?&]big=true(&|$)/)
-  // Chart 2 opens on the last 10 minutes drawn.
+  // The footprint chart opens on the last 10 minutes drawn.
   const footprint = page.locator('[data-chart="footprint"]')
   const range = async () => ({
     from: Number(await footprint.getAttribute("data-from")),
@@ -138,8 +138,8 @@ test("sweeps show as bubbles and log rows; top-N filters them; a row rings its b
     "data-ringed-sweep",
     (await big.getAttribute("data-sweep-id"))!
   )
-  // The row moves chart 2 to the 10 minutes around the big buy's: its minute
-  // is the 5th column, whose ladder names it.
+  // The row moves the footprint chart to the 10 minutes around the big buy's:
+  // its minute is the 5th column, whose ladder names it.
   // Decision: the spec finds the minute by hovering, not by its bar index.
   // Relay gaps' minutes are drawn after the code's own as well as before
   // them, so no data-from or data-to tells which bar the newest sweep's is.
@@ -250,8 +250,8 @@ test("a recorded day's sweep log shows each sweep's lead brokers, wider, filling
   // before them lose their brokers every run.
   const earlierCode = freshCode("SE")
   // A buy sweep of two trades, then a sell sweep of one, in one second: they
-  // share a minute, so selecting either never pans chart 1 and a bubble
-  // stays where it was read.
+  // share a minute, so selecting either never pans the candle chart and a
+  // bubble stays where it was read.
   await relay.sendAjaib([
     ...[1, 600].map((seq) =>
       ajaibTradeToday({
@@ -352,11 +352,11 @@ test("a recorded day's sweep log shows each sweep's lead brokers, wider, filling
   await page.mouse.move(0, 0)
   await expect(tip).toBeHidden()
 
-  // A bubble on chart 1 shows the same tooltip on hover, and a click on it
-  // still selects its row.
+  // A bubble on the candle chart shows the same tooltip on hover, and a click
+  // on it still selects its row.
   const candles = page.locator('[data-chart="candles"]')
-  // The first selection pans chart 1 to the sweeps' minute, at times a draw
-  // after its ring; a selection in that minute then never moves it.
+  // The first selection pans the candle chart to the sweeps' minute, at times a
+  // draw after its ring; a selection in that minute then never moves it.
   await rows.first().click()
   await ringedBubble(
     candles,
@@ -376,8 +376,8 @@ test("a recorded day's sweep log shows each sweep's lead brokers, wider, filling
 
   // The broker filter lists the aggressors by their summed lots. Picking AK
   // keeps only the sweeps AK was the aggressor of, each at its whole lots,
-  // in the log and in chart 1's bubbles; the top-N cuts by them, and the
-  // tooltip marks AK.
+  // in the log and in the candle chart's bubbles; the top-N cuts by them, and
+  // the tooltip marks AK.
   const filter = log.getByLabel("Broker filter")
   await expect(filter.getByRole("option")).toHaveText([
     "All brokers",
@@ -448,7 +448,7 @@ test("a recorded day's sweep log shows each sweep's lead brokers, wider, filling
   await expect(phoneRows).toHaveCount(2)
   await expect(phoneLog.getByText("Aggressor", { exact: true })).toBeVisible()
   await expect(phoneLog.getByText("Other side")).toBeVisible()
-  // As above: one selection first, so chart 1 has panned once read.
+  // As above: one selection first, so the candle chart has panned once read.
   await phoneRows.first().getByText("Sell").tap()
   await expect(phoneRows.first()).toHaveAttribute("aria-current", "true")
   await phoneRows.nth(1).getByText("AK [F]").tap()
@@ -736,7 +736,8 @@ test("a recorded day's Auction row shows its lead buyer and seller, and a broker
 })
 
 // The ringed bubble's centre in the viewport, once it is `id`'s and a
-// redraw no longer moves it (a selection can pan chart 1 a frame later).
+// redraw no longer moves it (a selection can pan the candle chart a frame
+// later).
 async function ringedBubble(candles: Locator, id: string) {
   await expect(candles).toHaveAttribute("data-ringed-sweep", id)
   let last: string | null = null

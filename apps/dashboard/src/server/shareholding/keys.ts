@@ -5,6 +5,10 @@
 //                                                          one per listing seen
 //   runs/<run-id>.json                                     (../archive/run.ts)
 //   runs/latest.json                                       { id } of the last run
+//   parse-runs/<kind>/<run-id>.json                        one per parse run of
+//                                                          the kind (../holdings/
+//                                                          parse-runs.ts)
+//   parse-runs/<kind>/latest.json                          { id } of its last
 //
 // Nothing under reports/ is ever overwritten or deleted.
 import { Effect } from "effect"
@@ -18,6 +22,9 @@ export const kindPrefix = Effect.fnUntraced(function* (kind: ReportKind) {
   return `${REPORTS_PREFIX}${kind}/`
 })
 
+// seedReportFixture (apps/e2e/support/shareholding.ts) writes this key and
+// recordKey's by hand, since it can't load this module: a change here
+// changes it too.
 export const reportKey = Effect.fnUntraced(function* (
   kind: ReportKind,
   dataDate: string,

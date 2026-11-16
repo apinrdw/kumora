@@ -23,8 +23,6 @@ const RUNNING: ArchiveRunResult = {
   newVersions: 0,
   reportsChecked: 0,
   notStored: [],
-  monthsParsed: 0,
-  parseFailures: [],
   other: [],
   error: null,
 }
@@ -92,17 +90,18 @@ describe("the last archive run", () => {
   })
 
   it.effect(
-    "reads a run recorded before runs parsed months as none parsed",
+    "reads a run recorded while archive runs still parsed months",
     () => {
       const bucket = memoryBucket()
-      const { monthsParsed: _, parseFailures: __, ...recordedBefore } = COMPLETE
-      seed(bucket, recordedBefore as ArchiveRunResult)
+      const recordedThen: ArchiveRunResult = {
+        ...COMPLETE,
+        outcome: "partial",
+        monthsParsed: 3,
+        parseFailures: [{ date: "2026-10-30", message: "No TOTAL SCRIPLESS" }],
+      }
+      seed(bucket, recordedThen)
       return Effect.gen(function* () {
-        assert.deepStrictEqual((yield* lastRun)?.result, {
-          ...COMPLETE,
-          monthsParsed: 0,
-          parseFailures: [],
-        })
+        assert.deepStrictEqual((yield* lastRun)?.result, recordedThen)
       }).pipe(provide(bucket, fakeWorkflow()))
     }
   )

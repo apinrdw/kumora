@@ -142,12 +142,13 @@ const gap = (from: string, to: string): RelayGap => ({
   to: minute(to),
 })
 
-// Chart 2 isn't drawn here.
+// The footprint chart isn't drawn here.
 const alone: ChartPair = {
   attachCandles: () => () => {},
   attachFootprint: () => () => {},
   jumpTo: () => {},
   showUpTo: () => {},
+  refit: () => {},
 }
 
 // The animation frame the chart batches deltas into.
@@ -261,7 +262,7 @@ test("an index's price axis keeps its decimals; a stock's snaps to its IDX tick"
   expect(await shownOn(BBCA, 9_012)).toBe("9,000")
 })
 
-describe("a click on chart 1 of a recorded day", () => {
+describe("a click on the candle chart of a recorded day", () => {
   const DAY = WibDate.make("2026-11-09")
   // A 30-lot buy sweep at 09:00:00 and a sell one at 09:00:30: their
   // bubbles sit at x 100 and x 130, y 50.

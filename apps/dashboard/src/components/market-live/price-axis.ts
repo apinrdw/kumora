@@ -125,8 +125,9 @@ export const idxPriceAxis = (
     return { setPrice }
   })
 
-// Chart 2's autoscale: the visible minutes' range, widened until a row is at
-// most 36 px of `chart`'s first pane (lib/price-axis.ts `rowCappedRange`).
+// The footprint chart's autoscale: the visible minutes' range, widened until a
+// row is at most 36 px of `chart`'s first pane (lib/price-axis.ts
+// `rowCappedRange`).
 export const rowCapped =
   (chart: IChartApi): AutoscaleInfoProvider =>
   (original) => {

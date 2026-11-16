@@ -35,7 +35,7 @@ const piece = (sweep: Sweep, aggressor: string): SweepPiece => ({
   other: [],
 })
 
-describe("chart 1's bubbles", () => {
+describe("the candle chart's bubbles", () => {
   it.effect(
     "draw one bubble per piece at its own average price, largest first within its second",
     () =>

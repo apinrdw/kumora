@@ -12,7 +12,7 @@ const PAGE = "/market-live"
 
 test.use({ storageState: MEMBER.storageState })
 
-test("chart 2's tabs, imbalance select and POC and VWAP toggles change its drawing, and every chart setting survives a reload", async ({
+test("the footprint chart's tabs, imbalance select and POC and VWAP toggles change its drawing, and every chart setting survives a reload", async ({
   page,
 }) => {
   const relay = await openIngest()
@@ -95,7 +95,7 @@ test("chart 2's tabs, imbalance select and POC and VWAP toggles change its drawi
   await expect(vwap).toHaveAttribute("aria-pressed", "false")
   await expect(canvas).toHaveAttribute("data-vwap-points", "0")
 
-  // Chart 1's top-N is remembered with them.
+  // The candle chart's top-N is remembered with them.
   const chart = page.getByRole("region", { name: "Chart" })
   await tabs.getByRole("tab", { name: "Side by side" }).click()
   await chart.getByRole("button", { name: "10%" }).click()

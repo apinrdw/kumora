@@ -1,7 +1,7 @@
 // Seam (2) of spec apinrdw/kumora#263 for the book heatmap (ticket
-// apinrdw/kumora#267): the selected code's resting lots shade chart 1 behind
-// its candles, live from the heatmap GET and the socket's books, and on a
-// recorded day from the GET alone.
+// apinrdw/kumora#267): the selected code's resting lots shade the candle chart
+// behind its candles, live from the heatmap GET and the socket's books, and on
+// a recorded day from the GET alone.
 import {
   StockCode,
   WibDate,
@@ -31,7 +31,7 @@ const PAGE = "/market-live"
 
 test.use({ storageState: MEMBER.storageState })
 
-test("the selected code's book heatmap shades behind chart 1's candles, live and on a recorded day", async ({
+test("the selected code's book heatmap shades behind the candle chart's candles, live and on a recorded day", async ({
   page,
 }) => {
   // A code of its own: today's object keeps every code's books.

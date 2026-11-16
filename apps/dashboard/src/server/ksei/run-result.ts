@@ -15,20 +15,6 @@ export type KseiTrigger = typeof KseiTrigger.Type
 // What `create` passes the Workflow (KSEI_ARCHIVE in alchemy.run.ts).
 export type KseiParams = RunParams<KseiTrigger>
 
-// The id of a run `trigger` starts at `epochMs`: `cron-<YYYY-MM-DD>` from the
-// cron's scheduled time (it fires once a day), or `admin-<epoch ms>` and
-// `deep-<epoch ms>`. Ids of one trigger sort as their starts do.
-export const kseiRunIdAt = Effect.fnUntraced(function* (
-  trigger: KseiTrigger,
-  epochMs: number
-) {
-  return RunId.make(
-    trigger === "cron"
-      ? `cron-${new Date(epochMs).toISOString().slice(0, 10)}`
-      : `${trigger}-${epochMs}`
-  )
-})
-
 export const ListingFailure = Schema.Struct({
   kind: KseiReportKind,
   message: Schema.String,

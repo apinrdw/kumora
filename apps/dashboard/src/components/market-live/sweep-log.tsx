@@ -171,8 +171,8 @@ export function useSweeps(
 }
 
 /**
- * Chart 1's top-N filter: presets and a slider in 5% steps, applied while it
- * is dragged, and the threshold they come to.
+ * The candle chart's top-N filter: presets and a slider in 5% steps, applied
+ * while it is dragged, and the threshold they come to.
  */
 export function TopNControl({
   store,
@@ -431,8 +431,8 @@ function ArrivingNote({ view }: { view: SweepView }) {
  * The Buy/Sell sweep log (layout B's middle column): the selected code's
  * sweeps up to the cursor, newest first, filtered by the picked broker, the
  * top-N threshold and the Big only toggle (`bigOnly`), auction matches as
- * neutral rows. Clicking a row selects its sweep, which jumps chart 1 there;
- * a bubble picked on chart 1 scrolls its row into view.
+ * neutral rows. Clicking a row selects its sweep, which jumps the candle chart
+ * there; a bubble picked on the candle chart scrolls its row into view.
  */
 export function SweepLog({
   store,
@@ -528,7 +528,7 @@ export function SweepLog({
 
 // The log's column heads and its rows, drawn only around the visible ones,
 // or `empty` when none shows. Clicking a row selects its sweep; a bubble
-// picked on chart 1 scrolls its row to the middle.
+// picked on the candle chart scrolls its row to the middle.
 function LogColumns({
   store,
   view,
@@ -558,7 +558,7 @@ function LogColumns({
       element.removeEventListener("scroll", measure)
     }
   }, [])
-  // A bubble picked on chart 1 scrolls its row to the middle.
+  // A bubble picked on the candle chart scrolls its row to the middle.
   const rowsRef = useRef(rows)
   useEffect(() => {
     rowsRef.current = rows

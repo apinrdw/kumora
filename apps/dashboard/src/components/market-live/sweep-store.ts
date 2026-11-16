@@ -26,8 +26,8 @@ import { makeListenerStore, type ListenerStore } from "./listener-store"
 
 // What changed since the listener last heard: the sweeps, their brokers,
 // the top-N, the picked broker, or the selected sweep. A selection carries its minute, so whatever shows it can
-// jump there: chart 1 scrolls to it, the sweep log scrolls to its row, and
-// chart 2 can move to it (apinrdw/kumora#268).
+// jump there: the candle chart scrolls to it, the sweep log scrolls to its row,
+// and the footprint chart can move to it (apinrdw/kumora#268).
 export type SweepChange =
   | { readonly _tag: "Sweeps" }
   | { readonly _tag: "Brokers" }
@@ -37,12 +37,12 @@ export type SweepChange =
       readonly _tag: "Selected"
       readonly id: TradeNumber
       readonly minute: number
-      // Where it was picked: a bubble on chart 1, or a row of the log.
+      // Where it was picked: a bubble on the candle chart, or a row of the log.
       readonly from: "chart" | "log"
     }
 
 // Where the sweep tooltip shows, for which sweep: at a point of the
-// viewport, from a bubble on chart 1 or a broker cell of the log.
+// viewport, from a bubble on the candle chart or a broker cell of the log.
 export interface TipAt {
   readonly id: TradeNumber
   readonly x: number
@@ -73,7 +73,8 @@ export interface SweepStore {
   // answered; true until it answers otherwise, so live shows no note.
   readonly brokersComplete: () => boolean
   readonly answerBrokers: (answer: RecordedSweepBrokers) => void
-  // The broker the log and chart 1's bubbles are filtered to, none for all.
+  // The broker the log and the candle chart's bubbles are filtered to, or
+  // none for all.
   // Decision: it lives here, per code and per page, not in the URL or the
   // chart settings: the spec keeps it across neither a code switch nor a
   // reload (apinrdw/kumora#343, "The filter control").

@@ -41,6 +41,21 @@ export const runError = Effect.fnUntraced(function* (error: string) {
     : error
 })
 
+// The id of a run `trigger` starts at `epochMs`, for runs whose cron fires
+// once a day (the KSEI archive run, every parse run): `cron-<YYYY-MM-DD>`
+// from the cron's scheduled time, or `<trigger>-<epoch ms>`. Ids of one
+// trigger sort as their starts do.
+export const dailyRunIdAt = Effect.fnUntraced(function* (
+  trigger: string,
+  epochMs: number
+) {
+  return RunId.make(
+    trigger === "cron"
+      ? `cron-${new Date(epochMs).toISOString().slice(0, 10)}`
+      : `${trigger}-${epochMs}`
+  )
+})
+
 // A run as its Workflow starts it: its instance's id and start, and the
 // trigger `create` passed.
 export interface Run<Trigger extends string = string> {

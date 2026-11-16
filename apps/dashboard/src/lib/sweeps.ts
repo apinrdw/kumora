@@ -1,6 +1,6 @@
-// The selected code's sweeps as chart 1's bubbles and the sweep log show them
-// (spec apinrdw/kumora#263, "Chart 1"): the top-N filter, the log's rows, and
-// where a bubble sits. Pure, so the renderers only draw.
+// The selected code's sweeps as the candle chart's bubbles and the sweep log
+// show them (spec apinrdw/kumora#263, "Chart 1"): the top-N filter, the log's
+// rows, and where a bubble sits. Pure, so the renderers only draw.
 import { CODES_RECHECK } from "@workspace/client"
 import { MINUTE_MS, SHARES_PER_LOT } from "@workspace/relay"
 import type {

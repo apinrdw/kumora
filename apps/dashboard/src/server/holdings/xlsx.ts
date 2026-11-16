@@ -1,6 +1,6 @@
 // Reads the first worksheet of an .xlsx by hand: its two XML parts out of
 // the zip (zip.ts), then regexes, since workerd has no DOMParser. It reads
-// text and numbers, and refuses any other cell.
+// text, numbers and booleans, and refuses any other cell.
 // Decision: no dependency. SheetJS adds 380 KiB and is 5× slower; exceljs
 // hangs a reused isolate. See apinrdw/kumora#351.
 import { Effect, Schema } from "effect"
@@ -142,15 +142,30 @@ const REF = /\br="(([A-Z]+)\d+)"/
 const TYPE = /\bt="([^"]*)"/
 
 // The cell types read.
-const READ_TYPES: ReadonlySet<string> = new Set(["s", "str", "inlineStr", "n"])
+const READ_TYPES: ReadonlySet<string> = new Set([
+  "s",
+  "str",
+  "inlineStr",
+  "n",
+  "b",
+])
+
+// A boolean cell's value as Excel shows it.
+// Decision: read, not refused: Excel's autocorrect wrote the stock code TRUE
+// as a boolean in IDX's Apr 2026 investor-type report. As text, a boolean in
+// a share column still fails as no share count. See apinrdw/kumora#395.
+const BOOLEAN_TEXT = new Map([
+  ["0", "FALSE"],
+  ["1", "TRUE"],
+])
 
 // One cell's value, undefined when it holds none: a shared string (`t="s"`),
-// text (`t="str"`, or `t="inlineStr"` from its <is>), or a number (`t="n"`,
-// or no type).
+// text (`t="str"`, or `t="inlineStr"` from its <is>), a number (`t="n"`, or
+// no type), or a boolean (`t="b"`) as its text, `TRUE` or `FALSE`.
 // Decision: a cell of any other type, or one holding something but no value,
-// fails the report: a boolean, error or date names no stock or share count,
-// an error read as text stored `#N/A` as a stock, and an inline string read
-// as no value dropped a stock while its month was replaced.
+// fails the report: an error or date names no stock or share count, an error
+// read as text stored `#N/A` as a stock, and an inline string read as no
+// value dropped a stock while its month was replaced.
 const cellValue = Effect.fnUntraced(function* (
   ref: string,
   attributes: string,
@@ -160,7 +175,7 @@ const cellValue = Effect.fnUntraced(function* (
   const type = TYPE.exec(attributes)?.[1] ?? "n"
   if (!READ_TYPES.has(type))
     return yield* unreadable(
-      `Cell ${yield* excerpt(ref)}'s type is "${yield* excerpt(type)}": a cell is read only as a shared string, a string, an inline string or a number`
+      `Cell ${yield* excerpt(ref)}'s type is "${yield* excerpt(type)}": a cell is read only as a shared string, a string, an inline string, a number or a boolean`
     )
   const name = type === "inlineStr" ? "is" : "v"
   const element = elements(content, name).next().value
@@ -173,6 +188,14 @@ const cellValue = Effect.fnUntraced(function* (
     )
   }
   if (type === "n") return Number(text)
+  if (type === "b") {
+    const shown = BOOLEAN_TEXT.get(text)
+    if (shown === undefined)
+      return yield* unreadable(
+        `Cell ${yield* excerpt(ref)}'s boolean isn't 0 or 1: ${yield* excerpt(text)}`
+      )
+    return shown
+  }
   if (type === "str") return yield* decodeXml(text)
   if (type === "inlineStr") return yield* stringText(text)
   const shared = strings[Number(text)]
