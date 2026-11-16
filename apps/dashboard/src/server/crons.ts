@@ -10,7 +10,7 @@ import { runArchiveCron, runParseCron } from "./shareholding/cron.ts"
 import { PARSE_CRON } from "./shareholding/schedule.ts"
 
 // The archive crons and the parse crons, on Production only, and the broker
-// totals reconcile, on every stage (alchemy.run.ts). Each firing names its
+// totals reconcile, on every stage (stage-crons.ts). Each firing names its
 // expression, which picks its handler here; any other expression is the
 // shareholding archive's.
 const HANDLERS = new Map([

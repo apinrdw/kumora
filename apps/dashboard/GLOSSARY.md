@@ -155,11 +155,11 @@ A day whose broker totals are written whole, with the build version that wrote t
 _Avoid_: Recorded day (that is the tape and its answers)
 
 **Stale day**:
-A built day that a later batch corrected, by changing a trade's kept broker codes or filling a trade's fields. Its old broker totals stay readable until it is rebuilt, 5 quiet minutes after the last such batch.
+A built day that a later batch corrected, by changing a trade's kept broker codes or filling a trade's fields. Its old broker totals stay readable until it is rebuilt, once a quiet spell has passed since the last such batch.
 _Avoid_: Dirty day, outdated day
 
 **Reconcile**:
-The daily pass after the seal that pokes each listed day the broker totals DB holds unbuilt or built by an older build version, newest first, until about 20 a day have accepted. A poke builds a sealed, complete day; a day that answers it won't takes no slot.
+The daily pass after the seal that pokes each listed day the broker totals DB holds unbuilt or built by an older build version, newest first, until a day's quota of them have accepted. A poke builds a sealed, complete day; a day that answers it won't takes no slot.
 _Avoid_: Backfill (that is the relay's REST fetch of missed trades)
 
 ### Freshness
