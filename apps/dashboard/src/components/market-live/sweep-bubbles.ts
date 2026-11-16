@@ -97,7 +97,7 @@ export const bubblesOf = Effect.fnUntraced(function* (
 // target, so a click picks its sweep and a hover shows its tooltip. The
 // last draw's bubble count and selection, with the selected bubble's centre
 // in CSS px, go on `marks` for the page e2e.
-class SweepBubbles implements ISeriesPrimitive<Time> {
+export class SweepBubbles implements ISeriesPrimitive<Time> {
   private byMinute = new Map<number, Array<Bubble>>()
   private threshold = 0
   private at = Number.POSITIVE_INFINITY
