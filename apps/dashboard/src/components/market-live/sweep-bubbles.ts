@@ -1,6 +1,6 @@
 // Chart 1's sweep bubbles (spec apinrdw/kumora#263, "Chart 1"), loaded with
 // Lightweight Charts in chart-canvas.tsx's browser-only chunk.
-import type { TradeNumber } from "@workspace/relay"
+import type { Sweep, TradeNumber } from "@workspace/relay"
 import { Side } from "@workspace/relay"
 import { DateTime, Effect } from "effect"
 import type {
@@ -218,6 +218,25 @@ class SweepBubbles implements ISeriesPrimitive<Time> {
     return placed
   }
 
+  // Where `sweep`'s bubble sits on the pane, in CSS pixels, drawn or not;
+  // none off the chart.
+  centreOf(sweep: Sweep) {
+    const attached = this.attachedTo
+    if (attached === undefined) return undefined
+    const timeScale = attached.chart.timeScale()
+    const centre = timeScale.timeToCoordinate(
+      (Effect.runSync(sweepMinute(sweep)) / 1000) as Time
+    )
+    const y = attached.series.priceToCoordinate(
+      Effect.runSync(sweepPrice(sweep))
+    )
+    if (centre === null || y === null) return undefined
+    const offset = Effect.runSync(
+      bubbleOffset(sweep, timeScale.options().barSpacing)
+    )
+    return { x: centre + offset, y }
+  }
+
   // The shown bubble nearest a point of the pane, among those it is on.
   nearest(x: number, y: number) {
     let best: { id: TradeNumber; distance: number } | undefined
@@ -298,8 +317,23 @@ export function attachSweepBubbles({
       to: (index + width / 2) as Logical,
     })
   }
+  // The id of the pin this layer last placed. A pinned bubble's tooltip the
+  // store moved to another piece as its sweep split goes to that piece's
+  // bubble, as a click on it would pin it.
+  let placed: TradeNumber | undefined
+  const repin = () => {
+    const shown = store.tip.get()
+    if (!shown?.pinned || shown.from !== "chart" || shown.id === placed) return
+    placed = shown.id
+    const sweep = store.sweeps().find((held) => held.firstTrade === shown.id)
+    const centre = sweep && bubbles.centreOf(sweep)
+    if (centre === undefined) return
+    const box = chart.chartElement().getBoundingClientRect()
+    store.tip.set({ ...shown, x: box.left + centre.x, y: box.top + centre.y })
+  }
   const stopStore = store.subscribe((change) => {
     if (change._tag === "Selected" && change.from === "log") jump(change.minute)
+    if (change._tag === "Brokers") repin()
     schedule()
   })
   const stopCursor = cursor?.subscribe(schedule)
@@ -323,6 +357,7 @@ export function attachSweepBubbles({
       return id
     }
     const box = chart.chartElement().getBoundingClientRect()
+    if (pin) placed = id
     store.tip.set({
       id,
       x: box.left + point.x,

@@ -541,7 +541,15 @@ test("a recorded day's sweep with two sellers in one second splits into two rows
     /^CC \[D\]\s*10$/,
     /^YP \[D\]\s*6$/,
   ])
-  await expect(candles).toHaveAttribute("data-ringed-sweep", String(base + 2))
+  // The pin sits on FZ's bubble, where a fresh click on it pins it, give
+  // or take the click's whole pixels.
+  const moved = (await tip.boundingBox())!
+  const piece = await ringedBubble(candles, String(base + 2))
+  await page.mouse.click(piece.x, piece.y)
+  await expect(tip).toContainText("Sell 16 lots @ 495 · 2 trades")
+  const fresh = (await tip.boundingBox())!
+  expect(Math.abs(fresh.x - moved.x)).toBeLessThan(1.5)
+  expect(Math.abs(fresh.y - moved.y)).toBeLessThan(1.5)
   // The top 25% of the pieces is FZ's alone.
   await expect(rows).toHaveCount(1)
   await expect(rows.first()).toHaveAttribute("aria-current", "true")

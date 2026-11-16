@@ -202,8 +202,10 @@ export const makeSweepStore = (code: StockCode) =>
         split()
         if (selected !== undefined) selected = moved(selected, before)
         const pinned = tip.get()
-        if (pinned !== undefined && moved(pinned.id, before) !== pinned.id)
-          tip.set({ ...pinned, id: moved(pinned.id, before) })
+        if (pinned !== undefined) {
+          const id = moved(pinned.id, before)
+          if (id !== pinned.id) tip.set({ ...pinned, id })
+        }
         emit({ _tag: "Brokers" })
       },
       picked: () => picked,
