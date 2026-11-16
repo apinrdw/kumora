@@ -1157,6 +1157,28 @@ const lensPick = (page: Page, group: string, label: string) =>
     .getByRole("group", { name: group })
     .getByRole("button", { name: label, exact: true })
 
+// The hover-day panel and the drag selection's.
+const dayPanel = (page: Page) =>
+  brokerInventory(page).getByRole("region", { name: "Day", exact: true })
+
+const selectionPanel = (page: Page) =>
+  brokerInventory(page).getByRole("region", { name: "Selection", exact: true })
+
+// The middle of `day`'s candle body: the chart's x for that day.
+const candleCentre = async (page: Page, day: string) => {
+  const box = await candleOf(page, day).boundingBox()
+  if (box === null) throw new Error(`no candle for ${day}`)
+  return { x: box.x + box.width / 2, y: box.y + box.height / 2 }
+}
+
+// The day a panel's date link opens.
+const linkedDay = (side: ReturnType<typeof dayPanel>) =>
+  side
+    .getByRole("link", { name: /in Market Live$/ })
+    .first()
+    .getAttribute("href")
+    .then((href) => href?.replace(/.*day=/, ""))
+
 test.describe.serial("the Broker inventory tab", () => {
   test.beforeAll(() => {
     seedBrokerTotals("BBCA", BROKER_DAYS)
@@ -1355,5 +1377,121 @@ test.describe.serial("the Broker inventory tab", () => {
     )
     await expect.poll(() => plotted(page)).toStrictEqual(twoWeeks)
     await expect(candles(page)).toHaveCount(shown)
+  })
+
+  test("hovering reads a day; a click on empty space pins it, Esc or another click unpins, and the URL never changes", async ({
+    page,
+  }) => {
+    const days = tradingDaysBeforeToday(80)
+    const [first = "", second = "", third = ""] = [days[60], days[65], days[70]]
+    const url = `${DASHBOARD}/stocks/BBCA?tab=brokers&range=1Y`
+    await page.goto(url)
+    // With nothing hovered, the newest day.
+    await expect.poll(() => linkedDay(dayPanel(page))).toBe(days.at(-1))
+    // Above a candle: empty space, whatever the lines cross there.
+    const above = async (day: string) => {
+      const { x, y } = await candleCentre(page, day)
+      return { x, y: y - 40 }
+    }
+    let empty = { x: 0, y: 0 }
+    await expect(async () => {
+      // Measured each try: until the page hydrates, the chart is drawn at
+      // its default width.
+      empty = await above(first)
+      await page.mouse.move(empty.x - 2, empty.y)
+      await page.mouse.move(empty.x, empty.y)
+      await expect
+        .poll(() => linkedDay(dayPanel(page)), { timeout: 1000 })
+        .toBe(first)
+    }).toPass()
+    // YP buys a steady 100 lots a day: day 60 is its 60th built day, 0 to 59
+    // less the gap at 55, so 60 × 100 by then.
+    await expect(
+      dayPanel(page)
+        .getByRole("row")
+        .filter({ has: page.getByRole("rowheader", { name: "YP" }) })
+        .getByRole("cell")
+    ).toHaveText(["+6,000", "+100", "9,000", "9,000"])
+    await page.mouse.click(empty.x, empty.y)
+    await expect(dayPanel(page)).toContainText("Pinned")
+    await expect(
+      inventoryChart(page).locator('[data-marker="pinned"]')
+    ).toHaveCount(1)
+    const elsewhere = await above(second)
+    await page.mouse.move(elsewhere.x, elsewhere.y)
+    await expect.poll(() => linkedDay(dayPanel(page))).toBe(first)
+    await page.keyboard.press("Escape")
+    await expect(dayPanel(page)).not.toContainText("Pinned")
+    await page.mouse.move(elsewhere.x + 1, elsewhere.y)
+    await expect.poll(() => linkedDay(dayPanel(page))).toBe(second)
+    // Another click unpins too.
+    await page.mouse.click(elsewhere.x, elsewhere.y)
+    await expect(dayPanel(page)).toContainText("Pinned")
+    const last = await above(third)
+    await page.mouse.click(last.x, last.y)
+    await expect(dayPanel(page)).not.toContainText("Pinned")
+    await expect(page).toHaveURL(url)
+  })
+
+  test("a drag selects days, a reload keeps them, and a date opens Market Live with Back restoring them", async ({
+    page,
+  }) => {
+    const days = tradingDaysBeforeToday(80)
+    const [from = "", to = ""] = [days[60], days[69]]
+    await page.goto(`${DASHBOARD}/stocks/BBCA?tab=brokers&range=1Y`)
+    await expect(candleOf(page, from)).toHaveCount(1)
+    // From one candle's body to another's: a drag, which opens neither.
+    await expect(async () => {
+      const start = await candleCentre(page, from)
+      const end = await candleCentre(page, to)
+      await page.mouse.move(start.x, start.y)
+      await page.mouse.down()
+      await page.mouse.move(end.x, end.y, { steps: 8 })
+      await page.mouse.up()
+      await expect(page).toHaveURL(
+        new RegExp(`[?&]selFrom=${from}&selTo=${to}`),
+        { timeout: 1000 }
+      )
+    }).toPass()
+    await expect(page).toHaveURL(/\/stocks\/BBCA\?/)
+    const selection = selectionPanel(page)
+    await expect(selection).toContainText("10 days")
+    await expect(selection).toContainText("0.00%")
+    await expect(inventoryChart(page).locator("[data-selection]")).toHaveCount(
+      1
+    )
+    const rows = selection.locator("tbody tr")
+    await expect(rows).toHaveCount(10)
+    // By net over the 10 days: YP's steady 100 a day first, BK's −100 last.
+    await expect(rows.first()).toContainText("YP+1,000")
+    await expect(rows.last()).toContainText("BK−1,000")
+    // Every lot the plotted brokers bought, one of them sold: the Top 5
+    // each side net out to 0 over these days.
+    await expect(selection.locator("tfoot")).toContainText("Total0")
+    await page.reload()
+    await expect(selectionPanel(page)).toContainText("10 days")
+    await expect.poll(() => linkedDay(selectionPanel(page))).toBe(from)
+    await expect(async () => {
+      await selectionPanel(page)
+        .getByRole("link", { name: /in Market Live$/ })
+        .first()
+        .click()
+      await expect(page).toHaveURL(
+        `${DASHBOARD}/market-live?code=BBCA&day=${from}`,
+        { timeout: 1000 }
+      )
+    }).toPass()
+    await page.goBack()
+    await expect(page).toHaveURL(new RegExp(`[?&]selFrom=${from}&selTo=${to}`))
+    await expect(selectionPanel(page)).toContainText("10 days")
+    // Back may reload the page, which may not have hydrated yet.
+    await expect(async () => {
+      await selectionPanel(page).getByRole("button", { name: "Clear" }).click()
+      await expect(page).toHaveURL(
+        `${DASHBOARD}/stocks/BBCA?tab=brokers&range=1Y`,
+        { timeout: 1000 }
+      )
+    }).toPass()
+    await expect(selectionPanel(page)).toHaveCount(0)
   })
 })
