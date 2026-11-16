@@ -1,8 +1,10 @@
 import { describe, expect, it } from "@effect/vitest"
+import { defaultParseSearch } from "@tanstack/react-router"
 import { BrokerCode, WibDate } from "@workspace/relay"
 import { Effect } from "effect"
 
 import type { Chip } from "@/lib/broker-inventory"
+import { stringifySearch } from "@/lib/search-url"
 
 import {
   chipsOf,
@@ -169,14 +171,14 @@ describe("the Broker inventory range in the URL", () => {
           to: "2026-09-30",
           measure: "value",
           investor: "foreign",
-          brokers: "sell",
+          brokers: ["sell"],
         })
         // Both groups are the default; single brokers alone leave no chips.
         expect((yield* carried({ brokers: "buy,YP,sell" })).brokers).toBe(
           undefined
         )
-        expect((yield* carried({ brokers: "YP,PD" })).brokers).toBe("")
-        expect((yield* carried({ brokers: "" })).brokers).toBe("")
+        expect((yield* carried({ brokers: "YP,PD" })).brokers).toStrictEqual([])
+        expect((yield* carried({ brokers: "" })).brokers).toStrictEqual([])
       })
   )
 })
@@ -233,7 +235,7 @@ describe("the Broker inventory lens and chips in the URL", () => {
     })
   )
 
-  it.effect("round-trips the chips in order", () =>
+  it.effect("round-trips the chips in order through the URL", () =>
     Effect.gen(function* () {
       const YP = BrokerCode.make("YP")
       const PD = BrokerCode.make("PD")
@@ -244,14 +246,18 @@ describe("the Broker inventory lens and chips in the URL", () => {
         [],
       ]
       for (const chips of lists) {
-        const search = yield* chipsSearch(chips)
+        const url = stringifySearch(yield* chipsSearch(chips))
         expect(
-          yield* chipsOf(yield* parseStockSearch({ ...search }))
+          yield* chipsOf(yield* parseStockSearch(defaultParseSearch(url)))
         ).toStrictEqual(chips)
       }
       expect(yield* chipsSearch(["sell", YP])).toStrictEqual({
-        brokers: "sell,YP",
+        brokers: ["sell", YP],
       })
+      expect(stringifySearch({ tab: "brokers", brokers: ["sell", YP] })).toBe(
+        "?tab=brokers&brokers=sell%2CYP"
+      )
+      expect(stringifySearch({ brokers: [] })).toBe("?brokers=")
     })
   )
 
@@ -275,7 +281,7 @@ describe("the Broker inventory lens and chips in the URL", () => {
   it.effect("keeps an empty list as no chips", () =>
     Effect.gen(function* () {
       const search = yield* parseStockSearch({ brokers: "" })
-      expect(search.brokers).toBe("")
+      expect(search.brokers).toStrictEqual([])
       expect(yield* chipsOf(search)).toStrictEqual([])
     })
   )
@@ -287,7 +293,7 @@ describe("the Broker inventory lens and chips in the URL", () => {
         expect(
           (yield* parseStockSearch({ brokers: "YP,yp,XYZ,buy,YP,,top,PD" }))
             .brokers
-        ).toBe("YP,buy,PD")
+        ).toStrictEqual(["YP", "buy", "PD"])
         for (const brokers of ["XYZ,top", ",", 42, ["YP"]])
           expect((yield* parseStockSearch({ brokers })).brokers).toBeUndefined()
       })
