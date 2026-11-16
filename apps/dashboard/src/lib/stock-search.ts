@@ -114,12 +114,12 @@ export const chipsSearch = (chips: ReadonlyArray<Chip>) =>
     brokers: chips.join(",") === DEFAULT_CHIPS.join(",") ? undefined : chips,
   }))
 
-// The chips a `brokers` list names, in order, unknown entries and repeats
-// dropped.
-const chipsIn = (brokers: string) =>
+// The chips a `brokers` list's entries name, in order, unknown entries and
+// repeats dropped.
+const chipsIn = (entries: ReadonlyArray<unknown>) =>
   Effect.sync(() => {
     const chips: Array<Chip> = []
-    for (const entry of brokers.split(",")) {
+    for (const entry of entries) {
       const chip = Option.orElse(decodeGroup(entry), () => decodeBroker(entry))
       if (Option.isSome(chip) && !chips.includes(chip.value))
         chips.push(chip.value)
@@ -127,12 +127,15 @@ const chipsIn = (brokers: string) =>
     return chips
   })
 
-// A raw `brokers`, as the URL holds it comma-separated, as the chips it
-// names; dropped whole when none of a non-empty list parses.
+// A raw `brokers` as the chips it names: comma-separated as the URL holds
+// it, or a list, as a navigation's search object holds it; dropped whole
+// when none of a non-empty list parses.
 const parseChips = Effect.fnUntraced(function* (raw: unknown) {
-  if (typeof raw !== "string") return undefined
-  if (raw === "") return []
-  const chips = yield* chipsIn(raw)
+  const entries =
+    typeof raw === "string" ? (raw === "" ? [] : raw.split(",")) : raw
+  if (!Array.isArray(entries)) return undefined
+  if (entries.length === 0) return []
+  const chips = yield* chipsIn(entries)
   return chips.length === 0 ? undefined : (yield* chipsSearch(chips)).brokers
 })
 
