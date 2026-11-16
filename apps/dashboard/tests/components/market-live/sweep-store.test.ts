@@ -347,4 +347,38 @@ describe("a recorded day's sweeps as their brokers land", () => {
         expect(store.selected()).toBe("101")
       })
   )
+
+  it.effect(
+    "moves a pin and a selection on a piece a corrected batch merged away to its sweep's largest piece",
+    () =>
+      Effect.gen(function* () {
+        const store = yield* makeSweepStore(UNTR)
+        store.answer(0, answerOf([whole, after]))
+        store.answerBrokers(split)
+        store.select(TradeNumber.make("102"), "chart")
+        store.tip.set({
+          id: TradeNumber.make("102"),
+          x: 1,
+          y: 2,
+          from: "chart",
+          pinned: true,
+        })
+        // A cross-check finds 102 was FZ's too, so the sweep is one piece.
+        store.answerBrokers({
+          ...split,
+          sweeps: [
+            {
+              firstTrade: whole.firstTrade,
+              pieces: [piece(101, "09:00:10.100", 14, "FZ")],
+            },
+          ],
+        })
+        expect(store.sweeps().map(shape)).toEqual([
+          ["101", "sell", 14, 1],
+          ["104", "buy", 2, 1],
+        ])
+        expect(store.selected()).toBe("101")
+        expect(store.tip.get()?.id).toBe("101")
+      })
+  )
 })
