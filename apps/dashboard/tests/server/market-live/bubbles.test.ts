@@ -7,14 +7,23 @@ import {
   BUBBLE_MINUTES,
   StockCode,
   decodeRecordedBubbles,
+  type ViewerDown,
 } from "@workspace/relay"
 import { DateTime, Effect } from "effect"
 import { TestClock } from "effect/testing"
 
-import { applyBubbles, bubblesOf, makeMarketFlow } from "@/lib/bubbles"
+import {
+  applyBubbles,
+  applyCandles,
+  applyTrades,
+  bubblesOf,
+  makeMarketFlow,
+  type BubbleWindow,
+  type MarketFlow,
+} from "@/lib/bubbles"
 import { makeBubbleBook } from "@/server/market-live/bubble-book"
 
-import { stockbitTrade, tradingDay, withLines } from "./day-harness"
+import { ajaibTrade, stockbitTrade, tradingDay, withLines } from "./day-harness"
 import { FULL_DAY_CODES, FULL_DAY_MINUTES } from "./full-day"
 import { doubleField, messageField, stringField, varintField } from "./protobuf"
 import { memorySql } from "./sql"
@@ -84,6 +93,30 @@ const bubbles = Effect.fnUntraced(function* (day: Day) {
     answer:
       response.status === 200 ? yield* decodeRecordedBubbles(text) : undefined,
   }
+})
+
+// What the page does with a viewer message (use-market-flow.ts).
+const feed = (flow: MarketFlow, message: ViewerDown) =>
+  Effect.andThen(
+    applyTrades(flow, message.tape),
+    message._tag === "Delta" ? applyCandles(flow, message.candles) : Effect.void
+  )
+
+// A Market Bubbles page on `day`: an IHSG viewer whose messages feed a
+// market flow, which takes the backfill when asked.
+const bubblesPage = Effect.fnUntraced(function* (day: Day) {
+  const socket = yield* day.viewer("IHSG")
+  const flow = yield* makeMarketFlow()
+  let fed = 0
+  const settle = Effect.gen(function* () {
+    const messages = yield* socket.received
+    for (const message of messages.slice(fed)) yield* feed(flow, message)
+    fed = messages.length
+  })
+  const backfill = Effect.gen(function* () {
+    yield* applyBubbles(flow, (yield* bubbles(day)).answer!)
+  })
+  return { flow, settle, backfill }
 })
 
 const codeOf = (
@@ -309,6 +342,128 @@ describe("bubbles", () => {
         ])
         assert.strictEqual(added.minutes.length, 61)
         assert.strictEqual(added.minutes[0]![0], minute("09:02"))
+      })
+  )
+
+  it.effect(
+    "a page fed by an IHSG viewer and the backfill shows the book's figures after Stockbit re-sides, retimes and re-boards Ajaib's trades",
+    () =>
+      Effect.gen(function* () {
+        yield* at("09:02:10")
+        const day = yield* tradingDay()
+        const page = yield* bubblesPage(day)
+        yield* page.settle
+        yield* day.ajaibTrades([
+          ajaibTrade({
+            number: 40001,
+            time: "09:01:05",
+            price: 23300,
+            lots: 2,
+            side: "buy",
+          }),
+          ajaibTrade({
+            number: 40002,
+            time: "09:01:59",
+            price: 23325,
+            lots: 3,
+            side: "buy",
+          }),
+          // The only trade of its minute.
+          ajaibTrade({
+            number: 40003,
+            time: "09:00:50",
+            price: 23300,
+            lots: 1,
+            side: "buy",
+          }),
+          ajaibTrade({
+            number: 40004,
+            time: "09:02:05",
+            price: 23350,
+            lots: 4,
+            side: "buy",
+          }),
+        ])
+        yield* TestClock.adjust("250 millis")
+        yield* page.settle
+        // Stockbit's copies, inside the merge window: 40001 a sell, 40002
+        // into 09:02, 40003 and 40004 cash-board trades.
+        yield* day.trades([
+          trade(40001, "09:01:05.000", "UNTR", 23300, 2, "sell"),
+          trade(40002, "09:02:00.500", "UNTR", 23325, 3, "buy"),
+          stockbitTrade({
+            number: 40003,
+            time: "09:00:50.000",
+            price: 23300,
+            lots: 1,
+            side: "buy",
+            board: "TN",
+          }),
+          stockbitTrade({
+            number: 40004,
+            time: "09:02:05.000",
+            price: 23350,
+            lots: 4,
+            side: "buy",
+            board: "TN",
+          }),
+        ])
+        yield* TestClock.adjust("250 millis")
+        yield* page.settle
+        const shown = Effect.fnUntraced(function* (
+          window: BubbleWindow,
+          end: number
+        ) {
+          return (yield* bubblesOf(
+            page.flow,
+            { size: "value", colour: "delta", window, top: "all" },
+            end
+          )).map(({ code, value, frequency, buyValue, sellValue }) => ({
+            code,
+            value,
+            frequency,
+            buyValue,
+            sellValue,
+          }))
+        })
+        const sold = { value: 4_660_000, buyValue: 0, sellValue: 4_660_000 }
+        const bought = { value: 6_997_500, buyValue: 6_997_500, sellValue: 0 }
+        const untr = StockCode.make("UNTR")
+        const book = Effect.gen(function* () {
+          assert.deepStrictEqual(yield* shown("D", minute("09:02")), [
+            {
+              code: untr,
+              value: sold.value + bought.value,
+              frequency: 2,
+              buyValue: bought.buyValue,
+              sellValue: sold.sellValue,
+            },
+          ])
+          assert.deepStrictEqual(
+            yield* shown("1m", minute("09:00") + 59_999),
+            []
+          )
+          assert.deepStrictEqual(yield* shown("1m", minute("09:01") + 59_999), [
+            { code: untr, frequency: 1, ...sold },
+          ])
+          assert.deepStrictEqual(yield* shown("1m", minute("09:02") + 59_999), [
+            { code: untr, frequency: 1, ...bought },
+          ])
+          // 09:01:41 to 09:02:10.
+          assert.deepStrictEqual(
+            yield* shown("30s", minute("09:02") + 10_500),
+            [{ code: untr, frequency: 1, ...bought }]
+          )
+        })
+        yield* book
+        // The first ask builds the body before any trade settled.
+        yield* page.backfill
+        yield* book
+        // Past the merge windows and the 09:03:05 build.
+        yield* TestClock.adjust("1 minute")
+        yield* page.settle
+        yield* page.backfill
+        yield* book
       })
   )
 
