@@ -33,8 +33,7 @@ import {
 import { signInAgain } from "@/components/market-live/sign-in-again"
 import {
   applyBubbles,
-  applyCandles,
-  applyTrades,
+  applyMessage,
   makeMarketFlow,
   missingFromBackfill,
   type MarketFlow,
@@ -106,8 +105,8 @@ const untilBuilt = (clockOffset: number) =>
 // (missingFromBackfill): a code's previous close, or day totals to recount.
 // Decision: the second ask, past the browser's 60 s copy, brings the trades
 // between the last build and the page's load, which no delta carries until
-// their code trades again; "more trades wins" merges it. One more GET a
-// load, a two-way door (spec apinrdw/kumora#427, #435's staleness note).
+// their code trades again; applyBubbles lays this socket's deltas over
+// it. One more GET a load, a two-way door (spec apinrdw/kumora#427, #435's staleness note).
 const followBackfill = Effect.fnUntraced(function* (
   flow: MarketFlow,
   today: WibDate,
@@ -119,13 +118,6 @@ const followBackfill = Effect.fnUntraced(function* (
     do yield* untilBuilt(clockOffset)
     while (!(yield* missingFromBackfill(flow)))
 })
-
-// A viewer message's tape and, in a delta, its candles into `flow`.
-const feedFlow = (flow: MarketFlow, message: ViewerDown) =>
-  Effect.andThen(
-    applyTrades(flow, message.tape),
-    message._tag === "Delta" ? applyCandles(flow, message.candles) : Effect.void
-  )
 
 // The live day's market flow into `flow`: the viewer socket's deltas and
 // tape, and the backfill after each snapshot, a reconnect's included, the
@@ -149,7 +141,7 @@ const followMarketFlow = Effect.fnUntraced(
       Effect.gen(function* () {
         yield* applyConditions(message)
         yield* noteIhsg(message, setIhsg)
-        yield* feedFlow(flow, message)
+        yield* applyMessage(flow, message)
         if (message._tag === "Delta") return
         yield* Effect.sync(() => setStatus("live"))
         if (backfill !== undefined) yield* Fiber.interrupt(backfill)
@@ -239,7 +231,7 @@ export function useFedMarketFlow(
   useEffect(() => () => drop(flow), [drop, flow])
   const apply = useCallback(
     (message: ViewerDown) => {
-      Effect.runSync(feedFlow(flow, message))
+      Effect.runSync(applyMessage(flow, message))
       if (message._tag !== "Snapshot") return
       drop(flow)
       backfill.current = {

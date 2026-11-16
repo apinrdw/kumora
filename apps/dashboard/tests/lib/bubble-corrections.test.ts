@@ -21,7 +21,7 @@ import { DateTime, Effect } from "effect"
 import {
   applyBubbles,
   applyCandles,
-  applyTrades,
+  applyMessage,
   bubblesOf,
   makeMarketFlow,
   type BubbleView,
@@ -367,13 +367,6 @@ const matches = (
     )
   })
 
-// What the page does with a viewer message.
-const feed = (flow: MarketFlow, message: ViewerDown) =>
-  Effect.andThen(
-    applyTrades(flow, message.tape),
-    message._tag === "Delta" ? applyCandles(flow, message.candles) : Effect.void
-  )
-
 const candle = (
   code: StockCode,
   minute: number,
@@ -434,7 +427,7 @@ describe("figures under feed corrections", () => {
           const next = random(seed)
           const server = makeServer(next)
           const flow = yield* makeMarketFlow()
-          yield* feed(flow, server.snapshot())
+          yield* applyMessage(flow, server.snapshot())
           for (let step = 0; step < 40; step++) {
             const roll = next()
             const at = `seed ${seed} step ${step}`
@@ -451,12 +444,12 @@ describe("figures under feed corrections", () => {
               server.newTrade()
               server.correct()
               server.settle(true)
-              yield* feed(flow, server.snapshot())
+              yield* applyMessage(flow, server.snapshot())
               yield* applyBubbles(flow, server.body())
               yield* matches(flow, server, `${at} reconnect`)
               continue
             }
-            yield* feed(flow, server.delta())
+            yield* applyMessage(flow, server.delta())
             yield* matches(flow, server, `${at} delta`)
           }
         }

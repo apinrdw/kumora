@@ -9,11 +9,13 @@ import {
   MINUTE_MS,
   SHARES_PER_LOT,
   type Candle,
+  type Footprint,
   type MarketPhase,
   type RecordedBubbles,
   type RunningTrade,
   type SectorName,
   type StockCode,
+  type ViewerDown,
 } from "@workspace/relay"
 import { DateTime, Effect } from "effect"
 
@@ -93,6 +95,9 @@ interface CodeFlow {
   // The close of the newest minute let go from `minutes`: the price before
   // any window when the code traded in none of the minutes kept before it.
   closeBefore: { minute: number; close: number } | undefined
+  // The minutes a delta of this socket carried since its snapshot, emptied
+  // ones included: `minutes` holds the candle book's latest copy of each.
+  readonly live: Set<number>
 }
 
 export interface MarketFlow {
@@ -155,6 +160,7 @@ const codeFlowOf = (flow: MarketFlow, code: StockCode): CodeFlow => {
     day: emptyRow(),
     previousClose: undefined,
     closeBefore: undefined,
+    live: new Set(),
   }
   flow.codes.set(code, fresh)
   return fresh
@@ -183,15 +189,20 @@ const pruneMinutes = (flow: MarketFlow, code: CodeFlow) => {
       noteBefore(code, minute, row.close)
       code.minutes.delete(minute)
     }
+  for (const minute of code.live) if (minute < oldest) code.live.delete(minute)
 }
 
-// `row` into `day` in place of `old`, the same minute's earlier figures.
-const replaceInDay = (day: Row, row: Row, old: Row | undefined) => {
-  day.value += row.value - (old?.value ?? 0)
-  day.volume += row.volume - (old?.volume ?? 0)
-  day.frequency += row.frequency - (old?.frequency ?? 0)
-  day.buyValue += row.buyValue - (old?.buyValue ?? 0)
-  day.sellValue += row.sellValue - (old?.sellValue ?? 0)
+// `row` into `day` in place of `old`, the same minute's earlier figures;
+// none for a minute with no trades.
+const NO_ROW: Readonly<Row> = emptyRow()
+const replaceInDay = (day: Row, row: Row | undefined, old: Row | undefined) => {
+  const now = row ?? NO_ROW
+  const was = old ?? NO_ROW
+  day.value += now.value - was.value
+  day.volume += now.volume - was.volume
+  day.frequency += now.frequency - was.frequency
+  day.buyValue += now.buyValue - was.buyValue
+  day.sellValue += now.sellValue - was.sellValue
 }
 
 const newestKey = (rows: ReadonlyMap<number, Row>, atOrBefore: number) => {
@@ -231,44 +242,68 @@ const bodyRows = (flow: MarketFlow, entry: RecordedBubbles["codes"][number]) =>
     return { day, minutes }
   })
 
-// The minutes `code` holds laid over a body's: each keeps the copy with
-// more trades. The day totals are the body's, plus what each kept held
-// minute adds over the body's copy; a minute older than the body's `oldest`
-// is already whole in the body's totals.
-const keepHeld = (
+// The day's last price: its newest minute's close.
+const closeDay = (code: CodeFlow) => {
+  const newest = newestKey(code.minutes, Number.POSITIVE_INFINITY)
+  if (newest !== undefined) code.day.close = code.minutes.get(newest)!.close
+}
+
+// The minutes this socket's deltas carried laid over a body's, the day
+// totals moved by what each changes over the body's copy. A body that holds
+// a code's full BUBBLE_MINUTES knows none older than its first: such a
+// minute is older than every window, so the body's copy stands.
+const keepLive = (
   code: CodeFlow,
   body: { readonly day: Row; readonly minutes: Map<number, Row> },
   oldest: number
 ) =>
   Effect.sync(() => {
-    for (const [at, row] of code.minutes) {
+    for (const at of code.live) {
       const bodyRow = body.minutes.get(at)
-      if (bodyRow !== undefined && bodyRow.frequency >= row.frequency) continue
-      body.minutes.set(at, row)
-      if (at >= oldest || bodyRow !== undefined)
-        replaceInDay(body.day, row, bodyRow)
+      if (bodyRow === undefined && at < oldest) {
+        code.live.delete(at)
+        continue
+      }
+      const row = code.minutes.get(at)
+      // An emptied minute has no settled trade: the body holds none of it.
+      if (row !== undefined) body.minutes.set(at, row)
+      replaceInDay(body.day, row, bodyRow)
     }
   })
 
-// Decision: a minute keeps whichever of its copies has more trades, the
-// body's or a delta's candle. The body is built from settled trades once a
-// minute and the browser may answer an older copy, so a delta that came
-// before it can hold more of the minute; a candle only grows.
+// Decision: a minute is the candle book's latest copy of it (candles.ts). A
+// delta's candle, or its footprint with no cells, is the whole minute as the
+// book holds it, open trades included, and a later one replaces it, smaller
+// or emptied too. The body holds only settled trades, and a settled trade
+// never leaves its minute, so a copy this socket's deltas carried holds at
+// least the body's trades of it, whichever came first: the body fills only
+// the minutes no delta carried since the snapshot. A snapshot hands every
+// minute back to the next body, as the deltas missed before it may have
+// changed any (spec apinrdw/kumora#427, "Reconnects").
+//
+// A code the flow holds that the body doesn't has no settled trade: its
+// minutes no delta carried are none.
 export const applyBubbles = (flow: MarketFlow, body: RecordedBubbles) =>
   Effect.gen(function* () {
-    for (const entry of body.codes) {
+    const carried = new Set(body.codes.map(({ code }) => code))
+    const entries = [...body.codes]
+    for (const code of flow.codes.keys())
+      if (!carried.has(code))
+        entries.push({ code, day: [0, 0, 0, 0, 0, 0], minutes: [] })
+    for (const entry of entries) {
       const code = codeFlowOf(flow, entry.code)
       const rows = yield* bodyRows(flow, entry)
-      yield* keepHeld(
+      yield* keepLive(
         code,
         rows,
-        entry.minutes[0]?.[0] ?? Number.POSITIVE_INFINITY
+        entry.minutes.length < BUBBLE_MINUTES
+          ? Number.NEGATIVE_INFINITY
+          : entry.minutes[0]![0]
       )
       code.minutes.clear()
       for (const [at, row] of rows.minutes) code.minutes.set(at, row)
-      const newest = newestKey(code.minutes, Number.POSITIVE_INFINITY)
-      if (newest !== undefined) rows.day.close = code.minutes.get(newest)!.close
       code.day = rows.day
+      closeDay(code)
       code.previousClose = entry.previousClose ?? code.previousClose
       pruneMinutes(flow, code)
     }
@@ -276,52 +311,84 @@ export const applyBubbles = (flow: MarketFlow, body: RecordedBubbles) =>
   })
 
 // Whether the flow waits for a backfill: to carry the previous close of a
-// code that has none, as one first seen in a delta or the tape, or one the
+// code that traded today and has none, as one first seen in a delta or the tape, or one the
 // body carried before its `liveprice` frame came; or to recount the day
 // totals after an old candle changed. Only the backfill does either.
 export const missingFromBackfill = (flow: MarketFlow) =>
   Effect.sync(() => {
     if (flow.recount) return true
     for (const code of flow.codes.values())
-      if (code.previousClose === undefined) return true
+      if (code.day.frequency > 0 && code.previousClose === undefined)
+        return true
     return false
   })
 
-// Each candle replaces its minute, unless the copy held has more trades. An
-// index's are left out: the map is of stock codes.
+// `row` as the book's copy of `code`'s minute `at`; none when its last
+// trade left it. Plain, per candle (the Decision at isIndex).
+const takeMinute = (
+  flow: MarketFlow,
+  stock: StockCode,
+  at: number,
+  row: Row | undefined
+) => {
+  const code = codeFlowOf(flow, stock)
+  // Older than any window: a late trade changed it, whose figures only a
+  // backfill brings into the day's totals.
+  if (at < oldestKept(flow)) {
+    if (row !== undefined) noteBefore(code, at, row.close)
+    flow.recount = true
+    return
+  }
+  replaceInDay(code.day, row, code.minutes.get(at))
+  code.live.add(at)
+  if (row === undefined) code.minutes.delete(at)
+  else {
+    code.minutes.set(at, row)
+    noteMinute(flow, at)
+  }
+  closeDay(code)
+  pruneMinutes(flow, code)
+}
+
+// Each candle replaces its minute. An index's are left out: the map is of
+// stock codes.
 export const applyCandles = (
   flow: MarketFlow,
   candles: ReadonlyArray<Candle>
 ) =>
   Effect.sync(() => {
-    for (const candle of candles) {
-      if (isIndex(candle.code)) continue
-      const at = DateTime.toEpochMillis(candle.minute)
-      const code = codeFlowOf(flow, candle.code)
-      // Older than any window: a late trade changed it, whose figures only a
-      // backfill brings into the day's totals.
-      if (at < oldestKept(flow)) {
-        noteBefore(code, at, candle.close)
-        flow.recount = true
-        continue
-      }
-      const old = code.minutes.get(at)
-      if (old !== undefined && old.frequency > candle.frequency) continue
-      const row: Row = {
-        value: candle.value,
-        volume: candle.volume,
-        frequency: candle.frequency,
-        buyValue: candle.buyValue,
-        sellValue: candle.sellValue,
-        close: candle.close,
-      }
-      replaceInDay(code.day, row, old)
-      code.minutes.set(at, row)
-      noteMinute(flow, at)
-      if (newestKey(code.minutes, Number.POSITIVE_INFINITY) === at)
-        code.day.close = candle.close
-      pruneMinutes(flow, code)
-    }
+    for (const candle of candles)
+      if (!isIndex(candle.code))
+        takeMinute(flow, candle.code, DateTime.toEpochMillis(candle.minute), {
+          value: candle.value,
+          volume: candle.volume,
+          frequency: candle.frequency,
+          buyValue: candle.buyValue,
+          sellValue: candle.sellValue,
+          close: candle.close,
+        })
+  })
+
+// A footprint with no cells drops its minute: its last regular-board trade
+// left it, and the book sends it so for every code (candles.ts,
+// `takeChanged`).
+const applyEmptied = (flow: MarketFlow, footprints: ReadonlyArray<Footprint>) =>
+  Effect.sync(() => {
+    for (const footprint of footprints)
+      if (footprint.cells.length === 0 && !isIndex(footprint.code))
+        takeMinute(
+          flow,
+          footprint.code,
+          DateTime.toEpochMillis(footprint.minute),
+          undefined
+        )
+  })
+
+// A snapshot starts a socket: what its deltas carry wins over the next
+// body, and the minutes an earlier socket's carried go back to it.
+const startSocket = (flow: MarketFlow) =>
+  Effect.sync(() => {
+    for (const code of flow.codes.values()) code.live.clear()
   })
 
 // A tape trade as its second's row counts it.
@@ -437,6 +504,17 @@ export const applyTrades = (
       if (second >= newest - SECONDS_KEPT_MS) break
       flow.seen.delete(number)
     }
+  })
+
+// A viewer message into the flow: its tape, and a delta's candles and
+// emptied minutes.
+export const applyMessage = (flow: MarketFlow, message: ViewerDown) =>
+  Effect.gen(function* () {
+    if (message._tag === "Snapshot") yield* startSocket(flow)
+    yield* applyTrades(flow, message.tape)
+    if (message._tag === "Snapshot") return
+    yield* applyCandles(flow, message.candles)
+    yield* applyEmptied(flow, message.footprints ?? [])
   })
 
 // Where the windows end, and whether the session is closed: now during a

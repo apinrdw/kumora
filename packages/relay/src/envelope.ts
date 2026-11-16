@@ -419,9 +419,10 @@ const Delta = Schema.TaggedStruct("Delta", {
   candles: Schema.Array(Candle),
   // Every footprint that changed since the last delta of a code some viewer
   // selected, each whole. One with no cells, sent without its minute's
-  // candle, says the minute's last regular-board trade left it. Absent when
-  // none changed. What the page does with one is in
-  // apps/dashboard/src/components/market-live/candle-store.ts.
+  // candle, says the minute's last regular-board trade left it; that one
+  // goes out for any code. Absent when none changed. What the pages do with
+  // one is in apps/dashboard/src/components/market-live/candle-store.ts and
+  // apps/dashboard/src/lib/bubbles.ts.
   footprints: Schema.optionalKey(Schema.Array(Footprint)),
   // Every minute whose sweeps a trade changed since the last delta, of a
   // code some viewer selected, each whole: the page replaces its copy of

@@ -584,7 +584,9 @@ export const makeCandleBook = Effect.fnUntraced(function* (
   // Decision: a minute whose last regular-board trade left it goes out as a
   // footprint with no cells, as its sweeps go out empty, and with no candle.
   // The page drops that minute's footprint and candle (candle-store.ts), so
-  // the protocol needs no removal message. See apinrdw/kumora#279.
+  // the protocol needs no removal message. See apinrdw/kumora#279. The empty
+  // footprint goes out for every code, selected or not, as Market Bubbles
+  // keeps every code's minutes (lib/bubbles.ts, spec apinrdw/kumora#427).
   //
   // Decision: a changed minute's sweeps go out whole in every delta and the
   // page replaces its copy, so the book is the only grouper and the join
@@ -604,10 +606,12 @@ export const makeCandleBook = Effect.fnUntraced(function* (
     for (const slot of slots) {
       const candle = yield* candleOf(slot)
       if (candle !== undefined) candles.push(candle)
-      if (!selected.has(slot.code) || !resent.has(slot)) continue
-      footprints.push(
-        yield* footprintFrom(slot.code, slot.minute, yield* cellsOf(slot))
-      )
+      const whole = selected.has(slot.code) && resent.has(slot)
+      if (whole || candle === undefined)
+        footprints.push(
+          yield* footprintFrom(slot.code, slot.minute, yield* cellsOf(slot))
+        )
+      if (!whole) continue
       sweeps.push({
         code: slot.code,
         minute: DateTime.makeUnsafe(slot.minute),

@@ -580,6 +580,7 @@ export const makeTradingDay = Effect.fnUntraced(function* (options: {
     if (
       trades.length === 0 &&
       changed.candles.length === 0 &&
+      changed.footprints.length === 0 &&
       changed.sweeps.length === 0 &&
       orderBooks.length === 0 &&
       states.length === 0 &&

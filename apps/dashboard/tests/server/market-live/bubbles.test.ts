@@ -7,19 +7,16 @@ import {
   BUBBLE_MINUTES,
   StockCode,
   decodeRecordedBubbles,
-  type ViewerDown,
 } from "@workspace/relay"
 import { DateTime, Effect } from "effect"
 import { TestClock } from "effect/testing"
 
 import {
   applyBubbles,
-  applyCandles,
-  applyTrades,
+  applyMessage,
   bubblesOf,
   makeMarketFlow,
   type BubbleWindow,
-  type MarketFlow,
 } from "@/lib/bubbles"
 import { makeBubbleBook } from "@/server/market-live/bubble-book"
 
@@ -95,13 +92,6 @@ const bubbles = Effect.fnUntraced(function* (day: Day) {
   }
 })
 
-// What the page does with a viewer message (use-market-flow.ts).
-const feed = (flow: MarketFlow, message: ViewerDown) =>
-  Effect.andThen(
-    applyTrades(flow, message.tape),
-    message._tag === "Delta" ? applyCandles(flow, message.candles) : Effect.void
-  )
-
 // A Market Bubbles page on `day`: an IHSG viewer whose messages feed a
 // market flow, which takes the backfill when asked.
 const bubblesPage = Effect.fnUntraced(function* (day: Day) {
@@ -110,7 +100,8 @@ const bubblesPage = Effect.fnUntraced(function* (day: Day) {
   let fed = 0
   const settle = Effect.gen(function* () {
     const messages = yield* socket.received
-    for (const message of messages.slice(fed)) yield* feed(flow, message)
+    for (const message of messages.slice(fed))
+      yield* applyMessage(flow, message)
     fed = messages.length
   })
   const backfill = Effect.gen(function* () {
