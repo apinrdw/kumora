@@ -432,7 +432,7 @@ test.describe.serial("the stock page", () => {
       await focusNewest(page, "Oct 2026")
       await expect(barsTooltip(page)).toHaveAttribute(
         "aria-label",
-        "Oct 2026\nForeign 67.22%, down from 68.89%\nLocal 32.78%, up from 31.11%\nShare of scripless shares.\nChanges are from Sep 2026."
+        "Oct 2026\nForeign 67.22%, down from 68.89%\nLocal 32.78%, up from 31.11%\nShare of scripless shares."
       )
       await expect(barsTooltip(page)).toContainText("68.89% → 67.22%")
       // September follows August, a month KSEI has no data for.
@@ -452,6 +452,34 @@ test.describe.serial("the stock page", () => {
         "Jul 2026: No data, KSEI's report has no row for this month."
       )
       await expect(bars(page)).toContainText("No data")
+    })
+
+    test("keeps its scroll when the pointer hovers a column at the edge", async ({
+      page,
+    }) => {
+      // On a narrow phone BBCA's six months overflow their scroller.
+      await page.setViewportSize({ width: 320, height: 800 })
+      await page.goto(`${DASHBOARD}/stocks/BBCA`)
+      await focusNewest(page, "Oct 2026")
+      await bars(page).blur()
+      const scrollLeft = () =>
+        bars(page).evaluate((element) => {
+          let scroller = element.parentElement
+          while (scroller && scroller.scrollWidth <= scroller.clientWidth)
+            scroller = scroller.parentElement
+          return scroller?.scrollLeft ?? 0
+        })
+      const opened = await scrollLeft()
+      expect(opened).toBeGreaterThan(0)
+      // The leftmost column in view, just inside the scroller's edge.
+      await bars(page).hover({ position: { x: opened + 22, y: 120 } })
+      await expect(barsTooltip(page)).toBeVisible()
+      expect(await scrollLeft()).toBe(opened)
+      // The keyboard still scrolls the oldest month into view.
+      await bars(page).focus()
+      await page.keyboard.press("Home")
+      await expect(barsTooltip(page)).toContainText("May 2026")
+      expect(await scrollLeft()).toBe(0)
     })
 
     test("keeps a series' % of its origin when the legend hides the rest", async ({

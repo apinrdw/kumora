@@ -256,10 +256,11 @@ test("the Bars chart announces the month a keyboard user steps to, with its chan
   await act(() => barsChart().focus())
   await key("End")
   expect(announced()).toBe(
-    "Nov 2026\nForeign 75.00%, up from 70.00%\nLocal 25.00%, down from 30.00%\nShare of scripless shares.\nChanges are from Oct 2026."
+    "Nov 2026\nForeign 75.00%, up from 70.00%\nLocal 25.00%, down from 30.00%\nShare of scripless shares."
   )
   const body = document.querySelector(".holding-tooltip")
   expect(body?.textContent).toContain("70.00% → 75.00%")
+  expect(body?.textContent).toMatch(/Share of scripless shares\.$/)
   expect(body?.querySelector(".text-up")?.textContent).toBe("75.00%")
   expect(body?.querySelector(".text-down")?.textContent).toBe("25.00%")
   await key("ArrowLeft")
@@ -298,7 +299,7 @@ test("the Bars tooltip shows no change for a share that prints the same as last 
   await act(() => barsChart().focus())
   await key("End")
   expect(announced()).toBe(
-    "Dec 2026\nForeign 75.00%\nLocal 25.00%\nShare of scripless shares.\nChanges are from Nov 2026."
+    "Dec 2026\nForeign 75.00%\nLocal 25.00%\nShare of scripless shares."
   )
   expect(
     document.querySelector(

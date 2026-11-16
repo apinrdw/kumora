@@ -134,12 +134,8 @@ export const holdingRows = (
 // How a month's shares moved from the calendar month before it: each shown
 // series' share in that month, or why there is none to compare with.
 export type MonthChange =
-  | {
-      readonly _tag: "From"
-      // `YYYY-MM`.
-      readonly month: string
-      readonly was: ReadonlyMap<SeriesKey, number>
-    }
+  | { readonly _tag: "From"; readonly was: ReadonlyMap<SeriesKey, number> }
+  // `month` is the gap's, `YYYY-MM`.
   | { readonly _tag: "NoData"; readonly month: string }
   | { readonly _tag: "First" }
 
@@ -168,7 +164,7 @@ export const monthChange = Effect.fnUntraced(function* (
     if ((yield* percent(share)) !== (yield* percent(now[at] ?? 0)))
       was.set(key, share)
   }
-  return { _tag: "From", month: before.month, was }
+  return { _tag: "From", was }
 })
 
 // The newest month's scripless split into local and foreign, for the

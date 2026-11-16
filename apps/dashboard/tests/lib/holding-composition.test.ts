@@ -192,7 +192,6 @@ describe("a month's change against the month before it", () => {
       // 437,363,600.
       expect(change._tag).toBe("From")
       if (change._tag !== "From") return
-      expect(change.month).toBe("2026-09")
       expect([...change.was.keys()]).toEqual(["IS", "IB"])
       expect(change.was.get("IS")).toBeCloseTo(0.1498, 4)
       expect(change.was.get("IB")).toBeCloseTo(0.0268, 4)
@@ -245,7 +244,7 @@ describe("a month's change against the month before it", () => {
         new Set()
       )
       const change = yield* monthChange(chart, "2026-11", ["ID", "IS"])
-      expect(change).toEqual({ _tag: "From", month: "2026-10", was: new Map() })
+      expect(change).toEqual({ _tag: "From", was: new Map() })
     })
   )
 })

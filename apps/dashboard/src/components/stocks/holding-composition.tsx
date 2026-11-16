@@ -260,27 +260,59 @@ const monthView = Effect.fnUntraced(function* (
     chart.columns.find((column) => column.month === month)?.shares === undefined
   )
     return { month, rows: undefined }
-  const shown = rows.filter((row) => row.month === month)
+  const monthRows = rows.filter((row) => row.month === month)
   return {
     month,
-    rows: [...shown].sort((a, b) => b.share - a.share),
+    rows: [...monthRows].sort((a, b) => b.share - a.share),
     change: yield* monthChange(
       chart,
       month,
-      shown.map(({ key }) => key)
+      monthRows.map(({ key }) => key)
     ),
   }
 })
 
-// A series' share last month, when it printed differently.
-const wasShare = (change: MonthChange, row: HoldingRow) =>
-  change._tag === "From" ? change.was.get(row.key) : undefined
+// Every month's tooltip, built once for both its body and its text.
+const monthViews = (chart: HoldingChart, rows: ReadonlyArray<HoldingRow>) =>
+  Effect.map(
+    Effect.forEach(chart.columns, ({ month }) => monthView(chart, rows, month)),
+    (views) => new Map(views.map((view) => [view.month, view]))
+  )
 
-// Which month the changes are from, or why there are none.
+type Direction = "up" | "down"
+
+// How a series' share moved from the month before.
+type Move = { readonly was: number; readonly direction: Direction }
+
+const MOVE_STYLE: Record<Direction, { className: string; arrow: string }> = {
+  up: { className: "text-up", arrow: "▲" },
+  down: { className: "text-down", arrow: "▼" },
+}
+
+// A series' move, or undefined when its share printed the same as the
+// month before's or there is no month before to compare.
+const seriesMove = (
+  change: MonthChange,
+  key: SeriesKey,
+  now: number
+): Effect.Effect<Move | undefined> => {
+  const was = change._tag === "From" ? change.was.get(key) : undefined
+  return Effect.succeed(
+    was === undefined
+      ? undefined
+      : { was, direction: now > was ? "up" : "down" }
+  )
+}
+
+/** `up from 53.45%` */
+const moveText = (move: Move) =>
+  Effect.map(percent(move.was), (was) => `${move.direction} from ${was}`)
+
+// Why a month shows no changes, when there is no month before to compare.
 const changeNote = Effect.fnUntraced(function* (change: MonthChange) {
   switch (change._tag) {
     case "From":
-      return `Changes are from ${yield* monthLabel(change.month)}.`
+      return undefined
     case "NoData":
       return `${yield* monthLabel(change.month)} has no data, so no change is shown.`
     case "First":
@@ -291,11 +323,11 @@ const changeNote = Effect.fnUntraced(function* (change: MonthChange) {
 // One series' line in the tooltip's screen-reader text.
 const rowText = Effect.fnUntraced(function* (
   row: HoldingRow,
-  was: number | undefined
+  move: Move | undefined
 ) {
   const line = `${row.label} ${yield* percent(row.share)}`
-  if (was === undefined) return line
-  return `${line}, ${row.share > was ? "up" : "down"} from ${yield* percent(was)}`
+  if (move === undefined) return line
+  return `${line}, ${yield* moveText(move)}`
 })
 
 // The tooltip as plain text, for its `role="status"` label: the React body
@@ -309,13 +341,20 @@ const monthText = Effect.fnUntraced(function* (
     return `${label}: ${NO_DATA}, KSEI's report has no row for this month.`
   const lines = [label]
   for (const row of view.rows)
-    lines.push(yield* rowText(row, wasShare(view.change, row)))
+    lines.push(
+      yield* rowText(row, yield* seriesMove(view.change, row.key, row.share))
+    )
   lines.push(`Share of ${yield* ofWhat(origin)}.`)
-  lines.push(yield* changeNote(view.change))
+  const note = yield* changeNote(view.change)
+  if (note !== undefined) lines.push(note)
   return lines.join("\n")
 })
 
 function MonthBody({ view, origin }: { view: MonthView; origin: OriginShown }) {
+  const note =
+    view.rows === undefined
+      ? undefined
+      : Effect.runSync(changeNote(view.change))
   return (
     <div className="flex flex-col gap-1.5">
       <b>{Effect.runSync(monthLabel(view.month))}</b>
@@ -331,14 +370,19 @@ function MonthBody({ view, origin }: { view: MonthView; origin: OriginShown }) {
                   {row.label}
                 </dt>
                 <dd className="num text-right whitespace-nowrap">
-                  <WasNow now={row.share} was={wasShare(view.change, row)} />
+                  <WasNow
+                    now={row.share}
+                    move={Effect.runSync(
+                      seriesMove(view.change, row.key, row.share)
+                    )}
+                  />
                 </dd>
               </div>
             ))}
           </dl>
           <span className="text-muted-foreground">
-            Share of {Effect.runSync(ofWhat(origin))}.{" "}
-            {Effect.runSync(changeNote(view.change))}
+            Share of {Effect.runSync(ofWhat(origin))}.
+            {note !== undefined && ` ${note}`}
           </span>
         </>
       )}
@@ -348,19 +392,15 @@ function MonthBody({ view, origin }: { view: MonthView; origin: OriginShown }) {
 
 // A share as `last month → this month`, as Shareholders composition writes
 // a change, with this month's colored by its direction.
-function WasNow({ now, was }: { now: number; was: number | undefined }) {
+function WasNow({ now, move }: { now: number; move: Move | undefined }) {
   return (
     <>
-      {was !== undefined && (
+      {move !== undefined && (
         <span className="text-muted-foreground">
-          {Effect.runSync(percent(was))} →{" "}
+          {Effect.runSync(percent(move.was))} →{" "}
         </span>
       )}
-      <span
-        className={cn(
-          was !== undefined && (now > was ? "text-up" : "text-down")
-        )}
-      >
+      <span className={move && MOVE_STYLE[move.direction].className}>
         {Effect.runSync(percent(now))}
       </span>
     </>
@@ -385,9 +425,16 @@ function Bars({
     const element = scroller.current
     if (element) element.scrollLeft = element.scrollWidth
   }, [])
+  // Whether the last input in the chart was a key, not the pointer: the
+  // library reports hover and keyboard focus through the same callback.
+  const keyboard = useRef(false)
   const rows = useMemo(
     () => Effect.runSync(holdingRows(chart, shown)),
     [chart, shown]
+  )
+  const views = useMemo(
+    () => Effect.runSync(monthViews(chart, rows)),
+    [chart, rows]
   )
   const definition = useMemo(() => {
     const months = chart.columns.map(({ month }) => month)
@@ -445,9 +492,9 @@ function Bars({
         y: {
           scale: scaleLinear().domain([0, chart.axisMax]),
           // Decision: the y-axis labels are our own rail beside the
-          // scroller, so they stay put while the columns scroll. The chart's
-          // axis draws no line or labels; its tick values only place the
-          // gridlines level with the rail's.
+          // scroller, not the chart's axis labels, which would scroll away
+          // with the columns. The chart's axis keeps only its tick values,
+          // to place the gridlines level with the rail's.
           axis: {
             line: false,
             ticks: {
@@ -483,18 +530,17 @@ function Bars({
         // hover, focus and tap and goes when they leave, as KTooltip did.
         sticky: false,
         className: "holding-tooltip",
-        formatGroup: (points) =>
-          Effect.runSync(
-            Effect.flatMap(
-              monthView(chart, rows, String(points[0]?.xValue ?? "")),
-              (view) => monthText(view, origin)
-            )
-          ),
+        formatGroup: (points) => {
+          const view = views.get(String(points[0]?.xValue))
+          return view === undefined
+            ? ""
+            : Effect.runSync(monthText(view, origin))
+        },
       },
     })
-  }, [chart, shown, origin, rows])
+  }, [chart, shown, origin, rows, views])
   return (
-    <div className="flex min-w-0" role="group" aria-label="Holding chart">
+    <div className="flex min-w-0">
       <div
         aria-hidden
         className="relative w-12 shrink-0 text-[11px] text-muted-foreground"
@@ -510,34 +556,46 @@ function Bars({
           </span>
         ))}
       </div>
-      <div ref={scroller} className="min-w-0 flex-1 overflow-x-auto pb-1">
+      <div
+        ref={scroller}
+        className="min-w-0 flex-1 overflow-x-auto pb-1"
+        onKeyDownCapture={() => {
+          keyboard.current = true
+        }}
+        onFocusCapture={(event) => {
+          keyboard.current = event.target.matches(":focus-visible")
+        }}
+        onPointerMoveCapture={() => {
+          keyboard.current = false
+        }}
+        onPointerDownCapture={() => {
+          keyboard.current = false
+        }}
+      >
         <Chart
           definition={definition}
           ariaLabel="Holding composition by month. Arrow keys step through the months; the Table view lists every value."
           width={chart.columns.length * PITCH}
           height={HEIGHT + X_AXIS}
           className="text-muted-foreground"
-          // Decision: our code scrolls a keyboard-focused month into view
-          // when it is near or past the scroller's edge; the library does
-          // not scroll its overflow container.
+          // Decision: a month focused by key near or past the scroller's
+          // edge scrolls to the middle; a hovered one never scrolls. The
+          // library scrolls nothing itself, and following hover as well
+          // jumped the columns half a view under the pointer.
           onFocusGroupChange={(points) => {
             const element = scroller.current
             const x = points[0]?.x
-            if (!element || x === undefined) return
+            if (!keyboard.current || !element || x === undefined) return
             if (
               x < element.scrollLeft + PITCH ||
               x > element.scrollLeft + element.clientWidth - PITCH
             )
               element.scrollLeft = x - element.clientWidth / 2
           }}
-          renderTooltipBody={({ points }) => (
-            <MonthBody
-              view={Effect.runSync(
-                monthView(chart, rows, String(points[0]?.xValue ?? ""))
-              )}
-              origin={origin}
-            />
-          )}
+          renderTooltipBody={({ points }) => {
+            const view = views.get(String(points[0]?.xValue))
+            return view && <MonthBody view={view} origin={origin} />
+          }}
         />
       </div>
     </div>
@@ -590,18 +648,19 @@ function Table({ chart, shown }: { chart: HoldingChart; shown: Shown }) {
                     {NO_DATA}
                   </td>
                 ) : (
-                  shown.map((each) => (
-                    <td key={each.key} className="num px-2 py-1.5 text-right">
-                      <ShareChange
-                        now={shares[each.index] ?? 0}
-                        was={
-                          change._tag === "From"
-                            ? change.was.get(each.key)
-                            : undefined
-                        }
-                      />
-                    </td>
-                  ))
+                  shown.map((each) => {
+                    const now = shares[each.index] ?? 0
+                    return (
+                      <td key={each.key} className="num px-2 py-1.5 text-right">
+                        <ShareChange
+                          now={now}
+                          move={Effect.runSync(
+                            seriesMove(change, each.key, now)
+                          )}
+                        />
+                      </td>
+                    )
+                  })
                 )}
               </tr>
             )
@@ -612,20 +671,18 @@ function Table({ chart, shown }: { chart: HoldingChart; shown: Shown }) {
   )
 }
 
-// A share, with an arrow and color when it moved from `was`.
-function ShareChange({ now, was }: { now: number; was: number | undefined }) {
-  const shown = Effect.runSync(percent(now))
-  if (was === undefined) return shown
-  const up = now > was
+// A share, with an arrow and color when it moved from the month before.
+function ShareChange({ now, move }: { now: number; move: Move | undefined }) {
+  const nowText = Effect.runSync(percent(now))
+  if (move === undefined) return nowText
+  const style = MOVE_STYLE[move.direction]
   return (
-    <span className={up ? "text-up" : "text-down"}>
+    <span className={style.className}>
       <span aria-hidden className="mr-1 text-[10px]">
-        {up ? "▲" : "▼"}
+        {style.arrow}
       </span>
-      {shown}
-      <span className="sr-only">
-        , {up ? "up" : "down"} from {Effect.runSync(percent(was))}
-      </span>
+      {nowText}
+      <span className="sr-only">, {Effect.runSync(moveText(move))}</span>
     </span>
   )
 }
