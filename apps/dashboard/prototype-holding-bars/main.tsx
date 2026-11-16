@@ -22,7 +22,7 @@ const VARIANTS: ReadonlyArray<{
   {
     key: "A",
     name: "Native chart",
-    note: "One tab stop. Arrow keys / Home / End step months; hover shows the library tooltip with our sorted body. Screen readers hear the month through a live region.",
+    note: "One tab stop. Arrow keys / Home / End step months; hover shows the library tooltip with our sorted body and each series' change from the previous month in percentage points. Screen readers hear the month through a live region.",
     bars: (props) => <VariantA {...props} />,
   },
   {

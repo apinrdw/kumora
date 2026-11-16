@@ -160,7 +160,7 @@ function useDefinition({ chart, shown, origin }: BarsProps, mode: Mode) {
               className: "proto-tooltip",
               // What a screen reader hears, since the React body is inert.
               formatGroup: (points: ReadonlyArray<ChartPoint>) =>
-                groupText(points, origin),
+                groupText(points, origin, chart.columns, shown),
             },
           }
         : {}),
@@ -179,18 +179,68 @@ const sharesOf = (points: ReadonlyArray<ChartPoint>) =>
     })
     .sort((a, b) => b.share - a.share)
 
+// Each shown series' change from the previous calendar month, in percentage
+// points, or why there is none (first month, or the month before has no data).
+type Change =
+  | { readonly from: string; readonly by: ReadonlyMap<string, number> }
+  | { readonly from: string; readonly missing: true }
+  | { readonly first: true }
+
+function changeOf(
+  columns: ReadonlyArray<ChartColumn>,
+  shown: Shown,
+  month: string
+): Change {
+  const index = columns.findIndex((column) => column.month === month)
+  const before = columns[index - 1]
+  if (before === undefined) return { first: true }
+  const now = columns[index]?.shares
+  if (before.shares === undefined || now === undefined)
+    return { from: before.month, missing: true }
+  return {
+    from: before.month,
+    by: new Map(
+      shown.map((each) => [
+        each.key,
+        (now[each.index] ?? 0) - (before.shares![each.index] ?? 0),
+      ])
+    ),
+  }
+}
+
+/** 0.0042 → `+0.42 pp` */
+const pp = (delta: number) => {
+  const points = Math.round(delta * 10000) / 100
+  return `${points > 0 ? "+" : points < 0 ? "−" : "±"}${Math.abs(points).toFixed(2)} pp`
+}
+
+const changeNote = (change: Change) =>
+  "first" in change
+    ? "First month KSEI has for this stock."
+    : "missing" in change
+      ? `${label(change.from)} has no data, so no change is shown.`
+      : `Changes are from ${label(change.from)}.`
+
 function groupText(
   points: ReadonlyArray<ChartPoint>,
-  origin: BarsProps["origin"]
+  origin: BarsProps["origin"],
+  columns: ReadonlyArray<ChartColumn>,
+  shown: Shown
 ) {
   const month = monthOf(points)
   const rows = sharesOf(points)
   if (rows.length === 0)
     return `${label(month)}: ${NO_DATA}, KSEI's report has no row for this month.`
+  const change = changeOf(columns, shown, month)
+  const by = "by" in change ? change.by : undefined
   return [
     label(month),
-    ...rows.map((row) => `${row.label} ${pct(row.share)}`),
+    ...rows.map((row) => {
+      const delta = by?.get(row.key)
+      return `${row.label} ${pct(row.share)}${delta === undefined ? "" : `, ${pp(delta)}`}`
+    }),
     `Share of ${Effect.runSync(ofWhat(origin))}.`,
+    changeNote(change),
   ].join("\n")
 }
 
@@ -198,11 +248,14 @@ function MonthBody({
   month,
   rows,
   origin,
+  change,
 }: {
   month: string
   rows: ReadonlyArray<Row>
   origin: BarsProps["origin"]
+  change?: Change
 }) {
+  const by = change && "by" in change ? change.by : undefined
   return (
     <div className="flex flex-col gap-1.5">
       <b>{label(month)}</b>
@@ -210,7 +263,12 @@ function MonthBody({
         <span>{NO_DATA}: KSEI's report has no row for this month.</span>
       ) : (
         <>
-          <dl className="grid grid-cols-[1fr_auto] gap-x-3 gap-y-0.5">
+          <dl
+            className={cn(
+              "grid gap-x-3 gap-y-0.5",
+              by ? "grid-cols-[1fr_auto_auto]" : "grid-cols-[1fr_auto]"
+            )}
+          >
             {rows.map((row) => (
               <div key={row.key} className="contents">
                 <dt className="flex items-center">
@@ -220,11 +278,26 @@ function MonthBody({
                   {row.label}
                 </dt>
                 <dd className="num text-right">{pct(row.share)}</dd>
+                {by && (
+                  <dd
+                    className={cn(
+                      "num text-right",
+                      (by.get(row.key) ?? 0) > 0.00005
+                        ? "text-up"
+                        : (by.get(row.key) ?? 0) < -0.00005
+                          ? "text-down"
+                          : "text-muted-foreground"
+                    )}
+                  >
+                    {pp(by.get(row.key) ?? 0)}
+                  </dd>
+                )}
               </div>
             ))}
           </dl>
           <span className="text-muted-foreground">
             Share of {Effect.runSync(ofWhat(origin))}.
+            {change && <> {changeNote(change)}</>}
           </span>
         </>
       )}
@@ -300,6 +373,11 @@ export function VariantA(props: BarsProps) {
               month={monthOf(points)}
               rows={sharesOf(points)}
               origin={props.origin}
+              change={changeOf(
+                props.chart.columns,
+                props.shown,
+                monthOf(points)
+              )}
             />
           )}
         />
