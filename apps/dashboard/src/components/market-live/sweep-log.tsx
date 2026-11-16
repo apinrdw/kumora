@@ -318,8 +318,6 @@ const LogRowView = memo(function LogRowView({
   onTip: OnTip
 }) {
   const path = Effect.runSync(pricePath(row))
-  // An auction match's entry holds its buyers as `aggressor` and its sellers
-  // as `other`, so its cells read the lead buyer, then the lead seller.
   const brokerCell = (side: ReadonlyArray<SweepBroker> | undefined) => (
     <LeadBrokerCell id={row.firstTrade} side={side} onTip={onTip} />
   )

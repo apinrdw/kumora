@@ -158,8 +158,7 @@ export interface KeptSweep extends Sweep {
   readonly own: number
 }
 
-// The brokers of a shown sweep, each side's largest lots first: a piece's,
-// or an auction match's buyers as `aggressor` and its sellers as `other`.
+// The brokers of a shown sweep (`SweepPiece` in @workspace/relay).
 type SweepSides = Pick<SweepPiece, "aggressor" | "other">
 
 // The sweeps the page shows: each whole sweep with an entry swapped for its
@@ -251,8 +250,8 @@ interface BrokerPick {
 const OPPOSITE_TYPE = { D: "F", F: "D" } as const
 
 // The broker filter's choices: the aggressors of the pieces up to `at`
-// (epoch ms), largest summed aggressor lots first; an auction match's
-// buyers are no aggressors. A broker's investor type is the one with its
+// (epoch ms), largest summed aggressor lots first; an auction match has
+// none. A broker's investor type is the one with its
 // larger summed lots, the first it had on a tie, as within one sweep
 // (apinrdw/kumora#343, story 5).
 export const brokerPicks = (
@@ -302,9 +301,8 @@ export const pricePath = Effect.fnUntraced(function* (sweep: Sweep) {
 })
 
 // What the tooltip on a sweep's bubble and broker cells shows: a title, then
-// each side's brokers as stored, largest first, the aggressor side first
-// (an auction match's buyers, with no aggressor named); no sides while the
-// sweep is not yet whole.
+// each side's brokers as stored, largest first, `aggressor` first; no
+// sides while the sweep is not yet whole.
 interface SweepTip {
   readonly title: string
   readonly sides:

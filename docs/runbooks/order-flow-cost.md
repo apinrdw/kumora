@@ -94,7 +94,7 @@ Spec [apinrdw/kumora#343](https://github.com/apinrdw/kumora/issues/343), ticket 
 2. After 17:00 WIB, point the relay extension's broker codes walk at Staging and let it run. Keep it running until the day's broker codes status reads `complete`. Let Stockbit's cross-check walk finish too, if it runs, because its batches also recompute.
 3. In the Query Builder, filter on the day's `Rows written` lines from 16:00 WIB on, and on its `Sweep brokers recomputed` lines. Sum `sweepBrokers`, `sweepBrokerMinutes`, `billedSweepBrokerReadRows` and `billedRowsWritten` across both.
 4. Read the last `Order flow storage` line for `sweepBrokerRows` and `sweepBrokerBytes`.
-5. For split sweeps (spec [apinrdw/kumora#384](https://github.com/apinrdw/kumora/issues/384)), also open one day recorded before that deploy in Market Live. Its sweep brokers rows rebuild on that first view, because the deploy changed the build fact's finished value (`SWEEP_BROKERS_BUILT` in `day-store.ts`). Record that rebuild's `Sweep brokers recomputed` line. It is the one-off cost each old day pays once, when someone first opens it.
+5. For split sweeps (spec [apinrdw/kumora#384](https://github.com/apinrdw/kumora/issues/384)), also open one day recorded before that deploy in Market Live. Its sweep brokers rows rebuild on that first view (`SWEEP_BROKERS_BUILT` in `day-store.ts`). Record that rebuild's `Sweep brokers recomputed` line. It is the one-off cost each old day pays once, when someone first opens it.
 
 ### The extended estimate
 
