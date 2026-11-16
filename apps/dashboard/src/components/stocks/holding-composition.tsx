@@ -6,9 +6,9 @@ import { cn } from "@workspace/ui/lib/utils"
 import { Effect } from "effect"
 import { useLayoutEffect, useRef, useState } from "react"
 
-import { KChip } from "@/components/k/chip"
 import { kCard, kFocus } from "@/components/k/styles"
 import { KTooltip } from "@/components/k/tooltip"
+import { Picks } from "@/components/stocks/choice"
 import {
   type ChartColumn,
   type ChartSeries,
@@ -17,7 +17,12 @@ import {
   latestOriginSplit,
   type SeriesKey,
 } from "@/lib/holding-composition"
-import { monthLabel, percent, TYPE_COLOR } from "@/lib/stock-page-display"
+import {
+  monthLabel,
+  percent,
+  shortMonth,
+  TYPE_COLOR,
+} from "@/lib/stock-page-display"
 import type { ChartView, OriginShown } from "@/lib/stock-search"
 import type { SeriesMonth } from "@/server/holdings/stock-page"
 
@@ -49,13 +54,6 @@ const NONE_HIDDEN: ReadonlySet<SeriesKey> = new Set()
 const ofWhat = (origin: OriginShown) =>
   Effect.succeed(
     origin === "all" ? "scripless shares" : `all ${origin} holdings`
-  )
-
-/** `2026-10` → `Oct 26` */
-const shortMonth = (month: string) =>
-  Effect.map(
-    monthLabel(month),
-    (label) => `${label.slice(0, 4)}${month.slice(2, 4)}`
   )
 
 export type HoldingCompositionProps = {
@@ -122,36 +120,6 @@ export function HoldingComposition({
         split can differ from IDX's in Shareholders composition.
       </p>
     </section>
-  )
-}
-
-function Picks<Value extends string>({
-  label,
-  options,
-  value,
-  onPick,
-}: {
-  label: string
-  options: ReadonlyArray<{ value: Value; label: string }>
-  value: Value
-  onPick: (value: Value) => void
-}) {
-  return (
-    <div
-      role="group"
-      aria-label={label}
-      className="flex flex-wrap items-center gap-2"
-    >
-      {options.map((option) => (
-        <KChip
-          key={option.value}
-          selected={option.value === value}
-          onSelectedChange={() => onPick(option.value)}
-        >
-          {option.label}
-        </KChip>
-      ))}
-    </div>
   )
 }
 

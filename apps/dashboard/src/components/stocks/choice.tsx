@@ -1,12 +1,44 @@
 // The stock page panels' single-choice buttons and month tabs, shared by
-// Shareholders composition and Holder size.
+// Shareholders composition and Holder size, and the chip groups Holding
+// composition and Holder size switch their view with.
 import { cn } from "@workspace/ui/lib/utils"
 import { Effect } from "effect"
 import type { ReactNode } from "react"
 
+import { KChip } from "@/components/k/chip"
 import { kFocus } from "@/components/k/styles"
 import { KTooltip } from "@/components/k/tooltip"
 import { monthLabel } from "@/lib/stock-page-display"
+
+export function Picks<Value extends string>({
+  label,
+  options,
+  value,
+  onPick,
+}: {
+  label: string
+  options: ReadonlyArray<{ value: Value; label: string }>
+  value: Value
+  onPick: (value: Value) => void
+}) {
+  return (
+    <div
+      role="group"
+      aria-label={label}
+      className="flex flex-wrap items-center gap-2"
+    >
+      {options.map((option) => (
+        <KChip
+          key={option.value}
+          selected={option.value === value}
+          onSelectedChange={() => onPick(option.value)}
+        >
+          {option.label}
+        </KChip>
+      ))}
+    </div>
+  )
+}
 
 // A pressed-or-not button of a single choice. An unavailable one stays
 // focusable, so its tooltip says why.

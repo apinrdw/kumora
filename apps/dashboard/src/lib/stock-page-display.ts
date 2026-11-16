@@ -26,6 +26,13 @@ const MONTHS = [
 export const monthLabel = (date: string) =>
   Effect.succeed(`${MONTHS[Number(date.slice(5, 7)) - 1]} ${date.slice(0, 4)}`)
 
+/** `2026-10` → `Oct 26` */
+export const shortMonth = (month: string) =>
+  Effect.map(
+    monthLabel(month),
+    (label) => `${label.slice(0, 4)}${month.slice(2, 4)}`
+  )
+
 /** 0.12345 → `12.35%` */
 export const percent = (share: number) =>
   Effect.map(plain(share * 100, 2), (text) => `${text}%`)
