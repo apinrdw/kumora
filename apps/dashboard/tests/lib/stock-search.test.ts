@@ -294,9 +294,23 @@ describe("the Broker inventory lens and chips in the URL", () => {
           (yield* parseStockSearch({ brokers: "YP,yp,XYZ,buy,YP,,top,PD" }))
             .brokers
         ).toStrictEqual(["YP", "buy", "PD"])
-        for (const brokers of ["XYZ,top", ",", 42, ["YP"]])
+        for (const brokers of ["XYZ,top", ",", 42, ["XYZ"], [42]])
           expect((yield* parseStockSearch({ brokers })).brokers).toBeUndefined()
       })
+  )
+
+  // The router validates a navigation's search object too, not only the
+  // URL's, so the chips arrive as the list a control set.
+  it.effect("keeps chips that arrive already a list", () =>
+    Effect.gen(function* () {
+      const YP = BrokerCode.make("YP")
+      expect(
+        (yield* parseStockSearch({ brokers: ["sell", YP, "yp", YP] })).brokers
+      ).toStrictEqual(["sell", YP])
+      expect((yield* parseStockSearch({ brokers: [] })).brokers).toStrictEqual(
+        []
+      )
+    })
   )
 })
 
