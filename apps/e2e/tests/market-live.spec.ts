@@ -316,10 +316,14 @@ test.describe("signed in", () => {
     await expect.poll(() => width(footprintChart)).toBeLessThan(9)
     expect(await range(candleChart)).toEqual(before1)
 
-    // A click on the candle chart jumps the footprint chart there, back at 10
-    // minutes.
+    // A click on the candle chart jumps the footprint chart there, at the
+    // minutes the wheel zoomed it to.
+    const zoomed = await range(footprintChart)
     await page.mouse.click(box1.x + box1.width * 0.6, box1.y + box1.height / 2)
-    await expect.poll(() => width(footprintChart)).toBe(9)
+    await expect
+      .poll(async () => (await range(footprintChart)).from)
+      .not.toBeCloseTo(zoomed.from, 0)
+    expect(await width(footprintChart)).toBeCloseTo(zoomed.to - zoomed.from, 1)
     relay.close()
   })
 

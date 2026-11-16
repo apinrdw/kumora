@@ -177,15 +177,21 @@ const COLORS = { shade: "#0001", edge: "#000" }
 const MINUTES = Array.from({ length: 70 }, (_, index) => index * 60_000)
 
 // The candle chart on 131 bars and the footprint chart on its 10 minutes,
-// attached to one pair.
+// attached to one pair. The footprint chart's window is `window.minutes`
+// wide, or the default.
 const paired = (
   candles = chartShowing({ from: -65, to: 65 }),
-  footprint = chartShowing({ from: 52, to: 61 })
+  footprint = chartShowing({ from: 52, to: 61 }),
+  window: { minutes: number | undefined } = { minutes: undefined }
 ) => {
   const pair = Effect.runSync(makeChartPair())
   detaches.push(
     pair.attachCandles(candles.side, COLORS),
-    pair.attachFootprint({ ...footprint.side, minutes: () => MINUTES })
+    pair.attachFootprint({
+      ...footprint.side,
+      minutes: () => MINUTES,
+      windowMinutes: () => window.minutes,
+    })
   )
   // An animation frame: the pair's fit, then each chart's paint.
   const frame = () => {
@@ -437,6 +443,60 @@ describe("the footprint chart's own refit moves the footprint chart alone", () =
     frame()
 
     expect(footprint.range()).toEqual({ from: 26, to: 35 })
+    expect(candles.range()).toEqual({ from: -65, to: 65 })
+  })
+})
+
+describe("the footprint chart zoomed to 6 minutes", () => {
+  const ZOOMED: Record<
+    string,
+    (charts: ReturnType<typeof paired>) => BarRange
+  > = {
+    "jumps to a picked sweep's minute at 6 minutes": ({ pair }) => {
+      pair.jumpTo(30 * 60_000)
+      return { from: 28, to: 33 }
+    },
+    "shows a recorded day's cursor at 6 minutes": ({ pair }) => {
+      pair.showUpTo(30 * 60_000)
+      return { from: 25, to: 30 }
+    },
+    "keeps 6 minutes through a new width": () => {
+      WIDTH.now = 600
+      for (const resized of observers) resized()
+      // Around the middle of 52 to 61, on whole minutes.
+      return { from: 55, to: 60 }
+    },
+  }
+  for (const [name, apply] of Object.entries(ZOOMED))
+    it(`${name}, the candle chart staying`, () => {
+      const charts = paired(undefined, undefined, { minutes: 6 })
+
+      const window = apply(charts)
+      charts.frame()
+      charts.frame()
+
+      expect(charts.footprint.range()).toEqual(window)
+      expect(charts.candles.range()).toEqual({ from: -65, to: 65 })
+    })
+
+  it("goes back to 10 minutes around its middle on a refit once its zoom is gone", () => {
+    const window = { minutes: 6 as number | undefined }
+    const { pair, candles, footprint, frame } = paired(
+      undefined,
+      undefined,
+      window
+    )
+    pair.refit()
+    frame()
+    expect(footprint.range()).toEqual({ from: 55, to: 60 })
+
+    window.minutes = undefined
+    pair.refit()
+    frame()
+    frame()
+
+    // Around the middle of 55 to 60.
+    expect(footprint.range()).toEqual({ from: 54, to: 63 })
     expect(candles.range()).toEqual({ from: -65, to: 65 })
   })
 })

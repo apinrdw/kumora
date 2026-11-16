@@ -134,7 +134,7 @@ export function KEmptyState({
 }
 
 /**
- * Async state shared by data surfaces (KDataTable, KChartPanel, KMetricCard).
+ * Async state shared by data surfaces (KDataTable, KMetricCard).
  * `restricted` is the permission-limited state.
  */
 export type KDataState =

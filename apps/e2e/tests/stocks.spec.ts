@@ -237,10 +237,23 @@ const chartChoice = (page: Page, group: string, label: string) =>
 const legendEntry = (page: Page, label: string) =>
   chartChoice(page, "Legend", label)
 
-const column = (page: Page, label: string) =>
-  chart(page)
-    .getByRole("group", { name: "Holding chart" })
-    .getByRole("button", { name: label })
+// The Bars chart: one tab stop whose arrow keys step the months.
+const bars = (page: Page) =>
+  chart(page).getByRole("img", { name: /^Holding composition by month/ })
+
+// The Bars tooltip, whose label is what a screen reader hears.
+const barsTooltip = (page: Page) => chart(page).getByRole("status")
+
+// Focuses the Bars chart and presses End, retried until the page has
+// hydrated and the tooltip shows the newest month.
+const focusNewest = async (page: Page, month: string) => {
+  await expect(async () => {
+    await bars(page).blur()
+    await bars(page).focus()
+    await page.keyboard.press("End")
+    await expect(barsTooltip(page)).toContainText(month, { timeout: 1000 })
+  }).toPass()
+}
 
 const holderSize = (page: Page) =>
   page.getByRole("region", { name: "Holder size" })
@@ -671,18 +684,170 @@ test.describe.serial("the stock page", () => {
       await expect(chart(page).getByLabel("Local share")).toHaveText("32.78%")
       await expect(chart(page).getByLabel("Foreign share")).toHaveText("67.22%")
       await expect(chart(page)).toContainText("As of Oct 2026.")
-      await expect(column(page, "Jul 2026")).toContainText("No data")
-      // The page has just loaded: retry until hydration shows the tooltip.
+      // The page opens at the newest month: hovering its column, the last,
+      // shows its tooltip. Retried until hydration shows it.
       await expect(async () => {
         await page.mouse.move(0, 0)
-        await column(page, "Oct 2026").hover()
-        await expect(page.getByText("Share of scripless shares.")).toBeVisible({
+        const box = await bars(page).boundingBox()
+        if (box === null) throw new Error("The Bars chart has no box")
+        await bars(page).hover({ position: { x: box.width - 22, y: 120 } })
+        await expect(barsTooltip(page)).toContainText("Oct 2026", {
           timeout: 1000,
         })
       }).toPass()
-      await expect(
-        page.getByRole("definition").filter({ hasText: "67.22%" })
-      ).toBeVisible()
+      await expect(barsTooltip(page)).toContainText("67.22%")
+      await expect(barsTooltip(page)).toContainText(
+        "Share of scripless shares."
+      )
+      await page.mouse.move(0, 0)
+
+      await focusNewest(page, "Oct 2026")
+      await expect(barsTooltip(page)).toHaveAttribute(
+        "aria-label",
+        "Oct 2026\nForeign 67.22%, down from 68.89%\nLocal 32.78%, up from 31.11%\nShare of scripless shares."
+      )
+      await expect(barsTooltip(page)).toContainText("68.89% → 67.22%")
+      // September follows August, a month KSEI has no data for.
+      await page.keyboard.press("ArrowLeft")
+      await expect(barsTooltip(page)).toContainText("Sep 2026")
+      await expect(barsTooltip(page)).toContainText(
+        "Aug 2026 has no data, so no change is shown."
+      )
+      await expect(barsTooltip(page)).not.toContainText("→")
+      // Back past August to July, another such month.
+      for (let step = 0; step < 2; step++)
+        await page.keyboard.press("ArrowLeft")
+      await expect(barsTooltip(page)).toContainText("Jul 2026")
+      await expect(barsTooltip(page)).toContainText("No data")
+      await expect(barsTooltip(page)).toHaveAttribute(
+        "aria-label",
+        "Jul 2026: No data, KSEI's report has no row for this month."
+      )
+      await expect(bars(page)).toContainText("No data")
+    })
+
+    test("Escape hides the Bars tooltip and the next arrow key brings it back", async ({
+      page,
+    }) => {
+      await page.goto(`${DASHBOARD}/stocks/BBCA`)
+      await focusNewest(page, "Oct 2026")
+      await page.keyboard.press("Escape")
+      await expect(barsTooltip(page)).toBeHidden()
+      await expect(bars(page)).toBeFocused()
+      // The arrow steps from the month Escape hid, not from the first.
+      await page.keyboard.press("ArrowLeft")
+      await expect(barsTooltip(page)).toContainText("Sep 2026")
+    })
+
+    test("Escape hides a hovered Bars tooltip while focus is elsewhere", async ({
+      page,
+    }) => {
+      await page.goto(`${DASHBOARD}/stocks/BBCA`)
+      // Retried until hydration shows it.
+      await expect(async () => {
+        await page.mouse.move(0, 0)
+        const box = await bars(page).boundingBox()
+        if (box === null) throw new Error("The Bars chart has no box")
+        await bars(page).hover({ position: { x: box.width - 22, y: 120 } })
+        await expect(barsTooltip(page)).toContainText("Oct 2026", {
+          timeout: 1000,
+        })
+      }).toPass()
+      expect(await page.evaluate(() => document.activeElement?.tagName)).toBe(
+        "BODY"
+      )
+      await page.keyboard.press("Escape")
+      await expect(barsTooltip(page)).toBeHidden()
+    })
+
+    test("steps the arrow keys from the month the pointer hovered", async ({
+      page,
+    }) => {
+      await page.goto(`${DASHBOARD}/stocks/BBCA`)
+      await focusNewest(page, "Oct 2026")
+      const box = await bars(page).boundingBox()
+      if (box === null) throw new Error("The Bars chart has no box")
+      // October's lower segment, not the month's own stop.
+      await bars(page).hover({ position: { x: box.width - 22, y: 220 } })
+      await expect(barsTooltip(page)).toContainText("Oct 2026")
+      await page.keyboard.press("ArrowLeft")
+      await expect(barsTooltip(page)).toContainText("Sep 2026")
+    })
+
+    test("steps the arrow keys from a hovered month that Escape hid", async ({
+      page,
+    }) => {
+      await page.goto(`${DASHBOARD}/stocks/BBCA`)
+      await focusNewest(page, "Oct 2026")
+      const box = await bars(page).boundingBox()
+      if (box === null) throw new Error("The Bars chart has no box")
+      await bars(page).hover({ position: { x: box.width - 22, y: 220 } })
+      await expect(barsTooltip(page)).toContainText("Oct 2026")
+      await page.keyboard.press("Escape")
+      await expect(barsTooltip(page)).toBeHidden()
+      await page.keyboard.press("ArrowLeft")
+      await expect(barsTooltip(page)).toContainText("Sep 2026")
+    })
+
+    test("styles the Bars tooltip as KTooltip", async ({ page }) => {
+      const look = (element: Element) => {
+        const style = getComputedStyle(element)
+        return [
+          "border-radius",
+          "border-top-color",
+          "border-top-width",
+          "padding",
+          "min-width",
+          "max-width",
+          "font-size",
+          "line-height",
+          "font-weight",
+          "color",
+          "background-color",
+          "box-shadow",
+        ].map((property) => `${property}: ${style.getPropertyValue(property)}`)
+      }
+      // May doesn't split, so the Local origin is a KTooltip trigger.
+      await page.goto(`${DASHBOARD}/stocks/BBCA?month=2026-05`)
+      const kTooltip = page.locator('[data-slot="tooltip-content"]')
+      await expect(async () => {
+        await page.mouse.move(0, 0)
+        await origin(page, "Local").hover()
+        await expect(kTooltip).toBeVisible({ timeout: 1000 })
+      }).toPass()
+      const kLook = await kTooltip.evaluate(look)
+      await page.mouse.move(0, 0)
+      await focusNewest(page, "Oct 2026")
+      const body = barsTooltip(page).locator(".ts-chart-tooltip__body > *")
+      expect(await body.evaluate(look)).toEqual(kLook)
+    })
+
+    test("keeps its scroll when the pointer hovers a column at the edge", async ({
+      page,
+    }) => {
+      // On a narrow phone BBCA's six months overflow their scroller.
+      await page.setViewportSize({ width: 320, height: 800 })
+      await page.goto(`${DASHBOARD}/stocks/BBCA`)
+      await focusNewest(page, "Oct 2026")
+      await bars(page).blur()
+      const scrollLeft = () =>
+        bars(page).evaluate((element) => {
+          let scroller = element.parentElement
+          while (scroller && scroller.scrollWidth <= scroller.clientWidth)
+            scroller = scroller.parentElement
+          return scroller?.scrollLeft ?? 0
+        })
+      const opened = await scrollLeft()
+      expect(opened).toBeGreaterThan(0)
+      // The leftmost column in view, just inside the scroller's edge.
+      await bars(page).hover({ position: { x: opened + 22, y: 120 } })
+      await expect(barsTooltip(page)).toBeVisible()
+      expect(await scrollLeft()).toBe(opened)
+      // The keyboard still scrolls the oldest month into view.
+      await bars(page).focus()
+      await page.keyboard.press("Home")
+      await expect(barsTooltip(page)).toContainText("May 2026")
+      expect(await scrollLeft()).toBe(0)
     })
 
     test("keeps a series' % of its origin when the legend hides the rest", async ({
@@ -710,18 +875,22 @@ test.describe.serial("the stock page", () => {
         "aria-pressed",
         "true"
       )
+      // One Tab from the origin picks reaches the chart, and the next leaves
+      // it for the legend.
+      await chartChoice(page, "Chart origin", "Foreign").focus()
+      await page.keyboard.press("Tab")
+      await expect(bars(page)).toBeFocused()
+      await expect(barsTooltip(page)).toBeVisible()
+      await page.keyboard.press("Tab")
+      await expect(legendEntry(page, "Individual")).toBeFocused()
+      await expect(barsTooltip(page)).toBeHidden()
       // Individual alone is 0.92% of BBCA's foreign holdings, not 100%: the
       // axis zooms to 1%.
-      // Tab reaches October from September, as a keyboard user would.
-      await column(page, "Sep 2026").focus()
-      await page.keyboard.press("Tab")
-      await expect(column(page, "Oct 2026")).toBeFocused()
-      await expect(
-        page.getByText("Share of all foreign holdings.")
-      ).toBeVisible()
-      await expect(
-        page.getByRole("definition").filter({ hasText: "0.92%" })
-      ).toBeVisible()
+      await focusNewest(page, "Oct 2026")
+      await expect(barsTooltip(page)).toContainText(
+        "Share of all foreign holdings."
+      )
+      await expect(barsTooltip(page)).toContainText("0.92%")
       await expect(chart(page).getByText("1%", { exact: true })).toBeVisible()
 
       await legendEntry(page, "Individual").dblclick()
@@ -744,8 +913,9 @@ test.describe.serial("the stock page", () => {
       const table = chart(page).getByRole("table", {
         name: "Holding composition by month",
       })
+      // Foreign mutual funds, up from September.
       await expect(table.getByRole("row", { name: /Oct 2026/ })).toContainText(
-        "57.84%"
+        "▲57.84%, up from 57.58%"
       )
       await expect(table.getByRole("row", { name: /Jul 2026/ })).toHaveText(
         /No data/

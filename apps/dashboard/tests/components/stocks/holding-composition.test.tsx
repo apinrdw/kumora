@@ -4,7 +4,7 @@ import { createRoot } from "react-dom/client"
 import { afterEach, expect, test, vi } from "vitest"
 
 import { HoldingComposition } from "@/components/stocks/holding-composition"
-import type { OriginShown } from "@/lib/stock-search"
+import type { ChartView, OriginShown } from "@/lib/stock-search"
 import type { SeriesMonth } from "@/server/holdings/stock-page"
 
 // React's `act` warns outside a test environment that declares itself.
@@ -33,13 +33,17 @@ document.body.append(container)
 const root = createRoot(container)
 afterEach(() => act(() => root.render(null)))
 
-const render = (origin: OriginShown, series = SERIES) =>
+const render = (
+  origin: OriginShown,
+  series = SERIES,
+  view: ChartView = "table"
+) =>
   act(() =>
     root.render(
       <HoldingComposition
         series={series}
         origin={origin}
-        view="table"
+        view={view}
         onOrigin={() => {}}
         onView={() => {}}
       />
@@ -145,6 +149,42 @@ test("two keyboard presses hide an entry and show it again", async () => {
   expect(pressed()).toEqual(allSeries())
 })
 
+const row = (month: string) =>
+  [...container.querySelectorAll("tbody tr")].find(
+    (tr) => tr.querySelector("th")?.textContent === month
+  )
+
+test("the Table points each share up or down from the month before, and not after a gap", async () => {
+  const moved = { ...HELD, ID: 50, CP: 30 }
+  await render("local", [
+    {
+      month: "2026-08",
+      holdings: { periodEnd: "2026-08-31", local: HELD, foreign: HELD },
+    },
+    {
+      month: "2026-09",
+      holdings: { periodEnd: "2026-09-30", local: moved, foreign: moved },
+    },
+    { month: "2026-10", holdings: undefined },
+    {
+      month: "2026-11",
+      holdings: { periodEnd: "2026-11-30", local: HELD, foreign: HELD },
+    },
+  ])
+  // Individual 60% → 50%, Corporate 20% → 30%, Mutual fund unchanged.
+  expect(row("Sep 2026")?.textContent).toContain(
+    "▼50.00%, down from 60.00%▲30.00%, up from 20.00%10.00%"
+  )
+  expect(row("Sep 2026")?.querySelector(".text-down")?.textContent).toContain(
+    "50.00%"
+  )
+  expect(row("Sep 2026")?.querySelector(".text-up")?.textContent).toContain(
+    "30.00%"
+  )
+  expect(row("Nov 2026")?.textContent).not.toMatch(/[▲▼]|from/)
+  expect(row("Aug 2026")?.textContent).not.toMatch(/[▲▼]|from/)
+})
+
 test("the origin summary is unavailable when the newest month holds no shares", async () => {
   const none = Object.fromEntries(Object.keys(HELD).map((type) => [type, 0]))
   await render("all", [
@@ -161,4 +201,109 @@ test("the origin summary is unavailable when the newest month holds no shares", 
   expect(container.textContent).toContain(
     "Unavailable: KSEI lists no scripless shares for Oct 2026."
   )
+})
+
+// Local holds 40 of 100 in August, 30 in October and 25 in November;
+// September is a gap.
+const held = (local: number, foreign: number) => ({
+  ...Object.fromEntries(Object.keys(HELD).map((type) => [type, 0])),
+  ID: local,
+  CP: foreign,
+})
+const BARS: ReadonlyArray<SeriesMonth> = [
+  {
+    month: "2026-08",
+    holdings: {
+      periodEnd: "2026-08-29",
+      local: held(40, 0) as typeof HELD,
+      foreign: held(0, 60) as typeof HELD,
+    },
+  },
+  { month: "2026-09", holdings: undefined },
+  {
+    month: "2026-10",
+    holdings: {
+      periodEnd: "2026-10-30",
+      local: held(30, 0) as typeof HELD,
+      foreign: held(0, 70) as typeof HELD,
+    },
+  },
+  {
+    month: "2026-11",
+    holdings: {
+      periodEnd: "2026-11-30",
+      local: held(25, 0) as typeof HELD,
+      foreign: held(0, 75) as typeof HELD,
+    },
+  },
+]
+
+const barsChart = () =>
+  container.querySelector<SVGElement>('svg[role="img"]') as SVGElement
+
+const announced = () =>
+  document.querySelector('[role="status"]')?.getAttribute("aria-label")
+
+const key = (name: string) =>
+  act(() => {
+    barsChart().dispatchEvent(
+      new KeyboardEvent("keydown", { key: name, bubbles: true })
+    )
+  })
+
+test("the Bars chart announces the month a keyboard user steps to, with its changes", async () => {
+  await render("all", BARS, "bars")
+  await act(() => barsChart().focus())
+  await key("End")
+  expect(announced()).toBe(
+    "Nov 2026\nForeign 75.00%, up from 70.00%\nLocal 25.00%, down from 30.00%\nShare of scripless shares."
+  )
+  const body = document.querySelector(".holding-tooltip")
+  expect(body?.textContent).toContain("70.00% → 75.00%")
+  expect(body?.textContent).toMatch(/Share of scripless shares\.$/)
+  expect(body?.querySelector(".text-up")?.textContent).toBe("75.00%")
+  expect(body?.querySelector(".text-down")?.textContent).toBe("25.00%")
+  await key("ArrowLeft")
+  expect(announced()).toBe(
+    "Oct 2026\nForeign 70.00%\nLocal 30.00%\nShare of scripless shares.\nSep 2026 has no data, so no change is shown."
+  )
+  expect(document.querySelector(".holding-tooltip")?.textContent).not.toContain(
+    "→"
+  )
+  await key("ArrowLeft")
+  expect(announced()).toBe(
+    "Sep 2026: No data, KSEI's report has no row for this month."
+  )
+  await key("Home")
+  expect(announced()).toBe(
+    "Aug 2026\nForeign 60.00%\nLocal 40.00%\nShare of scripless shares.\nThis is the first month KSEI has for this stock."
+  )
+})
+
+test("the Bars tooltip shows no change for a share that prints the same as last month's", async () => {
+  await render(
+    "all",
+    [
+      ...BARS,
+      {
+        month: "2026-12",
+        holdings: {
+          periodEnd: "2026-12-31",
+          local: held(25.001, 0) as typeof HELD,
+          foreign: held(0, 74.999) as typeof HELD,
+        },
+      },
+    ],
+    "bars"
+  )
+  await act(() => barsChart().focus())
+  await key("End")
+  expect(announced()).toBe(
+    "Dec 2026\nForeign 75.00%\nLocal 25.00%\nShare of scripless shares."
+  )
+  expect(
+    document.querySelector(
+      ".holding-tooltip .text-up, .holding-tooltip .text-down"
+    )
+  ).toBeNull()
 })
