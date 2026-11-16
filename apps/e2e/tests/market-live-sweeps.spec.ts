@@ -289,7 +289,7 @@ test("a recorded day's sweep log shows each sweep's lead brokers, wider, filling
   ])
   await closedOnceStored(page, relay, code, 45)
 
-  // AK bought more of the buy sweep than BK did; KZ sold the sell sweep.
+  // AK bought the whole buy sweep, from BK and CC; KZ sold the sell sweep.
   // The buy sweep's first trade has no codes yet.
   await storeCodes(page, [
     [base + 2, "AK F CC D"],
@@ -322,8 +322,11 @@ test("a recorded day's sweep log shows each sweep's lead brokers, wider, filling
 
   // The walk stores the last trade's codes; the page's recheck fills the
   // buy sweep in within 30 s, with no reload.
-  await storeCodes(page, [[base + 1, "BK D CC D"]])
-  await expect(rows.nth(1)).toContainText("AK [F] +1", { timeout: 40_000 })
+  await storeCodes(page, [[base + 1, "AK F BK D"]])
+  await expect(rows.nth(1)).toContainText("AK [F]", { timeout: 40_000 })
+  // One aggressor, so no +N; the other side has two.
+  await expect(rows.nth(1)).not.toContainText("AK [F] +")
+  await expect(rows.nth(1)).toContainText("CC [D] +1")
   await expect(rows.nth(1).getByText("AK [F]")).toHaveClass(/text-foreign/)
   await expect(note).toHaveText(
     "Codes still arriving: 2 of 2 sweeps have their brokers. Updates every 30 s."
@@ -338,10 +341,10 @@ test("a recorded day's sweep log shows each sweep's lead brokers, wider, filling
   const tip = page.getByRole("tooltip", { name: "Sweep brokers" })
   const buyTip = [
     "Buyers · aggressor",
-    /^AK \[F\]\s*30$/,
-    /^BK \[D\]\s*10$/,
+    /^AK \[F\]\s*40$/,
     "Sellers",
-    /^CC \[D\]\s*40$/,
+    /^CC \[D\]\s*30$/,
+    /^BK \[D\]\s*10$/,
   ]
   await rows.nth(1).getByText("CC [D]").hover()
   await expect(tip).toContainText("Buy 40 lots @ 500→505 · 2 trades")
@@ -372,14 +375,13 @@ test("a recorded day's sweep log shows each sweep's lead brokers, wider, filling
   await expect(rows.nth(1)).toHaveAttribute("aria-current", "true")
 
   // The broker filter lists the aggressors by their summed lots. Picking AK
-  // keeps only the sweeps AK was an aggressor of, each read as AK's lots of
-  // the whole, in the log and in chart 1's bubbles; the top-N cuts by AK's
-  // lots, and the tooltip marks AK.
+  // keeps only the sweeps AK was the aggressor of, each at its whole lots,
+  // in the log and in chart 1's bubbles; the top-N cuts by them, and the
+  // tooltip marks AK.
   const filter = log.getByLabel("Broker filter")
   await expect(filter.getByRole("option")).toHaveText([
     "All brokers",
-    "AK [F] · 30",
-    "BK [D] · 10",
+    "AK [F] · 40",
     "KZ [F] · 5",
   ])
   // The sell sweep, which AK has no part in, selected first.
@@ -387,18 +389,18 @@ test("a recorded day's sweep log shows each sweep's lead brokers, wider, filling
   await filter.selectOption("AK")
   await expect(rows).toHaveCount(1)
   await expect(rows.first()).not.toHaveAttribute("aria-current", "true")
-  await expect(rows.first()).toContainText("30/40 @ 500→505")
+  await expect(rows.first()).toContainText("40/40 @ 500→505")
   await expect(candles).toHaveAttribute("data-bubbles", "1")
   await expect(page.getByLabel("Sweep threshold")).toHaveText(
-    "≥ 30 lots of AK (buy 30)"
+    "≥ 40 lots of AK (buy 40)"
   )
   await page.mouse.move(buyBubble.x, buyBubble.y)
   await expect(tip.getByRole("row")).toHaveText([
     "Buyers · aggressor",
-    /^AK \[F\] ◂\s*30$/,
-    /^BK \[D\]\s*10$/,
+    /^AK \[F\] ◂\s*40$/,
     "Sellers",
-    /^CC \[D\]\s*40$/,
+    /^CC \[D\]\s*30$/,
+    /^BK \[D\]\s*10$/,
   ])
   // Selecting works with the filter on, from a row and from a bubble.
   await rows.first().click()
@@ -461,6 +463,102 @@ test("a recorded day's sweep log shows each sweep's lead brokers, wider, filling
   )
   await phone.touchscreen.tap(phoneBubble.x, phoneBubble.y)
   await expect(phoneTip.getByRole("row")).toHaveText(buyTip)
+})
+
+test("a recorded day's sweep with two sellers in one second splits into two rows and two bubbles once whole, and a pin on it moves to the larger", async ({
+  page,
+}) => {
+  // The recheck runs every 30 s.
+  test.setTimeout(90_000)
+  const relay = await openIngest()
+  const earlier = freshTradeNumbers()
+  const base = earlier + 1_000
+  const code = freshCode("SS")
+  // As the test above: the sweep stamped now, above another code's trades.
+  const time = wibTime(marketNow())
+  const earlierCode = freshCode("SE")
+  await relay.sendAjaib([
+    ...[1, 600].map((seq) =>
+      ajaibTradeToday({
+        seq: earlier + seq,
+        time,
+        ticker: earlierCode,
+        price: 500,
+        lot: 1,
+      })
+    ),
+    // One sell sweep: XL's 4 lots, then FZ's 10 and 6.
+    ...[
+      { seq: 1, price: 500, lot: 4 },
+      { seq: 2, price: 495, lot: 10 },
+      { seq: 3, price: 495, lot: 6 },
+    ].map(({ seq, price, lot }) =>
+      ajaibTradeToday({
+        seq: base + seq,
+        time,
+        ticker: code,
+        price,
+        lot,
+        type: "SELL",
+      })
+    ),
+  ])
+  await closedOnceStored(page, relay, code, 20)
+  // FZ's last trade has no codes yet.
+  await storeCodes(page, [
+    [base + 1, "AK F XL D"],
+    [base + 2, "CC D FZ D"],
+  ])
+
+  await page.setViewportSize({ width: 1920, height: 1080 })
+  await page.goto(
+    `${DASHBOARD}${PAGE}?code=${code}&day=${WibDate.make(wibToday())}`
+  )
+  const log = page.getByRole("region", { name: "Sweep log" })
+  const rows = log.locator("[data-sweep-id]")
+  const candles = page.locator('[data-chart="candles"]')
+  await expect(rows).toHaveCount(1)
+  await expect(rows.first()).toContainText("20 @ 500→495")
+  await expect(candles).toHaveAttribute("data-bubbles", "1")
+  // Pinned on the whole sweep's bubble, before its codes land.
+  await rows.first().click()
+  const bubble = await ringedBubble(candles, String(base + 1))
+  await page.mouse.click(bubble.x, bubble.y)
+  const tip = page.getByRole("tooltip", { name: "Sweep brokers" })
+  await expect(tip).toContainText("Brokers show once every trade")
+
+  // The recheck finds it whole: FZ's piece and XL's, newest first by first
+  // trade, each its own row and bubble, the pin and the selection on FZ's.
+  await storeCodes(page, [[base + 3, "YP D FZ D"]])
+  await expect(log).toContainText("2 sweeps · Buy 0 · Sell 2", {
+    timeout: 40_000,
+  })
+  await expect(tip).toContainText("Sell 16 lots @ 495 · 2 trades")
+  await expect(tip.getByRole("row")).toHaveText([
+    "Sellers · aggressor",
+    /^FZ \[D\]\s*16$/,
+    "Buyers",
+    /^CC \[D\]\s*10$/,
+    /^YP \[D\]\s*6$/,
+  ])
+  await expect(candles).toHaveAttribute("data-ringed-sweep", String(base + 2))
+  // The top 25% of the pieces is FZ's alone.
+  await expect(rows).toHaveCount(1)
+  await expect(rows.first()).toHaveAttribute("aria-current", "true")
+  await page
+    .getByRole("region", { name: "Chart" })
+    .getByRole("button", { name: "All" })
+    .click()
+  await expect(rows).toHaveCount(2)
+  await expect(candles).toHaveAttribute("data-bubbles", "2")
+  await expect(rows.first()).toHaveAttribute("data-sweep-id", String(base + 2))
+  await expect(rows.first()).toHaveAttribute("aria-current", "true")
+  await expect(rows.first()).toContainText("16 @ 495")
+  await expect(rows.first()).toContainText("FZ [D]")
+  await expect(rows.first()).toContainText("CC [D] +1")
+  await expect(rows.nth(1)).toContainText("4 @ 500")
+  await expect(rows.nth(1)).toContainText("XL [D]")
+  await expect(rows.nth(1)).toContainText("AK [F]")
 })
 
 test("a recorded day's Auction row shows its lead buyer and seller, and a broker that bought in it keeps it", async ({
