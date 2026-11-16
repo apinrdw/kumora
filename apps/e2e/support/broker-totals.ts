@@ -44,7 +44,7 @@ export function seedBrokerTotals(code: string, days: ReadonlyArray<SeededDay>) {
       "INSERT INTO totals VALUES (?, ?, ?, ?, ?, ?, ?, ?)"
     )
     const candle = db.prepare(
-      "INSERT INTO candles VALUES (?, ?, ?, ?, ?, ?, ?, ?)"
+      "INSERT INTO candles VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)"
     )
     const built = db.prepare(
       "INSERT INTO built_days VALUES (?, 1, '2026-11-14T10:00:00.000Z')"
@@ -66,7 +66,19 @@ export function seedBrokerTotals(code: string, days: ReadonlyArray<SeededDay>) {
         )
         volume += buyLots
       }
-      candle.run(code, day, price, price, price, price, volume, value(volume))
+      // One trade every 5 lots.
+      const trades = Math.ceil(volume / 5)
+      candle.run(
+        code,
+        day,
+        price,
+        price,
+        price,
+        price,
+        volume,
+        value(volume),
+        trades
+      )
       built.run(day)
     }
   })

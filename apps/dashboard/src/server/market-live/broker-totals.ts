@@ -2,7 +2,12 @@
 // TradingDay", The build): one ordered pass over the day's held trades, the
 // tape's and the walks' fields with their codes, into per-broker totals and
 // daily candles for the broker totals DB (src/server/broker-totals/db.ts).
-import type { BrokerCode, InvestorType, StockCode } from "@workspace/relay"
+import {
+  type BrokerCode,
+  type InvestorType,
+  SHARES_PER_LOT,
+  type StockCode,
+} from "@workspace/relay"
 import { Effect } from "effect"
 
 import type { BrokerTotal, DayBuild, DayCandle } from "../broker-totals/db.ts"
@@ -46,33 +51,13 @@ interface OpenCandle {
   close: number
   shares: number
   value: number
+  trades: number
 }
 
-// The side of `code`'s totals for one broker and investor type.
-const heldOf = (
-  totals: Map<string, Held>,
-  code: StockCode,
-  broker: BrokerCode,
-  investorType: InvestorType
-) => {
-  const key = `${code} ${broker} ${investorType}`
-  const held = totals.get(key)
-  if (held !== undefined) return held
-  const made: Held = {
-    code,
-    broker,
-    investorType,
-    buy: { shares: 0, value: 0 },
-    sell: { shares: 0, value: 0 },
-  }
-  totals.set(key, made)
-  return made
-}
-
-// Decision: lots are summed as whole shares (lots × 100) and value as
-// price × shares, so a day's sums are exact integers. See spec
+// Decision: lots are summed as whole shares (lots × SHARES_PER_LOT) and
+// value as price × shares, so a day's sums are exact integers. See spec
 // apinrdw/kumora#437, "The build".
-const lotsOf = (shares: number) => shares / 100
+const lotsOf = (shares: number) => Effect.succeed(shares / SHARES_PER_LOT)
 
 // The day's totals and candles, from the store's held trades a page at a
 // time, in trade number order.
@@ -81,6 +66,25 @@ export const buildBrokerTotals = Effect.fnUntraced(function* (
 ) {
   const totals = new Map<string, Held>()
   const candles = new Map<StockCode, OpenCandle>()
+  // The side of `code`'s totals for one broker and investor type.
+  const heldOf = (
+    code: StockCode,
+    broker: BrokerCode,
+    investorType: InvestorType
+  ) => {
+    const key = `${code} ${broker} ${investorType}`
+    const held = totals.get(key)
+    if (held !== undefined) return held
+    const made: Held = {
+      code,
+      broker,
+      investorType,
+      buy: { shares: 0, value: 0 },
+      sell: { shares: 0, value: 0 },
+    }
+    totals.set(key, made)
+    return made
+  }
   let after = -1
   for (;;) {
     const page = yield* brokerCodes.heldTradesPage(after)
@@ -88,18 +92,13 @@ export const buildBrokerTotals = Effect.fnUntraced(function* (
     after = page.last
     for (const trade of page.trades) {
       if (trade.board !== KEPT_BOARD) continue
-      const shares = Math.round(trade.lots * 100)
+      const shares = Math.round(trade.lots * SHARES_PER_LOT)
       const value = trade.price * shares
       const { codes } = trade
-      const buy = heldOf(totals, trade.code, codes.buyer, codes.buyerType).buy
+      const buy = heldOf(trade.code, codes.buyer, codes.buyerType).buy
       buy.shares += shares
       buy.value += value
-      const sell = heldOf(
-        totals,
-        trade.code,
-        codes.seller,
-        codes.sellerType
-      ).sell
+      const sell = heldOf(trade.code, codes.seller, codes.sellerType).sell
       sell.shares += shares
       sell.value += value
       const candle = candles.get(trade.code)
@@ -112,6 +111,7 @@ export const buildBrokerTotals = Effect.fnUntraced(function* (
           close: trade.price,
           shares,
           value,
+          trades: 1,
         })
       else {
         candle.high = Math.max(candle.high, trade.price)
@@ -119,27 +119,34 @@ export const buildBrokerTotals = Effect.fnUntraced(function* (
         candle.close = trade.price
         candle.shares += shares
         candle.value += value
+        candle.trades++
       }
     }
   }
-  return {
-    totals: [...totals.values()].map((held): BrokerTotal => ({
+  const built: {
+    totals: Array<BrokerTotal>
+    candles: Array<DayCandle>
+  } = { totals: [], candles: [] }
+  for (const held of totals.values())
+    built.totals.push({
       code: held.code,
       broker: held.broker,
       investorType: held.investorType,
-      buyLots: lotsOf(held.buy.shares),
+      buyLots: yield* lotsOf(held.buy.shares),
       buyValue: held.buy.value,
-      sellLots: lotsOf(held.sell.shares),
+      sellLots: yield* lotsOf(held.sell.shares),
       sellValue: held.sell.value,
-    })),
-    candles: [...candles.values()].map((candle): DayCandle => ({
+    })
+  for (const candle of candles.values())
+    built.candles.push({
       code: candle.code,
       open: candle.open,
       high: candle.high,
       low: candle.low,
       close: candle.close,
-      volume: lotsOf(candle.shares),
+      volume: yield* lotsOf(candle.shares),
       value: candle.value,
-    })),
-  } satisfies DayBuild
+      trades: candle.trades,
+    })
+  return built satisfies DayBuild
 })

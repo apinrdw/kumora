@@ -30,6 +30,8 @@ export interface CandleColumns {
   // Lots.
   readonly volume: ReadonlyArray<number>
   readonly value: ReadonlyArray<number>
+  // Regular-board trades counted.
+  readonly trades: ReadonlyArray<number>
 }
 
 // One row per (day, broker, investor type) the code traded through.
@@ -155,6 +157,7 @@ export const brokerInventory = Effect.fnUntraced(function* (
       close: candles.map(({ close }) => close),
       volume: candles.map(({ volume }) => volume),
       value: candles.map(({ value }) => value),
+      trades: candles.map(({ trades }) => trades),
     },
     brokers,
     totals: {

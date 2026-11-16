@@ -127,6 +127,7 @@ const UNTR_BUILT = {
       close: 23_100,
       volume: 19,
       value: 43_910_000,
+      trades: 4,
     },
   ],
   totals: [
@@ -186,6 +187,7 @@ describe("a complete sealed day's broker totals", () => {
               close: 8_000,
               volume: 7,
               value: 5_600_000,
+              trades: 1,
             },
           ],
           totals: [
@@ -261,6 +263,7 @@ describe("a complete sealed day's broker totals", () => {
             close: 23_100,
             volume: 8,
             value: 18_480_000,
+            trades: 2,
           },
         ],
         totals: [
@@ -299,6 +302,7 @@ describe("a complete sealed day's broker totals", () => {
               close: 23_100,
               volume: 4,
               value: 9_240_000,
+              trades: 1,
             },
           ],
           totals: [
@@ -461,6 +465,7 @@ describe("a built day's correction", () => {
             close: 23_000,
             volume: 20,
             value: 46_210_000,
+            trades: 5,
           },
         ])
         assert.deepStrictEqual(rebuilt.totals, [

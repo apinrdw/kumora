@@ -139,7 +139,7 @@ export {
   BrokerCode,
   BrokerCodesProtocolVersion,
   BrokerCodesVersionMismatch,
-  type InvestorType,
+  InvestorType,
   MISSING_RANGES,
   ajaibRowCodes,
   ajaibRowFields,

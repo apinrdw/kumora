@@ -37,6 +37,7 @@ const candle = (code: StockCode, close: number) => ({
   close,
   volume: 10,
   value: 8_000_000,
+  trades: 12,
 })
 
 const build = (close: number): DayBuild => ({
@@ -96,6 +97,7 @@ describe("the broker inventory read", () => {
             close: [8_050, 8_100],
             volume: [10, 10],
             value: [8_000_000, 8_000_000],
+            trades: [12, 12],
           },
           brokers: [BrokerCode.make("AK"), BrokerCode.make("YP")],
           totals: {

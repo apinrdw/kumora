@@ -7,8 +7,8 @@
 // in-memory SQLite one.
 import {
   BrokerCode,
+  InvestorType,
   WibDate,
-  type InvestorType,
   type StockCode,
 } from "@workspace/relay"
 import { WorkerEnv } from "@workspace/server"
@@ -64,6 +64,8 @@ export interface DayCandle {
   readonly close: number
   readonly volume: number
   readonly value: number
+  // The regular-board trades counted, walk-filled ones too.
+  readonly trades: number
 }
 
 // What a build makes of one day.
@@ -89,6 +91,7 @@ const CANDLES_COLUMNS = [
   "close",
   "volume",
   "value",
+  "trades",
 ]
 
 // Decision: a build's inserts go in batches of at most this many
@@ -155,6 +158,7 @@ export const writeBuiltDay = Effect.fnUntraced(function* (
         row.close,
         row.volume,
         row.value,
+        row.trades,
       ]
     )),
   ]
@@ -196,12 +200,13 @@ const CandleRow = Schema.Struct({
   close: Schema.Number,
   volume: Schema.Number,
   value: Schema.Number,
+  trades: Schema.Number,
 })
 
 const TotalRow = Schema.Struct({
   day: WibDate,
   broker: BrokerCode,
-  investorType: Schema.Literals(["D", "F"]),
+  investorType: InvestorType,
   buyLots: Schema.Number,
   buyValue: Schema.Number,
   sellLots: Schema.Number,
@@ -279,7 +284,7 @@ export const readBrokerTotals = Effect.fnUntraced(function* (
       params: [from, to],
     },
     {
-      sql: `SELECT day, open, high, low, close, volume, value FROM candles WHERE code = ? AND ${BUILT_IN_RANGE} ORDER BY day`,
+      sql: `SELECT day, open, high, low, close, volume, value, trades FROM candles WHERE code = ? AND ${BUILT_IN_RANGE} ORDER BY day`,
       params: [code, ...range],
     },
     {

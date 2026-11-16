@@ -18,6 +18,7 @@ const CANDLES: CandleColumns = {
   close: [9_100, 9_050, 9_350],
   volume: [1_000, 400, 2_500],
   value: [0, 0, 0],
+  trades: [0, 0, 0],
 }
 
 const render = (

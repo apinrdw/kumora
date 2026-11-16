@@ -43,6 +43,7 @@ const candle = (code: StockCode, close: number) => ({
   close,
   volume: 10,
   value: 8_000_000,
+  trades: 12,
 })
 
 const small = (close: number): DayBuild => ({
@@ -196,6 +197,7 @@ describe("the range read", () => {
               close: 8_100,
               volume: 10,
               value: 8_000_000,
+              trades: 12,
             },
           ],
           totals: [

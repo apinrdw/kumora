@@ -51,6 +51,7 @@ const read = (
       close: [],
       volume: [],
       value: [],
+      trades: [],
     },
     brokers: brokers.map((broker) => BrokerCode.make(broker)),
     totals: {
@@ -346,10 +347,10 @@ describe("the broker summary", () => {
   )
 
   it.effect(
-    "footers the broker count, the lots traded and the incomplete days skipped",
+    "footers the broker count, the lots traded, the trades counted and the incomplete days skipped",
     () =>
       Effect.gen(function* () {
-        const week = read(
+        const rows = read(
           WEEK,
           ["2026-11-03", "2026-11-05"],
           [
@@ -359,15 +360,30 @@ describe("the broker summary", () => {
             [2, "CC", "F", 0, 20],
           ]
         )
+        // Monday's 50 lots in 30 trades, Wednesday's 20 in 12.
+        const week = {
+          ...rows,
+          candles: {
+            day: [0, 2],
+            open: [1000, 1000],
+            high: [1000, 1000],
+            low: [1000, 1000],
+            close: [1000, 1000],
+            volume: [50, 20],
+            value: [5_000_000, 2_000_000],
+            trades: [30, 12],
+          },
+        }
         expect(
           yield* summaryFooter(week, yield* brokerSummary(week, LOTS))
-        ).toStrictEqual({ brokers: 3, lots: 70, incomplete: 2 })
+        ).toStrictEqual({ brokers: 3, lots: 70, trades: 42, incomplete: 2 })
         // Every lot has a buy side and a sell side; foreign sides here are
-        // half of each trade, so they traded half its lots.
+        // half of each trade, so they traded half its lots. The trades
+        // counted are the range's, whatever the filter.
         const foreign = { measure: "lots", investor: "foreign" } as const
         expect(
           yield* summaryFooter(week, yield* brokerSummary(week, foreign))
-        ).toStrictEqual({ brokers: 2, lots: 35, incomplete: 2 })
+        ).toStrictEqual({ brokers: 2, lots: 35, trades: 42, incomplete: 2 })
       })
   )
 
@@ -448,6 +464,7 @@ describe("the hover day and the selection", () => {
       close: [1000, 1100, 1150, 1200],
       volume: [100, 100, 0, 50],
       value: [0, 0, 0, 0],
+      trades: [0, 0, 0, 0],
     },
   } satisfies BrokerInventoryRead
 
