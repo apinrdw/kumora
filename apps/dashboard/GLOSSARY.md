@@ -55,7 +55,7 @@ The exchange market a running trade happens on: regular, cash, or negotiated. Ca
 _Avoid_: Market type
 
 **Settled trade**:
-A running trade whose merge window has closed: a later copy of it from another feed no longer changes its side, time or board, so the candle it falls in counts it as it stands. The day store keeps settled trades' candles, and Market Bubbles' backfill holds only settled trades.
+A running trade past the time in which a later copy of it from another feed may still change its side, time or board, so the candle it falls in counts it as it stands. The day store keeps settled trades' candles, and Market Bubbles' backfill holds only settled trades.
 _Avoid_: Final trade, confirmed trade
 
 **Indicative price**:
