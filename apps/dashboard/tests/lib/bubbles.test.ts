@@ -190,6 +190,38 @@ describe("the 30s window", () => {
     })
   )
 
+  it.effect(
+    "takes a repeated trade's corrected side and second in place of its first copy",
+    () =>
+      Effect.gen(function* () {
+        const flow = yield* makeMarketFlow()
+        // Ajaib's copy first, then Stockbit's: the other side, a moment later.
+        yield* applyTrades(flow, [
+          trade("BBCA", T0 + 999, { price: 100, lots: 1, number: 7 }),
+        ])
+        yield* applyTrades(flow, [
+          trade("BBCA", T0 + 1_000, {
+            price: 100,
+            lots: 1,
+            side: "sell",
+            number: 7,
+          }),
+        ])
+        // 10:00:01 to 10:00:30: the corrected second only.
+        const [bubble] = yield* bubblesOf(
+          flow,
+          { ...VIEW, window: "30s" },
+          T0 + 30_999
+        )
+        expect(bubble).toMatchObject({
+          value: 10_000,
+          frequency: 1,
+          buyValue: 0,
+          sellValue: 10_000,
+        })
+      })
+  )
+
   it.effect("changes against the price 30 s before", () =>
     Effect.gen(function* () {
       const flow = yield* makeMarketFlow()
