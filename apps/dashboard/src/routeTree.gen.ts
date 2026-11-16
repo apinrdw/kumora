@@ -22,6 +22,7 @@ import { Route as AppAccountRouteImport } from './routes/_app/account'
 import { Route as AppDeleteAccountRouteImport } from './routes/_app/delete-account'
 import { Route as AppMarketBubblesRouteImport } from './routes/_app/market-bubbles'
 import { Route as AppMarketLiveRouteImport } from './routes/_app/market-live'
+import { Route as LogosCodeRouteImport } from './routes/logos/$code'
 import { Route as AppAdminKseiRouteImport } from './routes/_app/admin/ksei'
 import { Route as AppAdminShareholdingRouteImport } from './routes/_app/admin/shareholding'
 import { Route as AppAdminUsersRouteImport } from './routes/_app/admin/users'
@@ -93,6 +94,11 @@ const AppMarketLiveRoute = AppMarketLiveRouteImport.update({
   path: '/market-live',
   getParentRoute: () => AppRoute,
 } as any)
+const LogosCodeRoute = LogosCodeRouteImport.update({
+  id: '/logos/$code',
+  path: '/logos/$code',
+  getParentRoute: () => rootRouteImport,
+} as any)
 const AppAdminKseiRoute = AppAdminKseiRouteImport.update({
   id: '/admin/ksei',
   path: '/admin/ksei',
@@ -137,6 +143,7 @@ export interface FileRoutesByFullPath {
   '/delete-account': typeof AppDeleteAccountRoute
   '/market-bubbles': typeof AppMarketBubblesRoute
   '/market-live': typeof AppMarketLiveRoute
+  '/logos/$code': typeof LogosCodeRoute
   '/admin/ksei': typeof AppAdminKseiRoute
   '/admin/shareholding': typeof AppAdminShareholdingRoute
   '/admin/users': typeof AppAdminUsersRoute
@@ -156,6 +163,7 @@ export interface FileRoutesByTo {
   '/delete-account': typeof AppDeleteAccountRoute
   '/market-bubbles': typeof AppMarketBubblesRoute
   '/market-live': typeof AppMarketLiveRoute
+  '/logos/$code': typeof LogosCodeRoute
   '/': typeof AppIndexRoute
   '/admin/ksei': typeof AppAdminKseiRoute
   '/admin/shareholding': typeof AppAdminShareholdingRoute
@@ -178,6 +186,7 @@ export interface FileRoutesById {
   '/_app/delete-account': typeof AppDeleteAccountRoute
   '/_app/market-bubbles': typeof AppMarketBubblesRoute
   '/_app/market-live': typeof AppMarketLiveRoute
+  '/logos/$code': typeof LogosCodeRoute
   '/_app/': typeof AppIndexRoute
   '/_app/admin/ksei': typeof AppAdminKseiRoute
   '/_app/admin/shareholding': typeof AppAdminShareholdingRoute
@@ -201,6 +210,7 @@ export interface FileRouteTypes {
     | '/delete-account'
     | '/market-bubbles'
     | '/market-live'
+    | '/logos/$code'
     | '/admin/ksei'
     | '/admin/shareholding'
     | '/admin/users'
@@ -220,6 +230,7 @@ export interface FileRouteTypes {
     | '/delete-account'
     | '/market-bubbles'
     | '/market-live'
+    | '/logos/$code'
     | '/'
     | '/admin/ksei'
     | '/admin/shareholding'
@@ -241,6 +252,7 @@ export interface FileRouteTypes {
     | '/_app/delete-account'
     | '/_app/market-bubbles'
     | '/_app/market-live'
+    | '/logos/$code'
     | '/_app/'
     | '/_app/admin/ksei'
     | '/_app/admin/shareholding'
@@ -258,6 +270,7 @@ export interface RootRouteChildren {
   SignInRoute: typeof SignInRoute
   SignUpRoute: typeof SignUpRoute
   VerifyRoute: typeof VerifyRoute
+  LogosCodeRoute: typeof LogosCodeRoute
   ApiAuthSplatRoute: typeof ApiAuthSplatRoute
 }
 
@@ -354,6 +367,13 @@ declare module '@tanstack/react-router' {
       preLoaderRoute: typeof AppMarketLiveRouteImport
       parentRoute: typeof AppRoute
     }
+    '/logos/$code': {
+      id: '/logos/$code'
+      path: '/logos/$code'
+      fullPath: '/logos/$code'
+      preLoaderRoute: typeof LogosCodeRouteImport
+      parentRoute: typeof rootRouteImport
+    }
     '/_app/admin/ksei': {
       id: '/_app/admin/ksei'
       path: '/admin/ksei'
@@ -437,18 +457,9 @@ const rootRouteChildren: RootRouteChildren = {
   SignInRoute: SignInRoute,
   SignUpRoute: SignUpRoute,
   VerifyRoute: VerifyRoute,
+  LogosCodeRoute: LogosCodeRoute,
   ApiAuthSplatRoute: ApiAuthSplatRoute,
 }
 export const routeTree = rootRouteImport
   ._addFileChildren(rootRouteChildren)
   ._addFileTypes<FileRouteTypes>()
-
-import type { getRouter } from './router.tsx'
-import type { startInstance } from './start.ts'
-declare module '@tanstack/react-start' {
-  interface Register {
-    ssr: true
-    router: Awaited<ReturnType<typeof getRouter>>
-    config: Awaited<ReturnType<typeof startInstance.getOptions>>
-  }
-}
