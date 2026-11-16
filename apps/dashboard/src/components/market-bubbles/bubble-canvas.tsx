@@ -142,6 +142,8 @@ const SHORT_SECTOR: Partial<Record<SectorName, string>> = {
   "Transportation & Logistic": "Transport",
 }
 
+const NO_SIZE = { width: 0, height: 0 }
+
 const NO_NAMES: ReadonlyMap<StockCode, string> = new Map()
 const NO_SECTORS: SectorLookup = new Map()
 
@@ -196,6 +198,8 @@ export function BubbleCanvas({
   // search, as a code would contain it.
   const latest = useRef({ onPick, onPickSector, query: "", ringed })
   const [pointerView, showPointer] = useState<PointerView>(NO_POINTER)
+  // The canvas's size in px, which the frame loop's resize sets.
+  const [canvasSize, setCanvasSize] = useState(NO_SIZE)
 
   useEffect(() => {
     latest.current = {
@@ -206,12 +210,11 @@ export function BubbleCanvas({
     }
   }, [onPick, onPickSector, search, ringed])
 
-  // Each recompute: new targets, joining bubbles in, leaving ones out.
+  // Each recompute, and each resize: new targets, joining bubbles in, leaving
+  // ones out. None while the canvas has no room, as behind a hidden tab.
   useEffect(() => {
-    const element = host.current
-    if (element === null) return
-    const width = element.clientWidth
-    const height = element.clientHeight
+    const { width, height } = canvasSize
+    if (width <= 0 || height <= LABEL_BAND) return
     const { k, minRadius } = Effect.runSync(
       bubbleScale(
         bubbles.map((bubble) => bubble.size),
@@ -247,7 +250,7 @@ export function BubbleCanvas({
         return last.tip === undefined ? last : NO_POINTER
       return { ...last, tip: { ...last.tip, figures: body.figures } }
     })
-  }, [bubbles, view, sectors])
+  }, [bubbles, view, sectors, canvasSize])
 
   // The frame loop: motion, then drawing.
   useEffect(() => {
@@ -283,6 +286,11 @@ export function BubbleCanvas({
       height = element.clientHeight
       surface.width = Math.round(width * ratio)
       surface.height = Math.round(height * ratio)
+      setCanvasSize((last) =>
+        last.width === width && last.height === height
+          ? last
+          : { width, height }
+      )
     }
     resize()
     const observer = new ResizeObserver(resize)
@@ -635,6 +643,10 @@ export function BubbleCanvas({
     let frame = 0
     let tick = 0
     const draw = () => {
+      frame = requestAnimationFrame(draw)
+      // With no room, the clamps would stack every bubble on one point that
+      // no collision can part: the bodies wait where they are.
+      if (width <= 0 || height <= LABEL_BAND) return
       const list = [...scene.current.bodies.values()]
       step(list)
       context.setTransform(ratio, 0, 0, ratio, 0, 0)
@@ -654,7 +666,6 @@ export function BubbleCanvas({
       scene.current.boxes = drawSectorLabels(list)
       if (top !== undefined) lifted(top)
       if (tick++ % 10 === 0) expose(list)
-      frame = requestAnimationFrame(draw)
     }
     frame = requestAnimationFrame(draw)
     const unfollow = followPointer({

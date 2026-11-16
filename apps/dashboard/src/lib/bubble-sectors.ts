@@ -165,7 +165,9 @@ const partAll = (circles: ReadonlyArray<SectorCircle>) => {
 // Decision: the pack relaxes from where the last one left each sector, so
 // a recompute moves the clusters only as far as their totals changed; the
 // canvas eases toward these targets. A first pack starts with the largest
-// at the centre and the rest round it.
+// at the centre and the rest round it. A canvas with no room, as a hidden
+// tab's, places none, and a point the last pack left that isn't finite is
+// started afresh: a pull past 1/PULL would overshoot further each pass.
 export const packSectors = (
   areas: ReadonlyArray<{ readonly sector: SectorName; readonly area: number }>,
   width: number,
@@ -176,15 +178,20 @@ export const packSectors = (
   > = new Map()
 ) =>
   Effect.sync((): Array<SectorCircle> => {
+    if (width <= 0 || height <= 0) return []
     const cx = width / 2
     const cy = height / 2
     const sorted = [...areas].sort((a, b) => b.area - a.area)
     const circles = sorted.map(({ sector, area }, index): SectorCircle => {
       const angle = (index / sorted.length) * Math.PI * 2
-      const from = previous.get(sector) ?? {
-        x: index === 0 ? cx : cx + Math.cos(angle) * width * 0.3,
-        y: index === 0 ? cy : cy + Math.sin(angle) * height * 0.3,
-      }
+      const held = previous.get(sector)
+      const from =
+        held !== undefined && Number.isFinite(held.x) && Number.isFinite(held.y)
+          ? held
+          : {
+              x: index === 0 ? cx : cx + Math.cos(angle) * width * 0.3,
+              y: index === 0 ? cy : cy + Math.sin(angle) * height * 0.3,
+            }
       return {
         sector,
         x: from.x,
@@ -193,7 +200,7 @@ export const packSectors = (
       }
     })
     // A wide canvas pulls less across, so the clusters spread to fill it.
-    const across = height / Math.max(width, 1)
+    const across = Math.min(height / width, 1 / PULL)
     for (let pull = 0; pull < PULLS; pull++) {
       for (const circle of circles) {
         circle.x += (cx - circle.x) * PULL * across

@@ -680,7 +680,8 @@ const FILL = 0.34
 // fill FILL of a `width` × `height` canvas (px), but no smaller than the
 // floor, which is smaller when more than 300 are shown. One code far larger
 // than the rest on a short canvas would outgrow it: the largest bubble's
-// diameter is at most the height.
+// diameter is at most the height. A canvas with no room, as a hidden tab's,
+// scales every bubble to nothing.
 export const bubbleScale = (
   sizes: ReadonlyArray<number>,
   width: number,
@@ -693,7 +694,8 @@ export const bubbleScale = (
       total += size
       largest = Math.max(largest, size)
     }
-    if (total <= 0) return { k: 0, minRadius: sizes.length > 300 ? 4 : 7 }
+    if (total <= 0 || width <= 0 || height <= 0)
+      return { k: 0, minRadius: sizes.length > 300 ? 4 : 7 }
     const filling = Math.sqrt((FILL * width * height) / (Math.PI * total))
     return {
       k: Math.min(filling, height / 2 / Math.sqrt(largest)),
