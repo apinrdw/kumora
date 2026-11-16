@@ -208,6 +208,7 @@ const FEEDS: ReadonlyArray<RunningTrade["feeds"][number]> = [
   "Stockbit",
   "Ajaib",
   "backfill",
+  "walk",
 ]
 
 // One trade as two feeds saw it (spec apinrdw/kumora#138, "Merge and
@@ -847,7 +848,7 @@ export const makeTradingDay = Effect.fnUntraced(function* (options: {
     )
   })
 
-  // A batch's rows with fields as tape trades, marked backfill and their
+  // A batch's rows with fields as tape trades, marked walk and their
   // sides settled as a merged trade's, on a day that takes the walks' tape.
   // A day sealed empty is unsealed first (day-store.ts, `unseal`). A day of
   // a year the schedule doesn't bake keeps the sides the walk sent: its
@@ -860,7 +861,7 @@ export const makeTradingDay = Effect.fnUntraced(function* (options: {
       const trade: RunningTrade = {
         tradeNumber,
         ...fields,
-        feeds: ["backfill"],
+        feeds: ["walk"],
       }
       trades.push(
         yield* settleSide(trade).pipe(

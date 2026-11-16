@@ -20,7 +20,8 @@ const acceptedIngestVersions: ReadonlyArray<unknown> = [
 // 2: market conditions carry delayed freshness and each delayed feed's lag.
 // 3: snapshots and deltas carry footprints, and deltas a selected code's
 // sweeps by minute (spec apinrdw/kumora#263).
-export const ViewerProtocolVersion = 3
+// 4: a trade's feeds may list `walk` (spec apinrdw/kumora#437).
+export const ViewerProtocolVersion = 4
 
 // Decision: an extension that hits either code stops retrying that target and
 // shows it; any other close, 1006 included, retries with backoff. The token
@@ -254,8 +255,9 @@ export const boardOf = (marketType: string | undefined) =>
 export const groupedNumber = (text: string) =>
   Effect.succeed(Number(text.replaceAll(",", "")))
 
-// Where a running trade was seen: a live feed, or a backfill request's answer.
-const TradeSource = Schema.Literals(["Stockbit", "Ajaib", "backfill"])
+// Where a running trade was seen: a live feed, a backfill request's answer,
+// or a walk after the close, on a day with no relay tape.
+const TradeSource = Schema.Literals(["Stockbit", "Ajaib", "backfill", "walk"])
 
 // The shares in one IDX lot.
 export const SHARES_PER_LOT = 100
