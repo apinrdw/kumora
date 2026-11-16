@@ -979,7 +979,7 @@ describe("a day with no tape", () => {
           WALKED.map(([number, , fields]) => ({
             tradeNumber: TradeNumber.make(String(number)),
             ...fields,
-            feeds: ["backfill" as const],
+            feeds: ["walk" as const],
           }))
         )
         const candles = yield* answerText(day, {
