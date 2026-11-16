@@ -69,28 +69,29 @@ interface Layout {
 
 // The type label row and the <5% / >=5% label row of `origins`' type
 // columns, from D.
-const typeColumns = (origins: ReadonlyArray<Origin>) => {
-  const labels = new Map<number, string>()
-  const sizeLabels = new Map<number, string>()
-  const types: Array<TypeColumns> = []
-  let column = FIRST_TYPE
-  for (const origin of origins)
-    for (const [type, label] of TYPE_LABELS) {
-      labels.set(column, label)
-      sizeLabels.set(column, "<5%")
-      sizeLabels.set(column + 1, ">=5%")
-      types.push({ type, origin, under5: column, atLeast5: column + 1 })
-      column += 2
-    }
-  return { labels, sizeLabels, types, total: column }
-}
+const typeColumns = (origins: ReadonlyArray<Origin>) =>
+  Effect.sync(() => {
+    const labels = new Map<number, string>()
+    const sizeLabels = new Map<number, string>()
+    const types: Array<TypeColumns> = []
+    let column = FIRST_TYPE
+    for (const origin of origins)
+      for (const [type, label] of TYPE_LABELS) {
+        labels.set(column, label)
+        sizeLabels.set(column, "<5%")
+        sizeLabels.set(column + 1, ">=5%")
+        types.push({ type, origin, under5: column, atLeast5: column + 1 })
+        column += 2
+      }
+    return { labels, sizeLabels, types, total: column }
+  })
 
-const layoutOf = (
+const layoutOf = Effect.fnUntraced(function* (
   sharesLabel: string,
   totalLabel: string,
   origins: ReadonlyArray<Origin>
-): Layout => {
-  const { labels, sizeLabels, types, total } = typeColumns(origins)
+) {
+  const { labels, sizeLabels, types, total } = yield* typeColumns(origins)
   const first = new Map<number, string>([
     [DATE, "DATE"],
     [CODE, "STOCK_CODE"],
@@ -112,8 +113,8 @@ const layoutOf = (
     total,
     totalLabel,
     types,
-  }
-}
+  } satisfies Layout
+})
 
 // The two layouts, by their shares outstanding column's label (C):
 // Nov–Dec 2025 have 2 header rows, `DATE`, `STOCK_CODE`,
@@ -127,11 +128,15 @@ const layoutOf = (
 const LAYOUTS: ReadonlyMap<string, Layout> = new Map([
   [
     "JUMLAH_SAHAM_BEREDAR",
-    layoutOf("JUMLAH_SAHAM_BEREDAR", "TOTAL_SAHAM_SCRIPLESS", ["combined"]),
+    Effect.runSync(
+      layoutOf("JUMLAH_SAHAM_BEREDAR", "TOTAL_SAHAM_SCRIPLESS", ["combined"])
+    ),
   ],
   [
     "NUMBER_OF_SHARES",
-    layoutOf("NUMBER_OF_SHARES", "TOTAL SCRIPLESS", ["local", "foreign"]),
+    Effect.runSync(
+      layoutOf("NUMBER_OF_SHARES", "TOTAL SCRIPLESS", ["local", "foreign"])
+    ),
   ],
 ])
 
@@ -145,7 +150,7 @@ const columnLetters = (column: number) =>
   })
 
 const labelOf = (cell: Cell | undefined) =>
-  typeof cell === "string" ? cell.trim() : cell
+  Effect.sync(() => (typeof cell === "string" ? cell.trim() : cell))
 
 // Checks one header row's cells up to the total column against the layout's
 // `expected` labels: cells past it, such as Apr 2026's empty styled ones,
@@ -159,7 +164,7 @@ const checkHeaderRow = Effect.fnUntraced(function* (
   const columns = new Set([...cells.keys(), ...expected.keys()])
   for (const column of [...columns].sort((a, b) => a - b)) {
     if (column > layout.total) continue
-    const label = labelOf(cells.get(column))
+    const label = yield* labelOf(cells.get(column))
     const want = expected.get(column)
     if (label === want) continue
     const where = `Header row ${rowNumber}'s ${yield* columnLetters(column)}`
@@ -177,8 +182,8 @@ const headerLayout = Effect.fnUntraced(function* (
   rowNumber: number,
   cells: Row
 ) {
-  if (labelOf(cells.get(CODE)) !== "STOCK_CODE") return undefined
-  const shares = labelOf(cells.get(SHARES))
+  if ((yield* labelOf(cells.get(CODE))) !== "STOCK_CODE") return undefined
+  const shares = yield* labelOf(cells.get(SHARES))
   const layout = typeof shares === "string" ? LAYOUTS.get(shares) : undefined
   if (layout === undefined)
     return yield* unreadable(
