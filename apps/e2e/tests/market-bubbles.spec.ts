@@ -160,6 +160,22 @@ test("the map draws the market's trades, keeps its view in the URL, and a click 
   await expect(page).toHaveURL(`${DASHBOARD}/market-live?code=${code}`)
 })
 
+test("a link's Top N leaves the URL when it is the device's default, and stays when not", async ({
+  page,
+}) => {
+  await page.setViewportSize({ width: 1600, height: 1000 })
+  const top = (n: string) =>
+    page.getByRole("group", { name: "Codes shown" }).getByRole("button", {
+      name: n,
+    })
+  await page.goto(`${DASHBOARD}${PAGE}?top=100&window=1m`)
+  await expect(page).toHaveURL(`${DASHBOARD}${PAGE}?window=1m`)
+  await expect(top("Top 100")).toHaveAttribute("aria-pressed", "true")
+  await page.goto(`${DASHBOARD}${PAGE}?top=50`)
+  await expect(top("Top 50")).toHaveAttribute("aria-pressed", "true")
+  await expect(page).toHaveURL(`${DASHBOARD}${PAGE}?top=50`)
+})
+
 test("a phone's nav leads to Market Bubbles", async ({ page }) => {
   await page.setViewportSize({ width: 390, height: 844 })
   await page.goto(`${DASHBOARD}/market-live`)
@@ -368,6 +384,31 @@ test("a sector label's click shows that sector alone, and the Sector filter brin
 
 test.describe("on a phone", () => {
   test.use({ viewport: { width: 390, height: 844 }, hasTouch: true })
+
+  test("a link's Top 50 leaves the URL, and its Top 100 stays", async ({
+    page,
+  }) => {
+    const pressed = async (n: string) => {
+      await page.getByRole("button", { name: "Filters" }).tap()
+      const sheet = page.getByRole("dialog", { name: "Filters" })
+      await expect(
+        sheet.getByRole("group", { name: "Codes shown" }).getByRole("button", {
+          name: n,
+        })
+      ).toHaveAttribute("aria-pressed", "true")
+      await sheet.getByRole("button", { name: "Close" }).tap()
+      await expect(sheet).toHaveCount(0)
+    }
+    const live = page.locator('[data-flow="live"]')
+    await page.goto(`${DASHBOARD}${PAGE}?top=50`)
+    await expect(live).toHaveCount(1)
+    await expect(page).toHaveURL(`${DASHBOARD}${PAGE}`)
+    await pressed("Top 50")
+    await page.goto(`${DASHBOARD}${PAGE}?top=100`)
+    await expect(live).toHaveCount(1)
+    await pressed("Top 100")
+    await expect(page).toHaveURL(`${DASHBOARD}${PAGE}?top=100`)
+  })
 
   test("the Filters sheet opens on Top 50, a tap shows a bubble's figures, a tap on another moves them, and a second tap opens Market Live", async ({
     page,

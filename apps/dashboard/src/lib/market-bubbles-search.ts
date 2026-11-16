@@ -64,9 +64,10 @@ export const parseMarketBubblesSearch = (raw: Record<string, unknown>) =>
       window: field(Window, raw.window),
       sector: field(SectorName, raw.sector),
     }),
-    // Decision: `top` is kept even at a default. Its default is the device's
-    // (Top 50 on a phone), which the route can't know, so a dropped `top=100`
-    // would open a phone on Top 50.
+    // Decision: `top` passes at any value. Its default is the device's (Top
+    // 50 below `lg`), which the route can't know; the page drops a `top` that
+    // is its device's default once it knows the device (useBubbleView), so
+    // an absent `top` means the device's default.
     (search): MarketBubblesSearch => ({ ...search, top: field(Top, raw.top) })
   )
 

@@ -186,7 +186,8 @@ function useSnapshot(view: BubbleView, clockOffset: number) {
 function useBubbleView() {
   const search = Route.useSearch()
   const navigate = Route.useNavigate()
-  const defaults = usePhone() ? PHONE_VIEW : DEFAULT_VIEW
+  const phone = usePhone()
+  const defaults = phone ? PHONE_VIEW : DEFAULT_VIEW
   const view = useMemo(
     () => Effect.runSync(viewOfSearch(search, defaults)),
     [search, defaults]
@@ -202,6 +203,12 @@ function useBubbleView() {
     },
     [navigate, defaults]
   )
+  // A `top` the URL names that is this device's default leaves the URL, once
+  // the device is known (parseMarketBubblesSearch's Decision).
+  const { top } = search
+  useEffect(() => {
+    if (phone !== undefined && top === defaults.top) change({ top })
+  }, [phone, top, defaults, change])
   return { view, change, navigate }
 }
 
