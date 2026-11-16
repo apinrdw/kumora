@@ -34,7 +34,7 @@ import {
   MINUTE_MS,
 } from "@workspace/relay"
 import type { WorkerEnv } from "@workspace/server"
-import type { Layer } from "effect"
+import type { Cause, Layer } from "effect"
 import {
   Clock,
   DateTime,
@@ -85,6 +85,7 @@ import { SNAPSHOT_TRADES, recordedAnswer } from "./recorded-answers.ts"
 import { type AccountId, type HeldSessions, type SessionId } from "./routes.ts"
 import { stockbitTrades } from "./stockbit.ts"
 import { makeSweepBrokers } from "./sweep-brokers.ts"
+import { WAKES, makeWakes, type Wake } from "./wakes.ts"
 import {
   mergedLivePrice,
   stockbitLivePrices,
@@ -295,7 +296,8 @@ const restoreLastFrames = Effect.fnUntraced(function* (day: {
 // Through `arm`, so it never displaces the seal's wake. See
 // apinrdw/kumora#342.
 //
-// When the index rebuild first needs the alarm: none once built.
+// When the index rebuild first needs the alarm, for a day with no deadline
+// stored: none once built.
 const indexWakeAtStart = (
   built: boolean,
   sealWake: DateTime.Utc | undefined
@@ -309,8 +311,9 @@ const indexWakeAtStart = (
 // rebuild. See spec apinrdw/kumora#437, "When it runs".
 const REBUILD_QUIET = Duration.minutes(5)
 
-// When the seal first needs the alarm: its instant, none once sealed, and
-// for a day that takes the walks' tape, none until it is complete.
+// When the seal first needs the alarm, for a day with no deadline stored:
+// its instant, none once sealed, and for a day that takes the walks' tape,
+// none until it is complete.
 const sealWakeAtStart = Effect.fnUntraced(function* (
   sealed: boolean,
   takesWalkTape: Effect.Effect<boolean>,
@@ -322,9 +325,9 @@ const sealWakeAtStart = Effect.fnUntraced(function* (
   return undefined
 })
 
-// When the broker totals build first needs the alarm: at once for a sealed
-// day that builds and is marked due, a quiet wait after the start for one
-// marked stale; a restart finds either again in its facts.
+// When the broker totals build first needs the alarm, for a day with no
+// deadline stored: at once for a sealed day that builds and is marked due, a
+// quiet wait after the start for one marked stale.
 const buildWakeAtStart = (
   builds: boolean,
   fact: string | undefined
@@ -836,7 +839,7 @@ export const makeTradingDay = Effect.fnUntraced(function* (options: {
       },
     })
     sealed = true
-    if (due) buildWake = now
+    if (due) yield* wakes.set("build", now)
     yield* Effect.logInfo("Order flow storage").pipe(
       Effect.annotateLogs({
         ...(yield* store.orderFlowStorage),
@@ -885,26 +888,9 @@ export const makeTradingDay = Effect.fnUntraced(function* (options: {
     })
   })
 
-  // When the seal next needs the alarm: 17:00 WIB, a minute after a seal
-  // that didn't land, none once sealed.
-  // Decision: a day that takes the walks' tape arms the seal only once
-  // complete, every trade 1..N held: until then it is never listed. The
-  // batch that completes it arms the seal at once (`walkSealDue`). See spec
-  // apinrdw/kumora#437, "A History walk day becomes a recorded day".
-  let sealWake = yield* sealWakeAtStart(
-    sealed,
-    takesWalkTape,
-    brokerCodes.complete,
-    sealAt
-  )
-  let indexWake = yield* indexWakeAtStart(brokerCodes.indexBuilt, sealWake)
-  let buildWake = yield* buildWakeAtStart(
-    sealed && options.brokerTotalsDb !== undefined,
-    yield* store.fact(Fact.brokerTotals)
-  )
   // What the alarm is armed for since it last fired, so a later wake never
   // displaces an earlier one. The Durable Object keeps the alarm itself
-  // across hibernation; the day's start arms it again from what it finds.
+  // across hibernation; the day's start arms it again from its deadlines.
   let armed: DateTime.Utc | undefined
   const arm = (at: DateTime.Utc) =>
     Effect.suspend(() => {
@@ -913,6 +899,27 @@ export const makeTradingDay = Effect.fnUntraced(function* (options: {
       armed = at
       return setAlarm(at)
     })
+  // The seal is due at 17:00 WIB, a minute after a seal that didn't land.
+  // Decision: a day that takes the walks' tape arms the seal only once
+  // complete, every trade 1..N held: until then it is never listed. The
+  // batch that completes it arms the seal at once (`walkSealDue`). See spec
+  // apinrdw/kumora#437, "A History walk day becomes a recorded day".
+  const wakes = yield* makeWakes(store, arm)
+  yield* wakes.restore(
+    "seal",
+    sealWakeAtStart(sealed, takesWalkTape, brokerCodes.complete, sealAt)
+  )
+  yield* wakes.restore(
+    "index",
+    indexWakeAtStart(brokerCodes.indexBuilt, wakes.deadline("seal"))
+  )
+  yield* wakes.restore(
+    "build",
+    buildWakeAtStart(
+      sealed && options.brokerTotalsDb !== undefined,
+      yield* store.fact(Fact.brokerTotals)
+    )
+  )
 
   // Decision: the alarm closes an ingest socket still without its token with
   // 4408 once INGEST_TOKEN_DEADLINE passed since its accept instant in its
@@ -944,9 +951,7 @@ export const makeTradingDay = Effect.fnUntraced(function* (options: {
   const sweepIngests = Effect.gen(function* () {
     const now = yield* DateTime.now
     const withTime = yield* closeOverdueIngests(DateTime.toEpochMillis(now))
-    if (indexWake !== undefined) yield* arm(indexWake)
-    if (sealWake !== undefined) yield* arm(sealWake)
-    if (buildWake !== undefined) yield* arm(buildWake)
+    yield* wakes.armEarliest
     // A deadline on, not at each socket's instant: a trickle of openings then
     // wakes the object once a deadline, and a silent socket lives two at most.
     if (withTime) yield* arm(DateTime.addDuration(now, INGEST_TOKEN_DEADLINE))
@@ -957,6 +962,53 @@ export const makeTradingDay = Effect.fnUntraced(function* (options: {
     yield* arm(DateTime.addDuration(yield* DateTime.now, INGEST_TOKEN_DEADLINE))
   })
 
+  // A duty that failed is due again a minute later.
+  const retried = (wake: Wake, message: string, now: DateTime.Utc) =>
+    Effect.catchCause((cause: Cause.Cause<unknown>) =>
+      Effect.logError(message, cause).pipe(
+        Effect.andThen(wakes.set(wake, DateTime.add(now, { minutes: 1 })))
+      )
+    )
+
+  // Each due wake's duty, its precondition checked first: one that no
+  // longer holds drops the wake, or moves it where it will.
+  const duties: Record<
+    Wake,
+    (now: DateTime.Utc) => Effect.Effect<void, never, WorkerEnv>
+  > = {
+    // A day taking the walks' tape seals only once complete; the batch that
+    // completes it sets the wake again (`walkSealDue`).
+    seal: Effect.fnUntraced(function* (now) {
+      if (DateTime.isLessThan(now, sealAt))
+        return yield* wakes.set("seal", sealAt)
+      const walked = (yield* store.fact(Fact.walkTape)) !== undefined
+      if (sealed || (walked && !(yield* brokerCodes.complete)))
+        return yield* wakes.set("seal", undefined)
+      yield* seal(now).pipe(
+        Effect.andThen(wakes.set("seal", undefined)),
+        retried("seal", "Day not sealed", now)
+      )
+    }),
+    // A page a wake, and none while the market streams.
+    index: Effect.fnUntraced(function* (now) {
+      if (!sealed && DateTime.isLessThan(now, sealAt))
+        return yield* wakes.set("index", sealAt)
+      yield* brokerCodes.indexPage.pipe(
+        Effect.flatMap((built) => wakes.set("index", built ? undefined : now)),
+        retried("index", "Broker trades not indexed", now)
+      )
+    }),
+    // A build that failed keeps the day's fact as it was.
+    build: Effect.fnUntraced(function* (now) {
+      if (!sealed || options.brokerTotalsDb === undefined)
+        return yield* wakes.set("build", undefined)
+      yield* buildTotals(options.brokerTotalsDb).pipe(
+        Effect.andThen(wakes.set("build", undefined)),
+        retried("build", "Broker totals not built", now)
+      )
+    }),
+  }
+
   // Decision: the alarm, set for the seal at 17:00 WIB, never fails: a seal
   // that didn't land sets the alarm a minute later, as the runner answers a
   // failure as handled, so Cloudflare would not retry it and nothing else
@@ -965,73 +1017,22 @@ export const makeTradingDay = Effect.fnUntraced(function* (options: {
   const alarm = Effect.gen(function* () {
     armed = undefined
     const now = yield* DateTime.now
-    // Only a day that armed the seal seals: a no-tape day's alarm runs for
-    // its index rebuild alone.
-    if (sealWake !== undefined && !sealed && !DateTime.isLessThan(now, sealAt))
-      yield* seal(now).pipe(
-        Effect.andThen(
-          Effect.sync(() => {
-            sealWake = undefined
-          })
-        ),
-        Effect.catchCause((cause) =>
-          Effect.logError("Day not sealed", cause).pipe(
-            Effect.andThen(
-              Effect.sync(() => {
-                sealWake = DateTime.add(now, { minutes: 1 })
-              })
-            )
-          )
-        )
-      )
-    // A page that failed is tried again a minute later, as a seal is.
-    if (indexWake !== undefined && !DateTime.isLessThan(now, indexWake))
-      yield* brokerCodes.indexPage.pipe(
-        Effect.map((built) => {
-          indexWake = built ? undefined : now
-        }),
-        Effect.catchCause((cause) =>
-          Effect.logError("Broker trades not indexed", cause).pipe(
-            Effect.andThen(
-              Effect.sync(() => {
-                indexWake = DateTime.add(now, { minutes: 1 })
-              })
-            )
-          )
-        )
-      )
-    if (
-      buildWake !== undefined &&
-      options.brokerTotalsDb !== undefined &&
-      !DateTime.isLessThan(now, buildWake)
-    ) {
-      buildWake = undefined
-      // A build that failed is tried again a minute later, as a seal is; the
-      // fact stays as it was, so a restart tries it too.
-      yield* buildTotals(options.brokerTotalsDb).pipe(
-        Effect.catchCause((cause) =>
-          Effect.logError("Broker totals not built", cause).pipe(
-            Effect.andThen(
-              Effect.sync(() => {
-                buildWake = DateTime.add(now, { minutes: 1 })
-              })
-            )
-          )
-        )
-      )
-    }
+    for (const wake of WAKES) if (wakes.due(wake, now)) yield* duties[wake](now)
     yield* sweepIngests
   })
 
-  // The batch that completes a day taking the walks' tape arms its seal at
-  // once. Without N the day can't be complete, so it isn't scanned.
+  // The batch that completes a day taking the walks' tape sets its seal
+  // for now, unless one is due already. Without N the day can't be
+  // complete, so it isn't scanned.
   const walkSealDue = Effect.gen(function* () {
-    if (sealed || sealWake !== undefined) return
+    if (sealed) return
     if ((yield* store.fact(Fact.walkTape)) === undefined) return
     if ((yield* store.fact(Fact.brokerCodesN)) === undefined) return
     if (!(yield* brokerCodes.complete)) return
-    sealWake = yield* DateTime.now
-    yield* arm(sealWake)
+    const now = yield* DateTime.now
+    const set = wakes.deadline("seal")
+    if (set !== undefined && !DateTime.isLessThan(now, set)) return
+    yield* wakes.set("seal", now)
   })
 
   // The day's broker totals and candles, built and written to the broker
@@ -1074,13 +1075,15 @@ export const makeTradingDay = Effect.fnUntraced(function* (options: {
     if (fact === undefined) {
       if (!(yield* brokerCodes.complete)) return
       yield* store.markBrokerTotals(BROKER_TOTALS_DUE)
-      buildWake = yield* DateTime.now
+      yield* wakes.set("build", yield* DateTime.now)
     } else if (corrected && fact !== BROKER_TOTALS_DUE) {
       if (fact !== BROKER_TOTALS_STALE)
         yield* store.markBrokerTotals(BROKER_TOTALS_STALE)
-      buildWake = DateTime.addDuration(yield* DateTime.now, REBUILD_QUIET)
-    } else return
-    yield* arm(buildWake)
+      yield* wakes.set(
+        "build",
+        DateTime.addDuration(yield* DateTime.now, REBUILD_QUIET)
+      )
+    }
   })
 
   // Decision: the reconcile cron's poke builds a sealed, complete day on the
@@ -1096,8 +1099,7 @@ export const makeTradingDay = Effect.fnUntraced(function* (options: {
     const fact = yield* store.fact(Fact.brokerTotals)
     if (fact !== BROKER_TOTALS_DUE && fact !== BROKER_TOTALS_STALE)
       yield* store.markBrokerTotals(BROKER_TOTALS_DUE)
-    buildWake = yield* DateTime.now
-    yield* arm(buildWake)
+    yield* wakes.set("build", yield* DateTime.now)
     return true
   })
 

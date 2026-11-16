@@ -214,6 +214,11 @@ export const Fact = {
   // The day's broker totals build (broker-totals.ts): BROKER_TOTALS_DUE once
   // the sealed day is complete, then the build version that wrote them.
   brokerTotals: "broker-totals",
+  // When each alarm duty is next due (wakes.ts): epoch millis, none once
+  // done.
+  sealWake: "seal-wake",
+  indexWake: "index-wake",
+  buildWake: "build-wake",
 } as const
 
 export const BROKER_TRADES_BUILT = "built"
@@ -493,6 +498,13 @@ export const makeDayStore = (sql: Sql) =>
     )
     const markBrokerTotals = (value: string) =>
       Effect.sync(() => insertFact(Fact.brokerTotals, value))
+    // A fact written or dropped on its own, outside any flush's transaction.
+    const setFact = (key: string, value: string | undefined) =>
+      Effect.sync(() => {
+        if (value === undefined)
+          sql.exec("DELETE FROM facts WHERE key = ?", key)
+        else insertFact(key, value)
+      })
 
     // One minute of a sweep brokers recompute (sweep-brokers.ts), metering
     // the rows it read.
@@ -969,6 +981,7 @@ export const makeDayStore = (sql: Sql) =>
       writeSweepBrokers,
       markSweepBrokersBuilt,
       markBrokerTotals,
+      setFact,
       orderFlowMinutes,
       minuteTrades,
       minutesOfTrades,
