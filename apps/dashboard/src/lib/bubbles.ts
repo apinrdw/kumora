@@ -113,8 +113,9 @@ export interface MarketFlow {
   readonly seen: Map<number, Counted>
 }
 
-// Minutes a code keeps: one before the longest window, for its change.
-const MINUTES_KEPT = BUBBLE_MINUTES + 1
+// Minutes a code keeps: the backfill's, the longest window and one before
+// it, for its change.
+const MINUTES_KEPT = BUBBLE_MINUTES
 const SECOND_MS = 1000
 // Seconds a code keeps: 30s and the seconds before it, for its change.
 const SECONDS_KEPT_MS = 90_000

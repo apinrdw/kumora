@@ -3,7 +3,11 @@
 // moves only by TestClock, and the test reads the GET the page backfills
 // Market Bubbles from.
 import { assert, describe, it } from "@effect/vitest"
-import { StockCode, decodeRecordedBubbles } from "@workspace/relay"
+import {
+  BUBBLE_MINUTES,
+  StockCode,
+  decodeRecordedBubbles,
+} from "@workspace/relay"
 import { DateTime, Effect } from "effect"
 import { TestClock } from "effect/testing"
 
@@ -233,7 +237,7 @@ describe("bubbles", () => {
   )
 
   it.effect(
-    "carry a code's newest 60 minutes; after a restart the day totals and minutes come back from the stored candles and keep adding",
+    "carry a code's newest 61 minutes; after a restart the day totals and minutes come back from the stored candles and keep adding",
     () =>
       Effect.gen(function* () {
         yield* at("10:02:10")
@@ -259,9 +263,9 @@ describe("bubbles", () => {
         yield* TestClock.adjust("1 minute")
         const before = (yield* bubbles(day)).answer
         const untr = codeOf(before, "UNTR")!
-        assert.strictEqual(untr.minutes.length, 60)
-        assert.strictEqual(untr.minutes[0]![0], minute("09:02"))
-        assert.strictEqual(untr.minutes[59]![0], minute("10:01"))
+        assert.strictEqual(untr.minutes.length, 61)
+        assert.strictEqual(untr.minutes[0]![0], minute("09:01"))
+        assert.strictEqual(untr.minutes[60]![0], minute("10:01"))
         assert.deepStrictEqual(untr.day.slice(1), [
           62,
           62,
@@ -303,8 +307,8 @@ describe("bubbles", () => {
           4_920_000,
           24600,
         ])
-        assert.strictEqual(added.minutes.length, 60)
-        assert.strictEqual(added.minutes[0]![0], minute("09:03"))
+        assert.strictEqual(added.minutes.length, 61)
+        assert.strictEqual(added.minutes[0]![0], minute("09:02"))
       })
   )
 
@@ -323,10 +327,10 @@ describe("bubbles", () => {
   // Decision: the cost check reads the answer's size and build time at a full
   // day, every code trading every minute, off this test's "Full day bubbles"
   // line (run it with `--silent=false`): a Worker's clock stands still while
-  // it computes. Measured 2026-11-16 on the dev machine: 3.45 MB, about
+  // it computes. Measured 2026-11-16 on the dev machine: 3.51 MB, about
   // 40 ms.
   it.live(
-    "hold a code's newest 60 minutes at a full day, and build its answer",
+    "hold a code's newest BUBBLE_MINUTES at a full day, and build its answer",
     () =>
       Effect.gen(function* () {
         const book = makeBubbleBook({ days: [], minutes: [] })
@@ -365,10 +369,10 @@ describe("bubbles", () => {
         const answer = yield* decodeRecordedBubbles(built.text)
         assert.lengthOf(answer.codes, FULL_DAY_CODES)
         for (const entry of answer.codes) {
-          assert.lengthOf(entry.minutes, 60)
+          assert.lengthOf(entry.minutes, BUBBLE_MINUTES)
           assert.strictEqual(
             entry.minutes[0]![0],
-            first + (FULL_DAY_MINUTES - 60) * 60_000
+            first + (FULL_DAY_MINUTES - BUBBLE_MINUTES) * 60_000
           )
           assert.strictEqual(entry.day[2], 123 * FULL_DAY_MINUTES)
         }

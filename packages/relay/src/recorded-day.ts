@@ -397,8 +397,9 @@ const RecordedBubbles = Schema.Struct({
 export type RecordedBubbles = typeof RecordedBubbles.Type
 
 // How many of a code's newest minutes the bubbles answer carries: the
-// longest minute window, 1h.
-export const BUBBLE_MINUTES = 60
+// longest minute window, 1h, and the minute before it, whose close a code
+// that traded every minute of the hour changes against.
+export const BUBBLE_MINUTES = 61
 
 // The Worker's flush, which also builds the bubbles answer (trading-day.ts
 // `armFlush`).
