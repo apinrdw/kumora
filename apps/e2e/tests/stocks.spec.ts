@@ -200,6 +200,8 @@ const INVESTOR_TYPE_MONTHS = {
       local: { ID: [1.4e9, 0.45e9], CP: [0.7e9, 4.4e9] },
       foreign: { MF: [0.3e9, 0] },
     },
+    // No ≥5% holders.
+    HOBI: { sharesOutstanding: 1e9, local: { ID: [5e8, 0] }, foreign: {} },
   },
 } as const
 
@@ -255,6 +257,23 @@ const sizeBar = (page: Page) =>
 const sizeType = (page: Page, label: string) =>
   holderSize(page)
     .getByRole("table", { name: "Holder size by investor type" })
+    .getByRole("row", { name: new RegExp(`^${label}`) })
+
+const sizeColumns = (page: Page) =>
+  holderSize(page)
+    .getByRole("list", { name: "Holder size by month" })
+    .getByRole("button")
+
+// Each Table view column, oldest first, by what it says.
+const expectColumns = async (page: Page, names: ReadonlyArray<string>) => {
+  await expect(sizeColumns(page)).toHaveCount(names.length)
+  for (const [index, name] of names.entries())
+    await expect(sizeColumns(page).nth(index)).toHaveAccessibleName(name)
+}
+
+const atLeast5Row = (page: Page, label: string) =>
+  holderSize(page)
+    .getByRole("table", { name: "≥5% holders by month" })
     .getByRole("row", { name: new RegExp(`^${label}`) })
 
 const stockSearch = (page: Page) =>
@@ -568,6 +587,76 @@ test.describe.serial("the stock page", () => {
         "aria-pressed",
         "true"
       )
+    })
+
+    test("switches to a Table of every month, kept in the URL on reload", async ({
+      page,
+    }) => {
+      await page.goto(`${DASHBOARD}/stocks/BBCA`)
+      await expect(async () => {
+        await sizeChoice(page, "View", "Table").click()
+        await expect(page).toHaveURL(/\/stocks\/BBCA\?sizeView=table$/, {
+          timeout: 1000,
+        })
+      }).toPass()
+      await page.reload()
+      await expect(sizeChoice(page, "View", "Table")).toHaveAttribute(
+        "aria-pressed",
+        "true"
+      )
+      // ≥5% at the bottom, then <5%, then scrip.
+      await expectColumns(page, [
+        "Nov 2025: No data",
+        "Apr 2026: ≥5% holders 17.00%, <5% holders 33.00%, Scrip 50.00%",
+        "Oct 2026: ≥5% holders 16.00%, <5% holders 34.00%, Scrip 50.00%",
+      ])
+      await expect(atLeast5Row(page, "Corporate")).toHaveText(
+        /Corporate\s*–\s*17\.00%\s*16\.00%/
+      )
+      await expect(
+        holderSize(page)
+          .getByRole("table", { name: "≥5% holders by month" })
+          .getByRole("row")
+      ).toHaveCount(2)
+    })
+
+    test("marks months without a local/foreign split n/a under Local", async ({
+      page,
+    }) => {
+      await page.goto(
+        `${DASHBOARD}/stocks/AADI?sizeView=table&sizeOrigin=local`
+      )
+      await expectColumns(page, [
+        "Nov 2025: n/a, not split by origin",
+        "Apr 2026: No data",
+        "Oct 2026: ≥5% holders 69.78%, <5% holders 30.22%",
+      ])
+      await expect(atLeast5Row(page, "Individual")).toHaveText(
+        /Individual\s*n\/a\s*–\s*6\.47%/
+      )
+      await expect(atLeast5Row(page, "Corporate")).toHaveText(
+        /Corporate\s*n\/a\s*–\s*63\.31%/
+      )
+
+      await expect(async () => {
+        await sizeChoice(page, "Origin", "All").click()
+        await expect(page).toHaveURL(/\/stocks\/AADI\?sizeView=table$/, {
+          timeout: 1000,
+        })
+      }).toPass()
+      await expect(sizeColumns(page).first()).toHaveAccessibleName(
+        /^Nov 2025: ≥5% holders 62\.30%/
+      )
+    })
+
+    test("says a stock with no ≥5% holders has none", async ({ page }) => {
+      await page.goto(`${DASHBOARD}/stocks/HOBI?sizeView=table`)
+      await expect(holderSize(page)).toContainText(
+        "HOBI has no ≥5% holders in any month."
+      )
+      await expect(
+        holderSize(page).getByRole("table", { name: "≥5% holders by month" })
+      ).toHaveCount(0)
     })
   })
 
