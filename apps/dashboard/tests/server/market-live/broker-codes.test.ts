@@ -1242,10 +1242,9 @@ describe("a day with no tape", () => {
             at: wib("17:00:00"),
           })
           const text = yield* Effect.promise(() => response.text())
-          return (yield* decodeRecordedTape(text)).trades.map((trade) => [
-            Number(trade.tradeNumber),
-            trade.feeds,
-          ])
+          return (yield* decodeRecordedTape(text)).trades.map(
+            (trade) => `${trade.tradeNumber} ${trade.feeds.join()}`
+          )
         })
         yield* TestClock.setTime(wib("16:40:00").epochMilliseconds)
         const day = yield* tradingDay({ sql })
@@ -1256,10 +1255,7 @@ describe("a day with no tape", () => {
         const socket = yield* day.relay
         yield* day.ajaibTrades(socket, [3], "16:41:00")
         yield* TestClock.adjust("70 seconds")
-        const walked = [
-          [1, ["walk"]],
-          [2, ["walk"]],
-        ]
+        const walked = ["1 walk", "2 walk"]
         assert.deepStrictEqual(yield* tapeNumbers(day), walked)
 
         const restarted = yield* tradingDay({ sql })
@@ -1308,6 +1304,64 @@ describe("a day with no tape", () => {
           yield* tapeCache(restarted),
           "private, max-age=31536000, immutable"
         )
+      })
+  )
+
+  it.effect(
+    "a day whose relay trade came first keeps the relay's tape, its walk rows held, restarted or not",
+    () =>
+      Effect.gen(function* () {
+        const sql = memorySql()
+        yield* TestClock.setTime(wib("10:00:00").epochMilliseconds)
+        const recording = yield* tradingDay({ sql })
+        const socket = yield* recording.relay
+        yield* recording.ajaibTrades(socket, [1], "10:00:00")
+        yield* TestClock.adjust("70 seconds")
+
+        const restarted = yield* tradingDay({ sql })
+        yield* restarted.post(
+          "Stockbit",
+          [
+            [1, YP_CC],
+            [2, PD_KZ],
+          ],
+          2
+        )
+        assert.isTrue((yield* restarted.status).complete)
+        const again = yield* tradingDay({ sql })
+        assert.isTrue((yield* again.status).complete)
+        yield* TestClock.setTime(wib("17:00:00").epochMilliseconds)
+        yield* again.alarm
+        assert.deepStrictEqual(
+          again.indexed.map((row) => row.trades),
+          [1]
+        )
+      })
+  )
+
+  it.effect(
+    "a day the relay missed takes no relay trade from 17:00, restarted or not, and a walk still takes it",
+    () =>
+      Effect.gen(function* () {
+        const sql = memorySql()
+        yield* TestClock.setTime(wib("17:00:00").epochMilliseconds)
+        const day = yield* tradingDay({ sql })
+        const socket = yield* day.relay
+        yield* day.ajaibTrades(socket, [1], "15:00:00")
+        yield* TestClock.adjust("70 seconds")
+        const restarted = yield* tradingDay({ sql })
+        const again = yield* restarted.relay
+        yield* restarted.ajaibTrades(again, [1], "15:00:00")
+        yield* TestClock.adjust("70 seconds")
+        yield* restarted.alarm
+        assert.deepStrictEqual(restarted.indexed, [])
+        assert.deepStrictEqual(yield* restarted.missing, [])
+
+        yield* restarted.post("Stockbit", [[1, YP_CC]], 1)
+        yield* restarted.alarm
+        assert.deepStrictEqual(restarted.indexed, [
+          { day: DAY, trades: 1, gap: false },
+        ])
       })
   )
 

@@ -311,17 +311,32 @@ const indexWakeAtStart = (
 // rebuild. See spec apinrdw/kumora#437, "When it runs".
 const REBUILD_QUIET = Duration.minutes(5)
 
+// Where a day's tape comes from: see `source` in makeTradingDay.
+type TapeSource = "unknown" | "relay" | "walk"
+
+// A day's tape source as its store holds it. A day stored before the fact
+// was is relay once it holds a trade.
+const storedTapeSource = Effect.fnUntraced(function* (
+  store: Effect.Success<ReturnType<typeof makeDayStore>>
+) {
+  const fact = yield* store.fact(Fact.tapeSource)
+  if (fact === "relay" || fact === "walk") return fact
+  return (yield* store.highestTrade) === undefined ? "unknown" : "relay"
+})
+
 // When the seal first needs the alarm, for a day with no deadline stored:
-// its instant, none once sealed, and for a day that takes the walks' tape,
-// none until it is complete.
+// its instant for a relay day, a walk day once complete, and an unknown day
+// the relay can still make relay; none once sealed.
 const sealWakeAtStart = Effect.fnUntraced(function* (
   sealed: boolean,
-  takesWalkTape: Effect.Effect<boolean>,
+  source: TapeSource,
   complete: Effect.Effect<boolean>,
   sealAt: DateTime.Utc
 ) {
   if (sealed) return undefined
-  if (!(yield* takesWalkTape) || (yield* complete)) return sealAt
+  if (source === "unknown")
+    return DateTime.isLessThan(yield* DateTime.now, sealAt) ? sealAt : undefined
+  if (source === "relay" || (yield* complete)) return sealAt
   return undefined
 })
 
@@ -377,21 +392,27 @@ export const makeTradingDay = Effect.fnUntraced(function* (options: {
   const store = yield* makeDayStore(options.sql)
   let sealed = (yield* store.fact(Fact.sealed)) !== undefined
   const sealAt = yield* sealInstant(options.date)
-  // Decision: a day the relay stored no trade of by its seal (a History
-  // day, or one the relay missed) takes each walk batch's fields as its
-  // tape; the walk-tape fact keeps it such a day until its seal. It holds a
-  // trade only once its tape does, so a History day walked before #437,
-  // walk_trades rows alone, is fetched again. See spec apinrdw/kumora#437.
-  const takesWalkTape = Effect.gen(function* () {
-    if ((yield* store.fact(Fact.walkTape)) !== undefined) return !sealed
-    if ((yield* store.highestTrade) !== undefined) return false
-    return !DateTime.isLessThan(yield* DateTime.now, sealAt)
-  })
+  // Decision: a day's tape source is unknown until its first relay trade
+  // before 17:00 makes it relay or a walk's first fields make it walk, kept
+  // as a fact for good. Walk rows hold only on a relay day, which seals at
+  // 17:00; a walk day seals once complete, from 17:00, taking no relay trade;
+  // an unknown day never seals and takes no ingest from 17:00.
+  //
+  // So a sealed day never changes, and its answers are immutable. A day an
+  // older revision sealed holding no trade, as it sealed a History day, is
+  // unsealed here: it wrote no index row. A History day walked before #437,
+  // walk_trades rows alone, holds nothing until a walk sends its tape again.
+  // See spec apinrdw/kumora#437, "A History walk day becomes a recorded day".
+  let source: TapeSource = yield* storedTapeSource(store)
+  if (source === "unknown" && sealed) {
+    yield* store.setFact(Fact.sealed, undefined)
+    sealed = false
+  }
   const brokerCodes = yield* makeBrokerCodes({
     date: options.date,
     sql: options.sql,
     fact: store.fact,
-    walkRowsHold: Effect.map(takesWalkTape, (takes) => !takes),
+    walkRowsHold: Effect.sync(() => source === "relay"),
   })
   const sweepBrokers = yield* makeSweepBrokers({
     sql: options.sql,
@@ -543,6 +564,7 @@ export const makeTradingDay = Effect.fnUntraced(function* (options: {
   // undefined for one held only outside the tape and merge windows, whose
   // feeds aren't read back from the store.
   const insertOne = Effect.fnUntraced(function* (arriving: RunningTrade) {
+    yield* relayTaken
     yield* gaps.seen(arriving)
     const at = yield* tradePosition(tape, arriving.tradeNumber)
     // The tape row of this number, if it holds one.
@@ -804,7 +826,7 @@ export const makeTradingDay = Effect.fnUntraced(function* (options: {
   // A walked day's candles and order flow rows are built from its tape
   // first, and it records no relay gap: its tape is every trade 1..N.
   const seal = Effect.fnUntraced(function* (now: DateTime.Utc) {
-    const walked = (yield* store.fact(Fact.walkTape)) !== undefined
+    const walked = source === "walk"
     if (walked) {
       yield* buildWalkedDay(store)
       orderFlowBuilt = true
@@ -849,12 +871,12 @@ export const makeTradingDay = Effect.fnUntraced(function* (options: {
   })
 
   // A batch's rows with fields as tape trades, marked walk and their
-  // sides settled as a merged trade's, on a day that takes the walks' tape.
-  // A day sealed empty is unsealed first (day-store.ts, `unseal`). A day of
-  // a year the schedule doesn't bake keeps the sides the walk sent: its
+  // sides settled as a merged trade's, on a day neither relay nor sealed;
+  // the first makes an unknown day walk, in the same transaction. A day of a
+  // year the schedule doesn't bake keeps the sides the walk sent: its
   // auction phases aren't known.
   const walkTapeOf = Effect.fnUntraced(function* (batch: BrokerCodesBatch) {
-    if (!(yield* takesWalkTape)) return
+    if (source === "relay" || sealed) return
     const trades: Array<RunningTrade> = []
     for (const [tradeNumber, , fields] of batch.rows) {
       if (fields === undefined) continue
@@ -870,10 +892,6 @@ export const makeTradingDay = Effect.fnUntraced(function* (options: {
       )
     }
     if (trades.length === 0) return
-    if (sealed) {
-      yield* store.unseal
-      sealed = false
-    }
     yield* store.write({
       trades,
       candles: [],
@@ -882,10 +900,28 @@ export const makeTradingDay = Effect.fnUntraced(function* (options: {
       chunks: [],
       ajaibBooks: [],
       facts: {
-        [Fact.walkTape]: "walks",
+        [Fact.tapeSource]: "walk",
         ...(yield* sweepBrokers.persisting(trades)),
       },
     })
+    source = "walk"
+  })
+
+  // The relay's first trade on an unknown day makes it relay, stored at
+  // once: its 17:00 seal wake is armed from its start.
+  const relayTaken = Effect.gen(function* () {
+    if (source !== "unknown") return
+    yield* store.setFact(Fact.tapeSource, "relay")
+    source = "relay"
+  })
+
+  // Whether the day takes the relay's messages: a relay day until sealed,
+  // an unknown one until 17:00.
+  const takesIngest = Effect.gen(function* () {
+    if (source === "relay") return !sealed
+    return (
+      source === "unknown" && DateTime.isLessThan(yield* DateTime.now, sealAt)
+    )
   })
 
   // What the alarm is armed for since it last fired, so a later wake never
@@ -900,14 +936,14 @@ export const makeTradingDay = Effect.fnUntraced(function* (options: {
       return setAlarm(at)
     })
   // The seal is due at 17:00 WIB, a minute after a seal that didn't land.
-  // Decision: a day that takes the walks' tape arms the seal only once
-  // complete, every trade 1..N held: until then it is never listed. The
-  // batch that completes it arms the seal at once (`walkSealDue`). See spec
-  // apinrdw/kumora#437, "A History walk day becomes a recorded day".
+  // Decision: a walk day arms the seal only once complete, every trade 1..N
+  // held: until then it is never listed. The batch that completes it arms
+  // the seal at once (`walkSealDue`). See spec apinrdw/kumora#437, "A
+  // History walk day becomes a recorded day".
   const wakes = yield* makeWakes(store, arm)
   yield* wakes.restore(
     "seal",
-    sealWakeAtStart(sealed, takesWalkTape, brokerCodes.complete, sealAt)
+    sealWakeAtStart(sealed, source, brokerCodes.complete, sealAt)
   )
   yield* wakes.restore(
     "index",
@@ -976,13 +1012,16 @@ export const makeTradingDay = Effect.fnUntraced(function* (options: {
     Wake,
     (now: DateTime.Utc) => Effect.Effect<void, never, WorkerEnv>
   > = {
-    // A day taking the walks' tape seals only once complete; the batch that
-    // completes it sets the wake again (`walkSealDue`).
+    // A walk day seals only once complete; the batch that completes it sets
+    // the wake again (`walkSealDue`). An unknown day never seals.
     seal: Effect.fnUntraced(function* (now) {
       if (DateTime.isLessThan(now, sealAt))
         return yield* wakes.set("seal", sealAt)
-      const walked = (yield* store.fact(Fact.walkTape)) !== undefined
-      if (sealed || (walked && !(yield* brokerCodes.complete)))
+      if (
+        sealed ||
+        source === "unknown" ||
+        (source === "walk" && !(yield* brokerCodes.complete))
+      )
         return yield* wakes.set("seal", undefined)
       yield* seal(now).pipe(
         Effect.andThen(wakes.set("seal", undefined)),
@@ -1022,12 +1061,11 @@ export const makeTradingDay = Effect.fnUntraced(function* (options: {
     yield* sweepIngests
   })
 
-  // The batch that completes a day taking the walks' tape sets its seal
-  // for now, unless one is due already. Without N the day can't be
-  // complete, so it isn't scanned.
+  // The batch that completes a walk day sets its seal for now, unless one
+  // is due already. Without N the day can't be complete, so it isn't
+  // scanned.
   const walkSealDue = Effect.gen(function* () {
-    if (sealed) return
-    if ((yield* store.fact(Fact.walkTape)) === undefined) return
+    if (sealed || source !== "walk") return
     if ((yield* store.fact(Fact.brokerCodesN)) === undefined) return
     if (!(yield* brokerCodes.complete)) return
     const now = yield* DateTime.now
@@ -1180,11 +1218,11 @@ export const makeTradingDay = Effect.fnUntraced(function* (options: {
         return yield* socket.close(IngestCloseCode.RejectedToken, "Bad token")
       }
       const message = yield* decodeIngestUp(text)
-      // Decision: a sealed day takes nothing more, but a day sealed with no
-      // code list takes the relay's first one. Its 404 was never cached
-      // (`no-store`), so no immutable answer changes, and a day whose list
-      // missed the seal stays searchable. A list it holds stays fixed.
-      if (sealed) {
+      // Decision: a day past taking ingest (`takesIngest`) takes nothing
+      // more, but one with no code list takes the relay's first. Its 404 was
+      // never cached (`no-store`), so no immutable answer changes, and a day
+      // whose list missed the seal stays searchable. A list stays fixed.
+      if (!(yield* takesIngest)) {
         if (
           message._tag === "CodeList" &&
           Option.isNone(yield* codeListStore.read)
@@ -1397,9 +1435,9 @@ export const makeTradingDay = Effect.fnUntraced(function* (options: {
     alarm: turn.withPermit(alarm),
     // Decision: on a day the relay recorded, broker codes touch no recorded
     // day state (no flush, seal or index row), so its answers stay
-    // byte-identical (#244). A day with no relay tape takes their fields as
-    // its tape (`walkTapeOf`, unsealing one sealed empty), and its completing
-    // batch arms its seal (`walkSealDue`). See spec apinrdw/kumora#437.
+    // byte-identical (#244). A walk day takes their fields as its tape
+    // (`walkTapeOf`), and its completing batch arms its seal
+    // (`walkSealDue`). See spec apinrdw/kumora#437.
     brokerCodes: {
       // Decision: a batch that changes codes rewrites its trades' sweep
       // brokers rows from their minutes' stored trades, in the codes' turn

@@ -208,9 +208,9 @@ export const Fact = {
   // The broker trades index's rebuild (broker-codes.ts): the last chunk it
   // indexed, then BROKER_TRADES_BUILT.
   brokerTrades: "broker-trades",
-  // Set with the first walk trades a day with no relay tape stored as its
-  // tape (trading-day.ts): the day's tape is the walks'.
-  walkTape: "walk-tape",
+  // Where the day's tape comes from (trading-day.ts): TapeSource's relay or
+  // walk, none while unknown.
+  tapeSource: "tape-source",
   // The day's broker totals build (broker-totals.ts): BROKER_TOTALS_DUE once
   // the sealed day is complete, then the build version that wrote them.
   brokerTotals: "broker-totals",
@@ -485,13 +485,6 @@ export const makeDayStore = (sql: Sql) =>
 
     const markOrderFlowBuilt = Effect.sync(() =>
       insertFact(Fact.orderFlowBuilt, ORDER_FLOW_BUILT)
-    )
-    // Decision: a day sealed with no trade stored, as one the relay missed
-    // is at 17:00, is unsealed by the first walk trades it takes as its tape:
-    // it wrote no index row, so nothing listed or cached its answers. See
-    // spec apinrdw/kumora#437, "A History walk day becomes a recorded day".
-    const unseal = Effect.sync(() =>
-      sql.exec("DELETE FROM facts WHERE key = ?", Fact.sealed)
     )
     const markSweepBrokersBuilt = Effect.sync(() =>
       insertFact(Fact.sweepBrokersBuilt, SWEEP_BROKERS_BUILT)
@@ -976,7 +969,6 @@ export const makeDayStore = (sql: Sql) =>
       write,
       writeBuiltMinute,
       markOrderFlowBuilt,
-      unseal,
       sweepBrokerMinute,
       writeSweepBrokers,
       markSweepBrokersBuilt,

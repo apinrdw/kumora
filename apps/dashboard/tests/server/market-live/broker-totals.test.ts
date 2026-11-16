@@ -299,10 +299,12 @@ describe("a complete sealed day's broker totals", () => {
         const restarted = yield* tradingDay(sql, [], db.layer)
         yield* at("17:00:00")
         yield* restarted.alarm
-        assert.deepStrictEqual(
-          (yield* read(db, UNTR)).builtDays,
-          UNTR_BUILT.builtDays
-        )
+        assert.deepStrictEqual((yield* read(db, UNTR)).builtDays, [
+          {
+            ...UNTR_BUILT.builtDays[0],
+            builtAt: "2026-11-09T10:00:00.000Z",
+          },
+        ])
       })
   )
 
