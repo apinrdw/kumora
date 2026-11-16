@@ -223,7 +223,9 @@ describe("the Broker inventory lens and chips in the URL", () => {
         { measure: "lots", investor: "domestic" },
       ] as const)
         expect(
-          yield* lensOf(yield* parseStockSearch(yield* lensSearch(lens)))
+          yield* lensOf(
+            yield* parseStockSearch({ ...(yield* lensSearch(lens)) })
+          )
         ).toStrictEqual(lens)
       expect(
         yield* lensSearch({ measure: "lots", investor: "all" })
