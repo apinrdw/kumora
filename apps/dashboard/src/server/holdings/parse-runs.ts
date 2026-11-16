@@ -14,6 +14,7 @@ import type { ArchiveBucket } from "../archive/bucket.ts"
 import { failingRun } from "../archive/failing-run.ts"
 import {
   type ArchiveSource,
+  dailyRunIdAt,
   type Run,
   type RunId,
   runError,
@@ -31,7 +32,6 @@ import {
   ParseRunResult,
   type ParseRunSummary,
   ParseTrigger,
-  parseRunIdAt,
   runningParseResult,
 } from "./parse-run-result.ts"
 import { type MonthSource, type Parses, parseMonths } from "./parse-steps.ts"
@@ -56,7 +56,7 @@ export const parseRunsOf = <Self>(kind: {
     runName: kind.runName,
     runsPrefix: kind.runsPrefix,
     triggers: ParseTrigger.literals,
-    runIdAt: parseRunIdAt,
+    runIdAt: dailyRunIdAt,
     result: ParseRunResult,
     metadata: ParseRunMetadata,
     running: runningParseResult,

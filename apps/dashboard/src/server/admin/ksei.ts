@@ -9,12 +9,12 @@ import { DateTime, Effect } from "effect"
 import type { FileRoutesByFullPath } from "@/routeTree.gen"
 import { authorizeArchive } from "@/server/admin/archive-access"
 import { ArchiveBucket } from "@/server/archive/bucket"
-import { REPORTS_PREFIX } from "@/server/archive/run"
+import { dailyRunIdAt, REPORTS_PREFIX } from "@/server/archive/run"
 import type { Action } from "@/server/auth/policy"
 import { kseiCoverage } from "@/server/ksei/coverage"
 import { parseNow } from "@/server/admin/parse-now"
 import { kseiParseRuns } from "@/server/ksei/parse-runs"
-import { type KseiTrigger, kseiRunIdAt } from "@/server/ksei/run-result"
+import type { KseiTrigger } from "@/server/ksei/run-result"
 import {
   lastKseiDeepRun,
   lastKseiRun,
@@ -71,7 +71,7 @@ export const kseiArchivePage = Effect.fn("kseiArchivePage")(function* (
 const startNow = Effect.fnUntraced(function* (
   trigger: Exclude<KseiTrigger, "cron">
 ) {
-  const id = yield* kseiRunIdAt(
+  const id = yield* dailyRunIdAt(
     trigger,
     DateTime.toEpochMillis(yield* DateTime.now)
   )

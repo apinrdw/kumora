@@ -4,13 +4,13 @@
 import { Conflict } from "@workspace/server"
 import { DateTime, Effect } from "effect"
 
-import { parseRunIdAt } from "@/server/holdings/parse-run-result"
+import { dailyRunIdAt } from "@/server/archive/run"
 import type { ParseRuns } from "@/server/holdings/parse-runs"
 
 export const parseNow = Effect.fnUntraced(function* <Self>(
   runs: ParseRuns<Self>
 ) {
-  const id = yield* parseRunIdAt(
+  const id = yield* dailyRunIdAt(
     "admin",
     DateTime.toEpochMillis(yield* DateTime.now)
   )

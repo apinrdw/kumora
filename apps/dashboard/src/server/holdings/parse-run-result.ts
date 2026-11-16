@@ -18,19 +18,6 @@ export type ParseTrigger = typeof ParseTrigger.Type
 // What `create` passes a parse run's Workflow (alchemy.run.ts).
 export type ParseParams = RunParams<ParseTrigger>
 
-// The id of a parse run `trigger` starts at `epochMs`: `cron-<YYYY-MM-DD>`
-// from its daily cron's scheduled time, or `admin-<epoch ms>`.
-export const parseRunIdAt = Effect.fnUntraced(function* (
-  trigger: ParseTrigger,
-  epochMs: number
-) {
-  return RunId.make(
-    trigger === "cron"
-      ? `cron-${new Date(epochMs).toISOString().slice(0, 10)}`
-      : `admin-${epochMs}`
-  )
-})
-
 export const ParseRunResult = Schema.Struct({
   id: RunId,
   trigger: ParseTrigger,
