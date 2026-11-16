@@ -149,8 +149,10 @@ export function BrokerInventory({
         </p>
       ) : (
         <BrokerInventoryChart
+          code={code}
           days={read.days}
           built={read.built}
+          candles={read.candles}
           lines={lines}
         />
       )}
