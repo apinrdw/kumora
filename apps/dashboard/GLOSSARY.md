@@ -122,6 +122,22 @@ _Avoid_: Depth, market depth
 Net broker buying minus selling for an instrument over a period, in rupiah, from end-of-day data. Absent when the feed has no coverage.
 _Avoid_: Broker flow (for the figure), flow
 
+**Market Bubbles**:
+The live map of every stock code as a bubble, sized and coloured by figures over a window, grouped by sector.
+_Avoid_: Heatmap, bubble chart
+
+**Window**:
+The span of trading a bubble's figures cover: the last 30 seconds, the current minute plus the minutes before it (1m, 5m, 15m, 30m, 1h), or the day so far (D). Out of session it ends at the day's last trade.
+_Avoid_: Timeframe, period
+
+**Buy/Sell delta %**:
+Buy-aggressor value minus sell-aggressor value, over their sum, for one stock code or sector in a window. It is in rupiah, unlike Delta, which is in lots.
+_Avoid_: Net flow, delta (alone)
+
+**Sector**:
+A stock code's IDX-IC sector, from IDX's company profiles; Unclassified when IDX lists none for it.
+_Avoid_: Industry (for the top level), category
+
 ### Freshness
 
 **Feed**:
