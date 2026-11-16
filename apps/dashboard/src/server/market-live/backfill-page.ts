@@ -8,14 +8,14 @@ import {
   StockCode,
   TradeNumber,
   ajaibTradeNumber,
+  boardOf,
+  groupedNumber,
   tradeNumberValue,
   type BackfillPage,
   type RunningTrade,
   type WibDate,
 } from "@workspace/relay"
 import { DateTime, Effect, Option, Schema } from "effect"
-
-import { boardOf } from "./ajaib.ts"
 
 // Stockbit's `GET /order-trade/running-trade`: numbers as comma-grouped
 // strings ("2,300"), the time as WIB `HH:MM:SS` on the page's `data.date`,
@@ -58,9 +58,6 @@ const decodeStockbitRow = Schema.decodeUnknownOption(StockbitRow)
 const decodeAjaibPage = Schema.decodeUnknownOption(AjaibPage)
 const decodeAjaibRow = Schema.decodeUnknownOption(AjaibRow)
 
-const grouped = (text: string) =>
-  Effect.succeed(Number(text.replaceAll(",", "")))
-
 const sideOf = (side: string | undefined) =>
   Effect.sync((): RunningTrade["side"] => {
     const lower = side?.toLowerCase()
@@ -77,8 +74,8 @@ const stockbitRows = Effect.fnUntraced(function* (date: WibDate, body: string) {
     if (Option.isNone(row)) continue
     const { value } = row
     const time = DateTime.make(`${date}T${value.time}+07:00`)
-    const price = yield* grouped(value.price)
-    const lots = yield* grouped(value.lot)
+    const price = yield* groupedNumber(value.price)
+    const lots = yield* groupedNumber(value.lot)
     if (Option.isNone(time) || !Number.isInteger(price) || !(lots > 0)) continue
     trades.push({
       tradeNumber: TradeNumber.make(BigInt(value.trade_number).toString()),

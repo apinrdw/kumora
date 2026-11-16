@@ -1,5 +1,10 @@
 import { assert, describe, it } from "@effect/vitest"
-import { WibDate, type BrokerCodesBatch } from "@workspace/relay"
+import {
+  StockCode,
+  WibDate,
+  type BrokerCodesBatch,
+  type TradeFields,
+} from "@workspace/relay"
 import { Clock, Effect, Exit, Fiber, Option } from "effect"
 import { TestClock } from "effect/testing"
 
@@ -56,6 +61,15 @@ const STATUS = (status: number): Answer => ({
 
 const STATUS_PATH = "v1/stock/data/trading-day/time/"
 
+// The fields the fake tape gives each trade, its own for each number: every
+// 50th on the negotiated board, an odd lot.
+const fieldsOf = (number: number): TradeFields => ({
+  code: StockCode.make(number % 2 === 0 ? "BBCA" : "TLKM"),
+  price: 8_000 + (number % 40) * 25,
+  lots: number % 50 === 0 ? 0.5 : 1 + (number % 7),
+  board: number % 50 === 0 ? "NG" : "RG",
+})
+
 const paramOf = (path: string, name: string) =>
   Number(new URL(path, "https://ht2.ajaib.co.id/api/").searchParams.get(name))
 const sizeOf = (path: string) => paramOf(path, "page_size")
@@ -75,6 +89,8 @@ const fakeAjaib = (
     readonly token?: (now: number) => string
     // Whether a page's first row comes without a trade number.
     readonly malformed?: (path: string) => boolean
+    // Trades the tape sends with codes but zero lots.
+    readonly noLots?: ReadonlySet<number>
     // Overrides the tape's answer to a call, by its 1-based index.
     readonly answer?: (
       request: TabRequest,
@@ -105,7 +121,10 @@ const fakeAjaib = (
       page_size: size,
       total_pages: 2,
       results: before.slice(offset, offset + size).map((row, index) => ({
-        stock_code: "BBCA",
+        stock_code: fieldsOf(row.number).code,
+        price: fieldsOf(row.number).price,
+        lot: options.noLots?.has(row.number) ? 0 : fieldsOf(row.number).lots,
+        ...(fieldsOf(row.number).board === "NG" ? { market_type: "NG" } : {}),
         trade_num:
           malformed && index === 0
             ? "not a trade number"
@@ -167,6 +186,13 @@ const fakeProduction = () => {
         batches.push(batch)
         return "sent"
       }),
+    // Each posted trade's fields.
+    fields: () =>
+      new Map(
+        batches.flatMap((batch) =>
+          batch.rows.map(([number, , fields]) => [Number(number), fields])
+        )
+      ),
     // The trade numbers posted with codes.
     held: () =>
       new Set(
@@ -254,6 +280,32 @@ describe("Ajaib's walk of the day", () => {
         assert.deepStrictEqual(yield* walk.walk(DAY), { _tag: "walked" })
         assert.deepStrictEqual(missingOf(production.held()), [])
       })
+  )
+
+  it.effect("posts each trade's own fields with its codes", () =>
+    Effect.gen(function* () {
+      yield* TestClock.setTime(wib("2026-11-12", "17:30:00"))
+      const production = fakeProduction()
+      const walk = yield* walkWith(fakeAjaib(), production)
+      assert.deepStrictEqual(yield* walk.walk(DAY), { _tag: "walked" })
+      const fields = production.fields()
+      assert.strictEqual(fields.size, N)
+      for (let number = 1; number <= N; number++)
+        assert.deepStrictEqual(fields.get(number), fieldsOf(number))
+    })
+  )
+
+  it.effect("leaves out a trade whose row has codes but no valid fields", () =>
+    Effect.gen(function* () {
+      yield* TestClock.setTime(wib("2026-11-12", "17:30:00"))
+      const production = fakeProduction()
+      const walk = yield* walkWith(
+        fakeAjaib({ noLots: new Set([7, 12_345]) }),
+        production
+      )
+      assert.deepStrictEqual(yield* walk.walk(DAY), { _tag: "walked" })
+      assert.deepStrictEqual(missingOf(production.held()), [7, 12_345])
+    })
   )
 
   it.effect("says how many trades of N its first pass fetched", () =>

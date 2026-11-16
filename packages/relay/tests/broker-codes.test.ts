@@ -8,7 +8,9 @@ import {
   MISSING_RANGES,
   TradeNumber,
   WibDate,
+  StockCode,
   ajaibRowCodes,
+  ajaibRowFields,
   brokerCodesAfter,
   brokerCodesDay,
   brokerCodesPath,
@@ -20,10 +22,12 @@ import {
   encodeBrokerCodesStatus,
   encodeRecordedBrokerCodes,
   stockbitRowCodes,
+  stockbitRowFields,
   type BrokerCodesBatch,
   type BrokerCodesStatus,
   type RecordedBrokerCodes,
   type TradeCodes,
+  type TradeFields,
 } from "@workspace/relay"
 
 const DAY = WibDate.make("2026-11-12")
@@ -34,6 +38,12 @@ const codes: TradeCodes = {
   seller: BrokerCode.make("CC"),
   sellerType: "F",
 }
+const fields: TradeFields = {
+  code: StockCode.make("BBCA"),
+  price: 8_000,
+  lots: 0.5,
+  board: "NG",
+}
 
 describe("a broker codes batch", () => {
   it.effect("rows and end travel and come back equal", () =>
@@ -43,8 +53,8 @@ describe("a broker codes batch", () => {
         feed: "Ajaib",
         day: DAY,
         rows: [
-          [number("1"), codes],
-          [number("1500490"), codes],
+          [number("1"), codes, fields],
+          [number("1500490"), codes, fields],
         ],
         end: { n: number("1500490") },
       }
@@ -79,9 +89,15 @@ describe("a broker codes batch", () => {
   )
 
   it.effect(
-    "of the most rows, at the longest trade numbers, fits the body limit, and one row more fails",
+    "of the most rows, at the longest trade numbers, codes, prices and lots, fits the body limit, and one row more fails",
     () =>
       Effect.gen(function* () {
+        const longest: TradeFields = {
+          code: StockCode.make("TN.ABCDEFGHIJKLM"),
+          price: Number.MAX_SAFE_INTEGER,
+          lots: Number.MAX_VALUE,
+          board: "NG",
+        }
         const full: BrokerCodesBatch = {
           version: BrokerCodesProtocolVersion,
           feed: "Ajaib",
@@ -89,6 +105,7 @@ describe("a broker codes batch", () => {
           rows: Array.from({ length: 5_000 }, (_, at) => [
             number(String(9_999_995_000 + at)),
             codes,
+            longest,
           ]),
           end: { n: number("9999999999") },
         }
@@ -97,7 +114,7 @@ describe("a broker codes batch", () => {
         const over = yield* Effect.flip(
           encodeBrokerCodesBatch({
             ...full,
-            rows: [...full.rows, [number("1"), codes]],
+            rows: [...full.rows, [number("1"), codes, fields]],
           })
         )
         assert.strictEqual(over._tag, "SchemaError")
@@ -105,13 +122,17 @@ describe("a broker codes batch", () => {
   )
 
   it.effect(
-    "with a malformed row, or a trade number outside a day's, fails to decode",
+    "with a malformed row, a row without fields, or a trade number outside a day's, fails to decode",
     () =>
       Effect.gen(function* () {
         for (const row of [
-          ["1", { ...codes, buyer: "yp" }],
-          ["0", codes],
-          ["12345678901", codes],
+          ["1", { ...codes, buyer: "yp" }, fields],
+          ["1", codes],
+          ["1", codes, { ...fields, lots: 0 }],
+          ["1", codes, { ...fields, price: 8_000.5 }],
+          ["1", codes, { ...fields, board: "XX" }],
+          ["0", codes, fields],
+          ["12345678901", codes, fields],
         ]) {
           const error = yield* Effect.flip(
             decodeBrokerCodesBatch(
@@ -298,6 +319,10 @@ describe("the broker codes path", () => {
 describe("an Ajaib row", () => {
   const row = {
     trade_num: "202611120001500490",
+    stock_code: "BBCA",
+    price: 8_000,
+    lot: 0.5,
+    market_type: "NG",
     buyer: "YP",
     buyer_type: "D",
     seller: "CC",
@@ -329,11 +354,45 @@ describe("an Ajaib row", () => {
         )
     })
   )
+  it.effect("gives the trade's fields, a row without a board on RG", () =>
+    Effect.gen(function* () {
+      assert.deepStrictEqual(yield* ajaibRowFields(row), Option.some(fields))
+      const { market_type: _, ...regular } = row
+      assert.deepStrictEqual(
+        yield* ajaibRowFields(regular),
+        Option.some({ ...fields, board: "RG" as const })
+      )
+    })
+  )
+
+  it.effect(
+    "without a valid code, a whole price or positive lots has no fields",
+    () =>
+      Effect.gen(function* () {
+        for (const bad of [
+          { ...row, stock_code: "bbca" },
+          { ...row, stock_code: undefined },
+          { ...row, price: 8_000.5 },
+          { ...row, price: "8000" },
+          { ...row, lot: 0 },
+          { ...row, lot: "1" },
+          null,
+        ])
+          assert.isTrue(
+            Option.isNone(yield* ajaibRowFields(bad)),
+            JSON.stringify(bad)
+          )
+      })
+  )
 })
 
 describe("a Stockbit row", () => {
   const row = {
     trade_number: "1500490",
+    code: "BBCA",
+    price: "8,000",
+    lot: "0.5",
+    market_board: "NG",
     is_broker_exists: true,
     buyer: "YP [D]",
     seller: " CC [F] ",
@@ -364,5 +423,44 @@ describe("a Stockbit row", () => {
           JSON.stringify(bad)
         )
     })
+  )
+
+  it.effect("gives the trade's fields from its grouped price and lots", () =>
+    Effect.gen(function* () {
+      assert.deepStrictEqual(yield* stockbitRowFields(row), Option.some(fields))
+      assert.deepStrictEqual(
+        yield* stockbitRowFields({
+          ...row,
+          price: "12,500",
+          lot: "1,200",
+          market_board: "RG",
+        }),
+        Option.some({
+          ...fields,
+          price: 12_500,
+          lots: 1_200,
+          board: "RG" as const,
+        })
+      )
+    })
+  )
+
+  it.effect(
+    "without a valid code, a whole price or positive lots has no fields",
+    () =>
+      Effect.gen(function* () {
+        for (const bad of [
+          { ...row, code: "" },
+          { ...row, price: "8,000.5" },
+          { ...row, price: "abc" },
+          { ...row, lot: "0" },
+          { ...row, lot: 1 },
+          { trade_number: "1" },
+        ])
+          assert.isTrue(
+            Option.isNone(yield* stockbitRowFields(bad)),
+            JSON.stringify(bad)
+          )
+      })
   )
 })

@@ -20,6 +20,7 @@ import {
   type RecordedDay,
   type RecordedResource,
   type TradeCodes,
+  type TradeFields,
 } from "@workspace/relay"
 import { WorkerEnv } from "@workspace/server"
 import { DateTime, Effect, Layer, Option, Schema, Scope } from "effect"
@@ -69,6 +70,13 @@ const codes = (
   sellerType,
 })
 
+const FIELDS: TradeFields = {
+  code: StockCode.make("BBCA"),
+  price: 8_000,
+  lots: 1,
+  board: "RG",
+}
+
 const YP_CC = codes("YP", "CC", "D", "F")
 const PD_KZ = codes("PD", "KZ", "F", "D")
 
@@ -108,16 +116,19 @@ const tradingDay = Effect.fnUntraced(function* (
 
   const post = Effect.fnUntraced(function* (
     feed: Feed,
-    rows: ReadonlyArray<readonly [number, TradeCodes]>,
+    rows: ReadonlyArray<
+      readonly [number, TradeCodes] | readonly [number, TradeCodes, TradeFields]
+    >,
     end?: number
   ) {
     const batch: BrokerCodesBatch = {
       version: BrokerCodesProtocolVersion,
       feed,
       day: date,
-      rows: rows.map(([number, each]) => [
+      rows: rows.map(([number, each, fields = FIELDS]) => [
         TradeNumber.make(String(number)),
         each,
+        fields,
       ]),
       ...(end === undefined
         ? {}

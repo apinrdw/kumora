@@ -3,6 +3,7 @@ import {
   BrokerCode,
   BrokerCodesProtocolVersion,
   MISSING_RANGES,
+  StockCode,
   TradeNumber,
   WibDate,
   decodeBrokerCodesBatch,
@@ -10,6 +11,7 @@ import {
   type BrokerCodesBatch,
   type BrokerCodesStatus,
   type TradeCodes,
+  type TradeFields,
 } from "@workspace/relay"
 import { Clock, Deferred, Effect, Fiber, Option } from "effect"
 import { TestClock } from "effect/testing"
@@ -53,6 +55,17 @@ const base64Url = (value: unknown) =>
 const jwt = (name: string) =>
   `${base64Url({ alg: "HS256" })}.${base64Url({ data: { uid: 7 }, name })}.sig`
 
+// The fields the fake tape gives each trade, its own for each number: every
+// 50th on the negotiated board, an odd lot, and a price past a thousand,
+// which Stockbit sends comma-grouped.
+const fieldsOf = (number: number): TradeFields => ({
+  code: StockCode.make(number % 2 === 0 ? "BBCA" : "TLKM"),
+  price: 8_000 + (number % 40) * 25,
+  lots: number % 50 === 0 ? 0.5 : 1_000 + (number % 7),
+  board: number % 50 === 0 ? "NG" : "RG",
+})
+const FIELDS = fieldsOf(1)
+
 const answer = (status: number, body: string): Answer => ({
   _tag: "answer",
   id: 0,
@@ -81,6 +94,8 @@ const fakeStockbit = (
     readonly openUntil?: number
     // Rows Stockbit sends with `is_broker_exists: false`.
     readonly noBrokers?: ReadonlySet<number>
+    // Rows Stockbit sends with codes but zero lots.
+    readonly noLots?: ReadonlySet<number>
     // The token in the tab's cookie at a time.
     readonly cookie?: (now: number) => string
     // Whether the tape refuses this bearer on this call (1-based).
@@ -96,7 +111,12 @@ const fakeStockbit = (
   const times: Array<number> = []
   const row = (number: number) => ({
     trade_number: String(number),
-    code: "BBCA",
+    code: fieldsOf(number).code,
+    price: fieldsOf(number).price.toLocaleString("en-US"),
+    lot: options.noLots?.has(number)
+      ? "0"
+      : fieldsOf(number).lots.toLocaleString("en-US"),
+    market_board: fieldsOf(number).board,
     is_broker_exists: !(options.noBrokers?.has(number) ?? false),
     buyer: options.noBrokers?.has(number) ? "" : "YP [D]",
     seller: options.noBrokers?.has(number) ? "" : " PD [F] ",
@@ -290,12 +310,13 @@ const fakeProduction = () => {
 const ajaibServedInPart = Effect.fnUntraced(function* (
   production: ReturnType<typeof fakeProduction>
 ) {
-  const rows: Array<[TradeNumber, TradeCodes]> = []
+  const rows: Array<[TradeNumber, TradeCodes, TradeFields]> = []
   for (let number = 1; number <= N; number++) {
     if ((number > 1_000 && number <= 2_000) || number === 500) continue
     rows.push([
       TradeNumber.make(String(number)),
       number === 900 ? CC_PD : YP_PD,
+      FIELDS,
     ])
   }
   for (let at = 0; at < rows.length; at += 5_000)
@@ -383,6 +404,40 @@ describe("Stockbit's full walk of a day", () => {
         assert.strictEqual(production.held.get(1_500)?.source, "stockbit")
         assert.deepStrictEqual(production.ends(), [{ n: String(N) }])
       })
+  )
+
+  it.effect("posts each trade's own fields with its codes", () =>
+    Effect.gen(function* () {
+      yield* TestClock.setTime(wib("2026-11-12", "17:30:00"))
+      const production = fakeProduction()
+      const walk = yield* walkWith(fakeStockbit(), production)
+      assert.deepStrictEqual(yield* walk.walk(DAY), { _tag: "walked" })
+      const fields = new Map(
+        production
+          .stockbit()
+          .flatMap((batch) =>
+            batch.rows.map(([number, , each]) => [Number(number), each])
+          )
+      )
+      assert.strictEqual(fields.size, N)
+      for (let number = 1; number <= N; number++)
+        assert.deepStrictEqual(fields.get(number), fieldsOf(number))
+    })
+  )
+
+  it.effect("leaves out a trade whose row has codes but no valid fields", () =>
+    Effect.gen(function* () {
+      yield* TestClock.setTime(wib("2026-11-12", "17:30:00"))
+      const production = fakeProduction()
+      const walk = yield* walkWith(
+        fakeStockbit({ noLots: new Set([7, 1_234]) }),
+        production
+      )
+      assert.deepStrictEqual(yield* walk.walk(DAY), { _tag: "walked" })
+      assert.isFalse(production.held.has(7))
+      assert.isFalse(production.held.has(1_234))
+      assert.strictEqual(production.held.size, N - 2)
+    })
   )
 
   it.effect(
@@ -884,10 +939,10 @@ describe("Stockbit's gap walk of an older day", () => {
         const evens = (to: number) =>
           Array.from({ length: to / 2 }, (_, at) => 2 * at + 2)
         const lacked = new Set(evens(2_200))
-        const rows: Array<[TradeNumber, TradeCodes]> = []
+        const rows: Array<[TradeNumber, TradeCodes, TradeFields]> = []
         for (let number = 1; number <= N; number++)
           if (!lacked.has(number))
-            rows.push([TradeNumber.make(String(number)), YP_PD])
+            rows.push([TradeNumber.make(String(number)), YP_PD, FIELDS])
         yield* production.post({
           version: BrokerCodesProtocolVersion,
           feed: "Ajaib",

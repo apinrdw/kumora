@@ -237,7 +237,22 @@ export type ViewerUp = typeof Select.Type
 export const Side = Schema.Literals(["buy", "sell", "none"])
 
 // The market board: regular, cash (tunai), or negotiated.
-const Board = Schema.Literals(["RG", "TN", "NG"])
+export const Board = Schema.Literals(["RG", "TN", "NG"])
+
+// Decision: a trade frame without `market_type` is on the regular board. The
+// 2026-11-09 probe saw no `market_type` on any of 44,360 TRADE frames, all
+// regular-board stocks; an unknown value is read the same way until a capture
+// shows the cash and negotiated boards' frames.
+// Ajaib's `market_type` and Stockbit's REST `market_board` both read this way.
+export const boardOf = (marketType: string | undefined) =>
+  Effect.succeed<typeof Board.Type>(
+    marketType === "TN" || marketType === "NG" ? marketType : "RG"
+  )
+
+// A number Stockbit's REST tape sends comma-grouped, such as "2,300"; NaN
+// when it isn't one.
+export const groupedNumber = (text: string) =>
+  Effect.succeed(Number(text.replaceAll(",", "")))
 
 // Where a running trade was seen: a live feed, or a backfill request's answer.
 const TradeSource = Schema.Literals(["Stockbit", "Ajaib", "backfill"])
