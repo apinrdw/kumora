@@ -19,7 +19,7 @@ import { tooltip } from "@tanstack/charts/tooltip"
 import { portal } from "@tanstack/charts/tooltip/portal"
 import { cn } from "@workspace/ui/lib/utils"
 import { Effect } from "effect"
-import { useLayoutEffect, useMemo, useRef, useState } from "react"
+import { useEffect, useLayoutEffect, useMemo, useRef, useState } from "react"
 
 import { KChip } from "@/components/k/chip"
 import { kCard, kFocus, kTooltip } from "@/components/k/styles"
@@ -452,6 +452,20 @@ function Bars({
   // month. Keys and keyboard focus move the index and focus that month's
   // own stop.
   const at = useRef(0)
+  const [showing, setShowing] = useState(false)
+  // Decision: while a month shows, Escape anywhere on the page hides it and
+  // keeps focus where it was, as KTooltip did, whether hover, focus or tap
+  // showed it; the next arrow key steps from the month it hid, and the next
+  // pointer move over a month shows it again. The library dismisses on
+  // Escape only a pinned tooltip, and this one never pins.
+  useEffect(() => {
+    if (!showing) return
+    const dismiss = (event: KeyboardEvent) => {
+      if (event.key === "Escape") interaction.current?.setControlledFocus(null)
+    }
+    document.addEventListener("keydown", dismiss)
+    return () => document.removeEventListener("keydown", dismiss)
+  }, [showing])
   const stops = useMemo(
     () => chart.columns.map(({ month }): MonthStop => ({ month })),
     [chart]
@@ -605,15 +619,7 @@ function Bars({
       <div
         ref={scroller}
         className="min-w-0 flex-1 overflow-x-auto pb-1"
-        // Decision: Escape hides the tooltip and keeps focus on the chart,
-        // as KTooltip did; the next arrow key steps from the month it hid.
-        // The library dismisses on Escape only a pinned tooltip, and this
-        // one never pins.
         onKeyDownCapture={(event) => {
-          if (event.key === "Escape") {
-            interaction.current?.setControlledFocus(null)
-            return
-          }
           const index = MONTH_KEYS[event.key]?.(at.current, stops.length)
           if (index === undefined) return
           // The library's own arrow keys would step from its focused point.
@@ -643,6 +649,7 @@ function Bars({
             scenePoints.current = context.scene.points
           }}
           onFocusGroupChange={(group) => {
+            setShowing(group.length > 0)
             const index = stops.findIndex(
               ({ month }) => month === group[0]?.xValue
             )
