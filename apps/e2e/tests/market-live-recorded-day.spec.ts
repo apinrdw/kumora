@@ -299,7 +299,6 @@ test("a recorded day's tape shows each trade's Buyer and Seller as the extension
                 seller: BrokerCode.make("CD"),
                 sellerType: "D",
               },
-              { code, price: 45_000, lots: 1, board: "RG" },
             ],
           ],
         })

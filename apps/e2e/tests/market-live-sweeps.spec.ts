@@ -7,7 +7,7 @@ import {
   decodeRecordedCandles,
   encodeBrokerCodesBatch,
   recordedDayPath,
-  StockCode,
+  type StockCode,
   type TradeCodes,
 } from "@workspace/relay"
 import type { Locator, Page } from "@playwright/test"
@@ -220,7 +220,6 @@ async function storeCodes(
           rows: rows.map(([number, text]) => [
             TradeNumber.make(String(number)),
             tradeCodes(text),
-            { code: StockCode.make("BBCA"), price: 500, lots: 1, board: "RG" },
           ]),
         })
       ),

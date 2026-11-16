@@ -289,8 +289,7 @@ export const tradingDay = Effect.fnUntraced(function* (
     }
   })
   // A broker codes batch of the day from `feed`, as the Worker hands it over,
-  // each row [trade number, "AK F CD D"]: buyer and type, seller and type,
-  // with one BBCA lot at 8,000 on the regular board as its fields.
+  // each row [trade number, "AK F CD D"]: buyer and type, seller and type.
   const brokerCodes = Effect.fnUntraced(function* (
     feed: Feed,
     rows: ReadonlyArray<readonly [number, string]>,
@@ -310,12 +309,6 @@ export const tradingDay = Effect.fnUntraced(function* (
               buyerType: buyerType === "F" ? "F" : "D",
               seller: BrokerCode.make(seller!),
               sellerType: sellerType === "F" ? "F" : "D",
-            },
-            {
-              code: StockCode.make("BBCA"),
-              price: 8_000,
-              lots: 1,
-              board: "RG",
             },
           ]
         }),

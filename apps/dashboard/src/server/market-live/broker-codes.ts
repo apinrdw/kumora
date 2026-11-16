@@ -167,15 +167,22 @@ const mergeStockbit = Effect.fnUntraced(function* (
     : ([held.slice(at, at + SOURCE), codes] as const)
 })
 
-// A row's fields as walk_trades stores them, in its column order.
-const fieldsRow = (number: number, fields: TradeFields) =>
-  Effect.succeed([
-    number,
-    fields.code,
-    fields.price,
-    fields.lots,
-    fields.board,
-  ] as const)
+// A row's fields as walk_trades stores them, in its column order: none for
+// a row without fields.
+const fieldsRows = (number: number, fields: TradeFields | undefined) =>
+  Effect.succeed(
+    fields === undefined
+      ? []
+      : [
+          [
+            number,
+            fields.code,
+            fields.price,
+            fields.lots,
+            fields.board,
+          ] as const,
+        ]
+  )
 
 // One index row: broker, investor type, side and trade number.
 type IndexRow = readonly [string, string, "buy" | "sell", number]
@@ -217,7 +224,8 @@ interface Merged {
   readonly differences: Map<number, readonly [Uint8Array, Uint8Array]>
   readonly agreed: Set<number>
   readonly facts: Array<readonly [string, string]>
-  // The batch's rows' fields, kept for the trades the tape lacks.
+  // The batch's rows' fields, kept for the trades the tape lacks. A row
+  // without fields adds none.
   readonly fields: Array<readonly [number, ...Array<string | number>]>
   // The trades whose kept codes the batch changed. A trade whose source
   // byte alone changed, as the cross-check marks it, is not one.
@@ -490,7 +498,7 @@ export const makeBrokerCodes = Effect.fnUntraced(function* (options: {
     for (const [tradeNumber, codes, fields] of batch.rows) {
       const number = Number(tradeNumber)
       highest = Math.max(highest, number)
-      merged.fields.push(yield* fieldsRow(number, fields))
+      merged.fields.push(...(yield* fieldsRows(number, fields)))
       const { chunk, at } = yield* placeOf(number)
       const held = merged.chunks.get(chunk) ?? (yield* chunkOf(chunk))
       merged.chunks.set(chunk, held)

@@ -71,10 +71,12 @@ const codes = (
 })
 
 const FIELDS: TradeFields = {
+  time: wib("15:00:00"),
   code: StockCode.make("BBCA"),
   price: 8_000,
   lots: 1,
   board: "RG",
+  side: "buy",
 }
 
 const YP_CC = codes("YP", "CC", "D", "F")
@@ -116,8 +118,10 @@ const tradingDay = Effect.fnUntraced(function* (
 
   const post = Effect.fnUntraced(function* (
     feed: Feed,
+    // A row's fields are FIELDS unless it names its own, or null for none.
     rows: ReadonlyArray<
-      readonly [number, TradeCodes] | readonly [number, TradeCodes, TradeFields]
+      | readonly [number, TradeCodes]
+      | readonly [number, TradeCodes, TradeFields | null]
     >,
     end?: number
   ) {
@@ -125,11 +129,11 @@ const tradingDay = Effect.fnUntraced(function* (
       version: BrokerCodesProtocolVersion,
       feed,
       day: date,
-      rows: rows.map(([number, each, fields = FIELDS]) => [
-        TradeNumber.make(String(number)),
-        each,
-        fields,
-      ]),
+      rows: rows.map(([number, each, fields = FIELDS]) =>
+        fields === null
+          ? [TradeNumber.make(String(number)), each]
+          : [TradeNumber.make(String(number)), each, fields]
+      ),
       ...(end === undefined
         ? {}
         : { end: { n: TradeNumber.make(String(end)) } }),
@@ -663,16 +667,20 @@ describe("a sealed day", () => {
 // fields, from the tape or a walk's row.
 describe("the trades a sealed tape lacks", () => {
   const TLKM: TradeFields = {
+    time: wib("14:00:00"),
     code: StockCode.make("TLKM"),
     price: 3_510,
     lots: 0.5,
     board: "NG",
+    side: "sell",
   }
   const ASII: TradeFields = {
+    time: wib("14:30:00"),
     code: StockCode.make("ASII"),
     price: 5_000,
     lots: 3,
     board: "RG",
+    side: "none",
   }
   const HOLES = [5, 12, 13]
 
@@ -738,18 +746,17 @@ describe("the trades a sealed tape lacks", () => {
   )
 
   it.effect(
-    "lists a trade with codes but no fields as missing until a walk row fills it, its codes complete throughout",
+    "stores the codes of a row without fields, and lists its trade as missing until a walk row fills it, its codes complete throughout",
     () =>
       Effect.gen(function* () {
         const day = yield* holedDay
         yield* day.post(
           "Ajaib",
-          numbers(1, 20).map((number) => [number, YP_CC] as const),
+          numbers(1, 20).map((number) => [number, YP_CC, null] as const),
           20
         )
         assert.isTrue(yield* codesComplete(day))
-        // As a day whose codes a walk stored before walks carried fields.
-        day.sql.exec("DELETE FROM walk_trades")
+        assert.deepStrictEqual(yield* walkTrades(day), [])
         const holed = yield* day.status
         assert.isFalse(holed.complete)
         assert.deepStrictEqual(yield* day.missing, [
@@ -770,7 +777,7 @@ describe("the trades a sealed tape lacks", () => {
 
         yield* day.post(
           "Stockbit",
-          [5, 13].map((n) => [n, YP_CC] as const)
+          [5, 13].map((n) => [n, YP_CC, TLKM] as const)
         )
         assert.isTrue((yield* day.status).complete)
       })
