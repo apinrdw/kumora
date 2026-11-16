@@ -582,11 +582,10 @@ export const makeCandleBook = Effect.fnUntraced(function* (
   // `selected` each minute a trade changed: its footprint and its sweeps.
   //
   // Decision: a minute whose last regular-board trade left it goes out as a
-  // footprint with no cells, as its sweeps go out empty, and with no candle.
-  // The page drops that minute's footprint and candle (candle-store.ts), so
-  // the protocol needs no removal message. See apinrdw/kumora#279. The empty
-  // footprint goes out for every code, selected or not, as Market Bubbles
-  // keeps every code's minutes (lib/bubbles.ts, spec apinrdw/kumora#427).
+  // footprint with no cells, for any code, as its sweeps go out empty, and
+  // with no candle. The pages drop that minute (candle-store.ts, and Market
+  // Bubbles' lib/bubbles.ts), so the protocol needs no removal message. See
+  // apinrdw/kumora#279 and apinrdw/kumora#436.
   //
   // Decision: a changed minute's sweeps go out whole in every delta and the
   // page replaces its copy, so the book is the only grouper and the join

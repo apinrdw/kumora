@@ -271,15 +271,11 @@ const keepLive = (
     }
   })
 
-// Decision: a minute is the candle book's latest copy of it (candles.ts). A
-// delta's candle, or its footprint with no cells, is the whole minute as the
-// book holds it, open trades included, and a later one replaces it, smaller
-// or emptied too. The body holds only settled trades, and a settled trade
-// never leaves its minute, so a copy this socket's deltas carried holds at
-// least the body's trades of it, whichever came first: the body fills only
-// the minutes no delta carried since the snapshot. A snapshot hands every
-// minute back to the next body, as the deltas missed before it may have
-// changed any (spec apinrdw/kumora#427, "Reconnects").
+// Decision: a minute is the candle book's latest copy (candles.ts): a
+// delta's candle, or footprint with no cells, replaces it, smaller too. The
+// body has only settled trades, which never leave a minute, so it fills just
+// the minutes no delta carried since the snapshot, and a snapshot hands them
+// all back. See apinrdw/kumora#436 and spec #427, "Reconnects".
 //
 // A code the flow holds that the body doesn't has no settled trade: its
 // minutes no delta carried are none.
