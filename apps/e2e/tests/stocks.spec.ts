@@ -467,6 +467,35 @@ test.describe.serial("the stock page", () => {
       await expect(barsTooltip(page)).toContainText("Sep 2026")
     })
 
+    test("steps the arrow keys from the month the pointer hovered", async ({
+      page,
+    }) => {
+      await page.goto(`${DASHBOARD}/stocks/BBCA`)
+      await focusNewest(page, "Oct 2026")
+      const box = await bars(page).boundingBox()
+      if (box === null) throw new Error("The Bars chart has no box")
+      // October's lower segment, not the month's own stop.
+      await bars(page).hover({ position: { x: box.width - 22, y: 220 } })
+      await expect(barsTooltip(page)).toContainText("Oct 2026")
+      await page.keyboard.press("ArrowLeft")
+      await expect(barsTooltip(page)).toContainText("Sep 2026")
+    })
+
+    test("steps the arrow keys from a hovered month that Escape hid", async ({
+      page,
+    }) => {
+      await page.goto(`${DASHBOARD}/stocks/BBCA`)
+      await focusNewest(page, "Oct 2026")
+      const box = await bars(page).boundingBox()
+      if (box === null) throw new Error("The Bars chart has no box")
+      await bars(page).hover({ position: { x: box.width - 22, y: 220 } })
+      await expect(barsTooltip(page)).toContainText("Oct 2026")
+      await page.keyboard.press("Escape")
+      await expect(barsTooltip(page)).toBeHidden()
+      await page.keyboard.press("ArrowLeft")
+      await expect(barsTooltip(page)).toContainText("Sep 2026")
+    })
+
     test("styles the Bars tooltip as KTooltip", async ({ page }) => {
       const look = (element: Element) => {
         const style = getComputedStyle(element)
