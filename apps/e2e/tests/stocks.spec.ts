@@ -436,6 +436,30 @@ test.describe.serial("the stock page", () => {
       )
     })
 
+    test("switching stock carries the Broker inventory view and drops single brokers", async ({
+      page,
+    }) => {
+      await page.goto(
+        `${DASHBOARD}/stocks/BBCA?tab=brokers&range=1Y&measure=value&investor=domestic&brokers=MG%2Csell`
+      )
+      const picker = page.getByRole("combobox", { name: "Stock", exact: true })
+      await expect(async () => {
+        await picker.blur()
+        await picker.fill("WB")
+        await expect(page.getByRole("option", { name: /WBSA/ })).toBeVisible({
+          timeout: 1000,
+        })
+      }).toPass()
+      await page.getByRole("option", { name: /WBSA/ }).click()
+      await expect(page).toHaveURL(
+        /\/stocks\/WBSA\?tab=brokers&range=1Y&measure=value&investor=domestic&brokers=sell$/
+      )
+      await expect(lensPick(page, "Investor", "Domestic")).toHaveAttribute(
+        "aria-pressed",
+        "true"
+      )
+    })
+
     test("shows scrip vs scripless from KSEI's listed shares", async ({
       page,
     }) => {
@@ -1107,6 +1131,25 @@ const rangePreset = (page: Page, label: string) =>
       exact: true,
     })
 
+const summaryTable = (page: Page) =>
+  brokerInventory(page).getByRole("table", { name: "Broker summary" })
+
+// A summary row, by its broker code.
+const summaryRow = (page: Page, broker: string) =>
+  summaryTable(page)
+    .locator("tbody tr")
+    .filter({
+      has: page.getByRole("rowheader", { name: new RegExp(`^${broker}`) }),
+    })
+
+const chips = (page: Page) =>
+  brokerInventory(page).getByRole("list", { name: "Plotted brokers" })
+
+const lensPick = (page: Page, group: string, label: string) =>
+  brokerInventory(page)
+    .getByRole("group", { name: group })
+    .getByRole("button", { name: label, exact: true })
+
 test.describe.serial("the Broker inventory tab", () => {
   test.beforeAll(() => {
     seedBrokerTotals("BBCA", BROKER_DAYS)
@@ -1180,5 +1223,93 @@ test.describe.serial("the Broker inventory tab", () => {
       })
     }).toPass()
     await expect.poll(() => plotted(page)).toStrictEqual(TOP_3M)
+  })
+
+  test("the investor filter and measure reshape the summary and lines, and a reload keeps them", async ({
+    page,
+  }) => {
+    // 1Y holds all 80 days.
+    await page.goto(`${DASHBOARD}/stocks/BBCA?tab=brokers&range=1Y`)
+    const rows = summaryTable(page).locator("tbody tr")
+    await expect(rows).toHaveCount(12)
+    // 69 days of 650 lots and 10 of 1,050.
+    await expect(brokerInventory(page)).toContainText(
+      "12 brokers · 55.35 K lots traded · regular board + auction matches · 1 incomplete day skipped"
+    )
+    await expect(summaryRow(page, "YP")).toContainText("+7,900")
+    await expect(async () => {
+      await lensPick(page, "Investor", "Foreign").click()
+      await expect(page).toHaveURL(/[?&]investor=foreign/, { timeout: 1000 })
+    }).toPass()
+    // Only KZ and BK trade for foreign investors.
+    await expect.poll(() => plotted(page)).toStrictEqual(["KZ", "BK"])
+    await expect(rows).toHaveCount(2)
+    await expect(summaryRow(page, "KZ")).toContainText(/^KZ\s*F/)
+    await lensPick(page, "Measure", "Net value").click()
+    await expect(page).toHaveURL(/[?&]measure=value/)
+    await expect(
+      summaryTable(page).getByRole("columnheader", { name: "Net value" })
+    ).toBeVisible()
+    // 79 built days of 40 lots at 9,000.
+    await expect(summaryRow(page, "KZ")).toContainText("+Rp2.84 B")
+    await expect(inventoryChart(page)).toContainText(/ B/)
+    await page.reload()
+    await expect(lensPick(page, "Investor", "Foreign")).toHaveAttribute(
+      "aria-pressed",
+      "true"
+    )
+    await expect(lensPick(page, "Measure", "Net value")).toHaveAttribute(
+      "aria-pressed",
+      "true"
+    )
+    await expect.poll(() => plotted(page)).toStrictEqual(["KZ", "BK"])
+    await expect(summaryRow(page, "KZ")).toContainText("+Rp2.84 B")
+  })
+
+  test("adds a broker from its summary row, and its chip's ✕ removes it", async ({
+    page,
+  }) => {
+    // Over 1Y, as over 3M, MG is a net buyer outside the Top 5.
+    await page.goto(`${DASHBOARD}/stocks/BBCA?tab=brokers&range=1Y`)
+    await expect.poll(() => plotted(page)).toStrictEqual(TOP_3M)
+    await expect(async () => {
+      await summaryRow(page, "MG").click()
+      await expect(page).toHaveURL(/[?&]brokers=buy%2Csell%2CMG/, {
+        timeout: 1000,
+      })
+    }).toPass()
+    await expect.poll(() => plotted(page)).toStrictEqual([...TOP_3M, "MG"])
+    await expect(
+      brokerInventory(page).getByRole("list", { name: "Net buy" })
+    ).toContainText("MG")
+    await chips(page)
+      .getByRole("button", { name: "Remove Top 5 net sell" })
+      .click()
+    await expect(page).toHaveURL(/[?&]brokers=buy%2CMG/)
+    await expect
+      .poll(() => plotted(page))
+      .toStrictEqual([...TOP_3M.slice(0, 5), "MG"])
+    await page.reload()
+    await expect
+      .poll(() => plotted(page))
+      .toStrictEqual([...TOP_3M.slice(0, 5), "MG"])
+    await expect(async () => {
+      await chips(page).getByRole("button", { name: "Remove MG" }).click()
+      await expect(page).toHaveURL(/[?&]brokers=buy$/, { timeout: 1000 })
+    }).toPass()
+    await expect.poll(() => plotted(page)).toStrictEqual(TOP_3M.slice(0, 5))
+    await chips(page).getByRole("button", { name: "Top 5 net sell" }).click()
+    // Both groups again are the default, left out of the URL.
+    await expect(page).toHaveURL(/\/stocks\/BBCA\?tab=brokers&range=1Y$/)
+    await expect.poll(() => plotted(page)).toStrictEqual(TOP_3M)
+  })
+
+  test("keeps no chips as an empty list", async ({ page }) => {
+    await page.goto(`${DASHBOARD}/stocks/BBCA?tab=brokers&brokers=`)
+    await expect(summaryTable(page).locator("tbody tr")).toHaveCount(12)
+    await expect.poll(() => plotted(page)).toStrictEqual([])
+    await page.reload()
+    await expect(page).toHaveURL(/[?&]brokers=$/)
+    await expect.poll(() => plotted(page)).toStrictEqual([])
   })
 })
