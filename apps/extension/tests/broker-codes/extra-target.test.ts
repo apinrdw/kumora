@@ -459,6 +459,27 @@ describe("the extra target", () => {
   )
 
   it.effect(
+    "catching up while its n is unknown, counts a trade it holds codes alone of once",
+    () =>
+      Effect.gen(function* () {
+        // It holds 1 and 4, and 2's codes alone: 2 and 3 are missing, and 5
+        // is past its highest.
+        const extra = fakeDashboard({
+          status: holding({ n: null, missing: [[2, 3]], held: 3 }),
+        })
+        const target = yield* harness({
+          production: fakeDashboard({ status: COMPLETE }),
+          extra,
+        })
+        const catchUp = yield* target.extra.catchUp("Ajaib", ({ post }) =>
+          Effect.sync(() => fakeWalk(post))
+        )
+        assert.deepStrictEqual(yield* catchUp.walk(DAY), { _tag: "walked" })
+        assert.deepStrictEqual(extra.written, ["2", "3", "5", "end 5"])
+      })
+  )
+
+  it.effect(
     "catching up from a list cut short, sends every trade past its last range",
     () =>
       Effect.gen(function* () {

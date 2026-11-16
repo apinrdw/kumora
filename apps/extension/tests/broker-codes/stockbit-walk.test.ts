@@ -735,6 +735,31 @@ describe("Stockbit's walk: stopping and carrying on", () => {
   )
 
   it.effect(
+    "a day Stockbit walked alone, a row of it posted without fields, resumes no further than it walked",
+    () =>
+      Effect.gen(function* () {
+        yield* TestClock.setTime(wib("2026-11-12", "17:30:00"))
+        const production = fakeProduction()
+        const first = fakeStockbit({
+          badLots: new Set([5]),
+          answer: (call) => (call === 15 ? Effect.never : undefined),
+        })
+        const before = yield* walkWith(first, production)
+        const fiber = yield* Effect.forkChild(before.walk(DAY))
+        yield* settle(first, 15)
+        yield* Fiber.interrupt(fiber)
+
+        const second = fakeStockbit({ badLots: new Set([5]) })
+        const after = yield* walkWith(second, production)
+        yield* after.walk(DAY)
+        assert.strictEqual(second.params()[1]?.get("trade_number"), "1000")
+        assert.deepStrictEqual((yield* production.status(DAY)).missing, [
+          ["5", "5"],
+        ])
+      })
+  )
+
+  it.effect(
     "asks a failed call again 10 s later while the tab is still attached",
     () =>
       Effect.gen(function* () {
