@@ -2,8 +2,8 @@
 // apinrdw/kumora#427, "Sectors"), at SectorsPath on the Worker entry
 // (../market-live/entry.ts). Market Bubbles joins it to its live codes; a
 // code it leaves out is Unclassified.
-import { IDX_SECTORS, type SectorMap } from "@workspace/relay"
-import { Effect } from "effect"
+import { Sector, StockCode, type SectorMap } from "@workspace/relay"
+import { Effect, Schema } from "effect"
 
 import { HoldingsDb } from "../holdings/db.ts"
 import { gatedRead } from "../market-live/days.ts"
@@ -13,7 +13,8 @@ import { MAX_PROFILES } from "./sync.ts"
 // copy an hour.
 const SECTORS_CACHE = "private, max-age=3600"
 
-const SECTORS: ReadonlySet<string> = new Set(IDX_SECTORS)
+const isSector = Schema.is(Sector)
+const isStockCode = Schema.is(StockCode)
 
 // At most MAX_PROFILES rows, the most a run writes.
 export const sectorMapBody = Effect.gen(function* () {
@@ -23,18 +24,14 @@ export const sectorMapBody = Effect.gen(function* () {
       params: [MAX_PROFILES],
     },
   ])
-  const sectors: Record<string, { sector: string; industry: string }> = {}
+  const sectors: Record<StockCode, SectorMap["sectors"][StockCode]> = {}
   let fetchedAt: string | null = null
-  for (const row of rows) {
-    const sector = String(row.sector)
-    fetchedAt = String(row.fetched_at)
-    if (SECTORS.has(sector))
-      sectors[String(row.code)] = { sector, industry: String(row.industry) }
+  for (const { code, sector, industry, fetched_at } of rows) {
+    fetchedAt = String(fetched_at)
+    if (isStockCode(code) && isSector(sector))
+      sectors[code] = { sector, industry: String(industry) }
   }
-  return JSON.stringify({ fetchedAt, sectors } satisfies Record<
-    keyof SectorMap,
-    unknown
-  >)
+  return JSON.stringify({ fetchedAt, sectors } satisfies SectorMap)
 })
 
 export const sectorsRoute = (request: Request) =>

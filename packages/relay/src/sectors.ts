@@ -22,7 +22,7 @@ export const IDX_SECTORS = [
   "Infrastructures",
   "Transportation & Logistic",
 ] as const
-const Sector = Schema.Literals(IDX_SECTORS)
+export const Sector = Schema.Literals(IDX_SECTORS)
 export type Sector = typeof Sector.Type
 
 // A code with no sector in the map is in this one.

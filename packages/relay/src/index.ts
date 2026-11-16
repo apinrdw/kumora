@@ -171,9 +171,10 @@ export {
 } from "./sweeps.ts"
 export {
   IDX_SECTORS,
+  Sector,
   SectorName,
   SectorsPath,
   UNCLASSIFIED,
   decodeSectorMap,
 } from "./sectors.ts"
-export type { Sector, SectorMap } from "./sectors.ts"
+export type { SectorMap } from "./sectors.ts"

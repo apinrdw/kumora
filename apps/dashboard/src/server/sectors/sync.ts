@@ -2,7 +2,7 @@
 // profiles, one GET for every listed stock, replace the stock_sector table
 // in HoldingsDb in one batch. docs/research/idx-sector-classification.md has
 // the endpoint's behaviour.
-import { IDX_SECTORS, StockCode, type Sector } from "@workspace/relay"
+import { Sector, StockCode } from "@workspace/relay"
 import { NonRetryable } from "@workspace/server"
 import { Effect, Schema } from "effect"
 import { HttpClient } from "effect/http"
@@ -43,9 +43,7 @@ type SectorRun =
   // A sanity gate dropped the run; yesterday's table stays.
   | { readonly _tag: "Kept"; readonly reason: string }
 
-const isSector = (name: string): name is Sector =>
-  (IDX_SECTORS as ReadonlyArray<string>).includes(name)
-
+const isSector = Schema.is(Sector)
 const isStockCode = Schema.is(StockCode)
 
 const fetchProfiles = Effect.gen(function* () {
