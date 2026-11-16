@@ -769,15 +769,25 @@ const builtUnder = (value: "built" | "built-auctions") => (sql: Sql) =>
         "DELETE FROM sweep_brokers WHERE minute = ?",
         DateTime.toEpochMillis(wib("08:58:00"))
       )
-    sql.exec(
-      "UPDATE sweep_brokers SET sweeps = ?",
-      `[["3",[["BK","D",6]],[["ZP","F",6]]]]`
-    )
+    sql.exec("UPDATE sweep_brokers SET sweeps = ?", BEFORE_PIECES)
     sql.exec(
       "UPDATE facts SET value = ? WHERE key = 'sweep-brokers-built'",
       value
     )
   })
+
+// What a day whose build was cut off before whole sweeps split holds: every
+// row in the shape before pieces, and the build's progress the bare minute
+// at `time`.
+const cutOffAt = (time: string) => (sql: Sql) =>
+  Effect.sync(() => {
+    sql.exec("UPDATE sweep_brokers SET sweeps = ?", BEFORE_PIECES)
+    sql.exec(
+      "UPDATE facts SET value = ? WHERE key = 'sweep-brokers-built'",
+      String(DateTime.toEpochMillis(wib(time)))
+    )
+  })
+const BEFORE_PIECES = `[["3",[["BK","D",6]],[["ZP","F",6]]]]`
 
 // Whether every stored row reads in the current shape.
 const rowsRead = (sql: Sql) =>
@@ -912,3 +922,52 @@ for (const [value, until] of [
       })
     )
   })
+
+describe("a day whose sweep brokers build was cut off before whole sweeps split", () => {
+  it.effect(
+    "rebuilds from its first minute on its next GET, with no old-shape row left",
+    () =>
+      Effect.gen(function* () {
+        const sql = memorySql()
+        yield* at("09:01:10")
+        const sealed = yield* tradingDay(sql)
+        yield* sealed.trades(OPENING_AND_SWEEP)
+        yield* at("17:00:00")
+        yield* sealed.alarm
+        yield* at("17:30:00")
+        yield* sealed.brokerCodes("Ajaib", OPENING_CODES, 3)
+        yield* sealed.evicted
+        yield* cutOffAt("08:58:00")(sql)
+        yield* nextDay
+
+        const day = yield* tradingDay(sql)
+        const { answer } = yield* day.recordedSweepBrokers("UNTR")
+        assert.deepStrictEqual(answer.sweeps.flatMap(brokersOf), WITH_AUCTION)
+        yield* rowsRead(sql)
+      })
+  )
+
+  it.effect(
+    "rebuilds from its first minute though a late trade lands before the seal",
+    () =>
+      Effect.gen(function* () {
+        const sql = memorySql()
+        yield* at("09:01:10")
+        const live = yield* tradingDay(sql)
+        yield* live.trades(OPENING_AND_SWEEP)
+        yield* at("09:02:10")
+        yield* live.brokerCodes("Ajaib", OPENING_CODES)
+        yield* live.evicted
+        yield* cutOffAt("09:00:00")(sql)
+
+        yield* at("09:02:20")
+        const day = yield* tradingDay(sql)
+        yield* day.trades([untr(4, "09:00:40.000", 2, "sell")])
+        yield* at("17:00:00")
+        yield* day.alarm
+        const { answer } = yield* day.recordedSweepBrokers("UNTR")
+        assert.deepStrictEqual(answer.sweeps.flatMap(brokersOf), WITH_AUCTION)
+        yield* rowsRead(sql)
+      })
+  )
+})
