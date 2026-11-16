@@ -62,10 +62,13 @@ const SCHEMA = [
     PRIMARY KEY (broker, investor_type, side, number)
   ) WITHOUT ROWID`,
   // Decision: a walk's fields of each trade the day's tape lacked when its
-  // batch was written, the first row stored for it kept. The tape is never
-  // filled from them: a sealed day's recorded answers don't change. Only the
-  // broker totals build reads them, and a trade the tape holds uses the
-  // tape's fields. See apinrdw/kumora#425.
+  // batch was written, the first row stored for it kept. On a day the relay
+  // recorded, the tape is never filled from them: a sealed day's recorded
+  // answers don't change. Only the broker totals build reads them, and a
+  // trade the tape holds uses the tape's fields. See apinrdw/kumora#425.
+  // Since #437 a day with no relay tape takes a batch's fields as its tape
+  // instead (trading-day.ts, `walkTapeOf`), and a row here holds no trade
+  // of such a day (`walkRowsHold`).
   `CREATE TABLE IF NOT EXISTS walk_trades (
     number INTEGER PRIMARY KEY,
     code TEXT NOT NULL,

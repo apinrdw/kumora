@@ -1395,11 +1395,14 @@ export const makeTradingDay = Effect.fnUntraced(function* (options: {
     recorded: (resource: RecordedResource) =>
       turn.withPermit(recorded(resource)),
     alarm: turn.withPermit(alarm),
-    // Decision: broker codes touch none of a recorded day's state: their
-    // own tables, no flush, no seal and no index row, so a sealed day takes
-    // them and its recorded answers stay byte-identical. See spec
-    // apinrdw/kumora#244, "Dashboard: TradingDay's broker codes store".
-    // Only a day with no relay tape takes their fields (`walkTapeOf`).
+    // Decision: on a day the relay recorded, broker codes touch none of a
+    // recorded day's state: their own tables, no flush, no seal and no index
+    // row, so a sealed day takes them and its recorded answers stay
+    // byte-identical. See spec apinrdw/kumora#244, "Dashboard: TradingDay's
+    // broker codes store". Since #437 a day with no relay tape is the
+    // exception: a batch's fields become its tape (`walkTapeOf`, which
+    // unseals a day sealed empty), and the batch that completes it arms its
+    // seal (`walkSealDue`), which writes its index row.
     brokerCodes: {
       // Decision: a batch that changes codes rewrites its trades' sweep
       // brokers rows from their minutes' stored trades, in the codes' turn
