@@ -333,7 +333,7 @@ describe("a classification report that doesn't match what's expected", () => {
       what: "a cell of a type it doesn't read",
       fixture: "error-code",
       reason:
-        'Cell B7\'s type is "e": a cell is read only as a shared string, a string, an inline string or a number',
+        'Cell B7\'s type is "e": a cell is read only as a shared string, a string, an inline string, a number or a boolean',
     },
     {
       what: "a stock row whose SHARE_CODE is a number",

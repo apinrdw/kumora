@@ -64,6 +64,10 @@ describe("a cell's type", () => {
     ['t="str"', "<v>BBCA</v>", "BBCA"],
     ['t="n"', "<v>7</v>", 7],
     ["", "<v>7</v>", 7],
+    // Excel's text of a boolean: IDX's Apr 2026 investor-type report writes
+    // the stock code TRUE as one.
+    ['t="b"', "<v>1</v>", "TRUE"],
+    ['t="b"', "<v>0</v>", "FALSE"],
   ] as const)
     it.effect(`reads ${type || "no type"} as ${JSON.stringify(value)}`, () =>
       Effect.gen(function* () {
@@ -73,7 +77,14 @@ describe("a cell's type", () => {
       })
     )
 
-  for (const type of ["b", "e", "d", "x"])
+  it.effect("refuses a boolean neither 0 nor 1", () =>
+    Effect.gen(function* () {
+      const error = yield* Effect.flip(read(cellOf('t="b"', "<v>2</v>")))
+      assert.strictEqual(error.message, "Cell A1's boolean isn't 0 or 1: 2")
+    })
+  )
+
+  for (const type of ["e", "d", "x"])
     it.effect(`refuses t="${type}"`, () =>
       Effect.gen(function* () {
         const error = yield* Effect.flip(
@@ -81,7 +92,7 @@ describe("a cell's type", () => {
         )
         assert.strictEqual(
           error.message,
-          `Cell A1's type is "${type}": a cell is read only as a shared string, a string, an inline string or a number`
+          `Cell A1's type is "${type}": a cell is read only as a shared string, a string, an inline string, a number or a boolean`
         )
       })
     )
