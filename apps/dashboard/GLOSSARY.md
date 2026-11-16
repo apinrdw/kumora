@@ -46,6 +46,22 @@ _Avoid_: Verification, reconciliation
 Fetching the broker codes of trading days from before the terminal started keeping them, newest day first, until the broker site stops serving older days.
 _Avoid_: Backfill (that is filling gaps in the live tape)
 
+**Trade fields**:
+A running trade's stock code, price, lots and board: what the tape holds for it, but its time and aggressor side. The walks that fetch a day's broker codes after the close send each trade's fields with its codes.
+_Avoid_: Trade details, trade row
+
+**Held trade**:
+A trade of a trading day that has its broker codes and its trade fields. The fields come from the day's tape, or, for a trade the tape lacks, from a walk after the close; a trade the tape holds always uses the tape's fields, and for one it lacks, the first walk's fields are kept. Fields from a walk never join the tape or anything Market Live shows.
+_Avoid_: Covered trade (covered counts the cross-check's agreements)
+
+**Complete** (a day's broker codes):
+Every trade 1..N of the day, N its highest trade number, is a held trade. A day that isn't complete lists its missing trades, tape holes with codes but no walk's fields among them, and the walks fetch those again.
+_Avoid_: Done, finished
+
+**Codes complete**:
+Every trade 1..N of the day has broker codes, whatever its fields. It is what Market Live's recorded day reads to show its brokers, and a tape hole doesn't stop it.
+_Avoid_: Complete (that also needs every trade's fields)
+
 **Trade number**:
 The exchange's number for a running trade: one sequence across the whole market, restarting each trading day. Every feed that reports the same trade gives it the same trade number.
 _Avoid_: Trade ID, sequence
