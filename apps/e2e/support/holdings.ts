@@ -236,3 +236,21 @@ export function seedKseiMonths(months: SeededKseiMonths) {
     }
   })
 }
+
+/**
+ * Gives each code its IDX-IC sector in stock_sector, as the sector run
+ * would, leaving every other row: specs running at once share the table.
+ */
+export function seedStockSectors(sectors: Readonly<Record<string, string>>) {
+  const id = databaseId("HoldingsDb")
+  if (id === undefined) throw new Error("The Test stage has no HoldingsDb yet")
+  const db = new DatabaseSync(databaseFile(id).pathname, { timeout: 5000 })
+  try {
+    const row = db.prepare(
+      "INSERT OR REPLACE INTO stock_sector VALUES (?, ?, 'Seeded', 'Seeded', 'Seeded', '2026-11-16T15:00:00.000Z')"
+    )
+    for (const [code, sector] of Object.entries(sectors)) row.run(code, sector)
+  } finally {
+    db.close()
+  }
+}

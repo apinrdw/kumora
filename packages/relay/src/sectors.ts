@@ -25,6 +25,10 @@ export const IDX_SECTORS = [
 const Sector = Schema.Literals(IDX_SECTORS)
 export type Sector = typeof Sector.Type
 
+// A code with no sector in the map is in this one.
+export const UNCLASSIFIED = "Unclassified" as const
+export const SectorName = Schema.Union([Sector, Schema.Literal(UNCLASSIFIED)])
+export type SectorName = typeof SectorName.Type
 export const SectorsPath = "/market-live/sectors"
 
 const SectorMap = Schema.Struct({

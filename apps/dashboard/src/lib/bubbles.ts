@@ -12,6 +12,7 @@ import {
   type MarketPhase,
   type RecordedBubbles,
   type RunningTrade,
+  type SectorName,
   type StockCode,
 } from "@workspace/relay"
 import { DateTime, Effect } from "effect"
@@ -41,6 +42,8 @@ export interface BubbleView {
   readonly colour: ColourMetric
   readonly window: BubbleWindow
   readonly top: TopN
+  // One sector's codes, or every sector's when none.
+  readonly sector?: SectorName | undefined
 }
 
 // One code's figures over a window. Change is against the price before the

@@ -1,5 +1,11 @@
 import { createFileRoute } from "@tanstack/react-router"
-import type { MarketPhase, StockCode } from "@workspace/relay"
+import {
+  IDX_SECTORS,
+  UNCLASSIFIED,
+  type MarketPhase,
+  type SectorName,
+  type StockCode,
+} from "@workspace/relay"
 import { loadServerFn, runLoader } from "@workspace/server/loader"
 import { cn } from "@workspace/ui/lib/utils"
 import { Effect } from "effect"
@@ -10,8 +16,10 @@ import { KEmptyState } from "@/components/k/empty-state"
 import { KSelect } from "@/components/k/select"
 import { BubbleCanvas } from "@/components/market-bubbles/bubble-canvas"
 import { useMarketFlow } from "@/components/market-bubbles/use-market-flow"
+import { useSectors } from "@/components/market-bubbles/use-sectors"
 import { useMarketPhase } from "@/components/market-live/market-conditions"
 import { useStockCodeList } from "@/components/market-live/use-stock-code-list"
+import { inSector, type SectorLookup } from "@/lib/bubble-sectors"
 import {
   BUBBLE_WINDOWS,
   bubblesOf,
@@ -63,6 +71,19 @@ const TOP_OPTIONS: ReadonlyArray<{ value: TopN; label: string }> = [
   { value: "all", label: "All" },
 ]
 
+// "All sectors" is no sector in the URL.
+const ALL_SECTORS = "all"
+const SECTOR_OPTIONS: ReadonlyArray<{
+  value: SectorName | typeof ALL_SECTORS
+  label: string
+}> = [
+  { value: ALL_SECTORS, label: "All sectors" },
+  ...[...IDX_SECTORS, UNCLASSIFIED].map((sector: SectorName) => ({
+    value: sector,
+    label: sector,
+  })),
+]
+
 // What the map shows each second: the bubbles and where the windows end, or
 // none before the day's first trade.
 type Frame =
@@ -79,10 +100,12 @@ const WAITING: Frame = { _tag: "Waiting" }
 
 // The bubbles of `view` each RECOMPUTE_MS, and at once when the view changes.
 // The windows end at now on Market Live's clock, `clockOffset` ms ahead of
-// the browser's, or at the day's last trade out of session.
+// the browser's, or at the day's last trade out of session. The view's
+// sector filters the ranked bubbles.
 function useBubbleFrame(
   flow: MarketFlow,
   view: BubbleView,
+  sectors: SectorLookup,
   phase: MarketPhase | undefined,
   clockOffset: number
 ): Frame {
@@ -94,13 +117,14 @@ function useBubbleFrame(
         windowEnd(flow, phase, Date.now() + clockOffset)
       )
       if (ends === undefined) return setFrame({ _tag: "Empty" })
-      const bubbles = Effect.runSync(bubblesOf(flow, view, ends.end))
+      const ranked = Effect.runSync(bubblesOf(flow, view, ends.end))
+      const bubbles = Effect.runSync(inSector(ranked, sectors, view.sector))
       setFrame({ _tag: "Shown", bubbles, ...ends })
     }
     recompute()
     const timer = setInterval(recompute, RECOMPUTE_MS)
     return () => clearInterval(timer)
-  }, [flow, view, phase, clockOffset])
+  }, [flow, view, sectors, phase, clockOffset])
   return frame
 }
 
@@ -127,7 +151,12 @@ function MarketBubblesPage() {
   )
   const { flow, status } = useMarketFlow(today)
   const phase = useMarketPhase()
-  const frame = useBubbleFrame(flow, view, phase, clockOffset)
+  const sectors = useSectors()
+  const frame = useBubbleFrame(flow, view, sectors, phase, clockOffset)
+  const showSector = useCallback(
+    (sector: SectorName) => change({ sector }),
+    [change]
+  )
   const list = useStockCodeList(undefined, today)
   const names = useMemo(
     () =>
@@ -173,7 +202,9 @@ function MarketBubblesPage() {
           bubbles={frame._tag === "Shown" ? frame.bubbles : []}
           view={view}
           names={names}
+          sectors={sectors}
           onPick={openLive}
+          onPickSector={showSector}
           className="h-[calc(100dvh-15rem)] min-h-[420px] border-t border-border"
         />
       )}
@@ -232,6 +263,16 @@ function Controls({
         options={TOP_OPTIONS}
         value={view.top}
         onPick={(top) => onChange({ top })}
+      />
+      <KSelect
+        label="Sector"
+        size="xs"
+        options={SECTOR_OPTIONS}
+        value={view.sector ?? ALL_SECTORS}
+        onValueChange={(sector) =>
+          onChange({ sector: sector === ALL_SECTORS ? undefined : sector })
+        }
+        className="w-52"
       />
       {frame._tag === "Shown" && (
         <span className="pb-2 text-muted-foreground">

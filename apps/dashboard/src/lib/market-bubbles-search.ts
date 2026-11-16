@@ -1,6 +1,7 @@
 // What /market-bubbles reads from its URL (spec apinrdw/kumora#427, "The
-// page"): the size and colour metrics, the window and Top N, so a reload or a
+// page"): the size and colour metrics, the window, Top N and the sector, so a reload or a
 // shared link opens the same view. A default stays out of the URL.
+import { SectorName } from "@workspace/relay"
 import { Effect, Option, Schema } from "effect"
 
 import {
@@ -25,6 +26,7 @@ export const DEFAULT_VIEW: BubbleView = {
   colour: "delta",
   window: "5m",
   top: 100,
+  sector: undefined,
 }
 
 // `patch` as search params: each default set `undefined`, which the router
@@ -52,6 +54,7 @@ export const parseMarketBubblesSearch = (raw: Record<string, unknown>) =>
     colour: field(Colour, raw.colour),
     window: field(Window, raw.window),
     top: field(Top, raw.top),
+    sector: field(SectorName, raw.sector),
   })
 
 // The view the search names, with a default for each field it leaves out.
@@ -61,4 +64,5 @@ export const viewOfSearch = (search: MarketBubblesSearch) =>
     colour: search.colour ?? DEFAULT_VIEW.colour,
     window: search.window ?? DEFAULT_VIEW.window,
     top: search.top ?? DEFAULT_VIEW.top,
+    sector: search.sector,
   }))

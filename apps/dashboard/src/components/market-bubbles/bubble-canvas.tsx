@@ -1,8 +1,13 @@
-import type { StockCode } from "@workspace/relay"
+import { UNCLASSIFIED, type SectorName, type StockCode } from "@workspace/relay"
 import { cn } from "@workspace/ui/lib/utils"
 import { Effect } from "effect"
 import { useEffect, useRef, useState } from "react"
 
+import {
+  packSectors,
+  sectorGroups,
+  type SectorLookup,
+} from "@/lib/bubble-sectors"
 import {
   bubbleScale,
   bubbleTone,
@@ -23,6 +28,7 @@ interface Labels {
 // and the targets they ease to, and the figures it shows.
 interface Body {
   readonly code: StockCode
+  sector: SectorName
   x: number
   y: number
   vx: number
@@ -46,6 +52,43 @@ interface Hovered {
   // The canvas's size, to keep the tooltip inside it.
   readonly width: number
   readonly height: number
+}
+
+// A sector's cluster centre, easing toward where the last pack put it.
+interface Anchor {
+  x: number
+  y: number
+  tx: number
+  ty: number
+}
+
+// A sector's label above its cluster: its name, then its total and its
+// delta or change %, toned by that %'s sign.
+interface SectorLabel {
+  readonly name: string
+  readonly figures: string
+  readonly sign: number
+}
+
+// Where a sector label was last drawn, for a click.
+interface LabelBox {
+  readonly sector: SectorName
+  readonly left: number
+  readonly top: number
+  readonly right: number
+  readonly bottom: number
+}
+
+// What the canvas keeps between frames and renders: its bodies, the bubble
+// a pointer is over and where a press began, and each sector's anchor,
+// label and where that label was last drawn.
+interface Scene {
+  readonly bodies: Map<StockCode, Body>
+  hovered: StockCode | undefined
+  pressedAt: { readonly x: number; readonly y: number } | undefined
+  readonly anchors: Map<SectorName, Anchor>
+  labels: ReadonlyMap<SectorName, SectorLabel>
+  boxes: ReadonlyArray<LabelBox>
 }
 
 type Rgb = readonly [number, number, number]
@@ -74,37 +117,63 @@ const GLOWING = 120
 // A press that moves no further than this is a click.
 const CLICK_SLOP = 4
 const GAP = 1.5
+// Cluster centres ease 2 % of the way to their targets each frame, and pull
+// their bubbles in.
+const ANCHOR_EASE = 0.02
+const ANCHOR_PULL = 0.012
+const DAMPING = 0.75
+
+// The long sector names, shortened above a cluster.
+const SHORT_SECTOR: Partial<Record<SectorName, string>> = {
+  "Consumer Non-Cyclicals": "Non-Cyclicals",
+  "Consumer Cyclicals": "Cyclicals",
+  "Properties & Real Estate": "Property",
+  "Transportation & Logistic": "Transport",
+}
 
 const NO_NAMES: ReadonlyMap<StockCode, string> = new Map()
+const NO_SECTORS: SectorLookup = new Map()
 
 // Every bubble of `bubbles` on one canvas, sized by `view`'s size metric and
 // toned by its colour metric, easing between the figures each recompute
-// brings. A code that leaves shrinks out and one that joins grows in.
-// Hovering a bubble grows it and shows its figures; a click hands its code to
-// `onPick`. The page and Market Live's panel both draw with it.
+// brings, one cluster per sector of `sectors`, each labelled. A code that
+// leaves shrinks out and one that joins grows in. Hovering a bubble grows it
+// and shows its figures; a click hands its code to `onPick`, and a click on
+// a sector label hands its sector to `onPickSector`. The page and Market
+// Live's panel both draw with it.
 export function BubbleCanvas({
   bubbles,
   view,
   names = NO_NAMES,
+  sectors = NO_SECTORS,
   onPick,
+  onPickSector,
   className,
 }: {
   bubbles: ReadonlyArray<BubbleFigures>
   view: BubbleView
   names?: ReadonlyMap<StockCode, string>
+  sectors?: SectorLookup
   onPick: (code: StockCode) => void
+  onPickSector?: (sector: SectorName) => void
   className?: string
 }) {
   const host = useRef<HTMLDivElement>(null)
   const canvas = useRef<HTMLCanvasElement>(null)
-  const bodies = useRef(new Map<StockCode, Body>())
-  const hoveredCode = useRef<StockCode | undefined>(undefined)
-  const pick = useRef(onPick)
+  const scene = useRef<Scene>({
+    bodies: new Map(),
+    hovered: undefined,
+    pressedAt: undefined,
+    anchors: new Map(),
+    labels: new Map(),
+    boxes: [],
+  })
+  const picks = useRef({ onPick, onPickSector })
   const [hovered, setHovered] = useState<Hovered | undefined>(undefined)
 
   useEffect(() => {
-    pick.current = onPick
-  }, [onPick])
+    picks.current = { onPick, onPickSector }
+  }, [onPick, onPickSector])
 
   // Each recompute: new targets, joining bubbles in, leaving ones out.
   useEffect(() => {
@@ -118,58 +187,35 @@ export function BubbleCanvas({
         width * height
       )
     )
-    const held = bodies.current
+    const held = scene.current.bodies
     const shown = new Set<StockCode>()
     for (const figures of bubbles) {
       shown.add(figures.code)
-      const labels: Labels = {
-        metric:
-          view.colour === "delta" || figures.change !== undefined
-            ? Effect.runSync(
-                pct(view.colour === "delta" ? figures.delta : figures.change!)
-              )
-            : "—",
-        size: Effect.runSync(sizeFigure(view.size, figures.size)),
-      }
-      const targetR = Math.max(minRadius, k * Math.sqrt(figures.size))
-      const targetTone = Effect.runSync(bubbleTone(figures, view)) ?? 0
-      const body = held.get(figures.code)
-      if (body === undefined) {
-        // Grows in near the centre; its neighbours make room.
-        const angle = Math.random() * Math.PI * 2
-        held.set(figures.code, {
-          code: figures.code,
-          x: width / 2 + Math.cos(angle) * width * 0.1,
-          y: height / 2 + Math.sin(angle) * height * 0.1,
-          vx: 0,
-          vy: 0,
-          r: 0,
-          shownR: 0,
-          targetR,
-          tone: targetTone,
-          targetTone,
-          figures,
-          labels,
-          leaving: false,
+      const sector = sectors.get(figures.code) ?? UNCLASSIFIED
+      Effect.runSync(
+        retarget(held, figures, {
+          sector,
+          view,
+          targetR: Math.max(minRadius, k * Math.sqrt(figures.size)),
+          near: scene.current.anchors.get(sector) ?? {
+            x: width / 2,
+            y: height / 2,
+          },
         })
-        continue
-      }
-      body.targetR = targetR
-      body.targetTone = targetTone
-      body.figures = figures
-      body.labels = labels
-      body.leaving = false
+      )
     }
     for (const [code, body] of held) if (!shown.has(code)) body.leaving = true
+    Effect.runSync(placeSectors(scene.current.anchors, held, width, height))
+    scene.current.labels = Effect.runSync(labelsOf(bubbles, sectors, view))
     // The tooltip follows its bubble's new figures.
     setHovered((last) => {
-      const code = hoveredCode.current
+      const code = scene.current.hovered
       const body = code === undefined ? undefined : held.get(code)
       if (last === undefined || body === undefined || body.leaving)
         return undefined
       return { ...last, figures: body.figures }
     })
-  }, [bubbles, view])
+  }, [bubbles, view, sectors])
 
   // The frame loop: motion, then drawing.
   useEffect(() => {
@@ -222,19 +268,20 @@ export function BubbleCanvas({
     }
 
     // One body's frame: its radius, tone and hover ease, and the pull toward
-    // the centre. A wide canvas pulls less across, so the cluster fills it.
+    // its sector's centre.
     const move = (body: Body) => {
       body.r += ((body.leaving ? 0 : body.targetR) - body.r) * RADIUS_EASE
       body.tone += (body.targetTone - body.tone) * TONE_EASE
       const shown =
-        body.code === hoveredCode.current
+        body.code === scene.current.hovered
           ? Math.max(body.r * HOVER_SCALE, HOVER_MIN_RADIUS)
           : body.r
       body.shownR += (shown - body.shownR) * HOVER_EASE
-      body.vx += (width / 2 - body.x) * 0.0016 * (height / Math.max(width, 1))
-      body.vy += (height / 2 - body.y) * 0.0016
-      body.vx *= 0.82
-      body.vy *= 0.82
+      const anchor = scene.current.anchors.get(body.sector)
+      body.vx += ((anchor?.x ?? width / 2) - body.x) * ANCHOR_PULL
+      body.vy += ((anchor?.y ?? height / 2) - body.y) * ANCHOR_PULL
+      body.vx *= DAMPING
+      body.vy *= DAMPING
       body.x += body.vx
       body.y += body.vy
     }
@@ -269,13 +316,17 @@ export function BubbleCanvas({
     }
 
     const step = (list: Array<Body>) => {
+      for (const anchor of scene.current.anchors.values()) {
+        anchor.x += (anchor.tx - anchor.x) * ANCHOR_EASE
+        anchor.y += (anchor.ty - anchor.y) * ANCHOR_EASE
+      }
       for (const body of list) move(body)
       collide(list)
       collide(list)
       for (const body of list) {
         body.x = Math.min(Math.max(body.x, body.r), width - body.r)
         body.y = Math.min(Math.max(body.y, body.r), height - body.r)
-        if (body.leaving && body.r < 0.5) bodies.current.delete(body.code)
+        if (body.leaving && body.r < 0.5) scene.current.bodies.delete(body.code)
       }
     }
 
@@ -335,10 +386,64 @@ export function BubbleCanvas({
       context.shadowBlur = 0
     }
 
+    // Each sector's cluster: the mean x of its staying bubbles and their top.
+    const clusterTops = (list: ReadonlyArray<Body>) => {
+      const tops = new Map<
+        SectorName,
+        { sum: number; n: number; top: number }
+      >()
+      for (const body of list) {
+        if (body.leaving || body.r < 0.6) continue
+        const held = tops.get(body.sector) ?? { sum: 0, n: 0, top: Infinity }
+        held.sum += body.x
+        held.n += 1
+        held.top = Math.min(held.top, body.y - body.r)
+        tops.set(body.sector, held)
+      }
+      return [...tops].map(
+        ([sector, { sum, n, top }]) => [sector, { x: sum / n, top }] as const
+      )
+    }
+
+    // Each sector's label, centred above its bubbles.
+    const drawSectorLabels = (list: ReadonlyArray<Body>) => {
+      const boxes: Array<LabelBox> = []
+      for (const [sector, { x, top }] of clusterTops(list)) {
+        const heading = scene.current.labels.get(sector)
+        if (heading === undefined) continue
+        const bottom = Math.max(30, top - 4)
+        context.textAlign = "center"
+        context.textBaseline = "bottom"
+        context.font = `700 12px ${palette.font}`
+        context.fillStyle = palette.labelSecondary
+        context.fillText(heading.name, x, bottom - 13)
+        const nameWidth = context.measureText(heading.name).width
+        context.font = `600 11px ${palette.font}`
+        const [red, green, blue] =
+          heading.sign > 0
+            ? palette.up
+            : heading.sign < 0
+              ? palette.down
+              : palette.neutral
+        context.fillStyle = `rgb(${red},${green},${blue})`
+        context.fillText(heading.figures, x, bottom)
+        const half =
+          Math.max(nameWidth, context.measureText(heading.figures).width) / 2
+        boxes.push({
+          sector,
+          left: x - half,
+          right: x + half,
+          top: bottom - 28,
+          bottom,
+        })
+      }
+      return boxes
+    }
+
     let frame = 0
     let tick = 0
     const draw = () => {
-      const list = [...bodies.current.values()]
+      const list = [...scene.current.bodies.values()]
       step(list)
       context.setTransform(ratio, 0, 0, ratio, 0, 0)
       context.clearRect(0, 0, width, height)
@@ -347,7 +452,7 @@ export function BubbleCanvas({
         list.length > GLOWING ? list[list.length - GLOWING]!.r : 0
       let top: Body | undefined
       for (const body of list) {
-        if (body.code === hoveredCode.current) {
+        if (body.code === scene.current.hovered) {
           top = body
           continue
         }
@@ -355,6 +460,7 @@ export function BubbleCanvas({
         disc(body, body.r, body.r >= glowFrom && body.r > 14)
         label(body, body.r)
       }
+      scene.current.boxes = drawSectorLabels(list)
       // The hovered bubble, grown and ringed, over its neighbours.
       if (top !== undefined) {
         // Opaque, so the neighbours it covers don't show through.
@@ -383,6 +489,14 @@ export function BubbleCanvas({
           surface.dataset.largest = largest.code
           surface.dataset.largestAt = `${Math.round(largest.x)},${Math.round(largest.y)}`
         }
+        surface.dataset.sectorLabels = JSON.stringify(
+          Object.fromEntries(
+            scene.current.boxes.map((box) => [
+              box.sector,
+              `${Math.round((box.left + box.right) / 2)},${Math.round((box.top + box.bottom) / 2)}`,
+            ])
+          )
+        )
       }
       frame = requestAnimationFrame(draw)
     }
@@ -396,13 +510,33 @@ export function BubbleCanvas({
   // The bubble under a point, the smallest when they overlap.
   const hit = (x: number, y: number) => {
     let found: Body | undefined
-    for (const body of bodies.current.values()) {
+    for (const body of scene.current.bodies.values()) {
       if (body.leaving) continue
-      const reach = body.code === hoveredCode.current ? body.shownR : body.r
+      const reach = body.code === scene.current.hovered ? body.shownR : body.r
       if (Math.hypot(body.x - x, body.y - y) > reach) continue
       if (found === undefined || body.r < found.r) found = body
     }
     return found
+  }
+  // The sector label under a point, when a click on one picks it.
+  const labelAt = (x: number, y: number) =>
+    picks.current.onPickSector &&
+    Effect.runSync(labelUnder(scene.current.boxes, x, y))
+  // A press let go within CLICK_SLOP of where it began: a click on the label
+  // or the bubble under it.
+  const release = (event: React.PointerEvent) => {
+    const from = scene.current.pressedAt
+    scene.current.pressedAt = undefined
+    const at = pointAt(event)
+    if (
+      from === undefined ||
+      Math.hypot(at.x - from.x, at.y - from.y) > CLICK_SLOP
+    )
+      return
+    const sector = labelAt(at.x, at.y)
+    if (sector !== undefined) return picks.current.onPickSector?.(sector)
+    const body = hit(at.x, at.y)
+    if (body !== undefined) picks.current.onPick(body.code)
   }
   const pointAt = (event: React.PointerEvent) => {
     const box = canvas.current!.getBoundingClientRect()
@@ -413,7 +547,6 @@ export function BubbleCanvas({
       height: box.height,
     }
   }
-  const pressedAt = useRef<{ x: number; y: number } | undefined>(undefined)
 
   return (
     <div ref={host} className={cn("relative overflow-hidden", className)}>
@@ -422,57 +555,174 @@ export function BubbleCanvas({
         role="img"
         aria-label={`Market Bubbles: ${bubbles.length} stock codes`}
         className="absolute inset-0 size-full"
-        style={{ cursor: hovered === undefined ? "default" : "pointer" }}
         onPointerMove={(event) => {
           const at = pointAt(event)
           const body = hit(at.x, at.y)
-          hoveredCode.current = body?.code
+          event.currentTarget.style.cursor =
+            body !== undefined || labelAt(at.x, at.y) !== undefined
+              ? "pointer"
+              : "default"
+          scene.current.hovered = body?.code
           setHovered(body && { figures: body.figures, ...at })
         }}
         onPointerLeave={() => {
-          hoveredCode.current = undefined
+          scene.current.hovered = undefined
           setHovered(undefined)
         }}
         onPointerDown={(event) => {
-          pressedAt.current = pointAt(event)
+          scene.current.pressedAt = pointAt(event)
         }}
-        onPointerUp={(event) => {
-          const from = pressedAt.current
-          pressedAt.current = undefined
-          if (from === undefined) return
-          const at = pointAt(event)
-          if (Math.hypot(at.x - from.x, at.y - from.y) > CLICK_SLOP) return
-          const body = hit(at.x, at.y)
-          if (body !== undefined) pick.current(body.code)
-        }}
+        onPointerUp={release}
       />
       {hovered && (
         <BubbleTip
           hovered={hovered}
           view={view}
           name={names.get(hovered.figures.code)}
+          sectors={sectors}
         />
       )}
     </div>
   )
 }
 
+// A recompute's figures for one bubble: its new targets, or a new body that
+// grows in near its sector's centre, where its neighbours make room.
+const retarget = Effect.fnUntraced(function* (
+  held: Map<StockCode, Body>,
+  figures: BubbleFigures,
+  {
+    sector,
+    view,
+    targetR,
+    near,
+  }: {
+    readonly sector: SectorName
+    readonly view: BubbleView
+    readonly targetR: number
+    readonly near: { readonly x: number; readonly y: number }
+  }
+) {
+  const metric = view.colour === "delta" ? figures.delta : figures.change
+  const labels: Labels = {
+    metric: metric === undefined ? "—" : yield* pct(metric),
+    size: yield* sizeFigure(view.size, figures.size),
+  }
+  const targetTone = (yield* bubbleTone(figures, view)) ?? 0
+  const body = held.get(figures.code)
+  if (body === undefined) {
+    const angle = Math.random() * Math.PI * 2
+    held.set(figures.code, {
+      code: figures.code,
+      sector,
+      x: near.x + Math.cos(angle) * 12,
+      y: near.y + Math.sin(angle) * 12,
+      vx: 0,
+      vy: 0,
+      r: 0,
+      shownR: 0,
+      targetR,
+      tone: targetTone,
+      targetTone,
+      figures,
+      labels,
+      leaving: false,
+    })
+    return
+  }
+  body.sector = sector
+  body.targetR = targetR
+  body.targetTone = targetTone
+  body.figures = figures
+  body.labels = labels
+  body.leaving = false
+})
+
+// The sector label under a point, if any.
+const labelUnder = (boxes: ReadonlyArray<LabelBox>, x: number, y: number) =>
+  Effect.sync(
+    () =>
+      boxes.find(
+        (box) =>
+          x >= box.left && x <= box.right && y >= box.top && y <= box.bottom
+      )?.sector
+  )
+
+// Packs the sectors of the staying bodies by their target areas, from the
+// targets the last pack left, and sets each anchor's new target. A new
+// sector's anchor starts at its target.
+const placeSectors = Effect.fnUntraced(function* (
+  anchors: Map<SectorName, Anchor>,
+  bodies: ReadonlyMap<StockCode, Body>,
+  width: number,
+  height: number
+) {
+  const areas = new Map<SectorName, number>()
+  for (const body of bodies.values())
+    if (!body.leaving)
+      areas.set(
+        body.sector,
+        (areas.get(body.sector) ?? 0) + Math.PI * body.targetR ** 2
+      )
+  const previous = new Map(
+    [...anchors].map(([sector, { tx, ty }]) => [sector, { x: tx, y: ty }])
+  )
+  const circles = yield* packSectors(
+    [...areas].map(([sector, area]) => ({ sector, area })),
+    width,
+    height,
+    previous
+  )
+  for (const { sector, x, y } of circles) {
+    const anchor = anchors.get(sector)
+    if (anchor === undefined) anchors.set(sector, { x, y, tx: x, ty: y })
+    else {
+      anchor.tx = x
+      anchor.ty = y
+    }
+  }
+})
+
+// Each sector's label: its name, then its total of the size metric and its
+// delta % or change %.
+const labelsOf = Effect.fnUntraced(function* (
+  bubbles: ReadonlyArray<BubbleFigures>,
+  sectors: SectorLookup,
+  view: BubbleView
+) {
+  const labels = new Map<SectorName, SectorLabel>()
+  for (const group of yield* sectorGroups(bubbles, sectors)) {
+    const metric = view.colour === "delta" ? group.delta : group.change
+    labels.set(group.sector, {
+      name: SHORT_SECTOR[group.sector] ?? group.sector,
+      figures: `${yield* sizeFigure(view.size, group.total)} · ${
+        metric === undefined ? "—" : yield* pct(metric)
+      }`,
+      sign: metric ?? 0,
+    })
+  }
+  return labels
+})
+
 const TONE_CLASS = (n: number | undefined) =>
   n === undefined || n === 0 ? "" : n > 0 ? "text-up" : "text-down"
 
-// The hovered bubble's figures: its code and day change, its company, its
-// price, then the window's value, volume, frequency, Buy/Sell delta and
+// The hovered bubble's figures: its code and day change, its company and
+// sector, its price, then the window's value, volume, frequency, Buy/Sell delta and
 // change.
 function BubbleTip({
   hovered,
   view,
   name,
+  sectors,
 }: {
   hovered: Hovered
   view: BubbleView
   name: string | undefined
+  sectors: SectorLookup
 }) {
   const { figures } = hovered
+  const sector = sectors.get(figures.code) ?? UNCLASSIFIED
   const percent = (n: number | undefined) =>
     n === undefined ? "—" : Effect.runSync(pct(n))
   const rows: ReadonlyArray<readonly [string, string, string?]> = [
@@ -506,9 +756,9 @@ function BubbleTip({
           {percent(figures.dayChange)}
         </span>
       </div>
-      {name !== undefined && name !== "" && (
-        <div className="mb-1 truncate text-muted-foreground">{name}</div>
-      )}
+      <div className="mb-1 truncate text-muted-foreground">
+        {name === undefined || name === "" ? sector : `${name} · ${sector}`}
+      </div>
       <dl className="grid grid-cols-[auto_1fr] gap-x-3">
         {rows.map(([term, value, tone]) => (
           <div key={term} className="contents">
