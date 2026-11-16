@@ -224,25 +224,35 @@ const HolderSizeHoldingRow = Schema.Struct({
 
 type HolderSizeHoldingRow = typeof HolderSizeHoldingRow.Type
 
+// A new record of each of the 9 KSEI investor types holding `none`.
+const noneOfEachType = <A>(none: A) =>
+  Effect.sync(
+    () =>
+      Object.fromEntries(KSEI_TYPES.map((type) => [type, none])) as Record<
+        KseiType,
+        A
+      >
+  )
+
 // A month's investor-type holdings of one origin, 0/0 for a type with no
 // row.
-const investorTypeHoldings = (
+const investorTypeHoldings = Effect.fnUntraced(function* (
   holdingRows: ReadonlyArray<HolderSizeHoldingRow>,
   dataDate: string,
   origin: Origin
-) =>
-  Effect.sync(() => {
-    const holdings = Object.fromEntries(
-      KSEI_TYPES.map((type) => [type, { under5: 0, atLeast5: 0 }])
-    ) as Record<KseiType, InvestorTypeHolding>
-    for (const held of holdingRows)
-      if (held.data_date === dataDate && held.origin === origin)
-        holdings[held.investor_type] = {
-          under5: held.under_5,
-          atLeast5: held.at_least_5,
-        }
-    return holdings
+) {
+  const holdings = yield* noneOfEachType<InvestorTypeHolding>({
+    under5: 0,
+    atLeast5: 0,
   })
+  for (const held of holdingRows)
+    if (held.data_date === dataDate && held.origin === origin)
+      holdings[held.investor_type] = {
+        under5: held.under_5,
+        atLeast5: held.at_least_5,
+      }
+  return holdings
+})
 
 const holderSizeMonth = Effect.fnUntraced(function* (
   row: typeof HolderSizeMonthRow.Type,
@@ -271,14 +281,6 @@ const holderSize = (
   holdingRows: ReadonlyArray<HolderSizeHoldingRow>
 ) => Effect.forEach(monthRows, (row) => holderSizeMonth(row, holdingRows))
 
-const noHoldings = Effect.sync(
-  () =>
-    Object.fromEntries(KSEI_TYPES.map((type) => [type, 0])) as Record<
-      KseiType,
-      number
-    >
-)
-
 /** `2026-12` → `2027-01` */
 const nextMonth = (month: string) =>
   Effect.sync(() => {
@@ -304,8 +306,8 @@ const kseiSeries = Effect.fnUntraced(function* (
   for (const { period_end } of monthRows)
     byMonth.set(period_end.slice(0, 7), {
       periodEnd: period_end,
-      local: yield* noHoldings,
-      foreign: yield* noHoldings,
+      local: yield* noneOfEachType(0),
+      foreign: yield* noneOfEachType(0),
     })
   for (const { period_end, origin, investor_type, shares } of holdingRows) {
     const held = byMonth.get(period_end.slice(0, 7))
