@@ -17,7 +17,7 @@ import {
 } from "@workspace/relay"
 import { DateTime, Effect } from "effect"
 
-import type { BubbleFigures, StoredBubbles } from "./bubble-book.ts"
+import type { SettledFigures, StoredBubbles } from "./bubble-book.ts"
 import type {
   FootprintRow,
   StoredCandle,
@@ -669,7 +669,7 @@ export const makeDayStore = (sql: Sql) =>
     const storedBubbles = (minutes: number) =>
       Effect.sync((): StoredBubbles => {
         const stocks = "code IN (SELECT code FROM footprints GROUP BY code)"
-        const figures = (row: Record<string, SqlValue>): BubbleFigures => ({
+        const figures = (row: Record<string, SqlValue>): SettledFigures => ({
           value: Number(row.value),
           volume: Number(row.volume),
           frequency: Number(row.frequency),

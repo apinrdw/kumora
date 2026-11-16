@@ -14,7 +14,7 @@ import type { CandleFigures } from "./candles.ts"
 
 // The figures the answer carries of a day or a minute: the sums, and the
 // last price with the trade number it came from.
-export interface BubbleFigures {
+export interface SettledFigures {
   readonly value: number
   readonly volume: number
   readonly frequency: number
@@ -29,19 +29,19 @@ export interface BubbleFigures {
 export interface StoredBubbles {
   readonly days: ReadonlyArray<{
     readonly code: StockCode
-    readonly figures: BubbleFigures
+    readonly figures: SettledFigures
   }>
   readonly minutes: ReadonlyArray<{
     readonly code: StockCode
     readonly minute: number
-    readonly figures: BubbleFigures
+    readonly figures: SettledFigures
   }>
 }
 
 interface CodeBubbles {
-  day: BubbleFigures
+  day: SettledFigures
   // By minute, at most BUBBLE_MINUTES.
-  readonly minutes: Map<number, BubbleFigures>
+  readonly minutes: Map<number, SettledFigures>
 }
 
 // Decision: a settle and its helpers (figuresOf, added, keepMinute, the
@@ -49,7 +49,7 @@ interface CodeBubbles {
 // it for each regular-board trade it settles, inside its own plain
 // arithmetic (candles.ts). Measured 2026-11-16 on the dev machine: 100,000
 // settles over 900 codes took 70 ms plain, 85 ms with one Effect each.
-const figuresOf = (candle: CandleFigures): BubbleFigures => ({
+const figuresOf = (candle: CandleFigures): SettledFigures => ({
   value: candle.value,
   volume: candle.volume,
   frequency: candle.frequency,
@@ -59,7 +59,7 @@ const figuresOf = (candle: CandleFigures): BubbleFigures => ({
   closeOrder: candle.closeOrder,
 })
 
-const added = (a: BubbleFigures, b: BubbleFigures): BubbleFigures => {
+const added = (a: SettledFigures, b: SettledFigures): SettledFigures => {
   const closes = b.closeOrder > a.closeOrder
   return {
     value: a.value + b.value,
@@ -75,9 +75,9 @@ const added = (a: BubbleFigures, b: BubbleFigures): BubbleFigures => {
 // Keeps `minute` among a code's newest BUBBLE_MINUTES, unless it is older
 // than all of a full set.
 const keepMinute = (
-  minutes: Map<number, BubbleFigures>,
+  minutes: Map<number, SettledFigures>,
   minute: number,
-  figures: BubbleFigures
+  figures: SettledFigures
 ) => {
   if (minutes.has(minute) || minutes.size < BUBBLE_MINUTES) {
     minutes.set(minute, figures)

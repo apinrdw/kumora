@@ -34,18 +34,32 @@ import * as HttpClientResponse from "effect/http/HttpClientResponse"
 
 import { SignInRequired } from "./market-live-socket.ts"
 
-// The body of a 200 answer to `path`.
-export const getRecorded = Effect.fnUntraced(function* (path: string) {
+// The body of a 200 answer to `path`; `fresh` asks the Worker past the
+// browser's copy.
+export const getRecorded = Effect.fnUntraced(function* (
+  path: string,
+  fresh = false
+) {
   const client = yield* HttpClient.HttpClient
-  const response = yield* client.get(path)
+  const response = yield* fresh
+    ? Effect.provideService(client.get(path), FetchHttpClient.RequestInit, {
+        cache: "reload",
+      })
+    : client.get(path)
   if (response.status === 401) return yield* new SignInRequired()
   if (response.status === 404) return Option.none<string>()
   const ok = yield* HttpClientResponse.filterStatusOk(response)
   return Option.some(yield* ok.text)
 })
 
-const getResource = (date: WibDate, resource: RecordedResource) =>
-  Effect.flatMap(recordedDayPath(date, resource), getRecorded)
+const getResource = (
+  date: WibDate,
+  resource: RecordedResource,
+  fresh = false
+) =>
+  Effect.flatMap(recordedDayPath(date, resource), (path) =>
+    getRecorded(path, fresh)
+  )
 
 // Every sealed day, newest first; none before the first day is sealed. The
 // browser keeps the answer until a minute past the next 17:00 WIB seal, as
@@ -53,14 +67,10 @@ const getResource = (date: WibDate, resource: RecordedResource) =>
 // asks the Worker past that copy, for the row the seal just wrote.
 export const fetchDayStrip = (fresh = false) =>
   Effect.gen(function* () {
-    const body = yield* getRecorded(DayStripPath)
+    const body = yield* getRecorded(DayStripPath, fresh)
     if (Option.isNone(body)) return []
     return (yield* decodeDayStrip(body.value)).days
-  }).pipe(
-    fresh
-      ? Effect.provideService(FetchHttpClient.RequestInit, { cache: "reload" })
-      : (effect) => effect
-  )
+  })
 
 // One code's whole-day candles and its previous close.
 export const fetchRecordedCandles = Effect.fnUntraced(function* (
@@ -90,11 +100,7 @@ const fetchRecordedSweepBrokers = Effect.fnUntraced(function* (
   code: StockCode,
   fresh: boolean
 ) {
-  const body = yield* getResource(date, { _tag: "SweepBrokers", code }).pipe(
-    fresh
-      ? Effect.provideService(FetchHttpClient.RequestInit, { cache: "reload" })
-      : (effect) => effect
-  )
+  const body = yield* getResource(date, { _tag: "SweepBrokers", code }, fresh)
   if (Option.isNone(body)) return Option.none()
   return Option.some(yield* decodeRecordedSweepBrokers(body.value))
 })
@@ -106,11 +112,7 @@ export const fetchBubbles = Effect.fnUntraced(function* (
   date: WibDate,
   fresh: boolean
 ) {
-  const body = yield* getResource(date, { _tag: "Bubbles" }).pipe(
-    fresh
-      ? Effect.provideService(FetchHttpClient.RequestInit, { cache: "reload" })
-      : (effect) => effect
-  )
+  const body = yield* getResource(date, { _tag: "Bubbles" }, fresh)
   if (Option.isNone(body)) return Option.none()
   return Option.some(yield* decodeRecordedBubbles(body.value))
 })
@@ -133,11 +135,7 @@ export const fetchRecordedBrokerCodes = Effect.fnUntraced(function* (
   at: DateTime.Utc,
   fresh = false
 ) {
-  const body = yield* getResource(date, { _tag: "BrokerCodes", at }).pipe(
-    fresh
-      ? Effect.provideService(FetchHttpClient.RequestInit, { cache: "reload" })
-      : (effect) => effect
-  )
+  const body = yield* getResource(date, { _tag: "BrokerCodes", at }, fresh)
   if (Option.isNone(body))
     return { codes: [], complete: false } satisfies RecordedBrokerCodes
   return yield* decodeRecordedBrokerCodes(body.value)
