@@ -5,7 +5,8 @@
 // rows. Spec apinrdw/kumora#363, "Month replace".
 import { Effect } from "effect"
 
-import { HoldingsDb, type SqlValue, type Statement } from "./db.ts"
+import type { SqlValue, Statement } from "../d1.ts"
+import { HoldingsDb } from "./db.ts"
 
 // Decision: a month lists at most 2,000 stocks in any report, about 2× what
 // each listed in Sep and Oct 2026 (962 in IDX's classification report,
