@@ -15,16 +15,20 @@ const REFRESH_MS = 1000
 
 const NO_DAYS: ReadonlyArray<RecordedDay> = []
 
-// The sealed days, for IHSG's last close; none while they don't load.
-function useSealedDays() {
-  const [days, setDays] = useState(NO_DAYS)
+// The sealed days, for IHSG's last close; none while they don't load. A
+// page open overnight loads them again when the live date turns over, for
+// the day that sealed since.
+function useSealedDays(today: WibDate) {
+  const [held, setHeld] = useState({ today, days: NO_DAYS })
   useEffect(() => {
-    const fiber = clientRuntime.runFork(stripLoad(false, setDays))
+    const fiber = clientRuntime.runFork(
+      stripLoad(false, (days) => setHeld({ today, days }))
+    )
     return () => {
       clientRuntime.runFork(Fiber.interrupt(fiber))
     }
-  }, [])
-  return days
+  }, [today])
+  return held.days
 }
 
 // The market's figures each second, and the market's clock: `clockOffset`
@@ -76,7 +80,7 @@ export function MarketStripBar({
   phase: MarketPhase | undefined
   clockOffset: number
 }) {
-  const days = useSealedDays()
+  const days = useSealedDays(today)
   const held = useStripNow(flow, clockOffset)
   if (held === undefined) return null
   const { figures, now } = held
