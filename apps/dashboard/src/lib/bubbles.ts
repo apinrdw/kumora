@@ -103,9 +103,10 @@ export interface MarketFlow {
   lastTrade: number | undefined
   // The newest minute any code traded in.
   newestMinute: number
-  // The tape's trade numbers already counted → their second, so a snapshot's
-  // tape, which repeats trades a delta brought, counts each once.
-  readonly seen: Map<number, number>
+  // The tape's trade numbers already counted → what each added, so a
+  // snapshot's tape, which repeats trades a delta brought, counts each once,
+  // and a later copy with another side or time replaces it.
+  readonly seen: Map<number, Counted>
 }
 
 // Minutes a code keeps: one before the longest window, for its change.
@@ -305,6 +306,15 @@ export const applyCandles = (
     }
   })
 
+// A tape trade as its second's row counts it.
+interface Counted {
+  readonly code: StockCode
+  readonly second: number
+  readonly price: number
+  readonly lots: number
+  readonly side: RunningTrade["side"]
+}
+
 // `code`'s row of `second`, made when it has none, letting older ones go.
 const secondOf = (code: CodeFlow, second: number) => {
   const held = code.seconds.get(second)
@@ -316,39 +326,90 @@ const secondOf = (code: CodeFlow, second: number) => {
   return row
 }
 
-const addTrade = (flow: MarketFlow, trade: RunningTrade, number: number) => {
-  const time = DateTime.toEpochMillis(trade.time)
-  const second = Math.floor(time / SECOND_MS) * SECOND_MS
-  flow.seen.set(number, second)
-  if (flow.lastTrade === undefined || time > flow.lastTrade)
-    flow.lastTrade = time
-  const row = secondOf(codeFlowOf(flow, trade.code), second)
-  const value = trade.price * trade.lots * SHARES_PER_LOT
+const sameCount = (a: Counted, b: Counted) =>
+  a.second === b.second &&
+  a.price === b.price &&
+  a.lots === b.lots &&
+  a.side === b.side
+
+// Takes `counted`, trade `number`'s earlier copy, out of its second. A second
+// it closed closes at its newest other trade still counted.
+const removeTrade = (flow: MarketFlow, number: number, counted: Counted) => {
+  const code = flow.codes.get(counted.code)
+  const row = code?.seconds.get(counted.second)
+  if (code === undefined || row === undefined) return
+  const value = counted.price * counted.lots * SHARES_PER_LOT
+  row.value -= value
+  row.volume -= counted.lots
+  row.frequency -= 1
+  if (counted.side === "buy") row.buyValue -= value
+  if (counted.side === "sell") row.sellValue -= value
+  if (row.frequency === 0) {
+    code.seconds.delete(counted.second)
+    return
+  }
+  if (row.order !== number) return
+  row.order = -1
+  for (const [other, held] of flow.seen)
+    if (
+      other !== number &&
+      other > row.order &&
+      held.code === counted.code &&
+      held.second === counted.second
+    ) {
+      row.order = other
+      row.close = held.price
+    }
+}
+
+const addTrade = (flow: MarketFlow, number: number, counted: Counted) => {
+  flow.seen.set(number, counted)
+  const row = secondOf(codeFlowOf(flow, counted.code), counted.second)
+  const value = counted.price * counted.lots * SHARES_PER_LOT
   row.value += value
-  row.volume += trade.lots
+  row.volume += counted.lots
   row.frequency += 1
-  if (trade.side === "buy") row.buyValue += value
-  if (trade.side === "sell") row.sellValue += value
+  if (counted.side === "buy") row.buyValue += value
+  if (counted.side === "sell") row.sellValue += value
   if (number > row.order) {
     row.order = number
-    row.close = trade.price
+    row.close = counted.price
   }
 }
 
-// The tape's regular-board trades into their seconds, each trade once.
+const countTrade = (flow: MarketFlow, trade: RunningTrade) => {
+  const number = Number(trade.tradeNumber)
+  const time = DateTime.toEpochMillis(trade.time)
+  const counted: Counted = {
+    code: trade.code,
+    second: Math.floor(time / SECOND_MS) * SECOND_MS,
+    price: trade.price,
+    lots: trade.lots,
+    side: trade.side,
+  }
+  const held = flow.seen.get(number)
+  if (held !== undefined) {
+    if (sameCount(held, counted)) return
+    removeTrade(flow, number, held)
+  }
+  if (flow.lastTrade === undefined || time > flow.lastTrade)
+    flow.lastTrade = time
+  addTrade(flow, number, counted)
+}
+
+// The tape's regular-board trades into their seconds, each trade once: a
+// repeated trade number whose copy differs, as when Stockbit's copy settles
+// the side or time of Ajaib's, replaces the first.
 export const applyTrades = (
   flow: MarketFlow,
   trades: ReadonlyArray<RunningTrade>
 ) =>
   Effect.sync(() => {
-    for (const trade of trades) {
-      if (trade.board !== "RG" || isIndex(trade.code)) continue
-      const number = Number(trade.tradeNumber)
-      if (!flow.seen.has(number)) addTrade(flow, trade, number)
-    }
+    for (const trade of trades)
+      if (trade.board === "RG" && !isIndex(trade.code)) countTrade(flow, trade)
     // Insertion order is about time order: drop from the front.
     const newest = flow.lastTrade ?? 0
-    for (const [number, second] of flow.seen) {
+    for (const [number, { second }] of flow.seen) {
       if (second >= newest - SECONDS_KEPT_MS) break
       flow.seen.delete(number)
     }

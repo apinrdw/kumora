@@ -222,6 +222,28 @@ describe("the 30s window", () => {
       })
   )
 
+  it.effect(
+    "closes a second a corrected trade left at the trade still in it",
+    () =>
+      Effect.gen(function* () {
+        const flow = yield* makeMarketFlow()
+        yield* applyTrades(flow, [
+          trade("BBCA", T0 + 100, { price: 100, lots: 1, number: 7 }),
+          trade("BBCA", T0 + 900, { price: 105, lots: 1, number: 8 }),
+        ])
+        yield* applyTrades(flow, [
+          trade("BBCA", T0 + 1_000, { price: 105, lots: 1, number: 8 }),
+        ])
+        // 10:00:01 to 10:00:30, against 10:00:00's close: trade 7's 100.
+        const [bubble] = yield* bubblesOf(
+          flow,
+          { ...VIEW, window: "30s" },
+          T0 + 30_999
+        )
+        expect(bubble?.change).toBeCloseTo(5)
+      })
+  )
+
   it.effect("changes against the price 30 s before", () =>
     Effect.gen(function* () {
       const flow = yield* makeMarketFlow()
