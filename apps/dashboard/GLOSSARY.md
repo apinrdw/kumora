@@ -254,7 +254,7 @@ Retail is the holdings of the Individual KSEI investor type; institution is ever
 _Avoid_: Retail investors meaning any small holder
 
 **Scripless / scrip shares**:
-Scripless shares are a stock's shares held electronically in KSEI accounts, the shares every holding counts. Scrip shares are the rest of its listed shares, still held as paper certificates: listed shares from KSEI's Securities holdings report of the same date, less the scripless shares. Without such a report, scrip is unavailable.
+Scripless shares are a stock's shares held electronically in KSEI accounts, the shares every holding counts. Scrip shares are the rest of its listed shares, still held as paper certificates: listed shares less scripless shares, both from the same report. Shareholders composition takes listed shares from KSEI's Securities holdings report of the same date, and without one, scrip is unavailable. Holder size takes them from the investor-type report's shares outstanding.
 _Avoid_: Free float, which is a different measure
 
 **Stock page**:
@@ -264,6 +264,14 @@ _Avoid_: Ownership page, stock detail
 **Shareholders composition**:
 The stock page's panel of one classification report month: the stock's total scripless shares, scrip against scripless, retail against institution, and each KSEI investor type's share of an origin, against the month before.
 _Avoid_: Ownership mix, holder breakdown
+
+**Holder size**:
+The stock page's panel that splits a stock's shares between ≥5% holders, <5% holders and scrip, for the whole stock and for each KSEI investor type, one investor-type report month against the month before, or across every month the stock has. Its local/foreign split is IDX's.
+_Avoid_: Ownership concentration, major holders, block holders
+
+**≥5% holders / <5% holders**:
+A ≥5% holder is one investor holding at least 5% of a stock's shares outstanding in scripless form; every other holder is a <5% holder. IDX's investor-type report splits each investor type's holding between the two. A large holder's stake spread over several types can count partly as <5%, so the split by type is approximate.
+_Avoid_: Major/minor holders, insiders, block holders
 
 **Holding composition**:
 The stock page's chart of the stock's KSEI holdings, one column per month from its first period end to its last, with a month KSEI has no data for marked: local against foreign, or one origin's KSEI investor types. Every share is of the whole origin, even with some types hidden. Its local/foreign split can differ from Shareholders composition's, which is IDX's.
