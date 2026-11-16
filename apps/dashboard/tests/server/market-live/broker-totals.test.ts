@@ -16,6 +16,7 @@ import { expectTypeOf } from "vitest"
 
 import { readBrokerTotals } from "@/server/broker-totals/db"
 import type { BrokerCodesStore } from "@/server/market-live/broker-codes"
+import type { Sql } from "@/server/market-live/day-store"
 import { BROKER_TOTALS_VERSION } from "@/server/market-live/broker-totals"
 
 import { memoryBrokerTotalsDb } from "../broker-totals/memory-broker-totals-db"
@@ -617,6 +618,180 @@ describe("a reconcile poke", () => {
         assert.lengthOf(lines, 0)
       })
     )
+  )
+})
+
+// A day's database whose transactions fail while `failing` is set, and its
+// broker totals DB.
+const flakyDay = () => {
+  const base = memorySql()
+  const db = memoryBrokerTotalsDb()
+  const flaky = { failing: false }
+  const sql: Sql = {
+    exec: base.exec,
+    transaction: (write) => {
+      // The storage API is synchronous and throws; runSync throws the failure.
+      if (flaky.failing)
+        return Effect.runSync(Effect.fail(new Error("Storage write failed")))
+      base.transaction(write)
+    },
+  }
+  const fixture = {
+    db,
+    sql,
+    flaky,
+    start: tradingDay(sql, [], db.layer),
+    // A release before the broker trades index: no rows, no fact.
+    dropIndex: Effect.sync(() => {
+      base.exec("DELETE FROM broker_trades")
+      base.exec("DELETE FROM facts WHERE key = 'broker-trades'")
+    }),
+    indexed: Effect.sync(
+      () => base.exec("SELECT 1 FROM broker_trades LIMIT 1").length > 0
+    ),
+  }
+  return fixture
+}
+type FlakyDay = ReturnType<typeof flakyDay>
+type Day = Effect.Success<ReturnType<typeof tradingDay>>
+
+const isSealed = (day: Day) =>
+  Effect.map(
+    day.recordedCandles("UNTR"),
+    ({ cacheControl, answer }) =>
+      cacheControl !== "no-store" && answer.candles.length > 0
+  )
+
+// Whether the day's broker totals were last built at `time`.
+const builtAt = (fixture: FlakyDay, time: string) =>
+  Effect.map(
+    read(fixture.db, UNTR),
+    ({ builtDays }) => builtDays[0]?.builtAt === DateTime.formatIso(wib(time))
+  )
+
+// Each wake, set for `deadline` by `arrange`, which leaves the object
+// evicted, and whether its duty is done.
+const WAKE_CASES: ReadonlyArray<{
+  readonly wake: string
+  readonly deadline: string
+  readonly arrange: (fixture: FlakyDay) => Effect.Effect<void, unknown>
+  readonly done: (
+    fixture: FlakyDay,
+    day: Day
+  ) => Effect.Effect<boolean, unknown>
+}> = [
+  {
+    wake: "seal",
+    deadline: "17:00:00",
+    arrange: (fixture) =>
+      Effect.gen(function* () {
+        yield* at("09:01:10")
+        const day = yield* fixture.start
+        yield* day.trades(TAPE)
+        // Past the minute's flush, so the tape is stored.
+        yield* TestClock.adjust("70 seconds")
+        yield* day.evicted
+      }),
+    done: (_, day) => isSealed(day),
+  },
+  {
+    wake: "seal retried",
+    deadline: "17:01:00",
+    arrange: (fixture) =>
+      Effect.gen(function* () {
+        yield* at("09:01:10")
+        const day = yield* fixture.start
+        yield* day.trades(TAPE)
+        yield* at("17:00:00")
+        fixture.flaky.failing = true
+        yield* day.alarm
+        fixture.flaky.failing = false
+        yield* day.evicted
+      }),
+    done: (_, day) => isSealed(day),
+  },
+  {
+    wake: "index, set for the seal",
+    deadline: "17:00:00",
+    arrange: (fixture) =>
+      Effect.gen(function* () {
+        yield* at("09:01:10")
+        const day = yield* fixture.start
+        yield* day.trades(TAPE)
+        yield* TestClock.adjust("70 seconds")
+        yield* day.brokerCodes("Ajaib", CODES, 7)
+        yield* day.evicted
+        yield* fixture.dropIndex
+        yield* at("12:00:00")
+        yield* (yield* fixture.start).evicted
+      }),
+    done: (fixture) => fixture.indexed,
+  },
+  {
+    wake: "index retried",
+    deadline: "17:46:00",
+    arrange: (fixture) =>
+      Effect.gen(function* () {
+        yield* (yield* builtDay(fixture.db, fixture.sql)).evicted
+        yield* fixture.dropIndex
+        yield* at("17:45:00")
+        const day = yield* fixture.start
+        fixture.flaky.failing = true
+        yield* day.alarm
+        fixture.flaky.failing = false
+        yield* day.evicted
+      }),
+    done: (fixture) => fixture.indexed,
+  },
+  {
+    wake: "build retried",
+    deadline: "17:31:00",
+    arrange: (fixture) =>
+      Effect.gen(function* () {
+        const day = yield* sealedDay(fixture.db, fixture.sql)
+        yield* at("17:30:00")
+        fixture.db.failBatch = () => true
+        yield* day.brokerCodes("Ajaib", CODES, 7)
+        yield* day.alarm
+        fixture.db.failBatch = undefined
+        yield* day.evicted
+      }),
+    done: (fixture) => builtAt(fixture, "17:31:00"),
+  },
+  {
+    wake: "stale rebuild",
+    deadline: "18:05:00",
+    arrange: (fixture) =>
+      Effect.gen(function* () {
+        const day = yield* builtDay(fixture.db, fixture.sql)
+        yield* at("18:00:00")
+        yield* day.brokerCodes("Ajaib", [[2, "KZ D YP D"]])
+        yield* day.evicted
+      }),
+    done: (fixture) => builtAt(fixture, "18:05:00"),
+  },
+]
+
+describe("every kind of wake", () => {
+  it.effect.each(WAKE_CASES)(
+    "survives a restart at its original deadline: $wake",
+    ({ wake, deadline, arrange, done }) =>
+      Effect.gen(function* () {
+        const fixture = flakyDay()
+        yield* arrange(fixture)
+
+        yield* TestClock.setTime(DateTime.toEpochMillis(wib(deadline)) - 30_000)
+        const early = yield* fixture.start
+        assert.deepStrictEqual(early.alarms, [wib(deadline)], wake)
+        yield* early.alarm
+        assert.isFalse(yield* done(fixture, early), wake)
+        yield* early.evicted
+
+        yield* at(deadline)
+        const woken = yield* fixture.start
+        yield* woken.alarm
+        assert.isTrue(yield* done(fixture, woken), wake)
+      })
   )
 })
 
