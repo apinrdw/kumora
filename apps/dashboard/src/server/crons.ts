@@ -11,8 +11,8 @@ import { LOGO_CRON } from "./logos/schedule.ts"
 import { runArchiveCron, runParseCron } from "./shareholding/cron.ts"
 import { PARSE_CRON } from "./shareholding/schedule.ts"
 
-// The archive crons, the parse crons and the logo cron, on Production only
-// (alchemy.run.ts).
+// The archive crons, the parse crons, the sector cron and the logo cron, on
+// Production only (alchemy.run.ts).
 // Each firing names its expression, which picks its handler here; any other
 // expression is the shareholding archive's.
 const HANDLERS = new Map([
