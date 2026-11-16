@@ -205,7 +205,7 @@ export const makeSweepBrokers = Effect.fnUntraced(function* (options: {
   readonly store: DayStore
   readonly brokerCodes: Pick<
     BrokerCodesStore,
-    "heldCodes" | "isComplete" | "holdsNone"
+    "heldCodes" | "codesComplete" | "holdsNone"
   >
 }) {
   const { sql, store, brokerCodes } = options
@@ -311,7 +311,7 @@ export const makeSweepBrokers = Effect.fnUntraced(function* (options: {
   })
   const completed = Effect.gen(function* () {
     if (storageLogged || (yield* store.fact(Fact.sealed)) === undefined) return
-    if (!(yield* brokerCodes.isComplete)) return
+    if (!(yield* brokerCodes.codesComplete)) return
     storageLogged = true
     yield* Effect.logInfo("Order flow storage").pipe(
       Effect.annotateLogs({
