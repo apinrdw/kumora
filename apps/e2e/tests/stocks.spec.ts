@@ -508,8 +508,9 @@ test.describe.serial("the stock page", () => {
       const table = chart(page).getByRole("table", {
         name: "Holding composition by month",
       })
+      // Foreign mutual funds, up from September.
       await expect(table.getByRole("row", { name: /Oct 2026/ })).toContainText(
-        "57.84%"
+        "▲57.84%, up from 57.58%"
       )
       await expect(table.getByRole("row", { name: /Jul 2026/ })).toHaveText(
         /No data/

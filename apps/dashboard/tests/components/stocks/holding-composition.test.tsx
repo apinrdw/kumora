@@ -149,6 +149,42 @@ test("two keyboard presses hide an entry and show it again", async () => {
   expect(pressed()).toEqual(allSeries())
 })
 
+const row = (month: string) =>
+  [...container.querySelectorAll("tbody tr")].find(
+    (tr) => tr.querySelector("th")?.textContent === month
+  )
+
+test("the Table points each share up or down from the month before, and not after a gap", async () => {
+  const moved = { ...HELD, ID: 50, CP: 30 }
+  await render("local", [
+    {
+      month: "2026-08",
+      holdings: { periodEnd: "2026-08-31", local: HELD, foreign: HELD },
+    },
+    {
+      month: "2026-09",
+      holdings: { periodEnd: "2026-09-30", local: moved, foreign: moved },
+    },
+    { month: "2026-10", holdings: undefined },
+    {
+      month: "2026-11",
+      holdings: { periodEnd: "2026-11-30", local: HELD, foreign: HELD },
+    },
+  ])
+  // Individual 60% → 50%, Corporate 20% → 30%, Mutual fund unchanged.
+  expect(row("Sep 2026")?.textContent).toContain(
+    "▼50.00%, down from 60.00%▲30.00%, up from 20.00%10.00%"
+  )
+  expect(row("Sep 2026")?.querySelector(".text-down")?.textContent).toContain(
+    "50.00%"
+  )
+  expect(row("Sep 2026")?.querySelector(".text-up")?.textContent).toContain(
+    "30.00%"
+  )
+  expect(row("Nov 2026")?.textContent).not.toMatch(/[▲▼]|from/)
+  expect(row("Aug 2026")?.textContent).not.toMatch(/[▲▼]|from/)
+})
+
 test("the origin summary is unavailable when the newest month holds no shares", async () => {
   const none = Object.fromEntries(Object.keys(HELD).map((type) => [type, 0]))
   await render("all", [

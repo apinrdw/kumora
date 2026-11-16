@@ -6,6 +6,7 @@ import { KSEI_TYPE_LABELS, KSEI_TYPES, type KseiType } from "@/domain/holdings"
 import type { SeriesMonth, TypeHoldings } from "@/server/holdings/stock-page"
 
 import { split } from "./split.ts"
+import { percent } from "./stock-page-display.ts"
 import type { OriginShown } from "./stock-search.ts"
 
 export type SeriesKey = "local" | "foreign" | KseiType
@@ -129,6 +130,46 @@ export const holdingRows = (
           }))
     )
   })
+
+// How a month's shares moved from the calendar month before it: each shown
+// series' share in that month, or why there is none to compare with.
+export type MonthChange =
+  | {
+      readonly _tag: "From"
+      // `YYYY-MM`.
+      readonly month: string
+      readonly was: ReadonlyMap<SeriesKey, number>
+    }
+  | { readonly _tag: "NoData"; readonly month: string }
+  | { readonly _tag: "First" }
+
+export const monthChange = Effect.fnUntraced(function* (
+  { series, columns }: HoldingChart,
+  month: string,
+  shown: ReadonlyArray<SeriesKey>
+): Effect.fn.Return<MonthChange> {
+  const index = columns.findIndex((column) => column.month === month)
+  const before = columns[index - 1]
+  // As Shareholders composition's note: a month after only gaps is first.
+  if (
+    before === undefined ||
+    columns.slice(0, index).every(({ shares }) => shares === undefined)
+  )
+    return { _tag: "First" }
+  if (before.shares === undefined)
+    return { _tag: "NoData", month: before.month }
+  const now = columns[index]?.shares ?? []
+  const was = new Map<SeriesKey, number>()
+  for (const key of shown) {
+    const at = series.findIndex((each) => each.key === key)
+    const share = before.shares[at] ?? 0
+    // Decision: a share that prints the same as last month's has no change,
+    // as in Shareholders composition, so no arrow points at an equal figure.
+    if ((yield* percent(share)) !== (yield* percent(now[at] ?? 0)))
+      was.set(key, share)
+  }
+  return { _tag: "From", month: before.month, was }
+})
 
 // The newest month's scripless split into local and foreign, for the
 // summary boxes; `split` is undefined when neither holds a share. The
