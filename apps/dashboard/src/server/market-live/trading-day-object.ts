@@ -319,7 +319,8 @@ export class TradingDayObject {
   // gated and the relay's tagged with the instant on Market Live's clock its
   // token deadline counts from; answers the sessions a user still holds
   // (live-viewers.ts) and the recorded day GETs, also gated; and takes the
-  // broker codes route's batches and status GETs, their token checked.
+  // broker codes route's batches and status GETs, their token checked, and
+  // the reconcile cron's pokes.
   fetch(request: Request): Response | Promise<Response> {
     const url = new URL(request.url)
     const { pathname } = url
@@ -350,6 +351,16 @@ export class TradingDayObject {
         )
       )
     }
+    // The reconcile cron's poke: 202 when the day will build, else 204.
+    if (pathname === ObjectPath.brokerTotals)
+      return respond(
+        withMarketClock(
+          Effect.map(
+            this.day.brokerTotals.reconcile,
+            (builds) => new Response(null, { status: builds ? 202 : 204 })
+          )
+        )
+      )
     if (pathname === ObjectPath.ingest) {
       const { ctx, day } = this
       return respond(

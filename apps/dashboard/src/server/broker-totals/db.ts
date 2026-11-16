@@ -237,6 +237,24 @@ export const readBuiltSpan = Effect.fnUntraced(function* (upTo: WibDate) {
   return yield* decodeSpan(span).pipe(Effect.orDie)
 })
 
+const decodeBuiltDays = Schema.decodeUnknownEffect(
+  Schema.Array(Schema.Struct({ day: WibDate, buildVersion: Schema.Number }))
+)
+
+// Every built day and the build version that built it, for the reconcile
+// (./reconcile.ts): a row a day.
+export const readBuiltDays = Effect.gen(function* () {
+  const {
+    rows: [days],
+  } = yield* (yield* BrokerTotalsDb).batch([
+    {
+      sql: "SELECT day, build_version AS buildVersion FROM built_days",
+      params: [],
+    },
+  ])
+  return yield* decodeBuiltDays(days).pipe(Effect.orDie)
+})
+
 // A day of the range is read only when it has a built-days row.
 const BUILT_IN_RANGE =
   "day BETWEEN ? AND ? AND day IN (SELECT day FROM built_days WHERE day BETWEEN ? AND ?)"

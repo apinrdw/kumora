@@ -16,6 +16,10 @@ export const BROKER_TOTALS_VERSION = 1
 // The broker totals fact of a sealed, complete day not built yet.
 export const BROKER_TOTALS_DUE = "due"
 
+// The broker totals fact of a built day a later batch corrected, to rebuild
+// once its corrections go quiet.
+export const BROKER_TOTALS_STALE = "stale"
+
 // Decision: the build keeps the regular board, which holds the auction
 // matches too; negotiated (NG) and cash (TN) trades count in neither totals
 // nor candles. See spec apinrdw/kumora#437, "The build".

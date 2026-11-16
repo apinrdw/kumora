@@ -268,3 +268,252 @@ describe("a complete sealed day's broker totals", () => {
     )
   )
 })
+
+// UNTR as rebuilt once trade 2's buyer is corrected from AK to KZ.
+const UNTR_CORRECTED = [
+  untrTotal("AK", "F", [14, 32_240_000, 2, 4_680_000]),
+  untrTotal("CC", "D", [0, 0, 10, 23_000_000]),
+  untrTotal("KZ", "D", [3, 6_990_000, 0, 0]),
+  untrTotal("YP", "D", [2, 4_680_000, 7, 16_230_000]),
+]
+
+// A sealed day built at 17:30.
+const builtDay = Effect.fnUntraced(function* (
+  db: ReturnType<typeof memoryBrokerTotalsDb>,
+  sql = memorySql()
+) {
+  const day = yield* sealedDay(db, sql)
+  yield* at("17:30:00")
+  yield* day.brokerCodes("Ajaib", CODES, 7)
+  yield* day.alarm
+  return day
+})
+
+describe("a built day's correction", () => {
+  it.effect(
+    "rebuilds the day once, 5 quiet minutes after the last of a burst, its old figures read until then",
+    () =>
+      withLines("Broker totals built", (lines) =>
+        Effect.gen(function* () {
+          const db = memoryBrokerTotalsDb()
+          const day = yield* builtDay(db)
+          yield* at("18:00:00")
+          yield* day.brokerCodes("Ajaib", [[2, "PD D YP D"]])
+          assert.deepStrictEqual(yield* read(db, UNTR), UNTR_BUILT)
+          yield* at("18:04:00")
+          yield* day.alarm
+          yield* day.brokerCodes("Ajaib", [[2, "KZ D YP D"]])
+          yield* at("18:05:00")
+          yield* day.alarm
+          assert.deepStrictEqual(day.alarms.at(-1), wib("18:09:00"))
+          yield* at("18:08:59")
+          yield* day.alarm
+          assert.deepStrictEqual(yield* read(db, UNTR), UNTR_BUILT)
+
+          yield* at("18:09:00")
+          yield* day.alarm
+          assert.deepStrictEqual(yield* read(db, UNTR), {
+            ...UNTR_BUILT,
+            builtDays: [
+              {
+                day: DAY,
+                buildVersion: BROKER_TOTALS_VERSION,
+                builtAt: "2026-11-09T11:09:00.000Z",
+              },
+            ],
+            totals: UNTR_CORRECTED,
+          })
+          yield* at("18:30:00")
+          yield* day.alarm
+          assert.lengthOf(lines, 2)
+        })
+      )
+  )
+
+  it.effect("rebuilds after the object restarts while the day is stale", () =>
+    Effect.gen(function* () {
+      const db = memoryBrokerTotalsDb()
+      const sql = memorySql()
+      const day = yield* builtDay(db, sql)
+      yield* at("18:00:00")
+      yield* day.brokerCodes("Ajaib", [[2, "KZ D YP D"]])
+      yield* day.evicted
+
+      yield* at("18:01:00")
+      const restarted = yield* tradingDay(sql, [], db.layer)
+      yield* restarted.alarm
+      assert.deepStrictEqual(yield* read(db, UNTR), UNTR_BUILT)
+      yield* at("18:06:00")
+      yield* restarted.alarm
+      assert.deepStrictEqual((yield* read(db, UNTR)).totals, UNTR_CORRECTED)
+    })
+  )
+
+  it.effect(
+    "that fills a trade's fields alone rebuilds the day, which waited out its codes-only trade",
+    () =>
+      Effect.gen(function* () {
+        const db = memoryBrokerTotalsDb()
+        const day = yield* builtDay(db)
+        yield* at("18:00:00")
+        yield* day.brokerCodes("Stockbit", [[8, "AK F CC D"]], 8)
+        yield* at("18:05:00")
+        yield* day.alarm
+        assert.deepStrictEqual(yield* read(db, UNTR), UNTR_BUILT)
+
+        yield* at("18:10:00")
+        yield* day.brokerCodes("Stockbit", [
+          [
+            8,
+            "AK F CC D",
+            {
+              time: wib("09:00:50.000"),
+              code: UNTR,
+              price: 23_000,
+              lots: 1,
+              board: "RG",
+              side: "buy",
+            },
+          ],
+        ])
+        yield* at("18:15:00")
+        yield* day.alarm
+        const rebuilt = yield* read(db, UNTR)
+        assert.deepStrictEqual(rebuilt.candles, [
+          {
+            day: DAY,
+            open: 23_000,
+            high: 23_400,
+            low: 23_000,
+            close: 23_000,
+            volume: 20,
+            value: 46_210_000,
+          },
+        ])
+        assert.deepStrictEqual(rebuilt.totals, [
+          untrTotal("AK", "D", [3, 6_990_000, 0, 0]),
+          untrTotal("AK", "F", [15, 34_540_000, 2, 4_680_000]),
+          untrTotal("CC", "D", [0, 0, 11, 25_300_000]),
+          untrTotal("YP", "D", [2, 4_680_000, 7, 16_230_000]),
+        ])
+      })
+  )
+})
+
+describe("a reconcile poke", () => {
+  it.effect("builds a sealed, complete day never marked for a build", () =>
+    Effect.gen(function* () {
+      const db = memoryBrokerTotalsDb()
+      const sql = memorySql()
+      yield* at("09:01:10")
+      const unbuilt = yield* tradingDay(sql)
+      yield* unbuilt.trades(TAPE)
+      yield* at("17:00:00")
+      yield* unbuilt.alarm
+      yield* unbuilt.brokerCodes("Ajaib", CODES, 7)
+      yield* unbuilt.evicted
+
+      yield* at("17:30:00")
+      const day = yield* tradingDay(sql, [], db.layer)
+      yield* day.alarm
+      assert.deepStrictEqual(yield* read(db, UNTR), NOTHING)
+      assert.isTrue(yield* day.reconcile)
+      yield* day.alarm
+      assert.deepStrictEqual(yield* read(db, UNTR), UNTR_BUILT)
+    })
+  )
+
+  it.effect("rebuilds a day built by an older build version", () =>
+    withLines("Broker totals built", (lines) =>
+      Effect.gen(function* () {
+        const db = memoryBrokerTotalsDb()
+        const sql = memorySql()
+        const built = yield* builtDay(db, sql)
+        yield* built.evicted
+        sql.exec(
+          "INSERT OR REPLACE INTO facts VALUES (?, ?)",
+          "broker-totals",
+          String(BROKER_TOTALS_VERSION - 1)
+        )
+
+        yield* at("18:00:00")
+        const day = yield* tradingDay(sql, [], db.layer)
+        yield* day.alarm
+        assert.lengthOf(lines, 1)
+        assert.isTrue(yield* day.reconcile)
+        yield* day.alarm
+        assert.lengthOf(lines, 2)
+        assert.deepStrictEqual((yield* read(db, UNTR)).builtDays, [
+          {
+            day: DAY,
+            buildVersion: BROKER_TOTALS_VERSION,
+            builtAt: "2026-11-09T11:00:00.000Z",
+          },
+        ])
+      })
+    )
+  )
+
+  it.effect(
+    "does nothing on an unsealed, an incomplete or a current-version built day",
+    () =>
+      withLines("Broker totals built", (lines) =>
+        Effect.gen(function* () {
+          const unsealedDb = memoryBrokerTotalsDb()
+          yield* at("09:01:10")
+          const unsealed = yield* tradingDay(memorySql(), [], unsealedDb.layer)
+          yield* unsealed.trades(TAPE)
+          yield* at("16:00:00")
+          yield* unsealed.brokerCodes("Ajaib", CODES, 7)
+          assert.isFalse(yield* unsealed.reconcile)
+          yield* unsealed.alarm
+          assert.deepStrictEqual(yield* read(unsealedDb, UNTR), NOTHING)
+
+          const incompleteDb = memoryBrokerTotalsDb()
+          const incomplete = yield* sealedDay(incompleteDb)
+          yield* at("17:30:00")
+          yield* incomplete.brokerCodes("Ajaib", CODES.slice(0, 6), 7)
+          assert.isFalse(yield* incomplete.reconcile)
+          yield* incomplete.alarm
+          assert.deepStrictEqual(yield* read(incompleteDb, UNTR), NOTHING)
+
+          const builtDb = memoryBrokerTotalsDb()
+          const built = yield* builtDay(builtDb)
+          yield* at("18:00:00")
+          assert.isFalse(yield* built.reconcile)
+          yield* built.alarm
+          assert.deepStrictEqual(yield* read(builtDb, UNTR), UNTR_BUILT)
+          assert.lengthOf(lines, 1)
+        })
+      )
+  )
+})
+
+describe("a failed broker totals build", () => {
+  it.effect("retries a minute later and then succeeds", () =>
+    Effect.gen(function* () {
+      const db = memoryBrokerTotalsDb()
+      const day = yield* sealedDay(db)
+      yield* at("17:30:00")
+      db.failBatch = () => true
+      yield* day.brokerCodes("Ajaib", CODES, 7)
+      yield* day.alarm
+      db.failBatch = undefined
+      assert.deepStrictEqual(yield* read(db, UNTR), NOTHING)
+      assert.deepStrictEqual(day.alarms.at(-1), wib("17:31:00"))
+
+      yield* at("17:31:00")
+      yield* day.alarm
+      assert.deepStrictEqual(yield* read(db, UNTR), {
+        ...UNTR_BUILT,
+        builtDays: [
+          {
+            day: DAY,
+            buildVersion: BROKER_TOTALS_VERSION,
+            builtAt: "2026-11-09T10:31:00.000Z",
+          },
+        ],
+      })
+    })
+  )
+})
