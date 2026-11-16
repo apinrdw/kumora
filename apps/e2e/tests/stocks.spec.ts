@@ -467,6 +467,27 @@ test.describe.serial("the stock page", () => {
       await expect(barsTooltip(page)).toContainText("Sep 2026")
     })
 
+    test("Escape hides a hovered Bars tooltip while focus is elsewhere", async ({
+      page,
+    }) => {
+      await page.goto(`${DASHBOARD}/stocks/BBCA`)
+      // Retried until hydration shows it.
+      await expect(async () => {
+        await page.mouse.move(0, 0)
+        const box = await bars(page).boundingBox()
+        if (box === null) throw new Error("The Bars chart has no box")
+        await bars(page).hover({ position: { x: box.width - 22, y: 120 } })
+        await expect(barsTooltip(page)).toContainText("Oct 2026", {
+          timeout: 1000,
+        })
+      }).toPass()
+      expect(await page.evaluate(() => document.activeElement?.tagName)).toBe(
+        "BODY"
+      )
+      await page.keyboard.press("Escape")
+      await expect(barsTooltip(page)).toBeHidden()
+    })
+
     test("steps the arrow keys from the month the pointer hovered", async ({
       page,
     }) => {
