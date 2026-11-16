@@ -184,8 +184,9 @@ export const splitSweeps = (
     return { sweeps: swapped, pieces }
   })
 
-// The id a pin or selection on a whole sweep moves to as it splits: its
-// largest piece's by lots, the first in trade order on a tie.
+// The id a pin or selection on a whole sweep, or on a piece of it no longer
+// held, moves to: its largest piece's by lots, the first in trade order on a
+// tie.
 export const largestPiece = (entry: SweepBrokers) =>
   Effect.sync(() => {
     let largest = entry.pieces[0]!
