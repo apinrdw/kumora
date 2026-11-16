@@ -26,7 +26,7 @@ const TYPE_LABELS = [
   "SC: Securities Company (perusahaan sekuritas)",
 ]
 
-// Jan 2026 on: D to AM, each type's <5% and >=5% columns, domestic then
+// Jan 2026 on: D to AM, each type's <5% and >=5% columns, local then
 // foreign, then the total in AN.
 const FIRST_TYPE = 3
 const TYPE_COLUMNS = 2 * 2 * TYPE_LABELS.length
