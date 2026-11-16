@@ -7,6 +7,7 @@ import { StockCode, decodeRecordedBubbles } from "@workspace/relay"
 import { DateTime, Effect } from "effect"
 import { TestClock } from "effect/testing"
 
+import { applyBubbles, bubblesOf, makeMarketFlow } from "@/lib/bubbles"
 import { makeBubbleBook } from "@/server/market-live/bubble-book"
 
 import { stockbitTrade, tradingDay, withLines } from "./day-harness"
@@ -195,6 +196,39 @@ describe("bubbles", () => {
           untr?.day,
           [6_980_000, 3, 2, 4_660_000, 2_320_000, 23300]
         )
+      })
+  )
+
+  it.effect(
+    "carry the close before the hour of a code that traded every minute of it, so a fresh page's 1h change is against it",
+    () =>
+      Effect.gen(function* () {
+        yield* at("10:02:10")
+        const day = yield* tradingDay()
+        yield* day.frames([stockPrice("UNTR", 24525, 20000)])
+        // One UNTR trade each minute from 09:00 to 10:01, 25 up each time.
+        yield* day.trades(
+          Array.from({ length: 62 }, (_, index) =>
+            trade(
+              40001 + index,
+              `${String(9 + Math.floor(index / 60)).padStart(2, "0")}:${String(index % 60).padStart(2, "0")}:30`,
+              "UNTR",
+              23000 + index * 25,
+              1,
+              "buy"
+            )
+          )
+        )
+        yield* TestClock.adjust("1 minute")
+        const flow = yield* makeMarketFlow()
+        yield* applyBubbles(flow, (yield* bubbles(day)).answer!)
+        // 10:01:59: 1h is 09:02 to 10:01, against 09:01's close, 23025.
+        const [untr] = yield* bubblesOf(
+          flow,
+          { size: "value", colour: "change", window: "1h", top: "all" },
+          minute("10:01") + 59_000
+        )
+        assert.closeTo(untr!.change!, ((24525 - 23025) / 23025) * 100, 1e-9)
       })
   )
 
