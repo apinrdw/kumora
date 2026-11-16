@@ -105,6 +105,9 @@ describe("recorded day paths", () => {
         "/market-live/days/2026-11-09/books/BBCA",
         "/market-live/days/2026-11-09/codes/more",
         "/market-live/days//codes",
+        "/market-live/days/2026-11-09/constructor",
+        "/market-live/days/2026-11-09/__proto__",
+        "/market-live/days/2026-11-09/toString",
         "/market-live/live",
       ])
         assert.isTrue(

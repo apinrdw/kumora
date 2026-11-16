@@ -114,12 +114,13 @@ const parametersOf = Effect.fnUntraced(function* (search: string) {
   )
 })
 
-// The resources whose path names no code and no instant.
-const BARE: Readonly<Record<string, RecordedResource>> = {
-  codes: { _tag: "Codes" },
-  gaps: { _tag: "Gaps" },
-  bubbles: { _tag: "Bubbles" },
-}
+// The resources whose path names no code and no instant. A Map, so a path
+// like `/constructor` reads no prototype member.
+const BARE: ReadonlyMap<string, RecordedResource> = new Map([
+  ["codes", { _tag: "Codes" }],
+  ["gaps", { _tag: "Gaps" }],
+  ["bubbles", { _tag: "Bubbles" }],
+])
 
 const resourceOf = Effect.fnUntraced(function* (
   parts: ReadonlyArray<string>,
@@ -128,7 +129,7 @@ const resourceOf = Effect.fnUntraced(function* (
   const [kind, code, ...rest] = parts
   if (rest.length > 0) return Option.none()
   if (code === undefined) {
-    const bare = kind === undefined ? undefined : BARE[kind]
+    const bare = kind === undefined ? undefined : BARE.get(kind)
     if (bare !== undefined) return Option.some(bare)
     if (kind === "trades")
       return Option.map(yield* instantOf(search.get("at")), (at) => ({
