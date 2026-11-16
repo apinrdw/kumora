@@ -89,6 +89,9 @@ interface CodeFlow {
   // Every regular-board minute of the day; `close` is the last price.
   day: Row
   previousClose: number | undefined
+  // The close of the newest minute let go from `minutes`: the price before
+  // any window when the code traded in none of the minutes kept before it.
+  closeBefore: { minute: number; close: number } | undefined
 }
 
 export interface MarketFlow {
@@ -139,6 +142,7 @@ const codeFlowOf = (flow: MarketFlow, code: StockCode): CodeFlow => {
     seconds: new Map(),
     day: emptyRow(),
     previousClose: undefined,
+    closeBefore: undefined,
   }
   flow.codes.set(code, fresh)
   return fresh
@@ -150,10 +154,23 @@ const noteMinute = (flow: MarketFlow, minute: number) => {
     flow.lastTrade = minute
 }
 
+const oldestKept = (flow: MarketFlow) =>
+  flow.newestMinute - (MINUTES_KEPT - 1) * MINUTE_MS
+
+// `close`, of a minute older than any window, as the code's price before
+// them when it is the newest such minute yet.
+const noteBefore = (code: CodeFlow, minute: number, close: number) => {
+  if (code.closeBefore === undefined || minute >= code.closeBefore.minute)
+    code.closeBefore = { minute, close }
+}
+
 const pruneMinutes = (flow: MarketFlow, code: CodeFlow) => {
-  const oldest = flow.newestMinute - (MINUTES_KEPT - 1) * MINUTE_MS
-  for (const minute of code.minutes.keys())
-    if (minute < oldest) code.minutes.delete(minute)
+  const oldest = oldestKept(flow)
+  for (const [minute, row] of code.minutes)
+    if (minute < oldest) {
+      noteBefore(code, minute, row.close)
+      code.minutes.delete(minute)
+    }
 }
 
 // `row` into `day` in place of `old`, the same minute's earlier figures.
@@ -251,9 +268,12 @@ export const applyCandles = (
     for (const candle of candles) {
       if (isIndex(candle.code)) continue
       const at = DateTime.toEpochMillis(candle.minute)
-      // Older than any window: its trades are already in the day's totals.
-      if (at < flow.newestMinute - (MINUTES_KEPT - 1) * MINUTE_MS) continue
       const code = codeFlowOf(flow, candle.code)
+      // Older than any window: its trades are already in the day's totals.
+      if (at < oldestKept(flow)) {
+        noteBefore(code, at, candle.close)
+        continue
+      }
       const old = code.minutes.get(at)
       if (old !== undefined && old.frequency > candle.frequency) continue
       const row: Row = {
@@ -368,6 +388,11 @@ const gather = (
   return { row, before: before < 0 ? undefined : rows.get(before) }
 }
 
+// The price before the minutes `code` keeps: its last close let go, else the
+// previous close.
+const closeBeforeKept = (code: CodeFlow) =>
+  code.closeBefore?.close ?? code.previousClose
+
 // The price before a 30s window from `first`: its code's last second before
 // it, else the last minute whole before it, else the previous close.
 const priceBefore30s = (
@@ -378,7 +403,7 @@ const priceBefore30s = (
   if (before !== undefined) return before.close
   const minute = newestKey(code.minutes, first - MINUTE_MS)
   return minute === undefined
-    ? code.previousClose
+    ? closeBeforeKept(code)
     : code.minutes.get(minute)!.close
 }
 
@@ -402,7 +427,7 @@ const windowFigures = (
   const last = Math.floor(end / MINUTE_MS) * MINUTE_MS
   const first = last - (WINDOW_MINUTES[window] - 1) * MINUTE_MS
   const { row, before } = gather(code.minutes, first, last)
-  return { row, before: before?.close ?? code.previousClose }
+  return { row, before: before?.close ?? closeBeforeKept(code) }
 }
 
 const SIZE_OF: Record<SizeMetric, (row: Row) => number> = {

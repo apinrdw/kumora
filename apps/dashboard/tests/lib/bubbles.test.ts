@@ -337,6 +337,46 @@ describe("Buy/Sell delta % and price change %", () => {
       })
   )
 
+  it.effect(
+    "change of a thin code compares with its last close before the minutes kept",
+    () =>
+      Effect.gen(function* () {
+        const flow = yield* makeMarketFlow()
+        // BBCA last traded 100 minutes ago, past the 61 minutes kept.
+        yield* applyBubbles(
+          flow,
+          body([
+            {
+              code: "BBCA",
+              previousClose: 50,
+              minutes: [
+                minute(T0 - 100 * MIN, 1_000, 200),
+                minute(T0, 1_000, 210),
+              ],
+            },
+          ])
+        )
+        const view = { ...VIEW, colour: "change" } as const
+        const at = (window: BubbleWindow) =>
+          Effect.map(
+            bubblesOf(flow, { ...view, window }, T0 + 10_000),
+            ([bubble]) => bubble?.change
+          )
+        expect(yield* at("1m")).toBeCloseTo(5)
+        expect(yield* at("1h")).toBeCloseTo(5)
+        // A later candle moves the market on; the close before still holds.
+        yield* applyCandles(flow, [
+          candle("BBCA", T0 + 70 * MIN, { value: 1, close: 220, frequency: 1 }),
+        ])
+        const [bubble] = yield* bubblesOf(
+          flow,
+          { ...view, window: "1m" },
+          T0 + 70 * MIN
+        )
+        expect(bubble?.change).toBeCloseTo(4.762, 2)
+      })
+  )
+
   it.effect("change colours over its window's range, clamped", () =>
     Effect.gen(function* () {
       const bubble = {
