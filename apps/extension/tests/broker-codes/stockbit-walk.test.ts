@@ -753,9 +753,12 @@ describe("Stockbit's walk: stopping and carrying on", () => {
         const after = yield* walkWith(second, production)
         yield* after.walk(DAY)
         assert.strictEqual(second.params()[1]?.get("trade_number"), "1000")
-        assert.deepStrictEqual((yield* production.status(DAY)).missing, [
-          ["5", "5"],
-        ])
+        assert.deepStrictEqual(
+          (yield* production.status(DAY)).missing.map((range) =>
+            range.map(Number)
+          ),
+          [[5, 5]]
+        )
       })
   )
 
