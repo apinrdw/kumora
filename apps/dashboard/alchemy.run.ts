@@ -223,6 +223,13 @@ export const Website = Cloudflare.Website.Vite(
           "ClassificationParse",
           { className: "ClassificationParse" }
         ),
+        // The investor-type parse run, which parses the shareholding
+        // archive's investor-type reports into HoldingsDb, on every stage
+        // like the classification parse run.
+        INVESTOR_TYPE_PARSE: Cloudflare.Workflow<RunParams>(
+          "InvestorTypeParse",
+          { className: "InvestorTypeParse" }
+        ),
         ...google,
         ...clockOffset,
       },

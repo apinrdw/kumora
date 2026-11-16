@@ -15,9 +15,9 @@ export const nextScheduledRun = (now: Date) => nextRunOf(ARCHIVE_CRON, now)
 
 // The parse cron (UTC): 21:00 WIB every day, an hour after the evening
 // archive run, so a report archived that evening is parsed the same evening.
-// Each firing starts a classification parse run (cron.ts). alchemy.run.ts
-// sets it on Production only, and runCron (../crons.ts) tells it from the
-// archive crons by this expression.
+// Each firing starts a classification parse run and an investor-type parse
+// run (parse-runs.ts). alchemy.run.ts sets it on Production only, and runCron
+// (../crons.ts) tells it from the archive crons by this expression.
 // Decision: parse runs of their own, not steps of the archive run: they read
 // only R2 and HoldingsDb, so a parse failure no longer makes an archive run
 // partial, and parsing needs no IDX listing. See apinrdw/kumora#397.
