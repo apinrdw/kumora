@@ -33,6 +33,7 @@ import {
   MINUTE_MS,
 } from "@workspace/relay"
 import type { WorkerEnv } from "@workspace/server"
+import type { Layer } from "effect"
 import {
   Clock,
   DateTime,
@@ -45,10 +46,16 @@ import {
 } from "effect"
 
 import { tradePosition } from "../../lib/trade-position.ts"
+import { writeBuiltDay, type BrokerTotalsDb } from "../broker-totals/db.ts"
 import { ajaibTrades } from "./ajaib.ts"
 import { ajaibPrices } from "./ajaib-price.ts"
 import { backfillTrades } from "./backfill-page.ts"
 import { makeBrokerCodes } from "./broker-codes.ts"
+import {
+  BROKER_TOTALS_DUE,
+  BROKER_TOTALS_VERSION,
+  buildBrokerTotals,
+} from "./broker-totals.ts"
 import { ingestTokenMatches } from "./ingest-token.ts"
 import { makeBookChunks } from "./book-chunks.ts"
 import { makeCandleBook, minuteOf } from "./candles.ts"
@@ -290,6 +297,17 @@ const indexWakeAtStart = (
   return sealWake === undefined ? DateTime.now : Effect.succeed(sealWake)
 }
 
+// When the broker totals build first needs the alarm: at once for a sealed
+// day that builds and is marked due, which a restart finds again in its
+// facts.
+const buildWakeAtStart = (
+  builds: boolean,
+  fact: string | undefined
+): Effect.Effect<DateTime.Utc | undefined> =>
+  builds && fact === BROKER_TOTALS_DUE
+    ? DateTime.now
+    : Effect.succeed(undefined)
+
 export const makeTradingDay = Effect.fnUntraced(function* (options: {
   readonly date: WibDate
   // Every viewer socket the object holds, ready or not.
@@ -313,6 +331,9 @@ export const makeTradingDay = Effect.fnUntraced(function* (options: {
   readonly recordDay?: (
     day: RecordedDay
   ) => Effect.Effect<void, unknown, WorkerEnv>
+  // The broker totals DB the day's build writes to. A day without one never
+  // builds.
+  readonly brokerTotalsDb?: Layer.Layer<BrokerTotalsDb, never, WorkerEnv>
 }) {
   // Delta timers outlive the message that started them.
   const scope = yield* Scope.Scope
@@ -744,6 +765,11 @@ export const makeTradingDay = Effect.fnUntraced(function* (options: {
     yield* flush(true, {
       [Fact.gaps]: yield* encodeRecordedGaps({ gaps: conditions.gaps }),
     })
+    // Decision: a day complete at its seal builds just after it, in the
+    // seal's own wake: never under the turn while the market streams. See
+    // spec apinrdw/kumora#437, "When it runs".
+    const due =
+      options.brokerTotalsDb !== undefined && (yield* brokerCodes.complete)
     const trades = yield* store.storedTrades
     if (trades > 0)
       yield* (options.recordDay ?? (() => Effect.void))({
@@ -759,9 +785,13 @@ export const makeTradingDay = Effect.fnUntraced(function* (options: {
       livePrices: [],
       chunks: [],
       ajaibBooks: [],
-      facts: { [Fact.sealed]: DateTime.formatIso(now) },
+      facts: {
+        [Fact.sealed]: DateTime.formatIso(now),
+        ...(due ? { [Fact.brokerTotals]: BROKER_TOTALS_DUE } : {}),
+      },
     })
     sealed = true
+    if (due) buildWake = now
     yield* Effect.logInfo("Order flow storage").pipe(
       Effect.annotateLogs({
         ...(yield* store.orderFlowStorage),
@@ -781,6 +811,10 @@ export const makeTradingDay = Effect.fnUntraced(function* (options: {
   const noTape = options.date < todayDate && storedHighest === undefined
   let sealWake: DateTime.Utc | undefined = sealed || noTape ? undefined : sealAt
   let indexWake = yield* indexWakeAtStart(brokerCodes.indexBuilt, sealWake)
+  let buildWake = yield* buildWakeAtStart(
+    sealed && options.brokerTotalsDb !== undefined,
+    yield* store.fact(Fact.brokerTotals)
+  )
   // What the alarm is armed for since it last fired, so a later wake never
   // displaces an earlier one. The Durable Object keeps the alarm itself
   // across hibernation; the day's start arms it again from what it finds.
@@ -825,6 +859,7 @@ export const makeTradingDay = Effect.fnUntraced(function* (options: {
     const withTime = yield* closeOverdueIngests(DateTime.toEpochMillis(now))
     if (indexWake !== undefined) yield* arm(indexWake)
     if (sealWake !== undefined) yield* arm(sealWake)
+    if (buildWake !== undefined) yield* arm(buildWake)
     // A deadline on, not at each socket's instant: a trickle of openings then
     // wakes the object once a deadline, and a silent socket lives two at most.
     if (withTime) yield* arm(DateTime.addDuration(now, INGEST_TOKEN_DEADLINE))
@@ -878,7 +913,58 @@ export const makeTradingDay = Effect.fnUntraced(function* (options: {
           )
         )
       )
+    if (
+      buildWake !== undefined &&
+      options.brokerTotalsDb !== undefined &&
+      !DateTime.isLessThan(now, buildWake)
+    ) {
+      buildWake = undefined
+      yield* buildTotals(options.brokerTotalsDb).pipe(
+        Effect.catchCause((cause) =>
+          Effect.logError("Broker totals not built", cause)
+        )
+      )
+    }
     yield* sweepIngests
+  })
+
+  // The day's broker totals and candles, built and written to the broker
+  // totals DB, then the build version marked, its figures logged as the
+  // first real day's sizes. See spec apinrdw/kumora#437, "Further Notes".
+  const buildTotals = Effect.fnUntraced(function* (
+    db: Layer.Layer<BrokerTotalsDb, never, WorkerEnv>
+  ) {
+    const started = yield* Clock.currentTimeMillis
+    const build = yield* buildBrokerTotals(brokerCodes)
+    const written = yield* writeBuiltDay(
+      options.date,
+      build,
+      BROKER_TOTALS_VERSION,
+      yield* DateTime.now
+    ).pipe(Effect.provide(db))
+    yield* store.markBrokerTotals(String(BROKER_TOTALS_VERSION))
+    yield* Effect.logInfo("Broker totals built").pipe(
+      Effect.annotateLogs({
+        brokerTotalsRows: build.totals.length,
+        brokerCandleRows: build.candles.length,
+        brokerTotalsStatements: written.statements,
+        brokerTotalsRowsWritten: written.rowsWritten,
+        brokerTotalsMillis: (yield* Clock.currentTimeMillis) - started,
+      })
+    )
+  })
+
+  // Decision: the batch that makes a sealed day complete marks it due and
+  // arms the alarm to build at once; its answer never waits on the build.
+  // A day built or due already is left to its own wake. See spec
+  // apinrdw/kumora#437, "When it runs".
+  const totalsDue = Effect.gen(function* () {
+    if (!sealed || options.brokerTotalsDb === undefined) return
+    if ((yield* store.fact(Fact.brokerTotals)) !== undefined) return
+    if (!(yield* brokerCodes.complete)) return
+    yield* store.markBrokerTotals(BROKER_TOTALS_DUE)
+    buildWake = yield* DateTime.now
+    yield* arm(buildWake)
   })
 
   // Ajaib's `PRICE` frames, for the Day state fallback.
@@ -1183,7 +1269,12 @@ export const makeTradingDay = Effect.fnUntraced(function* (options: {
       // nothing. See spec apinrdw/kumora#343, "When it is recomputed".
       post: (text: string) =>
         turn.withPermit(
-          brokerCodes.post(text, sweepBrokers.recompute, sweepBrokers.completed)
+          brokerCodes.post(
+            text,
+            sweepBrokers.recompute,
+            // First: its scan is the one sweep brokers' check reads.
+            Effect.andThen(totalsDue, sweepBrokers.completed)
+          )
         ),
       status: (search: URLSearchParams) =>
         turn.withPermit(brokerCodes.status(search)),

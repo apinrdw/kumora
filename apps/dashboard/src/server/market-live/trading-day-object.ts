@@ -16,6 +16,7 @@ import {
 } from "@workspace/server"
 import { Clock, DateTime, Effect, Layer, Option, Schema, Scope } from "effect"
 
+import { brokerTotalsDbD1 } from "../broker-totals/db.ts"
 import { durableSql } from "./durable-sql.ts"
 import { marketClockOffset, withMarketClock } from "./market-clock.ts"
 import type { CodeListStore } from "./code-list.ts"
@@ -297,6 +298,7 @@ export class TradingDayObject {
                 void ctx.storage.setAlarm(DateTime.toEpochMillis(at) - offset)
             ),
           recordDay,
+          brokerTotalsDb: brokerTotalsDbD1,
         })
       )
       return { day, peerFor }
