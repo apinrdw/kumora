@@ -28,6 +28,7 @@ import {
   type HoldingRow,
   holdingRows,
   latestOriginSplit,
+  type MonthChange,
   monthChange,
   type SeriesKey,
 } from "@/lib/holding-composition"
@@ -239,31 +240,63 @@ type MonthStop = { readonly month: string }
 const percentTick = (share: number) =>
   Effect.succeed(`${Number((share * 100).toFixed(2))}%`)
 
-// What the tooltip shows for one month: its shown series largest first, or
-// nothing for a month KSEI has no data for.
+// What the tooltip shows for one month: its shown series largest first
+// with how they moved from the month before, or nothing for a month KSEI
+// has no data for.
 type MonthView =
   | { readonly month: string; readonly rows: undefined }
-  | { readonly month: string; readonly rows: ReadonlyArray<HoldingRow> }
+  | {
+      readonly month: string
+      readonly rows: ReadonlyArray<HoldingRow>
+      readonly change: MonthChange
+    }
 
-const monthView = (
+const monthView = Effect.fnUntraced(function* (
   chart: HoldingChart,
   rows: ReadonlyArray<HoldingRow>,
   month: string
-) =>
-  Effect.sync((): MonthView => ({
+): Effect.fn.Return<MonthView> {
+  if (
+    chart.columns.find((column) => column.month === month)?.shares === undefined
+  )
+    return { month, rows: undefined }
+  const shown = rows.filter((row) => row.month === month)
+  return {
     month,
-    rows:
-      chart.columns.find((column) => column.month === month)?.shares ===
-      undefined
-        ? undefined
-        : rows
-            .filter((row) => row.month === month)
-            .sort((a, b) => b.share - a.share),
-  }))
+    rows: [...shown].sort((a, b) => b.share - a.share),
+    change: yield* monthChange(
+      chart,
+      month,
+      shown.map(({ key }) => key)
+    ),
+  }
+})
+
+// A series' share last month, when it printed differently.
+const wasShare = (change: MonthChange, row: HoldingRow) =>
+  change._tag === "From" ? change.was.get(row.key) : undefined
+
+// Which month the changes are from, or why there are none.
+const changeNote = Effect.fnUntraced(function* (change: MonthChange) {
+  switch (change._tag) {
+    case "From":
+      return `Changes are from ${yield* monthLabel(change.month)}.`
+    case "NoData":
+      return `${yield* monthLabel(change.month)} has no data, so no change is shown.`
+    case "First":
+      return "This is the first month KSEI has for this stock."
+  }
+})
 
 // One series' line in the tooltip's screen-reader text.
-const rowText = (row: HoldingRow) =>
-  Effect.map(percent(row.share), (share) => `${row.label} ${share}`)
+const rowText = Effect.fnUntraced(function* (
+  row: HoldingRow,
+  was: number | undefined
+) {
+  const line = `${row.label} ${yield* percent(row.share)}`
+  if (was === undefined) return line
+  return `${line}, ${row.share > was ? "up" : "down"} from ${yield* percent(was)}`
+})
 
 // The tooltip as plain text, for its `role="status"` label: the React body
 // is inert while the tooltip is transient, so a screen reader hears this.
@@ -275,8 +308,10 @@ const monthText = Effect.fnUntraced(function* (
   if (view.rows === undefined)
     return `${label}: ${NO_DATA}, KSEI's report has no row for this month.`
   const lines = [label]
-  for (const row of view.rows) lines.push(yield* rowText(row))
+  for (const row of view.rows)
+    lines.push(yield* rowText(row, wasShare(view.change, row)))
   lines.push(`Share of ${yield* ofWhat(origin)}.`)
+  lines.push(yield* changeNote(view.change))
   return lines.join("\n")
 })
 
@@ -295,18 +330,40 @@ function MonthBody({ view, origin }: { view: MonthView; origin: OriginShown }) {
                   <Swatch color={SERIES_COLOR[row.key]} />
                   {row.label}
                 </dt>
-                <dd className="num text-right">
-                  {Effect.runSync(percent(row.share))}
+                <dd className="num text-right whitespace-nowrap">
+                  <WasNow now={row.share} was={wasShare(view.change, row)} />
                 </dd>
               </div>
             ))}
           </dl>
           <span className="text-muted-foreground">
-            Share of {Effect.runSync(ofWhat(origin))}.
+            Share of {Effect.runSync(ofWhat(origin))}.{" "}
+            {Effect.runSync(changeNote(view.change))}
           </span>
         </>
       )}
     </div>
+  )
+}
+
+// A share as `last month → this month`, as Shareholders composition writes
+// a change, with this month's colored by its direction.
+function WasNow({ now, was }: { now: number; was: number | undefined }) {
+  return (
+    <>
+      {was !== undefined && (
+        <span className="text-muted-foreground">
+          {Effect.runSync(percent(was))} →{" "}
+        </span>
+      )}
+      <span
+        className={cn(
+          was !== undefined && (now > was ? "text-up" : "text-down")
+        )}
+      >
+        {Effect.runSync(percent(now))}
+      </span>
+    </>
   )
 }
 
