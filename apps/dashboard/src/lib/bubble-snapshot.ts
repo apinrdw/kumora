@@ -64,5 +64,7 @@ export const snapshotCaption = (view: BubbleView, at: number) =>
     `Window ${view.window}`,
     `Size ${SIZE[view.size]}`,
     `Colour ${COLOUR[view.colour]}`,
-    TOP[`${view.top}`],
+    view.sector === undefined
+      ? TOP[`${view.top}`]
+      : `${TOP[`${view.top}`]} · ${view.sector}`,
   ])

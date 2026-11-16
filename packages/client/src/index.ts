@@ -12,6 +12,7 @@ export {
   SignInRequired,
   viewerMessages,
 } from "./market-live-socket.ts"
+export { fetchSectors } from "./sectors.ts"
 export { fetchStockCodeList, searchStockCodes } from "./stock-code-list.ts"
 export {
   CODES_RECHECK,

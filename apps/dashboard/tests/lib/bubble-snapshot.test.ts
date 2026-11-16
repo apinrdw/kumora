@@ -51,4 +51,20 @@ describe("a snapshot", () => {
         ])
       })
   )
+
+  it.effect("names the sector its filter shows", () =>
+    Effect.gen(function* () {
+      const caption = yield* snapshotCaption(
+        {
+          size: "value",
+          colour: "delta",
+          window: "5m",
+          top: 50,
+          sector: "Financials",
+        },
+        MORNING
+      )
+      expect(caption.at(-1)).toBe("Top 50 · Financials")
+    })
+  )
 })

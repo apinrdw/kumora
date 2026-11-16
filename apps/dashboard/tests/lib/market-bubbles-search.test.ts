@@ -60,6 +60,7 @@ describe("the Market Bubbles search params", () => {
         colour: undefined,
         window: undefined,
         top: undefined,
+        sector: undefined,
       })
       expect(yield* searchOfView({ window: "5m" })).toStrictEqual({
         window: undefined,
@@ -68,6 +69,25 @@ describe("the Market Bubbles search params", () => {
         window: "1h",
         top: 50,
       })
+    })
+  )
+
+  it.effect("keeps one sector, Unclassified too, and drops any other", () =>
+    Effect.gen(function* () {
+      expect(
+        (yield* parseMarketBubblesSearch({
+          sector: "Properties & Real Estate",
+        })).sector
+      ).toBe("Properties & Real Estate")
+      expect(
+        (yield* parseMarketBubblesSearch({ sector: "Unclassified" })).sector
+      ).toBe("Unclassified")
+      expect(
+        (yield* parseMarketBubblesSearch({ sector: "Banks" })).sector
+      ).toBeUndefined()
+      expect((yield* viewOfSearch({ sector: "Energy" })).sector).toBe("Energy")
+      // All sectors is the default: no sector in the URL.
+      expect(DEFAULT_VIEW.sector).toBeUndefined()
     })
   )
 })

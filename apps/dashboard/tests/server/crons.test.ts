@@ -8,6 +8,7 @@ import {
   nextKseiParseRun,
   nextKseiRun,
 } from "@/server/ksei/schedule"
+import { SECTOR_CRON } from "@/server/sectors/schedule"
 import { LOGO_CRON } from "@/server/logos/schedule"
 import {
   ARCHIVE_CRON,
@@ -29,6 +30,10 @@ const runArchiveCron = vi.fn<(scheduledTime: number) => Promise<void>>(() =>
 const runParseCron = vi.fn<(scheduledTime: number) => Promise<void>>(() =>
   Effect.runPromise(Effect.void)
 )
+const runSectorCron = vi.fn<(scheduledTime: number) => Promise<void>>(() =>
+  Effect.runPromise(Effect.void)
+)
+vi.mock("@/server/sectors/cron", () => ({ runSectorCron }))
 const runLogoCron = vi.fn<() => Promise<void>>(() =>
   Effect.runPromise(Effect.void)
 )
@@ -115,6 +120,19 @@ describe("a cron firing", () => {
       const parse = yield* nextParseRun(archive)
       assert.strictEqual(parse.getTime() - archive.getTime(), 60 * 60 * 1000)
     })
+  )
+
+  it.effect(
+    "starts the sector run, and no archive run, on the sector cron",
+    () =>
+      Effect.gen(function* () {
+        yield* Effect.promise(() => runCron(SECTOR_CRON, scheduledTime))
+
+        assert.deepStrictEqual(runSectorCron.mock.calls, [[scheduledTime]])
+        assert.strictEqual(runArchiveCron.mock.calls.length, 0)
+        assert.strictEqual(runParseCron.mock.calls.length, 0)
+        assert.strictEqual(runKseiCron.mock.calls.length, 0)
+      })
   )
 
   it.effect("starts the logo sync, and no run, on the logo cron", () =>

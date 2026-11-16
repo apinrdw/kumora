@@ -2,18 +2,22 @@
 // TanStack Start: the ingest socket and the viewer socket. Both reach today's
 // trading-day Durable Object, named by the WIB date; the recorded day GETs
 // (days.ts) and the broker codes route (broker-codes-route.ts) reach the
-// object of the day they name, and the day strip the index object.
+// object of the day they name, and the day strip the index object. The
+// sector map (../sectors/map.ts) reads HoldingsDb.
 import {
   DayStripPath,
   MarketLivePath,
+  SectorsPath,
   ViewerCloseCode,
   brokerCodesDay,
   recordedDayRequest,
 } from "@workspace/relay"
 import { WorkerEnv } from "@workspace/server"
-import { DateTime, Effect, Option, Schema } from "effect"
+import { DateTime, Effect, Layer, Option, Schema } from "effect"
 
 import { Auth } from "../auth/auth.ts"
+import { holdingsDbD1 } from "../holdings/db.ts"
+import { sectorsRoute } from "../sectors/map.ts"
 import { brokerCodesRoute } from "./broker-codes-route.ts"
 import { dayStripRoute, recordedDayRoute } from "./days.ts"
 import { gateLiveViewer } from "./gate.ts"
@@ -97,6 +101,12 @@ export const marketLiveRoute = Effect.fnUntraced(function* (request: Request) {
   const brokerCodes = yield* brokerCodesDay(pathname)
   if (Option.isSome(brokerCodes))
     return Option.some(brokerCodesRoute(request, brokerCodes.value))
+  if (pathname === SectorsPath)
+    return Option.some(
+      sectorsRoute(request).pipe(
+        Effect.provide(Layer.merge(Auth.layer, holdingsDbD1))
+      )
+    )
   if (pathname === DayStripPath)
     return Option.some(dayStripRoute(request).pipe(Effect.provide(Auth.layer)))
   const recorded = yield* recordedDayRequest(url)

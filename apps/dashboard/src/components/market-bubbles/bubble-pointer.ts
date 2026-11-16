@@ -1,6 +1,6 @@
 // Hover, drag and click on Market Bubbles' canvas (spec apinrdw/kumora#427,
 // "Hover" and "Drag"), as listeners the canvas's frame loop attaches.
-import type { StockCode } from "@workspace/relay"
+import type { SectorName, StockCode } from "@workspace/relay"
 import { Effect } from "effect"
 
 import { CLICK_SLOP, releaseVelocity, RETURN_FRAMES } from "@/lib/bubble-drag"
@@ -111,20 +111,28 @@ const fling = (body: PointerBody, held: Press) =>
 // Follows the pointer on `surface` over `bodies` until the returned cleanup.
 // Hovering a bubble names it in `pointer` and shows its tooltip; a press that
 // moves past CLICK_SLOP drags it, captured so the drag follows the pointer
-// outside the canvas; a press that doesn't hands its code to `pick`.
+// outside the canvas; a press that doesn't hands its code to `pick`. A click
+// on the sector label `labelAt` finds hands its sector to `pickSector`; a
+// label is above its cluster, so it is tried first.
 export function followPointer<Body extends PointerBody>({
   surface,
   bodies,
   pointer,
   show,
   pick,
+  labelAt,
+  pickSector,
 }: {
   surface: HTMLCanvasElement
   bodies: ReadonlyMap<StockCode, Body>
   pointer: Pointer
   show: (view: PointerView) => void
   pick: (code: StockCode) => void
+  labelAt: (x: number, y: number) => SectorName | undefined
+  pickSector: (sector: SectorName) => void
 }) {
+  // A press on a sector label: which, and where it began.
+  let onLabel: { sector: SectorName; x: number; y: number } | undefined
   const pointAt = (event: PointerEvent) => {
     const box = surface.getBoundingClientRect()
     return {
@@ -139,15 +147,22 @@ export function followPointer<Body extends PointerBody>({
     at: ReturnType<typeof pointAt>
   ) => {
     pointer.hovered = body?.code
+    if (body !== undefined)
+      return show({ tip: { figures: body.figures, ...at }, cursor: "pointer" })
     show(
-      body === undefined
+      labelAt(at.x, at.y) === undefined
         ? NO_POINTER
-        : { tip: { figures: body.figures, ...at }, cursor: "pointer" }
+        : { tip: undefined, cursor: "pointer" }
     )
   }
 
   const down = (event: PointerEvent) => {
     const at = pointAt(event)
+    const sector = labelAt(at.x, at.y)
+    if (sector !== undefined) {
+      onLabel = { sector, x: at.x, y: at.y }
+      return
+    }
     const body = Effect.runSync(bubbleAt(bodies, pointer.hovered, at.x, at.y))
     if (body === undefined) return
     surface.setPointerCapture(event.pointerId)
@@ -194,6 +209,13 @@ export function followPointer<Body extends PointerBody>({
   // A press that never moved past CLICK_SLOP is a click; a drag lets its
   // bubble go.
   const release = (event: PointerEvent) => {
+    const label = onLabel
+    onLabel = undefined
+    if (label !== undefined && event.type === "pointerup") {
+      const at = pointAt(event)
+      if (Math.hypot(at.x - label.x, at.y - label.y) <= CLICK_SLOP)
+        pickSector(label.sector)
+    }
     const held = pointer.press
     pointer.press = undefined
     if (held === undefined) return
