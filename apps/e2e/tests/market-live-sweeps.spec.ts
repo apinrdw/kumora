@@ -737,9 +737,11 @@ test("a recorded day's Auction row shows its lead buyer and seller, and a broker
 
 // The ringed bubble's centre in the viewport, once it is `id`'s and a
 // redraw no longer moves it (a selection can pan the candle chart a frame
-// later).
+// later). The candle chart sits below the footprint chart, so a bubble near
+// its foot can fall below a 1080 px viewport until it scrolls into view.
 async function ringedBubble(candles: Locator, id: string) {
   await expect(candles).toHaveAttribute("data-ringed-sweep", id)
+  await candles.scrollIntoViewIfNeeded()
   let last: string | null = null
   await expect
     .poll(
