@@ -21,12 +21,13 @@ const PANEL_BUBBLES = 60
 
 // The page's view the panel draws with: every code ranked, so a set picks
 // its own 60 from the whole market.
-export const panelView = (window: PanelWindow): BubbleView => ({
-  size: "value",
-  colour: "delta",
-  window,
-  top: "all",
-})
+export const panelView = (window: PanelWindow) =>
+  Effect.succeed<BubbleView>({
+    size: "value",
+    colour: "delta",
+    window,
+    top: "all",
+  })
 
 // The set shown: an index has no sector, so Sector of selected shows the
 // market top while one is selected.
@@ -52,12 +53,16 @@ export const panelBubbles = (
 ) =>
   Effect.gen(function* () {
     const shown = yield* panelSetOf(set, selected)
-    const keep =
-      shown === "watchlist"
-        ? (code: StockCode) => watchlist.includes(code)
-        : shown === "sector"
-          ? (code: StockCode) =>
-              sectorOf(sectors, code) === sectorOf(sectors, selected)
-          : () => true
-    return ranked.filter(({ code }) => keep(code)).slice(0, PANEL_BUBBLES)
+    if (shown === "top") return ranked.slice(0, PANEL_BUBBLES)
+    if (shown === "watchlist")
+      return ranked
+        .filter(({ code }) => watchlist.includes(code))
+        .slice(0, PANEL_BUBBLES)
+    const sector = yield* sectorOf(sectors, selected)
+    const kept: Array<BubbleFigures> = []
+    for (const bubble of ranked) {
+      if (kept.length === PANEL_BUBBLES) break
+      if ((yield* sectorOf(sectors, bubble.code)) === sector) kept.push(bubble)
+    }
+    return kept
   })

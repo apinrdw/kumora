@@ -14,11 +14,12 @@ import { collectCapped } from "../archive/capped-body.ts"
 import { ArchiveBucket } from "../archive/bucket.ts"
 
 export const logoUrl = (code: StockCode) =>
-  `https://assets.stockbit.com/logos/companies/${code}.png`
+  Effect.sync(() => `https://assets.stockbit.com/logos/companies/${code}.png`)
 
 const PREFIX = "logos/"
 
-export const logoKey = (code: StockCode) => `${PREFIX}${code}.png`
+export const logoKey = (code: StockCode) =>
+  Effect.sync(() => `${PREFIX}${code}.png`)
 
 // The custom metadata key of the source's ETag.
 const SOURCE_ETAG = "source-etag"
@@ -52,7 +53,7 @@ const syncLogo = Effect.fnUntraced(function* (
 ) {
   const client = yield* HttpClient.HttpClient
   const response = yield* client
-    .get(logoUrl(code), {
+    .get(yield* logoUrl(code), {
       headers: held === undefined ? {} : { "if-none-match": held },
     })
     .pipe(Effect.timeout(REQUEST_TIMEOUT))
@@ -69,7 +70,7 @@ const syncLogo = Effect.fnUntraced(function* (
     () => new Error(`${code}'s logo is over ${MAX_LOGO_BYTES} bytes`)
   ).pipe(Effect.timeout(REQUEST_TIMEOUT))
   if (!(yield* isPng(bytes))) return "failed" satisfies Outcome
-  yield* (yield* ArchiveBucket).put(logoKey(code), bytes, {
+  yield* (yield* ArchiveBucket).put(yield* logoKey(code), bytes, {
     contentType: "image/png",
     customMetadata:
       etag === undefined || etag.length > MAX_ETAG_LENGTH
@@ -97,7 +98,7 @@ export const syncLogos = Effect.fn("syncLogos")(function* (
     failed: 0,
   }
   for (const code of codes) {
-    const outcome = yield* syncLogo(code, held.get(logoKey(code))).pipe(
+    const outcome = yield* syncLogo(code, held.get(yield* logoKey(code))).pipe(
       Effect.catch(() => Effect.succeed<Outcome>("failed"))
     )
     tally[outcome]++

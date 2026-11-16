@@ -53,7 +53,10 @@ export function BubblePanel({
   const sectors = useSectors()
   const set = Effect.runSync(panelSetOf(settings.bubbles.set, selected))
   const shown = { set, window: settings.bubbles.window }
-  const view = useMemo(() => panelView(shown.window), [shown.window])
+  const view = useMemo(
+    () => Effect.runSync(panelView(shown.window)),
+    [shown.window]
+  )
   const cut = useCallback(
     (ranked: ReadonlyArray<BubbleFigures>) =>
       panelBubbles(ranked, set, { selected, watchlist, sectors }),

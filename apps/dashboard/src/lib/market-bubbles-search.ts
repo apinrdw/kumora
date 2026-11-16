@@ -49,7 +49,9 @@ export const searchOfView = (
   })
 
 const field = <A>(schema: Schema.Codec<A>, raw: unknown) =>
-  Option.getOrUndefined(Schema.decodeUnknownOption(schema)(raw))
+  Effect.sync(() =>
+    Option.getOrUndefined(Schema.decodeUnknownOption(schema)(raw))
+  )
 
 /**
  * Keeps the fields that parse and aren't a default, and drops anything else.
@@ -57,19 +59,22 @@ const field = <A>(schema: Schema.Codec<A>, raw: unknown) =>
  * the raw one, which would keep it.
  */
 export const parseMarketBubblesSearch = (raw: Record<string, unknown>) =>
-  Effect.map(
-    searchOfView({
-      size: field(Size, raw.size),
-      colour: field(Colour, raw.colour),
-      window: field(Window, raw.window),
-      sector: field(SectorName, raw.sector),
-    }),
+  Effect.gen(function* (): Effect.fn.Return<MarketBubblesSearch> {
+    const search = yield* searchOfView({
+      size: yield* field(Size, raw.size),
+      colour: yield* field(Colour, raw.colour),
+      window: yield* field(Window, raw.window),
+      sector: yield* field(SectorName, raw.sector),
+    })
     // Decision: `top` passes at any value. Its default is the device's (Top
     // 50 below `lg`), which the route can't know; the page drops a `top` that
     // is its device's default once it knows the device (useBubbleView), so
     // an absent `top` means the device's default.
-    (search): MarketBubblesSearch => ({ ...search, top: field(Top, raw.top) })
-  )
+    return {
+      ...search,
+      top: yield* field(Top, raw.top),
+    }
+  })
 
 // The view the search names, with one of `defaults` for each field it leaves
 // out.

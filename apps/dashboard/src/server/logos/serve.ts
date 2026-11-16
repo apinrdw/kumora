@@ -33,7 +33,8 @@ export const logoResponse = Effect.fn("logoResponse")(function* (
 ) {
   if (!isStockCode(code)) return yield* notFound
   const bucket: R2Binding = (yield* WorkerEnv).LOGO_BUCKET
-  const object = yield* Effect.promise(() => bucket.get(logoKey(code)))
+  const key = yield* logoKey(code)
+  const object = yield* Effect.promise(() => bucket.get(key))
   if (object === null) return yield* notFound
   const headers = { "cache-control": CACHE_CONTROL, etag: object.httpEtag }
   if (ifNoneMatch === object.httpEtag) {

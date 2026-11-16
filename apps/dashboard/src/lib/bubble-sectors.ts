@@ -27,7 +27,7 @@ export const sectorLookup = (map: SectorMap) =>
 
 // A code's sector: Unclassified when the lookup has none.
 export const sectorOf = (lookup: SectorLookup, code: StockCode) =>
-  lookup.get(code) ?? UNCLASSIFIED
+  Effect.sync((): SectorName => lookup.get(code) ?? UNCLASSIFIED)
 
 // The ranked bubbles of one sector, or all of them with none. It filters
 // after the ranking, so a sector shows its codes of the market's Top N.
@@ -36,11 +36,13 @@ export const inSector = (
   lookup: SectorLookup,
   sector: SectorName | undefined
 ) =>
-  Effect.sync(() =>
-    sector === undefined
-      ? bubbles
-      : bubbles.filter((bubble) => sectorOf(lookup, bubble.code) === sector)
-  )
+  Effect.gen(function* () {
+    if (sector === undefined) return bubbles
+    const kept: Array<BubbleFigures> = []
+    for (const bubble of bubbles)
+      if ((yield* sectorOf(lookup, bubble.code)) === sector) kept.push(bubble)
+    return kept
+  })
 
 // A sector's figures over the window, for its label: the size metric's
 // total, its Buy/Sell delta %, and its change %, each code's weighted by its
@@ -67,10 +69,10 @@ export const sectorGroups = (
   bubbles: ReadonlyArray<BubbleFigures>,
   lookup: SectorLookup
 ) =>
-  Effect.sync((): Array<SectorGroup> => {
+  Effect.gen(function* () {
     const gathered = new Map<SectorName, Gathered>()
     for (const bubble of bubbles) {
-      const sector = sectorOf(lookup, bubble.code)
+      const sector = yield* sectorOf(lookup, bubble.code)
       let held = gathered.get(sector)
       if (held === undefined) {
         held = {
@@ -93,7 +95,7 @@ export const sectorGroups = (
       }
     }
     return [...gathered]
-      .map(([sector, held]) => ({
+      .map(([sector, held]): SectorGroup => ({
         sector,
         total: held.total,
         buySellDelta:

@@ -17,7 +17,7 @@ const logoBucket = () => {
       Effect.runPromise(
         Effect.sync(() => {
           reads.push(key)
-          return key === logoKey(StockCode.make("BBCA"))
+          return key === Effect.runSync(logoKey(StockCode.make("BBCA")))
             ? { body: new Response(BBCA).body!, httpEtag: '"r2-bbca"' }
             : null
         })

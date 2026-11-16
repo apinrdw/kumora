@@ -151,11 +151,6 @@ const LOGO_SHARE = 0.55
 const LOGO_MAX = 64
 const LOGO_GAP = 0.12
 
-// A code's logo, served by the dashboard itself (src/routes/logos/$code.ts).
-// Decision: same origin, so drawing it never taints the canvas and the
-// snapshot still exports. See apinrdw/kumora#432.
-const logoPath = (code: StockCode) => `/logos/${encodeURIComponent(code)}`
-
 // Every bubble of `bubbles` on one canvas, sized by `view`'s size metric and
 // toned by its colour metric, easing between the figures each recompute
 // brings, one cluster per sector of `sectors`, each labelled. A code that
@@ -228,7 +223,7 @@ export function BubbleCanvas({
     const shown = new Set<StockCode>()
     for (const figures of bubbles) {
       shown.add(figures.code)
-      const sector = sectorOf(sectors, figures.code)
+      const sector = Effect.runSync(sectorOf(sectors, figures.code))
       Effect.runSync(
         retarget(held, figures, {
           sector,
@@ -421,7 +416,10 @@ export function BubbleCanvas({
       if (!held.has(code)) {
         const image = new Image()
         image.addEventListener("error", () => held.set(code, null))
-        image.src = logoPath(code)
+        // Served by the dashboard itself (src/routes/logos/$code.ts).
+        // Decision: same origin, so drawing it never taints the canvas and
+        // the snapshot still exports. See apinrdw/kumora#432.
+        image.src = `/logos/${encodeURIComponent(code)}`
         held.set(code, image)
       }
       const image = held.get(code)
@@ -837,7 +835,7 @@ function BubbleTip({
   sectors: SectorLookup
 }) {
   const { figures } = hovered
-  const sector = sectorOf(sectors, figures.code)
+  const sector = Effect.runSync(sectorOf(sectors, figures.code))
   const percent = (n: number | undefined) =>
     n === undefined ? "—" : Effect.runSync(pct(n))
   const rows: ReadonlyArray<readonly [string, string, string?]> = [

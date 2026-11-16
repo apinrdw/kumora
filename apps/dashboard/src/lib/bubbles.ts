@@ -210,26 +210,24 @@ export const makeMarketFlow = () =>
   }))
 
 // A body's minute and day tuples as rows.
-const bodyRows = (
-  flow: MarketFlow,
-  entry: RecordedBubbles["codes"][number]
-) => {
-  const [value, volume, frequency, buyValue, sellValue, close] = entry.day
-  const day: Row = { value, volume, frequency, buyValue, sellValue, close }
-  const minutes = new Map<number, Row>()
-  for (const [at, v, vol, freq, buy, sell, last] of entry.minutes) {
-    minutes.set(at, {
-      value: v,
-      volume: vol,
-      frequency: freq,
-      buyValue: buy,
-      sellValue: sell,
-      close: last,
-    })
-    noteMinute(flow, at)
-  }
-  return { day, minutes }
-}
+const bodyRows = (flow: MarketFlow, entry: RecordedBubbles["codes"][number]) =>
+  Effect.sync(() => {
+    const [value, volume, frequency, buyValue, sellValue, close] = entry.day
+    const day: Row = { value, volume, frequency, buyValue, sellValue, close }
+    const minutes = new Map<number, Row>()
+    for (const [at, v, vol, freq, buy, sell, last] of entry.minutes) {
+      minutes.set(at, {
+        value: v,
+        volume: vol,
+        frequency: freq,
+        buyValue: buy,
+        sellValue: sell,
+        close: last,
+      })
+      noteMinute(flow, at)
+    }
+    return { day, minutes }
+  })
 
 // The minutes `code` holds laid over a body's: each keeps the copy with
 // more trades. The day totals are the body's, plus what each kept held
@@ -239,26 +237,31 @@ const keepHeld = (
   code: CodeFlow,
   body: { readonly day: Row; readonly minutes: Map<number, Row> },
   oldest: number
-) => {
-  for (const [at, row] of code.minutes) {
-    const bodyRow = body.minutes.get(at)
-    if (bodyRow !== undefined && bodyRow.frequency >= row.frequency) continue
-    body.minutes.set(at, row)
-    if (at >= oldest || bodyRow !== undefined)
-      replaceInDay(body.day, row, bodyRow)
-  }
-}
+) =>
+  Effect.sync(() => {
+    for (const [at, row] of code.minutes) {
+      const bodyRow = body.minutes.get(at)
+      if (bodyRow !== undefined && bodyRow.frequency >= row.frequency) continue
+      body.minutes.set(at, row)
+      if (at >= oldest || bodyRow !== undefined)
+        replaceInDay(body.day, row, bodyRow)
+    }
+  })
 
 // Decision: a minute keeps whichever of its copies has more trades, the
 // body's or a delta's candle. The body is built from settled trades once a
 // minute and the browser may answer an older copy, so a delta that came
 // before it can hold more of the minute; a candle only grows.
 export const applyBubbles = (flow: MarketFlow, body: RecordedBubbles) =>
-  Effect.sync(() => {
+  Effect.gen(function* () {
     for (const entry of body.codes) {
       const code = codeFlowOf(flow, entry.code)
-      const rows = bodyRows(flow, entry)
-      keepHeld(code, rows, entry.minutes[0]?.[0] ?? Number.POSITIVE_INFINITY)
+      const rows = yield* bodyRows(flow, entry)
+      yield* keepHeld(
+        code,
+        rows,
+        entry.minutes[0]?.[0] ?? Number.POSITIVE_INFINITY
+      )
       code.minutes.clear()
       for (const [at, row] of rows.minutes) code.minutes.set(at, row)
       const newest = newestKey(code.minutes, Number.POSITIVE_INFINITY)
@@ -614,11 +617,12 @@ const twoDigits = new Intl.NumberFormat("en-US", {
 })
 const whole = new Intl.NumberFormat("en-US", { maximumFractionDigits: 0 })
 
-const scaled = (n: number, steps: ReadonlyArray<readonly [number, string]>) => {
-  for (const [at, suffix] of steps)
-    if (n >= at) return `${twoDigits.format(n / at)} ${suffix}`
-  return whole.format(n)
-}
+const scaled = (n: number, steps: ReadonlyArray<readonly [number, string]>) =>
+  Effect.sync(() => {
+    for (const [at, suffix] of steps)
+      if (n >= at) return `${twoDigits.format(n / at)} ${suffix}`
+    return whole.format(n)
+  })
 
 const RUPIAH_STEPS = [
   [1e12, "T"],
@@ -632,7 +636,7 @@ const COUNT_STEPS = [
 
 // A bubble's size figure: Rp2.35 B, 12.50 K lots, 2.10 M trades.
 export const sizeFigure = (metric: SizeMetric, n: number) =>
-  Effect.sync(() => {
-    if (metric === "value") return `Rp${scaled(n, RUPIAH_STEPS)}`
-    return `${scaled(n, COUNT_STEPS)} ${metric === "volume" ? "lots" : "trades"}`
+  Effect.gen(function* () {
+    if (metric === "value") return `Rp${yield* scaled(n, RUPIAH_STEPS)}`
+    return `${yield* scaled(n, COUNT_STEPS)} ${metric === "volume" ? "lots" : "trades"}`
   })

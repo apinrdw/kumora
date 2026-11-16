@@ -62,6 +62,9 @@ const fakeStockbit = (logos: Map<string, FakeLogo>) => {
   return cdn
 }
 
+const urlOf = (code: string) => Effect.runSync(logoUrl(StockCode.make(code)))
+const keyOf = (code: string) => Effect.runSync(logoKey(StockCode.make(code)))
+
 const codes = (...names: Array<string>) =>
   names.map((name) => StockCode.make(name))
 
@@ -73,14 +76,8 @@ describe("the logo sync", () => {
         const bucket = memoryBucket()
         const cdn = fakeStockbit(
           new Map([
-            [
-              logoUrl(StockCode.make("BBCA")),
-              { body: png(1), etag: '"bbca-1"' },
-            ],
-            [
-              logoUrl(StockCode.make("TLKM")),
-              { body: png(2), etag: '"tlkm-1"' },
-            ],
+            [urlOf("BBCA"), { body: png(1), etag: '"bbca-1"' }],
+            [urlOf("TLKM"), { body: png(2), etag: '"tlkm-1"' }],
           ])
         )
 
@@ -95,13 +92,13 @@ describe("the logo sync", () => {
           failed: 0,
         })
         assert.strictEqual(cdn.peak, 1)
-        const bbca = bucket.objects.get(logoKey(StockCode.make("BBCA")))
+        const bbca = bucket.objects.get(keyOf("BBCA"))
         assert.deepStrictEqual(bbca?.bytes, png(1))
         assert.strictEqual(bbca?.contentType, "image/png")
         assert.deepStrictEqual(bbca?.customMetadata, {
           "source-etag": '"bbca-1"',
         })
-        assert.isFalse(bucket.objects.has(logoKey(StockCode.make("NOPE"))))
+        assert.isFalse(bucket.objects.has(keyOf("NOPE")))
       })
   )
 
@@ -109,9 +106,9 @@ describe("the logo sync", () => {
     Effect.gen(function* () {
       const bucket = memoryBucket()
       const logos = new Map<string, FakeLogo>([
-        [logoUrl(StockCode.make("BBCA")), { body: png(1), etag: '"bbca-1"' }],
+        [urlOf("BBCA"), { body: png(1), etag: '"bbca-1"' }],
         [
-          logoUrl(StockCode.make("TLKM")),
+          urlOf("TLKM"),
           { body: png(2), etag: '"tlkm-1"', unconditional: true },
         ],
       ])
@@ -133,16 +130,13 @@ describe("the logo sync", () => {
       assert.deepStrictEqual(bucket.puts, [])
 
       // A new file at the source is copied over the old one.
-      logos.set(logoUrl(StockCode.make("BBCA")), {
+      logos.set(urlOf("BBCA"), {
         body: png(3),
         etag: '"bbca-2"',
       })
       yield* syncLogos(codes("BBCA", "TLKM")).pipe(Effect.provide(layer))
-      assert.deepStrictEqual(bucket.puts, [logoKey(StockCode.make("BBCA"))])
-      assert.deepStrictEqual(
-        bucket.objects.get(logoKey(StockCode.make("BBCA")))?.bytes,
-        png(3)
-      )
+      assert.deepStrictEqual(bucket.puts, [keyOf("BBCA")])
+      assert.deepStrictEqual(bucket.objects.get(keyOf("BBCA"))?.bytes, png(3))
     })
   )
 
@@ -150,10 +144,10 @@ describe("the logo sync", () => {
     Effect.gen(function* () {
       const bucket = memoryBucket()
       const logos = new Map<string, FakeLogo>([
-        [logoUrl(StockCode.make("BBCA")), { body: png(1), etag: '"bbca-1"' }],
-        [logoUrl(StockCode.make("TLKM")), { body: png(2), etag: '"tlkm-1"' }],
-        [logoUrl(StockCode.make("ASII")), { body: png(4), etag: '"asii-1"' }],
-        [logoUrl(StockCode.make("BMRI")), { body: png(5), etag: '"bmri-1"' }],
+        [urlOf("BBCA"), { body: png(1), etag: '"bbca-1"' }],
+        [urlOf("TLKM"), { body: png(2), etag: '"tlkm-1"' }],
+        [urlOf("ASII"), { body: png(4), etag: '"asii-1"' }],
+        [urlOf("BMRI"), { body: png(5), etag: '"bmri-1"' }],
       ])
       const cdn = fakeStockbit(logos)
       const layer = Layer.merge(bucket.layer, cdn.layer)
@@ -164,13 +158,13 @@ describe("the logo sync", () => {
 
       // A server error, a code the CDN no longer has, an error page sent as
       // a 200, and an empty 200.
-      logos.set(logoUrl(StockCode.make("BBCA")), { body: png(9), status: 503 })
-      logos.delete(logoUrl(StockCode.make("TLKM")))
-      logos.set(logoUrl(StockCode.make("ASII")), {
+      logos.set(urlOf("BBCA"), { body: png(9), status: 503 })
+      logos.delete(urlOf("TLKM"))
+      logos.set(urlOf("ASII"), {
         body: "<html>Busy</html>",
         etag: '"x"',
       })
-      logos.set(logoUrl(StockCode.make("BMRI")), {
+      logos.set(urlOf("BMRI"), {
         body: new Uint8Array(),
         etag: '"y"',
       })
@@ -185,22 +179,10 @@ describe("the logo sync", () => {
         failed: 3,
       })
       assert.deepStrictEqual(bucket.puts, [])
-      assert.deepStrictEqual(
-        bucket.objects.get(logoKey(StockCode.make("BBCA")))?.bytes,
-        png(1)
-      )
-      assert.deepStrictEqual(
-        bucket.objects.get(logoKey(StockCode.make("TLKM")))?.bytes,
-        png(2)
-      )
-      assert.deepStrictEqual(
-        bucket.objects.get(logoKey(StockCode.make("ASII")))?.bytes,
-        png(4)
-      )
-      assert.deepStrictEqual(
-        bucket.objects.get(logoKey(StockCode.make("BMRI")))?.bytes,
-        png(5)
-      )
+      assert.deepStrictEqual(bucket.objects.get(keyOf("BBCA"))?.bytes, png(1))
+      assert.deepStrictEqual(bucket.objects.get(keyOf("TLKM"))?.bytes, png(2))
+      assert.deepStrictEqual(bucket.objects.get(keyOf("ASII"))?.bytes, png(4))
+      assert.deepStrictEqual(bucket.objects.get(keyOf("BMRI"))?.bytes, png(5))
     })
   )
 
@@ -209,11 +191,11 @@ describe("the logo sync", () => {
       const bucket = memoryBucket()
       const cdn = fakeStockbit(
         new Map([
-          [logoUrl(StockCode.make("BBCA")), { body: png(1), etag: '"bbca-1"' }],
-          [logoUrl(StockCode.make("TLKM")), { body: png(2), etag: '"tlkm-1"' }],
+          [urlOf("BBCA"), { body: png(1), etag: '"bbca-1"' }],
+          [urlOf("TLKM"), { body: png(2), etag: '"tlkm-1"' }],
         ])
       )
-      bucket.failPut = (key) => key === logoKey(StockCode.make("BBCA"))
+      bucket.failPut = (key) => key === keyOf("BBCA")
 
       const synced = yield* syncLogos(codes("BBCA", "TLKM")).pipe(
         Effect.provide(Layer.merge(bucket.layer, cdn.layer))
@@ -225,7 +207,7 @@ describe("the logo sync", () => {
         missing: 0,
         failed: 1,
       })
-      assert.isTrue(bucket.objects.has(logoKey(StockCode.make("TLKM"))))
+      assert.isTrue(bucket.objects.has(keyOf("TLKM")))
     })
   )
 })
