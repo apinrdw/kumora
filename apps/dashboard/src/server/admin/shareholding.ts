@@ -1,6 +1,7 @@
 // The shareholding archive's admin page, /admin/shareholding: the last archive
-// run and Run now, the last classification parse run and its Parse now, the
-// recent runs and the archive totals (spec apinrdw/kumora#303, "The admin
+// run and Run now, the last classification parse run and the last
+// investor-type parse run with each one's Parse now, the recent runs and the
+// archive totals (spec apinrdw/kumora#303, "The admin
 // page", and #402, "Admin").
 import { Conflict } from "@workspace/server"
 import { DateTime, Effect } from "effect"
@@ -10,6 +11,7 @@ import { authorizeArchive } from "@/server/admin/archive-access"
 import { parseNow } from "@/server/admin/parse-now"
 import type { Action } from "@/server/auth/policy"
 import { classificationParseRuns } from "@/server/shareholding/classification-parse"
+import { investorTypeParseRuns } from "@/server/shareholding/investor-type-parse"
 import { lastRun, recentRuns, startRun } from "@/server/shareholding/runs"
 import { archiveTotals } from "@/server/shareholding/totals"
 import { runIdAt } from "@/server/shareholding/run-result"
@@ -29,15 +31,23 @@ const authorize = (
 export const shareholdingArchivePage = Effect.fn("shareholdingArchivePage")(
   function* (headers: Headers) {
     yield* authorize(headers, "admin.view-shareholding-archive")
-    const [run, runs, totals, classificationParseRun] = yield* Effect.all(
-      [lastRun, recentRuns, archiveTotals, classificationParseRuns.last],
-      { concurrency: "unbounded" }
-    )
+    const [run, runs, totals, classificationParseRun, investorTypeParseRun] =
+      yield* Effect.all(
+        [
+          lastRun,
+          recentRuns,
+          archiveTotals,
+          classificationParseRuns.last,
+          investorTypeParseRuns.last,
+        ],
+        { concurrency: "unbounded" }
+      )
     const now = yield* DateTime.now
     return {
       lastRun: run,
       nextRun: (yield* nextScheduledRun(DateTime.toDateUtc(now))).toISOString(),
       lastClassificationParseRun: classificationParseRun,
+      lastInvestorTypeParseRun: investorTypeParseRun,
       nextParseRun: (yield* nextParseRun(
         DateTime.toDateUtc(now)
       )).toISOString(),
@@ -69,5 +79,12 @@ export const parseClassificationNow = Effect.fn("parseClassificationNow")(
   function* (headers: Headers) {
     yield* authorize(headers, "admin.run-shareholding-parse")
     return yield* parseNow(classificationParseRuns)
+  }
+)
+
+export const parseInvestorTypeNow = Effect.fn("parseInvestorTypeNow")(
+  function* (headers: Headers) {
+    yield* authorize(headers, "admin.run-shareholding-parse")
+    return yield* parseNow(investorTypeParseRuns)
   }
 )

@@ -10,6 +10,7 @@ import { ParseRunCard } from "@/components/admin/archive/parse-run-card"
 import { LastRunCard } from "@/components/admin/shareholding/last-run-card"
 import {
   parseClassificationNowFn,
+  parseInvestorTypeNowFn,
   shareholdingArchiveFn,
 } from "@/server/admin/shareholding.functions"
 import { PARSE_TIMES_WIB } from "@/server/shareholding/schedule"
@@ -30,6 +31,7 @@ function ShareholdingPage() {
     recentRuns,
     totals,
     lastClassificationParseRun,
+    lastInvestorTypeParseRun,
     nextParseRun,
     ...lastRun
   } = Route.useLoaderData()
@@ -42,6 +44,15 @@ function ShareholdingPage() {
         emptyMessage="No classification parse run has happened yet."
         lastParseRun={lastClassificationParseRun}
         parseNow={parseClassificationNowFn}
+        times={PARSE_TIMES_WIB}
+        nextParseRun={nextParseRun}
+        now={lastRun.now}
+      />
+      <ParseRunCard
+        title="Last investor-type parse run"
+        emptyMessage="No investor-type parse run has happened yet."
+        lastParseRun={lastInvestorTypeParseRun}
+        parseNow={parseInvestorTypeNowFn}
         times={PARSE_TIMES_WIB}
         nextParseRun={nextParseRun}
         now={lastRun.now}
