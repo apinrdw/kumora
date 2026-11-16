@@ -19,6 +19,7 @@ import {
   lensOf,
   parseStockSearch,
   pickerSearch,
+  selectionOf,
   type StockSearch,
   type Tab,
   windowSearch,
@@ -102,6 +103,19 @@ function StockPageView() {
     () => Effect.runSync(chipsOf({ brokers: search.brokers })),
     [search.brokers]
   )
+  // Dropped while it reaches outside the read's days.
+  const selection = useMemo(
+    () =>
+      inventory === undefined
+        ? undefined
+        : Effect.runSync(
+            selectionOf(
+              { selFrom: search.selFrom, selTo: search.selTo },
+              inventory.days
+            )
+          ),
+    [inventory, search.selFrom, search.selTo]
+  )
   const list = useStockList(`/stocks/${page.code}`)
   // Bare /stocks opens it next time.
   useEffect(() => {
@@ -181,6 +195,7 @@ function StockPageView() {
           window={Effect.runSync(inventoryWindow(search))}
           lens={lens}
           chips={chips}
+          selection={selection}
           onWindow={(window) => setSearch(Effect.runSync(windowSearch(window)))}
           onLens={({ measure, investor }) =>
             setSearch({
@@ -189,6 +204,12 @@ function StockPageView() {
             })
           }
           onChips={(next) => setSearch(Effect.runSync(chipsSearch(next)))}
+          onSelection={(span) =>
+            setSearch({
+              selFrom: span && inventory.days[span[0]],
+              selTo: span && inventory.days[span[1]],
+            })
+          }
         />
       ) : (
         <Holdings page={page} setSearch={setSearch} />

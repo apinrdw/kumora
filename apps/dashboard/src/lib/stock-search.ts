@@ -2,8 +2,9 @@
 // params"): the Shareholders composition panel's month and origin, the
 // Holding composition chart's origin and view, and the Holder size panel's
 // month, origin, denominator and view (spec apinrdw/kumora#402), and the
-// open tab and the Broker inventory tab's range, measure, investor filter
-// and chips (spec apinrdw/kumora#437, "Dashboard: the stock page"). Each is left out at its default, so a plain
+// open tab and the Broker inventory tab's range, measure, investor filter,
+// chips and drag selection (spec apinrdw/kumora#437, "Dashboard: the stock
+// page"). Each is left out at its default, so a plain
 // link stays short.
 import { BrokerCode, WibDate } from "@workspace/relay"
 import { Effect, Option, Schema } from "effect"
@@ -76,6 +77,10 @@ export interface StockSearch {
   // a broker code a single broker. Empty for no chips; absent for both
   // groups.
   readonly brokers?: string | undefined
+  // The drag selection's first and last days, both or neither. The pinned
+  // hover day is never in the URL.
+  readonly selFrom?: WibDate | undefined
+  readonly selTo?: WibDate | undefined
 }
 
 const decodeDate = Schema.decodeUnknownOption(WibDate)
@@ -85,12 +90,20 @@ const customRange = Effect.fnUntraced(function* (
   rawFrom: unknown,
   rawTo: unknown
 ) {
-  const from = decodeDate(rawFrom)
-  const to = decodeDate(rawTo)
-  if (Option.isNone(from) || Option.isNone(to) || from.value > to.value)
-    return { from: undefined, to: undefined }
-  return { from: yield* customFrom(from.value, to.value), to: to.value }
+  const pair = yield* datePair(rawFrom, rawTo)
+  if (pair === undefined) return { from: undefined, to: undefined }
+  return { from: yield* customFrom(pair.from, pair.to), to: pair.to }
 })
+
+// Both dates, From first; else neither.
+const datePair = (rawFrom: unknown, rawTo: unknown) =>
+  Effect.sync(() => {
+    const from = decodeDate(rawFrom)
+    const to = decodeDate(rawTo)
+    return Option.isNone(from) || Option.isNone(to) || from.value > to.value
+      ? undefined
+      : { from: from.value, to: to.value }
+  })
 
 // The `brokers` param that names `chips`.
 export const chipsSearch = (chips: ReadonlyArray<Chip>) =>
@@ -125,6 +138,7 @@ export const parseStockSearch = (
 ): Effect.Effect<StockSearch> =>
   Effect.gen(function* () {
     const custom = yield* customRange(raw.from, raw.to)
+    const selection = yield* datePair(raw.selFrom, raw.selTo)
     return {
       month: Option.getOrUndefined(
         Schema.decodeUnknownOption(Month)(raw.month)
@@ -165,6 +179,8 @@ export const parseStockSearch = (
         Schema.decodeUnknownOption(InvestorParam)(raw.investor)
       ),
       brokers: yield* parseChips(raw.brokers),
+      selFrom: selection?.from,
+      selTo: selection?.to,
     }
   })
 
@@ -176,17 +192,45 @@ export const inventoryWindow = (search: StockSearch) =>
       : { range: search.range ?? DEFAULT_RANGE }
   )
 
-// The search params that name `window`, the others cleared.
+// The search params that name `window`, the others cleared, and the
+// selection with them: it was of the old range.
 export const windowSearch = (window: InventoryWindow) =>
-  Effect.succeed<StockSearch>(
-    "range" in window
+  Effect.succeed<StockSearch>({
+    ...("range" in window
       ? {
           range: window.range === DEFAULT_RANGE ? undefined : window.range,
           from: undefined,
           to: undefined,
         }
-      : { range: undefined, from: window.from, to: window.to }
-  )
+      : { range: undefined, from: window.from, to: window.to }),
+    selFrom: undefined,
+    selTo: undefined,
+  })
+
+// The drag selection as the first and last of `days`, the read's axis, it
+// covers; none when it reaches outside them or covers no day.
+export const selectionOf = (
+  search: StockSearch,
+  days: ReadonlyArray<WibDate>
+) =>
+  Effect.sync((): readonly [number, number] | undefined => {
+    const { selFrom, selTo } = search
+    const start = days[0]
+    const end = days.at(-1)
+    if (
+      selFrom === undefined ||
+      selTo === undefined ||
+      start === undefined ||
+      end === undefined ||
+      selFrom < start ||
+      selTo > end
+    )
+      return undefined
+    const first = days.findIndex((day) => day >= selFrom)
+    // The days are in order, so those up to `selTo` come first.
+    const last = days.filter((day) => day <= selTo).length - 1
+    return first === -1 || first > last ? undefined : [first, last]
+  })
 
 // What the Broker inventory tab's figures count.
 export const lensOf = (search: StockSearch) =>
@@ -207,8 +251,8 @@ export const chipsOf = (search: StockSearch) =>
   )
 
 // What the Stock picker carries to the next stock: the tab, the range, the
-// measure, the filter and the group chips. Single brokers and the holdings
-// panels' months are the stock's own.
+// measure, the filter and the group chips. Single brokers, the selection
+// and the holdings panels' months are the stock's own.
 export const pickerSearch = Effect.fnUntraced(function* (search: StockSearch) {
   const groups = (yield* chipsOf(search)).filter(
     (chip) => chip === "buy" || chip === "sell"

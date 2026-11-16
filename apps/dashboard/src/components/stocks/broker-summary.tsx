@@ -11,13 +11,16 @@ import type { Measure, SummaryFooter, SummaryRow } from "@/lib/broker-inventory"
 import { compact, compactIdr, count, lots, plain, sign } from "@/lib/format"
 
 /** +1,250 lots or −Rp1.23 B */
-const netCell = Effect.fnUntraced(function* (net: number, measure: Measure) {
+export const netCell = Effect.fnUntraced(function* (
+  net: number,
+  measure: Measure
+) {
   return measure === "lots"
     ? (yield* sign(net)) + (yield* lots(Math.abs(net)))
     : yield* compactIdr(net)
 })
 
-const averageCell = (average: number | undefined) =>
+export const averageCell = (average: number | undefined) =>
   average === undefined ? Effect.succeed("–") : plain(average)
 
 // The footer's line: what the figures cover.

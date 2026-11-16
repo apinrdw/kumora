@@ -20,9 +20,18 @@ const CANDLES: CandleColumns = {
   value: [0, 0, 0],
 }
 
-const render = () =>
+const render = (
+  marked: number | undefined = undefined,
+  selection: readonly [number, number] | undefined = undefined
+) =>
   renderAt("/stocks/BBCA?tab=brokers", () => (
     <BrokerInventoryChart
+      marked={marked}
+      pinned={false}
+      selection={selection}
+      onHover={() => undefined}
+      onPin={() => undefined}
+      onSelect={() => undefined}
       code={StockCode.make("BBCA")}
       days={DAYS}
       built={BUILT}
@@ -71,5 +80,17 @@ describe("BrokerInventoryChart", () => {
     expect(html.indexOf("data-candles")).toBeLessThan(
       html.indexOf("data-broker")
     )
+  })
+
+  test("shades a selection behind the candles and marks the hovered day", async () => {
+    const plain = await render()
+    expect(plain).not.toContain("data-selection")
+    expect(plain).not.toContain("data-marker")
+    const html = await render(3, [1, 3])
+    expect(html.indexOf("data-selection")).toBeGreaterThan(-1)
+    expect(html.indexOf("data-selection")).toBeLessThan(
+      html.indexOf("data-candles")
+    )
+    expect(html).toContain('data-marker="hover"')
   })
 })

@@ -135,6 +135,37 @@ const rowsUnder = Effect.fnUntraced(function* (
   }
 })
 
+// The hover-day panel: one axis day's close, then per plotted broker its
+// running net, that day's net, and its averages from the start of the
+// range through that day. A gap has no close.
+export interface HoverDay {
+  readonly day: WibDate
+  readonly close: number | undefined
+  readonly rows: ReadonlyArray<{
+    readonly broker: BrokerCode
+    readonly net: number
+    readonly dayNet: number
+    readonly avgBuy: number | undefined
+    readonly avgSell: number | undefined
+  }>
+}
+
+// The drag selection's panel: its first and last days, how many days it
+// covers and the price change over them in %, then per plotted broker its
+// figures over them, by net, highest first, and their Total.
+export interface SelectionSummary {
+  readonly from: WibDate
+  readonly to: WibDate
+  readonly days: number
+  readonly change: number | undefined
+  readonly rows: ReadonlyArray<SpanFigures & { readonly broker: BrokerCode }>
+  readonly total: SpanFigures
+}
+
+// Weighted by lots: value ÷ (lots × 100); undefined for no lots.
+const average = (value: number, lots: number) =>
+  lots === 0 ? undefined : value / (lots * SHARES_PER_LOT)
+
 // Every broker that traded the code in the range, by net, highest first;
 // ties in code order.
 export const brokerSummary = Effect.fnUntraced(function* (
@@ -188,15 +219,8 @@ export const brokerSummary = Effect.fnUntraced(function* (
               ? "F"
               : "D",
       ...sum,
-      // Weighted by lots: value ÷ (lots × 100).
-      avgBuy:
-        sum.buyLots === 0
-          ? undefined
-          : sum.buyValue / (sum.buyLots * SHARES_PER_LOT),
-      avgSell:
-        sum.sellLots === 0
-          ? undefined
-          : sum.sellValue / (sum.sellLots * SHARES_PER_LOT),
+      avgBuy: average(sum.buyValue, sum.buyLots),
+      avgSell: average(sum.sellValue, sum.sellLots),
     }))
 })
 
@@ -263,36 +287,187 @@ export const plottedBrokers = Effect.fnUntraced(function* (
   return plotted
 })
 
-// Each of `brokers`' broker inventory: its running net from the start of
-// the range, one point per axis day. A gap or a day it didn't trade adds
-// nothing, so the sum carries across it.
-export const runningNets = Effect.fnUntraced(function* (
+// A broker's sides under the lens, summed over some days.
+interface Sides {
+  readonly net: number
+  readonly buyLots: number
+  readonly buyValue: number
+  readonly sellLots: number
+  readonly sellValue: number
+}
+
+// One broker's sides summed from the start of the range through each axis
+// day: `net` is its broker inventory, the line the chart plots.
+type ToDate = { readonly [Side in keyof Sides]: ReadonlyArray<number> }
+
+// Sides summed over a span of days, with the averages they make.
+interface SpanFigures extends Sides {
+  readonly avgBuy: number | undefined
+  readonly avgSell: number | undefined
+}
+
+// The sides a totals row carries as they are; `net` is the lens's.
+const ROW_SIDES = ["buyLots", "buyValue", "sellLots", "sellValue"] as const
+
+type Columns = { readonly [Side in keyof Sides]: Array<number> }
+
+const zeroColumns = (length: number): Columns => ({
+  net: Array.from({ length }, () => 0),
+  buyLots: Array.from({ length }, () => 0),
+  buyValue: Array.from({ length }, () => 0),
+  sellLots: Array.from({ length }, () => 0),
+  sellValue: Array.from({ length }, () => 0),
+})
+
+const addAt = (column: Array<number>, day: number, value: number) => {
+  column[day] = (column[day] ?? 0) + value
+}
+
+const runningSum = (column: ReadonlyArray<number>) => {
+  let sum = 0
+  return column.map((value) => (sum += value))
+}
+
+// Each of `brokers`' sums to date, in their order. A gap or a day it didn't
+// trade adds nothing, so the sums carry across it.
+export const brokersToDate = Effect.fnUntraced(function* (
   read: BrokerInventoryRead,
   lens: Lens,
   brokers: ReadonlyArray<BrokerCode>
 ) {
-  const wanted = new Map(
-    brokers.map((broker) => [
-      read.brokers.indexOf(broker),
-      Array.from({ length: read.days.length }, () => 0),
-    ])
+  const length = read.days.length
+  const daily = new Map(
+    brokers.map((broker) => [read.brokers.indexOf(broker), zeroColumns(length)])
   )
   const { totals } = read
   const rows = yield* rowsUnder(read, lens)
   for (let row = 0; row < totals.day.length; row++) {
-    const daily = wanted.get(totals.broker[row] ?? -1)
-    if (daily === undefined || !rows.counts(row)) continue
+    const sums = daily.get(totals.broker[row] ?? -1)
+    if (sums === undefined || !rows.counts(row)) continue
     const day = totals.day[row] ?? 0
-    daily[day] = (daily[day] ?? 0) + rows.net(row)
+    addAt(sums.net, day, rows.net(row))
+    for (const side of ROW_SIDES) addAt(sums[side], day, totals[side][row] ?? 0)
   }
-  const nets = new Map<BrokerCode, ReadonlyArray<number>>()
+  const toDate = new Map<BrokerCode, ToDate>()
   for (const broker of brokers) {
-    let sum = 0
-    const daily = wanted.get(read.brokers.indexOf(broker))
-    nets.set(
-      broker,
-      read.days.map((_, day) => (sum += daily?.[day] ?? 0))
-    )
+    const sums = daily.get(read.brokers.indexOf(broker)) ?? zeroColumns(length)
+    toDate.set(broker, {
+      net: runningSum(sums.net),
+      buyLots: runningSum(sums.buyLots),
+      buyValue: runningSum(sums.buyValue),
+      sellLots: runningSum(sums.sellLots),
+      sellValue: runningSum(sums.sellValue),
+    })
   }
-  return nets
+  return toDate
+})
+
+// What a broker's to-date sums add up to over the days `first` to `last`.
+const spanFigures = (toDate: ToDate, first: number, last: number) =>
+  Effect.sync((): SpanFigures => {
+    const over = (side: keyof Sides) =>
+      (toDate[side][last] ?? 0) -
+      (first > 0 ? (toDate[side][first - 1] ?? 0) : 0)
+    const buyLots = over("buyLots")
+    const buyValue = over("buyValue")
+    const sellLots = over("sellLots")
+    const sellValue = over("sellValue")
+    return {
+      net: over("net"),
+      buyLots,
+      buyValue,
+      sellLots,
+      sellValue,
+      avgBuy: average(buyValue, buyLots),
+      avgSell: average(sellValue, sellLots),
+    }
+  })
+
+// The close of axis day `day`; undefined for a gap, which has no candle.
+const closeOn = (read: BrokerInventoryRead, day: number) =>
+  Effect.sync(() => {
+    const k = read.candles.day.indexOf(day)
+    return k === -1 ? undefined : read.candles.close[k]
+  })
+
+// The hover-day panel for axis day `day`, a row per broker of `toDate`.
+export const hoverDay = Effect.fnUntraced(function* (
+  read: BrokerInventoryRead,
+  toDate: ReadonlyMap<BrokerCode, ToDate>,
+  day: number
+) {
+  const rows = []
+  for (const [broker, sums] of toDate) {
+    const through = yield* spanFigures(sums, 0, day)
+    const today = yield* spanFigures(sums, day, day)
+    rows.push({
+      broker,
+      net: through.net,
+      dayNet: today.net,
+      avgBuy: through.avgBuy,
+      avgSell: through.avgSell,
+    })
+  }
+  return {
+    day: read.days[day] as WibDate,
+    close: yield* closeOn(read, day),
+    rows,
+  } satisfies HoverDay
+})
+
+// The price change over axis days `first` to `last`, in %: from the first
+// candle's open to the last one's close, so a one-day selection shows that
+// day's move. Undefined with no candle in the span.
+const priceChange = (read: BrokerInventoryRead, first: number, last: number) =>
+  Effect.sync(() => {
+    const { candles } = read
+    const inSpan = candles.day.flatMap((day, k) =>
+      day >= first && day <= last ? [k] : []
+    )
+    const open = candles.open[inSpan[0] ?? -1]
+    const close = candles.close[inSpan.at(-1) ?? -1]
+    return open === undefined || close === undefined || open === 0
+      ? undefined
+      : ((close - open) / open) * 100
+  })
+
+// The drag selection's panel over axis days `span`, a row per broker of
+// `toDate`.
+export const selectionSummary = Effect.fnUntraced(function* (
+  read: BrokerInventoryRead,
+  toDate: ReadonlyMap<BrokerCode, ToDate>,
+  span: readonly [first: number, last: number]
+) {
+  const [first, last] = span
+  const rows: Array<SpanFigures & { readonly broker: BrokerCode }> = []
+  for (const [broker, sums] of toDate)
+    rows.push({ broker, ...(yield* spanFigures(sums, first, last)) })
+  rows.sort((a, b) => b.net - a.net)
+  let total: Sides = {
+    net: 0,
+    buyLots: 0,
+    buyValue: 0,
+    sellLots: 0,
+    sellValue: 0,
+  }
+  for (const row of rows)
+    total = {
+      net: total.net + row.net,
+      buyLots: total.buyLots + row.buyLots,
+      buyValue: total.buyValue + row.buyValue,
+      sellLots: total.sellLots + row.sellLots,
+      sellValue: total.sellValue + row.sellValue,
+    }
+  return {
+    from: read.days[first] as WibDate,
+    to: read.days[last] as WibDate,
+    days: last - first + 1,
+    change: yield* priceChange(read, first, last),
+    rows,
+    total: {
+      ...total,
+      avgBuy: average(total.buyValue, total.buyLots),
+      avgSell: average(total.sellValue, total.sellLots),
+    },
+  } satisfies SelectionSummary
 })

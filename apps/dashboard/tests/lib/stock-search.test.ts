@@ -1,5 +1,5 @@
 import { describe, expect, it } from "@effect/vitest"
-import { BrokerCode } from "@workspace/relay"
+import { BrokerCode, WibDate } from "@workspace/relay"
 import { Effect } from "effect"
 
 import type { Chip } from "@/lib/broker-inventory"
@@ -11,6 +11,7 @@ import {
   lensOf,
   parseStockSearch,
   pickerSearch,
+  selectionOf,
   windowSearch,
 } from "@/lib/stock-search"
 
@@ -109,7 +110,13 @@ describe("the Broker inventory range in the URL", () => {
         to: "2026-09-30",
       })
       expect(yield* windowSearch(yield* inventoryWindow(custom))).toStrictEqual(
-        { range: undefined, from: "2026-06-01", to: "2026-09-30" }
+        {
+          range: undefined,
+          from: "2026-06-01",
+          to: "2026-09-30",
+          selFrom: undefined,
+          selTo: undefined,
+        }
       )
     })
   )
@@ -265,5 +272,83 @@ describe("the Broker inventory lens and chips in the URL", () => {
         for (const brokers of ["XYZ,top", ",", 42, ["YP"]])
           expect((yield* parseStockSearch({ brokers })).brokers).toBeUndefined()
       })
+  )
+})
+
+describe("the drag selection in the URL", () => {
+  // The axis of a read: Mon 2 to Fri 6 Nov 2026, then Mon 9 Nov.
+  const days = [
+    "2026-11-02",
+    "2026-11-03",
+    "2026-11-04",
+    "2026-11-05",
+    "2026-11-06",
+    "2026-11-09",
+  ].map((day) => WibDate.make(day))
+  const selection = (raw: Record<string, unknown>) =>
+    Effect.flatMap(parseStockSearch(raw), (search) => selectionOf(search, days))
+
+  it.effect("round-trips a selection as the axis days it covers", () =>
+    Effect.gen(function* () {
+      expect(
+        yield* parseStockSearch({ selFrom: "2026-11-03", selTo: "2026-11-05" })
+      ).toMatchObject({ selFrom: "2026-11-03", selTo: "2026-11-05" })
+      expect(
+        yield* selection({ selFrom: "2026-11-03", selTo: "2026-11-05" })
+      ).toStrictEqual([1, 3])
+      // A weekend end covers the trading days inside it.
+      expect(
+        yield* selection({ selFrom: "2026-11-06", selTo: "2026-11-08" })
+      ).toStrictEqual([4, 4])
+    })
+  )
+
+  it.effect("drops a selection outside the range, or with no day in it", () =>
+    Effect.gen(function* () {
+      for (const raw of [
+        { selFrom: "2026-10-30", selTo: "2026-11-03" },
+        { selFrom: "2026-11-06", selTo: "2026-11-10" },
+        { selFrom: "2026-11-07", selTo: "2026-11-08" },
+      ])
+        expect(yield* selection(raw)).toBeUndefined()
+    })
+  )
+
+  it.effect("drops a selection missing an end, out of order or mangled", () =>
+    Effect.gen(function* () {
+      for (const raw of [
+        { selFrom: "2026-11-03" },
+        { selTo: "2026-11-03" },
+        { selFrom: "2026-11-05", selTo: "2026-11-03" },
+        { selFrom: "2026-11-3", selTo: "2026-11-05" },
+      ])
+        expect(yield* parseStockSearch(raw)).toMatchObject({
+          selFrom: undefined,
+          selTo: undefined,
+        })
+    })
+  )
+
+  it.effect("clears the selection when the range changes", () =>
+    Effect.gen(function* () {
+      expect(yield* windowSearch({ range: "1Y" })).toMatchObject({
+        selFrom: undefined,
+        selTo: undefined,
+      })
+    })
+  )
+
+  it.effect("never carries the selection to the next stock", () =>
+    Effect.gen(function* () {
+      const carried = yield* pickerSearch(
+        yield* parseStockSearch({
+          tab: "brokers",
+          selFrom: "2026-11-03",
+          selTo: "2026-11-05",
+        })
+      )
+      expect(carried).not.toHaveProperty("selFrom")
+      expect(carried).not.toHaveProperty("selTo")
+    })
   )
 })

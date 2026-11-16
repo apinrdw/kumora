@@ -1,33 +1,40 @@
 // The stock page's Broker inventory tab (spec apinrdw/kumora#437, "Dashboard:
 // the stock page"; prototype variant B, as amended on apinrdw/kumora#421):
 // the range, measure and investor controls, the plotted-brokers chips, the
-// chart with its Net buy / Net sell legend, and the Broker summary, all
-// from one read.
+// chart with its Net buy / Net sell legend beside the hover-day and
+// selection panels, and the Broker summary, all from one read.
 import { IconPlus, IconX } from "@tabler/icons-react"
 import { type BrokerCode, type StockCode, WibDate } from "@workspace/relay"
 import { cn } from "@workspace/ui/lib/utils"
 import { Effect, Option, Schema } from "effect"
-import { useMemo } from "react"
+import { useEffect, useMemo, useState } from "react"
 
 import { KInput } from "@/components/k/input"
 import { kCard, kFocus } from "@/components/k/styles"
 import {
   BrokerInventoryChart,
+  type DaySpan,
   type InventoryLine,
 } from "@/components/stocks/broker-inventory-chart"
+import {
+  HoverDayPanel,
+  SelectionPanel,
+} from "@/components/stocks/broker-inventory-panels"
 import { BrokerSummary } from "@/components/stocks/broker-summary"
 import { Picks } from "@/components/stocks/choice"
 import {
+  brokersToDate,
   brokerSummary,
   type Chip,
   type Investor,
   type InventoryWindow,
   type Lens,
+  hoverDay,
   type Measure,
   plottedBrokers,
   RANGE_PRESETS,
   type RangePreset,
-  runningNets,
+  selectionSummary,
   summaryFooter,
   topBrokers,
 } from "@/lib/broker-inventory"
@@ -68,6 +75,12 @@ const GROUPS = [
 
 type RangeChoice = RangePreset | "custom"
 
+// An axis day of the read it was picked on.
+interface DayOf {
+  readonly read: BrokerInventoryRead
+  readonly day: number
+}
+
 const RANGES: ReadonlyArray<{ value: RangeChoice; label: string }> = [
   ...RANGE_PRESETS.map((preset) => ({ value: preset, label: preset })),
   { value: "custom", label: "Custom" },
@@ -87,7 +100,8 @@ const INVESTORS: ReadonlyArray<{ value: Investor; label: string }> = [
 const decodeDate = Schema.decodeUnknownOption(WibDate)
 
 // Everything the tab shows under `lens` with `chips` plotted: the summary
-// and its footer, and the lines, each a colour and a side of the legend.
+// and its footer, the plotted brokers' sums to date, and the lines, each a
+// colour and a side of the legend.
 const inventoryView = Effect.fnUntraced(function* (
   read: BrokerInventoryRead,
   lens: Lens,
@@ -95,7 +109,7 @@ const inventoryView = Effect.fnUntraced(function* (
 ) {
   const summary = yield* brokerSummary(read, lens)
   const plotted = yield* plottedBrokers(chips, yield* topBrokers(summary))
-  const nets = yield* runningNets(
+  const toDate = yield* brokersToDate(
     read,
     lens,
     plotted.map(({ broker }) => broker)
@@ -113,13 +127,14 @@ const inventoryView = Effect.fnUntraced(function* (
           ? SELL_COLORS[rank]
           : SINGLE_COLORS[singles.indexOf(chip) % SINGLE_COLORS.length]) ??
       "currentColor",
-    values: nets.get(broker) ?? [],
+    values: toDate.get(broker)?.net ?? [],
     // The legend's side: a broker that didn't trade is under Net buy.
     buyer: (netOf.get(broker) ?? 0) >= 0,
   })) satisfies ReadonlyArray<InventoryLine & { buyer: boolean }>
   return {
     summary,
     footer: yield* summaryFooter(read, summary),
+    toDate,
     lines,
     colors: new Map(lines.map(({ broker, color }) => [broker, color])),
     singles: new Set(singles),
@@ -132,18 +147,23 @@ export function BrokerInventory({
   window,
   lens,
   chips,
+  selection,
   onWindow,
   onLens,
   onChips,
+  onSelection,
 }: {
   code: StockCode
   read: BrokerInventoryRead
   window: InventoryWindow
   lens: Lens
   chips: ReadonlyArray<Chip>
+  // The drag selection's axis days, from the URL.
+  selection: DaySpan | undefined
   onWindow: (window: InventoryWindow) => void
   onLens: (lens: Lens) => void
   onChips: (chips: ReadonlyArray<Chip>) => void
+  onSelection: (span: DaySpan | undefined) => void
 }) {
   const view = useMemo(
     () => Effect.runSync(inventoryView(read, lens, chips)),
@@ -234,23 +254,14 @@ export function BrokerInventory({
         </p>
       ) : (
         <>
-          <BrokerInventoryChart
+          <ChartWithPanels
             code={code}
-            days={read.days}
-            built={read.built}
-            candles={read.candles}
-            lines={view.lines}
+            read={read}
+            view={view}
+            measure={lens.measure}
+            selection={selection}
+            onSelection={onSelection}
           />
-          <div className="flex flex-wrap gap-x-6 gap-y-1 text-[12px]">
-            <Legend
-              label="Net buy"
-              lines={view.lines.filter(({ buyer }) => buyer)}
-            />
-            <Legend
-              label="Net sell"
-              lines={view.lines.filter(({ buyer }) => !buyer)}
-            />
-          </div>
           <BrokerSummary
             rows={view.summary}
             footer={view.footer}
@@ -262,6 +273,105 @@ export function BrokerInventory({
         </>
       )}
     </section>
+  )
+}
+
+type InventoryView = Effect.Success<ReturnType<typeof inventoryView>>
+
+// The chart and its legend, beside the hovered or pinned day's panel and
+// the drag selection's.
+function ChartWithPanels({
+  code,
+  read,
+  view,
+  measure,
+  selection,
+  onSelection,
+}: {
+  code: StockCode
+  read: BrokerInventoryRead
+  view: InventoryView
+  measure: Measure
+  selection: DaySpan | undefined
+  onSelection: (span: DaySpan | undefined) => void
+}) {
+  // The hovered and the pinned day, each of the read it indexes, so a new
+  // read drops them.
+  const [hovered, setHovered] = useState<DayOf>()
+  const [pin, setPin] = useState<DayOf>()
+  const pinned = pin?.read === read ? pin.day : undefined
+  const marked = pinned ?? (hovered?.read === read ? hovered.day : undefined)
+  // With nothing hovered, the newest day; the read has one.
+  const shown = marked ?? read.days.length - 1
+  useEffect(() => {
+    if (pinned === undefined) return
+    const unpin = (event: KeyboardEvent) => {
+      if (event.key === "Escape") setPin(undefined)
+    }
+    document.addEventListener("keydown", unpin)
+    return () => document.removeEventListener("keydown", unpin)
+  }, [pinned])
+  const hover = useMemo(
+    () => Effect.runSync(hoverDay(read, view.toDate, shown)),
+    [read, view, shown]
+  )
+  const summary = useMemo(
+    () =>
+      selection === undefined
+        ? undefined
+        : Effect.runSync(selectionSummary(read, view.toDate, selection)),
+    [read, view, selection]
+  )
+  return (
+    <div className="flex flex-col gap-4 xl:flex-row xl:items-start">
+      <div className="flex min-w-0 flex-1 flex-col gap-3">
+        <BrokerInventoryChart
+          code={code}
+          days={read.days}
+          built={read.built}
+          candles={read.candles}
+          lines={view.lines}
+          marked={marked}
+          pinned={pinned !== undefined}
+          selection={selection}
+          onHover={(day) =>
+            setHovered(day === undefined ? undefined : { read, day })
+          }
+          onPin={(day) =>
+            setPin(pinned === undefined ? { read, day } : undefined)
+          }
+          onSelect={onSelection}
+        />
+        <div className="flex flex-wrap gap-x-6 gap-y-1 text-[12px]">
+          <Legend
+            label="Net buy"
+            lines={view.lines.filter(({ buyer }) => buyer)}
+          />
+          <Legend
+            label="Net sell"
+            lines={view.lines.filter(({ buyer }) => !buyer)}
+          />
+        </div>
+      </div>
+      <div className="flex flex-col gap-3 xl:w-[360px] xl:shrink-0">
+        <HoverDayPanel
+          code={code}
+          hover={hover}
+          pinned={pinned !== undefined}
+          measure={measure}
+          colors={view.colors}
+        />
+        {summary !== undefined && (
+          <SelectionPanel
+            code={code}
+            selection={summary}
+            measure={measure}
+            colors={view.colors}
+            onClear={() => onSelection(undefined)}
+          />
+        )}
+      </div>
+    </div>
   )
 }
 

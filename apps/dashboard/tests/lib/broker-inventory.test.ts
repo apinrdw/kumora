@@ -7,7 +7,9 @@ import {
   customFrom,
   plottedBrokers,
   rangeStart,
-  runningNets,
+  brokersToDate,
+  hoverDay,
+  selectionSummary,
   type SummaryRow,
   summaryFooter,
   topBrokers,
@@ -95,9 +97,9 @@ describe("broker inventory", () => {
             [4, "PD", "D", 20, 10],
           ]
         )
-        const nets = yield* runningNets(week, LOTS, [YP, PD])
-        expect(nets.get(YP)).toStrictEqual([60, 90, 90, 90, 80])
-        expect(nets.get(PD)).toStrictEqual([-60, -90, -90, -90, -80])
+        const nets = yield* brokersToDate(week, LOTS, [YP, PD])
+        expect(nets.get(YP)?.net).toStrictEqual([60, 90, 90, 90, 80])
+        expect(nets.get(PD)?.net).toStrictEqual([-60, -90, -90, -90, -80])
       })
   )
 
@@ -110,19 +112,19 @@ describe("broker inventory", () => {
         const flat = read(WEEK.slice(0, 2), [], rows)
         expect(gap.built).toStrictEqual([true, false])
         expect(flat.built).toStrictEqual([true, true])
-        expect((yield* runningNets(gap, LOTS, [YP])).get(YP)).toStrictEqual([
-          10, 10,
-        ])
-        expect((yield* runningNets(flat, LOTS, [YP])).get(YP)).toStrictEqual([
-          10, 10,
-        ])
+        expect(
+          (yield* brokersToDate(gap, LOTS, [YP])).get(YP)?.net
+        ).toStrictEqual([10, 10])
+        expect(
+          (yield* brokersToDate(flat, LOTS, [YP])).get(YP)?.net
+        ).toStrictEqual([10, 10])
       })
   )
 
   it.effect("plots nothing for a broker the range never saw", () =>
     Effect.gen(function* () {
-      const nets = yield* runningNets(read(WEEK, [], []), LOTS, [YP])
-      expect(nets.get(YP)).toStrictEqual([0, 0, 0, 0, 0])
+      const nets = yield* brokersToDate(read(WEEK, [], []), LOTS, [YP])
+      expect(nets.get(YP)?.net).toStrictEqual([0, 0, 0, 0, 0])
     })
   )
 
@@ -267,7 +269,7 @@ describe("the broker summary", () => {
           sell: ["PD"],
         })
         expect(
-          (yield* runningNets(week, VALUE, [YP])).get(YP)?.slice(0, 2)
+          (yield* brokersToDate(week, VALUE, [YP])).get(YP)?.net?.slice(0, 2)
         ).toStrictEqual([2_000_000, 500_000])
       })
   )
@@ -307,9 +309,9 @@ describe("the broker summary", () => {
         expect(
           yield* Effect.flatMap(brokerSummary(week, foreign), topBrokers)
         ).toStrictEqual({ buy: ["YP"], sell: ["PD"] })
-        expect((yield* runningNets(week, foreign, [YP, PD])).get(PD)?.[0]).toBe(
-          -40
-        )
+        expect(
+          (yield* brokersToDate(week, foreign, [YP, PD])).get(PD)?.net?.[0]
+        ).toBe(-40)
       })
   )
 
@@ -418,6 +420,148 @@ describe("the broker inventory range", () => {
       expect(yield* customFrom(WibDate.make("2026-01-05"), to)).toBe(
         "2026-01-05"
       )
+    })
+  )
+})
+
+describe("the hover day and the selection", () => {
+  // YP buys Monday and Tuesday at rising prices and sells some Friday; PD
+  // is its other side. Wednesday is a gap, with no candle.
+  const week = {
+    ...read(
+      WEEK,
+      ["2026-11-04"],
+      [
+        [0, "YP", "D", 100, 0, 1000],
+        [0, "PD", "D", 0, 100, 1000],
+        [1, "YP", "D", 100, 0, 1100],
+        [1, "PD", "D", 0, 100, 1100],
+        [4, "YP", "D", 0, 50, 1200],
+        [4, "PD", "D", 50, 0, 1200],
+      ]
+    ),
+    candles: {
+      day: [0, 1, 3, 4],
+      open: [990, 1000, 1100, 1150],
+      high: [1010, 1110, 1150, 1210],
+      low: [980, 990, 1090, 1140],
+      close: [1000, 1100, 1150, 1200],
+      volume: [100, 100, 0, 50],
+      value: [0, 0, 0, 0],
+    },
+  } satisfies BrokerInventoryRead
+
+  it.effect(
+    "shows the day's close and each broker's running net, day net and averages to that day",
+    () =>
+      Effect.gen(function* () {
+        const toDate = yield* brokersToDate(week, LOTS, [YP, PD])
+        expect(yield* hoverDay(week, toDate, 1)).toStrictEqual({
+          day: "2026-11-03",
+          close: 1100,
+          rows: [
+            {
+              broker: "YP",
+              net: 200,
+              dayNet: 100,
+              avgBuy: 1050,
+              avgSell: undefined,
+            },
+            {
+              broker: "PD",
+              net: -200,
+              dayNet: -100,
+              avgBuy: undefined,
+              avgSell: 1050,
+            },
+          ],
+        })
+        // Friday: YP sold 50 at 1,200; its buys still average 1,050.
+        expect((yield* hoverDay(week, toDate, 4)).rows[0]).toStrictEqual({
+          broker: "YP",
+          net: 150,
+          dayNet: -50,
+          avgBuy: 1050,
+          avgSell: 1200,
+        })
+      })
+  )
+
+  it.effect("shows a gap with no close and no day net", () =>
+    Effect.gen(function* () {
+      const toDate = yield* brokersToDate(week, LOTS, [YP])
+      expect(yield* hoverDay(week, toDate, 2)).toStrictEqual({
+        day: "2026-11-04",
+        close: undefined,
+        rows: [
+          {
+            broker: "YP",
+            net: 200,
+            dayNet: 0,
+            avgBuy: 1050,
+            avgSell: undefined,
+          },
+        ],
+      })
+    })
+  )
+
+  it.effect(
+    "sums the selection's days per broker, by net, with a Total row and the price change",
+    () =>
+      Effect.gen(function* () {
+        const toDate = yield* brokersToDate(week, LOTS, [PD, YP])
+        // Tuesday to Friday: Tuesday opened at 1,000, Friday closed at 1,200.
+        const selection = yield* selectionSummary(week, toDate, [1, 4])
+        expect(selection).toMatchObject({
+          from: "2026-11-03",
+          to: "2026-11-06",
+          days: 4,
+          change: 20,
+        })
+        expect(selection.rows).toStrictEqual([
+          {
+            broker: "YP",
+            net: 50,
+            buyLots: 100,
+            buyValue: 11_000_000,
+            sellLots: 50,
+            sellValue: 6_000_000,
+            avgBuy: 1100,
+            avgSell: 1200,
+          },
+          {
+            broker: "PD",
+            net: -50,
+            buyLots: 50,
+            buyValue: 6_000_000,
+            sellLots: 100,
+            sellValue: 11_000_000,
+            avgBuy: 1200,
+            avgSell: 1100,
+          },
+        ])
+        // (100 × 1,100 + 50 × 1,200) / 150 a side.
+        expect(selection.total).toMatchObject({
+          net: 0,
+          buyLots: 150,
+          sellLots: 150,
+        })
+        expect(selection.total.avgBuy).toBeCloseTo(1133.33, 2)
+        expect(selection.total.avgSell).toBeCloseTo(1133.33, 2)
+      })
+  )
+
+  it.effect("has no price change for a selection with no candle", () =>
+    Effect.gen(function* () {
+      const toDate = yield* brokersToDate(week, LOTS, [YP])
+      const selection = yield* selectionSummary(week, toDate, [2, 2])
+      expect(selection).toMatchObject({ days: 1, change: undefined })
+      expect(selection.total).toMatchObject({
+        net: 0,
+        avgBuy: undefined,
+        avgSell: undefined,
+      })
     })
   )
 })

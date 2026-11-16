@@ -5,13 +5,21 @@
 // Behind the lines, the code's daily candles on a right-hand price axis, and
 // its daily volume in a strip underneath (apinrdw/kumora#421, "Amended
 // 2026-11-16"). A candle's body opens that recorded day in Market Live.
+// The pointer reads a day: hovering one, a click on empty space pinning it,
+// a drag selecting days, which the selection shades.
 //
 // An SVG of layers over one frame: the frame maps day indexes, nets, prices
 // and volumes to pixels, and each layer draws from it alone.
 import type { BrokerCode, StockCode, WibDate } from "@workspace/relay"
 import { Link } from "@tanstack/react-router"
 import { Effect } from "effect"
-import { useLayoutEffect, useMemo, useRef, useState } from "react"
+import {
+  type PointerEvent,
+  useLayoutEffect,
+  useMemo,
+  useRef,
+  useState,
+} from "react"
 
 import { compact, dayLabel, price, sign } from "@/lib/format"
 import { labelPrices } from "@/lib/price-axis"
@@ -55,6 +63,11 @@ const BAND_LABEL = 56
 const BAND_LABEL_DOWN = 12
 // End labels this close apart are nudged apart.
 const LABEL_GAP = 11
+// A press that moves further than this many px is a drag, not a click.
+const DRAG = 4
+
+// A span of axis days, first and last.
+export type DaySpan = readonly [first: number, last: number]
 
 // The pixels one chart lays its layers out in.
 interface ChartFrame {
@@ -253,6 +266,46 @@ function GapBands({
         )
       })}
     </g>
+  )
+}
+
+// The days a selection or a drag covers, shaded.
+function SelectionBand({ frame, span }: { frame: ChartFrame; span: DaySpan }) {
+  const [first, last] = span
+  return (
+    <rect
+      data-selection=""
+      pointerEvents="none"
+      x={frame.x(first) - frame.step / 2}
+      y={frame.top}
+      width={frame.step * (last - first + 1)}
+      height={frame.volumeBottom - frame.top}
+      className="fill-info/15 stroke-info/40"
+    />
+  )
+}
+
+// The hovered or pinned day's crosshair.
+function DayMarker({
+  frame,
+  day,
+  pinned,
+}: {
+  frame: ChartFrame
+  day: number
+  pinned: boolean
+}) {
+  return (
+    <line
+      data-marker={pinned ? "pinned" : "hover"}
+      pointerEvents="none"
+      x1={frame.x(day)}
+      x2={frame.x(day)}
+      y1={frame.top}
+      y2={frame.volumeBottom}
+      strokeDasharray={pinned ? undefined : "3 3"}
+      className="stroke-foreground/60"
+    />
   )
 }
 
@@ -471,7 +524,12 @@ function BrokerLines({
           else dotted += segment
         }
         return (
-          <g key={broker} data-broker={broker} style={{ color }}>
+          <g
+            key={broker}
+            data-broker={broker}
+            style={{ color }}
+            pointerEvents="none"
+          >
             <path
               d={solid}
               fill="none"
@@ -501,40 +559,135 @@ function BrokerLines({
   )
 }
 
+const ordered = (a: number, b: number): DaySpan => (a <= b ? [a, b] : [b, a])
+
 export function BrokerInventoryChart({
   code,
   days,
   built,
   candles,
   lines,
+  marked,
+  pinned,
+  selection,
+  onHover,
+  onPin,
+  onSelect,
 }: {
   code: StockCode
   days: ReadonlyArray<WibDate>
   built: ReadonlyArray<boolean>
   candles: CandleColumns
   lines: ReadonlyArray<InventoryLine>
+  // The hovered or pinned day, marked with a crosshair.
+  marked: number | undefined
+  pinned: boolean
+  selection: DaySpan | undefined
+  onHover: (day: number | undefined) => void
+  // A click on empty space.
+  onPin: (day: number) => void
+  onSelect: (span: DaySpan) => void
 }) {
   const [ref, width] = useWidth()
   const frame = useMemo(
     () => Effect.runSync(chartFrame(width, days.length, lines, candles)),
     [width, days.length, lines, candles]
   )
+  // The press in progress: where it started, and whether it became a drag.
+  const press = useRef<{ x: number; day: number; drag: boolean }>(undefined)
+  // Set when a drag ends, so the click that follows neither pins nor opens
+  // a candle's day.
+  const dragged = useRef(false)
+  const [drag, setDrag] = useState<DaySpan>()
+  // The day under the pointer, from the SVG's rendered box, so it holds at
+  // whatever width the SVG is drawn.
+  const dayAt = (event: PointerEvent<SVGSVGElement>) => {
+    const box = event.currentTarget.getBoundingClientRect()
+    const x = ((event.clientX - box.left) * frame.width) / (box.width || 1)
+    return Math.min(
+      days.length - 1,
+      Math.max(0, Math.floor((x - frame.left) / frame.step))
+    )
+  }
+  const shaded = drag ?? selection
   return (
-    <div ref={ref} className="w-full min-w-0">
+    <div ref={ref} className="w-full min-w-0 overflow-hidden">
       <svg
         width={frame.width}
         height={frame.height}
         role="img"
         aria-label="Broker inventory chart"
-        className="block"
+        className="block cursor-crosshair touch-pan-y select-none"
+        onPointerDown={(event) => {
+          dragged.current = false
+          if (event.button !== 0) return
+          press.current = { x: event.clientX, day: dayAt(event), drag: false }
+        }}
+        onPointerMove={(event) => {
+          const day = dayAt(event)
+          const current = press.current
+          if (current !== undefined) {
+            if (!current.drag && Math.abs(event.clientX - current.x) > DRAG) {
+              current.drag = true
+              // Only now: a captured press would also take a candle's
+              // click away from its link.
+              event.currentTarget.setPointerCapture(event.pointerId)
+            }
+            if (current.drag) {
+              // A drag that wanders over the panels selects no text.
+              document.getSelection()?.removeAllRanges()
+              setDrag(ordered(current.day, day))
+            }
+          }
+          onHover(day)
+        }}
+        onPointerUp={(event) => {
+          const current = press.current
+          press.current = undefined
+          if (current === undefined) return
+          if (current.drag) {
+            dragged.current = true
+            setDrag(undefined)
+            onSelect(ordered(current.day, dayAt(event)))
+          } else if (
+            !(event.target instanceof Element && event.target.closest("a"))
+          )
+            // A press on empty space; a candle's body opens its day.
+            onPin(dayAt(event))
+        }}
+        onPointerCancel={() => {
+          press.current = undefined
+          setDrag(undefined)
+        }}
+        onPointerLeave={() => {
+          if (press.current?.drag !== true) onHover(undefined)
+        }}
+        onClickCapture={(event) => {
+          if (!dragged.current) return
+          dragged.current = false
+          event.preventDefault()
+          event.stopPropagation()
+        }}
       >
         <GapBands frame={frame} built={built} />
+        {/* Catches the pointer on the plot's empty space. */}
+        <rect
+          x={frame.left}
+          y={frame.top}
+          width={frame.right - frame.left}
+          height={frame.volumeBottom - frame.top}
+          fill="transparent"
+        />
+        {shaded !== undefined && <SelectionBand frame={frame} span={shaded} />}
         <NetAxis frame={frame} />
         <PriceAxis frame={frame} />
         <Candles frame={frame} code={code} days={days} candles={candles} />
         <VolumeBars frame={frame} candles={candles} />
         <DayAxis frame={frame} days={days} />
         <BrokerLines frame={frame} built={built} lines={lines} />
+        {marked !== undefined && (
+          <DayMarker frame={frame} day={marked} pinned={pinned} />
+        )}
       </svg>
     </div>
   )
