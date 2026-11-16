@@ -84,6 +84,8 @@ const syncLogo = Effect.fnUntraced(function* (
 export const syncLogos = Effect.fn("syncLogos")(function* (
   codes: ReadonlyArray<StockCode>
 ) {
+  // A listing past MAX_LISTED_OBJECTS fails (../archive/bucket.ts), so the
+  // ETags held stay bounded.
   const stored = yield* (yield* ArchiveBucket).list(PREFIX)
   const held = new Map(
     stored.map((object) => [object.key, object.customMetadata[SOURCE_ETAG]])

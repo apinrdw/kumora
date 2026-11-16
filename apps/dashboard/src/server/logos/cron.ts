@@ -17,7 +17,8 @@ const isStockCode = Schema.is(StockCode)
 // Decision: the codes are the sector table's, which the daily sector run
 // fills from IDX's listings, so a new listing gets its logo the week it
 // lists; with the stock page's list of codes HoldingsDb has holdings for,
-// so a stage whose sector table is empty still syncs. See apinrdw/kumora#427.
+// so a stage whose sector table is empty still syncs. At most MAX_PROFILES
+// of them, as the sector map. See apinrdw/kumora#427.
 export const logoCodes = Effect.gen(function* () {
   const [rows = []] = yield* (yield* HoldingsDb).batch([
     {
@@ -28,7 +29,7 @@ export const logoCodes = Effect.gen(function* () {
   const codes = new Set<StockCode>()
   for (const { code } of rows) if (isStockCode(code)) codes.add(code)
   for (const { code } of yield* stockList) codes.add(code)
-  return [...codes].sort()
+  return [...codes].sort().slice(0, MAX_PROFILES)
 })
 
 const syncListedLogos = Effect.asVoid(Effect.flatMap(logoCodes, syncLogos))
