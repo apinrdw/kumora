@@ -42,11 +42,12 @@ export const makeWakes = Effect.fnUntraced(function* (
   })
 
   return {
-    deadline: (wake: Wake) => deadlines.get(wake),
-    due: (wake: Wake, now: DateTime.Utc) => {
-      const at = deadlines.get(wake)
-      return at !== undefined && !DateTime.isLessThan(now, at)
-    },
+    deadline: (wake: Wake) => Effect.sync(() => deadlines.get(wake)),
+    due: (wake: Wake, now: DateTime.Utc) =>
+      Effect.sync(() => {
+        const at = deadlines.get(wake)
+        return at !== undefined && !DateTime.isLessThan(now, at)
+      }),
     // A wake's next deadline, none once its duty is done.
     set: (wake: Wake, at: DateTime.Utc | undefined) =>
       write(wake, at).pipe(

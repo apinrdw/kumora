@@ -911,7 +911,7 @@ export const makeTradingDay = Effect.fnUntraced(function* (options: {
   )
   yield* wakes.restore(
     "index",
-    indexWakeAtStart(brokerCodes.indexBuilt, wakes.deadline("seal"))
+    indexWakeAtStart(brokerCodes.indexBuilt, yield* wakes.deadline("seal"))
   )
   yield* wakes.restore(
     "build",
@@ -1017,7 +1017,8 @@ export const makeTradingDay = Effect.fnUntraced(function* (options: {
   const alarm = Effect.gen(function* () {
     armed = undefined
     const now = yield* DateTime.now
-    for (const wake of WAKES) if (wakes.due(wake, now)) yield* duties[wake](now)
+    for (const wake of WAKES)
+      if (yield* wakes.due(wake, now)) yield* duties[wake](now)
     yield* sweepIngests
   })
 
@@ -1030,7 +1031,7 @@ export const makeTradingDay = Effect.fnUntraced(function* (options: {
     if ((yield* store.fact(Fact.brokerCodesN)) === undefined) return
     if (!(yield* brokerCodes.complete)) return
     const now = yield* DateTime.now
-    const set = wakes.deadline("seal")
+    const set = yield* wakes.deadline("seal")
     if (set !== undefined && !DateTime.isLessThan(now, set)) return
     yield* wakes.set("seal", now)
   })
