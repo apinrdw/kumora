@@ -43,7 +43,7 @@ A second broker site's copy of a trading day's broker codes and investor types, 
 _Avoid_: Verification, reconciliation
 
 **History walk**:
-Fetching the broker codes of trading days from before the terminal started keeping them, newest day first, until the broker site stops serving older days.
+Fetching the running trades and broker codes of trading days from before the terminal started keeping them, newest day first, until the broker site stops serving older days. Each day it fetches becomes a recorded day.
 _Avoid_: Backfill (that is filling gaps in the live tape)
 
 **Trade fields**:
@@ -137,6 +137,14 @@ _Avoid_: Depth, market depth
 **Net flow**:
 Net broker buying minus selling for an instrument over a period, in rupiah, from end-of-day data. Absent when the feed has no coverage.
 _Avoid_: Broker flow (for the figure), flow
+
+**Broker inventory**:
+One broker code's running sum of net lots or value (bought minus sold) in one stock code, day by day from the start of a range of days, counting regular-board trades and auction matches. A day counts only once every one of its trades has stored broker codes and its stock code, price, lots and board, from the running trades or the broker site's own listing; any other day is a gap the sum carries across.
+_Avoid_: Position, holdings (those are what KSEI reports), net flow
+
+**Broker summary**:
+Each broker code's lots and value bought and sold in one stock code over a range of days, its net, and its average buy and sell price weighted by lots, from the same trades broker inventory counts.
+_Avoid_: Broker ranking, done summary
 
 ### Freshness
 
