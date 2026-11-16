@@ -1,7 +1,7 @@
-// A parse run's result, the same for every parse run (the KSEI parse run,
-// the classification parse run): written to <runs prefix><id>.json while it
-// runs and when it ends, and returned as the Workflow instance's output. An
-// admin page's last parse run card reads it back with this Schema.
+// A parse run's result, the same for every kind (parse-runs.ts): written to
+// <runs prefix><id>.json while it runs and when it ends, and returned as the
+// Workflow instance's output. An admin page's last parse run card reads it
+// back with this Schema.
 import { DateTime, Effect, Schema, Struct } from "effect"
 
 import {

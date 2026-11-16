@@ -1,8 +1,7 @@
 // The Classification parse run: it parses the shareholding archive's
-// classification reports into parsed holdings (../holdings/parse-runs.ts). A
-// data date is parsed when its newest archived version (by fetched-at) or the
-// parser's version differs from the version its parsed holdings came from, or
-// when it has none. Spec apinrdw/kumora#402, "Parse runs".
+// classification reports into classification holdings
+// (../holdings/parse-runs.ts; which months, ../holdings/months-to-parse.ts).
+// Spec apinrdw/kumora#402, "Parse runs".
 import { Context } from "effect"
 
 import type { ArchiveWorkflow } from "../archive/workflow.ts"

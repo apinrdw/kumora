@@ -1,10 +1,7 @@
 // The Investor-type parse run: it parses the shareholding archive's
 // investor-type reports into investor-type holdings
-// (../holdings/parse-runs.ts), apart from the classification parse run: its
-// own records and its own one run in progress. A data date is parsed when
-// its newest archived version (by fetched-at) or the parser's version
-// differs from the version its holdings came from, or when it has none. Spec
-// apinrdw/kumora#402, "Parse runs".
+// (../holdings/parse-runs.ts; which months, ../holdings/months-to-parse.ts).
+// Spec apinrdw/kumora#402, "Parse runs".
 import { Context } from "effect"
 
 import type { ArchiveWorkflow } from "../archive/workflow.ts"
