@@ -130,7 +130,7 @@ test("a snapshot drops the backfill the one before it still asks", async () => {
   vi.useFakeTimers({ now: wib("10:00:30") })
   const dropped = vi.fn<() => void>()
   mocks.bubbles.mockReturnValueOnce(
-    Effect.never.pipe(Effect.onInterrupt(dropped))
+    Effect.never.pipe(Effect.onInterrupt(() => Effect.sync(dropped)))
   )
   mocks.bubbles.mockReturnValue(Effect.succeed(Option.none()))
   const page = await mount(MONDAY)
@@ -148,7 +148,7 @@ test("its own socket's snapshot drops the backfill the one before it follows", a
   mocks.socket.messages = Stream.fromQueue(socket)
   const dropped = vi.fn<() => void>()
   mocks.bubbles.mockReturnValueOnce(
-    Effect.never.pipe(Effect.onInterrupt(dropped))
+    Effect.never.pipe(Effect.onInterrupt(() => Effect.sync(dropped)))
   )
   mocks.bubbles.mockReturnValue(Effect.succeed(Option.none()))
   function Harness() {
