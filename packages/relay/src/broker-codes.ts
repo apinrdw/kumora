@@ -94,11 +94,15 @@ export type TradeCodes = typeof TradeCodes.Type
 
 // One running trade's own fields, as a broker's REST row reads them: what
 // the day's tape holds for it, but its feeds.
+// Decision: lots may be 0. Ajaib's tape cuts a negotiated-board trade's
+// fractional lots to 0 (CTRA, trade 1559660 on 2026-11-16, NG), and a
+// walk that dropped the row would drop its codes too. Broker totals and
+// candles count the regular board only, so the 0 never reaches a figure.
 const TradeFields = Schema.Struct({
   time: Schema.DateTimeUtcFromMillis,
   code: StockCode,
   price: Schema.Int,
-  lots: Schema.Finite.check(Schema.isGreaterThan(0)),
+  lots: Schema.Finite.check(Schema.isGreaterThanOrEqualTo(0)),
   board: Board,
   side: Side,
 })

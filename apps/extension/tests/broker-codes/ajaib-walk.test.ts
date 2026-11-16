@@ -96,7 +96,7 @@ const fakeAjaib = (
     // Whether a page's first row comes without a trade number.
     readonly malformed?: (path: string) => boolean
     // Trades the tape sends with codes but zero lots.
-    readonly noLots?: ReadonlySet<number>
+    readonly badLots?: ReadonlySet<number>
     // Overrides the tape's answer to a call, by its 1-based index.
     readonly answer?: (
       request: TabRequest,
@@ -129,7 +129,9 @@ const fakeAjaib = (
       results: before.slice(offset, offset + size).map((row, index) => ({
         stock_code: fieldsOf(row.number).code,
         price: fieldsOf(row.number).price,
-        lot: options.noLots?.has(row.number) ? 0 : fieldsOf(row.number).lots,
+        lot: options.badLots?.has(row.number)
+          ? null
+          : fieldsOf(row.number).lots,
         ...(fieldsOf(row.number).board === "NG" ? { market_type: "NG" } : {}),
         side: SIDES[fieldsOf(row.number).side],
         trade_num:
@@ -318,7 +320,7 @@ describe("Ajaib's walk of the day", () => {
         yield* TestClock.setTime(wib("2026-11-12", "17:30:00"))
         const production = fakeProduction()
         const walk = yield* walkWith(
-          fakeAjaib({ noLots: new Set([7, 12_345]) }),
+          fakeAjaib({ badLots: new Set([7, 12_345]) }),
           production
         )
         assert.deepStrictEqual(yield* walk.walk(DAY), { _tag: "walked" })

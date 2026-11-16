@@ -157,7 +157,7 @@ describe("a broker codes batch", () => {
         for (const row of [
           ["1", { ...codes, buyer: "yp" }, wire],
           ["1"],
-          ["1", codes, { ...wire, lots: 0 }],
+          ["1", codes, { ...wire, lots: -1 }],
           ["1", codes, { ...wire, side: "up" }],
           ["1", codes, { ...wire, time: undefined }],
           ["1", codes, { ...wire, time: "2026-11-12T07:59:58.000Z" }],
@@ -392,6 +392,10 @@ describe("an Ajaib row", () => {
   it.effect("gives the trade's fields, its time from its epoch ms", () =>
     Effect.gen(function* () {
       assert.deepStrictEqual(yield* ajaibRowFields(row), Option.some(fields))
+      assert.deepStrictEqual(
+        yield* ajaibRowFields({ ...row, lot: 0 }),
+        Option.some({ ...fields, lots: 0 })
+      )
     })
   )
 
@@ -425,7 +429,7 @@ describe("an Ajaib row", () => {
   )
 
   it.effect(
-    "without a valid code, a whole price, positive lots, a side or a time has no fields",
+    "without a valid code, a whole price, lots of 0 or more, a side or a time has no fields",
     () =>
       Effect.gen(function* () {
         for (const bad of [
@@ -433,7 +437,7 @@ describe("an Ajaib row", () => {
           { ...row, stock_code: undefined },
           { ...row, price: 8_000.5 },
           { ...row, price: "8000" },
-          { ...row, lot: 0 },
+          { ...row, lot: -1 },
           { ...row, lot: "1" },
           { ...row, side: undefined },
           { ...row, timestamp: undefined },
@@ -548,14 +552,14 @@ describe("a Stockbit row", () => {
   )
 
   it.effect(
-    "without a valid code, a whole price, positive lots or a time has no fields",
+    "without a valid code, a whole price, lots of 0 or more or a time has no fields",
     () =>
       Effect.gen(function* () {
         for (const bad of [
           { ...row, code: "" },
           { ...row, price: "8,000.5" },
           { ...row, price: "abc" },
-          { ...row, lot: "0" },
+          { ...row, lot: "-1" },
           { ...row, lot: 1 },
           { ...row, time: "9:00:00" },
           { ...row, time: "25:00:00" },
