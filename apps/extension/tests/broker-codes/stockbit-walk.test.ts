@@ -763,6 +763,41 @@ describe("Stockbit's walk: stopping and carrying on", () => {
   )
 
   it.effect(
+    "a day whose last row before the cut was posted without fields walks every trade Stockbit sent after the resume",
+    () =>
+      Effect.gen(function* () {
+        yield* TestClock.setTime(wib("2026-11-12", "17:30:00"))
+        // The dashboard's status for trades 1..10 held and trade 15 posted
+        // codes-only, n unknown: no range above the highest held trade.
+        const status: BrokerCodesStatus = {
+          version: BrokerCodesProtocolVersion,
+          day: DAY,
+          n: null,
+          complete: false,
+          missing: [],
+          missingCount: 0,
+          sources: { ajaib: 0, stockbit: 11 },
+          crossCheck: { state: "none" },
+        }
+        const posted = new Set<number>()
+        const walk = yield* makeStockbitWalk({
+          tab: fakeStockbit({ n: 30, badLots: new Set([15]) }),
+          post: (batch) =>
+            Effect.sync((): PostOutcome => {
+              for (const [number] of batch.rows) posted.add(Number(number))
+              return "sent"
+            }),
+          status: () => Effect.succeed(status),
+        })
+        assert.deepStrictEqual(yield* walk.walk(DAY), { _tag: "walked" })
+        assert.deepStrictEqual(
+          [11, 12, 13, 14].filter((number) => !posted.has(number)),
+          []
+        )
+      })
+  )
+
+  it.effect(
     "asks a failed call again 10 s later while the tab is still attached",
     () =>
       Effect.gen(function* () {

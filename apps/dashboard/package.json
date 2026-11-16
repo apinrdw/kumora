@@ -42,6 +42,7 @@
     "@effect/vitest": "catalog:",
     "@tanstack/devtools-vite": "latest",
     "@tanstack/router-cli": "^1.167.41",
+    "@types/chrome": "^0.3.7",
     "@types/node": "^22",
     "@types/react": "^19",
     "@types/react-dom": "^19",
