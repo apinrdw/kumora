@@ -454,6 +454,34 @@ test.describe.serial("the stock page", () => {
       await expect(bars(page)).toContainText("No data")
     })
 
+    test("keeps its scroll when the pointer hovers a column at the edge", async ({
+      page,
+    }) => {
+      // On a narrow phone BBCA's six months overflow their scroller.
+      await page.setViewportSize({ width: 320, height: 800 })
+      await page.goto(`${DASHBOARD}/stocks/BBCA`)
+      await focusNewest(page, "Oct 2026")
+      await bars(page).blur()
+      const scrollLeft = () =>
+        bars(page).evaluate((element) => {
+          let scroller = element.parentElement
+          while (scroller && scroller.scrollWidth <= scroller.clientWidth)
+            scroller = scroller.parentElement
+          return scroller?.scrollLeft ?? 0
+        })
+      const opened = await scrollLeft()
+      expect(opened).toBeGreaterThan(0)
+      // The leftmost column in view, just inside the scroller's edge.
+      await bars(page).hover({ position: { x: opened + 22, y: 120 } })
+      await expect(barsTooltip(page)).toBeVisible()
+      expect(await scrollLeft()).toBe(opened)
+      // The keyboard still scrolls the oldest month into view.
+      await bars(page).focus()
+      await page.keyboard.press("Home")
+      await expect(barsTooltip(page)).toContainText("May 2026")
+      expect(await scrollLeft()).toBe(0)
+    })
+
     test("keeps a series' % of its origin when the legend hides the rest", async ({
       page,
     }) => {

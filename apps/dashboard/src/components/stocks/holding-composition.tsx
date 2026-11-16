@@ -385,6 +385,9 @@ function Bars({
     const element = scroller.current
     if (element) element.scrollLeft = element.scrollWidth
   }, [])
+  // Whether the last input in the chart was a key, not the pointer: the
+  // library reports hover and keyboard focus through the same callback.
+  const keyboard = useRef(false)
   const rows = useMemo(
     () => Effect.runSync(holdingRows(chart, shown)),
     [chart, shown]
@@ -445,9 +448,9 @@ function Bars({
         y: {
           scale: scaleLinear().domain([0, chart.axisMax]),
           // Decision: the y-axis labels are our own rail beside the
-          // scroller, so they stay put while the columns scroll. The chart's
-          // axis draws no line or labels; its tick values only place the
-          // gridlines level with the rail's.
+          // scroller, not the chart's axis labels, which would scroll away
+          // with the columns. The chart's axis keeps only its tick values,
+          // to place the gridlines level with the rail's.
           axis: {
             line: false,
             ticks: {
@@ -510,20 +513,36 @@ function Bars({
           </span>
         ))}
       </div>
-      <div ref={scroller} className="min-w-0 flex-1 overflow-x-auto pb-1">
+      <div
+        ref={scroller}
+        className="min-w-0 flex-1 overflow-x-auto pb-1"
+        onKeyDownCapture={() => {
+          keyboard.current = true
+        }}
+        onFocusCapture={(event) => {
+          keyboard.current = event.target.matches(":focus-visible")
+        }}
+        onPointerMoveCapture={() => {
+          keyboard.current = false
+        }}
+        onPointerDownCapture={() => {
+          keyboard.current = false
+        }}
+      >
         <Chart
           definition={definition}
           ariaLabel="Holding composition by month. Arrow keys step through the months; the Table view lists every value."
           width={chart.columns.length * PITCH}
           height={HEIGHT + X_AXIS}
           className="text-muted-foreground"
-          // Decision: our code scrolls a keyboard-focused month into view
-          // when it is near or past the scroller's edge; the library does
-          // not scroll its overflow container.
+          // Decision: a month focused by key near or past the scroller's
+          // edge scrolls to the middle; a hovered one never scrolls. The
+          // library scrolls nothing itself, and following hover as well
+          // jumped the columns half a view under the pointer.
           onFocusGroupChange={(points) => {
             const element = scroller.current
             const x = points[0]?.x
-            if (!element || x === undefined) return
+            if (!keyboard.current || !element || x === undefined) return
             if (
               x < element.scrollLeft + PITCH ||
               x > element.scrollLeft + element.clientWidth - PITCH
