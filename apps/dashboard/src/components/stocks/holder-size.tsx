@@ -1,22 +1,30 @@
 // The stock page's Holder size panel (spec apinrdw/kumora#402, "Holder size
-// panel"; apinrdw/kumora#398's layout B): month tabs, an origin and a
-// denominator switch, then the Bars view of one investor-type report month,
-// a bar of scrip, ≥5% holders and <5% holders and a table of the 9 KSEI
-// investor types, each against the month before.
+// panel"; apinrdw/kumora#398's layout B with C's chart): an origin and a
+// denominator switch, then one of two views. Bars shows one investor-type
+// report month, picked by month tabs: a bar of scrip, ≥5% holders and <5%
+// holders and a table of the 9 KSEI investor types, each against the month
+// before. Table shows every month as a stacked column, then the types
+// holding ≥5% month by month.
 import { cn } from "@workspace/ui/lib/utils"
 import { Effect } from "effect"
 
-import { kCard } from "@/components/k/styles"
-import { Choice, MonthTabs } from "@/components/stocks/choice"
+import { kCard, kFocus } from "@/components/k/styles"
+import { KTooltip } from "@/components/k/tooltip"
+import { Choice, MonthTabs, Picks } from "@/components/stocks/choice"
+import type { KseiType } from "@/domain/holdings"
 import { compact, plain } from "@/lib/format"
 import {
   type Denominator,
   type HolderSize as Figures,
+  type HolderSizeColumn,
+  type HolderSizeFigures,
+  type HolderSizeTable,
   type Holding,
   holderSize,
+  holderSizeTable,
 } from "@/lib/holder-size"
-import { monthLabel, percent } from "@/lib/stock-page-display"
-import type { OriginShown } from "@/lib/stock-search"
+import { monthLabel, percent, shortMonth } from "@/lib/stock-page-display"
+import type { ChartView, OriginShown } from "@/lib/stock-search"
 import type { HolderSizeMonth } from "@/server/holdings/stock-page"
 
 const ORIGINS: ReadonlyArray<{ value: OriginShown; label: string }> = [
@@ -30,6 +38,11 @@ const DENOMINATORS: ReadonlyArray<{ value: Denominator; label: string }> = [
   { value: "scripless", label: "Scripless" },
 ]
 
+const VIEWS: ReadonlyArray<{ value: ChartView; label: string }> = [
+  { value: "bars", label: "Bars" },
+  { value: "table", label: "Table" },
+]
+
 const PART = {
   scrip: { label: "Scrip", color: "var(--semantic-warning)" },
   atLeast5: { label: "≥5% holders", color: "var(--semantic-info)" },
@@ -39,7 +52,13 @@ const PART = {
   },
 } as const
 
+// A column's parts, bottom up.
+const STACK = ["atLeast5", "under5", "scrip"] as const
+
 const CHOICE = "h-7 rounded-full px-3 text-[13px]"
+
+// The Table view's column height in px.
+const HEIGHT = 200
 
 type HeldMonth = HolderSizeMonth & { readonly holding: Holding }
 
@@ -50,20 +69,20 @@ export type HolderSizeProps = {
   month: string | undefined
   origin: OriginShown
   denominator: Denominator
+  view: ChartView
   onMonth: (dataDate: string) => void
   onOrigin: (origin: OriginShown) => void
   onDenominator: (denominator: Denominator) => void
+  onView: (view: ChartView) => void
 }
 
 export function HolderSize({
   code,
   months,
   month,
-  origin,
-  denominator,
-  onMonth,
-  onOrigin,
-  onDenominator,
+  view,
+  onView,
+  ...shown
 }: HolderSizeProps) {
   const held = months.filter(
     (each): each is HeldMonth => each.holding !== undefined
@@ -75,14 +94,19 @@ export function HolderSize({
       aria-labelledby="holder-size"
       className={cn(kCard, "flex flex-col gap-3")}
     >
-      <div className="flex items-baseline justify-between gap-3">
+      <div className="flex flex-wrap items-center justify-between gap-3">
         <h2 id="holder-size" className="text-[15px] font-semibold">
           Holder size
         </h2>
         {selected && (
-          <span className="text-[13px] text-muted-foreground">
-            {Effect.runSync(monthLabel(selected.dataDate))}
-          </span>
+          <div className="flex flex-wrap items-center gap-3">
+            {view === "bars" && (
+              <span className="text-[13px] text-muted-foreground">
+                {Effect.runSync(monthLabel(selected.dataDate))}
+              </span>
+            )}
+            <Picks label="View" options={VIEWS} value={view} onPick={onView} />
+          </div>
         )}
       </div>
       {selected === undefined ? (
@@ -90,22 +114,29 @@ export function HolderSize({
           {code} isn't in IDX's investor-type report, so its holder size isn't
           shown.
         </p>
+      ) : view === "bars" ? (
+        <Month code={code} months={months} selected={selected} {...shown} />
       ) : (
-        <Month
-          code={code}
-          months={months}
-          selected={selected}
-          origin={origin}
-          denominator={denominator}
-          onMonth={onMonth}
-          onOrigin={onOrigin}
-          onDenominator={onDenominator}
-        />
+        <Months code={code} months={months} {...shown} />
+      )}
+      {selected && (
+        <p className="text-[12px] text-muted-foreground">
+          IDX counts a holder as ≥5% when one investor holds at least 5% of
+          shares outstanding in scripless form. A big holder spread across types
+          can show part of its stake as &lt;5%, so the split by type is
+          approximate.
+        </p>
       )}
     </section>
   )
 }
 
+type Shown = Pick<
+  HolderSizeProps,
+  "origin" | "denominator" | "onMonth" | "onOrigin" | "onDenominator"
+>
+
+// The Bars view of the selected month.
 function Month({
   code,
   months,
@@ -115,7 +146,11 @@ function Month({
   onMonth,
   onOrigin,
   onDenominator,
-}: Omit<HolderSizeProps, "month"> & { selected: HeldMonth }) {
+}: Shown & {
+  code: string
+  months: ReadonlyArray<HolderSizeMonth>
+  selected: HeldMonth
+}) {
   const index = months.indexOf(selected)
   const before = months[index - 1]
   const figures = Effect.runSync(
@@ -132,62 +167,114 @@ function Month({
         selected={selected.dataDate}
         onMonth={onMonth}
       />
-      <div className="flex flex-wrap items-center gap-x-4 gap-y-2">
-        <div
-          role="group"
-          aria-label="Origin"
-          className="flex flex-wrap items-center gap-2"
-        >
-          <span className="text-[12px] text-muted-foreground">IDX's split</span>
-          {ORIGINS.map(({ value, label }) => (
-            <Choice
-              key={value}
-              pressed={figures.origin === value}
-              unavailable={
-                value !== "all" && !selected.split
-                  ? `${label}: Not reported before Jan 2026`
-                  : undefined
-              }
-              onPick={() => onOrigin(value)}
-              className={CHOICE}
-            >
-              {label}
-            </Choice>
-          ))}
-        </div>
-        <div
-          role="group"
-          aria-label="Share of"
-          className="flex flex-wrap items-center gap-2"
-        >
-          <span className="text-[12px] text-muted-foreground">Share of</span>
-          {DENOMINATORS.map(({ value, label }) => (
-            <Choice
-              key={value}
-              pressed={figures.denominator === value}
-              unavailable={
-                value === "outstanding" && figures.origin !== "all"
-                  ? "Scrip isn't split by origin"
-                  : undefined
-              }
-              onPick={() => onDenominator(value)}
-              className={CHOICE}
-            >
-              {label}
-            </Choice>
-          ))}
-        </div>
-      </div>
+      <Controls
+        figures={figures}
+        split={selected.split}
+        onOrigin={onOrigin}
+        onDenominator={onDenominator}
+      />
       <Bars figures={figures} />
       <p className="text-[12px] text-muted-foreground">
         {Effect.runSync(comparison(code, months, index, figures.origin))}
       </p>
-      <p className="text-[12px] text-muted-foreground">
-        IDX counts a holder as ≥5% when one investor holds at least 5% of shares
-        outstanding in scripless form. A big holder spread across types can show
-        part of its stake as &lt;5%, so the split by type is approximate.
-      </p>
     </>
+  )
+}
+
+// The Table view of every month.
+function Months({
+  code,
+  months,
+  origin,
+  denominator,
+  onOrigin,
+  onDenominator,
+}: Shown & { code: string; months: ReadonlyArray<HolderSizeMonth> }) {
+  const table = Effect.runSync(holderSizeTable(months, origin, denominator))
+  return (
+    <>
+      <Controls
+        figures={table}
+        split={months.some(({ split }) => split)}
+        onOrigin={onOrigin}
+        onDenominator={onDenominator}
+      />
+      <Columns table={table} />
+      <AtLeast5Table code={code} table={table} />
+    </>
+  )
+}
+
+// The origin and denominator switches. Local and Foreign are unavailable
+// without a split; shares outstanding is for all only.
+function Controls({
+  figures,
+  split,
+  onOrigin,
+  onDenominator,
+}: {
+  figures: Pick<Figures, "origin" | "denominator">
+  split: boolean
+  onOrigin: (origin: OriginShown) => void
+  onDenominator: (denominator: Denominator) => void
+}) {
+  return (
+    <div className="flex flex-wrap items-center gap-x-4 gap-y-2">
+      <div
+        role="group"
+        aria-label="Origin"
+        className="flex flex-wrap items-center gap-2"
+      >
+        <span className="text-[12px] text-muted-foreground">IDX's split</span>
+        {ORIGINS.map(({ value, label }) => (
+          <Choice
+            key={value}
+            pressed={figures.origin === value}
+            unavailable={
+              value !== "all" && !split
+                ? `${label}: Not reported before Jan 2026`
+                : undefined
+            }
+            onPick={() => onOrigin(value)}
+            className={CHOICE}
+          >
+            {label}
+          </Choice>
+        ))}
+      </div>
+      <div
+        role="group"
+        aria-label="Share of"
+        className="flex flex-wrap items-center gap-2"
+      >
+        <span className="text-[12px] text-muted-foreground">Share of</span>
+        {DENOMINATORS.map(({ value, label }) => (
+          <Choice
+            key={value}
+            pressed={figures.denominator === value}
+            unavailable={
+              value === "outstanding" && figures.origin !== "all"
+                ? "Scrip isn't split by origin"
+                : undefined
+            }
+            onPick={() => onDenominator(value)}
+            className={CHOICE}
+          >
+            {label}
+          </Choice>
+        ))}
+      </div>
+    </div>
+  )
+}
+
+function Swatch({ color }: { color: string }) {
+  return (
+    <span
+      aria-hidden
+      className="mr-1.5 inline-block size-2.5 rounded-[2px]"
+      style={{ background: color }}
+    />
   )
 }
 
@@ -227,11 +314,7 @@ function Bars({ figures }: { figures: Figures }) {
           {parts.map(({ key, label, share, change, color }) => (
             <div key={key} className="flex items-baseline gap-1.5">
               <dt>
-                <span
-                  aria-hidden
-                  className="mr-1.5 inline-block size-2.5 rounded-[2px]"
-                  style={{ background: color }}
-                />
+                <Swatch color={color} />
                 {label}
               </dt>
               <dd className="num font-semibold">
@@ -332,3 +415,152 @@ const comparison = (
       return `${label} has no local/foreign split, so no change is shown.`
     return `Changes are from ${label}.`
   })
+
+// A column's parts, bottom up, as drawn.
+const stacked = (column: HolderSizeFigures) =>
+  Effect.succeed(
+    STACK.flatMap((key) => {
+      const share = column.bar[key]
+      return share === undefined ? [] : [{ key, share, ...PART[key] }]
+    })
+  )
+
+// What a column says: its parts, or why it has none.
+const columnText = Effect.fnUntraced(function* (column: HolderSizeColumn) {
+  const label = yield* monthLabel(column.dataDate)
+  if (column.shown !== "figures")
+    return column.shown === "no data"
+      ? `${label}: No data`
+      : `${label}: n/a, not split by origin`
+  const parts = yield* Effect.forEach(
+    yield* stacked(column),
+    ({ label: part, share }) =>
+      Effect.map(percent(share), (text) => `${part} ${text}`)
+  )
+  return `${label}: ${parts.join(", ")}`
+})
+
+// The Table view's chart: a column per month, ≥5% holders at the bottom.
+function Columns({ table }: { table: HolderSizeTable }) {
+  return (
+    <div className="flex flex-col gap-2">
+      <div className="overflow-x-auto pb-1">
+        <ol
+          aria-label="Holder size by month"
+          className="flex w-max min-w-full gap-2 px-1"
+        >
+          {table.columns.map((column) => (
+            <li key={column.dataDate} className="flex flex-col items-center">
+              <Column column={column} />
+              <span className="num h-5 text-[11px] leading-5 whitespace-nowrap text-muted-foreground">
+                {Effect.runSync(shortMonth(column.dataDate))}
+              </span>
+            </li>
+          ))}
+        </ol>
+      </div>
+      <ul className="flex flex-wrap gap-x-5 gap-y-1 text-[12px] text-muted-foreground">
+        {STACK.filter(
+          (key) => key !== "scrip" || table.denominator === "outstanding"
+        ).map((key) => (
+          <li key={key}>
+            <Swatch color={PART[key].color} />
+            {PART[key].label}
+          </li>
+        ))}
+      </ul>
+    </div>
+  )
+}
+
+function Column({ column }: { column: HolderSizeColumn }) {
+  const text = Effect.runSync(columnText(column))
+  return (
+    <KTooltip side="right" content={text}>
+      <button
+        type="button"
+        aria-label={text}
+        className={cn(
+          "bg-elevated flex w-9 flex-col-reverse overflow-hidden rounded-xs",
+          kFocus
+        )}
+        style={{ height: HEIGHT }}
+      >
+        {column.shown === "figures" ? (
+          Effect.runSync(stacked(column)).map(({ key, share, color }) => (
+            <i
+              key={key}
+              className="block w-full shrink-0"
+              style={{ height: share * HEIGHT, background: color }}
+            />
+          ))
+        ) : (
+          <span className="m-auto rotate-180 text-[10px] whitespace-nowrap text-muted-foreground [writing-mode:vertical-rl]">
+            {column.shown === "unsplit" ? "n/a" : "No data"}
+          </span>
+        )}
+      </button>
+    </KTooltip>
+  )
+}
+
+// A cell of the ≥5% table: the type's share, n/a for an unsplit month, a
+// dash for a month without the stock.
+const atLeast5Cell = (column: HolderSizeColumn, type: KseiType) =>
+  column.shown === "figures"
+    ? percent(column.atLeast5[type])
+    : Effect.succeed(column.shown === "unsplit" ? "n/a" : "–")
+
+function AtLeast5Table({
+  code,
+  table,
+}: {
+  code: string
+  table: HolderSizeTable
+}) {
+  if (table.atLeast5Types.length === 0)
+    return (
+      <p className="text-[13px] text-muted-foreground">
+        {code} has no {table.origin === "all" ? "" : `${table.origin} `}≥5%
+        holders in any month.
+      </p>
+    )
+  return (
+    <div className="overflow-x-auto">
+      <table
+        aria-label="≥5% holders by month"
+        className="w-full text-[13px] whitespace-nowrap [&_td]:px-2 [&_td]:py-1.5 [&_td]:text-right [&_th]:px-2 [&_th]:py-1.5 [&_th]:text-right [&_th]:font-medium [&_th]:text-muted-foreground [&_th:first-child]:text-left [&_tr]:border-b [&_tr]:border-border"
+      >
+        <thead>
+          <tr>
+            <th scope="col">≥5% held by</th>
+            {table.columns.map(({ dataDate }) => (
+              <th key={dataDate} scope="col" className="num">
+                {Effect.runSync(shortMonth(dataDate))}
+              </th>
+            ))}
+          </tr>
+        </thead>
+        <tbody className="num">
+          {table.atLeast5Types.map(({ type, label }) => (
+            <tr key={type}>
+              <th scope="row" className="font-sans">
+                {label}
+              </th>
+              {table.columns.map((column) => (
+                <td
+                  key={column.dataDate}
+                  className={cn(
+                    column.shown !== "figures" && "text-muted-foreground"
+                  )}
+                >
+                  {Effect.runSync(atLeast5Cell(column, type))}
+                </td>
+              ))}
+            </tr>
+          ))}
+        </tbody>
+      </table>
+    </div>
+  )
+}

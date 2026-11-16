@@ -1,7 +1,7 @@
 // What /stocks/$CODE reads from its URL (spec apinrdw/kumora#363, "URL search
 // params"): the Shareholders composition panel's month and origin, the
 // Holding composition chart's origin and view, and the Holder size panel's
-// month, origin and denominator (spec apinrdw/kumora#402). Each is left out
+// month, origin, denominator and view (spec apinrdw/kumora#402). Each is left out
 // at its default, so a plain link stays short.
 import { Effect, Option, Schema } from "effect"
 
@@ -27,10 +27,11 @@ export interface StockSearch {
   // The chart's origin; absent for all.
   readonly chart?: SplitOrigin | undefined
   readonly view?: typeof ChartView.Type | undefined
-  // Holder size's month, origin (absent for all) and denominator.
+  // Holder size's month, origin (absent for all), denominator and view.
   readonly sizeMonth?: string | undefined
   readonly sizeOrigin?: SplitOrigin | undefined
   readonly sizeBase?: typeof SizeBase.Type | undefined
+  readonly sizeView?: typeof ChartView.Type | undefined
 }
 
 /**
@@ -60,5 +61,8 @@ export const parseStockSearch = (
     ),
     sizeBase: Option.getOrUndefined(
       Schema.decodeUnknownOption(SizeBase)(raw.sizeBase)
+    ),
+    sizeView: Option.getOrUndefined(
+      Schema.decodeUnknownOption(ChartView)(raw.sizeView)
     ),
   }))

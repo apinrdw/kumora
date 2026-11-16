@@ -39,14 +39,7 @@ export const Route = createFileRoute("/_app/stocks/$code")({
 
 function StockPageView() {
   const page: StockPage = Route.useLoaderData()
-  const {
-    panel = "all",
-    chart = "all",
-    view = "bars",
-    sizeMonth,
-    sizeOrigin = "all",
-    sizeBase = "outstanding",
-  } = Route.useSearch()
+  const { panel = "all", chart = "all", view = "bars" } = Route.useSearch()
   const navigate = Route.useNavigate()
   const list = useStockList(`/stocks/${page.code}`)
   // Bare /stocks opens it next time.
@@ -112,26 +105,10 @@ function StockPageView() {
         />
       )}
       {known && (
-        <HolderSize
-          code={page.code}
-          months={page.holderSize}
-          month={sizeMonth}
-          origin={sizeOrigin}
-          denominator={sizeBase}
-          onMonth={(dataDate) =>
-            setSearch({
-              sizeMonth:
-                dataDate === newestSize ? undefined : dataDate.slice(0, 7),
-            })
-          }
-          onOrigin={(origin) =>
-            setSearch({ sizeOrigin: origin === "all" ? undefined : origin })
-          }
-          onDenominator={(denominator) =>
-            setSearch({
-              sizeBase: denominator === "outstanding" ? undefined : denominator,
-            })
-          }
+        <StockHolderSize
+          page={page}
+          newest={newestSize}
+          setSearch={setSearch}
         />
       )}
       {page.series.length > 0 && (
@@ -149,5 +126,49 @@ function StockPageView() {
         />
       )}
     </div>
+  )
+}
+
+// Holder size with its search params. `newest` is its newest held month.
+function StockHolderSize({
+  page,
+  newest,
+  setSearch,
+}: {
+  page: StockPage
+  newest: string | undefined
+  setSearch: (change: StockSearch) => void
+}) {
+  const {
+    sizeMonth,
+    sizeOrigin = "all",
+    sizeBase = "outstanding",
+    sizeView = "bars",
+  } = Route.useSearch()
+  return (
+    <HolderSize
+      code={page.code}
+      months={page.holderSize}
+      month={sizeMonth}
+      origin={sizeOrigin}
+      denominator={sizeBase}
+      view={sizeView}
+      onMonth={(dataDate) =>
+        setSearch({
+          sizeMonth: dataDate === newest ? undefined : dataDate.slice(0, 7),
+        })
+      }
+      onOrigin={(origin) =>
+        setSearch({ sizeOrigin: origin === "all" ? undefined : origin })
+      }
+      onDenominator={(denominator) =>
+        setSearch({
+          sizeBase: denominator === "outstanding" ? undefined : denominator,
+        })
+      }
+      onView={(next) =>
+        setSearch({ sizeView: next === "bars" ? undefined : next })
+      }
+    />
   )
 }

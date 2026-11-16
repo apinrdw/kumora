@@ -52,15 +52,17 @@ export interface HolderSize {
 
 // A month of the Table view: the stock's figures, or why it has none (no row
 // in the report, or no local/foreign split under Local or Foreign).
-export type HolderSizeColumn = { readonly dataDate: string } & (
-  | { readonly shown: "no data" | "unsplit" }
-  | {
-      readonly shown: "figures"
-      readonly bar: HolderSizeParts
-      // Each type's ≥5% share of the denominator.
-      readonly atLeast5: Readonly<Record<KseiType, number>>
-    }
-)
+export type HolderSizeColumn =
+  | { readonly dataDate: string; readonly shown: "no data" | "unsplit" }
+  | HolderSizeFigures
+
+export interface HolderSizeFigures {
+  readonly dataDate: string
+  readonly shown: "figures"
+  readonly bar: HolderSizeParts
+  // Each type's ≥5% share of the denominator.
+  readonly atLeast5: Readonly<Record<KseiType, number>>
+}
 
 export interface HolderSizeTable {
   // As in `HolderSize`; local or foreign only when some month splits.

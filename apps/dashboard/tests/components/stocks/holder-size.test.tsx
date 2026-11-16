@@ -62,15 +62,89 @@ const render = (props: Partial<HolderSizeProps>) =>
         month={undefined}
         origin="all"
         denominator="outstanding"
+        view="bars"
         onMonth={() => {}}
         onOrigin={() => {}}
         onDenominator={() => {}}
+        onView={() => {}}
         {...props}
       />
     )
   )
 
 const text = () => container.textContent ?? ""
+
+const columns = () =>
+  [
+    ...container.querySelectorAll('[aria-label="Holder size by month"] button'),
+  ].map((column) => column.getAttribute("aria-label"))
+
+const atLeast5Rows = () =>
+  [
+    ...container.querySelectorAll(
+      'table[aria-label="≥5% holders by month"] tr'
+    ),
+  ].map((row) =>
+    [...row.querySelectorAll("th, td")].map((cell) => cell.textContent)
+  )
+
+describe("the Table view", () => {
+  const MONTHS = [
+    month("2025-12-30", unsplit(holding(200, 300))),
+    month("2026-01-30", undefined),
+    month("2026-02-27", holding(250, 250)),
+  ]
+
+  test("switches from Bars", async () => {
+    const picked: Array<string> = []
+    await render({ months: MONTHS, onView: (view) => picked.push(view) })
+    const table = [
+      ...container.querySelectorAll('[aria-label="View"] button'),
+    ].find((button) => button.textContent === "Table") as HTMLButtonElement
+    await act(() => table.click())
+    expect(picked).toEqual(["table"])
+  })
+
+  test("stacks each month's ≥5%, <5% and scrip of shares outstanding", async () => {
+    await render({ months: MONTHS, view: "table" })
+    expect(columns()).toEqual([
+      "Dec 2025: ≥5% holders 20.00%, <5% holders 30.00%, Scrip 50.00%",
+      "Jan 2026: No data",
+      "Feb 2026: ≥5% holders 25.00%, <5% holders 25.00%, Scrip 50.00%",
+    ])
+    expect(container.querySelector('[aria-label="Month"]')).toBeNull()
+  })
+
+  test("marks unsplit months n/a under Local, of local scripless", async () => {
+    await render({ months: MONTHS, view: "table", origin: "local" })
+    expect(columns()).toEqual([
+      "Dec 2025: n/a, not split by origin",
+      "Jan 2026: No data",
+      "Feb 2026: ≥5% holders 50.00%, <5% holders 50.00%",
+    ])
+    expect(atLeast5Rows()).toEqual([
+      ["≥5% held by", "Dec 25", "Jan 26", "Feb 26"],
+      ["Corporate", "n/a", "–", "50.00%"],
+    ])
+  })
+
+  test("lists each type holding ≥5% month by month", async () => {
+    await render({ months: MONTHS, view: "table" })
+    expect(atLeast5Rows()).toEqual([
+      ["≥5% held by", "Dec 25", "Jan 26", "Feb 26"],
+      ["Corporate", "20.00%", "–", "25.00%"],
+    ])
+  })
+
+  test("says when no type holds ≥5% in any month", async () => {
+    await render({
+      months: [month("2026-02-27", holding(0, 500))],
+      view: "table",
+    })
+    expect(atLeast5Rows()).toEqual([])
+    expect(text()).toContain("BBCA has no ≥5% holders in any month.")
+  })
+})
 
 const barPart = (label: string) =>
   [...container.querySelectorAll('[aria-label="Holder size bar"] dl > div')]
