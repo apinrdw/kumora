@@ -60,8 +60,9 @@ export interface BubbleColors {
 // A sweep's bubble id in the chart's hit test.
 const HIT_PREFIX = "sweep:"
 
-// Each minute's bubbles, largest first, so small ones draw on top.
-const bubblesOf = Effect.fnUntraced(function* (
+// Each minute's bubbles, one per shown sweep or piece, largest first, so
+// small ones draw on top, a split sweep's pieces in one second included.
+export const bubblesOf = Effect.fnUntraced(function* (
   sweeps: ReadonlyArray<KeptSweep>
 ) {
   const byMinute = new Map<number, Array<Bubble>>()
