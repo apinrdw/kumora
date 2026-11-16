@@ -2,6 +2,7 @@ import { assert, describe, it } from "@effect/vitest"
 import {
   BrokerCode,
   BrokerCodesProtocolVersion,
+  StockCode,
   TradeNumber,
   WibDate,
   decodeBrokerCodesBatch,
@@ -46,6 +47,12 @@ const CODES = {
   seller: BrokerCode.make("PD"),
   sellerType: "F",
 } as const
+const FIELDS = {
+  code: StockCode.make("BBCA"),
+  price: 8_000,
+  lots: 1,
+  board: "RG",
+} as const
 
 // A dashboard answering each POST with the next of `statuses` (then 200),
 // keeping the trade numbers and `end` of every batch it wrote, and
@@ -89,7 +96,11 @@ const batch = (numbers: ReadonlyArray<number>, n?: number) =>
     version: BrokerCodesProtocolVersion,
     feed: "Ajaib",
     day: DAY,
-    rows: numbers.map((number) => [TradeNumber.make(`${number}`), CODES]),
+    rows: numbers.map((number) => [
+      TradeNumber.make(`${number}`),
+      CODES,
+      FIELDS,
+    ]),
     ...(n === undefined ? {} : { end: { n: TradeNumber.make(`${n}`) } }),
   }) satisfies BrokerCodesBatch
 

@@ -1,20 +1,24 @@
 // Broker codes ingest (spec apinrdw/kumora#244, "@workspace/relay: broker
 // codes shapes"): what the extension's post-close walks and the dashboard
-// Worker agree on. The extension posts batches of each trade's broker codes
-// and investor types to the day's path and asks the day's status there; the
-// Worker hands both to the day's trading-day Durable Object.
+// Worker agree on. The extension posts batches of each trade's broker codes,
+// investor types and trade fields to the day's path and asks the day's
+// status there; the Worker hands both to the day's trading-day Durable
+// Object.
 import { Effect, Option, Schema } from "effect"
 
-import { Feed, TradeNumber } from "./envelope.ts"
+import { StockCode } from "./codes.ts"
+import { Board, Feed, TradeNumber, boardOf, groupedNumber } from "./envelope.ts"
 import { WibDate } from "./schedule.ts"
 
 // Bump on any change to a batch's or a status's shape. Only this version is
 // accepted: the Worker answers any other with 426, which the extension shows
 // as `reload-extension`. Separate from IngestProtocolVersion.
-// Decision: 2 since the status lists at most MISSING_RANGES ranges and
-// counts the rest. A version 1 extension would read a capped list as all the
-// day lacks; it decodes no version 2 status, so it shows `reload-extension`.
-export const BrokerCodesProtocolVersion = 2
+// Decision: 2 since the status lists at most MISSING_RANGES ranges, which a
+// version 1 extension would read as all the day lacks; 3 since each row
+// carries its trade fields, which a day's trades the tape lacks need, and a
+// version 2 extension sends codes alone (apinrdw/kumora#425). An older
+// extension gets 426 and shows `reload-extension`.
+export const BrokerCodesProtocolVersion = 3
 
 const PREFIX = "/api/broker-codes"
 
@@ -81,6 +85,17 @@ export const TradeCodes = Schema.Struct({
 })
 export type TradeCodes = typeof TradeCodes.Type
 
+// One running trade's own fields, as the walk's row read them: what the
+// day's tape would hold for it, but the time and the side.
+const TradeFields = Schema.Struct({
+  code: StockCode,
+  price: Schema.Int,
+  lots: Schema.Finite.check(Schema.isGreaterThan(0)),
+  board: Board,
+})
+export type TradeFields = typeof TradeFields.Type
+const decodeFields = Schema.decodeUnknownOption(TradeFields)
+
 // A batch's trade numbers: a day's sequence, 1 to Ajaib's 10 digits, so the
 // dashboard keys them as safe integers.
 const DayTradeNumber = TradeNumber.check(Schema.isPattern(/^[1-9]\d{0,9}$/))
@@ -93,19 +108,21 @@ const End = Schema.Struct({ n: DayTradeNumber })
 // no longer than BROKER_CODES_BATCH_LIMIT, which a full batch fits.
 const BATCH_ROWS = 5_000
 
-// In UTF-16 units of the body. A full batch at 10-digit trade numbers stays
-// under it (broker-codes.test.ts).
+// In UTF-16 units of the body. A full batch at 10-digit trade numbers and
+// 16-character stock codes stays under it (broker-codes.test.ts).
 export const BROKER_CODES_BATCH_LIMIT = 1_000_000
 
-// One walk's trades of `day` from `feed`, posted to the day's path. A batch
-// may be `end` alone, once a walk confirmed the day's highest number.
+// One walk's trades of `day` from `feed`, posted to the day's path: each
+// row's trade number, codes and fields. A walk sends no row it read without
+// valid codes and fields, so the trade counts as missing. A batch may be
+// `end` alone, once a walk confirmed the day's highest number.
 const BrokerCodesBatch = Schema.Struct({
   version: Schema.Literal(BrokerCodesProtocolVersion),
   feed: Feed,
   day: WibDate,
-  rows: Schema.Array(Schema.Tuple([DayTradeNumber, TradeCodes])).check(
-    Schema.isMaxLength(BATCH_ROWS)
-  ),
+  rows: Schema.Array(
+    Schema.Tuple([DayTradeNumber, TradeCodes, TradeFields])
+  ).check(Schema.isMaxLength(BATCH_ROWS)),
   end: Schema.optionalKey(End),
 })
 export type BrokerCodesBatch = typeof BrokerCodesBatch.Type
@@ -132,12 +149,13 @@ export type CrossCheck = typeof CrossCheck.Type
 export const MISSING_RANGES = 1_000
 
 // A day's broker codes as its trading-day object holds them. `n` is the
-// highest `end.n` either site sent, null until one did. The day's missing
-// trades are the inclusive ranges of 1..n without valid codes, or of
+// highest `end.n` either site sent, null until one did. A trade is held
+// once the day has its codes and its fields, from the tape or a walk's row.
+// The day's missing trades are the inclusive ranges of 1..n not held, or of
 // 1..(highest held) while n is unknown: `missingCount` counts them all, and
 // `missing` lists the first MISSING_RANGES ranges of them past the GET's
-// `after`, clipped to start after it. `sources` counts the kept trades each
-// site supplied.
+// `after`, clipped to start after it. `complete` is n known and none
+// missing. `sources` counts the kept codes each site supplied.
 const BrokerCodesStatus = Schema.Struct({
   version: Schema.Literal(BrokerCodesProtocolVersion),
   day: WibDate,
@@ -253,4 +271,47 @@ export const stockbitRowCodes = Effect.fnUntraced(function* (row: unknown) {
       sellerType: seller.type,
     })
   )
+})
+
+// What a row's fields are read from: Ajaib's `stock_code`, `price` and `lot`
+// as numbers, Stockbit's `code`, and its `price` and `lot` comma-grouped
+// ("2,300"). The board is read as the live tape reads it (`boardOf`).
+const AjaibFieldsRow = Schema.Struct({
+  stock_code: Schema.Unknown,
+  price: Schema.Unknown,
+  lot: Schema.Unknown,
+  market_type: Schema.optionalKey(Schema.String),
+})
+const StockbitFieldsRow = Schema.Struct({
+  code: Schema.Unknown,
+  price: Schema.String,
+  lot: Schema.String,
+  market_board: Schema.optionalKey(Schema.String),
+})
+const decodeAjaibFieldsRow = Schema.decodeUnknownOption(AjaibFieldsRow)
+const decodeStockbitFieldsRow = Schema.decodeUnknownOption(StockbitFieldsRow)
+
+// An Ajaib row's fields; none when any isn't valid, so the trade counts as
+// missing and is fetched again.
+export const ajaibRowFields = Effect.fnUntraced(function* (row: unknown) {
+  const valid = decodeAjaibFieldsRow(row)
+  if (Option.isNone(valid)) return Option.none<TradeFields>()
+  return decodeFields({
+    code: valid.value.stock_code,
+    price: valid.value.price,
+    lots: valid.value.lot,
+    board: yield* boardOf(valid.value.market_type),
+  })
+})
+
+// A Stockbit row's fields; none when any isn't valid.
+export const stockbitRowFields = Effect.fnUntraced(function* (row: unknown) {
+  const valid = decodeStockbitFieldsRow(row)
+  if (Option.isNone(valid)) return Option.none<TradeFields>()
+  return decodeFields({
+    code: valid.value.code,
+    price: yield* groupedNumber(valid.value.price),
+    lots: yield* groupedNumber(valid.value.lot),
+    board: yield* boardOf(valid.value.market_board),
+  })
 })

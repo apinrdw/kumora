@@ -5,6 +5,7 @@ import {
   BROKER_CODES_BATCH_LIMIT,
   BrokerCode,
   BrokerCodesProtocolVersion,
+  StockCode,
   TradeNumber,
   WibDate,
   brokerCodesDay,
@@ -84,6 +85,7 @@ const batch = (version: number = BrokerCodesProtocolVersion, day = DAY) =>
           seller: BrokerCode.make("CC"),
           sellerType: "F",
         },
+        { code: StockCode.make("BBCA"), price: 8_000, lots: 1, board: "RG" },
       ],
     ],
   }).pipe(

@@ -1,8 +1,9 @@
 // Stockbit's walk of a day (spec apinrdw/kumora#244, "The extension: the
 // Stockbit walk"): the day's REST tape forward from trade 1, 100 rows a
 // call, on every board. After Ajaib's walk it is the day's cross-check; on a
-// day Ajaib can't serve it is the day's only source. Each 10 calls' codes go
-// to Production as one batch; `end` follows once a newest-first call agrees.
+// day Ajaib can't serve it is the day's only source. Each 10 calls' codes
+// and fields go to Production as one batch; `end` follows once a
+// newest-first call agrees.
 //
 // `forward`, `start` and `finish` are the walk's parts, kept apart so the
 // gap walk (cursor over missing ranges) and the History walk reuse them.
@@ -11,9 +12,11 @@ import {
   MISSING_RANGES,
   TradeNumber,
   stockbitRowCodes,
+  stockbitRowFields,
   type BrokerCodesBatch,
   type BrokerCodesStatus,
   type TradeCodes,
+  type TradeFields,
   type WibDate,
 } from "@workspace/relay"
 import { Effect, Option, Schema } from "effect"
@@ -56,11 +59,13 @@ const RowNumber = Schema.Struct({ trade_number: TradeNumber })
 const decodePage = Schema.decodeUnknownOption(TapePage)
 const decodeRowNumber = Schema.decodeUnknownOption(RowNumber)
 
-// A row of the tape: its trade number, and its codes when they are valid.
+// A row of the tape: its trade number, and its codes and fields when they
+// are valid.
 interface TapeRow {
   readonly number: TradeNumber
   readonly value: bigint
   readonly codes: Option.Option<TradeCodes>
+  readonly fields: Option.Option<TradeFields>
 }
 
 interface Page {
@@ -108,6 +113,7 @@ const pageOf = Effect.fnUntraced(function* (body: string) {
       number,
       value: BigInt(number),
       codes: yield* stockbitRowCodes(raw),
+      fields: yield* stockbitRowFields(raw),
     })
   }
   return Option.some<Page>({ open: page.value.data.is_open_market, rows })
@@ -290,7 +296,7 @@ export const makeStockbitWalk = Effect.fnUntraced(function* (options: {
 
   // Pages forward after `from` (none: from trade 1) until a page comes back
   // empty, or `until` says the page just read was the last one needed. Each
-  // 10 calls' valid codes go up as one batch, and what is held goes up when
+  // 10 calls' valid codes and fields go up as one batch, and what is held goes up when
   // the walk ends or stops.
   const forward = Effect.fnUntraced(function* (
     day: WibDate,
@@ -301,10 +307,12 @@ export const makeStockbitWalk = Effect.fnUntraced(function* (options: {
       highest: Option.match(from, { onNone: () => 0n, onSome: BigInt }),
       cursor: from,
     }
-    let held = new Map<TradeNumber, TradeCodes>()
+    let held = new Map<TradeNumber, readonly [TradeCodes, TradeFields]>()
     let calls = 0
     const flush = Effect.suspend(() => {
-      const rows = [...held]
+      const rows = [...held].map(
+        ([number, [codes, fields]]) => [number, codes, fields] as const
+      )
       held = new Map()
       calls = 0
       return rows.length === 0 ? Effect.void : post({ day, rows })
@@ -319,8 +327,12 @@ export const makeStockbitWalk = Effect.fnUntraced(function* (options: {
         walked = next.value
         yield* trades(Number(walked.highest), dayN)
         for (const row of page.rows)
-          if (row.value > 0n && Option.isSome(row.codes))
-            held.set(row.number, row.codes.value)
+          if (
+            row.value > 0n &&
+            Option.isSome(row.codes) &&
+            Option.isSome(row.fields)
+          )
+            held.set(row.number, [row.codes.value, row.fields.value])
         if (++calls >= CALLS_PER_BATCH) yield* flush
         if (until(page.rows)) return
       }

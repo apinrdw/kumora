@@ -20,6 +20,7 @@ import {
   type RecordedDay,
   type RecordedResource,
   type TradeCodes,
+  type TradeFields,
 } from "@workspace/relay"
 import { WorkerEnv } from "@workspace/server"
 import { DateTime, Effect, Layer, Option, Schema, Scope } from "effect"
@@ -69,6 +70,13 @@ const codes = (
   sellerType,
 })
 
+const FIELDS: TradeFields = {
+  code: StockCode.make("BBCA"),
+  price: 8_000,
+  lots: 1,
+  board: "RG",
+}
+
 const YP_CC = codes("YP", "CC", "D", "F")
 const PD_KZ = codes("PD", "KZ", "F", "D")
 
@@ -108,16 +116,19 @@ const tradingDay = Effect.fnUntraced(function* (
 
   const post = Effect.fnUntraced(function* (
     feed: Feed,
-    rows: ReadonlyArray<readonly [number, TradeCodes]>,
+    rows: ReadonlyArray<
+      readonly [number, TradeCodes] | readonly [number, TradeCodes, TradeFields]
+    >,
     end?: number
   ) {
     const batch: BrokerCodesBatch = {
       version: BrokerCodesProtocolVersion,
       feed,
       day: date,
-      rows: rows.map(([number, each]) => [
+      rows: rows.map(([number, each, fields = FIELDS]) => [
         TradeNumber.make(String(number)),
         each,
+        fields,
       ]),
       ...(end === undefined
         ? {}
@@ -310,8 +321,9 @@ describe("a day's broker codes", () => {
   )
 
   // CODING_STANDARDS.md, "Bounded memory on a Worker": a 1.5M-trade day
-  // with every other trade missing, its chunks written straight into the
-  // table, since posting 750,000 rows would take minutes.
+  // with every other trade missing, and its tape holding just the others,
+  // its chunks and tape written straight into the tables, since posting
+  // 750,000 rows would take minutes.
   it.effect(
     "a day of 750,000 gaps lists its first 1,000 and counts them all",
     () =>
@@ -328,6 +340,13 @@ describe("a day's broker codes", () => {
               index,
               chunk
             )
+          sql.exec(
+            `WITH RECURSIVE odd(number) AS (
+              SELECT 1 UNION ALL SELECT number + 2 FROM odd WHERE number < 1499999
+            )
+            INSERT INTO trades
+            SELECT number, 0, 'BBCA', 8000, 1, 'buy', 'RG', '["Ajaib"]' FROM odd`
+          )
         })
         yield* day.post("Ajaib", [], 1_500_000)
         const status: unknown = JSON.parse(yield* day.statusText)
@@ -346,7 +365,9 @@ describe("a day's broker codes", () => {
           TradeNumber.make("1500000"),
           TradeNumber.make("1500000"),
         ])
-      })
+      }),
+    // Each status reads the 750,000 runs between the tape's numbers.
+    { timeout: 10_000 }
   )
 
   it.effect(
@@ -634,6 +655,124 @@ describe("a sealed day", () => {
         assert.isTrue((yield* day.status).complete)
         assert.deepStrictEqual(yield* answers, before)
         assert.lengthOf(day.indexed, 1)
+      })
+  )
+})
+
+// apinrdw/kumora#425: a trade is held once the day has its codes and its
+// fields, from the tape or a walk's row.
+describe("the trades a sealed tape lacks", () => {
+  const TLKM: TradeFields = {
+    code: StockCode.make("TLKM"),
+    price: 3_510,
+    lots: 0.5,
+    board: "NG",
+  }
+  const ASII: TradeFields = {
+    code: StockCode.make("ASII"),
+    price: 5_000,
+    lots: 3,
+    board: "RG",
+  }
+  const HOLES = [5, 12, 13]
+
+  // Trades 1..20 at 15:00 but for the holes, sealed at 17:00.
+  const holedDay = Effect.gen(function* () {
+    yield* TestClock.setTime(wib("15:00:00").epochMilliseconds)
+    const day = yield* tradingDay()
+    const socket = yield* day.relay
+    yield* day.ajaibTrades(
+      socket,
+      numbers(1, 20).filter((number) => !HOLES.includes(number)),
+      "15:00:00"
+    )
+    yield* TestClock.setTime(wib("17:00:00").epochMilliseconds)
+    yield* day.alarm
+    yield* TestClock.setTime(wib("17:30:00").epochMilliseconds)
+    return day
+  })
+  const walkTrades = (day: Effect.Success<typeof holedDay>) =>
+    Effect.sync(() =>
+      day.sql
+        .exec("SELECT * FROM walk_trades ORDER BY number")
+        .map((row) => ({ ...row }))
+    )
+  const codesComplete = (day: Effect.Success<typeof holedDay>) =>
+    Effect.gen(function* () {
+      const response = yield* day.day.recorded({
+        _tag: "BrokerCodes",
+        at: wib("17:00:00"),
+      })
+      const text = yield* Effect.promise(() => response.text())
+      return (yield* decodeRecordedBrokerCodes(text)).complete
+    })
+
+  it.effect(
+    "keeps a walk's fields for those trades alone, the first row stored for each",
+    () =>
+      Effect.gen(function* () {
+        const day = yield* holedDay
+        yield* day.post(
+          "Ajaib",
+          numbers(1, 20).map((number) => [number, YP_CC, TLKM] as const),
+          20
+        )
+        yield* day.post(
+          "Stockbit",
+          [5, 12, 13, 14].map((number) => [number, YP_CC, ASII] as const)
+        )
+        assert.deepStrictEqual(
+          yield* walkTrades(day),
+          HOLES.map((number) => ({
+            number,
+            code: "TLKM",
+            price: 3_510,
+            lots: 0.5,
+            board: "NG",
+          }))
+        )
+        const status = yield* day.status
+        assert.isTrue(status.complete)
+        assert.deepStrictEqual(status.missing, [])
+      })
+  )
+
+  it.effect(
+    "lists a trade with codes but no fields as missing until a walk row fills it, its codes complete throughout",
+    () =>
+      Effect.gen(function* () {
+        const day = yield* holedDay
+        yield* day.post(
+          "Ajaib",
+          numbers(1, 20).map((number) => [number, YP_CC] as const),
+          20
+        )
+        assert.isTrue(yield* codesComplete(day))
+        // As a day whose codes a walk stored before walks carried fields.
+        day.sql.exec("DELETE FROM walk_trades")
+        const holed = yield* day.status
+        assert.isFalse(holed.complete)
+        assert.deepStrictEqual(yield* day.missing, [
+          [5, 5],
+          [12, 13],
+        ])
+        assert.strictEqual(holed.missingCount, 3)
+        assert.deepStrictEqual(holed.sources, { ajaib: 20, stockbit: 0 })
+        assert.isTrue(yield* codesComplete(day))
+
+        yield* day.post("Stockbit", [[12, YP_CC, ASII]])
+        assert.deepStrictEqual(yield* day.missing, [
+          [5, 5],
+          [13, 13],
+        ])
+        assert.strictEqual((yield* day.status).missingCount, 2)
+        assert.isTrue(yield* codesComplete(day))
+
+        yield* day.post(
+          "Stockbit",
+          [5, 13].map((n) => [n, YP_CC] as const)
+        )
+        assert.isTrue((yield* day.status).complete)
       })
   )
 })
