@@ -36,6 +36,7 @@ describe("recorded day paths", () => {
         { _tag: "SweepBrokers", code },
         { _tag: "Book", code, minute: at },
         { _tag: "Gaps" },
+        { _tag: "Bubbles" },
       ]
       assert.strictEqual(
         yield* stockCodeListPath(day),
@@ -52,6 +53,10 @@ describe("recorded day paths", () => {
       assert.strictEqual(
         yield* recordedDayPath(day, { _tag: "SweepBrokers", code }),
         "/market-live/days/2026-11-09/sweep-brokers/BBCA"
+      )
+      assert.strictEqual(
+        yield* recordedDayPath(day, { _tag: "Bubbles" }),
+        "/market-live/days/2026-11-09/bubbles"
       )
       for (const resource of resources) {
         const path = yield* recordedDayPath(day, resource)

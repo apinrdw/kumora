@@ -49,6 +49,9 @@ export type RecordedResource =
   | { readonly _tag: "Gaps" }
   // One code's book heatmap slices so far (heatmap.ts).
   | { readonly _tag: "Heatmap"; readonly code: StockCode }
+  // Every code's recent minutes and day totals, for Market Bubbles: the live
+  // day only.
+  | { readonly _tag: "Bubbles" }
 
 export const recordedDayPath = (date: WibDate, resource: RecordedResource) =>
   Effect.sync(() => {
@@ -77,6 +80,8 @@ export const recordedDayPath = (date: WibDate, resource: RecordedResource) =>
         return `${base}/gaps`
       case "Heatmap":
         return `${base}/heatmap/${resource.code}`
+      case "Bubbles":
+        return `${base}/bubbles`
     }
   })
 
@@ -109,6 +114,13 @@ const parametersOf = Effect.fnUntraced(function* (search: string) {
   )
 })
 
+// The resources whose path names no code and no instant.
+const BARE: Readonly<Record<string, RecordedResource>> = {
+  codes: { _tag: "Codes" },
+  gaps: { _tag: "Gaps" },
+  bubbles: { _tag: "Bubbles" },
+}
+
 const resourceOf = Effect.fnUntraced(function* (
   parts: ReadonlyArray<string>,
   search: ReadonlyMap<string, string>
@@ -116,8 +128,8 @@ const resourceOf = Effect.fnUntraced(function* (
   const [kind, code, ...rest] = parts
   if (rest.length > 0) return Option.none()
   if (code === undefined) {
-    if (kind === "codes") return Option.some({ _tag: "Codes" })
-    if (kind === "gaps") return Option.some({ _tag: "Gaps" })
+    const bare = kind === undefined ? undefined : BARE[kind]
+    if (bare !== undefined) return Option.some(bare)
     if (kind === "trades")
       return Option.map(yield* instantOf(search.get("at")), (at) => ({
         _tag: "Tape" as const,
@@ -345,6 +357,53 @@ export const encodeRecordedCandles = Schema.encodeEffect(
 )
 export const decodeRecordedCandles = Schema.decodeUnknownEffect(
   Schema.fromJsonString(RecordedCandles)
+)
+
+// The bubbles answer (spec apinrdw/kumora#427, "Backfill GET"): every stock
+// code with a regular-board trade today, with its newest BUBBLE_MINUTES
+// candles as [minute in epoch ms, value, volume, frequency, buy value, sell
+// value, close], ascending; its day totals as [value, volume, frequency, buy
+// value, sell value, last price]; and the previous close a `liveprice` frame
+// carried. Value is in rupiah, volume in lots. Tuples, as a busy day holds
+// about 900 codes.
+const BubbleMinute = Schema.Tuple([
+  Schema.Finite,
+  Schema.Finite,
+  Schema.Finite,
+  Schema.Finite,
+  Schema.Finite,
+  Schema.Finite,
+  Schema.Finite,
+])
+const BubbleDay = Schema.Tuple([
+  Schema.Finite,
+  Schema.Finite,
+  Schema.Finite,
+  Schema.Finite,
+  Schema.Finite,
+  Schema.Finite,
+])
+const RecordedBubbles = Schema.Struct({
+  codes: Schema.Array(
+    Schema.Struct({
+      code: StockCode,
+      previousClose: Schema.optionalKey(Schema.Finite),
+      day: BubbleDay,
+      minutes: Schema.Array(BubbleMinute),
+    })
+  ),
+})
+export type RecordedBubbles = typeof RecordedBubbles.Type
+
+// How many of a code's newest minutes the bubbles answer carries: the
+// longest minute window, 1h.
+export const BUBBLE_MINUTES = 60
+
+export const encodeRecordedBubbles = Schema.encodeEffect(
+  Schema.fromJsonString(RecordedBubbles)
+)
+export const decodeRecordedBubbles = Schema.decodeUnknownEffect(
+  Schema.fromJsonString(RecordedBubbles)
 )
 
 const RecordedGaps = Schema.Struct({ gaps: Schema.Array(RelayGap) })

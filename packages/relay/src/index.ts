@@ -87,10 +87,12 @@ export {
   encodeStockCodeList,
 } from "./code-list.ts"
 export {
+  BUBBLE_MINUTES,
   DayStripPath,
   bookAt,
   decodeBookChunk,
   decodeDayStrip,
+  decodeRecordedBubbles,
   decodeRecordedCandles,
   decodeRecordedDay,
   decodeRecordedBrokerCodes,
@@ -99,6 +101,7 @@ export {
   decodeSweepBrokersText,
   decodeRecordedTape,
   encodeBookChunk,
+  encodeRecordedBubbles,
   encodeRecordedCandles,
   encodeRecordedDay,
   encodeRecordedBrokerCodes,
@@ -114,6 +117,7 @@ export type {
   BookChunk,
   BookDelta,
   RecordedBrokerCodes,
+  RecordedBubbles,
   RecordedCandles,
   RecordedDay,
   RecordedSweepBrokers,
