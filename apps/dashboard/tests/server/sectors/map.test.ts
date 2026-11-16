@@ -5,6 +5,7 @@ import { decodeSectorMap } from "@workspace/relay"
 import { Effect } from "effect"
 
 import { sectorMapBody } from "@/server/sectors/map"
+import { MAX_PROFILES } from "@/server/sectors/sync"
 
 import { memoryHoldingsDb } from "../holdings/memory-holdings-db.ts"
 
@@ -42,6 +43,21 @@ describe("the sector map", () => {
     return Effect.gen(function* () {
       const map = yield* decodeSectorMap(yield* sectorMapBody)
       assert.deepStrictEqual(map, { fetchedAt: null, sectors: {} })
+    }).pipe(Effect.provide(db.layer))
+  })
+
+  it.effect("holds at most MAX_PROFILES codes, the most a run writes", () => {
+    const db = memoryHoldingsDb()
+    const add = db.database.prepare(
+      "INSERT INTO stock_sector VALUES (?, 'Energy', 'sub', 'Coal', 'sub industry', '2026-11-16T15:00:00.000Z')"
+    )
+    for (let index = 0; index <= MAX_PROFILES; index++)
+      add.run(`C${String(index).padStart(4, "0")}`)
+    return Effect.gen(function* () {
+      const map = yield* decodeSectorMap(yield* sectorMapBody)
+      const codes = Object.keys(map.sectors)
+      assert.lengthOf(codes, MAX_PROFILES)
+      assert.strictEqual(codes.at(-1), `C${MAX_PROFILES - 1}`)
     }).pipe(Effect.provide(db.layer))
   })
 
