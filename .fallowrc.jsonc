@@ -34,6 +34,8 @@
   // @alchemy.run/infisical is for `alchemy profile`, which reads the manifests
   // above the app folder. See apinrdw/kumora#16 and #122.
   "ignoreDependencies": [
+    // PROTOTYPE branch only: imported by the ignored prototype-holding-bars.
+    "@tanstack/charts",
     "@alchemy.run/frontend-frameworks",
     "@alchemy.run/infisical",
     "@effect/platform-bun",

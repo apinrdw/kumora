@@ -1,0 +1,16 @@
+/* PROTOTYPE (wayfinder #382), throwaway. */
+body { background: var(--bg-canvas); color: var(--text-primary); }
+.proto-switcher {
+  position: fixed; bottom: 16px; left: 50%; transform: translateX(-50%);
+  display: flex; align-items: center; gap: 12px; z-index: 50;
+  background: #fff; color: #111; border-radius: 999px; padding: 6px 10px;
+  box-shadow: 0 6px 24px rgb(0 0 0 / 0.45); font: 600 13px/1 system-ui, sans-serif;
+  white-space: nowrap;
+}
+.proto-switcher button { width: 30px; height: 30px; border-radius: 999px; background: #eee; }
+.proto-switcher button:hover { background: #ddd; }
+.ts-chart-tooltip.proto-tooltip .ts-chart-tooltip__body {
+  background: var(--bg-elevated); border: 1px solid var(--border-subtle); border-radius: 2px;
+  padding: 8px 12px; color: var(--text-primary); font-size: 12px; line-height: 18px;
+  min-width: 160px; max-width: 280px; box-shadow: 0 8px 24px rgb(0 0 0 / 0.4);
+}
