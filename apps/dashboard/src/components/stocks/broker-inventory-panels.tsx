@@ -20,7 +20,8 @@ import { count, dayLabel, pct, price } from "@/lib/format"
 const tableClass =
   "w-full text-[12px] whitespace-nowrap [&_td]:py-0.5 [&_td]:pl-2 [&_td]:text-right [&_th]:py-0.5 [&_th]:pl-2 [&_th]:text-right [&_th]:font-medium [&_th]:text-muted-foreground [&_th:first-child]:pl-0 [&_th:first-child]:text-left"
 
-const tone = (net: number) => cn(net > 0 && "text-up", net < 0 && "text-down")
+const tone = (net: number) =>
+  Effect.sync(() => cn(net > 0 && "text-up", net < 0 && "text-down"))
 
 // A day, as a link to its recorded day in Market Live.
 function DayLink({ code, day }: { code: StockCode; day: WibDate }) {
@@ -110,10 +111,10 @@ export function HoverDayPanel({
           {hover.rows.map((row) => (
             <tr key={row.broker}>
               <BrokerCell broker={row.broker} color={colors.get(row.broker)} />
-              <td className={tone(row.net)}>
+              <td className={Effect.runSync(tone(row.net))}>
                 {Effect.runSync(netCell(row.net, measure))}
               </td>
-              <td className={tone(row.dayNet)}>
+              <td className={Effect.runSync(tone(row.dayNet))}>
                 {Effect.runSync(netCell(row.dayNet, measure))}
               </td>
               <td>{Effect.runSync(averageCell(row.avgBuy))}</td>
@@ -164,7 +165,9 @@ export function SelectionPanel({
       </p>
       <p className="text-[12px] text-muted-foreground">
         {Effect.runSync(count(selection.days, "day", "days"))} · price{" "}
-        <span className={cn("num", tone(selection.change ?? 0))}>
+        <span
+          className={cn("num", Effect.runSync(tone(selection.change ?? 0)))}
+        >
           {selection.change === undefined
             ? "–"
             : Effect.runSync(pct(selection.change))}
@@ -183,7 +186,7 @@ export function SelectionPanel({
           {selection.rows.map((row) => (
             <tr key={row.broker}>
               <BrokerCell broker={row.broker} color={colors.get(row.broker)} />
-              <td className={tone(row.net)}>
+              <td className={Effect.runSync(tone(row.net))}>
                 {Effect.runSync(netCell(row.net, measure))}
               </td>
               <td>{Effect.runSync(averageCell(row.avgBuy))}</td>
@@ -196,7 +199,7 @@ export function SelectionPanel({
             <th scope="row" className="font-sans">
               Total
             </th>
-            <td className={tone(total.net)}>
+            <td className={Effect.runSync(tone(total.net))}>
               {Effect.runSync(netCell(total.net, measure))}
             </td>
             <td>{Effect.runSync(averageCell(total.avgBuy))}</td>

@@ -17,6 +17,7 @@ import {
   chipsSearch,
   inventoryWindow,
   lensOf,
+  lensSearch,
   parseStockSearch,
   pickerSearch,
   selectionOf,
@@ -205,12 +206,7 @@ function StockPageView() {
           chips={chips}
           selection={selection}
           onWindow={(window) => setSearch(Effect.runSync(windowSearch(window)))}
-          onLens={({ measure, investor }) =>
-            setSearch({
-              measure: measure === "lots" ? undefined : measure,
-              investor: investor === "all" ? undefined : investor,
-            })
-          }
+          onLens={(next) => setSearch(Effect.runSync(lensSearch(next)))}
           onChips={(next) => setSearch(Effect.runSync(chipsSearch(next)))}
           onSelection={(span) =>
             setSearch({

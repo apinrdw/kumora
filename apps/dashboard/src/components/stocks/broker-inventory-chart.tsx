@@ -355,7 +355,7 @@ function PriceAxis({ frame }: { frame: ChartFrame }) {
 }
 
 const rising = (candles: CandleColumns, k: number) =>
-  (candles.close[k] ?? 0) >= (candles.open[k] ?? 0)
+  Effect.sync(() => (candles.close[k] ?? 0) >= (candles.open[k] ?? 0))
 
 /** Nov 13 · O 9,150 H 9,400 L 9,100 C 9,350 */
 const candleTitle = Effect.fnUntraced(function* (
@@ -396,7 +396,12 @@ function Candles({
         const close = frame.priceY(candles.close[k] ?? 0)
         const height = Math.max(BODY_MIN, Math.abs(open - close))
         return (
-          <g key={day} className={rising(candles, k) ? "text-up" : "text-down"}>
+          <g
+            key={day}
+            className={
+              Effect.runSync(rising(candles, k)) ? "text-up" : "text-down"
+            }
+          >
             <line
               x1={x}
               x2={x}
@@ -462,7 +467,9 @@ function VolumeBars({
             y={frame.volumeBottom - height}
             width={frame.bar}
             height={height}
-            className={rising(candles, k) ? "fill-up/40" : "fill-down/40"}
+            className={
+              Effect.runSync(rising(candles, k)) ? "fill-up/40" : "fill-down/40"
+            }
           />
         )
       })}
@@ -559,8 +566,6 @@ function BrokerLines({
   )
 }
 
-const ordered = (a: number, b: number): DaySpan => (a <= b ? [a, b] : [b, a])
-
 export function BrokerInventoryChart({
   code,
   days,
@@ -609,6 +614,7 @@ export function BrokerInventoryChart({
       Math.max(0, Math.floor((x - frame.left) / frame.step))
     )
   }
+  const ordered = (a: number, b: number): DaySpan => (a <= b ? [a, b] : [b, a])
   const shaded = drag ?? selection
   return (
     <div ref={ref} className="w-full min-w-0 overflow-hidden">

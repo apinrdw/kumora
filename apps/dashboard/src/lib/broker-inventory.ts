@@ -7,7 +7,7 @@ import {
   SHARES_PER_LOT,
   WibDate,
 } from "@workspace/relay"
-import { DateTime, Effect } from "effect"
+import { DateTime, Effect, Schema } from "effect"
 
 import type { BrokerInventoryRead } from "@/server/broker-totals/inventory"
 
@@ -22,22 +22,26 @@ export type InventoryWindow =
   | { readonly range: RangePreset }
   | { readonly from: WibDate; readonly to: WibDate }
 
-// The day after the date `parts` before `to`: the first day of a span of
-// that length ending on `to`. A month end past the shorter month clamps to
-// its last day.
-const spanStart = (
-  to: WibDate,
+// `day` moved by `parts`, back for negative ones. A month end past the
+// shorter month clamps to its last day.
+export const shiftDay = (
+  day: WibDate,
   parts: Partial<DateTime.DateTime.PartsForMath>
 ) =>
   Effect.succeed(
     WibDate.make(
-      DateTime.formatIsoDate(
-        DateTime.add(DateTime.subtract(DateTime.makeUnsafe(to), parts), {
-          days: 1,
-        })
-      )
+      DateTime.formatIsoDate(DateTime.add(DateTime.makeUnsafe(day), parts))
     )
   )
+
+// The day after the date `back` (negative parts) before `to`: the first day
+// of a span of that length ending on `to`.
+const spanStart = Effect.fnUntraced(function* (
+  to: WibDate,
+  back: Partial<DateTime.DateTime.PartsForMath>
+) {
+  return yield* shiftDay(yield* shiftDay(to, back), { days: 1 })
+})
 
 // The first day of `preset` when it ends on `to`.
 export const rangeStart = Effect.fnUntraced(function* (
@@ -46,17 +50,17 @@ export const rangeStart = Effect.fnUntraced(function* (
 ) {
   switch (preset) {
     case "2W":
-      return yield* spanStart(to, { days: 14 })
+      return yield* spanStart(to, { days: -14 })
     case "1M":
-      return yield* spanStart(to, { months: 1 })
+      return yield* spanStart(to, { months: -1 })
     case "3M":
-      return yield* spanStart(to, { months: 3 })
+      return yield* spanStart(to, { months: -3 })
     case "6M":
-      return yield* spanStart(to, { months: 6 })
+      return yield* spanStart(to, { months: -6 })
     case "YTD":
       return WibDate.make(`${to.slice(0, 4)}-01-01`)
     case "1Y":
-      return yield* spanStart(to, { years: 1 })
+      return yield* spanStart(to, { years: -1 })
   }
 })
 
@@ -67,7 +71,7 @@ export const customFrom = Effect.fnUntraced(function* (
   from: WibDate,
   to: WibDate
 ) {
-  const earliest = yield* spanStart(to, { years: 2 })
+  const earliest = yield* spanStart(to, { years: -2 })
   return from < earliest ? earliest : from
 })
 
@@ -79,10 +83,24 @@ export interface Lens {
   readonly measure: Measure
   readonly investor: Investor
 }
+// Net lots over every side.
+export const DEFAULT_LENS = {
+  measure: "lots",
+  investor: "all",
+} as const satisfies Lens
+
+// The investor type a foreign or domestic filter keeps.
+const INVESTOR_TYPE = {
+  foreign: "F",
+  domestic: "D",
+} as const satisfies Record<Exclude<Investor, "all">, InvestorType>
 
 // A plotted-brokers chip: the Top 5 net buy or Top 5 net sell group, or
 // one broker. The chart opens on both groups.
-export type Chip = "buy" | "sell" | BrokerCode
+export const ChipGroup = Schema.Literals(["buy", "sell"])
+export type ChipGroup = typeof ChipGroup.Type
+export type Chip = ChipGroup | BrokerCode
+export const isGroup: (chip: Chip) => chip is ChipGroup = Schema.is(ChipGroup)
 export const DEFAULT_CHIPS: ReadonlyArray<Chip> = ["buy", "sell"]
 
 // One broker's buys and sells over the range, and its net under the lens.
@@ -119,22 +137,26 @@ interface TopBrokers {
 
 const TOP = 5
 
-// What the lens makes of one totals row: whether it is a side the lens
-// counts, and its net. Called per row, so they stay plain closures.
+// What the lens makes of each totals row, indexed alike: whether it is a
+// side the lens counts, and its net.
 const rowsUnder = Effect.fnUntraced(function* (
   read: BrokerInventoryRead,
   lens: Lens
 ) {
   const { investorType, buyLots, buyValue, sellLots, sellValue } = read.totals
-  const type = lens.investor === "foreign" ? "F" : "D"
-  return {
-    counts: (row: number) =>
-      lens.investor === "all" || investorType[row] === type,
-    net: (row: number) =>
+  const length = investorType.length
+  const counts: Array<boolean> = Array.from({ length })
+  const net: Array<number> = Array.from({ length })
+  for (let row = 0; row < length; row++) {
+    counts[row] =
+      lens.investor === "all" ||
+      investorType[row] === INVESTOR_TYPE[lens.investor]
+    net[row] =
       lens.measure === "lots"
         ? (buyLots[row] ?? 0) - (sellLots[row] ?? 0)
-        : (buyValue[row] ?? 0) - (sellValue[row] ?? 0),
+        : (buyValue[row] ?? 0) - (sellValue[row] ?? 0)
   }
+  return { counts, net }
 })
 
 // The hover-day panel: one axis day's close, then per plotted broker its
@@ -166,29 +188,29 @@ export interface SelectionSummary {
 
 // Weighted by lots: value ÷ (lots × 100); undefined for no lots.
 const average = (value: number, lots: number) =>
-  lots === 0 ? undefined : value / (lots * SHARES_PER_LOT)
+  Effect.succeed(lots === 0 ? undefined : value / (lots * SHARES_PER_LOT))
 
-// Every broker that traded the code in the range, by net, highest first;
-// ties in code order.
-export const brokerSummary = Effect.fnUntraced(function* (
+// One broker's sums over the range under the lens.
+interface BrokerSums {
+  buyLots: number
+  buyValue: number
+  sellLots: number
+  sellValue: number
+  net: number
+  // Its foreign sides' lots, buys and sells.
+  foreignLots: number
+}
+
+// Each broker's sums under the lens, keyed by its index into `brokers`.
+const sumsByBroker = Effect.fnUntraced(function* (
   read: BrokerInventoryRead,
   lens: Lens
 ) {
   const { totals } = read
   const rows = yield* rowsUnder(read, lens)
-  const sums = new Map<
-    number,
-    {
-      buyLots: number
-      buyValue: number
-      sellLots: number
-      sellValue: number
-      net: number
-      foreignLots: number
-    }
-  >()
+  const sums = new Map<number, BrokerSums>()
   for (let row = 0; row < totals.day.length; row++) {
-    if (!rows.counts(row)) continue
+    if (!rows.counts[row]) continue
     const broker = totals.broker[row] ?? 0
     const sum = sums.get(broker) ?? {
       buyLots: 0,
@@ -198,32 +220,55 @@ export const brokerSummary = Effect.fnUntraced(function* (
       net: 0,
       foreignLots: 0,
     }
+    const lots = (totals.buyLots[row] ?? 0) + (totals.sellLots[row] ?? 0)
     sum.buyLots += totals.buyLots[row] ?? 0
     sum.buyValue += totals.buyValue[row] ?? 0
     sum.sellLots += totals.sellLots[row] ?? 0
     sum.sellValue += totals.sellValue[row] ?? 0
-    sum.net += rows.net(row)
-    if (totals.investorType[row] === "F")
-      sum.foreignLots +=
-        (totals.buyLots[row] ?? 0) + (totals.sellLots[row] ?? 0)
+    sum.net += rows.net[row] ?? 0
+    sum.foreignLots += totals.investorType[row] === "F" ? lots : 0
     sums.set(broker, sum)
   }
-  return [...sums]
-    .sort(([a, x], [b, y]) => y.net - x.net || a - b)
-    .map(([broker, { foreignLots, ...sum }]): SummaryRow => ({
+  return sums
+})
+
+// Whose sides a broker's are: the type the filter keeps, or under All the
+// one behind most of its lots.
+const sidesType = (
+  lens: Lens,
+  { foreignLots, buyLots, sellLots }: BrokerSums
+) =>
+  Effect.succeed<InvestorType>(
+    lens.investor !== "all"
+      ? INVESTOR_TYPE[lens.investor]
+      : foreignLots * 2 > buyLots + sellLots
+        ? "F"
+        : "D"
+  )
+
+// Every broker that traded the code in the range, by net, highest first;
+// ties in code order.
+export const brokerSummary = Effect.fnUntraced(function* (
+  read: BrokerInventoryRead,
+  lens: Lens
+) {
+  const sums = yield* sumsByBroker(read, lens)
+  const summary: Array<SummaryRow> = []
+  for (const [broker, sum] of [...sums].sort(
+    ([a, x], [b, y]) => y.net - x.net || a - b
+  ))
+    summary.push({
       broker: read.brokers[broker] as BrokerCode,
-      investorType:
-        lens.investor === "foreign"
-          ? "F"
-          : lens.investor === "domestic"
-            ? "D"
-            : foreignLots * 2 > sum.buyLots + sum.sellLots
-              ? "F"
-              : "D",
-      ...sum,
-      avgBuy: average(sum.buyValue, sum.buyLots),
-      avgSell: average(sum.sellValue, sum.sellLots),
-    }))
+      investorType: yield* sidesType(lens, sum),
+      buyLots: sum.buyLots,
+      buyValue: sum.buyValue,
+      sellLots: sum.sellLots,
+      sellValue: sum.sellValue,
+      net: sum.net,
+      avgBuy: yield* average(sum.buyValue, sum.buyLots),
+      avgSell: yield* average(sum.sellValue, sum.sellLots),
+    })
+  return summary
 })
 
 // Decision: lots traded counts each lot once under All, as the day's
@@ -282,8 +327,7 @@ export const plottedBrokers = Effect.fnUntraced(function* (
 ) {
   const plotted: Array<PlottedBroker> = []
   for (const chip of chips) {
-    const brokers =
-      chip === "buy" ? top.buy : chip === "sell" ? top.sell : [chip]
+    const brokers = isGroup(chip) ? top[chip] : [chip]
     brokers.forEach((broker, rank) => {
       if (!plotted.some((line) => line.broker === broker))
         plotted.push({ broker, chip, rank })
@@ -316,22 +360,20 @@ const ROW_SIDES = ["buyLots", "buyValue", "sellLots", "sellValue"] as const
 
 type Columns = { readonly [Side in keyof Sides]: Array<number> }
 
-const zeroColumns = (length: number): Columns => ({
-  net: Array.from({ length }, () => 0),
-  buyLots: Array.from({ length }, () => 0),
-  buyValue: Array.from({ length }, () => 0),
-  sellLots: Array.from({ length }, () => 0),
-  sellValue: Array.from({ length }, () => 0),
-})
+const zeroColumns = (length: number) =>
+  Effect.sync((): Columns => ({
+    net: Array.from({ length }, () => 0),
+    buyLots: Array.from({ length }, () => 0),
+    buyValue: Array.from({ length }, () => 0),
+    sellLots: Array.from({ length }, () => 0),
+    sellValue: Array.from({ length }, () => 0),
+  }))
 
-const addAt = (column: Array<number>, day: number, value: number) => {
-  column[day] = (column[day] ?? 0) + value
-}
-
-const runningSum = (column: ReadonlyArray<number>) => {
-  let sum = 0
-  return column.map((value) => (sum += value))
-}
+const runningSum = (column: ReadonlyArray<number>) =>
+  Effect.sync(() => {
+    let sum = 0
+    return column.map((value) => (sum += value))
+  })
 
 // Each of `brokers`' sums to date, in their order. A gap or a day it didn't
 // trade adds nothing, so the sums carry across it.
@@ -341,52 +383,56 @@ export const brokersToDate = Effect.fnUntraced(function* (
   brokers: ReadonlyArray<BrokerCode>
 ) {
   const length = read.days.length
-  const daily = new Map(
-    brokers.map((broker) => [read.brokers.indexOf(broker), zeroColumns(length)])
-  )
+  const daily = new Map<number, Columns>()
+  for (const broker of brokers)
+    daily.set(read.brokers.indexOf(broker), yield* zeroColumns(length))
   const { totals } = read
   const rows = yield* rowsUnder(read, lens)
   for (let row = 0; row < totals.day.length; row++) {
     const sums = daily.get(totals.broker[row] ?? -1)
-    if (sums === undefined || !rows.counts(row)) continue
+    if (sums === undefined || !rows.counts[row]) continue
     const day = totals.day[row] ?? 0
-    addAt(sums.net, day, rows.net(row))
-    for (const side of ROW_SIDES) addAt(sums[side], day, totals[side][row] ?? 0)
+    sums.net[day] = (sums.net[day] ?? 0) + (rows.net[row] ?? 0)
+    for (const side of ROW_SIDES)
+      sums[side][day] = (sums[side][day] ?? 0) + (totals[side][row] ?? 0)
   }
   const toDate = new Map<BrokerCode, ToDate>()
   for (const broker of brokers) {
-    const sums = daily.get(read.brokers.indexOf(broker)) ?? zeroColumns(length)
+    const sums =
+      daily.get(read.brokers.indexOf(broker)) ?? (yield* zeroColumns(length))
     toDate.set(broker, {
-      net: runningSum(sums.net),
-      buyLots: runningSum(sums.buyLots),
-      buyValue: runningSum(sums.buyValue),
-      sellLots: runningSum(sums.sellLots),
-      sellValue: runningSum(sums.sellValue),
+      net: yield* runningSum(sums.net),
+      buyLots: yield* runningSum(sums.buyLots),
+      buyValue: yield* runningSum(sums.buyValue),
+      sellLots: yield* runningSum(sums.sellLots),
+      sellValue: yield* runningSum(sums.sellValue),
     })
   }
   return toDate
 })
 
 // What a broker's to-date sums add up to over the days `first` to `last`.
-const spanFigures = (toDate: ToDate, first: number, last: number) =>
-  Effect.sync((): SpanFigures => {
-    const over = (side: keyof Sides) =>
-      (toDate[side][last] ?? 0) -
-      (first > 0 ? (toDate[side][first - 1] ?? 0) : 0)
-    const buyLots = over("buyLots")
-    const buyValue = over("buyValue")
-    const sellLots = over("sellLots")
-    const sellValue = over("sellValue")
-    return {
-      net: over("net"),
-      buyLots,
-      buyValue,
-      sellLots,
-      sellValue,
-      avgBuy: average(buyValue, buyLots),
-      avgSell: average(sellValue, sellLots),
-    }
-  })
+const spanFigures = Effect.fnUntraced(function* (
+  toDate: ToDate,
+  first: number,
+  last: number
+) {
+  const over = (side: keyof Sides) =>
+    (toDate[side][last] ?? 0) - (first > 0 ? (toDate[side][first - 1] ?? 0) : 0)
+  const buyLots = over("buyLots")
+  const buyValue = over("buyValue")
+  const sellLots = over("sellLots")
+  const sellValue = over("sellValue")
+  return {
+    net: over("net"),
+    buyLots,
+    buyValue,
+    sellLots,
+    sellValue,
+    avgBuy: yield* average(buyValue, buyLots),
+    avgSell: yield* average(sellValue, sellLots),
+  } satisfies SpanFigures
+})
 
 // The close of axis day `day`; undefined for a gap, which has no candle.
 const closeOn = (read: BrokerInventoryRead, day: number) =>
@@ -471,8 +517,8 @@ export const selectionSummary = Effect.fnUntraced(function* (
     rows,
     total: {
       ...total,
-      avgBuy: average(total.buyValue, total.buyLots),
-      avgSell: average(total.sellValue, total.sellLots),
+      avgBuy: yield* average(total.buyValue, total.buyLots),
+      avgSell: yield* average(total.sellValue, total.sellLots),
     },
   } satisfies SelectionSummary
 })

@@ -9,6 +9,7 @@ import {
   chipsSearch,
   inventoryWindow,
   lensOf,
+  lensSearch,
   parseStockSearch,
   pickerSearch,
   selectionOf,
@@ -212,6 +213,22 @@ describe("the Broker inventory lens and chips in the URL", () => {
             (yield* parseStockSearch({ investor })).investor
           ).toBeUndefined()
       })
+  )
+
+  it.effect("round-trips a lens, net lots over all sides left out", () =>
+    Effect.gen(function* () {
+      for (const lens of [
+        { measure: "lots", investor: "all" },
+        { measure: "value", investor: "foreign" },
+        { measure: "lots", investor: "domestic" },
+      ] as const)
+        expect(
+          yield* lensOf(yield* parseStockSearch(yield* lensSearch(lens)))
+        ).toStrictEqual(lens)
+      expect(
+        yield* lensSearch({ measure: "lots", investor: "all" })
+      ).toStrictEqual({ measure: undefined, investor: undefined })
+    })
   )
 
   it.effect("round-trips the chips in order", () =>

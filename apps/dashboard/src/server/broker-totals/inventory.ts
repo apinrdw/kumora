@@ -7,7 +7,7 @@ import {
   type InvestorType,
   isTradingDay,
   type StockCode,
-  WibDate,
+  type WibDate,
 } from "@workspace/relay"
 import { DateTime, Effect } from "effect"
 
@@ -15,6 +15,7 @@ import {
   customFrom,
   type InventoryWindow,
   rangeStart,
+  shiftDay,
 } from "@/lib/broker-inventory"
 
 import { readBrokerTotals, readBuiltSpan } from "./db.ts"
@@ -79,15 +80,6 @@ const tradingDay = (day: WibDate) =>
     )
   )
 
-const nextDay = (day: WibDate) =>
-  Effect.succeed(
-    WibDate.make(
-      DateTime.formatIsoDate(
-        DateTime.add(DateTime.makeUnsafe(day), { days: 1 })
-      )
-    )
-  )
-
 // Every trading day and built day of first..last, in order. At most 2
 // years of days.
 const axisDays = Effect.fnUntraced(function* (
@@ -96,7 +88,7 @@ const axisDays = Effect.fnUntraced(function* (
   builtDays: ReadonlySet<WibDate>
 ) {
   const days: Array<WibDate> = []
-  for (let day = first; day <= last; day = yield* nextDay(day))
+  for (let day = first; day <= last; day = yield* shiftDay(day, { days: 1 }))
     if (builtDays.has(day) || (yield* tradingDay(day))) days.push(day)
   return days
 })

@@ -12,10 +12,13 @@ import { Effect, Option, Schema } from "effect"
 import { SplitOrigin } from "@/domain/holdings"
 import {
   type Chip,
+  ChipGroup,
   customFrom,
   DEFAULT_CHIPS,
+  DEFAULT_LENS,
   DEFAULT_RANGE,
   type InventoryWindow,
+  isGroup,
   type Lens,
   RANGE_PRESETS,
 } from "@/lib/broker-inventory"
@@ -51,7 +54,7 @@ const MeasureParam = Schema.Literals(["value"])
 // Foreign or domestic sides only; absent for all.
 const InvestorParam = Schema.Literals(["foreign", "domestic"])
 
-const decodeGroup = Schema.decodeUnknownOption(Schema.Literals(["buy", "sell"]))
+const decodeGroup = Schema.decodeUnknownOption(ChipGroup)
 const decodeBroker = Schema.decodeUnknownOption(BrokerCode)
 
 export interface StockSearch {
@@ -114,17 +117,25 @@ export const chipsSearch = (chips: ReadonlyArray<Chip>) =>
     }
   })
 
-// The chips a raw `brokers` names, in order, unknown entries and repeats
-// dropped; dropped whole when none of a non-empty list parses.
+// The chips a `brokers` list names, in order, unknown entries and repeats
+// dropped.
+const chipsIn = (brokers: string) =>
+  Effect.sync(() => {
+    const chips: Array<Chip> = []
+    for (const entry of brokers.split(",")) {
+      const chip = Option.orElse(decodeGroup(entry), () => decodeBroker(entry))
+      if (Option.isSome(chip) && !chips.includes(chip.value))
+        chips.push(chip.value)
+    }
+    return chips
+  })
+
+// A raw `brokers` as the list of the chips it names; dropped whole when
+// none of a non-empty list parses.
 const parseChips = Effect.fnUntraced(function* (raw: unknown) {
   if (typeof raw !== "string") return undefined
   if (raw === "") return ""
-  const chips: Array<Chip> = []
-  for (const entry of raw.split(",")) {
-    const chip = Option.orElse(decodeGroup(entry), () => decodeBroker(entry))
-    if (Option.isSome(chip) && !chips.includes(chip.value))
-      chips.push(chip.value)
-  }
+  const chips = yield* chipsIn(raw)
   return chips.length === 0 ? undefined : (yield* chipsSearch(chips)).brokers
 })
 
@@ -235,28 +246,28 @@ export const selectionOf = (
 // What the Broker inventory tab's figures count.
 export const lensOf = (search: StockSearch) =>
   Effect.succeed<Lens>({
-    measure: search.measure ?? "lots",
-    investor: search.investor ?? "all",
+    measure: search.measure ?? DEFAULT_LENS.measure,
+    investor: search.investor ?? DEFAULT_LENS.investor,
+  })
+
+// The search params that name `lens`.
+export const lensSearch = ({ measure, investor }: Lens) =>
+  Effect.succeed<StockSearch>({
+    measure: measure === DEFAULT_LENS.measure ? undefined : measure,
+    investor: investor === DEFAULT_LENS.investor ? undefined : investor,
   })
 
 // The chips the tab plots, in order.
 export const chipsOf = (search: StockSearch) =>
-  Effect.succeed<ReadonlyArray<Chip>>(
-    search.brokers === undefined
-      ? DEFAULT_CHIPS
-      : search.brokers === ""
-        ? []
-        : // Parsed into chips by `parseChips`.
-          (search.brokers.split(",") as ReadonlyArray<Chip>)
-  )
+  search.brokers === undefined
+    ? Effect.succeed(DEFAULT_CHIPS)
+    : chipsIn(search.brokers)
 
 // What the Stock picker carries to the next stock: the tab, the range, the
 // measure, the filter and the group chips. Single brokers, the selection
 // and the holdings panels' months are the stock's own.
 export const pickerSearch = Effect.fnUntraced(function* (search: StockSearch) {
-  const groups = (yield* chipsOf(search)).filter(
-    (chip) => chip === "buy" || chip === "sell"
-  )
+  const groups = (yield* chipsOf(search)).filter(isGroup)
   return {
     tab: search.tab,
     range: search.range,

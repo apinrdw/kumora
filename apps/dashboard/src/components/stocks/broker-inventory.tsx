@@ -26,10 +26,12 @@ import {
   brokersToDate,
   brokerSummary,
   type Chip,
+  type ChipGroup,
   type Investor,
   type InventoryWindow,
   type Lens,
   hoverDay,
+  isGroup,
   type Measure,
   plottedBrokers,
   RANGE_PRESETS,
@@ -42,20 +44,22 @@ import { dayLabel } from "@/lib/format"
 import type { BrokerInventoryRead } from "@/server/broker-totals/inventory"
 
 // Each group's line colours, by rank.
-const BUY_COLORS = [
-  "var(--semantic-up)",
-  "var(--investor-sc)",
-  "var(--investor-mf)",
-  "var(--investor-fd)",
-  "var(--investor-is)",
-]
-const SELL_COLORS = [
-  "var(--semantic-down)",
-  "var(--investor-cp)",
-  "var(--investor-ib)",
-  "var(--investor-pf)",
-  "var(--investor-ot)",
-]
+const GROUP_COLORS = {
+  buy: [
+    "var(--semantic-up)",
+    "var(--investor-sc)",
+    "var(--investor-mf)",
+    "var(--investor-fd)",
+    "var(--investor-is)",
+  ],
+  sell: [
+    "var(--semantic-down)",
+    "var(--investor-cp)",
+    "var(--investor-ib)",
+    "var(--investor-pf)",
+    "var(--investor-ot)",
+  ],
+} satisfies Record<ChipGroup, ReadonlyArray<string>>
 // Single brokers' line colours, by their order among the single chips.
 const SINGLE_COLORS = [
   "var(--semantic-info)",
@@ -114,18 +118,14 @@ const inventoryView = Effect.fnUntraced(function* (
     lens,
     plotted.map(({ broker }) => broker)
   )
-  const singles = chips.filter(
-    (chip): chip is BrokerCode => chip !== "buy" && chip !== "sell"
-  )
+  const singles = chips.filter((chip): chip is BrokerCode => !isGroup(chip))
   const netOf = new Map(summary.map(({ broker, net }) => [broker, net]))
   const lines = plotted.map(({ broker, chip, rank }) => ({
     broker,
     color:
-      (chip === "buy"
-        ? BUY_COLORS[rank]
-        : chip === "sell"
-          ? SELL_COLORS[rank]
-          : SINGLE_COLORS[singles.indexOf(chip) % SINGLE_COLORS.length]) ??
+      (isGroup(chip)
+        ? GROUP_COLORS[chip][rank]
+        : SINGLE_COLORS[singles.indexOf(chip) % SINGLE_COLORS.length]) ??
       "currentColor",
     values: toDate.get(broker)?.net ?? [],
     // The legend's side: a broker that didn't trade is under Net buy.
