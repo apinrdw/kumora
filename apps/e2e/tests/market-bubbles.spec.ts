@@ -365,3 +365,85 @@ test("a sector label's click shows that sector alone, and the Sector filter brin
   await expect.poll(() => sectorLabels(canvas)).toContain("Energy")
   await expect.poll(() => sectorLabels(canvas)).toContain("Unclassified")
 })
+
+test.describe("on a phone", () => {
+  test.use({ viewport: { width: 390, height: 844 }, hasTouch: true })
+
+  test("the Filters sheet opens on Top 50, a tap shows a bubble's figures, a tap on another moves them, and a second tap opens Market Live", async ({
+    page,
+  }) => {
+    // Two sectors, so the first code's grown bubble never covers the second.
+    const first = freshCode("BP")
+    const second = freshCode("BQ")
+    seedStockSectors({ [first]: "Energy" })
+    await page.goto(`${DASHBOARD}${PAGE}`)
+    await expect(page.locator('[data-flow="live"]')).toHaveCount(1)
+
+    // Big enough to tap, under the first test's Rp2.00 T.
+    const relay = await openIngest()
+    const base = freshTradeNumbers()
+    const time = wibTime(marketNow())
+    await relay.sendAjaib(
+      [first, second].map((ticker, index) =>
+        ajaibTradeToday({
+          seq: base + index + 1,
+          time,
+          ticker,
+          price: 50_000,
+          lot: 50_000,
+        })
+      )
+    )
+    relay.close()
+
+    // Every control is in the sheet, and the phone's Top 50 stays out of the
+    // URL.
+    const canvas = page.getByRole("img", { name: /^Market Bubbles:/ })
+    expect((await canvas.boundingBox())!.width).toBeGreaterThan(340)
+    const find = async (code: string) => {
+      await page.getByRole("button", { name: "Filters" }).tap()
+      const sheet = page.getByRole("dialog", { name: "Filters" })
+      await expect(
+        sheet
+          .getByRole("group", { name: "Codes shown" })
+          .getByRole("button", { name: "Top 50" })
+      ).toHaveAttribute("aria-pressed", "true")
+      await expect(
+        sheet.getByRole("combobox", { name: "Sector" })
+      ).toBeVisible()
+      await sheet
+        .getByRole("searchbox", { name: "Find a stock code" })
+        .fill(code)
+      await sheet.getByRole("button", { name: "Close" }).tap()
+      await expect(sheet).toHaveCount(0)
+      await expect(canvas).toHaveAttribute("data-matches", "1")
+      return settledAt(canvas, "data-match-at")
+    }
+    expect(page.url()).toBe(`${DASHBOARD}${PAGE}`)
+
+    // Only the canvas takes the finger's drag; the page scrolls elsewhere.
+    expect(
+      await canvas.evaluate((surface) => getComputedStyle(surface).touchAction)
+    ).toBe("none")
+    expect(
+      await page.evaluate(() => getComputedStyle(document.body).touchAction)
+    ).toBe("auto")
+
+    const at = await find(first)
+    await page.touchscreen.tap(at.x, at.y)
+    await expect(
+      page.getByRole("tooltip", { name: `${first} figures` })
+    ).toBeVisible()
+
+    const next = await find(second)
+    await page.touchscreen.tap(next.x, next.y)
+    await expect(
+      page.getByRole("tooltip", { name: `${second} figures` })
+    ).toBeVisible()
+    await expect(page.getByRole("tooltip")).toHaveCount(1)
+    await expect(page).toHaveURL(`${DASHBOARD}${PAGE}`)
+
+    await page.touchscreen.tap(next.x, next.y)
+    await expect(page).toHaveURL(`${DASHBOARD}/market-live?code=${second}`)
+  })
+})

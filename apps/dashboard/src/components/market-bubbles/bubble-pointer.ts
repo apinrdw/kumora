@@ -111,7 +111,9 @@ const fling = (body: PointerBody, held: Press) =>
 // Follows the pointer on `surface` over `bodies` until the returned cleanup.
 // Hovering a bubble names it in `pointer` and shows its tooltip; a press that
 // moves past CLICK_SLOP drags it, captured so the drag follows the pointer
-// outside the canvas; a press that doesn't hands its code to `pick`. A click
+// outside the canvas; a press that doesn't hands its code to `pick`. A
+// finger has no hover, so its tap names and grows the bubble, and only a tap
+// on the bubble it already names picks it; a tap off the bubbles clears it. A click
 // on the sector label `labelAt` finds hands its sector to `pickSector`; a
 // label is above its cluster, so it is tried first.
 export function followPointer<Body extends PointerBody>({
@@ -164,7 +166,10 @@ export function followPointer<Body extends PointerBody>({
       return
     }
     const body = Effect.runSync(bubbleAt(bodies, pointer.hovered, at.x, at.y))
-    if (body === undefined) return
+    if (body === undefined) {
+      if (event.pointerType === "touch") hover(undefined, at)
+      return
+    }
     surface.setPointerCapture(event.pointerId)
     pointer.press = {
       code: body.code,
@@ -202,8 +207,18 @@ export function followPointer<Body extends PointerBody>({
     hover(Effect.runSync(bubbleAt(bodies, pointer.hovered, at.x, at.y)), at)
   }
 
+  // A finger leaves as it lifts: what its tap named stays.
   const leave = (event: PointerEvent) => {
-    if (pointer.press === undefined) hover(undefined, pointAt(event))
+    if (pointer.press === undefined && event.pointerType !== "touch")
+      hover(undefined, pointAt(event))
+  }
+
+  // A click picks its bubble; a finger's tap picks only the bubble it
+  // already names, and names any other.
+  const click = (body: PointerBody, event: PointerEvent) => {
+    if (event.pointerType !== "touch" || pointer.hovered === body.code)
+      return pick(body.code)
+    hover(body, pointAt(event))
   }
 
   // A press that never moved past CLICK_SLOP is a click; a drag lets its
@@ -223,7 +238,7 @@ export function followPointer<Body extends PointerBody>({
     const body = bodies.get(held.code)
     if (body === undefined) return
     if (held.moved) return Effect.runSync(fling(body, held))
-    if (event.type === "pointerup") pick(body.code)
+    if (event.type === "pointerup") click(body, event)
   }
 
   const listeners = [
