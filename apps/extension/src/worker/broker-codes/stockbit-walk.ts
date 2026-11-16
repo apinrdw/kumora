@@ -160,11 +160,10 @@ const resumeFrom = Effect.fnUntraced(function* (status: BrokerCodesStatus) {
 // trade past the last range listed, a trade held, and the walk walks the
 // rest again.
 // Decision: the walk resumes a page (100) below that top, as the gap walk
-// pages from below a range. A codes-only row the walk posted last before a
-// cut counts with codes, so the top can name a trade above ones it never
-// saw, and Stockbit sends a second's trades out of number order. Walking a
-// page again costs one call; skipping a trade costs a run. See
-// apinrdw/kumora#437.
+// pages from below a range: a codes-only row posted last before a cut can
+// lift the top above trades never seen, and Stockbit sends a second's trades
+// out of number order. A page walked again costs one call; a trade skipped
+// costs a run. See PR apinrdw/kumora#449.
 const highestHeld = Effect.fnUntraced(function* (status: BrokerCodesStatus) {
   let listed = 0n
   for (const [from, to] of status.missing)

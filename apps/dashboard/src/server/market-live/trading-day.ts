@@ -394,12 +394,9 @@ export const makeTradingDay = Effect.fnUntraced(function* (options: {
   const sealAt = yield* sealInstant(options.date)
   // Decision: a day's tape source is unknown until its first relay trade
   // before 17:00 makes it relay or a walk's first fields make it walk, kept
-  // as a fact for good. A relay day seals at 17:00; a walk day seals once
-  // complete, from 17:00, taking no relay trade; an unknown day never seals
-  // and takes no ingest from 17:00. Walk rows hold on a relay day, and on any
-  // day once sealed: a walk day's rows become its tape only before its seal,
-  // and a later, higher `end` (another site's walk on a tape that grew)
-  // names trades its walk rows then hold, for completeness and totals alone.
+  // for good. A relay day seals at 17:00, a walk day once complete from
+  // 17:00, an unknown day never. Walk rows hold on a relay day and on any
+  // sealed day, so a later, higher `end` leaves no sealed day short (#449).
   //
   // So a sealed day never changes, and its answers are immutable. A day an
   // older revision sealed holding no trade, as it sealed a History day, is
@@ -1107,12 +1104,12 @@ export const makeTradingDay = Effect.fnUntraced(function* (options: {
   })
 
   // Decision: a batch that corrects a built or stale day marks it stale and
-  // moves its rebuild REBUILD_QUIET past the batch. Otherwise the batch that
-  // leaves a sealed day complete, its built state not current (unbuilt, due
-  // or stale) and no build wake set, arms the alarm to build at once, an
-  // unbuilt day marked due first: a build wake that found the day incomplete
-  // was dropped, and nothing else would build it. Its answer never waits on
-  // the build. See spec apinrdw/kumora#437, "When it runs".
+  // moves its rebuild REBUILD_QUIET past it. Else a batch that leaves a
+  // sealed day complete, no build wake set and its build not current, arms
+  // one at once (an unbuilt day marked due): a wake that found the day
+  // incomplete was dropped. See spec apinrdw/kumora#437 and PR #449.
+  //
+  // The batch's answer never waits on the build.
   const totalsWritten = Effect.fnUntraced(function* (corrected: boolean) {
     if (!sealed || options.brokerTotalsDb === undefined) return
     const fact = yield* store.fact(Fact.brokerTotals)
