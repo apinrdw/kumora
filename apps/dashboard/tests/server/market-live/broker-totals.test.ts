@@ -5,6 +5,7 @@
 import { assert, describe, it } from "@effect/vitest"
 import {
   BrokerCode,
+  decodeBrokerCodesStatus,
   StockCode,
   WibDate,
   type RunningTrade,
@@ -540,6 +541,89 @@ describe("a built day's correction", () => {
           untrTotal("CC", "D", [0, 0, 11, 25_300_000]),
           untrTotal("YP", "D", [2, 4_680_000, 7, 16_230_000]),
         ])
+      })
+  )
+
+  it.effect(
+    "of a walk day sealed below a higher end holds the trades past it and rebuilds, its tape and candles unchanged",
+    () =>
+      Effect.gen(function* () {
+        const db = memoryBrokerTotalsDb()
+        const sql = memorySql()
+        yield* at("17:30:00")
+        const day = yield* tradingDay(sql, [], db.layer)
+        yield* day.brokerCodes(
+          "Ajaib",
+          [
+            [1, "AK F CC D", WALKED],
+            [2, "YP D AK F", { ...WALKED, side: "sell" }],
+          ],
+          2
+        )
+        yield* day.alarm
+        assert.strictEqual((yield* read(db, UNTR)).candles[0]?.trades, 2)
+        const sealedCandles = yield* day.recordedCandles("UNTR")
+
+        yield* at("18:00:00")
+        yield* day.brokerCodes("Stockbit", [
+          [3, "YP D AK F", { ...WALKED, price: 23_200 }],
+        ])
+        yield* day.brokerCodes("Stockbit", [], 3)
+        yield* at("18:05:00")
+        yield* day.alarm
+        const restarted = yield* tradingDay(sql, [], db.layer)
+        const status = yield* restarted.day.brokerCodes.status(
+          new URLSearchParams()
+        )
+        const answer = yield* decodeBrokerCodesStatus(
+          yield* Effect.promise(() => status.text())
+        )
+        assert.deepStrictEqual(answer.missing, [])
+        assert.isTrue(answer.complete)
+        assert.deepStrictEqual((yield* read(db, UNTR)).candles, [
+          {
+            day: DAY,
+            open: 23_100,
+            high: 23_200,
+            low: 23_100,
+            close: 23_200,
+            volume: 12,
+            value: 27_760_000,
+            trades: 3,
+          },
+        ])
+        assert.deepStrictEqual(
+          yield* restarted.recordedCandles("UNTR"),
+          sealedCandles
+        )
+      })
+  )
+})
+
+describe("a due day", () => {
+  it.effect(
+    "whose build wake found it incomplete builds once a batch completes it again",
+    () =>
+      Effect.gen(function* () {
+        const db = memoryBrokerTotalsDb()
+        yield* at("09:01:10")
+        const day = yield* tradingDay(memorySql(), [], db.layer)
+        yield* day.trades([TAPE[0]!])
+        yield* at("17:00:00")
+        yield* day.alarm
+        yield* at("17:30:00")
+        yield* day.brokerCodes("Ajaib", [[1, "AK F CC D"]], 1)
+        // Before its build wake rings, an end raises N past a trade with
+        // codes alone.
+        yield* day.brokerCodes("Stockbit", [[2, "AK F CC D"]], 2)
+        yield* day.alarm
+        assert.deepStrictEqual(yield* read(db, UNTR), NOTHING)
+
+        yield* at("17:40:00")
+        yield* day.brokerCodes("Stockbit", [[2, "AK F CC D", WALKED]])
+        assert.deepStrictEqual(day.alarms.at(-1), wib("17:40:00"))
+        yield* day.alarm
+        assert.strictEqual((yield* read(db, UNTR)).candles[0]?.trades, 2)
       })
   )
 })
