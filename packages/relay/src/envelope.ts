@@ -311,7 +311,7 @@ export type Footprint = typeof Footprint.Type
 // for the day, however a late trade regroups the sweeps around it. Side
 // `none` is an auction match's prints in one second: no aggressor, so no
 // sweep, but the sweep log shows it as one neutral row.
-const SweepFields = Schema.Struct({
+export const SweepFields = Schema.Struct({
   side: Side,
   firstTrade: TradeNumber,
   time: Schema.DateTimeUtc,

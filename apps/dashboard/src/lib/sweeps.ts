@@ -9,6 +9,7 @@ import type {
   Sweep,
   SweepBroker,
   SweepBrokers,
+  SweepPiece,
   TradeNumber,
 } from "@workspace/relay"
 import { DateTime, Duration, Effect } from "effect"
@@ -150,21 +151,56 @@ export const leadBroker = (side: ReadonlyArray<SweepBroker>) =>
     )
   })
 
-// A sweep the broker filter keeps, with its own lots: the picked broker's
-// aggressor lots in it, the larger of what it bought or sold in an auction
-// match, or its whole lots when no broker is picked.
+// A sweep the broker filter keeps, with its own lots: its whole lots when
+// the picked broker is its one aggressor, the larger of what it bought or
+// sold in an auction match, or its whole lots when no broker is picked.
 export interface KeptSweep extends Sweep {
   readonly own: number
 }
 
-// The sweeps the broker filter keeps: those where the picked broker was any
-// of the aggressor-side brokers, and the auction matches it bought or sold
-// in (an auction match's entry holds its buyers as `aggressor` and its
-// sellers as `other`), so none not yet whole; every sweep when none is
-// picked.
+// The brokers of a shown sweep, each side's largest lots first: a piece's,
+// or an auction match's buyers as `aggressor` and its sellers as `other`.
+type SweepSides = Pick<SweepPiece, "aggressor" | "other">
+
+// The sweeps the page shows: each whole sweep with an entry swapped for its
+// pieces, the rest as grouped, all in trade order; and each piece by its id.
+export const splitSweeps = (
+  sweeps: ReadonlyArray<Sweep>,
+  entries: ReadonlyMap<TradeNumber, SweepBrokers>
+) =>
+  Effect.sync(() => {
+    const swapped: Array<Sweep> = []
+    const pieces = new Map<TradeNumber, SweepPiece>()
+    for (const sweep of sweeps) {
+      const entry = entries.get(sweep.firstTrade)
+      if (entry === undefined) {
+        swapped.push(sweep)
+        continue
+      }
+      for (const piece of entry.pieces) {
+        swapped.push(piece)
+        pieces.set(piece.firstTrade, piece)
+      }
+    }
+    return { sweeps: swapped, pieces }
+  })
+
+// The id a pin or selection on a whole sweep moves to as it splits: its
+// largest piece's by lots, the first in trade order on a tie.
+export const largestPiece = (entry: SweepBrokers) =>
+  Effect.sync(() => {
+    let largest = entry.pieces[0]!
+    for (const piece of entry.pieces)
+      if (piece.lots > largest.lots) largest = piece
+    return largest.firstTrade
+  })
+
+// The sweeps the broker filter keeps: the pieces whose aggressor the picked
+// broker is, and the auction matches it bought or sold in, so none not yet
+// whole; every sweep when none is picked.
 export const keptSweeps = (
   sweeps: ReadonlyArray<Sweep>,
-  brokers: ReadonlyMap<TradeNumber, SweepBrokers>,
+  brokers: ReadonlyMap<TradeNumber, SweepSides>,
   picked: BrokerCode | undefined
 ) =>
   Effect.sync((): ReadonlyArray<KeptSweep> => {
@@ -182,7 +218,9 @@ export const keptSweeps = (
       const own =
         sweep.side === "none"
           ? Math.max(lotsOf(held.aggressor), lotsOf(held.other))
-          : lotsOf(held.aggressor)
+          : lotsOf(held.aggressor) > 0
+            ? sweep.lots
+            : 0
       if (own > 0) kept.push({ ...sweep, own })
     }
     return kept
@@ -212,14 +250,14 @@ interface BrokerPick {
 
 const OPPOSITE_TYPE = { D: "F", F: "D" } as const
 
-// The broker filter's choices: the aggressor brokers of the whole sweeps up
-// to `at` (epoch ms), largest summed aggressor lots first; an auction
-// match's buyers are no aggressors. A broker's
-// investor type is the one with its larger summed lots, the first it had
-// on a tie, as within one sweep (apinrdw/kumora#343, story 5).
+// The broker filter's choices: the aggressors of the pieces up to `at`
+// (epoch ms), largest summed aggressor lots first; an auction match's
+// buyers are no aggressors. A broker's investor type is the one with its
+// larger summed lots, the first it had on a tie, as within one sweep
+// (apinrdw/kumora#343, story 5).
 export const brokerPicks = (
   sweeps: ReadonlyArray<Sweep>,
-  brokers: ReadonlyMap<TradeNumber, SweepBrokers>,
+  brokers: ReadonlyMap<TradeNumber, SweepSides>,
   at: number
 ) =>
   Effect.map(sweepsUpTo(sweeps, at), (upTo): ReadonlyArray<BrokerPick> => {
@@ -285,7 +323,7 @@ const SIDE_WORDS = {
 
 export const sweepTip = Effect.fnUntraced(function* (
   sweep: Sweep,
-  brokers: SweepBrokers | undefined
+  brokers: SweepSides | undefined
 ) {
   const words = SIDE_WORDS[sweep.side]
   const trades = `${yield* plain(sweep.trades)} ${sweep.trades === 1 ? "trade" : "trades"}`
@@ -301,8 +339,8 @@ export const sweepTip = Effect.fnUntraced(function* (
 })
 
 // The note under the log header while a day's codes are incomplete: how
-// many sweeps and auction matches up to `at` (epoch ms) have their
-// brokers, of all of them.
+// many sweeps and auction matches up to `at` (epoch ms), as grouped before
+// any split, have their entry, of all of them.
 export const arrivingNote = (
   sweeps: ReadonlyArray<Sweep>,
   brokers: ReadonlyMap<TradeNumber, SweepBrokers>,

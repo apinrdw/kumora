@@ -9,11 +9,13 @@ import {
   TradeNumber,
   decodeSweepBrokersText,
   encodeSweepBrokersText,
+  sweepsOf,
   type InvestorType,
   type RunningTrade,
   type StockCode,
   type SweepBroker,
   type SweepBrokers,
+  type SweepPiece,
   type TradeCodes,
   MINUTE_MS,
 } from "@workspace/relay"
@@ -85,13 +87,46 @@ const sideOf = (trades: ReadonlyArray<MemberBroker>) =>
     return brokers.sort((a, b) => b.lots - a.lots || (a.code < b.code ? -1 : 1))
   })
 
+// One piece of a whole sweep: its member trades, in trade order, as a sweep
+// of their own, with each side's brokers.
+const pieceOf = Effect.fnUntraced(function* (
+  trades: ReadonlyArray<RunningTrade>,
+  codes: ReadonlyMap<TradeNumber, TradeCodes>
+) {
+  const buyers: Array<MemberBroker> = []
+  const sellers: Array<MemberBroker> = []
+  for (const trade of trades) {
+    const held = codes.get(trade.tradeNumber)!
+    buyers.push({
+      code: held.buyer,
+      investorType: held.buyerType,
+      lots: trade.lots,
+    })
+    sellers.push({
+      code: held.seller,
+      investorType: held.sellerType,
+      lots: trade.lots,
+    })
+  }
+  // One side and one second: one sweep.
+  const [sweep] = yield* sweepsOf(trades)
+  const [aggressor, other] =
+    sweep!.side === "sell" ? [sellers, buyers] : [buyers, sellers]
+  const piece: SweepPiece = {
+    ...sweep!,
+    aggressor: yield* sideOf(aggressor),
+    other: yield* sideOf(other),
+  }
+  return piece
+})
+
 // One code's whole sweeps and auction matches in a minute with their
-// brokers, in trade order. A sweep's members are the next `trades` of the
+// pieces, in trade order. A sweep's members are the next `trades` of the
 // code's trades, and one with any member lacking codes is left out.
-// Decision: an auction match has no aggressor side, so its entry keeps the
-// sweep's shape with its buyers in `aggressor` and its sellers in `other`;
-// the page names them from its side. See spec apinrdw/kumora#384, "Auction
-// matches in the build".
+// Decision: a whole sweep splits by aggressor broker (the seller of a sell
+// sweep, the buyer of a buy sweep), each broker's members one piece however
+// interleaved. An auction match has no aggressor: one piece, its buyers in
+// `aggressor`. See spec apinrdw/kumora#384, "Where the split happens".
 const wholeSweeps = Effect.fnUntraced(function* (
   { trades, sweeps }: CodeMinute,
   codes: ReadonlyMap<TradeNumber, TradeCodes>
@@ -101,30 +136,24 @@ const wholeSweeps = Effect.fnUntraced(function* (
   for (const sweep of sweeps) {
     const members = trades.slice(next, next + sweep.trades)
     next += sweep.trades
-    const buyers: Array<MemberBroker> = []
-    const sellers: Array<MemberBroker> = []
+    if (members.some((trade) => !codes.has(trade.tradeNumber))) continue
+    const byAggressor = new Map<string, Array<RunningTrade>>()
     for (const trade of members) {
-      const held = codes.get(trade.tradeNumber)
-      if (held === undefined) break
-      buyers.push({
-        code: held.buyer,
-        investorType: held.buyerType,
-        lots: trade.lots,
-      })
-      sellers.push({
-        code: held.seller,
-        investorType: held.sellerType,
-        lots: trade.lots,
-      })
+      const held = codes.get(trade.tradeNumber)!
+      const aggressor =
+        sweep.side === "none"
+          ? ""
+          : sweep.side === "sell"
+            ? held.seller
+            : held.buyer
+      const piece = byAggressor.get(aggressor) ?? []
+      piece.push(trade)
+      byAggressor.set(aggressor, piece)
     }
-    if (buyers.length < members.length) continue
-    const [aggressor, other] =
-      sweep.side === "sell" ? [sellers, buyers] : [buyers, sellers]
-    whole.push({
-      firstTrade: sweep.firstTrade,
-      aggressor: yield* sideOf(aggressor),
-      other: yield* sideOf(other),
-    })
+    const pieces: Array<SweepPiece> = []
+    for (const piece of byAggressor.values())
+      pieces.push(yield* pieceOf(piece, codes))
+    whole.push({ firstTrade: sweep.firstTrade, pieces })
   }
   return whole
 })
@@ -402,7 +431,8 @@ export const makeSweepBrokers = Effect.fnUntraced(function* (options: {
     return facts
   })
 
-  // One code's whole sweeps with their brokers, in trade order.
+  // One code's whole sweeps and auction matches with their pieces, in
+  // trade order.
   const brokersOf = Effect.fnUntraced(function* (code: StockCode) {
     const sweeps: Array<SweepBrokers> = []
     for (const row of sql.exec(

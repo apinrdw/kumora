@@ -5,6 +5,7 @@ import type {
   StockCode,
   Sweep,
   SweepBrokers,
+  SweepPiece,
   TradeNumber,
   ViewerDown,
 } from "@workspace/relay"
@@ -13,6 +14,8 @@ import { DateTime, Effect } from "effect"
 import {
   TOP_N_DEFAULT,
   keptSweeps,
+  largestPiece,
+  splitSweeps,
   sweepMinute,
   sweepThreshold,
   type KeptSweep,
@@ -54,13 +57,18 @@ export interface SweepStore {
   // The sweep tooltip's place, apart from the changes below so a hover
   // redraws no bubble; none while it is hidden.
   readonly tip: ListenerStore<TipAt | undefined>
-  // The selected code's sweeps and auction matches so far, in trade order.
-  // A sweep's first trade's number is its id.
+  // The selected code's sweeps and auction matches so far, in trade order,
+  // each whole sweep swapped for its pieces: the one list the log and chart
+  // 1's bubbles read. A sweep's first trade's number is its id.
   readonly sweeps: () => ReadonlyArray<Sweep>
-  // A recorded day's whole sweeps' brokers by first trade, the whole day's
-  // as its sweep brokers GET last answered; the page cuts them at the
-  // cursor as it does the sweeps. Empty live and until the GET answers.
-  readonly brokers: () => ReadonlyMap<TradeNumber, SweepBrokers>
+  // The same as the sweeps GET groups them, by second and side, unsplit.
+  readonly grouped: () => ReadonlyArray<Sweep>
+  // A recorded day's whole sweeps and auction matches by first trade, the
+  // whole day's as its sweep brokers GET last answered; the page cuts them
+  // at the cursor as it does the sweeps. Empty live and until it answers.
+  readonly entries: () => ReadonlyMap<TradeNumber, SweepBrokers>
+  // The shown pieces, with their brokers, by id.
+  readonly brokers: () => ReadonlyMap<TradeNumber, SweepPiece>
   // Whether the day's codes are complete, as the sweep brokers GET last
   // answered; true until it answers otherwise, so live shows no note.
   readonly brokersComplete: () => boolean
@@ -110,7 +118,9 @@ export const makeSweepStore = (code: StockCode) =>
     let answered: ReadonlyMap<number, ReadonlyArray<Sweep>> = new Map()
     const carried = new Map<number, ReadonlyArray<Sweep>>()
     let all: ReadonlyArray<Sweep> = []
-    let brokers: ReadonlyMap<TradeNumber, SweepBrokers> = new Map()
+    let entries: ReadonlyMap<TradeNumber, SweepBrokers> = new Map()
+    let shown: ReadonlyArray<Sweep> = []
+    let brokers: ReadonlyMap<TradeNumber, SweepPiece> = new Map()
     let brokersComplete = true
     let ask = 0
     let asking = false
@@ -120,22 +130,22 @@ export const makeSweepStore = (code: StockCode) =>
     let keeping:
       | {
           readonly sweeps: ReadonlyArray<Sweep>
-          readonly brokers: ReadonlyMap<TradeNumber, SweepBrokers>
+          readonly brokers: ReadonlyMap<TradeNumber, SweepPiece>
           readonly picked: BrokerCode | undefined
           readonly kept: ReadonlyArray<KeptSweep>
         }
       | undefined
     const kept = () => {
       if (
-        keeping?.sweeps !== all ||
+        keeping?.sweeps !== shown ||
         keeping.brokers !== brokers ||
         keeping.picked !== picked
       )
         keeping = {
-          sweeps: all,
+          sweeps: shown,
           brokers,
           picked,
-          kept: Effect.runSync(keptSweeps(all, brokers, picked)),
+          kept: Effect.runSync(keptSweeps(shown, brokers, picked)),
         }
       return keeping.kept
     }
@@ -151,24 +161,49 @@ export const makeSweepStore = (code: StockCode) =>
     const emit = (change: SweepChange) => {
       for (const listener of listeners) listener(change)
     }
+    const split = () => {
+      const swapped = Effect.runSync(splitSweeps(all, entries))
+      shown = swapped.sweeps
+      brokers = swapped.pieces
+    }
     const show = () => {
       all = [...new Map([...answered, ...carried])]
         .sort(([a], [b]) => a - b)
         .flatMap(([, sweeps]) => sweeps)
+      split()
       emit({ _tag: "Sweeps" })
+    }
+    // Where a pin or selection on `id` goes once the sweeps split: a whole
+    // sweep's moves to its largest piece; one already on a piece stays.
+    const moved = (
+      id: TradeNumber,
+      before: ReadonlyMap<TradeNumber, unknown>
+    ) => {
+      const entry = entries.get(id)
+      return entry === undefined || before.has(id)
+        ? id
+        : Effect.runSync(largestPiece(entry))
     }
     const store: SweepStore = {
       code,
       tip,
-      sweeps: () => all,
+      sweeps: () => shown,
+      grouped: () => all,
+      entries: () => entries,
       brokers: () => brokers,
       brokersComplete: () => brokersComplete,
       answerBrokers: (answer) => {
         if (answer.code !== code) return
         brokersComplete = answer.complete
-        brokers = new Map(
+        const before = brokers
+        entries = new Map(
           answer.sweeps.map((sweep) => [sweep.firstTrade, sweep])
         )
+        split()
+        if (selected !== undefined) selected = moved(selected, before)
+        const pinned = tip.get()
+        if (pinned !== undefined && moved(pinned.id, before) !== pinned.id)
+          tip.set({ ...pinned, id: moved(pinned.id, before) })
         emit({ _tag: "Brokers" })
       },
       picked: () => picked,
@@ -201,7 +236,7 @@ export const makeSweepStore = (code: StockCode) =>
       },
       selected: () => selected,
       select: (id, from) => {
-        const sweep = all.find((shown) => shown.firstTrade === id)
+        const sweep = shown.find((held) => held.firstTrade === id)
         if (sweep === undefined) return
         selected = id
         emit({

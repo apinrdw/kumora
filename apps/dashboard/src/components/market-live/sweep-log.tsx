@@ -6,6 +6,7 @@ import {
   type Sweep,
   type SweepBroker,
   type SweepBrokers,
+  type SweepPiece,
   type TradeNumber,
   type WibDate,
 } from "@workspace/relay"
@@ -48,11 +49,15 @@ import { INVESTOR_TEXT } from "./investor-text"
 // The sweeps and the instant the page shows them at: a recorded day's
 // cursor, or live the end of time.
 interface SweepView {
+  // The sweeps with each whole one swapped for its pieces.
   readonly sweeps: ReadonlyArray<Sweep>
   // The sweeps the broker filter keeps, with their own lots.
   readonly kept: ReadonlyArray<KeptSweep>
   readonly picked: BrokerCode | undefined
-  readonly brokers: ReadonlyMap<TradeNumber, SweepBrokers>
+  readonly brokers: ReadonlyMap<TradeNumber, SweepPiece>
+  // The sweeps as grouped before any split, and the entries of those whole.
+  readonly grouped: ReadonlyArray<Sweep>
+  readonly entries: ReadonlyMap<TradeNumber, SweepBrokers>
   // Whether the day's codes are complete; each answer that says so brings
   // new `brokers` too.
   readonly brokersComplete: boolean
@@ -100,6 +105,8 @@ function useSweepView(store: SweepStore, cursor: ReplayCursor | undefined) {
       kept,
       picked: store.picked(),
       brokers,
+      grouped: store.grouped(),
+      entries: store.entries(),
       brokersComplete: store.brokersComplete(),
       at,
       threshold: store.threshold(at),
@@ -304,8 +311,8 @@ const LogRowView = memo(function LogRowView({
   withBrokers: boolean
   // Whether a broker is picked: the lots read `own/whole`.
   filtered: boolean
-  // The sweep's brokers, undefined until it is whole.
-  brokers: SweepBrokers | undefined
+  // The piece's brokers, undefined until its sweep is whole.
+  brokers: SweepPiece | undefined
   selected: boolean
   onPick: (id: TradeNumber) => void
   onTip: OnTip
@@ -407,12 +414,12 @@ function BrokerFilter({
   )
 }
 
-// While the day's codes are incomplete, how many sweeps up to the cursor
-// have their brokers yet.
+// While the day's codes are incomplete, how many sweeps up to the cursor,
+// as grouped before any split, have their brokers yet.
 function ArrivingNote({ view }: { view: SweepView }) {
   const note = useMemo(
-    () => Effect.runSync(arrivingNote(view.sweeps, view.brokers, view.at)),
-    [view.sweeps, view.brokers, view.at]
+    () => Effect.runSync(arrivingNote(view.grouped, view.entries, view.at)),
+    [view.grouped, view.entries, view.at]
   )
   if (view.brokersComplete) return null
   return (

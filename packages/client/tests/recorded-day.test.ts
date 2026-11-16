@@ -279,7 +279,7 @@ const sweepBrokersWorker = (completeFrom: number, failing = 0) => {
           request,
           new Response("Worker failing", { status: 503 })
         )
-      const sweeps = asked.map((_, index) => [String(index + 1), [], []])
+      const sweeps = asked.map((_, index) => [String(index + 1), []])
       return HttpClientResponse.fromWeb(
         request,
         new Response(

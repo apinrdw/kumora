@@ -6,7 +6,6 @@ import { assert, describe, it } from "@effect/vitest"
 import {
   BrokerCode,
   StockCode,
-  TradeNumber,
   decodeSweepBrokersText,
   type RecordedResource,
   type SweepBrokers,
@@ -14,7 +13,7 @@ import {
 import { DateTime, Effect, Exit } from "effect"
 import { TestClock } from "effect/testing"
 
-import { brokerPicks } from "@/lib/sweeps"
+import { brokerPicks, splitSweeps } from "@/lib/sweeps"
 import type { Sql } from "@/server/market-live/day-store"
 
 import {
@@ -77,18 +76,21 @@ const CODES = [
   [6, "YP D ZP F"],
 ] as const
 
-// A sweep's brokers as the test compares them: first trade, then each side
-// as `code type lots`.
-const brokersOf = (sweep: SweepBrokers) => [
-  Number(sweep.firstTrade),
-  sweep.aggressor.map((b) => `${b.code} ${b.investorType} ${b.lots}`),
-  sweep.other.map((b) => `${b.code} ${b.investorType} ${b.lots}`),
-]
+// A whole sweep's pieces' brokers as the test compares them: each piece's
+// first trade, then each side as `code type lots`.
+const brokersOf = (sweep: SweepBrokers) =>
+  sweep.pieces.map((piece) => [
+    Number(piece.firstTrade),
+    piece.aggressor.map((b) => `${b.code} ${b.investorType} ${b.lots}`),
+    piece.other.map((b) => `${b.code} ${b.investorType} ${b.lots}`),
+  ])
 
+// Sweep 5's aggressors BK and YP make a piece each.
 const ALL_WHOLE = [
   [1, ["AK D 8"], ["YP D 5", "CC D 3"]],
   [4, ["AK F 4"], ["CC D 4"]],
-  [5, ["YP D 6", "BK D 2"], ["ZP F 8"]],
+  [5, ["BK D 2"], ["ZP F 2"]],
+  [6, ["YP D 6"], ["ZP F 6"]],
 ]
 
 describe("a sealed day's sweep brokers", () => {
@@ -102,9 +104,9 @@ describe("a sealed day's sweep brokers", () => {
         const { answer } = yield* day.recordedSweepBrokers("UNTR")
         assert.strictEqual(answer.code, "UNTR")
         assert.isTrue(answer.complete)
-        assert.deepStrictEqual(answer.sweeps.map(brokersOf), ALL_WHOLE)
+        assert.deepStrictEqual(answer.sweeps.flatMap(brokersOf), ALL_WHOLE)
         const bbca = yield* day.recordedSweepBrokers("BBCA")
-        assert.deepStrictEqual(bbca.answer.sweeps.map(brokersOf), [
+        assert.deepStrictEqual(bbca.answer.sweeps.flatMap(brokersOf), [
           [3, ["KZ D 7"], ["PD F 7"]],
         ])
       })
@@ -123,13 +125,13 @@ describe("a sealed day's sweep brokers", () => {
         const partial = (yield* day.recordedSweepBrokers("UNTR")).answer
         assert.isFalse(partial.complete)
         assert.deepStrictEqual(
-          partial.sweeps.map(brokersOf),
+          partial.sweeps.flatMap(brokersOf),
           ALL_WHOLE.slice(1)
         )
         yield* day.brokerCodes("Stockbit", [CODES[1]], 6)
         const whole = (yield* day.recordedSweepBrokers("UNTR")).answer
         assert.isTrue(whole.complete)
-        assert.deepStrictEqual(whole.sweeps.map(brokersOf), ALL_WHOLE)
+        assert.deepStrictEqual(whole.sweeps.flatMap(brokersOf), ALL_WHOLE)
       })
   )
 
@@ -140,9 +142,9 @@ describe("a sealed day's sweep brokers", () => {
       yield* day.brokerCodes("Ajaib", CODES, 6)
       yield* day.brokerCodes("Ajaib", [[6, "AK F ZP F"]])
       const { answer } = yield* day.recordedSweepBrokers("UNTR")
-      assert.deepStrictEqual(answer.sweeps.map(brokersOf), [
-        ...ALL_WHOLE.slice(0, 2),
-        [5, ["AK F 6", "BK D 2"], ["ZP F 8"]],
+      assert.deepStrictEqual(answer.sweeps.flatMap(brokersOf), [
+        ...ALL_WHOLE.slice(0, 3),
+        [6, ["AK F 6"], ["ZP F 6"]],
       ])
     })
   )
@@ -162,7 +164,7 @@ describe("a sealed day's sweep brokers", () => {
         yield* day.alarm
         const { answer } = yield* day.recordedSweepBrokers("UNTR")
         assert.isTrue(answer.complete)
-        assert.deepStrictEqual(answer.sweeps.map(brokersOf), [
+        assert.deepStrictEqual(answer.sweeps.flatMap(brokersOf), [
           [1, ["AK D 8"], ["YP D 5", "CC D 3"]],
         ])
       })
@@ -182,7 +184,7 @@ describe("a sealed day's sweep brokers", () => {
         yield* at("17:00:00")
         yield* day.alarm
         const { answer } = yield* day.recordedSweepBrokers("UNTR")
-        assert.deepStrictEqual(answer.sweeps.map(brokersOf), [])
+        assert.deepStrictEqual(answer.sweeps.flatMap(brokersOf), [])
       })
   )
 
@@ -203,7 +205,7 @@ describe("a sealed day's sweep brokers", () => {
         yield* at("17:00:00")
         yield* day.alarm
         const { answer } = yield* day.recordedSweepBrokers("UNTR")
-        assert.deepStrictEqual(answer.sweeps.map(brokersOf), [
+        assert.deepStrictEqual(answer.sweeps.flatMap(brokersOf), [
           [1, ["AK F 3"], ["CC D 3"]],
           [3, ["PD F 5"], ["KZ D 5"]],
         ])
@@ -236,12 +238,12 @@ describe("a sealed day's sweep brokers", () => {
         const { sweeps } = (yield* day.recordedSweeps("UNTR")).answer
         const brokers = (yield* day.recordedSweepBrokers("UNTR")).answer
         // AK swept F 6 and D 5, then D 7: D leads 12–6.
+        const split = yield* splitSweeps(
+          sweeps,
+          new Map(brokers.sweeps.map((sweep) => [sweep.firstTrade, sweep]))
+        )
         assert.deepStrictEqual(
-          yield* brokerPicks(
-            sweeps,
-            new Map(brokers.sweeps.map((sweep) => [sweep.firstTrade, sweep])),
-            Infinity
-          ),
+          yield* brokerPicks(split.sweeps, split.pieces, Infinity),
           [{ code: BrokerCode.make("AK"), investorType: "D", lots: 18 }]
         )
         // Only a broker of both types carries its minor type's lots.
@@ -252,19 +254,6 @@ describe("a sealed day's sweep brokers", () => {
         const text = yield* Effect.promise(() => response.text())
         assert.include(text, `[["AK","F",11,5]]`)
         assert.include(text, `[["AK","D",7]]`)
-        // A row stored before both types were carried still reads.
-        assert.deepStrictEqual(
-          yield* decodeSweepBrokersText(`[["1",[["AK","F",11]],[]]]`),
-          [
-            {
-              firstTrade: TradeNumber.make("1"),
-              aggressor: [
-                { code: BrokerCode.make("AK"), investorType: "F", lots: 11 },
-              ],
-              other: [],
-            },
-          ]
-        )
       })
   )
 
@@ -316,17 +305,24 @@ describe("a sealed day's sweep brokers", () => {
           [6, "BK D ZP F"],
         ])
         const { answer } = yield* day.recordedSweepBrokers("UNTR")
-        assert.deepStrictEqual(answer.sweeps.map(brokersOf), [
+        assert.deepStrictEqual(answer.sweeps.flatMap(brokersOf), [
           [1, ["AK F 7", "YP D 5"], ["CC D 8", "KZ F 4"]],
           [6, ["BK D 6"], ["ZP F 6"]],
         ])
+        // The match is never split: one piece, the whole match.
+        const [match] = answer.sweeps
+        assert.lengthOf(match!.pieces, 1)
+        assert.deepStrictEqual(
+          [match!.pieces[0]!.side, match!.pieces[0]!.lots],
+          ["none", 12]
+        )
         assert.deepStrictEqual(
           (yield* day.recordedSweepBrokers("BBCA")).answer.sweeps,
           []
         )
         yield* day.brokerCodes("Ajaib", [[5, "AK F KZ D"]])
         assert.deepStrictEqual(
-          (yield* day.recordedSweepBrokers("BBCA")).answer.sweeps.map(
+          (yield* day.recordedSweepBrokers("BBCA")).answer.sweeps.flatMap(
             brokersOf
           ),
           [[4, ["PD F 7", "AK F 2"], ["KZ D 9"]]]
@@ -387,6 +383,111 @@ describe("a sealed day's sweep brokers", () => {
   )
 })
 
+// A piece's sweep fields as the test compares them: side, first trade,
+// time, first and last price, lots, value and trade count.
+const fieldsOf = (piece: SweepBrokers["pieces"][number]) => [
+  piece.side,
+  Number(piece.firstTrade),
+  DateTime.formatIso(piece.time),
+  piece.first,
+  piece.last,
+  piece.lots,
+  piece.value,
+  piece.trades,
+]
+
+describe("a sealed day's whole sweeps split per aggressor broker", () => {
+  it.effect(
+    "make one piece per seller in a second, each with its own fields and the buyers its trades met, FZ's interleaved trades one piece",
+    () =>
+      Effect.gen(function* () {
+        yield* at("09:01:10")
+        const day = yield* tradingDay()
+        // One sell sweep: FZ, XL, FZ, FZ.
+        yield* day.trades([
+          untr(1, "09:00:20.100", 10, "sell", 23300),
+          untr(2, "09:00:20.200", 4, "sell", 23275),
+          untr(3, "09:00:20.300", 5, "sell", 23275),
+          untr(4, "09:00:20.400", 1, "sell", 23250),
+        ])
+        yield* at("17:00:00")
+        yield* day.alarm
+        yield* at("17:30:00")
+        yield* day.brokerCodes(
+          "Ajaib",
+          [
+            [1, "AK F FZ D"],
+            [2, "CC D XL D"],
+            [3, "YP D FZ D"],
+            [4, "AK D FZ F"],
+          ],
+          4
+        )
+        const { sweeps } = (yield* day.recordedSweeps("UNTR")).answer
+        assert.lengthOf(sweeps, 1)
+        const { answer } = yield* day.recordedSweepBrokers("UNTR")
+        assert.deepStrictEqual(
+          answer.sweeps.map((sweep) => Number(sweep.firstTrade)),
+          [1]
+        )
+        const [whole] = answer.sweeps
+        assert.deepStrictEqual(whole!.pieces.map(fieldsOf), [
+          [
+            "sell",
+            1,
+            "2026-11-09T02:00:20.100Z",
+            23300,
+            23250,
+            16,
+            23300 * 1000 + 23275 * 500 + 23250 * 100,
+            3,
+          ],
+          [
+            "sell",
+            2,
+            "2026-11-09T02:00:20.200Z",
+            23275,
+            23275,
+            4,
+            23275 * 400,
+            1,
+          ],
+        ])
+        assert.deepStrictEqual(brokersOf(whole!), [
+          [1, ["FZ D 16"], ["AK F 11", "YP D 5"]],
+          [2, ["XL D 4"], ["CC D 4"]],
+        ])
+      })
+  )
+
+  it.effect("make one broker's sells in two seconds two sweeps", () =>
+    Effect.gen(function* () {
+      yield* at("09:01:10")
+      const day = yield* tradingDay()
+      yield* day.trades([
+        untr(1, "09:00:20.100", 10, "sell"),
+        untr(2, "09:00:21.100", 4, "sell"),
+      ])
+      yield* at("17:00:00")
+      yield* day.alarm
+      yield* at("17:30:00")
+      yield* day.brokerCodes(
+        "Ajaib",
+        [
+          [1, "AK F FZ D"],
+          [2, "CC D FZ D"],
+        ],
+        2
+      )
+      const { answer } = yield* day.recordedSweepBrokers("UNTR")
+      assert.deepStrictEqual(answer.sweeps.map(brokersOf), [
+        [[1, ["FZ D 10"], ["AK F 10"]]],
+        [[2, ["FZ D 4"], ["CC D 4"]]],
+      ])
+    })
+  )
+})
+
 // The day's database, counting each statement that writes the sweep brokers
 // table, and failing the next `failures` of them as storage would.
 const brokersSql = () => {
@@ -437,7 +538,7 @@ describe("a sealed day's sweep brokers while its codes arrive", () => {
         yield* day.brokerCodes("Ajaib", [[3, "PD F KZ F"]])
         assert.strictEqual(watch.writes, before + 1)
         assert.deepStrictEqual(
-          (yield* day.recordedSweepBrokers("BBCA")).answer.sweeps.map(
+          (yield* day.recordedSweepBrokers("BBCA")).answer.sweeps.flatMap(
             brokersOf
           ),
           [[3, ["KZ F 7"], ["PD F 7"]]]
@@ -459,7 +560,7 @@ describe("a sealed day's sweep brokers while its codes arrive", () => {
         yield* day.brokerCodes("Stockbit", CODES, 6)
         assert.strictEqual(watch.writes, before)
         assert.deepStrictEqual(
-          (yield* day.recordedSweepBrokers("UNTR")).answer.sweeps.map(
+          (yield* day.recordedSweepBrokers("UNTR")).answer.sweeps.flatMap(
             brokersOf
           ),
           ALL_WHOLE
@@ -483,7 +584,7 @@ describe("a sealed day's sweep brokers while its codes arrive", () => {
         yield* day.brokerCodes("Ajaib", CODES, 6)
         const { answer } = yield* day.recordedSweepBrokers("UNTR")
         assert.isTrue(answer.complete)
-        assert.deepStrictEqual(answer.sweeps.map(brokersOf), ALL_WHOLE)
+        assert.deepStrictEqual(answer.sweeps.flatMap(brokersOf), ALL_WHOLE)
       })
   )
 })
@@ -549,9 +650,9 @@ describe("the one-off build of a day whose codes landed before sweep brokers", (
         yield* sealedBeforeSweepBrokers(sql)
         const day = yield* tradingDay(sql)
         const { answer } = yield* day.recordedSweepBrokers("UNTR")
-        assert.deepStrictEqual(answer.sweeps.map(brokersOf), ALL_WHOLE)
+        assert.deepStrictEqual(answer.sweeps.flatMap(brokersOf), ALL_WHOLE)
         const bbca = yield* day.recordedSweepBrokers("BBCA")
-        assert.deepStrictEqual(bbca.answer.sweeps.map(brokersOf), [
+        assert.deepStrictEqual(bbca.answer.sweeps.flatMap(brokersOf), [
           [3, ["KZ D 7"], ["PD F 7"]],
         ])
         yield* day.evicted
@@ -560,7 +661,10 @@ describe("the one-off build of a day whose codes landed before sweep brokers", (
         const restarted = yield* tradingDay(again.sql)
         const before = again.counts.writes
         const second = yield* restarted.recordedSweepBrokers("UNTR")
-        assert.deepStrictEqual(second.answer.sweeps.map(brokersOf), ALL_WHOLE)
+        assert.deepStrictEqual(
+          second.answer.sweeps.flatMap(brokersOf),
+          ALL_WHOLE
+        )
         assert.strictEqual(again.counts.writes, before)
       })
   )
@@ -581,7 +685,7 @@ describe("the one-off build of a day whose codes landed before sweep brokers", (
         const resumed = watched(sql)
         const day = yield* tradingDay(resumed.sql)
         const { answer } = yield* day.recordedSweepBrokers("UNTR")
-        assert.deepStrictEqual(answer.sweeps.map(brokersOf), ALL_WHOLE)
+        assert.deepStrictEqual(answer.sweeps.flatMap(brokersOf), ALL_WHOLE)
         // Only the two minutes after the first that landed.
         assert.strictEqual(resumed.counts.transactions, 2)
       })
@@ -627,9 +731,10 @@ describe("the one-off build of a day whose codes landed before sweep brokers", (
 
           const day = yield* tradingDay(sql)
           const { answer } = yield* day.recordedSweepBrokers("UNTR")
-          assert.deepStrictEqual(answer.sweeps.map(brokersOf), [
+          assert.deepStrictEqual(answer.sweeps.flatMap(brokersOf), [
             [1, ["AK D 8"], ["YP D 5", "CC D 3"]],
-            [6, ["YP D 6", "BK D 2"], ["ZP F 8"]],
+            [6, ["BK D 2"], ["ZP F 2"]],
+            [7, ["YP D 6"], ["ZP F 6"]],
           ])
           // The resumed build reads only 09:04 again.
           assert.strictEqual(lines.at(-1)!.sweepBrokerMinutes, 1)
@@ -651,19 +756,31 @@ const evictedWriting = (sql: Sql, time: string): Sql => {
   }
 }
 
-// What a day whose sweep brokers were built before auction matches had
-// their entry holds: no auction-only row, and the build marked with the old
-// finished value.
-const builtBeforeAuctions = (sql: Sql) =>
+// What a day built under an older finished value holds: every row in the
+// shape before pieces, and the build marked with that value; under `built`,
+// from before auction matches had their entry, no auction-only row.
+const builtUnder = (value: "built" | "built-auctions") => (sql: Sql) =>
   Effect.sync(() => {
+    if (value === "built")
+      sql.exec(
+        "DELETE FROM sweep_brokers WHERE minute = ?",
+        DateTime.toEpochMillis(wib("08:58:00"))
+      )
     sql.exec(
-      "DELETE FROM sweep_brokers WHERE minute = ?",
-      DateTime.toEpochMillis(wib("08:58:00"))
+      "UPDATE sweep_brokers SET sweeps = ?",
+      `[["3",[["BK","D",6]],[["ZP","F",6]]]]`
     )
     sql.exec(
-      "UPDATE facts SET value = 'built' WHERE key = 'sweep-brokers-built'"
+      "UPDATE facts SET value = ? WHERE key = 'sweep-brokers-built'",
+      value
     )
   })
+
+// Whether every stored row reads in the current shape.
+const rowsRead = (sql: Sql) =>
+  Effect.forEach(sql.exec("SELECT sweeps FROM sweep_brokers"), (row) =>
+    decodeSweepBrokersText(String(row.sweeps))
+  )
 
 // UNTR's opening match at 08:58 and a buy sweep at 09:00.
 const OPENING_AND_SWEEP = [
@@ -681,87 +798,95 @@ const WITH_AUCTION = [
   [3, ["BK D 6"], ["ZP F 6"]],
 ]
 
-describe("a day whose sweep brokers were built before auction matches had their entry", () => {
-  it.effect(
-    "rebuilds on its next GET, gaining its auction entries, logs the build, and leaves every other answer byte-identical",
-    () =>
-      withLines("Sweep brokers recomputed", (lines) =>
+for (const [value, until] of [
+  ["built", "before auction matches had their entry"],
+  ["built-auctions", "before whole sweeps split"],
+] as const)
+  describe(`a day whose sweep brokers were built ${until}`, () => {
+    it.effect(
+      "rebuilds on its next GET with no old-shape row left, logs the build, and leaves every other answer byte-identical",
+      () =>
+        withLines("Sweep brokers recomputed", (lines) =>
+          Effect.gen(function* () {
+            const sql = memorySql()
+            yield* at("09:01:10")
+            const sealed = yield* tradingDay(sql)
+            yield* sealed.trades(OPENING_AND_SWEEP)
+            yield* at("17:00:00")
+            yield* sealed.alarm
+            yield* at("17:30:00")
+            yield* sealed.brokerCodes("Ajaib", OPENING_CODES, 3)
+            yield* sealed.evicted
+            yield* builtUnder(value)(sql)
+            yield* nextDay
+
+            const day = yield* tradingDay(sql)
+            const code = StockCode.make("UNTR")
+            const resources: ReadonlyArray<RecordedResource> = [
+              { _tag: "Codes" },
+              { _tag: "Tape", at: wib("17:00:00") },
+              { _tag: "BrokerCodes", at: wib("17:00:00") },
+              { _tag: "Candles", code },
+              { _tag: "Sweeps", code },
+              { _tag: "Heatmap", code },
+              { _tag: "Gaps" },
+            ]
+            const answers = Effect.forEach(resources, (resource) =>
+              Effect.gen(function* () {
+                const response = yield* day.recorded(resource)
+                return {
+                  status: response.status,
+                  headers: [...response.headers.entries()],
+                  body: yield* Effect.promise(() => response.text()),
+                }
+              })
+            )
+            const before = yield* answers
+            const logged = lines.length
+            const { answer } = yield* day.recordedSweepBrokers("UNTR")
+            assert.deepStrictEqual(
+              answer.sweeps.flatMap(brokersOf),
+              WITH_AUCTION
+            )
+            assert.deepStrictEqual(yield* answers, before)
+            yield* rowsRead(sql)
+            // The build read the day's minutes, 08:57 to 09:00 with the
+            // trades' skew, and wrote both rows.
+            assert.lengthOf(lines, logged + 1)
+            assert.strictEqual(lines.at(-1)!.sweepBrokerMinutes, 4)
+            assert.strictEqual(lines.at(-1)!.sweepBrokers, 2)
+            // And builds nothing again.
+            yield* day.evicted
+            const again = watched(sql)
+            const restarted = yield* tradingDay(again.sql)
+            const writes = again.counts.writes
+            yield* restarted.recordedSweepBrokers("UNTR")
+            assert.strictEqual(again.counts.writes, writes)
+          })
+        )
+    )
+
+    it.effect(
+      "rebuilds from its first minute though a late trade lands before the seal",
+      () =>
         Effect.gen(function* () {
           const sql = memorySql()
           yield* at("09:01:10")
-          const sealed = yield* tradingDay(sql)
-          yield* sealed.trades(OPENING_AND_SWEEP)
-          yield* at("17:00:00")
-          yield* sealed.alarm
-          yield* at("17:30:00")
-          yield* sealed.brokerCodes("Ajaib", OPENING_CODES, 3)
-          yield* sealed.evicted
-          yield* builtBeforeAuctions(sql)
-          yield* nextDay
+          const live = yield* tradingDay(sql)
+          yield* live.trades(OPENING_AND_SWEEP)
+          // Past the 09:02 flush, so the trades are stored.
+          yield* at("09:02:10")
+          yield* live.brokerCodes("Ajaib", OPENING_CODES)
+          yield* live.evicted
+          yield* builtUnder(value)(sql)
 
+          yield* at("09:02:20")
           const day = yield* tradingDay(sql)
-          const code = StockCode.make("UNTR")
-          const resources: ReadonlyArray<RecordedResource> = [
-            { _tag: "Codes" },
-            { _tag: "Tape", at: wib("17:00:00") },
-            { _tag: "BrokerCodes", at: wib("17:00:00") },
-            { _tag: "Candles", code },
-            { _tag: "Sweeps", code },
-            { _tag: "Heatmap", code },
-            { _tag: "Gaps" },
-          ]
-          const answers = Effect.forEach(resources, (resource) =>
-            Effect.gen(function* () {
-              const response = yield* day.recorded(resource)
-              return {
-                status: response.status,
-                headers: [...response.headers.entries()],
-                body: yield* Effect.promise(() => response.text()),
-              }
-            })
-          )
-          const before = yield* answers
-          const logged = lines.length
+          yield* day.trades([untr(4, "09:00:40.000", 2, "sell")])
+          yield* at("17:00:00")
+          yield* day.alarm
           const { answer } = yield* day.recordedSweepBrokers("UNTR")
-          assert.deepStrictEqual(answer.sweeps.map(brokersOf), WITH_AUCTION)
-          assert.deepStrictEqual(yield* answers, before)
-          // The build read the day's minutes, 08:57 to 09:00 with the
-          // trades' skew, and wrote only the 08:58 row.
-          assert.lengthOf(lines, logged + 1)
-          assert.strictEqual(lines.at(-1)!.sweepBrokerMinutes, 4)
-          assert.strictEqual(lines.at(-1)!.sweepBrokers, 1)
-          // And builds nothing again.
-          yield* day.evicted
-          const again = watched(sql)
-          const restarted = yield* tradingDay(again.sql)
-          const writes = again.counts.writes
-          yield* restarted.recordedSweepBrokers("UNTR")
-          assert.strictEqual(again.counts.writes, writes)
+          assert.deepStrictEqual(answer.sweeps.flatMap(brokersOf), WITH_AUCTION)
         })
-      )
-  )
-
-  it.effect(
-    "rebuilds from its first minute though a late trade lands before the seal",
-    () =>
-      Effect.gen(function* () {
-        const sql = memorySql()
-        yield* at("09:01:10")
-        const live = yield* tradingDay(sql)
-        yield* live.trades(OPENING_AND_SWEEP)
-        // Past the 09:02 flush, so the trades are stored.
-        yield* at("09:02:10")
-        yield* live.brokerCodes("Ajaib", OPENING_CODES)
-        yield* live.evicted
-        yield* builtBeforeAuctions(sql)
-
-        yield* at("09:02:20")
-        const day = yield* tradingDay(sql)
-        yield* day.trades([untr(4, "09:00:40.000", 2, "sell")])
-        yield* at("17:00:00")
-        yield* day.alarm
-        const { answer } = yield* day.recordedSweepBrokers("UNTR")
-        assert.deepStrictEqual(answer.sweeps.map(brokersOf), WITH_AUCTION)
-      })
-  )
-})
+    )
+  })

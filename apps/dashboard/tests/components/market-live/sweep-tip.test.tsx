@@ -58,10 +58,17 @@ test("an open tooltip shows a sweep's brokers once a recheck brings them", async
       sweeps: [
         {
           firstTrade: buy.firstTrade,
-          aggressor: [
-            { code: BrokerCode.make("AK"), investorType: "F", lots: 30 },
+          pieces: [
+            {
+              ...buy,
+              aggressor: [
+                { code: BrokerCode.make("AK"), investorType: "F", lots: 30 },
+              ],
+              other: [
+                { code: BrokerCode.make("CC"), investorType: "D", lots: 30 },
+              ],
+            },
           ],
-          other: [{ code: BrokerCode.make("CC"), investorType: "D", lots: 30 }],
         },
       ],
       complete: true,
@@ -84,7 +91,12 @@ test("a sweep with more brokers than fit stays inside the viewport, and pinned, 
   }))
   store.answerBrokers({
     code: BBCA,
-    sweeps: [{ firstTrade: buy.firstTrade, aggressor: many, other: many }],
+    sweeps: [
+      {
+        firstTrade: buy.firstTrade,
+        pieces: [{ ...buy, aggressor: many, other: many }],
+      },
+    ],
     complete: true,
   })
   const root = createRoot(
@@ -129,10 +141,17 @@ test("a tooltip open on a sweep the replay cursor moves back before hides, and s
     sweeps: [
       {
         firstTrade: late.firstTrade,
-        aggressor: [
-          { code: BrokerCode.make("AK"), investorType: "F", lots: 30 },
+        pieces: [
+          {
+            ...late,
+            aggressor: [
+              { code: BrokerCode.make("AK"), investorType: "F", lots: 30 },
+            ],
+            other: [
+              { code: BrokerCode.make("CC"), investorType: "D", lots: 30 },
+            ],
+          },
         ],
-        other: [{ code: BrokerCode.make("CC"), investorType: "D", lots: 30 }],
       },
     ],
     complete: true,
