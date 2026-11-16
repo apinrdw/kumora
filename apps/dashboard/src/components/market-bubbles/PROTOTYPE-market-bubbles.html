@@ -1,0 +1,540 @@
+<title>Market Bubbles prototype</title>
+<meta name="claude:viewport-fit-sides" content="cover">
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Manrope:wght@400;500;600;700;800&display=swap">
+<style>
+/* PROTOTYPE, throw away. Layout: one full-height app; header strip, controls row, bubble canvas, floating variant bar.
+   Kumora's dashboard is dark-only, so this page commits to its dark tokens (apps/dashboard/src/styles.css). */
+:root {
+  color-scheme: dark;
+  --bg-canvas: #0b1421;
+  --bg-surface: #142234;
+  --bg-elevated: #1b2c40;
+  --bg-selected: #173a43;
+  --border-subtle: #26394e;
+  --border-strong: #3e566b;
+  --text-primary: #edf4fb;
+  --text-secondary: #b0c2d2;
+  --text-muted: #839aae;
+  --accent: #55d9c7;
+  --accent-on: #09242a;
+  --up: #51dda2;
+  --down: #ff7987;
+  --neutral: #a8b8c8;
+  --warning: #f4c36e;
+  --bar-bg: #f4c36e;
+  --bar-fg: #1a1406;
+  --font: "Manrope", "Manrope Variable", Arial, sans-serif;
+}
+html, body { height: 100%; }
+body {
+  background: var(--bg-canvas); color: var(--text-primary); font-family: var(--font);
+  display: flex; flex-direction: column; overflow: hidden;
+  padding-left: max(16px, env(safe-area-inset-left, 0px));
+  padding-right: max(16px, env(safe-area-inset-right, 0px));
+  padding-block: 12px 0;
+  font-variant-numeric: tabular-nums;
+}
+header { display: flex; flex-wrap: wrap; gap: 8px 24px; align-items: flex-end; justify-content: space-between; }
+h1 { font-size: 20px; font-weight: 800; margin: 0; letter-spacing: -0.01em; text-wrap: balance; }
+.sub { color: var(--text-muted); font-size: 12px; margin-top: 2px; }
+.sim { display: inline-block; margin-left: 8px; padding: 1px 7px; border-radius: 4px; background: var(--bg-elevated); color: var(--warning); font-size: 11px; font-weight: 700; letter-spacing: 0.04em; text-transform: uppercase; vertical-align: 3px; }
+.strip { display: flex; flex-wrap: wrap; gap: 4px 14px; font-size: 12px; color: var(--text-muted); border: 1px solid var(--border-subtle); background: var(--bg-surface); border-radius: 8px; padding: 6px 10px; }
+.strip b { color: var(--text-primary); font-weight: 700; }
+.strip .up { color: var(--up); } .strip .down { color: var(--down); }
+.live { color: var(--up); font-weight: 700; }
+.live::before { content: ""; display: inline-block; width: 7px; height: 7px; border-radius: 50%; background: var(--up); margin-right: 5px; vertical-align: 1px; }
+.controls { display: flex; flex-wrap: wrap; gap: 8px 12px; align-items: center; margin-top: 10px; font-size: 12px; }
+.controls label { color: var(--text-muted); display: flex; align-items: center; gap: 6px; }
+select, input[type=search] {
+  font: inherit; color: var(--text-primary); background: var(--bg-surface); border: 1px solid var(--border-subtle);
+  border-radius: 6px; padding: 5px 8px;
+}
+input[type=search] { width: 130px; }
+.chips { display: flex; border: 1px solid var(--border-subtle); border-radius: 6px; overflow: hidden; }
+.chips button { font: inherit; font-weight: 600; color: var(--text-secondary); background: var(--bg-surface); border: 0; padding: 5px 9px; cursor: pointer; }
+.chips button + button { border-left: 1px solid var(--border-subtle); }
+.chips button[aria-pressed=true] { background: var(--accent); color: var(--accent-on); }
+button:focus-visible, select:focus-visible, input:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; }
+.count { color: var(--text-muted); }
+#stage { position: relative; flex: 1; min-height: 0; margin-top: 10px; border-top: 1px solid var(--border-subtle); }
+canvas { position: absolute; inset: 0; width: 100%; height: 100%; display: block; cursor: default; }
+#tip {
+  position: absolute; pointer-events: none; background: var(--bg-elevated); border: 1px solid var(--border-strong);
+  border-radius: 8px; padding: 8px 10px; font-size: 12px; min-width: 170px; box-shadow: 0 4px 16px rgba(4,10,18,.45); z-index: 5;
+}
+#tip .t1 { font-weight: 800; font-size: 13px; }
+#tip .nm { color: var(--text-muted); margin-bottom: 4px; }
+#tip .row { display: flex; justify-content: space-between; gap: 14px; }
+#tip .row span:first-child { color: var(--text-muted); }
+#toast { position: absolute; left: 50%; top: 14px; transform: translateX(-50%); background: var(--bg-elevated); border: 1px solid var(--accent); color: var(--text-primary); padding: 6px 12px; border-radius: 6px; font-size: 12px; z-index: 6; }
+/* Prototype-only chrome: deliberately loud so it never reads as part of the design. */
+#bar {
+  position: fixed; left: 50%; transform: translateX(-50%); bottom: calc(14px + env(safe-area-inset-bottom, 0px));
+  background: var(--bar-bg); color: var(--bar-fg); border-radius: 999px; box-shadow: 0 6px 24px rgba(0,0,0,.5);
+  display: flex; align-items: center; gap: 4px; padding: 4px; font-size: 13px; font-weight: 700; z-index: 10; max-width: calc(100vw - 32px);
+}
+#bar button { font: inherit; background: transparent; border: 0; color: inherit; cursor: pointer; padding: 4px 10px; border-radius: 999px; }
+#bar button:hover { background: rgba(0,0,0,.12); }
+#bar .lbl { padding: 0 6px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+#state {
+  position: fixed; right: max(16px, env(safe-area-inset-right, 0px)); bottom: calc(60px + env(safe-area-inset-bottom, 0px));
+  background: rgba(20,34,52,.92); border: 1px dashed var(--warning); color: var(--text-secondary); border-radius: 8px;
+  font-size: 11px; padding: 8px 10px; z-index: 9; line-height: 1.5; min-width: 190px;
+}
+#state b { color: var(--warning); }
+#state .k { color: var(--text-muted); }
+#state button { font: inherit; font-weight: 700; color: var(--bar-fg); background: var(--warning); border: 0; border-radius: 4px; padding: 1px 6px; cursor: pointer; margin: 2px 2px 0 0; }
+#state button[aria-pressed=false] { background: var(--bg-elevated); color: var(--text-secondary); }
+@media (max-width: 640px) { #state { display: none; } h1 { font-size: 17px; } }
+</style>
+
+<header>
+  <div>
+    <h1>Market Bubbles <span class="sim">Simulated data</span></h1>
+    <div class="sub">Every stock code as a bubble: size and colour from the metrics you pick, over the window you pick.</div>
+  </div>
+  <div class="strip" id="strip"></div>
+</header>
+
+<div class="controls">
+  <label for="size">Size <select id="size"><option value="value">Value</option><option value="volume">Volume</option><option value="freq">Frequency</option></select></label>
+  <label for="colour">Colour <select id="colour"><option value="delta">Buy/Sell delta %</option><option value="change">Price change %</option></select></label>
+  <div class="chips" id="windows" role="group" aria-label="Window"></div>
+  <div class="chips" id="tops" role="group" aria-label="Codes shown"></div>
+  <label for="sector">Sector <select id="sector"></select></label>
+  <input type="search" id="search" placeholder="Find a code" aria-label="Find a stock code">
+  <span class="count" id="count"></span>
+</div>
+
+<div id="stage">
+  <canvas id="cv"></canvas>
+  <div id="tip" hidden></div>
+  <div id="toast" hidden></div>
+</div>
+
+<div id="state" aria-live="off"></div>
+<div id="bar" role="toolbar" aria-label="Prototype variant">
+  <button id="prev" aria-label="Previous variant">←</button>
+  <span class="lbl" id="vlabel"></span>
+  <button id="next" aria-label="Next variant">→</button>
+</div>
+
+<script>
+// PROTOTYPE for "How Market Bubbles looks and moves" (apinrdw/kumora). Throwaway.
+// Four structurally different layouts on one page, switched by #packed / #drift / #sectors / #swarm and the bottom bar.
+// Data is simulated in the page, following the data-path decision: minute-aligned 1m-1h windows, 30s from per-second
+// buckets, D = sum of the day's minutes, delta % = (buy - sell) / (buy + sell) in rupiah, change % vs the close before the window.
+
+const VARIANTS = [
+  { key: 'packed', name: 'Packed, settles in place' },
+  { key: 'drift', name: 'Drifting, bubbles float and collide' },
+  { key: 'sectors', name: 'Sector clusters' },
+  { key: 'swarm', name: 'Delta axis swarm' },
+];
+const WINDOWS = [['30s', 0], ['1m', 1], ['5m', 5], ['15m', 15], ['30m', 30], ['1h', 60], ['D', -1]];
+const TOPS = [['Top 100', 100], ['Top 50', 50], ['All', 0]];
+const SECTORS = ['Energy', 'Basic Materials', 'Industrials', 'Consumer Non-Cyclicals', 'Consumer Cyclicals', 'Healthcare', 'Financials', 'Properties & Real Estate', 'Technology', 'Infrastructures', 'Transportation & Logistics', 'Unclassified'];
+const SECTOR_SHORT = { 'Consumer Non-Cyclicals': 'Non-Cyclicals', 'Consumer Cyclicals': 'Cyclicals', 'Properties & Real Estate': 'Property', 'Transportation & Logistics': 'Transport' };
+const CHANGE_RANGE = { '30s': 0.6, '1m': 1, '5m': 2, '15m': 3, '30m': 4, '1h': 5, 'D': 8 };
+
+// Real large IDX codes so the picture feels familiar; weights are rough, figures are invented.
+const REAL = [
+  ['BBCA','Bank Central Asia','Financials',9800,60],['BBRI','Bank Rakyat Indonesia','Financials',4300,55],['BMRI','Bank Mandiri','Financials',6100,45],
+  ['BBNI','Bank Negara Indonesia','Financials',4700,25],['TLKM','Telkom Indonesia','Infrastructures',3100,35],['ASII','Astra International','Industrials',5000,30],
+  ['GOTO','GoTo Gojek Tokopedia','Technology',70,28],['BRPT','Barito Pacific','Basic Materials',1100,22],['ADRO','Alamtri Resources','Energy',2400,20],
+  ['ANTM','Aneka Tambang','Basic Materials',1500,18],['MDKA','Merdeka Copper Gold','Basic Materials',2200,16],['UNVR','Unilever Indonesia','Consumer Non-Cyclicals',1900,10],
+  ['ICBP','Indofood CBP','Consumer Non-Cyclicals',11000,9],['INDF','Indofood Sukses Makmur','Consumer Non-Cyclicals',7600,8],['AMRT','Sumber Alfaria Trijaya','Consumer Non-Cyclicals',2700,10],
+  ['CPIN','Charoen Pokphand','Consumer Non-Cyclicals',4900,7],['KLBF','Kalbe Farma','Healthcare',1400,8],['MIKA','Mitra Keluarga','Healthcare',2600,5],
+  ['UNTR','United Tractors','Industrials',26000,14],['PGAS','Perusahaan Gas Negara','Energy',1600,12],['PTBA','Bukit Asam','Energy',2700,10],
+  ['ITMG','Indo Tambangraya','Energy',25000,6],['MEDC','Medco Energi','Energy',1200,11],['INCO','Vale Indonesia','Basic Materials',3800,9],
+  ['TPIA','Chandra Asri Pacific','Basic Materials',7500,12],['SMGR','Semen Indonesia','Basic Materials',3400,5],['INKP','Indah Kiat Pulp','Basic Materials',7000,6],
+  ['BUKA','Bukalapak','Technology',130,7],['EMTK','Elang Mahkota','Technology',500,6],['ISAT','Indosat','Infrastructures',2200,8],
+  ['EXCL','XL Axiata','Infrastructures',2300,8],['TOWR','Sarana Menara','Infrastructures',650,7],['JSMR','Jasa Marga','Infrastructures',4600,5],
+  ['BSDE','Bumi Serpong Damai','Properties & Real Estate',1000,6],['CTRA','Ciputra Development','Properties & Real Estate',1100,6],['PWON','Pakuwon Jati','Properties & Real Estate',420,4],
+  ['ACES','Aspirasi Hidup','Consumer Cyclicals',800,5],['MAPI','Mitra Adiperkasa','Consumer Cyclicals',1500,6],['ERAA','Erajaya','Consumer Cyclicals',420,4],
+  ['BRIS','Bank Syariah Indonesia','Financials',2800,14],['ARTO','Bank Jago','Financials',2300,8],['BBTN','Bank Tabungan Negara','Financials',1200,8],
+  ['AKRA','AKR Corporindo','Energy',1300,6],['AMMN','Amman Mineral','Basic Materials',8500,18],['BREN','Barito Renewables','Infrastructures',7000,15],
+  ['CUAN','Petrindo Jaya Kreasi','Energy',1300,14],['PANI','Pantai Indah Kapuk Dua','Properties & Real Estate',14000,9],['DEWA','Darma Henwa','Energy',120,9],
+  ['BUMI','Bumi Resources','Energy',130,16],['ENRG','Energi Mega Persada','Energy',350,8],['RAJA','Rukun Raharja','Energy',3000,6],
+  ['NCKL','Trimegah Bangun Persada','Basic Materials',900,7],['MBMA','Merdeka Battery','Basic Materials',450,8],['ASSA','Adi Sarana Armada','Transportation & Logistics',800,3],
+  ['BIRD','Blue Bird','Transportation & Logistics',1700,2],['SMDR','Samudera Indonesia','Transportation & Logistics',300,3],['TINS','Timah','Basic Materials',1100,9],
+  ['AALI','Astra Agro Lestari','Consumer Non-Cyclicals',6200,3],['HMSP','HM Sampoerna','Consumer Non-Cyclicals',700,4],['GGRM','Gudang Garam','Consumer Non-Cyclicals',13000,3],
+  ['MYOR','Mayora Indah','Consumer Non-Cyclicals',2500,4],['SIDO','Sido Muncul','Healthcare',600,3],['HEAL','Medikaloka Hermina','Healthcare',1400,3],
+  ['JPFA','Japfa Comfeed','Consumer Non-Cyclicals',1900,5],['DCII','DCI Indonesia','Technology',40000,3],['MTEL','Dayamitra Telekomunikasi','Infrastructures',600,4],
+  ['ESSA','ESSA Industries','Basic Materials',800,7],['EMAS','Merdeka Gold Resources','Basic Materials',2900,9],['BIPI','Astrindo Nusantara','Energy',140,6],
+];
+
+// ---------- simulation ----------
+let seed = 7;
+const rnd = () => { seed = (seed * 16807) % 2147483647; return (seed - 1) / 2147483646; };
+const gauss = () => { let u = 0, v = 0; while (!u) u = rnd(); while (!v) v = rnd(); return Math.sqrt(-2 * Math.log(u)) * Math.cos(2 * Math.PI * v); };
+const tick = p => p < 200 ? 1 : p < 500 ? 2 : p < 2000 ? 5 : p < 5000 ? 10 : 25; // IDX tick sizes
+
+const codes = [];
+const taken = new Set(REAL.map(r => r[0]));
+for (const [code, name, sector, price, w] of REAL) codes.push({ code, name, sector, price, w });
+const L = 'ABCDEFGHIJKLMNOPRSTUWY';
+while (codes.length < 900) {
+  let c = ''; for (let i = 0; i < 4; i++) c += L[Math.floor(rnd() * L.length)];
+  if (taken.has(c)) continue; taken.add(c);
+  const sector = rnd() < 0.03 ? 'Unclassified' : SECTORS[Math.floor(rnd() * 11)];
+  codes.push({ code: c, name: 'Example company', sector, price: Math.round(Math.exp(4 + rnd() * 4.5)), w: Math.exp(gauss() * 1.3 - 0.5) });
+}
+const totalW = codes.reduce((s, c) => s + c.w, 0);
+const cum = []; { let a = 0; for (const c of codes) { a += c.w / totalW; cum.push(a); } }
+const pickCode = () => { const r = rnd(); let lo = 0, hi = cum.length - 1; while (lo < hi) { const m = (lo + hi) >> 1; if (cum[m] < r) lo = m + 1; else hi = m; } return codes[lo]; };
+
+const emptyRow = () => ({ value: 0, volume: 0, freq: 0, buy: 0, sell: 0, close: 0 });
+for (const c of codes) {
+  c.prevClose = c.price; c.bias = gauss() * 0.4; c.minutes = []; c.cur = emptyRow(); c.secs = []; c.curSec = emptyRow();
+  c.day = emptyRow(); c.lastPrice = c.price;
+}
+
+function trade(c, lotsScale) {
+  c.bias = c.bias * 0.995 + gauss() * 0.04;
+  const pBuy = 1 / (1 + Math.exp(-c.bias * 2));
+  const side = rnd() < 0.04 ? 0 : rnd() < pBuy ? 1 : -1;
+  const t = tick(c.lastPrice);
+  // buy aggressors lift the price a tick now and then, sell aggressors knock it down
+  if (side && rnd() < 0.12) c.lastPrice = Math.max(t, c.lastPrice + side * t);
+  const lots = Math.max(1, Math.round(Math.exp(gauss() * 1.2 + 2.2) * lotsScale));
+  const value = lots * 100 * c.lastPrice;
+  for (const row of [c.cur, c.curSec, c.day]) {
+    row.value += value; row.volume += lots; row.freq += 1; row.close = c.lastPrice;
+    if (side > 0) row.buy += value; else if (side < 0) row.sell += value;
+  }
+}
+
+// Backfill: 60 minutes of history for every code, then live ticks.
+const SIM = { speed: 1, clock: 0, startMin: 14 * 60 + 2 };
+function rollMinute() {
+  for (const c of codes) { c.cur.close = c.cur.close || c.lastPrice; c.minutes.push(c.cur); if (c.minutes.length > 61) c.minutes.shift(); c.cur = emptyRow(); c.cur.close = 0; }
+}
+function rollSecond() {
+  for (const c of codes) { c.curSec.close = c.curSec.close || c.lastPrice; c.secs.push(c.curSec); if (c.secs.length > 31) c.secs.shift(); c.curSec = emptyRow(); }
+}
+for (let m = 0; m < 75; m++) { for (let i = 0; i < 2600; i++) trade(pickCode(), 1); for (let s = 0; s < 30; s++) rollSecond(); rollMinute(); }
+let secInMin = 0;
+function liveTick() { // one 250 ms delta's worth of trades
+  const n = 20 + Math.floor(rnd() * 40);
+  for (let i = 0; i < n; i++) trade(pickCode(), 1);
+}
+let quarter = 0;
+setInterval(() => {
+  for (let k = 0; k < SIM.speed; k++) {
+    liveTick(); quarter++;
+    if (quarter % 4 === 0) { rollSecond(); secInMin++; SIM.clock++; if (secInMin === 60) { secInMin = 0; rollMinute(); } }
+  }
+}, 250);
+
+// ---------- windowed figures ----------
+const S = { variant: 'packed', size: 'value', colour: 'delta', win: '5m', top: 100, sector: 'All sectors', search: '', cadence: 1000, lastCompute: 0 };
+function figures(c) {
+  const w = WINDOWS.find(x => x[0] === S.win)[1];
+  let rows, before;
+  if (S.win === '30s') { rows = [...c.secs.slice(-29), c.curSec]; before = c.secs.length > 30 ? c.secs[c.secs.length - 30].close : c.prevClose; }
+  else if (w === -1) { rows = [c.day]; before = c.prevClose; }
+  else { rows = [...c.minutes.slice(-(w - 1) || c.minutes.length), c.cur]; if (w === 1) rows = [c.cur]; const b = c.minutes[c.minutes.length - w]; before = b ? b.close : c.prevClose; }
+  const f = { value: 0, volume: 0, freq: 0, buy: 0, sell: 0 };
+  for (const r of rows) { f.value += r.value; f.volume += r.volume; f.freq += r.freq; f.buy += r.buy; f.sell += r.sell; }
+  f.delta = f.buy + f.sell > 0 ? (f.buy - f.sell) / (f.buy + f.sell) * 100 : 0;
+  f.change = before ? (c.lastPrice - before) / before * 100 : 0;
+  f.dayChange = (c.lastPrice - c.prevClose) / c.prevClose * 100;
+  return f;
+}
+
+// ---------- bubbles ----------
+const cv = document.getElementById('cv'), ctx = cv.getContext('2d');
+let W = 0, H = 0, DPR = 1;
+const bubbles = new Map(); // code -> bubble
+let shown = [];
+function resize() {
+  const r = cv.getBoundingClientRect(); DPR = Math.min(2, window.devicePixelRatio || 1);
+  W = r.width; H = r.height; cv.width = Math.round(W * DPR); cv.height = Math.round(H * DPR);
+}
+new ResizeObserver(resize).observe(document.getElementById('stage'));
+resize();
+
+function recompute() {
+  const t0 = performance.now();
+  const q = S.search.trim().toUpperCase();
+  let list = [];
+  for (const c of codes) {
+    if (S.sector !== 'All sectors' && c.sector !== S.sector) continue;
+    const f = figures(c);
+    if (f.freq === 0) continue; // only codes that traded in the window
+    list.push({ c, f, m: f[S.size] });
+  }
+  list.sort((a, b) => b.m - a.m);
+  if (S.top) list = list.slice(0, S.top);
+  const total = list.reduce((s, x) => s + x.m, 0) || 1;
+  const fill = S.variant === 'swarm' ? 0.32 : S.variant === 'sectors' ? 0.34 : 0.55;
+  const k = Math.sqrt(fill * W * H / (Math.PI * total));
+  const minR = list.length > 300 ? 4 : 7;
+  const keep = new Set();
+  for (const { c, f, m } of list) {
+    keep.add(c.code);
+    let b = bubbles.get(c.code);
+    const tr = Math.max(minR, k * Math.sqrt(m));
+    const metric = S.colour === 'delta' ? f.delta : f.change;
+    const range = S.colour === 'delta' ? 100 : CHANGE_RANGE[S.win];
+    const tc = Math.max(-1, Math.min(1, metric / range));
+    if (!b) {
+      b = spawn(c); bubbles.set(c.code, b);
+    }
+    b.tr = tr; b.tc = tc; b.f = f; b.metric = metric; b.dying = false;
+    b.match = q && c.code.includes(q);
+  }
+  for (const [code, b] of bubbles) if (!keep.has(code)) b.dying = true;
+  shown = list;
+  if (S.variant === 'sectors') sectorAnchors();
+  S.lastCompute = performance.now() - t0;
+  drawStrip(); document.getElementById('count').textContent = `${list.length} codes`;
+}
+function spawn(c) {
+  const a = rnd() * Math.PI * 2;
+  const x = S.variant === 'drift' ? rnd() * W : W / 2 + Math.cos(a) * W * 0.55;
+  const y = S.variant === 'drift' ? rnd() * H : H / 2 + Math.sin(a) * H * 0.55;
+  return { c, x, y, vx: (rnd() - .5) * .6, vy: (rnd() - .5) * .6, r: 0, tr: 0, col: 0, tc: 0, dying: false, f: null };
+}
+
+// ---------- physics ----------
+// Two-level pack: each sector is a circle whose area is the sum of its bubbles' areas (plus slack),
+// the sector circles are packed toward the centre, then each code is pulled to its sector's centre.
+let anchors = {}, anchorTarget = {};
+function sectorAnchors() {
+  const area = {};
+  for (const b of bubbles.values()) { if (b.dying) continue; area[b.c.sector] = (area[b.c.sector] || 0) + Math.PI * b.tr * b.tr; }
+  const secs = Object.keys(area);
+  if (!secs.length) return;
+  const circles = secs.map((s, i) => {
+    const prev = anchorTarget[s], a = (i / secs.length) * Math.PI * 2;
+    return { s, r: Math.sqrt(area[s] * 1.5 / Math.PI) + 18, x: prev ? prev.x : W / 2 + Math.cos(a) * W * 0.3, y: prev ? prev.y : H / 2 + Math.sin(a) * H * 0.3 };
+  });
+  for (let it = 0; it < 220; it++) {
+    for (const c of circles) { c.x += (W / 2 - c.x) * 0.02 * (H / W); c.y += (H / 2 - c.y) * 0.02; }
+    for (let i = 0; i < circles.length; i++) for (let j = i + 1; j < circles.length; j++) {
+      const a = circles[i], b = circles[j], dx = b.x - a.x, dy = b.y - a.y, d = Math.hypot(dx, dy) || 1, o = a.r + b.r + 26 - d;
+      if (o > 0) { const wa = b.r / (a.r + b.r), k = o / d; a.x -= dx * k * wa; a.y -= dy * k * wa; b.x += dx * k * (1 - wa); b.y += dy * k * (1 - wa); }
+    }
+  }
+  for (const c of circles) { c.x = Math.max(c.r, Math.min(W - c.r, c.x)); c.y = Math.max(c.r + 30, Math.min(H - c.r, c.y)); anchorTarget[c.s] = { x: c.x, y: c.y }; if (!anchors[c.s]) anchors[c.s] = { x: c.x, y: c.y }; }
+}
+function easeAnchors() { for (const [s, t] of Object.entries(anchorTarget)) { const a = anchors[s] || (anchors[s] = { ...t }); a.x += (t.x - a.x) * 0.05; a.y += (t.y - a.y) * 0.05; } }
+function step() {
+  const arr = [...bubbles.values()];
+  const cx = W / 2, cy = H / 2;
+  if (S.variant === 'sectors') easeAnchors();
+  for (const b of arr) {
+    b.r += ((b.dying ? 0 : b.tr) - b.r) * 0.12;
+    b.col += (b.tc - b.col) * 0.1;
+    if (S.variant === 'packed') { b.vx += (cx - b.x) * 0.0016 * (H / W); b.vy += (cy - b.y) * 0.0016; b.vx *= .82; b.vy *= .82; }
+    else if (S.variant === 'drift') { b.vx += (rnd() - .5) * .04; b.vy += (rnd() - .5) * .04; const sp = Math.hypot(b.vx, b.vy), mx = 0.9; if (sp > mx) { b.vx *= mx / sp; b.vy *= mx / sp; } b.vx *= .995; b.vy *= .995; }
+    else if (S.variant === 'sectors') { const a = anchors[b.c.sector] || { x: cx, y: cy }; b.vx += (a.x - b.x) * 0.012; b.vy += (a.y - b.y) * 0.012; b.vx *= .75; b.vy *= .75; }
+    else { const pad = 40, tx = pad + (b.col + 1) / 2 * (W - pad * 2); b.vx += (tx - b.x) * 0.01; b.vy += (cy + 20 - b.y) * 0.0015; b.vx *= .78; b.vy *= .78; }
+    b.x += b.vx; b.y += b.vy;
+  }
+  // collisions: sweep and prune on x
+  for (let it = 0; it < 2; it++) {
+    arr.sort((a, b) => (a.x - a.r) - (b.x - b.r));
+    for (let i = 0; i < arr.length; i++) {
+      const a = arr[i], ar = a.r + 1.5;
+      for (let j = i + 1; j < arr.length; j++) {
+        const b = arr[j];
+        if (b.x - b.r > a.x + ar) break;
+        const dx = b.x - a.x, dy = b.y - a.y, rr = ar + b.r;
+        const d2 = dx * dx + dy * dy;
+        if (d2 >= rr * rr || d2 === 0) continue;
+        const d = Math.sqrt(d2), o = (rr - d) / d * 0.5;
+        const wa = b.r * b.r / (a.r * a.r + b.r * b.r + 1e-6), wb = 1 - wa;
+        a.x -= dx * o * wa; a.y -= dy * o * wa; b.x += dx * o * wb; b.y += dy * o * wb;
+        if (S.variant === 'drift') { const tvx = a.vx; a.vx = a.vx * .3 + b.vx * .7; b.vx = b.vx * .3 + tvx * .7; const tvy = a.vy; a.vy = a.vy * .3 + b.vy * .7; b.vy = b.vy * .3 + tvy * .7; }
+      }
+    }
+  }
+  const bottom = H, top = S.variant === 'swarm' ? 46 : 0;
+  for (const b of arr) {
+    if (b.x < b.r) { b.x = b.r; b.vx = Math.abs(b.vx); } if (b.x > W - b.r) { b.x = W - b.r; b.vx = -Math.abs(b.vx); }
+    if (b.y < top + b.r) { b.y = top + b.r; b.vy = Math.abs(b.vy); } if (b.y > bottom - b.r) { b.y = bottom - b.r; b.vy = -Math.abs(b.vy); }
+    if (b.dying && b.r < 0.5) bubbles.delete(b.c.code);
+  }
+}
+
+// ---------- drawing ----------
+const UP = [81, 221, 162], DOWN = [255, 121, 135], NEU = [168, 184, 200];
+function colourOf(t) {
+  const s = Math.pow(Math.abs(t), 0.6), to = t >= 0 ? UP : DOWN;
+  return NEU.map((n, i) => Math.round(n + (to[i] - n) * s));
+}
+const fmtRp = v => v >= 1e12 ? `Rp ${(v / 1e12).toFixed(2)} T` : v >= 1e9 ? `Rp ${(v / 1e9).toFixed(2)} B` : v >= 1e6 ? `Rp ${(v / 1e6).toFixed(1)} M` : `Rp ${Math.round(v / 1e3)} K`;
+const fmtN = v => v >= 1e6 ? `${(v / 1e6).toFixed(2)} M` : v >= 1e3 ? `${(v / 1e3).toFixed(2)} K` : `${Math.round(v)}`;
+const fmtPct = v => `${v >= 0 ? '+' : '−'}${Math.abs(v).toFixed(2)}%`;
+let hover = null, frames = 0, fps = 0, lastFpsT = performance.now(), glowCut = 0;
+function draw() {
+  ctx.setTransform(DPR, 0, 0, DPR, 0, 0);
+  ctx.clearRect(0, 0, W, H);
+  const arr = [...bubbles.values()].sort((a, b) => a.r - b.r);
+  const searching = S.search.trim() !== '';
+  // only the ~120 largest bubbles get a blurred glow; the rest get a flat rim
+  glowCut = arr.length > 120 ? arr[arr.length - 120].r : 0;
+  if (S.variant === 'swarm') drawAxis();
+  for (const b of arr) {
+    if (b.r < 0.6) continue;
+    const [r, g, bl] = colourOf(b.col), a = 0.35 + 0.65 * Math.pow(Math.abs(b.col), 0.6);
+    const dim = searching && !b.match;
+    ctx.globalAlpha = dim ? 0.18 : 1;
+    const grad = ctx.createRadialGradient(b.x, b.y, b.r * 0.2, b.x, b.y, b.r);
+    grad.addColorStop(0, 'rgba(11,20,33,0.95)'); grad.addColorStop(0.75, `rgba(${r},${g},${bl},${0.08 * a})`); grad.addColorStop(1, `rgba(${r},${g},${bl},${0.32 * a})`);
+    ctx.beginPath(); ctx.arc(b.x, b.y, b.r, 0, Math.PI * 2); ctx.fillStyle = grad; ctx.fill();
+    if (b.r >= glowCut && b.r > 14 && !dim) { ctx.shadowBlur = Math.min(22, b.r * 0.3); ctx.shadowColor = `rgba(${r},${g},${bl},${0.9 * a})`; }
+    ctx.lineWidth = b.r > 40 ? 3 : b.r > 16 ? 2 : 1.2;
+    ctx.strokeStyle = `rgba(${r},${g},${bl},${0.55 + 0.45 * a})`;
+    if (b === hover || b.match) { ctx.lineWidth += 1.5; ctx.strokeStyle = '#edf4fb'; }
+    ctx.stroke(); ctx.shadowBlur = 0;
+    label(b, dim);
+  }
+  ctx.globalAlpha = 1;
+  if (S.variant === 'sectors') drawSectorLabels(arr);
+  frames++; const now = performance.now(); if (now - lastFpsT > 1000) { fps = frames * 1000 / (now - lastFpsT); frames = 0; lastFpsT = now; drawState(); }
+}
+function label(b, dim) {
+  if (b.r < 11 || !b.f) return;
+  const fs = Math.max(8, Math.min(30, b.r * 0.36));
+  ctx.textAlign = 'center'; ctx.textBaseline = 'middle';
+  ctx.fillStyle = dim ? 'rgba(237,244,251,.5)' : '#edf4fb';
+  ctx.font = `800 ${fs}px Manrope, Arial, sans-serif`;
+  const lines = b.r > 26 ? 3 : b.r > 17 ? 2 : 1;
+  const lh = fs * 0.95, y0 = b.y - (lines - 1) * lh * 0.5;
+  ctx.fillText(b.c.code, b.x, y0);
+  if (lines >= 2) { ctx.font = `700 ${fs * 0.58}px Manrope, Arial, sans-serif`; ctx.fillStyle = dim ? 'rgba(176,194,210,.5)' : '#d8e4ee'; ctx.fillText(fmtPct(b.metric), b.x, y0 + lh * 0.9); }
+  if (lines >= 3) { ctx.font = `600 ${fs * 0.5}px Manrope, Arial, sans-serif`; ctx.fillStyle = 'rgba(176,194,210,.85)'; ctx.fillText(S.size === 'value' ? fmtRp(b.f.value) : S.size === 'volume' ? `${fmtN(b.f.volume)} lots` : `${fmtN(b.f.freq)} trades`, b.x, y0 + lh * 1.65); }
+}
+function drawAxis() {
+  const pad = 40, y = 30;
+  ctx.strokeStyle = '#26394e'; ctx.lineWidth = 1; ctx.beginPath(); ctx.moveTo(pad, y - 10); ctx.lineTo(W - pad, y - 10); ctx.stroke();
+  ctx.setLineDash([3, 5]); ctx.beginPath(); ctx.moveTo(W / 2, y + 6); ctx.lineTo(W / 2, H); ctx.stroke(); ctx.setLineDash([]);
+  const range = S.colour === 'delta' ? 100 : CHANGE_RANGE[S.win];
+  ctx.font = '600 11px Manrope, Arial, sans-serif'; ctx.textAlign = 'center'; ctx.textBaseline = 'middle';
+  for (const t of [-1, -0.5, 0, 0.5, 1]) {
+    const x = pad + (t + 1) / 2 * (W - pad * 2);
+    ctx.fillStyle = t < 0 ? '#ff7987' : t > 0 ? '#51dda2' : '#839aae';
+    ctx.fillText((t === 0 ? '0' : fmtPct(t * range)) + (Math.abs(t) === 1 ? (t < 0 ? ' or lower' : ' or higher') : ''), x, y + 4);
+    ctx.strokeStyle = '#26394e'; ctx.beginPath(); ctx.moveTo(x, y - 14); ctx.lineTo(x, y - 6); ctx.stroke();
+  }
+  ctx.fillStyle = '#839aae'; ctx.textAlign = 'left'; ctx.fillText(S.colour === 'delta' ? 'Sell-heavy  ←  Buy/Sell delta %  →  Buy-heavy' : 'Falling  ←  Price change %  →  Rising', pad, 12);
+}
+function drawSectorLabels(arr) {
+  const box = {};
+  for (const b of arr) { if (b.dying) continue; const s = b.c.sector; const o = box[s] || (box[s] = { minY: 1e9, x: 0, n: 0, v: 0, buy: 0, sell: 0 }); o.minY = Math.min(o.minY, b.y - b.r); o.x += b.x; o.n++; if (b.f) { o.v += b.f[S.size]; o.buy += b.f.buy; o.sell += b.f.sell; } }
+  ctx.textAlign = 'center'; ctx.textBaseline = 'bottom';
+  for (const [s, o] of Object.entries(box)) {
+    const x = o.x / o.n, y = Math.max(14, o.minY - 4);
+    const d = o.buy + o.sell ? (o.buy - o.sell) / (o.buy + o.sell) * 100 : 0;
+    ctx.font = '700 12px Manrope, Arial, sans-serif'; ctx.fillStyle = '#b0c2d2';
+    ctx.fillText(`${SECTOR_SHORT[s] || s}`, x, y - 12);
+    ctx.font = '600 11px Manrope, Arial, sans-serif'; ctx.fillStyle = d >= 0 ? '#51dda2' : '#ff7987';
+    ctx.fillText(`${S.size === 'value' ? fmtRp(o.v) : fmtN(o.v)} · ${fmtPct(d)}`, x, y);
+  }
+}
+function frame() { step(); draw(); requestAnimationFrame(frame); }
+
+// ---------- header strip, state panel ----------
+let ihsg = 7215.87;
+function drawStrip() {
+  let value = 0, freq = 0, up = 0, down = 0, flat = 0;
+  for (const c of codes) { value += c.day.value; freq += c.day.freq; if (c.day.freq === 0) continue; const ch = c.lastPrice - c.prevClose; if (ch > 0) up++; else if (ch < 0) down++; else flat++; }
+  ihsg += gauss() * 0.6; const ic = (ihsg - 7076.4) / 7076.4 * 100;
+  const mm = SIM.startMin + Math.floor(SIM.clock / 60), hh = Math.floor(mm / 60), mi = mm % 60, ss = SIM.clock % 60;
+  document.getElementById('strip').innerHTML =
+    `<span>IHSG <b>${ihsg.toFixed(2)}</b> <span class="${ic >= 0 ? 'up' : 'down'}">${fmtPct(ic)}</span></span>` +
+    `<span>Value <b>${fmtRp(value)}</b></span><span>Freq <b>${fmtN(freq)}</b></span>` +
+    `<span>Up <b class="up">${up}</b></span><span>Down <b class="down">${down}</b></span><span>Unchanged <b>${flat}</b></span>` +
+    `<span class="live">Live · ${String(hh).padStart(2, '0')}:${String(mi).padStart(2, '0')}:${String(ss).padStart(2, '0')}</span>`;
+}
+function drawState() {
+  const v = VARIANTS.find(x => x.key === S.variant);
+  document.getElementById('state').innerHTML =
+    `<b>Prototype state</b><br>` +
+    `<span class="k">variant</span> ${v.key} · <span class="k">window</span> ${S.win}<br>` +
+    `<span class="k">size</span> ${S.size} · <span class="k">colour</span> ${S.colour}<br>` +
+    `<span class="k">bubbles</span> ${bubbles.size} (${shown.length} live) · <span class="k">fps</span> ${fps.toFixed(0)}<br>` +
+    `<span class="k">recompute</span> ${S.lastCompute.toFixed(1)} ms every ${S.cadence} ms<br>` +
+    `<span class="k">recompute every</span> ${[250, 1000, 3000].map(c => `<button data-cad="${c}" aria-pressed="${S.cadence === c}">${c < 1000 ? c + ' ms' : c / 1000 + ' s'}</button>`).join('')}<br>` +
+    `<span class="k">sim clock</span> ${[1, 10].map(s => `<button data-speed="${s}" aria-pressed="${SIM.speed === s}">${s}×</button>`).join('')}`;
+}
+document.getElementById('state').addEventListener('click', e => {
+  const c = e.target.dataset.cad, s = e.target.dataset.speed;
+  if (c) { S.cadence = +c; restartCadence(); } if (s) SIM.speed = +s; drawState();
+});
+let cadTimer; function restartCadence() { clearInterval(cadTimer); cadTimer = setInterval(recompute, S.cadence); }
+
+// ---------- controls ----------
+function chips(el, items, get, set) {
+  el.innerHTML = items.map(([l, v]) => `<button data-v="${v}" aria-pressed="false">${l}</button>`).join('');
+  const sync = () => el.querySelectorAll('button').forEach(b => b.setAttribute('aria-pressed', String(b.dataset.v === String(get()))));
+  el.addEventListener('click', e => { if (e.target.dataset.v !== undefined) { set(e.target.dataset.v); sync(); recompute(); } });
+  sync();
+}
+chips(document.getElementById('windows'), WINDOWS.map(w => [w[0], w[0]]), () => S.win, v => S.win = v);
+chips(document.getElementById('tops'), TOPS, () => S.top, v => S.top = +v);
+const secSel = document.getElementById('sector');
+secSel.innerHTML = ['All sectors', ...SECTORS].map(s => `<option>${s}</option>`).join('');
+secSel.onchange = () => { S.sector = secSel.value; recompute(); };
+document.getElementById('size').onchange = e => { S.size = e.target.value; recompute(); };
+document.getElementById('colour').onchange = e => { S.colour = e.target.value; recompute(); };
+document.getElementById('search').oninput = e => { S.search = e.target.value; recompute(); };
+
+// ---------- hover, tooltip, click ----------
+const tip = document.getElementById('tip'), toast = document.getElementById('toast');
+function hit(x, y) { let best = null; for (const b of bubbles.values()) { if (b.dying) continue; const d = Math.hypot(b.x - x, b.y - y); if (d < b.r && (!best || b.r < best.r)) best = b; } return best; }
+cv.addEventListener('mousemove', e => {
+  const r = cv.getBoundingClientRect(), x = e.clientX - r.left, y = e.clientY - r.top;
+  hover = hit(x, y);
+  if (!hover || !hover.f) { tip.hidden = true; cv.style.cursor = 'default'; return; }
+  cv.style.cursor = 'pointer';
+  const f = hover.f, c = hover.c;
+  tip.innerHTML = `<div class="t1">${c.code} <span style="color:${f.dayChange >= 0 ? 'var(--up)' : 'var(--down)'}">${fmtPct(f.dayChange)}</span></div><div class="nm">${c.name} · ${c.sector}</div>` +
+    `<div class="row"><span>Price</span><span>${c.lastPrice.toLocaleString('en-US')}</span></div>` +
+    `<div class="row"><span>Value (${S.win})</span><span>${fmtRp(f.value)}</span></div>` +
+    `<div class="row"><span>Volume</span><span>${fmtN(f.volume)} lots</span></div>` +
+    `<div class="row"><span>Frequency</span><span>${fmtN(f.freq)}</span></div>` +
+    `<div class="row"><span>Buy/Sell delta</span><span style="color:${f.delta >= 0 ? 'var(--up)' : 'var(--down)'}">${fmtPct(f.delta)}</span></div>` +
+    `<div class="row"><span>Change (${S.win})</span><span style="color:${f.change >= 0 ? 'var(--up)' : 'var(--down)'}">${fmtPct(f.change)}</span></div>`;
+  tip.hidden = false;
+  const tw = tip.offsetWidth, th = tip.offsetHeight;
+  tip.style.left = `${Math.min(W - tw - 4, x + 14)}px`; tip.style.top = `${Math.min(H - th - 4, y + 14)}px`;
+});
+cv.addEventListener('mouseleave', () => { hover = null; tip.hidden = true; });
+cv.addEventListener('click', e => {
+  const r = cv.getBoundingClientRect(), b = hit(e.clientX - r.left, e.clientY - r.top);
+  if (!b) return;
+  toast.textContent = `Would open Market Live on ${b.c.code}`; toast.hidden = false;
+  clearTimeout(toast._t); toast._t = setTimeout(() => toast.hidden = true, 1800);
+});
+
+// ---------- variant switcher (prototype only) ----------
+function setVariant(key, push) {
+  if (!VARIANTS.some(v => v.key === key)) key = 'packed';
+  S.variant = key; const i = VARIANTS.findIndex(v => v.key === key);
+  document.getElementById('vlabel').textContent = `${'ABCD'[i]} · ${VARIANTS[i].name}`;
+  if (push && location.hash !== '#' + key) history.replaceState(null, '', '#' + key);
+  if (key === 'drift') for (const b of bubbles.values()) { b.vx = (rnd() - .5) * 1.2; b.vy = (rnd() - .5) * 1.2; }
+  recompute(); drawState();
+}
+const cycle = d => { const i = VARIANTS.findIndex(v => v.key === S.variant); setVariant(VARIANTS[(i + d + VARIANTS.length) % VARIANTS.length].key, true); };
+document.getElementById('prev').onclick = () => cycle(-1);
+document.getElementById('next').onclick = () => cycle(1);
+document.addEventListener('keydown', e => {
+  const t = e.target; if (t.closest && t.closest('input, textarea, select, [contenteditable]')) return;
+  if (e.key === 'ArrowLeft') cycle(-1); if (e.key === 'ArrowRight') cycle(1);
+});
+window.addEventListener('hashchange', () => setVariant(location.hash.slice(1), false));
+new ResizeObserver(() => { if (S.variant === 'sectors') sectorAnchors(); }).observe(document.getElementById('stage'));
+
+setVariant(location.hash.slice(1) || 'packed', false);
+// let the packed layout settle before the first frame is shown
+for (let i = 0; i < 160; i++) step();
+restartCadence();
+requestAnimationFrame(frame);
+</script>
