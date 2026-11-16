@@ -237,20 +237,26 @@ export class SweepBubbles implements ISeriesPrimitive<Time> {
     return { x: centre + offset, y }
   }
 
-  // The shown bubble nearest a point of the pane, among those it is on.
-  nearest(x: number, y: number) {
-    let best: { id: TradeNumber; distance: number } | undefined
-    for (const placed of this.placed()) {
-      const distance = Math.hypot(placed.x - x, placed.y - y)
-      if (distance > placed.bubble.radius + 2) continue
-      if (best === undefined || distance < best.distance)
-        best = { id: placed.bubble.id, distance }
+  // The shown bubble a point of the pane is on: the smallest, which draws on
+  // top, so a piece sharing a larger one's centre can still be picked; the
+  // nearest of equal ones.
+  topmost(x: number, y: number) {
+    let best: { id: TradeNumber; radius: number; distance: number } | undefined
+    for (const { bubble, ...at } of this.placed()) {
+      const distance = Math.hypot(at.x - x, at.y - y)
+      if (distance > bubble.radius + 2) continue
+      if (
+        best === undefined ||
+        bubble.radius < best.radius ||
+        (bubble.radius === best.radius && distance < best.distance)
+      )
+        best = { id: bubble.id, radius: bubble.radius, distance }
     }
     return best
   }
 
   hitTest(x: number, y: number): PrimitiveHoveredItem | null {
-    const best = this.nearest(x, y)
+    const best = this.topmost(x, y)
     return best === undefined
       ? null
       : {
@@ -358,7 +364,7 @@ export function attachSweepBubbles({
       parameter.paneIndex === series.getPane().paneIndex()
         ? parameter.point
         : undefined
-    const id = point && bubbles.nearest(point.x, point.y)?.id
+    const id = point && bubbles.topmost(point.x, point.y)?.id
     const shown = store.tip.get()
     if (!pin && shown?.pinned) return id
     if (id === undefined || point === undefined) {

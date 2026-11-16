@@ -123,9 +123,9 @@ describe("chart 1's bubbles", () => {
         })
         // 20 s into the minute at a bar spacing of 6 is 2 px past its centre.
         // FZ's bubble has a radius of 1.5 px, XL's 16.
-        expect(bubbles.nearest(102, 200)?.id).toBe("1")
-        expect(bubbles.nearest(112, 200)?.id).toBe("2")
-        expect(bubbles.nearest(122, 200)).toBeUndefined()
+        expect(bubbles.topmost(102, 200)?.id).toBe("1")
+        expect(bubbles.topmost(112, 200)?.id).toBe("2")
+        expect(bubbles.topmost(122, 200)).toBeUndefined()
       })
   )
 })
