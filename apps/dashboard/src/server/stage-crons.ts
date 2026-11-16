@@ -6,11 +6,10 @@ import { KSEI_CRON, KSEI_PARSE_CRON } from "./ksei/schedule.ts"
 import { ARCHIVE_CRON, PARSE_CRON } from "./shareholding/schedule.ts"
 
 export const stageCrons = (production: boolean) => [
-  // Decision: the broker totals reconcile runs on every stage, not
-  // Production only: each stage's trading days build into its own
-  // BrokerTotalsDb, and the extension's extra target feeds a second stage. It
-  // reads only the stage's own day index, D1 and trading-day objects, so
-  // `pnpm dev` and a Preview firing it call nothing outside. See spec
+  // Decision: the broker totals reconcile runs on every stage: each stage
+  // builds into its own BrokerTotalsDb, and the extension's extra target
+  // feeds a second stage. It touches only the stage's own day index, D1 and
+  // trading days, so a dev or Preview run calls nothing outside. See spec
   // apinrdw/kumora#437, "Dashboard: reconcile cron".
   RECONCILE_CRON,
   // Decision: the archive cron is set by stage, on Production only, like
