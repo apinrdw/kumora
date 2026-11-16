@@ -4,7 +4,7 @@ import { createRoot } from "react-dom/client"
 import { afterEach, expect, test, vi } from "vitest"
 
 import { HoldingComposition } from "@/components/stocks/holding-composition"
-import type { OriginShown } from "@/lib/stock-search"
+import type { ChartView, OriginShown } from "@/lib/stock-search"
 import type { SeriesMonth } from "@/server/holdings/stock-page"
 
 // React's `act` warns outside a test environment that declares itself.
@@ -33,13 +33,17 @@ document.body.append(container)
 const root = createRoot(container)
 afterEach(() => act(() => root.render(null)))
 
-const render = (origin: OriginShown, series = SERIES) =>
+const render = (
+  origin: OriginShown,
+  series = SERIES,
+  view: ChartView = "table"
+) =>
   act(() =>
     root.render(
       <HoldingComposition
         series={series}
         origin={origin}
-        view="table"
+        view={view}
         onOrigin={() => {}}
         onView={() => {}}
       />
@@ -160,5 +164,58 @@ test("the origin summary is unavailable when the newest month holds no shares", 
   expect(container.querySelector('[aria-label="Foreign share"]')).toBeNull()
   expect(container.textContent).toContain(
     "Unavailable: KSEI lists no scripless shares for Oct 2026."
+  )
+})
+
+// Local holds 40 of 100 in August and 30 of 100 in October; September is a
+// gap.
+const held = (local: number, foreign: number) => ({
+  ...Object.fromEntries(Object.keys(HELD).map((type) => [type, 0])),
+  ID: local,
+  CP: foreign,
+})
+const BARS: ReadonlyArray<SeriesMonth> = [
+  {
+    month: "2026-08",
+    holdings: {
+      periodEnd: "2026-08-29",
+      local: held(40, 0) as typeof HELD,
+      foreign: held(0, 60) as typeof HELD,
+    },
+  },
+  { month: "2026-09", holdings: undefined },
+  {
+    month: "2026-10",
+    holdings: {
+      periodEnd: "2026-10-30",
+      local: held(30, 0) as typeof HELD,
+      foreign: held(0, 70) as typeof HELD,
+    },
+  },
+]
+
+const barsChart = () =>
+  container.querySelector<SVGElement>('svg[role="img"]') as SVGElement
+
+const announced = () =>
+  document.querySelector('[role="status"]')?.getAttribute("aria-label")
+
+const key = (name: string) =>
+  act(() => {
+    barsChart().dispatchEvent(
+      new KeyboardEvent("keydown", { key: name, bubbles: true })
+    )
+  })
+
+test("the Bars chart announces the month a keyboard user steps to", async () => {
+  await render("all", BARS, "bars")
+  await act(() => barsChart().focus())
+  await key("End")
+  expect(announced()).toBe(
+    "Oct 2026\nForeign 70.00%\nLocal 30.00%\nShare of scripless shares."
+  )
+  await key("ArrowLeft")
+  expect(announced()).toBe(
+    "Sep 2026: No data, KSEI's report has no row for this month."
   )
 })
