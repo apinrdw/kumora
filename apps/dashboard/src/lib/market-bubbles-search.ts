@@ -1,6 +1,7 @@
 // What /market-bubbles reads from its URL (spec apinrdw/kumora#427, "The
 // page"): the size and colour metrics, the window, Top N and the sector, so a reload or a
-// shared link opens the same view. A default stays out of the URL.
+// shared link opens the same view. A default stays out of the URL; a phone's
+// default view is PHONE_VIEW.
 import { SectorName } from "@workspace/relay"
 import { Effect, Option, Schema } from "effect"
 
@@ -29,14 +30,21 @@ export const DEFAULT_VIEW: BubbleView = {
   sector: undefined,
 }
 
-// `patch` as search params: each default set `undefined`, which the router
-// leaves out of the URL.
-export const searchOfView = (patch: MarketBubblesSearch) =>
+// Below `lg` the map opens on Top 50 (spec apinrdw/kumora#427, "Search
+// params").
+export const PHONE_VIEW: BubbleView = { ...DEFAULT_VIEW, top: 50 }
+
+// `patch` as search params: each of `defaults` set `undefined`, which the
+// router leaves out of the URL.
+export const searchOfView = (
+  patch: MarketBubblesSearch,
+  defaults: BubbleView = DEFAULT_VIEW
+) =>
   Effect.sync(() => {
     const search: Record<string, unknown> = {}
     for (const [key, value] of Object.entries(patch))
       search[key] =
-        value === DEFAULT_VIEW[key as keyof BubbleView] ? undefined : value
+        value === defaults[key as keyof BubbleView] ? undefined : value
     return search as MarketBubblesSearch
   })
 
@@ -49,20 +57,29 @@ const field = <A>(schema: Schema.Codec<A>, raw: unknown) =>
  * the raw one, which would keep it.
  */
 export const parseMarketBubblesSearch = (raw: Record<string, unknown>) =>
-  searchOfView({
-    size: field(Size, raw.size),
-    colour: field(Colour, raw.colour),
-    window: field(Window, raw.window),
-    top: field(Top, raw.top),
-    sector: field(SectorName, raw.sector),
-  })
+  Effect.map(
+    searchOfView({
+      size: field(Size, raw.size),
+      colour: field(Colour, raw.colour),
+      window: field(Window, raw.window),
+      sector: field(SectorName, raw.sector),
+    }),
+    // Decision: `top` is kept even at a default. Its default is the device's
+    // (Top 50 on a phone), which the route can't know, so a dropped `top=100`
+    // would open a phone on Top 50.
+    (search): MarketBubblesSearch => ({ ...search, top: field(Top, raw.top) })
+  )
 
-// The view the search names, with a default for each field it leaves out.
-export const viewOfSearch = (search: MarketBubblesSearch) =>
+// The view the search names, with one of `defaults` for each field it leaves
+// out.
+export const viewOfSearch = (
+  search: MarketBubblesSearch,
+  defaults: BubbleView = DEFAULT_VIEW
+) =>
   Effect.sync((): BubbleView => ({
-    size: search.size ?? DEFAULT_VIEW.size,
-    colour: search.colour ?? DEFAULT_VIEW.colour,
-    window: search.window ?? DEFAULT_VIEW.window,
-    top: search.top ?? DEFAULT_VIEW.top,
+    size: search.size ?? defaults.size,
+    colour: search.colour ?? defaults.colour,
+    window: search.window ?? defaults.window,
+    top: search.top ?? defaults.top,
     sector: search.sector,
   }))

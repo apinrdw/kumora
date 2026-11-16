@@ -4,6 +4,7 @@ import { Effect } from "effect"
 import {
   DEFAULT_VIEW,
   parseMarketBubblesSearch,
+  PHONE_VIEW,
   searchOfView,
   viewOfSearch,
 } from "@/lib/market-bubbles-search"
@@ -53,7 +54,6 @@ describe("the Market Bubbles search params", () => {
           size: "value",
           colour: "delta",
           window: "5m",
-          top: 100,
         })
       ).toStrictEqual({
         size: undefined,
@@ -89,5 +89,29 @@ describe("the Market Bubbles search params", () => {
       // All sectors is the default: no sector in the URL.
       expect(DEFAULT_VIEW.sector).toBeUndefined()
     })
+  )
+
+  it.effect(
+    "opens a phone on Top 50, and keeps the device's own default out of the URL",
+    () =>
+      Effect.gen(function* () {
+        expect(PHONE_VIEW).toEqual({ ...DEFAULT_VIEW, top: 50 })
+        expect((yield* viewOfSearch({}, PHONE_VIEW)).top).toBe(50)
+        expect(yield* searchOfView({ top: 50 }, PHONE_VIEW)).toStrictEqual({
+          top: undefined,
+        })
+        expect(yield* searchOfView({ top: 100 }, PHONE_VIEW)).toStrictEqual({
+          top: 100,
+        })
+        expect(yield* searchOfView({ top: 100 })).toStrictEqual({
+          top: undefined,
+        })
+        // The route can't know the device, so a link's Top 100 or Top 50
+        // stays: a phone opens `?top=100` on Top 100, a laptop `?top=50` on
+        // Top 50.
+        const shared = yield* parseMarketBubblesSearch({ top: 100 })
+        expect(shared.top).toBe(100)
+        expect((yield* viewOfSearch(shared, PHONE_VIEW)).top).toBe(100)
+      })
   )
 })

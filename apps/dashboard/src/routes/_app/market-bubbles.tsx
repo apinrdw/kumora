@@ -10,7 +10,17 @@ import {
 import { clientRuntime } from "@workspace/client"
 import { loadServerFn, runLoader } from "@workspace/server/loader"
 import { Effect } from "effect"
-import { IconCamera, IconSearch } from "@tabler/icons-react"
+import {
+  IconAdjustmentsHorizontal,
+  IconCamera,
+  IconSearch,
+} from "@tabler/icons-react"
+import {
+  Sheet,
+  SheetContent,
+  SheetHeader,
+  SheetTitle,
+} from "@workspace/ui/components/sheet"
 import { useCallback, useEffect, useMemo, useRef, useState } from "react"
 
 import { KButton } from "@/components/k/button"
@@ -22,6 +32,7 @@ import { MarketStripBar } from "@/components/market-bubbles/market-strip-bar"
 import { Pressed } from "@/components/market-bubbles/pressed"
 import { snapshotMap } from "@/components/market-bubbles/snapshot"
 import { useMarketFlow } from "@/components/market-bubbles/use-market-flow"
+import { usePhone } from "@/components/market-bubbles/use-phone"
 import { useSectors } from "@/components/market-bubbles/use-sectors"
 import { useMarketPhase } from "@/components/market-live/market-conditions"
 import { useStockCodeList } from "@/components/market-live/use-stock-code-list"
@@ -39,7 +50,9 @@ import {
 } from "@/lib/bubbles"
 import { tapeTime } from "@/lib/format"
 import {
+  DEFAULT_VIEW,
   parseMarketBubblesSearch,
+  PHONE_VIEW,
   searchOfView,
   viewOfSearch,
   type MarketBubblesSearch,
@@ -167,22 +180,33 @@ function useSnapshot(view: BubbleView, clockOffset: number) {
   return { map, snapshot }
 }
 
-function MarketBubblesPage() {
+// The view the URL names, over the device's defaults (Top 50 on a phone),
+// and its change, which keeps those defaults out of the URL.
+function useBubbleView() {
   const search = Route.useSearch()
-  const { today, clockOffset } = Route.useLoaderData()
   const navigate = Route.useNavigate()
-  const view = useMemo(() => Effect.runSync(viewOfSearch(search)), [search])
+  const defaults = usePhone() ? PHONE_VIEW : DEFAULT_VIEW
+  const view = useMemo(
+    () => Effect.runSync(viewOfSearch(search, defaults)),
+    [search, defaults]
+  )
   const change = useCallback(
     (patch: MarketBubblesSearch) => {
-      const next = Effect.runSync(searchOfView(patch))
+      const next = Effect.runSync(searchOfView(patch, defaults))
       void navigate({
         search: (previous: MarketBubblesSearch) => ({ ...previous, ...next }),
         replace: true,
         resetScroll: false,
       })
     },
-    [navigate]
+    [navigate, defaults]
   )
+  return { view, change, navigate }
+}
+
+function MarketBubblesPage() {
+  const { today, clockOffset } = Route.useLoaderData()
+  const { view, change, navigate } = useBubbleView()
   const openLive = useCallback(
     (code: StockCode) =>
       void navigate({ to: "/market-live", search: { code } }),
@@ -228,7 +252,7 @@ function MarketBubblesPage() {
           </KButton>
         </div>
       )}
-      <Controls
+      <Filters
         view={view}
         onChange={change}
         frame={frame}
@@ -272,6 +296,59 @@ function SessionLabel({ frame }: { frame: Frame }) {
   )
 }
 
+interface ControlsProps {
+  view: BubbleView
+  onChange: (patch: MarketBubblesSearch) => void
+  frame: Frame
+  find: string
+  onFind: (find: string) => void
+  onSnapshot: () => void
+}
+
+// The controls in a row, or below `lg` one Filters row that opens them in a
+// sheet, so the map keeps the phone's screen.
+function Filters(props: ControlsProps) {
+  const [open, setOpen] = useState(false)
+  const { view, frame } = props
+  return (
+    <>
+      <Controls {...props} className="max-lg:hidden" />
+      <div className="flex items-center gap-3 text-xs lg:hidden">
+        <KButton
+          variant="secondary"
+          size="sm"
+          icon={IconAdjustmentsHorizontal}
+          onClick={() => setOpen(true)}
+        >
+          Filters
+        </KButton>
+        <span className="truncate text-muted-foreground">
+          {[
+            SIZE_OPTIONS.find((option) => option.value === view.size)?.label,
+            view.window,
+            TOP_OPTIONS.find((option) => option.value === view.top)?.label,
+            view.sector,
+            frame._tag === "Shown" && `${frame.bubbles.length} codes`,
+          ]
+            .filter(Boolean)
+            .join(" · ")}
+        </span>
+      </div>
+      <Sheet open={open} onOpenChange={setOpen}>
+        <SheetContent side="bottom" className="lg:hidden">
+          <SheetHeader className="pb-0">
+            <SheetTitle>Filters</SheetTitle>
+          </SheetHeader>
+          <Controls
+            {...props}
+            className="px-4 pb-[calc(1rem+env(safe-area-inset-bottom))]"
+          />
+        </SheetContent>
+      </Sheet>
+    </>
+  )
+}
+
 function Controls({
   view,
   onChange,
@@ -279,16 +356,15 @@ function Controls({
   find,
   onFind,
   onSnapshot,
-}: {
-  view: BubbleView
-  onChange: (patch: MarketBubblesSearch) => void
-  frame: Frame
-  find: string
-  onFind: (find: string) => void
-  onSnapshot: () => void
-}) {
+  className,
+}: ControlsProps & { className: string }) {
   return (
-    <div className="flex flex-wrap items-end gap-x-3 gap-y-2 text-xs">
+    <div
+      className={cn(
+        "flex flex-wrap items-end gap-x-3 gap-y-2 text-xs",
+        className
+      )}
+    >
       <KSelect
         label="Size"
         size="xs"
