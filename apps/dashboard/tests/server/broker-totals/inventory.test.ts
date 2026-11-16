@@ -199,6 +199,55 @@ describe("the broker inventory read", () => {
     }).pipe(Effect.provide(db.layer))
   })
 
+  // CODING_STANDARDS.md, "Bounded memory on a Worker": the read's rows
+  // grow with the range, which the 2-year cap bounds.
+  it.effect(
+    "reads at most 2 years, about 80 K totals rows of a liquid code, from 3 years built",
+    () => {
+      const db = memoryBrokerTotalsDb()
+      // 80 brokers on both sides, each day of BBCA.
+      const liquid: DayBuild = {
+        totals: Array.from({ length: 80 }, (_, at) => {
+          const broker = `${String.fromCharCode(65 + Math.floor(at / 26))}${String.fromCharCode(65 + (at % 26))}`
+          return [
+            total(BBCA, broker, "D", at, 80 - at),
+            total(BBCA, broker, "F", 80 - at, at),
+          ]
+        }).flat(),
+        candles: [candle(BBCA, 8_050)],
+      }
+      return Effect.gen(function* () {
+        // Every weekday from 13 Nov 2023 to 12 Nov 2026.
+        const weekdays: Array<WibDate> = []
+        for (
+          let at = DateTime.makeUnsafe("2023-11-13");
+          DateTime.isLessThanOrEqualTo(at, DateTime.makeUnsafe("2026-11-12"));
+          at = DateTime.add(at, { days: 1 })
+        ) {
+          const { weekDay } = DateTime.toPartsUtc(at)
+          if (weekDay >= 1 && weekDay <= 5)
+            weekdays.push(day(DateTime.formatIsoDate(at)))
+        }
+        yield* Effect.forEach(weekdays, (date) =>
+          writeBuiltDay(date, liquid, 1, BUILT_AT)
+        )
+        const read = yield* brokerInventory(
+          BBCA,
+          { from: day("2023-11-13"), to: day("2026-11-12") },
+          day("2026-11-13")
+        )
+        const kept = weekdays.filter((date) => date >= "2024-11-13").length
+        assert.strictEqual(read.from, "2024-11-13")
+        assert.strictEqual(read.built.filter(Boolean).length, kept)
+        assert.strictEqual(read.totals.day.length, kept * 160)
+        assert.isAtMost(read.totals.day.length, 85_000)
+        assert.strictEqual(read.brokers.length, 80)
+        assert.strictEqual(read.candles.day.length, kept)
+      }).pipe(Effect.provide(db.layer))
+    },
+    { timeout: 20_000 }
+  )
+
   it.effect("reads an empty range before any day is built", () => {
     const db = memoryBrokerTotalsDb()
     return Effect.gen(function* () {
