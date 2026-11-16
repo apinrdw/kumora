@@ -1113,8 +1113,8 @@ export const makeTradingDay = Effect.fnUntraced(function* (options: {
   // the rows first if the day needs it: it never answers empty. GETs take
   // the turn, so a second GET awaits the first's build.
   // Decision: sweep brokers build before the seal too, as codes land before
-  // it, so a day holding rows under an older finished value never decodes
-  // them. See spec apinrdw/kumora#384, "Old days".
+  // it, so a day holding rows under an older shape never decodes them. See
+  // spec apinrdw/kumora#384, "Old days".
   const builtFirst = Effect.fnUntraced(function* (resource: RecordedResource) {
     if (resource._tag === "SweepBrokers") return yield* sweepBrokers.builtFirst
     if (!sealed || orderFlowBuilt) return

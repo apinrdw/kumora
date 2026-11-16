@@ -27,6 +27,7 @@ import type { BrokerCodesStore, HeldCodes } from "./broker-codes.ts"
 import {
   Fact,
   SWEEP_BROKERS_BUILT,
+  SWEEP_BROKERS_SHAPE,
   type DayStore,
   type Sql,
 } from "./day-store.ts"
@@ -188,6 +189,12 @@ const runsOf = (numbers: ReadonlyArray<TradeNumber>) =>
     )
   })
 
+// The build's progress fact once it wrote `minute`, under the rows' shape.
+const reachedFact = (minute: number): Readonly<Record<string, string>> => ({
+  [Fact.sweepBrokersBuilt]: `${SWEEP_BROKERS_SHAPE}:${minute}`,
+})
+const REACHED = new RegExp(`^${SWEEP_BROKERS_SHAPE}:(\\d+)$`)
+
 // The rows of one minute to write: each code's whole sweeps' text, or none
 // to delete its row.
 type MinuteRows = ReadonlyArray<readonly [StockCode, string | undefined]>
@@ -315,15 +322,14 @@ export const makeSweepBrokers = Effect.fnUntraced(function* (options: {
   })
 
   // The build's progress as the last minute it wrote; none while it has
-  // not started, once it finished, or under an older finished value (the
-  // Decision on SWEEP_BROKERS_BUILT), whose build starts again from the
-  // day's first minute.
+  // not started, once it finished, or under an older shape (the Decision on
+  // SWEEP_BROKERS_SHAPE), whose build starts again from the day's first
+  // minute.
   const minuteOf = (progress: string | undefined) =>
-    Effect.sync(() =>
-      progress === undefined || !/^\d+$/.test(progress)
-        ? undefined
-        : Number(progress)
-    )
+    Effect.sync(() => {
+      const reached = progress?.match(REACHED)?.[1]
+      return reached === undefined ? undefined : Number(reached)
+    })
 
   // Decision: the build goes minute by minute, each minute's rows and its
   // progress in one transaction, as the order flow build does
@@ -341,9 +347,7 @@ export const makeSweepBrokers = Effect.fnUntraced(function* (options: {
           ? span.first
           : Math.max(span.first, reached + MINUTE_MS)
       for (let minute = from; minute <= span.last; minute += MINUTE_MS)
-        yield* buildMinute(minute, {
-          [Fact.sweepBrokersBuilt]: String(minute),
-        })
+        yield* buildMinute(minute, reachedFact(minute))
     }
     yield* store.markSweepBrokersBuilt
     yield* recomputeLogged
@@ -352,8 +356,8 @@ export const makeSweepBrokers = Effect.fnUntraced(function* (options: {
 
   // Decision: a day holding no codes as its object starts gets each batch's
   // rows as it lands, so it is marked built from the start. A day holding
-  // codes without the current mark (sweep brokers or auction entries came
-  // after them, or a late trade did) is built by its next sweep brokers GET.
+  // codes without the current mark (sweep brokers or their shape came after
+  // them, or a late trade did) is built by its next sweep brokers GET.
   // See spec apinrdw/kumora#343, "The one-off build", and #384, "Old days".
   const progress = yield* store.fact(Fact.sweepBrokersBuilt)
   let built = progress === SWEEP_BROKERS_BUILT
@@ -434,12 +438,9 @@ export const makeSweepBrokers = Effect.fnUntraced(function* (options: {
       earliest = Math.min(earliest, DateTime.toEpochMillis(trade.time))
     const before = Math.floor(earliest / MINUTE_MS) * MINUTE_MS - MINUTE_MS
     built = false
-    const facts: Record<string, string> = {
-      [Fact.sweepBrokersBuilt]: String(
-        reached === undefined ? before : Math.min(reached, before)
-      ),
-    }
-    return facts
+    return reachedFact(
+      reached === undefined ? before : Math.min(reached, before)
+    )
   })
 
   // One code's whole sweeps and auction matches with their pieces, in
