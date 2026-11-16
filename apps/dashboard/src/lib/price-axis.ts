@@ -83,3 +83,21 @@ export const rowCappedRange = Effect.fnUntraced(function* ({
   )
   return { minValue: middle - half, maxValue: middle + half }
 })
+
+// `range` tightened `stretch` times about its middle: a stretch of 2 shows
+// half the prices, each twice as tall.
+export const stretchedRange = (
+  range: { readonly minValue: number; readonly maxValue: number },
+  stretch: number
+) =>
+  Effect.sync(() => {
+    const middle = (range.minValue + range.maxValue) / 2
+    const half = (range.maxValue - range.minValue) / 2 / stretch
+    return { minValue: middle - half, maxValue: middle + half }
+  })
+
+// The stretch a price axis drag leaves: the axis showed `before` prices at
+// `stretch` times tighter than its fit, and the drag left it showing `after`.
+// Lightweight Charts 5.2.1 scales the axis about its middle as a stretch does.
+export const stretchAfter = (stretch: number, before: number, after: number) =>
+  Effect.succeed((stretch * before) / after)

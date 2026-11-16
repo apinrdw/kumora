@@ -6,6 +6,7 @@ import {
   CHART_SETTINGS_DEFAULT,
   parseChartSettings,
   type ChartSettings,
+  type ChartZooms,
 } from "@/lib/chart-settings"
 
 import type { SweepStore } from "./sweep-store"
@@ -73,6 +74,29 @@ export function useChartSettings() {
     []
   )
   return { settings, change }
+}
+
+// `chart`'s saved zoom: a chart reads it once, when it is made, and from then
+// on keeps its own.
+export const savedZoom = <K extends keyof ChartZooms>(chart: K) =>
+  snapshot().zoom[chart]
+
+// Saves `change` into `chart`'s zoom; a field set to undefined goes back to
+// the default.
+export const saveZoom = <K extends keyof ChartZooms>(
+  chart: K,
+  change: ChartZooms[K]
+) => {
+  const settings = snapshot()
+  clientRuntime.runSync(
+    write({
+      ...settings,
+      zoom: {
+        ...settings.zoom,
+        [chart]: { ...settings.zoom[chart], ...change },
+      },
+    })
+  )
 }
 
 // The candle chart's top-N, remembered: the code's sweep store opens on the

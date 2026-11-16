@@ -15,6 +15,7 @@ describe("the remembered chart settings", () => {
         imbalance: 3,
         poc: true,
         vwap: true,
+        zoom: { candles: {}, footprint: {} },
       })
       expect(CHART_SETTINGS_DEFAULT).toEqual(yield* parseChartSettings(null))
     })
@@ -28,6 +29,10 @@ describe("the remembered chart settings", () => {
         imbalance: 0,
         poc: false,
         vwap: false,
+        zoom: {
+          candles: { barSpacing: 14.5, priceStretch: 2 },
+          footprint: { minutes: 6.25, priceStretch: 0.5 },
+        },
       }
       expect(yield* parseChartSettings(JSON.stringify(stored))).toEqual(stored)
       expect(
@@ -56,6 +61,7 @@ describe("the remembered chart settings", () => {
           imbalance: 3,
           poc: true,
           vwap: false,
+          zoom: { candles: {}, footprint: {} },
         })
         expect(yield* parseChartSettings("{not json")).toEqual(
           CHART_SETTINGS_DEFAULT
@@ -63,6 +69,35 @@ describe("the remembered chart settings", () => {
         expect(yield* parseChartSettings("[1,2]")).toEqual(
           CHART_SETTINGS_DEFAULT
         )
+      })
+  )
+
+  it.effect(
+    "keep each zoom that is a positive number and default the rest, the other settings kept",
+    () =>
+      Effect.gen(function* () {
+        const read = (zoom: unknown) =>
+          parseChartSettings(JSON.stringify({ topN: 10, zoom }))
+        expect(
+          yield* read({
+            candles: { barSpacing: 0, priceStretch: "2" },
+            footprint: { minutes: 12, priceStretch: -1 },
+          })
+        ).toEqual({
+          ...CHART_SETTINGS_DEFAULT,
+          topN: 10,
+          zoom: { candles: {}, footprint: { minutes: 12 } },
+        })
+        for (const broken of [
+          null,
+          "wide",
+          [3],
+          { candles: [4], footprint: null },
+        ])
+          expect(yield* read(broken)).toEqual({
+            ...CHART_SETTINGS_DEFAULT,
+            topN: 10,
+          })
       })
   )
 })
