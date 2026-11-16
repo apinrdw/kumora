@@ -1,11 +1,14 @@
 // The Holder size panel's figures for one origin and denominator (spec
 // apinrdw/kumora#402, "Holder size panel"): the bar of scrip, ≥5% holders
-// and <5% holders, and each KSEI investor type's bands, each as a share of
-// the denominator and its change against the month before.
+// and <5% holders, then the same for each KSEI investor type, each as a
+// share of the denominator and its change against the month before.
 import { Effect } from "effect"
 
 import { KSEI_TYPE_LABELS, KSEI_TYPES, type KseiType } from "@/domain/holdings"
-import type { HolderSizeMonth, TypeBands } from "@/server/holdings/stock-page"
+import type {
+  HolderSizeMonth,
+  InvestorTypeHoldings,
+} from "@/server/holdings/stock-page"
 
 import type { OriginShown } from "./stock-search.ts"
 
@@ -83,11 +86,11 @@ const ratio = (shares: number, total: number) =>
 // One month's shares of the denominator, by part and by type.
 const shares = Effect.fnUntraced(function* (
   holding: Holding,
-  bands: TypeBands,
+  holdings: InvestorTypeHoldings,
   denominator: Denominator
 ) {
-  const sum = (band: "under5" | "atLeast5") =>
-    KSEI_TYPES.reduce((total, type) => total + bands[type][band], 0)
+  const sum = (holders: "under5" | "atLeast5") =>
+    KSEI_TYPES.reduce((total, type) => total + holdings[type][holders], 0)
   const scripless = sum("under5") + sum("atLeast5")
   // Decision: scrip never below 0, for a report whose scripless shares pass
   // its shares outstanding, which IDX doesn't rule out.
@@ -98,8 +101,8 @@ const shares = Effect.fnUntraced(function* (
   const types = new Map<KseiType, { atLeast5: number; under5: number }>()
   for (const type of KSEI_TYPES)
     types.set(type, {
-      atLeast5: yield* ratio(bands[type].atLeast5, base),
-      under5: yield* ratio(bands[type].under5, base),
+      atLeast5: yield* ratio(holdings[type].atLeast5, base),
+      under5: yield* ratio(holdings[type].under5, base),
     })
   return {
     base,
@@ -129,16 +132,17 @@ export const holderSize = Effect.fnUntraced(function* (
 ): Effect.fn.Return<HolderSize> {
   const origin = holding.local === undefined ? "all" : asked
   const denominator = origin === "all" ? askedDenominator : "scripless"
-  // A month before the split has no local or foreign bands to compare.
-  const bandsOf = (month: Holding) =>
+  // A month before the split has no local or foreign holdings to compare.
+  const holdingsOf = (month: Holding) =>
     origin === "all" ? month.combined : month[origin]
-  const own = bandsOf(holding) ?? holding.combined
+  const own = holdingsOf(holding) ?? holding.combined
   const current = yield* shares(holding, own, denominator)
-  const previousBands = previous === undefined ? undefined : bandsOf(previous)
+  const previousHoldings =
+    previous === undefined ? undefined : holdingsOf(previous)
   const before =
-    previous === undefined || previousBands === undefined
+    previous === undefined || previousHoldings === undefined
       ? undefined
-      : yield* shares(previous, previousBands, denominator)
+      : yield* shares(previous, previousHoldings, denominator)
   const rows: Array<HolderSizeRow> = []
   for (const type of KSEI_TYPES) {
     const now = current.types.get(type)

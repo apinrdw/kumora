@@ -3,12 +3,17 @@ import { Effect } from "effect"
 
 import { KSEI_TYPES, type KseiType } from "@/domain/holdings"
 import { type Holding, holderSize, holderSizeTable } from "@/lib/holder-size"
-import type { Bands, TypeBands } from "@/server/holdings/stock-page"
+import type {
+  InvestorTypeHolding,
+  InvestorTypeHoldings,
+} from "@/server/holdings/stock-page"
 
-const bands = (held: Partial<Record<KseiType, Bands>>): TypeBands =>
+const holdings = (
+  held: Partial<Record<KseiType, InvestorTypeHolding>>
+): InvestorTypeHoldings =>
   Object.fromEntries(
     KSEI_TYPES.map((type) => [type, held[type] ?? { under5: 0, atLeast5: 0 }])
-  ) as TypeBands
+  ) as InvestorTypeHoldings
 
 // 1,000 shares outstanding, 800 of them scripless: CP's 400 with a ≥5%
 // holder, ID's 300 and CP's 100 with <5% holders, all local but ID's 100
@@ -16,30 +21,30 @@ const bands = (held: Partial<Record<KseiType, Bands>>): TypeBands =>
 const OCTOBER: Holding = {
   sharesOutstanding: 1000,
   totalScripless: 800,
-  combined: bands({
+  combined: holdings({
     CP: { under5: 100, atLeast5: 400 },
     ID: { under5: 300, atLeast5: 0 },
   }),
-  local: bands({
+  local: holdings({
     CP: { under5: 100, atLeast5: 400 },
     ID: { under5: 200, atLeast5: 0 },
   }),
-  foreign: bands({ ID: { under5: 100, atLeast5: 0 } }),
+  foreign: holdings({ ID: { under5: 100, atLeast5: 0 } }),
 }
 
 // The month before: 900 scripless, CP's ≥5% holder 450 of it.
 const SEPTEMBER: Holding = {
   sharesOutstanding: 1000,
   totalScripless: 900,
-  combined: bands({
+  combined: holdings({
     CP: { under5: 100, atLeast5: 450 },
     ID: { under5: 350, atLeast5: 0 },
   }),
-  local: bands({
+  local: holdings({
     CP: { under5: 100, atLeast5: 450 },
     ID: { under5: 350, atLeast5: 0 },
   }),
-  foreign: bands({}),
+  foreign: holdings({}),
 }
 
 // An unsplit month before.
@@ -223,7 +228,7 @@ describe("the Holder size table", () => {
     Effect.gen(function* () {
       const spread: Holding = {
         ...UNSPLIT,
-        combined: bands({ ID: { under5: 900, atLeast5: 0 } }),
+        combined: holdings({ ID: { under5: 900, atLeast5: 0 } }),
       }
       const table = yield* holderSizeTable(
         [month("2025-12-30", spread)],

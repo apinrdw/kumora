@@ -115,17 +115,22 @@ export function seedClassificationMonths(months: SeededMonths) {
 }
 
 /** `[<5%, ≥5%]` shares by KSEI investor type. */
-type SeededBands = Readonly<Record<string, readonly [number, number]>>
+type SeededInvestorTypeHoldings = Readonly<
+  Record<string, readonly [number, number]>
+>
 
 /**
  * A stock's investor-type report month: its shares outstanding, and its
- * bands combined, or local and foreign.
+ * investor-type holdings combined, or local and foreign.
  */
 export type SeededInvestorTypeStockMonth = {
   readonly sharesOutstanding: number
 } & (
-  | { readonly combined: SeededBands }
-  | { readonly local: SeededBands; readonly foreign: SeededBands }
+  | { readonly combined: SeededInvestorTypeHoldings }
+  | {
+      readonly local: SeededInvestorTypeHoldings
+      readonly foreign: SeededInvestorTypeHoldings
+    }
 )
 
 /** Investor-type stock-months by data date, then by stock code. */
@@ -135,14 +140,14 @@ export type SeededInvestorTypeMonths = Readonly<
 
 // The rows a parse stores: 0/0 pairs skipped, and in a split month a
 // combined row per type holding local plus foreign.
-const bandRows = (month: SeededInvestorTypeStockMonth) => {
+const investorTypeRows = (month: SeededInvestorTypeStockMonth) => {
   if ("combined" in month)
     return Object.entries(month.combined).map(
-      ([type, bands]) => [type, "combined", bands] as const
+      ([type, holdings]) => [type, "combined", holdings] as const
     )
   const combined = new Map<string, readonly [number, number]>()
-  for (const bands of [month.local, month.foreign])
-    for (const [type, [under5, atLeast5]] of Object.entries(bands)) {
+  for (const holdings of [month.local, month.foreign])
+    for (const [type, [under5, atLeast5]] of Object.entries(holdings)) {
       const [u, a] = combined.get(type) ?? [0, 0]
       combined.set(type, [u + under5, a + atLeast5])
     }
@@ -174,7 +179,7 @@ export function seedInvestorTypeMonths(months: SeededInvestorTypeMonths) {
         "INSERT INTO investor_type_holding VALUES (?, ?, ?, ?, ?, ?)"
       )
       insertMonths(record, months, (dataDate, code, month) => {
-        const rows = bandRows(month)
+        const rows = investorTypeRows(month)
         const scripless = rows
           .filter(([, origin]) => origin === "combined")
           .reduce(

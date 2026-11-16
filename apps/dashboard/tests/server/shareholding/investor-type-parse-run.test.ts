@@ -226,7 +226,7 @@ describe("an investor-type parse run", () => {
           sum(
             Object.entries(month.holdings)
               .filter(([key]) => key.startsWith(`${origin}:`))
-              .flatMap(([, bands]) => bands)
+              .flatMap(([, holding]) => holding)
           )
         assert.strictEqual(of("combined"), month.totalScripless, code)
         assert.strictEqual(

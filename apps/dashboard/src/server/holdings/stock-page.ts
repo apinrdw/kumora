@@ -72,13 +72,16 @@ const SeriesMonth = Schema.Struct({
 export type SeriesMonth = typeof SeriesMonth.Type
 
 // An investor type's scripless shares with <5% and with ≥5% holders.
-const Bands = Schema.Struct({ under5: Schema.Number, atLeast5: Schema.Number })
-export type Bands = typeof Bands.Type
+const InvestorTypeHolding = Schema.Struct({
+  under5: Schema.Number,
+  atLeast5: Schema.Number,
+})
+export type InvestorTypeHolding = typeof InvestorTypeHolding.Type
 
-// Each of the 9 KSEI investor types' bands, 0 in both for a type holding
-// none.
-const TypeBands = Schema.Record(KseiType, Bands)
-export type TypeBands = typeof TypeBands.Type
+// Each of the 9 KSEI investor types' investor-type holdings, 0 in both
+// for a type holding none.
+const InvestorTypeHoldings = Schema.Record(KseiType, InvestorTypeHolding)
+export type InvestorTypeHoldings = typeof InvestorTypeHoldings.Type
 
 // An investor-type report month. `holding` is undefined when the report has
 // no row for the stock.
@@ -90,10 +93,10 @@ const HolderSizeMonth = Schema.Struct({
     Schema.Struct({
       sharesOutstanding: Schema.Number,
       totalScripless: Schema.Number,
-      combined: TypeBands,
+      combined: InvestorTypeHoldings,
       // Absent in a month that doesn't split, never 0.
-      local: Schema.optional(TypeBands),
-      foreign: Schema.optional(TypeBands),
+      local: Schema.optional(InvestorTypeHoldings),
+      foreign: Schema.optional(InvestorTypeHoldings),
     })
   ),
 })
@@ -221,23 +224,24 @@ const HolderSizeHoldingRow = Schema.Struct({
 
 type HolderSizeHoldingRow = typeof HolderSizeHoldingRow.Type
 
-// A month's bands of one origin, 0/0 for a type with no row.
-const typeBands = (
+// A month's investor-type holdings of one origin, 0/0 for a type with no
+// row.
+const investorTypeHoldings = (
   holdingRows: ReadonlyArray<HolderSizeHoldingRow>,
   dataDate: string,
   origin: Origin
 ) =>
   Effect.sync(() => {
-    const bands = Object.fromEntries(
+    const holdings = Object.fromEntries(
       KSEI_TYPES.map((type) => [type, { under5: 0, atLeast5: 0 }])
-    ) as Record<KseiType, Bands>
+    ) as Record<KseiType, InvestorTypeHolding>
     for (const held of holdingRows)
       if (held.data_date === dataDate && held.origin === origin)
-        bands[held.investor_type] = {
+        holdings[held.investor_type] = {
           under5: held.under_5,
           atLeast5: held.at_least_5,
         }
-    return bands
+    return holdings
   })
 
 const holderSizeMonth = Effect.fnUntraced(function* (
@@ -253,10 +257,10 @@ const holderSizeMonth = Effect.fnUntraced(function* (
     holding: {
       sharesOutstanding: row.shares_outstanding,
       totalScripless: row.total_scripless,
-      combined: yield* typeBands(holdingRows, dataDate, "combined"),
+      combined: yield* investorTypeHoldings(holdingRows, dataDate, "combined"),
       ...(split && {
-        local: yield* typeBands(holdingRows, dataDate, "local"),
-        foreign: yield* typeBands(holdingRows, dataDate, "foreign"),
+        local: yield* investorTypeHoldings(holdingRows, dataDate, "local"),
+        foreign: yield* investorTypeHoldings(holdingRows, dataDate, "foreign"),
       }),
     },
   } satisfies HolderSizeMonth

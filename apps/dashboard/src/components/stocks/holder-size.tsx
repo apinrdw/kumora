@@ -279,7 +279,7 @@ function Swatch({ color }: { color: string }) {
   )
 }
 
-// The Bars view: the whole stock's bar, then each type's bands.
+// The Bars view: the whole stock's bar, then each type's ≥5% and <5% holders.
 function Bars({ figures }: { figures: Figures }) {
   const parts = (
     [

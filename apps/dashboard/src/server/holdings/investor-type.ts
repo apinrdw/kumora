@@ -67,21 +67,22 @@ interface Layout {
   readonly types: ReadonlyArray<TypeColumns>
 }
 
-// The type label row and the band row of `origins`' type columns, from D.
+// The type label row and the <5% / >=5% label row of `origins`' type
+// columns, from D.
 const typeColumns = (origins: ReadonlyArray<Origin>) => {
   const labels = new Map<number, string>()
-  const bands = new Map<number, string>()
+  const sizeLabels = new Map<number, string>()
   const types: Array<TypeColumns> = []
   let column = FIRST_TYPE
   for (const origin of origins)
     for (const [type, label] of TYPE_LABELS) {
       labels.set(column, label)
-      bands.set(column, "<5%")
-      bands.set(column + 1, ">=5%")
+      sizeLabels.set(column, "<5%")
+      sizeLabels.set(column + 1, ">=5%")
       types.push({ type, origin, under5: column, atLeast5: column + 1 })
       column += 2
     }
-  return { labels, bands, types, total: column }
+  return { labels, sizeLabels, types, total: column }
 }
 
 const layoutOf = (
@@ -89,7 +90,7 @@ const layoutOf = (
   totalLabel: string,
   origins: ReadonlyArray<Origin>
 ): Layout => {
-  const { labels, bands, types, total } = typeColumns(origins)
+  const { labels, sizeLabels, types, total } = typeColumns(origins)
   const first = new Map<number, string>([
     [DATE, "DATE"],
     [CODE, "STOCK_CODE"],
@@ -105,8 +106,8 @@ const layoutOf = (
   return {
     split,
     header: split
-      ? [first, labels, bands]
-      : [new Map([...first, ...labels]), bands],
+      ? [first, labels, sizeLabels]
+      : [new Map([...first, ...labels]), sizeLabels],
     sharesLabel,
     total,
     totalLabel,

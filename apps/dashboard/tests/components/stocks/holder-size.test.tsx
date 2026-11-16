@@ -11,27 +11,32 @@ import {
 import { KSEI_TYPES, type KseiType } from "@/domain/holdings"
 import type { Holding } from "@/lib/holder-size"
 import type {
-  Bands,
+  InvestorTypeHolding,
   HolderSizeMonth,
-  TypeBands,
+  InvestorTypeHoldings,
 } from "@/server/holdings/stock-page"
 
 // React's `act` warns outside a test environment that declares itself.
 Object.assign(globalThis, { IS_REACT_ACT_ENVIRONMENT: true })
 
-const bands = (held: Partial<Record<KseiType, Bands>>): TypeBands =>
+const holdings = (
+  held: Partial<Record<KseiType, InvestorTypeHolding>>
+): InvestorTypeHoldings =>
   Object.fromEntries(
     KSEI_TYPES.map((type) => [type, held[type] ?? { under5: 0, atLeast5: 0 }])
-  ) as TypeBands
+  ) as InvestorTypeHoldings
 
 // 1,000 shares outstanding, 500 scripless: CP's ≥5% holder 200, ID's <5%
 // holders 300, all local.
 const holding = (atLeast5: number, under5: number): Holding => ({
   sharesOutstanding: 1000,
   totalScripless: atLeast5 + under5,
-  combined: bands({ CP: { under5: 0, atLeast5 }, ID: { under5, atLeast5: 0 } }),
-  local: bands({ CP: { under5: 0, atLeast5 }, ID: { under5, atLeast5: 0 } }),
-  foreign: bands({}),
+  combined: holdings({
+    CP: { under5: 0, atLeast5 },
+    ID: { under5, atLeast5: 0 },
+  }),
+  local: holdings({ CP: { under5: 0, atLeast5 }, ID: { under5, atLeast5: 0 } }),
+  foreign: holdings({}),
 })
 
 const unsplit = (held: Holding): Holding => ({
