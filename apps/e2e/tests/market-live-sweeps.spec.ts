@@ -7,9 +7,10 @@ import {
   decodeRecordedCandles,
   encodeBrokerCodesBatch,
   recordedDayPath,
+  type StockCode,
   type TradeCodes,
 } from "@workspace/relay"
-import type { Locator } from "@playwright/test"
+import type { Locator, Page } from "@playwright/test"
 import { Effect } from "effect"
 
 import { DASHBOARD, MEMBER } from "../support/accounts"
@@ -169,6 +170,64 @@ const tradeCodes = (text: string): TradeCodes => {
   }
 }
 
+// Closes `relay` once its last trade, sent just before, has left the merge
+// window, which flushes it (candles.ts), and waits until today's candles of
+// `code` hold `lots`.
+async function closedOnceStored(
+  page: Page,
+  relay: Awaited<ReturnType<typeof openIngest>>,
+  code: StockCode,
+  lots: number
+) {
+  await page.waitForTimeout(untilMarketTime(marketNow() + MERGE_WINDOW))
+  relay.close()
+  const candlesUrl = `${DASHBOARD}${Effect.runSync(
+    recordedDayPath(WibDate.make(wibToday()), { _tag: "Candles", code })
+  )}`
+  await expect
+    .poll(
+      async () => {
+        const answer = await page.request.get(candlesUrl)
+        if (answer.status() !== 200) return 0
+        const { candles } = await Effect.runPromise(
+          decodeRecordedCandles(await answer.text())
+        )
+        return candles.reduce((sum, candle) => sum + candle.volume, 0)
+      },
+      { timeout: 15_000, intervals: [500] }
+    )
+    .toBe(lots)
+}
+
+// Stores today's trades' codes, by trade number, in one batch, as the
+// extension's walk does.
+async function storeCodes(
+  page: Page,
+  rows: ReadonlyArray<readonly [number, string]>
+) {
+  const day = WibDate.make(wibToday())
+  const posted = await page.request.post(
+    `${DASHBOARD}/api/broker-codes/${day}`,
+    {
+      headers: {
+        authorization: `${BROKER_CODES_AUTH_SCHEME}${TEST_INGEST_TOKEN}`,
+      },
+      data: Effect.runSync(
+        encodeBrokerCodesBatch({
+          version: BrokerCodesProtocolVersion,
+          feed: "Ajaib",
+          day,
+          rows: rows.map(([number, text]) => [
+            TradeNumber.make(String(number)),
+            tradeCodes(text),
+          ]),
+        })
+      ),
+    }
+  )
+  expect(posted.status()).toBe(200)
+}
+
 test("a recorded day's sweep log shows each sweep's lead brokers, wider, filling in as codes arrive, with their tooltip on a cell and a bubble", async ({
   page,
   browser,
@@ -228,56 +287,13 @@ test("a recorded day's sweep log shows each sweep's lead brokers, wider, filling
       type: "SELL",
     }),
   ])
-  const arrivedBy = marketNow()
-  // The relay closing flushes what has left its merge window (candles.ts),
-  // so the trades are stored once it closes after it.
-  await page.waitForTimeout(untilMarketTime(arrivedBy + MERGE_WINDOW))
-  relay.close()
-  const candlesUrl = `${DASHBOARD}${Effect.runSync(
-    recordedDayPath(day, { _tag: "Candles", code })
-  )}`
-  await expect
-    .poll(
-      async () => {
-        const answer = await page.request.get(candlesUrl)
-        if (answer.status() !== 200) return 0
-        const { candles } = await Effect.runPromise(
-          decodeRecordedCandles(await answer.text())
-        )
-        return candles.reduce((sum, candle) => sum + candle.volume, 0)
-      },
-      { timeout: 15_000, intervals: [500] }
-    )
-    .toBe(45)
+  await closedOnceStored(page, relay, code, 45)
 
-  // The extension stores the trades' codes in batches, as a walk does.
-  const storeCodes = async (rows: ReadonlyArray<[number, string]>) => {
-    const posted = await page.request.post(
-      `${DASHBOARD}/api/broker-codes/${day}`,
-      {
-        headers: {
-          authorization: `${BROKER_CODES_AUTH_SCHEME}${TEST_INGEST_TOKEN}`,
-        },
-        data: Effect.runSync(
-          encodeBrokerCodesBatch({
-            version: BrokerCodesProtocolVersion,
-            feed: "Ajaib",
-            day,
-            rows: rows.map(([offset, text]) => [
-              TradeNumber.make(String(base + offset)),
-              tradeCodes(text),
-            ]),
-          })
-        ),
-      }
-    )
-    expect(posted.status()).toBe(200)
-  }
   // AK bought more of the buy sweep than BK did; KZ sold the sell sweep.
   // The buy sweep's first trade has no codes yet.
-  await storeCodes([
-    [2, "AK F CC D"],
-    [3, "YP D KZ F"],
+  await storeCodes(page, [
+    [base + 2, "AK F CC D"],
+    [base + 3, "YP D KZ F"],
   ])
 
   await page.setViewportSize({ width: 1920, height: 1080 })
@@ -306,7 +322,7 @@ test("a recorded day's sweep log shows each sweep's lead brokers, wider, filling
 
   // The walk stores the last trade's codes; the page's recheck fills the
   // buy sweep in within 30 s, with no reload.
-  await storeCodes([[1, "BK D CC D"]])
+  await storeCodes(page, [[base + 1, "BK D CC D"]])
   await expect(rows.nth(1)).toContainText("AK [F] +1", { timeout: 40_000 })
   await expect(rows.nth(1).getByText("AK [F]")).toHaveClass(/text-foreign/)
   await expect(note).toHaveText(
@@ -445,6 +461,97 @@ test("a recorded day's sweep log shows each sweep's lead brokers, wider, filling
   )
   await phone.touchscreen.tap(phoneBubble.x, phoneBubble.y)
   await expect(phoneTip.getByRole("row")).toHaveText(buyTip)
+})
+
+test("a recorded day's Auction row shows its lead buyer and seller, and a broker that bought in it keeps it", async ({
+  page,
+}) => {
+  const relay = await openIngest()
+  const earlier = freshTradeNumbers()
+  const base = earlier + 1_000
+  const code = freshCode("SA")
+  // Decision: the auction match is stamped in pre-opening, which makes its
+  // prints sideless, but not at 08:58, where market-live.spec.ts counts the
+  // opening match's fold. It is numbered below every other spec's trades,
+  // all stamped later, so the day store's search on trade numbers
+  // (`highestWithin`, day-store.ts) reads its minute.
+  const auction = Math.floor(earlier / 1_000)
+  // As the test above: the sweep stamped now, above another code's trades.
+  const time = wibTime(marketNow())
+  const earlierCode = freshCode("SE")
+  await relay.sendAjaib([
+    // The match: AK bought 20 and 5 lots, BK 10; CC sold 30, KZ 5.
+    ...[20, 10, 5].map((lot, index) =>
+      ajaibTradeToday({
+        seq: auction + index + 1,
+        time: "08:50:00",
+        ticker: code,
+        price: 500,
+        lot,
+      })
+    ),
+    ...[1, 600].map((seq) =>
+      ajaibTradeToday({
+        seq: earlier + seq,
+        time,
+        ticker: earlierCode,
+        price: 500,
+        lot: 1,
+      })
+    ),
+    // AK's buy sweep of 40 lots.
+    ajaibTradeToday({
+      seq: base + 1,
+      time,
+      ticker: code,
+      price: 510,
+      lot: 40,
+      type: "BUY",
+    }),
+  ])
+  await closedOnceStored(page, relay, code, 75)
+  await storeCodes(page, [
+    [auction + 1, "AK F CC D"],
+    [auction + 2, "BK D CC D"],
+    [auction + 3, "AK F KZ F"],
+    [base + 1, "AK F ZP D"],
+  ])
+
+  await page.setViewportSize({ width: 1920, height: 1080 })
+  await page.goto(
+    `${DASHBOARD}${PAGE}?code=${code}&day=${WibDate.make(wibToday())}`
+  )
+  const log = page.getByRole("region", { name: "Sweep log" })
+  const rows = log.locator("[data-sweep-id]")
+  await expect(rows).toHaveCount(2)
+  const auctionRow = log.locator('[data-side="none"]')
+  await expect(auctionRow).toContainText("Auction")
+  // The lead buyer in the Aggressor column, the lead seller in Other side.
+  await expect(auctionRow).toContainText("AK [F] +1")
+  await expect(auctionRow).toContainText("CC [D] +1")
+  const tip = page.getByRole("tooltip", { name: "Sweep brokers" })
+  await auctionRow.getByText("CC [D]").hover()
+  await expect(tip).toContainText("Auction 35 lots @ 500 · 3 trades")
+  await expect(tip.getByRole("row")).toHaveText([
+    "Buyers",
+    /^AK \[F\]\s*25$/,
+    /^BK \[D\]\s*10$/,
+    "Sellers",
+    /^CC \[D\]\s*30$/,
+    /^KZ \[F\]\s*5$/,
+  ])
+  await page.mouse.move(0, 0)
+
+  // The dropdown ranks AK by its sweep alone, not its auction lots; picked,
+  // AK keeps the Auction row at what it bought, of the whole.
+  const filter = log.getByLabel("Broker filter")
+  await expect(filter.getByRole("option")).toHaveText([
+    "All brokers",
+    "AK [F] · 40",
+  ])
+  await filter.selectOption("AK")
+  await expect(rows).toHaveCount(2)
+  await expect(auctionRow).toContainText("25/35 @ 500")
 })
 
 // The ringed bubble's centre in the viewport, once it is `id`'s and a
