@@ -2,9 +2,9 @@
 // few classification and KSEI months, as the parse runs would leave
 // them.
 // The stock page only reads these rows.
-import { DatabaseSync, type StatementSync } from "node:sqlite"
+import type { StatementSync } from "node:sqlite"
 
-import { databaseFile, databaseId } from "./local-d1"
+import { replaceTables as replaceDbTables } from "./local-d1"
 
 type Shares = Readonly<Record<string, number>>
 
@@ -53,23 +53,10 @@ const total = (month: SeededStockMonth) =>
 
 // Empties `tables` of the Test stage's HoldingsDb, then runs `fill`, in one
 // transaction.
-function replaceTables(
+const replaceTables = (
   tables: ReadonlyArray<string>,
-  fill: (db: DatabaseSync) => void
-) {
-  const id = databaseId("HoldingsDb")
-  if (id === undefined) throw new Error("The Test stage has no HoldingsDb yet")
-  // The dashboard holds the file open too: wait out its locks.
-  const db = new DatabaseSync(databaseFile(id).pathname, { timeout: 5000 })
-  try {
-    db.exec("BEGIN")
-    for (const table of tables) db.exec(`DELETE FROM ${table}`)
-    fill(db)
-    db.exec("COMMIT")
-  } finally {
-    db.close()
-  }
-}
+  fill: Parameters<typeof replaceDbTables>[2]
+) => replaceDbTables("HoldingsDb", tables, fill)
 
 // Writes each month's record through `record`, split when its stocks are,
 // then hands each of its stock-months to `stockMonth`.

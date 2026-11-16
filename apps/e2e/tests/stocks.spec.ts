@@ -4,6 +4,11 @@ import { expect, test } from "../support/test"
 
 import { ADMIN, DASHBOARD, MEMBER } from "../support/accounts"
 import {
+  type SeededDay,
+  seedBrokerTotals,
+  tradingDaysBeforeToday,
+} from "../support/broker-totals"
+import {
   seedClassificationMonths,
   seedInvestorTypeMonths,
   seedKseiMonths,
@@ -1039,5 +1044,141 @@ test.describe.serial("the stock page", () => {
   test("sends a visitor with no session to sign-in", async ({ page }) => {
     await page.goto(`${DASHBOARD}/stocks/BBCA`)
     await expect(page).toHaveURL(/\/sign-in\?redirect=%2Fstocks%2FBBCA/)
+  })
+})
+
+// BBCA's last 80 trading days before today, with the one 25 trading days
+// back never built. Ten brokers buy or sell the same lots every day; over
+// the last 10 days NI turns from seller to the biggest buyer and MG the
+// other way, so 2W's Top 5 differ from 3M's.
+const STEADY = {
+  YP: 100,
+  PD: 80,
+  CC: 60,
+  KZ: 40,
+  AK: 30,
+  BK: -100,
+  ZP: -80,
+  RX: -60,
+  CS: -40,
+  DX: -30,
+} as const
+const TOP_3M = Object.keys(STEADY)
+const BROKER_DAYS: ReadonlyArray<SeededDay> = tradingDaysBeforeToday(80)
+  .map((day, index) => {
+    const late = index >= 70
+    const nets: Record<string, number> = {
+      ...STEADY,
+      NI: late ? 500 : -100,
+      MG: late ? -500 : 100,
+    }
+    return {
+      day,
+      price: 9_000,
+      flows: Object.entries(nets).map(([broker, net]) => ({
+        broker,
+        investorType: broker === "KZ" || broker === "BK" ? "F" : "D",
+        buyLots: Math.max(net, 0) + 20,
+        sellLots: Math.max(-net, 0) + 20,
+      })),
+    } satisfies SeededDay
+  })
+  .filter((_, index) => index !== 55)
+
+const brokerInventory = (page: Page) =>
+  page.getByRole("region", { name: "Broker inventory" })
+
+const inventoryChart = (page: Page) =>
+  brokerInventory(page).getByRole("img", { name: "Broker inventory chart" })
+
+// The brokers the chart draws a line for, in its order.
+const plotted = (page: Page) =>
+  inventoryChart(page)
+    .locator("[data-broker]")
+    .evaluateAll((lines) =>
+      lines.map((line) => line.getAttribute("data-broker"))
+    )
+
+const rangePreset = (page: Page, label: string) =>
+  brokerInventory(page)
+    .getByRole("group", { name: "Range" })
+    .getByRole("button", {
+      name: label,
+      exact: true,
+    })
+
+test.describe.serial("the Broker inventory tab", () => {
+  test.beforeAll(() => {
+    seedBrokerTotals("BBCA", BROKER_DAYS)
+  })
+
+  test.use({ storageState: MEMBER.storageState })
+
+  test("opens from the tab bar on Top 5 net buy and sell over 3M", async ({
+    page,
+  }) => {
+    await page.goto(`${DASHBOARD}/stocks/BBCA`)
+    const tab = page
+      .getByRole("tablist", { name: "Stock views" })
+      .getByRole("tab", { name: "Broker inventory" })
+    await expect(async () => {
+      await tab.click()
+      await expect(page).toHaveURL(/\?tab=brokers$/, { timeout: 1000 })
+    }).toPass()
+    await expect(tab).toHaveAttribute("aria-selected", "true")
+    await expect(rangePreset(page, "3M")).toHaveAttribute(
+      "aria-pressed",
+      "true"
+    )
+    await expect.poll(() => plotted(page)).toStrictEqual(TOP_3M)
+    for (const broker of TOP_3M)
+      await expect(
+        inventoryChart(page).getByText(broker, { exact: true })
+      ).toBeVisible()
+    // The day never built is a band the lines cross dotted.
+    await expect(inventoryChart(page).locator("[data-gap]")).toHaveCount(1)
+    await expect(inventoryChart(page).locator("[data-zero]")).toHaveCount(1)
+    await expect(brokerInventory(page)).toContainText(/Today \(.+\) is pending/)
+  })
+
+  test("opens from ?tab=brokers and re-ranks for another preset", async ({
+    page,
+  }) => {
+    await page.goto(`${DASHBOARD}/stocks/BBCA?tab=brokers`)
+    await expect.poll(() => plotted(page)).toStrictEqual(TOP_3M)
+    await expect(async () => {
+      await rangePreset(page, "2W").click()
+      await expect(page).toHaveURL(/[?&]range=2W/, { timeout: 1000 })
+    }).toPass()
+    await expect
+      .poll(() => plotted(page))
+      .toStrictEqual([
+        "NI",
+        "YP",
+        "PD",
+        "CC",
+        "KZ",
+        "MG",
+        "BK",
+        "ZP",
+        "RX",
+        "CS",
+      ])
+    await expect(inventoryChart(page).locator("[data-gap]")).toHaveCount(0)
+    await page.reload()
+    await expect(rangePreset(page, "2W")).toHaveAttribute(
+      "aria-pressed",
+      "true"
+    )
+    await expect.poll(() => plotted(page)).toContain("NI")
+    // Back to the default leaves the range out of the URL.
+    // The reload's page may not have hydrated yet.
+    await expect(async () => {
+      await rangePreset(page, "3M").click()
+      await expect(page).toHaveURL(/\/stocks\/BBCA\?tab=brokers$/, {
+        timeout: 1000,
+      })
+    }).toPass()
+    await expect.poll(() => plotted(page)).toStrictEqual(TOP_3M)
   })
 })

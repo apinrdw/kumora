@@ -216,6 +216,27 @@ const decodeRange = Schema.decodeUnknownEffect(
   })
 )
 
+const decodeSpan = Schema.decodeUnknownEffect(
+  Schema.Struct({
+    earliest: Schema.NullOr(WibDate),
+    newest: Schema.NullOr(WibDate),
+  })
+)
+
+// The first and the newest built day at or before `upTo`; both null before
+// any build.
+export const readBuiltSpan = Effect.fnUntraced(function* (upTo: WibDate) {
+  const {
+    rows: [[span]],
+  } = yield* (yield* BrokerTotalsDb).batch([
+    {
+      sql: "SELECT MIN(day) AS earliest, MAX(day) AS newest FROM built_days WHERE day <= ?",
+      params: [upTo],
+    },
+  ])
+  return yield* decodeSpan(span).pipe(Effect.orDie)
+})
+
 const decodeBuiltDays = Schema.decodeUnknownEffect(
   Schema.Array(Schema.Struct({ day: WibDate, buildVersion: Schema.Number }))
 )
