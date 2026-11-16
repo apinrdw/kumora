@@ -18,6 +18,7 @@ import * as Redacted from "effect/Redacted"
 import { SENDER, SENDING_SUBDOMAIN } from "./src/server/auth/sender.ts"
 import type { RunParams } from "./src/server/archive/run.ts"
 import { KSEI_CRON, KSEI_PARSE_CRON } from "./src/server/ksei/schedule.ts"
+import { LOGO_CRON } from "./src/server/logos/schedule.ts"
 import { ARCHIVE_CRON, PARSE_CRON } from "./src/server/shareholding/schedule.ts"
 import { SECTOR_CRON } from "./src/server/sectors/schedule.ts"
 
@@ -147,6 +148,9 @@ export const Website = Cloudflare.Website.Vite(
               // IDX's company profiles on a schedule; any other stage's
               // stock_sector stays empty. See apinrdw/kumora#427.
               SECTOR_CRON,
+              // Decision: the logo sync too, so only Production copies
+              // Stockbit's logos. See apinrdw/kumora#432.
+              LOGO_CRON,
             ],
           }
         : {}
@@ -235,6 +239,11 @@ export const Website = Cloudflare.Website.Vite(
           "InvestorTypeParse",
           { className: "InvestorTypeParse" }
         ),
+        // Company logos, which /logos/{CODE} serves (src/server/logos/).
+        // On every stage like the archive buckets; only Production's fills.
+        LOGO_BUCKET: Cloudflare.R2.Bucket("LogoBucket", {
+          forceDestroy: (yield* stageKind(stage)) !== "production",
+        }),
         ...google,
         ...clockOffset,
       },

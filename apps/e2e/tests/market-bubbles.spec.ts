@@ -38,6 +38,12 @@ async function largestBubble(canvas: Locator, code: string) {
   return { x: box.x + x!, y: box.y + y! }
 }
 
+// A 1 × 1 PNG, answered for every logo.
+const LOGO = Buffer.from(
+  "iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mP8z8BQDwAEhQGAhKmMIQAAAABJRU5ErkJggg==",
+  "base64"
+)
+
 // Where `sector`'s label sits in the viewport, once its cluster has about
 // stopped moving.
 async function sectorLabel(canvas: Locator, sector: string) {
@@ -151,6 +157,54 @@ test("a phone's nav leads to Market Bubbles", async ({ page }) => {
     .getByRole("link", { name: "Bubbles" })
     .click()
   await expect(page).toHaveURL(`${DASHBOARD}${PAGE}`)
+})
+
+test("a large bubble draws its logo from the dashboard's own origin, and the map still exports", async ({
+  page,
+}) => {
+  // No logo is synced outside Production: a code without one answers 404.
+  const missing = await page.request.get(`${DASHBOARD}/logos/BBCA`)
+  expect(missing.status()).toBe(404)
+
+  const requested: Array<string> = []
+  await page.route(`${DASHBOARD}/logos/*`, (route) => {
+    requested.push(new URL(route.request().url()).pathname)
+    return route.fulfill({ contentType: "image/png", body: LOGO })
+  })
+  await page.setViewportSize({ width: 1600, height: 1000 })
+  await page.goto(`${DASHBOARD}${PAGE}`)
+  await expect(page.locator('[data-flow="live"]')).toHaveCount(1)
+
+  const code = freshCode("BL")
+  const served = page.waitForResponse((response) =>
+    response.url().endsWith(`/logos/${code}`)
+  )
+  const relay = await openIngest()
+  await relay.sendAjaib([
+    ajaibTradeToday({
+      seq: freshTradeNumbers() + 1,
+      time: wibTime(marketNow()),
+      ticker: code,
+      price: 50_000,
+      lot: 300_000,
+    }),
+  ])
+  relay.close()
+
+  // Big enough for a logo, beside the other test's, which leads the map.
+  await served
+  const canvas = page.getByRole("img", { name: /^Market Bubbles:/ })
+  expect(requested).toContain(`/logos/${code}`)
+  // A tainted canvas throws here. Two frames, so the logo has been drawn.
+  const exported = await canvas.evaluate(
+    (surface: HTMLCanvasElement) =>
+      new Promise<string>((resolve) =>
+        requestAnimationFrame(() =>
+          requestAnimationFrame(() => resolve(surface.toDataURL("image/png")))
+        )
+      )
+  )
+  expect(exported).toMatch(/^data:image\/png;base64,/)
 })
 
 test("a sector label's click shows that sector alone, and the Sector filter brings the rest back", async ({

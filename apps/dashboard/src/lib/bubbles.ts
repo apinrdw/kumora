@@ -476,8 +476,14 @@ export const bubbleScale = (sizes: ReadonlyArray<number>, area: number) =>
   })
 
 // The radius from which a bubble writes each line: its code, then its
-// metric %, then its size figure.
-export const LABEL_RADII = { code: 11, metric: 17, figure: 26 } as const
+// metric %, then its size figure; and from which it draws its company's logo
+// above the code.
+export const LABEL_RADII = {
+  code: 11,
+  metric: 17,
+  figure: 26,
+  logo: 26,
+} as const
 
 const twoDigits = new Intl.NumberFormat("en-US", {
   minimumFractionDigits: 2,
