@@ -387,6 +387,34 @@ const candle = (
 
 describe("figures under feed corrections", () => {
   it.effect(
+    "a snapshot hands an earlier socket's minutes back to a fresh body, not to the browser's older copy",
+    () =>
+      Effect.gen(function* () {
+        const flow = yield* makeMarketFlow()
+        const [code] = CODES
+        yield* applyCandles(flow, [candle(code!, T0, 2)])
+        // Market Live's Select answers a snapshot on the same socket.
+        const server = makeServer(random(1))
+        yield* applyMessage(flow, server.snapshot())
+        // The browser's copy, built before the minute's trades.
+        yield* applyBubbles(flow, { codes: [] }, false)
+        expect((yield* shown(flow, "D", END))[code!]?.frequency).toBe(2)
+        // The Worker's, after they settled: one moved off the minute.
+        yield* applyBubbles(flow, {
+          codes: [
+            {
+              code: code!,
+              previousClose: 100,
+              day: [10_000, 1, 1, 0, 0, 100],
+              minutes: [[T0, 10_000, 1, 1, 0, 0, 100]],
+            },
+          ],
+        })
+        expect((yield* shown(flow, "D", END))[code!]?.frequency).toBe(1)
+      })
+  )
+
+  it.effect(
     "a minute's smaller copy, after a trade moved to the next minute, replaces its larger one",
     () =>
       Effect.gen(function* () {

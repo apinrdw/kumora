@@ -77,7 +77,7 @@ const loadBackfill = (flow: MarketFlow, today: WibDate, fresh: boolean) =>
     Effect.flatMap(
       Option.match({
         onNone: () => Effect.succeed(false),
-        onSome: (body) => Effect.as(applyBubbles(flow, body), true),
+        onSome: (body) => Effect.as(applyBubbles(flow, body, fresh), true),
       })
     ),
     Effect.catchTag("SignInRequired", () => Effect.as(signInAgain, false)),
