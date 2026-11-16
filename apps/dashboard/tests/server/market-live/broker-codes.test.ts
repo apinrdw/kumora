@@ -1199,6 +1199,118 @@ describe("a day with no tape", () => {
       })
   )
 
+  it.effect(
+    "a day the relay missed, walked complete before 17:00, seals and is listed at 17:00 with nothing to fetch again",
+    () =>
+      Effect.gen(function* () {
+        const sql = memorySql()
+        yield* TestClock.setTime(wib("12:00:00").epochMilliseconds)
+        const day = yield* tradingDay({ sql })
+        yield* TestClock.setTime(wib("16:40:00").epochMilliseconds)
+        yield* day.post(
+          "Stockbit",
+          [
+            [1, YP_CC],
+            [2, PD_KZ],
+            [3, YP_CC],
+          ],
+          3
+        )
+        assert.isTrue((yield* day.status).complete)
+
+        const restarted = yield* tradingDay({ sql })
+        assert.isTrue((yield* restarted.status).complete)
+        yield* TestClock.setTime(wib("17:00:00").epochMilliseconds)
+        yield* restarted.alarm
+        assert.deepStrictEqual(restarted.indexed, [
+          { day: DAY, trades: 3, gap: false },
+        ])
+        assert.isTrue((yield* restarted.status).complete)
+      })
+  )
+
+  it.effect(
+    "a day walked before the relay's first trade keeps the walk's tape, restarted or not",
+    () =>
+      Effect.gen(function* () {
+        const sql = memorySql()
+        const tapeNumbers = Effect.fnUntraced(function* (
+          day: Effect.Success<ReturnType<typeof tradingDay>>
+        ) {
+          const response = yield* day.day.recorded({
+            _tag: "Tape",
+            at: wib("17:00:00"),
+          })
+          const text = yield* Effect.promise(() => response.text())
+          return (yield* decodeRecordedTape(text)).trades.map((trade) => [
+            Number(trade.tradeNumber),
+            trade.feeds,
+          ])
+        })
+        yield* TestClock.setTime(wib("16:40:00").epochMilliseconds)
+        const day = yield* tradingDay({ sql })
+        yield* day.post("Stockbit", [
+          [1, YP_CC],
+          [2, PD_KZ],
+        ])
+        const socket = yield* day.relay
+        yield* day.ajaibTrades(socket, [3], "16:41:00")
+        yield* TestClock.adjust("70 seconds")
+        const walked = [
+          [1, ["walk"]],
+          [2, ["walk"]],
+        ]
+        assert.deepStrictEqual(yield* tapeNumbers(day), walked)
+
+        const restarted = yield* tradingDay({ sql })
+        const again = yield* restarted.relay
+        yield* restarted.ajaibTrades(again, [3], "16:43:00")
+        yield* TestClock.adjust("70 seconds")
+        assert.deepStrictEqual(yield* tapeNumbers(restarted), walked)
+      })
+  )
+
+  it.effect(
+    "a day the relay missed answers uncached past 17:00 until a walk makes it a recorded day",
+    () =>
+      Effect.gen(function* () {
+        const sql = memorySql()
+        const tapeCache = Effect.fnUntraced(function* (
+          day: Effect.Success<ReturnType<typeof tradingDay>>
+        ) {
+          const response = yield* day.day.recorded({
+            _tag: "Tape",
+            at: wib("17:00:00"),
+          })
+          return response.headers.get("Cache-Control")
+        })
+        yield* TestClock.setTime(wib("12:00:00").epochMilliseconds)
+        const day = yield* tradingDay({ sql })
+        yield* TestClock.setTime(wib("17:00:00").epochMilliseconds)
+        yield* day.alarm
+        assert.strictEqual(yield* tapeCache(day), "no-store")
+        yield* TestClock.setTime(wib("17:30:00").epochMilliseconds)
+        const restarted = yield* tradingDay({ sql })
+        yield* restarted.alarm
+        assert.strictEqual(yield* tapeCache(restarted), "no-store")
+
+        yield* restarted.post(
+          "Stockbit",
+          [
+            [1, YP_CC],
+            [2, PD_KZ],
+          ],
+          2
+        )
+        yield* restarted.alarm
+        assert.lengthOf(restarted.indexed, 1)
+        assert.strictEqual(
+          yield* tapeCache(restarted),
+          "private, max-age=31536000, immutable"
+        )
+      })
+  )
+
   it.effect("a past day with a tape still arms its seal", () =>
     Effect.gen(function* () {
       yield* TestClock.setTime(wib("15:00:00").epochMilliseconds)

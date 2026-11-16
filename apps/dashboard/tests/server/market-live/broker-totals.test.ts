@@ -280,6 +280,33 @@ describe("a complete sealed day's broker totals", () => {
   )
 
   it.effect(
+    "of a day with no relay tape walked complete before 17:00 build in its 17:00 seal's wake, restarted between",
+    () =>
+      Effect.gen(function* () {
+        const db = memoryBrokerTotalsDb()
+        const sql = memorySql()
+        yield* at("12:00:00")
+        const day = yield* tradingDay(sql, [], db.layer)
+        yield* at("16:40:00")
+        yield* day.brokerCodes(
+          "Stockbit",
+          [
+            [1, "AK F CC D", WALKED],
+            [2, "YP D AK F", { ...WALKED, side: "sell" }],
+          ],
+          2
+        )
+        const restarted = yield* tradingDay(sql, [], db.layer)
+        yield* at("17:00:00")
+        yield* restarted.alarm
+        assert.deepStrictEqual(
+          (yield* read(db, UNTR)).builtDays,
+          UNTR_BUILT.builtDays
+        )
+      })
+  )
+
+  it.effect(
     "of a day with no relay tape and a walk row Ajaib cut to 0 lots seal and build, the 0-lot row held",
     () =>
       Effect.gen(function* () {
