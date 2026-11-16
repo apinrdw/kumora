@@ -1,19 +1,17 @@
+// A parse run's last run card (../../../server/holdings/parse-runs.ts), with
+// Parse now. Every kind of parse run shows the same card; the kind passes its
+// title, its Parse now server function and its schedule.
 import { IconFileAnalytics } from "@tabler/icons-react"
 import { Effect } from "effect"
 
 import { count } from "@/lib/format"
-import { parseKseiNowFn } from "@/server/admin/ksei.functions"
 import type { RunView } from "@/server/archive/run-view"
-import type { KseiParseRunResult } from "@/server/ksei/parse-run-result"
-import { KSEI_PARSE_TIMES_WIB } from "@/server/ksei/schedule"
+import type { ParseRunResult } from "@/server/holdings/parse-run-result"
 
-import {
-  ArchiveLastRunCard,
-  RunArchiveButton,
-} from "@/components/admin/archive/last-run-card"
+import { ArchiveLastRunCard, RunArchiveButton } from "./last-run-card"
 
-// The period ends a partial run couldn't parse, each with why.
-function Failures({ result }: { result: KseiParseRunResult }) {
+// The months a partial run couldn't parse, each with why.
+function Failures({ result }: { result: ParseRunResult }) {
   const { parseFailures } = result
   if (parseFailures.length === 0) return null
   return (
@@ -40,15 +38,25 @@ function Failures({ result }: { result: KseiParseRunResult }) {
   )
 }
 
-/**
- * The last KSEI parse run, or the empty state before any, with Parse now.
- */
-export function KseiParseRunCard({
+/** A kind's last parse run, or the empty state before any, with Parse now. */
+export function ParseRunCard({
+  title,
+  emptyMessage,
   lastParseRun,
+  parseNow,
+  times,
   nextParseRun,
   now,
 }: {
-  lastParseRun: RunView<KseiParseRunResult> | undefined
+  // As "Last parse run".
+  title: string
+  // As "No KSEI parse run has happened yet."
+  emptyMessage: string
+  lastParseRun: RunView<ParseRunResult> | undefined
+  // The kind's Parse now server function.
+  parseNow: () => Promise<{ readonly id: string }>
+  // When its cron starts a run, as "11:00 WIB".
+  times: string
   nextParseRun: string
   // When the page read the run, for a running run's time so far.
   now: string
@@ -56,8 +64,8 @@ export function KseiParseRunCard({
   const result = lastParseRun?.result
   return (
     <ArchiveLastRunCard
-      title="Last parse run"
-      emptyMessage="No KSEI parse run has happened yet."
+      title={title}
+      emptyMessage={emptyMessage}
       lastRun={lastParseRun}
       now={now}
       stats={
@@ -72,13 +80,13 @@ export function KseiParseRunCard({
       actions={
         <RunArchiveButton
           inProgress={lastParseRun?.inProgress ?? false}
-          start={parseKseiNowFn}
+          start={parseNow}
           icon={IconFileAnalytics}
         >
           Parse now
         </RunArchiveButton>
       }
-      schedule={{ times: KSEI_PARSE_TIMES_WIB, nextRun: nextParseRun }}
+      schedule={{ times, nextRun: nextParseRun }}
     />
   )
 }

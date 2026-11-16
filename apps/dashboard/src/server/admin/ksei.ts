@@ -12,7 +12,8 @@ import { ArchiveBucket } from "@/server/archive/bucket"
 import { REPORTS_PREFIX } from "@/server/archive/run"
 import type { Action } from "@/server/auth/policy"
 import { kseiCoverage } from "@/server/ksei/coverage"
-import { lastKseiParseRun, startKseiParseRun } from "@/server/ksei/parse-runs"
+import { parseNow } from "@/server/admin/parse-now"
+import { kseiParseRuns } from "@/server/ksei/parse-runs"
 import { type KseiTrigger, kseiRunIdAt } from "@/server/ksei/run-result"
 import {
   lastKseiDeepRun,
@@ -43,7 +44,7 @@ export const kseiArchivePage = Effect.fn("kseiArchivePage")(function* (
     return yield* (yield* ArchiveBucket).list(REPORTS_PREFIX)
   })
   const [run, runs, objects, deep, parseRun] = yield* Effect.all(
-    [lastKseiRun, recentKseiRuns, reports, lastKseiDeepRun, lastKseiParseRun],
+    [lastKseiRun, recentKseiRuns, reports, lastKseiDeepRun, kseiParseRuns.last],
     { concurrency: "unbounded" }
   )
   const now = yield* DateTime.now
@@ -100,15 +101,5 @@ export const parseKseiNow = Effect.fn("parseKseiNow")(function* (
   headers: Headers
 ) {
   yield* authorize(headers, "admin.run-ksei-parse")
-  const id = yield* kseiRunIdAt(
-    "admin",
-    DateTime.toEpochMillis(yield* DateTime.now)
-  )
-  const refused = () =>
-    Effect.fail(new Conflict({ message: "A parse run is in progress." }))
-  // DuplicateRunId: another start in the same millisecond took the id.
-  yield* startKseiParseRun(id, "admin").pipe(
-    Effect.catchTags({ RunInProgress: refused, DuplicateRunId: refused })
-  )
-  return { id }
+  return yield* parseNow(kseiParseRuns)
 })

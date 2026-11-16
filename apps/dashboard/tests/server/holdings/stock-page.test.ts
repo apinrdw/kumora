@@ -14,7 +14,7 @@ import {
   stockPage,
 } from "@/server/holdings/stock-page"
 import { kseiArchiveRun } from "@/server/ksei/archive-run"
-import { kseiParseRun } from "@/server/ksei/parse-run"
+import { kseiParseRuns } from "@/server/ksei/parse-runs"
 import { archiveRun } from "@/server/shareholding/archive-run"
 
 import { classificationIdx } from "../shareholding/fake-idx.ts"
@@ -42,7 +42,7 @@ const parsed = Effect.gen(function* () {
     localSteps(Layer.merge(holdingsKsei().layer, kseiBucket.layer)),
     run("cron-2026-11-14T03", "2026-11-14T03:00:00Z")
   )
-  yield* kseiParseRun(
+  yield* kseiParseRuns.run(
     localSteps(Layer.merge(kseiBucket.layer, holdings.layer)),
     run("cron-2026-11-14T04", "2026-11-14T04:00:00Z")
   )
