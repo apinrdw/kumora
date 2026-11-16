@@ -1,8 +1,15 @@
 // The chart settings a browser remembers (spec apinrdw/kumora#263,
 // "Settings"): the candle chart's top-N, the footprint chart's view mode,
-// imbalance ratio and POC and VWAP toggles, and each chart's zoom.
+// imbalance ratio and POC and VWAP toggles, each chart's zoom, and the
+// bubble panel's code set and window.
 import { Effect, Schema } from "effect"
 
+import {
+  PANEL_SETS,
+  PANEL_WINDOWS,
+  type PanelSet,
+  type PanelWindow,
+} from "./bubble-panel"
 import { TOP_N_DEFAULT } from "./sweeps"
 
 export const FOOTPRINT_MODES = [
@@ -45,6 +52,12 @@ export interface ChartZooms {
   readonly footprint: FootprintZoom
 }
 
+// The bubble panel's code set and window.
+interface BubblePanelSettings {
+  readonly set: PanelSet
+  readonly window: PanelWindow
+}
+
 export interface ChartSettings {
   readonly topN: number
   readonly mode: FootprintMode
@@ -52,6 +65,7 @@ export interface ChartSettings {
   readonly poc: boolean
   readonly vwap: boolean
   readonly zoom: ChartZooms
+  readonly bubbles: BubblePanelSettings
 }
 
 export const CHART_SETTINGS_DEFAULT: ChartSettings = {
@@ -61,6 +75,7 @@ export const CHART_SETTINGS_DEFAULT: ChartSettings = {
   poc: true,
   vwap: true,
   zoom: { candles: {}, footprint: {} },
+  bubbles: { set: "top", window: "5m" },
 }
 
 // The 1% preset, or the slider's 5% steps.
@@ -123,6 +138,18 @@ export const parseChartSettings = Effect.fnUntraced(function* (
         minutes: yield* zoom("footprint", "minutes"),
         priceStretch: yield* zoom("footprint", "priceStretch"),
       },
+    },
+    bubbles: {
+      set: yield* storedOr(
+        Schema.Literals(PANEL_SETS),
+        fieldOf(at("bubbles"), "set"),
+        fallback.bubbles.set
+      ),
+      window: yield* storedOr(
+        Schema.Literals(PANEL_WINDOWS),
+        fieldOf(at("bubbles"), "window"),
+        fallback.bubbles.window
+      ),
     },
   } satisfies ChartSettings
 })
