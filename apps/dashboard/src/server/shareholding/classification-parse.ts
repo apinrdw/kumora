@@ -1,22 +1,37 @@
-// The archive run's classification months to parse (../holdings/
-// parse-steps.ts): a data date is parsed when its newest archived version
-// (by fetched-at) or the parser's version differs from the version its
-// parsed holdings came from, or when it has none. Spec apinrdw/kumora#363,
-// "IDX archive run: the reconcile step".
+// The Classification parse run: it parses the shareholding archive's
+// classification reports into classification holdings
+// (../holdings/parse-runs.ts; which months, ../holdings/months-to-parse.ts).
+// Spec apinrdw/kumora#402, "Parse runs".
+import { Context } from "effect"
+
+import type { ArchiveWorkflow } from "../archive/workflow.ts"
 import {
   PARSER_VERSION,
   parseClassificationMonth,
   parsedClassificationMonths,
 } from "../holdings/classification.ts"
-import type { MonthSource } from "../holdings/parse-steps.ts"
+import { parseRunsOf } from "../holdings/parse-runs.ts"
 import { kindPrefix, reportKey } from "./keys.ts"
 
 const KIND = "investor-classification"
 
-export const classificationMonths: MonthSource = {
-  prefix: kindPrefix(KIND),
-  reportKey: (dataDate, sha256) => reportKey(KIND, dataDate, sha256),
-  parsed: parsedClassificationMonths,
-  parserVersion: PARSER_VERSION,
-  parse: parseClassificationMonth,
-}
+// The Classification parse run's Workflow, CLASSIFICATION_PARSE
+// (alchemy.run.ts).
+export class ClassificationParseWorkflow extends Context.Service<
+  ClassificationParseWorkflow,
+  Context.Service.Shape<typeof ArchiveWorkflow>
+>()("dashboard/shareholding/ClassificationParseWorkflow") {}
+
+export const classificationParseRuns = parseRunsOf({
+  runName: "Classification parse run",
+  // parse-runs/<kind>/, as keys.ts lays out.
+  runsPrefix: `parse-runs/${KIND}/`,
+  months: {
+    prefix: kindPrefix(KIND),
+    reportKey: (dataDate, sha256) => reportKey(KIND, dataDate, sha256),
+    parsed: parsedClassificationMonths,
+    parserVersion: PARSER_VERSION,
+    parse: parseClassificationMonth,
+  },
+  workflow: ClassificationParseWorkflow,
+})

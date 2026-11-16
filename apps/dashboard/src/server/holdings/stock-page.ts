@@ -71,6 +71,37 @@ const SeriesMonth = Schema.Struct({
 })
 export type SeriesMonth = typeof SeriesMonth.Type
 
+// An investor type's scripless shares with <5% and with ≥5% holders.
+const InvestorTypeHolding = Schema.Struct({
+  under5: Schema.Number,
+  atLeast5: Schema.Number,
+})
+export type InvestorTypeHolding = typeof InvestorTypeHolding.Type
+
+// Each of the 9 KSEI investor types' investor-type holdings, 0 in both
+// for a type holding none.
+const InvestorTypeHoldings = Schema.Record(KseiType, InvestorTypeHolding)
+export type InvestorTypeHoldings = typeof InvestorTypeHoldings.Type
+
+// An investor-type report month. `holding` is undefined when the report has
+// no row for the stock.
+const HolderSizeMonth = Schema.Struct({
+  dataDate: Schema.String,
+  // Whether the report splits local and foreign (Jan 2026 onward).
+  split: Schema.Boolean,
+  holding: Schema.UndefinedOr(
+    Schema.Struct({
+      sharesOutstanding: Schema.Number,
+      totalScripless: Schema.Number,
+      combined: InvestorTypeHoldings,
+      // Absent in a month that doesn't split, never 0.
+      local: Schema.optional(InvestorTypeHoldings),
+      foreign: Schema.optional(InvestorTypeHoldings),
+    })
+  ),
+})
+export type HolderSizeMonth = typeof HolderSizeMonth.Type
+
 const StockPage = Schema.Struct({
   code: StockCode,
   // As the newest classification report holding the stock prints it.
@@ -94,6 +125,9 @@ const StockPage = Schema.Struct({
   // KSEI's holdings of the stock, one entry per month from its first period
   // end to its last, oldest first.
   series: Schema.Array(SeriesMonth),
+  // Every parsed investor-type month, oldest first, with the stock's
+  // holdings where it has a row.
+  holderSize: Schema.Array(HolderSizeMonth),
 })
 export type StockPage = typeof StockPage.Type
 
@@ -163,13 +197,89 @@ const SeriesHoldingRow = Schema.Struct({
   shares: Schema.Number,
 })
 
-const noHoldings = Effect.sync(
-  () =>
-    Object.fromEntries(KSEI_TYPES.map((type) => [type, 0])) as Record<
-      KseiType,
-      number
-    >
-)
+// The stock's investor-type months and its holdings in each. ?1 is the code.
+const HOLDER_SIZE_MONTHS = `
+  SELECT m.data_date, m.split, s.shares_outstanding, s.total_scripless
+  FROM investor_type_month m
+  LEFT JOIN investor_type_stock_month s
+    ON s.data_date = m.data_date AND s.stock_code = ?1
+  ORDER BY m.data_date`
+const HOLDER_SIZE_HOLDINGS = `
+  SELECT data_date, origin, investor_type, under_5, at_least_5
+  FROM investor_type_holding WHERE stock_code = ?1`
+
+const HolderSizeMonthRow = Schema.Struct({
+  data_date: Schema.String,
+  split: Schema.BooleanFromBit,
+  shares_outstanding: Schema.NullOr(Schema.Number),
+  total_scripless: Schema.NullOr(Schema.Number),
+})
+const HolderSizeHoldingRow = Schema.Struct({
+  data_date: Schema.String,
+  origin: Origin,
+  investor_type: KseiType,
+  under_5: Schema.Number,
+  at_least_5: Schema.Number,
+})
+
+type HolderSizeHoldingRow = typeof HolderSizeHoldingRow.Type
+
+// A new record of each of the 9 KSEI investor types holding `none`.
+const noneOfEachType = <A>(none: A) =>
+  Effect.sync(
+    () =>
+      Object.fromEntries(KSEI_TYPES.map((type) => [type, none])) as Record<
+        KseiType,
+        A
+      >
+  )
+
+// A month's investor-type holdings of one origin, 0/0 for a type with no
+// row.
+const investorTypeHoldings = Effect.fnUntraced(function* (
+  holdingRows: ReadonlyArray<HolderSizeHoldingRow>,
+  dataDate: string,
+  origin: Origin
+) {
+  const holdings = yield* noneOfEachType<InvestorTypeHolding>({
+    under5: 0,
+    atLeast5: 0,
+  })
+  for (const held of holdingRows)
+    if (held.data_date === dataDate && held.origin === origin)
+      holdings[held.investor_type] = {
+        under5: held.under_5,
+        atLeast5: held.at_least_5,
+      }
+  return holdings
+})
+
+const holderSizeMonth = Effect.fnUntraced(function* (
+  row: typeof HolderSizeMonthRow.Type,
+  holdingRows: ReadonlyArray<HolderSizeHoldingRow>
+) {
+  const { data_date: dataDate, split } = row
+  if (row.shares_outstanding === null || row.total_scripless === null)
+    return { dataDate, split, holding: undefined } satisfies HolderSizeMonth
+  return {
+    dataDate,
+    split,
+    holding: {
+      sharesOutstanding: row.shares_outstanding,
+      totalScripless: row.total_scripless,
+      combined: yield* investorTypeHoldings(holdingRows, dataDate, "combined"),
+      ...(split && {
+        local: yield* investorTypeHoldings(holdingRows, dataDate, "local"),
+        foreign: yield* investorTypeHoldings(holdingRows, dataDate, "foreign"),
+      }),
+    },
+  } satisfies HolderSizeMonth
+})
+
+const holderSize = (
+  monthRows: ReadonlyArray<typeof HolderSizeMonthRow.Type>,
+  holdingRows: ReadonlyArray<HolderSizeHoldingRow>
+) => Effect.forEach(monthRows, (row) => holderSizeMonth(row, holdingRows))
 
 /** `2026-12` → `2027-01` */
 const nextMonth = (month: string) =>
@@ -196,8 +306,8 @@ const kseiSeries = Effect.fnUntraced(function* (
   for (const { period_end } of monthRows)
     byMonth.set(period_end.slice(0, 7), {
       periodEnd: period_end,
-      local: yield* noHoldings,
-      foreign: yield* noHoldings,
+      local: yield* noneOfEachType(0),
+      foreign: yield* noneOfEachType(0),
     })
   for (const { period_end, origin, investor_type, shares } of holdingRows) {
     const held = byMonth.get(period_end.slice(0, 7))
@@ -260,8 +370,8 @@ const compositionMonth = Effect.fnUntraced(function* (
 
 // Everything the stock page shows for a code. `month` is the URL's
 // `YYYY-MM`; a month the stock has no row in falls back to its newest.
-// Decision: one batch, so each month reads whole while the archive run
-// replaces it (apinrdw/kumora#355).
+// Decision: one batch, so each month reads whole while a parse run replaces
+// it (apinrdw/kumora#355, #402).
 export const stockPage = Effect.fnUntraced(function* (
   code: StockCode,
   month: string | undefined
@@ -271,11 +381,15 @@ export const stockPage = Effect.fnUntraced(function* (
     holdingRows = [],
     seriesMonthRows = [],
     seriesHoldingRows = [],
+    holderSizeMonthRows = [],
+    holderSizeHoldingRows = [],
   ] = yield* (yield* HoldingsDb).batch([
     { sql: MONTHS, params: [code] },
     { sql: HOLDINGS, params: [code, month ?? null] },
     { sql: SERIES_MONTHS, params: [code] },
     { sql: SERIES_HOLDINGS, params: [code] },
+    { sql: HOLDER_SIZE_MONTHS, params: [code] },
+    { sql: HOLDER_SIZE_HOLDINGS, params: [code] },
   ])
   const months = Schema.decodeUnknownSync(Schema.Array(MonthRow))(monthRows)
   const holdings = Schema.decodeUnknownSync(Schema.Array(HoldingRow))(
@@ -324,6 +438,14 @@ export const stockPage = Effect.fnUntraced(function* (
               previous === undefined ? undefined : yield* read(previous),
           },
     series,
+    holderSize: yield* holderSize(
+      Schema.decodeUnknownSync(Schema.Array(HolderSizeMonthRow))(
+        holderSizeMonthRows
+      ),
+      Schema.decodeUnknownSync(Schema.Array(HolderSizeHoldingRow))(
+        holderSizeHoldingRows
+      )
+    ),
   })
 })
 
@@ -334,10 +456,10 @@ const ListRow = Schema.Struct({
 
 const isStockCode = Schema.is(StockCode)
 
-// The stocks the page's picker offers: those in the newest month of either
-// source, by code, with the classification report's issuer name. KSEI's
-// report names no issuer. A KSEI code that isn't a stock code's shape is left
-// out, as no page could open it.
+// The stocks the page's picker offers: those in the newest month of any
+// source, by code, with the classification report's issuer name. KSEI's and
+// the investor-type report name no issuer. A code that isn't a stock code's
+// shape is left out, as no page could open it.
 export const stockList = Effect.gen(function* () {
   const [rows = []] = yield* (yield* HoldingsDb).batch([
     {
@@ -347,9 +469,14 @@ export const stockList = Effect.gen(function* () {
         )
         SELECT stock_code, issuer_name FROM classified
         UNION
-        SELECT stock_code, NULL FROM ksei_stock_month
-        WHERE period_end = (SELECT MAX(period_end) FROM ksei_month)
-          AND stock_code NOT IN (SELECT stock_code FROM classified)
+        SELECT stock_code, NULL FROM (
+          SELECT stock_code FROM ksei_stock_month
+          WHERE period_end = (SELECT MAX(period_end) FROM ksei_month)
+          UNION
+          SELECT stock_code FROM investor_type_stock_month
+          WHERE data_date = (SELECT MAX(data_date) FROM investor_type_month)
+        )
+        WHERE stock_code NOT IN (SELECT stock_code FROM classified)
         ORDER BY stock_code`,
       params: [],
     },

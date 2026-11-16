@@ -8,7 +8,7 @@ import { TestClock } from "effect/testing"
 import { RunId } from "@/server/archive/run"
 import { stockPage } from "@/server/holdings/stock-page"
 import { kseiArchiveRun } from "@/server/ksei/archive-run"
-import { kseiParseRun } from "@/server/ksei/parse-run"
+import { kseiParseRuns } from "@/server/ksei/parse-runs"
 
 import { localSteps } from "../archive/local-steps.ts"
 import { memoryBucket } from "../archive/memory-bucket.ts"
@@ -29,7 +29,7 @@ const parsed = Effect.gen(function* () {
     run("cron-2026-11-14T03")
   )
   yield* TestClock.adjust("1 hour")
-  yield* kseiParseRun(
+  yield* kseiParseRuns.run(
     localSteps(Layer.merge(bucket.layer, holdings.layer)),
     run("cron-2026-11-14T04")
   )

@@ -9,7 +9,7 @@ import { RunId } from "@/server/archive/run"
 import { KSEI_TYPES } from "@/domain/holdings"
 import { stockPage } from "@/server/holdings/stock-page"
 import { kseiArchiveRun } from "@/server/ksei/archive-run"
-import { kseiParseRun } from "@/server/ksei/parse-run"
+import { kseiParseRuns } from "@/server/ksei/parse-runs"
 
 import { localSteps } from "../archive/local-steps.ts"
 import { type MemoryBucket, memoryBucket } from "../archive/memory-bucket.ts"
@@ -54,7 +54,7 @@ const archive = ({ ksei, bucket }: World, id: string) =>
 const parse = ({ bucket, holdings }: World, id: string) =>
   TestClock.adjust("1 hour").pipe(
     Effect.andThen(
-      kseiParseRun(localSteps(Layer.merge(bucket.layer, holdings.layer)), {
+      kseiParseRuns.run(localSteps(Layer.merge(bucket.layer, holdings.layer)), {
         id: RunId.make(id),
         trigger: "cron",
         startedAt: new Date("2026-11-14T04:00:00Z"),

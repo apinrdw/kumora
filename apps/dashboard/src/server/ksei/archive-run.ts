@@ -23,6 +23,7 @@ import {
 } from "../archive/head.ts"
 import { ETAG, RUN, SHA256 } from "../archive/held.ts"
 import { md5Hex } from "../archive/md5.ts"
+import { failingRun } from "../archive/failing-run.ts"
 import {
   type Run,
   type RunId,
@@ -449,14 +450,10 @@ export const kseiArchiveRun = Effect.fn("kseiArchiveRun")(function* (
   steps: WorkflowSteps<StepServices>,
   run: KseiRun
 ): Effect.fn.Return<KseiRunResult, StepFailed> {
-  const planned = yield* steps.do("plan", plan(run), KSEI_STEP).pipe(
-    // The run still fails with `plan`'s message, which the Workflow keeps as
-    // the instance's error.
-    Effect.tapError(({ message }) =>
-      steps
-        .do("failed", recordPlanFailure(run, message))
-        .pipe(Effect.ignore({ log: "Warn" }))
-    )
+  const planned = yield* failingRun(
+    steps,
+    steps.do("plan", plan(run), KSEI_STEP),
+    (message) => recordPlanFailure(run, message)
   )
   const checked = yield* steps.do(
     "head",

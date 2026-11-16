@@ -4,7 +4,12 @@
 import { Effect } from "effect"
 
 import { listRecentRuns } from "../archive/history.ts"
-import { type ArchiveSource, type RunId, RUNS_PREFIX } from "../archive/run.ts"
+import {
+  type ArchiveSource,
+  dailyRunIdAt,
+  type RunId,
+  RUNS_PREFIX,
+} from "../archive/run.ts"
 import {
   readLastRun,
   readLatestRunWhere,
@@ -17,7 +22,6 @@ import {
   KseiRunResult,
   type KseiRunSummary,
   KseiTrigger,
-  kseiRunIdAt,
   runningKseiResult,
 } from "./run-result.ts"
 
@@ -25,7 +29,7 @@ const KSEI_RUNS = {
   runName: "KSEI archive run",
   runsPrefix: RUNS_PREFIX,
   triggers: KseiTrigger.literals,
-  runIdAt: kseiRunIdAt,
+  runIdAt: dailyRunIdAt,
   result: KseiRunResult,
   metadata: KseiRunMetadata,
   running: runningKseiResult,

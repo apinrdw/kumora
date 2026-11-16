@@ -7,14 +7,23 @@ import { Auth } from "@/server/auth/auth"
 import {
   archiveBucketR2,
   archiveWorkflowBinding,
+  classificationParseWorkflowBinding,
+  investorTypeParseWorkflowBinding,
 } from "@/server/shareholding/bindings"
 
-import { runArchiveNow, shareholdingArchivePage } from "./shareholding.ts"
+import {
+  parseClassificationNow,
+  parseInvestorTypeNow,
+  runArchiveNow,
+  shareholdingArchivePage,
+} from "./shareholding.ts"
 
 const services = Layer.mergeAll(
   Auth.layer,
   archiveBucketR2,
-  archiveWorkflowBinding
+  archiveWorkflowBinding,
+  classificationParseWorkflowBinding,
+  investorTypeParseWorkflowBinding
 )
 
 export const shareholdingArchiveFn = createServerFn({ method: "GET" }).handler(
@@ -29,5 +38,21 @@ export const shareholdingArchiveFn = createServerFn({ method: "GET" }).handler(
 export const runArchiveNowFn = createServerFn({ method: "POST" }).handler(() =>
   runServerEffect(
     runArchiveNow(getRequest().headers).pipe(Effect.provide(services))
+  )
+)
+
+export const parseClassificationNowFn = createServerFn({
+  method: "POST",
+}).handler(() =>
+  runServerEffect(
+    parseClassificationNow(getRequest().headers).pipe(Effect.provide(services))
+  )
+)
+
+export const parseInvestorTypeNowFn = createServerFn({
+  method: "POST",
+}).handler(() =>
+  runServerEffect(
+    parseInvestorTypeNow(getRequest().headers).pipe(Effect.provide(services))
   )
 )

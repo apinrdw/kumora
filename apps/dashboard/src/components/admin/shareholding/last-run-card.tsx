@@ -12,15 +12,10 @@ import {
   RunArchiveButton,
 } from "@/components/admin/archive/last-run-card"
 
-// What a run couldn't store or parse, and what it archived under `other`.
+// What a run couldn't store, and what it archived under `other`.
 function Detail({ result }: { result: ArchiveRunResult }) {
-  const { notStored, parseFailures, other } = result
-  if (
-    notStored.length === 0 &&
-    parseFailures.length === 0 &&
-    other.length === 0
-  )
-    return null
+  const { notStored, other } = result
+  if (notStored.length === 0 && other.length === 0) return null
   return (
     <div className="border-warning bg-elevated flex flex-col gap-2 rounded-xs border-l-[3px] px-3 py-2 text-[13px]">
       {notStored.length > 0 && (
@@ -42,28 +37,6 @@ function Detail({ result }: { result: ArchiveRunResult }) {
                 className="font-mono text-xs [overflow-wrap:anywhere]"
               >
                 {url}
-              </li>
-            ))}
-          </ul>
-        </div>
-      )}
-      {parseFailures.length > 0 && (
-        <div>
-          <b>
-            {Effect.runSync(
-              count(
-                parseFailures.length,
-                "month could not be parsed.",
-                "months could not be parsed."
-              )
-            )}
-          </b>{" "}
-          {parseFailures.length === 1 ? "It keeps its" : "Each keeps its"}{" "}
-          earlier parsed holdings, and the next run tries again.
-          <ul aria-label="Parse failures" className="mt-1 list-disc pl-5">
-            {parseFailures.map(({ date, message }) => (
-              <li key={date} className="[overflow-wrap:anywhere]">
-                <span className="font-mono text-xs">{date}</span> {message}
               </li>
             ))}
           </ul>
@@ -117,13 +90,7 @@ export function LastRunCard({
       lastRun={lastRun}
       now={now}
       stats={
-        result === undefined
-          ? []
-          : [
-              ...Effect.runSync(archiveRunStats(result)),
-              { value: result.monthsParsed, label: "Months parsed" },
-              { value: result.parseFailures.length, label: "Parse failures" },
-            ]
+        result === undefined ? [] : Effect.runSync(archiveRunStats(result))
       }
       details={result === undefined ? null : <Detail result={result} />}
       actions={

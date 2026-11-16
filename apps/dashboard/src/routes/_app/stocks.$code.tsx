@@ -5,6 +5,7 @@ import { Effect } from "effect"
 import { useCallback, useEffect } from "react"
 
 import { StockCodePicker } from "@/components/market-live/stock-code-picker"
+import { HolderSize } from "@/components/stocks/holder-size"
 import { HoldingComposition } from "@/components/stocks/holding-composition"
 import { ShareholdersComposition } from "@/components/stocks/shareholders-composition"
 import { useStockList } from "@/components/stocks/use-stock-list"
@@ -46,6 +47,12 @@ function StockPageView() {
     clientRuntime.runFork(rememberStock(page.code))
   }, [page.code])
   const newest = page.months.filter(({ held }) => held).at(-1)?.dataDate
+  const newestSize = page.holderSize
+    .filter(({ holding }) => holding !== undefined)
+    .at(-1)?.dataDate
+  // A stock any source has, even one with no composition.
+  const known =
+    page.composition !== undefined || page.inKsei || newestSize !== undefined
   // Each control changes its own search param, at its default left out.
   const setSearch = useCallback(
     (change: StockSearch) =>
@@ -79,7 +86,7 @@ function StockPageView() {
       </header>
       {page.composition === undefined ? (
         <p className="text-muted-foreground">
-          {page.inKsei
+          {known
             ? `${page.code} isn't in IDX's classification report, so its shareholders composition isn't shown.`
             : `No holdings data for ${page.code}. Pick another stock.`}
         </p>
@@ -97,6 +104,13 @@ function StockPageView() {
           }
         />
       )}
+      {known && (
+        <StockHolderSize
+          page={page}
+          newest={newestSize}
+          setSearch={setSearch}
+        />
+      )}
       {page.series.length > 0 && (
         <HoldingComposition
           key={page.code}
@@ -112,5 +126,49 @@ function StockPageView() {
         />
       )}
     </div>
+  )
+}
+
+// Holder size with its search params. `newest` is its newest held month.
+function StockHolderSize({
+  page,
+  newest,
+  setSearch,
+}: {
+  page: StockPage
+  newest: string | undefined
+  setSearch: (change: StockSearch) => void
+}) {
+  const {
+    sizeMonth,
+    sizeOrigin = "all",
+    sizeBase = "outstanding",
+    sizeView = "bars",
+  } = Route.useSearch()
+  return (
+    <HolderSize
+      code={page.code}
+      months={page.holderSize}
+      month={sizeMonth}
+      origin={sizeOrigin}
+      denominator={sizeBase}
+      view={sizeView}
+      onMonth={(dataDate) =>
+        setSearch({
+          sizeMonth: dataDate === newest ? undefined : dataDate.slice(0, 7),
+        })
+      }
+      onOrigin={(origin) =>
+        setSearch({ sizeOrigin: origin === "all" ? undefined : origin })
+      }
+      onDenominator={(denominator) =>
+        setSearch({
+          sizeBase: denominator === "outstanding" ? undefined : denominator,
+        })
+      }
+      onView={(next) =>
+        setSearch({ sizeView: next === "bars" ? undefined : next })
+      }
+    />
   )
 }

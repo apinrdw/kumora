@@ -9,7 +9,7 @@ import {
   kseiParseWorkflowBinding,
   kseiWorkflowBinding,
 } from "./bindings.ts"
-import { scheduledKseiParseRun } from "./parse-runs.ts"
+import { kseiParseRuns } from "./parse-runs.ts"
 import { scheduledKseiRun } from "./runs.ts"
 
 export const runKseiCron = (scheduledTime: number) =>
@@ -22,7 +22,7 @@ export const runKseiCron = (scheduledTime: number) =>
 // The KSEI parse cron's handler, the same way.
 export const runKseiParseCron = (scheduledTime: number) =>
   runServerEffectResult(
-    scheduledKseiParseRun(scheduledTime).pipe(
-      Effect.provide(Layer.merge(kseiBucketR2, kseiParseWorkflowBinding))
-    )
+    kseiParseRuns
+      .scheduled(scheduledTime)
+      .pipe(Effect.provide(Layer.merge(kseiBucketR2, kseiParseWorkflowBinding)))
   )

@@ -8,8 +8,9 @@ import {
 } from "@/components/admin/ksei/archive-history"
 import { KseiCoverageCard } from "@/components/admin/ksei/coverage-card"
 import { KseiLastRunCard } from "@/components/admin/ksei/last-run-card"
-import { KseiParseRunCard } from "@/components/admin/ksei/parse-run-card"
-import { kseiArchiveFn } from "@/server/admin/ksei.functions"
+import { ParseRunCard } from "@/components/admin/archive/parse-run-card"
+import { kseiArchiveFn, parseKseiNowFn } from "@/server/admin/ksei.functions"
+import { KSEI_PARSE_TIMES_WIB } from "@/server/ksei/schedule"
 
 export const Route = createFileRoute("/_app/admin/ksei")({
   staticData: {
@@ -37,8 +38,12 @@ function KseiPage() {
       <h1 className="text-2xl font-bold">KSEI archive</h1>
       <div className="grid items-start gap-5 xl:grid-cols-[3fr_2fr]">
         <KseiLastRunCard {...lastRun} />
-        <KseiParseRunCard
+        <ParseRunCard
+          title="Last parse run"
+          emptyMessage="No KSEI parse run has happened yet."
           lastParseRun={lastParseRun}
+          parseNow={parseKseiNowFn}
+          times={KSEI_PARSE_TIMES_WIB}
           nextParseRun={nextParseRun}
           now={lastRun.now}
         />

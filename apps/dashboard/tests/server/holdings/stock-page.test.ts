@@ -1,10 +1,13 @@
-// The stock page's read model, read after a real archive run parsed the
-// classification fixtures (Mar, May, Sep and Oct 2026) and a real KSEI parse
-// run parsed the KSEI fixtures (May, Aug, Sep and Oct 2026).
+// The stock page's read model, read after a real classification parse run
+// parsed the classification fixtures (Mar, May, Sep and Oct 2026) and a real
+// investor-type parse run the investor-type fixtures (Nov 2025, Apr and Oct
+// 2026), both archived by a real archive run, and a real KSEI parse run
+// parsed the KSEI fixtures (May, Aug, Sep and Oct 2026).
 import { assert, describe, it } from "@effect/vitest"
 import { StockCode } from "@workspace/relay"
 import { Effect, Layer } from "effect"
 
+import { KSEI_TYPES } from "@/domain/holdings"
 import { scrip } from "@/lib/stock-composition"
 import { RunId } from "@/server/archive/run"
 import { parseClassificationMonth } from "@/server/holdings/classification"
@@ -14,10 +17,16 @@ import {
   stockPage,
 } from "@/server/holdings/stock-page"
 import { kseiArchiveRun } from "@/server/ksei/archive-run"
-import { kseiParseRun } from "@/server/ksei/parse-run"
+import { kseiParseRuns } from "@/server/ksei/parse-runs"
 import { archiveRun } from "@/server/shareholding/archive-run"
+import { classificationParseRuns } from "@/server/shareholding/classification-parse"
+import { investorTypeParseRuns } from "@/server/shareholding/investor-type-parse"
 
-import { classificationIdx } from "../shareholding/fake-idx.ts"
+import {
+  classificationIdx,
+  fakeIdx,
+  investorTypeItems,
+} from "../shareholding/fake-idx.ts"
 import { localSteps } from "../archive/local-steps.ts"
 import { holdingsKsei } from "../ksei/fake-ksei.ts"
 import { memoryBucket } from "../archive/memory-bucket.ts"
@@ -42,20 +51,25 @@ const parsed = Effect.gen(function* () {
     localSteps(Layer.merge(holdingsKsei().layer, kseiBucket.layer)),
     run("cron-2026-11-14T03", "2026-11-14T03:00:00Z")
   )
-  yield* kseiParseRun(
+  yield* kseiParseRuns.run(
     localSteps(Layer.merge(kseiBucket.layer, holdings.layer)),
     run("cron-2026-11-14T04", "2026-11-14T04:00:00Z")
   )
+  const bucket = memoryBucket()
   yield* archiveRun(
     localSteps(
-      Layer.mergeAll(
-        classificationIdx().layer,
-        memoryBucket().layer,
-        holdings.layer
+      Layer.merge(
+        fakeIdx([...classificationIdx().listing, ...investorTypeItems()]).layer,
+        bucket.layer
       )
     ),
     run("cron-2026-11-14T13", "2026-11-14T13:00:00Z")
   )
+  for (const runs of [classificationParseRuns, investorTypeParseRuns])
+    yield* runs.run(
+      localSteps(Layer.merge(bucket.layer, holdings.layer)),
+      run("cron-2026-11-14", "2026-11-14T14:00:00Z")
+    )
   return holdings.layer
 })
 
@@ -290,8 +304,105 @@ describe("the stock page read", () => {
         // Only KSEI has APOL, and KSEI's report names no issuer.
         { code: "APOL", issuerName: undefined },
         { code: "BBCA", issuerName: "BANK CENTRAL ASIA Tbk" },
+        // Only the investor-type report has TRUE, and it names no issuer.
+        { code: "TRUE", issuerName: undefined },
         { code: "WBSA", issuerName: "BSA LOGISTICS INDONESIA Tbk" },
       ])
+    })
+  )
+})
+
+const NO_HOLDING = { under5: 0, atLeast5: 0 }
+
+describe("the stock page's Holder size read", () => {
+  it.effect("reads every investor-type month, oldest first", () =>
+    Effect.gen(function* () {
+      const { holderSize } = yield* read("AADI")
+      assert.deepStrictEqual(
+        holderSize.map(({ dataDate, split }) => ({ dataDate, split })),
+        [
+          { dataDate: "2025-11-28", split: false },
+          { dataDate: "2026-04-30", split: true },
+          { dataDate: "2026-10-30", split: true },
+        ]
+      )
+      // Nov 2025 doesn't split: local and foreign are absent, not 0.
+      assert.deepStrictEqual(holderSize[0]?.holding, {
+        sharesOutstanding: 7_786_891_760,
+        totalScripless: 7_786_891_760,
+        combined: {
+          ID: { under5: 1_412_471_655, atLeast5: 454_011_607 },
+          CP: { under5: 701_501_094, atLeast5: 4_397_166_772 },
+          MF: { under5: 331_782_018, atLeast5: 0 },
+          IB: { under5: 196_305_490, atLeast5: 0 },
+          IS: { under5: 81_345_483, atLeast5: 0 },
+          SC: { under5: 66_776_429, atLeast5: 0 },
+          PF: { under5: 73_223_227, atLeast5: 0 },
+          FD: { under5: 4_069_998, atLeast5: 0 },
+          OT: { under5: 68_237_987, atLeast5: 0 },
+        },
+      })
+    })
+  )
+
+  it.effect("reads a split month's combined as local plus foreign", () =>
+    Effect.gen(function* () {
+      const october = (yield* read("BBCA")).holderSize.at(-1)?.holding
+      assert.strictEqual(october?.sharesOutstanding, 123_275_050_000)
+      assert.strictEqual(october?.totalScripless, 52_453_691_120)
+      const { combined, local, foreign } = october ?? {}
+      assert.isDefined(combined)
+      assert.isDefined(local)
+      assert.isDefined(foreign)
+      for (const type of KSEI_TYPES)
+        assert.deepStrictEqual(combined[type], {
+          under5: local[type].under5 + foreign[type].under5,
+          atLeast5: local[type].atLeast5 + foreign[type].atLeast5,
+        })
+      assert.strictEqual(
+        sum(
+          KSEI_TYPES.flatMap((type) => [
+            combined[type].under5,
+            combined[type].atLeast5,
+          ])
+        ),
+        52_453_691_120
+      )
+    })
+  )
+
+  it.effect("reads a month without the stock as a gap", () =>
+    Effect.gen(function* () {
+      // WBSA lists from April 2026.
+      const { holderSize } = yield* read("WBSA")
+      assert.deepStrictEqual(
+        holderSize.map(({ holding }) => holding !== undefined),
+        [false, true, true]
+      )
+      // A type with no holding holds 0 in both.
+      assert.deepStrictEqual(holderSize[1]?.holding?.local?.FD, NO_HOLDING)
+    })
+  )
+
+  it.effect("opens a stock only the investor-type report has", () =>
+    Effect.gen(function* () {
+      // TRUE is in no classification or KSEI report, and its Apr 2026 code
+      // is a boolean cell.
+      const page = yield* read("TRUE")
+      assert.isUndefined(page.composition)
+      assert.isFalse(page.inKsei)
+      assert.deepStrictEqual(page.holderSize[1]?.holding?.local?.CP, {
+        under5: 10_903_700,
+        atLeast5: 4_401_787_656,
+      })
+    })
+  )
+
+  it.effect("reads a stock no investor-type report has as all gaps", () =>
+    Effect.gen(function* () {
+      const { holderSize } = yield* read("ACRO")
+      assert.strictEqual(holderSize.length, 3)
+      assert.isTrue(holderSize.every(({ holding }) => holding === undefined))
     })
   )
 })

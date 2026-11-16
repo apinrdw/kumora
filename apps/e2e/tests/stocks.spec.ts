@@ -3,7 +3,11 @@ import type { Page } from "@playwright/test"
 import { expect, test } from "../support/test"
 
 import { ADMIN, DASHBOARD, MEMBER } from "../support/accounts"
-import { seedClassificationMonths, seedKseiMonths } from "../support/holdings"
+import {
+  seedClassificationMonths,
+  seedInvestorTypeMonths,
+  seedKseiMonths,
+} from "../support/holdings"
 
 const BBCA = "BANK CENTRAL ASIA Tbk"
 const WBSA = "BSA LOGISTICS INDONESIA Tbk"
@@ -157,6 +161,50 @@ const KSEI_MONTHS = {
   },
 }
 
+// AADI's Nov 2025 rows equal what the investor-type parse run stores from
+// its fixture (investor-type-2025-11-28.xlsx). BBCA's months use 100 B
+// shares outstanding and 50 B scripless, so scrip is 50%; from April to
+// October its ≥5% falls 1 point and its <5% rises 1.
+const INVESTOR_TYPE_MONTHS = {
+  "2025-11-28": {
+    AADI: {
+      sharesOutstanding: 7_786_891_760,
+      combined: {
+        ID: [1_412_471_655, 454_011_607],
+        CP: [701_501_094, 4_397_166_772],
+        MF: [331_782_018, 0],
+        IB: [196_305_490, 0],
+        IS: [81_345_483, 0],
+        SC: [66_776_429, 0],
+        PF: [73_223_227, 0],
+        FD: [4_069_998, 0],
+        OT: [68_237_987, 0],
+      },
+    },
+  },
+  "2026-04-30": {
+    BBCA: {
+      sharesOutstanding: 100e9,
+      local: { ID: [12e9, 0], CP: [1e9, 10e9] },
+      foreign: { MF: [20e9, 0], CP: [0, 7e9] },
+    },
+  },
+  "2026-10-30": {
+    BBCA: {
+      sharesOutstanding: 100e9,
+      local: { ID: [13e9, 0], CP: [1e9, 10e9] },
+      foreign: { MF: [20e9, 0], CP: [0, 6e9] },
+    },
+    AADI: {
+      sharesOutstanding: 7_786_891_760,
+      local: { ID: [1.4e9, 0.45e9], CP: [0.7e9, 4.4e9] },
+      foreign: { MF: [0.3e9, 0] },
+    },
+    // No ≥5% holders.
+    HOBI: { sharesOutstanding: 1e9, local: { ID: [5e8, 0] }, foreign: {} },
+  },
+} as const
+
 const panel = (page: Page) =>
   page.getByRole("region", { name: "Shareholders composition" })
 
@@ -207,20 +255,55 @@ const focusNewest = async (page: Page, month: string) => {
   }).toPass()
 }
 
+const holderSize = (page: Page) =>
+  page.getByRole("region", { name: "Holder size" })
+
+const sizeChoice = (page: Page, group: string, label: string) =>
+  holderSize(page).getByRole("group", { name: group }).getByRole("button", {
+    name: label,
+    exact: true,
+  })
+
+const sizeBar = (page: Page) =>
+  holderSize(page).getByRole("group", { name: "Holder size bar" })
+
+const sizeType = (page: Page, label: string) =>
+  holderSize(page)
+    .getByRole("table", { name: "Holder size by investor type" })
+    .getByRole("row", { name: new RegExp(`^${label}`) })
+
+const sizeColumns = (page: Page) =>
+  holderSize(page)
+    .getByRole("list", { name: "Holder size by month" })
+    .getByRole("button")
+
+// Each Table view column, oldest first, by what it says.
+const expectColumns = async (page: Page, names: ReadonlyArray<string>) => {
+  await expect(sizeColumns(page)).toHaveCount(names.length)
+  for (const [index, name] of names.entries())
+    await expect(sizeColumns(page).nth(index)).toHaveAccessibleName(name)
+}
+
+const atLeast5Row = (page: Page, label: string) =>
+  holderSize(page)
+    .getByRole("table", { name: "≥5% holders by month" })
+    .getByRole("row", { name: new RegExp(`^${label}`) })
+
 const stockSearch = (page: Page) =>
   page
     .getByRole("banner")
     .getByRole("combobox", { name: "Open a stock", exact: true })
 
 // Decision: serial, since every test reads the one HoldingsDb this block
-// seeds. ksei-admin.spec.ts's Parse now test, which can run beside it,
-// replaces the same HoldingsDb's KSEI months 2026-09-30 and 2026-10-30 with
-// its fixtures: their BBCA rows equal KSEI_MONTHS', and no test here reads
-// their other stocks' KSEI holdings, so either order reads the same.
+// seeds. The admin specs' Parse now, beside it, replace KSEI's Sep and Oct
+// 2026 and investor-type 2025-11-28 with fixtures whose BBCA and AADI rows
+// equal this block's, and no test here reads their other stocks' rows, so
+// either order reads the same (apinrdw/kumora#405).
 test.describe.serial("the stock page", () => {
   test.beforeAll(() => {
     seedClassificationMonths(MONTHS)
     seedKseiMonths(KSEI_MONTHS)
+    seedInvestorTypeMonths(INVESTOR_TYPE_MONTHS)
   })
 
   test.describe("for a member", () => {
@@ -368,6 +451,9 @@ test.describe.serial("the stock page", () => {
         )
       ).toBeVisible()
       await expect(panel(page)).toHaveCount(0)
+      await expect(holderSize(page)).toContainText(
+        "APOL isn't in IDX's investor-type report, so its holder size isn't shown."
+      )
       // The picker offers it, though no report names its issuer.
       await page.goto(`${DASHBOARD}/stocks/BBCA`)
       const picker = page.getByRole("combobox", { name: "Stock", exact: true })
@@ -385,6 +471,7 @@ test.describe.serial("the stock page", () => {
       await expect(
         page.getByText("No holdings data for ZZZZ. Pick another stock.")
       ).toBeVisible()
+      await expect(holderSize(page)).toHaveCount(0)
       await expect(
         page.getByRole("combobox", { name: "Stock", exact: true })
       ).toBeVisible()
@@ -398,6 +485,191 @@ test.describe.serial("the stock page", () => {
       await expect(
         page.getByRole("heading", { name: "Halaman tidak ditemukan" })
       ).toBeVisible()
+    })
+  })
+
+  test.describe("Holder size, for a member", () => {
+    test.use({ storageState: MEMBER.storageState })
+
+    test("splits shares outstanding into scrip, ≥5% and <5%, against the month before", async ({
+      page,
+    }) => {
+      await page.goto(`${DASHBOARD}/stocks/BBCA`)
+      // Between the two composition panels.
+      await expect(page.getByRole("heading", { level: 2 })).toHaveText([
+        "Shareholders composition",
+        "Holder size",
+        "Holding composition (scripless)",
+      ])
+      await expect(sizeChoice(page, "Month", "Oct 2026")).toHaveAttribute(
+        "aria-pressed",
+        "true"
+      )
+      await expect(sizeChoice(page, "Month", "Nov 2025")).toHaveAttribute(
+        "aria-disabled",
+        "true"
+      )
+      await expect(sizeBar(page)).toContainText(/Scrip\s*50\.00%\s*0\.00 pts/)
+      await expect(sizeBar(page)).toContainText(
+        /≥5% holders\s*16\.00%\s*▼ 1\.00 pts/
+      )
+      await expect(sizeBar(page)).toContainText(
+        /<5% holders\s*34\.00%\s*▲ 1\.00 pts/
+      )
+      // CP's ≥5% holders hold 16 of its 17 B shares.
+      await expect(sizeType(page, "Corporate")).toHaveText(
+        /Corporate\s*16\.00%\s*▼ 1\.00 pts\s*1\.00%\s*0\.00 pts\s*94\.12%/
+      )
+      await expect(sizeType(page, "Insurance")).toHaveText(
+        /Insurance\s*0\.00%\s*0\.00 pts\s*0\.00%\s*0\.00 pts\s*–/
+      )
+      await expect(holderSize(page)).toContainText("Changes are from Apr 2026.")
+      await expect(holderSize(page)).toContainText(
+        "IDX counts a holder as ≥5% when one investor holds at least 5% of shares outstanding in scripless form."
+      )
+    })
+
+    test("switches denominator and origin in the URL, and keeps them on reload", async ({
+      page,
+    }) => {
+      await page.goto(`${DASHBOARD}/stocks/BBCA`)
+      // The page has just loaded: retry until hydration lets it switch.
+      await expect(async () => {
+        await sizeChoice(page, "Share of", "Scripless").click()
+        await expect(page).toHaveURL(/\/stocks\/BBCA\?sizeBase=scripless$/, {
+          timeout: 1000,
+        })
+      }).toPass()
+      await expect(sizeBar(page)).not.toContainText(/Scrip\s*\d/)
+      await expect(sizeBar(page)).toContainText(/≥5% holders\s*32\.00%/)
+
+      await sizeChoice(page, "Origin", "Local").click()
+      await expect(page).toHaveURL(/sizeOrigin=local/)
+      // Local is always of local scripless.
+      await expect(
+        sizeChoice(page, "Share of", "Shares outstanding")
+      ).toHaveAttribute("aria-disabled", "true")
+      await expect(sizeBar(page)).toContainText(
+        /≥5% holders\s*41\.67%\s*▼ 1\.81 pts/
+      )
+
+      await page.reload()
+      await expect(sizeChoice(page, "Origin", "Local")).toHaveAttribute(
+        "aria-pressed",
+        "true"
+      )
+      await expect(sizeBar(page)).toContainText(/≥5% holders\s*41\.67%/)
+    })
+
+    test("opens the newest month the stock has, a gap disabled, and its first month", async ({
+      page,
+    }) => {
+      // shareholding-admin.spec.ts's classification Parse now may give AADI
+      // a Dec 2025 classification month, so its other panels aren't checked.
+      await page.goto(`${DASHBOARD}/stocks/AADI`)
+      await expect(sizeChoice(page, "Month", "Oct 2026")).toHaveAttribute(
+        "aria-pressed",
+        "true"
+      )
+      await expect(sizeChoice(page, "Month", "Apr 2026")).toHaveAttribute(
+        "aria-disabled",
+        "true"
+      )
+      await expect(holderSize(page)).toContainText(
+        "AADI isn't in Apr 2026's report, so no change is shown."
+      )
+      await expect(async () => {
+        await sizeChoice(page, "Month", "Nov 2025").click()
+        await expect(page).toHaveURL(/\/stocks\/AADI\?sizeMonth=2025-11$/, {
+          timeout: 1000,
+        })
+      }).toPass()
+      // Nov 2025 doesn't split local from foreign.
+      const local = sizeChoice(page, "Origin", "Local")
+      await expect(local).toHaveAttribute("aria-disabled", "true")
+      await local.hover()
+      await expect(
+        page.getByText("Local: Not reported before Jan 2026")
+      ).toBeVisible()
+      await expect(holderSize(page)).toContainText("First month in the report.")
+      await expect(sizeBar(page)).toContainText(/≥5% holders\s*62\.30%/)
+      await expect(holderSize(page)).not.toContainText("pts")
+
+      await page.reload()
+      await expect(sizeChoice(page, "Month", "Nov 2025")).toHaveAttribute(
+        "aria-pressed",
+        "true"
+      )
+    })
+
+    test("switches to a Table of every month, kept in the URL on reload", async ({
+      page,
+    }) => {
+      await page.goto(`${DASHBOARD}/stocks/BBCA`)
+      await expect(async () => {
+        await sizeChoice(page, "View", "Table").click()
+        await expect(page).toHaveURL(/\/stocks\/BBCA\?sizeView=table$/, {
+          timeout: 1000,
+        })
+      }).toPass()
+      await page.reload()
+      await expect(sizeChoice(page, "View", "Table")).toHaveAttribute(
+        "aria-pressed",
+        "true"
+      )
+      // ≥5% at the bottom, then <5%, then scrip.
+      await expectColumns(page, [
+        "Nov 2025: No data",
+        "Apr 2026: ≥5% holders 17.00%, <5% holders 33.00%, Scrip 50.00%",
+        "Oct 2026: ≥5% holders 16.00%, <5% holders 34.00%, Scrip 50.00%",
+      ])
+      await expect(atLeast5Row(page, "Corporate")).toHaveText(
+        /Corporate\s*–\s*17\.00%\s*16\.00%/
+      )
+      await expect(
+        holderSize(page)
+          .getByRole("table", { name: "≥5% holders by month" })
+          .getByRole("row")
+      ).toHaveCount(2)
+    })
+
+    test("marks months without a local/foreign split n/a under Local", async ({
+      page,
+    }) => {
+      await page.goto(
+        `${DASHBOARD}/stocks/AADI?sizeView=table&sizeOrigin=local`
+      )
+      await expectColumns(page, [
+        "Nov 2025: n/a, not split by origin",
+        "Apr 2026: No data",
+        "Oct 2026: ≥5% holders 69.78%, <5% holders 30.22%",
+      ])
+      await expect(atLeast5Row(page, "Individual")).toHaveText(
+        /Individual\s*n\/a\s*–\s*6\.47%/
+      )
+      await expect(atLeast5Row(page, "Corporate")).toHaveText(
+        /Corporate\s*n\/a\s*–\s*63\.31%/
+      )
+
+      await expect(async () => {
+        await sizeChoice(page, "Origin", "All").click()
+        await expect(page).toHaveURL(/\/stocks\/AADI\?sizeView=table$/, {
+          timeout: 1000,
+        })
+      }).toPass()
+      await expect(sizeColumns(page).first()).toHaveAccessibleName(
+        /^Nov 2025: ≥5% holders 62\.30%/
+      )
+    })
+
+    test("says a stock with no ≥5% holders has none", async ({ page }) => {
+      await page.goto(`${DASHBOARD}/stocks/HOBI?sizeView=table`)
+      await expect(holderSize(page)).toContainText(
+        "HOBI has no ≥5% holders in any month."
+      )
+      await expect(
+        holderSize(page).getByRole("table", { name: "≥5% holders by month" })
+      ).toHaveCount(0)
     })
   })
 
