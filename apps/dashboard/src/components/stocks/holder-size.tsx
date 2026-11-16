@@ -44,7 +44,7 @@ const VIEWS: ReadonlyArray<{ value: ChartView; label: string }> = [
 ]
 
 const PART = {
-  scrip: { label: "Scrip", color: "var(--semantic-warning)" },
+  scrip: { label: "Scrip", color: "var(--semantic-neutral)" },
   atLeast5: { label: "≥5% holders", color: "var(--semantic-info)" },
   under5: {
     label: "<5% holders",
