@@ -8,6 +8,7 @@
 import {
   DayStripPath,
   decodeBookChunk,
+  decodeRecordedBubbles,
   decodeDayStrip,
   decodeRecordedBrokerCodes,
   decodeRecordedCandles,
@@ -96,6 +97,14 @@ const fetchRecordedSweepBrokers = Effect.fnUntraced(function* (
   )
   if (Option.isNone(body)) return Option.none()
   return Option.some(yield* decodeRecordedSweepBrokers(body.value))
+})
+
+// The live day's bubbles backfill: every code's newest minutes and day
+// totals; none once the day is sealed (404).
+export const fetchBubbles = Effect.fnUntraced(function* (date: WibDate) {
+  const body = yield* getResource(date, { _tag: "Bubbles" })
+  if (Option.isNone(body)) return Option.none()
+  return Option.some(yield* decodeRecordedBubbles(body.value))
 })
 
 // The 200 newest running trades at or before `at`, ascending.

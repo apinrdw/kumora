@@ -15,6 +15,7 @@ export {
 export { fetchStockCodeList, searchStockCodes } from "./stock-code-list.ts"
 export {
   CODES_RECHECK,
+  fetchBubbles,
   fetchDayStrip,
   fetchRecordedBookChunk,
   fetchRecordedBrokerCodes,
