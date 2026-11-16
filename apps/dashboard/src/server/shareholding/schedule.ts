@@ -1,6 +1,6 @@
 // The archive cron and the parse cron, and when each next starts a run, for
-// alchemy.run.ts and the admin page. Free of server imports, so the page's components can word the
-// schedule from it.
+// alchemy.run.ts and the admin page. Free of server imports, so the page's
+// components can word the schedule from it.
 import { Effect } from "effect"
 
 import { nextRunOf, timesWib } from "../archive/schedule.ts"

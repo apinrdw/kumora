@@ -1,8 +1,8 @@
 // What /stocks/$CODE reads from its URL (spec apinrdw/kumora#363, "URL search
 // params"): the Shareholders composition panel's month and origin, the
 // Holding composition chart's origin and view, and the Holder size panel's
-// month, origin, denominator and view (spec apinrdw/kumora#402). Each is left out
-// at its default, so a plain link stays short.
+// month, origin, denominator and view (spec apinrdw/kumora#402). Each is
+// left out at its default, so a plain link stays short.
 import { Effect, Option, Schema } from "effect"
 
 import { SplitOrigin } from "@/domain/holdings"

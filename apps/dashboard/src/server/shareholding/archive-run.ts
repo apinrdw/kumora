@@ -1,8 +1,8 @@
 // One archive run: `plan`, `head`, then one `report:` step per report to
-// store, then `summary`. It only stores reports: the classification parse
-// run parses them (classification-parse.ts). Each step's body is an Effect; the run itself
-// only orders the steps, so it holds nothing a Workflow replay could change.
-// Spec apinrdw/kumora#303, "The archive run".
+// store, then `summary`. It only stores reports: the parse runs parse them
+// (parse-runs.ts). Each step's body is an Effect; the run itself only orders
+// the steps, so it holds nothing a Workflow replay could change. Spec
+// apinrdw/kumora#303, "The archive run".
 import {
   jsonBytes,
   NonRetryable,
