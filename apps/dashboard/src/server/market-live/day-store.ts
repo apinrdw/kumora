@@ -212,7 +212,11 @@ export const Fact = {
 export const BROKER_TRADES_BUILT = "built"
 
 export const ORDER_FLOW_BUILT = "built"
-export const SWEEP_BROKERS_BUILT = "built"
+// Decision: a new finished value whenever the rows' content changes, so a
+// day still holding an older one (`built`, before auction matches had their
+// entry) counts as unbuilt and its next sweep brokers GET rebuilds every
+// row from its first minute. See spec apinrdw/kumora#384, "Old days".
+export const SWEEP_BROKERS_BUILT = "built-auctions"
 
 // What the one-off build writes of one minute: every stock's footprint row
 // and every code's heatmap row, and the minute as its progress.

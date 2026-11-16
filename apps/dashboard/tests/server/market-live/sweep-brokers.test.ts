@@ -650,3 +650,118 @@ const evictedWriting = (sql: Sql, time: string): Sql => {
     transaction: (write) => sql.transaction(write),
   }
 }
+
+// What a day whose sweep brokers were built before auction matches had
+// their entry holds: no auction-only row, and the build marked with the old
+// finished value.
+const builtBeforeAuctions = (sql: Sql) =>
+  Effect.sync(() => {
+    sql.exec(
+      "DELETE FROM sweep_brokers WHERE minute = ?",
+      DateTime.toEpochMillis(wib("08:58:00"))
+    )
+    sql.exec(
+      "UPDATE facts SET value = 'built' WHERE key = 'sweep-brokers-built'"
+    )
+  })
+
+// UNTR's opening match at 08:58 and a buy sweep at 09:00.
+const OPENING_AND_SWEEP = [
+  untr(1, "08:58:00.000", 3),
+  untr(2, "08:58:00.000", 5),
+  untr(3, "09:00:10.000", 6, "buy"),
+]
+const OPENING_CODES = [
+  [1, "AK F CC D"],
+  [2, "YP D KZ F"],
+  [3, "BK D ZP F"],
+] as const
+const WITH_AUCTION = [
+  [1, ["YP D 5", "AK F 3"], ["KZ F 5", "CC D 3"]],
+  [3, ["BK D 6"], ["ZP F 6"]],
+]
+
+describe("a day whose sweep brokers were built before auction matches had their entry", () => {
+  it.effect(
+    "rebuilds on its next GET, gaining its auction entries, logs the build, and leaves every other answer byte-identical",
+    () =>
+      withLines("Sweep brokers recomputed", (lines) =>
+        Effect.gen(function* () {
+          const sql = memorySql()
+          yield* at("09:01:10")
+          const sealed = yield* tradingDay(sql)
+          yield* sealed.trades(OPENING_AND_SWEEP)
+          yield* at("17:00:00")
+          yield* sealed.alarm
+          yield* at("17:30:00")
+          yield* sealed.brokerCodes("Ajaib", OPENING_CODES, 3)
+          yield* sealed.evicted
+          yield* builtBeforeAuctions(sql)
+          yield* nextDay
+
+          const day = yield* tradingDay(sql)
+          const code = StockCode.make("UNTR")
+          const resources: ReadonlyArray<RecordedResource> = [
+            { _tag: "Codes" },
+            { _tag: "Tape", at: wib("17:00:00") },
+            { _tag: "BrokerCodes", at: wib("17:00:00") },
+            { _tag: "Candles", code },
+            { _tag: "Sweeps", code },
+            { _tag: "Heatmap", code },
+            { _tag: "Gaps" },
+          ]
+          const answers = Effect.forEach(resources, (resource) =>
+            Effect.gen(function* () {
+              const response = yield* day.recorded(resource)
+              return {
+                status: response.status,
+                headers: [...response.headers.entries()],
+                body: yield* Effect.promise(() => response.text()),
+              }
+            })
+          )
+          const before = yield* answers
+          const logged = lines.length
+          const { answer } = yield* day.recordedSweepBrokers("UNTR")
+          assert.deepStrictEqual(answer.sweeps.map(brokersOf), WITH_AUCTION)
+          assert.deepStrictEqual(yield* answers, before)
+          // The build read the day's minutes, 08:57 to 09:00 with the
+          // trades' skew, and wrote only the 08:58 row.
+          assert.lengthOf(lines, logged + 1)
+          assert.strictEqual(lines.at(-1)!.sweepBrokerMinutes, 4)
+          assert.strictEqual(lines.at(-1)!.sweepBrokers, 1)
+          // And builds nothing again.
+          yield* day.evicted
+          const again = watched(sql)
+          const restarted = yield* tradingDay(again.sql)
+          const writes = again.counts.writes
+          yield* restarted.recordedSweepBrokers("UNTR")
+          assert.strictEqual(again.counts.writes, writes)
+        })
+      )
+  )
+
+  it.effect(
+    "rebuilds from its first minute though a late trade lands before the seal",
+    () =>
+      Effect.gen(function* () {
+        const sql = memorySql()
+        yield* at("09:01:10")
+        const live = yield* tradingDay(sql)
+        yield* live.trades(OPENING_AND_SWEEP)
+        // Past the 09:02 flush, so the trades are stored.
+        yield* at("09:02:10")
+        yield* live.brokerCodes("Ajaib", OPENING_CODES)
+        yield* live.evicted
+        yield* builtBeforeAuctions(sql)
+
+        yield* at("09:02:20")
+        const day = yield* tradingDay(sql)
+        yield* day.trades([untr(4, "09:00:40.000", 2, "sell")])
+        yield* at("17:00:00")
+        yield* day.alarm
+        const { answer } = yield* day.recordedSweepBrokers("UNTR")
+        assert.deepStrictEqual(answer.sweeps.map(brokersOf), WITH_AUCTION)
+      })
+  )
+})

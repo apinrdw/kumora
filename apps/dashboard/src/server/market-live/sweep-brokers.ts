@@ -274,6 +274,17 @@ export const makeSweepBrokers = Effect.fnUntraced(function* (options: {
     )
   })
 
+  // The build's progress as the last minute it wrote; none while it has
+  // not started, once it finished, or under an older finished value (the
+  // Decision on SWEEP_BROKERS_BUILT), whose build starts again from the
+  // day's first minute.
+  const minuteOf = (progress: string | undefined) =>
+    Effect.sync(() =>
+      progress === undefined || !/^\d+$/.test(progress)
+        ? undefined
+        : Number(progress)
+    )
+
   // Decision: the build goes minute by minute, each minute's rows and its
   // progress in one transaction, as the order flow build does
   // (order-flow-build.ts): a build that dies reruns from the minute after
@@ -282,12 +293,13 @@ export const makeSweepBrokers = Effect.fnUntraced(function* (options: {
   const build = Effect.gen(function* () {
     const progress = yield* store.fact(Fact.sweepBrokersBuilt)
     if (progress === SWEEP_BROKERS_BUILT) return
+    const reached = yield* minuteOf(progress)
     const span = yield* store.orderFlowMinutes
     if (span !== undefined) {
       const from =
-        progress === undefined
+        reached === undefined
           ? span.first
-          : Math.max(span.first, Number(progress) + MINUTE_MS)
+          : Math.max(span.first, reached + MINUTE_MS)
       for (let minute = from; minute <= span.last; minute += MINUTE_MS)
         yield* buildMinute(minute, {
           [Fact.sweepBrokersBuilt]: String(minute),
@@ -301,11 +313,16 @@ export const makeSweepBrokers = Effect.fnUntraced(function* (options: {
   // Decision: a day holding no codes as its object starts gets each batch's
   // rows as it lands, so it is marked built from the start. A day holding
   // codes without the mark took them before sweep brokers shipped, or a
-  // late trade after them (`persisting`): once sealed, its next GET builds
-  // the rows. See spec apinrdw/kumora#343, "The one-off build".
+  // late trade after them (`persisting`), or holds an older finished value:
+  // once sealed, its next GET builds the rows. See spec apinrdw/kumora#343,
+  // "The one-off build", and spec apinrdw/kumora#384, "Old days".
   const progress = yield* store.fact(Fact.sweepBrokersBuilt)
   let built = progress === SWEEP_BROKERS_BUILT
-  if (progress === undefined && (yield* brokerCodes.holdsNone)) {
+  if (
+    !built &&
+    (yield* minuteOf(progress)) === undefined &&
+    (yield* brokerCodes.holdsNone)
+  ) {
     yield* store.markSweepBrokersBuilt
     built = true
   }
@@ -354,7 +371,8 @@ export const makeSweepBrokers = Effect.fnUntraced(function* (options: {
 
   // The fact a flush of `trades` writes with them: the build's progress
   // moved back before the earliest minute holding one; none while the day
-  // holds no codes.
+  // holds no codes, or while its build is still to start from its first
+  // minute.
   // Decision: once the day holds codes, every flushed trade, coded or not,
   // moves the build back in its flush's transaction: a trade stored after a
   // recompute can bring codes, join a sweep or split one, and a sweep never
@@ -364,10 +382,11 @@ export const makeSweepBrokers = Effect.fnUntraced(function* (options: {
     trades: ReadonlyArray<RunningTrade>
   ) {
     const none: Readonly<Record<string, string>> = {}
-    const reached = yield* store.fact(Fact.sweepBrokersBuilt)
+    const stored = yield* store.fact(Fact.sweepBrokersBuilt)
+    const reached = yield* minuteOf(stored)
     if (
       trades.length === 0 ||
-      reached === undefined ||
+      (stored !== SWEEP_BROKERS_BUILT && reached === undefined) ||
       (yield* brokerCodes.holdsNone)
     )
       return none
@@ -378,9 +397,7 @@ export const makeSweepBrokers = Effect.fnUntraced(function* (options: {
     built = false
     const facts: Record<string, string> = {
       [Fact.sweepBrokersBuilt]: String(
-        reached === SWEEP_BROKERS_BUILT
-          ? before
-          : Math.min(Number(reached), before)
+        reached === undefined ? before : Math.min(reached, before)
       ),
     }
     return facts
