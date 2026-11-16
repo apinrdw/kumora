@@ -115,6 +115,9 @@ export const classificationIdx = () =>
 // unsplit layout with blank cells, Apr 2026's split layout with blank cells,
 // TRUE's code a boolean cell and empty styled cells past its header's total
 // column, and Oct 2026's split layout writing no holding as 0.
+// Decision: Nov 2025's holds only AADI and TRUE, neither of which
+// stocks.spec.ts opens, so shareholding-admin.spec.ts's Parse now can parse
+// it into the Test stage's HoldingsDb beside that spec.
 const INVESTOR_TYPE_FIXTURES = {
   "2025-11-28": "peng-11-00004-tipe.xlsx",
   "2026-04-30": "peng-04-00009-tipe.xlsx",
@@ -125,7 +128,7 @@ export type InvestorTypeFixture = keyof typeof INVESTOR_TYPE_FIXTURES
 // Copies of the real reports, each broken one way
 // (~/.t3/notes/kumora/402/break-investor-type-xlsx.py): October's with its
 // `TOTAL SCRIPLESS` renamed, April's with BBCA's domestic CP one share past
-// its total, November's with BBCA coded AADI, and October's with no stock
+// its total, November's with TRUE coded AADI, and October's with no stock
 // rows.
 export type BrokenInvestorTypeFixture =
   | "unknown-header"
