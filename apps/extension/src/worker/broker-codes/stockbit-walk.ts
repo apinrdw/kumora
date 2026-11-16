@@ -137,9 +137,10 @@ const walkedPast = Effect.fnUntraced(function* (
   return Option.some<Walked>({ highest, cursor: Option.some(last.number) })
 })
 
-// The highest trade number the day's status shows Stockbit reached; none to
-// start from trade 1, or "done" when the walk has nothing left to do: the
-// cross-check is compared, or Stockbit alone made the day complete.
+// The trade number to resume after: a page below the highest the day's
+// status shows Stockbit reached, or exactly where a pending walk stopped;
+// none to start from trade 1, or "done" when the walk has nothing left to
+// do: the cross-check is compared, or Stockbit alone made the day complete.
 const resumeFrom = Effect.fnUntraced(function* (status: BrokerCodesStatus) {
   const { crossCheck } = status
   if (crossCheck.state === "compared") return "done" as const
