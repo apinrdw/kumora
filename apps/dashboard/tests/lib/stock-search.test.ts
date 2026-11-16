@@ -1,5 +1,8 @@
 import { describe, expect, it } from "@effect/vitest"
+import { BrokerCode } from "@workspace/relay"
 import { Effect } from "effect"
+
+import type { Chip } from "@/lib/broker-inventory"
 
 import {
   chipsOf,
@@ -206,18 +209,21 @@ describe("the Broker inventory lens and chips in the URL", () => {
 
   it.effect("round-trips the chips in order", () =>
     Effect.gen(function* () {
-      for (const chips of [
-        ["sell", "YP", "buy"],
-        ["YP", "PD"],
+      const YP = BrokerCode.make("YP")
+      const PD = BrokerCode.make("PD")
+      const lists: ReadonlyArray<ReadonlyArray<Chip>> = [
+        ["sell", YP, "buy"],
+        [YP, PD],
         ["buy"],
         [],
-      ] as const) {
+      ]
+      for (const chips of lists) {
         const search = yield* chipsSearch(chips)
         expect(
           yield* chipsOf(yield* parseStockSearch({ ...search }))
         ).toStrictEqual(chips)
       }
-      expect(yield* chipsSearch(["sell", "YP"])).toStrictEqual({
+      expect(yield* chipsSearch(["sell", YP])).toStrictEqual({
         brokers: "sell,YP",
       })
     })
