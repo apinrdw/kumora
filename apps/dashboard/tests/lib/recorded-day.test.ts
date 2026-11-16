@@ -22,6 +22,8 @@ function candle(wib: string, figures: Partial<Candle> = {}): Candle {
     close: 9_000,
     volume: 10,
     value: 9_000_000,
+    buyValue: 0,
+    sellValue: 0,
     frequency: 1,
     ...figures,
   }

@@ -15,6 +15,8 @@ const candle: Candle = {
   close: 23_300,
   volume: 15_011,
   value: 0,
+  buyValue: 0,
+  sellValue: 0,
   frequency: 9,
 }
 const footprint: Footprint = {

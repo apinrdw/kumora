@@ -364,6 +364,8 @@ describe("a restarted trading day", () => {
                 low: 99,
                 volume: 10,
                 value: 101_000,
+                buyValue: 0,
+                sellValue: 0,
                 frequency: 2,
               },
             }))

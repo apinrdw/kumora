@@ -21,6 +21,8 @@ const candle = (code: string, close: number): Candle => ({
   close,
   volume: 1,
   value: close * 100,
+  buyValue: 0,
+  sellValue: 0,
   frequency: 1,
 })
 

@@ -58,6 +58,9 @@ export interface CandleFigures {
   readonly low: number
   readonly volume: number
   readonly value: number
+  // The value of the trades whose aggressor side is buy, and sell.
+  readonly buyValue: number
+  readonly sellValue: number
   readonly frequency: number
 }
 
@@ -133,6 +136,8 @@ interface Print {
   readonly time: number
   readonly volume: number
   readonly value: number
+  readonly buyValue: number
+  readonly sellValue: number
   readonly frequency: number
 }
 
@@ -150,6 +155,8 @@ const single = (print: Print): CandleFigures => ({
   low: print.price,
   volume: print.volume,
   value: print.value,
+  buyValue: print.buyValue,
+  sellValue: print.sellValue,
   frequency: print.frequency,
 })
 
@@ -168,6 +175,8 @@ const fold = (a: CandleFigures, b: CandleFigures): CandleFigures => {
     low: Math.min(a.low, b.low),
     volume: a.volume + b.volume,
     value: a.value + b.value,
+    buyValue: a.buyValue + b.buyValue,
+    sellValue: a.sellValue + b.sellValue,
     frequency: a.frequency + b.frequency,
   }
 }
@@ -175,14 +184,19 @@ const fold = (a: CandleFigures, b: CandleFigures): CandleFigures => {
 const add = (figures: CandleFigures | undefined, print: Print) =>
   figures === undefined ? single(print) : fold(figures, single(print))
 
-const printOf = (trade: RunningTrade): Print => ({
-  order: BigInt(trade.tradeNumber),
-  price: trade.price,
-  time: DateTime.toEpochMillis(trade.time),
-  volume: trade.lots,
-  value: trade.price * trade.lots * SHARES_PER_LOT,
-  frequency: 1,
-})
+const printOf = (trade: RunningTrade): Print => {
+  const value = trade.price * trade.lots * SHARES_PER_LOT
+  return {
+    order: BigInt(trade.tradeNumber),
+    price: trade.price,
+    time: DateTime.toEpochMillis(trade.time),
+    volume: trade.lots,
+    value,
+    buyValue: trade.side === "buy" ? value : 0,
+    sellValue: trade.side === "sell" ? value : 0,
+    frequency: 1,
+  }
+}
 
 // One code's candle and footprint for one minute: what has settled, plus the
 // trades still inside the merge window, by trade number. Its sweeps are the
@@ -246,6 +260,8 @@ const candleFrom = (code: StockCode, minute: number, figures: CandleFigures) =>
     close: figures.close,
     volume: figures.volume,
     value: figures.value,
+    buyValue: figures.buyValue,
+    sellValue: figures.sellValue,
     frequency: figures.frequency,
   })
 
@@ -472,6 +488,8 @@ export const makeCandleBook = Effect.fnUntraced(function* (
       // Shares into lots, like a stock's candle.
       volume: (price.volume - base.volume) / SHARES_PER_LOT,
       value: price.value - base.value,
+      buyValue: 0,
+      sellValue: 0,
       frequency: price.frequency - base.frequency,
     })
     changed.add(slot)

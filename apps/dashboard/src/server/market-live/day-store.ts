@@ -149,6 +149,8 @@ const SCHEMA = [
     volume REAL NOT NULL,
     value REAL NOT NULL,
     frequency REAL NOT NULL,
+    buy_value REAL NOT NULL DEFAULT 0,
+    sell_value REAL NOT NULL DEFAULT 0,
     PRIMARY KEY (code, minute)
   ) WITHOUT ROWID`,
   // A stock's footprint (footprint-cells.ts) and sweeps (sweep-rows.ts) for
@@ -188,6 +190,12 @@ const SCHEMA = [
     value TEXT NOT NULL
   ) WITHOUT ROWID`,
 ]
+
+// Decision: a day store opened from before candles carried buy and sell value
+// (spec apinrdw/kumora#427) gains both columns at 0, the last in the table as
+// in SCHEMA, so the candles INSERT's order fits both. Its sealed days keep 0:
+// Market Bubbles is live only, so they need no rebuild.
+const ADDED_CANDLE_COLUMNS = ["buy_value", "sell_value"]
 
 // The keys of the facts table.
 export const Fact = {
@@ -264,6 +272,8 @@ const storedCandleOf = (row: Record<string, SqlValue>) =>
       low: Number(row.low),
       volume: Number(row.volume),
       value: Number(row.value),
+      buyValue: Number(row.buy_value),
+      sellValue: Number(row.sell_value),
       frequency: Number(row.frequency),
     },
   }))
@@ -278,6 +288,8 @@ const candleOf = ({ code, minute, figures }: StoredCandle) =>
     close: figures.close,
     volume: figures.volume,
     value: figures.value,
+    buyValue: figures.buyValue,
+    sellValue: figures.sellValue,
     frequency: figures.frequency,
   })
 
@@ -299,6 +311,14 @@ const chunkOf = (blob: SqlValue | undefined) =>
 export const makeDayStore = (sql: Sql) =>
   Effect.gen(function* () {
     for (const statement of SCHEMA) sql.exec(statement)
+    const columns = new Set(
+      sql.exec("PRAGMA table_info(candles)").map((row) => String(row.name))
+    )
+    for (const column of ADDED_CANDLE_COLUMNS)
+      if (!columns.has(column))
+        sql.exec(
+          `ALTER TABLE candles ADD COLUMN ${column} REAL NOT NULL DEFAULT 0`
+        )
 
     let meter = yield* emptyMeter
     // Runs `work`, adding the rows the database counted meanwhile to the
@@ -398,7 +418,7 @@ export const makeDayStore = (sql: Sql) =>
           )
         for (const { code, minute, figures } of flush.candles)
           sql.exec(
-            "INSERT OR REPLACE INTO candles VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
+            "INSERT OR REPLACE INTO candles VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
             code,
             minute,
             Number(figures.openOrder),
@@ -410,7 +430,9 @@ export const makeDayStore = (sql: Sql) =>
             figures.low,
             figures.volume,
             figures.value,
-            figures.frequency
+            figures.frequency,
+            figures.buyValue,
+            figures.sellValue
           )
         insertFootprints(footprints)
         for (const price of flush.livePrices)

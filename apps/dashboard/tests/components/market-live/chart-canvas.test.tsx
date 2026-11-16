@@ -134,6 +134,8 @@ const candle = (wib: string, close: number, code = BBCA): Candle => ({
   close,
   volume: 1,
   value: close * 100,
+  buyValue: 0,
+  sellValue: 0,
   frequency: 1,
 })
 

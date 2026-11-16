@@ -230,3 +230,83 @@ describe("the cost meter", () => {
     })
   )
 })
+
+describe("a day store from before candles carried buy and sell value", () => {
+  it.effect("gains both columns at 0, keeps its candles, and opens again", () =>
+    Effect.gen(function* () {
+      const sql = memorySql()
+      // The candles table as stores before spec apinrdw/kumora#427 made it.
+      sql.exec(`CREATE TABLE candles (
+          code TEXT NOT NULL,
+          minute INTEGER NOT NULL,
+          open_order INTEGER NOT NULL,
+          open REAL NOT NULL,
+          close_order INTEGER NOT NULL,
+          close REAL NOT NULL,
+          close_time INTEGER NOT NULL,
+          high REAL NOT NULL,
+          low REAL NOT NULL,
+          volume REAL NOT NULL,
+          value REAL NOT NULL,
+          frequency REAL NOT NULL,
+          PRIMARY KEY (code, minute)
+        ) WITHOUT ROWID`)
+      const minute = DateTime.toEpochMillis(wib("09:00:00"))
+      sql.exec(
+        "INSERT INTO candles VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
+        "BBCA",
+        minute,
+        1,
+        9_000,
+        2,
+        9_025,
+        minute + 2_000,
+        9_025,
+        9_000,
+        3,
+        2_707_500,
+        2
+      )
+      const old = yield* makeDayStore(sql)
+      const [kept] = yield* old.storedCandlesOf(StockCode.make("BBCA"))
+      assert.deepStrictEqual(
+        {
+          value: kept?.figures.value,
+          buyValue: kept?.figures.buyValue,
+          sellValue: kept?.figures.sellValue,
+        },
+        { value: 2_707_500, buyValue: 0, sellValue: 0 }
+      )
+      const reopened = yield* makeDayStore(sql)
+      const later = minute + MINUTE_MS
+      yield* reopened.write({
+        trades: [],
+        candles: [
+          {
+            code: StockCode.make("BBCA"),
+            minute: later,
+            figures: {
+              ...kept!.figures,
+              value: 900_000,
+              buyValue: 600_000,
+              sellValue: 300_000,
+            },
+          },
+        ],
+        footprints: [],
+        livePrices: [],
+        chunks: [],
+        ajaibBooks: [],
+        facts: {},
+      })
+      const candles = yield* reopened.storedCandlesOf(
+        StockCode.make("BBCA"),
+        minute
+      )
+      assert.deepStrictEqual(
+        candles.map(({ figures }) => [figures.buyValue, figures.sellValue]),
+        [[600_000, 300_000]]
+      )
+    })
+  )
+})

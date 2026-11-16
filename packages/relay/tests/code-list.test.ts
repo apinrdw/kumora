@@ -65,7 +65,7 @@ describe("recorded day paths", () => {
   )
 
   it.effect(
-    "a recorded day's candles are asked at a path a browser never cached an answer without footprints at; the bare path still reads",
+    "a recorded day's candles are asked at a path a browser never cached an answer without footprints or buy and sell value at; the bare path still reads",
     () =>
       Effect.gen(function* () {
         const day = WibDate.make("2026-11-09")
@@ -76,6 +76,8 @@ describe("recorded day paths", () => {
         const beforeFootprints = "/market-live/days/2026-11-09/candles/BBCA"
         const path = yield* recordedDayPath(day, resource)
         assert.notStrictEqual(path, beforeFootprints)
+        // Version 3's answer carried no buy value or sell value.
+        assert.notStrictEqual(path, `${beforeFootprints}?v=3`)
         assert.isTrue(path.startsWith(beforeFootprints))
         assert.deepStrictEqual(
           yield* recordedDayRequest(locationOf(beforeFootprints)),

@@ -20,7 +20,8 @@ const acceptedIngestVersions: ReadonlyArray<unknown> = [
 // 2: market conditions carry delayed freshness and each delayed feed's lag.
 // 3: snapshots and deltas carry footprints, and deltas a selected code's
 // sweeps by minute (spec apinrdw/kumora#263).
-export const ViewerProtocolVersion = 3
+// 4: candles carry their buy value and sell value (spec apinrdw/kumora#427).
+export const ViewerProtocolVersion = 4
 
 // Decision: an extension that hits either code stops retrying that target and
 // shows it; any other close, 1006 included, retries with backoff. The token
@@ -269,7 +270,10 @@ export const MINUTE_MS = 60_000
 // One stock code's or index's 1-minute candle. A stock's is built from its
 // regular-board trades: volume in lots, value in rupiah, frequency in trades.
 // An index's is built from its `liveprice` frames, its volume, value and
-// frequency the market's over that minute.
+// frequency the market's over that minute. Its buy value and sell value are
+// the rupiah value of its trades whose aggressor side is buy, and of those
+// whose side is sell; a trade with no side counts toward `value` only. An
+// index's are 0.
 export const Candle = Schema.Struct({
   code: StockCode,
   // The minute's start.
@@ -280,6 +284,8 @@ export const Candle = Schema.Struct({
   close: Schema.Finite,
   volume: Schema.Finite,
   value: Schema.Finite,
+  buyValue: Schema.Finite,
+  sellValue: Schema.Finite,
   frequency: Schema.Int,
 })
 export type Candle = typeof Candle.Type
