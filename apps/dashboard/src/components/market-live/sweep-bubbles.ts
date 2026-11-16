@@ -317,15 +317,24 @@ export function attachSweepBubbles({
       to: (index + width / 2) as Logical,
     })
   }
-  // The id of the pin this layer last placed. A pinned bubble's tooltip the
-  // store moved to another piece as its sweep split goes to that piece's
-  // bubble, as a click on it would pin it.
-  let placed: TradeNumber | undefined
+  // The place of the pin this layer last placed: its sweep's id, time and
+  // average price, which set its bubble. A pinned tooltip whose sweep
+  // split, into a piece of another id or one keeping its id at another
+  // price, goes to that piece's bubble, as a click on it would pin it.
+  let placed: string | undefined
+  const placeOf = (id: TradeNumber) => {
+    const sweep = store.sweeps().find((held) => held.firstTrade === id)
+    const key =
+      sweep &&
+      `${id} ${DateTime.toEpochMillis(sweep.time)} ${Effect.runSync(sweepPrice(sweep))}`
+    return { sweep, key }
+  }
   const repin = () => {
     const shown = store.tip.get()
-    if (!shown?.pinned || shown.from !== "chart" || shown.id === placed) return
-    placed = shown.id
-    const sweep = store.sweeps().find((held) => held.firstTrade === shown.id)
+    if (!shown?.pinned || shown.from !== "chart") return
+    const { sweep, key } = placeOf(shown.id)
+    if (key === placed) return
+    placed = key
     const centre = sweep && bubbles.centreOf(sweep)
     if (centre === undefined) return
     const box = chart.chartElement().getBoundingClientRect()
@@ -357,7 +366,7 @@ export function attachSweepBubbles({
       return id
     }
     const box = chart.chartElement().getBoundingClientRect()
-    if (pin) placed = id
+    if (pin) placed = placeOf(id).key
     store.tip.set({
       id,
       x: box.left + point.x,
