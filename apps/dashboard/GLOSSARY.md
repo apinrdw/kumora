@@ -174,7 +174,7 @@ Every shareholding report the dashboard has kept, each version of it included. N
 _Avoid_: Ownership archive, IDX archive
 
 **Archive run**:
-One pass that compares IDX's list of shareholding reports with the shareholding archive and stores any report, or new version of one, that the archive lacks. The schedule starts one twice a day, and an admin can start one when none is in progress. It ends **complete**, **partial** (some reports could not be stored, or some months had a parse failure, and wait for the next run) or **failed** (IDX's list could not be read). As its last step it also parses each holdings-by-investor-classification report whose newest version, or the parser's version, hasn't been parsed into parsed holdings, even when it failed, and counts the months it parsed.
+One pass that compares IDX's list of shareholding reports with the shareholding archive and stores any report, or new version of one, that the archive lacks. The schedule starts one twice a day, and an admin can start one when none is in progress. It ends **complete**, **partial** (some reports could not be stored, and wait for the next run) or **failed** (IDX's list could not be read).
 _Avoid_: Sync, scrape, job
 
 ### KSEI
@@ -200,7 +200,7 @@ A KSEI archive run an admin starts that also looks for KSEI reports older than K
 _Avoid_: History run, full sync
 
 **Run**:
-One pass of either archive, an archive run or a KSEI archive run, or a KSEI parse run. What they share (a run id, its outcome, one run of each in progress at a time) is said of a run.
+One pass of either archive (an archive run or a KSEI archive run) or one parse run (a classification parse run or a KSEI parse run). What they share (a run id, its outcome, one run of each in progress at a time) is said of a run.
 _Avoid_: Archive run for both, which is IDX's; job
 
 ### Holdings
@@ -210,7 +210,7 @@ What the dashboard has read out of its archived holdings reports, one set of row
 _Avoid_: Holdings database, parsed data
 
 **Parse failure**:
-A month a run picked to parse but couldn't: most often its archived report doesn't match what the parser expects, such as an unknown header or a row whose classifications don't add up to its total, but also its report missing from the archive, or the parsed holdings unwritable after retries. Nothing of it is stored: the month keeps its earlier parsed holdings, or stays absent, and the next run tries it again.
+A month a parse run picked to parse but couldn't: most often its archived report doesn't match what the parser expects, such as an unknown header or a row whose classifications don't add up to its total, but also its report missing from the archive, or the parsed holdings unwritable after retries. Nothing of it is stored: the month keeps its earlier parsed holdings, or stays absent, and the next run tries it again.
 _Avoid_: Parse error, bad month
 
 **Investor classification**:
@@ -232,6 +232,10 @@ _Avoid_: Balancepos row, type holding
 **KSEI investor type**:
 One of KSEI's 9 parent categories of investor: ID (Individual), CP (Corporate), MF (Mutual fund), IB (Financial institution), IS (Insurance), SC (Securities company), PF (Pension fund), FD (Foundation) and OT (Others). The stock page groups investor classifications into them by a fixed mapping, which never matches KSEI's own type totals exactly.
 _Avoid_: Investor group, category
+
+**Classification parse run**:
+One pass that parses each holdings-by-investor-classification report in the shareholding archive whose newest version, or the parser's version, hasn't been parsed into classification holdings. The schedule starts one each day, an hour after the evening archive run, and an admin can start one when none is in progress. It ends **complete**, **partial** (some months could not be parsed and wait for the next run) or **failed**.
+_Avoid_: Archive run, which stores reports; import, sync
 
 **KSEI parse run**:
 One pass that parses each Securities holdings report in the KSEI archive whose newest version, or the parser's version, hasn't been parsed into KSEI holdings, from November 2018 on. The schedule starts one each day, an hour after the KSEI archive run, and an admin can start one when no KSEI parse run is in progress. A report that doesn't read exactly as expected is rejected whole and keeps the month's earlier holdings. It ends **complete**, **partial** (some months could not be parsed and wait for the next run) or **failed**.
