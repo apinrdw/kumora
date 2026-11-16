@@ -762,7 +762,8 @@ const evictedWriting = (sql: Sql, time: string): Sql => {
 // What a day built under an older finished value holds: every row in the
 // shape before pieces, and the build marked with that value; under `built`,
 // from before auction matches had their entry, no auction-only row.
-const builtUnder = (value: "built" | "built-auctions") => (sql: Sql) =>
+// `older:built` stands in for any other older shape's finished value.
+const builtUnder = (value: "built" | "older:built") => (sql: Sql) =>
   Effect.sync(() => {
     if (value === "built")
       sql.exec(
@@ -813,7 +814,7 @@ const WITH_AUCTION = [
 
 for (const [value, until] of [
   ["built", "before auction matches had their entry"],
-  ["built-auctions", "before whole sweeps split"],
+  ["older:built", "under another older shape"],
 ] as const)
   describe(`a day whose sweep brokers were built ${until}`, () => {
     it.effect(
