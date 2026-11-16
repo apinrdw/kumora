@@ -128,7 +128,7 @@ describe("a broker codes batch", () => {
         for (const row of [
           ["1", { ...codes, buyer: "yp" }, fields],
           ["1", codes],
-          ["1", codes, { ...fields, lots: 0 }],
+          ["1", codes, { ...fields, lots: -1 }],
           ["1", codes, { ...fields, price: 8_000.5 }],
           ["1", codes, { ...fields, board: "XX" }],
           ["0", codes, fields],
@@ -357,6 +357,10 @@ describe("an Ajaib row", () => {
   it.effect("gives the trade's fields, a row without a board on RG", () =>
     Effect.gen(function* () {
       assert.deepStrictEqual(yield* ajaibRowFields(row), Option.some(fields))
+      assert.deepStrictEqual(
+        yield* ajaibRowFields({ ...row, lot: 0 }),
+        Option.some({ ...fields, lots: 0 })
+      )
       const { market_type: _, ...regular } = row
       assert.deepStrictEqual(
         yield* ajaibRowFields(regular),
@@ -366,7 +370,7 @@ describe("an Ajaib row", () => {
   )
 
   it.effect(
-    "without a valid code, a whole price or positive lots has no fields",
+    "without a valid code, a whole price or lots of 0 or more has no fields",
     () =>
       Effect.gen(function* () {
         for (const bad of [
@@ -374,7 +378,7 @@ describe("an Ajaib row", () => {
           { ...row, stock_code: undefined },
           { ...row, price: 8_000.5 },
           { ...row, price: "8000" },
-          { ...row, lot: 0 },
+          { ...row, lot: -1 },
           { ...row, lot: "1" },
           null,
         ])
@@ -446,14 +450,14 @@ describe("a Stockbit row", () => {
   )
 
   it.effect(
-    "without a valid code, a whole price or positive lots has no fields",
+    "without a valid code, a whole price or lots of 0 or more has no fields",
     () =>
       Effect.gen(function* () {
         for (const bad of [
           { ...row, code: "" },
           { ...row, price: "8,000.5" },
           { ...row, price: "abc" },
-          { ...row, lot: "0" },
+          { ...row, lot: "-1" },
           { ...row, lot: 1 },
           { trade_number: "1" },
         ])

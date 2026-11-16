@@ -95,7 +95,7 @@ const fakeStockbit = (
     // Rows Stockbit sends with `is_broker_exists: false`.
     readonly noBrokers?: ReadonlySet<number>
     // Rows Stockbit sends with codes but zero lots.
-    readonly noLots?: ReadonlySet<number>
+    readonly badLots?: ReadonlySet<number>
     // The token in the tab's cookie at a time.
     readonly cookie?: (now: number) => string
     // Whether the tape refuses this bearer on this call (1-based).
@@ -113,8 +113,8 @@ const fakeStockbit = (
     trade_number: String(number),
     code: fieldsOf(number).code,
     price: fieldsOf(number).price.toLocaleString("en-US"),
-    lot: options.noLots?.has(number)
-      ? "0"
+    lot: options.badLots?.has(number)
+      ? "n/a"
       : fieldsOf(number).lots.toLocaleString("en-US"),
     market_board: fieldsOf(number).board,
     is_broker_exists: !(options.noBrokers?.has(number) ?? false),
@@ -430,7 +430,7 @@ describe("Stockbit's full walk of a day", () => {
       yield* TestClock.setTime(wib("2026-11-12", "17:30:00"))
       const production = fakeProduction()
       const walk = yield* walkWith(
-        fakeStockbit({ noLots: new Set([7, 1_234]) }),
+        fakeStockbit({ badLots: new Set([7, 1_234]) }),
         production
       )
       assert.deepStrictEqual(yield* walk.walk(DAY), { _tag: "walked" })
