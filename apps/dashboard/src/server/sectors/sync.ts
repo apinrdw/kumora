@@ -157,11 +157,13 @@ export const syncSectors = Effect.fn("syncSectors")(function* (
     yield* Effect.logWarning("Sector run kept yesterday's table", {
       reason: read.reason,
     })
-    return read satisfies SectorRun
+    const kept: SectorRun = { _tag: "Kept", reason: read.reason }
+    return kept
   }
   yield* replaceTable(read.rows, fetchedAt)
   yield* Effect.logInfo("Sector run replaced the table", {
     rows: read.rows.length,
   })
-  return { _tag: "Replaced", rows: read.rows.length } satisfies SectorRun
+  const replaced: SectorRun = { _tag: "Replaced", rows: read.rows.length }
+  return replaced
 })

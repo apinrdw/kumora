@@ -27,7 +27,7 @@ describe("the sector map", () => {
     insert(db, "AADI", "Energy", "Coal")
     return Effect.gen(function* () {
       const map = yield* decodeSectorMap(yield* sectorMapBody)
-      assert.deepStrictEqual(map, {
+      assert.deepStrictEqual<unknown>(map, {
         fetchedAt: "2026-11-16T15:00:00.000Z",
         sectors: {
           AADI: { sector: "Energy", industry: "Coal" },

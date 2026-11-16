@@ -18,7 +18,10 @@ interface Profile {
 }
 
 // A profile as IDX lists it, contact fields and all.
-const profile = (code: string, sector = "Energy"): Profile => ({
+const profile = (
+  code: string,
+  sector = "Energy"
+): Profile & Record<string, string> => ({
   KodeEmiten: code,
   Sektor: sector,
   SubSektor: "Oil, Gas & Coal",
@@ -32,11 +35,19 @@ const profile = (code: string, sector = "Energy"): Profile => ({
 const codes = (n: number, prefix = "C") =>
   Array.from({ length: n }, (_, i) => `${prefix}${String(i).padStart(3, "0")}`)
 
+interface FakeIdx {
+  profiles: ReadonlyArray<Profile>
+  // Answered instead of the profiles, when set.
+  response: (() => Response) | undefined
+  readonly requests: Array<string>
+  readonly layer: Layer.Layer<HttpClient.HttpClient>
+}
+
 const fakeIdx = () => {
-  const idx = {
-    profiles: new Array<Profile>(),
-    response: undefined as (() => Response) | undefined,
-    requests: new Array<string>(),
+  const idx: FakeIdx = {
+    profiles: [],
+    response: undefined,
+    requests: [],
     layer: Layer.succeed(
       HttpClient.HttpClient,
       HttpClient.make((request, url) =>
