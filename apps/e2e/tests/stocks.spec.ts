@@ -1494,4 +1494,19 @@ test.describe.serial("the Broker inventory tab", () => {
     }).toPass()
     await expect(selectionPanel(page)).toHaveCount(0)
   })
+
+  test("a link whose selection falls outside the range drops it from the URL", async ({
+    page,
+  }) => {
+    const days = tradingDaysBeforeToday(80)
+    // 2W holds only the newest days; these are months back.
+    const [from = "", to = ""] = [days[10], days[19]]
+    await page.goto(
+      `${DASHBOARD}/stocks/BBCA?tab=brokers&range=2W&selFrom=${from}&selTo=${to}`
+    )
+    await expect(page).toHaveURL(
+      `${DASHBOARD}/stocks/BBCA?tab=brokers&range=2W`
+    )
+    await expect(selectionPanel(page)).toHaveCount(0)
+  })
 })

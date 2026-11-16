@@ -131,6 +131,14 @@ function StockPageView() {
       }),
     [navigate]
   )
+  // A link's selection that falls outside the read's days leaves the URL.
+  const staleSelection =
+    inventory !== undefined &&
+    search.selFrom !== undefined &&
+    selection === undefined
+  useEffect(() => {
+    if (staleSelection) setSearch({ selFrom: undefined, selTo: undefined })
+  }, [staleSelection, setSearch])
   return (
     // Decision: the Broker inventory tab takes the page's full width, for a
     // long range's days. See apinrdw/kumora#421, "Amended 2026-11-16".
