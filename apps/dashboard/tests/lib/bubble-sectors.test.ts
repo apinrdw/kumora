@@ -22,7 +22,7 @@ const bubble = (
   frequency: 1,
   buyValue: sides.buy ?? 0,
   sellValue: sides.sell ?? 0,
-  delta: 0,
+  buySellDelta: 0,
   change: sides.change,
   dayChange: undefined,
   last: 100,
@@ -106,13 +106,25 @@ describe("the sector groups", () => {
         )
         expect(groups).toEqual([
           // (40 − 10) / 50; change weighted by size: (60·2 + 20·−2) / 80.
-          { sector: "Energy", total: 80, delta: 60, change: 1, codes: 2 },
-          { sector: "Financials", total: 50, delta: -50, change: 1, codes: 1 },
+          {
+            sector: "Energy",
+            total: 80,
+            buySellDelta: 60,
+            change: 1,
+            codes: 2,
+          },
+          {
+            sector: "Financials",
+            total: 50,
+            buySellDelta: -50,
+            change: 1,
+            codes: 1,
+          },
           // No sides and no change known.
           {
             sector: "Unclassified",
             total: 5,
-            delta: 0,
+            buySellDelta: 0,
             change: undefined,
             codes: 1,
           },

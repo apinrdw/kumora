@@ -12,7 +12,7 @@ const bubble = (code: string, size: number): BubbleFigures => ({
   frequency: 1,
   buyValue: 0,
   sellValue: 0,
-  delta: 0,
+  buySellDelta: 0,
   change: undefined,
   dayChange: undefined,
   last: 100,

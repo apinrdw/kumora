@@ -48,7 +48,7 @@ export const inSector = (
 interface SectorGroup {
   readonly sector: SectorName
   readonly total: number
-  readonly delta: number
+  readonly buySellDelta: number
   readonly change: number | undefined
   readonly codes: number
 }
@@ -96,7 +96,7 @@ export const sectorGroups = (
       .map(([sector, held]) => ({
         sector,
         total: held.total,
-        delta:
+        buySellDelta:
           held.buy + held.sell === 0
             ? 0
             : ((held.buy - held.sell) / (held.buy + held.sell)) * 100,

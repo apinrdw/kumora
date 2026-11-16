@@ -350,10 +350,12 @@ describe("Buy/Sell delta % and price change %", () => {
         candle("BBRI", T0, { value: 500, close: 100, frequency: 1 }),
       ])
       const shown = yield* bubblesOf(flow, VIEW, T0)
-      expect(shown.map((bubble) => [bubble.code, bubble.delta])).toEqual([
-        ["BBCA", 50],
-        ["BBRI", 0],
-      ])
+      expect(shown.map((bubble) => [bubble.code, bubble.buySellDelta])).toEqual(
+        [
+          ["BBCA", 50],
+          ["BBRI", 0],
+        ]
+      )
       expect(yield* bubbleTone(shown[0]!, VIEW)).toBeCloseTo(0.5)
     })
   )
@@ -441,7 +443,7 @@ describe("Buy/Sell delta % and price change %", () => {
         frequency: 1,
         buyValue: 0,
         sellValue: 0,
-        delta: 0,
+        buySellDelta: 0,
         change: 1.5,
         dayChange: undefined,
         last: 1,

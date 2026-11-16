@@ -31,6 +31,7 @@ export type BubbleWindow = (typeof BUBBLE_WINDOWS)[number]
 export const SIZE_METRICS = ["value", "volume", "freq"] as const
 export type SizeMetric = (typeof SIZE_METRICS)[number]
 
+// The colour metrics as the URL names them: "delta" is Buy/Sell delta %.
 export const COLOUR_METRICS = ["delta", "change"] as const
 export type ColourMetric = (typeof COLOUR_METRICS)[number]
 
@@ -56,7 +57,7 @@ export interface BubbleFigures {
   readonly frequency: number
   readonly buyValue: number
   readonly sellValue: number
-  readonly delta: number
+  readonly buySellDelta: number
   readonly change: number | undefined
   readonly dayChange: number | undefined
   readonly last: number
@@ -537,7 +538,8 @@ export const bubblesOf = (flow: MarketFlow, view: BubbleView, end: number) =>
         frequency: row.frequency,
         buyValue: row.buyValue,
         sellValue: row.sellValue,
-        delta: sides === 0 ? 0 : ((row.buyValue - row.sellValue) / sides) * 100,
+        buySellDelta:
+          sides === 0 ? 0 : ((row.buyValue - row.sellValue) / sides) * 100,
         change: percent(before, row.close),
         dayChange: percent(held.previousClose, held.day.close),
         last: row.close,
@@ -563,7 +565,7 @@ const CHANGE_RANGE: Record<BubbleWindow, number> = {
 // none for a change with no price to compare, which colours grey.
 export const bubbleTone = (bubble: BubbleFigures, view: BubbleView) =>
   Effect.sync(() => {
-    if (view.colour === "delta") return bubble.delta / 100
+    if (view.colour === "delta") return bubble.buySellDelta / 100
     if (bubble.change === undefined) return undefined
     return Math.max(-1, Math.min(1, bubble.change / CHANGE_RANGE[view.window]))
   })

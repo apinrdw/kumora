@@ -715,7 +715,7 @@ const retarget = Effect.fnUntraced(function* (
     readonly near: { readonly x: number; readonly y: number }
   }
 ) {
-  const metric = view.colour === "delta" ? figures.delta : figures.change
+  const metric = view.colour === "delta" ? figures.buySellDelta : figures.change
   const labels: Labels = {
     metric: metric === undefined ? "—" : yield* pct(metric),
     size: yield* sizeFigure(view.size, figures.size),
@@ -810,7 +810,7 @@ const labelsOf = Effect.fnUntraced(function* (
 ) {
   const labels = new Map<SectorName, SectorLabel>()
   for (const group of yield* sectorGroups(bubbles, sectors)) {
-    const metric = view.colour === "delta" ? group.delta : group.change
+    const metric = view.colour === "delta" ? group.buySellDelta : group.change
     labels.set(group.sector, {
       name: SHORT_SECTOR[group.sector] ?? group.sector,
       figures: `${yield* sizeFigure(view.size, group.total)} · ${
@@ -850,8 +850,8 @@ function BubbleTip({
     ["Frequency", Effect.runSync(compact(figures.frequency))],
     [
       "Buy/Sell delta",
-      percent(figures.delta),
-      Effect.runSync(toneClass(figures.delta)),
+      percent(figures.buySellDelta),
+      Effect.runSync(toneClass(figures.buySellDelta)),
     ],
     [
       `Change (${view.window})`,
