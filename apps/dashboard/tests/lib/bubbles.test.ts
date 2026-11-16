@@ -244,6 +244,37 @@ describe("the 30s window", () => {
       })
   )
 
+  it.effect(
+    "drops a counted trade whose later copy is off the regular board, and counts it again once back on",
+    () =>
+      Effect.gen(function* () {
+        const flow = yield* makeMarketFlow()
+        const view = { ...VIEW, window: "30s" } as const
+        yield* applyTrades(flow, [
+          trade("BBCA", T0 + 1_000, { price: 100, lots: 1, number: 7 }),
+          trade("BBCA", T0 + 2_000, { price: 100, lots: 2, number: 8 }),
+        ])
+        // Stockbit names trade 8 a cash-board trade.
+        yield* applyTrades(flow, [
+          trade("BBCA", T0 + 2_000, {
+            price: 100,
+            lots: 2,
+            number: 8,
+            board: "TN",
+          }),
+        ])
+        expect(yield* valuesAt(flow, view, T0 + 5_000)).toEqual([
+          ["BBCA", 10_000],
+        ])
+        yield* applyTrades(flow, [
+          trade("BBCA", T0 + 2_000, { price: 100, lots: 2, number: 8 }),
+        ])
+        expect(yield* valuesAt(flow, view, T0 + 5_000)).toEqual([
+          ["BBCA", 30_000],
+        ])
+      })
+  )
+
   it.effect("changes against the price 30 s before", () =>
     Effect.gen(function* () {
       const flow = yield* makeMarketFlow()
