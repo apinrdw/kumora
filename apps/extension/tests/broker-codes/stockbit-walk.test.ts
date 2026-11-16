@@ -216,12 +216,14 @@ const sameCodes = (a: TradeCodes, b: TradeCodes) =>
 
 // Production's trading-day object, merging batches by its rules
 // (apinrdw/kumora#244, "TradingDay's broker codes store") and answering the
-// day's status.
+// day's status: a trade is missing until it has codes and fields.
 const fakeProduction = () => {
   const held = new Map<
     number,
     { codes: TradeCodes; source: "ajaib" | "stockbit" }
   >()
+  // The trades a row with fields came for.
+  const fielded = new Set<number>()
   const differences = new Set<number>()
   const batches: Array<BrokerCodesBatch> = []
   let covered = 0
@@ -231,8 +233,9 @@ const fakeProduction = () => {
   const post = (batch: BrokerCodesBatch) =>
     Effect.sync((): PostOutcome => {
       batches.push(batch)
-      for (const [text, codes] of batch.rows) {
+      for (const [text, codes, fields] of batch.rows) {
         const number = Number(text)
+        if (fields !== undefined) fielded.add(number)
         const kept = held.get(number)
         if (batch.feed === "Ajaib") held.set(number, { codes, source: "ajaib" })
         else {
@@ -254,7 +257,8 @@ const fakeProduction = () => {
     const ranges: Array<[TradeNumber, TradeNumber]> = []
     let from: number | undefined
     for (let number = 1; number <= highest + 1; number++) {
-      const absent = number <= highest && !held.has(number)
+      const absent =
+        number <= highest && !(held.has(number) && fielded.has(number))
       if (absent && from === undefined) from = number
       if (!absent && from !== undefined) {
         ranges.push([
@@ -1112,6 +1116,40 @@ describe("the History walk over Stockbit's walk", () => {
         assert.isTrue(production.batches.every((batch) => batch.day === DAY))
         assert.deepStrictEqual(production.ends(), [{ n: String(N) }])
         assert.deepStrictEqual(position.position(), ended)
+      })
+  )
+
+  it.effect(
+    "walks again a day walked codes-only, whose trades lack their fields, from a fresh position",
+    () =>
+      Effect.gen(function* () {
+        yield* TestClock.setTime(wib("2026-11-16", "17:30:00"))
+        const production = historyProduction()
+        const rows: Array<[TradeNumber, TradeCodes]> = []
+        for (let number = 1; number <= N; number++)
+          rows.push([TradeNumber.make(String(number)), YP_PD])
+        yield* production.post({
+          version: BrokerCodesProtocolVersion,
+          feed: "Stockbit",
+          day: DAY,
+          rows,
+          end: { n: TradeNumber.make(String(N)) },
+        })
+        assert.strictEqual((yield* production.status(DAY)).missingCount, N)
+        const tape = fakeStockbit()
+        const history = yield* historyOver(tape, production, memoryPosition())
+        yield* history.walk(WibDate.make("2026-11-16"))
+        assert.isTrue(tape.params().some((each) => each.get("date") === DAY))
+        assert.isTrue((yield* production.status(DAY)).complete)
+        const walked = production
+          .stockbit()
+          .flatMap((batch) => batch.rows)
+          .filter(([, , fields]) => fields !== undefined)
+        assert.lengthOf(walked, N)
+        assert.deepStrictEqual(
+          walked.find(([number]) => number === "7")?.[2],
+          fieldsOf(7)
+        )
       })
   )
 
