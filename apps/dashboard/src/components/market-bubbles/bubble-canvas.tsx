@@ -130,6 +130,9 @@ const DIMMED = 0.18
 const ANCHOR_EASE = 0.02
 const ANCHOR_PULL = 0.012
 const DAMPING = 0.75
+// Room above the bubbles for the top clusters' sector labels: two lines in
+// 28 px, 4 px over the cluster. The pack and the bubbles keep below it.
+const LABEL_BAND = 32
 
 // The long sector names, shortened above a cluster.
 const SHORT_SECTOR: Partial<Record<SectorName, string>> = {
@@ -217,7 +220,8 @@ export function BubbleCanvas({
     const { k, minRadius } = Effect.runSync(
       bubbleScale(
         bubbles.map((bubble) => bubble.size),
-        width * height
+        width,
+        height - LABEL_BAND
       )
     )
     const held = scene.current.bodies
@@ -402,7 +406,10 @@ export function BubbleCanvas({
       for (const body of list) {
         if (body.code !== held) {
           body.x = Math.min(Math.max(body.x, body.r), width - body.r)
-          body.y = Math.min(Math.max(body.y, body.r), height - body.r)
+          body.y = Math.min(
+            Math.max(body.y, body.r + LABEL_BAND),
+            height - body.r
+          )
         }
         if (body.leaving && body.r < 0.5) scene.current.bodies.delete(body.code)
       }
@@ -771,15 +778,20 @@ const placeSectors = Effect.fnUntraced(function* (
         (areas.get(body.sector) ?? 0) + Math.PI * body.targetR ** 2
       )
   const previous = new Map(
-    [...anchors].map(([sector, { tx, ty }]) => [sector, { x: tx, y: ty }])
+    [...anchors].map(([sector, { tx, ty }]) => [
+      sector,
+      { x: tx, y: ty - LABEL_BAND },
+    ])
   )
+  // The pack fills the canvas under the label band.
   const circles = yield* packSectors(
     [...areas].map(([sector, area]) => ({ sector, area })),
     width,
-    height,
+    height - LABEL_BAND,
     previous
   )
-  for (const { sector, x, y } of circles) {
+  for (const { sector, x, y: packed } of circles) {
+    const y = packed + LABEL_BAND
     const anchor = anchors.get(sector)
     if (anchor === undefined) anchors.set(sector, { x, y, tx: x, ty: y })
     else {

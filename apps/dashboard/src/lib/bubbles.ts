@@ -500,14 +500,26 @@ export const bubbleTone = (bubble: BubbleFigures, view: BubbleView) =>
 const FILL = 0.34
 
 // The radius scale: a bubble's radius is k·√size, so the bubbles of `sizes`
-// fill FILL of `area` (px²), but no smaller than the floor, which is smaller
-// when more than 300 are shown.
-export const bubbleScale = (sizes: ReadonlyArray<number>, area: number) =>
+// fill FILL of a `width` × `height` canvas (px), but no smaller than the
+// floor, which is smaller when more than 300 are shown. One code far larger
+// than the rest on a short canvas would outgrow it: the largest bubble's
+// diameter is at most the height.
+export const bubbleScale = (
+  sizes: ReadonlyArray<number>,
+  width: number,
+  height: number
+) =>
   Effect.sync(() => {
     let total = 0
-    for (const size of sizes) total += size
+    let largest = 0
+    for (const size of sizes) {
+      total += size
+      largest = Math.max(largest, size)
+    }
+    if (total <= 0) return { k: 0, minRadius: sizes.length > 300 ? 4 : 7 }
+    const filling = Math.sqrt((FILL * width * height) / (Math.PI * total))
     return {
-      k: total > 0 ? Math.sqrt((FILL * area) / (Math.PI * total)) : 0,
+      k: Math.min(filling, height / 2 / Math.sqrt(largest)),
       minRadius: sizes.length > 300 ? 4 : 7,
     }
   })

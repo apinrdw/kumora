@@ -496,7 +496,7 @@ describe("radii and labels", () => {
     "sizes by the root of the metric to fill about 34 % of the canvas, with a floor",
     () =>
       Effect.gen(function* () {
-        const { k, minRadius } = yield* bubbleScale([400, 100], 1000 * 500)
+        const { k, minRadius } = yield* bubbleScale([400, 100], 1000, 500)
         const area = (size: number) => Math.PI * (k * Math.sqrt(size)) ** 2
         expect((area(400) + area(100)) / (1000 * 500)).toBeCloseTo(0.34)
         expect(k * Math.sqrt(400)).toBeCloseTo(2 * k * Math.sqrt(100))
@@ -504,10 +504,20 @@ describe("radii and labels", () => {
         expect(
           (yield* bubbleScale(
             Array.from({ length: 301 }, () => 1),
-            1e6
+            1000,
+            1000
           )).minRadius
         ).toBe(4)
       })
+  )
+
+  it.effect("keeps the largest bubble within the canvas's height", () =>
+    Effect.gen(function* () {
+      // One code far larger than the rest, on Market Live's short panel.
+      const sizes = [1_000_000, 1, 1]
+      const { k } = yield* bubbleScale(sizes, 1300, 278)
+      expect(2 * k * Math.sqrt(1_000_000)).toBeCloseTo(278)
+    })
   )
 
   it.effect("writes rupiah as M, B or T and lots and trades as K or M", () =>
