@@ -342,7 +342,7 @@ export const makeSweepBrokers = Effect.fnUntraced(function* (options: {
   // Decision: a day holding no codes as its object starts gets each batch's
   // rows as it lands, so it is marked built from the start. A day holding
   // codes without the current mark (sweep brokers or auction entries came
-  // after them, or a late trade did) is built by its next GET once sealed.
+  // after them, or a late trade did) is built by its next sweep brokers GET.
   // See spec apinrdw/kumora#343, "The one-off build", and #384, "Old days".
   const progress = yield* store.fact(Fact.sweepBrokersBuilt)
   let built = progress === SWEEP_BROKERS_BUILT
@@ -404,7 +404,7 @@ export const makeSweepBrokers = Effect.fnUntraced(function* (options: {
   // Decision: once the day holds codes, every flushed trade, coded or not,
   // moves the build back in its flush's transaction: a trade stored after a
   // recompute can bring codes, join a sweep or split one, and a sweep never
-  // crosses a minute, so the sealed day's next GET rebuilds from its minute.
+  // crosses a minute, so the day's next GET rebuilds from its minute.
   // See spec apinrdw/kumora#343, "The one-off build", apinrdw/kumora#349.
   const persisting = Effect.fnUntraced(function* (
     trades: ReadonlyArray<RunningTrade>

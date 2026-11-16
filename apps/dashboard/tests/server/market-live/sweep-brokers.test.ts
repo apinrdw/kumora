@@ -344,7 +344,10 @@ describe("a sealed day's sweep brokers", () => {
       const before = again.counts.writes
       const { answer } = yield* restarted.recordedSweepBrokers("UNTR")
       assert.deepStrictEqual(answer.sweeps, [])
-      assert.strictEqual(again.counts.writes, before)
+      // Its build writes only the finished mark, and once.
+      assert.strictEqual(again.counts.writes, before + 1)
+      yield* restarted.recordedSweepBrokers("UNTR")
+      assert.strictEqual(again.counts.writes, before + 1)
     })
   )
 
@@ -888,5 +891,24 @@ for (const [value, until] of [
           const { answer } = yield* day.recordedSweepBrokers("UNTR")
           assert.deepStrictEqual(answer.sweeps.flatMap(brokersOf), WITH_AUCTION)
         })
+    )
+
+    it.effect("rebuilds on a GET before the seal", () =>
+      Effect.gen(function* () {
+        const sql = memorySql()
+        yield* at("09:01:10")
+        const live = yield* tradingDay(sql)
+        yield* live.trades(OPENING_AND_SWEEP)
+        yield* at("09:02:10")
+        yield* live.brokerCodes("Ajaib", OPENING_CODES)
+        yield* live.evicted
+        yield* builtUnder(value)(sql)
+
+        yield* at("09:02:20")
+        const day = yield* tradingDay(sql)
+        const { answer } = yield* day.recordedSweepBrokers("UNTR")
+        assert.deepStrictEqual(answer.sweeps.flatMap(brokersOf), WITH_AUCTION)
+        yield* rowsRead(sql)
+      })
     )
   })
