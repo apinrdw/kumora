@@ -2,10 +2,13 @@
 // Broker inventory tab's range read, over the memory D1 fake.
 import { assert, describe, it } from "@effect/vitest"
 import { BrokerCode, StockCode, WibDate } from "@workspace/relay"
-import { DateTime, Effect } from "effect"
+import { DateTime, Effect, Schema } from "effect"
 
 import { writeBuiltDay, type DayBuild } from "@/server/broker-totals/db"
-import { brokerInventory } from "@/server/broker-totals/inventory"
+import {
+  BrokerInventoryRead,
+  brokerInventory,
+} from "@/server/broker-totals/inventory"
 
 import { memoryBrokerTotalsDb } from "./memory-broker-totals-db.ts"
 
@@ -80,6 +83,7 @@ describe("the broker inventory read", () => {
           { range: "2W" },
           day("2026-11-13")
         )
+        assert.isTrue(Schema.is(BrokerInventoryRead)(read))
         assert.deepStrictEqual(read, {
           from: day("2026-10-30"),
           to: day("2026-11-12"),
