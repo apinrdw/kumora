@@ -1,4 +1,4 @@
-import { createFileRoute } from "@tanstack/react-router"
+import { createFileRoute, useRouter } from "@tanstack/react-router"
 import {
   IDX_SECTORS,
   UNCLASSIFIED,
@@ -168,8 +168,22 @@ function useBubbleView() {
   return { view, change, navigate }
 }
 
+// The loader's live day, asked again once its date turns, as Market Live's
+// is, so the flow, its backfill and the code list move to the new day
+// together.
+function useLiveDay() {
+  const day = Route.useLoaderData()
+  const router = useRouter()
+  const { dayEndsIn } = day
+  useEffect(() => {
+    const timer = setTimeout(() => void router.invalidate(), dayEndsIn + 1000)
+    return () => clearTimeout(timer)
+  }, [router, dayEndsIn])
+  return day
+}
+
 function MarketBubblesPage() {
-  const { today, clockOffset } = Route.useLoaderData()
+  const { today, clockOffset } = useLiveDay()
   const { view, change, navigate } = useBubbleView()
   const openLive = useCallback(
     (code: StockCode) =>

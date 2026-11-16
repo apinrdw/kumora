@@ -29,18 +29,36 @@ export type ClosedMarket = {
 // streaming, the day seals, the date turns.
 const CHANGES = ["08:40:00", "17:00:00", "24:00:00"] as const
 
-// A year past the baked schedule reads as open: the live page shows.
-export const closedMarketAt = Effect.fnUntraced(function* (now: DateTime.Utc) {
+const DAY_MS = 86_400_000
+
+// The WIB date at `now` and its midnight, in epoch ms.
+const wibDayAt = Effect.fnUntraced(function* (now: DateTime.Utc) {
   const date = yield* wibDateAt(now)
-  const at = DateTime.toEpochMillis(now)
   const midnight = DateTime.toEpochMillis(
     DateTime.makeUnsafe(`${date}T00:00:00+07:00`)
   )
+  return { date, midnight }
+})
+
+// Market Bubbles' live day at `now`, and how many ms until the date turns,
+// when the page asks again.
+export const liveDayAt = Effect.fnUntraced(function* (now: DateTime.Utc) {
+  const { date, midnight } = yield* wibDayAt(now)
+  return {
+    today: date,
+    dayEndsIn: midnight + DAY_MS - DateTime.toEpochMillis(now),
+  }
+})
+
+// A year past the baked schedule reads as open: the live page shows.
+export const closedMarketAt = Effect.fnUntraced(function* (now: DateTime.Utc) {
+  const { date, midnight } = yield* wibDayAt(now)
+  const at = DateTime.toEpochMillis(now)
   const next = CHANGES.map((time) => {
     const [hours = 0, minutes = 0] = time.split(":").map(Number)
     return midnight + (hours * 60 + minutes) * 60_000
   }).find((change) => change > at)
-  const changesIn = (next ?? midnight + 86_400_000) - at
+  const changesIn = (next ?? midnight + DAY_MS) - at
   const day = yield* closedTradingDay(now).pipe(
     Effect.catchTag("ScheduleYearMissing", () =>
       Effect.succeed(Option.none<WibDate>())
