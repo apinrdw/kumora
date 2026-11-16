@@ -64,8 +64,8 @@ const SCHEMA = [
   // Decision: a walk's fields of each trade the tape lacked, the first row
   // kept. On a day the relay recorded they never fill the tape, so its
   // recorded answers don't change; only the build reads them (#425). A day
-  // with no relay tape takes a batch's fields as its tape instead, and a
-  // row here holds none of its trades (`walkRowsHold`). See #437.
+  // whose tape source is the walks takes a batch's fields as its tape, and
+  // a row here holds none of its trades (`walkRowsHold`). See #437.
   `CREATE TABLE IF NOT EXISTS walk_trades (
     number INTEGER PRIMARY KEY,
     code TEXT NOT NULL,

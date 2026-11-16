@@ -22,8 +22,8 @@ import { WibDate } from "./schedule.ts"
 // as `reload-extension`. Separate from IngestProtocolVersion.
 // Decision: 2 since the status lists at most MISSING_RANGES ranges; 3 since
 // each row carries its trade fields (apinrdw/kumora#425); 4 since those
-// fields carry time and side, which a day with no relay tape takes as its
-// tape, and 0.0.29 sends version 3 without them (#437). An older extension
+// fields carry time and side, which a day whose tape source is the walks
+// takes as its tape, and 0.0.29 sends version 3 without them (#437). An older extension
 // gets 426 and shows `reload-extension`.
 export const BrokerCodesProtocolVersion = 4
 

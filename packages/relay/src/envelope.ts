@@ -256,7 +256,7 @@ export const groupedNumber = (text: string) =>
   Effect.succeed(Number(text.replaceAll(",", "")))
 
 // Where a running trade was seen: a live feed, a backfill request's answer,
-// or a walk after the close, on a day with no relay tape.
+// or a walk after the close, on a day whose tape source is the walks.
 const TradeSource = Schema.Literals(["Stockbit", "Ajaib", "backfill", "walk"])
 
 // The shares in one IDX lot.
