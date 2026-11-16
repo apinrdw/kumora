@@ -9,6 +9,8 @@ import {
   stack,
   text,
   whenFocused,
+  type ChartInteractionController,
+  type ChartPoint,
 } from "@tanstack/charts"
 import { Chart } from "@tanstack/charts/react/tooltip"
 import { scaleBand } from "@tanstack/charts/scales/band"
@@ -235,6 +237,7 @@ function Swatch({ color }: { color: string }) {
 
 // A month's column for the chart's hover and keyboard stops.
 type MonthStop = { readonly month: string }
+type BarsPoint = ChartPoint<HoldingRow | MonthStop, string, number>
 
 /** 0.025 → `2.5%` */
 const percentTick = (share: number) =>
@@ -428,6 +431,16 @@ function Bars({
   // Whether the last input in the chart was a key, not the pointer: the
   // library reports hover and keyboard focus through the same callback.
   const keyboard = useRef(false)
+  // Decision: Escape hides the tooltip and keeps focus on the chart, as
+  // KTooltip did; the next arrow key steps from the month it hid. The
+  // library dismisses on Escape only a pinned tooltip, and this one never
+  // pins, so the chart clears and restores its focus itself.
+  const interaction =
+    useRef<ChartInteractionController<HoldingRow | MonthStop, string, number>>(
+      null
+    )
+  const focused = useRef<BarsPoint>(null)
+  const hid = useRef<BarsPoint>(null)
   const rows = useMemo(
     () => Effect.runSync(holdingRows(chart, shown)),
     [chart, shown]
@@ -559,8 +572,14 @@ function Bars({
       <div
         ref={scroller}
         className="min-w-0 flex-1 overflow-x-auto pb-1"
-        onKeyDownCapture={() => {
+        onKeyDownCapture={(event) => {
           keyboard.current = true
+          if (event.key === "Escape" && focused.current) {
+            hid.current = focused.current
+            interaction.current?.setControlledFocus(null)
+          } else if (hid.current && event.key.startsWith("Arrow")) {
+            interaction.current?.setControlledFocus(hid.current)
+          }
         }}
         onFocusCapture={(event) => {
           keyboard.current = event.target.matches(":focus-visible")
@@ -578,11 +597,16 @@ function Bars({
           width={chart.columns.length * PITCH}
           height={HEIGHT + X_AXIS}
           className="text-muted-foreground"
+          onRender={(context) => {
+            interaction.current = context.interaction
+          }}
           // Decision: a month focused by key near or past the scroller's
           // edge scrolls to the middle; a hovered one never scrolls. The
           // library scrolls nothing itself, and following hover as well
           // jumped the columns half a view under the pointer.
           onFocusGroupChange={(points) => {
+            focused.current = points[0] ?? null
+            if (focused.current) hid.current = null
             const element = scroller.current
             const x = points[0]?.x
             if (!keyboard.current || !element || x === undefined) return
