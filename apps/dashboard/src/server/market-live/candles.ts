@@ -578,8 +578,10 @@ export const makeCandleBook = Effect.fnUntraced(function* (
       .flatMap(([, sweeps]) => sweeps)
   })
 
-  // Every candle changed since the last call, of any code, and of
-  // `selected` each minute a trade changed: its footprint and its sweeps.
+  // Every candle changed since the last call, of any code; of `selected`
+  // each minute a trade changed: its footprint and its sweeps; and of any
+  // code each minute its last regular-board trade left: a footprint with
+  // no cells.
   //
   // Decision: a minute whose last regular-board trade left it goes out as a
   // footprint with no cells, for any code, as its sweeps go out empty, and

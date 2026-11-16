@@ -165,9 +165,11 @@ const partAll = (circles: ReadonlyArray<SectorCircle>) => {
 // Decision: the pack relaxes from where the last one left each sector, so
 // a recompute moves the clusters only as far as their totals changed; the
 // canvas eases toward these targets. A first pack starts with the largest
-// at the centre and the rest round it. A canvas with no room, as a hidden
-// tab's, places none, and a point the last pack left that isn't finite is
-// started afresh: a pull past 1/PULL would overshoot further each pass.
+// at the centre and the rest round it.
+//
+// A canvas with no room, as a hidden tab's, places none, and a point the
+// last pack left that isn't finite starts afresh. The pull is capped at
+// 1/PULL: past it, each pass would overshoot further than the last.
 export const packSectors = (
   areas: ReadonlyArray<{ readonly sector: SectorName; readonly area: number }>,
   width: number,

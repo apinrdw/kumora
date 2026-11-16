@@ -142,10 +142,10 @@ const WINDOW_MINUTES: Record<Exclude<BubbleWindow, "30s" | "D">, number> = {
 const SESSIONS: ReadonlySet<MarketPhase> = new Set(["session-1", "session-2"])
 
 // Decision: the per-trade and per-candle helpers (isIndex to newestKey,
-// secondOf to countTrade) stay plain; the applies' loops stay Effects.
-// Measured 2026-11-16 on the dev machine, 900 codes: 100,000 trades took
-// 53 ms plain, 71 ms with an Effect per trade; 100,000 candles 69 ms, 85 ms.
-// One delta can carry thousands of each.
+// closeDay, takeMinute, secondOf to countTrade) stay plain, the applies'
+// loops Effects. Measured 2026-11-16 on the dev machine, 900 codes: 100,000
+// trades took 53 ms plain, 71 ms with an Effect per trade; 100,000 candles
+// 69 ms, 85 ms. One delta can carry thousands of each.
 const isIndex = (code: StockCode) => INDEX_CODES.includes(code)
 
 const emptyRow = (): Row => ({
@@ -306,10 +306,10 @@ export const applyBubbles = (
 ) =>
   Effect.gen(function* () {
     flow.recount = false
-    const carried = new Set(body.codes.map(({ code }) => code))
+    const inBody = new Set(body.codes.map(({ code }) => code))
     const entries = [...body.codes]
     for (const code of flow.codes.keys())
-      if (!carried.has(code))
+      if (!inBody.has(code))
         entries.push({ code, day: [0, 0, 0, 0, 0, 0], minutes: [] })
     for (const entry of entries) {
       const code = codeFlowOf(flow, entry.code)

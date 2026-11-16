@@ -54,6 +54,10 @@ _Avoid_: Trade ID, sequence
 The exchange market a running trade happens on: regular, cash, or negotiated. Candles count only regular-board trades.
 _Avoid_: Market type
 
+**Settled trade**:
+A running trade whose merge window has closed: a later copy of it from another feed no longer changes its side, time or board, so the candle it falls in counts it as it stands. The day store keeps settled trades' candles, and Market Bubbles' backfill holds only settled trades.
+_Avoid_: Final trade, confirmed trade
+
 **Indicative price**:
 The price, and the volume with it, that an auction would match at if it closed now. Published only during pre-opening and pre-closing, and shown only while the auction of its time runs: pre-closing shows nothing until its own first frame, never the morning's price.
 _Avoid_: IEP, projected price

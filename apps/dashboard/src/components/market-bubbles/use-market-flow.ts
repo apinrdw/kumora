@@ -103,10 +103,11 @@ const untilBuilt = (clockOffset: number) =>
 // The backfill into `flow` after a snapshot, then again after the next
 // build, and after each later build while the flow waits for one
 // (missingFromBackfill): a code's previous close, or day totals to recount.
-// Decision: the second ask, past the browser's 60 s copy, brings the trades
-// between the last build and the page's load, which no delta carries until
-// their code trades again; applyBubbles lays this socket's deltas over
-// it. One more GET a load, a two-way door (spec apinrdw/kumora#427, #435's staleness note).
+// Decision: the second ask, past the browser's 60 s copy, brings the
+// trades between the last build and the page's load, which no delta
+// carries until their code trades again; applyBubbles lays this socket's
+// deltas over it. One more GET a load, a two-way door (spec
+// apinrdw/kumora#427, #435's staleness note).
 const followBackfill = Effect.fnUntraced(function* (
   flow: MarketFlow,
   today: WibDate,
