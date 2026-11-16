@@ -21,6 +21,7 @@ import {
   StockCode,
   tradeNumberValue,
   wibDateAt,
+  type BrokerCodesBatch,
   type DayState,
   type Feed,
   type IndicativePrice,
@@ -75,7 +76,11 @@ import { makeMarketConditions } from "./market-conditions.ts"
 import { makeOnDemand } from "./on-demand.ts"
 import { makeOrderBooks } from "./order-books.ts"
 import { chunkSlices, endBookOf, storedEndBook } from "./heat-rows.ts"
-import { buildOrderFlow, orderFlowBuiltAtStart } from "./order-flow-build.ts"
+import {
+  buildOrderFlow,
+  buildWalkedDay,
+  orderFlowBuiltAtStart,
+} from "./order-flow-build.ts"
 import { SNAPSHOT_TRADES, recordedAnswer } from "./recorded-answers.ts"
 import { type AccountId, type HeldSessions, type SessionId } from "./routes.ts"
 import { stockbitTrades } from "./stockbit.ts"
@@ -302,6 +307,19 @@ const indexWakeAtStart = (
 // rebuild to this long after the batch, so a burst of corrections costs one
 // rebuild. See spec apinrdw/kumora#437, "When it runs".
 const REBUILD_QUIET = Duration.minutes(5)
+
+// When the seal first needs the alarm: its instant, none once sealed, and
+// for a day that takes the walks' tape, none until it is complete.
+const sealWakeAtStart = Effect.fnUntraced(function* (
+  sealed: boolean,
+  takesWalkTape: Effect.Effect<boolean>,
+  complete: Effect.Effect<boolean>,
+  sealAt: DateTime.Utc
+) {
+  if (sealed) return undefined
+  if (!(yield* takesWalkTape) || (yield* complete)) return sealAt
+  return undefined
+})
 
 // When the broker totals build first needs the alarm: at once for a sealed
 // day that builds and is marked due, a quiet wait after the start for one
@@ -768,10 +786,17 @@ export const makeTradingDay = Effect.fnUntraced(function* (options: {
   // The seal: everything left, the day's relay gaps and the index row are
   // written, then the sealed marker; after it the day takes no ingest and
   // its answers are immutable.
+  // A walked day's candles and order flow rows are built from its tape
+  // first, and it records no relay gap: its tape is every trade 1..N.
   const seal = Effect.fnUntraced(function* (now: DateTime.Utc) {
-    const conditions = yield* market.conditions
+    const walked = (yield* store.fact(Fact.walkTape)) !== undefined
+    if (walked) {
+      yield* buildWalkedDay(store)
+      orderFlowBuilt = true
+    }
+    const sealGaps = walked ? [] : (yield* market.conditions).gaps
     yield* flush(true, {
-      [Fact.gaps]: yield* encodeRecordedGaps({ gaps: conditions.gaps }),
+      [Fact.gaps]: yield* encodeRecordedGaps({ gaps: sealGaps }),
     })
     // Decision: a day complete at its seal builds just after it, in the
     // seal's own wake: never under the turn while the market streams. See
@@ -784,7 +809,7 @@ export const makeTradingDay = Effect.fnUntraced(function* (options: {
         day: options.date,
         ...(yield* ihsgOf(yield* store.livePrice(IHSG))),
         trades,
-        gap: conditions.gaps.length > 0,
+        gap: sealGaps.length > 0,
       })
     yield* store.write({
       trades: [],
@@ -808,16 +833,69 @@ export const makeTradingDay = Effect.fnUntraced(function* (options: {
     )
   })
 
+  // Decision: a day the relay stored no trade of by its seal instant (a
+  // History walk day, or one the relay missed) takes each walk batch's
+  // fields as its tape, before the batch's codes. The walk-tape fact, written
+  // with its first walk trades, keeps it such a day until its seal. See spec
+  // apinrdw/kumora#437, "A History walk day becomes a recorded day".
+  const takesWalkTape = Effect.gen(function* () {
+    if ((yield* store.fact(Fact.walkTape)) !== undefined) return !sealed
+    if ((yield* store.highestTrade) !== undefined) return false
+    return !DateTime.isLessThan(yield* DateTime.now, sealAt)
+  })
+
+  // A batch's rows with fields as tape trades, marked backfill and their
+  // sides settled as a merged trade's, on a day that takes the walks' tape.
+  // A day sealed empty is unsealed first (day-store.ts, `unseal`). A day of
+  // a year the schedule doesn't bake keeps the sides the walk sent: its
+  // auction phases aren't known.
+  const walkTapeOf = Effect.fnUntraced(function* (batch: BrokerCodesBatch) {
+    if (!(yield* takesWalkTape)) return
+    const trades: Array<RunningTrade> = []
+    for (const [tradeNumber, , fields] of batch.rows) {
+      if (fields === undefined) continue
+      const trade: RunningTrade = {
+        tradeNumber,
+        ...fields,
+        feeds: ["backfill"],
+      }
+      trades.push(
+        yield* settleSide(trade).pipe(
+          Effect.catchTag("ScheduleYearMissing", () => Effect.succeed(trade))
+        )
+      )
+    }
+    if (trades.length === 0) return
+    if (sealed) {
+      yield* store.unseal
+      sealed = false
+    }
+    yield* store.write({
+      trades,
+      candles: [],
+      footprints: [],
+      livePrices: [],
+      chunks: [],
+      ajaibBooks: [],
+      facts: {
+        [Fact.walkTape]: "walks",
+        ...(yield* sweepBrokers.persisting(trades)),
+      },
+    })
+  })
+
   // When the seal next needs the alarm: 17:00 WIB, a minute after a seal
   // that didn't land, none once sealed.
-  // Decision: a past day with no tape never arms the seal: its object holds
-  // only broker codes (a History walk day, or one the relay missed), and it
-  // never writes an index row, so the day strip never lists it. See spec
-  // apinrdw/kumora#244, "Dashboard: TradingDay's broker codes store".
-  //
-  // A WIB date is ISO, so an earlier one reads less.
-  const noTape = options.date < todayDate && storedHighest === undefined
-  let sealWake: DateTime.Utc | undefined = sealed || noTape ? undefined : sealAt
+  // Decision: a day that takes the walks' tape arms the seal only once
+  // complete, every trade 1..N held: until then it is never listed. The
+  // batch that completes it arms the seal at once (`walkSealDue`). See spec
+  // apinrdw/kumora#437, "A History walk day becomes a recorded day".
+  let sealWake = yield* sealWakeAtStart(
+    sealed,
+    takesWalkTape,
+    brokerCodes.complete,
+    sealAt
+  )
   let indexWake = yield* indexWakeAtStart(brokerCodes.indexBuilt, sealWake)
   let buildWake = yield* buildWakeAtStart(
     sealed && options.brokerTotalsDb !== undefined,
@@ -942,6 +1020,17 @@ export const makeTradingDay = Effect.fnUntraced(function* (options: {
       )
     }
     yield* sweepIngests
+  })
+
+  // The batch that completes a day taking the walks' tape arms its seal at
+  // once. Without N the day can't be complete, so it isn't scanned.
+  const walkSealDue = Effect.gen(function* () {
+    if (sealed || sealWake !== undefined) return
+    if ((yield* store.fact(Fact.walkTape)) === undefined) return
+    if ((yield* store.fact(Fact.brokerCodesN)) === undefined) return
+    if (!(yield* brokerCodes.complete)) return
+    sealWake = yield* DateTime.now
+    yield* arm(sealWake)
   })
 
   // The day's broker totals and candles, built and written to the broker
@@ -1303,10 +1392,11 @@ export const makeTradingDay = Effect.fnUntraced(function* (options: {
     recorded: (resource: RecordedResource) =>
       turn.withPermit(recorded(resource)),
     alarm: turn.withPermit(alarm),
-    // Decision: broker codes touch none of the day's recorded state: their
+    // Decision: broker codes touch none of a recorded day's state: their
     // own tables, no flush, no seal and no index row, so a sealed day takes
     // them and its recorded answers stay byte-identical. See spec
     // apinrdw/kumora#244, "Dashboard: TradingDay's broker codes store".
+    // Only a day with no relay tape takes their fields (`walkTapeOf`).
     brokerCodes: {
       // Decision: a batch that changes codes rewrites its trades' sweep
       // brokers rows from their minutes' stored trades, in the codes' turn
@@ -1314,13 +1404,17 @@ export const makeTradingDay = Effect.fnUntraced(function* (options: {
       // nothing. See spec apinrdw/kumora#343, "When it is recomputed".
       post: (text: string) =>
         turn.withPermit(
-          brokerCodes.post(
-            text,
-            sweepBrokers.recompute,
-            // First: its scan is the one sweep brokers' check reads.
-            (corrected) =>
-              Effect.andThen(totalsWritten(corrected), sweepBrokers.completed)
-          )
+          brokerCodes.post(text, {
+            taken: walkTapeOf,
+            alongside: sweepBrokers.recompute,
+            // Broker totals before sweep brokers: its scan is the one
+            // sweep brokers' check reads.
+            written: (corrected) =>
+              walkSealDue.pipe(
+                Effect.andThen(totalsWritten(corrected)),
+                Effect.andThen(sweepBrokers.completed)
+              ),
+          })
         ),
       status: (search: URLSearchParams) =>
         turn.withPermit(brokerCodes.status(search)),

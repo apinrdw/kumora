@@ -882,18 +882,22 @@ export const makeBrokerCodes = Effect.fnUntraced(function* (options: {
     return { trades, last }
   })
 
-  // A POSTed batch: 200 once it is written with what `alongside` writes for
-  // it and `written` has run, else as `checkedBatch` refuses it. `written`
-  // runs after every accepted batch, one that changed no codes included, and
-  // hears whether the batch corrected the day.
+  // A POSTed batch: 200 once `taken` took it, it is written with what
+  // `alongside` writes for it and `written` has run, else as `checkedBatch`
+  // refuses it. `written` runs after every accepted batch, one that changed
+  // no codes included, and hears whether the batch corrected the day.
   const post = Effect.fnUntraced(function* (
     text: string,
-    alongside: Alongside,
-    written: (corrected: boolean) => Effect.Effect<void>
+    hooks: {
+      readonly taken: (batch: BrokerCodesBatch) => Effect.Effect<void>
+      readonly alongside: Alongside
+      readonly written: (corrected: boolean) => Effect.Effect<void>
+    }
   ) {
     const batch = yield* checkedBatch(text, options.date)
     if (batch instanceof Response) return batch
-    yield* written(yield* write(batch, alongside))
+    yield* hooks.taken(batch)
+    yield* hooks.written(yield* write(batch, hooks.alongside))
     return yield* noStoreAnswer(200)
   })
 

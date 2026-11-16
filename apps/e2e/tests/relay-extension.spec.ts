@@ -421,7 +421,7 @@ test("the options page shows the broker codes walks, and Pause and Run now steer
         state: "walking", walk: "history", day: "2026-10-02", feed: "Stockbit",
         trades: { fetched: 460000, of: 1000000, perSecond: 300 } } }),
       chrome.storage.session.set({ ajaibLock: { state: "locked", reason: "no-pin" } }),
-      chrome.storage.local.set({ brokerCodesHistory: { oldest: "2026-10-05", empty: 0, ended: false } }),
+      chrome.storage.local.set({ brokerCodesHistoryTrades: { oldest: "2026-10-05", empty: 0, ended: false } }),
     ])`)
     await expect(options.getByLabel("Broker codes walk")).toHaveText(
       "Stockbit, 2026-10-02 (History)"
