@@ -712,4 +712,29 @@ describe("codes the backfill hasn't carried", () => {
         expect(bubble?.dayChange).toBeCloseTo(2.041, 2)
       })
   )
+
+  it.effect(
+    "keep the flow waiting while a carried code has no previous close, until one carries it",
+    () =>
+      Effect.gen(function* () {
+        const flow = yield* makeMarketFlow()
+        // No `liveprice` frame had come for BBRI when the body was built.
+        yield* applyBubbles(
+          flow,
+          body([{ code: "BBRI", minutes: [minute(T0, 500, 100)] }])
+        )
+        expect(yield* missingFromBackfill(flow)).toBe(true)
+        yield* applyBubbles(
+          flow,
+          body([
+            {
+              code: "BBRI",
+              previousClose: 98,
+              minutes: [minute(T0, 500, 100)],
+            },
+          ])
+        )
+        expect(yield* missingFromBackfill(flow)).toBe(false)
+      })
+  )
 })
