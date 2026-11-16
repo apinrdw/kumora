@@ -2,7 +2,7 @@ import { describe, expect, it } from "@effect/vitest"
 import { Effect } from "effect"
 
 import { KSEI_TYPES, type KseiType } from "@/domain/holdings"
-import { type Holding, holderSize } from "@/lib/holder-size"
+import { type Holding, holderSize, holderSizeTable } from "@/lib/holder-size"
 import type { Bands, TypeBands } from "@/server/holdings/stock-page"
 
 const bands = (held: Partial<Record<KseiType, Bands>>): TypeBands =>
@@ -130,6 +130,107 @@ describe("the Holder size types", () => {
       const { rows } = yield* holderSize(OCTOBER, undefined, "all", "scripless")
       expect(rows[0]?.atLeast5Change).toBeUndefined()
       expect(rows[0]?.under5Change).toBeUndefined()
+    })
+  )
+})
+
+const month = (dataDate: string, holding: Holding | undefined) => ({
+  dataDate,
+  split: holding?.local !== undefined,
+  holding,
+})
+
+describe("the Holder size table", () => {
+  it.effect(
+    "has a column per month, a month without the stock as no data",
+    () =>
+      Effect.gen(function* () {
+        const table = yield* holderSizeTable(
+          [
+            month("2026-08-31", SEPTEMBER),
+            month("2026-09-30", undefined),
+            month("2026-10-30", OCTOBER),
+          ],
+          "all",
+          "outstanding"
+        )
+        expect(table.columns.map(({ dataDate }) => dataDate)).toEqual([
+          "2026-08-31",
+          "2026-09-30",
+          "2026-10-30",
+        ])
+        expect(table.columns[1]).toEqual({
+          dataDate: "2026-09-30",
+          shown: "no data",
+        })
+        const october = table.columns[2]
+        expect(october?.shown === "figures" && october.bar).toEqual({
+          scrip: 0.2,
+          atLeast5: 0.4,
+          under5: 0.4,
+        })
+      })
+  )
+
+  it.effect("marks unsplit months n/a under local, of local scripless", () =>
+    Effect.gen(function* () {
+      const table = yield* holderSizeTable(
+        [month("2025-12-30", UNSPLIT), month("2026-10-30", OCTOBER)],
+        "local",
+        "outstanding"
+      )
+      expect(table.origin).toBe("local")
+      expect(table.denominator).toBe("scripless")
+      expect(table.columns[0]).toEqual({
+        dataDate: "2025-12-30",
+        shown: "unsplit",
+      })
+      const october = table.columns[1]
+      expect(october?.shown === "figures" && october.bar.scrip).toBeUndefined()
+      close(october?.shown === "figures" ? october.bar.atLeast5 : 0, 400 / 700)
+    })
+  )
+
+  it.effect("shows all when no month splits local from foreign", () =>
+    Effect.gen(function* () {
+      const table = yield* holderSizeTable(
+        [month("2025-12-30", UNSPLIT)],
+        "foreign",
+        "outstanding"
+      )
+      expect(table.origin).toBe("all")
+      expect(table.denominator).toBe("outstanding")
+      expect(table.columns[0]?.shown).toBe("figures")
+    })
+  )
+
+  it.effect("lists the types holding ≥5% in any month, with each share", () =>
+    Effect.gen(function* () {
+      const table = yield* holderSizeTable(
+        [month("2026-09-30", SEPTEMBER), month("2026-10-30", OCTOBER)],
+        "all",
+        "scripless"
+      )
+      expect(table.atLeast5Types.map(({ type }) => type)).toEqual(["CP"])
+      expect(table.atLeast5Types[0]?.label).toBe("Corporate")
+      const [september, october] = table.columns
+      close(september?.shown === "figures" ? september.atLeast5.CP : 0, 0.5)
+      close(october?.shown === "figures" ? october.atLeast5.CP : 0, 0.5)
+    })
+  )
+
+  it.effect("lists no types when none holds ≥5%", () =>
+    Effect.gen(function* () {
+      const spread: Holding = {
+        ...UNSPLIT,
+        combined: bands({ ID: { under5: 900, atLeast5: 0 } }),
+      }
+      const table = yield* holderSizeTable(
+        [month("2025-12-30", spread)],
+        "all",
+        "outstanding"
+      )
+      expect(table.atLeast5Types).toEqual([])
     })
   )
 })

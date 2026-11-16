@@ -50,6 +50,30 @@ export interface HolderSize {
   readonly rows: ReadonlyArray<HolderSizeRow>
 }
 
+// A month of the Table view: the stock's figures, or why it has none (no row
+// in the report, or no local/foreign split under Local or Foreign).
+export type HolderSizeColumn = { readonly dataDate: string } & (
+  | { readonly shown: "no data" | "unsplit" }
+  | {
+      readonly shown: "figures"
+      readonly bar: HolderSizeParts
+      // Each type's ≥5% share of the denominator.
+      readonly atLeast5: Readonly<Record<KseiType, number>>
+    }
+)
+
+export interface HolderSizeTable {
+  // As in `HolderSize`; local or foreign only when some month splits.
+  readonly origin: OriginShown
+  readonly denominator: Denominator
+  readonly columns: ReadonlyArray<HolderSizeColumn>
+  // The types holding ≥5% in any column, in KSEI's order.
+  readonly atLeast5Types: ReadonlyArray<{
+    readonly type: KseiType
+    readonly label: string
+  }>
+}
+
 // `shares` of `total`, 0 to 1; 0 of none.
 const ratio = (shares: number, total: number) =>
   Effect.succeed(total === 0 ? 0 : shares / total)
@@ -144,5 +168,48 @@ export const holderSize = Effect.fnUntraced(function* (
             under5: current.bar.under5 - before.bar.under5,
           },
     rows,
+  }
+})
+
+const column = Effect.fnUntraced(function* (
+  { dataDate, holding }: HolderSizeMonth,
+  origin: OriginShown,
+  denominator: Denominator
+): Effect.fn.Return<HolderSizeColumn> {
+  if (holding === undefined) return { dataDate, shown: "no data" }
+  if (origin !== "all" && holding.local === undefined)
+    return { dataDate, shown: "unsplit" }
+  const figures = yield* holderSize(holding, undefined, origin, denominator)
+  return {
+    dataDate,
+    shown: "figures",
+    bar: figures.bar,
+    atLeast5: Object.fromEntries(
+      figures.rows.map(({ type, atLeast5 }) => [type, atLeast5])
+    ) as Record<KseiType, number>,
+  }
+})
+
+/** The Table view: every month in `months`, oldest first. */
+export const holderSizeTable = Effect.fnUntraced(function* (
+  months: ReadonlyArray<HolderSizeMonth>,
+  asked: OriginShown,
+  askedDenominator: Denominator
+): Effect.fn.Return<HolderSizeTable> {
+  const origin = months.some(({ split }) => split) ? asked : "all"
+  const denominator = origin === "all" ? askedDenominator : "scripless"
+  const columns = yield* Effect.forEach(months, (month) =>
+    column(month, origin, denominator)
+  )
+  const held = (type: KseiType) =>
+    columns.some((each) => each.shown === "figures" && each.atLeast5[type] > 0)
+  return {
+    origin,
+    denominator,
+    columns,
+    atLeast5Types: KSEI_TYPES.filter(held).map((type) => ({
+      type,
+      label: KSEI_TYPE_LABELS[type],
+    })),
   }
 })
