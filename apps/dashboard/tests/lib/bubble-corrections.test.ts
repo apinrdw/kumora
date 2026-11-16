@@ -6,6 +6,7 @@
 // parts.
 import { describe, expect, it } from "@effect/vitest"
 import {
+  BUBBLE_MINUTES,
   MINUTE_MS,
   SHARES_PER_LOT,
   StockCode,
@@ -24,9 +25,11 @@ import {
   applyMessage,
   bubblesOf,
   makeMarketFlow,
+  missingFromBackfill,
   type BubbleView,
   type MarketFlow,
 } from "@/lib/bubbles"
+import { marketStrip } from "@/lib/market-strip"
 
 // 10:00:00 WIB on a trading day.
 const T0 = Date.parse("2026-11-16T03:00:00Z")
@@ -411,6 +414,76 @@ describe("figures under feed corrections", () => {
           ],
         })
         expect((yield* shown(flow, "D", END))[code!]?.frequency).toBe(1)
+      })
+  )
+
+  it.effect(
+    "a code whose kept minutes all emptied closes at the minute before them",
+    () =>
+      Effect.gen(function* () {
+        const flow = yield* makeMarketFlow()
+        const [code, other] = CODES
+        yield* applyBubbles(flow, {
+          codes: [
+            {
+              code: code!,
+              previousClose: 110,
+              day: [10_000, 1, 1, 0, 0, 100],
+              minutes: [[T0, 10_000, 1, 1, 0, 0, 100]],
+            },
+          ],
+        })
+        // An hour and more on, another code's trade lets 10:00 go, and the
+        // code trades once at 120.
+        const later = T0 + (BUBBLE_MINUTES + 10) * MINUTE_MS
+        yield* applyCandles(flow, [candle(other!, later, 1)])
+        yield* applyCandles(flow, [{ ...candle(code!, later, 1), close: 120 }])
+        // A correction moves that trade off the regular board.
+        yield* applyMessage(flow, {
+          _tag: "Delta",
+          tape: [],
+          candles: [],
+          footprints: [
+            { code: code!, minute: DateTime.makeUnsafe(later), cells: [] },
+          ],
+        })
+        const [held] = (yield* bubblesOf(flow, VIEW, later)).filter(
+          (bubble) => bubble.code === code
+        )
+        expect(held?.last).toBe(100)
+        expect(held?.dayChange).toBeCloseTo(((100 - 110) / 110) * 100)
+        expect(yield* marketStrip(flow)).toMatchObject({ up: 0, down: 1 })
+      })
+  )
+
+  it.effect(
+    "a code whose kept minutes all emptied, with no price before them, waits for a backfill",
+    () =>
+      Effect.gen(function* () {
+        const flow = yield* makeMarketFlow()
+        const [code] = CODES
+        // The day holds a trade from before the body's minutes, as a code
+        // that traded in more minutes than the body carries does.
+        yield* applyBubbles(flow, {
+          codes: [
+            {
+              code: code!,
+              previousClose: 110,
+              day: [20_000, 2, 2, 0, 0, 100],
+              minutes: [[T0, 10_000, 1, 1, 0, 0, 100]],
+            },
+          ],
+        })
+        expect(yield* missingFromBackfill(flow)).toBe(false)
+        yield* applyMessage(flow, {
+          _tag: "Delta",
+          tape: [],
+          candles: [],
+          footprints: [
+            { code: code!, minute: DateTime.makeUnsafe(T0), cells: [] },
+          ],
+        })
+        expect(yield* missingFromBackfill(flow)).toBe(true)
       })
   )
 
