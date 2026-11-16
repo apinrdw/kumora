@@ -52,24 +52,41 @@ const refusedAnswer = {
   Forbidden: () => refused(403, "Forbidden", "No access to Market Live"),
 }
 
+// `answer` to a GET the gate lets through; the sector map's route
+// (../sectors/map.ts) is gated the same way.
+export const gatedRead = <E, R>(
+  request: Request,
+  answer: Effect.Effect<Response, E, R>
+) =>
+  Effect.gen(function* () {
+    if (request.method !== "GET")
+      return new Response(null, { status: 405, headers: { Allow: "GET" } })
+    const denied = yield* gateRecordedDay(request).pipe(
+      Effect.as(undefined),
+      Effect.catchTags(refusedAnswer)
+    )
+    return denied ?? (yield* answer)
+  })
+
 // A new request to the object, so no header the client sent, its cookie
 // included, reaches it; and the object's answer carries no Set-Cookie, so a
 // sealed day's answers cache in the browser.
-const gated = Effect.fnUntraced(function* (
+const gated = (
   request: Request,
   stub: (env: WorkerEnv["Service"]) => Effect.Effect<{
     readonly fetch: (url: URL) => Promise<Response>
   }>,
   path: string
-) {
-  if (request.method !== "GET")
-    return new Response(null, { status: 405, headers: { Allow: "GET" } })
-  yield* gateRecordedDay(request)
-  const object = yield* stub(yield* WorkerEnv)
-  return yield* Effect.promise(() =>
-    object.fetch(new URL(path, "https://market-live.invalid"))
+) =>
+  gatedRead(
+    request,
+    Effect.gen(function* () {
+      const object = yield* stub(yield* WorkerEnv)
+      return yield* Effect.promise(() =>
+        object.fetch(new URL(path, "https://market-live.invalid"))
+      )
+    })
   )
-}, Effect.catchTags(refusedAnswer))
 
 export const dayStripRoute = (request: Request) =>
   gated(

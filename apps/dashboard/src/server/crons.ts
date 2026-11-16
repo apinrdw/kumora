@@ -4,6 +4,8 @@
 // archive's own cron.ts, for the reason ./shareholding/cron.ts gives.
 import { runKseiCron, runKseiParseCron } from "./ksei/cron.ts"
 import { KSEI_CRON, KSEI_PARSE_CRON } from "./ksei/schedule.ts"
+import { runSectorCron } from "./sectors/cron.ts"
+import { SECTOR_CRON } from "./sectors/schedule.ts"
 import { runArchiveCron, runParseCron } from "./shareholding/cron.ts"
 import { PARSE_CRON } from "./shareholding/schedule.ts"
 
@@ -14,6 +16,7 @@ const HANDLERS = new Map([
   [KSEI_CRON, runKseiCron],
   [KSEI_PARSE_CRON, runKseiParseCron],
   [PARSE_CRON, runParseCron],
+  [SECTOR_CRON, runSectorCron],
 ])
 
 export const runCron = (cron: string, scheduledTime: number) =>

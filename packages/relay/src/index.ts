@@ -168,3 +168,5 @@ export {
   joinSweeps,
   sweepsOf,
 } from "./sweeps.ts"
+export { IDX_SECTORS, SectorsPath, decodeSectorMap } from "./sectors.ts"
+export type { Sector, SectorMap } from "./sectors.ts"

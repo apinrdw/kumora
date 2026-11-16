@@ -19,6 +19,7 @@ import { SENDER, SENDING_SUBDOMAIN } from "./src/server/auth/sender.ts"
 import type { RunParams } from "./src/server/archive/run.ts"
 import { KSEI_CRON, KSEI_PARSE_CRON } from "./src/server/ksei/schedule.ts"
 import { ARCHIVE_CRON, PARSE_CRON } from "./src/server/shareholding/schedule.ts"
+import { SECTOR_CRON } from "./src/server/sectors/schedule.ts"
 
 // scripts/auth-schema.ts replays the same directory for the drift check and
 // the handler test seam. apps/e2e/reset-test-stage.ts reads this resource's
@@ -142,6 +143,10 @@ export const Website = Cloudflare.Website.Vite(
               // Decision: the shareholding parse cron too, for the KSEI
               // parse cron's reason. See apinrdw/kumora#397.
               PARSE_CRON,
+              // Decision: the sector cron too, so only Production reads
+              // IDX's company profiles on a schedule; any other stage's
+              // stock_sector stays empty. See apinrdw/kumora#427.
+              SECTOR_CRON,
             ],
           }
         : {}
