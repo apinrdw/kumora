@@ -333,7 +333,7 @@ describe("bubbles", () => {
     "hold a code's newest BUBBLE_MINUTES at a full day, and build its answer",
     () =>
       Effect.gen(function* () {
-        const book = makeBubbleBook({ days: [], minutes: [] })
+        const book = yield* makeBubbleBook({ days: [], minutes: [] })
         const first = minute("08:58")
         let order = 0n
         for (let index = 0; index < FULL_DAY_MINUTES; index++)

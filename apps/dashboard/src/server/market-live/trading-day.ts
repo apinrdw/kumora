@@ -381,7 +381,7 @@ export const makeTradingDay = Effect.fnUntraced(function* (options: {
   // by trade number.
   let pending = new Map<string, RunningTrade>()
   let deltaScheduled = false
-  const bubbles = makeBubbleBook(
+  const bubbles = yield* makeBubbleBook(
     sealed
       ? { days: [], minutes: [] }
       : yield* store.storedBubbles(BUBBLE_MINUTES)

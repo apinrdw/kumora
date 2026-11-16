@@ -129,6 +129,10 @@ const SETTLES = 500
 
 // Pushes two circles at least GAP apart, the smaller further; true when they
 // overlapped.
+// Decision: `part` and `partAll` are plain functions, not Effects: a pack
+// parts every pair of sectors up to 720 times, and the page packs each
+// second. Measured 2026-11-16 on the dev machine, packing the 11 sectors:
+// 0.4 ms plain, 2.6 ms with both as Effects. packSectors stays an Effect.
 const part = (a: SectorCircle, b: SectorCircle) => {
   let dx = b.x - a.x
   let dy = b.y - a.y
