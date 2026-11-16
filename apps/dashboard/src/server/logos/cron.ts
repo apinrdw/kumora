@@ -1,22 +1,37 @@
 // The logo cron's handler, which runCron (../crons.ts) calls for the Worker
 // entry's `scheduled`. It returns a Promise for the reason the shareholding
 // archive's (../shareholding/cron.ts) does.
+import { StockCode } from "@workspace/relay"
 import { runServerEffectResult } from "@workspace/server"
-import { Effect, Layer } from "effect"
+import { Effect, Layer, Schema } from "effect"
 import { FetchHttpClient } from "effect/http"
 
 import { r2ArchiveBucket } from "../archive/bucket-r2.ts"
-import { holdingsDbD1 } from "../holdings/db.ts"
+import { HoldingsDb, holdingsDbD1 } from "../holdings/db.ts"
 import { stockList } from "../holdings/stock-page.ts"
+import { MAX_PROFILES } from "../sectors/sync.ts"
 import { syncLogos } from "./sync.ts"
 
-// Decision: the codes are the stock page's list, every code HoldingsDb has
-// parsed holdings for, the one list of every listed code the server keeps.
-// A new listing joins once its first report is parsed. See apinrdw/kumora#432.
-const syncListedLogos = stockList.pipe(
-  Effect.flatMap((stocks) => syncLogos(stocks.map(({ code }) => code))),
-  Effect.asVoid
-)
+const isStockCode = Schema.is(StockCode)
+
+// Decision: the codes are the sector table's, which the daily sector run
+// fills from IDX's listings, so a new listing gets its logo the week it
+// lists; with the stock page's list of codes HoldingsDb has holdings for,
+// so a stage whose sector table is empty still syncs. See apinrdw/kumora#427.
+export const logoCodes = Effect.gen(function* () {
+  const [rows = []] = yield* (yield* HoldingsDb).batch([
+    {
+      sql: "SELECT code FROM stock_sector ORDER BY code LIMIT ?",
+      params: [MAX_PROFILES],
+    },
+  ])
+  const codes = new Set<StockCode>()
+  for (const { code } of rows) if (isStockCode(code)) codes.add(code)
+  for (const { code } of yield* stockList) codes.add(code)
+  return [...codes].sort()
+})
+
+const syncListedLogos = Effect.asVoid(Effect.flatMap(logoCodes, syncLogos))
 
 export const runLogoCron = () =>
   runServerEffectResult(
