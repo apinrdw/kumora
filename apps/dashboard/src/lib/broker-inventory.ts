@@ -1,7 +1,12 @@
 // Broker inventory math (spec apinrdw/kumora#437, "Dashboard: broker
 // inventory read and math"): everything the Broker inventory tab shows,
 // summed in the browser from one range read, with no refetch.
-import { type BrokerCode, WibDate } from "@workspace/relay"
+import {
+  type BrokerCode,
+  type InvestorType,
+  SHARES_PER_LOT,
+  WibDate,
+} from "@workspace/relay"
 import { DateTime, Effect } from "effect"
 
 import type { BrokerInventoryRead } from "@/server/broker-totals/inventory"
@@ -75,14 +80,33 @@ export interface Lens {
   readonly investor: Investor
 }
 
+// A plotted-brokers chip: the Top 5 net buy or Top 5 net sell group, or
+// one broker. The chart opens on both groups.
+export type Chip = "buy" | "sell" | BrokerCode
+export const DEFAULT_CHIPS: ReadonlyArray<Chip> = ["buy", "sell"]
+
 // One broker's buys and sells over the range, and its net under the lens.
+// An average is undefined for a side it never traded.
 export interface SummaryRow {
   readonly broker: BrokerCode
+  // Whose sides these are: the type the filter keeps, or under All the one
+  // behind most of the broker's lots.
+  readonly investorType: InvestorType
   readonly buyLots: number
   readonly buyValue: number
+  readonly avgBuy: number | undefined
   readonly sellLots: number
   readonly sellValue: number
+  readonly avgSell: number | undefined
   readonly net: number
+}
+
+// What the Broker summary's footer counts: its brokers, the lots they
+// traded, and the range's incomplete days, which the sums skip.
+export interface SummaryFooter {
+  readonly brokers: number
+  readonly lots: number
+  readonly incomplete: number
 }
 
 // The brokers each default group chip plots.
@@ -127,6 +151,7 @@ export const brokerSummary = Effect.fnUntraced(function* (
       sellLots: number
       sellValue: number
       net: number
+      foreignLots: number
     }
   >()
   for (let row = 0; row < totals.day.length; row++) {
@@ -138,20 +163,60 @@ export const brokerSummary = Effect.fnUntraced(function* (
       sellLots: 0,
       sellValue: 0,
       net: 0,
+      foreignLots: 0,
     }
     sum.buyLots += totals.buyLots[row] ?? 0
     sum.buyValue += totals.buyValue[row] ?? 0
     sum.sellLots += totals.sellLots[row] ?? 0
     sum.sellValue += totals.sellValue[row] ?? 0
     sum.net += rows.net(row)
+    if (totals.investorType[row] === "F")
+      sum.foreignLots +=
+        (totals.buyLots[row] ?? 0) + (totals.sellLots[row] ?? 0)
     sums.set(broker, sum)
   }
   return [...sums]
     .sort(([a, x], [b, y]) => y.net - x.net || a - b)
-    .map(([broker, sum]): SummaryRow => ({
+    .map(([broker, { foreignLots, ...sum }]): SummaryRow => ({
       broker: read.brokers[broker] as BrokerCode,
+      investorType:
+        lens.investor === "foreign"
+          ? "F"
+          : lens.investor === "domestic"
+            ? "D"
+            : foreignLots * 2 > sum.buyLots + sum.sellLots
+              ? "F"
+              : "D",
       ...sum,
+      // Weighted by lots: value ÷ (lots × 100).
+      avgBuy:
+        sum.buyLots === 0
+          ? undefined
+          : sum.buyValue / (sum.buyLots * SHARES_PER_LOT),
+      avgSell:
+        sum.sellLots === 0
+          ? undefined
+          : sum.sellValue / (sum.sellLots * SHARES_PER_LOT),
     }))
+})
+
+// Decision: lots traded counts each lot once under All, as the day's
+// volume does: every lot has a buy side and a sell side, so each side is
+// half a lot. Under a filter, a trade with one side of that type counts
+// half. See spec apinrdw/kumora#437, "Broker summary".
+//
+// The Broker summary's footer for `summary`, from `read`.
+export const summaryFooter = Effect.fnUntraced(function* (
+  read: BrokerInventoryRead,
+  summary: ReadonlyArray<SummaryRow>
+) {
+  let sides = 0
+  for (const { buyLots, sellLots } of summary) sides += buyLots + sellLots
+  return {
+    brokers: summary.length,
+    lots: sides / 2,
+    incomplete: read.built.filter((built) => !built).length,
+  } satisfies SummaryFooter
 })
 
 // Top 5 net buy and Top 5 net sell: the five highest positive nets and the
@@ -170,6 +235,32 @@ export const topBrokers = Effect.fnUntraced(function* (
       .slice(0, TOP)
       .map(({ broker }) => broker),
   } satisfies TopBrokers
+})
+
+// One plotted line's broker, the chip that plots it and its rank in that
+// chip (0 for a single broker).
+interface PlottedBroker {
+  readonly broker: BrokerCode
+  readonly chip: Chip
+  readonly rank: number
+}
+
+// The brokers `chips` plot, in chip order: a group's in its rank order. A
+// broker two chips name is plotted once, by the first.
+export const plottedBrokers = Effect.fnUntraced(function* (
+  chips: ReadonlyArray<Chip>,
+  top: TopBrokers
+) {
+  const plotted: Array<PlottedBroker> = []
+  for (const chip of chips) {
+    const brokers =
+      chip === "buy" ? top.buy : chip === "sell" ? top.sell : [chip]
+    brokers.forEach((broker, rank) => {
+      if (!plotted.some((line) => line.broker === broker))
+        plotted.push({ broker, chip, rank })
+    })
+  }
+  return plotted
 })
 
 // Each of `brokers`' broker inventory: its running net from the start of

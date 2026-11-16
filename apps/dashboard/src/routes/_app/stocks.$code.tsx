@@ -3,7 +3,7 @@ import { clientRuntime } from "@workspace/client"
 import { loadServerFn, runLoader } from "@workspace/server/loader"
 import { cn } from "@workspace/ui/lib/utils"
 import { Effect } from "effect"
-import { useCallback, useEffect } from "react"
+import { useCallback, useEffect, useMemo } from "react"
 
 import { StockCodePicker } from "@/components/market-live/stock-code-picker"
 import { BrokerInventory } from "@/components/stocks/broker-inventory"
@@ -13,7 +13,10 @@ import { ShareholdersComposition } from "@/components/stocks/shareholders-compos
 import { useStockList } from "@/components/stocks/use-stock-list"
 import { rememberStock } from "@/lib/last-stock"
 import {
+  chipsOf,
+  chipsSearch,
   inventoryWindow,
+  lensOf,
   parseStockSearch,
   pickerSearch,
   type StockSearch,
@@ -86,6 +89,19 @@ function StockPageView() {
   const search = Route.useSearch()
   const tab = search.tab ?? "holdings"
   const navigate = Route.useNavigate()
+  // Stable while their params are, so the tab's figures recompute only when
+  // one changes.
+  const lens = useMemo(
+    () =>
+      Effect.runSync(
+        lensOf({ measure: search.measure, investor: search.investor })
+      ),
+    [search.measure, search.investor]
+  )
+  const chips = useMemo(
+    () => Effect.runSync(chipsOf({ brokers: search.brokers })),
+    [search.brokers]
+  )
   const list = useStockList(`/stocks/${page.code}`)
   // Bare /stocks opens it next time.
   useEffect(() => {
@@ -163,7 +179,16 @@ function StockPageView() {
           code={page.code}
           read={inventory}
           window={Effect.runSync(inventoryWindow(search))}
+          lens={lens}
+          chips={chips}
           onWindow={(window) => setSearch(Effect.runSync(windowSearch(window)))}
+          onLens={({ measure, investor }) =>
+            setSearch({
+              measure: measure === "lots" ? undefined : measure,
+              investor: investor === "all" ? undefined : investor,
+            })
+          }
+          onChips={(next) => setSearch(Effect.runSync(chipsSearch(next)))}
         />
       ) : (
         <Holdings page={page} setSearch={setSearch} />

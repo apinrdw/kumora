@@ -2,7 +2,10 @@ import { describe, expect, it } from "@effect/vitest"
 import { Effect } from "effect"
 
 import {
+  chipsOf,
+  chipsSearch,
   inventoryWindow,
+  lensOf,
   parseStockSearch,
   pickerSearch,
   windowSearch,
@@ -125,7 +128,136 @@ describe("the Broker inventory range in the URL", () => {
         range: "1Y",
         from: undefined,
         to: undefined,
+        measure: undefined,
+        investor: undefined,
+        brokers: undefined,
       })
     })
+  )
+
+  it.effect(
+    "carries the measure, filter and group chips to the next stock, and drops single brokers",
+    () =>
+      Effect.gen(function* () {
+        const carried = (raw: Record<string, unknown>) =>
+          Effect.flatMap(parseStockSearch({ tab: "brokers", ...raw }), (s) =>
+            pickerSearch(s)
+          )
+        expect(
+          yield* carried({
+            measure: "value",
+            investor: "foreign",
+            brokers: "YP,sell,PD",
+            from: "2026-06-01",
+            to: "2026-09-30",
+          })
+        ).toStrictEqual({
+          tab: "brokers",
+          range: undefined,
+          from: "2026-06-01",
+          to: "2026-09-30",
+          measure: "value",
+          investor: "foreign",
+          brokers: "sell",
+        })
+        // Both groups are the default; single brokers alone leave no chips.
+        expect((yield* carried({ brokers: "buy,YP,sell" })).brokers).toBe(
+          undefined
+        )
+        expect((yield* carried({ brokers: "YP,PD" })).brokers).toBe("")
+        expect((yield* carried({ brokers: "" })).brokers).toBe("")
+      })
+  )
+})
+
+describe("the Broker inventory lens and chips in the URL", () => {
+  it.effect("keeps net value and a Foreign or Domestic filter", () =>
+    Effect.gen(function* () {
+      expect(
+        yield* parseStockSearch({ measure: "value", investor: "foreign" })
+      ).toMatchObject({ measure: "value", investor: "foreign" })
+      expect((yield* parseStockSearch({ investor: "domestic" })).investor).toBe(
+        "domestic"
+      )
+      expect(yield* lensOf(yield* parseStockSearch({}))).toStrictEqual({
+        measure: "lots",
+        investor: "all",
+      })
+      expect(
+        yield* lensOf(
+          yield* parseStockSearch({ measure: "value", investor: "domestic" })
+        )
+      ).toStrictEqual({ measure: "value", investor: "domestic" })
+    })
+  )
+
+  it.effect(
+    "leaves the defaults out, and drops a lens that doesn't parse",
+    () =>
+      Effect.gen(function* () {
+        for (const measure of ["lots", "Value", 1, ""])
+          expect((yield* parseStockSearch({ measure })).measure).toBeUndefined()
+        for (const investor of ["all", "F", "foreigners", true])
+          expect(
+            (yield* parseStockSearch({ investor })).investor
+          ).toBeUndefined()
+      })
+  )
+
+  it.effect("round-trips the chips in order", () =>
+    Effect.gen(function* () {
+      for (const chips of [
+        ["sell", "YP", "buy"],
+        ["YP", "PD"],
+        ["buy"],
+        [],
+      ] as const) {
+        const search = yield* chipsSearch(chips)
+        expect(
+          yield* chipsOf(yield* parseStockSearch({ ...search }))
+        ).toStrictEqual(chips)
+      }
+      expect(yield* chipsSearch(["sell", "YP"])).toStrictEqual({
+        brokers: "sell,YP",
+      })
+    })
+  )
+
+  it.effect(
+    "plots both groups by default, and leaves them out of the URL",
+    () =>
+      Effect.gen(function* () {
+        expect(yield* chipsOf(yield* parseStockSearch({}))).toStrictEqual([
+          "buy",
+          "sell",
+        ])
+        expect(yield* chipsSearch(["buy", "sell"])).toStrictEqual({
+          brokers: undefined,
+        })
+        expect((yield* parseStockSearch({ brokers: "buy,sell" })).brokers).toBe(
+          undefined
+        )
+      })
+  )
+
+  it.effect("keeps an empty list as no chips", () =>
+    Effect.gen(function* () {
+      const search = yield* parseStockSearch({ brokers: "" })
+      expect(search.brokers).toBe("")
+      expect(yield* chipsOf(search)).toStrictEqual([])
+    })
+  )
+
+  it.effect(
+    "drops unknown codes and repeats, and the whole list when nothing in it parses",
+    () =>
+      Effect.gen(function* () {
+        expect(
+          (yield* parseStockSearch({ brokers: "YP,yp,XYZ,buy,YP,,top,PD" }))
+            .brokers
+        ).toBe("YP,buy,PD")
+        for (const brokers of ["XYZ,top", ",", 42, ["YP"]])
+          expect((yield* parseStockSearch({ brokers })).brokers).toBeUndefined()
+      })
   )
 })

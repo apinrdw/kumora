@@ -2,17 +2,20 @@
 // params"): the Shareholders composition panel's month and origin, the
 // Holding composition chart's origin and view, and the Holder size panel's
 // month, origin, denominator and view (spec apinrdw/kumora#402), and the
-// open tab and the Broker inventory tab's range (spec apinrdw/kumora#437,
-// "Dashboard: the stock page"). Each is left out at its default, so a plain
+// open tab and the Broker inventory tab's range, measure, investor filter
+// and chips (spec apinrdw/kumora#437, "Dashboard: the stock page"). Each is left out at its default, so a plain
 // link stays short.
-import { WibDate } from "@workspace/relay"
+import { BrokerCode, WibDate } from "@workspace/relay"
 import { Effect, Option, Schema } from "effect"
 
 import { SplitOrigin } from "@/domain/holdings"
 import {
+  type Chip,
   customFrom,
+  DEFAULT_CHIPS,
   DEFAULT_RANGE,
   type InventoryWindow,
+  type Lens,
   RANGE_PRESETS,
 } from "@/lib/broker-inventory"
 
@@ -41,6 +44,15 @@ const RangeParam = Schema.Literals(
   RANGE_PRESETS.filter((preset) => preset !== DEFAULT_RANGE)
 )
 
+// Net value; absent for net lots.
+const MeasureParam = Schema.Literals(["value"])
+
+// Foreign or domestic sides only; absent for all.
+const InvestorParam = Schema.Literals(["foreign", "domestic"])
+
+const decodeGroup = Schema.decodeUnknownOption(Schema.Literals(["buy", "sell"]))
+const decodeBroker = Schema.decodeUnknownOption(BrokerCode)
+
 export interface StockSearch {
   readonly month?: string | undefined
   // The panel's origin; absent for all scripless.
@@ -58,6 +70,12 @@ export interface StockSearch {
   // A Custom range, both or neither, which replaces `range`.
   readonly from?: WibDate | undefined
   readonly to?: WibDate | undefined
+  readonly measure?: typeof MeasureParam.Type | undefined
+  readonly investor?: typeof InvestorParam.Type | undefined
+  // The chips, in order, comma-separated: `buy` and `sell` are the groups,
+  // a broker code a single broker. Empty for no chips; absent for both
+  // groups.
+  readonly brokers?: string | undefined
 }
 
 const decodeDate = Schema.decodeUnknownOption(WibDate)
@@ -72,6 +90,29 @@ const customRange = Effect.fnUntraced(function* (
   if (Option.isNone(from) || Option.isNone(to) || from.value > to.value)
     return { from: undefined, to: undefined }
   return { from: yield* customFrom(from.value, to.value), to: to.value }
+})
+
+// The `brokers` param that names `chips`.
+export const chipsSearch = (chips: ReadonlyArray<Chip>) =>
+  Effect.sync((): StockSearch => {
+    const brokers = chips.join(",")
+    return {
+      brokers: brokers === DEFAULT_CHIPS.join(",") ? undefined : brokers,
+    }
+  })
+
+// The chips a raw `brokers` names, in order, unknown entries and repeats
+// dropped; dropped whole when none of a non-empty list parses.
+const parseChips = Effect.fnUntraced(function* (raw: unknown) {
+  if (typeof raw !== "string") return undefined
+  if (raw === "") return ""
+  const chips: Array<Chip> = []
+  for (const entry of raw.split(",")) {
+    const chip = Option.orElse(decodeGroup(entry), () => decodeBroker(entry))
+    if (Option.isSome(chip) && !chips.includes(chip.value))
+      chips.push(chip.value)
+  }
+  return chips.length === 0 ? undefined : (yield* chipsSearch(chips)).brokers
 })
 
 /**
@@ -117,6 +158,13 @@ export const parseStockSearch = (
             )
           : undefined,
       ...custom,
+      measure: Option.getOrUndefined(
+        Schema.decodeUnknownOption(MeasureParam)(raw.measure)
+      ),
+      investor: Option.getOrUndefined(
+        Schema.decodeUnknownOption(InvestorParam)(raw.investor)
+      ),
+      brokers: yield* parseChips(raw.brokers),
     }
   })
 
@@ -140,12 +188,38 @@ export const windowSearch = (window: InventoryWindow) =>
       : { range: undefined, from: window.from, to: window.to }
   )
 
-// What the Stock picker carries to the next stock: the tab and the range.
-// The holdings panels' months are the stock's own.
-export const pickerSearch = (search: StockSearch) =>
-  Effect.succeed<StockSearch>({
+// What the Broker inventory tab's figures count.
+export const lensOf = (search: StockSearch) =>
+  Effect.succeed<Lens>({
+    measure: search.measure ?? "lots",
+    investor: search.investor ?? "all",
+  })
+
+// The chips the tab plots, in order.
+export const chipsOf = (search: StockSearch) =>
+  Effect.succeed<ReadonlyArray<Chip>>(
+    search.brokers === undefined
+      ? DEFAULT_CHIPS
+      : search.brokers === ""
+        ? []
+        : // Parsed into chips by `parseChips`.
+          (search.brokers.split(",") as ReadonlyArray<Chip>)
+  )
+
+// What the Stock picker carries to the next stock: the tab, the range, the
+// measure, the filter and the group chips. Single brokers and the holdings
+// panels' months are the stock's own.
+export const pickerSearch = Effect.fnUntraced(function* (search: StockSearch) {
+  const groups = (yield* chipsOf(search)).filter(
+    (chip) => chip === "buy" || chip === "sell"
+  )
+  return {
     tab: search.tab,
     range: search.range,
     from: search.from,
     to: search.to,
-  })
+    measure: search.measure,
+    investor: search.investor,
+    brokers: (yield* chipsSearch(groups)).brokers,
+  } satisfies StockSearch
+})

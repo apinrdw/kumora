@@ -5,8 +5,11 @@ import { Effect } from "effect"
 import {
   brokerSummary,
   customFrom,
+  plottedBrokers,
   rangeStart,
   runningNets,
+  type SummaryRow,
+  summaryFooter,
   topBrokers,
 } from "@/lib/broker-inventory"
 import type { BrokerInventoryRead } from "@/server/broker-totals/inventory"
@@ -17,10 +20,12 @@ type Row = readonly [
   investorType: InvestorType,
   buyLots: number,
   sellLots: number,
+  price?: number,
 ]
 
-// A read over `days`, each built unless named in `gaps`. Every lot is at
-// 1,000 a share, so a lot's value is 100,000.
+// A read over `days`, each built unless named in `gaps`. A row's lots are
+// at its price, 1,000 a share unless it names one, so a lot's value is
+// 100 times the price.
 const read = (
   days: ReadonlyArray<string>,
   gaps: ReadonlyArray<string>,
@@ -51,14 +56,15 @@ const read = (
       broker: rows.map(([, broker]) => brokers.indexOf(broker)),
       investorType: rows.map(([, , type]) => type),
       buyLots: rows.map(([, , , buy]) => buy),
-      buyValue: rows.map(([, , , buy]) => buy * 100_000),
+      buyValue: rows.map(([, , , buy, , price = 1000]) => buy * price * 100),
       sellLots: rows.map(([, , , , sell]) => sell),
-      sellValue: rows.map(([, , , , sell]) => sell * 100_000),
+      sellValue: rows.map(([, , , , sell, price = 1000]) => sell * price * 100),
     },
   }
 }
 
 const LOTS = { measure: "lots", investor: "all" } as const
+const VALUE = { measure: "value", investor: "all" } as const
 const YP = BrokerCode.make("YP")
 const PD = BrokerCode.make("PD")
 
@@ -171,6 +177,206 @@ describe("broker inventory", () => {
       expect(
         yield* Effect.flatMap(brokerSummary(week, LOTS), topBrokers)
       ).toStrictEqual({ buy: ["YP"], sell: ["PD"] })
+    })
+  )
+})
+
+describe("the plotted brokers", () => {
+  const top = {
+    buy: [BrokerCode.make("AA"), YP],
+    sell: [BrokerCode.make("ZZ")],
+  }
+
+  it.effect(
+    "plots each chip's brokers in chip order, a broker once, by its first chip",
+    () =>
+      Effect.gen(function* () {
+        expect(
+          yield* plottedBrokers(["sell", PD, "buy", YP], top)
+        ).toStrictEqual([
+          { broker: "ZZ", chip: "sell", rank: 0 },
+          { broker: "PD", chip: "PD", rank: 0 },
+          { broker: "AA", chip: "buy", rank: 0 },
+          { broker: "YP", chip: "buy", rank: 1 },
+        ])
+        expect(
+          (yield* plottedBrokers([YP, "buy"], top)).map(({ broker }) => broker)
+        ).toStrictEqual(["YP", "AA"])
+      })
+  )
+
+  it.effect("plots nothing with no chips", () =>
+    Effect.gen(function* () {
+      expect(yield* plottedBrokers([], top)).toStrictEqual([])
+    })
+  )
+})
+
+describe("the broker summary", () => {
+  it.effect("weights each broker's average prices by lots", () =>
+    Effect.gen(function* () {
+      const week = read(
+        WEEK,
+        [],
+        [
+          [0, "YP", "D", 100, 0, 1000],
+          [1, "YP", "D", 300, 40, 2000],
+          [2, "YP", "F", 0, 10, 4500],
+        ]
+      )
+      const [yp] = yield* brokerSummary(week, LOTS)
+      // (100 × 1,000 + 300 × 2,000) / 400 and (40 × 2,000 + 10 × 4,500) / 50.
+      expect(yp).toMatchObject({
+        broker: "YP",
+        buyLots: 400,
+        avgBuy: 1750,
+        sellLots: 50,
+        avgSell: 2500,
+      })
+    })
+  )
+
+  it.effect(
+    "nets value as well as lots, and ranks the top 5 by the one shown",
+    () =>
+      Effect.gen(function* () {
+        // YP sells more lots than it buys, but buys dearer: a net seller of
+        // lots and a net buyer of value. PD is the other way round.
+        const week = read(
+          WEEK,
+          [],
+          [
+            [0, "YP", "D", 10, 0, 2000],
+            [1, "YP", "D", 0, 30, 500],
+            [0, "PD", "D", 0, 10, 2000],
+            [1, "PD", "D", 30, 0, 500],
+          ]
+        )
+        const lots = yield* brokerSummary(week, LOTS)
+        const value = yield* brokerSummary(week, VALUE)
+        expect(lots.map(({ broker, net }) => [broker, net])).toStrictEqual([
+          ["PD", 20],
+          ["YP", -20],
+        ])
+        expect(value.map(({ broker, net }) => [broker, net])).toStrictEqual([
+          ["YP", 500_000],
+          ["PD", -500_000],
+        ])
+        expect(yield* topBrokers(value)).toStrictEqual({
+          buy: ["YP"],
+          sell: ["PD"],
+        })
+        expect(
+          (yield* runningNets(week, VALUE, [YP])).get(YP)?.slice(0, 2)
+        ).toStrictEqual([2_000_000, 500_000])
+      })
+  )
+
+  it.effect(
+    "keeps only foreign or domestic sides in every figure under the filter",
+    () =>
+      Effect.gen(function* () {
+        // YP's investors: foreign buyers, domestic sellers. PD's: the
+        // reverse. CC trades only for domestic investors.
+        const week = read(
+          WEEK,
+          [],
+          [
+            [0, "YP", "F", 50, 0, 1000],
+            [0, "YP", "D", 0, 80, 1200],
+            [0, "PD", "F", 0, 40, 1100],
+            [0, "PD", "D", 70, 0, 900],
+            [1, "CC", "D", 10, 0],
+          ]
+        )
+        const foreign = { measure: "lots", investor: "foreign" } as const
+        const domestic = { measure: "lots", investor: "domestic" } as const
+        expect(yield* brokerSummary(week, foreign)).toMatchObject([
+          { broker: "YP", buyLots: 50, avgBuy: 1000, sellLots: 0, net: 50 },
+          { broker: "PD", buyLots: 0, sellLots: 40, avgSell: 1100, net: -40 },
+        ])
+        expect(yield* brokerSummary(week, domestic)).toMatchObject([
+          { broker: "PD", buyLots: 70, avgBuy: 900, net: 70 },
+          { broker: "CC", buyLots: 10, net: 10 },
+          { broker: "YP", sellLots: 80, avgSell: 1200, net: -80 },
+        ])
+        // Under All, YP's sides cancel to a net seller.
+        expect(
+          yield* Effect.flatMap(brokerSummary(week, LOTS), topBrokers)
+        ).toStrictEqual({ buy: ["PD", "CC"], sell: ["YP"] })
+        expect(
+          yield* Effect.flatMap(brokerSummary(week, foreign), topBrokers)
+        ).toStrictEqual({ buy: ["YP"], sell: ["PD"] })
+        expect((yield* runningNets(week, foreign, [YP, PD])).get(PD)?.[0]).toBe(
+          -40
+        )
+      })
+  )
+
+  it.effect(
+    "tags each broker with the investor type the filter keeps, or under All with the one behind most of its lots",
+    () =>
+      Effect.gen(function* () {
+        const week = read(
+          WEEK,
+          [],
+          [
+            [0, "YP", "F", 50, 10],
+            [0, "YP", "D", 0, 30],
+            [0, "PD", "F", 10, 0],
+            [0, "PD", "D", 5, 30],
+          ]
+        )
+        const tags = (rows: ReadonlyArray<SummaryRow>) =>
+          Object.fromEntries(
+            rows.map(({ broker, investorType }) => [broker, investorType])
+          )
+        expect(tags(yield* brokerSummary(week, LOTS))).toStrictEqual({
+          YP: "F",
+          PD: "D",
+        })
+        expect(
+          tags(
+            yield* brokerSummary(week, { measure: "lots", investor: "foreign" })
+          )
+        ).toStrictEqual({ YP: "F", PD: "F" })
+      })
+  )
+
+  it.effect(
+    "footers the broker count, the lots traded and the incomplete days skipped",
+    () =>
+      Effect.gen(function* () {
+        const week = read(
+          WEEK,
+          ["2026-11-03", "2026-11-05"],
+          [
+            [0, "YP", "F", 50, 0],
+            [0, "PD", "D", 0, 50],
+            [2, "YP", "D", 20, 0],
+            [2, "CC", "F", 0, 20],
+          ]
+        )
+        expect(
+          yield* summaryFooter(week, yield* brokerSummary(week, LOTS))
+        ).toStrictEqual({ brokers: 3, lots: 70, incomplete: 2 })
+        // Every lot has a buy side and a sell side; foreign sides here are
+        // half of each trade, so they traded half its lots.
+        const foreign = { measure: "lots", investor: "foreign" } as const
+        expect(
+          yield* summaryFooter(week, yield* brokerSummary(week, foreign))
+        ).toStrictEqual({ brokers: 2, lots: 35, incomplete: 2 })
+      })
+  )
+
+  it.effect("has no average for a side the broker never traded", () =>
+    Effect.gen(function* () {
+      const [yp] = yield* brokerSummary(
+        read(WEEK, [], [[0, "YP", "D", 10, 0]]),
+        LOTS
+      )
+      expect(yp?.avgBuy).toBe(1000)
+      expect(yp?.avgSell).toBeUndefined()
     })
   )
 })
