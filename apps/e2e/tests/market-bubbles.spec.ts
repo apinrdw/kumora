@@ -238,12 +238,17 @@ test("search rings a code without moving the map, a drag lets it go home, and th
   page,
 }) => {
   await page.setViewportSize({ width: 1600, height: 1000 })
-  await page.goto(`${DASHBOARD}${PAGE}`)
+  // A sector no other test seeds, shown alone: the specs share one day, and
+  // another test's codes joining the map would move this one's bubble from
+  // under the pointer. Seeded before the page reads the sector map.
+  const code = freshCode("BS")
+  seedStockSectors({ [code]: "Healthcare" })
+  const shownPage = `${DASHBOARD}${PAGE}?sector=Healthcare`
+  await page.goto(shownPage)
   await expect(page.locator('[data-flow="live"]')).toHaveCount(1)
 
   // Big enough to hover and drag, yet smaller than the first test's code,
   // which leads the map: this test finds its code by search, not by size.
-  const code = freshCode("BS")
   const relay = await openIngest()
   await relay.sendAjaib([
     ajaibTradeToday({
@@ -297,7 +302,7 @@ test("search rings a code without moving the map, a drag lets it go home, and th
   await page.mouse.up()
   const home = await settledAt(canvas, "data-match-at")
   expect(Math.hypot(home.x - to.x, home.y - to.y)).toBeGreaterThan(60)
-  await expect(page).toHaveURL(`${DASHBOARD}${PAGE}`)
+  await expect(page).toHaveURL(shownPage)
 
   // The snapshot: the canvas at its pixel ratio, with the caption strip
   // under it, named for the time in WIB.
