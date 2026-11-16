@@ -91,7 +91,7 @@ export const thresholdText = (
   })
 
 // Whether a kept sweep shows under the threshold, by its own lots. An
-// auction match forms no sweep, so the top-N never hides its row.
+// auction match has no aggressor side, so the top-N never hides its row.
 const shown = (sweep: KeptSweep, threshold: number) =>
   Effect.sync(() => sweep.side === "none" || sweep.own >= threshold)
 
@@ -151,14 +151,17 @@ export const leadBroker = (side: ReadonlyArray<SweepBroker>) =>
   })
 
 // A sweep the broker filter keeps, with its own lots: the picked broker's
-// aggressor lots in it, or its whole lots when no broker is picked.
+// aggressor lots in it, the larger of what it bought or sold in an auction
+// match, or its whole lots when no broker is picked.
 export interface KeptSweep extends Sweep {
   readonly own: number
 }
 
 // The sweeps the broker filter keeps: those where the picked broker was any
-// of the aggressor-side brokers, so none not yet whole and no auction
-// match; every sweep when none is picked.
+// of the aggressor-side brokers, and the auction matches it bought or sold
+// in (an auction match's entry holds its buyers as `aggressor` and its
+// sellers as `other`), so none not yet whole; every sweep when none is
+// picked.
 export const keptSweeps = (
   sweeps: ReadonlyArray<Sweep>,
   brokers: ReadonlyMap<TradeNumber, SweepBrokers>,
@@ -167,11 +170,19 @@ export const keptSweeps = (
   Effect.sync((): ReadonlyArray<KeptSweep> => {
     if (picked === undefined)
       return sweeps.map((sweep) => ({ ...sweep, own: sweep.lots }))
+    const lotsOf = (side: ReadonlyArray<SweepBroker>) => {
+      let lots = 0
+      for (const broker of side) if (broker.code === picked) lots += broker.lots
+      return lots
+    }
     const kept: Array<KeptSweep> = []
     for (const sweep of sweeps) {
-      let own = 0
-      for (const broker of brokers.get(sweep.firstTrade)?.aggressor ?? [])
-        if (broker.code === picked) own += broker.lots
+      const held = brokers.get(sweep.firstTrade)
+      if (held === undefined) continue
+      const own =
+        sweep.side === "none"
+          ? Math.max(lotsOf(held.aggressor), lotsOf(held.other))
+          : lotsOf(held.aggressor)
       if (own > 0) kept.push({ ...sweep, own })
     }
     return kept
@@ -202,7 +213,8 @@ interface BrokerPick {
 const OPPOSITE_TYPE = { D: "F", F: "D" } as const
 
 // The broker filter's choices: the aggressor brokers of the whole sweeps up
-// to `at` (epoch ms), largest summed aggressor lots first. A broker's
+// to `at` (epoch ms), largest summed aggressor lots first; an auction
+// match's buyers are no aggressors. A broker's
 // investor type is the one with its larger summed lots, the first it had
 // on a tie, as within one sweep (apinrdw/kumora#343, story 5).
 export const brokerPicks = (
@@ -219,6 +231,7 @@ export const brokerPicks = (
       }
     >()
     for (const sweep of upTo) {
+      if (sweep.side === "none") continue
       for (const broker of brokers.get(sweep.firstTrade)?.aggressor ?? []) {
         const entry = held.get(broker.code) ?? {
           first: broker.investorType,
@@ -251,8 +264,9 @@ export const pricePath = Effect.fnUntraced(function* (sweep: Sweep) {
 })
 
 // What the tooltip on a sweep's bubble and broker cells shows: a title, then
-// each side's brokers as stored, largest first, the aggressor side first;
-// no sides while the sweep is not yet whole.
+// each side's brokers as stored, largest first, the aggressor side first
+// (an auction match's buyers, with no aggressor named); no sides while the
+// sweep is not yet whole.
 interface SweepTip {
   readonly title: string
   readonly sides:
@@ -264,8 +278,8 @@ interface SweepTip {
 }
 
 const SIDE_WORDS = {
-  buy: { side: "Buy", aggressors: "Buyers", others: "Sellers" },
-  sell: { side: "Sell", aggressors: "Sellers", others: "Buyers" },
+  buy: { side: "Buy", aggressors: "Buyers · aggressor", others: "Sellers" },
+  sell: { side: "Sell", aggressors: "Sellers · aggressor", others: "Buyers" },
   none: { side: "Auction", aggressors: "Buyers", others: "Sellers" },
 } as const
 
@@ -279,7 +293,7 @@ export const sweepTip = Effect.fnUntraced(function* (
   const tip: SweepTip = {
     title: `${words.side} ${yield* lotsText(sweep.lots)} lots @ ${yield* pricePath(sweep)} · ${trades} · ${time}`,
     sides: brokers && [
-      { label: `${words.aggressors} · aggressor`, brokers: brokers.aggressor },
+      { label: words.aggressors, brokers: brokers.aggressor },
       { label: words.others, brokers: brokers.other },
     ],
   }
@@ -287,8 +301,8 @@ export const sweepTip = Effect.fnUntraced(function* (
 })
 
 // The note under the log header while a day's codes are incomplete: how
-// many sweeps up to `at` (epoch ms) have their brokers, of all of them. An
-// auction match forms no sweep, so it counts in neither.
+// many sweeps and auction matches up to `at` (epoch ms) have their
+// brokers, of all of them.
 export const arrivingNote = (
   sweeps: ReadonlyArray<Sweep>,
   brokers: ReadonlyMap<TradeNumber, SweepBrokers>,
@@ -298,7 +312,6 @@ export const arrivingNote = (
     let all = 0
     let whole = 0
     for (const sweep of upTo) {
-      if (sweep.side === "none") continue
       all += 1
       if (brokers.has(sweep.firstTrade)) whole += 1
     }

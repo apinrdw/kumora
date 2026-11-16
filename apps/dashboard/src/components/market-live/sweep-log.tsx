@@ -311,13 +311,11 @@ const LogRowView = memo(function LogRowView({
   onTip: OnTip
 }) {
   const path = Effect.runSync(pricePath(row))
-  // An auction match forms no sweep, so it never has brokers.
-  const brokerCell = (side: ReadonlyArray<SweepBroker> | undefined) =>
-    row.side === "none" ? (
-      <span />
-    ) : (
-      <LeadBrokerCell id={row.firstTrade} side={side} onTip={onTip} />
-    )
+  // An auction match's entry holds its buyers as `aggressor` and its sellers
+  // as `other`, so its cells read the lead buyer, then the lead seller.
+  const brokerCell = (side: ReadonlyArray<SweepBroker> | undefined) => (
+    <LeadBrokerCell id={row.firstTrade} side={side} onTip={onTip} />
+  )
   return (
     <li style={{ height: ROW_HEIGHT }}>
       <button

@@ -252,6 +252,26 @@ describe("a sweep's tooltip", () => {
     })
   )
 
+  it.effect(
+    "lists an auction match's buyers and sellers with no aggressor",
+    () =>
+      Effect.gen(function* () {
+        const auction = sweep("08:58:00", "none", 1_240)
+        const tip = yield* sweepTip(auction, {
+          firstTrade: auction.firstTrade,
+          aggressor,
+          other,
+        })
+        expect(tip.title).toBe(
+          "Auction 1,240 lots @ 1,000 · 1 trade · 08:58:00"
+        )
+        expect(tip.sides).toEqual([
+          { label: "Buyers", brokers: aggressor },
+          { label: "Sellers", brokers: other },
+        ])
+      })
+  )
+
   it.effect("lists no brokers for a sweep not yet whole", () =>
     Effect.gen(function* () {
       expect((yield* sweepTip(buy, undefined)).sides).toBeUndefined()
@@ -261,24 +281,30 @@ describe("a sweep's tooltip", () => {
 
 describe("the note while a day's codes arrive", () => {
   it.effect(
-    "counts the sweeps up to the cursor that have their brokers against all of them, auction matches left out",
+    "counts the sweeps and auction matches up to the cursor that have their brokers against all of them",
     () =>
       Effect.gen(function* () {
         const sweeps = [
-          sweep("09:00:00", "none", 40),
+          sweep("08:58:00", "none", 40),
           sweep("09:01:00", "buy", 10),
           sweep("09:02:00", "sell", 20),
           sweep("09:03:00", "buy", 30),
           sweep("09:04:00", "buy", 50),
+          sweep("16:00:00", "none", 70),
         ]
         const brokers = new Map(
-          [sweeps[1]!, sweeps[3]!, sweeps[4]!].map(({ firstTrade }) => [
-            firstTrade,
-            { firstTrade, aggressor: [], other: [] },
-          ])
+          [sweeps[0]!, sweeps[1]!, sweeps[3]!, sweeps[4]!].map(
+            ({ firstTrade }) => [
+              firstTrade,
+              { firstTrade, aggressor: [], other: [] },
+            ]
+          )
         )
         expect(yield* arrivingNote(sweeps, brokers, at("09:03:30"))).toBe(
-          "Codes still arriving: 2 of 3 sweeps have their brokers. Updates every 30 s."
+          "Codes still arriving: 3 of 4 sweeps have their brokers. Updates every 30 s."
+        )
+        expect(yield* arrivingNote(sweeps, brokers, at("16:30:00"))).toBe(
+          "Codes still arriving: 4 of 6 sweeps have their brokers. Updates every 30 s."
         )
       })
   )
@@ -311,6 +337,12 @@ describe("the broker filter", () => {
     whole(sweeps[1]!, [broker("YP", "D", 260), broker("AK", "F", 40)]),
     // AK only sold into the third buy: the other side.
     whole(sweeps[2]!, [broker("BK", "D", 100)], [broker("AK", "F", 100)]),
+    // The auction match: AK bought 300 and sold 500 of its 900 lots.
+    whole(
+      sweeps[4]!,
+      [broker("CC", "D", 600), broker("AK", "F", 300)],
+      [broker("AK", "F", 500), broker("YP", "D", 400)]
+    ),
     whole(sweeps[5]!, [broker("AK", "F", 80)]),
     whole(sweeps[6]!, [broker("AK", "F", 52)]),
     whole(sweeps[7]!, [broker("CC", "D", 990), broker("AK", "F", 10)]),
@@ -318,13 +350,14 @@ describe("the broker filter", () => {
   ])
 
   it.effect(
-    "keeps the sweeps where the picked broker was any of the aggressors, each with its own lots",
+    "keeps the sweeps where the picked broker was any of the aggressors, each with its own lots, and an auction match it bought or sold in at the larger of the two",
     () =>
       Effect.gen(function* () {
         const kept = yield* keptSweeps(sweeps, brokers, ak)
         expect(kept.map((row) => [row.lots, row.own])).toEqual([
           [500, 400],
           [300, 40],
+          [900, 500],
           [90, 80],
           [60, 52],
           [1_000, 10],
@@ -352,8 +385,9 @@ describe("the broker filter", () => {
     "lists the aggressor brokers up to the cursor, largest summed aggressor lots first",
     () =>
       Effect.gen(function* () {
-        // AK: 400 + 40 + 80 + 52 + 10; its 5,000 is after the cursor and
-        // its 100 on the third buy's other side.
+        // AK: 400 + 40 + 80 + 52 + 10; its 5,000 is after the cursor, its
+        // 100 on the third buy's other side, and an auction match's buyers
+        // are no aggressors: CC's 600 and AK's 300 there don't count.
         expect(yield* brokerPicks(sweeps, brokers, at("09:10:00"))).toEqual([
           { code: "CC", investorType: "D", lots: 990 },
           { code: "AK", investorType: "F", lots: 582 },
@@ -413,7 +447,8 @@ describe("the broker filter", () => {
         expect(yield* thresholdText(threshold, ak)).toBe(
           "≥ 52 lots of AK (buy 80, sell 52)"
         )
-        // The log shows a sweep by its own lots too.
+        // The log shows a sweep by its own lots too, and never hides the
+        // auction match.
         const rows = yield* logRows(kept, {
           threshold: threshold.lots,
           bigOnly: false,
@@ -422,6 +457,7 @@ describe("the broker filter", () => {
         expect(rows.map((row) => [row.lots, row.own])).toEqual([
           [60, 52],
           [90, 80],
+          [900, 500],
           [500, 400],
         ])
       })
