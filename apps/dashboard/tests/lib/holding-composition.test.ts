@@ -4,6 +4,7 @@ import { Effect } from "effect"
 import {
   type HoldingChart,
   holdingChart,
+  holdingRows,
   type SeriesKey,
 } from "@/lib/holding-composition"
 import type { SeriesMonth } from "@/server/holdings/stock-page"
@@ -145,6 +146,38 @@ describe("the Holding composition chart", () => {
         new Set([...ALL_BUT_ID, "ID" as const].filter((key) => key !== "IB"))
       )
       expect(ib.axisMax).toBe(0.05)
+    })
+  )
+})
+
+describe("the Holding composition chart's rows", () => {
+  it.effect(
+    "gives one row per month with data and shown series, in series order",
+    () =>
+      Effect.gen(function* () {
+        const chart = yield* holdingChart(BBCA, "all", new Set())
+        const rows = yield* holdingRows(chart, [
+          { key: "foreign", label: "Foreign" },
+        ])
+        // August is a gap; Local is hidden.
+        expect(
+          rows.map(({ month, key, label, share }) => [
+            month,
+            key,
+            label,
+            share.toFixed(4),
+          ])
+        ).toEqual([
+          ["2026-09", "foreign", "Foreign", "0.6889"],
+          ["2026-10", "foreign", "Foreign", "0.6722"],
+        ])
+      })
+  )
+
+  it.effect("gives no rows when every series is hidden", () =>
+    Effect.gen(function* () {
+      const chart = yield* holdingChart(BBCA, "local", new Set())
+      expect(yield* holdingRows(chart, [])).toEqual([])
     })
   )
 })
