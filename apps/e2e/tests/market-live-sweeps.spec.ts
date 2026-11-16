@@ -569,6 +569,81 @@ test("a recorded day's sweep with two sellers in one second splits into two rows
   await expect(rows.nth(1)).toContainText("AK [F]")
 })
 
+test("a pin on a recorded day's sweep whose larger piece keeps its id moves to that piece's bubble", async ({
+  page,
+}) => {
+  // The recheck runs every 30 s.
+  test.setTimeout(90_000)
+  const relay = await openIngest()
+  const earlier = freshTradeNumbers()
+  const base = earlier + 1_000
+  const code = freshCode("SP")
+  // As the tests above: the sweep stamped now, above another code's trades.
+  const time = wibTime(marketNow())
+  const earlierCode = freshCode("SE")
+  await relay.sendAjaib([
+    ...[1, 600].map((seq) =>
+      ajaibTradeToday({
+        seq: earlier + seq,
+        time,
+        ticker: earlierCode,
+        price: 500,
+        lot: 1,
+      })
+    ),
+    // One sell sweep: FZ's 10 lots at 500, then XL's 9 at 470.
+    ...[
+      { seq: 1, price: 500, lot: 10 },
+      { seq: 2, price: 470, lot: 9 },
+    ].map(({ seq, price, lot }) =>
+      ajaibTradeToday({
+        seq: base + seq,
+        time,
+        ticker: code,
+        price,
+        lot,
+        type: "SELL",
+      })
+    ),
+  ])
+  await closedOnceStored(page, relay, code, 19)
+  // XL's trade has no codes yet.
+  await storeCodes(page, [[base + 1, "AK F FZ D"]])
+
+  await page.setViewportSize({ width: 1920, height: 1080 })
+  await page.goto(
+    `${DASHBOARD}${PAGE}?code=${code}&day=${WibDate.make(wibToday())}`
+  )
+  const log = page.getByRole("region", { name: "Sweep log" })
+  const rows = log.locator("[data-sweep-id]")
+  const candles = page.locator('[data-chart="candles"]')
+  await expect(rows).toHaveCount(1)
+  await expect(rows.first()).toContainText("19 @ 500→470")
+  // Pinned on the whole sweep's bubble, before its codes land.
+  await rows.first().click()
+  const whole = await ringedBubble(candles, String(base + 1))
+  await page.mouse.click(whole.x, whole.y)
+  const tip = page.getByRole("tooltip", { name: "Sweep brokers" })
+  await expect(tip).toContainText("Brokers show once every trade")
+
+  // FZ's piece keeps the whole sweep's id, at its own average price.
+  await storeCodes(page, [[base + 2, "CC D XL D"]])
+  await expect(log).toContainText("2 sweeps · Buy 0 · Sell 2", {
+    timeout: 40_000,
+  })
+  await expect(tip).toContainText("Sell 10 lots @ 500")
+  // The pin sits on FZ's bubble, where a fresh click on it pins it, give
+  // or take the click's whole pixels.
+  const moved = (await tip.boundingBox())!
+  const piece = await ringedBubble(candles, String(base + 1))
+  expect(Math.abs(piece.y - whole.y)).toBeGreaterThan(5)
+  await page.mouse.click(piece.x, piece.y)
+  await expect(tip).toContainText("Sell 10 lots @ 500")
+  const fresh = (await tip.boundingBox())!
+  expect(Math.abs(fresh.x - moved.x)).toBeLessThan(1.5)
+  expect(Math.abs(fresh.y - moved.y)).toBeLessThan(1.5)
+})
+
 test("a recorded day's Auction row shows its lead buyer and seller, and a broker that bought in it keeps it", async ({
   page,
 }) => {
