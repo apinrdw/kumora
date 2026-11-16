@@ -1,5 +1,6 @@
 import { assert, describe, it } from "@effect/vitest"
 import { WorkerEnv } from "@workspace/server"
+import { StockCode } from "@workspace/relay"
 import { Effect } from "effect"
 
 import { logoResponse } from "@/server/logos/serve"
@@ -16,7 +17,7 @@ const logoBucket = () => {
       Effect.runPromise(
         Effect.sync(() => {
           reads.push(key)
-          return key === logoKey("BBCA")
+          return key === logoKey(StockCode.make("BBCA"))
             ? { body: new Response(BBCA).body!, httpEtag: '"r2-bbca"' }
             : null
         })

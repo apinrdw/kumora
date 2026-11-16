@@ -13,12 +13,12 @@ import { HttpClient } from "effect/http"
 import { collectCapped } from "../archive/capped-body.ts"
 import { ArchiveBucket } from "../archive/bucket.ts"
 
-export const logoUrl = (code: string) =>
+export const logoUrl = (code: StockCode) =>
   `https://assets.stockbit.com/logos/companies/${code}.png`
 
 const PREFIX = "logos/"
 
-export const logoKey = (code: string) => `${PREFIX}${code}.png`
+export const logoKey = (code: StockCode) => `${PREFIX}${code}.png`
 
 // The custom metadata key of the source's ETag.
 const SOURCE_ETAG = "source-etag"
