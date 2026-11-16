@@ -1,7 +1,8 @@
 // The steps that parse an archive's months into parsed holdings: `reconcile`
 // picks the months to parse (months-to-parse.ts), then one `parse:<date>`
-// step per month. The IDX archive run parses classification reports with
-// them, the KSEI parse run Securities holdings reports.
+// step per month. Every parse run (parse-runs.ts) runs them: the
+// classification parse run on classification reports, the KSEI parse run on
+// Securities holdings reports.
 import {
   NonRetryable,
   type StepFailed,

@@ -6,8 +6,13 @@ import {
   ArchiveTotalsCard,
   RecentRunsCard,
 } from "@/components/admin/shareholding/archive-history"
+import { ParseRunCard } from "@/components/admin/archive/parse-run-card"
 import { LastRunCard } from "@/components/admin/shareholding/last-run-card"
-import { shareholdingArchiveFn } from "@/server/admin/shareholding.functions"
+import {
+  parseClassificationNowFn,
+  shareholdingArchiveFn,
+} from "@/server/admin/shareholding.functions"
+import { PARSE_TIMES_WIB } from "@/server/shareholding/schedule"
 
 export const Route = createFileRoute("/_app/admin/shareholding")({
   staticData: {
@@ -21,11 +26,26 @@ export const Route = createFileRoute("/_app/admin/shareholding")({
 })
 
 function ShareholdingPage() {
-  const { recentRuns, totals, ...lastRun } = Route.useLoaderData()
+  const {
+    recentRuns,
+    totals,
+    lastClassificationParseRun,
+    nextParseRun,
+    ...lastRun
+  } = Route.useLoaderData()
   return (
     <div className="flex flex-col gap-5 py-6">
       <h1 className="text-2xl font-bold">Shareholding archive</h1>
       <LastRunCard {...lastRun} />
+      <ParseRunCard
+        title="Last classification parse run"
+        emptyMessage="No classification parse run has happened yet."
+        lastParseRun={lastClassificationParseRun}
+        parseNow={parseClassificationNowFn}
+        times={PARSE_TIMES_WIB}
+        nextParseRun={nextParseRun}
+        now={lastRun.now}
+      />
       <RecentRunsCard runs={recentRuns} />
       <ArchiveTotalsCard totals={totals} />
     </div>

@@ -1,14 +1,16 @@
-// The archive run's reconcile: classification reports parsed into parsed
-// holdings, read back as the stock page reads a stock's month.
+// The Classification parse run: the shareholding archive's classification
+// reports parsed into parsed holdings, read back as the stock page reads a
+// stock's month.
 import { assert, describe, it } from "@effect/vitest"
 import { StockCode } from "@workspace/relay"
 import { Effect, Layer, Schema } from "effect"
 import { TestClock } from "effect/testing"
 
-import { stockPage } from "@/server/holdings/stock-page"
 import { RunId } from "@/server/archive/run"
+import { ParseRunResult } from "@/server/holdings/parse-run-result"
+import { stockPage } from "@/server/holdings/stock-page"
 import { archiveRun } from "@/server/shareholding/archive-run"
-import { ArchiveRunResult } from "@/server/shareholding/run-result"
+import { classificationParseRuns } from "@/server/shareholding/classification-parse"
 
 import {
   type BrokenFixture,
@@ -41,15 +43,26 @@ const world = (): World => ({
 
 // Each run an hour after the last, so a version archived later is fetched
 // later.
-const run = ({ idx, bucket, holdings }: World, id: string) =>
+const archive = ({ idx, bucket }: World, id: string) =>
   TestClock.adjust("1 hour").pipe(
     Effect.andThen(
-      archiveRun(
-        localSteps(Layer.mergeAll(idx.layer, bucket.layer, holdings.layer)),
+      archiveRun(localSteps(Layer.merge(idx.layer, bucket.layer)), {
+        id: RunId.make(id),
+        trigger: "cron",
+        startedAt: new Date("2026-11-14T13:00:00Z"),
+      })
+    )
+  )
+
+const parse = ({ bucket, holdings }: World, id: string) =>
+  TestClock.adjust("1 hour").pipe(
+    Effect.andThen(
+      classificationParseRuns.run(
+        localSteps(Layer.merge(bucket.layer, holdings.layer)),
         {
           id: RunId.make(id),
           trigger: "cron",
-          startedAt: new Date("2026-11-14T13:00:00Z"),
+          startedAt: new Date("2026-11-14T14:00:00Z"),
         }
       )
     )
@@ -72,10 +85,10 @@ const republish = (
 // IDX replaces October's report in place with September's bytes.
 const republishOctober = (w: World) => republish(w, "2026-10-30", "2026-09-30")
 
-// A run's record as the admin page reads it.
+// A parse run's record as the admin page reads it.
 const runRecord = ({ bucket }: World, id: string) =>
-  Schema.decodeUnknownSync(Schema.fromJsonString(ArchiveRunResult))(
-    bucket.objects.get(`runs/${id}.json`)?.body
+  Schema.decodeUnknownSync(Schema.fromJsonString(ParseRunResult))(
+    bucket.objects.get(`parse-runs/investor-classification/${id}.json`)?.body
   )
 
 const page = ({ holdings }: World, code: string, month?: string) =>
@@ -103,66 +116,71 @@ const sharesOf = (month: Effect.Success<ReturnType<typeof read>>) =>
     )
   )
 
-describe("an archive run's reconcile", () => {
-  it.effect(
-    "parses every archived classification month on a fresh database",
-    () =>
-      Effect.gen(function* () {
-        const w = world()
-        const result = yield* run(w, "cron-2026-11-14T13")
-        assert.deepInclude(result, { outcome: "complete", monthsParsed: 4 })
-
-        // Sep 2026+: split into local and foreign, with their combined sum.
-        const october = yield* read(w, "2026-10-30", "BBCA")
-        assert.strictEqual(october?.totalScripless, 52_453_691_120)
-        assert.strictEqual(
-          (yield* page(w, "BBCA")).issuerName,
-          "BANK CENTRAL ASIA Tbk"
-        )
-        const oct = sharesOf(october)
-        assert.strictEqual(oct["local:bank"], 513_627_500)
-        assert.strictEqual(oct["foreign:bank"], 1_001_934_435)
-        assert.strictEqual(oct["combined:bank"], 1_515_561_935)
-        assert.strictEqual(oct["foreign:mutual_funds"], 18_426_305_724)
-        assert.strictEqual(oct["local:individual"], 12_256_650_330)
-        // Zeros are skipped: BBCA's local trustee bank is 0.
-        assert.notProperty(oct, "local:trustee_bank")
-        assert.strictEqual(oct["combined:trustee_bank"], 1_004_462_498)
-
-        // Mar–Aug: combined only, and May's empty trailing column is ignored.
-        const may = sharesOf(yield* read(w, "2026-05-29", "BBCA"))
-        assert.strictEqual(may["combined:bank"], 1_727_535_968)
-        assert.strictEqual(may["combined:individual"], 10_923_855_564)
-        assert.strictEqual(Object.keys(may).length, 36)
-        assert.isTrue(
-          Object.keys(may).every((key) => key.startsWith("combined:"))
-        )
-        assert.deepStrictEqual(sharesOf(yield* read(w, "2026-05-29", "ACRO")), {
-          "combined:investment_advisors": 8_449_100,
-          "combined:cv_limited_partnership": 4_700,
-          "combined:corporate": 15_000,
-          "combined:securities_company": 105_403,
-          "combined:individual": 3_460_771_334,
-        })
-
-        // WBSA isn't in March's report.
-        assert.isUndefined(yield* read(w, "2026-03-31", "WBSA"))
-        assert.strictEqual(
-          (yield* read(w, "2026-05-29", "WBSA"))?.totalScripless,
-          1_800_000_000
-        )
-        assert.strictEqual(
-          (yield* page(w, "WBSA")).issuerName,
-          "BSA LOGISTICS INDONESIA Tbk"
-        )
+describe("a classification parse run", () => {
+  it.effect("parses every archived classification month on its first run", () =>
+    Effect.gen(function* () {
+      const w = world()
+      yield* archive(w, "cron-2026-11-14T13")
+      const result = yield* parse(w, "cron-2026-11-14")
+      assert.deepInclude(result, {
+        outcome: "complete",
+        monthsParsed: 4,
+        parseFailures: [],
       })
+      assert.deepStrictEqual(runRecord(w, "cron-2026-11-14"), result)
+
+      // Sep 2026+: split into local and foreign, with their combined sum.
+      const october = yield* read(w, "2026-10-30", "BBCA")
+      assert.strictEqual(october?.totalScripless, 52_453_691_120)
+      assert.strictEqual(
+        (yield* page(w, "BBCA")).issuerName,
+        "BANK CENTRAL ASIA Tbk"
+      )
+      const oct = sharesOf(october)
+      assert.strictEqual(oct["local:bank"], 513_627_500)
+      assert.strictEqual(oct["foreign:bank"], 1_001_934_435)
+      assert.strictEqual(oct["combined:bank"], 1_515_561_935)
+      assert.strictEqual(oct["foreign:mutual_funds"], 18_426_305_724)
+      assert.strictEqual(oct["local:individual"], 12_256_650_330)
+      // Zeros are skipped: BBCA's local trustee bank is 0.
+      assert.notProperty(oct, "local:trustee_bank")
+      assert.strictEqual(oct["combined:trustee_bank"], 1_004_462_498)
+
+      // Mar–Aug: combined only, and May's empty trailing column is ignored.
+      const may = sharesOf(yield* read(w, "2026-05-29", "BBCA"))
+      assert.strictEqual(may["combined:bank"], 1_727_535_968)
+      assert.strictEqual(may["combined:individual"], 10_923_855_564)
+      assert.strictEqual(Object.keys(may).length, 36)
+      assert.isTrue(
+        Object.keys(may).every((key) => key.startsWith("combined:"))
+      )
+      assert.deepStrictEqual(sharesOf(yield* read(w, "2026-05-29", "ACRO")), {
+        "combined:investment_advisors": 8_449_100,
+        "combined:cv_limited_partnership": 4_700,
+        "combined:corporate": 15_000,
+        "combined:securities_company": 105_403,
+        "combined:individual": 3_460_771_334,
+      })
+
+      // WBSA isn't in March's report.
+      assert.isUndefined(yield* read(w, "2026-03-31", "WBSA"))
+      assert.strictEqual(
+        (yield* read(w, "2026-05-29", "WBSA"))?.totalScripless,
+        1_800_000_000
+      )
+      assert.strictEqual(
+        (yield* page(w, "WBSA")).issuerName,
+        "BSA LOGISTICS INDONESIA Tbk"
+      )
+    })
   )
 
   it.effect("parses nothing when nothing changed", () =>
     Effect.gen(function* () {
       const w = world()
-      yield* run(w, "cron-2026-11-14T06")
-      const result = yield* run(w, "cron-2026-11-14T13")
+      yield* archive(w, "cron-2026-11-14T13")
+      yield* parse(w, "cron-2026-11-14")
+      const result = yield* parse(w, "cron-2026-11-15")
       assert.deepInclude(result, { outcome: "complete", monthsParsed: 0 })
     })
   )
@@ -170,13 +188,15 @@ describe("an archive run's reconcile", () => {
   it.effect("replaces a month with its republished version", () =>
     Effect.gen(function* () {
       const w = world()
-      yield* run(w, "cron-2026-11-14T06")
+      yield* archive(w, "cron-2026-11-14T06")
+      yield* parse(w, "cron-2026-11-14")
       const september = yield* read(w, "2026-09-30", "BBCA")
       assert.notDeepEqual(yield* read(w, "2026-10-30", "BBCA"), september)
 
       republishOctober(w)
-      const result = yield* run(w, "cron-2026-11-14T13")
-      assert.deepInclude(result, { newVersions: 1, monthsParsed: 1 })
+      yield* archive(w, "cron-2026-11-14T13")
+      const result = yield* parse(w, "cron-2026-11-15")
+      assert.deepInclude(result, { outcome: "complete", monthsParsed: 1 })
       // October now reads exactly as the republished file: no old row left.
       assert.deepStrictEqual(
         sharesOf(yield* read(w, "2026-10-30", "BBCA")),
@@ -192,11 +212,13 @@ describe("an archive run's reconcile", () => {
   it.effect("reads a SHARE_CODE written as an inline string", () =>
     Effect.gen(function* () {
       const w = world()
-      yield* run(w, "cron-2026-11-14T06")
+      yield* archive(w, "cron-2026-11-14T06")
+      yield* parse(w, "cron-2026-11-14")
       const october = yield* read(w, "2026-10-30", "BBCA")
 
       republish(w, "2026-10-30", "inline-code")
-      const result = yield* run(w, "cron-2026-11-14T13")
+      yield* archive(w, "cron-2026-11-14T13")
+      const result = yield* parse(w, "cron-2026-11-15")
       assert.deepInclude(result, { outcome: "complete", monthsParsed: 1 })
       assert.deepStrictEqual(yield* read(w, "2026-10-30", "BBCA"), october)
     })
@@ -207,21 +229,19 @@ describe("an archive run's reconcile", () => {
     () =>
       Effect.gen(function* () {
         const w = world()
-        yield* run(w, "cron-2026-11-14T06")
+        yield* archive(w, "cron-2026-11-14T06")
+        yield* parse(w, "cron-2026-11-14")
         const october = yield* read(w, "2026-10-30", "BBCA")
 
         republishOctober(w)
+        yield* archive(w, "cron-2026-11-14T13")
         // Every attempt fails after deleting and inserting: each rolls back.
         w.holdings.failBatch = (sql) =>
           sql.some((statement) =>
             statement.startsWith("DELETE FROM classification_holding")
           )
-        const failed = yield* run(w, "cron-2026-11-14T13")
-        assert.deepInclude(failed, {
-          outcome: "partial",
-          newVersions: 1,
-          monthsParsed: 0,
-        })
+        const failed = yield* parse(w, "cron-2026-11-15")
+        assert.deepInclude(failed, { outcome: "partial", monthsParsed: 0 })
         assert.deepStrictEqual(
           failed.parseFailures.map(({ date }) => date),
           ["2026-10-30"]
@@ -229,10 +249,9 @@ describe("an archive run's reconcile", () => {
         assert.deepStrictEqual(yield* read(w, "2026-10-30", "BBCA"), october)
 
         w.holdings.failBatch = undefined
-        const retried = yield* run(w, "cron-2026-11-14T20")
+        const retried = yield* parse(w, "cron-2026-11-16")
         assert.deepInclude(retried, {
           outcome: "complete",
-          newVersions: 0,
           monthsParsed: 1,
           parseFailures: [],
         })
@@ -246,65 +265,34 @@ describe("an archive run's reconcile", () => {
   it.effect("parses every month again when the parser's version changes", () =>
     Effect.gen(function* () {
       const w = world()
-      yield* run(w, "cron-2026-11-14T06")
+      yield* archive(w, "cron-2026-11-14T06")
+      yield* parse(w, "cron-2026-11-14")
       w.holdings.database
         .prepare(
           "UPDATE classification_month SET parser_version = parser_version - 1"
         )
         .run()
-      const result = yield* run(w, "cron-2026-11-14T13")
+      const result = yield* parse(w, "cron-2026-11-15")
       assert.deepInclude(result, { outcome: "complete", monthsParsed: 4 })
     })
   )
 
-  it.effect(
-    "fails, keeping what it stored, when it can't read which months were parsed",
-    () =>
-      Effect.gen(function* () {
-        const w = world()
-        w.holdings.failBatch = (sql) =>
-          sql.some((statement) =>
-            statement.includes("FROM classification_month")
-          )
-        const failure = yield* Effect.flip(run(w, "cron-2026-11-14T06"))
-        assert.strictEqual(failure._tag, "StepFailed")
-        const record = runRecord(w, "cron-2026-11-14T06")
-        assert.deepInclude(record, {
-          outcome: "failed",
-          error: failure.message,
-          reportsAdded: 4,
-          monthsParsed: 0,
-          parseFailures: [],
-        })
-        assert.isNotNull(record.finishedAt)
-      })
-  )
-
-  it.effect("parses held reports when IDX's listing can't be read", () =>
+  it.effect("fails when it can't read which months were parsed", () =>
     Effect.gen(function* () {
       const w = world()
-      // Every month's replace fails: the reports are held, none parsed.
+      yield* archive(w, "cron-2026-11-14T06")
       w.holdings.failBatch = (sql) =>
-        sql.some((statement) =>
-          statement.startsWith("DELETE FROM classification_holding")
-        )
-      const first = yield* run(w, "cron-2026-11-14T06")
-      assert.deepInclude(first, { outcome: "partial", monthsParsed: 0 })
-      assert.isUndefined(yield* read(w, "2026-10-30", "BBCA"))
-
-      w.holdings.failBatch = undefined
-      w.idx.listingResponse = () => new Response("Forbidden", { status: 403 })
-      const failure = yield* Effect.flip(run(w, "cron-2026-11-14T13"))
-      assert.include(failure.message, "403")
-      assert.deepInclude(runRecord(w, "cron-2026-11-14T13"), {
+        sql.some((statement) => statement.includes("FROM classification_month"))
+      const failure = yield* Effect.flip(parse(w, "cron-2026-11-14"))
+      assert.strictEqual(failure._tag, "StepFailed")
+      const record = runRecord(w, "cron-2026-11-14")
+      assert.deepInclude(record, {
         outcome: "failed",
         error: failure.message,
-        monthsParsed: 4,
+        monthsParsed: 0,
         parseFailures: [],
       })
-      assert.deepInclude(yield* read(w, "2026-10-30", "BBCA"), {
-        totalScripless: 52_453_691_120,
-      })
+      assert.isNotNull(record.finishedAt)
     })
   )
 })
@@ -365,23 +353,21 @@ describe("a classification report that doesn't match what's expected", () => {
       () =>
         Effect.gen(function* () {
           const w = world()
-          yield* run(w, "cron-2026-11-14T06")
+          yield* archive(w, "cron-2026-11-14T06")
+          yield* parse(w, "cron-2026-11-14")
           const october = yield* read(w, "2026-10-30", "BBCA")
 
           republish(w, "2026-10-30", fixture)
-          const failed = yield* run(w, "cron-2026-11-14T13")
-          assert.deepInclude(failed, {
-            outcome: "partial",
-            newVersions: 1,
-            monthsParsed: 0,
-          })
+          yield* archive(w, "cron-2026-11-14T13")
+          const failed = yield* parse(w, "cron-2026-11-15")
+          assert.deepInclude(failed, { outcome: "partial", monthsParsed: 0 })
           assert.deepStrictEqual(failed.parseFailures, [
             { date: "2026-10-30", message: reason },
           ])
-          assert.deepStrictEqual(runRecord(w, "cron-2026-11-14T13"), failed)
+          assert.deepStrictEqual(runRecord(w, "cron-2026-11-15"), failed)
           assert.deepStrictEqual(yield* read(w, "2026-10-30", "BBCA"), october)
 
-          const retried = yield* run(w, "cron-2026-11-14T20")
+          const retried = yield* parse(w, "cron-2026-11-16")
           assert.deepInclude(retried, { outcome: "partial", monthsParsed: 0 })
           assert.deepStrictEqual(retried.parseFailures, failed.parseFailures)
         })
@@ -391,7 +377,8 @@ describe("a classification report that doesn't match what's expected", () => {
     Effect.gen(function* () {
       const w = world()
       republish(w, "2026-05-29", "unsummed")
-      const result = yield* run(w, "cron-2026-11-14T06")
+      yield* archive(w, "cron-2026-11-14T06")
+      const result = yield* parse(w, "cron-2026-11-14")
       assert.deepInclude(result, { outcome: "partial", monthsParsed: 3 })
       assert.deepStrictEqual(
         result.parseFailures.map(({ date }) => date),

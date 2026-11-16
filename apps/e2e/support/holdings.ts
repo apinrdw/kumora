@@ -1,5 +1,5 @@
 // Seeds the Test stage's parsed holdings (the HoldingsDb local D1) with a
-// few classification and KSEI months, as the archive run's parse would leave
+// few classification and KSEI months, as the parse runs would leave
 // them.
 // The stock page only reads these rows.
 import { DatabaseSync } from "node:sqlite"

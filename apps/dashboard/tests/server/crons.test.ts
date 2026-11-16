@@ -8,7 +8,12 @@ import {
   nextKseiParseRun,
   nextKseiRun,
 } from "@/server/ksei/schedule"
-import { ARCHIVE_CRON } from "@/server/shareholding/schedule"
+import {
+  ARCHIVE_CRON,
+  nextParseRun,
+  nextScheduledRun,
+  PARSE_CRON,
+} from "@/server/shareholding/schedule"
 
 // Each archive's cron handler, which a firing starts a run through.
 const runKseiCron = vi.fn<(scheduledTime: number) => Promise<void>>(() =>
@@ -20,8 +25,11 @@ const runKseiParseCron = vi.fn<(scheduledTime: number) => Promise<void>>(() =>
 const runArchiveCron = vi.fn<(scheduledTime: number) => Promise<void>>(() =>
   Effect.runPromise(Effect.void)
 )
+const runParseCron = vi.fn<(scheduledTime: number) => Promise<void>>(() =>
+  Effect.runPromise(Effect.void)
+)
 vi.mock("@/server/ksei/cron", () => ({ runKseiCron, runKseiParseCron }))
-vi.mock("@/server/shareholding/cron", () => ({ runArchiveCron }))
+vi.mock("@/server/shareholding/cron", () => ({ runArchiveCron, runParseCron }))
 
 const { runCron } = await import("@/server/crons")
 
@@ -75,8 +83,32 @@ describe("a cron firing", () => {
         yield* Effect.promise(() => runCron(ARCHIVE_CRON, scheduledTime))
 
         assert.deepStrictEqual(runArchiveCron.mock.calls, [[scheduledTime]])
+        assert.strictEqual(runParseCron.mock.calls.length, 0)
         assert.strictEqual(runKseiCron.mock.calls.length, 0)
         assert.strictEqual(runKseiParseCron.mock.calls.length, 0)
       })
+  )
+
+  it.effect(
+    "starts the shareholding parse runs, and no archive run, on the parse cron",
+    () =>
+      Effect.gen(function* () {
+        yield* Effect.promise(() => runCron(PARSE_CRON, scheduledTime))
+
+        assert.deepStrictEqual(runParseCron.mock.calls, [[scheduledTime]])
+        assert.strictEqual(runArchiveCron.mock.calls.length, 0)
+        assert.strictEqual(runKseiCron.mock.calls.length, 0)
+        assert.strictEqual(runKseiParseCron.mock.calls.length, 0)
+      })
+  )
+
+  it.effect("fires the parse cron an hour after the evening archive run", () =>
+    Effect.gen(function* () {
+      // 20:00 WIB, the evening archive run.
+      const archive = yield* nextScheduledRun(new Date("2026-11-14T12:30:00Z"))
+      assert.strictEqual(archive.toISOString(), "2026-11-14T13:00:00.000Z")
+      const parse = yield* nextParseRun(archive)
+      assert.strictEqual(parse.getTime() - archive.getTime(), 60 * 60 * 1000)
+    })
   )
 })

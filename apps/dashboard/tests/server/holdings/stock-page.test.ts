@@ -1,5 +1,6 @@
-// The stock page's read model, read after a real archive run parsed the
-// classification fixtures (Mar, May, Sep and Oct 2026) and a real KSEI parse
+// The stock page's read model, read after a real classification parse run
+// parsed the classification fixtures (Mar, May, Sep and Oct 2026), archived
+// by a real archive run, and a real KSEI parse
 // run parsed the KSEI fixtures (May, Aug, Sep and Oct 2026).
 import { assert, describe, it } from "@effect/vitest"
 import { StockCode } from "@workspace/relay"
@@ -16,6 +17,7 @@ import {
 import { kseiArchiveRun } from "@/server/ksei/archive-run"
 import { kseiParseRuns } from "@/server/ksei/parse-runs"
 import { archiveRun } from "@/server/shareholding/archive-run"
+import { classificationParseRuns } from "@/server/shareholding/classification-parse"
 
 import { classificationIdx } from "../shareholding/fake-idx.ts"
 import { localSteps } from "../archive/local-steps.ts"
@@ -46,15 +48,14 @@ const parsed = Effect.gen(function* () {
     localSteps(Layer.merge(kseiBucket.layer, holdings.layer)),
     run("cron-2026-11-14T04", "2026-11-14T04:00:00Z")
   )
+  const bucket = memoryBucket()
   yield* archiveRun(
-    localSteps(
-      Layer.mergeAll(
-        classificationIdx().layer,
-        memoryBucket().layer,
-        holdings.layer
-      )
-    ),
+    localSteps(Layer.merge(classificationIdx().layer, bucket.layer)),
     run("cron-2026-11-14T13", "2026-11-14T13:00:00Z")
+  )
+  yield* classificationParseRuns.run(
+    localSteps(Layer.merge(bucket.layer, holdings.layer)),
+    run("cron-2026-11-14", "2026-11-14T14:00:00Z")
   )
   return holdings.layer
 })

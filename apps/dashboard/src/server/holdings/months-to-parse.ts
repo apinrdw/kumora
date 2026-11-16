@@ -1,9 +1,7 @@
 // Which archived months to parse into parsed holdings: a month is parsed
 // when its newest archived version (by fetched-at) or the parser's version
 // differs from the version its parsed holdings came from, or when it has
-// none. Both archives' reconciles use it: the IDX archive run's for
-// classification reports, the KSEI parse run's for Securities holdings
-// reports.
+// none. Every parse run's reconcile uses it (parse-steps.ts).
 import { Effect, Schema } from "effect"
 
 import { ArchiveBucket } from "../archive/bucket.ts"

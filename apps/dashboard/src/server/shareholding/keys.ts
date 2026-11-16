@@ -5,6 +5,10 @@
 //                                                          one per listing seen
 //   runs/<run-id>.json                                     (../archive/run.ts)
 //   runs/latest.json                                       { id } of the last run
+//   parse-runs/<kind>/<run-id>.json                        one per parse run of
+//                                                          the kind (../holdings/
+//                                                          parse-runs.ts)
+//   parse-runs/<kind>/latest.json                          { id } of its last
 //
 // Nothing under reports/ is ever overwritten or deleted.
 import { Effect } from "effect"

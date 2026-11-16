@@ -4,7 +4,12 @@
 import { runServerEffectResult } from "@workspace/server"
 import { Effect, Layer } from "effect"
 
-import { archiveBucketR2, archiveWorkflowBinding } from "./bindings.ts"
+import {
+  archiveBucketR2,
+  archiveWorkflowBinding,
+  classificationParseWorkflowBinding,
+} from "./bindings.ts"
+import { classificationParseRuns } from "./classification-parse.ts"
 import { scheduledArchiveRun } from "./runs.ts"
 
 // Decision: returns a Promise, standing in for Cloudflare's `scheduled`,
@@ -17,4 +22,17 @@ export const runArchiveCron = (scheduledTime: number) =>
     scheduledArchiveRun(scheduledTime).pipe(
       Effect.provide(Layer.merge(archiveBucketR2, archiveWorkflowBinding))
     )
+  )
+
+// The parse cron's handler, the same way: it starts a classification parse
+// run.
+export const runParseCron = (scheduledTime: number) =>
+  runServerEffectResult(
+    classificationParseRuns
+      .scheduled(scheduledTime)
+      .pipe(
+        Effect.provide(
+          Layer.merge(archiveBucketR2, classificationParseWorkflowBinding)
+        )
+      )
   )

@@ -13,9 +13,15 @@ import {
   MAX_LISTING_BYTES,
 } from "@/server/shareholding/listing"
 
-import { fakeIdx, type FakeIdx, idxIdUrl } from "./fake-idx.ts"
+import {
+  classificationFixture,
+  classificationIdx,
+  classificationItem,
+  fakeIdx,
+  type FakeIdx,
+  idxIdUrl,
+} from "./fake-idx.ts"
 import { localSteps } from "../archive/local-steps.ts"
-import { memoryHoldingsDb } from "../holdings/memory-holdings-db.ts"
 import { type MemoryBucket, memoryBucket } from "../archive/memory-bucket.ts"
 
 const run = (
@@ -24,16 +30,11 @@ const run = (
   id: string,
   startedAt = new Date("2026-11-14T13:00:00Z")
 ) =>
-  archiveRun(
-    localSteps(
-      Layer.mergeAll(idx.layer, bucket.layer, memoryHoldingsDb().layer)
-    ),
-    {
-      id: RunId.make(id),
-      trigger: "cron",
-      startedAt,
-    }
-  )
+  archiveRun(localSteps(Layer.merge(idx.layer, bucket.layer)), {
+    id: RunId.make(id),
+    trigger: "cron",
+    startedAt,
+  })
 
 // The error a run fails with. A run that ends without one fails the test
 // with its outcome.
@@ -633,6 +634,36 @@ describe("an archive run", () => {
     })
   )
 
+  it.effect(
+    "stores a classification report that doesn't parse, and ends complete",
+    () =>
+      Effect.gen(function* () {
+        const idx = classificationIdx()
+        const bucket = memoryBucket()
+        const unsummed = idxIdUrl(classificationItem("2026-05-29").Prospectus)
+        const file = idx.files.get(unsummed)
+        assert.isDefined(file)
+        idx.files.set(unsummed, {
+          ...file,
+          body: classificationFixture("unsummed"),
+        })
+
+        const result = yield* run(idx, bucket, "cron-2026-11-14T13")
+        assert.deepInclude(result, {
+          outcome: "complete",
+          reportsAdded: 4,
+          notStored: [],
+        })
+        // A classification parse run parses, not the archive run.
+        assert.notProperty(result, "monthsParsed")
+        assert.notProperty(result, "parseFailures")
+        assert.deepStrictEqual(
+          json(bucket, "runs/cron-2026-11-14T13.json"),
+          result
+        )
+      })
+  )
+
   it.effect("fails when IDX refuses the listing, and says so", () =>
     Effect.gen(function* () {
       const idx = fakeIdx()
@@ -683,13 +714,7 @@ describe("an archive run", () => {
     () =>
       Effect.gen(function* () {
         const bucket = memoryBucket()
-        const steps = localSteps(
-          Layer.mergeAll(
-            fakeIdx().layer,
-            bucket.layer,
-            memoryHoldingsDb().layer
-          )
-        )
+        const steps = localSteps(Layer.merge(fakeIdx().layer, bucket.layer))
         // The runtime's message for a failed step, which it decides the size of.
         const message = `plan failed: ${"x".repeat(5 * MAX_RUN_ERROR_LENGTH)}`
 
