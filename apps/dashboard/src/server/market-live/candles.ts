@@ -250,7 +250,11 @@ const figuresOf = (slot: Slot) =>
     return figures
   })
 
-const candleFrom = (code: StockCode, minute: number, figures: CandleFigures) =>
+export const candleFrom = (
+  code: StockCode,
+  minute: number,
+  figures: CandleFigures
+) =>
   Effect.succeed<Candle>({
     code,
     minute: DateTime.makeUnsafe(minute),
@@ -306,8 +310,17 @@ interface Totals {
 // it leaves, and a later trade in that minute reads it back from the store.
 // Holding the whole day would grow without bound on a Worker. A failed flush
 // keeps its candles and trades until the write lands. See apinrdw/kumora#157.
+//
+// `settled` hears each regular-board trade as it settles into its candle:
+// the minute's settled figures and the trade's own (bubble-book.ts).
 export const makeCandleBook = Effect.fnUntraced(function* (
-  store: SettledCandles
+  store: SettledCandles,
+  settled: (
+    code: StockCode,
+    minute: number,
+    candle: CandleFigures,
+    print: CandleFigures
+  ) => void = () => {}
 ) {
   const series = new Map<StockCode, Map<number, Slot>>()
   // Trades still inside the merge window, in arrival order.
@@ -423,7 +436,10 @@ export const makeCandleBook = Effect.fnUntraced(function* (
       if (!(yield* counts(trade))) continue
       const slot = yield* slotOf(trade.code, yield* minuteOf(trade.time))
       slot.open.delete(tradeNumber)
-      slot.settled = add(slot.settled, printOf(trade))
+      const print = single(printOf(trade))
+      slot.settled =
+        slot.settled === undefined ? print : fold(slot.settled, print)
+      settled(slot.code, slot.minute, slot.settled, print)
       yield* addTrade(slot.settledCells, trade)
       slot.trades.set(trade.tradeNumber, trade)
       unflushed.add(slot)

@@ -9,7 +9,6 @@ import {
   StockCode,
   TradeNumber,
   TradeNumberValue,
-  type Candle,
   type Footprint,
   type HeatSlice,
   type RunningTrade,
@@ -18,12 +17,14 @@ import {
 } from "@workspace/relay"
 import { DateTime, Effect } from "effect"
 
+import type { BubbleFigures, StoredBubbles } from "./bubble-book.ts"
 import type {
   FootprintRow,
   StoredCandle,
   StoredFootprint,
   StoredSweeps,
 } from "./candles.ts"
+import { candleFrom } from "./candles.ts"
 import { cellsFromText, cellsOut, cellsText } from "./footprint-cells.ts"
 import { slicesFromText, slicesText, storedEndBook } from "./heat-rows.ts"
 import type { StoredAjaibBook } from "./order-books.ts"
@@ -279,19 +280,7 @@ const storedCandleOf = (row: Record<string, SqlValue>) =>
   }))
 
 const candleOf = ({ code, minute, figures }: StoredCandle) =>
-  Effect.succeed<Candle>({
-    code,
-    minute: DateTime.makeUnsafe(minute),
-    open: figures.open,
-    high: figures.high,
-    low: figures.low,
-    close: figures.close,
-    volume: figures.volume,
-    value: figures.value,
-    buyValue: figures.buyValue,
-    sellValue: figures.sellValue,
-    frequency: figures.frequency,
-  })
+  candleFrom(code, minute, figures)
 
 const livePriceOf = (frame: SqlValue | undefined) =>
   Effect.sync((): LivePrice => {
@@ -669,6 +658,58 @@ export const makeDayStore = (sql: Sql) =>
         )
       )
 
+    // Every stock's day totals and newest `minutes` candles, for the bubble
+    // book a restart rebuilds (bubble-book.ts). An index's candles have no
+    // footprint, so a stock is a code with one.
+    // Decision: read once, at a live day's start: one pass over the candles
+    // for the totals and one for the newest minutes, about 400,000 rows each
+    // at a full day, not one read of the day's candles a build. SQLite takes
+    // the bare `close` from the row of the one max(). See spec
+    // apinrdw/kumora#427, "Where the day totals come from".
+    const storedBubbles = (minutes: number) =>
+      Effect.sync((): StoredBubbles => {
+        const stocks = "code IN (SELECT code FROM footprints GROUP BY code)"
+        const figures = (row: Record<string, SqlValue>): BubbleFigures => ({
+          value: Number(row.value),
+          volume: Number(row.volume),
+          frequency: Number(row.frequency),
+          buyValue: Number(row.buy_value),
+          sellValue: Number(row.sell_value),
+          close: Number(row.close),
+          closeOrder: BigInt(Number(row.close_order)),
+        })
+        return {
+          days: sql
+            .exec(
+              `SELECT code, sum(value) AS value, sum(volume) AS volume,
+                sum(frequency) AS frequency, sum(buy_value) AS buy_value,
+                sum(sell_value) AS sell_value, max(close_order) AS close_order,
+                close
+               FROM candles WHERE ${stocks} GROUP BY code`
+            )
+            .map((row) => ({
+              code: StockCode.make(String(row.code)),
+              figures: figures(row),
+            })),
+          minutes: sql
+            .exec(
+              `SELECT * FROM (
+                 SELECT code, minute, value, volume, frequency, buy_value,
+                   sell_value, close, close_order,
+                   row_number() OVER (PARTITION BY code ORDER BY minute DESC)
+                     AS newest
+                 FROM candles WHERE ${stocks}
+               ) WHERE newest <= ?`,
+              minutes
+            )
+            .map((row) => ({
+              code: StockCode.make(String(row.code)),
+              minute: Number(row.minute),
+              figures: figures(row),
+            })),
+        }
+      })
+
     // One code's candles, ascending by minute.
     const candlesOf = (code: StockCode) =>
       Effect.suspend(() =>
@@ -982,6 +1023,7 @@ export const makeDayStore = (sql: Sql) =>
       tradesBetween,
       storedCandle,
       storedCandlesOf,
+      storedBubbles,
       candlesOf,
       storedFootprint,
       storedFootprintsOf,

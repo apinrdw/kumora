@@ -30,6 +30,7 @@ import {
   type RunningTrade,
   type TradeNumber,
   type WibDate,
+  BUBBLE_MINUTES,
   MINUTE_MS,
 } from "@workspace/relay"
 import type { WorkerEnv } from "@workspace/server"
@@ -48,6 +49,7 @@ import { tradePosition } from "../../lib/trade-position.ts"
 import { ajaibTrades } from "./ajaib.ts"
 import { ajaibPrices } from "./ajaib-price.ts"
 import { backfillTrades } from "./backfill-page.ts"
+import { makeBubbleBook } from "./bubble-book.ts"
 import { makeBrokerCodes } from "./broker-codes.ts"
 import { ingestTokenMatches } from "./ingest-token.ts"
 import { makeBookChunks } from "./book-chunks.ts"
@@ -68,7 +70,11 @@ import { makeOnDemand } from "./on-demand.ts"
 import { makeOrderBooks } from "./order-books.ts"
 import { chunkSlices, endBookOf, storedEndBook } from "./heat-rows.ts"
 import { buildOrderFlow, orderFlowBuiltAtStart } from "./order-flow-build.ts"
-import { SNAPSHOT_TRADES, recordedAnswer } from "./recorded-answers.ts"
+import {
+  SNAPSHOT_TRADES,
+  bubblesAnswer,
+  recordedAnswer,
+} from "./recorded-answers.ts"
 import { type AccountId, type HeldSessions, type SessionId } from "./routes.ts"
 import { stockbitTrades } from "./stockbit.ts"
 import { makeSweepBrokers } from "./sweep-brokers.ts"
@@ -381,7 +387,12 @@ export const makeTradingDay = Effect.fnUntraced(function* (options: {
   // by trade number.
   let pending = new Map<string, RunningTrade>()
   let deltaScheduled = false
-  const candles = yield* makeCandleBook(store)
+  const bubbles = makeBubbleBook(
+    sealed
+      ? { days: [], minutes: [] }
+      : yield* store.storedBubbles(BUBBLE_MINUTES)
+  )
+  const candles = yield* makeCandleBook(store, bubbles.settled)
   const ingests = options.ingests ?? Effect.succeed([])
   const books = yield* makeOrderBooks(options.date)
   const bookChunks = yield* makeBookChunks
@@ -400,6 +411,8 @@ export const makeTradingDay = Effect.fnUntraced(function* (options: {
   const lastLivePrices = new Map<StockCode, LivePrice>()
   let livePricesChanged = new Map<StockCode, LivePrice>()
   let flushScheduled = false
+  // The bubbles answer as last built, served until the next build.
+  let bubblesBody: string | undefined
   // The feed downs fact as the day store last took it.
   let writtenDowns = storedDowns
   // What a flush took whose write failed, apart from the trades and candles
@@ -682,6 +695,22 @@ export const makeTradingDay = Effect.fnUntraced(function* (options: {
     yield* candles.written
   })
 
+  // Decision: the bubbles answer is built on the flush 5 s past each minute
+  // and served as is until the next; a GET before the object's first build
+  // builds it. Each build logs its codes and bytes for the cost check; its
+  // time is measured off the Worker, whose clock stands still while it
+  // computes (bubbles.test.ts). See spec apinrdw/kumora#427, "When it is built".
+  const buildBubbles = Effect.gen(function* () {
+    const built = yield* bubbles.build(
+      (code) => lastLivePrices.get(code)?.previous
+    )
+    bubblesBody = built.text
+    yield* Effect.logInfo("Bubbles built").pipe(
+      Effect.annotateLogs({ codes: built.codes, bytes: built.text.length })
+    )
+    return built.text
+  })
+
   const unflushed = Effect.gen(function* () {
     return (
       unwritten !== undefined ||
@@ -725,6 +754,11 @@ export const makeTradingDay = Effect.fnUntraced(function* (options: {
                 )
               )
             else yield* feedLags.logEnded
+            yield* buildBubbles.pipe(
+              Effect.catchCause((cause) =>
+                Effect.logError("Bubbles not built", cause)
+              )
+            )
           }).pipe(Effect.andThen(Effect.all([unflushed, feedLags.hasUnlogged])))
         )
       ),
@@ -1129,22 +1163,31 @@ export const makeTradingDay = Effect.fnUntraced(function* (options: {
   })
 
   const recorded = (resource: RecordedResource) =>
-    Effect.andThen(builtFirst(resource), () =>
-      recordedAnswer(resource, {
-        date: options.date,
-        store,
-        codeList: codeListStore,
-        brokerCodes,
-        sweepBrokers,
-        sealed,
-        liveGaps: Effect.map(
-          market.conditions,
-          (conditions) => conditions.gaps
-        ),
-        heldHeat,
-        sweeps: candles.sweepsOf,
-      })
-    )
+    resource._tag === "Bubbles"
+      ? bubblesAnswer(
+          sealed,
+          Effect.suspend(() =>
+            bubblesBody === undefined
+              ? buildBubbles
+              : Effect.succeed(bubblesBody)
+          )
+        )
+      : Effect.andThen(builtFirst(resource), () =>
+          recordedAnswer(resource, {
+            date: options.date,
+            store,
+            codeList: codeListStore,
+            brokerCodes,
+            sweepBrokers,
+            sealed,
+            liveGaps: Effect.map(
+              market.conditions,
+              (conditions) => conditions.gaps
+            ),
+            heldHeat,
+            sweeps: candles.sweepsOf,
+          })
+        )
 
   yield* sweepIngests
 

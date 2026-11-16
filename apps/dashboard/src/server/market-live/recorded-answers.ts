@@ -15,7 +15,7 @@ import {
   type WibDate,
   MINUTE_MS,
 } from "@workspace/relay"
-import { Clock, DateTime, Effect } from "effect"
+import { Clock, DateTime, Effect, type Schema } from "effect"
 
 import type { BrokerCodesStore } from "./broker-codes.ts"
 import { codeListAnswer, type CodeListStore } from "./code-list.ts"
@@ -33,6 +33,10 @@ export const SNAPSHOT_TRADES = 200
 // incomplete day's is not stored, so the page's recheck sees new codes.
 const COMPLETE_CODES_CACHE = "private, max-age=60"
 
+// Decision: the bubbles answer is kept a minute, its build's span (spec
+// apinrdw/kumora#427, "Backfill GET").
+const BUBBLES_CACHE = "private, max-age=60"
+
 const json = (text: string, cacheControl: string, status = 200) =>
   Effect.sync(
     () =>
@@ -45,8 +49,22 @@ const json = (text: string, cacheControl: string, status = 200) =>
       })
   )
 
+// The bubbles answer, as last built: the live day only.
+export const bubblesAnswer = Effect.fnUntraced(function* (
+  sealed: boolean,
+  body: Effect.Effect<string, Schema.SchemaError>
+) {
+  return sealed
+    ? yield* json(
+        '{"error":"NotFound","message":"Live day only"}',
+        SEALED_CACHE,
+        404
+      )
+    : yield* json(yield* body, BUBBLES_CACHE)
+})
+
 export const recordedAnswer = Effect.fnUntraced(function* (
-  resource: RecordedResource,
+  resource: Exclude<RecordedResource, { readonly _tag: "Bubbles" }>,
   day: {
     readonly date: WibDate
     readonly store: Effect.Success<ReturnType<typeof makeDayStore>>
