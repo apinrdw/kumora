@@ -2,7 +2,7 @@
 // apinrdw/kumora#429): Stockbit frames go in through the ingest socket, time
 // moves only by TestClock, and the test reads the GET the page backfills
 // Market Bubbles from.
-import { assert, describe, it } from "@effect/vitest"
+import { assert, describe, expect, it } from "@effect/vitest"
 import {
   BUBBLE_MINUTES,
   StockCode,
@@ -22,6 +22,7 @@ import {
   windowEnd,
   type BubbleWindow,
 } from "@/lib/bubbles"
+import { marketStrip } from "@/lib/market-strip"
 import { makeBubbleBook } from "@/server/market-live/bubble-book"
 
 import { ajaibTrade, stockbitTrade, tradingDay, withLines } from "./day-harness"
@@ -262,6 +263,41 @@ describe("bubbles", () => {
           untr?.day,
           [6_980_000, 3, 2, 4_660_000, 2_320_000, 23300]
         )
+      })
+  )
+
+  it.effect(
+    "close the day at the newest minute's close, on the Worker and the page alike, when a corrected time puts a lower trade number in a later minute",
+    () =>
+      Effect.gen(function* () {
+        yield* at("09:11:00")
+        const day = yield* tradingDay()
+        yield* day.frames([stockPrice("UNTR", 100, 100)])
+        // 40001's corrected time falls after 40002's, in the next minute.
+        yield* day.trades([
+          trade(40002, "09:10:59", "UNTR", 110, 1, "buy"),
+          trade(40001, "09:11:00", "UNTR", 95, 1, "sell"),
+        ])
+        yield* at("09:11:01")
+        const page = yield* bubblesPage(day)
+        yield* page.settle
+        yield* page.backfill
+        yield* page.follow(["09:12:06", "09:13:06"])
+        const answer = (yield* bubbles(day)).answer
+        expect(codeOf(answer, "UNTR")?.minutes.at(-1)?.[6]).toBe(95)
+        // The answer's day is the five sums: the page takes the last price
+        // from the minutes, so the answer carries no other.
+        expect(codeOf(answer, "UNTR")?.day).toEqual([
+          20_500, 2, 2, 11_000, 9_500,
+        ])
+        const [untr] = yield* bubblesOf(
+          page.flow,
+          { size: "value", colour: "change", window: "D", top: "all" },
+          minute("09:13")
+        )
+        assert.strictEqual(untr?.last, 95)
+        assert.closeTo(untr!.dayChange!, -5, 1e-9)
+        expect(yield* marketStrip(page.flow)).toMatchObject({ up: 0, down: 1 })
       })
   )
 

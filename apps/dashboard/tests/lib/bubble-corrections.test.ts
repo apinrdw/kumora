@@ -353,6 +353,31 @@ const expected = (trades: ReadonlyArray<RunningTrade>) =>
     })
   )
 
+// Each code's last price on the page, and its day change against the body's
+// previous close of 100, none before a body brought it.
+const lastPrices = (flow: MarketFlow) =>
+  Effect.map(bubblesOf(flow, VIEW, END), (bubbles) =>
+    Object.fromEntries(
+      bubbles.map((bubble) => [
+        bubble.code,
+        { last: bubble.last, dayChange: bubble.dayChange ?? bubble.last - 100 },
+      ])
+    )
+  )
+
+// The book's last price of each code: the close of its newest minute with a
+// regular-board part, which is that minute's highest-numbered part's price.
+const expectedLast = (parts: ReadonlyArray<RunningTrade>) =>
+  Object.fromEntries(
+    CODES.flatMap((code) => {
+      const own = parts.filter((trade) => trade.code === code)
+      if (own.length === 0) return []
+      const newest = Math.max(...own.map(minuteOf))
+      const last = sumsOf(inMinute(own, code, newest)).close
+      return [[code, { last, dayChange: last - 100 }]]
+    })
+  )
+
 const inWindow = (
   trades: ReadonlyArray<RunningTrade>,
   first: number,
@@ -373,6 +398,9 @@ const matches = (
   Effect.gen(function* () {
     const parts = server.parts()
     expect(yield* shown(flow, "D", END), `${step}: D`).toEqual(expected(parts))
+    expect(yield* lastPrices(flow), `${step}: last price`).toEqual(
+      expectedLast(parts)
+    )
     for (let m = 0; m < MINUTES; m++) {
       const minute = T0 + m * MINUTE_MS
       expect(

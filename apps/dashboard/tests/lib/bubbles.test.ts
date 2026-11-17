@@ -1,5 +1,6 @@
 import { describe, expect, it } from "@effect/vitest"
 import {
+  BUBBLE_MINUTES,
   StockCode,
   TradeNumber,
   type Candle,
@@ -26,6 +27,7 @@ import {
   type BubbleWindow,
   type MarketFlow,
 } from "@/lib/bubbles"
+import { marketStrip } from "@/lib/market-strip"
 
 // 10:00:00 WIB on a trading day.
 const T0 = Date.parse("2026-11-16T03:00:00Z")
@@ -375,6 +377,39 @@ describe("the day window", () => {
           ["BBCA", 3_500],
         ])
         expect(yield* valuesAt(flow, VIEW, at)).toEqual([["BBCA", 3_500]])
+      })
+  )
+
+  it.effect(
+    "closes at a late trade's minute older than the kept ones when the code keeps none newer",
+    () =>
+      Effect.gen(function* () {
+        const flow = yield* makeMarketFlow()
+        yield* applyBubbles(
+          flow,
+          body([
+            {
+              code: "BBCA",
+              previousClose: 100,
+              minutes: [minute(T0, 10_000, 100)],
+            },
+          ])
+        )
+        // An hour and more on, another code's trade lets 10:00 and 10:01
+        // go; a late BBCA trade then lands in 10:01 at 120.
+        const later = T0 + (BUBBLE_MINUTES + 1) * MIN
+        yield* applyCandles(flow, [
+          candle("TLKM", later, { value: 10_000, close: 100, frequency: 1 }),
+          candle("BBCA", T0 + MIN, { value: 12_000, close: 120, frequency: 1 }),
+        ])
+        const [bubble] = (yield* bubblesOf(
+          flow,
+          { ...VIEW, window: "D", top: "all" },
+          later
+        )).filter((shown) => shown.code === "BBCA")
+        expect(bubble?.last).toBe(120)
+        expect(bubble?.dayChange).toBeCloseTo(20)
+        expect(yield* marketStrip(flow)).toMatchObject({ up: 1, down: 0 })
       })
   )
 
