@@ -14,6 +14,7 @@ import {
   type RunningTrade,
   type Sweep,
   MINUTE_MS,
+  SHARES_PER_LOT,
 } from "@workspace/relay"
 import { DateTime, Effect } from "effect"
 
@@ -193,10 +194,25 @@ const SCHEMA = [
 ]
 
 // Decision: a day store opened from before candles carried buy and sell value
-// (spec apinrdw/kumora#427) gains both columns at 0, the last in the table as
-// in SCHEMA, so the candles INSERT's order fits both. Its sealed days keep 0:
-// Market Bubbles is live only, so they need no rebuild.
+// (spec apinrdw/kumora#427) gains both columns, the last in the table as in
+// SCHEMA, so the candles INSERT's order fits both. An unsealed day's candles
+// get them from its stored trades in the same transaction; a sealed day's
+// keep 0: Market Bubbles is live only. See apinrdw/kumora#436.
 const ADDED_CANDLE_COLUMNS = ["buy_value", "sell_value"]
+
+// Each stored candle's buy and sell value from the stored trades, by
+// candles.ts `printOf`'s rule: a stored candle folds the settled
+// regular-board trades of its code and minute, and a flush writes those
+// trades with it.
+const REBUILD_CANDLE_SIDES = `UPDATE candles
+  SET buy_value = sides.buy, sell_value = sides.sell
+  FROM (
+    SELECT code, time - time % ${MINUTE_MS} AS minute,
+      SUM(CASE side WHEN 'buy' THEN price * lots * ${SHARES_PER_LOT} ELSE 0 END) AS buy,
+      SUM(CASE side WHEN 'sell' THEN price * lots * ${SHARES_PER_LOT} ELSE 0 END) AS sell
+    FROM trades WHERE board = 'RG' GROUP BY code, minute
+  ) AS sides
+  WHERE candles.code = sides.code AND candles.minute = sides.minute`
 
 // The keys of the facts table.
 export const Fact = {
@@ -303,11 +319,17 @@ export const makeDayStore = (sql: Sql) =>
     const columns = new Set(
       sql.exec("PRAGMA table_info(candles)").map((row) => String(row.name))
     )
-    for (const column of ADDED_CANDLE_COLUMNS)
-      if (!columns.has(column))
-        sql.exec(
-          `ALTER TABLE candles ADD COLUMN ${column} REAL NOT NULL DEFAULT 0`
-        )
+    const added = ADDED_CANDLE_COLUMNS.filter((column) => !columns.has(column))
+    const sealed =
+      sql.exec("SELECT 1 FROM facts WHERE key = ?", Fact.sealed).length > 0
+    if (added.length > 0)
+      sql.transaction(() => {
+        for (const column of added)
+          sql.exec(
+            `ALTER TABLE candles ADD COLUMN ${column} REAL NOT NULL DEFAULT 0`
+          )
+        if (!sealed) sql.exec(REBUILD_CANDLE_SIDES)
+      })
 
     let meter = yield* emptyMeter
     // Runs `work`, adding the rows the database counted meanwhile to the
