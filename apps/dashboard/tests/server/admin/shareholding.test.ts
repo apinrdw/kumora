@@ -224,7 +224,16 @@ describe("the shareholding archive page", () => {
       {
         year: 2026,
         months: Array.from({ length: 12 }, (_, i) =>
-          i === month - 1 ? { date, state: "not-parsed" as const } : null
+          i === month - 1
+            ? {
+                date,
+                state: "not-parsed" as const,
+                newestSha256: "a".repeat(64),
+                parsed: null,
+                staleCauses: [],
+                failure: null,
+              }
+            : null
         ),
       },
     ]
