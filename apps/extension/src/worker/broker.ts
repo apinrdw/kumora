@@ -65,10 +65,12 @@ export type TabRequest =
   // A GET of `path` on the page's own REST API with the page's own headers,
   // as the MAIN-world wrapper last saw them. Before it saw any, `token` (the
   // PIN sign-in's) stands in on Ajaib's API host; status 0 without either.
+  // `bearer` replaces the headers' token when given.
   | {
       readonly _tag: "page-fetch"
       readonly path: string
       readonly token?: string
+      readonly bearer?: string
     }
   // A JSON POST from the tab, with its cookies and the page's headers.
   | { readonly _tag: "page-post"; readonly url: string; readonly body: string }

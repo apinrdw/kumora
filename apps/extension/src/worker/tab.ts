@@ -253,6 +253,12 @@ export const makeBrokerTab = Effect.fnUntraced(function* (options: {
     drop,
     isOpen,
     attached: Effect.sync(() => active !== undefined),
+    reload: Effect.suspend(() => {
+      const id = active?.sender?.tab?.id
+      return id === undefined
+        ? Effect.void
+        : Effect.ignore(Effect.tryPromise(() => chrome.tabs.reload(id)))
+    }),
   }
   return tab
 })
@@ -283,4 +289,6 @@ export interface BrokerTab {
     connection: Connection
   ) => Effect.Effect<boolean>
   readonly attached: Effect.Effect<boolean>
+  // Reloads the tab now relayed, if one is.
+  readonly reload: Effect.Effect<void>
 }

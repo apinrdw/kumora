@@ -49,6 +49,14 @@ const HEAD_PAGE_SIZE = 40
 // start".
 const START_POLL = "1 minute"
 const RETRY = "10 seconds"
+const RETRY_MS = 10_000
+// How long a 401 waits for a token Ajaib hasn't refused before the walk
+// reloads the Ajaib tab, and again each time this passes.
+const RELOAD_MS = 60_000
+
+// The Ajaib web app's cookie holding its access token.
+const TOKEN_COOKIE = "trade_access_token"
+const JWT = /eyJ[\w-]+\.[\w-]+\.[\w-]+/
 
 // Where a day's walk stands, kept so a restarted worker carries on: the
 // first pass's next block boundary (epoch ms, newest first) and the blocks
@@ -150,7 +158,11 @@ const blockRows = Effect.fnUntraced(function* (
 })
 
 export const makeAjaibWalk = Effect.fnUntraced(function* (options: {
-  readonly tab: RequestingTab & { readonly attached: Effect.Effect<boolean> }
+  readonly tab: RequestingTab & {
+    readonly attached: Effect.Effect<boolean>
+    // Reloads the Ajaib tab, so its page signs its calls with a fresh token.
+    readonly reload: Effect.Effect<void>
+  }
   readonly post: (batch: BrokerCodesBatch) => Effect.Effect<PostOutcome>
   readonly store: AjaibWalkStore
   // For the options page (progress.ts): the trades the first pass fetched
@@ -182,27 +194,90 @@ export const makeAjaibWalk = Effect.fnUntraced(function* (options: {
     }
   })
 
-  const pageToken = Effect.map(tab.request({ _tag: "page-token" }), (answer) =>
-    Option.map(
-      Option.filter(answer, (token) => token.status === 200),
-      (token) => token.body
-    )
+  const pageToken = Effect.map(
+    Effect.suspend(() => tab.request({ _tag: "page-token" })),
+    (answer) =>
+      Option.map(
+        Option.filter(answer, (token) => token.status === 200),
+        (token) => token.body
+      )
   )
 
-  // Decision: on a 401 the walk waits in place until the page's own token
-  // refresh shows new headers; the extension never calls refresh itself.
-  // See apinrdw/kumora#244, "A 401".
-  // `stale` is the token read as the refused call was sent: the page may
-  // have refreshed it before the 401 came back.
-  const awaitNewToken = Effect.fnUntraced(function* (
+  // The token in the tab's `trade_access_token` cookie, URL-encoded and
+  // sometimes wrapped, so the JWT is matched out of it.
+  const cookieToken = Effect.map(
+    Effect.suspend(() => tab.request({ _tag: "cookie", name: TOKEN_COOKIE })),
+    (answer) =>
+      Option.flatMap(
+        Option.filter(answer, (cookie) => cookie.status === 200),
+        (cookie) => {
+          let text = cookie.body
+          try {
+            text = decodeURIComponent(text)
+          } catch {
+            // Not URL-encoded: matched as it is.
+          }
+          return Option.fromNullishOr(JWT.exec(text)?.[0])
+        }
+      )
+  )
+
+  // The cookie's token once a 401 made the walk take it; none while the
+  // page's own headers serve.
+  let cookie = Option.none<string>()
+  // Every token Ajaib refused this walk, so none is sent twice.
+  const refused = new Set<string>()
+
+  // The token the next call sends: the cookie's once taken, else the page's.
+  const sending = Effect.suspend(() =>
+    Option.isSome(cookie) ? Effect.succeed(cookie) : pageToken
+  )
+
+  // Decision: on a 401 the walk sends the first token Ajaib hasn't refused,
+  // the page's headers' then the `trade_access_token` cookie's; with neither
+  // it reloads the idle Ajaib tab every RELOAD_MS, which re-issues the cookie.
+  // Its position is in the store, so a reload loses nothing. It never calls
+  // refresh itself. 2026-11-17: a 22-hour-old token stalled the walk.
+  const awaitNewToken = Effect.fnUntraced(function* (windowEnd: DateTime.Utc) {
+    let waited = 0
+    while (true) {
+      const page = yield* pageToken
+      if (Option.isSome(page) && !refused.has(page.value)) {
+        cookie = Option.none()
+        return
+      }
+      const stored = yield* cookieToken
+      if (Option.isSome(stored) && !refused.has(stored.value)) {
+        cookie = stored
+        return
+      }
+      yield* Effect.sleep(RETRY)
+      waited += RETRY_MS
+      if (waited >= RELOAD_MS) {
+        yield* tab.reload
+        waited = 0
+      }
+      yield* guard(windowEnd)
+    }
+  })
+
+  // One call on Ajaib's API with the token `sending` gives; a 401 waits for
+  // a token Ajaib hasn't refused and sends it again. None when the tab
+  // didn't answer.
+  const call = Effect.fnUntraced(function* (
     windowEnd: DateTime.Utc,
-    stale: Option.Option<string>
+    path: string
   ) {
     while (true) {
-      const token = yield* pageToken
-      if (Option.isSome(token) && !Option.contains(stale, token.value)) return
-      yield* Effect.sleep(RETRY)
-      yield* guard(windowEnd)
+      const sent = yield* sending
+      const answer = yield* tab.request({
+        _tag: "page-fetch",
+        path,
+        ...(Option.isSome(cookie) ? { bearer: cookie.value } : {}),
+      })
+      if (Option.isNone(answer) || answer.value.status !== 401) return answer
+      if (Option.isSome(sent)) refused.add(sent.value)
+      yield* awaitNewToken(windowEnd)
     }
   })
 
@@ -213,12 +288,7 @@ export const makeAjaibWalk = Effect.fnUntraced(function* (options: {
   ) {
     while (true) {
       yield* guard(windowEnd)
-      const sent = yield* pageToken
-      const answer = yield* tab.request({ _tag: "page-fetch", path })
-      if (Option.isSome(answer) && answer.value.status === 401) {
-        yield* awaitNewToken(windowEnd, sent)
-        continue
-      }
+      const answer = yield* call(windowEnd, path)
       if (Option.isSome(answer) && answer.value.status === 200) {
         const rows = yield* pageRows(answer.value)
         if (Option.isSome(rows)) return rows.value
@@ -238,27 +308,26 @@ export const makeAjaibWalk = Effect.fnUntraced(function* (options: {
     if (outcome !== "sent") return yield* haltOnRefusal(outcome)
   })
 
-  // A call made while waiting for the close; none when the tab didn't
-  // answer, which is polled again.
-  const startCall = (path: string) =>
-    Effect.suspend(() => tab.request({ _tag: "page-fetch", path }))
-
-  const isClosed = Effect.map(startCall(STATUS_PATH), (answer) =>
-    Option.exists(answer, (status) =>
-      Option.exists(
-        decodeStatus(status.body),
-        (decoded) =>
-          ("result" in decoded ? decoded.result.status : decoded.status) ===
-          "CLOSED"
+  const isClosed = (windowEnd: DateTime.Utc) =>
+    Effect.map(call(windowEnd, STATUS_PATH), (answer) =>
+      Option.exists(answer, (status) =>
+        Option.exists(
+          decodeStatus(status.body),
+          (decoded) =>
+            ("result" in decoded ? decoded.result.status : decoded.status) ===
+            "CLOSED"
+        )
       )
     )
-  )
 
   // The day's highest trade number, once the tape's newest page is the
   // day's and carries codes on every row.
-  const dayHead = Effect.fnUntraced(function* (day: WibDate) {
+  const dayHead = Effect.fnUntraced(function* (
+    day: WibDate,
+    windowEnd: DateTime.Utc
+  ) {
     const now = yield* Clock.currentTimeMillis
-    const head = yield* startCall(yield* tapePath(now, 1, HEAD_PAGE_SIZE))
+    const head = yield* call(windowEnd, yield* tapePath(now, 1, HEAD_PAGE_SIZE))
     if (Option.isNone(head)) return Option.none<TradeNumber>()
     const page =
       head.value.status === 200
@@ -290,8 +359,8 @@ export const makeAjaibWalk = Effect.fnUntraced(function* (options: {
   ) {
     while (true) {
       yield* guard(windowEnd)
-      if (yield* isClosed) {
-        const n = yield* dayHead(day)
+      if (yield* isClosed(windowEnd)) {
+        const n = yield* dayHead(day, windowEnd)
         if (Option.isSome(n)) return n.value
       }
       yield* Effect.sleep(START_POLL)
