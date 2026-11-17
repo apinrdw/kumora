@@ -1,5 +1,5 @@
 // BrokerTotalsDb, the broker totals D1 (BROKER_TOTALS_DB in alchemy.run.ts;
-// schema in broker-totals-migrations/): each complete day's per-broker
+// schema in broker-totals-migrations/): each buildable day's per-broker
 // totals and daily candles, which its trading-day object writes (spec
 // apinrdw/kumora#437, "Dashboard: broker totals DB") and the stock page reads
 // by range. Code reaches it only through `batch`, which runs its statements
@@ -72,6 +72,8 @@ export interface DayCandle {
 export interface DayBuild {
   readonly totals: ReadonlyArray<BrokerTotal>
   readonly candles: ReadonlyArray<DayCandle>
+  // The trades of 1..N the day missed.
+  readonly missingTrades: number
 }
 
 const TOTALS_COLUMNS = [
@@ -121,6 +123,23 @@ const insertsOf = Effect.fnUntraced(function* <Row>(
   }))
 })
 
+// The day's rows deleted, its built-days row first, so a day it stops
+// halfway reads as a gap.
+const deleteDay = Effect.fnUntraced(function* (
+  day: WibDate
+): Effect.fn.Return<ReadonlyArray<Statement>> {
+  return [
+    { sql: "DELETE FROM built_days WHERE day = ?", params: [day] },
+    { sql: "DELETE FROM totals WHERE day = ?", params: [day] },
+    { sql: "DELETE FROM candles WHERE day = ?", params: [day] },
+  ]
+})
+
+// A built day no longer buildable, made a gap until it builds again.
+export const clearBuiltDay = Effect.fnUntraced(function* (day: WibDate) {
+  yield* (yield* BrokerTotalsDb).batch(yield* deleteDay(day))
+})
+
 // Decision: a day is written in this order: its built-days row deleted, its
 // totals and candles deleted and inserted in batches, its built-days row
 // inserted last. A half-written or rebuilding day reads as a gap, and a
@@ -162,19 +181,13 @@ export const writeBuiltDay = Effect.fnUntraced(function* (
       ]
     )),
   ]
-  const batches: Array<ReadonlyArray<Statement>> = [
-    [
-      { sql: "DELETE FROM built_days WHERE day = ?", params: [day] },
-      { sql: "DELETE FROM totals WHERE day = ?", params: [day] },
-      { sql: "DELETE FROM candles WHERE day = ?", params: [day] },
-    ],
-  ]
+  const batches: Array<ReadonlyArray<Statement>> = [yield* deleteDay(day)]
   for (let at = 0; at < inserts.length; at += STATEMENTS_PER_BATCH)
     batches.push(inserts.slice(at, at + STATEMENTS_PER_BATCH))
   batches.push([
     {
-      sql: "INSERT INTO built_days (day, build_version, built_at) VALUES (?, ?, ?)",
-      params: [day, version, DateTime.formatIso(builtAt)],
+      sql: "INSERT INTO built_days (day, build_version, built_at, missing_trades) VALUES (?, ?, ?, ?)",
+      params: [day, version, DateTime.formatIso(builtAt), build.missingTrades],
     },
   ])
   let rowsWritten = 0
@@ -190,6 +203,7 @@ const BuiltDayRow = Schema.Struct({
   day: WibDate,
   buildVersion: Schema.Number,
   builtAt: Schema.String,
+  missingTrades: Schema.Number,
 })
 
 const CandleRow = Schema.Struct({
@@ -280,7 +294,7 @@ export const readBrokerTotals = Effect.fnUntraced(function* (
     rows: [builtDays, candles, totals],
   } = yield* (yield* BrokerTotalsDb).batch([
     {
-      sql: "SELECT day, build_version AS buildVersion, built_at AS builtAt FROM built_days WHERE day BETWEEN ? AND ? ORDER BY day",
+      sql: "SELECT day, build_version AS buildVersion, built_at AS builtAt, missing_trades AS missingTrades FROM built_days WHERE day BETWEEN ? AND ? ORDER BY day",
       params: [from, to],
     },
     {

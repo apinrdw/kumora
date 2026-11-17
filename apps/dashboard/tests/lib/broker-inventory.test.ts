@@ -43,6 +43,7 @@ const read = (
     pending: undefined,
     days: days.map((day) => WibDate.make(day)),
     built: days.map((day) => !gaps.includes(day)),
+    missingTrades: days.map(() => 0),
     candles: {
       day: [],
       open: [],
@@ -347,7 +348,7 @@ describe("the broker summary", () => {
   )
 
   it.effect(
-    "footers the broker count, the lots traded, the trades counted and the incomplete days skipped",
+    "footers the broker count, the lots traded, the trades counted and missing, and the gap days skipped",
     () =>
       Effect.gen(function* () {
         const rows = read(
@@ -360,9 +361,11 @@ describe("the broker summary", () => {
             [2, "CC", "F", 0, 20],
           ]
         )
-        // Monday's 50 lots in 30 trades, Wednesday's 20 in 12.
+        // Monday's 50 lots in 30 trades, Wednesday's 20 in 12, and 3
+        // trades missing on Monday and 1 on Wednesday.
         const week = {
           ...rows,
+          missingTrades: [3, 0, 1, 0, 0],
           candles: {
             day: [0, 2],
             open: [1000, 1000],
@@ -376,14 +379,26 @@ describe("the broker summary", () => {
         }
         expect(
           yield* summaryFooter(week, yield* brokerSummary(week, LOTS))
-        ).toStrictEqual({ brokers: 3, lots: 70, trades: 42, incomplete: 2 })
+        ).toStrictEqual({
+          brokers: 3,
+          lots: 70,
+          trades: 42,
+          missingTrades: 4,
+          gapDays: 2,
+        })
         // Every lot has a buy side and a sell side; foreign sides here are
         // half of each trade, so they traded half its lots. The trades
         // counted are the range's, whatever the filter.
         const foreign = { measure: "lots", investor: "foreign" } as const
         expect(
           yield* summaryFooter(week, yield* brokerSummary(week, foreign))
-        ).toStrictEqual({ brokers: 2, lots: 35, trades: 42, incomplete: 2 })
+        ).toStrictEqual({
+          brokers: 2,
+          lots: 35,
+          trades: 42,
+          missingTrades: 4,
+          gapDays: 2,
+        })
       })
   )
 

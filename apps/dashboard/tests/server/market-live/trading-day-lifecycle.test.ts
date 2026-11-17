@@ -1,11 +1,15 @@
 // A seeded fuzz of a trading day's lifecycle: relay trades, walk batches
 // with and without fields, code corrections, clock moves across 17:00,
 // restarts, failing transactions and D1 batches, reconcile pokes, from fresh
-// days and from days shaped as older revisions stored them. Every run then
-// settles (failures healed, every trade walked) and must end sealed, listed,
-// complete and built with the kept codes' totals, and a sealed day's answers
-// must never change. Spec apinrdw/kumora#437; the review rounds that found
-// each hole are in its PR #449.
+// days and from days shaped as older revisions stored them. A run's
+// unfillable trades, as many as the build gate allows, no walk ever sends.
+// Every run then settles (failures healed, every other trade walked) and
+// must end sealed, listed and built with the kept codes' totals and its
+// unfillable trades missing. A sealed day's answers must never change, and
+// a day with a built row and no build due must be buildable with the row's
+// missing count.
+// Spec apinrdw/kumora#437 and #457; the review rounds that found each hole
+// are in its PR #449.
 import { assert, describe, it } from "@effect/vitest"
 import {
   BrokerCode,
@@ -25,6 +29,7 @@ import { Clock, DateTime, Effect, Exit, Layer, Scope } from "effect"
 import { TestClock } from "effect/testing"
 
 import { readBrokerTotals } from "@/server/broker-totals/db"
+import { MISSING_ALLOWANCE } from "@/server/market-live/broker-codes"
 import type { Sql } from "@/server/market-live/day-store"
 import {
   makeTradingDay,
@@ -45,12 +50,15 @@ const ms = (date: string, time: string) => Date.parse(`${date}T${time}+07:00`)
 const SEAL = ms(DAY, "17:00:00")
 const WALKS_FROM = ms(DAY, "16:35:00")
 const RELAY_FROM = ms(DAY, "08:45:00")
-// The day's trades: 1..M, trade n of n lots.
+// The day's trades: M slots of a mode's `slot` trades each, trade n of n
+// lots. The fuzz picks slots; a slot's trades go together.
 const M = 12
-const VOLUME = (M * (M + 1)) / 2
 
 // What a run varies beyond its seed.
 interface Mode {
+  // The trades a slot holds. A day of at least 1,000 trades has
+  // unfillable ones, at most 1 in 1,000.
+  readonly slot: number
   // A walk's `end` can name M - 2..M, as two sites' walks end apart.
   readonly variableN: boolean
   // The day starts as an older revision stored it.
@@ -59,6 +67,9 @@ interface Mode {
   readonly lazyAlarms: boolean
   // The object starts before the walks, while the relay can still stream.
   readonly early: boolean
+  // Walks send the last slot only at settle, and an `end` names it only once
+  // the day is built, which pushes the built day past the build gate.
+  readonly lastSlotAtSettle?: boolean
 }
 
 const LEGACY_DAYS = [
@@ -126,9 +137,28 @@ const rng = (seed: number) => {
 const run = (seed: number, mode: Mode) =>
   Effect.gen(function* () {
     const random = rng(seed * 7919 + 13)
+    const B = mode.slot
+    const T = M * B
+    const tradesOf = (slots: ReadonlyArray<number>) =>
+      slots.flatMap((slot) =>
+        Array.from({ length: B }, (_, offset) => (slot - 1) * B + offset + 1)
+      )
+    // Its own stream, so a seed's steps stay as they were before it.
+    const unfillableRandom = rng(seed * 104_729 + 7)
+    const unfillable = new Set(
+      Array.from(
+        {
+          length: Math.floor(unfillableRandom() * (Math.floor(T / 1_000) + 1)),
+        },
+        () => 1 + Math.floor(unfillableRandom() * T)
+      )
+    )
+    const fillable = Array.from({ length: T }, (_, at) => at + 1).filter(
+      (n) => !unfillable.has(n)
+    )
     const pick = <T>(items: ReadonlyArray<T>) =>
       items[Math.floor(random() * items.length)]!
-    const log: Array<string> = []
+    const log: Array<string> = [`unfillable ${JSON.stringify([...unfillable])}`]
     const base = memorySql()
     const flaky = { failing: false }
     const sql: Sql = {
@@ -189,11 +219,10 @@ const run = (seed: number, mode: Mode) =>
           version: BrokerCodesProtocolVersion,
           feed: "Stockbit",
           day: DAY,
-          rows: Array.from(
-            { length: M },
-            (_, at) =>
+          rows: fillable.map(
+            (n) =>
               [
-                TradeNumber.make(String(at + 1)),
+                TradeNumber.make(String(n)),
                 {
                   buyer: BrokerCode.make("AK"),
                   buyerType: "F" as const,
@@ -202,11 +231,11 @@ const run = (seed: number, mode: Mode) =>
                 },
               ] as const
           ),
-          end: { n: TradeNumber.make(String(M)) },
+          end: { n: TradeNumber.make(String(T)) },
         })
       )
       yield* Scope.close(old.scope, Exit.void)
-      for (let n = 1; n <= M; n++)
+      for (const n of fillable)
         base.exec(
           "INSERT INTO walk_trades VALUES (?, ?, ?, ?, ?)",
           n,
@@ -242,7 +271,7 @@ const run = (seed: number, mode: Mode) =>
         yield* old.day
           .ingestMessage(
             relay,
-            yield* relayFrames(numbers, ms(DAY, "09:30:00"))
+            yield* relayFrames(tradesOf(numbers), ms(DAY, "09:30:00"))
           )
           .pipe(Effect.provide(env))
         yield* TestClock.adjust(70_000)
@@ -315,6 +344,10 @@ const run = (seed: number, mode: Mode) =>
       const [row] = base.exec("SELECT value FROM facts WHERE key = ?", key)
       return row === undefined ? undefined : String(row.value)
     }
+    const builtRow = () =>
+      db.database
+        .prepare("SELECT missing_trades AS missing FROM built_days")
+        .get() as { missing: number } | undefined
     const status = Effect.gen(function* () {
       const response = yield* object.day.brokerCodes.status(
         new URLSearchParams()
@@ -333,13 +366,19 @@ const run = (seed: number, mode: Mode) =>
         .pipe(Effect.provide(env))
       return `${yield* Effect.promise(() => tape.text())}|${yield* Effect.promise(() => candles.text())}`
     })
+    // A batch of `slots`' fillable trades, each slot with fields or not.
     const post = (
       feed: "Ajaib" | "Stockbit",
-      rows: ReadonlyArray<readonly [number, boolean]>,
+      slots: ReadonlyArray<readonly [number, boolean]>,
       end?: number,
       buyerOf: (n: number) => string = () => "AK"
     ) =>
       Effect.gen(function* () {
+        const rows = slots.flatMap(([slot, fielded]) =>
+          tradesOf([slot])
+            .filter((n) => !unfillable.has(n))
+            .map((n) => [n, fielded] as const)
+        )
         const text = yield* encodeBrokerCodesBatch({
           version: BrokerCodesProtocolVersion,
           feed,
@@ -362,7 +401,7 @@ const run = (seed: number, mode: Mode) =>
         })
         const exit = yield* Effect.exit(object.day.brokerCodes.post(text))
         log.push(
-          `post ${feed} ${JSON.stringify(rows.map(([n, f]) => (f ? n : `${n}c`)))} end=${end} -> ${Exit.isSuccess(exit) ? exit.value.status : "threw"}`
+          `post ${feed} ${JSON.stringify(slots.map(([n, f]) => (f ? n : `${n}c`)))} end=${end} -> ${Exit.isSuccess(exit) ? exit.value.status : "threw"}`
         )
       })
     const subset = (most: number) => {
@@ -395,24 +434,30 @@ const run = (seed: number, mode: Mode) =>
           log.push(`relay ${JSON.stringify(numbers)}`)
           yield* Effect.exit(
             object.day
-              .ingestMessage(socket, yield* relayFrames(numbers, now))
+              .ingestMessage(socket, yield* relayFrames(tradesOf(numbers), now))
               .pipe(Effect.provide(env))
           )
         }
       } else if (roll < 0.7) {
         if (now >= WALKS_FROM) {
-          const rows = subset(6).map((n) => [n, random() < 0.9] as const)
+          const rows = subset(6)
+            .map((n) => [n, random() < 0.9] as const)
+            .filter(([n]) => !mode.lastSlotAtSettle || n !== M)
           const end =
             random() < 0.3
-              ? mode.variableN
-                ? M - Math.floor(random() * 3)
-                : M
+              ? mode.lastSlotAtSettle
+                ? builtRow() === undefined
+                  ? T - B
+                  : T
+                : mode.variableN
+                  ? (M - Math.floor(random() * 3)) * B
+                  : T
               : undefined
           const corrected = new Set(
-            rows.filter(() => random() < 0.3).map(([n]) => n)
+            rows.filter(() => random() < 0.3).map(([slot]) => slot)
           )
           yield* post(pick(["Ajaib", "Stockbit"] as const), rows, end, (n) =>
-            corrected.has(n) ? "YP" : "AK"
+            corrected.has(Math.ceil(n / B)) ? "YP" : "AK"
           )
         }
       } else if (roll < 0.8) {
@@ -434,6 +479,19 @@ const run = (seed: number, mode: Mode) =>
         yield* Effect.exit(status)
       }
       if (!mode.lazyAlarms || random() < 0.6) yield* fire
+      if (!flaky.failing && factOf("build-wake") === undefined) {
+        const row = builtRow()
+        if (row !== undefined) {
+          const { n, missingCount } = yield* status
+          if (n === null || missingCount * MISSING_ALLOWANCE > Number(n))
+            return { failure: `built but not buildable at ${n}`, log }
+          if (row.missing !== missingCount)
+            return {
+              failure: `built missing ${row.missing} != ${missingCount}`,
+              log,
+            }
+        }
+      }
       if (factOf("sealed") !== undefined && !flaky.failing) {
         const text = yield* answer
         if (sealedAnswer === undefined) {
@@ -452,7 +510,7 @@ const run = (seed: number, mode: Mode) =>
     yield* post(
       "Stockbit",
       Array.from({ length: M }, (_, at) => [at + 1, true] as const),
-      M
+      T
     )
     yield* fire
     for (let minute = 0; minute < 20; minute++) yield* advance(60_000)
@@ -465,7 +523,7 @@ const run = (seed: number, mode: Mode) =>
       base.exec("SELECT count(*) AS count FROM trades")[0]?.count
     )
     const kept = new Map<string, number>()
-    for (let n = 1; n <= M; n++) {
+    for (let n = 1; n <= T; n++) {
       const held = yield* object.day.brokerCodes.held(
         TradeNumber.make(String(n))
       )
@@ -482,14 +540,22 @@ const run = (seed: number, mode: Mode) =>
     const show = (lots: Map<string, number>) => JSON.stringify([...lots].sort())
 
     const problems: Array<string> = []
-    if (!final.complete) problems.push(`incomplete ${JSON.stringify(final)}`)
+    if (final.n !== String(T) || final.missingCount !== unfillable.size)
+      problems.push(`short ${JSON.stringify(final)}`)
     if (factOf("sealed") === undefined) problems.push("not sealed")
     if (built.builtDays.length !== 1) problems.push("not built")
     else {
       if (show(kept) !== show(bought))
         problems.push(`totals ${show(bought)} != kept ${show(kept)}`)
-      if (built.candles[0]?.volume !== VOLUME || built.candles[0]?.trades !== M)
-        problems.push(`built wrong ${JSON.stringify(built.candles)}`)
+      const volume = fillable.reduce((sum, n) => sum + n, 0)
+      if (
+        built.candles[0]?.volume !== volume ||
+        built.candles[0]?.trades !== fillable.length ||
+        built.builtDays[0]?.missingTrades !== unfillable.size
+      )
+        problems.push(
+          `built wrong ${JSON.stringify([built.candles, built.builtDays])}`
+        )
     }
     // An older revision's relay seal wrote its index row before this run.
     if (tapeTrades > 0 && indexed.length === 0 && legacy !== "relay-sealed")
@@ -505,41 +571,92 @@ const run = (seed: number, mode: Mode) =>
     }
   })
 
+// A slot of 170 trades makes a day of 2,040, up to 2 of them unfillable.
+const UNFILLABLE = 170
+
 const MODES: Array<[string, Mode, number]> = [
   [
     "fixed N",
-    { variableN: false, legacy: false, lazyAlarms: false, early: false },
+    {
+      slot: 1,
+      variableN: false,
+      legacy: false,
+      lazyAlarms: false,
+      early: false,
+    },
     60,
   ],
   [
     "varying N",
-    { variableN: true, legacy: false, lazyAlarms: false, early: false },
+    {
+      slot: 1,
+      variableN: true,
+      legacy: false,
+      lazyAlarms: false,
+      early: false,
+    },
     200,
   ],
   [
     "varying N, older revisions' days",
-    { variableN: true, legacy: true, lazyAlarms: false, early: false },
+    { slot: 1, variableN: true, legacy: true, lazyAlarms: false, early: false },
     80,
   ],
   [
     "varying N, late alarms",
-    { variableN: true, legacy: false, lazyAlarms: true, early: false },
+    { slot: 1, variableN: true, legacy: false, lazyAlarms: true, early: false },
     100,
   ],
   [
     "varying N, started before the walks",
-    { variableN: true, legacy: false, lazyAlarms: true, early: true },
+    { slot: 1, variableN: true, legacy: false, lazyAlarms: true, early: true },
     60,
+  ],
+  [
+    "an end raised past a built day's last slot",
+    {
+      slot: 1,
+      variableN: true,
+      legacy: false,
+      lazyAlarms: false,
+      early: false,
+      lastSlotAtSettle: true,
+    },
+    60,
+  ],
+  [
+    "unfillable trades, varying N",
+    {
+      slot: UNFILLABLE,
+      variableN: true,
+      legacy: false,
+      lazyAlarms: false,
+      early: false,
+    },
+    40,
+  ],
+  [
+    "unfillable trades, older revisions' days, late alarms",
+    {
+      slot: UNFILLABLE,
+      variableN: true,
+      legacy: true,
+      lazyAlarms: true,
+      early: false,
+    },
+    40,
   ],
 ]
 
 describe.each(MODES)("trading day lifecycle, %s", (_name, mode, seeds) => {
   it.effect.each(Array.from({ length: seeds }, (_, seed) => seed))(
-    "seed %s settles sealed, complete and built",
+    "seed %s settles sealed and built, its unfillable trades missing",
     (seed) =>
       Effect.gen(function* () {
         const { failure, log } = yield* run(seed, mode)
         assert.isUndefined(failure, `${failure}\n${log.join("\n")}`)
-      })
+      }),
+    // A day of 2,040 trades takes up to ~2.5 s a seed here.
+    mode.slot === 1 ? undefined : 10_000
   )
 })

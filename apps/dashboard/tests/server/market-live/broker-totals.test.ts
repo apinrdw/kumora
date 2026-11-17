@@ -121,6 +121,7 @@ const UNTR_BUILT = {
       day: DAY,
       buildVersion: BROKER_TOTALS_VERSION,
       builtAt: "2026-11-09T10:30:00.000Z",
+      missingTrades: 0,
     },
   ],
   candles: [
@@ -304,6 +305,7 @@ describe("a complete sealed day's broker totals", () => {
           {
             ...UNTR_BUILT.builtDays[0],
             builtAt: "2026-11-09T10:00:00.000Z",
+            missingTrades: 0,
           },
         ])
       })
@@ -430,6 +432,7 @@ describe("a built day's correction", () => {
                 day: DAY,
                 buildVersion: BROKER_TOTALS_VERSION,
                 builtAt: "2026-11-09T11:09:00.000Z",
+                missingTrades: 0,
               },
             ],
             totals: UNTR_CORRECTED,
@@ -494,7 +497,7 @@ describe("a built day's correction", () => {
   )
 
   it.effect(
-    "that fills a trade's fields alone rebuilds the day, which waited out its codes-only trade",
+    "that fills a trade's fields alone rebuilds the day, a gap while its codes-only trade waited",
     () =>
       Effect.gen(function* () {
         const db = memoryBrokerTotalsDb()
@@ -503,7 +506,7 @@ describe("a built day's correction", () => {
         yield* day.brokerCodes("Stockbit", [[8, "AK F CC D"]], 8)
         yield* at("18:05:00")
         yield* day.alarm
-        assert.deepStrictEqual(yield* read(db, UNTR), UNTR_BUILT)
+        assert.deepStrictEqual(yield* read(db, UNTR), NOTHING)
 
         yield* at("18:10:00")
         yield* day.brokerCodes("Stockbit", [
@@ -602,7 +605,7 @@ describe("a built day's correction", () => {
 
 describe("a due day", () => {
   it.effect(
-    "whose build wake found it incomplete builds once a batch completes it again",
+    "whose build wake found it unbuildable builds once a batch makes it buildable again",
     () =>
       Effect.gen(function* () {
         const db = memoryBrokerTotalsDb()
@@ -676,6 +679,7 @@ describe("a reconcile poke", () => {
             day: DAY,
             buildVersion: BROKER_TOTALS_VERSION,
             builtAt: "2026-11-09T11:00:00.000Z",
+            missingTrades: 0,
           },
         ])
       })
@@ -702,13 +706,14 @@ describe("a reconcile poke", () => {
               day: DAY,
               buildVersion: BROKER_TOTALS_VERSION,
               builtAt: "2026-11-09T11:00:00.000Z",
+              missingTrades: 0,
             },
           ],
         })
       })
   )
 
-  it.effect("does nothing on an unsealed or an incomplete day", () =>
+  it.effect("does nothing on an unsealed or an unbuildable day", () =>
     withLines("Broker totals built", (lines) =>
       Effect.gen(function* () {
         const unsealedDb = memoryBrokerTotalsDb()
@@ -721,13 +726,13 @@ describe("a reconcile poke", () => {
         yield* unsealed.alarm
         assert.deepStrictEqual(yield* read(unsealedDb, UNTR), NOTHING)
 
-        const incompleteDb = memoryBrokerTotalsDb()
-        const incomplete = yield* sealedDay(incompleteDb)
+        const unbuildableDb = memoryBrokerTotalsDb()
+        const unbuildable = yield* sealedDay(unbuildableDb)
         yield* at("17:30:00")
-        yield* incomplete.brokerCodes("Ajaib", CODES.slice(0, 6), 7)
-        assert.isFalse(yield* incomplete.reconcile)
-        yield* incomplete.alarm
-        assert.deepStrictEqual(yield* read(incompleteDb, UNTR), NOTHING)
+        yield* unbuildable.brokerCodes("Ajaib", CODES.slice(0, 6), 7)
+        assert.isFalse(yield* unbuildable.reconcile)
+        yield* unbuildable.alarm
+        assert.deepStrictEqual(yield* read(unbuildableDb, UNTR), NOTHING)
         assert.lengthOf(lines, 0)
       })
     )
@@ -930,9 +935,165 @@ describe("a failed broker totals build", () => {
             day: DAY,
             buildVersion: BROKER_TOTALS_VERSION,
             builtAt: "2026-11-09T10:31:00.000Z",
+            missingTrades: 0,
           },
         ],
       })
+    })
+  )
+})
+
+// A day of 1,000 trades: its gate lets 1 missing trade build, 2 not.
+const N = 1_000
+
+// Walk rows of trades `from`..N with fields, but none for `unfilled` and
+// codes alone for `codesOnly`.
+const walkRows = (
+  from: number,
+  unfilled: ReadonlyArray<number>,
+  codesOnly: ReadonlyArray<number> = []
+) =>
+  Array.from({ length: N - from + 1 }, (_, offset) => from + offset)
+    .filter((number) => !unfilled.includes(number))
+    .map((number) =>
+      codesOnly.includes(number)
+        ? ([number, "AK F CC D"] as const)
+        : ([number, "AK F CC D", WALKED] as const)
+    )
+
+// When the day's broker totals were built and the trades they missed, as
+// the DB reads them.
+const builds = (db: ReturnType<typeof memoryBrokerTotalsDb>) =>
+  Effect.map(read(db, UNTR), ({ builtDays }) =>
+    builtDays.map((built) => [built.builtAt, built.missingTrades])
+  )
+
+describe("a sealed day missing at most 0.1% of its trades", () => {
+  it.effect(
+    "builds once a batch brings its missing trades from 0.2% to 0.1%, and rebuilds once a later one fills the last",
+    () =>
+      Effect.gen(function* () {
+        const db = memoryBrokerTotalsDb()
+        const day = yield* sealedDay(db)
+        yield* at("17:30:00")
+        yield* day.brokerCodes(
+          "Ajaib",
+          [...CODES, ...walkRows(8, [], [500, 600])],
+          N
+        )
+        yield* day.alarm
+        assert.deepStrictEqual(yield* builds(db), [])
+
+        yield* at("17:40:00")
+        yield* day.brokerCodes("Ajaib", [[600, "AK F CC D", WALKED]])
+        yield* day.alarm
+        assert.deepStrictEqual(yield* builds(db), [
+          ["2026-11-09T10:40:00.000Z", 1],
+        ])
+
+        yield* at("18:00:00")
+        yield* day.brokerCodes("Ajaib", [[500, "AK F CC D", WALKED]])
+        yield* at("18:05:00")
+        yield* day.alarm
+        assert.deepStrictEqual(yield* builds(db), [
+          ["2026-11-09T11:05:00.000Z", 0],
+        ])
+      })
+  )
+
+  it.effect(
+    "rebuilds with its new missing count once a later end raises N past a trade no site sends",
+    () =>
+      Effect.gen(function* () {
+        const db = memoryBrokerTotalsDb()
+        const day = yield* sealedDay(db)
+        yield* at("17:30:00")
+        yield* day.brokerCodes("Ajaib", [...CODES, ...walkRows(8, [N])], N - 1)
+        yield* day.alarm
+        assert.deepStrictEqual(yield* builds(db), [
+          ["2026-11-09T10:30:00.000Z", 0],
+        ])
+
+        yield* at("18:00:00")
+        yield* day.brokerCodes("Stockbit", [], N)
+        yield* at("18:05:00")
+        yield* day.alarm
+        assert.deepStrictEqual(yield* builds(db), [
+          ["2026-11-09T11:05:00.000Z", 1],
+        ])
+      })
+  )
+
+  it.effect(
+    "reads as a gap once a later end pushes it past 0.1% missing, and rebuilds once a batch brings it back",
+    () =>
+      Effect.gen(function* () {
+        const db = memoryBrokerTotalsDb()
+        const day = yield* sealedDay(db)
+        yield* at("17:30:00")
+        yield* day.brokerCodes("Ajaib", [...CODES, ...walkRows(8, [N])], N - 1)
+        yield* day.alarm
+        assert.deepStrictEqual(yield* builds(db), [
+          ["2026-11-09T10:30:00.000Z", 0],
+        ])
+
+        yield* at("18:00:00")
+        yield* day.brokerCodes("Stockbit", [], N + 1)
+        yield* at("18:05:00")
+        yield* day.alarm
+        assert.deepStrictEqual(yield* read(db, UNTR), NOTHING)
+        const rows = (table: string) =>
+          db.database.prepare(`SELECT COUNT(*) AS n FROM ${table}`).get()
+        assert.deepStrictEqual(
+          [rows("built_days"), rows("totals"), rows("candles")],
+          [{ n: 0 }, { n: 0 }, { n: 0 }]
+        )
+
+        yield* at("18:30:00")
+        yield* day.brokerCodes("Ajaib", [[N, "AK F CC D", WALKED]])
+        yield* at("18:35:00")
+        yield* day.alarm
+        assert.deepStrictEqual(yield* builds(db), [
+          ["2026-11-09T11:35:00.000Z", 1],
+        ])
+      })
+  )
+
+  it.effect("of walks, with a trade no site ever sends, seals and builds", () =>
+    Effect.gen(function* () {
+      const db = memoryBrokerTotalsDb()
+      yield* at("17:30:00")
+      const day = yield* tradingDay(memorySql(), [], db.layer)
+      yield* day.brokerCodes("Ajaib", walkRows(1, [700]), N)
+      yield* day.alarm
+      assert.isTrue(yield* isSealed(day))
+      assert.deepStrictEqual(yield* builds(db), [
+        ["2026-11-09T10:30:00.000Z", 1],
+      ])
+    })
+  )
+
+  it.effect("builds on a reconcile poke, never marked for a build", () =>
+    Effect.gen(function* () {
+      const db = memoryBrokerTotalsDb()
+      const sql = memorySql()
+      yield* at("09:01:10")
+      const unbuilt = yield* tradingDay(sql)
+      yield* unbuilt.trades(TAPE)
+      yield* at("17:00:00")
+      yield* unbuilt.alarm
+      yield* unbuilt.brokerCodes("Ajaib", [...CODES, ...walkRows(8, [500])], N)
+      yield* unbuilt.evicted
+
+      yield* at("17:30:00")
+      const day = yield* tradingDay(sql, [], db.layer)
+      yield* day.alarm
+      assert.deepStrictEqual(yield* builds(db), [])
+      assert.isTrue(yield* day.reconcile)
+      yield* day.alarm
+      assert.deepStrictEqual(yield* builds(db), [
+        ["2026-11-09T10:30:00.000Z", 1],
+      ])
     })
   )
 })

@@ -49,6 +49,7 @@ const candle = (code: StockCode, close: number) => ({
 const small = (close: number): DayBuild => ({
   totals: [total(BBCA, "YP", 2), total(TLKM, "YP", 3)],
   candles: [candle(BBCA, close), candle(TLKM, 3_500)],
+  missingTrades: 0,
 })
 
 const BROKERS = Array.from({ length: 30 }, (_, at) =>
@@ -67,6 +68,7 @@ const many = (codes: number): DayBuild => ({
   candles: Array.from({ length: codes }, (_, code) =>
     candle(StockCode.make(`C${code}`), 8_000)
   ),
+  missingTrades: 0,
 })
 // About a liquid day's worth: 60,000 totals rows over 1,000 codes.
 const large = many(1_000)
@@ -186,6 +188,7 @@ describe("the range read", () => {
               day: WED,
               buildVersion: 1,
               builtAt: "2026-11-11T10:00:00.000Z",
+              missingTrades: 0,
             },
           ],
           candles: [

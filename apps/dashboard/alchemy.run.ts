@@ -36,7 +36,7 @@ const HoldingsDb = Cloudflare.D1.Database("HoldingsDb", {
   migrations: "./holdings-migrations",
 })
 
-// Each complete day's broker totals and candles: every stage's trading-day
+// Each buildable day's broker totals and candles: every stage's trading-day
 // objects write their own stage's, and its stock page reads them by range.
 // apps/e2e/reset-test-stage.ts reads its state file, BrokerTotalsDb.json, by
 // this id, and apps/e2e/support/broker-totals.ts seeds its tables by it, in

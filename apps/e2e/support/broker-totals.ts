@@ -22,6 +22,8 @@ export interface SeededDay {
   readonly day: string
   readonly price: number
   readonly flows: ReadonlyArray<SeededFlow>
+  /** The trades of the day its build missed; none by default. */
+  readonly missingTrades?: number
 }
 
 /**
@@ -47,9 +49,9 @@ export function seedBrokerTotals(code: string, days: ReadonlyArray<SeededDay>) {
       "INSERT INTO candles VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)"
     )
     const built = db.prepare(
-      "INSERT INTO built_days VALUES (?, 1, '2026-11-14T10:00:00.000Z')"
+      "INSERT INTO built_days VALUES (?, 1, '2026-11-14T10:00:00.000Z', ?)"
     )
-    for (const { day, price, flows } of days) {
+    for (const { day, price, flows, missingTrades = 0 } of days) {
       // A lot is 100 shares.
       const value = (lots: number) => lots * 100 * price
       let volume = 0
@@ -79,7 +81,7 @@ export function seedBrokerTotals(code: string, days: ReadonlyArray<SeededDay>) {
         value(volume),
         trades
       )
-      built.run(day)
+      built.run(day, missingTrades)
     }
   })
 }
