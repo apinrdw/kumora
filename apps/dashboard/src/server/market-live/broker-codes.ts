@@ -83,7 +83,7 @@ const SCAN_PAGE = 64
 // missing (0.1%): a few numbers neither broker site lists never stop it,
 // and a half-walked day never passes for light trading. See
 // apinrdw/kumora#457.
-const MISSING_ALLOWANCE = 1_000
+export const MISSING_ALLOWANCE = 1_000
 
 // Stockbit's walk position and whether it ended, kept as the `cross-check`
 // fact. `walkedTo` is the highest trade number Stockbit sent.

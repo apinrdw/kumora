@@ -1024,6 +1024,41 @@ describe("a sealed day missing at most 0.1% of its trades", () => {
       })
   )
 
+  it.effect(
+    "reads as a gap once a later end pushes it past 0.1% missing, and rebuilds once a batch brings it back",
+    () =>
+      Effect.gen(function* () {
+        const db = memoryBrokerTotalsDb()
+        const day = yield* sealedDay(db)
+        yield* at("17:30:00")
+        yield* day.brokerCodes("Ajaib", [...CODES, ...walkRows(8, [N])], N - 1)
+        yield* day.alarm
+        assert.deepStrictEqual(yield* builds(db), [
+          ["2026-11-09T10:30:00.000Z", 0],
+        ])
+
+        yield* at("18:00:00")
+        yield* day.brokerCodes("Stockbit", [], N + 1)
+        yield* at("18:05:00")
+        yield* day.alarm
+        assert.deepStrictEqual(yield* read(db, UNTR), NOTHING)
+        const rows = (table: string) =>
+          db.database.prepare(`SELECT COUNT(*) AS n FROM ${table}`).get()
+        assert.deepStrictEqual(
+          [rows("built_days"), rows("totals"), rows("candles")],
+          [{ n: 0 }, { n: 0 }, { n: 0 }]
+        )
+
+        yield* at("18:30:00")
+        yield* day.brokerCodes("Ajaib", [[N, "AK F CC D", WALKED]])
+        yield* at("18:35:00")
+        yield* day.alarm
+        assert.deepStrictEqual(yield* builds(db), [
+          ["2026-11-09T11:35:00.000Z", 1],
+        ])
+      })
+  )
+
   it.effect("of walks, with a trade no site ever sends, seals and builds", () =>
     Effect.gen(function* () {
       const db = memoryBrokerTotalsDb()

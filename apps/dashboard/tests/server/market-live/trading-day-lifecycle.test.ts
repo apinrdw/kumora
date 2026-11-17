@@ -5,7 +5,9 @@
 // unfillable trades, as many as the build gate allows, no walk ever sends.
 // Every run then settles (failures healed, every other trade walked) and
 // must end sealed, listed and built with the kept codes' totals and its
-// unfillable trades missing, and a sealed day's answers must never change.
+// unfillable trades missing. A sealed day's answers must never change, and
+// a day with a built row and no build due must be buildable with the row's
+// missing count.
 // Spec apinrdw/kumora#437 and #457; the review rounds that found each hole
 // are in its PR #449.
 import { assert, describe, it } from "@effect/vitest"
@@ -27,6 +29,7 @@ import { Clock, DateTime, Effect, Exit, Layer, Scope } from "effect"
 import { TestClock } from "effect/testing"
 
 import { readBrokerTotals } from "@/server/broker-totals/db"
+import { MISSING_ALLOWANCE } from "@/server/market-live/broker-codes"
 import type { Sql } from "@/server/market-live/day-store"
 import {
   makeTradingDay,
@@ -64,6 +67,9 @@ interface Mode {
   readonly lazyAlarms: boolean
   // The object starts before the walks, while the relay can still stream.
   readonly early: boolean
+  // Walks send the last slot only at settle, and an `end` names it only once
+  // the day is built, which pushes the built day past the build gate.
+  readonly lastSlotAtSettle?: boolean
 }
 
 const LEGACY_DAYS = [
@@ -338,6 +344,10 @@ const run = (seed: number, mode: Mode) =>
       const [row] = base.exec("SELECT value FROM facts WHERE key = ?", key)
       return row === undefined ? undefined : String(row.value)
     }
+    const builtRow = () =>
+      db.database
+        .prepare("SELECT missing_trades AS missing FROM built_days")
+        .get() as { missing: number } | undefined
     const status = Effect.gen(function* () {
       const response = yield* object.day.brokerCodes.status(
         new URLSearchParams()
@@ -430,12 +440,18 @@ const run = (seed: number, mode: Mode) =>
         }
       } else if (roll < 0.7) {
         if (now >= WALKS_FROM) {
-          const rows = subset(6).map((n) => [n, random() < 0.9] as const)
+          const rows = subset(6)
+            .map((n) => [n, random() < 0.9] as const)
+            .filter(([n]) => !mode.lastSlotAtSettle || n !== M)
           const end =
             random() < 0.3
-              ? mode.variableN
-                ? (M - Math.floor(random() * 3)) * B
-                : T
+              ? mode.lastSlotAtSettle
+                ? builtRow() === undefined
+                  ? T - B
+                  : T
+                : mode.variableN
+                  ? (M - Math.floor(random() * 3)) * B
+                  : T
               : undefined
           const corrected = new Set(
             rows.filter(() => random() < 0.3).map(([slot]) => slot)
@@ -463,6 +479,19 @@ const run = (seed: number, mode: Mode) =>
         yield* Effect.exit(status)
       }
       if (!mode.lazyAlarms || random() < 0.6) yield* fire
+      if (!flaky.failing && factOf("build-wake") === undefined) {
+        const row = builtRow()
+        if (row !== undefined) {
+          const { n, missingCount } = yield* status
+          if (n === null || missingCount * MISSING_ALLOWANCE > Number(n))
+            return { failure: `built but not buildable at ${n}`, log }
+          if (row.missing !== missingCount)
+            return {
+              failure: `built missing ${row.missing} != ${missingCount}`,
+              log,
+            }
+        }
+      }
       if (factOf("sealed") !== undefined && !flaky.failing) {
         const text = yield* answer
         if (sealedAnswer === undefined) {
@@ -581,6 +610,18 @@ const MODES: Array<[string, Mode, number]> = [
   [
     "varying N, started before the walks",
     { slot: 1, variableN: true, legacy: false, lazyAlarms: true, early: true },
+    60,
+  ],
+  [
+    "an end raised past a built day's last slot",
+    {
+      slot: 1,
+      variableN: true,
+      legacy: false,
+      lazyAlarms: false,
+      early: false,
+      lastSlotAtSettle: true,
+    },
     60,
   ],
   [
