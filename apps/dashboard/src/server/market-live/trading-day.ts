@@ -346,17 +346,27 @@ const sealWakeAtStart = Effect.fnUntraced(function* (
 })
 
 // When the broker totals build first needs the alarm, for a day with no
-// deadline stored: at once for a sealed day that builds and is marked due, a
-// quiet wait after the start for one marked stale.
-const buildWakeAtStart = (
+// deadline stored: at once for a sealed day that builds and is marked due or
+// never built and buildable, a quiet wait after the start for one marked
+// stale.
+//
+// Decision: a sealed day never built, buildable at the start, is marked due
+// and built at once, as `totalsWritten` does: a day sealed before its gate
+// let it build (apinrdw/kumora#464) has no fact. An older version waits for
+// the reconcile poke. See apinrdw/kumora#457.
+const buildWakeAtStart = Effect.fnUntraced(function* (
   builds: boolean,
-  fact: string | undefined
-): Effect.Effect<DateTime.Utc | undefined> => {
-  if (builds && fact === BROKER_TOTALS_DUE) return DateTime.now
-  if (builds && fact === BROKER_TOTALS_STALE)
-    return Effect.map(DateTime.now, DateTime.addDuration(REBUILD_QUIET))
-  return Effect.succeed(undefined)
-}
+  fact: string | undefined,
+  buildable: Effect.Effect<boolean>,
+  markDue: Effect.Effect<void>
+) {
+  if (!builds) return undefined
+  if (fact === BROKER_TOTALS_STALE)
+    return DateTime.addDuration(yield* DateTime.now, REBUILD_QUIET)
+  if (fact === undefined && (yield* buildable)) yield* markDue
+  else if (fact !== BROKER_TOTALS_DUE) return undefined
+  return yield* DateTime.now
+})
 
 export const makeTradingDay = Effect.fnUntraced(function* (options: {
   readonly date: WibDate
@@ -1000,7 +1010,9 @@ export const makeTradingDay = Effect.fnUntraced(function* (options: {
     "build",
     buildWakeAtStart(
       sealed && options.brokerTotalsDb !== undefined,
-      yield* store.fact(Fact.brokerTotals)
+      yield* store.fact(Fact.brokerTotals),
+      buildable,
+      store.markBrokerTotals(BROKER_TOTALS_DUE)
     )
   )
 

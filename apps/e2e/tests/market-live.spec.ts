@@ -739,6 +739,40 @@ test.describe("the tape at peak", () => {
     await expect(pill).toBeHidden()
     relay.close()
   })
+
+  test("the tape's rows under the fold overflow nothing outside the tape", async ({
+    page,
+  }) => {
+    const relay = await openIngest()
+    const base = freshTradeNumbers()
+    const time = wibTime(marketNow())
+    // Sided trades: each price cell carries an sr-only buy or sell.
+    await relay.sendAjaib(
+      Array.from({ length: 100 }, (_, i) =>
+        ajaibTradeToday({
+          seq: base + 1 + i,
+          time,
+          ticker: "GAPZ",
+          price: 100,
+          lot: 1,
+          type: i % 2 === 0 ? "BUY" : "SELL",
+        })
+      )
+    )
+    await page.goto(`${DASHBOARD}${PAGE}`)
+    const tape = page.getByRole("region", { name: "Running trades" })
+    await expect(
+      tape.locator(`tr[data-trade-number="${base + 100}"]`)
+    ).toBeVisible()
+    // Anything escaping the tape's scroller grows its frame's scroll height,
+    // and from there the page's: on production it left a gap under the page.
+    const frame = tape.locator("[data-frame]")
+    const overflow = await frame.evaluate(
+      (element) => element.scrollHeight - element.clientHeight
+    )
+    expect(overflow).toBe(0)
+    relay.close()
+  })
 })
 
 test("a signed-out visit goes to sign-in, keeping the page", async ({
