@@ -7,7 +7,7 @@ import {
   type MarkStyle,
   MonthGrid,
 } from "@/components/admin/archive/month-grid"
-import { dateTime } from "@/lib/format"
+import { count, dateTime } from "@/lib/format"
 import type { RunId } from "@/server/archive/run"
 import type { CoverageState, KseiCoverage } from "@/server/ksei/coverage"
 import { KIND_LABEL } from "@/server/ksei/kind"
@@ -31,6 +31,38 @@ const STATE = {
     Icon: null,
   },
 } as const satisfies Record<CoverageState, MarkStyle>
+
+// A kind's months in `state`, across every year.
+const monthsIn = Effect.fnUntraced(function* (
+  years: KseiCoverage[number]["years"],
+  state: CoverageState
+) {
+  return years.reduce(
+    (sum, { months }) => sum + months.filter((month) => month === state).length,
+    0
+  )
+})
+
+// A kind's title, with how many of its months are held and not found.
+function KindTitle({
+  kind,
+  years,
+}: {
+  kind: KseiCoverage[number]["kind"]
+  years: KseiCoverage[number]["years"]
+}) {
+  const notFound = Effect.runSync(monthsIn(years, "not-found"))
+  return (
+    <>
+      {KIND_LABEL[kind]}{" "}
+      <span className="font-normal text-muted-foreground">
+        · {Effect.runSync(monthsIn(years, "held"))} held
+        {notFound > 0 &&
+          `, ${Effect.runSync(count(notFound, "month", "months"))} not found`}
+      </span>
+    </>
+  )
+}
 
 /**
  * Each KSEI report kind's months from the archive's first (FIRST_MONTH,
@@ -64,12 +96,12 @@ export function KseiCoverageCard({
           </>
         )}
       </p>
-      <div className="grid gap-6 lg:grid-cols-2">
+      <div className="grid grid-cols-[repeat(auto-fit,minmax(min(100%,300px),1fr))] gap-6">
         {coverage.map(({ kind, years }) => (
           // Blank before the archive's first month and after today's.
           <MonthGrid
             key={kind}
-            title={KIND_LABEL[kind]}
+            title={<KindTitle kind={kind} years={years} />}
             label={`${KIND_LABEL[kind]} coverage`}
             years={years}
             mark={(state) => STATE[state]}

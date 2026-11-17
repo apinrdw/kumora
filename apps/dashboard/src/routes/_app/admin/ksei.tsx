@@ -39,29 +39,46 @@ function KseiPage() {
   return (
     <div className="flex flex-col gap-5 py-6">
       <h1 className="text-2xl font-bold">KSEI archive</h1>
-      <div className="grid items-start gap-5 xl:grid-cols-[3fr_2fr]">
-        <KseiLastRunCard {...lastRun} />
-        <ParseRunCard
-          title="Last parse run"
-          emptyMessage="No KSEI parse run has happened yet."
-          lastParseRun={lastParseRun}
-          parseNow={parseKseiNowFn}
-          times={KSEI_PARSE_TIMES_WIB}
-          nextParseRun={nextParseRun}
-          now={lastRun.now}
-        />
+      {/* Decision: at xl, the archive's column on the left and its parse
+          run's on the right, each run over its coverage, so neither card
+          leaves a hole beside a taller one. Narrower, the columns dissolve
+          (contents) and both run cards come first, so Parse now stays near
+          the top; no coverage card holds a focus stop before it. */}
+      <div className="flex flex-col gap-5 xl:grid xl:grid-cols-[3fr_2fr] xl:items-start">
+        <div className="contents xl:flex xl:min-w-0 xl:flex-col xl:gap-5">
+          <div className="order-1 min-w-0">
+            <KseiLastRunCard {...lastRun} />
+          </div>
+          <div className="order-3 min-w-0">
+            <KseiCoverageCard coverage={coverage} lastDeepRun={lastDeepRun} />
+          </div>
+        </div>
+        <div className="contents xl:flex xl:min-w-0 xl:flex-col xl:gap-5">
+          <div className="order-2 min-w-0">
+            <ParseRunCard
+              title="Last parse run"
+              emptyMessage="No KSEI parse run has happened yet."
+              lastParseRun={lastParseRun}
+              parseNow={parseKseiNowFn}
+              times={KSEI_PARSE_TIMES_WIB}
+              nextParseRun={nextParseRun}
+              now={lastRun.now}
+            />
+          </div>
+          <div className="order-4 min-w-0">
+            <ParseCoverageCard
+              grids={[
+                {
+                  title: KIND_LABEL["securities-holdings"],
+                  parseCoverage,
+                },
+              ]}
+            />
+          </div>
+        </div>
       </div>
-      <ParseCoverageCard
-        grids={[
-          {
-            title: KIND_LABEL["securities-holdings"],
-            parseCoverage,
-          },
-        ]}
-      />
       <KseiRecentRunsCard runs={recentRuns} />
       <KseiTotalsCard totals={totals} />
-      <KseiCoverageCard coverage={coverage} lastDeepRun={lastDeepRun} />
     </div>
   )
 }

@@ -5,6 +5,7 @@ import { IconPlayerPlay, type TablerIcon } from "@tabler/icons-react"
 import { useHydrated } from "@tanstack/react-router"
 import { clientRuntime } from "@workspace/client"
 import { loadServerFn } from "@workspace/server/loader"
+import { cn } from "@workspace/ui/lib/utils"
 import { Effect, Exit } from "effect"
 import { type ReactNode, useState } from "react"
 
@@ -122,11 +123,19 @@ function Schedule({ times, nextRun }: ArchiveSchedule) {
   )
 }
 
-function Stat({ value, label }: RunStat) {
+// A zero recedes; a problem count above zero reads in the warning color.
+function Stat({ value, label, problem = false }: RunStat) {
   return (
     <div className="flex flex-col-reverse gap-0.5">
       <dt className="text-xs text-muted-foreground">{label}</dt>
-      <dd className="num text-xl font-semibold">{value}</dd>
+      <dd
+        className={cn(
+          "num text-xl font-semibold",
+          value === 0 ? "text-muted-foreground" : problem && "text-warning"
+        )}
+      >
+        {value}
+      </dd>
     </div>
   )
 }
@@ -156,12 +165,14 @@ export const archiveRunStats = (result: {
     { value: result.reportsAdded, label: "Reports added" },
     { value: result.newVersions, label: "New versions" },
     { value: result.reportsChecked, label: "Reports checked" },
-    { value: result.notStored.length, label: "Not stored" },
+    { value: result.notStored.length, label: "Not stored", problem: true },
   ])
 
 export interface RunStat {
   readonly label: string
   readonly value: number
+  // A count that is something to fix when above zero.
+  readonly problem?: boolean
 }
 
 export interface ArchiveSchedule {
@@ -237,7 +248,7 @@ export function ArchiveLastRunCard({
           <span>· Workflow {workflowStatus}</span>
         )}
       </p>
-      <dl className="grid grid-cols-[repeat(auto-fit,minmax(130px,1fr))] gap-3">
+      <dl className="grid grid-cols-[repeat(auto-fit,minmax(104px,1fr))] gap-3">
         {stats.map((stat) => (
           <Stat key={stat.label} {...stat} />
         ))}

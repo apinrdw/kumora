@@ -139,7 +139,7 @@ export function ParseCoverageCard({
   return (
     <ArchiveCard title="Parse coverage" aside={null}>
       <MarkLegend styles={Object.values(STATE)} />
-      <div className="grid gap-6 lg:grid-cols-2">
+      <div className="grid grid-cols-[repeat(auto-fit,minmax(min(100%,300px),1fr))] gap-6">
         {grids.map(({ title, parseCoverage }) => (
           <MonthGrid
             key={title}

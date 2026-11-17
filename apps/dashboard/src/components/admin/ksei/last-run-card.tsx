@@ -236,7 +236,11 @@ export function KseiLastRunCard({
           ? []
           : [
               ...Effect.runSync(archiveRunStats(result)),
-              { value: result.md5Mismatches.length, label: "MD5 mismatches" },
+              {
+                value: result.md5Mismatches.length,
+                label: "MD5 mismatches",
+                problem: true,
+              },
             ]
       }
       details={

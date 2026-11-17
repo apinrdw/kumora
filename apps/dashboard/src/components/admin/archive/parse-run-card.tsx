@@ -73,7 +73,11 @@ export function ParseRunCard({
           ? []
           : [
               { value: result.monthsParsed, label: "Months parsed" },
-              { value: result.parseFailures.length, label: "Parse failures" },
+              {
+                value: result.parseFailures.length,
+                label: "Parse failures",
+                problem: true,
+              },
             ]
       }
       details={result === undefined ? null : <Failures result={result} />}
