@@ -30,6 +30,9 @@ const footerLine = Effect.fnUntraced(function* (footer: SummaryFooter) {
     `${yield* compact(footer.lots)} lots traded`,
     `${yield* compact(footer.trades)} trades counted`,
     "regular board + auction matches",
+    ...(footer.missingTrades === 0
+      ? []
+      : [`${yield* count(footer.missingTrades, "trade", "trades")} missing`]),
     `${yield* count(footer.incomplete, "incomplete day", "incomplete days")} skipped`,
   ].join(" · ")
 })

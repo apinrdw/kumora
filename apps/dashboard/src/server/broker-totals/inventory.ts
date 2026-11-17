@@ -65,6 +65,8 @@ export const BrokerInventoryRead = Schema.Struct({
   days: Schema.Array(WibDate),
   // Per day: built, or a gap the sums carry across.
   built: Schema.Array(Schema.Boolean),
+  // Per day: the trades of 1..N its build missed, 0 for a gap.
+  missingTrades: Column,
   candles: CandleColumns,
   // The brokers `totals` names, in code order.
   brokers: Schema.Array(BrokerCode),
@@ -132,8 +134,13 @@ export const brokerInventory = Effect.fnUntraced(function* (
     span.earliest === null || first > to
       ? { builtDays: [], candles: [], totals: [] }
       : yield* readBrokerTotals(code, first, to)
-  const built = new Set(range.builtDays.map(({ day }) => day))
-  const days = span.earliest === null ? [] : yield* axisDays(first, to, built)
+  const missingOn = new Map(
+    range.builtDays.map(({ day, missingTrades }) => [day, missingTrades])
+  )
+  const days =
+    span.earliest === null
+      ? []
+      : yield* axisDays(first, to, new Set(missingOn.keys()))
   const dayIndex = new Map(days.map((day, index) => [day, index]))
   const brokers = [...new Set(range.totals.map(({ broker }) => broker))].sort()
   const brokerIndex = new Map(brokers.map((broker, index) => [broker, index]))
@@ -144,7 +151,8 @@ export const brokerInventory = Effect.fnUntraced(function* (
     earliest: span.earliest ?? undefined,
     pending,
     days,
-    built: days.map((day) => built.has(day)),
+    built: days.map((day) => missingOn.has(day)),
+    missingTrades: days.map((day) => missingOn.get(day) ?? 0),
     candles: {
       day: candles.map(({ day }) => dayIndex.get(day) ?? 0),
       open: candles.map(({ open }) => open),

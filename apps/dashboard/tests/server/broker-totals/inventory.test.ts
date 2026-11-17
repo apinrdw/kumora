@@ -73,12 +73,13 @@ describe("the broker inventory read", () => {
     () => {
       const db = memoryBrokerTotalsDb()
       return Effect.gen(function* () {
-        // Mon 9 to Thu 12 Nov; Tuesday was never built, and on Wednesday
-        // BBCA didn't trade. Friday the 13th is today, not built yet.
+        // Mon 9 to Thu 12 Nov; Tuesday was never built, on Wednesday BBCA
+        // didn't trade, and Thursday built missing 3 trades. Friday the
+        // 13th is today, not built yet.
         yield* built({
           "2026-11-09": build(8_050),
           "2026-11-11": quiet,
-          "2026-11-12": build(8_100),
+          "2026-11-12": { ...build(8_100), missingTrades: 3 },
         })
         const read = yield* brokerInventory(
           BBCA,
@@ -95,6 +96,7 @@ describe("the broker inventory read", () => {
             day
           ),
           built: [true, false, true, true],
+          missingTrades: [0, 0, 0, 3],
           candles: {
             day: [0, 3],
             open: [8_000, 8_000],

@@ -120,12 +120,13 @@ export interface SummaryRow {
 }
 
 // What the Broker summary's footer counts: its brokers, the lots they
-// traded, the range's trades counted, and its incomplete days, which the
-// sums skip.
+// traded, the range's trades counted, the trades its built days missed, and
+// its incomplete days, which the sums skip.
 export interface SummaryFooter {
   readonly brokers: number
   readonly lots: number
   readonly trades: number
+  readonly missingTrades: number
   readonly incomplete: number
 }
 
@@ -285,10 +286,13 @@ export const summaryFooter = Effect.fnUntraced(function* (
   for (const { buyLots, sellLots } of summary) sides += buyLots + sellLots
   let trades = 0
   for (const count of read.candles.trades) trades += count
+  let missingTrades = 0
+  for (const count of read.missingTrades) missingTrades += count
   return {
     brokers: summary.length,
     lots: sides / 2,
     trades,
+    missingTrades,
     incomplete: read.built.filter((built) => !built).length,
   } satisfies SummaryFooter
 })
