@@ -464,17 +464,23 @@ const matches = (
       if (newest === undefined || at > newest) newest = at
     // Once corrections empty the block after the jump, the newest trade is
     // in a minute the page let go, whose tape it may have let go too: the
-    // end is that trade's time or its minute's start. While a recount
-    // waits, the page may no longer hold that minute: no end then.
+    // end is no earlier than the newest part's minute start, and none only
+    // when no part is left. While a recount waits, the page may no longer
+    // hold that minute: no end then.
     const end = (yield* windowEnd(flow, "break", END + MINUTE_MS))?.end
     if (flow.recountFrom !== undefined && end === undefined) return
-    if (newest === undefined || newest >= oldestKept)
+    if (newest === undefined || newest >= oldestKept) {
       expect(end, `${step}: end`).toBe(newest)
-    else
-      expect(
-        [Math.floor(newest / MINUTE_MS) * MINUTE_MS, newest],
-        `${step}: end`
-      ).toContain(end)
+      return
+    }
+    const newestPart =
+      parts.length === 0 ? undefined : Math.max(...parts.map(minuteOf))
+    expect(
+      end === undefined
+        ? newestPart === undefined
+        : end >= (newestPart ?? end) && end <= newest,
+      `${step}: end ${end} against part ${newestPart}, trade ${newest}`
+    ).toBe(true)
   })
 
 const candle = (

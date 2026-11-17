@@ -99,15 +99,20 @@ interface CodeFlow {
   // Minute start in epoch ms → its copy, of minutes older than the kept
   // ones: the newest with trades the flow knows, and emptied ones after it.
   readonly before: Map<number, LetGo>
-  // The minutes a delta carried, emptied ones included, and whether this
-  // socket's did since its snapshot or an earlier socket's (MarketFlow's
-  // `socketFrom`): `minutes` holds the candle book's latest copy of each.
-  readonly carried: Map<number, CarriedBy>
+  // The minutes a delta carried, emptied ones included: `minutes` holds the
+  // candle book's latest copy of each.
+  readonly carried: Map<number, Carried>
   // The backfills that came after it traded, without its previous close.
   closeMisses: number
 }
 
-type CarriedBy = "this socket" | "an earlier one"
+// Whether this socket's delta carried a minute since its snapshot or an
+// earlier socket's did (MarketFlow's `socketFrom`), and MarketFlow's `heard`
+// when the latest one did.
+interface Carried {
+  by: "this socket" | "an earlier one"
+  readonly heard: number
+}
 
 // A minute older than the kept ones: its close, none once its last trade
 // left it, and MarketFlow's `heard` when the flow took this copy.
@@ -132,6 +137,10 @@ export interface MarketFlow {
   // it: an earlier socket may have missed deltas, so until then its minutes
   // stay as it left them.
   socketFrom: number | undefined
+  // The newest `heard` of a delta that changed a minute the flow has since
+  // let go: a body settled at or before it lacks that change in its day
+  // totals, and no carried minute is left to lay over them (takeSettled).
+  letGoChanged: number
   // When a candle older than the kept minutes changed, its earlier figures
   // gone, or a code lost its last price with no minute left to take one
   // from (waitForPrice), until a backfill settled past it recounts the day.
@@ -266,8 +275,11 @@ const pruneMinutes = (flow: MarketFlow, code: CodeFlow) => {
       letGo(flow, code, minute, row.close)
       code.minutes.delete(minute)
     }
-  for (const minute of code.carried.keys())
-    if (minute < oldest) code.carried.delete(minute)
+  for (const [minute, { heard }] of code.carried)
+    if (minute < oldest) {
+      flow.letGoChanged = Math.max(flow.letGoChanged, heard)
+      code.carried.delete(minute)
+    }
 }
 
 // `row` into `day` in place of `old`, the same minute's earlier figures;
@@ -301,6 +313,7 @@ export const makeMarketFlow = () =>
     newestMinute: 0,
     heard: Number.NEGATIVE_INFINITY,
     settledBefore: Number.NEGATIVE_INFINITY,
+    letGoChanged: Number.NEGATIVE_INFINITY,
     socketFrom: undefined,
     recountFrom: undefined,
     seen: new Map(),
@@ -354,20 +367,24 @@ const waitForPrice = (flow: MarketFlow, code: CodeFlow) => {
 // what each changes over the body's copy. A body that `takesBack` an
 // earlier socket's minutes has every trade they held. A body that holds a
 // code's full BUBBLE_MINUTES knows none older than its first: such a minute
-// is older than every window, so the body's copy stands.
+// is older than every window, so the body's copy stands, and a change the
+// body settled short of waits for a recount.
 const keepCarried = (
+  flow: MarketFlow,
   code: CodeFlow,
   body: { readonly day: Sums; readonly minutes: Map<number, Row> },
   oldest: number,
   takesBack: boolean
 ) =>
   Effect.sync(() => {
-    for (const [at, by] of code.carried) {
+    for (const [at, { by, heard }] of code.carried) {
       const bodyRow = body.minutes.get(at)
-      if (
-        (takesBack && by === "an earlier one") ||
-        (bodyRow === undefined && at < oldest)
-      ) {
+      if (takesBack && by === "an earlier one") {
+        code.carried.delete(at)
+        continue
+      }
+      if (bodyRow === undefined && at < oldest) {
+        if (heard >= flow.settledBefore) flow.recountFrom = flow.heard
         code.carried.delete(at)
         continue
       }
@@ -405,6 +422,8 @@ const takeSettled = (flow: MarketFlow, settledBefore: number) =>
     flow.heard = Math.max(flow.heard, settledBefore)
     if (flow.recountFrom !== undefined && settledBefore > flow.recountFrom)
       flow.recountFrom = undefined
+    // A minute changed since and let go has no carried copy to lay over it.
+    if (settledBefore <= flow.letGoChanged) flow.recountFrom = flow.heard
     const takesBack =
       flow.socketFrom === undefined || settledBefore > flow.socketFrom
     if (takesBack) flow.socketFrom = undefined
@@ -432,6 +451,7 @@ export const applyBubbles = (flow: MarketFlow, body: RecordedBubbles) =>
       const code = codeFlowOf(flow, entry.code)
       const rows = yield* bodyRows(flow, entry)
       yield* keepCarried(
+        flow,
         code,
         rows,
         entry.minutes.length < BUBBLE_MINUTES
@@ -496,7 +516,7 @@ const takeMinute = (
     return
   }
   replaceInDay(code.day, row, code.minutes.get(at))
-  code.carried.set(at, "this socket")
+  code.carried.set(at, { by: "this socket", heard: flow.heard })
   if (row === undefined) code.minutes.delete(at)
   else {
     code.minutes.set(at, row)
@@ -548,8 +568,7 @@ const startSocket = (flow: MarketFlow, sentAt: number) =>
   Effect.sync(() => {
     flow.socketFrom = sentAt
     for (const code of flow.codes.values())
-      for (const at of code.carried.keys())
-        code.carried.set(at, "an earlier one")
+      for (const carried of code.carried.values()) carried.by = "an earlier one"
   })
 
 // A tape trade as its second's row counts it.
