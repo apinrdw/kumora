@@ -252,6 +252,23 @@ describe("the 30s window", () => {
   )
 
   it.effect(
+    "moves a repeated trade whose copy corrects only its stock code",
+    () =>
+      Effect.gen(function* () {
+        const flow = yield* makeMarketFlow()
+        yield* applyTrades(flow, [
+          trade("BBCA", T0 + 1_000, { price: 100, lots: 1, number: 7 }),
+        ])
+        yield* applyTrades(flow, [
+          trade("BBRI", T0 + 1_000, { price: 100, lots: 1, number: 7 }),
+        ])
+        expect(
+          yield* valuesAt(flow, { ...VIEW, window: "30s" }, T0 + 30_999)
+        ).toEqual([["BBRI", 10_000]])
+      })
+  )
+
+  it.effect(
     "closes a second a corrected trade left at the trade still in it",
     () =>
       Effect.gen(function* () {
