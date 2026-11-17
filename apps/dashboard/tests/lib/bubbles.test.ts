@@ -456,7 +456,14 @@ describe("the day window", () => {
         yield* applyBubbles(
           flow,
           body(
-            [opening, { code: "TLKM", minutes: [minute(later, 10_000, 100)] }],
+            [
+              opening,
+              {
+                code: "TLKM",
+                previousClose: 100,
+                minutes: [minute(later, 10_000, 100)],
+              },
+            ],
             T0 + 3
           )
         )
