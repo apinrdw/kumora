@@ -1,8 +1,8 @@
 // The KSEI archive's admin page, /admin/ksei: the last KSEI archive run,
 // Run now and Deep backfill, the last KSEI parse run and Parse now, the
-// recent runs, the totals per kind and the latest deep run's months not
-// found (spec apinrdw/kumora#327, "The admin page", and #363, "KSEI parse
-// run").
+// recent runs, the totals per kind, the latest deep run's months not found
+// and the KSEI parse run's parse coverage (spec apinrdw/kumora#327, "The
+// admin page", #363, "KSEI parse run", and #458).
 import { Conflict } from "@workspace/server"
 import { DateTime, Effect } from "effect"
 
@@ -43,8 +43,15 @@ export const kseiArchivePage = Effect.fn("kseiArchivePage")(function* (
   const reports = Effect.gen(function* () {
     return yield* (yield* ArchiveBucket).list(REPORTS_PREFIX)
   })
-  const [run, runs, objects, deep, parseRun] = yield* Effect.all(
-    [lastKseiRun, recentKseiRuns, reports, lastKseiDeepRun, kseiParseRuns.last],
+  const [run, runs, objects, deep, parseRun, parseCoverage] = yield* Effect.all(
+    [
+      lastKseiRun,
+      recentKseiRuns,
+      reports,
+      lastKseiDeepRun,
+      kseiParseRuns.last,
+      kseiParseRuns.coverage,
+    ],
     { concurrency: "unbounded" }
   )
   const now = yield* DateTime.now
@@ -64,6 +71,7 @@ export const kseiArchivePage = Effect.fn("kseiArchivePage")(function* (
         ? undefined
         : { id: deep.id, finishedAt: deep.finishedAt },
     coverage: yield* kseiCoverage(objects, deep?.deep?.monthsNotFound, now),
+    parseCoverage,
   }
 })
 
