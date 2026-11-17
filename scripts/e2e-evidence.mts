@@ -1,9 +1,9 @@
 // `pnpm e2e:evidence [--pr <n>] [--dry-run] [spec...]`: runs the full e2e
 // suite, recording video of only the picked specs, posts their videos to the
-// PR as one comment and marks the PR head `e2e-evidence: success`, linking to
-// it. Every decision is in scripts/e2e-evidence-plan.mts; this file runs git,
-// gh and Playwright.
-// --dry-run prints the comment and the gh calls instead of making them.
+// PR as comments of at most 50 videos each and, once every one is up, marks
+// the PR head `e2e-evidence: success`, linking to the first. Every decision
+// is in scripts/e2e-evidence-plan.mts; this file runs git, gh and Playwright.
+// --dry-run prints every comment and the gh calls instead of making them.
 import { availableParallelism } from "node:os"
 import { parseArgs as parseCliArgs } from "node:util"
 
@@ -14,9 +14,11 @@ import { ChildProcess, ChildProcessSpawner } from "effect/process"
 import {
   commentUrl,
   evidencePlan,
+  postEvidence,
   preflight,
   resultsFolders,
   PlaywrightReport,
+  type EvidenceComment,
 } from "./e2e-evidence-plan.mts"
 import { CheckFailed, repoRoot } from "./lib/check.mts"
 import { collect, CommandFailed, gitLines, stdoutOf } from "./lib/command.mts"
@@ -220,17 +222,15 @@ const e2eEvidence = Effect.fn("e2eEvidence")(function* (
       `\n--dry-run: after the suite, a real run would refuse:\n${plan.unmet.join("\n")}`
     )
 
-  yield* fs.writeFileString(path.join(root, plan.bodyFile), plan.body)
-  // gh runs from the body file's folder, which the plan's video paths are
+  // gh runs from each body file's folder, which the plan's video paths are
   // relative to.
-  const commentDir = path.dirname(plan.bodyFile)
-  const comment = [
+  const commentArgs = (comment: EvidenceComment) => [
     "pr",
     "comment",
     String(plan.pr),
     "--body-file",
-    path.basename(plan.bodyFile),
-    ...plan.videos.flatMap((video) => ["--attach", video]),
+    path.basename(comment.bodyFile),
+    ...comment.videos.flatMap((video) => ["--attach", video]),
   ]
   const status = (target: string) => [
     "api",
@@ -246,18 +246,41 @@ const e2eEvidence = Effect.fn("e2eEvidence")(function* (
     "-f",
     `target_url=${target}`,
   ]
+  const count = plan.comments.length
   if (dryRun) {
-    yield* Console.log(
-      `\n--dry-run: would post this to PR #${plan.pr}:\n\n${plan.body}\nin ${commentDir}: gh ${comment.join(" ")}\ngh ${status("<comment URL>").join(" ")}`
+    yield* Effect.forEach(
+      plan.comments,
+      (comment, at) =>
+        Console.log(
+          `\n--dry-run: would post part ${at + 1} of ${count} to PR #${plan.pr}:\n\n${comment.body}\nin ${path.dirname(comment.bodyFile)}: gh ${commentArgs(comment).join(" ")}`
+        ),
+      { discard: true }
     )
+    yield* Console.log(`\ngh ${status("<part 1's comment URL>").join(" ")}`)
     return
   }
-  const url = yield* commentUrl(
-    yield* stdoutOf("gh", comment, { cwd: path.join(root, commentDir) })
+  const urls = yield* postEvidence(plan, {
+    comment: (comment) =>
+      Effect.gen(function* () {
+        yield* fs.writeFileString(
+          path.join(root, comment.bodyFile),
+          comment.body
+        )
+        return yield* commentUrl(
+          yield* stdoutOf("gh", commentArgs(comment), {
+            cwd: path.join(root, path.dirname(comment.bodyFile)),
+          })
+        )
+      }),
+    status: (target) =>
+      Effect.asVoid(stdoutOf("gh", status(target), { cwd: root })),
+  })
+  const videos = plan.comments.reduce(
+    (sum, comment) => sum + comment.videos.length,
+    0
   )
-  yield* stdoutOf("gh", status(url), { cwd: root })
   yield* Console.log(
-    `Posted ${plan.videos.length} videos to ${url} and set ${plan.status.context} to ${plan.status.state} on ${plan.status.sha.slice(0, 10)}.`
+    `Posted ${videos} videos in ${count} ${count === 1 ? "comment" : "comments"} (${urls.join(", ")}) and set ${plan.status.context} to ${plan.status.state} on ${plan.status.sha.slice(0, 10)}.`
   )
 })
 

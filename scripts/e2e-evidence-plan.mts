@@ -67,13 +67,15 @@ const GH_MINIMUM = [2, 99, 0] as const
 const VIDEO_CAP_MB = 100
 const MB = 1_000_000
 
-// Decision: one comment of at most 50 videos, the most `gh pr comment` takes
-// per command (gh 2.103.3's help), rather than split across comments, which
-// the status could link only one of.
+// Decision: each comment carries at most 50 videos, the most `gh pr comment`
+// takes per command (gh 2.103.3's help). More videos are split, in pick order,
+// into as many comments as they need, and the status links the first. A
+// single comment refused every PR that changes many specs: apinrdw/kumora#449
+// had 86 videos.
 const ATTACH_CAP = 50
 
-/** Where the comment's body is written, repo-relative; gh runs from its folder. */
-const BODY_FILE = "apps/e2e/test-results/e2e-evidence.md"
+/** The folder each comment's body is written to; gh runs from it. */
+const BODY_DIR = "apps/e2e/test-results"
 
 // Decision: only a *.spec.ts under apps/e2e/tests is picked, not every changed
 // file under apps/e2e: a setup file or support module is no one test's video
@@ -236,16 +238,22 @@ export interface EvidenceInputs {
   readonly dryRun: boolean
 }
 
-interface PostPlan {
+/** One PR comment: its part of the videos, in pick order. */
+export interface EvidenceComment {
+  /** Repo-relative, in BODY_DIR; `body` goes into it. */
+  readonly bodyFile: string
+  /** Relative to BODY_DIR, in the order the body embeds them. */
+  readonly videos: ReadonlyArray<string>
+  readonly body: string
+}
+
+export interface PostPlan {
   /** What a real run would have refused but a dry run got past; empty on a real run. */
   readonly unmet: ReadonlyArray<string>
   readonly pr: number
-  /** BODY_FILE, which `body` goes into. */
-  readonly bodyFile: string
-  /** Relative to the body file's folder, in the order the body embeds them. */
-  readonly videos: ReadonlyArray<string>
-  readonly body: string
-  /** The commit status to set once the comment is up; its target is the comment. */
+  /** In posting order; never empty. */
+  readonly comments: ReadonlyArray<EvidenceComment>
+  /** The commit status to set once every comment is up; its target is the first. */
   readonly status: {
     readonly sha: string
     readonly state: "success"
@@ -328,17 +336,59 @@ export const resultsFolders = Effect.fn("resultsFolders")(function* (
   return [...new Set(folders)].filter((folder) => folder !== undefined)
 })
 
+// One paragraph of a comment under its test's title: a video, or why there
+// is none.
+interface Paragraph {
+  readonly titled: Titled
+  readonly text: string
+  /** Relative to BODY_DIR, when the paragraph embeds a video. */
+  readonly video?: string
+}
+
 const section = Effect.fnUntraced(function* (
   titled: Titled,
   videos: ReadonlyArray<string>
 ) {
-  const shown =
-    titled.test.status === "skipped"
-      ? ["Skipped."]
-      : videos.length === 0
-        ? ["No page, no video."]
-        : videos.map((video) => `![](${video})`)
-  return [`#### ${titled.title}`, ...shown]
+  if (titled.test.status === "skipped") return [{ titled, text: "Skipped." }]
+  if (videos.length === 0) return [{ titled, text: "No page, no video." }]
+  return videos.map((video) => ({ titled, text: `![](${video})`, video }))
+})
+
+// The paragraphs, in pick order, cut into comments of at most ATTACH_CAP
+// videos. A paragraph with no video goes with the videos before it. Each
+// comment heads its first paragraph with its spec file and test title again,
+// so a test cut between two comments is titled in both.
+const splitComments = Effect.fnUntraced(function* (
+  paragraphs: ReadonlyArray<Paragraph>,
+  summary: string
+) {
+  const videoCount = paragraphs.filter((p) => p.video !== undefined).length
+  const count = Math.max(1, Math.ceil(videoCount / ATTACH_CAP))
+  const parts = Array.from({ length: count }, (): Array<Paragraph> => [])
+  let before = 0
+  for (const paragraph of paragraphs) {
+    parts[Math.min(Math.floor(before / ATTACH_CAP), count - 1)]?.push(paragraph)
+    if (paragraph.video !== undefined) before += 1
+  }
+  return parts.map((own, at): EvidenceComment => {
+    const lines = [
+      count === 1
+        ? "## e2e evidence"
+        : `## e2e evidence, part ${at + 1} of ${count}`,
+      summary,
+    ]
+    own.forEach(({ titled, text }, index) => {
+      const previous = own[index - 1]?.titled
+      if (previous?.file !== titled.file) lines.push(`### ${titled.file}`)
+      if (previous !== titled) lines.push(`#### ${titled.title}`)
+      lines.push(text)
+    })
+    return {
+      bodyFile: `${BODY_DIR}/e2e-evidence-${at + 1}.md`,
+      videos: own.flatMap(({ video }) => (video === undefined ? [] : [video])),
+      body: [...lines, ""].join("\n\n"),
+    }
+  })
 })
 
 // Decision: any failure blocks the post, in a picked spec or not, and so does
@@ -410,38 +460,27 @@ export const evidencePlan = Effect.fn("evidencePlan")(function* (
     })
   const selected = [...new Set(matches.flat())]
 
-  const attached: Array<
-    ResultFile & { readonly test: string; readonly fromBody: string }
-  > = []
-  const paragraphs: Array<string> = [
-    "## e2e evidence",
-    `The full suite passed on ${pr.headSha}: ${report.stats.expected} passed in ${Math.round(report.stats.duration / 1000)} s.`,
-  ]
+  const attached: Array<ResultFile & { readonly test: string }> = []
+  const paragraphs: Array<Paragraph> = []
   for (const file of selected) {
-    paragraphs.push(`### ${file}`)
     for (const titled of tests.filter((test) => test.file === file)) {
       const own = (yield* testFiles(titled, files, VIDEO)).map((video) => ({
         ...video,
         test: `${file} › ${titled.title}`,
-        // Decision: the body and --attach name each video from the body
-        // file's folder, where gh runs, written ./x as gh's help does, not
-        // repo-relative: gh reads a --body-file's paths from its folder and
-        // only falls back to the working directory (gh 2.103.3's help).
-        fromBody: `./${path.relative(path.dirname(BODY_FILE), video.path)}`,
       }))
       attached.push(...own)
       paragraphs.push(
         ...(yield* section(
           titled,
-          own.map((video) => video.fromBody)
+          // Decision: the body and --attach name each video from the body
+          // file's folder, where gh runs, written ./x as gh's help does, not
+          // repo-relative: gh reads a --body-file's paths from its folder and
+          // only falls back to the working directory (gh 2.103.3's help).
+          own.map((video) => `./${path.relative(BODY_DIR, video.path)}`)
         ))
       )
     }
   }
-  if (attached.length > ATTACH_CAP)
-    return yield* new EvidenceRefused({
-      reason: `The picked specs have ${attached.length} videos, and gh attaches at most ${ATTACH_CAP} to one comment, so nothing was posted. Name fewer specs.`,
-    })
   const oversize = attached.filter((video) => video.bytes > VIDEO_CAP_MB * MB)
   if (oversize.length > 0)
     return yield* new EvidenceRefused({
@@ -453,19 +492,65 @@ export const evidencePlan = Effect.fn("evidencePlan")(function* (
         ),
       ].join("\n"),
     })
+  const comments = yield* splitComments(
+    paragraphs,
+    `The full suite passed on ${pr.headSha}: ${report.stats.expected} passed in ${Math.round(report.stats.duration / 1000)} s.`
+  )
   return {
     unmet,
     pr: pr.number,
-    bodyFile: BODY_FILE,
-    videos: attached.map((video) => video.fromBody),
-    body: [...paragraphs, ""].join("\n\n"),
+    comments,
     status: {
       sha: pr.headSha,
       state: "success",
       context: CONTEXT,
-      description: `Full suite passed: ${report.stats.expected} tests. Videos in the PR comment.`,
+      description: `Full suite passed: ${report.stats.expected} tests. Videos in ${comments.length === 1 ? "the PR comment" : `${comments.length} PR comments`}.`,
     },
   } satisfies PostPlan
+})
+
+const causeOf = Effect.fnUntraced(function* (error: unknown) {
+  return error instanceof Error ? error.message : String(error)
+})
+
+/**
+ * Posts the plan's comments in order, then sets its status on the first
+ * one's URL. A comment that fails stops the post with no status set, naming
+ * the parts already up. Returns each comment's URL.
+ */
+export const postEvidence = Effect.fn("postEvidence")(function* <E, R>(
+  plan: PostPlan,
+  post: {
+    /** Posts one comment and returns its URL. */
+    readonly comment: (comment: EvidenceComment) => Effect.Effect<string, E, R>
+    readonly status: (target: string) => Effect.Effect<void, E, R>
+  }
+) {
+  const count = plan.comments.length
+  const urls: Array<string> = []
+  for (const [at, comment] of plan.comments.entries()) {
+    const url = yield* post.comment(comment).pipe(
+      Effect.catch((error) =>
+        Effect.flatMap(
+          causeOf(error),
+          (cause) =>
+            new EvidenceRefused({
+              reason: [
+                `Part ${at + 1} of ${count} did not post, so the ${CONTEXT} status is unchanged.`,
+                urls.length === 0
+                  ? "No part was posted."
+                  : `Posted, and left on the PR:\n${urls.map((posted, index) => `  part ${index + 1}: ${posted}`).join("\n")}`,
+                cause,
+              ].join("\n"),
+            })
+        )
+      )
+    )
+    urls.push(url)
+  }
+  const [first] = urls
+  if (first !== undefined) yield* post.status(first)
+  return urls
 })
 
 /** The comment's URL, from what `gh pr comment` prints. */

@@ -1,13 +1,15 @@
 import { NodeServices } from "@effect/platform-node"
 import { assert, layer } from "@effect/vitest"
-import { Effect, FileSystem, Path, Schema } from "effect"
+import { Effect, Exit, FileSystem, Path, Schema } from "effect"
 
 import {
   commentUrl,
   EvidenceRefused,
   evidencePlan,
   PlaywrightReport,
+  postEvidence,
   preflight,
+  type PostPlan,
 } from "./e2e-evidence-plan.mts"
 
 const SHA = "b40ace6e4b02b88d864f939f7501f8de34b1df08"
@@ -77,6 +79,27 @@ const redFiles = folders({
     ["page@cb588c83eafab5a2567cbbf0d5af7ea0.webm", 0.5 * MB],
   ],
 })
+
+// The green run's files with web's landing-page test given `count` videos.
+const many = (count: number) => {
+  const folder = `${results}/web-GET-serves-the-landing-page-chromium`
+  return new Map([
+    ...greenFiles,
+    [
+      `/repo/${folder}`,
+      Array.from({ length: count }, (_, at) => ({
+        path: `${folder}/page@${String(at).padStart(2, "0")}.webm`,
+        bytes: MB,
+      })),
+    ],
+  ])
+}
+
+// The plan's one comment, when its videos fit in one.
+const onlyComment = (post: PostPlan) => {
+  assert.lengthOf(post.comments, 1)
+  return post.comments[0] ?? assert.fail("no comment")
+}
 
 // The checkout a run leaves alone: still clean, still on the PR's head.
 const untouched = { dirty: [], head: SHA }
@@ -290,12 +313,13 @@ layer(NodeServices.layer)("evidencePlan", (it) => {
     () =>
       Effect.gen(function* () {
         const post = yield* plan(["web.spec.ts"])
+        const comment = onlyComment(post)
         const video = "./web-GET-serves-the-landing-page-chromium/video.webm"
         assert.strictEqual(post.pr, 217)
-        assert.strictEqual(post.bodyFile, `${results}/e2e-evidence.md`)
-        assert.deepStrictEqual(post.videos, [video])
+        assert.strictEqual(comment.bodyFile, `${results}/e2e-evidence-1.md`)
+        assert.deepStrictEqual(comment.videos, [video])
         assert.strictEqual(
-          post.body,
+          comment.body,
           [
             "## e2e evidence",
             `The full suite passed on ${SHA}: 11 passed in 31 s.`,
@@ -321,10 +345,11 @@ layer(NodeServices.layer)("evidencePlan", (it) => {
     () =>
       Effect.gen(function* () {
         const post = yield* plan(["web.spec.ts"])
+        const comment = onlyComment(post)
         const video = "./web-GET-serves-the-landing-page-chromium/video.webm"
-        assert.deepStrictEqual(post.videos, [video])
-        assert.include(post.body, `![](${video})`)
-        assert.notInclude(post.body, results)
+        assert.deepStrictEqual(comment.videos, [video])
+        assert.include(comment.body, `![](${video})`)
+        assert.notInclude(comment.body, results)
       })
   )
 
@@ -333,15 +358,16 @@ layer(NodeServices.layer)("evidencePlan", (it) => {
     () =>
       Effect.gen(function* () {
         const post = yield* plan(["taken-email.spec.ts"])
+        const comment = onlyComment(post)
         const folder =
           "./taken-email-the-owner-of-a-2e971-unt-through-the-mailed-link-chromium"
         const sorted = [
           `${folder}/page@3b02dfa9110f20441cf1bc739eea183e.webm`,
           `${folder}/page@a0193e67cba0c6be8365d1b731100033.webm`,
         ]
-        assert.deepStrictEqual(post.videos, sorted)
+        assert.deepStrictEqual(comment.videos, sorted)
         assert.include(
-          post.body,
+          comment.body,
           `\n\n#### the owner of a squatted email takes the account through the mailed link\n\n![](${sorted[0]})\n\n![](${sorted[1]})\n\n`
         )
       })
@@ -355,31 +381,33 @@ layer(NodeServices.layer)("evidencePlan", (it) => {
           "apps/e2e/tests/market-live-select.spec.ts",
           "tests/taken-email.spec.ts",
         ])
-        assert.lengthOf(post.videos, 6)
+        const comment = onlyComment(post)
+        assert.lengthOf(comment.videos, 6)
         assert.isTrue(
-          post.videos.every(
+          comment.videos.every(
             (video) =>
               video.includes("/market-live-select-") ||
               video.includes("/taken-email-")
           )
         )
-        assert.notInclude(post.body, "web.spec.ts")
+        assert.notInclude(comment.body, "web.spec.ts")
         assert.isBelow(
-          post.body.indexOf("### market-live-select.spec.ts"),
-          post.body.indexOf("### taken-email.spec.ts")
+          comment.body.indexOf("### market-live-select.spec.ts"),
+          comment.body.indexOf("### taken-email.spec.ts")
         )
         for (const title of [
           "the day's code list is served for the day, cacheable",
           "a signed-out code list GET answers 401",
         ])
-          assert.include(post.body, `#### ${title}\n\nNo page, no video.`)
+          assert.include(comment.body, `#### ${title}\n\nNo page, no video.`)
       })
   )
 
   it.effect("posts a spec named and also changed once", () =>
     Effect.gen(function* () {
       const post = yield* plan(["web.spec.ts", "apps/e2e/tests/web.spec.ts"])
-      assert.lengthOf(post.videos, 1)
+      const comment = onlyComment(post)
+      assert.lengthOf(comment.videos, 1)
     })
   )
 
@@ -539,28 +567,50 @@ layer(NodeServices.layer)("evidencePlan", (it) => {
   )
 
   it.effect(
-    "refuses more than 50 videos, the most gh attaches to one comment, naming the count",
+    "splits 86 videos into comments of 50 and 36 in pick order, each naming its part",
     () =>
       Effect.gen(function* () {
-        const folder = `${results}/web-GET-serves-the-landing-page-chromium`
-        const many = (count: number) =>
-          new Map([
-            ...greenFiles,
-            [
-              `/repo/${folder}`,
-              Array.from({ length: count }, (_, at) => ({
-                path: `${folder}/page@${String(at).padStart(2, "0")}.webm`,
-                bytes: MB,
-              })),
-            ],
-          ])
-        const refused = yield* Effect.flip(plan(["web.spec.ts"], many(51)))
-        assert.instanceOf(refused, EvidenceRefused)
-        assert.include(refused.message, "51 videos")
-        assert.include(refused.message, "50")
-        assert.include(refused.message, "fewer specs")
-        assert.lengthOf((yield* plan(["web.spec.ts"], many(50))).videos, 50)
+        const post = yield* plan(["web.spec.ts"], many(86))
+        const names = (from: number, to: number) =>
+          Array.from(
+            { length: to - from },
+            (_, at) =>
+              `./web-GET-serves-the-landing-page-chromium/page@${String(from + at).padStart(2, "0")}.webm`
+          )
+        assert.deepStrictEqual(
+          post.comments.map((comment) => comment.videos),
+          [names(0, 50), names(50, 86)]
+        )
+        assert.deepStrictEqual(
+          post.comments.map((comment) => comment.bodyFile),
+          [`${results}/e2e-evidence-1.md`, `${results}/e2e-evidence-2.md`]
+        )
+        const [first, second] = post.comments.map((comment) => comment.body)
+        assert.isTrue(first?.startsWith("## e2e evidence, part 1 of 2\n\n"))
+        assert.isTrue(second?.startsWith("## e2e evidence, part 2 of 2\n\n"))
+        assert.notInclude(first, "No page, no video.")
+        assert.include(
+          second,
+          `\n\n### web.spec.ts\n\n#### GET / serves the landing page\n\n![](${names(50, 51)[0]})\n\n`
+        )
+        assert.include(
+          second,
+          "\n\n#### GET /probe proves the secret reached the Worker\n\nNo page, no video.\n\n"
+        )
+        assert.strictEqual(
+          post.status.description,
+          "Full suite passed: 11 tests. Videos in 2 PR comments."
+        )
       })
+  )
+
+  it.effect("posts 50 videos as one comment with no part in its title", () =>
+    Effect.gen(function* () {
+      const post = yield* plan(["web.spec.ts"], many(50))
+      assert.lengthOf(post.comments, 1)
+      assert.lengthOf(post.comments[0]?.videos ?? [], 50)
+      assert.isTrue(post.comments[0]?.body.startsWith("## e2e evidence\n\n"))
+    })
   )
 
   it.effect("ignores an oversize video of a test it does not post", () =>
@@ -576,6 +626,70 @@ layer(NodeServices.layer)("evidencePlan", (it) => {
           ],
         ])
       )
+    })
+  )
+})
+
+layer(NodeServices.layer)("postEvidence", (it) => {
+  const url = (part: number) =>
+    `https://github.com/apinrdw/kumora/pull/217#issuecomment-${part}`
+
+  // Posts the 86-video plan, failing the comment whose part is `failAt`, and
+  // returns what was called in order and how the post ended.
+  const post = (failAt?: number) =>
+    Effect.gen(function* () {
+      const calls: Array<string> = []
+      const exit = yield* Effect.exit(
+        postEvidence(yield* plan(["web.spec.ts"], many(86)), {
+          comment: (comment) => {
+            const part = Number(/(\d+)\.md$/.exec(comment.bodyFile)?.[1])
+            calls.push(`comment ${part}`)
+            return part === failAt
+              ? Effect.fail(new Error("gh: upload timed out"))
+              : Effect.succeed(url(part))
+          },
+          status: (target) =>
+            Effect.sync(() => {
+              calls.push(`status ${target}`)
+            }),
+        })
+      )
+      return { calls, exit }
+    })
+
+  it.effect("sets the status only after the last part, linking the first", () =>
+    Effect.gen(function* () {
+      const { calls, exit } = yield* post()
+      assert.isTrue(Exit.isSuccess(exit))
+      assert.deepStrictEqual(calls, [
+        "comment 1",
+        "comment 2",
+        `status ${url(1)}`,
+      ])
+    })
+  )
+
+  it.effect(
+    "sets no status when a part fails, naming the parts posted and the cause",
+    () =>
+      Effect.gen(function* () {
+        const { calls, exit } = yield* post(2)
+        assert.deepStrictEqual(calls, ["comment 1", "comment 2"])
+        const refused = yield* Effect.flip(exit)
+        assert.instanceOf(refused, EvidenceRefused)
+        assert.include(refused.message, "Part 2 of 2")
+        assert.include(refused.message, "e2e-evidence status is unchanged")
+        assert.include(refused.message, `part 1: ${url(1)}`)
+        assert.include(refused.message, "gh: upload timed out")
+      })
+  )
+
+  it.effect("says no part was posted when the first fails", () =>
+    Effect.gen(function* () {
+      const { calls, exit } = yield* post(1)
+      assert.deepStrictEqual(calls, ["comment 1"])
+      const refused = yield* Effect.flip(exit)
+      assert.include(refused.message, "No part was posted")
     })
   )
 })
