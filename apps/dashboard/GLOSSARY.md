@@ -317,6 +317,10 @@ _Avoid_: Archive run; IDX parse run
 One pass that parses each Securities holdings report in the KSEI archive whose newest version, or the parser's version, hasn't been parsed into KSEI holdings, from November 2018 on. The schedule starts one each day, an hour after the KSEI archive run, and an admin can start one when no KSEI parse run is in progress. A report that doesn't read exactly as expected is rejected whole and keeps the month's earlier holdings. It ends **complete**, **partial** (some months could not be parsed and wait for the next run) or **failed**.
 _Avoid_: KSEI archive run, which stores reports; import, sync
 
+**Parse coverage**:
+Each archived month of a report kind a parse run reads, and how far it is parsed: **parsed** (from its newest version, by the current parser), **stale** (from an older version or by an older parser, so the next parse run parses it again), **failed** (the last finished parse run had a parse failure on it), or **not parsed yet** (never parsed). A failed month may still have its earlier parsed holdings.
+_Avoid_: Coverage, which is the KSEI archive's held months; parse status
+
 **Retail / institution**:
 Retail is the holdings of the Individual KSEI investor type; institution is every other type's.
 _Avoid_: Retail investors meaning any small holder
