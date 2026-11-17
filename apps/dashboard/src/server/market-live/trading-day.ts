@@ -324,7 +324,9 @@ export const makeTradingDay = Effect.fnUntraced(function* (options: {
   // never inside, so nothing under it waits on it. See apinrdw/kumora#159.
   const turn = yield* Semaphore.make(1)
   const codeListStore = options.codeList ?? (yield* memoryCodeListStore)
-  const store = yield* makeDayStore(options.sql)
+  const todayDate = yield* wibDateAt(yield* DateTime.now)
+  const today = todayDate === options.date
+  const store = yield* makeDayStore(options.sql, { today })
   const brokerCodes = yield* makeBrokerCodes({
     date: options.date,
     sql: options.sql,
@@ -346,8 +348,6 @@ export const makeTradingDay = Effect.fnUntraced(function* (options: {
   // straight from the store, and broker codes POSTs and status GETs from its
   // own tables (broker-codes.ts). Today's still serves viewers and its
   // bubbles answer after the seal (recorded-answers.ts, `bubblesAnswer`).
-  const todayDate = yield* wibDateAt(yield* DateTime.now)
-  const today = todayDate === options.date
   const restoring = !sealed || today
   // Decision: a viewer is served only until the object's day ends: past it,
   // the socket is closed with 1001 when it would next be served, and the page

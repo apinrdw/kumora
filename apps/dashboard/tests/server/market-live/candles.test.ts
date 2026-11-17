@@ -62,7 +62,7 @@ describe("the candle book over a full day", () => {
     "holds no more than the minute being traded, serves every candle, and adds a late trade to a stored one",
     () =>
       Effect.gen(function* () {
-        const store = yield* makeDayStore(memorySql())
+        const store = yield* makeDayStore(memorySql(), { today: true })
         const book = yield* makeCandleBook(store, () => {})
         const first = wib("08:58:00")
         let number = 0
@@ -148,7 +148,7 @@ describe("a candle's buy value and sell value", () => {
     "sum the minute's trades by aggressor side, with no-side trades in value only; an index's are 0",
     () =>
       Effect.gen(function* () {
-        const store = yield* makeDayStore(memorySql())
+        const store = yield* makeDayStore(memorySql(), { today: true })
         const book = yield* makeCandleBook(store, () => {})
         const minute = wib("09:00:00")
         yield* TestClock.setTime(DateTime.toEpochMillis(minute) + 10_000)

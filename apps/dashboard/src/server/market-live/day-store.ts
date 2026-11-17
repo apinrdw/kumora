@@ -195,9 +195,11 @@ const SCHEMA = [
 
 // Decision: a day store opened from before candles carried buy and sell value
 // (spec apinrdw/kumora#427) gains both columns, the last in the table as in
-// SCHEMA, so the candles INSERT's order fits both. An unsealed day's candles
-// get them from its stored trades in the same transaction; a sealed day's
-// keep 0: Market Bubbles is live only. See apinrdw/kumora#436.
+// SCHEMA, so the candles INSERT's order fits both. Today's candles and an
+// unsealed day's get them from its stored trades in the same transaction:
+// today's bubbles are served after the seal until midnight
+// (recorded-answers.ts, `bubblesAnswer`). A sealed past day's keep 0: Market
+// Bubbles is live only. See apinrdw/kumora#436.
 const ADDED_CANDLE_COLUMNS = ["buy_value", "sell_value"]
 
 // Each stored candle's buy and sell value from the stored trades, by
@@ -313,7 +315,11 @@ const livePriceOf = (frame: SqlValue | undefined) =>
 const chunkOf = (blob: SqlValue | undefined) =>
   Effect.sync(() => new TextDecoder().decode(gunzipSync(blob as Uint8Array)))
 
-export const makeDayStore = (sql: Sql) =>
+// `today` when the store holds today's WIB date.
+export const makeDayStore = (
+  sql: Sql,
+  { today }: { readonly today: boolean }
+) =>
   Effect.gen(function* () {
     for (const statement of SCHEMA) sql.exec(statement)
     const columns = new Set(
@@ -328,7 +334,7 @@ export const makeDayStore = (sql: Sql) =>
           sql.exec(
             `ALTER TABLE candles ADD COLUMN ${column} REAL NOT NULL DEFAULT 0`
           )
-        if (!sealed) sql.exec(REBUILD_CANDLE_SIDES)
+        if (today || !sealed) sql.exec(REBUILD_CANDLE_SIDES)
       })
 
     let meter = yield* emptyMeter

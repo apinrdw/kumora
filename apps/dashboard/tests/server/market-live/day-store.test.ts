@@ -68,7 +68,7 @@ describe("the recorded tape's query plan", () => {
   it.effect("searches the trades table by number and never scans it", () =>
     Effect.gen(function* () {
       const { sql, statements, plan } = recordingSql()
-      const store = yield* makeDayStore(sql)
+      const store = yield* makeDayStore(sql, { today: true })
       yield* store.write({
         trades: [
           trade(1, "09:00:01"),
@@ -108,7 +108,7 @@ describe("the recorded tape's query plan", () => {
 describe("the recorded tape with mixed feed precision", () => {
   it.effect("finds a trade whose time is before its predecessor's", () =>
     Effect.gen(function* () {
-      const store = yield* makeDayStore(recordingSql().sql)
+      const store = yield* makeDayStore(recordingSql().sql, { today: true })
       yield* store.write({
         trades: [trade(1, "09:00:00.900"), trade(2, "09:00:00.000")],
         candles: [],
@@ -133,7 +133,7 @@ describe("the recorded tape with mixed feed precision", () => {
 
   it.effect("keeps the newest `limit` trades after the time filter", () =>
     Effect.gen(function* () {
-      const store = yield* makeDayStore(recordingSql().sql)
+      const store = yield* makeDayStore(recordingSql().sql, { today: true })
       yield* store.write({
         trades: [
           trade(1, "09:00:00.000"),
@@ -163,7 +163,7 @@ describe("the one-off build's span", () => {
     () =>
       Effect.gen(function* () {
         const sql = memorySql()
-        const store = yield* makeDayStore(sql)
+        const store = yield* makeDayStore(sql, { today: true })
         const open = DateTime.toEpochMillis(wib("08:58:00"))
         sql.transaction(() => {
           for (let code = 0; code < FULL_DAY_CODES; code++)
@@ -193,16 +193,19 @@ describe("the cost meter", () => {
       // Counts a written row per INSERT and a read row per row returned.
       const inner = memorySql()
       const used = { rowsRead: 0, rowsWritten: 0, bytes: 0 }
-      const store = yield* makeDayStore({
-        ...inner,
-        exec: (query, ...bindings) => {
-          const rows = inner.exec(query, ...bindings)
-          if (query.startsWith("INSERT")) used.rowsWritten += 1
-          else used.rowsRead += rows.length
-          return rows
+      const store = yield* makeDayStore(
+        {
+          ...inner,
+          exec: (query, ...bindings) => {
+            const rows = inner.exec(query, ...bindings)
+            if (query.startsWith("INSERT")) used.rowsWritten += 1
+            else used.rowsRead += rows.length
+            return rows
+          },
+          usage: () => ({ ...used }),
         },
-        usage: () => ({ ...used }),
-      })
+        { today: true }
+      )
       yield* store.write({
         trades: [trade(1, "09:00:00.000"), trade(2, "09:00:10.000")],
         candles: [],
@@ -384,7 +387,7 @@ describe("a day store from before candles carried buy and sell value", () => {
       oldStore(sql)
       const minute = DateTime.toEpochMillis(wib("09:00:00"))
       oldCandle(sql, "BBCA", minute, 2_707_500, 2)
-      const old = yield* makeDayStore(sql)
+      const old = yield* makeDayStore(sql, { today: true })
       const [kept] = yield* old.storedCandlesOf(StockCode.make("BBCA"))
       assert.deepStrictEqual(
         {
@@ -394,7 +397,7 @@ describe("a day store from before candles carried buy and sell value", () => {
         },
         { value: 2_707_500, buyValue: 0, sellValue: 0 }
       )
-      const reopened = yield* makeDayStore(sql)
+      const reopened = yield* makeDayStore(sql, { today: true })
       const later = minute + MINUTE_MS
       yield* reopened.write({
         trades: [],
