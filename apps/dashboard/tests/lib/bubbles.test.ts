@@ -1041,6 +1041,72 @@ describe("day totals a backfill recounts", () => {
   )
 })
 
+describe("a last price while a recount waits", () => {
+  it.effect(
+    "is none, not an older minute's from a body settled short of the late trades",
+    () =>
+      Effect.gen(function* () {
+        const flow = yield* makeMarketFlow()
+        const minutes = [
+          minute(T0, 10_000, 104),
+          minute(T0 + 2 * MIN, 10_000, 101),
+        ]
+        yield* applyBubbles(
+          flow,
+          body([{ code: "BBCA", previousClose: 100, minutes }])
+        )
+        // Another code's trade two hours on lets 10:00 to 10:02 go.
+        const later = T0 + 2 * 60 * MIN
+        yield* applyMessage(
+          flow,
+          delta(later, [
+            candle("TLKM", later, { value: 1_000, close: 10, frequency: 1 }),
+          ])
+        )
+        // A late trade lands in 10:03, then a correction empties it.
+        yield* applyMessage(
+          flow,
+          delta(later + 1_000, [
+            candle("BBCA", T0 + 3 * MIN, {
+              value: 10_200,
+              close: 102,
+              frequency: 1,
+            }),
+          ])
+        )
+        yield* applyMessage(flow, {
+          ...delta(later + 2_000, []),
+          footprints: [
+            {
+              code: StockCode.make("BBCA"),
+              minute: DateTime.makeUnsafe(T0 + 3 * MIN),
+              cells: [],
+            },
+          ],
+        })
+        const last = Effect.map(
+          bubblesOf(flow, { ...VIEW, window: "D", top: "all" }, later),
+          (shown) => shown.find((bubble) => bubble.code === "BBCA")?.last
+        )
+        // Built before 10:02's trade settled, as one built in its merge
+        // window is.
+        yield* applyBubbles(
+          flow,
+          body(
+            [{ code: "BBCA", previousClose: 100, minutes: [minutes[0]!] }],
+            T0 + MIN
+          )
+        )
+        expect(yield* last).toBeUndefined()
+        yield* applyBubbles(
+          flow,
+          body([{ code: "BBCA", previousClose: 100, minutes }], later + 3_000)
+        )
+        expect(yield* last).toBe(101)
+      })
+  )
+})
+
 describe("a late trade in a kept minute the market then lets go", () => {
   it.effect(
     "waits for a backfill settled past it when one settled before it comes",
