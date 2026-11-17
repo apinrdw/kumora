@@ -1,4 +1,4 @@
-import type { Page } from "@playwright/test"
+import type { Locator, Page } from "@playwright/test"
 
 import { expect, test } from "../support/test"
 
@@ -1157,6 +1157,9 @@ const summaryRow = (page: Page, broker: string) =>
       has: page.getByRole("rowheader", { name: new RegExp(`^${broker}`) }),
     })
 
+// A table row's last cell: its Freq.
+const freqCell = (row: Locator) => row.locator("td").last()
+
 const chips = (page: Page) =>
   brokerInventory(page).getByRole("list", { name: "Plotted brokers" })
 
@@ -1274,6 +1277,13 @@ test.describe.serial("the Broker inventory tab", () => {
       "12 brokers · 55.35 K lots traded · 11.07 K trades counted · regular board + auction matches · 3 trades missing · 1 gap day skipped"
     )
     await expect(summaryRow(page, "YP")).toContainText("+7,900")
+    // A trade every 5 lots. YP buys 120 lots a day over 79 days; NI nets
+    // a seller, selling 120 a day for 69 days and 20 a day for 10.
+    await expect(
+      summaryTable(page).getByRole("columnheader", { name: "Freq" })
+    ).toBeVisible()
+    await expect(freqCell(summaryRow(page, "YP"))).toHaveText("1,896")
+    await expect(freqCell(summaryRow(page, "NI"))).toHaveText("1,696")
     await expect(async () => {
       await lensPick(page, "Investor", "Foreign").click()
       await expect(page).toHaveURL(/[?&]investor=foreign/, { timeout: 1000 })
@@ -1282,6 +1292,9 @@ test.describe.serial("the Broker inventory tab", () => {
     await expect.poll(() => plotted(page)).toStrictEqual(["KZ", "BK"])
     await expect(rows).toHaveCount(2)
     await expect(summaryRow(page, "KZ")).toContainText(/^KZ\s*F/)
+    // KZ buys 60 lots a day, BK sells 120.
+    await expect(freqCell(summaryRow(page, "KZ"))).toHaveText("948")
+    await expect(freqCell(summaryRow(page, "BK"))).toHaveText("1,896")
     await lensPick(page, "Measure", "Net value").click()
     await expect(page).toHaveURL(/[?&]measure=value/)
     await expect(
@@ -1476,6 +1489,11 @@ test.describe.serial("the Broker inventory tab", () => {
     // Every lot the plotted brokers bought, one of them sold: the Top 5
     // each side net out to 0 over these days.
     await expect(selection.locator("tfoot")).toContainText("Total0")
+    // YP's buys and BK's sells, a trade every 5 lots; the Total nets 0, so
+    // it counts the plotted brokers' 102 buy trades a day.
+    await expect(freqCell(rows.first())).toHaveText("240")
+    await expect(freqCell(rows.last())).toHaveText("240")
+    await expect(freqCell(selection.locator("tfoot tr"))).toHaveText("1,020")
     await page.reload()
     await expect(selectionPanel(page)).toContainText("10 days")
     await expect.poll(() => linkedDay(selectionPanel(page))).toBe(from)

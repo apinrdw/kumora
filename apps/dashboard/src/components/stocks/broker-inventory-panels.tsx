@@ -15,7 +15,7 @@ import type {
   Measure,
   SelectionSummary,
 } from "@/lib/broker-inventory"
-import { count, dayLabel, pct, price } from "@/lib/format"
+import { count, dayLabel, pct, plain, price } from "@/lib/format"
 
 const tableClass =
   "w-full text-[12px] whitespace-nowrap [&_td]:py-0.5 [&_td]:pl-2 [&_td]:text-right [&_th]:py-0.5 [&_th]:pl-2 [&_th]:text-right [&_th]:font-medium [&_th]:text-muted-foreground [&_th:first-child]:pl-0 [&_th:first-child]:text-left"
@@ -60,6 +60,20 @@ function BrokerCell({
   )
 }
 
+function Head({ columns }: { columns: ReadonlyArray<string> }) {
+  return (
+    <thead>
+      <tr>
+        {columns.map((column) => (
+          <th key={column} scope="col">
+            {column}
+          </th>
+        ))}
+      </tr>
+    </thead>
+  )
+}
+
 function Panel({ label, children }: { label: string; children: ReactNode }) {
   return (
     <section
@@ -98,15 +112,7 @@ export function HoverDayPanel({
         </span>
       </div>
       <table aria-label="Day figures" className={tableClass}>
-        <thead>
-          <tr>
-            <th scope="col">Broker</th>
-            <th scope="col">Net</th>
-            <th scope="col">Day</th>
-            <th scope="col">Avg buy</th>
-            <th scope="col">Avg sell</th>
-          </tr>
-        </thead>
+        <Head columns={["Broker", "Net", "Day", "Avg buy", "Avg sell"]} />
         <tbody className="num">
           {hover.rows.map((row) => (
             <tr key={row.broker}>
@@ -174,14 +180,7 @@ export function SelectionPanel({
         </span>
       </p>
       <table aria-label="Selection figures" className={tableClass}>
-        <thead>
-          <tr>
-            <th scope="col">Broker</th>
-            <th scope="col">Net</th>
-            <th scope="col">Avg buy</th>
-            <th scope="col">Avg sell</th>
-          </tr>
-        </thead>
+        <Head columns={["Broker", "Net", "Avg buy", "Avg sell", "Freq"]} />
         <tbody className="num">
           {selection.rows.map((row) => (
             <tr key={row.broker}>
@@ -191,6 +190,7 @@ export function SelectionPanel({
               </td>
               <td>{Effect.runSync(averageCell(row.avgBuy))}</td>
               <td>{Effect.runSync(averageCell(row.avgSell))}</td>
+              <td>{Effect.runSync(plain(row.freq))}</td>
             </tr>
           ))}
         </tbody>
@@ -204,6 +204,7 @@ export function SelectionPanel({
             </td>
             <td>{Effect.runSync(averageCell(total.avgBuy))}</td>
             <td>{Effect.runSync(averageCell(total.avgSell))}</td>
+            <td>{Effect.runSync(plain(total.freq))}</td>
           </tr>
         </tfoot>
       </table>
