@@ -4,6 +4,7 @@ import { expect, test } from "../support/test"
 
 import { ADMIN, DASHBOARD, MEMBER } from "../support/accounts"
 import { wibDate } from "../support/clock"
+import { landStocksSeedOn } from "../support/holdings"
 import {
   seedKseiHoldingsFixture,
   seedKseiReport,
@@ -446,6 +447,10 @@ test.describe.serial("an admin's KSEI archive", () => {
       parseRunCard(page).getByRole("button", { name: "Parse now" })
     ).toBeEnabled()
 
+    // stocks.spec.ts's seed, landing after the parse, as it may.
+    landStocksSeedOn("ksei", "2026-09-30", true)
+    landStocksSeedOn("ksei", "2026-10-30", true)
+    await page.reload()
     const parseCoverage = page
       .getByRole("region", { name: "Parse coverage", exact: true })
       .getByRole("table", { name: "Securities holdings parse coverage" })

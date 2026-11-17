@@ -3,6 +3,7 @@ import type { Locator, Page } from "@playwright/test"
 import { expect, test } from "../support/test"
 
 import { ADMIN, DASHBOARD, MEMBER } from "../support/accounts"
+import { landStocksSeedOn } from "../support/holdings"
 import {
   seedLatestRun,
   seedReport,
@@ -334,6 +335,9 @@ test.describe.serial("an admin's archive totals and parse runs", () => {
     await expect(
       classificationParseCard(page).getByRole("button", { name: "Parse now" })
     ).toBeEnabled()
+    // stocks.spec.ts's seed, landing after the parse, as it may.
+    landStocksSeedOn("classification", "2025-12-31", false)
+    await page.reload()
     await expect(
       parseCoverageYear(page, "Holdings by investor classification", 2025)
     ).toContainText("Parsed")
@@ -373,6 +377,9 @@ test.describe.serial("an admin's archive totals and parse runs", () => {
     await expect(
       investorTypeParseCard(page).getByRole("button", { name: "Parse now" })
     ).toBeEnabled()
+    // stocks.spec.ts's seed, landing after the parse, as it may.
+    landStocksSeedOn("investor-type", "2025-11-28", true)
+    await page.reload()
     await expect(
       parseCoverageYear(page, "Holdings by investor type", 2025)
     ).toContainText("Parsed")
