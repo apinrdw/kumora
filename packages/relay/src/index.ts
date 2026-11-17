@@ -10,6 +10,8 @@ export {
   marketPhases,
   nextOpenAfter,
   wibDateAt,
+  wibDayEnd,
+  wibDayStart,
   WIB_UTC_OFFSET_HOURS,
   sealInstant,
   streamingEndOf,

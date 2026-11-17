@@ -21,6 +21,7 @@ import {
   StockCode,
   tradeNumberValue,
   wibDateAt,
+  wibDayEnd,
   type DayState,
   type Feed,
   type IndicativePrice,
@@ -339,7 +340,7 @@ export const makeTradingDay = Effect.fnUntraced(function* (options: {
   let orderFlowBuilt = yield* orderFlowBuiltAtStart(store)
   const sealAt = yield* sealInstant(options.date)
   // Midnight WIB after the day, in epoch ms.
-  const dayEnd = Date.parse(`${options.date}T00:00:00+07:00`) + 86_400_000
+  const dayEnd = DateTime.toEpochMillis(yield* wibDayEnd(options.date))
   // Decision: an object restores the live day from its store unless the day
   // is sealed and past: a past day's object answers recorded day GETs
   // straight from the store, and broker codes POSTs and status GETs from its

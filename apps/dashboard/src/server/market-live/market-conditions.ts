@@ -7,6 +7,7 @@ import {
   expectedStretches,
   marketMomentAt,
   nextOpenAfter,
+  wibDayStart,
   type IndicativePrice,
   type IngestUp,
   type MarketConditions,
@@ -56,7 +57,7 @@ export const makeMarketConditions = Effect.fnUntraced(function* (
   // its restart to the relay's next frame as down.
   const health = yield* makeFeedHealth({
     stretches,
-    since: DateTime.makeUnsafe(`${date}T00:00:00+07:00`),
+    since: yield* wibDayStart(date),
     ...(restored === undefined
       ? {}
       : { restored: { record: restored, at: yield* DateTime.now } }),

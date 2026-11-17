@@ -6,6 +6,7 @@ import {
   decodeAjaibCodeList,
   encodeStockCodeList,
   wibDateAt,
+  wibDayEnd,
   type CodeKind,
   type WibDate,
 } from "@workspace/relay"
@@ -84,7 +85,7 @@ export const codeListAnswer = Effect.fnUntraced(function* (
     })
   const now = yield* DateTime.now
   const today = yield* wibDateAt(now)
-  const nextDay = Date.parse(`${today}T00:00:00+07:00`) + 86_400_000
+  const nextDay = DateTime.toEpochMillis(yield* wibDayEnd(today))
   const cacheControl =
     date < today
       ? SEALED_CACHE
