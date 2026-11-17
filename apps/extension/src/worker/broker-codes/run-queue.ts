@@ -161,7 +161,7 @@ export const makeRunQueue = Effect.fnUntraced(function* (options: {
   // The extra target's walks: a stop ends the catch-up only, since
   // Production isn't paused.
   // Decision: after the newest closed day, the extra target walks the gaps
-  // of the older days that were incomplete as the run began, oldest first,
+  // of the older days that were incomplete as the run began, newest first,
   // so it also gets the days Production completed in this run. A day
   // Production completed in an earlier run, while the extra target failed,
   // isn't walked again. See apinrdw/kumora#244, "Targets".
@@ -218,10 +218,11 @@ export const makeRunQueue = Effect.fnUntraced(function* (options: {
     yield* store.saveLastNewest(newest)
   })
 
-  // Decision: older incomplete days' gaps go oldest first, each day once a
-  // run. A day leaves the list once its gap walk finds it complete or
-  // Stockbit answers it with no rows; any other end keeps it for a later
-  // run. See apinrdw/kumora#244, "Order on each run".
+  // Decision: older incomplete days' gaps go newest first, each once a run,
+  // so the days the options page lists fill before History's (2026-11-17).
+  // A day leaves the list once its gap walk finds it complete or Stockbit
+  // answers it with no rows; any other end keeps it for a later run. See
+  // apinrdw/kumora#244, "Order on each run".
   const olderDays = Effect.fnUntraced(function* (days: ReadonlyArray<WibDate>) {
     for (const day of days) {
       yield* options.report({
@@ -256,6 +257,7 @@ export const makeRunQueue = Effect.fnUntraced(function* (options: {
     const older = [...(yield* options.incompleteDays.load)]
       .filter((each) => each < day.value)
       .sort()
+      .reverse()
     for (const { feed, walk } of options.newestDay) {
       yield* options.report({
         state: "walking",
