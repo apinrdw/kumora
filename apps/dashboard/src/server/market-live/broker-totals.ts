@@ -19,7 +19,7 @@ import type { BrokerCodesStore } from "./broker-codes.ts"
 // its pace. See apinrdw/kumora#420.
 export const BROKER_TOTALS_VERSION = 1
 
-// The broker totals fact of a sealed, complete day not built yet.
+// The broker totals fact of a sealed, buildable day not built yet.
 export const BROKER_TOTALS_DUE = "due"
 
 // The broker totals fact of a built day a later batch corrected, to rebuild

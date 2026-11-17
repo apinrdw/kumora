@@ -1,5 +1,5 @@
 // BrokerTotalsDb, the broker totals D1 (BROKER_TOTALS_DB in alchemy.run.ts;
-// schema in broker-totals-migrations/): each complete day's per-broker
+// schema in broker-totals-migrations/): each buildable day's per-broker
 // totals and daily candles, which its trading-day object writes (spec
 // apinrdw/kumora#437, "Dashboard: broker totals DB") and the stock page reads
 // by range. Code reaches it only through `batch`, which runs its statements

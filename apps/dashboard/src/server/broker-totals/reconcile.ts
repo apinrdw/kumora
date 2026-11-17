@@ -12,8 +12,8 @@ import { readBuiltDays } from "./db.ts"
 // Decision: at most this many accepted pokes a run, newest first, so a
 // build version bump or a backlog re-derives history at about 20 days a
 // day and never bursts D1's writes. A day that answers it won't build (an
-// incomplete day, 204) or whose poke fails takes no slot, so days that
-// never complete cannot starve older ones. See apinrdw/kumora#420.
+// unbuildable day, 204) or whose poke fails takes no slot, so days that
+// never become buildable cannot starve older ones. See apinrdw/kumora#420.
 const POKES_PER_RUN = 20
 
 export const reconcileBrokerTotals = Effect.fnUntraced(function* <E, R>(
