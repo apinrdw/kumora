@@ -250,13 +250,19 @@ const bars = (page: Page) =>
 const barsTooltip = (page: Page) => chart(page).getByRole("status")
 
 // Focuses the Bars chart and presses End, retried until the page has
-// hydrated and the tooltip shows the newest month.
+// hydrated: the tooltip shows the newest month and the chart has focus.
+// Decision: it checks focus too, since the tooltip can show over a chart
+// that lost focus. The server renders the chart's SVG, so End can land
+// before React hydrates it. React then hydrates it inside that key press,
+// and the dev build's StrictMode runs the chart's effects twice, which
+// replaces the focused SVG. The same key press still shows the tooltip.
 const focusNewest = async (page: Page, month: string) => {
   await expect(async () => {
     await bars(page).blur()
     await bars(page).focus()
     await page.keyboard.press("End")
     await expect(barsTooltip(page)).toContainText(month, { timeout: 1000 })
+    await expect(bars(page)).toBeFocused({ timeout: 1000 })
   }).toPass()
 }
 

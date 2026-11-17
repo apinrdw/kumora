@@ -10,6 +10,8 @@ export {
   marketPhases,
   nextOpenAfter,
   wibDateAt,
+  wibDayEnd,
+  wibDayStart,
   WIB_UTC_OFFSET_HOURS,
   sealInstant,
   streamingEndOf,
@@ -88,10 +90,13 @@ export {
   encodeStockCodeList,
 } from "./code-list.ts"
 export {
+  BUBBLE_MINUTES,
+  FLUSH_PAST_MINUTE,
   DayStripPath,
   bookAt,
   decodeBookChunk,
   decodeDayStrip,
+  decodeRecordedBubbles,
   decodeRecordedCandles,
   decodeRecordedDay,
   decodeRecordedBrokerCodes,
@@ -100,6 +105,7 @@ export {
   decodeSweepBrokersText,
   decodeRecordedTape,
   encodeBookChunk,
+  encodeRecordedBubbles,
   encodeRecordedCandles,
   encodeRecordedDay,
   encodeRecordedBrokerCodes,
@@ -115,6 +121,7 @@ export type {
   BookChunk,
   BookDelta,
   RecordedBrokerCodes,
+  RecordedBubbles,
   RecordedCandles,
   RecordedDay,
   RecordedSweepBrokers,
@@ -170,3 +177,12 @@ export {
   joinSweeps,
   sweepsOf,
 } from "./sweeps.ts"
+export {
+  IDX_SECTORS,
+  Sector,
+  SectorName,
+  SectorsPath,
+  UNCLASSIFIED,
+  decodeSectorMap,
+} from "./sectors.ts"
+export type { SectorMap } from "./sectors.ts"

@@ -21,6 +21,7 @@ import {
   StockCode,
   tradeNumberValue,
   wibDateAt,
+  wibDayEnd,
   type BrokerCodesBatch,
   type DayState,
   type Feed,
@@ -31,6 +32,8 @@ import {
   type RunningTrade,
   type TradeNumber,
   type WibDate,
+  BUBBLE_MINUTES,
+  FLUSH_PAST_MINUTE,
   MINUTE_MS,
 } from "@workspace/relay"
 import type { WorkerEnv } from "@workspace/server"
@@ -51,6 +54,7 @@ import { writeBuiltDay, type BrokerTotalsDb } from "../broker-totals/db.ts"
 import { ajaibTrades } from "./ajaib.ts"
 import { ajaibPrices } from "./ajaib-price.ts"
 import { backfillTrades } from "./backfill-page.ts"
+import { makeBubbleBook } from "./bubble-book.ts"
 import { makeBrokerCodes } from "./broker-codes.ts"
 import {
   BROKER_TOTALS_DUE,
@@ -81,7 +85,11 @@ import {
   buildWalkedDay,
   orderFlowBuiltAtStart,
 } from "./order-flow-build.ts"
-import { SNAPSHOT_TRADES, recordedAnswer } from "./recorded-answers.ts"
+import {
+  SNAPSHOT_TRADES,
+  bubblesAnswer,
+  recordedAnswer,
+} from "./recorded-answers.ts"
 import { type AccountId, type HeldSessions, type SessionId } from "./routes.ts"
 import { stockbitTrades } from "./stockbit.ts"
 import { makeSweepBrokers } from "./sweep-brokers.ts"
@@ -147,13 +155,6 @@ const TAPE_LIMIT = 10_000
 // trades; connection B trails A by seconds, far inside 30,000 more of the
 // feed's trades. Two sets of 40,000 short strings cost a few MB.
 const TIMED_LIMIT = 4 * TAPE_LIMIT
-
-// Decision: the day's state is written to the day store once a minute, 5 s
-// past it, so each flush closes the minute's book chunks and 5 s merge
-// windows; only the relay going offline (`ingestClosed`) flushes at once. A
-// failed flush's payload rides the next, so a candle is never stored without
-// its trades. See apinrdw/kumora#138 and apinrdw/kumora#157.
-const FLUSH_PAST_MINUTE = 5_000
 
 // IHSG's close and change on the strip, from its last `liveprice` frame.
 // Decision: an index's frames carry no previous close and, so far observed,
@@ -389,7 +390,9 @@ export const makeTradingDay = Effect.fnUntraced(function* (options: {
   // never inside, so nothing under it waits on it. See apinrdw/kumora#159.
   const turn = yield* Semaphore.make(1)
   const codeListStore = options.codeList ?? (yield* memoryCodeListStore)
-  const store = yield* makeDayStore(options.sql)
+  const todayDate = yield* wibDateAt(yield* DateTime.now)
+  const today = todayDate === options.date
+  const store = yield* makeDayStore(options.sql, { today })
   let sealed = (yield* store.fact(Fact.sealed)) !== undefined
   const sealAt = yield* sealInstant(options.date)
   // Decision: a day's tape source is unknown until its first relay trade
@@ -421,13 +424,13 @@ export const makeTradingDay = Effect.fnUntraced(function* (options: {
   })
   const setAlarm = options.setAlarm ?? (() => Effect.void)
   let orderFlowBuilt = yield* orderFlowBuiltAtStart(store)
+  // Midnight WIB after the day, in epoch ms.
+  const dayEnd = DateTime.toEpochMillis(yield* wibDayEnd(options.date))
   // Decision: an object restores the live day from its store unless the day
   // is sealed and past: a past day's object answers recorded day GETs
   // straight from the store, and broker codes POSTs and status GETs from its
-  // own tables (broker-codes.ts). Today's still serves viewers after the
-  // seal.
-  const todayDate = yield* wibDateAt(yield* DateTime.now)
-  const today = todayDate === options.date
+  // own tables (broker-codes.ts). Today's still serves viewers and its
+  // bubbles answer after the seal (recorded-answers.ts, `bubblesAnswer`).
   const restoring = !sealed || today
   // Decision: a viewer is served only until the object's day ends: past it,
   // the socket is closed with 1001 when it would next be served, and the page
@@ -464,7 +467,12 @@ export const makeTradingDay = Effect.fnUntraced(function* (options: {
   // by trade number.
   let pending = new Map<string, RunningTrade>()
   let deltaScheduled = false
-  const candles = yield* makeCandleBook(store)
+  const bubbles = yield* makeBubbleBook(
+    restoring
+      ? yield* store.storedBubbles(BUBBLE_MINUTES)
+      : { days: [], minutes: [] }
+  )
+  const candles = yield* makeCandleBook(store, bubbles.settled)
   const ingests = options.ingests ?? Effect.succeed([])
   const books = yield* makeOrderBooks(options.date)
   const bookChunks = yield* makeBookChunks
@@ -483,6 +491,8 @@ export const makeTradingDay = Effect.fnUntraced(function* (options: {
   const lastLivePrices = new Map<StockCode, LivePrice>()
   let livePricesChanged = new Map<StockCode, LivePrice>()
   let flushScheduled = false
+  // The bubbles answer as last built, served until the next build.
+  let bubblesBody: string | undefined
   // The feed downs fact as the day store last took it.
   let writtenDowns = storedDowns
   // What a flush took whose write failed, apart from the trades and candles
@@ -657,6 +667,7 @@ export const makeTradingDay = Effect.fnUntraced(function* (options: {
     if (
       trades.length === 0 &&
       changed.candles.length === 0 &&
+      changed.footprints.length === 0 &&
       changed.sweeps.length === 0 &&
       orderBooks.length === 0 &&
       states.length === 0 &&
@@ -666,6 +677,7 @@ export const makeTradingDay = Effect.fnUntraced(function* (options: {
       return
     const text = yield* encodeViewerDown({
       _tag: "Delta",
+      at: yield* DateTime.now,
       tape: trades,
       candles: changed.candles,
       ...(changed.footprints.length > 0
@@ -766,6 +778,28 @@ export const makeTradingDay = Effect.fnUntraced(function* (options: {
     yield* candles.written
   })
 
+  // Decision: the bubbles answer is built on the flush 5 s past each minute
+  // and served as is until the next; a GET before the object's first build
+  // builds it. Each build logs its codes and bytes for the cost check; its
+  // time is measured off the Worker, whose clock stands still while it
+  // computes (bubbles.test.ts). See spec apinrdw/kumora#427, "When it is built".
+  //
+  // Decision: a sealed day's answer is settled before the day's end: the seal
+  // settled every trade and the day takes none after it, so the one build
+  // after the seal settles past every snapshot of the day. See
+  // apinrdw/kumora#436.
+  const buildBubbles = Effect.gen(function* () {
+    const built = yield* bubbles.build(
+      sealed ? dayEnd : yield* candles.settledBefore,
+      (code) => lastLivePrices.get(code)?.previous
+    )
+    bubblesBody = built.text
+    yield* Effect.logInfo("Bubbles built").pipe(
+      Effect.annotateLogs({ codes: built.codes, bytes: built.text.length })
+    )
+    return built.text
+  })
+
   const unflushed = Effect.gen(function* () {
     return (
       unwritten !== undefined ||
@@ -809,6 +843,11 @@ export const makeTradingDay = Effect.fnUntraced(function* (options: {
                 )
               )
             else yield* feedLags.logEnded
+            yield* buildBubbles.pipe(
+              Effect.catchCause((cause) =>
+                Effect.logError("Bubbles not built", cause)
+              )
+            )
           }).pipe(Effect.andThen(Effect.all([unflushed, feedLags.hasUnlogged])))
         )
       ),
@@ -861,6 +900,8 @@ export const makeTradingDay = Effect.fnUntraced(function* (options: {
       },
     })
     sealed = true
+    // The next GET builds the bubbles answer from the seal's last candles.
+    bubblesBody = undefined
     if (due) yield* wakes.set("build", now)
     yield* Effect.logInfo("Order flow storage").pipe(
       Effect.annotateLogs({
@@ -1288,6 +1329,7 @@ export const makeTradingDay = Effect.fnUntraced(function* (options: {
       }
       const snapshot = yield* encodeViewerDown({
         _tag: "Snapshot",
+        at: yield* DateTime.now,
         selected,
         tape: tape.slice(-SNAPSHOT_TRADES),
         candles: yield* candles.candlesOf(selected),
@@ -1299,6 +1341,12 @@ export const makeTradingDay = Effect.fnUntraced(function* (options: {
       })
       yield* socket.send(snapshot)
       yield* socket.setState("ready")
+      // Decision: a snapshot arms the flush, so a viewer that came after the
+      // last one, as in the break, after the close or with the relay down,
+      // gets a bubbles build settled past its snapshot at the next one, the
+      // only build its page waits for (bubbles.ts, `takeSettled`). See
+      // apinrdw/kumora#436.
+      yield* armFlush
       yield* checkConditions
       if (socket.setWatching !== undefined) {
         yield* socket.setWatching(watching)
@@ -1392,23 +1440,37 @@ export const makeTradingDay = Effect.fnUntraced(function* (options: {
     orderFlowBuilt = true
   })
 
+  // Decision: a walk day answers bubbles as a past day does, 404, even on its
+  // own date: Market Bubbles is live only, and a History walk sends no live
+  // tape, so its bubble book never fills. See apinrdw/kumora#436.
   const recorded = (resource: RecordedResource) =>
-    Effect.andThen(builtFirst(resource), () =>
-      recordedAnswer(resource, {
-        date: options.date,
-        store,
-        codeList: codeListStore,
-        brokerCodes,
-        sweepBrokers,
-        sealed,
-        liveGaps: Effect.map(
-          market.conditions,
-          (conditions) => conditions.gaps
-        ),
-        heldHeat,
-        sweeps: candles.sweepsOf,
-      })
-    )
+    resource._tag === "Bubbles"
+      ? Effect.flatMap(dayEnded, (ended) =>
+          bubblesAnswer(
+            ended || source === "walk",
+            Effect.suspend(() =>
+              bubblesBody === undefined
+                ? buildBubbles
+                : Effect.succeed(bubblesBody)
+            )
+          )
+        )
+      : Effect.andThen(builtFirst(resource), () =>
+          recordedAnswer(resource, {
+            date: options.date,
+            store,
+            codeList: codeListStore,
+            brokerCodes,
+            sweepBrokers,
+            sealed,
+            liveGaps: Effect.map(
+              market.conditions,
+              (conditions) => conditions.gaps
+            ),
+            heldHeat,
+            sweeps: candles.sweepsOf,
+          })
+        )
 
   yield* sweepIngests
 

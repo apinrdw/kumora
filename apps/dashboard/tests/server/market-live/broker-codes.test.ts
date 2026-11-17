@@ -963,6 +963,24 @@ describe("a day with no tape", () => {
   )
 
   it.effect(
+    "answers no bubbles for a walk of today's date, walking or sealed",
+    () =>
+      Effect.gen(function* () {
+        yield* TestClock.setTime(wib("19:00:00").epochMilliseconds)
+        const day = yield* tradingDay()
+        yield* day.post("Stockbit", [[1, YP_CC]])
+        const walking = yield* answerText(day, { _tag: "Bubbles" })
+        assert.strictEqual(walking.status, 404)
+
+        yield* day.post("Stockbit", [[2, PD_KZ]], 2)
+        yield* day.alarm
+        assert.lengthOf(day.indexed, 1)
+        const sealed = yield* answerText(day, { _tag: "Bubbles" })
+        assert.strictEqual(sealed.status, 404)
+      })
+  )
+
+  it.effect(
     "replays as a recorded day: its trades, candles and broker codes, and no order book",
     () =>
       Effect.gen(function* () {
@@ -997,6 +1015,8 @@ describe("a day with no tape", () => {
             close: 8_025,
             volume: 3,
             value: 8_000 * 200 + 8_025 * 100,
+            buyValue: 8_000 * 200,
+            sellValue: 8_025 * 100,
             frequency: 2,
           },
         ])

@@ -30,6 +30,20 @@
   --chart-vwap-band-1: #51dda2;
   --chart-vwap-band-2: #9ad96c;
   --chart-vwap-band-3: #f4c36e;
+  /* Market Bubbles: each rim and glow runs from neutral to up or down; the
+     core is the canvas showing through, the ring marks the hovered bubble
+     and a search's matches. A snapshot lays the map on the canvas colour,
+     over a caption strip. */
+  --bubble-up: var(--semantic-up);
+  --bubble-down: var(--semantic-down);
+  --bubble-neutral: var(--semantic-neutral);
+  --bubble-core: var(--bg-canvas);
+  --bubble-ring: var(--text-primary);
+  --bubble-label: var(--text-primary);
+  --bubble-label-secondary: #d8e4ee;
+  --bubble-label-muted: var(--text-secondary);
+  --bubble-snapshot: var(--bg-canvas);
+  --bubble-caption: var(--bg-surface);
   /* KSEI's 9 investor types on the stock page, from the ownership prototype. */
   --investor-id: #4cc883;
   --investor-cp: #f0a840;

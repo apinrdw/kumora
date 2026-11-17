@@ -18,6 +18,7 @@ const book = (code: string, price: number): OrderBook => ({
 // The snapshot answering a Select of `selected`.
 const snapshot = (selected: string, orderBook: OrderBook): ViewerDown => ({
   _tag: "Snapshot",
+  at: DateTime.makeUnsafe(0),
   selected: StockCode.make(selected),
   tape: [],
   candles: [],

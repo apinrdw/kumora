@@ -49,6 +49,9 @@ export type RecordedResource =
   | { readonly _tag: "Gaps" }
   // One code's book heatmap slices so far (heatmap.ts).
   | { readonly _tag: "Heatmap"; readonly code: StockCode }
+  // Every code's recent minutes and day totals, for Market Bubbles: the live
+  // day only.
+  | { readonly _tag: "Bubbles" }
 
 export const recordedDayPath = (date: WibDate, resource: RecordedResource) =>
   Effect.sync(() => {
@@ -77,6 +80,8 @@ export const recordedDayPath = (date: WibDate, resource: RecordedResource) =>
         return `${base}/gaps`
       case "Heatmap":
         return `${base}/heatmap/${resource.code}`
+      case "Bubbles":
+        return `${base}/bubbles`
     }
   })
 
@@ -109,6 +114,14 @@ const parametersOf = Effect.fnUntraced(function* (search: string) {
   )
 })
 
+// The resources whose path names no code and no instant. A Map, so a path
+// like `/constructor` reads no prototype member.
+const BARE: ReadonlyMap<string, RecordedResource> = new Map([
+  ["codes", { _tag: "Codes" }],
+  ["gaps", { _tag: "Gaps" }],
+  ["bubbles", { _tag: "Bubbles" }],
+])
+
 const resourceOf = Effect.fnUntraced(function* (
   parts: ReadonlyArray<string>,
   search: ReadonlyMap<string, string>
@@ -116,8 +129,8 @@ const resourceOf = Effect.fnUntraced(function* (
   const [kind, code, ...rest] = parts
   if (rest.length > 0) return Option.none()
   if (code === undefined) {
-    if (kind === "codes") return Option.some({ _tag: "Codes" })
-    if (kind === "gaps") return Option.some({ _tag: "Gaps" })
+    const bare = kind === undefined ? undefined : BARE.get(kind)
+    if (bare !== undefined) return Option.some(bare)
     if (kind === "trades")
       return Option.map(yield* instantOf(search.get("at")), (at) => ({
         _tag: "Tape" as const,
@@ -345,6 +358,67 @@ export const encodeRecordedCandles = Schema.encodeEffect(
 )
 export const decodeRecordedCandles = Schema.decodeUnknownEffect(
   Schema.fromJsonString(RecordedCandles)
+)
+
+// The bubbles answer (spec apinrdw/kumora#427, "Backfill GET"): every stock
+// code with a regular-board trade today, with its newest BUBBLE_MINUTES
+// candles as [minute in epoch ms, value, volume, frequency, buy value, sell
+// value, close], ascending; its day totals as [value, volume, frequency, buy
+// value, sell value]; and the previous close a `liveprice` frame carried. Its
+// last price is its newest minute's close (dashboard lib/bubbles.ts,
+// `lastPrice`). Value is in rupiah, volume in lots. Tuples, as a busy day
+// holds about 900 codes.
+const BubbleMinute = Schema.Tuple([
+  Schema.Finite,
+  Schema.Finite,
+  Schema.Finite,
+  Schema.Finite,
+  Schema.Finite,
+  Schema.Finite,
+  Schema.Finite,
+])
+const BubbleDay = Schema.Tuple([
+  Schema.Finite,
+  Schema.Finite,
+  Schema.Finite,
+  Schema.Finite,
+  Schema.Finite,
+])
+const RecordedBubbles = Schema.Struct({
+  // In epoch ms on the trading-day object's clock: the answer holds every
+  // regular-board trade that reached the object before it (dashboard
+  // candles.ts, `settledBefore`).
+  settledBefore: Schema.Finite,
+  codes: Schema.Array(
+    Schema.Struct({
+      code: StockCode,
+      previousClose: Schema.optionalKey(Schema.Finite),
+      day: BubbleDay,
+      minutes: Schema.Array(BubbleMinute),
+    })
+  ),
+})
+export type RecordedBubbles = typeof RecordedBubbles.Type
+
+// How many of a code's newest minutes the bubbles answer carries: the
+// longest minute window, 1h, and the minute before it, whose close a code
+// that traded every minute of the hour changes against.
+export const BUBBLE_MINUTES = 61
+
+// The Worker's flush, which also builds the bubbles answer (trading-day.ts
+// `armFlush`).
+// Decision: the day's state is written to the day store once a minute, 5 s
+// past it, so each flush closes the minute's book chunks and 5 s merge
+// windows; only the relay going offline (`ingestClosed`) flushes at once. A
+// failed flush's payload rides the next, so a candle is never stored without
+// its trades. See apinrdw/kumora#138 and apinrdw/kumora#157.
+export const FLUSH_PAST_MINUTE = 5_000
+
+export const encodeRecordedBubbles = Schema.encodeEffect(
+  Schema.fromJsonString(RecordedBubbles)
+)
+export const decodeRecordedBubbles = Schema.decodeUnknownEffect(
+  Schema.fromJsonString(RecordedBubbles)
 )
 
 const RecordedGaps = Schema.Struct({ gaps: Schema.Array(RelayGap) })

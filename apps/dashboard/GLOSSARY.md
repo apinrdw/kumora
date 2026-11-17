@@ -74,6 +74,10 @@ _Avoid_: Trade ID, sequence
 The exchange market a running trade happens on: regular, cash, or negotiated. Candles count only regular-board trades.
 _Avoid_: Market type
 
+**Settled trade**:
+A running trade past the time in which a later copy of it from another feed may still change its side, time or board, so the candle it falls in counts it as it stands. The day store keeps settled trades' candles, and Market Bubbles' bubbles answer holds only settled trades: every one that reached the trading-day Durable Object before the instant it names.
+_Avoid_: Final trade, confirmed trade
+
 **Indicative price**:
 The price, and the volume with it, that an auction would match at if it closed now. Published only during pre-opening and pre-closing, and shown only while the auction of its time runs: pre-closing shows nothing until its own first frame, never the morning's price.
 _Avoid_: IEP, projected price
@@ -141,6 +145,22 @@ _Avoid_: Depth, market depth
 **Net flow**:
 Net broker buying minus selling for an instrument over a period, in rupiah, from end-of-day data. Absent when the feed has no coverage.
 _Avoid_: Broker flow (for the figure), flow
+
+**Market Bubbles**:
+The live map of every stock code as a bubble, sized and coloured by figures over a window, grouped by sector.
+_Avoid_: Heatmap, bubble chart
+
+**Window**:
+The span of trading a bubble's figures cover: the last 30 seconds, the current minute plus the minutes before it (1m, 5m, 15m, 30m, 1h), or the day so far (D). Out of session it ends at the day's last trade.
+_Avoid_: Timeframe, period
+
+**Buy/Sell delta %**:
+Buy-aggressor value minus sell-aggressor value, over their sum, for one stock code or sector in a window. It is in rupiah, unlike Delta, which is in lots.
+_Avoid_: Net flow, delta (alone)
+
+**Sector**:
+A stock code's IDX-IC sector, from IDX's company profiles; Unclassified when IDX lists none for it.
+_Avoid_: Industry (for the top level), category
 
 **Broker inventory**:
 One broker code's running sum of net lots or value (bought minus sold) in one stock code, day by day from the start of a range of days, counting regular-board trades and auction matches. A day counts only once every one of its trades has stored broker codes and its stock code, price, lots and board, from the running trades or the broker site's own listing; any other day is a gap the sum carries across.

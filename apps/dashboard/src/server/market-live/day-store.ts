@@ -9,21 +9,23 @@ import {
   StockCode,
   TradeNumber,
   TradeNumberValue,
-  type Candle,
   type Footprint,
   type HeatSlice,
   type RunningTrade,
   type Sweep,
   MINUTE_MS,
+  SHARES_PER_LOT,
 } from "@workspace/relay"
 import { DateTime, Effect } from "effect"
 
+import type { DaySums, MinuteFigures, StoredBubbles } from "./bubble-book.ts"
 import type {
   FootprintRow,
   StoredCandle,
   StoredFootprint,
   StoredSweeps,
 } from "./candles.ts"
+import { candleFrom } from "./candles.ts"
 import { cellsFromText, cellsOut, cellsText } from "./footprint-cells.ts"
 import { slicesFromText, slicesText, storedEndBook } from "./heat-rows.ts"
 import type { StoredAjaibBook } from "./order-books.ts"
@@ -149,6 +151,8 @@ const SCHEMA = [
     volume REAL NOT NULL,
     value REAL NOT NULL,
     frequency REAL NOT NULL,
+    buy_value REAL NOT NULL DEFAULT 0,
+    sell_value REAL NOT NULL DEFAULT 0,
     PRIMARY KEY (code, minute)
   ) WITHOUT ROWID`,
   // A stock's footprint (footprint-cells.ts) and sweeps (sweep-rows.ts) for
@@ -188,6 +192,27 @@ const SCHEMA = [
     value TEXT NOT NULL
   ) WITHOUT ROWID`,
 ]
+
+// Decision: a day store from before candles carried buy and sell value gains
+// both columns last, as in SCHEMA, so the candles INSERT fits. Today's and an
+// unsealed day's candles get them from the stored trades in that transaction:
+// today's bubbles answer until midnight (`bubblesAnswer`). A sealed past day's
+// keep 0: Market Bubbles is live only. See apinrdw/kumora#436.
+const ADDED_CANDLE_COLUMNS = ["buy_value", "sell_value"]
+
+// Each stored candle's buy and sell value from the stored trades, by
+// candles.ts `printOf`'s value by side and `counts`'s regular-board filter: a
+// stored candle folds the settled regular-board trades of its code and
+// minute, and a flush writes those trades with it.
+const REBUILD_CANDLE_SIDES = `UPDATE candles
+  SET buy_value = sides.buy, sell_value = sides.sell
+  FROM (
+    SELECT code, time - time % ${MINUTE_MS} AS minute,
+      SUM(CASE side WHEN 'buy' THEN price * lots * ${SHARES_PER_LOT} ELSE 0 END) AS buy,
+      SUM(CASE side WHEN 'sell' THEN price * lots * ${SHARES_PER_LOT} ELSE 0 END) AS sell
+    FROM trades WHERE board = 'RG' GROUP BY code, minute
+  ) AS sides
+  WHERE candles.code = sides.code AND candles.minute = sides.minute`
 
 // The keys of the facts table.
 export const Fact = {
@@ -277,22 +302,14 @@ const storedCandleOf = (row: Record<string, SqlValue>) =>
       low: Number(row.low),
       volume: Number(row.volume),
       value: Number(row.value),
+      buyValue: Number(row.buy_value),
+      sellValue: Number(row.sell_value),
       frequency: Number(row.frequency),
     },
   }))
 
 const candleOf = ({ code, minute, figures }: StoredCandle) =>
-  Effect.succeed<Candle>({
-    code,
-    minute: DateTime.makeUnsafe(minute),
-    open: figures.open,
-    high: figures.high,
-    low: figures.low,
-    close: figures.close,
-    volume: figures.volume,
-    value: figures.value,
-    frequency: figures.frequency,
-  })
+  candleFrom(code, minute, figures)
 
 const livePriceOf = (frame: SqlValue | undefined) =>
   Effect.sync((): LivePrice => {
@@ -309,9 +326,27 @@ const livePriceOf = (frame: SqlValue | undefined) =>
 const chunkOf = (blob: SqlValue | undefined) =>
   Effect.sync(() => new TextDecoder().decode(gunzipSync(blob as Uint8Array)))
 
-export const makeDayStore = (sql: Sql) =>
+// `today` when the store holds today's WIB date.
+export const makeDayStore = (
+  sql: Sql,
+  { today }: { readonly today: boolean }
+) =>
   Effect.gen(function* () {
     for (const statement of SCHEMA) sql.exec(statement)
+    const columns = new Set(
+      sql.exec("PRAGMA table_info(candles)").map((row) => String(row.name))
+    )
+    const added = ADDED_CANDLE_COLUMNS.filter((column) => !columns.has(column))
+    const sealed =
+      sql.exec("SELECT 1 FROM facts WHERE key = ?", Fact.sealed).length > 0
+    if (added.length > 0)
+      sql.transaction(() => {
+        for (const column of added)
+          sql.exec(
+            `ALTER TABLE candles ADD COLUMN ${column} REAL NOT NULL DEFAULT 0`
+          )
+        if (today || !sealed) sql.exec(REBUILD_CANDLE_SIDES)
+      })
 
     let meter = yield* emptyMeter
     // Runs `work`, adding the rows the database counted meanwhile to the
@@ -392,7 +427,7 @@ export const makeDayStore = (sql: Sql) =>
     const insertCandles = (candles: ReadonlyArray<StoredCandle>) => {
       for (const { code, minute, figures } of candles)
         sql.exec(
-          "INSERT OR REPLACE INTO candles VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
+          "INSERT OR REPLACE INTO candles VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
           code,
           minute,
           Number(figures.openOrder),
@@ -404,7 +439,9 @@ export const makeDayStore = (sql: Sql) =>
           figures.low,
           figures.volume,
           figures.value,
-          figures.frequency
+          figures.frequency,
+          figures.buyValue,
+          figures.sellValue
         )
     }
     const insertFact = (key: string, value: string) =>
@@ -673,6 +710,58 @@ export const makeDayStore = (sql: Sql) =>
           storedCandleOf
         )
       )
+
+    // Every stock's day totals and newest `minutes` candles, for the bubble
+    // book a restart rebuilds (bubble-book.ts). An index's candles have no
+    // footprint, so a stock is a code with one.
+    // Decision: read once, at a live day's start: one pass over the candles
+    // for the totals and one for the newest minutes, about 400,000 rows each
+    // at a full day, not one read of the day's candles a build. See spec
+    // apinrdw/kumora#427, "Where the day totals come from".
+    const storedBubbles = (minutes: number) =>
+      Effect.sync((): StoredBubbles => {
+        const stocks = "code IN (SELECT code FROM footprints GROUP BY code)"
+        const sums = (row: Record<string, SqlValue>): DaySums => ({
+          value: Number(row.value),
+          volume: Number(row.volume),
+          frequency: Number(row.frequency),
+          buyValue: Number(row.buy_value),
+          sellValue: Number(row.sell_value),
+        })
+        const figures = (row: Record<string, SqlValue>): MinuteFigures => ({
+          ...sums(row),
+          close: Number(row.close),
+        })
+        return {
+          days: sql
+            .exec(
+              `SELECT code, sum(value) AS value, sum(volume) AS volume,
+                sum(frequency) AS frequency, sum(buy_value) AS buy_value,
+                sum(sell_value) AS sell_value
+               FROM candles WHERE ${stocks} GROUP BY code`
+            )
+            .map((row) => ({
+              code: StockCode.make(String(row.code)),
+              sums: sums(row),
+            })),
+          minutes: sql
+            .exec(
+              `SELECT * FROM (
+                 SELECT code, minute, value, volume, frequency, buy_value,
+                   sell_value, close,
+                   row_number() OVER (PARTITION BY code ORDER BY minute DESC)
+                     AS newest
+                 FROM candles WHERE ${stocks}
+               ) WHERE newest <= ?`,
+              minutes
+            )
+            .map((row) => ({
+              code: StockCode.make(String(row.code)),
+              minute: Number(row.minute),
+              figures: figures(row),
+            })),
+        }
+      })
 
     // One code's candles, ascending by minute.
     const candlesOf = (code: StockCode) =>
@@ -989,6 +1078,7 @@ export const makeDayStore = (sql: Sql) =>
       tradesBetween,
       storedCandle,
       storedCandlesOf,
+      storedBubbles,
       candlesOf,
       storedFootprint,
       storedFootprintsOf,

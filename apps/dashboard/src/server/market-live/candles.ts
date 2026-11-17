@@ -58,6 +58,9 @@ export interface CandleFigures {
   readonly low: number
   readonly volume: number
   readonly value: number
+  // The value of the trades whose aggressor side is buy, and sell.
+  readonly buyValue: number
+  readonly sellValue: number
   readonly frequency: number
 }
 
@@ -133,6 +136,8 @@ interface Print {
   readonly time: number
   readonly volume: number
   readonly value: number
+  readonly buyValue: number
+  readonly sellValue: number
   readonly frequency: number
 }
 
@@ -150,6 +155,8 @@ const single = (print: Print): CandleFigures => ({
   low: print.price,
   volume: print.volume,
   value: print.value,
+  buyValue: print.buyValue,
+  sellValue: print.sellValue,
   frequency: print.frequency,
 })
 
@@ -168,6 +175,8 @@ const fold = (a: CandleFigures, b: CandleFigures): CandleFigures => {
     low: Math.min(a.low, b.low),
     volume: a.volume + b.volume,
     value: a.value + b.value,
+    buyValue: a.buyValue + b.buyValue,
+    sellValue: a.sellValue + b.sellValue,
     frequency: a.frequency + b.frequency,
   }
 }
@@ -175,14 +184,21 @@ const fold = (a: CandleFigures, b: CandleFigures): CandleFigures => {
 const add = (figures: CandleFigures | undefined, print: Print) =>
   figures === undefined ? single(print) : fold(figures, single(print))
 
-const printOf = (trade: RunningTrade): Print => ({
-  order: BigInt(trade.tradeNumber),
-  price: trade.price,
-  time: DateTime.toEpochMillis(trade.time),
-  volume: trade.lots,
-  value: trade.price * trade.lots * SHARES_PER_LOT,
-  frequency: 1,
-})
+// A trade's value by side; day-store.ts `REBUILD_CANDLE_SIDES` repeats this
+// rule in SQL.
+const printOf = (trade: RunningTrade): Print => {
+  const value = trade.price * trade.lots * SHARES_PER_LOT
+  return {
+    order: BigInt(trade.tradeNumber),
+    price: trade.price,
+    time: DateTime.toEpochMillis(trade.time),
+    volume: trade.lots,
+    value,
+    buyValue: trade.side === "buy" ? value : 0,
+    sellValue: trade.side === "sell" ? value : 0,
+    frequency: 1,
+  }
+}
 
 // One code's candle figures from its regular-board trades in one minute, as
 // the book would fold them: a walked day's build (order-flow-build.ts).
@@ -217,6 +233,8 @@ export const minuteOf = (time: DateTime.Utc) =>
     Math.floor(DateTime.toEpochMillis(time) / MINUTE_MS) * MINUTE_MS
   )
 
+// Whether a trade counts toward its candle; day-store.ts
+// `REBUILD_CANDLE_SIDES` repeats this filter in SQL.
 const counts = (trade: RunningTrade) => Effect.succeed(trade.board === "RG")
 
 // Whether two copies of a trade give its candle, footprint and sweeps the
@@ -245,7 +263,11 @@ const figuresOf = (slot: Slot) =>
     return figures
   })
 
-const candleFrom = (code: StockCode, minute: number, figures: CandleFigures) =>
+export const candleFrom = (
+  code: StockCode,
+  minute: number,
+  figures: CandleFigures
+) =>
   Effect.succeed<Candle>({
     code,
     minute: DateTime.makeUnsafe(minute),
@@ -255,6 +277,8 @@ const candleFrom = (code: StockCode, minute: number, figures: CandleFigures) =>
     close: figures.close,
     volume: figures.volume,
     value: figures.value,
+    buyValue: figures.buyValue,
+    sellValue: figures.sellValue,
     frequency: figures.frequency,
   })
 
@@ -299,8 +323,17 @@ interface Totals {
 // it leaves, and a later trade in that minute reads it back from the store.
 // Holding the whole day would grow without bound on a Worker. A failed flush
 // keeps its candles and trades until the write lands. See apinrdw/kumora#157.
+//
+// `settled` hears each regular-board trade as it settles into its candle:
+// the minute's settled figures and the trade's own (bubble-book.ts).
 export const makeCandleBook = Effect.fnUntraced(function* (
-  store: SettledCandles
+  store: SettledCandles,
+  settled: (
+    code: StockCode,
+    minute: number,
+    candle: CandleFigures,
+    print: CandleFigures
+  ) => void
 ) {
   const series = new Map<StockCode, Map<number, Slot>>()
   // Trades still inside the merge window, in arrival order.
@@ -416,7 +449,10 @@ export const makeCandleBook = Effect.fnUntraced(function* (
       if (!(yield* counts(trade))) continue
       const slot = yield* slotOf(trade.code, yield* minuteOf(trade.time))
       slot.open.delete(tradeNumber)
-      slot.settled = add(slot.settled, printOf(trade))
+      const print = single(printOf(trade))
+      slot.settled =
+        slot.settled === undefined ? print : fold(slot.settled, print)
+      settled(slot.code, slot.minute, slot.settled, print)
       yield* addTrade(slot.settledCells, trade)
       slot.trades.set(trade.tradeNumber, trade)
       unflushed.add(slot)
@@ -481,6 +517,8 @@ export const makeCandleBook = Effect.fnUntraced(function* (
       // Shares into lots, like a stock's candle.
       volume: (price.volume - base.volume) / SHARES_PER_LOT,
       value: price.value - base.value,
+      buyValue: 0,
+      sellValue: 0,
       frequency: price.frequency - base.frequency,
     })
     changed.add(slot)
@@ -553,13 +591,16 @@ export const makeCandleBook = Effect.fnUntraced(function* (
       .flatMap(([, sweeps]) => sweeps)
   })
 
-  // Every candle changed since the last call, of any code, and of
-  // `selected` each minute a trade changed: its footprint and its sweeps.
+  // Every candle changed since the last call, of any code; of `selected`
+  // each minute a trade changed: its footprint and its sweeps; and of any
+  // code each minute its last regular-board trade left: a footprint with
+  // no cells.
   //
   // Decision: a minute whose last regular-board trade left it goes out as a
-  // footprint with no cells, as its sweeps go out empty, and with no candle.
-  // The page drops that minute's footprint and candle (candle-store.ts), so
-  // the protocol needs no removal message. See apinrdw/kumora#279.
+  // footprint with no cells, for any code, as its sweeps go out empty, and
+  // with no candle. The pages drop that minute (candle-store.ts, and Market
+  // Bubbles' lib/bubbles.ts), so the protocol needs no removal message. See
+  // apinrdw/kumora#279 and apinrdw/kumora#436.
   //
   // Decision: a changed minute's sweeps go out whole in every delta and the
   // page replaces its copy, so the book is the only grouper and the join
@@ -579,10 +620,12 @@ export const makeCandleBook = Effect.fnUntraced(function* (
     for (const slot of slots) {
       const candle = yield* candleOf(slot)
       if (candle !== undefined) candles.push(candle)
-      if (!selected.has(slot.code) || !resent.has(slot)) continue
-      footprints.push(
-        yield* footprintFrom(slot.code, slot.minute, yield* cellsOf(slot))
-      )
+      const whole = selected.has(slot.code) && resent.has(slot)
+      if (whole || candle === undefined)
+        footprints.push(
+          yield* footprintFrom(slot.code, slot.minute, yield* cellsOf(slot))
+        )
+      if (!whole) continue
       sweeps.push({
         code: slot.code,
         minute: DateTime.makeUnsafe(slot.minute),
@@ -600,6 +643,16 @@ export const makeCandleBook = Effect.fnUntraced(function* (
   const openTrade = Effect.fnUntraced(function* (tradeNumber: TradeNumber) {
     yield* settle(yield* Clock.currentTimeMillis)
     return arrivals.get(tradeNumber)?.trade
+  })
+
+  // The instant, in epoch ms, every trade that reached the book before has
+  // settled, and `settled` heard it: the oldest arrival still in its merge
+  // window, or now with none. Arrivals settle in arrival order.
+  const settledBefore = Effect.gen(function* () {
+    const now = yield* Clock.currentTimeMillis
+    yield* settle(now)
+    for (const { arrivedAt } of arrivals.values()) return arrivedAt
+    return now
   })
 
   // Whether the book holds a trade the store doesn't have yet: inside its
@@ -693,6 +746,7 @@ export const makeCandleBook = Effect.fnUntraced(function* (
     takeChanged,
     hasChanges,
     openTrade,
+    settledBefore,
     holds,
     takeSettled,
     written,

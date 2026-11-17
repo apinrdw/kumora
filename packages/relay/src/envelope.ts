@@ -21,7 +21,9 @@ const acceptedIngestVersions: ReadonlyArray<unknown> = [
 // 3: snapshots and deltas carry footprints, and deltas a selected code's
 // sweeps by minute (spec apinrdw/kumora#263).
 // 4: a trade's feeds may list `walk` (spec apinrdw/kumora#437).
-export const ViewerProtocolVersion = 4
+// 5: candles carry their buy value and sell value, and snapshots and deltas
+// the instant they were sent (spec apinrdw/kumora#427).
+export const ViewerProtocolVersion = 5
 
 // Decision: an extension that hits either code stops retrying that target and
 // shows it; any other close, 1006 included, retries with backoff. The token
@@ -286,7 +288,10 @@ export const MINUTE_MS = 60_000
 // One stock code's or index's 1-minute candle. A stock's is built from its
 // regular-board trades: volume in lots, value in rupiah, frequency in trades.
 // An index's is built from its `liveprice` frames, its volume, value and
-// frequency the market's over that minute.
+// frequency the market's over that minute. Its buy value and sell value are
+// the rupiah value of its trades whose aggressor side is buy, and of those
+// whose side is sell; a trade with no side counts toward `value` only. An
+// index's are 0.
 export const Candle = Schema.Struct({
   code: StockCode,
   // The minute's start.
@@ -297,6 +302,8 @@ export const Candle = Schema.Struct({
   close: Schema.Finite,
   volume: Schema.Finite,
   value: Schema.Finite,
+  buyValue: Schema.Finite,
+  sellValue: Schema.Finite,
   frequency: Schema.Int,
 })
 export type Candle = typeof Candle.Type
@@ -398,11 +405,18 @@ const MinuteSweeps = Schema.Struct({
 })
 export type MinuteSweeps = typeof MinuteSweeps.Type
 
+// When the trading-day object sent a message, on its clock: what the
+// message holds came from the trades that reached it before then. Market
+// Bubbles takes a backfill settled past it as holding them too
+// (apps/dashboard/src/lib/bubbles.ts, `applyBubbles`).
+const SentAt = Schema.DateTimeUtcFromMillis
+
 // What a viewer starts from after each Select: the 200 newest running trades,
 // ascending by trade number, and the selected code's candles and footprints
 // so far, ascending by minute. The selected code's order book once it has one, or
 // word that it is an index.
 const Snapshot = Schema.TaggedStruct("Snapshot", {
+  at: SentAt,
   // The code the Select it answers selected. A snapshot answering an earlier
   // Select can arrive after the page moved to another code, so the chart and
   // the order book take only a snapshot of their own code.
@@ -426,13 +440,15 @@ const Snapshot = Schema.TaggedStruct("Snapshot", {
 // page keeps its selected code's. Order books likewise: every code's whose
 // served book changed, each whole.
 const Delta = Schema.TaggedStruct("Delta", {
+  at: SentAt,
   tape: Schema.Array(RunningTrade),
   candles: Schema.Array(Candle),
   // Every footprint that changed since the last delta of a code some viewer
   // selected, each whole. One with no cells, sent without its minute's
-  // candle, says the minute's last regular-board trade left it. Absent when
-  // none changed. What the page does with one is in
-  // apps/dashboard/src/components/market-live/candle-store.ts.
+  // candle, says the minute's last regular-board trade left it; that one
+  // goes out for any code. Absent when none changed. What the pages do with
+  // one is in apps/dashboard/src/components/market-live/candle-store.ts and
+  // apps/dashboard/src/lib/bubbles.ts.
   footprints: Schema.optionalKey(Schema.Array(Footprint)),
   // Every minute whose sweeps a trade changed since the last delta, of a
   // code some viewer selected, each whole: the page replaces its copy of

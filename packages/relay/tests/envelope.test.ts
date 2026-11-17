@@ -279,11 +279,12 @@ describe("viewer protocol", () => {
 
 describe("viewer protocol, down", () => {
   it.effect(
-    "a delta's running trades and candles round trip with their time",
+    "a delta's running trades and candles round trip with their time, and its own",
     () =>
       Effect.gen(function* () {
         const message: ViewerDown = {
           _tag: "Delta",
+          at: DateTime.makeUnsafe("2026-11-09T07:15:00.250Z"),
           tape: [
             {
               tradeNumber: TradeNumber.make("2350"),
@@ -306,7 +307,22 @@ describe("viewer protocol, down", () => {
               close: 4979.874,
               volume: 3952,
               value: 285_634_400,
+              buyValue: 0,
+              sellValue: 0,
               frequency: 82,
+            },
+            {
+              code: StockCode.make("SINI"),
+              minute: DateTime.makeUnsafe("2026-11-09T01:58:00.000Z"),
+              open: 7725,
+              high: 7750,
+              low: 7725,
+              close: 7750,
+              volume: 30,
+              value: 23_225_000,
+              buyValue: 15_500_000,
+              sellValue: 0,
+              frequency: 2,
             },
           ],
         }

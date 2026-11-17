@@ -32,7 +32,7 @@ const ITEM =
 // change the loader's answer, not the days recorded. See apinrdw/kumora#157.
 const SEAL_SETTLED = "1 minute"
 
-const stripLoad = (
+export const stripLoad = (
   fresh: boolean,
   setDays: (days: ReadonlyArray<RecordedDay>) => void
 ) =>

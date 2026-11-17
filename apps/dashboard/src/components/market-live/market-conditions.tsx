@@ -90,6 +90,12 @@ function useMarketConditions(): View {
   return useSyncExternalStore(subscribe, current, current)
 }
 
+// The market phase the last snapshot or delta carried; none before the
+// first snapshot.
+export function useMarketPhase(): MarketPhase | undefined {
+  return useMarketConditions().conditions?.phase
+}
+
 // The relay gaps so far: the tape shows each as a "not recorded" row.
 export function useRelayGaps(): ReadonlyArray<RelayGap> {
   return useMarketConditions().conditions?.gaps ?? []

@@ -8,7 +8,7 @@ import {
 } from "@workspace/relay"
 import { expect, type APIRequestContext } from "@playwright/test"
 import { DateTime, Effect } from "effect"
-import { readFileSync } from "node:fs"
+import { mkdirSync, readFileSync } from "node:fs"
 import { WebSocket } from "ws"
 
 import { DASHBOARD } from "./accounts"
@@ -53,25 +53,53 @@ const RECORDED_CODE_LIST: string = JSON.parse(
  */
 export const wibToday = () => wibDate(marketNow())
 
+// Decision: a run's workers share today's trading-day object and ask for
+// fresh numbers and codes at the same instant, so the clock alone repeats
+// them, and a trade whose number another test sent first is dropped as held.
+// Each is claimed with a mkdir, which one process of the run wins; Playwright
+// empties test-results before each run.
+const CLAIMS = new URL("../test-results/claims/", import.meta.url)
+
+// The first `n` from `from` up that no other caller of the run claimed.
+function claim(kind: string, from: number) {
+  mkdirSync(CLAIMS, { recursive: true })
+  for (let n = from; ; n++)
+    try {
+      mkdirSync(new URL(`${kind}-${n}`, CLAIMS))
+      return n
+    } catch (error) {
+      if ((error as NodeJS.ErrnoException).code !== "EEXIST") throw error
+    }
+}
+
+// The trade numbers a test may send above its base.
+const TRADE_BLOCK = 100_000
+
 /**
  * A test's base trade number: above every number an earlier test sent today's
  * object, so the test's trades are the newest and lead the tape whatever ran
  * before it. Every spec shares today's trading-day object, the tape lists the
  * newest trade numbers first in a window of about 30 rows, and a snapshot
  * carries only the 200 newest. It counts 100 numbers per millisecond of the
- * WIB day, so a test numbers at most 100,000 trades above its base (the
- * next test asks for its own base seconds later).
+ * WIB day, and a test numbers at most TRADE_BLOCK trades above its base, a
+ * block no other test of the run holds.
  */
 export const freshTradeNumbers = () =>
-  ((Date.now() + WIB_OFFSET) % 86_400_000) * 100
+  claim(
+    "trades",
+    Math.floor((((Date.now() + WIB_OFFSET) % 86_400_000) * 100) / TRADE_BLOCK)
+  ) * TRADE_BLOCK
 
 /**
- * A stock code of the test's own, `prefix` and the time: today's object keeps
- * every code's candles, books and figures, from earlier runs too, so a listed
- * code would have a repeat's.
+ * A stock code of the test's own, `prefix` and a claimed number seeded from
+ * the time: today's object keeps every code's candles, books and figures,
+ * from earlier runs too, so a listed code would have a repeat's. No other
+ * test of the run holds it.
  */
 export const freshCode = (prefix: string) =>
-  StockCode.make(`${prefix}${Date.now().toString(36).toUpperCase()}`)
+  StockCode.make(
+    `${prefix}${claim("code", Date.now()).toString(36).toUpperCase()}`
+  )
 
 /** `seq` as today's 18-digit Ajaib trade number. */
 const ajaibTradeNumber = (today: string, seq: number) =>

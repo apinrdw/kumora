@@ -15,6 +15,7 @@ Findings from research tickets, one file per question. Each records what was tru
 
 ## IDX
 
+- [Where company logos can come from, and whether Kumora may show them](idx-company-logos.md)
 - [Where the IDX trading schedule and holiday list come from](idx-trading-schedule.md)
 - [How IDX serves the Data Kepemilikan Saham listing and its files](idx-kepemilikan-listing.md)
 - [Cloudflare Workflows for a shareholding archive run](cloudflare-workflows-shareholding-archive.md)

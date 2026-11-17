@@ -1183,6 +1183,55 @@ describe("candles", () => {
       })
   )
 
+  it.effect(
+    "a delta's and a snapshot's candles carry the value bought and sold; the opening match counts in value only",
+    () =>
+      Effect.gen(function* () {
+        const { ingest, viewer, select } = yield* tradingDay()
+        const live = yield* viewer()
+        yield* select(live, "UNTR")
+        const socket = yield* relay(ingest)
+        yield* ingest(
+          socket,
+          yield* stockbit(
+            [
+              ...stockbitRecorded.openingMatch,
+              untr(40001, "09:00:10.000", 23300, 200),
+              { ...untr(40002, "09:00:20.000", 23150, 100), action: 2 },
+            ],
+            "A"
+          )
+        )
+        yield* TestClock.adjust("250 millis")
+        const split = (candle: Candle) => ({
+          minute: DateTime.formatIso(candle.minute),
+          value: candle.value,
+          buyValue: candle.buyValue,
+          sellValue: candle.sellValue,
+        })
+        const expected = [
+          {
+            minute: "2026-11-09T01:58:00.000Z",
+            value: 23200 * 5400,
+            buyValue: 0,
+            sellValue: 0,
+          },
+          {
+            minute: "2026-11-09T02:00:00.000Z",
+            value: 23300 * 200 + 23150 * 100,
+            buyValue: 23300 * 200,
+            sellValue: 23150 * 100,
+          },
+        ]
+        const [, delta] = yield* live.received
+        assert.deepStrictEqual(candlesOf([delta!], "UNTR").map(split), expected)
+        const page = yield* viewer()
+        yield* select(page, "UNTR")
+        const [snapshot] = yield* page.received
+        assert.deepStrictEqual(snapshot!.candles.map(split), expected)
+      })
+  )
+
   it.effect("IHSG's candles come from its liveprice frames", () =>
     Effect.gen(function* () {
       const { ingest, viewer, select } = yield* tradingDay()

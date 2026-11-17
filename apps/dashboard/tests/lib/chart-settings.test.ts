@@ -16,6 +16,7 @@ describe("the remembered chart settings", () => {
         poc: true,
         vwap: true,
         zoom: { candles: {}, footprint: {} },
+        bubbles: { set: "top", window: "5m" },
       })
       expect(CHART_SETTINGS_DEFAULT).toEqual(yield* parseChartSettings(null))
     })
@@ -33,6 +34,7 @@ describe("the remembered chart settings", () => {
           candles: { barSpacing: 14.5, priceStretch: 2 },
           footprint: { minutes: 6.25, priceStretch: 0.5 },
         },
+        bubbles: { set: "watchlist", window: "15m" },
       }
       expect(yield* parseChartSettings(JSON.stringify(stored))).toEqual(stored)
       expect(
@@ -53,6 +55,7 @@ describe("the remembered chart settings", () => {
               imbalance: 7,
               poc: "no",
               vwap: false,
+              bubbles: { set: "all", window: "1m" },
             })
           )
         ).toEqual({
@@ -62,7 +65,13 @@ describe("the remembered chart settings", () => {
           poc: true,
           vwap: false,
           zoom: { candles: {}, footprint: {} },
+          bubbles: { set: "top", window: "1m" },
         })
+        expect(
+          (yield* parseChartSettings(
+            JSON.stringify({ bubbles: { set: "sector", window: "D" } })
+          )).bubbles
+        ).toEqual({ set: "sector", window: "5m" })
         expect(yield* parseChartSettings("{not json")).toEqual(
           CHART_SETTINGS_DEFAULT
         )

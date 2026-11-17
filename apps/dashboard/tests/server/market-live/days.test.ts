@@ -15,6 +15,7 @@ const DAY = WibDate.make("2026-11-06")
 const TAPE = "/market-live/days/2026-11-06/trades?at=1794194100000"
 const BROKER_CODES =
   "/market-live/days/2026-11-06/broker-codes?at=1794194100000"
+const BUBBLES = "/market-live/days/2026-11-06/bubbles"
 
 // A sealed answer, as the object sends it.
 const SEALED = "private, max-age=31536000, immutable"
@@ -113,11 +114,11 @@ describe("a recorded day GET", () => {
   )
 
   it.effect(
-    "for broker codes signed out answers as the tape's, and reaches no object",
+    "for broker codes and bubbles signed out answers as the tape's, and reaches no object",
     () =>
       Effect.gen(function* () {
         const { reached, get } = yield* setup()
-        for (const path of [TAPE, BROKER_CODES]) {
+        for (const path of [TAPE, BROKER_CODES, BUBBLES]) {
           const response = yield* get(path)
           assert.strictEqual(response.status, 401, path)
           assert.strictEqual(response.headers.get("Cache-Control"), "no-store")
@@ -128,16 +129,21 @@ describe("a recorded day GET", () => {
   )
 
   it.effect(
-    "for broker codes signed in reaches the day's object with the path alone",
+    "for broker codes and bubbles signed in reaches the day's object with the path alone",
     () =>
       Effect.gen(function* () {
         const { reached, get, signedIn } = yield* setup()
-        const response = yield* get(BROKER_CODES, { cookie: yield* signedIn })
-        assert.strictEqual(response.status, 200)
+        const cookie = yield* signedIn
+        for (const path of [BROKER_CODES, BUBBLES])
+          assert.strictEqual((yield* get(path, { cookie })).status, 200)
         assert.deepStrictEqual(reached, [
           {
             name: "TRADING_DAY:2026-11-06",
             url: `https://market-live.invalid${BROKER_CODES}`,
+          },
+          {
+            name: "TRADING_DAY:2026-11-06",
+            url: `https://market-live.invalid${BUBBLES}`,
           },
         ])
       })

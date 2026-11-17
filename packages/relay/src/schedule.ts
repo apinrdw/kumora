@@ -187,6 +187,16 @@ export const wibDateAt = Effect.fnUntraced(function* (
   )
 })
 
+// Midnight WIB at the start of `date`.
+export const wibDayStart = Effect.fnUntraced(function* (date: WibDate) {
+  return DateTime.makeUnsafe(`${date}T00:00:00+07:00`)
+})
+
+// Midnight WIB after `date`: the next date's start.
+export const wibDayEnd = Effect.fnUntraced(function* (date: WibDate) {
+  return DateTime.add(yield* wibDayStart(date), { days: 1 })
+})
+
 export const marketMomentAt = Effect.fnUntraced(function* (
   instant: DateTime.DateTime
 ): Effect.fn.Return<MarketMoment, ScheduleYearMissing> {

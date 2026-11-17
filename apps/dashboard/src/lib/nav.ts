@@ -1,5 +1,6 @@
 import {
   IconArchive,
+  IconChartBubble,
   IconChartCandle,
   IconFileZip,
   IconUsers,
@@ -37,6 +38,14 @@ export const NAV: ReadonlyArray<NavGroup> = [
         shortLabel: "Live",
         icon: IconChartCandle,
         link: { to: "/market-live" },
+        feature: "market-live",
+        mobile: true,
+      },
+      {
+        label: "Market Bubbles",
+        shortLabel: "Bubbles",
+        icon: IconChartBubble,
+        link: { to: "/market-bubbles" },
         feature: "market-live",
         mobile: true,
       },

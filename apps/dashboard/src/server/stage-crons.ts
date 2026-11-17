@@ -3,6 +3,8 @@
 // apart by expression.
 import { RECONCILE_CRON } from "./broker-totals/schedule.ts"
 import { KSEI_CRON, KSEI_PARSE_CRON } from "./ksei/schedule.ts"
+import { LOGO_CRON } from "./logos/schedule.ts"
+import { SECTOR_CRON } from "./sectors/schedule.ts"
 import { ARCHIVE_CRON, PARSE_CRON } from "./shareholding/schedule.ts"
 
 export const stageCrons = (production: boolean) => [
@@ -29,6 +31,13 @@ export const stageCrons = (production: boolean) => [
         // Decision: the shareholding parse cron too, for the KSEI parse
         // cron's reason. See apinrdw/kumora#397.
         PARSE_CRON,
+        // Decision: the sector cron too, so only Production reads IDX's
+        // company profiles on a schedule; any other stage's stock_sector
+        // stays empty. See apinrdw/kumora#427.
+        SECTOR_CRON,
+        // Decision: the logo sync too, so only Production copies
+        // Stockbit's logos. See apinrdw/kumora#432.
+        LOGO_CRON,
       ]
     : []),
 ]

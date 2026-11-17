@@ -62,6 +62,7 @@ const makeFramedTapeStore = Effect.sync(() => {
       tape = Effect.runSync(
         applyViewerMessage(Effect.runSync(emptyTape()), {
           _tag: "Delta",
+          at: DateTime.nowUnsafe(),
           tape: trades,
           candles: [],
         })

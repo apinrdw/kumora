@@ -42,6 +42,7 @@ test("a code with an indicative price before any Day state shows the indicative 
     Effect.runSync(
       applyConditions({
         _tag: "Snapshot",
+        at: DateTime.makeUnsafe(0),
         selected: BBCA,
         tape: [],
         candles: [],
@@ -103,6 +104,7 @@ test("an indicative price from pre-opening is not shown in pre-closing: only one
     Effect.runSync(
       applyConditions({
         _tag: "Snapshot",
+        at: DateTime.makeUnsafe(0),
         selected: BBCA,
         tape: [],
         candles: [],
@@ -118,6 +120,7 @@ test("an indicative price from pre-opening is not shown in pre-closing: only one
     Effect.runSync(
       applyConditions({
         _tag: "Delta",
+        at: DateTime.makeUnsafe(0),
         tape: [],
         candles: [],
         footprints: [],
@@ -130,6 +133,7 @@ test("an indicative price from pre-opening is not shown in pre-closing: only one
     Effect.runSync(
       applyConditions({
         _tag: "Delta",
+        at: DateTime.makeUnsafe(0),
         tape: [],
         candles: [],
         footprints: [],
@@ -206,6 +210,7 @@ test("both feeds delayed leave the watchlist live; both silent dim it", () => {
       Effect.runSync(
         applyConditions({
           _tag: "Snapshot",
+          at: DateTime.makeUnsafe(0),
           selected: BBCA,
           tape: [],
           candles: [],

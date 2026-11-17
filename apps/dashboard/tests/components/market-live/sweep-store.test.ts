@@ -20,6 +20,7 @@ const BBCA = StockCode.make("BBCA")
 
 const snapshot: ViewerDown = {
   _tag: "Snapshot",
+  at: DateTime.makeUnsafe(0),
   selected: UNTR,
   tape: [],
   candles: [],
@@ -59,6 +60,7 @@ const delta = (
   code = UNTR
 ): ViewerDown => ({
   _tag: "Delta",
+  at: DateTime.makeUnsafe(0),
   tape: [],
   candles: [],
   sweeps: [

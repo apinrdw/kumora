@@ -33,6 +33,7 @@ const book = (
 
 const delta = (...orderBooks: ReadonlyArray<OrderBook>): ViewerDown => ({
   _tag: "Delta",
+  at: DateTime.makeUnsafe(0),
   tape: [],
   candles: [],
   orderBooks,
@@ -41,6 +42,7 @@ const delta = (...orderBooks: ReadonlyArray<OrderBook>): ViewerDown => ({
 // The snapshot of UNTR, with its book when it has one.
 const snapshot = (orderBook?: OrderBook): ViewerDown => ({
   _tag: "Snapshot",
+  at: DateTime.makeUnsafe(0),
   selected: UNTR,
   tape: [],
   candles: [],

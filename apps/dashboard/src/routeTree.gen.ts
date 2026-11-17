@@ -20,7 +20,9 @@ import { Route as AppIndexRouteImport } from './routes/_app/index'
 import { Route as AppSplatRouteImport } from './routes/_app/$'
 import { Route as AppAccountRouteImport } from './routes/_app/account'
 import { Route as AppDeleteAccountRouteImport } from './routes/_app/delete-account'
+import { Route as AppMarketBubblesRouteImport } from './routes/_app/market-bubbles'
 import { Route as AppMarketLiveRouteImport } from './routes/_app/market-live'
+import { Route as LogosCodeRouteImport } from './routes/logos/$code'
 import { Route as AppAdminKseiRouteImport } from './routes/_app/admin/ksei'
 import { Route as AppAdminShareholdingRouteImport } from './routes/_app/admin/shareholding'
 import { Route as AppAdminUsersRouteImport } from './routes/_app/admin/users'
@@ -82,10 +84,20 @@ const AppDeleteAccountRoute = AppDeleteAccountRouteImport.update({
   path: '/delete-account',
   getParentRoute: () => AppRoute,
 } as any)
+const AppMarketBubblesRoute = AppMarketBubblesRouteImport.update({
+  id: '/market-bubbles',
+  path: '/market-bubbles',
+  getParentRoute: () => AppRoute,
+} as any)
 const AppMarketLiveRoute = AppMarketLiveRouteImport.update({
   id: '/market-live',
   path: '/market-live',
   getParentRoute: () => AppRoute,
+} as any)
+const LogosCodeRoute = LogosCodeRouteImport.update({
+  id: '/logos/$code',
+  path: '/logos/$code',
+  getParentRoute: () => rootRouteImport,
 } as any)
 const AppAdminKseiRoute = AppAdminKseiRouteImport.update({
   id: '/admin/ksei',
@@ -129,7 +141,9 @@ export interface FileRoutesByFullPath {
   '/$': typeof AppSplatRoute
   '/account': typeof AppAccountRoute
   '/delete-account': typeof AppDeleteAccountRoute
+  '/market-bubbles': typeof AppMarketBubblesRoute
   '/market-live': typeof AppMarketLiveRoute
+  '/logos/$code': typeof LogosCodeRoute
   '/admin/ksei': typeof AppAdminKseiRoute
   '/admin/shareholding': typeof AppAdminShareholdingRoute
   '/admin/users': typeof AppAdminUsersRoute
@@ -147,7 +161,9 @@ export interface FileRoutesByTo {
   '/$': typeof AppSplatRoute
   '/account': typeof AppAccountRoute
   '/delete-account': typeof AppDeleteAccountRoute
+  '/market-bubbles': typeof AppMarketBubblesRoute
   '/market-live': typeof AppMarketLiveRoute
+  '/logos/$code': typeof LogosCodeRoute
   '/': typeof AppIndexRoute
   '/admin/ksei': typeof AppAdminKseiRoute
   '/admin/shareholding': typeof AppAdminShareholdingRoute
@@ -168,7 +184,9 @@ export interface FileRoutesById {
   '/_app/$': typeof AppSplatRoute
   '/_app/account': typeof AppAccountRoute
   '/_app/delete-account': typeof AppDeleteAccountRoute
+  '/_app/market-bubbles': typeof AppMarketBubblesRoute
   '/_app/market-live': typeof AppMarketLiveRoute
+  '/logos/$code': typeof LogosCodeRoute
   '/_app/': typeof AppIndexRoute
   '/_app/admin/ksei': typeof AppAdminKseiRoute
   '/_app/admin/shareholding': typeof AppAdminShareholdingRoute
@@ -190,7 +208,9 @@ export interface FileRouteTypes {
     | '/$'
     | '/account'
     | '/delete-account'
+    | '/market-bubbles'
     | '/market-live'
+    | '/logos/$code'
     | '/admin/ksei'
     | '/admin/shareholding'
     | '/admin/users'
@@ -208,7 +228,9 @@ export interface FileRouteTypes {
     | '/$'
     | '/account'
     | '/delete-account'
+    | '/market-bubbles'
     | '/market-live'
+    | '/logos/$code'
     | '/'
     | '/admin/ksei'
     | '/admin/shareholding'
@@ -228,7 +250,9 @@ export interface FileRouteTypes {
     | '/_app/$'
     | '/_app/account'
     | '/_app/delete-account'
+    | '/_app/market-bubbles'
     | '/_app/market-live'
+    | '/logos/$code'
     | '/_app/'
     | '/_app/admin/ksei'
     | '/_app/admin/shareholding'
@@ -246,6 +270,7 @@ export interface RootRouteChildren {
   SignInRoute: typeof SignInRoute
   SignUpRoute: typeof SignUpRoute
   VerifyRoute: typeof VerifyRoute
+  LogosCodeRoute: typeof LogosCodeRoute
   ApiAuthSplatRoute: typeof ApiAuthSplatRoute
 }
 
@@ -328,12 +353,26 @@ declare module '@tanstack/react-router' {
       preLoaderRoute: typeof AppDeleteAccountRouteImport
       parentRoute: typeof AppRoute
     }
+    '/_app/market-bubbles': {
+      id: '/_app/market-bubbles'
+      path: '/market-bubbles'
+      fullPath: '/market-bubbles'
+      preLoaderRoute: typeof AppMarketBubblesRouteImport
+      parentRoute: typeof AppRoute
+    }
     '/_app/market-live': {
       id: '/_app/market-live'
       path: '/market-live'
       fullPath: '/market-live'
       preLoaderRoute: typeof AppMarketLiveRouteImport
       parentRoute: typeof AppRoute
+    }
+    '/logos/$code': {
+      id: '/logos/$code'
+      path: '/logos/$code'
+      fullPath: '/logos/$code'
+      preLoaderRoute: typeof LogosCodeRouteImport
+      parentRoute: typeof rootRouteImport
     }
     '/_app/admin/ksei': {
       id: '/_app/admin/ksei'
@@ -384,6 +423,7 @@ interface AppRouteChildren {
   AppSplatRoute: typeof AppSplatRoute
   AppAccountRoute: typeof AppAccountRoute
   AppDeleteAccountRoute: typeof AppDeleteAccountRoute
+  AppMarketBubblesRoute: typeof AppMarketBubblesRoute
   AppMarketLiveRoute: typeof AppMarketLiveRoute
   AppIndexRoute: typeof AppIndexRoute
   AppAdminKseiRoute: typeof AppAdminKseiRoute
@@ -397,6 +437,7 @@ const AppRouteChildren: AppRouteChildren = {
   AppSplatRoute: AppSplatRoute,
   AppAccountRoute: AppAccountRoute,
   AppDeleteAccountRoute: AppDeleteAccountRoute,
+  AppMarketBubblesRoute: AppMarketBubblesRoute,
   AppMarketLiveRoute: AppMarketLiveRoute,
   AppIndexRoute: AppIndexRoute,
   AppAdminKseiRoute: AppAdminKseiRoute,
@@ -416,6 +457,7 @@ const rootRouteChildren: RootRouteChildren = {
   SignInRoute: SignInRoute,
   SignUpRoute: SignUpRoute,
   VerifyRoute: VerifyRoute,
+  LogosCodeRoute: LogosCodeRoute,
   ApiAuthSplatRoute: ApiAuthSplatRoute,
 }
 export const routeTree = rootRouteImport

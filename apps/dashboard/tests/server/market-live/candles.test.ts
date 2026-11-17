@@ -2,7 +2,12 @@
 // day's trades go through the book with a flush each minute, and the test
 // reads how many candles the book keeps and what it serves.
 import { assert, describe, it } from "@effect/vitest"
-import { StockCode, TradeNumber, type RunningTrade } from "@workspace/relay"
+import {
+  StockCode,
+  TradeNumber,
+  type Candle,
+  type RunningTrade,
+} from "@workspace/relay"
 import { DateTime, Effect } from "effect"
 import { TestClock } from "effect/testing"
 
@@ -57,8 +62,8 @@ describe("the candle book over a full day", () => {
     "holds no more than the minute being traded, serves every candle, and adds a late trade to a stored one",
     () =>
       Effect.gen(function* () {
-        const store = yield* makeDayStore(memorySql())
-        const book = yield* makeCandleBook(store)
+        const store = yield* makeDayStore(memorySql(), { today: true })
+        const book = yield* makeCandleBook(store, () => {})
         const first = wib("08:58:00")
         let number = 0
         let most = 0
@@ -135,5 +140,79 @@ describe("the candle book over a full day", () => {
         assert.strictEqual((yield* book.candlesOf(codes[0]!))[0]?.volume, 4)
       }),
     { timeout: 120_000 }
+  )
+})
+
+describe("a candle's buy value and sell value", () => {
+  it.effect(
+    "sum the minute's trades by aggressor side, with no-side trades in value only; an index's are 0",
+    () =>
+      Effect.gen(function* () {
+        const store = yield* makeDayStore(memorySql(), { today: true })
+        const book = yield* makeCandleBook(store, () => {})
+        const minute = wib("09:00:00")
+        yield* TestClock.setTime(DateTime.toEpochMillis(minute) + 10_000)
+        const code = StockCode.make("BBCA")
+        const at = (seconds: number) => DateTime.add(minute, { seconds })
+        yield* book.trade(undefined, {
+          ...tradeOf(code, 1, at(1), 2),
+          side: "buy",
+        })
+        yield* book.trade(undefined, {
+          ...tradeOf(code, 2, at(2), 3),
+          price: 110,
+          side: "sell",
+        })
+        yield* book.trade(undefined, {
+          ...tradeOf(code, 3, at(3), 1),
+          price: 105,
+          side: "none",
+        })
+        yield* book.trade(undefined, {
+          ...tradeOf(code, 4, at(4), 4),
+          side: "buy",
+        })
+        yield* book.indexPrice({
+          code: StockCode.make("COMPOSITE"),
+          time: at(5),
+          last: 7_000,
+          volume: 1_000,
+          value: 5_000_000,
+          frequency: 10,
+          previous: undefined,
+          isIndex: true,
+          high: undefined,
+          low: undefined,
+          open: undefined,
+          change: undefined,
+          changePercent: undefined,
+          regularBoard: true,
+        })
+        const split = (candle: Candle | undefined) => ({
+          value: candle?.value,
+          buyValue: candle?.buyValue,
+          sellValue: candle?.sellValue,
+        })
+        // 2 and 4 lots bought at 100, 3 sold at 110, 1 matched at 105.
+        const expected = {
+          value: 103_500,
+          buyValue: 60_000,
+          sellValue: 33_000,
+        }
+        const { candles } = yield* book.takeChanged(new Set())
+        assert.deepStrictEqual(
+          split(candles.find((candle) => candle.code === code)),
+          expected
+        )
+        assert.deepStrictEqual(
+          split(candles.find((candle) => candle.code === "COMPOSITE")),
+          { value: 0, buyValue: 0, sellValue: 0 }
+        )
+        yield* flush(book, store, minute)
+        assert.deepStrictEqual(
+          split((yield* book.candlesOf(code))[0]),
+          expected
+        )
+      })
   )
 })

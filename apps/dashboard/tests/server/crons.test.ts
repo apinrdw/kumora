@@ -10,6 +10,8 @@ import {
   nextKseiParseRun,
   nextKseiRun,
 } from "@/server/ksei/schedule"
+import { SECTOR_CRON } from "@/server/sectors/schedule"
+import { LOGO_CRON } from "@/server/logos/schedule"
 import {
   ARCHIVE_CRON,
   nextParseRun,
@@ -30,6 +32,14 @@ const runArchiveCron = vi.fn<(scheduledTime: number) => Promise<void>>(() =>
 const runParseCron = vi.fn<(scheduledTime: number) => Promise<void>>(() =>
   Effect.runPromise(Effect.void)
 )
+const runSectorCron = vi.fn<(scheduledTime: number) => Promise<void>>(() =>
+  Effect.runPromise(Effect.void)
+)
+vi.mock("@/server/sectors/cron", () => ({ runSectorCron }))
+const runLogoCron = vi.fn<() => Promise<void>>(() =>
+  Effect.runPromise(Effect.void)
+)
+vi.mock("@/server/logos/cron", () => ({ runLogoCron }))
 const runReconcileCron = vi.fn<() => Promise<void>>(() =>
   Effect.runPromise(Effect.void)
 )
@@ -124,7 +134,7 @@ describe("a cron firing", () => {
   )
 
   it.effect(
-    "sets the reconcile cron on every stage, the archive and parse crons on Production only",
+    "sets the reconcile cron on every stage, the archive, parse, sector and logo crons on Production only",
     () =>
       Effect.gen(function* () {
         assert.deepStrictEqual(stageCrons(false), [RECONCILE_CRON])
@@ -134,6 +144,8 @@ describe("a cron firing", () => {
           KSEI_CRON,
           KSEI_PARSE_CRON,
           PARSE_CRON,
+          SECTOR_CRON,
+          LOGO_CRON,
         ])
       })
   )
@@ -151,6 +163,31 @@ describe("a cron firing", () => {
       assert.strictEqual(archive.toISOString(), "2026-11-14T13:00:00.000Z")
       const parse = yield* nextParseRun(archive)
       assert.strictEqual(parse.getTime() - archive.getTime(), 60 * 60 * 1000)
+    })
+  )
+
+  it.effect(
+    "starts the sector run, and no archive run, on the sector cron",
+    () =>
+      Effect.gen(function* () {
+        yield* Effect.promise(() => runCron(SECTOR_CRON, scheduledTime))
+
+        assert.deepStrictEqual(runSectorCron.mock.calls, [[scheduledTime]])
+        assert.strictEqual(runArchiveCron.mock.calls.length, 0)
+        assert.strictEqual(runParseCron.mock.calls.length, 0)
+        assert.strictEqual(runKseiCron.mock.calls.length, 0)
+      })
+  )
+
+  it.effect("starts the logo sync, and no run, on the logo cron", () =>
+    Effect.gen(function* () {
+      yield* Effect.promise(() => runCron(LOGO_CRON, scheduledTime))
+
+      assert.strictEqual(runLogoCron.mock.calls.length, 1)
+      assert.strictEqual(runArchiveCron.mock.calls.length, 0)
+      assert.strictEqual(runParseCron.mock.calls.length, 0)
+      assert.strictEqual(runKseiCron.mock.calls.length, 0)
+      assert.strictEqual(runKseiParseCron.mock.calls.length, 0)
     })
   )
 })

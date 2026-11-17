@@ -2,7 +2,7 @@ import { assert, describe, it } from "@effect/vitest"
 import { WibDate } from "@workspace/relay"
 import { DateTime, Effect } from "effect"
 
-import { closedMarketAt } from "@/server/market-live/closed-market"
+import { closedMarketAt, liveDayAt } from "@/server/market-live/closed-market"
 
 const at = (wib: string) => closedMarketAt(DateTime.makeUnsafe(`${wib}+07:00`))
 
@@ -48,6 +48,20 @@ describe("the shut market the page opens", () => {
   it.effect("a year past the baked schedule shows the live page", () =>
     Effect.gen(function* () {
       assert.isUndefined((yield* at("2031-01-04T10:00:00")).closed)
+    })
+  )
+})
+
+describe("the live day Market Bubbles opens", () => {
+  it.effect("is the clock's WIB date, asked again when it turns", () =>
+    Effect.gen(function* () {
+      const live = yield* liveDayAt(
+        DateTime.makeUnsafe("2026-11-16T23:59:30+07:00")
+      )
+      assert.deepStrictEqual(live, {
+        today: WibDate.make("2026-11-16"),
+        dayEndsIn: 30_000,
+      })
     })
   )
 })

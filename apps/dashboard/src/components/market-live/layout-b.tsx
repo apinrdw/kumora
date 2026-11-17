@@ -33,6 +33,7 @@ const TAB_NAMES: Record<Panel, string> = {
   watchlist: "Watchlist",
   book: "Order book",
   tape: "Tape",
+  bubbles: "Bubbles",
 }
 
 /**
@@ -41,7 +42,9 @@ const TAB_NAMES: Record<Panel, string> = {
  * right column of `watchlist`, `book` and `tape`, at least as tall as the
  * window below them. The tape scrolls sideways in it (tape-list.tsx). Below `lg`: the charts stacked full width, then tabs
  * showing one panel at a time: `panel`, kept by the page in its URL, else
- * the first. No `log` (an index): no log column or tab.
+ * the first. No `log` (an index): no log column or tab. `bubbles`, live
+ * days only, is a 380 px row full width under them, and the last tab below
+ * `lg`; none, no row or tab.
  */
 export function LayoutB({
   charts,
@@ -50,6 +53,7 @@ export function LayoutB({
   watchlist,
   book,
   tape,
+  bubbles,
   panel: picked,
   onPanel,
 }: {
@@ -60,6 +64,7 @@ export function LayoutB({
   watchlist: ReactNode
   book: ReactNode
   tape: ReactNode
+  bubbles?: ReactNode
   panel: Panel | undefined
   onPanel: (panel: Panel) => void
 }) {
@@ -70,6 +75,7 @@ export function LayoutB({
     watchlist,
     book,
     tape,
+    bubbles,
   }
   const panels = PANELS.filter((name) => content[name] !== undefined)
   const shown =
@@ -91,7 +97,10 @@ export function LayoutB({
     <div
       ref={layout}
       className={cn(
-        "grid gap-4 lg:min-h-(--fill)",
+        // The bubbles row sits under the rows that fill the window.
+        bubbles === undefined
+          ? "grid gap-4 lg:min-h-(--fill)"
+          : "grid gap-4 lg:grid-rows-[minmax(var(--fill),auto)_auto]",
         // Decision: the log is 340 px live. On a recorded day it flexes from
         // 340 to 530 px and gives way first: the charts keep 480 px, or what
         // a 340 px log, the 400 px column and two 16 px gaps (772 px) leave.
@@ -119,7 +128,7 @@ export function LayoutB({
             aria-controls={`${id}-${name}`}
             onClick={() => onPanel(name)}
             className={cn(
-              "flex-1 rounded-sm px-2 py-1",
+              "flex-1 rounded-sm px-2 py-1 whitespace-nowrap",
               name === shown
                 ? "bg-elevated text-foreground"
                 : "text-muted-foreground hover:text-foreground"
@@ -136,6 +145,7 @@ export function LayoutB({
         {panel("book")}
         {panel("tape")}
       </div>
+      {panel("bubbles", "lg:col-span-full")}
     </div>
   )
 }

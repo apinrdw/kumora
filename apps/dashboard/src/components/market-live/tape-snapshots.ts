@@ -13,5 +13,10 @@ export const tapeChangeOf = (message: ViewerDown, firstOnSocket: boolean) =>
   Effect.sync((): ViewerDown =>
     message._tag !== "Snapshot" || firstOnSocket
       ? message
-      : { _tag: "Delta", tape: message.tape, candles: message.candles }
+      : {
+          _tag: "Delta",
+          at: message.at,
+          tape: message.tape,
+          candles: message.candles,
+        }
   )

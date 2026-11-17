@@ -221,6 +221,11 @@ export const Website = Cloudflare.Website.Vite(
           "InvestorTypeParse",
           { className: "InvestorTypeParse" }
         ),
+        // Company logos, which /logos/{CODE} serves (src/server/logos/).
+        // On every stage like the archive buckets; only Production's fills.
+        LOGO_BUCKET: Cloudflare.R2.Bucket("LogoBucket", {
+          forceDestroy: (yield* stageKind(stage)) !== "production",
+        }),
         ...google,
         ...clockOffset,
       },

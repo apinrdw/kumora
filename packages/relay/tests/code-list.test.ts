@@ -36,6 +36,7 @@ describe("recorded day paths", () => {
         { _tag: "SweepBrokers", code },
         { _tag: "Book", code, minute: at },
         { _tag: "Gaps" },
+        { _tag: "Bubbles" },
       ]
       assert.strictEqual(
         yield* stockCodeListPath(day),
@@ -53,6 +54,10 @@ describe("recorded day paths", () => {
         yield* recordedDayPath(day, { _tag: "SweepBrokers", code }),
         "/market-live/days/2026-11-09/sweep-brokers/BBCA"
       )
+      assert.strictEqual(
+        yield* recordedDayPath(day, { _tag: "Bubbles" }),
+        "/market-live/days/2026-11-09/bubbles"
+      )
       for (const resource of resources) {
         const path = yield* recordedDayPath(day, resource)
         assert.deepStrictEqual(
@@ -65,7 +70,7 @@ describe("recorded day paths", () => {
   )
 
   it.effect(
-    "a recorded day's candles are asked at a path a browser never cached an answer without footprints at; the bare path still reads",
+    "a recorded day's candles are asked at a path a browser never cached an answer without footprints or buy and sell value at; the bare path still reads",
     () =>
       Effect.gen(function* () {
         const day = WibDate.make("2026-11-09")
@@ -76,6 +81,9 @@ describe("recorded day paths", () => {
         const beforeFootprints = "/market-live/days/2026-11-09/candles/BBCA"
         const path = yield* recordedDayPath(day, resource)
         assert.notStrictEqual(path, beforeFootprints)
+        // Versions 3 and 4 answered without buy value or sell value.
+        assert.notStrictEqual(path, `${beforeFootprints}?v=3`)
+        assert.notStrictEqual(path, `${beforeFootprints}?v=4`)
         assert.isTrue(path.startsWith(beforeFootprints))
         assert.deepStrictEqual(
           yield* recordedDayRequest(locationOf(beforeFootprints)),
@@ -98,6 +106,9 @@ describe("recorded day paths", () => {
         "/market-live/days/2026-11-09/books/BBCA",
         "/market-live/days/2026-11-09/codes/more",
         "/market-live/days//codes",
+        "/market-live/days/2026-11-09/constructor",
+        "/market-live/days/2026-11-09/__proto__",
+        "/market-live/days/2026-11-09/toString",
         "/market-live/live",
       ])
         assert.isTrue(
