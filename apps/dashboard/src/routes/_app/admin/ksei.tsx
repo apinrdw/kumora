@@ -8,8 +8,10 @@ import {
 } from "@/components/admin/ksei/archive-history"
 import { KseiCoverageCard } from "@/components/admin/ksei/coverage-card"
 import { KseiLastRunCard } from "@/components/admin/ksei/last-run-card"
+import { ParseCoverageCard } from "@/components/admin/archive/parse-coverage-card"
 import { ParseRunCard } from "@/components/admin/archive/parse-run-card"
 import { kseiArchiveFn, parseKseiNowFn } from "@/server/admin/ksei.functions"
+import { KIND_LABEL } from "@/server/ksei/kind"
 import { KSEI_PARSE_TIMES_WIB } from "@/server/ksei/schedule"
 
 export const Route = createFileRoute("/_app/admin/ksei")({
@@ -31,6 +33,7 @@ function KseiPage() {
     lastDeepRun,
     lastParseRun,
     nextParseRun,
+    parseCoverage,
     ...lastRun
   } = Route.useLoaderData()
   return (
@@ -48,6 +51,14 @@ function KseiPage() {
           now={lastRun.now}
         />
       </div>
+      <ParseCoverageCard
+        grids={[
+          {
+            title: KIND_LABEL["securities-holdings"],
+            coverage: parseCoverage,
+          },
+        ]}
+      />
       <KseiRecentRunsCard runs={recentRuns} />
       <KseiTotalsCard totals={totals} />
       <KseiCoverageCard coverage={coverage} lastDeepRun={lastDeepRun} />

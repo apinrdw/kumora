@@ -19,7 +19,7 @@ const ParseCoverageState = Schema.Literals([
   "failed",
   "not-parsed",
 ])
-type ParseCoverageState = typeof ParseCoverageState.Type
+export type ParseCoverageState = typeof ParseCoverageState.Type
 
 const ParseCoverage = Schema.Array(
   Schema.Struct({
@@ -36,12 +36,12 @@ const ParseCoverage = Schema.Array(
     ),
   })
 )
-type ParseCoverage = typeof ParseCoverage.Type
+export type ParseCoverage = typeof ParseCoverage.Type
 
 // `source`'s coverage, from its first archived month's year to the current
 // one in WIB (or its last archived month's, if later); empty before any
-// month is archived. `lastFinished` is the
-// kind's last finished parse run, whose parse failures mark months failed.
+// month is archived. `lastFinished` is the kind's last finished parse run,
+// whose parse failures mark months failed.
 export const parseCoverage = Effect.fnUntraced(function* (
   source: MonthSource,
   lastFinished: ParseRunResult | undefined

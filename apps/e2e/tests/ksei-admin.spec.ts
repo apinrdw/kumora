@@ -118,7 +118,7 @@ const BEFORE_FIRST = Array.from({ length: 10 }, () => "")
 // One kind's coverage table on the page.
 const coverage = (page: Page, kind: string) =>
   page
-    .getByRole("region", { name: "Coverage" })
+    .getByRole("region", { name: "Coverage", exact: true })
     .getByRole("table", { name: `${kind} coverage` })
 
 // The month cells of `year` in a kind's coverage table, January first.
@@ -190,9 +190,9 @@ test.describe.serial("an admin's KSEI archive", () => {
 
     await page.setViewportSize({ width: 390, height: 844 })
     await page.goto(KSEI)
-    await expect(page.getByRole("region", { name: "Coverage" })).toContainText(
-      "No Deep backfill has run yet"
-    )
+    await expect(
+      page.getByRole("region", { name: "Coverage", exact: true })
+    ).toContainText("No Deep backfill has run yet")
     const statistics = coverage(page, "Securities statistics")
     const holdings = coverage(page, "Securities holdings")
     await expect(months(statistics, 2018)).toHaveText([
@@ -385,9 +385,9 @@ test.describe.serial("an admin's KSEI archive", () => {
     })
 
     await page.goto(KSEI)
-    await expect(page.getByRole("region", { name: "Coverage" })).toContainText(
-      `Not found by the latest Deep backfill, ${id}, finished`
-    )
+    await expect(
+      page.getByRole("region", { name: "Coverage", exact: true })
+    ).toContainText(`Not found by the latest Deep backfill, ${id}, finished`)
     const statistics = coverage(page, "Securities statistics")
     const holdings = coverage(page, "Securities holdings")
     await expect(months(statistics, 2018)).toHaveText([
