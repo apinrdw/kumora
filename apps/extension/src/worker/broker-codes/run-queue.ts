@@ -39,13 +39,7 @@ export type WalkResult =
   | { readonly _tag: "walked" }
   | {
       readonly _tag: "unserved"
-      readonly reason:
-        | "no-tab"
-        | "window-passed"
-        | "other-date"
-        | "empty-tape"
-        | "no-rows"
-        | "incomplete"
+      readonly reason: "window-passed" | "no-rows" | "incomplete"
     }
   | { readonly _tag: "stopped"; readonly cause: PauseCause }
 

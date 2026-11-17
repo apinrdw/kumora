@@ -263,7 +263,7 @@ describe("the broker codes run queue", () => {
         yield* TestClock.setTime(wib("2026-11-12", "17:00:00"))
         const queue = yield* harness((walked) => [
           fakeWalk("Ajaib", walked, () =>
-            Effect.succeed({ _tag: "unserved", reason: "no-tab" })
+            Effect.succeed({ _tag: "unserved", reason: "window-passed" })
           ),
           fakeWalk("Stockbit", walked),
         ])

@@ -622,44 +622,50 @@ describe("Stockbit's walk: when it starts and gives up", () => {
       })
   )
 
-  it.effect("takes the whole day after Ajaib's walk finds no Ajaib tab", () =>
-    Effect.gen(function* () {
-      yield* TestClock.setTime(wib("2026-11-12", "17:30:00"))
-      const production = fakeProduction()
-      const ajaib = yield* makeAjaibWalk({
-        tab: {
-          attached: Effect.succeed(false),
-          request: () => Effect.succeed(Option.none<Answer>()),
-        },
-        post: production.post,
-        store: { load: Effect.succeedNone, save: () => Effect.void },
+  it.effect(
+    "takes the whole day once Ajaib's walk finds no Ajaib tab by 00:00 WIB",
+    () =>
+      Effect.gen(function* () {
+        yield* TestClock.setTime(wib("2026-11-12", "23:58:00"))
+        const production = fakeProduction()
+        const ajaib = yield* makeAjaibWalk({
+          tab: {
+            attached: Effect.succeed(false),
+            request: () => Effect.succeed(Option.none<Answer>()),
+          },
+          post: production.post,
+          store: { load: Effect.succeedNone, save: () => Effect.void },
+        })
+        const stockbit = yield* walkWith(fakeStockbit(), production)
+        const idle = yield* Deferred.make<void>()
+        const queue = yield* makeRunQueue({
+          newestDay: [
+            { feed: "Ajaib", walk: ajaib.walk },
+            { feed: "Stockbit", walk: stockbit.walk },
+          ],
+          incompleteDays: noIncompleteDays,
+          gaps: { feed: "Stockbit", walk: stockbit.gaps },
+          history: {
+            walk: () => Effect.succeedNone,
+            catchUp: () => Effect.void,
+          },
+          catchUp: [],
+          gapsCatchUp: { feed: "Stockbit", walk: stockbit.gaps },
+          paused: Effect.succeed(false),
+          report: (progress) =>
+            progress.state === "idle"
+              ? Deferred.succeed(idle, undefined)
+              : Effect.void,
+        })
+        yield* Effect.forkChild(queue.run)
+        yield* queue.trigger
+        yield* TestClock.adjust("3 minutes")
+        yield* Deferred.await(idle)
+        const status = yield* production.status(DAY)
+        assert.isTrue(status.complete)
+        assert.deepStrictEqual(status.sources, { ajaib: 0, stockbit: N })
+        assert.deepStrictEqual(status.crossCheck, { state: "none" })
       })
-      const stockbit = yield* walkWith(fakeStockbit(), production)
-      const idle = yield* Deferred.make<void>()
-      const queue = yield* makeRunQueue({
-        newestDay: [
-          { feed: "Ajaib", walk: ajaib.walk },
-          { feed: "Stockbit", walk: stockbit.walk },
-        ],
-        incompleteDays: noIncompleteDays,
-        gaps: { feed: "Stockbit", walk: stockbit.gaps },
-        history: { walk: () => Effect.succeedNone, catchUp: () => Effect.void },
-        catchUp: [],
-        gapsCatchUp: { feed: "Stockbit", walk: stockbit.gaps },
-        paused: Effect.succeed(false),
-        report: (progress) =>
-          progress.state === "idle"
-            ? Deferred.succeed(idle, undefined)
-            : Effect.void,
-      })
-      yield* Effect.forkChild(queue.run)
-      yield* queue.trigger
-      yield* Deferred.await(idle)
-      const status = yield* production.status(DAY)
-      assert.isTrue(status.complete)
-      assert.deepStrictEqual(status.sources, { ajaib: 0, stockbit: N })
-      assert.deepStrictEqual(status.crossCheck, { state: "none" })
-    })
   )
 })
 
