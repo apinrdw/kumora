@@ -3,7 +3,7 @@
 // the regular board, against a model of the candle book (candles.ts), whose
 // latest copy of a minute is the authority. After each delta, body and
 // reconnect, the page's figures equal a recompute from the trades' final
-// parts.
+// parts, and the windows end at its newest trade.
 import { describe, expect, it } from "@effect/vitest"
 import {
   BUBBLE_MINUTES,
@@ -26,6 +26,7 @@ import {
   bubblesOf,
   makeMarketFlow,
   missingFromBackfill,
+  windowEnd,
   type BubbleView,
   type MarketFlow,
 } from "@/lib/bubbles"
@@ -380,6 +381,23 @@ const matches = (
     expect(yield* shown(flow, "30s", END), `${step}: 30s`).toEqual(
       expected(inWindow(server.copies(), last - 29_000, last + 1000))
     )
+    // Out of session the windows end at the newest regular-board trade the
+    // page still counts: a tape copy's time, or a part's minute start where
+    // only its candle tells.
+    let newest: number | undefined
+    for (const at of [
+      ...server
+        .copies()
+        .flatMap((copy) =>
+          copy.board === "RG" ? [DateTime.toEpochMillis(copy.time)] : []
+        ),
+      ...parts.map(minuteOf),
+    ])
+      if (newest === undefined || at > newest) newest = at
+    expect(
+      (yield* windowEnd(flow, "break", END + MINUTE_MS))?.end,
+      `${step}: end`
+    ).toBe(newest)
   })
 
 const candle = (

@@ -658,6 +658,57 @@ describe("out-of-session window ends", () => {
         ).toEqual([["BBCA", 10_000]])
       })
   )
+
+  it.effect(
+    "move back to the trade before when a reconnect's backfill drops the minute a missed correction emptied",
+    () =>
+      Effect.gen(function* () {
+        const flow = yield* makeMarketFlow()
+        const before = { price: 100, lots: 1, number: 7 }
+        const last = { price: 100, lots: 1, number: 8 }
+        yield* applyMessage(flow, {
+          ...delta(T0 + MIN + 1_000, [
+            candle("BBCA", T0, { value: 10_000, close: 100, frequency: 1 }),
+            candle("BBCA", T0 + MIN, {
+              value: 10_000,
+              close: 100,
+              frequency: 1,
+            }),
+          ]),
+          tape: [
+            trade("BBCA", T0 + 59_000, before),
+            trade("BBCA", T0 + MIN, last),
+          ],
+        })
+        // The socket dropped and missed the delta that moved 10:01's trade
+        // off the board; the snapshot's tape carries that copy.
+        yield* applyMessage(flow, {
+          ...snapshot(T0 + MIN + 5_000),
+          tape: [
+            trade("BBCA", T0 + 59_000, before),
+            trade("BBCA", T0 + MIN, { ...last, board: "NG" }),
+          ],
+        })
+        yield* applyBubbles(
+          flow,
+          body(
+            [
+              {
+                code: "BBCA",
+                previousClose: 100,
+                minutes: [minute(T0, 10_000, 100)],
+              },
+            ],
+            T0 + MIN + 6_000
+          )
+        )
+        const ended = yield* windowEnd(flow, "break", T0 + 3 * MIN)
+        expect(ended).toEqual({ end: T0 + 59_000, closed: true })
+        expect(
+          yield* valuesAt(flow, { ...VIEW, window: "1m" }, ended!.end)
+        ).toEqual([["BBCA", 10_000]])
+      })
+  )
 })
 
 describe("radii and labels", () => {
