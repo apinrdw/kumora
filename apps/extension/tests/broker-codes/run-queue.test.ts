@@ -452,7 +452,7 @@ describe("the broker codes run queue", () => {
 
 describe("the broker codes run queue: older incomplete days", () => {
   it.effect(
-    "walks older days' gaps after the new day, oldest first, then the extra target's catch-up of each",
+    "walks older days' gaps after the new day, newest first, then the extra target's catch-up of each",
     () =>
       Effect.gen(function* () {
         yield* TestClock.setTime(wib("2026-11-12", "17:00:00"))
@@ -465,20 +465,20 @@ describe("the broker codes run queue: older incomplete days", () => {
         assert.deepStrictEqual(queue.walked, [
           "Ajaib 2026-11-12",
           "Stockbit 2026-11-12",
-          "gaps 2026-11-06",
-          "gaps 2026-11-10",
           "gaps 2026-11-11",
+          "gaps 2026-11-10",
+          "gaps 2026-11-06",
           "catch-up Stockbit 2026-11-12",
           // Each day the run began with, those Production completed too.
-          "catch-up gaps 2026-11-06",
-          "catch-up gaps 2026-11-10",
           "catch-up gaps 2026-11-11",
+          "catch-up gaps 2026-11-10",
+          "catch-up gaps 2026-11-06",
         ])
         assert.deepStrictEqual(queue.progress.slice(-3), [
           {
             state: "walking",
             walk: "gaps",
-            day: WibDate.make("2026-11-11"),
+            day: WibDate.make("2026-11-06"),
             feed: "Stockbit",
           },
           { state: "catching-up" },
@@ -525,7 +525,7 @@ describe("the broker codes run queue: older incomplete days", () => {
       yield* queue.trigger
       assert.deepStrictEqual(queue.walked, [
         "Ajaib 2026-11-12",
-        "gaps 2026-11-06",
+        "gaps 2026-11-10",
       ])
       assert.deepStrictEqual(queue.progress.at(-1), {
         state: "paused",
@@ -558,12 +558,12 @@ describe("the broker codes run queue: older incomplete days", () => {
         yield* queue.trigger
         assert.deepStrictEqual(queue.walked, [
           "Ajaib 2026-11-12",
-          "gaps 2026-11-09",
-          "gaps 2026-11-10",
           "gaps 2026-11-11",
-          "catch-up gaps 2026-11-09",
-          "catch-up gaps 2026-11-10",
+          "gaps 2026-11-10",
+          "gaps 2026-11-09",
           "catch-up gaps 2026-11-11",
+          "catch-up gaps 2026-11-10",
+          "catch-up gaps 2026-11-09",
         ])
         assert.deepStrictEqual(queue.days.days(), [
           "2026-11-09",
@@ -592,10 +592,10 @@ describe("the broker codes run queue: older incomplete days", () => {
         yield* queue.trigger
         assert.deepStrictEqual(queue.walked, [
           "Ajaib 2026-11-17",
-          "gaps 2026-11-06",
           "gaps 2026-11-13",
-          "catch-up gaps 2026-11-06",
+          "gaps 2026-11-06",
           "catch-up gaps 2026-11-13",
+          "catch-up gaps 2026-11-06",
         ])
         assert.deepStrictEqual(queue.days.days(), ["2026-11-17"])
       })
