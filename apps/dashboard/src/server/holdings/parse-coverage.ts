@@ -1,14 +1,16 @@
 // A report kind's parse coverage (GLOSSARY.md, "Parse coverage"): each
 // archived month's state, laid out year by month as the KSEI Coverage card
-// lays out its months (../ksei/coverage.ts). Any parse run's kind has one
-// (parse-runs.ts). Spec apinrdw/kumora#458.
+// lays out its months (../archive/month-grid.ts). Any parse run's kind has
+// one (parse-runs.ts). Spec apinrdw/kumora#458.
 import { wibDateAt } from "@workspace/relay"
 import { DateTime, Effect, Schema } from "effect"
 
+import { monthGrid } from "../archive/month-grid.ts"
 import { RunId } from "../archive/run.ts"
 import {
   newestVersions,
-  type ParsedMonth,
+  ParsedMonth,
+  parsedMonths,
   staleCauses,
 } from "./months-to-parse.ts"
 import type { ParseRunResult } from "./parse-run-result.ts"
@@ -37,16 +39,7 @@ const ParseCoverageMonth = Schema.Struct({
   // The SHA-256 of its newest archived version: what a parse run reads.
   newestSha256: Schema.String,
   // Its parsed holdings, null when it has none.
-  parsed: Schema.NullOr(
-    Schema.Struct({
-      // The version they came from.
-      sha256: Schema.String,
-      parserVersion: Schema.Number,
-      // An ISO instant.
-      parsedAt: Schema.String,
-      stockCount: Schema.Number,
-    })
-  ),
+  parsed: Schema.NullOr(ParsedMonth),
   // Why its parsed holdings are stale; empty when they aren't, or it has
   // none.
   staleCauses: Schema.Array(StaleCause),
@@ -66,16 +59,16 @@ const ParseCoverage = Schema.Array(
 export type ParseCoverage = typeof ParseCoverage.Type
 
 // The month archived at `date`, whose newest version is `sha256`.
-const coverageMonth = (
+const coverageMonth = Effect.fnUntraced(function* (
   date: string,
   sha256: string,
   month: ParsedMonth | undefined,
   failure: ParseCoverageMonth["failure"],
   parserVersion: number
-): ParseCoverageMonth => {
+) {
   const causes =
-    month === undefined ? [] : staleCauses(month, sha256, parserVersion)
-  return {
+    month === undefined ? [] : yield* staleCauses(month, sha256, parserVersion)
+  return ParseCoverageMonth.make({
     date,
     state:
       failure !== null
@@ -89,19 +82,19 @@ const coverageMonth = (
     parsed: month ?? null,
     staleCauses: causes,
     failure,
-  }
-}
+  })
+})
 
-// `source`'s coverage, from its first archived month's year to the current
-// one in WIB (or its last archived month's, if later); empty before any
-// month is archived. `lastFinished` is the kind's last finished parse run,
-// whose parse failures mark months failed.
+// `source`'s parse coverage, from its first archived month's year to the
+// current one in WIB (or its last archived month's, if later); empty before
+// any month is archived. `lastFinished` is the kind's last finished parse
+// run, whose parse failures mark months failed.
 export const parseCoverage = Effect.fnUntraced(function* (
   source: MonthSource,
   lastFinished: ParseRunResult | undefined
 ) {
   const newest = yield* newestVersions(yield* source.prefix)
-  const parsed = yield* source.parsed
+  const parsed = yield* parsedMonths(source.tables)
   const failures = new Map(
     lastFinished?.parseFailures.map(({ date, message }) => [
       date,
@@ -115,7 +108,7 @@ export const parseCoverage = Effect.fnUntraced(function* (
   for (const { date, sha256 } of newest)
     cells.set(
       date.slice(0, 7),
-      coverageMonth(
+      yield* coverageMonth(
         date,
         sha256,
         parsed.get(date),
@@ -126,22 +119,17 @@ export const parseCoverage = Effect.fnUntraced(function* (
   const first = newest.at(0)
   const last = newest.at(-1)
   if (first === undefined || last === undefined) return ParseCoverage.make([])
-  const firstYear = Number(first.date.slice(0, 4))
   const lastYear = Math.max(
     Number((yield* wibDateAt(yield* DateTime.now)).slice(0, 4)),
     Number(last.date.slice(0, 4))
   )
   return ParseCoverage.make(
-    Array.from({ length: lastYear - firstYear + 1 }, (_row, i) => {
-      const year = firstYear + i
-      return {
-        year,
-        months: Array.from(
-          { length: 12 },
-          (_, m) =>
-            cells.get(`${year}-${String(m + 1).padStart(2, "0")}`) ?? null
-        ),
-      }
-    })
+    yield* monthGrid(
+      Number(first.date.slice(0, 4)),
+      `${lastYear}-12`,
+      Effect.fnUntraced(function* (month) {
+        return cells.get(month) ?? null
+      })
+    )
   )
 })

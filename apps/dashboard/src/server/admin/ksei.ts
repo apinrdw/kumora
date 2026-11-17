@@ -50,7 +50,7 @@ export const kseiArchivePage = Effect.fn("kseiArchivePage")(function* (
       reports,
       lastKseiDeepRun,
       kseiParseRuns.last,
-      kseiParseRuns.coverage,
+      kseiParseRuns.parseCoverage,
     ],
     { concurrency: "unbounded" }
   )

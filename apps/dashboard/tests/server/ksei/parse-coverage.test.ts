@@ -80,7 +80,7 @@ const bumpParser = ({ holdings }: World, periodEnd: string) => {
 // The coverage as each year's twelve cells, a cell its state or "" when
 // blank.
 const coverage = ({ bucket, holdings }: World) =>
-  kseiParseRuns.coverage.pipe(
+  kseiParseRuns.parseCoverage.pipe(
     Effect.provide(Layer.merge(bucket.layer, holdings.layer)),
     Effect.map((years) =>
       Object.fromEntries(
@@ -94,7 +94,7 @@ const coverage = ({ bucket, holdings }: World) =>
 
 // 2026's cell for the month at `index`, January being 0.
 const cell = ({ bucket, holdings }: World, index: number) =>
-  kseiParseRuns.coverage.pipe(
+  kseiParseRuns.parseCoverage.pipe(
     Effect.provide(Layer.merge(bucket.layer, holdings.layer)),
     Effect.map(
       (years) => years.find(({ year }) => year === 2026)?.months[index]
@@ -354,7 +354,7 @@ describe("the KSEI parse coverage", () => {
         `reports/securities-holdings/2026-10-31/${"a".repeat(64)}.2026-11-17T050000.000Z.0123456789abcdef.json`,
         { body: "{}", contentType: "application/json", customMetadata: {} }
       )
-      const years = yield* kseiParseRuns.coverage.pipe(
+      const years = yield* kseiParseRuns.parseCoverage.pipe(
         Effect.provide(Layer.merge(w.bucket.layer, w.holdings.layer))
       )
       assert.strictEqual(years[0]?.months[9]?.date, "2026-10-31")

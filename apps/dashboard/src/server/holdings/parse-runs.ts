@@ -131,7 +131,7 @@ export const parseRunsOf = <Self>(kind: {
 
   return {
     // The kind's parse coverage, for the admin page.
-    coverage: Effect.flatMap(lastFinished, (run) =>
+    parseCoverage: Effect.flatMap(lastFinished, (run) =>
       parseCoverage(kind.months, run)
     ),
     // The run its Workflow runs.

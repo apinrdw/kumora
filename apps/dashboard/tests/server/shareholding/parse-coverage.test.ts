@@ -143,7 +143,7 @@ const parse = ({ bucket, holdings }: World, { runs }: Kind, id: string) =>
 
 // The kind's coverage as each shown cell's state by its date.
 const coverage = ({ bucket, holdings }: World, { runs }: Kind) =>
-  runs.coverage.pipe(
+  runs.parseCoverage.pipe(
     Effect.provide(Layer.merge(bucket.layer, holdings.layer)),
     Effect.map((years) =>
       Object.fromEntries(

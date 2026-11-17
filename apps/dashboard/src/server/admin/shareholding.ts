@@ -46,8 +46,8 @@ export const shareholdingArchivePage = Effect.fn("shareholdingArchivePage")(
         archiveTotals,
         classificationParseRuns.last,
         investorTypeParseRuns.last,
-        classificationParseRuns.coverage,
-        investorTypeParseRuns.coverage,
+        classificationParseRuns.parseCoverage,
+        investorTypeParseRuns.parseCoverage,
       ],
       { concurrency: "unbounded" }
     )

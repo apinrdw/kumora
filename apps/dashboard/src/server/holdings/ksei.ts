@@ -14,7 +14,7 @@ import {
   replaceMonth,
   TOO_MANY_STOCKS,
 } from "./month-replace.ts"
-import { parsedMonths } from "./months-to-parse.ts"
+import type { MonthTables } from "./months-to-parse.ts"
 import { entryText, zipEntries } from "./zip.ts"
 
 // Bumped whenever parsing changes what it stores: the KSEI parse run then
@@ -233,9 +233,9 @@ export const parseKseiMonth = Effect.fnUntraced(function* (
   return stockCount
 })
 
-// The version each parsed period end came from.
-export const parsedKseiMonths = parsedMonths(
-  "ksei_month",
-  "ksei_stock_month",
-  "period_end"
-)
+// Its parsed holdings tables.
+export const KSEI_TABLES: MonthTables = {
+  month: "ksei_month",
+  stock: "ksei_stock_month",
+  dateColumn: "period_end",
+}

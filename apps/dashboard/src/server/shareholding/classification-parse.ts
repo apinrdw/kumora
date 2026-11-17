@@ -8,7 +8,7 @@ import type { ArchiveWorkflow } from "../archive/workflow.ts"
 import {
   PARSER_VERSION,
   parseClassificationMonth,
-  parsedClassificationMonths,
+  CLASSIFICATION_TABLES,
 } from "../holdings/classification.ts"
 import { parseRunsOf } from "../holdings/parse-runs.ts"
 import { kindPrefix, reportKey } from "./keys.ts"
@@ -29,7 +29,7 @@ export const classificationParseRuns = parseRunsOf({
   months: {
     prefix: kindPrefix(KIND),
     reportKey: (dataDate, sha256) => reportKey(KIND, dataDate, sha256),
-    parsed: parsedClassificationMonths,
+    tables: CLASSIFICATION_TABLES,
     parserVersion: PARSER_VERSION,
     parse: parseClassificationMonth,
   },

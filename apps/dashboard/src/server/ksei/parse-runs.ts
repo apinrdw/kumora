@@ -9,7 +9,7 @@ import { Context } from "effect"
 import type { ArchiveWorkflow } from "../archive/workflow.ts"
 import {
   KSEI_PARSER_VERSION,
-  parsedKseiMonths,
+  KSEI_TABLES,
   parseKseiMonth,
 } from "../holdings/ksei.ts"
 import { parseRunsOf } from "../holdings/parse-runs.ts"
@@ -29,7 +29,7 @@ export const kseiParseRuns = parseRunsOf({
   months: {
     prefix: kindPrefix(KIND),
     reportKey: (periodEnd, sha256) => reportKey(KIND, periodEnd, sha256),
-    parsed: parsedKseiMonths,
+    tables: KSEI_TABLES,
     parserVersion: KSEI_PARSER_VERSION,
     parse: parseKseiMonth,
   },
