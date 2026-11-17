@@ -9,6 +9,8 @@ import {
 import { ParseCoverageCard } from "@/components/admin/archive/parse-coverage-card"
 import { ParseRunCard } from "@/components/admin/archive/parse-run-card"
 import { LastRunCard } from "@/components/admin/shareholding/last-run-card"
+import { SectorsCard } from "@/components/admin/shareholding/sectors-card"
+import { sectorTableFn } from "@/server/admin/sectors.functions"
 import {
   parseClassificationNowFn,
   parseInvestorTypeNowFn,
@@ -23,21 +25,33 @@ export const Route = createFileRoute("/_app/admin/shareholding")({
     crumbs: () =>
       Effect.succeed([{ label: "Admin" }, { label: "Shareholding archive" }]),
   },
-  loader: () => runLoader(loadServerFn(() => shareholdingArchiveFn())),
+  loader: () =>
+    runLoader(
+      Effect.all(
+        {
+          archive: loadServerFn(() => shareholdingArchiveFn()),
+          sectors: loadServerFn(() => sectorTableFn()),
+        },
+        { concurrency: "unbounded" }
+      )
+    ),
   head: () => ({ meta: [{ title: "Shareholding archive · KUMORA Terminal" }] }),
   component: ShareholdingPage,
 })
 
 function ShareholdingPage() {
   const {
-    recentRuns,
-    totals,
-    lastClassificationParseRun,
-    lastInvestorTypeParseRun,
-    nextParseRun,
-    classificationParseCoverage,
-    investorTypeParseCoverage,
-    ...lastRun
+    archive: {
+      recentRuns,
+      totals,
+      lastClassificationParseRun,
+      lastInvestorTypeParseRun,
+      nextParseRun,
+      classificationParseCoverage,
+      investorTypeParseCoverage,
+      ...lastRun
+    },
+    sectors,
   } = Route.useLoaderData()
   return (
     <div className="flex flex-col gap-5 py-6">
@@ -75,6 +89,7 @@ function ShareholdingPage() {
       />
       <RecentRunsCard runs={recentRuns} />
       <ArchiveTotalsCard totals={totals} />
+      <SectorsCard {...sectors} />
     </div>
   )
 }
