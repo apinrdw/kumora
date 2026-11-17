@@ -78,6 +78,16 @@ const classificationParseCard = (page: Page) =>
 const investorTypeParseCard = (page: Page) =>
   page.getByRole("region", { name: /Last investor-type parse run/ })
 
+// The row of `year` in one parsed kind's grid on the Parse coverage card.
+const parseCoverageYear = (page: Page, kind: string, year: number) => {
+  const table = page
+    .getByRole("region", { name: "Parse coverage", exact: true })
+    .getByRole("table", { name: `${kind} parse coverage` })
+  return table.getByRole("row").filter({
+    has: page.getByRole("rowheader", { name: String(year), exact: true }),
+  })
+}
+
 // A count on the card, by its label.
 const stat = (card: Locator, label: string) =>
   card
@@ -324,6 +334,9 @@ test.describe.serial("an admin's archive totals and parse runs", () => {
     await expect(
       classificationParseCard(page).getByRole("button", { name: "Parse now" })
     ).toBeEnabled()
+    await expect(
+      parseCoverageYear(page, "Holdings by investor classification", 2025)
+    ).toContainText("Parsed")
   })
 
   test("Parse now parses the held investor-type reports", async ({ page }) => {
@@ -360,5 +373,8 @@ test.describe.serial("an admin's archive totals and parse runs", () => {
     await expect(
       investorTypeParseCard(page).getByRole("button", { name: "Parse now" })
     ).toBeEnabled()
+    await expect(
+      parseCoverageYear(page, "Holdings by investor type", 2025)
+    ).toContainText("Parsed")
   })
 })
