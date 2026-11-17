@@ -21,12 +21,14 @@ import {
 } from "../archive/run.ts"
 import {
   readLastRun,
+  readLatestRunWhere,
   scheduledRun,
   startRunOf,
   writeRunRecord,
 } from "../archive/runs.ts"
 import { ArchiveWorkflow } from "../archive/workflow.ts"
 import type { HoldingsDb } from "./db.ts"
+import { parseCoverage } from "./parse-coverage.ts"
 import {
   ParseRunMetadata,
   ParseRunResult,
@@ -110,7 +112,28 @@ export const parseRunsOf = <Self>(kind: {
     return result
   })
 
+  // The last finished run, of either trigger: undefined before any. A run
+  // in progress is passed over for the one before it.
+  const lastFinished = Effect.map(
+    Effect.forEach(ParseTrigger.literals, (trigger) =>
+      readLatestRunWhere(source, trigger, (run) => run.outcome !== "running")
+    ),
+    (runs) =>
+      runs.reduce<ParseRunResult | undefined>(
+        (latest, run) =>
+          run !== undefined &&
+          (latest === undefined || run.startedAt > latest.startedAt)
+            ? run
+            : latest,
+        undefined
+      )
+  )
+
   return {
+    // The kind's parse coverage, for the admin page.
+    parseCoverage: Effect.flatMap(lastFinished, (run) =>
+      parseCoverage(kind.months, run)
+    ),
     // The run its Workflow runs.
     run: Effect.fn(kind.runName)(function* (
       steps: WorkflowSteps<ArchiveBucket | HoldingsDb>,

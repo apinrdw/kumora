@@ -118,7 +118,7 @@ const BEFORE_FIRST = Array.from({ length: 10 }, () => "")
 // One kind's coverage table on the page.
 const coverage = (page: Page, kind: string) =>
   page
-    .getByRole("region", { name: "Coverage" })
+    .getByRole("region", { name: "Coverage", exact: true })
     .getByRole("table", { name: `${kind} coverage` })
 
 // The month cells of `year` in a kind's coverage table, January first.
@@ -190,9 +190,9 @@ test.describe.serial("an admin's KSEI archive", () => {
 
     await page.setViewportSize({ width: 390, height: 844 })
     await page.goto(KSEI)
-    await expect(page.getByRole("region", { name: "Coverage" })).toContainText(
-      "No Deep backfill has run yet"
-    )
+    await expect(
+      page.getByRole("region", { name: "Coverage", exact: true })
+    ).toContainText("No Deep backfill has run yet")
     const statistics = coverage(page, "Securities statistics")
     const holdings = coverage(page, "Securities holdings")
     await expect(months(statistics, 2018)).toHaveText([
@@ -385,9 +385,9 @@ test.describe.serial("an admin's KSEI archive", () => {
     })
 
     await page.goto(KSEI)
-    await expect(page.getByRole("region", { name: "Coverage" })).toContainText(
-      `Not found by the latest Deep backfill, ${id}, finished`
-    )
+    await expect(
+      page.getByRole("region", { name: "Coverage", exact: true })
+    ).toContainText(`Not found by the latest Deep backfill, ${id}, finished`)
     const statistics = coverage(page, "Securities statistics")
     const holdings = coverage(page, "Securities holdings")
     await expect(months(statistics, 2018)).toHaveText([
@@ -417,7 +417,8 @@ test.describe.serial("an admin's KSEI archive", () => {
   // coverage above.
   // Decision: its parse writes the Test stage's one HoldingsDb, which
   // stocks.spec.ts seeds and reads, unserialized: it replaces only KSEI's
-  // 2026-09-30 and 2026-10-30, whose BBCA rows equal that spec's seed.
+  // 2026-09-30 and 2026-10-30, whose BBCA rows equal that spec's seed, and
+  // its Parse coverage check accepts the mark that seed leaves after it.
   test("Parse now parses the held Securities holdings reports", async ({
     page,
   }) => {
@@ -445,6 +446,22 @@ test.describe.serial("an admin's KSEI archive", () => {
     await expect(
       parseRunCard(page).getByRole("button", { name: "Parse now" })
     ).toBeEnabled()
+
+    // Stale when stocks.spec.ts's seed, which holds both months under its own
+    // SHA-256, lands after the parse.
+    const parseCoverage = page
+      .getByRole("region", { name: "Parse coverage", exact: true })
+      .getByRole("table", { name: "Securities holdings parse coverage" })
+    await expect(
+      parseCoverage.getByRole("button", {
+        name: /^September 2026: (Parsed|Stale) /,
+      })
+    ).toBeVisible()
+    await expect(
+      parseCoverage.getByRole("button", {
+        name: /^October 2026: (Parsed|Stale) /,
+      })
+    ).toBeVisible()
   })
 })
 

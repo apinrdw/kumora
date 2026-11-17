@@ -5,6 +5,7 @@ import { wibDateAt } from "@workspace/relay"
 import { type DateTime, Effect, Schema } from "effect"
 
 import type { ListedObject } from "../archive/bucket.ts"
+import { monthGrid } from "../archive/month-grid.ts"
 import { kindPrefix } from "./keys.ts"
 import { KseiReportKind } from "./kind.ts"
 import type { DeepFinds } from "./run-result.ts"
@@ -70,8 +71,6 @@ export const kseiCoverage = Effect.fnUntraced(function* (
   now: DateTime.DateTime
 ) {
   const today = yield* wibDateAt(now)
-  const lastYear = Number(today.slice(0, 4))
-  const lastMonth = Number(today.slice(5, 7))
   const kinds = yield* Effect.forEach(
     KseiReportKind.literals,
     Effect.fnUntraced(function* (kind) {
@@ -85,23 +84,10 @@ export const kseiCoverage = Effect.fnUntraced(function* (
             ? "not-found"
             : "never-looked-for"
       })
-      const years = yield* Effect.forEach(
-        Array.from(
-          { length: lastYear - FIRST_YEAR + 1 },
-          (_, i) => FIRST_YEAR + i
-        ),
-        Effect.fnUntraced(function* (year) {
-          const months = yield* Effect.forEach(
-            Array.from(
-              { length: year === lastYear ? lastMonth : 12 },
-              (_, m) => `${year}-${String(m + 1).padStart(2, "0")}`
-            ),
-            state
-          )
-          return { year, months }
-        })
-      )
-      return { kind, years }
+      return {
+        kind,
+        years: yield* monthGrid(FIRST_YEAR, today.slice(0, 7), state),
+      }
     })
   )
   return KseiCoverage.make(kinds)

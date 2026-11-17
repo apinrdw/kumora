@@ -6,7 +6,7 @@ import {
 } from "@/components/admin/archive/history-cards"
 import type { KColumn } from "@/components/k"
 import { kindPrefix } from "@/server/shareholding/keys"
-import type { ReportKind } from "@/server/shareholding/listing"
+import { KIND_LABEL } from "@/server/shareholding/kind"
 import type { RunSummary } from "@/server/shareholding/run-result"
 import type { ArchiveTotals } from "@/server/shareholding/totals"
 
@@ -18,14 +18,6 @@ const COUNT_COLUMNS: ReadonlyArray<KColumn<RunSummary>> = [
 /** The runs of the past 30 days, newest first. */
 export function RecentRunsCard({ runs }: { runs: ReadonlyArray<RunSummary> }) {
   return <ArchiveRecentRunsCard runs={runs} counts={COUNT_COLUMNS} />
-}
-
-const KIND_LABEL: Record<ReportKind, string> = {
-  "above-5": "Holders above 5%",
-  "above-1": "Holders above 1%",
-  "investor-type": "By investor type",
-  "investor-classification": "By investor classification",
-  other: "Other",
 }
 
 type KindRow = ArchiveTotals["kinds"][number] & { readonly prefix: string }

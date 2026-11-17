@@ -15,7 +15,7 @@ import {
   replaceMonth,
   TOO_MANY_STOCKS,
 } from "./month-replace.ts"
-import { parsedMonths } from "./months-to-parse.ts"
+import type { MonthTables } from "./months-to-parse.ts"
 import { type Cell, forEachRow, type Row } from "./xlsx.ts"
 
 // Bumped whenever parsing changes what it stores: the investor-type parse
@@ -376,8 +376,9 @@ export const parseInvestorTypeMonth = Effect.fnUntraced(function* (
   return stockCount
 })
 
-// The version each parsed month came from, by data date.
-export const parsedInvestorTypeMonths = parsedMonths(
-  "investor_type_month",
-  "data_date"
-)
+// Its parsed holdings tables.
+export const INVESTOR_TYPE_TABLES: MonthTables = {
+  month: "investor_type_month",
+  stock: "investor_type_stock_month",
+  dateColumn: "data_date",
+}

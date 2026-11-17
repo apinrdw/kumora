@@ -6,6 +6,7 @@ import {
   ArchiveTotalsCard,
   RecentRunsCard,
 } from "@/components/admin/shareholding/archive-history"
+import { ParseCoverageCard } from "@/components/admin/archive/parse-coverage-card"
 import { ParseRunCard } from "@/components/admin/archive/parse-run-card"
 import { LastRunCard } from "@/components/admin/shareholding/last-run-card"
 import { SectorsCard } from "@/components/admin/shareholding/sectors-card"
@@ -15,6 +16,7 @@ import {
   parseInvestorTypeNowFn,
   shareholdingArchiveFn,
 } from "@/server/admin/shareholding.functions"
+import { KIND_LABEL } from "@/server/shareholding/kind"
 import { PARSE_TIMES_WIB } from "@/server/shareholding/schedule"
 
 export const Route = createFileRoute("/_app/admin/shareholding")({
@@ -45,6 +47,8 @@ function ShareholdingPage() {
       lastClassificationParseRun,
       lastInvestorTypeParseRun,
       nextParseRun,
+      classificationParseCoverage,
+      investorTypeParseCoverage,
       ...lastRun
     },
     sectors,
@@ -70,6 +74,18 @@ function ShareholdingPage() {
         times={PARSE_TIMES_WIB}
         nextParseRun={nextParseRun}
         now={lastRun.now}
+      />
+      <ParseCoverageCard
+        grids={[
+          {
+            title: KIND_LABEL["investor-classification"],
+            parseCoverage: classificationParseCoverage,
+          },
+          {
+            title: KIND_LABEL["investor-type"],
+            parseCoverage: investorTypeParseCoverage,
+          },
+        ]}
       />
       <RecentRunsCard runs={recentRuns} />
       <ArchiveTotalsCard totals={totals} />

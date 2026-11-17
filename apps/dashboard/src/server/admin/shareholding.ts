@@ -1,8 +1,8 @@
 // The shareholding archive's admin page, /admin/shareholding: the last archive
 // run and Run now, the last classification parse run and the last
-// investor-type parse run with each one's Parse now, the recent runs and the
-// archive totals (spec apinrdw/kumora#303, "The admin
-// page", and #402, "Admin").
+// investor-type parse run with each one's Parse now, each one's parse
+// coverage, the recent runs and the archive totals (spec apinrdw/kumora#303,
+// "The admin page", #402, "Admin", and #458).
 import { Conflict } from "@workspace/server"
 import { DateTime, Effect } from "effect"
 
@@ -31,23 +31,34 @@ const authorize = (
 export const shareholdingArchivePage = Effect.fn("shareholdingArchivePage")(
   function* (headers: Headers) {
     yield* authorize(headers, "admin.view-shareholding-archive")
-    const [run, runs, totals, classificationParseRun, investorTypeParseRun] =
-      yield* Effect.all(
-        [
-          lastRun,
-          recentRuns,
-          archiveTotals,
-          classificationParseRuns.last,
-          investorTypeParseRuns.last,
-        ],
-        { concurrency: "unbounded" }
-      )
+    const [
+      run,
+      runs,
+      totals,
+      classificationParseRun,
+      investorTypeParseRun,
+      classificationParseCoverage,
+      investorTypeParseCoverage,
+    ] = yield* Effect.all(
+      [
+        lastRun,
+        recentRuns,
+        archiveTotals,
+        classificationParseRuns.last,
+        investorTypeParseRuns.last,
+        classificationParseRuns.parseCoverage,
+        investorTypeParseRuns.parseCoverage,
+      ],
+      { concurrency: "unbounded" }
+    )
     const now = yield* DateTime.now
     return {
       lastRun: run,
       nextRun: (yield* nextScheduledRun(DateTime.toDateUtc(now))).toISOString(),
       lastClassificationParseRun: classificationParseRun,
       lastInvestorTypeParseRun: investorTypeParseRun,
+      classificationParseCoverage,
+      investorTypeParseCoverage,
       nextParseRun: (yield* nextParseRun(
         DateTime.toDateUtc(now)
       )).toISOString(),

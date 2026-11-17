@@ -30,6 +30,7 @@ import {
 } from "../auth/seam.ts"
 import { fakeWorkflow, type FakeWorkflow } from "../archive/fake-workflow.ts"
 import { type MemoryBucket, memoryBucket } from "../archive/memory-bucket.ts"
+import { memoryHoldingsDb } from "../holdings/memory-holdings-db.ts"
 
 const headers = (cookie?: string) =>
   new Headers(cookie === undefined ? {} : { cookie })
@@ -88,6 +89,7 @@ const archive = () => {
     layer: Layer.mergeAll(
       auth.layer,
       bucket.layer,
+      memoryHoldingsDb().layer,
       workflow.layer,
       Layer.effect(
         ClassificationParseWorkflow,
@@ -203,6 +205,50 @@ describe("the shareholding archive page", () => {
         { kind: "above-1", reports: 1 }
       )
       assert.strictEqual(page.totals.bytes, 4)
+    }).pipe(Effect.provide(layer))
+  })
+
+  it.effect("shows each parsed kind's months' parse coverage", () => {
+    const { layer, mails, bucket } = archive()
+    const record = (kind: string, date: string) =>
+      bucket.objects.set(
+        `reports/${kind}/${date}/${"a".repeat(64)}.2026-11-14T130000.000Z.0123456789abcdef.json`,
+        { body: "{}", contentType: "application/json", customMetadata: {} }
+      )
+    record("investor-classification", "2026-10-30")
+    record("investor-type", "2026-09-30")
+    // Holders above 1% have no parser: not in either parse coverage.
+    record("above-1", "2026-08-31")
+    // Twelve cells of 2026, with `state` in `month` (1-based) only.
+    const only = (month: number, date: string) => [
+      {
+        year: 2026,
+        months: Array.from({ length: 12 }, (_, i) =>
+          i === month - 1
+            ? {
+                date,
+                state: "not-parsed" as const,
+                newestSha256: "a".repeat(64),
+                parsed: null,
+                staleCauses: [],
+                failure: null,
+              }
+            : null
+        ),
+      },
+    ]
+    return Effect.gen(function* () {
+      yield* TestClock.setTime(Date.parse("2026-11-14T14:00:00.000Z"))
+      const cookie = yield* verified(mails)(ADMIN_EMAIL, "Adi")
+      const page = yield* shareholdingArchivePage(headers(cookie))
+      assert.deepStrictEqual(
+        page.classificationParseCoverage,
+        only(10, "2026-10-30")
+      )
+      assert.deepStrictEqual(
+        page.investorTypeParseCoverage,
+        only(9, "2026-09-30")
+      )
     }).pipe(Effect.provide(layer))
   })
 })

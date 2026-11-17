@@ -308,8 +308,8 @@ const stockSearch = (page: Page) =>
 // Decision: serial, since every test reads the one HoldingsDb this block
 // seeds. The admin specs' Parse now, beside it, replace KSEI's Sep and Oct
 // 2026 and investor-type 2025-11-28 with fixtures whose BBCA and AADI rows
-// equal this block's, and no test here reads their other stocks' rows, so
-// either order reads the same (apinrdw/kumora#405).
+// equal this block's, no test here reads their other stocks' rows, and their
+// Parse coverage checks take this seed's marks (apinrdw/kumora#405).
 test.describe.serial("the stock page", () => {
   test.beforeAll(() => {
     seedClassificationMonths(MONTHS)

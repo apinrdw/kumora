@@ -14,7 +14,11 @@ import { DateTime, Effect, Result, Schema } from "effect"
 import { ArchiveBucket } from "../archive/bucket.ts"
 import { ParseFailure, runError } from "../archive/run.ts"
 import type { HoldingsDb, HoldingsDbError } from "./db.ts"
-import { newestUnparsed, type ParsedMonth } from "./months-to-parse.ts"
+import {
+  type MonthTables,
+  newestUnparsed,
+  parsedVersions,
+} from "./months-to-parse.ts"
 
 // A file the parser rejects, with why.
 interface Unreadable {
@@ -28,12 +32,8 @@ export interface MonthSource {
   readonly prefix: Effect.Effect<string>
   // Where a month's version is archived.
   readonly reportKey: (date: string, sha256: string) => Effect.Effect<string>
-  // The version each parsed month came from.
-  readonly parsed: Effect.Effect<
-    ReadonlyMap<string, ParsedMonth>,
-    HoldingsDbError,
-    HoldingsDb
-  >
+  // Its parsed holdings tables.
+  readonly tables: MonthTables
   readonly parserVersion: number
   // Replaces the month's parsed holdings with the version's; the number of
   // stocks parsed.
@@ -61,7 +61,7 @@ type MonthToParse = typeof MonthToParse.Type
 const reconcile = Effect.fnUntraced(function* (source: MonthSource) {
   const months = yield* newestUnparsed(
     yield* source.prefix,
-    yield* source.parsed,
+    yield* parsedVersions(source.tables),
     source.parserVersion
   )
   return months.map((month) => MonthToParse.make(month))

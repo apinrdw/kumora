@@ -78,6 +78,14 @@ const classificationParseCard = (page: Page) =>
 const investorTypeParseCard = (page: Page) =>
   page.getByRole("region", { name: /Last investor-type parse run/ })
 
+// A month's mark in one parsed kind's grid on the Parse coverage card, by
+// its name: the month, then the mark's label.
+const parseCoverageMark = (page: Page, kind: string, name: RegExp) =>
+  page
+    .getByRole("region", { name: "Parse coverage", exact: true })
+    .getByRole("table", { name: `${kind} parse coverage` })
+    .getByRole("button", { name })
+
 // A count on the card, by its label.
 const stat = (card: Locator, label: string) =>
   card
@@ -258,9 +266,9 @@ test.describe("an admin's archive history", () => {
 
 // Decision: serial, and the only spec writing reports/, so the totals are
 // exact before the parse runs store reports into the HoldingsDb that
-// stocks.spec.ts seeds, unserialized: the classification report as Dec 2025,
-// before that spec's months, and the investor-type report's AADI, seeded
-// there alike, and TRUE, never opened there (apinrdw/kumora#404, #405).
+// stocks.spec.ts seeds, unserialized: classification as Dec 2025, before its
+// months; investor-type's AADI seeded there alike, TRUE never opened there;
+// Parse coverage checks taking that seed's mark (apinrdw/kumora#404, #405).
 test.describe.serial("an admin's archive totals and parse runs", () => {
   test.use({ storageState: ADMIN.storageState })
 
@@ -284,8 +292,8 @@ test.describe.serial("an admin's archive totals and parse runs", () => {
       "Report kindKey prefixReports",
       "Holders above 5%reports/above-5/2",
       "Holders above 1%reports/above-1/1",
-      "By investor typereports/investor-type/0",
-      "By investor classificationreports/investor-classification/0",
+      "Holdings by investor typereports/investor-type/0",
+      "Holdings by investor classificationreports/investor-classification/0",
       "Otherreports/other/0",
     ])
   })
@@ -324,6 +332,15 @@ test.describe.serial("an admin's archive totals and parse runs", () => {
     await expect(
       classificationParseCard(page).getByRole("button", { name: "Parse now" })
     ).toBeEnabled()
+    // Not parsed yet when stocks.spec.ts's seed, which lacks the month, lands
+    // after the parse.
+    await expect(
+      parseCoverageMark(
+        page,
+        "Holdings by investor classification",
+        /^December 2025: (Parsed|Not parsed yet) /
+      )
+    ).toBeVisible()
   })
 
   test("Parse now parses the held investor-type reports", async ({ page }) => {
@@ -360,5 +377,14 @@ test.describe.serial("an admin's archive totals and parse runs", () => {
     await expect(
       investorTypeParseCard(page).getByRole("button", { name: "Parse now" })
     ).toBeEnabled()
+    // Stale when stocks.spec.ts's seed, which holds the month under its own
+    // SHA-256, lands after the parse.
+    await expect(
+      parseCoverageMark(
+        page,
+        "Holdings by investor type",
+        /^November 2025: (Parsed|Stale) /
+      )
+    ).toBeVisible()
   })
 })
