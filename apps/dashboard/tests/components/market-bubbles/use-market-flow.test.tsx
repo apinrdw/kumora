@@ -268,3 +268,20 @@ test("gives up on a code's previous close after three backfills without it", asy
   expect(mocks.bubbles).toHaveBeenCalledTimes(7)
   await page.unmount()
 })
+
+test("stops asking after five fresh backfills in a row that leave it waiting, until the next snapshot", async () => {
+  vi.useFakeTimers({ now: wib("10:00:30") })
+  // A Worker whose body never settles past the snapshot.
+  mocks.bubbles.mockReturnValue(
+    Effect.succeed(Option.some(answer([BBCA], wib("10:00:28"))))
+  )
+  const page = await mount(MONDAY)
+  act(() => page.held.apply!(snapshot()))
+  await act(() => vi.advanceTimersByTimeAsync(30 * 60_000))
+  expect(mocks.bubbles).toHaveBeenCalledTimes(6)
+
+  act(() => page.held.apply!(snapshot()))
+  await act(() => vi.advanceTimersByTimeAsync(30 * 60_000))
+  expect(mocks.bubbles).toHaveBeenCalledTimes(12)
+  await page.unmount()
+})

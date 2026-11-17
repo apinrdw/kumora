@@ -658,6 +658,48 @@ describe("bubbles", () => {
   )
 
   it.effect(
+    "a page opened after the last flush while the relay is idle stops asking after one build settled past its snapshot",
+    () =>
+      Effect.gen(function* () {
+        yield* at("11:59:50")
+        const day = yield* tradingDay()
+        yield* day.frames([stockPrice("UNTR", 23300, 23000)])
+        yield* day.trades([trade(40001, "11:59:50", "UNTR", 23300, 2, "buy")])
+        // The lunch break: the 12:00:05 flush writes the trade, and nothing
+        // comes after it.
+        yield* at("12:00:05")
+        yield* at("12:10:00")
+        const page = yield* bubblesPage(day)
+        yield* page.settle
+        yield* page.backfill
+        yield* page.follow(["12:11:06"])
+        assert.isFalse(yield* missingFromBackfill(page.flow))
+        assert.strictEqual(
+          yield* page.dayValue("UNTR", minute("11:59")),
+          4_660_000
+        )
+      })
+  )
+
+  it.effect(
+    "after the seal, a page stops asking after one build settled past its snapshot",
+    () =>
+      Effect.gen(function* () {
+        yield* at("16:59:58")
+        const day = yield* tradingDay()
+        yield* day.trades([trade(40001, "16:59:58", "UNTR", 23300, 2, "buy")])
+        yield* at("17:00:00")
+        yield* day.alarm
+        yield* at("17:05:00")
+        const page = yield* bubblesPage(day)
+        yield* page.settle
+        yield* page.backfill
+        yield* page.follow(["17:06:06"])
+        assert.isFalse(yield* missingFromBackfill(page.flow))
+      })
+  )
+
+  it.effect(
     "after the seal, a page opened before midnight shows the day's map up to its last trade",
     () =>
       Effect.gen(function* () {
