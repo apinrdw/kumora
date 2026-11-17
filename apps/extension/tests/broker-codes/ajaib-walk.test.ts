@@ -5,7 +5,7 @@ import {
   type BrokerCodesBatch,
   type TradeFields,
 } from "@workspace/relay"
-import { Clock, DateTime, Effect, Exit, Fiber, Option } from "effect"
+import { Clock, DateTime, Effect, Fiber, Option } from "effect"
 import { TestClock } from "effect/testing"
 
 import {
@@ -385,7 +385,7 @@ describe("Ajaib's walk: when it starts", () => {
   )
 
   it.effect(
-    "leaves the day to Stockbit when the tape's newest row is another day's",
+    "polls a tape whose newest row is another day's until 00:00 WIB, then leaves the day to Stockbit",
     () =>
       Effect.gen(function* () {
         yield* TestClock.setTime(wib("2026-11-12", "17:30:00"))
@@ -400,44 +400,68 @@ describe("Ajaib's walk: when it starts", () => {
           ],
         })
         const walk = yield* walkWith(tab, production)
-        assert.deepStrictEqual(yield* walk.walk(DAY), {
+        const fiber = yield* Effect.forkChild(walk.walk(DAY))
+        yield* TestClock.adjust("0 millis")
+        yield* TestClock.adjust("3 minutes")
+        assert.isUndefined(fiber.pollUnsafe())
+        assert.lengthOf(tab.tapeCalls(), 4)
+        yield* TestClock.setTime(wib("2026-11-13", "00:00:00"))
+        yield* TestClock.adjust("1 minute")
+        assert.deepStrictEqual(yield* Fiber.join(fiber), {
           _tag: "unserved",
-          reason: "other-date",
+          reason: "window-passed",
         })
         assert.deepStrictEqual(production.batches, [])
       })
   )
 
-  // Seen on Saturday 2026-11-14: Ajaib said CLOSED (category WEEKEND) and its
-  // tape answered `count: 0` for Friday, so the walk polled until Monday.
-  it.effect(
-    "leaves the day to Stockbit when Ajaib is closed and its tape is empty",
-    () =>
-      Effect.gen(function* () {
-        yield* TestClock.setTime(wib("2026-11-14", "10:25:00"))
-        const production = fakeProduction()
-        const tab = fakeAjaib({ rows: [] })
-        const walk = yield* walkWith(tab, production)
-        const fiber = yield* Effect.forkChild(
-          walk.walk(WibDate.make("2026-11-13"))
-        )
-        yield* TestClock.adjust("0 millis")
-        yield* TestClock.adjust("1 minute")
-        assert.deepStrictEqual(
-          fiber.pollUnsafe(),
-          Exit.succeed({
-            _tag: "unserved",
-            reason: "empty-tape",
-          })
-        )
-        assert.lengthOf(tab.tapeCalls(), 1)
-        assert.deepStrictEqual(production.batches, [])
+  // Seen on Saturday 2026-11-14: Ajaib's tape answered `count: 0` for
+  // Friday. Past 00:00 WIB the walk no longer asks.
+  it.effect("leaves a day to Stockbit at once past 00:00 WIB that night", () =>
+    Effect.gen(function* () {
+      yield* TestClock.setTime(wib("2026-11-14", "10:25:00"))
+      const production = fakeProduction()
+      const tab = fakeAjaib({ rows: [] })
+      const walk = yield* walkWith(tab, production)
+      assert.deepStrictEqual(yield* walk.walk(WibDate.make("2026-11-13")), {
+        _tag: "unserved",
+        reason: "window-passed",
       })
+      assert.lengthOf(tab.paths, 0)
+      assert.deepStrictEqual(production.batches, [])
+    })
+  )
+
+  it.effect("polls an empty tape until it holds the day's rows", () =>
+    Effect.gen(function* () {
+      yield* TestClock.setTime(wib("2026-11-12", "17:30:00"))
+      const production = fakeProduction()
+      let empty = true
+      const full = fakeAjaib()
+      const tab = fakeAjaib({
+        rows: [],
+        answer: (request) =>
+          empty
+            ? undefined
+            : Effect.flatMap(full.request(request), (answer) =>
+                Effect.succeed(Option.getOrUndefined(answer))
+              ),
+      })
+      const walk = yield* walkWith(tab, production)
+      const fiber = yield* Effect.forkChild(walk.walk(DAY))
+      yield* TestClock.adjust("0 millis")
+      yield* TestClock.adjust("5 minutes")
+      assert.isUndefined(fiber.pollUnsafe())
+      empty = false
+      yield* TestClock.adjust("1 minute")
+      assert.deepStrictEqual(yield* Fiber.join(fiber), { _tag: "walked" })
+      assert.deepStrictEqual(missingOf(production.held()), [])
+    })
   )
 
   it.effect("keeps polling a closed tape that answers a 401", () =>
     Effect.gen(function* () {
-      yield* TestClock.setTime(wib("2026-11-14", "10:25:00"))
+      yield* TestClock.setTime(wib("2026-11-12", "17:30:00"))
       const tab = fakeAjaib({
         rows: [],
         answer: (request) =>
@@ -446,9 +470,7 @@ describe("Ajaib's walk: when it starts", () => {
             : undefined,
       })
       const walk = yield* walkWith(tab)
-      const fiber = yield* Effect.forkChild(
-        walk.walk(WibDate.make("2026-11-13"))
-      )
+      const fiber = yield* Effect.forkChild(walk.walk(DAY))
       yield* TestClock.adjust("0 millis")
       yield* TestClock.adjust("2 minutes")
       assert.isUndefined(fiber.pollUnsafe())
@@ -457,24 +479,59 @@ describe("Ajaib's walk: when it starts", () => {
     })
   )
 
-  it.effect("leaves the day to Stockbit when no Ajaib tab is relayed", () =>
+  it.effect("waits for an Ajaib tab to be relayed, then walks the day", () =>
     Effect.gen(function* () {
       yield* TestClock.setTime(wib("2026-11-12", "17:30:00"))
       const production = fakeProduction()
+      let open = false
+      const fake = fakeAjaib()
       const walk = yield* makeAjaibWalk({
         tab: {
-          attached: Effect.succeed(false),
-          request: () => Effect.succeed(Option.none<Answer>()),
+          attached: Effect.sync(() => open),
+          request: (request) =>
+            Effect.suspend(() =>
+              open ? fake.request(request) : Effect.succeed(Option.none())
+            ),
         },
         post: production.post,
         store: memoryStore().store,
       })
-      assert.deepStrictEqual(yield* walk.walk(DAY), {
-        _tag: "unserved",
-        reason: "no-tab",
-      })
+      const fiber = yield* Effect.forkChild(walk.walk(DAY))
+      yield* TestClock.adjust("30 minutes")
+      assert.isUndefined(fiber.pollUnsafe())
       assert.deepStrictEqual(production.batches, [])
+      open = true
+      yield* TestClock.adjust("1 minute")
+      assert.deepStrictEqual(yield* Fiber.join(fiber), { _tag: "walked" })
+      assert.deepStrictEqual(missingOf(production.held()), [])
     })
+  )
+
+  it.effect(
+    "with no Ajaib tab until 00:00 WIB, leaves the day to Stockbit",
+    () =>
+      Effect.gen(function* () {
+        yield* TestClock.setTime(wib("2026-11-12", "17:30:00"))
+        const production = fakeProduction()
+        const walk = yield* makeAjaibWalk({
+          tab: {
+            attached: Effect.succeed(false),
+            request: () => Effect.succeed(Option.none<Answer>()),
+          },
+          post: production.post,
+          store: memoryStore().store,
+        })
+        const fiber = yield* Effect.forkChild(walk.walk(DAY))
+        yield* TestClock.adjust("6 hours")
+        assert.isUndefined(fiber.pollUnsafe())
+        yield* TestClock.setTime(wib("2026-11-13", "00:00:00"))
+        yield* TestClock.adjust("1 minute")
+        assert.deepStrictEqual(yield* Fiber.join(fiber), {
+          _tag: "unserved",
+          reason: "window-passed",
+        })
+        assert.deepStrictEqual(production.batches, [])
+      })
   )
 })
 
@@ -573,34 +630,39 @@ describe("Ajaib's walk: stopping and carrying on", () => {
       })
   )
 
-  it.effect("leaves the day to Stockbit when its Ajaib tab goes mid-walk", () =>
-    Effect.gen(function* () {
-      yield* TestClock.setTime(wib("2026-11-12", "17:30:00"))
-      let gone = false
-      // The tab closes during the 40th call: it and any later get no answer.
-      const fake = fakeAjaib({
-        answer: (_, call) =>
-          call >= 40
-            ? Effect.sync(() => {
-                gone = true
-                return undefined
-              })
-            : undefined,
+  it.effect(
+    "waits in place when its Ajaib tab goes mid-walk, then carries on",
+    () =>
+      Effect.gen(function* () {
+        yield* TestClock.setTime(wib("2026-11-12", "17:30:00"))
+        const production = fakeProduction()
+        let gone = false
+        // The tab closes during the 40th call, which gets no answer.
+        const fake = fakeAjaib({
+          answer: (_, call) =>
+            call === 40
+              ? Effect.sync(() => {
+                  gone = true
+                  return undefined
+                })
+              : undefined,
+        })
+        const walk = yield* makeAjaibWalk({
+          tab: { ...fake, attached: Effect.sync(() => !gone) },
+          post: production.post,
+          store: memoryStore().store,
+        })
+        const fiber = yield* Effect.forkChild(walk.walk(DAY))
+        yield* settle(fake, 40)
+        yield* TestClock.adjust("20 minutes")
+        assert.isUndefined(fiber.pollUnsafe())
+        assert.lengthOf(fake.paths, 40)
+        gone = false
+        yield* TestClock.adjust("1 minute")
+        assert.deepStrictEqual(yield* Fiber.join(fiber), { _tag: "walked" })
+        assert.strictEqual(fake.paths[40], fake.paths[39])
+        assert.deepStrictEqual(missingOf(production.held()), [])
       })
-      const walk = yield* makeAjaibWalk({
-        tab: { ...fake, attached: Effect.sync(() => !gone) },
-        post: fakeProduction().post,
-        store: memoryStore().store,
-      })
-      const fiber = yield* Effect.forkChild(walk.walk(DAY))
-      yield* settle(fake, 40)
-      yield* TestClock.adjust("10 seconds")
-      assert.deepStrictEqual(
-        fiber.pollUnsafe(),
-        Exit.succeed({ _tag: "unserved", reason: "no-tab" })
-      )
-      assert.lengthOf(fake.paths, 40)
-    })
   )
 
   it.effect("stops in place at 08:40, when Streaming hours start", () =>

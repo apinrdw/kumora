@@ -5,7 +5,6 @@ import {
   isTradingDay,
   marketMomentAt,
   streamingEndOf,
-  streamingStartOf,
   wibDateAt,
 } from "@workspace/relay"
 import { Context, DateTime, Effect, Option } from "effect"
@@ -114,19 +113,11 @@ export const tradingDaysBetween = Effect.fnUntraced(
   )
 )
 
-// Decision: Ajaib's tape holds only the day's own evening, so its window
-// runs from the close until 08:40 WIB on the next trading day
-// (apinrdw/kumora#244, "Ajaib's window"). None past the baked schedule.
-export const ajaibWindowEnd = Effect.fnUntraced(
-  function* (day: WibDate) {
-    for (let days = 1; days <= 31; days++) {
-      const next = yield* daysFrom(day, days)
-      if (yield* isTradingDay(next))
-        return Option.some(yield* streamingStartOf(next))
-    }
-    return Option.none<DateTime.Utc>()
-  },
-  Effect.catchTag("ScheduleYearMissing", () =>
-    Effect.succeed(Option.none<DateTime.Utc>())
+// Decision: Ajaib's walk of a day runs from the close until 00:00 WIB that
+// night, retrying whatever stops it; then Stockbit takes the day. The tape
+// holds only the day's own evening, and the owner wants Ajaib's faster walk
+// tried all evening before Stockbit's (2026-11-17).
+export const ajaibWindowEnd = (day: WibDate) =>
+  Effect.succeed(
+    DateTime.add(DateTime.makeUnsafe(`${day}T00:00:00+07:00`), { days: 1 })
   )
-)

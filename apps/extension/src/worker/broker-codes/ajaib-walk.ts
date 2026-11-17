@@ -166,16 +166,20 @@ export const makeAjaibWalk = Effect.fnUntraced(function* (options: {
   let dayN = Option.none<number>()
 
   // Before each call: Streaming hours stop the walk in place; past
-  // Ajaib's window, it can no longer serve the day; a tab that went leaves
-  // the day to Stockbit.
+  // Ajaib's window, it can no longer serve the day.
+  // With no Ajaib tab relayed the walk waits in place, polling once a minute,
+  // until a tab is back or the window ends; Stockbit and the older days wait
+  // behind it meanwhile.
   const guard = Effect.fnUntraced(function* (windowEnd: DateTime.Utc) {
-    const now = yield* scheduleNow
-    if (yield* inStreamingHours(now))
-      return yield* halt({ _tag: "stopped", cause: "streaming-hours" })
-    if (DateTime.isGreaterThanOrEqualTo(now, windowEnd))
-      return yield* halt({ _tag: "unserved", reason: "window-passed" })
-    if (!(yield* tab.attached))
-      return yield* halt({ _tag: "unserved", reason: "no-tab" })
+    while (true) {
+      const now = yield* scheduleNow
+      if (yield* inStreamingHours(now))
+        return yield* halt({ _tag: "stopped", cause: "streaming-hours" })
+      if (DateTime.isGreaterThanOrEqualTo(now, windowEnd))
+        return yield* halt({ _tag: "unserved", reason: "window-passed" })
+      if (yield* tab.attached) return
+      yield* Effect.sleep(START_POLL)
+    }
   })
 
   const pageToken = Effect.map(tab.request({ _tag: "page-token" }), (answer) =>
@@ -234,21 +238,19 @@ export const makeAjaibWalk = Effect.fnUntraced(function* (options: {
     if (outcome !== "sent") return yield* haltOnRefusal(outcome)
   })
 
-  // A call made while waiting for the close; a tab that doesn't answer
-  // leaves the day to Stockbit.
-  const startCall = Effect.fnUntraced(function* (path: string) {
-    const answer = yield* tab.request({ _tag: "page-fetch", path })
-    if (Option.isNone(answer))
-      return yield* halt({ _tag: "unserved", reason: "no-tab" })
-    return answer.value
-  })
+  // A call made while waiting for the close; none when the tab didn't
+  // answer, which is polled again.
+  const startCall = (path: string) =>
+    Effect.suspend(() => tab.request({ _tag: "page-fetch", path }))
 
   const isClosed = Effect.map(startCall(STATUS_PATH), (answer) =>
-    Option.exists(
-      decodeStatus(answer.body),
-      (decoded) =>
-        ("result" in decoded ? decoded.result.status : decoded.status) ===
-        "CLOSED"
+    Option.exists(answer, (status) =>
+      Option.exists(
+        decodeStatus(status.body),
+        (decoded) =>
+          ("result" in decoded ? decoded.result.status : decoded.status) ===
+          "CLOSED"
+      )
     )
   )
 
@@ -257,25 +259,20 @@ export const makeAjaibWalk = Effect.fnUntraced(function* (options: {
   const dayHead = Effect.fnUntraced(function* (day: WibDate) {
     const now = yield* Clock.currentTimeMillis
     const head = yield* startCall(yield* tapePath(now, 1, HEAD_PAGE_SIZE))
+    if (Option.isNone(head)) return Option.none<TradeNumber>()
     const page =
-      head.status === 200 ? yield* pageRows(head) : Option.none<never>()
-    // Decision: a 200 page with no rows once Ajaib says CLOSED means the tape
-    // no longer holds the day (seen Saturday 2026-11-14, after Friday's
-    // evening), so Stockbit takes the day instead of the queue waiting for
-    // Ajaib's window to end. Any other answer is polled again.
-    if (Option.exists(page, (answer) => answer.size === 0))
-      return yield* halt({ _tag: "unserved", reason: "empty-tape" })
+      head.value.status === 200
+        ? yield* pageRows(head.value)
+        : Option.none<never>()
+    // An empty page, a page of another date, or rows without codes are
+    // polled again until the window ends (ajaibWindowEnd in hours.ts).
     const rows = Option.match(page, {
       onNone: (): ReadonlyArray<PageRow> => [],
       onSome: (answer) => answer.rows,
     })
     const newest = rows[0]
     if (newest === undefined) return Option.none<TradeNumber>()
-    // Decision: the tape's newest row on another date means it moved on
-    // past the day (or never reached it), so Stockbit takes the day. See
-    // apinrdw/kumora#244, "The tape moved on".
-    if (newest.date !== day)
-      return yield* halt({ _tag: "unserved", reason: "other-date" })
+    if (newest.date !== day) return Option.none<TradeNumber>()
     if (!rows.every((row) => Option.isSome(row.codes)))
       return Option.none<TradeNumber>()
     return Option.some(
@@ -373,21 +370,19 @@ export const makeAjaibWalk = Effect.fnUntraced(function* (options: {
 
   const walkDay = Effect.fnUntraced(function* (day: WibDate) {
     const windowEnd = yield* ajaibWindowEnd(day)
-    if (Option.isNone(windowEnd))
-      return yield* halt({ _tag: "unserved", reason: "window-passed" })
-    yield* guard(windowEnd.value)
+    yield* guard(windowEnd)
     const held = Option.filter(yield* store.load, (kept) => kept.day === day)
     if (Option.isSome(held) && held.value.pass === "done")
       return { _tag: "walked" } satisfies WalkResult
-    const n = yield* awaitClose(day, windowEnd.value)
+    const n = yield* awaitClose(day, windowEnd)
     fetched = 0
     dayN = Option.some(Number(n))
     let position: AjaibWalkPosition = Option.isSome(held)
       ? held.value
       : { day, pass: "first", next: yield* firstBoundary(day), repair: [] }
     if (position.pass === "first")
-      position = yield* firstPass(windowEnd.value, position)
-    position = yield* repairPass(windowEnd.value, position)
+      position = yield* firstPass(windowEnd, position)
+    position = yield* repairPass(windowEnd, position)
     yield* post({ day, rows: [], end: { n } })
     yield* store.save({ ...position, pass: "done" })
     return { _tag: "walked" } satisfies WalkResult
