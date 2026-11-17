@@ -397,16 +397,20 @@ const keepCarried = (
 
 // The minutes `code` let go, against a body settled before `settledBefore`:
 // a copy taken since stands over the body's minute, and one taken before
-// gives way to it.
+// gives way to it. The body's minutes older than a copy that stands give
+// way too: the flow let go newer copies of them (letGo) than the body has.
 const keepLetGo = (
   code: CodeFlow,
   bodyMinutes: Map<number, Row>,
   settledBefore: number
 ) =>
   Effect.sync(() => {
+    let standing = Number.NEGATIVE_INFINITY
     for (const [at, held] of code.before)
       if (held.heard < settledBefore) code.before.delete(at)
-      else bodyMinutes.delete(at)
+      else standing = Math.max(standing, at)
+    for (const at of bodyMinutes.keys())
+      if (at <= standing) bodyMinutes.delete(at)
   })
 
 // A body settled before `settledBefore` taken: whether it takes back an

@@ -463,13 +463,13 @@ const matches = (
     ])
       if (newest === undefined || at > newest) newest = at
     // Once corrections empty the block after the jump, the newest trade is
-    // in a minute the page let go, whose tape it may have let go too: the
-    // end is no earlier than the newest part's minute start, and none only
-    // when no part is left. While a recount waits, the page may no longer
-    // hold that minute: no end then.
+    // an hour back, whose tape the page let go for the block's: the end is
+    // no earlier than the newest part's minute start, and none only when no
+    // part is left. While a recount waits, the page may no longer hold that
+    // minute: no end then.
     const end = (yield* windowEnd(flow, "break", END + MINUTE_MS))?.end
     if (flow.recountFrom !== undefined && end === undefined) return
-    if (newest === undefined || newest >= oldestKept) {
+    if (!server.jumped() || newest === undefined || newest >= LATER) {
       expect(end, `${step}: end`).toBe(newest)
       return
     }
