@@ -23,8 +23,7 @@ CREATE TABLE totals (
 CREATE INDEX totals_by_day ON totals (day);
 
 -- One stock's regular-board day: open, high, low and close in trade number
--- order, volume in lots and value, and the trades counted (walk-filled
--- ones too).
+-- order, volume in lots and value.
 CREATE TABLE candles (
   code TEXT NOT NULL,
   day TEXT NOT NULL,
@@ -34,7 +33,6 @@ CREATE TABLE candles (
   close REAL NOT NULL,
   volume REAL NOT NULL,
   value INTEGER NOT NULL,
-  trades INTEGER NOT NULL,
   PRIMARY KEY (code, day)
 ) WITHOUT ROWID;
 
