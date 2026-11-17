@@ -107,10 +107,8 @@ type CarriedBy = "this socket" | "an earlier one"
 
 export interface MarketFlow {
   readonly codes: Map<StockCode, CodeFlow>
-  // The day's last regular-board trade, in epoch ms: its time when the tape
-  // carried it, else its minute's start.
-  lastTrade: number | undefined
-  // The newest minute any code traded in.
+  // The newest minute any code traded in. It only moves forward: it governs
+  // which minutes are kept, not where the windows end (newestTrade).
   newestMinute: number
   // Instants on the Worker's clock, in epoch ms: a viewer message's `at`,
   // a backfill's `settledBefore`.
@@ -185,21 +183,33 @@ const codeFlowOf = (flow: MarketFlow, code: StockCode): CodeFlow => {
 
 const noteMinute = (flow: MarketFlow, minute: number) => {
   if (minute > flow.newestMinute) flow.newestMinute = minute
-  if (flow.lastTrade === undefined || minute > flow.lastTrade)
-    flow.lastTrade = minute
 }
 
-// The day's last trade again, from the tape trades and minutes still held,
-// once a correction took away what it was.
-const recountLastTrade = (flow: MarketFlow) => {
-  let last: number | undefined
-  for (const { time } of flow.seen.values())
-    if (last === undefined || time > last) last = time
-  for (const code of flow.codes.values())
-    for (const minute of code.minutes.keys())
-      if (last === undefined || minute > last) last = minute
-  flow.lastTrade = last
-}
+// The newest tape trade counted, in epoch ms.
+const newestCounted = (flow: MarketFlow) =>
+  Effect.sync(() => {
+    let newest: number | undefined
+    for (const { time } of flow.seen.values())
+      if (newest === undefined || time > newest) newest = time
+    return newest
+  })
+
+// The day's last regular-board trade the flow still counts, in epoch ms: its
+// time when the tape carried it, else its minute's start.
+// Decision: derived from what the flow holds each time it is asked, never
+// kept as a field. A kept copy went stale twice, once a correction took away
+// the trade it was and once a reconnect's backfill took away its minute
+// (apinrdw/kumora#436, Codex rounds 5 and 6). Measured 2026-11-17 on the dev
+// machine (bubbles.test.ts, "Recompute", 900 codes with 60 minutes and 30
+// tape seconds each): median 0.8 ms without the scan, 1.2 ms with it.
+const newestTrade = (flow: MarketFlow) =>
+  Effect.gen(function* () {
+    let newest = yield* newestCounted(flow)
+    for (const code of flow.codes.values())
+      for (const minute of code.minutes.keys())
+        if (newest === undefined || minute > newest) newest = minute
+    return newest
+  })
 
 const oldestKept = (flow: MarketFlow) =>
   flow.newestMinute - (MINUTES_KEPT - 1) * MINUTE_MS
@@ -246,7 +256,6 @@ const newestKey = (rows: ReadonlyMap<number, Row>, atOrBefore: number) => {
 export const makeMarketFlow = () =>
   Effect.sync((): MarketFlow => ({
     codes: new Map(),
-    lastTrade: undefined,
     newestMinute: 0,
     heard: Number.NEGATIVE_INFINITY,
     settledBefore: Number.NEGATIVE_INFINITY,
@@ -418,11 +427,8 @@ const takeMinute = (
   }
   replaceInDay(code.day, row, code.minutes.get(at))
   code.carried.set(at, "this socket")
-  if (row === undefined) {
-    code.minutes.delete(at)
-    if (flow.lastTrade !== undefined && at + MINUTE_MS > flow.lastTrade)
-      recountLastTrade(flow)
-  } else {
+  if (row === undefined) code.minutes.delete(at)
+  else {
     code.minutes.set(at, row)
     noteMinute(flow, at)
   }
@@ -500,7 +506,7 @@ const secondOf = (code: CodeFlow, second: number) => {
 }
 
 const sameCount = (a: Counted, b: Counted) =>
-  a.second === b.second &&
+  a.time === b.time &&
   a.price === b.price &&
   a.lots === b.lots &&
   a.side === b.side
@@ -568,13 +574,8 @@ const countTrade = (flow: MarketFlow, trade: RunningTrade) => {
   if (held !== undefined) {
     if (regular && sameCount(held, counted)) return
     removeTrade(flow, number, held)
-    if (flow.lastTrade !== undefined && held.time >= flow.lastTrade)
-      recountLastTrade(flow)
   }
-  if (!regular) return
-  if (flow.lastTrade === undefined || time > flow.lastTrade)
-    flow.lastTrade = time
-  addTrade(flow, number, counted)
+  if (regular) addTrade(flow, number, counted)
 }
 
 // The tape's regular-board trades into their seconds, each trade once: a
@@ -585,11 +586,11 @@ export const applyTrades = (
   flow: MarketFlow,
   trades: ReadonlyArray<RunningTrade>
 ) =>
-  Effect.sync(() => {
+  Effect.gen(function* () {
     for (const trade of trades)
       if (!isIndex(trade.code)) countTrade(flow, trade)
     // Insertion order is about time order: drop from the front.
-    const newest = flow.lastTrade ?? 0
+    const newest = (yield* newestCounted(flow)) ?? 0
     for (const [number, { second }] of flow.seen) {
       if (second >= newest - SECONDS_KEPT_MS) break
       flow.seen.delete(number)
@@ -612,11 +613,12 @@ export const applyMessage = (flow: MarketFlow, message: ViewerDown) =>
 // Where the windows end, and whether the session is closed: now during a
 // session, else the day's last trade. None before the day's first trade.
 export const windowEnd = (flow: MarketFlow, phase: MarketPhase, now: number) =>
-  Effect.sync(() => {
-    if (flow.lastTrade === undefined) return undefined
+  Effect.gen(function* () {
+    const last = yield* newestTrade(flow)
+    if (last === undefined) return undefined
     return SESSIONS.has(phase)
       ? { end: now, closed: false }
-      : { end: flow.lastTrade, closed: true }
+      : { end: last, closed: true }
   })
 
 const sum = (into: Row, row: Row) => {

@@ -130,10 +130,13 @@ const makeServer = (next: () => number) => {
   const pick = <A>(from: ReadonlyArray<A>) =>
     from[Math.floor(next() * from.length)]!
 
+  // Trade numbers follow time, as the exchange's do: a trade lands up to
+  // 10 s after the one numbered before it.
   const newTrade = () => {
+    const at = T0 + (number - 1) * 10_000 + Math.floor(next() * 10_000)
     const trade: RunningTrade = {
       tradeNumber: TradeNumber.make(String(number++)),
-      time: DateTime.makeUnsafe(T0 + Math.floor(next() * MINUTES * MINUTE_MS)),
+      time: DateTime.makeUnsafe(Math.min(END, at)),
       code: pick(CODES),
       price: 100 + Math.floor(next() * 5),
       lots: 1 + Math.floor(next() * 4),

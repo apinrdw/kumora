@@ -805,10 +805,13 @@ describe("recompute time", () => {
         for (const window of BUBBLE_WINDOWS)
           for (let run = 0; run < 20; run++) {
             const started = performance.now()
+            // Out of session, so the end is the day's last trade, found
+            // afresh as each second's recompute finds it.
+            const ends = yield* windowEnd(flow, "break", T0 + 2 * MIN)
             const shown = yield* bubblesOf(
               flow,
               { ...VIEW, window, top: "all" },
-              T0 + 29_999
+              ends!.end + 999
             )
             for (const bubble of shown) yield* bubbleTone(bubble, VIEW)
             times.push(performance.now() - started)
