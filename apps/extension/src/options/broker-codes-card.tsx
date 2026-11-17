@@ -10,7 +10,7 @@ import {
 import { DateTime, Effect, Option } from "effect"
 import { useEffect, useState } from "react"
 
-import { recentClosedDays } from "../worker/broker-codes/hours.ts"
+import { RECENT_DAYS, recentClosedDays } from "../worker/broker-codes/hours.ts"
 import type { BrokerCodesProgress } from "../worker/broker-codes/run-queue.ts"
 import { brokerCodesTargets } from "../worker/broker-codes/poster.ts"
 import {
@@ -41,8 +41,6 @@ import {
 } from "./broker-codes-view.ts"
 import { optionsRuntime } from "./runtime.ts"
 import { useStored, type StorageChange } from "./use-stored.ts"
-
-const RECENT_DAYS = 10
 
 type DayRow = { day: WibDate } & Effect.Success<ReturnType<typeof dayView>>
 
