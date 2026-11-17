@@ -38,7 +38,7 @@ const Profiles = Schema.Struct({
   ),
 })
 
-type SectorRun =
+export type SectorRun =
   | { readonly _tag: "Replaced"; readonly rows: number }
   // A sanity gate dropped the run; yesterday's table stays.
   | { readonly _tag: "Kept"; readonly reason: string }
