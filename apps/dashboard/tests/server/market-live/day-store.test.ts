@@ -231,12 +231,20 @@ describe("the cost meter", () => {
   )
 })
 
-describe("a day store from before candles carried buy and sell value", () => {
-  it.effect("gains both columns at 0, keeps its candles, and opens again", () =>
-    Effect.gen(function* () {
-      const sql = memorySql()
-      // The candles table as stores before spec apinrdw/kumora#427 made it.
-      sql.exec(`CREATE TABLE candles (
+// The candles table as stores before spec apinrdw/kumora#427 made it, and
+// its trades table, which that spec left as it was.
+const oldStore = (sql: Sql) => {
+  sql.exec(`CREATE TABLE trades (
+      number INTEGER PRIMARY KEY,
+      time INTEGER NOT NULL,
+      code TEXT NOT NULL,
+      price REAL NOT NULL,
+      lots REAL NOT NULL,
+      side TEXT NOT NULL,
+      board TEXT NOT NULL,
+      feeds TEXT NOT NULL
+    )`)
+  sql.exec(`CREATE TABLE candles (
           code TEXT NOT NULL,
           minute INTEGER NOT NULL,
           open_order INTEGER NOT NULL,
@@ -251,22 +259,119 @@ describe("a day store from before candles carried buy and sell value", () => {
           frequency REAL NOT NULL,
           PRIMARY KEY (code, minute)
         ) WITHOUT ROWID`)
+}
+
+// One candle in the old table, `value` and `frequency` its own.
+const oldCandle = (
+  sql: Sql,
+  code: string,
+  minute: number,
+  value: number,
+  frequency: number
+) =>
+  sql.exec(
+    "INSERT INTO candles VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
+    code,
+    minute,
+    1,
+    9_000,
+    2,
+    9_025,
+    minute + 2_000,
+    9_025,
+    9_000,
+    frequency,
+    value,
+    frequency
+  )
+
+// An old store holding BBCA's trades of 09:00 and 09:01, on every side and
+// one off the regular board, TLKM's of 09:00, and the candles they fold to;
+// sealed when `sealed`.
+const oldDay = (sealed: boolean) => {
+  const sql = memorySql()
+  oldStore(sql)
+  const tlkm = StockCode.make("TLKM")
+  for (const stored of [
+    trade(1, "09:00:01"),
+    { ...trade(2, "09:00:20"), price: 9_025, side: "sell" as const },
+    { ...trade(3, "09:00:40"), price: 9_025, side: "none" as const },
+    { ...trade(4, "09:00:50"), lots: 5, board: "NG" as const },
+    {
+      ...trade(5, "09:00:55"),
+      code: tlkm,
+      price: 3_000,
+      side: "sell" as const,
+    },
+    { ...trade(6, "09:01:10"), lots: 2 },
+  ])
+    sql.exec(
+      "INSERT INTO trades VALUES (?, ?, ?, ?, ?, ?, ?, ?)",
+      Number(stored.tradeNumber),
+      DateTime.toEpochMillis(stored.time),
+      stored.code,
+      stored.price,
+      stored.lots,
+      stored.side,
+      stored.board,
+      stored.feeds.join(",")
+    )
+  const first = DateTime.toEpochMillis(wib("09:00:00"))
+  oldCandle(sql, "BBCA", first, 2_705_000, 3)
+  oldCandle(sql, "BBCA", first + MINUTE_MS, 1_800_000, 1)
+  oldCandle(sql, "TLKM", first, 300_000, 1)
+  if (sealed) {
+    sql.exec("CREATE TABLE facts (key TEXT PRIMARY KEY, value TEXT NOT NULL)")
+    sql.exec("INSERT INTO facts VALUES ('sealed', '2026-11-09T09:00:00Z')")
+  }
+  return { sql, first }
+}
+
+// Each of `code`'s candles as a store opened on `sql` reads it: its minute,
+// buy value and sell value.
+const sidesOf = (sql: Sql, code: string) =>
+  Effect.gen(function* () {
+    const store = yield* makeDayStore(sql)
+    const candles = yield* store.storedCandlesOf(StockCode.make(code))
+    return candles.map(({ minute, figures }) => [
+      minute,
+      figures.buyValue,
+      figures.sellValue,
+    ])
+  })
+
+describe("a day store from before candles carried buy and sell value", () => {
+  it.effect(
+    "rebuilds the live day's candle sides from its regular-board trades",
+    () =>
+      Effect.gen(function* () {
+        const { sql, first } = oldDay(false)
+        assert.deepStrictEqual(yield* sidesOf(sql, "BBCA"), [
+          [first, 900_000, 902_500],
+          [first + MINUTE_MS, 1_800_000, 0],
+        ])
+        assert.deepStrictEqual(yield* sidesOf(sql, "TLKM"), [
+          [first, 0, 300_000],
+        ])
+      })
+  )
+
+  it.effect("leaves a sealed day's candle sides at 0", () =>
+    Effect.gen(function* () {
+      const { sql, first } = oldDay(true)
+      assert.deepStrictEqual(yield* sidesOf(sql, "BBCA"), [
+        [first, 0, 0],
+        [first + MINUTE_MS, 0, 0],
+      ])
+    })
+  )
+
+  it.effect("gains both columns at 0, keeps its candles, and opens again", () =>
+    Effect.gen(function* () {
+      const sql = memorySql()
+      oldStore(sql)
       const minute = DateTime.toEpochMillis(wib("09:00:00"))
-      sql.exec(
-        "INSERT INTO candles VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
-        "BBCA",
-        minute,
-        1,
-        9_000,
-        2,
-        9_025,
-        minute + 2_000,
-        9_025,
-        9_000,
-        3,
-        2_707_500,
-        2
-      )
+      oldCandle(sql, "BBCA", minute, 2_707_500, 2)
       const old = yield* makeDayStore(sql)
       const [kept] = yield* old.storedCandlesOf(StockCode.make("BBCA"))
       assert.deepStrictEqual(
