@@ -327,11 +327,11 @@ const oldDay = (sealed: boolean) => {
   return { sql, first }
 }
 
-// Each of `code`'s candles as a store opened on `sql` reads it: its minute,
-// buy value and sell value.
-const sidesOf = (sql: Sql, code: string) =>
+// Each of `code`'s candles as a store opened on `sql` reads it, as today's
+// day when `today`: its minute, buy value and sell value.
+const sidesOf = (sql: Sql, code: string, today: boolean) =>
   Effect.gen(function* () {
-    const store = yield* makeDayStore(sql)
+    const store = yield* makeDayStore(sql, { today })
     const candles = yield* store.storedCandlesOf(StockCode.make(code))
     return candles.map(({ minute, figures }) => [
       minute,
@@ -346,12 +346,24 @@ describe("a day store from before candles carried buy and sell value", () => {
     () =>
       Effect.gen(function* () {
         const { sql, first } = oldDay(false)
-        assert.deepStrictEqual(yield* sidesOf(sql, "BBCA"), [
+        assert.deepStrictEqual(yield* sidesOf(sql, "BBCA", true), [
           [first, 900_000, 902_500],
           [first + MINUTE_MS, 1_800_000, 0],
         ])
-        assert.deepStrictEqual(yield* sidesOf(sql, "TLKM"), [
+        assert.deepStrictEqual(yield* sidesOf(sql, "TLKM", true), [
           [first, 0, 300_000],
+        ])
+      })
+  )
+
+  it.effect(
+    "rebuilds today's candle sides after its seal, which still serves its bubbles",
+    () =>
+      Effect.gen(function* () {
+        const { sql, first } = oldDay(true)
+        assert.deepStrictEqual(yield* sidesOf(sql, "BBCA", true), [
+          [first, 900_000, 902_500],
+          [first + MINUTE_MS, 1_800_000, 0],
         ])
       })
   )
@@ -359,7 +371,7 @@ describe("a day store from before candles carried buy and sell value", () => {
   it.effect("leaves a sealed day's candle sides at 0", () =>
     Effect.gen(function* () {
       const { sql, first } = oldDay(true)
-      assert.deepStrictEqual(yield* sidesOf(sql, "BBCA"), [
+      assert.deepStrictEqual(yield* sidesOf(sql, "BBCA", false), [
         [first, 0, 0],
         [first + MINUTE_MS, 0, 0],
       ])
