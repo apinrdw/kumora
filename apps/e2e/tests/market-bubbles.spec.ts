@@ -437,7 +437,8 @@ test.describe("on a phone", () => {
   test("the Filters sheet opens on Top 50, a tap shows a bubble's figures, a tap on another moves them, and a second tap opens Market Live", async ({
     page,
   }) => {
-    // Two sectors, so the first code's grown bubble never covers the second.
+    // Two sectors, and the second twice the first's radius, so the first's
+    // grown bubble, drawn in from an edge, never reaches the second's centre.
     const first = freshCode("BP")
     const second = freshCode("BQ")
     seedStockSectors({ [first]: "Energy" })
@@ -455,7 +456,7 @@ test.describe("on a phone", () => {
           time,
           ticker,
           price: 50_000,
-          lot: 50_000,
+          lot: index === 0 ? 50_000 : 200_000,
         })
       )
     )
