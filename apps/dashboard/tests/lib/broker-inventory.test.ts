@@ -23,11 +23,14 @@ type Row = readonly [
   buyLots: number,
   sellLots: number,
   price?: number,
+  buyFreq?: number,
+  sellFreq?: number,
 ]
 
 // A read over `days`, each built unless named in `gaps`. A row's lots are
 // at its price, 1,000 a share unless it names one, so a lot's value is
-// 100 times the price.
+// 100 times the price. Its trades bought and sold in are 0 unless it names
+// them.
 const read = (
   days: ReadonlyArray<string>,
   gaps: ReadonlyArray<string>,
@@ -63,6 +66,8 @@ const read = (
       buyValue: rows.map(([, , , buy, , price = 1000]) => buy * price * 100),
       sellLots: rows.map(([, , , , sell]) => sell),
       sellValue: rows.map(([, , , , sell, price = 1000]) => sell * price * 100),
+      buyFreq: rows.map(([, , , , , , buyFreq = 0]) => buyFreq),
+      sellFreq: rows.map(([, , , , , , , sellFreq = 0]) => sellFreq),
     },
   }
 }
