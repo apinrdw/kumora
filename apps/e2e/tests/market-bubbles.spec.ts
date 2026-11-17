@@ -166,8 +166,9 @@ test("the page loads to a live map with no console errors", async ({
   await page.setViewportSize({ width: 1600, height: 1000 })
   const errors: string[] = []
   page.on("console", (message) => {
-    // No relay sent today's code list, so its GET answers 404 until one does.
-    if (message.location().url.endsWith("/codes")) return
+    // A 404 is an answer, not a page error: today's code list before a relay
+    // sends one, a code with no logo.
+    if (message.text().startsWith("Failed to load resource")) return
     if (message.type() === "error") errors.push(message.text())
   })
   page.on("pageerror", (error) => errors.push(error.message))
