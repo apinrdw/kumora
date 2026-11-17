@@ -144,6 +144,23 @@ const read = async (
   response.headers.get("cf-mitigated") === "challenge" || undefined,
 ]
 
+// A page-fetch's headers: the page's own with `bearer` in place of their
+// token; before the page made a call, `bearer` or `token` alone; none
+// without any.
+const pageHeaders = (
+  bearer: string | undefined,
+  token: string | undefined
+): Record<string, string> | undefined => {
+  if (bearer === undefined && pageRequest !== undefined)
+    return pageRequest.headers
+  const sent = bearer ?? token
+  if (sent === undefined) return undefined
+  const own = Object.entries(pageRequest?.headers ?? {}).filter(
+    ([name]) => name.toLowerCase() !== "authorization"
+  )
+  return { ...Object.fromEntries(own), authorization: `Bearer ${sent}` }
+}
+
 const answer = async (
   request: Exclude<TabRequest, LockRequest>
 ): Promise<[number, string, boolean?]> => {
@@ -154,8 +171,8 @@ const answer = async (
       return read(await fetch(request.url, { headers: request.headers }))
     }
     case "page-fetch": {
-      if (pageRequest === undefined && request.token === undefined)
-        return [0, ""]
+      const headers = pageHeaders(request.bearer, request.token)
+      if (headers === undefined) return [0, ""]
       // Decision: no cookies. Ajaib's REST API preflights with
       // `Access-Control-Allow-Origin: *`, which the browser refuses for a
       // credentialed request (seen 2026-11-11 on `v1/stock/data/list/`); the
@@ -163,11 +180,7 @@ const answer = async (
       return read(
         await fetch(
           new URL(request.path, pageRequest?.base ?? AJAIB_API_BASE),
-          {
-            headers: pageRequest?.headers ?? {
-              authorization: `Bearer ${request.token}`,
-            },
-          }
+          { headers }
         )
       )
     }

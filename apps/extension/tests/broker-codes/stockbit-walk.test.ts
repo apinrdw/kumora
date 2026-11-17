@@ -631,6 +631,7 @@ describe("Stockbit's walk: when it starts and gives up", () => {
         const ajaib = yield* makeAjaibWalk({
           tab: {
             attached: Effect.succeed(false),
+            reload: Effect.void,
             request: () => Effect.succeed(Option.none<Answer>()),
           },
           post: production.post,

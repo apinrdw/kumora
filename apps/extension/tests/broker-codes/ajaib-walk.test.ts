@@ -93,6 +93,8 @@ const fakeAjaib = (
     readonly codesFrom?: number
     // The page's latest bearer token at a time.
     readonly token?: (now: number) => string
+    // The `trade_access_token` cookie's raw value at a time; "" without one.
+    readonly cookie?: (now: number) => string
     // Whether a page's first row comes without a trade number.
     readonly malformed?: (path: string) => boolean
     // Trades the tape sends with codes but zero lots.
@@ -151,9 +153,14 @@ const fakeAjaib = (
     path === STATUS_PATH
       ? OK({ result: { status: options.market?.(now) ?? "CLOSED" } })
       : page(path, now)
+  let reloads = 0
   return {
     paths,
     attached: Effect.succeed(true),
+    reload: Effect.sync(() => {
+      reloads++
+    }),
+    reloads: () => reloads,
     tapeCalls: () => paths.filter((path) => path !== STATUS_PATH),
     request: (request: TabRequest) =>
       Effect.gen(function* () {
@@ -162,6 +169,11 @@ const fakeAjaib = (
           return Option.some<Answer>({
             ...STATUS(200),
             body: options.token?.(now) ?? "token",
+          })
+        if (request._tag === "cookie")
+          return Option.some<Answer>({
+            ...STATUS(200),
+            body: options.cookie?.(now) ?? "",
           })
         if (request._tag !== "page-fetch") return Option.none<Answer>()
         paths.push(request.path)
@@ -459,24 +471,80 @@ describe("Ajaib's walk: when it starts", () => {
     })
   )
 
-  it.effect("keeps polling a closed tape that answers a 401", () =>
+  it.effect(
+    "on a 401 with no token Ajaib hasn't refused, reloads the Ajaib tab each minute and sends nothing",
+    () =>
+      Effect.gen(function* () {
+        yield* TestClock.setTime(wib("2026-11-12", "17:30:00"))
+        const tab = fakeAjaib({
+          answer: (request) =>
+            request._tag === "page-fetch" && request.path !== STATUS_PATH
+              ? Effect.succeed(STATUS(401))
+              : undefined,
+        })
+        const walk = yield* walkWith(tab)
+        const fiber = yield* Effect.forkChild(walk.walk(DAY))
+        yield* TestClock.adjust("0 millis")
+        yield* TestClock.adjust("2 minutes")
+        assert.isUndefined(fiber.pollUnsafe())
+        assert.lengthOf(tab.tapeCalls(), 1)
+        assert.strictEqual(tab.reloads(), 2)
+        yield* Fiber.interrupt(fiber)
+      })
+  )
+
+  it.effect("on a 401 takes the cookie's token and walks the day with it", () =>
     Effect.gen(function* () {
       yield* TestClock.setTime(wib("2026-11-12", "17:30:00"))
+      const production = fakeProduction()
+      const fresh = "eyJhbGciOiJIUzI1NiJ9.eyJzdWIiOiIxIn0.c2lnbmF0dXJl"
+      const bearers: Array<string | undefined> = []
       const tab = fakeAjaib({
-        rows: [],
-        answer: (request) =>
-          request._tag === "page-fetch" && request.path !== STATUS_PATH
-            ? Effect.succeed(STATUS(401))
-            : undefined,
+        cookie: () => encodeURIComponent(`"${fresh}"`),
+        answer: (request) => {
+          if (request._tag !== "page-fetch") return undefined
+          bearers.push(request.bearer)
+          return request.bearer === fresh
+            ? undefined
+            : Effect.succeed(STATUS(401))
+        },
       })
-      const walk = yield* walkWith(tab)
-      const fiber = yield* Effect.forkChild(walk.walk(DAY))
-      yield* TestClock.adjust("0 millis")
-      yield* TestClock.adjust("2 minutes")
-      assert.isUndefined(fiber.pollUnsafe())
-      assert.lengthOf(tab.tapeCalls(), 3)
-      yield* Fiber.interrupt(fiber)
+      const walk = yield* walkWith(tab, production)
+      assert.deepStrictEqual(yield* walk.walk(DAY), { _tag: "walked" })
+      assert.deepStrictEqual(missingOf(production.held()), [])
+      assert.strictEqual(bearers[0], undefined)
+      assert.isTrue(bearers.slice(1).every((bearer) => bearer === fresh))
+      assert.strictEqual(tab.reloads(), 0)
     })
+  )
+
+  it.effect(
+    "on a 401 waits for the page's new token, then sends the page's headers again",
+    () =>
+      Effect.gen(function* () {
+        const start = wib("2026-11-12", "17:30:00")
+        yield* TestClock.setTime(start)
+        const production = fakeProduction()
+        // The page signs a call afresh 30 s in.
+        const pageToken = (now: number) =>
+          now >= start + 30_000 ? "new" : "old"
+        let calls = 0
+        const tab = fakeAjaib({
+          token: pageToken,
+          answer: (request) => {
+            if (request._tag !== "page-fetch") return undefined
+            calls++
+            return calls === 1 ? Effect.succeed(STATUS(401)) : undefined
+          },
+        })
+        const walk = yield* walkWith(tab, production)
+        const fiber = yield* Effect.forkChild(walk.walk(DAY))
+        yield* TestClock.adjust("0 millis")
+        yield* TestClock.adjust("40 seconds")
+        assert.deepStrictEqual(yield* Fiber.join(fiber), { _tag: "walked" })
+        assert.deepStrictEqual(missingOf(production.held()), [])
+        assert.strictEqual(tab.reloads(), 0)
+      })
   )
 
   it.effect("waits for an Ajaib tab to be relayed, then walks the day", () =>
@@ -488,6 +556,7 @@ describe("Ajaib's walk: when it starts", () => {
       const walk = yield* makeAjaibWalk({
         tab: {
           attached: Effect.sync(() => open),
+          reload: Effect.void,
           request: (request) =>
             Effect.suspend(() =>
               open ? fake.request(request) : Effect.succeed(Option.none())
@@ -516,6 +585,7 @@ describe("Ajaib's walk: when it starts", () => {
         const walk = yield* makeAjaibWalk({
           tab: {
             attached: Effect.succeed(false),
+            reload: Effect.void,
             request: () => Effect.succeed(Option.none<Answer>()),
           },
           post: production.post,

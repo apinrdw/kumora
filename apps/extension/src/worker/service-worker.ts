@@ -421,6 +421,7 @@ const main = Effect.gen(function* () {
   const ajaibWalkTab = {
     ...ajaibPacer.tab("walk"),
     attached: ajaibTab.attached,
+    reload: ajaibTab.reload,
   }
   const ajaibWalk = yield* makeAjaibWalk({
     tab: ajaibWalkTab,

@@ -29,6 +29,7 @@ const openTab = () => {
     drop: () => Effect.void,
     isOpen: () => Effect.succeed(true),
     attached: Effect.succeed(true),
+    reload: Effect.void,
   }
   return { tab, sent }
 }
