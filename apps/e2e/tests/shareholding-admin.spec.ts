@@ -3,7 +3,6 @@ import type { Locator, Page } from "@playwright/test"
 import { expect, test } from "../support/test"
 
 import { ADMIN, DASHBOARD, MEMBER } from "../support/accounts"
-import { landStocksSeedOn } from "../support/holdings"
 import {
   seedLatestRun,
   seedReport,
@@ -333,10 +332,8 @@ test.describe.serial("an admin's archive totals and parse runs", () => {
     await expect(
       classificationParseCard(page).getByRole("button", { name: "Parse now" })
     ).toBeEnabled()
-    // stocks.spec.ts's seed, landing after the parse, as it may. It lacks
-    // the month, so the month reads Parsed or Not parsed yet.
-    landStocksSeedOn("classification", "2025-12-31", false)
-    await page.reload()
+    // Not parsed yet when stocks.spec.ts's seed, which lacks the month, lands
+    // after the parse.
     await expect(
       parseCoverageMark(
         page,
@@ -380,10 +377,8 @@ test.describe.serial("an admin's archive totals and parse runs", () => {
     await expect(
       investorTypeParseCard(page).getByRole("button", { name: "Parse now" })
     ).toBeEnabled()
-    // stocks.spec.ts's seed, landing after the parse, as it may. It holds
-    // the month under its own SHA-256, so the month reads Parsed or Stale.
-    landStocksSeedOn("investor-type", "2025-11-28", true)
-    await page.reload()
+    // Stale when stocks.spec.ts's seed, which holds the month under its own
+    // SHA-256, lands after the parse.
     await expect(
       parseCoverageMark(
         page,
