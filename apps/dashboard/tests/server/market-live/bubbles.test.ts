@@ -795,7 +795,12 @@ describe("bubbles", () => {
       yield* TestClock.setTime(
         DateTime.toEpochMillis(DateTime.makeUnsafe("2026-11-10T00:00:01+07:00"))
       )
-      assert.strictEqual((yield* bubbles(day)).status, 404)
+      const past = yield* bubbles(day)
+      assert.strictEqual(past.status, 404)
+      assert.strictEqual(
+        past.text,
+        '{"error":"NotFound","message":"Live day only"}'
+      )
       assert.strictEqual((yield* bubbles(yield* tradingDay(sql))).status, 404)
     })
   )
