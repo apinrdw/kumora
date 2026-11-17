@@ -1,6 +1,8 @@
 // A trading day's recorded day GETs (spec apinrdw/kumora#138, "Recorded day
 // loads"), answered from its day store. A day not sealed yet answers what it
-// flushed, not cached; a sealed day's answers never change.
+// flushed, not cached; a sealed day's answers never change, except the
+// bubbles answer (bubblesAnswer): built once more after the seal, it 404s
+// from midnight.
 import {
   encodeRecordedBrokerCodes,
   encodeRecordedCandles,
@@ -60,7 +62,7 @@ export const bubblesAnswer = Effect.fnUntraced(function* (
 ) {
   return past
     ? yield* json(
-        '{"error":"NotFound","message":"Live day only"}',
+        '{"error":"NotFound","message":"Live date only"}',
         SEALED_CACHE,
         404
       )

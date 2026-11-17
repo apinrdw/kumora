@@ -91,9 +91,10 @@ export const freshTradeNumbers = () =>
   ) * TRADE_BLOCK
 
 /**
- * A stock code of the test's own, `prefix` and the time: today's object keeps
- * every code's candles, books and figures, from earlier runs too, so a listed
- * code would have a repeat's. No other test of the run holds it.
+ * A stock code of the test's own, `prefix` and a claimed number seeded from
+ * the time: today's object keeps every code's candles, books and figures,
+ * from earlier runs too, so a listed code would have a repeat's. No other
+ * test of the run holds it.
  */
 export const freshCode = (prefix: string) =>
   StockCode.make(
