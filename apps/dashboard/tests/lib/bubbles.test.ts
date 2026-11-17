@@ -603,6 +603,61 @@ describe("out-of-session window ends", () => {
           })
       })
   )
+
+  it.effect(
+    "move back to the trade before when the tape corrects the last one off the board or earlier",
+    () =>
+      Effect.gen(function* () {
+        const flow = yield* makeMarketFlow()
+        const before = { price: 100, lots: 1, number: 7 }
+        const last = { price: 100, lots: 1, number: 8 }
+        yield* applyTrades(flow, [
+          trade("BBCA", T0 + MIN - 1_000, before),
+          trade("BBCA", T0 + MIN, last),
+        ])
+        yield* applyTrades(flow, [
+          trade("BBCA", T0 + MIN, { ...last, board: "NG" }),
+        ])
+        expect(yield* windowEnd(flow, "break", T0 + 2 * MIN)).toEqual({
+          end: T0 + MIN - 1_000,
+          closed: true,
+        })
+        yield* applyTrades(flow, [
+          trade("BBCA", T0 + MIN - 30_000, { ...before }),
+        ])
+        expect(yield* windowEnd(flow, "break", T0 + 2 * MIN)).toEqual({
+          end: T0 + MIN - 30_000,
+          closed: true,
+        })
+      })
+  )
+
+  it.effect(
+    "move back to the minute before when a delta empties the last minute",
+    () =>
+      Effect.gen(function* () {
+        const flow = yield* makeMarketFlow()
+        yield* applyCandles(flow, [
+          candle("BBCA", T0, { value: 10_000, close: 100, frequency: 1 }),
+          candle("BBCA", T0 + MIN, { value: 10_000, close: 100, frequency: 1 }),
+        ])
+        yield* applyMessage(flow, {
+          ...delta(T0 + 2 * MIN, []),
+          footprints: [
+            {
+              code: StockCode.make("BBCA"),
+              minute: DateTime.makeUnsafe(T0 + MIN),
+              cells: [],
+            },
+          ],
+        })
+        const ended = yield* windowEnd(flow, "break", T0 + 3 * MIN)
+        expect(ended).toEqual({ end: T0, closed: true })
+        expect(
+          yield* valuesAt(flow, { ...VIEW, window: "1m" }, ended!.end)
+        ).toEqual([["BBCA", 10_000]])
+      })
+  )
 })
 
 describe("radii and labels", () => {
