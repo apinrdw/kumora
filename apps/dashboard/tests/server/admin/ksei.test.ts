@@ -187,7 +187,7 @@ describe("the KSEI archive page", () => {
       `reports/securities-holdings/2026-10-30/${"a".repeat(64)}.2026-11-14T030000.000Z.0123456789abcdef.json`,
       "{}"
     )
-    // A Securities statistics report has no parser: not in the coverage.
+    // A Securities statistics report has no parser: not in the parse coverage.
     seedObject(
       bucket,
       `reports/securities-statistics/2025-01-31/${"b".repeat(64)}.2026-11-14T030000.000Z.0123456789abcdef.json`,

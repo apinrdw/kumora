@@ -217,7 +217,7 @@ describe("the shareholding archive page", () => {
       )
     record("investor-classification", "2026-10-30")
     record("investor-type", "2026-09-30")
-    // Holders above 1% have no parser: not in either coverage.
+    // Holders above 1% have no parser: not in either parse coverage.
     record("above-1", "2026-08-31")
     // Twelve cells of 2026, with `state` in `month` (1-based) only.
     const only = (month: number, date: string) => [
