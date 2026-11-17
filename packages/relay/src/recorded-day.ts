@@ -364,9 +364,10 @@ export const decodeRecordedCandles = Schema.decodeUnknownEffect(
 // code with a regular-board trade today, with its newest BUBBLE_MINUTES
 // candles as [minute in epoch ms, value, volume, frequency, buy value, sell
 // value, close], ascending; its day totals as [value, volume, frequency, buy
-// value, sell value, last price]; and the previous close a `liveprice` frame
-// carried. Value is in rupiah, volume in lots. Tuples, as a busy day holds
-// about 900 codes.
+// value, sell value]; and the previous close a `liveprice` frame carried. Its
+// last price is its newest minute's close (dashboard lib/bubbles.ts,
+// `lastPrice`). Value is in rupiah, volume in lots. Tuples, as a busy day
+// holds about 900 codes.
 const BubbleMinute = Schema.Tuple([
   Schema.Finite,
   Schema.Finite,
@@ -377,7 +378,6 @@ const BubbleMinute = Schema.Tuple([
   Schema.Finite,
 ])
 const BubbleDay = Schema.Tuple([
-  Schema.Finite,
   Schema.Finite,
   Schema.Finite,
   Schema.Finite,

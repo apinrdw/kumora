@@ -854,7 +854,10 @@ function BubbleTip({
   const percent = (n: number | undefined) =>
     n === undefined ? "—" : Effect.runSync(pct(n))
   const rows: ReadonlyArray<readonly [string, string, string?]> = [
-    ["Price", Effect.runSync(price(figures.last))],
+    [
+      "Price",
+      figures.last === undefined ? "—" : Effect.runSync(price(figures.last)),
+    ],
     [
       `Value (${view.window})`,
       Effect.runSync(sizeFigure("value", figures.value)),

@@ -62,19 +62,23 @@ export interface BubbleFigures {
   readonly buySellDelta: number
   readonly change: number | undefined
   readonly dayChange: number | undefined
-  readonly last: number
+  // None for D while the day waits for a backfill to bring its last price.
+  readonly last: number | undefined
   // The size metric's figure: value, volume or frequency.
   readonly size: number
 }
 
-// One minute's, one second's or the day's regular-board figures, and the last
-// price in it.
-interface Row {
+// One minute's, one second's or the day's regular-board figures.
+interface Sums {
   value: number
   volume: number
   frequency: number
   buyValue: number
   sellValue: number
+}
+
+// A minute's or a second's figures, and the last price in it.
+interface Row extends Sums {
   close: number
 }
 
@@ -89,8 +93,8 @@ interface CodeFlow {
   readonly minutes: Map<number, Row>
   // Second start in epoch ms → its tape trades' figures, for 30s.
   readonly seconds: Map<number, SecondRow>
-  // Every regular-board minute of the day; `close` is the last price.
-  day: Row
+  // Every regular-board minute of the day; its last price is lastPrice's.
+  day: Sums
   previousClose: number | undefined
   // The close of the newest minute let go from `minutes`: the price before
   // any window when the code traded in none of the minutes kept before it.
@@ -123,7 +127,7 @@ export interface MarketFlow {
   socketFrom: number | undefined
   // When a candle older than the kept minutes changed, its earlier figures
   // gone, or a code lost its last price with no minute left to take one
-  // from (closeDay), until a backfill settled past it recounts the day.
+  // from (waitForPrice), until a backfill settled past it recounts the day.
   recountFrom: number | undefined
   // The tape's trade numbers already counted → what each added, so a
   // snapshot's tape, which repeats trades a delta brought, counts each once,
@@ -150,20 +154,21 @@ const WINDOW_MINUTES: Record<Exclude<BubbleWindow, "30s" | "D">, number> = {
 const SESSIONS: ReadonlySet<MarketPhase> = new Set(["session-1", "session-2"])
 
 // Decision: the per-trade and per-candle helpers (isIndex to newestKey,
-// closeDay, takeMinute, secondOf to countTrade) stay plain, the applies'
+// waitForPrice, takeMinute, secondOf to countTrade) stay plain, the applies'
 // loops Effects. Measured 2026-11-16 on the dev machine, 900 codes: 100,000
 // trades took 53 ms plain, 71 ms with an Effect per trade; 100,000 candles
 // 69 ms, 85 ms. One delta can carry thousands of each.
 const isIndex = (code: StockCode) => INDEX_CODES.includes(code)
 
-const emptyRow = (): Row => ({
+const noSums = (): Sums => ({
   value: 0,
   volume: 0,
   frequency: 0,
   buyValue: 0,
   sellValue: 0,
-  close: 0,
 })
+
+const emptyRow = (): Row => ({ ...noSums(), close: 0 })
 
 const codeFlowOf = (flow: MarketFlow, code: StockCode): CodeFlow => {
   const held = flow.codes.get(code)
@@ -171,7 +176,7 @@ const codeFlowOf = (flow: MarketFlow, code: StockCode): CodeFlow => {
   const fresh: CodeFlow = {
     minutes: new Map(),
     seconds: new Map(),
-    day: emptyRow(),
+    day: noSums(),
     previousClose: undefined,
     closeBefore: undefined,
     carried: new Map(),
@@ -233,8 +238,12 @@ const pruneMinutes = (flow: MarketFlow, code: CodeFlow) => {
 
 // `row` into `day` in place of `old`, the same minute's earlier figures;
 // none for a minute with no trades.
-const NO_ROW: Readonly<Row> = emptyRow()
-const replaceInDay = (day: Row, row: Row | undefined, old: Row | undefined) => {
+const NO_ROW: Readonly<Sums> = noSums()
+const replaceInDay = (
+  day: Sums,
+  row: Sums | undefined,
+  old: Sums | undefined
+) => {
   const now = row ?? NO_ROW
   const was = old ?? NO_ROW
   day.value += now.value - was.value
@@ -266,8 +275,8 @@ export const makeMarketFlow = () =>
 // A body's minute and day tuples as rows.
 const bodyRows = (flow: MarketFlow, entry: RecordedBubbles["codes"][number]) =>
   Effect.sync(() => {
-    const [value, volume, frequency, buyValue, sellValue, close] = entry.day
-    const day: Row = { value, volume, frequency, buyValue, sellValue, close }
+    const [value, volume, frequency, buyValue, sellValue] = entry.day
+    const day: Sums = { value, volume, frequency, buyValue, sellValue }
     const minutes = new Map<number, Row>()
     for (const [at, v, vol, freq, buy, sell, last] of entry.minutes) {
       minutes.set(at, {
@@ -283,16 +292,26 @@ const bodyRows = (flow: MarketFlow, entry: RecordedBubbles["codes"][number]) =>
     return { day, minutes }
   })
 
-// The day's last price: its newest minute's close. With none kept, as when
-// a correction took a code's only kept minute away, the close of the minute
-// let go before them; with none of that either, a day that still has trades
-// waits for a backfill to bring its close.
-const closeDay = (flow: MarketFlow, code: CodeFlow) => {
+// A code's last price: the close of the newest minute the flow holds of it,
+// kept or let go; none when it holds none.
+// Decision: the newest minute's close, its highest-numbered trade's price
+// (candles.ts `fold`): neither backfill nor delta carries the trade numbers
+// to rank minutes by. Derived on each read, never stored, and the backfill
+// sends no other. Recompute bench, 900 codes, 2026-11-17: median 1.1 ms
+// stored, 1.4 ms derived. See apinrdw/kumora#436.
+export const lastPrice = (code: CodeFlow) => {
   const newest = newestKey(code.minutes, Number.POSITIVE_INFINITY)
-  if (newest !== undefined) code.day.close = code.minutes.get(newest)!.close
-  else if (code.closeBefore !== undefined)
-    code.day.close = code.closeBefore.close
-  else if (code.day.frequency > 0) flow.recountFrom = flow.heard
+  const before = code.closeBefore
+  if (newest === undefined) return before?.close
+  return before !== undefined && before.minute > newest
+    ? before.close
+    : code.minutes.get(newest)!.close
+}
+
+// A day that still has trades and no last price waits for a backfill.
+const waitForPrice = (flow: MarketFlow, code: CodeFlow) => {
+  if (code.day.frequency > 0 && lastPrice(code) === undefined)
+    flow.recountFrom = flow.heard
 }
 
 // The minutes deltas carried laid over a body's, the day totals moved by
@@ -302,7 +321,7 @@ const closeDay = (flow: MarketFlow, code: CodeFlow) => {
 // is older than every window, so the body's copy stands.
 const keepCarried = (
   code: CodeFlow,
-  body: { readonly day: Row; readonly minutes: Map<number, Row> },
+  body: { readonly day: Sums; readonly minutes: Map<number, Row> },
   oldest: number,
   takesBack: boolean
 ) =>
@@ -358,7 +377,7 @@ export const applyBubbles = (flow: MarketFlow, body: RecordedBubbles) =>
     const entries = [...body.codes]
     for (const code of flow.codes.keys())
       if (!inBody.has(code))
-        entries.push({ code, day: [0, 0, 0, 0, 0, 0], minutes: [] })
+        entries.push({ code, day: [0, 0, 0, 0, 0], minutes: [] })
     for (const entry of entries) {
       const code = codeFlowOf(flow, entry.code)
       const rows = yield* bodyRows(flow, entry)
@@ -373,7 +392,7 @@ export const applyBubbles = (flow: MarketFlow, body: RecordedBubbles) =>
       code.minutes.clear()
       for (const [at, row] of rows.minutes) code.minutes.set(at, row)
       code.day = rows.day
-      closeDay(flow, code)
+      waitForPrice(flow, code)
       code.previousClose = entry.previousClose ?? code.previousClose
       if (code.previousClose === undefined && code.day.frequency > 0)
         code.closeMisses++
@@ -431,7 +450,7 @@ const takeMinute = (
     code.minutes.set(at, row)
     noteMinute(flow, at)
   }
-  closeDay(flow, code)
+  waitForPrice(flow, code)
   pruneMinutes(flow, code)
 }
 
@@ -620,7 +639,7 @@ export const windowEnd = (flow: MarketFlow, phase: MarketPhase, now: number) =>
       : { end: last, closed: true }
   })
 
-const sum = (into: Row, row: Row) => {
+const sum = (into: Sums, row: Sums) => {
   into.value += row.value
   into.volume += row.volume
   into.frequency += row.frequency
@@ -628,8 +647,10 @@ const sum = (into: Row, row: Row) => {
   into.sellValue += row.sellValue
 }
 
-const percent = (from: number | undefined, to: number) =>
-  from === undefined || from === 0 ? undefined : ((to - from) / from) * 100
+const percent = (from: number | undefined, to: number | undefined) =>
+  from === undefined || from === 0 || to === undefined
+    ? undefined
+    : ((to - from) / from) * 100
 
 // The rows keyed `first` to `last` summed, `close` the newest one's, and
 // the newest row before `first`.
@@ -683,22 +704,32 @@ const priceBefore30s = (
 const windowFigures = (
   code: CodeFlow,
   window: BubbleWindow,
-  end: number
-): { row: Row; before: number | undefined } => {
-  if (window === "D") return { row: code.day, before: code.previousClose }
+  end: number,
+  dayLast: number | undefined
+): { row: Sums; close: number | undefined; before: number | undefined } => {
+  if (window === "D")
+    return { row: code.day, close: dayLast, before: code.previousClose }
   if (window === "30s") {
     const last = Math.floor(end / SECOND_MS) * SECOND_MS
     const first = last - 29 * SECOND_MS
     const { row, before } = gather(code.seconds, first, last)
-    return { row, before: priceBefore30s(code, before, first) }
+    return {
+      row,
+      close: row.close,
+      before: priceBefore30s(code, before, first),
+    }
   }
   const last = Math.floor(end / MINUTE_MS) * MINUTE_MS
   const first = last - (WINDOW_MINUTES[window] - 1) * MINUTE_MS
   const { row, before } = gather(code.minutes, first, last)
-  return { row, before: before?.close ?? closeBeforeKept(code) }
+  return {
+    row,
+    close: row.close,
+    before: before?.close ?? closeBeforeKept(code),
+  }
 }
 
-const SIZE_OF: Record<SizeMetric, (row: Row) => number> = {
+const SIZE_OF: Record<SizeMetric, (row: Sums) => number> = {
   value: (row) => row.value,
   volume: (row) => row.volume,
   freq: (row) => row.frequency,
@@ -711,7 +742,13 @@ export const bubblesOf = (flow: MarketFlow, view: BubbleView, end: number) =>
     const size = SIZE_OF[view.size]
     const shown: Array<BubbleFigures> = []
     for (const [code, held] of flow.codes) {
-      const { row, before } = windowFigures(held, view.window, end)
+      const dayLast = lastPrice(held)
+      const { row, close, before } = windowFigures(
+        held,
+        view.window,
+        end,
+        dayLast
+      )
       if (row.frequency === 0) continue
       const sides = row.buyValue + row.sellValue
       shown.push({
@@ -723,9 +760,9 @@ export const bubblesOf = (flow: MarketFlow, view: BubbleView, end: number) =>
         sellValue: row.sellValue,
         buySellDelta:
           sides === 0 ? 0 : ((row.buyValue - row.sellValue) / sides) * 100,
-        change: percent(before, row.close),
-        dayChange: percent(held.previousClose, held.day.close),
-        last: row.close,
+        change: percent(before, close),
+        dayChange: percent(held.previousClose, dayLast),
+        last: close,
         size: size(row),
       })
     }

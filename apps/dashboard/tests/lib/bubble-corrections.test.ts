@@ -298,7 +298,6 @@ const makeServer = (next: () => number) => {
           day.frequency,
           day.buyValue,
           day.sellValue,
-          day.close,
         ],
         minutes,
       })
@@ -360,7 +359,10 @@ const lastPrices = (flow: MarketFlow) =>
     Object.fromEntries(
       bubbles.map((bubble) => [
         bubble.code,
-        { last: bubble.last, dayChange: bubble.dayChange ?? bubble.last - 100 },
+        {
+          last: bubble.last,
+          dayChange: bubble.dayChange ?? (bubble.last ?? 0) - 100,
+        },
       ])
     )
   )
@@ -471,7 +473,7 @@ describe("figures under feed corrections", () => {
             {
               code: code!,
               previousClose: 100,
-              day: [10_000, 1, 1, 0, 0, 100],
+              day: [10_000, 1, 1, 0, 0],
               minutes: [[T0, 10_000, 1, 1, 0, 0, 100]],
             },
           ],
@@ -492,7 +494,7 @@ describe("figures under feed corrections", () => {
             {
               code: code!,
               previousClose: 110,
-              day: [10_000, 1, 1, 0, 0, 100],
+              day: [10_000, 1, 1, 0, 0],
               minutes: [[T0, 10_000, 1, 1, 0, 0, 100]],
             },
           ],
@@ -535,7 +537,7 @@ describe("figures under feed corrections", () => {
             {
               code: code!,
               previousClose: 110,
-              day: [20_000, 2, 2, 0, 0, 100],
+              day: [20_000, 2, 2, 0, 0],
               minutes: [[T0, 10_000, 1, 1, 0, 0, 100]],
             },
           ],

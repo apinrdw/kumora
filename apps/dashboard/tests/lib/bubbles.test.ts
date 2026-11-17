@@ -72,7 +72,7 @@ const body = (
     return {
       code: StockCode.make(code),
       ...(previousClose === undefined ? {} : { previousClose }),
-      day: [sum(1), sum(2), sum(3), sum(4), sum(5), minutes.at(-1)?.[6] ?? 0],
+      day: [sum(1), sum(2), sum(3), sum(4), sum(5)],
       minutes,
     }
   }),

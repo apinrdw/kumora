@@ -185,13 +185,13 @@ describe("bubbles", () => {
           codes: [
             {
               code: StockCode.make("BBCA"),
-              day: [5_600_000, 7, 1, 0, 5_600_000, 8000],
+              day: [5_600_000, 7, 1, 0, 5_600_000],
               minutes: [[minute("09:00"), 5_600_000, 7, 1, 0, 5_600_000, 8000]],
             },
             {
               code: StockCode.make("UNTR"),
               previousClose: 23000,
-              day: [16_317_500, 7, 4, 6_995_000, 2_332_500, 23350],
+              day: [16_317_500, 7, 4, 6_995_000, 2_332_500],
               minutes: [
                 [
                   minute("09:00"),
@@ -258,10 +258,9 @@ describe("bubbles", () => {
         assert.deepStrictEqual(untr?.minutes, [
           [minute("09:00"), 6_980_000, 3, 2, 4_660_000, 2_320_000, 23300],
         ])
-        // The last price stays the highest trade number's.
         assert.deepStrictEqual(
           untr?.day,
-          [6_980_000, 3, 2, 4_660_000, 2_320_000, 23300]
+          [6_980_000, 3, 2, 4_660_000, 2_320_000]
         )
       })
   )
@@ -388,13 +387,7 @@ describe("bubbles", () => {
         assert.strictEqual(untr.minutes.length, 61)
         assert.strictEqual(untr.minutes[0]![0], minute("09:01"))
         assert.strictEqual(untr.minutes[60]![0], minute("10:01"))
-        assert.deepStrictEqual(untr.day.slice(1), [
-          62,
-          62,
-          untr.day[0],
-          0,
-          24525,
-        ])
+        assert.deepStrictEqual(untr.day.slice(1), [62, 62, untr.day[0], 0])
 
         yield* day.evicted
         const restarted = yield* tradingDay(sql)
@@ -412,7 +405,6 @@ describe("bubbles", () => {
             sum((candle) => candle.frequency),
             sum((candle) => candle.buyValue),
             sum((candle) => candle.sellValue),
-            candles.at(-1)!.close,
           ])
         }
 
@@ -427,7 +419,6 @@ describe("bubbles", () => {
           63,
           untr.day[0],
           4_920_000,
-          24600,
         ])
         assert.strictEqual(added.minutes.length, 61)
         assert.strictEqual(added.minutes[0]![0], minute("09:02"))
@@ -788,7 +779,7 @@ describe("bubbles", () => {
         assert.strictEqual(answer.status, 200)
         assert.deepStrictEqual(
           codeOf(answer.answer, "UNTR")?.day,
-          [4_660_000, 2, 1, 4_660_000, 0, 23300]
+          [4_660_000, 2, 1, 4_660_000, 0]
         )
       })
   )

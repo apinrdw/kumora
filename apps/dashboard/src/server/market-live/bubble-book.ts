@@ -12,8 +12,10 @@ import { Effect } from "effect"
 
 import type { CandleFigures } from "./candles.ts"
 
-// The figures the answer carries of a day or a minute: the sums, and the
-// last price with the trade number it came from.
+// The figures of a day or a minute: the sums, and the last price with the
+// trade number it came from. The answer carries a minute's close, but of the
+// day only the sums: the page's last price is the newest minute's close
+// (lib/bubbles.ts, `lastPrice`).
 export interface SettledFigures {
   readonly value: number
   readonly volume: number
@@ -144,7 +146,6 @@ export const makeBubbleBook = (stored: StoredBubbles) =>
               day.frequency,
               day.buyValue,
               day.sellValue,
-              day.close,
             ],
             minutes: [...minutes]
               .sort(([a], [b]) => a - b)

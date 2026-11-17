@@ -23,7 +23,7 @@ const traded = (
 ): RecordedBubbles["codes"][number] => ({
   code: StockCode.make(code),
   ...(previousClose === undefined ? {} : { previousClose }),
-  day: [value, value / (last * 100), frequency, 0, 0, last],
+  day: [value, value / (last * 100), frequency, 0, 0],
   minutes: [[T0, value, value / (last * 100), frequency, 0, 0, last]],
 })
 

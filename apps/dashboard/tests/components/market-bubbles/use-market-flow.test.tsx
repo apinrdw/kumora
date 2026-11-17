@@ -94,7 +94,7 @@ const answer = (
   codes: codes.map((code) => ({
     code,
     previousClose: 98,
-    day: [100_000, 10, 1, 0, 0, 100],
+    day: [100_000, 10, 1, 0, 0],
     minutes: [[wib("10:00:00"), 100_000, 10, 1, 0, 0, 100]],
   })),
 })
