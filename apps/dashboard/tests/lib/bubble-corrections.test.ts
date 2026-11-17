@@ -325,10 +325,9 @@ const makeServer = (next: () => number) => {
 
   return {
     newTrade,
-    // New trades land from LATER on. The hour between settles every trade
-    // open before it: the merge window is seconds.
+    // New trades land from LATER on, while trades before it may still be in
+    // their merge window, as at session 2's first trade.
     jump: () => {
-      settle(true)
       block = LATER
       inBlock = 0
     },

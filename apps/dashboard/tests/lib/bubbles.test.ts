@@ -1041,6 +1041,76 @@ describe("day totals a backfill recounts", () => {
   )
 })
 
+describe("a late trade in a kept minute the market then lets go", () => {
+  it.effect(
+    "waits for a backfill settled past it when one settled before it comes",
+    () =>
+      Effect.gen(function* () {
+        const flow = yield* makeMarketFlow()
+        yield* applyBubbles(
+          flow,
+          body([
+            {
+              code: "BBCA",
+              previousClose: 100,
+              minutes: [minute(T0, 10_000, 100)],
+            },
+          ])
+        )
+        // A late trade lands in 10:00, then, within its merge window,
+        // session 2's first trade moves the market two hours on.
+        const late = candle("BBCA", T0, {
+          value: 20_000,
+          close: 100,
+          frequency: 2,
+        })
+        yield* applyMessage(flow, delta(T0 + MIN + 1_000, [late]))
+        const later = T0 + 2 * 60 * MIN
+        yield* applyMessage(
+          flow,
+          delta(T0 + MIN + 2_000, [
+            candle("BBCA", later, { value: 1_000, close: 10, frequency: 1 }),
+          ])
+        )
+        // Built while the late trade was still in its merge window.
+        yield* applyBubbles(
+          flow,
+          body(
+            [
+              {
+                code: "BBCA",
+                previousClose: 100,
+                minutes: [minute(T0, 10_000, 100)],
+              },
+            ],
+            T0 + MIN
+          )
+        )
+        expect(yield* missingFromBackfill(flow)).toBe(true)
+        yield* applyBubbles(
+          flow,
+          body(
+            [
+              {
+                code: "BBCA",
+                previousClose: 100,
+                minutes: [
+                  [T0, 20_000, 2, 2, 0, 0, 100],
+                  minute(later, 1_000, 10),
+                ],
+              },
+            ],
+            T0 + MIN + 10_000
+          )
+        )
+        expect(yield* missingFromBackfill(flow)).toBe(false)
+        expect(
+          yield* valuesAt(flow, { ...VIEW, window: "D", top: "all" }, later)
+        ).toEqual([["BBCA", 21_000]])
+      })
+  )
+})
+
 describe("a backfill after a snapshot", () => {
   it.effect(
     "leaves an earlier socket's minutes until one settled past the snapshot takes them back",
