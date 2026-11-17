@@ -207,7 +207,8 @@ const newestCounted = (flow: MarketFlow) =>
   })
 
 // The day's last regular-board trade the flow still counts, in epoch ms: its
-// time when the tape carried it, else its minute's start.
+// time when the tape carried it, else the start of the newest minute with
+// trades the flow holds, kept or let go (newestHeld, as lastPrice reads).
 // Decision: derived from what the flow holds each time it is asked, never
 // kept as a field, which went stale whenever a correction or a backfill took
 // its trade or minute away. Measured 2026-11-17 on the dev machine
@@ -216,21 +217,29 @@ const newestCounted = (flow: MarketFlow) =>
 const newestTrade = (flow: MarketFlow) =>
   Effect.gen(function* () {
     let newest = yield* newestCounted(flow)
-    for (const code of flow.codes.values())
-      for (const minute of code.minutes.keys())
-        if (newest === undefined || minute > newest) newest = minute
+    for (const code of flow.codes.values()) {
+      const held = newestHeld(code)
+      if (held !== undefined && (newest === undefined || held.minute > newest))
+        newest = held.minute
+    }
     return newest
   })
 
 const oldestKept = (flow: MarketFlow) =>
   flow.newestMinute - (MINUTES_KEPT - 1) * MINUTE_MS
 
-// The newest minute in `before` with trades.
-const newestWithTrades = (before: ReadonlyMap<number, LetGo>) => {
-  let newest: number | undefined
-  for (const [minute, held] of before)
-    if (held.close !== undefined && (newest === undefined || minute > newest))
-      newest = minute
+// A minute with trades the flow holds of a code, and its close.
+interface HeldMinute {
+  readonly minute: number
+  readonly close: number
+}
+
+// The newest minute `code` let go with trades.
+const newestLetGo = (code: CodeFlow) => {
+  let newest: HeldMinute | undefined
+  for (const [minute, { close }] of code.before)
+    if (close !== undefined && (newest === undefined || minute > newest.minute))
+      newest = { minute, close }
   return newest
 }
 
@@ -244,9 +253,10 @@ const letGo = (
   close: number | undefined
 ) => {
   code.before.set(minute, { close, heard: flow.heard })
-  const newest = newestWithTrades(code.before)
+  const newest = newestLetGo(code)
   if (newest === undefined) return
-  for (const at of code.before.keys()) if (at < newest) code.before.delete(at)
+  for (const at of code.before.keys())
+    if (at < newest.minute) code.before.delete(at)
 }
 
 const pruneMinutes = (flow: MarketFlow, code: CodeFlow) => {
@@ -316,25 +326,23 @@ const bodyRows = (flow: MarketFlow, entry: RecordedBubbles["codes"][number]) =>
     return { day, minutes }
   })
 
-// The close of the newest minute before the kept ones with trades.
-const priceLetGo = (code: CodeFlow) => {
-  const newest = newestWithTrades(code.before)
-  return newest === undefined ? undefined : code.before.get(newest)!.close
+// The newest minute the flow holds of `code` with trades, kept or let go;
+// none when it holds none. Kept minutes are all newer than let-go ones.
+const newestHeld = (code: CodeFlow): HeldMinute | undefined => {
+  const kept = newestKey(code.minutes, Number.POSITIVE_INFINITY)
+  return kept === undefined
+    ? newestLetGo(code)
+    : { minute: kept, close: code.minutes.get(kept)!.close }
 }
 
 // A code's last price: the close of the newest minute the flow holds of it
-// with trades, kept or let go; none when it holds none.
+// with trades, kept or let go (newestHeld); none when it holds none.
 // Decision: the newest minute's close, its highest-numbered trade's price
 // (candles.ts `fold`), read off the minutes' latest copies, never cached
 // past them. A let-go copy stands until a backfill settled past its `heard`
 // (applyBubbles). Recompute bench, 900 codes, 2026-11-17: median 1.3 to
 // 1.5 ms, before and after. See apinrdw/kumora#436.
-export const lastPrice = (code: CodeFlow) => {
-  const newest = newestKey(code.minutes, Number.POSITIVE_INFINITY)
-  return newest === undefined
-    ? priceLetGo(code)
-    : code.minutes.get(newest)!.close
-}
+export const lastPrice = (code: CodeFlow) => newestHeld(code)?.close
 
 // A day that still has trades and no last price waits for a backfill.
 const waitForPrice = (flow: MarketFlow, code: CodeFlow) => {
@@ -724,7 +732,7 @@ const gather = (
 // The price before the minutes `code` keeps: the previous close when it let
 // none go, else the newest let go with trades; none when that one emptied.
 const closeBeforeKept = (code: CodeFlow) =>
-  code.before.size === 0 ? code.previousClose : priceLetGo(code)
+  code.before.size === 0 ? code.previousClose : newestLetGo(code)?.close
 
 // The price before a 30s window from `first`: its code's last second before
 // it, else the last minute whole before it, else the previous close.
