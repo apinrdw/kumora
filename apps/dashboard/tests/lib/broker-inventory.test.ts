@@ -9,6 +9,7 @@ import {
   rangeStart,
   brokersToDate,
   hoverDay,
+  type Lens,
   selectionSummary,
   type SummaryRow,
   summaryFooter,
@@ -282,6 +283,52 @@ describe("the broker summary", () => {
   )
 
   it.effect(
+    "counts a net buyer's buy trades, a net seller's sell trades and a net 0 broker's buy trades, under each filter and either measure",
+    () =>
+      Effect.gen(function* () {
+        // YP buys for foreign investors and sells more for domestic ones; PD
+        // the reverse. CC nets 0 for each type. AK sells more lots than it
+        // buys but for less value.
+        const week = read(
+          WEEK,
+          [],
+          [
+            [0, "YP", "F", 50, 0, 1000, 5, 0],
+            [0, "YP", "D", 0, 80, 1000, 0, 9],
+            [0, "PD", "F", 0, 40, 1000, 0, 4],
+            [0, "PD", "D", 70, 0, 1000, 7, 0],
+            [0, "CC", "F", 10, 10, 1000, 2, 3],
+            [0, "CC", "D", 20, 20, 1000, 6, 1],
+            [0, "AK", "D", 10, 0, 2000, 1, 0],
+            [1, "AK", "D", 0, 30, 500, 0, 4],
+          ]
+        )
+        const freqs = (lens: Lens) =>
+          Effect.map(brokerSummary(week, lens), (rows) =>
+            Object.fromEntries(rows.map(({ broker, freq }) => [broker, freq]))
+          )
+        expect(yield* freqs(LOTS)).toStrictEqual({
+          YP: 9,
+          PD: 7,
+          CC: 8,
+          AK: 4,
+        })
+        expect(yield* freqs(VALUE)).toStrictEqual({
+          YP: 9,
+          PD: 7,
+          CC: 8,
+          AK: 4,
+        })
+        expect(
+          yield* freqs({ measure: "lots", investor: "foreign" })
+        ).toStrictEqual({ YP: 5, PD: 4, CC: 2 })
+        expect(
+          yield* freqs({ measure: "value", investor: "domestic" })
+        ).toStrictEqual({ YP: 9, PD: 7, CC: 6, AK: 4 })
+      })
+  )
+
+  it.effect(
     "keeps only foreign or domestic sides in every figure under the filter",
     () =>
       Effect.gen(function* () {
@@ -462,18 +509,19 @@ describe("the broker inventory range", () => {
 
 describe("the hover day and the selection", () => {
   // YP buys Monday and Tuesday at rising prices and sells some Friday; PD
-  // is its other side. Wednesday is a gap, with no candle.
+  // is its other side, in other trade counts. Wednesday is a gap, with no
+  // candle.
   const week = {
     ...read(
       WEEK,
       ["2026-11-04"],
       [
-        [0, "YP", "D", 100, 0, 1000],
-        [0, "PD", "D", 0, 100, 1000],
-        [1, "YP", "D", 100, 0, 1100],
-        [1, "PD", "D", 0, 100, 1100],
-        [4, "YP", "D", 0, 50, 1200],
-        [4, "PD", "D", 50, 0, 1200],
+        [0, "YP", "D", 100, 0, 1000, 10, 0],
+        [0, "PD", "D", 0, 100, 1000, 0, 8],
+        [1, "YP", "D", 100, 0, 1100, 12, 0],
+        [1, "PD", "D", 0, 100, 1100, 0, 9],
+        [4, "YP", "D", 0, 50, 1200, 0, 3],
+        [4, "PD", "D", 50, 0, 1200, 4, 0],
       ]
     ),
     candles: {
@@ -564,8 +612,11 @@ describe("the hover day and the selection", () => {
             buyValue: 11_000_000,
             sellLots: 50,
             sellValue: 6_000_000,
+            buyFreq: 12,
+            sellFreq: 3,
             avgBuy: 1100,
             avgSell: 1200,
+            freq: 12,
           },
           {
             broker: "PD",
@@ -574,15 +625,19 @@ describe("the hover day and the selection", () => {
             buyValue: 6_000_000,
             sellLots: 100,
             sellValue: 11_000_000,
+            buyFreq: 4,
+            sellFreq: 9,
             avgBuy: 1200,
             avgSell: 1100,
+            freq: 9,
           },
         ])
-        // (100 × 1,100 + 50 × 1,200) / 150 a side.
+        // (100 × 1,100 + 50 × 1,200) / 150 a side. Net 0 counts the buys.
         expect(selection.total).toMatchObject({
           net: 0,
           buyLots: 150,
           sellLots: 150,
+          freq: 16,
         })
         expect(selection.total.avgBuy).toBeCloseTo(1133.33, 2)
         expect(selection.total.avgSell).toBeCloseTo(1133.33, 2)
