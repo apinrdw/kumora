@@ -79,15 +79,13 @@ const classificationParseCard = (page: Page) =>
 const investorTypeParseCard = (page: Page) =>
   page.getByRole("region", { name: /Last investor-type parse run/ })
 
-// The row of `year` in one parsed kind's grid on the Parse coverage card.
-const parseCoverageYear = (page: Page, kind: string, year: number) => {
-  const table = page
+// A month's mark in one parsed kind's grid on the Parse coverage card, by
+// its name: the month, then the mark's label.
+const parseCoverageMark = (page: Page, kind: string, name: RegExp) =>
+  page
     .getByRole("region", { name: "Parse coverage", exact: true })
     .getByRole("table", { name: `${kind} parse coverage` })
-  return table.getByRole("row").filter({
-    has: page.getByRole("rowheader", { name: String(year), exact: true }),
-  })
-}
+    .getByRole("button", { name })
 
 // A count on the card, by its label.
 const stat = (card: Locator, label: string) =>
@@ -272,6 +270,7 @@ test.describe("an admin's archive history", () => {
 // stocks.spec.ts seeds, unserialized: the classification report as Dec 2025,
 // before that spec's months, and the investor-type report's AADI, seeded
 // there alike, and TRUE, never opened there (apinrdw/kumora#404, #405).
+// Their Parse coverage checks accept the mark that seed leaves after them.
 test.describe.serial("an admin's archive totals and parse runs", () => {
   test.use({ storageState: ADMIN.storageState })
 
@@ -335,12 +334,17 @@ test.describe.serial("an admin's archive totals and parse runs", () => {
     await expect(
       classificationParseCard(page).getByRole("button", { name: "Parse now" })
     ).toBeEnabled()
-    // stocks.spec.ts's seed, landing after the parse, as it may.
+    // stocks.spec.ts's seed, landing after the parse, as it may. It lacks
+    // the month, so the month reads Parsed or Not parsed yet.
     landStocksSeedOn("classification", "2025-12-31", false)
     await page.reload()
     await expect(
-      parseCoverageYear(page, "Holdings by investor classification", 2025)
-    ).toContainText("Parsed")
+      parseCoverageMark(
+        page,
+        "Holdings by investor classification",
+        /^December 2025: (Parsed|Not parsed yet) /
+      )
+    ).toBeVisible()
   })
 
   test("Parse now parses the held investor-type reports", async ({ page }) => {
@@ -377,11 +381,16 @@ test.describe.serial("an admin's archive totals and parse runs", () => {
     await expect(
       investorTypeParseCard(page).getByRole("button", { name: "Parse now" })
     ).toBeEnabled()
-    // stocks.spec.ts's seed, landing after the parse, as it may.
+    // stocks.spec.ts's seed, landing after the parse, as it may. It holds
+    // the month under its own SHA-256, so the month reads Parsed or Stale.
     landStocksSeedOn("investor-type", "2025-11-28", true)
     await page.reload()
     await expect(
-      parseCoverageYear(page, "Holdings by investor type", 2025)
-    ).toContainText("Parsed")
+      parseCoverageMark(
+        page,
+        "Holdings by investor type",
+        /^November 2025: (Parsed|Stale) /
+      )
+    ).toBeVisible()
   })
 })

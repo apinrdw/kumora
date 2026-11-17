@@ -418,7 +418,8 @@ test.describe.serial("an admin's KSEI archive", () => {
   // coverage above.
   // Decision: its parse writes the Test stage's one HoldingsDb, which
   // stocks.spec.ts seeds and reads, unserialized: it replaces only KSEI's
-  // 2026-09-30 and 2026-10-30, whose BBCA rows equal that spec's seed.
+  // 2026-09-30 and 2026-10-30, whose BBCA rows equal that spec's seed, and
+  // its Parse coverage check accepts the mark that seed leaves after it.
   test("Parse now parses the held Securities holdings reports", async ({
     page,
   }) => {
@@ -447,7 +448,8 @@ test.describe.serial("an admin's KSEI archive", () => {
       parseRunCard(page).getByRole("button", { name: "Parse now" })
     ).toBeEnabled()
 
-    // stocks.spec.ts's seed, landing after the parse, as it may.
+    // stocks.spec.ts's seed, landing after the parse, as it may. It holds
+    // both months under its own SHA-256, so each reads Parsed or Stale.
     landStocksSeedOn("ksei", "2026-09-30", true)
     landStocksSeedOn("ksei", "2026-10-30", true)
     await page.reload()
@@ -455,10 +457,14 @@ test.describe.serial("an admin's KSEI archive", () => {
       .getByRole("region", { name: "Parse coverage", exact: true })
       .getByRole("table", { name: "Securities holdings parse coverage" })
     await expect(
-      parseCoverage.getByRole("button", { name: /^September 2026: Parsed / })
+      parseCoverage.getByRole("button", {
+        name: /^September 2026: (Parsed|Stale) /,
+      })
     ).toBeVisible()
     await expect(
-      parseCoverage.getByRole("button", { name: /^October 2026: Parsed / })
+      parseCoverage.getByRole("button", {
+        name: /^October 2026: (Parsed|Stale) /,
+      })
     ).toBeVisible()
   })
 })
