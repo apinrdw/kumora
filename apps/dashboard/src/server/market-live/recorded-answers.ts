@@ -62,7 +62,7 @@ export const bubblesAnswer = Effect.fnUntraced(function* (
 ) {
   return past
     ? yield* json(
-        '{"error":"NotFound","message":"Live date only"}',
+        '{"error":"NotFound","message":"Live day only"}',
         SEALED_CACHE,
         404
       )
