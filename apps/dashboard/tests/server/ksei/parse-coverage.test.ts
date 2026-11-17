@@ -85,7 +85,7 @@ const coverage = ({ bucket, holdings }: World) =>
       Object.fromEntries(
         years.map(({ year, months }) => [
           year,
-          months.map((month) => month?.state ?? ""),
+          months.map((month): string => month?.state ?? ""),
         ])
       )
     )
