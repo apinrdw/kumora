@@ -1,7 +1,8 @@
-// A report kind's parse coverage (GLOSSARY.md, "Parse coverage"): each
-// archived month's state, laid out year by month as the KSEI Coverage card
-// lays out its months (../archive/month-grid.ts). Any parse run's kind has
-// one (parse-runs.ts). Spec apinrdw/kumora#458.
+// The parse coverage (GLOSSARY.md, "Parse coverage") of a kind a parse run
+// reads, a Report kind or a KSEI report kind: each archived month's state,
+// laid out year by month as the KSEI Coverage card lays out its months
+// (../archive/month-grid.ts). Any parse run's kind has one (parse-runs.ts).
+// Spec apinrdw/kumora#458.
 import { wibDateAt } from "@workspace/relay"
 import { DateTime, Effect, Schema } from "effect"
 

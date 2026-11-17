@@ -318,7 +318,7 @@ One pass that parses each Securities holdings report in the KSEI archive whose n
 _Avoid_: KSEI archive run, which stores reports; import, sync
 
 **Parse coverage**:
-Each archived month of a report kind a parse run reads, and how far it is parsed: **parsed** (from its newest version, by the current parser), **stale** (from an older version or by an older parser, so the next parse run parses it again), **failed** (the last finished parse run had a parse failure on it), or **not parsed yet** (never parsed). A failed month may still have its earlier parsed holdings.
+Each archived month a parse run reads, of a Report kind or a KSEI report kind, and how far it is parsed: **parsed** (from its newest version, by the current parser), **stale** (from an older version or by an older parser, so the next parse run parses it again), **failed** (the last finished parse run had a parse failure on it), or **not parsed yet** (never parsed). A failed month may still have its earlier parsed holdings.
 _Avoid_: Coverage, which is the KSEI archive's held months; parse status
 
 **Retail / institution**:

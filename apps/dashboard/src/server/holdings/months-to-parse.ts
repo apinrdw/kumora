@@ -9,8 +9,9 @@ import { ArchiveBucket } from "../archive/bucket.ts"
 import { parseRecordName } from "../archive/record-key.ts"
 import { HoldingsDb } from "./db.ts"
 
-// A report kind's parsed holdings tables: its month record table, keyed by
-// `dateColumn`, and its stock table.
+// The parsed holdings tables of a kind a parse run reads, a Report kind or a
+// KSEI report kind: its month record table, keyed by `dateColumn`, and its
+// stock table.
 export interface MonthTables {
   readonly month: string
   readonly stock: string

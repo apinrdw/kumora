@@ -125,7 +125,8 @@ function MonthDetail({
 }
 
 /**
- * Each grid's report kind: every archived month's parse coverage
+ * Each grid's kind, a Report kind or a KSEI report kind: every archived
+ * month's parse coverage
  * (server/holdings/parse-coverage.ts), titled by the kind. Read-only: Parse
  * now on the parse run card parses every month not parsed. Selecting a
  * month shows its detail under its grid.
