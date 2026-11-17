@@ -61,14 +61,15 @@ interface OpenCandle {
 const lotsOf = (shares: number) => Effect.succeed(shares / SHARES_PER_LOT)
 
 // The day's totals and candles, from the store's held trades a page at a
-// time, in trade number order.
+// time, in trade number order, and the trades of 1..N it missed.
 // Decision: the build holds one page of trades and one entry per (code,
 // broker, investor type) and per code, never the day's trades, so its
 // memory is bounded by codes × brokers. At the largest day the store
 // accepts, 1.5M trades over 900 codes and 90 brokers, it held about 15 MB
 // (broker-totals-memory.test.ts).
 export const buildBrokerTotals = Effect.fnUntraced(function* (
-  brokerCodes: Pick<BrokerCodesStore, "heldTradesPage">
+  brokerCodes: Pick<BrokerCodesStore, "heldTradesPage">,
+  missingTrades: number
 ) {
   const totals = new Map<string, Held>()
   const candles = new Map<StockCode, OpenCandle>()
@@ -132,7 +133,8 @@ export const buildBrokerTotals = Effect.fnUntraced(function* (
   const built: {
     totals: Array<BrokerTotal>
     candles: Array<DayCandle>
-  } = { totals: [], candles: [] }
+    missingTrades: number
+  } = { totals: [], candles: [], missingTrades }
   for (const held of totals.values())
     built.totals.push({
       code: held.code,

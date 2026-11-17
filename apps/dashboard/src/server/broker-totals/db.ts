@@ -72,6 +72,8 @@ export interface DayCandle {
 export interface DayBuild {
   readonly totals: ReadonlyArray<BrokerTotal>
   readonly candles: ReadonlyArray<DayCandle>
+  // The trades of 1..N the day missed.
+  readonly missingTrades: number
 }
 
 const TOTALS_COLUMNS = [
@@ -173,8 +175,8 @@ export const writeBuiltDay = Effect.fnUntraced(function* (
     batches.push(inserts.slice(at, at + STATEMENTS_PER_BATCH))
   batches.push([
     {
-      sql: "INSERT INTO built_days (day, build_version, built_at) VALUES (?, ?, ?)",
-      params: [day, version, DateTime.formatIso(builtAt)],
+      sql: "INSERT INTO built_days (day, build_version, built_at, missing_trades) VALUES (?, ?, ?, ?)",
+      params: [day, version, DateTime.formatIso(builtAt), build.missingTrades],
     },
   ])
   let rowsWritten = 0
@@ -190,6 +192,7 @@ const BuiltDayRow = Schema.Struct({
   day: WibDate,
   buildVersion: Schema.Number,
   builtAt: Schema.String,
+  missingTrades: Schema.Number,
 })
 
 const CandleRow = Schema.Struct({
@@ -280,7 +283,7 @@ export const readBrokerTotals = Effect.fnUntraced(function* (
     rows: [builtDays, candles, totals],
   } = yield* (yield* BrokerTotalsDb).batch([
     {
-      sql: "SELECT day, build_version AS buildVersion, built_at AS builtAt FROM built_days WHERE day BETWEEN ? AND ? ORDER BY day",
+      sql: "SELECT day, build_version AS buildVersion, built_at AS builtAt, missing_trades AS missingTrades FROM built_days WHERE day BETWEEN ? AND ? ORDER BY day",
       params: [from, to],
     },
     {

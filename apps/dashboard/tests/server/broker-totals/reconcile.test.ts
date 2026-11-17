@@ -16,7 +16,7 @@ import { memoryBrokerTotalsDb } from "./memory-broker-totals-db.ts"
 const oct = (day: number) =>
   WibDate.make(`2026-10-${String(day).padStart(2, "0")}`)
 const BUILT_AT = DateTime.makeUnsafe("2026-10-31T11:00:00Z")
-const NO_ROWS = { totals: [], candles: [] }
+const NO_ROWS = { totals: [], candles: [], missingTrades: 0 }
 
 // October 1..30, newest first, as the day strip lists them.
 const LISTED = Array.from({ length: 30 }, (_, at) => oct(30 - at))

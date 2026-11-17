@@ -1124,9 +1124,10 @@ export const makeTradingDay = Effect.fnUntraced(function* (options: {
   const buildTotals = Effect.fnUntraced(function* (
     db: Layer.Layer<BrokerTotalsDb, never, WorkerEnv>
   ) {
-    if (!(yield* buildable)) return
+    const missing = yield* brokerCodes.buildable
+    if (Option.isNone(missing)) return
     const started = yield* Clock.currentTimeMillis
-    const build = yield* buildBrokerTotals(brokerCodes)
+    const build = yield* buildBrokerTotals(brokerCodes, missing.value)
     const written = yield* writeBuiltDay(
       options.date,
       build,

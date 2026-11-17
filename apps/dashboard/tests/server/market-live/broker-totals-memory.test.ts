@@ -62,7 +62,7 @@ describe("the broker totals build at the largest accepted day", () => {
       Effect.gen(function* () {
         gc()
         const before = process.memoryUsage().heapUsed
-        const built = yield* buildBrokerTotals({ heldTradesPage: pageAfter })
+        const built = yield* buildBrokerTotals({ heldTradesPage: pageAfter }, 0)
         gc()
         const held = process.memoryUsage().heapUsed - before
 

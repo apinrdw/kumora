@@ -121,6 +121,7 @@ const UNTR_BUILT = {
       day: DAY,
       buildVersion: BROKER_TOTALS_VERSION,
       builtAt: "2026-11-09T10:30:00.000Z",
+      missingTrades: 0,
     },
   ],
   candles: [
@@ -304,6 +305,7 @@ describe("a complete sealed day's broker totals", () => {
           {
             ...UNTR_BUILT.builtDays[0],
             builtAt: "2026-11-09T10:00:00.000Z",
+            missingTrades: 0,
           },
         ])
       })
@@ -430,6 +432,7 @@ describe("a built day's correction", () => {
                 day: DAY,
                 buildVersion: BROKER_TOTALS_VERSION,
                 builtAt: "2026-11-09T11:09:00.000Z",
+                missingTrades: 0,
               },
             ],
             totals: UNTR_CORRECTED,
@@ -676,6 +679,7 @@ describe("a reconcile poke", () => {
             day: DAY,
             buildVersion: BROKER_TOTALS_VERSION,
             builtAt: "2026-11-09T11:00:00.000Z",
+            missingTrades: 0,
           },
         ])
       })
@@ -702,6 +706,7 @@ describe("a reconcile poke", () => {
               day: DAY,
               buildVersion: BROKER_TOTALS_VERSION,
               builtAt: "2026-11-09T11:00:00.000Z",
+              missingTrades: 0,
             },
           ],
         })
@@ -930,6 +935,7 @@ describe("a failed broker totals build", () => {
             day: DAY,
             buildVersion: BROKER_TOTALS_VERSION,
             builtAt: "2026-11-09T10:31:00.000Z",
+            missingTrades: 0,
           },
         ],
       })
@@ -955,10 +961,11 @@ const walkRows = (
         : ([number, "AK F CC D", WALKED] as const)
     )
 
-// When the day's broker totals were built, as the DB reads them.
-const builtTimes = (db: ReturnType<typeof memoryBrokerTotalsDb>) =>
+// When the day's broker totals were built and the trades they missed, as
+// the DB reads them.
+const builds = (db: ReturnType<typeof memoryBrokerTotalsDb>) =>
   Effect.map(read(db, UNTR), ({ builtDays }) =>
-    builtDays.map((built) => built.builtAt)
+    builtDays.map((built) => [built.builtAt, built.missingTrades])
   )
 
 describe("a sealed day missing at most 0.1% of its trades", () => {
@@ -975,21 +982,21 @@ describe("a sealed day missing at most 0.1% of its trades", () => {
           N
         )
         yield* day.alarm
-        assert.deepStrictEqual(yield* builtTimes(db), [])
+        assert.deepStrictEqual(yield* builds(db), [])
 
         yield* at("17:40:00")
         yield* day.brokerCodes("Ajaib", [[600, "AK F CC D", WALKED]])
         yield* day.alarm
-        assert.deepStrictEqual(yield* builtTimes(db), [
-          "2026-11-09T10:40:00.000Z",
+        assert.deepStrictEqual(yield* builds(db), [
+          ["2026-11-09T10:40:00.000Z", 1],
         ])
 
         yield* at("18:00:00")
         yield* day.brokerCodes("Ajaib", [[500, "AK F CC D", WALKED]])
         yield* at("18:05:00")
         yield* day.alarm
-        assert.deepStrictEqual(yield* builtTimes(db), [
-          "2026-11-09T11:05:00.000Z",
+        assert.deepStrictEqual(yield* builds(db), [
+          ["2026-11-09T11:05:00.000Z", 0],
         ])
       })
   )
@@ -1002,8 +1009,8 @@ describe("a sealed day missing at most 0.1% of its trades", () => {
       yield* day.brokerCodes("Ajaib", walkRows(1, [700]), N)
       yield* day.alarm
       assert.isTrue(yield* isSealed(day))
-      assert.deepStrictEqual(yield* builtTimes(db), [
-        "2026-11-09T10:30:00.000Z",
+      assert.deepStrictEqual(yield* builds(db), [
+        ["2026-11-09T10:30:00.000Z", 1],
       ])
     })
   )
@@ -1023,11 +1030,11 @@ describe("a sealed day missing at most 0.1% of its trades", () => {
       yield* at("17:30:00")
       const day = yield* tradingDay(sql, [], db.layer)
       yield* day.alarm
-      assert.deepStrictEqual(yield* builtTimes(db), [])
+      assert.deepStrictEqual(yield* builds(db), [])
       assert.isTrue(yield* day.reconcile)
       yield* day.alarm
-      assert.deepStrictEqual(yield* builtTimes(db), [
-        "2026-11-09T10:30:00.000Z",
+      assert.deepStrictEqual(yield* builds(db), [
+        ["2026-11-09T10:30:00.000Z", 1],
       ])
     })
   )

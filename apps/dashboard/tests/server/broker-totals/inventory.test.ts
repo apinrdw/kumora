@@ -50,12 +50,14 @@ const build = (close: number): DayBuild => ({
     total(TLKM, "YP", "D", 3, 3),
   ],
   candles: [candle(BBCA, close), candle(TLKM, 3_500)],
+  missingTrades: 0,
 })
 
 // TLKM alone traded.
 const quiet: DayBuild = {
   totals: [total(TLKM, "YP", "D", 3, 3)],
   candles: [candle(TLKM, 3_500)],
+  missingTrades: 0,
 }
 
 const built = (days: Readonly<Record<string, DayBuild>>) =>
@@ -219,6 +221,7 @@ describe("the broker inventory read", () => {
           ]
         }).flat(),
         candles: [candle(BBCA, 8_050)],
+        missingTrades: 0,
       }
       return Effect.gen(function* () {
         // Every weekday from 13 Nov 2023 to 12 Nov 2026.
