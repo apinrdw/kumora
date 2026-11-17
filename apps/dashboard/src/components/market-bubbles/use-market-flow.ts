@@ -100,6 +100,13 @@ const untilBuilt = (clockOffset: number) =>
     )
   })
 
+// Decision: the page asks at most FRESH_ASKS fresh backfills in a row that
+// leave it waiting, then stops until the next snapshot: each GETs up to
+// about 3.5 MB, and no Worker state may make a page download one a minute
+// all day. Until then its earlier socket's minutes stay as it left them.
+// See apinrdw/kumora#436.
+const FRESH_ASKS = 5
+
 // The backfill into `flow` after a snapshot: the browser's copy, then a
 // fresh one after each build while the flow waits for one
 // (missingFromBackfill).
@@ -114,10 +121,16 @@ const followBackfill = Effect.fnUntraced(function* (
   clockOffset: number
 ) {
   let following = yield* loadBackfill(flow, today, false)
-  while (following) {
+  let unanswered = 0
+  while (following && unanswered < FRESH_ASKS) {
     yield* untilBuilt(clockOffset)
-    if (yield* missingFromBackfill(flow))
-      following = yield* loadBackfill(flow, today, true)
+    if (!(yield* missingFromBackfill(flow))) {
+      unanswered = 0
+      continue
+    }
+    following = yield* loadBackfill(flow, today, true)
+    if (yield* missingFromBackfill(flow)) unanswered++
+    else unanswered = 0
   }
 })
 

@@ -53,8 +53,7 @@ const json = (text: string, cacheControl: string, status = 200) =>
 // Decision: owner, 2026-11-17: the live date's own body is still answered
 // after its seal until midnight; past days 404. It replaces spec
 // apinrdw/kumora#427's "Sealed day: ... answers 404". The sealed body keeps
-// the live cache, as a restart rebuilds it with a new `settledBefore`. See
-// apinrdw/kumora#436.
+// the live cache. See apinrdw/kumora#436.
 export const bubblesAnswer = Effect.fnUntraced(function* (
   past: boolean,
   body: Effect.Effect<string, Schema.SchemaError>

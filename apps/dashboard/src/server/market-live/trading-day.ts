@@ -338,6 +338,8 @@ export const makeTradingDay = Effect.fnUntraced(function* (options: {
   let sealed = (yield* store.fact(Fact.sealed)) !== undefined
   let orderFlowBuilt = yield* orderFlowBuiltAtStart(store)
   const sealAt = yield* sealInstant(options.date)
+  // Midnight WIB after the day, in epoch ms.
+  const dayEnd = Date.parse(`${options.date}T00:00:00+07:00`) + 86_400_000
   // Decision: an object restores the live day from its store unless the day
   // is sealed and past: a past day's object answers recorded day GETs
   // straight from the store, and broker codes POSTs and status GETs from its
@@ -696,9 +698,14 @@ export const makeTradingDay = Effect.fnUntraced(function* (options: {
   // builds it. Each build logs its codes and bytes for the cost check; its
   // time is measured off the Worker, whose clock stands still while it
   // computes (bubbles.test.ts). See spec apinrdw/kumora#427, "When it is built".
+  //
+  // Decision: a sealed day's answer is settled before the day's end: the seal
+  // settled every trade and the day takes none after it, so the one build
+  // after the seal settles past every snapshot of the day. See
+  // apinrdw/kumora#436.
   const buildBubbles = Effect.gen(function* () {
     const built = yield* bubbles.build(
-      yield* candles.settledBefore,
+      sealed ? dayEnd : yield* candles.settledBefore,
       (code) => lastLivePrices.get(code)?.previous
     )
     bubblesBody = built.text
@@ -1069,6 +1076,12 @@ export const makeTradingDay = Effect.fnUntraced(function* (options: {
       })
       yield* socket.send(snapshot)
       yield* socket.setState("ready")
+      // Decision: a snapshot arms the flush, so a viewer that came after the
+      // last one, as in the break, after the close or with the relay down,
+      // gets a bubbles build settled past its snapshot at the next one, the
+      // only build its page waits for (bubbles.ts, `takeSettled`). See
+      // apinrdw/kumora#436.
+      yield* armFlush
       yield* checkConditions
       if (socket.setWatching !== undefined) {
         yield* socket.setWatching(watching)

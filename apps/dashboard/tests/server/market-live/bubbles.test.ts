@@ -687,9 +687,12 @@ describe("bubbles", () => {
       Effect.gen(function* () {
         yield* at("16:59:58")
         const day = yield* tradingDay()
+        yield* day.frames([stockPrice("UNTR", 23300, 23000)])
         yield* day.trades([trade(40001, "16:59:58", "UNTR", 23300, 2, "buy")])
         yield* at("17:00:00")
         yield* day.alarm
+        // A GET right after the seal builds the day's last answer.
+        yield* bubbles(day)
         yield* at("17:05:00")
         const page = yield* bubblesPage(day)
         yield* page.settle

@@ -397,7 +397,7 @@ export const missingFromBackfill = (flow: MarketFlow) =>
 // backfills after it traded, then given up on for the day: each ask GETs
 // the whole backfill, up to about 3.5 MB, and a code whose `liveprice`
 // frame never came would ask once a minute all day. Its day change and its
-// place in the up / down counts stay unknown. A recount has no bound.
+// place in the up / down counts stay unknown. A recount has only FRESH_ASKS.
 const CLOSE_MISSES = 3
 
 // `row` as the book's copy of `code`'s minute `at`; none when its last
