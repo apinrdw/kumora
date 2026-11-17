@@ -182,6 +182,43 @@ test("its own socket's snapshot drops the backfill the one before it follows", a
   await act(() => root.unmount())
 })
 
+test("a new day shows no IHSG until the new day's own Day state", async () => {
+  vi.useFakeTimers({ now: wib("10:00:30") })
+  const socket = Effect.runSync(Queue.unbounded<ViewerDown>())
+  mocks.socket.messages = Stream.fromQueue(socket)
+  mocks.bubbles.mockReturnValue(Effect.succeed(Option.none()))
+  const held: { ihsg?: number | undefined } = {}
+  function Harness({ day }: { day: WibDate }) {
+    held.ihsg = useMarketFlow(day, 0).ihsg
+    return null
+  }
+  const root = createRoot(document.createElement("div"))
+  await act(() => root.render(<Harness day={MONDAY} />))
+  Queue.offerUnsafe(socket, {
+    ...delta([]),
+    dayStates: [
+      {
+        code: StockCode.make("IHSG"),
+        last: 7_200,
+        open: 7_150,
+        high: 7_210,
+        low: 7_140,
+        volume: 0,
+        value: 0,
+        frequency: 0,
+        asOf: DateTime.makeUnsafe(wib("10:00:29")),
+        provenance: "Stockbit",
+      },
+    ],
+  })
+  await settle()
+  expect(held.ihsg).toBe(7_200)
+
+  await act(() => root.render(<Harness day={TUESDAY} />))
+  expect(held.ihsg).toBeUndefined()
+  await act(() => root.unmount())
+})
+
 test("asks the backfill again, past the browser's copy, after the next minute's build", async () => {
   vi.useFakeTimers({ now: wib("10:00:30") })
   mocks.bubbles.mockReturnValue(built([BBCA]))
