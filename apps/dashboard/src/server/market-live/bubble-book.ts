@@ -105,7 +105,7 @@ export const makeBubbleBook = (stored: StoredBubbles) =>
 
     // A regular-board trade settled into its candle: `print` is the trade's own
     // figures, `candle` its minute's settled figures with it. Plain (the
-    // Decision at figuresOf).
+    // Decision at sumsOf).
     const settled = (
       code: StockCode,
       minute: number,
