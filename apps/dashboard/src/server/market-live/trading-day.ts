@@ -50,7 +50,11 @@ import {
 } from "effect"
 
 import { tradePosition } from "../../lib/trade-position.ts"
-import { writeBuiltDay, type BrokerTotalsDb } from "../broker-totals/db.ts"
+import {
+  clearBuiltDay,
+  writeBuiltDay,
+  type BrokerTotalsDb,
+} from "../broker-totals/db.ts"
 import { ajaibTrades } from "./ajaib.ts"
 import { ajaibPrices } from "./ajaib-price.ts"
 import { backfillTrades } from "./backfill-page.ts"
@@ -1119,13 +1123,16 @@ export const makeTradingDay = Effect.fnUntraced(function* (options: {
   // The day's broker totals and candles, built and written to the broker
   // totals DB, then the build version marked, its figures logged as the
   // first real day's sizes. See spec apinrdw/kumora#437, "Further Notes".
-  // A day no longer buildable, as a stale one can be, keeps its old figures
-  // and its fact until a batch makes it so again.
+  // Decision: a day no longer buildable, as a stale one can be, loses its
+  // built figures and reads as a gap, never as a day with its old sums and
+  // fewer trades missing. Its fact stays, so the batch that makes it
+  // buildable again rebuilds it. See apinrdw/kumora#457.
   const buildTotals = Effect.fnUntraced(function* (
     db: Layer.Layer<BrokerTotalsDb, never, WorkerEnv>
   ) {
     const missing = yield* brokerCodes.buildable
-    if (Option.isNone(missing)) return
+    if (Option.isNone(missing))
+      return yield* clearBuiltDay(options.date).pipe(Effect.provide(db))
     const started = yield* Clock.currentTimeMillis
     const build = yield* buildBrokerTotals(brokerCodes, missing.value)
     const written = yield* writeBuiltDay(

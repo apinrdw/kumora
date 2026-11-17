@@ -123,6 +123,19 @@ const insertsOf = Effect.fnUntraced(function* <Row>(
   }))
 })
 
+// The day's rows deleted, its built-days row first, so a day it stops
+// halfway reads as a gap.
+const deleteDay = (day: WibDate): ReadonlyArray<Statement> => [
+  { sql: "DELETE FROM built_days WHERE day = ?", params: [day] },
+  { sql: "DELETE FROM totals WHERE day = ?", params: [day] },
+  { sql: "DELETE FROM candles WHERE day = ?", params: [day] },
+]
+
+// A built day no longer buildable, made a gap until it builds again.
+export const clearBuiltDay = Effect.fnUntraced(function* (day: WibDate) {
+  yield* (yield* BrokerTotalsDb).batch(deleteDay(day))
+})
+
 // Decision: a day is written in this order: its built-days row deleted, its
 // totals and candles deleted and inserted in batches, its built-days row
 // inserted last. A half-written or rebuilding day reads as a gap, and a
@@ -164,13 +177,7 @@ export const writeBuiltDay = Effect.fnUntraced(function* (
       ]
     )),
   ]
-  const batches: Array<ReadonlyArray<Statement>> = [
-    [
-      { sql: "DELETE FROM built_days WHERE day = ?", params: [day] },
-      { sql: "DELETE FROM totals WHERE day = ?", params: [day] },
-      { sql: "DELETE FROM candles WHERE day = ?", params: [day] },
-    ],
-  ]
+  const batches: Array<ReadonlyArray<Statement>> = [deleteDay(day)]
   for (let at = 0; at < inserts.length; at += STATEMENTS_PER_BATCH)
     batches.push(inserts.slice(at, at + STATEMENTS_PER_BATCH))
   batches.push([

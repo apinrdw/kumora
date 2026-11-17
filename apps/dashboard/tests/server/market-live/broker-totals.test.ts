@@ -497,7 +497,7 @@ describe("a built day's correction", () => {
   )
 
   it.effect(
-    "that fills a trade's fields alone rebuilds the day, which waited out its codes-only trade",
+    "that fills a trade's fields alone rebuilds the day, a gap while its codes-only trade waited",
     () =>
       Effect.gen(function* () {
         const db = memoryBrokerTotalsDb()
@@ -506,7 +506,7 @@ describe("a built day's correction", () => {
         yield* day.brokerCodes("Stockbit", [[8, "AK F CC D"]], 8)
         yield* at("18:05:00")
         yield* day.alarm
-        assert.deepStrictEqual(yield* read(db, UNTR), UNTR_BUILT)
+        assert.deepStrictEqual(yield* read(db, UNTR), NOTHING)
 
         yield* at("18:10:00")
         yield* day.brokerCodes("Stockbit", [
