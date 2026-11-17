@@ -601,6 +601,7 @@ const secondOf = (code: CodeFlow, second: number) => {
 }
 
 const sameCount = (a: Counted, b: Counted) =>
+  a.code === b.code &&
   a.time === b.time &&
   a.price === b.price &&
   a.lots === b.lots &&
