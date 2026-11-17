@@ -377,6 +377,9 @@ test("the options page shows the broker codes walks, and Pause and Run now steer
     brokers.port
   )
   try {
+    // The queue reads the relay's schedule clock, held in session 1 so that
+    // what a run stops on doesn't follow the real hour.
+    await setRelayClock(worker, SESSION_1)
     const options = await context.newPage()
     await options.goto(optionsUrl)
     await options.getByLabel("Production ingest token").fill("any")
@@ -443,13 +446,12 @@ test("the options page shows the broker codes walks, and Pause and Run now steer
       .poll(() => worker.evaluate("chrome.action.getBadgeText({})"))
       .toBe("PIN")
 
-    // Resume runs the queue again: with no broker tab, it stops on that, or
-    // on Streaming hours.
+    // Resume runs the queue again, and it stops on Streaming hours.
     await options.getByRole("button", { name: "Resume" }).click()
     await expect
       .poll(() => stored(worker, "local", "brokerCodesPaused"))
       .toBe(false)
-    await expect(causes).toContainText(/No broker tab|Streaming hours/)
+    await expect(causes).toContainText("Streaming hours")
     await expect(causes).not.toContainText("Paused by the owner.")
 
     // Run now asks the worker through session storage, and it answers.
@@ -464,17 +466,26 @@ test("the options page shows the broker codes walks, and Pause and Run now steer
   }
 })
 
-// The evening after SESSION_1's close, on the relay's schedule clock, which
-// the broker codes walks also read.
-const EVENING = "2026-11-10T20:00:00"
-const EVENING_DAY = WibDate.make("2026-11-10")
+// The night after SESSION_1's day closed, on the relay's schedule clock,
+// which the broker codes walks also read. Ajaib's window for that day has
+// ended by then (ajaibWindowEnd in
+// apps/extension/src/worker/broker-codes/hours.ts), so Stockbit's walk takes
+// the day.
+const NIGHT = "2026-11-11T01:00:00"
+const CLOSED_DAY = WibDate.make("2026-11-10")
+
+// Long enough for a queue that Ajaib's walk holds to move on. The worker's
+// first tick can come before the test moves its clock, and on a real evening
+// that tick starts Ajaib's walk of the real day, which asks for its tab once
+// a minute (guard in apps/extension/src/worker/broker-codes/ajaib-walk.ts).
+const AJAIB_TAB_POLL = { timeout: 70_000 }
 
 test("Run now with a Stockbit tab open starts a broker codes walk, at any hour", async () => {
   test.setTimeout(120_000)
   const brokers = await startFakeBrokers()
-  // Production holds nothing of the evening's day yet.
+  // Production holds nothing of the closed day yet.
   brokers.production.statuses = (day) =>
-    day === EVENING_DAY
+    day === CLOSED_DAY
       ? {
           ...completeDay(day),
           n: null,
@@ -502,9 +513,9 @@ test("Run now with a Stockbit tab open starts a broker codes walk, at any hour",
     brokers.port
   )
   try {
-    // A tick in the evening makes its day the one the queue last ticked a
-    // run for, so coming back to the evening later starts none.
-    await setRelayClock(worker, EVENING)
+    // A tick that night makes its day the one the queue last ticked a run
+    // for, so coming back to that night later starts none.
+    await setRelayClock(worker, NIGHT)
     await setRelayClock(worker, SESSION_1)
     const options = await context.newPage()
     await options.goto(optionsUrl)
@@ -515,10 +526,13 @@ test("Run now with a Stockbit tab open starts a broker codes walk, at any hour",
     await stockbitTab.goto(STOCKBIT_TAB)
     await expect.poll(() => brokers.on("/ws").length, TICKS).toBe(1)
     await expect
-      .poll(() => stored(worker, "session", "brokerCodesProgress"))
+      .poll(
+        () => stored(worker, "session", "brokerCodesProgress"),
+        AJAIB_TAB_POLL
+      )
       .toEqual({ state: "paused", cause: "streaming-hours" })
 
-    await setRelayClock(worker, EVENING)
+    await setRelayClock(worker, NIGHT)
     expect(await stored(worker, "session", "brokerCodesProgress")).toEqual({
       state: "paused",
       cause: "streaming-hours",
@@ -534,11 +548,11 @@ test("Run now with a Stockbit tab open starts a broker codes walk, at any hour",
       .toMatchObject({
         state: "walking",
         walk: "newest",
-        day: EVENING_DAY,
+        day: CLOSED_DAY,
         feed: "Stockbit",
       })
     await expect(options.getByLabel("Broker codes walk")).toHaveText(
-      `Stockbit, ${EVENING_DAY} (newest closed day)`
+      `Stockbit, ${CLOSED_DAY} (newest closed day)`
     )
   } finally {
     await context.close()
