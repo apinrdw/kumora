@@ -1001,6 +1001,29 @@ describe("a sealed day missing at most 0.1% of its trades", () => {
       })
   )
 
+  it.effect(
+    "rebuilds with its new missing count once a later end raises N past a trade no site sends",
+    () =>
+      Effect.gen(function* () {
+        const db = memoryBrokerTotalsDb()
+        const day = yield* sealedDay(db)
+        yield* at("17:30:00")
+        yield* day.brokerCodes("Ajaib", [...CODES, ...walkRows(8, [N])], N - 1)
+        yield* day.alarm
+        assert.deepStrictEqual(yield* builds(db), [
+          ["2026-11-09T10:30:00.000Z", 0],
+        ])
+
+        yield* at("18:00:00")
+        yield* day.brokerCodes("Stockbit", [], N)
+        yield* at("18:05:00")
+        yield* day.alarm
+        assert.deepStrictEqual(yield* builds(db), [
+          ["2026-11-09T11:05:00.000Z", 1],
+        ])
+      })
+  )
+
   it.effect("of walks, with a trade no site ever sends, seals and builds", () =>
     Effect.gen(function* () {
       const db = memoryBrokerTotalsDb()

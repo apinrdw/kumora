@@ -645,9 +645,14 @@ export const makeBrokerCodes = Effect.fnUntraced(function* (options: {
         writeCodes
       )
     keptCodesComplete = undefined
-    // Whether the batch corrected the day: changed a trade's kept codes or
-    // filled its fields.
-    return merged.changed.length > 0 || filled
+    // Whether the batch corrected the day: changed a trade's kept codes,
+    // filled its fields, or raised N, which a built day's missing count
+    // reads.
+    return (
+      merged.changed.length > 0 ||
+      filled ||
+      merged.facts.some(([key]) => key === Fact.brokerCodesN)
+    )
   })
 
   // One trade's record, its chunk read once into `chunks`; none when the day
