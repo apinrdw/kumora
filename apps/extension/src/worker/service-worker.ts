@@ -475,6 +475,7 @@ const main = Effect.gen(function* () {
       { feed: "Stockbit", walk: stockbitWalk.walk },
     ],
     incompleteDays: incompleteDaysStore,
+    status: production.status,
     gaps: { feed: "Stockbit", walk: stockbitWalk.gaps },
     history,
     catchUp: [ajaibCatchUp, stockbitExtraCatchUp],
