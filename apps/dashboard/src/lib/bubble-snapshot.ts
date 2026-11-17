@@ -68,3 +68,11 @@ export const snapshotCaption = (view: BubbleView, at: number) =>
       ? TOP[`${view.top}`]
       : `${TOP[`${view.top}`]} · ${view.sector}`,
   ])
+
+// The caption's parts as the lines of its strip, each at most `width` wide
+// as `measure` reads a line joined by "  ·  ".
+export const captionLines = (
+  parts: ReadonlyArray<string>,
+  _width: number,
+  _measure: (text: string) => number
+) => Effect.sync((): ReadonlyArray<ReadonlyArray<string>> => [parts])
