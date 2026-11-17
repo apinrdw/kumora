@@ -69,30 +69,46 @@ const FRAME_MS = 16
 export const draggedOf = (pointer: Pointer) =>
   Effect.sync(() => (pointer.press?.moved === true ? pointer.press : undefined))
 
-// The bubble under a point: the hovered one while the point is inside its
-// grown circle, so moving over it never flickers to a neighbour it covers,
-// else the smallest when they overlap.
+// The hovered bubble's circle as drawn on a `width` × `height` canvas: grown,
+// its centre moved in so all of it shows. The canvas draws it and the
+// pointer hits it here.
+export const liftedCircle = (
+  body: Pick<PointerBody, "x" | "y" | "shownR">,
+  width: number,
+  height: number
+) =>
+  Effect.sync(() => {
+    const r = body.shownR
+    return {
+      x: Math.min(Math.max(body.x, r), width - r),
+      y: Math.min(Math.max(body.y, r), height - r),
+      r,
+    }
+  })
+
+// The bubble under a point on a `width` × `height` canvas: the hovered one
+// while the point is inside its grown circle, so moving over it never
+// flickers to a neighbour it covers, else the smallest when they overlap.
 const bubbleAt = <Body extends PointerBody>(
   bodies: ReadonlyMap<StockCode, Body>,
   hovered: StockCode | undefined,
-  x: number,
-  y: number
+  at: { x: number; y: number; width: number; height: number }
 ) =>
-  Effect.sync(() => {
-    const within = (body: Body, radius: number) =>
-      Math.hypot(body.x - x, body.y - y) <= radius
+  Effect.gen(function* () {
+    const within = (circle: { x: number; y: number; r: number }) =>
+      Math.hypot(circle.x - at.x, circle.y - at.y) <= circle.r
     const hovering = hovered === undefined ? undefined : bodies.get(hovered)
     if (
       hovering !== undefined &&
       !hovering.leaving &&
-      within(hovering, hovering.shownR)
+      within(yield* liftedCircle(hovering, at.width, at.height))
     )
       return hovering
     let found: Body | undefined
     for (const body of bodies.values())
       if (
         !body.leaving &&
-        within(body, body.r) &&
+        within(body) &&
         (found === undefined || body.r < found.r)
       )
         found = body
@@ -165,7 +181,7 @@ export function followPointer<Body extends PointerBody>({
       onLabel = { sector, x: at.x, y: at.y }
       return
     }
-    const body = Effect.runSync(bubbleAt(bodies, pointer.hovered, at.x, at.y))
+    const body = Effect.runSync(bubbleAt(bodies, pointer.hovered, at))
     if (body === undefined) {
       if (event.pointerType === "touch") hover(undefined, at)
       return
@@ -204,7 +220,7 @@ export function followPointer<Body extends PointerBody>({
   const move = (event: PointerEvent) => {
     if (pointer.press !== undefined) return drag(pointer.press, event)
     const at = pointAt(event)
-    hover(Effect.runSync(bubbleAt(bodies, pointer.hovered, at.x, at.y)), at)
+    hover(Effect.runSync(bubbleAt(bodies, pointer.hovered, at)), at)
   }
 
   // A finger leaves as it lifts: what its tap named stays.

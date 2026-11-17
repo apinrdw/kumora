@@ -27,6 +27,7 @@ import { compact, lots, pct, price, toneClass } from "@/lib/format"
 import {
   draggedOf,
   followPointer,
+  liftedCircle,
   NO_POINTER,
   type Hovered,
   type Pointer,
@@ -591,9 +592,11 @@ export function BubbleCanvas({
     // The hovered bubble, grown, ringed and over its neighbours, kept inside
     // the canvas; the layout under it doesn't move.
     const lifted = (body: Body) => {
-      const radius = body.shownR
-      const x = Math.min(Math.max(body.x, radius), width - radius)
-      const y = Math.min(Math.max(body.y, radius), height - radius)
+      const {
+        x,
+        y,
+        r: radius,
+      } = Effect.runSync(liftedCircle(body, width, height))
       const shown = { ...body, x, y }
       // Opaque, so the neighbours it covers don't show through.
       const [coreRed, coreGreen, coreBlue] = palette.core
