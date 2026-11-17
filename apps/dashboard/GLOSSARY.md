@@ -75,7 +75,7 @@ The exchange market a running trade happens on: regular, cash, or negotiated. Ca
 _Avoid_: Market type
 
 **Settled trade**:
-A running trade past the time in which a later copy of it from another feed may still change its side, time or board, so the candle it falls in counts it as it stands. The day store keeps settled trades' candles, and Market Bubbles' backfill holds only settled trades: every one that reached the trading-day Durable Object before the instant it names.
+A running trade past the time in which a later copy of it from another feed may still change its side, time or board, so the candle it falls in counts it as it stands. The day store keeps settled trades' candles, and Market Bubbles' bubbles answer holds only settled trades: every one that reached the trading-day Durable Object before the instant it names.
 _Avoid_: Final trade, confirmed trade
 
 **Indicative price**:

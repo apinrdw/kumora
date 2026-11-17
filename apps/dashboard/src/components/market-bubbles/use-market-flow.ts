@@ -207,8 +207,13 @@ export function useMarketFlow(
 } {
   const flow = useDayFlow(today)
   const [status, setStatus] = useState<FlowStatus>("connecting")
-  const [ihsg, setIhsg] = useState<number | undefined>(undefined)
+  // IHSG's last price with the day it came from, so a page open overnight
+  // shows none until the new day's own Day state.
+  const [ihsg, setIhsgOf] = useState<
+    { readonly today: WibDate; readonly last: number } | undefined
+  >(undefined)
   useEffect(() => {
+    const setIhsg = (last: number) => setIhsgOf({ today, last })
     const fiber = clientRuntime.runFork(
       followMarketFlow(flow, { today, clockOffset }, { setStatus, setIhsg })
     )
@@ -218,7 +223,7 @@ export function useMarketFlow(
       )
     }
   }, [flow, today, clockOffset])
-  return { flow, status, ihsg }
+  return { flow, status, ihsg: ihsg?.today === today ? ihsg.last : undefined }
 }
 
 // The live day's market flow fed by a viewer socket the caller already has:
