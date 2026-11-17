@@ -70,7 +70,7 @@ const noteIhsg = (message: ViewerDown, setIhsg: (last: number) => void) =>
   })
 
 // The backfill of `today` into `flow`, past the browser's copy when
-// `fresh`; whether one came, none once the day is sealed. A failed ask
+// `fresh`; whether one came, none once the day is past. A failed ask
 // retries; a 401 sends the visitor to sign in and back.
 const loadBackfill = (flow: MarketFlow, today: WibDate, fresh: boolean) =>
   fetchBubbles(today, fresh).pipe(

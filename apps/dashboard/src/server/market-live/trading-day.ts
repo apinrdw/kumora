@@ -341,8 +341,8 @@ export const makeTradingDay = Effect.fnUntraced(function* (options: {
   // Decision: an object restores the live day from its store unless the day
   // is sealed and past: a past day's object answers recorded day GETs
   // straight from the store, and broker codes POSTs and status GETs from its
-  // own tables (broker-codes.ts). Today's still serves viewers after the
-  // seal.
+  // own tables (broker-codes.ts). Today's still serves viewers and its
+  // bubbles answer after the seal (recorded-answers.ts, `bubblesAnswer`).
   const todayDate = yield* wibDateAt(yield* DateTime.now)
   const today = todayDate === options.date
   const restoring = !sealed || today
@@ -382,9 +382,9 @@ export const makeTradingDay = Effect.fnUntraced(function* (options: {
   let pending = new Map<string, RunningTrade>()
   let deltaScheduled = false
   const bubbles = yield* makeBubbleBook(
-    sealed
-      ? { days: [], minutes: [] }
-      : yield* store.storedBubbles(BUBBLE_MINUTES)
+    restoring
+      ? yield* store.storedBubbles(BUBBLE_MINUTES)
+      : { days: [], minutes: [] }
   )
   const candles = yield* makeCandleBook(store, bubbles.settled)
   const ingests = options.ingests ?? Effect.succeed([])
@@ -793,6 +793,8 @@ export const makeTradingDay = Effect.fnUntraced(function* (options: {
       facts: { [Fact.sealed]: DateTime.formatIso(now) },
     })
     sealed = true
+    // The next GET builds the bubbles answer from the seal's last candles.
+    bubblesBody = undefined
     yield* Effect.logInfo("Order flow storage").pipe(
       Effect.annotateLogs({
         ...(yield* store.orderFlowStorage),
@@ -1162,12 +1164,14 @@ export const makeTradingDay = Effect.fnUntraced(function* (options: {
 
   const recorded = (resource: RecordedResource) =>
     resource._tag === "Bubbles"
-      ? bubblesAnswer(
-          sealed,
-          Effect.suspend(() =>
-            bubblesBody === undefined
-              ? buildBubbles
-              : Effect.succeed(bubblesBody)
+      ? Effect.flatMap(dayEnded, (past) =>
+          bubblesAnswer(
+            past,
+            Effect.suspend(() =>
+              bubblesBody === undefined
+                ? buildBubbles
+                : Effect.succeed(bubblesBody)
+            )
           )
         )
       : Effect.andThen(builtFirst(resource), () =>

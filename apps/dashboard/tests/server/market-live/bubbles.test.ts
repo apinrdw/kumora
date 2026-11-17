@@ -661,9 +661,13 @@ describe("bubbles", () => {
     "after the seal, a page opened before midnight shows the day's map up to its last trade",
     () =>
       Effect.gen(function* () {
-        yield* at("15:49:50")
+        yield* at("16:59:58")
         const day = yield* tradingDay()
-        yield* day.trades([trade(40001, "15:49:50", "UNTR", 23300, 2, "buy")])
+        yield* day.trades([trade(40001, "16:59:58", "UNTR", 23300, 2, "buy")])
+        // Built while the trade is in its merge window: only the seal's
+        // flush settles it.
+        yield* at("16:59:59")
+        yield* bubbles(day)
         yield* at("17:00:00")
         yield* day.alarm
         yield* at("17:05:00")
@@ -679,7 +683,7 @@ describe("bubbles", () => {
           DateTime.toEpochMillis(wib("17:05:00"))
         )
         assert.deepStrictEqual(end, {
-          end: DateTime.toEpochMillis(wib("15:49:50")),
+          end: DateTime.toEpochMillis(wib("16:59:58")),
           closed: true,
         })
         assert.strictEqual(yield* page.dayValue("UNTR", end!.end), 4_660_000)
