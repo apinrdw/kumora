@@ -98,6 +98,8 @@ interface CodeFlow {
   previousClose: number | undefined
   // Minute start in epoch ms → its copy, of minutes older than the kept
   // ones: the newest with trades the flow knows, and emptied ones after it.
+  // Bounded by the day's minutes before the kept ones, about 400: letGo
+  // drops every minute older than the newest with trades.
   readonly before: Map<number, LetGo>
   // The minutes a delta carried, emptied ones included: `minutes` holds the
   // candle book's latest copy of each.
@@ -169,11 +171,11 @@ const WINDOW_MINUTES: Record<Exclude<BubbleWindow, "30s" | "D">, number> = {
 // The phases whose windows end now; any other ends at the day's last trade.
 const SESSIONS: ReadonlySet<MarketPhase> = new Set(["session-1", "session-2"])
 
-// Decision: the per-trade and per-candle helpers (isIndex to newestKey,
-// waitForPrice, takeMinute, secondOf to countTrade) stay plain, the applies'
-// loops Effects. Measured 2026-11-16 on the dev machine, 900 codes: 100,000
-// trades took 53 ms plain, 71 ms with an Effect per trade; 100,000 candles
-// 69 ms, 85 ms. One delta can carry thousands of each.
+// Decision: what a trade or candle runs (isIndex to newestKey, newestHeld to
+// waitForPrice, takeMinute, secondOf to countTrade) stays plain, the applies'
+// loops Effects. Dev machine, 900 codes, 100,000 each, plain then an Effect
+// each: trades 53, 71 ms (2026-11-16); candles 94, 108 ms, late ones that let
+// their minute go 60, 75 ms (2026-11-17). A delta can carry thousands.
 const isIndex = (code: StockCode) => INDEX_CODES.includes(code)
 
 const noSums = (): Sums => ({
