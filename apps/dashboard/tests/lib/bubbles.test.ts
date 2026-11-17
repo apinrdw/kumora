@@ -413,6 +413,61 @@ describe("the day window", () => {
       })
   )
 
+  it.effect(
+    "goes back to the minute before a late trade older than the kept ones once a correction empties its minute",
+    () =>
+      Effect.gen(function* () {
+        const flow = yield* makeMarketFlow()
+        const opening = {
+          code: "BBCA",
+          previousClose: 100,
+          minutes: [minute(T0, 10_000, 100)],
+        }
+        yield* applyBubbles(flow, body([opening]))
+        const later = T0 + (BUBBLE_MINUTES + 1) * MIN
+        yield* applyMessage(
+          flow,
+          delta(T0 + 1, [
+            candle("TLKM", later, { value: 10_000, close: 100, frequency: 1 }),
+            candle("BBCA", T0 + MIN, {
+              value: 12_000,
+              close: 120,
+              frequency: 1,
+            }),
+          ])
+        )
+        // The late trade moves off the regular board: its minute empties.
+        yield* applyMessage(flow, {
+          ...delta(T0 + 2, []),
+          footprints: [
+            {
+              code: StockCode.make("BBCA"),
+              minute: DateTime.makeUnsafe(T0 + MIN),
+              cells: [],
+            },
+          ],
+        })
+        const shownLast = Effect.map(
+          bubblesOf(flow, { ...VIEW, window: "D", top: "all" }, later),
+          (shown) => shown.find((bubble) => bubble.code === "BBCA")
+        )
+        expect((yield* shownLast)?.last).toBeUndefined()
+        expect(yield* missingFromBackfill(flow)).toBe(true)
+        yield* applyBubbles(
+          flow,
+          body(
+            [opening, { code: "TLKM", minutes: [minute(later, 10_000, 100)] }],
+            T0 + 3
+          )
+        )
+        const settled = yield* shownLast
+        expect(settled?.value).toBe(10_000)
+        expect(settled?.last).toBe(100)
+        expect(settled?.dayChange).toBe(0)
+        expect(yield* missingFromBackfill(flow)).toBe(false)
+      })
+  )
+
   it.effect("has no change, and colours grey, with no previous close", () =>
     Effect.gen(function* () {
       const flow = yield* makeMarketFlow()
