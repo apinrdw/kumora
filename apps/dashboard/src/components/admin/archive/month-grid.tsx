@@ -1,9 +1,10 @@
 // The year × month grid an archive admin page's month cards share: one row
 // per year, a mark per month, blank where there is none. Each kind of mark
-// differs in shape as well as color, and a legend names each.
+// differs in shape as well as color, and a legend names each. A grid with
+// a detail panel makes each mark a button that selects its month.
 import type { IconCheck } from "@tabler/icons-react"
 import { cn } from "@workspace/ui/lib/utils"
-import type { ReactNode } from "react"
+import { type ReactNode, useState } from "react"
 
 const MONTHS = [
   "January",
@@ -40,6 +41,44 @@ function Mark({ style: { className, Icon } }: { style: MarkStyle }) {
   )
 }
 
+function MarkWithLabel({ style }: { style: MarkStyle }) {
+  return (
+    <>
+      <Mark style={style} />
+      <span className="sr-only">{style.label}</span>
+    </>
+  )
+}
+
+// A month's mark as a button: a press selects its month, and pressing the
+// selected month again clears the selection.
+function SelectableMark({
+  style,
+  label,
+  pressed,
+  onToggle,
+}: {
+  style: MarkStyle
+  label: string | undefined
+  pressed: boolean
+  onToggle: () => void
+}) {
+  return (
+    <button
+      type="button"
+      aria-label={label}
+      aria-pressed={pressed}
+      onClick={onToggle}
+      className={cn(
+        "flex cursor-pointer rounded-[4px] outline-offset-1 focus-visible:outline-2 focus-visible:outline-ring",
+        pressed && "outline-2 outline-foreground"
+      )}
+    >
+      <MarkWithLabel style={style} />
+    </button>
+  )
+}
+
 export function MarkLegend({ styles }: { styles: ReadonlyArray<MarkStyle> }) {
   return (
     <ul
@@ -60,6 +99,9 @@ export function MarkLegend({ styles }: { styles: ReadonlyArray<MarkStyle> }) {
  * `years`, oldest first, each with its months from January; a month that is
  * null, or past the end of its year's list, is blank. `mark` styles a month,
  * and `describe` adds to its tooltip after the month and its mark's label.
+ * With `detail`, clicking or tapping a month selects it, nothing at first,
+ * and `detail` renders the selected month, named like `August 2026`, under
+ * the grid.
  */
 export function MonthGrid<Month>({
   title,
@@ -67,6 +109,7 @@ export function MonthGrid<Month>({
   years,
   mark,
   describe,
+  detail,
 }: {
   title: ReactNode
   label: string
@@ -76,7 +119,15 @@ export function MonthGrid<Month>({
   }>
   mark: (month: Month) => MarkStyle
   describe?: (month: Month) => string
+  detail?: (month: Month, name: string) => ReactNode
 }) {
+  // By position, so a month stays selected when the page reloads its data.
+  const [selected, setSelected] = useState<{ year: number; index: number }>()
+  const selectedYear = years.find(({ year }) => year === selected?.year)
+  const selectedMonth =
+    selected === undefined
+      ? null
+      : (selectedYear?.months[selected.index] ?? null)
   return (
     <div className="flex min-w-0 flex-col gap-2">
       <h3 className="text-[13px] font-semibold">{title}</h3>
@@ -112,21 +163,29 @@ export function MonthGrid<Month>({
                 {MONTHS.map((name, i) => {
                   const month = months[i] ?? null
                   const style = month === null ? undefined : mark(month)
+                  const tooltip =
+                    month === null || style === undefined
+                      ? undefined
+                      : `${name} ${year}: ${style.label}${describe ? ` ${describe(month)}` : ""}`
+                  const pressed =
+                    selected?.year === year && selected.index === i
                   return (
-                    <td
-                      key={name}
-                      title={
-                        month === null || style === undefined
-                          ? undefined
-                          : `${name} ${year}: ${style.label}${describe ? ` ${describe(month)}` : ""}`
-                      }
-                    >
-                      {style && (
-                        <>
-                          <Mark style={style} />
-                          <span className="sr-only">{style.label}</span>
-                        </>
-                      )}
+                    <td key={name} title={tooltip}>
+                      {style &&
+                        (detail === undefined ? (
+                          <MarkWithLabel style={style} />
+                        ) : (
+                          <SelectableMark
+                            style={style}
+                            label={tooltip}
+                            pressed={pressed}
+                            onToggle={() =>
+                              setSelected(
+                                pressed ? undefined : { year, index: i }
+                              )
+                            }
+                          />
+                        ))}
                     </td>
                   )
                 })}
@@ -135,6 +194,10 @@ export function MonthGrid<Month>({
           </tbody>
         </table>
       </div>
+      {detail !== undefined &&
+        selected !== undefined &&
+        selectedMonth !== null &&
+        detail(selectedMonth, `${MONTHS[selected.index]} ${selected.year}`)}
     </div>
   )
 }

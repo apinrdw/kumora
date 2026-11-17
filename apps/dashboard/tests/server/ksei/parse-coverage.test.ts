@@ -6,6 +6,7 @@ import { Effect, Layer } from "effect"
 import { TestClock } from "effect/testing"
 
 import { RunId } from "@/server/archive/run"
+import { KSEI_PARSER_VERSION } from "@/server/holdings/ksei"
 import { kseiArchiveRun } from "@/server/ksei/archive-run"
 import { kseiParseRuns } from "@/server/ksei/parse-runs"
 
@@ -88,6 +89,15 @@ const coverage = ({ bucket, holdings }: World) =>
           months.map((month): string => month?.state ?? ""),
         ])
       )
+    )
+  )
+
+// 2026's cell for the month at `index`, January being 0.
+const cell = ({ bucket, holdings }: World, index: number) =>
+  kseiParseRuns.coverage.pipe(
+    Effect.provide(Layer.merge(bucket.layer, holdings.layer)),
+    Effect.map(
+      (years) => years.find(({ year }) => year === 2026)?.months[index]
     )
   )
 
@@ -242,6 +252,97 @@ describe("the KSEI parse coverage", () => {
       })
   )
 
+  it.effect(
+    "details a parsed month's versions, parse time and stock count",
+    () =>
+      Effect.gen(function* () {
+        yield* start
+        const w = world()
+        yield* archive(w, "cron-2026-11-14")
+        yield* parse(w, "cron-2026-11-14", "2026-11-14T04:00:00Z")
+        const october = yield* cell(w, 9)
+        assert.strictEqual(october?.state, "parsed")
+        assert.strictEqual(october?.date, "2026-10-30")
+        assert.match(october?.newestSha256 ?? "", /^[0-9a-f]{64}$/)
+        assert.deepStrictEqual(october?.parsed, {
+          sha256: october?.newestSha256 ?? "",
+          parserVersion: KSEI_PARSER_VERSION,
+          parsedAt: "2026-11-17T05:00:00.000Z",
+          // Its report's five equities; the bond and the warrant aren't
+          // parsed.
+          stockCount: 5,
+        })
+      })
+  )
+
+  it.effect("says why a month is stale", () =>
+    Effect.gen(function* () {
+      yield* start
+      const w = world()
+      yield* archive(w, "cron-2026-11-14")
+      yield* parse(w, "cron-2026-11-14", "2026-11-14T04:00:00Z")
+      const parsedOctober = (yield* cell(w, 9))?.newestSha256
+      w.ksei.files.set(
+        holdingsUrl("BalanceposEfek20261030.zip"),
+        fileOf(holdingsFixture("BalanceposEfek20260930.zip"))
+      )
+      yield* archive(w, "cron-2026-11-15")
+      bumpParser(w, "2026-08-31")
+      bumpParser(w, "2026-10-30")
+
+      const october = yield* cell(w, 9)
+      assert.strictEqual(october?.state, "stale")
+      assert.notStrictEqual(october?.newestSha256, parsedOctober)
+      assert.strictEqual(october?.parsed?.sha256, parsedOctober)
+      assert.deepStrictEqual(october?.staleCauses, [
+        "newer-version",
+        "parser-updated",
+      ])
+      const august = yield* cell(w, 7)
+      assert.strictEqual(august?.state, "stale")
+      assert.deepStrictEqual(august?.staleCauses, ["parser-updated"])
+      assert.strictEqual(august?.parsed?.parserVersion, KSEI_PARSER_VERSION - 1)
+      assert.deepStrictEqual((yield* cell(w, 4))?.staleCauses, [])
+    })
+  )
+
+  it.effect(
+    "gives a failed month's message and run, and its older parsed version",
+    () =>
+      Effect.gen(function* () {
+        yield* start
+        const w = world()
+        yield* archive(w, "cron-2026-11-14")
+        yield* parse(w, "cron-2026-11-14", "2026-11-14T04:00:00Z")
+        const parsedOctober = (yield* cell(w, 9))?.newestSha256
+        breakOctober(w, "BalanceposEfek20261030-header.zip")
+        yield* archive(w, "cron-2026-11-15")
+        yield* parse(w, "admin-1763434800000", "2026-11-15T04:00:00Z")
+
+        const october = yield* cell(w, 9)
+        assert.strictEqual(october?.state, "failed")
+        assert.strictEqual(october?.failure?.run, "admin-1763434800000")
+        assert.include(october?.failure?.message, "header")
+        assert.strictEqual(october?.parsed?.sha256, parsedOctober)
+        assert.strictEqual(october?.parsed?.stockCount, 5)
+        assert.isNull((yield* cell(w, 8))?.failure)
+      })
+  )
+
+  it.effect("gives a failed month with no parsed holdings none", () =>
+    Effect.gen(function* () {
+      yield* start
+      const w = world()
+      breakOctober(w, "BalanceposEfek20261030-sum.zip")
+      yield* archive(w, "cron-2026-11-14")
+      yield* parse(w, "cron-2026-11-14", "2026-11-14T04:00:00Z")
+      const october = yield* cell(w, 9)
+      assert.strictEqual(october?.state, "failed")
+      assert.strictEqual(october?.failure?.run, "cron-2026-11-14")
+      assert.isNull(october?.parsed)
+    })
+  )
+
   it.effect("shows a month's later date when two share its month", () =>
     Effect.gen(function* () {
       yield* start
@@ -256,10 +357,8 @@ describe("the KSEI parse coverage", () => {
       const years = yield* kseiParseRuns.coverage.pipe(
         Effect.provide(Layer.merge(w.bucket.layer, w.holdings.layer))
       )
-      assert.deepStrictEqual(years[0]?.months[9], {
-        date: "2026-10-31",
-        state: "not-parsed",
-      })
+      assert.strictEqual(years[0]?.months[9]?.date, "2026-10-31")
+      assert.strictEqual(years[0]?.months[9]?.state, "not-parsed")
     })
   )
 })

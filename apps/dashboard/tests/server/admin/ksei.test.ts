@@ -202,7 +202,14 @@ describe("the KSEI archive page", () => {
           year: 2026,
           months: [
             ...Array.from({ length: 9 }, () => null),
-            { date: "2026-10-30", state: "not-parsed" },
+            {
+              date: "2026-10-30",
+              state: "not-parsed",
+              newestSha256: "a".repeat(64),
+              parsed: null,
+              staleCauses: [],
+              failure: null,
+            },
             null,
             null,
           ],

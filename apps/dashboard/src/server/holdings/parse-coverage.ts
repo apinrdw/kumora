@@ -5,7 +5,12 @@
 import { wibDateAt } from "@workspace/relay"
 import { DateTime, Effect, Schema } from "effect"
 
-import { needsParse, newestVersions } from "./months-to-parse.ts"
+import { RunId } from "../archive/run.ts"
+import {
+  newestVersions,
+  type ParsedMonth,
+  staleCauses,
+} from "./months-to-parse.ts"
 import type { ParseRunResult } from "./parse-run-result.ts"
 import type { MonthSource } from "./parse-steps.ts"
 
@@ -21,22 +26,71 @@ const ParseCoverageState = Schema.Literals([
 ])
 export type ParseCoverageState = typeof ParseCoverageState.Type
 
+const StaleCause = Schema.Literals(["newer-version", "parser-updated"])
+export type StaleCause = typeof StaleCause.Type
+
+// An archived month, as a cell of the grid and its detail panel.
+const ParseCoverageMonth = Schema.Struct({
+  // The archived date the cell shows.
+  date: Schema.String,
+  state: ParseCoverageState,
+  // The SHA-256 of its newest archived version: what a parse run reads.
+  newestSha256: Schema.String,
+  // Its parsed holdings, null when it has none.
+  parsed: Schema.NullOr(
+    Schema.Struct({
+      // The version they came from.
+      sha256: Schema.String,
+      parserVersion: Schema.Number,
+      // An ISO instant.
+      parsedAt: Schema.String,
+      stockCount: Schema.Number,
+    })
+  ),
+  // Why its parsed holdings are stale; empty when they aren't, or it has
+  // none.
+  staleCauses: Schema.Array(StaleCause),
+  // Its parse failure in the last finished parse run, null when it had
+  // none.
+  failure: Schema.NullOr(Schema.Struct({ message: Schema.String, run: RunId })),
+})
+export type ParseCoverageMonth = typeof ParseCoverageMonth.Type
+
 const ParseCoverage = Schema.Array(
   Schema.Struct({
     year: Schema.Number,
     // January to December; null for a month with no archived report.
-    months: Schema.Array(
-      Schema.NullOr(
-        Schema.Struct({
-          // The archived date the cell shows.
-          date: Schema.String,
-          state: ParseCoverageState,
-        })
-      )
-    ),
+    months: Schema.Array(Schema.NullOr(ParseCoverageMonth)),
   })
 )
 export type ParseCoverage = typeof ParseCoverage.Type
+
+// The month archived at `date`, whose newest version is `sha256`.
+const coverageMonth = (
+  date: string,
+  sha256: string,
+  month: ParsedMonth | undefined,
+  failure: ParseCoverageMonth["failure"],
+  parserVersion: number
+): ParseCoverageMonth => {
+  const causes =
+    month === undefined ? [] : staleCauses(month, sha256, parserVersion)
+  return {
+    date,
+    state:
+      failure !== null
+        ? "failed"
+        : month === undefined
+          ? "not-parsed"
+          : causes.length > 0
+            ? "stale"
+            : "parsed",
+    newestSha256: sha256,
+    parsed: month ?? null,
+    staleCauses: causes,
+    failure,
+  }
+}
 
 // `source`'s coverage, from its first archived month's year to the current
 // one in WIB (or its last archived month's, if later); empty before any
@@ -48,25 +102,27 @@ export const parseCoverage = Effect.fnUntraced(function* (
 ) {
   const newest = yield* newestVersions(yield* source.prefix)
   const parsed = yield* source.parsed
-  const failed = new Set(lastFinished?.parseFailures.map(({ date }) => date))
+  const failures = new Map(
+    lastFinished?.parseFailures.map(({ date, message }) => [
+      date,
+      { message, run: lastFinished.id },
+    ])
+  )
   // Decision: a cell is a month, and each kind publishes at most one report
   // a month. Should two archived dates share one, the cell shows the later:
   // `newest` is oldest first, so the later date overwrites the earlier.
-  const cells = new Map<
-    string,
-    { readonly date: string; readonly state: ParseCoverageState }
-  >()
-  for (const { date, sha256 } of newest) {
-    const month = parsed.get(date)
-    const state: ParseCoverageState = failed.has(date)
-      ? "failed"
-      : month === undefined
-        ? "not-parsed"
-        : (yield* needsParse(month, sha256, source.parserVersion))
-          ? "stale"
-          : "parsed"
-    cells.set(date.slice(0, 7), { date, state })
-  }
+  const cells = new Map<string, ParseCoverageMonth>()
+  for (const { date, sha256 } of newest)
+    cells.set(
+      date.slice(0, 7),
+      coverageMonth(
+        date,
+        sha256,
+        parsed.get(date),
+        failures.get(date) ?? null,
+        source.parserVersion
+      )
+    )
   const first = newest.at(0)
   const last = newest.at(-1)
   if (first === undefined || last === undefined) return ParseCoverage.make([])

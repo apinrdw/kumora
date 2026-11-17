@@ -379,5 +379,6 @@ export const parseInvestorTypeMonth = Effect.fnUntraced(function* (
 // The version each parsed month came from, by data date.
 export const parsedInvestorTypeMonths = parsedMonths(
   "investor_type_month",
+  "investor_type_stock_month",
   "data_date"
 )

@@ -234,4 +234,8 @@ export const parseKseiMonth = Effect.fnUntraced(function* (
 })
 
 // The version each parsed period end came from.
-export const parsedKseiMonths = parsedMonths("ksei_month", "period_end")
+export const parsedKseiMonths = parsedMonths(
+  "ksei_month",
+  "ksei_stock_month",
+  "period_end"
+)

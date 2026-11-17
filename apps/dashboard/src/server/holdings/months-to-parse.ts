@@ -12,17 +12,27 @@ import { HoldingsDb } from "./db.ts"
 export interface ParsedMonth {
   readonly sha256: string
   readonly parserVersion: number
+  // An ISO instant.
+  readonly parsedAt: string
+  // The stocks its parsed holdings hold.
+  readonly stockCount: number
 }
 
 // The version each month in `table`, a month record table keyed by
-// `dateColumn`, was parsed from.
+// `dateColumn`, was parsed from, and how many stocks `stockTable`, its
+// stock table, holds for it.
 export const parsedMonths = Effect.fnUntraced(function* (
   table: string,
+  stockTable: string,
   dateColumn: string
 ) {
-  const [rows = []] = yield* (yield* HoldingsDb).batch([
+  const [rows = [], counts = []] = yield* (yield* HoldingsDb).batch([
     {
-      sql: `SELECT ${dateColumn} AS date, sha256, parser_version FROM ${table}`,
+      sql: `SELECT ${dateColumn} AS date, sha256, parser_version, parsed_at FROM ${table}`,
+      params: [],
+    },
+    {
+      sql: `SELECT ${dateColumn} AS date, COUNT(*) AS stocks FROM ${stockTable} GROUP BY ${dateColumn}`,
       params: [],
     },
   ])
@@ -32,13 +42,26 @@ export const parsedMonths = Effect.fnUntraced(function* (
         date: Schema.String,
         sha256: Schema.String,
         parser_version: Schema.Number,
+        parsed_at: Schema.String,
       })
     )
   )(rows)
+  const stocks = new Map(
+    Schema.decodeUnknownSync(
+      Schema.Array(
+        Schema.Struct({ date: Schema.String, stocks: Schema.Number })
+      )
+    )(counts).map(({ date, stocks: count }) => [date, count])
+  )
   return new Map<string, ParsedMonth>(
-    months.map(({ date, sha256, parser_version }) => [
+    months.map(({ date, sha256, parser_version, parsed_at }) => [
       date,
-      { sha256, parserVersion: parser_version },
+      {
+        sha256,
+        parserVersion: parser_version,
+        parsedAt: parsed_at,
+        stockCount: stocks.get(date) ?? 0,
+      },
     ])
   )
 })
@@ -62,19 +85,27 @@ export const newestVersions = Effect.fnUntraced(function* (prefix: string) {
     .sort((a, b) => (a.date < b.date ? -1 : 1))
 })
 
+// Why a month's parsed holdings are stale: its newest version is `sha256`,
+// not theirs, or the parser's version is `parserVersion`, not theirs. Empty
+// when neither.
+export const staleCauses = (
+  month: ParsedMonth,
+  sha256: string,
+  parserVersion: number
+) => [
+  ...(month.sha256 === sha256 ? [] : (["newer-version"] as const)),
+  ...(month.parserVersion === parserVersion
+    ? []
+    : (["parser-updated"] as const)),
+]
+
 // Whether a month whose newest version is `sha256` is to be parsed: it has
-// no parsed holdings, or they come from another version or parser version.
-export const needsParse = Effect.fnUntraced(function* (
+// no parsed holdings, or they are stale.
+const needsParse = (
   month: ParsedMonth | undefined,
   sha256: string,
   parserVersion: number
-) {
-  return (
-    month === undefined ||
-    month.sha256 !== sha256 ||
-    month.parserVersion !== parserVersion
-  )
-})
+) => month === undefined || staleCauses(month, sha256, parserVersion).length > 0
 
 // The months under `prefix` to parse, oldest first, each with the SHA-256 of
 // its newest version.
@@ -83,8 +114,7 @@ export const newestUnparsed = Effect.fnUntraced(function* (
   parsed: ReadonlyMap<string, ParsedMonth>,
   parserVersion: number
 ) {
-  return yield* Effect.filter(
-    yield* newestVersions(prefix),
-    ({ date, sha256 }) => needsParse(parsed.get(date), sha256, parserVersion)
+  return (yield* newestVersions(prefix)).filter(({ date, sha256 }) =>
+    needsParse(parsed.get(date), sha256, parserVersion)
   )
 })
