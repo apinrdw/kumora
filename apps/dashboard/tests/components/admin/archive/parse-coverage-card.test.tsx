@@ -35,9 +35,11 @@ const month = (
   ...detail,
 })
 
-const card = (coverage: ParseCoverage) =>
+const card = (parseCoverage: ParseCoverage) =>
   renderAt("/", () => (
-    <ParseCoverageCard grids={[{ title: "Securities holdings", coverage }]} />
+    <ParseCoverageCard
+      grids={[{ title: "Securities holdings", parseCoverage }]}
+    />
   ))
 
 describe("a parse coverage card", () => {
@@ -133,7 +135,7 @@ describe("a parse coverage month's detail", () => {
     act(() =>
       root.render(
         <ParseCoverageCard
-          grids={[{ title: "Securities holdings", coverage: COVERAGE }]}
+          grids={[{ title: "Securities holdings", parseCoverage: COVERAGE }]}
         />
       )
     )

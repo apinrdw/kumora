@@ -55,7 +55,7 @@ function KseiPage() {
         grids={[
           {
             title: KIND_LABEL["securities-holdings"],
-            coverage: parseCoverage,
+            parseCoverage,
           },
         ]}
       />

@@ -294,8 +294,8 @@ test.describe.serial("an admin's archive totals and parse runs", () => {
       "Report kindKey prefixReports",
       "Holders above 5%reports/above-5/2",
       "Holders above 1%reports/above-1/1",
-      "By investor typereports/investor-type/0",
-      "By investor classificationreports/investor-classification/0",
+      "Holdings by investor typereports/investor-type/0",
+      "Holdings by investor classificationreports/investor-classification/0",
       "Otherreports/other/0",
     ])
   })

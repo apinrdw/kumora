@@ -48,7 +48,9 @@ const STALE_CAUSE = {
 } as const satisfies Record<StaleCause, string>
 
 // A version's SHA-256, cut to its first 12 hex digits.
-const shortSha = (sha256: string) => sha256.slice(0, 12)
+const shortSha = Effect.fnUntraced(function* (sha256: string) {
+  return sha256.slice(0, 12)
+})
 
 function Detail({ label, children }: { label: string; children: ReactNode }) {
   return (
@@ -82,7 +84,9 @@ function MonthDetail({
       </h4>
       <dl className="grid grid-cols-[max-content_1fr] gap-x-6 gap-y-1">
         <Detail label="Newest version">
-          <span className="font-mono text-xs">{shortSha(newestSha256)}</span>
+          <span className="font-mono text-xs">
+            {Effect.runSync(shortSha(newestSha256))}
+          </span>
         </Detail>
         {parsed === null ? (
           <Detail label="Parsed holdings">No parsed holdings</Detail>
@@ -90,7 +94,7 @@ function MonthDetail({
           <>
             <Detail label="Parsed from">
               <span className="font-mono text-xs">
-                {shortSha(parsed.sha256)}
+                {Effect.runSync(shortSha(parsed.sha256))}
               </span>
             </Detail>
             <Detail label="Parser version">{parsed.parserVersion}</Detail>
@@ -129,34 +133,26 @@ function MonthDetail({
 export function ParseCoverageCard({
   grids,
 }: {
-  grids: ReadonlyArray<{ title: string; coverage: ParseCoverage }>
+  grids: ReadonlyArray<{ title: string; parseCoverage: ParseCoverage }>
 }) {
   return (
     <ArchiveCard title="Parse coverage" aside={null}>
       <MarkLegend styles={Object.values(STATE)} />
       <div className="grid gap-6 lg:grid-cols-2">
-        {grids.map(({ title, coverage }) =>
-          coverage.length === 0 ? (
-            <div key={title} className="flex flex-col gap-2">
-              <h3 className="text-[13px] font-semibold">{title}</h3>
-              <p className="text-[13px] text-muted-foreground">
-                No {title} report is archived yet.
-              </p>
-            </div>
-          ) : (
-            <MonthGrid
-              key={title}
-              title={title}
-              label={`${title} parse coverage`}
-              years={coverage}
-              mark={({ state }) => STATE[state]}
-              describe={({ date }) => `(${date})`}
-              detail={(month, name) => (
-                <MonthDetail title={title} name={name} month={month} />
-              )}
-            />
-          )
-        )}
+        {grids.map(({ title, parseCoverage }) => (
+          <MonthGrid
+            key={title}
+            title={title}
+            label={`${title} parse coverage`}
+            years={parseCoverage}
+            empty={`No ${title} report is archived yet.`}
+            mark={({ state }) => STATE[state]}
+            describe={({ date }) => `(${date})`}
+            detail={(month, name) => (
+              <MonthDetail title={title} name={name} month={month} />
+            )}
+          />
+        ))}
       </div>
     </ArchiveCard>
   )

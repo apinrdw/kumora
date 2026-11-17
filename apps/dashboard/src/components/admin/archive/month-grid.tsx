@@ -101,7 +101,8 @@ export function MarkLegend({ styles }: { styles: ReadonlyArray<MarkStyle> }) {
  * and `describe` adds to its tooltip after the month and its mark's label.
  * With `detail`, clicking or tapping a month selects it, nothing at first,
  * and `detail` renders the selected month, named like `August 2026`, under
- * the grid.
+ * the grid. With no years, `empty` shows under the title instead of the
+ * grid.
  */
 export function MonthGrid<Month>({
   title,
@@ -110,6 +111,7 @@ export function MonthGrid<Month>({
   mark,
   describe,
   detail,
+  empty,
 }: {
   title: ReactNode
   label: string
@@ -120,8 +122,10 @@ export function MonthGrid<Month>({
   mark: (month: Month) => MarkStyle
   describe?: (month: Month) => string
   detail?: (month: Month, name: string) => ReactNode
+  empty?: string
 }) {
-  // By position, so a month stays selected when the page reloads its data.
+  // Decision: selected by position (year, month index), not by the month
+  // value, so a month stays selected when the page reloads its data.
   const [selected, setSelected] = useState<{ year: number; index: number }>()
   const selectedYear = years.find(({ year }) => year === selected?.year)
   const selectedMonth =
@@ -131,69 +135,76 @@ export function MonthGrid<Month>({
   return (
     <div className="flex min-w-0 flex-col gap-2">
       <h3 className="text-[13px] font-semibold">{title}</h3>
-      {/* Scrolls inside the card, never the page, if a screen is narrower. */}
-      <div className="overflow-x-auto">
-        <table aria-label={label} className="border-separate border-spacing-1">
-          <thead>
-            <tr>
-              <th scope="col">
-                <span className="sr-only">Year</span>
-              </th>
-              {MONTHS.map((month, i) => (
-                <th
-                  key={month}
-                  scope="col"
-                  abbr={month}
-                  className="num w-[18px] text-center text-[11px] font-medium text-muted-foreground"
-                >
-                  {String(i + 1).padStart(2, "0")}
+      {years.length === 0 && empty !== undefined ? (
+        <p className="text-[13px] text-muted-foreground">{empty}</p>
+      ) : (
+        // Scrolls inside the card, never the page, if a screen is narrower.
+        <div className="overflow-x-auto">
+          <table
+            aria-label={label}
+            className="border-separate border-spacing-1"
+          >
+            <thead>
+              <tr>
+                <th scope="col">
+                  <span className="sr-only">Year</span>
                 </th>
-              ))}
-            </tr>
-          </thead>
-          <tbody>
-            {years.map(({ year, months }) => (
-              <tr key={year}>
-                <th
-                  scope="row"
-                  className="num pr-1 text-left text-[11px] font-medium text-muted-foreground"
-                >
-                  {year}
-                </th>
-                {MONTHS.map((name, i) => {
-                  const month = months[i] ?? null
-                  const style = month === null ? undefined : mark(month)
-                  const tooltip =
-                    month === null || style === undefined
-                      ? undefined
-                      : `${name} ${year}: ${style.label}${describe ? ` ${describe(month)}` : ""}`
-                  const pressed =
-                    selected?.year === year && selected.index === i
-                  return (
-                    <td key={name} title={tooltip}>
-                      {style &&
-                        (detail === undefined ? (
-                          <MarkWithLabel style={style} />
-                        ) : (
-                          <SelectableMark
-                            style={style}
-                            label={tooltip}
-                            pressed={pressed}
-                            onToggle={() =>
-                              setSelected(
-                                pressed ? undefined : { year, index: i }
-                              )
-                            }
-                          />
-                        ))}
-                    </td>
-                  )
-                })}
+                {MONTHS.map((month, i) => (
+                  <th
+                    key={month}
+                    scope="col"
+                    abbr={month}
+                    className="num w-[18px] text-center text-[11px] font-medium text-muted-foreground"
+                  >
+                    {String(i + 1).padStart(2, "0")}
+                  </th>
+                ))}
               </tr>
-            ))}
-          </tbody>
-        </table>
-      </div>
+            </thead>
+            <tbody>
+              {years.map(({ year, months }) => (
+                <tr key={year}>
+                  <th
+                    scope="row"
+                    className="num pr-1 text-left text-[11px] font-medium text-muted-foreground"
+                  >
+                    {year}
+                  </th>
+                  {MONTHS.map((name, i) => {
+                    const month = months[i] ?? null
+                    const style = month === null ? undefined : mark(month)
+                    const tooltip =
+                      month === null || style === undefined
+                        ? undefined
+                        : `${name} ${year}: ${style.label}${describe ? ` ${describe(month)}` : ""}`
+                    const pressed =
+                      selected?.year === year && selected.index === i
+                    return (
+                      <td key={name} title={tooltip}>
+                        {style &&
+                          (detail === undefined ? (
+                            <MarkWithLabel style={style} />
+                          ) : (
+                            <SelectableMark
+                              style={style}
+                              label={tooltip}
+                              pressed={pressed}
+                              onToggle={() =>
+                                setSelected(
+                                  pressed ? undefined : { year, index: i }
+                                )
+                              }
+                            />
+                          ))}
+                      </td>
+                    )
+                  })}
+                </tr>
+              ))}
+            </tbody>
+          </table>
+        </div>
+      )}
       {detail !== undefined &&
         selected !== undefined &&
         selectedMonth !== null &&

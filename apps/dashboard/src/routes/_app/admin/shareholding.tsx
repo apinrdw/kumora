@@ -14,6 +14,7 @@ import {
   parseInvestorTypeNowFn,
   shareholdingArchiveFn,
 } from "@/server/admin/shareholding.functions"
+import { KIND_LABEL } from "@/server/shareholding/kind"
 import { PARSE_TIMES_WIB } from "@/server/shareholding/schedule"
 
 export const Route = createFileRoute("/_app/admin/shareholding")({
@@ -63,12 +64,12 @@ function ShareholdingPage() {
       <ParseCoverageCard
         grids={[
           {
-            title: "Holdings by investor classification",
-            coverage: classificationParseCoverage,
+            title: KIND_LABEL["investor-classification"],
+            parseCoverage: classificationParseCoverage,
           },
           {
-            title: "Holdings by investor type",
-            coverage: investorTypeParseCoverage,
+            title: KIND_LABEL["investor-type"],
+            parseCoverage: investorTypeParseCoverage,
           },
         ]}
       />
