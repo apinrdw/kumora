@@ -17,7 +17,7 @@ import {
 } from "@workspace/relay"
 import { DateTime, Effect } from "effect"
 
-import type { SettledFigures, StoredBubbles } from "./bubble-book.ts"
+import type { DaySums, MinuteFigures, StoredBubbles } from "./bubble-book.ts"
 import type {
   FootprintRow,
   StoredCandle,
@@ -663,39 +663,39 @@ export const makeDayStore = (sql: Sql) =>
     // footprint, so a stock is a code with one.
     // Decision: read once, at a live day's start: one pass over the candles
     // for the totals and one for the newest minutes, about 400,000 rows each
-    // at a full day, not one read of the day's candles a build. SQLite takes
-    // the bare `close` from the row of the one max(). See spec
+    // at a full day, not one read of the day's candles a build. See spec
     // apinrdw/kumora#427, "Where the day totals come from".
     const storedBubbles = (minutes: number) =>
       Effect.sync((): StoredBubbles => {
         const stocks = "code IN (SELECT code FROM footprints GROUP BY code)"
-        const figures = (row: Record<string, SqlValue>): SettledFigures => ({
+        const sums = (row: Record<string, SqlValue>): DaySums => ({
           value: Number(row.value),
           volume: Number(row.volume),
           frequency: Number(row.frequency),
           buyValue: Number(row.buy_value),
           sellValue: Number(row.sell_value),
+        })
+        const figures = (row: Record<string, SqlValue>): MinuteFigures => ({
+          ...sums(row),
           close: Number(row.close),
-          closeOrder: BigInt(Number(row.close_order)),
         })
         return {
           days: sql
             .exec(
               `SELECT code, sum(value) AS value, sum(volume) AS volume,
                 sum(frequency) AS frequency, sum(buy_value) AS buy_value,
-                sum(sell_value) AS sell_value, max(close_order) AS close_order,
-                close
+                sum(sell_value) AS sell_value
                FROM candles WHERE ${stocks} GROUP BY code`
             )
             .map((row) => ({
               code: StockCode.make(String(row.code)),
-              figures: figures(row),
+              sums: sums(row),
             })),
           minutes: sql
             .exec(
               `SELECT * FROM (
                  SELECT code, minute, value, volume, frequency, buy_value,
-                   sell_value, close, close_order,
+                   sell_value, close,
                    row_number() OVER (PARTITION BY code ORDER BY minute DESC)
                      AS newest
                  FROM candles WHERE ${stocks}

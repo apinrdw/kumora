@@ -12,18 +12,19 @@ import { Effect } from "effect"
 
 import type { CandleFigures } from "./candles.ts"
 
-// The figures of a day or a minute: the sums, and the last price with the
-// trade number it came from. The answer carries a minute's close, but of the
-// day only the sums: the page's last price is the newest minute's close
-// (lib/bubbles.ts, `lastPrice`).
-export interface SettledFigures {
+// A day's figures: only the sums. The page's last price is the newest
+// minute's close (lib/bubbles.ts, `lastPrice`), so the day keeps none.
+export interface DaySums {
   readonly value: number
   readonly volume: number
   readonly frequency: number
   readonly buyValue: number
   readonly sellValue: number
+}
+
+// A minute's figures: its sums and its close.
+export interface MinuteFigures extends DaySums {
   readonly close: number
-  readonly closeOrder: bigint
 }
 
 // What the day store holds of them: every stock's day totals and its newest
@@ -31,55 +32,53 @@ export interface SettledFigures {
 export interface StoredBubbles {
   readonly days: ReadonlyArray<{
     readonly code: StockCode
-    readonly figures: SettledFigures
+    readonly sums: DaySums
   }>
   readonly minutes: ReadonlyArray<{
     readonly code: StockCode
     readonly minute: number
-    readonly figures: SettledFigures
+    readonly figures: MinuteFigures
   }>
 }
 
 interface CodeBubbles {
-  day: SettledFigures
+  day: DaySums
   // By minute, at most BUBBLE_MINUTES.
-  readonly minutes: Map<number, SettledFigures>
+  readonly minutes: Map<number, MinuteFigures>
 }
 
-// Decision: a settle and its helpers (figuresOf, added, keepMinute, the
+// Decision: a settle and its helpers (sumsOf, figuresOf, added, keepMinute, the
 // book's `settled`) are plain functions, not Effects: the candle book calls
 // it for each regular-board trade it settles, inside its own plain
 // arithmetic (candles.ts). Measured 2026-11-16 on the dev machine: 100,000
 // settles over 900 codes took 70 ms plain, 85 ms with one Effect each.
-const figuresOf = (candle: CandleFigures): SettledFigures => ({
+const sumsOf = (candle: CandleFigures): DaySums => ({
   value: candle.value,
   volume: candle.volume,
   frequency: candle.frequency,
   buyValue: candle.buyValue,
   sellValue: candle.sellValue,
-  close: candle.close,
-  closeOrder: candle.closeOrder,
 })
 
-const added = (a: SettledFigures, b: SettledFigures): SettledFigures => {
-  const closes = b.closeOrder > a.closeOrder
-  return {
-    value: a.value + b.value,
-    volume: a.volume + b.volume,
-    frequency: a.frequency + b.frequency,
-    buyValue: a.buyValue + b.buyValue,
-    sellValue: a.sellValue + b.sellValue,
-    close: closes ? b.close : a.close,
-    closeOrder: closes ? b.closeOrder : a.closeOrder,
-  }
-}
+const figuresOf = (candle: CandleFigures): MinuteFigures => ({
+  ...sumsOf(candle),
+  close: candle.close,
+})
+
+const added = (a: DaySums, b: DaySums): DaySums => ({
+  value: a.value + b.value,
+  volume: a.volume + b.volume,
+  frequency: a.frequency + b.frequency,
+  buyValue: a.buyValue + b.buyValue,
+  sellValue: a.sellValue + b.sellValue,
+})
 
 // Keeps `minute` among a code's newest BUBBLE_MINUTES, unless it is older
 // than all of a full set.
 const keepMinute = (
-  minutes: Map<number, SettledFigures>,
+  minutes: Map<number, MinuteFigures>,
   minute: number,
-  figures: SettledFigures
+  figures: MinuteFigures
 ) => {
   if (minutes.has(minute) || minutes.size < BUBBLE_MINUTES) {
     minutes.set(minute, figures)
@@ -99,8 +98,8 @@ const keepMinute = (
 export const makeBubbleBook = (stored: StoredBubbles) =>
   Effect.sync(() => {
     const codes = new Map<StockCode, CodeBubbles>()
-    for (const { code, figures } of stored.days)
-      codes.set(code, { day: figures, minutes: new Map() })
+    for (const { code, sums } of stored.days)
+      codes.set(code, { day: sums, minutes: new Map() })
     for (const { code, minute, figures } of stored.minutes)
       codes.get(code)?.minutes.set(minute, figures)
 
@@ -116,12 +115,12 @@ export const makeBubbleBook = (stored: StoredBubbles) =>
       const held = codes.get(code)
       if (held === undefined) {
         codes.set(code, {
-          day: figuresOf(print),
+          day: sumsOf(print),
           minutes: new Map([[minute, figuresOf(candle)]]),
         })
         return
       }
-      held.day = added(held.day, figuresOf(print))
+      held.day = added(held.day, sumsOf(print))
       keepMinute(held.minutes, minute, figuresOf(candle))
     }
 

@@ -266,7 +266,7 @@ describe("bubbles", () => {
   )
 
   it.effect(
-    "close the day at the newest minute's close, on the Worker and the page alike, when a corrected time puts a lower trade number in a later minute",
+    "closes the day at the newest minute's close, on the Worker and the page alike, when a corrected time puts a lower trade number in a later minute",
     () =>
       Effect.gen(function* () {
         yield* at("09:11:00")
