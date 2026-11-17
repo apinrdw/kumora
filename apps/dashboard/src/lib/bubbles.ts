@@ -171,11 +171,11 @@ const WINDOW_MINUTES: Record<Exclude<BubbleWindow, "30s" | "D">, number> = {
 // The phases whose windows end now; any other ends at the day's last trade.
 const SESSIONS: ReadonlySet<MarketPhase> = new Set(["session-1", "session-2"])
 
-// Decision: what a trade or candle runs (isIndex to newestKey, newestHeld to
-// waitForPrice, takeMinute, secondOf to countTrade) stays plain, the applies'
-// loops Effects. Dev machine, 900 codes, 100,000 each, plain then an Effect
-// each: trades 53, 71 ms (2026-11-16); candles 94, 108 ms, late ones that let
-// their minute go 60, 75 ms (2026-11-17). A delta can carry thousands.
+// Decision: what a trade or candle runs stays plain (isIndex to newestKey,
+// newestLetGo and letGo included, newestHeld to waitForPrice, takeMinute,
+// secondOf to countTrade), the applies' loops Effects: a delta can carry
+// thousands. Dev machine, 900 codes, 100,000 each, plain then Effect each:
+// trades 53, 71 ms (11-16); candles 94, 108 ms, late ones 60, 75 ms (11-17).
 const isIndex = (code: StockCode) => INDEX_CODES.includes(code)
 
 const noSums = (): Sums => ({
@@ -223,8 +223,8 @@ const newestCounted = (flow: MarketFlow) =>
 // Decision: derived from what the flow holds each time it is asked, never
 // kept as a field, which went stale whenever a correction or a backfill took
 // its trade or minute away. Measured 2026-11-17 on the dev machine
-// (bubbles.test.ts, "Recompute", 900 codes): median 0.8 ms without the scan,
-// 1.2 ms with it. See apinrdw/kumora#436.
+// (bubbles.test.ts, "Recompute", 900 codes, run alone): median 1.2 ms without
+// the scan, 1.4 ms with it. See apinrdw/kumora#436.
 const newestTrade = (flow: MarketFlow) =>
   Effect.gen(function* () {
     let newest = yield* newestCounted(flow)

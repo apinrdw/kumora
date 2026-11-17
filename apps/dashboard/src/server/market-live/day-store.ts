@@ -193,19 +193,17 @@ const SCHEMA = [
   ) WITHOUT ROWID`,
 ]
 
-// Decision: a day store opened from before candles carried buy and sell value
-// (spec apinrdw/kumora#427) gains both columns, the last in the table as in
-// SCHEMA, so the candles INSERT's order fits both. Today's candles and an
-// unsealed day's get them from its stored trades in the same transaction:
-// today's bubbles are served after the seal until midnight
-// (recorded-answers.ts, `bubblesAnswer`). A sealed past day's keep 0: Market
-// Bubbles is live only. See apinrdw/kumora#436.
+// Decision: a day store from before candles carried buy and sell value gains
+// both columns last, as in SCHEMA, so the candles INSERT fits. Today's and an
+// unsealed day's candles get them from the stored trades in that transaction:
+// today's bubbles answer until midnight (`bubblesAnswer`). A sealed past day's
+// keep 0: Market Bubbles is live only. See apinrdw/kumora#436.
 const ADDED_CANDLE_COLUMNS = ["buy_value", "sell_value"]
 
 // Each stored candle's buy and sell value from the stored trades, by
-// candles.ts `printOf`'s rule: a stored candle folds the settled
-// regular-board trades of its code and minute, and a flush writes those
-// trades with it.
+// candles.ts `printOf`'s value by side and `counts`'s regular-board filter: a
+// stored candle folds the settled regular-board trades of its code and
+// minute, and a flush writes those trades with it.
 const REBUILD_CANDLE_SIDES = `UPDATE candles
   SET buy_value = sides.buy, sell_value = sides.sell
   FROM (
