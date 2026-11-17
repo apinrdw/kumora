@@ -9,7 +9,7 @@ import { DateTime, Effect } from "effect"
 
 import { writeBuiltDay } from "@/server/broker-totals/db"
 import { reconcileBrokerTotals } from "@/server/broker-totals/reconcile"
-import { BROKER_TOTALS_VERSION } from "@/server/market-live/broker-totals"
+import { BROKER_TOTALS_VERSION } from "@/server/broker-totals/version"
 
 import { memoryBrokerTotalsDb } from "./memory-broker-totals-db.ts"
 
@@ -18,7 +18,7 @@ const oct = (day: number) =>
 const BUILT_AT = DateTime.makeUnsafe("2026-10-31T11:00:00Z")
 const NO_ROWS = { totals: [], candles: [], missingTrades: 0 }
 
-// The last build version whose totals had no buy and sell trade counts.
+// The last build version whose totals had no trades bought and sold.
 const BEFORE_FREQ = 1
 
 // October 1..30, newest first, as the day strip lists them.
@@ -87,7 +87,7 @@ describe("the broker totals reconcile", () => {
       })
   )
 
-  it.effect("pokes a day built before the trade counts", () =>
+  it.effect("pokes a day built before the trades bought and sold", () =>
     Effect.gen(function* () {
       const db = memoryBrokerTotalsDb()
       yield* built(db, [30], BEFORE_FREQ)

@@ -509,7 +509,7 @@ describe("the broker inventory range", () => {
 
 describe("the hover day and the selection", () => {
   // YP buys Monday and Tuesday at rising prices and sells some Friday; PD
-  // is its other side, in other trade counts. Wednesday is a gap, with no
+  // is its other side, in other trades bought and sold. Wednesday is a gap, with no
   // candle.
   const week = {
     ...read(
@@ -632,12 +632,11 @@ describe("the hover day and the selection", () => {
             freq: 9,
           },
         ])
-        // (100 × 1,100 + 50 × 1,200) / 150 a side. Net 0 counts the buys.
+        // (100 × 1,100 + 50 × 1,200) / 150 a side.
         expect(selection.total).toMatchObject({
           net: 0,
           buyLots: 150,
           sellLots: 150,
-          freq: 16,
         })
         expect(selection.total.avgBuy).toBeCloseTo(1133.33, 2)
         expect(selection.total.avgSell).toBeCloseTo(1133.33, 2)

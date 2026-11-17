@@ -1489,11 +1489,9 @@ test.describe.serial("the Broker inventory tab", () => {
     // Every lot the plotted brokers bought, one of them sold: the Top 5
     // each side net out to 0 over these days.
     await expect(selection.locator("tfoot")).toContainText("Total0")
-    // YP's buys and BK's sells, a trade every 5 lots; the Total nets 0, so
-    // it counts the plotted brokers' 102 buy trades a day.
+    // YP's buys and BK's sells, a trade every 5 lots.
     await expect(freqCell(rows.first())).toHaveText("240")
     await expect(freqCell(rows.last())).toHaveText("240")
-    await expect(freqCell(selection.locator("tfoot tr"))).toHaveText("1,020")
     await page.reload()
     await expect(selectionPanel(page)).toContainText("10 days")
     await expect.poll(() => linkedDay(selectionPanel(page))).toBe(from)

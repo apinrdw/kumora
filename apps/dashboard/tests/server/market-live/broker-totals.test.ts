@@ -18,7 +18,7 @@ import { expectTypeOf } from "vitest"
 import { readBrokerTotals } from "@/server/broker-totals/db"
 import type { BrokerCodesStore } from "@/server/market-live/broker-codes"
 import type { Sql } from "@/server/market-live/day-store"
-import { BROKER_TOTALS_VERSION } from "@/server/market-live/broker-totals"
+import { BROKER_TOTALS_VERSION } from "@/server/broker-totals/version"
 
 import { memoryBrokerTotalsDb } from "../broker-totals/memory-broker-totals-db"
 import { stockbitTrade, tradingDay, withLines } from "./day-harness"
@@ -688,7 +688,7 @@ describe("a reconcile poke", () => {
   )
 
   it.effect(
-    "rebuilds a day built by an older build version, its trade counts filled",
+    "rebuilds a day built by an older build version, its trades bought and sold filled",
     () =>
       withLines("Broker totals built", (lines) =>
         Effect.gen(function* () {
@@ -701,7 +701,7 @@ describe("a reconcile poke", () => {
             "broker-totals",
             String(BROKER_TOTALS_VERSION - 1)
           )
-          // As a build before the trade counts left it: 0 on each side.
+          // As a build before the trades bought and sold left it: 0 on each side.
           db.database.exec("UPDATE totals SET buy_freq = 0, sell_freq = 0")
 
           yield* at("18:00:00")

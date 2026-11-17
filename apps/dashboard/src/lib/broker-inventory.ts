@@ -186,7 +186,8 @@ export interface SelectionSummary {
   readonly days: number
   readonly change: number | undefined
   readonly rows: ReadonlyArray<SpanFigures & { readonly broker: BrokerCode }>
-  readonly total: SpanFigures
+  // Freq is one broker's lean, so the Total has none.
+  readonly total: Omit<SpanFigures, "freq">
 }
 
 // Weighted by lots: value ÷ (lots × 100); undefined for no lots.
@@ -560,7 +561,6 @@ export const selectionSummary = Effect.fnUntraced(function* (
       ...total,
       avgBuy: yield* average(total.buyValue, total.buyLots),
       avgSell: yield* average(total.sellValue, total.sellLots),
-      freq: yield* leanFreq(total),
     },
   } satisfies SelectionSummary
 })

@@ -4,6 +4,8 @@
 import { isTradingDay } from "@workspace/relay"
 import { Effect } from "effect"
 
+import { BROKER_TOTALS_VERSION } from "../../dashboard/src/server/broker-totals/version.ts"
+
 import { marketNow, wibDate } from "./clock"
 import { replaceTables } from "./local-d1"
 
@@ -49,7 +51,7 @@ export function seedBrokerTotals(code: string, days: ReadonlyArray<SeededDay>) {
       "INSERT INTO candles VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)"
     )
     const built = db.prepare(
-      "INSERT INTO built_days VALUES (?, 1, '2026-11-14T10:00:00.000Z', ?)"
+      "INSERT INTO built_days VALUES (?, ?, '2026-11-14T10:00:00.000Z', ?)"
     )
     for (const { day, price, flows, missingTrades = 0 } of days) {
       // A lot is 100 shares.
@@ -83,7 +85,7 @@ export function seedBrokerTotals(code: string, days: ReadonlyArray<SeededDay>) {
         value(volume),
         trades(volume)
       )
-      built.run(day, missingTrades)
+      built.run(day, BROKER_TOTALS_VERSION, missingTrades)
     }
   })
 }

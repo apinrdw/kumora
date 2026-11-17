@@ -204,7 +204,7 @@ export function SelectionPanel({
             </td>
             <td>{Effect.runSync(averageCell(total.avgBuy))}</td>
             <td>{Effect.runSync(averageCell(total.avgSell))}</td>
-            <td>{Effect.runSync(plain(total.freq))}</td>
+            <td aria-label="No Freq: it counts one broker's trades" />
           </tr>
         </tfoot>
       </table>

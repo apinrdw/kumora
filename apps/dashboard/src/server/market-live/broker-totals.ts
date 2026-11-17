@@ -14,11 +14,6 @@ import { Effect } from "effect"
 import type { BrokerTotal, DayBuild, DayCandle } from "../broker-totals/db.ts"
 import type { BrokerCodesStore } from "./broker-codes.ts"
 
-// Decision: each built day records the version that built it; a change to
-// what the build makes bumps it, and the reconcile rebuilds older days at
-// its pace. See apinrdw/kumora#420.
-export const BROKER_TOTALS_VERSION = 2
-
 // The broker totals fact of a sealed, buildable day not built yet.
 export const BROKER_TOTALS_DUE = "due"
 
