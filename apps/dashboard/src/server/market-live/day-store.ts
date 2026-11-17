@@ -237,7 +237,7 @@ export const Fact = {
   // walk, none while unknown.
   tapeSource: "tape-source",
   // The day's broker totals build (broker-totals.ts): BROKER_TOTALS_DUE once
-  // the sealed day is complete, then the build version that wrote them.
+  // the sealed day is buildable, then the build version that wrote them.
   brokerTotals: "broker-totals",
   // When each alarm duty is next due (wakes.ts): epoch millis, none once
   // done.

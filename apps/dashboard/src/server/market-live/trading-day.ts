@@ -983,10 +983,10 @@ export const makeTradingDay = Effect.fnUntraced(function* (options: {
       return setAlarm(at)
     })
   // The seal is due at 17:00 WIB, a minute after a seal that didn't land.
-  // Decision: a walk day arms the seal only once buildable, at most 0.1% of
-  // its trades 1..N missing: until then it is never listed. The batch that
-  // makes it so arms the seal at once (`walkSealDue`). See spec
-  // apinrdw/kumora#437 and apinrdw/kumora#457.
+  // Decision: a walk day arms the seal only once buildable (`buildable`,
+  // MISSING_ALLOWANCE in broker-codes.ts): until then it is never listed.
+  // The batch that makes it so arms the seal at once (`walkSealDue`). See
+  // spec apinrdw/kumora#437 and apinrdw/kumora#457.
   const wakes = yield* makeWakes(store, arm)
   yield* wakes.restore(
     "seal",
