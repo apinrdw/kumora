@@ -445,6 +445,16 @@ test.describe.serial("an admin's KSEI archive", () => {
     await expect(
       parseRunCard(page).getByRole("button", { name: "Parse now" })
     ).toBeEnabled()
+
+    const parseCoverage = page
+      .getByRole("region", { name: "Parse coverage", exact: true })
+      .getByRole("table", { name: "Securities holdings parse coverage" })
+    await expect(
+      parseCoverage.getByRole("button", { name: /^September 2026: Parsed / })
+    ).toBeVisible()
+    await expect(
+      parseCoverage.getByRole("button", { name: /^October 2026: Parsed / })
+    ).toBeVisible()
   })
 })
 
