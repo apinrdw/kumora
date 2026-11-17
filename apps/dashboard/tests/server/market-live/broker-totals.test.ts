@@ -937,6 +937,102 @@ describe("a failed broker totals build", () => {
   )
 })
 
+// A day of 1,000 trades: its gate lets 1 missing trade build, 2 not.
+const N = 1_000
+
+// Walk rows of trades `from`..N with fields, but none for `unfilled` and
+// codes alone for `codesOnly`.
+const walkRows = (
+  from: number,
+  unfilled: ReadonlyArray<number>,
+  codesOnly: ReadonlyArray<number> = []
+) =>
+  Array.from({ length: N - from + 1 }, (_, offset) => from + offset)
+    .filter((number) => !unfilled.includes(number))
+    .map((number) =>
+      codesOnly.includes(number)
+        ? ([number, "AK F CC D"] as const)
+        : ([number, "AK F CC D", WALKED] as const)
+    )
+
+// When the day's broker totals were built, as the DB reads them.
+const builtTimes = (db: ReturnType<typeof memoryBrokerTotalsDb>) =>
+  Effect.map(read(db, UNTR), ({ builtDays }) =>
+    builtDays.map((built) => built.builtAt)
+  )
+
+describe("a sealed day missing at most 0.1% of its trades", () => {
+  it.effect(
+    "builds once a batch brings its missing trades from 0.2% to 0.1%, and rebuilds once a later one fills the last",
+    () =>
+      Effect.gen(function* () {
+        const db = memoryBrokerTotalsDb()
+        const day = yield* sealedDay(db)
+        yield* at("17:30:00")
+        yield* day.brokerCodes(
+          "Ajaib",
+          [...CODES, ...walkRows(8, [], [500, 600])],
+          N
+        )
+        yield* day.alarm
+        assert.deepStrictEqual(yield* builtTimes(db), [])
+
+        yield* at("17:40:00")
+        yield* day.brokerCodes("Ajaib", [[600, "AK F CC D", WALKED]])
+        yield* day.alarm
+        assert.deepStrictEqual(yield* builtTimes(db), [
+          "2026-11-09T10:40:00.000Z",
+        ])
+
+        yield* at("18:00:00")
+        yield* day.brokerCodes("Ajaib", [[500, "AK F CC D", WALKED]])
+        yield* at("18:05:00")
+        yield* day.alarm
+        assert.deepStrictEqual(yield* builtTimes(db), [
+          "2026-11-09T11:05:00.000Z",
+        ])
+      })
+  )
+
+  it.effect("of walks, with a trade no site ever sends, seals and builds", () =>
+    Effect.gen(function* () {
+      const db = memoryBrokerTotalsDb()
+      yield* at("17:30:00")
+      const day = yield* tradingDay(memorySql(), [], db.layer)
+      yield* day.brokerCodes("Ajaib", walkRows(1, [700]), N)
+      yield* day.alarm
+      assert.isTrue(yield* isSealed(day))
+      assert.deepStrictEqual(yield* builtTimes(db), [
+        "2026-11-09T10:30:00.000Z",
+      ])
+    })
+  )
+
+  it.effect("builds on a reconcile poke, never marked for a build", () =>
+    Effect.gen(function* () {
+      const db = memoryBrokerTotalsDb()
+      const sql = memorySql()
+      yield* at("09:01:10")
+      const unbuilt = yield* tradingDay(sql)
+      yield* unbuilt.trades(TAPE)
+      yield* at("17:00:00")
+      yield* unbuilt.alarm
+      yield* unbuilt.brokerCodes("Ajaib", [...CODES, ...walkRows(8, [500])], N)
+      yield* unbuilt.evicted
+
+      yield* at("17:30:00")
+      const day = yield* tradingDay(sql, [], db.layer)
+      yield* day.alarm
+      assert.deepStrictEqual(yield* builtTimes(db), [])
+      assert.isTrue(yield* day.reconcile)
+      yield* day.alarm
+      assert.deepStrictEqual(yield* builtTimes(db), [
+        "2026-11-09T10:30:00.000Z",
+      ])
+    })
+  )
+})
+
 describe("a held trade", () => {
   it("carries its board as the tape's Board, not a bare string", () => {
     type Page = Effect.Success<ReturnType<BrokerCodesStore["heldTradesPage"]>>

@@ -326,18 +326,18 @@ const storedTapeSource = Effect.fnUntraced(function* (
 })
 
 // When the seal first needs the alarm, for a day with no deadline stored:
-// its instant for a relay day, a walk day once complete, and an unknown day
+// its instant for a relay day, a walk day once buildable, and an unknown day
 // the relay can still make relay; none once sealed.
 const sealWakeAtStart = Effect.fnUntraced(function* (
   sealed: boolean,
   source: TapeSource,
-  complete: Effect.Effect<boolean>,
+  buildable: Effect.Effect<boolean>,
   sealAt: DateTime.Utc
 ) {
   if (sealed) return undefined
   if (source === "unknown")
     return DateTime.isLessThan(yield* DateTime.now, sealAt) ? sealAt : undefined
-  if (source === "relay" || (yield* complete)) return sealAt
+  if (source === "relay" || (yield* buildable)) return sealAt
   return undefined
 })
 
@@ -397,7 +397,7 @@ export const makeTradingDay = Effect.fnUntraced(function* (options: {
   const sealAt = yield* sealInstant(options.date)
   // Decision: a day's tape source is unknown until its first relay trade
   // before 17:00 makes it relay or a walk's first fields make it walk, kept
-  // for good. A relay day seals at 17:00, a walk day once complete from
+  // for good. A relay day seals at 17:00, a walk day once buildable from
   // 17:00, an unknown day never. Walk rows hold on a relay day and on any
   // sealed day, so a later, higher `end` leaves no sealed day short (#449).
   //
@@ -417,6 +417,9 @@ export const makeTradingDay = Effect.fnUntraced(function* (options: {
     fact: store.fact,
     walkRowsHold: Effect.sync(() => source === "relay" || sealed),
   })
+  // The one gate the build and a walk day's seal read (`buildable` in
+  // broker-codes.ts).
+  const buildable = Effect.map(brokerCodes.buildable, Option.isSome)
   const sweepBrokers = yield* makeSweepBrokers({
     sql: options.sql,
     store,
@@ -863,7 +866,7 @@ export const makeTradingDay = Effect.fnUntraced(function* (options: {
   // written, then the sealed marker; after it the day takes no ingest and
   // its answers are immutable.
   // A walked day's candles and order flow rows are built from its tape
-  // first, and it records no relay gap: its tape is every trade 1..N.
+  // first, and it records no relay gap: its tape is the walks' trades.
   const seal = Effect.fnUntraced(function* (now: DateTime.Utc) {
     const walked = source === "walk"
     if (walked) {
@@ -874,11 +877,10 @@ export const makeTradingDay = Effect.fnUntraced(function* (options: {
     yield* flush(true, {
       [Fact.gaps]: yield* encodeRecordedGaps({ gaps: sealGaps }),
     })
-    // Decision: a day complete at its seal builds just after it, in the
+    // Decision: a day buildable at its seal builds just after it, in the
     // seal's own wake: never under the turn while the market streams. See
     // spec apinrdw/kumora#437, "When it runs".
-    const due =
-      options.brokerTotalsDb !== undefined && (yield* brokerCodes.complete)
+    const due = options.brokerTotalsDb !== undefined && (yield* buildable)
     const trades = yield* store.storedTrades
     if (trades > 0)
       yield* (options.recordDay ?? (() => Effect.void))({
@@ -977,14 +979,14 @@ export const makeTradingDay = Effect.fnUntraced(function* (options: {
       return setAlarm(at)
     })
   // The seal is due at 17:00 WIB, a minute after a seal that didn't land.
-  // Decision: a walk day arms the seal only once complete, every trade 1..N
-  // held: until then it is never listed. The batch that completes it arms
-  // the seal at once (`walkSealDue`). See spec apinrdw/kumora#437, "A
-  // History walk day becomes a recorded day".
+  // Decision: a walk day arms the seal only once buildable, at most 0.1% of
+  // its trades 1..N missing: until then it is never listed. The batch that
+  // makes it so arms the seal at once (`walkSealDue`). See spec
+  // apinrdw/kumora#437 and apinrdw/kumora#457.
   const wakes = yield* makeWakes(store, arm)
   yield* wakes.restore(
     "seal",
-    sealWakeAtStart(sealed, source, brokerCodes.complete, sealAt)
+    sealWakeAtStart(sealed, source, buildable, sealAt)
   )
   yield* wakes.restore(
     "index",
@@ -1053,7 +1055,7 @@ export const makeTradingDay = Effect.fnUntraced(function* (options: {
     Wake,
     (now: DateTime.Utc) => Effect.Effect<void, never, WorkerEnv>
   > = {
-    // A walk day seals only once complete; the batch that completes it sets
+    // A walk day seals only once buildable; the batch that makes it so sets
     // the wake again (`walkSealDue`). An unknown day never seals.
     seal: Effect.fnUntraced(function* (now) {
       if (DateTime.isLessThan(now, sealAt))
@@ -1061,7 +1063,7 @@ export const makeTradingDay = Effect.fnUntraced(function* (options: {
       if (
         sealed ||
         source === "unknown" ||
-        (source === "walk" && !(yield* brokerCodes.complete))
+        (source === "walk" && !(yield* buildable))
       )
         return yield* wakes.set("seal", undefined)
       yield* seal(now).pipe(
@@ -1102,13 +1104,12 @@ export const makeTradingDay = Effect.fnUntraced(function* (options: {
     yield* sweepIngests
   })
 
-  // The batch that completes a walk day sets its seal for now, unless one
-  // is due already. Without N the day can't be complete, so it isn't
-  // scanned.
+  // The batch that makes a walk day buildable sets its seal for now, unless
+  // one is due already. Without N the day can't be, so it isn't scanned.
   const walkSealDue = Effect.gen(function* () {
     if (sealed || source !== "walk") return
     if ((yield* store.fact(Fact.brokerCodesN)) === undefined) return
-    if (!(yield* brokerCodes.complete)) return
+    if (!(yield* buildable)) return
     const now = yield* DateTime.now
     const set = yield* wakes.deadline("seal")
     if (set !== undefined && !DateTime.isLessThan(now, set)) return
@@ -1118,12 +1119,12 @@ export const makeTradingDay = Effect.fnUntraced(function* (options: {
   // The day's broker totals and candles, built and written to the broker
   // totals DB, then the build version marked, its figures logged as the
   // first real day's sizes. See spec apinrdw/kumora#437, "Further Notes".
-  // A day no longer complete, as a stale one can be, keeps its old figures
-  // and its fact until a batch completes it again.
+  // A day no longer buildable, as a stale one can be, keeps its old figures
+  // and its fact until a batch makes it so again.
   const buildTotals = Effect.fnUntraced(function* (
     db: Layer.Layer<BrokerTotalsDb, never, WorkerEnv>
   ) {
-    if (!(yield* brokerCodes.complete)) return
+    if (!(yield* buildable)) return
     const started = yield* Clock.currentTimeMillis
     const build = yield* buildBrokerTotals(brokerCodes)
     const written = yield* writeBuiltDay(
@@ -1146,9 +1147,9 @@ export const makeTradingDay = Effect.fnUntraced(function* (options: {
 
   // Decision: a batch that corrects a built or stale day marks it stale and
   // moves its rebuild REBUILD_QUIET past it. Else a batch that leaves a
-  // sealed day complete, no build wake set and its build not current, arms
+  // sealed day buildable, no build wake set and its build not current, arms
   // one at once (an unbuilt day marked due): a wake that found the day
-  // incomplete was dropped. See spec apinrdw/kumora#437 and PR #449.
+  // unbuildable was dropped. See spec apinrdw/kumora#437 and PR #449.
   //
   // The batch's answer never waits on the build.
   const totalsWritten = Effect.fnUntraced(function* (corrected: boolean) {
@@ -1164,12 +1165,12 @@ export const makeTradingDay = Effect.fnUntraced(function* (options: {
     }
     if (fact === String(BROKER_TOTALS_VERSION)) return
     if ((yield* wakes.deadline("build")) !== undefined) return
-    if (!(yield* brokerCodes.complete)) return
+    if (!(yield* buildable)) return
     if (fact === undefined) yield* store.markBrokerTotals(BROKER_TOTALS_DUE)
     yield* wakes.set("build", yield* DateTime.now)
   })
 
-  // Decision: the reconcile cron's poke builds a sealed, complete day on the
+  // Decision: the reconcile cron's poke builds a sealed, buildable day on the
   // alarm at once, marked due, whatever its own fact says: the cron pokes
   // only days the broker totals DB holds unbuilt or older, as a DB reset
   // leaves a day this version built. Other days it leaves alone. See spec
@@ -1178,7 +1179,7 @@ export const makeTradingDay = Effect.fnUntraced(function* (options: {
   // Whether the day will build.
   const reconcile = Effect.gen(function* () {
     if (!sealed || options.brokerTotalsDb === undefined) return false
-    if (!(yield* brokerCodes.complete)) return false
+    if (!(yield* buildable)) return false
     const fact = yield* store.fact(Fact.brokerTotals)
     if (fact !== BROKER_TOTALS_DUE && fact !== BROKER_TOTALS_STALE)
       yield* store.markBrokerTotals(BROKER_TOTALS_DUE)
@@ -1501,8 +1502,8 @@ export const makeTradingDay = Effect.fnUntraced(function* (options: {
     // Decision: on a day the relay recorded, and on any sealed day, broker
     // codes touch no recorded day state (no flush, seal or index row), so its
     // answers stay byte-identical (#244). A walk day before its seal takes
-    // their fields as its tape (`walkTapeOf`), and its completing batch arms
-    // its seal (`walkSealDue`). See spec apinrdw/kumora#437.
+    // their fields as its tape (`walkTapeOf`), and the batch that makes it
+    // buildable arms its seal (`walkSealDue`). See spec apinrdw/kumora#437.
     brokerCodes: {
       // Decision: a batch that changes codes rewrites its trades' sweep
       // brokers rows from their minutes' stored trades, in the codes' turn

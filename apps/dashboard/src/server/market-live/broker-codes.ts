@@ -79,6 +79,12 @@ const SCHEMA = [
 // day's ~10 MB of records never sits in memory at once.
 const SCAN_PAGE = 64
 
+// Decision: a day builds with at most 1 in this many of its trades 1..N
+// missing (0.1%): a few numbers neither broker site lists never stop it,
+// and a half-walked day never passes for light trading. See
+// apinrdw/kumora#457.
+const MISSING_ALLOWANCE = 1_000
+
 // Stockbit's walk position and whether it ended, kept as the `cross-check`
 // fact. `walkedTo` is the highest trade number Stockbit sent.
 const CrossCheckFact = Schema.fromJsonString(
@@ -841,10 +847,12 @@ export const makeBrokerCodes = Effect.fnUntraced(function* (options: {
       : Effect.succeed(keptCodesComplete)
   )
 
-  // Whether every trade 1..N is held, codes and fields, from one scan.
-  const complete = Effect.map(
-    status(Number.MAX_SAFE_INTEGER),
-    (each) => each.day.complete
+  // The day's missing count when its broker totals can build, from one
+  // scan: N known and at most 1 in MISSING_ALLOWANCE of 1..N missing.
+  const buildable = Effect.map(status(Number.MAX_SAFE_INTEGER), ({ day }) =>
+    day.n !== null && day.missingCount * MISSING_ALLOWANCE <= Number(day.n)
+      ? Option.some(day.missingCount)
+      : Option.none<number>()
   )
 
   // Decision: a held trade's fields are the tape's, else its walk row's: the
@@ -992,7 +1000,7 @@ export const makeBrokerCodes = Effect.fnUntraced(function* (options: {
     held,
     heldCodes,
     codesComplete,
-    complete,
+    buildable,
     heldTradesPage,
     holdsNone,
     indexBuilt,
