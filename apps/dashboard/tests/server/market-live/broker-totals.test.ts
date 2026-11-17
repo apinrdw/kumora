@@ -632,28 +632,6 @@ describe("a due day", () => {
 })
 
 describe("a reconcile poke", () => {
-  it.effect("builds a sealed, complete day never marked for a build", () =>
-    Effect.gen(function* () {
-      const db = memoryBrokerTotalsDb()
-      const sql = memorySql()
-      yield* at("09:01:10")
-      const unbuilt = yield* tradingDay(sql)
-      yield* unbuilt.trades(TAPE)
-      yield* at("17:00:00")
-      yield* unbuilt.alarm
-      yield* unbuilt.brokerCodes("Ajaib", CODES, 7)
-      yield* unbuilt.evicted
-
-      yield* at("17:30:00")
-      const day = yield* tradingDay(sql, [], db.layer)
-      yield* day.alarm
-      assert.deepStrictEqual(yield* read(db, UNTR), NOTHING)
-      assert.isTrue(yield* day.reconcile)
-      yield* day.alarm
-      assert.deepStrictEqual(yield* read(db, UNTR), UNTR_BUILT)
-    })
-  )
-
   it.effect("rebuilds a day built by an older build version", () =>
     withLines("Broker totals built", (lines) =>
       Effect.gen(function* () {
@@ -1073,27 +1051,49 @@ describe("a sealed day missing at most 0.1% of its trades", () => {
     })
   )
 
-  it.effect("builds on a reconcile poke, never marked for a build", () =>
+  // Production's 2026-11-17: sealed while its gate was still complete-only,
+  // so never marked for a build, then buildable at the next start.
+  const sealedUnbuilt = Effect.fnUntraced(function* (
+    sql: ReturnType<typeof memorySql>,
+    unfilled: ReadonlyArray<number>
+  ) {
+    yield* at("09:01:10")
+    const unbuilt = yield* tradingDay(sql)
+    yield* unbuilt.trades(TAPE)
+    yield* at("17:00:00")
+    yield* unbuilt.alarm
+    yield* unbuilt.brokerCodes("Ajaib", [...CODES, ...walkRows(8, unfilled)], N)
+    yield* unbuilt.evicted
+  })
+
+  it.effect(
+    "builds on the alarm once restarted, never marked for a build",
+    () =>
+      Effect.gen(function* () {
+        const db = memoryBrokerTotalsDb()
+        const sql = memorySql()
+        yield* sealedUnbuilt(sql, [500])
+
+        yield* at("17:30:00")
+        const day = yield* tradingDay(sql, [], db.layer)
+        assert.deepStrictEqual(day.alarms, [wib("17:30:00")])
+        yield* day.alarm
+        assert.deepStrictEqual(yield* builds(db), [
+          ["2026-11-09T10:30:00.000Z", 1],
+        ])
+      })
+  )
+
+  it.effect("arms nothing once restarted while not buildable", () =>
     Effect.gen(function* () {
       const db = memoryBrokerTotalsDb()
       const sql = memorySql()
-      yield* at("09:01:10")
-      const unbuilt = yield* tradingDay(sql)
-      yield* unbuilt.trades(TAPE)
-      yield* at("17:00:00")
-      yield* unbuilt.alarm
-      yield* unbuilt.brokerCodes("Ajaib", [...CODES, ...walkRows(8, [500])], N)
-      yield* unbuilt.evicted
+      yield* sealedUnbuilt(sql, [500, 600])
 
       yield* at("17:30:00")
       const day = yield* tradingDay(sql, [], db.layer)
-      yield* day.alarm
+      assert.deepStrictEqual(day.alarms, [])
       assert.deepStrictEqual(yield* builds(db), [])
-      assert.isTrue(yield* day.reconcile)
-      yield* day.alarm
-      assert.deepStrictEqual(yield* builds(db), [
-        ["2026-11-09T10:30:00.000Z", 1],
-      ])
     })
   )
 })
