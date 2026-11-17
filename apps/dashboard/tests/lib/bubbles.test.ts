@@ -857,6 +857,58 @@ describe("radii and labels", () => {
   )
 })
 
+describe("an end at a let-go minute", () => {
+  it.effect(
+    "stays at the minute the flow let go when a correction empties the only newer one, through a backfill",
+    () =>
+      Effect.gen(function* () {
+        const flow = yield* makeMarketFlow()
+        const later = T0 + 2 * 60 * MIN
+        const second = { price: 110, lots: 1, number: 2 }
+        yield* applyMessage(flow, {
+          ...delta(T0 + 1_000, [
+            candle("BBCA", T0, { value: 10_000, close: 100, frequency: 1 }),
+          ]),
+          tape: [trade("BBCA", T0, { price: 100, lots: 1, number: 1 })],
+        })
+        yield* applyMessage(flow, {
+          ...delta(later + 1_000, [
+            candle("BBCA", later, { value: 11_000, close: 110, frequency: 1 }),
+          ]),
+          tape: [trade("BBCA", later, second)],
+        })
+        // A correction moves two hours later's trade off the regular board.
+        yield* applyMessage(flow, {
+          ...delta(later + 2_000, []),
+          tape: [trade("BBCA", later, { ...second, board: "NG" })],
+          footprints: [
+            {
+              code: StockCode.make("BBCA"),
+              minute: DateTime.makeUnsafe(later),
+              cells: [],
+            },
+          ],
+        })
+        const ended = { end: T0, closed: true }
+        expect(yield* windowEnd(flow, "break", later + MIN)).toEqual(ended)
+        yield* applyBubbles(
+          flow,
+          body(
+            [
+              {
+                code: "BBCA",
+                previousClose: 100,
+                minutes: [minute(T0, 10_000, 100)],
+              },
+            ],
+            later + 3_000
+          )
+        )
+        expect(yield* windowEnd(flow, "break", later + MIN)).toEqual(ended)
+      })
+  )
+})
+
 describe("recompute time", () => {
   // Read the timing off its "Recompute" line with `--silent=false`.
   it.live(

@@ -464,12 +464,18 @@ const matches = (
     ])
       if (newest === undefined || at > newest) newest = at
     // Once corrections empty the block after the jump, the newest trade is
-    // an hour back, past what the tape and the kept minutes hold.
-    if (server.jumped() && (newest === undefined || newest < LATER)) return
-    expect(
-      (yield* windowEnd(flow, "break", END + MINUTE_MS))?.end,
-      `${step}: end`
-    ).toBe(newest)
+    // in a minute the page let go, whose tape it may have let go too: the
+    // end is that trade's time or its minute's start. While a recount
+    // waits, the page may no longer hold that minute: no end then.
+    const end = (yield* windowEnd(flow, "break", END + MINUTE_MS))?.end
+    if (flow.recountFrom !== undefined && end === undefined) return
+    if (newest === undefined || newest >= oldestKept)
+      expect(end, `${step}: end`).toBe(newest)
+    else
+      expect(
+        [Math.floor(newest / MINUTE_MS) * MINUTE_MS, newest],
+        `${step}: end`
+      ).toContain(end)
   })
 
 const candle = (
