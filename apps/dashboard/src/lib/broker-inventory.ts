@@ -121,13 +121,13 @@ export interface SummaryRow {
 
 // What the Broker summary's footer counts: its brokers, the lots they
 // traded, the range's trades counted, the trades its built days missed, and
-// its incomplete days, which the sums skip.
+// its gap days, which the sums skip.
 export interface SummaryFooter {
   readonly brokers: number
   readonly lots: number
   readonly trades: number
   readonly missingTrades: number
-  readonly incomplete: number
+  readonly gapDays: number
 }
 
 // The brokers each default group chip plots.
@@ -293,7 +293,7 @@ export const summaryFooter = Effect.fnUntraced(function* (
     lots: sides / 2,
     trades,
     missingTrades,
-    incomplete: read.built.filter((built) => !built).length,
+    gapDays: read.built.filter((built) => !built).length,
   } satisfies SummaryFooter
 })
 

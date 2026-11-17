@@ -348,7 +348,7 @@ describe("the broker summary", () => {
   )
 
   it.effect(
-    "footers the broker count, the lots traded, the trades counted and missing, and the incomplete days skipped",
+    "footers the broker count, the lots traded, the trades counted and missing, and the gap days skipped",
     () =>
       Effect.gen(function* () {
         const rows = read(
@@ -384,7 +384,7 @@ describe("the broker summary", () => {
           lots: 70,
           trades: 42,
           missingTrades: 4,
-          incomplete: 2,
+          gapDays: 2,
         })
         // Every lot has a buy side and a sell side; foreign sides here are
         // half of each trade, so they traded half its lots. The trades
@@ -397,7 +397,7 @@ describe("the broker summary", () => {
           lots: 35,
           trades: 42,
           missingTrades: 4,
-          incomplete: 2,
+          gapDays: 2,
         })
       })
   )

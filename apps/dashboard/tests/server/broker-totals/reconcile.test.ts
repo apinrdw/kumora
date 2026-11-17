@@ -2,7 +2,7 @@
 // compares the day index with the built days and pokes each listed day that
 // is unbuilt or built at an older build version, newest first, at most 20 a
 // run that a day accepts. Each fake poke builds its day, as the trading day's
-// alarm would, unless the test makes it incomplete or failing.
+// alarm would, unless the test makes it unbuildable or failing.
 import { assert, describe, it } from "@effect/vitest"
 import { WibDate } from "@workspace/relay"
 import { DateTime, Effect } from "effect"
@@ -25,12 +25,12 @@ const reconciler = (
   db: ReturnType<typeof memoryBrokerTotalsDb>,
   {
     failing = new Set(),
-    incomplete = new Set(),
+    unbuildable = new Set(),
     listed = LISTED,
   }: {
     readonly failing?: ReadonlySet<WibDate>
     // Days whose trading day answers 204: it will never build them.
-    readonly incomplete?: ReadonlySet<WibDate>
+    readonly unbuildable?: ReadonlySet<WibDate>
     readonly listed?: ReadonlyArray<WibDate>
   } = {}
 ) => {
@@ -39,7 +39,7 @@ const reconciler = (
     Effect.gen(function* () {
       poked.push(day)
       if (failing.has(day)) return yield* Effect.fail("Poke refused")
-      if (incomplete.has(day)) return false
+      if (unbuildable.has(day)) return false
       yield* writeBuiltDay(day, NO_ROWS, BROKER_TOTALS_VERSION, BUILT_AT)
       return true
     }).pipe(Effect.provide(db.layer))
@@ -110,7 +110,7 @@ describe("the broker totals reconcile", () => {
         )
         yield* built(db, [30, 29, 28], BROKER_TOTALS_VERSION - 1)
         const run = reconciler(db, {
-          incomplete: new Set(november),
+          unbuildable: new Set(november),
           listed: [...november, oct(30), oct(29), oct(28)],
         })
 

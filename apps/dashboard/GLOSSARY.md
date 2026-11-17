@@ -167,7 +167,7 @@ A stock code's IDX-IC sector, from IDX's company profiles; Unclassified when IDX
 _Avoid_: Industry (for the top level), category
 
 **Broker inventory**:
-One broker code's running sum of net lots or value (bought minus sold) in one stock code, day by day from the start of a range of days, counting regular-board trades and auction matches. A day counts once it is buildable: at most 0.1% of its trades lack stored broker codes or their stock code, price, lots and board, from the running trades or the broker site's own listing. Any other day is a gap the sum carries across, and the trades a counted day missed are shown beside the sums.
+One broker code's running sum of net lots or value (bought minus sold) in one stock code, day by day from the start of a range of days, counting regular-board trades and auction matches. A day counts once it is buildable: at most 0.1% of its trades lack stored broker codes or their stock code, price, lots and board, from the running trades or the broker site's own listing. Any other day is a gap day the sum carries across, and the trades a counted day missed are shown beside the sums.
 _Avoid_: Position, holdings (those are what KSEI reports), net flow
 
 **Broker summary**:
@@ -179,11 +179,15 @@ One day's lots and value each broker code bought and sold in each stock code, by
 _Avoid_: Running sums (totals are per day)
 
 **Built day**:
-A day whose broker totals are written whole, with the build version that wrote them. A day of a range without one is a gap, whatever rows it holds.
+A day whose broker totals are written whole, with the build version that wrote them. A day of a range without one is a gap day, whatever rows it holds.
 _Avoid_: Recorded day (that is the tape and its answers)
 
+**Gap day**:
+A day of a range with no built day: not yet buildable, or a built day a later batch pushed past the missing allowance, whose broker totals are cleared until it is buildable again. Broker inventory carries its sums across it and the broker summary skips it.
+_Avoid_: Incomplete day (a counted day can miss trades too), relay gap (that is a stretch of the live tape)
+
 **Stale day**:
-A built day that a later batch corrected, by changing a trade's kept broker codes, filling a trade's fields, or raising N. Its old broker totals stay readable until it is rebuilt, once a quiet spell has passed since the last such batch.
+A built day that a later batch corrected, by changing a trade's kept broker codes, filling a trade's fields, or raising N. Its old broker totals stay readable until it is rebuilt, once a quiet spell has passed since the last such batch, or cleared, a gap day, if it is no longer buildable by then.
 _Avoid_: Dirty day, outdated day
 
 **Reconcile**:

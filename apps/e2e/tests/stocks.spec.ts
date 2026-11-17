@@ -1271,7 +1271,7 @@ test.describe.serial("the Broker inventory tab", () => {
     await expect(rows).toHaveCount(12)
     // 69 days of 650 lots and 10 of 1,050, a trade every 5 lots.
     await expect(brokerInventory(page)).toContainText(
-      "12 brokers · 55.35 K lots traded · 11.07 K trades counted · regular board + auction matches · 3 trades missing · 1 incomplete day skipped"
+      "12 brokers · 55.35 K lots traded · 11.07 K trades counted · regular board + auction matches · 3 trades missing · 1 gap day skipped"
     )
     await expect(summaryRow(page, "YP")).toContainText("+7,900")
     await expect(async () => {

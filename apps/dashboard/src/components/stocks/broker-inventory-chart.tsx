@@ -1,7 +1,7 @@
 // The Broker inventory tab's chart (spec apinrdw/kumora#437, "Dashboard: the
 // stock page"; prototype variant B): each plotted broker's running net, one
 // point per day of the axis, labelled at its end, over a zero line. A day
-// that isn't built is a shaded "incomplete" band the lines cross dotted.
+// that isn't built, a gap day, is a shaded "gap" band the lines cross dotted.
 // Behind the lines, the code's daily candles on a right-hand price axis, and
 // its daily volume in a strip underneath (apinrdw/kumora#421, "Amended
 // 2026-11-16"). A candle's body opens that recorded day in Market Live.
@@ -57,7 +57,7 @@ const BODY_MIN = 2
 const DEFAULT_WIDTH = 900
 const NET_TICKS = 5
 const DAY_TICKS = 8
-// A band's "incomplete" label runs across it from this many px wide, and
+// A band's "gap" label runs across it from this many px wide, and
 // down it from a day's 12 px; a narrower band has none.
 const BAND_LABEL = 56
 const BAND_LABEL_DOWN = 12
@@ -244,7 +244,7 @@ function GapBands({
               height={frame.volumeBottom - frame.top}
               className="fill-muted-foreground/15"
             />
-            <title>incomplete</title>
+            <title>gap</title>
             {width >= BAND_LABEL ? (
               <text
                 x={x + width / 2}
@@ -252,14 +252,14 @@ function GapBands({
                 textAnchor="middle"
                 className="fill-muted-foreground text-[10px]"
               >
-                incomplete
+                gap
               </text>
             ) : width >= BAND_LABEL_DOWN ? (
               <text
                 transform={`translate(${x + width / 2 + 3},${frame.top + 6}) rotate(90)`}
                 className="fill-muted-foreground text-[10px]"
               >
-                incomplete
+                gap
               </text>
             ) : null}
           </g>

@@ -605,7 +605,7 @@ describe("a built day's correction", () => {
 
 describe("a due day", () => {
   it.effect(
-    "whose build wake found it incomplete builds once a batch completes it again",
+    "whose build wake found it unbuildable builds once a batch makes it buildable again",
     () =>
       Effect.gen(function* () {
         const db = memoryBrokerTotalsDb()
@@ -713,7 +713,7 @@ describe("a reconcile poke", () => {
       })
   )
 
-  it.effect("does nothing on an unsealed or an incomplete day", () =>
+  it.effect("does nothing on an unsealed or an unbuildable day", () =>
     withLines("Broker totals built", (lines) =>
       Effect.gen(function* () {
         const unsealedDb = memoryBrokerTotalsDb()
@@ -726,13 +726,13 @@ describe("a reconcile poke", () => {
         yield* unsealed.alarm
         assert.deepStrictEqual(yield* read(unsealedDb, UNTR), NOTHING)
 
-        const incompleteDb = memoryBrokerTotalsDb()
-        const incomplete = yield* sealedDay(incompleteDb)
+        const unbuildableDb = memoryBrokerTotalsDb()
+        const unbuildable = yield* sealedDay(unbuildableDb)
         yield* at("17:30:00")
-        yield* incomplete.brokerCodes("Ajaib", CODES.slice(0, 6), 7)
-        assert.isFalse(yield* incomplete.reconcile)
-        yield* incomplete.alarm
-        assert.deepStrictEqual(yield* read(incompleteDb, UNTR), NOTHING)
+        yield* unbuildable.brokerCodes("Ajaib", CODES.slice(0, 6), 7)
+        assert.isFalse(yield* unbuildable.reconcile)
+        yield* unbuildable.alarm
+        assert.deepStrictEqual(yield* read(unbuildableDb, UNTR), NOTHING)
         assert.lengthOf(lines, 0)
       })
     )
