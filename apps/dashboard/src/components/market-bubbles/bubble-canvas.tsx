@@ -211,15 +211,17 @@ export function BubbleCanvas({
   }, [onPick, onPickSector, search, ringed])
 
   // Each recompute, and each resize: new targets, joining bubbles in, leaving
-  // ones out. None while the canvas has no room, as behind a hidden tab.
+  // ones out. None while the canvas has no room, as behind a hidden tab. It
+  // follows the size's figures: a render can hand back an equal size as a
+  // new object, and the tooltip update it makes would rerun it each time.
+  const { width: canvasWidth, height: canvasHeight } = canvasSize
   useEffect(() => {
-    const { width, height } = canvasSize
-    if (width <= 0 || height <= LABEL_BAND) return
+    if (canvasWidth <= 0 || canvasHeight <= LABEL_BAND) return
     const { k, minRadius } = Effect.runSync(
       bubbleScale(
         bubbles.map((bubble) => bubble.size),
-        width,
-        height - LABEL_BAND
+        canvasWidth,
+        canvasHeight - LABEL_BAND
       )
     )
     const held = scene.current.bodies
@@ -233,14 +235,16 @@ export function BubbleCanvas({
           view,
           targetR: Math.max(minRadius, k * Math.sqrt(figures.size)),
           near: scene.current.anchors.get(sector) ?? {
-            x: width / 2,
-            y: height / 2,
+            x: canvasWidth / 2,
+            y: canvasHeight / 2,
           },
         })
       )
     }
     for (const [code, body] of held) if (!shown.has(code)) body.leaving = true
-    Effect.runSync(placeSectors(scene.current.anchors, held, width, height))
+    Effect.runSync(
+      placeSectors(scene.current.anchors, held, canvasWidth, canvasHeight)
+    )
     scene.current.labels = Effect.runSync(labelsOf(bubbles, sectors, view))
     // The tooltip follows its bubble's new figures.
     showPointer((last) => {
@@ -250,7 +254,7 @@ export function BubbleCanvas({
         return last.tip === undefined ? last : NO_POINTER
       return { ...last, tip: { ...last.tip, figures: body.figures } }
     })
-  }, [bubbles, view, sectors, canvasSize])
+  }, [bubbles, view, sectors, canvasWidth, canvasHeight])
 
   // The frame loop: motion, then drawing.
   useEffect(() => {
