@@ -4,6 +4,7 @@ import { runServerEffect } from "@workspace/server"
 import { Effect, Layer } from "effect"
 
 import { Auth } from "@/server/auth/auth"
+import { holdingsDbD1 } from "@/server/holdings/db"
 import {
   archiveBucketR2,
   archiveWorkflowBinding,
@@ -20,6 +21,7 @@ import {
 
 const services = Layer.mergeAll(
   Auth.layer,
+  holdingsDbD1,
   archiveBucketR2,
   archiveWorkflowBinding,
   classificationParseWorkflowBinding,

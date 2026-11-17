@@ -6,6 +6,7 @@ import {
   ArchiveTotalsCard,
   RecentRunsCard,
 } from "@/components/admin/shareholding/archive-history"
+import { ParseCoverageCard } from "@/components/admin/archive/parse-coverage-card"
 import { ParseRunCard } from "@/components/admin/archive/parse-run-card"
 import { LastRunCard } from "@/components/admin/shareholding/last-run-card"
 import {
@@ -33,6 +34,8 @@ function ShareholdingPage() {
     lastClassificationParseRun,
     lastInvestorTypeParseRun,
     nextParseRun,
+    classificationParseCoverage,
+    investorTypeParseCoverage,
     ...lastRun
   } = Route.useLoaderData()
   return (
@@ -56,6 +59,18 @@ function ShareholdingPage() {
         times={PARSE_TIMES_WIB}
         nextParseRun={nextParseRun}
         now={lastRun.now}
+      />
+      <ParseCoverageCard
+        grids={[
+          {
+            title: "Holdings by investor classification",
+            coverage: classificationParseCoverage,
+          },
+          {
+            title: "Holdings by investor type",
+            coverage: investorTypeParseCoverage,
+          },
+        ]}
       />
       <RecentRunsCard runs={recentRuns} />
       <ArchiveTotalsCard totals={totals} />
