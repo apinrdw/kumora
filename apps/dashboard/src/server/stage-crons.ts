@@ -32,8 +32,9 @@ export const stageCrons = (production: boolean) => [
         // cron's reason. See apinrdw/kumora#397.
         PARSE_CRON,
         // Decision: the sector cron too, so only Production reads IDX's
-        // company profiles on a schedule; any other stage's stock_sector
-        // stays empty. See apinrdw/kumora#427.
+        // company profiles on a schedule; another stage fills stock_sector
+        // with the Sectors card's Run now on /admin/shareholding. See
+        // apinrdw/kumora#427.
         SECTOR_CRON,
         // Decision: the logo sync too, so only Production copies
         // Stockbit's logos. See apinrdw/kumora#432.
