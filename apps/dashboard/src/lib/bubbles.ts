@@ -197,11 +197,10 @@ const newestCounted = (flow: MarketFlow) =>
 // The day's last regular-board trade the flow still counts, in epoch ms: its
 // time when the tape carried it, else its minute's start.
 // Decision: derived from what the flow holds each time it is asked, never
-// kept as a field. A kept copy went stale twice, once a correction took away
-// the trade it was and once a reconnect's backfill took away its minute
-// (apinrdw/kumora#436, Codex rounds 5 and 6). Measured 2026-11-17 on the dev
-// machine (bubbles.test.ts, "Recompute", 900 codes with 60 minutes and 30
-// tape seconds each): median 0.8 ms without the scan, 1.2 ms with it.
+// kept as a field, which went stale whenever a correction or a backfill took
+// its trade or minute away. Measured 2026-11-17 on the dev machine
+// (bubbles.test.ts, "Recompute", 900 codes): median 0.8 ms without the scan,
+// 1.2 ms with it. See apinrdw/kumora#436.
 const newestTrade = (flow: MarketFlow) =>
   Effect.gen(function* () {
     let newest = yield* newestCounted(flow)
@@ -405,10 +404,8 @@ export const missingFromBackfill = (flow: MarketFlow) =>
 // Decision: a code's previous close is asked for in at most CLOSE_MISSES
 // backfills after it traded, then given up on for the day: each ask GETs
 // the whole backfill, up to about 3.5 MB, and a code whose `liveprice`
-// frame never came would ask once a minute all day. Its day change and its
-// place in the up / down counts stay unknown. A recount, or an earlier
-// socket's minutes, has no count of its own: FRESH_ASKS
-// (use-market-flow.ts) caps every wait.
+// frame never came would ask once a minute all day. Its day change and
+// up / down place stay unknown. FRESH_ASKS (use-market-flow.ts) caps waits.
 const CLOSE_MISSES = 3
 
 // `row` as the book's copy of `code`'s minute `at`; none when its last
