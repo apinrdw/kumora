@@ -77,9 +77,9 @@ const bumpParser = ({ holdings }: World, periodEnd: string) => {
     .run(periodEnd)
 }
 
-// The coverage as each year's twelve cells, a cell its state or "" when
+// The parse coverage as each year's twelve cells, a cell its state or "" when
 // blank.
-const coverage = ({ bucket, holdings }: World) =>
+const parseCoverage = ({ bucket, holdings }: World) =>
   kseiParseRuns.parseCoverage.pipe(
     Effect.provide(Layer.merge(bucket.layer, holdings.layer)),
     Effect.map((years) =>
@@ -115,7 +115,7 @@ describe("the KSEI parse coverage", () => {
   it.effect("shows nothing before any month is archived", () =>
     Effect.gen(function* () {
       yield* start
-      assert.deepStrictEqual(yield* coverage(world()), {})
+      assert.deepStrictEqual(yield* parseCoverage(world()), {})
     })
   )
 
@@ -127,7 +127,7 @@ describe("the KSEI parse coverage", () => {
         const w = world()
         yield* archive(w, "cron-2026-11-14")
         assert.deepStrictEqual(
-          yield* coverage(w),
+          yield* parseCoverage(w),
           may2026("not-parsed", "not-parsed", "not-parsed", "not-parsed")
         )
       })
@@ -140,7 +140,7 @@ describe("the KSEI parse coverage", () => {
       yield* archive(w, "cron-2026-11-14")
       yield* parse(w, "cron-2026-11-14", "2026-11-14T04:00:00Z")
       assert.deepStrictEqual(
-        yield* coverage(w),
+        yield* parseCoverage(w),
         may2026("parsed", "parsed", "parsed", "parsed")
       )
     })
@@ -158,7 +158,7 @@ describe("the KSEI parse coverage", () => {
       )
       yield* archive(w, "cron-2026-11-15")
       assert.deepStrictEqual(
-        yield* coverage(w),
+        yield* parseCoverage(w),
         may2026("parsed", "parsed", "parsed", "stale")
       )
     })
@@ -172,7 +172,7 @@ describe("the KSEI parse coverage", () => {
       yield* parse(w, "cron-2026-11-14", "2026-11-14T04:00:00Z")
       bumpParser(w, "2026-08-31")
       assert.deepStrictEqual(
-        yield* coverage(w),
+        yield* parseCoverage(w),
         may2026("parsed", "stale", "parsed", "parsed")
       )
     })
@@ -188,7 +188,7 @@ describe("the KSEI parse coverage", () => {
       yield* archive(w, "cron-2026-11-15")
       yield* parse(w, "cron-2026-11-15", "2026-11-15T04:00:00Z")
       assert.deepStrictEqual(
-        yield* coverage(w),
+        yield* parseCoverage(w),
         may2026("parsed", "parsed", "parsed", "failed")
       )
     })
@@ -202,7 +202,7 @@ describe("the KSEI parse coverage", () => {
       yield* archive(w, "cron-2026-11-14")
       yield* parse(w, "cron-2026-11-14", "2026-11-14T04:00:00Z")
       assert.deepStrictEqual(
-        yield* coverage(w),
+        yield* parseCoverage(w),
         may2026("parsed", "parsed", "parsed", "failed")
       )
     })
@@ -234,7 +234,7 @@ describe("the KSEI parse coverage", () => {
           customMetadata: {},
         })
         assert.deepStrictEqual(
-          yield* coverage(w),
+          yield* parseCoverage(w),
           may2026("parsed", "parsed", "parsed", "failed")
         )
 
@@ -246,7 +246,7 @@ describe("the KSEI parse coverage", () => {
         yield* archive(w, "cron-2026-11-16")
         yield* parse(w, "admin-1763521200000", "2026-11-16T03:00:00Z")
         assert.deepStrictEqual(
-          yield* coverage(w),
+          yield* parseCoverage(w),
           may2026("parsed", "parsed", "parsed", "parsed")
         )
       })

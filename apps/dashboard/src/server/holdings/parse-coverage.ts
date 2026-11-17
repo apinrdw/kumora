@@ -60,7 +60,7 @@ const ParseCoverage = Schema.Array(
 export type ParseCoverage = typeof ParseCoverage.Type
 
 // The month archived at `date`, whose newest version is `sha256`.
-const coverageMonth = Effect.fnUntraced(function* (
+const parseCoverageMonth = Effect.fnUntraced(function* (
   date: string,
   sha256: string,
   month: ParsedMonth | undefined,
@@ -109,7 +109,7 @@ export const parseCoverage = Effect.fnUntraced(function* (
   for (const { date, sha256 } of newest)
     cells.set(
       date.slice(0, 7),
-      yield* coverageMonth(
+      yield* parseCoverageMonth(
         date,
         sha256,
         parsed.get(date),

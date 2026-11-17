@@ -141,8 +141,8 @@ const parse = ({ bucket, holdings }: World, { runs }: Kind, id: string) =>
     )
   )
 
-// The kind's coverage as each shown cell's state by its date.
-const coverage = ({ bucket, holdings }: World, { runs }: Kind) =>
+// The kind's parse coverage as each shown cell's state by its date.
+const parseCoverage = ({ bucket, holdings }: World, { runs }: Kind) =>
   runs.parseCoverage.pipe(
     Effect.provide(Layer.merge(bucket.layer, holdings.layer)),
     Effect.map((years) =>
@@ -169,7 +169,7 @@ for (const kind of [CLASSIFICATION, INVESTOR_TYPE])
         const w = world()
         yield* archive(w, "cron-2026-11-14T06")
         assert.deepStrictEqual(
-          yield* coverage(w, kind),
+          yield* parseCoverage(w, kind),
           states(kind, "not-parsed")
         )
       })
@@ -180,7 +180,10 @@ for (const kind of [CLASSIFICATION, INVESTOR_TYPE])
         const w = world()
         yield* archive(w, "cron-2026-11-14T06")
         yield* parse(w, kind, "cron-2026-11-14")
-        assert.deepStrictEqual(yield* coverage(w, kind), states(kind, "parsed"))
+        assert.deepStrictEqual(
+          yield* parseCoverage(w, kind),
+          states(kind, "parsed")
+        )
       })
     )
 
@@ -192,7 +195,7 @@ for (const kind of [CLASSIFICATION, INVESTOR_TYPE])
         kind.newerOctober(w)
         yield* archive(w, "cron-2026-11-14T13")
         assert.deepStrictEqual(
-          yield* coverage(w, kind),
+          yield* parseCoverage(w, kind),
           states(kind, "parsed", "stale")
         )
       })
@@ -209,7 +212,7 @@ for (const kind of [CLASSIFICATION, INVESTOR_TYPE])
           )
           .run("2026-10-30")
         assert.deepStrictEqual(
-          yield* coverage(w, kind),
+          yield* parseCoverage(w, kind),
           states(kind, "parsed", "stale")
         )
       })
@@ -226,7 +229,7 @@ for (const kind of [CLASSIFICATION, INVESTOR_TYPE])
           yield* archive(w, "cron-2026-11-14T13")
           yield* parse(w, kind, "cron-2026-11-15")
           assert.deepStrictEqual(
-            yield* coverage(w, kind),
+            yield* parseCoverage(w, kind),
             states(kind, "parsed", "failed")
           )
         })
@@ -239,7 +242,7 @@ for (const kind of [CLASSIFICATION, INVESTOR_TYPE])
         yield* archive(w, "cron-2026-11-14T06")
         yield* parse(w, kind, "cron-2026-11-14")
         assert.deepStrictEqual(
-          yield* coverage(w, kind),
+          yield* parseCoverage(w, kind),
           states(kind, "parsed", "failed")
         )
       })
@@ -256,7 +259,7 @@ for (const kind of [CLASSIFICATION, INVESTOR_TYPE])
           { body: "{}", contentType: "application/json", customMetadata: {} }
         )
         const { "2026-10-30": _october, ...earlier } = states(kind, "parsed")
-        assert.deepStrictEqual(yield* coverage(w, kind), {
+        assert.deepStrictEqual(yield* parseCoverage(w, kind), {
           ...earlier,
           "2026-10-31": "not-parsed",
         })
@@ -275,11 +278,11 @@ describe("the two kinds' parse coverage", () => {
       yield* parse(w, CLASSIFICATION, "cron-2026-11-14")
       yield* parse(w, INVESTOR_TYPE, "cron-2026-11-14")
       assert.deepStrictEqual(
-        yield* coverage(w, CLASSIFICATION),
+        yield* parseCoverage(w, CLASSIFICATION),
         states(CLASSIFICATION, "parsed", "failed")
       )
       assert.deepStrictEqual(
-        yield* coverage(w, INVESTOR_TYPE),
+        yield* parseCoverage(w, INVESTOR_TYPE),
         states(INVESTOR_TYPE, "parsed")
       )
 
@@ -291,11 +294,11 @@ describe("the two kinds' parse coverage", () => {
       yield* parse(w, CLASSIFICATION, "cron-2026-11-15")
       yield* parse(w, INVESTOR_TYPE, "cron-2026-11-15")
       assert.deepStrictEqual(
-        yield* coverage(w, CLASSIFICATION),
+        yield* parseCoverage(w, CLASSIFICATION),
         states(CLASSIFICATION, "parsed")
       )
       assert.deepStrictEqual(
-        yield* coverage(w, INVESTOR_TYPE),
+        yield* parseCoverage(w, INVESTOR_TYPE),
         states(INVESTOR_TYPE, "parsed", "failed")
       )
     })
