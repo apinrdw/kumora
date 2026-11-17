@@ -8,6 +8,7 @@ import {
   BrokerCode,
   BrokerCodesProtocolVersion,
   MISSING_RANGES,
+  StockCode,
   TradeNumber,
   brokerCodesAfter,
   decodeBrokerCodesBatch,
@@ -16,6 +17,7 @@ import {
   type BrokerCodesStatus,
   type CrossCheck,
   type Feed,
+  type RunningTrade,
   type TradeCodes,
   type TradeFields,
   type WibDate,
@@ -59,11 +61,11 @@ const SCHEMA = [
     number INTEGER NOT NULL,
     PRIMARY KEY (broker, investor_type, side, number)
   ) WITHOUT ROWID`,
-  // Decision: a walk's fields of each trade the day's tape lacked when its
-  // batch was written, the first row stored for it kept. The tape is never
-  // filled from them: a sealed day's recorded answers don't change. Only the
-  // broker totals build reads them, and a trade the tape holds uses the
-  // tape's fields. See apinrdw/kumora#425.
+  // Decision: a walk's fields of each trade the tape lacked, the first row
+  // kept. On a day the relay recorded they never fill the tape, so its
+  // recorded answers don't change; only the build reads them (#425). A walk
+  // day's batches fill its tape until its seal, and until then a row here
+  // holds none of its trades (`walkRowsHold`). See #437.
   `CREATE TABLE IF NOT EXISTS walk_trades (
     number INTEGER PRIMARY KEY,
     code TEXT NOT NULL,
@@ -167,15 +169,22 @@ const mergeStockbit = Effect.fnUntraced(function* (
     : ([held.slice(at, at + SOURCE), codes] as const)
 })
 
-// A row's fields as walk_trades stores them, in its column order.
-const fieldsRow = (number: number, fields: TradeFields) =>
-  Effect.succeed([
-    number,
-    fields.code,
-    fields.price,
-    fields.lots,
-    fields.board,
-  ] as const)
+// A row's fields as walk_trades stores them, in its column order: none for
+// a row without fields.
+const fieldsRows = (number: number, fields: TradeFields | undefined) =>
+  Effect.succeed(
+    fields === undefined
+      ? []
+      : [
+          [
+            number,
+            fields.code,
+            fields.price,
+            fields.lots,
+            fields.board,
+          ] as const,
+        ]
+  )
 
 // One index row: broker, investor type, side and trade number.
 type IndexRow = readonly [string, string, "buy" | "sell", number]
@@ -217,7 +226,8 @@ interface Merged {
   readonly differences: Map<number, readonly [Uint8Array, Uint8Array]>
   readonly agreed: Set<number>
   readonly facts: Array<readonly [string, string]>
-  // The batch's rows' fields, kept for the trades the tape lacks.
+  // The batch's rows' fields, kept for the trades the tape lacks. A row
+  // without fields adds none.
   readonly fields: Array<readonly [number, ...Array<string | number>]>
   // The trades whose kept codes the batch changed. A trade whose source
   // byte alone changed, as the cross-check marks it, is not one.
@@ -230,6 +240,15 @@ export type HeldCodes = (
   tradeNumbers: ReadonlyArray<TradeNumber>
 ) => Effect.Effect<ReadonlyArray<readonly [TradeNumber, TradeCodes]>>
 
+// A trade the day holds codes and fields for.
+interface HeldTrade {
+  readonly code: StockCode
+  readonly price: number
+  readonly lots: number
+  readonly board: RunningTrade["board"]
+  readonly codes: TradeCodes
+}
+
 // What else a batch that changed codes writes, worked out from the codes as
 // the batch leaves them: `changed` lists the trades whose codes it changed,
 // and `heldCodes` reads the codes the batch holds. It writes its own rows
@@ -241,7 +260,8 @@ type Alongside = (
 ) => Effect.Effect<void>
 
 // What the status scan has counted so far. A trade is held once the day has
-// its codes and its fields, from the tape or a walk's row.
+// its codes and its fields, from the tape or, when walk rows hold, a walk's
+// row.
 interface Tally {
   // The lowest number not yet accounted for as held.
   next: number
@@ -375,6 +395,9 @@ export const makeBrokerCodes = Effect.fnUntraced(function* (options: {
   readonly sql: Sql
   // A fact the day store holds.
   readonly fact: (key: string) => Effect.Effect<string | undefined>
+  // Whether a walk_trades row holds its trade: not on an unsealed day whose
+  // tape the walks fill, which holds a trade only once its tape does.
+  readonly walkRowsHold: Effect.Effect<boolean>
 }) {
   const { sql, fact } = options
   yield* Effect.sync(() => {
@@ -490,7 +513,7 @@ export const makeBrokerCodes = Effect.fnUntraced(function* (options: {
     for (const [tradeNumber, codes, fields] of batch.rows) {
       const number = Number(tradeNumber)
       highest = Math.max(highest, number)
-      merged.fields.push(yield* fieldsRow(number, fields))
+      merged.fields.push(...(yield* fieldsRows(number, fields)))
       const { chunk, at } = yield* placeOf(number)
       const held = merged.chunks.get(chunk) ?? (yield* chunkOf(chunk))
       merged.chunks.set(chunk, held)
@@ -525,31 +548,35 @@ export const makeBrokerCodes = Effect.fnUntraced(function* (options: {
   // Decision: a batch's fields land only for the trades the tape lacks as
   // it is written, in the codes' transaction: one statement over the rows,
   // checked against one range read of the tape's numbers the batch spans.
-  // A trade already in walk_trades keeps its first row.
+  // A trade already in walk_trades keeps its first row. Whether it filled
+  // any trade's fields.
   const writeFields = (fields: Merged["fields"]) => {
-    if (fields.length === 0) return
+    if (fields.length === 0) return false
     let low = Number.MAX_SAFE_INTEGER
     let high = 0
     for (const [number] of fields) {
       low = Math.min(low, number)
       high = Math.max(high, number)
     }
-    sql.exec(
+    const filled = sql.exec(
       `INSERT OR IGNORE INTO walk_trades (number, code, price, lots, board)
       SELECT row.value ->> 0, row.value ->> 1, row.value ->> 2,
         row.value ->> 3, row.value ->> 4
       FROM json_each(?) AS row
       WHERE row.value ->> 0 NOT IN
-        (SELECT number FROM trades WHERE number BETWEEN ? AND ?)`,
+        (SELECT number FROM trades WHERE number BETWEEN ? AND ?)
+      RETURNING number`,
       JSON.stringify(fields),
       low,
       high
     )
+    return filled.length > 0
   }
 
-  // A batch's writes, to run inside a transaction.
-  const writesOf = (merged: Merged) => () => {
-    writeFields(merged.fields)
+  // A batch's writes, to run inside a transaction; `filled` runs when they
+  // filled a trade's fields.
+  const writesOf = (merged: Merged, filled: () => void) => () => {
+    if (writeFields(merged.fields)) filled()
     for (const [chunk, codes] of merged.chunks)
       sql.exec(
         "INSERT OR REPLACE INTO broker_code_chunks VALUES (?, ?)",
@@ -599,7 +626,10 @@ export const makeBrokerCodes = Effect.fnUntraced(function* (options: {
     alongside: Alongside
   ) {
     const merged = yield* merge(batch)
-    const writeCodes = writesOf(merged)
+    let filled = false
+    const writeCodes = writesOf(merged, () => {
+      filled = true
+    })
     if (merged.changed.length === 0)
       yield* Effect.sync(() => sql.transaction(writeCodes))
     else
@@ -609,6 +639,9 @@ export const makeBrokerCodes = Effect.fnUntraced(function* (options: {
         writeCodes
       )
     keptCodesComplete = undefined
+    // Whether the batch corrected the day: changed a trade's kept codes or
+    // filled its fields.
+    return merged.changed.length > 0 || filled
   })
 
   // One trade's record, its chunk read once into `chunks`; none when the day
@@ -658,14 +691,15 @@ export const makeBrokerCodes = Effect.fnUntraced(function* (options: {
     return found
   })
 
-  // The trades of chunks first..last that neither the tape nor walk_trades
-  // holds, marked 1 from the first chunk's first trade. walk_trades holds
-  // only trades that were holes, so its numbers are read one by one.
+  // The trades of chunks first..last that neither the tape nor, when
+  // `walkRowsHold`, walk_trades holds, marked 1 from the first chunk's first
+  // trade. walk_trades holds only trades that were holes, so its numbers are
+  // read one by one.
   // Decision: a span the tape holds whole is known from its count; any other
   // reads the runs between the tape's numbers, so no row per taped trade sits
   // in memory. A 1.5M-trade day's status scan took 152 ms in Node's SQLite,
   // against 118 ms for codes alone and 850 ms reading the runs everywhere.
-  const unfieldedOf = (first: number, last: number) =>
+  const unfieldedOf = (first: number, last: number, walkRowsHold: boolean) =>
     Effect.sync(() => {
       const low = first * CHUNK + 1
       const high = (last + 1) * CHUNK
@@ -692,6 +726,7 @@ export const makeBrokerCodes = Effect.fnUntraced(function* (options: {
         high
       )
       unfielded.fill(1, Number(tapeHigh?.number ?? low - 1) - low + 1)
+      if (!walkRowsHold) return unfielded
       for (const row of sql.exec(
         "SELECT number FROM walk_trades WHERE number BETWEEN ? AND ?",
         low,
@@ -704,6 +739,7 @@ export const makeBrokerCodes = Effect.fnUntraced(function* (options: {
   // Every chunk into the tally, SCAN_PAGE at a time, each run of adjacent
   // chunks of a page with its unfielded trades.
   const scan = Effect.fnUntraced(function* (tally: Tally) {
+    const walkRowsHold = yield* options.walkRowsHold
     let after = -1
     for (;;) {
       const rows = yield* Effect.sync(() =>
@@ -721,7 +757,11 @@ export const makeBrokerCodes = Effect.fnUntraced(function* (options: {
         )
           end++
         const first = Number(rows[start]!.chunk)
-        const unfielded = yield* unfieldedOf(first, Number(rows[end]!.chunk))
+        const unfielded = yield* unfieldedOf(
+          first,
+          Number(rows[end]!.chunk),
+          walkRowsHold
+        )
         for (let at = start; at <= end; at++) {
           after = Number(rows[at]!.chunk)
           yield* tallyChunk(
@@ -801,18 +841,75 @@ export const makeBrokerCodes = Effect.fnUntraced(function* (options: {
       : Effect.succeed(keptCodesComplete)
   )
 
-  // A POSTed batch: 200 once it is written with what `alongside` writes for
-  // it and `written` has run, else as `checkedBatch` refuses it. `written`
-  // runs after every accepted batch, one that changed no codes included.
+  // Whether every trade 1..N is held, codes and fields, from one scan.
+  const complete = Effect.map(
+    status(Number.MAX_SAFE_INTEGER),
+    (each) => each.day.complete
+  )
+
+  // Decision: a held trade's fields are the tape's, else its walk row's: the
+  // tape can gain a trade after a walk row was stored for it, and walk rows
+  // are never deleted. See apinrdw/kumora#425.
+  const FIELDS_BETWEEN = `SELECT number, code, price, lots, board FROM trades
+    WHERE number BETWEEN ? AND ?
+    UNION ALL
+    SELECT number, code, price, lots, board FROM walk_trades
+    WHERE number BETWEEN ? AND ?
+      AND number NOT IN (SELECT number FROM trades WHERE number BETWEEN ? AND ?)
+    ORDER BY number`
+
+  // The trades of the SCAN_PAGE chunks after chunk `after` that the day
+  // holds codes and fields for, in trade number order, and the last chunk
+  // read; none past the last chunk.
+  const heldTradesPage = Effect.fnUntraced(function* (after: number) {
+    const rows = yield* Effect.sync(() =>
+      sql.exec(
+        "SELECT chunk, codes FROM broker_code_chunks WHERE chunk > ? ORDER BY chunk LIMIT ?",
+        after,
+        SCAN_PAGE
+      )
+    )
+    if (rows.length === 0) return undefined
+    const chunks = new Map(
+      rows.map((row) => [Number(row.chunk), row.codes as Uint8Array])
+    )
+    const last = Number(rows.at(-1)!.chunk)
+    const span = [Number(rows[0]!.chunk) * CHUNK + 1, (last + 1) * CHUNK]
+    const fields = yield* Effect.sync(() =>
+      sql.exec(FIELDS_BETWEEN, ...span, ...span, ...span)
+    )
+    const trades: Array<HeldTrade> = []
+    for (const row of fields) {
+      const { chunk, at } = yield* placeOf(Number(row.number))
+      const record = chunks.get(chunk)?.subarray(at, at + RECORD)
+      if (record === undefined || !record[SOURCE]) continue
+      trades.push({
+        code: StockCode.make(String(row.code)),
+        price: Number(row.price),
+        lots: Number(row.lots),
+        board: String(row.board) as RunningTrade["board"],
+        codes: yield* codesOf(record),
+      })
+    }
+    return { trades, last }
+  })
+
+  // A POSTed batch: 200 once `taken` took it, it is written with what
+  // `alongside` writes for it and `written` has run, else as `checkedBatch`
+  // refuses it. `written` runs after every accepted batch, one that changed
+  // no codes included, and hears whether the batch corrected the day.
   const post = Effect.fnUntraced(function* (
     text: string,
-    alongside: Alongside,
-    written: Effect.Effect<void>
+    hooks: {
+      readonly taken: (batch: BrokerCodesBatch) => Effect.Effect<void>
+      readonly alongside: Alongside
+      readonly written: (corrected: boolean) => Effect.Effect<void>
+    }
   ) {
     const batch = yield* checkedBatch(text, options.date)
     if (batch instanceof Response) return batch
-    yield* write(batch, alongside)
-    yield* written
+    yield* hooks.taken(batch)
+    yield* hooks.written(yield* write(batch, hooks.alongside))
     return yield* noStoreAnswer(200)
   })
 
@@ -895,6 +992,8 @@ export const makeBrokerCodes = Effect.fnUntraced(function* (options: {
     held,
     heldCodes,
     codesComplete,
+    complete,
+    heldTradesPage,
     holdsNone,
     indexBuilt,
     indexPage,

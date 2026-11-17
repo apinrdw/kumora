@@ -2,7 +2,6 @@ import { assert, describe, it } from "@effect/vitest"
 import {
   BrokerCode,
   BrokerCodesProtocolVersion,
-  StockCode,
   TradeNumber,
   WibDate,
   decodeBrokerCodesBatch,
@@ -47,12 +46,6 @@ const CODES = {
   seller: BrokerCode.make("PD"),
   sellerType: "F",
 } as const
-const FIELDS = {
-  code: StockCode.make("BBCA"),
-  price: 8_000,
-  lots: 1,
-  board: "RG",
-} as const
 
 // A dashboard answering each POST with the next of `statuses` (then 200),
 // keeping the trade numbers and `end` of every batch it wrote, and
@@ -96,11 +89,7 @@ const batch = (numbers: ReadonlyArray<number>, n?: number) =>
     version: BrokerCodesProtocolVersion,
     feed: "Ajaib",
     day: DAY,
-    rows: numbers.map((number) => [
-      TradeNumber.make(`${number}`),
-      CODES,
-      FIELDS,
-    ]),
+    rows: numbers.map((number) => [TradeNumber.make(`${number}`), CODES]),
     ...(n === undefined ? {} : { end: { n: TradeNumber.make(`${n}`) } }),
   }) satisfies BrokerCodesBatch
 
@@ -466,6 +455,27 @@ describe("the extra target", () => {
         assert.deepStrictEqual(extra.written, ["2", "3", "5", "end 5"])
         assert.deepStrictEqual(production.written, [])
         assert.strictEqual(walk?.fetches(), 3)
+      })
+  )
+
+  it.effect(
+    "catching up while its n is unknown, counts a trade it holds codes alone of once",
+    () =>
+      Effect.gen(function* () {
+        // It holds 1 and 4, and 2's codes alone: 2 and 3 are missing, and 5
+        // is past its highest.
+        const extra = fakeDashboard({
+          status: holding({ n: null, missing: [[2, 3]], held: 3 }),
+        })
+        const target = yield* harness({
+          production: fakeDashboard({ status: COMPLETE }),
+          extra,
+        })
+        const catchUp = yield* target.extra.catchUp("Ajaib", ({ post }) =>
+          Effect.sync(() => fakeWalk(post))
+        )
+        assert.deepStrictEqual(yield* catchUp.walk(DAY), { _tag: "walked" })
+        assert.deepStrictEqual(extra.written, ["2", "3", "5", "end 5"])
       })
   )
 

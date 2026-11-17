@@ -22,7 +22,12 @@ import { makeHeatmapStore } from "@/components/market-live/heatmap-store"
 import type { Sql } from "@/server/market-live/day-store"
 import { SEALED_CACHE } from "@/server/market-live/routes"
 
-import { sealedBeforeOrderFlow, stockbitBook, tradingDay } from "./day-harness"
+import {
+  sealedBeforeOrderFlow,
+  stockbitBook,
+  stockbitTrade,
+  tradingDay,
+} from "./day-harness"
 import { memorySql } from "./sql"
 
 const wib = (time: string) => DateTime.makeUnsafe(`2026-11-09T${time}+07:00`)
@@ -102,6 +107,7 @@ const pageOn = Effect.fnUntraced(function* (day: Day) {
 const bookMinute1420 = Effect.gen(function* () {
   yield* at("14:20:03.750")
   const day = yield* tradingDay()
+  yield* day.trades([RELAYED])
   yield* day.viewer("UNTR")
   yield* day.frames([
     stockbitBook({ side: "BID", levels: [[8_000, 3, 50]], time: "14:20:03" }),
@@ -154,6 +160,15 @@ const minute1420 = [
   ]),
 ]
 
+// A trade of another code, so the relay records the day.
+const RELAYED = stockbitTrade({
+  number: 1,
+  time: "14:20:00.000",
+  code: "BBCA",
+  price: 8_000,
+  lots: 1,
+})
+
 // `count` slices from `from`, each the book resting 90 lots bid at 8,000 and
 // `offer` at 8,025.
 const resting = (from: string, count: number, offer: number) =>
@@ -175,6 +190,7 @@ const resting = (from: string, count: number, offer: number) =>
 const quietDay = Effect.fnUntraced(function* (sql: Sql = memorySql()) {
   yield* at("14:20:00.000")
   const day = yield* tradingDay(sql)
+  yield* day.trades([RELAYED])
   const page = yield* pageOn(day)
   yield* at("14:20:03.750")
   yield* day.frames([

@@ -4,6 +4,7 @@ import { TEST, stackName } from "@workspace/deploy"
 import * as Effect from "effect/Effect"
 import { createHash, createHmac } from "node:crypto"
 import { readFileSync } from "node:fs"
+import { DatabaseSync } from "node:sqlite"
 
 export const ALCHEMY = new URL("../../dashboard/.alchemy/", import.meta.url)
 export const STATE = new URL(
@@ -40,4 +41,25 @@ export function databaseFile(id: string) {
     `local/d1/cloudflare-runtime-D1DatabaseObject/${name}.sqlite`,
     ALCHEMY
   )
+}
+
+// Empties `tables` of the Test stage's D1 `resource`, then runs `fill`, in
+// one transaction.
+export function replaceTables(
+  resource: string,
+  tables: ReadonlyArray<string>,
+  fill: (db: DatabaseSync) => void
+) {
+  const id = databaseId(resource)
+  if (id === undefined) throw new Error(`The Test stage has no ${resource} yet`)
+  // The dashboard holds the file open too: wait out its locks.
+  const db = new DatabaseSync(databaseFile(id).pathname, { timeout: 5000 })
+  try {
+    db.exec("BEGIN")
+    for (const table of tables) db.exec(`DELETE FROM ${table}`)
+    fill(db)
+    db.exec("COMMIT")
+  } finally {
+    db.close()
+  }
 }

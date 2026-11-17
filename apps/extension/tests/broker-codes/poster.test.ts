@@ -2,7 +2,6 @@ import { assert, describe, it } from "@effect/vitest"
 import {
   BrokerCode,
   BrokerCodesProtocolVersion,
-  StockCode,
   TradeNumber,
   WibDate,
   decodeBrokerCodesBatch,
@@ -35,7 +34,6 @@ const BATCH: BrokerCodesBatch = {
         seller: BrokerCode.make("PD"),
         sellerType: "F",
       },
-      { code: StockCode.make("BBCA"), price: 8_000, lots: 1, board: "RG" },
     ],
   ],
 }

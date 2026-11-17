@@ -1,5 +1,5 @@
 // Runs before the apps start (playwright.config.ts). Each e2e run starts with
-// empty local D1s, for auth and for parsed holdings: without the Test stage's
+// empty local D1s, for auth, parsed holdings and broker totals: without the Test stage's
 // Alchemy state, `alchemy dev` creates a new local database (and signing
 // secret) and applies the migrations to it. It also starts with empty Market Live Durable Objects.
 // The Dev stage's state is left alone.
@@ -10,7 +10,7 @@ import { rmSync } from "node:fs"
 import { ALCHEMY, STATE, databaseFile, databaseId } from "./support/local-d1.ts"
 
 // Only the previous run's files go; the Dev stage's stay.
-for (const resource of ["AuthDb", "HoldingsDb"]) {
+for (const resource of ["AuthDb", "HoldingsDb", "BrokerTotalsDb"]) {
   const id = databaseId(resource)
   if (id === undefined) continue
   for (const suffix of ["", "-wal", "-shm"])

@@ -13,6 +13,9 @@ export const ObjectPath = {
   // A broker codes batch (POST) or the day's status (GET), the token already
   // checked by the entry (broker-codes-route.ts).
   brokerCodes: "/broker-codes",
+  // The reconcile cron's poke (POST) to build the day's broker totals
+  // (src/server/broker-totals/reconcile.ts). No Worker route reaches it.
+  brokerTotals: "/broker-totals",
 } as const
 
 // The index Durable Object (day-index-object.ts): one, by this name. A day's

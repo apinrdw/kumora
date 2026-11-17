@@ -7,7 +7,7 @@ import { Effect, Schema } from "effect"
 
 import type { KseiType, Origin } from "@/domain/holdings"
 
-import type { SqlValue } from "./db.ts"
+import type { SqlValue } from "../d1.ts"
 import { excerpt } from "./excerpt.ts"
 import {
   MAX_STOCKS,

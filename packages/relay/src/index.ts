@@ -39,7 +39,6 @@ export {
   Connection,
   Feed,
   FeedStatus,
-  groupedNumber,
   INGEST_TOKEN_MESSAGE_LIMIT,
   IngestCloseCode,
   MINUTE_MS,
@@ -140,10 +139,11 @@ export {
   BrokerCode,
   BrokerCodesProtocolVersion,
   BrokerCodesVersionMismatch,
-  type InvestorType,
+  InvestorType,
   MISSING_RANGES,
   ajaibRowCodes,
   ajaibRowFields,
+  batchRow,
   brokerCodesAfter,
   brokerCodesDay,
   brokerCodesPath,
@@ -156,6 +156,7 @@ export {
   stockbitRowFields,
 } from "./broker-codes.ts"
 export type {
+  BatchRow,
   BrokerCodesBatch,
   BrokerCodesStatus,
   CrossCheck,

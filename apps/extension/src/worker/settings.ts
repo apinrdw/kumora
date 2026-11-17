@@ -470,7 +470,12 @@ export const incompleteDaysStore: IncompleteDaysStore = {
 // target's, kept with the origin it caught up, so another extra target
 // starts its own. A value that doesn't decode reads as none, which the walk
 // rebuilds.
-const HISTORY_KEY = "brokerCodesHistory"
+// Decision: both positions moved to new keys when a History day became a
+// recorded day, so every install walks its History again: a day walked for
+// codes alone lists its trades as missing their fields, and the gap walk
+// fetches them whole; a complete day costs one status GET. See spec
+// apinrdw/kumora#437, "A History walk day becomes a recorded day".
+const HISTORY_KEY = "brokerCodesHistoryTrades"
 
 export const historyStore: HistoryStore = {
   load: Effect.gen(function* () {
@@ -493,7 +498,7 @@ export const historyCatchUpStore = (
   origin: Effect.Effect<Option.Option<DashboardOrigin>>
 ) =>
   keptForOrigin(
-    "brokerCodesHistoryCatchUp",
+    "brokerCodesHistoryTradesCatchUp",
     WibDate,
     origin
   ) satisfies Effect.Effect<HistoryCatchUpStore>
