@@ -1,7 +1,8 @@
 // Market Bubbles' figures under the feed's corrections: random runs of
 // trades that Stockbit's copies retime across a minute, re-side or move off
 // the regular board, against a model of the candle book (candles.ts), whose
-// latest copy of a minute is the authority. After each delta, body and
+// latest copy of a minute is the authority, and late trades that land in
+// minutes older than the hour the page keeps. After each delta, body and
 // reconnect, the page's figures equal a recompute from the trades' final
 // parts, and the windows end at its newest trade.
 import { describe, expect, it } from "@effect/vitest"
@@ -36,7 +37,16 @@ import { marketStrip } from "@/lib/market-strip"
 const T0 = Date.parse("2026-11-16T03:00:00Z")
 const CODES = [StockCode.make("AAAA"), StockCode.make("BBBB")]
 const MINUTES = 4
-const END = T0 + MINUTES * MINUTE_MS - 1
+// Trades fill MINUTES minutes from T0, then, once the run jumps, MINUTES
+// from LATER, past the hour the page keeps, while late ones still land in
+// the first block.
+const LATER = T0 + (BUBBLE_MINUTES + MINUTES) * MINUTE_MS
+const BLOCKS = [T0, LATER]
+const DAY_MINUTES = BLOCKS.flatMap((start) =>
+  Array.from({ length: MINUTES }, (_, m) => start + m * MINUTE_MS)
+)
+const blockEnd = (start: number) => start + MINUTES * MINUTE_MS - 1
+const END = blockEnd(LATER)
 
 // mulberry32: the same runs each time.
 const random = (seed: number) => {
@@ -130,13 +140,21 @@ const makeServer = (next: () => number) => {
   const pick = <A>(from: ReadonlyArray<A>) =>
     from[Math.floor(next() * from.length)]!
 
+  // The block new trades land in, and how many it has.
+  let block = T0
+  let inBlock = 0
+
   // Trade numbers follow time, as the exchange's do: a trade lands up to
-  // 10 s after the one numbered before it.
-  const newTrade = () => {
-    const at = T0 + (number - 1) * 10_000 + Math.floor(next() * 10_000)
+  // 10 s after the one numbered before it. A late one lands anywhere in the
+  // first block, an hour and more before the trades around it once the run
+  // jumped.
+  const newTrade = (late = false) => {
+    const at = late
+      ? T0 + Math.floor(next() * MINUTES * MINUTE_MS)
+      : block + inBlock++ * 10_000 + Math.floor(next() * 10_000)
     const trade: RunningTrade = {
       tradeNumber: TradeNumber.make(String(number++)),
-      time: DateTime.makeUnsafe(Math.min(END, at)),
+      time: DateTime.makeUnsafe(Math.min(blockEnd(late ? T0 : block), at)),
       code: pick(CODES),
       price: 100 + Math.floor(next() * 5),
       lots: 1 + Math.floor(next() * 4),
@@ -160,6 +178,7 @@ const makeServer = (next: () => number) => {
     if (trades.size === 0) return
     const held = pick([...trades.values()])
     const at = DateTime.toEpochMillis(held.copy.time)
+    const start = at >= LATER ? LATER : T0
     const kind = next()
     const copy: RunningTrade = {
       ...held.copy,
@@ -168,8 +187,8 @@ const makeServer = (next: () => number) => {
         ? {
             time: DateTime.makeUnsafe(
               Math.min(
-                END,
-                Math.max(T0, at + Math.floor((next() - 0.5) * 3_000))
+                blockEnd(start),
+                Math.max(start, at + Math.floor((next() - 0.5) * 3_000))
               )
             ),
           }
@@ -273,8 +292,7 @@ const makeServer = (next: () => number) => {
       const minutes: Array<
         RecordedBubbles["codes"][number]["minutes"][number]
       > = []
-      for (let m = 0; m < MINUTES; m++) {
-        const minute = T0 + m * MINUTE_MS
+      for (const minute of DAY_MINUTES) {
         const sums = sumsOf(inMinute(settled, code, minute))
         if (sums.frequency > 0)
           minutes.push([
@@ -307,6 +325,14 @@ const makeServer = (next: () => number) => {
 
   return {
     newTrade,
+    // New trades land from LATER on. The hour between settles every trade
+    // open before it: the merge window is seconds.
+    jump: () => {
+      settle(true)
+      block = LATER
+      inBlock = 0
+    },
+    jumped: () => block === LATER,
     correct,
     settle,
     delta,
@@ -390,8 +416,11 @@ const inWindow = (
     return at >= first && at < last
   })
 
-// The page's figures equal the book's: the day and each minute from the
-// trades' parts, 30s from their latest copies.
+// The page's figures equal the book's: the day and each minute it keeps from
+// the trades' parts, 30s from their latest copies. While a late trade waits
+// for a backfill to recount the day, the day is the body's, and a code's
+// last price is the book's or, when the page let the minutes before it go,
+// none; never another.
 const matches = (
   flow: MarketFlow,
   server: ReturnType<typeof makeServer>,
@@ -399,15 +428,22 @@ const matches = (
 ) =>
   Effect.gen(function* () {
     const parts = server.parts()
-    expect(yield* shown(flow, "D", END), `${step}: D`).toEqual(expected(parts))
-    expect(yield* lastPrices(flow), `${step}: last price`).toEqual(
-      expectedLast(parts)
-    )
-    for (let m = 0; m < MINUTES; m++) {
-      const minute = T0 + m * MINUTE_MS
+    const book = expectedLast(parts)
+    if (flow.recountFrom === undefined) {
+      expect(yield* shown(flow, "D", END), `${step}: D`).toEqual(
+        expected(parts)
+      )
+      expect(yield* lastPrices(flow), `${step}: last price`).toEqual(book)
+    } else
+      for (const [code, { last }] of Object.entries(yield* lastPrices(flow)))
+        if (last !== undefined)
+          expect(last, `${step}: ${code}'s last price`).toBe(book[code]?.last)
+    const oldestKept = flow.newestMinute - (BUBBLE_MINUTES - 1) * MINUTE_MS
+    for (const minute of DAY_MINUTES) {
+      if (minute < oldestKept) continue
       expect(
         yield* shown(flow, "1m", minute + MINUTE_MS - 1),
-        `${step}: 1m at ${m}`
+        `${step}: 1m at ${(minute - T0) / MINUTE_MS}`
       ).toEqual(expected(inWindow(parts, minute, minute + MINUTE_MS)))
     }
     const last = Math.floor(END / 1000) * 1000
@@ -427,6 +463,9 @@ const matches = (
       ...parts.map(minuteOf),
     ])
       if (newest === undefined || at > newest) newest = at
+    // Once corrections empty the block after the jump, the newest trade is
+    // an hour back, past what the tape and the kept minutes hold.
+    if (server.jumped() && (newest === undefined || newest < LATER)) return
     expect(
       (yield* windowEnd(flow, "break", END + MINUTE_MS))?.end,
       `${step}: end`
@@ -601,8 +640,12 @@ describe("figures under feed corrections", () => {
           for (let step = 0; step < 40; step++) {
             const roll = next()
             const at = `seed ${seed} step ${step}`
-            if (roll < 0.35) server.newTrade()
-            else if (roll < 0.65) server.correct()
+            if (roll < 0.3) server.newTrade()
+            else if (roll < 0.38) {
+              // A late trade lands once the page let the first block go.
+              if (!server.jumped()) server.jump()
+              else server.newTrade(flow.newestMinute >= LATER)
+            } else if (roll < 0.65) server.correct()
             else if (roll < 0.8) server.settle(false)
             else if (roll < 0.9) {
               yield* applyBubbles(flow, server.body())
