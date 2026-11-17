@@ -189,6 +189,18 @@ const noteMinute = (flow: MarketFlow, minute: number) => {
     flow.lastTrade = minute
 }
 
+// The day's last trade again, from the tape trades and minutes still held,
+// once a correction took away what it was.
+const recountLastTrade = (flow: MarketFlow) => {
+  let last: number | undefined
+  for (const { time } of flow.seen.values())
+    if (last === undefined || time > last) last = time
+  for (const code of flow.codes.values())
+    for (const minute of code.minutes.keys())
+      if (last === undefined || minute > last) last = minute
+  flow.lastTrade = last
+}
+
 const oldestKept = (flow: MarketFlow) =>
   flow.newestMinute - (MINUTES_KEPT - 1) * MINUTE_MS
 
@@ -406,8 +418,11 @@ const takeMinute = (
   }
   replaceInDay(code.day, row, code.minutes.get(at))
   code.carried.set(at, "this socket")
-  if (row === undefined) code.minutes.delete(at)
-  else {
+  if (row === undefined) {
+    code.minutes.delete(at)
+    if (flow.lastTrade !== undefined && at + MINUTE_MS > flow.lastTrade)
+      recountLastTrade(flow)
+  } else {
     code.minutes.set(at, row)
     noteMinute(flow, at)
   }
@@ -464,6 +479,8 @@ const startSocket = (flow: MarketFlow, sentAt: number) =>
 // A tape trade as its second's row counts it.
 interface Counted {
   readonly code: StockCode
+  // The trade's time in epoch ms, and its second's start.
+  readonly time: number
   readonly second: number
   readonly price: number
   readonly lots: number
@@ -540,6 +557,7 @@ const countTrade = (flow: MarketFlow, trade: RunningTrade) => {
   const time = DateTime.toEpochMillis(trade.time)
   const counted: Counted = {
     code: trade.code,
+    time,
     second: Math.floor(time / SECOND_MS) * SECOND_MS,
     price: trade.price,
     lots: trade.lots,
@@ -550,6 +568,8 @@ const countTrade = (flow: MarketFlow, trade: RunningTrade) => {
   if (held !== undefined) {
     if (regular && sameCount(held, counted)) return
     removeTrade(flow, number, held)
+    if (flow.lastTrade !== undefined && held.time >= flow.lastTrade)
+      recountLastTrade(flow)
   }
   if (!regular) return
   if (flow.lastTrade === undefined || time > flow.lastTrade)
