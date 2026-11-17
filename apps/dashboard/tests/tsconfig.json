@@ -3,11 +3,13 @@
   // @cloudflare/workers-types, DOM methods like ParentNode.append keep their
   // lib.dom signatures. support/cloudflare-modules.d.ts declares the two
   // `cloudflare:` modules the server code imports, and alchemy.run.ts is in
-  // so WorkerEnv keeps the dashboard's bindings.
+  // so WorkerEnv keeps the dashboard's bindings. stockbit-walk-day.test.ts
+  // drives the extension's walk, whose modules name `chrome` types and
+  // the globals in its env.d.ts.
   "extends": "../tsconfig.json",
-  "include": ["**/*.ts", "**/*.tsx", "../alchemy.run.ts"],
+  "include": ["**/*.ts", "**/*.tsx", "../alchemy.run.ts", "../../extension/src/env.d.ts"],
   "exclude": [],
   "compilerOptions": {
-    "types": ["vite/client", "node"]
+    "types": ["vite/client", "node", "chrome"]
   }
 }

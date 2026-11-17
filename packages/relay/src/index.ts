@@ -36,6 +36,7 @@ export {
   ajaibSequence,
   ajaibTradeNumber,
   Backfill,
+  boardOf,
   CodeList,
   Connection,
   Feed,
@@ -145,9 +146,11 @@ export {
   BrokerCode,
   BrokerCodesProtocolVersion,
   BrokerCodesVersionMismatch,
-  type InvestorType,
+  InvestorType,
   MISSING_RANGES,
   ajaibRowCodes,
+  ajaibRowFields,
+  batchRow,
   brokerCodesAfter,
   brokerCodesDay,
   brokerCodesPath,
@@ -157,12 +160,15 @@ export {
   encodeBrokerCodesBatch,
   encodeBrokerCodesStatus,
   stockbitRowCodes,
+  stockbitRowFields,
 } from "./broker-codes.ts"
 export type {
+  BatchRow,
   BrokerCodesBatch,
   BrokerCodesStatus,
   CrossCheck,
   TradeCodes,
+  TradeFields,
 } from "./broker-codes.ts"
 export type { RecordedSweeps } from "./sweeps.ts"
 export {

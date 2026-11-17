@@ -1,8 +1,9 @@
 // Stockbit's walk of a day (spec apinrdw/kumora#244, "The extension: the
 // Stockbit walk"): the day's REST tape forward from trade 1, 100 rows a
 // call, on every board. After Ajaib's walk it is the day's cross-check; on a
-// day Ajaib can't serve it is the day's only source. Each 10 calls' codes go
-// to Production as one batch; `end` follows once a newest-first call agrees.
+// day Ajaib can't serve it is the day's only source. Each 10 calls' codes
+// and fields go to Production as one batch; `end` follows once a
+// newest-first call agrees.
 //
 // `forward`, `start` and `finish` are the walk's parts, kept apart so the
 // gap walk (cursor over missing ranges) and the History walk reuse them.
@@ -11,9 +12,13 @@ import {
   MISSING_RANGES,
   TradeNumber,
   stockbitRowCodes,
+  stockbitRowFields,
+  batchRow,
+  type BatchRow,
   type BrokerCodesBatch,
   type BrokerCodesStatus,
   type TradeCodes,
+  type TradeFields,
   type WibDate,
 } from "@workspace/relay"
 import { Effect, Option, Schema } from "effect"
@@ -56,11 +61,13 @@ const RowNumber = Schema.Struct({ trade_number: TradeNumber })
 const decodePage = Schema.decodeUnknownOption(TapePage)
 const decodeRowNumber = Schema.decodeUnknownOption(RowNumber)
 
-// A row of the tape: its trade number, and its codes when they are valid.
+// A row of the tape: its trade number, and its codes and fields when they
+// are valid.
 interface TapeRow {
   readonly number: TradeNumber
   readonly value: bigint
   readonly codes: Option.Option<TradeCodes>
+  readonly fields: Option.Option<TradeFields>
 }
 
 interface Page {
@@ -95,8 +102,9 @@ const tapeUrl = (
     return `${RUNNING_TRADE_URL}?${params}`
   })
 
-// A page's rows that carry a trade number; a row without one is skipped.
-const pageOf = Effect.fnUntraced(function* (body: string) {
+// A page's rows of `day` that carry a trade number; a row without one is
+// skipped.
+const pageOf = Effect.fnUntraced(function* (day: WibDate, body: string) {
   const page = decodePage(body)
   if (Option.isNone(page)) return Option.none<Page>()
   const rows: Array<TapeRow> = []
@@ -108,6 +116,7 @@ const pageOf = Effect.fnUntraced(function* (body: string) {
       number,
       value: BigInt(number),
       codes: yield* stockbitRowCodes(raw),
+      fields: yield* stockbitRowFields(day, raw),
     })
   }
   return Option.some<Page>({ open: page.value.data.is_open_market, rows })
@@ -128,9 +137,10 @@ const walkedPast = Effect.fnUntraced(function* (
   return Option.some<Walked>({ highest, cursor: Option.some(last.number) })
 })
 
-// The highest trade number the day's status shows Stockbit reached; none to
-// start from trade 1, or "done" when the walk has nothing left to do: the
-// cross-check is compared, or Stockbit alone made the day complete.
+// The trade number to resume after: a page below the highest the day's
+// status shows Stockbit reached, or exactly where a pending walk stopped;
+// none to start from trade 1, or "done" when the walk has nothing left to
+// do: the cross-check is compared, or Stockbit alone made the day complete.
 const resumeFrom = Effect.fnUntraced(function* (status: BrokerCodesStatus) {
   const { crossCheck } = status
   if (crossCheck.state === "compared") return "done" as const
@@ -142,26 +152,38 @@ const resumeFrom = Effect.fnUntraced(function* (status: BrokerCodesStatus) {
   return yield* highestHeld(status)
 })
 
-// Stockbit's walk alone: the highest trade held, from a status that lists
-// from trade 1. While n is unknown, every trade up to it is held or missing.
-// Once n is known, a list that ends at n names the missing tail; a list cut
-// short at MISSING_RANGES may end before it, so the walk resumes after the
-// last range listed, a trade held, and walks the rest again.
+// Stockbit's walk alone: the trade to resume after, from a status that lists
+// from trade 1. While n is unknown the top is the higher of the trades with
+// codes and the trade past the last listed range. A codes-only row counts in
+// both `sources` and `missingCount`, so their sum would pass trades never
+// walked. Once n is known, a list that ends at n names the missing tail; a
+// list cut short at MISSING_RANGES may end before it, so the top is the
+// trade past the last range listed, a trade held, and the walk walks the
+// rest again.
+// Decision: the walk resumes a page (100) below that top, as the gap walk
+// pages from below a range: a codes-only row posted last before a cut can
+// lift the top above trades never seen, and Stockbit sends a second's trades
+// out of number order. A page walked again costs one call; a trade skipped
+// costs a run. See PR apinrdw/kumora#449.
 const highestHeld = Effect.fnUntraced(function* (status: BrokerCodesStatus) {
   let listed = 0n
   for (const [from, to] of status.missing)
     listed += BigInt(to) - BigInt(from) + 1n
   const last = status.missing.at(-1)
+  const withCodes = BigInt(status.sources.ajaib + status.sources.stockbit)
+  const pastLast = last === undefined ? 0n : BigInt(last[1]) + 1n
   let top =
     status.n === null
-      ? BigInt(status.sources.ajaib + status.sources.stockbit) +
-        BigInt(status.missingCount)
+      ? withCodes > pastLast
+        ? withCodes
+        : pastLast
       : BigInt(status.n)
   if (status.n !== null && last !== undefined)
     if (listed < BigInt(status.missingCount)) top = BigInt(last[1]) + 1n
     else if (BigInt(last[1]) === top) top = BigInt(last[0]) - 1n
-  return top > 0n
-    ? Option.some(TradeNumber.make(top.toString()))
+  const resume = top - BigInt(PAGE)
+  return resume > 0n
+    ? Option.some(TradeNumber.make(resume.toString()))
     : Option.none<TradeNumber>()
 })
 
@@ -227,8 +249,8 @@ export const makeStockbitWalk = Effect.fnUntraced(function* (options: {
       signedOut(false)
     )
 
-  // One call, asked again in place until it answers a page.
-  const call = Effect.fnUntraced(function* (url: string) {
+  // One call for `day`'s tape, asked again in place until it answers a page.
+  const call = Effect.fnUntraced(function* (day: WibDate, url: string) {
     while (true) {
       yield* guard
       const held = yield* cookie
@@ -253,7 +275,7 @@ export const makeStockbitWalk = Effect.fnUntraced(function* (options: {
         continue
       }
       if (answer.value.status === 200) {
-        const page = yield* pageOf(answer.value.body)
+        const page = yield* pageOf(day, answer.value.body)
         if (Option.isSome(page)) return page.value
       }
       yield* Effect.sleep(RETRY)
@@ -276,7 +298,7 @@ export const makeStockbitWalk = Effect.fnUntraced(function* (options: {
   const start = Effect.fnUntraced(function* (day: WibDate) {
     const url = yield* tapeUrl(day, { sort: "DESC" })
     while (true) {
-      const page = yield* call(url)
+      const page = yield* call(day, url)
       if (page.open === false) {
         const newest = page.rows[0]
         if (newest === undefined)
@@ -290,8 +312,9 @@ export const makeStockbitWalk = Effect.fnUntraced(function* (options: {
 
   // Pages forward after `from` (none: from trade 1) until a page comes back
   // empty, or `until` says the page just read was the last one needed. Each
-  // 10 calls' valid codes go up as one batch, and what is held goes up when
-  // the walk ends or stops.
+  // 10 calls' rows with valid codes go up as one batch, each with its fields
+  // when they are valid, and what is held goes up when the walk ends or
+  // stops.
   const forward = Effect.fnUntraced(function* (
     day: WibDate,
     from: Option.Option<TradeNumber>,
@@ -301,10 +324,10 @@ export const makeStockbitWalk = Effect.fnUntraced(function* (options: {
       highest: Option.match(from, { onNone: () => 0n, onSome: BigInt }),
       cursor: from,
     }
-    let held = new Map<TradeNumber, TradeCodes>()
+    let held = new Map<TradeNumber, BatchRow>()
     let calls = 0
     const flush = Effect.suspend(() => {
-      const rows = [...held]
+      const rows = [...held.values()]
       held = new Map()
       calls = 0
       return rows.length === 0 ? Effect.void : post({ day, rows })
@@ -312,6 +335,7 @@ export const makeStockbitWalk = Effect.fnUntraced(function* (options: {
     const pages = Effect.gen(function* () {
       while (true) {
         const page = yield* call(
+          day,
           yield* tapeUrl(day, { sort: "ASC", cursor: walked.cursor })
         )
         const next = yield* walkedPast(walked, page.rows)
@@ -320,7 +344,10 @@ export const makeStockbitWalk = Effect.fnUntraced(function* (options: {
         yield* trades(Number(walked.highest), dayN)
         for (const row of page.rows)
           if (row.value > 0n && Option.isSome(row.codes))
-            held.set(row.number, row.codes.value)
+            held.set(
+              row.number,
+              yield* batchRow(row.number, row.codes.value, row.fields)
+            )
         if (++calls >= CALLS_PER_BATCH) yield* flush
         if (until(page.rows)) return
       }
@@ -339,7 +366,7 @@ export const makeStockbitWalk = Effect.fnUntraced(function* (options: {
   const finish = Effect.fnUntraced(function* (day: WibDate, from: Walked) {
     let walked = from
     while (true) {
-      const head = yield* call(yield* tapeUrl(day, { sort: "DESC" }))
+      const head = yield* call(day, yield* tapeUrl(day, { sort: "DESC" }))
       const newest = head.rows[0]
       if (newest === undefined || newest.value <= walked.highest) break
       const more = yield* forward(day, walked.cursor)

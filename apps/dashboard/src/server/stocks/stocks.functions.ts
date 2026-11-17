@@ -1,15 +1,18 @@
 import { createServerFn } from "@tanstack/react-start"
 import { getRequest } from "@tanstack/react-start/server"
 import { runServerEffect } from "@workspace/server"
+import { WibDate } from "@workspace/relay"
 import { Effect, Layer, Schema } from "effect"
 
+import { RANGE_PRESETS } from "@/lib/broker-inventory"
 import { safeRedirect } from "@/lib/redirect"
 import { Auth } from "@/server/auth/auth"
+import { brokerTotalsDbD1 } from "@/server/broker-totals/db"
 import { holdingsDbD1 } from "@/server/holdings/db"
 
-import { stockListView, stockPageView } from "./stocks.ts"
+import { brokerInventoryView, stockListView, stockPageView } from "./stocks.ts"
 
-const services = Layer.mergeAll(Auth.layer, holdingsDbD1)
+const services = Layer.mergeAll(Auth.layer, holdingsDbD1, brokerTotalsDbD1)
 
 const decodeStockPage = Schema.decodeUnknownSync(
   Schema.Struct({
@@ -24,6 +27,27 @@ export const stockPageFn = createServerFn({ method: "GET" })
   .handler(({ data }) =>
     runServerEffect(
       stockPageView(getRequest().headers, data.code, data.month).pipe(
+        Effect.provide(services)
+      )
+    )
+  )
+
+const decodeBrokerInventory = Schema.decodeUnknownSync(
+  Schema.Struct({
+    code: Schema.String,
+    window: Schema.Union([
+      Schema.Struct({ range: Schema.Literals(RANGE_PRESETS) }),
+      Schema.Struct({ from: WibDate, to: WibDate }),
+    ]),
+  })
+)
+
+// The Broker inventory tab's read, in /stocks/$CODE's loader.
+export const brokerInventoryFn = createServerFn({ method: "GET" })
+  .validator(decodeBrokerInventory)
+  .handler(({ data }) =>
+    runServerEffect(
+      brokerInventoryView(getRequest().headers, data.code, data.window).pipe(
         Effect.provide(services)
       )
     )

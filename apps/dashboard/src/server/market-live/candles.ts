@@ -200,6 +200,15 @@ const printOf = (trade: RunningTrade): Print => {
   }
 }
 
+// One code's candle figures from its regular-board trades in one minute, as
+// the book would fold them: a walked day's build (order-flow-build.ts).
+export const figuresOfTrades = (trades: ReadonlyArray<RunningTrade>) =>
+  Effect.sync(() => {
+    let figures: CandleFigures | undefined
+    for (const trade of trades) figures = add(figures, printOf(trade))
+    return figures
+  })
+
 // One code's candle and footprint for one minute: what has settled, plus the
 // trades still inside the merge window, by trade number. Its sweeps are the
 // stored ones (`base`) carried on by the trades settled since the book took

@@ -17,10 +17,7 @@ import * as Redacted from "effect/Redacted"
 
 import { SENDER, SENDING_SUBDOMAIN } from "./src/server/auth/sender.ts"
 import type { RunParams } from "./src/server/archive/run.ts"
-import { KSEI_CRON, KSEI_PARSE_CRON } from "./src/server/ksei/schedule.ts"
-import { LOGO_CRON } from "./src/server/logos/schedule.ts"
-import { ARCHIVE_CRON, PARSE_CRON } from "./src/server/shareholding/schedule.ts"
-import { SECTOR_CRON } from "./src/server/sectors/schedule.ts"
+import { stageCrons } from "./src/server/stage-crons.ts"
 
 // scripts/auth-schema.ts replays the same directory for the drift check and
 // the handler test seam. apps/e2e/reset-test-stage.ts reads this resource's
@@ -37,6 +34,19 @@ const AuthDb = Cloudflare.D1.Database("AuthDb", { migrations: "./migrations" })
 // this id.
 const HoldingsDb = Cloudflare.D1.Database("HoldingsDb", {
   migrations: "./holdings-migrations",
+})
+
+// Each complete day's broker totals and candles: every stage's trading-day
+// objects write their own stage's, and its stock page reads them by range.
+// apps/e2e/reset-test-stage.ts reads its state file, BrokerTotalsDb.json, by
+// this id, and apps/e2e/support/broker-totals.ts seeds its tables by it, in
+// the migration's column order.
+// Decision: a D1 of its own, apart from HoldingsDb, with its own migrations,
+// so it can be reset or rebuilt alone. Read replication stays off
+// (Alchemy's default), as HoldingsDb's: a replica could serve a day
+// mid-write. See apinrdw/kumora#419.
+const BrokerTotalsDb = Cloudflare.D1.Database("BrokerTotalsDb", {
+  migrations: "./broker-totals-migrations",
 })
 
 // Decision: Production alone owns the mailer.pusat.ai sending subdomain; every
@@ -123,40 +133,11 @@ export const Website = Cloudflare.Website.Vite(
             ).pipe(Config.withDefault(Redacted.make("0"))),
           }
         : {}
-    // Decision: the archive cron is set by stage, on Production only, like
-    // Google sign-in: Alchemy's dev runtime fires a Worker's crons, so an
-    // ungated cron would make `pnpm dev`, and every Preview, call IDX. Other
-    // stages start a run with Run now only. See apinrdw/kumora#308.
-    const crons: { crons?: Array<string> } =
-      (yield* stageKind(stage)) === "production"
-        ? {
-            crons: [
-              ARCHIVE_CRON,
-              // Decision: the KSEI archive cron is gated the same way, so only
-              // Production calls ksei.co.id on a schedule; runCron
-              // (src/server/crons.ts) tells the two crons apart by expression.
-              // See apinrdw/kumora#326.
-              KSEI_CRON,
-              // Decision: the KSEI parse cron too, so only Production's
-              // HoldingsDb fills on a schedule, from the only bucket that
-              // holds reports. See apinrdw/kumora#359.
-              KSEI_PARSE_CRON,
-              // Decision: the shareholding parse cron too, for the KSEI
-              // parse cron's reason. See apinrdw/kumora#397.
-              PARSE_CRON,
-              // Decision: the sector cron too, so only Production reads
-              // IDX's company profiles on a schedule; any other stage's
-              // stock_sector stays empty. See apinrdw/kumora#427.
-              SECTOR_CRON,
-              // Decision: the logo sync too, so only Production copies
-              // Stockbit's logos. See apinrdw/kumora#432.
-              LOGO_CRON,
-            ],
-          }
-        : {}
+    // The stage's crons and their Decisions: src/server/stage-crons.ts.
+    const crons = stageCrons((yield* stageKind(stage)) === "production")
     return {
       ...(yield* websiteProps("dashboard", stage)),
-      ...crons,
+      crons,
       rootDir: import.meta.dirname,
       // Market Live's sockets ahead of TanStack Start, and the Durable Object
       // classes (spec apinrdw/kumora#138, "The custom Worker entry and the gate").
@@ -165,6 +146,7 @@ export const Website = Cloudflare.Website.Vite(
       env: {
         AUTH_DB: AuthDb,
         HOLDINGS_DB: HoldingsDb,
+        BROKER_TOTALS_DB: BrokerTotalsDb,
         AUTH_BASE_URL: yield* stageUrl("dashboard", stage),
         BETTER_AUTH_SECRET: Alchemy.makeRandom("BetterAuthSecret"),
         EMAIL: Cloudflare.Email.SendEmail("Email", {

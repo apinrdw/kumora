@@ -128,6 +128,7 @@ export const SOURCES: ReadonlyArray<{
   { source: "Stockbit", label: "Stockbit", dot: "bg-info" },
   { source: "Ajaib", label: "Ajaib", dot: "bg-vwap" },
   { source: "backfill", label: "Backfill", dot: "bg-neutral" },
+  { source: "walk", label: "Walk", dot: "bg-muted-foreground" },
 ]
 
 function SourceDots({ feeds }: { feeds: ReadonlyArray<Source> }) {

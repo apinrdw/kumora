@@ -112,17 +112,21 @@ describe("the broker codes route", () => {
     })
   )
 
-  it.effect("a batch of another version answers 426", () =>
-    Effect.gen(function* () {
-      const { reached, send } = yield* Effect.sync(setup)
-      const response = yield* send(PATH, {
-        method: "POST",
-        token: TOKEN,
-        body: yield* batch(BrokerCodesProtocolVersion + 1),
+  it.effect(
+    "a batch of another version, such as a version 2 extension's, answers 426",
+    () =>
+      Effect.gen(function* () {
+        const { reached, send } = yield* Effect.sync(setup)
+        for (const version of [2, BrokerCodesProtocolVersion + 1]) {
+          const response = yield* send(PATH, {
+            method: "POST",
+            token: TOKEN,
+            body: yield* batch(version),
+          })
+          assert.strictEqual(response.status, 426, String(version))
+        }
+        assert.deepStrictEqual(reached, [])
       })
-      assert.strictEqual(response.status, 426)
-      assert.deepStrictEqual(reached, [])
-    })
   )
 
   it.effect(

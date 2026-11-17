@@ -20,9 +20,10 @@ const acceptedIngestVersions: ReadonlyArray<unknown> = [
 // 2: market conditions carry delayed freshness and each delayed feed's lag.
 // 3: snapshots and deltas carry footprints, and deltas a selected code's
 // sweeps by minute (spec apinrdw/kumora#263).
-// 4: candles carry their buy value and sell value, and snapshots and deltas
+// 4: a trade's feeds may list `walk` (spec apinrdw/kumora#437).
+// 5: candles carry their buy value and sell value, and snapshots and deltas
 // the instant they were sent (spec apinrdw/kumora#427).
-export const ViewerProtocolVersion = 4
+export const ViewerProtocolVersion = 5
 
 // Decision: an extension that hits either code stops retrying that target and
 // shows it; any other close, 1006 included, retries with backoff. The token
@@ -239,10 +240,26 @@ export type ViewerUp = typeof Select.Type
 export const Side = Schema.Literals(["buy", "sell", "none"])
 
 // The market board: regular, cash (tunai), or negotiated.
-const Board = Schema.Literals(["RG", "TN", "NG"])
+export const Board = Schema.Literals(["RG", "TN", "NG"])
 
-// Where a running trade was seen: a live feed, or a backfill request's answer.
-const TradeSource = Schema.Literals(["Stockbit", "Ajaib", "backfill"])
+// Decision: a trade frame without `market_type` is on the regular board. The
+// 2026-11-09 probe saw no `market_type` on any of 44,360 TRADE frames, all
+// regular-board stocks; an unknown value is read the same way until a capture
+// shows the cash and negotiated boards' frames.
+// Ajaib's `market_type` and Stockbit's REST `market_board` both read this way.
+export const boardOf = (marketType: string | undefined) =>
+  Effect.succeed<typeof Board.Type>(
+    marketType === "TN" || marketType === "NG" ? marketType : "RG"
+  )
+
+// A number Stockbit's REST tape sends comma-grouped, such as "2,300"; NaN
+// when it isn't one.
+export const groupedNumber = (text: string) =>
+  Effect.succeed(Number(text.replaceAll(",", "")))
+
+// Where a running trade was seen: a live feed, a backfill request's answer,
+// or a walk after the close, on a day whose tape source is the walks.
+const TradeSource = Schema.Literals(["Stockbit", "Ajaib", "backfill", "walk"])
 
 // The shares in one IDX lot.
 export const SHARES_PER_LOT = 100

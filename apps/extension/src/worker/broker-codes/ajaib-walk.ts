@@ -1,16 +1,21 @@
 // Ajaib's walk of the newest closed day (spec apinrdw/kumora#244, "The
 // extension: the Ajaib walk"): the day's REST tape, one 3-minute block at a
 // time, then a repair pass over every block that took 2+ pages. Each page's
-// codes are posted to Production as one batch; `end` follows the repair.
+// rows with valid codes are posted to Production as one batch, each with its
+// fields when they are valid; `end` follows the repair.
 import {
   AjaibTradeNum,
   BrokerCodesProtocolVersion,
   WibDate,
   ajaibRowCodes,
+  ajaibRowFields,
   ajaibSequence,
+  batchRow,
   streamingEndOf,
+  type BatchRow,
   type BrokerCodesBatch,
   type TradeCodes,
+  type TradeFields,
   type TradeNumber,
 } from "@workspace/relay"
 import { Clock, DateTime, Effect, Option, Schema } from "effect"
@@ -73,8 +78,8 @@ const MarketStatus = Schema.fromJsonString(
 const TapePage = Schema.fromJsonString(
   Schema.Struct({ results: Schema.Array(Schema.Unknown) })
 )
-// What the walk reads of a row besides its codes. A row whose `date` isn't
-// a WIB date is skipped, so its trade counts as missing.
+// What the walk reads of a row besides its codes and fields. A row whose
+// `date` isn't a WIB date is skipped, so its trade counts as missing.
 const TapeRow = Schema.Struct({
   trade_num: AjaibTradeNum,
   date: WibDate,
@@ -94,6 +99,7 @@ interface PageRow {
   readonly timestamp: number
   readonly number: TradeNumber
   readonly codes: Option.Option<TradeCodes>
+  readonly fields: Option.Option<TradeFields>
 }
 
 interface TapeAnswer {
@@ -116,9 +122,31 @@ const pageRows = Effect.fnUntraced(function* (answer: Answer) {
       timestamp: row.value.timestamp,
       number: yield* ajaibSequence(row.value.trade_num),
       codes: yield* ajaibRowCodes(raw),
+      fields: yield* ajaibRowFields(raw),
     })
   }
   return Option.some<TapeAnswer>({ size: page.value.results.length, rows })
+})
+
+// The batch rows of `rows` on `day` inside [from, boundary) with valid
+// codes.
+const blockRows = Effect.fnUntraced(function* (
+  day: WibDate,
+  from: number,
+  boundary: number,
+  rows: ReadonlyArray<PageRow>
+) {
+  const kept: Array<BatchRow> = []
+  for (const row of rows) {
+    const inBlock =
+      row.date === day &&
+      row.timestamp >= from &&
+      row.timestamp < boundary &&
+      row.number !== "0"
+    if (inBlock && Option.isSome(row.codes))
+      kept.push(yield* batchRow(row.number, row.codes.value, row.fields))
+  }
+  return kept
 })
 
 export const makeAjaibWalk = Effect.fnUntraced(function* (options: {
@@ -287,15 +315,7 @@ export const makeAjaibWalk = Effect.fnUntraced(function* (options: {
         windowEnd,
         yield* tapePath(boundary, page, size)
       )
-      const kept = rows.flatMap((row) =>
-        row.date === day &&
-        row.timestamp >= from &&
-        row.timestamp < boundary &&
-        row.number !== "0" &&
-        Option.isSome(row.codes)
-          ? [[row.number, row.codes.value] as const]
-          : []
-      )
+      const kept = yield* blockRows(day, from, boundary, rows)
       if (kept.length > 0) yield* post({ day, rows: kept })
       if (size === PAGE_SIZE) {
         fetched += kept.length

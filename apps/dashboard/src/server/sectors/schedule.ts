@@ -1,8 +1,8 @@
-// The sector cron. Free of server imports, so alchemy.run.ts can read it.
+// The sector cron. Free of server imports, so ../stage-crons.ts can read it.
 
 // The sector cron (UTC): 22:00 WIB every day, after the evening archive run
 // (20:00) and the parse cron (21:00), so a run never overlaps their IDX
-// reads. alchemy.run.ts sets it on Production only, and runCron
+// reads. stageCrons sets it on Production only, and runCron
 // (../crons.ts) tells it from the archive crons by this expression.
 // Decision: IDX's terms of use forbid reading its site by automated means
 // without its consent; the owner accepted that exposure for this cron on

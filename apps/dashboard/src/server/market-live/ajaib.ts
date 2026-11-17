@@ -5,6 +5,7 @@ import {
   AjaibTradeNum,
   StockCode,
   ajaibTradeNumber,
+  boardOf,
   type RunningTrade,
   type WibDate,
 } from "@workspace/relay"
@@ -24,15 +25,6 @@ const AjaibTrade = Schema.Struct({
 const decodeTrade = Schema.decodeUnknownOption(
   Schema.fromJsonString(AjaibTrade)
 )
-
-// Decision: a trade frame without `market_type` is on the regular board. The
-// 2026-11-09 probe saw no `market_type` on any of 44,360 TRADE frames, all
-// regular-board stocks; an unknown value is read the same way until a capture
-// shows the cash and negotiated boards' frames.
-export const boardOf = (marketType: string | undefined) =>
-  Effect.succeed<RunningTrade["board"]>(
-    marketType === "TN" || marketType === "NG" ? marketType : "RG"
-  )
 
 // The running trades in one connection's frames that belong to `date`, under
 // their tape trade numbers.

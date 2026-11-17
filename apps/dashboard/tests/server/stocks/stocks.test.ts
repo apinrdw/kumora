@@ -1,9 +1,13 @@
 // Who may open a stock page: every signed-in account.
 import { assert, describe, it } from "@effect/vitest"
-import { Unauthorized } from "@workspace/server"
+import { Unauthorized, WorkerEnv } from "@workspace/server"
 import { Effect, Layer } from "effect"
 
-import { stockListView, stockPageView } from "@/server/stocks/stocks"
+import {
+  brokerInventoryView,
+  stockListView,
+  stockPageView,
+} from "@/server/stocks/stocks"
 
 import {
   ADMIN_EMAIL,
@@ -13,6 +17,7 @@ import {
   seam,
   send,
 } from "../auth/seam.ts"
+import { memoryBrokerTotalsDb } from "../broker-totals/memory-broker-totals-db.ts"
 import { memoryHoldingsDb } from "../holdings/memory-holdings-db.ts"
 
 const headers = (cookie?: string) =>
@@ -22,7 +27,13 @@ const stocks = () => {
   const auth = seam()
   return {
     ...auth,
-    layer: Layer.mergeAll(auth.layer, memoryHoldingsDb().layer),
+    layer: Layer.mergeAll(
+      auth.layer,
+      memoryHoldingsDb().layer,
+      memoryBrokerTotalsDb().layer,
+      // Market Live's clock, unshifted.
+      Layer.succeed(WorkerEnv)({} as unknown as WorkerEnv["Service"])
+    ),
   }
 }
 
@@ -50,6 +61,14 @@ describe("the stock page", () => {
         error,
         new Unauthorized({ redirectTo: "/sign-in?redirect=%2Fstocks%2FBBCA" })
       )
+      assert.deepStrictEqual(
+        yield* Effect.flip(
+          brokerInventoryView(headers(), "BBCA", { range: "3M" })
+        ),
+        new Unauthorized({
+          redirectTo: "/sign-in?redirect=%2Fstocks%2FBBCA%3Ftab%3Dbrokers",
+        })
+      )
       const list = yield* Effect.flip(stockListView(headers(), "/stocks/BBCA"))
       assert.strictEqual(list._tag, "Unauthorized")
     }).pipe(Effect.provide(layer))
@@ -65,6 +84,10 @@ describe("the stock page", () => {
         yield* stockListView(headers(cookie), "/stocks/BBCA"),
         []
       )
+      const inventory = yield* brokerInventoryView(headers(cookie), "BBCA", {
+        range: "3M",
+      })
+      assert.deepStrictEqual(inventory.days, [])
     }).pipe(Effect.provide(layer))
   })
 
@@ -76,6 +99,10 @@ describe("the stock page", () => {
         stockPageView(headers(cookie), "bbca", undefined)
       )
       assert.strictEqual(error._tag, "NotFound")
+      const inventory = yield* Effect.flip(
+        brokerInventoryView(headers(cookie), "bbca", { range: "3M" })
+      )
+      assert.strictEqual(inventory._tag, "NotFound")
     }).pipe(Effect.provide(layer))
   })
 })

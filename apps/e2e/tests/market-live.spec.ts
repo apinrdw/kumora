@@ -40,7 +40,7 @@ test.describe("signed in", () => {
     await expect(row(22265).getByRole("img")).toHaveAccessibleName("Ajaib")
     await expect(
       tape.getByRole("list", { name: "Sources" }).getByRole("listitem")
-    ).toHaveText(["Stockbit", "Ajaib", "Backfill"])
+    ).toHaveText(["Stockbit", "Ajaib", "Backfill", "Walk"])
 
     // After: a delta. 22266 arrives late and sorts below 22268.
     await relay.sendAjaib(frames.slice(10, 20))

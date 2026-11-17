@@ -32,21 +32,25 @@ const LANE = 16
 
 // Whether the target lacks a trade, from a status that lists from trade 1:
 // one in a missing range, or past the highest it holds. While its `n` is
-// unknown, that is every trade it holds plus the missing ones below it. A
-// list cut short at MISSING_RANGES counts every trade past its last range as
-// lacked, so the catch-up resends some the target holds, which changes
-// nothing.
+// unknown, that is known only as the trade just past its last range, as a
+// range ends below a trade held: a codes-only row counts in both `sources`
+// and the ranges. A list cut short at MISSING_RANGES counts every trade past
+// its last range as lacked. Either way the catch-up resends some trades the
+// target holds, which changes nothing.
 const lacks = (status: BrokerCodesStatus) =>
   Effect.sync(() => {
     const ranges = status.missing.map(
       ([from, to]) => [Number(from), Number(to)] as const
     )
     const listed = ranges.reduce((sum, [from, to]) => sum + to - from + 1, 0)
+    const last = ranges.at(-1)?.[1]
     const highest =
       listed < status.missingCount
-        ? (ranges.at(-1)?.[1] ?? 0)
+        ? (last ?? 0)
         : status.n === null
-          ? status.sources.ajaib + status.sources.stockbit + listed
+          ? last === undefined
+            ? 0
+            : last + 1
           : Number(status.n)
     return (number: TradeNumber) => {
       const trade = Number(number)

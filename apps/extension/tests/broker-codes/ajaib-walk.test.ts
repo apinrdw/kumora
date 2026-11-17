@@ -1,6 +1,11 @@
 import { assert, describe, it } from "@effect/vitest"
-import { WibDate, type BrokerCodesBatch } from "@workspace/relay"
-import { Clock, Effect, Exit, Fiber, Option } from "effect"
+import {
+  StockCode,
+  WibDate,
+  type BrokerCodesBatch,
+  type TradeFields,
+} from "@workspace/relay"
+import { Clock, DateTime, Effect, Exit, Fiber, Option } from "effect"
 import { TestClock } from "effect/testing"
 
 import {
@@ -34,6 +39,9 @@ const dayTrades = () => {
   return times
 }
 const N = 18_200
+const TIMES = dayTrades()
+// The tape calls the codes-only walk made of this day.
+const CALLS = 166
 
 interface TapeRow {
   readonly number: number
@@ -56,6 +64,18 @@ const STATUS = (status: number): Answer => ({
 
 const STATUS_PATH = "v1/stock/data/trading-day/time/"
 
+// The fields but the time the fake tape gives each trade, its own for each
+// number: every 50th on the negotiated board, an odd lot; a buy, a sell, or
+// neither in turn.
+const fieldsOf = (number: number): Omit<TradeFields, "time"> => ({
+  code: StockCode.make(number % 2 === 0 ? "BBCA" : "TLKM"),
+  price: 8_000 + (number % 40) * 25,
+  lots: number % 50 === 0 ? 0.5 : 1 + (number % 7),
+  board: number % 50 === 0 ? "NG" : "RG",
+  side: (["buy", "sell", "none"] as const)[number % 3]!,
+})
+const SIDES = { buy: "BUY", sell: "SELL", none: "" } as const
+
 const paramOf = (path: string, name: string) =>
   Number(new URL(path, "https://ht2.ajaib.co.id/api/").searchParams.get(name))
 const sizeOf = (path: string) => paramOf(path, "page_size")
@@ -75,6 +95,8 @@ const fakeAjaib = (
     readonly token?: (now: number) => string
     // Whether a page's first row comes without a trade number.
     readonly malformed?: (path: string) => boolean
+    // Trades the tape sends with codes but zero lots.
+    readonly badLots?: ReadonlySet<number>
     // Overrides the tape's answer to a call, by its 1-based index.
     readonly answer?: (
       request: TabRequest,
@@ -105,7 +127,13 @@ const fakeAjaib = (
       page_size: size,
       total_pages: 2,
       results: before.slice(offset, offset + size).map((row, index) => ({
-        stock_code: "BBCA",
+        stock_code: fieldsOf(row.number).code,
+        price: fieldsOf(row.number).price,
+        lot: options.badLots?.has(row.number)
+          ? null
+          : fieldsOf(row.number).lots,
+        ...(fieldsOf(row.number).board === "NG" ? { market_type: "NG" } : {}),
+        side: SIDES[fieldsOf(row.number).side],
         trade_num:
           malformed && index === 0
             ? "not a trade number"
@@ -167,6 +195,15 @@ const fakeProduction = () => {
         batches.push(batch)
         return "sent"
       }),
+    // Each posted trade's fields.
+    fields: () =>
+      new Map(
+        batches.flatMap((batch) =>
+          batch.rows.flatMap(([number, , fields]) =>
+            fields === undefined ? [] : [[Number(number), fields] as const]
+          )
+        )
+      ),
     // The trade numbers posted with codes.
     held: () =>
       new Set(
@@ -222,6 +259,8 @@ describe("Ajaib's walk of the day", () => {
         const walk = yield* walkWith(tab, production)
         assert.deepStrictEqual(yield* walk.walk(DAY), { _tag: "walked" })
         assert.deepStrictEqual(missingOf(production.held()), [])
+        // As many calls as before walks posted fields (apinrdw/kumora#440).
+        assert.lengthOf(tab.tapeCalls(), CALLS)
         // The first pass alone left one trade missing at each seam.
         assert.lengthOf(missingOf(beforeRepair), 3)
         assert.deepStrictEqual(production.ends(), [{ n: String(N) }])
@@ -253,6 +292,43 @@ describe("Ajaib's walk of the day", () => {
         const walk = yield* walkWith(tab, production)
         assert.deepStrictEqual(yield* walk.walk(DAY), { _tag: "walked" })
         assert.deepStrictEqual(missingOf(production.held()), [])
+      })
+  )
+
+  it.effect(
+    "posts each trade's own fields, its time and side, with its codes",
+    () =>
+      Effect.gen(function* () {
+        yield* TestClock.setTime(wib("2026-11-12", "17:30:00"))
+        const production = fakeProduction()
+        const walk = yield* walkWith(fakeAjaib(), production)
+        assert.deepStrictEqual(yield* walk.walk(DAY), { _tag: "walked" })
+        const fields = production.fields()
+        assert.strictEqual(fields.size, N)
+        for (let number = 1; number <= N; number++)
+          assert.deepStrictEqual(fields.get(number), {
+            ...fieldsOf(number),
+            time: DateTime.makeUnsafe(TIMES[number - 1]!),
+          })
+      })
+  )
+
+  it.effect(
+    "posts the codes alone of a trade whose row has codes but no valid fields",
+    () =>
+      Effect.gen(function* () {
+        yield* TestClock.setTime(wib("2026-11-12", "17:30:00"))
+        const production = fakeProduction()
+        const walk = yield* walkWith(
+          fakeAjaib({ badLots: new Set([7, 12_345]) }),
+          production
+        )
+        assert.deepStrictEqual(yield* walk.walk(DAY), { _tag: "walked" })
+        assert.deepStrictEqual(missingOf(production.held()), [])
+        const fields = production.fields()
+        assert.strictEqual(fields.size, N - 2)
+        assert.isFalse(fields.has(7))
+        assert.isFalse(fields.has(12_345))
       })
   )
 

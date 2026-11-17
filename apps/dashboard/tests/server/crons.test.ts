@@ -2,6 +2,8 @@ import { afterEach, assert, describe, it } from "@effect/vitest"
 import { Effect } from "effect"
 import { vi } from "vitest"
 
+import { timesWib } from "@/server/archive/schedule"
+import { RECONCILE_CRON } from "@/server/broker-totals/schedule"
 import {
   KSEI_CRON,
   KSEI_PARSE_CRON,
@@ -38,10 +40,15 @@ const runLogoCron = vi.fn<() => Promise<void>>(() =>
   Effect.runPromise(Effect.void)
 )
 vi.mock("@/server/logos/cron", () => ({ runLogoCron }))
+const runReconcileCron = vi.fn<() => Promise<void>>(() =>
+  Effect.runPromise(Effect.void)
+)
 vi.mock("@/server/ksei/cron", () => ({ runKseiCron, runKseiParseCron }))
 vi.mock("@/server/shareholding/cron", () => ({ runArchiveCron, runParseCron }))
+vi.mock("@/server/broker-totals/cron", () => ({ runReconcileCron }))
 
 const { runCron } = await import("@/server/crons")
+const { stageCrons } = await import("@/server/stage-crons")
 
 const scheduledTime = Date.parse("2026-11-14T03:00:00Z")
 
@@ -110,6 +117,43 @@ describe("a cron firing", () => {
         assert.strictEqual(runKseiCron.mock.calls.length, 0)
         assert.strictEqual(runKseiParseCron.mock.calls.length, 0)
       })
+  )
+
+  it.effect(
+    "starts the broker totals reconcile, and no archive or parse run, on the reconcile cron",
+    () =>
+      Effect.gen(function* () {
+        yield* Effect.promise(() => runCron(RECONCILE_CRON, scheduledTime))
+
+        assert.strictEqual(runReconcileCron.mock.calls.length, 1)
+        assert.strictEqual(runArchiveCron.mock.calls.length, 0)
+        assert.strictEqual(runParseCron.mock.calls.length, 0)
+        assert.strictEqual(runKseiCron.mock.calls.length, 0)
+        assert.strictEqual(runKseiParseCron.mock.calls.length, 0)
+      })
+  )
+
+  it.effect(
+    "sets the reconcile cron on every stage, the archive, parse, sector and logo crons on Production only",
+    () =>
+      Effect.gen(function* () {
+        assert.deepStrictEqual(stageCrons(false), [RECONCILE_CRON])
+        assert.sameMembers(stageCrons(true), [
+          RECONCILE_CRON,
+          ARCHIVE_CRON,
+          KSEI_CRON,
+          KSEI_PARSE_CRON,
+          PARSE_CRON,
+          SECTOR_CRON,
+          LOGO_CRON,
+        ])
+      })
+  )
+
+  it.effect("fires the reconcile cron at 18:00 WIB, after the seal", () =>
+    Effect.gen(function* () {
+      assert.strictEqual(yield* timesWib(RECONCILE_CRON), "18:00 WIB")
+    })
   )
 
   it.effect("fires the parse cron an hour after the evening archive run", () =>

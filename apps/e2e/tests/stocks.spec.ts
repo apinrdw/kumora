@@ -4,6 +4,11 @@ import { expect, test } from "../support/test"
 
 import { ADMIN, DASHBOARD, MEMBER } from "../support/accounts"
 import {
+  type SeededDay,
+  seedBrokerTotals,
+  tradingDaysBeforeToday,
+} from "../support/broker-totals"
+import {
   seedClassificationMonths,
   seedInvestorTypeMonths,
   seedKseiMonths,
@@ -434,6 +439,30 @@ test.describe.serial("the stock page", () => {
       await expect(page).toHaveURL(/\/stocks\/WBSA$/)
       await expect(page.getByRole("heading", { level: 1 })).toHaveText(
         `WBSA ${WBSA}`
+      )
+    })
+
+    test("switching stock carries the Broker inventory view and drops single brokers", async ({
+      page,
+    }) => {
+      await page.goto(
+        `${DASHBOARD}/stocks/BBCA?tab=brokers&range=1Y&measure=value&investor=domestic&brokers=MG%2Csell`
+      )
+      const picker = page.getByRole("combobox", { name: "Stock", exact: true })
+      await expect(async () => {
+        await picker.blur()
+        await picker.fill("WB")
+        await expect(page.getByRole("option", { name: /WBSA/ })).toBeVisible({
+          timeout: 1000,
+        })
+      }).toPass()
+      await page.getByRole("option", { name: /WBSA/ }).click()
+      await expect(page).toHaveURL(
+        /\/stocks\/WBSA\?tab=brokers&range=1Y&measure=value&investor=domestic&brokers=sell$/
+      )
+      await expect(lensPick(page, "Investor", "Domestic")).toHaveAttribute(
+        "aria-pressed",
+        "true"
       )
     })
 
@@ -1045,5 +1074,445 @@ test.describe.serial("the stock page", () => {
   test("sends a visitor with no session to sign-in", async ({ page }) => {
     await page.goto(`${DASHBOARD}/stocks/BBCA`)
     await expect(page).toHaveURL(/\/sign-in\?redirect=%2Fstocks%2FBBCA/)
+  })
+})
+
+// BBCA's last 80 trading days before today, with the one 25 trading days
+// back never built. Ten brokers buy or sell the same lots every day; over
+// the last 10 days NI turns from seller to the biggest buyer and MG the
+// other way, so 2W's Top 5 differ from 3M's.
+const STEADY = {
+  YP: 100,
+  PD: 80,
+  CC: 60,
+  KZ: 40,
+  AK: 30,
+  BK: -100,
+  ZP: -80,
+  RX: -60,
+  CS: -40,
+  DX: -30,
+} as const
+const TOP_3M = Object.keys(STEADY)
+const BROKER_DAYS: ReadonlyArray<SeededDay> = tradingDaysBeforeToday(80)
+  .map((day, index) => {
+    const late = index >= 70
+    const nets: Record<string, number> = {
+      ...STEADY,
+      NI: late ? 500 : -100,
+      MG: late ? -500 : 100,
+    }
+    return {
+      day,
+      price: 9_000,
+      flows: Object.entries(nets).map(([broker, net]) => ({
+        broker,
+        investorType: broker === "KZ" || broker === "BK" ? "F" : "D",
+        buyLots: Math.max(net, 0) + 20,
+        sellLots: Math.max(-net, 0) + 20,
+      })),
+    } satisfies SeededDay
+  })
+  .filter((_, index) => index !== 55)
+
+const brokerInventory = (page: Page) =>
+  page.getByRole("region", { name: "Broker inventory" })
+
+const inventoryChart = (page: Page) =>
+  brokerInventory(page).getByRole("img", { name: "Broker inventory chart" })
+
+// The brokers the chart draws a line for, in its order.
+const plotted = (page: Page) =>
+  inventoryChart(page)
+    .locator("[data-broker]")
+    .evaluateAll((lines) =>
+      lines.map((line) => line.getAttribute("data-broker"))
+    )
+
+// The chart's candle bodies, each a link to its day in Market Live.
+const candles = (page: Page) =>
+  inventoryChart(page).getByRole("link", { name: /in Market Live$/ })
+
+const candleOf = (page: Page, day: string) =>
+  candles(page).and(page.locator(`[href$="day=${day}"]`))
+
+const rangePreset = (page: Page, label: string) =>
+  brokerInventory(page)
+    .getByRole("group", { name: "Range" })
+    .getByRole("button", {
+      name: label,
+      exact: true,
+    })
+
+const summaryTable = (page: Page) =>
+  brokerInventory(page).getByRole("table", { name: "Broker summary" })
+
+// A summary row, by its broker code.
+const summaryRow = (page: Page, broker: string) =>
+  summaryTable(page)
+    .locator("tbody tr")
+    .filter({
+      has: page.getByRole("rowheader", { name: new RegExp(`^${broker}`) }),
+    })
+
+const chips = (page: Page) =>
+  brokerInventory(page).getByRole("list", { name: "Plotted brokers" })
+
+const lensPick = (page: Page, group: string, label: string) =>
+  brokerInventory(page)
+    .getByRole("group", { name: group })
+    .getByRole("button", { name: label, exact: true })
+
+// The hover-day panel and the drag selection's.
+const dayPanel = (page: Page) =>
+  brokerInventory(page).getByRole("region", { name: "Day", exact: true })
+
+const selectionPanel = (page: Page) =>
+  brokerInventory(page).getByRole("region", { name: "Selection", exact: true })
+
+// The middle of `day`'s candle body: the chart's x for that day.
+const candleCentre = async (page: Page, day: string) => {
+  const box = await candleOf(page, day).boundingBox()
+  if (box === null) throw new Error(`no candle for ${day}`)
+  return { x: box.x + box.width / 2, y: box.y + box.height / 2 }
+}
+
+// The day a panel's date link opens.
+const linkedDay = (side: ReturnType<typeof dayPanel>) =>
+  side
+    .getByRole("link", { name: /in Market Live$/ })
+    .first()
+    .getAttribute("href")
+    .then((href) => href?.replace(/.*day=/, ""))
+
+test.describe.serial("the Broker inventory tab", () => {
+  test.beforeAll(() => {
+    seedBrokerTotals("BBCA", BROKER_DAYS)
+  })
+
+  test.use({ storageState: MEMBER.storageState })
+
+  test("opens from the tab bar on Top 5 net buy and sell over 3M", async ({
+    page,
+  }) => {
+    await page.goto(`${DASHBOARD}/stocks/BBCA`)
+    const tab = page
+      .getByRole("tablist", { name: "Stock views" })
+      .getByRole("tab", { name: "Broker inventory" })
+    await expect(async () => {
+      await tab.click()
+      await expect(page).toHaveURL(/\?tab=brokers$/, { timeout: 1000 })
+    }).toPass()
+    await expect(tab).toHaveAttribute("aria-selected", "true")
+    await expect(rangePreset(page, "3M")).toHaveAttribute(
+      "aria-pressed",
+      "true"
+    )
+    await expect.poll(() => plotted(page)).toStrictEqual(TOP_3M)
+    for (const broker of TOP_3M)
+      await expect(
+        inventoryChart(page).getByText(broker, { exact: true })
+      ).toBeVisible()
+    // The day never built is a band the lines cross dotted.
+    await expect(inventoryChart(page).locator("[data-gap]")).toHaveCount(1)
+    await expect(inventoryChart(page).locator("[data-zero]")).toHaveCount(1)
+    await expect(brokerInventory(page)).toContainText(/Today \(.+\) is pending/)
+  })
+
+  test("opens from ?tab=brokers and re-ranks for another preset", async ({
+    page,
+  }) => {
+    await page.goto(`${DASHBOARD}/stocks/BBCA?tab=brokers`)
+    await expect.poll(() => plotted(page)).toStrictEqual(TOP_3M)
+    await expect(async () => {
+      await rangePreset(page, "2W").click()
+      await expect(page).toHaveURL(/[?&]range=2W/, { timeout: 1000 })
+    }).toPass()
+    await expect
+      .poll(() => plotted(page))
+      .toStrictEqual([
+        "NI",
+        "YP",
+        "PD",
+        "CC",
+        "KZ",
+        "MG",
+        "BK",
+        "ZP",
+        "RX",
+        "CS",
+      ])
+    await expect(inventoryChart(page).locator("[data-gap]")).toHaveCount(0)
+    await page.reload()
+    await expect(rangePreset(page, "2W")).toHaveAttribute(
+      "aria-pressed",
+      "true"
+    )
+    await expect.poll(() => plotted(page)).toContain("NI")
+    // Back to the default leaves the range out of the URL.
+    // The reload's page may not have hydrated yet.
+    await expect(async () => {
+      await rangePreset(page, "3M").click()
+      await expect(page).toHaveURL(/\/stocks\/BBCA\?tab=brokers$/, {
+        timeout: 1000,
+      })
+    }).toPass()
+    await expect.poll(() => plotted(page)).toStrictEqual(TOP_3M)
+  })
+
+  test("the investor filter and measure reshape the summary and lines, and a reload keeps them", async ({
+    page,
+  }) => {
+    // 1Y holds all 80 days.
+    await page.goto(`${DASHBOARD}/stocks/BBCA?tab=brokers&range=1Y`)
+    const rows = summaryTable(page).locator("tbody tr")
+    await expect(rows).toHaveCount(12)
+    // 69 days of 650 lots and 10 of 1,050, a trade every 5 lots.
+    await expect(brokerInventory(page)).toContainText(
+      "12 brokers · 55.35 K lots traded · 11.07 K trades counted · regular board + auction matches · 1 incomplete day skipped"
+    )
+    await expect(summaryRow(page, "YP")).toContainText("+7,900")
+    await expect(async () => {
+      await lensPick(page, "Investor", "Foreign").click()
+      await expect(page).toHaveURL(/[?&]investor=foreign/, { timeout: 1000 })
+    }).toPass()
+    // Only KZ and BK trade for foreign investors.
+    await expect.poll(() => plotted(page)).toStrictEqual(["KZ", "BK"])
+    await expect(rows).toHaveCount(2)
+    await expect(summaryRow(page, "KZ")).toContainText(/^KZ\s*F/)
+    await lensPick(page, "Measure", "Net value").click()
+    await expect(page).toHaveURL(/[?&]measure=value/)
+    await expect(
+      summaryTable(page).getByRole("columnheader", { name: "Net value" })
+    ).toBeVisible()
+    // 79 built days of 40 lots at 9,000.
+    await expect(summaryRow(page, "KZ")).toContainText("+Rp2.84 B")
+    await expect(inventoryChart(page)).toContainText(/ B/)
+    await page.reload()
+    await expect(lensPick(page, "Investor", "Foreign")).toHaveAttribute(
+      "aria-pressed",
+      "true"
+    )
+    await expect(lensPick(page, "Measure", "Net value")).toHaveAttribute(
+      "aria-pressed",
+      "true"
+    )
+    await expect.poll(() => plotted(page)).toStrictEqual(["KZ", "BK"])
+    await expect(summaryRow(page, "KZ")).toContainText("+Rp2.84 B")
+  })
+
+  test("adds a broker from its summary row, and its chip's ✕ removes it", async ({
+    page,
+  }) => {
+    // Over 1Y, as over 3M, MG is a net buyer outside the Top 5.
+    await page.goto(`${DASHBOARD}/stocks/BBCA?tab=brokers&range=1Y`)
+    await expect.poll(() => plotted(page)).toStrictEqual(TOP_3M)
+    await expect(async () => {
+      await summaryRow(page, "MG").click()
+      await expect(page).toHaveURL(/[?&]brokers=buy%2Csell%2CMG/, {
+        timeout: 1000,
+      })
+    }).toPass()
+    await expect.poll(() => plotted(page)).toStrictEqual([...TOP_3M, "MG"])
+    await expect(
+      brokerInventory(page).getByRole("list", { name: "Net buy" })
+    ).toContainText("MG")
+    await chips(page)
+      .getByRole("button", { name: "Remove Top 5 net sell" })
+      .click()
+    await expect(page).toHaveURL(/[?&]brokers=buy%2CMG/)
+    await expect
+      .poll(() => plotted(page))
+      .toStrictEqual([...TOP_3M.slice(0, 5), "MG"])
+    await page.reload()
+    await expect
+      .poll(() => plotted(page))
+      .toStrictEqual([...TOP_3M.slice(0, 5), "MG"])
+    await expect(async () => {
+      await chips(page).getByRole("button", { name: "Remove MG" }).click()
+      await expect(page).toHaveURL(/[?&]brokers=buy$/, { timeout: 1000 })
+    }).toPass()
+    await expect.poll(() => plotted(page)).toStrictEqual(TOP_3M.slice(0, 5))
+    await chips(page).getByRole("button", { name: "Top 5 net sell" }).click()
+    // Both groups again are the default, left out of the URL.
+    await expect(page).toHaveURL(/\/stocks\/BBCA\?tab=brokers&range=1Y$/)
+    await expect.poll(() => plotted(page)).toStrictEqual(TOP_3M)
+  })
+
+  test("keeps no chips as an empty list", async ({ page }) => {
+    await page.goto(`${DASHBOARD}/stocks/BBCA?tab=brokers&brokers=`)
+    await expect(summaryTable(page).locator("tbody tr")).toHaveCount(12)
+    await expect.poll(() => plotted(page)).toStrictEqual([])
+    await page.reload()
+    await expect(page).toHaveURL(/[?&]brokers=$/)
+    await expect.poll(() => plotted(page)).toStrictEqual([])
+  })
+
+  test("opens a candle's day in Market Live, and Back restores the view", async ({
+    page,
+  }) => {
+    const newest = BROKER_DAYS.at(-1)?.day ?? ""
+    const gap = tradingDaysBeforeToday(80)[55] ?? ""
+    await page.goto(`${DASHBOARD}/stocks/BBCA?tab=brokers`)
+    // 3M's built days each have a candle and a volume bar; its gap has none.
+    await expect(candleOf(page, newest)).toHaveCount(1)
+    const built = await candles(page).count()
+    await expect(inventoryChart(page).locator("[data-volume]")).toHaveCount(
+      built
+    )
+    await expect(inventoryChart(page).locator("[data-gap]")).toHaveCount(1)
+    await expect(candleOf(page, gap)).toHaveCount(0)
+    await expect(async () => {
+      await rangePreset(page, "2W").click()
+      await expect(page).toHaveURL(/[?&]range=2W/, { timeout: 1000 })
+    }).toPass()
+    await expect.poll(() => plotted(page)).toContain("NI")
+    const shown = await candles(page).count()
+    const twoWeeks = await plotted(page)
+    await candleOf(page, newest).click()
+    await expect(page).toHaveURL(
+      `${DASHBOARD}/market-live?code=BBCA&day=${newest}`
+    )
+    await page.goBack()
+    await expect(page).toHaveURL(
+      `${DASHBOARD}/stocks/BBCA?tab=brokers&range=2W`
+    )
+    await expect(rangePreset(page, "2W")).toHaveAttribute(
+      "aria-pressed",
+      "true"
+    )
+    await expect.poll(() => plotted(page)).toStrictEqual(twoWeeks)
+    await expect(candles(page)).toHaveCount(shown)
+  })
+
+  test("hovering reads a day; a click on empty space pins it, Esc or another click unpins, and the URL never changes", async ({
+    page,
+  }) => {
+    const days = tradingDaysBeforeToday(80)
+    const [first = "", second = "", third = ""] = [days[60], days[65], days[70]]
+    const url = `${DASHBOARD}/stocks/BBCA?tab=brokers&range=1Y`
+    await page.goto(url)
+    // With nothing hovered, the newest day.
+    await expect.poll(() => linkedDay(dayPanel(page))).toBe(days.at(-1))
+    // Above a candle: empty space, whatever the lines cross there.
+    const above = async (day: string) => {
+      const { x, y } = await candleCentre(page, day)
+      return { x, y: y - 40 }
+    }
+    let empty = { x: 0, y: 0 }
+    await expect(async () => {
+      // Measured each try: until the page hydrates, the chart is drawn at
+      // its default width.
+      empty = await above(first)
+      await page.mouse.move(empty.x - 2, empty.y)
+      await page.mouse.move(empty.x, empty.y)
+      await expect
+        .poll(() => linkedDay(dayPanel(page)), { timeout: 1000 })
+        .toBe(first)
+    }).toPass()
+    // YP buys a steady 100 lots a day: day 60 is its 60th built day, 0 to 59
+    // less the gap at 55, so 60 × 100 by then.
+    await expect(
+      dayPanel(page)
+        .getByRole("row")
+        .filter({ has: page.getByRole("rowheader", { name: "YP" }) })
+        .getByRole("cell")
+    ).toHaveText(["+6,000", "+100", "9,000", "9,000"])
+    await page.mouse.click(empty.x, empty.y)
+    await expect(dayPanel(page)).toContainText("Pinned")
+    await expect(
+      inventoryChart(page).locator('[data-marker="pinned"]')
+    ).toHaveCount(1)
+    const elsewhere = await above(second)
+    await page.mouse.move(elsewhere.x, elsewhere.y)
+    await expect.poll(() => linkedDay(dayPanel(page))).toBe(first)
+    await page.keyboard.press("Escape")
+    await expect(dayPanel(page)).not.toContainText("Pinned")
+    await page.mouse.move(elsewhere.x + 1, elsewhere.y)
+    await expect.poll(() => linkedDay(dayPanel(page))).toBe(second)
+    // Another click unpins too.
+    await page.mouse.click(elsewhere.x, elsewhere.y)
+    await expect(dayPanel(page)).toContainText("Pinned")
+    const last = await above(third)
+    await page.mouse.click(last.x, last.y)
+    await expect(dayPanel(page)).not.toContainText("Pinned")
+    await expect(page).toHaveURL(url)
+  })
+
+  test("a drag selects days, a reload keeps them, and a date opens Market Live with Back restoring them", async ({
+    page,
+  }) => {
+    const days = tradingDaysBeforeToday(80)
+    const [from = "", to = ""] = [days[60], days[69]]
+    await page.goto(`${DASHBOARD}/stocks/BBCA?tab=brokers&range=1Y`)
+    await expect(candleOf(page, from)).toHaveCount(1)
+    // From one candle's body to another's: a drag, which opens neither.
+    await expect(async () => {
+      const start = await candleCentre(page, from)
+      const end = await candleCentre(page, to)
+      await page.mouse.move(start.x, start.y)
+      await page.mouse.down()
+      await page.mouse.move(end.x, end.y, { steps: 8 })
+      await page.mouse.up()
+      await expect(page).toHaveURL(
+        new RegExp(`[?&]selFrom=${from}&selTo=${to}`),
+        { timeout: 1000 }
+      )
+    }).toPass()
+    await expect(page).toHaveURL(/\/stocks\/BBCA\?/)
+    const selection = selectionPanel(page)
+    await expect(selection).toContainText("10 days")
+    await expect(selection).toContainText("0.00%")
+    await expect(inventoryChart(page).locator("[data-selection]")).toHaveCount(
+      1
+    )
+    const rows = selection.locator("tbody tr")
+    await expect(rows).toHaveCount(10)
+    // By net over the 10 days: YP's steady 100 a day first, BK's −100 last.
+    await expect(rows.first()).toContainText("YP+1,000")
+    await expect(rows.last()).toContainText("BK−1,000")
+    // Every lot the plotted brokers bought, one of them sold: the Top 5
+    // each side net out to 0 over these days.
+    await expect(selection.locator("tfoot")).toContainText("Total0")
+    await page.reload()
+    await expect(selectionPanel(page)).toContainText("10 days")
+    await expect.poll(() => linkedDay(selectionPanel(page))).toBe(from)
+    await expect(async () => {
+      await selectionPanel(page)
+        .getByRole("link", { name: /in Market Live$/ })
+        .first()
+        .click()
+      await expect(page).toHaveURL(
+        `${DASHBOARD}/market-live?code=BBCA&day=${from}`,
+        { timeout: 1000 }
+      )
+    }).toPass()
+    await page.goBack()
+    await expect(page).toHaveURL(new RegExp(`[?&]selFrom=${from}&selTo=${to}`))
+    await expect(selectionPanel(page)).toContainText("10 days")
+    // Back may reload the page, which may not have hydrated yet.
+    await expect(async () => {
+      await selectionPanel(page).getByRole("button", { name: "Clear" }).click()
+      await expect(page).toHaveURL(
+        `${DASHBOARD}/stocks/BBCA?tab=brokers&range=1Y`,
+        { timeout: 1000 }
+      )
+    }).toPass()
+    await expect(selectionPanel(page)).toHaveCount(0)
+  })
+
+  test("a link whose selection falls outside the range drops it from the URL", async ({
+    page,
+  }) => {
+    const days = tradingDaysBeforeToday(80)
+    // 2W holds only the newest days; these are months back.
+    const [from = "", to = ""] = [days[10], days[19]]
+    await page.goto(
+      `${DASHBOARD}/stocks/BBCA?tab=brokers&range=2W&selFrom=${from}&selTo=${to}`
+    )
+    await expect(page).toHaveURL(
+      `${DASHBOARD}/stocks/BBCA?tab=brokers&range=2W`
+    )
+    await expect(selectionPanel(page)).toHaveCount(0)
   })
 })

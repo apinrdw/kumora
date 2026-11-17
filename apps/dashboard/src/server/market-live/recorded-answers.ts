@@ -109,7 +109,7 @@ export const recordedAnswer = Effect.fnUntraced(function* (
     // byte-identical.
     case "BrokerCodes": {
       const trades = yield* store.tradesAt(resource.at, SNAPSHOT_TRADES)
-      const complete = yield* day.brokerCodes.isComplete
+      const complete = yield* day.brokerCodes.codesComplete
       return yield* json(
         yield* encodeRecordedBrokerCodes({
           codes: yield* day.brokerCodes.heldCodes(
@@ -145,7 +145,7 @@ export const recordedAnswer = Effect.fnUntraced(function* (
     // sweeps answer of a sealed day is cached for a year. See spec
     // apinrdw/kumora#343, "The sweep brokers answer".
     case "SweepBrokers": {
-      const complete = yield* day.brokerCodes.isComplete
+      const complete = yield* day.brokerCodes.codesComplete
       return yield* json(
         yield* encodeRecordedSweepBrokers({
           code: resource.code,

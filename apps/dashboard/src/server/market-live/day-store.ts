@@ -233,6 +233,17 @@ export const Fact = {
   // The broker trades index's rebuild (broker-codes.ts): the last chunk it
   // indexed, then BROKER_TRADES_BUILT.
   brokerTrades: "broker-trades",
+  // Where the day's tape comes from (trading-day.ts): TapeSource's relay or
+  // walk, none while unknown.
+  tapeSource: "tape-source",
+  // The day's broker totals build (broker-totals.ts): BROKER_TOTALS_DUE once
+  // the sealed day is complete, then the build version that wrote them.
+  brokerTotals: "broker-totals",
+  // When each alarm duty is next due (wakes.ts): epoch millis, none once
+  // done.
+  sealWake: "seal-wake",
+  indexWake: "index-wake",
+  buildWake: "build-wake",
 } as const
 
 export const BROKER_TRADES_BUILT = "built"
@@ -247,9 +258,11 @@ export const SWEEP_BROKERS_SHAPE = "split"
 export const SWEEP_BROKERS_BUILT = `${SWEEP_BROKERS_SHAPE}:built`
 
 // What the one-off build writes of one minute: every stock's footprint row
-// and every code's heatmap row, and the minute as its progress.
+// and every code's heatmap row, and the minute as its progress; a walked
+// day's build writes its candles too.
 export interface BuiltMinute {
   readonly minute: number
+  readonly candles: ReadonlyArray<StoredCandle>
   readonly footprints: ReadonlyArray<FootprintRow>
   readonly heatmaps: ReadonlyArray<{
     readonly code: StockCode
@@ -411,6 +424,26 @@ export const makeDayStore = (
           slices
         )
     }
+    const insertCandles = (candles: ReadonlyArray<StoredCandle>) => {
+      for (const { code, minute, figures } of candles)
+        sql.exec(
+          "INSERT OR REPLACE INTO candles VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
+          code,
+          minute,
+          Number(figures.openOrder),
+          figures.open,
+          Number(figures.closeOrder),
+          figures.close,
+          figures.closeTime,
+          figures.high,
+          figures.low,
+          figures.volume,
+          figures.value,
+          figures.frequency,
+          figures.buyValue,
+          figures.sellValue
+        )
+    }
     const insertFact = (key: string, value: string) =>
       sql.exec("INSERT OR REPLACE INTO facts VALUES (?, ?)", key, value)
 
@@ -431,24 +464,7 @@ export const makeDayStore = (
             trade.board,
             trade.feeds.join(",")
           )
-        for (const { code, minute, figures } of flush.candles)
-          sql.exec(
-            "INSERT OR REPLACE INTO candles VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
-            code,
-            minute,
-            Number(figures.openOrder),
-            figures.open,
-            Number(figures.closeOrder),
-            figures.close,
-            figures.closeTime,
-            figures.high,
-            figures.low,
-            figures.volume,
-            figures.value,
-            figures.frequency,
-            figures.buyValue,
-            figures.sellValue
-          )
+        insertCandles(flush.candles)
         insertFootprints(footprints)
         for (const price of flush.livePrices)
           sql.exec(
@@ -493,10 +509,12 @@ export const makeDayStore = (
       const footprints = yield* footprintTexts(built.footprints)
       const heatmaps = yield* heatmapTexts(built.heatmaps)
       yield* meteredTransaction(() => {
+        insertCandles(built.candles)
         insertFootprints(footprints)
         insertHeatmaps(heatmaps)
         insertFact(Fact.orderFlowBuilt, String(built.minute))
       })
+      meter.candles += built.candles.length
       meter.footprints += built.footprints.length
       meter.heatmaps += built.heatmaps.length
       meter.facts += 1
@@ -508,6 +526,15 @@ export const makeDayStore = (
     const markSweepBrokersBuilt = Effect.sync(() =>
       insertFact(Fact.sweepBrokersBuilt, SWEEP_BROKERS_BUILT)
     )
+    const markBrokerTotals = (value: string) =>
+      Effect.sync(() => insertFact(Fact.brokerTotals, value))
+    // A fact written or dropped on its own, outside any flush's transaction.
+    const setFact = (key: string, value: string | undefined) =>
+      Effect.sync(() => {
+        if (value === undefined)
+          sql.exec("DELETE FROM facts WHERE key = ?", key)
+        else insertFact(key, value)
+      })
 
     // One minute of a sweep brokers recompute (sweep-brokers.ts), metering
     // the rows it read.
@@ -1034,6 +1061,8 @@ export const makeDayStore = (
       sweepBrokerMinute,
       writeSweepBrokers,
       markSweepBrokersBuilt,
+      markBrokerTotals,
+      setFact,
       orderFlowMinutes,
       minuteTrades,
       minutesOfTrades,

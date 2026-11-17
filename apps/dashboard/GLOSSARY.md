@@ -43,8 +43,28 @@ A second broker site's copy of a trading day's broker codes and investor types, 
 _Avoid_: Verification, reconciliation
 
 **History walk**:
-Fetching the broker codes of trading days from before the terminal started keeping them, newest day first, until the broker site stops serving older days.
+Fetching the running trades and broker codes of trading days from before the terminal started keeping them, newest day first, until the broker site stops serving older days. Each day it fetches becomes a recorded day.
 _Avoid_: Backfill (that is filling gaps in the live tape)
+
+**Trade fields**:
+A running trade's time, stock code, price, lots, board and aggressor side: what the tape holds for it. The walks that fetch a day's broker codes after the close send each trade's fields with its codes, or its codes alone when its row's fields aren't valid.
+_Avoid_: Trade details, trade row
+
+**Held trade**:
+A trade of a trading day that has its broker codes and its trade fields. The fields come from the day's tape, or, for a trade the tape lacks, from a walk after the close; a trade the tape holds always uses the tape's fields, and for one it lacks, the first walk's fields are kept. On a day the relay recorded, fields from a walk never join the tape or anything Market Live shows; a day whose tape source is the walks takes their fields as its tape until it is sealed, and once complete becomes a recorded day. Once a day is sealed, whatever its tape source, a walk's fields of a trade its tape lacks hold that trade without joining the tape, as on a day the relay recorded.
+_Avoid_: Covered trade (covered counts the cross-check's agreements)
+
+**Tape source**:
+Where a trading day's tape comes from, set once and never changed: the relay, when its first trade of the day arrives before 17:00 WIB, or the walks, when a walk sends trade fields for a day the relay sent no trade of. Until either happens it is unknown, and a day whose tape source is unknown is never sealed. The walks fill a day's tape only until it is sealed; a sealed day's tape never changes.
+_Avoid_: Tape mode, feed (a feed is one broker site's stream)
+
+**Complete** (a day's broker codes):
+Every trade 1..N of the day, N its highest trade number, is a held trade. A day that isn't complete lists its missing trades, tape holes with codes but no walk's fields among them, and the walks fetch those again.
+_Avoid_: Done, finished
+
+**Codes complete**:
+Every trade 1..N of the day has broker codes, whatever its fields. It is what Market Live's recorded day reads to show its brokers, and a tape hole doesn't stop it.
+_Avoid_: Complete (that also needs every trade's fields)
 
 **Trade number**:
 The exchange's number for a running trade: one sequence across the whole market, restarting each trading day. Every feed that reports the same trade gives it the same trade number.
@@ -141,6 +161,30 @@ _Avoid_: Net flow, delta (alone)
 **Sector**:
 A stock code's IDX-IC sector, from IDX's company profiles; Unclassified when IDX lists none for it.
 _Avoid_: Industry (for the top level), category
+
+**Broker inventory**:
+One broker code's running sum of net lots or value (bought minus sold) in one stock code, day by day from the start of a range of days, counting regular-board trades and auction matches. A day counts only once every one of its trades has stored broker codes and its stock code, price, lots and board, from the running trades or the broker site's own listing; any other day is a gap the sum carries across.
+_Avoid_: Position, holdings (those are what KSEI reports), net flow
+
+**Broker summary**:
+Each broker code's lots and value bought and sold in one stock code over a range of days, its net, and its average buy and sell price weighted by lots, from the same trades broker inventory counts.
+_Avoid_: Broker ranking, done summary
+
+**Broker totals**:
+One complete day's lots and value each broker code bought and sold in each stock code, by investor type, with each code's daily candle, built once the day is sealed and complete. Broker inventory and the broker summary sum them over a range.
+_Avoid_: Running sums (totals are per day)
+
+**Built day**:
+A day whose broker totals are written whole, with the build version that wrote them. A day of a range without one is a gap, whatever rows it holds.
+_Avoid_: Recorded day (that is the tape and its answers)
+
+**Stale day**:
+A built day that a later batch corrected, by changing a trade's kept broker codes or filling a trade's fields. Its old broker totals stay readable until it is rebuilt, once a quiet spell has passed since the last such batch.
+_Avoid_: Dirty day, outdated day
+
+**Reconcile**:
+The daily pass after the seal that pokes each listed day the broker totals DB holds unbuilt or built by an older build version, newest first, until a day's quota of them have accepted. A poke builds a sealed, complete day; a day that answers it won't takes no slot.
+_Avoid_: Backfill (that is the relay's REST fetch of missed trades)
 
 ### Freshness
 
