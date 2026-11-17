@@ -160,6 +160,24 @@ test("the map draws the market's trades, keeps its view in the URL, and a click 
   await expect(page).toHaveURL(`${DASHBOARD}/market-live?code=${code}`)
 })
 
+test("the page loads to a live map with no console errors", async ({
+  page,
+}) => {
+  await page.setViewportSize({ width: 1600, height: 1000 })
+  const errors: string[] = []
+  page.on("console", (message) => {
+    // No relay sent today's code list, so its GET answers 404 until one does.
+    if (message.location().url.endsWith("/codes")) return
+    if (message.type() === "error") errors.push(message.text())
+  })
+  page.on("pageerror", (error) => errors.push(error.message))
+  await page.goto(`${DASHBOARD}${PAGE}`)
+  await expect(page.locator('[data-flow="live"]')).toHaveCount(1)
+  // The map's first recomputes are out.
+  await page.waitForTimeout(2_000)
+  expect(errors).toEqual([])
+})
+
 test("a link's Top N leaves the URL when it is the device's default, and stays when not", async ({
   page,
 }) => {
