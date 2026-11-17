@@ -181,10 +181,9 @@ export const makeRunQueue = Effect.fnUntraced(function* (options: {
 
   // Decision: each run checks the last RECENT_DAYS days before the newest
   // on Production and joins each one that holds trades but is incomplete.
-  // A day can leave the list complete and later fall short: #437's held rule
-  // stopped counting the walk rows of days walked before it, and only a
-  // walk fills them again. A day holding nothing is the History walk's. A
-  // refusal ends the check, and the walks halt on it themselves.
+  // A day can leave the list complete and fall short later, as #437's held
+  // rule left the days walked before it. A day holding nothing is the
+  // History walk's; a refusal ends the check. See apinrdw/kumora#455.
   const recentIncomplete = Effect.fnUntraced(function* (
     now: DateTime.DateTime,
     newest: WibDate
