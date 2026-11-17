@@ -645,6 +645,7 @@ describe("Stockbit's walk: when it starts and gives up", () => {
             { feed: "Stockbit", walk: stockbit.walk },
           ],
           incompleteDays: noIncompleteDays,
+          status: production.status,
           gaps: { feed: "Stockbit", walk: stockbit.gaps },
           history: {
             walk: () => Effect.succeedNone,

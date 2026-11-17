@@ -78,6 +78,9 @@ export const newestClosedDay = Effect.fnUntraced(
   )
 )
 
+// How many recent days the options page lists and each run re-checks.
+export const RECENT_DAYS = 10
+
 // The last `count` trading days closed at `instant`, newest first, in
 // Streaming hours or not: the options page's list of days. Empty past the
 // baked schedule.

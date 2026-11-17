@@ -1,5 +1,11 @@
 import { assert, describe, it } from "@effect/vitest"
-import { WibDate, type Feed } from "@workspace/relay"
+import {
+  BrokerCodesProtocolVersion,
+  TradeNumber,
+  WibDate,
+  type BrokerCodesStatus,
+  type Feed,
+} from "@workspace/relay"
 import { Deferred, Effect, Option } from "effect"
 import { TestClock } from "effect/testing"
 
@@ -15,6 +21,7 @@ import {
   type IncompleteDaysStore,
   type WalkResult,
 } from "../../src/worker/broker-codes/run-queue.ts"
+import type { StatusOutcome } from "../../src/worker/broker-codes/status.ts"
 
 const wib = (date: string, time: string) => Date.parse(`${date}T${time}+07:00`)
 
@@ -138,6 +145,24 @@ const memoryHistory = (
   }
 }
 
+// A day's status on Production: complete unless `incomplete` names it, as
+// one holding Stockbit's codes for 1..n without their fields.
+const statusOf =
+  (incomplete: ReadonlyArray<string> = []) =>
+  (day: WibDate): Effect.Effect<StatusOutcome> =>
+    Effect.succeed<BrokerCodesStatus>({
+      version: BrokerCodesProtocolVersion,
+      day,
+      n: TradeNumber.make("1000"),
+      complete: !incomplete.includes(day),
+      missing: incomplete.includes(day)
+        ? [[TradeNumber.make("1"), TradeNumber.make("1000")]]
+        : [],
+      missingCount: incomplete.includes(day) ? 1000 : 0,
+      sources: { ajaib: 0, stockbit: 1000 },
+      crossCheck: { state: "none" },
+    })
+
 type Walks = (
   walked: Array<string>
 ) => ReadonlyArray<ReturnType<typeof fakeWalk>>
@@ -147,6 +172,8 @@ const harness = Effect.fnUntraced(function* (
   catchUp: Walks = () => [],
   older: {
     readonly days?: ReturnType<typeof memoryDays>
+    // Production's status of a day; complete by default.
+    readonly status?: (day: WibDate) => Effect.Effect<StatusOutcome>
     readonly gaps?: (day: WibDate) => Effect.Effect<WalkResult>
     // The extra target's gap walk of an older day, kept as
     // `catch-up gaps <day>`.
@@ -171,6 +198,7 @@ const harness = Effect.fnUntraced(function* (
   const queue = yield* makeRunQueue({
     newestDay: walks(walked),
     incompleteDays: days.store,
+    status: older.status ?? statusOf(),
     gaps: gapWalk(walked, older.gaps),
     history: yield* makeHistoryWalk({
       walk: tagged("history", walked, older.historyWalk),
@@ -544,6 +572,82 @@ describe("the broker codes run queue: older incomplete days", () => {
           "2026-11-12",
         ])
       })
+  )
+
+  it.effect(
+    "joins a recent day Production shows incomplete after it left the list",
+    () =>
+      Effect.gen(function* () {
+        // 2026-11-06 left the list complete; Production now shows it short,
+        // as #437's held rule left the days walked before it.
+        yield* TestClock.setTime(wib("2026-11-17", "17:00:00"))
+        const queue = yield* harness(
+          (walked) => [fakeWalk("Ajaib", walked)],
+          undefined,
+          {
+            days: memoryDays([], "2026-11-16"),
+            status: statusOf(["2026-11-06", "2026-11-13"]),
+          }
+        )
+        yield* queue.trigger
+        assert.deepStrictEqual(queue.walked, [
+          "Ajaib 2026-11-17",
+          "gaps 2026-11-06",
+          "gaps 2026-11-13",
+          "catch-up gaps 2026-11-06",
+          "catch-up gaps 2026-11-13",
+        ])
+        assert.deepStrictEqual(queue.days.days(), ["2026-11-17"])
+      })
+  )
+
+  it.effect("a recent day holding nothing is left to the History walk", () =>
+    Effect.gen(function* () {
+      yield* TestClock.setTime(wib("2026-11-17", "17:00:00"))
+      const queue = yield* harness(
+        (walked) => [fakeWalk("Ajaib", walked)],
+        undefined,
+        {
+          days: memoryDays([], "2026-11-16"),
+          status: (day) =>
+            Effect.map(statusOf([day])(day), (status) =>
+              typeof status === "string"
+                ? status
+                : {
+                    ...status,
+                    n: null,
+                    missing: [],
+                    missingCount: 0,
+                    sources: { ajaib: 0, stockbit: 0 },
+                  }
+            ),
+        }
+      )
+      yield* queue.trigger
+      assert.deepStrictEqual(queue.walked, ["Ajaib 2026-11-17"])
+    })
+  )
+
+  it.effect("a refused status ends the check", () =>
+    Effect.gen(function* () {
+      yield* TestClock.setTime(wib("2026-11-17", "17:00:00"))
+      const asked: Array<string> = []
+      const queue = yield* harness(
+        (walked) => [fakeWalk("Ajaib", walked)],
+        undefined,
+        {
+          days: memoryDays([], "2026-11-16"),
+          status: (day) =>
+            Effect.sync(() => {
+              asked.push(day)
+              return "rejected-token" as const
+            }),
+        }
+      )
+      yield* queue.trigger
+      assert.deepStrictEqual(asked, ["2026-11-16"])
+      assert.deepStrictEqual(queue.walked, ["Ajaib 2026-11-17"])
+    })
   )
 
   it.effect("the list survives a restarted worker", () =>

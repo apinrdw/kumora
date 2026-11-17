@@ -2,15 +2,18 @@
 // run queue"): what starts a run, and the order its walks go in. One run at
 // a time; a trigger during a run starts one more after it.
 import { Feed, WibDate } from "@workspace/relay"
-import { Data, Effect, Option, Queue, Schema } from "effect"
+import { Data, type DateTime, Effect, Option, Queue, Schema } from "effect"
 
 import {
+  RECENT_DAYS,
   inStreamingHours,
   newestClosedDay,
+  recentClosedDays,
   scheduleNow,
   tradingDaysBetween,
 } from "./hours.ts"
 import type { PostOutcome } from "./poster.ts"
+import type { StatusOutcome } from "./status.ts"
 
 // Why walks stopped in place until something changes: Streaming hours,
 // no broker tab of the walk's site, the Production target refused the batches
@@ -131,6 +134,8 @@ export const makeRunQueue = Effect.fnUntraced(function* (options: {
   // it walked the day or couldn't serve it.
   readonly newestDay: ReadonlyArray<DayWalk>
   readonly incompleteDays: IncompleteDaysStore
+  // A day's status on Production (status.ts).
+  readonly status: (day: WibDate) => Effect.Effect<StatusOutcome>
   // Stockbit's gap walk of an older incomplete day (stockbit-walk.ts).
   readonly gaps: DayWalk
   // The History walk of the days before the newest closed one, and the
@@ -174,18 +179,43 @@ export const makeRunQueue = Effect.fnUntraced(function* (options: {
     }
   })
 
+  // Decision: each run checks the last RECENT_DAYS days before the newest
+  // on Production and joins each one that holds trades but is incomplete.
+  // A day can leave the list complete and later fall short: #437's held rule
+  // stopped counting the walk rows of days walked before it, and only a
+  // walk fills them again. A day holding nothing is the History walk's. A
+  // refusal ends the check, and the walks halt on it themselves.
+  const recentIncomplete = Effect.fnUntraced(function* (
+    now: DateTime.DateTime,
+    newest: WibDate
+  ) {
+    const days: Array<WibDate> = []
+    for (const day of yield* recentClosedDays(now, RECENT_DAYS)) {
+      if (day >= newest) continue
+      const status = yield* options.status(day)
+      if (typeof status === "string") break
+      const held = status.sources.ajaib + status.sources.stockbit
+      if (!status.complete && (status.n !== null || held > 0)) days.push(day)
+    }
+    return days
+  })
+
   // Decision: each run's newest closed day joins the list with every
   // trading day since the last run's newest, so the evenings a closed
   // browser missed are walked from Stockbit. A first run adds only its own
   // day; the History walk covers the days before it. See
   // apinrdw/kumora#244, "Order on each run".
-  const joinNewest = Effect.fnUntraced(function* (newest: WibDate) {
+  const joinNewest = Effect.fnUntraced(function* (
+    now: DateTime.DateTime,
+    newest: WibDate
+  ) {
     const store = options.incompleteDays
     const last = yield* store.lastNewest
     const missed = Option.isSome(last)
       ? yield* tradingDaysBetween(last.value, newest)
       : []
-    yield* joinIncomplete(store, [...missed, newest])
+    const fallenShort = yield* recentIncomplete(now, newest)
+    yield* joinIncomplete(store, [...missed, ...fallenShort, newest])
     yield* store.saveLastNewest(newest)
   })
 
@@ -223,7 +253,7 @@ export const makeRunQueue = Effect.fnUntraced(function* (options: {
       })
     const day = yield* newestClosedDay(now)
     if (Option.isNone(day)) return yield* options.report({ state: "idle" })
-    yield* joinNewest(day.value)
+    yield* joinNewest(now, day.value)
     const older = [...(yield* options.incompleteDays.load)]
       .filter((each) => each < day.value)
       .sort()
