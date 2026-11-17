@@ -2,47 +2,70 @@
 // canvas, logos and all, over a caption strip, saved as a PNG.
 import { Data, Effect } from "effect"
 
-import { snapshotCaption, snapshotName } from "@/lib/bubble-snapshot"
+import {
+  captionLines,
+  snapshotCaption,
+  snapshotName,
+} from "@/lib/bubble-snapshot"
 import type { BubbleView } from "@/lib/bubbles"
 
-// The caption strip's height, in CSS px.
-const CAPTION = 34
+// The caption strip's line height, the room above and below its lines, and
+// its side padding, in CSS px: one line is 34 px.
+const LINE = 18
+const EDGE = 8
 const PAD = 12
+const SEPARATOR = "  ·  "
 
 class SnapshotFailed extends Data.TaggedError("SnapshotFailed")<{
   readonly reason: string
 }> {}
 
 // `surface` drawn on the canvas colour, with `caption` under it: the title in
-// bold, then its other parts, at the canvas's own pixel ratio.
-const compose = (surface: HTMLCanvasElement, caption: ReadonlyArray<string>) =>
-  Effect.sync(() => {
-    const ratio = surface.width / Math.max(1, surface.clientWidth)
-    const out = document.createElement("canvas")
-    out.width = surface.width
-    out.height = surface.height + Math.round(CAPTION * ratio)
-    const context = out.getContext("2d")
-    if (context === null) return undefined
-    const css = getComputedStyle(document.documentElement)
-    const token = (name: string) => css.getPropertyValue(name).trim()
-    const font = getComputedStyle(surface).fontFamily
-    context.fillStyle = token("--bubble-snapshot")
-    context.fillRect(0, 0, out.width, out.height)
-    context.drawImage(surface, 0, 0)
-    context.setTransform(ratio, 0, 0, ratio, 0, surface.height)
-    context.fillStyle = token("--bubble-caption")
-    context.fillRect(0, 0, surface.clientWidth, CAPTION)
-    context.textBaseline = "middle"
-    const [title = "", ...rest] = caption
-    context.font = `800 13px ${font}`
-    context.fillStyle = token("--bubble-label")
-    context.fillText(title, PAD, CAPTION / 2)
-    const after = PAD + context.measureText(title).width + PAD
-    context.font = `600 12px ${font}`
-    context.fillStyle = token("--bubble-label-muted")
-    context.fillText(rest.join("  ·  "), after, CAPTION / 2)
-    return out
+// bold, then its other parts, wrapped to as many lines as the canvas's width
+// needs, at the canvas's own pixel ratio.
+const compose = Effect.fnUntraced(function* (
+  surface: HTMLCanvasElement,
+  caption: ReadonlyArray<string>
+) {
+  const width = surface.clientWidth
+  const ratio = surface.width / Math.max(1, width)
+  const out = document.createElement("canvas")
+  const context = out.getContext("2d")
+  if (context === null) return undefined
+  const font = getComputedStyle(surface).fontFamily
+  // The title's bold run is a little wider than the rest; measured as the
+  // rest's, plus a character a part, so a line never runs past the edge.
+  context.font = `800 13px ${font}`
+  const measure = (text: string) => context.measureText(`${text}  `).width
+  const lines = yield* captionLines(caption, width - 2 * PAD, measure)
+  const strip = 2 * EDGE + lines.length * LINE
+  out.width = surface.width
+  out.height = surface.height + Math.round(strip * ratio)
+  const css = getComputedStyle(document.documentElement)
+  const token = (name: string) => css.getPropertyValue(name).trim()
+  context.fillStyle = token("--bubble-snapshot")
+  context.fillRect(0, 0, out.width, out.height)
+  context.drawImage(surface, 0, 0)
+  context.setTransform(ratio, 0, 0, ratio, 0, surface.height)
+  context.fillStyle = token("--bubble-caption")
+  context.fillRect(0, 0, width, strip)
+  context.textBaseline = "middle"
+  lines.forEach((line, index) => {
+    const y = EDGE + (index + 0.5) * LINE
+    let x = PAD
+    line.forEach((part, at) => {
+      const title = index === 0 && at === 0
+      context.font = title ? `800 13px ${font}` : `600 12px ${font}`
+      context.fillStyle = token(
+        title ? "--bubble-label" : "--bubble-label-muted"
+      )
+      const text = at === 0 ? part : `${SEPARATOR}${part}`
+      context.fillText(text, x, y)
+      x += context.measureText(text).width
+    })
   })
+  return out
+})
 
 const pngOf = (canvas: HTMLCanvasElement) =>
   Effect.callback<Blob, SnapshotFailed>((resume) => {
