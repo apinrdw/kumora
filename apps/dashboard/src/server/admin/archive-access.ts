@@ -11,7 +11,9 @@ export const authorizeArchive = Effect.fnUntraced(function* (
   headers: Headers,
   action: Extract<
     Action,
-    `admin.${string}-archive` | `admin.run-${string}-parse`
+    | `admin.${string}-archive`
+    | `admin.run-${string}-parse`
+    | "admin.run-sector-sync"
   >,
   path: string
 ) {
