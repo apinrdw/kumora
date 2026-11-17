@@ -19,6 +19,7 @@ import {
   bubblesOf,
   makeMarketFlow,
   missingFromBackfill,
+  windowEnd,
   type BubbleWindow,
 } from "@/lib/bubbles"
 import { makeBubbleBook } from "@/server/market-live/bubble-book"
@@ -656,15 +657,70 @@ describe("bubbles", () => {
       })
   )
 
-  it.effect("answer 404 for a sealed day", () =>
+  it.effect(
+    "after the seal, a page opened before midnight shows the day's map up to its last trade",
+    () =>
+      Effect.gen(function* () {
+        yield* at("15:49:50")
+        const day = yield* tradingDay()
+        yield* day.trades([trade(40001, "15:49:50", "UNTR", 23300, 2, "buy")])
+        yield* at("17:00:00")
+        yield* day.alarm
+        yield* at("17:05:00")
+        const page = yield* bubblesPage(day)
+        yield* page.settle
+        const answer = yield* bubbles(day)
+        assert.strictEqual(answer.status, 200)
+        assert.strictEqual(answer.cacheControl, "private, max-age=60")
+        yield* page.backfill
+        const end = yield* windowEnd(
+          page.flow,
+          "closed",
+          DateTime.toEpochMillis(wib("17:05:00"))
+        )
+        assert.deepStrictEqual(end, {
+          end: DateTime.toEpochMillis(wib("15:49:50")),
+          closed: true,
+        })
+        assert.strictEqual(yield* page.dayValue("UNTR", end!.end), 4_660_000)
+      })
+  )
+
+  it.effect(
+    "after the seal, an object restarted before midnight answers the day's bubbles from its candles",
+    () =>
+      Effect.gen(function* () {
+        const sql = memorySql()
+        yield* at("15:49:50")
+        const recording = yield* tradingDay(sql)
+        yield* recording.trades([
+          trade(40001, "15:49:50", "UNTR", 23300, 2, "buy"),
+        ])
+        yield* at("17:00:00")
+        yield* recording.alarm
+        yield* at("17:05:00")
+        const answer = yield* bubbles(yield* tradingDay(sql))
+        assert.strictEqual(answer.status, 200)
+        assert.deepStrictEqual(
+          codeOf(answer.answer, "UNTR")?.day,
+          [4_660_000, 2, 1, 4_660_000, 0, 23300]
+        )
+      })
+  )
+
+  it.effect("answer 404 for a past day, restarted or not", () =>
     Effect.gen(function* () {
+      const sql = memorySql()
       yield* at("09:01:10")
-      const day = yield* tradingDay()
+      const day = yield* tradingDay(sql)
       yield* day.trades([trade(40001, "09:00:10", "UNTR", 23300, 2, "buy")])
       yield* at("17:00:00")
       yield* day.alarm
-      const { status } = yield* bubbles(day)
-      assert.strictEqual(status, 404)
+      yield* TestClock.setTime(
+        DateTime.toEpochMillis(DateTime.makeUnsafe("2026-11-10T00:00:01+07:00"))
+      )
+      assert.strictEqual((yield* bubbles(day)).status, 404)
+      assert.strictEqual((yield* bubbles(yield* tradingDay(sql))).status, 404)
     })
   )
 
