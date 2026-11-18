@@ -7,13 +7,7 @@ import { WibDate } from "@workspace/relay"
 import { Effect, Option, Schema } from "effect"
 
 // The panels layout B shows beside the charts, as tabs on a phone.
-export const PANELS = [
-  "sweeps",
-  "watchlist",
-  "book",
-  "tape",
-  "bubbles",
-] as const
+export const PANELS = ["sweeps", "watchlist", "book", "tape"] as const
 const Panel = Schema.Literals(PANELS)
 export type Panel = typeof Panel.Type
 

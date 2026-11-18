@@ -161,15 +161,13 @@ const LOGO_GAP = 0.12
 // and shows its figures; dragging one shoves its neighbours aside; a click
 // hands its code to `onPick`, and a click on a sector label hands its sector
 // to `onPickSector`. A `search` rings the codes that contain it and dims the
-// rest, without moving any; `ringed` rings its code alone, dimming none. The page and Market Live's panel both draw with
-// it.
+// rest, without moving any. The page draws with it.
 export function BubbleCanvas({
   bubbles,
   view,
   names = NO_NAMES,
   sectors = NO_SECTORS,
   search = "",
-  ringed,
   onPick,
   onPickSector,
   className,
@@ -179,7 +177,6 @@ export function BubbleCanvas({
   names?: ReadonlyMap<StockCode, string>
   sectors?: SectorLookup
   search?: string
-  ringed?: StockCode
   onPick: (code: StockCode) => void
   onPickSector?: (sector: SectorName) => void
   className?: string
@@ -197,7 +194,7 @@ export function BubbleCanvas({
   })
   // The latest props the frame loop reads: who a click goes to, and the
   // search, as a code would contain it.
-  const latest = useRef({ onPick, onPickSector, query: "", ringed })
+  const latest = useRef({ onPick, onPickSector, query: "" })
   const [pointerView, showPointer] = useState<PointerView>(NO_POINTER)
   // The canvas's size in px, which the frame loop's resize sets.
   const [canvasSize, setCanvasSize] = useState(NO_SIZE)
@@ -207,9 +204,8 @@ export function BubbleCanvas({
       onPick,
       onPickSector,
       query: search.trim().toUpperCase(),
-      ringed,
     }
-  }, [onPick, onPickSector, search, ringed])
+  }, [onPick, onPickSector, search])
 
   // Each recompute, and each resize: new targets, joining bubbles in, leaving
   // ones out. None while the canvas has no room, as behind a hidden tab. It
@@ -584,8 +580,7 @@ export function BubbleCanvas({
       const match = searching && body.code.includes(latest.current.query)
       context.globalAlpha = searching && !match ? DIMMED : 1
       disc(body, body.r, glow && (!searching || match))
-      if (match || body.code === latest.current.ringed)
-        ring(body.x, body.y, body.r, body.r > 16 ? 3 : 2)
+      if (match) ring(body.x, body.y, body.r, body.r > 16 ? 3 : 2)
       label(body, body.r)
     }
 
@@ -610,8 +605,7 @@ export function BubbleCanvas({
     }
 
     // What the e2e reads: the count, the largest bubble's code and centre,
-    // the search's match count and its largest match's centre, and the
-    // ringed code while it is shown.
+    // and the search's match count and its largest match's centre.
     const centre = (body: Body | undefined) =>
       body && `${Math.round(body.x)},${Math.round(body.y)}`
     const mark = (name: string, value: string | undefined) => {
@@ -630,10 +624,6 @@ export function BubbleCanvas({
       mark("largestAt", centre(largest))
       mark("matches", String(matches.length))
       mark("matchAt", centre(matches.at(-1)))
-      mark(
-        "ringed",
-        staying.find((body) => body.code === latest.current.ringed)?.code
-      )
       mark(
         "sectorLabels",
         JSON.stringify(

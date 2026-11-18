@@ -10,8 +10,6 @@ import {
 import { loadServerFn, runLoader } from "@workspace/server/loader"
 import { useCallback, useEffect, useMemo, useState } from "react"
 
-import { BubblePanel } from "@/components/market-bubbles/bubble-panel"
-import { useFedMarketFlow } from "@/components/market-bubbles/use-market-flow"
 import { makeCandleStore } from "@/components/market-live/candle-store"
 import { makeChartPair } from "@/components/market-live/chart-pair"
 import { makeDayStateStore } from "@/components/market-live/day-state-store"
@@ -71,7 +69,7 @@ export const Route = createFileRoute("/_app/market-live")({
 
 function MarketLivePage() {
   const { day } = Route.useSearch()
-  const { closed, today, changesIn, clockOffset } = Route.useLoaderData()
+  const { closed, today, changesIn } = Route.useLoaderData()
   const router = useRouter()
   // Asked again when the answer may change: 08:40, the 17:00 seal, midnight.
   useEffect(() => {
@@ -89,7 +87,6 @@ function MarketLivePage() {
         key={shown ?? "live"}
         day={shown}
         today={today}
-        clockOffset={clockOffset}
         closed={day === undefined ? closed : undefined}
       />
     </div>
@@ -129,40 +126,6 @@ function useChartPair(sweeps: SweepStore) {
     [sweeps, pair]
   )
   return pair
-}
-
-// A store that takes each viewer message.
-interface Fed {
-  readonly apply: (message: ViewerDown) => void
-}
-
-// Each message of the tape's viewer socket, into `stores` and the bubble
-// panel's market flow of `today`, on the market clock `clockOffset` ms ahead
-// of the browser's.
-// Decision: the bubble panel reads the tape's socket, not one of its own:
-// every delta carries every code's changed candles and the whole tape,
-// whatever is selected.
-function useViewerFeed(
-  {
-    candles,
-    sweeps,
-    book,
-    heatmap,
-    dayStates,
-  }: Record<"candles" | "sweeps" | "book" | "heatmap" | "dayStates", Fed>,
-  today: WibDate,
-  clockOffset: number
-) {
-  const { flow, apply: feedMarket } = useFedMarketFlow(today, clockOffset)
-  const apply = useCallback(
-    (message: ViewerDown) => {
-      for (const store of [candles, sweeps, book, heatmap, dayStates])
-        store.apply(message)
-      feedMarket(message)
-    },
-    [candles, sweeps, book, heatmap, dayStates, feedMarket]
-  )
-  return { market: flow, apply }
 }
 
 // The feed pills and market phase: live, or the recorded day's at the cursor.
@@ -271,14 +234,11 @@ function useMarketLiveSearch() {
 function MarketLiveDay({
   day,
   today,
-  clockOffset,
   closed,
 }: {
   day: WibDate | undefined
   // The market clock's date: the live page's day.
   today: WibDate
-  // How far the market clock runs ahead of the browser's, in ms.
-  clockOffset: number
   closed: ClosedMarket["closed"]
 }) {
   const { selected, select, ...view } = useMarketLiveSearch()
@@ -309,10 +269,15 @@ function MarketLiveDay({
   })
   const liveGaps = useRelayGaps()
   const shownGaps = cursor === undefined ? liveGaps : gaps
-  const { market, apply } = useViewerFeed(
-    { candles, sweeps, book, heatmap, dayStates },
-    today,
-    clockOffset
+  const apply = useCallback(
+    (message: ViewerDown) => {
+      candles.apply(message)
+      sweeps.apply(message)
+      book.apply(message)
+      heatmap.apply(message)
+      dayStates.apply(message)
+    },
+    [candles, sweeps, book, heatmap, dayStates]
   )
   return (
     <>
@@ -364,18 +329,6 @@ function MarketLiveDay({
           />
         }
         book={<BookPanel store={book} cursor={cursor} gaps={gaps} />}
-        bubbles={
-          day === undefined ? (
-            <BubblePanel
-              flow={market}
-              selected={selected}
-              watchlist={watchlist.codes}
-              list={codes}
-              clockOffset={clockOffset}
-              onSelect={select}
-            />
-          ) : undefined
-        }
         tape={
           <TapePanel
             selected={selected}

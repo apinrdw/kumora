@@ -12,10 +12,7 @@ import { act } from "react"
 import { createRoot } from "react-dom/client"
 import { afterEach, expect, test, vi } from "vitest"
 
-import {
-  useFedMarketFlow,
-  useMarketFlow,
-} from "@/components/market-bubbles/use-market-flow"
+import { useMarketFlow } from "@/components/market-bubbles/use-market-flow"
 import type { MarketFlow } from "@/lib/bubbles"
 
 // React's `act` warns outside a test environment that declares itself.
@@ -108,14 +105,17 @@ const built = (codes: ReadonlyArray<StockCode>) =>
     )
   )
 
-// The hook in a page that gives it `today`, and what it returned last.
+// The hook in a page that gives it `today`, its flow, and `apply` sending a
+// message down its socket.
 const mount = async (today: WibDate) => {
+  const socket = Effect.runSync(Queue.unbounded<ViewerDown>())
+  mocks.socket.messages = Stream.fromQueue(socket)
   const held: {
     flow?: MarketFlow
-    apply?: (message: ViewerDown) => void
-  } = {}
+    apply: (message: ViewerDown) => void
+  } = { apply: (message) => Queue.offerUnsafe(socket, message) }
   function Harness({ day }: { day: WibDate }) {
-    Object.assign(held, useFedMarketFlow(day, 0))
+    held.flow = useMarketFlow(day, 0).flow
     return null
   }
   const root = createRoot(document.createElement("div"))
@@ -133,28 +133,12 @@ test("a new day starts an empty market flow", async () => {
   vi.useFakeTimers({ now: wib("10:00:30") })
   mocks.bubbles.mockReturnValue(built([BBCA]))
   const page = await mount(MONDAY)
-  act(() => page.held.apply!(snapshot()))
+  act(() => page.held.apply(snapshot()))
   await settle()
   expect([...page.held.flow!.codes.keys()]).toEqual([BBCA])
 
   await page.show(TUESDAY)
   expect(page.held.flow!.codes.size).toBe(0)
-  await page.unmount()
-})
-
-test("a snapshot drops the backfill the one before it still asks", async () => {
-  vi.useFakeTimers({ now: wib("10:00:30") })
-  const dropped = vi.fn<() => void>()
-  mocks.bubbles.mockReturnValueOnce(
-    Effect.never.pipe(Effect.onInterrupt(() => Effect.sync(dropped)))
-  )
-  mocks.bubbles.mockReturnValue(Effect.succeed(Option.none()))
-  const page = await mount(MONDAY)
-  act(() => page.held.apply!(snapshot()))
-  await settle()
-  act(() => page.held.apply!(snapshot()))
-  await settle()
-  expect(dropped).toHaveBeenCalledOnce()
   await page.unmount()
 })
 
@@ -223,7 +207,7 @@ test("asks the backfill again, past the browser's copy, after the next minute's 
   vi.useFakeTimers({ now: wib("10:00:30") })
   mocks.bubbles.mockReturnValue(built([BBCA]))
   const page = await mount(MONDAY)
-  act(() => page.held.apply!(snapshot()))
+  act(() => page.held.apply(snapshot()))
   await settle()
   expect(mocks.bubbles.mock.calls).toEqual([[MONDAY, false]])
 
@@ -250,7 +234,7 @@ test("asks after each build until a body settled past the snapshot comes", async
     Effect.succeed(Option.some(answer([BBCA], wib("10:00:28"))))
   )
   const page = await mount(MONDAY)
-  act(() => page.held.apply!(snapshot()))
+  act(() => page.held.apply(snapshot()))
   await act(() => vi.advanceTimersByTimeAsync(wib("10:01:06") - Date.now()))
   expect(mocks.bubbles).toHaveBeenCalledTimes(2)
 
@@ -266,13 +250,13 @@ test("asks the backfill again after the next build for a code it hasn't carried,
   vi.useFakeTimers({ now: wib("10:00:30") })
   mocks.bubbles.mockReturnValue(built([BBCA]))
   const page = await mount(MONDAY)
-  act(() => page.held.apply!(snapshot()))
+  act(() => page.held.apply(snapshot()))
   await settle()
   await act(() => vi.advanceTimersByTimeAsync(wib("10:01:06") - Date.now()))
   expect(mocks.bubbles).toHaveBeenCalledTimes(2)
 
   // BBRI first trades at 10:01.
-  act(() => page.held.apply!(delta([candle(BBRI, wib("10:01:00"))])))
+  act(() => page.held.apply(delta([candle(BBRI, wib("10:01:00"))])))
   mocks.bubbles.mockReturnValue(built([BBCA, BBRI]))
   await act(() => vi.advanceTimersByTimeAsync(60_000))
   expect(mocks.bubbles.mock.calls.at(-1)).toEqual([MONDAY, true])
@@ -288,19 +272,19 @@ test("gives up on a code's previous close after three backfills without it", asy
   vi.useFakeTimers({ now: wib("10:00:30") })
   mocks.bubbles.mockReturnValue(built([BBCA]))
   const page = await mount(MONDAY)
-  act(() => page.held.apply!(snapshot()))
+  act(() => page.held.apply(snapshot()))
   await settle()
   await act(() => vi.advanceTimersByTimeAsync(wib("10:01:06") - Date.now()))
   expect(mocks.bubbles).toHaveBeenCalledTimes(2)
 
   // BBRI trades at 10:01, and no backfill ever carries its previous close.
-  act(() => page.held.apply!(delta([candle(BBRI, wib("10:01:00"))])))
+  act(() => page.held.apply(delta([candle(BBRI, wib("10:01:00"))])))
   await act(() => vi.advanceTimersByTimeAsync(10 * 60_000))
   expect(mocks.bubbles).toHaveBeenCalledTimes(5)
   expect(page.held.flow!.codes.get(BBRI)?.previousClose).toBeUndefined()
 
   // A reconnect asks again, as each snapshot does, but no more for BBRI.
-  act(() => page.held.apply!(snapshot()))
+  act(() => page.held.apply(snapshot()))
   await act(() => vi.advanceTimersByTimeAsync(10 * 60_000))
   expect(mocks.bubbles).toHaveBeenCalledTimes(7)
   await page.unmount()
@@ -313,11 +297,11 @@ test("stops asking after five fresh backfills in a row that leave it waiting, un
     Effect.succeed(Option.some(answer([BBCA], wib("10:00:28"))))
   )
   const page = await mount(MONDAY)
-  act(() => page.held.apply!(snapshot()))
+  act(() => page.held.apply(snapshot()))
   await act(() => vi.advanceTimersByTimeAsync(30 * 60_000))
   expect(mocks.bubbles).toHaveBeenCalledTimes(6)
 
-  act(() => page.held.apply!(snapshot()))
+  act(() => page.held.apply(snapshot()))
   await act(() => vi.advanceTimersByTimeAsync(30 * 60_000))
   expect(mocks.bubbles).toHaveBeenCalledTimes(12)
   await page.unmount()
