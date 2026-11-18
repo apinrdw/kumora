@@ -68,6 +68,13 @@ const snapshot = (
   bookReadings,
 })
 
+// The Special Monitoring Board list the readout reads: the Worker's answer
+// stands in for the hook's fetch.
+const board = vi.hoisted(() => ({ codes: new Set<string>() }))
+vi.mock("@/components/market-live/use-special-board", () => ({
+  useSpecialBoard: () => board.codes,
+}))
+
 // The readout of `code` live, after the socket's snapshot.
 const render = (code: string, message: ViewerDown) => {
   const readings = Effect.runSync(makeBookReadingsStore)
@@ -94,6 +101,7 @@ const render = (code: string, message: ViewerDown) => {
 }
 
 afterEach(() => {
+  board.codes = new Set()
   Effect.runSync(resetConditions)
   vi.useRealTimers()
   document.body.innerHTML = ""
@@ -153,4 +161,27 @@ test("an index and a code priced Rp1–10 say why they have no readings", () => 
   expect(cheap.container.textContent).toContain(
     "One tick here moves the price 10–100%"
   )
+})
+
+test("a Special Monitoring Board code says why it has no readings, at any price", () => {
+  board.codes = new Set(["WSBP"])
+  const { container, book } = render("WSBP", snapshot("session-1", []))
+  const reason =
+    "Special Monitoring Board: this code trades in a call auction all day, and no order book arrives for it."
+  expect(container.textContent).toContain(reason)
+  act(() =>
+    book.replace({
+      _tag: "OrderBook",
+      code: StockCode.make("WSBP"),
+      bids: [{ price: 7, lots: 100, orders: 3 }],
+      offers: [{ price: 8, lots: 100, orders: 3 }],
+      bidLots: 100,
+      offerLots: 100,
+      at: DateTime.makeUnsafe("2026-11-18T03:00:00Z"),
+      provenance: "Stockbit",
+      previousClose: 7,
+    })
+  )
+  expect(container.textContent).toContain(reason)
+  expect(container.textContent).not.toContain("One tick here")
 })

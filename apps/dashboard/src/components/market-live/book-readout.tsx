@@ -27,6 +27,7 @@ import { useDayState, type DayStateStore } from "./day-state-store"
 import { PHASE, useMarketPhase } from "./market-conditions"
 import type { OrderBookStore } from "./order-book-store"
 import { useReplay, type ReplayCursor } from "./replay-cursor"
+import { useSpecialBoard } from "./use-special-board"
 
 const DISCLAIMER =
   "Book readings describe liquidity and pressure in the order book. They don't predict price and aren't advice to buy or sell."
@@ -214,13 +215,21 @@ function Note({ children }: { children: ReactNode }) {
   )
 }
 
-// Why a code shows no readings, or none: an index, or a price of Rp1–10.
-const excludedReason = (code: StockCode, previousClose: number | undefined) =>
+// Why a code shows no readings, or none: an index, a Special Monitoring
+// Board code, or a price of Rp1–10. The board comes first: many of its codes
+// are priced Rp1–10 too, and no book arrives for them at any price.
+const excludedReason = (
+  code: StockCode,
+  board: ReadonlySet<StockCode>,
+  previousClose: number | undefined
+) =>
   INDEX_CODES.includes(code)
     ? "Indices have no order book."
-    : previousClose !== undefined && previousClose <= LOWEST_READ_CLOSE
-      ? "One tick here moves the price 10–100%, so book readings would mislead."
-      : undefined
+    : board.has(code)
+      ? "Special Monitoring Board: this code trades in a call auction all day, and no order book arrives for it."
+      : previousClose !== undefined && previousClose <= LOWEST_READ_CLOSE
+        ? "One tick here moves the price 10–100%, so book readings would mislead."
+        : undefined
 
 // The live readings: the trading-day object's latest for the code, greyed
 // outside Sessions 1 and 2.
@@ -303,7 +312,8 @@ const levelsNote = (
 
 /**
  * The selected code's Book readout: live, or at `cursor` on a recorded day.
- * An index or a code priced Rp1–10 shows why it has no readings instead.
+ * An index, a Special Monitoring Board code or a code priced Rp1–10 shows
+ * why it has no readings instead.
  */
 export function BookReadout({
   code,
@@ -332,8 +342,13 @@ export function BookReadout({
   const state = useDayState(dayStates, code)
   const held = useSyncExternalStore(book.subscribe, book.book, () => undefined)
   const shown = held?._tag === "OrderBook" ? held : undefined
+  // A recorded day reads today's board list too: the table keeps no
+  // history, so a code that has joined or left the board since shows as it
+  // stands today.
+  const board = useSpecialBoard()
   const reason = excludedReason(
     code,
+    board,
     state?.previousClose ?? shown?.previousClose
   )
   const parts = [fill, events].filter((part) => part !== undefined).length
