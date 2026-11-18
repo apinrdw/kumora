@@ -2,12 +2,12 @@
 // archive passes in its own columns: its run counts and its kinds.
 import { Effect } from "effect"
 
-import { KBadge, KDataTable, type KColumn } from "@/components/k"
+import { KDataTable, type KColumn } from "@/components/k"
 import { byteSize, count, dateTime } from "@/lib/format"
 import { RETENTION_DAYS } from "@/server/archive/retention"
 import type { RunSummaryBase } from "@/server/archive/run"
 
-import { ArchiveCard, OUTCOME } from "./archive-card"
+import { ArchiveCard, RunStatus } from "./archive-card"
 
 const RUN_COLUMNS: ReadonlyArray<KColumn<RunSummaryBase>> = [
   {
@@ -23,11 +23,7 @@ const RUN_COLUMNS: ReadonlyArray<KColumn<RunSummaryBase>> = [
   {
     key: "outcome",
     label: "Outcome",
-    cell: (run) => (
-      <KBadge tone={OUTCOME[run.outcome].tone}>
-        {OUTCOME[run.outcome].label}
-      </KBadge>
-    ),
+    cell: (run) => <RunStatus outcome={run.outcome} />,
   },
 ]
 
@@ -59,7 +55,7 @@ export function ArchiveRecentRunsCard<Run extends RunSummaryBase>({
             : { status: "ready" }
         }
       />
-      <p className="text-xs text-muted-foreground">
+      <p className="text-secondary-text text-[13px]">
         Kept {RETENTION_DAYS} days.
       </p>
     </ArchiveCard>
@@ -94,14 +90,14 @@ export function KindTotalsCard<Row extends object>({
     <ArchiveCard
       title={title}
       aside={
-        <span className="text-[13px] text-muted-foreground">
+        <span className="text-secondary-text num text-[13px]">
           {Effect.runSync(count(reports, "report", "reports"))} ·{" "}
           {Effect.runSync(byteSize(bytes))}
         </span>
       }
     >
       {reports === 0 ? (
-        <p className="text-[13px] text-muted-foreground">{emptyMessage}</p>
+        <p className="text-secondary-text text-[13px]">{emptyMessage}</p>
       ) : (
         <KDataTable
           label={label}

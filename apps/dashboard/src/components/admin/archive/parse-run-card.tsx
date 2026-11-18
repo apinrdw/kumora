@@ -8,7 +8,11 @@ import { count } from "@/lib/format"
 import type { RunView } from "@/server/archive/run-view"
 import type { ParseRunResult } from "@/server/holdings/parse-run-result"
 
-import { ArchiveLastRunCard, RunArchiveButton } from "./last-run-card"
+import {
+  ArchiveLastRunCard,
+  RunArchiveButton,
+  type RunFrame,
+} from "./last-run-card"
 
 // The months a partial run couldn't parse, each with why.
 function Failures({ result }: { result: ParseRunResult }) {
@@ -47,6 +51,7 @@ export function ParseRunCard({
   times,
   nextParseRun,
   now,
+  frame = "card",
 }: {
   // As "Last parse run".
   title: string
@@ -60,6 +65,8 @@ export function ParseRunCard({
   nextParseRun: string
   // When the page read the run, for a running run's time so far.
   now: string
+  // A ledger row's action is secondary: the ledger holds several.
+  frame?: RunFrame
 }) {
   const result = lastParseRun?.result
   return (
@@ -73,7 +80,11 @@ export function ParseRunCard({
           ? []
           : [
               { value: result.monthsParsed, label: "Months parsed" },
-              { value: result.parseFailures.length, label: "Parse failures" },
+              {
+                value: result.parseFailures.length,
+                label: "Parse failures",
+                tone: "down",
+              },
             ]
       }
       details={result === undefined ? null : <Failures result={result} />}
@@ -82,11 +93,13 @@ export function ParseRunCard({
           inProgress={lastParseRun?.inProgress ?? false}
           start={parseNow}
           icon={IconFileAnalytics}
+          variant={frame === "row" ? "secondary" : "primary"}
         >
           Parse now
         </RunArchiveButton>
       }
       schedule={{ times, nextRun: nextParseRun }}
+      frame={frame}
     />
   )
 }
