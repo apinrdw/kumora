@@ -673,20 +673,31 @@ export const makeBrokerCodes = Effect.fnUntraced(function* (options: {
     return merged
   })
 
+  // The batch's `numbers` the tape holds, read a chunk's span at a time: a
+  // trade chunk spans the same 1,000 numbers, so one row of it.
+  const tapedOf = (numbers: ReadonlyArray<number>) => {
+    const asked = new Set(numbers)
+    const sorted = [...asked].sort((a, b) => a - b)
+    const taped = new Set<number>()
+    for (let at = 0; at < sorted.length;) {
+      const low = sorted[at]!
+      const end = (Math.floor((low - 1) / CHUNK) + 1) * CHUNK
+      let high = low
+      while (at < sorted.length && sorted[at]! <= end) high = sorted[at++]!
+      for (const number of tape.numbersBetween(low, high))
+        if (asked.has(number)) taped.add(number)
+    }
+    return taped
+  }
+
   // Decision: a batch's fields land only for the trades the tape lacks as
   // it is written, in the codes' transaction: one statement over the rows,
-  // checked against one range read of the tape's numbers the batch spans.
-  // A trade already in walk_trades keeps its first row. Whether it filled
-  // any trade's fields.
+  // checked against the tape a chunk's span at a time (`tapedOf`), so a
+  // sparse batch never reads the numbers between its trades. A trade
+  // already in walk_trades keeps its first row. Whether it filled any.
   const writeFields = (fields: Merged["fields"]) => {
     if (fields.length === 0) return false
-    let low = Number.MAX_SAFE_INTEGER
-    let high = 0
-    for (const [number] of fields) {
-      low = Math.min(low, number)
-      high = Math.max(high, number)
-    }
-    const taped = new Set(tape.numbersBetween(low, high))
+    const taped = tapedOf(fields.map(([number]) => number))
     const lacking = fields.filter(([number]) => !taped.has(number))
     if (lacking.length === 0) return false
     const filled = sql.exec(
