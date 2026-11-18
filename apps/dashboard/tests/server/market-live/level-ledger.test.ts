@@ -91,7 +91,8 @@ const run = (steps: ReadonlyArray<Step>, reset?: number) =>
     const events: Array<BookEvent> = []
     for (const step of steps) {
       if (step.at === reset) yield* ledger.reset
-      for (const trade of step.trades ?? []) yield* ledger.trade(trade)
+      for (const trade of step.trades ?? [])
+        yield* ledger.trade(undefined, trade)
       if (step.rows !== undefined)
         events.push(...(yield* ledger.book(bidBook(step.at, step.rows))))
     }
@@ -386,7 +387,7 @@ const replay = (span: Span) =>
     for (const step of steps) {
       if ("trade" in step) {
         const [t, price, lots, side] = step.trade
-        yield* ledger.trade({
+        yield* ledger.trade(undefined, {
           ...sell(t, price, lots),
           code,
           side,

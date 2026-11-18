@@ -632,6 +632,7 @@ export const makeTradingDay = Effect.fnUntraced(function* (options: {
     }
     yield* candles.trade(held, merged)
     yield* dayStates.trade(held, merged)
+    yield* ledger.trade(held, merged)
   })
 
   // Merges a trade into the tape: a new trade number is inserted in its
@@ -666,7 +667,7 @@ export const makeTradingDay = Effect.fnUntraced(function* (options: {
     }
     yield* candles.trade(undefined, trade)
     yield* dayStates.trade(undefined, trade)
-    yield* ledger.trade(trade)
+    yield* ledger.trade(undefined, trade)
     return []
   })
 

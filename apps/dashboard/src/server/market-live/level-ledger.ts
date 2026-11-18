@@ -88,6 +88,7 @@ interface SideLedger {
 }
 
 interface Trade {
+  readonly tradeNumber: RunningTrade["tradeNumber"]
   readonly t: number
   readonly price: number
   readonly lots: number
@@ -533,30 +534,40 @@ export const makeLevelLedger = Effect.sync(() => {
     return found.filter((event) => fires(ledger, event))
   })
 
-  // A regular-board trade with an aggressor side; any other is no hit.
-  const trade = (arriving: RunningTrade) =>
+  // A trade new to the day, or `merged` replacing the copy `held` of it the
+  // ledger was given before, as the merged tape does. Only a regular-board
+  // trade with an aggressor side is kept; any other is no hit.
+  const trade = (held: RunningTrade | undefined, merged: RunningTrade) =>
     Effect.sync(() => {
-      if (arriving.board !== "RG" || arriving.side === "none") return
-      let held = codes.get(arriving.code)
-      if (held === undefined) {
-        held = {
+      const replaced = held && codes.get(held.code)?.trades
+      if (replaced) {
+        const at = replaced.findIndex(
+          (each) => each.tradeNumber === merged.tradeNumber
+        )
+        if (at >= 0) replaced.splice(at, 1)
+      }
+      if (merged.board !== "RG" || merged.side === "none") return
+      let ledger = codes.get(merged.code)
+      if (ledger === undefined) {
+        ledger = {
           provenance: "Stockbit",
           bid: emptySide(),
           offer: emptySide(),
           trades: [],
         }
-        codes.set(arriving.code, held)
+        codes.set(merged.code, ledger)
       }
-      const t = DateTime.toEpochMillis(arriving.time)
-      const kept = held.trades
+      const t = DateTime.toEpochMillis(merged.time)
+      const kept = ledger.trades
       while (kept.length > 0 && kept[0]!.t <= t - 2 * WINDOW_MS) kept.shift()
       let at = kept.length
       while (at > 0 && kept[at - 1]!.t > t) at--
       kept.splice(at, 0, {
+        tradeNumber: merged.tradeNumber,
         t,
-        price: arriving.price,
-        lots: arriving.lots,
-        side: arriving.side,
+        price: merged.price,
+        lots: merged.lots,
+        side: merged.side,
       })
     })
 
