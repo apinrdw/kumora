@@ -4,6 +4,8 @@
 import { isTradingDay } from "@workspace/relay"
 import { Effect } from "effect"
 
+import { BROKER_TOTALS_VERSION } from "../../dashboard/src/server/broker-totals/version.ts"
+
 import { marketNow, wibDate } from "./clock"
 import { replaceTables } from "./local-d1"
 
@@ -43,17 +45,19 @@ export function tradingDaysBeforeToday(count: number): ReadonlyArray<string> {
 export function seedBrokerTotals(code: string, days: ReadonlyArray<SeededDay>) {
   replaceTables("BrokerTotalsDb", ["totals", "candles", "built_days"], (db) => {
     const total = db.prepare(
-      "INSERT INTO totals VALUES (?, ?, ?, ?, ?, ?, ?, ?)"
+      "INSERT INTO totals VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)"
     )
     const candle = db.prepare(
       "INSERT INTO candles VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)"
     )
     const built = db.prepare(
-      "INSERT INTO built_days VALUES (?, 1, '2026-11-14T10:00:00.000Z', ?)"
+      "INSERT INTO built_days VALUES (?, ?, '2026-11-14T10:00:00.000Z', ?)"
     )
     for (const { day, price, flows, missingTrades = 0 } of days) {
       // A lot is 100 shares.
       const value = (lots: number) => lots * 100 * price
+      // One trade every 5 lots.
+      const trades = (lots: number) => Math.ceil(lots / 5)
       let volume = 0
       for (const { broker, investorType, buyLots, sellLots } of flows) {
         total.run(
@@ -64,12 +68,12 @@ export function seedBrokerTotals(code: string, days: ReadonlyArray<SeededDay>) {
           buyLots,
           value(buyLots),
           sellLots,
-          value(sellLots)
+          value(sellLots),
+          trades(buyLots),
+          trades(sellLots)
         )
         volume += buyLots
       }
-      // One trade every 5 lots.
-      const trades = Math.ceil(volume / 5)
       candle.run(
         code,
         day,
@@ -79,9 +83,9 @@ export function seedBrokerTotals(code: string, days: ReadonlyArray<SeededDay>) {
         price,
         volume,
         value(volume),
-        trades
+        trades(volume)
       )
-      built.run(day, missingTrades)
+      built.run(day, BROKER_TOTALS_VERSION, missingTrades)
     }
   })
 }

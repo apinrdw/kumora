@@ -53,6 +53,10 @@ export interface BrokerTotal {
   readonly buyValue: number
   readonly sellLots: number
   readonly sellValue: number
+  // The regular-board trades it bought and sold in, walk-filled ones too. A
+  // self-cross counts once on each side.
+  readonly buyFreq: number
+  readonly sellFreq: number
 }
 
 // One stock's regular-board day.
@@ -84,6 +88,8 @@ const TOTALS_COLUMNS = [
   "buy_value",
   "sell_lots",
   "sell_value",
+  "buy_freq",
+  "sell_freq",
 ]
 const CANDLES_COLUMNS = [
   "code",
@@ -163,6 +169,8 @@ export const writeBuiltDay = Effect.fnUntraced(function* (
       row.buyValue,
       row.sellLots,
       row.sellValue,
+      row.buyFreq,
+      row.sellFreq,
     ])),
     ...(yield* insertsOf(
       day,
@@ -225,6 +233,8 @@ const TotalRow = Schema.Struct({
   buyValue: Schema.Number,
   sellLots: Schema.Number,
   sellValue: Schema.Number,
+  buyFreq: Schema.Number,
+  sellFreq: Schema.Number,
 })
 
 const decodeRange = Schema.decodeUnknownEffect(
@@ -302,7 +312,7 @@ export const readBrokerTotals = Effect.fnUntraced(function* (
       params: [code, ...range],
     },
     {
-      sql: `SELECT day, broker, investor_type AS investorType, buy_lots AS buyLots, buy_value AS buyValue, sell_lots AS sellLots, sell_value AS sellValue FROM totals WHERE code = ? AND ${BUILT_IN_RANGE} ORDER BY day, broker, investor_type`,
+      sql: `SELECT day, broker, investor_type AS investorType, buy_lots AS buyLots, buy_value AS buyValue, sell_lots AS sellLots, sell_value AS sellValue, buy_freq AS buyFreq, sell_freq AS sellFreq FROM totals WHERE code = ? AND ${BUILT_IN_RANGE} ORDER BY day, broker, investor_type`,
       params: [code, ...range],
     },
   ])

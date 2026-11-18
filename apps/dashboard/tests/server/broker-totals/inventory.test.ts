@@ -30,6 +30,8 @@ const total = (
   buyValue: buyLots * 800_000,
   sellLots,
   sellValue: sellLots * 800_000,
+  buyFreq: buyLots * 3,
+  sellFreq: sellLots * 3,
 })
 
 const candle = (code: StockCode, close: number) => ({
@@ -116,6 +118,8 @@ describe("the broker inventory read", () => {
             buyValue: [0, 1_600_000, 0, 1_600_000],
             sellLots: [2, 0, 2, 0],
             sellValue: [1_600_000, 0, 1_600_000, 0],
+            buyFreq: [0, 6, 0, 6],
+            sellFreq: [6, 0, 6, 0],
           },
         })
       }).pipe(Effect.provide(db.layer))

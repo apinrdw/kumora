@@ -50,6 +50,7 @@ import {
 } from "effect"
 
 import { tradePosition } from "../../lib/trade-position.ts"
+import { BROKER_TOTALS_VERSION } from "../broker-totals/version.ts"
 import {
   clearBuiltDay,
   writeBuiltDay,
@@ -63,7 +64,6 @@ import { makeBrokerCodes } from "./broker-codes.ts"
 import {
   BROKER_TOTALS_DUE,
   BROKER_TOTALS_STALE,
-  BROKER_TOTALS_VERSION,
   buildBrokerTotals,
 } from "./broker-totals.ts"
 import { ingestTokenMatches } from "./ingest-token.ts"

@@ -49,6 +49,9 @@ const TotalColumns = Schema.Struct({
   buyValue: Column,
   sellLots: Column,
   sellValue: Column,
+  // The trades bought and sold in.
+  buyFreq: Column,
+  sellFreq: Column,
 })
 
 export const BrokerInventoryRead = Schema.Struct({
@@ -172,6 +175,8 @@ export const brokerInventory = Effect.fnUntraced(function* (
       buyValue: totals.map(({ buyValue }) => buyValue),
       sellLots: totals.map(({ sellLots }) => sellLots),
       sellValue: totals.map(({ sellValue }) => sellValue),
+      buyFreq: totals.map(({ buyFreq }) => buyFreq),
+      sellFreq: totals.map(({ sellFreq }) => sellFreq),
     },
   } satisfies BrokerInventoryRead
 })

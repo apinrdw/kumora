@@ -79,6 +79,7 @@ export function BrokerSummary({
               <th scope="col">
                 {measure === "lots" ? "Net lots" : "Net value"}
               </th>
+              <th scope="col">Freq</th>
             </tr>
           </thead>
           <tbody className="num">
@@ -126,6 +127,7 @@ export function BrokerSummary({
                   >
                     {Effect.runSync(netCell(row.net, measure))}
                   </td>
+                  <td>{Effect.runSync(plain(row.freq))}</td>
                 </tr>
               )
             })}

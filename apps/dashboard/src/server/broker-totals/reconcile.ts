@@ -6,7 +6,7 @@
 import type { WibDate } from "@workspace/relay"
 import { Effect } from "effect"
 
-import { BROKER_TOTALS_VERSION } from "../market-live/broker-totals.ts"
+import { BROKER_TOTALS_VERSION } from "./version.ts"
 import { readBuiltDays } from "./db.ts"
 
 // Decision: at most this many accepted pokes a run, newest first, so a
