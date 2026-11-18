@@ -29,7 +29,33 @@ const emptyStore = {
   newestBookEvents: () => Effect.succeed([]),
 }
 
+const offsets = (events: ReadonlyArray<BookEvent>) =>
+  events.map((event) => DateTime.toEpochMillis(event.at) - T0)
+
 describe("the book event log", () => {
+  it.effect(
+    "a pull read two frames late lands in time order in the snapshot's newest and the code's day",
+    () =>
+      Effect.gen(function* () {
+        const log = yield* makeBookEventLog({
+          bookEventsOf: () => Effect.succeed([pulled(4)]),
+          newestBookEvents: () => Effect.succeed([pulled(4)]),
+        })
+        yield* log.add([pulled(5)])
+        yield* log.add([pulled(2)])
+        assert.deepStrictEqual(
+          offsets(yield* log.newest),
+          [2, 4, 5],
+          "the newest stay oldest first"
+        )
+        assert.deepStrictEqual(
+          offsets(yield* log.ofCode(UNTR)),
+          [2, 4, 5],
+          "the code's day stays oldest first"
+        )
+      })
+  )
+
   it.effect(
     "keeps the newest MAX_UNFLUSHED_EVENTS while no flush lands",
     () =>

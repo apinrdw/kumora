@@ -101,6 +101,26 @@ describe("the scanner's book events", () => {
       })
   )
 
+  it.effect(
+    "a pull read two frames late lands in time order, not arrival order",
+    () =>
+      Effect.gen(function* () {
+        const store = yield* makeRadarEventsStore
+        store.apply(snapshot([eaten(TLKM, NOW - 9_000)]))
+        store.apply(delta([eaten(BBCA, NOW - 1_000)], NOW))
+        store.apply(delta([eaten(TLKM, NOW - 3_000)], NOW + 250))
+        assert.deepStrictEqual(
+          times(store.events()),
+          [
+            [BBCA, NOW - 1_000],
+            [TLKM, NOW - 3_000],
+            [TLKM, NOW - 9_000],
+          ],
+          "the events stay newest first"
+        )
+      })
+  )
+
   it.effect("a snapshot of the next day starts the list again", () =>
     Effect.gen(function* () {
       const store = yield* makeRadarEventsStore

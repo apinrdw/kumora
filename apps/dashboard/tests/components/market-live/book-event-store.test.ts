@@ -77,6 +77,21 @@ const seconds = (events: ReadonlyArray<BookEvent>) =>
 
 describe("book event store", () => {
   it.effect(
+    "a pull read two frames late lands in time order, not arrival order",
+    () =>
+      Effect.gen(function* () {
+        const store = yield* makeBookEventStore(StockCode.make("BBCA"))
+        store.apply(snapshot("BBCA", [event("BBCA", 1)]))
+        store.apply(delta([event("BBCA", 5)]))
+        store.apply(delta([event("BBCA", 3)]))
+        expect(
+          seconds(store.events()),
+          "the code's events stay oldest first"
+        ).toEqual([1, 3, 5])
+      })
+  )
+
+  it.effect(
     "a snapshot of its code replaces the events and a delta adds its code's",
     () =>
       Effect.gen(function* () {
