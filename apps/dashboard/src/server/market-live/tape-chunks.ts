@@ -150,11 +150,10 @@ const chunkOfRow = (row: Record<string, unknown>) =>
   chunkReader(Number(row.chunk), new Uint8Array(row.records as Uint8Array))
 
 // Decision: the plain methods run inside a synchronous transaction
-// (tape-backing.ts, Tape), so the record and chunk helpers they call stay
-// plain too: `chunkOf`, `emptyRecords`, `indexIn`'s lookups, `putRecord`,
-// `chunkReader`, `chunkOfRow`, `loadCodes`, `codeAt`, `stored`,
-// `chunksBetween`, `nearest`, `highest` and `eachHeld`. The reads around them
-// are Effects, as tape.ts's.
+// (tape-backing.ts, Tape), so the helpers they call stay plain: `chunkOf`,
+// `emptyRecords`, `indexIn`'s lookups, `putRecord`, `chunkReader`,
+// `chunkOfRow`, `loadCodes`, `codeAt`, `stored`, `chunksBetween`, `nearest`,
+// `highest` and `eachHeld`. The reads around them are Effects.
 export const makeChunkTape = (sql: Sql): Tape => {
   sql.exec(TRADE_CHUNKS_SCHEMA)
 
