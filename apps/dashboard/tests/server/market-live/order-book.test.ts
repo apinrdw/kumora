@@ -556,6 +556,54 @@ describe("book readings and the delta", () => {
       })
   )
 
+  it.effect(
+    "a trade settled after a code's latest book reaches the page as its value today, the readings keeping the book's as-of",
+    () =>
+      Effect.gen(function* () {
+        const { stockbit, viewer } = yield* tradingDay()
+        const page = yield* viewer("ASII")
+        yield* stockbit(BBCA_SIDES)
+        yield* TestClock.adjust("1 second")
+        yield* stockbit([
+          runningTradeBatch([
+            {
+              tradeWib: "14:20:27.000",
+              code: "BBCA",
+              price: 5025,
+              volume: 400_000,
+              action: 1,
+              board: 1,
+              tradeNumber: 900_001,
+            },
+          ]),
+        ])
+        yield* TestClock.adjust("1 second")
+        const valueOf = (messages: ReadonlyArray<ViewerDown>) =>
+          messages
+            .flatMap((message) => message.scannerFigures ?? [])
+            .filter((figures) => figures.code === "BBCA")
+            .at(-1)?.value
+        assert.strictEqual(
+          valueOf(yield* received(page)),
+          2_010_000_000,
+          "a delta carries BBCA's value today once its trade settles"
+        )
+        const [snapshot] = yield* received(yield* viewer("ASII"))
+        assert(snapshot?._tag === "Snapshot")
+        assert.strictEqual(
+          valueOf([snapshot]),
+          2_010_000_000,
+          "a snapshot carries BBCA's value today once its trade settles"
+        )
+        assert.deepStrictEqual(
+          (snapshot.bookReadings ?? []).map((reading) =>
+            DateTime.toEpochMillis(reading.at)
+          ),
+          [SEEN]
+        )
+      })
+  )
+
   it.effect("a snapshot carries every code's latest readings", () =>
     Effect.gen(function* () {
       const { stockbit, viewer } = yield* tradingDay()
