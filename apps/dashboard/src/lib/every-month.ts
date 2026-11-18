@@ -87,9 +87,10 @@ export const everyMonth = Effect.fnUntraced(function* (
   )
   return {
     rows: rows.map(({ row }) => row),
-    // The largest % of any holder in any month, which shades the darkest.
+    // The largest % of any holder in any month, which shades the darkest; at
+    // least 1, so a grid of 0% cells shades them all the lightest.
     largest: Math.max(
-      0,
+      1,
       ...months.flatMap(({ holders }) =>
         holders.map(({ percentageHundredths }) => percentageHundredths)
       )

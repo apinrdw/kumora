@@ -101,6 +101,18 @@ describe("Every month", () => {
       ["DELTA FUND", "·", "1.50", "1.20▼", "·"],
     ])
   })
+  test("shades every cell the lightest when every holder holds 0%", async () => {
+    await act(() =>
+      root.render(
+        <EveryMonth
+          months={[month("2026-10-30", [holder("ZERO", [row("ZERO", 1, 0)])])]}
+          selected="2026-10-30"
+        />
+      )
+    )
+    const cell = grid()?.querySelector<HTMLElement>("tbody td")
+    expect(cell?.style.getPropertyValue("--shade")).toBe("8%")
+  })
   test("outlines the selected month and sorts by it, holders not listed in it last and greyed", async () => {
     await render("2026-09-30")
     expect(

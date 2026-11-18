@@ -3,6 +3,7 @@
 // amendment): holders × every above-1% month, the panel's month outlined.
 import { cn } from "@workspace/ui/lib/utils"
 import { Effect } from "effect"
+import type { CSSProperties } from "react"
 
 import { everyMonth } from "@/lib/every-month"
 import { plain } from "@/lib/format"
@@ -22,6 +23,10 @@ const MARK = {
     className: "text-info",
   },
 } as const
+
+// A cell's tint, as strong as its `--shade`.
+const SHADE =
+  "bg-[color-mix(in_oklab,var(--semantic-info)_var(--shade),transparent)]"
 
 const OUTLINE = "data-selected:shadow-[inset_0_0_0_1.5px_var(--text-primary)]"
 
@@ -104,11 +109,14 @@ export function EveryMonth({
                       data-selected={outlined || undefined}
                       className={cn(
                         "num text-right whitespace-nowrap",
+                        SHADE,
                         OUTLINE
                       )}
-                      style={{
-                        background: `color-mix(in oklab, var(--semantic-info) ${Math.round(8 + (50 * cell.hundredths) / largest)}%, transparent)`,
-                      }}
+                      style={
+                        {
+                          "--shade": `${Math.round(8 + (50 * cell.hundredths) / largest)}%`,
+                        } as CSSProperties
+                      }
                     >
                       {Effect.runSync(plain(cell.hundredths / 100, 2))}
                       {mark && (
