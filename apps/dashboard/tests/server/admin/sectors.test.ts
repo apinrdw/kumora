@@ -82,6 +82,7 @@ describe("the Sectors card", () => {
       assert.deepStrictEqual(yield* sectorTable(headers(cookie)), {
         rows: 0,
         fetchedAt: null,
+        lastRun: null,
       })
       yield* TestClock.setTime(Date.parse("2026-11-17T03:04:05.000Z"))
       assert.deepStrictEqual(yield* runSectorSyncNow(headers(cookie)), {
@@ -92,6 +93,10 @@ describe("the Sectors card", () => {
       assert.deepStrictEqual(yield* sectorTable(headers(cookie)), {
         rows: 2,
         fetchedAt: "2026-11-17T03:04:05.000Z",
+        lastRun: {
+          run: { _tag: "Replaced", rows: 2 },
+          ranAt: "2026-11-17T03:04:05.000Z",
+        },
       })
     }).pipe(Effect.provide(layer))
   })
@@ -103,12 +108,19 @@ describe("the Sectors card", () => {
       const cookie = yield* verified(mails)(ADMIN_EMAIL, "Adi")
       yield* runSectorSyncNow(headers(cookie))
       idx.profiles = codes(8).map((code) => profile(code))
-      assert.deepStrictEqual(yield* runSectorSyncNow(headers(cookie)), {
+      yield* TestClock.setTime(Date.parse("2026-11-18T15:00:00.000Z"))
+      const kept = {
         _tag: "Kept",
         reason:
           "IDX lists 8 company profiles with a stock code, under 90 % of the 10 stored",
+      } as const
+      assert.deepStrictEqual(yield* runSectorSyncNow(headers(cookie)), kept)
+      const table = yield* sectorTable(headers(cookie))
+      assert.strictEqual(table.rows, 10)
+      assert.deepStrictEqual(table.lastRun, {
+        run: kept,
+        ranAt: "2026-11-18T15:00:00.000Z",
       })
-      assert.strictEqual((yield* sectorTable(headers(cookie))).rows, 10)
     }).pipe(Effect.provide(layer))
   })
 
@@ -120,6 +132,10 @@ describe("the Sectors card", () => {
       const run = yield* runSectorSyncNow(headers(cookie))
       assert.strictEqual(run._tag, "Failed")
       assert.include(run._tag === "Failed" ? run.message : "", "answered 503")
+      assert.deepStrictEqual(
+        (yield* sectorTable(headers(cookie))).lastRun?.run,
+        run
+      )
     }).pipe(Effect.provide(layer))
   })
 })

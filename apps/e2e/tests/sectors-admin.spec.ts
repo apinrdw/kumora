@@ -33,7 +33,7 @@ test.use({ storageState: ADMIN.storageState })
 // profiles from the Worker, which Playwright can't stub, and the Test stage
 // has no stand-in for IDX. The unit tests (apps/dashboard/tests/server/admin/
 // sectors.test.ts) run it against a stub HttpClient.
-test("the Sectors card counts stock_sector's rows and offers Run now", async ({
+test("the Sectors card counts stock_sector's rows, shows the last run and offers Run now", async ({
   page,
 }) => {
   await page.goto(SHAREHOLDING)
@@ -43,6 +43,9 @@ test("the Sectors card counts stock_sector's rows and offers Run now", async ({
   await expect(card).toContainText(
     "Production fills stock_sector from IDX's company profiles at 22:00 WIB."
   )
+  await expect(
+    card.getByRole("term").getByText("Last run", { exact: true })
+  ).toBeVisible()
   const before = await shownRows(page)
 
   // Specs running at once share stock_sector, so a seeded row only adds.

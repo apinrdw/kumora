@@ -43,6 +43,11 @@ export type SectorRun =
   // A sanity gate dropped the run; yesterday's table stays.
   | { readonly _tag: "Kept"; readonly reason: string }
 
+// A run as the cron and Run now record it: IDX failing is an outcome too.
+export type RecordedSectorRun =
+  | SectorRun
+  | { readonly _tag: "Failed"; readonly message: string }
+
 const isSector = Schema.is(Sector)
 const isStockCode = Schema.is(StockCode)
 
@@ -180,4 +185,37 @@ export const syncSectors = Effect.fn("syncSectors")(function* (
   })
   const replaced: SectorRun = { _tag: "Replaced", rows: read.rows.length }
   return replaced
+})
+
+// The run, with its outcome kept in sector_run for the Sectors card. A
+// NonRetryable is IDX failing, so it becomes Failed rather than an error.
+export const recordedSectorRun = Effect.fn("recordedSectorRun")(function* (
+  ranAt: Date
+) {
+  const run = yield* syncSectors(ranAt).pipe(
+    Effect.map((outcome): RecordedSectorRun => outcome),
+    Effect.catchTag("NonRetryable", ({ message }) =>
+      Effect.logWarning("Sector run failed", { message }).pipe(
+        Effect.as<RecordedSectorRun>({ _tag: "Failed", message })
+      )
+    )
+  )
+  yield* (yield* HoldingsDb).batch([
+    {
+      sql:
+        "INSERT OR REPLACE INTO sector_run (id, outcome, rows, message, ran_at) " +
+        "VALUES (1, ?, ?, ?, ?)",
+      params: [
+        run._tag,
+        run._tag === "Replaced" ? run.rows : null,
+        run._tag === "Kept"
+          ? run.reason
+          : run._tag === "Failed"
+            ? run.message
+            : null,
+        ranAt.toISOString(),
+      ],
+    },
+  ])
+  return run
 })
