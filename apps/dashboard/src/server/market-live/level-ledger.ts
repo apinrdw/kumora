@@ -101,13 +101,6 @@ interface CodeLedger {
   trades: Array<Trade>
 }
 
-const emptySide = (): SideLedger => ({
-  frames: [],
-  births: new Map(),
-  fired: new Map(),
-  refills: new Map(),
-})
-
 // The aggressor side whose trades hit a book side: a sell hits bids.
 const HITTING = { bid: "sell", offer: "buy" } as const
 
@@ -127,11 +120,19 @@ interface Reading {
 
 // Decision: the ledger's helpers stay plain closures inside its Effects: they
 // run for every price of every side frame, inside the delta tick. On node,
-// replaying fixtures/book-events-2026-11-17.json's 949 side frames took 9.7 ms;
-// at 119 helper calls a frame and about 75 ns a yielded Effect, Effects would
-// take about 18 ms, nearly twice as long. See spec apinrdw/kumora#517.
+// replaying fixtures/book-events-2026-11-17.json's 949 side frames through the
+// ledger took 7.7 ms with plain helpers and 21 ms with every helper an Effect
+// (119 more Effects a frame), each the median of 100 alternating replays,
+// 2.7 times as long. See spec apinrdw/kumora#517.
 export const makeLevelLedger = Effect.sync(() => {
   const codes = new Map<StockCode, CodeLedger>()
+
+  const emptySide = (): SideLedger => ({
+    frames: [],
+    births: new Map(),
+    fired: new Map(),
+    refills: new Map(),
+  })
 
   const lotsAt = (levels: ReadonlyArray<BookLevel>, price: number) =>
     levels.find((level) => level.price === price)
