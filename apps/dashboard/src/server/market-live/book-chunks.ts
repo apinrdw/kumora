@@ -60,9 +60,13 @@ export const makeBookChunks = Effect.sync(() => {
       open.delete(code)
     })
 
-  // `code`'s chunk taking frames served at `now`, opened from the book in
-  // force when the minute's has not.
-  const openAt = Effect.fnUntraced(function* (code: StockCode, now: number) {
+  // `code`'s chunk taking frames served at `now`, opened from `start`, the
+  // book in force, when the minute's has not.
+  const openAt = Effect.fnUntraced(function* (
+    code: StockCode,
+    now: number,
+    start: OrderBook | undefined
+  ) {
     const minute = Math.floor(now / MINUTE_MS) * MINUTE_MS
     let held = open.get(code)
     if (held !== undefined && minute > held.minute) {
@@ -70,7 +74,7 @@ export const makeBookChunks = Effect.sync(() => {
       held = undefined
     }
     if (held === undefined) {
-      held = { minute, start: last.get(code), deltas: [] }
+      held = { minute, start, deltas: [] }
       open.set(code, held)
     }
     return held
@@ -87,7 +91,7 @@ export const makeBookChunks = Effect.sync(() => {
   ) {
     if (recorded) {
       const now = yield* Clock.currentTimeMillis
-      const held = yield* openAt(book.code, now)
+      const held = yield* openAt(book.code, now, last.get(book.code))
       held.deltas.push(
         yield* deltaOf(DateTime.makeUnsafe(now), last.get(book.code), book)
       )
@@ -95,11 +99,15 @@ export const makeBookChunks = Effect.sync(() => {
     last.set(book.code, book)
   })
 
-  // A code the day just began recording: its chunk opens now from the book
-  // in force, so the minute it joined replays that book before any frame.
-  const begin = Effect.fnUntraced(function* (code: StockCode) {
-    if (!last.has(code)) return
-    yield* openAt(code, yield* Clock.currentTimeMillis)
+  // A code the day just began recording: its chunk opens now from `book`,
+  // the one its viewer was just served, so the minute it joined replays
+  // that book before any frame. The next frame's delta is against it.
+  // Decision: the served book, not the last recorded frame, opens it: a
+  // restored Ajaib book is served with no frame before it. See
+  // apinrdw/kumora#574.
+  const begin = Effect.fnUntraced(function* (book: OrderBook) {
+    yield* openAt(book.code, yield* Clock.currentTimeMillis, book)
+    last.set(book.code, book)
   })
 
   // Every chunk whose minute is over by `now`, encoded; at the seal, every
