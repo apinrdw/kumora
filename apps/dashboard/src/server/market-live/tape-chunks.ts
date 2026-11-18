@@ -12,6 +12,12 @@ import {
 import { DateTime, Effect } from "effect"
 
 import type { Sql } from "./day-store.ts"
+import {
+  TIME_SKEW_MS,
+  minuteFloor,
+  minutesSpanning,
+  type Tape,
+} from "./tape-backing.ts"
 
 // A record: present (1), side, board, a spare byte, the code list index
 // (u16), the feeds in order (a nibble each, the feed's index + 1), then time,
@@ -44,10 +50,6 @@ export const TRADE_CODES_FACT = "trade-codes"
 const SIDES = ["buy", "sell", "none"] as const
 const BOARDS = ["RG", "TN", "NG"] as const
 const FEEDS_IN = ["Stockbit", "Ajaib", "backfill", "walk"] as const
-
-// The most a stored trade's time can run before the time of the trade
-// numbered before it: Ajaib's and the backfill's rounding to the second.
-const TIME_SKEW_MS = 1_000
 
 // Trades read a page of chunks per statement, so a full day's 48 MB of
 // chunks never sits in memory at once.
@@ -120,17 +122,25 @@ const chunkReader = (chunk: number, records: Uint8Array) => {
     slots: function* () {
       for (let slot = 0; slot < TRADE_CHUNK; slot++) if (held(slot)) yield slot
     },
+    lastSlot: () => {
+      for (let slot = TRADE_CHUNK - 1; slot >= 0; slot--)
+        if (held(slot)) return slot
+      return 0
+    },
   }
 }
 type Chunk = ReturnType<typeof chunkReader>
+// A held trade: its chunk and its slot there.
+type Held = readonly [Chunk, number]
 
 const chunkOfRow = (row: Record<string, unknown>) =>
   chunkReader(Number(row.chunk), new Uint8Array(row.records as Uint8Array))
 
-// Decision: `write`, `highestNumber`, `numbersBetween` and
-// `rebuildCandleSides` are plain, as tape.ts's are: they run inside a
-// synchronous transaction.
-export const makeChunkTape = (sql: Sql) => {
+// Decision: the plain methods run inside a synchronous transaction
+// (tape-backing.ts, Tape), so the record and chunk helpers they call stay
+// plain too: `putRecord`, `chunkReader`, `codeAt`, `stored`, `chunksBetween`,
+// `nearest` and `eachHeld`. The reads around them are Effects, as tape.ts's.
+export const makeChunkTape = (sql: Sql): Tape => {
   sql.exec(TRADE_CHUNKS_SCHEMA)
 
   // The code list, loaded when a record indexes past what is held.
@@ -185,30 +195,28 @@ export const makeChunkTape = (sql: Sql) => {
   const lowest = () => nearest(0, "above")
   const highest = () => nearest(Number.MAX_SAFE_INTEGER, "below")
 
-  const firstSlot = (chunk: Chunk) => chunk.slots().next().value!
-  const lastSlot = (chunk: Chunk) => {
-    for (let slot = TRADE_CHUNK - 1; slot >= 0; slot--)
-      if (chunk.held(slot)) return slot
-    return 0
-  }
+  // The time of a chunk's first held trade.
+  const firstTime = (chunk: Chunk) =>
+    Effect.sync(() => chunk.time(chunk.slots().next().value!))
 
-  const tradeOf = (chunk: Chunk, slot: number): RunningTrade => ({
-    tradeNumber: TradeNumber.make(String(chunk.number(slot))),
-    time: DateTime.makeUnsafe(chunk.time(slot)),
-    code: codeAt(chunk.code(slot)),
-    price: chunk.price(slot),
-    lots: chunk.lots(slot),
-    side: chunk.side(slot),
-    board: chunk.board(slot),
-    feeds: chunk.feeds(slot),
-  })
+  const tradeOf = ([chunk, slot]: Held) =>
+    Effect.sync((): RunningTrade => ({
+      tradeNumber: TradeNumber.make(String(chunk.number(slot))),
+      time: DateTime.makeUnsafe(chunk.time(slot)),
+      code: codeAt(chunk.code(slot)),
+      price: chunk.price(slot),
+      lots: chunk.lots(slot),
+      side: chunk.side(slot),
+      board: chunk.board(slot),
+      feeds: chunk.feeds(slot),
+    }))
 
   // Each held trade from `low` to `high`, ascending, as its chunk and slot.
   const eachHeld = function* (low: number, high: number) {
     for (const chunk of chunksBetween(chunkOf(low), chunkOf(high)))
       for (const slot of chunk.slots()) {
         const number = chunk.number(slot)
-        if (number >= low && number <= high) yield [chunk, slot] as const
+        if (number >= low && number <= high) yield [chunk, slot] as Held
       }
   }
 
@@ -267,7 +275,7 @@ export const makeChunkTape = (sql: Sql) => {
 
   const highestNumber = () => {
     const chunk = highest()
-    return chunk === undefined ? undefined : chunk.number(lastSlot(chunk))
+    return chunk === undefined ? undefined : chunk.number(chunk.lastSlot())
   }
 
   const numbersBetween = (low: number, high: number) =>
@@ -312,30 +320,37 @@ export const makeChunkTape = (sql: Sql) => {
     return held
   })
 
-  // The trades held at or below `from`, descending, a chunk at a time.
-  const eachDown = function* (from: number) {
-    let next = chunkOf(from)
-    while (next >= 0) {
-      const chunk = nearest(next, "below")
-      if (chunk === undefined) return
-      for (let slot = TRADE_CHUNK - 1; slot >= 0; slot--)
-        if (chunk.held(slot) && chunk.number(slot) <= from)
-          yield [chunk, slot] as const
-      next = chunk.chunk - 1
-    }
-  }
+  // The newest `limit` trades at or below `from` and at or before `cutoff`,
+  // descending, read a chunk at a time.
+  const heldDown = (from: number, cutoff: number, limit: number) =>
+    Effect.sync(() => {
+      const held: Array<Held> = []
+      for (let next = chunkOf(from); next >= 0 && held.length < limit;) {
+        const chunk = nearest(next, "below")
+        if (chunk === undefined) break
+        for (let slot = TRADE_CHUNK - 1; slot >= 0; slot--) {
+          if (held.length >= limit) break
+          if (
+            chunk.held(slot) &&
+            chunk.number(slot) <= from &&
+            chunk.time(slot) <= cutoff
+          )
+            held.push([chunk, slot])
+        }
+        next = chunk.chunk - 1
+      }
+      return held
+    })
 
   // The newest `limit` trades, ascending.
-  const newest = (limit: number) =>
-    Effect.sync(() => {
-      const trades: Array<RunningTrade> = []
-      if (limit <= 0) return trades
-      for (const [chunk, slot] of eachDown(Number.MAX_SAFE_INTEGER)) {
-        trades.push(tradeOf(chunk, slot))
-        if (trades.length >= limit) break
-      }
-      return trades.reverse()
-    })
+  const newest = Effect.fnUntraced(function* (limit: number) {
+    const held = yield* heldDown(
+      Number.MAX_SAFE_INTEGER,
+      Number.POSITIVE_INFINITY,
+      limit
+    )
+    return (yield* Effect.forEach(held, tradeOf)).reverse()
+  })
 
   // Within the chunk the search lands on, the bound is its highest trade at
   // or before the target; every later chunk starts after it.
@@ -343,7 +358,7 @@ export const makeChunkTape = (sql: Sql) => {
   // the chunks by each one's first trade's time, as tape.ts searches rows:
   // IDX hands numbers out in time order. It targets the instant plus
   // TIME_SKEW_MS, and reads about 11 chunk rows on a busy day.
-  const highestWithin = (cutoff: number) => {
+  const highestWithin = Effect.fnUntraced(function* (cutoff: number) {
     const bound = cutoff + TIME_SKEW_MS
     const first = lowest()
     const last = highest()
@@ -358,7 +373,7 @@ export const makeChunkTape = (sql: Sql) => {
         high = middle - 1
         continue
       }
-      if (chunk.time(firstSlot(chunk)) <= bound) {
+      if ((yield* firstTime(chunk)) <= bound) {
         found = chunk
         low = chunk.chunk + 1
       } else high = middle - 1
@@ -368,78 +383,69 @@ export const makeChunkTape = (sql: Sql) => {
     for (const slot of found.slots())
       if (found.time(slot) <= bound) within = found.number(slot)
     return within
-  }
+  })
 
   // The newest `limit` trades at or before `at`, below `before` when it is
   // given, ascending.
-  const tradesAt = ({ at, before }: TapeCursor, limit: number) =>
-    Effect.sync(() => {
-      const cutoff = DateTime.toEpochMillis(at)
-      const found = highestWithin(cutoff)
-      if (found === undefined) return []
-      const from =
-        before === undefined ? found : Math.min(found, Number(before) - 1)
-      const trades: Array<RunningTrade> = []
-      if (limit <= 0) return trades
-      for (const [chunk, slot] of eachDown(from)) {
-        if (chunk.time(slot) > cutoff) continue
-        trades.push(tradeOf(chunk, slot))
-        if (trades.length >= limit) break
-      }
-      return trades.reverse()
-    })
+  const tradesAt = Effect.fnUntraced(function* (
+    { at, before }: TapeCursor,
+    limit: number
+  ) {
+    const cutoff = DateTime.toEpochMillis(at)
+    const found = yield* highestWithin(cutoff)
+    if (found === undefined) return []
+    const from =
+      before === undefined ? found : Math.min(found, Number(before) - 1)
+    const held = yield* heldDown(from, cutoff, limit)
+    return (yield* Effect.forEach(held, tradeOf)).reverse()
+  })
 
   // The trades after `after` and at or before `through`, ascending, from a
   // search two skews before `after`, as tape.ts's.
-  const tradesBetween = (after: DateTime.Utc, through: DateTime.Utc) =>
-    Effect.sync(() => {
-      const from = DateTime.toEpochMillis(after)
-      const to = DateTime.toEpochMillis(through)
-      const last = highestWithin(to)
-      if (last === undefined) return []
-      const first = highestWithin(from - 2 * TIME_SKEW_MS) ?? 0
-      const trades: Array<RunningTrade> = []
-      for (const [chunk, slot] of eachHeld(first + 1, last)) {
+  const tradesBetween = Effect.fnUntraced(function* (
+    after: DateTime.Utc,
+    through: DateTime.Utc
+  ) {
+    const from = DateTime.toEpochMillis(after)
+    const to = DateTime.toEpochMillis(through)
+    const last = yield* highestWithin(to)
+    if (last === undefined) return []
+    const first = (yield* highestWithin(from - 2 * TIME_SKEW_MS)) ?? 0
+    const held = yield* Effect.sync(() =>
+      Array.from(eachHeld(first + 1, last)).filter(([chunk, slot]) => {
         const time = chunk.time(slot)
-        if (time > from && time <= to) trades.push(tradeOf(chunk, slot))
-      }
-      return trades
-    })
-
-  const floorMinute = (time: number) => Math.floor(time / MINUTE_MS) * MINUTE_MS
+        return time > from && time <= to
+      })
+    )
+    return yield* Effect.forEach(held, tradeOf)
+  })
 
   // The first and last minute that can hold a stored trade, widened by
   // TIME_SKEW_MS as tape.ts's; none when the day stored none.
-  const minuteSpan = Effect.sync(() => {
+  const minuteSpan = Effect.gen(function* () {
     const first = lowest()
     const last = highest()
-    return first === undefined || last === undefined
-      ? undefined
-      : {
-          first: floorMinute(first.time(firstSlot(first)) - TIME_SKEW_MS),
-          last: floorMinute(last.time(lastSlot(last)) + TIME_SKEW_MS),
-        }
+    if (first === undefined || last === undefined) return undefined
+    return {
+      first: yield* minuteFloor((yield* firstTime(first)) - TIME_SKEW_MS),
+      last: yield* minuteFloor(last.time(last.lastSlot()) + TIME_SKEW_MS),
+    }
   })
 
   // The minutes the stored trades numbered `first` to `last` fall in,
   // ascending; none when it holds none of them.
-  const minutesOf = (first: TradeNumber, last: TradeNumber) =>
-    Effect.sync(() => {
-      let earliest = Number.POSITIVE_INFINITY
-      let latest = Number.NEGATIVE_INFINITY
-      for (const [chunk, slot] of eachHeld(Number(first), Number(last))) {
-        earliest = Math.min(earliest, chunk.time(slot))
-        latest = Math.max(latest, chunk.time(slot))
-      }
-      const minutes: Array<number> = []
-      for (
-        let minute = floorMinute(earliest);
-        minute <= latest;
-        minute += MINUTE_MS
-      )
-        minutes.push(minute)
-      return minutes
-    })
+  const minutesOf = Effect.fnUntraced(function* (
+    first: TradeNumber,
+    last: TradeNumber
+  ) {
+    let earliest = Number.POSITIVE_INFINITY
+    let latest = Number.NEGATIVE_INFINITY
+    for (const [chunk, slot] of eachHeld(Number(first), Number(last))) {
+      earliest = Math.min(earliest, chunk.time(slot))
+      latest = Math.max(latest, chunk.time(slot))
+    }
+    return yield* minutesSpanning(earliest, latest)
+  })
 
   // The numbers from `low` to `high` the tape lacks, marked 1 in `marks`
   // from `low`.

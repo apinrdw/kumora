@@ -14,6 +14,12 @@ import {
 import { DateTime, Effect } from "effect"
 
 import type { Sql, SqlValue } from "./day-store.ts"
+import {
+  TIME_SKEW_MS,
+  minutesSpanning,
+  type Tape,
+  type TapeFields,
+} from "./tape-backing.ts"
 import { makeChunkTape } from "./tape-chunks.ts"
 
 // A day recorded before trade chunks holds a trade as one row keyed by its
@@ -34,19 +40,6 @@ const REBUILD_CANDLE_SIDES = `UPDATE candles
     FROM trades WHERE board = 'RG' GROUP BY code, minute
   ) AS sides
   WHERE candles.code = sides.code AND candles.minute = sides.minute`
-
-// The most a stored trade's time can run before the time of the trade
-// numbered before it: Ajaib's and the backfill's rounding to the second.
-const TIME_SKEW_MS = 1_000
-
-// A held trade's fields the broker codes store reads (broker-codes.ts).
-interface TapeFields {
-  readonly number: number
-  readonly code: StockCode
-  readonly price: number
-  readonly lots: number
-  readonly board: RunningTrade["board"]
-}
 
 // A trade's or walk row's fields, read back without a decode: the rows are
 // the day's own writes.
@@ -72,12 +65,8 @@ const tradeOf = (row: Record<string, SqlValue>) =>
     feeds: String(row.feeds).split(",") as RunningTrade["feeds"],
   }))
 
-// Decision: `write`, `highestNumber`, `numbersBetween` and
-// `rebuildCandleSides` are plain, as the `Sql` port's methods are: the day
-// store's flush and the broker codes store's batches and summaries call them
-// inside a synchronous transaction, where an Effect could not run. The rest
-// are Effects.
-const makeRowTape = (sql: Sql) => {
+// The plain methods run inside a transaction (tape-backing.ts, Tape).
+const makeRowTape = (sql: Sql): Tape => {
   // `trades` inside a transaction. A number is written once: a copy can't
   // replace it.
   const write = (trades: ReadonlyArray<RunningTrade>) => {
@@ -252,23 +241,18 @@ const makeRowTape = (sql: Sql) => {
 
   // The minutes the stored trades numbered `first` to `last` fall in,
   // ascending; none when it holds none of them.
-  const minutesOf = (first: TradeNumber, last: TradeNumber) =>
-    Effect.sync(() => {
-      const [row] = sql.exec(
-        "SELECT min(time) AS first, max(time) AS last FROM trades WHERE number BETWEEN ? AND ?",
-        Number(first),
-        Number(last)
-      )
-      if (row === undefined || row.first === null) return []
-      const minutes: Array<number> = []
-      for (
-        let minute = Math.floor(Number(row.first) / MINUTE_MS) * MINUTE_MS;
-        minute <= Number(row.last);
-        minute += MINUTE_MS
-      )
-        minutes.push(minute)
-      return minutes
-    })
+  const minutesOf = Effect.fnUntraced(function* (
+    first: TradeNumber,
+    last: TradeNumber
+  ) {
+    const [row] = sql.exec(
+      "SELECT min(time) AS first, max(time) AS last FROM trades WHERE number BETWEEN ? AND ?",
+      Number(first),
+      Number(last)
+    )
+    if (row === undefined || row.first === null) return []
+    return yield* minutesSpanning(Number(row.first), Number(row.last))
+  })
 
   // The numbers from `low` to `high` the tape lacks, marked 1 in `marks`
   // from `low`.
@@ -331,8 +315,6 @@ const makeRowTape = (sql: Sql) => {
     fieldsBetween,
   }
 }
-
-type Tape = ReturnType<typeof makeRowTape>
 
 // Decision: a day's tape shape is which table it holds: `trades`, made only
 // by days recorded before trade chunks, keeps its rows until the day turns
