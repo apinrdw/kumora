@@ -22,6 +22,10 @@ export interface BookEventStore {
   // Whether each side had fewer than MIN_SIDE_FRAMES frames in the window
   // before `now`: the ledger can't read the code.
   readonly quiet: (now: number) => boolean
+  // The trading-day object's clock at `local` on this one, as its last
+  // message's send time read it: the instant events and frames are stamped
+  // on.
+  readonly now: (local: number) => number
   readonly apply: (message: ViewerDown) => void
   // A recorded day's GET answer.
   readonly load: (answer: RecordedBookEvents) => void
@@ -37,6 +41,8 @@ export const makeBookEventStore = (code: StockCode) =>
     let events: ReadonlyArray<BookEvent> = []
     let recorded = true
     let picked: string | undefined
+    // The object's clock less this one's, at its last message.
+    let skew = 0
     const sideTimes = { bid: [] as Array<number>, offer: [] as Array<number> }
     const listeners = new Set<() => void>()
     const tell = () => {
@@ -72,7 +78,9 @@ export const makeBookEventStore = (code: StockCode) =>
             sideTimes[side].filter((t) => t > now - BOOK_EVENT_WINDOW_MS)
               .length < MIN_SIDE_FRAMES
         ),
+      now: (local) => local + skew,
       apply: (message) => {
+        skew = DateTime.toEpochMillis(message.at) - Date.now()
         if (message._tag === "Snapshot") {
           if (message.selected !== code) return
           if (message.orderBook?._tag === "OrderBook")

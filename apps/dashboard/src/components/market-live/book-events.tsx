@@ -59,8 +59,9 @@ export function useBookEvents(code: StockCode, day: WibDate | undefined) {
 
 const noSubscribe = () => () => {}
 
-// The clock live, ticking each TICK_MS; the cursor on a recorded day.
-function useNow(cursor: ReplayCursor | undefined) {
+// The object's clock live, ticking each TICK_MS; the cursor on a recorded
+// day.
+function useNow(store: BookEventStore, cursor: ReplayCursor | undefined) {
   const [now, setNow] = useState(() => Date.now())
   useEffect(() => {
     if (cursor !== undefined) return
@@ -72,7 +73,7 @@ function useNow(cursor: ReplayCursor | undefined) {
     () => cursor?.state().at,
     () => cursor?.state().at
   )
-  return at ?? now
+  return at ?? store.now(now)
 }
 
 const useEvents = (store: BookEventStore) =>
@@ -87,7 +88,7 @@ export function useRecentBookEvents(
   cursor: ReplayCursor | undefined
 ) {
   const events = useEvents(store)
-  const now = useNow(cursor)
+  const now = useNow(store, cursor)
   return events.filter((event) => {
     const at = DateTime.toEpochMillis(event.at)
     return at <= now && now - at < MARK_MS
@@ -217,7 +218,7 @@ export function BookEventList({
     store.recorded,
     store.recorded
   )
-  const now = useNow(cursor)
+  const now = useNow(store, cursor)
   const note = Effect.runSync(
     listNote({
       recorded,

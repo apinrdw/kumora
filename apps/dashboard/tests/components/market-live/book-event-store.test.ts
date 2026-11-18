@@ -127,3 +127,16 @@ describe("book event store", () => {
     })
   )
 })
+
+describe("book event store clock", () => {
+  it.effect("reads now on the object's clock, from its last message", () =>
+    Effect.gen(function* () {
+      const store = yield* makeBookEventStore(StockCode.make("FOLK"))
+      const local = Date.now()
+      // The object's clock runs an hour ahead of this one.
+      store.apply({ ...delta([]), at: DateTime.makeUnsafe(local + 3_600_000) })
+      expect(store.now(local) - local).toBeGreaterThan(3_599_000)
+      expect(store.now(local) - local).toBeLessThanOrEqual(3_600_000)
+    })
+  )
+})
