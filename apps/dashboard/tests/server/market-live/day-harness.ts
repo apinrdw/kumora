@@ -234,10 +234,23 @@ export const tradingDay = Effect.fnUntraced(function* (
       })
     )
   })
-  // A viewer that selected `code`, and so was sent a snapshot.
+  // Ajaib's code list response `body`, as the relay sends it.
+  const codeList = Effect.fnUntraced(function* (body: string) {
+    yield* ingest(
+      yield* encodeIngestUp({
+        _tag: "CodeList",
+        protocolVersion: IngestProtocolVersion,
+        receivedAt: yield* DateTime.now,
+        body,
+      })
+    )
+  })
+  // A viewer that selected `code` and watches `watchlist`, and so was sent a
+  // snapshot.
   const viewer = Effect.fnUntraced(function* (
     code: string,
-    protocolVersion: number = ViewerProtocolVersion
+    protocolVersion: number = ViewerProtocolVersion,
+    watchlist: ReadonlyArray<string> = []
   ) {
     const socket = new FakeSocket()
     viewers.push(socket)
@@ -245,7 +258,7 @@ export const tradingDay = Effect.fnUntraced(function* (
       _tag: "Select",
       protocolVersion: ViewerProtocolVersion,
       selected: StockCode.make(code),
-      watchlist: [],
+      watchlist: watchlist.map((watched) => StockCode.make(watched)),
     })
     yield* day.viewerMessage(
       socket,
@@ -343,6 +356,7 @@ export const tradingDay = Effect.fnUntraced(function* (
     recordedSweepBrokers,
     ajaibTrades,
     frames,
+    codeList,
     viewers,
     viewer,
     left,

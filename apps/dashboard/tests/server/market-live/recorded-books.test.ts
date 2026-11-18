@@ -17,7 +17,7 @@ import { DateTime, Effect } from "effect"
 import { TestClock } from "effect/testing"
 
 import { stockbitBook, stockbitTrade, tradingDay } from "./day-harness"
-import { memorySql, rowShapedSql } from "./sql"
+import { memorySql, rowLimited, rowShapedSql } from "./sql"
 
 const wib = (time: string) => DateTime.makeUnsafe(`2026-11-09T${time}+07:00`)
 const at = (time: string) =>
@@ -87,6 +87,25 @@ const heatmapOf = Effect.fnUntraced(function* (day: Day) {
 })
 
 const NOT_RECORDED = '{"error":"NotFound","message":"Not recorded"}'
+
+// `count` codes of the longest shape no list names, from `from`.
+const unlisted = (from: number, count: number) =>
+  Array.from(
+    { length: count },
+    (_, index) => `Z${String(from + index).padStart(15, "0")}`
+  )
+
+// The recorded-books fact as `sql` holds it.
+const recordedFact = (sql: ReturnType<typeof memorySql>) =>
+  sql.exec("SELECT value FROM facts WHERE key = 'recorded-books'")[0]?.value
+
+// Twelve viewers, each watching 10,000 codes the others don't.
+const watchDisjoint = Effect.fnUntraced(function* (day: Day) {
+  for (let viewer = 0; viewer < 12; viewer++)
+    yield* day.left(
+      yield* day.viewer("BBCA", undefined, unlisted(viewer * 10_000, 10_000))
+    )
+})
 
 describe("a day's recorded order books", () => {
   it.effect(
@@ -241,6 +260,65 @@ describe("a day's recorded order books", () => {
         bids: [70],
       })
     })
+  )
+
+  it.effect(
+    "stay a fact far under the 2 MB row, so later flushes land, when viewers watch 120,000 codes and the day holds no list",
+    () =>
+      Effect.gen(function* () {
+        yield* at("13:58:00")
+        const sql = rowLimited(memorySql())
+        const day = yield* tradingDay(sql)
+        yield* watchDisjoint(day)
+        yield* day.trades([RELAYED])
+        yield* TestClock.adjust("2 minutes")
+        yield* day.evicted
+
+        const fact = recordedFact(sql)
+        assert.isString(fact)
+        assert.isBelow(String(fact).length, 200_000)
+        const restarted = yield* tradingDay(sql)
+        assert.lengthOf(
+          (yield* restarted.recordedCandles("BBCA")).answer.candles,
+          1
+        )
+      })
+  )
+
+  it.effect(
+    "keep only the codes the day's list names once it holds one, which still record after unlisted ones filled the set",
+    () =>
+      Effect.gen(function* () {
+        yield* at("13:58:00")
+        const sql = memorySql()
+        const day = yield* tradingDay(sql)
+        yield* day.trades([RELAYED])
+        yield* watchDisjoint(day)
+        yield* day.codeList(
+          JSON.stringify({
+            results: [
+              { code: "BBCA", name: "Bank Central Asia" },
+              { code: "UNTR", name: "United Tractors" },
+            ],
+          })
+        )
+        yield* untrBook(day, "13:58:03", 50)
+        yield* at("14:00:00")
+        yield* day.left(
+          yield* day.viewer("UNTR", undefined, unlisted(200_000, 10))
+        )
+        yield* untrBook(day, "14:03:03", 90)
+        yield* TestClock.adjust("2 minutes")
+
+        const fact = recordedFact(sql)
+        assert.isBelow(String(fact).length, 200_000)
+        assert.include(String(fact), '"UNTR"')
+        assert.notInclude(String(fact), unlisted(200_000, 1)[0])
+        assert.deepStrictEqual(yield* bookOf(day, "14:03:00", "14:03:30"), {
+          status: 200,
+          bids: [90],
+        })
+      })
   )
 
   it.effect(

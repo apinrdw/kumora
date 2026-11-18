@@ -7,6 +7,8 @@ import {
   type StatementSync,
 } from "node:sqlite"
 
+import { Effect } from "effect"
+
 import type { Sql, SqlValue } from "@/server/market-live/day-store"
 
 export const memorySql = (): Sql => {
@@ -39,6 +41,32 @@ export const memorySql = (): Sql => {
     },
   }
 }
+
+// Durable Object SQLite refuses a row over 2 MB, where Node's allows
+// 1 GB. A test that a day's rows stay under it runs on `rowLimited`.
+const DURABLE_ROW_BYTES = 2_000_000
+
+// `sql` refusing a statement that binds a value over Durable Object SQLite's
+// row limit, as SQLITE_TOOBIG.
+export const rowLimited = (sql: Sql): Sql => ({
+  ...sql,
+  exec: (query, ...bindings) => {
+    for (const value of bindings) {
+      const bytes =
+        typeof value === "string"
+          ? new TextEncoder().encode(value).length
+          : value instanceof Uint8Array
+            ? value.length
+            : 0
+      // The storage API is synchronous and throws; runSync throws the failure.
+      if (bytes > DURABLE_ROW_BYTES)
+        return Effect.runSync(
+          Effect.fail(new Error(`SQLITE_TOOBIG: ${bytes} bytes`))
+        )
+    }
+    return sql.exec(query, ...bindings)
+  },
+})
 
 // `sql` counting as Cloudflare's does: every row a statement returned as
 // read, and every write statement as one row written.
