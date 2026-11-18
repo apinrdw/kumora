@@ -24,7 +24,7 @@ import {
 } from "@workspace/relay"
 import { Effect, Option, Schema } from "effect"
 
-import { BROKER_TRADES_BUILT, Fact, type Sql } from "./day-store.ts"
+import { Fact, type Sql } from "./day-store.ts"
 
 // Decision: chunk k holds trades 1000k+1 .. 1000k+1000 as 1,000 fixed 7-byte
 // records: buyer code, buyer type, seller code, seller type, and the source.
@@ -49,18 +49,6 @@ const SCHEMA = [
     ajaib BLOB NOT NULL,
     stockbit BLOB NOT NULL
   )`,
-  // Decision: the broker trades index, one row per side of each trade the
-  // chunks keep codes for, so a whole day filters by broker as a key lookup
-  // in Data Studio. WITHOUT ROWID makes the key the only B-tree, one row
-  // write a side. The source and the cross-check stay in the chunks. See
-  // apinrdw/kumora#342.
-  `CREATE TABLE IF NOT EXISTS broker_trades (
-    broker TEXT NOT NULL,
-    investor_type TEXT NOT NULL,
-    side TEXT NOT NULL,
-    number INTEGER NOT NULL,
-    PRIMARY KEY (broker, investor_type, side, number)
-  ) WITHOUT ROWID`,
   // Decision: a walk's fields of each trade the tape lacked, the first row
   // kept. On a day the relay recorded they never fill the tape, so its
   // recorded answers don't change; only the build reads them (#425). A walk
@@ -73,6 +61,12 @@ const SCHEMA = [
     lots REAL NOT NULL,
     board TEXT NOT NULL
   )`,
+  // Decision: a day recorded before apinrdw/kumora#561 drops its broker
+  // trades index, which nothing read, and the facts of its rebuild. In
+  // workerd the drop of a busy day's 2.92 M rows read 14 rows and wrote
+  // none (row-budgets.workerd.test.ts).
+  "DROP TABLE IF EXISTS broker_trades",
+  "DELETE FROM facts WHERE key IN ('broker-trades', 'index-wake')",
 ]
 
 // Decision: the status reads the chunks this many at a time, so a 1.5M-trade
@@ -192,43 +186,9 @@ const fieldsRows = (number: number, fields: TradeFields | undefined) =>
         ]
   )
 
-// One index row: broker, investor type, side and trade number.
-type IndexRow = readonly [string, string, "buy" | "sell", number]
-
-// Whether two records hold the same three bytes of the side at `at`.
-const sameSide = (held: Uint8Array, codes: Uint8Array, at: number) =>
-  held[at] === codes[at] &&
-  held[at + 1] === codes[at + 1] &&
-  held[at + 2] === codes[at + 2]
-
-// The sides of a record's first six bytes: the buyer's three, then the
-// seller's.
-const SIDES = [
-  ["buy", 0],
-  ["sell", 3],
-] as const
-
-// One side's index row of a trade, from its record's first six bytes.
-const sideRow = (
-  number: number,
-  record: Uint8Array,
-  [side, at]: (typeof SIDES)[number]
-): IndexRow => [
-  decoder.decode(record.subarray(at, at + 2)),
-  record[at + 2] === 70 ? "F" : "D",
-  side,
-  number,
-]
-
 // What a batch writes, in one transaction.
 interface Merged {
   readonly chunks: Map<number, Uint8Array>
-  // Each trade the batch touched: its codes before the batch, none when the
-  // day held none.
-  readonly before: Map<number, Option.Option<Uint8Array>>
-  // The index rows of trades whose codes the batch changed.
-  readonly unindexed: Array<IndexRow>
-  readonly indexed: Array<IndexRow>
   readonly differences: Map<number, readonly [Uint8Array, Uint8Array]>
   readonly agreed: Set<number>
   readonly facts: Array<readonly [string, string]>
@@ -470,31 +430,9 @@ export const makeBrokerCodes = Effect.fnUntraced(function* (options: {
       return recorded
     })
 
-  // Decision: a batch moves only the index rows of the trade sides whose
-  // codes it changed, in the same transaction as their chunks, so the index
-  // never disagrees with them after a failure and an unchanged side costs no
-  // row write. A Stockbit agreement (source `A` to `B`) or a resent batch
-  // changes no codes and writes no index row.
-  const indexMoves = Effect.fnUntraced(function* (merged: Merged) {
-    for (const [number, before] of merged.before) {
-      const { chunk, at } = yield* placeOf(number)
-      const after = merged.chunks.get(chunk)!.subarray(at, at + SOURCE)
-      const held = Option.getOrUndefined(before)
-      for (const side of SIDES) {
-        if (held !== undefined && sameSide(held, after, side[1])) continue
-        if (held !== undefined)
-          merged.unindexed.push(sideRow(number, held, side))
-        merged.indexed.push(sideRow(number, after, side))
-      }
-    }
-  })
-
   const merge = Effect.fnUntraced(function* (batch: BrokerCodesBatch) {
     const merged: Merged = {
       chunks: new Map(),
-      before: new Map(),
-      unindexed: [],
-      indexed: [],
       differences: new Map(),
       agreed: new Set(),
       facts: [],
@@ -525,13 +463,6 @@ export const makeBrokerCodes = Effect.fnUntraced(function* (options: {
       merged.chunks.set(chunk, held)
       const bytes = yield* bytesOf(codes)
       const before = held.slice(at, at + SOURCE)
-      if (!merged.before.has(number))
-        merged.before.set(
-          number,
-          held[at + SOURCE] === 0
-            ? Option.none()
-            : Option.some(held.slice(at, at + SOURCE))
-        )
       const outcome =
         batch.feed === "Ajaib"
           ? yield* mergeAjaib(held, at, bytes, yield* stockbitOf(number, chunk))
@@ -546,7 +477,6 @@ export const makeBrokerCodes = Effect.fnUntraced(function* (options: {
         merged.differences.set(number, outcome)
       }
     }
-    yield* indexMoves(merged)
     merged.facts.push(...(yield* factsOf(batch, highest)))
     return merged
   })
@@ -588,16 +518,6 @@ export const makeBrokerCodes = Effect.fnUntraced(function* (options: {
         "INSERT OR REPLACE INTO broker_code_chunks VALUES (?, ?)",
         chunk,
         codes
-      )
-    for (const row of merged.unindexed)
-      sql.exec(
-        "DELETE FROM broker_trades WHERE broker = ? AND investor_type = ? AND side = ? AND number = ?",
-        ...row
-      )
-    for (const row of merged.indexed)
-      sql.exec(
-        "INSERT OR IGNORE INTO broker_trades VALUES (?, ?, ?, ?)",
-        ...row
       )
     for (const [number, [ajaib, stockbit]] of merged.differences)
       sql.exec(
@@ -942,63 +862,6 @@ export const makeBrokerCodes = Effect.fnUntraced(function* (options: {
     () => sql.exec("SELECT 1 FROM broker_code_chunks LIMIT 1").length === 0
   )
 
-  // Decision: a day stored before the index rebuilds it SCAN_PAGE chunks a
-  // call, rows and progress in one transaction, so a cut-off rebuild resumes.
-  // A page only inserts: live batches already moved the rows they changed.
-  // A day with no chunks at start is built from the start. See
-  // apinrdw/kumora#342.
-  const indexBuilt = yield* Effect.gen(function* () {
-    const progress = yield* fact(Fact.brokerTrades)
-    if (progress === BROKER_TRADES_BUILT) return true
-    if (progress !== undefined) return false
-    if (sql.exec("SELECT 1 FROM broker_code_chunks LIMIT 1").length > 0)
-      return false
-    sql.exec(
-      "INSERT OR REPLACE INTO facts VALUES (?, ?)",
-      Fact.brokerTrades,
-      BROKER_TRADES_BUILT
-    )
-    return true
-  })
-
-  // The next page of the index's rebuild; whether the index is built after
-  // it.
-  const indexPage = Effect.gen(function* () {
-    const progress = yield* fact(Fact.brokerTrades)
-    if (progress === BROKER_TRADES_BUILT) return true
-    const rows = sql.exec(
-      "SELECT chunk, codes FROM broker_code_chunks WHERE chunk > ? ORDER BY chunk LIMIT ?",
-      progress === undefined ? -1 : Number(progress),
-      SCAN_PAGE
-    )
-    const built = rows.length < SCAN_PAGE
-    yield* Effect.sync(() =>
-      sql.transaction(() => {
-        for (const row of rows) {
-          const chunk = Number(row.chunk)
-          const codes = row.codes as Uint8Array
-          for (let slot = 0; slot < CHUNK; slot++) {
-            const at = slot * RECORD
-            if (codes[at + SOURCE] === 0 || codes[at + SOURCE] === undefined)
-              continue
-            const record = codes.subarray(at, at + SOURCE)
-            for (const side of SIDES)
-              sql.exec(
-                "INSERT OR IGNORE INTO broker_trades VALUES (?, ?, ?, ?)",
-                ...sideRow(chunk * CHUNK + slot + 1, record, side)
-              )
-          }
-        }
-        sql.exec(
-          "INSERT OR REPLACE INTO facts VALUES (?, ?)",
-          Fact.brokerTrades,
-          built ? BROKER_TRADES_BUILT : String(rows.at(-1)!.chunk)
-        )
-      })
-    )
-    return built
-  })
-
   return {
     post,
     status: statusAnswer,
@@ -1008,8 +871,6 @@ export const makeBrokerCodes = Effect.fnUntraced(function* (options: {
     buildable,
     heldTradesPage,
     holdsNone,
-    indexBuilt,
-    indexPage,
   }
 })
 
