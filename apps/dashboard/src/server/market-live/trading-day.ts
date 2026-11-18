@@ -524,7 +524,7 @@ export const makeTradingDay = Effect.fnUntraced(function* (options: {
   // the candle book keeps; the next flush writes it.
   let unwritten: Pick<Flush, "livePrices" | "chunks" | "ajaibBooks"> | undefined
 
-  if (restoring)
+  if (restoring) {
     for (const price of yield* restoreLastFrames({
       store,
       candles,
@@ -533,6 +533,8 @@ export const makeTradingDay = Effect.fnUntraced(function* (options: {
       bookChunks,
     }))
       lastLivePrices.set(price.code, price)
+    yield* candles.rankStored
+  }
 
   // The order book and Day state fall back to Ajaib while Stockbit's freshness
   // isn't live: delayed falls over as stale does.

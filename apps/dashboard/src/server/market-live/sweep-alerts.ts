@@ -59,7 +59,7 @@ const join = Effect.fnUntraced(function* (ranking: Ranking, lots: number) {
   ranking.size += 1
 })
 
-// A sweep the ranking may not hold, as after a restart, leaves it as it is.
+// A sweep the ranking doesn't hold leaves it as it is.
 const leave = Effect.fnUntraced(function* (ranking: Ranking, lots: number) {
   const count = ranking.counts.get(lots) ?? 0
   if (count === 0) return
@@ -148,5 +148,15 @@ export const makeSweepAlerts = Effect.sync(() => {
     return { alerts, ranked: closed, pending: closed.length < minute.length }
   })
 
-  return { decide }
+  // Sweeps a restarted object stored, ranked without a decision: its
+  // regroups find them ranked, as the ones it decides itself.
+  const rank = Effect.fnUntraced(function* (
+    code: StockCode,
+    sweeps: ReadonlyArray<Sweep>
+  ) {
+    for (const sweep of sided(sweeps))
+      yield* join(yield* rankingOf(code, sweep.side), sweep.lots)
+  })
+
+  return { decide, rank }
 })

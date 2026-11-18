@@ -130,6 +130,11 @@ export interface SettledCandles {
   readonly storedSweepsOf: (
     code: StockCode
   ) => Effect.Effect<ReadonlyMap<number, ReadonlyArray<Sweep>>>
+  // Every stock's sweeps, a minute at a time in no order, each handed to
+  // `each` as it is read.
+  readonly eachStoredSweeps: (
+    each: (code: StockCode, sweeps: ReadonlyArray<Sweep>) => Effect.Effect<void>
+  ) => Effect.Effect<void>
 }
 
 interface Print {
@@ -802,6 +807,15 @@ export const makeCandleBook = Effect.fnUntraced(function* (
       }
     })
 
+  // A restarted object's stored sweeps, every code's, ranked for the alert
+  // rule before it decides again, so each side's warm-up and cutoff carry
+  // on. A minute the book takes from the store counts its stored sweeps as
+  // ranked (`slotOf`).
+  // Decision: the ranking is rebuilt from the footprints table once, not
+  // stored on its own: the research put it at a few MB, under ~30 MB at
+  // worst. See spec apinrdw/kumora#510 and apinrdw/kumora#500.
+  const rankStored = store.eachStoredSweeps(alertRule.rank)
+
   // How many candles the book holds: the bound's measure.
   const retained = Effect.sync(() => {
     let count = 0
@@ -825,6 +839,7 @@ export const makeCandleBook = Effect.fnUntraced(function* (
     written,
     hasUnflushed,
     restore,
+    rankStored,
     retained,
   }
 })
