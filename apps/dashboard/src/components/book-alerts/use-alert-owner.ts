@@ -10,12 +10,11 @@ const untilAborted = (signal: AbortSignal) =>
     signal.addEventListener("abort", () => resume(Effect.void), { once: true })
   })
 
-// Decision: one live page per browser tells alerts: the one last brought to
-// the front (shown or focused) holds the Web Lock `kumora:book-alerts` and
-// tells; the others queue and tell nothing. A recorded day's page never
-// takes it. Each request is the page's current one until the next replaces
-// it or the page unmounts: a grant to any other lets go at once. Without
-// Web Locks every live page tells. See apinrdw/kumora#526.
+// Decision: the live page last brought to the front (shown or focused)
+// holds the Web Lock `kumora:book-alerts` and tells; others queue, a
+// recorded day's page never asks, and a grant to a replaced or unmounted
+// request lets go at once. Without Web Locks every live page tells. See
+// apinrdw/kumora#526.
 /** Whether this page holds the browser's alert lock, read when an event arrives. */
 export function useAlertOwner(live: boolean) {
   const owns = useRef(false)

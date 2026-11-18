@@ -38,12 +38,17 @@ const makeLocks = () => {
     named.set(name, held)
     return held
   }
+  type Options = { readonly steal?: boolean; readonly signal?: AbortSignal }
   const request = (
     name: string,
-    options: { readonly steal?: boolean; readonly signal?: AbortSignal },
-    callback: () => unknown
+    optionsOrCallback: Options | (() => unknown),
+    maybeCallback?: () => unknown
   ) =>
     new Promise((resolve, reject) => {
+      const [options, callback] =
+        typeof optionsOrCallback === "function"
+          ? [{} as Options, optionsOrCallback]
+          : [optionsOrCallback, maybeCallback!]
       const lock = lockOf(name)
       const grant = () => {
         let settled = false

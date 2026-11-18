@@ -5,11 +5,13 @@ import { DateTime, Effect } from "effect"
 import {
   alertTitle,
   historyOf,
-  makeAlertGate,
+  admitAlert,
+  NO_LIMITS,
   ruleMatches,
   withAlert,
   type Alert,
   type AlertHistory,
+  type AlertLimits,
   type AlertRule,
   type MatchContext,
 } from "@/lib/book-alerts"
@@ -175,10 +177,23 @@ describe("alertTitle", () => {
   )
 })
 
+// The limits threaded through each admission, as the browser's store keeps
+// them.
+const makeGate = Effect.sync(() => {
+  let limits: AlertLimits = NO_LIMITS
+  return {
+    admit: (event: BookEvent, now: number) =>
+      Effect.map(admitAlert(limits, event, now), (admitted) => {
+        limits = admitted.limits
+        return admitted.verdict
+      }),
+  }
+})
+
 describe("the alert gate", () => {
   it.effect("lets the same code and kind through once in 2 minutes", () =>
     Effect.gen(function* () {
-      const gate = yield* makeAlertGate
+      const gate = yield* makeGate
       assert.strictEqual(
         (yield* gate.admit(pulled(BBCA, T0), T0))._tag,
         "Shown"
@@ -202,7 +217,7 @@ describe("the alert gate", () => {
     "shows 6 a minute and folds the rest into one count for that minute",
     () =>
       Effect.gen(function* () {
-        const gate = yield* makeAlertGate
+        const gate = yield* makeGate
         const codes = Array.from({ length: 9 }, (_, i) =>
           StockCode.make(`AA${String.fromCharCode(65 + i)}`)
         )

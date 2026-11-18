@@ -16,8 +16,8 @@ import { useWatchlist } from "@/components/market-live/use-watchlist"
 import { makeFiguresStore } from "@/components/order-book-radar/figures-store"
 import { useRadarSettings } from "@/components/order-book-radar/use-radar-settings"
 import {
+  admitAlert,
   alertTitle,
-  makeAlertGate,
   ruleMatches,
   withAlert,
   type Alert,
@@ -33,14 +33,24 @@ import {
   alertChime,
   alertDay,
   alertHistory,
+  alertLimits,
   alertRules,
 } from "./alert-store"
 import { useAlertOwner } from "./use-alert-owner"
 
-// One gate for the tab: moving between the radar and Market Live keeps the
-// cooldowns and the minute's count. It advances in every tab, owner or not
-// (use-alert-owner.ts).
-const gate = Effect.runSync(makeAlertGate)
+const LIMITS_LOCK = "kumora:book-alerts:limits"
+
+// Decision: each event alerts once per browser, and the cooldowns and the
+// minute's count hold across its tabs and reloads: one localStorage value,
+// admitted against under the Web Lock `kumora:book-alerts:limits` by the
+// alert owner (use-alert-owner.ts) only. An event heard twice cools on its
+// own code, kind and time. See apinrdw/kumora#526.
+const withLimitsLock = (change: () => void) => {
+  const locks = typeof navigator === "undefined" ? undefined : navigator.locks
+  // Without Web Locks the write is unguarded.
+  if (locks === undefined) return change()
+  void locks.request(LIMITS_LOCK, change)
+}
 
 const ALERT_MS = 8_000
 
@@ -180,21 +190,28 @@ export function useBookAlerts(live = true) {
       alertDay.set(today)
       if (message._tag !== "Delta" || message.bookEvents === undefined) return
       const rules = alertRules.get()
-      if (rules.length === 0) return
+      if (rules.length === 0 || !owns.current) return
       const now = DateTime.toEpochMillis(message.at)
-      for (const event of message.bookEvents) {
-        const matched = rules.some((rule) =>
+      const matched = message.bookEvents.filter((event) =>
+        rules.some((rule) =>
           Effect.runSync(ruleMatches(rule, event, held.current))
         )
-        if (!matched) continue
-        const verdict = Effect.runSync(gate.admit(event, now))
-        if (verdict._tag === "Cooled" || !owns.current) continue
-        const alert = Effect.runSync(alertOf(event))
-        alertHistory.set(
-          Effect.runSync(withAlert(alertHistory.get(), alert, today))
-        )
-        tell(alert, verdict)
-      }
+      )
+      if (matched.length === 0) return
+      withLimitsLock(() => {
+        for (const event of matched) {
+          const { verdict, limits } = Effect.runSync(
+            admitAlert(alertLimits.get(), event, now)
+          )
+          if (verdict._tag === "Cooled") continue
+          alertLimits.set(limits)
+          const alert = Effect.runSync(alertOf(event))
+          alertHistory.set(
+            Effect.runSync(withAlert(alertHistory.get(), alert, today))
+          )
+          tell(alert, verdict)
+        }
+      })
     },
     [figures, tell, owns]
   )

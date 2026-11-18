@@ -8,7 +8,9 @@ import { useSyncExternalStore } from "react"
 
 import {
   MIN_VALUES,
+  NO_LIMITS,
   type AlertHistory,
+  type AlertLimits,
   type AlertRule,
 } from "@/lib/book-alerts"
 import { makeSchemaStoredValue } from "@/lib/stored-value"
@@ -89,6 +91,20 @@ const NO_HISTORY: AlertHistory = {
 }
 export const alertHistory: Stored<AlertHistory> = Effect.runSync(
   stored("kumora:book-alerts:history", History, NO_HISTORY)
+)
+
+const Limits = Schema.Struct({
+  last: Schema.Record(Schema.String, Schema.Finite),
+  shown: Schema.Array(Schema.Finite),
+  fold: Schema.NullOr(
+    Schema.Struct({ since: Schema.Finite, count: Schema.Finite })
+  ),
+})
+
+// The browser's alert rate limit so far, read and written only under its
+// lock (use-book-alerts.ts).
+export const alertLimits: Stored<AlertLimits> = Effect.runSync(
+  stored("kumora:book-alerts:limits", Limits, NO_LIMITS)
 )
 
 // A value in memory only.

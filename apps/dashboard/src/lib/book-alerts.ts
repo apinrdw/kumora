@@ -107,39 +107,53 @@ export type GateVerdict =
   // One more folded into the count that started at `since`.
   | { readonly _tag: "Folded"; readonly count: number; readonly since: number }
 
-export interface AlertGate {
-  // Whether a matched event is told, at `now` on the object's clock.
-  readonly admit: (event: BookEvent, now: number) => Effect.Effect<GateVerdict>
+// The browser's rate limit so far: what `admitAlert` reads and returns.
+export interface AlertLimits {
+  // Each code and kind's last alert, by its event's time.
+  readonly last: Readonly<Record<string, number>>
+  // The shown alerts' times in the last minute.
+  readonly shown: ReadonlyArray<number>
+  readonly fold: { readonly since: number; readonly count: number } | null
 }
 
-export const makeAlertGate = Effect.sync((): AlertGate => {
-  // Each code and kind's last alert, by its event's time.
-  const last = new Map<string, number>()
-  // The shown alerts' times in the last minute.
-  let shown: Array<number> = []
-  let fold: { since: number; count: number } | undefined
-  return {
-    admit: (event, now) =>
-      Effect.sync((): GateVerdict => {
-        const key = `${event.code}|${event.kind}`
-        const at = DateTime.toEpochMillis(event.at)
-        const before = last.get(key)
-        if (before !== undefined && at - before < COOLDOWN_MS)
-          return { _tag: "Cooled" }
-        last.set(key, at)
-        shown = shown.filter((t) => t > now - CAP_WINDOW_MS)
-        if (shown.length < CAP) {
-          shown.push(now)
-          return { _tag: "Shown" }
-        }
-        fold =
-          fold !== undefined && now - fold.since < CAP_WINDOW_MS
-            ? { since: fold.since, count: fold.count + 1 }
-            : { since: now, count: 1 }
-        return { _tag: "Folded", ...fold }
-      }),
-  }
-})
+export const NO_LIMITS: AlertLimits = { last: {}, shown: [], fold: null }
+
+// A code and kind's last alert is forgotten half an hour behind the
+// object's clock: a pull read two sparse frames late still lands within it.
+const FORGET_MS = 1_800_000
+
+// Whether a matched event is told, at `now` on the object's clock, and the
+// limits after it.
+export const admitAlert = (
+  limits: AlertLimits,
+  event: BookEvent,
+  now: number
+) =>
+  Effect.sync((): { verdict: GateVerdict; limits: AlertLimits } => {
+    const key = `${event.code}|${event.kind}`
+    const at = DateTime.toEpochMillis(event.at)
+    const before = limits.last[key]
+    if (before !== undefined && at - before < COOLDOWN_MS)
+      return { verdict: { _tag: "Cooled" }, limits }
+    const last = Object.fromEntries(
+      Object.entries(limits.last).filter(([, t]) => t > now - FORGET_MS)
+    )
+    last[key] = at
+    const shown = limits.shown.filter((t) => t > now - CAP_WINDOW_MS)
+    if (shown.length < CAP)
+      return {
+        verdict: { _tag: "Shown" },
+        limits: { last, shown: [...shown, now], fold: limits.fold },
+      }
+    const fold =
+      limits.fold !== null && now - limits.fold.since < CAP_WINDOW_MS
+        ? { since: limits.fold.since, count: limits.fold.count + 1 }
+        : { since: now, count: 1 }
+    return {
+      verdict: { _tag: "Folded", ...fold },
+      limits: { last, shown, fold },
+    }
+  })
 
 // One alert as the bell lists it.
 export interface Alert {
