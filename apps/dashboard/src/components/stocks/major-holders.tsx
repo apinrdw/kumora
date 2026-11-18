@@ -1,6 +1,6 @@
 // The stock page's Major holders panel (spec apinrdw/kumora#479, "Major
 // holders panel"; apinrdw/kumora#474's layout A): one above-1% report month,
-// picked by its own month tabs, as a table of the stock's ≥1% holders, each
+// picked by its own month tabs, as layout B's ownership bar and a table of the stock's ≥1% holders, each
 // against the report month before, off-list holders greyed at the bottom.
 import type { StockCode } from "@workspace/relay"
 import { cn } from "@workspace/ui/lib/utils"
@@ -66,6 +66,7 @@ export function MajorHolders({
             selected={figures.dataDate}
             onMonth={onMonth}
           />
+          <OwnershipBar figures={figures} />
           <HoldersTable figures={figures} />
           <p className="text-[12px] text-muted-foreground">
             Percent of listed shares, scrip included, as IDX publishes it.
@@ -108,6 +109,95 @@ const summary = Effect.fnUntraced(function* (
     return `${held} · ${code} isn't in ${label}'s report, nothing to compare`
   return `${held} · vs ${label}: ${counts.new} new, ${counts.up} up, ${counts.down} down, ${counts.offList} off list`
 })
+
+// Each tone's shades, stepped per segment so neighbours of one tone part.
+const TONES = {
+  gold: ["bg-warning", "bg-warning/70", "bg-warning/85", "bg-warning/55"],
+  blue: ["bg-info", "bg-info/70", "bg-info/85", "bg-info/55"],
+} as const
+const UNDER_1 = "bg-neutral/40"
+const LEGEND_TOP = 6
+
+// apinrdw/kumora#474's layout B bar: the month's listed shares split among
+// its holders in table order, controllers and affiliates gold, then the
+// rest of the 100% as Under 1%.
+function OwnershipBar({ figures }: { figures: Figures }) {
+  const segments = figures.listed.map((line, index) => {
+    const tone = line.controller ? "gold" : "blue"
+    return {
+      line,
+      tone,
+      className: TONES[tone][index % TONES[tone].length],
+      percent: Effect.runSync(percentOf(line.percentageHundredths)),
+    }
+  })
+  const under = 10_000 - figures.totalHundredths
+  const underPercent = Effect.runSync(percentOf(under))
+  const more = segments.length - LEGEND_TOP
+  return (
+    <div className="flex flex-col gap-2">
+      <div
+        role="img"
+        aria-label="Ownership of listed shares"
+        className="flex h-6 overflow-hidden rounded-md"
+      >
+        {segments.map(({ line, tone, className, percent }) => (
+          <div
+            key={line.key}
+            title={`${line.name} ${percent}`}
+            data-tone={tone}
+            style={{ width: `${line.percentageHundredths / 100}%` }}
+            className={cn("border-surface min-w-px border-r", className)}
+          />
+        ))}
+        <div
+          title={`Holders under 1% ${underPercent}`}
+          data-tone="under"
+          style={{ width: `${under / 100}%` }}
+          className={UNDER_1}
+        />
+      </div>
+      <ul
+        aria-label="Ownership legend"
+        className="flex flex-wrap gap-x-3.5 gap-y-1 text-[12px] text-muted-foreground"
+      >
+        {segments.slice(0, LEGEND_TOP).map(({ line, className, percent }) => (
+          <li key={line.key} className="whitespace-nowrap">
+            <Swatch className={className} />
+            <span
+              className="inline-block max-w-60 truncate align-bottom"
+              title={line.name}
+            >
+              {line.name}
+            </span>{" "}
+            {percent}
+          </li>
+        ))}
+        {more > 0 && <li>+{more} more</li>}
+        <li className="whitespace-nowrap">
+          <Swatch className={UNDER_1} />
+          Under 1% {underPercent}
+        </li>
+        <li className="whitespace-nowrap">
+          <Swatch className={TONES.gold[0]} />
+          Gold = controller or affiliate
+        </li>
+      </ul>
+    </div>
+  )
+}
+
+function Swatch({ className }: { className: string }) {
+  return (
+    <i
+      aria-hidden
+      className={cn(
+        "mr-1.5 inline-block size-2.5 rounded-xs align-[-1px]",
+        className
+      )}
+    />
+  )
+}
 
 const CHIP: Record<Change, { label: string; className: string }> = {
   new: { label: "New", className: "bg-info/15 text-info" },

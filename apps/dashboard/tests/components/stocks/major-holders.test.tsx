@@ -137,6 +137,19 @@ const meta = (name: string) =>
     .find((tr) => tr.querySelector("[data-holder-name]")?.textContent === name)
     ?.querySelector("[data-holder-meta]")?.textContent
 
+// The ownership bar's segments: title, width and tone.
+const segments = () =>
+  [
+    ...container.querySelectorAll<HTMLElement>(
+      '[aria-label="Ownership of listed shares"] > *'
+    ),
+  ].map((segment) => [segment.title, segment.style.width, segment.dataset.tone])
+
+const legend = () =>
+  [...container.querySelectorAll('[aria-label="Ownership legend"] li')].map(
+    (item) => item.textContent
+  )
+
 describe("Major holders", () => {
   test("opens the newest month, holders by % against the month before", async () => {
     await render({})
@@ -173,6 +186,49 @@ describe("Major holders", () => {
     expect(text()).toContain(
       "Percent of listed shares, scrip included, as IDX publishes it. Holders under 1% are not listed."
     )
+  })
+
+  test("splits the month's listed shares among its holders and Under 1% in the ownership bar", async () => {
+    await render({})
+    expect(segments()).toEqual([
+      ["ADARO STRATEGIC INVESTMENTS 41.10%", "41.1%", "gold"],
+      ["PT PARAGA ARTAMIDA 5.20%", "5.2%", "blue"],
+      ["T PERMADI RACHMAT 3.48%", "3.48%", "gold"],
+      ["Holders under 1% 50.22%", "50.22%", "under"],
+    ])
+    expect(legend()).toEqual([
+      "ADARO STRATEGIC INVESTMENTS 41.10%",
+      "PT PARAGA ARTAMIDA 5.20%",
+      "T PERMADI RACHMAT 3.48%",
+      "Under 1% 50.22%",
+      "Gold = controller or affiliate",
+    ])
+    await render({ month: "2026-09" })
+    expect(segments().map(([, width, tone]) => [width, tone])).toEqual([
+      ["41%", "blue"],
+      ["3.48%", "blue"],
+      ["2%", "blue"],
+      ["53.52%", "under"],
+    ])
+  })
+
+  test("names the top 6 holders in the ownership bar's legend, then how many more", async () => {
+    const eight = Array.from({ length: 8 }, (_, index) =>
+      holder(`H${index}`, [row(`HOLDER ${index}`, 1000 - index, 900 - index)])
+    )
+    await render({ months: [month("2026-10-30", eight)] })
+    expect(segments()).toHaveLength(9)
+    expect(legend()).toEqual([
+      "HOLDER 0 9.00%",
+      "HOLDER 1 8.99%",
+      "HOLDER 2 8.98%",
+      "HOLDER 3 8.97%",
+      "HOLDER 4 8.96%",
+      "HOLDER 5 8.95%",
+      "+2 more",
+      "Under 1% 28.28%",
+      "Gold = controller or affiliate",
+    ])
   })
 
   test("badges each holder's controller flag, classification or type, origin and foreign domicile", async () => {
