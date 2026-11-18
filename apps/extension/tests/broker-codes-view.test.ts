@@ -145,6 +145,7 @@ describe("the options page's broker codes section", () => {
         {
           walk: "Stockbit, 2026-11-12 (newest closed day)",
           trades: "460,000 of 1,000,000 trades",
+          repair: "",
           pace: "300 trades/s",
           left: "30 min left",
         }
@@ -159,11 +160,69 @@ describe("the options page's broker codes section", () => {
         {
           walk: "Stockbit, 2026-11-12 (History)",
           trades: "",
+          repair: "",
           pace: "",
           left: "",
         }
       )
     })
+  )
+
+  it.effect(
+    "shows the repair pass's blocks and its own time left, not the first pass's",
+    () =>
+      Effect.gen(function* () {
+        const walking = {
+          state: "walking",
+          walk: "newest",
+          day: DAY,
+          feed: "Ajaib",
+        } as const
+        const trades = { fetched: 1_597_070, of: 1_597_351, perSecond: 1_040 }
+        // The pass has just started: no block walked again yet, so no pace.
+        assert.deepStrictEqual(
+          yield* walkView({
+            ...walking,
+            trades,
+            repair: { done: 0, of: 87, perSecond: null },
+          }),
+          {
+            walk: "Ajaib, 2026-11-12 (newest closed day)",
+            trades: "1,597,070 of 1,597,351 trades",
+            repair: "repairing page seams: 0 of 87 blocks",
+            pace: "",
+            left: "",
+          }
+        )
+        assert.deepStrictEqual(
+          yield* walkView({
+            ...walking,
+            trades,
+            repair: { done: 12, of: 87, perSecond: 0.07 },
+          }),
+          {
+            walk: "Ajaib, 2026-11-12 (newest closed day)",
+            trades: "1,597,070 of 1,597,351 trades",
+            repair: "repairing page seams: 12 of 87 blocks",
+            pace: "",
+            left: "18 min left",
+          }
+        )
+        // A worker restarted in the repair pass has no first-pass trades.
+        assert.deepStrictEqual(
+          yield* walkView({
+            ...walking,
+            repair: { done: 3, of: 75, perSecond: 0.11 },
+          }),
+          {
+            walk: "Ajaib, 2026-11-12 (newest closed day)",
+            trades: "",
+            repair: "repairing page seams: 3 of 75 blocks",
+            pace: "",
+            left: "11 min left",
+          }
+        )
+      })
   )
 
   it.effect("shows the History walk running, waiting or finished", () =>

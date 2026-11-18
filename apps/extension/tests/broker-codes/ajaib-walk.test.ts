@@ -367,6 +367,31 @@ describe("Ajaib's walk of the day", { timeout: WALK_TIMEOUT }, () => {
       assert.deepStrictEqual(trades.at(-1), [N - 3, Option.some(N)])
     })
   )
+
+  it.effect(
+    "says how many of the blocks it noted its repair pass has walked again",
+    () =>
+      Effect.gen(function* () {
+        yield* TestClock.setTime(wib("2026-11-12", "17:30:00"))
+        const repaired: Array<[number, number]> = []
+        const walk = yield* makeAjaibWalk({
+          tab: fakeAjaib(),
+          post: fakeProduction().post,
+          store: memoryStore().store,
+          repaired: (done, of) =>
+            Effect.sync(() => {
+              repaired.push([done, of])
+            }),
+        })
+        assert.deepStrictEqual(yield* walk.walk(DAY), { _tag: "walked" })
+        // The 16:15 and 16:00 blocks took 2+ pages; the pass says it starts.
+        assert.deepStrictEqual(repaired, [
+          [0, 2],
+          [1, 2],
+          [2, 2],
+        ])
+      })
+  )
 })
 
 describe("Ajaib's walk: when it starts", { timeout: WALK_TIMEOUT }, () => {
@@ -648,6 +673,63 @@ describe(
         assert.deepStrictEqual(yield* again.walk(DAY), { _tag: "walked" })
         assert.deepStrictEqual(third.paths, [])
       })
+    )
+
+    it.effect(
+      "a worker restarted in the repair pass says how many of the blocks left it has walked again",
+      () =>
+        Effect.gen(function* () {
+          yield* TestClock.setTime(wib("2026-11-12", "17:30:00"))
+          const production = fakeProduction()
+          const kept = memoryStore()
+          const repaired: Array<[number, number]> = []
+          const walkOf = (tab: ReturnType<typeof fakeAjaib>) =>
+            makeAjaibWalk({
+              tab,
+              post: production.post,
+              store: kept.store,
+              repaired: (done, of) =>
+                Effect.sync(() => {
+                  repaired.push([done, of])
+                }),
+            })
+          // The worker stops in the repair pass's second block, the 16:00
+          // one, during its second page.
+          let reached = false
+          const first = fakeAjaib({
+            answer: (request) => {
+              if (
+                request._tag !== "page-fetch" ||
+                sizeOf(request.path) !== 4_999 ||
+                paramOf(request.path, "last_timestamp") !==
+                  wib("2026-11-12", "16:03:00") ||
+                paramOf(request.path, "page") !== 2
+              )
+                return undefined
+              reached = true
+              return Effect.never
+            },
+          })
+          const before = yield* walkOf(first)
+          const fiber = yield* Effect.forkChild(before.walk(DAY))
+          for (let turn = 0; turn < 100_000 && !reached; turn++)
+            yield* Effect.yieldNow
+          yield* Fiber.interrupt(fiber)
+          assert.deepStrictEqual(repaired, [
+            [0, 2],
+            [1, 2],
+          ])
+
+          repaired.length = 0
+          const after = yield* walkOf(fakeAjaib())
+          assert.deepStrictEqual(yield* after.walk(DAY), { _tag: "walked" })
+          // Only the 16:00 block was left.
+          assert.deepStrictEqual(repaired, [
+            [0, 1],
+            [1, 1],
+          ])
+          assert.deepStrictEqual(missingOf(production.held()), [])
+        })
     )
 
     it.effect(
