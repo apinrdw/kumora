@@ -245,6 +245,9 @@ export const Fact = {
   sealWake: "seal-wake",
   indexWake: "index-wake",
   buildWake: "build-wake",
+  // The WIB date of the object's last usage line (trading-day.ts,
+  // `usageLine`).
+  usageLogged: "usage-logged",
 } as const
 
 export const BROKER_TRADES_BUILT = "built"
@@ -383,6 +386,22 @@ export const makeDayStore = (
     const takeMeter = Effect.gen(function* () {
       const taken = meter
       meter = yield* emptyMeter
+      return taken
+    })
+
+    // What the database counted since the usage was last taken, and its
+    // size; none when it counts nothing. The counts start when the object
+    // wakes, so a restart's first take holds only its own.
+    let usageTaken = { rowsRead: 0, rowsWritten: 0 }
+    const takeUsage = Effect.sync(() => {
+      const usage = sql.usage?.()
+      if (usage === undefined) return undefined
+      const taken = {
+        rowsRead: usage.rowsRead - usageTaken.rowsRead,
+        rowsWritten: usage.rowsWritten - usageTaken.rowsWritten,
+        bytes: usage.bytes,
+      }
+      usageTaken = usage
       return taken
     })
 
@@ -1110,6 +1129,7 @@ export const makeDayStore = (
       chunkOfMinute,
       storedNothing,
       takeMeter,
+      takeUsage,
       orderFlowStorage,
       hasTrade,
       highestTrade,

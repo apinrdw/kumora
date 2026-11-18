@@ -1521,18 +1521,38 @@ export const makeTradingDay = Effect.fnUntraced(function* (options: {
     }
   })
 
+  // Decision: once a WIB day, an object that ran logs what its SQL adapter
+  // counted since its last line, after a callback it already takes: on its
+  // own date the seal's, else the date's first. No alarm wakes it for this.
+  // The date is a fact, read once, so a restart logs no second line. See
+  // apinrdw/kumora#558.
+  let usageLogged = yield* store.fact(Fact.usageLogged)
+  const usageLine = Effect.gen(function* () {
+    const date = yield* wibDateAt(yield* DateTime.now)
+    if (usageLogged === date || (date === options.date && !sealed)) return
+    const usage = yield* store.takeUsage
+    if (usage === undefined) return
+    yield* store.setFact(Fact.usageLogged, date)
+    usageLogged = date
+    yield* Effect.logInfo("Durable Object usage").pipe(
+      Effect.annotateLogs(usage)
+    )
+  })
+  // A callback, in the turn, ending with the day's usage line when due.
+  const turned = <A, E, R>(callback: Effect.Effect<A, E, R>) =>
+    turn.withPermit(Effect.tap(callback, () => usageLine))
+
   return {
-    ingestOpened: turn.withPermit(ingestOpened),
+    ingestOpened: turned(ingestOpened),
     ingestMessage: (socket: Peer, text: string) =>
-      turn.withPermit(ingestMessage(socket, text)),
+      turned(ingestMessage(socket, text)),
     viewerMessage: (socket: Peer, text: string) =>
-      turn.withPermit(viewerMessage(socket, text)),
-    viewerClosed: (socket: Peer) => turn.withPermit(viewerClosed(socket)),
-    ingestClosed: (socket: Peer) => turn.withPermit(ingestClosed(socket)),
-    endSessions: (held: HeldSessions) => turn.withPermit(endSessions(held)),
-    recorded: (resource: RecordedResource) =>
-      turn.withPermit(recorded(resource)),
-    alarm: turn.withPermit(alarm),
+      turned(viewerMessage(socket, text)),
+    viewerClosed: (socket: Peer) => turned(viewerClosed(socket)),
+    ingestClosed: (socket: Peer) => turned(ingestClosed(socket)),
+    endSessions: (held: HeldSessions) => turned(endSessions(held)),
+    recorded: (resource: RecordedResource) => turned(recorded(resource)),
+    alarm: turned(alarm),
     // Decision: on a day the relay recorded, and on any sealed day, broker
     // codes touch no recorded day state (no flush, seal or index row), so its
     // answers stay byte-identical (#244). A walk day before its seal takes
@@ -1544,7 +1564,7 @@ export const makeTradingDay = Effect.fnUntraced(function* (options: {
       // and transaction, before its 200; one that changes none recomputes
       // nothing. See spec apinrdw/kumora#343, "When it is recomputed".
       post: (text: string) =>
-        turn.withPermit(
+        turned(
           brokerCodes.post(text, {
             taken: walkTapeOf,
             alongside: sweepBrokers.recompute,
@@ -1557,11 +1577,9 @@ export const makeTradingDay = Effect.fnUntraced(function* (options: {
               ),
           })
         ),
-      status: (search: URLSearchParams) =>
-        turn.withPermit(brokerCodes.status(search)),
-      held: (tradeNumber: TradeNumber) =>
-        turn.withPermit(brokerCodes.held(tradeNumber)),
+      status: (search: URLSearchParams) => turned(brokerCodes.status(search)),
+      held: (tradeNumber: TradeNumber) => turned(brokerCodes.held(tradeNumber)),
     },
-    brokerTotals: { reconcile: turn.withPermit(reconcile) },
+    brokerTotals: { reconcile: turned(reconcile) },
   }
 })
