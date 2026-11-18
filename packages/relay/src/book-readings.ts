@@ -199,13 +199,11 @@ const readSide = Effect.fnUntraced(function* (
 // empty and its last price at the limit its previous close sets, under its
 // instrument's rule on the readings' day. Special Monitoring Board codes show
 // no readings, so a share takes the regular boards' rule.
-// Decision: readings are a function of their book alone, taken again on each
-// book change, and a mark that also reads another input, as the limit reads
-// the last price and the previous close, is derived on the page where the
-// readings meet that input (the scanner's figures, the readout's Day state),
-// so it is current whenever either is. A reading taken with an input besides
-// its book goes stale when only that input changes. See spec
-// apinrdw/kumora#517, "Book readings".
+// Decision: readings are a function of their book alone, retaken on each book
+// change; a mark that also reads another input, as the limit reads the
+// prices, is derived on the page where the readings meet it (the scanner's
+// figures, the readout's Day state), so it follows both. See spec
+// apinrdw/kumora#517, "Book readings", and apinrdw/kumora#526.
 export const limitOf = Effect.fnUntraced(function* (
   readings: BookReadings,
   prices: {
