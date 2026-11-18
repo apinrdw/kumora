@@ -144,7 +144,7 @@ describe("which codes the scanner covers", () => {
   )
 
   it.effect(
-    "Special Monitoring Board and Rp1–10 codes never appear and are counted",
+    "Special Monitoring Board and Rp1–10 codes never appear, and those above the floor are counted",
     () =>
       Effect.gen(function* () {
         const result = yield* run(
@@ -153,6 +153,9 @@ describe("which codes the scanner covers", () => {
             reading("MAMI", 0.5),
             reading("ZINC", -0.5),
             reading("JKSW", 0.6),
+            // Below the floor: never in coverage, so not counted.
+            reading("BKSL", 0.2, { value: 1e6 }),
+            reading("PADA", 0.2, { value: 1e6 }),
           ],
           {},
           {
@@ -160,14 +163,16 @@ describe("which codes the scanner covers", () => {
               ZINC: { previousClose: 10 },
               // Board codes are often priced Rp1–10 too: counted once.
               MAMI: { previousClose: 8 },
+              BKSL: { previousClose: 8 },
             },
-            board: ["MAMI", "JKSW", "SDPC"],
+            // SDPC has no readings: no book, no value, not in coverage.
+            board: ["MAMI", "JKSW", "SDPC", "PADA"],
           }
         )
         assert.deepStrictEqual(result.bid, ["BBCA"])
         assert.deepStrictEqual(result.offer, [])
         assert.strictEqual(result.above, 1)
-        assert.strictEqual(result.board, 3)
+        assert.strictEqual(result.board, 2)
         assert.strictEqual(result.cheap, 1)
       })
   )

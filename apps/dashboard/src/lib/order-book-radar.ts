@@ -209,7 +209,8 @@ export interface Scan {
   }>
   // Codes above the floor, before the filters.
   readonly above: number
-  // Special Monitoring Board codes, and the other codes at Rp1–LOWEST_READ_CLOSE.
+  // The codes the floor would let in that are on the Special Monitoring
+  // Board, and the other such codes at Rp1–LOWEST_READ_CLOSE.
   readonly board: number
   readonly cheap: number
 }
@@ -285,26 +286,30 @@ const passesFilters = (
 // Decision: a code joins the scanner when its value today or on the
 // previous trading day, whichever is larger, reaches the floor; with no
 // previous day's value (after a gap), today's alone. Special Monitoring
-// Board codes and codes at Rp1–10 never join. See spec apinrdw/kumora#517,
-// "The scanner".
+// Board codes and codes at Rp1–10 never join, and the notes count those
+// the floor would have let in. See spec apinrdw/kumora#517, "The scanner".
 export const scan = Effect.fnUntraced(function* (
   input: ScanInput,
   settings: RadarSettings
 ) {
   let above = 0
+  let board = 0
   let cheap = 0
   const bid: Array<BookReadings> = []
   const offer: Array<BookReadings> = []
   const limits: Array<Scan["limits"][number]> = []
   for (const readings of input.readings) {
-    if (input.board.has(readings.code)) continue
     const figures = input.figures.get(readings.code)
+    const value = Math.max(readings.value, figures?.previousValue ?? 0)
+    if (value < settings.floor) continue
+    if (input.board.has(readings.code)) {
+      board++
+      continue
+    }
     if (yield* isCheap(figures)) {
       cheap++
       continue
     }
-    const value = Math.max(readings.value, figures?.previousValue ?? 0)
-    if (value < settings.floor) continue
     above++
     if (!(yield* passesFilters(readings, figures, input, settings))) continue
     if (readings.limit !== undefined)
@@ -318,7 +323,7 @@ export const scan = Effect.fnUntraced(function* (
     offer: yield* ranked(offer, settings, input),
     limits: limits.sort((a, b) => a.code.localeCompare(b.code)),
     above,
-    board: input.board.size,
+    board,
     cheap,
   }
   return result
