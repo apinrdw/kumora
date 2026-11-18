@@ -388,21 +388,20 @@ export const makeDayStates = (candles: {
       held: RunningTrade | undefined,
       current: RunningTrade
     ) {
-      const removed = held !== undefined && (yield* counts(held))
-      if (removed) yield* unkeep(held)
-      const added = yield* counts(current)
-      if (added) yield* keep(current)
-      if (removed || added) fallbackChanged.add(current.code)
-      const cached = newest.get(current.code)
       const order = BigInt(current.tradeNumber)
-      if (
-        added &&
-        cached !== undefined &&
-        (cached === null || order >= cached.order)
-      )
+      // The copy may name another code than `held`: each code's figures
+      // change by its own part.
+      if (held !== undefined && (yield* counts(held))) {
+        yield* unkeep(held)
+        fallbackChanged.add(held.code)
+        if (newest.get(held.code)?.order === order) newest.delete(held.code)
+      }
+      if (!(yield* counts(current))) return
+      yield* keep(current)
+      fallbackChanged.add(current.code)
+      const cached = newest.get(current.code)
+      if (cached !== undefined && (cached === null || order >= cached.order))
         newest.set(current.code, { order, price: current.price })
-      else if (removed && !added && cached?.order === order)
-        newest.delete(current.code)
     })
 
     // A code's newest counted trade since its base, read from its kept
