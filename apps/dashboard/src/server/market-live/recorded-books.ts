@@ -7,42 +7,50 @@ import { Effect, Schema } from "effect"
 
 import { Fact, type makeDayStore } from "./day-store.ts"
 
-const RecordedCodes = Schema.fromJsonString(Schema.Array(StockCode))
+// Every code's books, the set's value on a day recorded before the change.
+const EVERY_CODE = "every-code"
+
+const RecordedCodes = Schema.fromJsonString(
+  Schema.Union([Schema.Array(StockCode), Schema.Literal(EVERY_CODE)])
+)
 const encodeCodes = Schema.encodeEffect(RecordedCodes)
 const decodeCodes = Schema.decodeUnknownEffect(RecordedCodes)
 
 // Decision: a day whose store held trades but no set when its object
-// started was recorded before the change, every code's books stored, so that
-// object never answers a code not recorded. Its next flush writes the set,
-// and from then on it records only viewed codes. A day with neither is new.
-// See spec apinrdw/kumora#555, "Books only for viewed codes".
+// started was recorded before the change, so it keeps recording every code's
+// books to the close and never answers a code not recorded. Its next flush
+// writes the set as "every-code", so a restart keeps that. A day with
+// neither is new. See spec apinrdw/kumora#555, "Books only for viewed codes".
 export const makeRecordedBooks = Effect.fnUntraced(function* (
   store: Effect.Success<ReturnType<typeof makeDayStore>>
 ) {
   const stored = yield* store.fact(Fact.recordedBooks)
-  const codes = new Set<StockCode>(
-    stored === undefined ? [] : yield* decodeCodes(stored)
-  )
+  const decoded = stored === undefined ? [] : yield* decodeCodes(stored)
   const everyCode =
-    stored === undefined && (yield* store.highestTrade) !== undefined
+    decoded === EVERY_CODE ||
+    (stored === undefined && (yield* store.highestTrade) !== undefined)
+  const codes = new Set<StockCode>(decoded === EVERY_CODE ? [] : decoded)
   // The set as the store last took it.
   let written = stored
 
   // Whether `code` joined just now.
   const join = (code: StockCode) =>
     Effect.sync(() => {
-      if (codes.has(code)) return false
+      if (everyCode || codes.has(code)) return false
       codes.add(code)
       return true
     })
 
-  const has = (code: StockCode) => Effect.sync(() => codes.has(code))
+  const has = (code: StockCode) =>
+    Effect.sync(() => everyCode || codes.has(code))
 
   // Whether the day answers `code`'s book as not recorded.
   const notRecorded = (code: StockCode) =>
     Effect.sync(() => !everyCode && !codes.has(code))
 
-  const text = Effect.suspend(() => encodeCodes([...codes].sort()))
+  const text = Effect.suspend(() =>
+    encodeCodes(everyCode ? EVERY_CODE : [...codes].sort())
+  )
 
   // The facts the next flush writes: the set, unless the store holds it.
   const unwritten = Effect.map(

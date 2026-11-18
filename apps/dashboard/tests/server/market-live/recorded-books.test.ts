@@ -182,6 +182,41 @@ describe("a day's recorded order books", () => {
   )
 
   it.effect(
+    "keep every code's chunks to the close, past restarts, on a day recorded before the change",
+    () =>
+      Effect.gen(function* () {
+        yield* at("14:00:00")
+        const sql = memorySql()
+        const before = yield* tradingDay(sql)
+        yield* before.trades([RELAYED])
+        yield* TestClock.adjust("2 minutes")
+        yield* before.evicted
+        sql.exec("DELETE FROM facts WHERE key = 'recorded-books'")
+
+        const deployed = yield* tradingDay(sql)
+        yield* untrBook(deployed, "14:05:03", 50)
+        yield* TestClock.adjust("2 minutes")
+        yield* untrBook(deployed, "14:10:03", 60)
+        yield* TestClock.adjust("2 minutes")
+        yield* deployed.evicted
+
+        const restarted = yield* tradingDay(sql)
+        yield* untrBook(restarted, "15:59:50", 70)
+        yield* at("17:00:00")
+        yield* restarted.alarm
+        for (const [minute, bids] of [
+          ["14:05:00", 50],
+          ["14:10:00", 60],
+          ["15:59:00", 70],
+        ] as const)
+          assert.deepStrictEqual(
+            yield* bookOf(restarted, minute, `${minute.slice(0, 6)}55`),
+            { status: 200, bids: [bids] }
+          )
+      })
+  )
+
+  it.effect(
     "answer a heatmap without the not recorded mark on a day recorded before the change",
     () =>
       Effect.gen(function* () {
