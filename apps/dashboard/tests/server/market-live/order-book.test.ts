@@ -80,12 +80,18 @@ const stringField = (field: number, text: string) =>
   messageField(field, [...new TextEncoder().encode(text)])
 
 // Wrapper case 10, `Orderbook`: the stock code, the pipe-delimited body of
-// one side, and the frame's ISO time.
-const orderBookFrame = (code: string, body: string, datetime: string) =>
+// one side, the frame's ISO time, and its sequence number when given.
+const orderBookFrame = (
+  code: string,
+  body: string,
+  datetime: string,
+  sequence?: number
+) =>
   Uint8Array.from(
     messageField(10, [
       ...stringField(1, code),
       ...stringField(2, body),
+      ...(sequence === undefined ? [] : varintField(3, sequence)),
       ...stringField(5, datetime),
     ])
   )
@@ -545,36 +551,80 @@ describe("Ajaib's ORDER_BOOK_CUSTOM frames", () => {
   )
 })
 
+describe("Ajaib's ORDER_BOOK_CUSTOM side times", () => {
+  it.effect(
+    "each side's time is the last frame that changed it; Ajaib books carry no sequence number",
+    () =>
+      Effect.gen(function* () {
+        const books = yield* makeOrderBooks(DAY)
+        // The whole book, then two bid-only deltas.
+        yield* books.ajaibFrames(recorded.ajaib.bbca)
+        const book = yield* books.bookOf(StockCode.make("BBCA"), false)
+        assert(book?._tag === "OrderBook")
+        const [initial, , lastBid] = recorded.ajaib.bbca.map(
+          (frame) => (JSON.parse(frame) as { updateTime: number }).updateTime
+        )
+        assert.deepStrictEqual(
+          {
+            provenance: book.provenance,
+            bidAt: book.bidAt && DateTime.toEpochMillis(book.bidAt),
+            offerAt: book.offerAt && DateTime.toEpochMillis(book.offerAt),
+            bidSequence: book.bidSequence,
+            offerSequence: book.offerSequence,
+          },
+          {
+            provenance: "Ajaib",
+            bidAt: lastBid,
+            offerAt: initial,
+            bidSequence: undefined,
+            offerSequence: undefined,
+          }
+        )
+      })
+  )
+})
+
 describe("Stockbit's order_book frames", () => {
-  it.effect("decode one side: levels in lots, the side's total lots", () =>
-    Effect.gen(function* () {
-      const books = yield* makeOrderBooks(WibDate.make("2026-07-29"))
-      yield* books.stockbitFrames([
-        Uint8Array.from(atob(PRDL_BID), (char) => char.charCodeAt(0)),
-      ])
-      const book = yield* books.bookOf(StockCode.make("PRDL"), true)
-      assert(book?._tag === "OrderBook")
-      assert.deepStrictEqual(
-        {
-          bids: book.bids.slice(0, 2),
-          levels: book.bids.length,
-          bidLots: book.bidLots,
-          offers: book.offers,
-          at: DateTime.formatIso(book.at),
-        },
-        {
-          bids: [
-            { price: 252, lots: 5866, orders: 58 },
-            { price: 250, lots: 10_887, orders: 144 },
-          ],
-          levels: 8,
-          bidLots: 60_098,
-          // No offer frame yet.
-          offers: [],
-          at: "2026-07-29T02:51:01.323Z",
-        }
-      )
-    })
+  it.effect(
+    "decode one side: levels in lots, the side's total lots, its own time and sequence number",
+    () =>
+      Effect.gen(function* () {
+        const books = yield* makeOrderBooks(WibDate.make("2026-07-29"))
+        yield* books.stockbitFrames([
+          Uint8Array.from(atob(PRDL_BID), (char) => char.charCodeAt(0)),
+        ])
+        const book = yield* books.bookOf(StockCode.make("PRDL"), true)
+        assert(book?._tag === "OrderBook")
+        assert.deepStrictEqual(
+          {
+            bids: book.bids.slice(0, 2),
+            levels: book.bids.length,
+            bidLots: book.bidLots,
+            offers: book.offers,
+            at: DateTime.formatIso(book.at),
+            bidAt: book.bidAt && DateTime.formatIso(book.bidAt),
+            bidSequence: book.bidSequence,
+            offerAt: book.offerAt,
+            offerSequence: book.offerSequence,
+          },
+          {
+            bids: [
+              { price: 252, lots: 5866, orders: 58 },
+              { price: 250, lots: 10_887, orders: 144 },
+            ],
+            levels: 8,
+            bidLots: 60_098,
+            // No offer frame yet.
+            offers: [],
+            at: "2026-07-29T02:51:01.323Z",
+            // `datetime` (field 5) and `sequence_number` (field 3).
+            bidAt: "2026-07-29T02:51:01.323Z",
+            bidSequence: 10_320,
+            offerAt: undefined,
+            offerSequence: undefined,
+          }
+        )
+      })
   )
 
   // One side's body: a single level, and the side's totals.
@@ -608,6 +658,36 @@ describe("Stockbit's order_book frames", () => {
             bids: [{ price: 5000, lots: 10, orders: 1 }],
             offers: [{ price: 5100, lots: 7, orders: 1 }],
             at: Date.parse(at(2)),
+          }
+        )
+      })
+  )
+
+  it.effect(
+    "each side keeps its own time and sequence number; the book's as-of is the later side's",
+    () =>
+      Effect.gen(function* () {
+        const books = yield* makeOrderBooks(DAY)
+        yield* books.stockbitFrames([
+          orderBookFrame("BBCA", body("BID", 5000, 10), at(1), 10_320),
+          orderBookFrame("BBCA", body("OFFER", 5100, 7), at(3), 10_318),
+        ])
+        const book = yield* books.bookOf(StockCode.make("BBCA"), true)
+        assert(book?._tag === "OrderBook")
+        assert.deepStrictEqual(
+          {
+            at: DateTime.toEpochMillis(book.at),
+            bidAt: book.bidAt && DateTime.toEpochMillis(book.bidAt),
+            offerAt: book.offerAt && DateTime.toEpochMillis(book.offerAt),
+            bidSequence: book.bidSequence,
+            offerSequence: book.offerSequence,
+          },
+          {
+            at: Date.parse(at(3)),
+            bidAt: Date.parse(at(1)),
+            offerAt: Date.parse(at(3)),
+            bidSequence: 10_320,
+            offerSequence: 10_318,
           }
         )
       })
