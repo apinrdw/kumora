@@ -69,27 +69,31 @@ export const bubblesAnswer = Effect.fnUntraced(function* (
     : yield* json(yield* body, BUBBLES_CACHE)
 })
 
+// What a day's recorded answers read.
+interface RecordedDayOf {
+  readonly date: WibDate
+  readonly store: Effect.Success<ReturnType<typeof makeDayStore>>
+  readonly codeList: CodeListStore
+  readonly brokerCodes: BrokerCodesStore
+  readonly sweepBrokers: SweepBrokersStore
+  readonly sealed: boolean
+  // The gaps so far, while the day isn't sealed.
+  readonly liveGaps: Effect.Effect<ReadonlyArray<RelayGap>>
+  // A code's heatmap rows not stored yet, each slice ending by `through`.
+  readonly heldHeat: (
+    code: StockCode,
+    through: number
+  ) => Effect.Effect<ReadonlyArray<HeatRow>>
+  // Whether the day did not record a code's order books
+  // (recorded-books.ts).
+  readonly booksNotRecorded: (code: StockCode) => Effect.Effect<boolean>
+  // A code's sweeps so far.
+  readonly sweeps: (code: StockCode) => Effect.Effect<RecordedSweeps["sweeps"]>
+}
+
 export const recordedAnswer = Effect.fnUntraced(function* (
   resource: Exclude<RecordedResource, { readonly _tag: "Bubbles" }>,
-  day: {
-    readonly date: WibDate
-    readonly store: Effect.Success<ReturnType<typeof makeDayStore>>
-    readonly codeList: CodeListStore
-    readonly brokerCodes: BrokerCodesStore
-    readonly sweepBrokers: SweepBrokersStore
-    readonly sealed: boolean
-    // The gaps so far, while the day isn't sealed.
-    readonly liveGaps: Effect.Effect<ReadonlyArray<RelayGap>>
-    // A code's heatmap rows not stored yet, each slice ending by `through`.
-    readonly heldHeat: (
-      code: StockCode,
-      through: number
-    ) => Effect.Effect<ReadonlyArray<HeatRow>>
-    // A code's sweeps so far.
-    readonly sweeps: (
-      code: StockCode
-    ) => Effect.Effect<RecordedSweeps["sweeps"]>
-  }
+  day: RecordedDayOf
 ) {
   const { store } = day
   const cacheControl = day.sealed ? SEALED_CACHE : "no-store"
@@ -168,23 +172,8 @@ export const recordedAnswer = Effect.fnUntraced(function* (
           )
         : yield* json(chunk, cacheControl)
     }
-    case "Heatmap": {
-      const { code } = resource
-      return yield* json(
-        yield* heatmapAnswer(
-          code,
-          yield* store.heatmapOf(code),
-          yield* heatEndOf(day.date),
-          day.sealed
-            ? undefined
-            : {
-                now: yield* Clock.currentTimeMillis,
-                held: (through) => day.heldHeat(code, through),
-              }
-        ),
-        cacheControl
-      )
-    }
+    case "Heatmap":
+      return yield* json(yield* heatmapOf(resource.code, day), cacheControl)
     case "Gaps":
       return yield* json(
         day.sealed
@@ -193,4 +182,24 @@ export const recordedAnswer = Effect.fnUntraced(function* (
         cacheControl
       )
   }
+})
+
+// A code's heatmap answer: its stored rows, and a live day's held ones.
+const heatmapOf = Effect.fnUntraced(function* (
+  code: StockCode,
+  day: RecordedDayOf
+) {
+  const stored = yield* day.store.heatmapOf(code)
+  return yield* heatmapAnswer(
+    code,
+    stored,
+    yield* heatEndOf(day.date),
+    day.sealed
+      ? undefined
+      : {
+          now: yield* Clock.currentTimeMillis,
+          held: (through) => day.heldHeat(code, through),
+        },
+    stored.length === 0 && (yield* day.booksNotRecorded(code))
+  )
 })

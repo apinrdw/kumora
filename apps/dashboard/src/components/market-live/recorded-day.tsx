@@ -26,7 +26,7 @@ import {
 } from "@workspace/relay"
 import { DateTime, Effect, Fiber, Option, Predicate } from "effect"
 import type { HttpClient } from "effect/http/HttpClient"
-import { useEffect, useMemo, useState } from "react"
+import { useEffect, useMemo, useState, useSyncExternalStore } from "react"
 
 import { KStatusPill } from "@/components/k/status-pill"
 import { dayLabel, tapeTime } from "@/lib/format"
@@ -35,6 +35,7 @@ import { TAPE_INTERVAL_MS, gapAt, replayDay, tapeInstant } from "@/lib/replay"
 
 import type { CandleStore } from "./candle-store"
 import type { DayStateStore } from "./day-state-store"
+import type { HeatmapStore } from "./heatmap-store"
 import { TAPE_HEIGHT, TapeSection } from "./live-tape"
 import { PhaseLabel } from "./market-conditions"
 import { OrderBookPanel } from "./order-book-panel"
@@ -352,13 +353,16 @@ export function RecordedTape({
 }
 
 // The selected code's stored book frame at the cursor, or "Not recorded"
-// while the cursor is inside a relay gap.
+// while the cursor is inside a relay gap, or all day when the day did not
+// record the code's book, as its heatmap answer says.
 export function RecordedOrderBook({
   store,
+  heatmap,
   cursor,
   gaps,
 }: {
   store: OrderBookStore
+  heatmap: HeatmapStore
   cursor: ReplayCursor
   gaps: ReadonlyArray<RelayGap>
 }) {
@@ -366,7 +370,14 @@ export function RecordedOrderBook({
     cursor,
     ({ at }) => Effect.runSync(gapAt(gaps, at)) !== undefined
   )
-  return <OrderBookPanel store={store} recorded notRecorded={inGap} />
+  const notRecorded = useSyncExternalStore(
+    heatmap.subscribe,
+    heatmap.notRecorded,
+    () => false
+  )
+  return (
+    <OrderBookPanel store={store} recorded notRecorded={inGap || notRecorded} />
+  )
 }
 
 // A recorded day's market conditions bar: the RECORDED pill in place of the feed

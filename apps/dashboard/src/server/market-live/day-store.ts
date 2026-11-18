@@ -250,6 +250,9 @@ export const Fact = {
   // done.
   sealWake: "seal-wake",
   buildWake: "build-wake",
+  // The codes whose order books the day records (recorded-books.ts): a JSON
+  // array, none on a day recorded before it, which stored every code's.
+  recordedBooks: "recorded-books",
   // The WIB date of the object's last usage line (trading-day.ts,
   // `usageLine`).
   usageLogged: "usage-logged",
