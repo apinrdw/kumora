@@ -51,6 +51,17 @@ const untrBook = Effect.fnUntraced(function* (
   yield* TestClock.adjust("250 millis")
 })
 
+// Ajaib's whole book of UNTR as of `time`, `bid` lots bid at 8,000 and 40
+// offered at 8,025, in the trade stream that carries it.
+const untrAjaibBook = (time: string, bid: number) =>
+  JSON.stringify({
+    ticker: "UNTR",
+    is_initial: "true",
+    buy: [{ price: 8_000, lot: bid, num: 3 }],
+    sell: [{ price: 8_025, lot: 40, num: 2 }],
+    updateTime: DateTime.toEpochMillis(wib(time)),
+  })
+
 // UNTR's recorded Book answer for `minute`: its status, and the lots bid at
 // `cursor` in the chunk it answered.
 const bookOf = Effect.fnUntraced(function* (
@@ -260,6 +271,41 @@ describe("a day's recorded order books", () => {
         bids: [70],
       })
     })
+  )
+
+  it.effect(
+    "keep the book a viewer was served for a code it joined after a restart, from its stored Ajaib book, in the minute it saw it with no frame after",
+    () =>
+      Effect.gen(function* () {
+        yield* at("13:58:00")
+        const sql = memorySql()
+        const first = yield* tradingDay(sql)
+        yield* first.trades([RELAYED])
+        yield* first.ajaibTrades([untrAjaibBook("13:58:03", 50)])
+        yield* TestClock.adjust("2 minutes")
+        yield* first.evicted
+
+        // The Select wakes the object late in the minute, so no delta is
+        // sent within it.
+        yield* at("14:00:59.900")
+        const restarted = yield* tradingDay(sql)
+        const page = yield* restarted.viewer("UNTR")
+        const [snapshot] = yield* page.received
+        const served =
+          snapshot?._tag === "Snapshot" &&
+          snapshot.orderBook?._tag === "OrderBook"
+            ? snapshot.orderBook.bids.map((level) => level.lots)
+            : undefined
+        assert.deepStrictEqual(served, [50])
+        yield* restarted.left(page)
+        yield* at("17:00:00")
+        yield* restarted.alarm
+
+        assert.deepStrictEqual(
+          yield* bookOf(restarted, "14:00:00", "14:00:59.950"),
+          { status: 200, bids: [50] }
+        )
+      })
   )
 
   it.effect(
