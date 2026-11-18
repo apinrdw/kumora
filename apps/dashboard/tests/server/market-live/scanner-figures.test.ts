@@ -250,4 +250,60 @@ describe("the scanner's figures", () => {
       )
     })
   )
+
+  it.effect(
+    "of a code whose last trade Stockbit's copy moves to another code fall back to its trade before",
+    () =>
+      Effect.gen(function* () {
+        yield* at("09:10:00.000")
+        const day = yield* tradingDay()
+        const page = yield* day.viewer("IHSG")
+        const ADRO = StockCode.make("ADRO")
+        yield* day.ajaibTrades([
+          ajaibBook("ADRO", "09:10:00"),
+          ajaibTrade({
+            number: 10,
+            time: "09:10:00",
+            code: "ADRO",
+            price: 5000,
+            lots: 1,
+            side: "sell",
+          }),
+          ajaibTrade({
+            number: 11,
+            time: "09:10:01",
+            code: "ADRO",
+            price: 5010,
+            lots: 1,
+            side: "buy",
+          }),
+        ])
+        yield* TestClock.adjust("300 millis")
+        assert.deepStrictEqual((yield* held(page, ADRO)).slice(0, 2), [
+          5010,
+          undefined,
+        ])
+        yield* day.trades([
+          stockbitTrade({
+            number: 11,
+            time: "09:10:01",
+            code: "ASII",
+            price: 5010,
+            lots: 1,
+            side: "buy",
+          }),
+        ])
+        yield* TestClock.adjust("300 millis")
+        const socket = yield* day.viewer("IHSG")
+        const want = [5000, undefined]
+        assert.deepStrictEqual(
+          [
+            (yield* held(page, ADRO)).slice(0, 2),
+            (yield* held(socket, ADRO)).slice(0, 2),
+          ],
+          [want, want],
+          "a connected page and a fresh one hold ADRO's trade before the moved one"
+        )
+      })
+  )
 })
