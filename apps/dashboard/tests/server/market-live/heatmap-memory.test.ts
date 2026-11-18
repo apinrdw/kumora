@@ -71,7 +71,7 @@ describe("the heatmap read at the busiest recorded book", () => {
 
         assert.strictEqual(rows.length, MINUTES)
         assert.isDefined(yield* rows.at(-1)!.endBook)
-        // The rows' slices and ending books hold about 2 MB; rows that kept
+        // The rows' slices and ending books hold about 8 MB; rows that kept
         // each chunk's frames held about 220 MB, past the Worker's 128 MB.
         assert.isBelow(held, 32 * 1024 * 1024)
       }),

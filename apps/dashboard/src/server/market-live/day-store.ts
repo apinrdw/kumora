@@ -856,10 +856,13 @@ export const makeDayStore = (
         rows.at(-1)?.minute ?? -1
       )) {
         const chunk = yield* heldChunkOf(yield* chunkOf(row.chunk))
+        // The ending book is worked out now, so the row keeps one book, not
+        // the chunk's frames: a busy code's 273 chunks of 250 ms frames held
+        // about 220 MB, past the Worker's 128 MB (heatmap-memory.test.ts).
         rows.push({
           minute: chunk.minute,
           slices: yield* chunkSlices(chunk),
-          endBook: endBookOf(chunk),
+          endBook: Effect.succeed(yield* endBookOf(chunk)),
         })
       }
       return rows
