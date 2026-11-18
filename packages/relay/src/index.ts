@@ -95,6 +95,7 @@ export {
   bookAt,
   decodeBookChunk,
   decodeDayStrip,
+  decodeRecordedBookEvents,
   decodeRecordedBubbles,
   decodeRecordedCandles,
   decodeRecordedDay,
@@ -104,6 +105,7 @@ export {
   decodeSweepBrokersText,
   decodeRecordedTape,
   encodeBookChunk,
+  encodeRecordedBookEvents,
   encodeRecordedBubbles,
   encodeRecordedCandles,
   encodeRecordedDay,
@@ -119,6 +121,7 @@ export {
 export type {
   BookChunk,
   BookDelta,
+  RecordedBookEvents,
   RecordedBrokerCodes,
   RecordedBubbles,
   RecordedCandles,
@@ -133,6 +136,13 @@ export type { CodeKind, ListedCode } from "./code-list.ts"
 export type { DayChange, DayState } from "./day-state.ts"
 export { BOOK_DEPTH, BookLevel, SHARES_PER_LOT } from "./order-book.ts"
 export { bookReadingsOf } from "./book-readings.ts"
+export {
+  BOOK_EVENT_WINDOW_MS,
+  BookEvent,
+  MIN_SIDE_FRAMES,
+  SNAPSHOT_BOOK_EVENTS,
+} from "./book-events.ts"
+export type { BookEventKind } from "./book-events.ts"
 export type { BookReadings } from "./book-readings.ts"
 export {
   HEAT_SLICE_MS,

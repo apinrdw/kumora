@@ -27,6 +27,8 @@ import {
   type Feed,
   type IndicativePrice,
   type IngestUp,
+  type MarketPhase,
+  type OrderBook,
   type RecordedDay,
   type RecordedResource,
   type RunningTrade,
@@ -60,6 +62,7 @@ import { ajaibTrades } from "./ajaib.ts"
 import { ajaibPrices } from "./ajaib-price.ts"
 import { backfillTrades } from "./backfill-page.ts"
 import { makeBubbleBook } from "./bubble-book.ts"
+import { makeLevelLedger } from "./level-ledger.ts"
 import { makeReadingsBook } from "./readings-book.ts"
 import { makeBrokerCodes } from "./broker-codes.ts"
 import {
@@ -80,6 +83,7 @@ import { changeOf, makeDayStates } from "./day-states.ts"
 import { Fact, makeDayStore, type Flush, type Sql } from "./day-store.ts"
 import type { DownRecord } from "./feed-health.ts"
 import { makeFeedLagLog, timeTrades } from "./feed-lag.ts"
+import { makeBookEventLog } from "./book-event-log.ts"
 import { makeGaps } from "./gaps.ts"
 import { makeMarketConditions } from "./market-conditions.ts"
 import { makeOnDemand } from "./on-demand.ts"
@@ -246,6 +250,12 @@ const settleSide = Effect.fnUntraced(function* (trade: RunningTrade) {
     trade.board === "NG" || phase === "pre-opening" || phase === "pre-closing"
   return sideless ? { ...trade, side: "none" as const } : trade
 })
+
+// The phases the level ledger reads book events in.
+const LEDGER_PHASES: ReadonlySet<MarketPhase> = new Set([
+  "session-1",
+  "session-2",
+])
 
 // How often the object checks whether the market conditions changed: a feed
 // going stale is noticed within this.
@@ -516,6 +526,12 @@ export const makeTradingDay = Effect.fnUntraced(function* (options: {
     valueOf: bubbles.dayValue,
   })
   const bookChunks = yield* makeBookChunks
+  const ledger = yield* makeLevelLedger
+  const bookEvents = yield* makeBookEventLog(store)
+  // The market phase and relay gaps the ledger last read under.
+  let ledgerRegime = ""
+  // Whether the store holds the marker that this day records book events.
+  let bookEventsMarked = (yield* store.fact(Fact.bookEvents)) !== undefined
   const gaps = yield* makeGaps({ ingests, highest: storedHighest })
   const dayStates = yield* makeDayStates(candles)
   const onDemand = yield* makeOnDemand({ viewers: options.viewers, ingests })
@@ -638,6 +654,7 @@ export const makeTradingDay = Effect.fnUntraced(function* (options: {
     }
     yield* candles.trade(undefined, trade)
     yield* dayStates.trade(undefined, trade)
+    yield* ledger.trade(trade)
     return []
   })
 
@@ -685,6 +702,26 @@ export const makeTradingDay = Effect.fnUntraced(function* (options: {
     yield* market.recordLags(lags)
   })
 
+  // The book events of the books that changed, read only in Sessions 1 and
+  // 2 with no relay gap open.
+  // Decision: book events are read only in Sessions 1 and 2, and the ledger
+  // resets whenever the phase changes or a relay gap opens or closes. See
+  // spec apinrdw/kumora#517, "Book events".
+  const readLedger = Effect.fnUntraced(function* (
+    changedBooks: ReadonlyArray<OrderBook>,
+    conditions: MarketConditions
+  ) {
+    const open = conditions.gaps.some((gap) => gap.to === undefined)
+    const regime = `${conditions.phase}|${conditions.gaps.length}|${open}`
+    if (regime !== ledgerRegime) {
+      ledgerRegime = regime
+      yield* ledger.reset
+    }
+    if (open || !LEDGER_PHASES.has(conditions.phase)) return
+    for (const book of changedBooks)
+      yield* bookEvents.add(yield* ledger.book(book))
+  })
+
   // Decision: a delta carries every candle that changed, of any code, not
   // just each viewer's selected code's: one encoded text serves every viewer
   // and no socket keeps its selection. The page keeps its own code's.
@@ -707,6 +744,7 @@ export const makeTradingDay = Effect.fnUntraced(function* (options: {
       (code) =>
         Effect.map(dayStates.stateOf(code, live), (state) => state?.last)
     )
+    yield* readLedger(changedBooks, conditions)
     // Decision: a delta carries whole books only for codes some viewer
     // selected, as footprints do: a page reads only its selected code's, and
     // whole books were 86% of a viewer's inflated bytes. Every other changed
@@ -720,6 +758,7 @@ export const makeTradingDay = Effect.fnUntraced(function* (options: {
       sweeps: changed.sweeps,
       orderBooks,
       bookReadings,
+      bookEvents: yield* bookEvents.takeDelta,
       dayStates: states,
       indicative: yield* market.indicativeChanges,
     })
@@ -802,6 +841,7 @@ export const makeTradingDay = Effect.fnUntraced(function* (options: {
     const chunks = yield* bookChunks.take(final)
     const livePrices = [...livePricesChanged.values()]
     livePricesChanged = new Map()
+    const events = yield* bookEvents.toFlush
     const ajaibBooks = yield* books.takeAjaibBooks
     const retained = unwritten
     const payload: Flush = {
@@ -814,8 +854,10 @@ export const makeTradingDay = Effect.fnUntraced(function* (options: {
       facts: {
         [Fact.feedDowns]: JSON.stringify(yield* market.record),
         ...(yield* sweepBrokers.persisting(settled.trades)),
+        ...(bookEventsMarked ? {} : { [Fact.bookEvents]: "recorded" }),
         ...facts,
       },
+      bookEvents: events,
     }
     unwritten = payload
     yield* store.write(payload)
@@ -823,6 +865,8 @@ export const makeTradingDay = Effect.fnUntraced(function* (options: {
       Effect.annotateLogs({ ...(yield* store.takeMeter) })
     )
     unwritten = undefined
+    bookEventsMarked = true
+    yield* bookEvents.written(events.length)
     writtenDowns = payload.facts[Fact.feedDowns]
     yield* candles.written
   })
@@ -853,6 +897,7 @@ export const makeTradingDay = Effect.fnUntraced(function* (options: {
     return (
       unwritten !== undefined ||
       livePricesChanged.size > 0 ||
+      (yield* bookEvents.toFlush).length > 0 ||
       (yield* candles.hasUnflushed) ||
       (yield* bookChunks.hasOpen) ||
       (yield* books.hasUnflushedAjaib) ||
@@ -1381,6 +1426,8 @@ export const makeTradingDay = Effect.fnUntraced(function* (options: {
         if (price !== undefined) indicative.push(price)
       }
       const bookReadings = yield* readings.all
+      const newestEvents = yield* bookEvents.newest
+      const selectedEvents = yield* bookEvents.ofCode(selected)
       const snapshot = yield* encodeViewerDown({
         _tag: "Snapshot",
         at: yield* DateTime.now,
@@ -1392,7 +1439,11 @@ export const makeTradingDay = Effect.fnUntraced(function* (options: {
         ...(states.length === 0 ? {} : { dayStates: states }),
         conditions: yield* market.conditions,
         ...(indicative.length === 0 ? {} : { indicative }),
-        ...(bookReadings.length === 0 ? {} : { bookReadings }),
+        ...(yield* nonEmptyParts({
+          bookReadings,
+          bookEvents: newestEvents,
+          selectedBookEvents: selectedEvents,
+        })),
       })
       yield* socket.send(snapshot)
       yield* socket.setState("ready")
@@ -1524,6 +1575,12 @@ export const makeTradingDay = Effect.fnUntraced(function* (options: {
             ),
             heldHeat,
             sweeps: candles.sweepsOf,
+            bookEvents: Effect.fnUntraced(function* (code: StockCode) {
+              return {
+                recorded: today || bookEventsMarked,
+                events: yield* bookEvents.ofCode(code),
+              }
+            }),
           })
         )
 

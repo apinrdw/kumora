@@ -1,5 +1,6 @@
 import { Effect, Option, Order, Schema, SchemaGetter } from "effect"
 
+import { BookEvent } from "./book-events.ts"
 import { BookReadings } from "./book-readings.ts"
 import { StockCode } from "./codes.ts"
 import { IndicativePrice, MarketConditions } from "./market-conditions.ts"
@@ -25,7 +26,8 @@ const acceptedIngestVersions: ReadonlyArray<unknown> = [
 // 5: candles carry their buy value and sell value, and snapshots and deltas
 // the instant they were sent (spec apinrdw/kumora#427).
 // 6: deltas carry whole order books only for selected codes and every
-// changed code's book readings; snapshots carry every code's readings (spec
+// changed code's book readings and the book events found since the last;
+// snapshots carry every code's readings and the latest book events (spec
 // apinrdw/kumora#517).
 export const ViewerProtocolVersion = 6
 
@@ -436,6 +438,12 @@ const Snapshot = Schema.TaggedStruct("Snapshot", {
   // Every code's latest book readings, with its value today. Absent when no
   // code has any yet.
   bookReadings: Schema.optionalKey(Schema.Array(BookReadings)),
+  // The day's newest SNAPSHOT_BOOK_EVENTS (book-events.ts) book events of every code, oldest
+  // first. Absent when there are none.
+  bookEvents: Schema.optionalKey(Schema.Array(BookEvent)),
+  // The selected code's book events for the day, oldest first. Absent when
+  // it has none.
+  selectedBookEvents: Schema.optionalKey(Schema.Array(BookEvent)),
 })
 
 // The running trades that arrived in the last ~250 ms, ascending by trade
@@ -468,6 +476,9 @@ const Delta = Schema.TaggedStruct("Delta", {
   // delta, whatever each viewer selected, taken only in Sessions 1 and 2.
   // Absent when none changed.
   bookReadings: Schema.optionalKey(Schema.Array(BookReadings)),
+  // The book events of every code found since the last delta, oldest first.
+  // Absent when none was.
+  bookEvents: Schema.optionalKey(Schema.Array(BookEvent)),
   // Present only when they changed.
   conditions: Schema.optionalKey(MarketConditions),
   // Every code's that changed, whatever each viewer selected.

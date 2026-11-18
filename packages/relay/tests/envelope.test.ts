@@ -11,15 +11,18 @@ import {
   ViewerCloseCode,
   ViewerProtocolVersion,
   decodeIngestDown,
+  decodeRecordedBookEvents,
   decodeIngestUp,
   decodeViewerDown,
   decodeViewerUp,
   encodeIngestDown,
+  encodeRecordedBookEvents,
   encodeIngestUp,
   encodeViewerDown,
   encodeViewerUp,
 } from "@workspace/relay"
 import type {
+  BookEvent,
   BookReadings,
   IngestDown,
   IngestUp,
@@ -395,6 +398,115 @@ describe("viewer protocol, down", () => {
       }
       const snapshotWire = yield* encodeViewerDown(snapshot)
       assert.deepStrictEqual(yield* decodeViewerDown(snapshotWire), snapshot)
+    })
+  )
+
+  it.effect("book events round trip in a delta, a snapshot and a GET", () =>
+    Effect.gen(function* () {
+      const code = StockCode.make("BBNI")
+      const at = DateTime.makeUnsafe("2026-11-17T07:02:33.080Z")
+      const events: ReadonlyArray<BookEvent> = [
+        {
+          kind: "absorbed",
+          code,
+          at,
+          side: "offer",
+          price: 110,
+          lots: 19_994,
+          orders: 40,
+          shown: 4_200,
+        },
+        {
+          kind: "eaten",
+          code,
+          at,
+          side: "bid",
+          price: 67,
+          lots: 79_264,
+          orders: 222,
+          share: 0.95,
+        },
+        {
+          kind: "reloaded",
+          code,
+          at,
+          side: "bid",
+          price: 2220,
+          lots: 1_896,
+          orders: 3,
+          refills: 4,
+          crowd: true,
+        },
+        {
+          kind: "appeared",
+          code,
+          at,
+          side: "bid",
+          price: 100,
+          lots: 50_000,
+          orders: 1,
+          ticks: 6,
+        },
+        {
+          kind: "pulled",
+          code,
+          at,
+          side: "bid",
+          price: 3610,
+          lots: 33_789,
+          orders: 77,
+          ticks: 1,
+          approached: false,
+        },
+        {
+          kind: "moved",
+          code,
+          at,
+          side: "bid",
+          price: 3620,
+          lots: 28_711,
+          orders: 3,
+          to: 3610,
+        },
+      ]
+      const delta: ViewerDown = {
+        _tag: "Delta",
+        at,
+        tape: [],
+        candles: [],
+        bookEvents: events,
+      }
+      assert.deepStrictEqual(
+        yield* decodeViewerDown(yield* encodeViewerDown(delta)),
+        delta
+      )
+      const snapshot: ViewerDown = {
+        _tag: "Snapshot",
+        at,
+        selected: code,
+        tape: [],
+        candles: [],
+        footprints: [],
+        conditions: {
+          phase: "session-2",
+          relayOnline: true,
+          feeds: { Stockbit: "live", Ajaib: "live" },
+          gaps: [],
+        },
+        bookEvents: events.slice(0, 2),
+        selectedBookEvents: events,
+      }
+      assert.deepStrictEqual(
+        yield* decodeViewerDown(yield* encodeViewerDown(snapshot)),
+        snapshot
+      )
+      const answer = { code, recorded: true, events }
+      assert.deepStrictEqual(
+        yield* decodeRecordedBookEvents(
+          yield* encodeRecordedBookEvents(answer)
+        ),
+        answer
+      )
     })
   )
 })
