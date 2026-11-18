@@ -577,7 +577,8 @@ describe("book readings and the delta", () => {
             },
           ]),
         ])
-        yield* TestClock.adjust("1 second")
+        // Past the trade's 5 s merge window: settled.
+        yield* TestClock.adjust("6 seconds")
         const valueOf = (messages: ReadonlyArray<ViewerDown>) =>
           messages
             .flatMap((message) => message.scannerFigures ?? [])
