@@ -10,6 +10,8 @@ import {
 } from "@workspace/relay"
 import { DateTime, Effect } from "effect"
 
+import { BOOK_EVENT_NAMES } from "./book-events"
+
 // Decision: a rule's optional minimum level or wall value: any, Rp1 B, Rp5 B
 // or Rp20 B. See spec apinrdw/kumora#517, "Alerts".
 export const MIN_VALUES = [0, 1e9, 5e9, 20e9] as const
@@ -82,12 +84,8 @@ export const ruleMatches = Effect.fnUntraced(function* (
 // An alert's title names a wall's kind in full: the list's "Pulled" chip
 // sits beside its wall, a toast stands alone.
 export const ALERT_KIND_NAMES: Readonly<Record<BookEventKind, string>> = {
-  absorbed: "Absorbed",
-  eaten: "Eaten",
-  reloaded: "Reloaded",
-  appeared: "Wall appeared",
+  ...BOOK_EVENT_NAMES,
   pulled: "Wall pulled",
-  moved: "Wall moved",
 }
 
 // "BBCA · Wall pulled on the bid".
