@@ -15,7 +15,7 @@ import {
   send,
 } from "../auth/seam.ts"
 import { memoryHoldingsDb } from "../holdings/memory-holdings-db.ts"
-import { fakeIdx, profile } from "../sectors/fake-idx.ts"
+import { codes, fakeIdx, profile } from "../sectors/fake-idx.ts"
 
 const headers = (cookie?: string) =>
   new Headers(cookie === undefined ? {} : { cookie })
@@ -82,31 +82,66 @@ describe("the Sectors card", () => {
       assert.deepStrictEqual(yield* sectorTable(headers(cookie)), {
         rows: 0,
         fetchedAt: null,
+        lastRun: null,
       })
       yield* TestClock.setTime(Date.parse("2026-11-17T03:04:05.000Z"))
       assert.deepStrictEqual(yield* runSectorSyncNow(headers(cookie)), {
         _tag: "Replaced",
         rows: 2,
+        skipped: [],
       })
       assert.strictEqual(idx.requests.length, 1)
       assert.deepStrictEqual(yield* sectorTable(headers(cookie)), {
         rows: 2,
         fetchedAt: "2026-11-17T03:04:05.000Z",
+        lastRun: {
+          run: { _tag: "Replaced", rows: 2, skipped: [] },
+          ranAt: "2026-11-17T03:04:05.000Z",
+        },
       })
     }).pipe(Effect.provide(layer))
   })
 
   it.effect("tells an admin why a run kept the table", () => {
     const { layer, mails, idx } = sectors()
-    idx.profiles = [profile("TKGA", "TRADE, SERVICES & INVESTMENT")]
+    idx.profiles = codes(10).map((code) => profile(code))
     return Effect.gen(function* () {
       const cookie = yield* verified(mails)(ADMIN_EMAIL, "Adi")
-      assert.deepStrictEqual(yield* runSectorSyncNow(headers(cookie)), {
+      yield* runSectorSyncNow(headers(cookie))
+      idx.profiles = codes(8).map((code) => profile(code))
+      yield* TestClock.setTime(Date.parse("2026-11-18T15:00:00.000Z"))
+      const kept = {
         _tag: "Kept",
         reason:
-          'TKGA\'s sector "TRADE, SERVICES & INVESTMENT" is not an IDX-IC sector',
+          "IDX lists 8 company profiles with a stock code and an IDX-IC sector, under 90 % of the 10 stored",
+      } as const
+      assert.deepStrictEqual(yield* runSectorSyncNow(headers(cookie)), kept)
+      const table = yield* sectorTable(headers(cookie))
+      assert.strictEqual(table.rows, 10)
+      assert.deepStrictEqual(table.lastRun, {
+        run: kept,
+        ranAt: "2026-11-18T15:00:00.000Z",
       })
-      assert.strictEqual((yield* sectorTable(headers(cookie))).rows, 0)
+    }).pipe(Effect.provide(layer))
+  })
+
+  it.effect("shows an admin the profiles a run skipped", () => {
+    const { layer, mails, idx } = sectors()
+    idx.profiles = [
+      profile("AADI"),
+      profile("AGII", "3. Basic Industry And Chemicals"),
+    ]
+    return Effect.gen(function* () {
+      const cookie = yield* verified(mails)(ADMIN_EMAIL, "Adi")
+      yield* runSectorSyncNow(headers(cookie))
+      assert.deepStrictEqual(
+        (yield* sectorTable(headers(cookie))).lastRun?.run,
+        {
+          _tag: "Replaced",
+          rows: 1,
+          skipped: ["AGII (3. Basic Industry And Chemicals)"],
+        }
+      )
     }).pipe(Effect.provide(layer))
   })
 
@@ -118,6 +153,10 @@ describe("the Sectors card", () => {
       const run = yield* runSectorSyncNow(headers(cookie))
       assert.strictEqual(run._tag, "Failed")
       assert.include(run._tag === "Failed" ? run.message : "", "answered 503")
+      assert.deepStrictEqual(
+        (yield* sectorTable(headers(cookie))).lastRun?.run,
+        run
+      )
     }).pipe(Effect.provide(layer))
   })
 })

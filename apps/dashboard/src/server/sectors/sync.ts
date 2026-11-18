@@ -39,9 +39,19 @@ const Profiles = Schema.Struct({
 })
 
 export type SectorRun =
-  | { readonly _tag: "Replaced"; readonly rows: number }
+  | {
+      readonly _tag: "Replaced"
+      readonly rows: number
+      // Each profile left out, as `CODE (why)`.
+      readonly skipped: ReadonlyArray<string>
+    }
   // A sanity gate dropped the run; yesterday's table stays.
   | { readonly _tag: "Kept"; readonly reason: string }
+
+// A run as the cron and Run now record it: IDX failing is an outcome too.
+export type RecordedSectorRun =
+  | SectorRun
+  | { readonly _tag: "Failed"; readonly message: string }
 
 const isSector = Schema.is(Sector)
 const isStockCode = Schema.is(StockCode)
@@ -99,14 +109,16 @@ const rowsOf = Effect.fnUntraced(function* (
     const sector = profile.Sektor.trim()
     // A code the table can't key leaves its profile out, not the run.
     if (!isStockCode(code)) {
-      skipped.push(code)
+      skipped.push(`"${code}" (no stock code)`)
       continue
     }
-    if (!isSector(sector))
-      return {
-        _tag: "Kept",
-        reason: `${code}'s sector "${sector}" is not an IDX-IC sector`,
-      } as const
+    // Decision: a profile IDX still files under a JASICA sector (AGII on
+    // 2026-11-18) leaves the table, so its code shows as Unclassified; the
+    // 90 % gate below still keeps the table when many go at once.
+    if (!isSector(sector)) {
+      skipped.push(`${code} (${sector})`)
+      continue
+    }
     rows.push([
       code,
       sector,
@@ -116,15 +128,15 @@ const rowsOf = Effect.fnUntraced(function* (
     ])
   }
   if (skipped.length > 0)
-    yield* Effect.logWarning("Sector run skipped profiles with no stock code", {
-      codes: skipped,
-    })
-  if (rows.length < stored * MIN_KEPT_SHARE)
+    yield* Effect.logWarning("Sector run skipped profiles", { skipped })
+  // An empty table has no 90 % to fall under, so a run that keeps nothing
+  // is refused outright.
+  if (rows.length === 0 || rows.length < stored * MIN_KEPT_SHARE)
     return {
       _tag: "Kept",
-      reason: `IDX lists ${rows.length} company profiles with a stock code, under 90 % of the ${stored} stored`,
+      reason: `IDX lists ${rows.length} company profiles with a stock code and an IDX-IC sector, under 90 % of the ${stored} stored`,
     } as const
-  return { _tag: "Rows", rows } as const
+  return { _tag: "Rows", rows, skipped } as const
 })
 
 const COLUMNS = ["code", "sector", "sub_sector", "industry", "sub_industry"]
@@ -170,6 +182,44 @@ export const syncSectors = Effect.fn("syncSectors")(function* (
   yield* Effect.logInfo("Sector run replaced the table", {
     rows: read.rows.length,
   })
-  const replaced: SectorRun = { _tag: "Replaced", rows: read.rows.length }
+  const replaced: SectorRun = {
+    _tag: "Replaced",
+    rows: read.rows.length,
+    skipped: read.skipped,
+  }
   return replaced
+})
+
+// The run, with its outcome kept in sector_run for the Sectors card. A
+// NonRetryable is IDX failing, so it becomes Failed rather than an error.
+export const recordedSectorRun = Effect.fn("recordedSectorRun")(function* (
+  ranAt: Date
+) {
+  const run = yield* syncSectors(ranAt).pipe(
+    Effect.map((outcome): RecordedSectorRun => outcome),
+    Effect.catchTag("NonRetryable", ({ message }) =>
+      Effect.logWarning("Sector run failed", { message }).pipe(
+        Effect.as<RecordedSectorRun>({ _tag: "Failed", message })
+      )
+    )
+  )
+  yield* (yield* HoldingsDb).batch([
+    {
+      sql:
+        "INSERT OR REPLACE INTO sector_run (id, outcome, rows, skipped, message, ran_at) " +
+        "VALUES (1, ?, ?, ?, ?, ?)",
+      params: [
+        run._tag,
+        run._tag === "Replaced" ? run.rows : null,
+        run._tag === "Replaced" ? JSON.stringify(run.skipped) : null,
+        run._tag === "Kept"
+          ? run.reason
+          : run._tag === "Failed"
+            ? run.message
+            : null,
+        ranAt.toISOString(),
+      ],
+    },
+  ])
+  return run
 })

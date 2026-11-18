@@ -1,5 +1,6 @@
-// The Sectors card: what stock_sector holds and Run now, which runs the
-// sector run inline (../../../server/admin/sectors.ts).
+// The Sectors card: what stock_sector holds, the last sector run's outcome,
+// and Run now, which runs the sector run inline
+// (../../../server/admin/sectors.ts).
 import { IconPlayerPlay } from "@tabler/icons-react"
 import { useHydrated } from "@tanstack/react-router"
 import { clientRuntime } from "@workspace/client"
@@ -17,14 +18,29 @@ import {
 } from "@/components/admin/archive/archive-card"
 import { KButton } from "@/components/k"
 import { dateTime } from "@/lib/format"
-import type { SectorSyncOutcome } from "@/server/admin/sectors"
+import type { LastSectorRun } from "@/server/admin/sectors"
 import { runSectorSyncNowFn } from "@/server/admin/sectors.functions"
 import { SECTOR_TIME_WIB } from "@/server/sectors/schedule"
+import type { RecordedSectorRun } from "@/server/sectors/sync"
 
-const outcomeOf = (run: SectorSyncOutcome): Outcome => {
+// Up to the 90 % gate's ~94 profiles can be skipped; ten name the cause.
+const SKIPPED_SHOWN = 10
+
+const skippedList = (skipped: ReadonlyArray<string>) =>
+  skipped.length <= SKIPPED_SHOWN
+    ? skipped.join(", ")
+    : `${skipped.slice(0, SKIPPED_SHOWN).join(", ")} and ${skipped.length - SKIPPED_SHOWN} more`
+
+const outcomeOf = (run: RecordedSectorRun): Outcome => {
   switch (run._tag) {
     case "Replaced":
-      return { _tag: "Done", message: `Replaced ${run.rows} rows.` }
+      return {
+        _tag: "Done",
+        message:
+          run.skipped.length === 0
+            ? `Replaced ${run.rows} rows.`
+            : `Replaced ${run.rows} rows, skipping ${skippedList(run.skipped)}.`,
+      }
     case "Kept":
       return { _tag: "Failed", message: `Kept the table: ${run.reason}` }
     case "Failed":
@@ -43,15 +59,29 @@ const runNow: Effect.Effect<Outcome> = Effect.map(
   })
 )
 
-/** The sector table's row count and last fill, with Run now: a row of the
- * page's ledger. */
+// The last run's outcome and when it ran, red when it kept the table or
+// failed.
+function LastRun({ lastRun }: { lastRun: LastSectorRun | null }) {
+  if (lastRun === null) return <>Never</>
+  const { _tag, message } = outcomeOf(lastRun.run)
+  return (
+    <span className={_tag === "Done" ? undefined : "text-down"}>
+      {message} {Effect.runSync(dateTime(lastRun.ranAt))}
+    </span>
+  )
+}
+
+/** The sector table's row count, last fill and last run, with Run now: a
+ * row of the page's ledger. */
 export function SectorsCard({
   rows,
   fetchedAt,
+  lastRun,
 }: {
   rows: number
   // An ISO instant, or null while the table is empty.
   fetchedAt: string | null
+  lastRun: LastSectorRun | null
 }) {
   const hydrated = useHydrated()
   const { pending, outcome, run } = useAccountAction()
@@ -76,6 +106,12 @@ export function SectorsCard({
               {fetchedAt === null
                 ? "Never"
                 : Effect.runSync(dateTime(fetchedAt))}
+            </dd>
+          </div>
+          <div className="col-span-full flex flex-col-reverse gap-0.5">
+            <dt className="text-secondary-text text-[13px]">Last run</dt>
+            <dd className="text-[13px] leading-5">
+              <LastRun lastRun={lastRun} />
             </dd>
           </div>
         </dl>
