@@ -5,6 +5,15 @@
 // trading day makes the tables first, so the day has today's shape. It also
 // holds the broker trades index and its rebuild's fact, as a day recorded
 // before apinrdw/kumora#561 does.
+import { gzipSync } from "node:zlib"
+
+import {
+  BOOK_DEPTH,
+  StockCode,
+  encodeBookChunk,
+  type BookDelta,
+  type OrderBook,
+} from "@workspace/relay"
 import { Clock, DateTime, Effect } from "effect"
 
 import { BROKER_TOTALS_VERSION } from "../src/server/broker-totals/version.ts"
@@ -60,6 +69,66 @@ const chunkOf = (chunk: number) =>
     }
     return codes
   })
+
+// The busy code's book at frame `frame`: 20 levels a side around 1,000.
+const bookAt = (frame: number, at: number): OrderBook => {
+  const levels = (side: 1 | -1) =>
+    Array.from({ length: BOOK_DEPTH }, (_, index) => ({
+      price: 1_000 + side * (index + 1),
+      lots: 100 + ((frame * 7 + index * 13) % 900),
+      orders: 1 + ((frame + index) % 30),
+    }))
+  return {
+    _tag: "OrderBook",
+    code: StockCode.make(BUSY_DAY.bookCode),
+    bids: levels(-1),
+    offers: levels(1),
+    bidLots: 50_000 + frame,
+    offerLots: 60_000 + frame,
+    at: DateTime.makeUnsafe(at),
+    provenance: "Stockbit",
+  }
+}
+
+// The busy code's chunks, gzipped as the day store stores them: one in
+// BUSY_DAY.bookChunks of the day's minutes, each the book in force when its
+// minute began, then a frame every 15 s with both sides changed.
+const bookChunks = Effect.gen(function* () {
+  const code = StockCode.make(BUSY_DAY.bookCode)
+  const step = (index: number) =>
+    Math.floor((index * BUSY_DAY.bookChunks) / MINUTES)
+  const chunks: Array<readonly [number, ArrayBuffer]> = []
+  let last: OrderBook | undefined
+  let frame = 0
+  for (let index = 0; index < MINUTES; index++) {
+    if (index > 0 && step(index) === step(index - 1)) continue
+    const minute = OPEN + index * 60_000
+    const start = last
+    const deltas: Array<BookDelta> = []
+    for (let second = 0; second < 60; second += 15) {
+      const at = minute + second * 1_000
+      const book = bookAt(frame++, at)
+      deltas.push({
+        servedAt: book.at,
+        at: book.at,
+        ...(last === undefined ? { provenance: book.provenance } : {}),
+        bids: book.bids,
+        offers: book.offers,
+        bidLots: book.bidLots,
+        offerLots: book.offerLots,
+      })
+      last = book
+    }
+    const text = yield* encodeBookChunk({
+      code,
+      minute: DateTime.makeUnsafe(minute),
+      ...(start === undefined ? {} : { start }),
+      deltas,
+    })
+    chunks.push([minute, new Uint8Array(gzipSync(text)).buffer])
+  }
+  return chunks
+})
 
 // 1..`count` as `n(x)`, for an INSERT … SELECT. Every figure is written
 // into the statement: workerd binds a JavaScript number as a REAL, so
@@ -127,6 +196,13 @@ export const buildBusyDay = Effect.fnUntraced(function* (
     const records = yield* chunkOf(chunk)
     exec("INSERT INTO broker_code_chunks VALUES (?, ?)", chunk, records.buffer)
   }
+  for (const [minute, chunk] of yield* bookChunks)
+    exec(
+      "INSERT INTO book_chunks VALUES (?, ?, ?)",
+      BUSY_DAY.bookCode,
+      minute,
+      chunk
+    )
   const facts: ReadonlyArray<readonly [string, string]> = [
     [Fact.tapeSource, "relay"],
     [Fact.brokerCodesN, String(trades)],

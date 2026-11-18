@@ -9,7 +9,6 @@ import {
   StockCode,
   TradeNumberValue,
   type Footprint,
-  type HeatSlice,
   type RunningTrade,
   type Sweep,
   MINUTE_MS,
@@ -25,7 +24,14 @@ import type {
 } from "./candles.ts"
 import { candleFrom } from "./candles.ts"
 import { cellsFromText, cellsOut, cellsText } from "./footprint-cells.ts"
-import { slicesFromText, slicesText, storedEndBook } from "./heat-rows.ts"
+import {
+  chunkSlices,
+  endBookOf,
+  heldChunkOf,
+  slicesFromText,
+  storedEndBook,
+  type HeatRow,
+} from "./heat-rows.ts"
 import type { StoredAjaibBook } from "./order-books.ts"
 import type { LivePrice } from "./stockbit-liveprice.ts"
 import { sweepsFromText, sweepsText } from "./sweep-rows.ts"
@@ -72,7 +78,6 @@ interface Meter {
   trades: number
   candles: number
   footprints: number
-  heatmaps: number
   bookChunks: number
   livePrices: number
   ajaibBooks: number
@@ -91,7 +96,6 @@ const emptyMeter = Effect.sync((): Meter => ({
   trades: 0,
   candles: 0,
   footprints: 0,
-  heatmaps: 0,
   bookChunks: 0,
   livePrices: 0,
   ajaibBooks: 0,
@@ -101,13 +105,11 @@ const emptyMeter = Effect.sync((): Meter => ({
   sweepBrokerMinutes: 0,
 }))
 
-// One code's order book chunk for one minute, encoded, and its book heatmap
-// slices (heat-rows.ts).
+// One code's order book chunk for one minute, encoded.
 export interface StoredChunk {
   readonly code: StockCode
   readonly minute: number
   readonly chunk: string
-  readonly slices: ReadonlyArray<HeatSlice>
 }
 
 // What one flush writes.
@@ -165,8 +167,9 @@ const SCHEMA = [
     chunk BLOB NOT NULL,
     PRIMARY KEY (code, minute)
   ) WITHOUT ROWID`,
-  // A stock's book heatmap slices for one minute (heat-rows.ts), written
-  // with its book chunk.
+  // A stock's book heatmap slices for one minute (heat-rows.ts), which a
+  // day recorded before heatmaps were worked out on read holds beside each
+  // book chunk.
   `CREATE TABLE IF NOT EXISTS heatmaps (
     code TEXT NOT NULL,
     minute INTEGER NOT NULL,
@@ -242,18 +245,13 @@ export const ORDER_FLOW_BUILT = "built"
 export const SWEEP_BROKERS_SHAPE = "split"
 export const SWEEP_BROKERS_BUILT = `${SWEEP_BROKERS_SHAPE}:built`
 
-// What the one-off build writes of one minute: every stock's footprint row
-// and every code's heatmap row, and the minute as its progress; a walked
-// day's build writes its candles too.
+// What the one-off build writes of one minute: every stock's footprint row,
+// and the minute as its progress; a walked day's build writes its candles
+// too.
 export interface BuiltMinute {
   readonly minute: number
   readonly candles: ReadonlyArray<StoredCandle>
   readonly footprints: ReadonlyArray<FootprintRow>
-  readonly heatmaps: ReadonlyArray<{
-    readonly code: StockCode
-    readonly minute: number
-    readonly slices: ReadonlyArray<HeatSlice>
-  }>
 }
 
 // The footprint rows one statement of the restart's sweep read takes.
@@ -370,7 +368,7 @@ export const makeDayStore = (
       return taken
     })
 
-    // Footprint and heatmap rows are encoded before the transaction, where an
+    // Footprint rows are encoded before the transaction, where an
     // Effect can't run.
     const footprintTexts = Effect.fnUntraced(function* (
       rows: ReadonlyArray<FootprintRow>
@@ -384,14 +382,6 @@ export const makeDayStore = (
         ])
       return texts
     })
-    const heatmapTexts = Effect.fnUntraced(function* (
-      rows: ReadonlyArray<Pick<StoredChunk, "code" | "minute" | "slices">>
-    ) {
-      const texts: Array<readonly [StockCode, number, string]> = []
-      for (const { code, minute, slices } of rows)
-        texts.push([code, minute, yield* slicesText(minute, slices)])
-      return texts
-    })
     const insertFootprints = (
       texts: ReadonlyArray<readonly [FootprintRow, string, string]>
     ) => {
@@ -403,17 +393,6 @@ export const makeDayStore = (
           cells,
           sweeps,
           Number(lastTrade)
-        )
-    }
-    const insertHeatmaps = (
-      texts: ReadonlyArray<readonly [StockCode, number, string]>
-    ) => {
-      for (const [code, minute, slices] of texts)
-        sql.exec(
-          "INSERT OR REPLACE INTO heatmaps VALUES (?, ?, ?)",
-          code,
-          minute,
-          slices
         )
     }
     const insertCandles = (candles: ReadonlyArray<StoredCandle>) => {
@@ -441,7 +420,6 @@ export const makeDayStore = (
 
     const write = Effect.fnUntraced(function* (flush: Flush) {
       const footprints = yield* footprintTexts(flush.footprints)
-      const heatmaps = yield* heatmapTexts(flush.chunks)
       yield* meteredTransaction(() => {
         tape.write(flush.trades)
         insertCandles(flush.candles)
@@ -462,7 +440,6 @@ export const makeDayStore = (
             minute,
             new Uint8Array(gzipSync(chunk))
           )
-        insertHeatmaps(heatmaps)
         for (const { code, book } of flush.ajaibBooks)
           sql.exec(
             "INSERT OR REPLACE INTO ajaib_books VALUES (?, ?)",
@@ -476,7 +453,6 @@ export const makeDayStore = (
       meter.trades += flush.trades.length
       meter.candles += flush.candles.length
       meter.footprints += flush.footprints.length
-      meter.heatmaps += flush.chunks.length
       meter.bookChunks += flush.chunks.length
       meter.livePrices += flush.livePrices.length
       meter.ajaibBooks += flush.ajaibBooks.length
@@ -488,16 +464,13 @@ export const makeDayStore = (
     // one that landed.
     const writeBuiltMinute = Effect.fnUntraced(function* (built: BuiltMinute) {
       const footprints = yield* footprintTexts(built.footprints)
-      const heatmaps = yield* heatmapTexts(built.heatmaps)
       yield* meteredTransaction(() => {
         insertCandles(built.candles)
         insertFootprints(footprints)
-        insertHeatmaps(heatmaps)
         insertFact(Fact.orderFlowBuilt, String(built.minute))
       })
       meter.candles += built.candles.length
       meter.footprints += built.footprints.length
-      meter.heatmaps += built.heatmaps.length
       meter.facts += 1
     })
 
@@ -676,35 +649,9 @@ export const makeDayStore = (
         )
       )
 
-    // The first and last minute that can hold a stored trade or book chunk,
-    // and the codes with a book chunk; none when the day stored neither. The
-    // trades' minutes are the tape's (`minuteSpan`). The chunks' come from
-    // one pass grouped by code, so memory holds a row per code, never per
-    // chunk.
-    const orderFlowMinutes = Effect.gen(function* () {
-      let first = Number.POSITIVE_INFINITY
-      let last = Number.NEGATIVE_INFINITY
-      const add = (minute: number) => {
-        first = Math.min(first, minute)
-        last = Math.max(last, minute)
-      }
-      const tradeMinutes = yield* tape.minuteSpan
-      if (tradeMinutes !== undefined) {
-        add(tradeMinutes.first)
-        add(tradeMinutes.last)
-      }
-      const chunkCodes: Array<StockCode> = []
-      for (const row of sql.exec(
-        "SELECT code, min(minute) AS first, max(minute) AS last FROM book_chunks GROUP BY code"
-      )) {
-        chunkCodes.push(StockCode.make(String(row.code)))
-        add(Number(row.first))
-        add(Number(row.last))
-      }
-      return first > last
-        ? undefined
-        : { first, last, chunkCodes: chunkCodes as ReadonlyArray<StockCode> }
-    })
+    // The first and last minute that can hold a stored trade, the tape's
+    // (`minuteSpan`); none when the day stored none.
+    const orderFlowMinutes = tape.minuteSpan
 
     // Every stock's regular-board trades in one minute, ascending by trade
     // number: one read of the whole market's minute.
@@ -876,28 +823,41 @@ export const makeDayStore = (
       return row === undefined ? undefined : yield* chunkOf(row.chunk)
     })
 
-    // One stock's stored book heatmap slices by minute, ascending, each with
-    // the book its stored chunk ended with.
-    const heatmapOf = (code: StockCode) =>
-      Effect.suspend(() =>
-        Effect.forEach(
-          sql.exec(
-            "SELECT minute, slices FROM heatmaps WHERE code = ? ORDER BY minute",
-            code
-          ),
-          Effect.fnUntraced(function* (row) {
-            const minute = Number(row.minute)
-            return {
-              minute,
-              slices: yield* slicesFromText(minute, String(row.slices)),
-              endBook: Effect.flatMap(
-                chunkOfMinute(code, minute),
-                storedEndBook
-              ),
-            }
-          })
-        )
-      )
+    // One stock's book heatmap rows by minute, ascending, each with the book
+    // its chunk ended with: its stored heatmap rows, then from the minute
+    // after the last of them each stored chunk's slices, worked out on read.
+    // Decision: a day stores no heatmap row, so a GET reads the code's book
+    // chunks, about 273 rows, and runs the chunk close's own math on them
+    // (heat-rows.ts, `chunkSlices`). A day recorded before holds a row beside
+    // each chunk until the change shipped, and answers those. See spec
+    // apinrdw/kumora#555, "Heatmaps worked out on read".
+    const heatmapOf = Effect.fnUntraced(function* (code: StockCode) {
+      const rows: Array<HeatRow> = []
+      for (const row of sql.exec(
+        "SELECT minute, slices FROM heatmaps WHERE code = ? ORDER BY minute",
+        code
+      )) {
+        const minute = Number(row.minute)
+        rows.push({
+          minute,
+          slices: yield* slicesFromText(minute, String(row.slices)),
+          endBook: Effect.flatMap(chunkOfMinute(code, minute), storedEndBook),
+        })
+      }
+      for (const row of sql.exec(
+        "SELECT chunk FROM book_chunks WHERE code = ? AND minute > ? ORDER BY minute",
+        code,
+        rows.at(-1)?.minute ?? -1
+      )) {
+        const chunk = yield* heldChunkOf(yield* chunkOf(row.chunk))
+        rows.push({
+          minute: chunk.minute,
+          slices: yield* chunkSlices(chunk),
+          endBook: endBookOf(chunk),
+        })
+      }
+      return rows
+    })
 
     // Every code's latest chunk: the books a restarted object starts from.
     const latestChunks = Effect.suspend(() =>

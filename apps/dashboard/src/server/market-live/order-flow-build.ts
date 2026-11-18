@@ -1,10 +1,11 @@
 // The one-off build of a day sealed before order flow shipped (spec
 // apinrdw/kumora#263, "One-off build of sealed days"): its footprint rows
-// (cells and sweeps) from its stored trades and its heatmap rows from its
-// stored book chunks, the same rows the live day writes (candles.ts,
-// book-chunks.ts). A walked day's build writes its candles as well.
+// (cells and sweeps) from its stored trades, the same rows the live day
+// writes (candles.ts). A walked day's build writes its candles as well. Its
+// heatmap is worked out from its book chunks on read (day-store.ts,
+// `heatmapOf`).
 import { Effect } from "effect"
-import { type StockCode, MINUTE_MS } from "@workspace/relay"
+import { MINUTE_MS } from "@workspace/relay"
 
 import {
   figuresOfTrades,
@@ -18,7 +19,6 @@ import {
   type DayStore,
 } from "./day-store.ts"
 import { addTrade, noCells } from "./footprint-cells.ts"
-import { chunkSlices, heldChunkOf } from "./heat-rows.ts"
 import { regroupMinute, type CodeMinute } from "./minute-regroup.ts"
 
 // One stock's footprint row from its trades and sweeps in one minute.
@@ -39,7 +39,6 @@ const footprintRow = Effect.fnUntraced(function* (
 const builtMinute = Effect.fnUntraced(function* (
   store: DayStore,
   minute: number,
-  chunkCodes: ReadonlyArray<StockCode>,
   withCandles: boolean
 ) {
   const footprints: Array<FootprintRow> = []
@@ -54,17 +53,7 @@ const builtMinute = Effect.fnUntraced(function* (
     if (figures !== undefined)
       candles.push({ code: codeMinute.code, minute, figures })
   }
-  const heatmaps: Array<BuiltMinute["heatmaps"][number]> = []
-  for (const code of chunkCodes) {
-    const text = yield* store.chunkOfMinute(code, minute)
-    if (text === undefined) continue
-    heatmaps.push({
-      code,
-      minute,
-      slices: yield* chunkSlices(yield* heldChunkOf(text)),
-    })
-  }
-  return { minute, candles, footprints, heatmaps } satisfies BuiltMinute
+  return { minute, candles, footprints } satisfies BuiltMinute
 })
 
 // Decision: the build goes minute by minute, each minute's whole rows and
@@ -96,14 +85,8 @@ const buildFrom = Effect.fnUntraced(function* (
       minute <= span.last;
       minute += MINUTE_MS
     ) {
-      const built = yield* builtMinute(
-        store,
-        minute,
-        span.chunkCodes,
-        withCandles
-      )
-      if (built.footprints.length > 0 || built.heatmaps.length > 0)
-        yield* store.writeBuiltMinute(built)
+      const built = yield* builtMinute(store, minute, withCandles)
+      if (built.footprints.length > 0) yield* store.writeBuiltMinute(built)
     }
   yield* store.markOrderFlowBuilt
 })

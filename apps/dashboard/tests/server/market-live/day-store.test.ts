@@ -17,7 +17,6 @@ import {
   type SqlValue,
 } from "@/server/market-live/day-store"
 
-import { FULL_DAY_CODES, FULL_DAY_MINUTES } from "./full-day"
 import { memorySql } from "./sql"
 
 // Node's SQLite behind the store's `Sql`, keeping every statement it ran.
@@ -154,36 +153,6 @@ describe("the recorded tape with mixed feed precision", () => {
         ["2", "5"]
       )
     })
-  )
-})
-
-describe("the one-off build's span", () => {
-  it.effect(
-    "reads a full day of book chunks without holding every chunk's key",
-    () =>
-      Effect.gen(function* () {
-        const sql = memorySql()
-        const store = yield* makeDayStore(sql, { today: true })
-        const open = DateTime.toEpochMillis(wib("08:58:00"))
-        sql.transaction(() => {
-          for (let code = 0; code < FULL_DAY_CODES; code++)
-            for (let minute = 0; minute < FULL_DAY_MINUTES; minute++)
-              sql.exec(
-                "INSERT INTO book_chunks VALUES (?, ?, ?)",
-                `C${code}`,
-                open + minute * MINUTE_MS,
-                new Uint8Array(1)
-              )
-        })
-        const span = yield* store.orderFlowMinutes
-        assert.strictEqual(span?.first, open)
-        assert.strictEqual(
-          span?.last,
-          open + (FULL_DAY_MINUTES - 1) * MINUTE_MS
-        )
-        assert.strictEqual(span?.chunkCodes.length, FULL_DAY_CODES)
-      }),
-    60_000
   )
 })
 

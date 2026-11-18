@@ -348,7 +348,7 @@ describe("the one-off build of a day sealed before order flow", () => {
         const crashing = watched(sql, 2)
         const crashed = yield* tradingDay(crashing.sql)
         const exit = yield* Effect.exit(
-          crashed.recorded({ _tag: "Heatmap", code: UNTR })
+          crashed.recorded({ _tag: "Sweeps", code: UNTR })
         )
         assert.isTrue(Exit.isFailure(exit))
 
