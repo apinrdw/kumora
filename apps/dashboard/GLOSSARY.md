@@ -217,7 +217,7 @@ The best level traded more lots than it showed while it stayed best, or was hit 
 _Avoid_: Iceberg, hidden order (IDX offers no such order type that the terminal knows of)
 
 **Wall**:
-A level, among the ones the book carries, holding several times the median lots of its side's levels, and at least a rupiah floor. Concentrated when one to three orders hold it, a crowd otherwise. A wall can appear, be pulled (lose at least half its lots in view, with neither trades nor price crossing it explaining the loss), or move (lots and orders leave one price and about as many lots, with the same change in orders, arrive at another price on the same side within about two frames).
+A level, among the ones the book carries, holding several times the median lots of its side's levels, and at least a rupiah floor. Concentrated when one to three orders hold it, a crowd otherwise. A wall can appear, be pulled (lose at least half its lots in view, with neither trades nor price crossing it explaining the loss), or move (lots and orders leave one price and about as many lots, with the same change in orders, arrive at another price on the same side, one that was in view the frame before, within about two frames).
 _Avoid_: Spoof, fake order (the book cannot show intent)
 
 **Alert rule**:

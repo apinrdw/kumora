@@ -741,11 +741,11 @@ export const makeTradingDay = Effect.fnUntraced(function* (options: {
 
   // A code's scanner figures, for a snapshot and a delta.
   const figuresOf = Effect.fnUntraced(function* (code: StockCode) {
-    const quote = yield* dayStates.quoteOf(code, yield* stockbitLive)
+    const prices = yield* dayStates.pricesOf(code, yield* stockbitLive)
     return {
       code,
-      last: quote.last,
-      previousClose: quote.previousClose,
+      last: prices.last,
+      previousClose: prices.previousClose,
       previousValue: yield* previousValues.valueOf(code),
       value: yield* bubbles.dayValue(code),
     }
@@ -764,7 +764,7 @@ export const makeTradingDay = Effect.fnUntraced(function* (options: {
   // a viewer other figures drops the code, so the next delta sends it to all.
   const sentFigures = new Map<StockCode, string>()
   // Each input has one source: last price and previous close
-  // `dayStates.quoteOf`, the previous day's value `previousValues`, today's
+  // `dayStates.pricesOf`, the previous day's value `previousValues`, today's
   // value the bubbles' day sums; the readings carry only their book's.
   // Decision: every scanner input but the readings is a figure, and each
   // delta sends every code whose figures differ from `sentFigures`, compared

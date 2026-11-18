@@ -166,8 +166,8 @@ export const DEFAULT_SETTINGS: RadarSettings = {
 // the end of its half. See spec apinrdw/kumora#517, "The scanner".
 const STALE_MS = 60_000
 
-// A code's figures besides its readings (relay scanner-figures.ts), its last
-// price kept current by the deltas' candles.
+// A code's figures besides its readings (relay scanner-figures.ts), each
+// read on the object from its one source (trading-day.ts, `figuresOf`).
 export interface CodeFigures {
   readonly last: number | undefined
   readonly previousClose: number | undefined

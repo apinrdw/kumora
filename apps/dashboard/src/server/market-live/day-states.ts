@@ -454,7 +454,7 @@ export const makeDayStates = (candles: {
     // per code as trades land, not folded from every code's candles each
     // delta. A code with no `liveprice` reads from Ajaib even while Stockbit
     // is live. See spec apinrdw/kumora#517, "Data".
-    const quoteOf = Effect.fnUntraced(function* (
+    const pricesOf = Effect.fnUntraced(function* (
       code: StockCode,
       stockbitLive: boolean
     ) {
@@ -507,7 +507,7 @@ export const makeDayStates = (candles: {
       ajaibPrice,
       trade,
       stateOf,
-      quoteOf,
+      pricesOf,
       takeChanged,
       hasChanges,
     }
