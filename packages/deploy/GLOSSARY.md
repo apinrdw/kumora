@@ -29,7 +29,7 @@ An app's Workers Builds connection, on its anchor Worker (`kumora-web-builds`, `
 _Avoid_: Build trigger, pipeline
 
 **Candidate**:
-A tag `v<version>-<YYYYMMDD>-<N>` on a `staging` commit tried on Staging. The date is the day it is pushed in WIB, and N counts that day's Candidates from 1, whatever their version. Its version is above Production's. `scripts/release-tag.mts` holds these rules; `.github/workflows/release.yml` deletes a tag that breaks one.
+A tag `v<version>-<YYYYMMDD>-<N>` on a `staging` commit tried on Staging. The date is the day it is pushed in WIB, and N counts every Candidate from 1, whatever its date or version: it never resets. Its version is above Production's. `scripts/release-tag.mts` holds these rules; `.github/workflows/release.yml` deletes a tag that breaks one.
 _Avoid_: RC, staging tag
 
 **Release**:

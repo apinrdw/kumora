@@ -44,8 +44,7 @@ const compare = (a: Version, b: Version) =>
 
 const show = (version: Version) => version.join(".")
 
-// Decision: a tag's date is the day it is pushed in WIB, the owner's day, so
-// a Candidate's N counts that day's Candidates whatever their version.
+// Decision: a tag's date is the day it is pushed in WIB, the owner's day.
 export const wibDate = (now: Date) =>
   new Intl.DateTimeFormat("en-CA", {
     timeZone: "Asia/Jakarta",
@@ -90,17 +89,17 @@ export const judgeTag = Effect.fn("judgeTag")(function* (
       `${tag.name}: its version must be above Production's ${show(released)}.`
     )
   if (release.kind === "candidate") {
+    // Decision: N counts every Candidate ever tagged, whatever its date or
+    // version, so it never resets when the day changes.
     const next =
       Math.max(
         0,
         ...parsed.flatMap((known) =>
-          known.kind === "candidate" && known.date === release.date
-            ? [known.n]
-            : []
+          known.kind === "candidate" ? [known.n] : []
         )
       ) + 1
     if (release.n !== next)
-      return yield* refuse(`${tag.name}: today's next Candidate is -${next}.`)
+      return yield* refuse(`${tag.name}: the next Candidate is -${next}.`)
   } else if (
     !parsed.some(
       (known) =>
