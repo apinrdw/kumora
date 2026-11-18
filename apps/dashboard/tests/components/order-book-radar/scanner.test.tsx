@@ -16,16 +16,16 @@ import { afterEach, expect, test, vi } from "vitest"
 
 import { makeBookReadingsStore } from "@/components/market-live/book-readings-store"
 import { Halves, type RowView } from "@/components/order-book-radar/scanner"
-import { rankedFigure } from "@/lib/order-book-radar"
+import { rankedFigure, type Scan } from "@/lib/order-book-radar"
 
 // Each row draws its Ranked by figure once a render.
 vi.mock("@/lib/order-book-radar", { spy: true })
-const renders = () =>
-  Object.fromEntries(
-    Map.groupBy(vi.mocked(rankedFigure).mock.calls, ([each]) => each.code)
-      .entries()
-      .map(([code, calls]) => [code, calls.length])
-  )
+const renders = () => {
+  const counted: Record<string, number> = {}
+  for (const [readings] of vi.mocked(rankedFigure).mock.calls)
+    counted[readings.code] = (counted[readings.code] ?? 0) + 1
+  return counted
+}
 
 // React's `act` warns outside a test environment that declares itself.
 Object.assign(globalThis, { IS_REACT_ACT_ENVIRONMENT: true })
@@ -86,7 +86,14 @@ test("a code's new readings re-render its row alone, and the same view none", ()
     book: undefined,
     onOpen,
   })
-  const scan = { bid: [FIRST, SECOND], offer: [], limits: [] }
+  const scan: Scan = {
+    bid: [FIRST, SECOND],
+    offer: [],
+    limits: [],
+    above: 2,
+    board: 0,
+    cheap: 0,
+  }
   const host = document.createElement("div")
   root = createRoot(host)
   act(() =>
