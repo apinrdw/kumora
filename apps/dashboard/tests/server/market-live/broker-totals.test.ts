@@ -974,6 +974,22 @@ describe("a seal cut off by a failed statement", () => {
   )
 
   it.effect.fails(
+    "builds the day in the seal's own wake when the tape summary's insert failed once",
+    () =>
+      Effect.gen(function* () {
+        const fixture = cutDay()
+        const day = yield* fixture.completeAtSeal
+        let failures = 1
+        fixture.cut.fails = (query) =>
+          query.includes("INTO tape_summary") && failures-- > 0
+        yield* day.alarm
+        assert.deepStrictEqual((yield* read(fixture.db, UNTR)).builtDays, [
+          { ...UNTR_BUILT.builtDays[0], builtAt: "2026-11-09T10:00:00.000Z" },
+        ])
+      })
+  )
+
+  it.effect.fails(
     "at any one statement of its wake ends sealed and built on its retry alarm, no wake left",
     () =>
       withLines("Order flow storage", (lines) =>
