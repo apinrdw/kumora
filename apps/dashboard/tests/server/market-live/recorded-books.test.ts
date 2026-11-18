@@ -160,6 +160,32 @@ describe("a day's recorded order books", () => {
       })
   )
 
+  it.effect(
+    "stay as sealed when a viewer selects a code never viewed after the seal, who still gets its live snapshot",
+    () =>
+      Effect.gen(function* () {
+        yield* at("13:58:00")
+        const day = yield* tradingDay()
+        yield* day.trades([RELAYED])
+        yield* untrBook(day, "14:00:03", 50)
+        yield* at("17:00:00")
+        yield* day.alarm
+
+        const page = yield* day.viewer("UNTR")
+        const [snapshot] = yield* page.received
+        assert.strictEqual(snapshot?._tag, "Snapshot")
+        assert.strictEqual(
+          snapshot?._tag === "Snapshot" ? snapshot.selected : undefined,
+          "UNTR"
+        )
+        yield* TestClock.adjust("2 minutes")
+        assert.deepStrictEqual(yield* heatmapOf(day), {
+          notRecorded: true,
+          first: undefined,
+        })
+      })
+  )
+
   it.effect("keep the codes they record past a restart", () =>
     Effect.gen(function* () {
       yield* at("14:00:00")
