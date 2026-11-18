@@ -465,8 +465,8 @@ const Snapshot = Schema.TaggedStruct("Snapshot", {
   // The day's newest SNAPSHOT_BOOK_EVENTS (book-events.ts) book events of every code, oldest
   // first. Absent when there are none.
   bookEvents: Schema.optionalKey(Schema.Array(BookEvent)),
-  // The selected code's book events for the day, oldest first. Absent when
-  // it has none.
+  // The selected code's newest MAX_CODE_BOOK_EVENTS (book-events.ts) book
+  // events of the day, oldest first. Absent when it has none.
   selectedBookEvents: Schema.optionalKey(Schema.Array(BookEvent)),
 })
 

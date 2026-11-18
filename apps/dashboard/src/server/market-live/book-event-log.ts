@@ -5,6 +5,7 @@
 // MAX_UNFLUSHED_EVENTS of them.
 import {
   BookEventOrder,
+  MAX_CODE_BOOK_EVENTS,
   SNAPSHOT_BOOK_EVENTS,
   type BookEvent,
   type StockCode,
@@ -58,7 +59,8 @@ export const makeBookEventLog = (
         unflushed = unflushed.slice(count)
       })
 
-    // One code's events for the day so far, stored and not, oldest first.
+    // One code's newest MAX_CODE_BOOK_EVENTS for the day so far, stored and
+    // not, oldest first.
     const ofCode = Effect.fnUntraced(function* (code: StockCode) {
       return Arr.sort(
         [
@@ -66,7 +68,7 @@ export const makeBookEventLog = (
           ...unflushed.filter((event) => event.code === code),
         ],
         BookEventOrder
-      )
+      ).slice(-MAX_CODE_BOOK_EVENTS)
     })
 
     return {

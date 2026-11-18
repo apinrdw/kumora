@@ -15,6 +15,7 @@ import {
   type RunningTrade,
   type Sweep,
   type TapeCursor,
+  MAX_CODE_BOOK_EVENTS,
   MINUTE_MS,
   SHARES_PER_LOT,
 } from "@workspace/relay"
@@ -1090,14 +1091,19 @@ export const makeDayStore = (
       return row === undefined ? undefined : yield* livePriceOf(row.frame)
     })
 
-    // One code's stored book events, oldest first.
+    // One code's newest MAX_CODE_BOOK_EVENTS stored book events, oldest
+    // first.
     const bookEventsOf = (code: StockCode) =>
-      Effect.forEach(
-        sql.exec(
-          "SELECT * FROM book_events WHERE code = ? ORDER BY time",
-          code
+      Effect.map(
+        Effect.forEach(
+          sql.exec(
+            "SELECT * FROM book_events WHERE code = ? ORDER BY time DESC LIMIT ?",
+            code,
+            MAX_CODE_BOOK_EVENTS
+          ),
+          bookEventOf
         ),
-        bookEventOf
+        (events) => events.reverse()
       )
 
     // The day's newest `limit` stored book events of every code, oldest
