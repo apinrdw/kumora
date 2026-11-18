@@ -96,6 +96,8 @@ const render = (code: string, message: ViewerDown) => {
 afterEach(() => {
   Effect.runSync(resetConditions)
   vi.useRealTimers()
+  vi.restoreAllMocks()
+  window.localStorage.clear()
   document.body.innerHTML = ""
 })
 
@@ -153,4 +155,110 @@ test("an index and a code priced Rp1–10 say why they have no readings", () => 
   expect(cheap.container.textContent).toContain(
     "One tick here moves the price 10–100%"
   )
+})
+
+const ERAA_BOOK = {
+  _tag: "OrderBook",
+  code: StockCode.make("ERAA"),
+  bids: [
+    { price: 1000, lots: 50, orders: 5 },
+    { price: 990, lots: 30, orders: 3 },
+  ],
+  offers: [
+    { price: 1010, lots: 25, orders: 5 },
+    { price: 1015, lots: 25, orders: 1 },
+    { price: 1040, lots: 50, orders: 10 },
+  ],
+  bidLots: 80,
+  offerLots: 100,
+  at: DateTime.makeUnsafe("2026-11-18T03:00:00Z"),
+  provenance: "Stockbit",
+} as const
+
+// The readout of ERAA live in Session 1, holding ERAA_BOOK.
+const renderFill = () => {
+  const shown = render("ERAA", snapshot("session-1", [readingsOf("ERAA")]))
+  act(() => shown.book.replace(ERAA_BOOK))
+  return shown.container
+}
+
+const fillTable = (container: HTMLElement) =>
+  container.querySelector('[aria-label="Fill estimate"]')?.textContent ?? ""
+
+const typeSize = (container: HTMLElement, text: string) => {
+  const input = container.querySelector<HTMLInputElement>(
+    'input[aria-label="Order size"]'
+  )
+  if (input === null) throw new Error("no order size field")
+  act(() => {
+    Object.getOwnPropertyDescriptor(
+      HTMLInputElement.prototype,
+      "value"
+    )?.set?.call(input, text)
+    input.dispatchEvent(new Event("input", { bubbles: true }))
+  })
+}
+
+const pick = (container: HTMLElement, unit: string) => {
+  const button = [...container.querySelectorAll("button")].find(
+    (each) => each.textContent === unit
+  )
+  act(() => button?.click())
+}
+
+test("the fill estimate walks the offers to buy and the bids to sell", () => {
+  const container = renderFill()
+  pick(container, "Lots")
+  typeSize(container, "60")
+  const text = fillTable(container)
+  // 25 at 1,010, 25 at 1,015 and 10 at 1,040: three levels, 6 ticks.
+  expect(text).toContain("1,040")
+  expect(text).toContain("1,017")
+  expect(text).toContain("6 ticks · 0.70%")
+  // 50 at 1,000 and 10 at 990.
+  expect(text).toContain("2 ticks · 0.17%")
+})
+
+test("a size past the book's levels says what they cover", () => {
+  const container = renderFill()
+  pick(container, "Lots")
+  typeSize(container, "500")
+  expect(container.textContent).toContain(
+    "More than the 3 levels shown: the offers cover 100 lots (Rp10.26 M)"
+  )
+  expect(container.textContent).toContain(
+    "More than the 2 levels shown: the bids cover 80 lots (Rp7.97 M)"
+  )
+})
+
+test("the order size and its unit stay in this browser", () => {
+  const first = renderFill()
+  expect(first.querySelector('[aria-pressed="true"]')?.textContent).toBe(
+    "Rupiah"
+  )
+  pick(first, "Lots")
+  typeSize(first, "60")
+  document.body.innerHTML = ""
+  const again = renderFill()
+  expect(again.querySelector('[aria-pressed="true"]')?.textContent).toBe("Lots")
+  expect(
+    again.querySelector<HTMLInputElement>('input[aria-label="Order size"]')
+      ?.value
+  ).toBe("60")
+})
+
+test("blocked storage falls back to the default size and still estimates", () => {
+  vi.spyOn(Storage.prototype, "getItem").mockImplementation(() => {
+    throw new Error("blocked")
+  })
+  vi.spyOn(Storage.prototype, "setItem").mockImplementation(() => {
+    throw new Error("blocked")
+  })
+  const container = renderFill()
+  expect(container.querySelector('[aria-pressed="true"]')?.textContent).toBe(
+    "Rupiah"
+  )
+  pick(container, "Lots")
+  typeSize(container, "10")
+  expect(fillTable(container)).toContain("1,010")
 })
