@@ -3,17 +3,19 @@ import { useEffect, useRef } from "react"
 
 const LOCK = "kumora:book-alerts"
 
-// Holds the lock until `signal` aborts.
+// Holds the lock until `signal` aborts, or not at all when it already has.
 const untilAborted = (signal: AbortSignal) =>
-  Effect.callback<void>((resume) =>
+  Effect.callback<void>((resume) => {
+    if (signal.aborted) return resume(Effect.void)
     signal.addEventListener("abort", () => resume(Effect.void), { once: true })
-  )
+  })
 
 // Decision: one live page per browser tells alerts: the one last brought to
 // the front (shown or focused) holds the Web Lock `kumora:book-alerts` and
-// tells; the others queue, tell nothing and keep their gates in step. A
-// recorded day's page never takes it. Without Web Locks every live page
-// tells. See apinrdw/kumora#526.
+// tells; the others queue and tell nothing. A recorded day's page never
+// takes it. Each request is the page's current one until the next replaces
+// it or the page unmounts: a grant to any other lets go at once. Without
+// Web Locks every live page tells. See apinrdw/kumora#526.
 /** Whether this page holds the browser's alert lock, read when an event arrives. */
 export function useAlertOwner(live: boolean) {
   const owns = useRef(false)
@@ -26,29 +28,28 @@ export function useAlertOwner(live: boolean) {
         owns.current = false
       }
     }
-    let release: (() => void) | undefined
+    let current: AbortController | undefined
+    const drop = () => {
+      owns.current = false
+      current?.abort()
+      current = undefined
+    }
     const take = (steal: boolean) => {
-      release?.()
+      drop()
       const controller = new AbortController()
-      const mine = () => {
-        owns.current = false
-        controller.abort()
-      }
-      release = mine
+      current = controller
       locks
         .request(
           LOCK,
           steal ? { steal: true } : { signal: controller.signal },
           () => {
-            owns.current = true
+            if (current === controller) owns.current = true
             return Effect.runPromise(untilAborted(controller.signal))
           }
         )
         // Stolen by a page brought to the front: queue again behind it.
         .catch(() => {
-          if (release !== mine) return
-          owns.current = false
-          take(false)
+          if (current === controller) take(false)
         })
     }
     // Two windows can both stay visible, so focus says which came forward.
@@ -61,9 +62,7 @@ export function useAlertOwner(live: boolean) {
     return () => {
       document.removeEventListener("visibilitychange", onFront)
       window.removeEventListener("focus", onFront)
-      const last = release
-      release = undefined
-      last?.()
+      drop()
     }
   }, [live])
   return owns
