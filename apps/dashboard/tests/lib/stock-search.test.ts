@@ -18,6 +18,20 @@ import {
   windowSearch,
 } from "@/lib/stock-search"
 
+describe("Major holders' month in the URL", () => {
+  it.effect("keeps a `YYYY-MM` and drops anything else", () =>
+    Effect.gen(function* () {
+      expect(
+        (yield* parseStockSearch({ holdersMonth: "2026-09" })).holdersMonth
+      ).toBe("2026-09")
+      for (const holdersMonth of ["2026-13", "2026-09-30", "Sep", 202609])
+        expect(
+          (yield* parseStockSearch({ holdersMonth })).holdersMonth
+        ).toBeUndefined()
+    })
+  )
+})
+
 describe("the stock page's Broker inventory search params", () => {
   it.effect("keeps the tab, a preset and a Custom range", () =>
     Effect.gen(function* () {
@@ -133,6 +147,7 @@ describe("the Broker inventory range in the URL", () => {
             range: "1Y",
             month: "2026-09",
             sizeMonth: "2026-09",
+            holdersMonth: "2026-09",
             panel: "foreign",
           })
         )

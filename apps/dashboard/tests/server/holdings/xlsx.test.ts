@@ -1,7 +1,12 @@
 import { assert, describe, it } from "@effect/vitest"
 import { Effect } from "effect"
 
-import { type Cell, forEachRow } from "@/server/holdings/xlsx"
+import {
+  CellError,
+  forEachRow,
+  forEachRowWithoutErrors,
+  type ReadCell,
+} from "@/server/holdings/xlsx"
 
 import { workbook } from "./workbook.ts"
 
@@ -9,7 +14,7 @@ const XFD = 16_383
 
 // Every row `forEachRow` reads from `rows`, in order.
 const read = Effect.fnUntraced(function* (xml: string) {
-  const rows: Array<[number, ReadonlyMap<number, Cell>]> = []
+  const rows: Array<[number, ReadonlyMap<number, ReadCell>]> = []
   yield* forEachRow(yield* workbook(xml), (rowNumber, cells) =>
     Effect.sync(() => {
       rows.push([rowNumber, cells])
@@ -84,7 +89,35 @@ describe("a cell's type", () => {
     })
   )
 
-  for (const type of ["e", "d", "x"])
+  it.effect("reads an error as an error, never as its text", () =>
+    Effect.gen(function* () {
+      const [[, cells] = [0, new Map()]] = yield* read(
+        cellOf('t="e"', "<v>#DIV/0!</v>")
+      )
+      const cell = cells.get(0)
+      assert.instanceOf(cell, CellError)
+      assert.strictEqual(cell.text, "#DIV/0!")
+    })
+  )
+
+  it.effect("refuses an error in a row read without errors", () =>
+    Effect.gen(function* () {
+      const error = yield* Effect.flip(
+        forEachRowWithoutErrors(
+          yield* workbook(
+            `<row r="7"><c r="A7"><v>1</v></c><c r="AB7" t="e"><v>#N/A</v></c></row>`
+          ),
+          () => Effect.void
+        )
+      )
+      assert.deepStrictEqual(
+        [error._tag, error.message],
+        ["XlsxUnreadable", "Cell AB7 holds the error #N/A"]
+      )
+    })
+  )
+
+  for (const type of ["d", "x"])
     it.effect(`refuses t="${type}"`, () =>
       Effect.gen(function* () {
         const error = yield* Effect.flip(
@@ -92,7 +125,7 @@ describe("a cell's type", () => {
         )
         assert.strictEqual(
           error.message,
-          `Cell A1's type is "${type}": a cell is read only as a shared string, a string, an inline string, a number or a boolean`
+          `Cell A1's type is "${type}": a cell is read only as a shared string, a string, an inline string, a number, a boolean or an error`
         )
       })
     )

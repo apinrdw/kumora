@@ -348,7 +348,7 @@ A KSEI archive run an admin starts that also looks for KSEI reports older than K
 _Avoid_: History run, full sync
 
 **Run**:
-One pass of either archive (an archive run or a KSEI archive run) or one parse run (a classification parse run, an investor-type parse run or a KSEI parse run). What they share (a run id, its outcome, one run of each in progress at a time) is said of a run.
+One pass of either archive (an archive run or a KSEI archive run) or one parse run (a classification parse run, an investor-type parse run, an above-1% parse run or a KSEI parse run). What they share (a run id, its outcome, one run of each in progress at a time) is said of a run.
 _Avoid_: Archive run for both, which is IDX's; job
 
 ### Holdings
@@ -393,6 +393,10 @@ _Avoid_: Archive run, which stores reports; import, sync
 The same pass for holdings-by-investor-type reports, parsed into investor-type holdings, on its own schedule and in its own progress. It ends **complete**, **partial** or **failed** as a classification parse run does.
 _Avoid_: Archive run; IDX parse run
 
+**Above-1% parse run**:
+The same pass for holders-above-1% reports, parsed into ≥1% holders, on its own schedule and in its own progress. It ends **complete**, **partial** or **failed** as a classification parse run does.
+_Avoid_: Archive run; holder parse run
+
 **KSEI parse run**:
 One pass that parses each Securities holdings report in the KSEI archive whose newest version, or the parser's version, hasn't been parsed into KSEI holdings, from November 2018 on. The schedule starts one each day, an hour after the KSEI archive run, and an admin can start one when no KSEI parse run is in progress. A report that doesn't read exactly as expected is rejected whole and keeps the month's earlier holdings. It ends **complete**, **partial** (some months could not be parsed and wait for the next run) or **failed**.
 _Avoid_: KSEI archive run, which stores reports; import, sync
@@ -406,7 +410,7 @@ Retail is the holdings of the Individual KSEI investor type; institution is ever
 _Avoid_: Retail investors meaning any small holder
 
 **Scripless / scrip shares**:
-Scripless shares are a stock's shares held electronically in KSEI accounts, the shares every holding counts. Scrip shares are the rest of its listed shares, still held as paper certificates: listed shares less scripless shares, both from the same report. Shareholders composition takes listed shares from KSEI's Securities holdings report of the same date, and without one, scrip is unavailable. Holder size takes them from the investor-type report's shares outstanding.
+Scripless shares are a stock's shares held electronically in KSEI accounts, the shares every holding counts. Scrip shares are the rest of its listed shares, still held as paper certificates: listed shares less scripless shares, both from the same report. Shareholders composition takes listed shares from KSEI's Securities holdings report of the same date, and without one, scrip is unavailable. Holder size takes them from the investor-type report's shares outstanding. Major holders counts each ≥1% holder's scrip, from the above-1% report, so its percentages are of listed shares, scrip included.
 _Avoid_: Free float, which is a different measure
 
 **Stock page**:
@@ -419,11 +423,27 @@ _Avoid_: Ownership mix, holder breakdown
 
 **Holder size**:
 The stock page's panel that splits a stock's shares between ≥5% holders, <5% holders and scrip, for the whole stock and for each KSEI investor type, one investor-type report month against the month before, or across every month the stock has. Its local/foreign split is IDX's.
-_Avoid_: Ownership concentration, major holders, block holders
+_Avoid_: Ownership concentration, block holders
 
 **≥5% holders / <5% holders**:
 A ≥5% holder is one investor holding at least 5% of a stock's shares outstanding in scripless form; every other holder is a <5% holder. IDX's investor-type report splits each investor type's holding between the two. A large holder's stake spread over several types can count partly as <5%, so the split by type is approximate.
-_Avoid_: Major/minor holders, insiders, block holders
+_Avoid_: Minor holders, insiders, block holders
+
+**Major holders**:
+The stock page's panel that lists a stock's ≥1% holders for one above-1% report month, each against the month before, with the stock's listed shares split among them, and every holder's share across every month the stock has.
+_Avoid_: Shareholder list, top holders, ≥5% holders (Holder size's band)
+
+**≥1% holder**:
+One investor IDX lists as holding at least 1% of a stock's listed shares, scrip included, as of an above-1% report's data date. The report names each holder, sometimes on several rows; rows whose names match once case, punctuation, legal forms, titles and word order are ignored count as one holder, summed. A holder can still appear under an unrelated name from one month to the next, so a few look like one leaving and another arriving.
+_Avoid_: Major holder, shareholder, ≥5% holder (scripless, of shares outstanding)
+
+**Off list**:
+A ≥1% holder listed in the month before and not in this one: it sold out or fell below 1%, which the report can't tell apart.
+_Avoid_: Exited, sold
+
+**Controller**:
+A ≥1% holder IDX marks as a listed company's controller, or as an affiliate of the controller, from the company's own monthly report for the month before. Marked from Oct 2026 on.
+_Avoid_: Owner, insider, majority holder
 
 **Holding composition**:
 The stock page's chart of the stock's KSEI holdings, one column per month from its first period end to its last, with a month KSEI has no data for marked: local against foreign, or one origin's KSEI investor types. Every share is of the whole origin, even with some types hidden. Its local/foreign split can differ from Shareholders composition's, which is IDX's.

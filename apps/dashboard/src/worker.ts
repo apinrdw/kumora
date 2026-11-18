@@ -13,6 +13,7 @@ export { TradingDayObject as TradingDay } from "./server/market-live/trading-day
 export { KseiArchive } from "./server/ksei/workflow.ts"
 export { KseiParse } from "./server/ksei/parse-workflow.ts"
 export {
+  Above1Parse,
   ClassificationParse,
   InvestorTypeParse,
 } from "./server/shareholding/parse-workflow.ts"

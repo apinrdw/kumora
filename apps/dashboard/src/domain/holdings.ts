@@ -28,6 +28,13 @@ export const KSEI_TYPES = [
 export const KseiType = Schema.Literals(KSEI_TYPES)
 export type KseiType = typeof KseiType.Type
 
+// An above-1% report's CONTROLLER_OR_AFFILIATE, published from Oct 2026:
+// the stock's controller or an affiliate of it. The CHECK on
+// above_1_holding.controller (holdings-migrations/0007_above_1.sql) lists
+// the same two.
+export const Controller = Schema.Literals(["controller", "affiliate"])
+export type Controller = typeof Controller.Type
+
 export const KSEI_TYPE_LABELS: Record<KseiType, string> = {
   ID: "Individual",
   CP: "Corporate",

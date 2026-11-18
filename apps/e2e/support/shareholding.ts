@@ -86,7 +86,7 @@ export async function seedReport(prefix: string, hash: string, bytes: number) {
  * record whose key the kind's parse run reads.
  */
 export async function seedReportFixture(
-  kind: "investor-classification" | "investor-type",
+  kind: "investor-classification" | "investor-type" | "above-1",
   filename: string,
   dataDate: string
 ) {

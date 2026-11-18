@@ -1,12 +1,13 @@
-// The shareholding archive's bucket and Workflows over their bindings,
-// SHAREHOLDING_ARCHIVE_BUCKET, SHAREHOLDING_ARCHIVE, CLASSIFICATION_PARSE and
-// INVESTOR_TYPE_PARSE (alchemy.run.ts). Kept apart, so code that only uses
+// The shareholding archive's bucket and Workflows over their bindings
+// (alchemy.run.ts): SHAREHOLDING_ARCHIVE_BUCKET, SHAREHOLDING_ARCHIVE, and
+// one per parse run kind (parse-runs.ts). Kept apart, so code that only uses
 // the services never loads the adapters.
 import { r2ArchiveBucket } from "../archive/bucket-r2.ts"
 import {
   boundArchiveWorkflow,
   boundWorkflowAs,
 } from "../archive/workflow-binding.ts"
+import { Above1ParseWorkflow } from "./above-1-parse.ts"
 import { ClassificationParseWorkflow } from "./classification-parse.ts"
 import { InvestorTypeParseWorkflow } from "./investor-type-parse.ts"
 
@@ -26,4 +27,9 @@ export const classificationParseWorkflowBinding = boundWorkflowAs(
 export const investorTypeParseWorkflowBinding = boundWorkflowAs(
   InvestorTypeParseWorkflow,
   (env) => env.INVESTOR_TYPE_PARSE
+)
+
+export const above1ParseWorkflowBinding = boundWorkflowAs(
+  Above1ParseWorkflow,
+  (env) => env.ABOVE_1_PARSE
 )

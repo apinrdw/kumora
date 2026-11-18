@@ -23,7 +23,7 @@ import {
   Stream,
   SubscriptionRef,
 } from "effect"
-import { useCallback, useEffect, useRef, useState } from "react"
+import { useEffect, useState } from "react"
 
 import {
   applyConditions,
@@ -224,42 +224,4 @@ export function useMarketFlow(
     }
   }, [flow, today, clockOffset])
   return { flow, status, ihsg: ihsg?.today === today ? ihsg.last : undefined }
-}
-
-// The live day's market flow fed by a viewer socket the caller already has:
-// `apply` takes each of its messages, and each snapshot follows the backfill
-// again, the last one dropped.
-export function useFedMarketFlow(
-  today: WibDate,
-  clockOffset: number
-): {
-  readonly flow: MarketFlow
-  readonly apply: (message: ViewerDown) => void
-} {
-  const flow = useDayFlow(today)
-  const backfill = useRef<
-    { flow: MarketFlow; fiber: Fiber.Fiber<void, unknown> } | undefined
-  >(undefined)
-  // Stops the backfill that follows `of`, if one does.
-  const drop = useCallback((of: MarketFlow) => {
-    const last = backfill.current
-    if (last === undefined || last.flow !== of) return
-    backfill.current = undefined
-    clientRuntime.runFork(Fiber.interrupt(last.fiber))
-  }, [])
-  // A day's backfill stops with its flow.
-  useEffect(() => () => drop(flow), [drop, flow])
-  const apply = useCallback(
-    (message: ViewerDown) => {
-      Effect.runSync(applyMessage(flow, message))
-      if (message._tag !== "Snapshot") return
-      drop(flow)
-      backfill.current = {
-        flow,
-        fiber: clientRuntime.runFork(followBackfill(flow, today, clockOffset)),
-      }
-    },
-    [flow, today, clockOffset, drop]
-  )
-  return { flow, apply }
 }

@@ -6,13 +6,13 @@ import { Effect, Layer } from "effect"
 import { FetchHttpClient } from "effect/http"
 
 import { holdingsDbD1 } from "../holdings/db.ts"
-import { syncSectors } from "./sync.ts"
+import { recordedSectorRun } from "./sync.ts"
 
 // Decision: a Promise for Cloudflare's `scheduled`, for the reason
 // runArchiveCron gives (../shareholding/cron.ts).
 export const runSectorCron = (scheduledTime: number) =>
   runServerEffectResult(
-    syncSectors(new Date(scheduledTime)).pipe(
+    recordedSectorRun(new Date(scheduledTime)).pipe(
       Effect.asVoid,
       Effect.provide(Layer.merge(holdingsDbD1, FetchHttpClient.layer))
     )
