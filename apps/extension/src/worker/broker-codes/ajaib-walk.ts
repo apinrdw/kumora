@@ -171,9 +171,13 @@ export const makeAjaibWalk = Effect.fnUntraced(function* (options: {
     fetched: number,
     of: Option.Option<number>
   ) => Effect.Effect<void>
+  // For the options page too: the blocks the repair pass has walked again
+  // since the walk started, of those it then had left.
+  readonly repaired?: (done: number, of: number) => Effect.Effect<void>
 }) {
   const { tab, store } = options
   const trades = options.trades ?? (() => Effect.void)
+  const repaired = options.repaired ?? (() => Effect.void)
   let fetched = 0
   let dayN = Option.none<number>()
 
@@ -429,10 +433,13 @@ export const makeAjaibWalk = Effect.fnUntraced(function* (options: {
     from: AjaibWalkPosition
   ) {
     let position = from
-    for (const boundary of from.repair) {
+    const of = from.repair.length
+    if (of > 0) yield* repaired(0, of)
+    for (const [at, boundary] of from.repair.entries()) {
       yield* walkBlock(from.day, windowEnd, boundary, REPAIR_PAGE_SIZE)
       position = { ...position, repair: position.repair.slice(1) }
       yield* store.save(position)
+      yield* repaired(at + 1, of)
     }
     return position
   })

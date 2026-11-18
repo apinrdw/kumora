@@ -428,6 +428,7 @@ const main = Effect.gen(function* () {
     post: extra.tee(production.post),
     store: yield* ajaibWalkStore,
     trades: progress.trades,
+    repaired: progress.repair,
   })
   // The Stockbit walks' paced calls, and whether their tab is still there.
   const stockbitWalkTab = {
