@@ -4,6 +4,7 @@ import { Effect, Layer, Schema } from "effect"
 import { TestClock } from "effect/testing"
 
 import {
+  parseAbove1Now,
   parseClassificationNow,
   parseInvestorTypeNow,
   runArchiveNow,
@@ -12,6 +13,7 @@ import {
 import type { Mail } from "@/server/auth/mailer"
 import { RunId } from "@/server/archive/run"
 import { ArchiveWorkflow } from "@/server/archive/workflow"
+import { Above1ParseWorkflow } from "@/server/shareholding/above-1-parse"
 import { ClassificationParseWorkflow } from "@/server/shareholding/classification-parse"
 import { InvestorTypeParseWorkflow } from "@/server/shareholding/investor-type-parse"
 import {
@@ -80,12 +82,14 @@ const archive = () => {
   // Each parse run's own Workflow.
   const classificationWorkflow = fakeWorkflow()
   const investorTypeWorkflow = fakeWorkflow()
+  const above1Workflow = fakeWorkflow()
   return {
     ...auth,
     bucket,
     workflow,
     classificationWorkflow,
     investorTypeWorkflow,
+    above1Workflow,
     layer: Layer.mergeAll(
       auth.layer,
       bucket.layer,
@@ -98,7 +102,10 @@ const archive = () => {
       Layer.effect(
         InvestorTypeParseWorkflow,
         Effect.service(ArchiveWorkflow)
-      ).pipe(Layer.provide(investorTypeWorkflow.layer))
+      ).pipe(Layer.provide(investorTypeWorkflow.layer)),
+      Layer.effect(Above1ParseWorkflow, Effect.service(ArchiveWorkflow)).pipe(
+        Layer.provide(above1Workflow.layer)
+      )
     ),
   }
 }
@@ -136,6 +143,7 @@ describe("the shareholding archive page", () => {
       workflow,
       classificationWorkflow,
       investorTypeWorkflow,
+      above1Workflow,
     } = archive()
     return Effect.gen(function* () {
       const cookie = yield* verified(mails)("ayu@example.com", "Ayu")
@@ -152,6 +160,9 @@ describe("the shareholding archive page", () => {
       assert.deepStrictEqual(createdIds(workflow), [])
       assert.deepStrictEqual(createdIds(classificationWorkflow), [])
       assert.deepStrictEqual(createdIds(investorTypeWorkflow), [])
+      const parseAbove1 = yield* Effect.flip(parseAbove1Now(headers(cookie)))
+      assert.strictEqual(parseAbove1._tag, "NotFound")
+      assert.deepStrictEqual(createdIds(above1Workflow), [])
     }).pipe(Effect.provide(layer))
   })
 
@@ -165,6 +176,7 @@ describe("the shareholding archive page", () => {
       assert.strictEqual(page.nextRun, "2026-11-14T13:00:00.000Z")
       assert.isUndefined(page.lastClassificationParseRun)
       assert.isUndefined(page.lastInvestorTypeParseRun)
+      assert.isUndefined(page.lastAbove1ParseRun)
       // 21:00 WIB, an hour after the evening archive run.
       assert.strictEqual(page.nextParseRun, "2026-11-14T14:00:00.000Z")
       assert.deepStrictEqual(page.recentRuns, [])
@@ -424,6 +436,52 @@ describe("Parse now on the investor-type parse run", () => {
           id: "admin-1763125033000",
         })
         assert.deepStrictEqual(createdIds(classificationWorkflow), [
+          "admin-1763125033000",
+        ])
+      }).pipe(Effect.provide(layer))
+    }
+  )
+})
+
+describe("Parse now on the above-1% parse run", () => {
+  it.effect(
+    "starts an above-1% parse run, then refuses while it runs, apart from the investor-type parse run",
+    () => {
+      const { layer, mails, investorTypeWorkflow, above1Workflow } = archive()
+      return Effect.gen(function* () {
+        const cookie = yield* verified(mails)(ADMIN_EMAIL, "Adi")
+        yield* TestClock.setTime(1_763_125_032_000)
+        assert.deepStrictEqual(yield* parseAbove1Now(headers(cookie)), {
+          id: "admin-1763125032000",
+        })
+        assert.deepStrictEqual(
+          above1Workflow.instances.get("admin-1763125032000")?.options.params,
+          { trigger: "admin" }
+        )
+        const page = yield* shareholdingArchivePage(headers(cookie))
+        assert.isTrue(page.lastAbove1ParseRun?.inProgress)
+        assert.deepInclude(page.lastAbove1ParseRun?.result, {
+          trigger: "admin",
+          outcome: "running",
+          monthsParsed: 0,
+          parseFailures: [],
+        })
+        // The investor-type parse run has a run store of its own.
+        assert.isUndefined(page.lastInvestorTypeParseRun)
+
+        yield* TestClock.adjust("1 second")
+        assert.deepStrictEqual(
+          yield* Effect.flip(parseAbove1Now(headers(cookie))),
+          new Conflict({ message: "A parse run is in progress." })
+        )
+        assert.deepStrictEqual(createdIds(above1Workflow), [
+          "admin-1763125032000",
+        ])
+        // An investor-type parse run starts while it runs.
+        assert.deepStrictEqual(yield* parseInvestorTypeNow(headers(cookie)), {
+          id: "admin-1763125033000",
+        })
+        assert.deepStrictEqual(createdIds(investorTypeWorkflow), [
           "admin-1763125033000",
         ])
       }).pipe(Effect.provide(layer))

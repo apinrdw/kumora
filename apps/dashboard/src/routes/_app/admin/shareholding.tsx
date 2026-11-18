@@ -13,6 +13,7 @@ import { LastRunCard } from "@/components/admin/shareholding/last-run-card"
 import { SectorsCard } from "@/components/admin/shareholding/sectors-card"
 import { sectorTableFn } from "@/server/admin/sectors.functions"
 import {
+  parseAbove1NowFn,
   parseClassificationNowFn,
   parseInvestorTypeNowFn,
   shareholdingArchiveFn,
@@ -47,6 +48,7 @@ function ShareholdingPage() {
       totals,
       lastClassificationParseRun,
       lastInvestorTypeParseRun,
+      lastAbove1ParseRun,
       nextParseRun,
       classificationParseCoverage,
       investorTypeParseCoverage,
@@ -88,6 +90,16 @@ function ShareholdingPage() {
           emptyMessage="No investor-type parse run has happened yet."
           lastParseRun={lastInvestorTypeParseRun}
           parseNow={parseInvestorTypeNowFn}
+          times={PARSE_TIMES_WIB}
+          nextParseRun={nextParseRun}
+          now={lastRun.now}
+          frame="row"
+        />
+        <ParseRunCard
+          title="Last above-1% parse run"
+          emptyMessage="No above-1% parse run has happened yet."
+          lastParseRun={lastAbove1ParseRun}
+          parseNow={parseAbove1NowFn}
           times={PARSE_TIMES_WIB}
           nextParseRun={nextParseRun}
           now={lastRun.now}

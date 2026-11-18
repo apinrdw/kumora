@@ -1,9 +1,8 @@
-// The shareholding archive's parse runs' Workflows, exported from the Worker
-// entry (src/worker.ts): the classification parse run's as
-// `ClassificationParse`, the class the dashboard stack binds as
-// CLASSIFICATION_PARSE, and the investor-type parse run's as
-// `InvestorTypeParse`, bound as INVESTOR_TYPE_PARSE.
+// The shareholding archive's parse runs' Workflows, one per kind
+// (parse-runs.ts), exported from the Worker entry (src/worker.ts) as the
+// classes the dashboard stack binds (alchemy.run.ts).
 import { parseWorkflowOf } from "../holdings/parse-workflow.ts"
+import { above1ParseRuns } from "./above-1-parse.ts"
 import { archiveBucketR2 } from "./bindings.ts"
 import { classificationParseRuns } from "./classification-parse.ts"
 import { investorTypeParseRuns } from "./investor-type-parse.ts"
@@ -17,3 +16,5 @@ export const InvestorTypeParse = parseWorkflowOf(
   investorTypeParseRuns,
   archiveBucketR2
 )
+
+export const Above1Parse = parseWorkflowOf(above1ParseRuns, archiveBucketR2)

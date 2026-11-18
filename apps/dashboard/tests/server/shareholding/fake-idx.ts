@@ -129,12 +129,14 @@ export type InvestorTypeFixture = keyof typeof INVESTOR_TYPE_FIXTURES
 // (~/.t3/notes/kumora/402/break-investor-type-xlsx.py): October's with its
 // `TOTAL SCRIPLESS` renamed, April's with BBCA's domestic CP one share past
 // its total, November's with TRUE coded AADI, and October's with no stock
-// rows.
+// rows; and October's with a type cell an error
+// (~/.t3/notes/kumora/479/break-above-1-xlsx.py).
 export type BrokenInvestorTypeFixture =
   | "unknown-header"
   | "unsummed"
   | "duplicate-code"
   | "empty"
+  | "error-shares"
 
 export const investorTypeFixture = (
   name: InvestorTypeFixture | BrokenInvestorTypeFixture
@@ -158,10 +160,69 @@ export const investorTypeItems = () =>
     investorTypeItem
   )
 
-// What IDX serves at a listed URL: an investor-type report with a fixture
-// its fixture's bytes, a classification report its fixture's bytes, or the
-// Mar–Aug layout's May fixture for a month with none.
+// Real above-1% reports, trimmed to their disclaimer and header rows and the
+// stocks AADI, BSDE, FLMC, RALS, TLKM and TRUE, by data date
+// (~/.t3/notes/kumora/479/trim-above-1-xlsx.py): Feb 2026's INVESTOR_TYPE
+// layout with `A` as foreign, padded origins and TRUE's code a boolean cell;
+// Apr 2026's #DIV/0!-only rows, FLMC's missing HOLDINGS_SCRIP cell and
+// RALS's PT RAMAYANA MAKMURSENTOSA twice; Aug and Sep 2026's sentence-case
+// labels, AADI's `IR. T. PERMADI RACHMAT` becoming `T PERMADI RACHMAT`; and
+// Oct 2026's CONTROLLER_OR_AFFILIATE column.
+const ABOVE_1_FIXTURES = {
+  "2026-02-27": "peng-02-00011-satu-persen.xlsx",
+  "2026-04-30": "peng-04-00013-satu-persen.xlsx",
+  "2026-08-31": "peng-2026-08-00023-satu-persen.xlsx",
+  "2026-09-30": "peng-2026-09-00024-satu-persen.xlsx",
+  "2026-10-30": "peng-2026-10-00029-satu-persen.xlsx",
+} as const
+export type Above1Fixture = keyof typeof ABOVE_1_FIXTURES
+
+// Copies of October's, each broken one way
+// (~/.t3/notes/kumora/479/break-above-1-xlsx.py): its PERCENTAGE renamed,
+// row 6's HOLDINGS_SCRIPLESS as text or an error, Corporate as Corporates,
+// and no holder rows.
+export type BrokenAbove1Fixture =
+  | "unknown-header"
+  | "text-shares"
+  | "error-shares"
+  | "unknown-classification"
+  | "empty"
+
+// October's after a 5-for-1 split of AADI
+// (~/.t3/notes/kumora/479/split-above-1-xlsx.py): 5x the shares, Adaro at
+// Sep's 41.10%, Garibaldi Thohir down to 5.71% and Edwin Soeryadjaya up to
+// 3.60%.
+export type SplitAbove1Fixture = "split"
+
+export const above1Fixture = (
+  name: Above1Fixture | BrokenAbove1Fixture | SplitAbove1Fixture
+) => {
+  const dataUrl = FIXTURE_FILES[`./fixtures/above-1-${name}.xlsx`]
+  assert.isDefined(dataUrl)
+  return new Uint8Array(Buffer.from(dataUrl.split(",")[1] ?? "", "base64"))
+}
+
+export const above1Item = (dataDate: Above1Fixture) => {
+  const item = recorded.items.find((listed) =>
+    listed.Prospectus.endsWith(`/${ABOVE_1_FIXTURES[dataDate]}`)
+  )
+  assert.isDefined(item)
+  return item
+}
+
+// The listing items of every above-1% fixture's report.
+export const above1Items = () =>
+  (Object.keys(ABOVE_1_FIXTURES) as Array<Above1Fixture>).map(above1Item)
+
+// What IDX serves at a listed URL: an investor-type or above-1% report with
+// a fixture its fixture's bytes, a classification report its fixture's
+// bytes, or the Mar–Aug layout's May fixture for a month with none.
 const fileBody = (prospectus: string) => {
+  const [above1] =
+    Object.entries(ABOVE_1_FIXTURES).find(([, file]) =>
+      prospectus.endsWith(`/${file}`)
+    ) ?? []
+  if (above1 !== undefined) return above1Fixture(above1 as Above1Fixture)
   const [investorType] =
     Object.entries(INVESTOR_TYPE_FIXTURES).find(([, file]) =>
       prospectus.endsWith(`/${file}`)

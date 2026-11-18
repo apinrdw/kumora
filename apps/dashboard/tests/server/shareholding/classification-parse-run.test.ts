@@ -330,10 +330,9 @@ describe("a classification report that doesn't match what's expected", () => {
       reason: "The report has no stocks",
     },
     {
-      what: "a cell of a type it doesn't read",
+      what: "an error cell",
       fixture: "error-code",
-      reason:
-        'Cell B7\'s type is "e": a cell is read only as a shared string, a string, an inline string, a number or a boolean',
+      reason: "Cell B7 holds the error #N/A",
     },
     {
       what: "a stock row whose SHARE_CODE is a number",

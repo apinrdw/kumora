@@ -78,6 +78,9 @@ const classificationParseCard = (page: Page) =>
 const investorTypeParseCard = (page: Page) =>
   page.getByRole("region", { name: /Last investor-type parse run/ })
 
+const above1ParseCard = (page: Page) =>
+  page.getByRole("region", { name: /Last above-1% parse run/ })
+
 // A month's mark in one parsed kind's grid on the Parse coverage card, by
 // its name: the month, then the mark's label.
 const parseCoverageMark = (page: Page, kind: string, name: RegExp) =>
@@ -265,10 +268,10 @@ test.describe("an admin's archive history", () => {
 })
 
 // Decision: serial, and the only spec writing reports/, so the totals are
-// exact before the parse runs store reports into the HoldingsDb that
-// stocks.spec.ts seeds, unserialized: classification as Dec 2025, before its
-// months; investor-type's AADI seeded there alike, TRUE never opened there;
-// Parse coverage checks taking that seed's mark (apinrdw/kumora#404, #405).
+// exact before the parse runs store reports into stocks.spec.ts's HoldingsDb,
+// unserialized: classification as Dec 2025, before its months; investor-type's
+// AADI as seeded there, TRUE never opened; Parse coverage taking that seed's
+// mark (apinrdw/kumora#404, #405); above-1%'s unseeded Feb and Apr 2026.
 test.describe.serial("an admin's archive totals and parse runs", () => {
   test.use({ storageState: ADMIN.storageState })
 
@@ -278,9 +281,8 @@ test.describe.serial("an admin's archive totals and parse runs", () => {
     await seedReport("above-5/2026-11-13", "a".repeat(64), 1_200)
     // A second version of a report counts too.
     await seedReport("above-5/2026-11-13", "b".repeat(64), 1_300)
-    // Not an investor-type report, which the investor-type parse run below
-    // would fail to parse.
-    await seedReport("above-1/2026-10-31", "c".repeat(64), 2_400)
+    // Of no kind a parse run below reads: its bytes would fail to parse.
+    await seedReport("other/2026-10-31", "c".repeat(64), 2_400)
 
     await page.goto(SHAREHOLDING)
     const totals = page.getByRole("region", { name: "Archive totals" })
@@ -291,10 +293,10 @@ test.describe.serial("an admin's archive totals and parse runs", () => {
     ).toHaveText([
       "Report kindKey prefixReports",
       "Holders above 5%reports/above-5/2",
-      "Holders above 1%reports/above-1/1",
+      "Holders above 1%reports/above-1/0",
       "Holdings by investor typereports/investor-type/0",
       "Holdings by investor classificationreports/investor-classification/0",
-      "Otherreports/other/0",
+      "Otherreports/other/1",
     ])
   })
 
@@ -386,5 +388,32 @@ test.describe.serial("an admin's archive totals and parse runs", () => {
         /^November 2025: (Parsed|Stale) /
       )
     ).toBeVisible()
+  })
+
+  test("Parse now parses the held above-1% reports", async ({ page }) => {
+    await seedReportFixture("above-1", "above-1-2026-02-27.xlsx", "2026-02-27")
+    await seedReportFixture("above-1", "above-1-2026-04-30.xlsx", "2026-04-30")
+
+    await page.goto(SHAREHOLDING)
+    const card = above1ParseCard(page)
+    await expect(card).toContainText("No above-1% parse run has happened yet.")
+    await expect(card).toContainText(
+      /Production runs at 21:00 WIB\. Next: \w{3} \d{2}, 21:00 WIB\./
+    )
+    await card.getByRole("button", { name: "Parse now" }).click()
+    await expect(card).toContainText(/Started admin-\d+\./)
+
+    // The run ends on its own; the page shows it once reloaded.
+    await expect(async () => {
+      await page.reload()
+      await expect(above1ParseCard(page)).toContainText("Complete", {
+        timeout: 1000,
+      })
+    }).toPass({ timeout: 30_000 })
+    await expect(stat(above1ParseCard(page), "Months parsed")).toHaveText("2")
+    await expect(stat(above1ParseCard(page), "Parse failures")).toHaveText("0")
+    await expect(
+      above1ParseCard(page).getByRole("button", { name: "Parse now" })
+    ).toBeEnabled()
   })
 })

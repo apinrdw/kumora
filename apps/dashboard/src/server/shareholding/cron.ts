@@ -5,6 +5,7 @@ import { runServerEffectResult } from "@workspace/server"
 import { Effect, Layer } from "effect"
 
 import {
+  above1ParseWorkflowBinding,
   archiveBucketR2,
   archiveWorkflowBinding,
   classificationParseWorkflowBinding,
@@ -25,8 +26,8 @@ export const runArchiveCron = (scheduledTime: number) =>
     )
   )
 
-// The parse cron's handler, the same way: it starts a classification parse
-// run and an investor-type parse run.
+// The parse cron's handler, the same way: it starts a parse run of each kind
+// (parse-runs.ts).
 export const runParseCron = (scheduledTime: number) =>
   runServerEffectResult(
     scheduledParseRuns(scheduledTime).pipe(
@@ -34,7 +35,8 @@ export const runParseCron = (scheduledTime: number) =>
         Layer.mergeAll(
           archiveBucketR2,
           classificationParseWorkflowBinding,
-          investorTypeParseWorkflowBinding
+          investorTypeParseWorkflowBinding,
+          above1ParseWorkflowBinding
         )
       )
     )
