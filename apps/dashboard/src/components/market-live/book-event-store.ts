@@ -1,6 +1,7 @@
 import {
   BOOK_EVENT_WINDOW_MS,
   BookEventOrder,
+  MAX_CODE_BOOK_EVENTS,
   MIN_SIDE_FRAMES,
   type BookEvent,
   type OrderBook,
@@ -12,7 +13,8 @@ import { Array as Arr, DateTime, Effect } from "effect"
 
 export interface BookEventStore {
   readonly code: StockCode
-  // The code's events for the day, oldest first.
+  // The code's events for the day, oldest first: its newest
+  // MAX_CODE_BOOK_EVENTS, as its snapshot and its recorded day's answer hold.
   readonly events: () => ReadonlyArray<BookEvent>
   // False for a recorded day kept before book events were.
   readonly recorded: () => boolean
@@ -102,7 +104,9 @@ export const makeBookEventStore = (code: StockCode) =>
           (event) => event.code === code
         )
         if (arriving.length > 0)
-          events = Arr.sort([...events, ...arriving], BookEventOrder)
+          events = Arr.sort([...events, ...arriving], BookEventOrder).slice(
+            -MAX_CODE_BOOK_EVENTS
+          )
         if (book !== undefined || arriving.length > 0) tell()
       },
       load: (answer) => {
