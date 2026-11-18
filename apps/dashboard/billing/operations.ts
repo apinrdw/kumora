@@ -127,6 +127,10 @@ const correctingBatch: BrokerCodesBatch = {
 const correctingPost = (day: TradingDay) =>
   Effect.flatMap(encodeBrokerCodesBatch(correctingBatch), day.brokerCodes.post)
 
+// The busy code's heatmap, worked out from its book chunks.
+const heatmapGet = (day: TradingDay) =>
+  day.recorded({ _tag: "Heatmap", code: StockCode.make(BUSY_DAY.bookCode) })
+
 export const operations = {
   "status pass": { measure: statusPass },
   // An object that answered a status since it woke, so it knows whether its
@@ -148,6 +152,7 @@ export const operations = {
     measure: statusPass,
   },
   "walk batch": { stored: "walking", measure: walkPost },
+  "heatmap GET": { measure: heatmapGet },
 } satisfies Record<string, Operation>
 
 export type OperationName = keyof typeof operations

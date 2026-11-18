@@ -3,7 +3,8 @@
 // budget names an operation in billing/operations.ts. The busy day is built
 // once for each `layer` block, so every budget lives here.
 import { assert, layer } from "@effect/vitest"
-import { Effect } from "effect"
+import { HEAT_SLICE_MS, decodeRecordedHeatmap } from "@workspace/relay"
+import { DateTime, Effect } from "effect"
 
 import { BUSY_DAY } from "../../../billing/busy-figures"
 import { CHUNK } from "../../../src/server/market-live/broker-codes"
@@ -70,6 +71,27 @@ layer(BusyDay.layer, { timeout: "60 seconds", excludeTestServices: true })(
           assert.deepStrictEqual(fresh.answer, warm.answer)
           assert.isAtMost(fresh.rows.rowsRead, warm.rows.rowsRead + 10)
           assert.strictEqual(fresh.rows.rowsWritten, 0)
+        }),
+      10_000
+    )
+
+    it.effect(
+      "a heatmap GET reads its code's book chunks, at most 300 rows, and writes nothing",
+      () =>
+        Effect.gen(function* () {
+          const heatmap = yield* decodeRecordedHeatmap(
+            (yield* (yield* BusyDay).billed("heatmap GET")).answer
+          )
+          // A slice every 10 s from the first chunk, 09:00, to the day's
+          // end, the frameless minutes filled in.
+          const from = DateTime.toEpochMillis(
+            DateTime.makeUnsafe("2026-11-09T09:00:00+07:00")
+          )
+          assert.lengthOf(
+            heatmap.slices,
+            (DateTime.toEpochMillis(heatmap.through) - from) / HEAT_SLICE_MS
+          )
+          yield* withinBudget("heatmap GET", { rowsRead: 300, rowsWritten: 0 })
         }),
       10_000
     )
