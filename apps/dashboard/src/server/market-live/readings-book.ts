@@ -21,9 +21,8 @@ export const makeReadingsBook = (options: {
   Effect.sync(() => {
     const latest = new Map<StockCode, BookReadings>()
 
-    // The readings of `books`, the ones that changed, kept and returned with
-    // the codes that had none before; `lastOf` is a code's last price, for
-    // the limit mark.
+    // The readings of `books`, the ones that changed, kept and returned;
+    // `lastOf` is a code's last price, for the limit mark.
     // Decision: readings are taken only in Sessions 1 and 2, by the market
     // phase; in any other phase each code keeps its last ones and none goes
     // out, so the page greys them and names the phase. See spec
@@ -33,11 +32,9 @@ export const makeReadingsBook = (options: {
       phase: MarketPhase,
       lastOf: (code: StockCode) => Effect.Effect<number | undefined>
     ) {
+      if (!READING_PHASES.has(phase)) return []
       const taken: Array<BookReadings> = []
-      const first: Array<StockCode> = []
-      if (!READING_PHASES.has(phase)) return { taken, first }
       for (const book of books) {
-        if (!latest.has(book.code)) first.push(book.code)
         const readings = yield* bookReadingsOf(book, {
           date: options.date,
           last: yield* lastOf(book.code),
@@ -46,7 +43,7 @@ export const makeReadingsBook = (options: {
         latest.set(book.code, readings)
         taken.push(readings)
       }
-      return { taken, first }
+      return taken
     })
 
     // Every code's latest readings, for a snapshot.

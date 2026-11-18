@@ -735,8 +735,7 @@ export const makeTradingDay = Effect.fnUntraced(function* (options: {
       yield* bookEvents.add(yield* ledger.book(book))
   })
 
-  // A code's scanner figures, for a snapshot and for the delta that carries
-  // its first readings.
+  // A code's scanner figures, for a snapshot and a delta.
   const figuresOf = Effect.fnUntraced(function* (code: StockCode) {
     // Stockbit's base alone: the fallback would fold every code's trades.
     const state = yield* dayStates.stateOf(code, true)
@@ -746,6 +745,34 @@ export const makeTradingDay = Effect.fnUntraced(function* (options: {
       previousClose: state?.previousClose,
       previousValue: yield* previousValues.valueOf(code),
     }
+  })
+  const figuresKey = (figures: Effect.Success<ReturnType<typeof figuresOf>>) =>
+    Effect.sync(() =>
+      JSON.stringify([
+        figures.last,
+        figures.previousClose,
+        figures.previousValue,
+      ])
+    )
+  // Each code's scanner figures every ready viewer holds, as `figuresKey`; a
+  // code missing is one some viewer may hold otherwise. A snapshot that hands
+  // a viewer other figures drops the code, so the next delta sends it to all.
+  const sentFigures = new Map<StockCode, string>()
+  // Decision: each delta sends every code with readings whose figures differ
+  // from `sentFigures`, compared rather than tracked from what changes them,
+  // so whatever order books, `liveprice` frames and the previous day's values
+  // come in, every page holds each code's current figures after the next
+  // delta. See spec apinrdw/kumora#517, "Data".
+  const changedFigures = Effect.gen(function* () {
+    const changed: Array<Effect.Success<ReturnType<typeof figuresOf>>> = []
+    for (const { code } of yield* readings.all) {
+      const figures = yield* figuresOf(code)
+      const key = yield* figuresKey(figures)
+      if (sentFigures.get(code) === key) continue
+      sentFigures.set(code, key)
+      changed.push(figures)
+    }
+    return changed
   })
 
   // Decision: a delta carries every candle that changed, of any code, not
@@ -764,7 +791,7 @@ export const makeTradingDay = Effect.fnUntraced(function* (options: {
     for (const book of changedBooks) yield* bookChunks.record(book)
     const states = yield* dayStates.takeChanged(live, yield* onDemand.watched)
     const conditions = yield* market.conditions
-    const { taken: bookReadings, first } = yield* readings.read(
+    const bookReadings = yield* readings.read(
       changedBooks,
       conditions.phase,
       (code) =>
@@ -785,7 +812,7 @@ export const makeTradingDay = Effect.fnUntraced(function* (options: {
       sweepAlerts: changed.sweepAlerts,
       orderBooks,
       bookReadings,
-      scannerFigures: yield* Effect.forEach(first, figuresOf),
+      scannerFigures: yield* changedFigures,
       bookEvents: yield* bookEvents.takeDelta,
       dayStates: states,
       indicative: yield* market.indicativeChanges,
@@ -1462,6 +1489,9 @@ export const makeTradingDay = Effect.fnUntraced(function* (options: {
       const scannerFigures = yield* Effect.forEach(bookReadings, ({ code }) =>
         figuresOf(code)
       )
+      for (const figures of scannerFigures)
+        if (sentFigures.get(figures.code) !== (yield* figuresKey(figures)))
+          sentFigures.delete(figures.code)
       const snapshot = yield* encodeViewerDown({
         _tag: "Snapshot",
         at: yield* DateTime.now,

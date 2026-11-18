@@ -67,11 +67,19 @@ describe("the scanner's figures", () => {
         })
         store.apply({
           ...delta([]),
-          scannerFigures: [{ code: BBCA, last: 7_525, previousClose: 7_450 }],
+          scannerFigures: [
+            {
+              code: BBCA,
+              last: 7_525,
+              previousClose: 7_450,
+              previousValue: undefined,
+            },
+          ],
         })
         assert.deepStrictEqual(store.all().get(BBCA), {
           last: 7_525,
           previousClose: 7_450,
+          previousValue: undefined,
         })
         store.apply({ ...snapshot, scannerFigures: [] })
         assert.isUndefined(store.all().get(BBCA))
