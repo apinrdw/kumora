@@ -13,7 +13,7 @@ const sectorsCard = (page: Page) =>
 const shownRows = async (page: Page) =>
   Number(
     await sectorsCard(page)
-      .locator("div")
+      .locator("dl > div")
       .filter({
         has: page.getByRole("term").getByText("Rows", { exact: true }),
       })

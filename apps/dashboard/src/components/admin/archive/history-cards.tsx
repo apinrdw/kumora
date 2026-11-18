@@ -9,6 +9,12 @@ import type { RunSummaryBase } from "@/server/archive/run"
 
 import { ArchiveCard, RunStatus } from "./archive-card"
 
+// A table running to the panel's edges, under the panel's header rule, so
+// it is not a box inside the panel's box. Last in the panel, it runs to the
+// panel's foot too.
+const FLUSH =
+  "-mx-5 -mt-5 max-w-none rounded-none border-x-0 border-t-0 last:-mb-6 last:border-b-0"
+
 const RUN_COLUMNS: ReadonlyArray<KColumn<RunSummaryBase>> = [
   {
     key: "startedAt",
@@ -18,7 +24,7 @@ const RUN_COLUMNS: ReadonlyArray<KColumn<RunSummaryBase>> = [
   {
     key: "id",
     label: "Run",
-    cell: (run) => <span className="font-mono text-xs">{run.id}</span>,
+    cell: (run) => <span className="font-data text-xs">{run.id}</span>,
   },
   {
     key: "outcome",
@@ -45,6 +51,7 @@ export function ArchiveRecentRunsCard<Run extends RunSummaryBase>({
         columns={[...RUN_COLUMNS, ...counts]}
         rows={runs}
         getRowId={(run) => run.id}
+        className={FLUSH}
         state={
           runs.length === 0
             ? {
@@ -90,20 +97,23 @@ export function KindTotalsCard<Row extends object>({
     <ArchiveCard
       title={title}
       aside={
-        <span className="text-secondary-text num text-[13px]">
+        <span className="font-data text-secondary-text text-[13px]">
           {Effect.runSync(count(reports, "report", "reports"))} ·{" "}
           {Effect.runSync(byteSize(bytes))}
         </span>
       }
     >
       {reports === 0 ? (
-        <p className="text-secondary-text text-[13px]">{emptyMessage}</p>
+        <p className="text-secondary-text border-strong rounded-sm border border-dashed px-4 py-6 text-center text-sm leading-5 text-pretty">
+          {emptyMessage}
+        </p>
       ) : (
         <KDataTable
           label={label}
           columns={columns}
           rows={rows}
           getRowId={getRowId}
+          className={FLUSH}
         />
       )}
     </ArchiveCard>

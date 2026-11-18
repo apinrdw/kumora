@@ -1,7 +1,12 @@
 // An archive's last run card and its run button. The archive passes in what
 // is its own: the card's title, its counts, its partial-run details and its
 // actions.
-import { IconPlayerPlay, type TablerIcon } from "@tabler/icons-react"
+import {
+  IconAlertOctagon,
+  IconClock,
+  IconPlayerPlay,
+  type TablerIcon,
+} from "@tabler/icons-react"
 import { useHydrated } from "@tanstack/react-router"
 import { clientRuntime } from "@workspace/client"
 import { loadServerFn } from "@workspace/server/loader"
@@ -123,8 +128,11 @@ export function RunArchiveButton({
 
 function Schedule({ times, nextRun }: ArchiveSchedule) {
   return (
-    <p className="text-secondary-text text-[13px]">
-      Production runs at {times}. Next: {Effect.runSync(dateTime(nextRun))}.
+    <p className="text-secondary-text flex items-center gap-2 text-[13px] leading-5">
+      <IconClock aria-hidden className="size-4 shrink-0" stroke={1.75} />
+      <span>
+        Production runs at {times}. Next: {Effect.runSync(dateTime(nextRun))}.
+      </span>
     </p>
   )
 }
@@ -136,11 +144,12 @@ const STAT_TONE = {
 
 function Stat({ value, label, tone }: RunStat) {
   return (
-    <div className="flex flex-col-reverse gap-0.5">
+    <div className="flex flex-col-reverse justify-end gap-0.5">
       <dt className="text-secondary-text text-[13px]">{label}</dt>
       <dd
         className={cn(
-          "num text-[22px] leading-7 font-semibold",
+          "font-data text-xl leading-7 font-semibold tabular-nums",
+          value === 0 && "text-muted-foreground",
           value > 0 && tone !== undefined && STAT_TONE[tone]
         )}
       >
@@ -154,12 +163,20 @@ function Failed({ error }: { error: string | null }) {
   return (
     <div
       role="alert"
-      className="border-down bg-elevated rounded-xs border-l-[3px] px-3 py-2 text-[13px] [overflow-wrap:anywhere]"
+      className="border-down/40 bg-down/10 flex gap-3 rounded-sm border px-4 py-3 text-sm leading-5 [overflow-wrap:anywhere]"
     >
-      <p>
-        <b>Run failed:</b> {error ?? "no error was recorded"}
-      </p>
-      <p>The next run will try again.</p>
+      <IconAlertOctagon
+        aria-hidden
+        className="text-down mt-0.5 size-4 shrink-0"
+        stroke={1.75}
+      />
+      <div className="flex flex-col gap-1">
+        <p>
+          <b className="font-semibold">Run failed:</b>{" "}
+          {error ?? "no error was recorded"}
+        </p>
+        <p className="text-secondary-text">The next run will try again.</p>
+      </div>
     </div>
   )
 }
@@ -221,7 +238,7 @@ function RunMeta({
         </span>
       )}
       <span>
-        · <span className="font-mono text-xs">{result.id}</span>
+        · <span className="font-data text-xs">{result.id}</span>
       </span>
       {running && workflowStatus !== null && (
         <span>· Workflow {workflowStatus}</span>
@@ -308,14 +325,21 @@ export function ArchiveLastRunCard({
   if (lastRun === undefined)
     return (
       <ArchiveCard title={title} aside={actions}>
-        {empty}
+        <p className="text-secondary-text border-strong rounded-sm border border-dashed px-4 py-6 text-center text-sm leading-5 text-pretty">
+          {emptyMessage}
+        </p>
         <Schedule {...schedule} />
       </ArchiveCard>
     )
   return (
     <ArchiveCard title={heading} aside={actions}>
       <RunMeta run={lastRun} now={now} />
-      {statList("grid grid-cols-[repeat(auto-fit,minmax(130px,1fr))] gap-3")}
+      {/* Ruled above and below, one column per count from sm, divided by
+          hairlines; two columns on a phone. Not a box, so a count is never
+          three boxes deep. */}
+      {statList(
+        "grid grid-cols-2 gap-4 border-y border-border py-4 sm:auto-cols-fr sm:grid-flow-col sm:grid-cols-none sm:gap-x-0 sm:divide-x sm:divide-border sm:[&>div]:px-4 sm:[&>div:first-child]:pl-0"
+      )}
       {notes}
       <Schedule {...schedule} />
     </ArchiveCard>

@@ -1,4 +1,5 @@
 @import "@workspace/ui/globals.css";
+@import "@fontsource-variable/jetbrains-mono";
 
 /* KUMORA AI design tokens. Dark is the only theme; shadcn's variables alias them. */
 :root {
@@ -102,6 +103,11 @@
   --font-sans: "Manrope Variable", Arial, sans-serif;
   --font-heading: "Manrope Variable", Arial, sans-serif;
   --font-mono: "Manrope Variable", Arial, sans-serif;
+  /* Decision: a true monospace for the archive admin pages' data (run ids,
+     file names, key prefixes, counts, the month grids), so a long id reads
+     character by character. --font-mono stays Manrope: the market pages'
+     figures are drawn in it. */
+  --font-data: "JetBrains Mono Variable", ui-monospace, monospace;
 
   --color-destructive-foreground: var(--destructive-foreground);
   --color-up: var(--semantic-up);

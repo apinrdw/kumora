@@ -11,63 +11,62 @@ import {
   archiveRunStats,
   RunArchiveButton,
 } from "@/components/admin/archive/last-run-card"
+import {
+  Callout,
+  Note,
+  NoteItem,
+  NoteList,
+} from "@/components/admin/archive/notes"
 
 // What a run couldn't store, and what it archived under `other`.
 function Detail({ result }: { result: ArchiveRunResult }) {
   const { notStored, other } = result
   if (notStored.length === 0 && other.length === 0) return null
   return (
-    <div className="border-warning bg-elevated flex flex-col gap-2 rounded-xs border-l-[3px] px-3 py-2 text-[13px] leading-5">
+    <Callout>
       {notStored.length > 0 && (
-        <div>
-          <b>
-            {Effect.runSync(
-              count(
-                notStored.length,
-                "report could not be stored.",
-                "reports could not be stored."
-              )
-            )}
-          </b>{" "}
+        <Note
+          lead={Effect.runSync(
+            count(
+              notStored.length,
+              "report could not be stored.",
+              "reports could not be stored."
+            )
+          )}
+        >
           The next run retries {notStored.length === 1 ? "it" : "them"}.
-          <ul aria-label="Not stored" className="mt-1 list-disc pl-5">
+          <NoteList label="Not stored" data>
             {notStored.map((url) => (
-              <li
-                key={url}
-                className="font-mono text-xs [overflow-wrap:anywhere]"
-              >
-                {url}
-              </li>
+              <NoteItem key={url}>{url}</NoteItem>
             ))}
-          </ul>
-        </div>
+          </NoteList>
+        </Note>
       )}
       {other.length > 0 && (
-        <div>
-          <b>
-            {Effect.runSync(
-              count(
-                other.length,
-                "report of an unknown kind",
-                "reports of an unknown kind"
-              )
-            )}
-          </b>{" "}
+        <Note
+          lead={Effect.runSync(
+            count(
+              other.length,
+              "report of an unknown kind",
+              "reports of an unknown kind"
+            )
+          )}
+        >
           {other.length === 1 ? "was" : "were"} archived under{" "}
-          <span className="font-mono text-xs">other</span>.
-          <ul aria-label="Archived under other" className="mt-1 list-disc pl-5">
+          <span className="font-data text-xs">other</span>.
+          <NoteList label="Archived under other">
             {other.map(({ sourceUrl, description }) => (
-              <li key={sourceUrl} className="[overflow-wrap:anywhere]">
+              <NoteItem key={sourceUrl}>
                 {description}{" "}
-                <span className="font-mono text-xs text-muted-foreground">
+                <span className="font-data text-secondary-text text-xs">
                   {sourceUrl}
                 </span>
-              </li>
+              </NoteItem>
             ))}
-          </ul>
-        </div>
+          </NoteList>
+        </Note>
       )}
-    </div>
+    </Callout>
   )
 }
 
