@@ -45,6 +45,22 @@ export const SOURCE = 6
 // trades are counted from it, so a resent Stockbit batch counts none twice.
 export const Source = { ajaib: 65, stockbit: 83, both: 66 } as const
 
+// What a day recorded before apinrdw/kumora#561 holds and the store drops
+// at its start: the broker trades index, one row per side of each trade, and
+// the facts of its rebuild. The row budgets' busy day (billing/busy-day.ts)
+// makes them from these, to measure the drop.
+export const BROKER_TRADES_INDEX = `CREATE TABLE broker_trades (
+    broker TEXT NOT NULL,
+    investor_type TEXT NOT NULL,
+    side TEXT NOT NULL,
+    number INTEGER NOT NULL,
+    PRIMARY KEY (broker, investor_type, side, number)
+  ) WITHOUT ROWID`
+export const DroppedFact = {
+  brokerTrades: "broker-trades",
+  indexWake: "index-wake",
+} as const
+
 const SCHEMA = [
   `CREATE TABLE IF NOT EXISTS broker_code_chunks (
     chunk INTEGER PRIMARY KEY,
@@ -81,7 +97,7 @@ const SCHEMA = [
   // workerd the drop of a busy day's 2.92 M rows read 14 rows and wrote
   // none (row-budgets.workerd.test.ts).
   "DROP TABLE IF EXISTS broker_trades",
-  "DELETE FROM facts WHERE key IN ('broker-trades', 'index-wake')",
+  `DELETE FROM facts WHERE key IN ('${DroppedFact.brokerTrades}', '${DroppedFact.indexWake}')`,
 ]
 
 // Decision: the status reads the chunks this many at a time, so a 1.5M-trade

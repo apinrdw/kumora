@@ -9,7 +9,9 @@ import { Clock, DateTime, Effect } from "effect"
 
 import { BROKER_TOTALS_VERSION } from "../src/server/broker-totals/version.ts"
 import {
+  BROKER_TRADES_INDEX,
   CHUNK,
+  DroppedFact,
   RECORD,
   SOURCE,
   Source,
@@ -110,15 +112,7 @@ export const buildBusyDay = Effect.fnUntraced(function* (
           10000000, 40, 5000000, 5000000
         FROM n`
       )
-      exec(
-        `CREATE TABLE broker_trades (
-          broker TEXT NOT NULL,
-          investor_type TEXT NOT NULL,
-          side TEXT NOT NULL,
-          number INTEGER NOT NULL,
-          PRIMARY KEY (broker, investor_type, side, number)
-        ) WITHOUT ROWID`
-      )
+      exec(BROKER_TRADES_INDEX)
       exec(
         `${numbers(trades)} INSERT INTO broker_trades
         SELECT substr('${brokers}', (x * ${BUYER_STEP}) % ${BROKERS.length} * 2 + 1, 2),
@@ -141,7 +135,7 @@ export const buildBusyDay = Effect.fnUntraced(function* (
       Fact.crossCheck,
       JSON.stringify({ walkedTo: String(trades), ended: true }),
     ],
-    ["broker-trades", "built"],
+    [DroppedFact.brokerTrades, "built"],
     // Built by an older build version, as a day the reconcile cron has yet
     // to poke: with a broker totals DB, a batch runs its buildable check.
     [Fact.brokerTotals, String(BROKER_TOTALS_VERSION - 1)],
