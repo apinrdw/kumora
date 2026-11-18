@@ -121,6 +121,8 @@ export interface Flush {
   readonly chunks: ReadonlyArray<StoredChunk>
   readonly ajaibBooks: ReadonlyArray<StoredAjaibBook>
   readonly facts: Readonly<Record<string, string>>
+  // Further writes, run in the flush's transaction after its rows.
+  readonly alsoWrites?: () => void
 }
 
 // Decision: a trade is one row keyed by its number as the INTEGER PRIMARY
@@ -523,6 +525,7 @@ export const makeDayStore = (
           )
         for (const [key, value] of Object.entries(flush.facts))
           insertFact(key, value)
+        flush.alsoWrites?.()
       })
       meter.trades += flush.trades.length
       meter.candles += flush.candles.length

@@ -119,24 +119,49 @@ const SUMMARIZE = `INSERT OR REPLACE INTO tape_summary (chunk, held, holes)
     GROUP BY chunk
   )`
 
+const summaryBuilt = (sql: Sql) =>
+  sql.exec("SELECT value FROM facts WHERE key = ?", Fact.tapeSummary)[0]
+    ?.value === TAPE_SUMMARY_BUILT
+
+// The whole tape's summary rows and the fact that they stand for it, inside
+// a transaction. It goes SCAN_PAGE chunks a statement, so no statement sorts
+// the whole tape.
+const summarizeWhole = (sql: Sql) => {
+  const [top] = sql.exec("SELECT max(number) AS number FROM trades")
+  const chunks = Math.ceil(Number(top?.number ?? 0) / CHUNK)
+  for (let first = 0; first < chunks; first += SCAN_PAGE)
+    sql.exec(SUMMARIZE, first * CHUNK + 1, (first + SCAN_PAGE) * CHUNK)
+  sql.exec(
+    "INSERT OR REPLACE INTO facts VALUES (?, ?)",
+    Fact.tapeSummary,
+    TAPE_SUMMARY_BUILT
+  )
+}
+
 // Decision: the seal summarizes the tape in a transaction of its own, after
 // the sealed marker: a sealed day's tape never changes, and a seal cut off
-// between the two leaves a day that scans its tape as before. It goes
-// SCAN_PAGE chunks a statement, so no statement sorts the whole tape.
+// between the two leaves a day that scans its tape as before. A tape its walk
+// batches kept summarized (`summarizeTaped`) isn't summarized again.
 export const summarizeTape = (sql: Sql) =>
   Effect.sync(() =>
     sql.transaction(() => {
-      const [top] = sql.exec("SELECT max(number) AS number FROM trades")
-      const chunks = Math.ceil(Number(top?.number ?? 0) / CHUNK)
-      for (let first = 0; first < chunks; first += SCAN_PAGE)
-        sql.exec(SUMMARIZE, first * CHUNK + 1, (first + SCAN_PAGE) * CHUNK)
-      sql.exec(
-        "INSERT OR REPLACE INTO facts VALUES (?, ?)",
-        Fact.tapeSummary,
-        TAPE_SUMMARY_BUILT
-      )
+      if (!summaryBuilt(sql)) summarizeWhole(sql)
     })
   )
+
+// Decision: a walk batch's tape trades update the summary rows of the chunks
+// they fall in, inside the transaction that writes them, so a walk day's
+// status reads the summary as a sealed day's does. A tape stored before the
+// summary is summarized whole at its first such write. See
+// apinrdw/kumora#543.
+export const summarizeTaped =
+  (sql: Sql, numbers: ReadonlyArray<number>) => () => {
+    if (numbers.length === 0) return
+    if (!summaryBuilt(sql)) return summarizeWhole(sql)
+    const first = Math.floor((Math.min(...numbers) - 1) / CHUNK)
+    const last = Math.floor((Math.max(...numbers) - 1) / CHUNK)
+    sql.exec(SUMMARIZE, first * CHUNK + 1, (last + 1) * CHUNK)
+  }
 
 // Stockbit's walk position and whether it ended, kept as the `cross-check`
 // fact. `walkedTo` is the highest trade number Stockbit sent.
@@ -457,6 +482,7 @@ export const makeBrokerCodes = Effect.fnUntraced(function* (options: {
   // Whether a walk_trades row holds its trade: not on an unsealed day whose
   // tape the walks fill, which holds a trade only once its tape does.
   readonly walkRowsHold: Effect.Effect<boolean>
+  readonly sealed: Effect.Effect<boolean>
 }) {
   const { sql, fact } = options
   yield* Effect.sync(() => {
@@ -844,11 +870,16 @@ export const makeBrokerCodes = Effect.fnUntraced(function* (options: {
 
   // Every chunk into the tally, SCAN_PAGE at a time, each run of adjacent
   // chunks of a page with its unfielded trades.
+  // Decision: a day sealed before the tape summary builds it at its first
+  // status pass, one scan of the tape, and later passes read it; there is no
+  // migration. A relay day before its seal scans its growing tape.
   const scan = Effect.fnUntraced(function* (tally: Tally) {
-    const reads = {
-      walkRowsHold: yield* options.walkRowsHold,
-      summarized: (yield* fact(Fact.tapeSummary)) === TAPE_SUMMARY_BUILT,
+    let summarized = (yield* fact(Fact.tapeSummary)) === TAPE_SUMMARY_BUILT
+    if (!summarized && (yield* options.sealed)) {
+      yield* summarizeTape(sql)
+      summarized = true
     }
+    const reads = { walkRowsHold: yield* options.walkRowsHold, summarized }
     let after = -1
     for (;;) {
       const rows = yield* Effect.sync(() =>

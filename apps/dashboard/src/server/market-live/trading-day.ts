@@ -60,7 +60,11 @@ import { ajaibTrades } from "./ajaib.ts"
 import { ajaibPrices } from "./ajaib-price.ts"
 import { backfillTrades } from "./backfill-page.ts"
 import { makeBubbleBook } from "./bubble-book.ts"
-import { makeBrokerCodes, summarizeTape } from "./broker-codes.ts"
+import {
+  makeBrokerCodes,
+  summarizeTape,
+  summarizeTaped,
+} from "./broker-codes.ts"
 import {
   BROKER_TOTALS_DUE,
   BROKER_TOTALS_STALE,
@@ -439,6 +443,7 @@ export const makeTradingDay = Effect.fnUntraced(function* (options: {
     sql: options.sql,
     fact: store.fact,
     walkRowsHold: Effect.sync(() => source === "relay" || sealed),
+    sealed: Effect.sync(() => sealed),
   })
   // The one gate the build and a walk day's seal read (`buildable` in
   // broker-codes.ts).
@@ -971,6 +976,10 @@ export const makeTradingDay = Effect.fnUntraced(function* (options: {
         [Fact.tapeSource]: "walk",
         ...(yield* sweepBrokers.persisting(trades)),
       },
+      alsoWrites: summarizeTaped(
+        options.sql,
+        trades.map((trade) => Number(trade.tradeNumber))
+      ),
     })
     source = "walk"
   })

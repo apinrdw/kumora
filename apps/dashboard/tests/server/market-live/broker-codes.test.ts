@@ -978,6 +978,159 @@ describe("a sealed relay day's tape summary", () => {
   )
 })
 
+// Spec apinrdw/kumora#554, "The tape summary": a walk day, a day sealed
+// before the summary and a relay day before its seal.
+describe("the tape summary of other days", () => {
+  // The SQL a day ran, and the statements of it that read the tape.
+  const watched = (base: Sql) => {
+    const statements: Array<string> = []
+    const sql: Sql = {
+      exec: (query, ...bindings) => {
+        statements.push(query)
+        return base.exec(query, ...bindings)
+      },
+      transaction: (write) => base.transaction(write),
+    }
+    const tapeReads = Effect.sync(() => {
+      const reads = statements.filter((query) => /\bFROM trades\b/.test(query))
+      statements.length = 0
+      return reads.length
+    })
+    return { sql, tapeReads }
+  }
+  const unsummarize = (base: Sql) =>
+    Effect.sync(() => {
+      base.exec("DELETE FROM tape_summary")
+      base.exec("DELETE FROM facts WHERE key = 'tape-summary'")
+    })
+  const HISTORY = WibDate.make("2026-10-01")
+  const WALK_FIELDS: TradeFields = { ...FIELDS, time: wib("10:00:00", HISTORY) }
+  const walked = (taped: ReadonlyArray<number>) =>
+    taped.map((number) => [number, YP_CC, WALK_FIELDS] as const)
+
+  // A walk day's two Ajaib batches: the second fills part of a hole in a
+  // chunk the first touched, and sends codes without fields past its tape.
+  // `before` runs between them.
+  const walkDay = Effect.fnUntraced(function* (
+    before: (base: Sql) => Effect.Effect<void>
+  ) {
+    const base = memorySql()
+    const { sql, tapeReads } = watched(base)
+    yield* TestClock.setTime(wib("19:00:00", HISTORY).epochMilliseconds)
+    const day = yield* tradingDay({ sql, date: HISTORY })
+    yield* day.post(
+      "Ajaib",
+      walked(
+        numbers(1, 1_500).filter(
+          (number) => number !== 5 && !(number >= 998 && number <= 1_003)
+        )
+      )
+    )
+    yield* before(base)
+    yield* day.post(
+      "Ajaib",
+      [
+        ...walked([1_001, 1_002, ...numbers(2_501, 3_500)]),
+        ...numbers(3_501, 4_000).map(
+          (number) => [number, YP_CC, null] as const
+        ),
+      ],
+      4_000
+    )
+    return { base, day, tapeReads }
+  })
+
+  for (const [name, before] of [
+    ["a walk day", () => Effect.void],
+    ["a walk day whose tape was stored before the summary", unsummarize],
+  ] as const)
+    it.effect(
+      `answers ${name}'s status a scan of its tape answers, reading no trade`,
+      () =>
+        Effect.gen(function* () {
+          const { base, day, tapeReads } = yield* walkDay(before)
+          const answers = Effect.all([
+            day.statusText,
+            day.statusTextAfter("after=1002"),
+          ])
+
+          yield* tapeReads
+          const summarized = yield* answers
+          assert.strictEqual(yield* tapeReads, 0)
+          assert.deepStrictEqual(yield* day.missing, [
+            [5, 5],
+            [998, 1_000],
+            [1_003, 1_003],
+            [1_501, 2_500],
+            [3_501, 4_000],
+          ])
+
+          yield* unsummarize(base)
+          assert.deepStrictEqual(yield* answers, summarized)
+        })
+    )
+
+  it.effect(
+    "builds a day sealed before the summary at its first status pass, and reads it after",
+    () =>
+      Effect.gen(function* () {
+        const base = memorySql()
+        yield* TestClock.setTime(wib("15:00:00").epochMilliseconds)
+        const relayDay = yield* tradingDay({ sql: base })
+        yield* relayDay.ajaibTrades(
+          yield* relayDay.relay,
+          numbers(1, 2_500).filter((number) => number !== 1_200),
+          "15:00:00"
+        )
+        yield* TestClock.setTime(wib("17:00:00").epochMilliseconds)
+        yield* relayDay.alarm
+        yield* TestClock.setTime(wib("17:30:00").epochMilliseconds)
+        yield* relayDay.post(
+          "Ajaib",
+          numbers(1, 3_000).map((number) => [number, YP_CC, null] as const),
+          3_000
+        )
+        const statusOf = (day: typeof relayDay) =>
+          Effect.all([day.statusText, day.statusTextAfter("after=1500")])
+        const summarized = yield* statusOf(relayDay)
+        yield* unsummarize(base)
+
+        const { sql, tapeReads } = watched(base)
+        const day = yield* tradingDay({ sql })
+        yield* tapeReads
+        assert.deepStrictEqual(yield* statusOf(day), summarized)
+        assert.isAbove(yield* tapeReads, 0)
+        assert.deepStrictEqual(yield* statusOf(day), summarized)
+        assert.strictEqual(yield* tapeReads, 0)
+      })
+  )
+
+  it.effect("scans a relay day's tape before its seal", () =>
+    Effect.gen(function* () {
+      const base = memorySql()
+      const { sql, tapeReads } = watched(base)
+      yield* TestClock.setTime(wib("15:00:00").epochMilliseconds)
+      const day = yield* tradingDay({ sql })
+      yield* day.ajaibTrades(yield* day.relay, numbers(1, 10), "15:00:00")
+      yield* TestClock.adjust("70 seconds")
+      yield* day.post(
+        "Ajaib",
+        numbers(1, 11).map((number) => [number, YP_CC, null] as const),
+        12
+      )
+      yield* tapeReads
+      assert.deepStrictEqual(yield* day.missing, [[11, 12]])
+      assert.isAbove(yield* tapeReads, 0)
+      assert.deepStrictEqual(
+        base.exec(
+          "SELECT (SELECT count(*) FROM tape_summary) AS rows, (SELECT count(*) FROM facts WHERE key = 'tape-summary') AS facts"
+        ),
+        [{ rows: 0, facts: 0 }]
+      )
+    })
+  )
+})
+
 // Spec apinrdw/kumora#437, "A History walk day becomes a recorded day".
 describe("a day with no tape", () => {
   const HISTORY = WibDate.make("2026-10-01")
