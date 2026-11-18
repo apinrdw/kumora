@@ -115,6 +115,31 @@ test("a recorded day lists the code's events newest first, dimmed past the curso
   expect(store.picked()).toBe(`FOLK|appeared|bid|99|${T0 + 44_000}`)
 })
 
+test("a link lands on its event again after Back from another code", () => {
+  const key = `FOLK|appeared|bid|99|${T0 + 44_000}`
+  const loaded = (code: StockCode, events: ReadonlyArray<BookEvent>) => {
+    const store = Effect.runSync(makeBookEventStore(code))
+    store.load({ code, recorded: true, events })
+    return store
+  }
+  const first = loaded(FOLK, EVENTS)
+  const host = render(
+    <BookEventList store={first} cursor={undefined} landOn={key} />
+  )
+  expect(first.picked()).toBe(key)
+  // Another code picked, then Back: a fresh store for the event's code.
+  const other = StockCode.make("BBCA")
+  act(() =>
+    root!.render(<BookEventList store={loaded(other, [])} cursor={undefined} />)
+  )
+  const back = loaded(FOLK, EVENTS)
+  act(() =>
+    root!.render(<BookEventList store={back} cursor={undefined} landOn={key} />)
+  )
+  expect(back.picked(), "Back picks the event again").toBe(key)
+  expect(rows(host).map((row) => row.picked)).toEqual([false, true, false])
+})
+
 test("a day recorded before book events says so", () => {
   const store = Effect.runSync(makeBookEventStore(FOLK))
   store.load({ code: FOLK, recorded: false, events: [] })
