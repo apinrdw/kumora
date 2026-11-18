@@ -163,4 +163,20 @@ describe("the heatmap store", () => {
       expect(shown(store)).toEqual([["14:20:00", [[8_000, 7, 0]]]])
     })
   )
+
+  it.effect(
+    "says the code's book was not recorded once an answer says so, and tells its listeners",
+    () =>
+      Effect.gen(function* () {
+        const store = yield* makeHeatmapStore(UNTR, DAY, () => wib("16:00:00"))
+        let heard = 0
+        store.subscribe(() => void heard++)
+        store.seed(answer)
+        expect(store.notRecorded()).toBe(false)
+        store.seed({ ...answer, slices: [], notRecorded: true })
+        expect(store.notRecorded()).toBe(true)
+        expect(shown(store)).toEqual([])
+        expect(heard).toBe(2)
+      })
+  )
 })

@@ -40,6 +40,21 @@ function useCandles<A>(
   )
 }
 
+// Under the candles, when the day did not record the code's book: its
+// heatmap has nothing to shade.
+function HeatmapNotRecorded({ heatmap }: { heatmap: HeatmapStore }) {
+  const notRecorded = useSyncExternalStore(
+    heatmap.subscribe,
+    heatmap.notRecorded,
+    () => false
+  )
+  return notRecorded ? (
+    <p className="text-[11px] text-muted-foreground">
+      Book heatmap not recorded
+    </p>
+  ) : null
+}
+
 // The code's last close for the header, read as of the cursor on a recorded
 // day. It changes at most once a minute of the cursor, so only the header
 // re-renders.
@@ -212,6 +227,7 @@ export function LiveChart({
         )}
         {/* The canvas has no text: this says what it draws. */}
         <p className="sr-only">One-minute candles: {count}</p>
+        {heatmap !== undefined && <HeatmapNotRecorded heatmap={heatmap} />}
         <div
           className={`flex min-h-0 flex-1 flex-col ${stale ? "opacity-50" : ""}`}
         >
