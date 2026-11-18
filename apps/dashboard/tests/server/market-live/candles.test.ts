@@ -408,4 +408,105 @@ describe("the candle book's sweep alerts", () => {
         )
       })
   )
+
+  // A seeded generator of numbers in [0, 1): mulberry32.
+  const random = (seed: number) => () => {
+    seed = (seed + 0x6d2b79f5) | 0
+    let mixed = Math.imul(seed ^ (seed >>> 15), 1 | seed)
+    mixed = (mixed + Math.imul(mixed ^ (mixed >>> 7), 61 | mixed)) ^ mixed
+    return ((mixed ^ (mixed >>> 14)) >>> 0) / 4294967296
+  }
+
+  // Both sides' rankings of each code, as a book's rule holds them.
+  const rankings = Effect.fnUntraced(function* (
+    book: Effect.Success<ReturnType<typeof makeCandleBook>>
+  ) {
+    const all: Array<unknown> = []
+    for (const code of [UNTR, BBCA])
+      for (const side of ["buy", "sell"] as const)
+        all.push([code, side, yield* book.sweepRanking(code, side)])
+    return all
+  })
+
+  it.effect(
+    "whatever the order of trades, re-sided copies, pauses, flushes and restarts, the ranking ends as a restart would rebuild it from the store",
+    () =>
+      Effect.gen(function* () {
+        const TRADES = 400
+        const SECONDS = 150
+        const start = at("09:00:00")
+        for (let seed = 1; seed <= 40; seed++) {
+          const next = random(seed)
+          const pick = (below: number) => Math.floor(next() * below)
+          const store = yield* makeDayStore(memorySql(), { today: true })
+          let book = yield* makeCandleBook(store, () => {})
+          // Trades numbered in time order, a few a second over two codes. One
+          // in seven arrives late, by up to 40 places.
+          const trades = Array.from({ length: TRADES }, (_, index) =>
+            tradeOf(
+              next() < 0.5 ? UNTR : BBCA,
+              index + 1,
+              DateTime.makeUnsafe(
+                start + Math.floor((index * SECONDS) / TRADES) * 1000
+              ),
+              1 + pick(20),
+              (["buy", "sell", "buy", "sell", "none"] as const)[pick(5)]
+            )
+          )
+          const arrivals = trades
+            .map((trade, index) => ({
+              trade,
+              place: index + (next() < 0.15 ? next() * 40 : 0),
+            }))
+            .sort((a, b) => a.place - b.place)
+          let paused = 0
+          let now = start
+          for (const [index, { trade }] of arrivals.entries()) {
+            now = start + paused + ((index * SECONDS) / TRADES) * 1000 + 500
+            yield* TestClock.setTime(now)
+            yield* book.trade(undefined, trade)
+            // A second feed's copy gives the trade another side, inside its
+            // merge window.
+            if (next() < 0.05)
+              yield* book.trade(trade, {
+                ...trade,
+                side: trade.side === "buy" ? "sell" : "buy",
+              })
+            if (next() < 0.3) yield* book.takeChanged(new Set())
+            if (next() < 0.04) yield* flushAt(book, store, now)
+            // The feed pauses past the merge window, and a flush lets go of
+            // every candle, the newest sweeps still waiting.
+            if (next() < 0.03) {
+              yield* book.takeChanged(new Set())
+              paused += 6000
+              yield* flushAt(book, store, now + 6000)
+            }
+            // A restart once everything is stored: the new book ranks it.
+            if (next() < 0.01) {
+              yield* book.takeChanged(new Set())
+              paused += 6000
+              yield* flushAt(book, store, now + 6000)
+              book = yield* makeCandleBook(store, () => {})
+              yield* book.rankStored
+            }
+          }
+          // A later auction print closes every second, and all is stored.
+          yield* book.trade(
+            undefined,
+            tradeOf(BBCA, TRADES + 1, wib("09:10:00"), 1, "none")
+          )
+          yield* book.takeChanged(new Set())
+          yield* flushAt(book, store, now + 12_000)
+          yield* book.takeChanged(new Set())
+          const rebuilt = yield* makeCandleBook(store, () => {})
+          yield* rebuilt.rankStored
+          assert.deepStrictEqual(
+            yield* rankings(book),
+            yield* rankings(rebuilt),
+            `seed ${seed}`
+          )
+        }
+      }),
+    { timeout: 60_000 }
+  )
 })

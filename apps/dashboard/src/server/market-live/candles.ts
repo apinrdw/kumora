@@ -827,6 +827,10 @@ export const makeCandleBook = Effect.fnUntraced(function* (
   // See spec apinrdw/kumora#510 and apinrdw/kumora#500.
   const rankStored = store.eachStoredSweeps(alertRule.rank)
 
+  // A code side's sweeps as the alert rule ranks them: the measure of what a
+  // restart must rebuild.
+  const sweepRanking = alertRule.ranked
+
   // How many candles the book holds: the bound's measure.
   const retained = Effect.sync(() => {
     let count = 0
@@ -851,6 +855,7 @@ export const makeCandleBook = Effect.fnUntraced(function* (
     hasUnflushed,
     restore,
     rankStored,
+    sweepRanking,
     retained,
   }
 })

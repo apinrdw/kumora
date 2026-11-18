@@ -312,5 +312,12 @@ export const makeSweepAlerts = Effect.sync(() => {
       yield* join(yield* rankingOf(code, sweep.side), sweep.lots)
   })
 
-  return { regroup, release, decide, rank }
+  // One code side's ranking, each distinct lots with its count, largest
+  // first: what `rank` rebuilds of a stored day, so the two can be compared.
+  const ranked = (code: StockCode, side: AlertSide) =>
+    Effect.map(rankingOf(code, side), ({ lots, counts }) =>
+      lots.map((value, index) => [value, counts[index]] as const)
+    )
+
+  return { regroup, release, decide, rank, ranked }
 })
