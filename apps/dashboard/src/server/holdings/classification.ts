@@ -15,7 +15,7 @@ import {
   TOO_MANY_STOCKS,
 } from "./month-replace.ts"
 import type { MonthTables } from "./months-to-parse.ts"
-import { type Cell, forEachRow, refuseErrors, type Row } from "./xlsx.ts"
+import { type Cell, forEachRowWithoutErrors, type Row } from "./xlsx.ts"
 
 // Bumped whenever parsing changes what it stores: the archive run's
 // reconcile then parses every month again.
@@ -245,9 +245,8 @@ const parseSheet = Effect.fnUntraced(function* (bytes: Uint8Array) {
     "origin",
     "shares",
   ])
-  yield* forEachRow(bytes, (rowNumber, read) =>
+  yield* forEachRowWithoutErrors(bytes, (rowNumber, cells) =>
     Effect.gen(function* () {
-      const cells = yield* refuseErrors(rowNumber, read)
       if (layout === undefined) {
         layout = yield* headerLayout(rowNumber, cells)
         return

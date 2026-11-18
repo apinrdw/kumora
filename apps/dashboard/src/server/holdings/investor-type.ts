@@ -19,8 +19,7 @@ import type { MonthTables } from "./months-to-parse.ts"
 import {
   type Cell,
   columnLetters,
-  forEachRow,
-  refuseErrors,
+  forEachRowWithoutErrors,
   type Row,
 } from "./xlsx.ts"
 
@@ -294,9 +293,8 @@ const parseSheet = Effect.fnUntraced(function* (bytes: Uint8Array) {
     "under_5",
     "at_least_5",
   ])
-  yield* forEachRow(bytes, (rowNumber, read) =>
+  yield* forEachRowWithoutErrors(bytes, (rowNumber, cells) =>
     Effect.gen(function* () {
-      const cells = yield* refuseErrors(rowNumber, read)
       if (layout === undefined) {
         layout = yield* headerLayout(rowNumber, cells)
         if (layout !== undefined) headerRows = 1

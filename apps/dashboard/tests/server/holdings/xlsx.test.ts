@@ -4,8 +4,8 @@ import { Effect } from "effect"
 import {
   CellError,
   forEachRow,
+  forEachRowWithoutErrors,
   type ReadCell,
-  refuseErrors,
 } from "@/server/holdings/xlsx"
 
 import { workbook } from "./workbook.ts"
@@ -103,11 +103,11 @@ describe("a cell's type", () => {
   it.effect("refuses an error in a row read without errors", () =>
     Effect.gen(function* () {
       const error = yield* Effect.flip(
-        forEachRow(
+        forEachRowWithoutErrors(
           yield* workbook(
             `<row r="7"><c r="A7"><v>1</v></c><c r="AB7" t="e"><v>#N/A</v></c></row>`
           ),
-          refuseErrors
+          () => Effect.void
         )
       )
       assert.deepStrictEqual(

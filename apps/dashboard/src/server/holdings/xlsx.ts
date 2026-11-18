@@ -178,7 +178,7 @@ const BOOLEAN_TEXT = new Map([
 // Decision: an error is read as a CellError, never as text, and each parser
 // decides what to do with it: an error read as text stored `#N/A` as a
 // stock. The classification and investor-type parses read their rows through
-// `refuseErrors`, so any error fails their report; the above-1% parse skips
+// `forEachRowWithoutErrors`, so any error fails their report; the above-1% parse skips
 // Apr 2026's rows holding only `#DIV/0!` and fails on an error in a cell it
 // reads. See apinrdw/kumora#473.
 // Decision: a cell of any other type, or one holding something but no value,
@@ -299,7 +299,7 @@ export const columnLetters = (column: number) =>
   })
 
 // `cells` as a row with no error, refused on its first error.
-export const refuseErrors = Effect.fnUntraced(function* (
+const refuseErrors = Effect.fnUntraced(function* (
   rowNumber: number,
   cells: ReadRow
 ) {
@@ -310,3 +310,14 @@ export const refuseErrors = Effect.fnUntraced(function* (
       )
   return cells as Row
 })
+
+// `forEachRow`, refusing the report at its first error cell.
+export const forEachRowWithoutErrors = <E, R>(
+  bytes: Uint8Array,
+  onRow: (rowNumber: number, cells: Row) => Effect.Effect<void, E, R>
+) =>
+  forEachRow(bytes, (rowNumber, cells) =>
+    Effect.flatMap(refuseErrors(rowNumber, cells), (row) =>
+      onRow(rowNumber, row)
+    )
+  )
