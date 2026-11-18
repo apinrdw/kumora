@@ -180,6 +180,10 @@ tr.flash { animation: flash 1.2s ease-out; }
     <label for="search">Search <input type="text" id="search" placeholder="BBCA" maxlength="6"></label>
     <label for="pmin">Price <input type="number" id="pmin" placeholder="min" min="1"> – <input type="number" id="pmax" placeholder="max" min="1" aria-label="Maximum price"></label>
     <span class="spacer"></span>
+    <label for="rankBy" id="rankWrap" hidden>Rank by
+      <select id="rankBy"><option value="imb">Imbalance</option><option value="bDepth">Near depth bid</option><option value="oDepth">Near depth offer</option><option value="empty">Empty ticks</option><option value="spreadP">Spread %</option><option value="lpo">Lots per order</option><option value="last">Last event</option><option value="ev5">Events 5m</option><option value="age">Book age</option></select>
+      <button class="iconbtn" id="rankDir" type="button">High → low</button>
+    </label>
     <span class="sortnote" id="sortnote"></span>
   </div>
   <div class="excluded" id="excluded"></div>
@@ -398,13 +402,24 @@ function miniLadder(s) {
   const side = (lv, cls) => lv.slice(0, 5).map(l => `<div class="lv"><b style="width:${l.lots / mx * 100}%;background:var(--${cls}-soft)"></b><span class="num">${fmtP(l.price)}</span><span class="num">${fmtLots(l.lots)}</span><span class="num muted">${l.orders}</span></div>`).join("");
   return `<div class="mini"><div>${side(s.bids, "up")}</div><div>${side(s.offers, "down")}</div><button class="iconbtn" data-open="${s.code}" style="grid-column:1/-1;justify-self:start">Open ${s.code} in Market Live</button></div>`;
 }
+let rankKey = "imb", rankDir = -1;
+function rankFigure(s, side) { const r = s.r; switch (rankKey) {
+  case "imb": case "bDepth": case "oDepth": return fmtRp(rankKey === "oDepth" || (rankKey === "imb" && side === "offer") ? r.oDepth : r.bDepth);
+  case "empty": return `${r.bEmpty.e}/${r.oEmpty.e} empty`; case "spreadP": return r.spreadT == null ? "—" : `${r.spreadT}t ${r.spreadP.toFixed(2)}%`;
+  case "lpo": return `${r.bLpo.toFixed(0)}/${r.oLpo.toFixed(0)} lots/ord`; case "last": { const e = s.events.at(-1); return e ? fmtAge(simNow - e.t) + " ago" : "—"; }
+  case "ev5": return s.events.filter(e => simNow - e.t < 300000).length + " in 5m"; case "age": return fmtAge(simNow - s.at); } }
+function rankHalf(list) {
+  const st = s => simNow - s.at > 60000;
+  const val = s => rankKey === "imb" ? Math.abs(s.r.imb) : sortVal(s, rankKey);
+  return list.sort((a, b) => st(a) - st(b) || ((x, y) => (x < y ? -1 : x > y ? 1 : 0) * rankDir)(val(a), val(b)));
+}
 function renderTug(v) {
-  const bidHeavy = order.filter(s => !s.limit && s.r.imb >= 0).sort((a, b) => (simNow - a.at > 60000) - (simNow - b.at > 60000) || b.r.imb - a.r.imb);
-  const offHeavy = order.filter(s => !s.limit && s.r.imb < 0).sort((a, b) => (simNow - a.at > 60000) - (simNow - b.at > 60000) || a.r.imb - b.r.imb);
+  const bidHeavy = rankHalf(order.filter(s => !s.limit && s.r.imb >= 0));
+  const offHeavy = rankHalf(order.filter(s => !s.limit && s.r.imb < 0));
   const limits = order.filter(s => s.limit);
   const row = (s, side) => `<div class="tugrow ${simNow - s.at > 60000 ? "stale" : ""}" data-c="${s.code}"><span class="codecell"><span class="code">${s.code}</span>${WATCH.has(s.code) ? '<span class="tag star">★</span>' : ""}</span>
     <span class="tugbar"><i style="width:${Math.abs(s.r.imb)}%;background:var(--${side === "bid" ? "up" : "down"})"></i></span>
-    <span class="num ${side === "bid" ? "up" : "down"}">${sgn(s.r.imb)}</span><span class="num nd muted">${fmtRp(side === "bid" ? s.r.bDepth : s.r.oDepth)}</span><span>${quiet(s) ? "" : evDot(s)}</span>
+    <span class="num ${side === "bid" ? "up" : "down"}">${sgn(s.r.imb)}</span><span class="num nd muted">${rankFigure(s, side)}</span><span>${quiet(s) ? "" : evDot(s)}</span>
     ${expanded === s.code ? miniLadder(s) : ""}</div>`;
   v.innerHTML = `<div class="tug"><section class="tugcol bid"><h2><span class="up">Bid-heavy</span><span class="muted">${bidHeavy.length} codes</span></h2>${bidHeavy.slice(0, 60).map(s => row(s, "bid")).join("")}</section>
     <section class="tugcol offer"><h2><span class="down">Offer-heavy</span><span class="muted">${offHeavy.length} codes</span></h2>${offHeavy.slice(0, 60).map(s => row(s, "offer")).join("")}</section>
@@ -415,8 +430,7 @@ function feedHtml() { return `<aside class="feed"><h2><span>Book events</span><s
 function tileHtml(s) { return renderTiles.tile(s); }
 function splitLists() {
   const st = s => simNow - s.at > 60000;
-  return { bid: order.filter(s => !s.limit && s.r.imb >= 0).sort((a, b) => st(a) - st(b) || b.r.imb - a.r.imb),
-    offer: order.filter(s => !s.limit && s.r.imb < 0).sort((a, b) => st(a) - st(b) || a.r.imb - b.r.imb), limits: order.filter(s => s.limit) };
+  return { bid: rankHalf(order.filter(s => !s.limit && s.r.imb >= 0)), offer: rankHalf(order.filter(s => !s.limit && s.r.imb < 0)), limits: order.filter(s => s.limit) };
 }
 function renderTugFeed(v) { renderTug(v); const tug = v.innerHTML; v.innerHTML = `<div class="splitfeed"><div style="min-width:0">${tug}</div>${feedHtml()}</div>`; }
 function renderTilesSplit(v) {
@@ -447,8 +461,10 @@ function render() {
   document.getElementById("vlabel").textContent = VARIANTS[vi][1];
   document.getElementById("vname").textContent = VARIANTS[vi][1];
   const label = COLS.find(c => c[0] === sortKey)[1];
+  const split = ["tug", "tug-feed", "tiles-split"].includes(VARIANTS[vi][0]);
+  document.getElementById("rankWrap").hidden = !split;
   const left = Math.max(0, Math.ceil((5000 - (simNow - lastSort)) / 1000));
-  document.getElementById("sortnote").innerHTML = ["tug", "tug-feed", "tiles-split"].includes(VARIANTS[vi][0]) ? `Split by <b>Imbalance</b> · ${hovering ? "order held while pointer is on the list" : "re-sorts in " + left + "s"}` : `Ranked by <b>${label}</b> ${sortDir < 0 ? "high→low" : "low→high"} · ${hovering ? "order held while pointer is on the list" : "re-sorts in " + left + "s"}`;
+  document.getElementById("sortnote").innerHTML = split ? `Halves split by imbalance sign · ${hovering ? "order held while pointer is on the list" : "re-sorts in " + left + "s"}` : `Ranked by <b>${label}</b> ${sortDir < 0 ? "high→low" : "low→high"} · ${hovering ? "order held while pointer is on the list" : "re-sorts in " + left + "s"}`;
   const all = stocks.length, excl = stocks.filter(s => s.price <= 10).length;
   document.getElementById("excluded").textContent = `${order.length} codes above the floor · 59 Special Monitoring Board codes and ${excl} codes at Rp1–10 are not ranked · rows with no book change for 60 s grey out and sink`;
   VARIANTS[vi][2](v);
@@ -471,6 +487,8 @@ addEventListener("keydown", e => { if (e.target.closest("input,textarea,select,[
 document.getElementById("fAll").onclick = () => { watchOnly = false; document.getElementById("fAll").setAttribute("aria-pressed", "true"); document.getElementById("fWatch").setAttribute("aria-pressed", "false"); resort(true); render(); };
 document.getElementById("fWatch").onclick = () => { watchOnly = true; document.getElementById("fWatch").setAttribute("aria-pressed", "true"); document.getElementById("fAll").setAttribute("aria-pressed", "false"); resort(true); render(); };
 document.getElementById("simStale").onclick = () => { stockbitStale = !stockbitStale; document.getElementById("banner").classList.toggle("on", stockbitStale); document.getElementById("feedchip").classList.toggle("stale", stockbitStale); document.getElementById("feedtxt").textContent = stockbitStale ? "Stockbit stale · Ajaib for watchlist" : "Stockbit live"; document.getElementById("simStale").textContent = stockbitStale ? "Restore feed" : "Simulate stale feed"; };
+document.getElementById("rankBy").onchange = e => { rankKey = e.target.value; rankDir = -1; document.getElementById("rankDir").textContent = "High → low"; resort(true); render(); };
+document.getElementById("rankDir").onclick = () => { rankDir *= -1; document.getElementById("rankDir").textContent = rankDir < 0 ? "High → low" : "Low → high"; resort(true); render(); };
 document.getElementById("bellBtn").onclick = () => drawerMode === "history" ? closeDrawer() : openHistory();
 document.getElementById("rulesBtn").onclick = () => drawerMode === "rules" ? closeDrawer() : openRules();
 // Warm up so the first frame has events and ages.
