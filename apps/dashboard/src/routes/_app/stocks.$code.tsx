@@ -238,7 +238,10 @@ function Holdings({
     .at(-1)?.dataDate
   // A stock any source has, even one with no composition.
   const known =
-    page.composition !== undefined || page.inKsei || newestSize !== undefined
+    page.composition !== undefined ||
+    page.inKsei ||
+    newestSize !== undefined ||
+    page.majorHolders.some(({ holders }) => holders.length > 0)
   return (
     <>
       {page.composition === undefined ? (

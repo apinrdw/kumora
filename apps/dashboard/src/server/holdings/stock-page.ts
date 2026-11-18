@@ -585,6 +585,8 @@ const isStockCode = Schema.is(StockCode)
 // source, by code, with the classification report's issuer name. KSEI's and
 // the investor-type report name no issuer. A code that isn't a stock code's
 // shape is left out, as no page could open it.
+// Decision: no above-1% source here. Every above-1% stock is already in the
+// investor-type report (spec apinrdw/kumora#479).
 export const stockList = Effect.gen(function* () {
   const [rows = []] = yield* (yield* HoldingsDb).batch([
     {
