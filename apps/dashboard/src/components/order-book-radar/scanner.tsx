@@ -1,20 +1,27 @@
 // The order book radar's scanner (spec apinrdw/kumora#517, "The scanner"),
 // layout D: the Bid-heavy and Offer-heavy halves, each row unfolding its
-// best 5 levels, the codes at a limit under them. Book events (#523, #524)
-// add the row's last-event chip and the feed beside the halves.
+// best 5 levels, the codes at a limit under them, each row with its last
+// book event's chip.
 import type { BookLevel, StockCode } from "@workspace/relay"
 import { cn } from "@workspace/ui/lib/utils"
 import { IconStarFilled } from "@tabler/icons-react"
-import { Effect } from "effect"
+import { DateTime, Effect } from "effect"
 import { useSyncExternalStore } from "react"
 
 import { KButton } from "@/components/k/button"
 import type { BookReadingsStore } from "@/components/market-live/book-readings-store"
 import type { OrderBookStore } from "@/components/market-live/order-book-store"
+import {
+  BOOK_EVENT_MARKS,
+  BOOK_EVENT_NAMES,
+  bookEventDetail,
+} from "@/lib/book-events"
 import { lots, price, signed } from "@/lib/format"
 import {
   isStale,
   rankedFigure,
+  RECENT_EVENTS_MS,
+  type CodeEvents,
   type RankKey,
   type Scan,
 } from "@/lib/order-book-radar"
@@ -37,6 +44,8 @@ export interface RowView {
   readonly rankBy: RankKey
   readonly marketNow: number
   readonly watchlist: ReadonlySet<StockCode>
+  // Each code's book events, as of marketNow.
+  readonly events: ReadonlyMap<StockCode, CodeEvents>
   readonly unfolded: StockCode | undefined
   readonly onUnfold: (code: StockCode | undefined) => void
   readonly book: OrderBookStore | undefined
@@ -60,6 +69,36 @@ function TugBar({ imbalance, half }: { imbalance: number; half: Half }) {
 }
 
 const lotsText = (n: number) => Effect.runSync(lots(n))
+
+// The row's last book event of the last 5 minutes: its mark coloured by
+// side, its name and detail on hover.
+function LastEvent({
+  events,
+  now,
+}: {
+  events: CodeEvents | undefined
+  now: number
+}) {
+  const event = events?.last
+  const recent =
+    event !== undefined &&
+    now - DateTime.toEpochMillis(event.at) < RECENT_EVENTS_MS
+  return (
+    <span aria-label="Last event" className="text-right">
+      {recent && (
+        <abbr
+          title={`${BOOK_EVENT_NAMES[event.kind]}: ${Effect.runSync(bookEventDetail(event))}`}
+          className={cn(
+            "rounded-xs px-0.5 text-[9px] font-bold no-underline sm:px-1 sm:text-[10px]",
+            event.side === "bid" ? "bg-up/15 text-up" : "bg-down/15 text-down"
+          )}
+        >
+          {BOOK_EVENT_MARKS[event.kind]}
+        </abbr>
+      )}
+    </span>
+  )
+}
 
 // One side's best levels: price, lots and orders over a bar of its lots.
 function Levels({
@@ -173,6 +212,7 @@ function Row({
   const imbalance = readings.imbalance ?? 0
   const stale = isStale(readings, view.marketNow)
   const unfolded = view.unfolded === code
+  const events = view.events.get(code)
   return (
     <li
       data-code={code}
@@ -208,10 +248,11 @@ function Row({
           aria-label="Ranked by"
           className="hidden text-right text-muted-foreground tabular-nums sm:block"
         >
-          {Effect.runSync(rankedFigure(readings, view.rankBy, view.marketNow))}
+          {Effect.runSync(
+            rankedFigure(readings, view.rankBy, view.marketNow, events)
+          )}
         </span>
-        {/* The last-event chip's place (#523). */}
-        <span data-slot="last-event" />
+        <LastEvent events={events} now={view.marketNow} />
       </button>
       {unfolded && (
         <Unfolded code={code} book={view.book} onOpen={view.onOpen} />

@@ -17,6 +17,7 @@ import {
   useRef,
   useState,
   useSyncExternalStore,
+  type RefObject,
 } from "react"
 
 import {
@@ -101,23 +102,6 @@ export function useRecentBookEvents(
   })
 }
 
-/**
- * Picks the event an alert opened Market Live at, by its key, once the
- * code's events include it: once, so the user can unpick it.
- */
-export function usePickedEvent(store: BookEventStore, key: string | undefined) {
-  const events = useEvents(store)
-  const done = useRef<{ store: BookEventStore; key: string }>(undefined)
-  useEffect(() => {
-    if (key === undefined) return
-    if (done.current?.store === store && done.current.key === key) return
-    if (!events.some((event) => Effect.runSync(bookEventKey(event)) === key))
-      return
-    done.current = { store, key }
-    store.pick(key)
-  }, [store, key, events])
-}
-
 /** The marks of a ladder level's recent events. */
 export function LadderMarks({
   events,
@@ -161,23 +145,19 @@ function Note({ children }: { children: string }) {
 
 function EventRow({
   event,
+  eventKey,
   after,
   picked,
   onPick,
 }: {
   event: BookEvent
+  eventKey: string
   after: boolean
   picked: boolean
   onPick: () => void
 }) {
-  const row = useRef<HTMLLIElement>(null)
-  // A picked event scrolls into view: the one an alert opened the page at
-  // may be far down the list.
-  useEffect(() => {
-    if (picked) row.current?.scrollIntoView({ block: "nearest" })
-  }, [picked])
   return (
-    <li ref={row}>
+    <li data-event-key={eventKey}>
       <button
         type="button"
         aria-pressed={picked}
@@ -224,19 +204,46 @@ const listNote = (state: {
     return state.live ? "No book events yet today." : "No book events this day."
   })
 
+// Picks the event keyed `landOn` once the store holds it, and scrolls the
+// list to it: a link from the scanner's feed lands there.
+function useLandOn(
+  store: BookEventStore,
+  events: ReadonlyArray<BookEvent>,
+  landOn: string | undefined,
+  list: RefObject<HTMLOListElement | null>
+) {
+  const landed = useRef<string | undefined>(undefined)
+  useEffect(() => {
+    if (landOn === undefined || landed.current === landOn) return
+    const found = events.some(
+      (event) => Effect.runSync(bookEventKey(event)) === landOn
+    )
+    if (!found) return
+    landed.current = landOn
+    store.pick(landOn)
+    list.current
+      ?.querySelector(`[data-event-key="${CSS.escape(landOn)}"]`)
+      ?.scrollIntoView({ block: "center" })
+  }, [store, events, landOn, list])
+}
+
 /**
  * The readout's Book events part: the code's events, newest first. Picking
  * one rings its heatmap mark; on a recorded day those after the cursor are
- * dimmed.
+ * dimmed. A link can land on one, `landOn` by its key.
  */
 export function BookEventList({
   store,
   cursor,
+  landOn,
 }: {
   store: BookEventStore
   cursor: ReplayCursor | undefined
+  landOn?: string | undefined
 }) {
   const events = useEvents(store)
+  const list = useRef<HTMLOListElement>(null)
+  useLandOn(store, events, landOn, list)
   const picked = useSyncExternalStore(
     store.subscribe,
     store.picked,
@@ -266,12 +273,13 @@ export function BookEventList({
       </h3>
       {note !== undefined && <Note>{note}</Note>}
       {recorded && events.length > 0 && (
-        <ol className="max-h-[230px] overflow-auto">
+        <ol ref={list} className="max-h-[230px] overflow-auto">
           {[...events].reverse().map((event) => {
             const key = Effect.runSync(bookEventKey(event))
             return (
               <EventRow
                 key={key}
+                eventKey={key}
                 event={event}
                 after={
                   cursor !== undefined && DateTime.toEpochMillis(event.at) > now

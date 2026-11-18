@@ -1,7 +1,7 @@
 // The order book radar's scanner (spec apinrdw/kumora#517, "The scanner"):
 // which codes it covers, how it splits them into the Bid-heavy and
 // Offer-heavy halves, and how Rank by orders each half.
-import type { BookReadings, StockCode } from "@workspace/relay"
+import type { BookEvent, BookReadings, StockCode } from "@workspace/relay"
 import { DateTime, Effect } from "effect"
 
 import { LOWEST_READ_CLOSE } from "./book-readings"
@@ -14,10 +14,11 @@ export type RankKey =
   | "emptyTicks"
   | "spread"
   | "lotsPerOrder"
+  | "lastEvent"
+  | "eventsInFive"
   | "bookAge"
 
-// Rank by's choices, in the menu's order. Last event and Events in 5
-// minutes come with book events (#523).
+// Rank by's choices, in the menu's order.
 export const RANK_CHOICES: ReadonlyArray<{
   readonly value: RankKey
   readonly label: string
@@ -28,6 +29,8 @@ export const RANK_CHOICES: ReadonlyArray<{
   { value: "emptyTicks", label: "Empty ticks" },
   { value: "spread", label: "Spread %" },
   { value: "lotsPerOrder", label: "Lots per order" },
+  { value: "lastEvent", label: "Last event" },
+  { value: "eventsInFive", label: "Events in 5 minutes" },
   { value: "bookAge", label: "Book age" },
 ]
 
@@ -71,12 +74,26 @@ export interface CodeFigures {
   readonly previousValue: number | undefined
 }
 
+// Decision: Events in 5 minutes counts a code's book events of the last 5
+// minutes on the object's clock, and the row's last-event chip shows only
+// an event that recent. See spec apinrdw/kumora#517, "Book events".
+export const RECENT_EVENTS_MS = 300_000
+
+// A code's book events as the scanner ranks them: its newest of the day,
+// and how many of the last RECENT_EVENTS_MS.
+export interface CodeEvents {
+  readonly last: BookEvent
+  readonly inFiveMinutes: number
+}
+
 export interface ScanInput {
   readonly readings: ReadonlyArray<BookReadings>
   readonly figures: ReadonlyMap<StockCode, CodeFigures>
   // The Special Monitoring Board's codes.
   readonly board: ReadonlySet<StockCode>
   readonly watchlist: ReadonlySet<StockCode>
+  // Codes with a book event today.
+  readonly events: ReadonlyMap<StockCode, CodeEvents>
   // On the market clock, in epoch ms.
   readonly now: number
 }
@@ -106,11 +123,13 @@ export const isStale = (readings: BookReadings, now: number) =>
 const sumOf = (a: number | undefined, b: number | undefined) =>
   a === undefined && b === undefined ? undefined : (a ?? 0) + (b ?? 0)
 
-// What Rank by orders by; none sorts last either way.
+// What Rank by orders by; none sorts last either way. Last event ranks by
+// its time, so High → low puts the newest first.
 const rankValue = (
   readings: BookReadings,
   key: RankKey,
-  now: number
+  now: number,
+  events: CodeEvents | undefined
 ): number | undefined => {
   switch (key) {
     case "imbalance":
@@ -127,6 +146,10 @@ const rankValue = (
       return readings.spread?.percent
     case "lotsPerOrder":
       return sumOf(readings.bid.lotsPerOrder, readings.offer.lotsPerOrder)
+    case "lastEvent":
+      return events && DateTime.toEpochMillis(events.last.at)
+    case "eventsInFive":
+      return events?.inFiveMinutes ?? 0
     case "bookAge":
       return bookAge(readings, now)
   }
@@ -137,13 +160,19 @@ const rankValue = (
 const ranked = (
   half: ReadonlyArray<BookReadings>,
   settings: RadarSettings,
-  now: number
+  input: ScanInput
 ) => {
+  const { now } = input
   const sign = settings.direction === "high" ? -1 : 1
   const keyed = half.map((readings) => ({
     readings,
     stale: isStale(readings, now),
-    value: rankValue(readings, settings.rankBy, now),
+    value: rankValue(
+      readings,
+      settings.rankBy,
+      now,
+      input.events.get(readings.code)
+    ),
   }))
   keyed.sort(
     (a, b) =>
@@ -211,8 +240,8 @@ export const scan = (input: ScanInput, settings: RadarSettings) =>
       else offer.push(readings)
     }
     return {
-      bid: ranked(bid, settings, input.now),
-      offer: ranked(offer, settings, input.now),
+      bid: ranked(bid, settings, input),
+      offer: ranked(offer, settings, input),
       limits: limits.sort((a, b) => a.code.localeCompare(b.code)),
       above,
       board: input.board.size,
@@ -236,7 +265,8 @@ const ageText = (ms: number) =>
 export const rankedFigure = Effect.fnUntraced(function* (
   readings: BookReadings,
   key: RankKey,
-  now: number
+  now: number,
+  events?: CodeEvents
 ) {
   switch (key) {
     case "imbalance":
@@ -257,6 +287,12 @@ export const rankedFigure = Effect.fnUntraced(function* (
         : `${readings.spread.ticks}t · ${yield* plain(readings.spread.percent, 2)}%`
     case "lotsPerOrder":
       return `${yield* perOrder(readings.bid.lotsPerOrder)} / ${yield* perOrder(readings.offer.lotsPerOrder)} lots/ord`
+    case "lastEvent":
+      return events === undefined
+        ? "—"
+        : `${yield* ageText(Math.max(0, now - DateTime.toEpochMillis(events.last.at)))} ago`
+    case "eventsInFive":
+      return `${events?.inFiveMinutes ?? 0} in 5m`
     case "bookAge":
       return yield* ageText(bookAge(readings, now))
   }

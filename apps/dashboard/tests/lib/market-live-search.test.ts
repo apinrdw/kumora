@@ -63,17 +63,6 @@ describe("the Market Live search params", () => {
     })
   )
 
-  it.effect("keeps a book event's key to open at, and drops a blank one", () =>
-    Effect.gen(function* () {
-      const event = "BBCA|pulled|bid|9000|1763433000000"
-      expect((yield* parseMarketLiveSearch({ event })).event).toBe(event)
-      for (const blank of ["", 3, ["a"]])
-        expect(
-          (yield* parseMarketLiveSearch({ event: blank })).event
-        ).toBeUndefined()
-    })
-  )
-
   it.effect("keeps the phone's panel tab and drops an unknown one", () =>
     Effect.gen(function* () {
       for (const panel of ["sweeps", "watchlist", "book", "tape"] as const)
@@ -88,6 +77,17 @@ describe("the Market Live search params", () => {
       expect((yield* parseMarketLiveSearch({ big: true })).big).toBe(true)
       for (const big of [false, "yes", 1])
         expect((yield* parseMarketLiveSearch({ big })).big).toBeUndefined()
+    })
+  )
+
+  it.effect("keeps the book event to land on, and drops an empty one", () =>
+    Effect.gen(function* () {
+      const event = "BBCA|appeared|bid|7600|1763433000000"
+      expect((yield* parseMarketLiveSearch({ event })).event).toBe(event)
+      for (const bad of ["", 42])
+        expect(
+          (yield* parseMarketLiveSearch({ event: bad })).event
+        ).toBeUndefined()
     })
   )
 })

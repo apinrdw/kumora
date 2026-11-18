@@ -6,6 +6,7 @@ import type { BookReadingsStore } from "@/components/market-live/book-readings-s
 import { scan, type RadarSettings, type Scan } from "@/lib/order-book-radar"
 
 import type { FiguresStore } from "./figures-store"
+import type { RadarEventsStore } from "./radar-events-store"
 
 // Decision: the order re-sorts every 5 s and holds while the pointer is on
 // the halves; readings show live in between. The user's own changes
@@ -17,6 +18,7 @@ const RESORT_MS = 5_000
 interface Inputs {
   readonly readings: BookReadingsStore
   readonly figures: FiguresStore
+  readonly events: RadarEventsStore
   readonly settings: RadarSettings
   readonly board: ReadonlySet<StockCode>
   readonly watchlist: ReadonlySet<StockCode>
@@ -31,22 +33,26 @@ interface Ranking {
   readonly basis: object
 }
 
-const rank = (inputs: Inputs, basis: object, at: number): Ranking => ({
-  scan: Effect.runSync(
-    scan(
-      {
-        readings: inputs.readings.all(),
-        figures: inputs.figures.all(),
-        board: inputs.board,
-        watchlist: inputs.watchlist,
-        now: at + inputs.clockOffset.current,
-      },
-      inputs.settings
-    )
-  ),
-  at,
-  basis,
-})
+const rank = (inputs: Inputs, basis: object, at: number): Ranking => {
+  const now = at + inputs.clockOffset.current
+  return {
+    scan: Effect.runSync(
+      scan(
+        {
+          readings: inputs.readings.all(),
+          figures: inputs.figures.all(),
+          board: inputs.board,
+          watchlist: inputs.watchlist,
+          events: inputs.events.byCode(now),
+          now,
+        },
+        inputs.settings
+      )
+    ),
+    at,
+    basis,
+  }
+}
 
 const isEmpty = ({ scan: { bid, offer, limits } }: Ranking) =>
   bid.length + offer.length + limits.length === 0

@@ -15,7 +15,6 @@ import type { BookEventStore } from "@/components/market-live/book-event-store"
 import {
   BookEventList,
   useBookEvents,
-  usePickedEvent,
   useRecentBookEvents,
 } from "@/components/market-live/book-events"
 import { makeBookReadingsStore } from "@/components/market-live/book-readings-store"
@@ -104,11 +103,8 @@ function MarketLivePage() {
 }
 
 // One store per selected code; the Select for it brings a fresh snapshot.
-// The book event an alert opened the page at is picked in the readout's
-// list once its events land.
 function useCodeStores(
   selected: StockCode,
-  event: string | undefined,
   day: WibDate | undefined,
   today: WibDate
 ) {
@@ -123,7 +119,6 @@ function useCodeStores(
   const heatmap = useHeatmap(selected, day, today)
   const sweeps = useSweeps(selected, day, today)
   const bookEvents = useBookEvents(selected, day)
-  usePickedEvent(bookEvents, event)
   useRememberedTopN(sweeps)
   return { candles, book, heatmap, sweeps, bookEvents }
 }
@@ -228,9 +223,9 @@ function TapePanel({
 }
 
 // What the page keeps in its URL, so a shared link opens it: the selected
-// code, the phone's panel tab, the sweep log's Big only toggle and the book
-// event an alert opened it at. Picking a code adds a history entry and
-// drops that event; switching a view replaces it and keeps the scroll.
+// code, the phone's panel tab, the sweep log's Big only toggle, and the book
+// event a link lands on. Picking a code adds a history entry and leaves the
+// event; switching a view replaces it and keeps the scroll.
 function useMarketLiveSearch() {
   const { code: selected = DEFAULT_CODE, panel, big, event } = Route.useSearch()
   const navigate = Route.useNavigate()
@@ -279,7 +274,6 @@ function MarketLiveDay({
   const codes = useStockCodeList(day, today)
   const { candles, book, heatmap, sweeps, bookEvents } = useCodeStores(
     selected,
-    event,
     day,
     today
   )
@@ -360,7 +354,13 @@ function MarketLiveDay({
               dayStates={dayStates}
               cursor={cursor}
               gaps={shownGaps}
-              events={<BookEventList store={bookEvents} cursor={cursor} />}
+              events={
+                <BookEventList
+                  store={bookEvents}
+                  cursor={cursor}
+                  landOn={event}
+                />
+              }
             />
           </>
         }

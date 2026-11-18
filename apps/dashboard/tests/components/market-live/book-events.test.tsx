@@ -6,10 +6,7 @@ import { createRoot } from "react-dom/client"
 import { afterEach, expect, test, vi } from "vitest"
 
 import { makeBookEventStore } from "@/components/market-live/book-event-store"
-import {
-  BookEventList,
-  usePickedEvent,
-} from "@/components/market-live/book-events"
+import { BookEventList } from "@/components/market-live/book-events"
 import { OrderBookPanel } from "@/components/market-live/order-book-panel"
 import { makeOrderBookStore } from "@/components/market-live/order-book-store"
 import type { ReplayCursor } from "@/components/market-live/replay-cursor"
@@ -149,25 +146,4 @@ test("the ladder marks a level's events of the last 2 minutes under a legend", (
   ])
   expect(marks[0]!.closest("tr")?.textContent).toContain("100")
   expect(host.textContent).toContain("Marks on a level: AB absorbed")
-})
-
-test("an alert's event picks and scrolls to its row once its events arrive", () => {
-  vi.useFakeTimers({ now: T0 + 80_000 })
-  const scrolled = vi.fn<() => void>()
-  Element.prototype.scrollIntoView = scrolled
-  const store = Effect.runSync(makeBookEventStore(FOLK))
-  const key = `FOLK|appeared|bid|99|${T0 + 44_000}`
-  function Opened() {
-    usePickedEvent(store, key)
-    return <BookEventList store={store} cursor={undefined} />
-  }
-  const host = render(<Opened />)
-  expect(store.picked()).toBeUndefined()
-  act(() => store.load({ code: FOLK, recorded: true, events: EVENTS }))
-  expect(rows(host).map((row) => row.picked)).toEqual([false, true, false])
-  expect(scrolled).toHaveBeenCalledOnce()
-  // Unpicked by hand, it stays unpicked.
-  act(() => (host.querySelectorAll("li button")[1] as HTMLElement).click())
-  act(() => store.load({ code: FOLK, recorded: true, events: EVENTS }))
-  expect(store.picked()).toBeUndefined()
 })
