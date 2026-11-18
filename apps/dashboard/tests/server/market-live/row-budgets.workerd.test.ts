@@ -8,6 +8,7 @@ import { DateTime, Effect } from "effect"
 
 import { BUSY_DAY } from "../../../billing/busy-figures"
 import { CHUNK } from "../../../src/server/market-live/broker-codes"
+import { TRADE_CHUNK } from "../../../src/server/market-live/tape-chunks"
 import type { OperationName } from "../../../billing/operations"
 
 import { BusyDay } from "./workerd"
@@ -198,7 +199,7 @@ layer(BusyDay.layer, { timeout: "60 seconds", excludeTestServices: true })(
           const { before, rows, status } = yield* (yield* BusyDay).billed(
             "status pass after the summary's build"
           )
-          const chunks = Math.ceil(BUSY_DAY.trades / CHUNK)
+          const chunks = Math.ceil(BUSY_DAY.trades / TRADE_CHUNK)
           assert.strictEqual(status, 200)
           assert.isAtLeast(before.rowsRead, chunks)
           assert.isAtMost(before.rowsRead, 5_000 + 1.1 * chunks)
