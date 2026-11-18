@@ -4,6 +4,7 @@ import { Effect } from "effect"
 import { useEffect, useSyncExternalStore } from "react"
 
 import { KIconButton } from "@/components/k/button"
+import { makeStorageListeners } from "@/lib/storage-listeners"
 
 import { wakeSound } from "./sweep-alert-sound"
 
@@ -31,16 +32,7 @@ export const soundOn = Effect.suspend(() =>
 
 const snapshot = () => clientRuntime.runSync(soundOn)
 
-const listeners = new Set<() => void>()
-const subscribe = (listener: () => void) => {
-  listeners.add(listener)
-  // Another tab's change.
-  window.addEventListener("storage", listener)
-  return () => {
-    listeners.delete(listener)
-    window.removeEventListener("storage", listener)
-  }
-}
+const { subscribe, changed } = Effect.runSync(makeStorageListeners)
 
 const write = Effect.fnUntraced(function* (on: boolean) {
   yield* Effect.try(() =>
@@ -52,7 +44,7 @@ const write = Effect.fnUntraced(function* (on: boolean) {
       unstored = on
     })
   )
-  for (const listener of listeners) listener()
+  yield* changed
 })
 
 // The speaker toggle in the live Running trades header. Its click is the

@@ -8,6 +8,7 @@ import {
   type ChartSettings,
   type ChartZooms,
 } from "@/lib/chart-settings"
+import { makeStorageListeners } from "@/lib/storage-listeners"
 
 import type { SweepStore } from "./sweep-store"
 
@@ -38,16 +39,7 @@ const snapshot = () => {
   return cached.settings
 }
 
-const listeners = new Set<() => void>()
-const subscribe = (listener: () => void) => {
-  listeners.add(listener)
-  // Another tab's change.
-  window.addEventListener("storage", listener)
-  return () => {
-    listeners.delete(listener)
-    window.removeEventListener("storage", listener)
-  }
-}
+const { subscribe, changed } = Effect.runSync(makeStorageListeners)
 
 const write = Effect.fnUntraced(function* (settings: ChartSettings) {
   yield* Effect.try(() =>
@@ -57,7 +49,7 @@ const write = Effect.fnUntraced(function* (settings: ChartSettings) {
       unstored = settings
     })
   )
-  for (const listener of listeners) listener()
+  yield* changed
 })
 
 // This browser's chart settings and a change to some of them. The server

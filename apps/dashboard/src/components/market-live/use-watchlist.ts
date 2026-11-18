@@ -4,6 +4,7 @@ import { Effect } from "effect"
 import { useCallback, useSyncExternalStore } from "react"
 
 import { parseMarketLiveSearch } from "@/lib/market-live-search"
+import { makeStorageListeners } from "@/lib/storage-listeners"
 
 // Decision: each browser keeps its own watchlist in localStorage (spec
 // apinrdw/kumora#138, "Watchlist"), not on the account. The e2e seeds the
@@ -44,16 +45,7 @@ const snapshot = () => {
   return cached.codes
 }
 
-const listeners = new Set<() => void>()
-const subscribe = (listener: () => void) => {
-  listeners.add(listener)
-  // Another tab's change.
-  window.addEventListener("storage", listener)
-  return () => {
-    listeners.delete(listener)
-    window.removeEventListener("storage", listener)
-  }
-}
+const { subscribe, changed } = Effect.runSync(makeStorageListeners)
 
 const write = Effect.fnUntraced(function* (codes: ReadonlyArray<StockCode>) {
   yield* Effect.try(() =>
@@ -64,7 +56,7 @@ const write = Effect.fnUntraced(function* (codes: ReadonlyArray<StockCode>) {
       cached = { raw: cached.raw, codes }
     })
   )
-  for (const listener of listeners) listener()
+  yield* changed
 })
 
 // The viewer's watchlist codes, in the order added, and its two changes. The
