@@ -22,10 +22,11 @@ const level = (price: number, lots: number, orders: number): BookLevel => ({
 const bookOf = (
   bids: ReadonlyArray<BookLevel>,
   offers: ReadonlyArray<BookLevel>,
-  previousClose?: number
+  previousClose?: number,
+  code = "ERAA"
 ): OrderBook => ({
   _tag: "OrderBook",
-  code: StockCode.make("ERAA"),
+  code: StockCode.make(code),
   bids,
   offers,
   bidLots: bids.reduce((sum, each) => sum + each.lots, 0),
@@ -115,6 +116,37 @@ describe("book readings", () => {
       const unknown = yield* read(bookOf(BIDS, []), 1250)
       assert.strictEqual(unknown.limit, undefined)
     })
+  )
+
+  it.effect(
+    "flag a warrant at its own limit and a right only at the Rp1 floor",
+    () =>
+      Effect.gen(function* () {
+        const warrant = (bids: ReadonlyArray<BookLevel>, last: number) =>
+          read(
+            bookOf(bids, bids.length === 0 ? OFFERS : [], 100, "ERAA-W"),
+            last
+          )
+        assert.strictEqual(
+          (yield* warrant(BIDS, 140)).limit,
+          undefined,
+          "a warrant at Rp100 moves 50%: Rp140 is short of its upper limit"
+        )
+        assert.strictEqual((yield* warrant(BIDS, 150)).limit, "upper")
+        assert.strictEqual((yield* warrant([], 50)).limit, "lower")
+        const right = (bids: ReadonlyArray<BookLevel>, last: number) =>
+          read(
+            bookOf(bids, bids.length === 0 ? OFFERS : [], 100, "ERAA-R"),
+            last
+          )
+        assert.strictEqual(
+          (yield* right(BIDS, 1_000)).limit,
+          undefined,
+          "a right has no upper limit"
+        )
+        assert.strictEqual((yield* right([], 50)).limit, undefined)
+        assert.strictEqual((yield* right([], 1)).limit, "lower")
+      })
   )
 })
 
