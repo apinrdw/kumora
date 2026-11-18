@@ -455,12 +455,11 @@ const Snapshot = Schema.TaggedStruct("Snapshot", {
   // The day's sweep alerts with a trade on this tape, which the page marks
   // and never plays. Absent when none has.
   sweepAlerts: Schema.optionalKey(Schema.Array(SweepAlert)),
-  // Every code's latest book readings, with its value today. Absent when no
-  // code has any yet.
+  // Every code's latest book readings. Absent when no code has any yet.
   bookReadings: Schema.optionalKey(Schema.Array(BookReadings)),
   // The scanner's figures of every code with readings: its last price,
-  // previous close and previous trading day's value. Absent when no code has
-  // readings yet.
+  // previous close, regular-board value today and previous trading day's
+  // value. Absent when no code has readings yet.
   scannerFigures: Schema.optionalKey(Schema.Array(ScannerFigures)),
   // The day's newest SNAPSHOT_BOOK_EVENTS (book-events.ts) book events of every code, oldest
   // first. Absent when there are none.
