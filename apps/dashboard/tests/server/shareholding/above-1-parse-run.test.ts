@@ -1,11 +1,13 @@
 // The Above-1% parse run: the shareholding archive's holders-above-1%
 // reports parsed into ≥1% holders.
 import { assert, describe, it } from "@effect/vitest"
+import { StockCode } from "@workspace/relay"
 import { Effect, Layer, Schema } from "effect"
 import { TestClock } from "effect/testing"
 
 import { RunId } from "@/server/archive/run"
 import { ParseRunResult } from "@/server/holdings/parse-run-result"
+import { stockPage } from "@/server/holdings/stock-page"
 import { above1ParseRuns } from "@/server/shareholding/above-1-parse"
 import { archiveRun } from "@/server/shareholding/archive-run"
 import { investorTypeParseRuns } from "@/server/shareholding/investor-type-parse"
@@ -92,56 +94,36 @@ const runRecord = ({ bucket }: World, kind: string, id: string) =>
     bucket.objects.get(`parse-runs/${kind}/${id}.json`)?.body
   )
 
-const HolderRow = Schema.Struct({
-  investor: Schema.String,
-  holderKey: Schema.String,
-  classification: Schema.NullOr(Schema.String),
-  type: Schema.NullOr(Schema.String),
-  origin: Schema.NullOr(Schema.String),
-  nationality: Schema.NullOr(Schema.String),
-  domicile: Schema.NullOr(Schema.String),
-  controller: Schema.NullOr(Schema.String),
-  scripless: Schema.Number,
-  scrip: Schema.Number,
-  total: Schema.Number,
-  hundredths: Schema.Number,
+// A stock's ≥1% holders of `dataDate`, as the stock page reads them.
+const holdersOf = ({ holdings }: World, dataDate: string, code: string) =>
+  stockPage(StockCode.make(code), undefined).pipe(
+    Effect.provide(holdings.layer),
+    Effect.map(
+      ({ majorHolders }) =>
+        majorHolders.find((month) => month.dataDate === dataDate)?.holders ?? []
+    )
+  )
+
+// The holder of `dataDate`'s stock `code` with a row naming `investor`, and
+// that row.
+const holderNaming = Effect.fnUntraced(function* (
+  w: World,
+  dataDate: string,
+  code: string,
+  investor: string
+) {
+  for (const holder of yield* holdersOf(w, dataDate, code)) {
+    const row = holder.rows.find(({ name }) => name === investor)
+    if (row !== undefined) return { ...holder, row }
+  }
+  return assert.fail(`${code} ${investor}`)
 })
-type HolderRow = typeof HolderRow.Type
 
-// A stock's rows of `dataDate`, in file order.
-// Decision: read from HoldingsDb directly until the stock page reads ≥1%
-// holders (apinrdw/kumora#481), the run's only other observer.
-const rows = ({ holdings }: World, dataDate: string, code: string) =>
-  Schema.decodeUnknownSync(Schema.Array(HolderRow))(
-    holdings.database
-      .prepare(
-        `SELECT investor_name AS investor, holder_key AS holderKey,
-           classification, investor_type AS type, origin, nationality,
-           domicile, controller, scripless, scrip, total,
-           percentage_hundredths AS hundredths
-         FROM above_1_holding WHERE data_date = ? AND stock_code = ?
-         ORDER BY seq`
-      )
-      .all(dataDate, code)
+// A stock's published rows of `dataDate`, holder by holder.
+const rowsOf = (w: World, dataDate: string, code: string) =>
+  Effect.map(holdersOf(w, dataDate, code), (holders) =>
+    holders.flatMap(({ rows }) => rows)
   )
-
-// The row of `dataDate`'s stock `code` naming `investor`.
-const row = (w: World, dataDate: string, code: string, investor: string) => {
-  const found = rows(w, dataDate, code).find(
-    (each) => each.investor === investor
-  )
-  assert.isDefined(found, `${code} ${investor}`)
-  return found
-}
-
-// A stock's ≥1% holders of `dataDate`: its rows' summed hundredths by
-// holder key.
-const holders = (w: World, dataDate: string, code: string) => {
-  const summed = new Map<string, number>()
-  for (const { holderKey, hundredths } of rows(w, dataDate, code))
-    summed.set(holderKey, (summed.get(holderKey) ?? 0) + hundredths)
-  return summed
-}
 
 describe("an above-1% parse run", () => {
   it.effect("parses every archived above-1% month on its first run", () =>
@@ -158,83 +140,116 @@ describe("an above-1% parse run", () => {
 
       // Feb 2026: a KSEI type and no classification, a padded `L` local and
       // `A` foreign.
-      const permadi: Omit<HolderRow, "holderKey"> = {
-        investor: "IR. T. PERMADI RACHMAT",
-        classification: null,
-        type: "ID",
-        origin: "local",
-        nationality: "INDONESIAN",
-        domicile: "INDONESIA",
-        controller: null,
+      const permadi = yield* holderNaming(
+        w,
+        "2026-02-27",
+        "AADI",
+        "IR. T. PERMADI RACHMAT"
+      )
+      assert.deepInclude(permadi, {
         scripless: 254_992_918,
         scrip: 0,
         total: 254_992_918,
-        hundredths: 327,
-      }
+        percentageHundredths: 327,
+      })
+      assert.deepStrictEqual(permadi.row, {
+        name: "IR. T. PERMADI RACHMAT",
+        classification: undefined,
+        type: "ID",
+        origin: "local",
+        domicile: "INDONESIA",
+        controller: undefined,
+        total: 254_992_918,
+        percentageHundredths: 327,
+      })
       assert.deepInclude(
-        row(w, "2026-02-27", "AADI", permadi.investor),
-        permadi
-      )
-      assert.deepInclude(
-        row(w, "2026-02-27", "AADI", "FTAG INVESTMENT BANK LTD"),
+        (yield* holderNaming(
+          w,
+          "2026-02-27",
+          "AADI",
+          "FTAG INVESTMENT BANK LTD"
+        )).row,
         { origin: "foreign", domicile: "MALAYSIA", type: "IB" }
       )
       // A special scrip account: no type, origin or domicile.
-      assert.deepInclude(row(w, "2026-02-27", "BSDE", "PARAGA ARTAMIDA, PT"), {
-        type: null,
-        origin: null,
-        domicile: null,
-        scripless: 0,
-        scrip: 6_461_120_464,
-        hundredths: 3052,
-      })
+      assert.deepInclude(
+        (yield* holderNaming(w, "2026-02-27", "BSDE", "PARAGA ARTAMIDA, PT"))
+          .row,
+        {
+          type: undefined,
+          origin: undefined,
+          domicile: undefined,
+          percentageHundredths: 3052,
+        }
+      )
       // TRUE's code is a boolean cell.
-      assert.strictEqual(rows(w, "2026-02-27", "TRUE").length, 6)
+      assert.lengthOf(yield* rowsOf(w, "2026-02-27", "TRUE"), 6)
       // Rows kept in file order, float noise rounded: 1.1500000000000001.
       assert.deepStrictEqual(
-        rows(w, "2026-02-27", "AADI").map(({ hundredths }) => hundredths),
+        (yield* rowsOf(w, "2026-02-27", "AADI")).map(
+          ({ percentageHundredths }) => percentageHundredths
+        ),
         [4110, 1537, 583, 438, 352, 327, 204, 154, 129, 115]
       )
-      // BSDE's `PARAGA ARTAMIDA, PT` and `PT PARAGA ARTAMIDA` are one holder;
-      // `PT.  PARAGA ARTA MIDA`, spelt with another word, is not. TLKM's BNY
-      // Mellon DR is not BNY Mellon.
-      const bsde = holders(w, "2026-02-27", "BSDE")
-      assert.strictEqual(
-        bsde.get(row(w, "2026-02-27", "BSDE", "PT PARAGA ARTAMIDA").holderKey),
-        3052 + 680
+      // BSDE's `PARAGA ARTAMIDA, PT` and `PT PARAGA ARTAMIDA` are one holder,
+      // summed, its rows in file order; `PT.  PARAGA ARTA MIDA`, spelt with
+      // another word, is not. TLKM's BNY Mellon DR is not BNY Mellon.
+      const paraga = yield* holderNaming(
+        w,
+        "2026-02-27",
+        "BSDE",
+        "PT PARAGA ARTAMIDA"
+      )
+      assert.strictEqual(paraga.percentageHundredths, 3052 + 680)
+      assert.deepStrictEqual(
+        paraga.rows.map(({ name }) => name),
+        ["PARAGA ARTAMIDA, PT", "PT PARAGA ARTAMIDA"]
       )
       assert.strictEqual(
-        bsde.get(
-          row(w, "2026-02-27", "BSDE", "PT.  PARAGA ARTA MIDA").holderKey
-        ),
-        293
+        paraga.total,
+        paraga.rows.reduce((sum, { total }) => sum + total, 0)
       )
-      const tlkm = holders(w, "2026-02-27", "TLKM")
-      assert.strictEqual(tlkm.size, 6)
-      assert.strictEqual(
-        tlkm.get(
-          row(w, "2026-02-27", "TLKM", "THE BANK OF NEW YORK MELLON").holderKey
-        ),
-        255
+      assert.lengthOf(
+        (yield* holderNaming(w, "2026-02-27", "BSDE", "PT.  PARAGA ARTA MIDA"))
+          .rows,
+        1
       )
-      assert.strictEqual(
-        tlkm.get(
-          row(w, "2026-02-27", "TLKM", "THE BANK OF NEW YORK MELLON DR")
-            .holderKey
+      assert.lengthOf(yield* holdersOf(w, "2026-02-27", "TLKM"), 6)
+      assert.deepInclude(
+        yield* holderNaming(
+          w,
+          "2026-02-27",
+          "TLKM",
+          "THE BANK OF NEW YORK MELLON"
         ),
-        230
+        { percentageHundredths: 255 }
+      )
+      assert.deepInclude(
+        yield* holderNaming(
+          w,
+          "2026-02-27",
+          "TLKM",
+          "THE BANK OF NEW YORK MELLON DR"
+        ),
+        { percentageHundredths: 230 }
       )
       // A title dropped and words reordered: one holder across Feb and Apr.
       assert.strictEqual(
-        row(w, "2026-02-27", "RALS", "LO KHENG  HONG. DRS").holderKey,
-        row(w, "2026-04-30", "RALS", "DRS LO KHENG HONG").holderKey
+        (yield* holderNaming(w, "2026-02-27", "RALS", "LO KHENG  HONG. DRS"))
+          .key,
+        (yield* holderNaming(w, "2026-04-30", "RALS", "DRS LO KHENG HONG")).key
       )
 
       // Apr 2026: a classification and its type, a blank one with neither,
       // the #DIV/0! rows skipped, FLMC's missing scrip cell read as 0, and
       // RALS's duplicate kept as two rows.
       assert.deepInclude(
-        row(w, "2026-04-30", "AADI", "FTAG INVESTMENT BANK LTD"),
+        (yield* holderNaming(
+          w,
+          "2026-04-30",
+          "AADI",
+          "FTAG INVESTMENT BANK LTD"
+        )).row,
         {
           classification: "financial_institutional",
           type: "IB",
@@ -242,71 +257,129 @@ describe("an above-1% parse run", () => {
         }
       )
       assert.deepInclude(
-        row(w, "2026-04-30", "BSDE", "METROPOLITAN TRANSCITIES INDONESIA, PT"),
-        { classification: null, type: null, origin: "local" }
+        (yield* holderNaming(
+          w,
+          "2026-04-30",
+          "BSDE",
+          "METROPOLITAN TRANSCITIES INDONESIA, PT"
+        )).row,
+        { classification: undefined, type: undefined, origin: "local" }
       )
       assert.deepInclude(
-        row(w, "2026-04-30", "FLMC", "THERESIA INDRA WIRAWAN"),
+        yield* holderNaming(w, "2026-04-30", "FLMC", "THERESIA INDRA WIRAWAN"),
         { scripless: 308_477_875, scrip: 0, total: 308_477_875 }
       )
       assert.strictEqual(
-        row(w, "2026-04-30", "BSDE", "PT PARAGA ARTAMIDA").hundredths,
+        (yield* holderNaming(w, "2026-04-30", "BSDE", "PT PARAGA ARTAMIDA")).row
+          .percentageHundredths,
         4863
       )
       assert.deepStrictEqual(
-        rows(w, "2026-04-30", "RALS")
-          .filter(({ investor }) => investor === "PT RAMAYANA MAKMURSENTOSA")
-          .map(({ classification, total, hundredths }) => ({
+        (yield* rowsOf(w, "2026-04-30", "RALS"))
+          .filter(({ name }) => name === "PT RAMAYANA MAKMURSENTOSA")
+          .map(({ classification, total, percentageHundredths }) => ({
             classification,
             total,
-            hundredths,
+            percentageHundredths,
           })),
         [
-          { classification: null, total: 3_965_000_000, hundredths: 5588 },
-          { classification: "corporate", total: 203_513_800, hundredths: 287 },
+          {
+            classification: undefined,
+            total: 3_965_000_000,
+            percentageHundredths: 5588,
+          },
+          {
+            classification: "corporate",
+            total: 203_513_800,
+            percentageHundredths: 287,
+          },
         ]
       )
-      assert.deepStrictEqual(
-        ["AADI", "BSDE", "FLMC", "RALS", "TLKM", "TRUE"].map(
-          (code) => rows(w, "2026-04-30", code).length
-        ),
-        [10, 8, 13, 7, 4, 6]
-      )
+      const april: Array<number> = []
+      for (const code of ["AADI", "BSDE", "FLMC", "RALS", "TLKM", "TRUE"])
+        april.push((yield* rowsOf(w, "2026-04-30", code)).length)
+      assert.deepStrictEqual(april, [10, 8, 13, 7, 4, 6])
 
       // Aug to Sep 2026: AADI's Permadi Rachmat drops his title, one holder.
       assert.strictEqual(
-        row(w, "2026-08-31", "AADI", "IR. T. PERMADI RACHMAT").holderKey,
-        row(w, "2026-09-30", "AADI", "T PERMADI RACHMAT").holderKey
+        (yield* holderNaming(w, "2026-08-31", "AADI", "IR. T. PERMADI RACHMAT"))
+          .key,
+        (yield* holderNaming(w, "2026-09-30", "AADI", "T PERMADI RACHMAT")).key
       )
       assert.deepInclude(
-        row(w, "2026-09-30", "AADI", "SARATOGA INVESTAMA SEDAYA TBK"),
+        (yield* holderNaming(
+          w,
+          "2026-09-30",
+          "AADI",
+          "SARATOGA INVESTAMA SEDAYA TBK"
+        )).row,
         { classification: "private_bank", type: "IB" }
       )
 
       // Oct 2026: the controller flag, read from the shifted columns.
-      assert.deepInclude(
-        row(w, "2026-10-30", "AADI", "ADARO STRATEGIC INVESTMENTS"),
-        {
-          classification: "corporate",
-          type: "CP",
-          controller: "controller",
-          origin: "local",
-          domicile: "INDONESIA",
-          scripless: 3_200_142_830,
-          scrip: 0,
-          total: 3_200_142_830,
-          hundredths: 4110,
-        }
+      const adaro = yield* holderNaming(
+        w,
+        "2026-10-30",
+        "AADI",
+        "ADARO STRATEGIC INVESTMENTS"
       )
-      assert.deepInclude(row(w, "2026-10-30", "AADI", "T PERMADI RACHMAT"), {
-        controller: "affiliate",
-        nationality: "INDONESIAN",
+      assert.deepInclude(adaro, {
+        scripless: 3_200_142_830,
+        scrip: 0,
+        total: 3_200_142_830,
+        percentageHundredths: 4110,
+      })
+      assert.deepInclude(adaro.row, {
+        classification: "corporate",
+        type: "CP",
+        controller: "controller",
+        origin: "local",
+        domicile: "INDONESIA",
       })
       assert.deepInclude(
-        row(w, "2026-10-30", "AADI", "FTAG INVESTMENT BANK LTD"),
-        { controller: null, hundredths: 114 }
+        (yield* holderNaming(w, "2026-10-30", "AADI", "T PERMADI RACHMAT")).row,
+        { controller: "affiliate" }
+      )
+      assert.deepInclude(
+        (yield* holderNaming(
+          w,
+          "2026-10-30",
+          "AADI",
+          "FTAG INVESTMENT BANK LTD"
+        )).row,
+        { controller: undefined, percentageHundredths: 114 }
       )
     })
+  )
+
+  it.effect(
+    "gives the stock page every parsed month, a stock not in one with no holders",
+    () =>
+      Effect.gen(function* () {
+        const w = world()
+        yield* archive(w, "cron-2026-11-14T13")
+        yield* parse(w, "cron-2026-11-14")
+        const read = (code: string) =>
+          stockPage(StockCode.make(code), undefined).pipe(
+            Effect.provide(w.holdings.layer),
+            Effect.map(({ majorHolders }) =>
+              majorHolders.map(({ dataDate, holders }) => ({
+                dataDate,
+                holders: holders.length,
+              }))
+            )
+          )
+        assert.deepStrictEqual(yield* read("AADI"), [
+          { dataDate: "2026-02-27", holders: 10 },
+          { dataDate: "2026-04-30", holders: 10 },
+          { dataDate: "2026-08-31", holders: 10 },
+          { dataDate: "2026-09-30", holders: 10 },
+          { dataDate: "2026-10-30", holders: 10 },
+        ])
+        assert.isTrue(
+          (yield* read("BBCA")).every(({ holders }) => holders === 0)
+        )
+      })
   )
 
   it.effect("parses nothing when nothing changed", () =>
@@ -332,8 +405,8 @@ describe("an above-1% parse run", () => {
       // October now reads exactly as the republished file: no old row left.
       for (const code of ["AADI", "BSDE", "FLMC", "RALS", "TLKM", "TRUE"])
         assert.deepStrictEqual(
-          rows(w, "2026-10-30", code),
-          rows(w, "2026-02-27", code)
+          yield* holdersOf(w, "2026-10-30", code),
+          yield* holdersOf(w, "2026-02-27", code)
         )
     })
   )
@@ -410,7 +483,7 @@ describe("an above-1% report that doesn't match what's expected", () => {
           const w = world()
           yield* archive(w, "cron-2026-11-14T06")
           yield* parse(w, "cron-2026-11-14")
-          const before = rows(w, "2026-10-30", "AADI")
+          const before = yield* holdersOf(w, "2026-10-30", "AADI")
           assert.lengthOf(before, 10)
 
           republish(w, "2026-10-30", fixture)
@@ -424,7 +497,10 @@ describe("an above-1% report that doesn't match what's expected", () => {
             runRecord(w, "above-1", "cron-2026-11-15"),
             failed
           )
-          assert.deepStrictEqual(rows(w, "2026-10-30", "AADI"), before)
+          assert.deepStrictEqual(
+            yield* holdersOf(w, "2026-10-30", "AADI"),
+            before
+          )
 
           const retried = yield* parse(w, "cron-2026-11-16")
           assert.deepInclude(retried, { outcome: "partial", monthsParsed: 0 })

@@ -102,6 +102,44 @@ const HolderSizeMonth = Schema.Struct({
 })
 export type HolderSizeMonth = typeof HolderSizeMonth.Type
 
+// CONTROLLER_OR_AFFILIATE, published from Oct 2026.
+const Controller = Schema.Literals(["controller", "affiliate"])
+
+// One row of an above-1% report as published. `percentageHundredths` is
+// its % of listed shares × 100.
+const MajorHolderRow = Schema.Struct({
+  name: Schema.String,
+  // Undefined in Feb–Mar 2026, which publish a type instead, or when blank.
+  classification: Schema.UndefinedOr(Classification),
+  type: Schema.UndefinedOr(KseiType),
+  // Undefined for a special scrip account.
+  origin: Schema.UndefinedOr(SplitOrigin),
+  domicile: Schema.UndefinedOr(Schema.String),
+  controller: Schema.UndefinedOr(Controller),
+  total: Schema.Number,
+  percentageHundredths: Schema.Number,
+})
+
+// A ≥1% holder: a month's rows of the stock sharing a holder key, summed,
+// its rows in file order.
+const MajorHolder = Schema.Struct({
+  key: Schema.String,
+  scripless: Schema.Number,
+  scrip: Schema.Number,
+  total: Schema.Number,
+  percentageHundredths: Schema.Number,
+  rows: Schema.Array(MajorHolderRow),
+})
+type MajorHolder = typeof MajorHolder.Type
+
+// An above-1% report month, its holders in the order of their first row;
+// none when the report has no row for the stock.
+const MajorHoldersMonth = Schema.Struct({
+  dataDate: Schema.String,
+  holders: Schema.Array(MajorHolder),
+})
+type MajorHoldersMonth = typeof MajorHoldersMonth.Type
+
 const StockPage = Schema.Struct({
   code: StockCode,
   // As the newest classification report holding the stock prints it.
@@ -128,6 +166,9 @@ const StockPage = Schema.Struct({
   // Every parsed investor-type month, oldest first, with the stock's
   // holdings where it has a row.
   holderSize: Schema.Array(HolderSizeMonth),
+  // Every parsed above-1% month, oldest first, with the stock's ≥1%
+  // holders.
+  majorHolders: Schema.Array(MajorHoldersMonth),
 })
 export type StockPage = typeof StockPage.Type
 
@@ -223,6 +264,82 @@ const HolderSizeHoldingRow = Schema.Struct({
 })
 
 type HolderSizeHoldingRow = typeof HolderSizeHoldingRow.Type
+
+// Every above-1% month, and the stock's rows in each in file order. ?1 is
+// the code.
+const ABOVE_1_MONTHS = `SELECT data_date FROM above_1_month ORDER BY data_date`
+const ABOVE_1_HOLDINGS = `
+  SELECT data_date, holder_key, investor_name, classification,
+    investor_type, origin, domicile, controller, scripless, scrip, total,
+    percentage_hundredths
+  FROM above_1_holding WHERE stock_code = ?1
+  ORDER BY data_date, seq`
+
+const Above1MonthRow = Schema.Struct({ data_date: Schema.String })
+const Above1HoldingRow = Schema.Struct({
+  data_date: Schema.String,
+  holder_key: Schema.String,
+  investor_name: Schema.String,
+  classification: Schema.NullOr(Classification),
+  investor_type: Schema.NullOr(KseiType),
+  origin: Schema.NullOr(SplitOrigin),
+  domicile: Schema.NullOr(Schema.String),
+  controller: Schema.NullOr(Controller),
+  scripless: Schema.Number,
+  scrip: Schema.Number,
+  total: Schema.Number,
+  percentage_hundredths: Schema.Number,
+})
+
+type Above1HoldingRow = typeof Above1HoldingRow.Type
+
+// A stored row as the report published it.
+const publishedRow = (row: Above1HoldingRow) =>
+  Effect.succeed<MajorHolder["rows"][number]>({
+    name: row.investor_name,
+    classification: row.classification ?? undefined,
+    type: row.investor_type ?? undefined,
+    origin: row.origin ?? undefined,
+    domicile: row.domicile ?? undefined,
+    controller: row.controller ?? undefined,
+    total: row.total,
+    percentageHundredths: row.percentage_hundredths,
+  })
+
+// Each above-1% month's rows grouped into holders by holder key.
+const majorHolders = Effect.fnUntraced(function* (
+  monthRows: ReadonlyArray<typeof Above1MonthRow.Type>,
+  holdingRows: ReadonlyArray<Above1HoldingRow>
+) {
+  const byMonth = new Map<string, Map<string, MajorHolder>>(
+    monthRows.map(({ data_date }) => [data_date, new Map()])
+  )
+  for (const row of holdingRows) {
+    const holders = byMonth.get(row.data_date)
+    if (holders === undefined) continue
+    const held = holders.get(row.holder_key) ?? {
+      key: row.holder_key,
+      scripless: 0,
+      scrip: 0,
+      total: 0,
+      percentageHundredths: 0,
+      rows: [],
+    }
+    holders.set(row.holder_key, {
+      key: row.holder_key,
+      scripless: held.scripless + row.scripless,
+      scrip: held.scrip + row.scrip,
+      total: held.total + row.total,
+      percentageHundredths:
+        held.percentageHundredths + row.percentage_hundredths,
+      rows: [...held.rows, yield* publishedRow(row)],
+    })
+  }
+  return [...byMonth].map(([dataDate, holders]): MajorHoldersMonth => ({
+    dataDate,
+    holders: [...holders.values()],
+  }))
+})
 
 // A new record of each of the 9 KSEI investor types holding `none`.
 const noneOfEachType = <A>(none: A) =>
@@ -383,6 +500,8 @@ export const stockPage = Effect.fnUntraced(function* (
     seriesHoldingRows = [],
     holderSizeMonthRows = [],
     holderSizeHoldingRows = [],
+    above1MonthRows = [],
+    above1HoldingRows = [],
   ] = yield* (yield* HoldingsDb).batch([
     { sql: MONTHS, params: [code] },
     { sql: HOLDINGS, params: [code, month ?? null] },
@@ -390,6 +509,8 @@ export const stockPage = Effect.fnUntraced(function* (
     { sql: SERIES_HOLDINGS, params: [code] },
     { sql: HOLDER_SIZE_MONTHS, params: [code] },
     { sql: HOLDER_SIZE_HOLDINGS, params: [code] },
+    { sql: ABOVE_1_MONTHS, params: [] },
+    { sql: ABOVE_1_HOLDINGS, params: [code] },
   ])
   const months = Schema.decodeUnknownSync(Schema.Array(MonthRow))(monthRows)
   const holdings = Schema.decodeUnknownSync(Schema.Array(HoldingRow))(
@@ -444,6 +565,12 @@ export const stockPage = Effect.fnUntraced(function* (
       ),
       Schema.decodeUnknownSync(Schema.Array(HolderSizeHoldingRow))(
         holderSizeHoldingRows
+      )
+    ),
+    majorHolders: yield* majorHolders(
+      Schema.decodeUnknownSync(Schema.Array(Above1MonthRow))(above1MonthRows),
+      Schema.decodeUnknownSync(Schema.Array(Above1HoldingRow))(
+        above1HoldingRows
       )
     ),
   })
