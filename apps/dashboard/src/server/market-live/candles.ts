@@ -38,7 +38,7 @@ import {
   type Cells,
 } from "./footprint-cells.ts"
 import type { LivePrice } from "./stockbit-liveprice.ts"
-import { makeSweepAlerts } from "./sweep-alerts.ts"
+import { makeSweepAlerts, rankedOf, type RankedSweep } from "./sweep-alerts.ts"
 
 // Decision: a trade's part in its candle stays open for 5 s after it first
 // arrived, so a second feed's copy can still move or reprice it; after that a
@@ -231,7 +231,7 @@ interface Slot {
   readonly open: Map<string, RunningTrade>
   // The minute's sweeps the alert rule ranked: those it decided since the
   // book took the minute, or the stored ones it ranked before.
-  ranked: ReadonlyArray<Sweep>
+  ranked: ReadonlyArray<RankedSweep>
 }
 
 const NO_SWEEPS: StoredSweeps = { sweeps: [], lastTrade: -1n }
@@ -390,7 +390,7 @@ export const makeCandleBook = Effect.fnUntraced(function* (
         base,
         trades: new Map(),
         open: new Map(),
-        ranked: base.sweeps,
+        ranked: yield* rankedOf(base.sweeps),
       }
       minutes.set(minute, slot)
     }
@@ -612,22 +612,16 @@ export const makeCandleBook = Effect.fnUntraced(function* (
       .flatMap(([, sweeps]) => sweeps)
   })
 
-  // The numbers of a minute's trades the book holds in `sweep`, one of the
-  // minute's `sweeps`: from its first trade up to the next sweep's.
-  const tradeNumbersOf = (
-    slot: Slot,
-    sweeps: ReadonlyArray<Sweep>,
-    sweep: Sweep
-  ) =>
+  // The numbers of a minute's trades the book holds in a ranked sweep: from
+  // its first trade up to its end.
+  const tradeNumbersOf = (slot: Slot, { sweep, end }: RankedSweep) =>
     Effect.sync(() => {
       const from = BigInt(sweep.firstTrade)
-      const next = sweeps[sweeps.indexOf(sweep) + 1]
-      const to = next === undefined ? Infinity : BigInt(next.firstTrade)
       return [...slot.trades.values(), ...slot.open.values()]
         .map((held) => held.tradeNumber)
         .filter((number) => {
           const value = BigInt(number)
-          return value >= from && value < to
+          return value >= from && (end === undefined || value < end)
         })
         .sort(TradeNumberOrder)
     })
@@ -656,12 +650,12 @@ export const makeCandleBook = Effect.fnUntraced(function* (
       slot.ranked = decided.ranked
       if (decided.pending) waiting.add(slot)
       else waiting.delete(slot)
-      for (const sweep of decided.alerts)
+      for (const alert of decided.alerts)
         alerts.push({
           code: slot.code,
-          side: sweep.side,
-          lots: sweep.lots,
-          tradeNumbers: yield* tradeNumbersOf(slot, minute, sweep),
+          side: alert.sweep.side,
+          lots: alert.sweep.lots,
+          tradeNumbers: yield* tradeNumbersOf(slot, alert),
         })
     }
     return { sweeps, alerts }

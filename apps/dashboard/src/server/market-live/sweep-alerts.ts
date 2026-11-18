@@ -39,6 +39,46 @@ const sided = (sweeps: ReadonlyArray<Sweep>) =>
 const secondOf = (sweep: Sweep) =>
   Math.floor(DateTime.toEpochMillis(sweep.time) / SECOND)
 
+// A sweep the rule ranked, with the trade numbers it covered in its minute as
+// grouped then: from its first trade up to the next sweep's (`end`), or on
+// with none after it.
+export interface RankedSweep {
+  readonly sweep: SidedSweep
+  readonly end: bigint | undefined
+}
+
+// A minute's sweeps with a side, each with the end of its trade numbers. Of a
+// stored minute, these are the sweeps the rule ranked before.
+export const rankedOf = (sweeps: ReadonlyArray<Sweep>) =>
+  Effect.sync(() =>
+    sweeps.flatMap((sweep, index): Array<RankedSweep> => {
+      if (sweep.side === "none") return []
+      const next = sweeps[index + 1]
+      return [
+        {
+          sweep: { ...sweep, side: sweep.side },
+          end: next === undefined ? undefined : BigInt(next.firstTrade),
+        },
+      ]
+    })
+  )
+
+// Whether `entry` regroups a sweep the rule ranked: it shares the sweep's
+// side and second and some of its trade numbers, so a late trade grew or
+// split that sweep. A sweep with none of their trades is new.
+const regroups = (entry: RankedSweep, ranked: ReadonlyArray<RankedSweep>) =>
+  Effect.sync(() => {
+    const from = BigInt(entry.sweep.firstTrade)
+    const second = secondOf(entry.sweep)
+    return ranked.some(
+      ({ sweep, end }) =>
+        sweep.side === entry.sweep.side &&
+        secondOf(sweep) === second &&
+        (end === undefined || from < end) &&
+        (entry.end === undefined || BigInt(sweep.firstTrade) < entry.end)
+    )
+  })
+
 // The index of the first distinct lots at or below `lots`.
 const indexOf = (ranking: Ranking, lots: number) =>
   Effect.sync(() => {
@@ -119,33 +159,34 @@ export const makeSweepAlerts = Effect.sync(() => {
   // One code's minute of sweeps, whole and in trade order, decided once the
   // object holds a trade timed `latest` (epoch ms) and the decision is made
   // at `now`. `ranked` is what an earlier call returned for the minute: its
-  // entries leave the ranking, and its seconds never alert again. A sweep
-  // whose second hasn't closed, no later second holding a trade yet, waits
-  // for a later call (`pending`); an auction match has no side and never
-  // ranks.
+  // entries leave the ranking, and a sweep that regroups one of them joins
+  // again without a decision. A new sweep is decided once its second has
+  // closed, no later second holding a trade yet; until then it waits for a
+  // later call (`pending`). An auction match has no side and never ranks.
   const decide = Effect.fnUntraced(function* (
     code: StockCode,
-    ranked: ReadonlyArray<Sweep>,
+    ranked: ReadonlyArray<RankedSweep>,
     sweeps: ReadonlyArray<Sweep>,
     latest: number,
     now: number
   ) {
-    const before = sided(ranked)
-    const decided = new Set(before.map(secondOf))
-    for (const sweep of before)
+    for (const { sweep } of ranked)
       yield* leave(yield* rankingOf(code, sweep.side), sweep.lots)
-    const minute = sided(sweeps)
-    const closed = minute.filter(
-      (sweep) => secondOf(sweep) < Math.floor(latest / SECOND)
-    )
-    const again = closed.filter((sweep) => decided.has(secondOf(sweep)))
-    for (const sweep of again)
+    const closedBefore = Math.floor(latest / SECOND)
+    const again: Array<RankedSweep> = []
+    const fresh: Array<RankedSweep> = []
+    let pending = false
+    for (const entry of yield* rankedOf(sweeps)) {
+      if (yield* regroups(entry, ranked)) again.push(entry)
+      else if (secondOf(entry.sweep) < closedBefore) fresh.push(entry)
+      else pending = true
+    }
+    for (const { sweep } of again)
       yield* join(yield* rankingOf(code, sweep.side), sweep.lots)
-    const alerts: Array<SidedSweep> = []
-    for (const sweep of closed)
-      if (!decided.has(secondOf(sweep)) && (yield* check(code, sweep, now)))
-        alerts.push(sweep)
-    return { alerts, ranked: closed, pending: closed.length < minute.length }
+    const alerts: Array<RankedSweep> = []
+    for (const entry of fresh)
+      if (yield* check(code, entry.sweep, now)) alerts.push(entry)
+    return { alerts, ranked: [...again, ...fresh], pending }
   })
 
   // Sweeps a restarted object stored, ranked without a decision: its
