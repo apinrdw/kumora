@@ -53,14 +53,14 @@ function KindTitle({
 }) {
   const notFound = Effect.runSync(monthsIn(years, "not-found"))
   return (
-    <>
-      {KIND_LABEL[kind]}{" "}
-      <span className="font-normal text-muted-foreground">
-        · {Effect.runSync(monthsIn(years, "held"))} held
+    <span className="flex flex-col">
+      {KIND_LABEL[kind]}
+      <span className="text-secondary-text text-[13px] leading-5 font-normal">
+        {Effect.runSync(monthsIn(years, "held"))} held
         {notFound > 0 &&
           `, ${Effect.runSync(count(notFound, "month", "months"))} not found`}
       </span>
-    </>
+    </span>
   )
 }
 
@@ -81,13 +81,13 @@ export function KseiCoverageCard({
   return (
     <ArchiveCard title="Coverage" aside={null}>
       <MarkLegend styles={Object.values(STATE)} />
-      <p className="text-[13px] text-muted-foreground">
+      <p className="text-secondary-text max-w-[65ch] text-[13px] leading-5 text-pretty">
         {lastDeepRun === undefined ? (
           "No Deep backfill has run yet, so no month without a KSEI report has been looked for."
         ) : (
           <>
             Not found by the latest Deep backfill,{" "}
-            <span className="font-mono whitespace-nowrap">
+            <span className="font-data text-xs whitespace-nowrap">
               {lastDeepRun.id}
             </span>
             {lastDeepRun.finishedAt !== null &&

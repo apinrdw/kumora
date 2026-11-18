@@ -27,7 +27,7 @@ const KIND_COLUMNS: ReadonlyArray<KColumn<KindRow>> = [
   {
     key: "prefix",
     label: "Key prefix",
-    cell: (row) => <span className="font-mono text-xs">{row.prefix}</span>,
+    cell: (row) => <span className="font-data text-xs">{row.prefix}</span>,
   },
   { key: "reports", label: "Reports", align: "right" },
 ]

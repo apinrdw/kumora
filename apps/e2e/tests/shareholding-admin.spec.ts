@@ -86,10 +86,10 @@ const parseCoverageMark = (page: Page, kind: string, name: RegExp) =>
     .getByRole("table", { name: `${kind} parse coverage` })
     .getByRole("button", { name })
 
-// A count on the card, by its label.
+// A count on the card, by its label: the dt and dd pair in the counts' dl.
 const stat = (card: Locator, label: string) =>
   card
-    .locator("div")
+    .locator("dl > div")
     .filter({
       has: card.page().getByRole("term").getByText(label, { exact: true }),
     })

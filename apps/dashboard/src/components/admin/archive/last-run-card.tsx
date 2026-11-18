@@ -1,7 +1,12 @@
 // An archive's last run card and its run button. The archive passes in what
 // is its own: the card's title, its counts, its partial-run details and its
 // actions.
-import { IconPlayerPlay, type TablerIcon } from "@tabler/icons-react"
+import {
+  IconAlertOctagon,
+  IconClock,
+  IconPlayerPlay,
+  type TablerIcon,
+} from "@tabler/icons-react"
 import { useHydrated } from "@tanstack/react-router"
 import { clientRuntime } from "@workspace/client"
 import { loadServerFn } from "@workspace/server/loader"
@@ -76,9 +81,7 @@ export function RunArchiveButton({
     <div className="flex flex-col items-end gap-1">
       <div className="flex items-center gap-3">
         {note && inProgress && (
-          <span className="text-[13px] text-muted-foreground">
-            {IN_PROGRESS}
-          </span>
+          <span className="text-secondary-text text-[13px]">{IN_PROGRESS}</span>
         )}
         <KButton
           icon={icon}
@@ -115,22 +118,27 @@ export function RunArchiveButton({
   )
 }
 
+// The card's last line: when Production's cron runs.
 function Schedule({ times, nextRun }: ArchiveSchedule) {
   return (
-    <p className="text-xs text-muted-foreground">
-      Production runs at {times}. Next: {Effect.runSync(dateTime(nextRun))}.
+    <p className="text-secondary-text flex items-center gap-2 text-[13px] leading-5">
+      <IconClock aria-hidden className="size-4 shrink-0" stroke={1.75} />
+      <span>
+        Production runs at {times}. Next: {Effect.runSync(dateTime(nextRun))}.
+      </span>
     </p>
   )
 }
 
-// A zero recedes; a problem count above zero reads in the warning color.
+// One cell of the counts band. A zero recedes; a problem count above zero
+// reads in the warning color.
 function Stat({ value, label, problem = false }: RunStat) {
   return (
-    <div className="flex flex-col-reverse gap-0.5">
-      <dt className="text-xs text-muted-foreground">{label}</dt>
+    <div className="flex flex-col-reverse justify-end gap-1 sm:px-4 sm:first:pl-0">
+      <dt className="text-secondary-text text-xs leading-4">{label}</dt>
       <dd
         className={cn(
-          "num text-xl font-semibold",
+          "font-data text-xl leading-7 font-semibold tabular-nums",
           value === 0 ? "text-muted-foreground" : problem && "text-warning"
         )}
       >
@@ -144,12 +152,20 @@ function Failed({ error }: { error: string | null }) {
   return (
     <div
       role="alert"
-      className="border-down bg-elevated rounded-xs border-l-[3px] px-3 py-2 text-[13px] [overflow-wrap:anywhere]"
+      className="border-down/40 bg-down/10 flex gap-3 rounded-sm border px-4 py-3 text-sm leading-5 [overflow-wrap:anywhere]"
     >
-      <p>
-        <b>Run failed:</b> {error ?? "no error was recorded"}
-      </p>
-      <p>The next run will try again.</p>
+      <IconAlertOctagon
+        aria-hidden
+        className="text-down mt-0.5 size-4 shrink-0"
+        stroke={1.75}
+      />
+      <div className="flex flex-col gap-1">
+        <p>
+          <b className="font-semibold">Run failed:</b>{" "}
+          {error ?? "no error was recorded"}
+        </p>
+        <p className="text-secondary-text">The next run will try again.</p>
+      </div>
     </div>
   )
 }
@@ -210,7 +226,9 @@ export function ArchiveLastRunCard({
   if (lastRun === undefined)
     return (
       <ArchiveCard title={title} aside={actions}>
-        <p className="text-[13px] text-muted-foreground">{emptyMessage}</p>
+        <p className="text-secondary-text border-strong rounded-sm border border-dashed px-4 py-6 text-center text-sm leading-5 text-pretty">
+          {emptyMessage}
+        </p>
         <Schedule {...schedule} />
       </ArchiveCard>
     )
@@ -228,7 +246,7 @@ export function ArchiveLastRunCard({
       }
       aside={actions}
     >
-      <p className="flex flex-wrap gap-x-2 text-[13px] text-muted-foreground">
+      <p className="text-secondary-text flex flex-wrap gap-x-2 gap-y-1 text-[13px] leading-5">
         <span>Started {Effect.runSync(dateTime(result.startedAt))}</span>
         {result.finishedAt !== null && (
           <span>
@@ -237,18 +255,26 @@ export function ArchiveLastRunCard({
           </span>
         )}
         {running && (
-          <span>
-            · running for {Effect.runSync(duration(Date.parse(now) - since))}
+          <span className="inline-flex items-center gap-1.5">
+            ·
+            <span
+              aria-hidden
+              className="bg-info size-2 rounded-full motion-safe:animate-pulse"
+            />
+            running for {Effect.runSync(duration(Date.parse(now) - since))}
           </span>
         )}
         <span>
-          · <span className="font-mono text-xs">{result.id}</span>
+          · <span className="font-data text-xs">{result.id}</span>
         </span>
         {running && workflowStatus !== null && (
           <span>· Workflow {workflowStatus}</span>
         )}
       </p>
-      <dl className="grid grid-cols-[repeat(auto-fit,minmax(104px,1fr))] gap-3">
+      {/* Ruled above and below, one column per count from sm, divided by
+          hairlines; two columns on a phone. Not a box, so a count is never
+          three boxes deep. */}
+      <dl className="grid grid-cols-2 gap-x-4 gap-y-4 border-y border-border py-4 sm:auto-cols-fr sm:grid-flow-col sm:grid-cols-none sm:gap-x-0 sm:divide-x sm:divide-border">
         {stats.map((stat) => (
           <Stat key={stat.label} {...stat} />
         ))}

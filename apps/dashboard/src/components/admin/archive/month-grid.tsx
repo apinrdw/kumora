@@ -52,6 +52,9 @@ function MarkWithLabel({ style }: { style: MarkStyle }) {
 
 // A month's mark as a button: a press selects its month, and pressing the
 // selected month again clears the selection.
+// Decision: its hit area is 24px, 3px past the 18px mark on each side, the
+// WCAG 2.2 AA minimum: twelve 44px targets don't fit a 390px phone's row,
+// and the 4px border spacing keeps neighbouring areas from overlapping.
 function SelectableMark({
   style,
   label,
@@ -70,7 +73,7 @@ function SelectableMark({
       aria-pressed={pressed}
       onClick={onToggle}
       className={cn(
-        "flex cursor-pointer rounded-[4px] outline-offset-1 focus-visible:outline-2 focus-visible:outline-ring",
+        "relative flex cursor-pointer rounded-[4px] outline-offset-1 transition-transform duration-150 before:absolute before:-inset-[3px] before:content-[''] hover:scale-110 focus-visible:outline-2 focus-visible:outline-ring active:scale-95 motion-reduce:transition-none motion-reduce:hover:scale-100",
         pressed && "outline-2 outline-foreground"
       )}
     >
@@ -83,7 +86,7 @@ export function MarkLegend({ styles }: { styles: ReadonlyArray<MarkStyle> }) {
   return (
     <ul
       aria-label="Legend"
-      className="text-secondary-text flex flex-wrap gap-x-4 gap-y-1 text-[13px]"
+      className="text-secondary-text flex flex-wrap gap-x-5 gap-y-2 text-[13px] leading-5"
     >
       {styles.map((style) => (
         <li key={style.label} className="flex items-center gap-2">
@@ -134,9 +137,11 @@ export function MonthGrid<Month>({
       : (selectedYear?.months[selected.index] ?? null)
   return (
     <div className="flex min-w-0 flex-col gap-2">
-      <h3 className="text-[13px] font-semibold">{title}</h3>
+      <h3 className="text-[15px] leading-6 font-semibold">{title}</h3>
       {years.length === 0 && empty !== undefined ? (
-        <p className="text-[13px] text-muted-foreground">{empty}</p>
+        <p className="text-secondary-text border-strong rounded-sm border border-dashed px-4 py-6 text-center text-sm leading-5 text-pretty">
+          {empty}
+        </p>
       ) : (
         // Scrolls inside the card, never the page, if a screen is narrower.
         <div className="overflow-x-auto">
@@ -154,7 +159,7 @@ export function MonthGrid<Month>({
                     key={month}
                     scope="col"
                     abbr={month}
-                    className="num w-[18px] text-center text-[11px] font-medium text-muted-foreground"
+                    className="font-data text-secondary-text w-[18px] text-center text-[11px] font-medium"
                   >
                     {String(i + 1).padStart(2, "0")}
                   </th>
@@ -166,7 +171,7 @@ export function MonthGrid<Month>({
                 <tr key={year}>
                   <th
                     scope="row"
-                    className="num pr-1 text-left text-[11px] font-medium text-muted-foreground"
+                    className="font-data text-secondary-text pr-2 text-left text-[11px] font-medium"
                   >
                     {year}
                   </th>

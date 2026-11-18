@@ -9,32 +9,34 @@ import type { RunView } from "@/server/archive/run-view"
 import type { ParseRunResult } from "@/server/holdings/parse-run-result"
 
 import { ArchiveLastRunCard, RunArchiveButton } from "./last-run-card"
+import { Callout, Note, NoteItem, NoteList } from "./notes"
 
 // The months a partial run couldn't parse, each with why.
 function Failures({ result }: { result: ParseRunResult }) {
   const { parseFailures } = result
   if (parseFailures.length === 0) return null
   return (
-    <div className="border-warning bg-elevated rounded-xs border-l-[3px] px-3 py-2 text-[13px]">
-      <b>
-        {Effect.runSync(
+    <Callout>
+      <Note
+        lead={Effect.runSync(
           count(
             parseFailures.length,
             "month could not be parsed.",
             "months could not be parsed."
           )
         )}
-      </b>{" "}
-      {parseFailures.length === 1 ? "It keeps its" : "They keep their"} earlier
-      parsed holdings; the next run tries again.
-      <ul aria-label="Parse failures" className="mt-1 list-disc pl-5">
-        {parseFailures.map(({ date, message }) => (
-          <li key={date} className="[overflow-wrap:anywhere]">
-            <b className="num">{date}:</b> {message}
-          </li>
-        ))}
-      </ul>
-    </div>
+      >
+        {parseFailures.length === 1 ? "It keeps its" : "They keep their"}{" "}
+        earlier parsed holdings; the next run tries again.
+        <NoteList label="Parse failures">
+          {parseFailures.map(({ date, message }) => (
+            <NoteItem key={date}>
+              <b className="font-data font-semibold">{date}:</b> {message}
+            </NoteItem>
+          ))}
+        </NoteList>
+      </Note>
+    </Callout>
   )
 }
 

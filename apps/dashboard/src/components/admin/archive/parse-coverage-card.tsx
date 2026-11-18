@@ -55,7 +55,7 @@ const shortSha = Effect.fnUntraced(function* (sha256: string) {
 function Detail({ label, children }: { label: string; children: ReactNode }) {
   return (
     <>
-      <dt className="text-muted-foreground">{label}</dt>
+      <dt className="text-secondary-text">{label}</dt>
       <dd className="min-w-0 break-words">{children}</dd>
     </>
   )
@@ -75,16 +75,18 @@ function MonthDetail({
   return (
     <section
       aria-label={`${title} month detail`}
-      className="flex flex-col gap-2 rounded-md border border-border p-3 text-[13px]"
+      className="bg-canvas/40 flex flex-col gap-3 rounded-sm border border-border px-4 py-3 text-sm leading-5"
     >
-      <h4 className="font-semibold">
+      <h4 className="text-[15px] leading-6 font-semibold">
         {name}{" "}
-        <span className="num font-normal text-muted-foreground">{date}</span>{" "}
+        <span className="font-data text-secondary-text text-[13px] font-normal">
+          {date}
+        </span>{" "}
         <span className="font-normal">{STATE[state].label}</span>
       </h4>
       <dl className="grid grid-cols-[max-content_1fr] gap-x-6 gap-y-1">
         <Detail label="Newest version">
-          <span className="font-mono text-xs">
+          <span className="font-data text-xs">
             {Effect.runSync(shortSha(newestSha256))}
           </span>
         </Detail>
@@ -93,7 +95,7 @@ function MonthDetail({
         ) : (
           <>
             <Detail label="Parsed from">
-              <span className="font-mono text-xs">
+              <span className="font-data text-xs">
                 {Effect.runSync(shortSha(parsed.sha256))}
               </span>
             </Detail>
@@ -102,7 +104,7 @@ function MonthDetail({
               {Effect.runSync(dateTime(parsed.parsedAt))}
             </Detail>
             <Detail label="Stocks">
-              <span className="num">{parsed.stockCount}</span>
+              <span className="font-data">{parsed.stockCount}</span>
             </Detail>
           </>
         )}
@@ -115,7 +117,7 @@ function MonthDetail({
           <>
             <Detail label="Failure">{failure.message}</Detail>
             <Detail label="Run">
-              <span className="font-mono text-xs">{failure.run}</span>
+              <span className="font-data text-xs">{failure.run}</span>
             </Detail>
           </>
         )}
