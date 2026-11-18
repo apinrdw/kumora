@@ -227,3 +227,53 @@ test("a page closed before its lock is granted lets the lock go", async () => {
     "the radar takes the lock back from the page that closed"
   ).toHaveLength(1)
 })
+
+test("a tab opened after an alert keeps the browser's cooldown", async () => {
+  browser()
+  const radar = await openTab()
+  act(() => radar.hear(delta))
+  await settle()
+  const marketLive = await openTab()
+  const soon = deltaOf({ ...eaten, at: DateTime.makeUnsafe(T0 + 30_000) })
+  act(() => marketLive.hear(soon))
+  await settle()
+  expect(
+    toasts.told,
+    "the same code and kind 30 s later stays quiet in the new tab"
+  ).toHaveLength(1)
+})
+
+test("a page reloaded within the minute keeps its count of 6", async () => {
+  browser()
+  const codes = ["AALI", "ADRO", "ANTM", "ASII", "BBNI", "BBRI", "BMRI"]
+  window.localStorage.setItem(
+    "kumora:book-alerts:rules",
+    JSON.stringify([
+      {
+        id: "rule",
+        kinds: ["eaten"],
+        scope: { _tag: "codes", codes },
+        minValue: 0,
+      },
+    ])
+  )
+  const ofCode = (code: string, i: number) =>
+    deltaOf({
+      ...eaten,
+      code: StockCode.make(code),
+      at: DateTime.makeUnsafe(T0 + i * 1_000),
+    })
+  const first = await openTab()
+  act(() => {
+    for (const [i, code] of codes.slice(0, 6).entries())
+      first.hear(ofCode(code, i))
+  })
+  await settle()
+  first.close()
+  const reloaded = await openTab()
+  act(() => reloaded.hear(ofCode("BMRI", 6)))
+  await settle()
+  expect(toasts.told.at(-1), "the seventh alert of the minute folds").toBe(
+    "+1 more alerts this minute"
+  )
+})
