@@ -59,11 +59,14 @@ const sweepsFromText = (text: string) =>
 // A day recorded before holds plain-text rows, read as they are and never
 // rewritten, so SWEEP_BROKERS_SHAPE stays: a bump would rebuild every old
 // day. See spec apinrdw/kumora#555, "Gzipped sweep brokers".
-const storedSweeps = (text: string) => new Uint8Array(gzipSync(text))
+const storedSweeps = (text: string) =>
+  Effect.sync(() => new Uint8Array(gzipSync(text)))
 const textOf = (stored: SqlValue | undefined) =>
-  typeof stored === "string"
-    ? stored
-    : new TextDecoder().decode(gunzipSync(stored as Uint8Array))
+  Effect.sync(() =>
+    typeof stored === "string"
+      ? stored
+      : new TextDecoder().decode(gunzipSync(stored as Uint8Array))
+  )
 
 // One member trade's broker on one side of a sweep, with its investor type
 // and the trade's lots.
@@ -210,9 +213,9 @@ const reachedFact = (minute: number): Readonly<Record<string, string>> => ({
 })
 const REACHED = new RegExp(`^${SWEEP_BROKERS_SHAPE}:(\\d+)$`)
 
-// The rows of one minute to write: each code's whole sweeps' text, or none
-// to delete its row.
-type MinuteRows = ReadonlyArray<readonly [StockCode, string | undefined]>
+// The rows of one minute to write: each code's whole sweeps as stored, or
+// none to delete its row.
+type MinuteRows = ReadonlyArray<readonly [StockCode, Uint8Array | undefined]>
 
 export const makeSweepBrokers = Effect.fnUntraced(function* (options: {
   // The trading day's database, shared with the day store.
@@ -227,15 +230,17 @@ export const makeSweepBrokers = Effect.fnUntraced(function* (options: {
   yield* Effect.sync(() => sql.exec(SCHEMA))
 
   // The stored text of one code's row for one minute, if any.
-  const storedText = (code: StockCode, minute: number) =>
-    Effect.sync(() => {
-      const [row] = sql.exec(
-        "SELECT sweeps FROM sweep_brokers WHERE code = ? AND minute = ?",
-        code,
-        minute
-      )
-      return row === undefined ? undefined : textOf(row.sweeps)
-    })
+  const storedText = Effect.fnUntraced(function* (
+    code: StockCode,
+    minute: number
+  ) {
+    const [row] = sql.exec(
+      "SELECT sweeps FROM sweep_brokers WHERE code = ? AND minute = ?",
+      code,
+      minute
+    )
+    return row === undefined ? undefined : yield* textOf(row.sweeps)
+  })
 
   // One minute's rows worked out again from the codes `heldCodes` reads,
   // metering the rows it read: for each code, its whole sweeps' and auction
@@ -262,7 +267,10 @@ export const makeSweepBrokers = Effect.fnUntraced(function* (options: {
           const whole = yield* wholeSweeps(codeMinute, codes)
           const text = whole.length === 0 ? undefined : yield* sweepsText(whole)
           if (text !== (yield* storedText(codeMinute.code, minute)))
-            rows.push([codeMinute.code, text])
+            rows.push([
+              codeMinute.code,
+              text === undefined ? undefined : yield* storedSweeps(text),
+            ])
         }
         return rows
       })
@@ -270,8 +278,8 @@ export const makeSweepBrokers = Effect.fnUntraced(function* (options: {
 
   // Replaces one minute's rows, inside the caller's transaction.
   const writeRows = (minute: number, rows: MinuteRows) => {
-    for (const [code, text] of rows)
-      if (text === undefined)
+    for (const [code, sweeps] of rows)
+      if (sweeps === undefined)
         sql.exec(
           "DELETE FROM sweep_brokers WHERE code = ? AND minute = ?",
           code,
@@ -282,7 +290,7 @@ export const makeSweepBrokers = Effect.fnUntraced(function* (options: {
           "INSERT OR REPLACE INTO sweep_brokers VALUES (?, ?, ?)",
           code,
           minute,
-          storedSweeps(text)
+          sweeps
         )
   }
 
@@ -467,7 +475,7 @@ export const makeSweepBrokers = Effect.fnUntraced(function* (options: {
       "SELECT sweeps FROM sweep_brokers WHERE code = ? ORDER BY minute",
       code
     ))
-      sweeps.push(...(yield* sweepsFromText(textOf(row.sweeps))))
+      sweeps.push(...(yield* sweepsFromText(yield* textOf(row.sweeps))))
     return sweeps
   })
 

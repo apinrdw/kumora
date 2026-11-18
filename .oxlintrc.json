@@ -116,8 +116,8 @@
     {
       // Decision: the tape is the one dashboard module that runs SQL against
       // a trading day's trades table, so a second backing for the trades
-      // lands there alone (spec apinrdw/kumora#555, ticket #567). Tests and
-      // the busy day fixture under billing/ still write the table directly.
+      // lands there alone (spec apinrdw/kumora#555, ticket #567). Tests that
+      // record a day before trade chunks still write the table directly.
       "files": ["apps/dashboard/src/**"],
       "jsPlugins": ["./scripts/oxlint-plugin.mts"],
       "rules": {

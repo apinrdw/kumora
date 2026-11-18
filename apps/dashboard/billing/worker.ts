@@ -12,7 +12,7 @@ import { durableSql } from "../src/server/market-live/durable-sql.ts"
 import { respond } from "../src/server/market-live/respond.ts"
 import { makeTradingDay } from "../src/server/market-live/trading-day.ts"
 import { buildBusyDay } from "./busy-day.ts"
-import { BUSY_DAY } from "./busy-figures.ts"
+import { BUSY_DAY, WHOLE_DAY } from "./busy-figures.ts"
 import { operations, type Operation } from "./operations.ts"
 import { wholeDay } from "./whole-day.ts"
 
@@ -91,7 +91,7 @@ export class BillingDay {
   fetch(request: Request) {
     const url = new URL(request.url)
     const { storage } = this.ctx
-    if (url.pathname === "/whole-day")
+    if (url.pathname === WHOLE_DAY.path)
       return respond(Effect.map(wholeDay(storage), (day) => Response.json(day)))
     if (url.pathname === "/build")
       return respond(
@@ -107,7 +107,7 @@ export class BillingDay {
 export default {
   fetch: (request: Request, env: { readonly DAY: DurableObjectNamespace }) =>
     env.DAY.getByName(
-      new URL(request.url).pathname === "/whole-day"
+      new URL(request.url).pathname === WHOLE_DAY.path
         ? "whole-day"
         : BUSY_DAY.date
     ).fetch(request),

@@ -30,6 +30,7 @@ import {
   type Sql,
   type SqlValue,
 } from "./day-store.ts"
+import type { Tape } from "./tape-backing.ts"
 import { fieldsOf, makeTape } from "./tape.ts"
 
 // Decision: chunk k holds trades 1000k+1 .. 1000k+1000 as 1,000 fixed 7-byte
@@ -138,12 +139,7 @@ const holesOf = (row: Record<string, SqlValue>) =>
 // Decision: the runs are worked out here, not in SQL: one statement that
 // grouped the tape by chunk over lag() billed 5 rows read a trade in workerd,
 // its window's and grouping's temporary tables counted, against 1 here.
-const summarizeChunks = (
-  sql: Sql,
-  tape: ReturnType<typeof makeTape>,
-  first: number,
-  last: number
-) => {
+const summarizeChunks = (sql: Sql, tape: Tape, first: number, last: number) => {
   let chunk = -1
   let taped = 0
   // The lowest number of `chunk` not yet accounted for.

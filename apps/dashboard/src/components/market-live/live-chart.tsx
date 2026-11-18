@@ -14,6 +14,7 @@ import type { ChartPair } from "./chart-pair"
 import { useDayState, type DayStateStore } from "./day-state-store"
 import { FootprintChart } from "./footprint-chart"
 import type { HeatmapStore } from "./heatmap-store"
+import { useHeatmapNotRecorded } from "./use-heatmap"
 import { useAuctionIndicative, useMergedStale } from "./market-conditions"
 import type { ReplayCursor } from "./replay-cursor"
 import { TopNControl } from "./sweep-log"
@@ -43,12 +44,7 @@ function useCandles<A>(
 // Under the candles, when the day did not record the code's book: its
 // heatmap has nothing to shade.
 function HeatmapNotRecorded({ heatmap }: { heatmap: HeatmapStore }) {
-  const notRecorded = useSyncExternalStore(
-    heatmap.subscribe,
-    heatmap.notRecorded,
-    () => false
-  )
-  return notRecorded ? (
+  return useHeatmapNotRecorded(heatmap) ? (
     <p className="text-[11px] text-muted-foreground">
       Book heatmap not recorded
     </p>

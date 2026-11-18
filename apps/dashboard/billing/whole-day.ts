@@ -37,7 +37,14 @@ import {
   varintField,
   type StockbitRow,
 } from "../tests/server/market-live/protobuf.ts"
-import { BUSY_DAY, WHOLE_DAY, busyCodes } from "./busy-figures.ts"
+import {
+  BUSY_DAY,
+  BUSY_OPEN,
+  BUSY_SPAN_MS,
+  WHOLE_DAY,
+  busyCodes,
+  busyLevel,
+} from "./busy-figures.ts"
 
 // Every code sends a liveprice frame each minute, and the 30 busiest are
 // viewed, their books framed on both sides every 15 s.
@@ -46,11 +53,6 @@ import { BUSY_DAY, WHOLE_DAY, busyCodes } from "./busy-figures.ts"
 // a trade and 145 K stock-minutes, near the cost model's 0.3 and 150 K
 // (docs/runbooks/order-flow-cost.md, "First estimate").
 const BURST = 3
-const OPEN = DateTime.toEpochMillis(
-  DateTime.makeUnsafe("2026-11-09T09:00:00+07:00")
-)
-const MINUTES = 435
-const SPAN_MS = MINUTES * 60_000
 const SEAL = DateTime.toEpochMillis(
   DateTime.makeUnsafe("2026-11-09T17:00:00+07:00")
 )
@@ -96,7 +98,7 @@ const rankOf = (u: number) => {
 
 const codeOf = (rank: number) => `C${rank}`
 const timeOf = (number: number) =>
-  OPEN + Math.floor(((number - 1) * SPAN_MS) / BUSY_DAY.trades)
+  BUSY_OPEN + Math.floor(((number - 1) * BUSY_SPAN_MS) / BUSY_DAY.trades)
 const wib = (ms: number) => new Date(ms + WIB_MS).toISOString().slice(11, 23)
 
 // Trade `number` as Stockbit's running trade batch carries it: its burst's
@@ -126,9 +128,8 @@ const bookFrame = (
   ms: number
 ) => {
   const levels = Array.from({ length: BOOK_DEPTH }, (_, index) => {
-    const price = 1_000 + (side === "BID" ? -1 : 1) * (index + 1)
-    const lots = 100 + ((frame * 7 + index * 13) % 900)
-    return `${price};${1 + ((frame + index) % 30)};${lots * 100}`
+    const level = busyLevel(side === "BID" ? -1 : 1, frame, index)
+    return `${level.price};${level.orders};${level.lots * 100}`
   })
   const body = [
     "#O",
@@ -231,7 +232,7 @@ const envelopeFrames = (
     rows.push(row)
   }
   const frames = rows.length > 0 ? [runningTradeBatch(rows)] : []
-  const since = end - OPEN
+  const since = end - BUSY_OPEN
   if (since % BOOK_EVERY_MS === 0)
     for (const code of VIEWED)
       frames.push(
@@ -262,7 +263,7 @@ const liveHours = Effect.fnUntraced(function* (day: TradingDay) {
     })
   )
   const tape = { next: 1, prices: new Map<string, number>() }
-  for (let end = OPEN; end < OPEN + SPAN_MS;) {
+  for (let end = BUSY_OPEN; end < BUSY_OPEN + BUSY_SPAN_MS;) {
     end += ENVELOPE_MS
     yield* TestClock.setTime(end)
     yield* day.ingestMessage(
@@ -321,7 +322,7 @@ const recordDay = Effect.fnUntraced(function* (sql: Sql) {
         rowsWritten: after.rowsWritten - before.rowsWritten,
       }
     })
-  yield* TestClock.setTime(OPEN - 60_000)
+  yield* TestClock.setTime(BUSY_OPEN - 60_000)
   const viewers = [peer()]
   const day = yield* makeTradingDay({
     date: BUSY_DAY.date,

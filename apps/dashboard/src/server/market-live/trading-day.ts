@@ -298,6 +298,10 @@ const restoreLastFrames = Effect.fnUntraced(function* (day: {
       DateTime.makeUnsafe(minute + MINUTE_MS - 1)
     ))
       yield* day.dayStates.trade(undefined, trade)
+  // Decision: only recorded codes have chunks to restore, so an unviewed
+  // code's live Stockbit book is missing after a restart until its next
+  // frame, and its Ajaib book (restored below) is served meanwhile. See spec
+  // apinrdw/kumora#555, "Books only for viewed codes".
   for (const text of yield* day.store.latestChunks) {
     const chunk = yield* decodeBookChunk(text)
     const book = yield* bookAt(chunk, DateTime.makeUnsafe(8.64e15))
@@ -1440,12 +1444,12 @@ export const makeTradingDay = Effect.fnUntraced(function* (options: {
     through: number
   ) {
     // The object encoded them itself.
-    const failed = yield* Effect.forEach(
+    const unwrittenChunks = yield* Effect.forEach(
       (unwritten?.chunks ?? []).filter((chunk) => chunk.code === code),
       (chunk) => Effect.orDie(heldChunkOf(chunk.chunk))
     )
     return yield* Effect.forEach(
-      [...failed, ...(yield* bookChunks.held(code))],
+      [...unwrittenChunks, ...(yield* bookChunks.held(code))],
       Effect.fnUntraced(function* (chunk) {
         return {
           minute: chunk.minute,

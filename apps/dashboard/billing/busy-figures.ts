@@ -1,7 +1,13 @@
 // The busy day's figures (billing/busy-day.ts builds it): its date, size,
 // holes and the codes it holds, apart from the builder so the row budgets'
 // operations can read them without the Durable Object types.
-import { BrokerCode, WibDate, type TradeCodes } from "@workspace/relay"
+import {
+  BrokerCode,
+  MINUTE_MS,
+  WibDate,
+  type TradeCodes,
+} from "@workspace/relay"
+import { DateTime } from "effect"
 
 // Decision: Production's busiest measured day, 1,460,000 trades
 // (docs/runbooks/order-flow-cost.md, "The estimate model"), over 800 codes
@@ -26,7 +32,25 @@ export const BUSY_DAY = {
 export const WHOLE_DAY = {
   viewed: 30,
   walkBatch: 5_000,
+  // The billing Worker's route that records it (billing/worker.ts).
+  path: "/whole-day",
 } as const
+
+// The busy day's open, 09:00 WIB, and its 435 minutes to 16:15: a trade
+// every 17.9 ms.
+export const BUSY_OPEN = DateTime.toEpochMillis(
+  DateTime.makeUnsafe("2026-11-09T09:00:00+07:00")
+)
+export const BUSY_MINUTES = 435
+export const BUSY_SPAN_MS = BUSY_MINUTES * MINUTE_MS
+
+// Level `index` of a busy book's side (-1 bid, 1 offer) at frame `frame`:
+// 20 levels a side around 1,000, whose lots and orders move with the frame.
+export const busyLevel = (side: 1 | -1, frame: number, index: number) => ({
+  price: 1_000 + side * (index + 1),
+  lots: 100 + ((frame * 7 + index * 13) % 900),
+  orders: 1 + ((frame + index) % 30),
+})
 
 export const BROKERS = [
   "AK",

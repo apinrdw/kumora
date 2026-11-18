@@ -73,7 +73,8 @@ const tapePage = (day: TradingDay) =>
 // Decision: a live flush on the busy day writes a minute at its mean rate,
 // 1,460,000 over 435 minutes, past its tape's last, and the trades its relay
 // missed arriving late, each in a chunk of its own: 4 chunks for the minute
-// and 1 for each late trade.
+// and 1 for each late trade. A peak minute (~30 K trades) writes ~31 chunk
+// rows, over the spec's ~20, which follows from 1,000-trade chunks.
 const FLUSHED = { first: BUSY_DAY.trades + 1, rows: 3_356 }
 
 const flushTrade = (number: number): RunningTrade => ({
