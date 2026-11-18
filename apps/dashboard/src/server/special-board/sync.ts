@@ -71,31 +71,32 @@ const fetchNotations = Effect.gen(function* () {
 
 // The board's codes and their notations, trimmed, or why the run keeps the
 // table.
-const boardOf = ({ Results }: typeof Notations.Type) => {
-  const board = Results.map(({ EmitenCode, Notation }) => ({
-    code: EmitenCode.trim(),
-    notation: Notation.split(",")
-      .map((each) => each.trim())
-      .join(","),
-  })).filter(({ notation }) => notation.split(",").includes(BOARD_NOTATION))
-  const invalid = board.find(({ code }) => !isStockCode(code))
-  if (invalid !== undefined)
-    return {
-      _tag: "Kept",
-      reason: `IDX lists a Special Monitoring Board code that isn't a stock code: "${invalid.code}"`,
-    } as const
-  if (board.length < MIN_BOARD_CODES || board.length > MAX_BOARD_CODES)
-    return {
-      _tag: "Kept",
-      reason: `IDX lists ${board.length} Special Monitoring Board codes, outside the ${MIN_BOARD_CODES}–${MAX_BOARD_CODES} the gate accepts`,
-    } as const
-  return { _tag: "Board", board } as const
-}
+const boardOf = ({ Results }: typeof Notations.Type) =>
+  Effect.sync(() => {
+    const board = Results.map(({ EmitenCode, Notation }) => ({
+      code: EmitenCode.trim(),
+      notation: Notation.split(",")
+        .map((each) => each.trim())
+        .join(","),
+    })).filter(({ notation }) => notation.split(",").includes(BOARD_NOTATION))
+    const invalid = board.find(({ code }) => !isStockCode(code))
+    if (invalid !== undefined)
+      return {
+        _tag: "Kept",
+        reason: `IDX lists a Special Monitoring Board code that isn't a stock code: "${invalid.code}"`,
+      } as const
+    if (board.length < MIN_BOARD_CODES || board.length > MAX_BOARD_CODES)
+      return {
+        _tag: "Kept",
+        reason: `IDX lists ${board.length} Special Monitoring Board codes, outside the ${MIN_BOARD_CODES}–${MAX_BOARD_CODES} the gate accepts`,
+      } as const
+    return { _tag: "Board", board } as const
+  })
 
 export const syncSpecialBoard = Effect.fn("syncSpecialBoard")(function* (
   fetchedAt: Date
 ) {
-  const read = boardOf(yield* fetchNotations)
+  const read = yield* boardOf(yield* fetchNotations)
   if (read._tag === "Kept") {
     yield* Effect.logWarning("Special Monitoring Board run kept the table", {
       reason: read.reason,

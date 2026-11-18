@@ -21,29 +21,26 @@ const TICK_BANDS: ReadonlyArray<{
   { from: 5_000, tick: 25 },
 ]
 
-const plainTickAt = (price: number) => {
-  let tick = 1
-  for (const band of TICK_BANDS) if (price >= band.from) tick = band.tick
-  return tick
-}
-
 // The tick at `price`: the step to the next price up.
-export const tickAt = (price: number) => Effect.sync(() => plainTickAt(price))
+export const tickAt = (price: number) =>
+  Effect.sync(() => {
+    let tick = 1
+    for (const band of TICK_BANDS) if (price >= band.from) tick = band.tick
+    return tick
+  })
 
 // The ticks from `low` up to `high`, each step on the tick of the price it
 // leaves. Prices off the grid count to the nearest whole tick.
-const plainTicksBetween = (low: number, high: number) => {
-  let ticks = 0
-  TICK_BANDS.forEach((band, index) => {
-    const to = TICK_BANDS[index + 1]?.from ?? Number.POSITIVE_INFINITY
-    const span = Math.min(high, to) - Math.max(low, band.from)
-    if (span > 0) ticks += span / band.tick
-  })
-  return Math.round(ticks)
-}
-
 export const ticksBetween = (low: number, high: number) =>
-  Effect.sync(() => plainTicksBetween(low, high))
+  Effect.sync(() => {
+    let ticks = 0
+    TICK_BANDS.forEach((band, index) => {
+      const to = TICK_BANDS[index + 1]?.from ?? Number.POSITIVE_INFINITY
+      const span = Math.min(high, to) - Math.max(low, band.from)
+      if (span > 0) ticks += span / band.tick
+    })
+    return Math.round(ticks)
+  })
 
 // Which limit rule a code trades under: the regular boards' (II-A) or the
 // Special Monitoring Board's (II-X).
@@ -90,47 +87,46 @@ const MINIMUM_PRICE = 1
 
 // Rounds to a whole rupiah first: `reference × percent ÷ 100` of whole
 // numbers is exact only when it is whole.
-const settled = (price: number) => Math.round(price * 1e6) / 1e6
+const settled = (price: number) => Effect.succeed(Math.round(price * 1e6) / 1e6)
 
 // Decision: a percentage limit lands on the valid tick toward the reference
 // (the upper limit rounds down, the lower up). II-A gives percentages, not how
 // JATS rounds them; this reading is inferred (docs/research/
 // idx-board-ticks-limits.md, "Open risks").
-const floorToTick = (price: number) => {
-  const tick = plainTickAt(price)
-  return Math.floor(settled(price) / tick) * tick
-}
-const ceilToTick = (price: number) => {
-  const exact = settled(price)
-  const tick = plainTickAt(exact)
+const floorToTick = Effect.fnUntraced(function* (price: number) {
+  const tick = yield* tickAt(price)
+  return Math.floor((yield* settled(price)) / tick) * tick
+})
+const ceilToTick = Effect.fnUntraced(function* (price: number) {
+  const exact = yield* settled(price)
+  const tick = yield* tickAt(exact)
   return Math.ceil(exact / tick) * tick
-}
+})
 
 // The upper and lower auto-reject limits of a code whose reference price
 // (its previous close) is `reference`, on `date`, under `board`'s rule.
-export const priceLimitsOf = (
+export const priceLimitsOf = Effect.fnUntraced(function* (
   reference: number,
   date: WibDate,
   board: LimitBoard
-) =>
-  Effect.sync(() => {
-    const bands =
-      board === "special"
-        ? SPECIAL
-        : date <= TRANSITION_ENDS
-          ? TRANSITION
-          : PERMANENT
-    const band = bands.find((each) => reference <= each.through)!
-    return {
-      upper:
-        band.up === undefined
-          ? reference + 1
-          : floorToTick((reference * (100 + band.up)) / 100),
-      lower: Math.max(
-        MINIMUM_PRICE,
-        band.down === undefined
-          ? reference - 1
-          : ceilToTick((reference * (100 - band.down)) / 100)
-      ),
-    }
-  })
+) {
+  const bands =
+    board === "special"
+      ? SPECIAL
+      : date <= TRANSITION_ENDS
+        ? TRANSITION
+        : PERMANENT
+  const band = bands.find((each) => reference <= each.through)!
+  return {
+    upper:
+      band.up === undefined
+        ? reference + 1
+        : yield* floorToTick((reference * (100 + band.up)) / 100),
+    lower: Math.max(
+      MINIMUM_PRICE,
+      band.down === undefined
+        ? reference - 1
+        : yield* ceilToTick((reference * (100 - band.down)) / 100)
+    ),
+  }
+})
