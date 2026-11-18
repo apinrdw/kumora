@@ -36,32 +36,48 @@ export interface MatchContext {
   readonly onScanner: (code: StockCode) => boolean
 }
 
-const inScope = (scope: AlertScope, code: StockCode, context: MatchContext) => {
-  switch (scope._tag) {
-    case "watchlist":
-      return context.watchlist.has(code)
-    case "codes":
-      return scope.codes.includes(code)
-    case "scanner":
-      return context.onScanner(code)
-  }
-}
+const inScope = (scope: AlertScope, code: StockCode, context: MatchContext) =>
+  Effect.sync(() => {
+    switch (scope._tag) {
+      case "watchlist":
+        return context.watchlist.has(code)
+      case "codes":
+        return scope.codes.includes(code)
+      case "scanner":
+        return context.onScanner(code)
+    }
+  })
 
-// The level's or wall's value: its lots at its price.
-const valueOf = (event: BookEvent) => levelValue(event.price, event.lots)
+// The value of the level or wall an event happened to: the lots the level
+// shows (absorbed, reloaded), the level's peak (eaten), or the wall's lots,
+// at its price. Never the lots traded or lost.
+const levelValueOf = (event: BookEvent) =>
+  Effect.sync(() => {
+    switch (event.kind) {
+      case "absorbed":
+      case "reloaded":
+        return levelValue(event.price, event.shown)
+      case "moved":
+        return levelValue(event.price, event.wallLots)
+      case "eaten":
+      case "appeared":
+      case "pulled":
+        return levelValue(event.price, event.lots)
+    }
+  })
 
-export const ruleMatches = (
+export const ruleMatches = Effect.fnUntraced(function* (
   rule: AlertRule,
   event: BookEvent,
   context: MatchContext
-) =>
-  Effect.sync(
-    () =>
-      rule.kinds.includes(event.kind) &&
-      !context.excluded(event.code) &&
-      inScope(rule.scope, event.code, context) &&
-      valueOf(event) >= rule.minValue
+) {
+  return (
+    rule.kinds.includes(event.kind) &&
+    !context.excluded(event.code) &&
+    (yield* inScope(rule.scope, event.code, context)) &&
+    (yield* levelValueOf(event)) >= rule.minValue
   )
+})
 
 // An alert's title names a wall's kind in full: the list's "Pulled" chip
 // sits beside its wall, a toast stands alone.

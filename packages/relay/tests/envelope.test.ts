@@ -434,6 +434,7 @@ describe("viewer protocol, down", () => {
           price: 2220,
           lots: 1_896,
           orders: 3,
+          shown: 2_400,
           refills: 4,
           crowd: true,
         },
@@ -466,6 +467,7 @@ describe("viewer protocol, down", () => {
           price: 3620,
           lots: 28_711,
           orders: 3,
+          wallLots: 28_711,
           to: 3610,
         },
       ]

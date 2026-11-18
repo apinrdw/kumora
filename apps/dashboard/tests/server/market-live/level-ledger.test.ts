@@ -189,6 +189,7 @@ describe("level ledger", () => {
       assert.deepInclude(reloaded[0], {
         lots: 1200,
         orders: 5,
+        shown: 800,
         refills: 1,
         crowd: true,
       })
@@ -261,7 +262,12 @@ describe("level ledger", () => {
       )
       const moved = events.filter((event) => event.kind !== "appeared")
       assert.deepStrictEqual(kinds(moved), ["moved bid 990"])
-      assert.deepInclude(moved[0], { lots: 6000, orders: 3, to: 985 })
+      assert.deepInclude(moved[0], {
+        lots: 6000,
+        orders: 3,
+        wallLots: 6000,
+        to: 985,
+      })
     })
   )
 

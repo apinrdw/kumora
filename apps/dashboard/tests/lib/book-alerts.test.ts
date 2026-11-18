@@ -89,6 +89,64 @@ describe("ruleMatches", () => {
     })
   )
 
+  it.effect(
+    "holds the minimum to the level or wall, never the lots traded or lost",
+    () =>
+      Effect.gen(function* () {
+        const common = {
+          code: BBCA,
+          at: DateTime.makeUnsafe(T0),
+          side: "bid",
+          price: 9_000,
+          orders: 3,
+        } as const
+        // Each traded or lost Rp9 B, at a level or wall worth Rp1.8 B.
+        const small: ReadonlyArray<BookEvent> = [
+          { ...common, kind: "absorbed", lots: 10_000, shown: 2_000 },
+          {
+            ...common,
+            kind: "reloaded",
+            lots: 10_000,
+            shown: 2_000,
+            refills: 1,
+            crowd: false,
+          },
+          {
+            ...common,
+            kind: "moved",
+            lots: 10_000,
+            wallLots: 2_000,
+            to: 8_975,
+          },
+        ]
+        const kinds = rule({ kinds: ["absorbed", "reloaded", "moved"] })
+        for (const event of small) {
+          assert.isFalse(
+            yield* ruleMatches({ ...kinds, minValue: 5e9 }, event, context()),
+            event.kind
+          )
+          assert.isTrue(
+            yield* ruleMatches({ ...kinds, minValue: 1e9 }, event, context()),
+            event.kind
+          )
+        }
+        // An eaten level's peak is the level's value.
+        const eaten: BookEvent = {
+          ...common,
+          kind: "eaten",
+          lots: 10_000,
+          share: 0.8,
+        }
+        assert.isTrue(
+          yield* ruleMatches(
+            rule({ kinds: ["eaten"], minValue: 5e9 }),
+            eaten,
+            context()
+          )
+        )
+      })
+  )
+
   it.effect("never matches an excluded code", () =>
     Effect.gen(function* () {
       assert.isFalse(

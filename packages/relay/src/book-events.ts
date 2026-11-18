@@ -45,10 +45,12 @@ const Eaten = Schema.Struct({
 
 // The best level traded `lots` beyond what it showed, or was hit down and
 // refilled: the `refills`th time at this price since the ledger last reset.
-// `crowd` when several new orders refilled it, single otherwise.
+// It now shows `shown` lots in `orders`. `crowd` when several new orders
+// refilled it, single otherwise.
 const Reloaded = Schema.Struct({
   kind: Schema.Literal("reloaded"),
   ...common,
+  shown: Schema.Finite,
   refills: Schema.Int,
   crowd: Schema.Boolean,
 })
@@ -69,10 +71,12 @@ const WallPulled = Schema.Struct({
   approached: Schema.Boolean,
 })
 
-// `lots` in `orders` left `price` and about as many arrived at `to`.
+// `lots` in `orders` left the wall of `wallLots` at `price`, and about as
+// many arrived at `to`.
 const WallMoved = Schema.Struct({
   kind: Schema.Literal("moved"),
   ...common,
+  wallLots: Schema.Finite,
   to: Schema.Finite,
 })
 

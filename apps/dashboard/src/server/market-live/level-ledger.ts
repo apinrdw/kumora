@@ -343,7 +343,13 @@ export const makeLevelLedger = Effect.sync(() => {
     const p = b0.price
     const overflow = hit(r, p, previous.t, frame.t)
     if (overflow > b0.lots && value(overflow, p) >= LEVEL_FLOOR)
-      return { p, lots: overflow, orders: b1.orders, crowd: b1.orders > 1 }
+      return {
+        p,
+        lots: overflow,
+        orders: b1.orders,
+        shown: b1.lots,
+        crowd: b1.orders > 1,
+      }
     const before = r.frames[r.i - 2]
     const a = before?.levels[0]
     if (before === undefined || a?.price !== p) return undefined
@@ -352,7 +358,13 @@ export const makeLevelLedger = Effect.sync(() => {
     const hitDown = drop >= 0.5 * a.lots && traded >= 0.5 * drop
     const refilled = b1.lots >= 0.5 * a.lots && b1.lots > b0.lots
     return hitDown && refilled && value(traded, p) >= LEVEL_FLOOR
-      ? { p, lots: traded, orders: b1.orders, crowd: b1.orders - b0.orders > 1 }
+      ? {
+          p,
+          lots: traded,
+          orders: b1.orders,
+          shown: b1.lots,
+          crowd: b1.orders - b0.orders > 1,
+        }
       : undefined
   }
   const reloaded = (r: Reading): ReadonlyArray<BookEvent> => {
@@ -366,6 +378,7 @@ export const makeLevelLedger = Effect.sync(() => {
         ...common(r, reload.p),
         lots: reload.lots,
         orders: reload.orders,
+        shown: reload.shown,
         refills,
         crowd: reload.crowd,
       },
@@ -446,6 +459,7 @@ export const makeLevelLedger = Effect.sync(() => {
         ...common(r, p),
         lots: loss,
         orders: lostOrders,
+        wallLots: wall.lots,
         to,
       } satisfies BookEvent
     const ticks = yield* ticksFromBest(wallFrame.levels, p)
