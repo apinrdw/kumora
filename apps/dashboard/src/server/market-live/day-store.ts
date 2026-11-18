@@ -170,6 +170,8 @@ const SCHEMA = [
   // A stock's book heatmap slices for one minute (heat-rows.ts), which a
   // day recorded before heatmaps were worked out on read holds beside each
   // book chunk.
+  // Decision: a new day still creates the table, empty, so old and new days
+  // read the same way; the third spec of apinrdw/kumora#555 drops it.
   `CREATE TABLE IF NOT EXISTS heatmaps (
     code TEXT NOT NULL,
     minute INTEGER NOT NULL,
