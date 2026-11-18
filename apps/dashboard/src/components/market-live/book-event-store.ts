@@ -1,0 +1,101 @@
+import {
+  BOOK_EVENT_WINDOW_MS,
+  MIN_SIDE_FRAMES,
+  type BookEvent,
+  type OrderBook,
+  type RecordedBookEvents,
+  type StockCode,
+  type ViewerDown,
+} from "@workspace/relay"
+import { DateTime, Effect } from "effect"
+
+export interface BookEventStore {
+  readonly code: StockCode
+  // The code's events for the day, oldest first.
+  readonly events: () => ReadonlyArray<BookEvent>
+  // False for a recorded day kept before book events were.
+  readonly recorded: () => boolean
+  // The event picked in the list, by its key (lib/book-events.ts), whose
+  // heatmap mark is ringed.
+  readonly picked: () => string | undefined
+  readonly pick: (key: string | undefined) => void
+  // Whether each side had fewer than MIN_SIDE_FRAMES frames in the window
+  // before `now`: the ledger can't read the code.
+  readonly quiet: (now: number) => boolean
+  readonly apply: (message: ViewerDown) => void
+  // A recorded day's GET answer.
+  readonly load: (answer: RecordedBookEvents) => void
+  readonly subscribe: (listener: () => void) => () => void
+}
+
+// The selected code's book events, outside React: live from the viewer
+// socket, or a recorded day's from its GET. A snapshot of this code replaces
+// them and a delta's of this code add to them. Its books' side times, kept
+// for the window, say whether it is too quiet to read.
+export const makeBookEventStore = (code: StockCode) =>
+  Effect.sync((): BookEventStore => {
+    let events: ReadonlyArray<BookEvent> = []
+    let recorded = true
+    let picked: string | undefined
+    const sideTimes = { bid: [] as Array<number>, offer: [] as Array<number> }
+    const listeners = new Set<() => void>()
+    const tell = () => {
+      for (const listener of listeners) listener()
+    }
+    const noteBook = (book: OrderBook) => {
+      const times = {
+        bid: DateTime.toEpochMillis(book.bidAt ?? book.at),
+        offer: DateTime.toEpochMillis(book.offerAt ?? book.at),
+      }
+      for (const side of ["bid", "offer"] as const) {
+        const kept = sideTimes[side]
+        if (kept.at(-1) !== times[side]) kept.push(times[side])
+        while (
+          kept.length > 0 &&
+          kept[0]! <= times[side] - BOOK_EVENT_WINDOW_MS
+        )
+          kept.shift()
+      }
+    }
+    return {
+      code,
+      events: () => events,
+      recorded: () => recorded,
+      picked: () => picked,
+      pick: (key) => {
+        picked = key
+        tell()
+      },
+      quiet: (now) =>
+        (["bid", "offer"] as const).every(
+          (side) =>
+            sideTimes[side].filter((t) => t > now - BOOK_EVENT_WINDOW_MS)
+              .length < MIN_SIDE_FRAMES
+        ),
+      apply: (message) => {
+        if (message._tag === "Snapshot") {
+          if (message.selected !== code) return
+          if (message.orderBook?._tag === "OrderBook")
+            noteBook(message.orderBook)
+          events = message.selectedBookEvents ?? []
+          return tell()
+        }
+        const book = message.orderBooks?.find((each) => each.code === code)
+        if (book !== undefined) noteBook(book)
+        const arriving = (message.bookEvents ?? []).filter(
+          (event) => event.code === code
+        )
+        if (arriving.length > 0) events = [...events, ...arriving]
+        if (book !== undefined || arriving.length > 0) tell()
+      },
+      load: (answer) => {
+        events = answer.events
+        recorded = answer.recorded
+        tell()
+      },
+      subscribe: (listener) => {
+        listeners.add(listener)
+        return () => void listeners.delete(listener)
+      },
+    }
+  })

@@ -16,6 +16,7 @@ import {
   bookAt,
   marketPhases,
   type BookChunk,
+  type BookEvent,
   type MarketPhase,
   type RecordedCandles,
   type RelayGap,
@@ -357,16 +358,20 @@ export function RecordedOrderBook({
   store,
   cursor,
   gaps,
+  marks,
 }: {
   store: OrderBookStore
   cursor: ReplayCursor
   gaps: ReadonlyArray<RelayGap>
+  marks?: ReadonlyArray<BookEvent> | undefined
 }) {
   const inGap = useReplay(
     cursor,
     ({ at }) => Effect.runSync(gapAt(gaps, at)) !== undefined
   )
-  return <OrderBookPanel store={store} recorded notRecorded={inGap} />
+  return (
+    <OrderBookPanel store={store} recorded notRecorded={inGap} marks={marks} />
+  )
 }
 
 // A recorded day's market conditions bar: the RECORDED pill in place of the feed

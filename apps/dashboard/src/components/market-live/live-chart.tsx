@@ -13,6 +13,7 @@ import type { CandleStore } from "./candle-store"
 import type { ChartPair } from "./chart-pair"
 import { useDayState, type DayStateStore } from "./day-state-store"
 import { FootprintChart } from "./footprint-chart"
+import type { BookEventStore } from "./book-event-store"
 import type { HeatmapStore } from "./heatmap-store"
 import { useAuctionIndicative, useMergedStale } from "./market-conditions"
 import type { ReplayCursor } from "./replay-cursor"
@@ -143,11 +144,23 @@ function ChartHeadline({
 // `search` sits in the header, to choose the code, and `conditions` with it:
 // the feed pills and the market phase. On a recorded day, the candles after
 // `cursor` are greyed and a clicked candle moves it. The candle chart moves
+// The heatmap's book event marks, named under the chart when it has them.
+function MarksLegend({ shown }: { shown: boolean }) {
+  if (!shown) return null
+  return (
+    <p className="text-[11px] text-muted-foreground">
+      Book event marks: ◆ absorbed, eaten or reloaded · ■ wall appeared, pulled
+      or moved · green on the bid, red on the offer
+    </p>
+  )
+}
+
 // with the footprint chart through `pair`.
 export function LiveChart({
   store,
   heatmap,
   sweeps,
+  bookEvents,
   pair,
   gaps,
   dayStates,
@@ -161,6 +174,8 @@ export function LiveChart({
   heatmap?: HeatmapStore
   // The selected code's sweeps, as bubbles under a top-N filter.
   sweeps?: SweepStore | undefined
+  // The selected code's book events, marked on the heatmap.
+  bookEvents?: BookEventStore | undefined
   pair: ChartPair
   // The relay gaps to shade as not recorded.
   gaps: ReadonlyArray<RelayGap>
@@ -221,6 +236,7 @@ export function LiveChart({
                 store={store}
                 heatmap={heatmap}
                 sweeps={sweeps}
+                bookEvents={bookEvents}
                 cursor={cursor}
                 gaps={gaps}
                 pair={pair}
@@ -228,6 +244,7 @@ export function LiveChart({
             </Suspense>
           </ClientOnly>
         </div>
+        <MarksLegend shown={bookEvents !== undefined} />
         <p className="text-[11px] text-muted-foreground">
           <a
             href="https://www.tradingview.com/"

@@ -1,0 +1,260 @@
+// The selected code's book events on Market Live (spec apinrdw/kumora#517,
+// "The Book readout" and "Book events"): the readout's list, and the recent
+// events the ladder marks. Live from the viewer socket, or a recorded day's
+// from its GET, dimmed past the cursor.
+import { clientRuntime, fetchRecordedBookEvents } from "@workspace/client"
+import {
+  INDEX_CODES,
+  type BookEvent,
+  type StockCode,
+  type WibDate,
+} from "@workspace/relay"
+import { cn } from "@workspace/ui/lib/utils"
+import { DateTime, Effect, Fiber, Option } from "effect"
+import { useEffect, useMemo, useState, useSyncExternalStore } from "react"
+
+import {
+  BOOK_EVENTS_FROM,
+  BOOK_EVENT_MARKS,
+  BOOK_EVENT_NAMES,
+  bookEventDetail,
+  bookEventKey,
+} from "@/lib/book-events"
+import { dayLabel, tapeTime } from "@/lib/format"
+
+import { makeBookEventStore, type BookEventStore } from "./book-event-store"
+import type { ReplayCursor } from "./replay-cursor"
+import { loadedOrSignIn } from "./sign-in-again"
+
+// Decision: the ladder marks a level's book events for 2 minutes. See spec
+// apinrdw/kumora#517, "Book events".
+const MARK_MS = 120_000
+
+// How often the live list and marks look at the clock again.
+const TICK_MS = 1_000
+
+// The selected code's book event store for the recorded `day`, or live.
+// A recorded day's is loaded once by its GET; live, the page feeds it the
+// socket's messages. An index has no book, so nothing is asked.
+export function useBookEvents(code: StockCode, day: WibDate | undefined) {
+  const store = useMemo(() => Effect.runSync(makeBookEventStore(code)), [code])
+  useEffect(() => {
+    if (day === undefined || INDEX_CODES.includes(code)) return
+    const fiber = clientRuntime.runFork(
+      loadedOrSignIn(
+        fetchRecordedBookEvents(day, code).pipe(
+          Effect.tap((answer) =>
+            Effect.sync(() => {
+              if (Option.isSome(answer)) store.load(answer.value)
+            })
+          )
+        ),
+        "Book events"
+      )
+    )
+    return () => void clientRuntime.runFork(Fiber.interrupt(fiber))
+  }, [store, code, day])
+  return store
+}
+
+const noSubscribe = () => () => {}
+
+// The clock live, ticking each TICK_MS; the cursor on a recorded day.
+function useNow(cursor: ReplayCursor | undefined) {
+  const [now, setNow] = useState(() => Date.now())
+  useEffect(() => {
+    if (cursor !== undefined) return
+    const timer = setInterval(() => setNow(Date.now()), TICK_MS)
+    return () => clearInterval(timer)
+  }, [cursor])
+  const at = useSyncExternalStore(
+    cursor?.subscribe ?? noSubscribe,
+    () => cursor?.state().at,
+    () => cursor?.state().at
+  )
+  return at ?? now
+}
+
+const useEvents = (store: BookEventStore) =>
+  useSyncExternalStore(store.subscribe, store.events, store.events)
+
+/**
+ * The events of the last 2 minutes up to now, or up to the cursor on a
+ * recorded day, for the ladder's marks.
+ */
+export function useRecentBookEvents(
+  store: BookEventStore,
+  cursor: ReplayCursor | undefined
+) {
+  const events = useEvents(store)
+  const now = useNow(cursor)
+  return events.filter((event) => {
+    const at = DateTime.toEpochMillis(event.at)
+    return at <= now && now - at < MARK_MS
+  })
+}
+
+/** The marks of a ladder level's recent events. */
+export function LadderMarks({
+  events,
+  side,
+  price,
+}: {
+  events: ReadonlyArray<BookEvent>
+  side: "bid" | "offer"
+  price: number
+}) {
+  const here = events.filter(
+    (event) => event.side === side && event.price === price
+  )
+  return here.map((event) => (
+    <abbr
+      key={Effect.runSync(bookEventKey(event))}
+      title={`${BOOK_EVENT_NAMES[event.kind]}: ${Effect.runSync(bookEventDetail(event))}`}
+      className={cn(
+        "mx-0.5 rounded-xs px-0.5 text-[9px] font-bold no-underline",
+        side === "bid" ? "text-up bg-up/15" : "text-down bg-down/15"
+      )}
+    >
+      {BOOK_EVENT_MARKS[event.kind]}
+    </abbr>
+  ))
+}
+
+/** The one-line legend under a ladder with marks. */
+export function LadderMarksLegend() {
+  return (
+    <p className="text-[11px] text-muted-foreground">
+      Marks on a level: AB absorbed · EA eaten · RL reloaded · W+ wall appeared
+      · W− pulled · W→ moved (last 2 minutes)
+    </p>
+  )
+}
+
+function Note({ children }: { children: string }) {
+  return <p className="py-2 text-[12px] text-muted-foreground">{children}</p>
+}
+
+function EventRow({
+  event,
+  after,
+  picked,
+  onPick,
+}: {
+  event: BookEvent
+  after: boolean
+  picked: boolean
+  onPick: () => void
+}) {
+  return (
+    <li>
+      <button
+        type="button"
+        aria-pressed={picked}
+        onClick={onPick}
+        className={cn(
+          "grid w-full grid-cols-[58px_auto_1fr] items-baseline gap-1.5 border-t border-border py-1 text-left text-[12px]",
+          after && "opacity-30",
+          picked && "bg-accent/40"
+        )}
+      >
+        <span className="text-muted-foreground tabular-nums">
+          {Effect.runSync(tapeTime(DateTime.toEpochMillis(event.at)))}
+        </span>
+        <span
+          className={cn(
+            "rounded-xs px-1.5 text-[10px] font-bold whitespace-nowrap",
+            event.side === "bid" ? "bg-up/15 text-up" : "bg-down/15 text-down"
+          )}
+        >
+          {BOOK_EVENT_NAMES[event.kind]}
+        </span>
+        <span className="text-muted-foreground">
+          {Effect.runSync(bookEventDetail(event))}
+        </span>
+      </button>
+    </li>
+  )
+}
+
+// What the list says instead of, or above, its events: none when it just
+// lists them.
+const listNote = (state: {
+  readonly recorded: boolean
+  readonly live: boolean
+  readonly quiet: boolean
+  readonly empty: boolean
+}) =>
+  Effect.gen(function* () {
+    if (!state.recorded)
+      return `Book events not recorded before ${yield* dayLabel(BOOK_EVENTS_FROM)}.`
+    if (state.quiet)
+      return "Too quiet to read: fewer than 2 book updates a side in the last 30 s."
+    if (!state.empty) return undefined
+    return state.live ? "No book events yet today." : "No book events this day."
+  })
+
+/**
+ * The readout's Book events part: the code's events, newest first. Picking
+ * one rings its heatmap mark; on a recorded day those after the cursor are
+ * dimmed.
+ */
+export function BookEventList({
+  store,
+  cursor,
+}: {
+  store: BookEventStore
+  cursor: ReplayCursor | undefined
+}) {
+  const events = useEvents(store)
+  const picked = useSyncExternalStore(
+    store.subscribe,
+    store.picked,
+    store.picked
+  )
+  const recorded = useSyncExternalStore(
+    store.subscribe,
+    store.recorded,
+    store.recorded
+  )
+  const now = useNow(cursor)
+  const note = Effect.runSync(
+    listNote({
+      recorded,
+      live: cursor === undefined,
+      quiet: cursor === undefined && store.quiet(now),
+      empty: events.length === 0,
+    })
+  )
+  return (
+    <section aria-label="Book events" className="flex min-w-0 flex-col gap-1">
+      <h3 className="text-[10px] tracking-[0.08em] text-muted-foreground uppercase">
+        Book events
+      </h3>
+      {note !== undefined && <Note>{note}</Note>}
+      {recorded && events.length > 0 && (
+        <ol className="max-h-[230px] overflow-auto">
+          {[...events].reverse().map((event) => {
+            const key = Effect.runSync(bookEventKey(event))
+            return (
+              <EventRow
+                key={key}
+                event={event}
+                after={
+                  cursor !== undefined && DateTime.toEpochMillis(event.at) > now
+                }
+                picked={picked === key}
+                onPick={() => store.pick(picked === key ? undefined : key)}
+              />
+            )
+          })}
+        </ol>
+      )}
+      {cursor !== undefined && events.length > 0 && (
+        <p className="text-[11px] text-muted-foreground">
+          Recorded day: events after the cursor are dimmed.
+        </p>
+      )}
+    </section>
+  )
+}

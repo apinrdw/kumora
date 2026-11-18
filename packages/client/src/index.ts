@@ -22,6 +22,7 @@ export {
   fetchRecordedBrokerCodes,
   fetchRecordedCandles,
   fetchRecordedGaps,
+  fetchRecordedBookEvents,
   fetchRecordedHeatmap,
   followSweepBrokers,
   fetchRecordedSweeps,

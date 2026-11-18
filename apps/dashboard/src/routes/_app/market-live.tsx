@@ -10,6 +10,12 @@ import {
 import { loadServerFn, runLoader } from "@workspace/server/loader"
 import { useCallback, useEffect, useMemo, useState } from "react"
 
+import type { BookEventStore } from "@/components/market-live/book-event-store"
+import {
+  BookEventList,
+  useBookEvents,
+  useRecentBookEvents,
+} from "@/components/market-live/book-events"
 import { makeBookReadingsStore } from "@/components/market-live/book-readings-store"
 import { BookReadout } from "@/components/market-live/book-readout"
 import { makeCandleStore } from "@/components/market-live/candle-store"
@@ -111,8 +117,9 @@ function useCodeStores(
   )
   const heatmap = useHeatmap(selected, day, today)
   const sweeps = useSweeps(selected, day, today)
+  const bookEvents = useBookEvents(selected, day)
   useRememberedTopN(sweeps)
-  return { candles, book, heatmap, sweeps }
+  return { candles, book, heatmap, sweeps, bookEvents }
 }
 
 // The candle chart and the footprint chart, moving together; each code's
@@ -145,20 +152,29 @@ function ConditionsBar({
   )
 }
 
-// The selected code's order book: live, or as of the cursor.
+// The selected code's order book, its levels marked with their recent book
+// events: live, or as of the cursor.
 function BookPanel({
   store,
+  events,
   cursor,
   gaps,
 }: {
   store: OrderBookStore
+  events: BookEventStore
   cursor: ReplayCursor | undefined
   gaps: ReadonlyArray<RelayGap>
 }) {
+  const marks = useRecentBookEvents(events, cursor)
   return cursor === undefined ? (
-    <OrderBookPanel store={store} />
+    <OrderBookPanel store={store} marks={marks} />
   ) : (
-    <RecordedOrderBook store={store} cursor={cursor} gaps={gaps} />
+    <RecordedOrderBook
+      store={store}
+      cursor={cursor}
+      gaps={gaps}
+      marks={marks}
+    />
   )
 }
 
@@ -245,9 +261,15 @@ function MarketLiveDay({
 }) {
   const { selected, select, ...view } = useMarketLiveSearch()
   const codes = useStockCodeList(day, today)
-  const { candles, book, heatmap, sweeps } = useCodeStores(selected, day, today)
+  const { candles, book, heatmap, sweeps, bookEvents } = useCodeStores(
+    selected,
+    day,
+    today
+  )
   // An index has no aggressor sides: plain candles and total volume only.
-  const flow = INDEX_CODES.includes(selected) ? undefined : { heatmap, sweeps }
+  const flow = INDEX_CODES.includes(selected)
+    ? undefined
+    : { heatmap, sweeps, bookEvents }
   // A recorded day's sweeps can have broker codes: its log gains the broker
   // columns and the width for them.
   const withBrokers = day !== undefined
@@ -282,8 +304,9 @@ function MarketLiveDay({
       heatmap.apply(message)
       dayStates.apply(message)
       readings.apply(message)
+      bookEvents.apply(message)
     },
-    [candles, sweeps, book, heatmap, dayStates, readings]
+    [candles, sweeps, book, heatmap, dayStates, readings, bookEvents]
   )
   return (
     <>
@@ -295,6 +318,7 @@ function MarketLiveDay({
               store={candles}
               heatmap={flow?.heatmap}
               sweeps={flow?.sweeps}
+              bookEvents={flow?.bookEvents}
               pair={pair}
               gaps={shownGaps}
               dayStates={dayStates}
@@ -319,6 +343,7 @@ function MarketLiveDay({
               dayStates={dayStates}
               cursor={cursor}
               gaps={shownGaps}
+              events={<BookEventList store={bookEvents} cursor={cursor} />}
             />
           </>
         }
@@ -345,7 +370,14 @@ function MarketLiveDay({
             onSelect={select}
           />
         }
-        book={<BookPanel store={book} cursor={cursor} gaps={gaps} />}
+        book={
+          <BookPanel
+            store={book}
+            events={bookEvents}
+            cursor={cursor}
+            gaps={gaps}
+          />
+        }
         tape={
           <TapePanel
             selected={selected}
