@@ -1170,9 +1170,10 @@ test.describe.serial("the stock page", () => {
       await expect(async () => {
         await page.mouse.move(0, 0)
         await gamma.getByRole("button", { name: "Off list" }).hover()
-        await expect(page.getByText("Sold out or fell below 1%")).toBeVisible({
-          timeout: 1000,
-        })
+        // Exact, as the Every month caption says it too.
+        await expect(
+          page.getByText("Sold out or fell below 1%", { exact: true })
+        ).toBeVisible({ timeout: 1000 })
       }).toPass()
       await expect(majorHolders(page)).toContainText(
         "Percent of listed shares, scrip included, as IDX publishes it. Holders under 1% are not listed."
