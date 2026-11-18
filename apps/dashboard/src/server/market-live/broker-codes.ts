@@ -212,11 +212,13 @@ const runsOf = (chunk: number, marks: Uint8Array) => {
   return runs
 }
 
-// Decision: a walk batch's tape trades leave the holes of their chunks'
-// summary rows in the transaction that writes them, so a walk day's status
-// reads the summary as a sealed day's does, and a batch reads those rows,
-// not the chunks' trades. A tape stored before the summary is summarized
-// whole at its first such write. See apinrdw/kumora#543.
+// What a walk batch's tape trades leave of their chunks' summary rows, in
+// the transaction that writes them. See apinrdw/kumora#543.
+// Decision: a walk day's batches keep its summary, so its status reads it
+// as a sealed day's does. In workerd a page of 5,000 trades in 5 chunks
+// billed 11 rows read and 5 written here, against 5,000 reading the chunks'
+// trades. A tape stored before the summary is summarized whole at its first
+// such write: the 1.46 M rows read of `summarizeTape`'s Decision.
 export const summarizeAddedTrades =
   (sql: Sql, numbers: ReadonlyArray<number>) => () => {
     if (numbers.length === 0) return
@@ -940,8 +942,10 @@ export const makeBrokerCodes = Effect.fnUntraced(function* (options: {
   // Every chunk into the tally, SCAN_PAGE at a time, each run of adjacent
   // chunks of a page with its unfielded trades.
   // Decision: a day sealed before the tape summary builds it at its first
-  // status pass, one scan of the tape, and later passes read it; there is no
-  // migration. A relay day before its seal scans its growing tape.
+  // status pass, one scan of the tape: about 1.46 M rows read and 1,460
+  // written on a busy day, as the seal's (`summarizeTape`). Later passes
+  // read about 3 K; there is no migration. A relay day before its seal scans
+  // its growing tape, 2.7 M rows for a busy day's whole (`unfieldedOf`).
   const scan = Effect.fnUntraced(function* (tally: Tally) {
     let summarized = (yield* fact(Fact.tapeSummary)) === TAPE_SUMMARY_BUILT
     if (!summarized && (yield* options.sealed)) {
