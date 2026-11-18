@@ -247,8 +247,6 @@ const settleSide = Effect.fnUntraced(function* (trade: RunningTrade) {
   return sideless ? { ...trade, side: "none" as const } : trade
 })
 
-// How often the object checks whether the market conditions changed: a feed
-// going stale is noticed within this.
 // The lists of a delta that hold anything: an empty one stays out.
 const nonEmpty = <L extends Record<string, ReadonlyArray<unknown>>>(lists: L) =>
   Effect.sync(() => {
@@ -257,6 +255,8 @@ const nonEmpty = <L extends Record<string, ReadonlyArray<unknown>>>(lists: L) =>
     return kept
   })
 
+// How often the object checks whether the market conditions changed: a feed
+// going stale is noticed within this.
 const CONDITIONS_INTERVAL = "1 second"
 
 const encodeConditions = Schema.encodeEffect(
