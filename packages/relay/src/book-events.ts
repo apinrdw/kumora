@@ -100,7 +100,14 @@ export const BookEventOrder: Order.Order<BookEvent> = Order.mapInput(
 )
 
 // Decision: a snapshot carries the day's newest 100 book events across every
-// code, plus the selected code's whole day: the scanner's feed shows the
-// newest, the readout one code's day. See spec apinrdw/kumora#517, "Book
-// events".
+// code, plus the selected code's day up to MAX_CODE_BOOK_EVENTS: the
+// scanner's feed shows the newest, the readout one code's day. See spec
+// apinrdw/kumora#517, "Book events".
 export const SNAPSHOT_BOOK_EVENTS = 100
+
+// Decision: one code's day is read, held and sent as its newest 2,500 book
+// events, so a Select snapshot and a recorded day's answer stay bounded
+// however many the store holds. The busiest minute seen was 7 events, at the
+// open (docs/research/book-event-thresholds.md); a code at that rate through
+// both sessions' 320 minutes finds 2,240.
+export const MAX_CODE_BOOK_EVENTS = 2_500

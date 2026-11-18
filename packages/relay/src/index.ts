@@ -160,6 +160,7 @@ export {
   BookEvent,
   BookEventOrder,
   BookEventSide,
+  MAX_CODE_BOOK_EVENTS,
   MIN_SIDE_FRAMES,
   SNAPSHOT_BOOK_EVENTS,
 } from "./book-events.ts"

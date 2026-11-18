@@ -3,6 +3,7 @@
 // day, so no statement it runs may scan the trades table.
 import { assert, describe, it } from "@effect/vitest"
 import {
+  MAX_CODE_BOOK_EVENTS,
   MINUTE_MS,
   StockCode,
   TradeNumber,
@@ -464,6 +465,22 @@ describe("the stored book events", () => {
         [moved]
       )
       assert.deepStrictEqual(yield* store.newestBookEvents(10), [moved])
+    })
+  )
+
+  it.effect("one code reads back as its newest MAX_CODE_BOOK_EVENTS", () =>
+    Effect.gen(function* () {
+      const store = yield* makeDayStore(memorySql(), { today: true })
+      const at = DateTime.toEpochMillis(moved.at)
+      const events = Array.from(
+        { length: MAX_CODE_BOOK_EVENTS + 1 },
+        (_, n): BookEvent => ({ ...moved, at: DateTime.makeUnsafe(at + n) })
+      )
+      yield* store.write({ ...flush, bookEvents: events })
+      const read = yield* store.bookEventsOf(StockCode.make("BBNI"))
+      assert.lengthOf(read, MAX_CODE_BOOK_EVENTS, "the read is capped")
+      assert.deepStrictEqual(read[0], events[1], "the oldest drops")
+      assert.deepStrictEqual(read.at(-1), events.at(-1))
     })
   )
 

@@ -1,7 +1,11 @@
 // The book event log's memory while flushes fail (spec apinrdw/kumora#517,
 // "Book events"): it holds at most MAX_UNFLUSHED_EVENTS not stored yet.
 import { assert, describe, it } from "@effect/vitest"
-import { StockCode, type BookEvent } from "@workspace/relay"
+import {
+  MAX_CODE_BOOK_EVENTS,
+  StockCode,
+  type BookEvent,
+} from "@workspace/relay"
 import { DateTime, Effect } from "effect"
 
 import {
@@ -53,6 +57,28 @@ describe("the book event log", () => {
           [2, 4, 5],
           "the code's day stays oldest first"
         )
+      })
+  )
+
+  it.effect(
+    "a code's day holds its newest MAX_CODE_BOOK_EVENTS, stored and not",
+    () =>
+      Effect.gen(function* () {
+        const stored = Array.from({ length: MAX_CODE_BOOK_EVENTS }, (_, n) =>
+          pulled(n)
+        )
+        const log = yield* makeBookEventLog({
+          bookEventsOf: () => Effect.succeed(stored),
+          newestBookEvents: () => Effect.succeed([]),
+        })
+        const later = Array.from({ length: 300 }, (_, n) =>
+          pulled(MAX_CODE_BOOK_EVENTS + n)
+        )
+        yield* log.add(later)
+        const day = yield* log.ofCode(UNTR)
+        assert.lengthOf(day, MAX_CODE_BOOK_EVENTS, "the code's day is capped")
+        assert.deepStrictEqual(day[0], stored[300], "the oldest drop first")
+        assert.deepStrictEqual(day.at(-1), later.at(-1))
       })
   )
 
