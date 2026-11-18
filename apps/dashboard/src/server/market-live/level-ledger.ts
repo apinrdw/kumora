@@ -408,7 +408,8 @@ export const makeLevelLedger = Effect.sync(() => {
   })
 
   // The wall price that gained about `loss` lots with `lostOrders` more
-  // orders within MOVED_FRAMES of frame `i`, other than `p`.
+  // orders within MOVED_FRAMES of frame `i`, other than `p`. A price out of
+  // view the frame before shows no gain: it may have stood there all along.
   const arrivalOf = (
     r: Reading,
     p: number,
@@ -419,6 +420,7 @@ export const makeLevelLedger = Effect.sync(() => {
     const last = Math.min(r.frames.length - 1, r.i + MOVED_FRAMES)
     for (let x = Math.max(1, r.i - MOVED_FRAMES); x <= last; x++)
       for (const q of r.frames[x]!.walls) {
+        if (!inView(r.side, r.frames[x - 1]!.levels, q)) continue
         const now = lotsAt(r.frames[x]!.levels, q)!
         const before = lotsAt(r.frames[x - 1]!.levels, q)
         const gained = now.lots - (before?.lots ?? 0)
