@@ -252,9 +252,10 @@ const markAlerts = (tape: Tape, alerts: ReadonlyArray<SweepAlert> = []) =>
 // The tape after one viewer message. A snapshot starts it over, its received
 // count carried on and counting only the trades the tape didn't hold, so a
 // frozen tape's "N new trades" survives a reconnect; a delta's trades go in by
-// trade number, a known one replacing what the tape held. A delta's sweep
+// trade number, a known one replacing what the tape held. A message's sweep
 // alerts mark their trades, and a mark stays while its trade is on the tape,
-// across a snapshot too.
+// across a snapshot too: a restarted object's snapshot holds only the alerts
+// it decided since (server kept-alerts.ts).
 export const applyViewerMessage = Effect.fnUntraced(function* (
   tape: Tape,
   message: ViewerDown
@@ -270,6 +271,7 @@ export const applyViewerMessage = Effect.fnUntraced(function* (
   for (const trade of message.tape)
     yield* insert(next, trade, yield* seenBy(tape, trade.tradeNumber))
   for (const [number, side] of tape.alerts) next.alerts.set(number, side)
+  yield* markAlerts(next, message.sweepAlerts)
   yield* evict(next)
   return next
 })
