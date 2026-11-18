@@ -3,6 +3,7 @@ import { DateTime, Effect, Option } from "effect"
 
 import {
   StockCode,
+  TradeNumber,
   WibDate,
   decodeAjaibCodeList,
   decodeStockCodeList,
@@ -27,10 +28,13 @@ describe("recorded day paths", () => {
       const day = WibDate.make("2026-11-09")
       const at = DateTime.makeUnsafe("2026-11-09T03:15:00.000Z")
       const code = StockCode.make("BBCA")
+      const before = TradeNumber.make("41")
       const resources: ReadonlyArray<RecordedResource> = [
         { _tag: "Codes" },
         { _tag: "Tape", at },
+        { _tag: "Tape", at, before },
         { _tag: "BrokerCodes", at },
+        { _tag: "BrokerCodes", at, before },
         { _tag: "Candles", code },
         { _tag: "Sweeps", code },
         { _tag: "SweepBrokers", code },
@@ -49,6 +53,14 @@ describe("recorded day paths", () => {
       assert.strictEqual(
         yield* recordedDayPath(day, { _tag: "BrokerCodes", at }),
         "/market-live/days/2026-11-09/broker-codes?at=1794194100000"
+      )
+      assert.strictEqual(
+        yield* recordedDayPath(day, { _tag: "Tape", at, before }),
+        "/market-live/days/2026-11-09/trades?at=1794194100000&before=41"
+      )
+      assert.strictEqual(
+        yield* recordedDayPath(day, { _tag: "BrokerCodes", at, before }),
+        "/market-live/days/2026-11-09/broker-codes?at=1794194100000&before=41"
       )
       assert.strictEqual(
         yield* recordedDayPath(day, { _tag: "SweepBrokers", code }),
@@ -102,6 +114,10 @@ describe("recorded day paths", () => {
         "/market-live/days/2026-11-09/trades?at=soon",
         "/market-live/days/2026-11-09/broker-codes",
         "/market-live/days/2026-11-09/broker-codes?at=soon",
+        "/market-live/days/2026-11-09/trades?at=1794194100000&before=soon",
+        "/market-live/days/2026-11-09/trades?at=1794194100000&before=",
+        "/market-live/days/2026-11-09/trades?at=1794194100000&before=0",
+        "/market-live/days/2026-11-09/broker-codes?at=1794194100000&before=-1",
         "/market-live/days/2026-11-31/broker-codes?at=1794194100000",
         "/market-live/days/2026-11-09/books/BBCA",
         "/market-live/days/2026-11-09/codes/more",

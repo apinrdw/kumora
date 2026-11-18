@@ -129,6 +129,7 @@ export type {
   SweepBrokers,
   SweepPiece,
   RecordedResource,
+  TapeCursor,
 } from "./recorded-day.ts"
 export type { CodeKind, ListedCode } from "./code-list.ts"
 export type { DayChange, DayState } from "./day-state.ts"

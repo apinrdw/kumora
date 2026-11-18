@@ -8,6 +8,7 @@ import { assert, describe, it } from "@effect/vitest"
 import {
   IngestProtocolVersion,
   StockCode,
+  TradeNumber,
   ViewerProtocolVersion,
   WibDate,
   bookAt,
@@ -284,9 +285,12 @@ const textOf = (response: Response) => Effect.promise(() => response.text())
 
 const tapeAt = Effect.fnUntraced(function* (
   get: (resource: RecordedResource) => Effect.Effect<Response, unknown>,
-  at: DateTime.Utc
+  at: DateTime.Utc,
+  before?: TradeNumber
 ) {
-  const response = yield* get({ _tag: "Tape", at })
+  const response = yield* get(
+    before === undefined ? { _tag: "Tape", at } : { _tag: "Tape", at, before }
+  )
   const { trades } = yield* decodeRecordedTape(yield* textOf(response))
   return { response, numbers: trades.map((trade) => trade.tradeNumber) }
 })
@@ -912,6 +916,46 @@ describe("the recorded tape", () => {
         []
       )
     })
+  )
+
+  it.effect(
+    "walks back inside one instant past its newest 200, below each page's oldest trade",
+    () =>
+      Effect.gen(function* () {
+        yield* TestClock.setTime(wib("09:06:00").epochMilliseconds)
+        const day = yield* tradingDay(memorySql())
+        // 1..5 at 09:00:00, 6..455 all at 09:00:01, 456..460 at 09:00:02.
+        const timeOf = (seq: number) =>
+          seq <= 5 ? "09:00:00" : seq <= 455 ? "09:00:01" : "09:00:02"
+        yield* day.ajaib(
+          range(1, 460).map((seq) => ajaibTrade({ seq, time: timeOf(seq) }))
+        )
+        yield* pastFlush
+
+        const at = wib("09:00:01")
+        const pages: Array<ReadonlyArray<string>> = []
+        let before: TradeNumber | undefined
+        // Bounded, so a cursor the store ignores fails rather than spins.
+        for (let page = 0; page < 5; page++) {
+          const { numbers } = yield* tapeAt(day.get, at, before)
+          if (numbers.length === 0) break
+          pages.push(numbers)
+          before = TradeNumber.make(numbers[0]!)
+        }
+
+        assert.deepStrictEqual(
+          pages.map((page) => [page[0], page.at(-1), page.length]),
+          [
+            ["256", "455", 200],
+            ["56", "255", 200],
+            ["1", "55", 55],
+          ]
+        )
+        assert.deepStrictEqual(
+          [...pages].reverse().flat(),
+          range(1, 455).map(String)
+        )
+      })
   )
 })
 
