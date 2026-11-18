@@ -26,8 +26,8 @@ export const runArchiveCron = (scheduledTime: number) =>
     )
   )
 
-// The parse cron's handler, the same way: it starts a classification parse
-// run, an investor-type parse run and an above-1% parse run.
+// The parse cron's handler, the same way: it starts a parse run of each kind
+// (parse-runs.ts).
 export const runParseCron = (scheduledTime: number) =>
   runServerEffectResult(
     scheduledParseRuns(scheduledTime).pipe(

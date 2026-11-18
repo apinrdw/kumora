@@ -1,11 +1,11 @@
 // What /stocks/$CODE reads from its URL (spec apinrdw/kumora#363, "URL search
 // params"): the Shareholders composition panel's month and origin, the
-// Holding composition chart's origin and view, and the Holder size panel's
+// Holding composition chart's origin and view, the Holder size panel's
 // month, origin, denominator and view (spec apinrdw/kumora#402), the Major
-// holders panel's month (spec apinrdw/kumora#479), and the open tab and the Broker inventory tab's range, measure, investor filter,
-// chips and drag selection (spec apinrdw/kumora#437, "Dashboard: the stock
-// page"). Each is left out at its default, so a plain
-// link stays short.
+// holders panel's month (spec apinrdw/kumora#479), and the open tab and the
+// Broker inventory tab's range, measure, investor filter, chips and drag
+// selection (spec apinrdw/kumora#437, "Dashboard: the stock page"). Each is
+// left out at its default, so a plain link stays short.
 import { BrokerCode, WibDate } from "@workspace/relay"
 import { Effect, Option, Schema } from "effect"
 

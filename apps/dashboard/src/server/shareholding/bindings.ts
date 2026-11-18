@@ -1,6 +1,6 @@
-// The shareholding archive's bucket and Workflows over their bindings,
-// SHAREHOLDING_ARCHIVE_BUCKET, SHAREHOLDING_ARCHIVE, CLASSIFICATION_PARSE,
-// INVESTOR_TYPE_PARSE and ABOVE_1_PARSE (alchemy.run.ts). Kept apart, so code that only uses
+// The shareholding archive's bucket and Workflows over their bindings
+// (alchemy.run.ts): SHAREHOLDING_ARCHIVE_BUCKET, SHAREHOLDING_ARCHIVE, and
+// one per parse run kind (parse-runs.ts). Kept apart, so code that only uses
 // the services never loads the adapters.
 import { r2ArchiveBucket } from "../archive/bucket-r2.ts"
 import {

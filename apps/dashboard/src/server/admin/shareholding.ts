@@ -1,8 +1,8 @@
 // The shareholding archive's admin page, /admin/shareholding: the last archive
-// run and Run now, the last classification, investor-type and above-1%
-// parse runs with each one's Parse now, the first two's parse coverage, the
-// recent runs and the archive totals (spec apinrdw/kumora#303, "The admin
-// page", #402, "Admin", #458, and #479, "Admin").
+// run and Run now, the last parse run of each kind (parse-runs.ts) with its
+// Parse now, the classification and investor-type parse coverage, the recent
+// runs and the archive totals (spec apinrdw/kumora#303, "The admin page",
+// #402, "Admin", #458, and #479, "Admin").
 import { Conflict } from "@workspace/server"
 import { DateTime, Effect } from "effect"
 
