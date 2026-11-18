@@ -16,6 +16,7 @@ import { WorkerEnv } from "@workspace/server"
 import { DateTime, Effect, Layer, Scope } from "effect"
 import { TestClock } from "effect/testing"
 
+import { makeFiguresStore } from "@/components/order-book-radar/figures-store"
 import type { Sql } from "@/server/market-live/day-store"
 import {
   makeTradingDay,
@@ -170,6 +171,75 @@ describe("the previous trading day's values", () => {
           4_660_000
         )
         assert.deepStrictEqual(asked, ["2026-11-09"])
+      })
+  )
+
+  it.effect(
+    "reach a page that connected before the code's first book, with its first readings",
+    () =>
+      Effect.gen(function* () {
+        const days = new Map([
+          [WibDate.make("2026-11-09"), yield* previousDay(true)],
+        ])
+        yield* at("2026-11-10T09:00:30+07:00")
+        const scope = yield* Scope.make()
+        const page = new FakeSocket()
+        const day = yield* makeTradingDay({
+          sql: memorySql(),
+          date: TODAY,
+          viewers: Effect.succeed([page]),
+          viewersOf: () => Effect.succeed([]),
+          previousDayValues: (date) =>
+            Effect.gen(function* () {
+              const earlier = yield* makeTradingDay({
+                sql: days.get(date) ?? memorySql(),
+                date,
+                viewers: Effect.succeed([]),
+                viewersOf: () => Effect.succeed([]),
+              }).pipe(Scope.provide(scope))
+              return yield* earlier.dayValues
+            }),
+        }).pipe(Scope.provide(scope))
+        const relay = new FakeSocket()
+        const ingest = (text: string) =>
+          day.ingestMessage(relay, text).pipe(Effect.provide(env))
+        yield* ingest(
+          yield* encodeIngestUp({
+            _tag: "Token",
+            protocolVersion: IngestProtocolVersion,
+            token: TOKEN,
+          })
+        )
+        // The page connects while no code has a book yet.
+        yield* day.viewerMessage(
+          page,
+          yield* encodeViewerUp({
+            _tag: "Select",
+            protocolVersion: ViewerProtocolVersion,
+            selected: StockCode.make("IHSG"),
+            watchlist: [],
+          })
+        )
+        yield* ingest(
+          yield* encodeIngestUp({
+            _tag: "Frames",
+            protocolVersion: IngestProtocolVersion,
+            feed: "Stockbit",
+            connection: "A",
+            receivedAt: yield* DateTime.now,
+            frames: [untrSide("BID", 23300), untrSide("OFFER", 23325)],
+          })
+        )
+        yield* TestClock.adjust("1 second")
+        // What the scanner holds from every message the page was sent.
+        const figures = yield* makeFiguresStore
+        for (const text of page.sent)
+          figures.apply(yield* decodeViewerDown(text))
+        assert.strictEqual(
+          figures.all().get(StockCode.make("UNTR"))?.previousValue,
+          4_660_000,
+          "UNTR's previous day's value reached the page with its first readings"
+        )
       })
   )
 
