@@ -28,13 +28,15 @@ const Rows = Schema.Struct({
 })
 
 // What one operation billed: the trading day's start, its uncounted
-// `before`, and the operation itself; and the operation's answer.
+// `before`, and the operation itself; the operation's answer, and the
+// tables the day holds after it.
 const Billed = Schema.Struct({
   start: Rows,
   before: Rows,
   rows: Rows,
   status: Schema.Number,
   answer: Schema.String,
+  tables: Schema.Array(Schema.String),
 })
 
 const decodeBilled = Schema.decodeUnknownEffect(Schema.fromJsonString(Billed))

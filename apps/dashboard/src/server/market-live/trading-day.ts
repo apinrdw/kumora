@@ -304,22 +304,6 @@ const restoreLastFrames = Effect.fnUntraced(function* (day: {
   return prices
 })
 
-// Decision: the broker trades index rebuilds from the alarm, a page a wake,
-// never inside a request. A day still to seal waits for its seal wake, so
-// no page holds the turn while the market streams; any other starts now.
-// Through `arm`, so it never displaces the seal's wake. See
-// apinrdw/kumora#342.
-//
-// When the index rebuild first needs the alarm, for a day with no deadline
-// stored: none once built.
-const indexWakeAtStart = (
-  built: boolean,
-  sealWake: DateTime.Utc | undefined
-): Effect.Effect<DateTime.Utc | undefined> => {
-  if (built) return Effect.succeed(undefined)
-  return sealWake === undefined ? DateTime.now : Effect.succeed(sealWake)
-}
-
 // Decision: a batch that corrects a built day marks it stale and moves its
 // rebuild to this long after the batch, so a burst of corrections costs one
 // rebuild. See spec apinrdw/kumora#437, "When it runs".
@@ -1014,10 +998,6 @@ export const makeTradingDay = Effect.fnUntraced(function* (options: {
     sealWakeAtStart(sealed, source, buildable, sealAt)
   )
   yield* wakes.restore(
-    "index",
-    indexWakeAtStart(brokerCodes.indexBuilt, yield* wakes.deadline("seal"))
-  )
-  yield* wakes.restore(
     "build",
     buildWakeAtStart(
       sealed && options.brokerTotalsDb !== undefined,
@@ -1096,15 +1076,6 @@ export const makeTradingDay = Effect.fnUntraced(function* (options: {
       yield* seal(now).pipe(
         Effect.andThen(wakes.set("seal", undefined)),
         retried("seal", "Day not sealed", now)
-      )
-    }),
-    // A page a wake, and none while the market streams.
-    index: Effect.fnUntraced(function* (now) {
-      if (!sealed && DateTime.isLessThan(now, sealAt))
-        return yield* wakes.set("index", sealAt)
-      yield* brokerCodes.indexPage.pipe(
-        Effect.flatMap((built) => wakes.set("index", built ? undefined : now)),
-        retried("index", "Broker trades not indexed", now)
       )
     }),
     // A build that failed keeps the day's fact as it was.

@@ -1,7 +1,7 @@
 // The rows each day object operation bills on a busy-sized day, counted by
 // workerd's cursors (spec apinrdw/kumora#554, "Testing Decisions"). Each
 // budget names an operation in billing/operations.ts. The busy day is built
-// once for this file, so every budget lives here.
+// once for each `layer` block, so every budget lives here.
 import { assert, layer } from "@effect/vitest"
 import { Effect } from "effect"
 
@@ -66,6 +66,35 @@ layer(BusyDay.layer, { timeout: "60 seconds", excludeTestServices: true })(
     it.effect(
       "a batch with its buildable and completed checks reads at most 10 K rows",
       () => withinBudget("resent batch", { rowsRead: 10_000 }),
+      10_000
+    )
+  }
+)
+
+// A correcting batch writes too, so it runs on a busy day of its own. The day
+// is recorded with the broker trades index, 2.92 M rows, as every day before
+// apinrdw/kumora#561 is. The batch can run once: sent again, it changes no
+// codes.
+layer(BusyDay.layer, { timeout: "60 seconds", excludeTestServices: true })(
+  "row budgets of a correcting batch",
+  (it) => {
+    it.effect(
+      "a woken object drops the index for a few rows, and a batch writes no index row",
+      () =>
+        Effect.gen(function* () {
+          const { start, rows, status, tables } =
+            yield* (yield* BusyDay).billed("correcting batch")
+          assert.strictEqual(status, 200)
+          assert.notInclude(tables, "broker_trades")
+          // The drop bills its schema reads, not a row per indexed side: 14
+          // rows read, none written. The one row written deletes the
+          // rebuild's fact.
+          assert.isAtMost(start.rowsRead, 50)
+          assert.isAtMost(start.rowsWritten, 1)
+          // Its chunks and its trades' sweep brokers rows, about 2.4 K. With
+          // the index it wrote 21.4 K: two side rows a changed trade.
+          assert.isAtMost(rows.rowsWritten, 3_000)
+        }),
       10_000
     )
   }

@@ -1,16 +1,16 @@
 // The busy-sized day the row budgets run on (spec apinrdw/kumora#554,
-// "Testing Decisions"): a relay day sealed after the close, its tape, candles,
-// broker code chunks and broker trades index as today's code stores them,
-// written straight into the object's SQLite, and its tape summary as the
-// seal writes it. The trading day makes the tables first, so the day has
-// today's shape.
+// "Testing Decisions"): a relay day sealed after the close, its tape, candles
+// and broker code chunks as today's code stores them, written straight into
+// the object's SQLite, and its tape summary as the seal writes it. The
+// trading day makes the tables first, so the day has today's shape. It also
+// holds the broker trades index and its rebuild's fact, as a day recorded
+// before apinrdw/kumora#561 does.
 import { Clock, DateTime, Effect } from "effect"
 
 import { BROKER_TOTALS_VERSION } from "../src/server/broker-totals/version.ts"
 import { summarizeTape } from "../src/server/market-live/broker-codes.ts"
 import { durableSql } from "../src/server/market-live/durable-sql.ts"
 import {
-  BROKER_TRADES_BUILT,
   Fact,
   ORDER_FLOW_BUILT,
   SWEEP_BROKERS_BUILT,
@@ -103,6 +103,15 @@ export const buildBusyDay = Effect.fnUntraced(function* (
         FROM n`
       )
       exec(
+        `CREATE TABLE broker_trades (
+          broker TEXT NOT NULL,
+          investor_type TEXT NOT NULL,
+          side TEXT NOT NULL,
+          number INTEGER NOT NULL,
+          PRIMARY KEY (broker, investor_type, side, number)
+        ) WITHOUT ROWID`
+      )
+      exec(
         `${numbers(trades)} INSERT INTO broker_trades
         SELECT substr('${brokers}', (x * 7) % ${BROKERS.length} * 2 + 1, 2),
           CASE x % 5 WHEN 0 THEN 'F' ELSE 'D' END, 'buy', x FROM n
@@ -123,7 +132,7 @@ export const buildBusyDay = Effect.fnUntraced(function* (
       Fact.crossCheck,
       JSON.stringify({ walkedTo: String(trades), ended: true }),
     ],
-    [Fact.brokerTrades, BROKER_TRADES_BUILT],
+    ["broker-trades", "built"],
     // Built by an older build version, as a day the reconcile cron has yet
     // to poke: with a broker totals DB, a batch runs its buildable check.
     [Fact.brokerTotals, String(BROKER_TOTALS_VERSION - 1)],

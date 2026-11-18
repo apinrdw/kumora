@@ -45,12 +45,17 @@ const billed = Effect.fnUntraced(function* (
   const measured = sql.usage!()
   const answer = yield* operation.measure(day)
   const done = sql.usage!()
+  const tables = storage.sql
+    .exec("SELECT name FROM sqlite_schema WHERE type = 'table' ORDER BY name")
+    .toArray()
+    .map((row) => String(row.name))
   return Response.json({
     start: since({ rowsRead: 0, rowsWritten: 0 }, started),
     before: since(started, measured),
     rows: since(measured, done),
     status: answer.status,
     answer: yield* Effect.promise(() => answer.text()),
+    tables,
   })
 }, Effect.scoped)
 
