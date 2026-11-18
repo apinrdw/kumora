@@ -47,7 +47,7 @@ const BIDS = [
 const OFFERS = [level(1010, 25, 5), level(1015, 25, 1), level(1040, 50, 10)]
 
 const read = (book: OrderBook, last?: number) =>
-  bookReadingsOf(book, { date, last, value: 5e9 })
+  bookReadingsOf(book, { date, last })
 
 describe("book readings", () => {
   it.effect("measure each side's best five levels", () =>
@@ -72,7 +72,6 @@ describe("book readings", () => {
       assert.closeTo(readings.spread?.percent ?? 0, (10 / 1005) * 100, 1e-9)
       assert.strictEqual(readings.limit, undefined)
       assert.strictEqual(readings.code, "ERAA")
-      assert.strictEqual(readings.value, 5e9)
       assert.deepStrictEqual(readings.at, at)
     })
   )

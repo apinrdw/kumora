@@ -13,11 +13,7 @@ import {
 } from "@workspace/relay"
 import { DateTime, Effect, Option, type Schema } from "effect"
 
-export const makeReadingsBook = (options: {
-  readonly date: WibDate
-  // A code's regular-board value today.
-  readonly valueOf: (code: StockCode) => Effect.Effect<number>
-}) =>
+export const makeReadingsBook = (options: { readonly date: WibDate }) =>
   Effect.sync(() => {
     const latest = new Map<StockCode, BookReadings>()
 
@@ -38,7 +34,6 @@ export const makeReadingsBook = (options: {
         const readings = yield* bookReadingsOf(book, {
           date: options.date,
           last: yield* lastOf(book.code),
-          value: yield* options.valueOf(book.code),
         })
         latest.set(book.code, readings)
         taken.push(readings)

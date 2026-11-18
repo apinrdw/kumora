@@ -26,11 +26,10 @@ const side = (lots: number): BookReadings["bid"] => ({
   lotsPerOrder: lots / 2,
 })
 
-// A code's readings worth Rp2 B today, `bid` lots against 100.
+// A code's readings, `bid` lots against 100.
 const readings = (code: StockCode, bid: number): BookReadings => ({
   code,
   at: DateTime.makeUnsafe(Date.now()),
-  value: 2e9,
   imbalance: (bid - 100) / (bid + 100),
   spread: { ticks: 1, percent: 0.5 },
   limit: undefined,
@@ -61,6 +60,17 @@ test("the order shown before the first second's tick holds while the pointer is 
     events: Effect.runSync(makeRadarEventsStore),
   }
   stores.readings.apply(delta([readings(FIRST, 900), readings(SECOND, 300)]))
+  // Both worth Rp2 B today.
+  stores.figures.apply({
+    ...delta([]),
+    scannerFigures: [FIRST, SECOND].map((code) => ({
+      code,
+      last: 1_000,
+      previousClose: 1_000,
+      previousValue: undefined,
+      value: 2e9,
+    })),
+  })
   const board = new Set<StockCode>()
   const watchlist = new Set<StockCode>()
   const clockOffset = { current: 0 }

@@ -26,7 +26,7 @@ const side = (
   ...more,
 })
 
-// A code's readings: worth Rp2 B today and as of 1 s ago, unless told.
+// A code's readings: as of 1 s ago, unless told.
 const reading = (
   code: string,
   imbalance: number | undefined,
@@ -34,7 +34,6 @@ const reading = (
 ): BookReadings => ({
   code: StockCode.make(code),
   at: DateTime.makeUnsafe(NOW - 1_000),
-  value: 2e9,
   imbalance,
   spread: { ticks: 1, percent: 0.5 },
   limit: undefined,
@@ -81,14 +80,16 @@ const run = (
   scan(
     {
       readings,
+      // Every code worth Rp2 B today, unless told.
       figures: new Map(
-        Object.entries(more.figures ?? {}).map(([code, figures]) => [
-          StockCode.make(code),
+        readings.map(({ code }) => [
+          code,
           {
             last: 1_000,
             previousClose: 1_000,
             previousValue: undefined,
-            ...figures,
+            value: 2e9,
+            ...more.figures?.[code],
           },
         ])
       ),
@@ -115,29 +116,29 @@ describe("which codes the scanner covers", () => {
         const result = yield* run(
           [
             // 09:00: nothing traded yet, Rp3 B yesterday.
-            reading("ADRO", 0.2, { value: 0 }),
-            reading("BBCA", 0.3, { value: 5e9 }),
+            reading("ADRO", 0.2),
+            reading("BBCA", 0.3),
             // Rp500 M today, none known for yesterday.
-            reading("KOTA", 0.4, { value: 500e6 }),
+            reading("KOTA", 0.4),
             // Rp600 M today, Rp400 M yesterday.
-            reading("LPKR", 0.1, { value: 600e6 }),
+            reading("LPKR", 0.1),
           ],
           {},
           {
             figures: {
-              ADRO: { previousValue: 3e9 },
-              LPKR: { previousValue: 400e6 },
+              ADRO: { value: 0, previousValue: 3e9 },
+              BBCA: { value: 5e9 },
+              KOTA: { value: 500e6 },
+              LPKR: { value: 600e6, previousValue: 400e6 },
             },
           }
         )
         assert.deepStrictEqual(result.bid, ["BBCA", "ADRO"])
         assert.strictEqual(result.above, 2)
         const lower = yield* run(
-          [
-            reading("KOTA", 0.4, { value: 500e6 }),
-            reading("LPKR", 0.1, { value: 600e6 }),
-          ],
-          { floor: 100e6 }
+          [reading("KOTA", 0.4), reading("LPKR", 0.1)],
+          { floor: 100e6 },
+          { figures: { KOTA: { value: 500e6 }, LPKR: { value: 600e6 } } }
         )
         assert.deepStrictEqual(lower.bid, ["KOTA", "LPKR"])
       })
@@ -154,8 +155,8 @@ describe("which codes the scanner covers", () => {
             reading("ZINC", -0.5),
             reading("JKSW", 0.6),
             // Below the floor: never in coverage, so not counted.
-            reading("BKSL", 0.2, { value: 1e6 }),
-            reading("PADA", 0.2, { value: 1e6 }),
+            reading("BKSL", 0.2),
+            reading("PADA", 0.2),
           ],
           {},
           {
@@ -163,7 +164,8 @@ describe("which codes the scanner covers", () => {
               ZINC: { previousClose: 10 },
               // Board codes are often priced Rp1–10 too: counted once.
               MAMI: { previousClose: 8 },
-              BKSL: { previousClose: 8 },
+              BKSL: { previousClose: 8, value: 1e6 },
+              PADA: { value: 1e6 },
             },
             // SDPC has no readings: no book, no value, not in coverage.
             board: ["MAMI", "JKSW", "SDPC", "PADA"],

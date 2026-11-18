@@ -42,7 +42,6 @@ const readingsOf = (
 ): BookReadings => ({
   code: StockCode.make(code),
   at: DateTime.makeUnsafe("2026-11-18T03:00:00Z"),
-  value: 1e9,
   imbalance: 0.25,
   spread: { ticks: 2, percent: 0.4 },
   limit: undefined,

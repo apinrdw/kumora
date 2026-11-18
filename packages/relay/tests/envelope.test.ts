@@ -341,7 +341,6 @@ describe("viewer protocol, down", () => {
       const readings: BookReadings = {
         code: StockCode.make("ERAA"),
         at: DateTime.makeUnsafe("2026-11-18T03:00:00.125Z"),
-        value: 5_000_000_000,
         imbalance: -0.2345,
         spread: { ticks: 2, percent: 0.995 },
         limit: "upper",
@@ -535,12 +534,14 @@ describe("viewer protocol, down", () => {
               last: 7_550,
               previousClose: 7_500,
               previousValue: 1_250_000_000_000,
+              value: 980_000_000_000,
             },
             {
               code: StockCode.make("KOTA"),
               last: undefined,
               previousClose: undefined,
               previousValue: undefined,
+              value: 0,
             },
           ],
         }
@@ -552,6 +553,7 @@ describe("viewer protocol, down", () => {
           null,
           null,
           null,
+          0,
         ])
       })
   )

@@ -40,6 +40,7 @@ const snapshot: ViewerDown = {
       last: 7_500,
       previousClose: 7_450,
       previousValue: 2e12,
+      value: 1e12,
     },
   ],
 }
@@ -64,6 +65,7 @@ describe("the scanner's figures", () => {
           last: 7_500,
           previousClose: 7_450,
           previousValue: 2e12,
+          value: 1e12,
         })
         store.apply({
           ...delta([]),
@@ -73,6 +75,7 @@ describe("the scanner's figures", () => {
               last: 7_525,
               previousClose: 7_450,
               previousValue: undefined,
+              value: 1.1e12,
             },
           ],
         })
@@ -80,6 +83,7 @@ describe("the scanner's figures", () => {
           last: 7_525,
           previousClose: 7_450,
           previousValue: undefined,
+          value: 1.1e12,
         })
         store.apply({ ...snapshot, scannerFigures: [] })
         assert.isUndefined(store.all().get(BBCA))

@@ -15,7 +15,6 @@ const side = {
 const readings = (code: string, imbalance: number): BookReadings => ({
   code: StockCode.make(code),
   at: DateTime.makeUnsafe("2026-11-18T03:00:00Z"),
-  value: 1e9,
   imbalance,
   spread: { ticks: 1, percent: 0.5 },
   limit: undefined,

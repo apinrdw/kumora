@@ -45,7 +45,6 @@ const side = (lots: number): BookReadings["bid"] => ({
 const readings = (code: Code, bid: number): BookReadings => ({
   code,
   at: DateTime.makeUnsafe(NOW),
-  value: 2e9,
   imbalance: (bid - 100) / (bid + 100),
   spread: { ticks: 1, percent: 0.5 },
   limit: undefined,

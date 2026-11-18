@@ -172,6 +172,7 @@ export interface CodeFigures {
   readonly last: number | undefined
   readonly previousClose: number | undefined
   readonly previousValue: number | undefined
+  readonly value: number
 }
 
 // Decision: Events in 5 minutes counts a code's book events of the last 5
@@ -265,6 +266,10 @@ export const isCheap = (figures: CodeFigures | undefined) =>
     return close !== undefined && close <= LOWEST_READ_CLOSE
   })
 
+// The value the floor reads (the Decision at `scan`).
+export const floorValue = (figures: CodeFigures | undefined) =>
+  Math.max(figures?.value ?? 0, figures?.previousValue ?? 0)
+
 const passesFilters = (
   readings: BookReadings,
   figures: CodeFigures | undefined,
@@ -300,8 +305,7 @@ export const scan = Effect.fnUntraced(function* (
   const limits: Array<Scan["limits"][number]> = []
   for (const readings of input.readings) {
     const figures = input.figures.get(readings.code)
-    const value = Math.max(readings.value, figures?.previousValue ?? 0)
-    if (value < settings.floor) continue
+    if (floorValue(figures) < settings.floor) continue
     if (input.board.has(readings.code)) {
       board++
       continue

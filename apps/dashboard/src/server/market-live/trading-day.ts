@@ -525,10 +525,7 @@ export const makeTradingDay = Effect.fnUntraced(function* (options: {
   const keptAlerts = yield* makeKeptAlerts
   const ingests = options.ingests ?? Effect.succeed([])
   const books = yield* makeOrderBooks(options.date)
-  const readings = yield* makeReadingsBook({
-    date: options.date,
-    valueOf: bubbles.dayValue,
-  })
+  const readings = yield* makeReadingsBook({ date: options.date })
   const previousValues = yield* makePreviousValues({
     date: options.date,
     fact: store.fact,
@@ -750,6 +747,7 @@ export const makeTradingDay = Effect.fnUntraced(function* (options: {
       last: quote.last,
       previousClose: quote.previousClose,
       previousValue: yield* previousValues.valueOf(code),
+      value: yield* bubbles.dayValue(code),
     }
   })
   const figuresKey = (figures: Effect.Success<ReturnType<typeof figuresOf>>) =>
@@ -758,27 +756,46 @@ export const makeTradingDay = Effect.fnUntraced(function* (options: {
         figures.last,
         figures.previousClose,
         figures.previousValue,
+        figures.value,
       ])
     )
   // Each code's scanner figures every ready viewer holds, as `figuresKey`; a
   // code missing is one some viewer may hold otherwise. A snapshot that hands
   // a viewer other figures drops the code, so the next delta sends it to all.
   const sentFigures = new Map<StockCode, string>()
-  // Decision: each delta sends every code with readings whose figures differ
-  // from `sentFigures`, compared rather than tracked from what changes them,
-  // so whatever order books, `liveprice` frames and the previous day's values
-  // come in, every page holds each code's current figures after the next
-  // delta. See spec apinrdw/kumora#517, "Data".
+  // Each input has one source: last price and previous close
+  // `dayStates.quoteOf`, the previous day's value `previousValues`, today's
+  // value the bubbles' day sums; the readings carry only their book's.
+  // Decision: every scanner input but the readings is a figure, and each
+  // delta sends every code whose figures differ from `sentFigures`, compared
+  // rather than tracked, so whatever books, trades and frames come in, every
+  // page holds each code's current inputs after the next delta. See spec
+  // apinrdw/kumora#517, "Data".
+  // Every code with readings' figures, each trade past its merge window
+  // settled first, so today's value counts it.
+  const currentFigures = Effect.gen(function* () {
+    yield* candles.settledBefore
+    return yield* Effect.forEach(yield* readings.all, ({ code }) =>
+      figuresOf(code)
+    )
+  })
   const changedFigures = Effect.gen(function* () {
     const changed: Array<Effect.Success<ReturnType<typeof figuresOf>>> = []
-    for (const { code } of yield* readings.all) {
-      const figures = yield* figuresOf(code)
+    for (const figures of yield* currentFigures) {
       const key = yield* figuresKey(figures)
-      if (sentFigures.get(code) === key) continue
-      sentFigures.set(code, key)
+      if (sentFigures.get(figures.code) === key) continue
+      sentFigures.set(figures.code, key)
       changed.push(figures)
     }
     return changed
+  })
+  // Whether a delta would carry figures: a trade settling past its merge
+  // window changes a code's value with no frame to schedule one.
+  const figuresPending = Effect.gen(function* () {
+    for (const figures of yield* currentFigures)
+      if (sentFigures.get(figures.code) !== (yield* figuresKey(figures)))
+        return true
+    return false
   })
 
   // Decision: a delta carries every candle that changed, of any code, not
@@ -852,7 +869,8 @@ export const makeTradingDay = Effect.fnUntraced(function* (options: {
       !(yield* candles.hasChanges) &&
       !(yield* books.hasChanges(yield* stockbitLive)) &&
       !(yield* dayStates.hasChanges) &&
-      !(yield* conditionsPending)
+      !(yield* conditionsPending) &&
+      !(yield* figuresPending)
     )
       return
     deltaScheduled = true
@@ -1493,9 +1511,7 @@ export const makeTradingDay = Effect.fnUntraced(function* (options: {
       const bookReadings = yield* readings.all
       const newestEvents = yield* bookEvents.newest
       const selectedEvents = yield* bookEvents.ofCode(selected)
-      const scannerFigures = yield* Effect.forEach(bookReadings, ({ code }) =>
-        figuresOf(code)
-      )
+      const scannerFigures = yield* currentFigures
       for (const figures of scannerFigures)
         if (sentFigures.get(figures.code) !== (yield* figuresKey(figures)))
           sentFigures.delete(figures.code)

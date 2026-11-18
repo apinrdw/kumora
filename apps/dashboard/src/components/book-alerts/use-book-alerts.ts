@@ -11,7 +11,6 @@ import { DateTime, Effect } from "effect"
 import { useCallback, useEffect, useMemo, useRef, useState } from "react"
 
 import { kToast } from "@/components/k/toast"
-import { makeBookReadingsStore } from "@/components/market-live/book-readings-store"
 import { useSpecialBoard } from "@/components/market-live/use-special-board"
 import { useWatchlist } from "@/components/market-live/use-watchlist"
 import { makeFiguresStore } from "@/components/order-book-radar/figures-store"
@@ -26,7 +25,7 @@ import {
   type MatchContext,
 } from "@/lib/book-alerts"
 import { bookEventDetail, bookEventKey } from "@/lib/book-events"
-import { isCheap } from "@/lib/order-book-radar"
+import { floorValue, isCheap } from "@/lib/order-book-radar"
 
 import {
   alertBell,
@@ -133,20 +132,16 @@ export function useBookAlerts() {
   const board = useSpecialBoard()
   const { floor } = useRadarSettings().settings
   const [figures] = useState(() => Effect.runSync(makeFiguresStore))
-  const [readings] = useState(() => Effect.runSync(makeBookReadingsStore))
   const context = useMemo((): MatchContext => {
     const watched = new Set(watchlist)
     return {
       watchlist: watched,
       excluded: (code) =>
         board.has(code) || Effect.runSync(isCheap(figures.all().get(code))),
-      onScanner: (code: StockCode) => {
-        const value = readings.readingsOf(code)?.value ?? 0
-        const previous = figures.all().get(code)?.previousValue ?? 0
-        return Math.max(value, previous) >= floor
-      },
+      onScanner: (code: StockCode) =>
+        floorValue(figures.all().get(code)) >= floor,
     }
-  }, [watchlist, board, floor, figures, readings])
+  }, [watchlist, board, floor, figures])
   const held = useRef(context)
   useEffect(() => {
     held.current = context
@@ -175,7 +170,6 @@ export function useBookAlerts() {
   return useCallback(
     (message: ViewerDown) => {
       figures.apply(message)
-      readings.apply(message)
       const today = Effect.runSync(wibDateAt(message.at))
       alertDay.set(today)
       if (message._tag !== "Delta" || message.bookEvents === undefined) return
@@ -196,6 +190,6 @@ export function useBookAlerts() {
         tell(alert, verdict)
       }
     },
-    [figures, readings, tell]
+    [figures, tell]
   )
 }

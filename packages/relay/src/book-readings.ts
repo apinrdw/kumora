@@ -45,11 +45,10 @@ export type Limit = typeof Limit.Type
 // One code's readings. Imbalance runs from -1 (offers only) to 1 (bids only),
 // none when both sides are empty; the spread is none when either is. `limit`
 // marks a code at its upper or lower auto-reject limit. `at` is the book's
-// as-of, `value` the code's regular-board value today in rupiah.
+// as-of.
 const BookReadingsFields = Schema.Struct({
   code: StockCode,
   at: Schema.DateTimeUtc,
-  value: Schema.Finite,
   imbalance: Schema.UndefinedOr(Schema.Finite),
   spread: Schema.UndefinedOr(
     Schema.Struct({ ticks: Schema.Int, percent: Schema.Finite })
@@ -61,7 +60,7 @@ const BookReadingsFields = Schema.Struct({
 
 const LIMIT_CODES = { upper: 1, lower: -1 } as const
 
-// A reading's tuple: [code, as-of, value, imbalance, spread ticks, spread %,
+// A reading's tuple: [code, as-of, imbalance, spread ticks, spread %,
 // limit (1 upper, -1 lower, 0 none), then the bid's and the offer's near depth,
 // lots, empty ticks, widest gap and lots per order], none as null. Encoding
 // rounds imbalance and the spread to 4 places, lots per order to 2 and near depth
@@ -80,7 +79,6 @@ const WireSide = [
 export const BookReadings = Schema.Tuple([
   StockCode,
   Schema.DateTimeUtcFromMillis,
-  Schema.Finite,
   Schema.NullOr(Schema.Finite),
   Schema.NullOr(Schema.Int),
   Schema.NullOr(Schema.Finite),
@@ -93,7 +91,6 @@ export const BookReadings = Schema.Tuple([
       ([
         code,
         at,
-        value,
         imbalance,
         spreadTicks,
         spreadPercent,
@@ -125,7 +122,6 @@ export const BookReadings = Schema.Tuple([
         return {
           code,
           at,
-          value,
           imbalance: imbalance ?? undefined,
           spread:
             spreadTicks === null || spreadPercent === null
@@ -160,7 +156,6 @@ export const BookReadings = Schema.Tuple([
       return [
         readings.code,
         readings.at,
-        Math.round(readings.value),
         rounded(readings.imbalance, 4),
         readings.spread?.ticks ?? null,
         rounded(readings.spread?.percent, 4),
@@ -224,13 +219,12 @@ const limitOf = Effect.fnUntraced(function* (
 })
 
 // `book`'s readings on `date`, with the code's last price (for the limit
-// mark) and its value today.
+// mark).
 export const bookReadingsOf = Effect.fnUntraced(function* (
   book: OrderBook,
   context: {
     readonly date: WibDate
     readonly last: number | undefined
-    readonly value: number
   }
 ) {
   const bid = yield* readSide(book.bids)
@@ -241,7 +235,6 @@ export const bookReadingsOf = Effect.fnUntraced(function* (
   const readings: BookReadings = {
     code: book.code,
     at: book.at,
-    value: context.value,
     imbalance: total > 0 ? (bid.lots - offer.lots) / total : undefined,
     spread:
       bestBid === undefined || bestOffer === undefined

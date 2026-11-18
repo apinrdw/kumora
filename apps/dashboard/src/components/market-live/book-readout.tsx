@@ -298,7 +298,6 @@ function RecordedReadings({
     bookReadingsOf(held, {
       date: cursor.day.date,
       last: state?.last,
-      value: state?.value ?? 0,
     })
   )
   return <Readings readings={readings} paused={undefined} />
