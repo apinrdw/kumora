@@ -12,7 +12,7 @@ import { DateTime, Effect } from "effect"
 import type { WorkerEnv } from "@workspace/server"
 
 import type { makeTradingDay } from "../src/server/market-live/trading-day.ts"
-import { BUSY_DAY, busyCodes } from "./busy-day.ts"
+import { BUSY_DAY, busyCodes } from "./busy-figures.ts"
 
 type TradingDay = Effect.Success<ReturnType<typeof makeTradingDay>>
 

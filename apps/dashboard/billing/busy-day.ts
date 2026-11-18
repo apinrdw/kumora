@@ -2,9 +2,8 @@
 // "Testing Decisions"): a relay day sealed after the close, its tape, candles,
 // broker code chunks and broker trades index as today's code stores them,
 // written straight into the object's SQLite, and its tape summary as the
-// seal writes it. The trading day makes the tables
-// first, so the day has today's shape.
-import { BrokerCode, WibDate, type TradeCodes } from "@workspace/relay"
+// seal writes it. The trading day makes the tables first, so the day has
+// today's shape.
 import { Clock, DateTime, Effect } from "effect"
 
 import { BROKER_TOTALS_VERSION } from "../src/server/broker-totals/version.ts"
@@ -17,17 +16,7 @@ import {
   SWEEP_BROKERS_BUILT,
 } from "../src/server/market-live/day-store.ts"
 import { makeTradingDay } from "../src/server/market-live/trading-day.ts"
-
-// Decision: Production's busiest measured day, 1,460,000 trades
-// (docs/runbooks/order-flow-cost.md, "The estimate model"), over 800 codes
-// from 09:00 to 16:15 WIB. The relay missed a few trades, which a walk
-// filled as walk_trades rows: the status reads around them, as on a real day.
-export const BUSY_DAY = {
-  date: WibDate.make("2026-11-09"),
-  trades: 1_460_000,
-  codes: 800,
-  holes: [12_345, 404_040, 777_777, 1_000_001, 1_333_333],
-} as const
+import { BROKERS, BUSY_DAY, busyCodes } from "./busy-figures.ts"
 
 const OPEN = DateTime.toEpochMillis(
   DateTime.makeUnsafe("2026-11-09T09:00:00+07:00")
@@ -42,21 +31,7 @@ const MINUTES = 435
 const CHUNK = 1_000
 const RECORD = 7
 const AJAIB = 65
-const BROKERS = ["AK", "BK", "CC", "DX", "KZ", "MG", "PD", "YP", "ZP", "RX"]
-const buyerOf = (number: number) => BROKERS[(number * 7) % BROKERS.length]!
-const sellerOf = (number: number) => BROKERS[(number * 3) % BROKERS.length]!
-const typeOf = (number: number): TradeCodes["buyerType"] =>
-  number % 5 === 0 ? "F" : "D"
-
 const encoder = new TextEncoder()
-
-// The codes the busy day holds for trade `number`.
-export const busyCodes = (number: number): TradeCodes => ({
-  buyer: BrokerCode.make(buyerOf(number)),
-  buyerType: typeOf(number),
-  seller: BrokerCode.make(sellerOf(number)),
-  sellerType: typeOf(number + 1),
-})
 
 // One chunk's records, every trade's codes from Ajaib.
 const chunkOf = (chunk: number) =>
