@@ -306,6 +306,34 @@ it.effect(
     })
 )
 
+it.effect(
+  "a snapshot's sweep alerts mark their rows, and the marks the tape held carry over",
+  () =>
+    Effect.gen(function* () {
+      const alert = (side: "buy" | "sell", ...numbers: Array<number>) => ({
+        code: StockCode.make("BBCA"),
+        side,
+        lots: 100,
+        tradeNumbers: numbers.map((n) => TradeNumber.make(String(n))),
+      })
+      const live = yield* applyViewerMessage(yield* emptyTape(), {
+        ...delta(trade(1), trade(2), trade(3), trade(4)),
+        sweepAlerts: [alert("sell", 1)],
+      })
+      // A reconnect: the object restarted and lost the sell alert; the
+      // buy alert is one it decided since.
+      const reconnected = yield* applyViewerMessage(live, {
+        ...snapshot(trade(1), trade(2), trade(3), trade(4)),
+        sweepAlerts: [alert("buy", 3, 4)],
+      })
+      expect([...reconnected.alertSides].sort()).toEqual([
+        ["1", "sell"],
+        ["3", "buy"],
+        ["4", "buy"],
+      ])
+    })
+)
+
 it.effect("a big trade is Rp1 B or more on the regular board", () =>
   Effect.gen(function* () {
     expect(yield* isBigTrade(trade(1, { price: 10_000, lots: 1_000 }))).toBe(
