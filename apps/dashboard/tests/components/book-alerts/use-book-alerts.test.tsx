@@ -93,15 +93,15 @@ const delta = deltaOf(eaten)
 const settle = () =>
   act(() => new Promise<void>((resolve) => setTimeout(resolve, 20)))
 
-// A live page in a tab of its own: its own modules, so its own gate, over
-// the browser's one localStorage and locks.
-const openTab = async () => {
+// A page in a tab of its own: its own modules, so its own gate, over the
+// browser's one localStorage and locks. A recorded day's page is not live.
+const openTab = async (live = true) => {
   vi.resetModules()
   const { useBookAlerts } =
     await import("@/components/book-alerts/use-book-alerts")
   const held: { apply?: (message: ViewerDown) => void } = {}
   function Page() {
-    held.apply = useBookAlerts()
+    held.apply = useBookAlerts(live)
     return null
   }
   const root = createRoot(
@@ -172,4 +172,29 @@ test("the page opened last tells, and the other takes over once it closes", asyn
   act(() => radar.hear(later))
   await settle()
   expect(toasts.told, "the page left holds the lock").toHaveLength(1)
+})
+
+test("a recorded day's page opened later takes no lock, so the live page still tells", async () => {
+  browser()
+  const radar = await openTab()
+  await openTab(false)
+  act(() => radar.hear(delta))
+  await settle()
+  expect(toasts.told, "the live radar keeps telling").toHaveLength(1)
+})
+
+test("the page whose window gains focus takes the lock", async () => {
+  browser()
+  const radar = await openTab()
+  const marketLive = await openTab()
+  // Both windows stay visible, so only focus says the radar came forward.
+  act(() => void window.dispatchEvent(new Event("focus")))
+  await settle()
+  act(() => radar.hear(delta))
+  await settle()
+  expect(toasts.told, "the focused radar tells").toHaveLength(1)
+  const later = deltaOf({ ...eaten, at: DateTime.makeUnsafe(T0 + 180_000) })
+  act(() => marketLive.hear(later))
+  await settle()
+  expect(toasts.told, "the page left behind tells nothing").toHaveLength(1)
 })
