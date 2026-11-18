@@ -66,6 +66,12 @@ const VIEW_LEVELS = 20
 // The same kind at the same side and price fires at most once a window, as
 // in the replay.
 const REPEAT_MS = WINDOW_MS
+// Decision: a trade is kept while a read can reach it: two windows behind
+// the newest trade, and past that while a pull still to be read has a wall
+// it reads from, as sparse frames delay that read by minutes. A side without
+// one holds none back, and none is kept past 10 min, which bounds the trades
+// a side gone quiet on a wall holds. See apinrdw/kumora#526.
+const HELD_MS = 10 * 60_000
 // Frames kept past the window: a pull reads two frames back from a frame
 // two behind the newest, and a move the frame before each arrival.
 const KEPT_FRAMES = 2 * MOVED_FRAMES + 3
@@ -536,12 +542,12 @@ export const makeLevelLedger = Effect.sync(() => {
     return found.filter((event) => fires(ledger, event))
   })
 
-  // Decision: a trade is kept two windows, and past that while either side's
-  // pull still to be read, MOVED_FRAMES frames late, reads back to it:
-  // sparse frames delay that read by minutes. See apinrdw/kumora#526.
-  // Where that read's wall frames start: trades after it are still needed.
-  const pendingFrom = (side: SideLedger) =>
-    side.frames.at(-2 - MOVED_FRAMES)?.t ?? side.frames[0]?.t ?? Infinity
+  // The oldest frame holding a wall that a pull still to be read reads from:
+  // the newest MOVED_FRAMES frames are still to be read, each reading the
+  // walls of the two frames before it. A side with no such wall needs none.
+  const pendingWallAt = (side: SideLedger) =>
+    side.frames.slice(-2 - MOVED_FRAMES).find((frame) => frame.walls.size > 0)
+      ?.t ?? Infinity
 
   // A trade new to the day, or `merged` replacing the copy `held` of it the
   // ledger was given before, as the merged tape does. Only a regular-board
@@ -568,10 +574,13 @@ export const makeLevelLedger = Effect.sync(() => {
       }
       const t = DateTime.toEpochMillis(merged.time)
       const kept = ledger.trades
-      const after = Math.min(
-        t - 2 * WINDOW_MS,
-        pendingFrom(ledger.bid),
-        pendingFrom(ledger.offer)
+      const after = Math.max(
+        t - HELD_MS,
+        Math.min(
+          t - 2 * WINDOW_MS,
+          pendingWallAt(ledger.bid),
+          pendingWallAt(ledger.offer)
+        )
       )
       while (kept.length > 0 && kept[0]!.t <= after) kept.shift()
       let at = kept.length
