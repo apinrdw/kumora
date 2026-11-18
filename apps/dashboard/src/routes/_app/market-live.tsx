@@ -213,11 +213,11 @@ function TapePanel({
 }
 
 // What the page keeps in its URL, so a shared link opens it: the selected
-// code, the phone's panel tab and the sweep log's Big only toggle. Picking
-// a code adds a history entry; switching a view replaces it and keeps the
-// scroll.
+// code, the phone's panel tab, the sweep log's Big only toggle, and the book
+// event a link lands on. Picking a code adds a history entry and leaves the
+// event; switching a view replaces it and keeps the scroll.
 function useMarketLiveSearch() {
-  const { code: selected = DEFAULT_CODE, panel, big } = Route.useSearch()
+  const { code: selected = DEFAULT_CODE, panel, big, event } = Route.useSearch()
   const navigate = Route.useNavigate()
   const change = useCallback(
     (patch: MarketLiveSearch, view: boolean) =>
@@ -229,7 +229,7 @@ function useMarketLiveSearch() {
     [navigate]
   )
   const select = useCallback(
-    (code: StockCode) => change({ code }, false),
+    (code: StockCode) => change({ code, event: undefined }, false),
     [change]
   )
   const pickPanel = useCallback(
@@ -243,6 +243,7 @@ function useMarketLiveSearch() {
   return {
     selected,
     select,
+    event,
     panel,
     pickPanel,
     log: { bigOnly: big === true, onBigOnly: setBigOnly },
@@ -259,7 +260,7 @@ function MarketLiveDay({
   today: WibDate
   closed: ClosedMarket["closed"]
 }) {
-  const { selected, select, ...view } = useMarketLiveSearch()
+  const { selected, select, event, ...view } = useMarketLiveSearch()
   const codes = useStockCodeList(day, today)
   const { candles, book, heatmap, sweeps, bookEvents } = useCodeStores(
     selected,
@@ -343,7 +344,13 @@ function MarketLiveDay({
               dayStates={dayStates}
               cursor={cursor}
               gaps={shownGaps}
-              events={<BookEventList store={bookEvents} cursor={cursor} />}
+              events={
+                <BookEventList
+                  store={bookEvents}
+                  cursor={cursor}
+                  landOn={event}
+                />
+              }
             />
           </>
         }
