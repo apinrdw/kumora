@@ -306,8 +306,16 @@ const restoreLastFrames = Effect.fnUntraced(function* (day: {
     if (book === undefined) continue
     yield* day.books.restore(book)
     yield* day.bookChunks.restore([book])
-    yield* day.readings.restore(book, (code) =>
-      Effect.map(day.dayStates.stateOf(code, true), (state) => state?.last)
+    yield* day.readings.restore(
+      book,
+      (code) =>
+        Effect.map(day.dayStates.stateOf(code, true), (state) => state?.last),
+      Effect.fnUntraced(function* (code, at) {
+        const stored = yield* day.store.chunkAt(code, yield* minuteOf(at))
+        return stored === undefined
+          ? undefined
+          : yield* bookAt(yield* decodeBookChunk(stored), at)
+      })
     )
   }
   yield* day.books.restoreAjaib(yield* day.store.ajaibBooks)

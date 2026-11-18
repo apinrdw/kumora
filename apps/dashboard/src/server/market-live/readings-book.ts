@@ -4,13 +4,14 @@ import {
   READING_PHASES,
   bookReadingsOf,
   marketMomentAt,
+  marketPhases,
   type BookReadings,
   type MarketPhase,
   type OrderBook,
   type StockCode,
   type WibDate,
 } from "@workspace/relay"
-import { Effect, Option } from "effect"
+import { DateTime, Effect, Option, type Schema } from "effect"
 
 export const makeReadingsBook = (options: {
   readonly date: WibDate
@@ -52,14 +53,35 @@ export const makeReadingsBook = (options: {
     const all = Effect.sync(() => [...latest.values()])
 
     // A restarted object's last served book of a code: its readings come
-    // back when it was served in a session, so the break's snapshots keep
-    // the session's last values.
+    // back from it when it was served in a session, or else from the book
+    // in force when the last session before it ended (`bookAt`, from the
+    // stored chunks), so the break's and the close's snapshots keep the
+    // session's last values, as they do without a restart.
     const restore = Effect.fnUntraced(function* (
       book: OrderBook,
-      lastOf: (code: StockCode) => Effect.Effect<number | undefined>
+      lastOf: (code: StockCode) => Effect.Effect<number | undefined>,
+      bookAt: (
+        code: StockCode,
+        at: DateTime.Utc
+      ) => Effect.Effect<OrderBook | undefined, Schema.SchemaError>
     ) {
       const moment = yield* Effect.option(marketMomentAt(book.at))
-      if (Option.isSome(moment)) yield* read([book], moment.value.phase, lastOf)
+      if (Option.isNone(moment)) return
+      if (READING_PHASES.has(moment.value.phase))
+        return yield* read([book], moment.value.phase, lastOf)
+      const ended = (yield* marketPhases(options.date))
+        .filter(
+          (each) =>
+            READING_PHASES.has(each.phase) &&
+            DateTime.isLessThanOrEqualTo(each.to, book.at)
+        )
+        .at(-1)
+      if (ended === undefined) return
+      const last = yield* bookAt(
+        book.code,
+        DateTime.subtract(ended.to, { milliseconds: 1 })
+      )
+      if (last !== undefined) yield* read([last], ended.phase, lastOf)
     })
 
     return { read, all, restore }
