@@ -2,6 +2,7 @@ import {
   StockCode,
   TradeNumber,
   WibDate,
+  type AlertSide,
   type SweepAlert,
   type ViewerDown,
 } from "@workspace/relay"
@@ -18,7 +19,7 @@ import {
   type SoundSink,
 } from "@/components/market-live/sweep-alert-player"
 
-const alertOf = (side: SweepAlert["side"], seq: number): SweepAlert => ({
+const alertOf = (side: AlertSide, seq: number): SweepAlert => ({
   code: StockCode.make("BBCA"),
   side,
   lots: 30,
@@ -39,7 +40,7 @@ const playerOf = ({
   day,
   soundOn = true,
 }: { day?: WibDate; soundOn?: boolean } = {}) => {
-  const played: Array<SweepAlert["side"]> = []
+  const played: Array<AlertSide> = []
   const sink: SoundSink = {
     play: (side) => Effect.sync(() => void played.push(side)),
   }
@@ -131,7 +132,7 @@ const channelOf = (): OpenTabChannel => {
 // A Market Live tab on `channel`: its player plays only while the tab holds
 // the role. It joins the channel as it opens, focused or not.
 const tabOf = (channel: OpenTabChannel, { focused }: { focused: boolean }) => {
-  const played: Array<SweepAlert["side"]> = []
+  const played: Array<AlertSide> = []
   const sink: SoundSink = {
     play: (side) => Effect.sync(() => void played.push(side)),
   }

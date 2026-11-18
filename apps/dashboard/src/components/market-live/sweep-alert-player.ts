@@ -1,4 +1,4 @@
-import type { SweepAlert, ViewerDown, WibDate } from "@workspace/relay"
+import type { AlertSide, ViewerDown, WibDate } from "@workspace/relay"
 import { Effect } from "effect"
 import { useState } from "react"
 
@@ -6,12 +6,10 @@ import { usePlayingTab } from "./playing-tab"
 import { soundOn as speakerOn } from "./sound-toggle"
 import { sweepAlertSound } from "./sweep-alert-sound"
 
-type Side = SweepAlert["side"]
-
 // Where the player's sounds go: the WebAudio synth on the page
 // (sweep-alert-sound.ts), a fake that writes them down in tests.
 export type SoundSink = {
-  readonly play: (side: Side) => Effect.Effect<void>
+  readonly play: (side: AlertSide) => Effect.Effect<void>
 }
 
 // Plays each live delta's Sweep alerts through `sink`: at most one buy and

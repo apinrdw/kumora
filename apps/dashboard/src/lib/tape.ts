@@ -10,6 +10,7 @@ import {
   SHARES_PER_LOT,
   TradeNumberOrder,
   type RunningTrade,
+  type AlertSide,
   type StockCode,
   type SweepAlert,
   type TradeNumber,
@@ -76,7 +77,7 @@ export type Tape = {
   // Every trade number the tape took in, for the "N new trades" count.
   received: number
   // The side of the sweep alert each trade the tape holds was part of.
-  readonly alerts: Map<TradeNumber, SweepAlert["side"]>
+  readonly alerts: Map<TradeNumber, AlertSide>
 }
 
 export const emptyTape = () =>

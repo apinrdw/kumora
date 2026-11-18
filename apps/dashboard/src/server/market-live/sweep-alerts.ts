@@ -4,7 +4,7 @@
 // alerts. The candle book hands each minute's sweeps in as it regroups them
 // (candles.ts, `takeChanged`) and keeps what the rule ranked of the minute,
 // so a regroup replaces the minute's entries rather than adding them again.
-import type { StockCode, Sweep } from "@workspace/relay"
+import type { AlertSide, StockCode, Sweep } from "@workspace/relay"
 import { DateTime, Effect } from "effect"
 
 // Decision: a side alerts nothing until it holds 100 sweeps, and the cutoff
@@ -31,7 +31,7 @@ interface Ranking {
 
 // A sweep with an aggressor side: an auction match's prints have none and
 // never rank.
-type SidedSweep = Sweep & { readonly side: "buy" | "sell" }
+type SidedSweep = Sweep & { readonly side: AlertSide }
 
 const sided = (sweeps: ReadonlyArray<Sweep>) =>
   sweeps.filter((sweep): sweep is SidedSweep => sweep.side !== "none")
@@ -129,7 +129,7 @@ export const makeSweepAlerts = Effect.sync(() => {
   const rankings = new Map<string, Ranking>()
 
   // One code side's ranking.
-  const rankingOf = (code: StockCode, side: SidedSweep["side"]) =>
+  const rankingOf = (code: StockCode, side: AlertSide) =>
     Effect.sync(() => {
       const key = `${code} ${side}`
       let ranking = rankings.get(key)

@@ -1,11 +1,11 @@
 import type { RecordedTradeCodes } from "@workspace/client"
 import type {
+  AlertSide,
   BrokerCode,
   InvestorType,
   RelayGap,
   RunningTrade,
   StockCode,
-  SweepAlert,
   TradeCodes,
   ViewerDown,
 } from "@workspace/relay"
@@ -115,7 +115,7 @@ const BIG_TINT: Record<RunningTrade["side"], string> = {
 
 // A sweep alert's mark: its side's arrow in its side's colour.
 const ALERT_MARK: Record<
-  SweepAlert["side"],
+  AlertSide,
   { readonly glyph: string; readonly text: string }
 > = {
   buy: { glyph: "▲", text: "text-up" },
@@ -219,7 +219,7 @@ function TimeCell({
 }: {
   trade: RunningTrade
   inFold: boolean
-  alert: SweepAlert["side"] | undefined
+  alert: AlertSide | undefined
 }) {
   const mark = alert && ALERT_MARK[alert]
   return (
@@ -258,7 +258,7 @@ const TradeRow = memo(function TradeRow({
   selected: boolean
   inFold: boolean
   // The side of the sweep alert the trade was part of.
-  alert: SweepAlert["side"] | undefined
+  alert: AlertSide | undefined
   onSelect: (code: StockCode) => void
 }) {
   const big = Effect.runSync(isBigTrade(trade))

@@ -406,12 +406,16 @@ const MinuteSweeps = Schema.Struct({
 })
 export type MinuteSweeps = typeof MinuteSweeps.Type
 
+// A sweep alert's side: an auction match's sweep has none and never alerts.
+const AlertSide = Schema.Literals(["buy", "sell"])
+export type AlertSide = typeof AlertSide.Type
+
 // A sweep that reached its stock code's top-1% cutoff for its side (the rule
 // is in the dashboard's sweep-alerts.ts): its code, side and lots, and the
 // trade numbers of its trades, which the page marks on the tape.
 const SweepAlert = Schema.Struct({
   code: StockCode,
-  side: Schema.Literals(["buy", "sell"]),
+  side: AlertSide,
   lots: Schema.Finite,
   tradeNumbers: Schema.Array(TradeNumber),
 })
