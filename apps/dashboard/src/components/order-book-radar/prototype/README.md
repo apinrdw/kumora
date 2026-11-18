@@ -11,3 +11,13 @@ Throwaway prototype for [How the scanner looks and ranks](https://github.com/api
 - `#tiles-split`: E, split tiles plus event feed
 
 `scanner-d-tug-of-war-feed.png` shows D at 1600×1000.
+
+## Per-code readout on Market Live
+
+`book-readout.html` is the prototype for [How the per-code readout sits on Market Live](https://github.com/apinrdw/kumora/issues/494), published as https://claude.ai/artifact/NEqb7iiBY8zMB8wRhykPUy. It puts the readout in three places:
+
+- `#in-book`: A, inside the Order book panel
+- `#own-panel`: B, its own panel in the right column
+- `#under-charts`: C, a strip under the charts (**the owner's pick**, 2026-11-18)
+
+Its Try bar switches the code (busy, quiet, Special Monitoring Board, Rp7, at a limit, index), the market phase and a recorded day with a cursor. `readout-c-under-charts.png` shows C at 1680×1100.
