@@ -40,7 +40,7 @@ import {
 } from "@/server/market-live/trading-day"
 
 import recorded from "./fixtures/ajaib-trades-2026-11-09.json"
-import { memorySql } from "./sql"
+import { counted, memorySql, rowShapedSql } from "./sql"
 
 const TOKEN = "e2e-ingest-token"
 const DAY = WibDate.make("2026-11-09")
@@ -365,6 +365,80 @@ describe("a day's broker codes", () => {
     // Each status reads the 750,000 runs between the tape's numbers.
     { timeout: 10_000 }
   )
+
+  // CODING_STANDARDS.md, "Bounded memory on a Worker": a batch's fields are
+  // checked against the tape for its own numbers, not every number between
+  // its lowest and highest. Its tape is written straight into the table.
+  const BUSY = 1_460_000
+  // A trade every 10 ms from 09:00, as a busy day's tape runs.
+  const OPEN = DateTime.toEpochMillis(wib("09:00:00"))
+  // The most rows the batch reads: it reads its trades' minutes for their
+  // sweeps, 6 chunks or 6,000 rows a minute here, and its fields' checks.
+  for (const [shape, tapeSql, budget, fill] of [
+    [
+      "trade chunks",
+      memorySql,
+      100,
+      (sql: Sql) => {
+        for (let index = 0; index < BUSY / 1_000; index++) {
+          const taped = emptyRecords()
+          for (let slot = 0; slot < 1_000; slot++)
+            putRecord(taped, slot, {
+              time: OPEN + (index * 1_000 + slot) * 10,
+              code: 0,
+              price: 8_000,
+              lots: 1,
+              side: "buy",
+              board: "RG",
+              feeds: ["Ajaib"],
+            })
+          sql.exec(
+            "INSERT OR REPLACE INTO trade_chunks VALUES (?, ?)",
+            index,
+            taped
+          )
+        }
+        sql.exec(
+          "INSERT OR REPLACE INTO facts VALUES (?, ?)",
+          TRADE_CODES_FACT,
+          '["BBCA"]'
+        )
+      },
+    ],
+    [
+      "a row per trade",
+      rowShapedSql,
+      10_000,
+      (sql: Sql) =>
+        sql.exec(
+          `WITH RECURSIVE n(x) AS (SELECT 1 UNION ALL SELECT x + 1 FROM n WHERE x < ?)
+          INSERT OR IGNORE INTO trades
+          SELECT x, ? + (x - 1) * 10, 'BBCA', 8000, 1, 'buy', 'RG', 'Ajaib' FROM n`,
+          BUSY,
+          OPEN
+        ),
+    ],
+  ] as const)
+    it.effect(
+      `checks a sparse batch's fields against its own trades on ${shape}`,
+      () =>
+        Effect.gen(function* () {
+          yield* TestClock.setTime(wib("15:00:00").epochMilliseconds)
+          const sql = counted(tapeSql())
+          const day = yield* tradingDay({ sql })
+          yield* day.ajaibTrades(yield* day.relay, [1], "15:00:00")
+          sql.transaction(() => fill(sql))
+          const before = sql.usage!().rowsRead
+          yield* day.post("Stockbit", [
+            [1, YP_CC],
+            [BUSY, YP_CC],
+          ])
+          // One range read of the span between its two trades read the
+          // whole busy tape.
+          assert.isBelow(sql.usage!().rowsRead - before, budget)
+        }),
+      { timeout: 30_000 }
+    )
 
   it.effect(
     "after lists the ranges past it, clipped to start after it, and a bad one answers 400",
