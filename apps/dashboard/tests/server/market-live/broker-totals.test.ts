@@ -951,7 +951,7 @@ const cutDay = () => {
 // Review of spec apinrdw/kumora#554: a failure past the sealed marker left a
 // buildable day marked due with no build wake.
 describe("a seal cut off by a failed statement", () => {
-  it.effect.fails(
+  it.effect(
     "builds the day's broker totals on its retry alarm when the tape summary's insert failed",
     () =>
       Effect.gen(function* () {
@@ -973,7 +973,7 @@ describe("a seal cut off by a failed statement", () => {
       })
   )
 
-  it.effect.fails(
+  it.effect(
     "builds the day in the seal's own wake when the tape summary's insert failed once",
     () =>
       Effect.gen(function* () {
@@ -989,7 +989,7 @@ describe("a seal cut off by a failed statement", () => {
       })
   )
 
-  it.effect.fails(
+  it.effect(
     "at any one statement of its wake ends sealed and built on its retry alarm, no wake left",
     () =>
       withLines("Order flow storage", (lines) =>

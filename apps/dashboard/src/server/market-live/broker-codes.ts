@@ -168,10 +168,10 @@ const summarizeWhole = (sql: Sql) => {
 }
 
 // Decision: the seal summarizes the tape in its own transaction, after the
-// sealed marker. A seal cut off between them leaves a sealed day without a
-// summary, which its first status pass builds (`scan`): about 1.46 M rows
-// read and 1,460 written on a busy day (row-budgets.workerd.test.ts). A tape
-// its walk batches kept summarized (`summarizeAddedTrades`) isn't again.
+// sealed marker: about 1.46 M rows read and 1,460 written on a busy day
+// (row-budgets.workerd.test.ts). A seal cut off between them summarizes on
+// its retry (`finishSeal`, trading-day.ts), or at a status pass before it
+// (`scan`). A tape its walk batches kept summarized isn't again.
 export const summarizeTape = (sql: Sql) =>
   Effect.sync(() =>
     sql.transaction(() => {

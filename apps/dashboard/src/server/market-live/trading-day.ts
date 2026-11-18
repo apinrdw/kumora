@@ -916,10 +916,21 @@ export const makeTradingDay = Effect.fnUntraced(function* (options: {
       },
     })
     sealed = true
-    yield* summarizeTape(options.sql)
     // The next GET builds the bubbles answer from the seal's last candles.
     bubblesBody = undefined
-    if (due) yield* wakes.set("build", now)
+  })
+
+  // What a sealed day's seal still owes past its marker: the build's wake,
+  // the tape summary and the storage line.
+  // Decision: the seal wake stays set until all of this is done, so a
+  // failure past the marker is retried a minute later, as one before it is.
+  // Each step is safe to run again; a summary that failed reads the tape
+  // again, about 1.46 M rows on a busy day. The build is armed first, from
+  // the stored fact: no later step's failure holds it back. See PR #564.
+  const finishSeal = Effect.fnUntraced(function* (now: DateTime.Utc) {
+    if ((yield* store.fact(Fact.brokerTotals)) === BROKER_TOTALS_DUE)
+      yield* wakes.set("build", now)
+    yield* summarizeTape(options.sql)
     yield* Effect.logInfo("Order flow storage").pipe(
       Effect.annotateLogs({
         ...(yield* store.orderFlowStorage),
@@ -1074,18 +1085,19 @@ export const makeTradingDay = Effect.fnUntraced(function* (options: {
   > = {
     // A walk day seals only once buildable; the batch that makes it so sets
     // the wake again (`walkSealDue`). An unknown day never seals.
+    // A day sealed with the wake still set finishes its seal (`finishSeal`).
     seal: Effect.fnUntraced(function* (now) {
       if (DateTime.isLessThan(now, sealAt))
         return yield* wakes.set("seal", sealAt)
-      if (
-        sealed ||
-        source === "unknown" ||
-        (source === "walk" && !(yield* buildable))
-      )
-        return yield* wakes.set("seal", undefined)
-      yield* seal(now).pipe(
+      if (!sealed) {
+        if (source === "unknown" || (source === "walk" && !(yield* buildable)))
+          return yield* wakes.set("seal", undefined)
+        yield* seal(now).pipe(retried("seal", "Day not sealed", now))
+        if (!sealed) return
+      }
+      yield* finishSeal(now).pipe(
         Effect.andThen(wakes.set("seal", undefined)),
-        retried("seal", "Day not sealed", now)
+        retried("seal", "Seal not finished", now)
       )
     }),
     // A build that failed keeps the day's fact as it was.
