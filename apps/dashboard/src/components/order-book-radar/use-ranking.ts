@@ -62,6 +62,9 @@ const isEmpty = ({ scan: { bid, offer, limits } }: Ranking) =>
 export function useRanking(inputs: Inputs & { readonly hovering: boolean }) {
   const { settings, watchlist, hovering } = inputs
   const basis = useMemo(() => ({ settings, watchlist }), [settings, watchlist])
+  // The ranking on screen: the second's tick holds it, so a ranking made
+  // between ticks (the first, or one at new settings) is the one held.
+  const shown = useRef<Ranking | undefined>(undefined)
   const latest = useRef({ inputs, basis, hovering })
   useEffect(() => {
     latest.current = { inputs, basis, hovering }
@@ -74,16 +77,20 @@ export function useRanking(inputs: Inputs & { readonly hovering: boolean }) {
     const timer = setInterval(() => {
       const now = Date.now()
       const held = latest.current
-      setTick(({ ranking }) => ({
-        now,
-        ranking:
-          ranking === undefined ||
-          ranking.basis !== held.basis ||
-          isEmpty(ranking) ||
-          (!held.hovering && now - ranking.at >= RESORT_MS)
-            ? rank(held.inputs, held.basis, now)
-            : ranking,
-      }))
+      setTick(({ ranking }) => {
+        const onScreen = [ranking, shown.current].find(
+          (each) => each?.basis === held.basis
+        )
+        return {
+          now,
+          ranking:
+            onScreen === undefined ||
+            isEmpty(onScreen) ||
+            (!held.hovering && now - onScreen.at >= RESORT_MS)
+              ? rank(held.inputs, held.basis, now)
+              : onScreen,
+        }
+      })
     }, 1000)
     return () => clearInterval(timer)
   }, [])
@@ -95,6 +102,9 @@ export function useRanking(inputs: Inputs & { readonly hovering: boolean }) {
     [held, inputs, basis, now]
   )
   const ranking = held ?? fresh!
+  useEffect(() => {
+    shown.current = ranking
+  })
   return {
     scan: ranking.scan,
     marketNow: now + inputs.clockOffset.current,
