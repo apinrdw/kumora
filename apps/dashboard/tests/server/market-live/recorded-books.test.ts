@@ -10,6 +10,7 @@ import {
   bookAt,
   decodeBookChunk,
   decodeRecordedHeatmap,
+  type TradeFields,
 } from "@workspace/relay"
 import { DateTime, Effect } from "effect"
 import { TestClock } from "effect/testing"
@@ -180,6 +181,40 @@ describe("a day's recorded order books", () => {
         )
         yield* TestClock.adjust("2 minutes")
         assert.deepStrictEqual(yield* heatmapOf(day), {
+          notRecorded: true,
+          first: undefined,
+        })
+      })
+  )
+
+  it.effect(
+    "answer an unviewed code not recorded on a walk day restarted between its batches before the seal",
+    () =>
+      Effect.gen(function* () {
+        const walked: TradeFields = {
+          time: wib("09:00:35"),
+          code: StockCode.make("BBCA"),
+          price: 8_000,
+          lots: 4,
+          board: "RG",
+          side: "buy",
+        }
+        yield* at("16:40:00")
+        const sql = memorySql()
+        const first = yield* tradingDay(sql)
+        yield* first.brokerCodes("Stockbit", [[1, "AK F CC D", walked]])
+        yield* first.evicted
+
+        const restarted = yield* tradingDay(sql)
+        yield* restarted.brokerCodes(
+          "Stockbit",
+          [[2, "YP D AK F", { ...walked, side: "sell" }]],
+          2
+        )
+        yield* at("17:00:00")
+        yield* restarted.alarm
+        assert.lengthOf(sql.exec("SELECT 1 FROM facts WHERE key = 'sealed'"), 1)
+        assert.deepStrictEqual(yield* heatmapOf(restarted), {
           notRecorded: true,
           first: undefined,
         })
