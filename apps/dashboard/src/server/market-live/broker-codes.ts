@@ -89,7 +89,7 @@ const SCHEMA = [
   // `tape-summary` fact says so (TAPE_SUMMARY_BUILT). See apinrdw/kumora#543.
   `CREATE TABLE IF NOT EXISTS tape_summary (
     chunk INTEGER PRIMARY KEY,
-    held INTEGER NOT NULL,
+    taped INTEGER NOT NULL,
     holes TEXT NOT NULL
   )`,
   // Decision: a day recorded before apinrdw/kumora#561 drops its broker
@@ -114,11 +114,16 @@ export const MISSING_ALLOWANCE = 1_000
 type Holes = ReadonlyArray<readonly [number, number]>
 
 // One chunk's tape summary row, inside a transaction.
-const writeSummaryRow = (sql: Sql, chunk: number, held: number, holes: Holes) =>
+const writeSummaryRow = (
+  sql: Sql,
+  chunk: number,
+  taped: number,
+  holes: Holes
+) =>
   sql.exec(
     "INSERT OR REPLACE INTO tape_summary VALUES (?, ?, ?)",
     chunk,
-    held,
+    taped,
     JSON.stringify(holes)
   )
 
@@ -134,14 +139,14 @@ const holesOf = (row: Record<string, SqlValue>) =>
 // its window's and grouping's temporary tables counted, against 1 here.
 const summarizeChunks = (sql: Sql, first: number, last: number) => {
   let chunk = -1
-  let held = 0
+  let taped = 0
   // The lowest number of `chunk` not yet accounted for.
   let next = 0
   let holes: Array<readonly [number, number]> = []
   const written = () => {
     if (chunk < 0) return
     if (next <= (chunk + 1) * CHUNK) holes.push([next, (chunk + 1) * CHUNK])
-    writeSummaryRow(sql, chunk, held, holes)
+    writeSummaryRow(sql, chunk, taped, holes)
   }
   for (const row of sql.exec(
     "SELECT number FROM trades WHERE number BETWEEN ? AND ? ORDER BY number",
@@ -153,12 +158,12 @@ const summarizeChunks = (sql: Sql, first: number, last: number) => {
     if (at !== chunk) {
       written()
       chunk = at
-      held = 0
+      taped = 0
       next = at * CHUNK + 1
       holes = []
     }
     if (number > next) holes.push([next, number - 1])
-    held++
+    taped++
     next = number + 1
   }
   written()
@@ -855,13 +860,13 @@ export const makeBrokerCodes = Effect.fnUntraced(function* (options: {
       const low = first * CHUNK + 1
       unfielded.fill(1)
       for (const row of sql.exec(
-        "SELECT chunk, held, holes FROM tape_summary WHERE chunk BETWEEN ? AND ?",
+        "SELECT chunk, taped, holes FROM tape_summary WHERE chunk BETWEEN ? AND ?",
         first,
         last
       )) {
         const at = Number(row.chunk) * CHUNK + 1 - low
         unfielded.fill(0, at, at + CHUNK)
-        if (Number(row.held) === CHUNK) continue
+        if (Number(row.taped) === CHUNK) continue
         for (const [from, to] of holesOf(row))
           unfielded.fill(1, from - low, to - low + 1)
       }
