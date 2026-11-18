@@ -35,11 +35,11 @@ const deltaOf = (sweepAlerts: ReadonlyArray<SweepAlert>): ViewerDown => ({
 })
 
 // A player over a sink that writes down each sound it is asked for: the live
-// page's with sound on, unless told otherwise.
+// page's with the Speaker toggle on, unless told otherwise.
 const playerOf = ({
   day,
-  soundOn = true,
-}: { day?: WibDate; soundOn?: boolean } = {}) => {
+  speakerOn = true,
+}: { day?: WibDate; speakerOn?: boolean } = {}) => {
   const played: Array<AlertSide> = []
   const sink: SoundSink = {
     play: (side) => Effect.sync(() => void played.push(side)),
@@ -48,7 +48,7 @@ const playerOf = ({
     makeSweepAlertPlayer({
       sink,
       day,
-      toggledOn: Effect.succeed(soundOn),
+      toggledOn: Effect.succeed(speakerOn),
       mayPlay: Effect.succeed(true),
     })
   )
@@ -251,7 +251,7 @@ test("a tab that went away and came back is not the Playing tab", () => {
 })
 
 test("nothing plays while the Speaker toggle is off", () => {
-  const { hear, played } = playerOf({ soundOn: false })
+  const { hear, played } = playerOf({ speakerOn: false })
   hear(deltaOf([alertOf("buy", 1), alertOf("sell", 2)]))
   expect(played).toEqual([])
 })

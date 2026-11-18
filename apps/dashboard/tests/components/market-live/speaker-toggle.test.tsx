@@ -3,7 +3,7 @@ import { act } from "react"
 import { createRoot } from "react-dom/client"
 import { afterEach, expect, test, vi } from "vitest"
 
-import { SoundToggle } from "@/components/market-live/sound-toggle"
+import { SpeakerToggle } from "@/components/market-live/speaker-toggle"
 
 // React's `act` warns outside a test environment that declares itself.
 Object.assign(globalThis, { IS_REACT_ACT_ENVIRONMENT: true })
@@ -19,7 +19,7 @@ const mount = () => {
   const host = document.createElement("div")
   document.body.append(host)
   const root = createRoot(host)
-  act(() => root.render(<SoundToggle />))
+  act(() => root.render(<SpeakerToggle />))
   const button = () => host.querySelector("button")!
   return {
     button,
@@ -31,7 +31,7 @@ const mount = () => {
   }
 }
 
-test("the speaker toggle is off by default", () => {
+test("the Speaker toggle is off by default", () => {
   const toggle = mount()
   expect(toggle.button().getAttribute("aria-pressed")).toBe("false")
   toggle.unmount()

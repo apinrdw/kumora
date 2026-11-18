@@ -11,7 +11,7 @@ import { useEffect, useRef, useState, type ReactNode } from "react"
 
 import { KButton } from "@/components/k/button"
 import { KStatusPill } from "@/components/k/status-pill"
-import { SoundToggle } from "@/components/market-live/sound-toggle"
+import { SpeakerToggle } from "@/components/market-live/speaker-toggle"
 import {
   SOURCES,
   TapeList,
@@ -134,7 +134,7 @@ export function LiveTape({
   }, [apply, select])
 
   return (
-    <TapeSection stale={stale} controls={<SoundToggle />}>
+    <TapeSection stale={stale} controls={<SpeakerToggle />}>
       {status === "new-version" && (
         <div role="alert" className="flex items-center gap-3 text-[13px]">
           <span>A new version of Market Live is out. Reload to continue.</span>

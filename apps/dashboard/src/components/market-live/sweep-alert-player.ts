@@ -3,7 +3,7 @@ import { Effect } from "effect"
 import { useMemo } from "react"
 
 import { usePlayingTab } from "./playing-tab"
-import { soundOn } from "./sound-toggle"
+import { speakerOn } from "./speaker-toggle"
 import { sweepAlertSound } from "./sweep-alert-sound"
 
 // Where the player's sounds go: the WebAudio synth on the page
@@ -48,7 +48,7 @@ export const useSweepAlertPlayer = (day: WibDate | undefined) => {
         makeSweepAlertPlayer({
           sink: sweepAlertSound,
           day,
-          toggledOn: soundOn,
+          toggledOn: speakerOn,
           mayPlay: tab.holds,
         })
       ),

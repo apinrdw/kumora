@@ -11,7 +11,7 @@ import { wakeSound } from "./sweep-alert-sound"
 // Decision: like the watchlist (use-watchlist.ts), each browser keeps the
 // Speaker toggle in localStorage, off until turned on (spec
 // apinrdw/kumora#510, "Dashboard: Running trades").
-const KEY = "kumora:market-live:sound"
+const KEY = "kumora:market-live:speaker"
 const ON = "on"
 
 // Storage blocked reads as off.
@@ -26,12 +26,12 @@ const { subscribe, snapshot, write } = toggle
 
 // Whether the Speaker toggle is on: the sweep alert player reads it at each
 // update.
-export const soundOn = toggle.current
+export const speakerOn = toggle.current
 
 // The Speaker toggle in the live Running trades header. Its click is the
 // gesture that lets the browser play the sweep alert sounds. The server
 // render has it off.
-export function SoundToggle() {
+export function SpeakerToggle() {
   const on = useSyncExternalStore(subscribe, snapshot, () => false)
   // Turned on before this page load: the page's first click or key press
   // wakes the sound, since the toggle's own click is gone with the old page.
