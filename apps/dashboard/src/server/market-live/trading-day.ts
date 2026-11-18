@@ -906,6 +906,7 @@ export const makeTradingDay = Effect.fnUntraced(function* (options: {
       ajaibBooks: [],
       facts: {
         [Fact.sealed]: DateTime.formatIso(now),
+        ...(yield* brokerCodes.codesCompleteFacts),
         ...(due ? { [Fact.brokerTotals]: BROKER_TOTALS_DUE } : {}),
       },
     })

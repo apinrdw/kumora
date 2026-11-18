@@ -886,6 +886,163 @@ describe("a recorded day's broker codes answer", () => {
   )
 })
 
+// Spec apinrdw/kumora#554, "`codesComplete` in `facts`".
+describe("a day's codes-complete fact", () => {
+  const CURSOR = wib("17:00:00")
+  // `sql`, each statement's text kept in `queries`.
+  const watched = (sql: Sql) => {
+    const queries: Array<string> = []
+    return {
+      queries,
+      sql: {
+        exec: (query, ...bindings) => {
+          queries.push(query)
+          return sql.exec(query, ...bindings)
+        },
+        transaction: (write) => sql.transaction(write),
+      } satisfies Sql,
+    }
+  }
+  // The statements that read the chunks in order, as a scan does.
+  const scans = (queries: ReadonlyArray<string>) =>
+    queries.filter((query) =>
+      /FROM broker_code_chunks WHERE chunk >/.test(query)
+    )
+  const factOf = (sql: Sql) =>
+    sql
+      .exec("SELECT value FROM facts WHERE key = 'codes-complete'")
+      .map((row) => String(row.value))
+  // A day of 250 Ajaib trades at 15:00, sealed at 17:00, on `sql`.
+  const sealedDay = (sql = memorySql()) =>
+    Effect.gen(function* () {
+      yield* TestClock.setTime(wib("15:00:00").epochMilliseconds)
+      const day = yield* tradingDay({ sql })
+      const socket = yield* day.relay
+      yield* day.ajaibTrades(socket, numbers(1, 250), "15:00:00")
+      yield* TestClock.setTime(wib("17:00:00").epochMilliseconds)
+      yield* day.alarm
+      yield* TestClock.setTime(wib("17:30:00").epochMilliseconds)
+      return day
+    })
+  const completeOf = Effect.fnUntraced(function* (
+    day: Effect.Success<ReturnType<typeof tradingDay>>
+  ) {
+    const response = yield* day.day.recorded({
+      _tag: "BrokerCodes",
+      at: CURSOR,
+    })
+    const text = yield* Effect.promise(() => response.text())
+    return (yield* decodeRecordedBrokerCodes(text)).complete
+  })
+
+  it.effect(
+    "is set by the batch that completes the codes and cleared by the batch that raises N",
+    () =>
+      Effect.gen(function* () {
+        const day = yield* sealedDay()
+        assert.deepStrictEqual(factOf(day.sql), ["false"])
+        yield* day.post(
+          "Ajaib",
+          numbers(1, 249).map((number) => [number, YP_CC] as const),
+          250
+        )
+        assert.deepStrictEqual(factOf(day.sql), ["false"])
+        assert.isFalse(yield* completeOf(day))
+
+        yield* day.post("Ajaib", [[250, YP_CC]])
+        assert.deepStrictEqual(factOf(day.sql), ["true"])
+        assert.isTrue(yield* completeOf(day))
+
+        yield* day.post("Ajaib", [], 251)
+        assert.deepStrictEqual(factOf(day.sql), ["false"])
+        assert.isFalse(yield* completeOf(day))
+      })
+  )
+
+  it.effect(
+    "lands in the batch's transaction: a batch whose fact write fails keeps none of its codes",
+    () =>
+      Effect.gen(function* () {
+        const day = yield* sealedDay()
+        day.sql.exec(
+          `CREATE TRIGGER fails BEFORE INSERT ON facts
+          WHEN NEW.key = 'codes-complete'
+          BEGIN SELECT RAISE(ABORT, 'disk full'); END`
+        )
+        const posted = yield* Effect.exit(
+          day.post(
+            "Ajaib",
+            numbers(1, 250).map((number) => [number, YP_CC] as const),
+            250
+          )
+        )
+        assert.isTrue(posted._tag === "Failure")
+        assert.isTrue(Option.isNone(yield* day.held(1)))
+        assert.deepStrictEqual(factOf(day.sql), ["false"])
+      })
+  )
+
+  it.effect(
+    "answers a restarted object from the fact, reading no chunk in order",
+    () =>
+      Effect.gen(function* () {
+        const base = memorySql()
+        const day = yield* sealedDay(base)
+        yield* day.post(
+          "Ajaib",
+          numbers(1, 250).map((number) => [number, YP_CC] as const),
+          250
+        )
+        const { queries, sql } = watched(base)
+        const restarted = yield* tradingDay({ sql })
+        queries.length = 0
+        assert.isTrue(yield* completeOf(restarted))
+        assert.deepStrictEqual(scans(queries), [])
+      })
+  )
+
+  it.effect(
+    "is written once by the first answer on a day whose batches came before it",
+    () =>
+      Effect.gen(function* () {
+        const base = memorySql()
+        const day = yield* sealedDay(base)
+        yield* day.post(
+          "Ajaib",
+          numbers(1, 250).map((number) => [number, YP_CC] as const),
+          250
+        )
+        base.exec("DELETE FROM facts WHERE key = 'codes-complete'")
+        const { queries, sql } = watched(base)
+        const restarted = yield* tradingDay({ sql })
+        assert.isTrue(yield* completeOf(restarted))
+        assert.deepStrictEqual(factOf(base), ["true"])
+
+        queries.length = 0
+        assert.isTrue(yield* completeOf(restarted))
+        assert.deepStrictEqual(scans(queries), [])
+      })
+  )
+
+  it.effect("is written by the seal, from codes that came before it", () =>
+    Effect.gen(function* () {
+      yield* TestClock.setTime(wib("15:00:00").epochMilliseconds)
+      const day = yield* tradingDay()
+      const socket = yield* day.relay
+      yield* day.ajaibTrades(socket, numbers(1, 250), "15:00:00")
+      yield* day.post(
+        "Ajaib",
+        numbers(1, 250).map((number) => [number, YP_CC] as const),
+        250
+      )
+      day.sql.exec("DELETE FROM facts WHERE key = 'codes-complete'")
+      yield* TestClock.setTime(wib("17:00:00").epochMilliseconds)
+      yield* day.alarm
+      assert.deepStrictEqual(factOf(day.sql), ["true"])
+    })
+  )
+})
+
 // Spec apinrdw/kumora#554, "The tape summary": a sealed relay day's status
 // reads which numbers its tape holds from a summary the seal wrote.
 describe("a sealed relay day's tape summary", () => {

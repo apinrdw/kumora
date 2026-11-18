@@ -128,6 +128,7 @@ export const buildBusyDay = Effect.fnUntraced(function* (
   const facts: ReadonlyArray<readonly [string, string]> = [
     [Fact.tapeSource, "relay"],
     [Fact.brokerCodesN, String(trades)],
+    [Fact.codesComplete, "true"],
     [
       Fact.crossCheck,
       JSON.stringify({ walkedTo: String(trades), ended: true }),

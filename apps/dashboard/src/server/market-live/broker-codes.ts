@@ -248,6 +248,17 @@ interface Merged {
   readonly changed: Array<TradeNumber>
 }
 
+// Whether a chunk's first `slots` records all hold codes.
+const holdsCodes = (codes: Uint8Array, slots: number) => {
+  for (let slot = 0; slot < slots; slot++)
+    if (!codes[slot * RECORD + SOURCE]) return false
+  return true
+}
+
+// Whether a merged batch raises the day's N.
+const raisesN = (merged: Merged) =>
+  merged.facts.some(([key]) => key === Fact.brokerCodesN)
+
 // The kept codes of each listed trade the day holds codes for, in the
 // list's order.
 export type HeldCodes = (
@@ -557,6 +568,58 @@ export const makeBrokerCodes = Effect.fnUntraced(function* (options: {
     return filled.length > 0
   }
 
+  // Whether the day holds codes for every trade 1..N, its fields held or
+  // not, read from its chunks SCAN_PAGE at a time until the first trade
+  // without codes. Synchronous, so a batch's transaction runs it.
+  const codesHeldThroughN = () => {
+    const [stored] = sql.exec(
+      "SELECT value FROM facts WHERE key = ?",
+      Fact.brokerCodesN
+    )
+    if (stored === undefined) return false
+    const n = Number(stored.value)
+    const chunks = Math.ceil(n / CHUNK)
+    for (let next = 0; next < chunks;) {
+      const rows = sql.exec(
+        "SELECT chunk, codes FROM broker_code_chunks WHERE chunk >= ? AND chunk < ? ORDER BY chunk LIMIT ?",
+        next,
+        chunks,
+        SCAN_PAGE
+      )
+      if (rows.length === 0) return false
+      for (const row of rows) {
+        const slots = Math.min(CHUNK, n - next * CHUNK)
+        if (Number(row.chunk) !== next) return false
+        if (!holdsCodes(row.codes as Uint8Array, slots)) return false
+        next++
+      }
+    }
+    return true
+  }
+
+  // The codes-complete fact written from the chunks, and its value.
+  const keepCodesComplete = () => {
+    const complete = codesHeldThroughN()
+    sql.exec(
+      "INSERT OR REPLACE INTO facts VALUES (?, ?)",
+      Fact.codesComplete,
+      String(complete)
+    )
+    return complete
+  }
+
+  // Decision: each batch writes the codes-complete fact in its own
+  // transaction, so a woken object answers from one row (spec #554). A batch
+  // never clears codes, so on a complete day one that doesn't raise N reads
+  // 1 row; else it reads up to every chunk, about 1,500 rows on a busy day.
+  const writeCodesComplete = (nRaised: boolean) => {
+    const [kept] = sql.exec(
+      "SELECT value FROM facts WHERE key = ?",
+      Fact.codesComplete
+    )
+    if (kept?.value !== "true" || nRaised) keepCodesComplete()
+  }
+
   // A batch's writes, to run inside a transaction; `filled` runs when they
   // filled a trade's fields.
   const writesOf = (merged: Merged, filled: () => void) => () => {
@@ -578,14 +641,8 @@ export const makeBrokerCodes = Effect.fnUntraced(function* (options: {
       sql.exec("DELETE FROM cross_check_differences WHERE number = ?", number)
     for (const [key, value] of merged.facts)
       sql.exec("INSERT OR REPLACE INTO facts VALUES (?, ?)", key, value)
+    writeCodesComplete(raisesN(merged))
   }
-
-  // Decision: whether the day has codes for every trade 1..N is kept, once a
-  // scan found it, until the next batch: Play asks for the codes answer that
-  // carries it as often as the tape (TAPE_INTERVAL_MS in src/lib/replay.ts).
-  // It reads no fields, so the tape growing before the seal can't change it;
-  // the status's `complete` reads the tape, and each status GET scans again.
-  let keptCodesComplete: boolean | undefined
 
   // A batch merged into its chunks and written in one transaction, with
   // what `alongside` writes for the trades it changed, so a failed batch
@@ -612,15 +669,10 @@ export const makeBrokerCodes = Effect.fnUntraced(function* (options: {
         (tradeNumbers) => heldCodes(tradeNumbers, new Map(merged.chunks)),
         writeCodes
       )
-    keptCodesComplete = undefined
     // Whether the batch corrected the day: changed a trade's kept codes,
     // filled its fields, or raised N, which a built day's missing count
     // reads.
-    return (
-      merged.changed.length > 0 ||
-      filled ||
-      merged.facts.some(([key]) => key === Fact.brokerCodesN)
-    )
+    return merged.changed.length > 0 || filled || raisesN(merged)
   })
 
   // One trade's record, its chunk read once into `chunks`; none when the day
@@ -848,22 +900,28 @@ export const makeBrokerCodes = Effect.fnUntraced(function* (options: {
         differences
       ),
     }
-    const codesComplete = n !== undefined && tally.codesMissingCount === 0
-    keptCodesComplete = codesComplete
-    return { day, codesComplete }
+    return { day }
   })
 
   // Whether the day has codes for every trade 1..N, its fields held or not,
-  // scanning only when no scan since the last batch found it. Market Live's
-  // answers read this, not the status's `complete`.
-  const codesComplete = Effect.suspend(() =>
-    keptCodesComplete === undefined
-      ? Effect.map(
-          status(Number.MAX_SAFE_INTEGER),
-          (each) => each.codesComplete
-        )
-      : Effect.succeed(keptCodesComplete)
-  )
+  // from its codes-complete fact. Market Live's answers read this, not the
+  // status's `complete`. Play asks for the codes answer that carries it as
+  // often as the tape (TAPE_INTERVAL_MS in src/lib/replay.ts).
+  // Decision: a day whose batches came before the fact existed reads its
+  // chunks once and writes the fact; a day with no N reads 1 row and writes
+  // nothing.
+  const codesComplete = Effect.gen(function* () {
+    const kept = yield* fact(Fact.codesComplete)
+    if (kept !== undefined) return kept === "true"
+    if ((yield* fact(Fact.brokerCodesN)) === undefined) return false
+    return yield* Effect.sync(keepCodesComplete)
+  })
+
+  // The codes-complete fact as the seal writes it with the sealed marker,
+  // from the day's chunks.
+  const codesCompleteFacts = Effect.sync(() => ({
+    [Fact.codesComplete]: String(codesHeldThroughN()),
+  }))
 
   // The day's missing count when its broker totals can build, from one
   // scan: N known and at most 1 in MISSING_ALLOWANCE of 1..N missing.
@@ -961,6 +1019,7 @@ export const makeBrokerCodes = Effect.fnUntraced(function* (options: {
     held,
     heldCodes,
     codesComplete,
+    codesCompleteFacts,
     buildable,
     heldTradesPage,
     holdsNone,
