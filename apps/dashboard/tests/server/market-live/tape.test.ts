@@ -354,6 +354,25 @@ describe("a chunked day's writes", () => {
   )
 
   it.effect(
+    "a trade whose side, board or feed a record has no place for fails its flush",
+    () =>
+      Effect.gen(function* () {
+        const store = yield* makeDayStore(memorySql(), { today: true })
+        for (const change of [
+          { side: "short" },
+          { board: "XX" },
+          { feeds: ["Stockbit", "relay"] },
+        ] as ReadonlyArray<Partial<RunningTrade>>) {
+          const failed = yield* Effect.exit(
+            store.write(flushOf([trade(1, "09:00:00.100", change)]))
+          )
+          assert.isTrue(failed._tag === "Failure")
+          assert.isFalse(yield* store.hasTrade(TradeNumber.make("1")))
+        }
+      })
+  )
+
+  it.effect(
     "a day recorded before keeps its trade rows and writes no chunk",
     () =>
       Effect.gen(function* () {
