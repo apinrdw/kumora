@@ -630,11 +630,10 @@ export const makeCandleBook = Effect.fnUntraced(function* (
   // Each minute's sweeps grouped again, every code's, and the alert rule's
   // decisions on them: a minute waits while a sweep's second is still open.
   // Decision: every code's changed minutes are grouped on every delta, with
-  // no once-a-second cap, so an alert reaches viewers ~250 ms after its
-  // sweep's second closes. 2026-11-16's 09:00 WIB peak measured 2.2–2.6 ms a
-  // delta at p50 and 12.7 ms at worst on a desktop CPU. If deltas run long at
-  // the open, group every code at most once a second. See
-  // apinrdw/kumora#506.
+  // no once-a-second cap, so an alert goes out ~250 ms after its second
+  // closes. The 09:00 WIB peak measured 2.2–2.6 ms a delta at p50, 12.7 ms
+  // at worst; if deltas run long at the open, group every code at most once
+  // a second. See apinrdw/kumora#506.
   const regroupAll = Effect.fnUntraced(function* (slots: ReadonlySet<Slot>) {
     const now = yield* Clock.currentTimeMillis
     const sweeps = new Map<Slot, ReadonlyArray<Sweep>>()
