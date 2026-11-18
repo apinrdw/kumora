@@ -62,9 +62,9 @@ const BookReadingsFields = Schema.Struct({
 const LIMIT_CODES = { upper: 1, lower: -1 } as const
 
 // A reading's tuple: [code, as-of, value, imbalance, spread ticks, spread %,
-// limit (1 upper, -1 lower, 0 none), then the bid's and the offer's depth,
+// limit (1 upper, -1 lower, 0 none), then the bid's and the offer's near depth,
 // lots, empty ticks, widest gap and lots per order], none as null. Encoding
-// rounds imbalance and the spread to 4 places, lots per order to 2 and depth
+// rounds imbalance and the spread to 4 places, lots per order to 2 and near depth
 // to the rupiah: finer digits are noise on the page.
 // Decision: readings travel as a tuple: every changed code's go out in each
 // delta, and keys would double the ~100 bytes the spec budgets for one. See
@@ -98,12 +98,12 @@ export const BookReadings = Schema.Tuple([
         spreadTicks,
         spreadPercent,
         limit,
-        bidDepth,
+        bidNearDepth,
         bidLots,
         bidEmpty,
         bidWidest,
         bidPerOrder,
-        offerDepth,
+        offerNearDepth,
         offerLots,
         offerEmpty,
         offerWidest,
@@ -132,9 +132,9 @@ export const BookReadings = Schema.Tuple([
               ? undefined
               : { ticks: spreadTicks, percent: spreadPercent },
           limit: limit === 1 ? "upper" : limit === -1 ? "lower" : undefined,
-          bid: side(bidDepth, bidLots, bidEmpty, bidWidest, bidPerOrder),
+          bid: side(bidNearDepth, bidLots, bidEmpty, bidWidest, bidPerOrder),
           offer: side(
-            offerDepth,
+            offerNearDepth,
             offerLots,
             offerEmpty,
             offerWidest,

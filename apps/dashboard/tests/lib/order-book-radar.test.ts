@@ -297,8 +297,8 @@ describe("the halves", () => {
       const cases: ReadonlyArray<
         readonly [RadarSettings["rankBy"], ReadonlyArray<string>]
       > = [
-        ["bidDepth", ["AAAA", "CCCC", "BBBB"]],
-        ["offerDepth", ["BBBB", "AAAA", "CCCC"]],
+        ["bidNearDepth", ["AAAA", "CCCC", "BBBB"]],
+        ["offerNearDepth", ["BBBB", "AAAA", "CCCC"]],
         ["emptyTicks", ["BBBB", "CCCC", "AAAA"]],
         ["lotsPerOrder", ["BBBB", "AAAA", "CCCC"]],
         ["bookAge", ["AAAA", "CCCC", "BBBB"]],
@@ -439,7 +439,7 @@ describe("the ranked figure", () => {
           "Rp2.25 B"
         )
         assert.strictEqual(
-          yield* rankedFigure(readings, "bidDepth", NOW),
+          yield* rankedFigure(readings, "bidNearDepth", NOW),
           "Rp1.5 B"
         )
         assert.strictEqual(

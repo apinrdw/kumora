@@ -62,12 +62,12 @@ const RANKINGS = {
       return yield* rupiah((yield* heavySide(readings)).nearDepth)
     }),
   },
-  bidDepth: {
+  bidNearDepth: {
     label: "Near depth bid",
     value: ({ readings }) => Effect.succeed(readings.bid.nearDepth),
     figure: ({ readings }) => rupiah(readings.bid.nearDepth),
   },
-  offerDepth: {
+  offerNearDepth: {
     label: "Near depth offer",
     value: ({ readings }) => Effect.succeed(readings.offer.nearDepth),
     figure: ({ readings }) => rupiah(readings.offer.nearDepth),
