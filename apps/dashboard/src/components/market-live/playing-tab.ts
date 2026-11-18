@@ -15,9 +15,11 @@ type Peer = typeof Peer.Type
 // What the tabs say over the channel. A tab says Hello as it opens and every
 // other tab gives an Answer, so it learns which is the Playing tab before an
 // alert arrives; a tab whose stamps changed says Here; a closing tab says Bye.
+// An Answer names the tab it answers (`to`): the channel carries it to every
+// tab.
 const TabMessage = Schema.Union([
   Schema.TaggedStruct("Hello", { peer: Peer }),
-  Schema.TaggedStruct("Answer", { peer: Peer }),
+  Schema.TaggedStruct("Answer", { peer: Peer, to: Schema.String }),
   Schema.TaggedStruct("Here", { peer: Peer }),
   Schema.TaggedStruct("Bye", { id: Schema.String }),
 ])
@@ -91,10 +93,10 @@ export const makePlayingTab = (open: OpenTabChannel) =>
       peers.set(peer.id, peer)
       if (self === undefined) return
       if (message._tag === "Hello")
-        channel?.post({ _tag: "Answer", peer: self })
-      // This tab opened after every tab that answers, and if it opened
+        channel?.post({ _tag: "Answer", peer: self, to: peer.id })
+      // This tab opened after every tab that answers it, and if it opened
       // focused, it was focused after them too, though clocks tie.
-      if (message._tag === "Answer") {
+      if (message._tag === "Answer" && message.to === id) {
         const later = {
           ...self,
           joinedAt: Math.max(self.joinedAt, peer.joinedAt + 1),
