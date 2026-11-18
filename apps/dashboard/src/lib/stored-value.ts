@@ -28,9 +28,10 @@ export const jsonText = (value: unknown) =>
 // One browser value kept in localStorage under `key`, for
 // `useSyncExternalStore`. `parse` reads the stored text (null when nothing
 // is stored), and `serialize` writes a value back (null removes the key).
-// Storage blocked reads as nothing stored, and a value written meanwhile
-// lasts as long as the page. `snapshot` keeps the value it last parsed while
-// the stored text is unchanged, so React sees the same object.
+// Storage blocked reads as nothing stored, and a value whose write failed
+// lasts until a later write is stored, or as long as the page. `snapshot`
+// keeps the value it last parsed while the stored text is unchanged, so
+// React sees the same object.
 export const makeStoredValue = <A>({
   key,
   parse,
@@ -58,14 +59,13 @@ export const makeStoredValue = <A>({
 
     const write = Effect.fnUntraced(function* (value: A) {
       const text = yield* serialize(value)
-      yield* Effect.try(() =>
+      unstored = yield* Effect.try(() =>
         text === null
           ? window.localStorage.removeItem(key)
           : window.localStorage.setItem(key, text)
       ).pipe(
-        Effect.orElseSucceed(() => {
-          unstored = { value }
-        })
+        Effect.as(undefined),
+        Effect.orElseSucceed(() => ({ value }))
       )
       yield* changed
     })
