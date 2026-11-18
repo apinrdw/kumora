@@ -12,6 +12,7 @@ import { DateTime, Effect } from "effect"
 
 import { DASHBOARD, MEMBER } from "../support/accounts"
 import { wibInstant } from "../support/clock"
+import { seedSpecialBoard } from "../support/holdings"
 import { freshCode, openIngest, wibToday } from "../support/ingest"
 import { stockbitOrderBookFrame } from "../support/stockbit"
 import { expect, test } from "../support/test"
@@ -46,6 +47,20 @@ test("the readout shows the selected code's live readings and the disclaimer", a
     "They don't predict price and aren't advice to buy or sell."
   )
   relay.close()
+})
+
+test("a Special Monitoring Board code says why it has no readings", async ({
+  page,
+}) => {
+  const code = freshCode("SB")
+  // Before the page loads: it reads the board list once a visit.
+  seedSpecialBoard([code])
+  await page.goto(`${DASHBOARD}${PAGE}?code=${code}`)
+  const readout = page.getByRole("region", { name: "Book readout" })
+  await expect(readout).toContainText(
+    "Special Monitoring Board: this code trades in a call auction all day, and no order book arrives for it."
+  )
+  await expect(readout.getByLabel("Imbalance value")).toHaveCount(0)
 })
 
 test("outside Sessions 1 and 2 the readings grey out and name the phase", async ({
