@@ -63,7 +63,7 @@ The page's `Select` message: its selected stock code and watchlist. Sent on ever
 _Avoid_: subscribe
 
 **Snapshot**:
-What a viewer starts from after each selection: the instant the trading-day Durable Object sent it, the selected code the `Select` named, the 200 newest running trades ascending by trade number, the day's sweep alerts with a trade among those, the selected code's candles, footprints and order book, the selected and watchlist codes' Day states and indicative prices, the market conditions, every code's latest book readings and scanner figures, the day's newest book events of every code, and the selected code's book events for the day. The chart and the order book take only a snapshot of their own code, since one answering an earlier selection can arrive after the page moved on.
+What a viewer starts from after each selection: the instant the trading-day Durable Object sent it, the selected code the `Select` named, the 200 newest running trades ascending by trade number, the day's sweep alerts with a trade among those, the selected code's candles, footprints and order book, the selected and watchlist codes' Day states and indicative prices, the market conditions, every code's latest book readings and scanner figures, the day's newest book events of every code, and the selected code's newest 2,500 book events of the day. The chart and the order book take only a snapshot of their own code, since one answering an earlier selection can arrive after the page moved on.
 _Avoid_: initial state
 
 **Delta**:
