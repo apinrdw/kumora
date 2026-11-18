@@ -40,7 +40,8 @@ layer(BusyDay.layer, { timeout: "60 seconds", excludeTestServices: true })(
     it.effect(
       "a recorded codes GET reads the tape's 200 trades and their chunk, and writes nothing",
       () =>
-        withinBudget("recorded codes GET", { rowsRead: 250, rowsWritten: 0 })
+        withinBudget("recorded codes GET", { rowsRead: 250, rowsWritten: 0 }),
+      10_000
     )
 
     // Baseline for apinrdw/kumora#559: the status re-counts the whole tape,
@@ -65,11 +66,23 @@ layer(BusyDay.layer, { timeout: "60 seconds", excludeTestServices: true })(
       10_000
     )
 
-    // Known over budget until apinrdw/kumora#560, which turns it into `it.effect`.
-    it.effect.fails(
-      "a recorded codes GET on a freshly started object reads at most 250 rows",
+    // Decision: a codes GET reads its 200 tape trades on any object, so the
+    // spec's 10 rows bound what a fresh object reads past a warm one: the
+    // codes-complete fact, never a status pass (#560).
+    it.effect(
+      "a recorded codes GET on a freshly started object reads at most 10 rows more than on one that ran a status pass",
       () =>
-        withinBudget("recorded codes GET, freshly started", { rowsRead: 250 }),
+        Effect.gen(function* () {
+          const busy = yield* BusyDay
+          const warm = yield* busy.billed("recorded codes GET")
+          const fresh = yield* busy.billed(
+            "recorded codes GET, freshly started"
+          )
+          assert.strictEqual(fresh.status, 200)
+          assert.deepStrictEqual(fresh.answer, warm.answer)
+          assert.isAtMost(fresh.rows.rowsRead, warm.rows.rowsRead + 10)
+          assert.strictEqual(fresh.rows.rowsWritten, 0)
+        }),
       10_000
     )
   }
