@@ -2,8 +2,8 @@
 // full-width card under the candle chart with the selected code's book
 // readings, live from the viewer socket or, on a recorded day, read from the
 // stored frame at the cursor. It has three parts side by side: the readings,
-// the fill estimate and the book events; the last two are later slices'
-// (#520, #523), passed in as `fill` and `events`.
+// the fill estimate and the book events, passed in as `events`
+// (book-events.tsx).
 import {
   INDEX_CODES,
   bookReadingsOf,
@@ -24,9 +24,11 @@ import { gapAt } from "@/lib/replay"
 
 import type { BookReadingsStore } from "./book-readings-store"
 import { useDayState, type DayStateStore } from "./day-state-store"
+import { FillEstimatePart } from "./fill-estimate"
 import { PHASE, useMarketPhase } from "./market-conditions"
 import type { OrderBookStore } from "./order-book-store"
 import { useReplay, type ReplayCursor } from "./replay-cursor"
+import { useSpecialBoard } from "./use-special-board"
 
 const DISCLAIMER =
   "Book readings describe liquidity and pressure in the order book. They don't predict price and aren't advice to buy or sell."
@@ -214,35 +216,47 @@ function Note({ children }: { children: ReactNode }) {
   )
 }
 
-// Why a code shows no readings, or none: an index, or a price of Rp1–10.
-const excludedReason = (code: StockCode, previousClose: number | undefined) =>
+// Why a code shows no readings, or none: an index, a Special Monitoring
+// Board code, or a price of Rp1–10. The board comes first: many of its codes
+// are priced Rp1–10 too, and no book arrives for them at any price.
+const excludedReason = (
+  code: StockCode,
+  board: ReadonlySet<StockCode>,
+  previousClose: number | undefined
+) =>
   INDEX_CODES.includes(code)
     ? "Indices have no order book."
-    : previousClose !== undefined && previousClose <= LOWEST_READ_CLOSE
-      ? "One tick here moves the price 10–100%, so book readings would mislead."
-      : undefined
+    : board.has(code)
+      ? "Special Monitoring Board: this code trades in a call auction all day, and no order book arrives for it."
+      : previousClose !== undefined && previousClose <= LOWEST_READ_CLOSE
+        ? "One tick here moves the price 10–100%, so book readings would mislead."
+        : undefined
+
+// Live, what the strip says while readings are paused outside Sessions 1
+// and 2; none in them, or on a recorded day.
+function usePause(today: WibDate, live: boolean) {
+  const phase = useMarketPhase()
+  return !live || phase === undefined || READING_PHASES.has(phase)
+    ? undefined
+    : Effect.runSync(pauseNote(today, phase))
+}
 
 // The live readings: the trading-day object's latest for the code, greyed
-// outside Sessions 1 and 2.
+// with `paused` naming the phase.
 function LiveReadings({
   code,
-  today,
   store,
+  paused,
 }: {
   code: StockCode
-  today: WibDate
   store: BookReadingsStore
+  paused: string | undefined
 }) {
   const readings = useSyncExternalStore(
     store.subscribe,
     () => store.readingsOf(code),
     () => store.readingsOf(code)
   )
-  const phase = useMarketPhase()
-  const paused =
-    phase === undefined || READING_PHASES.has(phase)
-      ? undefined
-      : Effect.runSync(pauseNote(today, phase))
   if (readings === undefined) return <Note>{paused ?? "No readings yet."}</Note>
   return <Readings readings={readings} paused={paused} />
 }
@@ -303,7 +317,8 @@ const levelsNote = (
 
 /**
  * The selected code's Book readout: live, or at `cursor` on a recorded day.
- * An index or a code priced Rp1–10 shows why it has no readings instead.
+ * An index, a Special Monitoring Board code or a code priced Rp1–10 shows
+ * why it has no readings instead.
  */
 export function BookReadout({
   code,
@@ -313,7 +328,6 @@ export function BookReadout({
   dayStates,
   cursor,
   gaps,
-  fill,
   events,
 }: {
   code: StockCode
@@ -324,19 +338,24 @@ export function BookReadout({
   dayStates: DayStateStore
   cursor: ReplayCursor | undefined
   gaps: ReadonlyArray<RelayGap>
-  // The fill estimate's part (apinrdw/kumora#520).
-  fill?: ReactNode
-  // The book events' part (apinrdw/kumora#523).
+  // The book events' part (book-events.tsx).
   events?: ReactNode
 }) {
   const state = useDayState(dayStates, code)
   const held = useSyncExternalStore(book.subscribe, book.book, () => undefined)
   const shown = held?._tag === "OrderBook" ? held : undefined
+  // A recorded day reads today's board list too: the table keeps no
+  // history, so a code that has joined or left the board since shows as it
+  // stands today.
+  const board = useSpecialBoard()
   const reason = excludedReason(
     code,
+    board,
     state?.previousClose ?? shown?.previousClose
   )
-  const parts = [fill, events].filter((part) => part !== undefined).length
+  const paused = usePause(today, cursor === undefined)
+  // The fill estimate, and the events when given.
+  const parts = events === undefined ? 1 : 2
   return (
     <section
       aria-label="Book readout"
@@ -354,7 +373,7 @@ export function BookReadout({
       ) : (
         <div className={cn("grid gap-3.5", PART_COLUMNS[parts])}>
           {cursor === undefined ? (
-            <LiveReadings code={code} today={today} store={readings} />
+            <LiveReadings code={code} store={readings} paused={paused} />
           ) : (
             <RecordedReadings
               code={code}
@@ -364,7 +383,7 @@ export function BookReadout({
               gaps={gaps}
             />
           )}
-          {fill}
+          <FillEstimatePart store={book} paused={paused !== undefined} />
           {events}
         </div>
       )}
