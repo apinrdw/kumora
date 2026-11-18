@@ -2,6 +2,7 @@
 // "Alerts"): this browser's rules, its chime, and today's alerts.
 import { IconBell, IconTrash } from "@tabler/icons-react"
 import { useNavigate } from "@tanstack/react-router"
+import { clientRuntime } from "@workspace/client"
 import type { BookEventKind, StockCode } from "@workspace/relay"
 import {
   Sheet,
@@ -45,58 +46,62 @@ const SCOPES: ReadonlyArray<{ value: AlertScope["_tag"]; label: string }> = [
 ]
 
 const minValueLabel = (value: MinValue) =>
-  value === 0 ? "Any value" : `Rp${Effect.runSync(compact(value))}`
+  value === 0
+    ? Effect.succeed("Any value")
+    : Effect.map(compact(value), (n) => `Rp${n}`)
 
 const MIN_VALUE_OPTIONS = MIN_VALUES.map((value) => ({
   value,
-  label: minValueLabel(value),
+  label: Effect.runSync(minValueLabel(value)),
 }))
 
 // The codes typed in, parsed as the URL's are: the rest dropped.
-const codesOf = (text: string) => {
-  const codes = text
-    .toUpperCase()
-    .split(/[\s,]+/)
-    .flatMap(
-      (word) => Effect.runSync(parseMarketLiveSearch({ code: word })).code ?? []
-    )
-  return [...new Set(codes)]
-}
+const codesOf = Effect.fnUntraced(function* (text: string) {
+  const codes = yield* Effect.forEach(
+    text.toUpperCase().split(/[\s,]+/),
+    (word) =>
+      Effect.map(parseMarketLiveSearch({ code: word }), ({ code }) => code)
+  )
+  return [...new Set(codes.filter((code) => code !== undefined))]
+})
 
 const scopeText = (scope: AlertScope) =>
-  scope._tag === "codes"
-    ? scope.codes.join(", ")
-    : SCOPES.find((each) => each.value === scope._tag)!.label
+  Effect.succeed(
+    scope._tag === "codes"
+      ? scope.codes.join(", ")
+      : SCOPES.find((each) => each.value === scope._tag)!.label
+  )
 
 // "Wall pulled, Eaten · Watchlist · Rp5 B and up".
-const ruleText = (rule: AlertRule) =>
-  [
+const ruleText = Effect.fnUntraced(function* (rule: AlertRule) {
+  return [
     rule.kinds.map((kind) => ALERT_KIND_NAMES[kind]).join(", "),
-    scopeText(rule.scope),
+    yield* scopeText(rule.scope),
     rule.minValue === 0
       ? "any value"
-      : `${minValueLabel(rule.minValue)} and up`,
+      : `${yield* minValueLabel(rule.minValue)} and up`,
   ].join(" · ")
+})
 
 // Decision: permission for background notifications is asked when the first
 // rule is saved, the moment the user shows they want alerts. See spec
 // apinrdw/kumora#517, "Alerts".
-const askToNotify = () => {
+const askToNotify = Effect.sync(() => {
   if (typeof Notification === "undefined") return
   if (Notification.permission === "default")
     void Notification.requestPermission()
-}
+})
 
 function NewRule() {
   const [kinds, setKinds] = useState<ReadonlyArray<BookEventKind>>([])
   const [scope, setScope] = useState<AlertScope["_tag"]>("watchlist")
   const [codesText, setCodesText] = useState("")
   const [minValue, setMinValue] = useState<MinValue>(0)
-  const codes: ReadonlyArray<StockCode> = codesOf(codesText)
+  const codes: ReadonlyArray<StockCode> = Effect.runSync(codesOf(codesText))
   const ready = kinds.length > 0 && (scope !== "codes" || codes.length > 0)
   const save = () => {
     const rules = alertRules.get()
-    if (rules.length === 0) askToNotify()
+    if (rules.length === 0) clientRuntime.runSync(askToNotify)
     alertRules.set([
       ...rules,
       {
@@ -201,7 +206,7 @@ export function AlertRules() {
                     key={rule.id}
                     className="flex items-center justify-between gap-2 text-[12px]"
                   >
-                    <span>{ruleText(rule)}</span>
+                    <span>{Effect.runSync(ruleText(rule))}</span>
                     <KIconButton
                       icon={IconTrash}
                       label="Remove rule"

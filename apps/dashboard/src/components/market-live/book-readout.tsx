@@ -35,8 +35,6 @@ import { useSpecialBoard } from "./use-special-board"
 
 const LIMIT_NAMES = { upper: "upper", lower: "lower" } as const
 
-const millis = (instant: DateTime.Utc) => DateTime.toEpochMillis(instant)
-
 // What the strip says while readings are paused in `phase`, at `clock`'s
 // now (the object's): when the last session ended today, or when the next
 // starts.
@@ -49,12 +47,14 @@ const pauseNote = Effect.fnUntraced(function* (
   const sessions = (yield* marketPhases(today).pipe(
     Effect.orElseSucceed(() => [])
   )).filter((each) => READING_PHASES.has(each.phase))
-  const ended = sessions.filter((each) => millis(each.to) <= now).at(-1)
+  const ended = sessions
+    .filter((each) => DateTime.toEpochMillis(each.to) <= now)
+    .at(-1)
   if (ended !== undefined)
-    return `${PHASE[phase]} · readings paused at ${yield* tapeTime(millis(ended.to) - 1_000)}`
-  const next = sessions.find((each) => millis(each.from) > now)
+    return `${PHASE[phase]} · readings paused at ${yield* tapeTime(DateTime.toEpochMillis(ended.to) - 1_000)}`
+  const next = sessions.find((each) => DateTime.toEpochMillis(each.from) > now)
   if (next !== undefined)
-    return `${PHASE[phase]} · readings start at ${yield* tapeTime(millis(next.from))}`
+    return `${PHASE[phase]} · readings start at ${yield* tapeTime(DateTime.toEpochMillis(next.from))}`
   return `${PHASE[phase]} · readings paused`
 })
 
@@ -84,14 +84,16 @@ function ImbalanceBar({ imbalance }: { imbalance: number | undefined }) {
 const figure = (text: string) => <span className="text-right">{text}</span>
 
 const emptyTicks = (side: BookReadings["bid"]) =>
-  side.widestGap > 1
-    ? `${side.emptyTicks} (widest ${side.widestGap})`
-    : `${side.emptyTicks}`
+  Effect.succeed(
+    side.widestGap > 1
+      ? `${side.emptyTicks} (widest ${side.widestGap})`
+      : `${side.emptyTicks}`
+  )
 
 const perOrder = (side: BookReadings["bid"]) =>
   side.lotsPerOrder === undefined
-    ? "—"
-    : Effect.runSync(plain(side.lotsPerOrder, side.lotsPerOrder < 10 ? 1 : 0))
+    ? Effect.succeed("—")
+    : plain(side.lotsPerOrder, side.lotsPerOrder < 10 ? 1 : 0)
 
 function NearDepth({ side }: { side: BookReadings["bid"] }) {
   if (side.lots === 0) return figure("—")
@@ -107,8 +109,12 @@ function NearDepth({ side }: { side: BookReadings["bid"] }) {
 
 const spreadText = (spread: BookReadings["spread"]) =>
   spread === undefined
-    ? "—"
-    : `${spread.ticks} ${spread.ticks === 1 ? "tick" : "ticks"} · ${Effect.runSync(plain(spread.percent, 2))}%`
+    ? Effect.succeed("—")
+    : Effect.map(
+        plain(spread.percent, 2),
+        (percent) =>
+          `${spread.ticks} ${spread.ticks === 1 ? "tick" : "ticks"} · ${percent}%`
+      )
 
 // The imbalance row: the bar and the signed figure, none at a limit, where
 // a limit queue isn't pressure.
@@ -182,14 +188,14 @@ function Readings({
           <NearDepth side={readings.bid} />
           <NearDepth side={readings.offer} />
           <span className="text-muted-foreground">Empty ticks</span>
-          {figure(emptyTicks(readings.bid))}
-          {figure(emptyTicks(readings.offer))}
+          {figure(Effect.runSync(emptyTicks(readings.bid)))}
+          {figure(Effect.runSync(emptyTicks(readings.offer)))}
           <span className="text-muted-foreground">Lots per order</span>
-          {figure(perOrder(readings.bid))}
-          {figure(perOrder(readings.offer))}
+          {figure(Effect.runSync(perOrder(readings.bid)))}
+          {figure(Effect.runSync(perOrder(readings.offer)))}
           <span className="text-muted-foreground">Spread</span>
           <span aria-label="Spread" className="col-span-2 text-right">
-            {spreadText(readings.spread)}
+            {Effect.runSync(spreadText(readings.spread))}
           </span>
         </div>
       </div>
@@ -216,13 +222,15 @@ const excludedReason = (
   board: ReadonlySet<StockCode>,
   previousClose: number | undefined
 ) =>
-  INDEX_CODES.includes(code)
-    ? "Indices have no order book."
-    : board.has(code)
-      ? "Special Monitoring Board: this code trades in a call auction all day, and no order book arrives for it."
-      : previousClose !== undefined && previousClose <= LOWEST_READ_CLOSE
-        ? "One tick here moves the price 10–100%, so book readings would mislead."
-        : undefined
+  Effect.succeed(
+    INDEX_CODES.includes(code)
+      ? "Indices have no order book."
+      : board.has(code)
+        ? "Special Monitoring Board: this code trades in a call auction all day, and no order book arrives for it."
+        : previousClose !== undefined && previousClose <= LOWEST_READ_CLOSE
+          ? "One tick here moves the price 10–100%, so book readings would mislead."
+          : undefined
+  )
 
 // Live, what the strip says while readings are paused outside Sessions 1
 // and 2; none in them, or on a recorded day.
@@ -317,7 +325,7 @@ const levelsNote = (
     : book === undefined
       ? Effect.succeed("best 5 levels · recorded")
       : Effect.map(
-          tapeTime(millis(book.at)),
+          tapeTime(DateTime.toEpochMillis(book.at)),
           (time) => `best 5 levels · recorded frame ${time}`
         )
 
@@ -354,10 +362,8 @@ export function BookReadout({
   // history, so a code that has joined or left the board since shows as it
   // stands today.
   const board = useSpecialBoard()
-  const reason = excludedReason(
-    code,
-    board,
-    state?.previousClose ?? shown?.previousClose
+  const reason = Effect.runSync(
+    excludedReason(code, board, state?.previousClose ?? shown?.previousClose)
   )
   const paused = usePause(today, cursor === undefined, readings)
   const inGap = useInGap(cursor, gaps)

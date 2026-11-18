@@ -63,67 +63,60 @@ const stored = <A>(
   key: string,
   schema: Schema.Codec<A, unknown>,
   fallback: A
-): Stored<A> => {
-  const value = Effect.runSync(makeSchemaStoredValue({ key, schema, fallback }))
-  return {
+): Effect.Effect<Stored<A>> =>
+  Effect.map(makeSchemaStoredValue({ key, schema, fallback }), (value) => ({
     fallback,
     get: value.snapshot,
     set: (next) => clientRuntime.runSync(value.write(next)),
     subscribe: value.subscribe,
-  }
-}
+  }))
 
 // Decision: rules, the chime and the history are each browser's own, in
 // localStorage, like the watchlist (use-watchlist.ts). See spec
 // apinrdw/kumora#517, "Alerts".
 const NO_RULES: ReadonlyArray<AlertRule> = []
-export const alertRules: Stored<ReadonlyArray<AlertRule>> = stored(
-  "kumora:book-alerts:rules",
-  Rules,
-  NO_RULES
+export const alertRules: Stored<ReadonlyArray<AlertRule>> = Effect.runSync(
+  stored("kumora:book-alerts:rules", Rules, NO_RULES)
 )
 
-export const alertChime: Stored<boolean> = stored(
-  "kumora:book-alerts:chime",
-  Schema.Boolean,
-  false
+export const alertChime: Stored<boolean> = Effect.runSync(
+  stored("kumora:book-alerts:chime", Schema.Boolean, false)
 )
 
 const NO_HISTORY: AlertHistory = {
   day: WibDate.make("1970-01-01"),
   alerts: [],
 }
-export const alertHistory: Stored<AlertHistory> = stored(
-  "kumora:book-alerts:history",
-  History,
-  NO_HISTORY
+export const alertHistory: Stored<AlertHistory> = Effect.runSync(
+  stored("kumora:book-alerts:history", History, NO_HISTORY)
 )
 
 // A value in memory only.
-const held = <A>(fallback: A): Stored<A> => {
-  let value = fallback
-  const listeners = new Set<() => void>()
-  return {
-    fallback,
-    get: () => value,
-    set: (next) => {
-      if (next === value) return
-      value = next
-      for (const listener of listeners) listener()
-    },
-    subscribe: (listener) => {
-      listeners.add(listener)
-      return () => void listeners.delete(listener)
-    },
-  }
-}
+const held = <A>(fallback: A) =>
+  Effect.sync((): Stored<A> => {
+    let value = fallback
+    const listeners = new Set<() => void>()
+    return {
+      fallback,
+      get: () => value,
+      set: (next) => {
+        if (next === value) return
+        value = next
+        for (const listener of listeners) listener()
+      },
+      subscribe: (listener) => {
+        listeners.add(listener)
+        return () => void listeners.delete(listener)
+      },
+    }
+  })
 
 // Whether the Alerts bell is open, so a View on another page opens it.
-export const alertBell = held(false)
+export const alertBell = Effect.runSync(held(false))
 
 // Today on the trading-day object's clock, from its last message: the bell
 // shows this day's alerts. None before the first message.
-export const alertDay = held<WibDate | undefined>(undefined)
+export const alertDay = Effect.runSync(held<WibDate | undefined>(undefined))
 
 // A stored value in React; the server render has its fallback.
 export function useStored<A>(store: Stored<A>) {

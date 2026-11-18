@@ -26,12 +26,13 @@ const CODES_OPTIONS: ReadonlyArray<{
 ]
 
 // A price field's number, none when blank or not a positive number.
-const priceOf = (text: string) => {
-  const value = Number(text)
-  return text.trim() === "" || !Number.isFinite(value) || value <= 0
-    ? undefined
-    : value
-}
+const priceOf = (text: string) =>
+  Effect.sync(() => {
+    const value = Number(text)
+    return text.trim() === "" || !Number.isFinite(value) || value <= 0
+      ? undefined
+      : value
+  })
 
 function PriceField({
   label,
@@ -53,7 +54,9 @@ function PriceField({
       hideLabel
       placeholder={placeholder}
       value={value ?? ""}
-      onChange={(event) => onChange(priceOf(event.target.value))}
+      onChange={(event) =>
+        onChange(Effect.runSync(priceOf(event.target.value)))
+      }
       className="w-24"
     />
   )

@@ -43,41 +43,38 @@ const gate = Effect.runSync(makeAlertGate)
 const ALERT_MS = 8_000
 
 // A short tone, once per alert. A page the user hasn't touched yet may
-// refuse to play it.
-const chime = () => {
-  try {
-    const audio = new AudioContext()
-    const tone = audio.createOscillator()
-    const gain = audio.createGain()
-    tone.frequency.value = 880
-    gain.gain.setValueAtTime(0.08, audio.currentTime)
-    gain.gain.exponentialRampToValueAtTime(0.001, audio.currentTime + 0.25)
-    tone.connect(gain).connect(audio.destination)
-    tone.start()
-    tone.stop(audio.currentTime + 0.25)
-    tone.addEventListener("ended", () => void audio.close())
-  } catch {
-    // No audio here: the toast still shows.
-  }
-}
+// refuse to play it; with no audio, the toast still shows.
+const chime = Effect.try(() => {
+  const audio = new AudioContext()
+  const tone = audio.createOscillator()
+  const gain = audio.createGain()
+  tone.frequency.value = 880
+  gain.gain.setValueAtTime(0.08, audio.currentTime)
+  gain.gain.exponentialRampToValueAtTime(0.001, audio.currentTime + 0.25)
+  tone.connect(gain).connect(audio.destination)
+  tone.start()
+  tone.stop(audio.currentTime + 0.25)
+  tone.addEventListener("ended", () => void audio.close())
+}).pipe(Effect.ignore)
 
 // A browser notification, from a tab in the background with permission.
 const notify = (
   title: string,
   options: NotificationOptions,
   onClick: () => void
-) => {
-  if (typeof Notification === "undefined") return
-  if (Notification.permission !== "granted") return
-  const notification = new Notification(title, options)
-  notification.addEventListener("click", () => {
-    window.focus()
-    onClick()
-    notification.close()
+) =>
+  Effect.sync(() => {
+    if (typeof Notification === "undefined") return
+    if (Notification.permission !== "granted") return
+    const notification = new Notification(title, options)
+    notification.addEventListener("click", () => {
+      window.focus()
+      onClick()
+      notification.close()
+    })
   })
-}
 
-const visible = () => document.visibilityState === "visible"
+const visible = Effect.sync(() => document.visibilityState === "visible")
 
 // The alert told for an event: its title, detail and key.
 const alertOf = Effect.fnUntraced(function* (event: BookEvent) {
@@ -89,6 +86,40 @@ const alertOf = Effect.fnUntraced(function* (event: BookEvent) {
     detail: yield* bookEventDetail(event),
     at: DateTime.toEpochMillis(event.at),
   } satisfies Alert
+})
+
+// Tells one alert, or the fold of the minute's alerts past the limit:
+// toasts on the visible page, notifies from a background tab.
+const tellAlert = Effect.fnUntraced(function* (
+  alert: Alert,
+  verdict: GateVerdict,
+  open: (alert: Alert) => void,
+  view: () => void
+) {
+  if (verdict._tag === "Folded") {
+    const title = `+${verdict.count} more alerts this minute`
+    if (!(yield* visible))
+      return yield* notify(title, { tag: "book-alerts-fold" }, view)
+    return yield* kToast.info(title, {
+      id: `book-alerts-fold-${verdict.since}`,
+      duration: ALERT_MS,
+      action: { label: "View", onClick: view },
+    })
+  }
+  if (alertChime.get()) yield* chime
+  if (!(yield* visible))
+    return yield* notify(
+      alert.title,
+      { body: alert.detail, tag: alert.key },
+      () => open(alert)
+    )
+  const tone = alert.side === "bid" ? kToast.success : kToast.error
+  yield* tone(alert.title, {
+    description: alert.detail,
+    icon: alert.side === "bid" ? IconArrowUp : IconArrowDown,
+    duration: ALERT_MS,
+    action: { label: "Open", onClick: () => open(alert) },
+  })
 })
 
 /**
@@ -136,33 +167,8 @@ export function useBookAlerts() {
   }, [navigate])
 
   const tell = useCallback(
-    (alert: Alert, verdict: GateVerdict) => {
-      if (verdict._tag === "Folded") {
-        const title = `+${verdict.count} more alerts this minute`
-        if (!visible()) return notify(title, { tag: "book-alerts-fold" }, view)
-        return void clientRuntime.runFork(
-          kToast.info(title, {
-            id: `book-alerts-fold-${verdict.since}`,
-            duration: ALERT_MS,
-            action: { label: "View", onClick: view },
-          })
-        )
-      }
-      if (alertChime.get()) chime()
-      if (!visible())
-        return notify(alert.title, { body: alert.detail, tag: alert.key }, () =>
-          open(alert)
-        )
-      const tone = alert.side === "bid" ? kToast.success : kToast.error
-      clientRuntime.runFork(
-        tone(alert.title, {
-          description: alert.detail,
-          icon: alert.side === "bid" ? IconArrowUp : IconArrowDown,
-          duration: ALERT_MS,
-          action: { label: "Open", onClick: () => open(alert) },
-        })
-      )
-    },
+    (alert: Alert, verdict: GateVerdict) =>
+      void clientRuntime.runFork(tellAlert(alert, verdict, open, view)),
     [open, view]
   )
 

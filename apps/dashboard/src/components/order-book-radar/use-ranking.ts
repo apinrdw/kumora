@@ -33,29 +33,32 @@ interface Ranking {
   readonly basis: object
 }
 
-const rank = (inputs: Inputs, basis: object, at: number): Ranking => {
+const rank = Effect.fnUntraced(function* (
+  inputs: Inputs,
+  basis: object,
+  at: number
+) {
   const now = at + inputs.clockOffset.current
-  return {
-    scan: Effect.runSync(
-      scan(
-        {
-          readings: inputs.readings.all(),
-          figures: inputs.figures.all(),
-          board: inputs.board,
-          watchlist: inputs.watchlist,
-          events: inputs.events.byCode(now),
-          now,
-        },
-        inputs.settings
-      )
+  const ranked: Ranking = {
+    scan: yield* scan(
+      {
+        readings: inputs.readings.all(),
+        figures: inputs.figures.all(),
+        board: inputs.board,
+        watchlist: inputs.watchlist,
+        events: inputs.events.byCode(now),
+        now,
+      },
+      inputs.settings
     ),
     at,
     basis,
   }
-}
+  return ranked
+})
 
 const isEmpty = ({ scan: { bid, offer, limits } }: Ranking) =>
-  bid.length + offer.length + limits.length === 0
+  Effect.succeed(bid.length + offer.length + limits.length === 0)
 
 // The halves' order, held between re-sorts, and the second's clock on the
 // market's.
@@ -85,9 +88,9 @@ export function useRanking(inputs: Inputs & { readonly hovering: boolean }) {
           now,
           ranking:
             onScreen === undefined ||
-            isEmpty(onScreen) ||
+            Effect.runSync(isEmpty(onScreen)) ||
             (!held.hovering && now - onScreen.at >= RESORT_MS)
-              ? rank(held.inputs, held.basis, now)
+              ? Effect.runSync(rank(held.inputs, held.basis, now))
               : onScreen,
         }
       })
@@ -98,7 +101,8 @@ export function useRanking(inputs: Inputs & { readonly hovering: boolean }) {
   const { now } = tick
   const held = tick.ranking?.basis === basis ? tick.ranking : undefined
   const fresh = useMemo(
-    () => (held === undefined ? rank(inputs, basis, now) : undefined),
+    () =>
+      held === undefined ? Effect.runSync(rank(inputs, basis, now)) : undefined,
     [held, inputs, basis, now]
   )
   const ranking = held ?? fresh!

@@ -30,15 +30,18 @@ const SIDES = [
 ] as const
 
 const shownAmount = (size: OrderSize) =>
-  String(size.unit === "rupiah" ? size.amount / MILLION : size.amount)
+  Effect.succeed(
+    String(size.unit === "rupiah" ? size.amount / MILLION : size.amount)
+  )
 
 // The amount `text` asks for in `unit`, or none when it isn't one: lots are
 // whole and every amount is over zero.
-const amountOf = (text: string, unit: OrderSize["unit"]) => {
-  const typed = Number(text.replaceAll(",", ""))
-  const amount = unit === "rupiah" ? typed * MILLION : Math.floor(typed)
-  return Number.isFinite(amount) && amount > 0 ? amount : undefined
-}
+const amountOf = (text: string, unit: OrderSize["unit"]) =>
+  Effect.sync(() => {
+    const typed = Number(text.replaceAll(",", ""))
+    const amount = unit === "rupiah" ? typed * MILLION : Math.floor(typed)
+    return Number.isFinite(amount) && amount > 0 ? amount : undefined
+  })
 
 // The order-size field and its Rupiah / Lots toggle. While typing, the field
 // keeps the text; each valid amount is saved as it is typed.
@@ -53,10 +56,10 @@ function SizeField() {
         type="text"
         inputMode="decimal"
         aria-label="Order size"
-        value={draft ?? shownAmount(size)}
+        value={draft ?? Effect.runSync(shownAmount(size))}
         onChange={(event) => {
           setDraft(event.target.value)
-          const amount = amountOf(event.target.value, size.unit)
+          const amount = Effect.runSync(amountOf(event.target.value, size.unit))
           if (amount !== undefined) changeAmount(amount)
         }}
         onBlur={() => setDraft(undefined)}
@@ -93,24 +96,28 @@ function SizeField() {
 }
 
 const ticksText = (ticks: number) =>
-  `${ticks} ${ticks === 1 ? "tick" : "ticks"}`
+  Effect.succeed(`${ticks} ${ticks === 1 ? "tick" : "ticks"}`)
 
 // One side's column: levels used (with a + when the book runs out), last
 // price, average fill and slippage, or dashes when nothing fills.
-const columnOf = (fill: FillEstimate | undefined) =>
-  fill === undefined
-    ? ["—", "—", "—", "—"]
-    : [
-        `${fill.levels}${fill.short ? "+" : ""}`,
-        Effect.runSync(price(fill.last)),
-        Effect.runSync(plain(fill.average, fill.average < 200 ? 1 : 0)),
-        `${ticksText(fill.slippage.ticks)} · ${Effect.runSync(plain(fill.slippage.percent, 2))}%`,
-      ]
+const columnOf = Effect.fnUntraced(function* (fill: FillEstimate | undefined) {
+  if (fill === undefined) return ["—", "—", "—", "—"]
+  return [
+    `${fill.levels}${fill.short ? "+" : ""}`,
+    yield* price(fill.last),
+    yield* plain(fill.average, fill.average < 200 ? 1 : 0),
+    `${yield* ticksText(fill.slippage.ticks)} · ${yield* plain(fill.slippage.percent, 2)}%`,
+  ]
+})
 
 const ROWS = ["Levels used", "Last price", "Average fill", "Slippage"]
 
-const shortNote = (fill: FillEstimate, walked: string) =>
-  `More than the ${fill.levels} levels shown: the ${walked} cover ${Effect.runSync(lots(fill.lots))} lots (Rp${Effect.runSync(compact(fill.rupiah))}).`
+const shortNote = Effect.fnUntraced(function* (
+  fill: FillEstimate,
+  walked: string
+) {
+  return `More than the ${fill.levels} levels shown: the ${walked} cover ${yield* lots(fill.lots)} lots (Rp${yield* compact(fill.rupiah)}).`
+})
 
 /**
  * The fill estimate over the selected code's book, live or at a recorded
@@ -142,7 +149,7 @@ export function FillEstimatePart({
         ? undefined
         : Effect.runSync(fillEstimateOf(book, side, size)),
   }))
-  const columns = fills.map(({ fill }) => columnOf(fill))
+  const columns = fills.map(({ fill }) => Effect.runSync(columnOf(fill)))
   return (
     <div
       className={cn(
@@ -182,7 +189,7 @@ export function FillEstimatePart({
       {fills.map(({ fill, walked }) =>
         fill?.short ? (
           <p key={walked} className="text-warning text-[11px]">
-            {shortNote(fill, walked)}
+            {Effect.runSync(shortNote(fill, walked))}
           </p>
         ) : null
       )}

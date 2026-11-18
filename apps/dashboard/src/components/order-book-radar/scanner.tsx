@@ -69,8 +69,6 @@ function TugBar({ imbalance, half }: { imbalance: number; half: Half }) {
   )
 }
 
-const lotsText = (n: number) => Effect.runSync(lots(n))
-
 // The row's last book event of the last 5 minutes: its mark coloured by
 // side, its name and detail on hover.
 function LastEvent({
@@ -129,7 +127,9 @@ function Levels({
             style={{ width: `${(level.lots / most) * 100}%` }}
           />
           <span className="relative">{Effect.runSync(price(level.price))}</span>
-          <span className="relative text-right">{lotsText(level.lots)}</span>
+          <span className="relative text-right">
+            {Effect.runSync(lots(level.lots))}
+          </span>
           <span className="relative text-right text-muted-foreground">
             {level.orders}
           </span>

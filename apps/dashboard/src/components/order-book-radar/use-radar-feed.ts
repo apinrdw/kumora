@@ -31,12 +31,13 @@ const IHSG = StockCode.make("IHSG")
 const selectOf = (
   unfolded: StockCode | undefined,
   watchlist: ReadonlyArray<StockCode>
-): ViewerUp => ({
-  _tag: "Select",
-  protocolVersion: ViewerProtocolVersion,
-  selected: unfolded ?? IHSG,
-  watchlist,
-})
+): Effect.Effect<ViewerUp> =>
+  Effect.succeed({
+    _tag: "Select",
+    protocolVersion: ViewerProtocolVersion,
+    selected: unfolded ?? IHSG,
+    watchlist,
+  })
 
 type FeedStatus = "connecting" | "live" | "new-version"
 
@@ -62,11 +63,15 @@ export function useRadarFeed(
   const [status, setStatus] = useState<FeedStatus>("connecting")
   const clockOffset = useRef(0)
   const [select] = useState(() =>
-    Effect.runSync(SubscriptionRef.make(selectOf(unfolded, watchlist)))
+    Effect.runSync(
+      Effect.flatMap(selectOf(unfolded, watchlist), SubscriptionRef.make)
+    )
   )
   useEffect(() => {
     clientRuntime.runFork(
-      SubscriptionRef.set(select, selectOf(unfolded, watchlist))
+      Effect.flatMap(selectOf(unfolded, watchlist), (next) =>
+        SubscriptionRef.set(select, next)
+      )
     )
   }, [select, unfolded, watchlist])
   // The latest book store, so a new unfolded code doesn't reopen the socket.
