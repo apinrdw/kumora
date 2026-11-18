@@ -640,13 +640,13 @@ export const makeCandleBook = Effect.fnUntraced(function* (
     for (const slot of slots) {
       const minute = yield* slotSweeps(slot, true)
       sweeps.set(slot, minute)
-      const decided = yield* alertRule.decide(
-        slot.code,
-        slot.ranked,
-        minute,
+      const decided = yield* alertRule.decide({
+        code: slot.code,
+        ranked: slot.ranked,
+        sweeps: minute,
         latest,
-        now
-      )
+        now,
+      })
       slot.ranked = decided.ranked
       if (decided.pending) waiting.add(slot)
       else waiting.delete(slot)

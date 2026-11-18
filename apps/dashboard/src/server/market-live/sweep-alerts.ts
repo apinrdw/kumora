@@ -33,11 +33,8 @@ interface Ranking {
 // never rank.
 type SidedSweep = Sweep & { readonly side: AlertSide }
 
-const sided = (sweeps: ReadonlyArray<Sweep>) =>
-  sweeps.filter((sweep): sweep is SidedSweep => sweep.side !== "none")
-
 const secondOf = (sweep: Sweep) =>
-  Math.floor(DateTime.toEpochMillis(sweep.time) / SECOND)
+  Effect.sync(() => Math.floor(DateTime.toEpochMillis(sweep.time) / SECOND))
 
 // A sweep the rule ranked, with the trade numbers it covered in its minute as
 // grouped then: from its first trade up to the next sweep's (`end`), or on
@@ -66,18 +63,22 @@ export const rankedOf = (sweeps: ReadonlyArray<Sweep>) =>
 // Whether `entry` regroups a sweep the rule ranked: it shares the sweep's
 // side and second and some of its trade numbers, so a late trade grew or
 // split that sweep. A sweep with none of their trades is new.
-const regroups = (entry: RankedSweep, ranked: ReadonlyArray<RankedSweep>) =>
-  Effect.sync(() => {
-    const from = BigInt(entry.sweep.firstTrade)
-    const second = secondOf(entry.sweep)
-    return ranked.some(
-      ({ sweep, end }) =>
-        sweep.side === entry.sweep.side &&
-        secondOf(sweep) === second &&
-        (end === undefined || from < end) &&
-        (entry.end === undefined || BigInt(sweep.firstTrade) < entry.end)
+const regroups = Effect.fnUntraced(function* (
+  entry: RankedSweep,
+  ranked: ReadonlyArray<RankedSweep>
+) {
+  const from = BigInt(entry.sweep.firstTrade)
+  const second = yield* secondOf(entry.sweep)
+  for (const { sweep, end } of ranked)
+    if (
+      sweep.side === entry.sweep.side &&
+      (yield* secondOf(sweep)) === second &&
+      (end === undefined || from < end) &&
+      (entry.end === undefined || BigInt(sweep.firstTrade) < entry.end)
     )
-  })
+      return true
+  return false
+})
 
 // The index of the first distinct lots at or below `lots`.
 const indexOf = (ranking: Ranking, lots: number) =>
@@ -150,26 +151,32 @@ export const makeSweepAlerts = Effect.sync(() => {
     const ranking = yield* rankingOf(code, sweep.side)
     const cutoff = yield* cutoffOf(ranking)
     yield* join(ranking, sweep.lots)
-    const closed = (secondOf(sweep) + 1) * SECOND
+    const closed = ((yield* secondOf(sweep)) + 1) * SECOND
     return (
       cutoff !== undefined && sweep.lots >= cutoff && now - closed <= MAX_AGE
     )
   })
 
   // One code's minute of sweeps, whole and in trade order, decided once the
-  // object holds a trade timed `latest` (epoch ms) and the decision is made
-  // at `now`. `ranked` is what an earlier call returned for the minute: its
+  // object holds a trade timed `latest` and the decision is made at `now`,
+  // both in epoch ms. `ranked` is what an earlier call returned for the minute: its
   // entries leave the ranking, and a sweep that regroups one of them joins
   // again without a decision. A new sweep is decided once its second has
   // closed, no later second holding a trade yet; until then it waits for a
   // later call (`pending`). An auction match has no side and never ranks.
-  const decide = Effect.fnUntraced(function* (
-    code: StockCode,
-    ranked: ReadonlyArray<RankedSweep>,
-    sweeps: ReadonlyArray<Sweep>,
-    latest: number,
-    now: number
-  ) {
+  const decide = Effect.fnUntraced(function* ({
+    code,
+    ranked,
+    sweeps,
+    latest,
+    now,
+  }: {
+    readonly code: StockCode
+    readonly ranked: ReadonlyArray<RankedSweep>
+    readonly sweeps: ReadonlyArray<Sweep>
+    readonly latest: number
+    readonly now: number
+  }) {
     for (const { sweep } of ranked)
       yield* leave(yield* rankingOf(code, sweep.side), sweep.lots)
     const closedBefore = Math.floor(latest / SECOND)
@@ -178,7 +185,7 @@ export const makeSweepAlerts = Effect.sync(() => {
     let pending = false
     for (const entry of yield* rankedOf(sweeps)) {
       if (yield* regroups(entry, ranked)) again.push(entry)
-      else if (secondOf(entry.sweep) < closedBefore) fresh.push(entry)
+      else if ((yield* secondOf(entry.sweep)) < closedBefore) fresh.push(entry)
       else pending = true
     }
     for (const { sweep } of again)
@@ -195,7 +202,7 @@ export const makeSweepAlerts = Effect.sync(() => {
     code: StockCode,
     sweeps: ReadonlyArray<Sweep>
   ) {
-    for (const sweep of sided(sweeps))
+    for (const { sweep } of yield* rankedOf(sweeps))
       yield* join(yield* rankingOf(code, sweep.side), sweep.lots)
   })
 

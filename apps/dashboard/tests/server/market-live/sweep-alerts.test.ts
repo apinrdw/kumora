@@ -50,13 +50,13 @@ const book = Effect.gen(function* () {
     latest: number,
     now = latest
   ) {
-    const decided = yield* rule.decide(
-      UNTR,
-      ranked.get(minute) ?? [],
+    const decided = yield* rule.decide({
+      code: UNTR,
+      ranked: ranked.get(minute) ?? [],
       sweeps,
-      OPEN + latest * 1000,
-      OPEN + now * 1000
-    )
+      latest: OPEN + latest * 1000,
+      now: OPEN + now * 1000,
+    })
     ranked.set(minute, decided.ranked)
     return decided.alerts.map((alert) => [alert.sweep.side, alert.sweep.lots])
   })
