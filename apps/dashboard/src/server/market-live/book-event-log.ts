@@ -4,11 +4,12 @@
 // SNAPSHOT_BOOK_EVENTS and the ones not stored yet, at most
 // MAX_UNFLUSHED_EVENTS of them.
 import {
+  BookEventOrder,
   SNAPSHOT_BOOK_EVENTS,
   type BookEvent,
   type StockCode,
 } from "@workspace/relay"
-import { Effect } from "effect"
+import { Array as Arr, Effect } from "effect"
 
 import type { DayStore } from "./day-store.ts"
 
@@ -37,7 +38,9 @@ export const makeBookEventLog = (
         unflushed.push(...events)
         if (unflushed.length > MAX_UNFLUSHED_EVENTS)
           unflushed = unflushed.slice(-MAX_UNFLUSHED_EVENTS)
-        newest = [...newest, ...events].slice(-SNAPSHOT_BOOK_EVENTS)
+        newest = Arr.sort([...newest, ...events], BookEventOrder).slice(
+          -SNAPSHOT_BOOK_EVENTS
+        )
       })
 
     // The events found since the last delta.
@@ -55,12 +58,15 @@ export const makeBookEventLog = (
         unflushed = unflushed.slice(count)
       })
 
-    // One code's events for the day so far, stored and not.
+    // One code's events for the day so far, stored and not, oldest first.
     const ofCode = Effect.fnUntraced(function* (code: StockCode) {
-      return [
-        ...(yield* store.bookEventsOf(code)),
-        ...unflushed.filter((event) => event.code === code),
-      ]
+      return Arr.sort(
+        [
+          ...(yield* store.bookEventsOf(code)),
+          ...unflushed.filter((event) => event.code === code),
+        ],
+        BookEventOrder
+      )
     })
 
     return {

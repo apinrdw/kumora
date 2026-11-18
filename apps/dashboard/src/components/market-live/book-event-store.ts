@@ -1,5 +1,6 @@
 import {
   BOOK_EVENT_WINDOW_MS,
+  BookEventOrder,
   MIN_SIDE_FRAMES,
   type BookEvent,
   type OrderBook,
@@ -7,7 +8,7 @@ import {
   type StockCode,
   type ViewerDown,
 } from "@workspace/relay"
-import { DateTime, Effect } from "effect"
+import { Array as Arr, DateTime, Effect } from "effect"
 
 export interface BookEventStore {
   readonly code: StockCode
@@ -100,7 +101,8 @@ export const makeBookEventStore = (code: StockCode) =>
         const arriving = (message.bookEvents ?? []).filter(
           (event) => event.code === code
         )
-        if (arriving.length > 0) events = [...events, ...arriving]
+        if (arriving.length > 0)
+          events = Arr.sort([...events, ...arriving], BookEventOrder)
         if (book !== undefined || arriving.length > 0) tell()
       },
       load: (answer) => {
