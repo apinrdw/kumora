@@ -339,7 +339,9 @@ export const makeLevelLedger = Effect.sync(() => {
 
   // Reloaded: the best level traded more than it showed in one interval
   // while it stayed best (overflow), or was hit down by half and refilled at
-  // the same price.
+  // the same price. The frame before frame `i` is inside the window, but the
+  // one before that can be the window's start, so the hit-down reads only
+  // trades from the window's start.
   const reloadOf = (r: Reading) => {
     const frame = r.frames[r.i]!
     const previous = r.frames[r.i - 1]!
@@ -360,7 +362,7 @@ export const makeLevelLedger = Effect.sync(() => {
     const before = r.frames[r.i - 2]
     const a = before?.levels[0]
     if (before === undefined || a?.price !== p) return undefined
-    const traded = hit(r, p, before.t, previous.t)
+    const traded = hit(r, p, Math.max(before.t, r.from), previous.t)
     const drop = a.lots - b0.lots
     const hitDown = drop >= 0.5 * a.lots && traded >= 0.5 * drop
     const refilled = b1.lots >= 0.5 * a.lots && b1.lots > b0.lots
@@ -441,6 +443,10 @@ export const makeLevelLedger = Effect.sync(() => {
   // The wall at `p` in frame `j`, if it was pulled or moved by frame `i`:
   // it lost half its lots while in view, with no trade beyond it and trades
   // explaining little of the loss.
+  // Decision: a pull reads the trades between the wall's frame and frame
+  // `i`, even from before the window: they are what took the wall, and
+  // dropping them reads a traded wall as pulled. Every other kind reads only
+  // the window's trades. See apinrdw/kumora#526.
   const leftWall = Effect.fnUntraced(function* (
     r: Reading,
     j: number,
