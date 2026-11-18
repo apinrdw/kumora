@@ -29,8 +29,7 @@ export type BubbleFrame =
 
 const WAITING: BubbleFrame = { _tag: "Waiting" }
 
-// Cuts the ranked bubbles to the ones a map shows: a sector, the panel's
-// set. It filters after the ranking, so a cut shows its codes of the
+// Cuts the ranked bubbles to the ones a map shows, such as a sector. It filters after the ranking, so a cut shows its codes of the
 // market's Top N.
 export type BubbleCut = (
   ranked: ReadonlyArray<BubbleFigures>
