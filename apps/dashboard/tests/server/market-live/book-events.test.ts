@@ -17,7 +17,12 @@ import { TestClock } from "effect/testing"
 
 import { SEALED_CACHE } from "@/server/market-live/routes"
 
-import { stockbitBook, stockbitTrade, tradingDay } from "./day-harness"
+import {
+  ajaibTrade,
+  stockbitBook,
+  stockbitTrade,
+  tradingDay,
+} from "./day-harness"
 import { memorySql } from "./sql"
 
 const UNTR = StockCode.make("UNTR")
@@ -180,6 +185,68 @@ describe("book events", () => {
           named(snapshot.selectedBookEvents ?? []),
           APPEARED
         )
+      })
+  )
+
+  it.effect(
+    "a trade Stockbit corrects after Ajaib's copy counts as Stockbit's",
+    () =>
+      Effect.gen(function* () {
+        // Bid frames every 5 s from 09:10:00 and, at 09:10:22, trade 2:
+        // 1,000 lots at the best bid, Stockbit's sell, after Ajaib's buy
+        // when `ajaibFirst`. The 09:10:30 frame reads it as absorbed.
+        const events = Effect.fnUntraced(function* (ajaibFirst: boolean) {
+          yield* at("09:09:59.000")
+          const day = yield* tradingDay()
+          const page = yield* day.viewer("BBCA")
+          for (const second of [0, 5, 10, 15, 20, 25, 30]) {
+            const time = `09:10:${String(second).padStart(2, "0")}.000`
+            yield* at(time)
+            if (second === 0)
+              yield* day.trades([
+                stockbitTrade({
+                  number: 1,
+                  time: "09:10:00",
+                  price: 1000,
+                  lots: 1,
+                  side: "sell",
+                }),
+              ])
+            yield* day.frames(
+              second === 0 ? [bids(time, false), OFFERS] : [bids(time, false)]
+            )
+            yield* TestClock.adjust("300 millis")
+            if (second !== 20) continue
+            yield* at("09:10:22.000")
+            if (ajaibFirst)
+              yield* day.ajaibTrades([
+                ajaibTrade({
+                  number: 2,
+                  time: "09:10:22",
+                  price: 1000,
+                  lots: 1000,
+                  side: "buy",
+                }),
+              ])
+            yield* TestClock.adjust("500 millis")
+            yield* day.trades([
+              stockbitTrade({
+                number: 2,
+                time: "09:10:22.500",
+                price: 1000,
+                lots: 1000,
+                side: "sell",
+              }),
+            ])
+            yield* TestClock.adjust("300 millis")
+          }
+          return named(yield* deltaEvents(page))
+        })
+        const stockbitOnly = yield* events(false)
+        assert.deepStrictEqual(stockbitOnly, [
+          ["absorbed", "UNTR", "bid", 1000, "09:10:30"],
+        ])
+        assert.deepStrictEqual(yield* events(true), stockbitOnly)
       })
   )
 
