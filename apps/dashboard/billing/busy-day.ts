@@ -97,7 +97,7 @@ const bookChunks = Effect.gen(function* () {
   const code = StockCode.make(BUSY_DAY.bookCode)
   const step = (index: number) =>
     Math.floor((index * BUSY_DAY.bookChunks) / MINUTES)
-  const chunks: Array<readonly [number, Uint8Array]> = []
+  const chunks: Array<readonly [number, ArrayBuffer]> = []
   let last: OrderBook | undefined
   let frame = 0
   for (let index = 0; index < MINUTES; index++) {
@@ -125,7 +125,7 @@ const bookChunks = Effect.gen(function* () {
       ...(start === undefined ? {} : { start }),
       deltas,
     })
-    chunks.push([minute, new Uint8Array(gzipSync(text))])
+    chunks.push([minute, new Uint8Array(gzipSync(text)).buffer])
   }
   return chunks
 })
