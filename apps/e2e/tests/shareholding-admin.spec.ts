@@ -271,7 +271,7 @@ test.describe("an admin's archive history", () => {
 // exact before the parse runs store reports into stocks.spec.ts's HoldingsDb,
 // unserialized: classification as Dec 2025, before its months; investor-type's
 // AADI as seeded there, TRUE never opened; Parse coverage taking that seed's
-// mark (apinrdw/kumora#404, #405); above-1%'s Feb 2026, which it doesn't seed.
+// mark (apinrdw/kumora#404, #405); above-1%'s unseeded Feb and Apr 2026.
 test.describe.serial("an admin's archive totals and parse runs", () => {
   test.use({ storageState: ADMIN.storageState })
 
@@ -392,6 +392,7 @@ test.describe.serial("an admin's archive totals and parse runs", () => {
 
   test("Parse now parses the held above-1% reports", async ({ page }) => {
     await seedReportFixture("above-1", "above-1-2026-02-27.xlsx", "2026-02-27")
+    await seedReportFixture("above-1", "above-1-2026-04-30.xlsx", "2026-04-30")
 
     await page.goto(SHAREHOLDING)
     const card = above1ParseCard(page)
@@ -409,7 +410,7 @@ test.describe.serial("an admin's archive totals and parse runs", () => {
         timeout: 1000,
       })
     }).toPass({ timeout: 30_000 })
-    await expect(stat(above1ParseCard(page), "Months parsed")).toHaveText("1")
+    await expect(stat(above1ParseCard(page), "Months parsed")).toHaveText("2")
     await expect(stat(above1ParseCard(page), "Parse failures")).toHaveText("0")
     await expect(
       above1ParseCard(page).getByRole("button", { name: "Parse now" })

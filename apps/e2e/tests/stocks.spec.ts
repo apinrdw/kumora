@@ -215,8 +215,9 @@ const INVESTOR_TYPE_MONTHS = {
 // holder key is as src/server/holdings/above-1.ts builds it. Against Aug,
 // Sep has Dwimuria unchanged on a few more shares, Anthoni Salim up,
 // BlackRock down, Gamma off list, and Salim Group new on two rows.
-// Decision: Feb 2026 is left unseeded, since shareholding-admin.spec.ts's
-// Parse now parses it into the same HoldingsDb, with no BBCA rows.
+// Decision: Feb and Apr 2026 are left unseeded, since
+// shareholding-admin.spec.ts's Parse now parses them into the same
+// HoldingsDb, with no BBCA or BBRI rows.
 const ABOVE_1_MONTHS = {
   "2026-07-31": {
     BBRI: {
