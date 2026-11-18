@@ -33,7 +33,7 @@ type TabChannel = {
 // Opens this tab's end of the channel the Market Live tabs share: a
 // BroadcastChannel on the page (broadcastTabChannel), a shared fake in tests.
 export type OpenTabChannel = (
-  receive: (message: TabMessage) => void
+  receive: (message: TabMessage) => Effect.Effect<void>
 ) => Effect.Effect<TabChannel>
 
 // Each browser's one channel for its Market Live tabs.
@@ -48,7 +48,7 @@ const broadcastTabChannel: OpenTabChannel = (receive) =>
     const channel = new BroadcastChannel(CHANNEL)
     channel.onmessage = (event) => {
       const message = decodeTabMessage(event.data)
-      if (Option.isSome(message)) receive(message.value)
+      if (Option.isSome(message)) clientRuntime.runSync(receive(message.value))
     }
     return {
       post: (message) => channel.postMessage(message),
@@ -84,36 +84,37 @@ export const makePlayingTab = (open: OpenTabChannel) =>
     let self: Peer | undefined
     let channel: TabChannel | undefined
 
-    const receive = (message: TabMessage) => {
-      if (message._tag === "Bye") {
-        peers.delete(message.id)
-        return
-      }
-      const { peer } = message
-      peers.set(peer.id, peer)
-      if (self === undefined) return
-      if (message._tag === "Hello")
-        channel?.post({ _tag: "Answer", peer: self, to: peer.id })
-      // This tab opened after every tab that answers it, and if it opened
-      // focused, it was focused after them too, though clocks tie.
-      if (message._tag === "Answer" && message.to === id) {
-        const later = {
-          ...self,
-          joinedAt: Math.max(self.joinedAt, peer.joinedAt + 1),
-          focusedAt:
-            self.focusedAt === 0
-              ? 0
-              : Math.max(self.focusedAt, peer.focusedAt + 1),
-        }
-        if (
-          later.joinedAt === self.joinedAt &&
-          later.focusedAt === self.focusedAt
-        )
+    const receive = (message: TabMessage) =>
+      Effect.sync(() => {
+        if (message._tag === "Bye") {
+          peers.delete(message.id)
           return
-        self = later
-        channel?.post({ _tag: "Here", peer: self })
-      }
-    }
+        }
+        const { peer } = message
+        peers.set(peer.id, peer)
+        if (self === undefined) return
+        if (message._tag === "Hello")
+          channel?.post({ _tag: "Answer", peer: self, to: peer.id })
+        // This tab opened after every tab that answers it, and if it opened
+        // focused, it was focused after them too, though clocks tie.
+        if (message._tag === "Answer" && message.to === id) {
+          const later = {
+            ...self,
+            joinedAt: Math.max(self.joinedAt, peer.joinedAt + 1),
+            focusedAt:
+              self.focusedAt === 0
+                ? 0
+                : Math.max(self.focusedAt, peer.focusedAt + 1),
+          }
+          if (
+            later.joinedAt === self.joinedAt &&
+            later.focusedAt === self.focusedAt
+          )
+            return
+          self = later
+          channel?.post({ _tag: "Here", peer: self })
+        }
+      })
 
     // A focus stamp later than any this tab knows, though clocks tie.
     const focusStamp = Effect.map(Clock.currentTimeMillis, (now) =>

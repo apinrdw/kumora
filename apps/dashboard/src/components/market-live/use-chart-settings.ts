@@ -8,7 +8,7 @@ import {
   type ChartSettings,
   type ChartZooms,
 } from "@/lib/chart-settings"
-import { makeStoredValue } from "@/lib/stored-value"
+import { jsonText, makeStoredValue } from "@/lib/stored-value"
 
 import type { SweepStore } from "./sweep-store"
 
@@ -23,7 +23,7 @@ const { subscribe, snapshot, write } = Effect.runSync(
   makeStoredValue<ChartSettings>({
     key: KEY,
     parse: parseChartSettings,
-    serialize: JSON.stringify,
+    serialize: jsonText,
   })
 )
 

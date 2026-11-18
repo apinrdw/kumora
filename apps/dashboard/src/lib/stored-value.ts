@@ -21,6 +21,10 @@ const makeStorageListeners = Effect.sync(() => {
   }
 })
 
+// A value as JSON text: the `serialize` of a stored value kept as JSON.
+export const jsonText = (value: unknown) =>
+  Effect.sync(() => JSON.stringify(value))
+
 // One browser value kept in localStorage under `key`, for
 // `useSyncExternalStore`. `parse` reads the stored text (null when nothing
 // is stored), and `serialize` writes a value back (null removes the key).
@@ -34,7 +38,7 @@ export const makeStoredValue = <A>({
 }: {
   key: string
   parse: (raw: string | null) => Effect.Effect<A>
-  serialize: (value: A) => string | null
+  serialize: (value: A) => Effect.Effect<string | null>
 }) =>
   Effect.gen(function* () {
     const { subscribe, changed } = yield* makeStorageListeners
@@ -53,7 +57,7 @@ export const makeStoredValue = <A>({
     })
 
     const write = Effect.fnUntraced(function* (value: A) {
-      const text = serialize(value)
+      const text = yield* serialize(value)
       yield* Effect.try(() =>
         text === null
           ? window.localStorage.removeItem(key)

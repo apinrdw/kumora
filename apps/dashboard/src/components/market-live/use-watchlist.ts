@@ -4,7 +4,7 @@ import { Effect } from "effect"
 import { useCallback, useSyncExternalStore } from "react"
 
 import { parseMarketLiveSearch } from "@/lib/market-live-search"
-import { makeStoredValue } from "@/lib/stored-value"
+import { jsonText, makeStoredValue } from "@/lib/stored-value"
 
 // Decision: each browser keeps its own watchlist in localStorage (spec
 // apinrdw/kumora#138, "Watchlist"), not on the account. The e2e seeds the
@@ -29,7 +29,7 @@ const parse = Effect.fnUntraced(function* (raw: string | null) {
 
 // Storage blocked reads as no list.
 const { subscribe, snapshot, write } = Effect.runSync(
-  makeStoredValue({ key: KEY, parse, serialize: JSON.stringify })
+  makeStoredValue({ key: KEY, parse, serialize: jsonText })
 )
 
 // The viewer's watchlist codes, in the order added, and its two changes. The

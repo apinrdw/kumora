@@ -19,7 +19,7 @@ const toggle = Effect.runSync(
   makeStoredValue({
     key: KEY,
     parse: (raw) => Effect.succeed(raw === ON),
-    serialize: (on) => (on ? ON : null),
+    serialize: (on) => Effect.succeed(on ? ON : null),
   })
 )
 const { subscribe, snapshot, write } = toggle
