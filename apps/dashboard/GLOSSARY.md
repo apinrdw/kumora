@@ -280,7 +280,7 @@ A KSEI archive run an admin starts that also looks for KSEI reports older than K
 _Avoid_: History run, full sync
 
 **Run**:
-One pass of either archive (an archive run or a KSEI archive run) or one parse run (a classification parse run, an investor-type parse run or a KSEI parse run). What they share (a run id, its outcome, one run of each in progress at a time) is said of a run.
+One pass of either archive (an archive run or a KSEI archive run) or one parse run (a classification parse run, an investor-type parse run, an above-1% parse run or a KSEI parse run). What they share (a run id, its outcome, one run of each in progress at a time) is said of a run.
 _Avoid_: Archive run for both, which is IDX's; job
 
 ### Holdings
@@ -324,6 +324,10 @@ _Avoid_: Archive run, which stores reports; import, sync
 **Investor-type parse run**:
 The same pass for holdings-by-investor-type reports, parsed into investor-type holdings, on its own schedule and in its own progress. It ends **complete**, **partial** or **failed** as a classification parse run does.
 _Avoid_: Archive run; IDX parse run
+
+**Above-1% parse run**:
+The same pass for holders-above-1% reports, parsed into ≥1% holders, on its own schedule and in its own progress. It ends **complete**, **partial** or **failed** as a classification parse run does.
+_Avoid_: Archive run; holder parse run
 
 **KSEI parse run**:
 One pass that parses each Securities holdings report in the KSEI archive whose newest version, or the parser's version, hasn't been parsed into KSEI holdings, from November 2018 on. The schedule starts one each day, an hour after the KSEI archive run, and an admin can start one when no KSEI parse run is in progress. A report that doesn't read exactly as expected is rejected whole and keeps the month's earlier holdings. It ends **complete**, **partial** (some months could not be parsed and wait for the next run) or **failed**.
