@@ -104,7 +104,7 @@ const render = (
       />
     )
   })
-  return { container, book }
+  return { container, book, dayStates }
 }
 
 // A recorded day's cursor held at `at`.
@@ -152,6 +152,35 @@ test("a code at its limit shows the limit pill and no imbalance", () => {
   expect(
     container.querySelector('[aria-label="Imbalance value"]')?.textContent
   ).toBe("—")
+})
+
+test("a code whose last price reaches its limit after its readings were taken shows the limit pill", async () => {
+  const { container, dayStates } = render(
+    "ERAA",
+    snapshot("session-2", [readingsOf("ERAA", { offer: side(0) })])
+  )
+  act(() =>
+    dayStates.replace([
+      {
+        code: StockCode.make("ERAA"),
+        last: 1_250,
+        previousClose: 1_000,
+        open: 1_000,
+        high: 1_250,
+        low: 1_000,
+        volume: 1_000,
+        value: 1e9,
+        frequency: 10,
+        asOf: DateTime.makeUnsafe("2026-11-18T03:00:01Z"),
+        provenance: "Stockbit",
+      },
+    ])
+  )
+  await act(() => new Promise<void>((resolve) => setTimeout(resolve, 50)))
+  expect(
+    container.textContent,
+    "the limit follows the Day state's last price"
+  ).toContain("At upper limit")
 })
 
 test("in the break the readings grey out, naming the phase and when they paused on the object's clock", () => {

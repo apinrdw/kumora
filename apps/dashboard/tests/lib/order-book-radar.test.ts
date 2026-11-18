@@ -239,6 +239,34 @@ describe("the halves", () => {
   )
 
   it.effect(
+    "a code whose last price reaches its limit after its book was read is listed at the limit, and leaves it when the price does",
+    () =>
+      Effect.gen(function* () {
+        // The offers emptied before the last price reached the upper limit,
+        // so the readings were taken short of it.
+        const readings = [
+          reading("ARCI", 1, { spread: undefined, offer: side(0) }),
+        ]
+        const at = yield* run(
+          readings,
+          {},
+          { figures: { ARCI: { last: 1_250 } } }
+        )
+        assert.deepStrictEqual(
+          at.limits,
+          [{ code: "ARCI", limit: "upper" }],
+          "the limit follows the last price, not the one the readings were taken with"
+        )
+        const short = yield* run(
+          readings,
+          {},
+          { figures: { ARCI: { last: 1_200 } } }
+        )
+        assert.deepStrictEqual([short.limits, short.bid], [[], ["ARCI"]])
+      })
+  )
+
+  it.effect(
     "Rank by Imbalance puts the most lopsided first, and Low → high the least",
     () =>
       Effect.gen(function* () {
