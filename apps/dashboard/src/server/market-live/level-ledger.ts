@@ -443,8 +443,8 @@ export const makeLevelLedger = Effect.sync(() => {
   // The wall at `p` in frame `j`, if it was pulled or moved by frame `i`:
   // it lost half its lots while in view, with no trade beyond it and trades
   // explaining little of the loss.
-  // Decision: a pull reads the trades between the wall's frame and frame
-  // `i`, even from before the window: they are what took the wall, and
+  // Decision: a pull or move reads the trades between the wall's frame and
+  // frame `i`, even from before the window: they are what took the wall, and
   // dropping them reads a traded wall as pulled. Every other kind reads only
   // the window's trades. See apinrdw/kumora#526.
   const leftWall = Effect.fnUntraced(function* (

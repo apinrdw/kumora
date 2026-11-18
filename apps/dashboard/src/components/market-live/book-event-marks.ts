@@ -110,8 +110,9 @@ class BookEventMarks implements ISeriesPrimitive<Time> {
   }
 
   // The marks at the chart's current scale, in CSS pixels: each at its
-  // minute's centre plus its share of the bar spacing for its second.
-  // Decision: an event in a minute with no bar (a wall in a minute with no
+  // candle's centre plus its second's share of the candle spacing, or else
+  // half a candle after the candle before it.
+  // Decision: an event in a minute with no candle (a wall in a minute with no
   // trade) sits where the cursor line would (lib/replay.ts `cursorLogical`),
   // not on added whitespace: both charts draw the same minutes
   // (lib/chart-nav.ts `chartMinutes`), and the footprint has no events. See
