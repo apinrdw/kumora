@@ -207,7 +207,7 @@ function TapePanel({
   onSelect: (code: StockCode) => void
   onMessage: (message: ViewerDown) => void
 }) {
-  const tellAlerts = useBookAlerts()
+  const tellAlerts = useBookAlerts(cursor === undefined)
   const heard = useCallback(
     (message: ViewerDown) => {
       onMessage(message)

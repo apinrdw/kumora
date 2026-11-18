@@ -38,7 +38,8 @@ import {
 import { useAlertOwner } from "./use-alert-owner"
 
 // One gate for the tab: moving between the radar and Market Live keeps the
-// cooldowns and the minute's count.
+// cooldowns and the minute's count. It advances in every tab, owner or not
+// (use-alert-owner.ts).
 const gate = Effect.runSync(makeAlertGate)
 
 const ALERT_MS = 8_000
@@ -128,9 +129,10 @@ const tellAlert = Effect.fnUntraced(function* (
  * (spec apinrdw/kumora#517, "Alerts"), once per browser from the page that
  * holds the alert lock (use-alert-owner.ts): a toast on the visible page, a
  * notification from a background tab. The page feeds it every message of
- * its viewer socket; only a delta's new events alert.
+ * its viewer socket; only a delta's new events alert. A recorded day's page
+ * passes `live` false and never holds the lock.
  */
-export function useBookAlerts() {
+export function useBookAlerts(live = true) {
   const watchlist = useWatchlist().codes
   const board = useSpecialBoard()
   const { floor } = useRadarSettings().settings
@@ -146,7 +148,7 @@ export function useBookAlerts() {
     }
   }, [watchlist, board, floor, figures])
   const held = useRef(context)
-  const owns = useAlertOwner()
+  const owns = useAlertOwner(live)
   useEffect(() => {
     held.current = context
   }, [context])

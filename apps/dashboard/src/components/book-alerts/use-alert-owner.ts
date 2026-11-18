@@ -10,14 +10,15 @@ const untilAborted = (signal: AbortSignal) =>
   )
 
 // Decision: one live page per browser tells alerts: the one last brought to
-// the front holds the Web Lock `kumora:book-alerts` and records, chimes and
-// toasts (notifies once hidden); the others queue for it, tell nothing and
-// keep their gates in step. Without Web Locks every page tells. See
-// apinrdw/kumora#526.
+// the front (shown or focused) holds the Web Lock `kumora:book-alerts` and
+// tells; the others queue, tell nothing and keep their gates in step. A
+// recorded day's page never takes it. Without Web Locks every live page
+// tells. See apinrdw/kumora#526.
 /** Whether this page holds the browser's alert lock, read when an event arrives. */
-export function useAlertOwner() {
+export function useAlertOwner(live: boolean) {
   const owns = useRef(false)
   useEffect(() => {
+    if (!live) return
     const locks = typeof navigator === "undefined" ? undefined : navigator.locks
     if (locks === undefined) {
       owns.current = true
@@ -50,17 +51,20 @@ export function useAlertOwner() {
           take(false)
         })
     }
-    const onVisible = () => {
+    // Two windows can both stay visible, so focus says which came forward.
+    const onFront = () => {
       if (document.visibilityState === "visible" && !owns.current) take(true)
     }
     take(document.visibilityState === "visible")
-    document.addEventListener("visibilitychange", onVisible)
+    document.addEventListener("visibilitychange", onFront)
+    window.addEventListener("focus", onFront)
     return () => {
-      document.removeEventListener("visibilitychange", onVisible)
+      document.removeEventListener("visibilitychange", onFront)
+      window.removeEventListener("focus", onFront)
       const last = release
       release = undefined
       last?.()
     }
-  }, [])
+  }, [live])
   return owns
 }
