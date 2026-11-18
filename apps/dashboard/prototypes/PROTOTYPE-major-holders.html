@@ -69,6 +69,11 @@ tr.exited td { color: var(--muted); }
 .changes .row span:first-child { min-width: 0; overflow-wrap: anywhere; }
 .heat td.cell { text-align: right; font-family: var(--mono); font-size: 12px; white-space: nowrap; }
 .heat td.gap { color: var(--muted); text-align: center; }
+.heat td.sel { box-shadow: inset 0 0 0 1.5px var(--fg); }
+.heat th.sel-h { color: var(--fg); }
+.section-head { display: flex; flex-direction: column; gap: 2px; padding-top: 6px; border-top: 1px solid var(--line); }
+.section-head h3 { margin: 6px 0 0; font: 600 13px var(--sans); }
+.section-head .sub { color: var(--muted); font-size: 12.5px; }
 .rows-toggle { background: none; border: 0; color: var(--info); font: 500 12px var(--sans); cursor: pointer; padding: 0; }
 .sub-rows { margin-top: 4px; font-size: 12px; color: var(--muted); display: flex; flex-direction: column; gap: 2px; }
 .fbar { position: fixed; left: 50%; transform: translateX(-50%); bottom: calc(14px + env(safe-area-inset-bottom, 0px));
@@ -80,7 +85,7 @@ tr.exited td { color: var(--muted); }
 
 <div class="wrap">
   <div class="proto">Prototype · throwaway · real rows from IDX's above-1% reports, Feb–Oct 2026</div>
-  <p class="note"><b>Chosen: layout A</b>, the holder table, placed after Holder size on <code>/stocks/$CODE</code>. A holder is the stock-month's rows that share a holder key (names normalized for case, punctuation, PT/TBK, honorifics such as IR, DRS and HJ, and word order), summed. Change is against the month before only: <b>New</b>, <b>Off list</b> (sold out or fell below 1%: the report can't tell which), or up/down by percentage points. INPC has the most holders. AADI's IR. T. PERMADI RACHMAT now matches T PERMADI RACHMAT across Aug→Sep. Layouts B and C were rejected and stay viewable from the bar at the bottom.</p>
+  <p class="note"><b>Chosen: layout A</b>, the holder table, placed after Holder size on <code>/stocks/$CODE</code>, with B's ownership bar above the table and C's every-month grid below it. A holder is the stock-month's rows that share a holder key (names normalized for case, punctuation, PT/TBK, honorifics such as IR, DRS and HJ, and word order), summed. Change is against the month before only: <b>New</b>, <b>Off list</b> (sold out or fell below 1%: the report can't tell which), or up/down by percentage points. INPC has the most holders. AADI's IR. T. PERMADI RACHMAT now matches T PERMADI RACHMAT across Aug→Sep. Layouts B and C were rejected and stay viewable from the bar at the bottom.</p>
   <div class="stockbar" id="stocks"></div>
   <div id="panel"></div>
 </div>
@@ -192,10 +197,49 @@ function layoutTable(c) {
       <td class="num">${h.change === "off" ? "—" : h.total ? Math.round(h.scrip / h.total * 100) + "%" : "—"}</td>
     </tr>`).join("");
   return `<div class="card">${header("Major holders", summary(c))}
+    ${barBlock(c)}
     <div class="scroll"><table>
       <thead><tr><th>Holder</th><th>vs ${c.before ? mshort(c.before) : "—"}</th><th class="num">% of listed</th><th class="num">Shares</th><th class="num">In scrip</th></tr></thead>
       <tbody>${rows}</tbody></table></div>
-    <div class="note">Percent of listed shares, scrip included, as IDX publishes it. Holders under 1% are not listed.</div></div>`;
+    <div class="note">Percent of listed shares, scrip included, as IDX publishes it. Holders under 1% are not listed.</div>
+    <div class="section-head"><h3>Every month</h3><div class="sub">% of listed shares, Feb–Oct 2026. A dot is a month the holder was not listed (sold or under 1%). The selected month is outlined.</div></div>
+    ${historyBlock()}</div>`;
+}
+
+// B's bar: the stock's 100% split into the named holders, then "under 1%".
+function barBlock(c) {
+  const sum = c.now.reduce((a, h) => a + h.pct, 0);
+  const color = (h, i) => `oklch(${SHADES[i % SHADES.length]} 0.12 ${h.ctl ? 75 : 245})`;
+  const segs = c.now.map((h, i) => `<div title="${esc(h.name)} ${fmtPct(h.pct)}" style="width:${h.pct / 100}%;background:${color(h, i)}"></div>`).join("")
+    + `<div title="Holders under 1% ${fmtPct(10000 - sum)}" style="flex:1;background:var(--soft)"></div>`;
+  const top = c.now.slice(0, 6).map((h, i) => `<span><i style="background:${color(h, i)}"></i>${esc(h.name.length > 28 ? h.name.slice(0, 27) + "…" : h.name)} ${fmtPct(h.pct)}</span>`).join("");
+  const more = c.now.length > 6 ? `<span>+${c.now.length - 6} more</span>` : "";
+  return `<div class="bar">${segs}</div><div class="legend">${top}${more}<span><i style="background:var(--soft)"></i>Under 1% ${fmtPct(10000 - sum)}</span><span><i style="background:oklch(0.62 0.12 75)"></i>Gold = controller or affiliate</span></div>`;
+}
+
+// C's grid: holders × every month, shaded by size, selected month outlined.
+function historyBlock() {
+  const per = MONTHS.map(m => new Map(holders(state.stock, m).map(h => [h.key, h])));
+  const keys = new Map();
+  per.forEach(mp => mp.forEach((h, k) => keys.set(k, h)));
+  const sel = MONTHS.indexOf(state.month);
+  const cur = per[sel];
+  const order = [...keys.keys()].sort((a, b) => (cur.get(b)?.pct ?? -1) - (cur.get(a)?.pct ?? -1) || (keys.get(b).pct - keys.get(a).pct));
+  const max = Math.max(...per.flatMap(mp => [...mp.values()].map(h => h.pct)));
+  const rows = order.map(k => {
+    const h = cur.get(k) || keys.get(k);
+    const cells = per.map((mp, i) => {
+      const x = mp.get(k);
+      const on = i === sel ? " sel" : "";
+      if (!x) return `<td class="gap${on}">·</td>`;
+      const a = 0.08 + 0.5 * x.pct / max;
+      const prev = i > 0 ? per[i - 1].get(k) : undefined;
+      const arrow = i > 0 && prev ? (x.pct > prev.pct ? `<span class="d-up">▲</span>` : x.pct < prev.pct ? `<span class="d-down">▼</span>` : "") : (i > 0 ? `<span class="d-up" title="new">•</span>` : "");
+      return `<td class="cell${on}" style="background:color-mix(in oklab, var(--info) ${Math.round(a * 100)}%, transparent)">${(x.pct / 100).toFixed(2)}${arrow}</td>`;
+    }).join("");
+    return `<tr class="${cur.has(k) ? "" : "exited"}"><td><div class="name">${esc(h.name)}</div></td>${cells}</tr>`;
+  }).join("");
+  return `<div class="scroll"><table class="heat"><thead><tr><th>Holder</th>${MONTHS.map((m, i) => `<th class="num${i === sel ? " sel-h" : ""}">${mshort(m)}</th>`).join("")}</tr></thead><tbody>${rows}</tbody></table></div>`;
 }
 
 // B: a 100% bar split into the named holders, then the list, with changes in a side column.
