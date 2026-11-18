@@ -24,20 +24,26 @@ import {
 } from "@workspace/relay"
 import { Effect, Option, Schema } from "effect"
 
-import { Fact, TAPE_SUMMARY_BUILT, type Sql } from "./day-store.ts"
+import {
+  Fact,
+  TAPE_SUMMARY_BUILT,
+  type Sql,
+  type SqlValue,
+} from "./day-store.ts"
 
 // Decision: chunk k holds trades 1000k+1 .. 1000k+1000 as 1,000 fixed 7-byte
 // records: buyer code, buyer type, seller code, seller type, and the source.
 // All zero bytes is an absent trade. A batch rewrites only the chunks it
-// touches: 1–2 per Stockbit batch, up to 6 per Ajaib batch of 5,000.
-const CHUNK = 1_000
-const RECORD = 7
-const SOURCE = 6
+// touches: 1–2 per Stockbit batch, up to 6 per Ajaib batch of 5,000. The
+// row budgets' busy day (billing/busy-day.ts) writes its chunks with these.
+export const CHUNK = 1_000
+export const RECORD = 7
+export const SOURCE = 6
 
 // Decision: the source byte is `A` for Ajaib's, `S` for Stockbit's, and `B`
 // for Ajaib's that Stockbit's copy agreed with: the cross-check's covered
 // trades are counted from it, so a resent Stockbit batch counts none twice.
-const Source = { ajaib: 65, stockbit: 83, both: 66 } as const
+export const Source = { ajaib: 65, stockbit: 83, both: 66 } as const
 
 const SCHEMA = [
   `CREATE TABLE IF NOT EXISTS broker_code_chunks (
@@ -88,6 +94,23 @@ const SCAN_PAGE = 64
 // apinrdw/kumora#457.
 export const MISSING_ALLOWANCE = 1_000
 
+// A tape summary row's runs the tape lacks, as [first, last] pairs.
+type Holes = ReadonlyArray<readonly [number, number]>
+
+// One chunk's tape summary row, inside a transaction.
+const writeSummaryRow = (sql: Sql, chunk: number, held: number, holes: Holes) =>
+  sql.exec(
+    "INSERT OR REPLACE INTO tape_summary VALUES (?, ?, ?)",
+    chunk,
+    held,
+    JSON.stringify(holes)
+  )
+
+// The runs a tape summary row's `holes` column holds, as `writeSummaryRow`
+// wrote them.
+const holesOf = (row: Record<string, SqlValue>) =>
+  JSON.parse(String(row.holes)) as Holes
+
 // The summary rows of chunks first..last that hold a tape trade, from one
 // read of their trades' numbers, inside a transaction.
 // Decision: the runs are worked out here, not in SQL: one statement that
@@ -102,12 +125,7 @@ const summarizeChunks = (sql: Sql, first: number, last: number) => {
   const written = () => {
     if (chunk < 0) return
     if (next <= (chunk + 1) * CHUNK) holes.push([next, (chunk + 1) * CHUNK])
-    sql.exec(
-      "INSERT OR REPLACE INTO tape_summary VALUES (?, ?, ?)",
-      chunk,
-      held,
-      JSON.stringify(holes)
-    )
+    writeSummaryRow(sql, chunk, held, holes)
   }
   for (const row of sql.exec(
     "SELECT number FROM trades WHERE number BETWEEN ? AND ? ORDER BY number",
@@ -149,10 +167,11 @@ const summarizeWhole = (sql: Sql) => {
   )
 }
 
-// Decision: the seal summarizes the tape in a transaction of its own, after
-// the sealed marker: a sealed day's tape never changes, and a seal cut off
-// between the two leaves a day that scans its tape as before. A tape its walk
-// batches kept summarized (`summarizeTaped`) isn't summarized again.
+// Decision: the seal summarizes the tape in its own transaction, after the
+// sealed marker. A seal cut off between them leaves a sealed day without a
+// summary, which its first status pass builds (`scan`): about 1.46 M rows
+// read and 1,460 written on a busy day (row-budgets.workerd.test.ts). A tape
+// its walk batches kept summarized (`summarizeAddedTrades`) isn't again.
 export const summarizeTape = (sql: Sql) =>
   Effect.sync(() =>
     sql.transaction(() => {
@@ -177,7 +196,7 @@ const runsOf = (chunk: number, marks: Uint8Array) => {
 // reads the summary as a sealed day's does, and a batch reads those rows,
 // not the chunks' trades. A tape stored before the summary is summarized
 // whole at its first such write. See apinrdw/kumora#543.
-export const summarizeTaped =
+export const summarizeAddedTrades =
   (sql: Sql, numbers: ReadonlyArray<number>) => () => {
     if (numbers.length === 0) return
     if (!summaryBuilt(sql)) return summarizeWhole(sql)
@@ -194,9 +213,7 @@ export const summarizeTaped =
         marks = new Uint8Array(CHUNK)
         if (row === undefined) marks.fill(1)
         else
-          for (const [from, to] of JSON.parse(
-            String(row.holes)
-          ) as ReadonlyArray<readonly [number, number]>)
+          for (const [from, to] of holesOf(row))
             marks.fill(1, from - chunk * CHUNK - 1, to - chunk * CHUNK)
         lacking.set(chunk, marks)
       }
@@ -204,11 +221,11 @@ export const summarizeTaped =
     }
     for (const [chunk, marks] of lacking) {
       const holes = runsOf(chunk, marks)
-      sql.exec(
-        "INSERT OR REPLACE INTO tape_summary VALUES (?, ?, ?)",
+      writeSummaryRow(
+        sql,
         chunk,
         CHUNK - holes.reduce((count, [from, to]) => count + to - from + 1, 0),
-        JSON.stringify(holes)
+        holes
       )
     }
   }
@@ -380,16 +397,12 @@ type Alongside = (
 interface Tally {
   // The lowest number not yet accounted for as held.
   next: number
-  // The lowest number not yet accounted for as having codes.
-  codesNext: number
   readonly limit: number
   // The highest number the listed ranges start after.
   readonly after: number
   // At most MISSING_RANGES, so a fragmented day holds no more in memory.
   readonly missing: Array<readonly [number, number]>
   missingCount: number
-  // The trades of 1..limit without codes, held fields or not.
-  codesMissingCount: number
   ajaib: number
   stockbit: number
   covered: number
@@ -435,8 +448,6 @@ const tallyChunk = Effect.fnUntraced(function* (
     if (source === 0 || source === undefined) continue
     yield* tallySource(tally, source)
     const number = chunk * CHUNK + slot + 1
-    tally.codesMissingCount += yield* runBefore(tally, tally.codesNext, number)
-    tally.codesNext = number + 1
     if (unfielded[at + slot] === 1) continue
     if ((yield* runBefore(tally, tally.next, number)) > 0)
       yield* tallyGap(tally, tally.next, Math.min(number - 1, tally.limit))
@@ -603,10 +614,11 @@ export const makeBrokerCodes = Effect.fnUntraced(function* (options: {
       recorded.set(chunk, stored)
       return Option.fromNullishOr(stored.get(number))
     })
-    // Decision: a day whose walk rows hold no trade took the batch's fields
-    // as its tape before the merge (`walkTapeOf` in trading-day.ts), so no
-    // field lands in walk_trades and the batch skips its check against the
-    // tape: 10 K rows read for a walk day's Ajaib page of 5,000.
+    // Decision: on an unsealed walk or unknown day, `walkTapeOf`
+    // (trading-day.ts, on the same condition) took the batch's fields as its
+    // tape before the merge, so a walk_trades row would hold nothing. The
+    // batch writes none and skips `writeFields`'s check against the tape: 0
+    // rows, against 10 K read for a walk day's Ajaib page of 5,000.
     const keepsFields = yield* options.walkRowsHold
     let highest = 0
     for (const [tradeNumber, codes, fields] of batch.rows) {
@@ -693,8 +705,9 @@ export const makeBrokerCodes = Effect.fnUntraced(function* (options: {
     return true
   }
 
-  // The codes-complete fact written from the chunks, and its value.
-  const keepCodesComplete = () => {
+  // The codes-complete fact counted from the chunks and written, and its
+  // value.
+  const recountCodesComplete = () => {
     const complete = codesHeldThroughN()
     sql.exec(
       "INSERT OR REPLACE INTO facts VALUES (?, ?)",
@@ -707,13 +720,14 @@ export const makeBrokerCodes = Effect.fnUntraced(function* (options: {
   // Decision: each batch writes the codes-complete fact in its own
   // transaction, so a woken object answers from one row (spec #554). A batch
   // never clears codes, so on a complete day one that doesn't raise N reads
-  // 1 row; else it reads up to every chunk, about 1,500 rows on a busy day.
-  const writeCodesComplete = (nRaised: boolean) => {
+  // 1 row; else it recounts, up to every chunk, about 1,500 rows on a busy
+  // day.
+  const recountCodesCompleteIfStale = (nRaised: boolean) => {
     const [kept] = sql.exec(
       "SELECT value FROM facts WHERE key = ?",
       Fact.codesComplete
     )
-    if (kept?.value !== "true" || nRaised) keepCodesComplete()
+    if (kept?.value !== "true" || nRaised) recountCodesComplete()
   }
 
   // A batch's writes, to run inside a transaction; `filled` runs when they
@@ -737,7 +751,7 @@ export const makeBrokerCodes = Effect.fnUntraced(function* (options: {
       sql.exec("DELETE FROM cross_check_differences WHERE number = ?", number)
     for (const [key, value] of merged.facts)
       sql.exec("INSERT OR REPLACE INTO facts VALUES (?, ?)", key, value)
-    writeCodesComplete(raisesN(merged))
+    recountCodesCompleteIfStale(raisesN(merged))
   }
 
   // A batch merged into its chunks and written in one transaction, with
@@ -832,10 +846,7 @@ export const makeBrokerCodes = Effect.fnUntraced(function* (options: {
         const at = Number(row.chunk) * CHUNK + 1 - low
         unfielded.fill(0, at, at + CHUNK)
         if (Number(row.held) === CHUNK) continue
-        const holes = JSON.parse(String(row.holes)) as ReadonlyArray<
-          readonly [number, number]
-        >
-        for (const [from, to] of holes)
+        for (const [from, to] of holesOf(row))
           unfielded.fill(1, from - low, to - low + 1)
       }
     })
@@ -956,19 +967,17 @@ export const makeBrokerCodes = Effect.fnUntraced(function* (options: {
   })
 
   // The day's status, from one scan of its chunks, listing the missing
-  // ranges after trade `after`, and whether it has codes for every trade
-  // 1..N, its fields held or not.
+  // ranges after trade `after`. Whether the day has codes for every trade
+  // is `codesComplete`'s.
   const status = Effect.fnUntraced(function* (after: number) {
     const storedN = yield* fact(Fact.brokerCodesN)
     const n = storedN === undefined ? undefined : Number(storedN)
     const tally: Tally = {
       next: 1,
-      codesNext: 1,
       limit: n ?? Number.MAX_SAFE_INTEGER,
       after,
       missing: [],
       missingCount: 0,
-      codesMissingCount: 0,
       ajaib: 0,
       stockbit: 0,
       covered: 0,
@@ -976,8 +985,6 @@ export const makeBrokerCodes = Effect.fnUntraced(function* (options: {
     yield* scan(tally)
     if (n !== undefined && tally.next <= n)
       yield* tallyGap(tally, tally.next, n)
-    if (n !== undefined && tally.codesNext <= n)
-      tally.codesMissingCount += n - tally.codesNext + 1
     const differences = yield* Effect.sync(() =>
       Number(
         sql.exec("SELECT count(*) AS count FROM cross_check_differences")[0]
@@ -1001,7 +1008,7 @@ export const makeBrokerCodes = Effect.fnUntraced(function* (options: {
         differences
       ),
     }
-    return { day }
+    return day
   })
 
   // Whether the day has codes for every trade 1..N, its fields held or not,
@@ -1009,24 +1016,26 @@ export const makeBrokerCodes = Effect.fnUntraced(function* (options: {
   // status's `complete`. Play asks for the codes answer that carries it as
   // often as the tape (TAPE_INTERVAL_MS in src/lib/replay.ts).
   // Decision: a day whose batches came before the fact existed reads its
-  // chunks once and writes the fact; a day with no N reads 1 row and writes
+  // chunks once and writes the fact, about 1.46 K rows read and 2 written on
+  // a busy day, and the next GET reads the fact
+  // (row-budgets.workerd.test.ts); a day with no N reads 1 row and writes
   // nothing.
   const codesComplete = Effect.gen(function* () {
     const kept = yield* fact(Fact.codesComplete)
     if (kept !== undefined) return kept === "true"
     if ((yield* fact(Fact.brokerCodesN)) === undefined) return false
-    return yield* Effect.sync(keepCodesComplete)
+    return yield* Effect.sync(recountCodesComplete)
   })
 
-  // The codes-complete fact as the seal writes it with the sealed marker,
-  // from the day's chunks.
-  const codesCompleteFacts = Effect.sync(() => ({
+  // The codes-complete fact counted from the day's chunks, not written: the
+  // seal writes it with the sealed marker.
+  const codesCompleteFactForSeal = Effect.sync(() => ({
     [Fact.codesComplete]: String(codesHeldThroughN()),
   }))
 
   // The day's missing count when its broker totals can build, from one
   // scan: N known and at most 1 in MISSING_ALLOWANCE of 1..N missing.
-  const buildable = Effect.map(status(Number.MAX_SAFE_INTEGER), ({ day }) =>
+  const buildable = Effect.map(status(Number.MAX_SAFE_INTEGER), (day) =>
     day.n !== null && day.missingCount * MISSING_ALLOWANCE <= Number(day.n)
       ? Option.some(day.missingCount)
       : Option.none<number>()
@@ -1104,7 +1113,7 @@ export const makeBrokerCodes = Effect.fnUntraced(function* (options: {
     if (Option.isNone(after)) return yield* noStoreAnswer(400, "Bad after")
     return yield* noStoreAnswer(
       200,
-      yield* encodeBrokerCodesStatus((yield* status(after.value)).day),
+      yield* encodeBrokerCodesStatus(yield* status(after.value)),
       { "Content-Type": "application/json" }
     )
   })
@@ -1120,7 +1129,7 @@ export const makeBrokerCodes = Effect.fnUntraced(function* (options: {
     held,
     heldCodes,
     codesComplete,
-    codesCompleteFacts,
+    codesCompleteFactForSeal,
     buildable,
     heldTradesPage,
     holdsNone,

@@ -40,6 +40,8 @@ const restaged = (sql: Sql, stored: Operation["stored"]) =>
       sql.exec("DELETE FROM facts WHERE key = ?", Fact.sealed)
       sql.exec("UPDATE facts SET value = 'walk' WHERE key = ?", Fact.tapeSource)
     }
+    if (stored === "batched before the codes-complete fact")
+      sql.exec("DELETE FROM facts WHERE key = ?", Fact.codesComplete)
   })
 
 const billed = Effect.fnUntraced(function* (

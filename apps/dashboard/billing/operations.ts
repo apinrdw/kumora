@@ -21,9 +21,13 @@ type TradingDay = Effect.Success<ReturnType<typeof makeTradingDay>>
 
 export interface Operation {
   // What the worker makes of the busy day before the object wakes: a day
-  // sealed before the tape summary, with none, or a walk day before its
-  // seal. The busy day as built otherwise.
-  readonly stored?: "sealed before the summary" | "walking"
+  // sealed before the tape summary, with none, a walk day before its seal,
+  // or a day batched before the codes-complete fact, without it. The busy
+  // day as built otherwise.
+  readonly stored?:
+    | "sealed before the summary"
+    | "walking"
+    | "batched before the codes-complete fact"
   // Whether the object has a broker totals DB, which a batch's buildable
   // check runs for. The operation never reaches it: a build runs on the alarm.
   readonly brokerTotals?: boolean
@@ -129,6 +133,11 @@ export const operations = {
   // codes are complete.
   "recorded codes GET": { before: statusPass, measure: codesGet },
   "recorded codes GET, freshly started": { measure: codesGet },
+  // Its GET writes the codes-complete fact: it gets a busy day of its own.
+  "recorded codes GET, batched before the codes-complete fact": {
+    stored: "batched before the codes-complete fact",
+    measure: codesGet,
+  },
   // Writes its chunks: its budget gets a busy day of its own.
   "resent batch": { brokerTotals: true, measure: resentPost },
   "correcting batch": { measure: correctingPost },

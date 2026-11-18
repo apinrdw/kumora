@@ -63,7 +63,7 @@ import { makeBubbleBook } from "./bubble-book.ts"
 import {
   makeBrokerCodes,
   summarizeTape,
-  summarizeTaped,
+  summarizeAddedTrades,
 } from "./broker-codes.ts"
 import {
   BROKER_TOTALS_DUE,
@@ -911,7 +911,7 @@ export const makeTradingDay = Effect.fnUntraced(function* (options: {
       ajaibBooks: [],
       facts: {
         [Fact.sealed]: DateTime.formatIso(now),
-        ...(yield* brokerCodes.codesCompleteFacts),
+        ...(yield* brokerCodes.codesCompleteFactForSeal),
         ...(due ? { [Fact.brokerTotals]: BROKER_TOTALS_DUE } : {}),
       },
     })
@@ -961,7 +961,7 @@ export const makeTradingDay = Effect.fnUntraced(function* (options: {
         [Fact.tapeSource]: "walk",
         ...(yield* sweepBrokers.persisting(trades)),
       },
-      alsoWrites: summarizeTaped(
+      alsoWrites: summarizeAddedTrades(
         options.sql,
         trades.map((trade) => Number(trade.tradeNumber))
       ),

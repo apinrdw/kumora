@@ -26,10 +26,19 @@ export const BROKERS = [
   "ZP",
   "RX",
 ]
-const buyerOf = (number: number) => BROKERS[(number * 7) % BROKERS.length]!
-const sellerOf = (number: number) => BROKERS[(number * 3) % BROKERS.length]!
+// Decision: trade n's buyer is BROKERS[(n * BUYER_STEP) % BROKERS.length],
+// its seller the same with SELLER_STEP, and a side's type F when its number
+// (n for the buyer, n + 1 for the seller) is a multiple of FOREIGN_EVERY.
+// busy-day.ts writes the broker trades index in SQL with these figures.
+export const BUYER_STEP = 7
+export const SELLER_STEP = 3
+export const FOREIGN_EVERY = 5
+const buyerOf = (number: number) =>
+  BROKERS[(number * BUYER_STEP) % BROKERS.length]!
+const sellerOf = (number: number) =>
+  BROKERS[(number * SELLER_STEP) % BROKERS.length]!
 const typeOf = (number: number): TradeCodes["buyerType"] =>
-  number % 5 === 0 ? "F" : "D"
+  number % FOREIGN_EVERY === 0 ? "F" : "D"
 
 // The codes the busy day holds for trade `number`.
 export const busyCodes = (number: number): TradeCodes => ({

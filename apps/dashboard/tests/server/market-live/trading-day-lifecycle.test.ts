@@ -289,7 +289,7 @@ const run = (seed: number, mode: Mode) =>
     if (legacy !== "none") {
       // The facts this revision added, which an older one never wrote.
       base.exec(
-        "DELETE FROM facts WHERE key IN ('tape-source','seal-wake','index-wake','build-wake','broker-totals')"
+        "DELETE FROM facts WHERE key IN ('tape-source','seal-wake','build-wake','broker-totals')"
       )
       indexed.length = 0
       pending = undefined

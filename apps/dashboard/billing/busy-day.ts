@@ -8,7 +8,13 @@
 import { Clock, DateTime, Effect } from "effect"
 
 import { BROKER_TOTALS_VERSION } from "../src/server/broker-totals/version.ts"
-import { summarizeTape } from "../src/server/market-live/broker-codes.ts"
+import {
+  CHUNK,
+  RECORD,
+  SOURCE,
+  Source,
+  summarizeTape,
+} from "../src/server/market-live/broker-codes.ts"
 import { durableSql } from "../src/server/market-live/durable-sql.ts"
 import {
   Fact,
@@ -16,7 +22,14 @@ import {
   SWEEP_BROKERS_BUILT,
 } from "../src/server/market-live/day-store.ts"
 import { makeTradingDay } from "../src/server/market-live/trading-day.ts"
-import { BROKERS, BUSY_DAY, busyCodes } from "./busy-figures.ts"
+import {
+  BROKERS,
+  BUSY_DAY,
+  BUYER_STEP,
+  FOREIGN_EVERY,
+  SELLER_STEP,
+  busyCodes,
+} from "./busy-figures.ts"
 
 const OPEN = DateTime.toEpochMillis(
   DateTime.makeUnsafe("2026-11-09T09:00:00+07:00")
@@ -25,15 +38,10 @@ const OPEN = DateTime.toEpochMillis(
 const SPAN_MS = 435 * 60_000
 const MINUTES = 435
 
-// Decision: as broker-codes.ts lays them out: chunk k holds trades
-// 1000k+1 .. 1000k+1000, 7 bytes each (buyer, its type, seller, its type,
-// source `A`). Kept here, not imported: the store keeps them private.
-const CHUNK = 1_000
-const RECORD = 7
-const AJAIB = 65
 const encoder = new TextEncoder()
 
-// One chunk's records, every trade's codes from Ajaib.
+// One chunk's records as broker-codes.ts lays them out, every trade's codes
+// from Ajaib.
 const chunkOf = (chunk: number) =>
   Effect.sync(() => {
     const codes = new Uint8Array(CHUNK * RECORD)
@@ -46,7 +54,7 @@ const chunkOf = (chunk: number) =>
         ),
         slot * RECORD
       )
-      codes[slot * RECORD + 6] = AJAIB
+      codes[slot * RECORD + SOURCE] = Source.ajaib
     }
     return codes
   })
@@ -113,11 +121,11 @@ export const buildBusyDay = Effect.fnUntraced(function* (
       )
       exec(
         `${numbers(trades)} INSERT INTO broker_trades
-        SELECT substr('${brokers}', (x * 7) % ${BROKERS.length} * 2 + 1, 2),
-          CASE x % 5 WHEN 0 THEN 'F' ELSE 'D' END, 'buy', x FROM n
+        SELECT substr('${brokers}', (x * ${BUYER_STEP}) % ${BROKERS.length} * 2 + 1, 2),
+          CASE x % ${FOREIGN_EVERY} WHEN 0 THEN 'F' ELSE 'D' END, 'buy', x FROM n
         UNION ALL
-        SELECT substr('${brokers}', (x * 3) % ${BROKERS.length} * 2 + 1, 2),
-          CASE (x + 1) % 5 WHEN 0 THEN 'F' ELSE 'D' END, 'sell', x FROM n`
+        SELECT substr('${brokers}', (x * ${SELLER_STEP}) % ${BROKERS.length} * 2 + 1, 2),
+          CASE (x + 1) % ${FOREIGN_EVERY} WHEN 0 THEN 'F' ELSE 'D' END, 'sell', x FROM n`
       )
     })
   )
