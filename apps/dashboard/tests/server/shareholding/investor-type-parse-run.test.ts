@@ -335,6 +335,12 @@ describe("an investor-type report that doesn't match what's expected", () => {
       fixture: "empty",
       reason: "The report has no stocks",
     },
+    {
+      what: "an error cell",
+      month: "2026-10-30",
+      fixture: "error-shares",
+      reason: "Cell D6 holds the error #REF!",
+    },
   ]
 
   for (const { what, month, fixture, reason } of cases)

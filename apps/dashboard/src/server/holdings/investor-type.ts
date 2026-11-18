@@ -16,7 +16,13 @@ import {
   TOO_MANY_STOCKS,
 } from "./month-replace.ts"
 import type { MonthTables } from "./months-to-parse.ts"
-import { type Cell, forEachRow, type Row } from "./xlsx.ts"
+import {
+  type Cell,
+  columnLetters,
+  forEachRow,
+  refuseErrors,
+  type Row,
+} from "./xlsx.ts"
 
 // Bumped whenever parsing changes what it stores: the investor-type parse
 // run then parses every month again.
@@ -139,15 +145,6 @@ const LAYOUTS: ReadonlyMap<string, Layout> = new Map([
     ),
   ],
 ])
-
-// 3 → "D"
-const columnLetters = (column: number) =>
-  Effect.sync(() => {
-    let letters = ""
-    for (let rest = column + 1; rest > 0; rest = Math.floor((rest - 1) / 26))
-      letters = String.fromCharCode(65 + ((rest - 1) % 26)) + letters
-    return letters
-  })
 
 const labelOf = (cell: Cell | undefined) =>
   Effect.sync(() => (typeof cell === "string" ? cell.trim() : cell))
@@ -297,8 +294,9 @@ const parseSheet = Effect.fnUntraced(function* (bytes: Uint8Array) {
     "under_5",
     "at_least_5",
   ])
-  yield* forEachRow(bytes, (rowNumber, cells) =>
+  yield* forEachRow(bytes, (rowNumber, read) =>
     Effect.gen(function* () {
+      const cells = yield* refuseErrors(rowNumber, read)
       if (layout === undefined) {
         layout = yield* headerLayout(rowNumber, cells)
         if (layout !== undefined) headerRows = 1

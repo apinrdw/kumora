@@ -129,12 +129,14 @@ export type InvestorTypeFixture = keyof typeof INVESTOR_TYPE_FIXTURES
 // (~/.t3/notes/kumora/402/break-investor-type-xlsx.py): October's with its
 // `TOTAL SCRIPLESS` renamed, April's with BBCA's domestic CP one share past
 // its total, November's with TRUE coded AADI, and October's with no stock
-// rows.
+// rows; and October's with a type cell an error
+// (~/.t3/notes/kumora/479/break-above-1-xlsx.py).
 export type BrokenInvestorTypeFixture =
   | "unknown-header"
   | "unsummed"
   | "duplicate-code"
   | "empty"
+  | "error-shares"
 
 export const investorTypeFixture = (
   name: InvestorTypeFixture | BrokenInvestorTypeFixture

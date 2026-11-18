@@ -1,9 +1,9 @@
 // Reads the first worksheet of an .xlsx by hand: its two XML parts out of
 // the zip (zip.ts), then regexes, since workerd has no DOMParser. It reads
-// text, numbers and booleans, and refuses any other cell.
+// text, numbers, booleans and errors, and refuses any other cell.
 // Decision: no dependency. SheetJS adds 380 KiB and is 5× slower; exceljs
 // hangs a reused isolate. See apinrdw/kumora#351.
-import { Effect, Schema } from "effect"
+import { Data, Effect, Schema } from "effect"
 
 import { excerpt } from "./excerpt.ts"
 import { entryText, zipEntries } from "./zip.ts"
@@ -15,9 +15,20 @@ class XlsxUnreadable extends Schema.TaggedError<XlsxUnreadable>()(
 
 export type Cell = string | number
 
+// An error cell (`t="e"`), such as `#DIV/0!`, by the error Excel shows.
+export class CellError extends Data.TaggedClass("CellError")<{
+  readonly text: string
+}> {}
+
+// A cell as read: its value, or the error it holds.
+export type ReadCell = Cell | CellError
+
 // A row's cells by 0-based column. A column with no value has no entry, so
 // a row holds only what its XML spells out.
 export type Row = ReadonlyMap<number, Cell>
+
+// A row as read, its errors included.
+export type ReadRow = ReadonlyMap<number, ReadCell>
 
 const unreadable = (message: string) => new XlsxUnreadable({ message })
 
@@ -148,6 +159,7 @@ const READ_TYPES: ReadonlySet<string> = new Set([
   "inlineStr",
   "n",
   "b",
+  "e",
 ])
 
 // A boolean cell's value as Excel shows it.
@@ -161,11 +173,17 @@ const BOOLEAN_TEXT = new Map([
 
 // One cell's value, undefined when it holds none: a shared string (`t="s"`),
 // text (`t="str"`, or `t="inlineStr"` from its <is>), a number (`t="n"`, or
-// no type), or a boolean (`t="b"`) as its text, `TRUE` or `FALSE`.
+// no type), a boolean (`t="b"`) as its text, `TRUE` or `FALSE`, or an error
+// (`t="e"`) as a CellError.
+// Decision: an error is read as a CellError, never as text, and each parser
+// decides what to do with it: an error read as text stored `#N/A` as a
+// stock. The classification and investor-type parses read their rows through
+// `refuseErrors`, so any error fails their report; the above-1% parse skips
+// Apr 2026's rows holding only `#DIV/0!` and fails on an error in a cell it
+// reads. See apinrdw/kumora#473.
 // Decision: a cell of any other type, or one holding something but no value,
-// fails the report: an error or date names no stock or share count, an error
-// read as text stored `#N/A` as a stock, and an inline string read as no
-// value dropped a stock while its month was replaced.
+// fails the report: a date names no stock or share count, and an inline
+// string read as no value dropped a stock while its month was replaced.
 const cellValue = Effect.fnUntraced(function* (
   ref: string,
   attributes: string,
@@ -175,7 +193,7 @@ const cellValue = Effect.fnUntraced(function* (
   const type = TYPE.exec(attributes)?.[1] ?? "n"
   if (!READ_TYPES.has(type))
     return yield* unreadable(
-      `Cell ${yield* excerpt(ref)}'s type is "${yield* excerpt(type)}": a cell is read only as a shared string, a string, an inline string, a number or a boolean`
+      `Cell ${yield* excerpt(ref)}'s type is "${yield* excerpt(type)}": a cell is read only as a shared string, a string, an inline string, a number, a boolean or an error`
     )
   const name = type === "inlineStr" ? "is" : "v"
   const element = elements(content, name).next().value
@@ -188,6 +206,7 @@ const cellValue = Effect.fnUntraced(function* (
     )
   }
   if (type === "n") return Number(text)
+  if (type === "e") return new CellError({ text: yield* decodeXml(text) })
   if (type === "b") {
     const shown = BOOLEAN_TEXT.get(text)
     if (shown === undefined)
@@ -215,7 +234,7 @@ const rowCells = Effect.fnUntraced(function* (
   inner: string,
   strings: ReadonlyArray<string>
 ) {
-  const cells = new Map<number, Cell>()
+  const cells = new Map<number, ReadCell>()
   for (const cell of elements(inner, "c")) {
     if (cell === null) return yield* neverClosed("c")
     const [, ref, letters = ""] = REF.exec(cell.attributes) ?? []
@@ -230,7 +249,7 @@ const rowCells = Effect.fnUntraced(function* (
     const value = yield* cellValue(ref, cell.attributes, cell.content, strings)
     if (value !== undefined) cells.set(column, value)
   }
-  return cells as Row
+  return cells as ReadRow
 })
 
 // Calls `onRow` with each of the first worksheet's rows with a value, in
@@ -240,7 +259,7 @@ const rowCells = Effect.fnUntraced(function* (
 // its every row and the month's holdings at once.
 export const forEachRow = Effect.fnUntraced(function* <E, R>(
   bytes: Uint8Array,
-  onRow: (rowNumber: number, cells: Row) => Effect.Effect<void, E, R>
+  onRow: (rowNumber: number, cells: ReadRow) => Effect.Effect<void, E, R>
 ) {
   const { strings, sheet } = yield* Effect.gen(function* () {
     const entries = yield* zipEntries(bytes)
@@ -268,4 +287,26 @@ export const forEachRow = Effect.fnUntraced(function* <E, R>(
     const cells = yield* rowCells(rowNumber, row.content, strings)
     if (cells.size > 0) yield* onRow(Number(rowNumber), cells)
   }
+})
+
+// 3 → "D", a 0-based column's letters.
+export const columnLetters = (column: number) =>
+  Effect.sync(() => {
+    let letters = ""
+    for (let rest = column + 1; rest > 0; rest = Math.floor((rest - 1) / 26))
+      letters = String.fromCharCode(65 + ((rest - 1) % 26)) + letters
+    return letters
+  })
+
+// `cells` as a row with no error, refused on its first error.
+export const refuseErrors = Effect.fnUntraced(function* (
+  rowNumber: number,
+  cells: ReadRow
+) {
+  for (const [column, cell] of cells)
+    if (cell instanceof CellError)
+      return yield* unreadable(
+        `Cell ${yield* columnLetters(column)}${rowNumber} holds the error ${yield* excerpt(cell.text)}`
+      )
+  return cells as Row
 })
