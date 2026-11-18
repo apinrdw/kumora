@@ -188,7 +188,15 @@ export type BrokenAbove1Fixture =
   | "unknown-classification"
   | "empty"
 
-export const above1Fixture = (name: Above1Fixture | BrokenAbove1Fixture) => {
+// October's after a 5-for-1 split of AADI
+// (~/.t3/notes/kumora/479/split-above-1-xlsx.py): 5x the shares, Adaro at
+// Sep's 41.10%, Garibaldi Thohir down to 5.71% and Edwin Soeryadjaya up to
+// 3.60%.
+export type SplitAbove1Fixture = "split"
+
+export const above1Fixture = (
+  name: Above1Fixture | BrokenAbove1Fixture | SplitAbove1Fixture
+) => {
   const dataUrl = FIXTURE_FILES[`./fixtures/above-1-${name}.xlsx`]
   assert.isDefined(dataUrl)
   return new Uint8Array(Buffer.from(dataUrl.split(",")[1] ?? "", "base64"))

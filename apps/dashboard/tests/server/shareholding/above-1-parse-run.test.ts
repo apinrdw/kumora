@@ -5,6 +5,7 @@ import { StockCode } from "@workspace/relay"
 import { Effect, Layer, Schema } from "effect"
 import { TestClock } from "effect/testing"
 
+import { majorHolders as monthHolders } from "@/lib/major-holders"
 import { RunId } from "@/server/archive/run"
 import { ParseRunResult } from "@/server/holdings/parse-run-result"
 import { stockPage } from "@/server/holdings/stock-page"
@@ -19,6 +20,7 @@ import {
   above1Items,
   type BrokenAbove1Fixture,
   type FakeIdx,
+  type SplitAbove1Fixture,
   fakeIdx,
   idxIdUrl,
   investorTypeItems,
@@ -79,7 +81,7 @@ const parse = runParse(above1ParseRuns)
 const republish = (
   { idx }: World,
   dataDate: Above1Fixture,
-  fixture: Above1Fixture | BrokenAbove1Fixture
+  fixture: Above1Fixture | BrokenAbove1Fixture | SplitAbove1Fixture
 ) => {
   idx.files.set(idxIdUrl(above1Item(dataDate).Prospectus), {
     body: above1Fixture(fixture),
@@ -409,6 +411,33 @@ describe("an above-1% parse run", () => {
           yield* holdersOf(w, "2026-02-27", code)
         )
     })
+  )
+
+  it.effect(
+    "reads Up, Down and Unchanged by the change in percentage points, not shares, across a split",
+    () =>
+      Effect.gen(function* () {
+        const w = world()
+        republish(w, "2026-10-30", "split")
+        yield* archive(w, "cron-2026-11-14T13")
+        yield* parse(w, "cron-2026-11-14")
+        const { majorHolders: months } = yield* stockPage(
+          StockCode.make("AADI"),
+          undefined
+        ).pipe(Effect.provide(w.holdings.layer))
+        const october = yield* monthHolders(months, "2026-10")
+        const changes = Object.fromEntries(
+          (october?.listed ?? []).map((line) => [
+            line.name,
+            [line.change, line.ppChange, line.shareChange],
+          ])
+        )
+        assert.deepInclude(changes, {
+          "ADARO STRATEGIC INVESTMENTS": ["unchanged", 0, 12_800_571_320],
+          "GARIBALDI THOHIR": ["down", -12, 1_816_046_428],
+          "EDWIN SOERYADJAYA": ["up", 8, 1_095_822_544],
+        })
+      })
   )
 
   it.effect("parses every month again when the parser's version changes", () =>
