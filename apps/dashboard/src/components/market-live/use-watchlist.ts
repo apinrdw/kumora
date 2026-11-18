@@ -4,7 +4,7 @@ import { Effect } from "effect"
 import { useCallback, useSyncExternalStore } from "react"
 
 import { parseMarketLiveSearch } from "@/lib/market-live-search"
-import { makeStorageListeners } from "@/lib/storage-listeners"
+import { makeStoredValue } from "@/lib/stored-value"
 
 // Decision: each browser keeps its own watchlist in localStorage (spec
 // apinrdw/kumora#138, "Watchlist"), not on the account. The e2e seeds the
@@ -28,36 +28,9 @@ const parse = Effect.fnUntraced(function* (raw: string | null) {
 })
 
 // Storage blocked reads as no list.
-const read = Effect.try(() => window.localStorage.getItem(KEY)).pipe(
-  Effect.orElseSucceed(() => null)
+const { subscribe, snapshot, write } = Effect.runSync(
+  makeStoredValue({ key: KEY, parse, serialize: JSON.stringify })
 )
-
-// The list as last read, kept while the stored text is unchanged, so React
-// sees the same array.
-let cached: { raw: string | null; codes: ReadonlyArray<StockCode> } = {
-  raw: null,
-  codes: NONE,
-}
-const snapshot = () => {
-  const raw = clientRuntime.runSync(read)
-  if (raw !== cached.raw)
-    cached = { raw, codes: clientRuntime.runSync(parse(raw)) }
-  return cached.codes
-}
-
-const { subscribe, changed } = Effect.runSync(makeStorageListeners)
-
-const write = Effect.fnUntraced(function* (codes: ReadonlyArray<StockCode>) {
-  yield* Effect.try(() =>
-    window.localStorage.setItem(KEY, JSON.stringify(codes))
-  ).pipe(
-    // Storage blocked: the list lasts as long as the page.
-    Effect.orElseSucceed(() => {
-      cached = { raw: cached.raw, codes }
-    })
-  )
-  yield* changed
-})
 
 // The viewer's watchlist codes, in the order added, and its two changes. The
 // server render has none.

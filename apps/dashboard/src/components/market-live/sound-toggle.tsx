@@ -4,7 +4,7 @@ import { Effect } from "effect"
 import { useEffect, useSyncExternalStore } from "react"
 
 import { KIconButton } from "@/components/k/button"
-import { makeStorageListeners } from "@/lib/storage-listeners"
+import { makeStoredValue } from "@/lib/stored-value"
 
 import { wakeSound } from "./sweep-alert-sound"
 
@@ -15,37 +15,18 @@ const KEY = "kumora:market-live:sound"
 const ON = "on"
 
 // Storage blocked reads as off.
-const read = Effect.try(() => window.localStorage.getItem(KEY)).pipe(
-  Effect.orElseSucceed(() => null)
+const toggle = Effect.runSync(
+  makeStoredValue({
+    key: KEY,
+    parse: (raw) => Effect.succeed(raw === ON),
+    serialize: (on) => (on ? ON : null),
+  })
 )
-
-// Turned on or off while storage is blocked: it lasts as long as the page.
-let unstored: boolean | undefined
+const { subscribe, snapshot, write } = toggle
 
 // Whether the speaker toggle is on: the sweep alert player reads it at each
 // update.
-export const soundOn = Effect.suspend(() =>
-  unstored === undefined
-    ? Effect.map(read, (stored) => stored === ON)
-    : Effect.succeed(unstored)
-)
-
-const snapshot = () => clientRuntime.runSync(soundOn)
-
-const { subscribe, changed } = Effect.runSync(makeStorageListeners)
-
-const write = Effect.fnUntraced(function* (on: boolean) {
-  yield* Effect.try(() =>
-    on
-      ? window.localStorage.setItem(KEY, ON)
-      : window.localStorage.removeItem(KEY)
-  ).pipe(
-    Effect.orElseSucceed(() => {
-      unstored = on
-    })
-  )
-  yield* changed
-})
+export const soundOn = toggle.current
 
 // The speaker toggle in the live Running trades header. Its click is the
 // gesture that lets the browser play the sweep alert sounds. The server
