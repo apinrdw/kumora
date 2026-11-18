@@ -275,6 +275,13 @@ export const makeDayStates = (candles: {
     const fallbackChanged = new Set<StockCode>()
     // Whether the last changes taken were Stockbit's: a switch resends all.
     let wasLive = true
+    // Each code's newest counted trade since its base, by trade number, as
+    // its order and price; null with none. A code missing is read again from
+    // its kept trades and candles.
+    const newest = new Map<
+      StockCode,
+      { readonly order: bigint; readonly price: number } | null
+    >()
 
     const baseMinuteOf = Effect.fnUntraced(function* (code: StockCode) {
       const base = bases.get(code)
@@ -308,6 +315,7 @@ export const makeDayStates = (candles: {
         return
       bases.set(price.code, yield* baseOf(price, held))
       kept.set(price.code, yield* keptAfter(price))
+      newest.delete(price.code)
       stockbitChanged.add(price.code)
       fallbackChanged.add(price.code)
     })
@@ -385,6 +393,37 @@ export const makeDayStates = (candles: {
       const added = yield* counts(current)
       if (added) yield* keep(current)
       if (removed || added) fallbackChanged.add(current.code)
+      const cached = newest.get(current.code)
+      const order = BigInt(current.tradeNumber)
+      if (
+        added &&
+        cached !== undefined &&
+        (cached === null || order >= cached.order)
+      )
+        newest.set(current.code, { order, price: current.price })
+      else if (removed && !added && cached?.order === order)
+        newest.delete(current.code)
+    })
+
+    // A code's newest counted trade since its base, read from its kept
+    // trades and candles only when not held.
+    const newestOf = Effect.fnUntraced(function* (code: StockCode) {
+      const cached = newest.get(code)
+      if (cached !== undefined) return cached
+      const baseMinute = yield* baseMinuteOf(code)
+      const tail = kept
+        .get(code)
+        ?.find((held) => held.minute === baseMinute)
+        ?.trades.at(-1)
+      const later = yield* candles.foldAfter(code, baseMinute)
+      const found =
+        later !== undefined
+          ? { order: later.closeOrder, price: later.close }
+          : tail !== undefined
+            ? { order: BigInt(tail.tradeNumber), price: tail.price }
+            : null
+      newest.set(code, found)
+      return found
     })
 
     // A code's Day state, from Stockbit while `stockbitLive`; undefined while
@@ -406,6 +445,32 @@ export const makeDayStates = (candles: {
         yield* sinceOf(tail, later),
         ajaibs.get(code)
       )
+    })
+
+    // A code's last price and previous close, as its Day state gives them,
+    // or from its newest trade when it has neither a base nor a `PRICE`.
+    // Decision: the scanner's prices come from the feed the Day state reads,
+    // Stockbit's base while live, else what the fallback carries on, with
+    // its trades' last price kept per code as they land rather than folded
+    // from every code's candles each delta. A code with no `liveprice` is
+    // read from Ajaib even while Stockbit is live. See spec
+    // apinrdw/kumora#517, "Data".
+    const quoteOf = Effect.fnUntraced(function* (
+      code: StockCode,
+      stockbitLive: boolean
+    ) {
+      const base = bases.get(code)
+      if (stockbitLive && base !== undefined)
+        return { last: base.last, previousClose: base.previousClose }
+      const ajaib = ajaibs.get(code)
+      const price =
+        ajaib !== undefined && (yield* newerThanHeld(ajaib.time, base?.time))
+          ? ajaib
+          : undefined
+      return {
+        last: price?.last ?? (yield* newestOf(code))?.price ?? base?.last,
+        previousClose: base?.previousClose ?? price?.previousClose,
+      }
     })
 
     const changedCodes = (stockbitLive: boolean) =>
@@ -438,5 +503,13 @@ export const makeDayStates = (candles: {
       () => stockbitChanged.size > 0 || fallbackChanged.size > 0
     )
 
-    return { livePrice, ajaibPrice, trade, stateOf, takeChanged, hasChanges }
+    return {
+      livePrice,
+      ajaibPrice,
+      trade,
+      stateOf,
+      quoteOf,
+      takeChanged,
+      hasChanges,
+    }
   })

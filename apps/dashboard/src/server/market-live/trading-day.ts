@@ -737,12 +737,11 @@ export const makeTradingDay = Effect.fnUntraced(function* (options: {
 
   // A code's scanner figures, for a snapshot and a delta.
   const figuresOf = Effect.fnUntraced(function* (code: StockCode) {
-    // Stockbit's base alone: the fallback would fold every code's trades.
-    const state = yield* dayStates.stateOf(code, true)
+    const quote = yield* dayStates.quoteOf(code, yield* stockbitLive)
     return {
       code,
-      last: state?.last,
-      previousClose: state?.previousClose,
+      last: quote.last,
+      previousClose: quote.previousClose,
       previousValue: yield* previousValues.valueOf(code),
     }
   })
