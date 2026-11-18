@@ -55,7 +55,7 @@ export function MajorHolders({
       </div>
       {holders === undefined ? (
         <p className="text-muted-foreground">
-          {code} isn't in any IDX above-1% report, so its major holders aren't
+          {code} isn't in any IDX above-1% report, so its ≥1% holders aren't
           shown.
         </p>
       ) : (
