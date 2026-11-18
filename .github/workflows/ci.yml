@@ -61,7 +61,13 @@ jobs:
       - run: pnpm install --frozen-lockfile
       # The same turbo cache as static's, pinned to the same commit.
       - uses: rharkor/caching-for-turbo@760158c05c47e7a764f78e9a22ca3b5a6ed8c52e
-      - run: pnpm check:test
+      # Decision: one package's tests at a time on CI's 2 cores. A change to a
+      # shared package misses the cache for every package that depends on it,
+      # and run together their suites ran 4-5x slower than locally and timed
+      # out tests near their limits (apinrdw/kumora#527). Serial costs little
+      # wall time, since dashboard's suite dominates. Locally turbo keeps its
+      # default.
+      - run: pnpm check:test --concurrency=1
 
   fallow:
     if: github.event_name == 'push' || !github.event.pull_request.draft
