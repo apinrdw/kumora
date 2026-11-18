@@ -89,6 +89,7 @@ export {
   decodeAjaibCodeList,
   decodeStockCodeList,
   encodeStockCodeList,
+  kindOf,
 } from "./code-list.ts"
 export {
   BUBBLE_MINUTES,

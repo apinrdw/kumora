@@ -5,9 +5,9 @@ import {
   INDICES,
   decodeAjaibCodeList,
   encodeStockCodeList,
+  kindOf,
   wibDateAt,
   wibDayEnd,
-  type CodeKind,
   type WibDate,
 } from "@workspace/relay"
 import { DateTime, Effect, Option } from "effect"
@@ -32,14 +32,6 @@ export const memoryCodeListStore = Effect.sync((): CodeListStore => {
       }),
   }
 })
-
-// Decision: the kind comes from the suffix alone, as the spec says: `-W` and
-// `-W2` are warrants, `-R` rights. Ajaib's structured warrants (`BBRIDRCM3A`)
-// and funds (`R-LQ45X`) stay shares.
-const kindOf = (code: string) =>
-  Effect.succeed<CodeKind>(
-    /-W\d*$/.test(code) ? "warrant" : /-R\d*$/.test(code) ? "right" : "share"
-  )
 
 // Decision: an encoded list over 2 MB is dropped with a log. Ajaib's codes
 // encode to about 0.2 MB, so ten times that is a wrong answer rather than a

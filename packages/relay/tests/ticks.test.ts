@@ -90,6 +90,29 @@ describe("price limits", () => {
     })
   )
 
+  it.effect(
+    "a warrant moves 50%, 40% or 30% both ways, and a right only to Rp1",
+    () =>
+      Effect.gen(function* () {
+        assert.deepStrictEqual(yield* priceLimitsOf(100, today, "warrant"), {
+          upper: 150,
+          lower: 50,
+        })
+        assert.deepStrictEqual(yield* priceLimitsOf(1000, next, "warrant"), {
+          upper: 1400,
+          lower: 600,
+        })
+        assert.deepStrictEqual(yield* priceLimitsOf(8000, today, "warrant"), {
+          upper: 10400,
+          lower: 5600,
+        })
+        assert.deepStrictEqual(yield* priceLimitsOf(100, today, "right"), {
+          upper: Number.POSITIVE_INFINITY,
+          lower: 1,
+        })
+      })
+  )
+
   it.effect("a Special Monitoring Board code moves 10%, or Rp1 to Rp10", () =>
     Effect.gen(function* () {
       assert.deepStrictEqual(yield* priceLimitsOf(100, today, "special"), {

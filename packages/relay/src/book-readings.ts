@@ -5,6 +5,7 @@
 // cursor with the same functions.
 import { Effect, Schema, SchemaGetter } from "effect"
 
+import { kindOf } from "./code-list.ts"
 import { StockCode } from "./codes.ts"
 import {
   SHARES_PER_LOT,
@@ -204,15 +205,21 @@ const readSide = Effect.fnUntraced(function* (
 })
 
 // Whether the book sits at an auto-reject limit: one side empty and the last
-// price at the limit its previous close sets. Special Monitoring Board codes
-// show no readings, so the regular boards' rule applies.
+// price at the limit its previous close sets, under its instrument's rule.
+// Special Monitoring Board codes show no readings, so a share takes the
+// regular boards' rule.
 const limitOf = Effect.fnUntraced(function* (
   book: OrderBook,
   last: number | undefined,
   date: WibDate
 ) {
   if (book.previousClose === undefined || last === undefined) return undefined
-  const limits = yield* priceLimitsOf(book.previousClose, date, "regular")
+  const kind = yield* kindOf(book.code)
+  const limits = yield* priceLimitsOf(
+    book.previousClose,
+    date,
+    kind === "share" ? "regular" : kind
+  )
   if (book.offers.length === 0 && last >= limits.upper) return "upper" as const
   if (book.bids.length === 0 && last <= limits.lower) return "lower" as const
   return undefined

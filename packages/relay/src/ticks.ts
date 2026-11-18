@@ -42,9 +42,9 @@ export const ticksBetween = (low: number, high: number) =>
     return Math.round(ticks)
   })
 
-// Which limit rule a code trades under: the regular boards' (II-A) or the
-// Special Monitoring Board's (II-X).
-export type LimitBoard = "regular" | "special"
+// Which limit rule a code trades under: a share's on the regular boards
+// (II-A), the Special Monitoring Board's (II-X), a warrant's or a right's.
+type LimitRule = "regular" | "special" | "warrant" | "right"
 
 // One band of reference prices, up to and including `through`, and its
 // limits in percent; `undefined` is a Rp1 move.
@@ -81,6 +81,16 @@ const SPECIAL: ReadonlyArray<LimitBand> = [
   { through: 10, up: undefined, down: undefined },
   { through: Number.POSITIVE_INFINITY, up: 10, down: 10 },
 ]
+// Decision: a warrant's limits are II-A VI.7.1.3, ±50% to Rp200, ±40% to
+// Rp5,000 and ±30% above, both ways and with no transition; the research
+// gives 50% from Rp10, read here as from Rp1. A right (HMETD) has none but
+// the Rp1 floor (VI.7.4). See docs/research/idx-board-ticks-limits.md,
+// "Warrants and others".
+const WARRANT: ReadonlyArray<LimitBand> = [
+  { through: 200, up: 50, down: 50 },
+  { through: 5_000, up: 40, down: 40 },
+  { through: Number.POSITIVE_INFINITY, up: 30, down: 30 },
+]
 
 // The lowest price an order may carry (II-A VI.6).
 const MINIMUM_PRICE = 1
@@ -103,19 +113,23 @@ const ceilToTick = Effect.fnUntraced(function* (price: number) {
   return Math.ceil(exact / tick) * tick
 })
 
+const bandsOf = (rule: Exclude<LimitRule, "right">, date: WibDate) => {
+  if (rule === "special") return SPECIAL
+  if (rule === "warrant") return WARRANT
+  return date <= TRANSITION_ENDS ? TRANSITION : PERMANENT
+}
+
 // The upper and lower auto-reject limits of a code whose reference price
-// (its previous close) is `reference`, on `date`, under `board`'s rule.
+// (its previous close) is `reference`, on `date`, under `rule`; a right's
+// upper limit is none, as infinity.
 export const priceLimitsOf = Effect.fnUntraced(function* (
   reference: number,
   date: WibDate,
-  board: LimitBoard
+  rule: LimitRule
 ) {
-  const bands =
-    board === "special"
-      ? SPECIAL
-      : date <= TRANSITION_ENDS
-        ? TRANSITION
-        : PERMANENT
+  if (rule === "right")
+    return { upper: Number.POSITIVE_INFINITY, lower: MINIMUM_PRICE }
+  const bands = bandsOf(rule, date)
   const band = bands.find((each) => reference <= each.through)!
   return {
     upper:
