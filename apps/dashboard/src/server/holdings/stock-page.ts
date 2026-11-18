@@ -7,6 +7,7 @@ import { StockCode } from "@workspace/relay"
 import {
   CLASSIFICATIONS,
   Classification,
+  Controller,
   KSEI_TYPES,
   KseiType,
   Origin,
@@ -101,9 +102,6 @@ const HolderSizeMonth = Schema.Struct({
   ),
 })
 export type HolderSizeMonth = typeof HolderSizeMonth.Type
-
-// CONTROLLER_OR_AFFILIATE, published from Oct 2026.
-const Controller = Schema.Literals(["controller", "affiliate"])
 
 // One row of an above-1% report as published. `percentageHundredths` is
 // its % of listed shares × 100.

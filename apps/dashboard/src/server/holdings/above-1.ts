@@ -8,6 +8,7 @@ import { Effect, Schema } from "effect"
 import {
   CLASSIFICATIONS,
   Classification,
+  type Controller,
   KSEI_TYPES,
   type KseiType,
   type SplitOrigin,
@@ -225,7 +226,7 @@ const ORIGINS = new Map<string, SplitOrigin>([
   ["A", "foreign"],
 ])
 
-const CONTROLLERS = new Map([
+const CONTROLLERS = new Map<string, Controller>([
   ["CONTROLLER", "controller"],
   ["AFFILIATE OF THE CONTROLLER", "affiliate"],
 ])
