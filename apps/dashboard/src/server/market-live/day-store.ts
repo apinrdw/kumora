@@ -35,7 +35,8 @@ import {
 import type { StoredAjaibBook } from "./order-books.ts"
 import type { LivePrice } from "./stockbit-liveprice.ts"
 import { sweepsFromText, sweepsText } from "./sweep-rows.ts"
-import { TAPE_SCHEMA, makeTape } from "./tape.ts"
+import { TRADE_CODES_FACT } from "./tape-chunks.ts"
+import { makeTape } from "./tape.ts"
 
 export type SqlValue = string | number | null | Uint8Array
 
@@ -129,7 +130,6 @@ export interface Flush {
 // WITHOUT ROWID, replaced at most once a minute. See spec apinrdw/kumora#138,
 // "Storage and cost".
 const SCHEMA = [
-  TAPE_SCHEMA,
   `CREATE TABLE IF NOT EXISTS candles (
     code TEXT NOT NULL,
     minute INTEGER NOT NULL,
@@ -232,6 +232,9 @@ export const Fact = {
   // The WIB date of the object's last usage line (trading-day.ts,
   // `usageLine`).
   usageLogged: "usage-logged",
+  // A chunked tape's code list (tape-chunks.ts): a JSON array its records
+  // index into.
+  tradeCodes: TRADE_CODES_FACT,
 } as const
 
 export const TAPE_SUMMARY_BUILT = "built"
@@ -686,9 +689,9 @@ export const makeDayStore = (
     })
 
     // One stock's regular-board trades in one minute, ascending by trade
-    // number. The tape has no code index (the Decision on tape.ts's
-    // TAPE_SCHEMA), so this reads the whole market's minute; the book asks only when a late
-    // trade lands in a stored minute (candles.ts, `slotSweeps`).
+    // number. The tape has no code index (tape.ts, tape-chunks.ts), so this
+    // reads the whole market's minute; the book asks only when a late trade
+    // lands in a stored minute (candles.ts, `slotSweeps`).
     const storedMinuteTrades = Effect.fnUntraced(function* (
       code: StockCode,
       minute: number

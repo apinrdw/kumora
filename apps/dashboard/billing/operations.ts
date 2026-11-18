@@ -9,11 +9,13 @@ import {
   TradeNumber,
   encodeBrokerCodesBatch,
   type BrokerCodesBatch,
+  type RunningTrade,
 } from "@workspace/relay"
 import { DateTime, Effect } from "effect"
 
 import type { WorkerEnv } from "@workspace/server"
 
+import { makeDayStore, type Sql } from "../src/server/market-live/day-store.ts"
 import type { makeTradingDay } from "../src/server/market-live/trading-day.ts"
 import { BUSY_DAY, busyCodes } from "./busy-figures.ts"
 
@@ -36,7 +38,8 @@ export interface Operation {
     day: TradingDay
   ) => Effect.Effect<unknown, unknown, WorkerEnv>
   readonly measure: (
-    day: TradingDay
+    day: TradingDay,
+    sql: Sql
   ) => Effect.Effect<Response, unknown, WorkerEnv>
 }
 
@@ -49,6 +52,59 @@ const codesGet = (day: TradingDay) =>
   day.recorded({
     _tag: "BrokerCodes",
     at: DateTime.makeUnsafe("2026-11-09T16:15:00+07:00"),
+  })
+
+// The page's tape answer: the day's last 200 trades, and a page of 200
+// further back, below a trade number at midday.
+const tapeGet = (day: TradingDay) =>
+  day.recorded({
+    _tag: "Tape",
+    at: DateTime.makeUnsafe("2026-11-09T16:15:00+07:00"),
+  })
+const tapePage = (day: TradingDay) =>
+  day.recorded({
+    _tag: "Tape",
+    at: DateTime.makeUnsafe("2026-11-09T12:00:00+07:00"),
+    before: TradeNumber.make("700000"),
+  })
+
+// The trading day's own flush adds candles and footprints to the same
+// transaction; the trade chunks are what this measures.
+// Decision: a live flush on the busy day writes a minute at its mean rate,
+// 1,460,000 over 435 minutes, past its tape's last, and the trades its relay
+// missed arriving late, each in a chunk of its own: 4 chunks for the minute
+// and 1 for each late trade.
+const FLUSHED = { first: BUSY_DAY.trades + 1, rows: 3_356 }
+
+const flushTrade = (number: number): RunningTrade => ({
+  tradeNumber: TradeNumber.make(String(number)),
+  time: DateTime.makeUnsafe("2026-11-09T16:15:30+07:00"),
+  code: StockCode.make(`C${number % BUSY_DAY.codes}`),
+  price: 1_000,
+  lots: 1,
+  side: "buy",
+  board: "RG",
+  feeds: ["Stockbit"],
+})
+
+const liveFlush = (_day: TradingDay, sql: Sql) =>
+  Effect.gen(function* () {
+    const store = yield* makeDayStore(sql, { today: true })
+    yield* store.write({
+      trades: [
+        ...BUSY_DAY.holes.map(flushTrade),
+        ...Array.from({ length: FLUSHED.rows }, (_, at) =>
+          flushTrade(FLUSHED.first + at)
+        ),
+      ],
+      candles: [],
+      footprints: [],
+      livePrices: [],
+      chunks: [],
+      ajaibBooks: [],
+      facts: {},
+    })
+    return new Response("flushed")
   })
 
 // Decision: a full Ajaib page, 5,000 trades, resent with the codes the day
@@ -152,6 +208,10 @@ export const operations = {
     measure: statusPass,
   },
   "walk batch": { stored: "walking", measure: walkPost },
+  "recorded tape GET": { measure: tapeGet },
+  "recorded tape page": { measure: tapePage },
+  // Writes trades: its budget gets a busy day of its own.
+  "live flush": { measure: liveFlush },
   "heatmap GET": { measure: heatmapGet },
 } satisfies Record<string, Operation>
 

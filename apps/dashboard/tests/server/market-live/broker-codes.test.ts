@@ -29,6 +29,11 @@ import { TestClock } from "effect/testing"
 
 import type { Sql } from "@/server/market-live/day-store"
 import {
+  TRADE_CODES_FACT,
+  emptyRecords,
+  putRecord,
+} from "@/server/market-live/tape-chunks"
+import {
   makeTradingDay,
   type Peer,
   type PeerState,
@@ -313,19 +318,30 @@ describe("a day's broker codes", () => {
         const chunk = new Uint8Array(7_000)
         const record = new TextEncoder().encode("YPDCCFA")
         for (let slot = 0; slot < 1_000; slot += 2) chunk.set(record, slot * 7)
+        const taped = emptyRecords()
+        for (let slot = 0; slot < 1_000; slot += 2)
+          putRecord(taped, slot, {
+            time: 0,
+            code: 0,
+            price: 8_000,
+            lots: 1,
+            side: "buy",
+            board: "RG",
+            feeds: ["Ajaib"],
+          })
         sql.transaction(() => {
-          for (let index = 0; index < 1_500; index++)
+          for (let index = 0; index < 1_500; index++) {
             sql.exec(
               "INSERT INTO broker_code_chunks VALUES (?, ?)",
               index,
               chunk
             )
+            sql.exec("INSERT INTO trade_chunks VALUES (?, ?)", index, taped)
+          }
           sql.exec(
-            `WITH RECURSIVE odd(number) AS (
-              SELECT 1 UNION ALL SELECT number + 2 FROM odd WHERE number < 1499999
-            )
-            INSERT INTO trades
-            SELECT number, 0, 'BBCA', 8000, 1, 'buy', 'RG', '["Ajaib"]' FROM odd`
+            "INSERT INTO facts VALUES (?, ?)",
+            TRADE_CODES_FACT,
+            '["BBCA"]'
           )
         })
         yield* day.post("Ajaib", [], 1_500_000)
@@ -1093,7 +1109,7 @@ describe("a sealed relay day's tape summary", () => {
         statements.length = 0
         const summarized = yield* answers
         assert.deepStrictEqual(
-          statements.filter((query) => /\bFROM trades\b/.test(query)),
+          statements.filter((query) => /\bFROM trade(s|_chunks)\b/.test(query)),
           []
         )
         assert.deepStrictEqual(yield* day.missing, [
@@ -1124,7 +1140,9 @@ describe("the tape summary of other days", () => {
       transaction: (write) => base.transaction(write),
     }
     const tapeReads = Effect.sync(() => {
-      const reads = statements.filter((query) => /\bFROM trades\b/.test(query))
+      const reads = statements.filter((query) =>
+        /\bFROM trade(s|_chunks)\b/.test(query)
+      )
       statements.length = 0
       return reads.length
     })

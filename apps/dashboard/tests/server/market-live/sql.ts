@@ -56,3 +56,20 @@ export const counted = (sql: Sql): Sql => {
     usage: () => ({ ...usage }),
   }
 }
+
+// A day recorded before trade chunks (spec apinrdw/kumora#555): its tape is
+// the row-per-trade `trades` table, made before the store starts.
+export const rowShapedSql = (): Sql => {
+  const sql = memorySql()
+  sql.exec(`CREATE TABLE trades (
+    number INTEGER PRIMARY KEY,
+    time INTEGER NOT NULL,
+    code TEXT NOT NULL,
+    price REAL NOT NULL,
+    lots REAL NOT NULL,
+    side TEXT NOT NULL,
+    board TEXT NOT NULL,
+    feeds TEXT NOT NULL
+  )`)
+  return sql
+}
