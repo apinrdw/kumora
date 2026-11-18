@@ -25,7 +25,8 @@ import {
   type MatchContext,
 } from "@/lib/book-alerts"
 import { bookEventDetail, bookEventKey } from "@/lib/book-events"
-import { floorValue, isCheap } from "@/lib/order-book-radar"
+import { isCheap } from "@/lib/book-readings"
+import { floorValue } from "@/lib/order-book-radar"
 
 import {
   alertBell,

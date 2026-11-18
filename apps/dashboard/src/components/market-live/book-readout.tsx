@@ -22,7 +22,7 @@ import { cn } from "@workspace/ui/lib/utils"
 import { DateTime, Effect } from "effect"
 import { useSyncExternalStore, type ReactNode } from "react"
 
-import { DISCLAIMER, LOWEST_READ_CLOSE } from "@/lib/book-readings"
+import { DISCLAIMER, isCheap, type CodePrices } from "@/lib/book-readings"
 import { compact, lots, plain, signed, tapeTime } from "@/lib/format"
 import { gapAt } from "@/lib/replay"
 
@@ -162,13 +162,6 @@ function LimitNote({ limit }: { limit: Limit }) {
   )
 }
 
-// A code's last price and previous close, which the limit mark reads beside
-// its readings.
-interface Prices {
-  readonly last: number | undefined
-  readonly previousClose: number | undefined
-}
-
 // One code's readings: imbalance with its bar, the limit mark at `prices`,
 // and the bid/offer grid, greyed with `paused` naming the phase.
 function Readings({
@@ -177,7 +170,7 @@ function Readings({
   paused,
 }: {
   readings: BookReadings
-  prices: Prices
+  prices: CodePrices
   paused: string | undefined
 }) {
   const limit = Effect.runSync(limitOf(readings, prices))
@@ -234,20 +227,18 @@ function Note({ children }: { children: ReactNode }) {
 // Why a code shows no readings, or none: an index, a Special Monitoring
 // Board code, or a price of Rp1–10. The board comes first: many of its codes
 // are priced Rp1–10 too, and no book arrives for them at any price.
-const excludedReason = (
+const excludedReason = Effect.fnUntraced(function* (
   code: StockCode,
   board: ReadonlySet<StockCode>,
-  previousClose: number | undefined
-) =>
-  Effect.succeed(
-    INDEX_CODES.includes(code)
-      ? "Indices have no order book."
-      : board.has(code)
-        ? "Special Monitoring Board: this code trades in a call auction all day, and no order book arrives for it."
-        : previousClose !== undefined && previousClose <= LOWEST_READ_CLOSE
-          ? "One tick here moves the price 10–100%, so book readings would mislead."
-          : undefined
-  )
+  prices: CodePrices
+) {
+  if (INDEX_CODES.includes(code)) return "Indices have no order book."
+  if (board.has(code))
+    return "Special Monitoring Board: this code trades in a call auction all day, and no order book arrives for it."
+  if (yield* isCheap(prices))
+    return "One tick here moves the price 10–100%, so book readings would mislead."
+  return undefined
+})
 
 // Live, what the strip says while readings are paused outside Sessions 1
 // and 2; none in them, or on a recorded day.
@@ -268,7 +259,7 @@ function LiveReadings({
 }: {
   code: StockCode
   store: BookReadingsStore
-  prices: Prices
+  prices: CodePrices
   paused: string | undefined
 }) {
   const readings = useSyncExternalStore(
@@ -302,7 +293,7 @@ function RecordedReadings({
   inGap,
 }: {
   book: OrderBook | undefined
-  prices: Prices
+  prices: CodePrices
   inGap: boolean
 }) {
   if (inGap) return <Note>Not recorded</Note>
@@ -369,13 +360,11 @@ export function BookReadout({
   // history, so a code that has joined or left the board since shows as it
   // stands today.
   const board = useSpecialBoard()
-  const prices: Prices = {
+  const prices: CodePrices = {
     last: state?.last,
     previousClose: state?.previousClose ?? shown?.previousClose,
   }
-  const reason = Effect.runSync(
-    excludedReason(code, board, prices.previousClose)
-  )
+  const reason = Effect.runSync(excludedReason(code, board, prices))
   const paused = usePause(today, cursor === undefined, readings)
   const inGap = useInGap(cursor, gaps)
   // The fill estimate, and the events when given.

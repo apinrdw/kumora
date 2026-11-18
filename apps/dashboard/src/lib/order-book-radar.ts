@@ -10,7 +10,7 @@ import {
 } from "@workspace/relay"
 import { DateTime, Effect } from "effect"
 
-import { LOWEST_READ_CLOSE } from "./book-readings"
+import { LOWEST_READ_CLOSE, isCheap } from "./book-readings"
 import { compact, plain } from "./format"
 
 // A row as Rank by reads it: its readings, its book events and the market
@@ -258,14 +258,6 @@ const ranked = Effect.fnUntraced(function* (
   )
   return keyed.map(({ readings }) => readings.code)
 })
-
-// A code's previous close, or its last price while none is known: Rp10 or
-// less keeps it off the scanner.
-export const isCheap = (figures: CodeFigures | undefined) =>
-  Effect.sync(() => {
-    const close = figures?.previousClose ?? figures?.last
-    return close !== undefined && close <= LOWEST_READ_CLOSE
-  })
 
 // The value the floor reads (the Decision at `scan`).
 export const floorValue = (figures: CodeFigures | undefined) =>
