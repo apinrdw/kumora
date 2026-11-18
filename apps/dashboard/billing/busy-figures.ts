@@ -19,6 +19,15 @@ export const BUSY_DAY = {
   bookChunks: 273,
 } as const
 
+// Decision: the whole day (billing/whole-day.ts) is the busy day's trades
+// recorded live by a fresh object, with books for the 30 codes a viewer
+// watched (spec apinrdw/kumora#555, "Testing Decisions"), then walked in
+// Ajaib's 5,000-trade pages.
+export const WHOLE_DAY = {
+  viewed: 30,
+  walkBatch: 5_000,
+} as const
+
 export const BROKERS = [
   "AK",
   "BK",

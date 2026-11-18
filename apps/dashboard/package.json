@@ -10,8 +10,9 @@
     "format": "oxfmt --write \"**/*.{ts,tsx}\"",
     "format:check": "oxfmt --check \"**/*.{ts,tsx}\"",
     "typecheck": "tsc --noEmit && tsc --noEmit -p tests",
-    "test": "vitest run --passWithNoTests && node scripts/auth-migrations.ts --check",
+    "test": "vitest run --project unit --project row-budgets --passWithNoTests && node scripts/auth-migrations.ts --check",
     "test:row-budgets": "vitest run --project row-budgets",
+    "test:whole-day": "vitest run --project whole-day",
     "auth:migrations": "node scripts/auth-migrations.ts"
   },
   "dependencies": {
