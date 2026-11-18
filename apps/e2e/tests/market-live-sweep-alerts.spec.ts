@@ -20,9 +20,9 @@ declare global {
 }
 
 // Stands in for WebAudio: each note the page plays is written down by its
-// starting frequency. A sound's first note names it: 1047 Hz is a buy's,
-// 659 Hz a sell's (sweep-alert-sound.ts). As in a browser, a context starts
-// suspended until the page's click resumes it.
+// starting frequency. A sound's first note names its side (`BUY_FIRST_NOTE`).
+// As in a browser, a context starts suspended until the page's click resumes
+// it.
 const recordNotes = () => {
   const notes: Array<number> = []
   window.__notes = notes
