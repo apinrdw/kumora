@@ -503,6 +503,10 @@ const Delta = Schema.TaggedStruct("Delta", {
   // delta, whatever each viewer selected, taken only in Sessions 1 and 2.
   // Absent when none changed.
   bookReadings: Schema.optionalKey(Schema.Array(BookReadings)),
+  // The scanner's figures of every code whose first readings this delta
+  // carries: a page that connected before them has none from its snapshot.
+  // Absent when no code's are first.
+  scannerFigures: Schema.optionalKey(Schema.Array(ScannerFigures)),
   // The book events of every code found since the last delta, oldest first.
   // Absent when none was.
   bookEvents: Schema.optionalKey(Schema.Array(BookEvent)),

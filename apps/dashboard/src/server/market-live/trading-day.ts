@@ -726,6 +726,19 @@ export const makeTradingDay = Effect.fnUntraced(function* (options: {
       yield* bookEvents.add(yield* ledger.book(book))
   })
 
+  // A code's scanner figures, for a snapshot and for the delta that carries
+  // its first readings.
+  const figuresOf = Effect.fnUntraced(function* (code: StockCode) {
+    // Stockbit's base alone: the fallback would fold every code's trades.
+    const state = yield* dayStates.stateOf(code, true)
+    return {
+      code,
+      last: state?.last,
+      previousClose: state?.previousClose,
+      previousValue: yield* previousValues.valueOf(code),
+    }
+  })
+
   // Decision: a delta carries every candle that changed, of any code, not
   // just each viewer's selected code's: one encoded text serves every viewer
   // and no socket keeps its selection. The page keeps its own code's.
@@ -742,7 +755,7 @@ export const makeTradingDay = Effect.fnUntraced(function* (options: {
     for (const book of changedBooks) yield* bookChunks.record(book)
     const states = yield* dayStates.takeChanged(live, yield* onDemand.watched)
     const conditions = yield* market.conditions
-    const bookReadings = yield* readings.read(
+    const { taken: bookReadings, first } = yield* readings.read(
       changedBooks,
       conditions.phase,
       (code) =>
@@ -763,6 +776,7 @@ export const makeTradingDay = Effect.fnUntraced(function* (options: {
       sweepAlerts: changed.sweepAlerts,
       orderBooks,
       bookReadings,
+      scannerFigures: yield* Effect.forEach(first, figuresOf),
       bookEvents: yield* bookEvents.takeDelta,
       dayStates: states,
       indicative: yield* market.indicativeChanges,
@@ -1436,19 +1450,8 @@ export const makeTradingDay = Effect.fnUntraced(function* (options: {
       const bookReadings = yield* readings.all
       const newestEvents = yield* bookEvents.newest
       const selectedEvents = yield* bookEvents.ofCode(selected)
-      const scannerFigures = yield* Effect.forEach(
-        bookReadings,
-        Effect.fnUntraced(function* ({ code }) {
-          // Stockbit's base alone: the fallback would fold every code's
-          // trades.
-          const state = yield* dayStates.stateOf(code, true)
-          return {
-            code,
-            last: state?.last,
-            previousClose: state?.previousClose,
-            previousValue: yield* previousValues.valueOf(code),
-          }
-        })
+      const scannerFigures = yield* Effect.forEach(bookReadings, ({ code }) =>
+        figuresOf(code)
       )
       const snapshot = yield* encodeViewerDown({
         _tag: "Snapshot",
