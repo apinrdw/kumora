@@ -212,6 +212,31 @@ test("an index and a code priced Rp1–10 say why they have no readings", () => 
   )
 })
 
+test("a code with no previous close says why it has no readings at a last price of Rp1–10, as the scanner leaves it out", async () => {
+  const { container, dayStates } = render("LAPD", snapshot("session-1", []))
+  act(() =>
+    dayStates.replace([
+      {
+        code: StockCode.make("LAPD"),
+        last: 7,
+        open: 7,
+        high: 7,
+        low: 7,
+        volume: 1_000,
+        value: 7e5,
+        frequency: 10,
+        asOf: DateTime.makeUnsafe("2026-11-18T03:00:01Z"),
+        provenance: "Stockbit",
+      },
+    ])
+  )
+  await act(() => new Promise<void>((resolve) => setTimeout(resolve, 50)))
+  expect(
+    container.textContent,
+    "the exclusion falls back to the last price"
+  ).toContain("One tick here moves the price 10–100%")
+})
+
 test("a Special Monitoring Board code says why it has no readings, at any price", () => {
   board.codes = new Set(["WSBP"])
   const { container, book } = render("WSBP", snapshot("session-1", []))
