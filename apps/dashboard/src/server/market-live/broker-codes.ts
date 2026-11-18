@@ -24,12 +24,7 @@ import {
 } from "@workspace/relay"
 import { Effect, Option, Schema } from "effect"
 
-import {
-  BROKER_TRADES_BUILT,
-  Fact,
-  TAPE_SUMMARY_BUILT,
-  type Sql,
-} from "./day-store.ts"
+import { Fact, TAPE_SUMMARY_BUILT, type Sql } from "./day-store.ts"
 
 // Decision: chunk k holds trades 1000k+1 .. 1000k+1000 as 1,000 fixed 7-byte
 // records: buyer code, buyer type, seller code, seller type, and the source.
@@ -54,18 +49,6 @@ const SCHEMA = [
     ajaib BLOB NOT NULL,
     stockbit BLOB NOT NULL
   )`,
-  // Decision: the broker trades index, one row per side of each trade the
-  // chunks keep codes for, so a whole day filters by broker as a key lookup
-  // in Data Studio. WITHOUT ROWID makes the key the only B-tree, one row
-  // write a side. The source and the cross-check stay in the chunks. See
-  // apinrdw/kumora#342.
-  `CREATE TABLE IF NOT EXISTS broker_trades (
-    broker TEXT NOT NULL,
-    investor_type TEXT NOT NULL,
-    side TEXT NOT NULL,
-    number INTEGER NOT NULL,
-    PRIMARY KEY (broker, investor_type, side, number)
-  ) WITHOUT ROWID`,
   // Decision: a walk's fields of each trade the tape lacked, the first row
   // kept. On a day the relay recorded they never fill the tape, so its
   // recorded answers don't change; only the build reads them (#425). A walk
@@ -87,6 +70,12 @@ const SCHEMA = [
     held INTEGER NOT NULL,
     holes TEXT NOT NULL
   )`,
+  // Decision: a day recorded before apinrdw/kumora#561 drops its broker
+  // trades index, which nothing read, and the facts of its rebuild. In
+  // workerd the drop of a busy day's 2.92 M rows read 14 rows and wrote
+  // none (row-budgets.workerd.test.ts).
+  "DROP TABLE IF EXISTS broker_trades",
+  "DELETE FROM facts WHERE key IN ('broker-trades', 'index-wake')",
 ]
 
 // Decision: the status reads the chunks this many at a time, so a 1.5M-trade
@@ -335,43 +324,9 @@ const fieldsRows = (
         ]
   )
 
-// One index row: broker, investor type, side and trade number.
-type IndexRow = readonly [string, string, "buy" | "sell", number]
-
-// Whether two records hold the same three bytes of the side at `at`.
-const sameSide = (held: Uint8Array, codes: Uint8Array, at: number) =>
-  held[at] === codes[at] &&
-  held[at + 1] === codes[at + 1] &&
-  held[at + 2] === codes[at + 2]
-
-// The sides of a record's first six bytes: the buyer's three, then the
-// seller's.
-const SIDES = [
-  ["buy", 0],
-  ["sell", 3],
-] as const
-
-// One side's index row of a trade, from its record's first six bytes.
-const sideRow = (
-  number: number,
-  record: Uint8Array,
-  [side, at]: (typeof SIDES)[number]
-): IndexRow => [
-  decoder.decode(record.subarray(at, at + 2)),
-  record[at + 2] === 70 ? "F" : "D",
-  side,
-  number,
-]
-
 // What a batch writes, in one transaction.
 interface Merged {
   readonly chunks: Map<number, Uint8Array>
-  // Each trade the batch touched: its codes before the batch, none when the
-  // day held none.
-  readonly before: Map<number, Option.Option<Uint8Array>>
-  // The index rows of trades whose codes the batch changed.
-  readonly unindexed: Array<IndexRow>
-  readonly indexed: Array<IndexRow>
   readonly differences: Map<number, readonly [Uint8Array, Uint8Array]>
   readonly agreed: Set<number>
   readonly facts: Array<readonly [string, string]>
@@ -382,6 +337,17 @@ interface Merged {
   // byte alone changed, as the cross-check marks it, is not one.
   readonly changed: Array<TradeNumber>
 }
+
+// Whether a chunk's first `slots` records all hold codes.
+const holdsCodes = (codes: Uint8Array, slots: number) => {
+  for (let slot = 0; slot < slots; slot++)
+    if (!codes[slot * RECORD + SOURCE]) return false
+  return true
+}
+
+// Whether a merged batch raises the day's N.
+const raisesN = (merged: Merged) =>
+  merged.facts.some(([key]) => key === Fact.brokerCodesN)
 
 // The kept codes of each listed trade the day holds codes for, in the
 // list's order.
@@ -614,31 +580,9 @@ export const makeBrokerCodes = Effect.fnUntraced(function* (options: {
       return recorded
     })
 
-  // Decision: a batch moves only the index rows of the trade sides whose
-  // codes it changed, in the same transaction as their chunks, so the index
-  // never disagrees with them after a failure and an unchanged side costs no
-  // row write. A Stockbit agreement (source `A` to `B`) or a resent batch
-  // changes no codes and writes no index row.
-  const indexMoves = Effect.fnUntraced(function* (merged: Merged) {
-    for (const [number, before] of merged.before) {
-      const { chunk, at } = yield* placeOf(number)
-      const after = merged.chunks.get(chunk)!.subarray(at, at + SOURCE)
-      const held = Option.getOrUndefined(before)
-      for (const side of SIDES) {
-        if (held !== undefined && sameSide(held, after, side[1])) continue
-        if (held !== undefined)
-          merged.unindexed.push(sideRow(number, held, side))
-        merged.indexed.push(sideRow(number, after, side))
-      }
-    }
-  })
-
   const merge = Effect.fnUntraced(function* (batch: BrokerCodesBatch) {
     const merged: Merged = {
       chunks: new Map(),
-      before: new Map(),
-      unindexed: [],
-      indexed: [],
       differences: new Map(),
       agreed: new Set(),
       facts: [],
@@ -674,13 +618,6 @@ export const makeBrokerCodes = Effect.fnUntraced(function* (options: {
       merged.chunks.set(chunk, held)
       const bytes = yield* bytesOf(codes)
       const before = held.slice(at, at + SOURCE)
-      if (!merged.before.has(number))
-        merged.before.set(
-          number,
-          held[at + SOURCE] === 0
-            ? Option.none()
-            : Option.some(held.slice(at, at + SOURCE))
-        )
       const outcome =
         batch.feed === "Ajaib"
           ? yield* mergeAjaib(held, at, bytes, yield* stockbitOf(number, chunk))
@@ -695,7 +632,6 @@ export const makeBrokerCodes = Effect.fnUntraced(function* (options: {
         merged.differences.set(number, outcome)
       }
     }
-    yield* indexMoves(merged)
     merged.facts.push(...(yield* factsOf(batch, highest)))
     return merged
   })
@@ -728,6 +664,58 @@ export const makeBrokerCodes = Effect.fnUntraced(function* (options: {
     return filled.length > 0
   }
 
+  // Whether the day holds codes for every trade 1..N, its fields held or
+  // not, read from its chunks SCAN_PAGE at a time until the first trade
+  // without codes. Synchronous, so a batch's transaction runs it.
+  const codesHeldThroughN = () => {
+    const [stored] = sql.exec(
+      "SELECT value FROM facts WHERE key = ?",
+      Fact.brokerCodesN
+    )
+    if (stored === undefined) return false
+    const n = Number(stored.value)
+    const chunks = Math.ceil(n / CHUNK)
+    for (let next = 0; next < chunks;) {
+      const rows = sql.exec(
+        "SELECT chunk, codes FROM broker_code_chunks WHERE chunk >= ? AND chunk < ? ORDER BY chunk LIMIT ?",
+        next,
+        chunks,
+        SCAN_PAGE
+      )
+      if (rows.length === 0) return false
+      for (const row of rows) {
+        const slots = Math.min(CHUNK, n - next * CHUNK)
+        if (Number(row.chunk) !== next) return false
+        if (!holdsCodes(row.codes as Uint8Array, slots)) return false
+        next++
+      }
+    }
+    return true
+  }
+
+  // The codes-complete fact written from the chunks, and its value.
+  const keepCodesComplete = () => {
+    const complete = codesHeldThroughN()
+    sql.exec(
+      "INSERT OR REPLACE INTO facts VALUES (?, ?)",
+      Fact.codesComplete,
+      String(complete)
+    )
+    return complete
+  }
+
+  // Decision: each batch writes the codes-complete fact in its own
+  // transaction, so a woken object answers from one row (spec #554). A batch
+  // never clears codes, so on a complete day one that doesn't raise N reads
+  // 1 row; else it reads up to every chunk, about 1,500 rows on a busy day.
+  const writeCodesComplete = (nRaised: boolean) => {
+    const [kept] = sql.exec(
+      "SELECT value FROM facts WHERE key = ?",
+      Fact.codesComplete
+    )
+    if (kept?.value !== "true" || nRaised) keepCodesComplete()
+  }
+
   // A batch's writes, to run inside a transaction; `filled` runs when they
   // filled a trade's fields.
   const writesOf = (merged: Merged, filled: () => void) => () => {
@@ -737,16 +725,6 @@ export const makeBrokerCodes = Effect.fnUntraced(function* (options: {
         "INSERT OR REPLACE INTO broker_code_chunks VALUES (?, ?)",
         chunk,
         codes
-      )
-    for (const row of merged.unindexed)
-      sql.exec(
-        "DELETE FROM broker_trades WHERE broker = ? AND investor_type = ? AND side = ? AND number = ?",
-        ...row
-      )
-    for (const row of merged.indexed)
-      sql.exec(
-        "INSERT OR IGNORE INTO broker_trades VALUES (?, ?, ?, ?)",
-        ...row
       )
     for (const [number, [ajaib, stockbit]] of merged.differences)
       sql.exec(
@@ -759,14 +737,8 @@ export const makeBrokerCodes = Effect.fnUntraced(function* (options: {
       sql.exec("DELETE FROM cross_check_differences WHERE number = ?", number)
     for (const [key, value] of merged.facts)
       sql.exec("INSERT OR REPLACE INTO facts VALUES (?, ?)", key, value)
+    writeCodesComplete(raisesN(merged))
   }
-
-  // Decision: whether the day has codes for every trade 1..N is kept, once a
-  // scan found it, until the next batch: Play asks for the codes answer that
-  // carries it as often as the tape (TAPE_INTERVAL_MS in src/lib/replay.ts).
-  // It reads no fields, so the tape growing before the seal can't change it;
-  // the status's `complete` reads the tape, and each status GET scans again.
-  let keptCodesComplete: boolean | undefined
 
   // A batch merged into its chunks and written in one transaction, with
   // what `alongside` writes for the trades it changed, so a failed batch
@@ -793,15 +765,10 @@ export const makeBrokerCodes = Effect.fnUntraced(function* (options: {
         (tradeNumbers) => heldCodes(tradeNumbers, new Map(merged.chunks)),
         writeCodes
       )
-    keptCodesComplete = undefined
     // Whether the batch corrected the day: changed a trade's kept codes,
     // filled its fields, or raised N, which a built day's missing count
     // reads.
-    return (
-      merged.changed.length > 0 ||
-      filled ||
-      merged.facts.some(([key]) => key === Fact.brokerCodesN)
-    )
+    return merged.changed.length > 0 || filled || raisesN(merged)
   })
 
   // One trade's record, its chunk read once into `chunks`; none when the day
@@ -1034,22 +1001,28 @@ export const makeBrokerCodes = Effect.fnUntraced(function* (options: {
         differences
       ),
     }
-    const codesComplete = n !== undefined && tally.codesMissingCount === 0
-    keptCodesComplete = codesComplete
-    return { day, codesComplete }
+    return { day }
   })
 
   // Whether the day has codes for every trade 1..N, its fields held or not,
-  // scanning only when no scan since the last batch found it. Market Live's
-  // answers read this, not the status's `complete`.
-  const codesComplete = Effect.suspend(() =>
-    keptCodesComplete === undefined
-      ? Effect.map(
-          status(Number.MAX_SAFE_INTEGER),
-          (each) => each.codesComplete
-        )
-      : Effect.succeed(keptCodesComplete)
-  )
+  // from its codes-complete fact. Market Live's answers read this, not the
+  // status's `complete`. Play asks for the codes answer that carries it as
+  // often as the tape (TAPE_INTERVAL_MS in src/lib/replay.ts).
+  // Decision: a day whose batches came before the fact existed reads its
+  // chunks once and writes the fact; a day with no N reads 1 row and writes
+  // nothing.
+  const codesComplete = Effect.gen(function* () {
+    const kept = yield* fact(Fact.codesComplete)
+    if (kept !== undefined) return kept === "true"
+    if ((yield* fact(Fact.brokerCodesN)) === undefined) return false
+    return yield* Effect.sync(keepCodesComplete)
+  })
+
+  // The codes-complete fact as the seal writes it with the sealed marker,
+  // from the day's chunks.
+  const codesCompleteFacts = Effect.sync(() => ({
+    [Fact.codesComplete]: String(codesHeldThroughN()),
+  }))
 
   // The day's missing count when its broker totals can build, from one
   // scan: N known and at most 1 in MISSING_ALLOWANCE of 1..N missing.
@@ -1141,74 +1114,16 @@ export const makeBrokerCodes = Effect.fnUntraced(function* (options: {
     () => sql.exec("SELECT 1 FROM broker_code_chunks LIMIT 1").length === 0
   )
 
-  // Decision: a day stored before the index rebuilds it SCAN_PAGE chunks a
-  // call, rows and progress in one transaction, so a cut-off rebuild resumes.
-  // A page only inserts: live batches already moved the rows they changed.
-  // A day with no chunks at start is built from the start. See
-  // apinrdw/kumora#342.
-  const indexBuilt = yield* Effect.gen(function* () {
-    const progress = yield* fact(Fact.brokerTrades)
-    if (progress === BROKER_TRADES_BUILT) return true
-    if (progress !== undefined) return false
-    if (sql.exec("SELECT 1 FROM broker_code_chunks LIMIT 1").length > 0)
-      return false
-    sql.exec(
-      "INSERT OR REPLACE INTO facts VALUES (?, ?)",
-      Fact.brokerTrades,
-      BROKER_TRADES_BUILT
-    )
-    return true
-  })
-
-  // The next page of the index's rebuild; whether the index is built after
-  // it.
-  const indexPage = Effect.gen(function* () {
-    const progress = yield* fact(Fact.brokerTrades)
-    if (progress === BROKER_TRADES_BUILT) return true
-    const rows = sql.exec(
-      "SELECT chunk, codes FROM broker_code_chunks WHERE chunk > ? ORDER BY chunk LIMIT ?",
-      progress === undefined ? -1 : Number(progress),
-      SCAN_PAGE
-    )
-    const built = rows.length < SCAN_PAGE
-    yield* Effect.sync(() =>
-      sql.transaction(() => {
-        for (const row of rows) {
-          const chunk = Number(row.chunk)
-          const codes = row.codes as Uint8Array
-          for (let slot = 0; slot < CHUNK; slot++) {
-            const at = slot * RECORD
-            if (codes[at + SOURCE] === 0 || codes[at + SOURCE] === undefined)
-              continue
-            const record = codes.subarray(at, at + SOURCE)
-            for (const side of SIDES)
-              sql.exec(
-                "INSERT OR IGNORE INTO broker_trades VALUES (?, ?, ?, ?)",
-                ...sideRow(chunk * CHUNK + slot + 1, record, side)
-              )
-          }
-        }
-        sql.exec(
-          "INSERT OR REPLACE INTO facts VALUES (?, ?)",
-          Fact.brokerTrades,
-          built ? BROKER_TRADES_BUILT : String(rows.at(-1)!.chunk)
-        )
-      })
-    )
-    return built
-  })
-
   return {
     post,
     status: statusAnswer,
     held,
     heldCodes,
     codesComplete,
+    codesCompleteFacts,
     buildable,
     heldTradesPage,
     holdsNone,
-    indexBuilt,
-    indexPage,
   }
 })
 

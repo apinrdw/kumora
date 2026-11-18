@@ -778,14 +778,6 @@ const flakyDay = () => {
     sql,
     flaky,
     start: tradingDay(sql, [], db.layer),
-    // A release before the broker trades index: no rows, no fact.
-    dropIndex: Effect.sync(() => {
-      base.exec("DELETE FROM broker_trades")
-      base.exec("DELETE FROM facts WHERE key = 'broker-trades'")
-    }),
-    indexed: Effect.sync(
-      () => base.exec("SELECT 1 FROM broker_trades LIMIT 1").length > 0
-    ),
   }
   return fixture
 }
@@ -846,39 +838,6 @@ const WAKE_CASES: ReadonlyArray<{
         yield* day.evicted
       }),
     done: (_, day) => isSealed(day),
-  },
-  {
-    wake: "index, set for the seal",
-    deadline: "17:00:00",
-    arrange: (fixture) =>
-      Effect.gen(function* () {
-        yield* at("09:01:10")
-        const day = yield* fixture.start
-        yield* day.trades(TAPE)
-        yield* TestClock.adjust("70 seconds")
-        yield* day.brokerCodes("Ajaib", CODES, 7)
-        yield* day.evicted
-        yield* fixture.dropIndex
-        yield* at("12:00:00")
-        yield* (yield* fixture.start).evicted
-      }),
-    done: (fixture) => fixture.indexed,
-  },
-  {
-    wake: "index retried",
-    deadline: "17:46:00",
-    arrange: (fixture) =>
-      Effect.gen(function* () {
-        yield* (yield* builtDay(fixture.db, fixture.sql)).evicted
-        yield* fixture.dropIndex
-        yield* at("17:45:00")
-        const day = yield* fixture.start
-        fixture.flaky.failing = true
-        yield* day.alarm
-        fixture.flaky.failing = false
-        yield* day.evicted
-      }),
-    done: (fixture) => fixture.indexed,
   },
   {
     wake: "build retried",

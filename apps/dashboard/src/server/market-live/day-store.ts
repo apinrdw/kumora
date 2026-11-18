@@ -226,6 +226,10 @@ export const Fact = {
   // cross-check walk.
   brokerCodesN: "broker-codes-n",
   crossCheck: "cross-check",
+  // Whether the day holds codes for every trade 1..N (broker-codes.ts,
+  // `codesComplete`): `true` or `false`, none on a day no batch or seal
+  // wrote it for.
+  codesComplete: "codes-complete",
   // The one-off build of a day's order flow rows (order-flow-build.ts): the
   // last minute it wrote, then ORDER_FLOW_BUILT.
   orderFlowBuilt: "order-flow-built",
@@ -233,9 +237,6 @@ export const Fact = {
   // last minute it wrote, then SWEEP_BROKERS_BUILT, each under
   // SWEEP_BROKERS_SHAPE.
   sweepBrokersBuilt: "sweep-brokers-built",
-  // The broker trades index's rebuild (broker-codes.ts): the last chunk it
-  // indexed, then BROKER_TRADES_BUILT.
-  brokerTrades: "broker-trades",
   // Where the day's tape comes from (trading-day.ts): TapeSource's relay or
   // walk, none while unknown.
   tapeSource: "tape-source",
@@ -248,14 +249,11 @@ export const Fact = {
   // When each alarm duty is next due (wakes.ts): epoch millis, none once
   // done.
   sealWake: "seal-wake",
-  indexWake: "index-wake",
   buildWake: "build-wake",
   // The WIB date of the object's last usage line (trading-day.ts,
   // `usageLine`).
   usageLogged: "usage-logged",
 } as const
-
-export const BROKER_TRADES_BUILT = "built"
 
 export const TAPE_SUMMARY_BUILT = "built"
 
