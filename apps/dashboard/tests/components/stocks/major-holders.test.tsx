@@ -212,6 +212,23 @@ describe("Major holders", () => {
     ])
   })
 
+  test("fills the ownership bar to 100% with no Under 1% when the published % sum past 100%", async () => {
+    await render({
+      months: [
+        month("2026-10-30", [
+          holder("A", [row("ALPHA", 600, 6000)]),
+          holder("B", [row("BETA", 500, 5000)]),
+        ]),
+      ],
+    })
+    const widths = segments().map(([, width]) => Number.parseFloat(width ?? ""))
+    expect(widths[0]).toBeCloseTo(54.55, 2)
+    expect(widths[1]).toBeCloseTo(45.45, 2)
+    expect(widths[2]).toBe(0)
+    expect(widths.reduce((sum, width) => sum + width, 0)).toBeCloseTo(100, 6)
+    expect(legend()).toContain("Under 1% 0.00%")
+  })
+
   test("names the top 6 holders in the ownership bar's legend, then how many more", async () => {
     const eight = Array.from({ length: 8 }, (_, index) =>
       holder(`H${index}`, [row(`HOLDER ${index}`, 1000 - index, 900 - index)])

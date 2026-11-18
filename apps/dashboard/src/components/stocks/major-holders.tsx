@@ -123,7 +123,8 @@ const LEGEND_TOP = 6
 
 // apinrdw/kumora#474's layout B bar: the month's listed shares split among
 // its holders in table order, controllers and affiliates gold, then the
-// rest of the 100% as Under 1%.
+// rest of the 100% as Under 1%. Published percentages can sum past 100%:
+// Under 1% is then none, and the bar splits that sum instead.
 function OwnershipBar({ holders }: { holders: MonthHolders }) {
   const segments = holders.listed.map((line, index) => {
     const tone = line.controller ? "gold" : "blue"
@@ -134,7 +135,8 @@ function OwnershipBar({ holders }: { holders: MonthHolders }) {
       percent: Effect.runSync(percentOf(line.percentageHundredths)),
     }
   })
-  const under = 10_000 - holders.totalHundredths
+  const under = Math.max(0, 10_000 - holders.totalHundredths)
+  const whole = Math.max(10_000, holders.totalHundredths)
   const underPercent = Effect.runSync(percentOf(under))
   const more = segments.length - LEGEND_TOP
   return (
@@ -149,14 +151,14 @@ function OwnershipBar({ holders }: { holders: MonthHolders }) {
             key={line.key}
             title={`${line.name} ${percent}`}
             data-tone={tone}
-            style={{ width: `${line.percentageHundredths / 100}%` }}
+            style={{ width: `${(100 * line.percentageHundredths) / whole}%` }}
             className={cn("border-surface min-w-px border-r", className)}
           />
         ))}
         <div
           title={`Holders under 1% ${underPercent}`}
           data-tone="under"
-          style={{ width: `${under / 100}%` }}
+          style={{ width: `${(100 * under) / whole}%` }}
           className={UNDER_1}
         />
       </div>
