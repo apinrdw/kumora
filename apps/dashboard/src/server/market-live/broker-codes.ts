@@ -99,38 +99,60 @@ const SCAN_PAGE = 64
 // apinrdw/kumora#457.
 export const MISSING_ALLOWANCE = 1_000
 
-// The summary rows of the chunks whose trades are numbered ?..?, from one
-// pass over those trades. A pass starts on a chunk's first trade, so the
-// runs it lacks before its first taped trade start at the chunk's.
-const SUMMARIZE = `INSERT OR REPLACE INTO tape_summary (chunk, held, holes)
-  SELECT chunk, held,
-    CASE WHEN high < (chunk + 1) * ${CHUNK}
-      THEN json_insert(holes, '$[#]', json_array(high + 1, (chunk + 1) * ${CHUNK}))
-      ELSE holes END
-  FROM (
-    SELECT chunk, count(*) AS held, max(number) AS high,
-      json_group_array(json_array(max(before, chunk * ${CHUNK}) + 1, number - 1))
-        FILTER (WHERE number > max(before, chunk * ${CHUNK}) + 1) AS holes
-    FROM (
-      SELECT number, (number - 1) / ${CHUNK} AS chunk,
-        lag(number, 1, 0) OVER (ORDER BY number) AS before
-      FROM trades WHERE number BETWEEN ? AND ?
+// The summary rows of chunks first..last that hold a tape trade, from one
+// read of their trades' numbers, inside a transaction.
+// Decision: the runs are worked out here, not in SQL: one statement that
+// grouped the tape by chunk over lag() billed 5 rows read a trade in workerd,
+// its window's and grouping's temporary tables counted, against 1 here.
+const summarizeChunks = (sql: Sql, first: number, last: number) => {
+  let chunk = -1
+  let held = 0
+  // The lowest number of `chunk` not yet accounted for.
+  let next = 0
+  let holes: Array<readonly [number, number]> = []
+  const written = () => {
+    if (chunk < 0) return
+    if (next <= (chunk + 1) * CHUNK) holes.push([next, (chunk + 1) * CHUNK])
+    sql.exec(
+      "INSERT OR REPLACE INTO tape_summary VALUES (?, ?, ?)",
+      chunk,
+      held,
+      JSON.stringify(holes)
     )
-    GROUP BY chunk
-  )`
+  }
+  for (const row of sql.exec(
+    "SELECT number FROM trades WHERE number BETWEEN ? AND ? ORDER BY number",
+    first * CHUNK + 1,
+    (last + 1) * CHUNK
+  )) {
+    const number = Number(row.number)
+    const at = Math.floor((number - 1) / CHUNK)
+    if (at !== chunk) {
+      written()
+      chunk = at
+      held = 0
+      next = at * CHUNK + 1
+      holes = []
+    }
+    if (number > next) holes.push([next, number - 1])
+    held++
+    next = number + 1
+  }
+  written()
+}
 
 const summaryBuilt = (sql: Sql) =>
   sql.exec("SELECT value FROM facts WHERE key = ?", Fact.tapeSummary)[0]
     ?.value === TAPE_SUMMARY_BUILT
 
 // The whole tape's summary rows and the fact that they stand for it, inside
-// a transaction. It goes SCAN_PAGE chunks a statement, so no statement sorts
-// the whole tape.
+// a transaction. It reads SCAN_PAGE chunks' trades at a time, so the whole
+// tape's numbers never sit in memory at once.
 const summarizeWhole = (sql: Sql) => {
   const [top] = sql.exec("SELECT max(number) AS number FROM trades")
   const chunks = Math.ceil(Number(top?.number ?? 0) / CHUNK)
   for (let first = 0; first < chunks; first += SCAN_PAGE)
-    sql.exec(SUMMARIZE, first * CHUNK + 1, (first + SCAN_PAGE) * CHUNK)
+    summarizeChunks(sql, first, first + SCAN_PAGE - 1)
   sql.exec(
     "INSERT OR REPLACE INTO facts VALUES (?, ?)",
     Fact.tapeSummary,
@@ -149,18 +171,57 @@ export const summarizeTape = (sql: Sql) =>
     })
   )
 
-// Decision: a walk batch's tape trades update the summary rows of the chunks
-// they fall in, inside the transaction that writes them, so a walk day's
-// status reads the summary as a sealed day's does. A tape stored before the
-// summary is summarized whole at its first such write. See
-// apinrdw/kumora#543.
+// The runs of 1s in `marks`, the marks of chunk `chunk`, as trade numbers.
+const runsOf = (chunk: number, marks: Uint8Array) => {
+  const runs: Array<readonly [number, number]> = []
+  for (let slot = 0; slot < CHUNK; slot++) {
+    if (marks[slot] !== 1) continue
+    const from = slot
+    while (marks[slot + 1] === 1) slot++
+    runs.push([chunk * CHUNK + from + 1, chunk * CHUNK + slot + 1])
+  }
+  return runs
+}
+
+// Decision: a walk batch's tape trades leave the holes of their chunks'
+// summary rows in the transaction that writes them, so a walk day's status
+// reads the summary as a sealed day's does, and a batch reads those rows,
+// not the chunks' trades. A tape stored before the summary is summarized
+// whole at its first such write. See apinrdw/kumora#543.
 export const summarizeTaped =
   (sql: Sql, numbers: ReadonlyArray<number>) => () => {
     if (numbers.length === 0) return
     if (!summaryBuilt(sql)) return summarizeWhole(sql)
-    const first = Math.floor((Math.min(...numbers) - 1) / CHUNK)
-    const last = Math.floor((Math.max(...numbers) - 1) / CHUNK)
-    sql.exec(SUMMARIZE, first * CHUNK + 1, (last + 1) * CHUNK)
+    // Each touched chunk's trades the tape lacks, marked 1.
+    const lacking = new Map<number, Uint8Array>()
+    for (const number of numbers) {
+      const chunk = Math.floor((number - 1) / CHUNK)
+      let marks = lacking.get(chunk)
+      if (marks === undefined) {
+        const [row] = sql.exec(
+          "SELECT holes FROM tape_summary WHERE chunk = ?",
+          chunk
+        )
+        marks = new Uint8Array(CHUNK)
+        if (row === undefined) marks.fill(1)
+        else
+          for (const [from, to] of JSON.parse(
+            String(row.holes)
+          ) as ReadonlyArray<readonly [number, number]>)
+            marks.fill(1, from - chunk * CHUNK - 1, to - chunk * CHUNK)
+        lacking.set(chunk, marks)
+      }
+      marks[number - chunk * CHUNK - 1] = 0
+    }
+    for (const [chunk, marks] of lacking) {
+      const holes = runsOf(chunk, marks)
+      sql.exec(
+        "INSERT OR REPLACE INTO tape_summary VALUES (?, ?, ?)",
+        chunk,
+        CHUNK - holes.reduce((count, [from, to]) => count + to - from + 1, 0),
+        JSON.stringify(holes)
+      )
+    }
   }
 
 // Stockbit's walk position and whether it ended, kept as the `cross-check`
@@ -254,10 +315,14 @@ const mergeStockbit = Effect.fnUntraced(function* (
 })
 
 // A row's fields as walk_trades stores them, in its column order: none for
-// a row without fields.
-const fieldsRows = (number: number, fields: TradeFields | undefined) =>
+// a row without fields, or when walk_trades `keeps` none.
+const fieldsRows = (
+  number: number,
+  fields: TradeFields | undefined,
+  keeps: boolean
+) =>
   Effect.succeed(
-    fields === undefined
+    fields === undefined || !keeps
       ? []
       : [
           [
@@ -594,11 +659,16 @@ export const makeBrokerCodes = Effect.fnUntraced(function* (options: {
       recorded.set(chunk, stored)
       return Option.fromNullishOr(stored.get(number))
     })
+    // Decision: a day whose walk rows hold no trade took the batch's fields
+    // as its tape before the merge (`walkTapeOf` in trading-day.ts), so no
+    // field lands in walk_trades and the batch skips its check against the
+    // tape: 10 K rows read for a walk day's Ajaib page of 5,000.
+    const keepsFields = yield* options.walkRowsHold
     let highest = 0
     for (const [tradeNumber, codes, fields] of batch.rows) {
       const number = Number(tradeNumber)
       highest = Math.max(highest, number)
-      merged.fields.push(...(yield* fieldsRows(number, fields)))
+      merged.fields.push(...(yield* fieldsRows(number, fields, keepsFields)))
       const { chunk, at } = yield* placeOf(number)
       const held = merged.chunks.get(chunk) ?? (yield* chunkOf(chunk))
       merged.chunks.set(chunk, held)
