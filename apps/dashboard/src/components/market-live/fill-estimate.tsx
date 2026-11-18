@@ -114,14 +114,18 @@ const shortNote = (fill: FillEstimate, walked: string) =>
 
 /**
  * The fill estimate over the selected code's book, live or at a recorded
- * day's cursor, greyed with the readings while they are paused.
+ * day's cursor, greyed with the readings while they are paused. In a
+ * recorded relay gap (`unrecorded`) it fills nothing: the book held there
+ * is the last one before the gap.
  */
 export function FillEstimatePart({
   store,
   paused,
+  unrecorded,
 }: {
   store: OrderBookStore
   paused: boolean
+  unrecorded: boolean
 }) {
   const held = useSyncExternalStore(
     store.subscribe,
@@ -130,7 +134,7 @@ export function FillEstimatePart({
   )
   const { size } = useOrderSize()
   const book: OrderBook | undefined =
-    held?._tag === "OrderBook" ? held : undefined
+    !unrecorded && held?._tag === "OrderBook" ? held : undefined
   const fills = SIDES.map(({ side, walked }) => ({
     walked,
     fill:
@@ -172,6 +176,9 @@ export function FillEstimatePart({
           )),
         ])}
       </div>
+      {unrecorded && (
+        <p className="text-[11px] text-muted-foreground">Not recorded</p>
+      )}
       {fills.map(({ fill, walked }) =>
         fill?.short ? (
           <p key={walked} className="text-warning text-[11px]">

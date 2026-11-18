@@ -30,7 +30,7 @@ import { useDayState, type DayStateStore } from "./day-state-store"
 import { FillEstimatePart } from "./fill-estimate"
 import { PHASE, useMarketPhase } from "./market-conditions"
 import type { OrderBookStore } from "./order-book-store"
-import { useReplay, type ReplayCursor } from "./replay-cursor"
+import type { ReplayCursor } from "./replay-cursor"
 import { useSpecialBoard } from "./use-special-board"
 
 const LIMIT_NAMES = { upper: "upper", lower: "lower" } as const
@@ -253,26 +253,37 @@ function LiveReadings({
   return <Readings readings={readings} paused={paused} />
 }
 
+// Whether a recorded day's cursor is in a relay gap; never live. The book
+// held there is the last one before the gap.
+function useInGap(
+  cursor: ReplayCursor | undefined,
+  gaps: ReadonlyArray<RelayGap>
+) {
+  return useSyncExternalStore(
+    (listener) => cursor?.subscribe(listener) ?? (() => undefined),
+    () =>
+      cursor !== undefined &&
+      Effect.runSync(gapAt(gaps, cursor.state().at)) !== undefined,
+    () => false
+  )
+}
+
 // A recorded day's readings at the cursor, read from its stored frame.
 function RecordedReadings({
   code,
   book,
   dayStates,
   cursor,
-  gaps,
+  inGap,
 }: {
   code: StockCode
   book: OrderBookStore
   dayStates: DayStateStore
   cursor: ReplayCursor
-  gaps: ReadonlyArray<RelayGap>
+  inGap: boolean
 }) {
   const held = useSyncExternalStore(book.subscribe, book.book, () => undefined)
   const state = useDayState(dayStates, code)
-  const inGap = useReplay(
-    cursor,
-    ({ at }) => Effect.runSync(gapAt(gaps, at)) !== undefined
-  )
   if (inGap) return <Note>Not recorded</Note>
   if (held?._tag !== "OrderBook") return <Note>No book recorded by then.</Note>
   const readings = Effect.runSync(
@@ -349,6 +360,7 @@ export function BookReadout({
     state?.previousClose ?? shown?.previousClose
   )
   const paused = usePause(today, cursor === undefined, readings)
+  const inGap = useInGap(cursor, gaps)
   // The fill estimate, and the events when given.
   const parts = events === undefined ? 1 : 2
   return (
@@ -375,10 +387,14 @@ export function BookReadout({
               book={book}
               dayStates={dayStates}
               cursor={cursor}
-              gaps={gaps}
+              inGap={inGap}
             />
           )}
-          <FillEstimatePart store={book} paused={paused !== undefined} />
+          <FillEstimatePart
+            store={book}
+            paused={paused !== undefined}
+            unrecorded={inGap}
+          />
           {events}
         </div>
       )}
