@@ -1,7 +1,8 @@
 // The stock page's Major holders panel (spec apinrdw/kumora#479, "Major
 // holders panel"; apinrdw/kumora#474's layout A): one above-1% report month,
 // picked by its own month tabs, as a table of the stock's ≥1% holders, each
-// against the report month before, off-list holders greyed at the bottom.
+// against the report month before, off-list holders greyed at the bottom,
+// then every month's holders in a grid.
 import type { StockCode } from "@workspace/relay"
 import { cn } from "@workspace/ui/lib/utils"
 import { Effect } from "effect"
@@ -10,6 +11,7 @@ import { Fragment, useState } from "react"
 import { kCard, kFocus } from "@/components/k/styles"
 import { KTooltip } from "@/components/k/tooltip"
 import { MonthTabs } from "@/components/stocks/choice"
+import { EveryMonth } from "@/components/stocks/every-month"
 import { compact, count, MINUS, plain } from "@/lib/format"
 import {
   type Change,
@@ -71,6 +73,7 @@ export function MajorHolders({
             Percent of listed shares, scrip included, as IDX publishes it.
             Holders under 1% are not listed.
           </p>
+          <EveryMonth months={months} selected={figures.dataDate} />
         </>
       )}
     </section>
