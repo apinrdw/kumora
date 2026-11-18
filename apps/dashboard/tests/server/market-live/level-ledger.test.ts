@@ -272,6 +272,25 @@ describe("level ledger", () => {
     })
   )
 
+  it.effect("no move to a wall that was out of view", () =>
+    Effect.gen(function* () {
+      // Twenty levels from 1000; when the wall at 990 is pulled, the level
+      // under the last, a wall of the same size at 900, comes into view.
+      const side = (pulled: boolean) =>
+        Array.from({ length: 21 }, (_, k): Row => {
+          const price = 1000 - 5 * k
+          return price === 990 || price === 900
+            ? [price, 6000, 2]
+            : [price, 1000]
+        }).filter(([price]) => (pulled ? price !== 990 : price !== 900))
+      const events = yield* run(everySecond(40, (second) => side(second >= 36)))
+      assert.deepStrictEqual(
+        kinds(events.filter((event) => event.kind !== "appeared")),
+        ["pulled bid 990"]
+      )
+    })
+  )
+
   it.effect("no pull when the wall leaves the 20 levels", () =>
     Effect.gen(function* () {
       // Twenty levels with a wall at the last; the best rises a tick, so the
