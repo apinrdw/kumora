@@ -39,10 +39,15 @@ def read(path):
     return rows
 
 
+# Legal forms, then honorifics (amendment on apinrdw/kumora#478; DR stays: it marks depositary receipts).
+DROP = {"PT", "TBK", "TB", "PERSERO",
+        "IR", "DRS", "DRA", "H", "HJ", "HJH", "PROF", "SE", "SH", "ST", "MM", "MBA", "MSC", "SKOM", "SPD", "ME", "MSI", "SKED"}
+
+
 def key(name):
     s = name.upper()
     s = re.sub(r"[.,;:'\"()\-/&]", " ", s)
-    words = [w for w in s.split() if w not in ("PT", "TBK", "TB", "PERSERO")]
+    words = [w for w in s.split() if w not in DROP]
     return " ".join(sorted(words))
 
 
