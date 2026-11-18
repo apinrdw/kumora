@@ -1,0 +1,251 @@
+// Book readings (spec apinrdw/kumora#517, "Book readings"): what the order
+// book radar measures from one stock code's order book. The trading-day
+// Durable Object reads every changed book on each delta tick in Sessions 1
+// and 2; the Market Live page reads a recorded day's stored frame at the
+// cursor with the same functions.
+import { Effect, Schema, SchemaGetter } from "effect"
+
+import { StockCode } from "./codes.ts"
+import { SHARES_PER_LOT, type BookLevel, type OrderBook } from "./order-book.ts"
+import type { WibDate } from "./schedule.ts"
+import { priceLimitsOf, ticksBetween } from "./ticks.ts"
+
+// Decision: every reading covers the best 5 levels a side, fixed: the user
+// can't change it. See spec apinrdw/kumora#517, "Book readings".
+const NEAR_LEVELS = 5
+
+// One side's readings over its best five levels: near depth in rupiah and
+// lots, the empty ticks between its best level and its fifth with the widest
+// single gap, and its lots per order (none without an order).
+const SideReadings = Schema.Struct({
+  depth: Schema.Finite,
+  lots: Schema.Finite,
+  emptyTicks: Schema.Int,
+  widestGap: Schema.Int,
+  lotsPerOrder: Schema.UndefinedOr(Schema.Finite),
+})
+type SideReadings = typeof SideReadings.Type
+
+const Limit = Schema.Literals(["upper", "lower"])
+
+// One code's readings. Imbalance runs from -1 (offers only) to 1 (bids only),
+// none when both sides are empty; the spread is none when either is. `limit`
+// marks a code at its upper or lower auto-reject limit. `at` is the book's
+// as-of, `value` the code's regular-board value today in rupiah.
+const BookReadingsFields = Schema.Struct({
+  code: StockCode,
+  at: Schema.DateTimeUtc,
+  value: Schema.Finite,
+  imbalance: Schema.UndefinedOr(Schema.Finite),
+  spread: Schema.UndefinedOr(
+    Schema.Struct({ ticks: Schema.Int, percent: Schema.Finite })
+  ),
+  limit: Schema.UndefinedOr(Limit),
+  bid: SideReadings,
+  offer: SideReadings,
+})
+
+const rounded = (value: number, places: number) => {
+  const scale = 10 ** places
+  return Math.round(value * scale) / scale
+}
+
+const LIMIT_CODES = { upper: 1, lower: -1 } as const
+
+// Decision: readings travel as a tuple, [code, as-of, value, imbalance,
+// spread ticks, spread %, limit (1 upper, -1 lower, 0 none), then for the bid
+// and then the offer: depth, lots, empty ticks, widest gap, lots per order],
+// with none as null. Every changed code's go out in each delta, and keys
+// would double the ~100 bytes the spec budgets for one. Encoding rounds
+// imbalance and the spread to 4 places, lots per order to 2, and depth to
+// the rupiah: finer digits are noise on the page. See spec
+// apinrdw/kumora#517, "Data".
+const WireSide = [
+  Schema.Finite,
+  Schema.Finite,
+  Schema.Int,
+  Schema.Int,
+  Schema.NullOr(Schema.Finite),
+] as const
+
+export const BookReadings = Schema.Tuple([
+  StockCode,
+  Schema.DateTimeUtcFromMillis,
+  Schema.Finite,
+  Schema.NullOr(Schema.Finite),
+  Schema.NullOr(Schema.Int),
+  Schema.NullOr(Schema.Finite),
+  Schema.Literals([1, -1, 0]),
+  ...WireSide,
+  ...WireSide,
+]).pipe(
+  Schema.decodeTo(Schema.toType(BookReadingsFields), {
+    decode: SchemaGetter.transform(
+      ([
+        code,
+        at,
+        value,
+        imbalance,
+        spreadTicks,
+        spreadPercent,
+        limit,
+        bidDepth,
+        bidLots,
+        bidEmpty,
+        bidWidest,
+        bidPerOrder,
+        offerDepth,
+        offerLots,
+        offerEmpty,
+        offerWidest,
+        offerPerOrder,
+      ]) => {
+        const side = (
+          depth: number,
+          lots: number,
+          emptyTicks: number,
+          widestGap: number,
+          lotsPerOrder: number | null
+        ): SideReadings => ({
+          depth,
+          lots,
+          emptyTicks,
+          widestGap,
+          lotsPerOrder: lotsPerOrder ?? undefined,
+        })
+        return {
+          code,
+          at,
+          value,
+          imbalance: imbalance ?? undefined,
+          spread:
+            spreadTicks === null || spreadPercent === null
+              ? undefined
+              : { ticks: spreadTicks, percent: spreadPercent },
+          limit: limit === 1 ? "upper" : limit === -1 ? "lower" : undefined,
+          bid: side(bidDepth, bidLots, bidEmpty, bidWidest, bidPerOrder),
+          offer: side(
+            offerDepth,
+            offerLots,
+            offerEmpty,
+            offerWidest,
+            offerPerOrder
+          ),
+        } as const
+      }
+    ),
+    encode: SchemaGetter.transform((readings) => {
+      const side = (each: SideReadings) =>
+        [
+          Math.round(each.depth),
+          each.lots,
+          each.emptyTicks,
+          each.widestGap,
+          each.lotsPerOrder === undefined
+            ? null
+            : rounded(each.lotsPerOrder, 2),
+        ] as const
+      return [
+        readings.code,
+        readings.at,
+        Math.round(readings.value),
+        readings.imbalance === undefined
+          ? null
+          : rounded(readings.imbalance, 4),
+        readings.spread?.ticks ?? null,
+        readings.spread === undefined
+          ? null
+          : rounded(readings.spread.percent, 4),
+        readings.limit === undefined ? 0 : LIMIT_CODES[readings.limit],
+        ...side(readings.bid),
+        ...side(readings.offer),
+      ] as const
+    }),
+  })
+)
+export type BookReadings = typeof BookReadings.Type
+
+// One side's best five levels, best first.
+const readSide = Effect.fnUntraced(function* (
+  levels: ReadonlyArray<BookLevel>
+) {
+  const near = levels.slice(0, NEAR_LEVELS)
+  let depth = 0
+  let lots = 0
+  let orders = 0
+  let emptyTicks = 0
+  let widestGap = 0
+  for (const [index, level] of near.entries()) {
+    depth += level.price * level.lots * SHARES_PER_LOT
+    lots += level.lots
+    orders += level.orders
+    const before = near[index - 1]
+    if (before === undefined) continue
+    const gap =
+      (yield* ticksBetween(
+        Math.min(before.price, level.price),
+        Math.max(before.price, level.price)
+      )) - 1
+    if (gap <= 0) continue
+    emptyTicks += gap
+    widestGap = Math.max(widestGap, gap)
+  }
+  const side: SideReadings = {
+    depth,
+    lots,
+    emptyTicks,
+    widestGap,
+    lotsPerOrder: orders > 0 ? lots / orders : undefined,
+  }
+  return side
+})
+
+// Whether the book sits at an auto-reject limit: one side empty and the last
+// price at the limit its previous close sets. Special Monitoring Board codes
+// show no readings, so the regular boards' rule applies.
+const limitOf = Effect.fnUntraced(function* (
+  book: OrderBook,
+  last: number | undefined,
+  date: WibDate
+) {
+  if (book.previousClose === undefined || last === undefined) return undefined
+  const limits = yield* priceLimitsOf(book.previousClose, date, "regular")
+  if (book.offers.length === 0 && last >= limits.upper) return "upper" as const
+  if (book.bids.length === 0 && last <= limits.lower) return "lower" as const
+  return undefined
+})
+
+// `book`'s readings on `date`, with the code's last price (for the limit
+// mark) and its value today.
+export const bookReadingsOf = Effect.fnUntraced(function* (
+  book: OrderBook,
+  context: {
+    readonly date: WibDate
+    readonly last: number | undefined
+    readonly value: number
+  }
+) {
+  const bid = yield* readSide(book.bids)
+  const offer = yield* readSide(book.offers)
+  const total = bid.lots + offer.lots
+  const bestBid = book.bids[0]?.price
+  const bestOffer = book.offers[0]?.price
+  const readings: BookReadings = {
+    code: book.code,
+    at: book.at,
+    value: context.value,
+    imbalance: total > 0 ? (bid.lots - offer.lots) / total : undefined,
+    spread:
+      bestBid === undefined || bestOffer === undefined
+        ? undefined
+        : {
+            ticks: yield* ticksBetween(bestBid, bestOffer),
+            percent:
+              ((bestOffer - bestBid) / ((bestOffer + bestBid) / 2)) * 100,
+          },
+    limit: yield* limitOf(book, context.last, context.date),
+    bid,
+    offer,
+  }
+  return readings
+})

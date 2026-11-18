@@ -20,6 +20,7 @@ import {
   encodeViewerUp,
 } from "@workspace/relay"
 import type {
+  BookReadings,
   IngestDown,
   IngestUp,
   ViewerDown,
@@ -329,6 +330,72 @@ describe("viewer protocol, down", () => {
         const wire = yield* encodeViewerDown(message)
         assert.deepStrictEqual(yield* decodeViewerDown(wire), message)
       })
+  )
+
+  it.effect("book readings round trip in a delta and a snapshot", () =>
+    Effect.gen(function* () {
+      assert.strictEqual(ViewerProtocolVersion, 6)
+      const readings: BookReadings = {
+        code: StockCode.make("ERAA"),
+        at: DateTime.makeUnsafe("2026-11-18T03:00:00.125Z"),
+        value: 5_000_000_000,
+        imbalance: -0.2345,
+        spread: { ticks: 2, percent: 0.995 },
+        limit: "upper",
+        bid: {
+          depth: 14_815_000,
+          lots: 150,
+          emptyTicks: 2,
+          widestGap: 1,
+          lotsPerOrder: 6.25,
+        },
+        offer: {
+          depth: 0,
+          lots: 0,
+          emptyTicks: 0,
+          widestGap: 0,
+          lotsPerOrder: undefined,
+        },
+      }
+      const thin: BookReadings = {
+        ...readings,
+        code: StockCode.make("KOTA"),
+        imbalance: undefined,
+        spread: undefined,
+        limit: undefined,
+      }
+      const delta: ViewerDown = {
+        _tag: "Delta",
+        at: DateTime.makeUnsafe("2026-11-18T03:00:00.250Z"),
+        tape: [],
+        candles: [],
+        bookReadings: [readings, thin],
+      }
+      const deltaWire = yield* encodeViewerDown(delta)
+      assert.deepStrictEqual(yield* decodeViewerDown(deltaWire), delta)
+      // A reading travels as a short tuple, not keyed.
+      assert.isBelow(
+        JSON.stringify(JSON.parse(deltaWire).bookReadings[0]).length,
+        110
+      )
+      const snapshot: ViewerDown = {
+        _tag: "Snapshot",
+        at: DateTime.makeUnsafe("2026-11-18T03:00:00.250Z"),
+        selected: StockCode.make("ERAA"),
+        tape: [],
+        candles: [],
+        footprints: [],
+        conditions: {
+          phase: "session-1",
+          relayOnline: true,
+          feeds: { Stockbit: "live", Ajaib: "live" },
+          gaps: [],
+        },
+        bookReadings: [readings],
+      }
+      const snapshotWire = yield* encodeViewerDown(snapshot)
+      assert.deepStrictEqual(yield* decodeViewerDown(snapshotWire), snapshot)
+    })
   )
 })
 

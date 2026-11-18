@@ -1,5 +1,6 @@
 import { Effect, Option, Order, Schema, SchemaGetter } from "effect"
 
+import { BookReadings } from "./book-readings.ts"
 import { StockCode } from "./codes.ts"
 import { IndicativePrice, MarketConditions } from "./market-conditions.ts"
 import { DayState } from "./day-state.ts"
@@ -23,7 +24,10 @@ const acceptedIngestVersions: ReadonlyArray<unknown> = [
 // 4: a trade's feeds may list `walk` (spec apinrdw/kumora#437).
 // 5: candles carry their buy value and sell value, and snapshots and deltas
 // the instant they were sent (spec apinrdw/kumora#427).
-export const ViewerProtocolVersion = 5
+// 6: deltas carry whole order books only for selected codes and every
+// changed code's book readings; snapshots carry every code's readings (spec
+// apinrdw/kumora#517).
+export const ViewerProtocolVersion = 6
 
 // Decision: an extension that hits either code stops retrying that target and
 // shows it; any other close, 1006 included, retries with backoff. The token
@@ -261,9 +265,6 @@ export const groupedNumber = (text: string) =>
 // or a walk after the close, on a day whose tape source is the walks.
 const TradeSource = Schema.Literals(["Stockbit", "Ajaib", "backfill", "walk"])
 
-// The shares in one IDX lot.
-export const SHARES_PER_LOT = 100
-
 // One trade on the whole-market tape, merged across feeds. Its trade number is
 // the bare daily sequence, one market-wide numbering per trading day. Value is
 // price × lots × SHARES_PER_LOT, so it does not travel.
@@ -432,13 +433,15 @@ const Snapshot = Schema.TaggedStruct("Snapshot", {
   // The selected and watchlist codes' that have one, so the watchlist shows
   // them during an auction. Absent when none has.
   indicative: Schema.optionalKey(Schema.Array(IndicativePrice)),
+  // Every code's latest book readings, with its value today. Absent when no
+  // code has any yet.
+  bookReadings: Schema.optionalKey(Schema.Array(BookReadings)),
 })
 
 // The running trades that arrived in the last ~250 ms, ascending by trade
 // number. A late trade sorts below ones the viewer already holds. Candles are
 // every candle that changed since the last delta, of any code, each whole: the
-// page keeps its selected code's. Order books likewise: every code's whose
-// served book changed, each whole.
+// page keeps its selected code's.
 const Delta = Schema.TaggedStruct("Delta", {
   at: SentAt,
   tape: Schema.Array(RunningTrade),
@@ -457,7 +460,14 @@ const Delta = Schema.TaggedStruct("Delta", {
   // Every changed Day state of a code some viewer selected or watches, each
   // whole. Absent when none changed.
   dayStates: Schema.optionalKey(Schema.Array(DayState)),
+  // Every served book that changed since the last delta of a code some
+  // viewer selected, each whole: the page reads only its selected code's.
+  // Absent when none changed.
   orderBooks: Schema.optionalKey(Schema.Array(OrderBook)),
+  // The readings of every code whose served book changed since the last
+  // delta, whatever each viewer selected, taken only in Sessions 1 and 2.
+  // Absent when none changed.
+  bookReadings: Schema.optionalKey(Schema.Array(BookReadings)),
   // Present only when they changed.
   conditions: Schema.optionalKey(MarketConditions),
   // Every code's that changed, whatever each viewer selected.

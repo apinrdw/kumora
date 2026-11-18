@@ -2,6 +2,9 @@ import { Schema } from "effect"
 
 import { StockCode } from "./codes.ts"
 
+// The shares in one IDX lot.
+export const SHARES_PER_LOT = 100
+
 // Levels a side the trading-day Durable Object sends: the page shows 10 and
 // draws its depth curve from 20 (spec apinrdw/kumora#138, "Order book").
 export const BOOK_DEPTH = 20

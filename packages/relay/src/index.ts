@@ -50,7 +50,6 @@ export {
   OnDemandCodes,
   ProtocolVersionMismatch,
   Select,
-  SHARES_PER_LOT,
   Side,
   StockbitFrames,
   TradeNumber,
@@ -132,7 +131,9 @@ export type {
 } from "./recorded-day.ts"
 export type { CodeKind, ListedCode } from "./code-list.ts"
 export type { DayChange, DayState } from "./day-state.ts"
-export { BOOK_DEPTH, BookLevel } from "./order-book.ts"
+export { BOOK_DEPTH, BookLevel, SHARES_PER_LOT } from "./order-book.ts"
+export { bookReadingsOf } from "./book-readings.ts"
+export type { BookReadings } from "./book-readings.ts"
 export {
   HEAT_SLICE_MS,
   decodeRecordedHeatmap,
@@ -186,3 +187,4 @@ export {
   decodeSectorMap,
 } from "./sectors.ts"
 export type { SectorMap } from "./sectors.ts"
+export { priceLimitsOf, tickAt, ticksBetween } from "./ticks.ts"
