@@ -32,7 +32,7 @@ CREATE TABLE above_1_holding (
   nationality TEXT,
   domicile TEXT,
   -- CONTROLLER_OR_AFFILIATE, published from Oct 2026; null when blank or
-  -- before. The values are Controller's (src/domain/holdings.ts).
+  -- before.
   controller TEXT CHECK (controller IN ('controller', 'affiliate')),
   scripless INTEGER NOT NULL CHECK (scripless >= 0),
   scrip INTEGER NOT NULL CHECK (scrip >= 0),
