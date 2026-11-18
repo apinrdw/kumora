@@ -1,6 +1,6 @@
 import type { AlertSide, ViewerDown, WibDate } from "@workspace/relay"
 import { Effect } from "effect"
-import { useState } from "react"
+import { useMemo } from "react"
 
 import { usePlayingTab } from "./playing-tab"
 import { soundOn as speakerOn } from "./sound-toggle"
@@ -43,15 +43,16 @@ export const makeSweepAlertPlayer = ({
 // while this tab holds the role.
 export const useSweepAlertPlayer = (day: WibDate | undefined) => {
   const tab = usePlayingTab(day)
-  const [player] = useState(() =>
-    Effect.runSync(
-      makeSweepAlertPlayer({
-        sink: sweepAlertSound,
-        day,
-        soundOn: speakerOn,
-        mayPlay: tab.holds,
-      })
-    )
+  return useMemo(
+    () =>
+      Effect.runSync(
+        makeSweepAlertPlayer({
+          sink: sweepAlertSound,
+          day,
+          soundOn: speakerOn,
+          mayPlay: tab.holds,
+        })
+      ),
+    [day, tab]
   )
-  return player
 }
