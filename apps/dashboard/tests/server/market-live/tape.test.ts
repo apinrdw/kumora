@@ -189,7 +189,6 @@ for (const [shape, makeSql] of shapes)
         assert.deepStrictEqual(span, {
           first: DateTime.toEpochMillis(wib("08:59:00")),
           last: minute,
-          chunkCodes: [],
         })
       })
     )

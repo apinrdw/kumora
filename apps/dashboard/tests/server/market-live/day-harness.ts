@@ -2,8 +2,11 @@
 // flow tests (spec apinrdw/kumora#263): fake sockets, Node's SQLite, and
 // Stockbit running trade batches. Time moves only by TestClock: a delta goes
 // out 250 ms after what it carries arrived, a flush 5 s past each minute.
+import { gunzipSync } from "node:zlib"
+
 import {
   BrokerCode,
+  HEAT_SLICE_MS,
   BrokerCodesProtocolVersion,
   IngestProtocolVersion,
   StockCode,
@@ -37,6 +40,7 @@ import {
 
 import type { BrokerTotalsDb } from "@/server/broker-totals/db"
 import type { Sql } from "@/server/market-live/day-store"
+import { chunkSlices, heldChunkOf } from "@/server/market-live/heat-rows"
 import {
   makeTradingDay,
   type Peer,
@@ -362,6 +366,34 @@ export const sealedBeforeOrderFlow = (sql: Sql) =>
     sql.exec("DROP TABLE heatmaps")
     sql.exec("DELETE FROM facts WHERE key = 'order-flow-built'")
   })
+
+// What a day recorded before heatmaps were worked out on read holds: a
+// heatmap row beside each book chunk before `until`, its slices as the chunk
+// close wrote them ([slice index, levels] for each slice with lots).
+export const heatmapRowsBeforeOnRead = (sql: Sql, until = Infinity) =>
+  Effect.forEach(
+    sql.exec("SELECT code, minute, chunk FROM book_chunks ORDER BY minute"),
+    Effect.fnUntraced(function* (row) {
+      const minute = Number(row.minute)
+      if (minute >= until) return
+      const chunk = yield* heldChunkOf(
+        gunzipSync(row.chunk as Uint8Array).toString()
+      )
+      const slices = yield* chunkSlices(chunk)
+      sql.exec(
+        "INSERT INTO heatmaps VALUES (?, ?, ?)",
+        String(row.code),
+        minute,
+        JSON.stringify(
+          slices.map((slice) => [
+            (DateTime.toEpochMillis(slice.at) - minute) / HEAT_SLICE_MS,
+            slice.levels,
+          ])
+        )
+      )
+    }),
+    { discard: true }
+  )
 
 // What a day whose codes landed before sweep brokers shipped holds: no sweep
 // brokers rows, and no mark that they were built.

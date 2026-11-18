@@ -89,7 +89,7 @@ import { makeMarketConditions } from "./market-conditions.ts"
 import { makeOnDemand } from "./on-demand.ts"
 import { makeOrderBooks } from "./order-books.ts"
 import { makeRecordedBooks } from "./recorded-books.ts"
-import { chunkSlices, endBookOf, storedEndBook } from "./heat-rows.ts"
+import { chunkSlices, endBookOf, heldChunkOf } from "./heat-rows.ts"
 import {
   buildOrderFlow,
   buildWalkedDay,
@@ -1439,15 +1439,13 @@ export const makeTradingDay = Effect.fnUntraced(function* (options: {
     code: StockCode,
     through: number
   ) {
-    const unwrittenRows = (unwritten?.chunks ?? [])
-      .filter((chunk) => chunk.code === code)
-      .map((chunk) => ({
-        minute: chunk.minute,
-        slices: chunk.slices,
-        endBook: storedEndBook(chunk.chunk),
-      }))
-    const heldRows = yield* Effect.forEach(
-      yield* bookChunks.held(code),
+    // The object encoded them itself.
+    const failed = yield* Effect.forEach(
+      (unwritten?.chunks ?? []).filter((chunk) => chunk.code === code),
+      (chunk) => Effect.orDie(heldChunkOf(chunk.chunk))
+    )
+    return yield* Effect.forEach(
+      [...failed, ...(yield* bookChunks.held(code))],
       Effect.fnUntraced(function* (chunk) {
         return {
           minute: chunk.minute,
@@ -1456,7 +1454,6 @@ export const makeTradingDay = Effect.fnUntraced(function* (options: {
         }
       })
     )
-    return [...unwrittenRows, ...heldRows]
   })
 
   // A sealed day's order flow GET, and any day's sweep brokers GET, builds
@@ -1468,12 +1465,7 @@ export const makeTradingDay = Effect.fnUntraced(function* (options: {
   const builtFirst = Effect.fnUntraced(function* (resource: RecordedResource) {
     if (resource._tag === "SweepBrokers") return yield* sweepBrokers.builtFirst
     if (!sealed || orderFlowBuilt) return
-    if (
-      resource._tag !== "Candles" &&
-      resource._tag !== "Sweeps" &&
-      resource._tag !== "Heatmap"
-    )
-      return
+    if (resource._tag !== "Candles" && resource._tag !== "Sweeps") return
     yield* buildOrderFlow(store)
     orderFlowBuilt = true
   })

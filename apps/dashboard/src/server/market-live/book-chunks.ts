@@ -13,7 +13,6 @@ import {
 import { Clock, DateTime, Effect } from "effect"
 
 import type { StoredChunk } from "./day-store.ts"
-import { chunkSlices } from "./heat-rows.ts"
 
 interface Open {
   readonly minute: number
@@ -122,7 +121,6 @@ export const makeBookChunks = Effect.sync(() => {
           ...(held.start === undefined ? {} : { start: held.start }),
           deltas: held.deltas,
         }),
-        slices: yield* chunkSlices(held),
       })
     return chunks
   })

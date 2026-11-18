@@ -12,6 +12,11 @@ export const BUSY_DAY = {
   trades: 1_460_000,
   codes: 800,
   holes: [12_345, 404_040, 777_777, 1_000_001, 1_333_333],
+  // Decision: one viewed code's book chunks, as many as a busy code stores
+  // (spec apinrdw/kumora#555, "Heatmaps worked out on read"): a chunk in 273
+  // of the day's 435 minutes, the rest frameless.
+  bookCode: "C1",
+  bookChunks: 273,
 } as const
 
 export const BROKERS = [
