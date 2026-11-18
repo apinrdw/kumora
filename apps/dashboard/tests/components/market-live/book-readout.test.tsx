@@ -44,7 +44,6 @@ const readingsOf = (
   at: DateTime.makeUnsafe("2026-11-18T03:00:00Z"),
   imbalance: 0.25,
   spread: { ticks: 2, percent: 0.4 },
-  limit: undefined,
   bid: side(1_000),
   offer: side(600),
   ...extra,
@@ -142,19 +141,7 @@ test("live readings show imbalance, the bid/offer grid, the spread and the discl
   expect(container.querySelector("[data-paused]")).toBeNull()
 })
 
-test("a code at its limit shows the limit pill and no imbalance", () => {
-  const { container } = render(
-    "ERAA",
-    snapshot("session-2", [readingsOf("ERAA", { limit: "upper" })])
-  )
-  const text = container.textContent ?? ""
-  expect(text).toContain("At upper limit")
-  expect(
-    container.querySelector('[aria-label="Imbalance value"]')?.textContent
-  ).toBe("—")
-})
-
-test("a code whose last price reaches its limit after its readings were taken shows the limit pill", async () => {
+test("a code whose last price reaches its limit after its readings were taken shows the limit pill and no imbalance", async () => {
   const { container, dayStates } = render(
     "ERAA",
     snapshot("session-2", [readingsOf("ERAA", { offer: side(0) })])
@@ -181,6 +168,9 @@ test("a code whose last price reaches its limit after its readings were taken sh
     container.textContent,
     "the limit follows the Day state's last price"
   ).toContain("At upper limit")
+  expect(
+    container.querySelector('[aria-label="Imbalance value"]')?.textContent
+  ).toBe("—")
 })
 
 test("in the break the readings grey out, naming the phase and when they paused on the object's clock", () => {

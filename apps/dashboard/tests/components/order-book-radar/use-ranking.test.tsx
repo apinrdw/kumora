@@ -32,7 +32,6 @@ const readings = (code: StockCode, bid: number): BookReadings => ({
   at: DateTime.makeUnsafe(Date.now()),
   imbalance: (bid - 100) / (bid + 100),
   spread: { ticks: 1, percent: 0.5 },
-  limit: undefined,
   bid: side(bid),
   offer: side(100),
 })

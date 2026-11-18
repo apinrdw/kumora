@@ -3,15 +3,14 @@ import { DateTime, Effect } from "effect"
 
 import {
   StockCode,
-  WibDate,
   bookReadingsOf,
   fillEstimateOf,
+  limitOf,
   type BookLevel,
   type OrderBook,
 } from "@workspace/relay"
 
 const at = DateTime.makeUnsafe("2026-11-18T03:00:00.000Z")
-const date = WibDate.make("2026-11-18")
 
 const level = (price: number, lots: number, orders: number): BookLevel => ({
   price,
@@ -47,8 +46,14 @@ const BIDS = [
 ]
 const OFFERS = [level(1010, 25, 5), level(1015, 25, 1), level(1040, 50, 10)]
 
-const read = (book: OrderBook, last?: number) =>
-  bookReadingsOf(book, { date, last })
+const read = bookReadingsOf
+
+// The limit mark of `book`'s readings at `last`, against the book's previous
+// close.
+const limitAt = (book: OrderBook, last?: number) =>
+  Effect.flatMap(bookReadingsOf(book), (readings) =>
+    limitOf(readings, { last, previousClose: book.previousClose })
+  )
 
 describe("book readings", () => {
   it.effect("measure each side's best five levels", () =>
@@ -71,7 +76,6 @@ describe("book readings", () => {
       assert.strictEqual(readings.imbalance, 0.2)
       assert.strictEqual(readings.spread?.ticks, 2)
       assert.closeTo(readings.spread?.percent ?? 0, (10 / 1005) * 100, 1e-9)
-      assert.strictEqual(readings.limit, undefined)
       assert.strictEqual(readings.code, "ERAA")
       assert.deepStrictEqual(readings.at, at)
     })
@@ -106,15 +110,19 @@ describe("book readings", () => {
 
   it.effect("flag a code at its limit: one side empty, last at the limit", () =>
     Effect.gen(function* () {
-      const upper = yield* read(bookOf(BIDS, [], 1000), 1250)
-      assert.strictEqual(upper.limit, "upper")
-      const lower = yield* read(bookOf([], OFFERS, 1000), 930)
-      assert.strictEqual(lower.limit, "lower")
+      assert.strictEqual(yield* limitAt(bookOf(BIDS, [], 1000), 1250), "upper")
+      assert.strictEqual(yield* limitAt(bookOf([], OFFERS, 1000), 930), "lower")
       // Offers empty short of the limit, or no previous close: no flag.
-      const short = yield* read(bookOf(BIDS, [], 1000), 1200)
-      assert.strictEqual(short.limit, undefined)
-      const unknown = yield* read(bookOf(BIDS, []), 1250)
-      assert.strictEqual(unknown.limit, undefined)
+      assert.strictEqual(
+        yield* limitAt(bookOf(BIDS, [], 1000), 1200),
+        undefined
+      )
+      assert.strictEqual(yield* limitAt(bookOf(BIDS, []), 1250), undefined)
+      assert.strictEqual(
+        yield* limitAt(bookOf(BIDS, OFFERS, 1000), 1250),
+        undefined,
+        "both sides quoted: no limit queue"
+      )
     })
   )
 
@@ -123,29 +131,29 @@ describe("book readings", () => {
     () =>
       Effect.gen(function* () {
         const warrant = (bids: ReadonlyArray<BookLevel>, last: number) =>
-          read(
+          limitAt(
             bookOf(bids, bids.length === 0 ? OFFERS : [], 100, "ERAA-W"),
             last
           )
         assert.strictEqual(
-          (yield* warrant(BIDS, 140)).limit,
+          yield* warrant(BIDS, 140),
           undefined,
           "a warrant at Rp100 moves 50%: Rp140 is short of its upper limit"
         )
-        assert.strictEqual((yield* warrant(BIDS, 150)).limit, "upper")
-        assert.strictEqual((yield* warrant([], 50)).limit, "lower")
+        assert.strictEqual(yield* warrant(BIDS, 150), "upper")
+        assert.strictEqual(yield* warrant([], 50), "lower")
         const right = (bids: ReadonlyArray<BookLevel>, last: number) =>
-          read(
+          limitAt(
             bookOf(bids, bids.length === 0 ? OFFERS : [], 100, "ERAA-R"),
             last
           )
         assert.strictEqual(
-          (yield* right(BIDS, 1_000)).limit,
+          yield* right(BIDS, 1_000),
           undefined,
           "a right has no upper limit"
         )
-        assert.strictEqual((yield* right([], 50)).limit, undefined)
-        assert.strictEqual((yield* right([], 1)).limit, "lower")
+        assert.strictEqual(yield* right([], 50), undefined)
+        assert.strictEqual(yield* right([], 1), "lower")
       })
   )
 })

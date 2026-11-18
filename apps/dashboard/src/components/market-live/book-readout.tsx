@@ -8,6 +8,7 @@ import {
   INDEX_CODES,
   READING_PHASES,
   bookReadingsOf,
+  limitOf,
   marketPhases,
   type BookReadings,
   type Limit,
@@ -118,8 +119,14 @@ const spreadText = (spread: BookReadings["spread"]) =>
 
 // The imbalance row: the bar and the signed figure, none at a limit, where
 // a limit queue isn't pressure.
-function Imbalance({ readings }: { readings: BookReadings }) {
-  const shown = readings.limit === undefined ? readings.imbalance : undefined
+function Imbalance({
+  readings,
+  limit,
+}: {
+  readings: BookReadings
+  limit: Limit | undefined
+}) {
+  const shown = limit === undefined ? readings.imbalance : undefined
   return (
     <div className="grid grid-cols-[auto_1fr_auto] items-center gap-2">
       <span className="text-muted-foreground">Imbalance</span>
@@ -155,23 +162,33 @@ function LimitNote({ limit }: { limit: Limit }) {
   )
 }
 
-// One code's readings: imbalance with its bar, the limit mark, and the
-// bid/offer grid, greyed with `paused` naming the phase.
+// A code's last price and previous close, which the limit mark reads beside
+// its readings.
+interface Prices {
+  readonly last: number | undefined
+  readonly previousClose: number | undefined
+}
+
+// One code's readings: imbalance with its bar, the limit mark at `prices`,
+// and the bid/offer grid, greyed with `paused` naming the phase.
 function Readings({
   readings,
+  prices,
   paused,
 }: {
   readings: BookReadings
+  prices: Prices
   paused: string | undefined
 }) {
+  const limit = Effect.runSync(limitOf(readings, prices))
   return (
     <div
       data-paused={paused !== undefined || undefined}
       className="flex min-w-0 flex-col gap-2 text-[12px]"
     >
       <div className={cn("flex flex-col gap-2", paused && "opacity-50")}>
-        <Imbalance readings={readings} />
-        {readings.limit !== undefined && <LimitNote limit={readings.limit} />}
+        <Imbalance readings={readings} limit={limit} />
+        {limit !== undefined && <LimitNote limit={limit} />}
         <div
           role="table"
           aria-label="Bid and offer readings"
@@ -246,10 +263,12 @@ function usePause(today: WibDate, live: boolean, store: BookReadingsStore) {
 function LiveReadings({
   code,
   store,
+  prices,
   paused,
 }: {
   code: StockCode
   store: BookReadingsStore
+  prices: Prices
   paused: string | undefined
 }) {
   const readings = useSyncExternalStore(
@@ -258,7 +277,7 @@ function LiveReadings({
     () => store.readingsOf(code)
   )
   if (readings === undefined) return <Note>{paused ?? "No readings yet."}</Note>
-  return <Readings readings={readings} paused={paused} />
+  return <Readings readings={readings} prices={prices} paused={paused} />
 }
 
 // Whether a recorded day's cursor is in a relay gap; never live. The book
@@ -278,29 +297,18 @@ function useInGap(
 
 // A recorded day's readings at the cursor, read from its stored frame.
 function RecordedReadings({
-  code,
   book,
-  dayStates,
-  cursor,
+  prices,
   inGap,
 }: {
-  code: StockCode
-  book: OrderBookStore
-  dayStates: DayStateStore
-  cursor: ReplayCursor
+  book: OrderBook | undefined
+  prices: Prices
   inGap: boolean
 }) {
-  const held = useSyncExternalStore(book.subscribe, book.book, () => undefined)
-  const state = useDayState(dayStates, code)
   if (inGap) return <Note>Not recorded</Note>
-  if (held?._tag !== "OrderBook") return <Note>No book recorded by then.</Note>
-  const readings = Effect.runSync(
-    bookReadingsOf(held, {
-      date: cursor.day.date,
-      last: state?.last,
-    })
-  )
-  return <Readings readings={readings} paused={undefined} />
+  if (book === undefined) return <Note>No book recorded by then.</Note>
+  const readings = Effect.runSync(bookReadingsOf(book))
+  return <Readings readings={readings} prices={prices} paused={undefined} />
 }
 
 // The strip's columns on a wide screen, by how many parts sit beside the
@@ -361,8 +369,12 @@ export function BookReadout({
   // history, so a code that has joined or left the board since shows as it
   // stands today.
   const board = useSpecialBoard()
+  const prices: Prices = {
+    last: state?.last,
+    previousClose: state?.previousClose ?? shown?.previousClose,
+  }
   const reason = Effect.runSync(
-    excludedReason(code, board, state?.previousClose ?? shown?.previousClose)
+    excludedReason(code, board, prices.previousClose)
   )
   const paused = usePause(today, cursor === undefined, readings)
   const inGap = useInGap(cursor, gaps)
@@ -385,15 +397,14 @@ export function BookReadout({
       ) : (
         <div className={cn("grid gap-3.5", PART_COLUMNS[parts])}>
           {cursor === undefined ? (
-            <LiveReadings code={code} store={readings} paused={paused} />
-          ) : (
-            <RecordedReadings
+            <LiveReadings
               code={code}
-              book={book}
-              dayStates={dayStates}
-              cursor={cursor}
-              inGap={inGap}
+              store={readings}
+              prices={prices}
+              paused={paused}
             />
+          ) : (
+            <RecordedReadings book={shown} prices={prices} inGap={inGap} />
           )}
           <FillEstimatePart
             store={book}

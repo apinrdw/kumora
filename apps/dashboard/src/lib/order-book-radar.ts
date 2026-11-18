@@ -1,11 +1,12 @@
 // The order book radar's scanner (spec apinrdw/kumora#517, "The scanner"):
 // which codes it covers, how it splits them into the Bid-heavy and
 // Offer-heavy halves, and how Rank by orders each half.
-import type {
-  BookEvent,
-  BookReadings,
-  Limit,
-  StockCode,
+import {
+  limitOf,
+  type BookEvent,
+  type BookReadings,
+  type Limit,
+  type StockCode,
 } from "@workspace/relay"
 import { DateTime, Effect } from "effect"
 
@@ -316,8 +317,11 @@ export const scan = Effect.fnUntraced(function* (
     }
     above++
     if (!(yield* passesFilters(readings, figures, input, settings))) continue
-    if (readings.limit !== undefined)
-      limits.push({ code: readings.code, limit: readings.limit })
+    const limit = yield* limitOf(readings, {
+      last: figures?.last,
+      previousClose: figures?.previousClose,
+    })
+    if (limit !== undefined) limits.push({ code: readings.code, limit })
     else if (readings.imbalance === undefined) continue
     else if (readings.imbalance >= 0) bid.push(readings)
     else offer.push(readings)

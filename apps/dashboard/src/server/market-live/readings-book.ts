@@ -17,24 +17,19 @@ export const makeReadingsBook = (options: { readonly date: WibDate }) =>
   Effect.sync(() => {
     const latest = new Map<StockCode, BookReadings>()
 
-    // The readings of `books`, the ones that changed, kept and returned;
-    // `lastOf` is a code's last price, for the limit mark.
+    // The readings of `books`, the ones that changed, kept and returned.
     // Decision: readings are taken only in Sessions 1 and 2, by the market
     // phase; in any other phase each code keeps its last ones and none goes
     // out, so the page greys them and names the phase. See spec
     // apinrdw/kumora#517, "Data".
     const read = Effect.fnUntraced(function* (
       books: ReadonlyArray<OrderBook>,
-      phase: MarketPhase,
-      lastOf: (code: StockCode) => Effect.Effect<number | undefined>
+      phase: MarketPhase
     ) {
       if (!READING_PHASES.has(phase)) return []
       const taken: Array<BookReadings> = []
       for (const book of books) {
-        const readings = yield* bookReadingsOf(book, {
-          date: options.date,
-          last: yield* lastOf(book.code),
-        })
+        const readings = yield* bookReadingsOf(book)
         latest.set(book.code, readings)
         taken.push(readings)
       }
@@ -51,7 +46,6 @@ export const makeReadingsBook = (options: { readonly date: WibDate }) =>
     // session's last values, as they do without a restart.
     const restore = Effect.fnUntraced(function* (
       book: OrderBook,
-      lastOf: (code: StockCode) => Effect.Effect<number | undefined>,
       bookAt: (
         code: StockCode,
         at: DateTime.Utc
@@ -60,7 +54,7 @@ export const makeReadingsBook = (options: { readonly date: WibDate }) =>
       const moment = yield* Effect.option(marketMomentAt(book.at))
       if (Option.isNone(moment)) return
       if (READING_PHASES.has(moment.value.phase))
-        return yield* read([book], moment.value.phase, lastOf)
+        return yield* read([book], moment.value.phase)
       const ended = (yield* marketPhases(options.date))
         .filter(
           (each) =>
@@ -73,7 +67,7 @@ export const makeReadingsBook = (options: { readonly date: WibDate }) =>
         book.code,
         DateTime.subtract(ended.to, { milliseconds: 1 })
       )
-      if (last !== undefined) yield* read([last], ended.phase, lastOf)
+      if (last !== undefined) yield* read([last], ended.phase)
     })
 
     return { read, all, restore }

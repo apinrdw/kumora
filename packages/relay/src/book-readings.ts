@@ -13,7 +13,7 @@ import {
   type BookLevel,
   type OrderBook,
 } from "./order-book.ts"
-import type { MarketPhase, WibDate } from "./schedule.ts"
+import { wibDateAt, type MarketPhase } from "./schedule.ts"
 import { priceLimitsOf, ticksBetween } from "./ticks.ts"
 
 // Decision: every reading covers the best 5 levels a side, fixed: the user
@@ -40,13 +40,11 @@ const SideReadings = Schema.Struct({
 type SideReadings = typeof SideReadings.Type
 
 // The auto-reject limit a code sits at.
-const Limit = Schema.Literals(["upper", "lower"])
-export type Limit = typeof Limit.Type
+export type Limit = "upper" | "lower"
 
 // One code's readings. Imbalance runs from -1 (offers only) to 1 (bids only),
-// none when both sides are empty; the spread is none when either is. `limit`
-// marks a code at its upper or lower auto-reject limit. `at` is the book's
-// as-of.
+// none when both sides are empty; the spread is none when either is. `at` is
+// the book's as-of.
 const BookReadingsFields = Schema.Struct({
   code: StockCode,
   at: Schema.DateTimeUtc,
@@ -54,15 +52,12 @@ const BookReadingsFields = Schema.Struct({
   spread: Schema.UndefinedOr(
     Schema.Struct({ ticks: Schema.Int, percent: Schema.Finite })
   ),
-  limit: Schema.UndefinedOr(Limit),
   bid: SideReadings,
   offer: SideReadings,
 })
 
-const LIMIT_CODES = { upper: 1, lower: -1 } as const
-
-// A reading's tuple: [code, as-of, imbalance, spread ticks, spread %,
-// limit (1 upper, -1 lower, 0 none), then the bid's and the offer's near depth,
+// A reading's tuple: [code, as-of, imbalance, spread ticks, spread %, then
+// the bid's and the offer's near depth,
 // lots, empty ticks, widest gap and lots per order], none as null. Encoding
 // rounds imbalance and the spread to 4 places, lots per order to 2 and near depth
 // to the rupiah: finer digits are noise on the page.
@@ -83,7 +78,6 @@ export const BookReadings = Schema.Tuple([
   Schema.NullOr(Schema.Finite),
   Schema.NullOr(Schema.Int),
   Schema.NullOr(Schema.Finite),
-  Schema.Literals([1, -1, 0]),
   ...WireSide,
   ...WireSide,
 ]).pipe(
@@ -95,7 +89,6 @@ export const BookReadings = Schema.Tuple([
         imbalance,
         spreadTicks,
         spreadPercent,
-        limit,
         bidNearDepth,
         bidLots,
         bidEmpty,
@@ -128,7 +121,6 @@ export const BookReadings = Schema.Tuple([
             spreadTicks === null || spreadPercent === null
               ? undefined
               : { ticks: spreadTicks, percent: spreadPercent },
-          limit: limit === 1 ? "upper" : limit === -1 ? "lower" : undefined,
           bid: side(bidNearDepth, bidLots, bidEmpty, bidWidest, bidPerOrder),
           offer: side(
             offerNearDepth,
@@ -160,7 +152,6 @@ export const BookReadings = Schema.Tuple([
         rounded(readings.imbalance, 4),
         readings.spread?.ticks ?? null,
         rounded(readings.spread?.percent, 4),
-        readings.limit === undefined ? 0 : LIMIT_CODES[readings.limit],
         ...side(readings.bid),
         ...side(readings.offer),
       ] as const
@@ -204,36 +195,39 @@ const readSide = Effect.fnUntraced(function* (
   return side
 })
 
-// Whether the book sits at an auto-reject limit: one side empty and the last
-// price at the limit its previous close sets, under its instrument's rule.
-// Special Monitoring Board codes show no readings, so a share takes the
-// regular boards' rule.
-const limitOf = Effect.fnUntraced(function* (
-  book: OrderBook,
-  last: number | undefined,
-  date: WibDate
+// Whether a code sits at an auto-reject limit: one side of its readings
+// empty and its last price at the limit its previous close sets, under its
+// instrument's rule on the readings' day. Special Monitoring Board codes show
+// no readings, so a share takes the regular boards' rule.
+// Decision: readings are a function of their book alone, taken again on each
+// book change, and a mark that also reads another input, as the limit reads
+// the last price and the previous close, is derived on the page where the
+// readings meet that input (the scanner's figures, the readout's Day state),
+// so it is current whenever either is. A reading taken with an input besides
+// its book goes stale when only that input changes. See spec
+// apinrdw/kumora#517, "Book readings".
+export const limitOf = Effect.fnUntraced(function* (
+  readings: BookReadings,
+  prices: {
+    readonly last: number | undefined
+    readonly previousClose: number | undefined
+  }
 ) {
-  if (book.previousClose === undefined || last === undefined) return undefined
-  const kind = yield* kindOf(book.code)
+  const { last, previousClose } = prices
+  if (previousClose === undefined || last === undefined) return undefined
+  const kind = yield* kindOf(readings.code)
   const limits = yield* priceLimitsOf(
-    book.previousClose,
-    date,
+    previousClose,
+    yield* wibDateAt(readings.at),
     kind === "share" ? "regular" : kind
   )
-  if (book.offers.length === 0 && last >= limits.upper) return "upper" as const
-  if (book.bids.length === 0 && last <= limits.lower) return "lower" as const
+  if (readings.offer.lots === 0 && last >= limits.upper) return "upper" as const
+  if (readings.bid.lots === 0 && last <= limits.lower) return "lower" as const
   return undefined
 })
 
-// `book`'s readings on `date`, with the code's last price (for the limit
-// mark).
-export const bookReadingsOf = Effect.fnUntraced(function* (
-  book: OrderBook,
-  context: {
-    readonly date: WibDate
-    readonly last: number | undefined
-  }
-) {
+// `book`'s readings.
+export const bookReadingsOf = Effect.fnUntraced(function* (book: OrderBook) {
   const bid = yield* readSide(book.bids)
   const offer = yield* readSide(book.offers)
   const total = bid.lots + offer.lots
@@ -251,7 +245,6 @@ export const bookReadingsOf = Effect.fnUntraced(function* (
             percent:
               ((bestOffer - bestBid) / ((bestOffer + bestBid) / 2)) * 100,
           },
-    limit: yield* limitOf(book, context.last, context.date),
     bid,
     offer,
   }

@@ -36,7 +36,6 @@ const reading = (
   at: DateTime.makeUnsafe(NOW - 1_000),
   imbalance,
   spread: { ticks: 1, percent: 0.5 },
-  limit: undefined,
   bid: side(100e6),
   offer: side(100e6),
   ...more,
@@ -224,12 +223,16 @@ describe("the halves", () => {
     "split by imbalance sign; a code at a limit is listed apart, an empty book nowhere",
     () =>
       Effect.gen(function* () {
-        const result = yield* run([
-          reading("BBCA", 0),
-          reading("BBRI", -0.1),
-          reading("ARCI", 1, { limit: "upper", spread: undefined }),
-          reading("KOTA", undefined, { spread: undefined }),
-        ])
+        const result = yield* run(
+          [
+            reading("BBCA", 0),
+            reading("BBRI", -0.1),
+            reading("ARCI", 1, { spread: undefined, offer: side(0) }),
+            reading("KOTA", undefined, { spread: undefined }),
+          ],
+          {},
+          { figures: { ARCI: { last: 1_250 } } }
+        )
         assert.deepStrictEqual(result.bid, ["BBCA"])
         assert.deepStrictEqual(result.offer, ["BBRI"])
         assert.deepStrictEqual(result.limits, [

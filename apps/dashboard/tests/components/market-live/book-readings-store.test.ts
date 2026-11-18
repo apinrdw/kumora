@@ -17,7 +17,6 @@ const readings = (code: string, imbalance: number): BookReadings => ({
   at: DateTime.makeUnsafe("2026-11-18T03:00:00Z"),
   imbalance,
   spread: { ticks: 1, percent: 0.5 },
-  limit: undefined,
   bid: side,
   offer: side,
 })

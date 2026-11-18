@@ -343,7 +343,6 @@ describe("viewer protocol, down", () => {
         at: DateTime.makeUnsafe("2026-11-18T03:00:00.125Z"),
         imbalance: -0.2345,
         spread: { ticks: 2, percent: 0.995 },
-        limit: "upper",
         bid: {
           nearDepth: 14_815_000,
           lots: 150,
@@ -364,7 +363,6 @@ describe("viewer protocol, down", () => {
         code: StockCode.make("KOTA"),
         imbalance: undefined,
         spread: undefined,
-        limit: undefined,
       }
       const delta: ViewerDown = {
         _tag: "Delta",

@@ -308,8 +308,6 @@ const restoreLastFrames = Effect.fnUntraced(function* (day: {
     yield* day.bookChunks.restore([book])
     yield* day.readings.restore(
       book,
-      (code) =>
-        Effect.map(day.dayStates.stateOf(code, true), (state) => state?.last),
       Effect.fnUntraced(function* (code, at) {
         const stored = yield* day.store.chunkAt(code, yield* minuteOf(at))
         return stored === undefined
@@ -814,12 +812,7 @@ export const makeTradingDay = Effect.fnUntraced(function* (options: {
     for (const book of changedBooks) yield* bookChunks.record(book)
     const states = yield* dayStates.takeChanged(live, yield* onDemand.watched)
     const conditions = yield* market.conditions
-    const bookReadings = yield* readings.read(
-      changedBooks,
-      conditions.phase,
-      (code) =>
-        Effect.map(dayStates.stateOf(code, live), (state) => state?.last)
-    )
+    const bookReadings = yield* readings.read(changedBooks, conditions.phase)
     yield* readLedger(changedBooks, conditions)
     // Decision: a delta carries whole books only for codes some viewer
     // selected, as footprints do: a page reads only its selected code's, and
