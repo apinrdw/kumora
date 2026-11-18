@@ -142,8 +142,8 @@ export interface RadarSettings {
   readonly floor: Floor
   readonly codes: "all" | "watchlist"
   readonly search: string
-  readonly priceMin: number | undefined
-  readonly priceMax: number | undefined
+  readonly priceMin?: number | undefined
+  readonly priceMax?: number | undefined
   readonly rankBy: RankKey
   // High → low, or Low → high.
   readonly direction: "high" | "low"

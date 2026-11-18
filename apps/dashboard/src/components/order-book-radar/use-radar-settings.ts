@@ -1,5 +1,5 @@
 import { clientRuntime } from "@workspace/client"
-import { Effect, Option, Schema } from "effect"
+import { Effect, Schema } from "effect"
 import { useCallback, useSyncExternalStore } from "react"
 
 import {
@@ -8,6 +8,7 @@ import {
   RANK_CHOICES,
   type RadarSettings,
 } from "@/lib/order-book-radar"
+import { makeSchemaStoredValue } from "@/lib/stored-value"
 
 // Decision: like the watchlist (use-watchlist.ts), each browser keeps its
 // own value floor, filters and Rank by in localStorage. See spec
@@ -26,55 +27,16 @@ const Stored = Schema.Struct({
   direction: Schema.Literals(["high", "low"]),
 })
 
-const parse = Schema.decodeUnknownOption(Schema.fromJsonString(Stored))
-
-const settingsOf = (raw: string | null): RadarSettings =>
-  Option.match(raw === null ? Option.none() : parse(raw), {
-    onNone: () => DEFAULT_SETTINGS,
-    onSome: (stored) => ({
-      ...stored,
-      priceMin: stored.priceMin,
-      priceMax: stored.priceMax,
-    }),
+// Storage blocked, or anything else stored, reads as the defaults. This
+// tab's changes only: another tab's settings are its own.
+const { subscribe, snapshot, write } = Effect.runSync(
+  makeSchemaStoredValue({
+    key: KEY,
+    schema: Stored,
+    fallback: DEFAULT_SETTINGS,
+    crossTab: false,
   })
-
-// Storage blocked reads as nothing stored: the defaults.
-const read = Effect.try(() => window.localStorage.getItem(KEY)).pipe(
-  Effect.orElseSucceed(() => null)
 )
-
-// The settings as last read, kept while the stored text is unchanged, so
-// React sees the same object; changed while storage is blocked, they last
-// as long as the page.
-let cached: { raw: string | null; settings: RadarSettings } = {
-  raw: null,
-  settings: DEFAULT_SETTINGS,
-}
-let unstored: RadarSettings | undefined
-const snapshot = () => {
-  if (unstored !== undefined) return unstored
-  const raw = clientRuntime.runSync(read)
-  if (raw !== cached.raw) cached = { raw, settings: settingsOf(raw) }
-  return cached.settings
-}
-
-const listeners = new Set<() => void>()
-// This tab's changes only: another tab's settings are its own.
-const subscribe = (listener: () => void) => {
-  listeners.add(listener)
-  return () => void listeners.delete(listener)
-}
-
-const write = Effect.fnUntraced(function* (settings: RadarSettings) {
-  yield* Effect.try(() =>
-    window.localStorage.setItem(KEY, JSON.stringify(settings))
-  ).pipe(
-    Effect.orElseSucceed(() => {
-      unstored = settings
-    })
-  )
-  for (const listener of listeners) listener()
-})
 
 // This browser's scanner settings and their change. The server render has
 // the defaults.
