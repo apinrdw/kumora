@@ -20,7 +20,7 @@ import { useRadarSettings } from "@/components/order-book-radar/use-radar-settin
 import { useRanking } from "@/components/order-book-radar/use-ranking"
 import { bookEventKey } from "@/lib/book-events"
 import { DISCLAIMER } from "@/lib/book-readings"
-import type { Scan } from "@/lib/order-book-radar"
+import { coverageNote, type Scan } from "@/lib/order-book-radar"
 
 // The order book radar's scanner: live only (spec apinrdw/kumora#517, "The
 // scanner").
@@ -32,14 +32,6 @@ export const Route = createFileRoute("/_app/order-book-radar")({
   head: () => ({ meta: [{ title: "Order book radar · KUMORA Terminal" }] }),
   component: OrderBookRadarPage,
 })
-
-const plural = (n: number, one: string, many: string) =>
-  `${n} ${n === 1 ? one : many}`
-
-// The line under the toolbar: how many codes the floor lets in, and which
-// codes are never ranked and why.
-const coverageNote = (scan: Scan) =>
-  `${plural(scan.above, "code", "codes")} above the floor · ${plural(scan.board, "Special Monitoring Board code", "Special Monitoring Board codes")} and ${plural(scan.cheap, "code", "codes")} at Rp1–10 are not ranked · rows with no book change for 60 s grey out and sink`
 
 // The rows' book events as of now, shown live between re-sorts; the feed's
 // codes; and the way to Market Live at an event, which its readout's list
@@ -142,7 +134,7 @@ function OrderBookRadarPage() {
         note={`Halves split by imbalance sign · ${hovering ? "order held" : `re-sorts in ${resortsIn}s`}`}
       />
       <p aria-label="Coverage" className="text-[12px] text-muted-foreground">
-        {coverageNote(scan)}
+        {Effect.runSync(coverageNote(scan))}
       </p>
       {/* The Book events feed sits beside the halves from 1,100 px, and under
           them below. */}

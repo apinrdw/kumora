@@ -107,7 +107,8 @@ export function useBookAlerts() {
     const watched = new Set(watchlist)
     return {
       watchlist: watched,
-      excluded: (code) => board.has(code) || isCheap(figures.all().get(code)),
+      excluded: (code) =>
+        board.has(code) || Effect.runSync(isCheap(figures.all().get(code))),
       onScanner: (code: StockCode) => {
         const value = readings.readingsOf(code)?.value ?? 0
         const previous = figures.all().get(code)?.previousValue ?? 0

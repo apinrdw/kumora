@@ -12,32 +12,130 @@ import { DateTime, Effect } from "effect"
 import { LOWEST_READ_CLOSE } from "./book-readings"
 import { compact, plain } from "./format"
 
-export type RankKey =
-  | "imbalance"
-  | "bidDepth"
-  | "offerDepth"
-  | "emptyTicks"
-  | "spread"
-  | "lotsPerOrder"
-  | "lastEvent"
-  | "eventsInFive"
-  | "bookAge"
+// A row as Rank by reads it: its readings, its book events and the market
+// clock's now, in epoch ms.
+interface RankedRow {
+  readonly readings: BookReadings
+  readonly events: CodeEvents | undefined
+  readonly now: number
+}
 
-// Rank by's choices, in the menu's order.
+// What one Rank by choice orders by (none sorts last either way) and the
+// figure a row shows for it.
+interface Ranking {
+  readonly label: string
+  readonly value: (row: RankedRow) => Effect.Effect<number | undefined>
+  readonly figure: (row: RankedRow) => Effect.Effect<string>
+}
+
+const bookAge = ({ readings, now }: RankedRow) =>
+  Effect.succeed(Math.max(0, now - DateTime.toEpochMillis(readings.at)))
+
+// The side the imbalance leans to: bids at a balanced book.
+const heavySide = (readings: BookReadings) =>
+  Effect.succeed((readings.imbalance ?? 0) >= 0 ? readings.bid : readings.offer)
+
+const sumOf = (a: number | undefined, b: number | undefined) =>
+  Effect.succeed(
+    a === undefined && b === undefined ? undefined : (a ?? 0) + (b ?? 0)
+  )
+
+const rupiah = (value: number) => Effect.map(compact(value), (n) => `Rp${n}`)
+
+const perOrder = (value: number | undefined) =>
+  value === undefined ? Effect.succeed("—") : plain(value, 0)
+
+// A book's age: 12s, or 3m from a minute.
+const ageText = (ms: number) =>
+  Effect.succeed(
+    ms < 60_000 ? `${Math.floor(ms / 1000)}s` : `${Math.floor(ms / 60_000)}m`
+  )
+
+// Rank by's choices, in the menu's order. Imbalance reads the heavy side,
+// and its row shows that side's near depth. Last event ranks by
+// its time, so High → low puts the newest first.
+const RANKINGS = {
+  imbalance: {
+    label: "Imbalance",
+    value: ({ readings }) =>
+      Effect.succeed(
+        readings.imbalance === undefined
+          ? undefined
+          : Math.abs(readings.imbalance)
+      ),
+    figure: Effect.fnUntraced(function* ({ readings }) {
+      return yield* rupiah((yield* heavySide(readings)).nearDepth)
+    }),
+  },
+  bidDepth: {
+    label: "Near depth bid",
+    value: ({ readings }) => Effect.succeed(readings.bid.nearDepth),
+    figure: ({ readings }) => rupiah(readings.bid.nearDepth),
+  },
+  offerDepth: {
+    label: "Near depth offer",
+    value: ({ readings }) => Effect.succeed(readings.offer.nearDepth),
+    figure: ({ readings }) => rupiah(readings.offer.nearDepth),
+  },
+  emptyTicks: {
+    label: "Empty ticks",
+    value: ({ readings }) =>
+      Effect.succeed(readings.bid.emptyTicks + readings.offer.emptyTicks),
+    figure: ({ readings }) =>
+      Effect.succeed(
+        `${readings.bid.emptyTicks} / ${readings.offer.emptyTicks} empty`
+      ),
+  },
+  spread: {
+    label: "Spread %",
+    value: ({ readings }) => Effect.succeed(readings.spread?.percent),
+    figure: Effect.fnUntraced(function* ({ readings }) {
+      return readings.spread === undefined
+        ? "—"
+        : `${readings.spread.ticks}t · ${yield* plain(readings.spread.percent, 2)}%`
+    }),
+  },
+  lotsPerOrder: {
+    label: "Lots per order",
+    value: ({ readings }) => sumOf(readings.bid.lotsPerOrder, readings.offer.lotsPerOrder),
+    figure: Effect.fnUntraced(function* ({ readings }) {
+      return `${yield* perOrder(readings.bid.lotsPerOrder)} / ${yield* perOrder(readings.offer.lotsPerOrder)} lots/ord`
+    }),
+  },
+  lastEvent: {
+    label: "Last event",
+    value: ({ events }) =>
+      Effect.succeed(events && DateTime.toEpochMillis(events.last.at)),
+    figure: Effect.fnUntraced(function* ({ events, now }) {
+      return events === undefined
+        ? "—"
+        : `${yield* ageText(Math.max(0, now - DateTime.toEpochMillis(events.last.at)))} ago`
+    }),
+  },
+  eventsInFive: {
+    label: "Events in 5 minutes",
+    value: ({ events }) => Effect.succeed(events?.inFiveMinutes ?? 0),
+    figure: ({ events }) =>
+      Effect.succeed(`${events?.inFiveMinutes ?? 0} in 5m`),
+  },
+  bookAge: {
+    label: "Book age",
+    value: bookAge,
+    figure: Effect.fnUntraced(function* (row) {
+      return yield* ageText(yield* bookAge(row))
+    }),
+  },
+} as const satisfies Record<string, Ranking>
+
+export type RankKey = keyof typeof RANKINGS
+
 export const RANK_CHOICES: ReadonlyArray<{
   readonly value: RankKey
   readonly label: string
-}> = [
-  { value: "imbalance", label: "Imbalance" },
-  { value: "bidDepth", label: "Near depth bid" },
-  { value: "offerDepth", label: "Near depth offer" },
-  { value: "emptyTicks", label: "Empty ticks" },
-  { value: "spread", label: "Spread %" },
-  { value: "lotsPerOrder", label: "Lots per order" },
-  { value: "lastEvent", label: "Last event" },
-  { value: "eventsInFive", label: "Events in 5 minutes" },
-  { value: "bookAge", label: "Book age" },
-]
+}> = Object.entries(RANKINGS).map(([value, { label }]) => ({
+  value: value as RankKey,
+  label,
+}))
 
 // The value floor's choices, in rupiah.
 export const FLOORS = [100e6, 1e9, 10e9, 50e9] as const
@@ -114,71 +212,41 @@ export interface Scan {
   }>
   // Codes above the floor, before the filters.
   readonly above: number
-  // Special Monitoring Board codes, and the other codes at Rp1–10.
+  // Special Monitoring Board codes, and the other codes at Rp1–LOWEST_READ_CLOSE.
   readonly board: number
   readonly cheap: number
 }
 
-const bookAge = (readings: BookReadings, now: number) =>
-  Math.max(0, now - DateTime.toEpochMillis(readings.at))
-
 export const isStale = (readings: BookReadings, now: number) =>
-  bookAge(readings, now) > STALE_MS
-
-const sumOf = (a: number | undefined, b: number | undefined) =>
-  a === undefined && b === undefined ? undefined : (a ?? 0) + (b ?? 0)
-
-// What Rank by orders by; none sorts last either way. Last event ranks by
-// its time, so High → low puts the newest first.
-const rankValue = (
-  readings: BookReadings,
-  key: RankKey,
-  now: number,
-  events: CodeEvents | undefined
-): number | undefined => {
-  switch (key) {
-    case "imbalance":
-      return readings.imbalance === undefined
-        ? undefined
-        : Math.abs(readings.imbalance)
-    case "bidDepth":
-      return readings.bid.nearDepth
-    case "offerDepth":
-      return readings.offer.nearDepth
-    case "emptyTicks":
-      return readings.bid.emptyTicks + readings.offer.emptyTicks
-    case "spread":
-      return readings.spread?.percent
-    case "lotsPerOrder":
-      return sumOf(readings.bid.lotsPerOrder, readings.offer.lotsPerOrder)
-    case "lastEvent":
-      return events && DateTime.toEpochMillis(events.last.at)
-    case "eventsInFive":
-      return events?.inFiveMinutes ?? 0
-    case "bookAge":
-      return bookAge(readings, now)
-  }
-}
+  Effect.map(
+    bookAge({ readings, now, events: undefined }),
+    (age) => age > STALE_MS
+  )
 
 // One half's order: stale books last, then by the key in the direction
 // asked, none last, then by code.
-const ranked = (
+const ranked = Effect.fnUntraced(function* (
   half: ReadonlyArray<BookReadings>,
   settings: RadarSettings,
   input: ScanInput
-) => {
+) {
   const { now } = input
   const sign = settings.direction === "high" ? -1 : 1
-  const keyed = half.map((readings) => ({
-    readings,
-    stale: isStale(readings, now),
-    value: rankValue(
-      readings,
-      settings.rankBy,
-      now,
-      input.events.get(readings.code)
-    ),
-  }))
+  const ranking: Ranking = RANKINGS[settings.rankBy]
+  const keyed = yield* Effect.forEach(
+    half,
+    Effect.fnUntraced(function* (readings) {
+      return {
+        readings,
+        stale: yield* isStale(readings, now),
+        value: yield* ranking.value({
+          readings,
+          now,
+          events: input.events.get(readings.code),
+        }),
+      }
+    })
+  )
   keyed.sort(
     (a, b) =>
       Number(a.stale) - Number(b.stale) ||
@@ -189,116 +257,96 @@ const ranked = (
       a.readings.code.localeCompare(b.readings.code)
   )
   return keyed.map(({ readings }) => readings.code)
-}
+})
 
 // A code's previous close, or its last price while none is known: Rp10 or
 // less keeps it off the scanner.
-export const isCheap = (figures: CodeFigures | undefined) => {
-  const close = figures?.previousClose ?? figures?.last
-  return close !== undefined && close <= LOWEST_READ_CLOSE
-}
+export const isCheap = (figures: CodeFigures | undefined) =>
+  Effect.sync(() => {
+    const close = figures?.previousClose ?? figures?.last
+    return close !== undefined && close <= LOWEST_READ_CLOSE
+  })
 
 const passesFilters = (
   readings: BookReadings,
   figures: CodeFigures | undefined,
   input: ScanInput,
   settings: RadarSettings
-) => {
-  if (settings.codes === "watchlist" && !input.watchlist.has(readings.code))
-    return false
-  const search = settings.search.trim().toUpperCase()
-  if (search !== "" && !readings.code.startsWith(search)) return false
-  const { priceMin, priceMax } = settings
-  if (priceMin === undefined && priceMax === undefined) return true
-  const last = figures?.last
-  if (last === undefined) return false
-  return last >= (priceMin ?? 0) && last <= (priceMax ?? Infinity)
-}
+) =>
+  Effect.sync(() => {
+    if (settings.codes === "watchlist" && !input.watchlist.has(readings.code))
+      return false
+    const search = settings.search.trim().toUpperCase()
+    if (search !== "" && !readings.code.startsWith(search)) return false
+    const { priceMin, priceMax } = settings
+    if (priceMin === undefined && priceMax === undefined) return true
+    const last = figures?.last
+    if (last === undefined) return false
+    return last >= (priceMin ?? 0) && last <= (priceMax ?? Infinity)
+  })
 
 // Decision: a code joins the scanner when its value today or on the
 // previous trading day, whichever is larger, reaches the floor; with no
 // previous day's value (after a gap), today's alone. Special Monitoring
 // Board codes and codes at Rp1–10 never join. See spec apinrdw/kumora#517,
 // "The scanner".
-export const scan = (input: ScanInput, settings: RadarSettings) =>
-  Effect.sync((): Scan => {
-    let above = 0
-    let cheap = 0
-    const bid: Array<BookReadings> = []
-    const offer: Array<BookReadings> = []
-    const limits: Array<Scan["limits"][number]> = []
-    for (const readings of input.readings) {
-      if (input.board.has(readings.code)) continue
-      const figures = input.figures.get(readings.code)
-      if (isCheap(figures)) {
-        cheap++
-        continue
-      }
-      const value = Math.max(readings.value, figures?.previousValue ?? 0)
-      if (value < settings.floor) continue
-      above++
-      if (!passesFilters(readings, figures, input, settings)) continue
-      if (readings.limit !== undefined)
-        limits.push({ code: readings.code, limit: readings.limit })
-      else if (readings.imbalance === undefined) continue
-      else if (readings.imbalance >= 0) bid.push(readings)
-      else offer.push(readings)
+export const scan = Effect.fnUntraced(function* (
+  input: ScanInput,
+  settings: RadarSettings
+) {
+  let above = 0
+  let cheap = 0
+  const bid: Array<BookReadings> = []
+  const offer: Array<BookReadings> = []
+  const limits: Array<Scan["limits"][number]> = []
+  for (const readings of input.readings) {
+    if (input.board.has(readings.code)) continue
+    const figures = input.figures.get(readings.code)
+    if (yield* isCheap(figures)) {
+      cheap++
+      continue
     }
-    return {
-      bid: ranked(bid, settings, input),
-      offer: ranked(offer, settings, input),
-      limits: limits.sort((a, b) => a.code.localeCompare(b.code)),
-      above,
-      board: input.board.size,
-      cheap,
-    }
-  })
+    const value = Math.max(readings.value, figures?.previousValue ?? 0)
+    if (value < settings.floor) continue
+    above++
+    if (!(yield* passesFilters(readings, figures, input, settings))) continue
+    if (readings.limit !== undefined)
+      limits.push({ code: readings.code, limit: readings.limit })
+    else if (readings.imbalance === undefined) continue
+    else if (readings.imbalance >= 0) bid.push(readings)
+    else offer.push(readings)
+  }
+  const result: Scan = {
+    bid: yield* ranked(bid, settings, input),
+    offer: yield* ranked(offer, settings, input),
+    limits: limits.sort((a, b) => a.code.localeCompare(b.code)),
+    above,
+    board: input.board.size,
+    cheap,
+  }
+  return result
+})
 
-const rupiah = (value: number) => Effect.map(compact(value), (n) => `Rp${n}`)
-
-const perOrder = (value: number | undefined) =>
-  value === undefined ? Effect.succeed("—") : plain(value, 0)
-
-// A book's age: 12s, or 3m from a minute.
-const ageText = (ms: number) =>
-  Effect.succeed(
-    ms < 60_000 ? `${Math.floor(ms / 1000)}s` : `${Math.floor(ms / 60_000)}m`
-  )
-
-// The row's figure for what it is ranked by: the heavy side's near depth
-// when ranked by Imbalance.
-export const rankedFigure = Effect.fnUntraced(function* (
+// The row's figure for what it is ranked by.
+export const rankedFigure = (
   readings: BookReadings,
   key: RankKey,
   now: number,
   events?: CodeEvents
-) {
-  switch (key) {
-    case "imbalance":
-      return yield* rupiah(
-        (readings.imbalance ?? 0) >= 0
-          ? readings.bid.nearDepth
-          : readings.offer.nearDepth
-      )
-    case "bidDepth":
-      return yield* rupiah(readings.bid.nearDepth)
-    case "offerDepth":
-      return yield* rupiah(readings.offer.nearDepth)
-    case "emptyTicks":
-      return `${readings.bid.emptyTicks} / ${readings.offer.emptyTicks} empty`
-    case "spread":
-      return readings.spread === undefined
-        ? "—"
-        : `${readings.spread.ticks}t · ${yield* plain(readings.spread.percent, 2)}%`
-    case "lotsPerOrder":
-      return `${yield* perOrder(readings.bid.lotsPerOrder)} / ${yield* perOrder(readings.offer.lotsPerOrder)} lots/ord`
-    case "lastEvent":
-      return events === undefined
-        ? "—"
-        : `${yield* ageText(Math.max(0, now - DateTime.toEpochMillis(events.last.at)))} ago`
-    case "eventsInFive":
-      return `${events?.inFiveMinutes ?? 0} in 5m`
-    case "bookAge":
-      return yield* ageText(bookAge(readings, now))
-  }
+) => RANKINGS[key].figure({ readings, now, events })
+
+const plural = (n: number, one: string, many: string) =>
+  Effect.succeed(`${n} ${n === 1 ? one : many}`)
+
+// The line under the toolbar: how many codes the floor lets in, and which
+// codes are never ranked and why.
+export const coverageNote = Effect.fnUntraced(function* (counted: Scan) {
+  const codes = yield* plural(counted.above, "code", "codes")
+  const board = yield* plural(
+    counted.board,
+    "Special Monitoring Board code",
+    "Special Monitoring Board codes"
+  )
+  const cheap = yield* plural(counted.cheap, "code", "codes")
+  return `${codes} above the floor · ${board} and ${cheap} at Rp1–${LOWEST_READ_CLOSE} are not ranked · rows with no book change for ${STALE_MS / 1000} s grey out and sink`
 })

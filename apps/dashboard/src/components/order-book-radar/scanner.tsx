@@ -211,7 +211,7 @@ function Row({
   const readings = view.readings.readingsOf(code)
   if (readings === undefined) return null
   const imbalance = readings.imbalance ?? 0
-  const stale = isStale(readings, view.marketNow)
+  const stale = Effect.runSync(isStale(readings, view.marketNow))
   const unfolded = view.unfolded === code
   const events = view.events.get(code)
   return (

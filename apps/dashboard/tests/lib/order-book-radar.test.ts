@@ -4,6 +4,7 @@ import { DateTime, Effect } from "effect"
 
 import {
   DEFAULT_SETTINGS,
+  coverageNote,
   rankedFigure,
   scan,
   type CodeEvents,
@@ -413,6 +414,20 @@ describe("the ranked figure", () => {
         )
         assert.strictEqual(yield* rankedFigure(readings, "bookAge", NOW), "1s")
       })
+  )
+
+  it.effect("names the floor's codes and why the rest are not ranked", () =>
+    Effect.gen(function* () {
+      const counts = { bid: [], offer: [], limits: [] }
+      assert.strictEqual(
+        yield* coverageNote({ ...counts, above: 12, board: 3, cheap: 0 }),
+        "12 codes above the floor · 3 Special Monitoring Board codes and 0 codes at Rp1–10 are not ranked · rows with no book change for 60 s grey out and sink"
+      )
+      assert.strictEqual(
+        yield* coverageNote({ ...counts, above: 1, board: 1, cheap: 1 }),
+        "1 code above the floor · 1 Special Monitoring Board code and 1 code at Rp1–10 are not ranked · rows with no book change for 60 s grey out and sink"
+      )
+    })
   )
 
   it.effect("shows the last event's age and the count of 5 minutes", () =>
