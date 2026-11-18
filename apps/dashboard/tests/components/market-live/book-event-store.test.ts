@@ -1,5 +1,6 @@
 import { describe, expect, it } from "@effect/vitest"
 import {
+  MAX_CODE_BOOK_EVENTS,
   StockCode,
   type BookEvent,
   type OrderBook,
@@ -88,6 +89,28 @@ describe("book event store", () => {
           seconds(store.events()),
           "the code's events stay oldest first"
         ).toEqual([1, 3, 5])
+      })
+  )
+
+  it.effect(
+    "a busy code keeps only its newest MAX_CODE_BOOK_EVENTS live, as its snapshot does",
+    () =>
+      Effect.gen(function* () {
+        const store = yield* makeBookEventStore(StockCode.make("BBCA"))
+        const full = Array.from({ length: MAX_CODE_BOOK_EVENTS }, (_, index) =>
+          event("BBCA", index)
+        )
+        store.apply(snapshot("BBCA", full))
+        store.apply(delta([event("BBCA", MAX_CODE_BOOK_EVENTS + 1)]))
+        store.apply(delta([event("BBCA", -1)]))
+        const kept = seconds(store.events())
+        expect(kept.length, "the live list stays at the cap").toBe(
+          MAX_CODE_BOOK_EVENTS
+        )
+        expect([kept[0], kept.at(-1)], "the oldest go first").toEqual([
+          1,
+          MAX_CODE_BOOK_EVENTS + 1,
+        ])
       })
   )
 
