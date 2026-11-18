@@ -52,14 +52,14 @@ const rounded = (value: number, places: number) => {
 
 const LIMIT_CODES = { upper: 1, lower: -1 } as const
 
-// Decision: readings travel as a tuple, [code, as-of, value, imbalance,
-// spread ticks, spread %, limit (1 upper, -1 lower, 0 none), then for the bid
-// and then the offer: depth, lots, empty ticks, widest gap, lots per order],
-// with none as null. Every changed code's go out in each delta, and keys
-// would double the ~100 bytes the spec budgets for one. Encoding rounds
-// imbalance and the spread to 4 places, lots per order to 2, and depth to
-// the rupiah: finer digits are noise on the page. See spec
-// apinrdw/kumora#517, "Data".
+// A reading's tuple: [code, as-of, value, imbalance, spread ticks, spread %,
+// limit (1 upper, -1 lower, 0 none), then the bid's and the offer's depth,
+// lots, empty ticks, widest gap and lots per order], none as null. Encoding
+// rounds imbalance and the spread to 4 places, lots per order to 2 and depth
+// to the rupiah: finer digits are noise on the page.
+// Decision: readings travel as a tuple: every changed code's go out in each
+// delta, and keys would double the ~100 bytes the spec budgets for one. See
+// spec apinrdw/kumora#517, "Data".
 const WireSide = [
   Schema.Finite,
   Schema.Finite,

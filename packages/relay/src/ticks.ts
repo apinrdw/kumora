@@ -57,13 +57,12 @@ interface LimitBand {
   readonly down: number | undefined
 }
 
-// Decision: the regular boards' limits are Kep-00158/BEI/10-2026 (points 2
-// and 3, in force 2026-10-20), which holds the lower limit at 7% from Rp15
-// and Rp1 below it until 2026-12-31. From 2027-01-01 the permanent II-A
-// VI.7.1.1 table applies (±35/25/20%) unless IDX extends the transition with
-// a new Kep, which needs a change here. Days before 2026-10-20 use the
-// transition too: the limits only flag a code at its limit. See spec
-// apinrdw/kumora#517, "Ticks, limits and excluded codes".
+// From 2027-01-01 the permanent II-A VI.7.1.1 table (±35/25/20%) applies; a
+// new Kep extending the transition needs a change here. Days before
+// 2026-10-20 use the transition too: the limits only flag a code at its limit.
+// Decision: the regular boards' limits are Kep-00158/BEI/10-2026 (in force
+// 2026-10-20): the lower limit is 7% from Rp15 and Rp1 below it until
+// 2026-12-31. See spec apinrdw/kumora#517, "Ticks, limits and excluded codes".
 const TRANSITION_ENDS = "2026-12-31"
 const TRANSITION: ReadonlyArray<LimitBand> = [
   { through: 10, up: undefined, down: undefined },
