@@ -811,9 +811,15 @@ describe("a recorded day's broker codes answer", () => {
   })
   const codesAt = Effect.fnUntraced(function* (
     day: SealedDay,
-    at: DateTime.Utc
+    at: DateTime.Utc,
+    before?: TradeNumber
   ) {
-    const answer = yield* answerOf(day, { _tag: "BrokerCodes", at })
+    const answer = yield* answerOf(
+      day,
+      before === undefined
+        ? { _tag: "BrokerCodes", at }
+        : { _tag: "BrokerCodes", at, before }
+    )
     return { ...answer, body: yield* decodeRecordedBrokerCodes(answer.text) }
   })
   const CURSOR = wib("17:00:00")
@@ -843,6 +849,31 @@ describe("a recorded day's broker codes answer", () => {
         ])
         for (const [tradeNumber] of body.codes)
           assert.isTrue(shown.has(tradeNumber), tradeNumber)
+      })
+  )
+
+  it.effect(
+    "holds the codes of the tape's trades below the same `before`, inside one instant",
+    () =>
+      Effect.gen(function* () {
+        const day = yield* sealedDay
+        yield* day.post(
+          "Ajaib",
+          numbers(1, 250).map((number) => [number, YP_CC] as const)
+        )
+        const before = TradeNumber.make("51")
+        const tape = yield* decodeRecordedTape(
+          (yield* answerOf(day, { _tag: "Tape", at: CURSOR, before })).text
+        )
+        const { body } = yield* codesAt(day, CURSOR, before)
+        assert.deepStrictEqual(
+          tape.trades.map((trade) => trade.tradeNumber),
+          numbers(1, 50).map((number) => TradeNumber.make(String(number)))
+        )
+        assert.deepStrictEqual(
+          body.codes.map(([tradeNumber]) => tradeNumber),
+          tape.trades.map((trade) => trade.tradeNumber)
+        )
       })
   )
 

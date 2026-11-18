@@ -98,6 +98,20 @@ _Avoid_: HAKA/HAKI (on the page), trade direction
 A stock code's running trades in one second that share an aggressor side, taken together: their lots, value, and first and last price. Another code's trades between them don't break it; this code trading on the other side does. Once every trade of the sweep has stored broker codes, it is also split by aggressor broker (the seller of a sell sweep, the buyer of a buy sweep), so each sweep has one aggressor broker; all of one broker's trades in it are one sweep, however interleaved with other brokers' trades.
 _Avoid_: Group, burst
 
+**Sweep alert**:
+A sweep that reached its stock code's top-1% cutoff for its side, among at least 100 earlier sweeps of that side today, decided live. Market Live plays its side's sound and marks its trades on the tape.
+
+**Top-1% cutoff**:
+The lots that a side's biggest 1% of sweeps so far reach.
+
+**Speaker toggle**:
+The button in the live Running trades header that turns Sweep alert sounds on for this browser. Off until turned on, and remembered per browser.
+_Avoid_: Mute button, sound setting
+
+**Playing tab**:
+The one open Market Live tab in a browser that plays Sweep alert sounds: the one focused last, or one alone. The others mark alerts but stay silent.
+_Avoid_: Role, leader, main tab
+
 **Lead broker**:
 The broker code with the most lots on a sweep's Other side, or on each side of an auction match, summed over its trades. The sweep log shows it with its investor type, and how many other brokers were on that side. A sweep's aggressor side has one broker, shown alone.
 _Avoid_: Top broker (top names the top-N filter), main broker

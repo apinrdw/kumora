@@ -40,6 +40,11 @@ const dayTrades = () => {
 }
 const N = 18_200
 const TIMES = dayTrades()
+// Decision: a walk of this whole day is slow on purpose, so these tests set
+// their own timeout. On CI's 2 cores each took about 4.9 s against the 5 s
+// default (local ~0.9 s), and timed out on apinrdw/kumora#527, which touched no
+// extension code; 15 s keeps about 3x headroom.
+const WALK_TIMEOUT = 15_000
 // The tape calls the codes-only walk made of this day.
 const CALLS = 166
 
@@ -249,7 +254,7 @@ const walkWith = (
   store = memoryStore().store
 ) => makeAjaibWalk({ tab, post: production.post, store })
 
-describe("Ajaib's walk of the day", () => {
+describe("Ajaib's walk of the day", { timeout: WALK_TIMEOUT }, () => {
   it.effect(
     "posts every trade 1..N, then end, with the repair pass closing the page seams",
     () =>
@@ -364,7 +369,7 @@ describe("Ajaib's walk of the day", () => {
   )
 })
 
-describe("Ajaib's walk: when it starts", () => {
+describe("Ajaib's walk: when it starts", { timeout: WALK_TIMEOUT }, () => {
   it.effect(
     "polls once a minute until Ajaib says CLOSED and the newest page carries codes",
     () =>
@@ -605,162 +610,166 @@ describe("Ajaib's walk: when it starts", () => {
   )
 })
 
-describe("Ajaib's walk: stopping and carrying on", () => {
-  it.effect("a restarted worker carries on from the kept block", () =>
-    Effect.gen(function* () {
-      yield* TestClock.setTime(wib("2026-11-12", "17:30:00"))
-      const production = fakeProduction()
-      const kept = memoryStore()
-      // The worker stops during the 60th call.
-      const first = fakeAjaib({
-        answer: (_, call) => (call === 60 ? Effect.never : undefined),
-      })
-      const before = yield* walkWith(first, production, kept.store)
-      const fiber = yield* Effect.forkChild(before.walk(DAY))
-      yield* settle(first, 60)
-      yield* Fiber.interrupt(fiber)
-      const position = kept.held()
-      assert.isTrue(Option.isSome(position))
-      const next = Option.getOrThrow(position).next
-
-      const second = fakeAjaib()
-      const after = yield* walkWith(second, production, kept.store)
-      assert.deepStrictEqual(yield* after.walk(DAY), { _tag: "walked" })
-      const blocks = second
-        .tapeCalls()
-        .filter((path) => sizeOf(path) === 5_000)
-        .map((path) => paramOf(path, "last_timestamp"))
-      // No block before the kept one is walked again.
-      assert.strictEqual(Math.max(...blocks), next)
-      assert.deepStrictEqual(missingOf(production.held()), [])
-
-      // A walked day isn't walked again.
-      const third = fakeAjaib()
-      const again = yield* walkWith(third, production, kept.store)
-      assert.deepStrictEqual(yield* again.walk(DAY), { _tag: "walked" })
-      assert.deepStrictEqual(third.paths, [])
-    })
-  )
-
-  it.effect(
-    "waits out a 401 until the page shows a new token, then asks again",
-    () =>
+describe(
+  "Ajaib's walk: stopping and carrying on",
+  { timeout: WALK_TIMEOUT },
+  () => {
+    it.effect("a restarted worker carries on from the kept block", () =>
       Effect.gen(function* () {
         yield* TestClock.setTime(wib("2026-11-12", "17:30:00"))
-        const renewedAt = wib("2026-11-12", "17:44:00")
         const production = fakeProduction()
-        const tab = fakeAjaib({
-          token: (now) => (now >= renewedAt ? "renewed" : "expired"),
-          answer: (_, call) =>
-            call === 30 ? Effect.succeed(STATUS(401)) : undefined,
+        const kept = memoryStore()
+        // The worker stops during the 60th call.
+        const first = fakeAjaib({
+          answer: (_, call) => (call === 60 ? Effect.never : undefined),
         })
-        const walk = yield* walkWith(tab, production)
-        const fiber = yield* Effect.forkChild(walk.walk(DAY))
-        yield* settle(tab, 30)
-        assert.lengthOf(tab.paths, 30)
-        yield* TestClock.adjust("13 minutes")
-        // 17:43: the page hasn't renewed its token, and the walk waits.
-        assert.lengthOf(tab.paths, 30)
-        yield* TestClock.adjust("1 minute")
-        assert.deepStrictEqual(yield* Fiber.join(fiber), { _tag: "walked" })
-        // The refused page is asked again once the token changed.
-        assert.strictEqual(tab.paths[30], tab.paths[29])
-        assert.deepStrictEqual(missingOf(production.held()), [])
-      })
-  )
+        const before = yield* walkWith(first, production, kept.store)
+        const fiber = yield* Effect.forkChild(before.walk(DAY))
+        yield* settle(first, 60)
+        yield* Fiber.interrupt(fiber)
+        const position = kept.held()
+        assert.isTrue(Option.isSome(position))
+        const next = Option.getOrThrow(position).next
 
-  it.effect(
-    "asks again once a 401 lands after the page already renewed the token the call was sent with",
-    () =>
+        const second = fakeAjaib()
+        const after = yield* walkWith(second, production, kept.store)
+        assert.deepStrictEqual(yield* after.walk(DAY), { _tag: "walked" })
+        const blocks = second
+          .tapeCalls()
+          .filter((path) => sizeOf(path) === 5_000)
+          .map((path) => paramOf(path, "last_timestamp"))
+        // No block before the kept one is walked again.
+        assert.strictEqual(Math.max(...blocks), next)
+        assert.deepStrictEqual(missingOf(production.held()), [])
+
+        // A walked day isn't walked again.
+        const third = fakeAjaib()
+        const again = yield* walkWith(third, production, kept.store)
+        assert.deepStrictEqual(yield* again.walk(DAY), { _tag: "walked" })
+        assert.deepStrictEqual(third.paths, [])
+      })
+    )
+
+    it.effect(
+      "waits out a 401 until the page shows a new token, then asks again",
+      () =>
+        Effect.gen(function* () {
+          yield* TestClock.setTime(wib("2026-11-12", "17:30:00"))
+          const renewedAt = wib("2026-11-12", "17:44:00")
+          const production = fakeProduction()
+          const tab = fakeAjaib({
+            token: (now) => (now >= renewedAt ? "renewed" : "expired"),
+            answer: (_, call) =>
+              call === 30 ? Effect.succeed(STATUS(401)) : undefined,
+          })
+          const walk = yield* walkWith(tab, production)
+          const fiber = yield* Effect.forkChild(walk.walk(DAY))
+          yield* settle(tab, 30)
+          assert.lengthOf(tab.paths, 30)
+          yield* TestClock.adjust("13 minutes")
+          // 17:43: the page hasn't renewed its token, and the walk waits.
+          assert.lengthOf(tab.paths, 30)
+          yield* TestClock.adjust("1 minute")
+          assert.deepStrictEqual(yield* Fiber.join(fiber), { _tag: "walked" })
+          // The refused page is asked again once the token changed.
+          assert.strictEqual(tab.paths[30], tab.paths[29])
+          assert.deepStrictEqual(missingOf(production.held()), [])
+        })
+    )
+
+    it.effect(
+      "asks again once a 401 lands after the page already renewed the token the call was sent with",
+      () =>
+        Effect.gen(function* () {
+          yield* TestClock.setTime(wib("2026-11-12", "17:30:00"))
+          let token = "expired"
+          const production = fakeProduction()
+          const tab = fakeAjaib({
+            token: () => token,
+            // The page renews its token while the 30th call is in flight,
+            // whose answer is still the old token's 401.
+            answer: (_, call) =>
+              call === 30
+                ? Effect.sync(() => {
+                    token = "renewed"
+                    return STATUS(401)
+                  })
+                : undefined,
+          })
+          const walk = yield* walkWith(tab, production)
+          const fiber = yield* Effect.forkChild(walk.walk(DAY))
+          yield* settle(tab, 30)
+          yield* TestClock.adjust("10 seconds")
+          yield* settle(tab, 31)
+          assert.isAbove(tab.paths.length, 30)
+          assert.strictEqual(tab.paths[30], tab.paths[29])
+          assert.deepStrictEqual(yield* Fiber.join(fiber), { _tag: "walked" })
+          assert.deepStrictEqual(missingOf(production.held()), [])
+        })
+    )
+
+    it.effect(
+      "waits in place when its Ajaib tab goes mid-walk, then carries on",
+      () =>
+        Effect.gen(function* () {
+          yield* TestClock.setTime(wib("2026-11-12", "17:30:00"))
+          const production = fakeProduction()
+          let gone = false
+          // The tab closes during the 40th call, which gets no answer.
+          const fake = fakeAjaib({
+            answer: (_, call) =>
+              call === 40
+                ? Effect.sync(() => {
+                    gone = true
+                    return undefined
+                  })
+                : undefined,
+          })
+          const walk = yield* makeAjaibWalk({
+            tab: { ...fake, attached: Effect.sync(() => !gone) },
+            post: production.post,
+            store: memoryStore().store,
+          })
+          const fiber = yield* Effect.forkChild(walk.walk(DAY))
+          yield* settle(fake, 40)
+          yield* TestClock.adjust("20 minutes")
+          assert.isUndefined(fiber.pollUnsafe())
+          assert.lengthOf(fake.paths, 40)
+          gone = false
+          yield* TestClock.adjust("1 minute")
+          assert.deepStrictEqual(yield* Fiber.join(fiber), { _tag: "walked" })
+          assert.strictEqual(fake.paths[40], fake.paths[39])
+          assert.deepStrictEqual(missingOf(production.held()), [])
+        })
+    )
+
+    it.effect("stops in place at 08:40, when Streaming hours start", () =>
       Effect.gen(function* () {
         yield* TestClock.setTime(wib("2026-11-12", "17:30:00"))
-        let token = "expired"
         const production = fakeProduction()
+        // The next morning arrives during the 50th call.
         const tab = fakeAjaib({
-          token: () => token,
-          // The page renews its token while the 30th call is in flight,
-          // whose answer is still the old token's 401.
           answer: (_, call) =>
-            call === 30
-              ? Effect.sync(() => {
-                  token = "renewed"
-                  return STATUS(401)
-                })
+            call === 50
+              ? Effect.as(
+                  TestClock.setTime(wib("2026-11-13", "08:40:00")),
+                  undefined
+                )
               : undefined,
         })
         const walk = yield* walkWith(tab, production)
         const fiber = yield* Effect.forkChild(walk.walk(DAY))
-        yield* settle(tab, 30)
+        yield* settle(tab, 50)
+        // The tab gave no answer, so the walk asks again in 10 s, and finds
+        // Streaming hours started.
         yield* TestClock.adjust("10 seconds")
-        yield* settle(tab, 31)
-        assert.isAbove(tab.paths.length, 30)
-        assert.strictEqual(tab.paths[30], tab.paths[29])
-        assert.deepStrictEqual(yield* Fiber.join(fiber), { _tag: "walked" })
-        assert.deepStrictEqual(missingOf(production.held()), [])
-      })
-  )
-
-  it.effect(
-    "waits in place when its Ajaib tab goes mid-walk, then carries on",
-    () =>
-      Effect.gen(function* () {
-        yield* TestClock.setTime(wib("2026-11-12", "17:30:00"))
-        const production = fakeProduction()
-        let gone = false
-        // The tab closes during the 40th call, which gets no answer.
-        const fake = fakeAjaib({
-          answer: (_, call) =>
-            call === 40
-              ? Effect.sync(() => {
-                  gone = true
-                  return undefined
-                })
-              : undefined,
+        assert.deepStrictEqual(yield* Fiber.join(fiber), {
+          _tag: "stopped",
+          cause: "streaming-hours",
         })
-        const walk = yield* makeAjaibWalk({
-          tab: { ...fake, attached: Effect.sync(() => !gone) },
-          post: production.post,
-          store: memoryStore().store,
-        })
-        const fiber = yield* Effect.forkChild(walk.walk(DAY))
-        yield* settle(fake, 40)
-        yield* TestClock.adjust("20 minutes")
-        assert.isUndefined(fiber.pollUnsafe())
-        assert.lengthOf(fake.paths, 40)
-        gone = false
-        yield* TestClock.adjust("1 minute")
-        assert.deepStrictEqual(yield* Fiber.join(fiber), { _tag: "walked" })
-        assert.strictEqual(fake.paths[40], fake.paths[39])
-        assert.deepStrictEqual(missingOf(production.held()), [])
+        assert.lengthOf(tab.paths, 50)
+        assert.deepStrictEqual(production.ends(), [])
       })
-  )
-
-  it.effect("stops in place at 08:40, when Streaming hours start", () =>
-    Effect.gen(function* () {
-      yield* TestClock.setTime(wib("2026-11-12", "17:30:00"))
-      const production = fakeProduction()
-      // The next morning arrives during the 50th call.
-      const tab = fakeAjaib({
-        answer: (_, call) =>
-          call === 50
-            ? Effect.as(
-                TestClock.setTime(wib("2026-11-13", "08:40:00")),
-                undefined
-              )
-            : undefined,
-      })
-      const walk = yield* walkWith(tab, production)
-      const fiber = yield* Effect.forkChild(walk.walk(DAY))
-      yield* settle(tab, 50)
-      // The tab gave no answer, so the walk asks again in 10 s, and finds
-      // Streaming hours started.
-      yield* TestClock.adjust("10 seconds")
-      assert.deepStrictEqual(yield* Fiber.join(fiber), {
-        _tag: "stopped",
-        cause: "streaming-hours",
-      })
-      assert.lengthOf(tab.paths, 50)
-      assert.deepStrictEqual(production.ends(), [])
-    })
-  )
-})
+    )
+  }
+)

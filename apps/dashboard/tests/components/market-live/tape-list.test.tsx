@@ -296,3 +296,80 @@ test("gap and fold rows span every column", () => {
   expect([span("data-fold"), span("data-relay-gap")]).toEqual(["8", "8"])
   act(() => root.unmount())
 })
+
+test("a live tape marks every row of a sweep alert, ▲ in the up colour for a buy and ▼ in the down colour for a sell, over the Big trade tint; a recorded tape marks none", () => {
+  const container = document.body.appendChild(document.createElement("div"))
+  const root = createRoot(container)
+  // Rp1.8 B each: big trades.
+  const big = (n: number, side: "buy" | "sell") => ({
+    ...trade(n),
+    lots: 2_000,
+    side,
+  })
+  const traded = Effect.runSync(
+    applyViewerMessage(Effect.runSync(emptyTape()), {
+      _tag: "Delta",
+      at: DateTime.makeUnsafe(0),
+      tape: [big(1, "buy"), big(2, "buy"), big(3, "sell"), trade(4)],
+      candles: [],
+    })
+  )
+  // The alerts come a delta after their trades, once their second closed.
+  const tape = Effect.runSync(
+    applyViewerMessage(traded, {
+      _tag: "Delta",
+      at: DateTime.makeUnsafe(0),
+      tape: [],
+      candles: [],
+      sweepAlerts: [
+        {
+          code: StockCode.make("BBCA"),
+          side: "buy",
+          lots: 4_000,
+          tradeNumbers: [TradeNumber.make("1"), TradeNumber.make("2")],
+        },
+        {
+          code: StockCode.make("BBCA"),
+          side: "sell",
+          lots: 2_000,
+          tradeNumbers: [TradeNumber.make("3")],
+        },
+      ],
+    })
+  )
+  const render = (live: boolean) =>
+    act(() =>
+      root.render(
+        <TapeList
+          tape={tape}
+          frame={1}
+          live={live}
+          selected={StockCode.make("TLKM")}
+          onSelect={() => {}}
+        />
+      )
+    )
+  // Each row's mark, its colour, and whether it is a big trade.
+  const marks = () =>
+    [1, 2, 3, 4].map((n) => {
+      const row = container.querySelector(`tr[data-trade-number="${n}"]`)!
+      const mark = row.querySelector("td [data-sweep-alert]")
+      return [
+        mark?.textContent ?? "",
+        ["text-up", "text-down"].find((colour) =>
+          mark?.classList.contains(colour)
+        ),
+        row.hasAttribute("data-big"),
+      ]
+    })
+  render(true)
+  expect(marks()).toEqual([
+    ["▲", "text-up", true],
+    ["▲", "text-up", true],
+    ["▼", "text-down", true],
+    ["", undefined, false],
+  ])
+  render(false)
+  expect(marks().map(([mark]) => mark)).toEqual(["", "", "", ""])
+  act(() => root.unmount())
+})

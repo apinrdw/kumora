@@ -84,7 +84,7 @@ describe("the recorded tape's query plan", () => {
       })
       statements.length = 0
       const trades = yield* store.tradesAt(
-        DateTime.makeUnsafe("2026-11-09T09:00:02.500+07:00"),
+        { at: DateTime.makeUnsafe("2026-11-09T09:00:02.500+07:00") },
         200
       )
       assert.deepStrictEqual(
@@ -119,7 +119,7 @@ describe("the recorded tape with mixed feed precision", () => {
         facts: {},
       })
       assert.deepStrictEqual(
-        numbers(yield* store.tradesAt(wib("09:00:00.500"), 200)),
+        numbers(yield* store.tradesAt({ at: wib("09:00:00.500") }, 200)),
         ["2"]
       )
       assert.deepStrictEqual(
@@ -150,7 +150,7 @@ describe("the recorded tape with mixed feed precision", () => {
         facts: {},
       })
       assert.deepStrictEqual(
-        numbers(yield* store.tradesAt(wib("09:00:00.500"), 2)),
+        numbers(yield* store.tradesAt({ at: wib("09:00:00.500") }, 2)),
         ["2", "5"]
       )
     })

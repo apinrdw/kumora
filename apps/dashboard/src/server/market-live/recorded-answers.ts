@@ -106,16 +106,16 @@ export const recordedAnswer = Effect.fnUntraced(function* (
     case "Tape":
       return yield* json(
         yield* encodeRecordedTape({
-          trades: yield* store.tradesAt(resource.at, SNAPSHOT_TRADES),
+          trades: yield* store.tradesAt(resource, SNAPSHOT_TRADES),
         }),
         cacheControl
       )
-    // Decision: the codes of the trades the tape answer at `at` holds, picked
-    // the same way, so the page sends no trade numbers. Codes arrive after
+    // Decision: the codes of the trades the tape answer at the same cursor
+    // (`at`, and `before` when given) holds, picked the same way, so the page sends no trade numbers. Codes arrive after
     // the seal, so they are their own resource and the tape's answer stays
     // byte-identical.
     case "BrokerCodes": {
-      const trades = yield* store.tradesAt(resource.at, SNAPSHOT_TRADES)
+      const trades = yield* store.tradesAt(resource, SNAPSHOT_TRADES)
       const complete = yield* day.brokerCodes.codesComplete
       return yield* json(
         yield* encodeRecordedBrokerCodes({

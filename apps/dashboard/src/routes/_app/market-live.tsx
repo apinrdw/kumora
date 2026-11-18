@@ -17,11 +17,20 @@ import {
   useBookEvents,
   useRecentBookEvents,
 } from "@/components/market-live/book-events"
-import { makeBookReadingsStore } from "@/components/market-live/book-readings-store"
+import {
+  makeBookReadingsStore,
+  type BookReadingsStore,
+} from "@/components/market-live/book-readings-store"
 import { BookReadout } from "@/components/market-live/book-readout"
-import { makeCandleStore } from "@/components/market-live/candle-store"
+import {
+  makeCandleStore,
+  type CandleStore,
+} from "@/components/market-live/candle-store"
 import { makeChartPair } from "@/components/market-live/chart-pair"
-import { makeDayStateStore } from "@/components/market-live/day-state-store"
+import {
+  makeDayStateStore,
+  type DayStateStore,
+} from "@/components/market-live/day-state-store"
 import { DayStrip } from "@/components/market-live/day-strip"
 import { LayoutB } from "@/components/market-live/layout-b"
 import { LiveChart } from "@/components/market-live/live-chart"
@@ -46,6 +55,7 @@ import {
 import type { ReplayCursor } from "@/components/market-live/replay-cursor"
 import { StockCodePalette } from "@/components/market-live/stock-code-palette"
 import { StockCodePicker } from "@/components/market-live/stock-code-picker"
+import { useSweepAlertPlayer } from "@/components/market-live/sweep-alert-player"
 import { SweepLog, useSweeps } from "@/components/market-live/sweep-log"
 import type { SweepStore } from "@/components/market-live/sweep-store"
 import { TransportBar } from "@/components/market-live/transport-bar"
@@ -260,6 +270,90 @@ function useMarketLiveSearch() {
   }
 }
 
+// The selected code's charts and, under them, its book readout and book
+// events.
+function DayCharts({
+  code,
+  today,
+  closed,
+  codes,
+  onPick,
+  event,
+  stores,
+  flow,
+  pair,
+  cursor,
+  gaps,
+  shownGaps,
+}: {
+  code: StockCode
+  today: WibDate
+  closed: ClosedMarket["closed"]
+  codes: ReturnType<typeof useStockCodeList>
+  onPick: (code: StockCode) => void
+  event: MarketLiveSearch["event"]
+  stores: {
+    candles: CandleStore
+    book: OrderBookStore
+    dayStates: DayStateStore
+    readings: BookReadingsStore
+    bookEvents: BookEventStore
+  }
+  flow:
+    | {
+        heatmap: ReturnType<typeof useHeatmap>
+        sweeps: SweepStore
+        bookEvents: BookEventStore
+      }
+    | undefined
+  pair: ReturnType<typeof useChartPair>
+  cursor: ReplayCursor | undefined
+  gaps: ReadonlyArray<RelayGap>
+  shownGaps: ReadonlyArray<RelayGap>
+}) {
+  return (
+    <>
+      <LiveChart
+        store={stores.candles}
+        heatmap={flow?.heatmap}
+        sweeps={flow?.sweeps}
+        bookEvents={flow?.bookEvents}
+        pair={pair}
+        gaps={shownGaps}
+        dayStates={stores.dayStates}
+        conditions={<ConditionsBar cursor={cursor} closed={closed} />}
+        cursor={cursor}
+        transport={cursor && <TransportBar cursor={cursor} gaps={gaps} />}
+        search={
+          <StockCodePicker
+            list={codes}
+            label="Search stock code"
+            shortcut="Ctrl K"
+            onPick={onPick}
+            className="ml-auto w-full max-w-xs"
+          />
+        }
+      />
+      <BookReadout
+        code={code}
+        today={today}
+        readings={stores.readings}
+        book={stores.book}
+        dayStates={stores.dayStates}
+        cursor={cursor}
+        gaps={shownGaps}
+        events={
+          <BookEventList
+            store={stores.bookEvents}
+            cursor={cursor}
+            landOn={event}
+          />
+        }
+      />
+    </>
+  )
+}
+
 function MarketLiveDay({
   day,
   today,
@@ -307,6 +401,7 @@ function MarketLiveDay({
   })
   const liveGaps = useRelayGaps()
   const shownGaps = cursor === undefined ? liveGaps : gaps
+  const player = useSweepAlertPlayer(day)
   const apply = useCallback(
     (message: ViewerDown) => {
       candles.apply(message)
@@ -316,53 +411,29 @@ function MarketLiveDay({
       dayStates.apply(message)
       readings.apply(message)
       bookEvents.apply(message)
+      clientRuntime.runFork(player.hear(message))
     },
-    [candles, sweeps, book, heatmap, dayStates, readings, bookEvents]
+    [candles, sweeps, book, heatmap, dayStates, readings, bookEvents, player]
   )
   return (
     <>
       <h1 className="text-2xl font-bold">Market Live</h1>
       <LayoutB
         charts={
-          <>
-            <LiveChart
-              store={candles}
-              heatmap={flow?.heatmap}
-              sweeps={flow?.sweeps}
-              bookEvents={flow?.bookEvents}
-              pair={pair}
-              gaps={shownGaps}
-              dayStates={dayStates}
-              conditions={<ConditionsBar cursor={cursor} closed={closed} />}
-              cursor={cursor}
-              transport={cursor && <TransportBar cursor={cursor} gaps={gaps} />}
-              search={
-                <StockCodePicker
-                  list={codes}
-                  label="Search stock code"
-                  shortcut="Ctrl K"
-                  onPick={select}
-                  className="ml-auto w-full max-w-xs"
-                />
-              }
-            />
-            <BookReadout
-              code={selected}
-              today={today}
-              readings={readings}
-              book={book}
-              dayStates={dayStates}
-              cursor={cursor}
-              gaps={shownGaps}
-              events={
-                <BookEventList
-                  store={bookEvents}
-                  cursor={cursor}
-                  landOn={event}
-                />
-              }
-            />
-          </>
+          <DayCharts
+            code={selected}
+            today={today}
+            closed={closed}
+            codes={codes}
+            onPick={select}
+            event={event}
+            stores={{ candles, book, dayStates, readings, bookEvents }}
+            flow={flow}
+            pair={pair}
+            cursor={cursor}
+            gaps={gaps}
+            shownGaps={shownGaps}
+          />
         }
         log={
           flow && (

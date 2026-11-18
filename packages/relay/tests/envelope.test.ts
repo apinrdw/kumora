@@ -337,7 +337,7 @@ describe("viewer protocol, down", () => {
 
   it.effect("book readings round trip in a delta and a snapshot", () =>
     Effect.gen(function* () {
-      assert.strictEqual(ViewerProtocolVersion, 6)
+      assert.strictEqual(ViewerProtocolVersion, 7)
       const readings: BookReadings = {
         code: StockCode.make("ERAA"),
         at: DateTime.makeUnsafe("2026-11-18T03:00:00.125Z"),

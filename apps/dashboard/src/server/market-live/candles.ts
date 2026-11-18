@@ -18,6 +18,7 @@ import type {
   RunningTrade,
   StockCode,
   Sweep,
+  SweepAlert,
   TradeNumber,
 } from "@workspace/relay"
 import {
@@ -37,6 +38,7 @@ import {
   type Cells,
 } from "./footprint-cells.ts"
 import type { LivePrice } from "./stockbit-liveprice.ts"
+import { makeSweepAlerts, type KnownSweep } from "./sweep-alerts.ts"
 
 // Decision: a trade's part in its candle stays open for 5 s after it first
 // arrived, so a second feed's copy can still move or reprice it; after that a
@@ -128,6 +130,11 @@ export interface SettledCandles {
   readonly storedSweepsOf: (
     code: StockCode
   ) => Effect.Effect<ReadonlyMap<number, ReadonlyArray<Sweep>>>
+  // Every stock's sweeps, a minute at a time in no order, each handed to
+  // `each` as it is read.
+  readonly eachStoredSweeps: (
+    each: (code: StockCode, sweeps: ReadonlyArray<Sweep>) => Effect.Effect<void>
+  ) => Effect.Effect<void>
 }
 
 interface Print {
@@ -219,8 +226,14 @@ interface Slot {
   readonly minute: number
   settled: CandleFigures | undefined
   readonly settledCells: Cells
+  // The sweeps the store held when the book took the minute, as the alert
+  // rule knows them (`knownSweeps`).
+  readonly stored: ReadonlyArray<KnownSweep>
   base: StoredSweeps
   readonly trades: Map<TradeNumber, RunningTrade>
+  // Each of `trades` that was read back from the store, with the first trade
+  // of the stored sweep it was in.
+  readonly storedIn: Map<TradeNumber, TradeNumber>
   readonly open: Map<string, RunningTrade>
 }
 
@@ -353,6 +366,10 @@ export const makeCandleBook = Effect.fnUntraced(function* (
   // The candles and trades a flush took and hasn't written yet.
   let flushing = new Set<Slot>()
   let flushingTrades = new Map<string, RunningTrade>()
+  const alertRule = yield* makeSweepAlerts
+  // The latest time of any trade the book heard, in epoch ms: a sweep's
+  // second has closed once it is later.
+  let latest = -Infinity
 
   const slotOf = Effect.fnUntraced(function* (code: StockCode, minute: number) {
     let minutes = series.get(code)
@@ -362,14 +379,20 @@ export const makeCandleBook = Effect.fnUntraced(function* (
     }
     let slot = minutes.get(minute)
     if (slot === undefined) {
+      const base = (yield* store.storedSweeps(code, minute)) ?? NO_SWEEPS
       slot = {
         code,
         minute,
         settled: yield* store.storedCandle(code, minute),
         settledCells:
           (yield* store.storedFootprint(code, minute)) ?? (yield* noCells),
-        base: (yield* store.storedSweeps(code, minute)) ?? NO_SWEEPS,
+        stored: base.sweeps.map((sweep) => ({
+          sweep,
+          trades: [sweep.firstTrade],
+        })),
+        base,
         trades: new Map(),
+        storedIn: new Map(),
         open: new Map(),
       }
       minutes.set(minute, slot)
@@ -377,16 +400,42 @@ export const makeCandleBook = Effect.fnUntraced(function* (
     return slot
   })
 
-  // A slot's sweeps: what has settled, plus the trades still inside the
-  // merge window when `withOpen`. A trade numbered at or below the stored
-  // sweeps' last can split one, so the minute's stored trades are read back
-  // once and the sweeps grouped whole from then on.
+  // The minute's stored trades read back into a slot that carried its stored
+  // sweeps on, each noted with the stored sweep it was in: the one that
+  // starts last at or before it. The slot groups the minute whole from then
+  // on.
+  const readBack = Effect.fnUntraced(function* (slot: Slot) {
+    const stored = slot.base.sweeps
+    let index = 0
+    for (const trade of yield* store.storedMinuteTrades(
+      slot.code,
+      slot.minute
+    )) {
+      if (slot.trades.has(trade.tradeNumber)) continue
+      slot.trades.set(trade.tradeNumber, trade)
+      while (
+        index + 1 < stored.length &&
+        TradeNumberOrder(stored[index + 1]!.firstTrade, trade.tradeNumber) <= 0
+      )
+        index += 1
+      const sweep = stored[index]
+      if (sweep !== undefined)
+        slot.storedIn.set(trade.tradeNumber, sweep.firstTrade)
+    }
+    slot.base = NO_SWEEPS
+  })
+
+  // A slot's sweeps, and the trades it grouped after the stored sweeps it
+  // carries on, by trade number: what has settled, plus the trades still
+  // inside the merge window when `withOpen`. A trade numbered at or below
+  // the stored sweeps' last can split one, so the minute's stored trades are
+  // read back once and the sweeps grouped whole from then on.
   // Decision: the book reads a minute's trades back only for such a late
   // trade. The trades table has no code index, so that read scans the whole
   // market's minute; a trade numbered above the stored sweeps carries them
   // on instead, and the minute a flush let go of reopens from its row. See
   // spec apinrdw/kumora#263.
-  const slotSweeps = Effect.fnUntraced(function* (
+  const groupSlot = Effect.fnUntraced(function* (
     slot: Slot,
     withOpen: boolean
   ) {
@@ -396,21 +445,48 @@ export const makeCandleBook = Effect.fnUntraced(function* (
     if (
       slot.base !== NO_SWEEPS &&
       [...slot.trades.values(), ...unsettled].some(late)
-    ) {
-      for (const trade of yield* store.storedMinuteTrades(
-        slot.code,
-        slot.minute
-      ))
-        if (!slot.trades.has(trade.tradeNumber))
-          slot.trades.set(trade.tradeNumber, trade)
-      slot.base = NO_SWEEPS
-    }
-    const later = yield* sweepsOf(
-      [...slot.trades.values(), ...unsettled].sort((a, b) =>
-        TradeNumberOrder(a.tradeNumber, b.tradeNumber)
-      )
     )
-    return yield* joinSweeps(slot.base.sweeps, later)
+      yield* readBack(slot)
+    const trades = [...slot.trades.values(), ...unsettled].sort((a, b) =>
+      TradeNumberOrder(a.tradeNumber, b.tradeNumber)
+    )
+    return {
+      trades,
+      sweeps: yield* joinSweeps(slot.base.sweeps, yield* sweepsOf(trades)),
+    }
+  })
+
+  const slotSweeps = (slot: Slot, withOpen: boolean) =>
+    Effect.map(groupSlot(slot, withOpen), ({ sweeps }) => sweeps)
+
+  // A slot's sweeps as the alert rule knows them (sweep-alerts.ts,
+  // `KnownSweep`), open trades included: each with the numbers its trades go
+  // by. A trade the book holds goes by its own number. A stored sweep the
+  // book carries on goes by its first trade's, all the book has of it. Once
+  // the book reads the minute back, each trade that was in a stored sweep
+  // goes by that sweep's first trade's number as well as its own, so the
+  // rule finds the sweep it ranked in whichever sweeps its trades end up.
+  const knownSweeps = Effect.fnUntraced(function* (slot: Slot) {
+    const { trades, sweeps } = yield* groupSlot(slot, true)
+    // The carried sweeps come first, the last joined by the slot's first
+    // trades when they share its side and second; each sweep after takes its
+    // trades in turn.
+    let taken = 0
+    return sweeps.map((sweep, index): KnownSweep => {
+      const carried = slot.base.sweeps[index]
+      const from = taken
+      taken += sweep.trades - (carried?.trades ?? 0)
+      return {
+        sweep,
+        trades: [
+          ...(carried === undefined ? [] : [carried.firstTrade]),
+          ...trades.slice(from, taken).flatMap(({ tradeNumber }) => {
+            const first = slot.storedIn.get(tradeNumber)
+            return first === undefined ? [tradeNumber] : [tradeNumber, first]
+          }),
+        ],
+      }
+    })
   })
 
   // The highest trade number a slot's settled sweeps were grouped from.
@@ -424,21 +500,22 @@ export const makeCandleBook = Effect.fnUntraced(function* (
       return last
     })
 
-  // Lets a candle go once nothing in the book still refers to it.
-  const release = (slot: Slot) =>
-    Effect.sync(() => {
-      if (
-        slot.open.size > 0 ||
-        unflushed.has(slot) ||
-        flushing.has(slot) ||
-        changed.has(slot)
-      )
-        return
-      const minutes = series.get(slot.code)
-      if (minutes?.get(slot.minute) !== slot) return
-      minutes.delete(slot.minute)
-      if (minutes.size === 0) series.delete(slot.code)
-    })
+  // Lets a candle go once nothing in the book still refers to it: the store
+  // holds it, its sweeps as the alert rule last heard them.
+  const release = Effect.fnUntraced(function* (slot: Slot) {
+    if (
+      slot.open.size > 0 ||
+      unflushed.has(slot) ||
+      flushing.has(slot) ||
+      changed.has(slot)
+    )
+      return
+    const minutes = series.get(slot.code)
+    if (minutes?.get(slot.minute) !== slot) return
+    minutes.delete(slot.minute)
+    if (minutes.size === 0) series.delete(slot.code)
+    yield* alertRule.release(slot.code, slot.minute)
+  })
 
   const settle = Effect.fnUntraced(function* (now: number) {
     for (const [tradeNumber, arrival] of arrivals) {
@@ -468,6 +545,7 @@ export const makeCandleBook = Effect.fnUntraced(function* (
   ) {
     const now = yield* Clock.currentTimeMillis
     yield* settle(now)
+    latest = Math.max(latest, DateTime.toEpochMillis(current.time))
     const arrival = arrivals.get(current.tradeNumber)
     if (held !== undefined) {
       if (arrival === undefined) return
@@ -591,10 +669,74 @@ export const makeCandleBook = Effect.fnUntraced(function* (
       .flatMap(([, sweeps]) => sweeps)
   })
 
+  // The numbers of an alerting sweep's trades: its minute's from its first
+  // trade on, as many as it holds. The book holds them, unless the sweep is
+  // a stored one its slot carries on, or the book let the minute go since
+  // they arrived: the rule decides a sweep that waited for its second to
+  // close whenever a later trade comes. The store has the trades then.
+  const tradeNumbersOf = Effect.fnUntraced(function* ({
+    code,
+    minute,
+    sweep,
+  }: {
+    readonly code: StockCode
+    readonly minute: number
+    readonly sweep: Sweep
+  }) {
+    const slot = series.get(code)?.get(minute)
+    const first = BigInt(sweep.firstTrade)
+    const numbers = new Set<TradeNumber>()
+    const take = (trades: Iterable<RunningTrade>) => {
+      for (const { tradeNumber } of trades)
+        if (BigInt(tradeNumber) >= first) numbers.add(tradeNumber)
+    }
+    take(slot?.trades.values() ?? [])
+    take(slot?.open.values() ?? [])
+    if (slot === undefined || first <= slot.base.lastTrade)
+      take(yield* store.storedMinuteTrades(code, minute))
+    return [...numbers].sort(TradeNumberOrder).slice(0, sweep.trades)
+  })
+
+  // Each minute's sweeps grouped again, every code's, and the alert rule's
+  // decisions since: on these and on the sweeps that waited for their second
+  // to close.
+  // Decision: every code's changed minutes are grouped on every delta, with
+  // no once-a-second cap, so an alert goes out ~250 ms after its second
+  // closes. The 09:00 WIB peak measured 2.2–2.6 ms a delta at p50, 12.7 ms
+  // at worst; if deltas run long at the open, group every code at most once
+  // a second. See apinrdw/kumora#506.
+  const regroupAll = Effect.fnUntraced(function* (slots: ReadonlySet<Slot>) {
+    const now = yield* Clock.currentTimeMillis
+    const sweeps = new Map<Slot, ReadonlyArray<Sweep>>()
+    for (const slot of slots) {
+      const minute = yield* knownSweeps(slot)
+      sweeps.set(
+        slot,
+        minute.map(({ sweep }) => sweep)
+      )
+      yield* alertRule.regroup({
+        code: slot.code,
+        minute: slot.minute,
+        stored: slot.stored,
+        sweeps: minute,
+      })
+    }
+    const alerts: Array<SweepAlert> = []
+    for (const alert of yield* alertRule.decide({ latest, now }))
+      alerts.push({
+        code: alert.code,
+        side: alert.sweep.side,
+        lots: alert.sweep.lots,
+        tradeNumbers: yield* tradeNumbersOf(alert),
+      })
+    return { sweeps, alerts }
+  })
+
   // Every candle changed since the last call, of any code; of `selected`
   // each minute a trade changed: its footprint and its sweeps; and of any
   // code each minute its last regular-board trade left: a footprint with
-  // no cells.
+  // no cells; and of any code the sweep alerts decided since (`regroupAll`).
+  // Only the alert rule sees every code's sweeps.
   //
   // Decision: a minute whose last regular-board trade left it goes out as a
   // footprint with no cells, for any code, as its sweeps go out empty, and
@@ -614,6 +756,7 @@ export const makeCandleBook = Effect.fnUntraced(function* (
     const resent = regrouped
     changed = new Set()
     regrouped = new Set()
+    const grouped = yield* regroupAll(resent)
     const candles: Array<Candle> = []
     const footprints: Array<Footprint> = []
     const sweeps: Array<MinuteSweeps> = []
@@ -629,11 +772,11 @@ export const makeCandleBook = Effect.fnUntraced(function* (
       sweeps.push({
         code: slot.code,
         minute: DateTime.makeUnsafe(slot.minute),
-        sweeps: yield* slotSweeps(slot, true),
+        sweeps: grouped.sweeps.get(slot) ?? [],
       })
     }
     for (const slot of slots) yield* release(slot)
-    return { candles, footprints, sweeps }
+    return { candles, footprints, sweeps, sweepAlerts: grouped.alerts }
   })
 
   const hasChanges = Effect.sync(() => changed.size > 0)
@@ -729,6 +872,20 @@ export const makeCandleBook = Effect.fnUntraced(function* (
       }
     })
 
+  // A restarted object's stored sweeps, every code's, ranked for the alert
+  // rule before it decides again, so each side's warm-up and cutoff carry
+  // on. The rule counts the stored sweeps of a minute the book takes from
+  // the store as ranked (`regroupAll`).
+  // Decision: the ranking is rebuilt from the footprints table once, not
+  // stored on its own: the research put it at a few MB, under ~30 MB at
+  // worst, and the worst day's retains 12 MiB (sweep-alerts-memory.test.ts).
+  // See spec apinrdw/kumora#510 and apinrdw/kumora#500.
+  const rankStored = store.eachStoredSweeps(alertRule.rank)
+
+  // A code side's sweeps as the alert rule ranks them: the measure of what a
+  // restart must rebuild.
+  const sweepRanking = alertRule.ranked
+
   // How many candles the book holds: the bound's measure.
   const retained = Effect.sync(() => {
     let count = 0
@@ -752,6 +909,8 @@ export const makeCandleBook = Effect.fnUntraced(function* (
     written,
     hasUnflushed,
     restore,
+    rankStored,
+    sweepRanking,
     retained,
   }
 })

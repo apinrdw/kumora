@@ -74,6 +74,7 @@ import {
 import { ingestTokenMatches } from "./ingest-token.ts"
 import { makeBookChunks } from "./book-chunks.ts"
 import { makeCandleBook, minuteOf } from "./candles.ts"
+import { makeKeptAlerts } from "./kept-alerts.ts"
 import { newerThanHeld } from "./late-frames.ts"
 import {
   memoryCodeListStore,
@@ -258,6 +259,14 @@ const LEDGER_PHASES: ReadonlySet<MarketPhase> = new Set([
   "session-2",
 ])
 
+// The lists of a delta that hold anything: an empty one stays out.
+const nonEmpty = <L extends Record<string, ReadonlyArray<unknown>>>(lists: L) =>
+  Effect.sync(() => {
+    const kept: Partial<L> = {}
+    for (const key in lists) if (lists[key].length > 0) kept[key] = lists[key]
+    return kept
+  })
+
 // How often the object checks whether the market conditions changed: a feed
 // going stale is noticed within this.
 const CONDITIONS_INTERVAL = "1 second"
@@ -268,20 +277,6 @@ const encodeConditions = Schema.encodeEffect(
 
 // The last-frame cache, rebuilt from the store after a restart: each code's
 // last `liveprice` frame and its last served order book. Returns the frames.
-// A delta's optional lists, each left out when empty: the delta's schema
-// keeps them absent rather than empty.
-const nonEmptyParts = <
-  Parts extends Readonly<Record<string, ReadonlyArray<unknown>>>,
->(
-  parts: Parts
-) =>
-  Effect.sync(
-    () =>
-      Object.fromEntries(
-        Object.entries(parts).filter(([, list]) => list.length > 0)
-      ) as Partial<Parts>
-  )
-
 const restoreLastFrames = Effect.fnUntraced(function* (day: {
   readonly store: Effect.Success<ReturnType<typeof makeDayStore>>
   readonly candles: Effect.Success<ReturnType<typeof makeCandleBook>>
@@ -525,6 +520,7 @@ export const makeTradingDay = Effect.fnUntraced(function* (options: {
       : { days: [], minutes: [] }
   )
   const candles = yield* makeCandleBook(store, bubbles.settled)
+  const keptAlerts = yield* makeKeptAlerts
   const ingests = options.ingests ?? Effect.succeed([])
   const books = yield* makeOrderBooks(options.date)
   const readings = yield* makeReadingsBook({
@@ -567,7 +563,7 @@ export const makeTradingDay = Effect.fnUntraced(function* (options: {
   // the candle book keeps; the next flush writes it.
   let unwritten: Pick<Flush, "livePrices" | "chunks" | "ajaibBooks"> | undefined
 
-  if (restoring)
+  if (restoring) {
     for (const price of yield* restoreLastFrames({
       store,
       candles,
@@ -577,6 +573,8 @@ export const makeTradingDay = Effect.fnUntraced(function* (options: {
       readings,
     }))
       lastLivePrices.set(price.code, price)
+    yield* candles.rankStored
+  }
 
   // The order book and Day state fall back to Ajaib while Stockbit's freshness
   // isn't live: delayed falls over as stale does.
@@ -765,9 +763,10 @@ export const makeTradingDay = Effect.fnUntraced(function* (options: {
     const encoded = yield* encodeConditions(conditions)
     const conditionsChanged = encoded !== sentConditions
     sentConditions = encoded
-    const parts = yield* nonEmptyParts({
+    const optional = yield* nonEmpty({
       footprints: changed.footprints,
       sweeps: changed.sweeps,
+      sweepAlerts: changed.sweepAlerts,
       orderBooks,
       bookReadings,
       bookEvents: yield* bookEvents.takeDelta,
@@ -777,7 +776,7 @@ export const makeTradingDay = Effect.fnUntraced(function* (options: {
     if (
       trades.length === 0 &&
       changed.candles.length === 0 &&
-      Object.keys(parts).length === 0 &&
+      Object.keys(optional).length === 0 &&
       !conditionsChanged
     )
       return
@@ -786,13 +785,14 @@ export const makeTradingDay = Effect.fnUntraced(function* (options: {
       at: yield* DateTime.now,
       tape: trades,
       candles: changed.candles,
-      ...parts,
+      ...optional,
       ...(conditionsChanged ? { conditions } : {}),
     })
     for (const viewer of yield* options.viewers) {
       if ((yield* viewer.state) !== "ready") continue
       if (!(yield* closedUnserved(viewer))) yield* viewer.send(text)
     }
+    yield* keptAlerts.keep(changed.sweepAlerts, tape)
   })
 
   const scheduleDelta = Effect.gen(function* () {
@@ -1438,6 +1438,7 @@ export const makeTradingDay = Effect.fnUntraced(function* (options: {
         const price = yield* market.indicativeOf(code)
         if (price !== undefined) indicative.push(price)
       }
+      const snapshotTape = tape.slice(-SNAPSHOT_TRADES)
       const bookReadings = yield* readings.all
       const newestEvents = yield* bookEvents.newest
       const selectedEvents = yield* bookEvents.ofCode(selected)
@@ -1459,15 +1460,15 @@ export const makeTradingDay = Effect.fnUntraced(function* (options: {
         _tag: "Snapshot",
         at: yield* DateTime.now,
         selected,
-        tape: tape.slice(-SNAPSHOT_TRADES),
+        tape: snapshotTape,
         candles: yield* candles.candlesOf(selected),
         footprints: yield* candles.footprintsOf(selected),
         ...(orderBook === undefined ? {} : { orderBook }),
         ...(states.length === 0 ? {} : { dayStates: states }),
         conditions: yield* market.conditions,
         ...(indicative.length === 0 ? {} : { indicative }),
-        ...(yield* nonEmptyParts({
-          bookReadings,
+        ...(yield* nonEmpty({
+          sweepAlerts: yield* keptAlerts.on(snapshotTape),
           bookEvents: newestEvents,
           selectedBookEvents: selectedEvents,
         })),

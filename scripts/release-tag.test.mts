@@ -19,7 +19,7 @@ const refusal = (
   })
 
 describe("judgeTag", () => {
-  it.effect("takes today's first Candidate", () =>
+  it.effect("takes the first Candidate", () =>
     Effect.gen(function* () {
       assert.strictEqual(
         yield* judgeTag(tag("v0.1.10-20261114-1"), [], today),
@@ -28,24 +28,40 @@ describe("judgeTag", () => {
     })
   )
 
-  it.effect("counts N across every version tagged that day", () =>
+  it.effect(
+    "counts N across every Candidate, whatever its day or version",
+    () =>
+      Effect.gen(function* () {
+        const others = [
+          tag("v0.1.8-20261112-1", "a"),
+          tag("v0.1.9-20261113-2", "b"),
+          tag("v0.1.10-20261114-3", "c"),
+        ]
+        assert.strictEqual(
+          yield* judgeTag(tag("v0.1.11-20261114-4"), others, today),
+          "candidate"
+        )
+        assert.match(
+          yield* refusal("v0.1.11-20261114-1", others),
+          /next Candidate is -4/
+        )
+        assert.match(
+          yield* refusal("v0.1.11-20261114-5", others),
+          /next Candidate is -4/
+        )
+      })
+  )
+
+  it.effect("keeps counting N when the day changes", () =>
     Effect.gen(function* () {
-      const others = [
-        tag("v0.1.10-20261114-1", "a"),
-        tag("v0.1.11-20261114-2", "b"),
-        tag("v0.1.9-20261113-5", "c"),
-      ]
+      const others = [tag("v0.1.9-20261113-7", "a")]
       assert.strictEqual(
-        yield* judgeTag(tag("v0.1.11-20261114-3"), others, today),
+        yield* judgeTag(tag("v0.1.10-20261114-8"), others, today),
         "candidate"
       )
       assert.match(
-        yield* refusal("v0.1.11-20261114-2", others),
-        /next Candidate is -3/
-      )
-      assert.match(
-        yield* refusal("v0.1.11-20261114-4", others),
-        /next Candidate is -3/
+        yield* refusal("v0.1.10-20261114-1", others),
+        /next Candidate is -8/
       )
     })
   )
