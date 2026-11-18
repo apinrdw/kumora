@@ -10,6 +10,7 @@ import {
 } from "../support/broker-totals"
 import {
   seedClassificationMonths,
+  seedAbove1Months,
   seedInvestorTypeMonths,
   seedKseiMonths,
 } from "../support/holdings"
@@ -210,6 +211,135 @@ const INVESTOR_TYPE_MONTHS = {
   },
 } as const
 
+// BBCA's ≥1% holders in Aug and Sep 2026; Jul 2026 has only BBRI's. Each
+// holder key is as src/server/holdings/above-1.ts builds it. Against Aug,
+// Sep has Dwimuria unchanged on a few more shares, Anthoni Salim up,
+// BlackRock down, Gamma off list, and Salim Group new on two rows.
+// Decision: Feb 2026 is left unseeded, since shareholding-admin.spec.ts's
+// Parse now parses it into the same HoldingsDb, with no BBCA rows.
+const ABOVE_1_MONTHS = {
+  "2026-07-31": {
+    BBRI: {
+      issuer: BBRI,
+      rows: [
+        {
+          investor: "NEGARA REPUBLIK INDONESIA",
+          holderKey: "INDONESIA NEGARA REPUBLIK",
+          classification: "government",
+          type: "OT",
+          origin: "local",
+          domicile: "INDONESIA",
+          total: 80_610_976_875,
+          hundredths: 5350,
+        },
+      ],
+    },
+  },
+  "2026-08-31": {
+    BBCA: {
+      issuer: BBCA,
+      rows: [
+        {
+          investor: "PT DWIMURIA INVESTAMA ANDALAN",
+          holderKey: "ANDALAN DWIMURIA INVESTAMA",
+          classification: "corporate",
+          type: "CP",
+          origin: "local",
+          domicile: "INDONESIA",
+          total: 67_729_950_000,
+          hundredths: 5494,
+        },
+        {
+          investor: "ANTHONI SALIM",
+          holderKey: "ANTHONI SALIM",
+          classification: "individual",
+          type: "ID",
+          origin: "local",
+          domicile: "INDONESIA",
+          total: 1_849_125_750,
+          hundredths: 150,
+        },
+        {
+          investor: "BLACKROCK INC",
+          holderKey: "BLACKROCK INC",
+          classification: "investment_manager",
+          type: "SC",
+          origin: "foreign",
+          domicile: "UNITED STATES",
+          total: 1_602_575_650,
+          hundredths: 130,
+        },
+        {
+          investor: "GAMMA FUND LTD",
+          holderKey: "FUND GAMMA LTD",
+          classification: "corporate",
+          type: "CP",
+          origin: "foreign",
+          domicile: "SINGAPORE",
+          total: 1_479_300_600,
+          hundredths: 120,
+        },
+      ],
+    },
+  },
+  "2026-09-30": {
+    BBCA: {
+      issuer: BBCA,
+      rows: [
+        {
+          investor: "PT DWIMURIA INVESTAMA ANDALAN",
+          holderKey: "ANDALAN DWIMURIA INVESTAMA",
+          classification: "corporate",
+          type: "CP",
+          origin: "local",
+          domicile: "INDONESIA",
+          controller: "controller",
+          total: 67_729_950_100,
+          hundredths: 5494,
+        },
+        {
+          investor: "ANTHONI SALIM",
+          holderKey: "ANTHONI SALIM",
+          classification: "individual",
+          type: "ID",
+          origin: "local",
+          domicile: "INDONESIA",
+          controller: "affiliate",
+          total: 1_972_400_800,
+          hundredths: 160,
+        },
+        {
+          investor: "PT. SALIM GROUP",
+          holderKey: "GROUP SALIM",
+          classification: "corporate",
+          type: "CP",
+          origin: "local",
+          domicile: "INDONESIA",
+          total: 1_356_025_550,
+          hundredths: 110,
+        },
+        {
+          investor: "BLACKROCK INC",
+          holderKey: "BLACKROCK INC",
+          classification: "investment_manager",
+          type: "SC",
+          origin: "foreign",
+          domicile: "UNITED STATES",
+          total: 1_356_025_550,
+          hundredths: 110,
+        },
+        {
+          investor: "SALIM GROUP, PT",
+          holderKey: "GROUP SALIM",
+          scrip: 493_100_200,
+          total: 493_100_200,
+          hundredths: 40,
+        },
+      ],
+    },
+  },
+} as const
+
 const panel = (page: Page) =>
   page.getByRole("region", { name: "Shareholders composition" })
 
@@ -300,6 +430,22 @@ const atLeast5Row = (page: Page, label: string) =>
     .getByRole("table", { name: "≥5% holders by month" })
     .getByRole("row", { name: new RegExp(`^${label}`) })
 
+const majorHolders = (page: Page) =>
+  page.getByRole("region", { name: "Major holders" })
+
+const holdersTab = (page: Page, label: string) =>
+  majorHolders(page).getByRole("group", { name: "Month" }).getByRole("button", {
+    name: label,
+    exact: true,
+  })
+
+// A row of the holder table, by the holder's name.
+const holderRow = (page: Page, name: string) =>
+  majorHolders(page)
+    .getByRole("table", { name: "Major holders" })
+    .getByRole("row")
+    .filter({ hasText: name })
+
 const stockSearch = (page: Page) =>
   page
     .getByRole("banner")
@@ -315,6 +461,7 @@ test.describe.serial("the stock page", () => {
     seedClassificationMonths(MONTHS)
     seedKseiMonths(KSEI_MONTHS)
     seedInvestorTypeMonths(INVESTOR_TYPE_MONTHS)
+    seedAbove1Months(ABOVE_1_MONTHS)
   })
 
   test.describe("for a member", () => {
@@ -489,6 +636,9 @@ test.describe.serial("the stock page", () => {
       await expect(holderSize(page)).toContainText(
         "APOL isn't in IDX's investor-type report, so its holder size isn't shown."
       )
+      await expect(majorHolders(page)).toContainText(
+        "APOL isn't in any IDX above-1% report, so its major holders aren't shown."
+      )
       // The picker offers it, though no report names its issuer.
       await page.goto(`${DASHBOARD}/stocks/BBCA`)
       const picker = page.getByRole("combobox", { name: "Stock", exact: true })
@@ -530,11 +680,12 @@ test.describe.serial("the stock page", () => {
       page,
     }) => {
       await page.goto(`${DASHBOARD}/stocks/BBCA`)
-      // Between the two composition panels.
+      // Between the two composition panels, Major holders last.
       await expect(page.getByRole("heading", { level: 2 })).toHaveText([
         "Shareholders composition",
         "Holder size",
         "Holding composition (scripless)",
+        "Major holders",
       ])
       await expect(sizeChoice(page, "Month", "Oct 2026")).toHaveAttribute(
         "aria-pressed",
@@ -958,6 +1109,94 @@ test.describe.serial("the stock page", () => {
       await expect(
         chartChoice(page, "Chart origin", "Foreign")
       ).toHaveAttribute("aria-pressed", "true")
+    })
+  })
+
+  test.describe("Major holders, for a member", () => {
+    test.use({ storageState: MEMBER.storageState })
+
+    test("lists the newest month's ≥1% holders against the month before", async ({
+      page,
+    }) => {
+      await page.goto(`${DASHBOARD}/stocks/BBCA`)
+      await expect(holdersTab(page, "Sep 2026")).toHaveAttribute(
+        "aria-pressed",
+        "true"
+      )
+      await expect(holdersTab(page, "Jul 2026")).toHaveAttribute(
+        "aria-disabled",
+        "true"
+      )
+      await expect(majorHolders(page)).toContainText(
+        "4 holders hold 59.14% of listed shares · vs Aug 2026: 1 new, 1 up, 1 down, 1 off list"
+      )
+      await expect(
+        holderRow(page, "PT DWIMURIA INVESTAMA ANDALAN")
+      ).toContainText(
+        /Controller·Corporate·Local\s*Unchanged\s*54\.94%±0\.00 pp\s*67\.73 B\+100/
+      )
+      await expect(holderRow(page, "ANTHONI SALIM")).toContainText(
+        /Affiliate of controller·Individual·Local\s*Up\s*1\.60%\+0\.10 pp/
+      )
+      await expect(holderRow(page, "BLACKROCK INC")).toContainText(
+        /Investment manager·Foreign·UNITED STATES\s*Down\s*1\.10%−0\.20 pp/
+      )
+      // A holder on two rows shows once, summed, its scrip row included.
+      const salim = holderRow(page, "PT. SALIM GROUP")
+      await expect(salim).toContainText(/New\s*1\.50%\s*1\.85 B\s*27%/)
+      await expect(async () => {
+        await salim
+          .getByRole("button", { name: "2 rows in the report" })
+          .click()
+        await expect(salim).toContainText("SALIM GROUP, PT · 493.1 M · 0.40%", {
+          timeout: 1000,
+        })
+      }).toPass()
+      // Off list, greyed at the bottom with its last %.
+      const gamma = majorHolders(page)
+        .getByRole("table", { name: "Major holders" })
+        .getByRole("row")
+        .last()
+      await expect(gamma).toContainText(
+        /GAMMA FUND LTD.*Off list\s*—was 1\.20%/
+      )
+      await expect(async () => {
+        await page.mouse.move(0, 0)
+        await gamma.getByRole("button", { name: "Off list" }).hover()
+        await expect(page.getByText("Sold out or fell below 1%")).toBeVisible({
+          timeout: 1000,
+        })
+      }).toPass()
+      await expect(majorHolders(page)).toContainText(
+        "Percent of listed shares, scrip included, as IDX publishes it. Holders under 1% are not listed."
+      )
+    })
+
+    test("opens the stock's first month with nothing to compare, kept in the URL on reload", async ({
+      page,
+    }) => {
+      await page.goto(`${DASHBOARD}/stocks/BBCA`)
+      await expect(async () => {
+        await holdersTab(page, "Aug 2026").click()
+        await expect(page).toHaveURL(/\/stocks\/BBCA\?holdersMonth=2026-08$/, {
+          timeout: 1000,
+        })
+      }).toPass()
+      const firstMonth =
+        "4 holders hold 58.94% of listed shares · First month reported, nothing to compare"
+      await expect(majorHolders(page)).toContainText(firstMonth)
+      await expect(holderRow(page, "GAMMA FUND LTD")).toContainText("1.20%")
+      for (const chip of ["New", "Up", "Down", "Unchanged", "Off list"])
+        await expect(
+          majorHolders(page).getByRole("table", { name: "Major holders" })
+        ).not.toContainText(chip)
+
+      await page.reload()
+      await expect(holdersTab(page, "Aug 2026")).toHaveAttribute(
+        "aria-pressed",
+        "true"
+      )
+      await expect(majorHolders(page)).toContainText(firstMonth)
     })
   })
 

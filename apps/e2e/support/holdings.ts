@@ -185,6 +185,76 @@ export function seedInvestorTypeMonths(months: SeededInvestorTypeMonths) {
   )
 }
 
+/**
+ * A row of an above-1% report as the parse stores it. `holderKey` is the
+ * key src/server/holdings/above-1.ts builds from `investor`; `hundredths`
+ * the published % × 100.
+ */
+export interface SeededAbove1Row {
+  readonly investor: string
+  readonly holderKey: string
+  readonly classification?: string
+  readonly type?: string
+  readonly origin?: "local" | "foreign"
+  readonly domicile?: string
+  readonly controller?: "controller" | "affiliate"
+  readonly scrip?: number
+  readonly total: number
+  readonly hundredths: number
+}
+
+/** Above-1% stock-months by data date, then by stock code, rows in file order. */
+export type SeededAbove1Months = Readonly<
+  Record<
+    string,
+    Readonly<
+      Record<
+        string,
+        {
+          readonly issuer: string
+          readonly rows: ReadonlyArray<SeededAbove1Row>
+        }
+      >
+    >
+  >
+>
+
+/** Replaces every parsed above-1% month with `months`. */
+export function seedAbove1Months(months: SeededAbove1Months) {
+  replaceTables(["above_1_holding", "above_1_month"], (db) => {
+    const record = db.prepare(
+      "INSERT INTO above_1_month VALUES (?, ?, 1, '2026-11-14T14:00:00.000Z')"
+    )
+    const holding = db.prepare(
+      "INSERT INTO above_1_holding VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, NULL, ?, ?, ?, ?, ?, ?)"
+    )
+    for (const [dataDate, stocks] of Object.entries(months)) {
+      record.run(dataDate, `sha-${dataDate}`)
+      for (const [code, { issuer, rows }] of Object.entries(stocks))
+        for (const [index, row] of rows.entries()) {
+          const scrip = row.scrip ?? 0
+          holding.run(
+            dataDate,
+            code,
+            index + 1,
+            issuer,
+            row.investor,
+            row.holderKey,
+            row.classification ?? null,
+            row.type ?? null,
+            row.origin ?? null,
+            row.domicile ?? null,
+            row.controller ?? null,
+            row.total - scrip,
+            scrip,
+            row.total,
+            row.hundredths
+          )
+        }
+    }
+  })
+}
+
 /** A stock's KSEI period end: shares by investor type, in each origin. */
 export interface SeededKseiStockMonth {
   readonly listedShares: number
