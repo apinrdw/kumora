@@ -126,7 +126,7 @@ const text = () => container.textContent ?? ""
 const table = () => container.querySelector('table[aria-label="Major holders"]')
 
 // Each row's cells after the holder: chip, %, shares, in scrip.
-const figures = () =>
+const tableCells = () =>
   [...(table()?.querySelectorAll("tbody tr") ?? [])].map((tr) => [
     tr.querySelector("[data-holder-name]")?.textContent,
     ...[...tr.querySelectorAll("td")].map((cell) => cell.textContent),
@@ -166,7 +166,7 @@ describe("Major holders", () => {
       "Shares",
       "In scrip",
     ])
-    expect(figures()).toEqual([
+    expect(tableCells()).toEqual([
       [
         "ADARO STRATEGIC INVESTMENTS",
         "Up",
@@ -262,7 +262,7 @@ describe("Major holders", () => {
     expect(text()).toContain(
       "3 holders hold 46.48% of listed shares · First month reported, nothing to compare"
     )
-    expect(figures().map((cells) => cells[1])).toEqual(["", "", ""])
+    expect(tableCells().map((cells) => cells[1])).toEqual(["", "", ""])
   })
 
   test("picks a month from its tabs, a month without rows disabled", async () => {

@@ -1,4 +1,4 @@
-// The Major holders panel's figures for one above-1% report month (spec
+// The Major holders panel's holders of one above-1% report month (spec
 // apinrdw/kumora#479, "Major holders panel"): the stock's ≥1% holders by %,
 // each against the report month before, and those off the list since.
 import { Effect } from "effect"
@@ -46,7 +46,7 @@ export type Comparison =
   | { readonly kind: "compared" | "gap"; readonly dataDate: string }
   | { readonly kind: "first" }
 
-export interface MajorHolders {
+export interface MonthHolders {
   readonly dataDate: string
   readonly comparison: Comparison
   // Listed this month, most % first.
@@ -194,5 +194,5 @@ export const majorHolders = Effect.fnUntraced(function* (
       down: counted("down"),
       offList: offList.length,
     },
-  } satisfies MajorHolders
+  } satisfies MonthHolders
 })

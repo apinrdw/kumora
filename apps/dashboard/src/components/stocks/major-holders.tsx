@@ -16,8 +16,8 @@ import { compact, count, MINUS, plain } from "@/lib/format"
 import {
   type Change,
   type HolderLine,
-  type MajorHolders as Figures,
   majorHolders,
+  type MonthHolders,
 } from "@/lib/major-holders"
 import { monthLabel, shortMonth } from "@/lib/stock-page-display"
 import type { MajorHoldersMonth } from "@/server/holdings/stock-page"
@@ -36,7 +36,7 @@ export function MajorHolders({
   month,
   onMonth,
 }: MajorHoldersProps) {
-  const figures = Effect.runSync(majorHolders(months, month))
+  const holders = Effect.runSync(majorHolders(months, month))
   return (
     <section
       aria-labelledby="major-holders"
@@ -46,13 +46,13 @@ export function MajorHolders({
         <h2 id="major-holders" className="text-[15px] font-semibold">
           Major holders
         </h2>
-        {figures && (
+        {holders && (
           <p className="text-[13px] text-muted-foreground">
-            {Effect.runSync(summary(code, figures))}
+            {Effect.runSync(summary(code, holders))}
           </p>
         )}
       </div>
-      {figures === undefined ? (
+      {holders === undefined ? (
         <p className="text-muted-foreground">
           {code} isn't in any IDX above-1% report, so its major holders aren't
           shown.
@@ -61,20 +61,20 @@ export function MajorHolders({
         <>
           <MonthTabs
             code={code}
-            months={months.map(({ dataDate, holders }) => ({
-              dataDate,
-              held: holders.length > 0,
+            months={months.map((each) => ({
+              dataDate: each.dataDate,
+              held: each.holders.length > 0,
             }))}
-            selected={figures.dataDate}
+            selected={holders.dataDate}
             onMonth={onMonth}
           />
-          <OwnershipBar figures={figures} />
-          <HoldersTable figures={figures} />
+          <OwnershipBar holders={holders} />
+          <HoldersTable holders={holders} />
           <p className="text-[12px] text-muted-foreground">
             Percent of listed shares, scrip included, as IDX publishes it.
             Holders under 1% are not listed.
           </p>
-          <EveryMonth months={months} selected={figures.dataDate} />
+          <EveryMonth months={months} selected={holders.dataDate} />
         </>
       )}
     </section>
@@ -101,10 +101,10 @@ const sharesText = Effect.fnUntraced(function* (shares: number) {
 // month before, or why there are none.
 const summary = Effect.fnUntraced(function* (
   code: StockCode,
-  figures: Figures
+  holders: MonthHolders
 ) {
-  const held = `${yield* count(figures.listed.length, "holder holds", "holders hold")} ${yield* percentOf(figures.totalHundredths)} of listed shares`
-  const { comparison, counts } = figures
+  const held = `${yield* count(holders.listed.length, "holder holds", "holders hold")} ${yield* percentOf(holders.totalHundredths)} of listed shares`
+  const { comparison, counts } = holders
   if (comparison.kind === "first")
     return `${held} · First month reported, nothing to compare`
   const label = yield* monthLabel(comparison.dataDate)
@@ -124,8 +124,8 @@ const LEGEND_TOP = 6
 // apinrdw/kumora#474's layout B bar: the month's listed shares split among
 // its holders in table order, controllers and affiliates gold, then the
 // rest of the 100% as Under 1%.
-function OwnershipBar({ figures }: { figures: Figures }) {
-  const segments = figures.listed.map((line, index) => {
+function OwnershipBar({ holders }: { holders: MonthHolders }) {
+  const segments = holders.listed.map((line, index) => {
     const tone = line.controller ? "gold" : "blue"
     return {
       line,
@@ -134,7 +134,7 @@ function OwnershipBar({ figures }: { figures: Figures }) {
       percent: Effect.runSync(percentOf(line.percentageHundredths)),
     }
   })
-  const under = 10_000 - figures.totalHundredths
+  const under = 10_000 - holders.totalHundredths
   const underPercent = Effect.runSync(percentOf(under))
   const more = segments.length - LEGEND_TOP
   return (
@@ -228,7 +228,7 @@ function ChangeChip({ change }: { change: Change | undefined }) {
   )
 }
 
-function HoldersTable({ figures }: { figures: Figures }) {
+function HoldersTable({ holders }: { holders: MonthHolders }) {
   const [open, setOpen] = useState<ReadonlySet<string>>(new Set())
   const toggle = (key: string) =>
     setOpen((keys) => {
@@ -236,7 +236,7 @@ function HoldersTable({ figures }: { figures: Figures }) {
       if (!next.delete(key)) next.add(key)
       return next
     })
-  const { comparison } = figures
+  const { comparison } = holders
   return (
     <div className="overflow-x-auto">
       <table
@@ -266,15 +266,7 @@ function HoldersTable({ figures }: { figures: Figures }) {
           </tr>
         </thead>
         <tbody>
-          {figures.listed.map((line) => (
-            <HolderRow
-              key={line.key}
-              line={line}
-              open={open.has(line.key)}
-              onToggle={() => toggle(line.key)}
-            />
-          ))}
-          {figures.offList.map((line) => (
+          {[...holders.listed, ...holders.offList].map((line) => (
             <HolderRow
               key={line.key}
               line={line}
