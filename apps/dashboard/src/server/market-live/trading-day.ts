@@ -61,6 +61,7 @@ import { ajaibPrices } from "./ajaib-price.ts"
 import { backfillTrades } from "./backfill-page.ts"
 import { makeBubbleBook } from "./bubble-book.ts"
 import { makeReadingsBook } from "./readings-book.ts"
+import { dayValuesAnswer, makePreviousValues } from "./previous-values.ts"
 import { makeBrokerCodes } from "./broker-codes.ts"
 import {
   BROKER_TOTALS_DUE,
@@ -413,6 +414,11 @@ export const makeTradingDay = Effect.fnUntraced(function* (options: {
   // The broker totals DB the day's build writes to. A day without one never
   // builds.
   readonly brokerTotalsDb?: Layer.Layer<BrokerTotalsDb, never, WorkerEnv>
+  // Asks the named day's object for its values (previous-values.ts). Never
+  // asked by default.
+  readonly previousDayValues?: (
+    date: WibDate
+  ) => Effect.Effect<Response, unknown, WorkerEnv>
 }) {
   // Delta timers outlive the message that started them.
   const scope = yield* Scope.Scope
@@ -514,6 +520,12 @@ export const makeTradingDay = Effect.fnUntraced(function* (options: {
   const readings = yield* makeReadingsBook({
     date: options.date,
     valueOf: bubbles.dayValue,
+  })
+  const previousValues = yield* makePreviousValues({
+    date: options.date,
+    fact: store.fact,
+    setFact: store.setFact,
+    fetchDay: options.previousDayValues,
   })
   const bookChunks = yield* makeBookChunks
   const gaps = yield* makeGaps({ ingests, highest: storedHighest })
@@ -1310,6 +1322,7 @@ export const makeTradingDay = Effect.fnUntraced(function* (options: {
           yield* socket.setState("ready")
           yield* market.relayOnline
           yield* scheduleDelta
+          yield* previousValues.load
           return yield* onDemand.greet(socket)
         }
         return yield* socket.close(IngestCloseCode.RejectedToken, "Bad token")
@@ -1381,6 +1394,20 @@ export const makeTradingDay = Effect.fnUntraced(function* (options: {
         if (price !== undefined) indicative.push(price)
       }
       const bookReadings = yield* readings.all
+      const scannerFigures = yield* Effect.forEach(
+        bookReadings,
+        Effect.fnUntraced(function* ({ code }) {
+          // Stockbit's base alone: the fallback would fold every code's
+          // trades.
+          const state = yield* dayStates.stateOf(code, true)
+          return {
+            code,
+            last: state?.last,
+            previousClose: state?.previousClose,
+            previousValue: yield* previousValues.valueOf(code),
+          }
+        })
+      )
       const snapshot = yield* encodeViewerDown({
         _tag: "Snapshot",
         at: yield* DateTime.now,
@@ -1392,7 +1419,7 @@ export const makeTradingDay = Effect.fnUntraced(function* (options: {
         ...(states.length === 0 ? {} : { dayStates: states }),
         conditions: yield* market.conditions,
         ...(indicative.length === 0 ? {} : { indicative }),
-        ...(bookReadings.length === 0 ? {} : { bookReadings }),
+        ...(bookReadings.length === 0 ? {} : { bookReadings, scannerFigures }),
       })
       yield* socket.send(snapshot)
       yield* socket.setState("ready")
@@ -1553,6 +1580,17 @@ export const makeTradingDay = Effect.fnUntraced(function* (options: {
     recorded: (resource: RecordedResource) =>
       turn.withPermit(recorded(resource)),
     alarm: turn.withPermit(alarm),
+    // Every code's value, for the next trading day's object.
+    dayValues: turn.withPermit(
+      Effect.suspend(() =>
+        dayValuesAnswer(
+          sealed,
+          Effect.map(store.storedBubbles(0), ({ days }) =>
+            days.map(({ code, sums }) => ({ code, value: sums.value }))
+          )
+        )
+      )
+    ),
     // Decision: on a day the relay recorded, and on any sealed day, broker
     // codes touch no recorded day state (no flush, seal or index row), so its
     // answers stay byte-identical (#244). A walk day before its seal takes

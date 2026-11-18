@@ -241,6 +241,9 @@ export const Fact = {
   brokerTotals: "broker-totals",
   // When each alarm duty is next due (wakes.ts): epoch millis, none once
   // done.
+  // Every code's value on the previous trading day (previous-values.ts),
+  // as its object answered it, once a day.
+  previousValues: "previous-values",
   sealWake: "seal-wake",
   indexWake: "index-wake",
   buildWake: "build-wake",

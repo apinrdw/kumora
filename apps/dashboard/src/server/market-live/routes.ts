@@ -16,6 +16,9 @@ export const ObjectPath = {
   // The reconcile cron's poke (POST) to build the day's broker totals
   // (src/server/broker-totals/reconcile.ts). No Worker route reaches it.
   brokerTotals: "/broker-totals",
+  // A sealed day's every code's value (GET), asked by the next trading
+  // day's object (previous-values.ts). No Worker route reaches it.
+  dayValues: "/day-values",
 } as const
 
 // The index Durable Object (day-index-object.ts): one, by this name. A day's

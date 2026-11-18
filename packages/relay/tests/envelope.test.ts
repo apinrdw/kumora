@@ -397,6 +397,50 @@ describe("viewer protocol, down", () => {
       assert.deepStrictEqual(yield* decodeViewerDown(snapshotWire), snapshot)
     })
   )
+
+  it.effect(
+    "a snapshot's scanner figures round trip, an unknown one as none",
+    () =>
+      Effect.gen(function* () {
+        const snapshot: ViewerDown = {
+          _tag: "Snapshot",
+          at: DateTime.makeUnsafe("2026-11-18T02:00:00.250Z"),
+          selected: StockCode.make("IHSG"),
+          tape: [],
+          candles: [],
+          footprints: [],
+          conditions: {
+            phase: "session-1",
+            relayOnline: true,
+            feeds: { Stockbit: "live", Ajaib: "live" },
+            gaps: [],
+          },
+          scannerFigures: [
+            {
+              code: StockCode.make("BBCA"),
+              last: 7_550,
+              previousClose: 7_500,
+              previousValue: 1_250_000_000_000,
+            },
+            {
+              code: StockCode.make("KOTA"),
+              last: undefined,
+              previousClose: undefined,
+              previousValue: undefined,
+            },
+          ],
+        }
+        const wire = yield* encodeViewerDown(snapshot)
+        assert.deepStrictEqual(yield* decodeViewerDown(wire), snapshot)
+        // Each code travels as a short tuple.
+        assert.deepStrictEqual(JSON.parse(wire).scannerFigures[1], [
+          "KOTA",
+          null,
+          null,
+          null,
+        ])
+      })
+  )
 })
 
 describe("trade number order", () => {

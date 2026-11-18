@@ -134,6 +134,7 @@ export type { DayChange, DayState } from "./day-state.ts"
 export { BOOK_DEPTH, BookLevel, SHARES_PER_LOT } from "./order-book.ts"
 export { bookReadingsOf, fillEstimateOf } from "./book-readings.ts"
 export type { BookReadings, FillEstimate, OrderSize } from "./book-readings.ts"
+export type { ScannerFigures } from "./scanner-figures.ts"
 export {
   HEAT_SLICE_MS,
   decodeRecordedHeatmap,

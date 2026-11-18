@@ -5,6 +5,7 @@ import { StockCode } from "./codes.ts"
 import { IndicativePrice, MarketConditions } from "./market-conditions.ts"
 import { DayState } from "./day-state.ts"
 import { IndexHasNoBook, OrderBook } from "./order-book.ts"
+import { ScannerFigures } from "./scanner-figures.ts"
 import type { WibDate } from "./schedule.ts"
 
 // Bump on any change to an ingest message's shape. The dashboard accepts this
@@ -25,8 +26,8 @@ const acceptedIngestVersions: ReadonlyArray<unknown> = [
 // 5: candles carry their buy value and sell value, and snapshots and deltas
 // the instant they were sent (spec apinrdw/kumora#427).
 // 6: deltas carry whole order books only for selected codes and every
-// changed code's book readings; snapshots carry every code's readings (spec
-// apinrdw/kumora#517).
+// changed code's book readings; snapshots carry every code's readings and
+// scanner figures (spec apinrdw/kumora#517).
 export const ViewerProtocolVersion = 6
 
 // Decision: an extension that hits either code stops retrying that target and
@@ -436,6 +437,10 @@ const Snapshot = Schema.TaggedStruct("Snapshot", {
   // Every code's latest book readings, with its value today. Absent when no
   // code has any yet.
   bookReadings: Schema.optionalKey(Schema.Array(BookReadings)),
+  // The scanner's figures of every code with readings: its last price,
+  // previous close and previous trading day's value. Absent when no code has
+  // readings yet.
+  scannerFigures: Schema.optionalKey(Schema.Array(ScannerFigures)),
 })
 
 // The running trades that arrived in the last ~250 ms, ascending by trade
