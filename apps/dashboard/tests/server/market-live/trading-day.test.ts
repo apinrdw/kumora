@@ -1269,7 +1269,8 @@ describe("candles", () => {
 
 // Spec apinrdw/kumora#510 (tickets apinrdw/kumora#512 and #513): the object
 // decides each code's sweep alerts once a sweep's second closes, whatever
-// viewers selected, sends them in the next delta, and a restarted one ranks the stored sweeps before it alerts.
+// viewers selected, sends them in the next delta and keeps them for
+// snapshots, and a restarted one ranks the stored sweeps before it alerts.
 describe("sweep alerts", () => {
   // 100 one-lot buy sweeps of UNTR, one a second from 09:00:00 WIB, numbered
   // from `first`: its buy side's warm-up.
@@ -1332,6 +1333,64 @@ describe("sweep alerts", () => {
           ),
           []
         )
+      })
+  )
+
+  it.effect(
+    "a snapshot carries the alerts of the trades its tape holds, and not once they left it",
+    () =>
+      Effect.gen(function* () {
+        yield* TestClock.setTime(DateTime.toEpochMillis(wibAt("09:01:42.500")))
+        const { ingest, viewer, select } = yield* tradingDay()
+        const socket = yield* relay(ingest)
+        yield* ingest(
+          socket,
+          yield* stockbit(
+            [
+              ...warmUntr(41000),
+              untr(41101, "09:01:41.100", 23300, 4000),
+              untr(41102, "09:01:41.200", 23325, 6000),
+              { ...untr(41103, "09:01:42.000", 8000, 100), code: "BBCA" },
+            ],
+            "A"
+          )
+        )
+        yield* TestClock.adjust("250 millis")
+        const reloaded = yield* viewer()
+        yield* select(reloaded, "BBCA")
+        const [snapshot] = yield* reloaded.received
+        assert.deepStrictEqual(
+          snapshot?._tag === "Snapshot" ? snapshot.sweepAlerts : undefined,
+          [
+            {
+              code: StockCode.make("UNTR"),
+              side: "buy",
+              lots: 100,
+              tradeNumbers: [
+                TradeNumber.make("41101"),
+                TradeNumber.make("41102"),
+              ],
+            },
+          ]
+        )
+
+        // 200 later trades push the alert's off a snapshot's tape.
+        yield* ingest(
+          socket,
+          yield* stockbit(
+            Array.from({ length: 200 }, (_, index) => ({
+              ...untr(41200 + index, "09:01:42.100", 8000, 100),
+              code: "BBCA",
+            })),
+            "A"
+          )
+        )
+        yield* TestClock.adjust("250 millis")
+        const later = yield* viewer()
+        yield* select(later, "BBCA")
+        const [next] = yield* later.received
+        assert.strictEqual(next?._tag, "Snapshot")
+        assert.isUndefined(next?._tag === "Snapshot" && next.sweepAlerts)
       })
   )
 
