@@ -1,7 +1,8 @@
 // The day's book events (spec apinrdw/kumora#517, "Book events"): what the
 // level ledger found, held for the next delta, the next flush and the
 // snapshots. The day store keeps every flushed one; memory keeps the newest
-// SNAPSHOT_BOOK_EVENTS and the ones not stored yet.
+// SNAPSHOT_BOOK_EVENTS and the ones not stored yet, at most
+// MAX_UNFLUSHED_EVENTS of them.
 import {
   SNAPSHOT_BOOK_EVENTS,
   type BookEvent,
@@ -10,6 +11,13 @@ import {
 import { Effect } from "effect"
 
 import type { DayStore } from "./day-store.ts"
+
+// Decision: while flushes keep failing, memory holds at most 10,000 events
+// not stored yet (about 2 MB on node) and drops the oldest past that: the
+// store misses them, a snapshot's newest don't. A busy code finds 1.74 a
+// minute at the open (docs/research/book-event-thresholds.md), so even 900
+// such codes take six failed flushes to fill it.
+export const MAX_UNFLUSHED_EVENTS = 10_000
 
 export const makeBookEventLog = (
   store: Pick<DayStore, "bookEventsOf" | "newestBookEvents">
@@ -27,6 +35,8 @@ export const makeBookEventLog = (
         if (events.length === 0) return
         pending.push(...events)
         unflushed.push(...events)
+        if (unflushed.length > MAX_UNFLUSHED_EVENTS)
+          unflushed = unflushed.slice(-MAX_UNFLUSHED_EVENTS)
         newest = [...newest, ...events].slice(-SNAPSHOT_BOOK_EVENTS)
       })
 
