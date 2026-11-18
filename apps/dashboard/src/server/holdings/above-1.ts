@@ -116,28 +116,26 @@ interface Layout {
   readonly controller: boolean
 }
 
-const layoutOf = (
-  investor: Layout["investor"],
-  controller: boolean
-): Layout => ({
-  labels: [
-    "DATE",
-    "SHARE_CODE",
-    "ISSUER_NAME",
-    "INVESTOR_NAME",
+const layoutOf = (investor: Layout["investor"], controller: boolean) =>
+  Effect.succeed<Layout>({
+    labels: [
+      "DATE",
+      "SHARE_CODE",
+      "ISSUER_NAME",
+      "INVESTOR_NAME",
+      investor,
+      ...(controller ? (["CONTROLLER_OR_AFFILIATE"] as const) : []),
+      "LOCAL_FOREIGN",
+      "NATIONALITY",
+      "DOMICILE",
+      "HOLDINGS_SCRIPLESS",
+      "HOLDINGS_SCRIP",
+      "TOTAL_HOLDING_SHARES",
+      "PERCENTAGE",
+    ],
     investor,
-    ...(controller ? (["CONTROLLER_OR_AFFILIATE"] as const) : []),
-    "LOCAL_FOREIGN",
-    "NATIONALITY",
-    "DOMICILE",
-    "HOLDINGS_SCRIPLESS",
-    "HOLDINGS_SCRIP",
-    "TOTAL_HOLDING_SHARES",
-    "PERCENTAGE",
-  ],
-  investor,
-  controller,
-})
+    controller,
+  })
 
 // The header layouts, found by the header row's labels wherever it sits
 // (row 5 in Feb, 7 in Mar–Apr, 6 in May–Sep and 5 in Oct 2026): Feb–Mar's
@@ -146,11 +144,13 @@ const layoutOf = (
 // Decision: a header must match a layout's every label exactly, or the month
 // fails: across the 9 months IDX wrote these three, so any other label is a
 // layout change, not a variant to tolerate. See apinrdw/kumora#473.
-const LAYOUTS: ReadonlyArray<Layout> = [
-  layoutOf("INVESTOR_TYPE", false),
-  layoutOf("INVESTOR_CLASSIFICATION", false),
-  layoutOf("INVESTOR_CLASSIFICATION", true),
-]
+const LAYOUTS: ReadonlyArray<Layout> = Effect.runSync(
+  Effect.all([
+    layoutOf("INVESTOR_TYPE", false),
+    layoutOf("INVESTOR_CLASSIFICATION", false),
+    layoutOf("INVESTOR_CLASSIFICATION", true),
+  ])
+)
 
 // A layout as a header row named it, with each label's column.
 interface Found extends Layout {
@@ -209,24 +209,31 @@ const headerLayout = Effect.fnUntraced(function* (
 // Each investor classification by its label once lowercased and stripped of
 // spaces and of the classification report's `(xx)` code: `Mutual Funds`,
 // `Sole proprietorship` and `PermanentEstablishment` all match.
-const squeeze = (label: string) => label.toLowerCase().replaceAll(/\s+/g, "")
-const BY_CLASSIFICATION = new Map<string, Classification>(
-  Classification.literals.map((slug) => [
-    squeeze(CLASSIFICATIONS[slug].header.replace(/ \([a-z]{2}\)$/, "")),
-    slug,
-  ])
+const squeeze = (label: string) =>
+  Effect.sync(() => label.toLowerCase().replaceAll(/\s+/g, ""))
+const BY_CLASSIFICATION: ReadonlyMap<string, Classification> = new Map(
+  Effect.runSync(
+    Effect.forEach(Classification.literals, (slug) =>
+      Effect.map(
+        squeeze(CLASSIFICATIONS[slug].header.replace(/ \([a-z]{2}\)$/, "")),
+        (label) => [label, slug] as const
+      )
+    )
+  )
 )
 
-const KSEI_TYPE_SET: ReadonlySet<string> = new Set(KSEI_TYPES)
+const KSEI_TYPE_CODES: ReadonlyMap<string, KseiType> = new Map(
+  KSEI_TYPES.map((type) => [type, type])
+)
 
-const ORIGINS = new Map<string, SplitOrigin>([
+const ORIGINS: ReadonlyMap<string, SplitOrigin> = new Map([
   ["L", "local"],
   ["F", "foreign"],
   // Feb 2026's Asing.
   ["A", "foreign"],
 ])
 
-const CONTROLLERS = new Map<string, Controller>([
+const CONTROLLERS: ReadonlyMap<string, Controller> = new Map([
   ["CONTROLLER", "controller"],
   ["AFFILIATE OF THE CONTROLLER", "affiliate"],
 ])
@@ -290,15 +297,17 @@ const hundredthsAt = Effect.fnUntraced(function* (at: At) {
   )
 })
 
-// A known label of `labels`, or null when blank.
+// `label`'s text as the value `known` holds under it, looked up as `keyOf`
+// turns it; null when blank.
 const knownAt = Effect.fnUntraced(function* <A>(
   at: At,
   label: Label,
-  known: (text: string) => A | undefined
+  known: ReadonlyMap<string, A>,
+  keyOf: (text: string) => Effect.Effect<string> = Effect.succeed
 ) {
   const text = yield* textAt(at, label)
   if (text === null) return null
-  const value = known(text)
+  const value = known.get(yield* keyOf(text))
   if (value === undefined)
     return yield* unreadable(
       `${at.where}'s ${label} is unknown: ${yield* excerpt(text)}`
@@ -312,12 +321,13 @@ const investorAt = Effect.fnUntraced(function* (at: At) {
   if (at.layout.investor === "INVESTOR_TYPE")
     return {
       classification: null,
-      type: yield* knownAt(at, "INVESTOR_TYPE", (text) =>
-        KSEI_TYPE_SET.has(text) ? (text as KseiType) : undefined
-      ),
+      type: yield* knownAt(at, "INVESTOR_TYPE", KSEI_TYPE_CODES),
     }
-  const classification = yield* knownAt(at, "INVESTOR_CLASSIFICATION", (text) =>
-    BY_CLASSIFICATION.get(squeeze(text))
+  const classification = yield* knownAt(
+    at,
+    "INVESTOR_CLASSIFICATION",
+    BY_CLASSIFICATION,
+    squeeze
   )
   return {
     classification,
@@ -366,8 +376,29 @@ const rowStock = Effect.fnUntraced(function* (
   return stock
 })
 
-// One holder row's values, in the columns `parseSheet` gathers, after its
-// stock and seq.
+// The above_1_holding columns a parse writes, in the order a gathered row
+// holds them.
+const HOLDER_COLUMNS = [
+  "stock_code",
+  "seq",
+  "issuer_name",
+  "investor_name",
+  "holder_key",
+  "classification",
+  "investor_type",
+  "origin",
+  "nationality",
+  "domicile",
+  "controller",
+  "scripless",
+  "scrip",
+  "total",
+  "percentage_hundredths",
+] as const
+
+type HolderRow = Record<(typeof HOLDER_COLUMNS)[number], SqlValue>
+
+// One holder row's values but its stock and seq.
 const holderRow = Effect.fnUntraced(function* (at: At) {
   const issuer = yield* textAt(at, "ISSUER_NAME")
   if (issuer === null)
@@ -376,25 +407,23 @@ const holderRow = Effect.fnUntraced(function* (at: At) {
   if (investor === null)
     return yield* unreadable(`${at.where} has no INVESTOR_NAME`)
   const { classification, type } = yield* investorAt(at)
-  return [
-    issuer,
-    investor,
-    yield* holderKey(investor),
+  return {
+    issuer_name: issuer,
+    investor_name: investor,
+    holder_key: yield* holderKey(investor),
     classification,
-    type,
-    yield* knownAt(at, "LOCAL_FOREIGN", (text) => ORIGINS.get(text)),
-    yield* textAt(at, "NATIONALITY"),
-    yield* textAt(at, "DOMICILE"),
-    at.layout.controller
-      ? yield* knownAt(at, "CONTROLLER_OR_AFFILIATE", (text) =>
-          CONTROLLERS.get(text)
-        )
+    investor_type: type,
+    origin: yield* knownAt(at, "LOCAL_FOREIGN", ORIGINS),
+    nationality: yield* textAt(at, "NATIONALITY"),
+    domicile: yield* textAt(at, "DOMICILE"),
+    controller: at.layout.controller
+      ? yield* knownAt(at, "CONTROLLER_OR_AFFILIATE", CONTROLLERS)
       : null,
-    yield* sharesAt(at, "HOLDINGS_SCRIPLESS"),
-    yield* sharesAt(at, "HOLDINGS_SCRIP"),
-    yield* sharesAt(at, "TOTAL_HOLDING_SHARES"),
-    yield* hundredthsAt(at),
-  ] satisfies ReadonlyArray<SqlValue>
+    scripless: yield* sharesAt(at, "HOLDINGS_SCRIPLESS"),
+    scrip: yield* sharesAt(at, "HOLDINGS_SCRIP"),
+    total: yield* sharesAt(at, "TOTAL_HOLDING_SHARES"),
+    percentage_hundredths: yield* hundredthsAt(at),
+  } satisfies Omit<HolderRow, "stock_code" | "seq">
 })
 
 // One month's rows, read a row at a time: the header's layout, then a
@@ -404,23 +433,7 @@ const parseSheet = Effect.fnUntraced(function* (bytes: Uint8Array) {
   // Each stock's rows so far.
   const seqs = new Map<string, number>()
   let rowCount = 0
-  const holders = yield* monthRows("above_1_holding", [
-    "stock_code",
-    "seq",
-    "issuer_name",
-    "investor_name",
-    "holder_key",
-    "classification",
-    "investor_type",
-    "origin",
-    "nationality",
-    "domicile",
-    "controller",
-    "scripless",
-    "scrip",
-    "total",
-    "percentage_hundredths",
-  ])
+  const holders = yield* monthRows("above_1_holding", HOLDER_COLUMNS)
   yield* forEachRow(bytes, (rowNumber, cells) =>
     Effect.gen(function* () {
       if (layout === undefined) {
@@ -436,12 +449,16 @@ const parseSheet = Effect.fnUntraced(function* (bytes: Uint8Array) {
       rowCount++
       const seq = (seqs.get(stock) ?? 0) + 1
       seqs.set(stock, seq)
-      const values = yield* holderRow({
-        cells,
-        layout,
-        where: `${stock} (row ${rowNumber})`,
-      })
-      yield* holders.add([stock, seq, ...values])
+      const row: HolderRow = {
+        stock_code: stock,
+        seq,
+        ...(yield* holderRow({
+          cells,
+          layout,
+          where: `${stock} (row ${rowNumber})`,
+        })),
+      }
+      yield* holders.add(HOLDER_COLUMNS.map((column) => row[column]))
     })
   )
   if (layout === undefined)
