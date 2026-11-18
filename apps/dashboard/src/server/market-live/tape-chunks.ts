@@ -2,14 +2,17 @@
 // "Trade chunks", ticket #571): the tape's second backing (tape.ts), with
 // the same reads and writes as its row per trade.
 import {
+  Board,
+  Side,
   StockCode,
   TradeNumber,
+  TradeSource,
   type RunningTrade,
   type TapeCursor,
   MINUTE_MS,
   SHARES_PER_LOT,
 } from "@workspace/relay"
-import { DateTime, Effect } from "effect"
+import { DateTime, Effect, Schema } from "effect"
 
 import type { Sql } from "./day-store.ts"
 import {
@@ -21,7 +24,9 @@ import {
 
 // A record: present (1), side, board, a spare byte, the code list index
 // (u16), the feeds in order (a nibble each, the feed's index + 1), then time,
-// price and lots as float64s, so every field reads back exactly.
+// price and lots as float64s, so every field reads back exactly. Side, board
+// and feed are their index in the relay's lists, which stay append-only
+// (envelope.ts, Side).
 // Decision: chunk k holds trades 1000k+1 .. 1000k+1000 as fixed 32-byte
 // records placed by number; all zero bytes is a trade the tape lacks. A flush
 // rewrites only the chunks it adds trades to: about 4 a minute on a busy day.
@@ -47,9 +52,17 @@ const TRADE_CHUNKS_SCHEMA = `CREATE TABLE IF NOT EXISTS trade_chunks (
 // that use it.
 export const TRADE_CODES_FACT = "trade-codes"
 
-const SIDES = ["buy", "sell", "none"] as const
-const BOARDS = ["RG", "TN", "NG"] as const
-const FEEDS_IN = ["Stockbit", "Ajaib", "backfill", "walk"] as const
+// A value's index in a relay list. A value outside it fails the decode, so
+// the flush's transaction rolls back rather than storing it as another.
+const indexIn = <const L extends ReadonlyArray<string>>(
+  list: Schema.Literals<L>
+) => {
+  const known = Schema.decodeUnknownSync(list)
+  return (value: L[number]) => list.literals.indexOf(known(value))
+}
+const sideIndex = indexIn(Side)
+const boardIndex = indexIn(Board)
+const feedIndex = indexIn(TradeSource)
 
 // Trades read a page of chunks per statement, so a full day's 48 MB of
 // chunks never sits in memory at once.
@@ -79,12 +92,12 @@ export const putRecord = (
 ) => {
   const view = new DataView(records.buffer, records.byteOffset + slot * RECORD)
   view.setUint8(0, 1)
-  view.setUint8(SIDE, SIDES.indexOf(record.side))
-  view.setUint8(BOARD, BOARDS.indexOf(record.board))
+  view.setUint8(SIDE, sideIndex(record.side))
+  view.setUint8(BOARD, boardIndex(record.board))
   view.setUint16(CODE, record.code, true)
   let feeds = 0
   record.feeds.slice(0, 4).forEach((feed, at) => {
-    feeds |= (FEEDS_IN.indexOf(feed) + 1) << (at * 4)
+    feeds |= (feedIndex(feed) + 1) << (at * 4)
   })
   view.setUint16(FEEDS, feeds, true)
   view.setFloat64(TIME, record.time, true)
@@ -106,8 +119,8 @@ const chunkReader = (chunk: number, records: Uint8Array) => {
     code: (slot: number) => view.getUint16(at(slot) + CODE, true),
     price: (slot: number) => view.getFloat64(at(slot) + PRICE, true),
     lots: (slot: number) => view.getFloat64(at(slot) + LOTS, true),
-    side: (slot: number) => SIDES[view.getUint8(at(slot) + SIDE)]!,
-    board: (slot: number) => BOARDS[view.getUint8(at(slot) + BOARD)]!,
+    side: (slot: number) => Side.literals[view.getUint8(at(slot) + SIDE)]!,
+    board: (slot: number) => Board.literals[view.getUint8(at(slot) + BOARD)]!,
     feeds: (slot: number) => {
       const feeds: Array<RunningTrade["feeds"][number]> = []
       for (
@@ -115,7 +128,7 @@ const chunkReader = (chunk: number, records: Uint8Array) => {
         packed > 0;
         packed >>= 4
       )
-        feeds.push(FEEDS_IN[(packed & 15) - 1]!)
+        feeds.push(TradeSource.literals[(packed & 15) - 1]!)
       return feeds
     },
     // The held slots, ascending.
@@ -138,8 +151,10 @@ const chunkOfRow = (row: Record<string, unknown>) =>
 
 // Decision: the plain methods run inside a synchronous transaction
 // (tape-backing.ts, Tape), so the record and chunk helpers they call stay
-// plain too: `putRecord`, `chunkReader`, `codeAt`, `stored`, `chunksBetween`,
-// `nearest` and `eachHeld`. The reads around them are Effects, as tape.ts's.
+// plain too: `chunkOf`, `emptyRecords`, `indexIn`'s lookups, `putRecord`,
+// `chunkReader`, `chunkOfRow`, `loadCodes`, `codeAt`, `stored`,
+// `chunksBetween`, `nearest`, `highest` and `eachHeld`. The reads around them
+// are Effects, as tape.ts's.
 export const makeChunkTape = (sql: Sql): Tape => {
   sql.exec(TRADE_CHUNKS_SCHEMA)
 
@@ -192,7 +207,7 @@ export const makeChunkTape = (sql: Sql): Tape => {
     )
     return row === undefined ? undefined : chunkOfRow(row)
   }
-  const lowest = () => nearest(0, "above")
+  const lowest = Effect.sync(() => nearest(0, "above"))
   const highest = () => nearest(Number.MAX_SAFE_INTEGER, "below")
 
   // The time of a chunk's first held trade.
@@ -360,7 +375,7 @@ export const makeChunkTape = (sql: Sql): Tape => {
   // TIME_SKEW_MS, and reads about 11 chunk rows on a busy day.
   const highestWithin = Effect.fnUntraced(function* (cutoff: number) {
     const bound = cutoff + TIME_SKEW_MS
-    const first = lowest()
+    const first = yield* lowest
     const last = highest()
     if (first === undefined || last === undefined) return undefined
     let low = first.chunk
@@ -423,7 +438,7 @@ export const makeChunkTape = (sql: Sql): Tape => {
   // The first and last minute that can hold a stored trade, widened by
   // TIME_SKEW_MS as tape.ts's; none when the day stored none.
   const minuteSpan = Effect.gen(function* () {
-    const first = lowest()
+    const first = yield* lowest
     const last = highest()
     if (first === undefined || last === undefined) return undefined
     return {
