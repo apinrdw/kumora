@@ -237,6 +237,9 @@ export const Fact = {
   // Where the day's tape comes from (trading-day.ts): TapeSource's relay or
   // walk, none while unknown.
   tapeSource: "tape-source",
+  // Whether the broker codes store's tape summary stands for the tape
+  // (broker-codes.ts, `summarizeTape`): TAPE_SUMMARY_BUILT, none until then.
+  tapeSummary: "tape-summary",
   // The day's broker totals build (broker-totals.ts): BROKER_TOTALS_DUE once
   // the sealed day is buildable, then the build version that wrote them.
   brokerTotals: "broker-totals",
@@ -251,6 +254,8 @@ export const Fact = {
 } as const
 
 export const BROKER_TRADES_BUILT = "built"
+
+export const TAPE_SUMMARY_BUILT = "built"
 
 export const ORDER_FLOW_BUILT = "built"
 // Decision: the build's progress and finished value both name the rows'
