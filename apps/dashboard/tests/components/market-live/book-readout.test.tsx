@@ -5,6 +5,7 @@ import {
   WibDate,
   type BookReadings,
   type MarketPhase,
+  type RelayGap,
   type ViewerDown,
 } from "@workspace/relay"
 import { DateTime, Effect } from "effect"
@@ -20,6 +21,7 @@ import {
   resetConditions,
 } from "@/components/market-live/market-conditions"
 import { makeOrderBookStore } from "@/components/market-live/order-book-store"
+import type { ReplayCursor } from "@/components/market-live/replay-cursor"
 
 // React's `act` warns outside a test environment that declares itself.
 Object.assign(globalThis, { IS_REACT_ACT_ENVIRONMENT: true })
@@ -76,8 +78,13 @@ vi.mock("@/components/market-live/use-special-board", () => ({
   useSpecialBoard: () => board.codes,
 }))
 
-// The readout of `code` live, after the socket's snapshot.
-const render = (code: string, message: ViewerDown) => {
+// The readout of `code` live, after the socket's snapshot, or on a recorded
+// day at `recorded`'s cursor.
+const render = (
+  code: string,
+  message: ViewerDown,
+  recorded?: { cursor: ReplayCursor; gaps: ReadonlyArray<RelayGap> }
+) => {
   const readings = Effect.runSync(makeBookReadingsStore)
   const book = Effect.runSync(makeOrderBookStore(StockCode.make(code)))
   const dayStates = clientRuntime.runSync(makeDayStateStore())
@@ -93,13 +100,26 @@ const render = (code: string, message: ViewerDown) => {
         readings={readings}
         book={book}
         dayStates={dayStates}
-        cursor={undefined}
-        gaps={[]}
+        cursor={recorded?.cursor}
+        gaps={recorded?.gaps ?? []}
       />
     )
   })
   return { container, book }
 }
+
+// A recorded day's cursor held at `at`.
+const cursorAt = (at: number): ReplayCursor => ({
+  day: { date: TODAY } as ReplayCursor["day"],
+  state: () => ({ at, playing: false, speed: 1 }),
+  subscribe: () => () => {},
+  toggle: () => {},
+  pause: () => {},
+  seek: () => {},
+  setSpeed: () => {},
+  pickMinute: () => {},
+  dispose: () => {},
+})
 
 afterEach(() => {
   board.codes = new Set()
@@ -257,6 +277,28 @@ test("the fill estimate walks the offers to buy and the bids to sell", () => {
   expect(text).toContain("6 ticks · 0.70%")
   // 50 at 1,000 and 10 at 990.
   expect(text).toContain("2 ticks · 0.17%")
+})
+
+test("in a recorded relay gap the fill estimate fills nothing from the book before it", () => {
+  const gapFrom = Date.parse("2026-11-18T10:05:00+07:00")
+  const shown = render("ERAA", snapshot("session-1", []), {
+    cursor: cursorAt(gapFrom + 30_000),
+    gaps: [
+      {
+        from: DateTime.makeUnsafe(gapFrom),
+        to: DateTime.makeUnsafe(gapFrom + 60_000),
+      },
+    ],
+  })
+  // The last book recorded before the gap.
+  act(() => shown.book.replace(ERAA_BOOK))
+  pick(shown.container, "Lots")
+  typeSize(shown.container, "60")
+  expect(shown.container.textContent).toContain("Not recorded")
+  expect(
+    fillTable(shown.container),
+    "the fill estimate shows no price inside the gap"
+  ).not.toMatch(/\d/)
 })
 
 test("a size past the book's levels says what they cover", () => {
