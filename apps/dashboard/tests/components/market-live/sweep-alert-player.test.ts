@@ -114,15 +114,31 @@ test("nothing plays on a recorded day", () => {
   expect(played).toEqual([])
 })
 
-// One browser's BroadcastChannel: a message reaches every other open member.
+// One browser's BroadcastChannel: a message reaches every other open member,
+// in the order posted. One posted while a tab handles another waits its turn,
+// as the browser queues it.
 const channelOf = (): OpenTabChannel => {
   const members = new Set<(message: TabMessage) => void>()
+  const queue: Array<() => void> = []
+  let delivering = false
+  const deliver = () => {
+    if (delivering) return
+    delivering = true
+    for (let next = queue.shift(); next !== undefined; next = queue.shift())
+      next()
+    delivering = false
+  }
   return (receive) =>
     Effect.sync(() => {
       members.add(receive)
       return {
         post: (message) => {
-          for (const member of members) if (member !== receive) member(message)
+          for (const member of members)
+            if (member !== receive)
+              queue.push(() => {
+                if (members.has(member)) member(message)
+              })
+          deliver()
         },
         close: () => void members.delete(receive),
       }
@@ -207,6 +223,19 @@ test("a tab opening in the background leaves the Playing tab as it is", () => {
   heardBy([first, second], deltaOf([alertOf("buy", 1)]))
   expect(first.played).toEqual(["buy"])
   expect(second.played).toEqual([])
+})
+
+test("a third tab opening in the background leaves the Playing tab as it is", () => {
+  const channel = channelOf()
+  const first = tabOf(channel, { focused: true })
+  const second = tabOf(channel, { focused: true })
+  first.focus()
+  // Each open tab's answer to the third reaches the other too.
+  const third = tabOf(channel, { focused: false })
+  heardBy([first, second, third], deltaOf([alertOf("buy", 1)]))
+  expect(first.played).toEqual(["buy"])
+  expect(second.played).toEqual([])
+  expect(third.played).toEqual([])
 })
 
 test("a tab that went away and came back is not the Playing tab", () => {
