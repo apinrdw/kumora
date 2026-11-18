@@ -38,7 +38,7 @@ import {
   type Cells,
 } from "./footprint-cells.ts"
 import type { LivePrice } from "./stockbit-liveprice.ts"
-import { makeSweepAlerts, rankedOf, type RankedSweep } from "./sweep-alerts.ts"
+import { makeSweepAlerts } from "./sweep-alerts.ts"
 
 // Decision: a trade's part in its candle stays open for 5 s after it first
 // arrived, so a second feed's copy can still move or reprice it; after that a
@@ -226,12 +226,11 @@ interface Slot {
   readonly minute: number
   settled: CandleFigures | undefined
   readonly settledCells: Cells
+  // The sweeps the store held when the book took the minute.
+  readonly stored: ReadonlyArray<Sweep>
   base: StoredSweeps
   readonly trades: Map<TradeNumber, RunningTrade>
   readonly open: Map<string, RunningTrade>
-  // The minute's sweeps the alert rule ranked: those it decided since the
-  // book took the minute, or the stored ones it ranked before.
-  ranked: ReadonlyArray<RankedSweep>
 }
 
 const NO_SWEEPS: StoredSweeps = { sweeps: [], lastTrade: -1n }
@@ -367,10 +366,6 @@ export const makeCandleBook = Effect.fnUntraced(function* (
   // The latest time of any trade the book heard, in epoch ms: a sweep's
   // second has closed once it is later.
   let latest = -Infinity
-  // Minutes with a sweep whose second hadn't closed at the last delta. Only
-  // a code's latest second can be open, so it holds a minute a code at most;
-  // the book may let one go meanwhile, and it is decided all the same.
-  const waiting = new Set<Slot>()
 
   const slotOf = Effect.fnUntraced(function* (code: StockCode, minute: number) {
     let minutes = series.get(code)
@@ -387,10 +382,10 @@ export const makeCandleBook = Effect.fnUntraced(function* (
         settled: yield* store.storedCandle(code, minute),
         settledCells:
           (yield* store.storedFootprint(code, minute)) ?? (yield* noCells),
+        stored: base.sweeps,
         base,
         trades: new Map(),
         open: new Map(),
-        ranked: yield* rankedOf(base.sweeps),
       }
       minutes.set(minute, slot)
     }
@@ -444,21 +439,22 @@ export const makeCandleBook = Effect.fnUntraced(function* (
       return last
     })
 
-  // Lets a candle go once nothing in the book still refers to it.
-  const release = (slot: Slot) =>
-    Effect.sync(() => {
-      if (
-        slot.open.size > 0 ||
-        unflushed.has(slot) ||
-        flushing.has(slot) ||
-        changed.has(slot)
-      )
-        return
-      const minutes = series.get(slot.code)
-      if (minutes?.get(slot.minute) !== slot) return
-      minutes.delete(slot.minute)
-      if (minutes.size === 0) series.delete(slot.code)
-    })
+  // Lets a candle go once nothing in the book still refers to it: the store
+  // holds it, its sweeps as the alert rule last heard them.
+  const release = Effect.fnUntraced(function* (slot: Slot) {
+    if (
+      slot.open.size > 0 ||
+      unflushed.has(slot) ||
+      flushing.has(slot) ||
+      changed.has(slot)
+    )
+      return
+    const minutes = series.get(slot.code)
+    if (minutes?.get(slot.minute) !== slot) return
+    minutes.delete(slot.minute)
+    if (minutes.size === 0) series.delete(slot.code)
+    yield* alertRule.release(slot.code, slot.minute)
+  })
 
   const settle = Effect.fnUntraced(function* (now: number) {
     for (const [tradeNumber, arrival] of arrivals) {
@@ -612,22 +608,46 @@ export const makeCandleBook = Effect.fnUntraced(function* (
       .flatMap(([, sweeps]) => sweeps)
   })
 
-  // The numbers of a minute's trades the book holds in a ranked sweep: from
-  // its first trade up to its end.
-  const tradeNumbersOf = (slot: Slot, { sweep, end }: RankedSweep) =>
-    Effect.sync(() => {
-      const from = BigInt(sweep.firstTrade)
-      return [...slot.trades.values(), ...slot.open.values()]
-        .map((held) => held.tradeNumber)
-        .filter((number) => {
-          const value = BigInt(number)
-          return value >= from && (end === undefined || value < end)
-        })
-        .sort(TradeNumberOrder)
-    })
+  // The numbers of an alerting sweep's trades: its minute's from its first
+  // trade (`from`) up to its end. The book holds them, unless it let the
+  // minute go since they arrived: the rule decides a sweep that waited for
+  // its second to close whenever a later trade comes, and the store has the
+  // trades then.
+  const tradeNumbersOf = Effect.fnUntraced(function* ({
+    code,
+    minute,
+    sweep,
+    from,
+    end,
+  }: {
+    readonly code: StockCode
+    readonly minute: number
+    readonly sweep: Sweep
+    readonly from: bigint
+    readonly end: bigint | undefined
+  }) {
+    const slot = series.get(code)?.get(minute)
+    const held = [
+      ...(slot?.trades.values() ?? []),
+      ...(slot?.open.values() ?? []),
+    ]
+    const numbers = new Set<TradeNumber>()
+    const take = (trades: Iterable<RunningTrade>) => {
+      for (const { tradeNumber } of trades) {
+        const value = BigInt(tradeNumber)
+        if (value >= from && (end === undefined || value < end))
+          numbers.add(tradeNumber)
+      }
+    }
+    take(held)
+    if (numbers.size < sweep.trades)
+      take(yield* store.storedMinuteTrades(code, minute))
+    return [...numbers].sort(TradeNumberOrder)
+  })
 
   // Each minute's sweeps grouped again, every code's, and the alert rule's
-  // decisions on them: a minute waits while a sweep's second is still open.
+  // decisions since: on these and on the sweeps that waited for their second
+  // to close.
   // Decision: every code's changed minutes are grouped on every delta, with
   // no once-a-second cap, so an alert goes out ~250 ms after its second
   // closes. The 09:00 WIB peak measured 2.2–2.6 ms a delta at p50, 12.7 ms
@@ -636,28 +656,24 @@ export const makeCandleBook = Effect.fnUntraced(function* (
   const regroupAll = Effect.fnUntraced(function* (slots: ReadonlySet<Slot>) {
     const now = yield* Clock.currentTimeMillis
     const sweeps = new Map<Slot, ReadonlyArray<Sweep>>()
-    const alerts: Array<SweepAlert> = []
     for (const slot of slots) {
       const minute = yield* slotSweeps(slot, true)
       sweeps.set(slot, minute)
-      const decided = yield* alertRule.decide({
+      yield* alertRule.regroup({
         code: slot.code,
-        ranked: slot.ranked,
+        minute: slot.minute,
+        stored: slot.stored,
         sweeps: minute,
-        latest,
-        now,
       })
-      slot.ranked = decided.ranked
-      if (decided.pending) waiting.add(slot)
-      else waiting.delete(slot)
-      for (const alert of decided.alerts)
-        alerts.push({
-          code: slot.code,
-          side: alert.sweep.side,
-          lots: alert.sweep.lots,
-          tradeNumbers: yield* tradeNumbersOf(slot, alert),
-        })
     }
+    const alerts: Array<SweepAlert> = []
+    for (const alert of yield* alertRule.decide({ latest, now }))
+      alerts.push({
+        code: alert.code,
+        side: alert.sweep.side,
+        lots: alert.sweep.lots,
+        tradeNumbers: yield* tradeNumbersOf(alert),
+      })
     return { sweeps, alerts }
   })
 
@@ -685,7 +701,7 @@ export const makeCandleBook = Effect.fnUntraced(function* (
     const resent = regrouped
     changed = new Set()
     regrouped = new Set()
-    const grouped = yield* regroupAll(new Set([...resent, ...waiting]))
+    const grouped = yield* regroupAll(resent)
     const candles: Array<Candle> = []
     const footprints: Array<Footprint> = []
     const sweeps: Array<MinuteSweeps> = []
@@ -803,8 +819,8 @@ export const makeCandleBook = Effect.fnUntraced(function* (
 
   // A restarted object's stored sweeps, every code's, ranked for the alert
   // rule before it decides again, so each side's warm-up and cutoff carry
-  // on. A minute the book takes from the store counts its stored sweeps as
-  // ranked (`slotOf`).
+  // on. The rule counts the stored sweeps of a minute the book takes from
+  // the store as ranked (`regroupAll`).
   // Decision: the ranking is rebuilt from the footprints table once, not
   // stored on its own: the research put it at a few MB, under ~30 MB at
   // worst. See spec apinrdw/kumora#510 and apinrdw/kumora#500.

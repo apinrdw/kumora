@@ -1,16 +1,13 @@
 // The alert rule of spec apinrdw/kumora#510 (ticket apinrdw/kumora#512): one
-// code's minutes of sweeps go in as the candle book regroups them, with the
+// code's minutes of sweeps go in as the candle book regroups them, then the
 // latest trade time the object holds and the decision instant, and the test
-// reads which sweeps alert. The test plays the book: it keeps each minute's
-// ranked sweeps and hands them back on the minute's next regroup.
+// reads which sweeps alert. The test plays the book: it hands a minute in
+// whole on each regroup, and says when it lets one go.
 import { assert, describe, it } from "@effect/vitest"
 import { StockCode, TradeNumber, type Sweep } from "@workspace/relay"
 import { DateTime, Effect } from "effect"
 
-import {
-  makeSweepAlerts,
-  type RankedSweep,
-} from "@/server/market-live/sweep-alerts"
+import { makeSweepAlerts } from "@/server/market-live/sweep-alerts"
 
 const UNTR = StockCode.make("UNTR")
 const OPEN = DateTime.toEpochMillis(DateTime.makeUnsafe("2026-11-09T02:00:00Z"))
@@ -37,29 +34,34 @@ const sweep = (
   trades: 1,
 })
 
-// The rule, with each minute's ranked sweeps kept as the book keeps them.
+// The rule, heard as the candle book hands it UNTR's minutes.
 const book = Effect.gen(function* () {
   const rule = yield* makeSweepAlerts
-  const ranked = new Map<number, ReadonlyArray<RankedSweep>>()
-  // One minute's sweeps, whole, decided once the latest trade is timed
-  // `latest` seconds after 09:00 WIB and `now` seconds after it is the
-  // decision instant. Returns the lots of the sweeps that alerted.
-  const regroup = Effect.fnUntraced(function* (
+  // One minute's sweeps as now grouped, whole. `stored` is what the store
+  // held of the minute when the book took it.
+  const group = (
+    minute: number,
+    sweeps: ReadonlyArray<Sweep>,
+    stored: ReadonlyArray<Sweep> = []
+  ) => rule.regroup({ code: UNTR, minute, stored, sweeps })
+  // The decisions once the latest trade is timed `latest` seconds after
+  // 09:00 WIB and `now` seconds after it is the decision instant: the side
+  // and lots of each sweep that alerted.
+  const decide = (latest: number, now = latest) =>
+    Effect.map(
+      rule.decide({ latest: OPEN + latest * 1000, now: OPEN + now * 1000 }),
+      (alerts) => alerts.map((alert) => [alert.sweep.side, alert.sweep.lots])
+    )
+  // One minute regrouped and decided, as a delta with one changed minute.
+  const regroup = (
     minute: number,
     sweeps: ReadonlyArray<Sweep>,
     latest: number,
-    now = latest
-  ) {
-    const decided = yield* rule.decide({
-      code: UNTR,
-      ranked: ranked.get(minute) ?? [],
-      sweeps,
-      latest: OPEN + latest * 1000,
-      now: OPEN + now * 1000,
-    })
-    ranked.set(minute, decided.ranked)
-    return decided.alerts.map((alert) => [alert.sweep.side, alert.sweep.lots])
-  })
+    now = latest,
+    stored: ReadonlyArray<Sweep> = []
+  ) => Effect.andThen(group(minute, sweeps, stored), decide(latest, now))
+  // The book lets a minute go, its sweeps stored.
+  const release = (minute: number) => rule.release(UNTR, minute)
   // `count` sweeps of `side`, one a second before 09:00 WIB, with the lots
   // `lotsOf` gives each, decided long after, each call a minute of its own.
   let warmed = 0
@@ -76,7 +78,7 @@ const book = Effect.gen(function* () {
       0,
       LATER
     )
-  return { regroup, warm }
+  return { group, decide, regroup, release, warm }
 })
 
 describe("sweep alerts", () => {
@@ -271,6 +273,78 @@ describe("sweep alerts", () => {
           yield* day.regroup(1, [sweep("buy", 70, 499)], 71),
           []
         )
+      })
+  )
+
+  it.effect(
+    "a sweep that waits while the book lets its minute go and takes it again is decided once, against the sweeps before it",
+    () =>
+      Effect.gen(function* () {
+        const day = yield* book
+        yield* day.warm("buy", 99)
+        const big = sweep("buy", 1, 100)
+        // The 100th buy sweep's second, the latest, is open.
+        assert.deepStrictEqual(yield* day.regroup(0, [big], 1), [])
+        yield* day.release(0)
+        // A trade reopens the minute, the store holding the waiting sweep,
+        // and closes its second: 99 before it, so it is silent.
+        const next = sweep("buy", 2, 50)
+        assert.deepStrictEqual(
+          yield* day.regroup(0, [big, next], 2, 2, [big]),
+          []
+        )
+        // Each ranked once. 100 sweeps cut at the largest, 100 lots, so the
+        // 50 are silent; 101 cut at the 2nd largest, those 50, so 60 alert.
+        assert.deepStrictEqual(
+          yield* day.regroup(0, [big, next, sweep("buy", 3, 60)], 4, 4, [big]),
+          [["buy", 60]]
+        )
+      })
+  )
+
+  it.effect(
+    "a sweep that waits is decided once its second closes though the book let its minute go, and the stored minute then counts as ranked",
+    () =>
+      Effect.gen(function* () {
+        const day = yield* book
+        yield* day.warm("sell", 100)
+        const big = sweep("sell", 1, 50)
+        assert.deepStrictEqual(yield* day.regroup(0, [big], 1), [])
+        yield* day.release(0)
+        // No minute regrouped: another code's trade closed the second.
+        assert.deepStrictEqual(yield* day.decide(2), [["sell", 50]])
+        // The book takes the minute from the store for a later trade: the
+        // big sweep neither alerts nor ranks again.
+        const next = sweep("sell", 3, 40)
+        assert.deepStrictEqual(
+          yield* day.regroup(0, [big, next], 4, 4, [big]),
+          // 101 sweeps cut at the 2nd largest, one lot.
+          [["sell", 40]]
+        )
+        // 102 cut at the 2nd largest: 40. Ranked twice, the big one's 50.
+        assert.deepStrictEqual(
+          yield* day.regroup(1, [sweep("sell", 5, 45)], 6),
+          [["sell", 45]]
+        )
+      })
+  )
+
+  it.effect(
+    "minutes are decided in trade order, whichever the book regrouped first",
+    () =>
+      Effect.gen(function* () {
+        const day = yield* book
+        yield* day.warm("buy", 98)
+        // The 100th buy sweep waits in its minute's last second.
+        assert.deepStrictEqual(
+          yield* day.regroup(1, [sweep("buy", 119, 1)], 119),
+          []
+        )
+        // One delta regroups the next minute, then one before both for a
+        // late trade: the 99th, 100th and 101st in trade order.
+        yield* day.group(2, [sweep("buy", 120, 500)])
+        yield* day.group(0, [sweep("buy", 59, 1)])
+        assert.deepStrictEqual(yield* day.decide(121), [["buy", 500]])
       })
   )
 })
