@@ -1,7 +1,9 @@
--- The last sector run's outcome, cron or Run now, which the Sectors card on
--- /admin/shareholding shows so a run that keeps, skips or fails is seen.
--- One row, replaced by each run (src/server/sectors/sync.ts).
-CREATE TABLE sector_last_run (
+-- sector_run again, now with the profiles a Replaced run skipped, so the
+-- Sectors card names them. A forward migration because Previews had applied
+-- 0007 (.claude/skills/post-implementation-review/workspaces/deploy.md); its
+-- one row is the last run's and the next run rewrites it, so none is kept.
+DROP TABLE sector_run;
+CREATE TABLE sector_run (
   id INTEGER NOT NULL PRIMARY KEY CHECK (id = 1),
   outcome TEXT NOT NULL,
   -- A Replaced run: the rows it wrote, and a JSON array of each profile it

@@ -190,7 +190,7 @@ export const syncSectors = Effect.fn("syncSectors")(function* (
   return replaced
 })
 
-// The run, with its outcome kept in sector_last_run for the Sectors card. A
+// The run, with its outcome kept in sector_run for the Sectors card. A
 // NonRetryable is IDX failing, so it becomes Failed rather than an error.
 export const recordedSectorRun = Effect.fn("recordedSectorRun")(function* (
   ranAt: Date
@@ -206,7 +206,7 @@ export const recordedSectorRun = Effect.fn("recordedSectorRun")(function* (
   yield* (yield* HoldingsDb).batch([
     {
       sql:
-        "INSERT OR REPLACE INTO sector_last_run (id, outcome, rows, skipped, message, ran_at) " +
+        "INSERT OR REPLACE INTO sector_run (id, outcome, rows, skipped, message, ran_at) " +
         "VALUES (1, ?, ?, ?, ?, ?)",
       params: [
         run._tag,
