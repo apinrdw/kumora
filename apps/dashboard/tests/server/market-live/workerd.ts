@@ -4,6 +4,7 @@
 // billing/worker.ts, runs it in the installed workerd on a temporary disk,
 // builds the busy day (billing/busy-day.ts) once, and stops workerd when the
 // tests are done.
+import { request as httpRequest } from "node:http"
 import { createServer } from "node:net"
 
 import { NodeServices } from "@effect/platform-node"
@@ -38,6 +39,33 @@ const Billed = Schema.Struct({
   answer: Schema.String,
   tables: Schema.Array(Schema.String),
 })
+
+// What the whole day billed in its live hours, its seal and its walk; the
+// rows its flushes and recomputes logged, by table; its database's size and
+// each table's payload bytes; its sweep brokers rows' stored and plain
+// bytes; its trade chunks; the codes it holds books of, and its candles.
+const WholeDay = Schema.Struct({
+  live: Rows,
+  seal: Rows,
+  walk: Rows,
+  total: Rows,
+  written: Schema.Record(Schema.String, Schema.Number),
+  databaseBytes: Schema.Number,
+  tables: Schema.Record(Schema.String, Schema.Number),
+  sweepBrokers: Schema.Struct({
+    rows: Schema.Number,
+    stored: Schema.Number,
+    plain: Schema.Number,
+    ratio: Schema.Number,
+  }),
+  tradeChunks: Schema.Struct({ rows: Schema.Number, bytes: Schema.Number }),
+  bookCodes: Schema.Number,
+  stockMinutes: Schema.Number,
+})
+
+const decodeWholeDay = Schema.decodeUnknownEffect(
+  Schema.fromJsonString(WholeDay)
+)
 
 const decodeBilled = Schema.decodeUnknownEffect(Schema.fromJsonString(Billed))
 const decodeBuilt = Schema.decodeUnknownEffect(
@@ -120,6 +148,9 @@ export class BusyDay extends Context.Service<
     readonly billed: (
       operation: OperationName
     ) => Effect.Effect<typeof Billed.Type>
+    // A whole busy day recorded on an object of its own
+    // (billing/whole-day.ts), and what it billed.
+    readonly wholeDay: Effect.Effect<typeof WholeDay.Type>
   }
 >()("BusyDay") {
   static readonly layer = Layer.effect(
@@ -172,6 +203,30 @@ export class BusyDay extends Context.Service<
             Effect.flatMap(decodeBilled),
             Effect.orDie
           ),
+        // Decision: through node:http, which sets no timeout: the whole day
+        // answers after about 280 s, past fetch's 300 s headers timeout on
+        // CI's slower cores.
+        wholeDay: Effect.callback<string>((resume) => {
+          const request = httpRequest(
+            { host: "127.0.0.1", port, path: "/whole-day", method: "POST" },
+            (response) => {
+              let body = ""
+              response.setEncoding("utf8")
+              response.on("data", (chunk: string) => (body += chunk))
+              response.on("end", () =>
+                resume(
+                  response.statusCode === 200
+                    ? Effect.succeed(body)
+                    : Effect.die(
+                        `/whole-day answered ${response.statusCode}: ${body}`
+                      )
+                )
+              )
+            }
+          )
+          request.on("error", (error) => resume(Effect.die(error)))
+          request.end()
+        }).pipe(Effect.flatMap(decodeWholeDay), Effect.orDie),
       }
     }).pipe(Effect.orDie)
   ).pipe(Layer.provide(NodeServices.layer))

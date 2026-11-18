@@ -6,6 +6,11 @@ import { testTimeout } from "../../vitest.timeout.mts"
 // the day object in workerd; `pnpm --filter dashboard test:row-budgets` runs
 // them alone.
 const ROW_BUDGETS = "tests/**/*.workerd.test.ts"
+// Decision: the whole busy day records for about 280 s in workerd, so it is a
+// project of its own that `pnpm --filter dashboard test:whole-day` runs, left
+// out of `pnpm check` and CI. A change to what a day writes or stores runs
+// it, and its PR reports the figures (spec apinrdw/kumora#555).
+const WHOLE_DAY = "tests/**/whole-day.workerd.test.ts"
 
 // Tests run in Node without vite.config.ts and its TanStack Start plugins.
 // Vite transforms JSX on its own, so the suites need only the path aliases.
@@ -31,7 +36,15 @@ export default defineConfig({
           exclude: [...configDefaults.exclude, ROW_BUDGETS],
         },
       },
-      { extends: true, test: { name: "row-budgets", include: [ROW_BUDGETS] } },
+      {
+        extends: true,
+        test: {
+          name: "row-budgets",
+          include: [ROW_BUDGETS],
+          exclude: [...configDefaults.exclude, WHOLE_DAY],
+        },
+      },
+      { extends: true, test: { name: "whole-day", include: [WHOLE_DAY] } },
     ],
   },
 })
