@@ -660,7 +660,7 @@ test.describe.serial("the stock page", () => {
         "APOL isn't in IDX's investor-type report, so its holder size isn't shown."
       )
       await expect(majorHolders(page)).toContainText(
-        "APOL isn't in any IDX above-1% report, so its major holders aren't shown."
+        "APOL isn't in any IDX above-1% report, so its ≥1% holders aren't shown."
       )
       // The picker offers it, though no report names its issuer.
       await page.goto(`${DASHBOARD}/stocks/BBCA`)

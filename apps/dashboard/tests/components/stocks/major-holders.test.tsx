@@ -300,10 +300,10 @@ describe("Major holders", () => {
     expect(picked).toEqual(["2026-09-30"])
   })
 
-  test("says a stock in no above-1% report has no major holders", async () => {
+  test("says a stock in no above-1% report has no ≥1% holders", async () => {
     await render({ months: [month("2026-10-30", [])] })
     expect(text()).toContain(
-      "AADI isn't in any IDX above-1% report, so its major holders aren't shown."
+      "AADI isn't in any IDX above-1% report, so its ≥1% holders aren't shown."
     )
     expect(table()).toBeNull()
   })
