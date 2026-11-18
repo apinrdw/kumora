@@ -88,13 +88,14 @@ describe("the Sectors card", () => {
       assert.deepStrictEqual(yield* runSectorSyncNow(headers(cookie)), {
         _tag: "Replaced",
         rows: 2,
+        skipped: [],
       })
       assert.strictEqual(idx.requests.length, 1)
       assert.deepStrictEqual(yield* sectorTable(headers(cookie)), {
         rows: 2,
         fetchedAt: "2026-11-17T03:04:05.000Z",
         lastRun: {
-          run: { _tag: "Replaced", rows: 2 },
+          run: { _tag: "Replaced", rows: 2, skipped: [] },
           ranAt: "2026-11-17T03:04:05.000Z",
         },
       })
@@ -112,7 +113,7 @@ describe("the Sectors card", () => {
       const kept = {
         _tag: "Kept",
         reason:
-          "IDX lists 8 company profiles with a stock code, under 90 % of the 10 stored",
+          "IDX lists 8 company profiles with a stock code and an IDX-IC sector, under 90 % of the 10 stored",
       } as const
       assert.deepStrictEqual(yield* runSectorSyncNow(headers(cookie)), kept)
       const table = yield* sectorTable(headers(cookie))
@@ -121,6 +122,26 @@ describe("the Sectors card", () => {
         run: kept,
         ranAt: "2026-11-18T15:00:00.000Z",
       })
+    }).pipe(Effect.provide(layer))
+  })
+
+  it.effect("shows an admin the profiles a run skipped", () => {
+    const { layer, mails, idx } = sectors()
+    idx.profiles = [
+      profile("AADI"),
+      profile("AGII", "3. Basic Industry And Chemicals"),
+    ]
+    return Effect.gen(function* () {
+      const cookie = yield* verified(mails)(ADMIN_EMAIL, "Adi")
+      yield* runSectorSyncNow(headers(cookie))
+      assert.deepStrictEqual(
+        (yield* sectorTable(headers(cookie))).lastRun?.run,
+        {
+          _tag: "Replaced",
+          rows: 1,
+          skipped: ["AGII (3. Basic Industry And Chemicals)"],
+        }
+      )
     }).pipe(Effect.provide(layer))
   })
 

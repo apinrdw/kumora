@@ -39,7 +39,11 @@ describe("the sector run", () => {
         ]
         const outcome = yield* syncSectors(today)
 
-        assert.deepStrictEqual(outcome, { _tag: "Replaced", rows: 2 })
+        assert.deepStrictEqual(outcome, {
+          _tag: "Replaced",
+          rows: 2,
+          skipped: [],
+        })
         assert.deepStrictEqual(idx.requests.at(-1), PROFILES_URL)
         assert.deepStrictEqual(
           rows(db).map((row) => ({ ...row })),
@@ -87,6 +91,7 @@ describe("the sector run", () => {
         assert.deepStrictEqual(yield* syncSectors(today), {
           _tag: "Replaced",
           rows: 90,
+          skipped: [],
         })
       }).pipe(Effect.provide(layer))
     }
@@ -106,6 +111,7 @@ describe("the sector run", () => {
         assert.deepStrictEqual(yield* syncSectors(today), {
           _tag: "Replaced",
           rows: 2,
+          skipped: ["AGII (3. Basic Industry And Chemicals)"],
         })
         assert.deepStrictEqual(
           rows(db).map((row) => row.code),
@@ -128,6 +134,7 @@ describe("the sector run", () => {
         assert.deepStrictEqual(yield* syncSectors(today), {
           _tag: "Replaced",
           rows: 2,
+          skipped: ['"bad code" (no stock code)'],
         })
         assert.deepStrictEqual(
           rows(db).map((row) => row.code),
@@ -137,6 +144,19 @@ describe("the sector run", () => {
     }
   )
 
+  it.effect("keeps an empty table when no profile has an IDX-IC sector", () => {
+    const { idx, db, layer } = setup()
+    return Effect.gen(function* () {
+      idx.profiles = [profile("AADI", "Energi"), profile("BBCA", "Keuangan")]
+      assert.deepStrictEqual(yield* syncSectors(today), {
+        _tag: "Kept",
+        reason:
+          "IDX lists 0 company profiles with a stock code and an IDX-IC sector, under 90 % of the 0 stored",
+      })
+      assert.strictEqual(rows(db).length, 0)
+    }).pipe(Effect.provide(layer))
+  })
+
   // At the most profiles a run accepts; IDX listed 944 on 2026-11-16.
   it.effect("fills an empty table from the first run", () => {
     const { idx, db, layer } = setup()
@@ -145,6 +165,7 @@ describe("the sector run", () => {
       assert.deepStrictEqual(yield* syncSectors(today), {
         _tag: "Replaced",
         rows: 5000,
+        skipped: [],
       })
       assert.strictEqual(rows(db).length, 5000)
       // One batch: the old rows go and the new come in one transaction.

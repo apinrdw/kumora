@@ -11,11 +11,12 @@ import {
   recordedSectorRun,
 } from "@/server/sectors/sync"
 
-// sector_run's row, as its CHECKs allow it.
+// sector_last_run's row, as its CHECK allows it.
 const LastRunRow = Schema.Union([
   Schema.Struct({
     outcome: Schema.Literal("Replaced"),
     rows: Schema.Number,
+    skipped: Schema.fromJsonString(Schema.Array(Schema.String)),
     ran_at: Schema.String,
   }),
   Schema.Struct({
@@ -38,7 +39,7 @@ const lastRunOf = (row: unknown): LastSectorRun | null => {
   const last = decoded.value
   const run: RecordedSectorRun =
     last.outcome === "Replaced"
-      ? { _tag: "Replaced", rows: last.rows }
+      ? { _tag: "Replaced", rows: last.rows, skipped: last.skipped }
       : last.outcome === "Kept"
         ? { _tag: "Kept", reason: last.message }
         : { _tag: "Failed", message: last.message }
@@ -62,7 +63,7 @@ export const sectorTable = Effect.fn("sectorTable")(function* (
       params: [],
     },
     {
-      sql: "SELECT outcome, rows, message, ran_at FROM sector_run WHERE id = 1",
+      sql: "SELECT outcome, rows, skipped, message, ran_at FROM sector_last_run WHERE id = 1",
       params: [],
     },
   ])

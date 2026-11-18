@@ -23,10 +23,24 @@ import { runSectorSyncNowFn } from "@/server/admin/sectors.functions"
 import { SECTOR_TIME_WIB } from "@/server/sectors/schedule"
 import type { RecordedSectorRun } from "@/server/sectors/sync"
 
+// Up to the 90 % gate's ~94 profiles can be skipped; ten name the cause.
+const SKIPPED_SHOWN = 10
+
+const skippedList = (skipped: ReadonlyArray<string>) =>
+  skipped.length <= SKIPPED_SHOWN
+    ? skipped.join(", ")
+    : `${skipped.slice(0, SKIPPED_SHOWN).join(", ")} and ${skipped.length - SKIPPED_SHOWN} more`
+
 const outcomeOf = (run: RecordedSectorRun): Outcome => {
   switch (run._tag) {
     case "Replaced":
-      return { _tag: "Done", message: `Replaced ${run.rows} rows.` }
+      return {
+        _tag: "Done",
+        message:
+          run.skipped.length === 0
+            ? `Replaced ${run.rows} rows.`
+            : `Replaced ${run.rows} rows, skipping ${skippedList(run.skipped)}.`,
+      }
     case "Kept":
       return { _tag: "Failed", message: `Kept the table: ${run.reason}` }
     case "Failed":
