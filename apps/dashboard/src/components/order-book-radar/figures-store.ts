@@ -10,7 +10,10 @@ export interface FiguresStore {
 
 // Every code's scanner figures from the viewer socket, outside React. A
 // snapshot replaces them all; a delta's candles, every changed code's,
-// move a code's last price to its newest minute's close.
+// move a code's last price to its newest minute's close. It has no
+// subscribe: no row shows its figures. The ranking reads them at each
+// re-sort (use-ranking.ts), so a moved last price takes effect there, and
+// alerts read them at each match.
 export const makeFiguresStore = Effect.sync((): FiguresStore => {
   let held = new Map<StockCode, CodeFigures>()
   // The minute each code's last price came from.
