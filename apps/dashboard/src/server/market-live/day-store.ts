@@ -260,11 +260,11 @@ export const Fact = {
   // The day's broker totals build (broker-totals.ts): BROKER_TOTALS_DUE once
   // the sealed day is buildable, then the build version that wrote them.
   brokerTotals: "broker-totals",
-  // When each alarm duty is next due (wakes.ts): epoch millis, none once
-  // done.
   // Every code's value on the previous trading day (previous-values.ts),
   // as its object answered it, once a day.
   previousValues: "previous-values",
+  // When each alarm duty is next due (wakes.ts): epoch millis, none once
+  // done.
   sealWake: "seal-wake",
   indexWake: "index-wake",
   buildWake: "build-wake",
