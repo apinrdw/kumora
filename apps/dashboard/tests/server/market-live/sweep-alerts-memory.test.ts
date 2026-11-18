@@ -14,14 +14,14 @@ import {
 import { DateTime, Effect } from "effect"
 import { TestClock } from "effect/testing"
 
-import {
-  makeCandleBook,
-  type SettledCandles,
-} from "@/server/market-live/candles"
+import { makeCandleBook } from "@/server/market-live/candles"
+import { makeDayStore, type Sql } from "@/server/market-live/day-store"
+import { noCells } from "@/server/market-live/footprint-cells"
 import { makeSweepAlerts } from "@/server/market-live/sweep-alerts"
 
 import { retainedHeap } from "../../support/retained-heap.ts"
 import { FULL_DAY_CODES, FULL_DAY_MINUTES } from "./full-day"
+import { memorySql } from "./sql"
 
 const FIRST = DateTime.toEpochMillis(
   DateTime.makeUnsafe("2026-11-09T08:58:00+07:00")
@@ -70,23 +70,58 @@ const sweepsOf = (code: number, minute: number): Array<Sweep> => {
   })
 }
 
-// A day store holding the worst day's sweeps and nothing else.
-const store: SettledCandles = {
-  storedCandle: () => Effect.succeed(undefined),
-  storedCandlesOf: () => Effect.succeed([]),
-  storedFootprint: () => Effect.succeed(undefined),
-  storedFootprintsOf: () => Effect.succeed([]),
-  storedSweeps: () => Effect.succeed(undefined),
-  storedMinuteTrades: () => Effect.succeed([]),
-  storedSweepsOf: () => Effect.succeed(new Map()),
-  eachStoredSweeps: Effect.fnUntraced(function* (each) {
-    for (let code = 0; code < FULL_DAY_CODES; code++)
-      for (let minute = 0; minute < FULL_DAY_MINUTES; minute++) {
-        const sweeps = sweepsOf(code, minute)
-        if (sweeps.length > 0) yield* each(codes[code]!, sweeps)
-      }
-  }),
+// A database that reports the heap each statement's rows are handed back
+// into, while `watching`: the heap over `base` after a full collection, the
+// rows still held. It measures one statement in `EVERY`, the first included.
+const EVERY = 8
+const watchedSql = () => {
+  const sql = memorySql()
+  const watch = { watching: false, base: 0, most: 0, statements: 0 }
+  const watched: Sql = {
+    ...sql,
+    exec: (query, ...bindings) => {
+      const rows = sql.exec(query, ...bindings)
+      if (watch.watching && watch.statements++ % EVERY === 0)
+        watch.most = Math.max(
+          watch.most,
+          Effect.runSync(retainedHeap) - watch.base
+        )
+      return rows
+    },
+  }
+  return { watched, watch }
 }
+
+// The worst day's sweeps written to a day store as footprint rows, a minute
+// a write, and nothing else.
+const storeDay = Effect.fnUntraced(function* (
+  store: Effect.Success<ReturnType<typeof makeDayStore>>
+) {
+  const cells = yield* noCells
+  for (let minute = 0; minute < FULL_DAY_MINUTES; minute++)
+    yield* store.write({
+      trades: [],
+      candles: [],
+      footprints: codes.flatMap((code, index) => {
+        const sweeps = sweepsOf(index, minute)
+        return sweeps.length === 0
+          ? []
+          : [
+              {
+                code,
+                minute: FIRST + minute * MINUTE,
+                cells,
+                sweeps,
+                lastTrade: BigInt(sweeps.at(-1)!.firstTrade),
+              },
+            ]
+      }),
+      livePrices: [],
+      chunks: [],
+      ajaibBooks: [],
+      facts: {},
+    })
+})
 
 // A busy code's buy side holds 8,979 sweeps: its cutoff is the 90th largest.
 const busyCutoff = Array.from(
@@ -99,13 +134,24 @@ const BOUND = 30 * 1024 * 1024
 
 describe("the alert rule at the worst day", () => {
   it.effect(
-    "a restart ranks the day's 665,760 stored sweeps into a bounded heap, and decides against them",
+    "a restart reads the day's 665,760 stored sweeps from the database and ranks them within a bounded heap, and decides against them",
     () =>
       Effect.gen(function* () {
-        const before = yield* retainedHeap
+        const { watched, watch } = watchedSql()
+        const store = yield* makeDayStore(watched, { today: true })
+        yield* storeDay(store)
+        watch.base = yield* retainedHeap
         const book = yield* makeCandleBook(store, () => {})
+        watch.watching = true
         yield* book.rankStored
-        const held = (yield* retainedHeap) - before
+        watch.watching = false
+        // The rows a statement hands back count while the store reads them.
+        assert.isBelow(
+          watch.most,
+          BOUND,
+          `${(watch.most / 2 ** 20).toFixed(1)} MiB held while reading`
+        )
+        const held = (yield* retainedHeap) - watch.base
         assert.isBelow(
           held,
           BOUND,
