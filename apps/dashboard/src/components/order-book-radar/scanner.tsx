@@ -6,7 +6,7 @@ import type { BookEventSide, BookLevel, StockCode } from "@workspace/relay"
 import { cn } from "@workspace/ui/lib/utils"
 import { IconStarFilled } from "@tabler/icons-react"
 import { DateTime, Effect } from "effect"
-import { useSyncExternalStore } from "react"
+import { memo, useSyncExternalStore } from "react"
 
 import { KButton } from "@/components/k/button"
 import type { BookReadingsStore } from "@/components/market-live/book-readings-store"
@@ -199,21 +199,45 @@ function Unfolded({
   )
 }
 
-function Row({
+interface RowProps {
+  readonly code: StockCode
+  readonly half: Half
+  readonly readings: BookReadingsStore
+  readonly rankBy: RankKey
+  readonly marketNow: number
+  readonly watched: boolean
+  readonly events: CodeEvents | undefined
+  readonly unfolded: boolean
+  readonly onUnfold: (code: StockCode | undefined) => void
+  // The selected code's book, for the unfolded row only.
+  readonly book: OrderBookStore | undefined
+  readonly onOpen: (code: StockCode) => void
+}
+
+// A row selects its own code's readings, so a delta re-renders only the
+// rows whose codes it carries; the memo skips the rest when the page
+// re-renders.
+const Row = memo(function Row({
   code,
   half,
-  view,
-}: {
-  code: StockCode
-  half: Half
-  view: RowView
-}) {
-  const readings = view.readings.readingsOf(code)
+  readings: store,
+  rankBy,
+  marketNow,
+  watched,
+  events,
+  unfolded,
+  onUnfold,
+  book,
+  onOpen,
+}: RowProps) {
+  const readings = useSyncExternalStore(
+    store.subscribe,
+    () => store.readingsOf(code),
+    () => undefined
+  )
   if (readings === undefined) return null
   const imbalance = readings.imbalance ?? 0
-  const stale = Effect.runSync(isStale(readings, view.marketNow))
-  const unfolded = view.unfolded === code
-  const events = view.events.get(code)
+  const stale = Effect.runSync(isStale(readings, marketNow))
   return (
     <li
       data-code={code}
@@ -223,12 +247,12 @@ function Row({
       <button
         type="button"
         aria-expanded={unfolded}
-        onClick={() => view.onUnfold(unfolded ? undefined : code)}
+        onClick={() => onUnfold(unfolded ? undefined : code)}
         className="hover:bg-elevated grid w-full grid-cols-[88px_1fr_48px_16px] items-center gap-2 px-2.5 py-1.5 text-left text-[12px] sm:grid-cols-[96px_1fr_52px_100px_64px]"
       >
         <span className="flex items-center gap-1 font-bold tracking-[0.02em]">
           {code}
-          {view.watchlist.has(code) && (
+          {watched && (
             <IconStarFilled
               aria-label="On the watchlist"
               className="size-3 text-primary"
@@ -249,18 +273,14 @@ function Row({
           aria-label="Ranked by"
           className="hidden text-right text-muted-foreground tabular-nums sm:block"
         >
-          {Effect.runSync(
-            rankedFigure(readings, view.rankBy, view.marketNow, events)
-          )}
+          {Effect.runSync(rankedFigure(readings, rankBy, marketNow, events))}
         </span>
-        <LastEvent events={events} now={view.marketNow} />
+        <LastEvent events={events} now={marketNow} />
       </button>
-      {unfolded && (
-        <Unfolded code={code} book={view.book} onOpen={view.onOpen} />
-      )}
+      {unfolded && <Unfolded code={code} book={book} onOpen={onOpen} />}
     </li>
   )
-}
+})
 
 // The two halves, side by side, stacked on a phone; the order holds while
 // the pointer is over them.
@@ -294,7 +314,20 @@ export function Halves({
             </h2>
             <ol aria-label={`${title} codes`}>
               {scan[half].map((code) => (
-                <Row key={code} code={code} half={half} view={view} />
+                <Row
+                  key={code}
+                  code={code}
+                  half={half}
+                  readings={view.readings}
+                  rankBy={view.rankBy}
+                  marketNow={view.marketNow}
+                  watched={view.watchlist.has(code)}
+                  events={view.events.get(code)}
+                  unfolded={view.unfolded === code}
+                  onUnfold={view.onUnfold}
+                  book={view.unfolded === code ? view.book : undefined}
+                  onOpen={view.onOpen}
+                />
               ))}
             </ol>
           </section>
