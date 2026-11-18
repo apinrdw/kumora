@@ -5,6 +5,8 @@
 // count, and the trades table has no code index, so the recompute reads each
 // touched minute of the whole market and regroups it as the footprint rows
 // do (minute-regroup.ts). No other recorded day answer reads the table.
+import { gunzipSync, gzipSync } from "node:zlib"
+
 import {
   TradeNumber,
   decodeSweepBrokersText,
@@ -30,12 +32,14 @@ import {
   SWEEP_BROKERS_SHAPE,
   type DayStore,
   type Sql,
+  type SqlValue,
 } from "./day-store.ts"
 import { regroupMinute, type CodeMinute } from "./minute-regroup.ts"
 
 // Decision: keyed by (code, minute) WITHOUT ROWID like the footprint rows:
 // the answer reads one code's rows, and a recompute replaces each touched
-// minute's rows by key, never scanning the table.
+// minute's rows by key, never scanning the table. `sweeps` stays TEXT for
+// old days' tables; SQLite keeps a new row's gzipped BLOB as it is.
 const SCHEMA = `CREATE TABLE IF NOT EXISTS sweep_brokers (
   code TEXT NOT NULL,
   minute INTEGER NOT NULL,
@@ -49,6 +53,17 @@ const sweepsText = (sweeps: ReadonlyArray<SweepBrokers>) =>
   Effect.orDie(encodeSweepBrokersText(sweeps))
 const sweepsFromText = (text: string) =>
   Effect.orDie(decodeSweepBrokersText(text))
+
+// Decision: a new row's sweeps are stored as a gzipped BLOB of the same
+// text, with the zlib the day store gzips book chunks with (day-store.ts).
+// A day recorded before holds plain-text rows, read as they are and never
+// rewritten, so SWEEP_BROKERS_SHAPE stays: a bump would rebuild every old
+// day. See spec apinrdw/kumora#555, "Gzipped sweep brokers".
+const storedSweeps = (text: string) => new Uint8Array(gzipSync(text))
+const textOf = (stored: SqlValue | undefined) =>
+  typeof stored === "string"
+    ? stored
+    : new TextDecoder().decode(gunzipSync(stored as Uint8Array))
 
 // One member trade's broker on one side of a sweep, with its investor type
 // and the trade's lots.
@@ -219,15 +234,15 @@ export const makeSweepBrokers = Effect.fnUntraced(function* (options: {
         code,
         minute
       )
-      return row === undefined ? undefined : String(row.sweeps)
+      return row === undefined ? undefined : textOf(row.sweeps)
     })
 
   // One minute's rows worked out again from the codes `heldCodes` reads,
   // metering the rows it read: for each code, its whole sweeps' and auction
   // matches' text, or none when none is whole.
-  // Decision: a row whose bytes are already stored is left out, and so is
-  // a delete of a row never stored, so a batch writes only the rows it
-  // changes, not every code's row of each minute it touches. See
+  // Decision: a row whose text is already stored, gzipped or plain, is left
+  // out, and so is a delete of a row never stored, so a batch writes only
+  // the rows it changes, not every code's row of each minute it touches. See
   // docs/runbooks/order-flow-cost.md, "Sweep brokers: one Staging evening".
   const minuteRows = (minute: number, heldCodes: HeldCodes) =>
     store.sweepBrokerMinute(
@@ -267,7 +282,7 @@ export const makeSweepBrokers = Effect.fnUntraced(function* (options: {
           "INSERT OR REPLACE INTO sweep_brokers VALUES (?, ?, ?)",
           code,
           minute,
-          text
+          storedSweeps(text)
         )
   }
 
@@ -286,7 +301,8 @@ export const makeSweepBrokers = Effect.fnUntraced(function* (options: {
     )
   })
 
-  // How many rows the table holds and their payload bytes.
+  // How many rows the table holds and their payload bytes as stored,
+  // gzipped or plain.
   const storage = Effect.sync(() => {
     const [row] = sql.exec(
       "SELECT count(*) AS rows, coalesce(sum(length(sweeps)), 0) AS bytes FROM sweep_brokers"
@@ -451,7 +467,7 @@ export const makeSweepBrokers = Effect.fnUntraced(function* (options: {
       "SELECT sweeps FROM sweep_brokers WHERE code = ? ORDER BY minute",
       code
     ))
-      sweeps.push(...(yield* sweepsFromText(String(row.sweeps))))
+      sweeps.push(...(yield* sweepsFromText(textOf(row.sweeps))))
     return sweeps
   })
 
