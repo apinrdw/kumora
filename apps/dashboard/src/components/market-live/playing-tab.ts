@@ -13,8 +13,8 @@ const Peer = Schema.Struct({
 type Peer = typeof Peer.Type
 
 // What the tabs say over the channel. A tab says Hello as it opens and every
-// other tab gives an Answer, so it learns who holds the role before an alert
-// arrives; a tab whose stamps changed says Here; a closing tab says Bye.
+// other tab gives an Answer, so it learns which is the Playing tab before an
+// alert arrives; a tab whose stamps changed says Here; a closing tab says Bye.
 const TabMessage = Schema.Union([
   Schema.TaggedStruct("Hello", { peer: Peer }),
   Schema.TaggedStruct("Answer", { peer: Peer }),
@@ -54,9 +54,9 @@ const broadcastTabChannel: OpenTabChannel = (receive) =>
     }
   })
 
-// Whether `a` holds the role over `b`: the one focused last, and between tabs
-// not focused since they opened, the one open longest, so a tab opening in the
-// background leaves the role where it is.
+// Whether `a` rather than `b` is the Playing tab: the one focused last, and
+// between tabs not focused since they opened, the one open longest, so a tab
+// opening in the background leaves the Playing tab as it is.
 const outranks = (a: Peer, b: Peer) =>
   Effect.sync(() =>
     a.focusedAt !== b.focusedAt
@@ -67,14 +67,14 @@ const outranks = (a: Peer, b: Peer) =>
   )
 
 // Decision: every tab keeps the same list of open tabs and works out the
-// holder from it, so no tab hands the role over and a closing tab only says
-// Bye (spec apinrdw/kumora#510, "One tab plays"). A tab that closes without a
-// word (a crash) keeps the role in the others' lists until another tab is
-// focused.
+// Playing tab from it, so no tab hands over and a closing tab only says Bye
+// (spec apinrdw/kumora#510, "One tab plays"). A tab that closes without a
+// word (a crash) stays the Playing tab in the others' lists until another tab
+// is focused.
 //
-// This tab's claim on playing the Sweep alerts: it holds the role while it is
-// the Market Live tab focused last among those open in the browser. A tab
-// alone holds it, focused or not.
+// This tab's claim on playing the Sweep alerts: it is the Playing tab while
+// it is the Market Live tab focused last among those open in the browser. A
+// tab alone is, focused or not.
 export const makePlayingTab = (open: OpenTabChannel) =>
   Effect.sync(() => {
     const id = crypto.randomUUID()
@@ -124,7 +124,7 @@ export const makePlayingTab = (open: OpenTabChannel) =>
     return {
       // Opens the channel and says Hello: the page opening or coming back.
       // Until the Answers arrive, a moment before its socket can bring an
-      // alert, the tab knows no other and holds the role.
+      // alert, the tab knows no other and is the Playing tab.
       join: Effect.fnUntraced(function* (focused: boolean) {
         if (channel !== undefined) return
         const joinedAt = yield* Clock.currentTimeMillis
@@ -132,7 +132,7 @@ export const makePlayingTab = (open: OpenTabChannel) =>
         channel = yield* open(receive)
         channel.post({ _tag: "Hello", peer: self })
       }),
-      // The member focused this tab: it takes the role.
+      // The member focused this tab: it becomes the Playing tab.
       focus: Effect.gen(function* () {
         if (self === undefined || channel === undefined) return
         self = { ...self, focusedAt: yield* focusStamp }
@@ -155,10 +155,11 @@ export const makePlayingTab = (open: OpenTabChannel) =>
     }
   })
 
-// The live page's playing tab, open while the page shows: it joins as the page
-// opens or comes back from the back-forward cache, and leaves on `pagehide`,
-// which a closing tab fires though React never unmounts it. A recorded day
-// never plays, so its tab stays out and never takes the role from a live one.
+// The live page's claim on being the Playing tab, open while the page shows:
+// it joins as the page opens or comes back from the back-forward cache, and
+// leaves on `pagehide`, which a closing tab fires though React never unmounts
+// it. A recorded day never plays, so its tab stays out and never takes over
+// from a live one.
 export const usePlayingTab = (day: WibDate | undefined) => {
   const [tab] = useState(() =>
     Effect.runSync(makePlayingTab(broadcastTabChannel))

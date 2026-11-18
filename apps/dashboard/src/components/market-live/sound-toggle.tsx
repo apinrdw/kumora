@@ -9,7 +9,7 @@ import { makeStoredValue } from "@/lib/stored-value"
 import { wakeSound } from "./sweep-alert-sound"
 
 // Decision: like the watchlist (use-watchlist.ts), each browser keeps the
-// speaker toggle in localStorage, off until turned on (spec
+// Speaker toggle in localStorage, off until turned on (spec
 // apinrdw/kumora#510, "Dashboard: Running trades").
 const KEY = "kumora:market-live:sound"
 const ON = "on"
@@ -24,11 +24,11 @@ const toggle = Effect.runSync(
 )
 const { subscribe, snapshot, write } = toggle
 
-// Whether the speaker toggle is on: the sweep alert player reads it at each
+// Whether the Speaker toggle is on: the sweep alert player reads it at each
 // update.
 export const soundOn = toggle.current
 
-// The speaker toggle in the live Running trades header. Its click is the
+// The Speaker toggle in the live Running trades header. Its click is the
 // gesture that lets the browser play the sweep alert sounds. The server
 // render has it off.
 export function SoundToggle() {

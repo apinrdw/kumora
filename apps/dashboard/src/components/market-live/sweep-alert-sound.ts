@@ -27,7 +27,7 @@ let context: AudioContext | undefined
 const audioContext = Effect.try(() => (context ??= new AudioContext()))
 
 // Resumed when the browser suspended it. A browser lets audio start only
-// after the page has had a click or key press, so the speaker toggle's click
+// after the page has had a click or key press, so the Speaker toggle's click
 // wakes it.
 const resume = (audio: AudioContext) =>
   audio.state === "suspended"

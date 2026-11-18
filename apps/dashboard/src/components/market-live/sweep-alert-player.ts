@@ -24,10 +24,9 @@ export const makeSweepAlertPlayer = ({
   sink: SoundSink
   // The page's recorded day, or undefined on the live page.
   day: WibDate | undefined
-  // The speaker toggle, read at each delta.
+  // The Speaker toggle, read at each delta.
   toggledOn: Effect.Effect<boolean>
-  // Whether this tab holds the role of playing (playing-tab.ts), read at each
-  // delta.
+  // Whether this tab is the Playing tab (playing-tab.ts), read at each delta.
   mayPlay: Effect.Effect<boolean>
 }) =>
   Effect.sync(() => ({
@@ -39,8 +38,8 @@ export const makeSweepAlertPlayer = ({
     }),
   }))
 
-// The page's player: the WebAudio synth behind the speaker toggle, playing
-// while this tab holds the role.
+// The page's player: the WebAudio synth behind the Speaker toggle, playing
+// while this tab is the Playing tab.
 export const useSweepAlertPlayer = (day: WibDate | undefined) => {
   const tab = usePlayingTab(day)
   return useMemo(

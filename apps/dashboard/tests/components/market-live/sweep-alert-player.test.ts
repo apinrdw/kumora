@@ -129,8 +129,8 @@ const channelOf = (): OpenTabChannel => {
     })
 }
 
-// A Market Live tab on `channel`: its player plays only while the tab holds
-// the role. It joins the channel as it opens, focused or not.
+// A Market Live tab on `channel`: its player plays only while the tab is
+// the Playing tab. It joins the channel as it opens, focused or not.
 const tabOf = (channel: OpenTabChannel, { focused }: { focused: boolean }) => {
   const played: Array<AlertSide> = []
   const sink: SoundSink = {
@@ -173,7 +173,7 @@ test("of two open tabs, only the one focused last plays", () => {
   expect(second.played).toEqual(["buy"])
 })
 
-test("focusing the other tab moves the role to it", () => {
+test("focusing the other tab makes it the Playing tab", () => {
   const channel = channelOf()
   const first = tabOf(channel, { focused: true })
   const second = tabOf(channel, { focused: true })
@@ -185,7 +185,7 @@ test("focusing the other tab moves the role to it", () => {
   expect(second.played).toEqual(["buy"])
 })
 
-test("when the playing tab closes, the other open tab takes over", () => {
+test("when the Playing tab closes, the other open tab takes over", () => {
   const channel = channelOf()
   const first = tabOf(channel, { focused: true })
   const second = tabOf(channel, { focused: true })
@@ -200,7 +200,7 @@ test("a tab alone plays, focused or not", () => {
   expect(tab.played).toEqual(["buy"])
 })
 
-test("a tab opening in the background leaves the role where it is", () => {
+test("a tab opening in the background leaves the Playing tab as it is", () => {
   const channel = channelOf()
   const first = tabOf(channel, { focused: false })
   const second = tabOf(channel, { focused: false })
@@ -209,11 +209,11 @@ test("a tab opening in the background leaves the role where it is", () => {
   expect(second.played).toEqual([])
 })
 
-test("a tab coming back after it went away rejoins without the role", () => {
+test("a tab that went away and came back is not the Playing tab", () => {
   const channel = channelOf()
   const first = tabOf(channel, { focused: true })
   const second = tabOf(channel, { focused: true })
-  // The playing tab goes into the back-forward cache, then comes back unseen.
+  // The Playing tab goes into the back-forward cache, then comes back unseen.
   second.leave()
   second.rejoin({ focused: false })
   heardBy([first, second], deltaOf([alertOf("buy", 1)]))
@@ -221,7 +221,7 @@ test("a tab coming back after it went away rejoins without the role", () => {
   expect(second.played).toEqual([])
 })
 
-test("nothing plays while the speaker toggle is off", () => {
+test("nothing plays while the Speaker toggle is off", () => {
   const { hear, played } = playerOf({ soundOn: false })
   hear(deltaOf([alertOf("buy", 1), alertOf("sell", 2)]))
   expect(played).toEqual([])

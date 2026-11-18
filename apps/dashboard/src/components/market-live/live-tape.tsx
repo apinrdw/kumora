@@ -158,7 +158,7 @@ export function LiveTape({
 
 export const TAPE_HEIGHT = "h-[min(70vh,640px)]"
 
-// The tape's panel: its heading, `controls` (the live tape's speaker
+// The tape's panel: its heading, `controls` (the live tape's Speaker
 // toggle), the sources legend, then `children`.
 export function TapeSection({
   stale = false,

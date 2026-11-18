@@ -104,6 +104,14 @@ A sweep that reached its stock code's top-1% cutoff for its side, among at least
 **Top-1% cutoff**:
 The lots that a side's biggest 1% of sweeps so far reach.
 
+**Speaker toggle**:
+The button in the live Running trades header that turns Sweep alert sounds on for this browser. Off until turned on, and remembered per browser.
+_Avoid_: Mute button, sound setting
+
+**Playing tab**:
+The one open Market Live tab in a browser that plays Sweep alert sounds: the one focused last, or one alone. The others mark alerts but stay silent.
+_Avoid_: Role, leader, main tab
+
 **Lead broker**:
 The broker code with the most lots on a sweep's Other side, or on each side of an auction match, summed over its trades. The sweep log shows it with its investor type, and how many other brokers were on that side. A sweep's aggressor side has one broker, shown alone.
 _Avoid_: Top broker (top names the top-N filter), main broker
