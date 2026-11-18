@@ -68,12 +68,11 @@ const answerText = Effect.fnUntraced(function* (response: Response) {
 
 const NONE: ReadonlyMap<StockCode, number> = new Map()
 
-// Decision: today's object asks the previous trading day's object for its
-// values once a day, when the relay's token arrives, and keeps the answer
-// as a day store fact, so a restart doesn't ask again. A 404, a day the
-// relay didn't seal (the first after a gap), keeps none: the floor then
-// reads today's value alone. A failed ask keeps nothing and the relay's
-// next token asks again. See spec apinrdw/kumora#517, "Data".
+// Decision: today's object asks the previous trading day's for its values
+// once a day, on the relay's token, and keeps them as a day store fact. A
+// 404 (a day the relay didn't seal, after a gap) keeps none, so the floor
+// reads today's value alone; a failed ask keeps nothing and asks again on
+// the next token. See spec apinrdw/kumora#517, "Data".
 export const makePreviousValues = Effect.fnUntraced(function* (options: {
   readonly date: WibDate
   readonly fact: (key: string) => Effect.Effect<string | undefined>

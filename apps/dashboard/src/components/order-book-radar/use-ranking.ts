@@ -7,12 +7,11 @@ import { scan, type RadarSettings, type Scan } from "@/lib/order-book-radar"
 
 import type { FiguresStore } from "./figures-store"
 
-// Decision: the order re-sorts every 5 s and holds while the pointer is over
-// the halves, so a click lands on the code aimed at; readings show live in
-// between. A change of the settings or watchlist, the user's own, re-sorts
-// at once, and so does each second while no code is ranked yet; the board
-// list landing waits for the next re-sort. See spec
-// apinrdw/kumora#517, "The scanner".
+// Decision: the order re-sorts every 5 s and holds while the pointer is on
+// the halves; readings show live in between. The user's own changes
+// (settings, watchlist) re-sort at once, as does each second with nothing
+// ranked; the board list landing waits. See spec apinrdw/kumora#517, "The
+// scanner".
 const RESORT_MS = 5_000
 
 interface Inputs {

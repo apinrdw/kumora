@@ -41,6 +41,19 @@ const reading = (
   ...more,
 })
 
+// A scan as the tests compare it: its codes as plain strings.
+interface Plain {
+  readonly bid: ReadonlyArray<string>
+  readonly offer: ReadonlyArray<string>
+  readonly limits: ReadonlyArray<{
+    readonly code: string
+    readonly limit: string
+  }>
+  readonly above: number
+  readonly board: number
+  readonly cheap: number
+}
+
 const run = (
   readings: ReadonlyArray<BookReadings>,
   settings: Partial<RadarSettings> = {},
@@ -71,7 +84,7 @@ const run = (
       now: NOW,
     },
     { ...DEFAULT_SETTINGS, ...settings }
-  )
+  ).pipe(Effect.map((result): Plain => result))
 
 describe("which codes the scanner covers", () => {
   it.effect(
