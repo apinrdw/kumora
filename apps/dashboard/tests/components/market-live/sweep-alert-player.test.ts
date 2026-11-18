@@ -118,7 +118,7 @@ test("nothing plays on a recorded day", () => {
 // in the order posted. One posted while a tab handles another waits its turn,
 // as the browser queues it.
 const channelOf = (): OpenTabChannel => {
-  const members = new Set<(message: TabMessage) => void>()
+  const members = new Set<(message: TabMessage) => Effect.Effect<void>>()
   const queue: Array<() => void> = []
   let delivering = false
   const deliver = () => {
@@ -136,7 +136,7 @@ const channelOf = (): OpenTabChannel => {
           for (const member of members)
             if (member !== receive)
               queue.push(() => {
-                if (members.has(member)) member(message)
+                if (members.has(member)) Effect.runSync(member(message))
               })
           deliver()
         },
