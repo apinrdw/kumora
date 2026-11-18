@@ -328,7 +328,9 @@ describe("a day's recorded order books", () => {
           (yield* restarted.recordedCandles("BBCA")).answer.candles,
           1
         )
-      })
+      }),
+    // 120,000 watched codes take about 2.5 s here, the local default.
+    { timeout: 15_000 }
   )
 
   it.effect(
