@@ -2,8 +2,9 @@
 // (tests/server/market-live/workerd.ts bundles it). One trading-day object,
 // named by the busy day's date: POST /build builds the busy day, and
 // GET /billed?operation=<name> answers what that operation billed.
-import { Effect } from "effect"
+import { Effect, Layer } from "effect"
 
+import { BrokerTotalsDb } from "../src/server/broker-totals/db.ts"
 import { durableSql } from "../src/server/market-live/durable-sql.ts"
 import { respond } from "../src/server/market-live/respond.ts"
 import { makeTradingDay } from "../src/server/market-live/trading-day.ts"
@@ -19,6 +20,13 @@ const since = (
   rowsWritten: after.rowsWritten - before.rowsWritten,
 })
 
+// A broker totals DB no operation reaches: a build runs on the alarm.
+const unreachedDb = Layer.succeed(BrokerTotalsDb)(
+  BrokerTotalsDb.of({
+    batch: () => Effect.die("The billing worker builds no broker totals"),
+  })
+)
+
 const billed = Effect.fnUntraced(function* (
   storage: DurableObjectStorage,
   operation: Operation
@@ -29,6 +37,7 @@ const billed = Effect.fnUntraced(function* (
     sql,
     viewers: Effect.succeed([]),
     viewersOf: () => Effect.succeed([]),
+    ...(operation.brokerTotals === true ? { brokerTotalsDb: unreachedDb } : {}),
   })
   const started = sql.usage!()
   if (operation.before !== undefined) yield* operation.before(day)

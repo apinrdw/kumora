@@ -1,11 +1,14 @@
 // The busy-sized day the row budgets run on (spec apinrdw/kumora#554,
 // "Testing Decisions"): a relay day sealed after the close, its tape, candles,
 // broker code chunks and broker trades index as today's code stores them,
-// written straight into the object's SQLite. The trading day makes the tables
+// written straight into the object's SQLite, and its tape summary as the
+// seal writes it. The trading day makes the tables
 // first, so the day has today's shape.
-import { WibDate } from "@workspace/relay"
+import { BrokerCode, WibDate, type TradeCodes } from "@workspace/relay"
 import { Clock, DateTime, Effect } from "effect"
 
+import { BROKER_TOTALS_VERSION } from "../src/server/broker-totals/version.ts"
+import { summarizeTape } from "../src/server/market-live/broker-codes.ts"
 import { durableSql } from "../src/server/market-live/durable-sql.ts"
 import {
   BROKER_TRADES_BUILT,
@@ -42,9 +45,18 @@ const AJAIB = 65
 const BROKERS = ["AK", "BK", "CC", "DX", "KZ", "MG", "PD", "YP", "ZP", "RX"]
 const buyerOf = (number: number) => BROKERS[(number * 7) % BROKERS.length]!
 const sellerOf = (number: number) => BROKERS[(number * 3) % BROKERS.length]!
-const typeOf = (number: number) => (number % 5 === 0 ? "F" : "D")
+const typeOf = (number: number): TradeCodes["buyerType"] =>
+  number % 5 === 0 ? "F" : "D"
 
 const encoder = new TextEncoder()
+
+// The codes the busy day holds for trade `number`.
+export const busyCodes = (number: number): TradeCodes => ({
+  buyer: BrokerCode.make(buyerOf(number)),
+  buyerType: typeOf(number),
+  seller: BrokerCode.make(sellerOf(number)),
+  sellerType: typeOf(number + 1),
+})
 
 // One chunk's records, every trade's codes from Ajaib.
 const chunkOf = (chunk: number) =>
@@ -52,9 +64,10 @@ const chunkOf = (chunk: number) =>
     const codes = new Uint8Array(CHUNK * RECORD)
     for (let slot = 0; slot < CHUNK; slot++) {
       const number = chunk * CHUNK + slot + 1
+      const each = busyCodes(number)
       codes.set(
         encoder.encode(
-          `${buyerOf(number)}${typeOf(number)}${sellerOf(number)}${typeOf(number + 1)}`
+          `${each.buyer}${each.buyerType}${each.seller}${each.sellerType}`
         ),
         slot * RECORD
       )
@@ -136,6 +149,9 @@ export const buildBusyDay = Effect.fnUntraced(function* (
       JSON.stringify({ walkedTo: String(trades), ended: true }),
     ],
     [Fact.brokerTrades, BROKER_TRADES_BUILT],
+    // Built by an older build version, as a day the reconcile cron has yet
+    // to poke: with a broker totals DB, a batch runs its buildable check.
+    [Fact.brokerTotals, String(BROKER_TOTALS_VERSION - 1)],
     [Fact.orderFlowBuilt, ORDER_FLOW_BUILT],
     [Fact.sweepBrokersBuilt, SWEEP_BROKERS_BUILT],
     [Fact.gaps, '{"gaps":[]}'],
@@ -143,5 +159,6 @@ export const buildBusyDay = Effect.fnUntraced(function* (
   ]
   for (const [key, value] of facts)
     exec("INSERT OR REPLACE INTO facts VALUES (?, ?)", key, value)
+  yield* summarizeTape(yield* durableSql(storage))
   return (yield* Clock.currentTimeMillis) - started
 })

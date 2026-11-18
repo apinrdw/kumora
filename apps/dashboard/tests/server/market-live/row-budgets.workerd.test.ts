@@ -43,25 +43,9 @@ layer(BusyDay.layer, { timeout: "60 seconds", excludeTestServices: true })(
         withinBudget("recorded codes GET", { rowsRead: 250, rowsWritten: 0 })
     )
 
-    // Baseline for apinrdw/kumora#559: the status re-counts the whole tape,
-    // 1.46 M trades, and steps a window over each page that holds a hole.
     it.effect(
-      "baseline: a status pass reads the whole tape, about 2.7 M rows",
-      () =>
-        Effect.gen(function* () {
-          const { rows, status } = yield* (yield* BusyDay).billed("status pass")
-          assert.strictEqual(status, 200)
-          assert.isAtLeast(rows.rowsRead, 1_460_000)
-          assert.isAtMost(rows.rowsRead, 3_000_000)
-          assert.strictEqual(rows.rowsWritten, 0)
-        }),
-      10_000
-    )
-
-    // Known over budget until apinrdw/kumora#559, which turns it into `it.effect`.
-    it.effect.fails(
-      "a status pass reads at most 5 K rows",
-      () => withinBudget("status pass", { rowsRead: 5_000 }),
+      "a status pass on a sealed relay day reads at most 5 K rows, its tape summary in place of the tape",
+      () => withinBudget("status pass", { rowsRead: 5_000, rowsWritten: 0 }),
       10_000
     )
 
@@ -70,6 +54,18 @@ layer(BusyDay.layer, { timeout: "60 seconds", excludeTestServices: true })(
       "a recorded codes GET on a freshly started object reads at most 250 rows",
       () =>
         withinBudget("recorded codes GET, freshly started", { rowsRead: 250 }),
+      10_000
+    )
+  }
+)
+
+// A batch writes its chunks, so its budget runs on a busy day of its own.
+layer(BusyDay.layer, { timeout: "60 seconds", excludeTestServices: true })(
+  "row budgets of a batch",
+  (it) => {
+    it.effect(
+      "a batch with its buildable and completed checks reads at most 10 K rows",
+      () => withinBudget("resent batch", { rowsRead: 10_000 }),
       10_000
     )
   }
