@@ -1,0 +1,146 @@
+<!-- PROTOTYPE, throwaway: answers "What do the buy and sell alert sounds sound like?" (apinrdw/kumora#503). Never merged. Chosen: pair B. Open this file in a browser. -->
+<title>Sweep Alert Sounds</title>
+<meta name="claude:viewport-fit-sides" content="cover">
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=IBM+Plex+Sans:wght@400;600&family=IBM+Plex+Mono:wght@400;600&display=swap">
+<style>
+/* Layout: one column of candidate cards, each a row of play buttons; a status line pinned under the header. */
+:root {
+  --bg: #f4f6f8; --panel: #ffffff; --fg: #17202a; --muted: #5b6875; --line: #d8dee5;
+  --buy: #0f8a5f; --sell: #c43c3c; --accent: #2f5fd0;
+  --sans: "IBM Plex Sans", system-ui, sans-serif; --mono: "IBM Plex Mono", ui-monospace, monospace;
+}
+@media (prefers-color-scheme: dark) { :root:not([data-theme="light"]) {
+  --bg: #0f141a; --panel: #161d25; --fg: #e3e9ef; --muted: #8e9aa7; --line: #2a3440;
+  --buy: #3fc28f; --sell: #ef6b6b; --accent: #7aa2ff; color-scheme: dark } }
+:root[data-theme="dark"] {
+  --bg: #0f141a; --panel: #161d25; --fg: #e3e9ef; --muted: #8e9aa7; --line: #2a3440;
+  --buy: #3fc28f; --sell: #ef6b6b; --accent: #7aa2ff; color-scheme: dark }
+body { background: var(--bg); color: var(--fg); font-family: var(--sans); font-size: 15px;
+  padding-left: max(16px, env(safe-area-inset-left, 0px)); padding-right: max(16px, env(safe-area-inset-right, 0px)); padding-block: 24px; }
+main { max-width: 760px; margin: 0 auto; display: grid; gap: 16px; }
+h1 { font-size: 22px; margin: 0; text-wrap: balance; }
+p { margin: 0; color: var(--muted); line-height: 1.5; max-width: 65ch; }
+.bar { display: flex; flex-wrap: wrap; gap: 12px 20px; align-items: center; font-size: 14px; }
+.bar label { display: flex; gap: 8px; align-items: center; }
+#status { font-family: var(--mono); font-size: 13px; background: var(--panel); border: 1px solid var(--line); border-radius: 6px; padding: 8px 12px; min-height: 1.4em; overflow-wrap: anywhere; }
+.card { background: var(--panel); border: 1px solid var(--line); border-radius: 8px; padding: 14px 16px; display: grid; gap: 10px; }
+.card h2 { font-size: 16px; margin: 0; display: flex; gap: 10px; align-items: baseline; flex-wrap: wrap; }
+.card h2 span { font-family: var(--mono); font-size: 12px; color: var(--muted); font-weight: 400; }
+.row { display: flex; flex-wrap: wrap; gap: 8px; }
+button { font: 600 13px var(--sans); padding: 8px 14px; border-radius: 6px; border: 1px solid var(--line); background: transparent; color: var(--fg); cursor: pointer; }
+button:hover { border-color: var(--accent); }
+button:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; }
+button.buy { color: var(--buy); border-color: var(--buy); }
+button.sell { color: var(--sell); border-color: var(--sell); }
+button.on { background: var(--accent); color: var(--bg); border-color: var(--accent); }
+.tag { font-family: var(--mono); font-size: 12px; color: var(--muted); }
+</style>
+
+<main>
+  <h1>Sweep alert sounds</h1>
+  <p>Throwaway prototype for the Running Trades alert. Each pair is synthesised in the browser with WebAudio, so it ships no audio files. <b>Burst</b> plays 4 s of an IDX open: every 250 ms update plays at most one buy and one sell, sometimes both at once, as decided on the map. Listen for whether you can tell buy from sell with your eyes closed, and whether you could stand it all session.</p>
+  <div class="bar">
+    <label for="vol">Volume <input id="vol" type="range" min="0" max="1" step="0.05" value="0.5"></label>
+    <label for="density">Burst density <select id="density"><option value="0.5">quiet open</option><option value="0.85" selected>busy open</option><option value="1">every tick</option></select></label>
+    <button id="stop">Stop burst</button>
+  </div>
+  <div id="status" aria-live="polite">Press any button to start audio.</div>
+  <div id="cards"></div>
+</main>
+
+<script>
+let ctx, master, burstTimer = null;
+const vol = document.getElementById("vol");
+const status = document.getElementById("status");
+function audio() {
+  if (!ctx) { ctx = new AudioContext(); master = ctx.createGain(); master.connect(ctx.destination); }
+  if (ctx.state === "suspended") ctx.resume();
+  master.gain.value = +vol.value;
+  return ctx;
+}
+vol.addEventListener("input", () => { if (master) master.gain.value = +vol.value; });
+
+// One enveloped oscillator: frequency glides f0 -> f1 over dur seconds.
+function tone(t, f0, f1, dur, type = "sine", peak = 0.35, attack = 0.005) {
+  const o = ctx.createOscillator(), g = ctx.createGain();
+  o.type = type;
+  o.frequency.setValueAtTime(f0, t);
+  if (f1 !== f0) o.frequency.exponentialRampToValueAtTime(f1, t + dur);
+  g.gain.setValueAtTime(0.0001, t);
+  g.gain.exponentialRampToValueAtTime(peak, t + attack);
+  g.gain.exponentialRampToValueAtTime(0.0001, t + dur);
+  o.connect(g).connect(master);
+  o.start(t); o.stop(t + dur + 0.02);
+}
+function click(t, freq, dur, peak) {
+  const n = Math.floor(ctx.sampleRate * dur), buf = ctx.createBuffer(1, n, ctx.sampleRate), d = buf.getChannelData(0);
+  for (let i = 0; i < n; i++) d[i] = (Math.random() * 2 - 1) * (1 - i / n) ** 3;
+  const s = ctx.createBufferSource(), f = ctx.createBiquadFilter(), g = ctx.createGain();
+  s.buffer = buf; f.type = "lowpass"; f.frequency.value = freq; g.gain.value = peak;
+  s.connect(f).connect(g).connect(master); s.start(t);
+}
+
+const PAIRS = [
+  { id: "A", name: "Chirp", how: "sine glide up vs down, 90 ms",
+    buy: t => tone(t, 700, 1150, 0.09),
+    sell: t => tone(t, 700, 430, 0.09) },
+  { id: "B", name: "Two-note", how: "triangle, major third up (C6→E6) vs down (E5→C5)",
+    buy: t => { tone(t, 1047, 1047, 0.07, "triangle"); tone(t + 0.07, 1319, 1319, 0.09, "triangle"); },
+    sell: t => { tone(t, 659, 659, 0.07, "triangle"); tone(t + 0.07, 523, 523, 0.09, "triangle"); } },
+  { id: "C", name: "Blip", how: "pitch only: high 1.4 kHz vs low 330 Hz, 60 ms",
+    buy: t => tone(t, 1400, 1400, 0.06, "triangle", 0.3),
+    sell: t => tone(t, 330, 330, 0.07, "triangle", 0.45) },
+  { id: "D", name: "Bell / thud", how: "bright bell with inharmonic partials vs low knock",
+    buy: t => { tone(t, 1568, 1568, 0.35, "sine", 0.25); tone(t, 1568 * 2.76, 1568 * 2.76, 0.18, "sine", 0.08); tone(t, 1568 * 5.4, 1568 * 5.4, 0.08, "sine", 0.04); },
+    sell: t => { tone(t, 150, 85, 0.14, "sine", 0.6); click(t, 900, 0.03, 0.25); } },
+];
+
+const stamp = () => new Date().toLocaleTimeString("en-GB", { hour12: false }) + "." + String(Date.now() % 1000).padStart(3, "0");
+function play(pair, sides) {
+  audio();
+  const t = ctx.currentTime + 0.01;
+  if (sides.includes("buy")) pair.buy(t);
+  if (sides.includes("sell")) pair.sell(t);
+  status.textContent = `${stamp()}  Pair ${pair.id} (${pair.name})  played: ${sides.join(" + ")}`;
+}
+function stopBurst() {
+  if (burstTimer) clearInterval(burstTimer);
+  burstTimer = null;
+  document.querySelectorAll("button.on").forEach(b => b.classList.remove("on"));
+}
+function burst(pair, btn) {
+  stopBurst(); audio(); btn.classList.add("on");
+  let ticks = 0, buys = 0, sells = 0, both = 0;
+  const density = +document.getElementById("density").value;
+  burstTimer = setInterval(() => {
+    if (++ticks > 16) { stopBurst(); status.textContent = `${stamp()}  Pair ${pair.id} burst done: 16 updates, ${buys} buy, ${sells} sell, ${both} together`; return; }
+    const sides = [];
+    if (Math.random() < density * 0.7) sides.push("buy");
+    if (Math.random() < density * 0.55) sides.push("sell");
+    if (sides.length === 0) { status.textContent = `${stamp()}  Pair ${pair.id} burst ${ticks}/16: no alert this update`; return; }
+    if (sides.length === 2) both++; else if (sides[0] === "buy") buys++; else sells++;
+    play(pair, sides);
+    status.textContent += `  (burst ${ticks}/16)`;
+  }, 250);
+}
+document.getElementById("stop").addEventListener("click", () => { stopBurst(); status.textContent = `${stamp()}  burst stopped`; });
+
+const cards = document.getElementById("cards");
+cards.style.display = "grid"; cards.style.gap = "12px";
+for (const pair of PAIRS) {
+  const card = document.createElement("section");
+  card.className = "card";
+  card.innerHTML = `<h2>Pair ${pair.id}: ${pair.name} <span>${pair.how}</span></h2>
+    <div class="row">
+      <button class="buy" id="buy-${pair.id}">Buy</button>
+      <button class="sell" id="sell-${pair.id}">Sell</button>
+      <button id="both-${pair.id}">Buy + sell together</button>
+      <button id="burst-${pair.id}">Burst (open)</button>
+    </div>`;
+  cards.append(card);
+  card.querySelector(`#buy-${pair.id}`).onclick = () => play(pair, ["buy"]);
+  card.querySelector(`#sell-${pair.id}`).onclick = () => play(pair, ["sell"]);
+  card.querySelector(`#both-${pair.id}`).onclick = () => play(pair, ["buy", "sell"]);
+  card.querySelector(`#burst-${pair.id}`).onclick = e => burst(pair, e.currentTarget);
+}
+</script>
