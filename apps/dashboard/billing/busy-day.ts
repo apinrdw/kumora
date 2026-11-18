@@ -42,18 +42,15 @@ import { makeTradingDay } from "../src/server/market-live/trading-day.ts"
 import {
   BROKERS,
   BUSY_DAY,
+  BUSY_MINUTES,
+  BUSY_OPEN,
+  BUSY_SPAN_MS,
   BUYER_STEP,
   FOREIGN_EVERY,
   SELLER_STEP,
   busyCodes,
+  busyLevel,
 } from "./busy-figures.ts"
-
-const OPEN = DateTime.toEpochMillis(
-  DateTime.makeUnsafe("2026-11-09T09:00:00+07:00")
-)
-// 09:00 to 16:15, a trade every 17.9 ms.
-const SPAN_MS = 435 * 60_000
-const MINUTES = 435
 
 const encoder = new TextEncoder()
 
@@ -80,7 +77,7 @@ const SIDES = ["buy", "sell", "none"] as const
 const HOLES = new Set<number>(BUSY_DAY.holes)
 
 // One trade chunk's records as tape-chunks.ts lays them out: trade n at
-// OPEN + n × SPAN_MS / trades, code C(n mod codes), the code list's index
+// BUSY_OPEN + n × BUSY_SPAN_MS / trades, code C(n mod codes), the code list's index
 // n mod codes, and every hole lacking.
 const tradeChunkOf = (chunk: number) =>
   Effect.sync(() => {
@@ -90,7 +87,7 @@ const tradeChunkOf = (chunk: number) =>
       const number = chunk * TRADE_CHUNK + slot + 1
       if (number > trades || HOLES.has(number)) continue
       putRecord(records, slot, {
-        time: OPEN + Math.floor((number * SPAN_MS) / trades),
+        time: BUSY_OPEN + Math.floor((number * BUSY_SPAN_MS) / trades),
         code: number % codes,
         price: 1000 + (number % 500),
         lots: 1 + (number % 20),
@@ -105,11 +102,9 @@ const tradeChunkOf = (chunk: number) =>
 // The busy code's book at frame `frame`: 20 levels a side around 1,000.
 const bookAt = (frame: number, at: number): OrderBook => {
   const levels = (side: 1 | -1) =>
-    Array.from({ length: BOOK_DEPTH }, (_, index) => ({
-      price: 1_000 + side * (index + 1),
-      lots: 100 + ((frame * 7 + index * 13) % 900),
-      orders: 1 + ((frame + index) % 30),
-    }))
+    Array.from({ length: BOOK_DEPTH }, (_, index) =>
+      busyLevel(side, frame, index)
+    )
   return {
     _tag: "OrderBook",
     code: StockCode.make(BUSY_DAY.bookCode),
@@ -128,13 +123,13 @@ const bookAt = (frame: number, at: number): OrderBook => {
 const bookChunks = Effect.gen(function* () {
   const code = StockCode.make(BUSY_DAY.bookCode)
   const step = (index: number) =>
-    Math.floor((index * BUSY_DAY.bookChunks) / MINUTES)
+    Math.floor((index * BUSY_DAY.bookChunks) / BUSY_MINUTES)
   const chunks: Array<readonly [number, ArrayBuffer]> = []
   let last: OrderBook | undefined
   let frame = 0
-  for (let index = 0; index < MINUTES; index++) {
+  for (let index = 0; index < BUSY_MINUTES; index++) {
     if (index > 0 && step(index) === step(index - 1)) continue
-    const minute = OPEN + index * 60_000
+    const minute = BUSY_OPEN + index * 60_000
     const start = last
     const deltas: Array<BookDelta> = []
     for (let second = 0; second < 60; second += 15) {
@@ -199,9 +194,9 @@ export const buildBusyDay = Effect.fnUntraced(function* (
           1 + (number % 20)
         )
       exec(
-        `${numbers(codes * MINUTES)} INSERT INTO candles
-        SELECT 'C' || (x % ${codes}), ${OPEN} + (x / ${codes}) * 60000, x, 1000,
-          x, 1001, ${OPEN} + (x / ${codes}) * 60000 + 59000, 1002, 999, 100,
+        `${numbers(codes * BUSY_MINUTES)} INSERT INTO candles
+        SELECT 'C' || (x % ${codes}), ${BUSY_OPEN} + (x / ${codes}) * 60000, x, 1000,
+          x, 1001, ${BUSY_OPEN} + (x / ${codes}) * 60000 + 59000, 1002, 999, 100,
           10000000, 40, 5000000, 5000000
         FROM n`
       )

@@ -21,6 +21,7 @@ import { ChildProcess, ChildProcessSpawner } from "effect/process"
 import { build } from "vite"
 import workerdBinary, { compatibilityDate } from "workerd"
 
+import { WHOLE_DAY } from "../../../billing/busy-figures"
 import type { OperationName } from "../../../billing/operations"
 
 const Rows = Schema.Struct({
@@ -208,7 +209,7 @@ export class BusyDay extends Context.Service<
         // CI's slower cores.
         wholeDay: Effect.callback<string>((resume) => {
           const request = httpRequest(
-            { host: "127.0.0.1", port, path: "/whole-day", method: "POST" },
+            { host: "127.0.0.1", port, path: WHOLE_DAY.path, method: "POST" },
             (response) => {
               let body = ""
               response.setEncoding("utf8")
@@ -218,7 +219,7 @@ export class BusyDay extends Context.Service<
                   response.statusCode === 200
                     ? Effect.succeed(body)
                     : Effect.die(
-                        `/whole-day answered ${response.statusCode}: ${body}`
+                        `${WHOLE_DAY.path} answered ${response.statusCode}: ${body}`
                       )
                 )
               )
