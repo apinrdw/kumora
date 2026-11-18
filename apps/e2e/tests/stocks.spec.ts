@@ -1172,6 +1172,63 @@ test.describe.serial("the stock page", () => {
       )
     })
 
+    test("splits the month's listed shares among its holders in the ownership bar", async ({
+      page,
+    }) => {
+      await page.goto(`${DASHBOARD}/stocks/BBCA`)
+      const segments = majorHolders(page)
+        .getByRole("img", { name: "Ownership of listed shares" })
+        .locator("> *")
+      const legend = majorHolders(page)
+        .getByRole("list", { name: "Ownership legend" })
+        .getByRole("listitem")
+      const expectBar = async (
+        bar: ReadonlyArray<readonly [string, string, string]>
+      ) => {
+        await expect(segments).toHaveCount(bar.length)
+        for (const [index, [title, width, tone]] of bar.entries()) {
+          const segment = segments.nth(index)
+          await expect(segment).toHaveAttribute("title", title)
+          await expect(segment).toHaveAttribute("data-tone", tone)
+          // The server renders `width:54.94%`, React on the client `width: 54.94%;`.
+          expect(
+            (await segment.getAttribute("style"))?.replace(/[\s;]/g, "")
+          ).toBe(`width:${width}`)
+        }
+      }
+      await expectBar([
+        ["PT DWIMURIA INVESTAMA ANDALAN 54.94%", "54.94%", "gold"],
+        ["ANTHONI SALIM 1.60%", "1.6%", "gold"],
+        ["PT. SALIM GROUP 1.50%", "1.5%", "blue"],
+        ["BLACKROCK INC 1.10%", "1.1%", "blue"],
+        ["Holders under 1% 40.86%", "40.86%", "under"],
+      ])
+      await expect(legend).toHaveText([
+        "PT DWIMURIA INVESTAMA ANDALAN 54.94%",
+        "ANTHONI SALIM 1.60%",
+        "PT. SALIM GROUP 1.50%",
+        "BLACKROCK INC 1.10%",
+        "Under 1% 40.86%",
+        "Gold = controller or affiliate",
+      ])
+
+      // The bar follows the panel's month tabs.
+      await expect(async () => {
+        await holdersTab(page, "Aug 2026").click()
+        await expect(page).toHaveURL(/holdersMonth=2026-08$/, {
+          timeout: 1000,
+        })
+      }).toPass()
+      await expectBar([
+        ["PT DWIMURIA INVESTAMA ANDALAN 54.94%", "54.94%", "blue"],
+        ["ANTHONI SALIM 1.50%", "1.5%", "blue"],
+        ["BLACKROCK INC 1.30%", "1.3%", "blue"],
+        ["GAMMA FUND LTD 1.20%", "1.2%", "blue"],
+        ["Holders under 1% 41.06%", "41.06%", "under"],
+      ])
+      await expect(legend.nth(4)).toHaveText("Under 1% 41.06%")
+    })
+
     test("opens the stock's first month with nothing to compare, kept in the URL on reload", async ({
       page,
     }) => {
