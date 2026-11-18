@@ -540,8 +540,13 @@ export const makeTradingDay = Effect.fnUntraced(function* (options: {
   const bookEvents = yield* makeBookEventLog(store)
   // The market phase and relay gaps the ledger last read under.
   let ledgerRegime = ""
-  // Whether the store holds the marker that this day records book events.
+  // Whether the store holds the marker that this day records book events,
+  // and whether this object read the ledger from live books.
+  // Decision: only a ledger read from live books marks the day: a History
+  // walk or a seal alone records no book events, so the day answers that
+  // none were recorded. See spec apinrdw/kumora#517, "Book events".
   let bookEventsMarked = (yield* store.fact(Fact.bookEvents)) !== undefined
+  let bookEventsRead = false
   const gaps = yield* makeGaps({ ingests, highest: storedHighest })
   const dayStates = yield* makeDayStates(candles)
   const onDemand = yield* makeOnDemand({ viewers: options.viewers, ingests })
@@ -731,8 +736,10 @@ export const makeTradingDay = Effect.fnUntraced(function* (options: {
       yield* ledger.reset
     }
     if (open || !READING_PHASES.has(conditions.phase)) return
-    for (const book of changedBooks)
+    for (const book of changedBooks) {
+      bookEventsRead = true
       yield* bookEvents.add(yield* ledger.book(book))
+    }
   })
 
   // A code's scanner figures, for a snapshot and a delta.
@@ -898,6 +905,7 @@ export const makeTradingDay = Effect.fnUntraced(function* (options: {
     livePricesChanged = new Map()
     const events = yield* bookEvents.toFlush
     const ajaibBooks = yield* books.takeAjaibBooks
+    const marking = bookEventsRead && !bookEventsMarked
     const retained = unwritten
     const payload: Flush = {
       trades: settled.trades,
@@ -909,7 +917,7 @@ export const makeTradingDay = Effect.fnUntraced(function* (options: {
       facts: {
         [Fact.feedDowns]: JSON.stringify(yield* market.record),
         ...(yield* sweepBrokers.persisting(settled.trades)),
-        ...(bookEventsMarked ? {} : { [Fact.bookEvents]: "recorded" }),
+        ...(marking ? { [Fact.bookEvents]: "recorded" } : {}),
         ...facts,
       },
       bookEvents: events,
@@ -920,7 +928,7 @@ export const makeTradingDay = Effect.fnUntraced(function* (options: {
       Effect.annotateLogs({ ...(yield* store.takeMeter) })
     )
     unwritten = undefined
-    bookEventsMarked = true
+    if (marking) bookEventsMarked = true
     yield* bookEvents.written(events.length)
     writtenDowns = payload.facts[Fact.feedDowns]
     yield* candles.written
