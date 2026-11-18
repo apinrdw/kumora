@@ -60,7 +60,7 @@ import { ajaibTrades } from "./ajaib.ts"
 import { ajaibPrices } from "./ajaib-price.ts"
 import { backfillTrades } from "./backfill-page.ts"
 import { makeBubbleBook } from "./bubble-book.ts"
-import { makeBrokerCodes } from "./broker-codes.ts"
+import { makeBrokerCodes, summarizeTape } from "./broker-codes.ts"
 import {
   BROKER_TOTALS_DUE,
   BROKER_TOTALS_STALE,
@@ -927,6 +927,7 @@ export const makeTradingDay = Effect.fnUntraced(function* (options: {
       },
     })
     sealed = true
+    yield* summarizeTape(options.sql)
     // The next GET builds the bubbles answer from the seal's last candles.
     bubblesBody = undefined
     if (due) yield* wakes.set("build", now)

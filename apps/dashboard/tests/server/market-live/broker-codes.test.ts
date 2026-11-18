@@ -1068,6 +1068,73 @@ describe("a day's codes-complete fact", () => {
   )
 })
 
+// Spec apinrdw/kumora#554, "The tape summary": a sealed relay day's status
+// reads which numbers its tape holds from a summary the seal wrote.
+describe("a sealed relay day's tape summary", () => {
+  // A hole, a run across a chunk's edge that a walk row splits, a whole
+  // chunk, and the numbers past the tape's last.
+  const TAPED = numbers(1, 3_500).filter(
+    (number) =>
+      number !== 5 &&
+      !(number >= 998 && number <= 1_003) &&
+      !(number >= 2_001 && number <= 3_000)
+  )
+  const WALKED = [999]
+  const N = 4_000
+
+  it.effect(
+    "answers the status a scan of the tape answers, reading no trade",
+    () =>
+      Effect.gen(function* () {
+        const base = memorySql()
+        const statements: Array<string> = []
+        const sql: Sql = {
+          exec: (query, ...bindings) => {
+            statements.push(query)
+            return base.exec(query, ...bindings)
+          },
+          transaction: (write) => base.transaction(write),
+        }
+        yield* TestClock.setTime(wib("15:00:00").epochMilliseconds)
+        const day = yield* tradingDay({ sql })
+        yield* day.ajaibTrades(yield* day.relay, TAPED, "15:00:00")
+        yield* TestClock.setTime(wib("17:00:00").epochMilliseconds)
+        yield* day.alarm
+        yield* TestClock.setTime(wib("17:30:00").epochMilliseconds)
+        yield* day.post(
+          "Ajaib",
+          numbers(1, N).map((number) =>
+            WALKED.includes(number)
+              ? ([number, YP_CC] as const)
+              : ([number, YP_CC, null] as const)
+          ),
+          N
+        )
+        const answers = Effect.all([
+          day.statusText,
+          day.statusTextAfter("after=2500"),
+        ])
+
+        statements.length = 0
+        const summarized = yield* answers
+        assert.deepStrictEqual(
+          statements.filter((query) => /\bFROM trades\b/.test(query)),
+          []
+        )
+        assert.deepStrictEqual(yield* day.missing, [
+          [5, 5],
+          [998, 998],
+          [1_000, 1_003],
+          [2_001, 3_000],
+          [3_501, 4_000],
+        ])
+
+        base.exec("DELETE FROM facts WHERE key = 'tape-summary'")
+        assert.deepStrictEqual(yield* answers, summarized)
+      })
+  )
+})
+
 // Spec apinrdw/kumora#437, "A History walk day becomes a recorded day".
 describe("a day with no tape", () => {
   const HISTORY = WibDate.make("2026-10-01")

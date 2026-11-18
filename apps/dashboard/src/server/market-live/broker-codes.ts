@@ -24,7 +24,12 @@ import {
 } from "@workspace/relay"
 import { Effect, Option, Schema } from "effect"
 
-import { BROKER_TRADES_BUILT, Fact, type Sql } from "./day-store.ts"
+import {
+  BROKER_TRADES_BUILT,
+  Fact,
+  TAPE_SUMMARY_BUILT,
+  type Sql,
+} from "./day-store.ts"
 
 // Decision: chunk k holds trades 1000k+1 .. 1000k+1000 as 1,000 fixed 7-byte
 // records: buyer code, buyer type, seller code, seller type, and the source.
@@ -73,6 +78,15 @@ const SCHEMA = [
     lots REAL NOT NULL,
     board TEXT NOT NULL
   )`,
+  // Decision: the tape summary, one row per chunk the tape holds a trade of:
+  // how many of its numbers the tape holds, and the runs it lacks as JSON
+  // [first, last] pairs. A row stands for the tape only once the
+  // `tape-summary` fact says so (TAPE_SUMMARY_BUILT). See apinrdw/kumora#543.
+  `CREATE TABLE IF NOT EXISTS tape_summary (
+    chunk INTEGER PRIMARY KEY,
+    held INTEGER NOT NULL,
+    holes TEXT NOT NULL
+  )`,
 ]
 
 // Decision: the status reads the chunks this many at a time, so a 1.5M-trade
@@ -84,6 +98,45 @@ const SCAN_PAGE = 64
 // and a half-walked day never passes for light trading. See
 // apinrdw/kumora#457.
 export const MISSING_ALLOWANCE = 1_000
+
+// The summary rows of the chunks whose trades are numbered ?..?, from one
+// pass over those trades. A pass starts on a chunk's first trade, so the
+// runs it lacks before its first taped trade start at the chunk's.
+const SUMMARIZE = `INSERT OR REPLACE INTO tape_summary (chunk, held, holes)
+  SELECT chunk, held,
+    CASE WHEN high < (chunk + 1) * ${CHUNK}
+      THEN json_insert(holes, '$[#]', json_array(high + 1, (chunk + 1) * ${CHUNK}))
+      ELSE holes END
+  FROM (
+    SELECT chunk, count(*) AS held, max(number) AS high,
+      json_group_array(json_array(max(before, chunk * ${CHUNK}) + 1, number - 1))
+        FILTER (WHERE number > max(before, chunk * ${CHUNK}) + 1) AS holes
+    FROM (
+      SELECT number, (number - 1) / ${CHUNK} AS chunk,
+        lag(number, 1, 0) OVER (ORDER BY number) AS before
+      FROM trades WHERE number BETWEEN ? AND ?
+    )
+    GROUP BY chunk
+  )`
+
+// Decision: the seal summarizes the tape in a transaction of its own, after
+// the sealed marker: a sealed day's tape never changes, and a seal cut off
+// between the two leaves a day that scans its tape as before. It goes
+// SCAN_PAGE chunks a statement, so no statement sorts the whole tape.
+export const summarizeTape = (sql: Sql) =>
+  Effect.sync(() =>
+    sql.transaction(() => {
+      const [top] = sql.exec("SELECT max(number) AS number FROM trades")
+      const chunks = Math.ceil(Number(top?.number ?? 0) / CHUNK)
+      for (let first = 0; first < chunks; first += SCAN_PAGE)
+        sql.exec(SUMMARIZE, first * CHUNK + 1, (first + SCAN_PAGE) * CHUNK)
+      sql.exec(
+        "INSERT OR REPLACE INTO facts VALUES (?, ?)",
+        Fact.tapeSummary,
+        TAPE_SUMMARY_BUILT
+      )
+    })
+  )
 
 // Stockbit's walk position and whether it ended, kept as the `cross-check`
 // fact. `walkedTo` is the highest trade number Stockbit sent.
@@ -754,25 +807,43 @@ export const makeBrokerCodes = Effect.fnUntraced(function* (options: {
     return found
   })
 
-  // The trades of chunks first..last that neither the tape nor, when
-  // `walkRowsHold`, walk_trades holds, marked 1 from the first chunk's first
-  // trade. walk_trades holds only trades that were holes, so its numbers are
-  // read one by one.
+  // The trades of chunks first..last the tape lacks, marked 1 in `unfielded`
+  // from the first chunk's first trade, read from the tape summary.
+  const summaryHoles = (first: number, last: number, unfielded: Uint8Array) =>
+    Effect.sync(() => {
+      const low = first * CHUNK + 1
+      unfielded.fill(1)
+      for (const row of sql.exec(
+        "SELECT chunk, held, holes FROM tape_summary WHERE chunk BETWEEN ? AND ?",
+        first,
+        last
+      )) {
+        const at = Number(row.chunk) * CHUNK + 1 - low
+        unfielded.fill(0, at, at + CHUNK)
+        if (Number(row.held) === CHUNK) continue
+        const holes = JSON.parse(String(row.holes)) as ReadonlyArray<
+          readonly [number, number]
+        >
+        for (const [from, to] of holes)
+          unfielded.fill(1, from - low, to - low + 1)
+      }
+    })
+
+  // The same, read from the tape itself.
   // Decision: a span the tape holds whole is known from its count; any other
   // reads the runs between the tape's numbers, so no row per taped trade sits
   // in memory. A 1.5M-trade day's status scan took 152 ms in Node's SQLite,
   // against 118 ms for codes alone and 850 ms reading the runs everywhere.
-  const unfieldedOf = (first: number, last: number, walkRowsHold: boolean) =>
+  const tapeHoles = (first: number, last: number, unfielded: Uint8Array) =>
     Effect.sync(() => {
       const low = first * CHUNK + 1
       const high = (last + 1) * CHUNK
-      const unfielded = new Uint8Array(high - low + 1)
       const [taped] = sql.exec(
         "SELECT count(*) AS count FROM trades WHERE number BETWEEN ? AND ?",
         low,
         high
       )
-      if (Number(taped?.count) === unfielded.length) return unfielded
+      if (Number(taped?.count) === unfielded.length) return
       for (const row of sql.exec(
         `SELECT prev + 1 AS first, number - 1 AS last FROM (
           SELECT number, lag(number, 1, ?) OVER (ORDER BY number) AS prev
@@ -789,7 +860,31 @@ export const makeBrokerCodes = Effect.fnUntraced(function* (options: {
         high
       )
       unfielded.fill(1, Number(tapeHigh?.number ?? low - 1) - low + 1)
-      if (!walkRowsHold) return unfielded
+    })
+
+  // The trades of chunks first..last that neither the tape nor, when
+  // `walkRowsHold`, walk_trades holds, marked 1 from the first chunk's first
+  // trade. walk_trades holds only trades that were holes, so its numbers are
+  // read one by one.
+  // Decision: a day whose tape summary is built reads it, not the tape: a
+  // status pass on a 1.46M-trade sealed day bills about 3 K rows read, the
+  // chunks and their summary rows, against 2.7 M counting the tape
+  // (row-budgets.workerd.test.ts). See apinrdw/kumora#543.
+  const unfieldedOf = (
+    first: number,
+    last: number,
+    reads: { readonly walkRowsHold: boolean; readonly summarized: boolean }
+  ) =>
+    Effect.gen(function* () {
+      const low = first * CHUNK + 1
+      const high = (last + 1) * CHUNK
+      const unfielded = new Uint8Array(high - low + 1)
+      yield* (reads.summarized ? summaryHoles : tapeHoles)(
+        first,
+        last,
+        unfielded
+      )
+      if (!reads.walkRowsHold) return unfielded
       for (const row of sql.exec(
         "SELECT number FROM walk_trades WHERE number BETWEEN ? AND ?",
         low,
@@ -802,7 +897,10 @@ export const makeBrokerCodes = Effect.fnUntraced(function* (options: {
   // Every chunk into the tally, SCAN_PAGE at a time, each run of adjacent
   // chunks of a page with its unfielded trades.
   const scan = Effect.fnUntraced(function* (tally: Tally) {
-    const walkRowsHold = yield* options.walkRowsHold
+    const reads = {
+      walkRowsHold: yield* options.walkRowsHold,
+      summarized: (yield* fact(Fact.tapeSummary)) === TAPE_SUMMARY_BUILT,
+    }
     let after = -1
     for (;;) {
       const rows = yield* Effect.sync(() =>
@@ -823,7 +921,7 @@ export const makeBrokerCodes = Effect.fnUntraced(function* (options: {
         const unfielded = yield* unfieldedOf(
           first,
           Number(rows[end]!.chunk),
-          walkRowsHold
+          reads
         )
         for (let at = start; at <= end; at++) {
           after = Number(rows[at]!.chunk)
