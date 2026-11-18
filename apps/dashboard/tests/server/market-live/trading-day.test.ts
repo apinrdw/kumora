@@ -1263,6 +1263,70 @@ describe("candles", () => {
   )
 })
 
+// Spec apinrdw/kumora#510 (ticket apinrdw/kumora#512): the object decides
+// each code's sweep alerts once a sweep's second closes, whatever viewers
+// selected, and sends them in the next delta.
+describe("sweep alerts", () => {
+  it.effect(
+    "a delta carries a code's alert, with its sweep's trade numbers, though no viewer selected the code",
+    () =>
+      Effect.gen(function* () {
+        yield* TestClock.setTime(DateTime.toEpochMillis(wibAt("09:01:42.500")))
+        const { ingest, viewer, select } = yield* tradingDay()
+        const socket = yield* relay(ingest)
+        const page = yield* viewer()
+        yield* select(page, "BBCA")
+        // 09:00:00 WIB and `index` seconds.
+        const second = (index: number) =>
+          `09:0${Math.floor(index / 60)}:${String(index % 60).padStart(2, "0")}.000`
+        // 100 one-lot buy sweeps warm UNTR's buy side up.
+        const warm = Array.from({ length: 100 }, (_, index) =>
+          untr(41000 + index, second(index), 23300, 100)
+        )
+        yield* ingest(
+          socket,
+          yield* stockbit(
+            [
+              ...warm,
+              // A negotiated block never alerts.
+              untr(41100, "09:01:40.100", 23300, 90_000, 3),
+              untr(41101, "09:01:41.100", 23300, 4000),
+              untr(41102, "09:01:41.200", 23325, 6000),
+              // A later second closes the big sweep's.
+              { ...untr(41103, "09:01:42.000", 8000, 100), code: "BBCA" },
+            ],
+            "A"
+          )
+        )
+        yield* TestClock.adjust("250 millis")
+        const deltas = (yield* page.received).filter(
+          (message) => message._tag === "Delta"
+        )
+        assert.deepStrictEqual(
+          deltas.flatMap((delta) => delta.sweepAlerts ?? []),
+          [
+            {
+              code: StockCode.make("UNTR"),
+              side: "buy",
+              lots: 100,
+              tradeNumbers: [
+                TradeNumber.make("41101"),
+                TradeNumber.make("41102"),
+              ],
+            },
+          ]
+        )
+        // UNTR's sweeps themselves go only to a viewer that selected it.
+        assert.deepStrictEqual(
+          deltas.flatMap((delta) =>
+            (delta.sweeps ?? []).map((minute) => minute.code)
+          ),
+          []
+        )
+      })
+  )
+})
+
 // IHSG's `liveprice` frames from the probe, encoded back into wrapper case 9
 // by `LivePrice`'s field numbers. Some frames carry only the totals.
 interface LivePriceRow {

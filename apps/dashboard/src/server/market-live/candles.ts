@@ -18,6 +18,7 @@ import type {
   RunningTrade,
   StockCode,
   Sweep,
+  SweepAlert,
   TradeNumber,
 } from "@workspace/relay"
 import {
@@ -37,6 +38,7 @@ import {
   type Cells,
 } from "./footprint-cells.ts"
 import type { LivePrice } from "./stockbit-liveprice.ts"
+import { makeSweepAlerts } from "./sweep-alerts.ts"
 
 // Decision: a trade's part in its candle stays open for 5 s after it first
 // arrived, so a second feed's copy can still move or reprice it; after that a
@@ -222,6 +224,9 @@ interface Slot {
   base: StoredSweeps
   readonly trades: Map<TradeNumber, RunningTrade>
   readonly open: Map<string, RunningTrade>
+  // The minute's sweeps the alert rule ranked: those it decided since the
+  // book took the minute, or the stored ones it ranked before.
+  ranked: ReadonlyArray<Sweep>
 }
 
 const NO_SWEEPS: StoredSweeps = { sweeps: [], lastTrade: -1n }
@@ -353,6 +358,14 @@ export const makeCandleBook = Effect.fnUntraced(function* (
   // The candles and trades a flush took and hasn't written yet.
   let flushing = new Set<Slot>()
   let flushingTrades = new Map<string, RunningTrade>()
+  const alertRule = yield* makeSweepAlerts
+  // The latest time of any trade the book heard, in epoch ms: a sweep's
+  // second has closed once it is later.
+  let latest = -Infinity
+  // Minutes with a sweep whose second hadn't closed at the last delta. Only
+  // a code's latest second can be open, so it holds a minute a code at most;
+  // the book may let one go meanwhile, and it is decided all the same.
+  const waiting = new Set<Slot>()
 
   const slotOf = Effect.fnUntraced(function* (code: StockCode, minute: number) {
     let minutes = series.get(code)
@@ -362,15 +375,17 @@ export const makeCandleBook = Effect.fnUntraced(function* (
     }
     let slot = minutes.get(minute)
     if (slot === undefined) {
+      const base = (yield* store.storedSweeps(code, minute)) ?? NO_SWEEPS
       slot = {
         code,
         minute,
         settled: yield* store.storedCandle(code, minute),
         settledCells:
           (yield* store.storedFootprint(code, minute)) ?? (yield* noCells),
-        base: (yield* store.storedSweeps(code, minute)) ?? NO_SWEEPS,
+        base,
         trades: new Map(),
         open: new Map(),
+        ranked: base.sweeps,
       }
       minutes.set(minute, slot)
     }
@@ -468,6 +483,7 @@ export const makeCandleBook = Effect.fnUntraced(function* (
   ) {
     const now = yield* Clock.currentTimeMillis
     yield* settle(now)
+    latest = Math.max(latest, DateTime.toEpochMillis(current.time))
     const arrival = arrivals.get(current.tradeNumber)
     if (held !== undefined) {
       if (arrival === undefined) return
@@ -591,10 +607,67 @@ export const makeCandleBook = Effect.fnUntraced(function* (
       .flatMap(([, sweeps]) => sweeps)
   })
 
+  // The numbers of a minute's trades the book holds in `sweep`, one of the
+  // minute's `sweeps`: from its first trade up to the next sweep's.
+  const tradeNumbersOf = (
+    slot: Slot,
+    sweeps: ReadonlyArray<Sweep>,
+    sweep: Sweep
+  ) =>
+    Effect.sync(() => {
+      const from = BigInt(sweep.firstTrade)
+      const next = sweeps[sweeps.indexOf(sweep) + 1]
+      const to = next === undefined ? Infinity : BigInt(next.firstTrade)
+      return [...slot.trades.values(), ...slot.open.values()]
+        .map((held) => held.tradeNumber)
+        .filter((number) => {
+          const value = BigInt(number)
+          return value >= from && value < to
+        })
+        .sort(TradeNumberOrder)
+    })
+
+  // Each minute's sweeps grouped again, every code's, and the alert rule's
+  // decisions on them: a minute waits while a sweep's second is still open.
+  // Decision: every code's changed minutes are grouped on every delta, with
+  // no once-a-second cap, so an alert reaches viewers ~250 ms after its
+  // sweep's second closes. 2026-11-16's 09:00 WIB peak measured 2.2–2.6 ms a
+  // delta at p50 and 12.7 ms at worst on a desktop CPU. If deltas run long at
+  // the open, group every code at most once a second. See
+  // apinrdw/kumora#506.
+  const regroupAll = Effect.fnUntraced(function* (slots: ReadonlySet<Slot>) {
+    const now = yield* Clock.currentTimeMillis
+    const sweeps = new Map<Slot, ReadonlyArray<Sweep>>()
+    const alerts: Array<SweepAlert> = []
+    for (const slot of slots) {
+      const minute = yield* slotSweeps(slot, true)
+      sweeps.set(slot, minute)
+      const decided = yield* alertRule.decide(
+        slot.code,
+        slot.ranked,
+        minute,
+        latest,
+        now
+      )
+      slot.ranked = decided.ranked
+      if (decided.pending) waiting.add(slot)
+      else waiting.delete(slot)
+      for (const sweep of decided.alerts)
+        alerts.push({
+          code: slot.code,
+          side: sweep.side,
+          lots: sweep.lots,
+          tradeNumbers: yield* tradeNumbersOf(slot, minute, sweep),
+        })
+    }
+    return { sweeps, alerts }
+  })
+
   // Every candle changed since the last call, of any code; of `selected`
   // each minute a trade changed: its footprint and its sweeps; and of any
   // code each minute its last regular-board trade left: a footprint with
-  // no cells.
+  // no cells; and of any code the sweep alerts decided since (`regroupAll`).
+  // Only the alert rule sees every code's sweeps.
   //
   // Decision: a minute whose last regular-board trade left it goes out as a
   // footprint with no cells, for any code, as its sweeps go out empty, and
@@ -614,6 +687,7 @@ export const makeCandleBook = Effect.fnUntraced(function* (
     const resent = regrouped
     changed = new Set()
     regrouped = new Set()
+    const grouped = yield* regroupAll(new Set([...resent, ...waiting]))
     const candles: Array<Candle> = []
     const footprints: Array<Footprint> = []
     const sweeps: Array<MinuteSweeps> = []
@@ -629,11 +703,11 @@ export const makeCandleBook = Effect.fnUntraced(function* (
       sweeps.push({
         code: slot.code,
         minute: DateTime.makeUnsafe(slot.minute),
-        sweeps: yield* slotSweeps(slot, true),
+        sweeps: grouped.sweeps.get(slot) ?? [],
       })
     }
     for (const slot of slots) yield* release(slot)
-    return { candles, footprints, sweeps }
+    return { candles, footprints, sweeps, sweepAlerts: grouped.alerts }
   })
 
   const hasChanges = Effect.sync(() => changed.size > 0)

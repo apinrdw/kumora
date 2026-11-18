@@ -29,6 +29,13 @@ interface Ranking {
   readonly lots: Array<number>
 }
 
+// A sweep with an aggressor side: an auction match's prints have none and
+// never rank.
+type SidedSweep = Sweep & { readonly side: "buy" | "sell" }
+
+const sided = (sweeps: ReadonlyArray<Sweep>) =>
+  sweeps.filter((sweep): sweep is SidedSweep => sweep.side !== "none")
+
 const secondOf = (sweep: Sweep) =>
   Math.floor(DateTime.toEpochMillis(sweep.time) / SECOND)
 
@@ -81,8 +88,8 @@ const cutoffOf = (ranking: Ranking) =>
 export const makeSweepAlerts = Effect.sync(() => {
   const rankings = new Map<string, Ranking>()
 
-  // A side's ranking; an auction match's sweeps never reach one.
-  const rankingOf = (code: StockCode, side: Sweep["side"]) =>
+  // One code side's ranking.
+  const rankingOf = (code: StockCode, side: SidedSweep["side"]) =>
     Effect.sync(() => {
       const key = `${code} ${side}`
       let ranking = rankings.get(key)
@@ -97,7 +104,7 @@ export const makeSweepAlerts = Effect.sync(() => {
   // `now`; it joins them either way.
   const check = Effect.fnUntraced(function* (
     code: StockCode,
-    sweep: Sweep,
+    sweep: SidedSweep,
     now: number
   ) {
     const ranking = yield* rankingOf(code, sweep.side)
@@ -123,21 +130,22 @@ export const makeSweepAlerts = Effect.sync(() => {
     latest: number,
     now: number
   ) {
-    const decided = new Set(ranked.map(secondOf))
-    for (const sweep of ranked)
+    const before = sided(ranked)
+    const decided = new Set(before.map(secondOf))
+    for (const sweep of before)
       yield* leave(yield* rankingOf(code, sweep.side), sweep.lots)
-    const sided = sweeps.filter((sweep) => sweep.side !== "none")
-    const closed = sided.filter(
+    const minute = sided(sweeps)
+    const closed = minute.filter(
       (sweep) => secondOf(sweep) < Math.floor(latest / SECOND)
     )
     const again = closed.filter((sweep) => decided.has(secondOf(sweep)))
     for (const sweep of again)
       yield* join(yield* rankingOf(code, sweep.side), sweep.lots)
-    const alerts: Array<Sweep> = []
+    const alerts: Array<SidedSweep> = []
     for (const sweep of closed)
       if (!decided.has(secondOf(sweep)) && (yield* check(code, sweep, now)))
         alerts.push(sweep)
-    return { alerts, ranked: closed, pending: closed.length < sided.length }
+    return { alerts, ranked: closed, pending: closed.length < minute.length }
   })
 
   return { decide }

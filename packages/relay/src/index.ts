@@ -81,6 +81,7 @@ export type {
   MinuteSweeps,
   RunningTrade,
   Sweep,
+  SweepAlert,
   ViewerDown,
   ViewerUp,
 } from "./envelope.ts"

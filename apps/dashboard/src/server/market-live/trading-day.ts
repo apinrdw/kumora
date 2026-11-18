@@ -248,6 +248,14 @@ const settleSide = Effect.fnUntraced(function* (trade: RunningTrade) {
 
 // How often the object checks whether the market conditions changed: a feed
 // going stale is noticed within this.
+// The lists of a delta that hold anything: an empty one stays out.
+const nonEmpty = <L extends Record<string, ReadonlyArray<unknown>>>(lists: L) =>
+  Effect.sync(() => {
+    const kept: Partial<L> = {}
+    for (const key in lists) if (lists[key].length > 0) kept[key] = lists[key]
+    return kept
+  })
+
 const CONDITIONS_INTERVAL = "1 second"
 
 const encodeConditions = Schema.encodeEffect(
@@ -680,16 +688,19 @@ export const makeTradingDay = Effect.fnUntraced(function* (options: {
     const encoded = yield* encodeConditions(conditions)
     const conditionsChanged = encoded !== sentConditions
     sentConditions = encoded
-    const indicative = yield* market.indicativeChanges
+    const optional = yield* nonEmpty({
+      footprints: changed.footprints,
+      sweeps: changed.sweeps,
+      sweepAlerts: changed.sweepAlerts,
+      orderBooks,
+      dayStates: states,
+      indicative: yield* market.indicativeChanges,
+    })
     if (
       trades.length === 0 &&
       changed.candles.length === 0 &&
-      changed.footprints.length === 0 &&
-      changed.sweeps.length === 0 &&
-      orderBooks.length === 0 &&
-      states.length === 0 &&
-      !conditionsChanged &&
-      indicative.length === 0
+      Object.keys(optional).length === 0 &&
+      !conditionsChanged
     )
       return
     const text = yield* encodeViewerDown({
@@ -697,14 +708,8 @@ export const makeTradingDay = Effect.fnUntraced(function* (options: {
       at: yield* DateTime.now,
       tape: trades,
       candles: changed.candles,
-      ...(changed.footprints.length > 0
-        ? { footprints: changed.footprints }
-        : {}),
-      ...(changed.sweeps.length > 0 ? { sweeps: changed.sweeps } : {}),
-      ...(orderBooks.length > 0 ? { orderBooks } : {}),
-      ...(states.length === 0 ? {} : { dayStates: states }),
+      ...optional,
       ...(conditionsChanged ? { conditions } : {}),
-      ...(indicative.length > 0 ? { indicative } : {}),
     })
     for (const viewer of yield* options.viewers) {
       if ((yield* viewer.state) !== "ready") continue
