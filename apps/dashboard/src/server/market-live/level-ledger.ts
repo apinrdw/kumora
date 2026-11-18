@@ -536,6 +536,13 @@ export const makeLevelLedger = Effect.sync(() => {
     return found.filter((event) => fires(ledger, event))
   })
 
+  // Decision: a trade is kept two windows, and past that while either side's
+  // pull still to be read, MOVED_FRAMES frames late, reads back to it:
+  // sparse frames delay that read by minutes. See apinrdw/kumora#526.
+  // Where that read's wall frames start: trades after it are still needed.
+  const pendingFrom = (side: SideLedger) =>
+    side.frames.at(-2 - MOVED_FRAMES)?.t ?? side.frames[0]?.t ?? Infinity
+
   // A trade new to the day, or `merged` replacing the copy `held` of it the
   // ledger was given before, as the merged tape does. Only a regular-board
   // trade with an aggressor side is kept; any other is no hit.
@@ -561,7 +568,12 @@ export const makeLevelLedger = Effect.sync(() => {
       }
       const t = DateTime.toEpochMillis(merged.time)
       const kept = ledger.trades
-      while (kept.length > 0 && kept[0]!.t <= t - 2 * WINDOW_MS) kept.shift()
+      const after = Math.min(
+        t - 2 * WINDOW_MS,
+        pendingFrom(ledger.bid),
+        pendingFrom(ledger.offer)
+      )
+      while (kept.length > 0 && kept[0]!.t <= after) kept.shift()
       let at = kept.length
       while (at > 0 && kept[at - 1]!.t > t) at--
       kept.splice(at, 0, {
