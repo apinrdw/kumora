@@ -16,6 +16,11 @@ class XlsxUnreadable extends Schema.TaggedError<XlsxUnreadable>()(
 export type Cell = string | number
 
 // An error cell (`t="e"`), such as `#DIV/0!`, by the error Excel shows.
+// Decision: an error is a CellError, never text (as text, `#N/A` was stored
+// as a stock), and each parser decides: the classification and investor-type
+// parses read through `forEachRowWithoutErrors`, so any error fails them; the
+// above-1% parse skips Apr 2026's `#DIV/0!`-only rows and fails on an error
+// in a cell it reads. See apinrdw/kumora#473.
 export class CellError extends Data.TaggedClass("CellError")<{
   readonly text: string
 }> {}
@@ -175,12 +180,6 @@ const BOOLEAN_TEXT = new Map([
 // text (`t="str"`, or `t="inlineStr"` from its <is>), a number (`t="n"`, or
 // no type), a boolean (`t="b"`) as its text, `TRUE` or `FALSE`, or an error
 // (`t="e"`) as a CellError.
-// Decision: an error is read as a CellError, never as text, and each parser
-// decides what to do with it: an error read as text stored `#N/A` as a
-// stock. The classification and investor-type parses read their rows through
-// `forEachRowWithoutErrors`, so any error fails their report; the above-1% parse skips
-// Apr 2026's rows holding only `#DIV/0!` and fails on an error in a cell it
-// reads. See apinrdw/kumora#473.
 // Decision: a cell of any other type, or one holding something but no value,
 // fails the report: a date names no stock or share count, and an inline
 // string read as no value dropped a stock while its month was replaced.

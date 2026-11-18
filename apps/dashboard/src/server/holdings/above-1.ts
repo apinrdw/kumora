@@ -36,13 +36,11 @@ class Above1Unreadable extends Schema.TaggedError<Above1Unreadable>()(
 
 const unreadable = (message: string) => new Above1Unreadable({ message })
 
-// Decision: a month lists at most 15,000 rows, about 2× Feb 2026's 7,257,
-// the most of any month; an INVESTOR_NAME is at most 256 characters, 2.5×
-// Feb's longest (102), and any other text at most 128, 2.7× the longest
-// ISSUER_NAME (47). A parse holds a month's every row and its holder key, so
-// the rows and texts together keep it under PARSE_HEAP_MIB
-// (tests/server/holdings/bounded-heap.ts): 20,000 rows of 256-character texts
-// took past it.
+// Decision: at most 15,000 rows, 2× Feb 2026's 7,257; an INVESTOR_NAME of at
+// most 256 characters, 2.5× the longest (102), and other text of 128, 2.7×
+// ISSUER_NAME's (47). A parse holds every row and its holder key, so these
+// keep it under PARSE_HEAP_MIB (tests/server/holdings/bounded-heap.ts):
+// 20,000 rows of 256-character texts took past it.
 const MAX_ROWS = 15_000
 const MAX_NAME_LENGTH = 256
 const MAX_TEXT_LENGTH = 128

@@ -268,11 +268,10 @@ test.describe("an admin's archive history", () => {
 })
 
 // Decision: serial, and the only spec writing reports/, so the totals are
-// exact before the parse runs store reports into the HoldingsDb that
-// stocks.spec.ts seeds, unserialized: classification as Dec 2025, before its
-// months; investor-type's AADI seeded there alike, TRUE never opened there;
-// Parse coverage checks taking that seed's mark (apinrdw/kumora#404, #405);
-// above-1%'s Feb 2026, which stocks.spec.ts doesn't seed.
+// exact before the parse runs store reports into stocks.spec.ts's HoldingsDb,
+// unserialized: classification as Dec 2025, before its months; investor-type's
+// AADI as seeded there, TRUE never opened; Parse coverage taking that seed's
+// mark (apinrdw/kumora#404, #405); above-1%'s Feb 2026, which it doesn't seed.
 test.describe.serial("an admin's archive totals and parse runs", () => {
   test.use({ storageState: ADMIN.storageState })
 
