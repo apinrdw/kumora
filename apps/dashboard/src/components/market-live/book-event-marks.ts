@@ -11,12 +11,14 @@ import type {
   IPrimitivePaneView,
   ISeriesApi,
   ISeriesPrimitive,
+  Logical,
   SeriesAttachedParameter,
   SeriesType,
   Time,
 } from "lightweight-charts"
 
 import { WALL_KINDS, bookEventKey } from "@/lib/book-events"
+import { cursorLogical } from "@/lib/replay"
 
 import type { BookEventStore } from "./book-event-store"
 import type { ReplayCursor } from "./replay-cursor"
@@ -109,20 +111,34 @@ class BookEventMarks implements ISeriesPrimitive<Time> {
 
   // The marks at the chart's current scale, in CSS pixels: each at its
   // minute's centre plus its share of the bar spacing for its second.
+  // Decision: an event in a minute with no bar (a wall in a minute with no
+  // trade) sits where the cursor line would (lib/replay.ts `cursorLogical`),
+  // not on added whitespace: both charts draw the same minutes
+  // (lib/chart-nav.ts `chartMinutes`), and the footprint has no events. See
+  // apinrdw/kumora#526.
   private placed() {
     const attached = this.attachedTo
     if (attached === undefined) return []
+    const timeScale = attached.chart.timeScale()
+    let bars: ReadonlyArray<number> | undefined
+    const xOf = (at: number, minute: number) => {
+      const centre = timeScale.timeToCoordinate((minute / 1000) as Time)
+      if (centre !== null)
+        return (
+          centre + ((at - minute) / MINUTE_MS) * timeScale.options().barSpacing
+        )
+      bars ??= attached.series.data().map((bar) => bar.time as number)
+      return timeScale.logicalToCoordinate(
+        Effect.runSync(cursorLogical(bars, at)) as Logical
+      )
+    }
     return this.events.flatMap((event) => {
       const at = DateTime.toEpochMillis(event.at)
-      const minute = Math.floor(at / MINUTE_MS) * MINUTE_MS
-      const timeScale = attached.chart.timeScale()
-      const centre = timeScale.timeToCoordinate((minute / 1000) as Time)
+      const x = xOf(at, Math.floor(at / MINUTE_MS) * MINUTE_MS)
       const y = attached.series.priceToCoordinate(event.price)
-      if (centre === null || y === null) return []
-      const offset =
-        ((at - minute) / MINUTE_MS) * timeScale.options().barSpacing
+      if (x === null || y === null) return []
       const key = Effect.runSync(bookEventKey(event))
-      return [{ event, key, x: centre + offset, y }]
+      return [{ event, key, x, y }]
     })
   }
 }
