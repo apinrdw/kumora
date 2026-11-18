@@ -108,13 +108,33 @@ describe("book event store", () => {
     Effect.gen(function* () {
       const store = yield* makeBookEventStore(StockCode.make("FOLK"))
       store.apply(snapshot("FOLK", [], book("FOLK", 0, 0)))
-      expect(store.quiet(T0 + 1_000)).toBe(true)
       store.apply(delta([], [book("FOLK", 10, 0)]))
       // Bids at 0 and 10, offers at 0 alone.
       expect(store.quiet(T0 + 11_000)).toBe(false)
-      // At 31 s only the bid frame at 10 is in the window.
-      expect(store.quiet(T0 + 31_000)).toBe(true)
+      // At 41 s only the bid frame at 10 is in the window.
+      expect(store.quiet(T0 + 41_000)).toBe(true)
     })
+  )
+
+  it.effect(
+    "never quiet before it heard the code for 30 s, from its last snapshot",
+    () =>
+      Effect.gen(function* () {
+        const store = yield* makeBookEventStore(StockCode.make("FOLK"))
+        // Nothing heard yet.
+        expect(store.quiet(T0 + 60_000)).toBe(false)
+        // Just picked: one frame a side so far.
+        store.apply(snapshot("FOLK", [], book("FOLK", 0, 0)))
+        expect(store.quiet(T0 + 1_000)).toBe(false)
+        expect(store.quiet(T0 + 29_000)).toBe(false)
+        expect(store.quiet(T0 + 30_000)).toBe(true)
+        // A reconnect's snapshot starts the 30 s again.
+        store.apply({
+          ...snapshot("FOLK", []),
+          at: DateTime.makeUnsafe(T0 + 50_000),
+        })
+        expect(store.quiet(T0 + 60_000)).toBe(false)
+      })
   )
 
   it.effect("tells its listeners when an event is picked", () =>

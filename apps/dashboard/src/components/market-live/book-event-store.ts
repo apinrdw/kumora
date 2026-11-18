@@ -20,7 +20,8 @@ export interface BookEventStore {
   readonly picked: () => string | undefined
   readonly pick: (key: string | undefined) => void
   // Whether each side had fewer than MIN_SIDE_FRAMES frames in the window
-  // before `now`: the ledger can't read the code.
+  // before `now`: the ledger can't read the code. Never before this browser
+  // has heard the code's frames for a whole window: it counts only those.
   readonly quiet: (now: number) => boolean
   // The trading-day object's clock at `local` on this one, as its last
   // message's send time read it: the instant events and frames are stamped
@@ -43,6 +44,9 @@ export const makeBookEventStore = (code: StockCode) =>
     let picked: string | undefined
     // The object's clock less this one's, at its last message.
     let skew = 0
+    // When, on the object's clock, this browser's socket started hearing the
+    // code: its last snapshot of the code.
+    let since: number | undefined
     const sideTimes = { bid: [] as Array<number>, offer: [] as Array<number> }
     const listeners = new Set<() => void>()
     const tell = () => {
@@ -73,6 +77,8 @@ export const makeBookEventStore = (code: StockCode) =>
         tell()
       },
       quiet: (now) =>
+        since !== undefined &&
+        now - since >= BOOK_EVENT_WINDOW_MS &&
         (["bid", "offer"] as const).every(
           (side) =>
             sideTimes[side].filter((t) => t > now - BOOK_EVENT_WINDOW_MS)
@@ -83,6 +89,7 @@ export const makeBookEventStore = (code: StockCode) =>
         skew = DateTime.toEpochMillis(message.at) - Date.now()
         if (message._tag === "Snapshot") {
           if (message.selected !== code) return
+          since = DateTime.toEpochMillis(message.at)
           if (message.orderBook?._tag === "OrderBook")
             noteBook(message.orderBook)
           events = message.selectedBookEvents ?? []

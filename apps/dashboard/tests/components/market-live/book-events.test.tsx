@@ -1,5 +1,11 @@
 // @vitest-environment happy-dom
-import { StockCode, type BookEvent, type OrderBook } from "@workspace/relay"
+import {
+  StockCode,
+  type BookEvent,
+  type MarketPhase,
+  type OrderBook,
+  type ViewerDown,
+} from "@workspace/relay"
 import { DateTime, Effect } from "effect"
 import { act } from "react"
 import { createRoot } from "react-dom/client"
@@ -8,6 +14,10 @@ import { afterEach, expect, test, vi } from "vitest"
 import { makeBookEventStore } from "@/components/market-live/book-event-store"
 import { BookEventList } from "@/components/market-live/book-events"
 import { OrderBookPanel } from "@/components/market-live/order-book-panel"
+import {
+  applyConditions,
+  resetConditions,
+} from "@/components/market-live/market-conditions"
 import { makeOrderBookStore } from "@/components/market-live/order-book-store"
 import type { ReplayCursor } from "@/components/market-live/replay-cursor"
 
@@ -112,13 +122,80 @@ test("a day recorded before book events says so", () => {
   expect(host.textContent).toContain("Book events not recorded before")
 })
 
-test("live, a code without 2 book updates a side in 30 s is too quiet to read", () => {
-  vi.useFakeTimers({ now: T0 + 1_000 })
+const QUIET =
+  "Too quiet to read: fewer than 2 book updates a side in the last 30 s."
+
+// A store that heard the object's snapshot of FOLK at T0 in `phase`, with
+// one frame a side, and nothing since for `after` ms.
+const heard = (
+  after: number,
+  phase: MarketPhase,
+  events: ReadonlyArray<BookEvent> = []
+) => {
+  vi.useFakeTimers({ now: T0 })
+  const message: ViewerDown = {
+    _tag: "Snapshot",
+    at: DateTime.makeUnsafe(T0),
+    selected: FOLK,
+    tape: [],
+    candles: [],
+    footprints: [],
+    conditions: {
+      phase,
+      relayOnline: true,
+      feeds: { Stockbit: "live", Ajaib: "live" },
+      gaps: [],
+    },
+    selectedBookEvents: events,
+    orderBook: {
+      _tag: "OrderBook",
+      code: FOLK,
+      bids: [],
+      offers: [],
+      bidLots: 0,
+      offerLots: 0,
+      at: DateTime.makeUnsafe(T0),
+      provenance: "Stockbit",
+    },
+  }
   const store = Effect.runSync(makeBookEventStore(FOLK))
-  const host = render(<BookEventList store={store} cursor={undefined} />)
-  expect(host.textContent).toContain(
-    "Too quiet to read: fewer than 2 book updates a side in the last 30 s."
+  store.apply(message)
+  Effect.runSync(Effect.andThen(resetConditions, applyConditions(message)))
+  vi.setSystemTime(T0 + after)
+  return store
+}
+
+test("live, a code without 2 book updates a side in 30 s is too quiet to read", () => {
+  const host = render(
+    <BookEventList store={heard(40_000, "session-1")} cursor={undefined} />
   )
+  expect(host.textContent).toContain(QUIET)
+})
+
+test("too quiet shows only in a session, with no events listed", () => {
+  // The lunch break: the strip says readings are paused.
+  const paused = render(
+    <BookEventList store={heard(40_000, "break")} cursor={undefined} />
+  )
+  expect(paused.textContent).not.toContain(QUIET)
+  act(() => root?.unmount())
+  // Earlier events stand on their own.
+  const listed = render(
+    <BookEventList
+      store={heard(40_000, "session-1", EVENTS)}
+      cursor={undefined}
+    />
+  )
+  expect(listed.textContent).not.toContain(QUIET)
+  expect(listed.querySelectorAll("li")).toHaveLength(3)
+})
+
+test("a code just picked is not called too quiet", () => {
+  const host = render(
+    <BookEventList store={heard(1_000, "session-1")} cursor={undefined} />
+  )
+  expect(host.textContent).not.toContain(QUIET)
+  expect(host.textContent).toContain("No book events yet today.")
 })
 
 test("the ladder marks a level's events of the last 2 minutes under a legend", () => {

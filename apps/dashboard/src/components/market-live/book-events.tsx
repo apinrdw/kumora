@@ -5,6 +5,7 @@
 import { clientRuntime, fetchRecordedBookEvents } from "@workspace/client"
 import {
   INDEX_CODES,
+  READING_PHASES,
   type BookEvent,
   type BookEventSide,
   type StockCode,
@@ -31,6 +32,7 @@ import {
 import { dayLabel, tapeTime } from "@/lib/format"
 
 import { makeBookEventStore, type BookEventStore } from "./book-event-store"
+import { useMarketPhase } from "./market-conditions"
 import type { ReplayCursor } from "./replay-cursor"
 import { loadedOrSignIn } from "./sign-in-again"
 
@@ -188,8 +190,9 @@ function EventRow({
   )
 }
 
-// What the list says instead of, or above, its events: none when it just
-// lists them.
+// What the list says instead of its events: none when it lists them. A
+// quiet code with events today lists them: the note would read as if they
+// were wrong.
 const listNote = (state: {
   readonly recorded: boolean
   readonly live: boolean
@@ -199,9 +202,9 @@ const listNote = (state: {
   Effect.gen(function* () {
     if (!state.recorded)
       return `Book events not recorded before ${yield* dayLabel(BOOK_EVENTS_FROM)}.`
+    if (!state.empty) return undefined
     if (state.quiet)
       return "Too quiet to read: fewer than 2 book updates a side in the last 30 s."
-    if (!state.empty) return undefined
     return state.live ? "No book events yet today." : "No book events this day."
   })
 
@@ -256,11 +259,18 @@ export function BookEventList({
     store.recorded
   )
   const now = useNow(store, cursor)
+  const phase = useMarketPhase()
   const note = Effect.runSync(
     listNote({
       recorded,
       live: cursor === undefined,
-      quiet: cursor === undefined && store.quiet(now),
+      // Outside Sessions 1 and 2 the readout's strip says readings are
+      // paused: no code is read then, quiet or not.
+      quiet:
+        cursor === undefined &&
+        phase !== undefined &&
+        READING_PHASES.has(phase) &&
+        store.quiet(now),
       empty: events.length === 0,
     })
   )
