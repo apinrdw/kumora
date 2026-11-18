@@ -1,8 +1,8 @@
 // The shareholding archive's admin page, /admin/shareholding: the last archive
-// run and Run now, the last classification parse run and the last
-// investor-type parse run with each one's Parse now, each one's parse
-// coverage, the recent runs and the archive totals (spec apinrdw/kumora#303,
-// "The admin page", #402, "Admin", and #458).
+// run and Run now, the last classification, investor-type and above-1%
+// parse runs with each one's Parse now, the first two's parse coverage, the
+// recent runs and the archive totals (spec apinrdw/kumora#303, "The admin
+// page", #402, "Admin", #458, and #479, "Admin").
 import { Conflict } from "@workspace/server"
 import { DateTime, Effect } from "effect"
 
@@ -10,6 +10,7 @@ import type { FileRoutesByFullPath } from "@/routeTree.gen"
 import { authorizeArchive } from "@/server/admin/archive-access"
 import { parseNow } from "@/server/admin/parse-now"
 import type { Action } from "@/server/auth/policy"
+import { above1ParseRuns } from "@/server/shareholding/above-1-parse"
 import { classificationParseRuns } from "@/server/shareholding/classification-parse"
 import { investorTypeParseRuns } from "@/server/shareholding/investor-type-parse"
 import { lastRun, recentRuns, startRun } from "@/server/shareholding/runs"
@@ -37,6 +38,7 @@ export const shareholdingArchivePage = Effect.fn("shareholdingArchivePage")(
       totals,
       classificationParseRun,
       investorTypeParseRun,
+      above1ParseRun,
       classificationParseCoverage,
       investorTypeParseCoverage,
     ] = yield* Effect.all(
@@ -46,6 +48,7 @@ export const shareholdingArchivePage = Effect.fn("shareholdingArchivePage")(
         archiveTotals,
         classificationParseRuns.last,
         investorTypeParseRuns.last,
+        above1ParseRuns.last,
         classificationParseRuns.parseCoverage,
         investorTypeParseRuns.parseCoverage,
       ],
@@ -57,6 +60,7 @@ export const shareholdingArchivePage = Effect.fn("shareholdingArchivePage")(
       nextRun: (yield* nextScheduledRun(DateTime.toDateUtc(now))).toISOString(),
       lastClassificationParseRun: classificationParseRun,
       lastInvestorTypeParseRun: investorTypeParseRun,
+      lastAbove1ParseRun: above1ParseRun,
       classificationParseCoverage,
       investorTypeParseCoverage,
       nextParseRun: (yield* nextParseRun(
@@ -99,3 +103,10 @@ export const parseInvestorTypeNow = Effect.fn("parseInvestorTypeNow")(
     return yield* parseNow(investorTypeParseRuns)
   }
 )
+
+export const parseAbove1Now = Effect.fn("parseAbove1Now")(function* (
+  headers: Headers
+) {
+  yield* authorize(headers, "admin.run-shareholding-parse")
+  return yield* parseNow(above1ParseRuns)
+})
