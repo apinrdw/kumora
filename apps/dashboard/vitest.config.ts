@@ -1,6 +1,11 @@
-import { defineConfig } from "vitest/config"
+import { configDefaults, defineConfig } from "vitest/config"
 
 import { testTimeout } from "../../vitest.timeout.mts"
+
+// The row budgets (tests/server/market-live/row-budgets.workerd.test.ts) run
+// the day object in workerd; `pnpm --filter dashboard test:row-budgets` runs
+// them alone.
+const ROW_BUDGETS = "tests/**/*.workerd.test.ts"
 
 // Tests run in Node without vite.config.ts and its TanStack Start plugins.
 // Vite transforms JSX on its own, so the suites need only the path aliases.
@@ -16,5 +21,17 @@ export default defineConfig({
     // (#171).
     maxWorkers: 2,
     testTimeout,
+    // Decision: the row budgets are a project of the dashboard's tests, so
+    // `pnpm check` and CI's unit-tests job run them with the rest.
+    projects: [
+      {
+        extends: true,
+        test: {
+          name: "unit",
+          exclude: [...configDefaults.exclude, ROW_BUDGETS],
+        },
+      },
+      { extends: true, test: { name: "row-budgets", include: [ROW_BUDGETS] } },
+    ],
   },
 })
