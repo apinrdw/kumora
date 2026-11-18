@@ -157,6 +157,13 @@ describe("the alert rule at the worst day", () => {
           BOUND,
           `${(held / 2 ** 20).toFixed(1)} MiB retained`
         )
+        // Each row was read once: the rankings hold every sweep of the day.
+        let ranked = 0
+        for (const code of codes)
+          for (const side of ["buy", "sell"] as const)
+            for (const [, count] of yield* book.sweepRanking(code, side))
+              ranked += count ?? 0
+        assert.strictEqual(ranked, SWEEPS)
 
         // The ranking is there: a buy sweep at a busy code's cutoff alerts,
         // and one a lot under another's doesn't.
