@@ -912,7 +912,7 @@ export const makeDayStore = (
       orderFlowStorage,
       hasTrade: tape.has,
       highestTrade,
-      // How many trades the day stored so far: the index row's figure.
+      // How many trades the day stored so far.
       storedTrades: tape.count,
       newestTrades: tape.newest,
       tradesAt: tape.tradesAt,

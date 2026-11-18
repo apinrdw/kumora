@@ -1444,12 +1444,12 @@ export const makeTradingDay = Effect.fnUntraced(function* (options: {
     through: number
   ) {
     // The object encoded them itself.
-    const failed = yield* Effect.forEach(
+    const unwrittenChunks = yield* Effect.forEach(
       (unwritten?.chunks ?? []).filter((chunk) => chunk.code === code),
       (chunk) => Effect.orDie(heldChunkOf(chunk.chunk))
     )
     return yield* Effect.forEach(
-      [...failed, ...(yield* bookChunks.held(code))],
+      [...unwrittenChunks, ...(yield* bookChunks.held(code))],
       Effect.fnUntraced(function* (chunk) {
         return {
           minute: chunk.minute,

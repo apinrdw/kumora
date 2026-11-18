@@ -26,7 +26,7 @@ import {
 } from "@workspace/relay"
 import { DateTime, Effect, Fiber, Option, Predicate } from "effect"
 import type { HttpClient } from "effect/http/HttpClient"
-import { useEffect, useMemo, useState, useSyncExternalStore } from "react"
+import { useEffect, useMemo, useState } from "react"
 
 import { KStatusPill } from "@/components/k/status-pill"
 import { dayLabel, tapeTime } from "@/lib/format"
@@ -36,6 +36,7 @@ import { TAPE_INTERVAL_MS, gapAt, replayDay, tapeInstant } from "@/lib/replay"
 import type { CandleStore } from "./candle-store"
 import type { DayStateStore } from "./day-state-store"
 import type { HeatmapStore } from "./heatmap-store"
+import { useHeatmapNotRecorded } from "./use-heatmap"
 import { TAPE_HEIGHT, TapeSection } from "./live-tape"
 import { PhaseLabel } from "./market-conditions"
 import { OrderBookPanel } from "./order-book-panel"
@@ -370,11 +371,7 @@ export function RecordedOrderBook({
     cursor,
     ({ at }) => Effect.runSync(gapAt(gaps, at)) !== undefined
   )
-  const notRecorded = useSyncExternalStore(
-    heatmap.subscribe,
-    heatmap.notRecorded,
-    () => false
-  )
+  const notRecorded = useHeatmapNotRecorded(heatmap)
   return (
     <OrderBookPanel store={store} recorded notRecorded={inGap || notRecorded} />
   )
