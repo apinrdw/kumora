@@ -94,6 +94,7 @@ const rowsOf = Effect.fnUntraced(function* (
     })
   const rows = new Array<readonly [StockCode, Sector, string, string, string]>()
   const skipped = new Array<string>()
+  const stale = new Array<string>()
   for (const profile of data) {
     const code = profile.KodeEmiten.trim()
     const sector = profile.Sektor.trim()
@@ -102,11 +103,13 @@ const rowsOf = Effect.fnUntraced(function* (
       skipped.push(code)
       continue
     }
-    if (!isSector(sector))
-      return {
-        _tag: "Kept",
-        reason: `${code}'s sector "${sector}" is not an IDX-IC sector`,
-      } as const
+    // Decision: a profile IDX still files under a JASICA sector (AGII on
+    // 2026-11-18) leaves the table, so its code shows as Unclassified; the
+    // 90 % gate below still keeps the table when many go at once.
+    if (!isSector(sector)) {
+      stale.push(`${code} (${sector})`)
+      continue
+    }
     rows.push([
       code,
       sector,
@@ -119,6 +122,11 @@ const rowsOf = Effect.fnUntraced(function* (
     yield* Effect.logWarning("Sector run skipped profiles with no stock code", {
       codes: skipped,
     })
+  if (stale.length > 0)
+    yield* Effect.logWarning(
+      "Sector run skipped profiles outside the IDX-IC sectors",
+      { profiles: stale }
+    )
   if (rows.length < stored * MIN_KEPT_SHARE)
     return {
       _tag: "Kept",

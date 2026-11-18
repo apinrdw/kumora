@@ -15,7 +15,7 @@ import {
   send,
 } from "../auth/seam.ts"
 import { memoryHoldingsDb } from "../holdings/memory-holdings-db.ts"
-import { fakeIdx, profile } from "../sectors/fake-idx.ts"
+import { codes, fakeIdx, profile } from "../sectors/fake-idx.ts"
 
 const headers = (cookie?: string) =>
   new Headers(cookie === undefined ? {} : { cookie })
@@ -98,15 +98,17 @@ describe("the Sectors card", () => {
 
   it.effect("tells an admin why a run kept the table", () => {
     const { layer, mails, idx } = sectors()
-    idx.profiles = [profile("TKGA", "TRADE, SERVICES & INVESTMENT")]
+    idx.profiles = codes(10).map((code) => profile(code))
     return Effect.gen(function* () {
       const cookie = yield* verified(mails)(ADMIN_EMAIL, "Adi")
+      yield* runSectorSyncNow(headers(cookie))
+      idx.profiles = codes(8).map((code) => profile(code))
       assert.deepStrictEqual(yield* runSectorSyncNow(headers(cookie)), {
         _tag: "Kept",
         reason:
-          'TKGA\'s sector "TRADE, SERVICES & INVESTMENT" is not an IDX-IC sector',
+          "IDX lists 8 company profiles with a stock code, under 90 % of the 10 stored",
       })
-      assert.strictEqual((yield* sectorTable(headers(cookie))).rows, 0)
+      assert.strictEqual((yield* sectorTable(headers(cookie))).rows, 10)
     }).pipe(Effect.provide(layer))
   })
 
