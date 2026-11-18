@@ -963,6 +963,21 @@ export const makeDayStore = (
       return minutes
     })
 
+    // Every stock's sweeps, a minute at a time, each handed to `each` as it
+    // is read, so the day's are never held at once.
+    const eachStoredSweeps = Effect.fnUntraced(function* (
+      each: (
+        code: StockCode,
+        sweeps: ReadonlyArray<Sweep>
+      ) => Effect.Effect<void>
+    ) {
+      for (const row of sql.exec("SELECT code, sweeps FROM footprints"))
+        yield* each(
+          StockCode.make(String(row.code)),
+          yield* sweepsFromText(String(row.sweeps))
+        )
+    })
+
     // One stock's footprints as viewers get them, ascending by minute.
     const footprintsOf = Effect.fnUntraced(function* (code: StockCode) {
       const footprints: Array<Footprint> = []
@@ -1085,6 +1100,7 @@ export const makeDayStore = (
       storedMinuteTrades,
       storedSweeps,
       storedSweepsOf,
+      eachStoredSweeps,
       footprintsOf,
       livePrices,
       livePrice,

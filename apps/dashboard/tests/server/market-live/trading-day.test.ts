@@ -109,15 +109,19 @@ const heldSessions = (userId: string, sessionIds: ReadonlyArray<string>) => ({
 })
 
 // `woken`: an ingest socket the object already holds when the day is made,
-// as one woken from hibernation does.
-const tradingDay = Effect.fnUntraced(function* (woken?: FakeSocket) {
+// as one woken from hibernation does. `sql`: the storage an earlier object
+// left, for a restart.
+const tradingDay = Effect.fnUntraced(function* (
+  woken?: FakeSocket,
+  sql = memorySql()
+) {
   const viewers: Array<FakeSocket> = []
   const relays: Array<FakeSocket> = woken === undefined ? [] : [woken]
   const alarms: Array<DateTime.Utc> = []
   const signedIn = new Map<FakeSocket, SignedIn>()
   const scope = yield* Scope.make()
   const day = yield* makeTradingDay({
-    sql: memorySql(),
+    sql,
     date: DAY,
     viewers: Effect.sync(() => viewers),
     ingests: Effect.sync(() => relays),
@@ -1263,10 +1267,23 @@ describe("candles", () => {
   )
 })
 
-// Spec apinrdw/kumora#510 (ticket apinrdw/kumora#512): the object decides
-// each code's sweep alerts once a sweep's second closes, whatever viewers
-// selected, and sends them in the next delta.
+// Spec apinrdw/kumora#510 (tickets apinrdw/kumora#512 and #513): the object
+// decides each code's sweep alerts once a sweep's second closes, whatever
+// viewers selected, sends them in the next delta and keeps them for
+// snapshots, and a restarted one ranks the stored sweeps before it alerts.
 describe("sweep alerts", () => {
+  // 100 one-lot buy sweeps of UNTR, one a second from 09:00:00 WIB, numbered
+  // from `first`: its buy side's warm-up.
+  const warmUntr = (first: number) =>
+    Array.from({ length: 100 }, (_, index) =>
+      untr(
+        first + index,
+        `09:0${Math.floor(index / 60)}:${String(index % 60).padStart(2, "0")}.000`,
+        23300,
+        100
+      )
+    )
+
   it.effect(
     "a delta carries a code's alert, with its sweep's trade numbers, though no viewer selected the code",
     () =>
@@ -1276,18 +1293,11 @@ describe("sweep alerts", () => {
         const socket = yield* relay(ingest)
         const page = yield* viewer()
         yield* select(page, "BBCA")
-        // 09:00:00 WIB and `index` seconds.
-        const second = (index: number) =>
-          `09:0${Math.floor(index / 60)}:${String(index % 60).padStart(2, "0")}.000`
-        // 100 one-lot buy sweeps warm UNTR's buy side up.
-        const warm = Array.from({ length: 100 }, (_, index) =>
-          untr(41000 + index, second(index), 23300, 100)
-        )
         yield* ingest(
           socket,
           yield* stockbit(
             [
-              ...warm,
+              ...warmUntr(41000),
               // A negotiated block never alerts.
               untr(41100, "09:01:40.100", 23300, 90_000, 3),
               untr(41101, "09:01:41.100", 23300, 4000),
@@ -1322,6 +1332,114 @@ describe("sweep alerts", () => {
             (delta.sweeps ?? []).map((minute) => minute.code)
           ),
           []
+        )
+      })
+  )
+
+  it.effect(
+    "a snapshot carries the alerts of the trades its tape holds, and not once they left it",
+    () =>
+      Effect.gen(function* () {
+        yield* TestClock.setTime(DateTime.toEpochMillis(wibAt("09:01:42.500")))
+        const { ingest, viewer, select } = yield* tradingDay()
+        const socket = yield* relay(ingest)
+        yield* ingest(
+          socket,
+          yield* stockbit(
+            [
+              ...warmUntr(41000),
+              untr(41101, "09:01:41.100", 23300, 4000),
+              untr(41102, "09:01:41.200", 23325, 6000),
+              { ...untr(41103, "09:01:42.000", 8000, 100), code: "BBCA" },
+            ],
+            "A"
+          )
+        )
+        yield* TestClock.adjust("250 millis")
+        const reloaded = yield* viewer()
+        yield* select(reloaded, "BBCA")
+        const [snapshot] = yield* reloaded.received
+        assert.deepStrictEqual(
+          snapshot?._tag === "Snapshot" ? snapshot.sweepAlerts : undefined,
+          [
+            {
+              code: StockCode.make("UNTR"),
+              side: "buy",
+              lots: 100,
+              tradeNumbers: [
+                TradeNumber.make("41101"),
+                TradeNumber.make("41102"),
+              ],
+            },
+          ]
+        )
+
+        // 200 later trades push the alert's off a snapshot's tape.
+        yield* ingest(
+          socket,
+          yield* stockbit(
+            Array.from({ length: 200 }, (_, index) => ({
+              ...untr(41200 + index, "09:01:42.100", 8000, 100),
+              code: "BBCA",
+            })),
+            "A"
+          )
+        )
+        yield* TestClock.adjust("250 millis")
+        const later = yield* viewer()
+        yield* select(later, "BBCA")
+        const [next] = yield* later.received
+        assert.strictEqual(next?._tag, "Snapshot")
+        assert.isUndefined(next?._tag === "Snapshot" && next.sweepAlerts)
+      })
+  )
+
+  it.effect(
+    "a restarted object ranks the stored sweeps first, so a side warmed up before it still alerts",
+    () =>
+      Effect.gen(function* () {
+        yield* TestClock.setTime(DateTime.toEpochMillis(wibAt("09:01:42.500")))
+        const sql = memorySql()
+        const before = yield* tradingDay(undefined, sql)
+        yield* before.ingest(
+          yield* relay(before.ingest),
+          yield* stockbit(warmUntr(41000), "A")
+        )
+        // Past the merge window, the flush stores the warm-up's sweeps.
+        yield* TestClock.adjust("30 seconds")
+        yield* before.alarm
+
+        const { ingest, viewer, select } = yield* tradingDay(undefined, sql)
+        const page = yield* viewer()
+        yield* select(page, "BBCA")
+        yield* ingest(
+          yield* relay(ingest),
+          yield* stockbit(
+            [
+              untr(41101, "09:02:10.100", 23300, 4000),
+              untr(41102, "09:02:10.200", 23325, 6000),
+              { ...untr(41103, "09:02:11.000", 8000, 100), code: "BBCA" },
+            ],
+            "A"
+          )
+        )
+        yield* TestClock.adjust("250 millis")
+        const deltas = (yield* page.received).filter(
+          (message) => message._tag === "Delta"
+        )
+        assert.deepStrictEqual(
+          deltas.flatMap((delta) => delta.sweepAlerts ?? []),
+          [
+            {
+              code: StockCode.make("UNTR"),
+              side: "buy",
+              lots: 100,
+              tradeNumbers: [
+                TradeNumber.make("41101"),
+                TradeNumber.make("41102"),
+              ],
+            },
+          ]
         )
       })
   )

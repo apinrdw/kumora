@@ -51,7 +51,7 @@ const recordNotes = () => {
 }
 const BUY_FIRST_NOTE = 1047
 
-test("a sweep that reaches its code's top-1% cutoff marks its rows on the live tape and plays one buy sound, though another code is selected", async ({
+test("a sweep that reaches its code's top-1% cutoff marks its rows on the live tape and plays one buy sound, though another code is selected, and is marked again silently after a reload", async ({
   page,
 }) => {
   const relay = await openIngest()
@@ -118,24 +118,33 @@ test("a sweep that reaches its code's top-1% cutoff marks its rows on the live t
   })
   await relay.sendAjaib([...warm, ...big, later])
 
-  for (const seq of [201, 202]) {
-    await expect(row(seq)).toHaveAttribute("data-sweep-alert", "buy")
-    const mark = row(seq).locator("td").first().locator("[data-sweep-alert]")
-    await expect(mark).toHaveText("▲")
-    await expect(mark).toHaveClass(/text-up/)
+  const marked = async () => {
+    for (const seq of [201, 202]) {
+      await expect(row(seq)).toHaveAttribute("data-sweep-alert", "buy")
+      const mark = row(seq).locator("td").first().locator("[data-sweep-alert]")
+      await expect(mark).toHaveText("▲")
+      await expect(mark).toHaveClass(/text-up/)
+    }
+    // The warm-up's last sweeps alert nothing: each had 99 earlier.
+    for (const seq of [199, 200])
+      await expect(row(seq)).not.toHaveAttribute("data-sweep-alert")
   }
-  // The warm-up's last sweeps alert nothing: each had 99 earlier.
-  for (const seq of [199, 200])
-    await expect(row(seq)).not.toHaveAttribute("data-sweep-alert")
-  // The big buy sweep sounded once. The later sell trade can alert too, once
-  // another spec's trade closes its second, so only buys are counted.
-  await expect
-    .poll(() =>
-      page.evaluate(
-        (buy) => window.__notes?.filter((hz) => hz === buy).length,
-        BUY_FIRST_NOTE
-      )
+  // The buy sounds since the page loaded. The later sell trade can alert
+  // too, once another spec's trade closes its second, so only buys count.
+  const buys = () =>
+    page.evaluate(
+      (buy) => window.__notes?.filter((hz) => hz === buy).length,
+      BUY_FIRST_NOTE
     )
-    .toBe(1)
+  await marked()
+  // The big buy sweep sounded once.
+  await expect.poll(buys).toBe(1)
+
+  // A reload starts the tape over from a snapshot, which carries the alert.
+  await page.reload()
+  await marked()
+  // The toggle is remembered, and the snapshot's alert stays silent.
+  await expect(speaker).toHaveAttribute("aria-pressed", "true")
+  expect(await buys()).toBe(0)
   relay.close()
 })

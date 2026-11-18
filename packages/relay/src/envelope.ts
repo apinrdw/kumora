@@ -23,7 +23,7 @@ const acceptedIngestVersions: ReadonlyArray<unknown> = [
 // 4: a trade's feeds may list `walk` (spec apinrdw/kumora#437).
 // 5: candles carry their buy value and sell value, and snapshots and deltas
 // the instant they were sent (spec apinrdw/kumora#427).
-// 6: deltas carry sweep alerts (spec apinrdw/kumora#510).
+// 6: deltas and snapshots carry sweep alerts (spec apinrdw/kumora#510).
 export const ViewerProtocolVersion = 6
 
 // Decision: an extension that hits either code stops retrying that target and
@@ -444,6 +444,9 @@ const Snapshot = Schema.TaggedStruct("Snapshot", {
   // The selected and watchlist codes' that have one, so the watchlist shows
   // them during an auction. Absent when none has.
   indicative: Schema.optionalKey(Schema.Array(IndicativePrice)),
+  // The day's sweep alerts with a trade on this tape, which the page marks
+  // and never plays. Absent when none has.
+  sweepAlerts: Schema.optionalKey(Schema.Array(SweepAlert)),
 })
 
 // The running trades that arrived in the last ~250 ms, ascending by trade

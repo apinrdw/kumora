@@ -69,6 +69,7 @@ import {
 import { ingestTokenMatches } from "./ingest-token.ts"
 import { makeBookChunks } from "./book-chunks.ts"
 import { makeCandleBook, minuteOf } from "./candles.ts"
+import { makeKeptAlerts } from "./kept-alerts.ts"
 import { newerThanHeld } from "./late-frames.ts"
 import {
   memoryCodeListStore,
@@ -498,6 +499,7 @@ export const makeTradingDay = Effect.fnUntraced(function* (options: {
       : { days: [], minutes: [] }
   )
   const candles = yield* makeCandleBook(store, bubbles.settled)
+  const keptAlerts = yield* makeKeptAlerts
   const ingests = options.ingests ?? Effect.succeed([])
   const books = yield* makeOrderBooks(options.date)
   const bookChunks = yield* makeBookChunks
@@ -524,7 +526,7 @@ export const makeTradingDay = Effect.fnUntraced(function* (options: {
   // the candle book keeps; the next flush writes it.
   let unwritten: Pick<Flush, "livePrices" | "chunks" | "ajaibBooks"> | undefined
 
-  if (restoring)
+  if (restoring) {
     for (const price of yield* restoreLastFrames({
       store,
       candles,
@@ -533,6 +535,8 @@ export const makeTradingDay = Effect.fnUntraced(function* (options: {
       bookChunks,
     }))
       lastLivePrices.set(price.code, price)
+    yield* candles.rankStored
+  }
 
   // The order book and Day state fall back to Ajaib while Stockbit's freshness
   // isn't live: delayed falls over as stale does.
@@ -715,6 +719,7 @@ export const makeTradingDay = Effect.fnUntraced(function* (options: {
       if ((yield* viewer.state) !== "ready") continue
       if (!(yield* closedUnserved(viewer))) yield* viewer.send(text)
     }
+    yield* keptAlerts.keep(changed.sweepAlerts, tape)
   })
 
   const scheduleDelta = Effect.gen(function* () {
@@ -1353,17 +1358,21 @@ export const makeTradingDay = Effect.fnUntraced(function* (options: {
         const price = yield* market.indicativeOf(code)
         if (price !== undefined) indicative.push(price)
       }
+      const snapshotTape = tape.slice(-SNAPSHOT_TRADES)
       const snapshot = yield* encodeViewerDown({
         _tag: "Snapshot",
         at: yield* DateTime.now,
         selected,
-        tape: tape.slice(-SNAPSHOT_TRADES),
+        tape: snapshotTape,
         candles: yield* candles.candlesOf(selected),
         footprints: yield* candles.footprintsOf(selected),
         ...(orderBook === undefined ? {} : { orderBook }),
         ...(states.length === 0 ? {} : { dayStates: states }),
         conditions: yield* market.conditions,
         ...(indicative.length === 0 ? {} : { indicative }),
+        ...(yield* nonEmpty({
+          sweepAlerts: yield* keptAlerts.on(snapshotTape),
+        })),
       })
       yield* socket.send(snapshot)
       yield* socket.setState("ready")

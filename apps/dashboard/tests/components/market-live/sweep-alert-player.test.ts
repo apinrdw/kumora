@@ -74,8 +74,7 @@ test("each update plays its own: a later update's buy plays again", () => {
 
 test("a snapshot's alerts never play", () => {
   const { hear, played } = playerOf()
-  // A snapshot carries the alerts of the trades its tape holds (#513 adds
-  // the field to the type).
+  // A snapshot carries the alerts of the trades its tape holds.
   const snapshot = {
     _tag: "Snapshot",
     at: DateTime.makeUnsafe(0),
