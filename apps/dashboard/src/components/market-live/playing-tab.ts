@@ -58,11 +58,13 @@ const broadcastTabChannel: OpenTabChannel = (receive) =>
 // not focused since they opened, the one open longest, so a tab opening in the
 // background leaves the role where it is.
 const outranks = (a: Peer, b: Peer) =>
-  a.focusedAt !== b.focusedAt
-    ? a.focusedAt > b.focusedAt
-    : a.joinedAt !== b.joinedAt
-      ? a.joinedAt < b.joinedAt
-      : a.id < b.id
+  Effect.sync(() =>
+    a.focusedAt !== b.focusedAt
+      ? a.focusedAt > b.focusedAt
+      : a.joinedAt !== b.joinedAt
+        ? a.joinedAt < b.joinedAt
+        : a.id < b.id
+  )
 
 // Decision: every tab keeps the same list of open tabs and works out the
 // holder from it, so no tab hands the role over and a closing tab only says
@@ -144,10 +146,11 @@ export const makePlayingTab = (open: OpenTabChannel) =>
         self = undefined
         peers.clear()
       }),
-      holds: Effect.sync(() => {
+      holds: Effect.gen(function* () {
         if (self === undefined) return false
-        const me = self
-        return [...peers.values()].every((peer) => outranks(me, peer))
+        for (const peer of peers.values())
+          if (!(yield* outranks(self, peer))) return false
+        return true
       }),
     }
   })
