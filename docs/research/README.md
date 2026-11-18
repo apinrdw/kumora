@@ -15,6 +15,11 @@ Findings from research tickets, one file per question. Each records what was tru
 - [Stockbit's post-close buyer and seller broker codes](stockbit-post-close-broker-codes.md)
 - [Ajaib's post-close buyer and seller broker codes, and paging a whole day](ajaib-post-close-broker-codes.md)
 
+## Order book readings
+
+- [How to detect absorption, reload and walls from aggregated price levels and the tape](book-absorption-reload-walls.md)
+- [Book event thresholds tuned on a recorded day](book-event-thresholds.md)
+
 ## IDX
 
 - [Where company logos can come from, and whether Kumora may show them](idx-company-logos.md)
