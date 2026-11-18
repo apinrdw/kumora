@@ -446,6 +446,12 @@ const holderRow = (page: Page, name: string) =>
     .getByRole("row")
     .filter({ hasText: name })
 
+// The Every month grid's rows, its header row first.
+const everyMonthRows = (page: Page) =>
+  majorHolders(page)
+    .getByRole("table", { name: "Every month" })
+    .getByRole("row")
+
 const stockSearch = (page: Page) =>
   page
     .getByRole("banner")
@@ -1197,6 +1203,36 @@ test.describe.serial("the stock page", () => {
         "true"
       )
       await expect(majorHolders(page)).toContainText(firstMonth)
+    })
+
+    test("grids every month's holders, outlining and sorting by the month picked", async ({
+      page,
+    }) => {
+      await page.goto(`${DASHBOARD}/stocks/BBCA`)
+      const rows = everyMonthRows(page)
+      // Jul has BBRI only, so its column is all dots.
+      await expect(rows.first()).toContainText(
+        /Holder.*Jul 26\s*Aug 26\s*Sep 26$/
+      )
+      const outlined = rows.first().locator('th[aria-current="true"]')
+      await expect(outlined).toHaveText("Sep 26")
+      await expect(rows.nth(1)).toContainText(
+        /PT DWIMURIA INVESTAMA ANDALAN.*·54\.9454\.94$/
+      )
+      // Gamma left the list in Sep: a dot, greyed at the bottom.
+      await expect(rows.last()).toContainText(/GAMMA FUND LTD.*1\.20·$/)
+      await expect(rows.last()).toHaveAttribute("data-unlisted", "true")
+
+      await expect(async () => {
+        await holdersTab(page, "Aug 2026").click()
+        await expect(outlined).toHaveText("Aug 26", { timeout: 1000 })
+      }).toPass()
+      // Salim joined in Sep, so in Aug it is the holder not listed.
+      await expect(rows.last()).toContainText(/PT\. SALIM GROUP.*·1\.50•$/)
+      await expect(rows.last()).toHaveAttribute("data-unlisted", "true")
+      await expect(
+        rows.filter({ hasText: "GAMMA FUND LTD" })
+      ).not.toHaveAttribute("data-unlisted")
     })
   })
 
