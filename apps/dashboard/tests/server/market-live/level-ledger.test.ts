@@ -357,6 +357,52 @@ describe("level ledger", () => {
       })
   )
 
+  it.effect(
+    "an empty side that stops updating holds no trades back from pruning",
+    () =>
+      Effect.gen(function* () {
+        // Ten minutes of a wall-free bid frame and a trade each second; the
+        // offers sent one empty frame at T0 and nothing since.
+        const ledger = yield* makeLevelLedger
+        for (let second = 0; second <= 600; second++) {
+          yield* ledger.trade(undefined, sell(s(second), 1000, 10))
+          yield* ledger.book({
+            ...bidBook(s(second), ladder({})),
+            offers: [],
+          })
+        }
+        assert.isAtMost(
+          yield* ledger.tradesHeld(CODE),
+          61,
+          "the ledger holds two windows of trades, not the ten minutes"
+        )
+      })
+  )
+
+  it.effect(
+    "a wall whose pull is never read holds trades back at most ten minutes",
+    () =>
+      Effect.gen(function* () {
+        // The wall leaves at 36 s and the bid side never updates again, so
+        // its pull is never read; a trade lands each second for 15 minutes.
+        const ledger = yield* makeLevelLedger
+        for (let second = 0; second <= 36; second++)
+          yield* ledger.book(
+            bidBook(
+              s(second),
+              ladder({ 990: second < 36 ? [6000, 2] : [1000, 1] })
+            )
+          )
+        for (let second = 0; second <= 900; second++)
+          yield* ledger.trade(undefined, sell(s(second), 1000, 10))
+        assert.isAtMost(
+          yield* ledger.tradesHeld(CODE),
+          601,
+          "the pending wall holds ten minutes of trades, not fifteen"
+        )
+      })
+  )
+
   it.effect("too quiet: fewer than 2 frames in the window read nothing", () =>
     Effect.gen(function* () {
       const events = yield* run([

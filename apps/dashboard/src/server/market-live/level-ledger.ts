@@ -616,5 +616,9 @@ export const makeLevelLedger = Effect.sync(() => {
   // See spec apinrdw/kumora#517, "Book events".
   const reset = Effect.sync(() => codes.clear())
 
-  return { trade, book, reset }
+  // How many trades the ledger holds for `code`: what bounds its memory.
+  const tradesHeld = (code: StockCode) =>
+    Effect.sync(() => codes.get(code)?.trades.length ?? 0)
+
+  return { trade, book, reset, tradesHeld }
 })
