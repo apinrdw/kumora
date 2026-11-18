@@ -40,8 +40,11 @@ const parse: Parse =
     : report === "classification"
       ? (await import("../../../src/server/holdings/classification.ts"))
           .parseClassificationMonth
-      : (await import("../../../src/server/holdings/investor-type.ts"))
-          .parseInvestorTypeMonth
+      : report === "investor-type"
+        ? (await import("../../../src/server/holdings/investor-type.ts"))
+            .parseInvestorTypeMonth
+        : (await import("../../../src/server/holdings/above-1.ts"))
+            .parseAbove1Month
 
 Effect.runFork(
   parse("2026-10-30", "sha", bytes, "2026-11-15T00:00:00Z").pipe(
