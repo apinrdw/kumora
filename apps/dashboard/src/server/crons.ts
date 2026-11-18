@@ -12,8 +12,10 @@ import { runLogoCron } from "./logos/cron.ts"
 import { LOGO_CRON } from "./logos/schedule.ts"
 import { runArchiveCron, runParseCron } from "./shareholding/cron.ts"
 import { PARSE_CRON } from "./shareholding/schedule.ts"
+import { runSpecialBoardCron } from "./special-board/cron.ts"
+import { SPECIAL_BOARD_CRON } from "./special-board/schedule.ts"
 
-// The archive crons, the parse crons, the sector cron and the logo cron, on
+// The archive crons, the parse crons, the sector, logo and board crons, on
 // Production only, and the broker totals reconcile, on every stage
 // (stage-crons.ts). Each firing names its expression, which picks its
 // handler here; any other expression is the shareholding archive's.
@@ -24,6 +26,7 @@ const HANDLERS = new Map([
   [RECONCILE_CRON, runReconcileCron],
   [SECTOR_CRON, runSectorCron],
   [LOGO_CRON, runLogoCron],
+  [SPECIAL_BOARD_CRON, runSpecialBoardCron],
 ])
 
 export const runCron = (cron: string, scheduledTime: number) =>
