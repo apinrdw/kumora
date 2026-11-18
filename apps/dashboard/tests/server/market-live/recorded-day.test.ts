@@ -612,6 +612,8 @@ describe("a restarted trading day", () => {
         yield* TestClock.setTime(wib("09:30:00").epochMilliseconds)
         const sql = memorySql()
         const first = yield* tradingDay(sql)
+        // A viewer on BBCA, so the day records its book.
+        yield* first.viewer()
         yield* first.stockbit([
           livePriceFrame({
             code: "BBCA",
@@ -964,6 +966,8 @@ describe("the recorded order book", () => {
     Effect.gen(function* () {
       yield* TestClock.setTime(wib("14:20:10").epochMilliseconds)
       const day = yield* tradingDay(memorySql())
+      // A viewer on BBCA, so the day records its book.
+      yield* day.viewer()
       yield* day.stockbit([
         orderBookFrame("BID", [[8_000, 3, 50]], "14:20:10"),
         orderBookFrame("OFFER", [[8_025, 2, 40]], "14:20:10"),

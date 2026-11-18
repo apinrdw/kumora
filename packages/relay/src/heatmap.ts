@@ -27,11 +27,14 @@ export type HeatSlice = typeof HeatSlice.Type
 // out of the order books its deltas carry, so the two meet with no gap and no
 // overlap. A slice with no book is left out. What a minute with no frame
 // shows, and where a sealed day's `through` falls, is `heatEndOf` in
-// apps/dashboard/src/lib/heatmap.ts.
+// apps/dashboard/src/lib/heatmap.ts. `notRecorded` marks a code whose book
+// the day did not record (spec apinrdw/kumora#555, "Books only for viewed
+// codes"): it has no slices.
 const RecordedHeatmap = Schema.Struct({
   code: StockCode,
   through: Schema.DateTimeUtcFromMillis,
   slices: Schema.Array(HeatSlice),
+  notRecorded: Schema.optionalKey(Schema.Literal(true)),
 })
 export type RecordedHeatmap = typeof RecordedHeatmap.Type
 

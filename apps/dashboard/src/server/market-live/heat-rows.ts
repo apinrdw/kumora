@@ -144,7 +144,8 @@ const withFramelessMinutes = Effect.fnUntraced(function* (
 // slices stop (`heatEndOf`). A sealed day answers its stored rows through
 // `end`. A live day answers up to the start of the slice `now` is in: the
 // stored rows, then the held chunks' whole slices, which replace a stored
-// minute of theirs.
+// minute of theirs. A code whose book the day did not record, `notRecorded`,
+// answers no slices and says so.
 export const heatmapAnswer = Effect.fnUntraced(function* (
   code: StockCode,
   stored: ReadonlyArray<HeatRow>,
@@ -156,7 +157,8 @@ export const heatmapAnswer = Effect.fnUntraced(function* (
           through: number
         ) => Effect.Effect<ReadonlyArray<HeatRow>>
       }
-    | undefined
+    | undefined,
+  notRecorded = false
 ) {
   const through =
     live === undefined
@@ -175,5 +177,6 @@ export const heatmapAnswer = Effect.fnUntraced(function* (
     slices: slices.filter(
       (slice) => DateTime.toEpochMillis(slice.at) < through
     ),
+    ...(notRecorded ? { notRecorded: true as const } : {}),
   })
 })
