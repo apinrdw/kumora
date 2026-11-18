@@ -31,9 +31,11 @@ interface MinuteSpan {
 // Decision: `write`, `highestNumber`, `numbersBetween` and
 // `rebuildCandleSides` are plain, as the `Sql` port's methods are: the day
 // store's flush and the broker codes store's batches and summaries call them
-// inside a synchronous transaction, where an Effect could not run. The rest
-// are Effects.
+// inside a synchronous transaction, where an Effect could not run. The other
+// methods are Effects.
 export interface Tape {
+  // Which backing holds the day's trades (tape.ts, `makeTape`).
+  readonly shape: "rows" | "chunks"
   // The trades, inside a transaction. A number is written once.
   readonly write: (trades: ReadonlyArray<RunningTrade>) => void
   readonly highestNumber: () => number | undefined

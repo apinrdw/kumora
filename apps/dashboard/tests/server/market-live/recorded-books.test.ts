@@ -3,7 +3,8 @@
 // view to the close. Envelopes go in through the ingest socket, time moves
 // only by TestClock, and the test reads the recorded Book and heatmap GETs.
 // Handing a second trading day the first's database is the object
-// restarting.
+// restarting, and a row-per-trade tape (`rowShapedSql`) is a day recorded
+// before the change.
 import { assert, describe, it } from "@effect/vitest"
 import {
   StockCode,
@@ -16,7 +17,7 @@ import { DateTime, Effect } from "effect"
 import { TestClock } from "effect/testing"
 
 import { stockbitBook, stockbitTrade, tradingDay } from "./day-harness"
-import { memorySql } from "./sql"
+import { memorySql, rowShapedSql } from "./sql"
 
 const wib = (time: string) => DateTime.makeUnsafe(`2026-11-09T${time}+07:00`)
 const at = (time: string) =>
@@ -247,12 +248,11 @@ describe("a day's recorded order books", () => {
     () =>
       Effect.gen(function* () {
         yield* at("14:00:00")
-        const sql = memorySql()
+        const sql = rowShapedSql()
         const before = yield* tradingDay(sql)
         yield* before.trades([RELAYED])
         yield* TestClock.adjust("2 minutes")
         yield* before.evicted
-        sql.exec("DELETE FROM facts WHERE key = 'recorded-books'")
 
         const deployed = yield* tradingDay(sql)
         yield* untrBook(deployed, "14:05:03", 50)
@@ -282,12 +282,11 @@ describe("a day's recorded order books", () => {
     () =>
       Effect.gen(function* () {
         yield* at("14:00:00")
-        const sql = memorySql()
+        const sql = rowShapedSql()
         const first = yield* tradingDay(sql)
         yield* first.trades([RELAYED])
         yield* TestClock.adjust("2 minutes")
         yield* first.evicted
-        sql.exec("DELETE FROM facts WHERE key = 'recorded-books'")
 
         const restarted = yield* tradingDay(sql)
         assert.deepStrictEqual(yield* heatmapOf(restarted), {

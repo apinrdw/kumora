@@ -300,6 +300,7 @@ const makeRowTape = (sql: Sql): Tape => {
     )
 
   return {
+    shape: "rows",
     write,
     highestNumber,
     numbersBetween,

@@ -7,29 +7,23 @@ import { Effect, Schema } from "effect"
 
 import { Fact, type makeDayStore } from "./day-store.ts"
 
-// Every code's books, the set's value on a day recorded before the change.
-const EVERY_CODE = "every-code"
-
-const RecordedCodes = Schema.fromJsonString(
-  Schema.Union([Schema.Array(StockCode), Schema.Literal(EVERY_CODE)])
-)
+const RecordedCodes = Schema.fromJsonString(Schema.Array(StockCode))
 const encodeCodes = Schema.encodeEffect(RecordedCodes)
 const decodeCodes = Schema.decodeUnknownEffect(RecordedCodes)
 
-// Decision: a day whose store held trades but no set when its object
-// started was recorded before the change, so it keeps recording every code's
-// books to the close and never answers a code not recorded. Its next flush
-// writes the set as "every-code", so a restart keeps that. A day with
-// neither is new. See spec apinrdw/kumora#555, "Books only for viewed codes".
+// Decision: a day whose tape is a row per trade (tape.ts, `makeTape`) was
+// recorded before the change: it records every code's books to the close,
+// never answers a code not recorded, and writes no set. Every day since is
+// chunked from its first trade, so its set starts empty. See spec
+// apinrdw/kumora#555, "Books only for viewed codes".
 export const makeRecordedBooks = Effect.fnUntraced(function* (
   store: Effect.Success<ReturnType<typeof makeDayStore>>
 ) {
-  const stored = yield* store.fact(Fact.recordedBooks)
-  const decoded = stored === undefined ? [] : yield* decodeCodes(stored)
-  const everyCode =
-    decoded === EVERY_CODE ||
-    (stored === undefined && (yield* store.highestTrade) !== undefined)
-  const codes = new Set<StockCode>(decoded === EVERY_CODE ? [] : decoded)
+  const everyCode = store.tapeShape === "rows"
+  const stored = everyCode ? undefined : yield* store.fact(Fact.recordedBooks)
+  const codes = new Set<StockCode>(
+    stored === undefined ? [] : yield* decodeCodes(stored)
+  )
   // The set as the store last took it.
   let written = stored
 
@@ -48,18 +42,23 @@ export const makeRecordedBooks = Effect.fnUntraced(function* (
   const notRecorded = (code: StockCode) =>
     Effect.sync(() => !everyCode && !codes.has(code))
 
-  const text = Effect.suspend(() =>
-    encodeCodes(everyCode ? EVERY_CODE : [...codes].sort())
+  // The set's text when the store lacks it.
+  const unwrittenText = Effect.suspend(() =>
+    everyCode
+      ? Effect.succeed(undefined)
+      : Effect.map(encodeCodes([...codes].sort()), (current) =>
+          current === written ? undefined : current
+        )
   )
 
   // The facts the next flush writes: the set, unless the store holds it.
   const unwritten = Effect.map(
-    text,
-    (current): Readonly<Record<string, string>> =>
-      current === written ? {} : { [Fact.recordedBooks]: current }
+    unwrittenText,
+    (text): Readonly<Record<string, string>> =>
+      text === undefined ? {} : { [Fact.recordedBooks]: text }
   )
 
-  const hasUnwritten = Effect.map(text, (current) => current !== written)
+  const hasUnwritten = Effect.map(unwrittenText, (text) => text !== undefined)
 
   // The facts a flush wrote.
   const wrote = (facts: Readonly<Record<string, string>>) =>

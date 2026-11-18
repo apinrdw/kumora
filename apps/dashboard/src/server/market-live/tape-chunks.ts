@@ -485,6 +485,7 @@ export const makeChunkTape = (sql: Sql): Tape => {
     )
 
   return {
+    shape: "chunks",
     write,
     highestNumber,
     numbersBetween,
