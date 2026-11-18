@@ -3,7 +3,7 @@
 // trading-day Durable Object finds them, stores them per day and sends them
 // to viewers; the page names them with the detail lines in its
 // lib/book-events.ts.
-import { Schema } from "effect"
+import { DateTime, Order, Schema } from "effect"
 
 import { StockCode } from "./codes.ts"
 
@@ -90,6 +90,14 @@ export const BookEvent = Schema.Union([
 ])
 export type BookEvent = typeof BookEvent.Type
 export type BookEventKind = BookEvent["kind"]
+
+// Book events oldest first, by the side frame's time. The level ledger
+// reads a pull two side frames behind the newest, so an event can arrive
+// after newer ones: a list that holds them sorts, never appends.
+export const BookEventOrder: Order.Order<BookEvent> = Order.mapInput(
+  Order.Number,
+  (event: BookEvent) => DateTime.toEpochMillis(event.at)
+)
 
 // Decision: a snapshot carries the day's newest 100 book events across every
 // code, plus the selected code's whole day: the scanner's feed shows the

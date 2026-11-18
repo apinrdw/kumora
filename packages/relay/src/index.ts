@@ -158,6 +158,7 @@ export type { ScannerFigures } from "./scanner-figures.ts"
 export {
   BOOK_EVENT_WINDOW_MS,
   BookEvent,
+  BookEventOrder,
   BookEventSide,
   MIN_SIDE_FRAMES,
   SNAPSHOT_BOOK_EVENTS,
