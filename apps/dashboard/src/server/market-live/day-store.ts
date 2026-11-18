@@ -275,6 +275,13 @@ export interface BuiltMinute {
 // numbered before it: Ajaib's and the backfill's rounding to the second.
 const TIME_SKEW_MS = 1_000
 
+// The footprint rows one statement of the restart's sweep read takes.
+// Decision: `eachStoredSweeps` reads 500 rows a statement by the table's
+// key. `Sql.exec` hands a statement's rows back whole, and the worst day's
+// in one statement held 75 MiB against the spec's ~30 MB; paged, the read
+// peaks at 12 MiB (sweep-alerts-memory.test.ts). See spec apinrdw/kumora#510.
+const SWEEP_PAGE = 500
+
 // Rows are the store's own writes, so they are read back without a decode.
 const tradeOf = (row: Record<string, SqlValue>) =>
   Effect.sync((): RunningTrade => ({
@@ -963,6 +970,36 @@ export const makeDayStore = (
       return minutes
     })
 
+    // Every stock's sweeps, a minute at a time, each handed to `each` as it
+    // is read: a page of rows after the last one read, until a page comes
+    // short, so the day's are never held at once.
+    const eachStoredSweeps = Effect.fnUntraced(function* (
+      each: (
+        code: StockCode,
+        sweeps: ReadonlyArray<Sweep>
+      ) => Effect.Effect<void>
+    ) {
+      let code = ""
+      let minute = 0
+      while (true) {
+        const rows = sql.exec(
+          "SELECT code, minute, sweeps FROM footprints WHERE (code, minute) > (?, ?) ORDER BY code, minute LIMIT ?",
+          code,
+          minute,
+          SWEEP_PAGE
+        )
+        for (const row of rows)
+          yield* each(
+            StockCode.make(String(row.code)),
+            yield* sweepsFromText(String(row.sweeps))
+          )
+        const last = rows.at(-1)
+        if (last === undefined || rows.length < SWEEP_PAGE) return
+        code = String(last.code)
+        minute = Number(last.minute)
+      }
+    })
+
     // One stock's footprints as viewers get them, ascending by minute.
     const footprintsOf = Effect.fnUntraced(function* (code: StockCode) {
       const footprints: Array<Footprint> = []
@@ -1085,6 +1122,7 @@ export const makeDayStore = (
       storedMinuteTrades,
       storedSweeps,
       storedSweepsOf,
+      eachStoredSweeps,
       footprintsOf,
       livePrices,
       livePrice,

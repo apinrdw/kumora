@@ -10,7 +10,9 @@ import {
   SHARES_PER_LOT,
   TradeNumberOrder,
   type RunningTrade,
+  type AlertSide,
   type StockCode,
+  type SweepAlert,
   type TradeNumber,
   type ViewerDown,
 } from "@workspace/relay"
@@ -74,6 +76,8 @@ export type Tape = {
   evictedThrough: TradeNumber | undefined
   // Every trade number the tape took in, for the "N new trades" count.
   received: number
+  // The side of the sweep alert each trade the tape holds was part of.
+  readonly alertSides: Map<TradeNumber, AlertSide>
 }
 
 export const emptyTape = () =>
@@ -82,6 +86,7 @@ export const emptyTape = () =>
     folds: [],
     evictedThrough: undefined,
     received: 0,
+    alertSides: new Map(),
   }))
 
 // A copy later deltas leave alone.
@@ -95,6 +100,7 @@ export const freezeTape = (tape: Tape) =>
     })),
     evictedThrough: tape.evictedThrough,
     received: tape.received,
+    alertSides: new Map(tape.alertSides),
   }))
 
 // Inserts `trade` in an ascending list, or replaces the trade it numbers,
@@ -166,6 +172,14 @@ const takeOut = Effect.fnUntraced(function* (tape: Tape, number: TradeNumber) {
   return false
 })
 
+// Whether the tape holds `number`.
+const heldBy = Effect.fnUntraced(function* (tape: Tape, number: TradeNumber) {
+  for (const trades of [tape.continuous, ...tape.folds.map((f) => f.trades)])
+    if (trades[yield* tradePosition(trades, number)]?.tradeNumber === number)
+      return true
+  return false
+})
+
 // Whether the tape holds `number`, or dropped it past the cap.
 const seenBy = Effect.fnUntraced(function* (tape: Tape, number: TradeNumber) {
   if (
@@ -173,10 +187,7 @@ const seenBy = Effect.fnUntraced(function* (tape: Tape, number: TradeNumber) {
     TradeNumberOrder(number, tape.evictedThrough) <= 0
   )
     return true
-  for (const trades of [tape.continuous, ...tape.folds.map((f) => f.trades)])
-    if (trades[yield* tradePosition(trades, number)]?.tradeNumber === number)
-      return true
-  return false
+  return yield* heldBy(tape, number)
 })
 
 // `seen`: the trade was held before a snapshot started the tape over, so it
@@ -226,18 +237,33 @@ const evict = Effect.fnUntraced(function* (tape: Tape) {
   tape.folds.sort((a, b) =>
     TradeNumberOrder(a.trades.at(-1)!.tradeNumber, b.trades.at(-1)!.tradeNumber)
   )
+  // An alert's mark leaves with its row.
+  for (const number of tape.alertSides.keys())
+    if (!(yield* heldBy(tape, number))) tape.alertSides.delete(number)
 })
+
+// Marks each trade of each alert with its side.
+const markAlerts = (tape: Tape, alerts: ReadonlyArray<SweepAlert> = []) =>
+  Effect.sync(() => {
+    for (const alert of alerts)
+      for (const number of alert.tradeNumbers)
+        tape.alertSides.set(number, alert.side)
+  })
 
 // The tape after one viewer message. A snapshot starts it over, its received
 // count carried on and counting only the trades the tape didn't hold, so a
 // frozen tape's "N new trades" survives a reconnect; a delta's trades go in by
-// trade number, a known one replacing what the tape held.
+// trade number, a known one replacing what the tape held. A message's sweep
+// alerts mark their trades, and a mark stays while its trade is on the tape,
+// across a snapshot too: a restarted object's snapshot holds only the alerts
+// it decided since (server kept-alerts.ts).
 export const applyViewerMessage = Effect.fnUntraced(function* (
   tape: Tape,
   message: ViewerDown
 ): Effect.fn.Return<Tape> {
   if (message._tag !== "Snapshot") {
     for (const trade of message.tape) yield* insert(tape, trade)
+    yield* markAlerts(tape, message.sweepAlerts)
     yield* evict(tape)
     return tape
   }
@@ -245,6 +271,9 @@ export const applyViewerMessage = Effect.fnUntraced(function* (
   next.received = tape.received
   for (const trade of message.tape)
     yield* insert(next, trade, yield* seenBy(tape, trade.tradeNumber))
+  for (const [number, side] of tape.alertSides)
+    next.alertSides.set(number, side)
+  yield* markAlerts(next, message.sweepAlerts)
   yield* evict(next)
   return next
 })

@@ -37,6 +37,7 @@ import {
 import type { ReplayCursor } from "@/components/market-live/replay-cursor"
 import { StockCodePalette } from "@/components/market-live/stock-code-palette"
 import { StockCodePicker } from "@/components/market-live/stock-code-picker"
+import { useSweepAlertPlayer } from "@/components/market-live/sweep-alert-player"
 import { SweepLog, useSweeps } from "@/components/market-live/sweep-log"
 import type { SweepStore } from "@/components/market-live/sweep-store"
 import { TransportBar } from "@/components/market-live/transport-bar"
@@ -269,6 +270,7 @@ function MarketLiveDay({
   })
   const liveGaps = useRelayGaps()
   const shownGaps = cursor === undefined ? liveGaps : gaps
+  const player = useSweepAlertPlayer(day)
   const apply = useCallback(
     (message: ViewerDown) => {
       candles.apply(message)
@@ -276,8 +278,9 @@ function MarketLiveDay({
       book.apply(message)
       heatmap.apply(message)
       dayStates.apply(message)
+      clientRuntime.runFork(player.hear(message))
     },
-    [candles, sweeps, book, heatmap, dayStates]
+    [candles, sweeps, book, heatmap, dayStates, player]
   )
   return (
     <>

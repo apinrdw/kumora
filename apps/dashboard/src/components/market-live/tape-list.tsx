@@ -1,5 +1,6 @@
 import type { RecordedTradeCodes } from "@workspace/client"
 import type {
+  AlertSide,
   BrokerCode,
   InvestorType,
   RelayGap,
@@ -112,6 +113,15 @@ const BIG_TINT: Record<RunningTrade["side"], string> = {
   none: "bg-neutral/15 shadow-[inset_3px_0_0_var(--semantic-neutral)]",
 }
 
+// A sweep alert's mark: its side's arrow in its side's colour.
+const ALERT_MARK: Record<
+  AlertSide,
+  { readonly glyph: string; readonly text: string }
+> = {
+  buy: { glyph: "▲", text: "text-up" },
+  sell: { glyph: "▼", text: "text-down" },
+}
+
 const MATCH_LABEL: Record<AuctionMatch, string> = {
   opening: "Opening match 08:58:00",
   closing: "Closing match 16:00:00",
@@ -200,17 +210,55 @@ function BrokerCells({ codes }: { codes: TradeCodes | undefined }) {
   )
 }
 
+// The trade's Time cell, led by its sweep alert's mark in the cell's left
+// padding, so the time keeps its place.
+function TimeCell({
+  trade,
+  inFold,
+  alertSide,
+}: {
+  trade: RunningTrade
+  inFold: boolean
+  alertSide: AlertSide | undefined
+}) {
+  const mark = alertSide && ALERT_MARK[alertSide]
+  return (
+    <td className={cn(CELL, "relative pl-2", inFold && "pl-4")}>
+      {mark && (
+        <>
+          <span
+            data-sweep-alert={alertSide}
+            aria-hidden
+            className={cn(
+              mark.text,
+              "absolute left-0 text-[8px] leading-[22px]",
+              inFold && "left-2"
+            )}
+          >
+            {mark.glyph}
+          </span>
+          <span className="sr-only">{alertSide} sweep alert, </span>
+        </>
+      )}
+      {Effect.runSync(tapeTime(DateTime.toEpochMillis(trade.time)))}
+    </td>
+  )
+}
+
 const TradeRow = memo(function TradeRow({
   trade,
   codes,
   selected,
   inFold,
+  alertSide,
   onSelect,
 }: {
   trade: RunningTrade
   codes: TradeCodes | undefined
   selected: boolean
   inFold: boolean
+  // The side of the sweep alert the trade was part of.
+  alertSide: AlertSide | undefined
   onSelect: (code: StockCode) => void
 }) {
   const big = Effect.runSync(isBigTrade(trade))
@@ -220,6 +268,7 @@ const TradeRow = memo(function TradeRow({
       data-trade-number={trade.tradeNumber}
       data-big={big || undefined}
       data-selected={selected || undefined}
+      data-sweep-alert={alertSide}
       className={cn(
         big ? BIG_TINT[trade.side] : selected && "bg-selected",
         !big && !selected && inFold && "bg-elevated/40",
@@ -230,9 +279,7 @@ const TradeRow = memo(function TradeRow({
       // and screen reader target.
       onClick={() => onSelect(trade.code)}
     >
-      <td className={cn(CELL, "pl-2", inFold && "pl-4")}>
-        {Effect.runSync(tapeTime(DateTime.toEpochMillis(trade.time)))}
-      </td>
+      <TimeCell trade={trade} inFold={inFold} alertSide={alertSide} />
       <td className={cn(CELL, "font-semibold")}>
         <button type="button" className="hover:underline">
           {trade.code}
@@ -460,6 +507,11 @@ export function TapeList({
                   codes={codes?.get(row.trade.tradeNumber)}
                   selected={row.trade.code === selected}
                   inFold={row.inFold !== undefined}
+                  alertSide={
+                    live
+                      ? view.alertSides.get(row.trade.tradeNumber)
+                      : undefined
+                  }
                   onSelect={onSelect}
                 />
               )

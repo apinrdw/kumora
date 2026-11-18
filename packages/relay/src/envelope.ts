@@ -23,7 +23,8 @@ const acceptedIngestVersions: ReadonlyArray<unknown> = [
 // 4: a trade's feeds may list `walk` (spec apinrdw/kumora#437).
 // 5: candles carry their buy value and sell value, and snapshots and deltas
 // the instant they were sent (spec apinrdw/kumora#427).
-export const ViewerProtocolVersion = 5
+// 6: deltas and snapshots carry sweep alerts (spec apinrdw/kumora#510).
+export const ViewerProtocolVersion = 6
 
 // Decision: an extension that hits either code stops retrying that target and
 // shows it; any other close, 1006 included, retries with backoff. The token
@@ -405,6 +406,21 @@ const MinuteSweeps = Schema.Struct({
 })
 export type MinuteSweeps = typeof MinuteSweeps.Type
 
+// A sweep alert's side: an auction match's sweep has none and never alerts.
+const AlertSide = Schema.Literals(["buy", "sell"])
+export type AlertSide = typeof AlertSide.Type
+
+// A sweep that reached its stock code's top-1% cutoff for its side (the rule
+// is in the dashboard's sweep-alerts.ts): its code, side and lots, and the
+// trade numbers of its trades, which the page marks on the tape.
+const SweepAlert = Schema.Struct({
+  code: StockCode,
+  side: AlertSide,
+  lots: Schema.Finite,
+  tradeNumbers: Schema.Array(TradeNumber),
+})
+export type SweepAlert = typeof SweepAlert.Type
+
 // When the trading-day object sent a message, on its clock: what the
 // message holds came from the trades that reached it before then. Market
 // Bubbles takes a backfill settled past it as holding them too
@@ -432,6 +448,9 @@ const Snapshot = Schema.TaggedStruct("Snapshot", {
   // The selected and watchlist codes' that have one, so the watchlist shows
   // them during an auction. Absent when none has.
   indicative: Schema.optionalKey(Schema.Array(IndicativePrice)),
+  // The day's sweep alerts with a trade on this tape, which the page marks
+  // and never plays. Absent when none has.
+  sweepAlerts: Schema.optionalKey(Schema.Array(SweepAlert)),
 })
 
 // The running trades that arrived in the last ~250 ms, ascending by trade
@@ -454,6 +473,9 @@ const Delta = Schema.TaggedStruct("Delta", {
   // code some viewer selected, each whole: the page replaces its copy of
   // that minute (candles.ts, `takeChanged`). Absent when none changed.
   sweeps: Schema.optionalKey(Schema.Array(MinuteSweeps)),
+  // The sweeps of any code that alerted since the last delta, each decided
+  // once its second closed. Absent when none did.
+  sweepAlerts: Schema.optionalKey(Schema.Array(SweepAlert)),
   // Every changed Day state of a code some viewer selected or watches, each
   // whole. Absent when none changed.
   dayStates: Schema.optionalKey(Schema.Array(DayState)),
