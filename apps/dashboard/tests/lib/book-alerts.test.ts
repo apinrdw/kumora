@@ -179,35 +179,35 @@ describe("alertTitle", () => {
 
 // The limits threaded through each admission, as the browser's store keeps
 // them.
-const makeGate = Effect.sync(() => {
-  let limits: AlertLimits = NO_LIMITS
+const makeAlertLimits = Effect.sync(() => {
+  let held: AlertLimits = NO_LIMITS
   return {
     admit: (event: BookEvent, now: number) =>
-      Effect.map(admitAlert(limits, event, now), (admitted) => {
-        limits = admitted.limits
+      Effect.map(admitAlert(held, event, now), (admitted) => {
+        held = admitted.limits
         return admitted.verdict
       }),
   }
 })
 
-describe("the alert gate", () => {
+describe("admitting an alert against the alert limits", () => {
   it.effect("lets the same code and kind through once in 2 minutes", () =>
     Effect.gen(function* () {
-      const gate = yield* makeGate
+      const limits = yield* makeAlertLimits
       assert.strictEqual(
-        (yield* gate.admit(pulled(BBCA, T0), T0))._tag,
+        (yield* limits.admit(pulled(BBCA, T0), T0))._tag,
         "Shown"
       )
       assert.strictEqual(
-        (yield* gate.admit(pulled(BBCA, T0 + 119_000), T0 + 119_000))._tag,
+        (yield* limits.admit(pulled(BBCA, T0 + 119_000), T0 + 119_000))._tag,
         "Cooled"
       )
       assert.strictEqual(
-        (yield* gate.admit(pulled(TLKM, T0 + 1_000), T0 + 1_000))._tag,
+        (yield* limits.admit(pulled(TLKM, T0 + 1_000), T0 + 1_000))._tag,
         "Shown"
       )
       assert.strictEqual(
-        (yield* gate.admit(pulled(BBCA, T0 + 120_000), T0 + 120_000))._tag,
+        (yield* limits.admit(pulled(BBCA, T0 + 120_000), T0 + 120_000))._tag,
         "Shown"
       )
     })
@@ -217,13 +217,13 @@ describe("the alert gate", () => {
     "shows 6 a minute and folds the rest into one count for that minute",
     () =>
       Effect.gen(function* () {
-        const gate = yield* makeGate
+        const limits = yield* makeAlertLimits
         const codes = Array.from({ length: 9 }, (_, i) =>
           StockCode.make(`AA${String.fromCharCode(65 + i)}`)
         )
         const verdicts = []
         for (const [i, code] of codes.entries())
-          verdicts.push(yield* gate.admit(pulled(code, T0 + i), T0 + i))
+          verdicts.push(yield* limits.admit(pulled(code, T0 + i), T0 + i))
         assert.deepStrictEqual(
           verdicts.map((verdict) => verdict._tag),
           [
@@ -246,7 +246,7 @@ describe("the alert gate", () => {
         })
         // A minute after the first: the window has room again, and a later
         // fold starts its own count.
-        const later = yield* gate.admit(
+        const later = yield* limits.admit(
           pulled(StockCode.make("ABBA"), T0 + 60_000),
           T0 + 60_000
         )

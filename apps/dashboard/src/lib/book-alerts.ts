@@ -101,7 +101,7 @@ const COOLDOWN_MS = 120_000
 const CAP_WINDOW_MS = 60_000
 const CAP = 6
 
-export type GateVerdict =
+export type AlertVerdict =
   | { readonly _tag: "Cooled" }
   | { readonly _tag: "Shown" }
   // One more folded into the count that started at `since`.
@@ -129,7 +129,7 @@ export const admitAlert = (
   event: BookEvent,
   now: number
 ) =>
-  Effect.sync((): { verdict: GateVerdict; limits: AlertLimits } => {
+  Effect.sync((): { verdict: AlertVerdict; limits: AlertLimits } => {
     const key = `${event.code}|${event.kind}`
     const at = DateTime.toEpochMillis(event.at)
     const before = limits.last[key]

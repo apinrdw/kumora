@@ -6,6 +6,7 @@ import {
   type BookEvent,
   type StockCode,
   type ViewerDown,
+  type WibDate,
 } from "@workspace/relay"
 import { DateTime, Effect } from "effect"
 import { useCallback, useEffect, useMemo, useRef, useState } from "react"
@@ -21,7 +22,7 @@ import {
   ruleMatches,
   withAlert,
   type Alert,
-  type GateVerdict,
+  type AlertVerdict,
   type MatchContext,
 } from "@/lib/book-alerts"
 import { bookEventDetail, bookEventKey } from "@/lib/book-events"
@@ -45,12 +46,27 @@ const LIMITS_LOCK = "kumora:book-alerts:limits"
 // admitted against under the Web Lock `kumora:book-alerts:limits` by the
 // alert owner (use-alert-owner.ts) only. An event heard twice cools on its
 // own code, kind and time. See apinrdw/kumora#526.
-const withLimitsLock = (change: () => void) => {
+const withLimitsLock = Effect.fnUntraced(function* (
+  change: Effect.Effect<void>
+) {
   const locks = typeof navigator === "undefined" ? undefined : navigator.locks
-  // Without Web Locks the write is unguarded.
-  if (locks === undefined) return change()
-  void locks.request(LIMITS_LOCK, change)
-}
+  // Without Web Locks, or when the request fails before the grant, the
+  // change runs unguarded; one that fails under the lock is only logged.
+  if (locks === undefined) return yield* change
+  let granted = false
+  yield* Effect.tryPromise(() =>
+    locks.request(LIMITS_LOCK, () => {
+      granted = true
+      return clientRuntime.runPromise(change)
+    })
+  ).pipe(
+    Effect.catch((error) =>
+      granted
+        ? Effect.logWarning("A book alert failed under its limits lock", error)
+        : change
+    )
+  )
+})
 
 const ALERT_MS = 8_000
 
@@ -104,7 +120,7 @@ const alertOf = Effect.fnUntraced(function* (event: BookEvent) {
 // toasts on the visible page, notifies from a background tab.
 const tellAlert = Effect.fnUntraced(function* (
   alert: Alert,
-  verdict: GateVerdict,
+  verdict: AlertVerdict,
   open: (alert: Alert) => void,
   view: () => void
 ) {
@@ -132,6 +148,25 @@ const tellAlert = Effect.fnUntraced(function* (
     duration: ALERT_MS,
     action: { label: "Open", onClick: () => open(alert) },
   })
+})
+
+// Admits each matched event against the browser's limits, records each
+// alert they let through and tells it.
+const admitAll = Effect.fnUntraced(function* (
+  matched: ReadonlyArray<BookEvent>,
+  now: number,
+  today: WibDate,
+  open: (alert: Alert) => void,
+  view: () => void
+) {
+  for (const event of matched) {
+    const { verdict, limits } = yield* admitAlert(alertLimits.get(), event, now)
+    if (verdict._tag === "Cooled") continue
+    alertLimits.set(limits)
+    const alert = yield* alertOf(event)
+    alertHistory.set(yield* withAlert(alertHistory.get(), alert, today))
+    yield* Effect.forkDetach(tellAlert(alert, verdict, open, view))
+  }
 })
 
 /**
@@ -177,12 +212,6 @@ export function useBookAlerts(live = true) {
     void navigate({ to: "/order-book-radar" })
   }, [navigate])
 
-  const tell = useCallback(
-    (alert: Alert, verdict: GateVerdict) =>
-      void clientRuntime.runFork(tellAlert(alert, verdict, open, view)),
-    [open, view]
-  )
-
   return useCallback(
     (message: ViewerDown) => {
       figures.apply(message)
@@ -198,21 +227,10 @@ export function useBookAlerts(live = true) {
         )
       )
       if (matched.length === 0) return
-      withLimitsLock(() => {
-        for (const event of matched) {
-          const { verdict, limits } = Effect.runSync(
-            admitAlert(alertLimits.get(), event, now)
-          )
-          if (verdict._tag === "Cooled") continue
-          alertLimits.set(limits)
-          const alert = Effect.runSync(alertOf(event))
-          alertHistory.set(
-            Effect.runSync(withAlert(alertHistory.get(), alert, today))
-          )
-          tell(alert, verdict)
-        }
-      })
+      void clientRuntime.runFork(
+        withLimitsLock(admitAll(matched, now, today, open, view))
+      )
     },
-    [figures, tell, owns]
+    [figures, open, view, owns]
   )
 }

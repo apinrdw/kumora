@@ -112,7 +112,7 @@ const delta = deltaOf(eaten)
 const settle = () =>
   act(() => new Promise<void>((resolve) => setTimeout(resolve, 20)))
 
-// A page in a tab of its own: its own modules, so its own gate, over the
+// A page in a tab of its own: its own modules, so its own stores, over the
 // browser's one localStorage and locks. A recorded day's page is not live.
 const openTab = async (live = true, settled = true) => {
   vi.resetModules()
