@@ -1272,15 +1272,24 @@ describe("candles", () => {
 // viewers selected, sends them in the next delta and keeps them for
 // snapshots, and a restarted one ranks the stored sweeps before it alerts.
 describe("sweep alerts", () => {
+  // 09:00:00 WIB and `second` seconds, to the millisecond.
+  const secondWib = (second: number, ms = "000") =>
+    `09:0${Math.floor(second / 60)}:${String(second % 60).padStart(2, "0")}.${ms}`
+
   // 100 one-lot buy sweeps of UNTR, one a second from 09:00:00 WIB, numbered
   // from `first`: its buy side's warm-up.
   const warmUntr = (first: number) =>
     Array.from({ length: 100 }, (_, index) =>
-      untr(
-        first + index,
-        `09:0${Math.floor(index / 60)}:${String(index % 60).padStart(2, "0")}.000`,
-        23300,
-        100
+      untr(first + index, secondWib(index), 23300, 100)
+    )
+
+  // UNTR's buy alerts the deltas `page` received carried, by their lots.
+  const alertedLots = (page: FakeSocket) =>
+    Effect.map(page.received, (received) =>
+      received.flatMap((message) =>
+        message._tag === "Delta"
+          ? (message.sweepAlerts ?? []).map((alert) => alert.lots)
+          : []
       )
     )
 
@@ -1298,8 +1307,6 @@ describe("sweep alerts", () => {
           yield* stockbit(
             [
               ...warmUntr(41000),
-              // A negotiated block never alerts.
-              untr(41100, "09:01:40.100", 23300, 90_000, 3),
               untr(41101, "09:01:41.100", 23300, 4000),
               untr(41102, "09:01:41.200", 23325, 6000),
               // A later second closes the big sweep's.
@@ -1334,6 +1341,32 @@ describe("sweep alerts", () => {
           []
         )
       })
+  )
+
+  it.effect("a negotiated or cash-board trade never alerts, however big", () =>
+    Effect.gen(function* () {
+      yield* TestClock.setTime(DateTime.toEpochMillis(wibAt("09:01:42.500")))
+      const { ingest, viewer, select } = yield* tradingDay()
+      const socket = yield* relay(ingest)
+      const page = yield* viewer()
+      yield* select(page, "BBCA")
+      yield* ingest(
+        socket,
+        yield* stockbit(
+          [
+            ...warmUntr(41000),
+            // Against 100 one-lot buy sweeps, any regular-board buy
+            // would alert.
+            untr(41100, "09:01:40.100", 23300, 90_000, 3),
+            untr(41101, "09:01:41.100", 23300, 90_000, 2),
+            { ...untr(41102, "09:01:42.000", 8000, 100), code: "BBCA" },
+          ],
+          "A"
+        )
+      )
+      yield* TestClock.adjust("250 millis")
+      assert.deepStrictEqual(yield* alertedLots(page), [])
+    })
   )
 
   it.effect(
@@ -1441,6 +1474,54 @@ describe("sweep alerts", () => {
             },
           ]
         )
+      })
+  )
+
+  it.effect(
+    "a restarted object decides nothing until it ranked every stored sweep",
+    () =>
+      Effect.gen(function* () {
+        yield* TestClock.setTime(DateTime.toEpochMillis(wibAt("09:01:42.500")))
+        const sql = memorySql()
+        const before = yield* tradingDay(undefined, sql)
+        // Each second a one-lot buy sweep and, past a one-lot sell, a buy
+        // sweep of 1,000 lots: a ranking holding only some of the 200 buy
+        // sweeps could cut lower than 1,000.
+        yield* before.ingest(
+          yield* relay(before.ingest),
+          yield* stockbit(
+            Array.from({ length: 100 }, (_, index) => [
+              untr(41000 + index * 3, secondWib(index, "100"), 23300, 100),
+              {
+                ...untr(41001 + index * 3, secondWib(index, "200"), 23300, 100),
+                action: 2,
+              },
+              untr(41002 + index * 3, secondWib(index, "300"), 23300, 100_000),
+            ]).flat(),
+            "A"
+          )
+        )
+        yield* TestClock.adjust("30 seconds")
+        yield* before.alarm
+
+        const { ingest, viewer, select } = yield* tradingDay(undefined, sql)
+        const page = yield* viewer()
+        yield* select(page, "BBCA")
+        yield* ingest(
+          yield* relay(ingest),
+          yield* stockbit(
+            [
+              untr(41301, "09:02:10.100", 23300, 200),
+              untr(41302, "09:02:11.100", 23300, 100_000),
+              { ...untr(41303, "09:02:12.000", 8000, 100), code: "BBCA" },
+            ],
+            "A"
+          )
+        )
+        yield* TestClock.adjust("250 millis")
+        // 200 sweeps cut at the 2nd largest, 1,000 lots: the 2-lot sweep
+        // stays silent and the 1,000-lot one ties the cutoff.
+        assert.deepStrictEqual(yield* alertedLots(page), [1000])
       })
   )
 })
