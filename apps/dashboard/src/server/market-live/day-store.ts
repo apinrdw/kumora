@@ -7,15 +7,12 @@ import { gunzipSync, gzipSync } from "node:zlib"
 
 import {
   StockCode,
-  TradeNumber,
   TradeNumberValue,
   type Footprint,
   type HeatSlice,
   type RunningTrade,
   type Sweep,
-  type TapeCursor,
   MINUTE_MS,
-  SHARES_PER_LOT,
 } from "@workspace/relay"
 import { DateTime, Effect } from "effect"
 
@@ -32,6 +29,7 @@ import { slicesFromText, slicesText, storedEndBook } from "./heat-rows.ts"
 import type { StoredAjaibBook } from "./order-books.ts"
 import type { LivePrice } from "./stockbit-liveprice.ts"
 import { sweepsFromText, sweepsText } from "./sweep-rows.ts"
+import { TAPE_SCHEMA, makeTape } from "./tape.ts"
 
 export type SqlValue = string | number | null | Uint8Array
 
@@ -125,22 +123,11 @@ export interface Flush {
   readonly alsoWrites?: () => void
 }
 
-// Decision: a trade is one row keyed by its number as the INTEGER PRIMARY
-// KEY (the rowid; a day's numbers stay far below 2^53), with no secondary
-// index, so each insert writes one row. The other tables are keyed WITHOUT
-// ROWID, replaced at most once a minute. See spec apinrdw/kumora#138,
+// Decision: the trades are the tape's (tape.ts). The other tables are keyed
+// WITHOUT ROWID, replaced at most once a minute. See spec apinrdw/kumora#138,
 // "Storage and cost".
 const SCHEMA = [
-  `CREATE TABLE IF NOT EXISTS trades (
-    number INTEGER PRIMARY KEY,
-    time INTEGER NOT NULL,
-    code TEXT NOT NULL,
-    price REAL NOT NULL,
-    lots REAL NOT NULL,
-    side TEXT NOT NULL,
-    board TEXT NOT NULL,
-    feeds TEXT NOT NULL
-  )`,
+  TAPE_SCHEMA,
   `CREATE TABLE IF NOT EXISTS candles (
     code TEXT NOT NULL,
     minute INTEGER NOT NULL,
@@ -202,20 +189,6 @@ const SCHEMA = [
 // today's bubbles answer until midnight (`bubblesAnswer`). A sealed past day's
 // keep 0: Market Bubbles is live only. See apinrdw/kumora#436.
 const ADDED_CANDLE_COLUMNS = ["buy_value", "sell_value"]
-
-// Each stored candle's buy and sell value from the stored trades, by
-// candles.ts `printOf`'s value by side and `counts`'s regular-board filter: a
-// stored candle folds the settled regular-board trades of its code and
-// minute, and a flush writes those trades with it.
-const REBUILD_CANDLE_SIDES = `UPDATE candles
-  SET buy_value = sides.buy, sell_value = sides.sell
-  FROM (
-    SELECT code, time - time % ${MINUTE_MS} AS minute,
-      SUM(CASE side WHEN 'buy' THEN price * lots * ${SHARES_PER_LOT} ELSE 0 END) AS buy,
-      SUM(CASE side WHEN 'sell' THEN price * lots * ${SHARES_PER_LOT} ELSE 0 END) AS sell
-    FROM trades WHERE board = 'RG' GROUP BY code, minute
-  ) AS sides
-  WHERE candles.code = sides.code AND candles.minute = sides.minute`
 
 // The keys of the facts table.
 export const Fact = {
@@ -283,29 +256,12 @@ export interface BuiltMinute {
   }>
 }
 
-// The most a stored trade's time can run before the time of the trade
-// numbered before it: Ajaib's and the backfill's rounding to the second.
-const TIME_SKEW_MS = 1_000
-
 // The footprint rows one statement of the restart's sweep read takes.
 // Decision: `eachStoredSweeps` reads 500 rows a statement by the table's
 // key. `Sql.exec` hands a statement's rows back whole, and the worst day's
 // in one statement held 75 MiB against the spec's ~30 MB; paged, the read
 // peaks at 12 MiB (sweep-alerts-memory.test.ts). See spec apinrdw/kumora#510.
 const SWEEP_PAGE = 500
-
-// Rows are the store's own writes, so they are read back without a decode.
-const tradeOf = (row: Record<string, SqlValue>) =>
-  Effect.sync((): RunningTrade => ({
-    tradeNumber: TradeNumber.make(String(row.number)),
-    time: DateTime.makeUnsafe(Number(row.time)),
-    code: StockCode.make(String(row.code)),
-    price: Number(row.price),
-    lots: Number(row.lots),
-    side: String(row.side) as RunningTrade["side"],
-    board: String(row.board) as RunningTrade["board"],
-    feeds: String(row.feeds).split(",") as RunningTrade["feeds"],
-  }))
 
 const storedCandleOf = (row: Record<string, SqlValue>) =>
   Effect.sync((): StoredCandle => ({
@@ -352,6 +308,7 @@ export const makeDayStore = (
 ) =>
   Effect.gen(function* () {
     for (const statement of SCHEMA) sql.exec(statement)
+    const tape = makeTape(sql)
     const columns = new Set(
       sql.exec("PRAGMA table_info(candles)").map((row) => String(row.name))
     )
@@ -364,7 +321,7 @@ export const makeDayStore = (
           sql.exec(
             `ALTER TABLE candles ADD COLUMN ${column} REAL NOT NULL DEFAULT 0`
           )
-        if (today || !sealed) sql.exec(REBUILD_CANDLE_SIDES)
+        if (today || !sealed) tape.rebuildCandleSides()
       })
 
     let meter = yield* emptyMeter
@@ -486,19 +443,7 @@ export const makeDayStore = (
       const footprints = yield* footprintTexts(flush.footprints)
       const heatmaps = yield* heatmapTexts(flush.chunks)
       yield* meteredTransaction(() => {
-        for (const trade of flush.trades)
-          // A number is written once: a copy can't replace it.
-          sql.exec(
-            "INSERT OR IGNORE INTO trades VALUES (?, ?, ?, ?, ?, ?, ?, ?)",
-            Number(trade.tradeNumber),
-            DateTime.toEpochMillis(trade.time),
-            trade.code,
-            trade.price,
-            trade.lots,
-            trade.side,
-            trade.board,
-            trade.feeds.join(",")
-          )
+        tape.write(flush.trades)
         insertCandles(flush.candles)
         insertFootprints(footprints)
         for (const price of flush.livePrices)
@@ -596,130 +541,14 @@ export const makeDayStore = (
         meter.facts += Object.keys(facts).length
       })
 
-    const hasTrade = (tradeNumber: TradeNumber) =>
-      Effect.sync(
-        () =>
-          sql.exec("SELECT 1 FROM trades WHERE number = ?", Number(tradeNumber))
-            .length > 0
-      )
-
-    // The lowest or highest number held. One aggregate per statement: SQLite
-    // reads a lone min() or max() off the primary key's end, but scans the
-    // whole table for a statement that asks for both.
-    const boundTrade = (bound: "min" | "max") =>
-      Effect.sync(() => {
-        const [row] = sql.exec(`SELECT ${bound}(number) AS number FROM trades`)
-        return row === undefined || row.number === null
-          ? undefined
-          : Number(row.number)
-      })
-
-    const highestTrade = Effect.gen(function* () {
-      const high = yield* boundTrade("max")
+    const highestTrade = Effect.sync(() => {
+      const high = tape.highestNumber()
       return high === undefined
         ? undefined
         : TradeNumberValue.make(BigInt(high))
     })
 
-    // How many trades the day stored so far: the index row's figure.
-    const storedTrades = Effect.sync(() =>
-      Number(sql.exec("SELECT count(*) AS count FROM trades")[0]?.count)
-    )
-
-    // The newest `limit` trades, ascending.
-    const newestTrades = Effect.fnUntraced(function* (limit: number) {
-      const trades = yield* Effect.forEach(
-        sql.exec("SELECT * FROM trades ORDER BY number DESC LIMIT ?", limit),
-        tradeOf
-      )
-      return trades.reverse()
-    })
-
-    // The trade with the lowest number at or above `number`.
-    const firstFrom = (number: number) =>
-      Effect.sync(
-        () =>
-          sql.exec(
-            "SELECT number, time FROM trades WHERE number >= ? ORDER BY number LIMIT 1",
-            number
-          )[0]
-      )
-
-    // Decision: the trades up to an instant are bounded by a binary search on
-    // the trade number, which IDX hands out in time order, so the table needs
-    // no time index. Stored times can run up to TIME_SKEW_MS backwards, so the
-    // search targets the instant plus the skew and the query's time filter
-    // drops the rest. See apinrdw/kumora#157.
-    const highestWithin = Effect.fnUntraced(function* (cutoff: number) {
-      const bound = cutoff + TIME_SKEW_MS
-      let low = yield* boundTrade("min")
-      let high = yield* boundTrade("max")
-      if (low === undefined || high === undefined) return undefined
-      let found: number | undefined
-      while (low <= high) {
-        const middle = Math.floor((low + high) / 2)
-        const row = yield* firstFrom(middle)
-        if (row === undefined || Number(row.number) > high) {
-          high = middle - 1
-          continue
-        }
-        if (Number(row.time) <= bound) {
-          found = Number(row.number)
-          low = found + 1
-        } else high = middle - 1
-      }
-      return found
-    })
-
-    // The newest `limit` trades at or before `at`, below `before` when it is
-    // given, ascending: SQLite walks the primary key down from the lower of
-    // the search's number and `before`, and skips the rows the skew lets past
-    // it.
-    const tradesAt = Effect.fnUntraced(function* (
-      { at, before }: TapeCursor,
-      limit: number
-    ) {
-      const cutoff = DateTime.toEpochMillis(at)
-      const found = yield* highestWithin(cutoff)
-      if (found === undefined) return []
-      const highest =
-        before === undefined ? found : Math.min(found, Number(before) - 1)
-      const trades = yield* Effect.forEach(
-        sql.exec(
-          "SELECT * FROM trades WHERE number <= ? AND time <= ? ORDER BY number DESC LIMIT ?",
-          highest,
-          cutoff,
-          limit
-        ),
-        tradeOf
-      )
-      return trades.reverse()
-    })
-
-    // The trades after `after` and at or before `through`, ascending. The
-    // numbers start from a search two skews before `after`: every trade at
-    // or below that number is at or before `after`, so none is missed, and
-    // the time filter decides the rest.
-    const tradesBetween = Effect.fnUntraced(function* (
-      after: DateTime.Utc,
-      through: DateTime.Utc
-    ) {
-      const from = DateTime.toEpochMillis(after)
-      const to = DateTime.toEpochMillis(through)
-      const last = yield* highestWithin(to)
-      if (last === undefined) return []
-      const first = (yield* highestWithin(from - 2 * TIME_SKEW_MS)) ?? 0
-      return yield* Effect.forEach(
-        sql.exec(
-          "SELECT * FROM trades WHERE number > ? AND number <= ? AND time > ? AND time <= ? ORDER BY number",
-          first,
-          last,
-          from,
-          to
-        ),
-        tradeOf
-      )
-    })
+    const { tradesBetween } = tape
 
     // One code's candle for one minute, with its trade orders.
     const storedCandle = Effect.fnUntraced(function* (
@@ -849,11 +678,9 @@ export const makeDayStore = (
 
     // The first and last minute that can hold a stored trade or book chunk,
     // and the codes with a book chunk; none when the day stored neither. The
-    // trades' minutes come off the primary key's ends, widened by
-    // TIME_SKEW_MS: a later-numbered trade can be stored up to that much
-    // before the first, and an earlier one that much after the last. The
-    // chunks' come from one pass grouped by code, so memory holds a row per
-    // code, never per chunk.
+    // trades' minutes are the tape's (`minuteSpan`). The chunks' come from
+    // one pass grouped by code, so memory holds a row per code, never per
+    // chunk.
     const orderFlowMinutes = Effect.gen(function* () {
       let first = Number.POSITIVE_INFINITY
       let last = Number.NEGATIVE_INFINITY
@@ -861,17 +688,10 @@ export const makeDayStore = (
         first = Math.min(first, minute)
         last = Math.max(last, minute)
       }
-      for (const [bound, skew] of [
-        ["min", -TIME_SKEW_MS],
-        ["max", TIME_SKEW_MS],
-      ] as const) {
-        const number = yield* boundTrade(bound)
-        if (number === undefined) continue
-        const [row] = sql.exec(
-          "SELECT time FROM trades WHERE number = ?",
-          number
-        )
-        add(Math.floor((Number(row?.time) + skew) / MINUTE_MS) * MINUTE_MS)
+      const tradeMinutes = yield* tape.minuteSpan
+      if (tradeMinutes !== undefined) {
+        add(tradeMinutes.first)
+        add(tradeMinutes.last)
       }
       const chunkCodes: Array<StockCode> = []
       for (const row of sql.exec(
@@ -897,23 +717,7 @@ export const makeDayStore = (
 
     // The minutes the stored trades numbered `first` to `last` fall in,
     // ascending; none when it holds none of them.
-    const minutesOfTrades = (first: TradeNumber, last: TradeNumber) =>
-      Effect.sync(() => {
-        const [row] = sql.exec(
-          "SELECT min(time) AS first, max(time) AS last FROM trades WHERE number BETWEEN ? AND ?",
-          Number(first),
-          Number(last)
-        )
-        if (row === undefined || row.first === null) return []
-        const minutes: Array<number> = []
-        for (
-          let minute = Math.floor(Number(row.first) / MINUTE_MS) * MINUTE_MS;
-          minute <= Number(row.last);
-          minute += MINUTE_MS
-        )
-          minutes.push(minute)
-        return minutes
-      })
+    const minutesOfTrades = tape.minutesOf
 
     // One code's stored book chunk for exactly `minute`, as stored.
     const chunkOfMinute = Effect.fnUntraced(function* (
@@ -930,13 +734,13 @@ export const makeDayStore = (
 
     // Whether the day stored neither a trade nor a book chunk.
     const storedNothing = Effect.gen(function* () {
-      if ((yield* boundTrade("max")) !== undefined) return false
+      if (tape.highestNumber() !== undefined) return false
       return sql.exec("SELECT 1 FROM book_chunks LIMIT 1").length === 0
     })
 
     // One stock's regular-board trades in one minute, ascending by trade
-    // number. The trades table has no code index (the Decision on SCHEMA), so
-    // this reads the whole market's minute; the book asks only when a late
+    // number. The tape has no code index (the Decision on tape.ts's
+    // TAPE_SCHEMA), so this reads the whole market's minute; the book asks only when a late
     // trade lands in a stored minute (candles.ts, `slotSweeps`).
     const storedMinuteTrades = Effect.fnUntraced(function* (
       code: StockCode,
@@ -1140,11 +944,12 @@ export const makeDayStore = (
       takeMeter,
       takeUsage,
       orderFlowStorage,
-      hasTrade,
+      hasTrade: tape.has,
       highestTrade,
-      storedTrades,
-      newestTrades,
-      tradesAt,
+      // How many trades the day stored so far: the index row's figure.
+      storedTrades: tape.count,
+      newestTrades: tape.newest,
+      tradesAt: tape.tradesAt,
       tradesBetween,
       storedCandle,
       storedCandlesOf,
