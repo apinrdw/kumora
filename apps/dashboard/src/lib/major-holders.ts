@@ -66,7 +66,8 @@ export interface MajorHolders {
     | undefined
 }
 
-const largestRow = (holder: MajorHolder) =>
+// A holder's largest row, by total shares: the one whose name it shows.
+export const largestRow = (holder: MajorHolder) =>
   Effect.sync(() =>
     holder.rows.reduce((largest, row) =>
       row.total > largest.total ? row : largest
