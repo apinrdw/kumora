@@ -3,11 +3,11 @@ import { Effect } from "effect"
 
 import { majorHolders } from "@/lib/major-holders"
 import type {
-  MajorHolder,
+  Above1Holder,
   MajorHoldersMonth,
 } from "@/server/holdings/stock-page"
 
-type Row = MajorHolder["rows"][number]
+type Row = Above1Holder["rows"][number]
 
 const row = (name: string, total: number, hundredths: number): Row => ({
   name,
@@ -35,7 +35,7 @@ const holder = (key: string, rows: ReadonlyArray<Row>, scrip = 0) => ({
 
 const month = (
   dataDate: string,
-  holders: ReadonlyArray<MajorHolder>
+  holders: ReadonlyArray<Above1Holder>
 ): MajorHoldersMonth => ({ dataDate, holders })
 
 // Sep: A 20%, B 5%, C 2%, D 1.5%. Oct: A up to 20.5%, B the same %

@@ -6,7 +6,7 @@ import { Effect } from "effect"
 
 import { beforeOf, changeOf, largestRow } from "@/lib/major-holders"
 import type {
-  MajorHolder,
+  Above1Holder,
   MajorHoldersMonth,
 } from "@/server/holdings/stock-page"
 
@@ -67,7 +67,7 @@ export const everyMonth = Effect.fnUntraced(function* (
   const byKey = months.map(
     ({ holders }) => new Map(holders.map((each) => [each.key, each]))
   )
-  const newest = new Map<string, MajorHolder>()
+  const newest = new Map<string, Above1Holder>()
   for (const holders of byKey)
     for (const [key, each] of holders) newest.set(key, each)
   const current =

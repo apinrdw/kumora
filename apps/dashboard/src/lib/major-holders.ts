@@ -5,11 +5,11 @@ import { Effect } from "effect"
 
 import { CLASSIFICATIONS, KSEI_TYPE_LABELS } from "@/domain/holdings"
 import type {
-  MajorHolder,
+  Above1Holder,
   MajorHoldersMonth,
 } from "@/server/holdings/stock-page"
 
-type Row = MajorHolder["rows"][number]
+type Row = Above1Holder["rows"][number]
 
 // Against the report month before: decided by the change in summed
 // percentage, or absent from it (new) or from this month (off list).
@@ -67,7 +67,7 @@ export interface MonthHolders {
 }
 
 // A holder's largest row, by total shares: the one whose name it shows.
-export const largestRow = (holder: MajorHolder) =>
+export const largestRow = (holder: Above1Holder) =>
   Effect.sync(() =>
     holder.rows.reduce((largest, row) =>
       row.total > largest.total ? row : largest
@@ -89,13 +89,13 @@ const labelOf = ({ classification, type }: Row) =>
   )
 
 // The month before's holders by key, when it is comparable.
-type Before = ReadonlyMap<string, MajorHolder> | undefined
+type Before = ReadonlyMap<string, Above1Holder> | undefined
 
 // The one movement rule, which the table's chips and the Every month grid's
 // marks both follow: a holder's change against the month before's holders,
 // by the change in summed hundredths, or new when absent from them;
 // undefined without a comparable month before.
-export const changeOf = (holder: MajorHolder, before: Before) =>
+export const changeOf = (holder: Above1Holder, before: Before) =>
   Effect.sync((): Change | undefined => {
     if (before === undefined) return undefined
     const previous = before.get(holder.key)
@@ -105,7 +105,7 @@ export const changeOf = (holder: MajorHolder, before: Before) =>
   })
 
 const lineOf = Effect.fnUntraced(function* (
-  holder: MajorHolder,
+  holder: Above1Holder,
   before: Before
 ) {
   const largest = yield* largestRow(holder)

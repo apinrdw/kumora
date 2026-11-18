@@ -105,7 +105,7 @@ export type HolderSizeMonth = typeof HolderSizeMonth.Type
 
 // One row of an above-1% report as published. `percentageHundredths` is
 // its % of listed shares × 100.
-const MajorHolderRow = Schema.Struct({
+const Above1HolderRow = Schema.Struct({
   name: Schema.String,
   // Undefined in Feb–Mar 2026, which publish a type instead, or when blank.
   classification: Schema.UndefinedOr(Classification),
@@ -120,21 +120,21 @@ const MajorHolderRow = Schema.Struct({
 
 // A ≥1% holder: a month's rows of the stock sharing a holder key, summed,
 // its rows in file order.
-const MajorHolder = Schema.Struct({
+const Above1Holder = Schema.Struct({
   key: Schema.String,
   scripless: Schema.Number,
   scrip: Schema.Number,
   total: Schema.Number,
   percentageHundredths: Schema.Number,
-  rows: Schema.Array(MajorHolderRow),
+  rows: Schema.Array(Above1HolderRow),
 })
-export type MajorHolder = typeof MajorHolder.Type
+export type Above1Holder = typeof Above1Holder.Type
 
 // An above-1% report month, its holders in the order of their first row;
 // none when the report has no row for the stock.
 const MajorHoldersMonth = Schema.Struct({
   dataDate: Schema.String,
-  holders: Schema.Array(MajorHolder),
+  holders: Schema.Array(Above1Holder),
 })
 export type MajorHoldersMonth = typeof MajorHoldersMonth.Type
 
@@ -293,7 +293,7 @@ type Above1HoldingRow = typeof Above1HoldingRow.Type
 
 // A stored row as the report published it.
 const publishedRow = (row: Above1HoldingRow) =>
-  Effect.succeed<MajorHolder["rows"][number]>({
+  Effect.succeed<Above1Holder["rows"][number]>({
     name: row.investor_name,
     classification: row.classification ?? undefined,
     type: row.investor_type ?? undefined,
@@ -309,7 +309,7 @@ const majorHolders = Effect.fnUntraced(function* (
   monthRows: ReadonlyArray<typeof Above1MonthRow.Type>,
   holdingRows: ReadonlyArray<Above1HoldingRow>
 ) {
-  const byMonth = new Map<string, Map<string, MajorHolder>>(
+  const byMonth = new Map<string, Map<string, Above1Holder>>(
     monthRows.map(({ data_date }) => [data_date, new Map()])
   )
   for (const row of holdingRows) {

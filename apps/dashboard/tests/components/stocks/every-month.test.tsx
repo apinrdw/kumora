@@ -5,14 +5,14 @@ import { afterEach, describe, expect, test } from "vitest"
 
 import { EveryMonth } from "@/components/stocks/every-month"
 import type {
-  MajorHolder,
+  Above1Holder,
   MajorHoldersMonth,
 } from "@/server/holdings/stock-page"
 
 // React's `act` warns outside a test environment that declares itself.
 Object.assign(globalThis, { IS_REACT_ACT_ENVIRONMENT: true })
 
-type Row = MajorHolder["rows"][number]
+type Row = Above1Holder["rows"][number]
 
 const row = (name: string, total: number, hundredths: number): Row => ({
   name,
@@ -25,7 +25,7 @@ const row = (name: string, total: number, hundredths: number): Row => ({
   percentageHundredths: hundredths,
 })
 
-const holder = (key: string, rows: ReadonlyArray<Row>): MajorHolder => {
+const holder = (key: string, rows: ReadonlyArray<Row>): Above1Holder => {
   const total = rows.reduce((sum, each) => sum + each.total, 0)
   return {
     key,
@@ -42,7 +42,7 @@ const holder = (key: string, rows: ReadonlyArray<Row>): MajorHolder => {
 
 const month = (
   dataDate: string,
-  holders: ReadonlyArray<MajorHolder>
+  holders: ReadonlyArray<Above1Holder>
 ): MajorHoldersMonth => ({ dataDate, holders })
 
 // Jul has no rows for the stock. Aug: Adaro 41%, Gamma 2%, Delta 1.5%.

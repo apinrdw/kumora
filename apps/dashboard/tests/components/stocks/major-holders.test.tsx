@@ -9,14 +9,14 @@ import {
   type MajorHoldersProps,
 } from "@/components/stocks/major-holders"
 import type {
-  MajorHolder,
+  Above1Holder,
   MajorHoldersMonth,
 } from "@/server/holdings/stock-page"
 
 // React's `act` warns outside a test environment that declares itself.
 Object.assign(globalThis, { IS_REACT_ACT_ENVIRONMENT: true })
 
-type Row = MajorHolder["rows"][number]
+type Row = Above1Holder["rows"][number]
 
 const row = (
   name: string,
@@ -39,7 +39,7 @@ const holder = (
   key: string,
   rows: ReadonlyArray<Row>,
   scrip = 0
-): MajorHolder => {
+): Above1Holder => {
   const total = rows.reduce((sum, each) => sum + each.total, 0)
   return {
     key,
@@ -56,7 +56,7 @@ const holder = (
 
 const month = (
   dataDate: string,
-  holders: ReadonlyArray<MajorHolder>
+  holders: ReadonlyArray<Above1Holder>
 ): MajorHoldersMonth => ({ dataDate, holders })
 
 // Aug has no rows for the stock. Sep: Adaro 41.00%, Permadi 3.48%, Gamma
