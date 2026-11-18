@@ -763,14 +763,6 @@ export const makeTradingDay = Effect.fnUntraced(function* (options: {
   // code missing is one some viewer may hold otherwise. A snapshot that hands
   // a viewer other figures drops the code, so the next delta sends it to all.
   const sentFigures = new Map<StockCode, string>()
-  // Each input has one source: last price and previous close
-  // `dayStates.pricesOf`, the previous day's value `previousValues`, today's
-  // value the bubbles' day sums; the readings carry only their book's.
-  // Decision: every scanner input but the readings is a figure, and each
-  // delta sends every code whose figures differ from `sentFigures`, compared
-  // rather than tracked, so whatever books, trades and frames come in, every
-  // page holds each code's current inputs after the next delta. See spec
-  // apinrdw/kumora#517, "Data".
   // Every code with readings' figures, each trade past its merge window
   // settled first, so today's value counts it.
   const currentFigures = Effect.gen(function* () {
@@ -779,6 +771,14 @@ export const makeTradingDay = Effect.fnUntraced(function* (options: {
       figuresOf(code)
     )
   })
+  // Each input has one source: last price and previous close
+  // `dayStates.pricesOf`, the previous day's value `previousValues`, today's
+  // value the bubbles' day sums; the readings carry only their book's.
+  // Decision: every scanner input but the readings is a figure, and each
+  // delta sends every code whose figures differ from `sentFigures`, compared
+  // rather than tracked, so whatever books, trades and frames come in, every
+  // page holds each code's current inputs after the next delta. See spec
+  // apinrdw/kumora#517, "Data".
   const changedFigures = Effect.gen(function* () {
     const changed: Array<Effect.Success<ReturnType<typeof figuresOf>>> = []
     for (const figures of yield* currentFigures) {
