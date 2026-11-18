@@ -49,12 +49,19 @@ class FakeSocket implements Peer {
   open = Effect.succeed(true)
   readonly sent: Array<string> = []
   private current: PeerState = "new"
+  private codes: ReadonlyArray<StockCode> = []
   send = (text: string) => Effect.sync(() => void this.sent.push(text))
   close = () => Effect.void
   state = Effect.sync(() => this.current)
   setState = (state: PeerState) =>
     Effect.sync(() => {
       this.current = state
+    })
+  // The selected code first: whole books go out only for selected codes.
+  watching = Effect.sync(() => this.codes)
+  setWatching = (codes: ReadonlyArray<StockCode>) =>
+    Effect.sync(() => {
+      this.codes = codes
     })
 }
 
@@ -672,6 +679,34 @@ describe("a restarted trading day", () => {
         yield* TestClock.adjust("1 second")
         const delta = (yield* page).at(-1)
         assert.deepStrictEqual(bookOf(delta), { bids: 20, bidLots: 240 })
+      })
+  )
+
+  it.effect(
+    "keeps the readings of a book last served in a session, for the break's snapshots",
+    () =>
+      Effect.gen(function* () {
+        yield* TestClock.setTime(wib("11:29:00").epochMilliseconds)
+        const sql = memorySql()
+        const first = yield* tradingDay(sql)
+        yield* first.ajaib([
+          ajaibBookFrame("11:29:00", [[8_000, 30, 3]], [[8_025, 10, 1]]),
+        ])
+        yield* pastFlush
+        yield* first.stop
+
+        yield* TestClock.setTime(wib("12:10:00").epochMilliseconds)
+        const restarted = yield* tradingDay(sql)
+        const page = yield* restarted.viewer("TLKM")
+        const [snapshot] = yield* page
+        assert(snapshot?._tag === "Snapshot")
+        assert.deepStrictEqual(
+          (snapshot.bookReadings ?? []).map((reading) => ({
+            code: reading.code,
+            imbalance: reading.imbalance,
+          })),
+          [{ code: StockCode.make("BBCA"), imbalance: 0.5 }]
+        )
       })
   )
 

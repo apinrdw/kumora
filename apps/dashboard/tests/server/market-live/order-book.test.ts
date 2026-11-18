@@ -38,12 +38,19 @@ class FakeSocket implements Peer {
   open = Effect.succeed(true)
   readonly sent: Array<string> = []
   private current: PeerState = "new"
+  private codes: ReadonlyArray<StockCode> = []
   send = (text: string) => Effect.sync(() => void this.sent.push(text))
   close = () => Effect.void
   state = Effect.sync(() => this.current)
   setState = (state: PeerState) =>
     Effect.sync(() => {
       this.current = state
+    })
+  // The selected code first: whole books go out only for selected codes.
+  watching = Effect.sync(() => this.codes)
+  setWatching = (codes: ReadonlyArray<StockCode>) =>
+    Effect.sync(() => {
+      this.codes = codes
     })
 }
 
@@ -499,6 +506,104 @@ describe("the order book", () => {
         assert.strictEqual(
           late?._tag === "OrderBook" ? late.provenance : undefined,
           "Stockbit"
+        )
+      })
+  )
+})
+
+// The recorded BBCA sides relabelled as another code's.
+const sidesOf = (code: string, datetime = bbca.datetime) => [
+  orderBookFrame(code, bbca.bid.replaceAll("BBCA", code), datetime),
+  orderBookFrame(code, bbca.offer.replaceAll("BBCA", code), datetime),
+]
+
+// The readings every delta carried, by code, in order.
+const deltaReadings = (messages: ReadonlyArray<ViewerDown>) =>
+  messages.flatMap((message) =>
+    message._tag === "Delta" ? (message.bookReadings ?? []) : []
+  )
+
+describe("book readings and the delta", () => {
+  it.effect(
+    "a delta carries whole books for selected codes and readings for every changed code",
+    () =>
+      Effect.gen(function* () {
+        const { stockbit, viewer } = yield* tradingDay()
+        const page = yield* viewer("BBCA")
+        yield* stockbit([...BBCA_SIDES, ...sidesOf("TLKM")])
+        yield* TestClock.adjust("1 second")
+        const messages = yield* received(page)
+        assert.deepStrictEqual(
+          messages.flatMap((message) =>
+            message._tag === "Delta"
+              ? (message.orderBooks ?? []).map((book) => book.code)
+              : []
+          ),
+          ["BBCA"]
+        )
+        const readings = deltaReadings(messages)
+        assert.deepStrictEqual(readings.map((reading) => reading.code).sort(), [
+          "BBCA",
+          "TLKM",
+        ])
+        const bbcaReadings = readings.find((each) => each.code === "BBCA")!
+        // 5,025 to 5,050 is one Rp25 tick; 5,025 down to 4,970 leaves none
+        // empty across the Rp10 band below 5,000.
+        assert.strictEqual(bbcaReadings.spread?.ticks, 1)
+        assert.strictEqual(bbcaReadings.bid.emptyTicks, 0)
+        assert.strictEqual(bbcaReadings.bid.lots, 138_674)
+        assert.strictEqual(DateTime.toEpochMillis(bbcaReadings.at), SEEN)
+      })
+  )
+
+  it.effect("a snapshot carries every code's latest readings", () =>
+    Effect.gen(function* () {
+      const { stockbit, viewer } = yield* tradingDay()
+      yield* viewer("BBCA")
+      yield* stockbit([...BBCA_SIDES, ...sidesOf("TLKM")])
+      yield* TestClock.adjust("1 second")
+      const [snapshot] = yield* received(yield* viewer("ASII"))
+      assert(snapshot?._tag === "Snapshot")
+      assert.deepStrictEqual(
+        (snapshot.bookReadings ?? []).map((reading) => reading.code).sort(),
+        ["BBCA", "TLKM"]
+      )
+    })
+  )
+
+  it.effect(
+    "outside Sessions 1 and 2 readings keep their last values and no delta carries any",
+    () =>
+      Effect.gen(function* () {
+        const { stockbit, viewer } = yield* tradingDay()
+        const page = yield* viewer("BBCA")
+        yield* stockbit(BBCA_SIDES)
+        yield* TestClock.adjust("1 second")
+        // 16:05 WIB: post-trading.
+        yield* TestClock.setTime(Date.parse("2026-11-09T16:05:00+07:00"))
+        yield* stockbit([
+          ...sidesOf("TLKM", "2026-11-09T16:05:00.000+07:00"),
+          orderBookFrame(
+            "BBCA",
+            bbca.bid.replace("5025;193;3600900", "5030;5;50000"),
+            "2026-11-09T16:05:00.000+07:00"
+          ),
+        ])
+        yield* TestClock.adjust("1 second")
+        const messages = yield* received(page)
+        assert.deepStrictEqual(
+          deltaReadings(messages).map((reading) => reading.code),
+          ["BBCA"]
+        )
+        const [snapshot] = yield* received(yield* viewer("BBCA"))
+        assert(snapshot?._tag === "Snapshot")
+        const held = snapshot.bookReadings ?? []
+        assert.deepStrictEqual(
+          held.map((reading) => [
+            reading.code,
+            DateTime.toEpochMillis(reading.at),
+          ]),
+          [["BBCA", SEEN]]
         )
       })
   )

@@ -60,6 +60,7 @@ import { ajaibTrades } from "./ajaib.ts"
 import { ajaibPrices } from "./ajaib-price.ts"
 import { backfillTrades } from "./backfill-page.ts"
 import { makeBubbleBook } from "./bubble-book.ts"
+import { makeReadingsBook } from "./readings-book.ts"
 import { makeBrokerCodes } from "./broker-codes.ts"
 import {
   BROKER_TOTALS_DUE,
@@ -256,12 +257,27 @@ const encodeConditions = Schema.encodeEffect(
 
 // The last-frame cache, rebuilt from the store after a restart: each code's
 // last `liveprice` frame and its last served order book. Returns the frames.
+// A delta's optional lists, each left out when empty: the delta's schema
+// keeps them absent rather than empty.
+const nonEmptyParts = <
+  Parts extends Readonly<Record<string, ReadonlyArray<unknown>>>,
+>(
+  parts: Parts
+) =>
+  Effect.sync(
+    () =>
+      Object.fromEntries(
+        Object.entries(parts).filter(([, list]) => list.length > 0)
+      ) as Partial<Parts>
+  )
+
 const restoreLastFrames = Effect.fnUntraced(function* (day: {
   readonly store: Effect.Success<ReturnType<typeof makeDayStore>>
   readonly candles: Effect.Success<ReturnType<typeof makeCandleBook>>
   readonly books: Effect.Success<ReturnType<typeof makeOrderBooks>>
   readonly dayStates: Effect.Success<ReturnType<typeof makeDayStates>>
   readonly bookChunks: Effect.Success<typeof makeBookChunks>
+  readonly readings: Effect.Success<ReturnType<typeof makeReadingsBook>>
 }) {
   // Decision: a restart reads back only the last-frame tables, one row per
   // code, bounded by the code list. The day's candles stay in the store: the
@@ -290,6 +306,9 @@ const restoreLastFrames = Effect.fnUntraced(function* (day: {
     if (book === undefined) continue
     yield* day.books.restore(book)
     yield* day.bookChunks.restore([book])
+    yield* day.readings.restore(book, (code) =>
+      Effect.map(day.dayStates.stateOf(code, true), (state) => state?.last)
+    )
   }
   yield* day.books.restoreAjaib(yield* day.store.ajaibBooks)
   return prices
@@ -492,6 +511,10 @@ export const makeTradingDay = Effect.fnUntraced(function* (options: {
   const candles = yield* makeCandleBook(store, bubbles.settled)
   const ingests = options.ingests ?? Effect.succeed([])
   const books = yield* makeOrderBooks(options.date)
+  const readings = yield* makeReadingsBook({
+    date: options.date,
+    valueOf: bubbles.dayValue,
+  })
   const bookChunks = yield* makeBookChunks
   const gaps = yield* makeGaps({ ingests, highest: storedHighest })
   const dayStates = yield* makeDayStates(candles)
@@ -523,6 +546,7 @@ export const makeTradingDay = Effect.fnUntraced(function* (options: {
       books,
       dayStates,
       bookChunks,
+      readings,
     }))
       lastLivePrices.set(price.code, price)
 
@@ -673,23 +697,37 @@ export const makeTradingDay = Effect.fnUntraced(function* (options: {
     const selected = yield* onDemand.selected
     const changed = yield* candles.takeChanged(selected)
     const live = yield* stockbitLive
-    const orderBooks = yield* books.takeChanged(live)
-    for (const book of orderBooks) yield* bookChunks.record(book)
+    const changedBooks = yield* books.takeChanged(live)
+    for (const book of changedBooks) yield* bookChunks.record(book)
     const states = yield* dayStates.takeChanged(live, yield* onDemand.watched)
     const conditions = yield* market.conditions
+    const bookReadings = yield* readings.read(
+      changedBooks,
+      conditions.phase,
+      (code) =>
+        Effect.map(dayStates.stateOf(code, live), (state) => state?.last)
+    )
+    // Decision: a delta carries whole books only for codes some viewer
+    // selected, as footprints do: a page reads only its selected code's, and
+    // whole books were 86% of a viewer's inflated bytes. Every other changed
+    // code goes out as its readings. See spec apinrdw/kumora#517, "Data".
+    const orderBooks = changedBooks.filter((book) => selected.has(book.code))
     const encoded = yield* encodeConditions(conditions)
     const conditionsChanged = encoded !== sentConditions
     sentConditions = encoded
-    const indicative = yield* market.indicativeChanges
+    const parts = yield* nonEmptyParts({
+      footprints: changed.footprints,
+      sweeps: changed.sweeps,
+      orderBooks,
+      bookReadings,
+      dayStates: states,
+      indicative: yield* market.indicativeChanges,
+    })
     if (
       trades.length === 0 &&
       changed.candles.length === 0 &&
-      changed.footprints.length === 0 &&
-      changed.sweeps.length === 0 &&
-      orderBooks.length === 0 &&
-      states.length === 0 &&
-      !conditionsChanged &&
-      indicative.length === 0
+      Object.keys(parts).length === 0 &&
+      !conditionsChanged
     )
       return
     const text = yield* encodeViewerDown({
@@ -697,14 +735,8 @@ export const makeTradingDay = Effect.fnUntraced(function* (options: {
       at: yield* DateTime.now,
       tape: trades,
       candles: changed.candles,
-      ...(changed.footprints.length > 0
-        ? { footprints: changed.footprints }
-        : {}),
-      ...(changed.sweeps.length > 0 ? { sweeps: changed.sweeps } : {}),
-      ...(orderBooks.length > 0 ? { orderBooks } : {}),
-      ...(states.length === 0 ? {} : { dayStates: states }),
+      ...parts,
       ...(conditionsChanged ? { conditions } : {}),
-      ...(indicative.length > 0 ? { indicative } : {}),
     })
     for (const viewer of yield* options.viewers) {
       if ((yield* viewer.state) !== "ready") continue
@@ -1348,6 +1380,7 @@ export const makeTradingDay = Effect.fnUntraced(function* (options: {
         const price = yield* market.indicativeOf(code)
         if (price !== undefined) indicative.push(price)
       }
+      const bookReadings = yield* readings.all
       const snapshot = yield* encodeViewerDown({
         _tag: "Snapshot",
         at: yield* DateTime.now,
@@ -1359,6 +1392,7 @@ export const makeTradingDay = Effect.fnUntraced(function* (options: {
         ...(states.length === 0 ? {} : { dayStates: states }),
         conditions: yield* market.conditions,
         ...(indicative.length === 0 ? {} : { indicative }),
+        ...(bookReadings.length === 0 ? {} : { bookReadings }),
       })
       yield* socket.send(snapshot)
       yield* socket.setState("ready")
