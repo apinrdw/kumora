@@ -132,8 +132,8 @@ export type {
 export type { CodeKind, ListedCode } from "./code-list.ts"
 export type { DayChange, DayState } from "./day-state.ts"
 export { BOOK_DEPTH, BookLevel, SHARES_PER_LOT } from "./order-book.ts"
-export { bookReadingsOf } from "./book-readings.ts"
-export type { BookReadings } from "./book-readings.ts"
+export { bookReadingsOf, fillEstimateOf } from "./book-readings.ts"
+export type { BookReadings, FillEstimate, OrderSize } from "./book-readings.ts"
 export {
   HEAT_SLICE_MS,
   decodeRecordedHeatmap,
