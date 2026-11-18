@@ -28,7 +28,7 @@ const audioContext = Effect.try(() => (context ??= new AudioContext()))
 
 // Resumed when the browser suspended it. A browser lets audio start only
 // after the page has had a click or key press, so the speaker toggle's click
-// wakes it; until then the notes wait in the paused context.
+// wakes it.
 const resume = (audio: AudioContext) =>
   audio.state === "suspended"
     ? Effect.tryPromise(() => audio.resume()).pipe(Effect.ignore)
@@ -61,12 +61,18 @@ const note = (
 
 // The page's sound sink. A buy and a sell asked for in the same update
 // start at the same moment: the context's clock stands still while one
-// script runs, and nothing here waits.
+// script runs, and nothing here waits. A context that isn't running drops
+// the sound: notes scheduled in a suspended one would all play at once when
+// a click resumes it, and a sound means "just now" (spec apinrdw/kumora#510,
+// story 12).
 export const sweepAlertSound: SoundSink = {
   play: (side) =>
     Effect.gen(function* () {
       const audio = yield* audioContext
-      yield* Effect.forkDetach(resume(audio))
+      if (audio.state !== "running") {
+        yield* Effect.forkDetach(resume(audio))
+        return
+      }
       let at = audio.currentTime + 0.01
       for (const played of NOTES[side]) {
         yield* note(audio, at, played)

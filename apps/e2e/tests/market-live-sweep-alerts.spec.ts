@@ -21,7 +21,8 @@ declare global {
 
 // Stands in for WebAudio: each note the page plays is written down by its
 // starting frequency. A sound's first note names it: 1047 Hz is a buy's,
-// 659 Hz a sell's (sweep-alert-sound.ts).
+// 659 Hz a sell's (sweep-alert-sound.ts). As in a browser, a context starts
+// suspended until the page's click resumes it.
 const recordNotes = () => {
   const notes: Array<number> = []
   window.__notes = notes
@@ -34,10 +35,13 @@ const recordNotes = () => {
     connect: <N>(next: N) => next,
   })
   class RecordingAudioContext {
-    state = "running"
+    state = "suspended"
     currentTime = 0
     destination = {}
-    resume = () => Promise.resolve()
+    resume = () => {
+      this.state = "running"
+      return Promise.resolve()
+    }
     createOscillator = () =>
       node({
         type: "sine",
@@ -51,7 +55,7 @@ const recordNotes = () => {
 }
 const BUY_FIRST_NOTE = 1047
 
-test("a sweep that reaches its code's top-1% cutoff marks its rows on the live tape and plays one buy sound, though another code is selected, and is marked again silently after a reload", async ({
+test("a sweep that reaches its code's top-1% cutoff marks its rows on the live tape and plays one buy sound, though another code is selected, and is marked again silently after a reload, where an alert before the first click never plays", async ({
   page,
 }) => {
   const relay = await openIngest()
@@ -145,6 +149,34 @@ test("a sweep that reaches its code's top-1% cutoff marks its rows on the live t
   await marked()
   // The toggle is remembered, and the snapshot's alert stays silent.
   await expect(speaker).toHaveAttribute("aria-pressed", "true")
+  expect(await buys()).toBe(0)
+
+  // Before the reloaded page's first click its sound is suspended: a new
+  // alert marks its rows but plays neither then nor at the first key press.
+  const [againAt, closedAt] = [marketNow() - 1_000, marketNow()].map(wibTime)
+  await relay.sendAjaib([
+    ...[301, 302].map((seq) =>
+      ajaibTradeToday({
+        seq: base + seq,
+        time: againAt!,
+        ticker: code,
+        price: 505,
+        lot: 15,
+        type: "BUY",
+      })
+    ),
+    ajaibTradeToday({
+      seq: base + 303,
+      time: closedAt!,
+      ticker: code,
+      price: 500,
+      lot: 1,
+      type: "SELL",
+    }),
+  ])
+  await expect(row(301)).toHaveAttribute("data-sweep-alert", "buy")
+  expect(await buys()).toBe(0)
+  await page.keyboard.press("Shift")
   expect(await buys()).toBe(0)
   relay.close()
 })
