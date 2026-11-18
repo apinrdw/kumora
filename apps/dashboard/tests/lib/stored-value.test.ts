@@ -91,3 +91,25 @@ test("another tab's write tells subscribers unless the value is this tab's own",
   Effect.runSync(own.write(4))
   expect(told.own).toBe(1)
 })
+
+test("a tab-local value keeps what it first read until its own write", () => {
+  const tab = () =>
+    Effect.runSync(
+      makeStoredValue({
+        key: KEY,
+        parse: (raw) => Effect.succeed(Number(raw ?? 0)),
+        serialize: (value: number) => Effect.succeed(String(value)),
+        crossTab: false,
+      })
+    )
+  window.localStorage.setItem(KEY, "2")
+  const one = tab()
+  const other = tab()
+  expect([one.snapshot(), other.snapshot()]).toEqual([2, 2])
+  // The other tab writes the shared key; this one keeps its own value.
+  Effect.runSync(other.write(5))
+  expect(window.localStorage.getItem(KEY)).toBe("5")
+  expect(one.snapshot(), "this tab kept its value").toBe(2)
+  Effect.runSync(one.write(3))
+  expect([one.snapshot(), other.snapshot()]).toEqual([3, 5])
+})
