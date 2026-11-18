@@ -14,11 +14,11 @@ import {
 const NOW = Date.parse("2026-11-18T09:30:00+07:00")
 
 const side = (
-  depth: number,
+  nearDepth: number,
   more: Partial<BookReadings["bid"]> = {}
 ): BookReadings["bid"] => ({
-  depth,
-  lots: depth / 100_000,
+  nearDepth,
+  lots: nearDepth / 100_000,
   emptyTicks: 0,
   widestGap: 0,
   lotsPerOrder: 10,

@@ -13,7 +13,8 @@ export const BOOK_EVENT_WINDOW_MS = 30_000
 export const MIN_SIDE_FRAMES = 2
 
 // The book side an event happened on.
-const BookEventSide = Schema.Literals(["bid", "offer"])
+export const BookEventSide = Schema.Literals(["bid", "offer"])
+export type BookEventSide = typeof BookEventSide.Type
 
 // What every event carries: its code, the side frame's time it was read on,
 // its side and price, and the lots and orders its detail line names.

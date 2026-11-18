@@ -5,6 +5,14 @@ import { StockCode } from "./codes.ts"
 // The shares in one IDX lot.
 export const SHARES_PER_LOT = 100
 
+// What `lots` at `price` are worth in rupiah: a level's value, a wall's, or a
+// trade's.
+// Decision: plain, not an Effect: the level ledger and the book readings call
+// it for every level of every side frame (level-ledger.ts's Decision gives
+// the timing).
+export const levelValue = (price: number, lots: number) =>
+  price * lots * SHARES_PER_LOT
+
 // Levels a side the trading-day Durable Object sends: the page shows 10 and
 // draws its depth curve from 20 (spec apinrdw/kumora#138, "Order book").
 export const BOOK_DEPTH = 20

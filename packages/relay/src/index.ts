@@ -137,13 +137,28 @@ export type {
 } from "./recorded-day.ts"
 export type { CodeKind, ListedCode } from "./code-list.ts"
 export type { DayChange, DayState } from "./day-state.ts"
-export { BOOK_DEPTH, BookLevel, SHARES_PER_LOT } from "./order-book.ts"
-export { bookReadingsOf, fillEstimateOf } from "./book-readings.ts"
-export type { BookReadings, FillEstimate, OrderSize } from "./book-readings.ts"
+export {
+  BOOK_DEPTH,
+  BookLevel,
+  SHARES_PER_LOT,
+  levelValue,
+} from "./order-book.ts"
+export {
+  READING_PHASES,
+  bookReadingsOf,
+  fillEstimateOf,
+} from "./book-readings.ts"
+export type {
+  BookReadings,
+  FillEstimate,
+  Limit,
+  OrderSize,
+} from "./book-readings.ts"
 export type { ScannerFigures } from "./scanner-figures.ts"
 export {
   BOOK_EVENT_WINDOW_MS,
   BookEvent,
+  BookEventSide,
   MIN_SIDE_FRAMES,
   SNAPSHOT_BOOK_EVENTS,
 } from "./book-events.ts"

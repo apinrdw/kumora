@@ -7,9 +7,10 @@
 import {
   BOOK_EVENT_WINDOW_MS as WINDOW_MS,
   MIN_SIDE_FRAMES as MIN_FRAMES,
-  SHARES_PER_LOT,
+  levelValue,
   ticksBetween,
   type BookEvent,
+  type BookEventSide,
   type BookLevel,
   type OrderBook,
   type RunningTrade,
@@ -69,7 +70,7 @@ const REPEAT_MS = WINDOW_MS
 // two behind the newest, and a move the frame before each arrival.
 const KEPT_FRAMES = 2 * MOVED_FRAMES + 3
 
-type Side = "bid" | "offer"
+type Side = BookEventSide
 
 interface Frame {
   readonly t: number
@@ -149,7 +150,7 @@ export const makeLevelLedger = Effect.sync(() => {
       ? sorted[middle]!
       : (sorted[middle - 1]! + sorted[middle]!) / 2
   }
-  const value = (lots: number, price: number) => lots * SHARES_PER_LOT * price
+  const value = (lots: number, price: number) => levelValue(price, lots)
   const wallsOf = (levels: ReadonlyArray<BookLevel>) => {
     const floor = WALL_MULTIPLE * median(levels.map((level) => level.lots))
     return new Set(

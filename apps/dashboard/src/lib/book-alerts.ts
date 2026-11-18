@@ -2,7 +2,7 @@
 // browser's alert rules match, the rate limit on telling them, and the
 // day's history of what was told.
 import {
-  SHARES_PER_LOT,
+  levelValue,
   type BookEvent,
   type BookEventKind,
   type StockCode,
@@ -48,7 +48,7 @@ const inScope = (scope: AlertScope, code: StockCode, context: MatchContext) => {
 }
 
 // The level's or wall's value: its lots at its price.
-const valueOf = (event: BookEvent) => event.lots * event.price * SHARES_PER_LOT
+const valueOf = (event: BookEvent) => levelValue(event.price, event.lots)
 
 export const ruleMatches = (
   rule: AlertRule,

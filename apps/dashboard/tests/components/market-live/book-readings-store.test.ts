@@ -5,7 +5,7 @@ import { describe, expect, it } from "@effect/vitest"
 import { makeBookReadingsStore } from "@/components/market-live/book-readings-store"
 
 const side = {
-  depth: 1_000_000,
+  nearDepth: 1_000_000,
   lots: 100,
   emptyTicks: 0,
   widestGap: 0,

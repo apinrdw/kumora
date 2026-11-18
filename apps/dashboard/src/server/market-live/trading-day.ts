@@ -6,6 +6,7 @@
 import {
   INGEST_TOKEN_MESSAGE_LIMIT,
   IngestCloseCode,
+  READING_PHASES,
   TradeNumberOrder,
   VIEWER_MESSAGE_LIMIT,
   ViewerCloseCode,
@@ -27,7 +28,6 @@ import {
   type Feed,
   type IndicativePrice,
   type IngestUp,
-  type MarketPhase,
   type OrderBook,
   type RecordedDay,
   type RecordedResource,
@@ -252,12 +252,6 @@ const settleSide = Effect.fnUntraced(function* (trade: RunningTrade) {
     trade.board === "NG" || phase === "pre-opening" || phase === "pre-closing"
   return sideless ? { ...trade, side: "none" as const } : trade
 })
-
-// The phases the level ledger reads book events in.
-const LEDGER_PHASES: ReadonlySet<MarketPhase> = new Set([
-  "session-1",
-  "session-2",
-])
 
 // The lists of a delta that hold anything: an empty one stays out.
 const nonEmpty = <L extends Record<string, ReadonlyArray<unknown>>>(lists: L) =>
@@ -727,7 +721,7 @@ export const makeTradingDay = Effect.fnUntraced(function* (options: {
       ledgerRegime = regime
       yield* ledger.reset
     }
-    if (open || !LEDGER_PHASES.has(conditions.phase)) return
+    if (open || !READING_PHASES.has(conditions.phase)) return
     for (const book of changedBooks)
       yield* bookEvents.add(yield* ledger.book(book))
   })

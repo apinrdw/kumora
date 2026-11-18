@@ -6,9 +6,11 @@
 // (book-events.tsx).
 import {
   INDEX_CODES,
+  READING_PHASES,
   bookReadingsOf,
   marketPhases,
   type BookReadings,
+  type Limit,
   type MarketPhase,
   type OrderBook,
   type RelayGap,
@@ -30,11 +32,6 @@ import { PHASE, useMarketPhase } from "./market-conditions"
 import type { OrderBookStore } from "./order-book-store"
 import { useReplay, type ReplayCursor } from "./replay-cursor"
 import { useSpecialBoard } from "./use-special-board"
-
-const READING_PHASES: ReadonlySet<MarketPhase> = new Set([
-  "session-1",
-  "session-2",
-])
 
 const LIMIT_NAMES = { upper: "upper", lower: "lower" } as const
 
@@ -101,7 +98,7 @@ function NearDepth({ side }: { side: BookReadings["bid"] }) {
       className="text-right underline decoration-dotted"
       title={`${Effect.runSync(lots(side.lots))} lots`}
     >
-      Rp{Effect.runSync(compact(side.depth))}
+      Rp{Effect.runSync(compact(side.nearDepth))}
     </span>
   )
 }
@@ -138,7 +135,7 @@ function Imbalance({ readings }: { readings: BookReadings }) {
   )
 }
 
-function LimitNote({ limit }: { limit: "upper" | "lower" }) {
+function LimitNote({ limit }: { limit: Limit }) {
   return (
     <p className="text-[11px] text-muted-foreground">
       <span className="border-warning text-warning mr-1.5 rounded-full border px-1.5 text-[10px]">

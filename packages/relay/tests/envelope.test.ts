@@ -346,14 +346,14 @@ describe("viewer protocol, down", () => {
         spread: { ticks: 2, percent: 0.995 },
         limit: "upper",
         bid: {
-          depth: 14_815_000,
+          nearDepth: 14_815_000,
           lots: 150,
           emptyTicks: 2,
           widestGap: 1,
           lotsPerOrder: 6.25,
         },
         offer: {
-          depth: 0,
+          nearDepth: 0,
           lots: 0,
           emptyTicks: 0,
           widestGap: 0,

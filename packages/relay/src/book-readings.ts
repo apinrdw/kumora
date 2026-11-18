@@ -6,19 +6,31 @@
 import { Effect, Schema, SchemaGetter } from "effect"
 
 import { StockCode } from "./codes.ts"
-import { SHARES_PER_LOT, type BookLevel, type OrderBook } from "./order-book.ts"
-import type { WibDate } from "./schedule.ts"
+import {
+  SHARES_PER_LOT,
+  levelValue,
+  type BookLevel,
+  type OrderBook,
+} from "./order-book.ts"
+import type { MarketPhase, WibDate } from "./schedule.ts"
 import { priceLimitsOf, ticksBetween } from "./ticks.ts"
 
 // Decision: every reading covers the best 5 levels a side, fixed: the user
 // can't change it. See spec apinrdw/kumora#517, "Book readings".
 const NEAR_LEVELS = 5
 
-// One side's readings over its best five levels: near depth in rupiah and
-// lots, the empty ticks between its best level and its fifth with the widest
+// The market phases book readings are read and book events found in: Sessions
+// 1 and 2. In any other, readings keep their last values, marked as paused.
+export const READING_PHASES: ReadonlySet<MarketPhase> = new Set([
+  "session-1",
+  "session-2",
+])
+
+// One side's readings over its best five levels: near depth in rupiah
+// (`nearDepth`) and lots, the empty ticks between its best level and its fifth with the widest
 // single gap, and its lots per order (none without an order).
 const SideReadings = Schema.Struct({
-  depth: Schema.Finite,
+  nearDepth: Schema.Finite,
   lots: Schema.Finite,
   emptyTicks: Schema.Int,
   widestGap: Schema.Int,
@@ -26,7 +38,9 @@ const SideReadings = Schema.Struct({
 })
 type SideReadings = typeof SideReadings.Type
 
+// The auto-reject limit a code sits at.
 const Limit = Schema.Literals(["upper", "lower"])
+export type Limit = typeof Limit.Type
 
 // One code's readings. Imbalance runs from -1 (offers only) to 1 (bids only),
 // none when both sides are empty; the spread is none when either is. `limit`
@@ -44,11 +58,6 @@ const BookReadingsFields = Schema.Struct({
   bid: SideReadings,
   offer: SideReadings,
 })
-
-const rounded = (value: number, places: number) => {
-  const scale = 10 ** places
-  return Math.round(value * scale) / scale
-}
 
 const LIMIT_CODES = { upper: 1, lower: -1 } as const
 
@@ -101,13 +110,13 @@ export const BookReadings = Schema.Tuple([
         offerPerOrder,
       ]) => {
         const side = (
-          depth: number,
+          nearDepth: number,
           lots: number,
           emptyTicks: number,
           widestGap: number,
           lotsPerOrder: number | null
         ): SideReadings => ({
-          depth,
+          nearDepth,
           lots,
           emptyTicks,
           widestGap,
@@ -135,27 +144,26 @@ export const BookReadings = Schema.Tuple([
       }
     ),
     encode: SchemaGetter.transform((readings) => {
+      const rounded = (value: number | undefined, places: number) => {
+        if (value === undefined) return null
+        const scale = 10 ** places
+        return Math.round(value * scale) / scale
+      }
       const side = (each: SideReadings) =>
         [
-          Math.round(each.depth),
+          Math.round(each.nearDepth),
           each.lots,
           each.emptyTicks,
           each.widestGap,
-          each.lotsPerOrder === undefined
-            ? null
-            : rounded(each.lotsPerOrder, 2),
+          rounded(each.lotsPerOrder, 2),
         ] as const
       return [
         readings.code,
         readings.at,
         Math.round(readings.value),
-        readings.imbalance === undefined
-          ? null
-          : rounded(readings.imbalance, 4),
+        rounded(readings.imbalance, 4),
         readings.spread?.ticks ?? null,
-        readings.spread === undefined
-          ? null
-          : rounded(readings.spread.percent, 4),
+        rounded(readings.spread?.percent, 4),
         readings.limit === undefined ? 0 : LIMIT_CODES[readings.limit],
         ...side(readings.bid),
         ...side(readings.offer),
@@ -170,13 +178,13 @@ const readSide = Effect.fnUntraced(function* (
   levels: ReadonlyArray<BookLevel>
 ) {
   const near = levels.slice(0, NEAR_LEVELS)
-  let depth = 0
+  let nearDepth = 0
   let lots = 0
   let orders = 0
   let emptyTicks = 0
   let widestGap = 0
   for (const [index, level] of near.entries()) {
-    depth += level.price * level.lots * SHARES_PER_LOT
+    nearDepth += levelValue(level.price, level.lots)
     lots += level.lots
     orders += level.orders
     const before = near[index - 1]
@@ -191,7 +199,7 @@ const readSide = Effect.fnUntraced(function* (
     widestGap = Math.max(widestGap, gap)
   }
   const side: SideReadings = {
-    depth,
+    nearDepth,
     lots,
     emptyTicks,
     widestGap,

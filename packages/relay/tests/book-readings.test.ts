@@ -54,14 +54,14 @@ describe("book readings", () => {
     Effect.gen(function* () {
       const readings = yield* read(bookOf(BIDS, OFFERS))
       assert.deepStrictEqual(readings.bid, {
-        depth: 14_815_000,
+        nearDepth: 14_815_000,
         lots: 150,
         emptyTicks: 2,
         widestGap: 1,
         lotsPerOrder: 10,
       })
       assert.deepStrictEqual(readings.offer, {
-        depth: 10_262_500,
+        nearDepth: 10_262_500,
         lots: 100,
         emptyTicks: 4,
         widestGap: 4,
@@ -93,7 +93,7 @@ describe("book readings", () => {
       assert.strictEqual(readings.imbalance, 1)
       assert.strictEqual(readings.spread, undefined)
       assert.deepStrictEqual(readings.offer, {
-        depth: 0,
+        nearDepth: 0,
         lots: 0,
         emptyTicks: 0,
         widestGap: 0,

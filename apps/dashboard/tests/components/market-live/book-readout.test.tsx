@@ -27,7 +27,7 @@ Object.assign(globalThis, { IS_REACT_ACT_ENVIRONMENT: true })
 const TODAY = WibDate.make("2026-11-18")
 
 const side = (lots: number) => ({
-  depth: lots * 100 * 1_000,
+  nearDepth: lots * 100 * 1_000,
   lots,
   emptyTicks: 3,
   widestGap: 2,

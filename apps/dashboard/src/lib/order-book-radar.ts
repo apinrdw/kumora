@@ -1,7 +1,12 @@
 // The order book radar's scanner (spec apinrdw/kumora#517, "The scanner"):
 // which codes it covers, how it splits them into the Bid-heavy and
 // Offer-heavy halves, and how Rank by orders each half.
-import type { BookEvent, BookReadings, StockCode } from "@workspace/relay"
+import type {
+  BookEvent,
+  BookReadings,
+  Limit,
+  StockCode,
+} from "@workspace/relay"
 import { DateTime, Effect } from "effect"
 
 import { LOWEST_READ_CLOSE } from "./book-readings"
@@ -105,7 +110,7 @@ export interface Scan {
   // Codes at a limit: listed, not ranked.
   readonly limits: ReadonlyArray<{
     readonly code: StockCode
-    readonly limit: "upper" | "lower"
+    readonly limit: Limit
   }>
   // Codes above the floor, before the filters.
   readonly above: number
@@ -137,9 +142,9 @@ const rankValue = (
         ? undefined
         : Math.abs(readings.imbalance)
     case "bidDepth":
-      return readings.bid.depth
+      return readings.bid.nearDepth
     case "offerDepth":
-      return readings.offer.depth
+      return readings.offer.nearDepth
     case "emptyTicks":
       return readings.bid.emptyTicks + readings.offer.emptyTicks
     case "spread":
@@ -272,13 +277,13 @@ export const rankedFigure = Effect.fnUntraced(function* (
     case "imbalance":
       return yield* rupiah(
         (readings.imbalance ?? 0) >= 0
-          ? readings.bid.depth
-          : readings.offer.depth
+          ? readings.bid.nearDepth
+          : readings.offer.nearDepth
       )
     case "bidDepth":
-      return yield* rupiah(readings.bid.depth)
+      return yield* rupiah(readings.bid.nearDepth)
     case "offerDepth":
-      return yield* rupiah(readings.offer.depth)
+      return yield* rupiah(readings.offer.nearDepth)
     case "emptyTicks":
       return `${readings.bid.emptyTicks} / ${readings.offer.emptyTicks} empty`
     case "spread":

@@ -6,6 +6,7 @@ import { clientRuntime, fetchRecordedBookEvents } from "@workspace/client"
 import {
   INDEX_CODES,
   type BookEvent,
+  type BookEventSide,
   type StockCode,
   type WibDate,
 } from "@workspace/relay"
@@ -109,7 +110,7 @@ export function LadderMarks({
   price,
 }: {
   events: ReadonlyArray<BookEvent>
-  side: "bid" | "offer"
+  side: BookEventSide
   price: number
 }) {
   const here = events.filter(

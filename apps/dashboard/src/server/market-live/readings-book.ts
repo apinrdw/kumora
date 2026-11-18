@@ -1,6 +1,7 @@
 // Every code's latest book readings (spec apinrdw/kumora#517, "Data"): read
 // on each delta tick from the books that changed, kept for the snapshot.
 import {
+  READING_PHASES,
   bookReadingsOf,
   marketMomentAt,
   type BookReadings,
@@ -10,11 +11,6 @@ import {
   type WibDate,
 } from "@workspace/relay"
 import { Effect, Option } from "effect"
-
-const READING_PHASES: ReadonlySet<MarketPhase> = new Set([
-  "session-1",
-  "session-2",
-])
 
 export const makeReadingsBook = (options: {
   readonly date: WibDate

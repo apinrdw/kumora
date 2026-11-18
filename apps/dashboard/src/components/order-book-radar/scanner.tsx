@@ -2,7 +2,7 @@
 // layout D: the Bid-heavy and Offer-heavy halves, each row unfolding its
 // best 5 levels, the codes at a limit under them, each row with its last
 // book event's chip.
-import type { BookLevel, StockCode } from "@workspace/relay"
+import type { BookEventSide, BookLevel, StockCode } from "@workspace/relay"
 import { cn } from "@workspace/ui/lib/utils"
 import { IconStarFilled } from "@tabler/icons-react"
 import { DateTime, Effect } from "effect"
@@ -28,7 +28,8 @@ import {
 
 const NEAR_LEVELS = 5
 
-type Half = "bid" | "offer"
+// A scanner half: the codes whose imbalance leans to that book side.
+type Half = BookEventSide
 
 const HALVES: ReadonlyArray<{
   readonly half: Half
