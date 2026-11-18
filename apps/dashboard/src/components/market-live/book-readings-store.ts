@@ -4,6 +4,8 @@ import { Effect } from "effect"
 export interface BookReadingsStore {
   // A code's latest readings, or none yet.
   readonly readingsOf: (code: StockCode) => BookReadings | undefined
+  // Every code's latest readings.
+  readonly all: () => ReadonlyArray<BookReadings>
   readonly apply: (message: ViewerDown) => void
   readonly subscribe: (listener: () => void) => () => void
 }
@@ -19,6 +21,7 @@ export const makeBookReadingsStore = Effect.sync((): BookReadingsStore => {
   }
   return {
     readingsOf: (code) => held.get(code),
+    all: () => [...held.values()],
     apply: (message) => {
       const arriving = message.bookReadings ?? []
       if (message._tag === "Snapshot") {

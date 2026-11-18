@@ -3,6 +3,7 @@ import {
   IconChartBubble,
   IconChartCandle,
   IconFileZip,
+  IconRadar,
   IconUsers,
   type Icon,
 } from "@tabler/icons-react"
@@ -46,6 +47,14 @@ export const NAV: ReadonlyArray<NavGroup> = [
         shortLabel: "Bubbles",
         icon: IconChartBubble,
         link: { to: "/market-bubbles" },
+        feature: "market-live",
+        mobile: true,
+      },
+      {
+        label: "Order book radar",
+        shortLabel: "Radar",
+        icon: IconRadar,
+        link: { to: "/order-book-radar" },
         feature: "market-live",
         mobile: true,
       },

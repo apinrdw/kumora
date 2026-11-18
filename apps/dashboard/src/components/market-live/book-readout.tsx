@@ -19,6 +19,7 @@ import { cn } from "@workspace/ui/lib/utils"
 import { DateTime, Effect } from "effect"
 import { useSyncExternalStore, type ReactNode } from "react"
 
+import { DISCLAIMER, LOWEST_READ_CLOSE } from "@/lib/book-readings"
 import { compact, lots, plain, signed, tapeTime } from "@/lib/format"
 import { gapAt } from "@/lib/replay"
 
@@ -29,14 +30,6 @@ import { PHASE, useMarketPhase } from "./market-conditions"
 import type { OrderBookStore } from "./order-book-store"
 import { useReplay, type ReplayCursor } from "./replay-cursor"
 import { useSpecialBoard } from "./use-special-board"
-
-const DISCLAIMER =
-  "Book readings describe liquidity and pressure in the order book. They don't predict price and aren't advice to buy or sell."
-
-// Decision: a code whose previous close is Rp10 or less shows no readings:
-// one tick there moves the price 10–100%. See spec apinrdw/kumora#517,
-// "Ticks, limits and excluded codes".
-const LOWEST_READ_CLOSE = 10
 
 const READING_PHASES: ReadonlySet<MarketPhase> = new Set([
   "session-1",

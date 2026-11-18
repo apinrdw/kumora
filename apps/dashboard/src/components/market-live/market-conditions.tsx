@@ -115,6 +115,14 @@ export function useMergedStale(): boolean {
   )
 }
 
+// Whether Stockbit's feed is past live (delayed, stale or unavailable): the
+// object then serves Ajaib's books, which arrive only for selected and
+// watchlist codes. False before the first snapshot.
+export function useStockbitBehind(): boolean {
+  const freshness = useMarketConditions().conditions?.feeds.Stockbit
+  return freshness !== undefined && freshness !== "live"
+}
+
 // "STALE · 12s ago" over figures as of `at`, counting each second.
 export function StaleSince({ at }: { at: DateTime.Utc }) {
   const [now, setNow] = useState(() => Date.now())
