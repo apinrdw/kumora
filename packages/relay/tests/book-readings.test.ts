@@ -5,6 +5,7 @@ import {
   StockCode,
   WibDate,
   bookReadingsOf,
+  fillEstimateOf,
   type BookLevel,
   type OrderBook,
 } from "@workspace/relay"
@@ -114,6 +115,108 @@ describe("book readings", () => {
       assert.strictEqual(short.limit, undefined)
       const unknown = yield* read(bookOf(BIDS, []), 1250)
       assert.strictEqual(unknown.limit, undefined)
+    })
+  )
+})
+
+describe("fill estimate", () => {
+  const book = bookOf(BIDS, OFFERS)
+
+  it.effect("a buy inside the best offer fills there, with no slippage", () =>
+    Effect.gen(function* () {
+      const fill = yield* fillEstimateOf(book, "buy", {
+        unit: "lots",
+        amount: 10,
+      })
+      assert.deepStrictEqual(fill, {
+        levels: 1,
+        last: 1010,
+        average: 1010,
+        slippage: { ticks: 0, percent: 0 },
+        lots: 10,
+        rupiah: 1_010_000,
+        short: false,
+      })
+    })
+  )
+
+  it.effect(
+    "a buy across three offers averages them and reaches the third",
+    () =>
+      Effect.gen(function* () {
+        const fill = yield* fillEstimateOf(book, "buy", {
+          unit: "lots",
+          amount: 60,
+        })
+        // 25 at 1010, 25 at 1015 and 10 at 1040: 1040 is 6 ticks of Rp5 above
+        // 1010, and the average 1017.08 is 0.70% above it.
+        assert.strictEqual(fill?.levels, 3)
+        assert.strictEqual(fill?.last, 1040)
+        assert.strictEqual(fill?.lots, 60)
+        assert.strictEqual(fill?.rupiah, 6_102_500)
+        assert.closeTo(fill?.average ?? 0, 1017.083, 0.001)
+        assert.strictEqual(fill?.slippage.ticks, 6)
+        assert.closeTo(fill?.slippage.percent ?? 0, 0.7013, 0.0001)
+        assert.isFalse(fill?.short)
+      })
+  )
+
+  it.effect("a sell in rupiah walks the bids in whole lots", () =>
+    Effect.gen(function* () {
+      const fill = yield* fillEstimateOf(book, "sell", {
+        unit: "rupiah",
+        amount: 6_500_000,
+      })
+      // 50 lots at 1000 (Rp5,000,000), then 15 at 995 (Rp1,492,500); the
+      // Rp7,500 left can't sell another lot.
+      assert.strictEqual(fill?.levels, 2)
+      assert.strictEqual(fill?.last, 995)
+      assert.strictEqual(fill?.lots, 65)
+      assert.strictEqual(fill?.rupiah, 6_492_500)
+      assert.closeTo(fill?.average ?? 0, 998.846, 0.001)
+      assert.strictEqual(fill?.slippage.ticks, 1)
+      assert.closeTo(fill?.slippage.percent ?? 0, 0.1154, 0.0001)
+      assert.isFalse(fill?.short)
+    })
+  )
+
+  it.effect("a size past the levels shown says what they cover", () =>
+    Effect.gen(function* () {
+      const twenty = Array.from({ length: 20 }, (_, index) =>
+        level(1000 + index * 5, 10, 1)
+      )
+      const fill = yield* fillEstimateOf(bookOf(BIDS, twenty), "buy", {
+        unit: "lots",
+        amount: 500,
+      })
+      // 10 lots at each of 1000, 1005 ... 1095.
+      assert.strictEqual(fill?.levels, 20)
+      assert.strictEqual(fill?.last, 1095)
+      assert.strictEqual(fill?.lots, 200)
+      assert.strictEqual(fill?.rupiah, 20_950_000)
+      assert.strictEqual(fill?.slippage.ticks, 19)
+      assert.isTrue(fill?.short)
+      const rupiah = yield* fillEstimateOf(bookOf(BIDS, twenty), "buy", {
+        unit: "rupiah",
+        amount: 1e9,
+      })
+      assert.isTrue(rupiah?.short)
+      assert.strictEqual(rupiah?.rupiah, 20_950_000)
+    })
+  )
+
+  it.effect("an empty side, or a size short of one lot, fills nothing", () =>
+    Effect.gen(function* () {
+      const empty = yield* fillEstimateOf(bookOf(BIDS, []), "buy", {
+        unit: "lots",
+        amount: 10,
+      })
+      assert.strictEqual(empty, undefined)
+      const small = yield* fillEstimateOf(book, "buy", {
+        unit: "rupiah",
+        amount: 100_000,
+      })
+      assert.strictEqual(small, undefined)
     })
   )
 })

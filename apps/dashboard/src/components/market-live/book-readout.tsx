@@ -2,8 +2,8 @@
 // full-width card under the candle chart with the selected code's book
 // readings, live from the viewer socket or, on a recorded day, read from the
 // stored frame at the cursor. It has three parts side by side: the readings,
-// the fill estimate and the book events; the last two are later slices'
-// (#520, #523), passed in as `fill` and `events`.
+// the fill estimate and the book events; the events are a later slice's
+// (#523), passed in as `events`.
 import {
   INDEX_CODES,
   bookReadingsOf,
@@ -24,6 +24,7 @@ import { gapAt } from "@/lib/replay"
 
 import type { BookReadingsStore } from "./book-readings-store"
 import { useDayState, type DayStateStore } from "./day-state-store"
+import { FillEstimatePart } from "./fill-estimate"
 import { PHASE, useMarketPhase } from "./market-conditions"
 import type { OrderBookStore } from "./order-book-store"
 import { useReplay, type ReplayCursor } from "./replay-cursor"
@@ -231,27 +232,31 @@ const excludedReason = (
         ? "One tick here moves the price 10–100%, so book readings would mislead."
         : undefined
 
+// Live, what the strip says while readings are paused outside Sessions 1
+// and 2; none in them, or on a recorded day.
+function usePause(today: WibDate, live: boolean) {
+  const phase = useMarketPhase()
+  return !live || phase === undefined || READING_PHASES.has(phase)
+    ? undefined
+    : Effect.runSync(pauseNote(today, phase))
+}
+
 // The live readings: the trading-day object's latest for the code, greyed
-// outside Sessions 1 and 2.
+// with `paused` naming the phase.
 function LiveReadings({
   code,
-  today,
   store,
+  paused,
 }: {
   code: StockCode
-  today: WibDate
   store: BookReadingsStore
+  paused: string | undefined
 }) {
   const readings = useSyncExternalStore(
     store.subscribe,
     () => store.readingsOf(code),
     () => store.readingsOf(code)
   )
-  const phase = useMarketPhase()
-  const paused =
-    phase === undefined || READING_PHASES.has(phase)
-      ? undefined
-      : Effect.runSync(pauseNote(today, phase))
   if (readings === undefined) return <Note>{paused ?? "No readings yet."}</Note>
   return <Readings readings={readings} paused={paused} />
 }
@@ -323,7 +328,6 @@ export function BookReadout({
   dayStates,
   cursor,
   gaps,
-  fill,
   events,
 }: {
   code: StockCode
@@ -334,8 +338,6 @@ export function BookReadout({
   dayStates: DayStateStore
   cursor: ReplayCursor | undefined
   gaps: ReadonlyArray<RelayGap>
-  // The fill estimate's part (apinrdw/kumora#520).
-  fill?: ReactNode
   // The book events' part (apinrdw/kumora#523).
   events?: ReactNode
 }) {
@@ -351,7 +353,9 @@ export function BookReadout({
     board,
     state?.previousClose ?? shown?.previousClose
   )
-  const parts = [fill, events].filter((part) => part !== undefined).length
+  const paused = usePause(today, cursor === undefined)
+  // The fill estimate, and the events when given.
+  const parts = events === undefined ? 1 : 2
   return (
     <section
       aria-label="Book readout"
@@ -369,7 +373,7 @@ export function BookReadout({
       ) : (
         <div className={cn("grid gap-3.5", PART_COLUMNS[parts])}>
           {cursor === undefined ? (
-            <LiveReadings code={code} today={today} store={readings} />
+            <LiveReadings code={code} store={readings} paused={paused} />
           ) : (
             <RecordedReadings
               code={code}
@@ -379,7 +383,7 @@ export function BookReadout({
               gaps={gaps}
             />
           )}
-          {fill}
+          <FillEstimatePart store={book} paused={paused !== undefined} />
           {events}
         </div>
       )}

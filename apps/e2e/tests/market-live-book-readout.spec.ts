@@ -1,7 +1,8 @@
-// The Book readout of spec apinrdw/kumora#517, readings part: under the
-// candle chart, live from the trading-day object's readings, greyed with the
-// phase outside Sessions 1 and 2, and on a recorded day read from the stored
-// frame at the replay cursor.
+// The Book readout of spec apinrdw/kumora#517: under the candle chart, live
+// from the trading-day object's readings, greyed with the phase outside
+// Sessions 1 and 2, and on a recorded day read from the stored frame at the
+// replay cursor; its fill estimate walks the selected code's book in this
+// browser's order size.
 import {
   StockCode,
   WibDate,
@@ -61,6 +62,51 @@ test("a Special Monitoring Board code says why it has no readings", async ({
     "Special Monitoring Board: this code trades in a call auction all day, and no order book arrives for it."
   )
   await expect(readout.getByLabel("Imbalance value")).toHaveCount(0)
+})
+
+test("the fill estimate walks the book in rupiah or lots, kept on reload", async ({
+  page,
+}) => {
+  const code = freshCode("BF")
+  const relay = await openIngest()
+  await relay.sendStockbit([
+    stockbitOrderBookFrame(code, "BID", [
+      [1000, 3, 300],
+      [995, 1, 100],
+    ]),
+    stockbitOrderBookFrame(code, "OFFER", [
+      [1010, 1, 100],
+      [1015, 2, 200],
+    ]),
+  ])
+  await page.goto(`${DASHBOARD}${PAGE}?code=${code}`)
+  const readout = page.getByRole("region", { name: "Book readout" })
+  const unit = readout.getByRole("group", { name: "Order size unit" })
+  const size = readout.getByLabel("Order size", { exact: true })
+  const fill = readout.getByRole("table", { name: "Fill estimate" })
+  // The default Rp10 billion is more than both sides hold.
+  await expect(unit.getByRole("button", { name: "Rupiah" })).toHaveAttribute(
+    "aria-pressed",
+    "true"
+  )
+  // 100 lots at 1,010 and 200 at 1,015.
+  await expect(readout).toContainText(
+    "More than the 2 levels shown: the offers cover 300 lots (Rp30.4 M)."
+  )
+  await unit.getByRole("button", { name: "Lots" }).click()
+  await size.fill("150")
+  // A buy of 150 lots: 100 at 1,010 and 50 at 1,015, one tick up.
+  await expect(fill).toContainText("1 tick · 0.17%")
+  await expect(fill).toContainText("1,012")
+  await expect(readout).not.toContainText("More than the")
+  await page.reload()
+  await expect(unit.getByRole("button", { name: "Lots" })).toHaveAttribute(
+    "aria-pressed",
+    "true"
+  )
+  await expect(size).toHaveValue("150")
+  await expect(fill).toContainText("1 tick · 0.17%")
+  relay.close()
 })
 
 test("outside Sessions 1 and 2 the readings grey out and name the phase", async ({

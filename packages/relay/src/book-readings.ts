@@ -249,3 +249,73 @@ export const bookReadingsOf = Effect.fnUntraced(function* (
   }
   return readings
 })
+
+// An order size for the fill estimate: a rupiah amount or a count of lots.
+export interface OrderSize {
+  readonly unit: "rupiah" | "lots"
+  readonly amount: number
+}
+
+// What filling an order against one side would take: the levels used, the
+// last price reached, the average fill price and its slippage from the best
+// price, and the lots and rupiah filled. `short` marks a size the levels the
+// book carries can't fill; the lots and rupiah are then what they cover.
+export interface FillEstimate {
+  readonly levels: number
+  readonly last: number
+  readonly average: number
+  readonly slippage: { readonly ticks: number; readonly percent: number }
+  readonly lots: number
+  readonly rupiah: number
+  readonly short: boolean
+}
+
+// Filling `size` at market against `book`: a buy walks the offers and a sell
+// the bids, best first, in whole lots. None when nothing fills: the side is
+// empty, or the size is short of one lot at the best price.
+export const fillEstimateOf = Effect.fnUntraced(function* (
+  book: OrderBook,
+  side: "buy" | "sell",
+  size: OrderSize
+) {
+  const levels = side === "buy" ? book.offers : book.bids
+  let left = size.amount
+  let lots = 0
+  let rupiah = 0
+  let used = 0
+  for (const level of levels) {
+    const lot = level.price * SHARES_PER_LOT
+    const take = Math.min(
+      level.lots,
+      size.unit === "lots" ? left : Math.floor(left / lot)
+    )
+    if (take <= 0) break
+    lots += take
+    rupiah += take * lot
+    used += 1
+    left -= size.unit === "lots" ? take : take * lot
+  }
+  const best = levels[0]
+  const last = levels[used - 1]
+  if (best === undefined || last === undefined) return undefined
+  const average = rupiah / lots / SHARES_PER_LOT
+  const fill: FillEstimate = {
+    levels: used,
+    last: last.price,
+    average,
+    slippage: {
+      ticks: yield* ticksBetween(
+        Math.min(best.price, last.price),
+        Math.max(best.price, last.price)
+      ),
+      percent: (Math.abs(average - best.price) / best.price) * 100,
+    },
+    lots,
+    rupiah,
+    // Every level used and still a lot or more to fill.
+    short:
+      used === levels.length &&
+      left >= (size.unit === "lots" ? 1 : last.price * SHARES_PER_LOT),
+  }
+  return fill
+})
