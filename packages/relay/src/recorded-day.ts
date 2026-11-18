@@ -5,7 +5,12 @@
 // back with `recordedDayRequest`; the page builds it with `recordedDayPath`.
 import { DateTime, Effect, Option, Schema, SchemaGetter } from "effect"
 
-import { BrokerCode, InvestorType, TradeCodes } from "./broker-codes.ts"
+import {
+  BrokerCode,
+  DayTradeNumber,
+  InvestorType,
+  TradeCodes,
+} from "./broker-codes.ts"
 import { StockCode } from "./codes.ts"
 import {
   Candle,
@@ -25,14 +30,23 @@ const DAYS = "/market-live/days"
 // The day strip: every sealed day, newest first.
 export const DayStripPath = DAYS
 
+// Where a tape answer ends. `at` alone can't continue inside one instant
+// once more than a page of trades share it, so a walk backwards also passes
+// the oldest trade number it holds as `before` (apinrdw/kumora#511).
+export interface TapeCursor {
+  readonly at: DateTime.Utc
+  readonly before?: TradeNumber
+}
+
 // What one recorded day GET asks its day's object for.
 export type RecordedResource =
   // The day's stock code list.
   | { readonly _tag: "Codes" }
-  // The 200 newest running trades at or before `at`.
-  | { readonly _tag: "Tape"; readonly at: DateTime.Utc }
-  // The broker codes of the trades the tape at `at` holds.
-  | { readonly _tag: "BrokerCodes"; readonly at: DateTime.Utc }
+  // The 200 newest running trades at or before `at`, below `before` when it
+  // is given.
+  | ({ readonly _tag: "Tape" } & TapeCursor)
+  // The broker codes of the trades the tape at the same cursor holds.
+  | ({ readonly _tag: "BrokerCodes" } & TapeCursor)
   // One code's whole-day candles and its previous close.
   | { readonly _tag: "Candles"; readonly code: StockCode }
   // One code's sweeps for the day so far (sweeps.ts).
@@ -53,16 +67,24 @@ export type RecordedResource =
   // day only.
   | { readonly _tag: "Bubbles" }
 
+// Decision: a cursor without `before` writes the query a page has always
+// asked, not an empty `before=`, so a sealed answer the browser cached by its
+// whole URL is still reused. See ticket apinrdw/kumora#511.
+const cursorQuery = Effect.fnUntraced(function* (cursor: TapeCursor) {
+  const at = `at=${DateTime.toEpochMillis(cursor.at)}`
+  return cursor.before === undefined ? at : `${at}&before=${cursor.before}`
+})
+
 export const recordedDayPath = (date: WibDate, resource: RecordedResource) =>
-  Effect.sync(() => {
+  Effect.gen(function* () {
     const base = `${DAYS}/${date}`
     switch (resource._tag) {
       case "Codes":
         return `${base}/codes`
       case "Tape":
-        return `${base}/trades?at=${DateTime.toEpochMillis(resource.at)}`
+        return `${base}/trades?${yield* cursorQuery(resource)}`
       case "BrokerCodes":
-        return `${base}/broker-codes?at=${DateTime.toEpochMillis(resource.at)}`
+        return `${base}/broker-codes?${yield* cursorQuery(resource)}`
       // Decision: the path carries the viewer protocol's version: the browser
       // caches a sealed answer for a year by its whole URL, so one cached
       // before footprints rode with the candles is never reused. The query is
@@ -91,6 +113,7 @@ export const stockCodeListPath = (date: WibDate) =>
 
 const decodeDate = Schema.decodeUnknownOption(WibDate)
 const decodeCode = Schema.decodeUnknownOption(StockCode)
+const decodeDayTradeNumber = Schema.decodeUnknownOption(DayTradeNumber)
 
 const instantOf = Effect.fnUntraced(function* (text: string | undefined) {
   return text !== undefined && /^\d{1,15}$/.test(text)
@@ -114,6 +137,21 @@ const parametersOf = Effect.fnUntraced(function* (search: string) {
   )
 })
 
+// A tape cursor's query: `at`, and `before` when it names a trade.
+const cursorOf = Effect.fnUntraced(function* (
+  search: ReadonlyMap<string, string>
+) {
+  const at = yield* instantOf(search.get("at"))
+  const before = search.get("before")
+  if (before === undefined)
+    return Option.map(at, (instant): TapeCursor => ({ at: instant }))
+  return Option.zipWith(
+    at,
+    decodeDayTradeNumber(before),
+    (instant, number): TapeCursor => ({ at: instant, before: number })
+  )
+})
+
 // The resources whose path names no code and no instant. A Map, so a path
 // like `/constructor` reads no prototype member.
 const BARE: ReadonlyMap<string, RecordedResource> = new Map([
@@ -132,14 +170,14 @@ const resourceOf = Effect.fnUntraced(function* (
     const bare = kind === undefined ? undefined : BARE.get(kind)
     if (bare !== undefined) return Option.some(bare)
     if (kind === "trades")
-      return Option.map(yield* instantOf(search.get("at")), (at) => ({
+      return Option.map(yield* cursorOf(search), (cursor) => ({
         _tag: "Tape" as const,
-        at,
+        ...cursor,
       }))
     if (kind === "broker-codes")
-      return Option.map(yield* instantOf(search.get("at")), (at) => ({
+      return Option.map(yield* cursorOf(search), (cursor) => ({
         _tag: "BrokerCodes" as const,
-        at,
+        ...cursor,
       }))
     return Option.none()
   }

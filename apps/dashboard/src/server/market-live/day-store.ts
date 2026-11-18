@@ -13,6 +13,7 @@ import {
   type HeatSlice,
   type RunningTrade,
   type Sweep,
+  type TapeCursor,
   MINUTE_MS,
   SHARES_PER_LOT,
 } from "@workspace/relay"
@@ -642,20 +643,23 @@ export const makeDayStore = (
       return found
     })
 
-    // The newest `limit` trades at or before `at`, ascending: SQLite walks
-    // the primary key down from the search's number and skips the rows the
-    // skew lets past it.
+    // The newest `limit` trades at or before `at`, below `before` when it is
+    // given, ascending: SQLite walks the primary key down from the lower of
+    // the search's number and `before`, and skips the rows the skew lets past
+    // it.
     const tradesAt = Effect.fnUntraced(function* (
-      at: DateTime.Utc,
+      { at, before }: TapeCursor,
       limit: number
     ) {
       const cutoff = DateTime.toEpochMillis(at)
       const found = yield* highestWithin(cutoff)
       if (found === undefined) return []
+      const highest =
+        before === undefined ? found : Math.min(found, Number(before) - 1)
       const trades = yield* Effect.forEach(
         sql.exec(
           "SELECT * FROM trades WHERE number <= ? AND time <= ? ORDER BY number DESC LIMIT ?",
-          found,
+          highest,
           cutoff,
           limit
         ),

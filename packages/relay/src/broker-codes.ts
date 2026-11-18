@@ -111,7 +111,9 @@ const decodeFields = Schema.decodeUnknownOption(TradeFields)
 
 // A batch's trade numbers: a day's sequence, 1 to Ajaib's 10 digits, so the
 // dashboard keys them as safe integers.
-const DayTradeNumber = TradeNumber.check(Schema.isPattern(/^[1-9]\d{0,9}$/))
+export const DayTradeNumber = TradeNumber.check(
+  Schema.isPattern(/^[1-9]\d{0,9}$/)
+)
 
 // The day's highest trade number, as the walk that sends it confirmed it.
 const End = Schema.Struct({ n: DayTradeNumber })
