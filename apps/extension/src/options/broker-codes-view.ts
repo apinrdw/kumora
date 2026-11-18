@@ -151,27 +151,49 @@ const walkNames: Record<
   history: "History",
 }
 
+// How long `remaining` takes at a pace, blank until both are known and
+// when nothing remains.
+const leftLabel = Effect.fnUntraced(function* (
+  remaining: number | null,
+  perSecond: number | null
+) {
+  if (remaining === null || remaining <= 0) return ""
+  if (perSecond === null || perSecond <= 0) return ""
+  return `${yield* count(Math.max(1, Math.ceil(remaining / perSecond / 60)))} min left`
+})
+
 // The walk in progress: its site and day, trades fetched of N, pace and
-// time left, each blank until known.
+// time left, each blank until known. In Ajaib's repair pass the trades are
+// the first pass's last, so its blocks show in place of the trades' pace,
+// and the time left is the blocks'.
 export const walkView = Effect.fnUntraced(function* (
   progress: Extract<BrokerCodesProgress, { state: "walking" }>
 ) {
   const walk = `${progress.feed}, ${progress.day} (${walkNames[progress.walk]})`
-  const trades = progress.trades
-  if (trades === undefined) return { walk, trades: "", pace: "", left: "" }
-  const { fetched, of, perSecond } = trades
-  const left =
-    of !== null && perSecond !== null && perSecond > 0
-      ? `${yield* count(Math.max(1, Math.ceil((of - fetched) / perSecond / 60)))} min left`
-      : ""
+  const { trades, repair } = progress
+  const fetched =
+    trades === undefined
+      ? ""
+      : trades.of === null
+        ? `${yield* count(trades.fetched)} trades`
+        : `${yield* count(trades.fetched)} of ${yield* count(trades.of)} trades`
+  if (repair !== undefined)
+    return {
+      walk,
+      trades: fetched,
+      repair: `repairing page seams: ${yield* count(repair.done)} of ${yield* count(repair.of)} blocks`,
+      pace: "",
+      left: yield* leftLabel(repair.of - repair.done, repair.perSecond),
+    }
+  if (trades === undefined)
+    return { walk, trades: "", repair: "", pace: "", left: "" }
+  const { of, perSecond } = trades
   return {
     walk,
-    trades:
-      of === null
-        ? `${yield* count(fetched)} trades`
-        : `${yield* count(fetched)} of ${yield* count(of)} trades`,
+    trades: fetched,
+    repair: "",
     pace: perSecond === null ? "" : `${yield* count(perSecond)} trades/s`,
-    left,
+    left: yield* leftLabel(of === null ? null : of - trades.fetched, perSecond),
   }
 })
 

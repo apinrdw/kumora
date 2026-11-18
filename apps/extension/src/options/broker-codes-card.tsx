@@ -111,6 +111,17 @@ function useNowUntil(stored: Readonly<Record<string, number | undefined>>) {
   return now
 }
 
+// The walk's details that say something, each with its label.
+const walkDetails = (walk: Effect.Success<ReturnType<typeof walkView>>) =>
+  (
+    [
+      ["Broker codes trades", walk.trades],
+      ["Broker codes repair", walk.repair],
+      ["Broker codes pace", walk.pace],
+      ["Broker codes time left", walk.left],
+    ] as const
+  ).filter(([, text]) => text !== "")
+
 function WalkLine({
   progress,
 }: {
@@ -119,13 +130,7 @@ function WalkLine({
   const walking = Option.getOrUndefined(progress)
   const walk =
     walking?.state === "walking" ? Effect.runSync(walkView(walking)) : undefined
-  const details = (
-    [
-      ["Broker codes trades", walk?.trades],
-      ["Broker codes pace", walk?.pace],
-      ["Broker codes time left", walk?.left],
-    ] as const
-  ).filter(([, text]) => text !== undefined && text !== "")
+  const details = walk === undefined ? [] : walkDetails(walk)
   return (
     <div className="grid gap-1 text-sm">
       <p>

@@ -208,6 +208,15 @@ describe("the options page's broker codes section", () => {
             left: "18 min left",
           }
         )
+        // The last block is walked again: nothing is left to time.
+        assert.strictEqual(
+          (yield* walkView({
+            ...walking,
+            trades,
+            repair: { done: 87, of: 87, perSecond: 0.07 },
+          })).left,
+          ""
+        )
         // A worker restarted in the repair pass has no first-pass trades.
         assert.deepStrictEqual(
           yield* walkView({
