@@ -1,0 +1,194 @@
+import { IconArrowDown, IconArrowUp } from "@tabler/icons-react"
+import { useNavigate } from "@tanstack/react-router"
+import { clientRuntime } from "@workspace/client"
+import {
+  wibDateAt,
+  type BookEvent,
+  type StockCode,
+  type ViewerDown,
+} from "@workspace/relay"
+import { DateTime, Effect } from "effect"
+import { useCallback, useEffect, useMemo, useRef, useState } from "react"
+
+import { kToast } from "@/components/k/toast"
+import { makeBookReadingsStore } from "@/components/market-live/book-readings-store"
+import { useSpecialBoard } from "@/components/market-live/use-special-board"
+import { useWatchlist } from "@/components/market-live/use-watchlist"
+import { makeFiguresStore } from "@/components/order-book-radar/figures-store"
+import { useRadarSettings } from "@/components/order-book-radar/use-radar-settings"
+import {
+  alertTitle,
+  makeAlertGate,
+  ruleMatches,
+  withAlert,
+  type Alert,
+  type GateVerdict,
+  type MatchContext,
+} from "@/lib/book-alerts"
+import { bookEventDetail, bookEventKey } from "@/lib/book-events"
+import { isCheap } from "@/lib/order-book-radar"
+
+import {
+  alertBell,
+  alertChime,
+  alertDay,
+  alertHistory,
+  alertRules,
+} from "./alert-store"
+
+// One gate for the tab: moving between the radar and Market Live keeps the
+// cooldowns and the minute's count.
+const gate = Effect.runSync(makeAlertGate)
+
+const ALERT_MS = 8_000
+
+// A short tone, once per alert. A page the user hasn't touched yet may
+// refuse to play it.
+const chime = () => {
+  try {
+    const audio = new AudioContext()
+    const tone = audio.createOscillator()
+    const gain = audio.createGain()
+    tone.frequency.value = 880
+    gain.gain.setValueAtTime(0.08, audio.currentTime)
+    gain.gain.exponentialRampToValueAtTime(0.001, audio.currentTime + 0.25)
+    tone.connect(gain).connect(audio.destination)
+    tone.start()
+    tone.stop(audio.currentTime + 0.25)
+    tone.addEventListener("ended", () => void audio.close())
+  } catch {
+    // No audio here: the toast still shows.
+  }
+}
+
+// A browser notification, from a tab in the background with permission.
+const notify = (
+  title: string,
+  options: NotificationOptions,
+  onClick: () => void
+) => {
+  if (typeof Notification === "undefined") return
+  if (Notification.permission !== "granted") return
+  const notification = new Notification(title, options)
+  notification.addEventListener("click", () => {
+    window.focus()
+    onClick()
+    notification.close()
+  })
+}
+
+const visible = () => document.visibilityState === "visible"
+
+// The alert told for an event: its title, detail and key.
+const alertOf = Effect.fnUntraced(function* (event: BookEvent) {
+  return {
+    key: yield* bookEventKey(event),
+    code: event.code,
+    side: event.side,
+    title: yield* alertTitle(event),
+    detail: yield* bookEventDetail(event),
+    at: DateTime.toEpochMillis(event.at),
+  } satisfies Alert
+})
+
+/**
+ * Tells this browser's alert rules' matches among a live page's book events
+ * (spec apinrdw/kumora#517, "Alerts"): a toast on the visible page, a
+ * notification from a background tab. The page feeds it every message of
+ * its viewer socket; only a delta's new events alert.
+ */
+export function useBookAlerts() {
+  const watchlist = useWatchlist().codes
+  const board = useSpecialBoard()
+  const { floor } = useRadarSettings().settings
+  const [figures] = useState(() => Effect.runSync(makeFiguresStore))
+  const [readings] = useState(() => Effect.runSync(makeBookReadingsStore))
+  const context = useMemo((): MatchContext => {
+    const watched = new Set(watchlist)
+    return {
+      watchlist: watched,
+      excluded: (code) => board.has(code) || isCheap(figures.all().get(code)),
+      onScanner: (code: StockCode) => {
+        const value = readings.readingsOf(code)?.value ?? 0
+        const previous = figures.all().get(code)?.previousValue ?? 0
+        return Math.max(value, previous) >= floor
+      },
+    }
+  }, [watchlist, board, floor, figures, readings])
+  const held = useRef(context)
+  useEffect(() => {
+    held.current = context
+  }, [context])
+
+  const navigate = useNavigate()
+  const open = useCallback(
+    (alert: Alert) =>
+      void navigate({
+        to: "/market-live",
+        search: { code: alert.code, event: alert.key },
+      }),
+    [navigate]
+  )
+  const view = useCallback(() => {
+    alertBell.set(true)
+    void navigate({ to: "/order-book-radar" })
+  }, [navigate])
+
+  const tell = useCallback(
+    (alert: Alert, verdict: GateVerdict) => {
+      if (verdict._tag === "Folded") {
+        const title = `+${verdict.count} more alerts this minute`
+        if (!visible()) return notify(title, { tag: "book-alerts-fold" }, view)
+        return void clientRuntime.runFork(
+          kToast.info(title, {
+            id: `book-alerts-fold-${verdict.since}`,
+            duration: ALERT_MS,
+            action: { label: "View", onClick: view },
+          })
+        )
+      }
+      if (alertChime.get()) chime()
+      if (!visible())
+        return notify(alert.title, { body: alert.detail, tag: alert.key }, () =>
+          open(alert)
+        )
+      const tone = alert.side === "bid" ? kToast.success : kToast.error
+      clientRuntime.runFork(
+        tone(alert.title, {
+          description: alert.detail,
+          icon: alert.side === "bid" ? IconArrowUp : IconArrowDown,
+          duration: ALERT_MS,
+          action: { label: "Open", onClick: () => open(alert) },
+        })
+      )
+    },
+    [open, view]
+  )
+
+  return useCallback(
+    (message: ViewerDown) => {
+      figures.apply(message)
+      readings.apply(message)
+      const today = Effect.runSync(wibDateAt(message.at))
+      alertDay.set(today)
+      if (message._tag !== "Delta" || message.bookEvents === undefined) return
+      const rules = alertRules.get()
+      if (rules.length === 0) return
+      const now = DateTime.toEpochMillis(message.at)
+      for (const event of message.bookEvents) {
+        const matched = rules.some((rule) =>
+          Effect.runSync(ruleMatches(rule, event, held.current))
+        )
+        if (!matched) continue
+        const verdict = Effect.runSync(gate.admit(event, now))
+        if (verdict._tag === "Cooled") continue
+        const alert = Effect.runSync(alertOf(event))
+        alertHistory.set(
+          Effect.runSync(withAlert(alertHistory.get(), alert, today))
+        )
+        tell(alert, verdict)
+      }
+    },
+    [figures, readings, tell]
+  )
+}

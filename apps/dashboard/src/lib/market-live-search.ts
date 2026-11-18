@@ -1,7 +1,7 @@
 // What /market-live reads from its URL (spec apinrdw/kumora#138, "Route and
 // nav"): the selected stock code, the recorded day, the phone's panel tab
 // and the sweep log's Big only toggle, so a reload or a shared link opens
-// them.
+// them. An alert's Open adds the book event to pick in the readout's list.
 import { StockCode } from "@workspace/client"
 import { WibDate } from "@workspace/relay"
 import { Effect, Option, Schema } from "effect"
@@ -14,6 +14,9 @@ export type Panel = typeof Panel.Type
 // Big only, on; off is absent from the URL.
 const BigOnly = Schema.Literal(true)
 
+// A book event's key (lib/book-events.ts).
+const EventKey = Schema.NonEmptyString
+
 export interface MarketLiveSearch {
   readonly code?: StockCode | undefined
   // The recorded day shown; none for the live page.
@@ -21,6 +24,7 @@ export interface MarketLiveSearch {
   // The phone's panel tab; none for the first one there.
   readonly panel?: Panel | undefined
   readonly big?: true | undefined
+  readonly event?: string | undefined
 }
 
 // Selected when the URL names none, or one that doesn't parse.
@@ -39,10 +43,12 @@ export const parseMarketLiveSearch = (
     const day = Schema.decodeUnknownOption(WibDate)(raw.day)
     const panel = Schema.decodeUnknownOption(Panel)(raw.panel)
     const big = Schema.decodeUnknownOption(BigOnly)(raw.big)
+    const event = Schema.decodeUnknownOption(EventKey)(raw.event)
     return {
       code: Option.getOrUndefined(code),
       day: Option.getOrUndefined(day),
       panel: Option.getOrUndefined(panel),
       big: Option.getOrUndefined(big),
+      event: Option.getOrUndefined(event),
     }
   })

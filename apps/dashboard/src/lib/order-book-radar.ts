@@ -159,7 +159,7 @@ const ranked = (
 
 // A code's previous close, or its last price while none is known: Rp10 or
 // less keeps it off the scanner.
-const isCheap = (figures: CodeFigures | undefined) => {
+export const isCheap = (figures: CodeFigures | undefined) => {
   const close = figures?.previousClose ?? figures?.last
   return close !== undefined && close <= LOWEST_READ_CLOSE
 }

@@ -10,10 +10,12 @@ import {
 import { loadServerFn, runLoader } from "@workspace/server/loader"
 import { useCallback, useEffect, useMemo, useState } from "react"
 
+import { useBookAlerts } from "@/components/book-alerts/use-book-alerts"
 import type { BookEventStore } from "@/components/market-live/book-event-store"
 import {
   BookEventList,
   useBookEvents,
+  usePickedEvent,
   useRecentBookEvents,
 } from "@/components/market-live/book-events"
 import { makeBookReadingsStore } from "@/components/market-live/book-readings-store"
@@ -102,8 +104,11 @@ function MarketLivePage() {
 }
 
 // One store per selected code; the Select for it brings a fresh snapshot.
+// The book event an alert opened the page at is picked in the readout's
+// list once its events land.
 function useCodeStores(
   selected: StockCode,
+  event: string | undefined,
   day: WibDate | undefined,
   today: WibDate
 ) {
@@ -118,6 +123,7 @@ function useCodeStores(
   const heatmap = useHeatmap(selected, day, today)
   const sweeps = useSweeps(selected, day, today)
   const bookEvents = useBookEvents(selected, day)
+  usePickedEvent(bookEvents, event)
   useRememberedTopN(sweeps)
   return { candles, book, heatmap, sweeps, bookEvents }
 }
@@ -179,7 +185,8 @@ function BookPanel({
 }
 
 // The running trades: live, whose socket feeds the page through
-// `onMessage`, or as of the cursor.
+// `onMessage` and the browser's book event alerts, or as of the cursor. A
+// recorded day never alerts.
 function TapePanel({
   selected,
   watchlist,
@@ -195,12 +202,20 @@ function TapePanel({
   onSelect: (code: StockCode) => void
   onMessage: (message: ViewerDown) => void
 }) {
+  const tellAlerts = useBookAlerts()
+  const heard = useCallback(
+    (message: ViewerDown) => {
+      onMessage(message)
+      tellAlerts(message)
+    },
+    [onMessage, tellAlerts]
+  )
   return cursor === undefined ? (
     <LiveTape
       selected={selected}
       watchlist={watchlist}
       onSelect={onSelect}
-      onMessage={onMessage}
+      onMessage={heard}
     />
   ) : (
     <RecordedTape
@@ -213,11 +228,11 @@ function TapePanel({
 }
 
 // What the page keeps in its URL, so a shared link opens it: the selected
-// code, the phone's panel tab and the sweep log's Big only toggle. Picking
-// a code adds a history entry; switching a view replaces it and keeps the
-// scroll.
+// code, the phone's panel tab, the sweep log's Big only toggle and the book
+// event an alert opened it at. Picking a code adds a history entry and
+// drops that event; switching a view replaces it and keeps the scroll.
 function useMarketLiveSearch() {
-  const { code: selected = DEFAULT_CODE, panel, big } = Route.useSearch()
+  const { code: selected = DEFAULT_CODE, panel, big, event } = Route.useSearch()
   const navigate = Route.useNavigate()
   const change = useCallback(
     (patch: MarketLiveSearch, view: boolean) =>
@@ -229,7 +244,7 @@ function useMarketLiveSearch() {
     [navigate]
   )
   const select = useCallback(
-    (code: StockCode) => change({ code }, false),
+    (code: StockCode) => change({ code, event: undefined }, false),
     [change]
   )
   const pickPanel = useCallback(
@@ -243,6 +258,7 @@ function useMarketLiveSearch() {
   return {
     selected,
     select,
+    event,
     panel,
     pickPanel,
     log: { bigOnly: big === true, onBigOnly: setBigOnly },
@@ -259,10 +275,11 @@ function MarketLiveDay({
   today: WibDate
   closed: ClosedMarket["closed"]
 }) {
-  const { selected, select, ...view } = useMarketLiveSearch()
+  const { selected, select, event, ...view } = useMarketLiveSearch()
   const codes = useStockCodeList(day, today)
   const { candles, book, heatmap, sweeps, bookEvents } = useCodeStores(
     selected,
+    event,
     day,
     today
   )

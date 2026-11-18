@@ -8,6 +8,7 @@ import {
 import { DateTime, Effect, Fiber, Stream, SubscriptionRef } from "effect"
 import { useEffect, useMemo, useRef, useState } from "react"
 
+import { useBookAlerts } from "@/components/book-alerts/use-book-alerts"
 import { makeBookReadingsStore } from "@/components/market-live/book-readings-store"
 import {
   applyConditions,
@@ -41,6 +42,7 @@ type FeedStatus = "connecting" | "live" | "new-version"
 // The scanner's viewer socket: every code's readings and figures, the
 // unfolded code's book, the market conditions, and how far the market
 // clock runs ahead of the browser's, from each message's sent instant.
+// Every message feeds the browser's book event alerts too.
 export function useRadarFeed(
   unfolded: StockCode | undefined,
   watchlist: ReadonlyArray<StockCode>
@@ -69,6 +71,11 @@ export function useRadarFeed(
   useEffect(() => {
     held.current = book
   }, [book])
+  const tellAlerts = useBookAlerts()
+  const heard = useRef(tellAlerts)
+  useEffect(() => {
+    heard.current = tellAlerts
+  }, [tellAlerts])
 
   useEffect(() => {
     const scheme = window.location.protocol === "https:" ? "wss" : "ws"
@@ -84,6 +91,7 @@ export function useRadarFeed(
           readings.apply(message)
           figures.apply(message)
           held.current?.apply(message)
+          heard.current(message)
           if (message._tag === "Snapshot") setStatus("live")
         }).pipe(Effect.andThen(applyConditions(message)))
       ).pipe(

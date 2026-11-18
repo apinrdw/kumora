@@ -3,6 +3,7 @@ import type { StockCode } from "@workspace/relay"
 import { Effect } from "effect"
 import { useCallback, useMemo, useState } from "react"
 
+import { AlertRules, AlertsBell } from "@/components/book-alerts/alerts-header"
 import { KButton } from "@/components/k/button"
 import {
   MarketConditionsBar,
@@ -71,7 +72,11 @@ function OrderBookRadarPage() {
             levels holds more lots.
           </p>
         </div>
-        <MarketConditionsBar />
+        <div className="flex flex-wrap items-center gap-2">
+          <AlertRules />
+          <AlertsBell />
+          <MarketConditionsBar />
+        </div>
       </header>
       {feed.status === "new-version" && (
         <div role="alert" className="flex items-center gap-3 text-[13px]">

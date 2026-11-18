@@ -38,6 +38,7 @@ describe("the Market Live search params", () => {
         day: undefined,
         panel: undefined,
         big: undefined,
+        event: undefined,
       })
     })
   )
@@ -59,6 +60,17 @@ describe("the Market Live search params", () => {
         "2026-02-30",
       ])
         expect((yield* parseMarketLiveSearch({ day })).day).toBeUndefined()
+    })
+  )
+
+  it.effect("keeps a book event's key to open at, and drops a blank one", () =>
+    Effect.gen(function* () {
+      const event = "BBCA|pulled|bid|9000|1763433000000"
+      expect((yield* parseMarketLiveSearch({ event })).event).toBe(event)
+      for (const blank of ["", 3, ["a"]])
+        expect(
+          (yield* parseMarketLiveSearch({ event: blank })).event
+        ).toBeUndefined()
     })
   )
 

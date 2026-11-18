@@ -11,7 +11,13 @@ import {
 } from "@workspace/relay"
 import { cn } from "@workspace/ui/lib/utils"
 import { DateTime, Effect, Fiber, Option } from "effect"
-import { useEffect, useMemo, useState, useSyncExternalStore } from "react"
+import {
+  useEffect,
+  useMemo,
+  useRef,
+  useState,
+  useSyncExternalStore,
+} from "react"
 
 import {
   BOOK_EVENTS_FROM,
@@ -95,6 +101,23 @@ export function useRecentBookEvents(
   })
 }
 
+/**
+ * Picks the event an alert opened Market Live at, by its key, once the
+ * code's events include it: once, so the user can unpick it.
+ */
+export function usePickedEvent(store: BookEventStore, key: string | undefined) {
+  const events = useEvents(store)
+  const done = useRef<{ store: BookEventStore; key: string }>(undefined)
+  useEffect(() => {
+    if (key === undefined) return
+    if (done.current?.store === store && done.current.key === key) return
+    if (!events.some((event) => Effect.runSync(bookEventKey(event)) === key))
+      return
+    done.current = { store, key }
+    store.pick(key)
+  }, [store, key, events])
+}
+
 /** The marks of a ladder level's recent events. */
 export function LadderMarks({
   events,
@@ -147,8 +170,14 @@ function EventRow({
   picked: boolean
   onPick: () => void
 }) {
+  const row = useRef<HTMLLIElement>(null)
+  // A picked event scrolls into view: the one an alert opened the page at
+  // may be far down the list.
+  useEffect(() => {
+    if (picked) row.current?.scrollIntoView({ block: "nearest" })
+  }, [picked])
   return (
-    <li>
+    <li ref={row}>
       <button
         type="button"
         aria-pressed={picked}
