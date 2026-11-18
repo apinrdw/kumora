@@ -157,7 +157,7 @@ A stock code's or index's figures for the trading day so far: last price, previo
 _Avoid_: Quote, summary
 
 **Order book**:
-The resting buy orders (bid) and sell orders (offer) for one stock code, as price levels with their lots and number of orders. Live viewers see every code's. A day records a code's order book only from the first time a viewer selects or watches it that day to the close; a day recorded before that change recorded every code's.
+The resting buy orders (bid) and sell orders (offer) for one stock code, as price levels with their lots and number of orders. Live viewers see every code's. A day records a code's order book only from the first time a viewer selects or watches it that day to the close, and only for a code the day's code list names (before the list arrives, up to a fixed cap of codes); a day recorded before that change recorded every code's.
 _Avoid_: Depth, market depth
 
 **Net flow**:
