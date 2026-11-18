@@ -22,12 +22,17 @@ const MAX_AGE = 10_000
 
 const SECOND = 1000
 
-// One side's sweeps by lots: how many of each, and the distinct lots,
-// largest first.
+// One side's sweeps by lots: the distinct lots, largest first, and beside
+// each how many sweeps have it.
+// Decision: two arrays side by side, not a Map from lots to count. At the
+// worst day, 665,760 sweeps each of its own lots, the Map and a sorted
+// array retained 38.6 MiB, past the spec's "under ~30 MB at worst"; the two
+// arrays retain 12.0 MiB (sweep-alerts-memory.test.ts). See spec
+// apinrdw/kumora#510.
 interface Ranking {
   size: number
-  readonly counts: Map<number, number>
   readonly lots: Array<number>
+  readonly counts: Array<number>
 }
 
 // A sweep with an aggressor side: an auction match's prints have none and
@@ -89,23 +94,26 @@ const indexOf = (ranking: Ranking, lots: number) =>
   })
 
 const join = Effect.fnUntraced(function* (ranking: Ranking, lots: number) {
-  const count = ranking.counts.get(lots) ?? 0
-  if (count === 0) ranking.lots.splice(yield* indexOf(ranking, lots), 0, lots)
-  ranking.counts.set(lots, count + 1)
+  const index = yield* indexOf(ranking, lots)
+  if (ranking.lots[index] === lots) ranking.counts[index]! += 1
+  else {
+    ranking.lots.splice(index, 0, lots)
+    ranking.counts.splice(index, 0, 1)
+  }
   ranking.size += 1
 })
 
 // A sweep the ranking doesn't hold leaves it as it is.
 const leave = Effect.fnUntraced(function* (ranking: Ranking, lots: number) {
-  const count = ranking.counts.get(lots) ?? 0
-  if (count === 0) return
+  const index = yield* indexOf(ranking, lots)
+  if (ranking.lots[index] !== lots) return
   ranking.size -= 1
-  if (count > 1) {
-    ranking.counts.set(lots, count - 1)
+  if (ranking.counts[index]! > 1) {
+    ranking.counts[index]! -= 1
     return
   }
-  ranking.counts.delete(lots)
-  ranking.lots.splice(yield* indexOf(ranking, lots), 1)
+  ranking.lots.splice(index, 1)
+  ranking.counts.splice(index, 1)
 })
 
 // The side's top-1% cutoff, or undefined while it is warming up.
@@ -114,8 +122,8 @@ const cutoffOf = (ranking: Ranking) =>
     if (ranking.size < WARM_UP) return undefined
     const rank = Math.ceil((ranking.size * TOP_PERCENT) / 100)
     let seen = 0
-    for (const lots of ranking.lots) {
-      seen += ranking.counts.get(lots)!
+    for (const [index, lots] of ranking.lots.entries()) {
+      seen += ranking.counts[index]!
       if (seen >= rank) return lots
     }
     return undefined
@@ -158,7 +166,7 @@ export const makeSweepAlerts = Effect.sync(() => {
       const key = `${code} ${side}`
       let ranking = rankings.get(key)
       if (ranking === undefined) {
-        ranking = { size: 0, counts: new Map(), lots: [] }
+        ranking = { size: 0, lots: [], counts: [] }
         rankings.set(key, ranking)
       }
       return ranking

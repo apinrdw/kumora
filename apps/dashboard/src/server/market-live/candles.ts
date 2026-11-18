@@ -823,7 +823,8 @@ export const makeCandleBook = Effect.fnUntraced(function* (
   // the store as ranked (`regroupAll`).
   // Decision: the ranking is rebuilt from the footprints table once, not
   // stored on its own: the research put it at a few MB, under ~30 MB at
-  // worst. See spec apinrdw/kumora#510 and apinrdw/kumora#500.
+  // worst, and the worst day's retains 12 MiB (sweep-alerts-memory.test.ts).
+  // See spec apinrdw/kumora#510 and apinrdw/kumora#500.
   const rankStored = store.eachStoredSweeps(alertRule.rank)
 
   // How many candles the book holds: the bound's measure.
