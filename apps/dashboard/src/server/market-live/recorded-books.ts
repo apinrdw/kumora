@@ -11,6 +11,13 @@ const RecordedCodes = Schema.fromJsonString(Schema.Array(StockCode))
 const encodeCodes = Schema.encodeEffect(RecordedCodes)
 const decodeCodes = Schema.decodeUnknownEffect(RecordedCodes)
 
+// Decision: a code joins only if the day's code list (code-list.ts) names
+// it, so the set holds listed codes alone: Ajaib's 3,406 and the indices.
+// Before the list arrives, at most UNLISTED_LIMIT join. At 16 characters a
+// code, the fact stays under 150 KB, well below Durable Object SQLite's 2 MB
+// row.
+const UNLISTED_LIMIT = 4_000
+
 // Decision: a day whose tape is a row per trade (tape.ts, `makeTape`) was
 // recorded before the change: it records every code's books to the close,
 // never answers a code not recorded, and writes no set. Every day since is
@@ -27,10 +34,14 @@ export const makeRecordedBooks = Effect.fnUntraced(function* (
   // The set as the store last took it.
   let written = stored
 
-  // Whether `code` joined just now.
-  const join = (code: StockCode) =>
+  // Whether `code` joined just now, given the codes the day's list names.
+  const join = (code: StockCode, listed: ReadonlySet<StockCode> | undefined) =>
     Effect.sync(() => {
       if (everyCode || codes.has(code)) return false
+      if (
+        listed === undefined ? codes.size >= UNLISTED_LIMIT : !listed.has(code)
+      )
+        return false
       codes.add(code)
       return true
     })

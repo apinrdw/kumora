@@ -77,6 +77,7 @@ import { makeKeptAlerts } from "./kept-alerts.ts"
 import { newerThanHeld } from "./late-frames.ts"
 import {
   memoryCodeListStore,
+  listedCodes,
   storeCodeList,
   type CodeListStore,
 } from "./code-list.ts"
@@ -406,6 +407,13 @@ export const makeTradingDay = Effect.fnUntraced(function* (options: {
   // never inside, so nothing under it waits on it. See apinrdw/kumora#159.
   const turn = yield* Semaphore.make(1)
   const codeListStore = options.codeList ?? (yield* memoryCodeListStore)
+  // The codes the stored list names, read on the first Select after it
+  // changed; none while the day holds no list.
+  let listed: ReadonlySet<StockCode> | undefined
+  const storeList = Effect.fnUntraced(function* (body: string) {
+    yield* storeCodeList(codeListStore, body)
+    listed = undefined
+  })
   const todayDate = yield* wibDateAt(yield* DateTime.now)
   const today = todayDate === options.date
   const store = yield* makeDayStore(options.sql, { today })
@@ -1307,12 +1315,11 @@ export const makeTradingDay = Effect.fnUntraced(function* (options: {
           message._tag === "CodeList" &&
           Option.isNone(yield* codeListStore.read)
         )
-          yield* storeCodeList(codeListStore, message.body)
+          yield* storeList(message.body)
         return
       }
       yield* market.ingest(message)
-      if (message._tag === "CodeList")
-        return yield* storeCodeList(codeListStore, message.body)
+      if (message._tag === "CodeList") return yield* storeList(message.body)
       // A page fills only numbers the day lacks: a held trade keeps the feeds
       // that saw it live.
       if (message._tag === "BackfillPage")
@@ -1335,15 +1342,16 @@ export const makeTradingDay = Effect.fnUntraced(function* (options: {
       )
   )
 
-  // Codes a viewer watches join the recorded books, each recorded from now
-  // to the close. A sealed day's recorded books are fixed: a code viewed
+  // Codes a viewer watches join the recorded books if listed, each recorded
+  // from now to the close. A sealed day's recorded books are fixed: a code viewed
   // after the seal gets its live book but stays not recorded.
   const recordWatched = Effect.fnUntraced(function* (
     watching: ReadonlyArray<StockCode>
   ) {
     if (sealed) return
+    if (listed === undefined) listed = yield* listedCodes(codeListStore)
     for (const code of watching)
-      if (yield* recordedBooks.join(code)) yield* bookChunks.begin(code)
+      if (yield* recordedBooks.join(code, listed)) yield* bookChunks.begin(code)
   })
 
   // The page's Select, on open and on every change, in a message no longer
