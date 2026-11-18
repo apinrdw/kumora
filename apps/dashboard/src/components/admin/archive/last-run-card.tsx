@@ -5,6 +5,7 @@ import { IconPlayerPlay, type TablerIcon } from "@tabler/icons-react"
 import { useHydrated } from "@tanstack/react-router"
 import { clientRuntime } from "@workspace/client"
 import { loadServerFn } from "@workspace/server/loader"
+import { cn } from "@workspace/ui/lib/utils"
 import { Effect, Exit } from "effect"
 import { type ReactNode, useState } from "react"
 
@@ -13,12 +14,18 @@ import {
   useAccountAction,
   type Outcome,
 } from "@/components/account/account-section"
-import { KBadge, KButton, type KButtonVariant, KDialog } from "@/components/k"
+import { KButton, type KButtonVariant, KDialog } from "@/components/k"
 import { dateTime, duration } from "@/lib/format"
 import type { RunBase } from "@/server/archive/run"
 import type { RunView } from "@/server/archive/run-view"
 
-import { ArchiveCard, OUTCOME } from "./archive-card"
+import {
+  ArchiveCard,
+  ArchiveRow,
+  archiveRowNotes,
+  archiveRowStats,
+  RunStatus,
+} from "./archive-card"
 
 const IN_PROGRESS = "A run is in progress"
 
@@ -116,17 +123,29 @@ export function RunArchiveButton({
 
 function Schedule({ times, nextRun }: ArchiveSchedule) {
   return (
-    <p className="text-xs text-muted-foreground">
+    <p className="text-secondary-text text-[13px]">
       Production runs at {times}. Next: {Effect.runSync(dateTime(nextRun))}.
     </p>
   )
 }
 
-function Stat({ value, label }: RunStat) {
+const STAT_TONE = {
+  warning: "text-warning",
+  down: "text-down",
+} as const satisfies Record<NonNullable<RunStat["tone"]>, string>
+
+function Stat({ value, label, tone }: RunStat) {
   return (
     <div className="flex flex-col-reverse gap-0.5">
-      <dt className="text-xs text-muted-foreground">{label}</dt>
-      <dd className="num text-xl font-semibold">{value}</dd>
+      <dt className="text-secondary-text text-[13px]">{label}</dt>
+      <dd
+        className={cn(
+          "num text-[22px] leading-7 font-semibold",
+          value > 0 && tone !== undefined && STAT_TONE[tone]
+        )}
+      >
+        {value}
+      </dd>
     </div>
   )
 }
@@ -156,12 +175,14 @@ export const archiveRunStats = (result: {
     { value: result.reportsAdded, label: "Reports added" },
     { value: result.newVersions, label: "New versions" },
     { value: result.reportsChecked, label: "Reports checked" },
-    { value: result.notStored.length, label: "Not stored" },
+    { value: result.notStored.length, label: "Not stored", tone: "warning" },
   ])
 
 export interface RunStat {
   readonly label: string
   readonly value: number
+  // How the count reads when above 0: a count of what went wrong.
+  readonly tone?: "warning" | "down"
 }
 
 export interface ArchiveSchedule {
@@ -171,10 +192,49 @@ export interface ArchiveSchedule {
   readonly nextRun: string
 }
 
+/** How an archive's last run is framed: its own card, or a ledger row. */
+export type RunFrame = "card" | "row"
+
+// When the run started, how long it took or has run, its id, and a running
+// run's Workflow status.
+function RunMeta({
+  run: { result, workflowStatus },
+  now,
+}: {
+  run: RunView<RunBase>
+  now: string
+}) {
+  const running = result.outcome === "running"
+  const since = Date.parse(result.startedAt)
+  return (
+    <p className="text-secondary-text flex flex-wrap gap-x-2 text-[13px]">
+      <span>Started {Effect.runSync(dateTime(result.startedAt))}</span>
+      {result.finishedAt !== null && (
+        <span>
+          · took{" "}
+          {Effect.runSync(duration(Date.parse(result.finishedAt) - since))}
+        </span>
+      )}
+      {running && (
+        <span>
+          · running for {Effect.runSync(duration(Date.parse(now) - since))}
+        </span>
+      )}
+      <span>
+        · <span className="font-mono text-xs">{result.id}</span>
+      </span>
+      {running && workflowStatus !== null && (
+        <span>· Workflow {workflowStatus}</span>
+      )}
+    </p>
+  )
+}
+
 /**
  * An archive's last run, or the empty state before any, with its actions.
  * `stats` and `details` describe the last run: `details` shows below the
- * counts, after the error of a run that failed.
+ * counts, after the error of a run that failed. `frame` sets whether it is
+ * its own card or a row of an ArchiveLedger.
  */
 export function ArchiveLastRunCard({
   title,
@@ -185,6 +245,7 @@ export function ArchiveLastRunCard({
   details,
   actions,
   schedule,
+  frame = "card",
 }: {
   title: ReactNode
   emptyMessage: string
@@ -195,55 +256,67 @@ export function ArchiveLastRunCard({
   details: ReactNode
   actions: ReactNode
   schedule: ArchiveSchedule
+  frame?: RunFrame
 }) {
+  const result = lastRun?.result
+  const heading =
+    result === undefined ? (
+      title
+    ) : (
+      <>
+        {title}
+        <RunStatus outcome={result.outcome} />
+      </>
+    )
+  const empty = (
+    <p className="text-secondary-text text-[13px]">{emptyMessage}</p>
+  )
+  const statList = (className: string) => (
+    <dl className={className}>
+      {stats.map((stat) => (
+        <Stat key={stat.label} {...stat} />
+      ))}
+    </dl>
+  )
+  const notes =
+    result === undefined ? null : (
+      <>
+        {result.outcome === "failed" && <Failed error={result.error} />}
+        {details}
+      </>
+    )
+  if (frame === "row")
+    return (
+      <ArchiveRow
+        title={heading}
+        meta={
+          <>
+            {lastRun === undefined ? (
+              empty
+            ) : (
+              <RunMeta run={lastRun} now={now} />
+            )}
+            <Schedule {...schedule} />
+          </>
+        }
+        stats={lastRun === undefined ? null : statList(archiveRowStats)}
+        aside={actions}
+      >
+        {notes !== null && <div className={archiveRowNotes}>{notes}</div>}
+      </ArchiveRow>
+    )
   if (lastRun === undefined)
     return (
       <ArchiveCard title={title} aside={actions}>
-        <p className="text-[13px] text-muted-foreground">{emptyMessage}</p>
+        {empty}
         <Schedule {...schedule} />
       </ArchiveCard>
     )
-  const { result, workflowStatus } = lastRun
-  const outcome = OUTCOME[result.outcome]
-  const running = result.outcome === "running"
-  const since = Date.parse(result.startedAt)
   return (
-    <ArchiveCard
-      title={
-        <>
-          {title}
-          <KBadge tone={outcome.tone}>{outcome.label}</KBadge>
-        </>
-      }
-      aside={actions}
-    >
-      <p className="flex flex-wrap gap-x-2 text-[13px] text-muted-foreground">
-        <span>Started {Effect.runSync(dateTime(result.startedAt))}</span>
-        {result.finishedAt !== null && (
-          <span>
-            · took{" "}
-            {Effect.runSync(duration(Date.parse(result.finishedAt) - since))}
-          </span>
-        )}
-        {running && (
-          <span>
-            · running for {Effect.runSync(duration(Date.parse(now) - since))}
-          </span>
-        )}
-        <span>
-          · <span className="font-mono text-xs">{result.id}</span>
-        </span>
-        {running && workflowStatus !== null && (
-          <span>· Workflow {workflowStatus}</span>
-        )}
-      </p>
-      <dl className="grid grid-cols-[repeat(auto-fit,minmax(130px,1fr))] gap-3">
-        {stats.map((stat) => (
-          <Stat key={stat.label} {...stat} />
-        ))}
-      </dl>
-      {result.outcome === "failed" && <Failed error={result.error} />}
-      {details}
+    <ArchiveCard title={heading} aside={actions}>
+      <RunMeta run={lastRun} now={now} />
+      {statList("grid grid-cols-[repeat(auto-fit,minmax(130px,1fr))] gap-3")}
+      {notes}
       <Schedule {...schedule} />
     </ArchiveCard>
   )

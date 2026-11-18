@@ -17,7 +17,7 @@ function Detail({ result }: { result: ArchiveRunResult }) {
   const { notStored, other } = result
   if (notStored.length === 0 && other.length === 0) return null
   return (
-    <div className="border-warning bg-elevated flex flex-col gap-2 rounded-xs border-l-[3px] px-3 py-2 text-[13px]">
+    <div className="border-warning bg-elevated flex flex-col gap-2 rounded-xs border-l-[3px] px-3 py-2 text-[13px] leading-5">
       {notStored.length > 0 && (
         <div>
           <b>
@@ -71,7 +71,10 @@ function Detail({ result }: { result: ArchiveRunResult }) {
   )
 }
 
-/** The last archive run, or the empty state before any, with Run now. */
+/**
+ * The last archive run, or the empty state before any, with Run now: a row
+ * of the page's ledger.
+ */
 export function LastRunCard({
   lastRun,
   nextRun,
@@ -97,11 +100,13 @@ export function LastRunCard({
         <RunArchiveButton
           inProgress={lastRun?.inProgress ?? false}
           start={runArchiveNowFn}
+          variant="secondary"
         >
           Run now
         </RunArchiveButton>
       }
       schedule={{ times: ARCHIVE_TIMES_WIB, nextRun }}
+      frame="row"
     />
   )
 }
