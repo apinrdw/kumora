@@ -209,21 +209,28 @@ const listNote = (state: {
   })
 
 // Picks the event keyed `landOn` once the store holds it, and scrolls the
-// list to it: a link from the scanner's feed lands there.
+// list to it: a link from the scanner's feed lands there. It lands once per
+// store and key, so Back to the link, which brings a fresh store, lands again.
 function useLandOn(
   store: BookEventStore,
   events: ReadonlyArray<BookEvent>,
   landOn: string | undefined,
   list: RefObject<HTMLOListElement | null>
 ) {
-  const landed = useRef<string | undefined>(undefined)
+  const landed = useRef<
+    { readonly store: BookEventStore; readonly key: string } | undefined
+  >(undefined)
   useEffect(() => {
-    if (landOn === undefined || landed.current === landOn) return
+    if (landOn === undefined) {
+      landed.current = undefined
+      return
+    }
+    if (landed.current?.store === store && landed.current.key === landOn) return
     const found = events.some(
       (event) => Effect.runSync(bookEventKey(event)) === landOn
     )
     if (!found) return
-    landed.current = landOn
+    landed.current = { store, key: landOn }
     store.pick(landOn)
     list.current
       ?.querySelector(`[data-event-key="${CSS.escape(landOn)}"]`)
