@@ -9,6 +9,7 @@ import { StockCodePicker } from "@/components/market-live/stock-code-picker"
 import { BrokerInventory } from "@/components/stocks/broker-inventory"
 import { HolderSize } from "@/components/stocks/holder-size"
 import { HoldingComposition } from "@/components/stocks/holding-composition"
+import { MajorHolders } from "@/components/stocks/major-holders"
 import { ShareholdersComposition } from "@/components/stocks/shareholders-composition"
 import { useStockList } from "@/components/stocks/use-stock-list"
 import { rememberStock } from "@/lib/last-stock"
@@ -281,7 +282,34 @@ function Holdings({
           }
         />
       )}
+      {known && <StockMajorHolders page={page} setSearch={setSearch} />}
     </>
+  )
+}
+
+// Major holders with its month param, left out for its newest held month.
+function StockMajorHolders({
+  page,
+  setSearch,
+}: {
+  page: StockPage
+  setSearch: (change: StockSearch) => void
+}) {
+  const { holdersMonth } = Route.useSearch()
+  const newest = page.majorHolders
+    .filter(({ holders }) => holders.length > 0)
+    .at(-1)?.dataDate
+  return (
+    <MajorHolders
+      code={page.code}
+      months={page.majorHolders}
+      month={holdersMonth}
+      onMonth={(dataDate) =>
+        setSearch({
+          holdersMonth: dataDate === newest ? undefined : dataDate.slice(0, 7),
+        })
+      }
+    />
   )
 }
 

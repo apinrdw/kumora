@@ -130,7 +130,7 @@ const MajorHolder = Schema.Struct({
   percentageHundredths: Schema.Number,
   rows: Schema.Array(MajorHolderRow),
 })
-type MajorHolder = typeof MajorHolder.Type
+export type MajorHolder = typeof MajorHolder.Type
 
 // An above-1% report month, its holders in the order of their first row;
 // none when the report has no row for the stock.
@@ -138,7 +138,7 @@ const MajorHoldersMonth = Schema.Struct({
   dataDate: Schema.String,
   holders: Schema.Array(MajorHolder),
 })
-type MajorHoldersMonth = typeof MajorHoldersMonth.Type
+export type MajorHoldersMonth = typeof MajorHoldersMonth.Type
 
 const StockPage = Schema.Struct({
   code: StockCode,

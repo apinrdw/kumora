@@ -1,8 +1,8 @@
 // What /stocks/$CODE reads from its URL (spec apinrdw/kumora#363, "URL search
 // params"): the Shareholders composition panel's month and origin, the
 // Holding composition chart's origin and view, and the Holder size panel's
-// month, origin, denominator and view (spec apinrdw/kumora#402), and the
-// open tab and the Broker inventory tab's range, measure, investor filter,
+// month, origin, denominator and view (spec apinrdw/kumora#402), the Major
+// holders panel's month (spec apinrdw/kumora#479), and the open tab and the Broker inventory tab's range, measure, investor filter,
 // chips and drag selection (spec apinrdw/kumora#437, "Dashboard: the stock
 // page"). Each is left out at its default, so a plain
 // link stays short.
@@ -69,6 +69,8 @@ export interface StockSearch {
   readonly sizeOrigin?: SplitOrigin | undefined
   readonly sizeBase?: typeof SizeBase.Type | undefined
   readonly sizeView?: typeof ChartView.Type | undefined
+  // Major holders' month.
+  readonly holdersMonth?: string | undefined
   readonly tab?: typeof Tab.Type | undefined
   readonly range?: typeof RangeParam.Type | undefined
   // A Custom range, both or neither, which replaces `range`.
@@ -174,6 +176,9 @@ export const parseStockSearch = (
       ),
       sizeView: Option.getOrUndefined(
         Schema.decodeUnknownOption(ChartView)(raw.sizeView)
+      ),
+      holdersMonth: Option.getOrUndefined(
+        Schema.decodeUnknownOption(Month)(raw.holdersMonth)
       ),
       tab: Option.getOrUndefined(Schema.decodeUnknownOption(Tab)(raw.tab)),
       range:
