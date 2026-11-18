@@ -37,13 +37,15 @@ const LIMIT_NAMES = { upper: "upper", lower: "lower" } as const
 
 const millis = (instant: DateTime.Utc) => DateTime.toEpochMillis(instant)
 
-// What the strip says while readings are paused in `phase`: when the last
-// session ended today, or when the first starts.
+// What the strip says while readings are paused in `phase`, at `clock`'s
+// now (the object's): when the last session ended today, or when the next
+// starts.
 const pauseNote = Effect.fnUntraced(function* (
   today: WibDate,
-  phase: MarketPhase
+  phase: MarketPhase,
+  clock: Effect.Effect<number>
 ) {
-  const now = millis(yield* DateTime.now)
+  const now = yield* clock
   const sessions = (yield* marketPhases(today).pipe(
     Effect.orElseSucceed(() => [])
   )).filter((each) => READING_PHASES.has(each.phase))
@@ -224,11 +226,11 @@ const excludedReason = (
 
 // Live, what the strip says while readings are paused outside Sessions 1
 // and 2; none in them, or on a recorded day.
-function usePause(today: WibDate, live: boolean) {
+function usePause(today: WibDate, live: boolean, store: BookReadingsStore) {
   const phase = useMarketPhase()
   return !live || phase === undefined || READING_PHASES.has(phase)
     ? undefined
-    : Effect.runSync(pauseNote(today, phase))
+    : Effect.runSync(pauseNote(today, phase, store.now))
 }
 
 // The live readings: the trading-day object's latest for the code, greyed
@@ -346,7 +348,7 @@ export function BookReadout({
     board,
     state?.previousClose ?? shown?.previousClose
   )
-  const paused = usePause(today, cursor === undefined)
+  const paused = usePause(today, cursor === undefined, readings)
   // The fill estimate, and the events when given.
   const parts = events === undefined ? 1 : 2
   return (

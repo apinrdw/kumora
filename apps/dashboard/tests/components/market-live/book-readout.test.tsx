@@ -51,10 +51,11 @@ const readingsOf = (
 
 const snapshot = (
   phase: MarketPhase,
-  bookReadings: ReadonlyArray<BookReadings>
+  bookReadings: ReadonlyArray<BookReadings>,
+  at = 0
 ): ViewerDown => ({
   _tag: "Snapshot",
-  at: DateTime.makeUnsafe(0),
+  at: DateTime.makeUnsafe(at),
   selected: StockCode.make("ERAA"),
   tape: [],
   candles: [],
@@ -134,10 +135,18 @@ test("a code at its limit shows the limit pill and no imbalance", () => {
   ).toBe("—")
 })
 
-test("in the break the readings grey out, naming the phase and when they paused", () => {
+test("in the break the readings grey out, naming the phase and when they paused on the object's clock", () => {
   vi.useFakeTimers({ toFake: ["Date"] })
-  vi.setSystemTime(new Date("2026-11-18T12:10:00+07:00"))
-  const { container } = render("ERAA", snapshot("break", [readingsOf("ERAA")]))
+  // This browser's clock runs 20 minutes slow: 11:50, before the break.
+  vi.setSystemTime(new Date("2026-11-18T11:50:00+07:00"))
+  const { container } = render(
+    "ERAA",
+    snapshot(
+      "break",
+      [readingsOf("ERAA")],
+      Date.parse("2026-11-18T12:10:00+07:00")
+    )
+  )
   expect(container.querySelector("[data-paused]")?.textContent).toContain(
     "Break · readings paused at 12:00:00"
   )
