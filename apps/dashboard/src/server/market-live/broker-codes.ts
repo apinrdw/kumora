@@ -31,6 +31,7 @@ import {
   type SqlValue,
 } from "./day-store.ts"
 import type { Tape } from "./tape-backing.ts"
+import { TRADE_CHUNK } from "./tape-chunks.ts"
 import { fieldsOf, makeTape } from "./tape.ts"
 
 // Decision: chunk k holds trades 1000k+1 .. 1000k+1000 as 1,000 fixed 7-byte
@@ -673,15 +674,15 @@ export const makeBrokerCodes = Effect.fnUntraced(function* (options: {
     return merged
   })
 
-  // The batch's `numbers` the tape holds, read a chunk's span at a time: a
-  // trade chunk spans the same 1,000 numbers, so one row of it.
+  // The batch's `numbers` the tape holds, read a trade chunk's span at a
+  // time, so one chunk row each on a chunked day.
   const tapedOf = (numbers: ReadonlyArray<number>) => {
     const asked = new Set(numbers)
     const sorted = [...asked].sort((a, b) => a - b)
     const taped = new Set<number>()
     for (let at = 0; at < sorted.length;) {
       const low = sorted[at]!
-      const end = (Math.floor((low - 1) / CHUNK) + 1) * CHUNK
+      const end = (Math.floor((low - 1) / TRADE_CHUNK) + 1) * TRADE_CHUNK
       let high = low
       while (at < sorted.length && sorted[at]! <= end) high = sorted[at++]!
       for (const number of tape.numbersBetween(low, high))
