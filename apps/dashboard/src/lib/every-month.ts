@@ -4,16 +4,16 @@
 // selected in the panel's tabs.
 import { Effect } from "effect"
 
-import { largestRow } from "@/lib/major-holders"
+import { beforeOf, changeOf, largestRow } from "@/lib/major-holders"
 import type {
   MajorHolder,
   MajorHoldersMonth,
 } from "@/server/holdings/stock-page"
 
-// Against the month before, as the table's chips decide it: by the change
-// in summed percentage, or new when the holder wasn't listed. None in the
-// stock's first month or after a month the stock has no rows in.
-type Move = "up" | "down" | "new"
+// Against the month before, by the table's movement rule (changeOf): up or
+// down, or a return when new to the month but listed in an earlier one. A
+// holder new for the first time, or unchanged, has none.
+type Move = "up" | "down" | "return"
 
 interface Cell {
   readonly hundredths: number
@@ -30,6 +30,34 @@ interface GridRow {
   readonly cells: ReadonlyArray<Cell | undefined>
 }
 
+// Each month's cells by holder key.
+const cellsByMonth = Effect.fnUntraced(function* (
+  months: ReadonlyArray<MajorHoldersMonth>
+) {
+  const seen = new Set<string>()
+  return yield* Effect.forEach(
+    months,
+    Effect.fnUntraced(function* ({ holders }, index) {
+      const { before } = yield* beforeOf(months, index)
+      const cells = new Map<string, Cell>()
+      for (const holder of holders) {
+        const change = yield* changeOf(holder, before)
+        cells.set(holder.key, {
+          hundredths: holder.percentageHundredths,
+          move:
+            change === "up" || change === "down"
+              ? change
+              : change === "new" && seen.has(holder.key)
+                ? "return"
+                : undefined,
+        })
+      }
+      for (const { key } of holders) seen.add(key)
+      return cells
+    })
+  )
+})
+
 // `selected` is the panel's month's data date. Rows listed in it come
 // first, by its %; the rest follow by their newest %.
 export const everyMonth = Effect.fnUntraced(function* (
@@ -44,27 +72,7 @@ export const everyMonth = Effect.fnUntraced(function* (
     for (const [key, each] of holders) newest.set(key, each)
   const current =
     byKey[months.findIndex(({ dataDate }) => dataDate === selected)]
-
-  const cellOf = (key: string, index: number): Cell | undefined => {
-    const now = byKey[index]?.get(key)
-    if (now === undefined) return undefined
-    const before = byKey[index - 1]
-    const previous = before?.get(key)
-    const hundredths = now.percentageHundredths
-    return {
-      hundredths,
-      move:
-        before === undefined || before.size === 0
-          ? undefined
-          : previous === undefined
-            ? "new"
-            : hundredths > previous.percentageHundredths
-              ? "up"
-              : hundredths < previous.percentageHundredths
-                ? "down"
-                : undefined,
-    }
-  }
+  const cells = yield* cellsByMonth(months)
 
   const rows = yield* Effect.forEach(
     newest.values(),
@@ -75,7 +83,7 @@ export const everyMonth = Effect.fnUntraced(function* (
           key: latest.key,
           name: (yield* largestRow(shown)).name,
           listed: current?.has(latest.key) ?? false,
-          cells: months.map((_, index) => cellOf(latest.key, index)),
+          cells: cells.map((month) => month.get(latest.key)),
         } satisfies GridRow,
         hundredths: shown.percentageHundredths,
       }

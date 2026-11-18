@@ -88,21 +88,25 @@ const labelOf = ({ classification, type }: Row) =>
       : CLASSIFICATIONS[classification].label
   )
 
-// A change in summed hundredths as a chip; new without one.
-const changeOf = (ppChange: number | undefined) =>
-  Effect.succeed<Change>(
-    ppChange === undefined
-      ? "new"
-      : ppChange > 0
-        ? "up"
-        : ppChange < 0
-          ? "down"
-          : "unchanged"
-  )
+// The month before's holders by key, when it is comparable.
+type Before = ReadonlyMap<string, MajorHolder> | undefined
+
+// The one movement rule, which the table's chips and the Every month grid's
+// marks both follow: a holder's change against the month before's holders,
+// by the change in summed hundredths, or new when absent from them;
+// undefined without a comparable month before.
+export const changeOf = (holder: MajorHolder, before: Before) =>
+  Effect.sync((): Change | undefined => {
+    if (before === undefined) return undefined
+    const previous = before.get(holder.key)
+    if (previous === undefined) return "new"
+    const pp = holder.percentageHundredths - previous.percentageHundredths
+    return pp > 0 ? "up" : pp < 0 ? "down" : "unchanged"
+  })
 
 const lineOf = Effect.fnUntraced(function* (
   holder: MajorHolder,
-  before: ReadonlyMap<string, MajorHolder> | undefined
+  before: Before
 ) {
   const largest = yield* largestRow(holder)
   const previous = before?.get(holder.key)
@@ -119,7 +123,7 @@ const lineOf = Effect.fnUntraced(function* (
     percentageHundredths: holder.percentageHundredths,
     total: holder.total,
     inScrip: holder.total === 0 ? undefined : holder.scrip / holder.total,
-    change: before && (yield* changeOf(ppChange)),
+    change: yield* changeOf(holder, before),
     ppChange,
     shareChange: previous && holder.total - previous.total,
   } satisfies HolderLine
@@ -147,6 +151,20 @@ const comparisonOf = (
     }
   })
 
+// What month `index` of `months` is compared with, and the month before's
+// holders when they are comparable.
+export const beforeOf = Effect.fnUntraced(function* (
+  months: ReadonlyArray<MajorHoldersMonth>,
+  index: number
+) {
+  const comparison = yield* comparisonOf(months, index)
+  const before: Before =
+    comparison.kind === "compared"
+      ? new Map(months[index - 1]?.holders.map((each) => [each.key, each]))
+      : undefined
+  return { comparison, before }
+})
+
 // The month `month` (`YYYY-MM`) names when the stock has holders in it,
 // else its newest such month; undefined when it has none in any.
 export const majorHolders = Effect.fnUntraced(function* (
@@ -158,11 +176,7 @@ export const majorHolders = Effect.fnUntraced(function* (
     held.find(({ dataDate }) => dataDate.slice(0, 7) === month) ?? held.at(-1)
   if (selected === undefined) return undefined
   const index = months.indexOf(selected)
-  const comparison = yield* comparisonOf(months, index)
-  const before =
-    comparison.kind === "compared"
-      ? new Map(months[index - 1]?.holders.map((each) => [each.key, each]))
-      : undefined
+  const { comparison, before } = yield* beforeOf(months, index)
   const listed = yield* byPercentage(
     yield* Effect.forEach(selected.holders, (each) => lineOf(each, before))
   )

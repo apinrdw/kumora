@@ -1284,8 +1284,9 @@ test.describe.serial("the stock page", () => {
         await holdersTab(page, "Aug 2026").click()
         await expect(outlined).toHaveText("Aug 26", { timeout: 1000 })
       }).toPass()
-      // Salim joined in Sep, so in Aug it is the holder not listed.
-      await expect(rows.last()).toContainText(/PT\. SALIM GROUP.*·1\.50•$/)
+      // Salim joined in Sep, so in Aug it is the holder not listed. Its Sep is
+      // a first listing, which no mark flags.
+      await expect(rows.last()).toContainText(/PT\. SALIM GROUP.*·1\.50$/)
       await expect(rows.last()).toHaveAttribute("data-unlisted", "true")
       await expect(
         rows.filter({ hasText: "GAMMA FUND LTD" })

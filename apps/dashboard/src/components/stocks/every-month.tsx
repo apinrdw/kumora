@@ -5,22 +5,28 @@ import { cn } from "@workspace/ui/lib/utils"
 import { Effect } from "effect"
 import type { CSSProperties } from "react"
 
+import { MOVEMENT } from "@/components/stocks/holder-movement"
 import { everyMonth } from "@/lib/every-month"
 import { plain } from "@/lib/format"
 import { shortMonth } from "@/lib/stock-page-display"
 import type { MajorHoldersMonth } from "@/server/holdings/stock-page"
 
+// Each move's mark, worded and coloured as the table's chip for it.
 const MARK = {
-  up: { text: "▲", label: "Up from the month before", className: "text-up" },
+  up: {
+    text: "▲",
+    label: `${MOVEMENT.up.label} from the month before`,
+    className: MOVEMENT.up.text,
+  },
   down: {
     text: "▼",
-    label: "Down from the month before",
-    className: "text-down",
+    label: `${MOVEMENT.down.label} from the month before`,
+    className: MOVEMENT.down.text,
   },
-  new: {
+  return: {
     text: "•",
-    label: "Not listed the month before",
-    className: "text-info",
+    label: `${MOVEMENT.new.label}, back after a month not listed`,
+    className: MOVEMENT.new.text,
   },
 } as const
 
@@ -44,8 +50,9 @@ export function EveryMonth({
       <div className="flex flex-col gap-0.5">
         <h3 className="text-[13px] font-semibold">Every month</h3>
         <p className="text-[12px] text-muted-foreground">
-          % of listed shares. A dot is a month the holder was not listed (sold
-          or under 1%). The selected month is outlined.
+          % of listed shares. A dot is a month the holder was not listed: sold
+          out or fell below 1%. A small dot marks a holder back on the list. The
+          selected month is outlined.
         </p>
       </div>
       <div className="overflow-x-auto">

@@ -96,10 +96,22 @@ describe("Every month", () => {
     expect(header()).toEqual(["Holder", "Jul 26", "Aug 26", "Sep 26", "Oct 26"])
     expect(rows()).toEqual([
       ["ADARO STRATEGIC INVESTMENTS", "·", "41.00", "41.10▲", "41.10"],
-      ["PT PARAGA ARTAMIDA", "·", "·", "5.20•", "6.00▲"],
+      ["PT PARAGA ARTAMIDA", "·", "·", "5.20", "6.00▲"],
       ["GAMMA CAPITAL", "·", "2.00", "·", "2.50•"],
       ["DELTA FUND", "·", "1.50", "1.20▼", "·"],
     ])
+  })
+  test("marks a holder back on the list with a small dot, not one listed for the first time", async () => {
+    await render("2026-10-30")
+    const marks = [...(grid()?.querySelectorAll("tbody td span") ?? [])].map(
+      (mark) => [mark.textContent, mark.getAttribute("title")]
+    )
+    expect(marks).toContainEqual(["•", "New, back after a month not listed"])
+    expect(
+      container.querySelector(".text-muted-foreground")?.textContent
+    ).toContain(
+      "A dot is a month the holder was not listed: sold out or fell below 1%."
+    )
   })
   test("shades every cell the lightest when every holder holds 0%", async () => {
     await act(() =>
@@ -120,7 +132,7 @@ describe("Every month", () => {
     ).toBe("Sep 26")
     expect(rows().map(([name, ...cells]) => [name, cells[2]])).toEqual([
       ["ADARO STRATEGIC INVESTMENTS", "41.10▲"],
-      ["PT PARAGA ARTAMIDA", "5.20•"],
+      ["PT PARAGA ARTAMIDA", "5.20"],
       ["DELTA FUND", "1.20▼"],
       ["GAMMA CAPITAL", "·"],
     ])

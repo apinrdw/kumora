@@ -12,6 +12,7 @@ import { kCard, kFocus } from "@/components/k/styles"
 import { KTooltip } from "@/components/k/tooltip"
 import { MonthTabs } from "@/components/stocks/choice"
 import { EveryMonth } from "@/components/stocks/every-month"
+import { MOVEMENT } from "@/components/stocks/holder-movement"
 import { compact, count, MINUS, plain } from "@/lib/format"
 import {
   type Change,
@@ -204,21 +205,14 @@ function Swatch({ className }: { className: string }) {
   )
 }
 
-const CHIP: Record<Change, { label: string; className: string }> = {
-  new: { label: "New", className: "bg-info/15 text-info" },
-  up: { label: "Up", className: "bg-up/15 text-up" },
-  down: { label: "Down", className: "bg-down/15 text-down" },
-  unchanged: { label: "Unchanged", className: "text-muted-foreground" },
-  "off list": { label: "Off list", className: "bg-neutral/15 text-neutral" },
-}
-
 const CHIP_CLASS =
   "inline-flex h-5 items-center rounded-full px-2 text-[11px] font-semibold whitespace-nowrap"
 
 // Off list's chip is a button, so its tooltip opens on focus too.
 function ChangeChip({ change }: { change: Change | undefined }) {
   if (change === undefined) return null
-  const { label, className } = CHIP[change]
+  const { label, text, chip } = MOVEMENT[change]
+  const className = cn(text, chip)
   return change === "off list" ? (
     <KTooltip content="Sold out or fell below 1%">
       <button type="button" className={cn(CHIP_CLASS, kFocus, className)}>
