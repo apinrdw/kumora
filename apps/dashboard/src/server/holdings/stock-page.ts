@@ -581,9 +581,9 @@ const ListRow = Schema.Struct({
 
 const isStockCode = Schema.is(StockCode)
 
-// The stocks the page's picker offers: those in the newest month of KSEI's,
-// the classification or the investor-type report, by code, with the
-// classification report's issuer name. KSEI's and the investor-type report
+// The stocks the page's picker offers: those in the newest month of KSEI's
+// report, the classification report or the investor-type report, by code,
+// with the classification report's issuer name. KSEI's and the investor-type report
 // name no issuer. A code that isn't a stock code's shape is left out.
 // Decision: no above-1% source here. In IDX's data every above-1% stock is in
 // the investor-type report (spec apinrdw/kumora#479); one only above-1% has

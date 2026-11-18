@@ -211,9 +211,10 @@ const INVESTOR_TYPE_MONTHS = {
   },
 } as const
 
-// BBCA's ≥1% holders in Aug and Sep 2026; Jul 2026 has only BBRI's, and
-// UNVR's, a stock no other report has (as when its above-1% parse lands
-// first). Each holder key is as src/server/holdings/above-1.ts builds it. Against Aug,
+// BBCA's ≥1% holders in Aug and Sep 2026; Jul 2026 has only BBRI's,
+// and UNVR's, a stock no other report has (as when its above-1%
+// parse lands first). Each holder key is as
+// src/server/holdings/above-1.ts builds it. Against Aug,
 // Sep has Dwimuria unchanged on a few more shares, Anthoni Salim up,
 // BlackRock down, Gamma off list, and Salim Group new on two rows.
 // Decision: Feb and Apr 2026 are left unseeded, since
