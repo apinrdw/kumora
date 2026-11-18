@@ -10,6 +10,8 @@ import {
 import { loadServerFn, runLoader } from "@workspace/server/loader"
 import { useCallback, useEffect, useMemo, useState } from "react"
 
+import { makeBookReadingsStore } from "@/components/market-live/book-readings-store"
+import { BookReadout } from "@/components/market-live/book-readout"
 import { makeCandleStore } from "@/components/market-live/candle-store"
 import { makeChartPair } from "@/components/market-live/chart-pair"
 import { makeDayStateStore } from "@/components/market-live/day-state-store"
@@ -256,6 +258,9 @@ function MarketLiveDay({
   // codes' Day states to load. The server render shows no codes, and the
   // rows fill once the page hydrates and the viewer socket's snapshot arrives.
   const [dayStates] = useState(() => clientRuntime.runSync(makeDayStateStore()))
+  // Every code's book readings: a snapshot carries them all, whichever code
+  // it selected, so one store serves every code picked.
+  const [readings] = useState(() => Effect.runSync(makeBookReadingsStore))
   const watchlist = useWatchlist()
   const cursor = useReplayCursor(day)
   const gaps = useRecordedDay({
@@ -276,34 +281,46 @@ function MarketLiveDay({
       book.apply(message)
       heatmap.apply(message)
       dayStates.apply(message)
+      readings.apply(message)
     },
-    [candles, sweeps, book, heatmap, dayStates]
+    [candles, sweeps, book, heatmap, dayStates, readings]
   )
   return (
     <>
       <h1 className="text-2xl font-bold">Market Live</h1>
       <LayoutB
         charts={
-          <LiveChart
-            store={candles}
-            heatmap={flow?.heatmap}
-            sweeps={flow?.sweeps}
-            pair={pair}
-            gaps={shownGaps}
-            dayStates={dayStates}
-            conditions={<ConditionsBar cursor={cursor} closed={closed} />}
-            cursor={cursor}
-            transport={cursor && <TransportBar cursor={cursor} gaps={gaps} />}
-            search={
-              <StockCodePicker
-                list={codes}
-                label="Search stock code"
-                shortcut="Ctrl K"
-                onPick={select}
-                className="ml-auto w-full max-w-xs"
-              />
-            }
-          />
+          <>
+            <LiveChart
+              store={candles}
+              heatmap={flow?.heatmap}
+              sweeps={flow?.sweeps}
+              pair={pair}
+              gaps={shownGaps}
+              dayStates={dayStates}
+              conditions={<ConditionsBar cursor={cursor} closed={closed} />}
+              cursor={cursor}
+              transport={cursor && <TransportBar cursor={cursor} gaps={gaps} />}
+              search={
+                <StockCodePicker
+                  list={codes}
+                  label="Search stock code"
+                  shortcut="Ctrl K"
+                  onPick={select}
+                  className="ml-auto w-full max-w-xs"
+                />
+              }
+            />
+            <BookReadout
+              code={selected}
+              today={today}
+              readings={readings}
+              book={book}
+              dayStates={dayStates}
+              cursor={cursor}
+              gaps={shownGaps}
+            />
+          </>
         }
         log={
           flow && (

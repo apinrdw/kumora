@@ -133,7 +133,8 @@ export function StaleSince({ at }: { at: DateTime.Utc }) {
   )
 }
 
-const PHASE: Record<MarketPhase, string> = {
+// Each market phase's name on the page.
+export const PHASE: Record<MarketPhase, string> = {
   "pre-opening": "Pre-opening",
   "session-1": "Session 1",
   break: "Break",
