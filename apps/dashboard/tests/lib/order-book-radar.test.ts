@@ -1,11 +1,12 @@
 import { assert, describe, it } from "@effect/vitest"
-import { StockCode, type BookReadings } from "@workspace/relay"
+import { StockCode, type BookEvent, type BookReadings } from "@workspace/relay"
 import { DateTime, Effect } from "effect"
 
 import {
   DEFAULT_SETTINGS,
   rankedFigure,
   scan,
+  type CodeEvents,
   type CodeFigures,
   type RadarSettings,
 } from "@/lib/order-book-radar"
@@ -41,6 +42,18 @@ const reading = (
   ...more,
 })
 
+// A wall that appeared on `code`'s bid at `at`.
+const wall = (code: string, at: number): BookEvent => ({
+  kind: "appeared",
+  code: StockCode.make(code),
+  at: DateTime.makeUnsafe(at),
+  side: "bid",
+  price: 1_000,
+  lots: 6_000,
+  orders: 2,
+  ticks: 2,
+})
+
 // A scan as the tests compare it: its codes as plain strings.
 interface Plain {
   readonly bid: ReadonlyArray<string>
@@ -61,6 +74,7 @@ const run = (
     figures?: Record<string, Partial<CodeFigures>>
     board?: ReadonlyArray<string>
     watchlist?: ReadonlyArray<string>
+    events?: Record<string, CodeEvents>
   } = {}
 ) =>
   scan(
@@ -80,6 +94,12 @@ const run = (
       board: new Set((more.board ?? []).map((code) => StockCode.make(code))),
       watchlist: new Set(
         (more.watchlist ?? []).map((code) => StockCode.make(code))
+      ),
+      events: new Map(
+        Object.entries(more.events ?? {}).map(([code, events]) => [
+          StockCode.make(code),
+          events,
+        ])
       ),
       now: NOW,
     },
@@ -299,6 +319,49 @@ describe("the halves", () => {
     })
   )
 
+  it.effect(
+    "Last event ranks the newest first, a code with none last, and Events in 5 minutes the busiest",
+    () =>
+      Effect.gen(function* () {
+        const readings = [
+          reading("AAAA", 0.2),
+          reading("BBBB", 0.4),
+          reading("CCCC", 0.6),
+          reading("DDDD", 0.8),
+          reading("EEEE", -0.3),
+        ]
+        const events = {
+          // An hour ago, and none since.
+          AAAA: { last: wall("AAAA", NOW - 3_600_000), inFiveMinutes: 0 },
+          BBBB: { last: wall("BBBB", NOW - 5_000), inFiveMinutes: 2 },
+          CCCC: { last: wall("CCCC", NOW - 60_000), inFiveMinutes: 7 },
+          EEEE: { last: wall("EEEE", NOW - 1_000), inFiveMinutes: 1 },
+        }
+        const ranked = (settings: Partial<RadarSettings>) =>
+          Effect.map(run(readings, settings, { events }), ({ bid, offer }) => ({
+            bid,
+            offer,
+          }))
+        assert.deepStrictEqual(yield* ranked({ rankBy: "lastEvent" }), {
+          bid: ["BBBB", "CCCC", "AAAA", "DDDD"],
+          offer: ["EEEE"],
+        })
+        assert.deepStrictEqual(
+          (yield* ranked({ rankBy: "lastEvent", direction: "low" })).bid,
+          ["AAAA", "CCCC", "BBBB", "DDDD"]
+        )
+        assert.deepStrictEqual(yield* ranked({ rankBy: "eventsInFive" }), {
+          bid: ["CCCC", "BBBB", "AAAA", "DDDD"],
+          offer: ["EEEE"],
+        })
+        assert.deepStrictEqual(
+          (yield* ranked({ rankBy: "eventsInFive", direction: "low" })).bid,
+          // None in 5 minutes counts 0, with or without an older event.
+          ["AAAA", "DDDD", "BBBB", "CCCC"]
+        )
+      })
+  )
+
   it.effect("a book unchanged for 60 s sinks to the end of its half", () =>
     Effect.gen(function* () {
       const result = yield* run([
@@ -350,5 +413,28 @@ describe("the ranked figure", () => {
         )
         assert.strictEqual(yield* rankedFigure(readings, "bookAge", NOW), "1s")
       })
+  )
+
+  it.effect("shows the last event's age and the count of 5 minutes", () =>
+    Effect.gen(function* () {
+      const readings = reading("BBCA", 0.2)
+      const events = { last: wall("BBCA", NOW - 125_000), inFiveMinutes: 3 }
+      assert.strictEqual(
+        yield* rankedFigure(readings, "lastEvent", NOW, events),
+        "2m ago"
+      )
+      assert.strictEqual(
+        yield* rankedFigure(readings, "eventsInFive", NOW, events),
+        "3 in 5m"
+      )
+      assert.strictEqual(
+        yield* rankedFigure(readings, "lastEvent", NOW, undefined),
+        "—"
+      )
+      assert.strictEqual(
+        yield* rankedFigure(readings, "eventsInFive", NOW, undefined),
+        "0 in 5m"
+      )
+    })
   )
 })

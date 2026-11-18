@@ -18,6 +18,7 @@ import { makeOrderBookStore } from "@/components/market-live/order-book-store"
 import { signInAgain } from "@/components/market-live/sign-in-again"
 
 import { makeFiguresStore } from "./figures-store"
+import { makeRadarEventsStore } from "./radar-events-store"
 
 // Decision: the scanner selects its unfolded code, so the object sends that
 // code's whole book (deltas carry whole books only for selected codes), and
@@ -38,7 +39,8 @@ const selectOf = (
 
 type FeedStatus = "connecting" | "live" | "new-version"
 
-// The scanner's viewer socket: every code's readings and figures, the
+// The scanner's viewer socket: every code's readings, figures and book
+// events, the
 // unfolded code's book, the market conditions, and how far the market
 // clock runs ahead of the browser's, from each message's sent instant.
 export function useRadarFeed(
@@ -47,6 +49,7 @@ export function useRadarFeed(
 ) {
   const [readings] = useState(() => Effect.runSync(makeBookReadingsStore))
   const [figures] = useState(() => Effect.runSync(makeFiguresStore))
+  const [events] = useState(() => Effect.runSync(makeRadarEventsStore))
   const book = useMemo(
     () =>
       unfolded === undefined
@@ -83,6 +86,7 @@ export function useRadarFeed(
           clockOffset.current = DateTime.toEpochMillis(message.at) - Date.now()
           readings.apply(message)
           figures.apply(message)
+          events.apply(message)
           held.current?.apply(message)
           if (message._tag === "Snapshot") setStatus("live")
         }).pipe(Effect.andThen(applyConditions(message)))
@@ -98,7 +102,7 @@ export function useRadarFeed(
         Fiber.interrupt(fiber).pipe(Effect.andThen(resetConditions))
       )
     }
-  }, [select, readings, figures])
+  }, [select, readings, figures, events])
 
-  return { readings, figures, book, status, clockOffset }
+  return { readings, figures, events, book, status, clockOffset }
 }

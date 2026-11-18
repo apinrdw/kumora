@@ -1,5 +1,5 @@
 import { createFileRoute } from "@tanstack/react-router"
-import type { StockCode } from "@workspace/relay"
+import type { BookEvent, StockCode } from "@workspace/relay"
 import { Effect } from "effect"
 import { useCallback, useMemo, useState } from "react"
 
@@ -10,11 +10,14 @@ import {
 } from "@/components/market-live/market-conditions"
 import { useSpecialBoard } from "@/components/market-live/use-special-board"
 import { useWatchlist } from "@/components/market-live/use-watchlist"
+import { BookEventFeed } from "@/components/order-book-radar/book-event-feed"
+import type { RadarEventsStore } from "@/components/order-book-radar/radar-events-store"
 import { Halves } from "@/components/order-book-radar/scanner"
 import { Toolbar } from "@/components/order-book-radar/toolbar"
 import { useRadarFeed } from "@/components/order-book-radar/use-radar-feed"
 import { useRadarSettings } from "@/components/order-book-radar/use-radar-settings"
 import { useRanking } from "@/components/order-book-radar/use-ranking"
+import { bookEventKey } from "@/lib/book-events"
 import { DISCLAIMER } from "@/lib/book-readings"
 import type { Scan } from "@/lib/order-book-radar"
 
@@ -37,6 +40,39 @@ const plural = (n: number, one: string, many: string) =>
 const coverageNote = (scan: Scan) =>
   `${plural(scan.above, "code", "codes")} above the floor · ${plural(scan.board, "Special Monitoring Board code", "Special Monitoring Board codes")} and ${plural(scan.cheap, "code", "codes")} at Rp1–10 are not ranked · rows with no book change for 60 s grey out and sink`
 
+// The rows' book events as of now, shown live between re-sorts; the feed's
+// codes; and the way to Market Live at an event, which its readout's list
+// picks once it lands.
+function useScannerEvents(
+  store: RadarEventsStore,
+  scan: Scan,
+  marketNow: number
+) {
+  const navigate = Route.useNavigate()
+  const openAt = useCallback(
+    (event: BookEvent) =>
+      void navigate({
+        to: "/market-live",
+        search: {
+          code: event.code,
+          event: Effect.runSync(bookEventKey(event)),
+        },
+      }),
+    [navigate]
+  )
+  const events = useMemo(() => store.byCode(marketNow), [store, marketNow])
+  const codes = useMemo(
+    () =>
+      new Set([
+        ...scan.bid,
+        ...scan.offer,
+        ...scan.limits.map(({ code }) => code),
+      ]),
+    [scan]
+  )
+  return { events, codes, openAt }
+}
+
 function OrderBookRadarPage() {
   const [unfolded, setUnfolded] = useState<StockCode | undefined>(undefined)
   const watchlist = useWatchlist()
@@ -48,6 +84,7 @@ function OrderBookRadarPage() {
   const { scan, marketNow, resortsIn } = useRanking({
     readings: feed.readings,
     figures: feed.figures,
+    events: feed.events,
     settings,
     board,
     watchlist: watched,
@@ -61,6 +98,7 @@ function OrderBookRadarPage() {
       void navigate({ to: "/market-live", search: { code } }),
     [navigate]
   )
+  const scanner = useScannerEvents(feed.events, scan, marketNow)
   return (
     <div data-feed={feed.status} className="flex flex-col gap-2.5">
       <header className="flex flex-wrap items-end justify-between gap-2">
@@ -98,30 +136,32 @@ function OrderBookRadarPage() {
         onChange={change}
         note={`Halves split by imbalance sign · ${hovering ? "order held" : `re-sorts in ${resortsIn}s`}`}
       />
-      {scan !== undefined && (
-        <p aria-label="Coverage" className="text-[12px] text-muted-foreground">
-          {coverageNote(scan)}
-        </p>
-      )}
-      {/* Book events' feed (#523) sits beside the halves from 1,100 px, and
-          under them below. */}
-      <div className="grid gap-2.5">
-        {scan !== undefined && (
-          <Halves
-            scan={scan}
-            onHover={setHovering}
-            view={{
-              readings: feed.readings,
-              rankBy: settings.rankBy,
-              marketNow,
-              watchlist: watched,
-              unfolded,
-              onUnfold: setUnfolded,
-              book: feed.book,
-              onOpen: open,
-            }}
-          />
-        )}
+      <p aria-label="Coverage" className="text-[12px] text-muted-foreground">
+        {coverageNote(scan)}
+      </p>
+      {/* The Book events feed sits beside the halves from 1,100 px, and under
+          them below. */}
+      <div className="grid items-start gap-2.5 min-[1100px]:grid-cols-[minmax(0,1fr)_340px]">
+        <Halves
+          scan={scan}
+          onHover={setHovering}
+          view={{
+            readings: feed.readings,
+            rankBy: settings.rankBy,
+            marketNow,
+            watchlist: watched,
+            events: scanner.events,
+            unfolded,
+            onUnfold: setUnfolded,
+            book: feed.book,
+            onOpen: open,
+          }}
+        />
+        <BookEventFeed
+          store={feed.events}
+          codes={scanner.codes}
+          onOpen={scanner.openAt}
+        />
       </div>
       <p className="text-[11px] text-muted-foreground">{DISCLAIMER}</p>
     </div>
