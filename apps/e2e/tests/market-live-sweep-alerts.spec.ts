@@ -53,7 +53,14 @@ const recordNotes = () => {
   }
   window.AudioContext = RecordingAudioContext as unknown as typeof AudioContext
 }
+// A buy's first note, as `NOTES.buy` in
+// apps/dashboard/src/components/market-live/sweep-alert-sound.ts.
 const BUY_FIRST_NOTE = 1047
+// The sweeps a side holds before it can alert, as `WARM_UP` in
+// apps/dashboard/src/server/market-live/sweep-alerts.ts.
+const WARM_UP = 100
+// The warm-up's trades: a sweep each, the sides in turn.
+const WARMING = WARM_UP * 2
 
 test("a sweep that reaches its code's top-1% cutoff marks its rows on the live tape and plays one buy sound, though another code is selected, and is marked again silently after a reload, where an alert before the first click never plays", async ({
   page,
@@ -90,8 +97,9 @@ test("a sweep that reaches its code's top-1% cutoff marks its rows on the live t
   // sweep's, and a later trade's, which closes the big sweep's second.
   const now = marketNow()
   const [warmAt, bigAt, laterAt] = [now - 2_000, now - 1_000, now].map(wibTime)
-  // 100 one-lot sweeps a side: alternate sides, so each trade is a sweep.
-  const warm = Array.from({ length: 200 }, (_, index) =>
+  // The warm-up, in one-lot sweeps: alternate sides, so each trade is a
+  // sweep.
+  const warm = Array.from({ length: WARMING }, (_, index) =>
     ajaibTradeToday({
       seq: base + index + 1,
       time: warmAt!,
@@ -102,7 +110,8 @@ test("a sweep that reaches its code's top-1% cutoff marks its rows on the live t
     })
   )
   // A buy sweep of two trades: 30 lots against a cutoff of 1.
-  const big = [201, 202].map((seq) =>
+  const bigSeqs = [WARMING + 1, WARMING + 2]
+  const big = bigSeqs.map((seq) =>
     ajaibTradeToday({
       seq: base + seq,
       time: bigAt!,
@@ -113,7 +122,7 @@ test("a sweep that reaches its code's top-1% cutoff marks its rows on the live t
     })
   )
   const later = ajaibTradeToday({
-    seq: base + 203,
+    seq: base + WARMING + 3,
     time: laterAt!,
     ticker: code,
     price: 500,
@@ -123,14 +132,15 @@ test("a sweep that reaches its code's top-1% cutoff marks its rows on the live t
   await relay.sendAjaib([...warm, ...big, later])
 
   const marked = async () => {
-    for (const seq of [201, 202]) {
+    for (const seq of bigSeqs) {
       await expect(row(seq)).toHaveAttribute("data-sweep-alert", "buy")
       const mark = row(seq).locator("td").first().locator("[data-sweep-alert]")
       await expect(mark).toHaveText("▲")
       await expect(mark).toHaveClass(/text-up/)
     }
-    // The warm-up's last sweeps alert nothing: each had 99 earlier.
-    for (const seq of [199, 200])
+    // The warm-up's last sweeps alert nothing: each had one too few
+    // earlier.
+    for (const seq of [WARMING - 1, WARMING])
       await expect(row(seq)).not.toHaveAttribute("data-sweep-alert")
   }
   // The buy sounds since the page loaded. The later sell trade can alert

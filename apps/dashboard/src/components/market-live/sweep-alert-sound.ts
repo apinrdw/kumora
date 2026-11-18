@@ -6,6 +6,9 @@ import type { SoundSink } from "./sweep-alert-player"
 // branch prototype/sweep-alert-sounds): a triangle-wave major third, up for
 // a buy and down for a sell. The two stay apart when they overlap. The volume
 // is fixed: no slider.
+//
+// apps/e2e/tests/market-live-sweep-alerts.spec.ts repeats the buy's first
+// note (`BUY_FIRST_NOTE`).
 const NOTES = {
   buy: [
     { hz: 1047, seconds: 0.07 },

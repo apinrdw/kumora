@@ -12,6 +12,8 @@ import { DateTime, Effect } from "effect"
 // is the ⌈n/100⌉-th largest of its n earlier sweeps, as `sweepThreshold`
 // (lib/sweeps.ts) takes the top N% at N = 1. Under 100 that is the largest
 // so far, so every new high would sound. See apinrdw/kumora#501.
+//
+// apps/e2e/tests/market-live-sweep-alerts.spec.ts repeats the 100 (`WARM_UP`).
 const WARM_UP = 100
 const TOP_PERCENT = 1
 
@@ -145,13 +147,14 @@ interface Minute {
 
 export const makeSweepAlerts = Effect.sync(() => {
   const rankings = new Map<string, Ranking>()
-  // Decision: the rule keeps each minute's ranked sweeps itself, from the
-  // book's first regroup of it until the book let it go and none of its
-  // sweeps waits, rather than on the book's candle. A flush lets a candle go
-  // while its newest sweep still waits for a later trade, and the reopened
-  // candle took that sweep for ranked. A minute the rule doesn't keep is
-  // ranked as the store holds it, so the kept ones stay as few as the book's
-  // candles plus the latest second's. See spec apinrdw/kumora#510.
+  // The minutes the rule keeps, with what it ranked of each: from the book's
+  // first regroup of one until the book let it go and none of its sweeps
+  // waits. A minute it doesn't keep is ranked as the store holds it, so the
+  // kept ones are as few as the book's candles plus the latest second's.
+  // Decision: the rule keeps them, not the book's candle. A flush lets a
+  // candle go while its newest sweep still waits for a later trade, and the
+  // reopened candle took that sweep from the store for ranked. See spec
+  // apinrdw/kumora#510.
   const minutes = new Map<string, Minute>()
   // Those with a sweep to decide: regrouped since the last decision, or
   // waiting for its second to close.
