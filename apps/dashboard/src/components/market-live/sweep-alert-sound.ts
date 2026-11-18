@@ -62,7 +62,7 @@ const note = (
     oscillator.stop(at + seconds + 0.02)
   })
 
-// The page's sound sink. A buy and a sell asked for in the same update
+// The page's sound sink. A buy and a sell asked for in the same delta
 // start at the same moment: the context's clock stands still while one
 // script runs, and nothing here waits. A context that isn't running drops
 // the sound: notes scheduled in a suspended one would all play at once when

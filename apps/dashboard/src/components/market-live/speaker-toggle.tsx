@@ -25,7 +25,7 @@ const toggle = Effect.runSync(
 const { subscribe, snapshot, write } = toggle
 
 // Whether the Speaker toggle is on: the sweep alert player reads it at each
-// update.
+// delta.
 export const speakerOn = toggle.current
 
 // The Speaker toggle in the live Running trades header. Its click is the

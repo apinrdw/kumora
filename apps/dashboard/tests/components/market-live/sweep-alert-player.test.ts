@@ -56,13 +56,13 @@ const playerOf = ({
   return { hear, played }
 }
 
-test("an update with several buy alerts plays one buy sound", () => {
+test("a delta with several buy alerts plays one buy sound", () => {
   const { hear, played } = playerOf()
   hear(deltaOf([alertOf("buy", 1), alertOf("buy", 2), alertOf("buy", 3)]))
   expect(played).toEqual(["buy"])
 })
 
-test("a buy and a sell in one update play together, one each", () => {
+test("a buy and a sell in one delta play together, one each", () => {
   const { hear, played } = playerOf()
   hear(
     deltaOf([
@@ -75,7 +75,7 @@ test("a buy and a sell in one update play together, one each", () => {
   expect([...played].sort()).toEqual(["buy", "sell"])
 })
 
-test("each update plays its own: a later update's buy plays again", () => {
+test("each delta plays its own: a later delta's buy plays again", () => {
   const { hear, played } = playerOf()
   hear(deltaOf([alertOf("buy", 1)]))
   hear(deltaOf([]))
