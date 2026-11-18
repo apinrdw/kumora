@@ -11,6 +11,7 @@ import { useEffect, useRef, useState, type ReactNode } from "react"
 
 import { KButton } from "@/components/k/button"
 import { KStatusPill } from "@/components/k/status-pill"
+import { SoundToggle } from "@/components/market-live/sound-toggle"
 import {
   SOURCES,
   TapeList,
@@ -133,7 +134,7 @@ export function LiveTape({
   }, [apply, select])
 
   return (
-    <TapeSection stale={stale}>
+    <TapeSection stale={stale} controls={<SoundToggle />}>
       {status === "new-version" && (
         <div role="alert" className="flex items-center gap-3 text-[13px]">
           <span>A new version of Market Live is out. Reload to continue.</span>
@@ -157,12 +158,15 @@ export function LiveTape({
 
 export const TAPE_HEIGHT = "h-[min(70vh,640px)]"
 
-// The tape's panel: its heading, the sources legend, then `children`.
+// The tape's panel: its heading, `controls` (the live tape's speaker
+// toggle), the sources legend, then `children`.
 export function TapeSection({
   stale = false,
+  controls,
   children,
 }: {
   stale?: boolean
+  controls?: ReactNode
   children: ReactNode
 }) {
   return (
@@ -172,10 +176,13 @@ export function TapeSection({
       className="flex flex-col gap-2"
     >
       <header className="flex items-center justify-between gap-3">
-        <h2 className="flex items-center gap-2 text-sm font-semibold">
-          Running trades
-          {stale && <KStatusPill status="stale" />}
-        </h2>
+        <div className="flex items-center gap-1">
+          <h2 className="flex items-center gap-2 text-sm font-semibold">
+            Running trades
+            {stale && <KStatusPill status="stale" />}
+          </h2>
+          {controls}
+        </div>
         <ul
           aria-label="Sources"
           className="flex gap-3 text-[11px] text-muted-foreground"

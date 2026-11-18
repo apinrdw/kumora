@@ -1,0 +1,89 @@
+import { IconVolume, IconVolumeOff } from "@tabler/icons-react"
+import { clientRuntime } from "@workspace/client"
+import { Effect } from "effect"
+import { useEffect, useSyncExternalStore } from "react"
+
+import { KIconButton } from "@/components/k/button"
+
+import { wakeSound } from "./sweep-alert-sound"
+
+// Decision: like the watchlist (use-watchlist.ts), each browser keeps the
+// speaker toggle in localStorage, off until turned on (spec
+// apinrdw/kumora#510, "Dashboard: Running trades").
+const KEY = "kumora:market-live:sound"
+const ON = "on"
+
+// Storage blocked reads as off.
+const read = Effect.try(() => window.localStorage.getItem(KEY)).pipe(
+  Effect.orElseSucceed(() => null)
+)
+
+// Turned on or off while storage is blocked: it lasts as long as the page.
+let unstored: boolean | undefined
+
+// Whether the speaker toggle is on: the sweep alert player reads it at each
+// update.
+export const soundOn = Effect.suspend(() =>
+  unstored === undefined
+    ? Effect.map(read, (stored) => stored === ON)
+    : Effect.succeed(unstored)
+)
+
+const snapshot = () => clientRuntime.runSync(soundOn)
+
+const listeners = new Set<() => void>()
+const subscribe = (listener: () => void) => {
+  listeners.add(listener)
+  // Another tab's change.
+  window.addEventListener("storage", listener)
+  return () => {
+    listeners.delete(listener)
+    window.removeEventListener("storage", listener)
+  }
+}
+
+const write = Effect.fnUntraced(function* (on: boolean) {
+  yield* Effect.try(() =>
+    on
+      ? window.localStorage.setItem(KEY, ON)
+      : window.localStorage.removeItem(KEY)
+  ).pipe(
+    Effect.orElseSucceed(() => {
+      unstored = on
+    })
+  )
+  for (const listener of listeners) listener()
+})
+
+// The speaker toggle in the live Running trades header. Its click is the
+// gesture that lets the browser play the sweep alert sounds. The server
+// render has it off.
+export function SoundToggle() {
+  const on = useSyncExternalStore(subscribe, snapshot, () => false)
+  // Turned on before this page load: the page's first click or key press
+  // wakes the sound, since the toggle's own click is gone with the old page.
+  useEffect(() => {
+    if (!on) return
+    const wake = () => clientRuntime.runFork(wakeSound)
+    const options = { once: true, capture: true }
+    window.addEventListener("pointerdown", wake, options)
+    window.addEventListener("keydown", wake, options)
+    return () => {
+      window.removeEventListener("pointerdown", wake, options)
+      window.removeEventListener("keydown", wake, options)
+    }
+  }, [on])
+  return (
+    <KIconButton
+      icon={on ? IconVolume : IconVolumeOff}
+      label="Sweep alert sound"
+      size="sm"
+      aria-pressed={on}
+      className={on ? "text-foreground" : undefined}
+      onClick={() => {
+        clientRuntime.runSync(write(!on))
+        if (!on) clientRuntime.runFork(wakeSound)
+      }}
+    />
+  )
+}
