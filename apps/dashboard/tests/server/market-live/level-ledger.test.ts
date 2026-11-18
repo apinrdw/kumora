@@ -329,6 +329,34 @@ describe("level ledger", () => {
     })
   )
 
+  it.effect(
+    "no pull when the trades that took it come a minute before its read",
+    () =>
+      Effect.gen(function* () {
+        // The wall's loss at 36 s is traded; the side's next frames, at 70 s
+        // and 100 s, read it two frames late, after a trade at 100 s.
+        const events = yield* run([
+          ...everySecond(35, () => ladder({ 990: [6000, 2] })),
+          {
+            at: s(36),
+            rows: ladder({ 990: [1000, 1] }),
+            trades: [sell(s(36), 990, 5000)],
+          },
+          { at: s(70), rows: ladder({ 990: [1000, 1] }) },
+          {
+            at: s(100),
+            rows: ladder({ 990: [1000, 1] }),
+            trades: [sell(s(100), 1000, 10)],
+          },
+        ])
+        assert.deepStrictEqual(
+          kinds(events.filter((event) => event.kind === "pulled")),
+          [],
+          "the trades at 36 s still explain the loss when it is read at 100 s"
+        )
+      })
+  )
+
   it.effect("too quiet: fewer than 2 frames in the window read nothing", () =>
     Effect.gen(function* () {
       const events = yield* run([
