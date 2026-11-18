@@ -8,7 +8,7 @@ import { gunzipSync, gzipSync } from "node:zlib"
 import {
   StockCode,
   TradeNumber,
-  type BookEvent,
+  BookEvent,
   TradeNumberValue,
   type Footprint,
   type HeatSlice,
@@ -18,7 +18,7 @@ import {
   MINUTE_MS,
   SHARES_PER_LOT,
 } from "@workspace/relay"
-import { DateTime, Effect } from "effect"
+import { DateTime, Effect, Schema } from "effect"
 
 import type { DaySums, MinuteFigures, StoredBubbles } from "./bubble-book.ts"
 import type {
@@ -342,20 +342,27 @@ const storedCandleOf = (row: Record<string, SqlValue>) =>
 const candleOf = ({ code, minute, figures }: StoredCandle) =>
   candleFrom(code, minute, figures)
 
-const bookEventOf = (row: Record<string, SqlValue>) =>
-  Effect.sync(
-    (): BookEvent =>
-      ({
-        ...JSON.parse(String(row.detail)),
-        kind: String(row.kind),
-        code: StockCode.make(String(row.code)),
-        at: DateTime.makeUnsafe(Number(row.time)),
-        side: String(row.side),
-        price: Number(row.price),
-        lots: Number(row.lots),
-        orders: Number(row.orders),
-      }) as BookEvent
-  )
+// A stored book event: its columns and its kind's own figures in `detail`,
+// decoded as the wire's BookEvent. A row this code can't read is a defect.
+const decodeDetail = Schema.decodeUnknownEffect(
+  Schema.fromJsonString(Schema.Record(Schema.String, Schema.Unknown))
+)
+const decodeBookEvent = Schema.decodeUnknownEffect(BookEvent)
+const bookEventOf = Effect.fnUntraced(function* (
+  row: Record<string, SqlValue>
+) {
+  const detail = yield* decodeDetail(row.detail)
+  return yield* decodeBookEvent({
+    ...detail,
+    kind: row.kind,
+    code: row.code,
+    at: row.time,
+    side: row.side,
+    price: row.price,
+    lots: row.lots,
+    orders: row.orders,
+  })
+}, Effect.orDie)
 
 const livePriceOf = (frame: SqlValue | undefined) =>
   Effect.sync((): LivePrice => {
