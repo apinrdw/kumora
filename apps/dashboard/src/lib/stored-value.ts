@@ -33,7 +33,8 @@ export const jsonText = (value: unknown) =>
 // lasts until a later write is stored, or as long as the page. `snapshot`
 // keeps the value it last parsed while the stored text is unchanged, so
 // React sees the same object. Another tab's write is seen too, unless
-// `crossTab` is false.
+// `crossTab` is false: then the value is read once and changes only by this
+// tab's writes.
 export const makeStoredValue = <A>({
   key,
   parse,
@@ -55,6 +56,7 @@ export const makeStoredValue = <A>({
 
     const current = Effect.gen(function* () {
       if (unstored !== undefined) return unstored.value
+      if (!crossTab && cached !== undefined) return cached.value
       const raw = yield* read
       if (cached === undefined || raw !== cached.raw)
         cached = { raw, value: yield* parse(raw) }
@@ -71,6 +73,7 @@ export const makeStoredValue = <A>({
         Effect.as(undefined),
         Effect.orElseSucceed(() => ({ value }))
       )
+      if (!crossTab) cached = { raw: text, value }
       yield* changed
     })
 

@@ -1,9 +1,8 @@
 // @vitest-environment happy-dom
 import { act } from "react"
 import { createRoot } from "react-dom/client"
-import { afterEach, expect, test } from "vitest"
+import { afterEach, expect, test, vi } from "vitest"
 
-import { useRadarSettings } from "@/components/order-book-radar/use-radar-settings"
 import { DEFAULT_SETTINGS, type RadarSettings } from "@/lib/order-book-radar"
 
 // React's `act` warns outside a test environment that declares itself.
@@ -16,8 +15,12 @@ afterEach(() => {
   document.body.innerHTML = ""
 })
 
-const read = (stored: object) => {
+// The settings a page loaded with `stored` in the browser shows.
+const read = async (stored: object) => {
   window.localStorage.setItem(KEY, JSON.stringify(stored))
+  vi.resetModules()
+  const { useRadarSettings } =
+    await import("@/components/order-book-radar/use-radar-settings")
   const seen: { settings?: RadarSettings } = {}
   function Probe() {
     seen.settings = useRadarSettings().settings
@@ -35,9 +38,9 @@ test.each([
   ["bidDepth", "bidNearDepth"],
   ["offerDepth", "offerNearDepth"],
   ["bidNearDepth", "bidNearDepth"],
-])("a Rank by stored as %s reads as %s", (stored, shown) => {
+])("a Rank by stored as %s reads as %s", async (stored, shown) => {
   expect(
-    read({ ...DEFAULT_SETTINGS, rankBy: stored, direction: "low" }),
+    await read({ ...DEFAULT_SETTINGS, rankBy: stored, direction: "low" }),
     "the browser's other settings are kept"
   ).toEqual({ ...DEFAULT_SETTINGS, rankBy: shown, direction: "low" })
 })
