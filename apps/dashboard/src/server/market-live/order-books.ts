@@ -128,12 +128,12 @@ export interface StoredAjaibBook {
 // whole book only on subscribing, a restarted object keeps its hibernated
 // socket so none comes again, and the served book's 20 levels can't carry the
 // deltas on. See apinrdw/kumora#157.
-// A row stored before the per-side times has neither.
 const AjaibBookRecord = Schema.fromJsonString(
   Schema.Struct({
     bids: Schema.Array(BookLevel),
     offers: Schema.Array(BookLevel),
     at: Schema.Finite,
+    // Each side's time; a row stored before them has neither.
     bidAt: Schema.optionalKey(Schema.Finite),
     offerAt: Schema.optionalKey(Schema.Finite),
   })

@@ -17,7 +17,7 @@ import {
   ViewerProtocolVersion,
 } from "./envelope.ts"
 import { RelayGap } from "./market-conditions.ts"
-import { BookLevel, OrderBook } from "./order-book.ts"
+import { BookLevel, BookSideFields, OrderBook } from "./order-book.ts"
 import { WibDate } from "./schedule.ts"
 
 const DAYS = "/market-live/days"
@@ -440,6 +440,11 @@ export const decodeRecordedGaps = Schema.decodeUnknownEffect(
 const BookDelta = Schema.Struct({
   servedAt: Schema.DateTimeUtcFromMillis,
   at: Schema.DateTimeUtcFromMillis,
+  // Decision: a frame carries all its book's per-side times and sequence
+  // numbers, changed or not, and replay replaces them as one group, so a book
+  // without one (Ajaib's sequences) never inherits the frame before's. An
+  // older chunk has none and replays unchanged. See apinrdw/kumora#517.
+  ...BookSideFields,
   provenance: Schema.optionalKey(Schema.Literals(["Stockbit", "Ajaib"])),
   bids: Schema.optionalKey(Schema.Array(BookLevel)),
   offers: Schema.optionalKey(Schema.Array(BookLevel)),
@@ -475,7 +480,13 @@ export const bookAt = (chunk: BookChunk, cursor: DateTime.Utc) =>
     for (const { servedAt, ...parts } of chunk.deltas) {
       if (DateTime.isGreaterThan(servedAt, cursor)) break
       // A first frame carries every part.
-      const before: OrderBook = book ?? {
+      const {
+        bidAt: _bidAt,
+        offerAt: _offerAt,
+        bidSequence: _bidSequence,
+        offerSequence: _offerSequence,
+        ...before
+      }: OrderBook = book ?? {
         _tag: "OrderBook",
         code: chunk.code,
         bids: [],
