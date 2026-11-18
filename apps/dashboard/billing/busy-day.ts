@@ -10,6 +10,7 @@ import { gzipSync } from "node:zlib"
 
 import {
   BOOK_DEPTH,
+  Side,
   StockCode,
   encodeBookChunk,
   type BookDelta,
@@ -73,7 +74,6 @@ const chunkOf = (chunk: number) =>
     return codes
   })
 
-const SIDES = ["buy", "sell", "none"] as const
 const HOLES = new Set<number>(BUSY_DAY.holes)
 
 // One trade chunk's records as tape-chunks.ts lays them out: trade n at
@@ -91,7 +91,7 @@ const tradeChunkOf = (chunk: number) =>
         code: number % codes,
         price: 1000 + (number % 500),
         lots: 1 + (number % 20),
-        side: SIDES[number % 3]!,
+        side: Side.literals[number % 3]!,
         board: "RG",
         feeds: ["Stockbit"],
       })
