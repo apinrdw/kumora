@@ -22,18 +22,29 @@ vi.mock("@/components/market-live/use-special-board", () => ({
   useSpecialBoard: () => new Set(),
 }))
 
-// The browser's Web Locks, shared by every tab: one holder, a queue, and a
-// steal that hands the lock over at once.
+// The browser's Web Locks, shared by every tab: per name, one holder, a
+// queue, and a steal that hands the lock over. As in a browser, a request
+// is granted on a later task, so a page can unmount before its grant.
 const makeLocks = () => {
-  let holder: { readonly stolen: () => void } | undefined
-  const waiting: Array<() => void> = []
-  const next = () => waiting.shift()?.()
+  const named = new Map<
+    string,
+    {
+      holder: { readonly stolen: () => void } | undefined
+      readonly waiting: Array<() => void>
+    }
+  >()
+  const lockOf = (name: string) => {
+    const held = named.get(name) ?? { holder: undefined, waiting: [] }
+    named.set(name, held)
+    return held
+  }
   const request = (
-    _name: string,
+    name: string,
     options: { readonly steal?: boolean; readonly signal?: AbortSignal },
-    callback: () => Promise<unknown>
+    callback: () => unknown
   ) =>
     new Promise((resolve, reject) => {
+      const lock = lockOf(name)
       const grant = () => {
         let settled = false
         const mine = {
@@ -42,27 +53,30 @@ const makeLocks = () => {
             reject(new DOMException("Lock stolen", "AbortError"))
           },
         }
-        holder = mine
-        void callback().then((value) => {
+        lock.holder = mine
+        void Promise.resolve(callback()).then((value) => {
           if (settled) return
           settled = true
-          holder = undefined
+          lock.holder = undefined
           resolve(value)
-          next()
+          lock.waiting.shift()?.()
         })
       }
       if (options.steal === true) {
-        holder?.stolen()
-        return grant()
+        lock.holder?.stolen()
+        lock.holder = { stolen: () => undefined }
+        return void setTimeout(grant, 0)
       }
       options.signal?.addEventListener("abort", () => {
-        const index = waiting.indexOf(grant)
+        const index = lock.waiting.indexOf(grant)
         if (index === -1) return
-        waiting.splice(index, 1)
+        lock.waiting.splice(index, 1)
         reject(new DOMException("Aborted", "AbortError"))
       })
-      if (holder === undefined) grant()
-      else waiting.push(grant)
+      if (lock.holder === undefined) {
+        lock.holder = { stolen: () => undefined }
+        setTimeout(grant, 0)
+      } else lock.waiting.push(grant)
     })
   return { request }
 }
@@ -95,7 +109,7 @@ const settle = () =>
 
 // A page in a tab of its own: its own modules, so its own gate, over the
 // browser's one localStorage and locks. A recorded day's page is not live.
-const openTab = async (live = true) => {
+const openTab = async (live = true, settled = true) => {
   vi.resetModules()
   const { useBookAlerts } =
     await import("@/components/book-alerts/use-book-alerts")
@@ -108,7 +122,7 @@ const openTab = async (live = true) => {
     document.body.appendChild(document.createElement("div"))
   )
   act(() => root.render(<Page />))
-  await settle()
+  if (settled) await settle()
   return {
     hear: (message: ViewerDown) => held.apply!(message),
     close: () => act(() => root.unmount()),
@@ -197,4 +211,19 @@ test("the page whose window gains focus takes the lock", async () => {
   act(() => marketLive.hear(later))
   await settle()
   expect(toasts.told, "the page left behind tells nothing").toHaveLength(1)
+})
+
+test("a page closed before its lock is granted lets the lock go", async () => {
+  browser()
+  const radar = await openTab()
+  // Opened in front, it asks to take the lock, and closes before it is given.
+  const marketLive = await openTab(true, false)
+  marketLive.close()
+  await settle()
+  act(() => radar.hear(delta))
+  await settle()
+  expect(
+    toasts.told,
+    "the radar takes the lock back from the page that closed"
+  ).toHaveLength(1)
 })
