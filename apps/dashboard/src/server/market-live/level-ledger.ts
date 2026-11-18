@@ -125,8 +125,10 @@ interface Reading {
 }
 
 // Decision: the ledger's helpers stay plain closures inside its Effects: they
-// run for every price of every side frame of every code, about 2 frames a
-// second on a busy code, inside the delta tick.
+// run for every price of every side frame, inside the delta tick. On node,
+// replaying fixtures/book-events-2026-11-17.json's 949 side frames took 9.7 ms;
+// at 119 helper calls a frame and about 75 ns a yielded Effect, Effects would
+// take about 18 ms, nearly twice as long. See spec apinrdw/kumora#517.
 export const makeLevelLedger = Effect.sync(() => {
   const codes = new Map<StockCode, CodeLedger>()
 
