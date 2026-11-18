@@ -211,7 +211,8 @@ const INVESTOR_TYPE_MONTHS = {
   },
 } as const
 
-// BBCA's ≥1% holders in Aug and Sep 2026; Jul 2026 has only BBRI's. Each
+// BBCA's ≥1% holders in Aug and Sep 2026; Jul 2026 has only BBRI's, and
+// UNVR's, a stock no other report has. Each
 // holder key is as src/server/holdings/above-1.ts builds it. Against Aug,
 // Sep has Dwimuria unchanged on a few more shares, Anthoni Salim up,
 // BlackRock down, Gamma off list, and Salim Group new on two rows.
@@ -220,6 +221,21 @@ const INVESTOR_TYPE_MONTHS = {
 // HoldingsDb, with no BBCA or BBRI rows.
 const ABOVE_1_MONTHS = {
   "2026-07-31": {
+    UNVR: {
+      issuer: "UNILEVER INDONESIA Tbk",
+      rows: [
+        {
+          investor: "UNILEVER INDONESIA HOLDING BV",
+          holderKey: "BV HOLDING INDONESIA UNILEVER",
+          classification: "corporate",
+          type: "CP",
+          origin: "foreign",
+          domicile: "NETHERLANDS",
+          total: 32_500_000_000,
+          hundredths: 8499,
+        },
+      ],
+    },
     BBRI: {
       issuer: BBRI,
       rows: [
@@ -667,6 +683,20 @@ test.describe.serial("the stock page", () => {
       await expect(
         page.getByRole("combobox", { name: "Stock", exact: true })
       ).toBeVisible()
+    })
+
+    test("shows the major holders of a stock only an above-1% report has", async ({
+      page,
+    }) => {
+      await page.goto(`${DASHBOARD}/stocks/UNVR`)
+      await expect(
+        page.getByText(
+          "UNVR isn't in IDX's classification report, so its shareholders composition isn't shown."
+        )
+      ).toBeVisible()
+      await expect(
+        holderRow(page, "UNILEVER INDONESIA HOLDING BV")
+      ).toHaveCount(1)
     })
 
     test("answers not found to a code that isn't a stock code", async ({
