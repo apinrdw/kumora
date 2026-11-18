@@ -37,9 +37,7 @@ import {
 import type { ReplayCursor } from "@/components/market-live/replay-cursor"
 import { StockCodePalette } from "@/components/market-live/stock-code-palette"
 import { StockCodePicker } from "@/components/market-live/stock-code-picker"
-import { soundOn } from "@/components/market-live/sound-toggle"
-import { makeSweepAlertPlayer } from "@/components/market-live/sweep-alert-player"
-import { sweepAlertSound } from "@/components/market-live/sweep-alert-sound"
+import { useSweepAlertPlayer } from "@/components/market-live/sweep-alert-player"
 import { SweepLog, useSweeps } from "@/components/market-live/sweep-log"
 import type { SweepStore } from "@/components/market-live/sweep-store"
 import { TransportBar } from "@/components/market-live/transport-bar"
@@ -272,11 +270,7 @@ function MarketLiveDay({
   })
   const liveGaps = useRelayGaps()
   const shownGaps = cursor === undefined ? liveGaps : gaps
-  const [player] = useState(() =>
-    Effect.runSync(
-      makeSweepAlertPlayer({ sink: sweepAlertSound, day, soundOn })
-    )
-  )
+  const player = useSweepAlertPlayer(day)
   const apply = useCallback(
     (message: ViewerDown) => {
       candles.apply(message)
