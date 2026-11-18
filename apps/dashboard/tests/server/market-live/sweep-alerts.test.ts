@@ -7,7 +7,10 @@ import { assert, describe, it } from "@effect/vitest"
 import { StockCode, TradeNumber, type Sweep } from "@workspace/relay"
 import { DateTime, Effect } from "effect"
 
-import { makeSweepAlerts } from "@/server/market-live/sweep-alerts"
+import {
+  makeSweepAlerts,
+  type KnownSweep,
+} from "@/server/market-live/sweep-alerts"
 
 const UNTR = StockCode.make("UNTR")
 const OPEN = DateTime.toEpochMillis(DateTime.makeUnsafe("2026-11-09T02:00:00Z"))
@@ -17,7 +20,7 @@ let numbers = 0
 // Seconds after 09:00 WIB: long after any sweep a test decides is fresh.
 const LATER = 3600
 
-// A sweep `second` seconds after 09:00 WIB.
+// A sweep of one trade `second` seconds after 09:00 WIB.
 const sweep = (
   side: Sweep["side"],
   second: number,
@@ -34,6 +37,23 @@ const sweep = (
   trades: 1,
 })
 
+// A sweep of the trades numbered `trades`, the first its first.
+const of = (
+  one: Sweep,
+  ...trades: readonly [number, ...Array<number>]
+): KnownSweep => ({
+  sweep: {
+    ...one,
+    firstTrade: TradeNumber.make(String(trades[0])),
+    trades: trades.length,
+  },
+  trades: trades.map((trade) => TradeNumber.make(String(trade))),
+})
+
+// A sweep as the book hands it in: one given bare is known by its one trade.
+const known = (one: Sweep | KnownSweep): KnownSweep =>
+  "sweep" in one ? one : { sweep: one, trades: [one.firstTrade] }
+
 // The rule, heard as the candle book hands it UNTR's minutes.
 const book = Effect.gen(function* () {
   const rule = yield* makeSweepAlerts
@@ -41,9 +61,15 @@ const book = Effect.gen(function* () {
   // held of the minute when the book took it.
   const group = (
     minute: number,
-    sweeps: ReadonlyArray<Sweep>,
+    sweeps: ReadonlyArray<Sweep | KnownSweep>,
     stored: ReadonlyArray<Sweep> = []
-  ) => rule.regroup({ code: UNTR, minute, stored, sweeps })
+  ) =>
+    rule.regroup({
+      code: UNTR,
+      minute,
+      stored: stored.map(known),
+      sweeps: sweeps.map(known),
+    })
   // The decisions once the latest trade is timed `latest` seconds after
   // 09:00 WIB and `now` seconds after it is the decision instant: the side
   // and lots of each sweep that alerted.
@@ -55,7 +81,7 @@ const book = Effect.gen(function* () {
   // One minute regrouped and decided, as a delta with one changed minute.
   const regroup = (
     minute: number,
-    sweeps: ReadonlyArray<Sweep>,
+    sweeps: ReadonlyArray<Sweep | KnownSweep>,
     latest: number,
     now = latest,
     stored: ReadonlyArray<Sweep> = []
@@ -211,9 +237,11 @@ describe("sweep alerts", () => {
         assert.deepStrictEqual(yield* day.regroup(0, [first], 2), [
           ["buy", 150],
         ])
-        // A late trade grows it to 160.
+        // A late trade, numbered two after its one, grows it to 160.
+        const at = Number(first.firstTrade)
+        numbers = at + 2
         assert.deepStrictEqual(
-          yield* day.regroup(0, [{ ...first, lots: 160 }], 3),
+          yield* day.regroup(0, [of({ ...first, lots: 160 }, at, at + 2)], 3),
           []
         )
         // 101 sweeps cut at the 2nd largest: 100, the 150 replaced by 160.
@@ -222,7 +250,6 @@ describe("sweep alerts", () => {
           [["buy", 149]]
         )
         // A late sell trade splits it in two: neither buy piece alerts again.
-        const at = Number(first.firstTrade)
         assert.deepStrictEqual(
           yield* day.regroup(
             0,
@@ -248,21 +275,15 @@ describe("sweep alerts", () => {
         const sell = sweep("sell", 1, 1)
         assert.deepStrictEqual(yield* day.regroup(0, [small, sell], 2), [])
         // A buy trade numbered after the sell arrives late: a sweep of its own.
-        assert.deepStrictEqual(
-          yield* day.regroup(0, [small, sell, sweep("buy", 1, 500)], 3),
-          [["buy", 500]]
-        )
+        const late = sweep("buy", 1, 500)
+        assert.deepStrictEqual(yield* day.regroup(0, [small, sell, late], 3), [
+          ["buy", 500],
+        ])
         // Another, decided more than 10 s after its second closed: silent.
         assert.deepStrictEqual(
           yield* day.regroup(
             0,
-            [
-              small,
-              sell,
-              sweep("buy", 1, 500),
-              sweep("sell", 1, 1),
-              sweep("buy", 1, 900),
-            ],
+            [small, sell, late, sweep("sell", 1, 1), sweep("buy", 1, 900)],
             4,
             12.001
           ),
@@ -272,6 +293,41 @@ describe("sweep alerts", () => {
         assert.deepStrictEqual(
           yield* day.regroup(1, [sweep("buy", 70, 499)], 71),
           []
+        )
+      })
+  )
+
+  it.effect(
+    "a sweep that holds none of a ranked sweep's trades is new, wherever its trades are numbered",
+    () =>
+      Effect.gen(function* () {
+        const day = yield* book
+        yield* day.warm("buy", 100)
+        // Trades 1001 and 1005 make one buy sweep, the minute's last.
+        assert.deepStrictEqual(
+          yield* day.regroup(0, [of(sweep("buy", 1, 80), 1001, 1005)], 2),
+          [["buy", 80]]
+        )
+        // Late trades land between its two and after them. Its halves are
+        // regroups; the buy between them and the buy after them are new.
+        assert.deepStrictEqual(
+          yield* day.regroup(
+            0,
+            [
+              of(sweep("buy", 1, 30), 1001),
+              of(sweep("sell", 1, 1), 1002),
+              of(sweep("buy", 1, 70), 1003),
+              of(sweep("sell", 1, 1), 1004),
+              of(sweep("buy", 1, 50), 1005),
+              of(sweep("sell", 1, 1), 1006),
+              of(sweep("buy", 1, 60), 1007),
+            ],
+            3
+          ),
+          [
+            ["buy", 70],
+            ["buy", 60],
+          ]
         )
       })
   )

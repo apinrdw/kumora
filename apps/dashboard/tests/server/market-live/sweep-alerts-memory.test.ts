@@ -206,8 +206,9 @@ describe("the alert rule at the worst day", () => {
         const before = yield* retainedHeap
         const rule = yield* makeSweepAlerts
         let alerts = 0
-        // Each minute's sweeps regrouped, decided with its last second
-        // still open, then let go, as a flush does.
+        // Each minute's sweeps regrouped, each known by its one trade,
+        // decided with its last second still open, then let go, as a flush
+        // does.
         for (let minute = 0; minute < FULL_DAY_MINUTES; minute++) {
           for (let code = 0; code < FULL_DAY_CODES; code++) {
             const sweeps = sweepsOf(code, minute)
@@ -216,7 +217,10 @@ describe("the alert rule at the worst day", () => {
                 code: codes[code]!,
                 minute,
                 stored: [],
-                sweeps,
+                sweeps: sweeps.map((sweep) => ({
+                  sweep,
+                  trades: [sweep.firstTrade],
+                })),
               })
           }
           const latest = FIRST + minute * MINUTE + 59_000

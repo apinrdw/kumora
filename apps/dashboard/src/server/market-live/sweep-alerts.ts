@@ -5,7 +5,7 @@
 // (candles.ts, `takeChanged`). The rule keeps what it ranked of each minute,
 // so a regroup replaces the minute's entries rather than adding them again,
 // and it decides the minutes in trade order.
-import type { AlertSide, StockCode, Sweep } from "@workspace/relay"
+import type { AlertSide, StockCode, Sweep, TradeNumber } from "@workspace/relay"
 import { DateTime, Effect } from "effect"
 
 // Decision: a side alerts nothing until it holds 100 sweeps, and the cutoff
@@ -20,6 +20,8 @@ const TOP_PERCENT = 1
 // Decision: a sweep whose second closed more than 10 s before the decision
 // stays silent but still ranks: catch-up after a relay gap or a lagged feed
 // isn't news. See apinrdw/kumora#502.
+//
+// tests/server/market-live/candles.test.ts repeats the 10 s (`reference`).
 const MAX_AGE = 10_000
 
 const SECOND = 1000
@@ -41,45 +43,70 @@ interface Ranking {
 // never rank.
 type SidedSweep = Sweep & { readonly side: AlertSide }
 
-// A sided sweep where it sits in its minute as grouped: its second, in epoch
-// seconds, and its trade numbers, from its first trade (`from`) up to the
-// next sweep's (`end`), or on with none after it.
+// A sweep as the candle book groups it, and the numbers its trades go by
+// (candles.ts, `knownSweeps`): two sweeps of a minute, grouped at different
+// times, hold a trade in common when they share one.
+export interface KnownSweep {
+  readonly sweep: Sweep
+  readonly trades: ReadonlyArray<TradeNumber>
+}
+
+// A sided sweep as the rule ranks it: its second, in epoch seconds, and the
+// numbers its trades go by.
 interface PlacedSweep {
   readonly sweep: SidedSweep
   readonly second: number
-  readonly from: bigint
-  readonly end: bigint | undefined
+  readonly trades: ReadonlyArray<TradeNumber>
 }
 
 // A minute's sweeps with a side, each placed, in trade order.
-const placedOf = (sweeps: ReadonlyArray<Sweep>) =>
+const placedOf = (sweeps: ReadonlyArray<KnownSweep>) =>
   Effect.sync(() =>
-    sweeps.flatMap((sweep, index): Array<PlacedSweep> => {
-      if (sweep.side === "none") return []
-      const next = sweeps[index + 1]
-      return [
-        {
-          sweep: { ...sweep, side: sweep.side },
-          second: Math.floor(DateTime.toEpochMillis(sweep.time) / SECOND),
-          from: BigInt(sweep.firstTrade),
-          end: next === undefined ? undefined : BigInt(next.firstTrade),
-        },
-      ]
-    })
+    sweeps.flatMap(({ sweep, trades }): Array<PlacedSweep> =>
+      sweep.side === "none"
+        ? []
+        : [
+            {
+              sweep: { ...sweep, side: sweep.side },
+              second: Math.floor(DateTime.toEpochMillis(sweep.time) / SECOND),
+              trades,
+            },
+          ]
+    )
   )
 
-// Whether `entry` regroups a sweep the rule ranked: it shares the sweep's
-// side and second and some of its trade numbers, so a late trade grew or
-// split that sweep. A sweep with none of their trades is new.
-const regroups = (entry: PlacedSweep, ranked: ReadonlyArray<PlacedSweep>) =>
+// The sweep each trade ranked in. Two ranked sweeps share a number only when
+// both hold trades of one stored sweep (candles.ts, `knownSweeps`), so they
+// have its side and second, and either answers for the number.
+const byTrade = (ranked: ReadonlyArray<PlacedSweep>) =>
+  Effect.sync(() => {
+    const sweeps = new Map<TradeNumber, PlacedSweep>()
+    for (const sweep of ranked)
+      for (const trade of sweep.trades) sweeps.set(trade, sweep)
+    return sweeps
+  })
+
+// Whether `entry` regroups a sweep the rule ranked: a trade of it ranked
+// under its side and second, so a late trade grew or split that sweep. A
+// sweep with no such trade is new, wherever its trade numbers fall among the
+// ranked sweeps'.
+// Decision: a ranked sweep is known by its trades, not by the trade numbers
+// from its first to the next sweep's. That range takes in numbers the sweep
+// never held, and a new sweep of late trades numbered there never alerted
+// (both review rounds of spec apinrdw/kumora#510 found one).
+const regroups = (
+  entry: PlacedSweep,
+  ranked: ReadonlyMap<TradeNumber, PlacedSweep>
+) =>
   Effect.sync(() =>
-    ranked.some(
-      (before) =>
+    entry.trades.some((trade) => {
+      const before = ranked.get(trade)
+      return (
+        before !== undefined &&
         before.sweep.side === entry.sweep.side &&
-        before.second === entry.second &&
-        (before.end === undefined || entry.from < before.end) &&
-        (entry.end === undefined || before.from < entry.end)
-    )
+        before.second === entry.second
+      )
+    })
   )
 
 // The index of the first distinct lots at or below `lots`.
@@ -138,7 +165,7 @@ interface Minute {
   // Its sweeps the rule ranked, in trade order.
   ranked: ReadonlyArray<PlacedSweep>
   // Its sweeps as the book last grouped them, whole and in trade order.
-  sweeps: ReadonlyArray<Sweep>
+  sweeps: ReadonlyArray<KnownSweep>
   // Whether the book regrouped it since the rule last decided it.
   regrouped: boolean
   // Whether the book holds it (`release`).
@@ -203,8 +230,8 @@ export const makeSweepAlerts = Effect.sync(() => {
   }: {
     readonly code: StockCode
     readonly minute: number
-    readonly stored: ReadonlyArray<Sweep>
-    readonly sweeps: ReadonlyArray<Sweep>
+    readonly stored: ReadonlyArray<KnownSweep>
+    readonly sweeps: ReadonlyArray<KnownSweep>
   }) {
     const key = `${code} ${minute}`
     let kept = minutes.get(key)
@@ -245,11 +272,12 @@ export const makeSweepAlerts = Effect.sync(() => {
   const decideMinute = Effect.fnUntraced(function* (kept: Minute, now: number) {
     for (const { sweep } of kept.ranked)
       yield* leave(yield* rankingOf(kept.code, sweep.side), sweep.lots)
+    const before = yield* byTrade(kept.ranked)
     const ranked: Array<PlacedSweep> = []
     const fresh: Array<PlacedSweep> = []
     let waits = false
     for (const entry of yield* placedOf(kept.sweeps)) {
-      if (yield* regroups(entry, kept.ranked))
+      if (yield* regroups(entry, before))
         yield* join(
           yield* rankingOf(kept.code, entry.sweep.side),
           entry.sweep.lots
@@ -274,7 +302,7 @@ export const makeSweepAlerts = Effect.sync(() => {
   // sweep's second has closed once `latest` is in a later one. The minutes
   // go in order, so each code's sweeps are decided in trade order whichever
   // the book regrouped first. Returns the sweeps that alert, each with its
-  // code, minute and trade numbers.
+  // code and minute.
   const decide = Effect.fnUntraced(function* ({
     latest,
     now,
@@ -287,14 +315,16 @@ export const makeSweepAlerts = Effect.sync(() => {
     // another second closes.
     const closedMore = second !== closedBefore
     closedBefore = second
-    const alerts: Array<
-      PlacedSweep & { readonly code: StockCode; readonly minute: number }
-    > = []
+    const alerts: Array<{
+      readonly code: StockCode
+      readonly minute: number
+      readonly sweep: SidedSweep
+    }> = []
     for (const kept of [...undecided].sort((a, b) => a.minute - b.minute)) {
       if (!kept.regrouped && !closedMore) continue
       const decided = yield* decideMinute(kept, now)
-      for (const alert of decided.alerts)
-        alerts.push({ ...alert, code: kept.code, minute: kept.minute })
+      for (const { sweep } of decided.alerts)
+        alerts.push({ code: kept.code, minute: kept.minute, sweep })
       if (decided.waits) continue
       undecided.delete(kept)
       if (!kept.held) minutes.delete(`${kept.code} ${kept.minute}`)
@@ -308,8 +338,9 @@ export const makeSweepAlerts = Effect.sync(() => {
     code: StockCode,
     sweeps: ReadonlyArray<Sweep>
   ) {
-    for (const { sweep } of yield* placedOf(sweeps))
-      yield* join(yield* rankingOf(code, sweep.side), sweep.lots)
+    for (const sweep of sweeps)
+      if (sweep.side !== "none")
+        yield* join(yield* rankingOf(code, sweep.side), sweep.lots)
   })
 
   // One code side's ranking, each distinct lots with its count, largest
