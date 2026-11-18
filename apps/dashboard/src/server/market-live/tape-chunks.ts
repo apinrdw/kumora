@@ -106,6 +106,10 @@ export const putRecord = (
 }
 
 // One stored chunk, read field by field from its records.
+// Decision: no chunk buffer outlives its chunk's step. A scan decodes or
+// reduces each held trade to plain values before it reads the next chunk,
+// and a write stores each chunk before it reads the next, so a sparse tape's
+// 10,000 trades never hold 10,000 32 KB chunks. See PR apinrdw/kumora#574.
 const chunkReader = (chunk: number, records: Uint8Array) => {
   const view = new DataView(records.buffer, records.byteOffset)
   const at = (slot: number) => slot * RECORD
@@ -135,6 +139,14 @@ const chunkReader = (chunk: number, records: Uint8Array) => {
     slots: function* () {
       for (let slot = 0; slot < TRADE_CHUNK; slot++) if (held(slot)) yield slot
     },
+    // Its last held trade's number at or before `time`, if any.
+    numberThrough: (time: number) => {
+      let through: number | undefined
+      for (let slot = 0; slot < TRADE_CHUNK; slot++)
+        if (held(slot) && view.getFloat64(at(slot) + TIME, true) <= time)
+          through = chunk * TRADE_CHUNK + slot + 1
+      return through
+    },
     lastSlot: () => {
       for (let slot = TRADE_CHUNK - 1; slot >= 0; slot--)
         if (held(slot)) return slot
@@ -143,17 +155,17 @@ const chunkReader = (chunk: number, records: Uint8Array) => {
   }
 }
 type Chunk = ReturnType<typeof chunkReader>
-// A held trade: its chunk and its slot there.
+// A held trade during its chunk's step: the chunk and its slot there.
 type Held = readonly [Chunk, number]
 
 const chunkOfRow = (row: Record<string, unknown>) =>
   chunkReader(Number(row.chunk), new Uint8Array(row.records as Uint8Array))
 
-// Decision: the plain methods run inside a synchronous transaction
-// (tape-backing.ts, Tape), so the helpers they call stay plain: `chunkOf`,
-// `emptyRecords`, `indexIn`'s lookups, `putRecord`, `chunkReader`,
-// `chunkOfRow`, `loadCodes`, `codeAt`, `stored`, `chunksBetween`, `nearest`,
-// `highest` and `eachHeld`. The reads around them are Effects.
+// Decision: the plain methods run inside a synchronous transaction, and a
+// scan in one synchronous step (tape-backing.ts, Tape), so their helpers stay
+// plain: `chunkOf`, `emptyRecords`, `indexIn`'s lookups, `putRecord`,
+// `chunkReader`, `chunkOfRow`, `loadCodes`, `codeAt`, `stored`,
+// `chunksBetween`, `nearest`, `highest`, `eachHeld` and `tradeOf`.
 export const makeChunkTape = (sql: Sql): Tape => {
   sql.exec(TRADE_CHUNKS_SCHEMA)
 
@@ -213,17 +225,16 @@ export const makeChunkTape = (sql: Sql): Tape => {
   const firstTime = (chunk: Chunk) =>
     Effect.sync(() => chunk.time(chunk.slots().next().value!))
 
-  const tradeOf = ([chunk, slot]: Held) =>
-    Effect.sync((): RunningTrade => ({
-      tradeNumber: TradeNumber.make(String(chunk.number(slot))),
-      time: DateTime.makeUnsafe(chunk.time(slot)),
-      code: codeAt(chunk.code(slot)),
-      price: chunk.price(slot),
-      lots: chunk.lots(slot),
-      side: chunk.side(slot),
-      board: chunk.board(slot),
-      feeds: chunk.feeds(slot),
-    }))
+  const tradeOf = ([chunk, slot]: Held): RunningTrade => ({
+    tradeNumber: TradeNumber.make(String(chunk.number(slot))),
+    time: DateTime.makeUnsafe(chunk.time(slot)),
+    code: codeAt(chunk.code(slot)),
+    price: chunk.price(slot),
+    lots: chunk.lots(slot),
+    side: chunk.side(slot),
+    board: chunk.board(slot),
+    feeds: chunk.feeds(slot),
+  })
 
   // Each held trade from `low` to `high`, ascending, as its chunk and slot.
   const eachHeld = function* (low: number, high: number) {
@@ -234,49 +245,51 @@ export const makeChunkTape = (sql: Sql): Tape => {
       }
   }
 
-  // The trades inside a transaction. A number is written once: a copy
-  // can't replace it, and a chunk none of the trades lands in isn't
-  // rewritten.
+  // The trades inside a transaction, a chunk at a time. A number is
+  // written once: a copy can't replace it, and a chunk none of the trades
+  // lands in isn't rewritten.
   const write = (trades: ReadonlyArray<RunningTrade>) => {
     if (trades.length === 0) return
     loadCodes()
     const list = [...codes]
     const indexes = new Map(list.map((code, index) => [code, index]))
-    const chunks = new Map<number, Uint8Array>()
-    const changed = new Set<number>()
-    for (const trade of trades) {
-      const number = Number(trade.tradeNumber)
-      const chunk = chunkOf(number)
-      let records = chunks.get(chunk)
-      if (records === undefined) {
-        records = stored(chunk)?.records ?? emptyRecords()
-        chunks.set(chunk, records)
-      }
-      const slot = (number - 1) % TRADE_CHUNK
-      if (records[slot * RECORD] === 1) continue
-      let code = indexes.get(trade.code)
-      if (code === undefined) {
-        code = list.length
-        list.push(trade.code)
-        indexes.set(trade.code, code)
-      }
-      putRecord(records, slot, {
-        time: DateTime.toEpochMillis(trade.time),
-        code,
-        price: trade.price,
-        lots: trade.lots,
-        side: trade.side,
-        board: trade.board,
-        feeds: trade.feeds,
-      })
-      changed.add(chunk)
+    const indexOf = (code: StockCode) => {
+      const known = indexes.get(code)
+      if (known !== undefined) return known
+      indexes.set(code, list.length)
+      return list.push(code) - 1
     }
-    for (const chunk of changed)
-      sql.exec(
-        "INSERT OR REPLACE INTO trade_chunks VALUES (?, ?)",
-        chunk,
-        chunks.get(chunk)!
-      )
+    const landing = new Map<number, Array<RunningTrade>>()
+    for (const trade of trades) {
+      const chunk = chunkOf(Number(trade.tradeNumber))
+      const into = landing.get(chunk)
+      if (into === undefined) landing.set(chunk, [trade])
+      else into.push(trade)
+    }
+    for (const [chunk, into] of landing) {
+      const records = stored(chunk)?.records ?? emptyRecords()
+      let changed = false
+      for (const trade of into) {
+        const slot = (Number(trade.tradeNumber) - 1) % TRADE_CHUNK
+        if (records[slot * RECORD] === 1) continue
+        putRecord(records, slot, {
+          time: DateTime.toEpochMillis(trade.time),
+          code: indexOf(trade.code),
+          price: trade.price,
+          lots: trade.lots,
+          side: trade.side,
+          board: trade.board,
+          feeds: trade.feeds,
+        })
+        changed = true
+      }
+      if (changed)
+        sql.exec(
+          "INSERT OR REPLACE INTO trade_chunks VALUES (?, ?)",
+          chunk,
+          records
+        )
+    }
     if (list.length > codes.length) {
       sql.exec(
         "INSERT OR REPLACE INTO facts VALUES (?, ?)",
@@ -335,36 +348,30 @@ export const makeChunkTape = (sql: Sql): Tape => {
   })
 
   // The newest `limit` trades at or below `from` and at or before `cutoff`,
-  // descending, read a chunk at a time.
-  const heldDown = (from: number, cutoff: number, limit: number) =>
+  // ascending, read a chunk at a time.
+  const tradesDown = (from: number, cutoff: number, limit: number) =>
     Effect.sync(() => {
-      const held: Array<Held> = []
-      for (let next = chunkOf(from); next >= 0 && held.length < limit;) {
+      const trades: Array<RunningTrade> = []
+      for (let next = chunkOf(from); next >= 0 && trades.length < limit;) {
         const chunk = nearest(next, "below")
         if (chunk === undefined) break
         for (let slot = TRADE_CHUNK - 1; slot >= 0; slot--) {
-          if (held.length >= limit) break
+          if (trades.length >= limit) break
           if (
             chunk.held(slot) &&
             chunk.number(slot) <= from &&
             chunk.time(slot) <= cutoff
           )
-            held.push([chunk, slot])
+            trades.push(tradeOf([chunk, slot]))
         }
         next = chunk.chunk - 1
       }
-      return held
+      return trades.reverse()
     })
 
   // The newest `limit` trades, ascending.
-  const newest = Effect.fnUntraced(function* (limit: number) {
-    const held = yield* heldDown(
-      Number.MAX_SAFE_INTEGER,
-      Number.POSITIVE_INFINITY,
-      limit
-    )
-    return (yield* Effect.forEach(held, tradeOf)).reverse()
-  })
+  const newest = (limit: number) =>
+    tradesDown(Number.MAX_SAFE_INTEGER, Number.POSITIVE_INFINITY, limit)
 
   // Within the chunk the search lands on, the bound is its highest trade at
   // or before the target; every later chunk starts after it.
@@ -374,12 +381,12 @@ export const makeChunkTape = (sql: Sql): Tape => {
   // TIME_SKEW_MS, and reads about 11 chunk rows on a busy day.
   const highestWithin = Effect.fnUntraced(function* (cutoff: number) {
     const bound = cutoff + TIME_SKEW_MS
-    const first = yield* lowest
-    const last = highest()
+    const first = (yield* lowest)?.chunk
+    const last = highest()?.chunk
     if (first === undefined || last === undefined) return undefined
-    let low = first.chunk
-    let high = last.chunk
-    let found: Chunk | undefined
+    let low = first
+    let high = last
+    let within: number | undefined
     while (low <= high) {
       const middle = Math.floor((low + high) / 2)
       const chunk = nearest(middle, "above")
@@ -388,14 +395,10 @@ export const makeChunkTape = (sql: Sql): Tape => {
         continue
       }
       if ((yield* firstTime(chunk)) <= bound) {
-        found = chunk
+        within = chunk.numberThrough(bound)
         low = chunk.chunk + 1
       } else high = middle - 1
     }
-    if (found === undefined) return undefined
-    let within: number | undefined
-    for (const slot of found.slots())
-      if (found.time(slot) <= bound) within = found.number(slot)
     return within
   })
 
@@ -410,8 +413,7 @@ export const makeChunkTape = (sql: Sql): Tape => {
     if (found === undefined) return []
     const from =
       before === undefined ? found : Math.min(found, Number(before) - 1)
-    const held = yield* heldDown(from, cutoff, limit)
-    return (yield* Effect.forEach(held, tradeOf)).reverse()
+    return yield* tradesDown(from, cutoff, limit)
   })
 
   // The trades after `after` and at or before `through`, ascending, from a
@@ -425,13 +427,14 @@ export const makeChunkTape = (sql: Sql): Tape => {
     const last = yield* highestWithin(to)
     if (last === undefined) return []
     const first = (yield* highestWithin(from - 2 * TIME_SKEW_MS)) ?? 0
-    const held = yield* Effect.sync(() =>
-      Array.from(eachHeld(first + 1, last)).filter(([chunk, slot]) => {
-        const time = chunk.time(slot)
-        return time > from && time <= to
-      })
-    )
-    return yield* Effect.forEach(held, tradeOf)
+    return yield* Effect.sync(() => {
+      const trades: Array<RunningTrade> = []
+      for (const held of eachHeld(first + 1, last)) {
+        const time = held[0].time(held[1])
+        if (time > from && time <= to) trades.push(tradeOf(held))
+      }
+      return trades
+    })
   })
 
   // The first and last minute that can hold a stored trade, widened by
