@@ -1,0 +1,481 @@
+<title>Order Book Radar Prototype</title>
+<meta name="claude:viewport-fit-sides" content="cover">
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Manrope:wght@400;500;600;700&family=JetBrains+Mono:wght@400;500;600&display=swap">
+<style>
+/* Layout: the dashboard's dark terminal shell; one shared toolbar, three scanner bodies swapped by #table / #tug / #tiles, a floating variant bar. */
+:root {
+  --bg-canvas: #0b1421; --bg-sidebar: #0e1a29; --bg-surface: #142234; --bg-elevated: #1b2c40; --bg-selected: #173a43;
+  --border-subtle: #26394e; --border-strong: #3e566b;
+  --text-primary: #edf4fb; --text-secondary: #b0c2d2; --text-muted: #839aae;
+  --accent: #55d9c7; --accent-on: #09242a;
+  --up: #51dda2; --down: #ff7987; --warn: #f4c36e; --info: #7dbcf5; --neutral: #a8b8c8;
+  --up-soft: color-mix(in oklab, var(--up) 18%, transparent);
+  --down-soft: color-mix(in oklab, var(--down) 18%, transparent);
+  --proto: #b3a0ff;
+  --font-sans: "Manrope", Arial, sans-serif;
+  --font-data: "JetBrains Mono", ui-monospace, monospace;
+  color-scheme: dark;
+}
+* { box-sizing: border-box; }
+html, body { height: 100%; }
+body { background: var(--bg-canvas); color: var(--text-primary); font: 13px/1.4 var(--font-sans); }
+button, input, select { font: inherit; color: inherit; }
+button { cursor: pointer; }
+:focus-visible { outline: 2px solid var(--accent); outline-offset: 1px; }
+.num { font-family: var(--font-data); font-variant-numeric: tabular-nums; }
+.up { color: var(--up); } .down { color: var(--down); } .muted { color: var(--text-muted); }
+
+.app { display: flex; flex-direction: column; min-height: 100%; padding-left: max(16px, env(safe-area-inset-left, 0px)); padding-right: max(16px, env(safe-area-inset-right, 0px)); padding-block: 12px 96px; gap: 10px; }
+.proto-strip { display: flex; gap: 8px; align-items: center; color: var(--proto); font-size: 11px; letter-spacing: .06em; text-transform: uppercase; }
+.proto-strip b { font-weight: 700; }
+header.top { display: flex; flex-wrap: wrap; gap: 10px 16px; align-items: center; }
+header.top h1 { font-size: 18px; margin: 0; font-weight: 700; letter-spacing: -.01em; }
+.chip { display: inline-flex; align-items: center; gap: 6px; padding: 3px 8px; border-radius: 999px; background: var(--bg-elevated); color: var(--text-secondary); font-size: 12px; border: 1px solid var(--border-subtle); }
+.chip .dot { width: 7px; height: 7px; border-radius: 50%; background: var(--up); }
+.chip.stale .dot { background: var(--warn); }
+.spacer { flex: 1; }
+.iconbtn { position: relative; background: var(--bg-elevated); border: 1px solid var(--border-subtle); border-radius: 6px; padding: 5px 10px; color: var(--text-secondary); }
+.iconbtn:hover { border-color: var(--border-strong); color: var(--text-primary); }
+.badge { position: absolute; top: -6px; right: -6px; background: var(--accent); color: var(--accent-on); border-radius: 999px; font-size: 10px; padding: 0 5px; font-weight: 700; }
+
+.toolbar { display: flex; flex-wrap: wrap; gap: 8px 12px; align-items: center; background: var(--bg-surface); border: 1px solid var(--border-subtle); border-radius: 6px; padding: 8px 10px; }
+.toolbar label { display: inline-flex; gap: 6px; align-items: center; color: var(--text-muted); font-size: 12px; }
+.toolbar select, .toolbar input[type=text], .toolbar input[type=number] { background: var(--bg-canvas); border: 1px solid var(--border-strong); border-radius: 5px; padding: 4px 6px; color: var(--text-primary); }
+.toolbar input[type=number] { width: 78px; }
+.toolbar input[type=text] { width: 110px; text-transform: uppercase; }
+.seg { display: inline-flex; border: 1px solid var(--border-strong); border-radius: 5px; overflow: hidden; }
+.seg button { background: transparent; border: 0; padding: 4px 8px; color: var(--text-secondary); }
+.seg button[aria-pressed=true] { background: var(--bg-selected); color: var(--text-primary); }
+.sortnote { font-size: 12px; color: var(--text-muted); }
+.sortnote b { color: var(--text-secondary); font-weight: 600; }
+
+.banner { display: none; gap: 8px; align-items: center; padding: 8px 10px; border-radius: 6px; background: color-mix(in oklab, var(--warn) 14%, var(--bg-surface)); border: 1px solid color-mix(in oklab, var(--warn) 45%, transparent); color: var(--text-primary); font-size: 12px; }
+.banner.on { display: flex; }
+.excluded { font-size: 12px; color: var(--text-muted); }
+
+/* Variant A: dense table */
+.tablewrap { overflow-x: auto; border: 1px solid var(--border-subtle); border-radius: 6px; background: var(--bg-surface); }
+table.scan { width: 100%; border-collapse: collapse; min-width: 980px; }
+table.scan th, table.scan td { padding: 5px 8px; text-align: right; white-space: nowrap; border-bottom: 1px solid var(--border-subtle); }
+table.scan th { position: sticky; top: 0; background: var(--bg-elevated); color: var(--text-muted); font-weight: 600; font-size: 11px; letter-spacing: .04em; text-transform: uppercase; cursor: pointer; user-select: none; }
+table.scan th.sorted { color: var(--accent); }
+table.scan th:first-child, table.scan td:first-child { text-align: left; }
+table.scan tbody tr { cursor: pointer; transition: background .15s; }
+table.scan tbody tr:hover { background: var(--bg-selected); }
+tr.stale td { color: var(--text-muted); opacity: .55; }
+tr.flash { animation: flash 1.2s ease-out; }
+@keyframes flash { from { background: color-mix(in oklab, var(--accent) 22%, transparent); } to { background: transparent; } }
+.code { font-weight: 700; letter-spacing: .02em; }
+.codecell { display: flex; gap: 6px; align-items: center; }
+.tag { font-size: 10px; padding: 0 5px; border-radius: 3px; border: 1px solid var(--border-strong); color: var(--text-secondary); font-weight: 600; }
+.tag.limit { border-color: var(--warn); color: var(--warn); }
+.tag.star { border: 0; color: var(--accent); padding: 0; }
+.imb { display: inline-grid; grid-template-columns: 52px 50px; align-items: center; gap: 6px; }
+.imbbar { position: relative; height: 8px; background: var(--bg-canvas); border-radius: 2px; }
+.imbbar::before { content: ""; position: absolute; left: 50%; top: -2px; bottom: -2px; width: 1px; background: var(--border-strong); }
+.imbbar i { position: absolute; top: 0; bottom: 0; border-radius: 2px; }
+.ev { display: inline-flex; gap: 5px; align-items: center; font-size: 12px; }
+.evk { font-size: 10px; font-weight: 700; padding: 1px 5px; border-radius: 3px; letter-spacing: .03em; }
+.evk.bid { background: var(--up-soft); color: var(--up); }
+.evk.offer { background: var(--down-soft); color: var(--down); }
+.age { font-size: 12px; }
+.age.old { color: var(--warn); }
+
+/* Variant B: tug of war */
+.tug { display: grid; grid-template-columns: 1fr 1fr; gap: 10px; }
+.tugcol { background: var(--bg-surface); border: 1px solid var(--border-subtle); border-radius: 6px; min-width: 0; }
+.tugcol h2 { margin: 0; padding: 8px 10px; font-size: 13px; display: flex; justify-content: space-between; border-bottom: 1px solid var(--border-subtle); }
+.tugrow { display: grid; grid-template-columns: 64px 1fr 62px 76px 92px; gap: 8px; align-items: center; padding: 5px 10px; border-bottom: 1px solid var(--border-subtle); cursor: pointer; }
+.tugrow:hover { background: var(--bg-selected); }
+.tugrow.stale { opacity: .5; }
+.tugbar { height: 14px; background: var(--bg-canvas); border-radius: 2px; position: relative; overflow: hidden; }
+.tugbar i { position: absolute; top: 0; bottom: 0; }
+.tugcol.offer .tugbar i { right: 0; }
+.mini { grid-column: 1 / -1; display: grid; grid-template-columns: 1fr 1fr; gap: 2px 12px; padding: 6px 0 4px; font-size: 12px; }
+.mini .lv { display: grid; grid-template-columns: 1fr 60px 34px; gap: 6px; position: relative; padding: 1px 4px; }
+.mini .lv b { position: absolute; inset: 0 auto 0 0; z-index: 0; border-radius: 2px; }
+.mini .lv span { position: relative; z-index: 1; }
+.tugmid { display: flex; justify-content: center; gap: 18px; font-size: 12px; color: var(--text-muted); grid-column: 1 / -1; }
+
+/* Variant C: tiles + event feed */
+.tilesgrid { display: grid; grid-template-columns: minmax(0, 1fr) 340px; gap: 10px; align-items: start; }
+.tiles { display: grid; grid-template-columns: repeat(auto-fill, minmax(150px, 1fr)); gap: 6px; }
+.tile { background: var(--bg-surface); border: 1px solid var(--border-subtle); border-radius: 6px; padding: 7px 8px; cursor: pointer; display: grid; gap: 4px; position: relative; }
+.tile:hover { border-color: var(--border-strong); }
+.tile.stale { opacity: .45; }
+.tile.ping { box-shadow: 0 0 0 1px var(--accent), 0 0 14px color-mix(in oklab, var(--accent) 35%, transparent); }
+.tile .row1 { display: flex; justify-content: space-between; align-items: baseline; }
+.tile .fly { display: grid; grid-template-columns: 1fr 1fr; gap: 1px; height: 30px; }
+.fly .side { display: flex; flex-direction: column; gap: 1px; }
+.fly .bid { align-items: flex-end; } .fly .offer { align-items: flex-start; }
+.fly i { display: block; height: 5px; border-radius: 1px; }
+.tile .row3 { display: flex; justify-content: space-between; font-size: 11px; color: var(--text-muted); }
+.tile .lastev { min-height: 16px; }
+.feed { background: var(--bg-surface); border: 1px solid var(--border-subtle); border-radius: 6px; max-height: 74vh; overflow: auto; position: sticky; top: 8px; }
+.feed h2 { margin: 0; padding: 8px 10px; font-size: 13px; border-bottom: 1px solid var(--border-subtle); display: flex; justify-content: space-between; position: sticky; top: 0; background: var(--bg-surface); }
+.feeditem { padding: 6px 10px; border-bottom: 1px solid var(--border-subtle); display: grid; grid-template-columns: 58px 48px 1fr; gap: 6px; font-size: 12px; cursor: pointer; }
+.feeditem:hover { background: var(--bg-selected); }
+.feeditem .d { grid-column: 3; color: var(--text-secondary); }
+.feeditem.new { animation: flash 1.4s ease-out; }
+
+/* D and E: split + feed */
+.splitfeed { display: grid; grid-template-columns: minmax(0, 1fr) 340px; gap: 10px; align-items: start; }
+.halves { display: grid; grid-template-columns: 1fr 1fr; gap: 10px; min-width: 0; }
+.half { min-width: 0; display: grid; gap: 6px; align-content: start; }
+.half h2 { margin: 0; font-size: 13px; display: flex; justify-content: space-between; padding: 2px 2px 4px; }
+.half .tiles { grid-template-columns: repeat(auto-fill, minmax(140px, 1fr)); }
+@media (max-width: 1100px) { .splitfeed { grid-template-columns: 1fr; } .feed { position: static; max-height: 50vh; } }
+@media (max-width: 640px) { .halves { grid-template-columns: 1fr; } }
+/* Drawer, toasts, switcher */
+.drawer { position: fixed; top: 0; right: 0; bottom: 0; width: min(380px, 100%); background: var(--bg-sidebar); border-left: 1px solid var(--border-strong); box-shadow: 0 16px 48px rgba(4,10,18,.6); padding: 14px max(16px, env(safe-area-inset-right, 0px)) 14px 16px; padding-top: calc(14px + env(safe-area-inset-top, 0px)); overflow: auto; z-index: 30; transform: translateX(100%); transition: transform .2s; }
+.drawer.open { transform: none; }
+.drawer h2 { font-size: 15px; margin: 0 0 8px; display: flex; justify-content: space-between; }
+.drawer .hist { display: grid; gap: 0; }
+.drawer .hist div { padding: 6px 0; border-bottom: 1px solid var(--border-subtle); font-size: 12px; }
+.rule { border: 1px solid var(--border-subtle); border-radius: 6px; padding: 8px; display: grid; gap: 6px; margin-bottom: 8px; background: var(--bg-surface); font-size: 12px; }
+.rule .kinds { display: flex; flex-wrap: wrap; gap: 4px; }
+.rule .kinds label { display: inline-flex; gap: 4px; align-items: center; padding: 2px 6px; border: 1px solid var(--border-strong); border-radius: 4px; }
+/* Sonner stack (bottom-right), cards shaped like the app's KToast. */
+.toasts { position: fixed; right: max(16px, env(safe-area-inset-right, 0px)); bottom: calc(72px + env(safe-area-inset-bottom, 0px)); width: min(360px, calc(100% - 32px)); height: 0; z-index: 25; }
+.toast { position: absolute; right: 0; bottom: 0; width: 100%; display: flex; align-items: flex-start; gap: 12px; background: var(--bg-elevated); border: 1px solid var(--border-subtle); border-radius: 6px; padding: 12px 16px; box-shadow: 0 4px 16px rgba(4,10,18,.45); transition: transform .35s cubic-bezier(.21,1.02,.73,1), opacity .35s; transform-origin: bottom center; }
+.toast .ti { width: 18px; height: 18px; flex: none; margin-top: 1px; }
+.toast .tb { min-width: 0; flex: 1; }
+.toast .tt { font-size: 13px; line-height: 18px; font-weight: 500; color: var(--text-primary); }
+.toast .td { font-size: 12px; line-height: 18px; color: var(--text-secondary); margin-top: 2px; }
+.toast .ta { background: transparent; border: 0; border-radius: 5px; padding: 3px 8px; color: var(--text-primary); font-size: 12px; font-weight: 600; }
+.toast .ta:hover { background: var(--bg-selected); }
+.toast .tx { background: transparent; border: 0; border-radius: 5px; width: 24px; height: 24px; margin: -4px -6px 0 0; color: var(--text-muted); }
+.toast .tx:hover { background: var(--bg-selected); color: var(--text-primary); }
+.switcher { position: fixed; left: 50%; transform: translateX(-50%); bottom: calc(14px + env(safe-area-inset-bottom, 0px)); display: flex; align-items: center; gap: 6px; background: var(--proto); color: #120b2a; border-radius: 999px; padding: 5px 6px; box-shadow: 0 6px 24px rgba(0,0,0,.5); z-index: 40; font-weight: 700; font-size: 12px; }
+.switcher button { background: #120b2a; color: var(--proto); border: 0; border-radius: 999px; width: 28px; height: 28px; }
+.switcher span { padding: 0 8px; white-space: nowrap; }
+.hint { font-size: 12px; color: var(--text-muted); }
+@media (max-width: 760px) {
+  .tug { grid-template-columns: 1fr; }
+  .tilesgrid { grid-template-columns: 1fr; }
+  .feed { position: static; max-height: 50vh; }
+  .tugrow { grid-template-columns: 56px 1fr 56px 46px; }
+  .tugrow .nd { display: none; }
+}
+@media (prefers-reduced-motion: reduce) { * { animation: none !important; transition: none !important; } }
+</style>
+
+<div class="app">
+  <div class="proto-strip"><b>Prototype</b> · simulated books and events, not market data · variant <span id="vname"></span></div>
+  <header class="top">
+    <h1>Order book radar</h1>
+    <span class="chip" id="phase"><span class="dot"></span><span id="clock">Session 2 · 14:12:03</span></span>
+    <span class="chip" id="feedchip"><span class="dot"></span><span id="feedtxt">Stockbit live</span></span>
+    <span class="spacer"></span>
+    <button class="iconbtn" id="simStale" title="Simulate Stockbit going stale">Simulate stale feed</button>
+    <button class="iconbtn" id="rulesBtn">Alert rules</button>
+    <button class="iconbtn" id="bellBtn" aria-label="Alert history">Alerts <span class="badge" id="bellCount" hidden>0</span></button>
+  </header>
+  <div class="banner" id="banner">Stockbit is stale. Only codes with an Ajaib book (your selected and watchlist codes) are live; the rest show their last book until Stockbit is back.</div>
+  <div class="toolbar">
+    <label for="floor">Value floor
+      <select id="floor"><option value="1e8">Rp100 M</option><option value="1e9" selected>Rp1 B</option><option value="1e10">Rp10 B</option><option value="5e10">Rp50 B</option></select>
+    </label>
+    <div class="seg" role="group" aria-label="Codes"><button id="fAll" aria-pressed="true">All above floor</button><button id="fWatch" aria-pressed="false">Watchlist</button></div>
+    <label for="search">Search <input type="text" id="search" placeholder="BBCA" maxlength="6"></label>
+    <label for="pmin">Price <input type="number" id="pmin" placeholder="min" min="1"> – <input type="number" id="pmax" placeholder="max" min="1" aria-label="Maximum price"></label>
+    <span class="spacer"></span>
+    <span class="sortnote" id="sortnote"></span>
+  </div>
+  <div class="excluded" id="excluded"></div>
+  <main id="view"></main>
+</div>
+
+<div class="toasts" id="toasts"></div>
+<aside class="drawer" id="drawer" aria-label="Panel"></aside>
+<div class="switcher" role="group" aria-label="Prototype variant">
+  <button id="prev" aria-label="Previous variant">◀</button><span id="vlabel"></span><button id="next" aria-label="Next variant">▶</button>
+</div>
+
+<script>
+// ---------- simulation ----------
+const REAL = "BBCA BBRI BMRI BBNI TLKM ASII GOTO ANTM ADRO PTBA UNVR ICBP INDF KLBF CPIN SMGR INTP EXCL ISAT MDKA AMRT ACES ERAA MAPI BRPT TPIA PGAS MEDC ITMG INCO TINS BUKA EMTK ARTO BRIS BTPS MNCN SCMA AKRA UNTR HRUM INKP TKIM JSMR WIKA PTPP ADHI BSDE CTRA PWON SMRA LPKR MYOR SIDO HMSP GGRM CPRO JPFA AALI LSIP SSMS DSNG TAPG BREN CUAN PGEO AMMN MBMA NCKL DOID ELSA ENRG BUMI BRMS DEWA PSAB ESSA AVIA MTEL TOWR TBIG BBTN BJBR BJTM BNGA PNBN NISP BDMN AGRO BBYB BBHI ARCI RAJA RATU HEAL MIKA SILO TRIN COIN INET FOLK DFAM UNIQ KOTA WIFI PANI ASRI DILD MPPA RALS LPPF HRTA PNLF SMDR TMAS NELY BIRD ASSA GJTL AUTO SMSM IMAS DRMA MARK".split(" ");
+const WATCH = new Set(["BBCA","BBRI","TLKM","GOTO","ANTM","BREN","ADRO","MDKA","BRMS","CUAN"]);
+let seed = 7; const rnd = () => (seed = (seed * 16807) % 2147483647) / 2147483647;
+const tickOf = p => p < 200 ? 1 : p < 500 ? 2 : p < 2000 ? 5 : p < 5000 ? 10 : 25;
+const snap = p => Math.max(tickOf(p), Math.round(p / tickOf(p)) * tickOf(p));
+const L = "ABCDEFGHIJKLMNOPRSTUW";
+const codes = [...REAL];
+while (codes.length < 380) { const c = Array.from({length: 4}, () => L[Math.floor(rnd() * L.length)]).join(""); if (!codes.includes(c)) codes.push(c); }
+let simNow = Date.parse("2026-11-18T14:12:03+07:00"); const simStart = simNow;
+const stocks = codes.map((code, i) => {
+  const r = rnd();
+  const price = i % 47 === 30 ? 5 + Math.floor(rnd() * 6) : snap(i < 12 ? 2000 + rnd() * 8000 : r < .35 ? 50 + rnd() * 150 : r < .65 ? 200 + rnd() * 800 : r < .9 ? 1000 + rnd() * 3000 : 5000 + rnd() * 15000);
+  const busy = i < 40 ? 1 + rnd() * 2.2 : Math.pow(rnd(), 3) * 0.6 + 0.01;
+  return { code, price, busy, value: (i < 60 ? 2e10 + rnd() * 6e11 : Math.pow(rnd(), 2.2) * 4e10) * (0.6 + rnd()),
+    bias: (rnd() - .5) * 1.2, bids: [], offers: [], at: simNow - rnd() * 95000, events: [], limit: null, flash: 0 };
+});
+// A handful at a limit, a few stale.
+stocks[17].limit = "upper"; stocks[121].limit = "lower";
+function buildBook(s) {
+  const t = tickOf(s.price), base = 40 + s.busy * 900;
+  const gap = s.busy > 1 ? 0 : rnd() < .5 ? 0 : 1 + Math.floor(rnd() * 3);
+  const mk = (dir) => { const out = []; let p = dir > 0 ? s.price + t * (1 + (rnd() < .5 ? gap : 0)) : s.price - t * (rnd() < .5 ? gap : 0);
+    for (let k = 0; k < 20; k++) { const skip = rnd() < (s.busy > 1 ? .06 : .3) ? (rnd() < .5 ? 1 : 2) : 0; p += dir * t * (k ? 1 + skip : 0);
+      if (p <= 0) break; let lots = Math.round(base * (0.3 + rnd() * 1.6) * (1 + (dir < 0 ? s.bias : -s.bias) * .8) * (k < 5 ? 1 : 1.3));
+      if (rnd() < .025) lots *= 8 + Math.floor(rnd() * 6);
+      out.push({ price: p, lots: Math.max(1, lots), orders: Math.max(1, Math.round(lots / (8 + rnd() * 120))) }); }
+    return out; };
+  s.bids = s.limit === "lower" ? [] : mk(-1);
+  s.offers = s.limit === "upper" ? [] : mk(1);
+}
+stocks.forEach(buildBook);
+function readings(s) {
+  const top = (side) => side.slice(0, 5);
+  const bl = top(s.bids).reduce((a, l) => a + l.lots, 0), ol = top(s.offers).reduce((a, l) => a + l.lots, 0);
+  const imb = bl + ol === 0 ? 0 : (bl - ol) / (bl + ol) * 100;
+  const depth = side => top(side).reduce((a, l) => a + l.lots * l.price * 100, 0);
+  const empty = side => { let e = 0, widest = 0; const lv = top(side);
+    for (let k = 1; k < lv.length; k++) { const g = Math.round(Math.abs(lv[k].price - lv[k - 1].price) / tickOf(Math.min(lv[k].price, lv[k-1].price))) - 1; e += g; widest = Math.max(widest, g); } return { e, widest }; };
+  const lpo = side => { const lv = top(side); const o = lv.reduce((a, l) => a + l.orders, 0); return o ? lv.reduce((a, l) => a + l.lots, 0) / o : 0; };
+  const bb = s.bids[0]?.price, bo = s.offers[0]?.price;
+  let spreadT = null, spreadP = null;
+  if (bb && bo) { spreadT = 0; for (let p = bb; p < bo; p += tickOf(p)) spreadT++; spreadP = (bo - bb) / ((bo + bb) / 2) * 100; }
+  return { imb, bDepth: depth(s.bids), oDepth: depth(s.offers), bEmpty: empty(s.bids), oEmpty: empty(s.offers), bLpo: lpo(s.bids), oLpo: lpo(s.offers), spreadT, spreadP };
+}
+const KINDS = [["Absorbed", 3], ["Eaten", 2], ["Reloaded", 2.5], ["Wall appeared", 2], ["Wall pulled", 1.5], ["Wall moved", .6]];
+const kindTotal = KINDS.reduce((a, k) => a + k[1], 0);
+function makeEvent(s) {
+  let r = rnd() * kindTotal, kind = KINDS[0][0]; for (const [k, w] of KINDS) { if ((r -= w) < 0) { kind = k; break; } }
+  const side = rnd() < .5 ? "bid" : "offer"; const lv = (side === "bid" ? s.bids : s.offers); if (!lv.length) return null;
+  const idx = kind.startsWith("Wall") ? Math.floor(rnd() * Math.min(lv.length, 12)) : Math.floor(rnd() * Math.min(3, lv.length));
+  const level = lv[idx]; const lots = Math.round(level.lots * (kind.startsWith("Wall") ? 6 + rnd() * 6 : 1 + rnd() * 3)); const orders = kind.startsWith("Wall") ? 1 + Math.floor(rnd() * 5) : 3 + Math.floor(rnd() * 40);
+  let detail;
+  switch (kind) {
+    case "Absorbed": detail = `${fmtLots(lots)} lots traded into ${fmtP(level.price)}, ${fmtLots(level.lots)} still shown`; break;
+    case "Eaten": detail = `${fmtP(level.price)} gone, trades explain ${70 + Math.floor(rnd() * 30)}%`; break;
+    case "Reloaded": detail = `${fmtP(level.price)} refilled ${1 + Math.floor(rnd() * 4)}× · ${rnd() < .55 ? "single" : "crowd"}`; break;
+    case "Wall appeared": detail = `${fmtLots(lots)} lots at ${fmtP(level.price)} · ${orders} order${orders > 1 ? "s" : ""} · ${idx} ticks away`; break;
+    case "Wall pulled": detail = `${fmtLots(lots)} lots at ${fmtP(level.price)} · ${orders} order${orders > 1 ? "s" : ""} · ${Math.max(1, idx)} ticks${rnd() < .5 ? ", as price approached" : ""}`; break;
+    case "Wall moved": detail = `${fmtLots(lots)} lots ${fmtP(level.price)} → ${fmtP(level.price + (side === "bid" ? 1 : -1) * tickOf(level.price) * (1 + Math.floor(rnd() * 3)))}`; break;
+  }
+  const value = lots * level.price * 100;
+  return { t: simNow, code: s.code, kind, side, detail, value };
+}
+// ---------- formatting ----------
+const fmtP = p => p.toLocaleString("en-US");
+const fmtLots = n => n >= 1e6 ? (n / 1e6).toFixed(1) + "M" : n >= 1e3 ? (n / 1e3).toFixed(1) + "K" : String(Math.round(n));
+const fmtRp = v => v >= 1e12 ? (v / 1e12).toFixed(2) + " T" : v >= 1e9 ? (v / 1e9).toFixed(1) + " B" : v >= 1e6 ? (v / 1e6).toFixed(0) + " M" : (v / 1e3).toFixed(0) + " K";
+const fmtAge = ms => ms < 1000 ? "now" : ms < 60000 ? Math.floor(ms / 1000) + "s" : Math.floor(ms / 60000) + "m";
+const fmtT = t => new Date(t).toLocaleTimeString("en-GB", { hour12: false });
+const sgn = x => (x > 0 ? "+" : "") + x.toFixed(0) + "%";
+// ---------- state ----------
+let stockbitStale = false, watchOnly = false;
+let sortKey = "imb", sortDir = -1, hovering = false, lastSort = 0, order = [];
+let expanded = null;
+const alerts = []; let unseen = 0; let minuteCount = 0, minuteStart = simNow, folded = 0;
+const cooldown = new Map();
+const rules = [{ kinds: new Set(["Wall pulled", "Absorbed"]), scope: "Watchlist", min: 0 }, { kinds: new Set(["Wall pulled"]), scope: "Every scanner code", min: 5e9 }];
+const feed = [];
+const COLS = [["code", "Code"], ["price", "Price"], ["imb", "Imbalance"], ["bDepth", "Near depth bid"], ["oDepth", "Near depth offer"], ["empty", "Empty ticks b/o"], ["spreadP", "Spread"], ["lpo", "Lots/order b/o"], ["last", "Last event"], ["ev5", "Events 5m"], ["age", "Book age"]];
+const sortVal = (s, k) => { const r = s.r; switch (k) { case "code": return s.code; case "price": return s.price; case "imb": return r.imb; case "bDepth": return r.bDepth; case "oDepth": return r.oDepth; case "empty": return r.bEmpty.e + r.oEmpty.e; case "spreadP": return r.spreadP ?? 999; case "lpo": return r.bLpo + r.oLpo; case "last": return s.events.at(-1)?.t ?? 0; case "ev5": return s.events.filter(e => simNow - e.t < 300000).length; case "age": return simNow - s.at; } };
+function visible() {
+  const floor = Number(document.getElementById("floor").value);
+  const q = document.getElementById("search").value.trim().toUpperCase();
+  const pmin = Number(document.getElementById("pmin").value) || 0, pmax = Number(document.getElementById("pmax").value) || Infinity;
+  return stocks.filter(s => s.price > 10 && s.value >= floor && (!watchOnly || WATCH.has(s.code)) && (!q || s.code.startsWith(q)) && s.price >= pmin && s.price <= pmax);
+}
+function resort(force) {
+  if (!force && (hovering || simNow - lastSort < 5000)) return;
+  lastSort = simNow;
+  const vis = visible();
+  vis.forEach(s => s.r = readings(s));
+  const stale = s => simNow - s.at > 60000;
+  const limitLast = sortKey === "imb";
+  vis.sort((a, b) => (stale(a) - stale(b)) || (limitLast ? (!!a.limit - !!b.limit) : 0) || (() => { const x = sortVal(a, sortKey), y = sortVal(b, sortKey); return (x < y ? -1 : x > y ? 1 : 0) * sortDir; })());
+  order = vis;
+}
+// ---------- tick ----------
+function tick() {
+  simNow += 250;
+  for (const s of stocks) {
+    const liveFeed = !stockbitStale || WATCH.has(s.code);
+    if (!liveFeed) continue;
+    if (rnd() < s.busy * 0.25 * 0.4) {
+      if (rnd() < .08) { s.price = snap(s.price + (rnd() < .5 + s.bias * .1 ? 1 : -1) * tickOf(s.price)); }
+      if (rnd() < .04) s.bias = Math.max(-.9, Math.min(.9, s.bias + (rnd() - .5) * .5));
+      buildBook(s); s.at = simNow;
+      s.value += s.price * 100 * Math.round(rnd() * 400 * s.busy);
+      if (simNow - simStart > 1500 && s.price > 10 && rnd() < .05 * Math.min(1, s.busy)) { const e = makeEvent(s); if (e) { s.events.push(e); s.flash = simNow; feed.unshift(e); if (feed.length > 120) feed.pop(); maybeAlert(e); } }
+    }
+  }
+  const m = Math.floor((simNow - simStart) / 1000) % 60;
+  document.getElementById("clock").textContent = "Session 2 · " + fmtT(simNow);
+  resort(false);
+  if ((simNow - simStart) % 1000 === 0) render();
+}
+// ---------- alerts ----------
+function maybeAlert(e) {
+  const s = stocks.find(x => x.code === e.code);
+  const hit = rules.some(r => r.kinds.has(e.kind) && (r.scope === "Every scanner code" ? s.value >= Number(document.getElementById("floor").value) : WATCH.has(e.code)) && e.value >= r.min);
+  if (!hit) return;
+  const key = e.code + "|" + e.kind; if (simNow - (cooldown.get(key) ?? -1e12) < 120000) return; cooldown.set(key, simNow);
+  if (simNow - minuteStart >= 60000) { minuteStart = simNow; minuteCount = 0; folded = 0; }
+  alerts.unshift(e); if (alerts.length > 200) alerts.pop(); unseen++;
+  const bc = document.getElementById("bellCount"); bc.hidden = false; bc.textContent = unseen;
+  if (minuteCount < 6) { minuteCount++; toast({ tone: e.side, title: `${e.code} · ${e.kind} on the ${e.side}`, description: e.detail, action: { label: "Open", onClick: () => openMarketLive(e.code) } }); }
+  else { folded++; toast({ tone: "info", id: "foldToast", title: `+${folded} more alerts this minute`, description: "Held back to keep to 6 a minute.", action: { label: "View", onClick: openHistory } }); }
+  if (drawerMode === "history") openHistory();
+}
+const ICON = { info: '<svg class="ti" viewBox="0 0 24 24" fill="none" stroke="var(--info)" stroke-width="1.75" stroke-linecap="round"><circle cx="12" cy="12" r="9"/><path d="M12 8h.01M11 12h1v4h1"/></svg>',
+  bid: '<svg class="ti" viewBox="0 0 24 24" fill="none" stroke="var(--up)" stroke-width="1.75" stroke-linecap="round"><path d="M12 19V5M5 12l7-7 7 7"/></svg>',
+  offer: '<svg class="ti" viewBox="0 0 24 24" fill="none" stroke="var(--down)" stroke-width="1.75" stroke-linecap="round"><path d="M12 5v14M5 12l7 7 7-7"/></svg>' };
+let stackHover = false;
+const toastsEl = document.getElementById("toasts");
+toastsEl.addEventListener("pointerenter", () => { stackHover = true; layoutToasts(); });
+toastsEl.addEventListener("pointerleave", () => { stackHover = false; layoutToasts(); });
+function layoutToasts() {
+  const list = [...toastsEl.querySelectorAll(".toast")];
+  let y = 0;
+  list.forEach((t, i) => {
+    if (stackHover) { t.style.transform = `translateY(${-y}px)`; t.style.opacity = 1; y += t.offsetHeight + 8; }
+    else { t.style.transform = `translateY(${-i * 14}px) scale(${1 - i * .05})`; t.style.opacity = i < 3 ? 1 - i * .15 : 0; }
+    t.style.zIndex = 100 - i;
+  });
+}
+// kToast-shaped: tone icon, title, description, one action, close.
+function toast({ tone = "info", title, description, action, id }) {
+  let t = id && document.getElementById(id);
+  const fresh = !t;
+  if (fresh) { t = document.createElement("div"); t.className = "toast"; t.setAttribute("role", "status"); if (id) t.id = id; t.style.transform = "translateY(100%)"; t.style.opacity = 0; }
+  t.innerHTML = `${ICON[tone] ?? ICON.info}<div class="tb"><div class="tt">${title}</div>${description ? `<div class="td">${description}</div>` : ""}</div>${action ? '<button class="ta">' + action.label + "</button>" : ""}<button class="tx" aria-label="Close">✕</button>`;
+  if (action) t.querySelector(".ta").onclick = () => { action.onClick(); dismiss(t); };
+  t.querySelector(".tx").onclick = () => dismiss(t);
+  if (fresh) { toastsEl.prepend(t); requestAnimationFrame(layoutToasts); }
+  clearTimeout(t._timer); t._timer = setTimeout(() => { if (stackHover) return; dismiss(t); }, 4000);
+  const all = toastsEl.querySelectorAll(".toast"); if (all.length > 5) all[all.length - 1].remove();
+}
+function dismiss(t) { t.style.opacity = 0; t.style.transform += " translateX(20px)"; setTimeout(() => { t.remove(); layoutToasts(); }, 250); }
+function openMarketLive(code) { toast({ tone: "info", title: `Opens Market Live on ${code}`, description: "Live, with the event list scrolled to the event. Not wired in the prototype." }); }
+let drawerMode = null;
+function openHistory() {
+  drawerMode = "history"; unseen = 0; document.getElementById("bellCount").hidden = true;
+  const d = document.getElementById("drawer"); d.classList.add("open");
+  d.innerHTML = `<h2>Today's alerts <button class="iconbtn" id="closeD">Close</button></h2><p class="hint">Newest first, up to 200, kept in this browser and cleared each trading day.</p><div class="hist">${alerts.map(a => `<div><span class="num muted">${fmtT(a.t)}</span> <b>${a.code}</b> ${a.kind} · ${a.side}<br><span class="muted">${a.detail}</span></div>`).join("") || '<div class="muted">No alerts yet today.</div>'}</div>`;
+  document.getElementById("closeD").onclick = closeDrawer;
+}
+function openRules() {
+  drawerMode = "rules"; const d = document.getElementById("drawer"); d.classList.add("open");
+  const kinds = KINDS.map(k => k[0]);
+  d.innerHTML = `<h2>Alert rules <button class="iconbtn" id="closeD">Close</button></h2><p class="hint">Kept in this browser. Alerts fire while the radar or Market Live is open: a toast on the page, a browser notification when the tab is in the background. Same code and kind at most once per 2 minutes; at most 6 a minute.</p>` +
+    rules.map((r, i) => `<div class="rule"><div class="kinds">${kinds.map(k => `<label><input type="checkbox" ${r.kinds.has(k) ? "checked" : ""} data-r="${i}" data-k="${k}"> ${k}</label>`).join("")}</div><label>Codes <select data-scope="${i}"><option ${r.scope === "Watchlist" ? "selected" : ""}>Watchlist</option><option ${r.scope === "Every scanner code" ? "selected" : ""}>Every scanner code</option><option>Named codes…</option></select></label><label>Only above <select data-min="${i}"><option value="0" ${r.min === 0 ? "selected" : ""}>any value</option><option value="1e9" ${r.min === 1e9 ? "selected" : ""}>Rp1 B</option><option value="5e9" ${r.min === 5e9 ? "selected" : ""}>Rp5 B</option><option value="2e10">Rp20 B</option></select></label></div>`).join("") +
+    `<button class="iconbtn" id="addRule">Add rule</button> <label class="hint"><input type="checkbox"> Chime on each alert</label>`;
+  d.querySelectorAll("[data-k]").forEach(c => c.onchange = () => { const r = rules[c.dataset.r]; c.checked ? r.kinds.add(c.dataset.k) : r.kinds.delete(c.dataset.k); });
+  d.querySelectorAll("[data-scope]").forEach(c => c.onchange = () => rules[c.dataset.scope].scope = c.value);
+  d.querySelectorAll("[data-min]").forEach(c => c.onchange = () => rules[c.dataset.min].min = Number(c.value));
+  document.getElementById("addRule").onclick = () => { rules.push({ kinds: new Set(["Absorbed"]), scope: "Watchlist", min: 0 }); openRules(); };
+  document.getElementById("closeD").onclick = closeDrawer;
+}
+function closeDrawer() { drawerMode = null; document.getElementById("drawer").classList.remove("open"); }
+// ---------- cells ----------
+const imbCell = imb => { const w = Math.min(50, Math.abs(imb) / 2); const col = imb >= 0 ? "var(--up)" : "var(--down)"; const pos = imb >= 0 ? `left:50%;width:${w}%` : `right:50%;width:${w}%`;
+  return `<span class="imb"><span class="imbbar"><i style="${pos};background:${col}"></i></span><span class="num ${imb >= 0 ? "up" : "down"}">${sgn(imb)}</span></span>`; };
+const evCell = s => { const e = s.events.at(-1); if (!e || simNow - e.t > 600000) return '<span class="muted">—</span>';
+  return `<span class="ev"><span class="evk ${e.side}">${e.kind}</span><span class="muted num">${fmtAge(simNow - e.t)}</span></span>`; };
+const tags = s => (WATCH.has(s.code) ? '<span class="tag star" title="Watchlist">★</span>' : "") + (s.limit ? `<span class="tag limit">At ${s.limit} limit</span>` : "");
+const quiet = s => simNow - s.at > 30000 ? '<span class="muted" title="Fewer than 2 book updates a side in 30 s">too quiet</span>' : null;
+// ---------- variants ----------
+function renderTable(v) {
+  const head = COLS.map(([k, label]) => `<th data-k="${k}" class="${sortKey === k ? "sorted" : ""}">${label}${sortKey === k ? (sortDir < 0 ? " ▾" : " ▴") : ""}</th>`).join("");
+  const rows = order.map(s => { const r = s.r, stale = simNow - s.at > 60000;
+    return `<tr data-c="${s.code}" class="${stale ? "stale" : ""} ${simNow - s.flash < 1200 ? "flash" : ""}"><td><span class="codecell"><span class="code">${s.code}</span>${tags(s)}</span></td>
+    <td class="num">${fmtP(s.price)}</td><td>${s.limit ? '<span class="muted">—</span>' : imbCell(r.imb)}</td>
+    <td class="num">${fmtRp(r.bDepth)}</td><td class="num">${fmtRp(r.oDepth)}</td>
+    <td class="num">${r.bEmpty.e} / ${r.oEmpty.e}</td>
+    <td class="num">${r.spreadT == null ? "—" : `${r.spreadT}t · ${r.spreadP.toFixed(2)}%`}</td>
+    <td class="num">${r.bLpo.toFixed(0)} / ${r.oLpo.toFixed(0)}</td>
+    <td>${quiet(s) ?? evCell(s)}</td><td class="num">${s.events.filter(e => simNow - e.t < 300000).length || ""}</td>
+    <td class="num age ${stale ? "old" : ""}">${fmtAge(simNow - s.at)}</td></tr>`; }).join("");
+  v.innerHTML = `<div class="tablewrap"><table class="scan"><thead><tr>${head}</tr></thead><tbody>${rows}</tbody></table></div>`;
+}
+function miniLadder(s) {
+  const mx = Math.max(...s.bids.slice(0, 5).map(l => l.lots), ...s.offers.slice(0, 5).map(l => l.lots), 1);
+  const side = (lv, cls) => lv.slice(0, 5).map(l => `<div class="lv"><b style="width:${l.lots / mx * 100}%;background:var(--${cls}-soft)"></b><span class="num">${fmtP(l.price)}</span><span class="num">${fmtLots(l.lots)}</span><span class="num muted">${l.orders}</span></div>`).join("");
+  return `<div class="mini"><div>${side(s.bids, "up")}</div><div>${side(s.offers, "down")}</div><button class="iconbtn" data-open="${s.code}" style="grid-column:1/-1;justify-self:start">Open ${s.code} in Market Live</button></div>`;
+}
+function renderTug(v) {
+  const bidHeavy = order.filter(s => !s.limit && s.r.imb >= 0).sort((a, b) => (simNow - a.at > 60000) - (simNow - b.at > 60000) || b.r.imb - a.r.imb);
+  const offHeavy = order.filter(s => !s.limit && s.r.imb < 0).sort((a, b) => (simNow - a.at > 60000) - (simNow - b.at > 60000) || a.r.imb - b.r.imb);
+  const limits = order.filter(s => s.limit);
+  const row = (s, side) => `<div class="tugrow ${simNow - s.at > 60000 ? "stale" : ""}" data-c="${s.code}"><span class="codecell"><span class="code">${s.code}</span>${WATCH.has(s.code) ? '<span class="tag star">★</span>' : ""}</span>
+    <span class="tugbar"><i style="width:${Math.abs(s.r.imb)}%;background:var(--${side === "bid" ? "up" : "down"})"></i></span>
+    <span class="num ${side === "bid" ? "up" : "down"}">${sgn(s.r.imb)}</span><span class="num nd muted">${fmtRp(side === "bid" ? s.r.bDepth : s.r.oDepth)}</span><span>${quiet(s) ? "" : evDot(s)}</span>
+    ${expanded === s.code ? miniLadder(s) : ""}</div>`;
+  v.innerHTML = `<div class="tug"><section class="tugcol bid"><h2><span class="up">Bid-heavy</span><span class="muted">${bidHeavy.length} codes</span></h2>${bidHeavy.slice(0, 60).map(s => row(s, "bid")).join("")}</section>
+    <section class="tugcol offer"><h2><span class="down">Offer-heavy</span><span class="muted">${offHeavy.length} codes</span></h2>${offHeavy.slice(0, 60).map(s => row(s, "offer")).join("")}</section>
+    <div class="tugmid">${limits.length ? "At a limit, not ranked: " + limits.map(s => `<b>${s.code}</b> (${s.limit})`).join(", ") : ""} · Click a code for its best 5 levels.</div></div>`;
+}
+const evDot = s => { const e = s.events.at(-1); if (!e || simNow - e.t > 300000) return ""; return `<span class="evk ${e.side}" title="${e.kind}: ${e.detail}">${e.kind.replace("Wall ", "W·")}</span>`; };
+function feedHtml() { return `<aside class="feed"><h2><span>Book events</span><span class="muted">scanner codes</span></h2>${feed.filter(e => order.some(s => s.code === e.code)).slice(0, 60).map(e => `<div class="feeditem ${simNow - e.t < 1500 ? "new" : ""}" data-c="${e.code}" data-feed="1"><span class="num muted">${fmtT(e.t)}</span><span class="code">${e.code}</span><span><span class="evk ${e.side}">${e.kind}</span></span><span class="d">${e.detail}</span></div>`).join("") || '<div class="feeditem muted">Waiting for book events…</div>'}</aside>`; }
+function tileHtml(s) { return renderTiles.tile(s); }
+function splitLists() {
+  const st = s => simNow - s.at > 60000;
+  return { bid: order.filter(s => !s.limit && s.r.imb >= 0).sort((a, b) => st(a) - st(b) || b.r.imb - a.r.imb),
+    offer: order.filter(s => !s.limit && s.r.imb < 0).sort((a, b) => st(a) - st(b) || a.r.imb - b.r.imb), limits: order.filter(s => s.limit) };
+}
+function renderTugFeed(v) { renderTug(v); const tug = v.innerHTML; v.innerHTML = `<div class="splitfeed"><div style="min-width:0">${tug}</div>${feedHtml()}</div>`; }
+function renderTilesSplit(v) {
+  const { bid, offer, limits } = splitLists();
+  v.innerHTML = `<div class="splitfeed"><div class="halves"><section class="half"><h2><span class="up">Bid-heavy</span><span class="muted">${bid.length} codes</span></h2><div class="tiles">${bid.slice(0, 48).map(tileHtml).join("")}</div></section>
+    <section class="half"><h2><span class="down">Offer-heavy</span><span class="muted">${offer.length} codes</span></h2><div class="tiles">${offer.slice(0, 48).map(tileHtml).join("")}</div></section>
+    ${limits.length ? `<div class="tugmid">At a limit, not ranked: ${limits.map(s => `<b>${s.code}</b> (${s.limit})`).join(", ")}</div>` : ""}</div>${feedHtml()}</div>`;
+}
+function renderTiles(v) {
+  const tile = renderTiles.tile = s => { const r = s.r; const mx = Math.max(...s.bids.slice(0, 5).map(l => l.lots), ...s.offers.slice(0, 5).map(l => l.lots), 1);
+    const bars = (lv, col) => lv.slice(0, 5).map(l => `<i style="width:${l.lots / mx * 100}%;background:${col}"></i>`).join("");
+    return `<div class="tile ${simNow - s.at > 60000 ? "stale" : ""} ${simNow - s.flash < 1500 ? "ping" : ""}" data-c="${s.code}">
+      <div class="row1"><span class="code">${s.code}${WATCH.has(s.code) ? ' <span class="tag star">★</span>' : ""}</span><span class="num ${s.limit ? "muted" : r.imb >= 0 ? "up" : "down"}">${s.limit ? s.limit + " limit" : sgn(r.imb)}</span></div>
+      <div class="fly"><div class="side bid">${bars(s.bids, "var(--up)")}</div><div class="side offer">${bars(s.offers, "var(--down)")}</div></div>
+      <div class="row3"><span class="num">${fmtP(s.price)}</span><span class="num">${r.spreadT == null ? "—" : r.spreadT + "t"}</span><span class="num">${fmtAge(simNow - s.at)}</span></div>
+      <span class="lastev">${quiet(s) ? "" : evDot(s)}</span></div>`; };
+  v.innerHTML = `<div class="tilesgrid"><div class="tiles">${order.slice(0, 120).map(tile).join("")}</div>
+    <aside class="feed"><h2><span>Book events</span><span class="muted">scanner codes</span></h2>${feed.filter(e => order.some(s => s.code === e.code)).slice(0, 60).map(e => `<div class="feeditem ${simNow - e.t < 1500 ? "new" : ""}" data-c="${e.code}"><span class="num muted">${fmtT(e.t)}</span><span class="code">${e.code}</span><span><span class="evk ${e.side}">${e.kind}</span></span><span class="d">${e.detail}</span></div>`).join("") || '<div class="feeditem muted">Waiting for book events…</div>'}</aside></div>`;
+}
+// ---------- routing ----------
+const VARIANTS = [["table", "A · Ranked table", renderTable], ["tug", "B · Tug of war", renderTug], ["tiles", "C · Tiles + event feed", renderTiles], ["tug-feed", "D · Tug of war + event feed", renderTugFeed], ["tiles-split", "E · Split tiles + event feed", renderTilesSplit]];
+renderTiles({ set innerHTML(x) {} });
+let vi = Math.max(0, VARIANTS.findIndex(x => "#" + x[0] === location.hash));
+function setVariant(i) { vi = (i + VARIANTS.length) % VARIANTS.length; if (location.hash !== "#" + VARIANTS[vi][0]) history.replaceState(null, "", "#" + VARIANTS[vi][0]); render(); }
+addEventListener("hashchange", () => { const i = VARIANTS.findIndex(x => "#" + x[0] === location.hash); if (i >= 0) { vi = i; render(); } });
+function render() {
+  const v = document.getElementById("view");
+  document.getElementById("vlabel").textContent = VARIANTS[vi][1];
+  document.getElementById("vname").textContent = VARIANTS[vi][1];
+  const label = COLS.find(c => c[0] === sortKey)[1];
+  const left = Math.max(0, Math.ceil((5000 - (simNow - lastSort)) / 1000));
+  document.getElementById("sortnote").innerHTML = ["tug", "tug-feed", "tiles-split"].includes(VARIANTS[vi][0]) ? `Split by <b>Imbalance</b> · ${hovering ? "order held while pointer is on the list" : "re-sorts in " + left + "s"}` : `Ranked by <b>${label}</b> ${sortDir < 0 ? "high→low" : "low→high"} · ${hovering ? "order held while pointer is on the list" : "re-sorts in " + left + "s"}`;
+  const all = stocks.length, excl = stocks.filter(s => s.price <= 10).length;
+  document.getElementById("excluded").textContent = `${order.length} codes above the floor · 59 Special Monitoring Board codes and ${excl} codes at Rp1–10 are not ranked · rows with no book change for 60 s grey out and sink`;
+  VARIANTS[vi][2](v);
+}
+const viewEl = document.getElementById("view");
+viewEl.addEventListener("pointerdown", e => {
+  const th = e.target.closest("th[data-k]");
+  if (th) { const k = th.dataset.k; if (sortKey === k) sortDir *= -1; else { sortKey = k; sortDir = k === "code" || k === "spreadP" || k === "age" ? 1 : -1; } resort(true); render(); return; }
+  const open = e.target.closest("[data-open]"); if (open) { openMarketLive(open.dataset.open); return; }
+  const row = e.target.closest("[data-c]"); if (!row) return;
+  if ((VARIANTS[vi][0] === "tug" || VARIANTS[vi][0] === "tug-feed") && !row.dataset.feed) { expanded = expanded === row.dataset.c ? null : row.dataset.c; render(); }
+  else openMarketLive(row.dataset.c);
+});
+viewEl.addEventListener("pointerenter", () => { hovering = true; });
+viewEl.addEventListener("pointerleave", () => { hovering = false; });
+document.getElementById("prev").onclick = () => setVariant(vi - 1);
+document.getElementById("next").onclick = () => setVariant(vi + 1);
+addEventListener("keydown", e => { if (e.target.closest("input,textarea,select,[contenteditable]")) return; if (e.key === "ArrowLeft") setVariant(vi - 1); if (e.key === "ArrowRight") setVariant(vi + 1); });
+["floor", "search", "pmin", "pmax"].forEach(id => document.getElementById(id).addEventListener("input", () => { resort(true); render(); }));
+document.getElementById("fAll").onclick = () => { watchOnly = false; document.getElementById("fAll").setAttribute("aria-pressed", "true"); document.getElementById("fWatch").setAttribute("aria-pressed", "false"); resort(true); render(); };
+document.getElementById("fWatch").onclick = () => { watchOnly = true; document.getElementById("fWatch").setAttribute("aria-pressed", "true"); document.getElementById("fAll").setAttribute("aria-pressed", "false"); resort(true); render(); };
+document.getElementById("simStale").onclick = () => { stockbitStale = !stockbitStale; document.getElementById("banner").classList.toggle("on", stockbitStale); document.getElementById("feedchip").classList.toggle("stale", stockbitStale); document.getElementById("feedtxt").textContent = stockbitStale ? "Stockbit stale · Ajaib for watchlist" : "Stockbit live"; document.getElementById("simStale").textContent = stockbitStale ? "Restore feed" : "Simulate stale feed"; };
+document.getElementById("bellBtn").onclick = () => drawerMode === "history" ? closeDrawer() : openHistory();
+document.getElementById("rulesBtn").onclick = () => drawerMode === "rules" ? closeDrawer() : openRules();
+// Warm up so the first frame has events and ages.
+for (let i = 0; i < 240; i++) { simNow += 250; for (const s of stocks) if (rnd() < s.busy * .1) { buildBook(s); s.at = simNow; if (rnd() < .03 * Math.min(1, s.busy) && s.price > 10) { const e = makeEvent(s); if (e) { s.events.push(e); feed.unshift(e); } } } }
+feed.length = Math.min(feed.length, 120);
+resort(true); render();
+setInterval(tick, 250);
+</script>
