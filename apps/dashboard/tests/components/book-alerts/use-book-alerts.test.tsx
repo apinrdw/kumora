@@ -80,13 +80,15 @@ const eaten: BookEvent = {
   share: 0.9,
 }
 
-const delta: ViewerDown = {
+// A delta carrying `event`, half a second after it.
+const deltaOf = (event: BookEvent): ViewerDown => ({
   _tag: "Delta",
-  at: DateTime.makeUnsafe(T0 + 500),
+  at: DateTime.makeUnsafe(DateTime.toEpochMillis(event.at) + 500),
   tape: [],
   candles: [],
-  bookEvents: [eaten],
-}
+  bookEvents: [event],
+})
+const delta = deltaOf(eaten)
 
 const settle = () =>
   act(() => new Promise<void>((resolve) => setTimeout(resolve, 20)))
@@ -107,16 +109,14 @@ const openTab = async () => {
   )
   act(() => root.render(<Page />))
   await settle()
-  return (message: ViewerDown) => held.apply!(message)
+  return {
+    hear: (message: ViewerDown) => held.apply!(message),
+    close: () => act(() => root.unmount()),
+  }
 }
 
-afterEach(() => {
-  toasts.told = []
-  window.localStorage.clear()
-  document.body.innerHTML = ""
-})
-
-test("an event two tabs hear alerts once in the browser: one history entry, one toast", async () => {
+// A browser with Web Locks and one rule: BBCA's eaten levels.
+const browser = () => {
   Object.defineProperty(navigator, "locks", {
     value: makeLocks(),
     configurable: true,
@@ -132,11 +132,21 @@ test("an event two tabs hear alerts once in the browser: one history entry, one 
       },
     ])
   )
+}
+
+afterEach(() => {
+  toasts.told = []
+  window.localStorage.clear()
+  document.body.innerHTML = ""
+})
+
+test("an event two tabs hear alerts once in the browser: one history entry, one toast", async () => {
+  browser()
   const radar = await openTab()
   const marketLive = await openTab()
   act(() => {
-    radar(delta)
-    marketLive(delta)
+    radar.hear(delta)
+    marketLive.hear(delta)
   })
   await settle()
   const history = JSON.parse(
@@ -147,4 +157,19 @@ test("an event two tabs hear alerts once in the browser: one history entry, one 
     "the shared history records the event once"
   ).toBe(1)
   expect(toasts.told, "one tab tells it").toHaveLength(1)
+})
+
+test("the page opened last tells, and the other takes over once it closes", async () => {
+  browser()
+  const radar = await openTab()
+  const marketLive = await openTab()
+  act(() => radar.hear(delta))
+  await settle()
+  expect(toasts.told, "the page that lost the lock tells nothing").toEqual([])
+  marketLive.close()
+  await settle()
+  const later = deltaOf({ ...eaten, at: DateTime.makeUnsafe(T0 + 180_000) })
+  act(() => radar.hear(later))
+  await settle()
+  expect(toasts.told, "the page left holds the lock").toHaveLength(1)
 })

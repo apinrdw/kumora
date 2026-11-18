@@ -35,6 +35,7 @@ import {
   alertHistory,
   alertRules,
 } from "./alert-store"
+import { useAlertOwner } from "./use-alert-owner"
 
 // One gate for the tab: moving between the radar and Market Live keeps the
 // cooldowns and the minute's count.
@@ -124,7 +125,8 @@ const tellAlert = Effect.fnUntraced(function* (
 
 /**
  * Tells this browser's alert rules' matches among a live page's book events
- * (spec apinrdw/kumora#517, "Alerts"): a toast on the visible page, a
+ * (spec apinrdw/kumora#517, "Alerts"), once per browser from the page that
+ * holds the alert lock (use-alert-owner.ts): a toast on the visible page, a
  * notification from a background tab. The page feeds it every message of
  * its viewer socket; only a delta's new events alert.
  */
@@ -144,6 +146,7 @@ export function useBookAlerts() {
     }
   }, [watchlist, board, floor, figures])
   const held = useRef(context)
+  const owns = useAlertOwner()
   useEffect(() => {
     held.current = context
   }, [context])
@@ -183,7 +186,7 @@ export function useBookAlerts() {
         )
         if (!matched) continue
         const verdict = Effect.runSync(gate.admit(event, now))
-        if (verdict._tag === "Cooled") continue
+        if (verdict._tag === "Cooled" || !owns.current) continue
         const alert = Effect.runSync(alertOf(event))
         alertHistory.set(
           Effect.runSync(withAlert(alertHistory.get(), alert, today))
@@ -191,6 +194,6 @@ export function useBookAlerts() {
         tell(alert, verdict)
       }
     },
-    [figures, tell]
+    [figures, tell, owns]
   )
 }
