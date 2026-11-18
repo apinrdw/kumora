@@ -27,6 +27,7 @@ interface Figures {
   readonly last?: number
   readonly previousClose?: number
   readonly previousValue?: number
+  readonly value?: number
 }
 
 // A book event as the wire carries it, `at` in epoch ms.
@@ -63,6 +64,7 @@ const withFigures = (
             each.last ?? null,
             each.previousClose ?? null,
             each.previousValue ?? null,
+            each.value ?? 0,
           ])
         parsed.scannerFigures = rows
       }
