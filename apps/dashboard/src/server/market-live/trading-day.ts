@@ -88,6 +88,7 @@ import { makeGaps } from "./gaps.ts"
 import { makeMarketConditions } from "./market-conditions.ts"
 import { makeOnDemand } from "./on-demand.ts"
 import { makeOrderBooks } from "./order-books.ts"
+import { makeRecordedBooks } from "./recorded-books.ts"
 import { chunkSlices, endBookOf, storedEndBook } from "./heat-rows.ts"
 import {
   buildOrderFlow,
@@ -492,6 +493,7 @@ export const makeTradingDay = Effect.fnUntraced(function* (options: {
   const ingests = options.ingests ?? Effect.succeed([])
   const books = yield* makeOrderBooks(options.date)
   const bookChunks = yield* makeBookChunks
+  const recordedBooks = yield* makeRecordedBooks(store)
   const gaps = yield* makeGaps({ ingests, highest: storedHighest })
   const dayStates = yield* makeDayStates(candles)
   const onDemand = yield* makeOnDemand({ viewers: options.viewers, ingests })
@@ -675,7 +677,8 @@ export const makeTradingDay = Effect.fnUntraced(function* (options: {
     const changed = yield* candles.takeChanged(selected)
     const live = yield* stockbitLive
     const orderBooks = yield* books.takeChanged(live)
-    for (const book of orderBooks) yield* bookChunks.record(book)
+    for (const book of orderBooks)
+      yield* bookChunks.record(book, yield* recordedBooks.has(book.code))
     const states = yield* dayStates.takeChanged(live, yield* onDemand.watched)
     const conditions = yield* market.conditions
     const encoded = yield* encodeConditions(conditions)
@@ -770,6 +773,7 @@ export const makeTradingDay = Effect.fnUntraced(function* (options: {
     const livePrices = [...livePricesChanged.values()]
     livePricesChanged = new Map()
     const ajaibBooks = yield* books.takeAjaibBooks
+    const recordedCodes = yield* recordedBooks.unwritten
     const retained = unwritten
     const payload: Flush = {
       trades: settled.trades,
@@ -781,11 +785,13 @@ export const makeTradingDay = Effect.fnUntraced(function* (options: {
       facts: {
         [Fact.feedDowns]: JSON.stringify(yield* market.record),
         ...(yield* sweepBrokers.persisting(settled.trades)),
+        ...recordedCodes,
         ...facts,
       },
     }
     unwritten = payload
     yield* store.write(payload)
+    yield* recordedBooks.wrote(recordedCodes)
     yield* Effect.logInfo("Rows written").pipe(
       Effect.annotateLogs({ ...(yield* store.takeMeter) })
     )
@@ -823,6 +829,7 @@ export const makeTradingDay = Effect.fnUntraced(function* (options: {
       (yield* candles.hasUnflushed) ||
       (yield* bookChunks.hasOpen) ||
       (yield* books.hasUnflushedAjaib) ||
+      (yield* recordedBooks.hasUnwritten) ||
       JSON.stringify(yield* market.record) !== writtenDowns
     )
   })
@@ -1344,6 +1351,8 @@ export const makeTradingDay = Effect.fnUntraced(function* (options: {
       const orderBook = yield* books.bookOf(selected, live)
       // The selected code first: on-demand.ts reads it back as the selection.
       const watching = [...new Set([selected, ...watchlist])]
+      for (const code of watching)
+        if (yield* recordedBooks.join(code)) yield* bookChunks.begin(code)
       const states: Array<DayState> = []
       const indicative: Array<IndicativePrice> = []
       for (const code of watching) {
@@ -1497,6 +1506,7 @@ export const makeTradingDay = Effect.fnUntraced(function* (options: {
               (conditions) => conditions.gaps
             ),
             heldHeat,
+            booksNotRecorded: recordedBooks.notRecorded,
             sweeps: candles.sweepsOf,
           })
         )
