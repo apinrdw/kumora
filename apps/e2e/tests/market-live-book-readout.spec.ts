@@ -249,7 +249,9 @@ test("a wall that appears is listed, marked on the ladder and on the heatmap", a
   await page.goto(`${DASHBOARD}${PAGE}?code=${code}`)
   const readout = page.getByRole("region", { name: "Book readout" })
   const events = readout.getByRole("region", { name: "Book events" })
-  await expect(events).toContainText("Too quiet to read")
+  // Just picked: this browser has heard no 30 s of its book yet.
+  await expect(events).toContainText("No book events yet today.")
+  await expect(events).not.toContainText("Too quiet to read")
   const relay = await openIngest()
   const now = marketNow()
   // One trade in the wall's minute, so it has a candle for the heatmap mark.
