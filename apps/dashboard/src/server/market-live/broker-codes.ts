@@ -138,7 +138,12 @@ const holesOf = (row: Record<string, SqlValue>) =>
 // Decision: the runs are worked out here, not in SQL: one statement that
 // grouped the tape by chunk over lag() billed 5 rows read a trade in workerd,
 // its window's and grouping's temporary tables counted, against 1 here.
-const summarizeChunks = (sql: Sql, first: number, last: number) => {
+const summarizeChunks = (
+  sql: Sql,
+  tape: ReturnType<typeof makeTape>,
+  first: number,
+  last: number
+) => {
   let chunk = -1
   let taped = 0
   // The lowest number of `chunk` not yet accounted for.
@@ -149,7 +154,7 @@ const summarizeChunks = (sql: Sql, first: number, last: number) => {
     if (next <= (chunk + 1) * CHUNK) holes.push([next, (chunk + 1) * CHUNK])
     writeSummaryRow(sql, chunk, taped, holes)
   }
-  for (const number of makeTape(sql).numbersBetween(
+  for (const number of tape.numbersBetween(
     first * CHUNK + 1,
     (last + 1) * CHUNK
   )) {
@@ -176,9 +181,10 @@ const summaryBuilt = (sql: Sql) =>
 // a transaction. It reads SCAN_PAGE chunks' trades at a time, so the whole
 // tape's numbers never sit in memory at once.
 const summarizeWhole = (sql: Sql) => {
-  const chunks = Math.ceil((makeTape(sql).highestNumber() ?? 0) / CHUNK)
+  const tape = makeTape(sql)
+  const chunks = Math.ceil((tape.highestNumber() ?? 0) / CHUNK)
   for (let first = 0; first < chunks; first += SCAN_PAGE)
-    summarizeChunks(sql, first, first + SCAN_PAGE - 1)
+    summarizeChunks(sql, tape, first, first + SCAN_PAGE - 1)
   sql.exec(
     "INSERT OR REPLACE INTO facts VALUES (?, ?)",
     Fact.tapeSummary,
@@ -186,11 +192,12 @@ const summarizeWhole = (sql: Sql) => {
   )
 }
 
+// A seal cut off before the summary summarizes on its retry (`finishSeal`,
+// trading-day.ts), or at a status pass before it (`scan`). A tape its walk
+// batches kept summarized isn't again.
 // Decision: the seal summarizes the tape in its own transaction, after the
-// sealed marker: about 1.46 M rows read and 1,460 written on a busy day
-// (row-budgets.workerd.test.ts). A seal cut off between them summarizes on
-// its retry (`finishSeal`, trading-day.ts), or at a status pass before it
-// (`scan`). A tape its walk batches kept summarized isn't again.
+// sealed marker: on a busy day 5.9 K rows read and 1,460 written from trade
+// chunks, 1.46 M read from a row per trade (row-budgets.workerd.test.ts).
 export const summarizeTape = (sql: Sql) =>
   Effect.sync(() =>
     sql.transaction(() => {
@@ -216,7 +223,7 @@ const runsOf = (chunk: number, marks: Uint8Array) => {
 // as a sealed day's does. In workerd a page of 5,000 trades in 5 chunks
 // billed 11 rows read and 5 written here, against 5,000 reading the chunks'
 // trades. A tape stored before the summary is summarized whole at its first
-// such write: the 1.46 M rows read of `summarizeTape`'s Decision.
+// such write, as `summarizeTape`'s Decision bills it.
 export const summarizeAddedTrades =
   (sql: Sql, numbers: ReadonlyArray<number>) => () => {
     if (numbers.length === 0) return

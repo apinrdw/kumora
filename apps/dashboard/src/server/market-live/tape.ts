@@ -1,7 +1,8 @@
 // A trading day's tape: every read and write of the day's trades (spec
-// apinrdw/kumora#555, ticket #567). Today one row per trade in `trades`; a
-// second backing for the trades is added here alone, and the tape-owner test
-// fails on SQL against the table anywhere else.
+// apinrdw/kumora#555, tickets #567 and #571). A new day keeps them as
+// 1,000-number chunks (tape-chunks.ts); a day recorded before keeps its row
+// per trade in `trades`, here, and the `kumora/tape-owns-trades` lint fails
+// on SQL against that table anywhere else.
 import {
   StockCode,
   TradeNumber,
@@ -13,21 +14,12 @@ import {
 import { DateTime, Effect } from "effect"
 
 import type { Sql, SqlValue } from "./day-store.ts"
+import { makeChunkTape } from "./tape-chunks.ts"
 
-// Decision: a trade is one row keyed by its number as the INTEGER PRIMARY
-// KEY (the rowid; a day's numbers stay far below 2^53), with no secondary
-// index, so each insert writes one row. See spec apinrdw/kumora#138,
-// "Storage and cost".
-export const TAPE_SCHEMA = `CREATE TABLE IF NOT EXISTS trades (
-    number INTEGER PRIMARY KEY,
-    time INTEGER NOT NULL,
-    code TEXT NOT NULL,
-    price REAL NOT NULL,
-    lots REAL NOT NULL,
-    side TEXT NOT NULL,
-    board TEXT NOT NULL,
-    feeds TEXT NOT NULL
-  )`
+// A day recorded before trade chunks holds a trade as one row keyed by its
+// number as the INTEGER PRIMARY KEY, with no secondary index (spec
+// apinrdw/kumora#138, "Storage and cost"): number, time, code, price, lots,
+// side, board and feeds. No day makes the table any more.
 
 // Each stored candle's buy and sell value from the stored trades, by
 // candles.ts `printOf`'s value by side and `counts`'s regular-board filter: a
@@ -85,7 +77,7 @@ const tradeOf = (row: Record<string, SqlValue>) =>
 // store's flush and the broker codes store's batches and summaries call them
 // inside a synchronous transaction, where an Effect could not run. The rest
 // are Effects.
-export const makeTape = (sql: Sql) => {
+const makeRowTape = (sql: Sql) => {
   // `trades` inside a transaction. A number is written once: a copy can't
   // replace it.
   const write = (trades: ReadonlyArray<RunningTrade>) => {
@@ -339,3 +331,14 @@ export const makeTape = (sql: Sql) => {
     fieldsBetween,
   }
 }
+
+type Tape = ReturnType<typeof makeRowTape>
+
+// Decision: a day's tape shape is which table it holds: `trades`, made only
+// by days recorded before trade chunks, keeps its rows until the day turns
+// cold, and every other day is chunked. Old days are never rewritten. See
+// spec apinrdw/kumora#555, "Trade chunks".
+export const makeTape = (sql: Sql): Tape =>
+  sql.exec("PRAGMA table_info(trades)").length > 0
+    ? makeRowTape(sql)
+    : makeChunkTape(sql)
