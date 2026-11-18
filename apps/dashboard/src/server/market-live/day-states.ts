@@ -450,11 +450,10 @@ export const makeDayStates = (candles: {
     // A code's last price and previous close, as its Day state gives them,
     // or from its newest trade when it has neither a base nor a `PRICE`.
     // Decision: the scanner's prices come from the feed the Day state reads,
-    // Stockbit's base while live, else what the fallback carries on, with
-    // its trades' last price kept per code as they land rather than folded
-    // from every code's candles each delta. A code with no `liveprice` is
-    // read from Ajaib even while Stockbit is live. See spec
-    // apinrdw/kumora#517, "Data".
+    // Stockbit's base while live, else the fallback's, its last trade kept
+    // per code as trades land, not folded from every code's candles each
+    // delta. A code with no `liveprice` reads from Ajaib even while Stockbit
+    // is live. See spec apinrdw/kumora#517, "Data".
     const quoteOf = Effect.fnUntraced(function* (
       code: StockCode,
       stockbitLive: boolean
