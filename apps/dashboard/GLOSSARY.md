@@ -171,12 +171,16 @@ One broker code's running sum of net lots or value (bought minus sold) in one st
 _Avoid_: Position, holdings (those are what KSEI reports), net flow
 
 **Broker summary**:
-Each broker code's lots and value bought and sold in one stock code over a range of days, its net, and its average buy and sell price weighted by lots, from the same trades broker inventory counts.
+Each broker code's lots and value bought and sold in one stock code over a range of days, its net, its average buy and sell price weighted by lots, and its Freq, from the same trades broker inventory counts.
 _Avoid_: Broker ranking, done summary
 
 **Broker totals**:
-One day's lots and value each broker code bought and sold in each stock code, by investor type, with each code's daily candle and the day's count of missing trades, built from its held trades once the day is sealed and buildable. Broker inventory and the broker summary sum them over a range.
+One day's lots, value and trades each broker code bought and sold in each stock code, by investor type, with each code's daily candle and the day's count of missing trades, built from its held trades once the day is sealed and buildable. Broker inventory and the broker summary sum them over a range.
 _Avoid_: Running sums (totals are per day)
+
+**Freq**:
+The trades on the side a broker code leans over a range of days: the trades it bought in when its net lots are 0 or more, the trades it sold in otherwise. A trade between two sides of one broker code and investor type counts once on each side.
+_Avoid_: Frequency (on its own), trade count
 
 **Built day**:
 A day whose broker totals are written whole, with the build version that wrote them. A day of a range without one is a gap day, whatever rows it holds.

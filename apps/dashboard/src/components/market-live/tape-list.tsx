@@ -411,7 +411,9 @@ export function TapeList({
       <div
         ref={scroller}
         onScroll={onScroll}
-        className="h-full overflow-auto overscroll-contain"
+        // Decision: relative, so the rows' absolute sr-only spans clip here;
+        // otherwise the overscan rows under the fold lengthen the page.
+        className="relative h-full overflow-auto overscroll-contain"
       >
         <table
           className="w-full table-fixed text-[13px] tabular-nums"

@@ -70,7 +70,10 @@ function Detail({ result }: { result: ArchiveRunResult }) {
   )
 }
 
-/** The last archive run, or the empty state before any, with Run now. */
+/**
+ * The last archive run, or the empty state before any, with Run now: a row
+ * of the page's ledger.
+ */
 export function LastRunCard({
   lastRun,
   nextRun,
@@ -96,11 +99,13 @@ export function LastRunCard({
         <RunArchiveButton
           inProgress={lastRun?.inProgress ?? false}
           start={runArchiveNowFn}
+          variant="secondary"
         >
           Run now
         </RunArchiveButton>
       }
       schedule={{ times: ARCHIVE_TIMES_WIB, nextRun }}
+      frame="row"
     />
   )
 }

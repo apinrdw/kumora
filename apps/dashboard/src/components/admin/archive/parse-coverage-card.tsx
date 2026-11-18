@@ -141,21 +141,23 @@ export function ParseCoverageCard({
   return (
     <ArchiveCard title="Parse coverage" aside={null}>
       <MarkLegend styles={Object.values(STATE)} />
-      <div className="grid grid-cols-[repeat(auto-fit,minmax(min(100%,300px),1fr))] gap-6">
-        {grids.map(({ title, parseCoverage }) => (
-          <MonthGrid
-            key={title}
-            title={title}
-            label={`${title} parse coverage`}
-            years={parseCoverage}
-            empty={`No ${title} report is archived yet.`}
-            mark={({ state }) => STATE[state]}
-            describe={({ date }) => `(${date})`}
-            detail={(month, name) => (
-              <MonthDetail title={title} name={name} month={month} />
-            )}
-          />
-        ))}
+      <div className="@container">
+        <div className="grid gap-6 @2xl:grid-cols-2">
+          {grids.map(({ title, parseCoverage }) => (
+            <MonthGrid
+              key={title}
+              title={title}
+              label={`${title} parse coverage`}
+              years={parseCoverage}
+              empty={`No ${title} report is archived yet.`}
+              mark={({ state }) => STATE[state]}
+              describe={({ date }) => `(${date})`}
+              detail={(month, name) => (
+                <MonthDetail title={title} name={name} month={month} />
+              )}
+            />
+          ))}
+        </div>
       </div>
     </ArchiveCard>
   )

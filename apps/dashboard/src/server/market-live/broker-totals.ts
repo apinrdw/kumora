@@ -14,11 +14,6 @@ import { Effect } from "effect"
 import type { BrokerTotal, DayBuild, DayCandle } from "../broker-totals/db.ts"
 import type { BrokerCodesStore } from "./broker-codes.ts"
 
-// Decision: each built day records the version that built it; a change to
-// what the build makes bumps it, and the reconcile rebuilds older days at
-// its pace. See apinrdw/kumora#420.
-export const BROKER_TOTALS_VERSION = 1
-
 // The broker totals fact of a sealed, buildable day not built yet.
 export const BROKER_TOTALS_DUE = "due"
 
@@ -34,6 +29,7 @@ const KEPT_BOARD = "RG" satisfies RunningTrade["board"]
 interface Side {
   shares: number
   value: number
+  trades: number
 }
 
 interface Held {
@@ -86,8 +82,8 @@ export const buildBrokerTotals = Effect.fnUntraced(function* (
       code,
       broker,
       investorType,
-      buy: { shares: 0, value: 0 },
-      sell: { shares: 0, value: 0 },
+      buy: { shares: 0, value: 0, trades: 0 },
+      sell: { shares: 0, value: 0, trades: 0 },
     }
     totals.set(key, made)
     return made
@@ -105,9 +101,11 @@ export const buildBrokerTotals = Effect.fnUntraced(function* (
       const buy = heldOf(trade.code, codes.buyer, codes.buyerType).buy
       buy.shares += shares
       buy.value += value
+      buy.trades++
       const sell = heldOf(trade.code, codes.seller, codes.sellerType).sell
       sell.shares += shares
       sell.value += value
+      sell.trades++
       const candle = candles.get(trade.code)
       if (candle === undefined)
         candles.set(trade.code, {
@@ -144,6 +142,8 @@ export const buildBrokerTotals = Effect.fnUntraced(function* (
       buyValue: held.buy.value,
       sellLots: yield* lotsOf(held.sell.shares),
       sellValue: held.sell.value,
+      buyFreq: held.buy.trades,
+      sellFreq: held.sell.trades,
     })
   for (const candle of candles.values())
     built.candles.push({

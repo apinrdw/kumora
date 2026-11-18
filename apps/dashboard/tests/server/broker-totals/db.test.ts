@@ -33,6 +33,8 @@ const total = (code: StockCode, broker: string, buyLots: number) => ({
   buyValue: buyLots * 800_000,
   sellLots: 0,
   sellValue: 0,
+  buyFreq: buyLots + 1,
+  sellFreq: 0,
 })
 
 const candle = (code: StockCode, close: number) => ({
@@ -212,6 +214,8 @@ describe("the range read", () => {
               buyValue: 1_600_000,
               sellLots: 0,
               sellValue: 0,
+              buyFreq: 3,
+              sellFreq: 0,
             },
           ],
         })

@@ -432,10 +432,17 @@ export const makeStockbitWalk = Effect.fnUntraced(function* (options: {
           below > 0n
             ? Option.some(TradeNumber.make(below.toString()))
             : Option.none(),
+          // Decision: a range's walk also ends on a page whose every trade
+          // is past the range: a trade Stockbit's tape lacks never comes,
+          // and waiting for it walked the day to its end on every run
+          // (2026-11-18, 4 trades missing paged 1,559,660).
           (rows) => {
             for (const row of rows)
               if (row.value >= low && row.value <= high) seen.add(row.value)
-            return BigInt(seen.size) === high - low + 1n
+            return (
+              BigInt(seen.size) === high - low + 1n ||
+              rows.every((row) => row.value > high)
+            )
           }
         )
       }

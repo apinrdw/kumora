@@ -2,12 +2,12 @@
 // archive passes in its own columns: its run counts and its kinds.
 import { Effect } from "effect"
 
-import { KBadge, KDataTable, type KColumn } from "@/components/k"
+import { KDataTable, type KColumn } from "@/components/k"
 import { byteSize, count, dateTime } from "@/lib/format"
 import { RETENTION_DAYS } from "@/server/archive/retention"
 import type { RunSummaryBase } from "@/server/archive/run"
 
-import { ArchiveCard, OUTCOME } from "./archive-card"
+import { ArchiveCard, RunStatus } from "./archive-card"
 
 // A table running to the panel's edges, under the panel's header rule, so
 // it is not a box inside the panel's box. Last in the panel, it runs to the
@@ -29,11 +29,7 @@ const RUN_COLUMNS: ReadonlyArray<KColumn<RunSummaryBase>> = [
   {
     key: "outcome",
     label: "Outcome",
-    cell: (run) => (
-      <KBadge tone={OUTCOME[run.outcome].tone}>
-        {OUTCOME[run.outcome].label}
-      </KBadge>
-    ),
+    cell: (run) => <RunStatus outcome={run.outcome} />,
   },
 ]
 
@@ -66,7 +62,7 @@ export function ArchiveRecentRunsCard<Run extends RunSummaryBase>({
             : { status: "ready" }
         }
       />
-      <p className="text-secondary-text text-[13px] leading-5">
+      <p className="text-secondary-text text-[13px]">
         Kept {RETENTION_DAYS} days.
       </p>
     </ArchiveCard>

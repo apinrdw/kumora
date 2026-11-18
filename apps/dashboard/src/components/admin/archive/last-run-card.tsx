@@ -19,12 +19,18 @@ import {
   useAccountAction,
   type Outcome,
 } from "@/components/account/account-section"
-import { KBadge, KButton, type KButtonVariant, KDialog } from "@/components/k"
+import { KButton, type KButtonVariant, KDialog } from "@/components/k"
 import { dateTime, duration } from "@/lib/format"
 import type { RunBase } from "@/server/archive/run"
 import type { RunView } from "@/server/archive/run-view"
 
-import { ArchiveCard, OUTCOME } from "./archive-card"
+import {
+  ArchiveCard,
+  ArchiveRow,
+  archiveRowNotes,
+  archiveRowStats,
+  RunStatus,
+} from "./archive-card"
 
 const IN_PROGRESS = "A run is in progress"
 
@@ -81,7 +87,9 @@ export function RunArchiveButton({
     <div className="flex flex-col items-end gap-1">
       <div className="flex items-center gap-3">
         {note && inProgress && (
-          <span className="text-secondary-text text-[13px]">{IN_PROGRESS}</span>
+          <span className="text-[13px] text-muted-foreground">
+            {IN_PROGRESS}
+          </span>
         )}
         <KButton
           icon={icon}
@@ -118,7 +126,6 @@ export function RunArchiveButton({
   )
 }
 
-// The card's last line: when Production's cron runs.
 function Schedule({ times, nextRun }: ArchiveSchedule) {
   return (
     <p className="text-secondary-text flex items-center gap-2 text-[13px] leading-5">
@@ -130,16 +137,20 @@ function Schedule({ times, nextRun }: ArchiveSchedule) {
   )
 }
 
-// One cell of the counts band. A zero recedes; a problem count above zero
-// reads in the warning color.
-function Stat({ value, label, problem = false }: RunStat) {
+const STAT_TONE = {
+  warning: "text-warning",
+  down: "text-down",
+} as const satisfies Record<NonNullable<RunStat["tone"]>, string>
+
+function Stat({ value, label, tone }: RunStat) {
   return (
-    <div className="flex flex-col-reverse justify-end gap-1 sm:px-4 sm:first:pl-0">
-      <dt className="text-secondary-text text-xs leading-4">{label}</dt>
+    <div className="flex flex-col-reverse justify-end gap-0.5">
+      <dt className="text-secondary-text text-[13px]">{label}</dt>
       <dd
         className={cn(
           "font-data text-xl leading-7 font-semibold tabular-nums",
-          value === 0 ? "text-muted-foreground" : problem && "text-warning"
+          value === 0 && "text-muted-foreground",
+          value > 0 && tone !== undefined && STAT_TONE[tone]
         )}
       >
         {value}
@@ -181,14 +192,14 @@ export const archiveRunStats = (result: {
     { value: result.reportsAdded, label: "Reports added" },
     { value: result.newVersions, label: "New versions" },
     { value: result.reportsChecked, label: "Reports checked" },
-    { value: result.notStored.length, label: "Not stored", problem: true },
+    { value: result.notStored.length, label: "Not stored", tone: "warning" },
   ])
 
 export interface RunStat {
   readonly label: string
   readonly value: number
-  // A count that is something to fix when above zero.
-  readonly problem?: boolean
+  // How the count reads when above 0: a count of what went wrong.
+  readonly tone?: "warning" | "down"
 }
 
 export interface ArchiveSchedule {
@@ -198,10 +209,49 @@ export interface ArchiveSchedule {
   readonly nextRun: string
 }
 
+/** How an archive's last run is framed: its own card, or a ledger row. */
+export type RunFrame = "card" | "row"
+
+// When the run started, how long it took or has run, its id, and a running
+// run's Workflow status.
+function RunMeta({
+  run: { result, workflowStatus },
+  now,
+}: {
+  run: RunView<RunBase>
+  now: string
+}) {
+  const running = result.outcome === "running"
+  const since = Date.parse(result.startedAt)
+  return (
+    <p className="text-secondary-text flex flex-wrap gap-x-2 text-[13px]">
+      <span>Started {Effect.runSync(dateTime(result.startedAt))}</span>
+      {result.finishedAt !== null && (
+        <span>
+          · took{" "}
+          {Effect.runSync(duration(Date.parse(result.finishedAt) - since))}
+        </span>
+      )}
+      {running && (
+        <span>
+          · running for {Effect.runSync(duration(Date.parse(now) - since))}
+        </span>
+      )}
+      <span>
+        · <span className="font-data text-xs">{result.id}</span>
+      </span>
+      {running && workflowStatus !== null && (
+        <span>· Workflow {workflowStatus}</span>
+      )}
+    </p>
+  )
+}
+
 /**
  * An archive's last run, or the empty state before any, with its actions.
  * `stats` and `details` describe the last run: `details` shows below the
- * counts, after the error of a run that failed.
+ * counts, after the error of a run that failed. `frame` sets whether it is
+ * its own card or a row of an ArchiveLedger.
  */
 export function ArchiveLastRunCard({
   title,
@@ -212,6 +262,7 @@ export function ArchiveLastRunCard({
   details,
   actions,
   schedule,
+  frame = "card",
 }: {
   title: ReactNode
   emptyMessage: string
@@ -222,7 +273,55 @@ export function ArchiveLastRunCard({
   details: ReactNode
   actions: ReactNode
   schedule: ArchiveSchedule
+  frame?: RunFrame
 }) {
+  const result = lastRun?.result
+  const heading =
+    result === undefined ? (
+      title
+    ) : (
+      <>
+        {title}
+        <RunStatus outcome={result.outcome} />
+      </>
+    )
+  const empty = (
+    <p className="text-secondary-text text-[13px]">{emptyMessage}</p>
+  )
+  const statList = (className: string) => (
+    <dl className={className}>
+      {stats.map((stat) => (
+        <Stat key={stat.label} {...stat} />
+      ))}
+    </dl>
+  )
+  const notes =
+    result === undefined ? null : (
+      <>
+        {result.outcome === "failed" && <Failed error={result.error} />}
+        {details}
+      </>
+    )
+  if (frame === "row")
+    return (
+      <ArchiveRow
+        title={heading}
+        meta={
+          <>
+            {lastRun === undefined ? (
+              empty
+            ) : (
+              <RunMeta run={lastRun} now={now} />
+            )}
+            <Schedule {...schedule} />
+          </>
+        }
+        stats={lastRun === undefined ? null : statList(archiveRowStats)}
+        aside={actions}
+      >
+        {notes !== null && <div className={archiveRowNotes}>{notes}</div>}
+      </ArchiveRow>
+    )
   if (lastRun === undefined)
     return (
       <ArchiveCard title={title} aside={actions}>
@@ -232,55 +331,16 @@ export function ArchiveLastRunCard({
         <Schedule {...schedule} />
       </ArchiveCard>
     )
-  const { result, workflowStatus } = lastRun
-  const outcome = OUTCOME[result.outcome]
-  const running = result.outcome === "running"
-  const since = Date.parse(result.startedAt)
   return (
-    <ArchiveCard
-      title={
-        <>
-          {title}
-          <KBadge tone={outcome.tone}>{outcome.label}</KBadge>
-        </>
-      }
-      aside={actions}
-    >
-      <p className="text-secondary-text flex flex-wrap gap-x-2 gap-y-1 text-[13px] leading-5">
-        <span>Started {Effect.runSync(dateTime(result.startedAt))}</span>
-        {result.finishedAt !== null && (
-          <span>
-            · took{" "}
-            {Effect.runSync(duration(Date.parse(result.finishedAt) - since))}
-          </span>
-        )}
-        {running && (
-          <span className="inline-flex items-center gap-1.5">
-            ·
-            <span
-              aria-hidden
-              className="bg-info size-2 rounded-full motion-safe:animate-pulse"
-            />
-            running for {Effect.runSync(duration(Date.parse(now) - since))}
-          </span>
-        )}
-        <span>
-          · <span className="font-data text-xs">{result.id}</span>
-        </span>
-        {running && workflowStatus !== null && (
-          <span>· Workflow {workflowStatus}</span>
-        )}
-      </p>
+    <ArchiveCard title={heading} aside={actions}>
+      <RunMeta run={lastRun} now={now} />
       {/* Ruled above and below, one column per count from sm, divided by
           hairlines; two columns on a phone. Not a box, so a count is never
           three boxes deep. */}
-      <dl className="grid grid-cols-2 gap-x-4 gap-y-4 border-y border-border py-4 sm:auto-cols-fr sm:grid-flow-col sm:grid-cols-none sm:gap-x-0 sm:divide-x sm:divide-border">
-        {stats.map((stat) => (
-          <Stat key={stat.label} {...stat} />
-        ))}
-      </dl>
-      {result.outcome === "failed" && <Failed error={result.error} />}
-      {details}
+      {statList(
+        "grid grid-cols-2 gap-4 border-y border-border py-4 sm:auto-cols-fr sm:grid-flow-col sm:grid-cols-none sm:gap-x-0 sm:divide-x sm:divide-border sm:[&>div]:px-4 sm:[&>div:first-child]:pl-0"
+      )}
+      {notes}
       <Schedule {...schedule} />
     </ArchiveCard>
   )

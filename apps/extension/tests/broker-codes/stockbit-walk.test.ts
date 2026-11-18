@@ -107,6 +107,8 @@ const fakeStockbit = (
     readonly noBrokers?: ReadonlySet<number>
     // Rows Stockbit sends with codes but zero lots.
     readonly badLots?: ReadonlySet<number>
+    // Trade numbers the tape skips: Stockbit never sends them.
+    readonly absent?: ReadonlySet<number>
     // The token in the tab's cookie at a time.
     readonly cookie?: (now: number) => string
     // Whether the tape refuses this bearer on this call (1-based).
@@ -117,7 +119,9 @@ const fakeStockbit = (
     ) => Effect.Effect<Answer | undefined> | undefined
   } = {}
 ) => {
-  const order = tapeOrder(options.n ?? N)
+  const order = tapeOrder(options.n ?? N).filter(
+    (number) => !(options.absent?.has(number) ?? false)
+  )
   const urls: Array<string> = []
   const times: Array<number> = []
   const row = (number: number) => ({
@@ -1034,6 +1038,31 @@ describe("Stockbit's gap walk of an older day", () => {
         )
         // Trade 1,500 was seen: the walk didn't run on to the day's end.
         assert.lengthOf(cursors(tape), 1 + 12)
+      })
+  )
+
+  it.effect(
+    "stops a range a page past it when Stockbit lacks a trade in it",
+    () =>
+      Effect.gen(function* () {
+        yield* TestClock.setTime(wib("2026-11-13", "17:30:00"))
+        const production = fakeProduction()
+        yield* ajaibServedInPart(production)
+        const tape = fakeStockbit({ absent: new Set([1_500]) })
+        const walk = yield* walkWith(tape, production)
+        assert.deepStrictEqual(yield* walk.gaps(DAY), {
+          _tag: "unserved",
+          reason: "incomplete",
+        })
+        assert.deepStrictEqual(
+          (yield* production.status(DAY)).missing.map((range) =>
+            range.map(Number)
+          ),
+          [[1_500, 1_500]]
+        )
+        // 1 page for 500, 12 for 1,001..2,000, and the one page past 2,000
+        // that shows the range is done: not on to the day's end.
+        assert.lengthOf(cursors(tape), 1 + 12 + 1)
       })
   )
 

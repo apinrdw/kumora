@@ -9,7 +9,7 @@ import { DateTime, Effect } from "effect"
 
 import { writeBuiltDay } from "@/server/broker-totals/db"
 import { reconcileBrokerTotals } from "@/server/broker-totals/reconcile"
-import { BROKER_TOTALS_VERSION } from "@/server/market-live/broker-totals"
+import { BROKER_TOTALS_VERSION } from "@/server/broker-totals/version"
 
 import { memoryBrokerTotalsDb } from "./memory-broker-totals-db.ts"
 
@@ -17,6 +17,9 @@ const oct = (day: number) =>
   WibDate.make(`2026-10-${String(day).padStart(2, "0")}`)
 const BUILT_AT = DateTime.makeUnsafe("2026-10-31T11:00:00Z")
 const NO_ROWS = { totals: [], candles: [], missingTrades: 0 }
+
+// The last build version whose totals had no trades bought and sold.
+const BEFORE_FREQ = 1
 
 // October 1..30, newest first, as the day strip lists them.
 const LISTED = Array.from({ length: 30 }, (_, at) => oct(30 - at))
@@ -82,6 +85,16 @@ describe("the broker totals reconcile", () => {
         assert.deepStrictEqual(yield* run, [8, 7, 6, 5, 4, 3, 2, 1].map(oct))
         assert.deepStrictEqual(yield* run, [])
       })
+  )
+
+  it.effect("pokes a day built before the trades bought and sold", () =>
+    Effect.gen(function* () {
+      const db = memoryBrokerTotalsDb()
+      yield* built(db, [30], BEFORE_FREQ)
+      assert.deepStrictEqual(yield* reconciler(db, { listed: [oct(30)] }), [
+        oct(30),
+      ])
+    })
   )
 
   it.effect("pokes the rest when one poke fails", () =>

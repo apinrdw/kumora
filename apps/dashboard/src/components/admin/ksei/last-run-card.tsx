@@ -239,7 +239,7 @@ export function KseiLastRunCard({
               {
                 value: result.md5Mismatches.length,
                 label: "MD5 mismatches",
-                problem: true,
+                tone: "warning",
               },
             ]
       }

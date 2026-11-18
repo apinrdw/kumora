@@ -18,7 +18,7 @@ import { expectTypeOf } from "vitest"
 import { readBrokerTotals } from "@/server/broker-totals/db"
 import type { BrokerCodesStore } from "@/server/market-live/broker-codes"
 import type { Sql } from "@/server/market-live/day-store"
-import { BROKER_TOTALS_VERSION } from "@/server/market-live/broker-totals"
+import { BROKER_TOTALS_VERSION } from "@/server/broker-totals/version"
 
 import { memoryBrokerTotalsDb } from "../broker-totals/memory-broker-totals-db"
 import { stockbitTrade, tradingDay, withLines } from "./day-harness"
@@ -103,7 +103,8 @@ const untrTotal = (
     number,
     number,
     number,
-  ]
+  ],
+  [buyFreq, sellFreq]: readonly [number, number]
 ) => ({
   day: DAY,
   broker: BrokerCode.make(broker),
@@ -112,6 +113,8 @@ const untrTotal = (
   buyValue,
   sellLots,
   sellValue,
+  buyFreq,
+  sellFreq,
 })
 
 // UNTR's regular board and auction match: trades 1, 2, 6 and the walked 7.
@@ -137,10 +140,10 @@ const UNTR_BUILT = {
     },
   ],
   totals: [
-    untrTotal("AK", "D", [3, 6_990_000, 0, 0]),
-    untrTotal("AK", "F", [14, 32_240_000, 2, 4_680_000]),
-    untrTotal("CC", "D", [0, 0, 10, 23_000_000]),
-    untrTotal("YP", "D", [2, 4_680_000, 7, 16_230_000]),
+    untrTotal("AK", "D", [3, 6_990_000, 0, 0], [1, 0]),
+    untrTotal("AK", "F", [14, 32_240_000, 2, 4_680_000], [2, 1]),
+    untrTotal("CC", "D", [0, 0, 10, 23_000_000], [0, 1]),
+    untrTotal("YP", "D", [2, 4_680_000, 7, 16_230_000], [1, 2]),
   ],
 }
 
@@ -205,6 +208,8 @@ describe("a complete sealed day's broker totals", () => {
               buyValue: 0,
               sellLots: 7,
               sellValue: 5_600_000,
+              buyFreq: 0,
+              sellFreq: 1,
             },
             {
               day: DAY,
@@ -214,6 +219,8 @@ describe("a complete sealed day's broker totals", () => {
               buyValue: 5_600_000,
               sellLots: 0,
               sellValue: 0,
+              buyFreq: 1,
+              sellFreq: 0,
             },
           ],
         })
@@ -273,9 +280,9 @@ describe("a complete sealed day's broker totals", () => {
           },
         ],
         totals: [
-          untrTotal("AK", "F", [4, 9_240_000, 4, 9_240_000]),
-          untrTotal("CC", "D", [0, 0, 4, 9_240_000]),
-          untrTotal("YP", "D", [4, 9_240_000, 0, 0]),
+          untrTotal("AK", "F", [4, 9_240_000, 4, 9_240_000], [1, 1]),
+          untrTotal("CC", "D", [0, 0, 4, 9_240_000], [0, 1]),
+          untrTotal("YP", "D", [4, 9_240_000, 0, 0], [1, 0]),
         ],
       })
     })
@@ -342,10 +349,36 @@ describe("a complete sealed day's broker totals", () => {
             },
           ],
           totals: [
-            untrTotal("AK", "F", [4, 9_240_000, 0, 0]),
-            untrTotal("CC", "D", [0, 0, 4, 9_240_000]),
+            untrTotal("AK", "F", [4, 9_240_000, 0, 0], [1, 0]),
+            untrTotal("CC", "D", [0, 0, 4, 9_240_000], [0, 1]),
           ],
         })
+      })
+  )
+
+  it.effect(
+    "count a self-cross once on each side, NG and TN trades in neither",
+    () =>
+      Effect.gen(function* () {
+        const db = memoryBrokerTotalsDb()
+        yield* at("17:30:00")
+        const day = yield* tradingDay(memorySql(), [], db.layer)
+        yield* day.brokerCodes(
+          "Stockbit",
+          [
+            [1, "AK F CC D", WALKED],
+            [2, "AK D AK D", WALKED],
+            [3, "AK F CC D", { ...WALKED, board: "NG" }],
+            [4, "CC D AK F", { ...WALKED, board: "TN" }],
+          ],
+          4
+        )
+        yield* day.alarm
+        assert.deepStrictEqual((yield* read(db, UNTR)).totals, [
+          untrTotal("AK", "D", [4, 9_240_000, 4, 9_240_000], [1, 1]),
+          untrTotal("AK", "F", [4, 9_240_000, 0, 0], [1, 0]),
+          untrTotal("CC", "D", [0, 0, 4, 9_240_000], [0, 1]),
+        ])
       })
   )
 
@@ -384,10 +417,10 @@ describe("a complete sealed day's broker totals", () => {
 
 // UNTR as rebuilt once trade 2's buyer is corrected from AK to KZ.
 const UNTR_CORRECTED = [
-  untrTotal("AK", "F", [14, 32_240_000, 2, 4_680_000]),
-  untrTotal("CC", "D", [0, 0, 10, 23_000_000]),
-  untrTotal("KZ", "D", [3, 6_990_000, 0, 0]),
-  untrTotal("YP", "D", [2, 4_680_000, 7, 16_230_000]),
+  untrTotal("AK", "F", [14, 32_240_000, 2, 4_680_000], [2, 1]),
+  untrTotal("CC", "D", [0, 0, 10, 23_000_000], [0, 1]),
+  untrTotal("KZ", "D", [3, 6_990_000, 0, 0], [1, 0]),
+  untrTotal("YP", "D", [2, 4_680_000, 7, 16_230_000], [1, 2]),
 ]
 
 // A sealed day built at 17:30.
@@ -539,10 +572,10 @@ describe("a built day's correction", () => {
           },
         ])
         assert.deepStrictEqual(rebuilt.totals, [
-          untrTotal("AK", "D", [3, 6_990_000, 0, 0]),
-          untrTotal("AK", "F", [15, 34_540_000, 2, 4_680_000]),
-          untrTotal("CC", "D", [0, 0, 11, 25_300_000]),
-          untrTotal("YP", "D", [2, 4_680_000, 7, 16_230_000]),
+          untrTotal("AK", "D", [3, 6_990_000, 0, 0], [1, 0]),
+          untrTotal("AK", "F", [15, 34_540_000, 2, 4_680_000], [3, 1]),
+          untrTotal("CC", "D", [0, 0, 11, 25_300_000], [0, 2]),
+          untrTotal("YP", "D", [2, 4_680_000, 7, 16_230_000], [1, 2]),
         ])
       })
   )
@@ -632,58 +665,44 @@ describe("a due day", () => {
 })
 
 describe("a reconcile poke", () => {
-  it.effect("builds a sealed, complete day never marked for a build", () =>
-    Effect.gen(function* () {
-      const db = memoryBrokerTotalsDb()
-      const sql = memorySql()
-      yield* at("09:01:10")
-      const unbuilt = yield* tradingDay(sql)
-      yield* unbuilt.trades(TAPE)
-      yield* at("17:00:00")
-      yield* unbuilt.alarm
-      yield* unbuilt.brokerCodes("Ajaib", CODES, 7)
-      yield* unbuilt.evicted
+  it.effect(
+    "rebuilds a day built by an older build version, its trades bought and sold filled",
+    () =>
+      withLines("Broker totals built", (lines) =>
+        Effect.gen(function* () {
+          const db = memoryBrokerTotalsDb()
+          const sql = memorySql()
+          const built = yield* builtDay(db, sql)
+          yield* built.evicted
+          sql.exec(
+            "INSERT OR REPLACE INTO facts VALUES (?, ?)",
+            "broker-totals",
+            String(BROKER_TOTALS_VERSION - 1)
+          )
+          // As a build before the trades bought and sold left it: 0 on each side.
+          db.database.exec("UPDATE totals SET buy_freq = 0, sell_freq = 0")
 
-      yield* at("17:30:00")
-      const day = yield* tradingDay(sql, [], db.layer)
-      yield* day.alarm
-      assert.deepStrictEqual(yield* read(db, UNTR), NOTHING)
-      assert.isTrue(yield* day.reconcile)
-      yield* day.alarm
-      assert.deepStrictEqual(yield* read(db, UNTR), UNTR_BUILT)
-    })
-  )
-
-  it.effect("rebuilds a day built by an older build version", () =>
-    withLines("Broker totals built", (lines) =>
-      Effect.gen(function* () {
-        const db = memoryBrokerTotalsDb()
-        const sql = memorySql()
-        const built = yield* builtDay(db, sql)
-        yield* built.evicted
-        sql.exec(
-          "INSERT OR REPLACE INTO facts VALUES (?, ?)",
-          "broker-totals",
-          String(BROKER_TOTALS_VERSION - 1)
-        )
-
-        yield* at("18:00:00")
-        const day = yield* tradingDay(sql, [], db.layer)
-        yield* day.alarm
-        assert.lengthOf(lines, 1)
-        assert.isTrue(yield* day.reconcile)
-        yield* day.alarm
-        assert.lengthOf(lines, 2)
-        assert.deepStrictEqual((yield* read(db, UNTR)).builtDays, [
-          {
-            day: DAY,
-            buildVersion: BROKER_TOTALS_VERSION,
-            builtAt: "2026-11-09T11:00:00.000Z",
-            missingTrades: 0,
-          },
-        ])
-      })
-    )
+          yield* at("18:00:00")
+          const day = yield* tradingDay(sql, [], db.layer)
+          yield* day.alarm
+          assert.lengthOf(lines, 1)
+          assert.isTrue(yield* day.reconcile)
+          yield* day.alarm
+          assert.lengthOf(lines, 2)
+          assert.deepStrictEqual((yield* read(db, UNTR)).builtDays, [
+            {
+              day: DAY,
+              buildVersion: BROKER_TOTALS_VERSION,
+              builtAt: "2026-11-09T11:00:00.000Z",
+              missingTrades: 0,
+            },
+          ])
+          assert.deepStrictEqual(
+            (yield* read(db, UNTR)).totals,
+            UNTR_BUILT.totals
+          )
+        })
+      )
   )
 
   it.effect(
@@ -1073,27 +1092,49 @@ describe("a sealed day missing at most 0.1% of its trades", () => {
     })
   )
 
-  it.effect("builds on a reconcile poke, never marked for a build", () =>
+  // Production's 2026-11-17: sealed while its gate was still complete-only,
+  // so never marked for a build, then buildable at the next start.
+  const sealedUnbuilt = Effect.fnUntraced(function* (
+    sql: ReturnType<typeof memorySql>,
+    unfilled: ReadonlyArray<number>
+  ) {
+    yield* at("09:01:10")
+    const unbuilt = yield* tradingDay(sql)
+    yield* unbuilt.trades(TAPE)
+    yield* at("17:00:00")
+    yield* unbuilt.alarm
+    yield* unbuilt.brokerCodes("Ajaib", [...CODES, ...walkRows(8, unfilled)], N)
+    yield* unbuilt.evicted
+  })
+
+  it.effect(
+    "builds on the alarm once restarted, never marked for a build",
+    () =>
+      Effect.gen(function* () {
+        const db = memoryBrokerTotalsDb()
+        const sql = memorySql()
+        yield* sealedUnbuilt(sql, [500])
+
+        yield* at("17:30:00")
+        const day = yield* tradingDay(sql, [], db.layer)
+        assert.deepStrictEqual(day.alarms, [wib("17:30:00")])
+        yield* day.alarm
+        assert.deepStrictEqual(yield* builds(db), [
+          ["2026-11-09T10:30:00.000Z", 1],
+        ])
+      })
+  )
+
+  it.effect("arms nothing once restarted while not buildable", () =>
     Effect.gen(function* () {
       const db = memoryBrokerTotalsDb()
       const sql = memorySql()
-      yield* at("09:01:10")
-      const unbuilt = yield* tradingDay(sql)
-      yield* unbuilt.trades(TAPE)
-      yield* at("17:00:00")
-      yield* unbuilt.alarm
-      yield* unbuilt.brokerCodes("Ajaib", [...CODES, ...walkRows(8, [500])], N)
-      yield* unbuilt.evicted
+      yield* sealedUnbuilt(sql, [500, 600])
 
       yield* at("17:30:00")
       const day = yield* tradingDay(sql, [], db.layer)
-      yield* day.alarm
+      assert.deepStrictEqual(day.alarms, [])
       assert.deepStrictEqual(yield* builds(db), [])
-      assert.isTrue(yield* day.reconcile)
-      yield* day.alarm
-      assert.deepStrictEqual(yield* builds(db), [
-        ["2026-11-09T10:30:00.000Z", 1],
-      ])
     })
   )
 })

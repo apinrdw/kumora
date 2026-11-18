@@ -117,6 +117,8 @@ export interface SummaryRow {
   readonly sellValue: number
   readonly avgSell: number | undefined
   readonly net: number
+  // The trades on the side it leans (`leanFreq`).
+  readonly freq: number
 }
 
 // What the Broker summary's footer counts: its brokers, the lots they
@@ -184,20 +186,40 @@ export interface SelectionSummary {
   readonly days: number
   readonly change: number | undefined
   readonly rows: ReadonlyArray<SpanFigures & { readonly broker: BrokerCode }>
-  readonly total: SpanFigures
+  // Freq is one broker's lean, so the Total has none.
+  readonly total: Omit<SpanFigures, "freq">
 }
 
 // Weighted by lots: value ÷ (lots × 100); undefined for no lots.
 const average = (value: number, lots: number) =>
   Effect.succeed(lots === 0 ? undefined : value / (lots * SHARES_PER_LOT))
 
+// Decision: Freq is the trades on the side a broker leans: its buy trades
+// when its net lots are 0 or more, its sell trades otherwise, whatever the
+// measure shown. Owner's rule, apinrdw/kumora#465.
+// The net is compared in whole shares, so sums that cancel read as 0.
+const leanFreq = ({
+  buyLots,
+  sellLots,
+  buyFreq,
+  sellFreq,
+}: Pick<Sides, "buyLots" | "sellLots" | "buyFreq" | "sellFreq">) =>
+  Effect.succeed(
+    Math.round((buyLots - sellLots) * SHARES_PER_LOT) >= 0 ? buyFreq : sellFreq
+  )
+
+// The sides a totals row carries as they are; `net` is the lens's.
+const ROW_SIDES = [
+  "buyLots",
+  "buyValue",
+  "sellLots",
+  "sellValue",
+  "buyFreq",
+  "sellFreq",
+] as const
+
 // One broker's sums over the range under the lens.
-interface BrokerSums {
-  buyLots: number
-  buyValue: number
-  sellLots: number
-  sellValue: number
-  net: number
+type BrokerSums = { -readonly [Side in keyof Sides]: number } & {
   // Its foreign sides' lots, buys and sells.
   foreignLots: number
 }
@@ -214,20 +236,20 @@ const sumsByBroker = Effect.fnUntraced(function* (
     if (!rows.counts[row]) continue
     const broker = totals.broker[row] ?? 0
     const sum = sums.get(broker) ?? {
+      net: 0,
       buyLots: 0,
       buyValue: 0,
       sellLots: 0,
       sellValue: 0,
-      net: 0,
+      buyFreq: 0,
+      sellFreq: 0,
       foreignLots: 0,
     }
-    const lots = (totals.buyLots[row] ?? 0) + (totals.sellLots[row] ?? 0)
-    sum.buyLots += totals.buyLots[row] ?? 0
-    sum.buyValue += totals.buyValue[row] ?? 0
-    sum.sellLots += totals.sellLots[row] ?? 0
-    sum.sellValue += totals.sellValue[row] ?? 0
+    for (const side of ROW_SIDES) sum[side] += totals[side][row] ?? 0
     sum.net += rows.net[row] ?? 0
-    sum.foreignLots += totals.investorType[row] === "F" ? lots : 0
+    if (totals.investorType[row] === "F")
+      sum.foreignLots +=
+        (totals.buyLots[row] ?? 0) + (totals.sellLots[row] ?? 0)
     sums.set(broker, sum)
   }
   return sums
@@ -268,6 +290,7 @@ export const brokerSummary = Effect.fnUntraced(function* (
       net: sum.net,
       avgBuy: yield* average(sum.buyValue, sum.buyLots),
       avgSell: yield* average(sum.sellValue, sum.sellLots),
+      freq: yield* leanFreq(sum),
     })
   return summary
 })
@@ -347,20 +370,21 @@ interface Sides {
   readonly buyValue: number
   readonly sellLots: number
   readonly sellValue: number
+  // The trades bought and sold in.
+  readonly buyFreq: number
+  readonly sellFreq: number
 }
 
 // One broker's sides summed from the start of the range through each axis
 // day: `net` is its broker inventory, the line the chart plots.
 type ToDate = { readonly [Side in keyof Sides]: ReadonlyArray<number> }
 
-// Sides summed over a span of days, with the averages they make.
+// Sides summed over a span of days, with the averages and Freq they make.
 interface SpanFigures extends Sides {
   readonly avgBuy: number | undefined
   readonly avgSell: number | undefined
+  readonly freq: number
 }
-
-// The sides a totals row carries as they are; `net` is the lens's.
-const ROW_SIDES = ["buyLots", "buyValue", "sellLots", "sellValue"] as const
 
 type Columns = { readonly [Side in keyof Sides]: Array<number> }
 
@@ -371,6 +395,8 @@ const zeroColumns = (length: number) =>
     buyValue: Array.from({ length }, () => 0),
     sellLots: Array.from({ length }, () => 0),
     sellValue: Array.from({ length }, () => 0),
+    buyFreq: Array.from({ length }, () => 0),
+    sellFreq: Array.from({ length }, () => 0),
   }))
 
 const runningSum = (column: ReadonlyArray<number>) =>
@@ -410,6 +436,8 @@ export const brokersToDate = Effect.fnUntraced(function* (
       buyValue: yield* runningSum(sums.buyValue),
       sellLots: yield* runningSum(sums.sellLots),
       sellValue: yield* runningSum(sums.sellValue),
+      buyFreq: yield* runningSum(sums.buyFreq),
+      sellFreq: yield* runningSum(sums.sellFreq),
     })
   }
   return toDate
@@ -427,14 +455,20 @@ const spanFigures = Effect.fnUntraced(function* (
   const buyValue = over("buyValue")
   const sellLots = over("sellLots")
   const sellValue = over("sellValue")
-  return {
+  const sides = {
     net: over("net"),
     buyLots,
     buyValue,
     sellLots,
     sellValue,
+    buyFreq: over("buyFreq"),
+    sellFreq: over("sellFreq"),
+  }
+  return {
+    ...sides,
     avgBuy: yield* average(buyValue, buyLots),
     avgSell: yield* average(sellValue, sellLots),
+    freq: yield* leanFreq(sides),
   } satisfies SpanFigures
 })
 
@@ -504,6 +538,8 @@ export const selectionSummary = Effect.fnUntraced(function* (
     buyValue: 0,
     sellLots: 0,
     sellValue: 0,
+    buyFreq: 0,
+    sellFreq: 0,
   }
   for (const row of rows)
     total = {
@@ -512,6 +548,8 @@ export const selectionSummary = Effect.fnUntraced(function* (
       buyValue: total.buyValue + row.buyValue,
       sellLots: total.sellLots + row.sellLots,
       sellValue: total.sellValue + row.sellValue,
+      buyFreq: total.buyFreq + row.buyFreq,
+      sellFreq: total.sellFreq + row.sellFreq,
     }
   return {
     from: read.days[first] as WibDate,
