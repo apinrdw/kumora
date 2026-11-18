@@ -5,6 +5,7 @@
 import { Effect, Layer } from "effect"
 
 import { BrokerTotalsDb } from "../src/server/broker-totals/db.ts"
+import { Fact, type Sql } from "../src/server/market-live/day-store.ts"
 import { durableSql } from "../src/server/market-live/durable-sql.ts"
 import { respond } from "../src/server/market-live/respond.ts"
 import { makeTradingDay } from "../src/server/market-live/trading-day.ts"
@@ -28,11 +29,26 @@ const unreachedDb = Layer.succeed(BrokerTotalsDb)(
   })
 )
 
+// The busy day made the day `operation` runs on, before the object wakes.
+const restaged = (sql: Sql, stored: Operation["stored"]) =>
+  Effect.sync(() => {
+    if (stored === "sealed before the summary") {
+      sql.exec("DELETE FROM tape_summary")
+      sql.exec("DELETE FROM facts WHERE key = ?", Fact.tapeSummary)
+    }
+    if (stored === "walking") {
+      sql.exec("DELETE FROM facts WHERE key = ?", Fact.sealed)
+      sql.exec("UPDATE facts SET value = 'walk' WHERE key = ?", Fact.tapeSource)
+    }
+  })
+
 const billed = Effect.fnUntraced(function* (
   storage: DurableObjectStorage,
   operation: Operation
 ) {
   const sql = yield* durableSql(storage)
+  yield* restaged(sql, operation.stored)
+  const woke = sql.usage!()
   const day = yield* makeTradingDay({
     date: BUSY_DAY.date,
     sql,
@@ -46,7 +62,7 @@ const billed = Effect.fnUntraced(function* (
   const answer = yield* operation.measure(day)
   const done = sql.usage!()
   return Response.json({
-    start: since({ rowsRead: 0, rowsWritten: 0 }, started),
+    start: since(woke, started),
     before: since(started, measured),
     rows: since(measured, done),
     status: answer.status,

@@ -5,6 +5,7 @@
 import { assert, layer } from "@effect/vitest"
 import { Effect } from "effect"
 
+import { BUSY_DAY } from "../../../billing/busy-figures"
 import type { OperationName } from "../../../billing/operations"
 
 import { BusyDay } from "./workerd"
@@ -67,6 +68,43 @@ layer(BusyDay.layer, { timeout: "60 seconds", excludeTestServices: true })(
       "a batch with its buildable and completed checks reads at most 10 K rows",
       () => withinBudget("resent batch", { rowsRead: 10_000 }),
       10_000
+    )
+  }
+)
+
+// Its first pass writes the summary, so it runs on a busy day of its own.
+layer(BusyDay.layer, { timeout: "60 seconds", excludeTestServices: true })(
+  "row budgets of a day sealed before the tape summary",
+  (it) => {
+    it.effect(
+      "its first status pass scans the tape once, and the next reads at most 5 K rows",
+      () =>
+        Effect.gen(function* () {
+          const { before, rows, status } = yield* (yield* BusyDay).billed(
+            "status pass after the summary's build"
+          )
+          assert.strictEqual(status, 200)
+          assert.isAtLeast(before.rowsRead, BUSY_DAY.trades)
+          assert.isAtMost(before.rowsRead, 1.1 * BUSY_DAY.trades)
+          assert.isAtMost(rows.rowsRead, 5_000)
+          assert.strictEqual(rows.rowsWritten, 0)
+        }),
+      20_000
+    )
+  }
+)
+
+// A walk batch fills the tape, so it runs on a busy day of its own.
+layer(BusyDay.layer, { timeout: "60 seconds", excludeTestServices: true })(
+  "row budgets of a walk day's batch",
+  (it) => {
+    // Decision: over the batch budget of 10 K. Of its 21.4 K rows read, sweep
+    // brokers' recompute reads 13.4 K (the minutes the batch's trades fall
+    // in, sweep-brokers.ts), the tape takes 5 K and its summary a few.
+    it.effect(
+      "a walk batch that fills 5,000 trades reads at most 25 K rows, its tape summary in place of its tape",
+      () => withinBudget("walk batch", { rowsRead: 25_000 }),
+      20_000
     )
   }
 )

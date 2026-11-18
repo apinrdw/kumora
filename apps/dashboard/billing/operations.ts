@@ -4,6 +4,7 @@
 // statements read and wrote. A new budget adds its operation here.
 import {
   BrokerCodesProtocolVersion,
+  StockCode,
   TradeNumber,
   encodeBrokerCodesBatch,
 } from "@workspace/relay"
@@ -17,6 +18,10 @@ import { BUSY_DAY, busyCodes } from "./busy-figures.ts"
 type TradingDay = Effect.Success<ReturnType<typeof makeTradingDay>>
 
 export interface Operation {
+  // What the worker makes of the busy day before the object wakes: a day
+  // sealed before the tape summary, with none, or a walk day before its
+  // seal. The busy day as built otherwise.
+  readonly stored?: "sealed before the summary" | "walking"
   // Whether the object has a broker totals DB, which a batch's buildable
   // check runs for. The operation never reaches it: a build runs on the alarm.
   readonly brokerTotals?: boolean
@@ -61,6 +66,39 @@ const batchPost = (day: TradingDay) =>
     return yield* day.brokerCodes.post(text)
   })
 
+// Decision: a walk day's full Ajaib page, 5,000 trades the tape lacks
+// with their fields, past its last: it fills the tape, so it costs its tape
+// and summary writes, its chunks, and its checks, `walkSealDue`'s status
+// pass and `completed`.
+const WALKED = { first: BUSY_DAY.trades + 1, rows: 5_000 }
+
+// A walk day's next Ajaib batch, posted as the extension posts it.
+const walkPost = (day: TradingDay) =>
+  Effect.gen(function* () {
+    const time = DateTime.makeUnsafe("2026-11-09T16:14:00+07:00")
+    const text = yield* encodeBrokerCodesBatch({
+      version: BrokerCodesProtocolVersion,
+      feed: "Ajaib",
+      day: BUSY_DAY.date,
+      rows: Array.from({ length: WALKED.rows }, (_, at) => {
+        const number = WALKED.first + at
+        return [
+          TradeNumber.make(String(number)),
+          busyCodes(number),
+          {
+            time,
+            code: StockCode.make(`C${number % BUSY_DAY.codes}`),
+            price: 1_000,
+            lots: 1,
+            board: "RG",
+            side: "buy",
+          },
+        ] as const
+      }),
+    })
+    return yield* day.brokerCodes.post(text)
+  })
+
 export const operations = {
   "status pass": { measure: statusPass },
   // An object that answered a status since it woke, so it knows whether its
@@ -69,6 +107,13 @@ export const operations = {
   "recorded codes GET, freshly started": { measure: codesGet },
   // Writes its chunks: its budget gets a busy day of its own.
   "resent batch": { brokerTotals: true, measure: batchPost },
+  // Its first status pass builds the summary; the second is measured.
+  "status pass after the summary's build": {
+    stored: "sealed before the summary",
+    before: statusPass,
+    measure: statusPass,
+  },
+  "walk batch": { stored: "walking", measure: walkPost },
 } satisfies Record<string, Operation>
 
 export type OperationName = keyof typeof operations
