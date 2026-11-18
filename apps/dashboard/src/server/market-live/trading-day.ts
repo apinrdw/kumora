@@ -1335,6 +1335,17 @@ export const makeTradingDay = Effect.fnUntraced(function* (options: {
       )
   )
 
+  // Codes a viewer watches join the recorded books, each recorded from now
+  // to the close. A sealed day's recorded books are fixed: a code viewed
+  // after the seal gets its live book but stays not recorded.
+  const recordWatched = Effect.fnUntraced(function* (
+    watching: ReadonlyArray<StockCode>
+  ) {
+    if (sealed) return
+    for (const code of watching)
+      if (yield* recordedBooks.join(code)) yield* bookChunks.begin(code)
+  })
+
   // The page's Select, on open and on every change, in a message no longer
   // than VIEWER_MESSAGE_LIMIT: answered with a snapshot, after which the
   // socket gets deltas. A longer message is closed with 1011 unread. A Select
@@ -1355,8 +1366,7 @@ export const makeTradingDay = Effect.fnUntraced(function* (options: {
       const orderBook = yield* books.bookOf(selected, live)
       // The selected code first: on-demand.ts reads it back as the selection.
       const watching = [...new Set([selected, ...watchlist])]
-      for (const code of watching)
-        if (yield* recordedBooks.join(code)) yield* bookChunks.begin(code)
+      yield* recordWatched(watching)
       const states: Array<DayState> = []
       const indicative: Array<IndicativePrice> = []
       for (const code of watching) {
