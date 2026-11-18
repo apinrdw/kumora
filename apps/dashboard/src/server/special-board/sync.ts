@@ -21,7 +21,7 @@ export const SPECIAL_NOTATION_URL =
 // 2026-11-18, so fewer means a broken answer, and more would put a third of
 // the market on the board. Either way yesterday's table stays.
 const MIN_BOARD_CODES = 20
-const MAX_BOARD_CODES = 200
+export const MAX_BOARD_CODES = 200
 
 // 109 rows took 44 kB on 2026-11-18, so 1 MB holds every listed code twice.
 const MAX_NOTATION_BYTES = 1_000_000

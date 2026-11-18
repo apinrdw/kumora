@@ -187,4 +187,6 @@ export {
   decodeSectorMap,
 } from "./sectors.ts"
 export type { SectorMap } from "./sectors.ts"
+export { SpecialBoardPath, decodeSpecialBoard } from "./special-board.ts"
+export type { SpecialBoard } from "./special-board.ts"
 export { priceLimitsOf, tickAt, ticksBetween } from "./ticks.ts"
