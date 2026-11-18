@@ -35,11 +35,6 @@ const bookAge = ({ readings, now }: RankedRow) =>
 const heavySide = (readings: BookReadings) =>
   Effect.succeed((readings.imbalance ?? 0) >= 0 ? readings.bid : readings.offer)
 
-const sumOf = (a: number | undefined, b: number | undefined) =>
-  Effect.succeed(
-    a === undefined && b === undefined ? undefined : (a ?? 0) + (b ?? 0)
-  )
-
 const rupiah = (value: number) => Effect.map(compact(value), (n) => `Rp${n}`)
 
 const perOrder = (value: number | undefined) =>
@@ -51,8 +46,8 @@ const ageText = (ms: number) =>
     ms < 60_000 ? `${Math.floor(ms / 1000)}s` : `${Math.floor(ms / 60_000)}m`
   )
 
-// Rank by's choices, in the menu's order. Imbalance reads the heavy side,
-// and its row shows that side's near depth. Last event ranks by
+// Rank by's choices, in the menu's order. Imbalance and Lots per order read
+// the heavy side, and its row shows that side's figure. Last event ranks by
 // its time, so High → low puts the newest first.
 const RANKINGS = {
   imbalance: {
@@ -97,9 +92,11 @@ const RANKINGS = {
   },
   lotsPerOrder: {
     label: "Lots per order",
-    value: ({ readings }) => sumOf(readings.bid.lotsPerOrder, readings.offer.lotsPerOrder),
+    value: ({ readings }) =>
+      Effect.map(heavySide(readings), (side) => side.lotsPerOrder),
     figure: Effect.fnUntraced(function* ({ readings }) {
-      return `${yield* perOrder(readings.bid.lotsPerOrder)} / ${yield* perOrder(readings.offer.lotsPerOrder)} lots/ord`
+      const side = yield* heavySide(readings)
+      return `${yield* perOrder(side.lotsPerOrder)} lots/ord`
     }),
   },
   lastEvent: {

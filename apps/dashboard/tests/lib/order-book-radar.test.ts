@@ -320,6 +320,43 @@ describe("the halves", () => {
     })
   )
 
+  it.effect("Lots per order ranks by the heavy side's, in either half", () =>
+    Effect.gen(function* () {
+      const readings = [
+        // Bid-heavy: its bids' 40 count, not its offers' 1.
+        reading("AAAA", 0.2, {
+          bid: side(100e6, { lotsPerOrder: 40 }),
+          offer: side(100e6, { lotsPerOrder: 1 }),
+        }),
+        reading("BBBB", 0.4, {
+          bid: side(100e6, { lotsPerOrder: 20 }),
+          offer: side(100e6, { lotsPerOrder: 90 }),
+        }),
+        // Offer-heavy: its offers' figures.
+        reading("CCCC", -0.2, {
+          bid: side(100e6, { lotsPerOrder: 99 }),
+          offer: side(100e6, { lotsPerOrder: 5 }),
+        }),
+        reading("DDDD", -0.4, {
+          bid: side(100e6, { lotsPerOrder: 1 }),
+          offer: side(100e6, { lotsPerOrder: 15 }),
+        }),
+      ]
+      const result = yield* run(readings, { rankBy: "lotsPerOrder" })
+      assert.deepStrictEqual(
+        [result.bid, result.offer],
+        [
+          ["AAAA", "BBBB"],
+          ["DDDD", "CCCC"],
+        ]
+      )
+      assert.strictEqual(
+        yield* rankedFigure(readings[3]!, "lotsPerOrder", NOW),
+        "15 lots/ord"
+      )
+    })
+  )
+
   it.effect(
     "Last event ranks the newest first, a code with none last, and Events in 5 minutes the busiest",
     () =>
@@ -408,9 +445,10 @@ describe("the ranked figure", () => {
           yield* rankedFigure(readings, "spread", NOW),
           "2t · 0.67%"
         )
+        // The offer is the heavy side.
         assert.strictEqual(
           yield* rankedFigure(readings, "lotsPerOrder", NOW),
-          "12 / 30 lots/ord"
+          "30 lots/ord"
         )
         assert.strictEqual(yield* rankedFigure(readings, "bookAge", NOW), "1s")
       })
