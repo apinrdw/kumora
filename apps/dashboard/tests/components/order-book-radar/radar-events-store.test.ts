@@ -71,10 +71,45 @@ describe("the scanner's book events", () => {
           [BBCA, NOW - 9_000],
         ])
         assert.strictEqual(told, 2)
-        // A reconnect's snapshot starts the list again.
-        store.apply(snapshot([eaten(TLKM, NOW - 2_000)]))
-        assert.deepStrictEqual(times(store.events()), [[TLKM, NOW - 2_000]])
       })
+  )
+
+  it.effect(
+    "a later snapshot of the day, as unfolding a row sends, keeps the events already seen",
+    () =>
+      Effect.gen(function* () {
+        const store = yield* makeRadarEventsStore
+        store.apply(
+          snapshot([eaten(BBCA, NOW - 9_000), eaten(TLKM, NOW - 4_000)])
+        )
+        store.apply(delta([eaten(BBCA, NOW - 1_000)], NOW))
+        // The market's newest only, one of them already held.
+        store.apply(
+          snapshot([eaten(BBCA, NOW - 1_000), eaten(TLKM, NOW - 500)], NOW)
+        )
+        assert.deepStrictEqual(
+          times(store.events()),
+          [
+            [TLKM, NOW - 500],
+            [BBCA, NOW - 1_000],
+            [TLKM, NOW - 4_000],
+            [BBCA, NOW - 9_000],
+          ],
+          "the selection snapshot added its events without dropping or doubling any"
+        )
+        assert.strictEqual(store.byCode(NOW).get(BBCA)?.inFiveMinutes, 2)
+      })
+  )
+
+  it.effect("a snapshot of the next day starts the list again", () =>
+    Effect.gen(function* () {
+      const store = yield* makeRadarEventsStore
+      store.apply(snapshot([eaten(BBCA, NOW - 9_000)]))
+      const tomorrow = NOW + 86_400_000
+      store.apply(snapshot([eaten(TLKM, tomorrow - 2_000)], tomorrow))
+      assert.deepStrictEqual(times(store.events()), [[TLKM, tomorrow - 2_000]])
+      assert.isUndefined(store.byCode(tomorrow).get(BBCA))
+    })
   )
 
   it.effect(
