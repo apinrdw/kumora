@@ -12,7 +12,7 @@ const PAGE = "/market-live"
 
 test.use({ storageState: MEMBER.storageState })
 
-test("a sweep that reaches its code's top-1% cutoff marks its rows on the live tape, though another code is selected", async ({
+test("a sweep that reaches its code's top-1% cutoff marks its rows on the live tape, though another code is selected, and again after a reload", async ({
   page,
 }) => {
   const relay = await openIngest()
@@ -72,14 +72,21 @@ test("a sweep that reaches its code's top-1% cutoff marks its rows on the live t
   })
   await relay.sendAjaib([...warm, ...big, later])
 
-  for (const seq of [201, 202]) {
-    await expect(row(seq)).toHaveAttribute("data-sweep-alert", "buy")
-    const mark = row(seq).locator("td").first().locator("[data-sweep-alert]")
-    await expect(mark).toHaveText("▲")
-    await expect(mark).toHaveClass(/text-up/)
+  const marked = async () => {
+    for (const seq of [201, 202]) {
+      await expect(row(seq)).toHaveAttribute("data-sweep-alert", "buy")
+      const mark = row(seq).locator("td").first().locator("[data-sweep-alert]")
+      await expect(mark).toHaveText("▲")
+      await expect(mark).toHaveClass(/text-up/)
+    }
+    // The warm-up's last sweeps alert nothing: each had 99 earlier.
+    for (const seq of [199, 200])
+      await expect(row(seq)).not.toHaveAttribute("data-sweep-alert")
   }
-  // The warm-up's last sweeps alert nothing: each had 99 earlier.
-  for (const seq of [199, 200])
-    await expect(row(seq)).not.toHaveAttribute("data-sweep-alert")
+  await marked()
+
+  // A reload starts the tape over from a snapshot, which carries the alert.
+  await page.reload()
+  await marked()
   relay.close()
 })
