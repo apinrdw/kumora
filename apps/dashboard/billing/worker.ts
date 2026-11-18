@@ -61,7 +61,7 @@ const billed = Effect.fnUntraced(function* (
   const started = sql.usage!()
   if (operation.before !== undefined) yield* operation.before(day)
   const measured = sql.usage!()
-  const answer = yield* operation.measure(day)
+  const answer = yield* operation.measure(day, sql)
   const done = sql.usage!()
   const tables = storage.sql
     .exec("SELECT name FROM sqlite_schema WHERE type = 'table' ORDER BY name")
