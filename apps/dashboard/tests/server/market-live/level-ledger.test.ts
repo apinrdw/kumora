@@ -197,6 +197,40 @@ describe("level ledger", () => {
     })
   )
 
+  it.effect("reloaded: hit down by half and refilled at the same price", () =>
+    Effect.gen(function* () {
+      const events = yield* run(
+        everySecond(
+          35,
+          (second) =>
+            second === 34 ? ladder({ 1000: 1000 }) : ladder({ 1000: 4000 }),
+          (second) => (second === 34 ? [sell(s(34), 1000, 3000)] : [])
+        )
+      )
+      const reloaded = events.filter((event) => event.kind === "reloaded")
+      assert.deepStrictEqual(kinds(reloaded), ["reloaded bid 1000"])
+      assert.deepInclude(reloaded[0], { at: DateTime.makeUnsafe(s(35)) })
+    })
+  )
+
+  it.effect("reloaded: not from trades before the window", () =>
+    Effect.gen(function* () {
+      // Frames at 0, 60 and 61 s: the drop to 1,000 lots spans the window's
+      // start at 31 s, and its only trade, at 15 s, is before it.
+      const events = yield* run([
+        { at: s(0), rows: ladder({ 1000: 4000 }) },
+        { at: s(15), trades: [sell(s(15), 1000, 3000)] },
+        { at: s(60), rows: ladder({ 1000: 1000 }) },
+        { at: s(61), rows: ladder({ 1000: 4000 }) },
+      ])
+      assert.deepStrictEqual(
+        kinds(events.filter((event) => event.kind === "reloaded")),
+        [],
+        "the trade at 15 s is outside the window of the frame at 61 s"
+      )
+    })
+  )
+
   it.effect("wall appeared: a level in view becomes a wall", () =>
     Effect.gen(function* () {
       const events = yield* run(
