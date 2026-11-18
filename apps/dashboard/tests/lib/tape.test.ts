@@ -326,7 +326,7 @@ it.effect(
         ...snapshot(trade(1), trade(2), trade(3), trade(4)),
         sweepAlerts: [alert("buy", 3, 4)],
       })
-      expect([...reconnected.alerts].sort()).toEqual([
+      expect([...reconnected.alertSides].sort()).toEqual([
         ["1", "sell"],
         ["3", "buy"],
         ["4", "buy"],

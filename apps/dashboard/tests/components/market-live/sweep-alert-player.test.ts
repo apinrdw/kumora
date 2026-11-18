@@ -48,7 +48,7 @@ const playerOf = ({
     makeSweepAlertPlayer({
       sink,
       day,
-      soundOn: Effect.succeed(soundOn),
+      toggledOn: Effect.succeed(soundOn),
       mayPlay: Effect.succeed(true),
     })
   )
@@ -141,7 +141,7 @@ const tabOf = (channel: OpenTabChannel, { focused }: { focused: boolean }) => {
     makeSweepAlertPlayer({
       sink,
       day: undefined,
-      soundOn: Effect.succeed(true),
+      toggledOn: Effect.succeed(true),
       mayPlay: tab.holds,
     })
   )

@@ -77,7 +77,7 @@ export type Tape = {
   // Every trade number the tape took in, for the "N new trades" count.
   received: number
   // The side of the sweep alert each trade the tape holds was part of.
-  readonly alerts: Map<TradeNumber, AlertSide>
+  readonly alertSides: Map<TradeNumber, AlertSide>
 }
 
 export const emptyTape = () =>
@@ -86,7 +86,7 @@ export const emptyTape = () =>
     folds: [],
     evictedThrough: undefined,
     received: 0,
-    alerts: new Map(),
+    alertSides: new Map(),
   }))
 
 // A copy later deltas leave alone.
@@ -100,7 +100,7 @@ export const freezeTape = (tape: Tape) =>
     })),
     evictedThrough: tape.evictedThrough,
     received: tape.received,
-    alerts: new Map(tape.alerts),
+    alertSides: new Map(tape.alertSides),
   }))
 
 // Inserts `trade` in an ascending list, or replaces the trade it numbers,
@@ -238,8 +238,8 @@ const evict = Effect.fnUntraced(function* (tape: Tape) {
     TradeNumberOrder(a.trades.at(-1)!.tradeNumber, b.trades.at(-1)!.tradeNumber)
   )
   // An alert's mark leaves with its row.
-  for (const number of tape.alerts.keys())
-    if (!(yield* heldBy(tape, number))) tape.alerts.delete(number)
+  for (const number of tape.alertSides.keys())
+    if (!(yield* heldBy(tape, number))) tape.alertSides.delete(number)
 })
 
 // Marks each trade of each alert with its side.
@@ -247,7 +247,7 @@ const markAlerts = (tape: Tape, alerts: ReadonlyArray<SweepAlert> = []) =>
   Effect.sync(() => {
     for (const alert of alerts)
       for (const number of alert.tradeNumbers)
-        tape.alerts.set(number, alert.side)
+        tape.alertSides.set(number, alert.side)
   })
 
 // The tape after one viewer message. A snapshot starts it over, its received
@@ -271,7 +271,8 @@ export const applyViewerMessage = Effect.fnUntraced(function* (
   next.received = tape.received
   for (const trade of message.tape)
     yield* insert(next, trade, yield* seenBy(tape, trade.tradeNumber))
-  for (const [number, side] of tape.alerts) next.alerts.set(number, side)
+  for (const [number, side] of tape.alertSides)
+    next.alertSides.set(number, side)
   yield* markAlerts(next, message.sweepAlerts)
   yield* evict(next)
   return next

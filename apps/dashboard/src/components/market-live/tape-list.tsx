@@ -215,19 +215,19 @@ function BrokerCells({ codes }: { codes: TradeCodes | undefined }) {
 function TimeCell({
   trade,
   inFold,
-  alert,
+  alertSide,
 }: {
   trade: RunningTrade
   inFold: boolean
-  alert: AlertSide | undefined
+  alertSide: AlertSide | undefined
 }) {
-  const mark = alert && ALERT_MARK[alert]
+  const mark = alertSide && ALERT_MARK[alertSide]
   return (
     <td className={cn(CELL, "relative pl-2", inFold && "pl-4")}>
       {mark && (
         <>
           <span
-            data-sweep-alert={alert}
+            data-sweep-alert={alertSide}
             aria-hidden
             className={cn(
               mark.text,
@@ -237,7 +237,7 @@ function TimeCell({
           >
             {mark.glyph}
           </span>
-          <span className="sr-only">{alert} sweep alert, </span>
+          <span className="sr-only">{alertSide} sweep alert, </span>
         </>
       )}
       {Effect.runSync(tapeTime(DateTime.toEpochMillis(trade.time)))}
@@ -250,7 +250,7 @@ const TradeRow = memo(function TradeRow({
   codes,
   selected,
   inFold,
-  alert,
+  alertSide,
   onSelect,
 }: {
   trade: RunningTrade
@@ -258,7 +258,7 @@ const TradeRow = memo(function TradeRow({
   selected: boolean
   inFold: boolean
   // The side of the sweep alert the trade was part of.
-  alert: AlertSide | undefined
+  alertSide: AlertSide | undefined
   onSelect: (code: StockCode) => void
 }) {
   const big = Effect.runSync(isBigTrade(trade))
@@ -268,7 +268,7 @@ const TradeRow = memo(function TradeRow({
       data-trade-number={trade.tradeNumber}
       data-big={big || undefined}
       data-selected={selected || undefined}
-      data-sweep-alert={alert}
+      data-sweep-alert={alertSide}
       className={cn(
         big ? BIG_TINT[trade.side] : selected && "bg-selected",
         !big && !selected && inFold && "bg-elevated/40",
@@ -279,7 +279,7 @@ const TradeRow = memo(function TradeRow({
       // and screen reader target.
       onClick={() => onSelect(trade.code)}
     >
-      <TimeCell trade={trade} inFold={inFold} alert={alert} />
+      <TimeCell trade={trade} inFold={inFold} alertSide={alertSide} />
       <td className={cn(CELL, "font-semibold")}>
         <button type="button" className="hover:underline">
           {trade.code}
@@ -507,8 +507,10 @@ export function TapeList({
                   codes={codes?.get(row.trade.tradeNumber)}
                   selected={row.trade.code === selected}
                   inFold={row.inFold !== undefined}
-                  alert={
-                    live ? view.alerts.get(row.trade.tradeNumber) : undefined
+                  alertSide={
+                    live
+                      ? view.alertSides.get(row.trade.tradeNumber)
+                      : undefined
                   }
                   onSelect={onSelect}
                 />

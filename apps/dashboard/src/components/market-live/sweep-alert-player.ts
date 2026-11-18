@@ -3,7 +3,7 @@ import { Effect } from "effect"
 import { useMemo } from "react"
 
 import { usePlayingTab } from "./playing-tab"
-import { soundOn as speakerOn } from "./sound-toggle"
+import { soundOn } from "./sound-toggle"
 import { sweepAlertSound } from "./sweep-alert-sound"
 
 // Where the player's sounds go: the WebAudio synth on the page
@@ -18,14 +18,14 @@ export type SoundSink = {
 export const makeSweepAlertPlayer = ({
   sink,
   day,
-  soundOn,
+  toggledOn,
   mayPlay,
 }: {
   sink: SoundSink
   // The page's recorded day, or undefined on the live page.
   day: WibDate | undefined
   // The speaker toggle, read at each delta.
-  soundOn: Effect.Effect<boolean>
+  toggledOn: Effect.Effect<boolean>
   // Whether this tab holds the role of playing (playing-tab.ts), read at each
   // delta.
   mayPlay: Effect.Effect<boolean>
@@ -33,7 +33,7 @@ export const makeSweepAlertPlayer = ({
   Effect.sync(() => ({
     hear: Effect.fnUntraced(function* (message: ViewerDown) {
       if (message._tag !== "Delta" || message.sweepAlerts === undefined) return
-      if (day !== undefined || !(yield* soundOn) || !(yield* mayPlay)) return
+      if (day !== undefined || !(yield* toggledOn) || !(yield* mayPlay)) return
       const sides = new Set(message.sweepAlerts.map(({ side }) => side))
       for (const side of sides) yield* sink.play(side)
     }),
@@ -49,7 +49,7 @@ export const useSweepAlertPlayer = (day: WibDate | undefined) => {
         makeSweepAlertPlayer({
           sink: sweepAlertSound,
           day,
-          soundOn: speakerOn,
+          toggledOn: soundOn,
           mayPlay: tab.holds,
         })
       ),
