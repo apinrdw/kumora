@@ -228,7 +228,10 @@ export function BookEventList({
     })
   )
   return (
-    <section aria-label="Book events" className="flex min-w-0 flex-col gap-1">
+    <section
+      aria-label="Book events"
+      className="flex min-w-0 flex-col gap-1 lg:col-span-2 2xl:col-span-1"
+    >
       <h3 className="text-[10px] tracking-[0.08em] text-muted-foreground uppercase">
         Book events
       </h3>

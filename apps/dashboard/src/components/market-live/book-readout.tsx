@@ -298,7 +298,10 @@ function RecordedReadings({
 const PART_COLUMNS = [
   undefined,
   "lg:grid-cols-[1.1fr_1fr]",
-  "lg:grid-cols-[1.1fr_1fr_1.2fr]",
+  // Decision: the book events sit under the readings and the fill estimate
+  // until 2xl: in layout B's chart column at lg, three parts squeeze the fill
+  // estimate's controls under the events list.
+  "lg:grid-cols-[1.1fr_1fr] 2xl:grid-cols-[1.1fr_1fr_1.2fr]",
 ]
 
 // The header's note: the levels read and, on a recorded day, the frame's time.
