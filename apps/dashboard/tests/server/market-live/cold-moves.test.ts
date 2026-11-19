@@ -4,7 +4,7 @@ import { assert, describe, it } from "@effect/vitest"
 import { WibDate, type RecordedDay } from "@workspace/relay"
 import { Effect } from "effect"
 
-import { askDueMoves } from "@/server/market-live/cold-moves"
+import { askBackfillMoves, askDueMoves } from "@/server/market-live/cold-moves"
 
 // Twenty recorded days, 2026-10-01 to 2026-10-20, oldest first; the
 // 2026-10-18 and 2026-10-05 cold.
@@ -53,5 +53,62 @@ describe("the reconcile cron's moves", () => {
           "2026-10-06",
         ])
       })
+  )
+})
+
+// Twenty-five recorded days, 2026-10-01 to 2026-10-25, oldest first; the
+// 2026-10-05 cold. The newest 15 start at 2026-10-11.
+const BACKFILL_ROWS: ReadonlyArray<RecordedDay> = Array.from(
+  { length: 25 },
+  (_, index): RecordedDay => {
+    const day = WibDate.make(`2026-10-${String(index + 1).padStart(2, "0")}`)
+    return {
+      day,
+      trades: 1,
+      gap: false,
+      ...(day === "2026-10-05" ? { cold: true as const } : {}),
+    }
+  }
+)
+
+describe("the backfill's moves", () => {
+  it.effect(
+    "asks the hot days older than the newest 15, oldest first, until 3 move",
+    () =>
+      Effect.gen(function* () {
+        const asked: Array<WibDate> = []
+        yield* askBackfillMoves(Effect.succeed(BACKFILL_ROWS), (day) =>
+          Effect.suspend(() => {
+            asked.push(day)
+            // 10-01 still waits for its build; 10-02's object is unreachable.
+            if (day === "2026-10-02")
+              return Effect.fail(new Error("Object unreachable"))
+            return Effect.succeed(day !== "2026-10-01")
+          })
+        )
+        // 10-05 is cold; 10-03, 10-04 and 10-06 move.
+        assert.deepStrictEqual(asked, [
+          "2026-10-01",
+          "2026-10-02",
+          "2026-10-03",
+          "2026-10-04",
+          "2026-10-06",
+        ])
+      })
+  )
+
+  it.effect("asks nothing once every older day is cold", () =>
+    Effect.gen(function* () {
+      const asked: Array<WibDate> = []
+      yield* askBackfillMoves(
+        Effect.succeed(
+          BACKFILL_ROWS.map((row) =>
+            row.day < "2026-10-11" ? { ...row, cold: true as const } : row
+          )
+        ),
+        (day) => Effect.sync(() => (asked.push(day), true))
+      )
+      assert.deepStrictEqual(asked, [])
+    })
   )
 })
